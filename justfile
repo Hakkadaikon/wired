@@ -66,9 +66,10 @@ build:
 
 # Regenerate build.ninja from the current source list.
 gen-ninja:
-    # Every variant (freestanding, tests, fuzz, examples, guide) lives in one
-    # build.ninja; see scripts/gen_ninja.sh.
+    # Every variant (freestanding, tests, fuzz, examples, guide, lint) lives
+    # in one build.ninja; see scripts/gen_ninja.sh.
     CFLAGS="{{cflags}}" TESTFLAGS="{{testflags}}" FUZZFLAGS="{{fuzzflags}}" \
+        TIDYCHECKS="{{tidychecks}}" TIDYFLAGS="{{tidyflags}}" \
         CC="{{cc}}" sh scripts/gen_ninja.sh
 
 # Compile freestanding (all of src/, or the named ninja targets).
@@ -218,11 +219,15 @@ fmt-check:
     {{csrcs}} {{clangfmt}} --dry-run --Werror
 
 # Static analysis (CERT C + bug finders); any warning fails.
-lint:
+lint: gen-ninja
     #!/usr/bin/env sh
-    # Pinned clang-tidy, since findings differ across versions.
+    # Pinned clang-tidy, since findings differ across versions. One file per
+    # ninja job, in parallel; a file is re-checked only when it or a header
+    # it includes changed (build/lint/*.stamp). -k 0 reports every finding.
+    # ponytail: the stamps do not record the clang-tidy version; remove
+    # build/lint after a toolchain bump.
     {{no_nix_shell}} && exec nix develop -c just lint
-    clang-tidy -checks='{{tidychecks}}' --warnings-as-errors='*' --quiet $(find src -name '*.c') -- {{tidyflags}}
+    ninja -k 0 -j "$(nproc)" lint
 
 # --- docs -------------------------------------------------------------------
 

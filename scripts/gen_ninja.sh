@@ -14,6 +14,8 @@ cc="${CC:-clang}"
 : "${CFLAGS:?CFLAGS not set -- run via 'just gen-ninja'}"
 : "${TESTFLAGS:?TESTFLAGS not set -- run via 'just gen-ninja'}"
 : "${FUZZFLAGS:?FUZZFLAGS not set -- run via 'just gen-ninja'}"
+: "${TIDYCHECKS:?TIDYCHECKS not set -- run via 'just gen-ninja'}"
+: "${TIDYFLAGS:?TIDYFLAGS not set -- run via 'just gen-ninja'}"
 
 srcs=$(find src -name '*.c' | sort)
 objs=$(printf '%s\n' "$srcs" | sed 's|^|build/|; s|\.c$|.o|' | tr '\n' ' ')
@@ -32,6 +34,8 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "cflags = $CFLAGS"
     echo "testflags = $TESTFLAGS"
     echo "fuzzflags = $FUZZFLAGS"
+    echo "tidychecks = $TIDYCHECKS"
+    echo "tidyflags = $TIDYFLAGS"
     echo
     echo "rule cc_freestanding"
     echo "  command = \$cc \$cflags -MD -MF \$out.d -c \$in -o \$out"
@@ -75,6 +79,14 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "rule cc_freestanding_bin"
     echo "  command = \$cc \$cflags \$extra \$in -o \$out"
     echo "  description = CC \$out"
+    echo
+    echo "# lint: clang-tidy on one file, then a stamp. clang-tidy drops -MD,"
+    echo "# so the header deps come from a separate preprocessor-only pass."
+    echo "rule tidy"
+    echo "  command = clang-tidy -checks='\$tidychecks' --warnings-as-errors='*' --quiet \$in -- \$tidyflags && \$cc \$tidyflags -MM -MT \$out -MF \$out.d \$in && touch \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = TIDY \$in"
     echo
     echo "# rm first: ar rcs updates an existing archive in place, so a"
     echo "# member whose source was deleted would silently linger."
@@ -145,6 +157,14 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
         guide_bins="$guide_bins build/guide/$id"
     done
     echo "build guide: phony$guide_bins"
+    echo
+    echo "# lint: one stamp per src/**.c (just lint runs it in the devShell)."
+    stamps=""
+    for f in $srcs; do
+        echo "build build/lint/${f%.c}.stamp: tidy $f"
+        stamps="$stamps build/lint/${f%.c}.stamp"
+    done
+    echo "build lint: phony$stamps"
     echo
     echo "# 'ninja' with no args builds only the freestanding objects (the"
     echo "# libc-independence proof); everything else is opt-in by target."
