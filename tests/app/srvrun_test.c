@@ -10,6 +10,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/request/h3resp/field_encode.h"
 #include "app/http3/server/srvloop/dispatch.h"
+#include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
@@ -19417,6 +19418,58 @@ static void test_srvrun_ctrl_overflow_closes(void) {
   CHECK(is_app == 1);
 }
 
+/* RFC 9204 2.1.2 / 4.2: a latched QPACK violation (here a section that
+ * would block) closes the connection with that code. */
+static void test_srvrun_qpack_violation_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c           = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app      = 0;
+  c->l.qpack_stream_violation = QPACK_DECOMPRESSION_FAILED;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_code(c, &is_app) == QPACK_DECOMPRESSION_FAILED);
+  CHECK(is_app == 1);
+}
+
+/* RFC 9204 4.2 / 4.4: nothing owed opens nothing; the first owed
+ * instruction opens the decoder stream at the next server uni id with its
+ * 0x03 type byte (B.2's Section Acknowledgment 0x84 behind it), and B.3's
+ * Insert Count Increment 0x01 appends to the same stream. */
+static void test_srvrun_qdec_stream_opens_on_first_owed(void) {
+  static srvrun_conn c;
+  srvrun_wtsend*     w;
+  c                       = (srvrun_conn){0};
+  c.peer_uni_stream_limit = 3; /* control, encoder, and one more */
+  srvrun_flush_qdec(&c);
+  CHECK(c.qdec_stream_opened == 0);
+  c.l.h3.qdyn.dropped = 2; /* two inserts received */
+  qdyn_dec_section_ack(&c.l.h3.qdec, 4, 2);
+  srvrun_flush_qdec(&c);
+  CHECK(c.qdec_stream_opened == 1);
+  w = &c.wtsend[c.qdec_wtsend_slot];
+  CHECK(w->stream_id == 11 && w->append_open == 1);
+  CHECK(w->sess.q.len == 2 && w->roundbuf[0] == H3_STREAM_QPACK_DECODER);
+  CHECK(w->roundbuf[1] == 0x84);
+  CHECK(c.l.h3.qdec.acks_len == 0);
+  c.l.h3.qdyn.dropped = 3;
+  srvrun_flush_qdec(&c);
+  CHECK(w->sess.q.len == 3 && w->roundbuf[2] == 0x01);
+}
+
+/* RFC 9000 4.6: with the peer's uni-stream limit spent, the owed bytes
+ * wait (still pending) instead of opening past the limit. */
+static void test_srvrun_qdec_waits_for_stream_credit(void) {
+  static srvrun_conn c;
+  c                       = (srvrun_conn){0};
+  c.peer_uni_stream_limit = 2;
+  c.l.h3.qdyn.dropped     = 1;
+  srvrun_flush_qdec(&c);
+  CHECK(c.qdec_stream_opened == 0);
+  CHECK(c.l.h3.qdec.acked == 0);
+}
+
 /* RFC 9000 13.4.2.2: once a connection's ECN validation failed it stops
  * marking -- its packets leave Not-ECT although the socket marks ECT(0),
  * while a connection still validating keeps ECT(0). */
@@ -22448,6 +22501,9 @@ void test_srvrun(void) {
   test_srvrun_reset_queue_overflow_closes();
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
+  test_srvrun_qpack_violation_closes();
+  test_srvrun_qdec_stream_opens_on_first_owed();
+  test_srvrun_qdec_waits_for_stream_credit();
   test_srvrun_wt_window_overflow_closes_flow_control();
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();

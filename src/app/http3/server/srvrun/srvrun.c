@@ -847,6 +847,12 @@ typedef struct {
   /** wtsend[] slot index (see srvrun_wtsend_claim) the QPACK encoder stream
    * lives on once qenc_stream_opened is set; meaningless before then. */
   int qenc_wtsend_slot;
+  /** RFC 9204 4.2: 1 once this connection's QPACK decoder stream has been
+   * opened -- lazily, on the first instruction it owes (srvrun_flush_qdec),
+   * at the next server uni id; never closed. */
+  int qdec_stream_opened;
+  /** wtsend[] slot of the decoder stream once qdec_stream_opened is set. */
+  int qdec_wtsend_slot;
   /** 1 while a server-initiated uni open was refused by peer_uni_stream_
    * limit since the last srvrun_pump_sess pass (srvrun_wt_uni_open_ok's own
    * doc) -- latched here because the refusal happens on the app's own
@@ -1721,6 +1727,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 /* Forward-declared for the same reason: srvrun_on_step (above) calls it, but
  * it is defined alongside its own wtsend[] helpers further down. */
 static void srvrun_open_qenc_stream(srvrun_conn* c);
+static void srvrun_flush_qdec(srvrun_conn* c);
 /* Same: defined beside srvrun_send_wt_drain, which it sends through. */
 static void srvrun_flush_wt_drain(srvrun_conn* c);
 
@@ -4255,9 +4262,22 @@ static int srvrun_close_on_limits(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
  * latches, then the limits (srvrun_close_on_limits). */
+/* RFC 9204 2.1.2 / 4.2 / 6: a latched QPACK violation (a second QPACK
+ * stream, a bad encoder instruction, an undecodable section) closes the
+ * connection with its own code. */
+static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "qpack error";
+  u16             code     = c->l.qpack_stream_violation;
+  if (!code) return 0;
+  c->l.qpack_stream_violation = 0;
+  srvrun_send_app_close(cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_close_on_frame_error(cfg, c)) return 1;
+  if (srvrun_close_on_qpack(cfg, c)) return 1;
   return srvrun_close_on_limits(cfg, c);
 }
 
@@ -4414,6 +4434,7 @@ static void srvrun_on_step_live(
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_raw_start(ctx->cfg, c);
   if (c->l.h3.settings_sent) srvrun_open_qenc_stream(c);
+  srvrun_flush_qdec(c);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
@@ -5064,6 +5085,46 @@ static void srvrun_open_qenc_stream(srvrun_conn* c) {
   if (c->qenc_stream_opened) return;
   if (n == 0) return;
   srvrun_qenc_claim_and_arm(c, prefix, n);
+}
+
+static int srvrun_wtsend_stage_round(
+    const srvrun_conn* c, srvrun_wtsend* w, wired_span payload, int fin);
+
+/* RFC 9204 4.2: open the decoder stream at the next server uni id over its
+ * 0x03 type byte plus the first owed bytes p. 0 (nothing changed) when the
+ * peer's uni-stream limit is spent or every wtsend slot is busy. */
+static int srvrun_qdec_open(srvrun_conn* c, wired_span p) {
+  u8             b[1 + QDYN_DEC_OUT_MAX];
+  srvrun_wtsend* w;
+  if (!srvrun_uni_open_allowed(c)) return 0;
+  w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
+  if (!w) return 0;
+  b[0] = H3_STREAM_QPACK_DECODER;
+  bytes_memcpy(b + 1, p.p, p.n);
+  w->append_open = 1;
+  srvrun_wtsend_arm_id(c, w, srvrun_next_uni_id(c), wired_span_of(b, 1 + p.n));
+  c->qdec_wtsend_slot   = (int)(w - c->wtsend);
+  c->qdec_stream_opened = 1;
+  return 1;
+}
+
+/* Hand p to the decoder stream, opening it first if needed. */
+static int srvrun_qdec_send(srvrun_conn* c, wired_span p) {
+  if (!c->qdec_stream_opened) return srvrun_qdec_open(c, p);
+  return srvrun_wtsend_stage_round(c, &c->wtsend[c->qdec_wtsend_slot], p, 0);
+}
+
+/* RFC 9204 4.4: send what this decoder owes (Section Acknowledgments, then
+ * an Insert Count Increment) after the step applied the peer's encoder
+ * stream and decoded its sections; unsent bytes stay owed for a later
+ * step. */
+static void srvrun_flush_qdec(srvrun_conn* c) {
+  u8         b[QDYN_DEC_OUT_MAX];
+  wired_obuf ob      = obuf_of(b, sizeof b);
+  u64        inserts = c->l.h3.qdyn.dropped + c->l.h3.qdyn.count;
+  if (!qdyn_dec_pending(&c->l.h3.qdec, inserts, &ob)) return;
+  if (srvrun_qdec_send(c, wired_span_of(b, ob.len)))
+    qdyn_dec_sent(&c->l.h3.qdec, inserts);
 }
 
 static srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id);
