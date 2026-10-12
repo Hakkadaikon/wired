@@ -20,4 +20,5 @@ import Example from '../../../../components/Example.astro';
   バッファーに収まらないときは 0 を返します。
 - `wired_header_parse(buf, n, &h)` はそれらを読み戻し、消費したバイト数を返します。
   入力が途中で切れているか不正なときは 0 を返します。
-- `wired_dprintf` は 10 進数 (`%llu`) と 16 進バイト (`%02x`) を stderr に書き出します。
+- `wired_dprintf` は数値と文字列 (`%llu`, `%08x`, `%s`) を stderr に書き出します。
+  バイト列を 16 進で出す変換指定は printf に無いので、`wired_dump_hex` を使います。
