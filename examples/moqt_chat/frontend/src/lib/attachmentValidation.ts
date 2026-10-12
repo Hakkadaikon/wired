@@ -4,7 +4,12 @@
 // codebase's own rule: components aren't tested, extracted pure functions
 // are).
 
-export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+// 50 MiB: measured on this machine (s20-attachment-1mb --bytes=50000000)
+// delivering in ~14s end to end, a stable ~3x margin under the point where
+// the hub's reliable-relay WT flow control stops recovering credit and the
+// transfer wedges (observed starting at 100 MiB). Raising this requires
+// first fixing that flow-control stall, not just the constant.
+export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 export const ATTACHMENT_MAX_COUNT = 4;
 
 /** image/* and video/* only -- the two kinds Compose/Message can render. */

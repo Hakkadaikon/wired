@@ -19,7 +19,7 @@ describe("isAllowedAttachmentMimeType", () => {
 });
 
 describe("validateAttachmentCandidate", () => {
-	it("accepts a file at or under the 5MB limit", () => {
+	it("accepts a file at or under the max size limit", () => {
 		expect(
 			validateAttachmentCandidate(
 				{ byteLength: ATTACHMENT_MAX_BYTES, mimeType: "image/png" },
@@ -28,7 +28,7 @@ describe("validateAttachmentCandidate", () => {
 		).toEqual({ ok: true });
 	});
 
-	it("rejects a file over the 5MB limit", () => {
+	it("rejects a file over the max size limit", () => {
 		expect(
 			validateAttachmentCandidate(
 				{ byteLength: ATTACHMENT_MAX_BYTES + 1, mimeType: "image/png" },

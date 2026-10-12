@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { ATTACHMENT_MAX_COUNT } from "../attachmentValidation";
+import {
+	ATTACHMENT_MAX_BYTES,
+	ATTACHMENT_MAX_COUNT,
+} from "../attachmentValidation";
 import {
 	ATTACHMENT_CHUNK_MARKER,
 	type AttachmentChunk,
@@ -343,6 +346,43 @@ describe("attachmentReassemblerPush timeout", () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it("keeps a near-the-byte-limit pending frame alive well past 30s", () => {
+		// A chunk's own declared count is all attachmentReassemblerPush ever
+		// sees -- the deadline must come from that, not the bytes actually
+		// delivered so far (seeing only the first few chunks must already
+		// imply the long deadline the full count calls for).
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(0);
+			const state = attachmentReassemblerInit();
+			const count = Math.floor(
+				ATTACHMENT_MAX_BYTES / MAX_ATTACHMENT_CHUNK_BYTES,
+			);
+			const first: AttachmentChunk = {
+				messageId: 1,
+				attachmentIdx: 0,
+				seq: 0,
+				idx: 0,
+				count,
+				mimeType: "image/png",
+				totalBytes: ATTACHMENT_MAX_BYTES,
+				data: new Uint8Array([1]),
+			};
+			expect(attachmentReassemblerPush(state, first)).toBeNull();
+
+			// 30s and 60s, both well under a max-size frame's deadline, must
+			// not have pruned it.
+			vi.setSystemTime(30_001);
+			expect(attachmentReassemblerPush(state, first)).toBeNull();
+			expect(state.pending.size).toBe(1);
+			vi.setSystemTime(60_001);
+			expect(attachmentReassemblerPush(state, first)).toBeNull();
+			expect(state.pending.size).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
 
 describe("attachmentReassemblerPush trust-boundary guards (I1)", () => {
@@ -428,9 +468,11 @@ describe("attachmentReassemblerPush trust-boundary guards (I1)", () => {
 		);
 	});
 
-	it("I1(d): count at the boundary (count * MAX_ATTACHMENT_CHUNK_BYTES === 5MB) is accepted", () => {
+	it("I1(d): count at the boundary (count * MAX_ATTACHMENT_CHUNK_BYTES === ATTACHMENT_MAX_BYTES) is accepted", () => {
 		const state = attachmentReassemblerInit();
-		const maxCount = Math.floor((5 * 1024 * 1024) / MAX_ATTACHMENT_CHUNK_BYTES);
+		const maxCount = Math.floor(
+			ATTACHMENT_MAX_BYTES / MAX_ATTACHMENT_CHUNK_BYTES,
+		);
 		const chunk: AttachmentChunk = {
 			messageId: 1,
 			attachmentIdx: 0,
@@ -448,7 +490,7 @@ describe("attachmentReassemblerPush trust-boundary guards (I1)", () => {
 	it("I1(d): count one past the boundary is dropped before any chunk is buffered", () => {
 		const state = attachmentReassemblerInit();
 		const maxCount =
-			Math.floor((5 * 1024 * 1024) / MAX_ATTACHMENT_CHUNK_BYTES) + 1;
+			Math.floor(ATTACHMENT_MAX_BYTES / MAX_ATTACHMENT_CHUNK_BYTES) + 1;
 		const chunk: AttachmentChunk = {
 			messageId: 1,
 			attachmentIdx: 0,
