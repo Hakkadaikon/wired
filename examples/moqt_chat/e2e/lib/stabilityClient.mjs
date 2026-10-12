@@ -177,6 +177,11 @@ export async function joinStabilityClient({ pageUrl, serverUrl, certHash, partic
     executablePath,
     headless: "new",
     env,
+    // Chrome's default CDP protocolTimeout (180s) is shorter than a large
+    // attachment's own waitForSelector wait, so a slow round trip fails at
+    // the CDP layer with a misleading net::ERR_* before that wait ever
+    // expires. Match it to the longest scenario timeout in this directory.
+    protocolTimeout: 900_000,
     args: [
       "--no-sandbox",
       "--use-fake-device-for-media-stream",

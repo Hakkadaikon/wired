@@ -6,12 +6,6 @@
 
 import { joinStabilityClient, closeClient } from "../lib/stabilityClient.mjs";
 
-function pattern(n) {
-  const b = new Uint8Array(n);
-  for (let i = 0; i < n; i++) b[i] = (i * 37 + 11) & 0xff;
-  return b;
-}
-
 export async function run({ pageUrl, serverUrl, server, arg, log }) {
   const bytes = Number(arg("bytes", "1000000"));
   const opts = (tag) => ({ pageUrl, serverUrl, certHash: server.certHash, participantId: tag });
@@ -25,18 +19,18 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
     clients.push(receiver);
     await receiver.page.waitForSelector('[data-testid="quality-user1"]', { timeout: 10000 });
 
-    const sent = pattern(bytes);
     log(`user1 sends ${bytes} bytes`);
-    await sender.page.evaluate((b64) => {
-      const bin = atob(b64);
-      const data = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+    // The bytes are generated and later checked inside the pages: shipping
+    // them through CDP as base64 crashes the page target near 100 MB.
+    await sender.page.evaluate((n) => {
+      const data = new Uint8Array(n);
+      for (let i = 0; i < n; i++) data[i] = (i * 37 + 11) & 0xff;
       const dt = new DataTransfer();
       dt.items.add(new File([data], "big.png", { type: "image/png" }));
       const input = document.querySelector('input[data-testid="attachment-file"]');
       input.files = dt.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, Buffer.from(sent).toString("base64"));
+    }, bytes);
     await sender.page.waitForSelector('[data-testid="draft-remove"]', { timeout: 10000 });
     const start = Date.now();
     await sender.page.evaluate(() =>
@@ -46,17 +40,20 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
     );
 
     try {
-      await receiver.page.waitForSelector('[data-testid="message-image"]', { timeout: 60000 });
+      // Scaled so --bytes=50000000 (the app's ATTACHMENT_MAX_BYTES) still
+      // has headroom at this machine's measured ~3.6 MiB/s: 60s floor plus
+      // 1s per 256 KiB.
+      const waitMs = 60_000 + (bytes / (256 * 1024)) * 1000;
+      await receiver.page.waitForSelector('[data-testid="message-image"]', { timeout: waitMs });
       report.deliveredMs = Date.now() - start;
-      const b64 = await receiver.page.evaluate(async () => {
+      const got = await receiver.page.evaluate(async () => {
         const buf = new Uint8Array(await (await fetch(document.querySelector('[data-testid="message-image"]').src)).arrayBuffer());
-        let s = "";
-        for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        return btoa(s);
+        let bad = -1;
+        for (let i = 0; i < buf.length && bad < 0; i++) if (buf[i] !== ((i * 37 + 11) & 0xff)) bad = i;
+        return { len: buf.length, bad };
       });
-      const got = Buffer.from(b64, "base64");
-      report.receivedBytes = got.length;
-      if (!Buffer.from(sent).equals(got)) failures.push(`byte mismatch: sent ${sent.length}, received ${got.length}`);
+      report.receivedBytes = got.len;
+      if (got.len !== bytes || got.bad >= 0) failures.push(`byte mismatch: sent ${bytes}, received ${got.len}, first bad offset ${got.bad}`);
     } catch (err) {
       failures.push(`receiver never showed the image: ${err}`);
     }
