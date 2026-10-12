@@ -21,14 +21,14 @@ int wired_main(int argc, char** argv) {
    * A 0 return means a low-order peer key: reject the handshake. */
   if (!wired_x25519(alice_shared, alice_priv, bob_pub)) return 1;
   if (!wired_x25519(bob_shared, bob_priv, alice_pub)) return 1;
-  wired_log_str("alice public: ");
+  wired_dprintf(2, "alice public: ");
   wired_dump_hex(2, wired_span_of(alice_pub, 32));
-  wired_log_str("\nbob public:   ");
+  wired_dprintf(2, "\nbob public:   ");
   wired_dump_hex(2, wired_span_of(bob_pub, 32));
-  wired_log_str("\nshared:       ");
+  wired_dprintf(2, "\nshared:       ");
   wired_dump_hex(2, wired_span_of(alice_shared, 32));
   int eq = wired_span_eq(
       wired_span_of(alice_shared, 32), wired_span_of(bob_shared, 32));
-  wired_log_str(eq ? "\nshared equal: yes\n" : "\nshared equal: no\n");
+  wired_dprintf(2, "\nshared equal: %s\n", eq ? "yes" : "no");
   return 0;
 }
