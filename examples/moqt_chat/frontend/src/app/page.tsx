@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useMoqtChat } from "@/hooks/useMoqtChat";
 import { useObjectUrl } from "@/hooks/useObjectUrl";
-import { validateAttachmentCandidate } from "@/lib/attachmentValidation";
+import {
+	ATTACHMENT_MAX_BYTES,
+	validateAttachmentCandidate,
+} from "@/lib/attachmentValidation";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import {
 	CANDIDATE_PARTICIPANT_IDS,
@@ -573,7 +576,7 @@ function Compose({
 		if (!result.ok) {
 			onAttachmentRejected(
 				result.reason === "too-large"
-					? "attachment too large (max 5MB)"
+					? `attachment too large (max ${ATTACHMENT_MAX_BYTES / (1024 * 1024)}MB)`
 					: result.reason === "too-many"
 						? "too many attachments (max 4)"
 						: "unsupported attachment type",
