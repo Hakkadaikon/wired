@@ -244,9 +244,28 @@ export function isTextPartPayload(bytes: Uint8Array): boolean {
 
 // Attachment reassembly: collects chunks by `messageId:attachmentIdx` key and
 // only emits once every idx in [0, count) has arrived for that key. A
-// pending frame older than ATTACHMENT_TIMEOUT_MS is silently dropped (no
-// log) the next time any chunk is pushed, and the key starts a fresh cycle.
-const ATTACHMENT_TIMEOUT_MS = 30_000;
+// pending frame older than its deadline (attachmentTimeoutMs, below) is
+// silently dropped (no log) the next time any chunk is pushed, and the key
+// starts a fresh cycle.
+
+/** Fixed floor: covers connection setup/stalls regardless of size, and
+ * matches this module's original flat 30s for a message-sized attachment. */
+const ATTACHMENT_TIMEOUT_FLOOR_MS = 30_000;
+
+/** Assumed worst-case throughput the timeout budgets for, in bytes/ms.
+ * 1 MiB/s: roughly 1/3 of the ~3.6 MiB/s a 50 MiB attachment measured end to
+ * end on this machine (s20-attachment-1mb), so a real slow link still has
+ * room before the deadline a size implies starts looking too tight. */
+const ATTACHMENT_MIN_BYTES_PER_MS = (1024 * 1024) / 1000;
+
+/** How long a pending attachment of `totalBytes` may sit incomplete before
+ * attachmentReassemblerPush drops it: the fixed floor plus the time a link
+ * no faster than ATTACHMENT_MIN_BYTES_PER_MS would need for the whole
+ * thing, so a bigger attachment gets a longer deadline instead of the one
+ * flat timeout racing every size the same. */
+function attachmentTimeoutMs(totalBytes: number): number {
+	return ATTACHMENT_TIMEOUT_FLOOR_MS + totalBytes / ATTACHMENT_MIN_BYTES_PER_MS;
+}
 
 interface PendingAttachment {
 	count: number;
@@ -254,6 +273,7 @@ interface PendingAttachment {
 	chunks: (Uint8Array | undefined)[];
 	received: number;
 	startedAt: number;
+	deadlineMs: number;
 }
 
 export interface AttachmentReassembler {
@@ -273,7 +293,7 @@ function pruneExpired(
 	now: number,
 ): void {
 	for (const [key, frame] of pending) {
-		if (now - frame.startedAt >= ATTACHMENT_TIMEOUT_MS) {
+		if (now >= frame.deadlineMs) {
 			pending.delete(key);
 		}
 	}
@@ -299,10 +319,11 @@ function isTrustedChunk(chunk: AttachmentChunk): boolean {
 
 /** Feeds one chunk into the reassembler. Returns the reassembled attachment
  * bytes once `count` distinct chunks for the same messageId+attachmentIdx
- * key have all arrived, else null. A pending frame stale for more than
- * ATTACHMENT_TIMEOUT_MS is dropped silently before being fed further. A
- * chunk that fails isTrustedChunk's guards is dropped the same way (no log,
- * matching this module's existing silent-drop pattern). */
+ * key have all arrived, else null. A pending frame stale for more than its
+ * size-scaled deadline (attachmentTimeoutMs) is dropped silently before
+ * being fed further. A chunk that fails isTrustedChunk's guards is dropped
+ * the same way (no log, matching this module's existing silent-drop
+ * pattern). */
 export function attachmentReassemblerPush(
 	reassembler: AttachmentReassembler,
 	chunk: AttachmentChunk,
@@ -315,12 +336,17 @@ export function attachmentReassemblerPush(
 	const key = keyOf(chunk);
 	let frame = reassembler.pending.get(key);
 	if (!frame) {
+		// chunk.count * MAX_ATTACHMENT_CHUNK_BYTES over- rather than
+		// under-estimates the real size (the last chunk is usually smaller),
+		// which only makes the deadline a bit more generous -- never tighter.
+		const sizeBound = chunk.count * MAX_ATTACHMENT_CHUNK_BYTES;
 		frame = {
 			count: chunk.count,
 			mimeType: chunk.idx === 0 ? (chunk.mimeType ?? "") : "",
 			chunks: new Array(chunk.count),
 			received: 0,
 			startedAt: now,
+			deadlineMs: now + attachmentTimeoutMs(sizeBound),
 		};
 		reassembler.pending.set(key, frame);
 	}

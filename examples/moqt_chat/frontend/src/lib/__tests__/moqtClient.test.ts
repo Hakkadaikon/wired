@@ -1219,7 +1219,10 @@ describe("MoqtChatClient message aggregation", () => {
 		await vi.advanceTimersByTimeAsync(0);
 		expect(messages).toHaveLength(0);
 
-		vi.advanceTimersByTime(30_001);
+		// This attachment's deadline is the 30s floor plus its own
+		// size-scaled share (moqtAttachmentWire.ts's attachmentTimeoutMs) --
+		// a couple chunks add under a second, so 31s clears it comfortably.
+		vi.advanceTimersByTime(31_000);
 		// Trigger the lazy sweep with an unrelated message.
 		pushTextPart(fake, 999, 0, "trigger sweep", 100n);
 		await vi.advanceTimersByTimeAsync(0);
