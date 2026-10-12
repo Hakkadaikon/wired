@@ -83,6 +83,15 @@ a single fixed room.
   too large). The hub relays SUBGROUP bytes verbatim to every subscriber
   (`moqtrun.c`'s `moqtrun_relay_object`); chat tracks relay reliably, voice
   and screen drop rather than queue.
+- **Attachment size**: `ATTACHMENT_MAX_BYTES` (`attachmentValidation.ts`) is
+  50 MiB, chosen by measuring this app's own delivery, not a protocol limit.
+  A 50 MiB attachment delivered end to end in ~15s (~3.6 MiB/s) on the
+  machine this was measured on; at 100 MiB the hub's reliable-relay WT flow
+  control stopped recovering send credit and the transfer wedged. Raising
+  the limit past 50 MiB needs that flow-control stall fixed first, not just
+  a bigger constant. The reassembler's own timeout (`attachmentTimeoutMs`,
+  `moqtAttachmentWire.ts`) scales with an attachment's declared size so a
+  large one isn't raced against the same flat deadline as a small one.
 
 The wire codecs (varint/KVP/control messages/data messages) are implemented
 independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
