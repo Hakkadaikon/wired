@@ -21,8 +21,8 @@ built as native binaries.
 > [environment appendix](#environment)), against pinned versions. wired is
 > pinned at one commit (`9d21db9`) for every lane. It is not a claim of
 > general superiority or inferiority of any implementation. Bad numbers are
-> published along with good ones. wired's own `9d21db9` pin is now 2,583
-> commits behind `HEAD` as of 2026-10-15 (685 of them touching
+> published along with good ones. wired's own `9d21db9` pin is now more than
+> 2,500 commits behind `HEAD` as of 2026-10-15 (685 of them touching
 > `src/app/webtransport/`, `src/app/http3/`, or
 > `examples/webtransport_interop/`); the feature-matrix prose below has been
 > updated for the webtransport/http3 path where it was stale, but the
@@ -71,11 +71,11 @@ through. Numbers are comparable inside a lane, never across lanes.
   global variables. `bss` takes no space in the file and costs RAM only for
   the pages the program actually touches.
 
-**Reading the bar charts.** Each chart repeats the mean column of the table
-just above it, one bar per server. Its title says whether higher or lower is
-better. Every y-axis starts at 0, so bar heights are proportional to the
-values. The table's `±` spread is not drawn, so read the table before calling
-a small difference a win.
+**Reading the bar charts.** Each chart repeats one column of the table just
+above it (the mean where the table shows `a ± b`), one bar per server. Its
+title says whether higher or lower is better. Every y-axis starts at 0, so bar
+heights are proportional to the values. The table's `±` spread is not drawn, so
+read the table before calling a small difference a win.
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -246,22 +246,20 @@ xychart-beta
 
 (Bars plot the table means.) The first chart is throughput (higher is
 better); the other two are latency (lower is better). The load client
-itself has a CPU limit, which matters for the fastest rows. Client CPU ran
-past comfortable headroom for
-the fastest rows — wired's client-side CPU peaked at 132% of the 200%
-two-core budget and quiche's at 118%, against quic-go's 68–80% — so read
-the ratios between the fastest servers as indicative, not exact (those rows
-are at least partly client-bound). The lane showed no stalls or failures
+itself has a CPU limit, which matters for the fastest rows: while loading
+wired the client peaked at 132% of its 200% two-core budget, and at 118% for
+quiche, against 68–80% for quic-go. So read the ratios between the fastest
+servers as indicative, not exact; those rows are at least partly
+client-bound. The lane showed no stalls or failures
 across 50,500 requests on any server.
 
 ## Speed: AF_XDP driver over a real NIC (informational)
 
 AF_XDP is a Linux feature that lets a program receive and send network
 packets while skipping most of the kernel's network stack, which cuts the
-per-packet cost. wired can run on it as an alternative I/O driver ([server
-flags in the
-guide](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/)
-shows how the driver is chosen).
+per-packet cost. wired can run on it as an alternative I/O driver (the guide's
+[server flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/)
+page shows how the driver is chosen).
 
 **Not part of the pinned-conditions comparison above** — this is a
 same-day, exploratory measurement of wired's own AF_XDP driver
@@ -284,22 +282,31 @@ driver support, no zero-copy). Three back-to-back runs per driver mode.
 | Single-process UDP (default) | 4.3 / 4.0 | 787 / 827 | 0 / 100 |
 | AF_XDP (generic mode) | 6.6 / 6.9 | 359 / 332 | 0 / 100 (one separate `warmup failed` retry not counted) |
 
+Each row shows two of the three runs: the first UDP run ran against older
+server code, and the first AF_XDP attempt failed its warmup. Both are listed
+in the [run manifest](#run-manifest).
+
 AF_XDP's kernel-bypass receive path (`wired_srvxdp_rx_burst`,
 `wired_srvxdp_send`) outperformed the default single-process UDP path by
 roughly +60% reqps / -55% p50 even in generic mode, which does not get the
-zero-copy benefit native-driver AF_XDP would. The AF_XDP driver is newer
-and less exercised than the default path: three implementation bugs were
-found and fixed while producing this measurement — a DCID byte read
-straight from the wire could exceed the XSKMAP's key range and fall back
-to `XDP_PASS` (dropping the packet out of the AF_XDP path entirely), the
-fix for that bug initially introduced a backward BPF branch the kernel
-verifier rejected as an unbounded loop, and the TX frame pool (sized for
-small responses) exhausted under a 1 MiB transfer and silently dropped
-packets with no retry. One intermittent failure (a single `warmup failed`
-timeout, not reflected in the table) surfaced during measurement and did
-not reproduce on retry — the driver is not yet proven stable enough for a
-production recommendation. See the AF_XDP source (`src/transport/io/xdp/`,
-`src/app/http3/server/srvxdp/`) and its git history for the fixes.
+zero-copy benefit native-driver AF_XDP would.
+
+The AF_XDP driver is newer and less exercised than the default path; it is
+not yet recommended for production. Three implementation bugs were found and
+fixed while producing this measurement:
+
+- Packets for some connections were handed back to the normal kernel path
+  instead of to wired: a connection-ID byte read straight from the wire could
+  fall outside the range of the table that maps packets to the AF_XDP socket.
+- The first fix for that bug was rejected by the kernel's safety checker for
+  the in-kernel filter program, because it looked like an unbounded loop.
+- The pool of send buffers, sized for small responses, ran out under a 1 MiB
+  transfer and dropped packets without retrying.
+
+One intermittent failure (a single `warmup failed` timeout, not reflected in
+the table) surfaced during measurement and did not reproduce on retry. See
+the AF_XDP source (`src/transport/io/xdp/`, `src/app/http3/server/srvxdp/`)
+and its git history for the fixes.
 
 ## Footprint: binary sections, memory, CPU (loopback lane)
 
@@ -310,15 +317,21 @@ small machines.
 
 Measured 2026-08-16 on the same machine as the speed lanes, one day after
 them, with the loopback lane's own driver (`bench/run-lane.sh`) on the
-three native servers. Definitions: sections are Berkeley `size(1)` over the
-lane's binaries (stripping does not change these); idle RSS is
-`/proc/<pid>/status` VmRSS ~1.5 s after startup, before any request; peak
-RSS is VmHWM after 5 load rounds of 10,000 requests; server CPU is the
-utime+stime delta (all threads) across each load round, normalized per
-request. The per-request normalization keeps CPU comparable even though
-this round's absolute throughput drifted below the published speed lane
-(~22–23k req/s for wired/quiche on this day); the raw counter lines are in
-the [run manifest](#run-manifest).
+three native servers. Definitions:
+
+- **sections**: Berkeley `size(1)` over the lane's binaries (stripping does
+  not change these).
+- **idle RSS**: `/proc/<pid>/status` VmRSS ~1.5 s after startup, before any
+  request.
+- **peak RSS**: VmHWM after 5 load rounds of 10,000 requests.
+- **server CPU**: the utime+stime delta (all threads) across each load round,
+  normalized per request. utime+stime is the CPU time the kernel charged to
+  the server, in user code plus in the kernel on its behalf.
+
+The per-request normalization keeps CPU comparable even though this round's
+absolute throughput drifted below the published speed lane (~22–23k req/s
+for wired/quiche on this day); the raw counter lines are in the
+[run manifest](#run-manifest).
 
 | Binary | text (B) | data (B) | bss (B) |
 |---|---|---|---|
@@ -445,6 +458,11 @@ hardware or link shaping. Exact host identity intentionally omitted.
 
 No tuning was applied; each server ran at its defaults. The knobs that most
 directly shape these metrics:
+
+The `initial_max_*` rows are QUIC transport parameters: how much data (per
+connection, per stream) and how many streams the client may send before the
+server grants more. UDP GSO lets the kernel split one large send into many
+UDP packets, cutting per-packet syscall cost.
 
 | Knob | wired | quic-go | quiche |
 |---|---|---|---|
