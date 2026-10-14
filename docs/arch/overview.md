@@ -420,13 +420,12 @@ their own pinning flags (`--pin-cores` and `--control-core`). THREADS with
 `--ifindex` is AF_XDP multi-queue mode: worker thread *i* serves network
 card queue *i*.
 
-WORKERS has a known limitation, described in `srvworkers.h`. The kernel
-picks a worker from a hash of the address and port, so the packets of one
-connection are not guaranteed to reach the same worker. Nothing uses the
-connection ID to keep a connection on its worker, so if the kernel's spread
-changes mid-handshake, the next datagram reaches a worker that has no state
-for it. As a result, a handshake can fail intermittently (the "KNOWN
-LIMITATION (workers > 1)" comment in `srvworkers.h` describes it).
+WORKERS has a known limitation (the "KNOWN LIMITATION (workers > 1)" comment in
+`srvworkers.h`). The kernel picks a worker from a hash of the address and port,
+so the packets of one connection are not guaranteed to reach the same worker.
+Nothing uses the connection ID to keep a connection on its worker, so if the
+kernel's spread changes mid-handshake, the next datagram reaches a worker that
+has no state for it. As a result, a handshake can fail intermittently.
 
 AF_XDP needs `CAP_BPF` and `CAP_NET_ADMIN` and is less hardened than the
 default path.
