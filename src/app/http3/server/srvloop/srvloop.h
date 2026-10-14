@@ -258,6 +258,19 @@ typedef struct {
 #define WIRED_SRVLOOP_WT_BUF_CAP 49152
 #endif
 
+/* The advertised per-stream window (STP_DEFAULT_STREAM_DATA_LOCAL,
+ * server_tp.h) is a promise to buffer that many bytes past delivery, and
+ * both WT directions land in exactly this capacity's reassembly window --
+ * so the two must stay equal (see WIRED_SRVLOOP_WT_BUF_CAP's comment
+ * above for the failure mode when they drift). server_tp.c itself cannot
+ * see this macro (tls sits below app), but this header already includes
+ * server_tp.h, so the check lives here instead; test_server_tp_ids_and_
+ * values (server_tp_test.c) still pins the actual encoded TP bytes, which
+ * this assert does not exercise. */
+_Static_assert(
+    STP_DEFAULT_STREAM_DATA_LOCAL == WIRED_SRVLOOP_WT_BUF_CAP,
+    "the advertised stream window must match the reassembly buffer it backs");
+
 /** How many disjoint received-but-not-yet-contiguous byte ranges one WT
  * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
  * 9000 2.2 reassembly is offset-indexed and reordering-tolerant by design, so
