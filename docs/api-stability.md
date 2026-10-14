@@ -283,7 +283,7 @@ Read the diagram as "which call moves the phase forward".
 stateDiagram-v2
   [*] --> WIRED_SERVER_HS_INITIAL: wired_server_init
   WIRED_SERVER_HS_INITIAL --> WIRED_SERVER_HS_INITIAL: wired_server_recv_initial + wired_server_build_hrr<br/>(no x25519 key share: HelloRetryRequest)
-  WIRED_SERVER_HS_INITIAL --> WIRED_SERVER_HS_CH_RECVD: wired_server_recv_initial<br/>(ClientHello folded)
+  WIRED_SERVER_HS_INITIAL --> WIRED_SERVER_HS_CH_RECVD: wired_server_recv_initial<br/>(ClientHello accepted)
   WIRED_SERVER_HS_CH_RECVD --> WIRED_SERVER_HS_FLIGHT_SENT: wired_server_build_flight<br/>(Handshake key derived)
   WIRED_SERVER_HS_FLIGHT_SENT --> WIRED_SERVER_HS_FLIGHT_SENT: wired_server_feed<br/>(Finished incomplete or forged)
   WIRED_SERVER_HS_FLIGHT_SENT --> WIRED_SERVER_HS_CONFIRMED: wired_server_feed<br/>(client Finished verified)
@@ -310,8 +310,10 @@ stateDiagram-v2
 
 `srvboot` cold-starts a connection from the client's first datagram, and
 `srvloop` handles every datagram after that. The diagram shows the order
-`wired_server_run` itself follows; the important part is that
-`wired_srvboot_accept` already does the handshake set-up calls for you.
+`wired_server_run` itself follows, except that the run loop uses the
+accumulator form `wired_srvboot_accept_acc` (see Split ClientHello below).
+The important part is that the accept call already does the handshake
+set-up calls for you.
 
 ```mermaid
 sequenceDiagram
@@ -502,7 +504,7 @@ shows them in use):
   MoQT session.
 - **New Session URI**: the address a GOAWAY tells the peer to reconnect to.
 
-### Additions to `run/moqtrun.h`
+### Optional hub and io-table settings (`run/moqtrun.h`)
 
 Each of these is optional; the default (0 or unset) is given in the notes.
 
@@ -538,24 +540,26 @@ Each of these is optional; the default (0 or unset) is given in the notes.
 - **io table ops.** `close_session`, `stream_reply_open`,
   `stream_priority` and `stream_stop` have the shapes of
   `wired_server_wt_close_session`, `wired_server_wt_stream_reply_open`,
-  `wired_server_wt_stream_priority` and `wired_server_wt_stream_stop`. An
-  op left at 0 means: no close, no per-request streams, default urgency,
-  and an inbound data stream the hub cannot route is left to drain unread.
+  `wired_server_wt_stream_priority` and `wired_server_wt_stream_stop`. Left
+  at 0, `close_session` closes nothing, `stream_reply_open` opens no
+  per-request streams, `stream_priority` keeps the default urgency, and
+  `stream_stop` leaves an inbound data stream the hub cannot route to drain
+  unread.
 - **`stream_sched`.** It has the shape of
   `wired_server_wt_stream_schedule` (`wired_moqraw_io` sets it). When set
   it replaces `stream_priority` for Object streams; at 0 the hub uses
   `stream_priority`.
-- **`est_kbps`.** It has the shape of `wired_server_wt_est_kbps`, which
-  `wired_moqraw_io` sets it to. At 0 the SSTS budget (see track switching
-  below) comes from the cap alone.
+- **`est_kbps`.** It has the shape of `wired_server_wt_est_kbps`, and
+  `wired_moqraw_io` sets it to that function. At 0, the SSTS budget (see
+  track switching below) comes from the cap alone.
 
 ### Choosing the draft version
 
 `wired_moqt_wt_protocols` (`ver/moqver.h`) writes the server's offered
 subprotocol list for `wired_srvrun_opt.wt_protocols`.
 
-- An application that does not call it, or passes the single string
-  `"moqt-19"`, negotiates draft-19 only.
+- An application that leaves `wt_protocols` unset, or sets it to the
+  single string `"moqt-19"`, negotiates draft-19 only.
 - A session whose peer sends no WebTransport subprotocol uses the draft-19
   control-stream behavior.
 - The guide's MoQT samples set `wt_protocols = "moqt-22"`, and their
