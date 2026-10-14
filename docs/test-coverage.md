@@ -8,8 +8,8 @@ list of what still needs testing:
 
 - **[Features](features/README.md)** — 45 specs (RFCs, FIPS, NIST SPs, and
   four drafts), each broken into checkbox requirements with a grep-verified
-  test reference (file + function) or an honest gap. **1609/1868
-  requirements tested (86%), 253 indirect, 6 untested** — see the
+  test reference (file + function) or an honest gap. **1649/1896
+  requirements tested (87%), 245 indirect, 2 untested** — see the
   per-category tables there. MOQT (`src/app/moqt/`, twelve modules) has one
   ledger per negotiated draft (draft-ietf-moq-transport-18, -19 and -22) and
   668 test functions in `tests/app/moq*_test.c`, plus golden vectors for all

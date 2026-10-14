@@ -26,16 +26,16 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1865/1872 requirements demonstrated (99.6%) — 1613 directly tested,
-252 indirect, 7 untested.**
+**Total: 1894/1896 requirements demonstrated (99.9%) — 1649 directly tested,
+245 indirect, 2 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 190/190 | 157 | 33 | 0 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 197/197 | 159 | 38 | 0 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 68/68 | 53 | 15 | 0 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 67/67 | 56 | 11 | 0 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 67/67 | 58 | 9 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/15 | 12 | 3 | 0 |
 
 ## QUIC extensions
@@ -54,7 +54,7 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 104/105 | 85 | 19 | 1 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 105/105 | 86 | 19 | 0 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 44/44 | 35 | 9 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 18 | 3 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 10/10 | 8 | 2 | 0 |
@@ -102,9 +102,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 214/215 | 205 | 9 | 1 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 215/215 | 206 | 9 | 0 |
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 209/209 | 200 | 9 | 0 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 214/219 | 204 | 10 | 5 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 227/229 | 217 | 10 | 2 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,
