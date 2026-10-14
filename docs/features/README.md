@@ -1,29 +1,64 @@
-[Docs](../README.md) › Features
-
 # Features — Per-Spec Requirement Ledgers
 
-Each file below is an EARS-notation requirement ledger for one specification
-(RFC / FIPS / NIST SP / draft), extracted from the spec text in
-`tasks/specs/` (not in git) using test-design and loop-engineering methods.
-Every requirement carries either a test reference (grep-verified against
-this repo's `tests/`) or an honest gap — so an unchecked box with no test
-line IS the list of what still needs testing. Legend and format details:
-[`tasks/specs/FORMAT.md`](../../tasks/specs/FORMAT.md) (repo-internal, not
-published as a doc page).
+[Docs](../README.md) › Features
 
-- `[x]` — demonstrated by the referenced test
-- `[~]` — exercised indirectly (evidence line explains how)
-- `[ ]` — not demonstrated by any test yet
+This page answers "how much of each spec does wired actually prove it
+follows?" It is for anyone choosing wired who wants to check a protocol
+claim, and for contributors looking for what still needs a test.
 
-**Demonstrated** below means `[x]` + `[~]` combined — every requirement that
-has *some* test evidence behind it, direct or indirect. **Tested** is `[x]`
-alone (a dedicated test). The gap between the two columns is exactly the
-`[~]` count: real coverage, just without a test that exercises that one
-requirement in isolation — see each spec file's evidence line for how it's
-actually exercised.
+## What a requirement ledger is
 
-Interop results (the only tier that proves wire compatibility with an
-independent implementation) are tracked separately: see
+A spec such as an RFC states its rules as normative sentences ("the server
+MUST ...", "SHOULD ..."). Each file linked below is a requirement ledger for
+one spec: one line per normative requirement that applies to a server, each
+linked to the test that proves it. The requirements are rewritten in EARS
+form, a fixed sentence pattern ("When T, the server shall X") that makes
+each one checkable on its own. A requirement that is not the server's job
+(client-only behavior, operator guidance) goes into the ledger's
+"Out of scope" section with a reason and is not counted.
+
+Every ledger uses the same format: each item has an ID numbered in spec
+order, the spec section, and one marker. A `test:` line names a test file
+under `tests/` and a test function inside it; a checker script confirms
+that both exist, so a ledger cannot cite a test that is not there.
+
+## What the markers mean
+
+- `[x]` tested: a named test function proves this requirement.
+- `[~]` indirect: no test targets it alone, but other tests exercise it. An
+  evidence line says which ones and how.
+- `[ ]` untested: no test shows it yet. These boxes are the list of open
+  gaps.
+
+The flowchart shows how one requirement gets its marker. Follow the arrows
+from the top; each requirement ends in exactly one box.
+
+```mermaid
+flowchart TD
+    R["One normative requirement<br/>(MUST / SHOULD in the spec)"] --> S{"Server-side<br/>concern?"}
+    S -- no --> O["Out of scope section<br/>(no box, not counted)"]
+    S -- yes --> T{"A named test function<br/>proves it?"}
+    T -- yes --> X["[x] tested<br/>with a test: line"]
+    T -- no --> I{"Exercised indirectly<br/>by other tests?"}
+    I -- yes --> W["[~] indirect<br/>with an evidence line"]
+    I -- no --> U["[ ] untested<br/>an open gap"]
+```
+
+## Reading the tables
+
+**Tested** counts the `[x]` items. **Demonstrated** counts `[x]` plus
+`[~]`: every requirement with some test evidence, direct or indirect. So the
+gap between the two columns is the **Indirect** column. **Untested** is the
+`[ ]` count.
+
+## Why interop is tracked separately
+
+These ledgers prove that wired's code does what the spec text says as the
+tests read it. A test where wired talks to itself (a loopback test) has the
+same code on both ends, so a shared mistake cancels out and the test still
+passes. Only running against an independent
+implementation (a third-party QUIC client) proves wire compatibility, so
+those results live on their own page:
 **[Interop Results](../interop.md)**.
 
 **Total: 1894/1896 requirements demonstrated (99.9%) — 1649 directly tested,
