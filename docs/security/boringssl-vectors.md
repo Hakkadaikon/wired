@@ -21,20 +21,20 @@ or FIPS standard. Those examples are few, and they cover the normal path. A
 bug in a rare branch (a carry in big-number math, a length on a boundary, a
 malformed signature that should be refused) can pass every RFC example.
 
-BoringSSL is Google's TLS library, used by Chrome and Android. Its
-developers collected many cases per algorithm (over 500 for X25519 and
-Ed25519), including the Wycheproof set of known attack and edge cases. Their
-expected values come
-from BoringSSL, not from wired, so a match means two separate
-implementations agree. This is what "third-party oracle" means here: an
+BoringSSL is Google's TLS library, used by Chrome and Android. Its developers
+collected many cases per algorithm and also bundle the Wycheproof set of known
+attack and edge cases (over 500 for X25519 and Ed25519 together with their
+own). None of these expected values comes from wired, so a match means
+independent sources agree. This is what "third-party oracle" means here: an
 outside source of correct answers. We never derive an expected value from
 wired's own output.
 
-## What BoringSSL's FileTest format is
+## BoringSSL's FileTest format
 
 BoringSSL stores its vectors as plain text files that its test runner, called
-FileTest, reads. Each case is a block of `NAME: value` lines (hex bytes),
-and a blank line ends the case. One AES-128-GCM case looks like this:
+FileTest, reads. Each case is a block of `NAME: value` (or `NAME = value`)
+lines, mostly hex bytes, and a blank line ends the case. One AES-128-GCM case
+looks like this:
 
 ```text
 KEY: 3881e7be1bb3bbcaff20bdb78e5d1b67
@@ -55,6 +55,8 @@ The vector files are copied from BoringSSL at the pinned commit
 BoringSSL source code. Provenance, the upstream path of each file and the
 skip reasons are in
 [`tests/vectors/boringssl/README.md`](../../tests/vectors/boringssl/README.md).
+Only a fixed list of BoringSSL vector files was approved for import (the
+files in that README's table); "the allowed files" below means that list.
 
 The tests are `tests/crypto/bssl_*_test.c`, one per primitive family. Each
 loops over every case in its file and runs as part of `just test`. A failing
@@ -72,8 +74,8 @@ Each row is one primitive (one algorithm). The columns mean:
 - **Skip**: the case could not be run because wired does not implement that
   algorithm or that input shape. A skip is not counted as a pass.
 
-A dash (–) means the pinned commit has no vectors in FileTest format for
-that primitive, so nothing was run.
+A dash (–) means none of the vector files imported from the pinned commit
+has cases for that primitive, so nothing was run.
 
 ## Results (2026-10-05)
 
@@ -117,22 +119,27 @@ No case failed, so this oracle found no open defect. An all-pass result is
 only meaningful if the test would notice a wrong answer, so we broke things
 on purpose and confirmed the tests caught it.
 
-One expected value was flipped temporarily in each of the AES-128-GCM,
-Ed25519 and ECDSA P-256 (a valid case) vector sets. Each produced exactly one
-failing case (`aes_128_gcm_tests.txt:4-9`, `ed25519_tests.txt:19-22`,
-`ecdsa_verify_tests.txt:649-654`), and the files were restored.
+One expected value was flipped temporarily in each of three vector sets:
+AES-128-GCM, Ed25519 and ECDSA P-256 (in a valid P-256 case). Each produced
+exactly one failing case (`aes_128_gcm_tests.txt:4-9`,
+`ed25519_tests.txt:19-22`, `ecdsa_verify_tests.txt:649-654`), and the files
+were restored.
 
-For P-521 (2026-10-10) the verifier was instead changed to accept whenever
-the point R is not the point at infinity, dropping the `R.x mod n == r` check
-that ties the
-signature to the message. 63 of the 88 P-521 cases failed, then the source
+For P-521 (2026-10-10) the verifier itself was broken instead. An ECDSA
+verifier computes a curve point R from the message and the public key, and
+accepts only if R's x-coordinate matches the signature's r value. We removed
+that comparison and accepted any R that is not the point at infinity (the
+curve's "zero"). 63 of the 88 P-521 cases failed, then the source
 was restored.
 
 ## Known gaps
 
 Every skip in the table has a reason, and none of them weakens QUIC, HTTP/3,
-WebTransport or MoQT. The skipped algorithms are not used by a TLS 1.3
-handshake.
+WebTransport or MoQT. There are two kinds of gap. Algorithms wired does not
+implement (P-224, secp224k1, MD5, SHA-1, SHA-224) are not needed by a TLS 1.3
+handshake. HKDF, SHA-2 and RSA are implemented and used, but the allowed files
+have no FileTest vectors for them, so other tests cover them (see the bullet
+below).
 
 - **AES-GCM with a nonce that is not 96 bits (12 bytes).** BoringSSL accepts
   other lengths, but wired's API takes only a 96-bit nonce, so those cases
@@ -146,7 +153,9 @@ handshake.
 - **HKDF, plain SHA-2 and RSA.** The pinned commit has no FileTest vectors
   for them in the allowed files (HKDF and SHA-2 moved into C++ test source).
   SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows;
-  HKDF and SHA-2 keep their RFC and FIPS tests.
+  HKDF, SHA-2 and RSA keep their own RFC and FIPS tests, and RSA and HKDF
+  are checked against Wycheproof instead; see
+  [Wycheproof vectors](wycheproof-vectors.md).
 - **X25519 1,000,000-iteration test.** BoringSSL itself disables it; the
   1,000-iteration case runs instead.
 
