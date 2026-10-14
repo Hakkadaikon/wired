@@ -51,7 +51,7 @@ The three `result` values:
   secret. wired's choice is logged as
   `wyc <file> tcId <n> acceptable: accepted|rejected`.
 
-The AEAD, HMAC, HKDF and RSA drivers follow the diagram for `valid` and
+The AEAD, HMAC, HKDF and RSA drivers follow the diagram below for `valid` and
 `invalid` cases. The "wrong output" check on `acceptable` cases applies only to
 X25519, the one primitive whose acceptable cases produce an output. Look at the
 two exits on the "Can wired's API express the input?" node: they are where
