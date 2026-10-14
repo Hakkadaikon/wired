@@ -20,7 +20,7 @@
  * later gains room and starts recording again, those pns are by then far
  * behind largest_acked and trip RFC 9002 6.1.1's packet-threshold loss
  * check the instant they're recorded, stalling cwnd growth. */
-#define WIRED_SENDSESS_LOG 64
+#define WIRED_SENDSESS_LOG 128
 
 /** One sent slice awaiting acknowledgement. */
 typedef struct {

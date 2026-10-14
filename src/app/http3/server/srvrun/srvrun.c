@@ -303,13 +303,14 @@ typedef struct {
  * payloads up to this size are copied in, larger ones stay caller-owned
  * views. Must hold the WT receive window (WIRED_SRVLOOP_WT_BUF_CAP,
  * 49152 -- one delivery can fill the whole window) plus the held relay
- * fragment (under WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384) = 65535, so a
- * full-window relayed payload (e.g. a screen-share frame) still copies
- * instead of falling back to a view_round. An app's open path adds its own
- * overhead (moqt_chat: signal prefix 9 + SUBGROUP_HEADER 40, up to 65584),
- * so such an app refuses a payload past this size rather than handing it
- * over as a view (examples/moqt_chat MOQT_OPEN_BUF). */
-#define SRVRUN_WTSEND_BUF 65536
+ * fragment (under WIRED_MOQTRUN_RELAY_FRAG_MAX, 16384), so a full-window
+ * relayed payload (e.g. a screen-share frame) still copies instead of
+ * falling back to a view_round (checked below, once both terms are in
+ * scope). An app's open path adds its own overhead (moqt_chat: signal
+ * prefix 9 + SUBGROUP_HEADER 40), so such an app refuses a payload past
+ * this size rather than handing it over as a view (examples/moqt_chat
+ * MOQT_OPEN_BUF). */
+#define SRVRUN_WTSEND_BUF 131072
 
 /* One in-flight server-initiated WebTransport stream send (wired_server_wt_
  * open_uni/open_bidi/stream_reply): the same wired_sendsess bookkeeping a
@@ -983,6 +984,21 @@ _Static_assert(
  * initialized pmtu (validated == 0, e.g. a test fixture's `{0}`
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
+
+/* A fully-staged WT send round slices into ceil(SRVRUN_WTSEND_BUF /
+ * SRVRUN_CHUNK) pieces, every one of which lands in sendsess's in-flight
+ * log (wired_sendsess_sent) before the next is taken -- so the round's
+ * slice count must fit WIRED_SENDSESS_LOG or the log fills mid-round.
+ * wired_sendsess_sent's caller sends the packet over the wire BEFORE
+ * trying to log it (sendsess.h), so a full log does not just stall: it
+ * leaves an already-sent packet unlogged, and
+ * test_srvrun_wt_stream_send_queue_bound's blocking-socket drain loop
+ * (which recvs exactly that many slices) hangs forever waiting on a
+ * packet that was never recorded. */
+_Static_assert(
+    (SRVRUN_WTSEND_BUF + SRVRUN_CHUNK - 1) / SRVRUN_CHUNK <= WIRED_SENDSESS_LOG,
+    "one staged WT send round's slices must fit the sendsess log");
+
 /* Plaintext capacity for one STREAM-frame slice: the largest slice
  * srvrun_mps can yield (at most PMTU_MAX - PMTU_OVERHEAD) plus the
  * worst-case RFC 9000 19.8 STREAM header (1 type byte + three 8-byte
