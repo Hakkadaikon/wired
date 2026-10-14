@@ -1,0 +1,4 @@
+[lint.md013]
+line-length = 80
+code-blocks = false
+tables = false
