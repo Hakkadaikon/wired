@@ -10,23 +10,26 @@ claim, and for contributors looking for what still needs a test.
 
 A spec such as an RFC states its rules as normative sentences ("the server
 MUST ...", "SHOULD ..."). Each file linked below is a requirement ledger for
-one spec: one line per normative requirement that applies to a server, each
+one spec: one entry per normative requirement that applies to a server, each
 linked to the test that proves it. The requirements are rewritten in EARS
 form, a fixed sentence pattern ("When T, the server shall X") that makes
 each one checkable on its own. A requirement that is not the server's job
 (client-only behavior, operator guidance) goes into the ledger's
 "Out of scope" section with a reason and is not counted.
 
-Every ledger uses the same format: each item has an ID numbered in spec
-order, the spec section, and one marker. A `test:` line names a test file
-under `tests/` and a test function inside it; a checker script confirms
-that both exist, so a ledger cannot cite a test that is not there.
+Every ledger uses the same format: each item has an ID (most ledgers number
+them in spec order; the RFC 9000 ledger still uses the placeholder `9000-XXX`),
+the spec section, and one marker. Each `test:` line names a test file under
+`tests/` and a test function in it. A maintainer script checks that every cited
+file and function name exists and that each ledger's coverage line matches its
+boxes; it is run by hand, not in CI.
 
 ## What the markers mean
 
 - `[x]` tested: a named test function proves this requirement.
 - `[~]` indirect: no test targets it alone, but other tests exercise it. An
-  evidence line says which ones and how.
+  evidence line, or `test:` lines for the tests that cover part of it, says
+  which ones.
 - `[ ]` untested: no test shows it yet. These boxes are the list of open
   gaps.
 
@@ -40,7 +43,7 @@ flowchart TD
     S -- yes --> T{"A named test function<br/>proves it?"}
     T -- yes --> X["[x] tested<br/>with a test: line"]
     T -- no --> I{"Exercised indirectly<br/>by other tests?"}
-    I -- yes --> W["[~] indirect<br/>with an evidence line"]
+    I -- yes --> W["[~] indirect<br/>with evidence or<br/>partial test lines"]
     I -- no --> U["[ ] untested<br/>an open gap"]
 ```
 
@@ -49,17 +52,19 @@ flowchart TD
 **Tested** counts the `[x]` items. **Demonstrated** counts `[x]` plus
 `[~]`: every requirement with some test evidence, direct or indirect. So the
 gap between the two columns is the **Indirect** column. **Untested** is the
-`[ ]` count.
+`[ ]` count. Demonstrated is shown as n/total, where total is the number of
+in-scope requirements in that ledger (Tested + Indirect + Untested).
 
 ## Why interop is tracked separately
 
-These ledgers prove that wired's code does what the spec text says as the
-tests read it. A test where wired talks to itself (a loopback test) has the
-same code on both ends, so a shared mistake cancels out and the test still
-passes. Only running against an independent
-implementation (a third-party QUIC client) proves wire compatibility, so
-those results live on their own page:
-**[Interop Results](../interop.md)**.
+These ledgers show that wired's code does what the spec says, as wired's own
+tests interpret the spec. A test where wired talks to itself (a loopback test)
+has the same code on both ends, so a shared mistake cancels out and the test
+still passes. Only running against an independent implementation (a third-party
+QUIC client) proves wire compatibility, so those results live on their own
+page: **[Interop Results](../interop.md)**.
+
+## Coverage by spec
 
 **Total: 1894/1896 requirements demonstrated (99.9%) — 1649 directly tested,
 245 indirect, 2 untested.**
