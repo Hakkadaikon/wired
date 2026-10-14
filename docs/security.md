@@ -262,7 +262,8 @@ flowchart TD
   P -->|no| X
   P -->|yes| H{"Every certificate: no unknown<br/>critical or duplicate extension,<br/>none repeated?"}
   H -->|no| X
-  H -->|yes| N{"Next link: child's issuer<br/>equals parent's subject?"}
+  H -->|"yes, 2+ certificates"| N{"Next link: child's issuer<br/>equals parent's subject?"}
+  H -->|"yes, leaf only"| NC
   N -->|no| X
   N -->|yes| C{"Parent is a CA (x509_is_ca)<br/>and may sign certificates?"}
   C -->|no| X
