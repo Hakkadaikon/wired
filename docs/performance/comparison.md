@@ -1,10 +1,19 @@
-[Docs](../README.md) › [Performance](./) › Comparison
-
 # Implementation Comparison
 
-How wired compares to other HTTP/3 / WebTransport / MOQT implementations, in
-features (documented against each project's own sources) and in speed
-(measured under pinned, equal conditions).
+[Docs](../README.md) › [Performance](./) › Comparison
+
+This page answers "how does wired stand next to other QUIC servers?" in two
+ways: which features each project supports, and how fast and how small each
+server is when measured under the same conditions. Read it when you are
+choosing a QUIC / HTTP/3 / WebTransport / MOQT server, or when you want to
+know what wired's numbers look like before you run your own.
+
+wired is compared against four widely used open-source QUIC
+implementations: quic-go (Go), quiche (Rust, by Cloudflare), ngtcp2 (C,
+with nghttp3 for HTTP/3), and picoquic (C). The feature matrix covers all
+five. The speed lanes cover all five on the simulated link, but only wired,
+quic-go, and quiche on loopback and footprint, because only those three were
+built as native binaries.
 
 > **Scope disclaimer.** Every number below is a measurement from one specific
 > day (2026-08-16 local; the runner's log directories carry UTC stamps of
@@ -12,17 +21,71 @@ features (documented against each project's own sources) and in speed
 > [environment appendix](#environment)), against pinned versions. wired is
 > pinned at one commit (`9d21db9`) for every lane. It is not a claim of
 > general superiority or inferiority of any implementation. Bad numbers are
-> published along with good ones. wired's own `9d21db9` pin is now 89
-> commits behind `HEAD` (62 of them touching `src/app/webtransport/`,
-> `src/app/http3/`, or `examples/webtransport_interop/`); the feature-matrix
-> prose below has been updated for the webtransport/http3 path where it
-> was stale, but the benchmark numbers have not been re-measured at a
-> newer commit.
+> published along with good ones. wired's own `9d21db9` pin is now 2,583
+> commits behind `HEAD` as of 2026-10-15 (685 of them touching
+> `src/app/webtransport/`, `src/app/http3/`, or
+> `examples/webtransport_interop/`); the feature-matrix prose below has been
+> updated for the webtransport/http3 path where it was stale, but the
+> benchmark numbers have not been re-measured at a newer commit.
+
+## How to read this page
+
+**Why the snapshot is stale, and what that means.** The benchmarks are a
+dated photo, not a live dashboard. Re-measuring every lane takes a quiet
+machine and a full day, so it is done rarely. Since the pin, wired's server
+loop, flow-control windows, and WebTransport path have all changed, and the
+other projects' `:latest` images have moved too. So treat each number as
+"what wired at `9d21db9` did on that day". It is a fair baseline for the
+order of magnitude and for the gaps between servers. It is not a promise
+about the current `HEAD`. To get fresh numbers, run the scripts described in
+[Reproduction](#reproduction) and [Bench client and server
+source](#bench-client-and-server-source).
+
+**The lanes.** Each "Speed" or "Footprint" section is one *lane*: one fixed
+setup (link, client, file size, CPU pinning) that every server in it went
+through. Numbers are comparable inside a lane, never across lanes.
+
+**Terms used in the tables.**
+
+- **Goodput**: useful data delivered per second, in kilobits per second
+  (kbps). The runner divides the file size by the time the transfer took, so
+  retransmissions and protocol overhead lower it. It measures what the
+  application actually receives.
+- **TTFB** ("time to first byte"): the time from starting a new connection to
+  having the response. It includes the QUIC + TLS handshake, so it shows the
+  cost of a fresh connection ([TLS handshake in the
+  guide](https://hakkadaikon.github.io/wired/guide/en/tls/handshake/)). This
+  page's exact definition is in a footnote [^ttfb-def].
+- **p50 / p99**: percentiles of per-request latency. p50 is the median (half
+  the requests were faster). p99 is the slow tail: 1 request in 100 was
+  slower than this.
+- **req/s**: completed requests per second.
+- **`a ± b`**: mean over the repeated runs, plus or minus the standard
+  deviation (how much the runs disagreed). Two servers whose gap is smaller
+  than their `±` spread are effectively tied.
+- **RSS / VmHWM**: RSS (resident set size) is the memory the process is
+  really using in RAM right now. VmHWM ("high-water mark") is the largest RSS
+  the process ever reached. Linux reports both in `/proc/<pid>/status`.
+- **text / data / bss**: the sections of the executable. `text` is machine
+  code, `data` is initialized global variables, and `bss` is zero-initialized
+  global variables. `bss` takes no space in the file and costs RAM only for
+  the pages the program actually touches.
+
+**Reading the bar charts.** Each chart repeats the mean column of the table
+just above it, one bar per server. Its title says whether higher or lower is
+better. Every y-axis starts at 0, so bar heights are proportional to the
+values. The table's `±` spread is not drawn, so read the table before calling
+a small difference a win.
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
 
 ## Feature matrix
+
+The matrix lists, for each project, what it supports out of the box. Rows
+run from the build itself (language, TLS library, libc) up the protocol
+layers: HTTP/3, its header compression (QPACK), WebTransport, and finally
+MOQT. The short terms used in the rows are explained right after the table.
 
 Sources: each cell cites the project's own README/source at the pinned
 version — wired at commit `9d21db9`, quic-go `v0.61.0`, quiche `0.29.3`,
@@ -46,12 +109,53 @@ untagged) [^pq-img].
 | QUIC v2 (RFC 9369) | Partial — implemented + unit-proven; no third-party E2E (peer limitation) [^w-interop] | ✅ [^qg-readme] | — (v1 only) [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
 | MOQT | ✅ draft-ietf-moq-transport-18/19/22, server/relay role over WebTransport; the draft is chosen per session from the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`, offered via `wired_moqt_wt_protocols`), draft-19 when none is negotiated [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
 
+What the row names mean:
+
+- **libc dependency**: whether the server needs the C standard library
+  (glibc and the like). wired does not: it calls the Linux kernel directly
+  ("freestanding" C), which is why its binary is small and fully static.
+- **QPACK dynamic table**: QPACK compresses HTTP/3 headers. The static table
+  is a fixed list of common headers. The dynamic table lets both sides
+  remember headers they have already sent, which compresses repeated headers
+  better but needs extra state.
+- **WebTransport**: browser API for streams and datagrams over one HTTP/3
+  connection, opened with an Extended CONNECT request ([WebTransport session
+  in the guide](https://hakkadaikon.github.io/wired/guide/en/wt/session/)).
+- **QUIC DATAGRAM**: unreliable, unordered messages inside an encrypted QUIC
+  connection, useful for real-time data that is worthless when late
+  ([datagrams in the
+  guide](https://hakkadaikon.github.io/wired/guide/en/wt/datagram/)).
+- **0-RTT**: a returning client sends its first request together with the
+  handshake, saving one round trip ([handshake knobs in the
+  guide](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)).
+- **Key Update**: switching to fresh encryption keys in the middle of a
+  long-lived connection. "Initiates" means the server can start the switch;
+  "responds" means it only follows the peer.
+- **ECN** (Explicit Congestion Notification): routers mark packets instead
+  of dropping them when a queue fills, so the sender can slow down before it
+  loses data.
+- **Connection migration**: the connection survives the client changing its
+  IP address or port (for example Wi-Fi to mobile). The server first checks
+  the new address really belongs to the client ("path validation").
+- **QUIC v2**: a second QUIC version number with the same features, meant to
+  keep middleboxes from assuming everything looks like version 1.
+- **MOQT** (Media over QUIC Transport): an IETF draft for publishing and
+  subscribing to live media through relays, carried over WebTransport.
+- **interop-proven**: the feature passed a test against an independent
+  implementation (see [Interop Results](../interop.md)), not just wired's own
+  unit tests.
+
 For MOQT specifically, the third-party landscape (surveyed 2026-08-04):
 imquic supports draft versions 16–19; moxygen 14/15/16/18; libquicr and
 moqtail 16; aiomoqt 14/16/18(beta); moq-lite is a diverged fork, not
 draft-ietf-moq-transport [^moqt-survey].
 
 ## Speed: standardized simulated link (goodput)
+
+This lane asks: on the same network link, how fast does each server push a
+large file? It is the one lane where all five servers ran, because the
+standard QUIC interop test harness already ships every one of them as a
+Docker image.
 
 Method: [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 `goodput` measurement (10 MB transfer over the runner's simulated link,
@@ -81,11 +185,22 @@ xychart-beta
 wired (9417) sits between quiche (9425) and ngtcp2 (9446) on one side and
 picoquic (9320) on the other, with the gaps to both neighbors inside or
 near the run-to-run spread; quic-go (9549) leads the field on this link.
+In short, all five servers fill this link almost equally well.
+
 wired's defaults for this lane: Cubic congestion control, DPLPMTUD raising
 the datagram size to the link's full 1440 bytes, a token-bucket pacer
-(see the [defaults table](#server-defaults-loopback-lane)).
+(see the [defaults table](#server-defaults-loopback-lane)). Congestion
+control decides how fast to send without overloading the network, and Cubic
+is the common default algorithm. DPLPMTUD probes for the largest packet the
+path will carry, so fewer packets are needed. A pacer spreads packets out in
+time instead of sending them in bursts.
 
 ## Speed: loopback per-request overhead
+
+The goodput lane is limited by the link, not the server. This lane removes
+the network (client and server on the same machine, `127.0.0.1`) so what is
+left is the server's own cost per request: how quickly it answers a new
+connection, and how many small requests it can serve per second.
 
 Method: one pinned load client (a small quic-go v0.61.0 HTTP/3 client, see
 the [appendix](#bench-client-and-server-source)) against each server on
@@ -129,7 +244,10 @@ xychart-beta
     bar [2.9, 3.6, 2.7]
 ```
 
-(Bars plot the table means.) Client CPU ran past comfortable headroom for
+(Bars plot the table means.) The first chart is throughput (higher is
+better); the other two are latency (lower is better). The load client
+itself has a CPU limit, which matters for the fastest rows. Client CPU ran
+past comfortable headroom for
 the fastest rows — wired's client-side CPU peaked at 132% of the 200%
 two-core budget and quiche's at 118%, against quic-go's 68–80% — so read
 the ratios between the fastest servers as indicative, not exact (those rows
@@ -137,6 +255,13 @@ are at least partly client-bound). The lane showed no stalls or failures
 across 50,500 requests on any server.
 
 ## Speed: AF_XDP driver over a real NIC (informational)
+
+AF_XDP is a Linux feature that lets a program receive and send network
+packets while skipping most of the kernel's network stack, which cuts the
+per-packet cost. wired can run on it as an alternative I/O driver ([server
+flags in the
+guide](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/)
+shows how the driver is chosen).
 
 **Not part of the pinned-conditions comparison above** — this is a
 same-day, exploratory measurement of wired's own AF_XDP driver
@@ -177,6 +302,11 @@ production recommendation. See the AF_XDP source (`src/transport/io/xdp/`,
 `src/app/http3/server/srvxdp/`) and its git history for the fixes.
 
 ## Footprint: binary sections, memory, CPU (loopback lane)
+
+Speed is not the only cost of a server. This lane asks how big each server
+binary is, how much memory it really uses, and how much CPU time it spends
+per request. Small numbers matter when you run many instances or run on
+small machines.
 
 Measured 2026-08-16 on the same machine as the speed lanes, one day after
 them, with the loopback lane's own driver (`bench/run-lane.sh`) on the
@@ -231,6 +361,13 @@ share of the server's single pinned core busy during the load rounds.
 
 ## Interop test cases (current run)
 
+A benchmark only counts if the server also behaves correctly toward a
+client it did not write. These are the interop test cases the speed lanes
+above rely on: the connection setup (`handshake`), HTTP/3 requests
+(`http3`), many parallel streams (`multiplexing`), a plain file download
+(`transfer`), and recovery after the link drops every packet for a while
+(`blackhole`).
+
 Re-run against commit `9d21db9` alongside the benchmarks above (client:
 quic-go, runner commit `1d6f655`):
 
@@ -248,6 +385,9 @@ are the ones this comparison's benchmarks depend on and were independently
 re-verified for this document.
 
 ## WebTransport and MOQT
+
+The two upper layers have no speed numbers on this page. The reasons
+differ, so each gets its own paragraph.
 
 **WebTransport (speed):** not measured. The interop runner's WebTransport
 suite contains functional test cases only (fixed-size transfers, no
@@ -274,6 +414,10 @@ session, and `examples/moqt_interop` is run as a relay against the
 clients — see [`interop/README.md`](../../interop/README.md).)
 
 ## Environment
+
+The machine and settings behind the numbers. They matter because the same
+server can post very different numbers on other hardware. The AF_XDP lane
+ran on a different machine, described after the list.
 
 - Host: KVM full-virtualization VM, Intel Xeon Gold 6230 @ 2.10 GHz, 4 vCPUs,
   3.8 GiB RAM, Ubuntu 24.04.4 LTS, kernel 6.8.0-110-generic.
@@ -352,7 +496,7 @@ document's run is a reimplementation of the earlier rounds' client to the
 same specification (the original sources were not retained), so this lane is
 internally consistent — every server measured by the same binary on the same
 day — but not directly comparable against numbers published from other days.
-The sources now live in this repository under [`bench/`](../bench/), together
+The sources now live in this repository under [`bench/`](../../bench/), together
 with the lane driver (`run-lane.sh`), the aggregation library and its test
 suite, and a manually-dispatched GitHub Actions workflow
 (`.github/workflows/comparison.yml`) that runs both lanes on a hosted runner
@@ -360,6 +504,10 @@ suite, and a manually-dispatched GitHub Actions workflow
 published in the manifest below.
 
 ## Run manifest
+
+The raw per-run data behind every summary table above, so anyone can
+recompute the means or spot an outlier run. Nothing here is new
+information; it is the evidence for the earlier sections.
 
 Goodput lane (each value = the runner's 5-repetition mean ± sd for that
 single invocation; one invocation per server, run back-to-back on an idle
@@ -412,7 +560,7 @@ Footprint lane (2026-08-16, raw counter lines as emitted by
 `bench/run-lane.sh`; `dticks` at `hz=100`, RSS in KiB — the derived table is
 in the [footprint section](#footprint-binary-sections-memory-cpu-loopback-lane)):
 
-```
+```text
 wired r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=380 vmrss_kb=380
 wired r1 usage kind=load reqs=10000 dticks=36 wall_ms=485 hz=100 vmhwm_kb=1928 vmrss_kb=1928
 wired r2 usage kind=load reqs=10000 dticks=37 wall_ms=473 hz=100 vmhwm_kb=1928 vmrss_kb=1928
@@ -438,7 +586,7 @@ measurement (`benchclient` run by hand against a manually started server on
 a remote VM), unlike the other two lanes' scripted `bench/` drivers. The raw
 `benchclient` output lines, in run order:
 
-```
+```text
 # single-process UDP (default driver)
 mode=load n=50 fails=0 reqps=4.8 p50=673.32 p99=1125.54 cpu%=64
 mode=load n=50 fails=0 reqps=4.3 p50=786.94 p99=1404.71 cpu%=37
@@ -516,12 +664,14 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     `chacha20` PASS vs quic-go; `ecn`, `v2`, `connectionmigration` are
     implemented but carry no third-party verdict (peer/tooling limitations,
     detailed there).
-[^w-moqt]: `src/app/moqt/` (twelve modules: `cache`, `ctl`, `data`,
-    `dgram`, `fetch`, `kvp`, `ns`, `run`, `sess`, `tstat`, `ver`, `vi`) +
+[^w-moqt]: `src/app/moqt/` (fourteen modules at `HEAD`: `cache`, `ctl`,
+    `data`, `dgram`, `fetch`, `kvp`, `ns`, `qraw`, `run`, `sess`, `ssts`,
+    `tstat`, `ver`, `vi`) +
     `examples/moqt_chat` (draft-22 when the browser offers `moqt-22`
-    through WebTransport `protocols`, draft-19 fallback otherwise) and `examples/moqt_interop` (draft-18/19/22). Hub/relay
-    role; SETUP/SUBSCRIBE/PUBLISH/FETCH/namespace subset, SUBGROUP_HEADER
-    and OBJECT_DATAGRAM data plane. The version table is
+    through WebTransport `protocols`, draft-19 fallback otherwise) and
+    `examples/moqt_interop` (draft-18/19/22). Hub/relay role;
+    SETUP/SUBSCRIBE/PUBLISH/FETCH/namespace subset, SUBGROUP_HEADER and
+    OBJECT_DATAGRAM data plane. The version table is
     `src/app/moqt/ver/moqver.c`: `wired_moqt_wt_protocols` writes the
     `moqt-NN` list for `wired_srvrun_opt.wt_protocols`, and a session with
     no (or an unlisted) subprotocol falls back to draft-19. Interop
