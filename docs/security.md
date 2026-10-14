@@ -5,7 +5,7 @@
 This page answers one question: which security properties does `wired`
 check by itself, and which ones does it leave to your application? It is
 for anyone deciding whether to put `wired` in front of real traffic, or
-reviewing what a change might weaken. Each item states the guarantee, the
+reviewing what a change might weaken. Most items state the guarantee, the
 RFC clause where one applies, and the test (or fuzz harness) that pins it.
 
 This is a description of what the code checks, not a threat model. For how
@@ -44,8 +44,9 @@ databases, security advisories of other QUIC/TLS implementations, and the
 "Security Considerations" sections of the RFCs. Each row maps one known
 attack to the `wired` code path it does or does not apply to.
 
-A row closes (`done`) only with a verdict (`fixed`, `already-safe` or
-`n/a`) plus the name of a real test function. An `n/a` row instead carries
+A row closes (`done`) only with a verdict. A `fixed` or `already-safe` row
+usually also names a real test function (a few structural `already-safe`
+rows explain instead why the code cannot be attacked); an `n/a` row carries
 a one-line reason why the attack class does not apply here (no heap, no
 hash table, no network client).
 
@@ -88,21 +89,23 @@ close inside the process.
   server roles. This SDK has no external-PSK mechanism, and the client role
   never accepts a ClientHello.
 - **Self-marked ECN-CE suppression probe** (V-0223, RFC 9002 8.3,
-  optional). It closes `already-safe` through the RFC 9000 13.4.2.1
-  count-floor check instead (`test_ecn_suppressed_counts_fail_validation`).
-  Marking single packets CE would need a per-send TOS `cmsg` that the
-  socket layer does not expose.
+  optional). The probe marks single packets CE to test the peer, which
+  needs a per-send TOS `cmsg` the socket layer does not expose, so an
+  operator cannot enable it. The attack it targets is still caught by the
+  RFC 9000 13.4.2.1 count-floor check
+  (`test_ecn_suppressed_counts_fail_validation`), so the row closes
+  `already-safe`.
 
 ## Symmetric crypto & AEAD
 
 QUIC encrypts every packet with an **AEAD** (authenticated encryption with
 associated data): one operation that both encrypts the payload and attaches
 a tag, so any modified byte makes decryption fail. `wired` supports
-AES-128-GCM and ChaCha20-Poly1305.
+AES-128-GCM, AES-256-GCM and ChaCha20-Poly1305.
 
 - AEAD tag comparison is constant-time (XOR-OR accumulation with no early
   return), so response timing does not leak how many tag bytes matched.
-  The shared helper lives in `util/ct.h` and is used by GCM and
+  The shared helper lives in `common/bytes/util/ct.h` and is used by GCM and
   ChaCha20-Poly1305 — `test_gcm_tamper_rejects`,
   `test_aead_tamper_rejects`.
 - GCM and ChaCha20-Poly1305 round-trip against RFC and NIST vectors —
@@ -126,8 +129,9 @@ for AES-GCM (`AEAD_LIMIT_AESGCM`) and 2^62 for ChaCha20-Poly1305
 
 New keys come from a **Key Update** (RFC 9001 6): the sender derives the
 next key generation and flips the Key Phase bit in the packet header.
-RFC 9001 6.2 forbids a second update until the peer has been seen using
-the first one.
+RFC 9001 6.1 forbids a second update until a packet sent with the new keys
+has been acknowledged; `wired` waits until the peer itself sends under the
+new keys, which implies that.
 
 - Reaching the confidentiality limit triggers an automatic Key Update on
   the production send path, `wired_srvloop_send_onertt`, before the old key
@@ -141,8 +145,8 @@ the first one.
   `test_srvloop_recv_auth_failure_counts_toward_integrity_limit`.
 
 The diagram shows the send-side states. Look at the `Ahead` state: while
-the peer has not caught up, a second limit hit refuses to seal instead of
-starting another update.
+the peer has not caught up, hitting the limit again makes the sender refuse
+to seal instead of starting another update.
 
 ```mermaid
 stateDiagram-v2
@@ -254,7 +258,7 @@ pair from the leaf up to the tail.
 flowchart TD
   A["Peer's chain: leaf, intermediates, tail"] --> L{"1 to 10 certificates?<br/>(CASTORE_PATH_MAX_CERTS)"}
   L -->|no| X["Reject"]
-  L -->|yes| P{"Leaf allows serverAuth<br/>and its key usage fits?"}
+  L -->|yes| P{"Leaf allows serverAuth?<br/>(Ed/X25519-family keys:<br/>keyUsage fits too)"}
   P -->|no| X
   P -->|yes| H{"Every certificate: no unknown<br/>critical or duplicate extension,<br/>none repeated?"}
   H -->|no| X
@@ -415,10 +419,6 @@ The second condition catches a single packet that carries more resets
 than one step can queue (`WIRED_SRVLOOP_RESET_Q`, two per tracked stream
 slot) — `test_srvrun_reset_flood_over_threshold_closes_excessive_load`.
 
-A separate server-wide cap bounds concurrent Extended CONNECT
-(WebTransport) sessions across all connections —
-`test_srvrun_connect_concurrency_limit_enforced`.
-
 **Caller responsibility:** request-rate limiting beyond this built-in reset
 counter, and the Retry-token TTL. The reset limit can be overridden only
 through `wired_srvrun_env`; it is not yet a public `wired_srvrun_opt`
@@ -461,10 +461,12 @@ exercising that guard (V-0448).
 
 WebTransport sessions run inside an HTTP/3 Extended CONNECT request. The
 CONNECT stream also carries **capsules**: small typed messages such as
-flow-control updates and session close.
+flow-control updates and session close. Section numbers cite
+draft-ietf-webtrans-http3-15 unless marked -16; the rules cited did not
+change between them.
 
-- Capsule decoding is wired so that a pooled WebTransport session enforces
-  flow control when it shares one QUIC connection with other sessions
+- Capsule decoding is connected to flow control, so a WebTransport session
+  enforces it whenever several sessions share one QUIC connection
   (draft-ietf-webtrans-http3-15 5.1 MUST) —
   `test_srvrun_wt_session_sharing_enables_flow_control`,
   `test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send`.
@@ -477,8 +479,10 @@ flow-control updates and session close.
   `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`.
 - `WT_CLOSE_SESSION` ends the session. Session creation is rate-limited
   per connection (10 sessions per 1-second window); usage counters for
-  sessions, streams and datagrams are exposed —
+  sessions, streams and datagrams are exposed. A separate server-wide cap
+  bounds concurrent sessions across all connections —
   `test_srvrun_wt_close_session_capsule_received`,
+  `test_srvrun_connect_concurrency_limit_enforced`,
   `test_srvrun_wt_session_creation_rate_limited`,
   `test_srvrun_wt_usage_counters_exposed`.
 - One-shot control frames (`WT_CLOSE_SESSION`, GOAWAY, an app-requested
@@ -497,11 +501,16 @@ flow-control updates and session close.
 A browser sends its page's `Origin` header with every WebTransport
 CONNECT. Checking it stops a page on another site from opening sessions to
 your server with the visitor's browser. The diagram shows where the
-`Origin` decision sits among the other reasons a CONNECT can be refused.
+`Origin` decision sits among the other reasons a CONNECT can be refused,
+after the gates on the client's SETTINGS and transport parameters.
 
 ```mermaid
 flowchart TD
-  A["Extended CONNECT<br/>for WebTransport"] --> B{"wt_resource_check<br/>returned non-zero?"}
+  A["Extended CONNECT<br/>for WebTransport"] --> S0{"Client's SETTINGS<br/>received?"}
+  S0 -->|no| S1["Held until they arrive"]
+  S0 -->|yes| DG{"Peer advertised<br/>max_datagram_frame_size?"}
+  DG -->|no| R
+  DG -->|yes| B{"wt_resource_check<br/>returned non-zero?"}
   B -->|yes| B1["App's own status,<br/>no session"]
   B -->|"no, or not registered"| C{"Origin header present<br/>but empty?"}
   C -->|yes| R["403, no session"]
@@ -512,7 +521,7 @@ flowchart TD
   F -->|no| E
   E -->|no| T["429 + H3_REQUEST_REJECTED"]
   E -->|yes| G{"CONNECT stream is a<br/>client-initiated bidi stream?"}
-  G -->|no| H["H3_ID_ERROR"]
+  G -->|no| H["403 + H3_ID_ERROR"]
   G -->|yes| S["Session established"]
 ```
 
