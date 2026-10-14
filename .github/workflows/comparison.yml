@@ -1,8 +1,9 @@
-# Manual (workflow_dispatch only) run of the docs/comparison.md benchmark
-# lanes on a GitHub-hosted runner. Results land in the job summary and as
-# artifacts. NOTE: hosted runners are shared hardware -- these numbers are
-# same-day relative comparisons between the servers, not replacements for
-# the pinned-machine numbers published in docs/comparison.md.
+# Manual (workflow_dispatch only) run of the
+# docs/performance/comparison.md benchmark lanes on a GitHub-hosted
+# runner. Results land in the job summary and as artifacts. NOTE: hosted
+# runners are shared hardware -- these numbers are same-day relative
+# comparisons between the servers, not replacements for the
+# pinned-machine numbers published in docs/performance/comparison.md.
 name: comparison
 
 on:
