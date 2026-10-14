@@ -90,7 +90,7 @@ on and what stays your job.
 - [Comparison](performance/comparison.md) — features and measured speed
   versus other HTTP/3, WebTransport, and MoQT implementations, under pinned
   conditions.
-- [Performance Monitoring](performance/monitoring.md) — a 5-hour resource
+- [Performance Monitoring](performance/monitoring.md) — a 4.5-hour resource
   baseline (CPU, memory, network) for the `moqt_chat` example server, and the
   test machine's `lscpu` output.
 

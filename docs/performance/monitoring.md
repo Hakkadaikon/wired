@@ -1,10 +1,10 @@
-# moqt_chat wired_server — 5-hour resource monitoring
+# moqt_chat wired_server — 4.5-hour resource monitoring
 
 [Docs](../README.md) › [Performance](./) › Monitoring
 
 This page answers one question: does the `moqt_chat` example server stay
 healthy when real people use it for hours? We sampled its CPU, memory, and
-network use over a 5-hour window while 2-4 real users kept live
+network use over a 4.5-hour window while 2–4 real users kept live
 [WebTransport sessions](https://hakkadaikon.github.io/wired/guide/en/wt/session/)
 open. A long run matters because a short benchmark cannot show slow
 problems: a memory leak or CPU use that drifts upward only appears after
@@ -14,21 +14,22 @@ The subject is the `wired_server` container from
 `examples/moqt_chat/docker-compose.yml`, which runs with
 `network_mode: host` (the container shares the host's network instead of
 getting its own virtual interface). This is a capacity/health baseline for
-a single-process server bound to one CPU core, not a throughput benchmark
+a single-threaded server that can use at most one CPU core, not a throughput benchmark
 (see [Comparison](comparison.md) for that).
 
 ## Method
 
-- Sampled about every 10 minutes during the window (30 samples, first at
-  01:42 and last at 06:15 JST; a few samples near the start and end are
-  seconds apart). Each sample averages CPU and network deltas over a
-  3-second window.
+- Sampled roughly every 10 minutes (30 samples, first at 01:42 and last
+  at 06:15 JST). There is one 28-minute gap (01:54–02:21), and a few samples
+  near the start and end are only seconds apart. Each sample averages CPU and
+  network deltas over a 3-second window.
 - CPU: the delta of `utime`+`stime` from `/proc/<pid>/stat`, normalized to
-  percent of one core. `utime` is time the process spent running its own
-  code, `stime` is time the kernel spent working for it (for example
-  sending packets). The server is intentionally single-process and
-  single-thread; the comment in `docker-compose.yml` explains why
-  `--workers`/`--cores` must not be passed to this example.
+  percent of one core. `utime` is the time the process spent running its own
+  code; `stime` is the time the kernel spent working on its behalf (for
+  example, sending packets). The server is intentionally single-process
+  and single-thread: the hub keeps its peer table in one process's memory,
+  so the example refuses `--workers`/`--cores` (see
+  [examples/moqt_chat/README.md](../../examples/moqt_chat/README.md)).
 - Memory: `VmRSS` from `/proc/<pid>/status`. `VmRSS` (resident set size)
   is the amount of the process's memory actually held in RAM right now.
 - Network: the delta of `/sys/class/net/eth0/statistics/{rx,tx}_bytes`.
@@ -53,7 +54,7 @@ In this table, KB/s means 1024 bytes per second, and the Median column is
 the upper median (the 16th of the 30 sorted values).
 
 - Memory stayed exactly flat across all 30 samples (20.85 MiB): no sign
-  of a leak over the 5-hour window.
+  of a leak over the 4.5-hour window.
 - CPU stayed in a narrow single-digit-to-low-double-digit band (4–12% of
   one core) throughout, tracking connection/share activity rather than
   climbing over time.
@@ -85,9 +86,5 @@ The guest sees its 4 vCPUs as four 1-core sockets rather than one 4-core
 socket. This is the typical shape of cloud vCPUs, not a physical 4-socket
 server.
 
-CPU vulnerability mitigations are the standard set for a 2026-patched Xeon
-KVM guest (Meltdown/L1TF/Spectre v1&2/Retbleed mitigated; MDS/MMIO-stale-
-data/TSX-async-abort report degraded "no microcode visible to guest"
-status, which reflects the hypervisor host, not `wired`) — full
-`lscpu` output on request, omitted here as not relevant to the numbers
-above.
+CPU vulnerability mitigations are the standard set for a patched KVM guest.
+They do not affect the numbers above.
