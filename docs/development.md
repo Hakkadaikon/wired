@@ -331,10 +331,10 @@ Two other workflows matter: `docs.yml` runs `just docs` on every push to
 
 ## Adding a domain
 
-A domain is a leaf directory (see Architecture) that holds a header
-(types, constants, prototypes) and its `.c` implementation. For example,
-the varint domain is `src/common/bytes/varint/varint.{h,c}`, and its test
-is `tests/common/varint_test.c`.
+A domain is a leaf directory (see [Architecture](#architecture)) that holds a
+header (types, constants, prototypes) and its `.c` implementation. For example,
+the varint domain is `src/common/bytes/varint/varint.{h,c}`, and its test is
+`tests/common/varint_test.c`.
 
 The `justfile` finds new sources by itself, but `tests/run.c` does not.
 A new domain needs three edits there, or it is committed but never built
