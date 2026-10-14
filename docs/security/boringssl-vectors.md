@@ -22,9 +22,10 @@ bug in a rare branch (a carry in big-number math, a length on a boundary, a
 malformed signature that should be refused) can pass every RFC example.
 
 BoringSSL is Google's TLS library, used by Chrome and Android. Its developers
-collected many cases per algorithm and also bundle the Wycheproof set of known
-attack and edge cases (over 500 for X25519 and Ed25519 together with their
-own). None of these expected values comes from wired, so a match means
+collected many cases per algorithm, and BoringSSL also ships vectors from other
+independent sources: 518 X25519 cases from Google's Wycheproof project (known
+attack and edge cases) and 514 Ed25519 cases from the Ed25519 authors'
+reference set. None of these expected values comes from wired, so a match means
 independent sources agree. This is what "third-party oracle" means here: an
 outside source of correct answers. We never derive an expected value from
 wired's own output.
@@ -135,11 +136,11 @@ was restored.
 ## Known gaps
 
 Every skip in the table has a reason, and none of them weakens QUIC, HTTP/3,
-WebTransport or MoQT. There are two kinds of gap. Algorithms wired does not
-implement (P-224, secp224k1, MD5, SHA-1, SHA-224) are not needed by a TLS 1.3
-handshake. HKDF, SHA-2 and RSA are implemented and used, but the allowed files
-have no FileTest vectors for them, so other tests cover them (see the bullet
-below).
+WebTransport or MoQT. Some algorithms are not implemented because TLS 1.3 does
+not need them (P-224, secp224k1, MD5, SHA-1, SHA-224). HKDF, SHA-2 and RSA are
+implemented and used, but the allowed files have no FileTest vectors for them,
+so other tests cover them. The remaining skips are input shapes the protocol
+never uses.
 
 - **AES-GCM with a nonce that is not 96 bits (12 bytes).** BoringSSL accepts
   other lengths, but wired's API takes only a 96-bit nonce, so those cases
@@ -152,10 +153,10 @@ below).
   signatures are forbidden in the TLS 1.3 handshake.
 - **HKDF, plain SHA-2 and RSA.** The pinned commit has no FileTest vectors
   for them in the allowed files (HKDF and SHA-2 moved into C++ test source).
-  SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows;
-  HKDF, SHA-2 and RSA keep their own RFC and FIPS tests, and RSA and HKDF
-  are checked against Wycheproof instead; see
-  [Wycheproof vectors](wycheproof-vectors.md).
+  SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows. HKDF,
+  SHA-2 and RSA also have their own RFC and FIPS tests, and RSA and HKDF are
+  additionally checked against Wycheproof (see [Wycheproof
+  vectors](wycheproof-vectors.md)).
 - **X25519 1,000,000-iteration test.** BoringSSL itself disables it; the
   1,000-iteration case runs instead.
 
