@@ -64,7 +64,8 @@ Notes on each row:
   signatures plus RSA PKCS#1 v1.5 / PSS, HMAC-SHA256 and HKDF-SHA256. It
   also lists the 54 "invalid" cases that count as rejected without any
   wired code running, because wired's API cannot express the input (an
-  AES-192 key, or a nonce that is not 96 bits). The vectors live in
+  AES-192 key, a nonce that is not 96 bits, or an Ed25519 signature that is
+  not 64 bytes). The vectors live in
   `tests/vectors/wycheproof/`.
 
 Related, outside this directory:
@@ -84,7 +85,8 @@ why.
 
 | Primitive | RFC / FIPS tests | BoringSSL | Wycheproof |
 |---|---|---|---|
-| AES-128/256-GCM | yes | yes | yes |
+| AES-128-GCM | yes | yes | yes |
+| AES-256-GCM | no (1) | yes | yes |
 | ChaCha20-Poly1305 | yes | yes | yes |
 | X25519 | yes | yes | yes |
 | Ed25519 | yes | yes | yes |
@@ -96,8 +98,9 @@ why.
 | HKDF-SHA256 | yes | no (3) | yes |
 | SHA-256 / 384 / 512 | yes (4) | via HMAC (6) | via ECDSA / RSA / HMAC / HKDF (6) |
 
-- (1) P-384, P-521 and RSA have their own tests, but those use signatures
-  generated with OpenSSL or Python, not an RFC or FIPS known answer. The
+- (1) AES-256-GCM, P-384, P-521 and RSA have their own tests, but their
+  expected values were generated with OpenSSL or Python, not taken from an
+  RFC or FIPS known answer. The
   third-party vectors fill that gap. P-521 is used to verify certificate
   chains only.
 - (2) BoringSSL's allowed vector files have no RSA vectors.
