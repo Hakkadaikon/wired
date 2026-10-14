@@ -299,7 +299,9 @@ stateDiagram-v2
 - **PROBE_RTT** keeps the window small for 200 ms so the true minimum RTT
   can be measured without queueing delay.
 
-`cc_bbr_tick` drives these transitions once per step.
+ACKs only feed BBR's bandwidth and RTT samplers; `cc_bbr_tick` makes the
+state transitions and sets cwnd once per pass of the server loop, after that
+pass's ACKs are processed.
 
 ### Path MTU discovery (DPLPMTUD)
 
@@ -415,9 +417,10 @@ transport-parameters extension.
 
 app speaks application protocols over the streams that QUIC provides. It
 relies on transport (streams), tls (session and key state), crypto and
-common. Above it is the application itself. One small reverse edge exists:
-transport's frame dispatch and tls's transport-parameter code include the
-DATAGRAM constants in `app/datagram/`.
+common. Above it is the application itself. Two small reverse edges exist:
+transport's frame code and tls's server driver and transport-parameter code
+use DATAGRAM definitions and its receive extractor from `app/datagram/`, and
+the TLS client reuses the server's wire helpers (`app/http3/server/srvwire/`).
 
 The stack inside app follows the layer order HTTP/3 → WebTransport → MoQT,
 with two side paths: DATAGRAM, and MoQT directly over raw QUIC.
