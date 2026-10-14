@@ -7,7 +7,8 @@ one, why a server needs it. Read it when a code comment cites an RFC or a
 draft you do not recognize, or when you want to know which standard a
 behavior comes from. It is a lookup table, not a reading list. Specs
 that code comments only mention in passing (for example RFC 9525 or RFC
-1035) are left out; every row here has code behind it.
+1035) are left out. Every row here has code behind it; a few rows are
+helpers not yet wired into the server, and the row says so.
 
 > **At a glance** — eight groups: the QUIC core (4 RFCs), QUIC extensions
 > (13), TLS and PKI (16), cryptographic primitives (11), HTTP/3 and QPACK
@@ -84,11 +85,11 @@ or draft.
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
 | RFC 9221 | An Unreliable Datagram Extension to QUIC | <https://www.rfc-editor.org/rfc/rfc9221> | Adds the DATAGRAM frame, which trades reliability for low latency. |
-| RFC 9287 | Greasing the QUIC Bit | <https://www.rfc-editor.org/rfc/rfc9287> | Deliberately varies the fixed bit to keep middleboxes from ossifying its value. |
+| RFC 9287 | Greasing the QUIC Bit | <https://www.rfc-editor.org/rfc/rfc9287> | Greasing the fixed bit; the encode/accept helpers exist and are tested, but the server does not advertise grease_quic_bit yet, so it always sends the bit set. |
 | RFC 9368 | Compatible Version Negotiation for QUIC | <https://www.rfc-editor.org/rfc/rfc9368> | Defines the procedure to move to a compatible version without an extra round trip. |
 | RFC 9369 | QUIC Version 2 | <https://www.rfc-editor.org/rfc/rfc9369> | A second version to avoid version ossification; the salts and labels differ per version. |
-| RFC 9308 | Applicability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9308> | Operational guidance the server follows, for example sending a Retry to unverified peers under load (Section 5.6). |
-| RFC 9312 | Manageability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9312> | Defines what an on-path observer can see; drives the spin bit and the header fields the SDK leaves readable. |
+| RFC 9308 | Applicability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9308> | Operational guidance. Section 5.6 suggests a Retry under load; the server offers this as an operator switch (`force_retry`, off by default) that sends a Retry to every new client. |
+| RFC 9312 | Manageability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9312> | Describes what an on-path observer can see in a QUIC header. The server leaves the spin bit at 0 (RFC 9000 17.4 allows disabling it); the spin-bit helpers exist and are tested but are not wired in. |
 | RFC 8899 | Packetization Layer Path MTU Discovery for Datagram Transport Protocols | <https://www.rfc-editor.org/rfc/rfc8899> | Discovers the MTU of a datagram path without relying on ICMP. |
 | RFC 9438 | CUBIC for Fast and Long-Distance Networks | <https://www.rfc-editor.org/rfc/rfc9438> | The default congestion-control algorithm, growing the window as a cubic function of time since the last loss. |
 | RFC 9406 | HyStart++: Modified Slow Start for TCP | <https://www.rfc-editor.org/rfc/rfc9406> | Exits slow start on a round-trip-time signal instead of only on loss, avoiding a large overshoot. |
@@ -107,6 +108,9 @@ A few terms from the table:
   ICMP messages that report it are often filtered, so RFC 8899 probes with
   packets of growing size instead.
 - The **fixed bit** is a header bit that RFC 9000 always sets to 1.
+- **ECN** uses two bits in the IP header. A sender sets them to ECT(0)
+  ("this packet can carry a congestion mark"), and a congested router
+  changes them to CE instead of dropping the packet.
 - A **salt** and a **label** are constants mixed into key derivation, so
   version 1 and version 2 packets get different keys.
 - **qlog** is a JSON log format for QUIC events that tools such as qvis
@@ -131,13 +135,13 @@ certificates, and its client role verifies a chain against a trust store
 names the host the client wants, and ALPN picks the application protocol
 (for example `h3` for HTTP/3) during the handshake.
 
-The server also has to read its own key and certificate from disk. Those
-files are usually PEM: base64 text between `-----BEGIN ...-----` lines,
-wrapping a DER-encoded private key or certificate. That is why the PEM,
-base64, and private-key formats appear in this group, next to the
-host-name rules (IDNA, LDAP string matching) that certificate checks use.
-The SSLKEYLOGFILE draft is the debugging hook: it writes the session
-secrets to a file so Wireshark can decrypt a capture.
+The server also has to read its own key and certificate from disk. Those files
+are usually PEM: base64 text between `-----BEGIN ...-----` lines, wrapping a
+DER-encoded private key or certificate. That is why the PEM, base64, and
+private-key formats appear in this group, next to the LDAP string-matching
+rules that certificate name checks use. The SSLKEYLOGFILE draft is the
+debugging hook: it writes the session secrets to a file so Wireshark can
+decrypt a capture.
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
@@ -154,7 +158,7 @@ secrets to a file so Wireshark can decrypt a capture.
 | RFC 4648 | The Base16, Base32, and Base64 Data Encodings | <https://www.rfc-editor.org/rfc/rfc4648> | The base64 decoding inside a PEM block. |
 | RFC 5958 | Asymmetric Key Packages | <https://www.rfc-editor.org/rfc/rfc5958> | The PKCS #8 wrapper around a private key file. |
 | RFC 5915 | Elliptic Curve Private Key Structure | <https://www.rfc-editor.org/rfc/rfc5915> | The SEC1 structure that holds a P-256 private key, on its own or inside PKCS #8. |
-| RFC 5891 | Internationalized Domain Names in Applications (IDNA): Protocol | <https://www.rfc-editor.org/rfc/rfc5891> | Host names are compared in ASCII (A-label) form; a non-ASCII name is refused, with no Punycode conversion. |
+| RFC 5891 | Internationalized Domain Names in Applications (IDNA): Protocol | <https://www.rfc-editor.org/rfc/rfc5891> | Host names are compared in ASCII (A-label, the `xn--...` ASCII form of an internationalized name) form; a non-ASCII name is refused, with no Punycode conversion. Helper only, not yet called by the SNI or certificate checks. |
 | RFC 4518 | LDAP: Internationalized String Preparation | <https://www.rfc-editor.org/rfc/rfc4518> | Case-insensitive, space-collapsing comparison of certificate names (ASCII subset only). |
 | draft-ietf-tls-keylogfile | The SSLKEYLOGFILE Format for TLS | <https://datatracker.ietf.org/doc/draft-ietf-tls-keylogfile/> | Writes session secrets to a key log file so a packet capture can be decrypted for debugging. |
 
@@ -222,7 +226,7 @@ needs (its Required Insert Count) before it can be decoded.
 | RFC 9204 | QPACK: Field Compression for HTTP/3 | <https://www.rfc-editor.org/rfc/rfc9204> | Header compression that avoids head-of-line blocking even though streams arrive independently. |
 | RFC 7541 | HPACK: Header Compression for HTTP/2 | <https://www.rfc-editor.org/rfc/rfc7541> | Defines the static table, Huffman code, and integer encoding that QPACK reuses. |
 | RFC 9218 | Extensible Prioritization Scheme for HTTP | <https://www.rfc-editor.org/rfc/rfc9218> | Defines the mechanism for conveying request priorities. |
-| RFC 8941 | Structured Field Values for HTTP | <https://www.rfc-editor.org/rfc/rfc8941> | The header-value syntax the SDK parses for the RFC 9218 `Priority` header and PRIORITY_UPDATE. |
+| RFC 8941 | Structured Field Values for HTTP | <https://www.rfc-editor.org/rfc/rfc8941> | The header-value syntax of the WebTransport subprotocol offer (`wt-available-protocols`, `wt-protocol`), which selects the MoQT draft, and of the RFC 9218 `Priority` value. |
 
 The guide's [HTTP/3 hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/)
 is the shortest server that uses this group.
@@ -273,8 +277,8 @@ A client opens WebTransport only if the server's HTTP/3 SETTINGS contain a
 setting ID the client knows, and different clients look for different IDs.
 So the server sends three generations at once. SETTINGS_WT_ENABLED
 (`H3_SETTINGS_WT_ENABLED`, numeric setting ID 0x2c7cf000, the same in
-draft-15 and draft-16) is what webtransport-go requires. Chrome keys
-support on the older draft-02 and draft-07 pair, so those go out too.
+draft-15 and draft-16) is what webtransport-go requires. Chrome looks for
+the older draft-02 and draft-07 settings, so the server sends those too.
 
 ## Media over QUIC Transport (MoQT)
 
@@ -309,7 +313,7 @@ Per-draft differences are listed in the requirement ledgers:
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
-| draft-ietf-moq-transport-18 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/> | Older draft, negotiated via `moqt-18`. Wire-compatible with draft-19 except a few control-message details. |
+| draft-ietf-moq-transport-18 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/> | Older draft, negotiated via `moqt-18`. Wire-compatible with draft-19 except for a few control-message details. |
 | draft-ietf-moq-transport-19 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/> | The core spec for publish/subscribe media over a WebTransport session or raw QUIC; negotiated via `moqt-19`, and the default when the peer offers no subprotocol. Hub-role subset: SETUP, SUBSCRIBE, PUBLISH, FETCH, namespace discovery, with the SUBGROUP_HEADER and OBJECT_DATAGRAM data plane. |
 | draft-ietf-moq-transport-22 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/> | Newest draft, negotiated via `moqt-22`. Reworks subscription filters and FETCH. |
 
