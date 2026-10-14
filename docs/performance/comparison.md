@@ -457,7 +457,7 @@ hardware or link shaping. Exact host identity intentionally omitted.
 ### Server defaults (loopback lane)
 
 No tuning was applied; each server ran at its defaults. The knobs that most
-directly shape these metrics:
+directly shape these metrics are listed below.
 
 The `initial_max_*` rows are QUIC transport parameters: how much data (per
 connection, per stream) and how many streams the client may send before the
