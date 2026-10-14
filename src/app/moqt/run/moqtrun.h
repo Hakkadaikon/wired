@@ -40,6 +40,15 @@
  * track per session slot (every other connected session, at most). */
 #define WIRED_MOQTRUN_MAX_SUBS (WIRED_MOQTRUN_MAX_SESSIONS - 1)
 
+/* moqtrel.h's WIRED_MOQTREL_MAX_SUBS mirrors this value as its own
+ * literal (it cannot include this header -- this header includes
+ * moqtrel.h, moqtrel.h:50-53). This header includes moqtrel.h above, so
+ * this is the one place both are visible together; keep it in sync here
+ * if either changes. */
+_Static_assert(
+    WIRED_MOQTREL_MAX_SUBS == WIRED_MOQTRUN_MAX_SUBS,
+    "the relay ring's subscriber cursor table must match the hub's cap");
+
 /** The send/reset operations this layer needs, as a function-pointer
  * table so it never links wired_server_wt_* directly (kept testable without
  * the QUIC/TLS stack). The table is transport-neutral: the backend decides

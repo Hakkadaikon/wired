@@ -43,13 +43,18 @@
  * plus 16 for the adapter's signal prefix, which the hub never sees.
  * WIRED_MOQTRUN_RELAY_FRAG_MAX comes from this header's includer
  * (moqtrun.h), so this macro expands only past that point (moqtrun.c and
- * its tests) -- the same include-order note as WIRED_MOQTREL_MAX_SUBS. */
+ * its tests) -- the same include-order note as WIRED_MOQTREL_MAX_SUBS.
+ * This is the same WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP
+ * quantity srvrun.c's SRVRUN_WTSEND_BUF sizing comment computes
+ * independently (srvrun.c never includes moqtrun.h, so the two cannot
+ * share one macro); keep both comments in sync if either term changes. */
 #define WIRED_MOQTREL_HEADROOM \
   (WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 16)
 
 /** Fixed capacity: subscriber cursors per ring. Mirrors
  * WIRED_MOQTRUN_MAX_SUBS (moqtrun.h includes this header, so the value is
- * repeated here instead of the macro). */
+ * repeated here instead of the macro; moqtrun.h asserts the two stay
+ * equal once both are in scope). */
 #define WIRED_MOQTREL_MAX_SUBS 31
 
 /** Arrival marks a ring keeps (moqtrel_mark). */
