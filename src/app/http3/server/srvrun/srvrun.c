@@ -6410,6 +6410,14 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
  * timeout is the min of both endpoints' advertisements (RFC 9000 10.1). */
 #define WIRED_SRVRUN_IDLE_MS 30000
 
+/* SRVRUN_BOOT_DEADLINE_MS's own comment (its definition, above) relies on
+ * clearing before the idle sweep's cadence would otherwise reap a boot
+ * first -- that ordering only holds if the boot deadline is strictly
+ * shorter than the idle timeout. */
+_Static_assert(
+    SRVRUN_BOOT_DEADLINE_MS < WIRED_SRVRUN_IDLE_MS,
+    "a boot must be reaped before the idle sweep would catch it instead");
+
 /* 1 if the slot holds anything reclaimable: a live connection, or a boot
  * still reassembling its ClientHello (a stalled one would otherwise pin its
  * table entry forever). */
