@@ -175,12 +175,12 @@ derivation, and the recovered original DCID, which goes into that
 transport parameter. The two values are never mixed up.
 
 The flowchart below is the per-datagram decision in `srvrun_serve` (size
-floor) and `srvrun_serve_sized` (everything after it). Look at the three
-outcomes of the gate in `srvrun_retry_gate` (a slot is the server's
-per-connection state entry; "matches no slot" means the server has no
-connection for this ID yet): no token sends a Retry, a
-valid token continues to the normal routing with the original DCID
-recovered, and an invalid token is dropped. A token is valid when its HMAC
+floor) and `srvrun_serve_sized` (everything after it). In the diagram, a
+slot is the server's per-connection state entry, so "matches no slot" means
+the server has no connection for this ID yet. Look at the three outcomes of
+the gate in `srvrun_retry_gate`: no token sends a Retry, a valid token
+continues to the normal routing with the original DCID recovered, and an
+invalid token is dropped. A token is valid when its HMAC
 matches under the current or the previous key (`srvrun_retry_token_ok`) for
 this peer's address.
 
@@ -424,7 +424,7 @@ QUIC root causes are in the notes above.
   testcases pass.
 - `ecn` and `v2`: the quic-go client refuses both; both pass against
   ngtcp2, and `v2` against picoquic too (see notes).
-- `rebind-port` / `rebind-addr`: implemented; fails in the runner because
+- `rebind-port` / `rebind-addr`: implemented; both fail in the runner because
   of its decryption tooling (see notes).
 - `connectionmigration`: the quic-go client never changes path; passes
   against ngtcp2 (see notes).
