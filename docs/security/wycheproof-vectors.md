@@ -35,7 +35,8 @@ refer to:
 - **`result`**: what a correct implementation must do with it. It is one of
   the three values listed next.
 - **`flags`**: short names for what the case attacks, such as `ModifiedTag`
-  (the AEAD tag was changed) or `SignatureMalleability`. A case may carry
+  (the authentication tag of an AEAD cipher,
+  such as AES-GCM, was changed) or `SignatureMalleability`. A case may carry
   several.
 
 The three `result` values:
@@ -45,12 +46,16 @@ The three `result` values:
 - `invalid`: must reject. Accepting it would be a forgery or a spec
   violation.
 - `acceptable`: the spec allows either answer (for example, aborting on an
-  all-zero X25519 shared secret). Neither outcome is a failure; wired's
-  choice is logged as `wyc <file> tcId <n> acceptable: accepted|rejected`.
+  all-zero X25519 shared secret). Accepting and rejecting are both allowed,
+  but accepting with a wrong output (for example a wrong X25519 shared
+  secret) is a failure. wired's choice is logged as
+  `wyc <file> tcId <n> acceptable: accepted|rejected`.
 
-The test drivers classify every case the same way. Look at the two exits on
-the "Can wired's API express the input?" node: they are where **Skip** and
-the "by construction" rejections below come from.
+The AEAD, HMAC, HKDF and RSA drivers classify every case this way. Look at
+the two exits on the "Can wired's API express the input?" node: they are
+where **Skip** and the "by construction" rejections below come from. The
+Ed25519 / X25519 / ECDSA driver has no Skip: an input its API cannot take is
+simply rejected, which is why those rows show Skip 0.
 
 ```mermaid
 flowchart TD
@@ -67,7 +72,11 @@ flowchart TD
   E -- invalid --> I{"Rejected?"}
   I -- yes --> IR["invalid rejected"]
   I -- no --> F
-  E -- acceptable --> L["Log accepted or rejected<br/>(neither is a failure)"]
+  E -- acceptable --> AC{"Accepted?"}
+  AC -- no --> L["Log accepted or rejected"]
+  AC -- yes --> AO{"Output equals<br/>expected?"}
+  AO -- yes --> L
+  AO -- no --> F
 ```
 
 A failure prints `FAIL <file> tcId <n> flags=<flags>` and fails the whole
@@ -81,8 +90,9 @@ The suite was first imported on 2026-10-05; the P-521 row was added on
 
 Column meanings: **Added** is the number of cases in the file(s); **valid OK**
 and **invalid rejected** count cases that got the required answer;
-**acceptable** shows how wired chose; **Fail** is cases that got the wrong
-answer; **Skip** is `valid` or `acceptable` cases that wired's API cannot
+**acceptable** is the number of such cases, split into how many wired
+accepted and how many it rejected; **Fail** counts cases that got the wrong
+answer; **Skip** counts `valid` or `acceptable` cases that wired's API cannot
 express (see the Skips paragraph below).
 
 | Primitive | File(s) | Added | valid OK | invalid rejected | acceptable (accepted / rejected) | Fail | Skip |
@@ -115,19 +125,20 @@ e = 3 (2048_sha256: 2, 2048_sha512: 1, 3072_sha256: 1, 3072_sha512: 1),
 because wired verifies only e = 65537.
 
 **Acceptable outcomes.** RSA tcId 8 (`MissingNull`: the DigestInfo omits its
-NULL parameter) is rejected in all 9 files. X25519 rejects tcIds 32 33 63–86
-117 118 154 165 166 and accepts the other 223. The rejected ones are low-order
-public keys that give an all-zero shared secret, which RFC 7748 6.1 and
-RFC 8446 7.4.2 allow an implementation to abort on. See the guide's
-[X25519 page](https://hakkadaikon.github.io/wired/guide/en/tls/x25519/) for
-what X25519 does in the handshake.
+NULL parameter) is rejected in all 9 files. X25519 rejects tcIds 32, 33, 63–86,
+117, 118, 154, 165 and 166 and accepts the other 223. The rejected ones are
+low-order public keys that give an all-zero shared secret, which RFC 7748 6.1
+and RFC 8446 7.4.2 allow an implementation to abort on. See the guide's [X25519
+page](https://hakkadaikon.github.io/wired/guide/en/tls/x25519/) for what X25519
+does in the handshake.
 
 ## What "invalid rejected" does and does not prove
 
-Rejecting an `invalid` case is the required behaviour. Wycheproof marks a case
+Rejecting an `invalid` case is the required behavior. Wycheproof marks a case
 `invalid` when a correct implementation must refuse it: a modified tag, a
 malleable or mis-encoded signature, broken RSA padding, or an HKDF output
-length beyond 255 x HashLen. Two limits apply to the **invalid rejected**
+longer than 255 × 32 bytes (255 times the SHA-256 output size, the most
+RFC 5869 allows). Two limits apply to the **invalid rejected**
 counts above.
 
 ### 1. Only the outcome is checked, not the reason
@@ -162,9 +173,7 @@ So the rejections that actually went through wired's code are: AES-GCM 54 of
 87, ChaCha20-Poly1305 60 of 69, Ed25519 51 of 63, and all of the rest. ECDSA
 goes through wired's DER signature decoder `ecdsasig_decode` and then verify,
 RSA through `rsa_pkcs1_verify` / `rsa_pss_verify`, and HKDF through
-`hkdf_expand`. In the same way,
-`test_wyc_aesgcm_invalid_ModifiedTag_rejected` exercises wired on 54 of its
-81 cases; the other 27 are the AES-192 ones.
+`hkdf_expand`.
 
 ## Flag-named tests
 
@@ -173,9 +182,9 @@ the flag. Such a test runs only the `invalid` cases that carry that flag, so a
 regression in one attack class shows up by name instead of as one more
 failure in a large total.
 
-The flags LowOrderPublic, NonCanonical, ZeroOrderPublic, SmallPublicKey,
-ModifiedTag and ShortMac get a test named after the flag when they appear on
-`invalid` cases:
+The import set out six flags to get a test of their own: LowOrderPublic,
+NonCanonical, ZeroOrderPublic, SmallPublicKey, ModifiedTag and ShortMac. Each
+gets a test named after it when it appears on `invalid` cases:
 
 | Test | invalid cases | rejected |
 |---|---:|---:|
@@ -186,12 +195,13 @@ ModifiedTag and ShortMac get a test named after the flag when they appear on
 The other listed flags never appear on an `invalid` case in the pinned files,
 so they have no test to run:
 
-- LowOrderPublic, SmallPublicKey and NonCanonicalPublic occur in
+- LowOrderPublic, SmallPublicKey and NonCanonicalPublic (the files' name
+  for the NonCanonical attack) occur in
   `x25519_test.json` only on `acceptable` cases (that file has no `invalid`
   case).
-- SmallPublicKey occurs in the RSA PKCS#1 files only on `valid` /
-  `acceptable` e = 3 cases.
-- ZeroOrderPublic and ShortMac do not occur in the requested files.
+- SmallPublicKey occurs in the RSA PKCS#1 files only on the 5 `valid`
+  e = 3 cases, which are the 5 Skips above.
+- ZeroOrderPublic and ShortMac do not occur in any of the 22 files.
 
 More per-flag rejection loops run for flags that do mark `invalid` cases, and
 every one of them rejects every case it finds:
