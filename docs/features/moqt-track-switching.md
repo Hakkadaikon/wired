@@ -156,12 +156,12 @@ sequenceDiagram
     Note over H: G = max(7, 6) + 1 = 8<br/>A ends at Group 7, B starts at {8, 0}
     H-->>S: SUBSCRIBE_OK for B
     PA->>H: rest of Group 7
-    H->>S: Group 7 on A (still delivered)
+    H->>S: Group 7 on A (delivered while A lasts)
     PB->>H: Group 7
     Note over H: B is below its start: not sent
     PB->>H: Group 8
     H->>S: Group 8 on B, from Object 0
-    Note over H: Hard: B's track reached G, so A ends
+    Note over H: Hard: B's track reached G, so A ends:<br/>A's open streams reset (CANCELLED)
     H->>S: PUBLISH_DONE 0x3 on A, request stream FIN
     PA->>H: Group 8
     Note over H: past A's end: not sent
@@ -283,7 +283,8 @@ flowchart TD
     start([Request carries SWITCH_FROM]) --> off{Hub switching on<br/>and draft-22 session?}
     off -- no --> pv[Close session<br/>PROTOCOL_VIOLATION]
     off -- yes --> kind{Which request?}
-    kind -- REQUEST_UPDATE of a PUBLISH --> bad
+    kind -- REQUEST_UPDATE of a PUBLISH --> pnorm[Other parameter refusals<br/>answer first]
+    pnorm --> bad
     kind -- SUBSCRIBE --> norm[Normal SUBSCRIBE and SSTS<br/>refusals answer first]
     norm --> hubt{Target is one of the<br/>hub's own tracks?}
     hubt -- yes --> bad
@@ -381,7 +382,8 @@ flowchart TD
 take part.
 
 - Sets with Rank 0 are served first, and each higher Rank gets only what
-  the lower Ranks left over (strict priority).
+  the lower Ranks left over (strict priority). A set sent without a Rank
+  counts as Rank 0.
 - Within one Rank, the remaining budget is shared in proportion to Weight
   (1..10).
 - Each set gets its highest member whose threshold fits its share, and a
@@ -410,7 +412,9 @@ last decision counts as a timeout and adds to the depth
 - reliable stall: a stream on the reliable path made no progress, so the
   hub gave up on it.
 
-They count only while the session has a backpressure set.
+They count only while the session has a pacing set (an active
+backpressure set), so a set that becomes active later starts without stale
+resets.
 
 **Backpressure, when the tier moves.** One tier is shared by all of the
 session's sets, and it starts at the lowest. It moves at each Group of the
