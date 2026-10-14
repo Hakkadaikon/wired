@@ -331,7 +331,7 @@ Two other workflows matter: `docs.yml` runs `just docs` on every push to
 
 ## Adding a domain
 
-A domain is a directory under one of the five groups, holding a header
+A domain is a leaf directory (see Architecture) that holds a header
 (types, constants, prototypes) and its `.c` implementation. For example,
 the varint domain is `src/common/bytes/varint/varint.{h,c}`, and its test
 is `tests/common/varint_test.c`.
