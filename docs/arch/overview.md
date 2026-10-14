@@ -425,9 +425,8 @@ picks a worker from a hash of the address and port, so the packets of one
 connection are not guaranteed to reach the same worker. Nothing uses the
 connection ID to keep a connection on its worker, so if the kernel's spread
 changes mid-handshake, the next datagram reaches a worker that has no state
-for it. As a result, a handshake can fail intermittently. See the
-SO_REUSEPORT entry under "Platform / I/O" in
-[Known limitations](../features/known-limitations.md).
+for it. As a result, a handshake can fail intermittently (the "KNOWN
+LIMITATION (workers > 1)" comment in `srvworkers.h` describes it).
 
 AF_XDP needs `CAP_BPF` and `CAP_NET_ADMIN` and is less hardened than the
 default path.
@@ -464,8 +463,9 @@ a wake-up delay on each new packet.
 `pause` instruction (`wired_arch_pause`, an x86 hint that saves power during
 a spin without sleeping) and check again. This trades CPU for latency: a
 polling core shows about 100% CPU even with no traffic. AF_XDP always works
-this way in this SDK, because its ring gives `poll()` nothing to wait on in
-the way a normal socket does.
+this way in this SDK: the driver reads its ring directly in a spin loop
+(`srvrun_recv_xdp`) and never sleeps in `poll()`, trading CPU for the lowest
+receive latency.
 
 For the default driver, how long to sleep depends on whether anything needs
 the clock. `srvrun_wait_input` sleeps without a time limit only when nothing
@@ -485,6 +485,9 @@ flowchart TD
     bounded -- "readable" --> recv["recvmmsg:<br/>read the batch"]
     bounded -- "25 ms passed" --> skip["skip receive;<br/>timers run this step"]
 ```
+
+With a preferred-address socket (RFC 9000 §9.6) the receive is non-blocking
+on both sockets, so the unbounded sleep above does not apply.
 
 Why each branch forces a time limit (`srvrun_bounded_wait_forced`,
 `srvrun_may_block_unbounded`):
