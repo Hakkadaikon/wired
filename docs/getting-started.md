@@ -1,37 +1,51 @@
-[Docs](README.md) › Getting Started
-
 # Getting Started
 
-From nothing to a running HTTP/3 server, then to a server of your own.
+[Docs](README.md) › Getting Started
 
-This page is in three parts — you can stop after any of them:
+This page takes you from a fresh checkout to a running HTTP/3 server, and then
+to a server binary of your own. It is for a developer who knows HTTP and TLS
+from the web side but has not used QUIC or a C program without libc before.
+
+HTTP/3 is HTTP carried over QUIC, a transport that runs over UDP instead of
+TCP and has TLS 1.3 built in. You do not need to know how QUIC works to follow
+this page; the SDK handles it.
+
+The page is in three parts. You can stop after any of them:
 
 | Part | What you get | Time |
 |---|---|---|
 | [1. First five minutes](#part-1-first-five-minutes) | The example server running, answering real HTTP/3 requests | ~5 min |
 | [2. A server of your own](#part-2-a-server-of-your-own) | Your own binary linked against the SDK | ~15 min |
-| [3. Going further](#part-3-going-further) | I/O drivers, WebTransport, certificates, observability | as needed |
+| [3. Going further](#part-3-going-further) | Pointers to I/O drivers, WebTransport, certificates, observability | as needed |
 
 ## Part 1: First five minutes
 
 ### Install the toolchain
 
-`wired` targets **x86_64-linux only**. Two ways to get the tools — pick one:
+`wired` targets **x86_64-linux only**. You need clang, `just` (a command
+runner; every build step in this repo is a `just` recipe), `ninja` (the build
+tool the recipes call), and `lizard` (a complexity checker). Pick one of two
+ways to get them.
 
-**Option A (recommended): let Nix pin everything.** One command installs
-clang, just, lizard, and doxygen at the exact versions CI uses:
+**Option A (recommended): let Nix pin everything.** Nix is a package manager
+that can install exact tool versions into a temporary shell without touching
+the rest of your system. That shell is called a *devShell*, and this repo's
+devShell holds the same clang, just, ninja, lizard, and doxygen versions that
+CI uses:
 
 ```sh
 just setup     # one-time: installs Nix (Determinate Systems installer) if absent
 nix develop    # enter the pinned devShell
 ```
 
-**Option B: your own package manager.** Install `clang`, `just`, and
-`lizard` (e.g. `apt install clang just` + `pip install lizard`). Everything
-builds and tests fine this way. The one caveat: a host `clang-format` /
-`clang-tidy` of a different version can format or lint slightly differently
-from CI — if a formatting check surprises you, run that one recipe through
-the pinned toolchain with `just nix <recipe>`.
+**Option B: your own package manager.** Install `clang`, `just`, `ninja`, and
+`lizard` (for example `apt install clang just ninja-build` plus
+`pip install lizard`). Everything builds and tests fine this way.
+
+The one caveat with Option B is formatting and linting. A host `clang-format`
+or `clang-tidy` of a different version can format or lint slightly
+differently from CI. If a formatting check surprises you, run that one recipe
+through the pinned toolchain with `just nix <recipe>`.
 
 ### Build and test
 
@@ -40,8 +54,8 @@ just build     # format + compile + lint
 just test      # run the whole test suite
 ```
 
-Both should end green. (`just check` is the pre-commit combination:
-complexity gate + tests.)
+Both should end green. `just check` is the pre-commit combination: the
+complexity gate plus the tests.
 
 ### Run the example server
 
@@ -56,36 +70,62 @@ Then, from a machine that can reach UDP port 4433:
 curl --http3-only --insecure https://<host>:4433/
 ```
 
-If your local curl lacks HTTP/3 support, use the Docker one:
+`--insecure` is needed because the example presents a self-signed
+certificate, one that no certificate authority (CA) vouches for. If your
+local curl lacks HTTP/3 support, use the Docker one:
 
 ```sh
 docker run --rm ymuski/curl-http3 \
     curl --http3-only --insecure -v https://<host>:4433/
 ```
 
-**Checkpoint** — you have a working HTTP/3 server. The other samples run the
-same way; see [examples/](../examples/): an HTTP/3 message-log /
-static-file server ([word_list](../examples/word_list/)), a
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
-WebTransport server endpoint
-([webtransport_interop](../examples/webtransport_interop/)), a MOQT
-(draft-ietf-moq-transport-22, with a draft-19 fallback for browsers that
-cannot offer a WebTransport subprotocol) chat-plus-voice-call room over WebTransport
-([moqt_chat](../examples/moqt_chat/)), and a MOQT relay that negotiates
-draft-18/19/22 per session for moq-interop-runner
-([moqt_interop](../examples/moqt_interop/)). For guided, runnable WebTransport
-walkthroughs, see the
-[interactive guide](https://hakkadaikon.github.io/wired/guide).
+**Checkpoint**: you have a working HTTP/3 server.
 
-These four recipes (`setup`, `build`, `test`, `run`) are all this page
-needs; the full recipe list lives in
+Every sample in [examples/](../examples/) runs the same way:
+
+- [word_list](../examples/word_list/): the HTTP/3 message-log and
+  static-file server you just ran.
+- [webtransport_interop](../examples/webtransport_interop/): a WebTransport
+  server endpoint for the
+  [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
+  test harness.
+- [moqt_chat](../examples/moqt_chat/): a browser chat and voice-call room
+  built on MOQT (Media over QUIC Transport, a publish/subscribe protocol for
+  live media).
+- [moqt_interop](../examples/moqt_interop/): a MOQT relay for the
+  moq-interop-runner test harness.
+
+For guided, runnable walkthroughs, see the
+[interactive guide](https://hakkadaikon.github.io/wired/guide/en/).
+
+These four recipes (`setup`, `build`, `test`, `run`) are all Part 1 needs;
+Part 2 adds `lib`. The full recipe list lives in
 [Development](development.md#build-system).
 
 ## Part 2: A server of your own
 
+### Why the build looks unusual
+
+A normal C program links against libc, the C standard library that provides
+`printf`, `malloc`, and the startup code that calls `main`. wired does not
+use libc at all, so the server is one static binary that depends only on the
+Linux kernel ([Why wired](../README.md#why-wired) explains the reasons). Your
+program is therefore compiled *freestanding*: the compiler is told there is
+no standard library.
+
+Two things libc normally supplies must then come from somewhere else:
+
+- **`_start`**: the real entry point the kernel jumps to. In a libc program,
+  libc's `_start` sets up `argc`/`argv` and calls `main`. Here the SDK
+  provides a `_start` that does the same and calls your `wired_main`.
+- **`memcpy` and `memset`**: the compiler emits calls to these two names on
+  its own (for example when you copy a struct), even if your code never
+  calls them. The SDK provides a small *shim*, two functions with those
+  names that forward to its own byte helpers.
+
 ### Link against the SDK
 
-Build the static library, then compile your application freestanding against
+Build the static library, then compile your application freestanding with
 `src/` as the include root and link `build/libwired.a`:
 
 ```sh
@@ -95,161 +135,268 @@ clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
       -Isrc -o my_server my_server.c build/libwired.a
 ```
 
-One translation unit defines `WIRED_MAIN` before including `wired.h`; that
-emits the `memcpy`/`memset` shim a `-nostdlib` binary needs plus the `_start`
-entry stub, which recovers `argc`/`argv` from the kernel stack and calls your
-`wired_main`. `wired.h` is the only include you need — it carries the whole
-public API:
+Every guide page builds with this same command. The smallest program that
+uses it, with no server at all, is the guide's
+[Hello, wired](https://hakkadaikon.github.io/wired/guide/en/getting-started/hello/).
+
+Exactly one translation unit (one `.c` file, compiled on its own) must
+define `WIRED_MAIN` before including `wired.h`. That makes `wired.h` emit the
+`memcpy`/`memset` shim and the `_start` stub; defining it in two files would
+emit them twice and fail to link. `wired.h` is the only include you need, as
+it carries the whole public API:
 
 ```c
 #define WIRED_MAIN
 #include "wired.h"
-
-int wired_main(int argc, char** argv);
 ```
+
+The diagram below shows what happens between the kernel starting your binary
+and the server running. You write only `wired_main`. One call to
+`wired_srvdriver_run` hands control to the SDK, which starts the I/O driver
+the command-line flags chose (see [Part 3](#choosing-an-io-driver)). Every
+driver ends in the same server loop, which runs until SIGTERM.
+
+```mermaid
+sequenceDiagram
+    participant K as Linux kernel
+    participant S as _start (from WIRED_MAIN)
+    participant M as wired_main (your code)
+    participant SDK as wired SDK
+
+    K->>S: start the binary<br/>(argc and argv on the stack)
+    S->>M: wired_main(argc, argv)
+    M->>M: fill the server identity<br/>(wired_srvboot_demo)
+    M->>SDK: wired_srvdriver_parse(argc, argv, &opt)
+    SDK-->>M: 1 (opt.kind set), or 0 for bad flags
+    M->>SDK: wired_srvdriver_run(&id, h, obs, &opt)
+    Note over SDK: start the I/O driver opt.kind names,<br/>bind UDP, run the server loop<br/>(wired_srvrun_serve_env)
+    SDK-->>M: returns after SIGTERM shutdown<br/>(0 if the bind failed)
+    M-->>S: return value
+    S->>K: exit(return value)
+```
+
+How each driver reaches that loop is in
+[Architecture](arch/overview.md).
 
 ### A minimal server
 
-Three pieces, then one call (`examples/word_list/wired_server.c` is the full
-worked version):
+A server needs three pieces: a request handler, a server identity, and the
+call that runs it. The code below is the guide's
+[hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/) handler joined
+with the `wired_main` of its
+[TLS handshake](https://hakkadaikon.github.io/wired/guide/en/tls/handshake/) page.
+[`examples/word_list/wired_server.c`](../examples/word_list/wired_server.c)
+is the full worked version.
 
-**1. The request handler** — answer each decoded HTTP/3 request by filling a
+**1. The request handler** answers each decoded HTTP/3 request by filling a
 body buffer:
 
 ```c
-static int app_on_request(
+/* Called once per request (and again while *more is set). Fill body_out and
+ * return 1 to send it as a 200 (0 sends a 200 with no body). */
+static int on_request(
     void*                       ctx,
-    const wired_h3reqdrive_req* req,   /* method/path/body views */
-    wired_obuf*                  body_out,
-    const char**                content_type) {
-  /* write the response body into body_out, set *content_type */
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                content_type,
+    int*                        more,
+    u64*                        total_size) {
+  (void)ctx;
+  (void)req;
+  (void)offset;
+  (void)more;
+  (void)total_size;
+  wired_log_str("request /\n");
+  *content_type = "text/plain";
+  wired_obuf_printf(body_out, "hello");
   return 1;
 }
 ```
 
-**2. The server identity** (`wired_srvboot_id`) — the X25519 handshake key
-pair, the signing seed for the self-signed ECDSA P-256 certificate, a source
-connection ID, and the ServerHello random. The example's `server_identity()`
-fills it from fixed demo seeds; a production server derives per-run keys.
+`req` holds the method, path, and body; its contents are valid only during
+the call. If the whole body fits in `body_out`, the handler can ignore
+`offset`, `more`, and `total_size`.
 
-**3. Parse the CLI and run.** `wired_srvdriver_parse` resolves `--port` and
-the I/O-driver selection flags into a `wired_srvdriver_opt`;
-`wired_srvdriver_run` dispatches to the selected driver and serves until
-SIGTERM:
+Those three exist for large bodies. The SDK calls the handler in *rounds*.
+`offset` is how many body bytes earlier rounds already sent. The handler
+writes the next chunk, sets `*more = 1` to be called again, and on the first
+round may set `*total_size` to the full length. word_list's `app_on_request`
+uses this to stream static files; the guide's
+[streaming](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/) page shows
+it step by step.
+
+**2. The server identity** (`wired_srvboot_id`) holds the server's TLS keys
+and certificate. `wired_srvboot_demo` fills it with fixed demo values, so
+every run presents the same self-signed certificate. That is fine for a demo,
+but never use it in production; [Certificates](#certificates) below shows how
+to load a real one.
+
+**3. Parse the CLI and run.** `wired_srvdriver_parse` reads `--port` and the
+I/O-driver flags into a `wired_srvdriver_opt` and returns 0 for a bad or
+conflicting combination. `wired_srvdriver_run` starts the selected driver
+and serves until the process receives SIGTERM:
 
 ```c
 int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id;
-  wired_srvdriver_opt  opt;
-  wired_srvrun_handler h   = {.cb = app_on_request};
-  wired_srvrun_obs     obs = {0}; /* qlog/keylog/cert-reload paths, all off */
+  /* Fixed demo identity (self-signed certificate; never for production). */
+  static wired_srvboot_demo_keys keys;
+  wired_srvboot_id               id;
+  wired_srvboot_demo(&id, &keys, 0x50, "guide-tl");
 
-  server_identity(&id);  /* fill the wired_srvboot_id (see examples/) */
-  if (!wired_srvdriver_parse(argc, argv, &opt)) wired_die("bad flags\n");
-  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
-  return 0;
+  /* --port and the driver flags (--workers, --cores, ...) come from argv. */
+  wired_srvdriver_opt opt;
+  if (!wired_srvdriver_parse(argc, argv, &opt)) return 1;
+  wired_srvrun_handler h   = {.cb = on_request};
+  wired_srvrun_obs     obs = {0};
+  return wired_srvdriver_run(&id, h, obs, &opt) ? 0 : 1;
 }
 ```
 
-A caller that does not want CLI parsing can skip `wired_srvdriver_parse` and
-call `wired_server_run(port, &id, h, obs)` (single-process, blocking `poll`)
-directly.
+`wired_srvboot_demo`'s last two arguments are the first byte of the demo
+key pattern (`0x50`) and the server's connection ID, a short label that
+names the connection on the server side (`"guide-tl"`). Any values work for a
+demo. `keys` is `static` because `id` keeps pointers into it for the whole
+run. `obs = {0}` turns the optional outputs off and keeps the default
+settings.
 
-**Checkpoint** — you have your own HTTP/3 server binary. Everything below is
+A program that does not want CLI parsing can skip `wired_srvdriver_parse`
+and call `wired_server_run(port, &id, h, obs)` directly. That is the
+single-process driver with default options; the guide's
+[hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/) page does this.
+
+**Checkpoint**: you have your own HTTP/3 server binary. Everything below is
 opt-in.
 
 ## Part 3: Going further
 
-Four independent recipes. They share nothing — jump straight to the one you
-need: [I/O drivers](#choosing-an-io-driver) for more throughput,
-[WebTransport](#webtransport) for browser streams/datagrams,
-[Certificates](#certificates) for real TLS certs,
-[Observability](#observability) for debugging output.
+Four independent topics. Each says what it is and why you would want it, then
+points to the guide page that shows the code and its output.
 
 ### Choosing an I/O driver
 
-`wired_srvdriver_parse` selects one of four run paths from the flags. All
-four drive the same application callback — pick by how much throughput you
-need and how much setup you can afford:
+An I/O driver is the part that moves packets between the network and the
+server loop. All four drivers call the same handler, so switching is a
+command-line flag, not a code change:
 
-| Driver | Select with | Extra flags | Notes |
-|---|---|---|---|
-| Single-process (default) | no flag | `--pin-core N` | Blocking `poll(2)` loop; simplest. `--pin-core` pins the process to CPU N. |
-| Multi-process fork | `--workers N` | `--pin-cores 1` | N `fork`ed workers sharing the port via `SO_REUSEPORT`; a supervisor re-forks a dead worker. `0` = CPU count. `--pin-cores 1` pins worker *i* to CPU *i*. |
-| Multi-thread | `--cores a,b,c` | `--control-core N` | `clone(2)`/`futex(2)` fan-out (no pthreads); worker *i* pins to `cores[i]`. `--control-core` pins the control thread to CPU N. |
-| AF_XDP | `--ifindex N --ip a.b.c.d` (both required) | `--queue N --skb-mode` | Packets polled from a shared UMEM ring, zero per-packet syscalls on receive. Root and kernel ≥ 5.9 (`BPF_LINK_CREATE` for XDP) required. |
+| Driver | Select with | Why you'd pick it |
+|---|---|---|
+| Single process | no flag | Simplest; enough for development and light load |
+| Forked workers | `--workers N` | Use several CPU cores with separate processes |
+| Threads | `--cores a,b,c` | Use several CPU cores within one process |
+| AF_XDP | `--ifindex N --ip a.b.c.d` | Highest throughput; needs root and a capable NIC |
 
-Rules enforced by the parser: `--workers` cannot combine with `--cores` or
-`--ifindex`; `--pin-core` is rejected alongside `--workers`/`--cores` (each
-has its own pinning flag) and only the single-process driver applies it. `--cores`
-**plus** `--ifindex` is AF_XDP multi-queue mode (worker *i* serves NIC queue
-*i* against one shared BPF filter).
+The forked workers all bind the same UDP port with `SO_REUSEPORT`, a socket
+option that lets several sockets share one port while the kernel spreads
+incoming packets among them. AF_XDP is a Linux feature that hands packets
+from the network card to the program through shared memory, skipping most of
+the kernel's network stack.
 
-`--port` (default 4433) lives in the same parse: the port the server binds
-and, for AF_XDP, the port the BPF redirect filter matches — one value, so
-they cannot drift apart.
-
-> **AF_XDP caveats:** the NIC must have as many RX queues as `--cores`
-> entries (`ethtool -l`); `--skb-mode` (generic XDP) works on drivers
-> without native XDP support, but some virtualized NICs (e.g. `virtio_net`)
-> do not deliver AF_XDP TX in generic mode — prefer the plain UDP driver
-> there.
+The parser rejects combinations that make no sense, such as `--workers` with
+`--cores`. The full flag list, the pinning flags, and the rejection rules are
+on [Server flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/).
+How the drivers work inside is in
+[Architecture](arch/overview.md).
 
 ### WebTransport
 
-The server loop delivers WebTransport events through optional callbacks on
-`wired_srvrun_opt` (reachable as `opt.run` on the driver options):
+WebTransport lets a browser open streams and send datagrams to a server over
+an HTTP/3 connection. A datagram is a small message that is never
+retransmitted and may arrive out of order. You want WebTransport for
+anything real-time in the browser, such as chat, games, or live media, where
+WebSocket's single ordered TCP stream adds delay.
 
-```c
-opt.run.wt_on_datagram    = my_datagram_cb;   /* one QUIC DATAGRAM per call */
-opt.run.wt_on_stream_data = my_stream_cb;     /* reassembled WT stream bytes */
-```
-
-Extended CONNECT establishes the session in the SDK; your callback receives
-the `wired_wt_session*` it belongs to. `wired_server_broadcast_datagram(data)`
-fans one DATAGRAM out to every active session — a whole chat relay is that
-one call (the guide's browser-chat chapter builds it).
+The browser starts a WebTransport session with an Extended CONNECT request;
+the SDK accepts it and calls your WebTransport callbacks, passing the
+session that each stream or datagram belongs to. Start with
+[WebTransport datagrams](https://hakkadaikon.github.io/wired/guide/en/wt/datagram/)
+(echo one datagram back), then
+[Fanning a datagram out](https://hakkadaikon.github.io/wired/guide/en/wt/broadcast/)
+(send one datagram to every session, the core of a chat relay).
+[Streams vs datagrams](https://hakkadaikon.github.io/wired/guide/en/concepts/streams-vs-datagrams/)
+helps you pick between the two.
 
 ### Certificates
 
-By default the server builds a **self-signed ECDSA P-256** certificate at
-startup from `id.cert_seed`. To serve a CA-issued chain instead:
+A browser only trusts a server whose certificate chains to a CA it knows, so
+a public server needs a CA-issued certificate instead of the self-signed
+demo one. `wired_certreload_load_or_selfsigned(cert_path, key_path, &store,
+&id)` loads a `cert.pem` / `key.pem` pair into the identity.
+
+Call it in `wired_main` after `wired_srvboot_demo` and before
+`wired_srvdriver_run`, so a loaded certificate replaces the demo one. The
+store must be `static` for the same reason as `keys`: `id` keeps pointers
+into it. Here is the call added to the Part 2 server, reading word_list's
+`--cert` / `--key` flags:
 
 ```c
-static wired_certreload_store store;
-wired_certreload_load_or_selfsigned(cert_path, key_path, &store, &id);
+/* id points into it for the whole run, so it must outlive the server. */
+static wired_certreload_store cert_store;
+
+int wired_main(int argc, char** argv) {
+  /* ... */
+  wired_srvboot_demo(&id, &keys, 0x50, "guide-tl");
+  wired_certreload_load_or_selfsigned(
+      wired_cliargs_str(argc, argv, "--cert", 0),
+      wired_cliargs_str(argc, argv, "--key", "key.pem"), &cert_store, &id);
+  /* ... wired_srvdriver_parse, wired_srvdriver_run as before */
+}
 ```
 
-- `cert.pem` is a fullchain, leaf first, at most 2 certificates.
-- `key.pem` is an ECDSA P-256 private key (SEC1 or unencrypted PKCS#8).
-  RSA and Ed25519 server keys are not supported.
-- Paths unset → self-signed as before. Set but unloadable → the process dies
-  at startup rather than silently falling back.
+`wired_cliargs_str` returns the value after a flag, or its last argument
+when the flag is absent. With no `--cert` the path is `0`, so the demo
+identity stays; `--key` defaults to `key.pem`.
 
-Passing the same paths in `wired_srvrun_obs.cert_path`/`.key_path` also
-enables **SIGHUP hot reload**: the PEM pair is re-read and the identity
-updated in place; connections already past their handshake are undisturbed.
+The function's rule is "load what you asked for, or stop": an unset path keeps the
+self-signed identity, while a set path that cannot be loaded stops the
+process at startup instead of silently serving the demo certificate. The
+flowchart shows each check in order:
+
+```mermaid
+flowchart TD
+    A["wired_certreload_load_or_selfsigned<br/>(cert_path, key_path, &store, &id)"] --> B{"cert_path set?<br/>(non-NULL, non-empty)"}
+    B -->|no| C["no-op: id keeps the identity<br/>you already set (self-signed)"]
+    B -->|yes| D{"both files readable?"}
+    D -->|no| X["wired_die: bad cert/key file"]
+    D -->|yes| E{"at least one CERTIFICATE<br/>block (up to 10 read)?"}
+    E -->|no| X
+    E -->|yes| F{"a P-256 private key in<br/>EC PRIVATE KEY or PRIVATE KEY?"}
+    F -->|no| X
+    F -->|yes| G["id.chain, chain_count, cert_seed<br/>point into store; log the cert count"]
+```
+
+`cert.pem` is a full chain, leaf certificate first. `key.pem` must be an
+ECDSA P-256 private key; RSA and Ed25519 server keys are not supported.
+[Loading certificates](https://hakkadaikon.github.io/wired/guide/en/tls/certificates/)
+walks through the decoding step by step.
+
+You can also replace a certificate without restarting: put the same paths in
+`obs.cert_path` / `obs.key_path`, and on SIGHUP the server re-reads the pair.
+Connections that already finished their handshake are not disturbed. See
+[Certificate hot reload](https://hakkadaikon.github.io/wired/guide/en/ops/cert-reload/).
 
 ### Observability
 
-`wired_srvrun_obs` carries optional debug outputs, each `0` to disable:
+QUIC encrypts almost everything on the wire, so a packet capture alone does
+not tell you what went wrong. Besides the reload paths above,
+`wired_srvrun_obs` carries two optional debug outputs (`0` = off) and one
+tuning setting:
 
-- `qlog_path` — RFC 9002-shaped `packet_sent`/`packet_received` events,
-  JSON-SEQ framed.
-- `keylog_path` — NSS key log (`SSLKEYLOGFILE` format), for decrypting a
-  capture in Wireshark. Once the client Finished verifies, the server
-  appends `CLIENT_HANDSHAKE_TRAFFIC_SECRET`,
-  `SERVER_HANDSHAKE_TRAFFIC_SECRET`, `CLIENT_TRAFFIC_SECRET_0`,
-  `SERVER_TRAFFIC_SECRET_0` and `EXPORTER_SECRET` (preceded by
-  `CLIENT_EARLY_TRAFFIC_SECRET` when 0-RTT was accepted).
-- `cc_algo` — congestion-control algorithm: `0` = the build's default
-  (CUBIC unless the build overrides `-DWIRED_CC_ALGO_DEFAULT`), `1` = CUBIC,
-  `2` = BBR. A build wanting NewReno as its default sets
-  `-DWIRED_CC_ALGO_DEFAULT=0`. The advertised transport-parameter defaults
-  are build-time tunable the same way (`STP_DEFAULT_*` in
-  `src/tls/ext/stp/server_tp.h`).
+- `qlog_path`: a qlog file, a JSON log of every packet sent and received
+  (qlog is the IETF's draft log format for QUIC).
+- `keylog_path`: an NSS key log (the `SSLKEYLOGFILE` format), which lets
+  Wireshark decrypt a capture of the same run.
+- `cc_algo`: the congestion-control algorithm, which decides how fast the
+  server sends. `0` keeps the build's default (CUBIC), `1` is CUBIC, `2` is
+  BBR.
 
-The examples map these to `--qlog-file`/`--keylog-file` flags.
+The forked-workers driver (`--workers`) ignores the two debug outputs; use
+any other driver when you need them.
+
+word_list and webtransport_interop map the two outputs to `--qlog-file` /
+`--keylog-file`; the MOQT examples use `--qlog` / `--keylog`.
+[Handshake and observability knobs](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)
+shows them together with session resumption and Retry.
 
 ---
 
