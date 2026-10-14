@@ -95,8 +95,8 @@ official RFC/FIPS test vectors.
 **Auditable by construction.** Every function has a cyclomatic complexity of
 at most 3 (at most three independent paths, checked in CI), so each one can
 be read and verified on its own. CI also runs clang-tidy with the CERT C
-secure-coding checks on every push, fuzzing every night, and interop tests
-against real QUIC clients.
+secure-coding checks on every push and fuzzing every night, and an on-demand
+interop workflow tests against real QUIC clients.
 
 ## How the layers fit
 
@@ -225,13 +225,13 @@ the SDK driven from a browser.
 
 ## Supported platform
 
-x86_64-linux only. The optional AF_XDP driver also needs root and kernel 5.9
-or later (for `BPF_LINK_CREATE` on XDP). If your network card (NIC) has no
-native XDP support, `--skb-mode` selects the slower generic XDP mode. Some
-virtual NICs (e.g. `virtio_net`) cannot send AF_XDP packets in generic mode,
-so use the plain UDP driver there. The
-[server flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/)
-page lists the driver flags.
+x86_64-linux only. The optional AF_XDP driver also needs root and kernel 5.9 or
+later (for `BPF_LINK_CREATE` on XDP). If your network card (NIC) has no native
+XDP support, `--skb-mode` selects the slower generic XDP mode. Some virtual
+NICs (e.g. `virtio_net`) may fail to send AF_XDP packets in generic mode; if
+that happens, use the plain UDP driver. The [server
+flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/) page
+lists the driver flags.
 
 ## License
 
