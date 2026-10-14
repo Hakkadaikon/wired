@@ -1,15 +1,89 @@
 # Wycheproof vectors: results
 
-Project Wycheproof attack vectors (C2SP/wycheproof `testvectors_v1/`, pinned at
-`3fa63dd0344abb611f1fb1d77e119938603ea230`) run as a third-party oracle beside
-the RFC / FIPS tests and the BoringSSL vectors. Provenance, the judgement rules
-and the skip list are in `tests/vectors/wycheproof/README.md`.
+This page answers one question: when wired's crypto is fed known attack
+inputs written by someone else, does it accept what it must accept and reject
+what it must reject? It is for anyone reviewing wired's security evidence, and
+it also says where the counts prove less than they seem to.
 
-Judgement follows each case's `result`: `valid` must be accepted with the
-expected output, `invalid` must be rejected, `acceptable` passes either way and
-its outcome is logged (`wyc <file> tcId <n> acceptable: accepted|rejected`).
+## What Wycheproof is
 
-## Results (2026-10-05)
+[Project Wycheproof](https://github.com/C2SP/wycheproof) is a collection of
+crypto test vectors, started at Google and now kept by C2SP. Each vector is an
+edge case or a known attack: a tampered authentication tag, a signature that
+can be re-encoded into a second valid-looking one, a low-order public key that
+forces an all-zero shared secret, and so on. Implementations that pass plain
+RFC vectors often fail some of these.
+
+wired uses them as a **third-party oracle**: the expected answer for each case
+comes from the Wycheproof JSON, never from wired. This matters because a test
+where wired checks its own output against itself cannot catch a bug that both
+sides share. Wycheproof runs beside the RFC / FIPS tests and the BoringSSL
+vectors ([boringssl-vectors.md](boringssl-vectors.md)).
+
+The vectors are the `testvectors_v1/` files of C2SP/wycheproof, pinned at
+commit `3fa63dd0344abb611f1fb1d77e119938603ea230`. Where they came from, how
+they are turned into C arrays, and the skip list are in
+[`tests/vectors/wycheproof/README.md`](../../tests/vectors/wycheproof/README.md).
+
+## How to read a vector
+
+Every case in a Wycheproof file carries three fields that the tables below
+refer to:
+
+- **`tcId`**: the case's number inside its file. A failure is reported as
+  file + `tcId`, so you can look the exact input up in the JSON.
+- **`result`**: what a correct implementation must do with it. It is one of
+  the three values listed next.
+- **`flags`**: short names for what the case attacks, such as `ModifiedTag`
+  (the AEAD tag was changed) or `SignatureMalleability`. A case may carry
+  several.
+
+The three `result` values:
+
+- `valid`: must accept, and produce exactly the expected output (the
+  plaintext, the shared secret, a verified signature).
+- `invalid`: must reject. Accepting it would be a forgery or a spec
+  violation.
+- `acceptable`: the spec allows either answer (for example, aborting on an
+  all-zero X25519 shared secret). Neither outcome is a failure; wired's
+  choice is logged as `wyc <file> tcId <n> acceptable: accepted|rejected`.
+
+The test drivers classify every case the same way. Look at the two exits on
+the "Can wired's API express the input?" node: they are where **Skip** and
+the "by construction" rejections below come from.
+
+```mermaid
+flowchart TD
+  A["One Wycheproof case<br/>(tcId, result, flags)"] --> B{"Vector bytes<br/>readable?"}
+  B -- no --> F["FAIL"]
+  B -- yes --> C{"Can wired's API<br/>express the input?"}
+  C -- "no, result = invalid" --> RC["Count as rejected<br/>(by construction)"]
+  C -- "no, valid or acceptable" --> S["SKIP"]
+  C -- yes --> D["Call the wired function"]
+  D --> E{"result field"}
+  E -- valid --> V{"Accepted and output<br/>equals expected?"}
+  V -- yes --> VOK["valid OK"]
+  V -- no --> F
+  E -- invalid --> I{"Rejected?"}
+  I -- yes --> IR["invalid rejected"]
+  I -- no --> F
+  E -- acceptable --> L["Log accepted or rejected<br/>(neither is a failure)"]
+```
+
+A failure prints `FAIL <file> tcId <n> flags=<flags>` and fails the whole
+`just test` run.
+
+## Results (last updated 2026-10-10)
+
+The suite was first imported on 2026-10-05; the P-521 row was added on
+2026-10-10. Every row below was re-checked against the `wyc` summary lines of
+`just test` on 2026-10-15 and still matches.
+
+Column meanings: **Added** is the number of cases in the file(s); **valid OK**
+and **invalid rejected** count cases that got the required answer;
+**acceptable** shows how wired chose; **Fail** is cases that got the wrong
+answer; **Skip** is `valid` or `acceptable` cases that wired's API cannot
+express (see the Skips paragraph below).
 
 | Primitive | File(s) | Added | valid OK | invalid rejected | acceptable (accepted / rejected) | Fail | Skip |
 |---|---|---:|---:|---:|---|---:|---:|
@@ -30,28 +104,52 @@ its outcome is logged (`wyc <file> tcId <n> acceptable: accepted|rejected`).
 
 Failed tcIds and flags: **none**.
 
+SHA-2 has no Wycheproof file of its own here. It is still exercised: every
+ECDSA and RSA case hashes its message first, so a wrong digest would show up
+as a failing `valid` signature.
+
+**Skips.** AES-GCM skips the AES-192 groups and the `valid` cases with a nonce
+that is not 96 bits, because wired's AEAD API takes only a 96-bit nonce and a
+128-bit tag. RSA PKCS#1 skips the `valid` cases whose public exponent is
+e = 3 (2048_sha256: 2, 2048_sha512: 1, 3072_sha256: 1, 3072_sha512: 1),
+because wired verifies only e = 65537.
+
+**Acceptable outcomes.** RSA tcId 8 (`MissingNull`: the DigestInfo omits its
+NULL parameter) is rejected in all 9 files. X25519 rejects tcIds 32 33 63–86
+117 118 154 165 166 and accepts the other 223. The rejected ones are low-order
+public keys that give an all-zero shared secret, which RFC 7748 6.1 and
+RFC 8446 7.4.2 allow an implementation to abort on. See the guide's
+[X25519 page](https://hakkadaikon.github.io/wired/guide/en/tls/x25519/) for
+what X25519 does in the handshake.
+
 ## What "invalid rejected" does and does not prove
 
-Rejecting an `invalid` case is the correct behaviour: Wycheproof marks a case
-`invalid` when a correct implementation must refuse it (a modified tag, a
-malleable or mis-encoded signature, broken RSA padding, an HKDF length beyond
-255 x HashLen), and accepting it would be a forgery or a spec violation. Two
-limits apply to the counts above.
+Rejecting an `invalid` case is the required behaviour. Wycheproof marks a case
+`invalid` when a correct implementation must refuse it: a modified tag, a
+malleable or mis-encoded signature, broken RSA padding, or an HKDF output
+length beyond 255 x HashLen. Two limits apply to the **invalid rejected**
+counts above.
 
 ### 1. Only the outcome is checked, not the reason
 
 A case counts as rejected when wired returns failure. The test does not check
-*which* check refused it: a case built to hit, say, an ECDSA range check also
-passes if verification fails later for another reason (digest mismatch). This
-is Wycheproof's own pass criterion, but it does not prove that every
-individual check exists. HMAC has no verify API in wired, so its 108 rejections
-are the test's constant-time compare of wired's computed (truncated) MAC
-against the forged tag.
+*which* check refused it. A case built to hit, say, an ECDSA range check also
+passes if verification fails later for another reason, such as a digest
+mismatch. This is Wycheproof's own pass criterion, but it does not prove that
+every individual check exists in wired.
+
+HMAC is a special case. wired has no HMAC verify function, so the test
+computes the MAC with wired, truncates it to the tag length, and compares it
+with the forged tag in constant time. Its 108 rejections come from that
+comparison.
 
 ### 2. Some invalid inputs cannot be expressed through wired's API
 
-These cases never reach a wired function; the test counts them as rejected
-because the API's types make the input impossible to pass:
+Some `invalid` inputs cannot even be passed to wired. For example, wired's
+ChaCha20-Poly1305 function takes a fixed 96-bit nonce, so a 64-bit nonce has
+no way in. The test counts such a case as rejected **by construction**: the
+answer is correct, but no wired code ran to produce it. These are the
+"no, result = invalid" exit in the diagram above.
 
 | Primitive | Cases | Why not expressible | Flags |
 |---|---:|---|---|
@@ -60,24 +158,20 @@ because the API's types make the input impossible to pass:
 | ChaCha20-Poly1305 | 9 | nonce of 0/64/88/104/112/128/160/192/256 bits (API takes 96 bits) | InvalidNonceSize |
 | Ed25519 | 12 | signature not 64 bytes (`ed25519_verify` takes a fixed 64-byte signature) | TruncatedSignature, CompressedSignature, SignatureWithGarbage |
 
-Implementation-verified rejections are therefore AES-GCM 54 of 87,
-ChaCha20-Poly1305 60 of 69, Ed25519 51 of 63, and all of the rest (ECDSA
-through wired's DER decoder `ecdsasig_decode` and verify, RSA through
-`rsa_pkcs1_verify` / `rsa_pss_verify`, HKDF through `hkdf_expand`). Likewise
-`test_wyc_aesgcm_invalid_ModifiedTag_rejected` exercises 54 of its 81 cases;
-the other 27 are the AES-192 ones.
-
-Skips: AES-GCM — AES-192 groups and `valid` cases with a non-96-bit nonce
-(wired's AEAD API is 96-bit nonce / 128-bit tag only); RSA PKCS#1 — `valid`
-cases with e = 3 (2048_sha256: 2, 2048_sha512: 1, 3072_sha256: 1,
-3072_sha512: 1; wired verifies e = 65537 only).
-
-Acceptable outcomes: RSA tcId 8 (MissingNull, DigestInfo without the NULL
-parameter) is rejected in all 9 files. X25519 rejects tcIds 32 33 63–86 117
-118 154 165 166 (low-order public keys giving an all-zero shared secret, which
-RFC 7748 6.1 / RFC 8446 7.4.2 allow to abort on) and accepts the other 223.
+So the rejections that actually went through wired's code are: AES-GCM 54 of
+87, ChaCha20-Poly1305 60 of 69, Ed25519 51 of 63, and all of the rest. ECDSA
+goes through wired's DER signature decoder `ecdsasig_decode` and then verify,
+RSA through `rsa_pkcs1_verify` / `rsa_pss_verify`, and HKDF through
+`hkdf_expand`. In the same way,
+`test_wyc_aesgcm_invalid_ModifiedTag_rejected` exercises wired on 54 of its
+81 cases; the other 27 are the AES-192 ones.
 
 ## Flag-named tests
+
+Besides the per-file totals, some flags get a test of their own, named after
+the flag. Such a test runs only the `invalid` cases that carry that flag, so a
+regression in one attack class shows up by name instead of as one more
+failure in a large total.
 
 The flags LowOrderPublic, NonCanonical, ZeroOrderPublic, SmallPublicKey,
 ModifiedTag and ShortMac get a test named after the flag when they appear on
@@ -89,13 +183,20 @@ ModifiedTag and ShortMac get a test named after the flag when they appear on
 | `test_wyc_chacha20poly1305_invalid_ModifiedTag_rejected` | 60 | 60 |
 | `test_wyc_hmac_invalid_ModifiedTag_rejected` | 108 | 108 |
 
-The other listed flags never appear on an `invalid` case in the pinned files:
-LowOrderPublic, SmallPublicKey and NonCanonicalPublic occur in
-`x25519_test.json` only on `acceptable` cases (that file has no `invalid`
-case), SmallPublicKey in the RSA PKCS#1 files only on `valid` / `acceptable`
-e = 3 cases, and ZeroOrderPublic / ShortMac do not occur in the requested
-files. Additional per-flag rejection loops run for flags that do mark
-`invalid` cases (Ed25519: SignatureMalleability, CompressedSignature,
-InvalidEncoding, TruncatedSignature, SignatureWithGarbage; ECDSA:
-BerEncodedSignature, InvalidEncoding, IntegerOverflow, RangeCheck,
-MissingZero); all reject every case.
+The other listed flags never appear on an `invalid` case in the pinned files,
+so they have no test to run:
+
+- LowOrderPublic, SmallPublicKey and NonCanonicalPublic occur in
+  `x25519_test.json` only on `acceptable` cases (that file has no `invalid`
+  case).
+- SmallPublicKey occurs in the RSA PKCS#1 files only on `valid` /
+  `acceptable` e = 3 cases.
+- ZeroOrderPublic and ShortMac do not occur in the requested files.
+
+More per-flag rejection loops run for flags that do mark `invalid` cases, and
+every one of them rejects every case it finds:
+
+- Ed25519: SignatureMalleability, CompressedSignature, InvalidEncoding,
+  TruncatedSignature, SignatureWithGarbage.
+- ECDSA: BerEncodedSignature, InvalidEncoding, IntegerOverflow, RangeCheck,
+  MissingZero.
