@@ -180,9 +180,16 @@ typedef struct {
  * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (24 and 6 by default) -- those bound one
  * connection's total reassembled WT stream slots, shared across however many
  * sessions are open, so SRVRUN_MAX_WT_SESSIONS must stay well under either
- * to leave every session room for more than one stream (pinned by
- * test_srvrun_wt_session_limit_fits_stream_table_capacity). */
+ * to leave every session room for more than one stream (checked below). */
 #define SRVRUN_MAX_WT_SESSIONS 2
+
+_Static_assert(SRVRUN_MAX_WT_SESSIONS >= 1, "at least one session slot");
+_Static_assert(
+    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_STREAMS,
+    "every session needs room for a bidi stream in the shared table");
+_Static_assert(
+    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_UNI_STREAMS,
+    "every session needs room for a uni stream in the shared table");
 
 /* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
  * (draft-ietf-webtrans-http3-15 SS3.2), enough for typical endpoint paths

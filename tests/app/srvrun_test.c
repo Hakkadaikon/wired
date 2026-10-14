@@ -10708,16 +10708,6 @@ static void test_srvrun_wt_reused_slot_has_no_stale_data(void) {
   CHECK(c.wt.state == WIRED_WT_ESTABLISHED);
 }
 
-/* CAPACITY: the session limit must fit within the existing per-connection WT
- * stream-table capacity -- with SRVRUN_MAX_WT_SESSIONS sessions open, each
- * still has room for at least one bidi and one uni stream in the shared
- * WIRED_SRVLOOP_MAX_WT_STREAMS/WIRED_SRVLOOP_MAX_WT_UNI_STREAMS tables. */
-static void test_srvrun_wt_session_limit_fits_stream_table_capacity(void) {
-  CHECK(SRVRUN_MAX_WT_SESSIONS >= 1);
-  CHECK(SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_STREAMS);
-  CHECK(SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
-}
-
 /* Reset the global connection table srvrun_loop owns (g_srvrun_table/
  * g_srvrun_state, srvrun.c) to a clean slate -- wired_server_broadcast_
  * datagram operates on these globals directly (it has no srvrun_state
@@ -23652,7 +23642,6 @@ void test_srvrun(void) {
   test_srvrun_wt_limit_one_matches_legacy_behavior();
   test_srvrun_wt_establish_associates_only_own_buffered_items();
   test_srvrun_wt_reused_slot_has_no_stale_data();
-  test_srvrun_wt_session_limit_fits_stream_table_capacity();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_new_conn_refusal_wire_content();
   test_srvrun_new_conn_refusal_skips_ineligible_datagrams();
