@@ -7,8 +7,9 @@ one, why a server needs it. Read it when a code comment cites an RFC or a
 draft you do not recognize, or when you want to know which standard a
 behavior comes from. It is a lookup table, not a reading list. Specs
 that code comments only mention in passing (for example RFC 9525 or RFC
-1035) are left out. Every row here has code behind it; a few rows are
-helpers not yet wired into the server, and the row says so.
+1035) are left out. Every row here has code behind it. Some rows, mostly
+certificate verification, are helpers the server does not call yet; those
+rows say so.
 
 > **At a glance** — eight groups: the QUIC core (4 RFCs), QUIC extensions
 > (13), TLS and PKI (16), cryptographic primitives (11), HTTP/3 and QPACK
@@ -124,42 +125,43 @@ QUIC encrypts its packets with keys that come out of a TLS 1.3 handshake
 (RFC 8446). Without those keys the server cannot send even its first
 encrypted packet, so this group is a precondition for everything above it.
 
-The handshake also has to prove the server is who it claims to be. It does
-that with an X.509 certificate: the server sends its certificate and signs
-the handshake with the matching private key, and the client checks the
-certificate's name and the chain of signatures up to a trusted root. That
-is why a server SDK needs the PKI specs (Public Key Infrastructure, the
-rules for certificates and their signatures). The SDK parses and generates
-certificates, and its client role verifies a chain against a trust store
-(`castore_validate_chain`). Two TLS extensions round out the group: SNI
-names the host the client wants, and ALPN picks the application protocol
-(for example `h3` for HTTP/3) during the handshake.
+The handshake also has to prove the server is who it claims to be. It does that
+with an X.509 certificate: the server sends its certificate and signs the
+handshake with the matching private key, and the client checks the
+certificate's name and the chain of signatures up to a trusted root. That is
+why a server SDK needs the PKI specs (Public Key Infrastructure, the rules for
+certificates and their signatures). The SDK parses and generates certificates.
+It also has a TLS client role that verifies a chain against a trust store
+(`castore_validate_chain`), but the server does not use it yet, so the
+verification rows below are marked helper only. Two TLS extensions round out
+the group: SNI names the host the client wants, and ALPN picks the application
+protocol (for example `h3` for HTTP/3) during the handshake.
 
 The server also has to read its own key and certificate from disk. Those files
 are usually PEM: base64 text between `-----BEGIN ...-----` lines, wrapping a
 DER-encoded private key or certificate. That is why the PEM, base64, and
 private-key formats appear in this group, next to the LDAP string-matching
-rules that certificate name checks use. The SSLKEYLOGFILE draft is the
-debugging hook: it writes the session secrets to a file so Wireshark can
-decrypt a capture.
+rules that the (not yet wired) certificate name checks use. The SSLKEYLOGFILE
+draft is the debugging hook: it writes the session secrets to a file so
+Wireshark can decrypt a capture.
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
 | RFC 8446 | The Transport Layer Security (TLS) Protocol Version 1.3 | <https://www.rfc-editor.org/rfc/rfc8446> | Defines the handshake (key exchange and authentication) and the key schedule. |
-| RFC 5280 | Internet X.509 Public Key Infrastructure Certificate and CRL Profile | <https://www.rfc-editor.org/rfc/rfc5280> | Defines the certificate syntax and the constraints to honor during verification. |
+| RFC 5280 | Internet X.509 Public Key Infrastructure Certificate and CRL Profile | <https://www.rfc-editor.org/rfc/rfc5280> | Defines the certificate syntax, which the server uses to build and parse certificates, and the constraints to honor during verification (client-side only, not yet wired). |
 | RFC 5480 | Elliptic Curve Cryptography Subject Public Key Information | <https://www.rfc-editor.org/rfc/rfc5480> | Defines the representation of elliptic-curve public keys in a certificate. |
 | RFC 5758 | Internet X.509 PKI: Additional Algorithms and Identifiers for DSA and ECDSA | <https://www.rfc-editor.org/rfc/rfc5758> | Maps the ECDSA signature-algorithm identifiers onto certificates. |
-| RFC 8410 | Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 | <https://www.rfc-editor.org/rfc/rfc8410> | The identifiers for handling Ed25519 and X25519 in certificates and key information. |
+| RFC 8410 | Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 | <https://www.rfc-editor.org/rfc/rfc8410> | The identifiers for handling Ed25519 and X25519 in certificates and key information. Helper only (client-side verification, not yet wired). |
 | RFC 6066 | Transport Layer Security (TLS) Extensions: Extension Definitions | <https://www.rfc-editor.org/rfc/rfc6066> | Defines several TLS extensions, including SNI, which carries the host name the client wants. |
-| RFC 6125 | Representation and Verification of Domain-Based Application Service Identity | <https://www.rfc-editor.org/rfc/rfc6125> | Defines the rules for matching the certificate name against the target host name (obsoleted by RFC 9525; the code follows 6125's CN fallback, which 9525 drops). |
+| RFC 6125 | Representation and Verification of Domain-Based Application Service Identity | <https://www.rfc-editor.org/rfc/rfc6125> | Defines the rules for matching the certificate name against the target host name (obsoleted by RFC 9525; the code follows 6125's CN fallback, which 9525 drops). Helper only (client-side verification, not yet wired). |
 | RFC 7301 | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | <https://www.rfc-editor.org/rfc/rfc7301> | Selects HTTP/3 during the handshake via ALPN. |
-| RFC 8017 | PKCS #1: RSA Cryptography Specifications Version 2.2 | <https://www.rfc-editor.org/rfc/rfc8017> | Defines the RSA signature schemes (PKCS #1 v1.5 and RSASSA-PSS) and how to verify them; needed to verify RSA certificates. |
+| RFC 8017 | PKCS #1: RSA Cryptography Specifications Version 2.2 | <https://www.rfc-editor.org/rfc/rfc8017> | Defines the RSA signature schemes (PKCS #1 v1.5 and RSASSA-PSS) and how to verify them; needed to verify RSA certificates. Helper only (client-side verification, not yet wired). |
 | RFC 7468 | Textual Encodings of PKIX, PKCS, and CMS Structures | <https://www.rfc-editor.org/rfc/rfc7468> | The PEM text format of the certificate and key files the server loads. |
 | RFC 4648 | The Base16, Base32, and Base64 Data Encodings | <https://www.rfc-editor.org/rfc/rfc4648> | The base64 decoding inside a PEM block. |
 | RFC 5958 | Asymmetric Key Packages | <https://www.rfc-editor.org/rfc/rfc5958> | The PKCS #8 wrapper around a private key file. |
 | RFC 5915 | Elliptic Curve Private Key Structure | <https://www.rfc-editor.org/rfc/rfc5915> | The SEC1 structure that holds a P-256 private key, on its own or inside PKCS #8. |
-| RFC 5891 | Internationalized Domain Names in Applications (IDNA): Protocol | <https://www.rfc-editor.org/rfc/rfc5891> | Host names are compared in ASCII (A-label, the `xn--...` ASCII form of an internationalized name) form; a non-ASCII name is refused, with no Punycode conversion. Helper only, not yet called by the SNI or certificate checks. |
-| RFC 4518 | LDAP: Internationalized String Preparation | <https://www.rfc-editor.org/rfc/rfc4518> | Case-insensitive, space-collapsing comparison of certificate names (ASCII subset only). |
+| RFC 5891 | Internationalized Domain Names in Applications (IDNA): Protocol | <https://www.rfc-editor.org/rfc/rfc5891> | Host names are compared as A-labels (the `xn--...` ASCII form of an internationalized name); a non-ASCII name is refused, with no Punycode conversion. Helper only, not yet called by the SNI or certificate checks. |
+| RFC 4518 | LDAP: Internationalized String Preparation | <https://www.rfc-editor.org/rfc/rfc4518> | Case-insensitive, space-collapsing comparison of certificate names (ASCII subset only). Helper only (client-side verification, not yet wired). |
 | draft-ietf-tls-keylogfile | The SSLKEYLOGFILE Format for TLS | <https://datatracker.ietf.org/doc/draft-ietf-tls-keylogfile/> | Writes session secrets to a key log file so a packet capture can be decrypted for debugging. |
 
 The guide covers the
@@ -175,15 +177,14 @@ handshake and packet protection need itself. Each one comes from its own
 standard.
 
 The group holds the building blocks that TLS and QUIC combine. An **AEAD**
-(authenticated encryption with associated data) encrypts a packet and
-detects any tampering in one step. **HKDF** derives many keys from one
-shared secret. **X25519** is the key exchange that creates that secret,
-and the signature schemes (ECDSA, Ed25519) prove the server owns its
-certificate. Hashes (SHA-2) and HMAC sit under all of them. QUIC calls the
-AEAD and header-protection ciphers directly for every packet; TLS only
-hands it the keys. None of these
-functions knows anything about QUIC, so each is tested on its own against
-the standard's published test vectors.
+(authenticated encryption with associated data) encrypts a packet and detects
+any tampering in one step. **HKDF** derives many keys from one shared secret.
+**X25519** is the key exchange that creates that secret, and the signature
+scheme (ECDSA P-256) proves the server owns its certificate. Hashes (SHA-2) and
+HMAC sit under all of them. QUIC calls the AEAD and header-protection ciphers
+directly for every packet; TLS only hands it the keys. None of these functions
+knows anything about QUIC, so each is tested on its own against the standard's
+published test vectors.
 
 | Spec | Title | Link | Why |
 |------|------------|--------|-----------|
@@ -191,10 +192,10 @@ the standard's published test vectors.
 | FIPS 197 | Advanced Encryption Standard (AES) | <https://csrc.nist.gov/pubs/fips/197/final> | Defines the AES block cipher that AES-GCM builds on. |
 | SP 800-38D | Recommendation for Block Cipher Modes of Operation: GCM and GMAC | <https://csrc.nist.gov/pubs/sp/800/38/d/final> | The GCM mode that turns AES into an AEAD; the default packet-protection scheme. |
 | RFC 7748 | Elliptic Curves for Security | <https://www.rfc-editor.org/rfc/rfc7748> | Defines the curve arithmetic for X25519 key exchange; creates the ECDHE shared secret. |
-| RFC 8032 | Edwards-Curve Digital Signature Algorithm (EdDSA) | <https://www.rfc-editor.org/rfc/rfc8032> | Ed25519 signing (the server's CertificateVerify and self-signed certificates) and verification (certificate signatures). |
+| RFC 8032 | Edwards-Curve Digital Signature Algorithm (EdDSA) | <https://www.rfc-editor.org/rfc/rfc8032> | Ed25519 signing and verification. Helper only: the server signs with ECDSA P-256, and the Ed25519 CertificateVerify and self-signed-certificate builders are not yet called. |
 | RFC 6979 | Deterministic Usage of DSA and ECDSA | <https://www.rfc-editor.org/rfc/rfc6979> | Derives the ECDSA nonce deterministically, so a weak random-number generator cannot leak the private key. |
 | RFC 6090 | Fundamental Elliptic Curve Cryptography Algorithms | <https://www.rfc-editor.org/rfc/rfc6090> | Defines the basic operations on elliptic curves; the foundation of the P-256 implementation. |
-| FIPS 186-4 | Digital Signature Standard (DSS) | <https://csrc.nist.gov/pubs/fips/186/4/final> | The rules and curve parameters for ECDSA P-256 signing and verification. |
+| FIPS 186-4 | Digital Signature Standard (DSS) | <https://csrc.nist.gov/pubs/fips/186/4/final> | The rules and curve parameters for ECDSA P-256 signing (the server's CertificateVerify and certificates) and verification (client-side only, not yet wired). |
 | FIPS 180-4 | Secure Hash Standard (SHS) | <https://csrc.nist.gov/pubs/fips/180/4/final> | SHA-256, SHA-384, and SHA-512; the foundation of the handshake transcript and key derivation. |
 | FIPS 198-1 | The Keyed-Hash Message Authentication Code (HMAC) | <https://csrc.nist.gov/pubs/fips/198/1/final> | HMAC; the foundation of HKDF and Finished verification. |
 | RFC 5869 | HMAC-based Extract-and-Expand Key Derivation Function (HKDF) | <https://www.rfc-editor.org/rfc/rfc5869> | The key-derivation function that drives the whole TLS 1.3 key schedule. |
