@@ -32,7 +32,7 @@ The entries come from three places:
 - The skip tables of the BoringSSL test vectors.
 
 A "Source:" line names the code symbol (function or macro) or the ledger
-file. Section numbers such as "9.5" or "SS7" (section 7) refer to the spec
+file. Section numbers such as "9.5" refer to the spec
 the entry names.
 
 MoQT terms (Track, Group, Subgroup, Object) follow the guide's
@@ -164,14 +164,14 @@ The limits:
   Objects through as they arrive. It does not merge, retry or cache them.
   This upstream request is called a "leg" below. An application can observe
   these effects. Two FETCHes of one range are not merged into one upstream
-  FETCH. A GOAWAY on the upstream request stream ends the leg instead of re-
-  issuing it. Relayed Objects are not cached. The leg's time budget is fixed
-  at `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` (2000 ms) unless FILL_TIMEOUT is
+  FETCH. A GOAWAY on the upstream request stream ends the leg instead of
+  re-issuing it. Relayed Objects are not cached. The leg's time budget is
+  fixed at `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` (2000 ms) unless FILL_TIMEOUT is
   shorter. A leg that ends in the middle of an Object resets the downstream
-  fetch stream with INTERNAL_ERROR, because the cache side cannot resume mid-
-  Object. This happens when the upstream cuts the Object, when the budget runs
-  out while part of it still waits to be written, or when the held tail does
-  not fit. A d19 Joining FETCH (one that starts relative to a live
+  fetch stream with INTERNAL_ERROR, because the cache side cannot resume
+  mid-Object. This happens when the upstream cuts the Object, when the budget
+  runs out while part of it still waits to be written, or when the held tail
+  does not fit. A d19 Joining FETCH (one that starts relative to a live
   subscription) is still served from the cache only. A Descending FETCH
   (newest Group first) of a Track the hub does not hold is reset when its
   upstream FETCH fails, because the hub knows nothing of that range to mark.
@@ -364,11 +364,14 @@ The limits:
   switching-set tracks with chat or audio. Depth (the number of open streams
   toward the subscriber) counts a stream from its open until the hub relays
   the publisher's FIN, not until the subscriber acknowledges it. The other
-  input is the hub's own resets of the session's streams (busy shed,
-  DELIVERY_TIMEOUT, reliable stall) on any of its streams, chat and audio
-  included, because moqtail counts any stream of the connection. These
-  resets are counted only while the session has a backpressure set, not by
-  moqtail's discard timer. Source: `moqtssts_run.c` header comment.
+  input is the hub's own resets of the session's streams, on any of its
+  streams, chat and audio included, because moqtail counts any stream of the
+  connection. A reset here is a busy shed (the lossy relay resets a stream the
+  transport kept refusing, see below), a DELIVERY_TIMEOUT, or a reliable stall
+  (a reliable ring drops a subscriber that fell `WIRED_MOQTREL_STALL_MS`
+  behind). These resets are counted only while the session has a backpressure
+  set, and they take the place of the resets that moqtail's own discard
+  timeout would trigger. Source: `moqtssts_run.c` header comment.
 - **The default algorithm's estimate follows the congestion window** —
   Affects: subscribers whose quality should rise quickly. The budget is the
   stricter of `ssts_cap_kbps` and the subscriber connection's delivery-rate
@@ -789,7 +792,8 @@ those directly.
 - **Connection migration interop** — Affects: clients that migrate. The
   [interop page](../interop.md) records `connectionmigration` as partial: it
   passes against ngtcp2, and the quic-go client never triggers a path
-  change. The `ecn` and `v2` testcases are unsupported by several clients.
+  change. The quic-go client does not support the `ecn` and `v2` testcases;
+  both pass against ngtcp2 (`v2` also against picoquic).
 - **Handshake keys are kept after the handshake is confirmed** — Affects:
   anyone who relies on RFC 9001 key discard, for example to limit what a
   later memory leak of the process exposes. RFC 9001 4.9.2 says an endpoint
