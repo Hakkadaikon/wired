@@ -54,15 +54,14 @@ for when (and if) you want to go deeper.
 
 ## Why wired
 
-**Zero dependencies, zero libc.** A normal C program links against libc, the
-C standard library that provides `printf`, `malloc`, and the thin wrappers
-around system calls. wired does not use it. Every file compiles
-*freestanding* (`-ffreestanding -nostdlib`): the compiler is told there is
-no standard library at all, so if anything external leaked in, the build
-would fail, so a clean build is itself the proof that nothing depends on
-libc. For you this means the server is one
-static binary with nothing to install next to it, and every byte it runs is
-code you can read in this repository.
+**Zero dependencies, zero libc.** A normal C program links against libc, the C
+standard library that provides `printf`, `malloc`, and the thin wrappers around
+system calls. wired does not use it. Every file compiles *freestanding*
+(`-ffreestanding -nostdlib`): the compiler is told there is no standard library
+at all, so a libc call that leaked in would fail to link. A clean build of the
+examples is therefore the proof that nothing calls into libc. For you this
+means the server is one static binary with nothing to install next to it, and
+every byte it runs is code you can read in this repository.
 
 **The full stack in user space.** User space is where ordinary programs
 run; the kernel is the operating system core that owns the network card.
@@ -169,9 +168,9 @@ path, and body; write the response body into `body_out`, point
 bodies too large for one call; see
 [Streaming responses](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/).
 
-`wired_main` replaces `main` (there is no libc to call `main`). It loads the
-server identity (the TLS certificate and its keys), parses the flags, and hands
-the callback to the driver
+`wired_main` replaces `main` (there is no libc to call `main`). It parses the
+flags, sets up the server identity (the TLS keys, plus a certificate loaded
+from `--cert`/`--key` or self-signed), and hands the callback to the driver
 (declarations and optional settings trimmed):
 
 ```c
