@@ -362,16 +362,16 @@ The limits:
   Source: `moqtssts_run.c` header comment.
 - **What backpressure counts as congestion** — Affects: sessions that mix
   switching-set tracks with chat or audio. Depth (the number of open streams
-  toward the subscriber) counts a stream from its open until the hub relays
-  the publisher's FIN, not until the subscriber acknowledges it. The other
-  input is the hub's own resets of the session's streams, on any of its
-  streams, chat and audio included, because moqtail counts any stream of the
-  connection. A reset here is a busy shed (the lossy relay resets a stream the
-  transport kept refusing, see below), a DELIVERY_TIMEOUT, or a reliable stall
-  (a reliable ring drops a subscriber that fell `WIRED_MOQTREL_STALL_MS`
-  behind). These resets are counted only while the session has a backpressure
-  set, and they take the place of the resets that moqtail's own discard
-  timeout would trigger. Source: `moqtssts_run.c` header comment.
+  toward the subscriber) counts a stream from its open until the hub relays the
+  publisher's FIN, not until the subscriber acknowledges it. The other input is
+  the hub's own resets of the session's streams, on any of its streams, chat
+  and audio included, because moqtail counts any stream of the connection. A
+  reset here is a busy shed (the lossy relay resets a stream the transport kept
+  refusing, see below), a DELIVERY_TIMEOUT, or a reliable stall (a reliable
+  ring drops a subscriber that, with data still pending, accepted no data for
+  `WIRED_MOQTREL_STALL_MS`). These resets are counted only while the session
+  has a backpressure set, and they take the place of the resets that moqtail's
+  own discard timeout would trigger. Source: `moqtssts_run.c` header comment.
 - **The default algorithm's estimate follows the congestion window** —
   Affects: subscribers whose quality should rise quickly. The budget is the
   stricter of `ssts_cap_kbps` and the subscriber connection's delivery-rate
