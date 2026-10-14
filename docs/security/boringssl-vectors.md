@@ -153,10 +153,10 @@ never uses.
   signatures are forbidden in the TLS 1.3 handshake.
 - **HKDF, plain SHA-2 and RSA.** The pinned commit has no FileTest vectors
   for them in the allowed files (HKDF and SHA-2 moved into C++ test source).
-  SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows. HKDF,
-  SHA-2 and RSA also have their own RFC and FIPS tests, and RSA and HKDF are
-  additionally checked against Wycheproof (see [Wycheproof
-  vectors](wycheproof-vectors.md)).
+  SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows. HKDF
+  and SHA-2 also have their own RFC and FIPS tests, RSA has its own tests with
+  generated signatures, and RSA and HKDF are additionally checked against
+  Wycheproof (see [Wycheproof vectors](wycheproof-vectors.md)).
 - **X25519 1,000,000-iteration test.** BoringSSL itself disables it; the
   1,000-iteration case runs instead.
 
