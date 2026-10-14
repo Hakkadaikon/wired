@@ -27,7 +27,7 @@ a single-threaded server that can use at most one CPU core, not a throughput ben
   percent of one core. `utime` is the time the process spent running its own
   code; `stime` is the time the kernel spent working on its behalf (for
   example, sending packets). The server is intentionally single-process
-  and single-thread: the hub keeps its peer table in one process's memory,
+  and single-threaded: the hub keeps its peer table in one process's memory,
   so the example refuses `--workers`/`--cores` (see
   [examples/moqt_chat/README.md](../../examples/moqt_chat/README.md)).
 - Memory: `VmRSS` from `/proc/<pid>/status`. `VmRSS` (resident set size)
