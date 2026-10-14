@@ -33,7 +33,9 @@ then have to re-triage those rows: re-read each one, decide its new verdict,
 and write the test that defends it.
 
 Most of these rows are recorded as `n/a`. Five are recorded as `already-safe`
-instead, because wired has the part of the code they touch that exists today:
+instead, because the ledger ties them to code that wired does have (the ECN
+counter check, SAN name matching, the server's certificate flight, RSA
+signature verification):
 
 - V-0223 and V-0547: a test pins that part (the ECN count check, and
   case-insensitive name matching). The missing part (the self-marked CE
