@@ -301,6 +301,10 @@ typedef struct {
    * every other stream's later rounds too). Meaningless while !streaming. */
   u8                   stream_req_scratch[512];
   wired_h3reqdrive_req stream_req;
+  /** 1 once the header section could not be framed (it did not fit the
+   * prefix room) so the response was never armed: the next reap resets
+   * the stream (H3_INTERNAL_ERROR) and frees the slot (srvrun_reap_one). */
+  u8 arm_failed;
 } srvrun_resp;
 /* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
  * bounds how many distinct request streams a connection reassembles at
@@ -6881,6 +6885,7 @@ static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
     c->resp[i].bigbuf_row = -1;
     c->resp[i].streaming  = 0;
     c->resp[i].ring_cap   = 0;
+    c->resp[i].arm_failed = 0;
     /* RFC 9000 18.2/19.10: seed this stream's send credit from the peer's
      * ClientHello TP (initial_max_stream_data_bidi_local, RFC 9000 18.2:
      * the TP sender's own locally-initiated streams' credit -- this
@@ -6918,7 +6923,10 @@ static void srvrun_start_wt_status(
     const qpack_field* extra) {
   u8*        st  = env->respstore[slot][srvrun_resp_index(c, r)];
   wired_obuf pob = obuf_of(st, WIRED_SRVRUN_RESP_MAX);
-  if (!h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
+  if (!h3resp_prefix_field(status, 0, 0, extra, &pob)) {
+    r->arm_failed = 1; /* e.g. an app redirect's Location too long */
+    return;
+  }
   wired_sendsess_arm(&r->sess, st, pob.len, srvrun_mps(c));
 }
 
@@ -7306,8 +7314,10 @@ static void srvrun_arm_h3_resp_framed(
   usz                    off;
   if (!h3resp_prefix_fields_qenc(
           srvrun_http_status(x), x->content_type, total_len, x->fields,
-          x->field_count, srvrun_qenc_active(c), &ins, &pob))
+          x->field_count, srvrun_qenc_active(c), &ins, &pob)) {
+    r->arm_failed = 1; /* the app's fields overflow the prefix room */
     return;
+  }
   srvrun_qenc_send_insert(c, &ins);
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   bytes_put(
@@ -9354,11 +9364,25 @@ static usz srvrun_resp_reap(
   return 1;
 }
 
+static usz srvrun_resp_stop(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r, u64 code);
+
+/* RFC 9114 4.1.1: a response that was never armed (arm_failed) can send
+ * nothing: reset its stream with H3_INTERNAL_ERROR and free it, instead of
+ * leaving the slot claimed and the client waiting forever. Any other slot
+ * is reaped as usual. 1 when the slot was freed. */
+static usz srvrun_reap_one(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  return r->in_use && r->arm_failed
+             ? srvrun_resp_stop(ctx, c, r, H3_INTERNAL_ERROR)
+             : srvrun_resp_reap(ctx, c, slot, r);
+}
+
 static void srvrun_reap_resps(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
   usz freed = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    freed += srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
+    freed += srvrun_reap_one(ctx, c, slot, &c->resp[i]);
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 

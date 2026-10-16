@@ -24111,6 +24111,51 @@ static void test_srvrun_grant_retry_skips_freed_slot(void) {
   *c = (srvrun_conn){0};
 }
 
+/* A 7-argument handler whose content-type is longer than the header
+ * prefix room (nothing validates a legacy handler's content-type length). */
+static char g_sr_long_ct[SRVRUN_RESP_HDR_ROOM + 64];
+
+static int sr_long_ct_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    wired_obuf*                 body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  (void)hctx;
+  (void)req;
+  (void)offset;
+  (void)more;
+  (void)total_size;
+  for (usz i = 0; i + 1 < sizeof g_sr_long_ct; i++) g_sr_long_ct[i] = 'a';
+  *ct           = g_sr_long_ct;
+  body_out->len = 0;
+  return 1;
+}
+
+/* RFC 9114 4.1.1: a response whose header section cannot be framed (its
+ * content-type does not fit the prefix room) is never armed. Its claimed
+ * slot must not sit there forever -- the client would wait on the stream
+ * and the slot would never return: the next reap resets the stream with
+ * H3_INTERNAL_ERROR and frees the slot. */
+static void test_srvrun_unframable_response_reset_and_freed(void) {
+  srvrun_cfg   cfg = {0};
+  srvrun_conn* c   = sr_test_conns();
+  cfg.handler      = sr_long_ct_handler;
+  sr_arm_with_cfg(c, &cfg);
+  CHECK(srvrun_resp_find(c, 0) != 0); /* claimed */
+  CHECK(c->resp[0].sess.active == 0); /* never armed */
+  {
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_reap_resps(&ctx, c, 0);
+  }
+  CHECK(srvrun_resp_find(c, 0) == 0);
+  CHECK(sr_kept_reset_code(c, 0) == H3_INTERNAL_ERROR);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24786,4 +24831,5 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_api_accepts_own_stream();
   test_srvrun_wt_stream_routed_by_session_id();
   test_srvrun_grant_retry_skips_freed_slot();
+  test_srvrun_unframable_response_reset_and_freed();
 }
