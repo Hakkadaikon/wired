@@ -81,13 +81,18 @@ driver functions) or a pure function with no rules that span several calls
   sends WT_DRAIN_SESSION on a session's CONNECT stream. `opt` must not be
   0. With every setting at its default it behaves exactly like
   `wired_server_run`.
-- `wired_srvrun_handler` has two optional members at its end; leave either
+- `wired_srvrun_handler` has three optional members at its end; leave any
   at 0 to disable it. `http` takes a `wired_http_handler`, which fills a
   `wired_http_exchange` to choose the status and add up to
   `WIRED_HTTP_MAX_FIELDS` (8) response headers. `on_body` takes a
   `wired_srvloop_on_body`, which receives the request body in chunks as it
   arrives, before your responder runs. With `on_body` at 0 the whole body
-  is buffered first.
+  is buffered first. `on_body_abort` takes a `wired_srvloop_on_body_abort`,
+  called once when a body that was streaming to `on_body` ends without
+  fin: the client reset the stream, stopped the response before it
+  started, or the connection ended. It gets the stream id and the client's
+  error code (`H3_REQUEST_CANCELLED` when the connection ended). The `req`
+  passed to `on_body` is valid only during that call.
 - `wired_http_field` is a typedef of the internal `qpack_field` (two
   `wired_span`s, name then value), so its layout follows that struct.
 
@@ -356,7 +361,12 @@ sequenceDiagram
   several datagrams with the `wired_srvboot_acc_*` accumulator and calls
   `wired_srvboot_accept_acc`.
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
-  are views; keep them alive for the call. `wired_srvloop_step` must see
+  are views; keep them alive for the call. Start from a zeroed struct
+  (`= {0}` or `wired_srvboot_demo`), so members added at its end default
+  to off: the last one, `reset_seed`, is the stateless-reset secret (0 uses
+  `cert_seed`; `wired_srvrun_serve_env` pins it to a copy of the start-time
+  `cert_seed` so a certificate reload does not change tokens already
+  given out). `wired_srvloop_step` must see
   datagrams in arrival order, and the request it decodes into
   `wired_srvloop` is valid only until the next step.
 

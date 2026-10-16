@@ -824,6 +824,19 @@ those directly.
   resumption. `TICKETGUARD_CAP` holds 64 fingerprints; an entry evicted by
   newer tickets could be replayed past the window. Source: `ticketguard.h`
   header comment (ponytail).
+- **Ticket and Retry-token keys live for one process** — Affects:
+  resumption and address validation across a restart, and across servers
+  started separately behind one address. Both seeds are drawn from the
+  CSPRNG when the server starts (forked `srvworkers` and `srvthreads`
+  workers share one draw), so a ticket or Retry token issued before a
+  restart, or by another independently started server, no longer opens.
+  Source: `srvkeys.h`.
+- **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
+  deployments. The tracker is shared across forked workers through a
+  `MAP_SHARED` mapping, guarded by one spinlock over a bounded scan; a
+  worker killed inside that scan (SIGKILL at that instant) would leave
+  0-RTT acceptance blocked in every worker until restart. Source:
+  `zerortt_seen.c` (ponytail), `sdrv_zerortt_share`.
 - **Cipher suites: preference AES-128-GCM, ChaCha20-Poly1305, AES-256-GCM**
   — Affects: clients that insist on their own suite order. All three TLS 1.3
   AEAD suites are negotiated, in the server's order rather than the

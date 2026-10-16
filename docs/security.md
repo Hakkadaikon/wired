@@ -348,6 +348,12 @@ server flood the victim.
 - Initial packets are padded to 1200 bytes (RFC 9001 9.3), so a client's
   first packet always earns the server enough budget for its reply —
   `test_initpad`, `test_client_initial_padded`.
+- Session-ticket and Retry-token keys derive from seeds drawn from the
+  CSPRNG at startup, never from bytes in the binary —
+  `test_srvkeys_random_and_distinct`. The stateless-reset secret is pinned
+  to the start-time signing key, so a certificate reload does not change
+  tokens already given out —
+  `test_srvrun_stateless_reset_survives_cert_reload`.
 - Retry and stateless-reset tokens are HMAC-derived, compared in constant
   time, and length-checked against malformed input —
   `test_retrytoken_wire_verify_rejects_short_token`,
