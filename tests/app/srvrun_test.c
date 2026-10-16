@@ -24239,6 +24239,71 @@ static void test_srvrun_flow_violation_survives_slot_release(void) {
   *c = (srvrun_conn){0};
 }
 
+/* ===== srvthreads broadcast registry under concurrent registration ===== */
+
+static void sr_bcast_reset(void) {
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
+    g_srvrun_bcast[i] = (srvrun_bcast_entry){0};
+  g_srvrun_bcast_n = 0;
+}
+
+/* A slot another worker is still filling in (claimed, tid not yet
+ * published) is no push target: its inbox row may not be written yet. */
+static void test_srvrun_bcast_claiming_slot_not_a_target(void) {
+  sr_bcast_reset();
+  g_srvrun_bcast[0].tid = -1; /* claimed, payload not yet written */
+  CHECK(srvrun_bcast_mesh_target(0, 1) == 0);
+  sr_bcast_reset();
+}
+
+/* Workers registering at the same moment each get their own slot: none is
+ * lost to a lost-update on a shared free slot, and the count matches. */
+#define SR_BCAST_RACERS 8
+static int g_sr_bcast_go;
+static int g_sr_bcast_ok[SR_BCAST_RACERS];
+
+static void sr_bcast_racer(void* p) {
+  int i = (int)(usz)p;
+  while (!__atomic_load_n(&g_sr_bcast_go, __ATOMIC_ACQUIRE)) {
+  }
+  wired_srvrun_broadcast_register(i, SR_BCAST_RACERS, 0, 0);
+  __atomic_store_n(
+      &g_sr_bcast_ok[i], srvrun_bcast_find(wired_thread_tid()) >= 0 ? 1 : -1,
+      __ATOMIC_RELEASE);
+  /* stay registered until every racer has checked */
+  while (__atomic_load_n(&g_sr_bcast_go, __ATOMIC_ACQUIRE) == 1) {
+  }
+  wired_srvrun_broadcast_unregister();
+}
+
+static void test_srvrun_bcast_concurrent_register(void) {
+  for (int round = 0; round < 20; round++) {
+    wired_thread t[SR_BCAST_RACERS];
+    int          all = 1;
+    sr_bcast_reset();
+    __atomic_store_n(&g_sr_bcast_go, 0, __ATOMIC_RELEASE);
+    for (usz i = 0; i < SR_BCAST_RACERS; i++) {
+      g_sr_bcast_ok[i] = 0;
+      CHECK(wired_thread_start(&t[i], sr_bcast_racer, (void*)i) == 0);
+    }
+    __atomic_store_n(&g_sr_bcast_go, 1, __ATOMIC_RELEASE);
+    for (int i = 0; i < SR_BCAST_RACERS; i++) {
+      int v;
+      while (!(v = __atomic_load_n(&g_sr_bcast_ok[i], __ATOMIC_ACQUIRE))) {
+      }
+      all &= v == 1;
+    }
+    CHECK(all == 1);
+    CHECK(
+        __atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) ==
+        SR_BCAST_RACERS);
+    __atomic_store_n(&g_sr_bcast_go, 2, __ATOMIC_RELEASE);
+    for (int i = 0; i < SR_BCAST_RACERS; i++) wired_thread_join(&t[i]);
+    CHECK(__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) == 0);
+  }
+  sr_bcast_reset();
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24919,4 +24984,6 @@ void test_srvrun(void) {
   test_srvrun_wtsend_claim_starts_empty();
   test_srvrun_held_connect_skips_reused_slot();
   test_srvrun_flow_violation_survives_slot_release();
+  test_srvrun_bcast_claiming_slot_not_a_target();
+  test_srvrun_bcast_concurrent_register();
 }

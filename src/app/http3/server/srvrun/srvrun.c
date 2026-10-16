@@ -4902,20 +4902,47 @@ static void srvrun_broadcast_to_all(srvrun_state* st, wired_span data) {
 #define SRVRUN_BCAST_MAX 16
 
 typedef struct {
-  i64                  tid;       /**< registering thread's tid, 0 = free */
+  /** registering thread's tid (> 0), 0 = free, SRVRUN_BCAST_CLAIMING while
+   * its registrant is still writing the fields below. Atomic: a slot is
+   * claimed by a CAS 0 -> CLAIMING and published by a release store of the
+   * tid, so a reader that acquire-loads a tid > 0 sees the fields whole. */
+  i64                  tid;
   int                  index;     /**< this worker's 0-based mesh index */
   int                  n_total;   /**< total worker count in the mesh */
   wired_srvinbox_ring* inbox_row; /**< row[j] = ring fed by worker j */
   wired_srvrun_env*    env; /**< this worker's own env (its connection table) */
 } srvrun_bcast_entry;
 
-static srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
-static int                g_srvrun_bcast_n; /* registered entry count */
+#define SRVRUN_BCAST_CLAIMING (-1)
 
-/* Registry slot index for tid, or -1 if tid is not registered. */
+static srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
+static int g_srvrun_bcast_n; /* registered entry count (atomic) */
+
+/* Slot i's published tid (acquire: pairs with the registrant's release). */
+static i64 srvrun_bcast_tid(int i) {
+  return __atomic_load_n(&g_srvrun_bcast[i].tid, __ATOMIC_ACQUIRE);
+}
+
+/* Registry slot index for tid (> 0), or -1 if tid is not registered. */
 static int srvrun_bcast_find(i64 tid) {
   for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
-    if (g_srvrun_bcast[i].tid == tid) return i;
+    if (srvrun_bcast_tid(i) == tid) return i;
+  return -1;
+}
+
+/* Claim slot i for a registrant: CAS free -> CLAIMING, so two workers
+ * registering at once can never both take it. 1 on success. */
+static int srvrun_bcast_try_claim(int i) {
+  i64 want = 0;
+  return __atomic_compare_exchange_n(
+      &g_srvrun_bcast[i].tid, &want, SRVRUN_BCAST_CLAIMING, 0, __ATOMIC_ACQ_REL,
+      __ATOMIC_RELAXED);
+}
+
+/* The first slot this thread claimed, -1 when the registry is full. */
+static int srvrun_bcast_claim(void) {
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
+    if (srvrun_bcast_try_claim(i)) return i;
   return -1;
 }
 
@@ -4924,26 +4951,35 @@ void wired_srvrun_broadcast_register(
     int                  n_total,
     wired_srvinbox_ring* inbox_row,
     wired_srvrun_env*    env) {
-  i64 tid = wired_thread_tid();
-  int slot;
+  i64                 tid = wired_thread_tid();
+  int                 slot;
+  srvrun_bcast_entry* e;
   if (srvrun_bcast_find(tid) >= 0) return; /* already registered */
-  slot = srvrun_bcast_find(0);
+  slot = srvrun_bcast_claim();
   if (slot < 0) return; /* registry full, drop the registration */
-  g_srvrun_bcast[slot] =
-      (srvrun_bcast_entry){tid, index, n_total, inbox_row, env};
-  g_srvrun_bcast_n++;
+  e          = &g_srvrun_bcast[slot];
+  e->index   = index;
+  e->n_total = n_total;
+  e->env     = env;
+  /* atomic: a reader holding a stale tid of a slot unregistered and
+   * re-claimed meanwhile (ABA, only possible when a worker fails early
+   * while others are still registering) may read it concurrently; it then
+   * pushes into the new, live owner's row -- never a torn pointer. */
+  __atomic_store_n(&e->inbox_row, inbox_row, __ATOMIC_RELAXED);
+  __atomic_store_n(&e->tid, tid, __ATOMIC_RELEASE); /* publish */
+  __atomic_add_fetch(&g_srvrun_bcast_n, 1, __ATOMIC_ACQ_REL);
 }
 
 void wired_srvrun_broadcast_unregister(void) {
   int slot = srvrun_bcast_find(wired_thread_tid());
   if (slot < 0) return;
-  g_srvrun_bcast[slot] = (srvrun_bcast_entry){0};
-  g_srvrun_bcast_n--;
+  __atomic_store_n(&g_srvrun_bcast[slot].tid, 0, __ATOMIC_RELEASE);
+  __atomic_sub_fetch(&g_srvrun_bcast_n, 1, __ATOMIC_ACQ_REL);
 }
 
 /* t is a mesh push target: a registered slot other than the caller's own. */
 static int srvrun_bcast_mesh_target(int t, int my_slot) {
-  return g_srvrun_bcast[t].tid != 0 && t != my_slot;
+  return srvrun_bcast_tid(t) > 0 && t != my_slot; /* CLAIMING: not yet */
 }
 
 /* Push data into every OTHER registered worker t's inbox row at column
@@ -4957,7 +4993,10 @@ static int srvrun_bcast_mesh_target(int t, int my_slot) {
 static void srvrun_bcast_mesh_push(int my_slot, int my_index, wired_span data) {
   for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
     if (!srvrun_bcast_mesh_target(t, my_slot)) continue;
-    wired_srvinbox_push(&g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
+    wired_srvinbox_push(
+        &__atomic_load_n(
+            &g_srvrun_bcast[t].inbox_row, __ATOMIC_RELAXED)[my_index],
+        data.p, data.n);
   }
 }
 
@@ -5014,7 +5053,7 @@ static void srvrun_bcast_drain_one(
  * mirroring wired_server_broadcast_datagram's own <= 1 guard) or the calling
  * thread never registered at all. */
 static int srvrun_bcast_drain_slot(void) {
-  if (g_srvrun_bcast_n <= 1) return -1;
+  if (__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) <= 1) return -1;
   return srvrun_bcast_find(wired_thread_tid());
 }
 
