@@ -321,12 +321,12 @@ static void test_srvrun_close_no_second_reset_after_app_reset(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 4, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 8, 0x42) == 1);
   CHECK(c->wt_stream_reset_n == 1);
-  CHECK(wired_server_wt_stream_reset(&c->wt, 4, 0x43) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 8, 0x43) == 1);
   CHECK(c->wt_stream_reset_n == 1);
   CHECK(c->wt_stream_reset_app_code[0] == 0x42);
-  CHECK(srvrun_wt_abort_reset(c, 4, WTERR_SESSION_GONE, &plb, 0) == 0);
+  CHECK(srvrun_wt_abort_reset(c, 8, WTERR_SESSION_GONE, &plb, 0) == 0);
 }
 
 void test_srvrun_close(void) {

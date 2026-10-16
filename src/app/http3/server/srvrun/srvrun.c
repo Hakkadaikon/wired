@@ -5463,6 +5463,79 @@ static int wt_reply_flow_ok(int sidx, wired_wt_session* s, usz len) {
   return sidx >= 0 && wired_wt_session_data_send_allowed(s, len);
 }
 
+/* --- draft-ietf-webtrans-http3-15 4: a session's stream API never reaches
+ * a stream something else owns. A send slot records its owner at open or
+ * reply (wt_session_slot; -1 for connection plumbing: the H3 control and
+ * QPACK streams, a CONNECT stream's capsule sender); a receive slot records
+ * it once offered (-1 before). A stream neither tracks (already reaped, or
+ * never seen) has no owner left to check. */
+#define SRVRUN_WT_UNTRACKED (-2)
+
+/* The owner recorded on stream_id's receive slot, SRVRUN_WT_UNTRACKED for
+ * none. */
+static int srvrun_wt_rx_owner(const srvrun_conn* c, u64 stream_id) {
+  int i = wired_srvloop_wt_slot_find(&c->l, stream_id);
+  if (i >= 0) return c->l.wt_streams[i].wt_session_slot;
+  i = wired_srvloop_wt_uni_slot_find(&c->l, stream_id);
+  return i >= 0 ? c->l.wt_uni_streams[i].wt_session_slot : SRVRUN_WT_UNTRACKED;
+}
+
+/* The owner recorded on stream_id: its send slot's, else its receive
+ * slot's, else SRVRUN_WT_UNTRACKED. */
+static int srvrun_wt_owner(srvrun_conn* c, u64 stream_id) {
+  const srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
+  return w ? w->wt_session_slot : srvrun_wt_rx_owner(c, stream_id);
+}
+
+/* 1 iff the owner recorded for stream_id (owner_of) is not sidx. */
+static int srvrun_wt_owner_other(int owner, int sidx) {
+  return owner != SRVRUN_WT_UNTRACKED && owner != sidx;
+}
+
+/* 1 iff stream_id is an HTTP/3 stream no session may touch: a session's
+ * CONNECT stream, or a request stream. */
+static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id) {
+  return srvrun_wt_slot_by_connect_id(c, stream_id) >= 0 ||
+         srvrun_req_slot_of(c, stream_id) != 0;
+}
+
+/* 1 iff stream_id belongs to something other than session slot sidx. */
+static int srvrun_wt_foreign(srvrun_conn* c, int sidx, u64 stream_id) {
+  return srvrun_wt_owner_other(srvrun_wt_owner(c, stream_id), sidx) ||
+         srvrun_wt_h3_internal(c, stream_id);
+}
+
+/* 1 iff session slot sidx owns stream_id's receive slot. */
+static int srvrun_wt_rx_owns(const srvrun_conn* c, int sidx, u64 stream_id) {
+  return sidx >= 0 && srvrun_wt_rx_owner(c, stream_id) == sidx;
+}
+
+/* Session slot sidx's own send slot on stream_id, 0 if none or another
+ * owner's (plumbing included). */
+static srvrun_wtsend* srvrun_wtsend_owned(
+    srvrun_conn* c, int sidx, u64 stream_id) {
+  srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
+  return w && w->wt_session_slot == sidx ? w : 0;
+}
+
+/* 1 iff stream_id can never carry a WT reply: not a client-initiated bidi
+ * stream (RFC 9000 2.1), or already spoken for -- a send slot is open on
+ * it, or it is foreign to sidx (srvrun_wt_foreign). A client bidi whose
+ * receive slot was reaped at FIN is untracked: the reply-after-FIN echo
+ * case stays allowed. */
+static int srvrun_wt_reply_refused(srvrun_conn* c, int sidx, u64 stream_id) {
+  return (stream_id & 3) != 0 || srvrun_wtsend_find(c, stream_id) ||
+         srvrun_wt_foreign(c, sidx, stream_id);
+}
+
+/* A reply of len bytes on stream_id fits session slot sidx's flow limits
+ * and names a stream only that session may answer. */
+static int srvrun_wt_reply_allowed(
+    srvrun_conn* c, int sidx, wired_wt_session* s, u64 stream_id, usz len) {
+  return wt_reply_flow_ok(sidx, s, len) &&
+         !srvrun_wt_reply_refused(c, sidx, stream_id);
+}
+
 /* Shared body of the one-shot and keep-open replies on a client-initiated
  * bidi stream. */
 static int srvrun_wt_stream_reply_common(
@@ -5470,7 +5543,7 @@ static int srvrun_wt_stream_reply_common(
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!wt_reply_flow_ok(sidx, s, payload.n)) return 0;
+  if (!srvrun_wt_reply_allowed(c, sidx, s, stream_id, payload.n)) return 0;
   /* RFC 9000 18.2: the peer's bidi_local TP governs what we may send on a
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
@@ -5665,7 +5738,7 @@ int wired_server_wt_stream_send(
   srvrun_wtsend* w;
   if (!wt_reply_flow_ok(sidx, s, payload.n))
     return srvrun_wtsend_flow_refuse(c);
-  w = srvrun_wtsend_find(c, stream_id);
+  w = srvrun_wtsend_owned(c, sidx, stream_id);
   if (!srvrun_wtsend_accept_round(c, w, payload, fin)) {
     c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
     return -1;
@@ -5725,17 +5798,18 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   if (sidx < 0) return -1;
-  w = srvrun_wtsend_find(c, stream_id);
+  w = srvrun_wtsend_owned(c, sidx, stream_id);
   if (!srvrun_wtsend_open_slot(w)) return -1;
   srvrun_wtsend_request_fin(c, w);
   return 1;
 }
 
-/* The in-use WT send slot on stream_id of s's connection, 0 when s
- * resolves to no live connection or no slot holds the id. */
+/* s's own in-use WT send slot on stream_id, 0 when s resolves to no live
+ * connection or s owns no send slot on the id. */
 static srvrun_wtsend* srvrun_wtsend_of(wired_wt_session* s, u64 stream_id) {
   srvrun_conn* c = srvrun_session_conn(s);
-  return c ? srvrun_wtsend_find(c, stream_id) : 0;
+  return c ? srvrun_wtsend_owned(c, wt_session_slot_or_absent(c, s), stream_id)
+           : 0;
 }
 
 static int srvrun_bbr_has_bw(const srvrun_conn* c) {
@@ -5797,7 +5871,7 @@ static int srvrun_wt_rx_hold_uni(wired_srvloop* l, u64 stream_id, int hold) {
 int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold) {
   srvrun_conn* c    = srvrun_session_conn(s);
   int          sidx = wt_session_slot_or_absent(c, s);
-  if (sidx < 0) return -1;
+  if (!srvrun_wt_rx_owns(c, sidx, stream_id)) return -1;
   if (srvrun_wt_rx_hold_bidi(&c->l, stream_id, hold) == 1) return 1;
   return srvrun_wt_rx_hold_uni(&c->l, stream_id, hold);
 }
@@ -5858,28 +5932,36 @@ static void srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id) {
 }
 
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
-  srvrun_conn* c = srvrun_session_conn(s);
-  if (!c) return 0;
-  return srvrun_wtsend_find(c, stream_id) != 0;
+  return srvrun_wtsend_of(s, stream_id) != 0;
 }
 
 /* 1 iff wired_server_wt_stream_reset latches nothing for stream_id: its
- * send part already ended, or the latch is full. */
-static int srvrun_wt_reset_refused(srvrun_conn* c, u64 stream_id) {
+ * send part already ended, the latch is full, or it is foreign to session
+ * slot sidx. */
+static int srvrun_wt_reset_refused(srvrun_conn* c, int sidx, u64 stream_id) {
   return srvrun_wt_send_ended(c, stream_id) ||
-         c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH;
+         c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH ||
+         srvrun_wt_foreign(c, sidx, stream_id);
+}
+
+/* 1 iff wired_server_wt_stream_stop latches nothing: no live connection,
+ * the latch is full, or stream_id is foreign to session slot sidx. */
+static int srvrun_wt_stop_refused(srvrun_conn* c, int sidx, u64 stream_id) {
+  return !c || c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH ||
+         srvrun_wt_foreign(c, sidx, stream_id);
 }
 
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code) {
-  srvrun_conn* c = srvrun_session_conn(s);
+  srvrun_conn* c    = srvrun_session_conn(s);
+  int          sidx = wt_session_slot_or_absent(c, s);
   usz          i;
   if (!c) return 0;
   /* Latch full: refuse WITHOUT touching the send slot. Freeing it here
    * would abandon delivery with no wire notification ever queued -- the
    * peer would wait on the stream forever. A send part already ended has
    * nothing left to reset (srvrun_wt_abort_reset): done, nothing latched. */
-  if (srvrun_wt_reset_refused(c, stream_id))
+  if (srvrun_wt_reset_refused(c, sidx, stream_id))
     return srvrun_wt_send_ended(c, stream_id);
   i                              = c->wt_stream_reset_n++;
   c->wt_stream_reset_id[i]       = stream_id;
@@ -5899,7 +5981,8 @@ int wired_server_wt_stream_stop(
     wired_wt_session* s, u64 stream_id, u32 error_code) {
   srvrun_conn* c = srvrun_session_conn(s);
   usz          i;
-  if (!c || c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH) return 0;
+  if (srvrun_wt_stop_refused(c, wt_session_slot_or_absent(c, s), stream_id))
+    return 0;
   i                              = c->wt_stream_reset_n++;
   c->wt_stream_reset_id[i]       = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;

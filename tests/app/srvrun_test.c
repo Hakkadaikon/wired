@@ -23997,6 +23997,54 @@ static void test_srvrun_stop_before_response_buffered(void) {
   *c = (srvrun_conn){0};
 }
 
+/* draft-ietf-webtrans-http3-15 4: a session's stream API reaches only that
+ * session's own streams. The HTTP/3 plumbing streams (QPACK encoder 7,
+ * the CONNECT stream's capsule sender) belong to no session: the app can
+ * neither write into, FIN, reset, reprioritize nor reply on them. */
+static void test_srvrun_wt_stream_api_rejects_plumbing(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            b = 0x41;
+  srvrun_conn*  c;
+  usz           q;
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  c                     = sr_wtsend_fixture(&f, &ob);
+  c->l.h3.settings_sent = 1;
+  srvrun_open_qpack_streams(c);
+  q = (usz)c->qenc_wtsend_slot;
+  CHECK(wired_server_wt_stream_send(&c->wt, 7, wired_span_of(&b, 1), 0) < 0);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 7) < 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 7, 1) < 0);
+  CHECK(wired_server_wt_stream_inflight(&c->wt, 7) == 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 1) == 0);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 7, 1) == 0);
+  CHECK(c->wtsend[q].in_use && c->wtsend[q].stream_id == 7);
+  CHECK(c->wt_stream_reset_n == 0);
+  /* the CONNECT stream (id 4) is the session's own control channel */
+  CHECK(wired_server_wt_stream_reply(&c->wt, 4, wired_span_of(&b, 1)) == 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 4, 1) == 0);
+  sr_reset_global_table();
+}
+
+/* A stream the session opened itself stays fully usable. */
+static void test_srvrun_wt_stream_api_accepts_own_stream(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            b = 0x41;
+  srvrun_conn*  c;
+  i64           id;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_uni_stream(&c->wt, wired_span_of(&b, 1));
+  CHECK(id > 0);
+  CHECK(wired_server_wt_stream_priority(&c->wt, (u64)id, 1) == 1);
+  CHECK(wired_server_wt_stream_inflight(&c->wt, (u64)id) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, (u64)id, 1) == 1);
+  sr_reset_global_table();
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24668,4 +24716,6 @@ void test_srvrun(void) {
   test_srvrun_on_body_conn_free_aborts();
   test_srvrun_stop_before_response_resets_and_aborts();
   test_srvrun_stop_before_response_buffered();
+  test_srvrun_wt_stream_api_rejects_plumbing();
+  test_srvrun_wt_stream_api_accepts_own_stream();
 }
