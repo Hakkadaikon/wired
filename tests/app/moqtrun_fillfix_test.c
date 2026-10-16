@@ -230,6 +230,27 @@ static void test_moqtrun_fillfix_reclaim_resets(void) {
   CHECK(mf_no_fetch());
 }
 
+/* The hub's own live track re-published: the old incarnation's fills are
+ * reset INTERNAL_ERROR as a peer track's re-claim does, not left serving
+ * the next publisher's subscribers. */
+static void test_moqtrun_fillfix_live_republish_resets(void) {
+  static const u8 frag[1] = {1};
+  wired_span      fr      = wired_span_of(frag, 1);
+  moqfetch_fill   fill    = {0};
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "live");
+  mf_init(sizeof mf_arena);
+  CHECK(wired_moqt_publish_live(&mtst_hub, f.name, 9, &fr, 1, 1000, 0));
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mfill_rid += 2, 0);
+  g_stream_send_ok_n = 0; /* the fill parks mid-range, opened */
+  mfill_update(&fill, 0);
+  CHECK(!mf_no_fetch());
+  g_stream_send_ok_n = -1;
+  CHECK(wired_moqt_publish_live(&mtst_hub, f.name, 9, &fr, 1, 1000, 0));
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mf_no_fetch());
+}
+
 static void mtall_fillfix(void) {
   test_moqtrun_fillfix_omitted_next_object();
   test_moqtrun_fillfix_omitted_abs_start();
@@ -239,6 +260,7 @@ static void mtall_fillfix(void) {
   test_moqtrun_fillfix_malformed_update();
   test_moqtrun_fillfix_retire_resets();
   test_moqtrun_fillfix_reclaim_resets();
+  test_moqtrun_fillfix_live_republish_resets();
 }
 
 /* Table-filling scenarios park draft-18/19-layout FETCHes (mf_standalone),

@@ -5810,7 +5810,10 @@ int wired_moqt_publish_live(
   if (moqtrun_live_args_bad(frags, n_frags, group_ms) ||
       moqtrun_key_oversized(moqtrun_key_name(name)))
     return 0;
-  hub->live.track.in_use = 0; /* a re-publish forgets old subscribers */
+  /* a re-publish forgets old subscribers; the old incarnation's cache and
+   * fills go first, as on any track's end */
+  moqtrun_track_cache_drop(hub, &hub->live.track);
+  hub->live.track.in_use = 0;
   moqtrun_track_claim(
       hub, &hub->live.track, moqtrun_key_name(name), track_alias);
   hub->live.frags       = frags;
