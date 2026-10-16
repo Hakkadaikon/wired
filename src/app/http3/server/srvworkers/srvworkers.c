@@ -4,6 +4,7 @@
 #include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvpin/srvpin.h"
 #include "common/platform/sys/syscall.h"
+#include "tls/handshake/core/sdrv/sdrv.h"
 
 /* fork(57) over clone (no trampoline asm needed, crash isolation, plain
  * wait4(61) reaping), exit_group(231) uniformly even though each worker is
@@ -284,10 +285,12 @@ static int srvworkers_resolve_count(int workers) {
   return workers;
 }
 
-/* Draw the process-wide ticket/Retry seeds (srvkeys) BEFORE forking, so
- * every worker inherits one draw and a ticket or Retry token minted by one
- * worker opens on another; then install the parent's SIGTERM handler and
- * fork. -1 when the seed draw failed (nothing forked). */
+/* Draw the process-wide ticket/Retry seeds (srvkeys) and share the 0-RTT
+ * replay tracker BEFORE forking, so every worker inherits one draw (a
+ * ticket or Retry token minted by one worker opens on another) and one
+ * tracker (a ticket is first-use once across all workers); then install the
+ * parent's SIGTERM handler and fork. -1 when the seed draw failed (nothing
+ * forked). */
 static int srvworkers_start(
     srvworkers_table*           t,
     u16                         port,
@@ -296,6 +299,7 @@ static int srvworkers_start(
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
   if (!srvkeys_ready()) return -1;
+  sdrv_zerortt_share(); /* on failure 0-RTT replay stays per worker */
   wired_sigterm_install(srvworkers_on_term);
   return srvworkers_fork_all(t, port, id, h, obs, opt);
 }

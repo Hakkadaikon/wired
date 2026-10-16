@@ -1,6 +1,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
 #include "app/datagram/datagram/datagram.h"
+#include "common/arch/arch.h"
 #include "common/bytes/util/bytes.h"
 #include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
@@ -615,9 +616,26 @@ static int find_client_early_data_ext(
 /* Zero-initialized static storage is already an empty, unlocked tracker
  * (zerortt_seen_init's own state), so no lazy init -- a lazy init flag
  * would itself race between threads. */
-static zerortt_seen g_sdrv_zerortt_seen;
+static zerortt_seen  g_sdrv_zerortt_seen;
+static zerortt_seen* g_sdrv_zerortt_tab = &g_sdrv_zerortt_seen;
 
-static zerortt_seen* sdrv_zerortt_seen(void) { return &g_sdrv_zerortt_seen; }
+static zerortt_seen* sdrv_zerortt_seen(void) { return g_sdrv_zerortt_tab; }
+
+/* mmap(2) flags for a region fork(2) children keep sharing with the parent
+ * (Linux <sys/mman.h>). */
+#define SDRV_PROT_RW 0x3
+#define SDRV_MAP_SHARED_ANON 0x21
+
+int sdrv_zerortt_share(void) {
+  i64 p;
+  if (g_sdrv_zerortt_tab != &g_sdrv_zerortt_seen) return 1;
+  p = wired_arch_mmap(
+      0, sizeof(zerortt_seen), SDRV_PROT_RW, SDRV_MAP_SHARED_ANON, -1, 0);
+  if (p < 0) return 0;
+  bytes_memcpy((void*)p, &g_sdrv_zerortt_seen, sizeof(zerortt_seen));
+  g_sdrv_zerortt_tab = (zerortt_seen*)p;
+  return 1;
+}
 
 /* RFC 8446 4.2.11.1 / 8.3: the ticket is on its first use (RFC 8446 8.1) and
  * the client's claimed ticket age is still fresh relative to the server's

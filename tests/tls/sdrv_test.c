@@ -2413,6 +2413,26 @@ static void test_sdrv_0rtt_alpn_gate(void) {
   CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
 }
 
+/* RFC 8446 8.1 across forked workers (srvworkers): once the replay tracker
+ * is moved to shared memory before fork, a ticket a child accepted 0-RTT
+ * for is a replay in the parent and every sibling too. */
+static void test_sdrv_zerortt_shared_across_fork(void) {
+  const u8 id[6]  = {0x5f, 0x0f, 0x4b, 0x01, 0x02, 0x03};
+  i64      status = 0, pid;
+  CHECK(sdrv_zerortt_share() == 1);
+  CHECK(sdrv_zerortt_share() == 1); /* idempotent */
+  pid = wired_arch_fork();
+  if (pid == 0) {
+    zerortt_seen_check(sdrv_zerortt_seen(), wired_span_of(id, sizeof id));
+    wired_arch_exit_group(0);
+  }
+  CHECK(pid > 0);
+  wired_arch_wait4(pid, &status, 0, 0);
+  CHECK(
+      zerortt_seen_check(sdrv_zerortt_seen(), wired_span_of(id, sizeof id)) ==
+      0);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2659,4 +2679,5 @@ void test_sdrv(void) {
     CHECK(tls_finished_check(s_traffic, fin_th, fin + 4));
   }
   test_sdrv_pref_addr_tp();
+  test_sdrv_zerortt_shared_across_fork();
 }

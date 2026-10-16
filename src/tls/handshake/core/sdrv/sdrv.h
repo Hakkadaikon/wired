@@ -434,6 +434,15 @@ int sdrv_hrr_pending(const sdrv* s);
  * @return 1 if 0-RTT may be accepted, 0 otherwise. */
 int sdrv_early_allowed(const sdrv* s);
 
+/** RFC 8446 8.1 across processes: move this process's 0-RTT replay tracker
+ * into an anonymous shared mapping, so fork(2) children (srvworkers) keep
+ * one tracker with the parent and each other and a ticket accepted for
+ * 0-RTT in one worker is a replay in all. Call before forking; a second
+ * call is a no-op.
+ * @return 1 once the tracker is shared, 0 if the mapping failed (the
+ *   tracker then stays per-process). */
+int sdrv_zerortt_share(void);
+
 /** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
  * this driver's only supported group) into out, fold it into the
  * transcript, and arm ClientHello2 handling: sdrv_recv_client_hello.
