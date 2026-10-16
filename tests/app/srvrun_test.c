@@ -24223,6 +24223,22 @@ static void test_srvrun_held_connect_skips_reused_slot(void) {
   *c = (srvrun_conn){0};
 }
 
+/* RFC 9000 4.1: a WT stream that overran its window is a flow-control
+ * violation even when its reassembly slot was released in the same step:
+ * a released slot keeps its drop count until the slot is claimed again,
+ * so the violation still closes the connection. */
+static void test_srvrun_flow_violation_survives_slot_release(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_streams[0].win.dropped_bytes = 5;
+  c->l.wt_streams[0].in_use            = 0; /* released this step */
+  CHECK(srvrun_flow_violated(c) == 1);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24902,4 +24918,5 @@ void test_srvrun(void) {
   test_srvrun_wt_new_session_drops_stale_latches();
   test_srvrun_wtsend_claim_starts_empty();
   test_srvrun_held_connect_skips_reused_slot();
+  test_srvrun_flow_violation_survives_slot_release();
 }

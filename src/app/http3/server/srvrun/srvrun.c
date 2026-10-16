@@ -9645,8 +9645,11 @@ static void srvrun_reap_wtsends(srvrun_conn* c) {
 }
 
 /* Sum of receive-window overflow drops across this connection's WT stream
- * reassembly slots (bidi + uni), for the metrics snapshot below. Counts the
- * slots currently claimed -- a released slot's count leaves the sum. */
+ * reassembly slots (bidi + uni), for the metrics snapshot below and the
+ * flow-control check (srvrun_flow_violated). Every slot counts, claimed or
+ * not: release keeps a slot's count until its next claim resets the
+ * window, so an overrun on a slot released in the same step still closes
+ * the connection. */
 static u64 srvrun_wtwin_dropped(const srvrun_conn* c) {
   u64 total = 0;
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
