@@ -7132,6 +7132,16 @@ static void srvrun_wt_seed_limits(const srvrun_conn* c, wired_wt_session* s) {
   wired_wt_session_set_max_data(s, v[2]);
 }
 
+/* A session slot's app-latched close/drain belong to the session that
+ * latched them: a fresh session in the slot starts with none (and no stale
+ * close code or message from the slot's previous occupant). */
+static void srvrun_wt_latches_clear(srvrun_conn* c, int sidx) {
+  c->wt_close_pending[sidx] = 0;
+  c->wt_close_code[sidx]    = 0;
+  c->wt_close_msg_len[sidx] = 0;
+  c->wt_drain_pending[sidx] = 0;
+}
+
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
  * webtrans-http3-15 SS3.2/SS4) in the first free session slot: the session id
  * is the CONNECT stream's own id. The 200 carries a wt-protocol header when
@@ -7171,6 +7181,7 @@ static void srvrun_start_wt(
   c->wt_capq[sidx].n        = 0;
   c->wt_capq[sidx].skip     = 0;
   c->wt_drain_rcvd[sidx]    = 0;
+  srvrun_wt_latches_clear(c, sidx);
   srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
 

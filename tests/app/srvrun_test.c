@@ -24156,6 +24156,25 @@ static void test_srvrun_unframable_response_reset_and_freed(void) {
   *c = (srvrun_conn){0};
 }
 
+/* draft-ietf-webtrans-http3-15 4.6/4.7: a close or drain the app latched
+ * for a session belongs to that session only. A latch left on a session
+ * slot from its previous occupant (never drained because that session
+ * ended first) must not close or drain the next session established in
+ * the same slot. */
+static void test_srvrun_wt_new_session_drops_stale_latches(void) {
+  srvrun_conn* c         = sr_sl_fixture();
+  c->wt_close_pending[0] = 1;
+  c->wt_close_code[0]    = 7;
+  c->wt_close_msg_len[0] = 3;
+  c->wt_drain_pending[0] = 1;
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  CHECK(c->wt_close_pending[0] == 0 && c->wt_drain_pending[0] == 0);
+  CHECK(c->wt_close_code[0] == 0 && c->wt_close_msg_len[0] == 0);
+  CHECK(c->wt.state == WIRED_WT_ESTABLISHED);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24832,4 +24851,5 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_routed_by_session_id();
   test_srvrun_grant_retry_skips_freed_slot();
   test_srvrun_unframable_response_reset_and_freed();
+  test_srvrun_wt_new_session_drops_stale_latches();
 }
