@@ -531,6 +531,22 @@ static void test_moqtrun_repath_stream_count(void) {
       moqctl_publish_done_for(g_moqtrun_test_ver, MOQCTL_DONE_TRACK_ENDED), 2));
 }
 
+/* A wait's PUBLISH_DONE status and Stream Count are the ones stored when
+ * its slot is claimed, never what a free slot held before (freestanding
+ * memory starts unzeroed; a plain waiter's claim leaves both unset). */
+static void test_moqtrun_repath_done_fields_set_at_claim(void) {
+  mrp_init();
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+    if (!mtst_hub.rdv[i].in_use) {
+      mtst_hub.rdv[i].done_status = 0x7777;
+      mtst_hub.rdv[i].done_count  = 99;
+    }
+  mrp_group(SESS_A, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
+  mrp_end(MRP_GA);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
+  CHECK(mrp_done_once_n(MOQCTL_DONE_GOING_AWAY, 1));
+}
+
 /* A GOAWAY drain running out while C and D wait ends them with
  * PUBLISH_DONE GOING_AWAY at the flush (the wait is over: nothing more
  * at its deadline). */
@@ -844,6 +860,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_ends_again();
   test_moqtrun_repath_done_once();
   test_moqtrun_repath_stream_count();
+  test_moqtrun_repath_done_fields_set_at_claim();
   test_moqtrun_repath_drain_flush();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
