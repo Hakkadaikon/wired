@@ -64,13 +64,17 @@ static int srvboot_set_cids(
   return sdrv_set_retry_scid(&conn->s->sdrv, dcid);
 }
 
+const u8* srvboot_reset_seed(const wired_srvboot_id* id) {
+  return id->reset_seed ? id->reset_seed : id->cert_seed;
+}
+
 /* RFC 9000 10.3.1: advertise a stateless_reset_token for this connection's
- * server SCID, derived from the cert seed so the token survives a server
- * restart -- the one situation the token exists for. */
+ * server SCID, derived from the signing key's secret so the token survives
+ * a server restart -- the one situation the token exists for. */
 static void srvboot_set_reset_token(
     const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
   u8 key[SRESET_KEY], token[SRESET_TOKEN];
-  sreset_key_derive(id->cert_seed, key);
+  sreset_key_derive(srvboot_reset_seed(id), key);
   sreset_token(key, id->scid, id->scid_len, token);
   wired_server_set_reset_token(conn->s, token);
 }

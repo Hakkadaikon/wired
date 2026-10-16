@@ -1173,6 +1173,7 @@ static void sr_make_id(
   id->ticket_key              = 0;
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
+  id->reset_seed              = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
@@ -23848,6 +23849,37 @@ static void test_srvrun_qdec_send_checks_slot_owner(void) {
   *c = (srvrun_conn){0};
 }
 
+/* RFC 9000 10.3: the stateless-reset secret is pinned when the server
+ * starts (srvrun_pin_reset_seed), so a later certificate reload -- which
+ * rewrites id->cert_seed in place -- does not change the token a live
+ * connection was promised: a reset sent after the reload still carries the
+ * token derived from the start-time key. */
+static void test_srvrun_stateless_reset_survives_cert_reload(void) {
+  wired_srvboot_id  id;
+  wired_srvrun_env* env = &g_srvrun_env;
+  u8                priv[32], pub[32], seed[32], rnd[32], seed2[32];
+  u8                out[128], key[SRESET_KEY], want[SRESET_TOKEN];
+  u8                dcid[8] = {0xd3, 1, 2, 3, 4, 5, 6, 7};
+  wired_obuf        ob      = obuf_of(out, sizeof out);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_pin_reset_seed(env, &id);
+  for (usz i = 0; i < 32; i++) seed2[i] = (u8)(seed[i] ^ 0x5a);
+  id.cert_seed = seed2; /* what a SIGHUP reload does to id */
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), 64, &ob) ==
+        1);
+  }
+  sreset_key_derive(seed, key);
+  sreset_token(key, dcid, 8, want);
+  CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, want, 16) == 0);
+  /* and the token the handshake advertises comes from the same secret */
+  CHECK(srvboot_reset_seed(&id) == env->reset_seed);
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24513,4 +24545,5 @@ void test_srvrun(void) {
   test_srvrun_peer_stop_on_critical_stream_closes();
   test_srvrun_peer_stop_on_raw_stream3_no_close();
   test_srvrun_qdec_send_checks_slot_owner();
+  test_srvrun_stateless_reset_survives_cert_reload();
 }

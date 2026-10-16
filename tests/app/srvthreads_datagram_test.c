@@ -98,6 +98,7 @@ static void sdt_make_id(
   id->ticket_key              = 0;
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
+  id->reset_seed              = 0;
 }
 
 /* draft-ietf-webtrans-http3-15 SS4: relay every received DATAGRAM to every

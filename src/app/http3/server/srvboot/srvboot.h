@@ -83,6 +83,11 @@ typedef struct {
    * Must name neither h3 nor hq-interop. A static string: the negotiated
    * id is kept as a view into it for the connection's lifetime. */
   const char* raw_alpns;
+  /** RFC 9000 10.3: the 32-byte secret stateless-reset tokens derive from,
+   * or 0 to use cert_seed. wired_srvrun_serve_env pins it to a copy of the
+   * start-time cert_seed, so a certificate reload (which rewrites cert_seed
+   * in place) never changes a token a live connection was already given. */
+  const u8* reset_seed;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
@@ -91,6 +96,12 @@ typedef struct {
  * @param len length of dg in octets
  * @return 1 if dg is a long-header Initial datagram, 0 otherwise */
 int wired_srvboot_is_initial(const u8* dg, usz len);
+
+/** The stateless-reset secret id's tokens derive from: id->reset_seed when
+ * set, else id->cert_seed.
+ * @param id the server identity
+ * @return 32 bytes */
+const u8* srvboot_reset_seed(const wired_srvboot_id* id);
 
 /** RFC 9000 17.2.3: 1 if dg is a long-header 0-RTT datagram. Read before any
  * key exists to open it with -- only the type bits are needed, same scope

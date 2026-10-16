@@ -1223,6 +1223,10 @@ struct wired_srvrun_env {
    * if_requested); a single-threaded run sees at most one pending generation
    * at a time, so "gen != seen" behaves exactly like the old boolean flag. */
   u32 reload_seen_gen;
+  /* RFC 9000 10.3: a copy of the start-time cert_seed that stateless-reset
+   * tokens derive from (srvrun_pin_reset_seed), kept apart from the
+   * id->cert_seed a SIGHUP reload rewrites. */
+  u8 reset_seed[SRESET_KEY];
   /* Session-addressed HTTP Datagram send ring (wired_server_wt_send_
    * datagram_to): FIFO of dgring_n entries starting at dgring_head, drained
    * once per loop step (srvrun_dgring_drain). Env-level, not per-connection,
@@ -11112,7 +11116,7 @@ static int srvrun_seal_stateless_reset(
   u8  key[SRESET_KEY];
   usz cap = u64_min(out->cap, trigger_len - 1);
   usz len;
-  sreset_key_derive(cfg->id->cert_seed, key);
+  sreset_key_derive(srvboot_reset_seed(cfg->id), key);
   if (!sreset_build(
           key, dcid.p, dcid.n, trigger_len, rng_bytes, out->p, cap, &len))
     return 0;
@@ -11746,6 +11750,15 @@ static void srvrun_pref_listen(
   cfg->env->pref_fd = fd;
 }
 
+/* Pin id's stateless-reset secret to a copy of its current cert_seed held
+ * in env, unless the caller already set one: tokens advertised before a
+ * certificate reload stay valid after it (RFC 9000 10.3). */
+static void srvrun_pin_reset_seed(wired_srvrun_env* env, wired_srvboot_id* id) {
+  if (id->reset_seed) return;
+  bytes_memcpy(env->reset_seed, id->cert_seed, sizeof env->reset_seed);
+  id->reset_seed = env->reset_seed;
+}
+
 int wired_srvrun_serve_env(
     wired_srvrun_env*       env,
     u16                     port,
@@ -11757,6 +11770,7 @@ int wired_srvrun_serve_env(
   if (!srvkeys_ready()) return 0; /* no ticket/Retry seed: refuse to run */
   cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
+  srvrun_pin_reset_seed(env, id);
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
   env->raw_on_session          = opt->raw_on_session;
