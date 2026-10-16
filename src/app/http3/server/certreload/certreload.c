@@ -1,5 +1,6 @@
 #include "app/http3/server/certreload/certreload.h"
 
+#include "common/bytes/util/bytes.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/exit/exit.h"
 #include "common/platform/fio/fio.h"
@@ -77,16 +78,30 @@ static ssz certreload_read_file(const char* path, u8* buf, usz cap) {
   return n < 0 ? -1 : n;
 }
 
-/* Decode cert_text/key_text (already read into memory) into store and point
- * id at the result. Returns 1 on success. */
+/* Copy a fully decoded staging store into the live one, re-pointing its
+ * n chain views at the live DER buffer (they pointed into stage's). */
+static void certreload_commit(
+    const wired_certreload_store* stage, wired_certreload_store* store, usz n) {
+  bytes_memcpy(store, stage, sizeof *store);
+  for (usz i = 0; i < n; i++)
+    store->chain[i].p =
+        store->chain_der + (stage->chain[i].p - stage->chain_der);
+}
+
+/* Decode cert_text/key_text (already read into memory) into stage, and
+ * only once both decode commit it to store and point id at the result: a
+ * failure anywhere leaves store and id as they were (a reload never mixes
+ * a new chain with the old key). Returns 1 on success. */
 static int certreload_decode(
     wired_span              cert_text,
     wired_span              key_text,
+    wired_certreload_store* stage,
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
-  usz n = certreload_load_chain(cert_text, store);
+  usz n = certreload_load_chain(cert_text, stage);
   if (n == 0) return 0;
-  if (!certreload_load_key(key_text, store)) return 0;
+  if (!certreload_load_key(key_text, stage)) return 0;
+  certreload_commit(stage, store, n);
   id->chain_count = n;
   id->chain       = store->chain;
   id->cert_seed   = store->priv;
@@ -100,13 +115,14 @@ int wired_certreload_load(
     wired_srvboot_id*       id) {
   /* cert_pem sized past a real 9-cert amplificationlimit chain (13594
    * bytes of PEM text) with headroom -- see WIRED_CERTRELOAD_CHAIN_MAX. */
-  u8  cert_pem[16384], key_pem[4096];
+  u8                     cert_pem[16384], key_pem[4096];
+  wired_certreload_store stage; /* decoded here first, committed whole */
   ssz cn = certreload_read_file(cert_path, cert_pem, sizeof cert_pem);
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);
   if (cn < 0 || kn < 0) return 0;
   return certreload_decode(
-      wired_span_of(cert_pem, (usz)cn), wired_span_of(key_pem, (usz)kn), store,
-      id);
+      wired_span_of(cert_pem, (usz)cn), wired_span_of(key_pem, (usz)kn), &stage,
+      store, id);
 }
 
 /* 1 if cert_path carries a real value (non-NULL, non-empty). */

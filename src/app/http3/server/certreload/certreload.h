@@ -38,7 +38,10 @@ typedef struct {
  * fields (priv/pub/scid/random) are left untouched.
  * @param cert_path NUL-terminated path to a fullchain PEM (leaf first)
  * @param key_path  NUL-terminated path to a PEM P-256 private key
- * @param store     caller-owned storage; must outlive id's use
+ * Both files are decoded into scratch storage first and copied into store
+ * only once both decode, so a failed (re)load leaves store as it was.
+ * @param store     caller-owned storage; must outlive id's use; unmodified
+ *   on failure
  * @param id        updated in place on success; left unmodified on failure
  * @return 1 on success; 0 if either file cannot be read, the PEM/DER is
  *   malformed, or the chain has zero certificates. */

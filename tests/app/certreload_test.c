@@ -239,6 +239,37 @@ static void test_certreload_or_selfsigned_loads(void) {
   crt_unlink(crt_key_path);
 }
 
+/* ATOMIC RELOAD: a reload whose cert.pem decodes but whose key.pem does
+ * not leaves the live store and id exactly as they were -- never the new
+ * chain beside the old key (a server would then present a certificate it
+ * cannot sign for). */
+static void test_certreload_failed_reload_keeps_store(void) {
+  static wired_certreload_store store, before;
+  wired_srvboot_id              id = {0}, id_before;
+  crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  crt_write(crt_cert_2_path, crt_cert2_pem, sizeof(crt_cert2_pem) - 1);
+  crt_write(crt_bad_key_path, crt_bad_key_pem, sizeof(crt_bad_key_pem) - 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
+  bytes_memcpy(&before, &store, sizeof store);
+  id_before = id;
+  CHECK(
+      wired_certreload_load(crt_cert_2_path, crt_bad_key_path, &store, &id) ==
+      0);
+  CHECK(ct_diffn((const u8*)&store, (const u8*)&before, sizeof store) == 0);
+  CHECK(id.chain_count == id_before.chain_count);
+  CHECK(id.chain == id_before.chain && id.cert_seed == id_before.cert_seed);
+  /* and a good reload afterward still lands whole, views into store */
+  CHECK(wired_certreload_load(crt_cert_2_path, crt_key_path, &store, &id) == 1);
+  CHECK(id.chain_count == 2 && id.chain == store.chain);
+  CHECK(id.chain[1].p == store.chain_der + id.chain[0].n);
+  CHECK(id.chain[1].n == sizeof(realchain_int_der));
+  crt_unlink(crt_cert_path);
+  crt_unlink(crt_key_path);
+  crt_unlink(crt_cert_2_path);
+  crt_unlink(crt_bad_key_path);
+}
+
 void test_certreload(void) {
   test_certreload_loads_single_cert();
   test_certreload_loads_two_cert_chain();
@@ -250,4 +281,5 @@ void test_certreload(void) {
   test_certreload_or_selfsigned_noop_on_null();
   test_certreload_or_selfsigned_noop_on_empty();
   test_certreload_or_selfsigned_loads();
+  test_certreload_failed_reload_keeps_store();
 }
