@@ -5,7 +5,8 @@
 
 /* RFC 8446 8.1 / RFC 9001 9.2: a server MUST NOT accept 0-RTT for a ticket it
  * has already accepted 0-RTT for once -- single-use enforcement. This is a
- * bounded, process-lifetime, single-process tracker of ticket identities
+ * bounded, process-lifetime tracker of ticket identities, shared by every
+ * thread of the process (srvthreads workers) under one spinlock
  * (the sealed pre_shared_key identity bytes, which are unique per issuance
  * since ticket_seal draws a fresh random nonce every call); it feeds
  * zerortt_replay_ok's ticket_first_use argument (zerortt_policy.h).
@@ -22,14 +23,17 @@ typedef struct {
   u8  digest[ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
   usz next;                         /* ring write cursor */
   usz count;                        /* entries filled so far (<= CAP) */
+  int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
 } zerortt_seen;
 
 /* Reset s to empty. */
 void zerortt_seen_init(zerortt_seen* s);
 
 /* Check whether identity has been presented to s before; records it either
- * way. Returns 1 on first use (identity was not already recorded), 0 on a
- * replay (already recorded). */
+ * way, as one atomic step against every other thread calling this on s (so
+ * a ticket raced on two threads is still a first use only once). Returns 1
+ * on first use (identity was not already recorded), 0 on a replay (already
+ * recorded). */
 int zerortt_seen_check(zerortt_seen* s, wired_span identity);
 
 #endif

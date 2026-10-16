@@ -1,3 +1,4 @@
+#include "common/platform/thread/thread.h"
 #include "test.h"
 
 /* RFC 8446 8.1 / RFC 9001 9.2: a server must reject 0-RTT for any ticket it
@@ -59,7 +60,52 @@ static void test_seen_capacity_evicts_oldest(void) {
   CHECK(zerortt_seen_check(&s, zerortt_seen_span(id[0], 4)) == 1);
 }
 
+/* RFC 8446 8.1 across threads: srvthreads workers share one tracker, so two
+ * workers presented the same ticket at the same moment must still accept it
+ * exactly once -- the look-up and the record are one atomic step. Two
+ * threads race over the same ZRS_RACE_N identities; every identity counts
+ * one first use in total, never two. */
+#define ZRS_RACE_N 1500
+static zerortt_seen g_zrs_race;
+static int          g_zrs_go;
+
+typedef struct {
+  u8  salt;
+  usz firsts;
+} zrs_race_arg;
+
+static void zrs_race_fn(void* p) {
+  zrs_race_arg* a = p;
+  u8            id[4];
+  while (!__atomic_load_n(&g_zrs_go, __ATOMIC_ACQUIRE)) {
+  }
+  for (usz i = 0; i < ZRS_RACE_N; i++) {
+    id[0] = (u8)i;
+    id[1] = (u8)(i >> 8);
+    id[2] = a->salt;
+    id[3] = 0x7e;
+    a->firsts += (usz)zerortt_seen_check(&g_zrs_race, zerortt_seen_span(id, 4));
+  }
+}
+
+static void test_seen_two_threads_accept_once(void) {
+  for (u8 round = 0; round < 4; round++) {
+    wired_thread t[2];
+    zrs_race_arg a[2] = {{round, 0}, {round, 0}};
+    zerortt_seen_init(&g_zrs_race);
+    __atomic_store_n(&g_zrs_go, 0, __ATOMIC_RELEASE);
+    CHECK(wired_thread_start(&t[0], zrs_race_fn, &a[0]) == 0);
+    CHECK(wired_thread_start(&t[1], zrs_race_fn, &a[1]) == 0);
+    __atomic_store_n(&g_zrs_go, 1, __ATOMIC_RELEASE);
+    wired_thread_join(&t[0]);
+    wired_thread_join(&t[1]);
+    CHECK(a[0].firsts + a[1].firsts == ZRS_RACE_N);
+    CHECK(g_zrs_race.count <= ZERORTT_SEEN_CAP);
+  }
+}
+
 void test_zerortt_seen(void) {
+  test_seen_two_threads_accept_once();
   test_seen_fresh_is_first_use();
   test_seen_replay_is_not_first_use();
   test_seen_distinct_identities_independent();

@@ -1,11 +1,13 @@
 #include "transport/conn/loop/manage/zerortt_seen.h"
 
+#include "common/arch/arch.h"
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 void zerortt_seen_init(zerortt_seen* s) {
   s->next  = 0;
   s->count = 0;
+  s->lock  = 0;
 }
 
 /* The index of an existing entry matching digest, or -1. */
@@ -24,10 +26,26 @@ static void zerortt_seen_record(zerortt_seen* s, const u8 digest[32]) {
   if (s->count < ZERORTT_SEEN_CAP) s->count++;
 }
 
-int zerortt_seen_check(zerortt_seen* s, wired_span identity) {
-  u8 digest[32];
-  wired_sha256(identity.p, identity.n, digest);
+/* ponytail: one spinlock over the whole table (a 0-RTT attempt is rare and
+ * the critical section is one bounded scan); stripe it by digest byte if
+ * 0-RTT contention ever shows up in a profile. */
+static void zerortt_seen_lock(zerortt_seen* s) {
+  while (__atomic_exchange_n(&s->lock, 1, __ATOMIC_ACQUIRE)) wired_arch_pause();
+}
+
+/* Find, and record on a miss. 1 on first use. Caller holds s->lock. */
+static int zerortt_seen_find_or_record(zerortt_seen* s, const u8 digest[32]) {
   if (zerortt_seen_find(s, digest) >= 0) return 0;
   zerortt_seen_record(s, digest);
   return 1;
+}
+
+int zerortt_seen_check(zerortt_seen* s, wired_span identity) {
+  u8  digest[32];
+  int first;
+  wired_sha256(identity.p, identity.n, digest);
+  zerortt_seen_lock(s);
+  first = zerortt_seen_find_or_record(s, digest);
+  __atomic_store_n(&s->lock, 0, __ATOMIC_RELEASE);
+  return first;
 }

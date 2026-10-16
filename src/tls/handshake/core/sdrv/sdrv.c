@@ -612,16 +612,12 @@ static int find_client_early_data_ext(
  * this binary: a ticket identity is process-unique sealed-ciphertext bytes
  * (a fresh random nonce per ticket_seal call), so unrelated tests never
  * collide on it. */
+/* Zero-initialized static storage is already an empty, unlocked tracker
+ * (zerortt_seen_init's own state), so no lazy init -- a lazy init flag
+ * would itself race between threads. */
 static zerortt_seen g_sdrv_zerortt_seen;
-static int          g_sdrv_zerortt_seen_init_done;
 
-static zerortt_seen* sdrv_zerortt_seen(void) {
-  if (!g_sdrv_zerortt_seen_init_done) {
-    zerortt_seen_init(&g_sdrv_zerortt_seen);
-    g_sdrv_zerortt_seen_init_done = 1;
-  }
-  return &g_sdrv_zerortt_seen;
-}
+static zerortt_seen* sdrv_zerortt_seen(void) { return &g_sdrv_zerortt_seen; }
 
 /* RFC 8446 4.2.11.1 / 8.3: the ticket is on its first use (RFC 8446 8.1) and
  * the client's claimed ticket age is still fresh relative to the server's
