@@ -24045,6 +24045,53 @@ static void test_srvrun_wt_stream_api_accepts_own_stream(void) {
   sr_reset_global_table();
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: a WT stream's signal carries the
+ * Session ID (its CONNECT stream id); the stream belongs to that session,
+ * not to whichever session happens to be first. Two sessions (CONNECT 4
+ * and 8) share the connection; a bidi stream signalled for 8 and a uni
+ * stream signalled for 8 are offered to session slot 1, and a stream
+ * naming no live session is offered to none. */
+static srvrun_conn* sr_two_session_fixture(struct lp_fix* f, wired_obuf* ob) {
+  srvrun_conn* c = sr_wtsend_fixture(f, ob);
+  wired_wt_session_init(&c->wt1, 8);
+  wired_wt_session_establish(&c->wt1);
+  c->wt1_active = 1;
+  return c;
+}
+
+static void test_srvrun_wt_stream_routed_by_session_id(void) {
+  static const u8                   bsig[] = {0x40, 0x41, 0x08};
+  static const u8                   usig[] = {0x40, 0x54, 0x08};
+  static const u8                   xsig[] = {0x40, 0x41, 0x0c};
+  struct lp_fix                     f;
+  u8                                obuf[1024];
+  wired_obuf                        ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*                      c   = sr_two_session_fixture(&f, &ob);
+  srvrun_cfg                        cfg = sr_wt_send_cfg();
+  wired_srvloop_wt_stream_slot*     b   = &c->l.wt_streams[0];
+  wired_srvloop_wt_uni_stream_slot* u   = &c->l.wt_uni_streams[0];
+  b->in_use                             = 1;
+  b->stream_id                          = 12;
+  bytes_memcpy(b->sig, bsig, sizeof bsig);
+  b->sig_have = sizeof bsig;
+  srvrun_offer_wt_slot(&cfg, c, b);
+  CHECK(b->offered == 1 && b->wt_session_slot == 1);
+  u->in_use    = 1;
+  u->stream_id = 2;
+  bytes_memcpy(u->sig, usig, sizeof usig);
+  u->sig_have = sizeof usig;
+  srvrun_offer_wt_uni_slot(&cfg, c, u);
+  CHECK(u->offered == 1 && u->wt_session_slot == 1);
+  b            = &c->l.wt_streams[1];
+  b->in_use    = 1;
+  b->stream_id = 16;
+  bytes_memcpy(b->sig, xsig, sizeof xsig);
+  b->sig_have = sizeof xsig;
+  srvrun_offer_wt_slot(&cfg, c, b);
+  CHECK(b->offered == 0);
+  sr_reset_global_table();
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24718,4 +24765,5 @@ void test_srvrun(void) {
   test_srvrun_stop_before_response_buffered();
   test_srvrun_wt_stream_api_rejects_plumbing();
   test_srvrun_wt_stream_api_accepts_own_stream();
+  test_srvrun_wt_stream_routed_by_session_id();
 }

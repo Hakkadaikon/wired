@@ -1778,8 +1778,10 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
  * the session id varint (the signal is TWO varints). Build stream id's
  * offset-0 STREAM frame with that leading 3-byte signal plus one application
  * byte behind it. */
+/* A WT bidi stream signalled for Session ID 4 (the CONNECT stream id the
+ * srvrun end-to-end fixture opens), carrying one byte 'X'. */
 static usz lp_wt_bidi_stream(u8* out, usz cap, u64 stream_id) {
-  u8           sig[4] = {0x40, 0x41, 0x00, 'X'};
+  u8           sig[4] = {0x40, 0x41, 0x04, 'X'};
   stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
   return frame_put_stream(out, cap, &sf);
 }

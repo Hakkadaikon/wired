@@ -2436,23 +2436,33 @@ static int srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c) {
          c->wt_sess_window_count >= SRVRUN_MAX_WT_SESSIONS_PER_WINDOW;
 }
 
-/* The first active session slot willing to accept stream_id: one it already
- * tracks (wired_wt_session_offer_stream is idempotent-by-buffering/
- * associates-directly once established, session.c), else the first active
- * slot in order with room. This is the only signal available at this layer
- * for "which session a WT data stream belongs to" -- the wire format this SDK
- * parses (dispatch.c's 0x41/0x54 signal) carries no session id, so a
- * production caller cannot yet name an explicit target the way
- * srvrun_wt_slot_by_connect_id's CONNECT-stream-close routing can. First-fit
- * across active slots keeps today's one-session behavior unchanged (with one
- * active slot there is exactly one candidate) while still being structurally
- * exclusive (a stream offered here lands in at most one slot per call).
- * Returns -1 if no active slot exists (mirrors
- * the pre-multi-session no-active-session fallback). */
+/* The first active session slot, -1 if none: the target of a stream that
+ * carries no signal (raw QUIC's implicit session). */
 static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (srvrun_wt_is_active(c, i)) return i;
   return -1;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: the Session ID a stream's signal names
+ * -- the second varint of the leading signal bytes sig[0..have) (the first
+ * is the 0x41/0x54 type). 1 with *sid set, 0 when there is no signal. */
+static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid) {
+  usz        off = 0;
+  wired_span s   = wired_span_of(sig, have);
+  if (!varint_take(s, &off, sid)) return 0;
+  return varint_take(s, &off, sid);
+}
+
+/* The session slot a new WT stream belongs to: the live session whose
+ * CONNECT stream its signal names (a stream naming no live session goes
+ * to none, -1), or -- no signal at all (raw QUIC) -- the first active one. */
+static int srvrun_wt_slot_for_signal(
+    const srvrun_conn* c, const u8* sig, u8 have) {
+  u64 sid;
+  if (!srvrun_wt_signal_session(sig, have, &sid))
+    return srvrun_wt_slot_for_new_stream(c);
+  return srvrun_wt_slot_by_connect_id(c, sid);
 }
 
 /* 1 iff a stream offered (offered) to session slot owner may still deliver
@@ -2532,7 +2542,7 @@ static void srvrun_reject_wt_slot(
  * same doomed stream id. */
 static void srvrun_offer_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  int sidx = srvrun_wt_slot_for_new_stream(c);
+  int sidx = srvrun_wt_slot_for_signal(c, slot->sig, slot->sig_have);
   if (sidx < 0) return;
   cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
@@ -2881,7 +2891,7 @@ static void srvrun_offer_wt_uni_slot(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
-  int sidx = srvrun_wt_slot_for_new_stream(c);
+  int sidx = srvrun_wt_slot_for_signal(c, slot->sig, slot->sig_have);
   if (sidx < 0) return;
   cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
