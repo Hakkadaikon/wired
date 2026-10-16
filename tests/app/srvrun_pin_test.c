@@ -153,7 +153,7 @@ static int sr_pin_token_gen_ok(u64 back) {
   wired_span      got;
   usz             n;
   ctx.peer = &peer;
-  keyring_key(g_srvrun_retry_key, wired_clock_epoch_secs(), back, key);
+  keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), back, key);
   n = retrytoken_wire_make(
       key, wired_span_of((const u8*)&peer, sizeof peer),
       wired_span_of(odcid, 4), tok);

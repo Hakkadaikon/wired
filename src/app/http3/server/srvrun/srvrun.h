@@ -293,7 +293,8 @@ typedef struct {
  * @param h the application's request responder
  * @param obs optional qlog/keylog file paths and cert reload paths, each 0
  *   to disable
- * @return 0 if the socket cannot be opened or bound; otherwise runs until
+ * @return 0 if the ticket/Retry seed draw fails (srvkeys) or the socket
+ *   cannot be opened or bound; otherwise runs until
  *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
     u16                  port,

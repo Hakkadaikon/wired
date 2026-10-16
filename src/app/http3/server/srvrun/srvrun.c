@@ -15,6 +15,7 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvbigbuf/srvbigbuf.h"
+#include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
@@ -10865,13 +10866,9 @@ static int srvrun_open_slot(
  * and serve it there. Silently drops a datagram that matches no slot and
  * cannot claim or initialize a new one. */
 /* RFC 9000 8.1.2 forced address validation (the interop retry testcase):
- * the seed Retry-token HMAC keys derive from; the key rotates every
- * KEYRING_PERIOD_SECS and the previous one still verifies (keyring.h).
- * ponytail: compiled-in seed, same policy as the ticket seed (respond.c). */
-static const u8 g_srvrun_retry_key[RETRYTOKEN_KEY] = {
-    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x72, 0x74, 0x72, 0x79, 0x2d,
-    0x6b, 0x65, 0x79, 0x2d, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
-    0x72, 0x74, 0x72, 0x79, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x31};
+ * Retry-token HMAC keys derive from srvkeys_retry, a per-process CSPRNG
+ * seed; the key rotates every KEYRING_PERIOD_SECS and the previous one
+ * still verifies (keyring.h). */
 
 /* Seal DCID=h->scid/SCID=scid/token into pkt with a garbage tag; the caller
  * patches the real RFC 9001 5.8 tag in afterward. Returns bytes written, or
@@ -10893,7 +10890,7 @@ static void srvrun_retry_prep(
   *tn = 0;
   if (!cid_generate(scid, 8)) return;
   u8 key[KEYRING_KEY];
-  keyring_key(g_srvrun_retry_key, wired_clock_epoch_secs(), 0, key);
+  keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
   *tn = retrytoken_wire_make(
       key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid,
       token);
@@ -10933,7 +10930,7 @@ static int srvrun_retry_token_gen_ok(
     u64                    now,
     u64                    back) {
   u8 key[KEYRING_KEY];
-  keyring_key(g_srvrun_retry_key, now, back, key);
+  keyring_key(srvkeys_retry(), now, back, key);
   return retrytoken_wire_verify(
       key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token,
       odcid);
@@ -11756,7 +11753,9 @@ int wired_srvrun_serve_env(
     wired_srvrun_handler    h,
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt) {
-  srvrun_cfg cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
+  srvrun_cfg cfg;
+  if (!srvkeys_ready()) return 0; /* no ticket/Retry seed: refuse to run */
+  cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;

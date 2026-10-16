@@ -2,6 +2,7 @@
 
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvinbox/srvinbox.h"
+#include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvpin/srvpin.h"
 #include "app/http3/server/srvxdpbpf/srvxdpbpf.h"
 #include "common/platform/clock/clock.h"
@@ -327,6 +328,8 @@ int wired_srvthreads_run(
   int                   n = opt->n_cores;
 
   srvthreads_pin_control(opt->control_core);
+  /* draw the ticket/Retry seeds before any worker thread can race the draw */
+  if (!srvkeys_ready()) return 0;
   if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) return 0;
   srvthreads_fill_args(args, envs, mesh, n, port, id, h, obs, opt, &bpf);
 

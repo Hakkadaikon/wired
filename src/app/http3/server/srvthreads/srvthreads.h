@@ -55,8 +55,8 @@ typedef struct {
  * @param opt worker CPU pinning, control pinning, srvrun knobs, and
  *   optional AF_XDP config
  * @return 1 once every worker has exited and cleanup is complete; 0 if
- *   opening the shared BPF filter or allocating per-worker env storage
- *   fails before any worker starts. */
+ *   the ticket/Retry seed draw (srvkeys), opening the shared BPF filter or
+ * allocating per-worker env storage fails before any worker starts. */
 int wired_srvthreads_run(
     u16                         port,
     wired_srvboot_id*           id,

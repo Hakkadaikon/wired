@@ -534,6 +534,7 @@
 #include "app/http3/server/certcache/certcache.c"
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/certreload/certreload.c"
+#include "app/http3/server/srvkeys/srvkeys.c"
 #include "app/http3/server/hq09/hq09.c"
 #include "app/http3/server/srvinbox/srvinbox.c"
 #include "app/http3/core/h3prio/h3prio.c"
@@ -1083,6 +1084,7 @@
 #include "app/srvrun_raw_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
+#include "app/srvkeys_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
 #include "app/hq09_test.c"
@@ -1704,6 +1706,7 @@ int main(void) {
   test_srvrun_raw();
   test_sigmask();
   test_certreload();
+  test_srvkeys();
   test_client_wire();
   test_h3_loopback();
   test_hq09();

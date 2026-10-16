@@ -1,6 +1,7 @@
 #include "app/http3/server/srvworkers/srvworkers.h"
 
 #include "app/http3/server/sigterm/sigterm.h"
+#include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvpin/srvpin.h"
 #include "common/platform/sys/syscall.h"
 
@@ -283,6 +284,22 @@ static int srvworkers_resolve_count(int workers) {
   return workers;
 }
 
+/* Draw the process-wide ticket/Retry seeds (srvkeys) BEFORE forking, so
+ * every worker inherits one draw and a ticket or Retry token minted by one
+ * worker opens on another; then install the parent's SIGTERM handler and
+ * fork. -1 when the seed draw failed (nothing forked). */
+static int srvworkers_start(
+    srvworkers_table*           t,
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvworkers_opt* opt) {
+  if (!srvkeys_ready()) return -1;
+  wired_sigterm_install(srvworkers_on_term);
+  return srvworkers_fork_all(t, port, id, h, obs, opt);
+}
+
 int wired_srvworkers_run(
     u16                         port,
     wired_srvboot_id*           id,
@@ -293,8 +310,7 @@ int wired_srvworkers_run(
   wired_srvworkers_opt local = *opt;
   int                  r;
   local.workers = srvworkers_resolve_count(local.workers);
-  wired_sigterm_install(srvworkers_on_term);
-  r = srvworkers_fork_all(&t, port, id, h, obs, &local);
+  r             = srvworkers_start(&t, port, id, h, obs, &local);
   if (r < 0) return r;
   while (srvworkers_live(&t))
     srvworkers_supervise_once(&t, port, id, h, obs, &local);

@@ -9,9 +9,11 @@
  * from (append_ticket_frame seals under the current epoch's key,
  * tls/keys/keyring/keyring.h) -- exposed so the caller can thread it to
  * wired_srvboot_id.ticket_key for OPENING a presented ticket under the
- * current or previous epoch's key. TICKET_KEY_LEN bytes, valid for the
- * process lifetime.
- * @return a pointer to the fixed ticket key seed. */
+ * current or previous epoch's key. TICKET_KEY_LEN bytes drawn from the
+ * CSPRNG once per process (a restart invalidates earlier tickets), valid
+ * for the process lifetime.
+ * @return the ticket key seed, or 0 if the CSPRNG draw failed (resumption
+ * then stays disabled). */
 const u8* wired_srvloop_ticket_key(void);
 
 /* RFC 9000 12.2 / 13.2.1 / RFC 9114 6.2.1: pick the outbound datagram for one

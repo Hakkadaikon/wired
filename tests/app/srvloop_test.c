@@ -3666,8 +3666,8 @@ static void test_srvloop_ticket_sent_on_confirm(void) {
      * covers a run that straddles a rotation boundary */
     u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
     u64 now = wired_clock_epoch_secs();
-    keyring_key(g_ticket_key, now, 0, cur);
-    keyring_key(g_ticket_key, now, 1, prev);
+    keyring_key(srvkeys_ticket(), now, 0, cur);
+    keyring_key(srvkeys_ticket(), now, 1, prev);
     CHECK(
         ticket_open(sealed, cur, &opened) ||
         ticket_open(sealed, prev, &opened));

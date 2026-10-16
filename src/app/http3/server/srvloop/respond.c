@@ -2,6 +2,7 @@
 
 #include "app/http3/server/h3srv/control.h"
 #include "app/http3/server/h3srv/respond.h"
+#include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/send.h"
 #include "common/bytes/util/bytes.h"
@@ -76,16 +77,14 @@ static int build_settings_frame(
   return appdata_stream_frame(&f, out);
 }
 
-/* RFC 8446 4.6.1 / RFC 9001 4: the seed session-ticket keys derive from;
- * the key rotates every KEYRING_PERIOD_SECS (keyring.h).
- * ponytail: the seed is a compiled-in constant; a deployment that needs
- * tickets unforgeable by anyone holding the binary must supply its own. */
-static const u8 g_ticket_key[TICKET_KEY_LEN] = {
-    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b,
-    0x65, 0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
-    0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
-
-const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
+/* RFC 8446 4.6.1 / RFC 9001 4: the seed session-ticket keys derive from
+ * (srvkeys: drawn from the CSPRNG once per process, never compiled in); the
+ * key rotates every KEYRING_PERIOD_SECS (keyring.h). 0 when the draw
+ * failed, which leaves resumption disabled for an app that hands this to
+ * wired_srvboot_id.ticket_key. */
+const u8* wired_srvloop_ticket_key(void) {
+  return srvkeys_ready() ? srvkeys_ticket() : 0;
+}
 
 /* RFC 8446 4.6.1: encode a fresh NewSessionTicket message (fixed 2h
  * lifetime; issued_at is the server's wall clock at issuance, recorded so a
@@ -111,8 +110,9 @@ static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   ticket t = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0, s->sdrv.cipher_suite};
   u8     key[KEYRING_KEY];
   t.issued_at = wired_clock_epoch_secs();
+  if (!srvkeys_ready()) return 0;
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
-  keyring_key(g_ticket_key, t.issued_at, 0, key);
+  keyring_key(srvkeys_ticket(), t.issued_at, 0, key);
   return tls_new_session_ticket_encode(
       msg, msg_cap, &t, key, ticket_max_early_data(s));
 }

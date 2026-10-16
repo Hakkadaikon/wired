@@ -75,8 +75,9 @@ typedef struct {
  * @param h the application's request responder, passed through
  * @param obs optional qlog/keylog/cert-reload settings, passed through
  * @param opt worker count / pinning policy; 0 workers means auto-detect
- * @return negative if the initial fork() fails; 0 once every worker has
- *   been reaped (after SIGTERM, or when all exited 0). */
+ * @return negative if the ticket/Retry seed draw or the initial fork()
+ *   fails; 0 once every worker has been reaped (after SIGTERM, or when all
+ *   exited 0). */
 int wired_srvworkers_run(
     u16                         port,
     wired_srvboot_id*           id,
