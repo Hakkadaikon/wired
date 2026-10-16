@@ -403,9 +403,7 @@ static int moqtsw_try(
     wired_moqtrun_track* t,
     usz                  si) {
   wired_moqtrun_sub* a = &t->subs[si];
-  /* A withdrawn track waits for its re-PUBLISH (the re-attached A keeps
-   * its switch, moqtsw_rebound). */
-  if (!t->in_use || !moqtsw_due(hub, ops, t, si)) return 0;
+  if (!moqtsw_due(hub, ops, t, si)) return 0;
   a->sw_role = MOQTSW_ROLE_NONE;
   moqtsw_release_new(hub, ops, a);
   MOQTSW_END_FNS[a->sw_done](hub, ops, t, si);
@@ -482,6 +480,10 @@ static int moqtsw_visit(
     wired_moqtrun_track* t,
     usz                  si,
     u32*                 live) {
+  /* A withdrawn track's slots are leftovers: their session_idx may name
+   * another client by now. A re-attach recounts and orphan-checks its
+   * own copy (moqtsw_reattached). */
+  if (!t->in_use) return 0;
   moqtsw_orphan(hub, ops, &t->subs[si]);
   if (!moqtsw_waiting(&t->subs[si])) return 0;
   int ended = moqtsw_try(hub, ops, t, si);

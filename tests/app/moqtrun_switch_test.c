@@ -884,6 +884,26 @@ static void test_moqtrun_switch_subscriber_closes(void) {
   CHECK(mtst_hub.sw_live == 0);
 }
 
+/* B's new side sits on a withdrawn track when B closes, so it outlives B
+ * there; C then joins in B's peer slot and SUBSCRIBEs hi under the same
+ * Request ID. The next sweep must not write B's leftover lo state over
+ * the state C's own subscription keeps for a re-attach. */
+static void test_moqtrun_switch_withdrawn_leftover_keeps_other_state(void) {
+  moqctl_ftn hi = mtsw_ftn("hi");
+  mtsw_setup();
+  mtsw_group(mtsw_sid(MTSW_HI, 3), MTSW_HI, 3, 0);
+  mtsw_switch(MTSW_SOFT, MTSW_DONE); /* G = 4, hi waits on its open 3 */
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTSW_PUB_LO, 0, 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  mtst_join(SESS_C);
+  mtst_subscribe_p(SESS_C, MTRQ_S1, &hi, MTSW_RID_LO, 0);
+  wired_moqtrun_peer* c = moqtrun_find_by_wt(&mtst_hub, SESS_C);
+  CHECK(c == &mtst_hub.peers[1]); /* B's slot */
+  wired_moqt_tick(&mtst_hub, 100000);
+  wired_moqtrun_sub* kept = moqtrun_sub_state_by_rid(c, MTSW_RID_LO);
+  CHECK(kept && kept->track_alias == MTSW_HI);
+}
+
 /* N1: SWITCH_FROM on a SUBSCRIBE to the hub's own blob track:
  * INVALID_SWITCH, no blob sent. */
 static void test_moqtrun_switch_hub_track_refused(void) {
@@ -1138,6 +1158,7 @@ static void test_moqtrun_switch_d22(void) {
   test_moqtrun_switch_old_gone_releases_new();
   test_moqtrun_switch_old_side_no_wait();
   test_moqtrun_switch_waiting_new_released();
+  test_moqtrun_switch_withdrawn_leftover_keeps_other_state();
 }
 
 /* draft-18/19: 0x24 is no parameter there -- the SUBSCRIBE closes the
