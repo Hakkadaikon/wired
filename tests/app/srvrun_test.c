@@ -20696,6 +20696,32 @@ static void test_srvrun_stopped_response_sends_nothing(void) {
   *c = (srvrun_conn){0}; /* leave no send state for later tests */
 }
 
+/* A response slot claimed after an earlier one was freed mid-send starts
+ * with nothing to send, nothing in flight and nothing queued for
+ * retransmission, so a claim whose arm never happens (a too-large header
+ * section) cannot send the old stream's bytes under the new stream id. */
+static void test_srvrun_resp_claim_starts_with_empty_send_state(void) {
+  static u8         body[8000];
+  struct lp_fix     f;
+  srvrun_cfg        cfg;
+  srvrun_state      st;
+  srvrun_step_ctx   ctx;
+  wired_sendq_slice sl;
+  srvrun_conn*      c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_resp*      r = srvrun_resp_claim(c, 0);
+  wired_sendsess_arm(&r->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&r->sess, &sl));
+  CHECK(wired_sendsess_sent(&r->sess, &sl, 7, 0));
+  r->sess.requeue[0] = sl;
+  r->sess.requeue_n  = 1;
+  r->in_use          = 0;
+  r                  = srvrun_resp_claim(c, 4);
+  CHECK(!wired_sendsess_take(&r->sess, &sl));
+  CHECK(wired_sendsess_inflight(&r->sess) == 0);
+  CHECK(!srvrun_any_resp_requeued(c));
+  *c = (srvrun_conn){0};
+}
+
 /* A peer RESET_STREAM (it stopped SENDING, not reading) leaves the response
  * running: nothing to answer, RFC 9000 3.5 only covers STOP_SENDING. */
 static void test_srvrun_peer_reset_leaves_response(void) {
@@ -24068,6 +24094,7 @@ void test_srvrun(void) {
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
   test_srvrun_stopped_response_sends_nothing();
+  test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();
   test_srvrun_no_stream_close_leaves_wt_session();

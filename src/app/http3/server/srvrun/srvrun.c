@@ -6741,8 +6741,12 @@ static srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id) {
 static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     if (c->resp[i].in_use) continue;
-    c->resp[i].in_use     = 1;
-    c->resp[i].stream_id  = stream_id;
+    c->resp[i].in_use    = 1;
+    c->resp[i].stream_id = stream_id;
+    /* Start from no send state: a slot freed mid-send (srvrun_resp_stop)
+     * keeps its old sess, and an arm that never happens (a header section
+     * too large to frame) would otherwise send it under this stream id. */
+    c->resp[i].sess       = (wired_sendsess){0};
     c->resp[i].bigbuf_row = -1;
     c->resp[i].streaming  = 0;
     c->resp[i].ring_cap   = 0;
