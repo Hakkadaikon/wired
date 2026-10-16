@@ -3291,9 +3291,16 @@ static void srvrun_grant_streams(
 /* Re-announce the bidi limit in force at each armed deadline until the
  * bounded retry budget is spent -- cumulative MAX_STREAMS makes the repeat
  * idempotent at the client. */
+/* A re-announcement is owed and due on c -- and c is still a live
+ * connection: a freed slot keeps its counters until reclaimed, and RFC 9000
+ * 10.2 lets nothing more go out on a connection that has ended. */
+static int srvrun_grant_retry_due(const srvrun_conn* c, u64 now_ms) {
+  return c->up && c->grant_retries && now_ms >= c->grant_retry_ms;
+}
+
 static void srvrun_grant_retry_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!c->grant_retries || ctx->now_ms < c->grant_retry_ms) return;
+  if (!srvrun_grant_retry_due(c, ctx->now_ms)) return;
   c->grant_retries--;
   c->grant_retry_ms = ctx->now_ms + srvrun_pto_deadline_ms(c, 0);
   srvrun_send_max_streams(ctx->cfg, c, 0, c->stream_limit_advertised);

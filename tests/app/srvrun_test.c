@@ -24092,6 +24092,25 @@ static void test_srvrun_wt_stream_routed_by_session_id(void) {
   sr_reset_global_table();
 }
 
+/* RFC 9000 10.2: a freed connection sends nothing. A slot freed while a
+ * MAX_STREAMS re-announcement was still pending (grant_retries > 0) must
+ * not wake up and send it into a connection that no longer exists. */
+static void test_srvrun_grant_retry_skips_freed_slot(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->grant_retries  = 2;
+  c->grant_retry_ms = 0;
+  c->up             = 0; /* freed: srvrun_free_slot clears only up */
+  srvrun_test_reset_send_count();
+  srvrun_grant_retry_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(c->grant_retries == 2);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24766,4 +24785,5 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_api_rejects_plumbing();
   test_srvrun_wt_stream_api_accepts_own_stream();
   test_srvrun_wt_stream_routed_by_session_id();
+  test_srvrun_grant_retry_skips_freed_slot();
 }
