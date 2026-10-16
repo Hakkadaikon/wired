@@ -666,6 +666,11 @@ typedef struct {
    * Slot indices recycle after eviction, so the pairing is unambiguous
    * within one connection's lifetime, not across the whole file. */
   u64 qlog_slot;
+  /** Bumped on every claim of this slot (srvrun_open_slot), surviving the
+   * claim's wipe: state that outlives the connection and names it only by
+   * slot index (srvrun_dgring_entry) records it, so the next client on the
+   * same slot is told apart. */
+  u32 gen;
   /** RFC 9000 2.1: how many server-initiated uni streams this connection
    * has opened past the three fixed plumbing streams (H3 control id 3,
    * QPACK encoder id 7 and decoder id 11), so the next uni id is 15 + 4 *
@@ -1135,6 +1140,7 @@ static usz srvrun_mps(const srvrun_conn* c) {
 
 typedef struct {
   int conn_slot; /**< target connection's slot index in env->conns */
+  u32 conn_gen;  /**< that slot's srvrun_conn.gen at queue time */
   usz len;       /**< bytes used at buf (qsid prefix included) */
   u8  buf[SRVRUN_DGRING_SLOT];
 } srvrun_dgring_entry;
@@ -5954,6 +5960,7 @@ static int srvrun_dgring_push(
   int                  raw = srvrun_conn_is_raw(&env->conns[slot]);
   if (!e) return 0;
   if (!srvrun_dgring_fill(e, slot, raw, connect_id, payload)) return 0;
+  e->conn_gen = env->conns[slot].gen;
   env->dgring_n++;
   return 1;
 }
@@ -6068,7 +6075,8 @@ int wired_server_wt_close_session(
 }
 
 /* Seal and send one ring entry to its target connection; a connection gone
- * down since queue time is skipped, and a frame the peer's advertised
+ * down since queue time -- or replaced by another client on the same slot --
+ * is skipped, and a frame the peer's advertised
  * max_datagram_frame_size rejects is dropped (RFC 9221 1: DATAGRAM delivery
  * is best-effort by design, so no retry/retention). */
 static void srvrun_dgring_send_one(
@@ -6076,7 +6084,7 @@ static void srvrun_dgring_send_one(
   u8           out[1500];
   wired_obuf   ob = obuf_of(out, sizeof out);
   srvrun_conn* c  = &st->conns[e->conn_slot];
-  if (c->up)
+  if (c->up && c->gen == e->conn_gen)
     srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
 }
 
@@ -10777,7 +10785,9 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
+  u32 gen                            = ctx->st->conns[slot].gen + 1;
   ctx->st->conns[slot]               = (srvrun_conn){0};
+  ctx->st->conns[slot].gen           = gen;
   ctx->st->conns[slot].peer          = *ctx->peer;
   ctx->st->conns[slot].boot_claim_ms = ctx->now_ms;
   ctx->st->conns[slot].qlog_slot     = (u64)slot;

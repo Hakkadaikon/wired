@@ -23730,6 +23730,60 @@ static void test_srvrun_confirmed_slot_ignores_initial(void) {
   st.conns[0] = (srvrun_conn){0};
 }
 
+/* SLOT GENERATION: every claim of a connection slot gives it a new
+ * generation, so state that outlives the connection and names it only by
+ * slot index can tell the next client on that slot apart. */
+static void test_srvrun_open_slot_bumps_generation(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  int              slot;
+  u32              before;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    before              = st.conns[0].gen;
+    slot = srvrun_open_slot(&ctx, wired_span_of(dcid, sizeof dcid), 1);
+  }
+  CHECK(slot == 0);
+  CHECK(st.conns[0].gen == before + 1);
+  st.conns[0] = (srvrun_conn){0};
+}
+
+/* RFC 9221 5 / RFC 9297 2.1: a session-addressed datagram queued for one
+ * connection is never delivered to the next client that claims the same
+ * slot before the ring drains -- that would hand one client's data to
+ * another. */
+static void test_srvrun_dgring_skips_reused_slot(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  CHECK(
+      wired_server_wt_send_datagram_to(
+          &c->wt, wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  c->gen++; /* the slot now holds a different connection */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st, 0);
+    CHECK(srvrun_test_send_count() == 0);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+  sr_reset_global_table();
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24390,4 +24444,6 @@ void test_srvrun(void) {
   test_srvrun_wt_held_connect_retransmitted_one_session();
   test_srvrun_wt_held_connect_rejected_after_settings();
   test_srvrun_confirmed_slot_ignores_initial();
+  test_srvrun_open_slot_bumps_generation();
+  test_srvrun_dgring_skips_reused_slot();
 }
