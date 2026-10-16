@@ -5093,8 +5093,14 @@ static srvrun_conn* srvrun_session_conn(wired_wt_session* s) {
 static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     if (c->wtsend[i].in_use) continue;
-    c->wtsend[i].in_use           = 1;
-    c->wtsend[i].stream_credit    = credit;
+    c->wtsend[i].in_use        = 1;
+    c->wtsend[i].stream_credit = credit;
+    /* Start from no send state, as srvrun_resp_claim does: a slot freed
+     * mid-send (reset, STOP_SENDING) keeps its old sess and offsets. */
+    c->wtsend[i].sess             = (wired_sendsess){0};
+    c->wtsend[i].stream_off       = 0;
+    c->wtsend[i].append_open      = 0;
+    c->wtsend[i].view_round       = 0;
     c->wtsend[i].fin_only_pending = 0; /* a reused slot may still carry a
                                            stale 1 from its prior stream */
     c->wtsend[i].fin_requested   = 0;

@@ -24175,6 +24175,29 @@ static void test_srvrun_wt_new_session_drops_stale_latches(void) {
   *c = (srvrun_conn){0};
 }
 
+/* A WT send slot claimed after an earlier stream on it was freed mid-send
+ * starts with no send state: nothing armed, nothing in flight, no stream
+ * offset, closed for appends, no view round -- the same clean start a
+ * response slot gets, so a claim that is never armed sends nothing of the
+ * old stream under the new id. */
+static void test_srvrun_wtsend_claim_starts_empty(void) {
+  static u8      body[64];
+  struct lp_fix  f;
+  u8             obuf[1024];
+  wired_obuf     ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*   c  = sr_wtsend_fixture(&f, &ob);
+  srvrun_wtsend* w  = &c->wtsend[0];
+  wired_sendsess_arm(&w->sess, body, sizeof body, SRVRUN_CHUNK);
+  w->stream_off  = 100;
+  w->append_open = 1;
+  w->view_round  = 1;
+  w->in_use      = 0; /* freed mid-send */
+  CHECK(srvrun_wtsend_claim(c, 0) == w);
+  CHECK(w->sess.active == 0 && w->sess.q.len == 0);
+  CHECK(w->stream_off == 0 && w->append_open == 0 && w->view_round == 0);
+  sr_reset_global_table();
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24852,4 +24875,5 @@ void test_srvrun(void) {
   test_srvrun_grant_retry_skips_freed_slot();
   test_srvrun_unframable_response_reset_and_freed();
   test_srvrun_wt_new_session_drops_stale_latches();
+  test_srvrun_wtsend_claim_starts_empty();
 }
