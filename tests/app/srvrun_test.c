@@ -24304,6 +24304,29 @@ static void test_srvrun_bcast_concurrent_register(void) {
   sr_bcast_reset();
 }
 
+/* A freed connection slot keeps no packet protection keys in memory: the
+ * whole handshake/key state of the connection that held it is wiped, so
+ * no later reader of the slot (or a memory disclosure) recovers the
+ * departed connection's traffic keys. */
+static void test_srvrun_free_slot_wipes_keys(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob    = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  conns = g_srvrun_state.conns;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st  = {table, conns};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  const u8*     p   = (const u8*)&conns[0].s;
+  u8            any = 0;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conns[0].s.ku.cur.key[0] = 0x5a; /* certainly nonzero key material */
+  srvrun_free_slot(&cfg, &st, 0);
+  for (usz i = 0; i < sizeof conns[0].s; i++) any |= p[i];
+  CHECK(any == 0);
+  conns[0] = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24986,4 +25009,5 @@ void test_srvrun(void) {
   test_srvrun_flow_violation_survives_slot_release();
   test_srvrun_bcast_claiming_slot_not_a_target();
   test_srvrun_bcast_concurrent_register();
+  test_srvrun_free_slot_wipes_keys();
 }

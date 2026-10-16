@@ -6580,6 +6580,9 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   srvrun_free_bigbuf_rows(cfg->env, c);
   conntable_remove(st->table, WIRED_CONNTABLE_CAP, i);
   c->up = 0;
+  /* the departed connection's handshake and traffic keys leave memory with
+   * it, not when (or if) the slot is next claimed */
+  bytes_wipe(&c->s, sizeof c->s);
   wired_srvboot_acc_reset(&c->boot);
   /* RFC 9000 8.1 antiamp state is per-attempt -- a slot reused for a fresh
    * boot must not inherit a stale budget from the connection it replaces.

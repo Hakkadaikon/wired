@@ -112,4 +112,12 @@ void test_kuswitch_twogen(void) {
   /* after the retention period, the old generation is refused, not
    * regenerated */
   CHECK(kuswitch_key_for_phase(&st, 1, &got) == 0);
+  /* RFC 9001 6.5: a discarded key is gone from memory too, not just
+   * unreachable -- every byte of the old generation reads zero */
+  {
+    const u8* p   = (const u8*)&st.old;
+    u8        any = 0;
+    for (usz i = 0; i < sizeof st.old; i++) any |= p[i];
+    CHECK(any == 0);
+  }
 }

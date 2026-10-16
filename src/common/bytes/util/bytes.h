@@ -104,6 +104,19 @@ static inline void* bytes_memset(void* dst, int c, usz n) {
 }
 
 /**
+ * Zero n bytes of secret material at dst through a volatile pointer, so the
+ * stores survive even when dst is never read again (a dead-store-eliminated
+ * bytes_memset of a dying local would leave the key in memory).
+ *
+ * @param dst buffer to wipe
+ * @param n   number of bytes to wipe
+ */
+static inline void bytes_wipe(void* dst, usz n) {
+  volatile u8* d = dst;
+  for (usz i = 0; i < n; i++) d[i] = 0;
+}
+
+/**
  * Freestanding NUL-terminated string length. src/ has no libc strlen.
  *
  * @param s NUL-terminated string

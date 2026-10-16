@@ -67,8 +67,10 @@ static int certreload_load_key(wired_span text, wired_certreload_store* store) {
   u8         der_buf[192];
   wired_obuf der = obuf_of(der_buf, sizeof der_buf);
   usz        at  = 0;
-  if (!certreload_next_key(text, &at, &der)) return 0;
-  return wired_eckey_p256_priv(wired_span_of(der_buf, der.len), store->priv);
+  int ok = certreload_next_key(text, &at, &der) &&
+           wired_eckey_p256_priv(wired_span_of(der_buf, der.len), store->priv);
+  bytes_wipe(der_buf, sizeof der_buf); /* the key's DER */
+  return ok;
 }
 
 /* Read path into buf (cap bytes), returning the byte count or -1 on any
@@ -119,10 +121,13 @@ int wired_certreload_load(
   wired_certreload_store stage; /* decoded here first, committed whole */
   ssz cn = certreload_read_file(cert_path, cert_pem, sizeof cert_pem);
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);
-  if (cn < 0 || kn < 0) return 0;
-  return certreload_decode(
-      wired_span_of(cert_pem, (usz)cn), wired_span_of(key_pem, (usz)kn), &stage,
-      store, id);
+  int ok = cn >= 0 && kn >= 0 &&
+           certreload_decode(
+               wired_span_of(cert_pem, (usz)cn),
+               wired_span_of(key_pem, (usz)kn), &stage, store, id);
+  bytes_wipe(stage.priv, sizeof stage.priv); /* the key's scratch copies */
+  bytes_wipe(key_pem, sizeof key_pem);
+  return ok;
 }
 
 /* 1 if cert_path carries a real value (non-NULL, non-empty). */

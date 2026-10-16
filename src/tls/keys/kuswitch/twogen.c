@@ -1,5 +1,6 @@
 #include "tls/keys/kuswitch/twogen.h"
 
+#include "common/bytes/util/bytes.h"
 #include "tls/keys/keyupdate/keyphase.h"
 
 void kuswitch_init(kuswitch_state* state, const initial_keys* gen0) {
@@ -36,6 +37,7 @@ int kuswitch_key_for_phase(
 }
 
 void kuswitch_discard_old(kuswitch_state* state) {
-  /* RFC 9001 6.5 */
+  /* RFC 9001 6.5: discarded means gone from memory, not just unused */
   state->have_old = 0;
+  bytes_wipe(&state->old, sizeof state->old);
 }
