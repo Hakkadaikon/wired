@@ -910,7 +910,7 @@ typedef struct {
    * lost or delayed) must get the identical flight resent, not a fresh boot.
    * Cached verbatim from the accept flight this slot last sealed; replayed
    * by srvrun_resend_boot_flight, untouched once wired_server_is_confirmed
-   * is true (srvrun_reinit_ok then stops routing retransmits here at all). */
+   * is true (srvrun_is_boot_retransmit then stops routing them here). */
   u8 boot_ini[1500];
   /** Sized past a real 9-cert amplificationlimit chain's Handshake flight
    * (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
@@ -6278,13 +6278,13 @@ static void srvrun_reload_if_requested(
   srvrun_reload_cert(cfg, &env->certstore);
 }
 
-/* RFC 9000 7: a long-header Initial on a slot already up only (re)cold-starts
- * it once that connection is confirmed (its DCID legitimately changes after
- * ServerHello, so gate on confirmation, not the DCID). */
-static int srvrun_reinit_ok(const srvrun_conn* c) {
-  if (!c->up) return 1;
-  return wired_server_is_confirmed(&c->s);
-}
+/* RFC 9000 7: only a slot that is not up yet cold-starts on an Initial. An
+ * unconfirmed slot treats it as a retransmit (srvrun_is_boot_retransmit); a
+ * confirmed one has discarded its Initial keys (RFC 9001 4.9.1), so the
+ * Initial falls through to the live loop and is dropped there -- rebuilding
+ * in place would let anyone who reads the server CID off the wire tear a
+ * live connection down without its close callback. */
+static int srvrun_reinit_ok(const srvrun_conn* c) { return !c->up; }
 
 /* Whether dg may (re)open c: a long-header Initial, not during graceful
  * shutdown (no new Initial is accepted, fresh slot or existing one alike),

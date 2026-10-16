@@ -23695,6 +23695,41 @@ static void test_srvrun_http_streaming_refill(void) {
   CHECK(g_sr_hx_off == 3);
 }
 
+/* CONFIRMED SLOT IGNORES INITIAL (RFC 9001 4.9.1): once confirmed, the
+ * connection has discarded its Initial keys, so a long-header Initial routed
+ * to it by DCID -- a server CID any on-path observer reads off the wire --
+ * must not rebuild the slot in place (that would drop live WT/response state
+ * with no close callback). The connection stays up and confirmed. */
+static void test_srvrun_confirmed_slot_ignores_initial(void) {
+  struct lp_fix    f;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               obuf[1024];
+  u8               ini[1200] = {0xc3, 0, 0, 0, 1, 6};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  wired_obuf       ob   = {obuf, sizeof obuf, 0};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].wt_active = 1;
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  bytes_memcpy(ini + 6, g_cli_scid, 6);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve(&ctx, wired_mspan_of(ini, sizeof ini));
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(wired_server_is_confirmed(&st.conns[0].s));
+  CHECK(st.conns[0].wt_active == 1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  st.conns[0] = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24354,4 +24389,5 @@ void test_srvrun(void) {
   test_srvrun_wt_held_connect_reset_dropped();
   test_srvrun_wt_held_connect_retransmitted_one_session();
   test_srvrun_wt_held_connect_rejected_after_settings();
+  test_srvrun_confirmed_slot_ignores_initial();
 }
