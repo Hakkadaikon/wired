@@ -241,6 +241,9 @@ typedef struct {
    * wired_srvloop_on_body for the sequencing); 0 buffers the body whole
    * into req->body, up to one request window */
   wired_srvloop_on_body on_body;
+  /** told when a body streaming to on_body ends without fin (see
+   * wired_srvloop_on_body_abort); 0 to ignore */
+  wired_srvloop_on_body_abort on_body_abort;
 } wired_srvrun_handler;
 
 /** Optional debug-log file paths, each 0 to disable (the default): a qlog

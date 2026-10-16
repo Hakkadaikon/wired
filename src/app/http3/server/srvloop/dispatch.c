@@ -1884,7 +1884,8 @@ static int qdec_stream_open(const wired_srvloop* l, u64 id) {
  * anything its sections could reference). Still receiving (RFC 9000 3.2), it is
  * noted in reset_slots -- read before the step end re-arms a completed slot's
  * req_done. */
-static void reset_cancel_slot(wired_srvloop* l, int i) {
+static void reset_cancel_slot(wired_srvloop* l, int i, u64 code) {
+  l->streams[i].abort_code = code; /* reported if its body is cut short */
   qdec_cancel_slot(l, i);
   if (!l->streams[i].req_done) l->reset_slots |= (u64)1 << i;
 }
@@ -1894,12 +1895,12 @@ static void reset_cancel_slot(wired_srvloop* l, int i) {
  * yet, the stream is cancelled if anything could be referenced and marked
  * closed either way, so its late data never opens a request, and its stream
  * credit is owed back (4.6) -- once, since a closed stream returns above. */
-static void reset_request_stream(wired_srvloop* l, u64 id) {
+static void reset_request_stream(wired_srvloop* l, u64 id, u64 code) {
   int i;
   if (!qdec_stream_open(l, id)) return;
   i = qdec_slot_find(l, id);
   if (i >= 0) {
-    reset_cancel_slot(l, i);
+    reset_cancel_slot(l, i, code);
     return;
   }
   qdec_cancel_id(l, id);
@@ -1916,7 +1917,7 @@ static void reset_request_streams(wired_srvloop* l, wired_span payload) {
   framewalk_init(&it, payload.p, payload.n);
   while (framewalk_next(&it, &fr))
     if (wt_reset_frame(fr.type, wired_span_of(fr.start, fr.remaining), &rs))
-      reset_request_stream(l, rs.stream_id);
+      reset_request_stream(l, rs.stream_id, rs.error_code);
 }
 
 static void dispatch_request_resets(

@@ -1227,6 +1227,9 @@ struct wired_srvrun_env {
    * tokens derive from (srvrun_pin_reset_seed), kept apart from the
    * id->cert_seed a SIGHUP reload rewrites. */
   u8 reset_seed[SRESET_KEY];
+  /* wired_srvrun_handler.on_body_abort, copied onto each connection's loop
+   * at accept (kept here, not in srvrun_cfg, which the run builds once). */
+  wired_srvloop_on_body_abort on_body_abort;
   /* Session-addressed HTTP Datagram send ring (wired_server_wt_send_
    * datagram_to): FIFO of dgring_n entries starting at dgring_head, drained
    * once per loop step (srvrun_dgring_drain). Env-level, not per-connection,
@@ -1858,6 +1861,7 @@ static int srvrun_boot_up(
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   c->l.on_body       = ctx->cfg->on_body;
+  c->l.on_body_abort = ctx->cfg->env->on_body_abort;
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
   /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
    * threaded to dispatch.c's DATAGRAM-gathering size check (see
@@ -6418,6 +6422,7 @@ static void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c) {
 static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
   srvrun_close_all_wt(cfg, c);
+  wired_srvloop_abort_bodies(&c->l); /* bodies cut short by the close */
   srvrun_free_bigbuf_rows(cfg->env, c);
   conntable_remove(st->table, WIRED_CONNTABLE_CAP, i);
   c->up = 0;
@@ -9322,8 +9327,28 @@ static int srvrun_stop_on_critical(
   return 1;
 }
 
+/* RFC 9000 3.5: a STOP_SENDING for a request whose response has not
+ * started still MUST be answered with RESET_STREAM -- Final Size 0, since
+ * no byte was sent -- and the request is cancelled: the rest of its body
+ * is refused (STOP_SENDING, the same pair srvrun_wt_abort_pair builds),
+ * and its slot is released, so a late byte opens nothing (req_closed), no
+ * response ever starts, and a body streaming to the app is aborted with
+ * the peer's code. 1 when a slot was freed (its stream credit is owed). */
+static usz srvrun_req_stop(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
+  u8         pl[48];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  if (!srvrun_req_slot_of(c, e->stream_id)) return 0;
+  srvrun_send_kept(
+      ctx->cfg, c, pl,
+      srvrun_wt_abort_pair(c, e->stream_id, e->error_code, &plb),
+      "request RESET sent\n");
+  wired_srvloop_slot_cancel(&c->l, e->stream_id, e->error_code);
+  return 1;
+}
+
 /* Answer one peer STOP_SENDING on whichever send part its stream id names.
- * Returns 1 when a response slot was freed. */
+ * Returns 1 when a response or request slot was freed. */
 static usz srvrun_answer_stream_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
   int          sidx = srvrun_wt_slot_by_connect_id(c, e->stream_id);
@@ -9334,7 +9359,8 @@ static usz srvrun_answer_stream_stop(
   }
   srvrun_wtsend_stop(ctx->cfg, c, e->stream_id, e->error_code);
   r = srvrun_resp_find(c, e->stream_id);
-  return r ? srvrun_resp_stop(ctx, c, r, e->error_code) : 0;
+  return r ? srvrun_resp_stop(ctx, c, r, e->error_code)
+           : srvrun_req_stop(ctx, c, e);
 }
 
 /* A critical stream's STOP_SENDING closes the connection
@@ -11771,6 +11797,7 @@ int wired_srvrun_serve_env(
   cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
   srvrun_pin_reset_seed(env, id);
+  env->on_body_abort           = h.on_body_abort;
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
   env->raw_on_session          = opt->raw_on_session;

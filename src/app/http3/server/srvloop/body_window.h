@@ -19,6 +19,8 @@ enum {
   BODYWIN_FRAME_ERROR, /**< the stream ended inside a frame (RFC 9114 7.1) */
   /** a frame type a request stream must not carry (RFC 9114 7.2) */
   BODYWIN_FRAME_UNEXPECTED,
+  /** ended without fin, reported through wired_srvloop_on_body_abort */
+  BODYWIN_ABORTED,
 };
 
 /** Receives one body chunk; fin=1 on the last. Returns 0 to stop. */

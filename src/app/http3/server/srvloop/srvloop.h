@@ -92,8 +92,11 @@ typedef int (*wired_srvloop_handler)(
  * (no fin), the client is asked to stop sending, and the response is 413
  * (the handler is not called). A stream that ends inside a frame closes the
  * connection with H3_FRAME_ERROR (RFC 9114 7.1); fin=1 never arrives.
+ * A body that ends any other way -- the client resets the stream, stops
+ * the response before it starts, or the connection ends -- gets no fin:
+ * wired_srvloop_on_body_abort reports it instead.
  * @param ctx the context registered with wired_srvloop_set_handler
- * @param req the decoded request; valid until its response is reaped
+ * @param req the decoded request; valid only during the call
  * @param stream_id the request stream
  * @param chunk body bytes, valid only during the call
  * @param fin 1 on the last call for the stream
@@ -104,6 +107,19 @@ typedef int (*wired_srvloop_on_body)(
     u64                         stream_id,
     wired_span                  chunk,
     int                         fin);
+
+/** A request body streaming to wired_srvloop_on_body ended without fin=1
+ * and without on_body declining it: the client reset the request stream
+ * (RFC 9000 3.2), stopped the response before it started (RFC 9000 3.5),
+ * or the connection ended. Called once per such stream; no further
+ * on_body call follows and the response handler never runs for it. 0
+ * (the default) keeps the old silence.
+ * @param ctx the context registered with wired_srvloop_set_handler
+ * @param stream_id the request stream
+ * @param error_code the client's RESET_STREAM / STOP_SENDING code, or
+ *   H3_REQUEST_CANCELLED when the connection ended */
+typedef void (*wired_srvloop_on_body_abort)(
+    void* ctx, u64 stream_id, u64 error_code);
 
 /** RFC 9000 2.2: how many client bidi (request) streams one connection can
  * reassemble concurrently. 40, not a handful: quic-interop-runner's zerortt
@@ -180,6 +196,10 @@ typedef struct {
    * (so only the contiguous prefix is ever read) and, once the request
    * body streams to the app, where req_buf[0] sits in the stream. */
   bodywin body;
+  /** The code wired_srvloop_on_body_abort reports if this body ends
+   * without fin: the peer's RESET_STREAM code once one arrived, else
+   * H3_REQUEST_CANCELLED (set at claim). */
+  u64 abort_code;
 } wired_srvloop_stream_slot;
 
 /** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open
@@ -935,6 +955,9 @@ typedef struct {
   /** Streams request bodies to the app (see wired_srvloop_on_body), its
    * ctx being req_ctx; 0 buffers each request whole (the default). */
   wired_srvloop_on_body on_body;
+  /** Told when a body streaming to on_body ends without fin (see
+   * wired_srvloop_on_body_abort), its ctx being req_ctx; 0 to ignore. */
+  wired_srvloop_on_body_abort on_body_abort;
   /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame --
    * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
    * the caller (srvrun.c) closes the connection and clears it. */
@@ -1039,6 +1062,19 @@ int wired_srvloop_priority_of(
  * @param stream_id the client bidi request stream id; a no-op if it has no
  *   slot. */
 void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id);
+
+/** Release stream_id's slot as wired_srvloop_slot_release does, first
+ * recording code as the one on_body_abort reports for a body still
+ * streaming (RFC 9000 3.5: the peer's STOP_SENDING code).
+ * @param l the loop
+ * @param stream_id the client bidi request stream id
+ * @param code the application error code to report */
+void wired_srvloop_slot_cancel(wired_srvloop* l, u64 stream_id, u64 code);
+
+/** The connection is ending: every body still streaming to on_body is
+ * reported through on_body_abort with H3_REQUEST_CANCELLED, once.
+ * @param l the loop */
+void wired_srvloop_abort_bodies(wired_srvloop* l);
 
 /** draft-ietf-webtrans-http3-15 4.3: find the wt_streams slot already
  * reassembling stream_id, so dispatch.c's gather_wt_stream can route a later

@@ -22408,7 +22408,7 @@ static void test_srvrun_req_frame_error_closes(void) {
 
 /* A wired_srvrun_handler's on_body reaches the run config. */
 static void test_srvrun_handler_on_body_reaches_cfg(void) {
-  wired_srvrun_handler h   = {0, 0, 0, sr_on_body};
+  wired_srvrun_handler h   = {0, 0, 0, sr_on_body, 0};
   wired_srvrun_opt     opt = {0};
   srvrun_cfg           cfg;
   opt.incoming_cpu = -1;
@@ -23880,6 +23880,123 @@ static void test_srvrun_stateless_reset_survives_cert_reload(void) {
   CHECK(srvboot_reset_seed(&id) == env->reset_seed);
 }
 
+/* ===== A streamed request body that ends without fin is reported to the
+ * app (on_body_abort), once, with the code that ended it. */
+typedef struct {
+  usz calls;
+  u64 stream_id;
+  u64 code;
+} sr_abort_rec;
+
+static sr_abort_rec g_sr_abort;
+
+static void sr_on_body_abort(void* ctx, u64 stream_id, u64 error_code) {
+  (void)ctx;
+  g_sr_abort.calls++;
+  g_sr_abort.stream_id = stream_id;
+  g_sr_abort.code      = error_code;
+}
+
+/* sr_body_fixture with on_body_abort registered too. */
+static srvrun_conn* sr_abort_fixture(void) {
+  srvrun_conn* c     = sr_body_fixture(0);
+  g_sr_abort         = (sr_abort_rec){0};
+  c->l.on_body_abort = sr_on_body_abort;
+  return c;
+}
+
+/* srvrun_free_slot on slot 0 of the sr_sl fixture, with a real (empty)
+ * routing table to remove the slot from. */
+static void sr_abort_free_slot(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, g_sl_st.conns};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_free_slot(&g_sl_cfg, &st, 0);
+}
+
+/* One frame (RESET_STREAM or STOP_SENDING) on stream 0 from the client. */
+static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code) {
+  u8                 pl[32];
+  reset_stream_frame rs = {0, code, 0};
+  stop_sending_frame ss = {0, code};
+  usz                n  = stop ? stop_sending_encode(pl, sizeof pl, &ss)
+                               : reset_stream_encode(pl, sizeof pl, &rs);
+  sr_sl_step(c, pl, n);
+}
+
+/* RFC 9000 3.2: a RESET_STREAM while the body is still streaming ends it:
+ * the app hears on_body_abort with the peer's code, never fin, never the
+ * handler. */
+static void test_srvrun_on_body_reset_mid_body_aborts(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_abort_fixture();
+  usz          n = sr_big_req(req, sizeof req, 1, 1500);
+  sr_body_send(c, req, n / 2, 0);
+  CHECK(g_sr_body.calls >= 1 && g_sr_body.fins == 0);
+  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED);
+  CHECK(g_sr_abort.calls == 1);
+  CHECK(g_sr_abort.stream_id == 0);
+  CHECK(g_sr_abort.code == H3_REQUEST_CANCELLED);
+  CHECK(g_sr_body.fins == 0 && g_sr_wt_handler_calls == 0);
+  CHECK(!sr_sl_has_slot(c, 0));
+  *c = (srvrun_conn){0};
+}
+
+/* A body that already delivered fin is not aborted by a later release. */
+static void test_srvrun_on_body_done_body_not_aborted(void) {
+  srvrun_conn* c = sr_abort_fixture();
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_body.fins == 1);
+  sr_abort_free_slot();
+  CHECK(g_sr_abort.calls == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* The connection ending with a body mid-stream aborts it too. */
+static void test_srvrun_on_body_conn_free_aborts(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_abort_fixture();
+  usz          n = sr_big_req(req, sizeof req, 1, 1500);
+  sr_body_send(c, req, n / 2, 0);
+  sr_abort_free_slot();
+  CHECK(g_sr_abort.calls == 1 && g_sr_abort.stream_id == 0);
+  sr_abort_free_slot(); /* a second free: no repeat */
+  CHECK(g_sr_abort.calls == 1);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 3.5: a STOP_SENDING before any response byte MUST still be
+ * answered with RESET_STREAM -- Final Size 0, the peer's code -- and no
+ * response starts for the request afterward. A body still streaming is
+ * aborted with that code. */
+static void test_srvrun_stop_before_response_resets_and_aborts(void) {
+  static u8    req[4096];
+  srvrun_conn* c = sr_abort_fixture();
+  usz          n = sr_big_req(req, sizeof req, 1, 1500);
+  sr_body_send(c, req, n / 2, 0);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_final(c, 0) == 0);
+  CHECK(g_sr_abort.calls == 1 && g_sr_abort.code == H3_REQUEST_CANCELLED);
+  sr_body_send(c, req, n, 1); /* the rest arrives anyway */
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(srvrun_resp_find(c, 0) == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* A complete request still waiting for its response (no on_body) is
+ * cancelled by STOP_SENDING the same way: RESET_STREAM at Final Size 0. */
+static void test_srvrun_stop_before_response_buffered(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  sr_sl_send_headers(c, 0, "GET", 0); /* HEADERS, no FIN yet */
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_final(c, 0) == 0);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24546,4 +24663,9 @@ void test_srvrun(void) {
   test_srvrun_peer_stop_on_raw_stream3_no_close();
   test_srvrun_qdec_send_checks_slot_owner();
   test_srvrun_stateless_reset_survives_cert_reload();
+  test_srvrun_on_body_reset_mid_body_aborts();
+  test_srvrun_on_body_done_body_not_aborted();
+  test_srvrun_on_body_conn_free_aborts();
+  test_srvrun_stop_before_response_resets_and_aborts();
+  test_srvrun_stop_before_response_buffered();
 }
