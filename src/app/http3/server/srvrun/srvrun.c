@@ -7977,6 +7977,9 @@ static int srvrun_pump_one_slice(
  * correctly. */
 static int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
+  /* RFC 9000 3.1: a freed slot (reaped, or reset by srvrun_resp_stop) keeps
+   * its stale sess; no STREAM frame may follow its RESET_STREAM. */
+  if (!r->in_use) return 0;
   usz inf0 = wired_sendsess_inflight_bytes(&r->sess);
   usz con0 = srvrun_sess_consumed(&r->sess);
   int sent = srvrun_pump_one_slice(ctx, c, r);
@@ -8050,6 +8053,9 @@ static int srvrun_pump_one_wt_slice(
 /* srvrun_pump_one's cached-total delta wrapper, WT-slot flavor. */
 static int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
+  /* Same as srvrun_pump_one: a released slot never sends again -- for a
+   * view round its bytes are the app's buffer, free once inflight is 0. */
+  if (!w->in_use) return 0;
   usz inf0 = wired_sendsess_inflight_bytes(&w->sess);
   usz con0 = srvrun_sess_consumed(&w->sess);
   int sent = srvrun_pump_one_wt_slice(ctx, c, w);
@@ -8270,17 +8276,23 @@ static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return sent | srvrun_pump_wt_round(ctx, c);
 }
 
+/* 1 if in-use slot sess has a PTO probe queued (a freed slot's leftover
+ * requeue never sends, so it must not bypass pacing either). */
+static int srvrun_live_requeued(int in_use, const wired_sendsess* sess) {
+  return in_use && srvrun_has_requeued(sess);
+}
+
 /* 1 if any resp[] slot has a PTO probe queued. */
 static int srvrun_any_resp_requeued(const srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (srvrun_has_requeued(&c->resp[i].sess)) return 1;
+    if (srvrun_live_requeued(c->resp[i].in_use, &c->resp[i].sess)) return 1;
   return 0;
 }
 
 /* 1 if any WT send slot has a PTO probe queued. */
 static int srvrun_any_wtsend_requeued(const srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_has_requeued(&c->wtsend[i].sess)) return 1;
+    if (srvrun_live_requeued(c->wtsend[i].in_use, &c->wtsend[i].sess)) return 1;
   return 0;
 }
 

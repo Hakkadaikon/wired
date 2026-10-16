@@ -17341,6 +17341,35 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   wired_udp_close(sfd);
 }
 
+/* RFC 9000 3.1: no STREAM frame follows a RESET_STREAM. A server-opened WT
+ * stream that a peer STOP_SENDING resets with bytes still unsent sends none
+ * of them -- for a view round those bytes are the app's own buffer, which
+ * it may reuse once wired_server_wt_stream_inflight reports 0. */
+static void test_srvrun_wt_stopped_stream_sends_nothing(void) {
+  static u8       big[4000];
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrun_conn*    c   = 0;
+  i64             id  = 0;
+  srvrun_wtsend*  w   = 0;
+  ob                  = (wired_obuf){obuf, sizeof obuf, 0};
+  c                   = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_uni(&c->wt, wired_span_of(big, sizeof big));
+  CHECK(id >= 0);
+  w = &c->wtsend[0];
+  CHECK(srvrun_pump_wt_round(&ctx, c) == 1); /* sends while in use */
+  srvrun_wtsend_stop(&cfg, c, (u64)id, H3_REQUEST_CANCELLED);
+  CHECK(!wired_server_wt_stream_inflight(&c->wt, (u64)id));
+  usz cur = w->sess.q.cur;
+  CHECK(srvrun_pump_wt_round(&ctx, c) == 0);
+  CHECK(w->sess.q.cur == cur);
+  sr_reset_global_table();
+}
+
 /* SOL_SOCKET / SO_RCVBUF (Linux socket(7)). */
 #define SR_SOL_SOCKET 1
 #define SR_SO_RCVBUF 8
@@ -20639,6 +20668,32 @@ static void test_srvrun_peer_stop_resets_response(void) {
   CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_final(c, 0) == 110);
   CHECK(srvrun_resp_find(c, 0) == 0);
+}
+
+/* RFC 9000 3.1: no STREAM frame follows a RESET_STREAM. A response freed by
+ * a peer STOP_SENDING with bytes still unsent sends none of them: the slot
+ * is free, and its leftover send state (pointing into storage another
+ * response may claim) must never reach the wire. */
+static void test_srvrun_stopped_response_sends_nothing(void) {
+  static u8         body[8000];
+  struct lp_fix     f;
+  srvrun_cfg        cfg;
+  srvrun_state      st;
+  srvrun_step_ctx   ctx;
+  srvrun_conn*      c = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_resp*      r = srvrun_resp_claim(c, 0);
+  wired_sendq_slice sl;
+  c->cc.cwnd = 1u << 20;
+  wired_sendsess_arm(&r->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&r->sess, &sl)); /* one slice already out */
+  CHECK(wired_sendsess_sent(&r->sess, &sl, 1, 0));
+  c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
+  c->l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  usz cur = r->sess.q.cur;
+  CHECK(srvrun_pump_resp_round(&ctx, c) == 0);
+  CHECK(r->sess.q.cur == cur);
+  *c = (srvrun_conn){0}; /* leave no send state for later tests */
 }
 
 /* A peer RESET_STREAM (it stopped SENDING, not reading) leaves the response
@@ -24012,6 +24067,7 @@ void test_srvrun(void) {
   test_srvrun_capsule_only_conn_regrows_max_data();
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
+  test_srvrun_stopped_response_sends_nothing();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();
   test_srvrun_no_stream_close_leaves_wt_session();
@@ -24075,6 +24131,7 @@ void test_srvrun(void) {
   test_srvrun_wt_sched_rejects_bad_args();
   test_srvrun_wt_est_kbps();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
+  test_srvrun_wt_stopped_stream_sends_nothing();
   test_srvrun_wt_stream_send_queue_bound();
   test_srvrun_metrics_due_rate_limited();
   test_srvrun_wt_stream_fin_deferred_until_round_acked();
