@@ -61,13 +61,13 @@ are closed:
 | Symmetric crypto           |   31 |
 | Signatures & key agreement |  108 |
 | X.509 / DER / PKI          |  131 |
-| HTTP/3 + QPACK + Datagrams |   68 |
+| HTTP/3 + QPACK + Datagrams |   69 |
 | WebTransport               |   21 |
 | MoQT                       |   22 |
 | IP / UDP / AF_XDP          |    3 |
 | Media (mp4frag)            |   25 |
 | Samples & dependencies     |   10 |
-| **Total**                  |  839 |
+| **Total**                  |  840 |
 
 `docs/security/feature-gaps.md` lists the rows that are closed only because
 the feature does not exist here (revocation checking, client certificates,

@@ -34,7 +34,7 @@ not that the test was written to match wired.
 
 | Document | Open it when | Current state |
 |---|---|---|
-| [vuln-ledger.md](vuln-ledger.md) | you want the verdict and test for one attack class or advisory | 839 rows, all closed: 59 fixed, 416 already safe, 364 not applicable |
+| [vuln-ledger.md](vuln-ledger.md) | you want the verdict and test for one attack class or advisory | 840 rows, all closed: 61 fixed, 415 already safe, 364 not applicable |
 | [feature-gaps.md](feature-gaps.md) | you plan to add a feature wired lacks today | 57 ledger rows in 26 feature groups |
 | [boringssl-vectors.md](boringssl-vectors.md) | you want BoringSSL's verdict on a primitive | 1634 cases, 1523 pass, 0 fail, 111 skip |
 | [wycheproof-vectors.md](wycheproof-vectors.md) | you want to know which attack inputs are rejected | 6296 cases: 6141 correct (54 of them by construction), 0 fail, 155 skip |
