@@ -807,6 +807,11 @@ typedef struct {
    * a response, then processed once when the SETTINGS arrive
    * (srvrun_start_held_resps). Zeroed with the slot on reuse. */
   u64 wt_held_mask;
+  /** The stream id each wt_held_mask bit was set for: a held slot released
+   * and reused by another stream before SETTINGS arrive no longer holds it
+   * (HTTP/3 never reuses a stream id), so it is not started as the held
+   * CONNECT (srvrun_held_still). */
+  u64 wt_held_id[WIRED_SRVLOOP_MAX_STREAMS];
   /** RFC 9114 5.2: the stream id the GOAWAY carried (l.req_next_id when it
    * was sent); meaningful only once goaway_sent. */
   u64 goaway_id;
@@ -7645,7 +7650,9 @@ static void srvrun_wt_hold(srvrun_conn* c, srvrun_resp* r) {
   const wired_srvloop_stream_slot* s =
       srvrun_req_slot_of(c, c->l.req_stream_id);
   r->in_use = 0;
-  if (s) c->wt_held_mask |= (u64)1 << (s - c->l.streams);
+  if (!s) return;
+  c->wt_held_mask |= (u64)1 << (s - c->l.streams);
+  c->wt_held_id[s - c->l.streams] = s->stream_id;
 }
 
 /* srvrun_dispatch_wt gated on the client's own SETTINGS having arrived first
@@ -9196,14 +9203,21 @@ static void srvrun_start_done_resp(
   srvrun_start_resp(ctx, slot);
 }
 
+/* 1 iff request slot i still holds the stream its held bit was set for. */
+static int srvrun_held_still(const srvrun_conn* c, u8 i) {
+  return c->l.streams[i].in_use &&
+         c->l.streams[i].stream_id == c->wt_held_id[i];
+}
+
 /* Process held request slot i once: clear its bit, then dispatch it like a
- * request that just completed. */
+ * request that just completed -- unless the slot was released and reused
+ * meanwhile (srvrun_held_still), when the bit is simply dropped. */
 static void srvrun_start_held_resp(const srvrun_step_ctx* ctx, int slot, u8 i) {
   srvrun_conn* c   = &ctx->st->conns[slot];
   u64          bit = (u64)1 << i;
   if (!(c->wt_held_mask & bit)) return;
   c->wt_held_mask &= ~bit;
-  srvrun_start_done_resp(ctx, slot, i);
+  if (srvrun_held_still(c, i)) srvrun_start_done_resp(ctx, slot, i);
 }
 
 /* WTH3-009/042: once the client's SETTINGS have arrived, every CONNECT held

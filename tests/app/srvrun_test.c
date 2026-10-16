@@ -24198,6 +24198,31 @@ static void test_srvrun_wtsend_claim_starts_empty(void) {
   sr_reset_global_table();
 }
 
+/* draft-ietf-webtrans-http3-15 3.1: a CONNECT held for the client's
+ * SETTINGS is started later only if its request slot still holds that
+ * same stream. A slot released (e.g. a STOP_SENDING cancel) and reused by
+ * another request stream before SETTINGS arrive is not the held CONNECT:
+ * it gets no second, mistaken response start. */
+static void test_srvrun_held_connect_skips_reused_slot(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  usz          i;
+  c->l.h3.settings_sent        = 1;
+  c->l.peer_ctrl.settings_seen = 0; /* SETTINGS not seen: CONNECT is held */
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 0 && c->wt_held_mask != 0);
+  i = (usz)srvrun_held_slot_of(c, 0);
+  /* the held stream is cancelled and its slot reused by stream 4 */
+  wired_srvloop_slot_release(&c->l, 0);
+  c->l.streams[i].in_use    = 1;
+  c->l.streams[i].stream_id = 4;
+  c->l.streams[i].req_done  = 1;
+  srvrun_start_held_resp(&g_sl_ctx, 0, (u8)i);
+  CHECK(srvrun_resp_find(c, 4) == 0);
+  CHECK(c->wt_active == 0);
+  CHECK(c->wt_held_mask == 0);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24876,4 +24901,5 @@ void test_srvrun(void) {
   test_srvrun_unframable_response_reset_and_freed();
   test_srvrun_wt_new_session_drops_stale_latches();
   test_srvrun_wtsend_claim_starts_empty();
+  test_srvrun_held_connect_skips_reused_slot();
 }
