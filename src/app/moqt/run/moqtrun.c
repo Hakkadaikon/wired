@@ -9537,18 +9537,22 @@ static void moqtrun_fill_opened(
 static wired_moqtrun_req* moqtrun_sub_slot_req(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, usz si) {
   const wired_moqtrun_sub* s = &t->subs[si];
-  wired_moqtrun_peer*      p = &hub->peers[s->session_idx];
-  return s->active ? moqtrun_sub_req(hub, p, s->request_id) : 0;
+  /* an inactive slot's session_idx is unset: never index peers[] by it */
+  if (!s->active) return 0;
+  return moqtrun_sub_req(hub, &hub->peers[s->session_idx], s->request_id);
 }
 
-/* PUBLISH_DONE status to sub slot si of t, when it is held on a request
- * stream. */
+/* Ends active sub slot si of t: PUBLISH_DONE status when it is held on a
+ * request stream; one without (control stream) still stops, its streams
+ * reset (10.11), so it never outlives its track. */
 static void moqtrun_sub_done_slot(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u64 status) {
-  wired_moqtrun_sub*  s = &t->subs[si];
-  wired_moqtrun_peer* p = &hub->peers[s->session_idx];
-  wired_moqtrun_req*  q = moqtrun_sub_slot_req(hub, t, si);
-  if (q) moqtrun_sub_done(hub, p, q, t, s, status);
+  wired_moqtrun_sub* s = &t->subs[si];
+  wired_moqtrun_req* q = moqtrun_sub_slot_req(hub, t, si);
+  if (q)
+    moqtrun_sub_done(hub, &hub->peers[s->session_idx], q, t, s, status);
+  else if (s->active)
+    moqtrun_sub_stop(hub, t, s, moqtrun_done_reset_code(status));
 }
 
 /* ===== SWITCH_FROM (moqtswitch.c): the hub actions it decides ===== */
@@ -9558,7 +9562,6 @@ static void moqtrun_sub_done_slot(
 static void moqtrun_sw_done(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz si) {
   moqtrun_sub_done_slot(hub, t, si, MOQTSW_DONE_SWITCHED);
-  moqtrun_sub_stop(hub, t, &t->subs[si], MOQTRUN_RESET_CANCELLED);
 }
 
 static void moqtrun_sw_stop_streams(

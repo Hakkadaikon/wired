@@ -643,8 +643,9 @@ static usz mtdr_done_at(u64 sid) {
 
 /* 10.11: every stream the hub opened for a subscription is closed before
  * its PUBLISH_DONE -- the open relay stream is reset first (CANCELLED for
- * a track that ended). A control-stream subscriber's stream is still
- * reset by the republish's stale-relay walk, as before. */
+ * a track that ended). A control-stream subscriber, with no request
+ * stream for the PUBLISH_DONE, has its stream reset at the end too, and
+ * the republish's stale-relay walk does not reset it again. */
 static void test_moqtrun_done_resets_streams_first(void) {
   moqctl_ftn f = mtrq_setup();
   u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
@@ -659,10 +660,11 @@ static void test_moqtrun_done_resets_streams_first(void) {
   usz at = mtdr_reset_at(sb, &code);
   CHECK(at < mtdr_done_at(MTRQ_S1));
   CHECK(code == MOQTRUN_RESET_CANCELLED);
-  CHECK(mtdr_reset_at(sc, &code) == g_n_calls);
+  usz atc = mtdr_reset_at(sc, &code);
+  CHECK(atc < g_n_calls && code == MOQTRUN_RESET_CANCELLED);
   mtst_publish(SESS_A, mtst_join(SESS_A), &f, 1);
-  CHECK(mtdr_reset_at(sc, &code) < g_n_calls);
-  CHECK(mtdr_reset_at(sb, &code) == at); /* reset once */
+  CHECK(mtdr_reset_at(sc, &code) == atc); /* reset once */
+  CHECK(mtdr_reset_at(sb, &code) == at);
 }
 
 /* A failed update resets the subscription's open stream before its

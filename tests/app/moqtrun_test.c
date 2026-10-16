@@ -2601,12 +2601,12 @@ static void test_moqtrun_screen_first_object_opens_then_appends(void) {
  * transport: the hub's own bookkeeping forgets it (moqtrun_drop_peer_subs),
  * but nothing tells the SUBSCRIBER's session that stream is dead, so their
  * WebTransport stack keeps counting it against their own peer-granted
- * uni-stream limit forever. When the publisher reconnects and re-shares,
- * the re-PUBLISH must reset every such orphaned stream (io.stream_reset)
- * before opening a fresh one -- otherwise every drop+reshare cycle burns
- * one uni-stream slot on every subscriber permanently, until their whole
- * connection eventually runs out and nothing (chat included) can open a
- * new stream to them at all. */
+ * uni-stream limit forever. The publisher's drop ends its subscriptions
+ * (draft 10.11), so every such stream is reset (io.stream_reset) then,
+ * exactly once -- the re-PUBLISH finds none left -- otherwise every
+ * drop+reshare cycle burns one uni-stream slot on every subscriber permanently,
+ * until their whole connection eventually runs out and nothing (chat included)
+ * can open a new stream to them at all. */
 static void test_moqtrun_republish_resets_orphaned_relay_stream(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -2620,16 +2620,18 @@ static void test_moqtrun_republish_resets_orphaned_relay_stream(void) {
       &hub, SESS_A, 999, wired_span_of(first, first_n), 0 /* fin */);
   u64 orphan_stream_id = moqtrun_test_last_kind(5)->stream_id;
 
+  moqtrun_test_reset();
   wired_moqt_on_session_close(&hub, SESS_A); /* sharer drops mid-share */
+  CHECK(moqtrun_test_count_kind(7) == 1);    /* its subscription ends: reset */
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == orphan_stream_id);
 
   moqtrun_test_reset();
   u64 ctrl_a2 = moqtrun_test_publish_alice(&hub); /* rejoin + re-PUBLISH chat */
   moqtrun_test_publish_alice_audio(&hub, ctrl_a2);
   moqtrun_test_publish_alice_screen(&hub, ctrl_a2);
 
-  CHECK(moqtrun_test_count_kind(7) == 1); /* the orphan is reset exactly once */
-  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
-  CHECK(moqtrun_test_last_kind(7)->stream_id == orphan_stream_id);
+  CHECK(moqtrun_test_count_kind(7) == 0); /* the orphan is reset exactly once */
 }
 
 /* When the publisher's own stream FINs, the subscriber's relay stream is

@@ -352,7 +352,31 @@ static void test_moqtrun_pubdone_xver(void) {
     }
 }
 
+/* B SUBSCRIBEd on its control stream, so no request stream carries the
+ * PUBLISH_DONE; A's session closing still ends the subscription (10.11):
+ * B's open relay stream is reset and its slot no longer holds B, so a
+ * later client in B's peer slot is never reset through it. */
+static void test_moqtrun_ended_track_stops_ctl_sub(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mtst_init();
+  mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTDN_PUB, &f, 1);
+  mtst_subscribe(SESS_B, cb, &f);
+  wired_moqtrun_track* t = &moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0];
+  usz                  b = mtst_idx(SESS_B);
+  usz                  n = mtst_stream(1, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 0);
+  CHECK(moqtrun_track_sub_of_peer(t, b) != 0);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(moqtrun_track_sub_of_peer(t, b) == 0);
+}
+
 void test_moqtrun_done(void) {
+  test_moqtrun_ended_track_stops_ctl_sub();
   moqtrun_test_allver(mtall_pubdone);
   /* mf_stuck_fetch parks a draft-18/19-layout FETCH */
   moqtrun_test_vers(
