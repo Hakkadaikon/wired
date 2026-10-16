@@ -24327,6 +24327,37 @@ static void test_srvrun_free_slot_wipes_keys(void) {
   conns[0] = (srvrun_conn){0};
 }
 
+/* RFC 9000 10.2.2 / 5.1.1: a closed connection's stragglers may carry any
+ * connection ID it issued -- after a migration the peer addresses the
+ * spare one -- so both its own scid and its spare CID are remembered as
+ * freshly closed: neither draws a stateless reset during the closing
+ * period. */
+static void test_srvrun_ghost_remembers_spare_cid(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn*     c = &g_srvrun_state.conns[0];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  *c = (srvrun_conn){0};
+  for (u8 i = 0; i < 6; i++) {
+    c->scid[i]        = (u8)(0x10 + i);
+    c->l.spare_cid[i] = (u8)(0x20 + i);
+  }
+  c->l.spare_cid_len = 6;
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++)
+      g_srvrun_env.ghosts[i] = (srvrun_ghost){0};
+    srvrun_note_ghost(&ctx, c);
+    CHECK(srvrun_ghost_match(&ctx, wired_span_of(c->scid, 6)) == 1);
+    CHECK(srvrun_ghost_match(&ctx, wired_span_of(c->l.spare_cid, 6)) == 1);
+  }
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -25010,4 +25041,5 @@ void test_srvrun(void) {
   test_srvrun_bcast_claiming_slot_not_a_target();
   test_srvrun_bcast_concurrent_register();
   test_srvrun_free_slot_wipes_keys();
+  test_srvrun_ghost_remembers_spare_cid();
 }

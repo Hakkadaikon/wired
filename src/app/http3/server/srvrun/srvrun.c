@@ -11470,16 +11470,26 @@ static int srvrun_ghost_match(const srvrun_step_ctx* ctx, wired_span dcid) {
   return 0;
 }
 
-/* Remember c's scid as freshly closed (srvrun_ghost) before its slot is
- * reclaimed, so the peer's closing-period stragglers go unanswered
- * instead of drawing a stateless reset. */
-static void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+/* Remember one cid of len bytes as freshly closed in the next ring entry. */
+static void srvrun_ghost_add(
+    const srvrun_step_ctx* ctx, const u8* cid, u8 len) {
   wired_srvrun_env* env = ctx->cfg->env;
   srvrun_ghost*     g   = &env->ghosts[env->ghost_at++ % SRVRUN_GHOST_SLOTS];
-  if (!ctx->cfg->id) return; /* no identity, no scid to remember */
-  for (usz i = 0; i < ctx->cfg->id->scid_len; i++) g->scid[i] = c->scid[i];
-  g->len      = ctx->cfg->id->scid_len;
+  bytes_memcpy(g->scid, cid, len);
+  g->len      = len;
   g->until_ms = ctx->now_ms + SRVRUN_GHOST_MS;
+}
+
+/* Remember every connection ID c answers to -- its scid and, once issued,
+ * its spare CID (the one a migrated peer addresses, RFC 9000 5.1.1) -- as
+ * freshly closed (srvrun_ghost) before its slot is reclaimed, so the
+ * peer's closing-period stragglers go unanswered instead of drawing a
+ * stateless reset. */
+static void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (!ctx->cfg->id) return; /* no identity, no scid to remember */
+  srvrun_ghost_add(ctx, c->scid, ctx->cfg->id->scid_len);
+  if (c->l.spare_cid_len)
+    srvrun_ghost_add(ctx, c->l.spare_cid, c->l.spare_cid_len);
 }
 
 /* RFC 9000 10.3 for a datagram no slot claims: refuse and reset -- unless
