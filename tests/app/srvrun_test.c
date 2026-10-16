@@ -23784,6 +23784,70 @@ static void test_srvrun_dgring_skips_reused_slot(void) {
   sr_reset_global_table();
 }
 
+/* RFC 9114 6.2.1 / RFC 9204 4.2: the peer MUST NOT ask this server to close
+ * its control or QPACK streams. A STOP_SENDING naming one is a connection
+ * error H3_CLOSED_CRITICAL_STREAM -- never a RESET of the stream, whose
+ * freed send slot a later app stream could claim while the QPACK encoder
+ * still writes instructions to its index. */
+static void sr_check_critical_stop(u64 id) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 0;
+  c->l.h3.settings_sent  = 1;
+  srvrun_open_qpack_streams(c);
+  CHECK(c->qenc_stream_opened && c->qdec_stream_opened);
+  c->l.peer_resets[0] = (wired_srvloop_reset){id, H3_NO_ERROR, 1};
+  c->l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(sr_close_code(c, &is_app) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(is_app == 1);
+  CHECK(c->wtsend[c->qenc_wtsend_slot].in_use);
+  CHECK(c->wtsend[c->qdec_wtsend_slot].in_use);
+  *c = (srvrun_conn){0};
+}
+
+static void test_srvrun_peer_stop_on_critical_stream_closes(void) {
+  sr_check_critical_stop(3);  /* control */
+  sr_check_critical_stop(7);  /* QPACK encoder */
+  sr_check_critical_stop(11); /* QPACK decoder */
+}
+
+/* Raw QUIC sends no SETTINGS and opens no HTTP/3 plumbing, so a
+ * STOP_SENDING on stream 3 there names an ordinary stream: no close. */
+static void test_srvrun_peer_stop_on_raw_stream3_no_close(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c     = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.h3.settings_sent = 0;
+  c->l.peer_resets[0]   = (wired_srvloop_reset){3, H3_NO_ERROR, 1};
+  c->l.peer_reset_n     = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(c->closing == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* A QPACK send slot index that no longer names its plumbing stream (in_use
+ * cleared, or another stream on it) is never written through: the
+ * instruction stays owed rather than landing in the wrong stream. */
+static void test_srvrun_qdec_send_checks_slot_owner(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c     = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u8              b     = 0x01;
+  c->l.h3.settings_sent = 1;
+  srvrun_open_qpack_streams(c);
+  c->wtsend[c->qdec_wtsend_slot].stream_id = 15; /* slot reused elsewhere */
+  CHECK(srvrun_qdec_send(c, wired_span_of(&b, 1)) == 0);
+  *c = (srvrun_conn){0};
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -24446,4 +24510,7 @@ void test_srvrun(void) {
   test_srvrun_confirmed_slot_ignores_initial();
   test_srvrun_open_slot_bumps_generation();
   test_srvrun_dgring_skips_reused_slot();
+  test_srvrun_peer_stop_on_critical_stream_closes();
+  test_srvrun_peer_stop_on_raw_stream3_no_close();
+  test_srvrun_qdec_send_checks_slot_owner();
 }

@@ -5239,11 +5239,24 @@ static void srvrun_open_qpack_streams(srvrun_conn* c) {
   srvrun_open_qdec_stream(c);
 }
 
+static int srvrun_wtsend_matches(const srvrun_wtsend* w, u64 stream_id);
+
+/* The wtsend slot a QPACK stream was opened on, re-checked against the
+ * stream id it was opened for: 0 when the stream is not open, or the slot
+ * no longer holds it (freed, or claimed by another stream since). */
+static srvrun_wtsend* srvrun_plumbing_wtsend(
+    srvrun_conn* c, int opened, int slot, u64 stream_id) {
+  srvrun_wtsend* w = &c->wtsend[slot];
+  if (!opened) return 0;
+  return srvrun_wtsend_matches(w, stream_id) ? w : 0;
+}
+
 /* Append p to the decoder stream; 0 (still owed) until it is open or while
  * its send ring is full. */
 static int srvrun_qdec_send(srvrun_conn* c, wired_span p) {
-  if (!c->qdec_stream_opened) return 0;
-  return srvrun_wtsend_stage_round(c, &c->wtsend[c->qdec_wtsend_slot], p, 0);
+  srvrun_wtsend* w = srvrun_plumbing_wtsend(
+      c, c->qdec_stream_opened, c->qdec_wtsend_slot, SRVRUN_QDEC_STREAM);
+  return w ? srvrun_wtsend_stage_round(c, w, p, 0) : 0;
 }
 
 /* RFC 9204 4.4: send what this decoder owes (Section Acknowledgments, then
@@ -7159,11 +7172,12 @@ static qpackenc_state* srvrun_qenc_active(srvrun_conn* c) {
  * capacity fell back to literal) or the encoder stream is not open. */
 static void srvrun_qenc_send_insert(
     srvrun_conn* c, const qpackenc_status_result* ins) {
-  if (!c->qenc_stream_opened) return;
+  srvrun_wtsend* w = srvrun_plumbing_wtsend(
+      c, c->qenc_stream_opened, c->qenc_wtsend_slot, SRVRUN_QENC_STREAM);
+  if (!w) return;
   if (ins->insert_len)
     srvrun_wtsend_stage_round(
-        c, &c->wtsend[c->qenc_wtsend_slot],
-        wired_span_of(ins->insert_instr, ins->insert_len), 0);
+        c, w, wired_span_of(ins->insert_instr, ins->insert_len), 0);
   qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
 }
 
@@ -9280,9 +9294,32 @@ static void srvrun_connect_stop(
   srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
 }
 
+/* 1 iff stream_id is one of this server's open critical uni streams
+ * (RFC 9114 6.2.1 control, RFC 9204 4.2 QPACK encoder/decoder): ids 3, 7
+ * and 11, each counted only once it is open -- raw QUIC opens none, so the
+ * same ids there are ordinary streams. */
+static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id) {
+  const int open[3] = {
+      c->l.h3.settings_sent != 0, c->qenc_stream_opened, c->qdec_stream_opened};
+  if (stream_id > SRVRUN_QDEC_STREAM || stream_id % 4 != 3) return 0;
+  return open[stream_id / 4];
+}
+
+/* RFC 9114 6.2.1 / RFC 9204 4.2: the peer "MUST NOT request that the sender
+ * close" a critical stream -- a STOP_SENDING on one closes the connection
+ * with H3_CLOSED_CRITICAL_STREAM instead of resetting the stream. */
+static int srvrun_stop_on_critical(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+  if (!srvrun_critical_send(c, stream_id)) return 0;
+  srvrun_send_app_close(
+      cfg, c, H3_CLOSED_CRITICAL_STREAM,
+      wired_span_of((const u8*)"critical stream stopped", 23));
+  return 1;
+}
+
 /* Answer one peer STOP_SENDING on whichever send part its stream id names.
  * Returns 1 when a response slot was freed. */
-static usz srvrun_answer_peer_stop(
+static usz srvrun_answer_stream_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
   int          sidx = srvrun_wt_slot_by_connect_id(c, e->stream_id);
   srvrun_resp* r;
@@ -9293,6 +9330,14 @@ static usz srvrun_answer_peer_stop(
   srvrun_wtsend_stop(ctx->cfg, c, e->stream_id, e->error_code);
   r = srvrun_resp_find(c, e->stream_id);
   return r ? srvrun_resp_stop(ctx, c, r, e->error_code) : 0;
+}
+
+/* A critical stream's STOP_SENDING closes the connection
+ * (srvrun_stop_on_critical); any other is answered on its stream. */
+static usz srvrun_answer_peer_stop(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
+  if (srvrun_stop_on_critical(ctx->cfg, c, e->stream_id)) return 0;
+  return srvrun_answer_stream_stop(ctx, c, e);
 }
 
 /* RFC 9000 3.5: "An endpoint that receives a STOP_SENDING frame MUST send
