@@ -17341,6 +17341,10 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   wired_udp_close(sfd);
 }
 
+/* SOL_SOCKET / SO_RCVBUF (Linux socket(7)). */
+#define SR_SOL_SOCKET 1
+#define SR_SO_RCVBUF 8
+
 /* Staging is BOUNDED: rounds queue while unacknowledged until the slot's
  * epoch buffer is exhausted; the round that no longer fits is refused and
  * counted as a busy drop, and room returns once the backlog ACKs. */
@@ -17352,7 +17356,14 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   i64           sfd, cfd;
   srvrun_conn*  c;
   static u8     big[SRVRUN_WTSEND_BUF];
+  int           rcvbuf = 1 << 20;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  /* One pump sends many slices but the drain below reads one at a time, so
+   * a whole SRVRUN_WTSEND_BUF of datagrams waits in sfd at once; the default
+   * receive buffer (~200 KB including per-datagram overhead) drops the tail
+   * and the blocking recv then waits forever. */
+  wired_arch_setsockopt(
+      sfd, SR_SOL_SOCKET, SR_SO_RCVBUF, &rcvbuf, sizeof rcvbuf);
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
