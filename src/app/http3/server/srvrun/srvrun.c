@@ -1855,18 +1855,10 @@ static int srvrun_boot_finish(
   return srvrun_boot_up(ctx, slot, c, dg, &sid, &out);
 }
 
-/* The accept flight is built: finish bringing the connection up -- wire the
- * handler, seed credits, stash the flight for retransmission, and send it
- * (the tail half of srvrun_boot_finish, split so the HRR branch above keeps
- * the head at the CCN gate). */
-static int srvrun_boot_up(
-    const srvrun_step_ctx*   ctx,
-    int                      slot,
-    srvrun_conn*             c,
-    wired_mspan              dg,
-    const wired_srvboot_id*  sid,
-    const wired_srvboot_out* out) {
-  srvrun_qlog_recv(ctx->cfg, c, out->client_pn, dg.n);
+/* Wire the app's handlers into c's loop and seed its per-connection limits
+ * from sid and the peer's ClientHello transport parameters. */
+static void srvrun_boot_wire(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvboot_id* sid) {
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   c->l.on_body       = ctx->cfg->on_body;
@@ -1883,12 +1875,33 @@ static int srvrun_boot_up(
    * wired_srvboot_accept_acc above); MAX_DATA frames only ever raise it
    * from here (srvrun_ku_discard_stale's neighbors gather_max_data /
    * srvrun_sess_on_step apply those raises each step). */
-  c->conn_credit  = c->s.sdrv.peer_initial_max_data;
+  c->conn_credit = c->s.sdrv.peer_initial_max_data;
+}
+
+/* Record the accept flight's Initial and Handshake datagram lengths so the
+ * boot send/PTO paths can (re)send it. */
+static void srvrun_boot_stash(srvrun_conn* c, const wired_srvboot_out* out) {
   c->boot_ini_len = out->initial->len;
   for (usz i = 0; i < out->dgram_count; i++)
     c->boot_dgram_len[i] = out->dgram_len[i];
   c->boot_dgram_count = out->dgram_count;
   c->boot_dgram_sent  = 0;
+}
+
+/* The accept flight is built: finish bringing the connection up -- wire the
+ * handler, seed credits, stash the flight for retransmission, and send it
+ * (the tail half of srvrun_boot_finish, split so the HRR branch above keeps
+ * the head at the CCN gate). */
+static int srvrun_boot_up(
+    const srvrun_step_ctx*   ctx,
+    int                      slot,
+    srvrun_conn*             c,
+    wired_mspan              dg,
+    const wired_srvboot_id*  sid,
+    const wired_srvboot_out* out) {
+  srvrun_qlog_recv(ctx->cfg, c, out->client_pn, dg.n);
+  srvrun_boot_wire(ctx, c, sid);
+  srvrun_boot_stash(c, out);
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   srvrun_boot_flush_zerortt(ctx, c, slot);
