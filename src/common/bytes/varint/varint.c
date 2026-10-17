@@ -66,6 +66,9 @@ usz varint_decode(const u8* buf, usz n, u64* out) {
 }
 
 int varint_take(wired_span buf, usz* off, u64* out) {
+  if (*off >= buf.n) {
+    return 0; /* nothing left; buf.p may be null (C11 6.5.6) */
+  }
   usz used = varint_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) {
     return 0;
