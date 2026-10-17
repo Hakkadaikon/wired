@@ -130,24 +130,26 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
         echo "build ${f%.c}: cc_fuzz_bin $f"
     done
     echo
+    # every .c of an example dir is one program (an example may be split)
+    ex_srcs() { ls examples/"$1"/*.c | tr '\n' ' ' | sed 's/ $//'; }
     echo "# the SDK archive and the example server built against it."
     echo "build build/libwired.a: ar $libobjs"
     echo "build examples/word_list/wired_server: cc_freestanding_bin \$"
-    echo "    examples/word_list/wired_server.c build/libwired.a"
+    echo "    $(ex_srcs word_list) build/libwired.a"
     echo
     echo "# debug example: SDK recompiled from source with -DWIRED_DEBUG."
     echo "build examples/word_list/wired_server_debug: cc_freestanding_bin \$"
-    echo "    examples/word_list/wired_server.c $dbgsrcs"
+    echo "    $(ex_srcs word_list) $dbgsrcs"
     echo "  extra = -DWIRED_DEBUG"
     echo
     echo "build examples/webtransport_interop/wired_server: cc_freestanding_bin \$"
-    echo "    examples/webtransport_interop/wired_server.c build/libwired.a"
+    echo "    $(ex_srcs webtransport_interop) build/libwired.a"
     echo
     echo "build examples/moqt_chat/wired_server: cc_freestanding_bin \$"
-    echo "    examples/moqt_chat/wired_server.c build/libwired.a"
+    echo "    $(ex_srcs moqt_chat) build/libwired.a"
     echo
     echo "build examples/moqt_interop/wired_server: cc_freestanding_bin \$"
-    echo "    examples/moqt_interop/wired_server.c build/libwired.a"
+    echo "    $(ex_srcs moqt_interop) build/libwired.a"
     echo
     echo "# guide/ snippets: each guide/snippets/<id>/main.c is a standalone"
     echo "# program built like the examples above (the guide shows and runs it)."
