@@ -47,24 +47,7 @@ int p256_fp_eq(const p256_fe a, const p256_fe b) {
   return d == 0;
 }
 
-/* Compare: returns 1 if a >= b (treating limb 3 as most significant). */
-int p256_fe_ge(const p256_fe a, const p256_fe b) {
-  for (usz i = 4; i-- > 0;)
-    if (a[i] != b[i]) return a[i] > b[i];
-  return 1;
-}
-
 int p256_fp_lt(const p256_fe a, const p256_fe b) { return !p256_fe_ge(a, b); }
-
-/* r = a - b assuming a >= b; ignores final borrow. */
-void p256_fe_sub_raw(p256_fe r, const p256_fe a, const p256_fe b) {
-  unsigned __int128 br = 0;
-  for (usz i = 0; i < 4; i++) {
-    unsigned __int128 t = (unsigned __int128)a[i] - b[i] - br;
-    r[i]                = (u64)t;
-    br                  = (t >> 64) & 1;
-  }
-}
 
 /* t = a + b (256-bit); returns the carry out of bit 255. */
 static u64 fe_add_raw(p256_fe t, const p256_fe a, const p256_fe b) {

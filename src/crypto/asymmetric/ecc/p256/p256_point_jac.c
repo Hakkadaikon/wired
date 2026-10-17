@@ -4,8 +4,6 @@ static void add_finish(jac* r, const p256_addt* a);
 static void jac_add(jac* r, p256_addt* t);
 static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2);
 static void jac_add_step(jac* acc, const jac* base);
-static void fp_cmov(p256_fe r, const p256_fe a, u64 mask);
-static void jac_cmov(jac* r, const jac* a, u64 mask);
 static int  add_full_infinity(jac* r, const jac* a, const jac* b);
 static void jac_add_full(jac* r, const jac* a, const jac* b);
 
@@ -81,28 +79,6 @@ void p256pt_jac_to_affine(ec_point* r, const jac* j) {
  * p256_ladder_step below). Replaces the earlier add-if-bit-set double-and-add,
  * whose `if (bit) jac_add_step(...)` made execution time/cache pattern
  * correlate with the scalar's bits directly. */
-
-/* Constant-time conditional move of one field element: r <- a if mask is
- * all-ones, unchanged if mask is 0. XOR-mask pattern, mirrors x25519.c's
- * fe_cswap (RFC 7748 5). CCN 1 (loop only, no branch). */
-static void fp_cmov(p256_fe r, const p256_fe a, u64 mask) {
-  for (usz i = 0; i < 4; i++) r[i] ^= mask & (r[i] ^ a[i]);
-}
-
-/* Conditional move of a whole Jacobian point (X, Y, Z). CCN 1. */
-static void jac_cmov(jac* r, const jac* a, u64 mask) {
-  fp_cmov(r->X, a->X, mask);
-  fp_cmov(r->Y, a->Y, mask);
-  fp_cmov(r->Z, a->Z, mask);
-}
-
-/* Constant-time swap of two Jacobian points when mask is all-ones. CCN 1. */
-void p256pt_jac_cswap(jac* a, jac* b, u64 mask) {
-  jac t = *a;
-  jac_cmov(&t, b, mask);
-  jac_cmov(b, a, mask);
-  *a = t;
-}
 
 /* 1 if either operand is infinity, with r set to the other one (or infinity,
  * if both are). Split out so jac_add_full stays CCN <= 2. */

@@ -1,27 +1,7 @@
 #include "crypto/asymmetric/ecc/p256/p256_point_impl.h"
 
-static void fp_add(p256_fe r, const p256_fe a, const p256_fe b);
 static void dbl_x(p256_fe x3, const p256_fe alpha, const p256_fe beta);
 static void dbl_y(p256_fe y3, const p256_fe x3, const p256_dblv* d);
-
-/* The scalar loop runs thousands of these, so use the fast P-256 Solinas
- * reduction (p256_fp_mul_p) rather than the generic long-division reducer —
- * the difference is ~885ms vs a few ms per scalar multiply. */
-void p256pt_fp_mul(p256_fe r, const p256_fe a, const p256_fe b) {
-  p256_fp_mul_p(r, a, b);
-}
-
-void p256pt_fp_sqr(p256_fe r, const p256_fe a) { p256_fp_sqr_p(r, a); }
-
-void p256pt_fp_sub(p256_fe r, const p256_fe a, const p256_fe b) {
-  p256_fp_sub(r, (fpab){a, b}, FP_P);
-}
-
-static void fp_add(p256_fe r, const p256_fe a, const p256_fe b) {
-  p256_fp_add(r, (fpab){a, b}, FP_P);
-}
-
-void p256pt_fp_dbl(p256_fe r, const p256_fe a) { fp_add(r, a, a); }
 
 void p256pt_jac_from_affine(jac* j, const ec_point* p) {
   p256_fp_set(j->X, p->x);
@@ -32,8 +12,6 @@ void p256pt_jac_from_affine(jac* j, const ec_point* p) {
     j->Z[0] = 0;
   }
 }
-
-int p256pt_jac_is_inf(const jac* j) { return p256_fp_is_zero(j->Z); }
 
 /* X3 = alpha^2 - 8*beta; helper to keep doubling under CCN 3. */
 static void dbl_x(p256_fe x3, const p256_fe alpha, const p256_fe beta) {

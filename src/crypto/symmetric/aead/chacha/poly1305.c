@@ -1,9 +1,5 @@
 #include "crypto/symmetric/aead/chacha/poly1305_impl.h"
 
-u32 poly1305_rd32le(const u8* p) {
-  return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
-}
-
 /* Load and clamp r (RFC 8439 2.5.1) into 26-bit limbs; copy s into pad. */
 void poly_init(poly* st, const u8 key[32]) {
   u32 t0 = poly1305_rd32le(key), t1 = poly1305_rd32le(key + 4);

@@ -33,10 +33,6 @@ const u8 SBOX[256] = {
 static const u8 RCON[10] = {0x01, 0x02, 0x04, 0x08, 0x10,
                             0x20, 0x40, 0x80, 0x1b, 0x36};
 
-void aes128_copy16(u8* dst, const u8* src) {
-  for (usz i = 0; i < 16; i++) dst[i] = src[i];
-}
-
 static u32 sub_word(u32 w) {
   return ((u32)SBOX[(w >> 24) & 0xff] << 24) |
          ((u32)SBOX[(w >> 16) & 0xff] << 16) |
