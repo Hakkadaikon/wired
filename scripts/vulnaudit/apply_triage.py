@@ -7,6 +7,7 @@ Each tasks/vuln/triage/*.json is {"rows": [{"vid": "V-0001", "verdict": "needs-f
 A row becomes `triaged` with its fields filled; `already-safe` with existing_test=true or `n/a` become `done`
 (commit: `existing`). Usage: apply_triage.py [ledger] [triage dir]
 """
+
 import glob
 import json
 import sys

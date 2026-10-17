@@ -1,4 +1,5 @@
 """Tests for scripts/vulnaudit/*.py (run: python3 -m unittest discover tests/scripts)."""
+
 import io
 import json
 import os
@@ -18,7 +19,14 @@ import merge  # noqa: E402
 
 
 def row(**kw):
-    d = {"id": "V-0001", "status": "open", "verdict": "?", "test": "", "commit": "", "why": ""}
+    d = {
+        "id": "V-0001",
+        "status": "open",
+        "verdict": "?",
+        "test": "",
+        "commit": "",
+        "why": "",
+    }
     d.update(kw)
     return d
 
@@ -55,15 +63,19 @@ class LedgerTableTest(unittest.TestCase):
 
     def test_parse_tags_sections(self):
         rows = ledger_table.parse(["| V-0000 |", line(), "## A b ", line(id="V-0002")])
-        self.assertEqual([(r["id"], r["section"]) for r in rows],
-                         [("V-0001", "(none)"), ("V-0002", "A b")])
+        self.assertEqual(
+            [(r["id"], r["section"]) for r in rows],
+            [("V-0001", "(none)"), ("V-0002", "A b")],
+        )
 
 
 class LedgerCheckTest(InTmp):
     def test_violations(self):
         v = ledger_check.violations
         self.assertEqual(v(row()), [])
-        self.assertEqual(v(row(status="done", verdict="fixed", test="t", commit="c")), [])
+        self.assertEqual(
+            v(row(status="done", verdict="fixed", test="t", commit="c")), []
+        )
         self.assertEqual(v(row(status="done", verdict="n/a", why="w")), [])
         self.assertEqual(len(v(row(status="done", verdict="fixed", test="t"))), 1)
         self.assertEqual(len(v(row(status="done", verdict="n/a"))), 1)
@@ -74,20 +86,41 @@ class LedgerCheckTest(InTmp):
         self.assertEqual(m(row(test="test_a"), set()), [])
         self.assertEqual(m(row(test="audit output", **done), set()), [])
         self.assertEqual(m(row(test="test_a", **done), {"test_a"}), [])
-        self.assertEqual(m(row(test="test_a test_b", **done), {"test_a"}),
-                         ["V-0001: cited test not found in tests/: test_b"])
+        self.assertEqual(
+            m(row(test="test_a test_b", **done), {"test_a"}),
+            ["V-0001: cited test not found in tests/: test_b"],
+        )
 
     def test_main_counts_and_errors(self):
         self.write("tests/x/a.c", "void test_ok(void) {}\n")
-        self.write("l.md", "\n".join([
-            "## S1", line(), line(id="V-0002", status="done", verdict="fixed", test="test_ok", commit="c"),
-            "## S2", line(id="V-0002", status="triaged")]) + "\n")
+        self.write(
+            "l.md",
+            "\n".join(
+                [
+                    "## S1",
+                    line(),
+                    line(
+                        id="V-0002",
+                        status="done",
+                        verdict="fixed",
+                        test="test_ok",
+                        commit="c",
+                    ),
+                    "## S2",
+                    line(id="V-0002", status="triaged"),
+                ]
+            )
+            + "\n",
+        )
         out = io.StringIO()
         with redirect_stdout(out):
             rc = ledger_check.main("l.md")
         self.assertEqual(rc, 1)
-        self.assertEqual(out.getvalue(), "S1: open=1 triaged=0 done=1\nS2: open=0 triaged=1 done=0\n"
-                         "TOTAL 3 rows, 1 done\nERROR duplicate id V-0002\n")
+        self.assertEqual(
+            out.getvalue(),
+            "S1: open=1 triaged=0 done=1\nS2: open=0 triaged=1 done=0\n"
+            "TOTAL 3 rows, 1 done\nERROR duplicate id V-0002\n",
+        )
 
     def test_main_clean(self):
         self.write("tests/a.c", "")
@@ -103,81 +136,157 @@ class ApplyTriageTest(InTmp):
         out = io.StringIO()
         with redirect_stdout(out):
             apply_triage.main("l.md", "t")
-        return out.getvalue(), ledger_table.parse(pathlib.Path("l.md").read_text().splitlines())
+        return out.getvalue(), ledger_table.parse(
+            pathlib.Path("l.md").read_text().splitlines()
+        )
 
     def test_verdicts(self):
-        out, rows = self.run_triage([
-            {"vid": "V-0001", "verdict": "already-safe", "existing_test": True, "test": "test_x",
-             "ours": "src/a.c", "layer": "unit", "priority": "P2", "reason": "r"},
-            {"vid": "V-0002", "verdict": "n/a", "test": "test_y"},
-            {"vid": "V-0003", "verdict": "needs-fix", "layer": "fuzz"},
-            {"vid": "V-0004", "verdict": "n/a"},
-        ], [line(), line(id="V-0002"), line(id="V-0003"), line(id="V-0004", status="done", verdict="fixed"),
-            line(id="V-0005")])
+        out, rows = self.run_triage(
+            [
+                {
+                    "vid": "V-0001",
+                    "verdict": "already-safe",
+                    "existing_test": True,
+                    "test": "test_x",
+                    "ours": "src/a.c",
+                    "layer": "unit",
+                    "priority": "P2",
+                    "reason": "r",
+                },
+                {"vid": "V-0002", "verdict": "n/a", "test": "test_y"},
+                {"vid": "V-0003", "verdict": "needs-fix", "layer": "fuzz"},
+                {"vid": "V-0004", "verdict": "n/a"},
+            ],
+            [
+                line(),
+                line(id="V-0002"),
+                line(id="V-0003"),
+                line(id="V-0004", status="done", verdict="fixed"),
+                line(id="V-0005"),
+            ],
+        )
         self.assertEqual(out, "applied 3 triage rows\n")
         r = {d["id"]: d for d in rows}
-        self.assertEqual((r["V-0001"]["status"], r["V-0001"]["commit"], r["V-0001"]["layer"],
-                          r["V-0001"]["test"], r["V-0001"]["why"], r["V-0001"]["ours"]),
-                         ("done", "existing", "unit P2", "test_x", "r", "src/a.c"))
-        self.assertEqual((r["V-0002"]["status"], r["V-0002"]["test"], r["V-0002"]["commit"], r["V-0002"]["why"]),
-                         ("done", "", "", "n/a"))
-        self.assertEqual((r["V-0003"]["status"], r["V-0003"]["ours"], r["V-0003"]["layer"], r["V-0003"]["why"]),
-                         ("triaged", "?", "fuzz", ""))
+        self.assertEqual(
+            (
+                r["V-0001"]["status"],
+                r["V-0001"]["commit"],
+                r["V-0001"]["layer"],
+                r["V-0001"]["test"],
+                r["V-0001"]["why"],
+                r["V-0001"]["ours"],
+            ),
+            ("done", "existing", "unit P2", "test_x", "r", "src/a.c"),
+        )
+        self.assertEqual(
+            (
+                r["V-0002"]["status"],
+                r["V-0002"]["test"],
+                r["V-0002"]["commit"],
+                r["V-0002"]["why"],
+            ),
+            ("done", "", "", "n/a"),
+        )
+        self.assertEqual(
+            (
+                r["V-0003"]["status"],
+                r["V-0003"]["ours"],
+                r["V-0003"]["layer"],
+                r["V-0003"]["why"],
+            ),
+            ("triaged", "?", "fuzz", ""),
+        )
         self.assertEqual(r["V-0004"]["verdict"], "fixed")
         self.assertEqual(r["V-0005"]["status"], "open")
 
     def test_already_safe_without_existing_test_is_triaged(self):
-        _, rows = self.run_triage([{"vid": "V-0001", "verdict": "already-safe"}], [line()])
+        _, rows = self.run_triage(
+            [{"vid": "V-0001", "verdict": "already-safe"}], [line()]
+        )
         self.assertEqual((rows[0]["status"], rows[0]["commit"]), ("triaged", ""))
 
 
 class MergeTest(InTmp):
     def test_load_raw(self):
         self.write("raw/a.json", json.dumps({"records": [{"id": "CVE-1"}]}))
-        self.write("raw/b.json", json.dumps({"records": {"p1": [{"id": "S-x"}], "p2": None}}))
+        self.write(
+            "raw/b.json", json.dumps({"records": {"p1": [{"id": "S-x"}], "p2": None}})
+        )
         self.write("raw/c.json", "{bad")
         self.write("raw/d.json", json.dumps({}))
         err = io.StringIO()
         with redirect_stderr(err):
             recs = merge.load_raw("raw")
-        self.assertEqual(recs, [{"id": "CVE-1", "_source_file": "a.json"},
-                                {"id": "S-x", "_source_file": "b.json"}])
+        self.assertEqual(
+            recs,
+            [
+                {"id": "CVE-1", "_source_file": "a.json"},
+                {"id": "S-x", "_source_file": "b.json"},
+            ],
+        )
         self.assertIn("skip raw/c.json", err.getvalue())
 
     def test_dedup(self):
-        recs = merge.dedup([{"id": "A"}, {"id": "B", "aliases": ["A", "C"]}, {"id": "C"}, {"id": "D"}])
+        recs = merge.dedup(
+            [{"id": "A"}, {"id": "B", "aliases": ["A", "C"]}, {"id": "C"}, {"id": "D"}]
+        )
         # a merged record's own aliases are not registered: C stays separate
-        self.assertEqual(recs, [{"id": "A", "aliases": ["A", "B", "C"]}, {"id": "C"}, {"id": "D"}])
+        self.assertEqual(
+            recs, [{"id": "A", "aliases": ["A", "B", "C"]}, {"id": "C"}, {"id": "D"}]
+        )
 
     def test_ledger_ids(self):
         self.assertEqual(merge.ledger_ids("missing.md"), (set(), 0))
         self.write("l.md", "| V-0007 | x | CVE-2024-1 GHSA-ab-cd S-9.1 L-3 | V-0012 |")
-        self.assertEqual(merge.ledger_ids("l.md"), ({"CVE-2024-1", "GHSA-ab-cd", "S-9.1", "L-3"}, 12))
+        self.assertEqual(
+            merge.ledger_ids("l.md"), ({"CVE-2024-1", "GHSA-ab-cd", "S-9.1", "L-3"}, 12)
+        )
 
     def test_class_and_summary(self):
         cs = merge.class_and_summary
-        self.assertEqual(cs({"id": "S-1", "title": "T", "defense": "d" * 100}), ("T", "d" * 90))
+        self.assertEqual(
+            cs({"id": "S-1", "title": "T", "defense": "d" * 100}), ("T", "d" * 90)
+        )
         self.assertEqual(cs({"id": "S-1", "attack": "a" * 80}), ("a" * 70, ""))
-        self.assertEqual(cs({"id": "CVE-1", "bug_class": "oob", "summary": None}), ("oob", ""))
+        self.assertEqual(
+            cs({"id": "CVE-1", "bug_class": "oob", "summary": None}), ("oob", "")
+        )
         self.assertEqual(cs({"id": "CVE-1"}), ("?", ""))
 
     def test_row(self):
-        d = ledger_table.parse_row(merge.row(3, {"id": "CVE-1", "spec": "RFC", "bug_class": "oob"}))
-        self.assertEqual((d["id"], d["target"], d["ours"], d["verdict"]), ("V-0003", "RFC", "oob", "?"))
+        d = ledger_table.parse_row(
+            merge.row(3, {"id": "CVE-1", "spec": "RFC", "bug_class": "oob"})
+        )
+        self.assertEqual(
+            (d["id"], d["target"], d["ours"], d["verdict"]),
+            ("V-0003", "RFC", "oob", "?"),
+        )
         d = ledger_table.parse_row(merge.row(4, {"id": "CVE-2", "title": "t" * 40}))
         self.assertEqual((d["target"], d["ours"]), ("t" * 30, "?"))
 
     def test_main(self):
-        self.write("raw/a.json", json.dumps({"records": [
-            {"id": "CVE-1", "area": "tls"}, {"id": "CVE-2", "area": "zzz"},
-            {"id": "CVE-3", "area": "tls"}, {"id": "CVE-2024-9"}]}))
+        self.write(
+            "raw/a.json",
+            json.dumps(
+                {
+                    "records": [
+                        {"id": "CVE-1", "area": "tls"},
+                        {"id": "CVE-2", "area": "zzz"},
+                        {"id": "CVE-3", "area": "tls"},
+                        {"id": "CVE-2024-9"},
+                    ]
+                }
+            ),
+        )
         self.write("l.md", "V-0005 CVE-2024-9")
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             merge.main(["--ledger", "l.md", "--raw", "raw"])
         heads = [x for x in out.getvalue().splitlines() if x.startswith("## ")]
         self.assertEqual(heads, ["## TLS 1.3  (2 new)", "## Unmapped area  (1 new)"])
-        ids = [x.split(" | ")[0] for x in out.getvalue().splitlines() if x.startswith("| ")]
+        ids = [
+            x.split(" | ")[0] for x in out.getvalue().splitlines() if x.startswith("| ")
+        ]
         self.assertEqual(ids, ["| V-0006", "| V-0007", "| V-0008"])
         self.assertTrue(err.getvalue().endswith("\ncatalog: 4 records; new rows: 3\n"))
         self.assertEqual(json.load(open("tasks/vuln/catalog.json"))["count"], 4)

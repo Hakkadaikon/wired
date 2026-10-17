@@ -2,20 +2,44 @@
 per entry, under a `## <section>` heading. ledger_check.py, merge.py and
 apply_triage.py all read/write rows through parse_row/format_row.
 """
+
 import re
 
-COLUMNS = ["ID", "Status", "Source", "Target", "Class", "Summary", "Verdict",
-           "Layer", "Our code", "Test", "Commit", "Rationale"]
-KEYS = ["id", "status", "source", "target", "class", "summary", "verdict",
-        "layer", "ours", "test", "commit", "why"]
+COLUMNS = [
+    "ID",
+    "Status",
+    "Source",
+    "Target",
+    "Class",
+    "Summary",
+    "Verdict",
+    "Layer",
+    "Our code",
+    "Test",
+    "Commit",
+    "Rationale",
+]
+KEYS = [
+    "id",
+    "status",
+    "source",
+    "target",
+    "class",
+    "summary",
+    "verdict",
+    "layer",
+    "ours",
+    "test",
+    "commit",
+    "why",
+]
 STATUS = {" ": "open", "~": "triaged", "x": "done"}
 
 _SPLIT = re.compile(r"(?<!\\)\|")
 
 
 def header():
-    return ("| " + " | ".join(COLUMNS) + " |\n"
-            "|" + "|".join("---" for _ in COLUMNS) + "|")
+    return "| " + " | ".join(COLUMNS) + " |\n|" + "|".join("---" for _ in COLUMNS) + "|"
 
 
 def _cell(v):

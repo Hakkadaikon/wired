@@ -7,6 +7,7 @@ The table rows are printed grouped by ledger section; paste them at the end
 of the matching section's table (ids are assigned in catalog order, continuing after the ledger's
 highest V-number). Dedup key: CVE/GHSA id, else spec section id.
 """
+
 import glob
 import json
 import os
@@ -126,10 +127,18 @@ def _ours(r):
 
 def row(vnum, r):
     cls, summary = class_and_summary(r)
-    return format_row({
-        "id": f"V-{vnum:04d}", "status": "open", "source": r["id"],
-        "target": _target(r), "class": cls, "summary": summary, "verdict": "?",
-        "ours": _ours(r)})
+    return format_row(
+        {
+            "id": f"V-{vnum:04d}",
+            "status": "open",
+            "source": r["id"],
+            "target": _target(r),
+            "class": cls,
+            "summary": summary,
+            "verdict": "?",
+            "ours": _ours(r),
+        }
+    )
 
 
 def _opt(argv, name, default):
@@ -139,7 +148,9 @@ def _opt(argv, name, default):
 def write_catalog(recs):
     os.makedirs("tasks/vuln", exist_ok=True)
     with open("tasks/vuln/catalog.json", "w", encoding="utf-8") as f:
-        json.dump({"count": len(recs), "records": recs}, f, indent=1, ensure_ascii=False)
+        json.dump(
+            {"count": len(recs), "records": recs}, f, indent=1, ensure_ascii=False
+        )
 
 
 def new_by_section(recs, known):
@@ -147,7 +158,9 @@ def new_by_section(recs, known):
     for r in recs:
         if r["id"] in known:
             continue
-        by_section.setdefault(AREA_TO_SECTION.get(r.get("area"), "Unmapped area"), []).append(r)
+        by_section.setdefault(
+            AREA_TO_SECTION.get(r.get("area"), "Unmapped area"), []
+        ).append(r)
     return by_section
 
 

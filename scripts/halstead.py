@@ -7,12 +7,12 @@ Visual Studio (0..100).
 
 With --check, print only what breaks a limit below (compiler warning
 format) and exit 1 if anything does."""
+
 import json
 import os
 import sys
 
-COLS = ("  volume   diff     effort   bugs  mi_orig  mi_sei  mi_vs exits args"
-        "  location")
+COLS = "  volume   diff     effort   bugs  mi_orig  mi_sei  mi_vs exits args  location"
 
 # Common guidelines: Halstead volume <= 1000 per function and <= 8000 per
 # file, difficulty <= 30 (Verifysoft); delivered bugs <= 0.5 per function
@@ -44,11 +44,17 @@ def cell(v, width, prec):
 
 def row(m, where):
     h, mi = m["halstead"], m["mi"]
-    cells = ((h["volume"], 8, 0), (h["difficulty"], 6, 1),
-             (h["effort"], 10, 0), (h["bugs"], 6, 2),
-             (mi["mi_original"], 8, 1), (mi["mi_sei"], 7, 1),
-             (mi["mi_visual_studio"], 6, 1), (m["nexits"]["sum"], 5, 0),
-             (m["nargs"]["total_functions"], 4, 0))
+    cells = (
+        (h["volume"], 8, 0),
+        (h["difficulty"], 6, 1),
+        (h["effort"], 10, 0),
+        (h["bugs"], 6, 2),
+        (mi["mi_original"], 8, 1),
+        (mi["mi_sei"], 7, 1),
+        (mi["mi_visual_studio"], 6, 1),
+        (m["nexits"]["sum"], 5, 0),
+        (m["nargs"]["total_functions"], 4, 0),
+    )
     return " ".join(cell(*c) for c in cells) + "  " + where
 
 
@@ -67,8 +73,7 @@ def broken(m, limit):
 
 
 def breaks(m, limits):
-    return ["%s %.2f" % (lim[2], m[lim[0]][lim[1]])
-            for lim in limits if broken(m, lim)]
+    return ["%s %.2f" % (lim[2], m[lim[0]][lim[1]]) for lim in limits if broken(m, lim)]
 
 
 def load(root):
@@ -81,14 +86,18 @@ def load(root):
 
 
 def fn_warnings(u):
-    return ["%s:%d: warning: %s has %s" %
-            (u["name"], s["start_line"], s["name"], b)
-            for s in functions(u) for b in breaks(s["metrics"], FN_LIMITS)]
+    return [
+        "%s:%d: warning: %s has %s" % (u["name"], s["start_line"], s["name"], b)
+        for s in functions(u)
+        for b in breaks(s["metrics"], FN_LIMITS)
+    ]
 
 
 def file_warnings(u):
-    return ["%s:1: warning: file has %s" % (u["name"], b)
-            for b in breaks(u["metrics"], FILE_LIMITS)]
+    return [
+        "%s:1: warning: file has %s" % (u["name"], b)
+        for b in breaks(u["metrics"], FILE_LIMITS)
+    ]
 
 
 def checked(units):
@@ -101,16 +110,17 @@ def emit(lines):
 
 def check(units):
     """Print every limit broken (compiler warning format); their count."""
-    lines = [w for u in checked(units)
-             for w in fn_warnings(u) + file_warnings(u)]
+    lines = [w for u in checked(units) for w in fn_warnings(u) + file_warnings(u)]
     emit(lines)
     return len(lines)
 
 
 def fn_rows(units):
-    return [row(s["metrics"], "%s@%d@%s" %
-                (s["name"], s["start_line"], u["name"]))
-            for u in units for s in functions(u)]
+    return [
+        row(s["metrics"], "%s@%d@%s" % (s["name"], s["start_line"], u["name"]))
+        for u in units
+        for s in functions(u)
+    ]
 
 
 def report(units):

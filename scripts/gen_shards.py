@@ -74,17 +74,23 @@ def all_headers():
     """every shard sees every production header: in the unity TU all
     production .c precede all tests, so tests freely use cross-domain
     public declarations; the headers restore that visibility per shard."""
-    return sorted(chain.from_iterable(_headers_in(d, fs) for d, _, fs in os.walk("src")))
+    return sorted(
+        chain.from_iterable(_headers_in(d, fs) for d, _, fs in os.walk("src"))
+    )
 
 
 def shard_prod(ctx, s):
-    return chain.from_iterable(ctx["groups"].prod_of(ctx["merged"], r) for r in s["roots"])
+    return chain.from_iterable(
+        ctx["groups"].prod_of(ctx["merged"], r) for r in s["roots"]
+    )
 
 
 def shard_files(ctx, s):
     sprod = sorted(shard_prod(ctx, s), key=ctx["prod_order"].get)
-    stests = sorted(chain.from_iterable(ctx["gtests"][r] for r in s["roots"]),
-                    key=ctx["test_order"].get)
+    stests = sorted(
+        chain.from_iterable(ctx["gtests"][r] for r in s["roots"]),
+        key=ctx["test_order"].get,
+    )
     return sprod, stests
 
 
@@ -116,14 +122,17 @@ def _section_includes(files):
 
 
 def render_shard(n, headers, files, fns):
-    return "\n".join(
-        [GENERATED, '#include "test.h"']
-        + ['#include "%s"' % h for h in headers]
-        + _section_includes(files)
-        + ["int wired_test_shard_%d(void) {" % n]
-        + ["  %s();" % fn for fn in fns]
-        + ["  return wired_test_fails;", "}"]
-    ) + "\n"
+    return (
+        "\n".join(
+            [GENERATED, '#include "test.h"']
+            + ['#include "%s"' % h for h in headers]
+            + _section_includes(files)
+            + ["int wired_test_shard_%d(void) {" % n]
+            + ["  %s();" % fn for fn in fns]
+            + ["  return wired_test_fails;", "}"]
+        )
+        + "\n"
+    )
 
 
 def emit_shard(ctx, n, s):
@@ -141,7 +150,12 @@ def check_calls(fn_of, calls):
     sys.exit(
         "gen_shards: test call mismatch vs run.c main: shards=%d run.c=%d "
         "(missing: %s extra: %s)"
-        % (len(fn_of), len(calls), sorted(set(calls) - set(fn_of)), sorted(set(fn_of) - set(calls)))
+        % (
+            len(fn_of),
+            len(calls),
+            sorted(set(calls) - set(fn_of)),
+            sorted(set(fn_of) - set(calls)),
+        )
     )
 
 
@@ -152,14 +166,21 @@ def check_covered(ctx, prod):
 
 
 def render_main():
-    return "\n".join(
-        [GENERATED, "#include <stdio.h>"]
-        + ["int wired_test_shard_%d(void);" % n for n in range(K)]
-        + ["int main(void) {", "  int fails = 0;"]
-        + ["  fails += wired_test_shard_%d();" % n for n in range(K)]
-        + ['  if (fails) { printf("%d failure(s)\\n", fails); return 1; }',
-           '  printf("all tests passed\\n");', "  return 0;", "}"]
-    ) + "\n"
+    return (
+        "\n".join(
+            [GENERATED, "#include <stdio.h>"]
+            + ["int wired_test_shard_%d(void);" % n for n in range(K)]
+            + ["int main(void) {", "  int fails = 0;"]
+            + ["  fails += wired_test_shard_%d();" % n for n in range(K)]
+            + [
+                '  if (fails) { printf("%d failure(s)\\n", fails); return 1; }',
+                '  printf("all tests passed\\n");',
+                "  return 0;",
+                "}",
+            ]
+        )
+        + "\n"
+    )
 
 
 def order(lst):
@@ -170,16 +191,24 @@ def main():
     prod, tests, calls = parse_run_c()
     check_unique(prod, tests)
     ctx = plan(prod, tests)
-    ctx.update(prod_order=order(prod), test_order=order(tests), call_order=order(calls),
-               fn_of={}, emitted=[], headers=all_headers())
+    ctx.update(
+        prod_order=order(prod),
+        test_order=order(tests),
+        call_order=order(calls),
+        fn_of={},
+        emitted=[],
+        headers=all_headers(),
+    )
     os.makedirs(OUT_DIR, exist_ok=True)
     for n, s in enumerate(ctx["shards"]):
         emit_shard(ctx, n, s)
     check_calls(ctx["fn_of"], calls)
     check_covered(ctx, prod)
     write_if_changed(os.path.join(OUT_DIR, "shard_main.c"), render_main())
-    print("gen_shards: %d shards, %d prod, %d tests, %d calls"
-          % (K, len(prod), len(tests), len(ctx["emitted"])))
+    print(
+        "gen_shards: %d shards, %d prod, %d tests, %d calls"
+        % (K, len(prod), len(tests), len(ctx["emitted"]))
+    )
 
 
 if __name__ == "__main__":

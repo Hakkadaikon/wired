@@ -63,15 +63,31 @@ OVERRIDES = {
 # production headers, so only true statics force co-location.
 COLOCATE = [
     # appdata_{frame,send,recv}_flat live in stream_send_test.c
-    ["stream_send", "app_send", "app_recv", "h3conn_roundtrip", "srvloop",
-     "h3reqdrive", "client_wire", "tparam", "h3settings_control_open"],
+    [
+        "stream_send",
+        "app_send",
+        "app_recv",
+        "h3conn_roundtrip",
+        "srvloop",
+        "h3reqdrive",
+        "client_wire",
+        "tparam",
+        "h3settings_control_open",
+    ],
     # client_open_onertt / lp_confirm live in srvloop_test.c;
     # srvrun_conn / wired_srvrun_env are TU-local types in srvrun.c;
     # srvboot_acc_admit is a static in srvboot.c
     # srvdriver/srvthreads tests also use TU-locals of srvthreads.c and
     # srvrun.c (srvthreads_worker_arg, srvrun_broadcast_to_all)
-    ["srvloop", "srvrun", "srvinbox", "h3_loopback", "srvdriver",
-     "app/http3/server/srvboot", "app/http3/server/srvthreads"],
+    [
+        "srvloop",
+        "srvrun",
+        "srvinbox",
+        "h3_loopback",
+        "srvdriver",
+        "app/http3/server/srvboot",
+        "app/http3/server/srvthreads",
+    ],
     # x25519_mult_count is a static in tls core's x25519.c
     ["server", "tls/handshake/core/tls"],
     # p256_field_test uses `fe`, a TU-local typedef of ed25519_field.c
@@ -208,5 +224,9 @@ def plan(prod, tests):
     merged = merge_groups(groups)
     weight = {r: sum(map(_src_size, groups.prod_of(merged, r))) for r in merged}
     gtests = group_tests(groups, merged, assign, weight)
-    return {"groups": groups, "merged": merged, "gtests": gtests,
-            "shards": pack(merged, weight)}
+    return {
+        "groups": groups,
+        "merged": merged,
+        "gtests": gtests,
+        "shards": pack(merged, weight),
+    }

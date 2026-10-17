@@ -1,4 +1,5 @@
 """Tests for scripts/halstead.py (run: python3 -m unittest discover tests/scripts)."""
+
 import importlib.util
 import io
 import json
@@ -13,23 +14,42 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def load_module():
     spec = importlib.util.spec_from_file_location(
-        "halstead", ROOT / "scripts" / "halstead.py")
+        "halstead", ROOT / "scripts" / "halstead.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
 def metrics(volume=10.0, difficulty=1.0, bugs=0.01, mi=120.0):
-    return {"halstead": {"volume": volume, "difficulty": difficulty,
-                         "effort": 1.0, "bugs": bugs},
-            "mi": {"mi_original": mi, "mi_sei": mi, "mi_visual_studio": mi / 1.71},
-            "nexits": {"sum": 0.0}, "nargs": {"total_functions": 1.0}}
+    return {
+        "halstead": {
+            "volume": volume,
+            "difficulty": difficulty,
+            "effort": 1.0,
+            "bugs": bugs,
+        },
+        "mi": {"mi_original": mi, "mi_sei": mi, "mi_visual_studio": mi / 1.71},
+        "nexits": {"sum": 0.0},
+        "nargs": {"total_functions": 1.0},
+    }
 
 
 def unit(name, fn_metrics):
-    return {"name": name, "kind": "unit", "metrics": metrics(),
-            "spaces": [{"name": "f", "kind": "function", "start_line": 3,
-                        "metrics": fn_metrics, "spaces": []}]}
+    return {
+        "name": name,
+        "kind": "unit",
+        "metrics": metrics(),
+        "spaces": [
+            {
+                "name": "f",
+                "kind": "function",
+                "start_line": 3,
+                "metrics": fn_metrics,
+                "spaces": [],
+            }
+        ],
+    }
 
 
 class CheckTest(unittest.TestCase):

@@ -5,6 +5,7 @@ Rules: a `done` row needs Verdict `fixed|already-safe` with Test and Commit
 filled, or Verdict `n/a` with a Rationale (rows: ledger_table.py). Exits 1 on
 any violation or duplicate id. Usage: ledger_check.py <ledger.md>
 """
+
 import re
 import sys
 from collections import defaultdict
@@ -26,23 +27,35 @@ def _never(row):
 
 
 # verdict -> what a `done` row with that verdict must have filled
-COMPLETE = {"fixed": _has_test_commit, "already-safe": _has_test_commit, "n/a": _has_why}
+COMPLETE = {
+    "fixed": _has_test_commit,
+    "already-safe": _has_test_commit,
+    "n/a": _has_why,
+}
 
 
 def violations(row):
     if row["status"] != "done" or COMPLETE.get(row["verdict"], _never)(row):
         return []
-    return [f"{row['id']}: done without a complete verdict/test/commit "
-            f"({row['verdict']!r}, {row['test']!r}, {row['commit']!r})"]
+    return [
+        f"{row['id']}: done without a complete verdict/test/commit "
+        f"({row['verdict']!r}, {row['test']!r}, {row['commit']!r})"
+    ]
 
 
 def known_tests(root="tests"):
     """Every test_* identifier defined in tests/**/*.c (a closed row may only
     cite one of these)."""
     import glob
+
     names = set()
     for f in glob.glob(f"{root}/**/*.c", recursive=True):
-        names |= set(re.findall(r"\b(test_[A-Za-z0-9_]+)\s*\(", open(f, encoding="utf-8", errors="replace").read()))
+        names |= set(
+            re.findall(
+                r"\b(test_[A-Za-z0-9_]+)\s*\(",
+                open(f, encoding="utf-8", errors="replace").read(),
+            )
+        )
     return names
 
 
@@ -59,7 +72,11 @@ def test_missing(row, names):
     if not _cites_c_tests(row):
         return []
     missing = _missing(re.findall(r"\btest_[A-Za-z0-9_]+", row["test"]), names)
-    return [f"{row['id']}: cited test not found in tests/: {', '.join(missing)}"] if missing else []
+    return (
+        [f"{row['id']}: cited test not found in tests/: {', '.join(missing)}"]
+        if missing
+        else []
+    )
 
 
 def _duplicate(r, seen):
