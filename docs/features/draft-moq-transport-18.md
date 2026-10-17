@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 203/248 tested, 22 indirect, 23 untested.**
+**Coverage: 189/248 tested, 30 indirect, 29 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -109,12 +109,10 @@ Legend:
   (non-minimal encodings are valid).
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_nonminimal_delta`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_nonminimal_even_value`
-- [~] MQ18-016 (§1.4.3) If a Key-Value-Pair is truncated within its own known
-  byte bound, then the implementation shall report a protocol violation.
-  - evidence: the KVP codec reports a truncated pair as INSUFFICIENT
-    (`test_moqkvp_take_truncated_insufficient`); `moqctl_setup_take` maps
-    any non-OK pair to PROTOCOL_VIOLATION, but no test drives a truncated
-    Setup Option.
+- [x] MQ18-016 (§1.4.3) If a Key-Value-Pair is truncated within its own known
+  byte bound, then the implementation shall report it as insufficient
+  without reading past the bound.
+  - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_truncated_insufficient`
 - [x] MQ18-017 The implementation shall decode a Key-Value-Pair without reading
   past the caller-supplied byte bound, and shall encode a round-trippable
   Key-Value-Pair list preserving Type order.
@@ -125,27 +123,42 @@ Legend:
 - [x] MQ18-018 The implementation shall decode a Reason Phrase as a
   variable-length integer Length followed by that many UTF-8 bytes.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
-- [x] MQ18-019 If a Reason Phrase Length exceeds 1024 bytes, then the
+- [~] MQ18-019 (§1.4.4) If a Reason Phrase Length exceeds 1024 bytes, then the
   implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
-
+  - evidence: the codec reports the violation
+    (`test_moqctl_reason_boundary`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 ## SS2.4.1 Track Naming
 
 - [x] MQ18-020 The implementation shall decode a Track Namespace as a
   variable-length integer field count followed by that many length-prefixed
   Track Namespace Fields.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_decode_basic`
-- [x] MQ18-021 If a Track Namespace Field has a Length of 0, then the
+- [~] MQ18-021 (§2.4.1) If a Track Namespace Field has a Length of 0, then the
   implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_ns_field_len_zero_rejected`
-- [x] MQ18-022 If a Track Namespace has more than 32 Track Namespace Fields,
-  then the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_ns_fields_32_accept_33_reject`
-- [x] MQ18-023 If a Full Track Name (Track Namespace plus Track Name) exceeds
-  4096 bytes, then the implementation shall close the session with a protocol
+  - evidence: the codec reports the violation
+    (`test_moqctl_ns_field_len_zero_rejected`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
+- [~] MQ18-022 (§2.4.1) If a Track Namespace has more than 32 Track Namespace
+  Fields, then the implementation shall close the session with a protocol
   violation.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_4096_accept_4097_reject`
+  - evidence: the codec reports the violation
+    (`test_moqctl_ns_fields_32_accept_33_reject`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
+- [~] MQ18-023 (§2.4.1) If a Full Track Name (Track Namespace plus Track Name)
+  exceeds 4096 bytes, then the implementation shall close the session with a
+  protocol violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_ftn_4096_accept_4097_reject`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 - [x] MQ18-024 The implementation shall compare Track Namespace Fields and
   Track Names by exact byte comparison.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_eq_exact_bytes`
@@ -267,11 +280,13 @@ Legend:
   - test: `tests/app/moqsess_test.c` — `test_moqsess_establish`
   - test: `tests/app/moqsess_test.c` —
     `test_moqsess_established_accepts_request`
-- [x] MQ18-031 A bidirectional request stream shall begin with one of the
-  First-type messages (TRACK_STATUS, SUBSCRIBE, PUBLISH, FETCH,
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_client_uni_ctl_accepted`
+- [x] MQ18-031 (§3.3) A bidirectional request stream shall begin with one of
+  the First-type messages (TRACK_STATUS, SUBSCRIBE, PUBLISH, FETCH,
   PUBLISH_NAMESPACE, SUBSCRIBE_NAMESPACE, SUBSCRIBE_TRACKS); if it does not,
   the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_bad_first_message`
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_req_bad_first_message_closes`
 - [x] MQ18-032 Where a unidirectional stream containing Objects or a
   bidirectional request stream arrives before both control streams have
   completed SETUP, the implementation shall buffer it rather than deliver it to
@@ -350,9 +365,12 @@ Legend:
   leading variable-length integer as one of SETUP (0x2F00), FETCH_HEADER
   (0x05), SUBGROUP_HEADER (0b0XX1XXXX), or PADDING (0x132B3E28).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_classify_golden`
-- [x] MQ18-039 If an endpoint receives an unknown unidirectional stream type,
-  then the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_unknown_uni_stream_type`
+- [ ] MQ18-039 (§3.4) If an endpoint receives an unknown unidirectional stream
+  type, then the implementation shall close the session with a protocol
+  violation.
+  - gap: only the session model closes
+    (`test_moqsess_unknown_uni_stream_type`); the hub's stream path does not
+    feed it, and no hub test sends an unknown stream type.
 - [x] MQ18-040 The implementation shall classify a unidirectional stream
   without consuming bytes past a truncated leading type field, reporting the
   classification as insufficient instead.
@@ -375,25 +393,27 @@ Legend:
 
 ## SS3.6 Session Migration / SS10.4 GOAWAY (session lifecycle, draft-18 layout)
 
-- [x] MQ18-042 An endpoint that has sent or received GOAWAY may reject a new
-  request with an error indicating the endpoint is going away, while the
-  session remains open.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_goaway_reject_new_request`
-- [x] MQ18-043 An endpoint that has received GOAWAY on the control stream shall
-  not initiate new requests of its own, without the session closing solely
-  because of the GOAWAY.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_goaway_clean_shutdown`
-- [x] MQ18-044 If the peer does not close the session within the GOAWAY
-  timeout, then the sender shall close the session with GOAWAY_TIMEOUT.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_goaway_timeout_closes`
-- [x] MQ18-045 If a server receives a GOAWAY with a non-zero New Session URI
-  Length, then the implementation shall close the session with a protocol
-  violation.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_goaway_bad_uri`
+- [x] MQ18-042 (§10.4) An endpoint that has sent or received GOAWAY may reject
+  a new request with an error indicating the endpoint is going away, while
+  the session remains open.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_goaway_late_rejected`
+- [x] MQ18-043 (§10.4) An endpoint that has received GOAWAY on the control
+  stream shall not initiate new requests of its own, without the session
+  closing solely because of the GOAWAY.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_upsub_skips_goaway`
+- [x] MQ18-044 (§3.6, §10.4) If the peer does not close the session within the
+  GOAWAY timeout, then the sender shall close the session with
+  GOAWAY_TIMEOUT.
+  - test: `tests/app/moqtrun_drain_test.c` —
+    `test_moqtrun_goaway_timeout_flush_then_close`
+- [x] MQ18-045 (§10.4) If a server receives a GOAWAY with a non-zero New
+  Session URI Length, then the implementation shall close the session with a
+  protocol violation.
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_uri`
-- [x] MQ18-046 If the same control stream receives more than one GOAWAY, then
-  the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_second_goaway`
+- [x] MQ18-046 (§10.4) If the same control stream receives more than one
+  GOAWAY, then the implementation shall close the session with a protocol
+  violation.
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_twice`
 - [x] MQ18-047 (§10.4) Where a GOAWAY is received on a request stream rather
   than the control stream, the implementation shall accept it without
@@ -600,11 +620,14 @@ Legend:
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_delivery_timeout_decode`
-- [x] MQ18-064 Parameters shall be serialized in ascending order by Type; if
-  the cumulative Parameter Type would exceed 2^64-1, the implementation shall
-  close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_params_type_overflow_violation`
+- [~] MQ18-064 (§10.2) Parameters shall be serialized in ascending order by
+  Type; if the cumulative Parameter Type would exceed 2^64-1, the
+  implementation shall close the session with a protocol violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_params_type_overflow_violation`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 - [x] MQ18-065 If an endpoint receives an unknown Message Parameter Type, then
   the implementation shall close the session with a protocol violation.
   - test: `tests/app/moqctl_test.c` —
@@ -613,10 +636,16 @@ Legend:
     0x25-0x29 (new in draft-19); a draft-18 session receiving one of these
     closes with a protocol violation under this same rule — see Out of
     scope.
-- [x] MQ18-066 If a sender repeats the same Parameter Type in one message, then
-  the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_params_duplicate_type_violation`
+  - test: `tests/app/moqtrun_fillfix_test.c` —
+    `test_moqtrun_fillfix_malformed_subscribe`
+- [~] MQ18-066 (§10.2) If a sender repeats the same Parameter Type in one
+  message, then the implementation shall close the session with a protocol
+  violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_params_duplicate_type_violation`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 - [x] MQ18-067 If a Message Parameter is defined for message types other than
   the one it appears in, then the implementation shall close the session with a
   protocol violation.
@@ -624,6 +653,7 @@ Legend:
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_registry_scope_per_draft`
   - note: draft-18's allowed-message sets differ from draft-19's for
     EXPIRES (0x08) and GROUP_ORDER (0x22) — see MQ18-073a/MQ18-073b.
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_bad_and_control`
 - [~] MQ18-068 (§10.2) Message Parameters in SUBSCRIBE, PUBLISH_OK, and FETCH
   shall not cause the publisher to alter the payload of the Objects it sends.
   - evidence: no parameter value is consulted when the hub builds or relays
@@ -706,6 +736,8 @@ Legend:
     (`moqtrun_setup_limits`, ledger 4-4):
     `test_moqtrun_xver_setup_d18_omits_d19_options`. Duplicates of unknown
     options are dropped too (`test_moqraw_unknown`).
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_setup_unknown_options_ignored`
 - [~] MQ18-076 (§10.3) Senders shall not repeat the same Setup Option Type in a
   message unless the option explicitly allows multiple instances.
   - evidence: `moqctl_setup_encode` writes each of
@@ -726,6 +758,10 @@ Legend:
   - test: `tests/app/moqraw_test.c` — `test_moqraw_wt`
   - test: `tests/app/moqtrun_raw_test.c` —
     `test_moqtrun_raw_same_setup_on_wt_closes`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_setup_path_closes_invalid_path`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_setup_authority_closes_invalid_authority`
 - [x] MQ18-231 (§10.3.1.1, §10.3.1.2) On a native-QUIC session, if a PATH or
   AUTHORITY option does not conform to the URI rules, then the server shall
   close the session with MALFORMED_PATH or MALFORMED_AUTHORITY; if the
@@ -759,10 +795,13 @@ Legend:
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway18_request_id`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway18_vs_19_shape`
-- [x] MQ18-081 If the New Session URI Length exceeds 8192 bytes, then the
-  implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_uri_boundary`
-
+- [~] MQ18-081 (§10.4) If the New Session URI Length exceeds 8192 bytes, then
+  the implementation shall close the session with a protocol violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_goaway_uri_boundary`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 ## SS10.5 REQUEST_OK
 
 - [x] MQ18-083 The implementation shall encode/decode REQUEST_OK as Type (0x7)
@@ -935,16 +974,22 @@ Legend:
   - note: draft-18 calls it "Subscription Filter" (renamed "Location
     Filter" in draft-19); the structure is byte-identical -- see
     `draft18-vs-19-diff.md` §9.3.
-- [x] MQ18-107 If an AbsoluteRange filter's End Group (Start.Group + End Group
-  Delta) would exceed 2^64-1, then the implementation shall close the session
-  with a protocol violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_locfilter_end_group_overflow_violation`
-- [x] MQ18-108 If an endpoint receives a Location Filter Type other than the
-  four defined values, then the implementation shall close the session with a
-  protocol violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_locfilter_unknown_type_violation`
+- [~] MQ18-107 (§5.1.2) If an AbsoluteRange filter's End Group (Start.Group +
+  End Group Delta) would exceed 2^64-1, then the implementation shall close
+  the session with a protocol violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_locfilter_end_group_overflow_violation`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
+- [~] MQ18-108 (§5.1.2) If an endpoint receives a Subscription Filter Type
+  other than the four defined values, then the implementation shall close
+  the session with a protocol violation.
+  - evidence: the codec reports the violation
+    (`test_moqctl_locfilter_unknown_type_violation`); the hub closes PROTOCOL_VIOLATION on a request or SETUP
+    that fails to decode (`test_moqtrun_fillfix_malformed_subscribe`,
+    `test_moqtrun_setup_malformed_closes`), but no hub test sends this
+    trigger.
 - [x] MQ18-109 The publisher shall forward only Objects that pass the
   combination Forward State AND Location Filter (Pass = Forward AND Filters).
   - test: `tests/app/moqtrun_upd_test.c` —
@@ -978,7 +1023,8 @@ Legend:
     `test_moqctl_setup_unknown_option_ignored`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
-
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_setup_unknown_options_ignored`
 ## SS11.1 Track Alias
 
 - [x] MQ18-112 The same Track Alias shall not be used by a publisher to refer
@@ -997,9 +1043,12 @@ Legend:
 - [x] MQ18-114 The implementation shall recognize Object Status values 0x0
   (Normal), 0x3 (End of Group), and 0x4 (End of Track).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
-- [x] MQ18-115 If an Object carries an unregistered Status value, then the
-  implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
+- [ ] MQ18-115 (§11.2.1.1) If an Object carries an unregistered Status value,
+  then the implementation should close the session with a protocol
+  violation.
+  - gap: the codec reports the violation (`test_moqdata_obj_take_status_values`); the hub stops
+    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
+    instead of closing the session.
 - [x] MQ18-116 An Object shall have an empty payload unless its Object Status
   is Normal (0x0); the Object Status field shall be present only when Payload
   Length is 0.
@@ -1009,10 +1058,12 @@ Legend:
 
 ## SS11.2.1.2 Object Properties
 
-- [x] MQ18-117 If an endpoint receives Object Properties on an Object whose
-  Status is not Normal, then the implementation shall close the session with a
-  protocol violation.
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
+- [ ] MQ18-117 (§11.2.1.2) If an endpoint receives Object Properties on an
+  Object whose Status is not Normal, then the implementation shall close the
+  session with a protocol violation.
+  - gap: the codec reports the violation (`test_moqdata_obj_take_properties`); the hub stops
+    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
+    instead of closing the session.
 - [x] MQ18-118 Object Properties shall be serialized as a Properties Length
   (varint) followed by a Key-Value-Pair list.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
@@ -1031,20 +1082,22 @@ Legend:
   Object Forwarding Preference = Subgroup, belonging to the Track Alias, Group
   ID, and Subgroup ID the header declares.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
-- [x] MQ18-120 The SUBGROUP_HEADER Type field shall take the form 0b0XX1XXXX
-  (bit 4 always set); if received with any other form, the implementation shall
-  close the session with a protocol violation.
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_type_valid_golden`
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_bad_type`
+- [ ] MQ18-120 (§11.4.2) The SUBGROUP_HEADER Type field shall take the form
+  0b0XX1XXXX (bit 4 always set); if received with any other form, the
+  implementation shall close the session with a protocol violation.
+  - gap: the codec reports the violation (`test_moqdata_type_valid_golden`); the hub stops
+    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
+    instead of closing the session.
 - [x] MQ18-121 The implementation shall decode the SUBGROUP_ID_MODE field (bits
   1-2) as: 0b00 Subgroup ID absent and 0, 0b01 Subgroup ID absent and equal to
   the first Object's Object ID, 0b10 Subgroup ID present in the header.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
-- [x] MQ18-122 If SUBGROUP_ID_MODE is 0b11, then the implementation shall close
-  the session with a protocol violation.
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_type_valid_golden`
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_bad_type`
+- [ ] MQ18-122 (§11.4.2) If SUBGROUP_ID_MODE is 0b11, then the implementation
+  shall close the session with a protocol violation.
+  - gap: the codec reports the violation (`test_moqdata_subhdr_take_bad_type`); the hub stops
+    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
+    instead of closing the session.
 - [x] MQ18-123 The implementation shall decode the PROPERTIES bit (0x01),
   END_OF_GROUP bit (0x08), DEFAULT_PRIORITY bit (0x20), and FIRST_OBJECT bit
   (0x40) of the SUBGROUP_HEADER Type field.
@@ -1097,9 +1150,12 @@ Legend:
   in a Subgroup, and the previous Object ID plus the Delta plus 1 for each
   subsequent Object.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_delta_chain`
-- [x] MQ18-132 If the resulting cumulative Object ID would exceed 2^64-1, then
-  the implementation shall close the session with a protocol violation.
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_id_overflow`
+- [ ] MQ18-132 (§11.4.2) If the resulting cumulative Object ID would exceed
+  2^64-1, then the implementation shall close the session with a protocol
+  violation.
+  - gap: the codec reports the violation (`test_moqdata_obj_take_id_overflow`); the hub stops
+    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
+    instead of closing the session.
 - [x] MQ18-133 If a Subgroup Object stream terminates with a FIN in the middle
   of a serialized Object, then the implementation shall not treat the partial
   Object as complete.
@@ -1284,14 +1340,17 @@ Legend:
 
 ## SS10 Control Messages: session-machine unwanted behavior (additional coverage)
 
-- [x] MQ18-152 If the control stream carries an unknown message type or a
-  Length/Body mismatch, then the implementation shall close the session with a
-  protocol violation.
-  - test: `tests/app/moqsess_test.c` — `test_moqsess_malformed_control_message`
-- [x] MQ18-153 Once a session is closed, further events shall be no-ops (the
-  close reason is sticky).
+- [x] MQ18-152 (§10) If the control stream carries an unknown message type or
+  a Length/Body mismatch, then the implementation shall close the session
+  with a protocol violation.
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_ctl_unknown_type_closes_session`
+  - test: `tests/app/moqctl_test.c` — `test_moqctl_peek_type_length_mismatch`
+- [x] MQ18-153 (§3.5) Once a session is closed, further events shall be
+  no-ops (the close reason is sticky).
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_ctl_unknown_type_closes_session`
   - test: `tests/app/moqsess_test.c` — `test_moqsess_closed_is_sticky`
-
 ## Hub relay: PUBLISH/SUBSCRIBE dispatch (SS9 Relays, SS10.5/10.7/10.10 applied)
 
 - [x] MQ18-154 On a successful PUBLISH, the hub shall reply with REQUEST_OK on
