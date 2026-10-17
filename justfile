@@ -116,6 +116,21 @@ ccn *paths="src":
     # Default is all of src/ (the gate); pass files to measure only those.
     lizard {{paths}} --CCN 3 -w
 
+# Report only: function NLOC/CCN/length/nesting (ND) and file NLOC (lizard).
+metrics *paths="src":
+    #!/usr/bin/env sh
+    {{no_nix_shell}} && exec nix develop -c just metrics {{paths}}
+    lizard -END {{paths}}
+
+# Report only: per-function cognitive complexity; 0 scores are not listed.
+cognitive *paths="src":
+    #!/usr/bin/env sh
+    {{no_nix_shell}} && exec nix develop -c just cognitive {{paths}}
+    find {{paths}} -name '*.c' -print0 | xargs -0r -P "$(nproc)" -n 8 sh -c '
+        clang-tidy --quiet -checks="-*,readability-function-cognitive-complexity" \
+        -config="{CheckOptions: {readability-function-cognitive-complexity.Threshold: 0, readability-function-cognitive-complexity.DescribeBasicIncrements: false}}" \
+        "$@" -- {{tidyflags}} 2>/dev/null' _ | grep -E 'cognitive complexity of|error:'
+
 # Check every src/**/*.c is in tests/run.c once and builds one object.
 wire-check: ninja
     #!/usr/bin/env sh

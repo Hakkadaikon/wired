@@ -329,6 +329,11 @@ Two other workflows matter: `docs.yml` runs `just docs` on every push to
 `golden.txt` (locally `just guide-verify`). Run `find .github/workflows
 -type f` to see the full, current list.
 
+Two recipes only report, and neither CI nor the gate runs them. `just
+metrics` shows each function's NLOC, length and nesting depth, then each
+file's NLOC. `just cognitive` shows each function's cognitive complexity.
+Both take paths, like `just ccn`.
+
 ## Adding a domain
 
 A domain is a leaf directory (see [Architecture](#architecture)) that holds a
