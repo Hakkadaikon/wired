@@ -13,6 +13,7 @@
 
 #include "app/http3/core/capsule/capsule.c"
 #include "app/http3/core/h3/frame.c"
+#include "app/http3/core/h3/frame_put.c"
 #include "app/http3/core/h3/settings_check.c"
 #include "app/http3/core/h3/settings_dup.c"
 #include "app/qpack/qpack/dynget.c"

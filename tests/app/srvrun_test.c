@@ -911,13 +911,13 @@ static void test_srvrun_wt_lost_bare_fin_redetected_and_resent(void) {
   srvrunt_qlog_unlink();
 }
 
-/* dispatch.c's gather_wt_uni_land (the receive side's own choke point for
- * every client WT uni STREAM frame) writes one stream_frame_received
- * record per frame walked, keyed by l.qlog_path/qlog_group (set once at
- * connection setup, srvrun_open_slot) -- the received-side counterpart to
+/* dispatch.c's srvloop_gather_wt_uni_land (the receive side's own choke point
+ * for every client WT uni STREAM frame) writes one stream_frame_received record
+ * per frame walked, keyed by l.qlog_path/qlog_group (set once at connection
+ * setup, srvrun_open_slot) -- the received-side counterpart to
  * stream_frame_sent, driven through wired_srvloop_step (the live decode
- * path) rather than calling gather_wt_uni_land directly, so the test also
- * proves srvrun_open_slot's wiring actually reaches dispatch.c. */
+ * path) rather than calling srvloop_gather_wt_uni_land directly, so the test
+ * also proves srvrun_open_slot's wiring actually reaches dispatch.c. */
 static void test_srvrun_wt_uni_stream_writes_stream_frame_received(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -7807,7 +7807,7 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.4: the CONNECT stream closing (dispatch.c's
- * gather_stream_closes latching closed_stream_id) ends the WT session
+ * srvloop_gather_stream_closes latching closed_stream_id) ends the WT session
  * immediately, independent of whole-connection teardown -- the fourth
  * trigger, missing from the existing three (peer CONNECTION_CLOSE / idle
  * timeout / accept failure, all srvrun_free_slot). The connection itself
@@ -8386,7 +8386,7 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
  * endpoint's own SETTINGS_H3_DATAGRAM has been sent (SETTINGS are never
  * acked in HTTP/3, so "sent" is the enforceable half of the ordering).
  * sr_make_confirmed_conn drives a real confirmation, which sends SETTINGS
- * as part of building the first response (build_settings_frame) -- so
+ * as part of building the first response (srvloop_build_settings_frame) -- so
  * settings_sent is already 1 there; this test drives the not-yet-sent case
  * by direct injection, the same style already used by every other
  * srvrun_conn fixture in this file that does not go through the wire (e.g.
@@ -9791,8 +9791,8 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
 
   /* Step 2: a WT bidi stream (id 8, the next client-initiated bidi id after
    * the CONNECT stream) sends its leading 0x41 signal + one application byte
-   * -- reassembled by dispatch.c's gather_wt_stream then delivered to the
-   * app callback by srvrun_offer_wt_streams, both driven through the real
+   * -- reassembled by dispatch.c's srvloop_gather_wt_stream then delivered to
+   * the app callback by srvrun_offer_wt_streams, both driven through the real
    * srvrun_on_step path this time (not direct slot injection). */
   {
     srvrun_cfg cfg = {
@@ -9844,9 +9844,10 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
 
   /* Step 3: a QUIC DATAGRAM round-trips -- queued server-side, sealed and
    * opened by the client, then fed back in as a received 1-RTT payload so
-   * the receive side (framewalk -> gather_rx_datagrams -> srvrun_drain_rx_
-   * datagrams -> app callback) is exercised on the exact bytes the send side
-   * produced, a real encode -> wire -> decode -> deliver round trip. */
+   * the receive side (framewalk -> srvloop_gather_rx_datagrams ->
+   * srvrun_drain_rx_ datagrams -> app callback) is exercised on the exact bytes
+   * the send side produced, a real encode -> wire -> decode -> deliver round
+   * trip. */
   {
     datagram_frame df;
     u8             dgpl[64];
@@ -9929,8 +9930,8 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
   }
 
   /* Step 4: the CONNECT stream itself (id 4) is RESET on the wire -- the
-   * fourth close trigger (dispatch.c's gather_stream_closes -> srvrun.c's
-   * srvrun_close_wt_on_stream_close) closes the session, while the
+   * fourth close trigger (dispatch.c's srvloop_gather_stream_closes ->
+   * srvrun.c's srvrun_close_wt_on_stream_close) closes the session, while the
    * connection stays up (srvrun_on_step never touches conns[0].up for this
    * path). */
   {
@@ -11907,9 +11908,9 @@ static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
  * actually broke against quic-go (3 parallel GETs, each raising the other's
  * completion of c->l.req between rounds). Stream 0 requests path "A", is
  * driven through round 0 only; THEN stream 4's request ("B") starts and
- * completes its own round 0, overwriting c->l.req (route_note_done's "last
- * completed wins" mirror) the way a sibling's completion would in the real
- * failure. Stream 0's round 1 must still serve ITS OWN path ("A" bytes),
+ * completes its own round 0, overwriting c->l.req (srvloop_route_note_done's
+ * "last completed wins" mirror) the way a sibling's completion would in the
+ * real failure. Stream 0's round 1 must still serve ITS OWN path ("A" bytes),
  * proving srvrun_resp_next_round used its own stream_req copy, not the
  * now-stale-for-stream-0 c->l.req. */
 static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
@@ -11974,9 +11975,9 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
     /* stream 4 ("B") starts and finishes its OWN round 0 next, on the SAME
      * connection slot (its resp[] claims a DIFFERENT resp[] array slot,
      * srvrun_resp_claim's usual "first free slot" search) -- this is what
-     * overwrites c->l.req with "B" (route_note_done's mirror), the exact
-     * moment a sibling stream's completion clobbered stream 0's request in
-     * the real bug. */
+     * overwrites c->l.req with "B" (srvloop_route_note_done's mirror), the
+     * exact moment a sibling stream's completion clobbered stream 0's request
+     * in the real bug. */
     sr_set_req(&c, 0, 0, 4);
     c.l.req.path     = path_b;
     c.l.req.path_len = 1;
@@ -12021,22 +12022,23 @@ static void test_srvrun_copy_stream_req_repoints_every_view(void) {
   bytes_memset(buf, 0, sizeof buf);
   CHECK(
       r.stream_req.method_len == 4 &&
-      wt_bytes_eq(r.stream_req.method, (const u8*)"POST", 4));
+      srvrun_wt_bytes_eq(r.stream_req.method, (const u8*)"POST", 4));
   CHECK(
       r.stream_req.scheme_len == 5 &&
-      wt_bytes_eq(r.stream_req.scheme, (const u8*)"https", 5));
+      srvrun_wt_bytes_eq(r.stream_req.scheme, (const u8*)"https", 5));
   CHECK(
       r.stream_req.path_len == 3 &&
-      wt_bytes_eq(r.stream_req.path, (const u8*)"/up", 3));
+      srvrun_wt_bytes_eq(r.stream_req.path, (const u8*)"/up", 3));
   CHECK(
       r.stream_req.authority_len == 11 &&
-      wt_bytes_eq(r.stream_req.authority, (const u8*)"example.com", 11));
+      srvrun_wt_bytes_eq(r.stream_req.authority, (const u8*)"example.com", 11));
   CHECK(
       r.stream_req.protocol_len == 12 &&
-      wt_bytes_eq(r.stream_req.protocol, (const u8*)"webtransport", 12));
+      srvrun_wt_bytes_eq(r.stream_req.protocol, (const u8*)"webtransport", 12));
   CHECK(
       r.stream_req.origin_len == 17 &&
-      wt_bytes_eq(r.stream_req.origin, (const u8*)"https://o.example", 17));
+      srvrun_wt_bytes_eq(
+          r.stream_req.origin, (const u8*)"https://o.example", 17));
 }
 
 /* The request headers recorded at decode time survive the streaming copy:
@@ -12056,10 +12058,10 @@ static void test_srvrun_copy_stream_req_keeps_headers(void) {
   bytes_memset(buf, 0, sizeof buf);
   CHECK(wired_http_req_header(
       &r.stream_req, wired_span_of((const u8*)"authorization", 13), &v));
-  CHECK(v.n == 8 && wt_bytes_eq(v.p, (const u8*)"Bearer t", 8));
+  CHECK(v.n == 8 && srvrun_wt_bytes_eq(v.p, (const u8*)"Bearer t", 8));
   CHECK(wired_http_req_header(
       &r.stream_req, wired_span_of((const u8*)"x", 1), &v));
-  CHECK(v.n == 2 && wt_bytes_eq(v.p, (const u8*)"ab", 2));
+  CHECK(v.n == 2 && srvrun_wt_bytes_eq(v.p, (const u8*)"ab", 2));
 }
 
 /* The streaming copy keeps a header that exactly fills its scratch and drops
@@ -15775,7 +15777,7 @@ static void test_srvrun_stream_limit_never_decreases(void) {
 
 /* A STREAMS_BLOCKED sighting re-sends the limit already in
  * force -- never a peer-claimed value (the frame's own limit field is never
- * even latched, gather_streams_blocked only sets the flag). Needs a
+ * even latched, srvloop_gather_streams_blocked only sets the flag). Needs a
  * confirmed connection (real 1-RTT keys) so the resend actually seals and
  * the send-count assertion below can tell "resent" from "silently
  * dropped". */
@@ -16105,7 +16107,7 @@ static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
 static int srn_wt_contains(const u8* hay, usz n, const char* needle) {
   usz m = wired_cstr_len(needle);
   for (usz i = 0; i + m <= n; i++)
-    if (wt_bytes_eq(hay + i, (const u8*)needle, m)) return 1;
+    if (srvrun_wt_bytes_eq(hay + i, (const u8*)needle, m)) return 1;
   return 0;
 }
 
@@ -16119,7 +16121,7 @@ static int srn_wt_contains(const u8* hay, usz n, const char* needle) {
  * h3conn_recv_response (RFC 9204 4.5), after re-wrapping the raw
  * HEADERS+DATA bytes srvrun_start_wt_status wrote (row start, no STREAM-
  * frame envelope) as a synthetic offset-0 STREAM frame -- mirroring
- * dispatch.c's own peek_decode_request wrap-then-decode idiom. */
+ * dispatch.c's own srvloop_peek_decode_request wrap-then-decode idiom. */
 static const u8 sr_wt_redirect_location[] = "https://new.example/wt";
 
 static void sr_wt_resource_check_redirect(
@@ -16420,9 +16422,9 @@ static void test_srvrun_wt_on_session_notified_once(void) {
   CHECK(g_srn_wt_sess_calls == 1);
   CHECK(g_srn_wt_sess_last == &conns[0].wt);
   CHECK(g_srn_wt_sess_path_len == 3);
-  CHECK(wt_bytes_eq(g_srn_wt_sess_path, (const u8*)"/wt", 3));
+  CHECK(srvrun_wt_bytes_eq(g_srn_wt_sess_path, (const u8*)"/wt", 3));
   CHECK(g_srn_wt_sess_proto_len == 4);
-  CHECK(wt_bytes_eq(g_srn_wt_sess_proto, (const u8*)"chat", 4));
+  CHECK(srvrun_wt_bytes_eq(g_srn_wt_sess_proto, (const u8*)"chat", 4));
 }
 
 /* wt_on_session callback that immediately opens a uni GET stream, mirroring
@@ -16561,7 +16563,7 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
   CHECK(g_srn_wt_sess_calls == 2);
   CHECK(g_srn_wt_sess_last == &conns[0].wt1);
   CHECK(g_srn_wt_sess_path_len == 4);
-  CHECK(wt_bytes_eq(g_srn_wt_sess_path, (const u8*)"/two", 4));
+  CHECK(srvrun_wt_bytes_eq(g_srn_wt_sess_path, (const u8*)"/two", 4));
 }
 
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying
@@ -16598,7 +16600,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(r.wt_avail_len == 12);
-  CHECK(wt_bytes_eq(r.wt_avail, (const u8*)"\"foo\", \"bar\"", 12));
+  CHECK(srvrun_wt_bytes_eq(r.wt_avail, (const u8*)"\"foo\", \"bar\"", 12));
   /* absent header -> absent offer */
   {
     u8         fs2[64], req2[256];
@@ -17878,7 +17880,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_data_refused(void) {
 
 /* MAX_DATA EXCEEDED, STREAM REPLY (W-10/WTH3-061): wired_server_wt_stream_
  * reply checks only the data half (no new stream is opened on an existing
- * client-initiated stream, wt_reply_flow_ok's own doc). */
+ * client-initiated stream, srvrun_wt_reply_flow_ok's own doc). */
 static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
@@ -17941,14 +17943,14 @@ static wired_srvloop_stream_slot* sr_wtcap_feed(
 /* Drive `bytes` into the CONNECT stream's (id 4) reassembly slot through the
  * REAL production ingestion path: encode a STREAM frame (RFC 9000 19.8) at
  * offset `from` and call wired_srvloop_dispatch (ctx->l = &c->l) exactly the
- * way srvloop.c's step_dispatch does for an inbound datagram -- so this
+ * way srvloop.c's srvloop_step_dispatch does for an inbound datagram -- so this
  * proves the wire-bytes -> route_land -> gather_one -> req_buf plumbing
  * itself, not just srvrun_wt_rx_capsules acting on a hand-poked buffer.
  * Unlike sr_wtcap_feed, req_done/req_fin are whatever dispatch's own
- * request_complete decided (never true here: no FIN, and the slot's HEADERS
- * frame -- landed by an earlier call -- already made *acc->done true, so
- * request_complete's first check short-circuits before ctx->s/h3 would ever
- * be dereferenced). */
+ * srvloop_request_complete decided (never true here: no FIN, and the slot's
+ * HEADERS frame -- landed by an earlier call -- already made *acc->done true,
+ * so srvloop_request_complete's first check short-circuits before ctx->s/h3
+ * would ever be dereferenced). */
 static void sr_wtcap_dispatch(srvrun_conn* c, u64 from, wired_span bytes) {
   u8                        frame[256];
   stream_frame              sf  = {4, from, bytes.n, bytes.p, 0};
@@ -17966,8 +17968,9 @@ static void sr_wtcap_dispatch(srvrun_conn* c, u64 from, wired_span bytes) {
 /* Land a stub CONNECT HEADERS frame (H3_FRAME_HEADERS=0x01, 2-byte garbage
  * body that fails QPACK/method decode) at offset 0 of stream 4 through
  * dispatch, exactly as sr_wtcap_dispatch's own doc requires: this makes
- * acc_headers_frame_len see a complete HEADERS frame, connect_headers_
- * complete attempt (and fail) the peek-decode, and request_complete return 0
+ * srvloop_acc_headers_frame_len see a complete HEADERS frame, connect_headers_
+ * complete attempt (and fail) the peek-decode, and srvloop_request_complete
+ * return 0
  * -- so *acc->done stays 0 here, and req_len ends at sizeof hdrs, matching
  * srvrun_wt_capsule_start's real boundary. Returns that boundary (4). */
 static usz sr_wtcap_dispatch_headers_stub(srvrun_conn* c) {
@@ -18602,7 +18605,7 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
   w = sr_connect_sender(c);
   CHECK(w != 0 && w->append_open == 1); /* WT_DRAIN_SESSION never FINs */
   CHECK(w->sess.stream_base_offset == 20 && w->sess.q.len == sizeof want);
-  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
+  CHECK(srvrun_wt_bytes_eq(w->roundbuf, want, sizeof want));
 }
 
 /* DRAIN SKIPS INACTIVE/NON-ESTABLISHED SLOTS: srvrun_send_wt_drain_all only
@@ -18759,7 +18762,7 @@ static void test_srvrun_send_wt_close_seals_capsule_with_fin(void) {
   w = sr_connect_sender(c);
   CHECK(w != 0 && w->append_open == 0); /* the last round: FIN follows */
   CHECK(w->sess.stream_base_offset == 20 && w->sess.q.len == sizeof want);
-  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
+  CHECK(srvrun_wt_bytes_eq(w->roundbuf, want, sizeof want));
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
   CHECK(c->wt.state == WIRED_WT_CLOSED);
   CHECK(c->wt_active == 0);
@@ -18820,7 +18823,7 @@ static void test_srvrun_wt_close_capsule_retransmitted_after_loss(void) {
   }
   CHECK(sr_recv_stream(&f, sfd, 4, &sf)); /* retransmitted */
   CHECK(sf.offset == 20 && sf.fin == 1 && sf.length == sizeof want);
-  CHECK(wt_bytes_eq(sf.data, want, sizeof want));
+  CHECK(srvrun_wt_bytes_eq(sf.data, want, sizeof want));
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -19917,7 +19920,7 @@ static void test_srvrun_wt_credit_advances_with_delivery(void) {
   CHECK(c->rx_max_data_advertised > first_conn_credit);
   /* a step with no further delivery re-sends nothing (send_count unchanged
    * -- proven indirectly: credit_advertised/rx_max_data_advertised stay put,
-   * since a re-send would only happen if wt_credit_stream_due were
+   * since a re-send would only happen if srvrun_wt_credit_stream_due were
    * (incorrectly) true again). */
   {
     u64        stream_before = c->l.wt_streams[0].credit_advertised;
@@ -19935,8 +19938,8 @@ static void test_srvrun_wt_credit_advances_with_delivery(void) {
  * MAX_DATA ceiling must give each of them its own full WIRED_SRVLOOP_WT_
  * BUF_CAP of slack, not a single buffer's worth shared across all of them --
  * the bug this guards against summed delivered_len across every slot but
- * then added only ONE buffer's worth on top (wt_slot_credit_ceiling, meant
- * for a single stream's own ceiling, applied to the connection total by
+ * then added only ONE buffer's worth on top (srvrun_wt_slot_credit_ceiling,
+ * meant for a single stream's own ceiling, applied to the connection total by
  * mistake). With N slots open, undercounting starves every slot past the
  * first back down to the shared ceiling the moment their combined MAX_
  * STREAM_DATA advertisements outrun it. Three slots (2 bidi, 1 uni) each 100
@@ -22119,7 +22122,7 @@ static int sr_resp_is_status(const srvrun_resp* r, u16 status) {
   wired_obuf ob = obuf_of(want, sizeof want);
   if (!h3resp_prefix_field(status, 0, 0, 0, &ob)) return 0;
   return r->in_use && r->sess.q.len == ob.len &&
-         wt_bytes_eq(r->sess.q.p, want, ob.len);
+         srvrun_wt_bytes_eq(r->sess.q.p, want, ob.len);
 }
 
 /* ===== wired_srvrun_opt.wt_origin_check (draft-ietf-webtrans-http3-15
@@ -22181,7 +22184,7 @@ static void test_srvrun_wt_origin_check_allowed_establishes(void) {
   CHECK(g_og_calls == 1);
   CHECK(
       g_og_origin.n == 17 &&
-      wt_bytes_eq(g_og_origin.p, (const u8*)"https://a.example", 17));
+      srvrun_wt_bytes_eq(g_og_origin.p, (const u8*)"https://a.example", 17));
   CHECK(g_og_authority.n == 1 && g_og_authority.p[0] == 'h');
   CHECK(c->wt_active == 1);
   CHECK(sr_resp_is_status(&c->resp[0], 200));
@@ -22864,7 +22867,7 @@ static void test_srvrun_wt_drain_session_sends_once(void) {
   w = sr_connect_sender(c);
   CHECK(w != 0 && w->append_open == 1 && w->sess.stream_base_offset == 20);
   CHECK(w->sess.q.len == sizeof want);
-  CHECK(wt_bytes_eq(w->roundbuf, want, sizeof want));
+  CHECK(srvrun_wt_bytes_eq(w->roundbuf, want, sizeof want));
   CHECK(c->wt_connect_sent_len[0] == 20 + sizeof want);
   CHECK(wired_server_wt_drain_session(&c->wt) == 1);
   srvrun_flush_wt_drain(c);
@@ -23530,7 +23533,7 @@ static void sr_hx_decode_lines(wired_span fs, sr_hx_dec* d) {
   usz          used = 0;
   while (off && off < fs.n && d->n < 12) {
     rline* L = &d->l[d->n++];
-    usz    c = decode_line(
+    usz    c = h3reqdrive_decode_line(
         wired_span_of(fs.p + off, fs.n - off),
         wired_mspan_of(d->scr + used, sizeof d->scr - used), &dyn, L);
     CHECK(c != 0);

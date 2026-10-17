@@ -1,54 +1,27 @@
-#include "app/http3/server/srvthreads/srvthreads.h"
-
-#include "app/http3/server/sigterm/sigterm.h"
-#include "app/http3/server/srvinbox/srvinbox.h"
-#include "app/http3/server/srvkeys/srvkeys.h"
-#include "app/http3/server/srvpin/srvpin.h"
-#include "app/http3/server/srvxdpbpf/srvxdpbpf.h"
-#include "common/platform/clock/clock.h"
-#include "common/platform/sys/syscall.h"
-#include "common/platform/thread/thread.h"
-
 /* One control thread supervises N worker threads: the control thread owns
  * signal installation and shutdown, workers own serving. */
 
 /* mmap/munmap flags, same values as thread.c (Linux x86_64
  * <asm-generic/mman-common.h>): PROT_READ|PROT_WRITE, MAP_PRIVATE|
  * MAP_ANONYMOUS. */
-#define SRVTHREADS_PROT_RW 0x3
-#define SRVTHREADS_MAP_PRIVATE_ANON 0x22
 
 /* FUTEX_WAIT, Linux <linux/futex.h>. */
-#define SRVTHREADS_FUTEX_WAIT 0
 
 /* Control's timed wait granularity must be a timeout-armed futex, not any
  * particular value -- liveness does not depend on this number, only on it
  * being finite. */
-#define SRVTHREADS_WAIT_MS 1000
 
-/* Everything one worker thread needs, laid out in the caller's stack frame
- * (wired_srvthreads_run) so it outlives every clone()d worker without a
- * heap allocation -- the control thread only returns after every worker has
- * been joined, so the frame is guaranteed live for the whole worker
- * lifetime. */
-typedef struct {
-  wired_srvinbox_ring*    inbox_row; /**< this worker's N-ring receive row */
-  wired_srvrun_env*       env;
-  const wired_srvxdp_cfg* xdp_cfg; /**< 0 in UDP mode */
-  wired_srvxdpbpf*        bpf;     /**< shared BPF, XDP mode only */
-  wired_srvrun_handler    h;
-  wired_srvrun_obs        obs;
-  wired_srvboot_id        id;    /**< per-worker copy (SIGHUP reload safety) */
-  wired_srvrun_opt        run;   /**< no_signal_handlers forced to 1 */
-  int                     index; /**< worker index: mesh row/column and
-                                  * XDP queue id (0..n_total-1) */
-  int core;                      /**< CPU to pin this worker to
-                                  * (opt->cores[index]) */
-  int n_total;                   /**< worker count (broadcast registry) */
-  u16 port;
-} srvthreads_worker_arg;
+#include "app/http3/server/srvthreads/srvthreads_impl.h"
 
-typedef void (*srvthreads_worker_fn)(void* arg);
+static void srvthreads_worker_serve_udp(srvthreads_worker_arg* a);
+static void srvthreads_arm_xdp_run(srvthreads_worker_arg* a, wired_srvxdp* x);
+static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a);
+static void srvthreads_worker_main(void* argp);
+__attribute__((unused)) static void srvthreads_test_set_worker_fn(
+    srvthreads_worker_fn fn);
+static wired_srvrun_env*    srvthreads_env_at(u8* base, int i);
+static wired_srvinbox_ring* srvthreads_row_at(
+    wired_srvinbox_ring* mesh, int i, int n_cores);
 
 /* env_init first, then register (which hands out a pointer into this env) --
  * so the registry never exposes an env another thread could read mid-init.
@@ -118,21 +91,19 @@ __attribute__((unused)) static void srvthreads_test_set_worker_fn(
 
 /* Trampoline so wired_thread_start's fn(void*) always dispatches through the
  * (possibly test-substituted) hook. */
-static void srvthreads_worker_trampoline(void* argp) {
-  g_srvthreads_worker_fn(argp);
-}
+void srvthreads_worker_trampoline(void* argp) { g_srvthreads_worker_fn(argp); }
 
 /* mmap n_cores * wired_srvrun_env_size() bytes for the per-worker env table
  * in one shot. Returns 0 on failure (mmap's -errno return in -4095..-1,
  * same test as thread.c's thread_map_stack). */
-static u8* srvthreads_alloc_envs(int n_cores) {
+u8* srvthreads_alloc_envs(int n_cores) {
   usz sz   = wired_srvrun_env_size() * (usz)n_cores;
   i64 base = wired_arch_mmap(
       0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   return base < 0 ? 0 : (u8*)base;
 }
 
-static void srvthreads_free_envs(u8* base, int n_cores) {
+void srvthreads_free_envs(u8* base, int n_cores) {
   wired_arch_munmap((i64)base, wired_srvrun_env_size() * (usz)n_cores);
 }
 
@@ -144,7 +115,7 @@ static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
  * receive row, fed by every worker j's wired_srvinbox_push into
  * mesh[i][j]. Sized off n_cores like srvthreads_alloc_envs, so it stays
  * proportional instead of a fixed WIRED_SRVTHREADS_MAX*MAX allocation. */
-static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
+wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
   usz sz   = sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores;
   i64 base = wired_arch_mmap(
       0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
@@ -154,7 +125,7 @@ static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
   return (wired_srvinbox_ring*)base;
 }
 
-static void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores) {
+void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores) {
   wired_arch_munmap(
       (i64)mesh, sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores);
 }
@@ -170,7 +141,7 @@ static wired_srvinbox_ring* srvthreads_row_at(
  * cert_seed in place, and every worker must see only its own copy. run's
  * no_signal_handlers is forced to 1: only the control thread installs
  * SIGTERM/SIGHUP. */
-static void srvthreads_fill_common(
+void srvthreads_fill_common(
     srvthreads_worker_arg*      a,
     u16                         port,
     const wired_srvboot_id*     id,
@@ -190,7 +161,7 @@ static void srvthreads_fill_common(
 
 /* Fill worker i's argument block: the shared fields from common, then the
  * per-worker env pointer/index/pin core/inbox row. */
-static void srvthreads_fill_arg(
+void srvthreads_fill_arg(
     srvthreads_worker_arg*       a,
     const srvthreads_worker_arg* common,
     int                          i,
@@ -204,242 +175,4 @@ static void srvthreads_fill_arg(
   a->n_total   = n;
   a->inbox_row = srvthreads_row_at(mesh, i, n);
   a->env       = srvthreads_env_at(envs, i);
-}
-
-/* Spawn every worker thread. On the first wired_thread_start failure, stops
- * and returns that negative error; every already-started thread is left
- * running (the caller's cleanup path still joins threads[0..i) via
- * srvthreads_join_all -- see wired_srvthreads_run). */
-static i64 srvthreads_spawn_all(
-    wired_thread* threads, srvthreads_worker_arg* args, int n) {
-  for (int i = 0; i < n; i++) {
-    i64 r =
-        wired_thread_start(&threads[i], srvthreads_worker_trampoline, &args[i]);
-    if (r < 0) return r;
-  }
-  return 0;
-}
-
-static void srvthreads_join_all(wired_thread* threads, int n) {
-  for (int i = 0; i < n; i++) wired_thread_join(&threads[i]);
-}
-
-/* Control's timed wait for the shared shutdown word: loop a FUTEX_WAIT with
- * a fixed relative timeout until the word reads non-zero. A spurious wake
- * (EAGAIN because the word changed between the load and the syscall, EINTR,
- * or the timeout itself) all fall through to re-check the word -- the
- * timeout is the liveness floor, not the trigger. */
-static void srvthreads_wait_shutdown(int* word) {
-  timespec ts = {
-      SRVTHREADS_WAIT_MS / 1000, (i64)(SRVTHREADS_WAIT_MS % 1000) * 1000000};
-  while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
-    wired_arch_futex(word, SRVTHREADS_FUTEX_WAIT, 0, &ts, 0, 0);
-}
-
-/* Open the shared per-interface BPF filter in XDP mode; a no-op success (fd
- * table left zeroed, never used) in UDP mode. */
-static i64 srvthreads_open_bpf(
-    wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
-  if (!xdp) return 0;
-  return wired_srvxdpbpf_open(bpf, xdp->ifindex, xdp->port, xdp->attach_flags);
-}
-
-static void srvthreads_close_bpf(
-    wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
-  if (xdp) wired_srvxdpbpf_close(bpf);
-}
-
-/* SIGTERM/SIGHUP handler installed by the control thread only:
- * async-signal-safe like srvrun.c's own handler, a single RELEASE store into
- * the process-wide shutdown word every worker's srvrun_loop already polls
- * once per iteration. */
-static void srvthreads_sigterm_handler(int sig) {
-  (void)sig;
-  __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
-}
-
-/* Block SIGTERM/SIGHUP, spawn every worker (inheriting the mask), then
- * unblock and install the handler: block -> spawn -> unblock+install, so a
- * signal arriving during spawn is pending and delivered right after
- * unblock. Already-started threads on a spawn
- * failure are the caller's problem to join/cleanup (n stays the loop bound
- * either way, since a fixed-size table was pre-zeroed). */
-static void srvthreads_start_workers(
-    wired_thread* threads, srvthreads_worker_arg* args, int n) {
-  wired_sigmask_block_shutdown();
-  srvthreads_spawn_all(threads, args, n);
-  wired_sigmask_unblock_shutdown();
-  wired_sigterm_install(srvthreads_sigterm_handler);
-  wired_sighup_install(srvthreads_sigterm_handler);
-}
-
-/* mmap the per-worker env table and the broadcast inbox mesh; on either
- * failure, frees whichever already succeeded. */
-static int srvthreads_alloc_state(
-    u8** envs, wired_srvinbox_ring** mesh, int n) {
-  *envs = srvthreads_alloc_envs(n);
-  if (!*envs) return 0;
-  *mesh = srvthreads_alloc_mesh(n);
-  if (*mesh) return 1;
-  srvthreads_free_envs(*envs, n);
-  return 0;
-}
-
-/* Open the shared BPF filter (XDP mode) and allocate the per-worker env
- * table + broadcast mesh; any failure tears down what already succeeded and
- * returns 0. */
-static int srvthreads_setup(
-    wired_srvxdpbpf*        bpf,
-    u8**                    envs,
-    wired_srvinbox_ring**   mesh,
-    int                     n,
-    const wired_srvxdp_cfg* xdp) {
-  if (srvthreads_open_bpf(bpf, xdp) < 0) return 0;
-  if (srvthreads_alloc_state(envs, mesh, n)) return 1;
-  srvthreads_close_bpf(bpf, xdp);
-  return 0;
-}
-
-/* Fill every worker's argument block ahead of spawning any thread. */
-static void srvthreads_fill_args(
-    srvthreads_worker_arg*       args,
-    const srvthreads_worker_arg* common,
-    u8*                          envs,
-    wired_srvinbox_ring*         mesh,
-    int                          n,
-    const int*                   cores) {
-  for (int i = 0; i < n; i++)
-    srvthreads_fill_arg(&args[i], common, i, envs, mesh, n, cores);
-}
-
-/* Bind the control thread to its own core, if requested (opt->control_core
- * >= 0), before touching anything else -- pinning is cheapest to do first
- * and has no other ordering dependency. */
-static void srvthreads_pin_control(int control_core) {
-  if (control_core >= 0) wired_srvpin_bind_self(control_core);
-}
-
-/* Spawn every worker, wait for the shutdown word, then join them all. */
-static void srvthreads_serve(srvthreads_worker_arg* args, int n) {
-  wired_thread threads[WIRED_SRVTHREADS_MAX] = {0};
-  srvthreads_start_workers(threads, args, n);
-  srvthreads_wait_shutdown(wired_srvrun_shutdown_word());
-  srvthreads_join_all(threads, n);
-}
-
-int wired_srvthreads_run(
-    u16                         port,
-    wired_srvboot_id*           id,
-    wired_srvrun_handler        h,
-    wired_srvrun_obs            obs,
-    const wired_srvthreads_opt* opt) {
-  srvthreads_worker_arg args[WIRED_SRVTHREADS_MAX];
-  srvthreads_worker_arg common;
-  wired_srvxdpbpf       bpf = {-1, -1, -1};
-  u8*                   envs;
-  wired_srvinbox_ring*  mesh;
-  int                   n = opt->n_cores;
-
-  srvthreads_pin_control(opt->control_core);
-  /* draw the ticket/Retry seeds before any worker thread can race the draw */
-  if (!srvkeys_ready()) return 0;
-  if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) return 0;
-  srvthreads_fill_common(&common, port, id, h, obs, opt, &bpf);
-  srvthreads_fill_args(args, &common, envs, mesh, n, opt->cores);
-  srvthreads_serve(args, n);
-
-  srvthreads_close_bpf(&bpf, opt->xdp);
-  srvthreads_free_mesh(mesh, n);
-  srvthreads_free_envs(envs, n);
-  return 1;
-}
-
-/* --- --cores a,b,c parsing (example servers each reimplemented this;
- * pulled into the SDK) -------
- * Same "one digit accumulate, -1 signals not-a-digit" shape as cliargs.c's
- * cli_digit_step, kept local since a core list is a srvthreads-only
- * concept. */
-
-/* Non-comma, non-NUL: a field continues over exactly these bytes, so the
- * digit loop below carries only this one predicate call instead of a
- * two-part && condition (CCN budget). */
-static int srvthreads_cores_more_field(char c) { return c && c != ','; }
-
-/* One base-10 digit accumulate step; -1 signals "not a digit". */
-static int srvthreads_cores_digit(int acc, char c) {
-  if (c < '0' || c > '9') return -1;
-  return acc * 10 + (c - '0');
-}
-
-/* Consume base-10 digits from s[*off..) up to ',' or NUL, folding them into
- * *acc via srvthreads_cores_digit. Returns the digit count consumed; *acc
- * is only meaningful when the count is nonzero and no non-digit was seen
- * (caller's job to check). */
-static usz srvthreads_cores_consume(const char* s, usz* off, int* acc) {
-  usz digits = 0;
-  *acc       = 0;
-  while (srvthreads_cores_more_field(s[*off])) {
-    *acc = srvthreads_cores_digit(*acc, s[*off]);
-    if (*acc < 0) return 0;
-    digits++;
-    (*off)++;
-  }
-  return digits;
-}
-
-/* One field parsed from s[*off..), stopping at ',' or the terminating NUL.
- * Returns 1 ok (an int core index written to *out, *off advanced past the
- * field), 0 if the field is empty or contains a non-digit -- both make the
- * field itself malformed. */
-static int srvthreads_cores_parse_one(const char* s, usz* off, int* out) {
-  int acc;
-  usz digits = srvthreads_cores_consume(s, off, &acc);
-  if (!digits) return 0;
-  *out = acc;
-  return 1;
-}
-
-/* 1 and advances *off past a ',' when one follows (more fields to parse); 0
- * with *off left at the NUL when the list ends here. */
-static int srvthreads_cores_parse_more(const char* s, usz* off) {
-  if (s[*off] != ',') return 0;
-  (*off)++;
-  return 1;
-}
-
-/* Parse field index n (n < cap already checked by the caller) into
- * cores[n] and advance *off past it. Returns 1 ok, 0 malformed. */
-static int srvthreads_cores_parse_field(
-    const char* s, usz* off, int* cores, int n, int cap) {
-  if (n >= cap) return 0;
-  return srvthreads_cores_parse_one(s, off, &cores[n]);
-}
-
-/* n if the list ended right here (NUL), -1 if srvthreads_cores_parse_more
- * said "no more" but trailing garbage remains. */
-static int srvthreads_cores_parse_done(const char* s, usz off, int n) {
-  return s[off] == 0 ? n : -1;
-}
-
-/* Parse every field into cores[0..cap), stopping at the first malformed
- * field, a field beyond cap, or the end of the list. Returns the field
- * count on a clean end-of-string, -1 on any malformed field or overflow. */
-static int srvthreads_cores_parse_all(const char* s, int* cores, int cap) {
-  usz off = 0;
-  int n   = 0;
-  while (srvthreads_cores_parse_field(s, &off, cores, n, cap)) {
-    n++;
-    if (!srvthreads_cores_parse_more(s, &off))
-      return srvthreads_cores_parse_done(s, off, n);
-  }
-  return -1;
-}
-
-int wired_srvthreads_parse_cores(const char* s, wired_srvthreads_opt* opt) {
-  int cores[WIRED_SRVTHREADS_MAX];
-  int n = srvthreads_cores_parse_all(s, cores, (int)WIRED_SRVTHREADS_MAX);
-  if (n < 0) return 0;
-  for (int i = 0; i < n; i++) opt->cores[i] = cores[i];
-  opt->n_cores = n;
-  return 1;
 }

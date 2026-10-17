@@ -635,10 +635,11 @@ typedef struct {
         on_request; /**< app response-body builder, 0 if unset */
   void* req_ctx;    /**< opaque ctx passed to on_request */
   /** RFC 9000 2.2: one reassembly slot per concurrent client bidi (request)
-   * stream, looked up/allocated by stream id (see stream_slot_find/alloc in
-   * srvloop.c). streams[0] is claimed for stream id 0 on the connection's
-   * first request, exactly as the old single-slot fields were — so a
-   * connection that only ever uses stream 0 behaves identically to before. */
+   * stream, looked up/allocated by stream id (see
+   * srvloop_stream_slot_find/alloc in srvloop.c). streams[0] is claimed for
+   * stream id 0 on the connection's first request, exactly as the old
+   * single-slot fields were — so a connection that only ever uses stream 0
+   * behaves identically to before. */
   wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
   /** RFC 9000 3.2: client bidi streams already answered and released --
    * request streams and WT bidi streams share this id space. Re-admitted

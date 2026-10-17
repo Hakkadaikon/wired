@@ -79,7 +79,8 @@ static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
 
 /* RFC 9220 3: an Extended CONNECT (:method=CONNECT, :scheme=https,
  * :protocol=webtransport-h3) encoded by h3req_enc_pseudo round-trips
- * through the existing receive-side parser (request_drive.c classify_line).
+ * through the existing receive-side parser (request_drive.c
+ * h3reqdrive_classify_line).
  */
 static void test_pseudo_protocol_roundtrip(void) {
   static const u8 m[] = "CONNECT", s[] = "https", a[] = "host", p[] = "/wt",

@@ -177,8 +177,8 @@ static void fw_check_then_ping(const u8* buf, usz n, u64 want_type) {
 /* RFC 9000 19.7/19.9-19.18 regression: every flow-control and connection-
  * management frame a real peer coalesces with request STREAM frames must be
  * measurable, or the walk stops and the rest of the packet -- including
- * STREAM/ACK frames -- is silently dropped while note_app_rx still ACKs the
- * pn (permanent data loss: the peer never retransmits). quic-go coalesces
+ * STREAM/ACK frames -- is silently dropped while srvloop_note_app_rx still ACKs
+ * the pn (permanent data loss: the peer never retransmits). quic-go coalesces
  * NEW_CONNECTION_ID with the first request's STREAM frames right after the
  * handshake, which is how the http3 interop test hit this. */
 static void test_framewalk_flow_frames_then_ping(void) {

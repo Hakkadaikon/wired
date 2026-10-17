@@ -1854,8 +1854,8 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn     = SALPN_HQ;
   f.l.resp_external = 1; /* real deployments always set this (srvrun.c);
-                          * srvloop's own response_frame (unset case) never
-                          * negotiates hq-interop. */
+                          * srvloop's own srvloop_response_frame (unset case)
+                          * never negotiates hq-interop. */
   {
     static const u8 line[] = "GET /file1.txt\r\n";
     stream_frame    sf     = {0, 0, sizeof(line) - 1, line, 1};
@@ -1865,9 +1865,9 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   /* This test's only concern is request decoding -- resp_external means the
-   * loop's own response_frame never fires, so the step's produced/out value
-   * (whether the delayed-ACK policy decided a bare-ACK packet was due this
-   * round, RFC 9000 13.2.1) is not asserted on here; a real deployment's
+   * loop's own srvloop_response_frame never fires, so the step's produced/out
+   * value (whether the delayed-ACK policy decided a bare-ACK packet was due
+   * this round, RFC 9000 13.2.1) is not asserted on here; a real deployment's
    * later steps eventually flush any still-pending ACK. */
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
@@ -2042,7 +2042,7 @@ static void test_srvloop_wt_window_spans_several_windows_in_order(void) {
  * split across TWO STREAM frames like curl's HEADERS/DATA split — the
  * offset-0 signal frame (0x41, 2 bytes on the wire) immediately followed by
  * application bytes, then a SEPARATE offset>0 frame with more application
- * bytes and FIN. Confirms gather_wt_stream's reassembly lands the exact
+ * bytes and FIN. Confirms srvloop_gather_wt_stream's reassembly lands the exact
  * application payload (not including the signal) into wt_streams[], and that
  * FIN is tracked. Driven through wired_srvloop_step, the real per-datagram
  * path (mirrors test_srvloop_wt_bidi_stream_not_request's own driving style).
@@ -2093,7 +2093,7 @@ static int lp_streams_slot_claims(const wired_srvloop* l, u64 stream_id) {
 /* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's post-signal
  * CONTINUATION frame (offset>0) must be excluded from the request-reassembly
  * path exactly like its own offset-0 signal frame is -- sf_is_request must
- * consult wt_frame_relevant (l->wt_streams[] membership), not just the
+ * consult srvloop_wt_frame_relevant (l->wt_streams[] membership), not just the
  * current frame's own offset, or the offset>0 frame's id-based
  * classification alone would make it look like a fresh request stream and
  * claim a streams[] slot for it. This reuses
@@ -2388,7 +2388,7 @@ static void test_srvloop_settings_records_sent_length(void) {
   stream_frame  sf;
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn = SALPN_H3;
-  CHECK(build_settings_frame(&f.s, &f.l, &sb) == 1);
+  CHECK(srvloop_build_settings_frame(&f.s, &f.l, &sb) == 1);
   CHECK(frame_get_stream(buf, sb.len, &sf) > 0);
   CHECK(sf.stream_id == WIRED_SRVLOOP_CTRL_STREAM);
   CHECK(f.l.ctrl_settings_len == sf.length);
@@ -2631,9 +2631,9 @@ static void test_srvloop_wt_bidi_stream_signal_split(void) {
 }
 
 /* Control (0x00)/QPACK (0x02/0x03) uni streams, classified (offset-0 type
- * peeked) by gather_uni_stream, are accepted (no crash, no got_request), and
- * critically no wt_uni_streams[] slot is claimed for any of them (only a
- * 0x54-typed stream ever claims one). Driven through the live
+ * peeked) by srvloop_gather_uni_stream, are accepted (no crash, no
+ * got_request), and critically no wt_uni_streams[] slot is claimed for any of
+ * them (only a 0x54-typed stream ever claims one). Driven through the live
  * wired_srvloop_step path (ctx->l set), unlike the direct-dispatch
  * test_srvloop_dispatch_uni_streams_not_request, so the classifier itself is
  * exercised. */
@@ -2665,8 +2665,8 @@ static void test_srvloop_uni_control_qpack_still_ignored(void) {
 /* RFC 9204 4.2 (9204-028): a second QPACK encoder stream on the same
  * connection latches l->qpack_stream_violation (H3_STREAM_CREATION_ERROR),
  * driven through the live wired_srvloop_step path so the classifier itself
- * (uni_stream_type_note_qpack) is exercised, not just wired_h3srv_on_peer_
- * qpack's own unit test. */
+ * (srvloop_uni_stream_type_note_qpack) is exercised, not just
+ * wired_h3srv_on_peer_ qpack's own unit test. */
 static void test_srvloop_second_qpack_encoder_stream_violation(void) {
   struct lp_fix f;
   u8            payload[256], out[1024], spkt[1024];
@@ -3102,8 +3102,8 @@ static void test_srvloop_uni_unrecognized_type_no_crash(void) {
  * type varint has ever been received (no STREAM frame preceded the
  * RESET_STREAM) must be tolerated -- no crash, no request surfaced, no slot
  * claimed in wt_uni_streams[] (there was never a type byte to claim one
- * with). The generic RESET_STREAM handling (gather_stream_closes) is the
- * mechanism that already absorbs this: it only latches closed_stream_id,
+ * with). The generic RESET_STREAM handling (srvloop_gather_stream_closes) is
+ * the mechanism that already absorbs this: it only latches closed_stream_id,
  * independent of whether the stream's purpose was ever classified. */
 static void test_srvloop_uni_reset_before_type_no_crash(void) {
   struct lp_fix      f;
@@ -3787,7 +3787,8 @@ static void test_srvloop_ack_no_eliciting_no_ack(void) {
  * skipping 8) yields a two-range ACK -- the gap in recvpn's window
  * surfaces as a second (Gap, Length) pair in the encoded frame (RFC 9000
  * 19.3). Forcing the delay window open (now_ms advanced past since_tick)
- * so the second step's own step_note_ack_owed piggyback actually fires. */
+ * so the second step's own srvloop_step_note_ack_owed piggyback actually fires.
+ */
 static void test_srvloop_ack_single_gap_two_ranges(void) {
   struct lp_fix f;
   wired_obuf    ob;
@@ -3863,8 +3864,8 @@ static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.app_ack_policy.pending == 1);
-  /* app_ack_append's piggyback already cleared pending on this same step's
-   * reply, so re-arm it deterministically before re-sending pn 7. */
+  /* srvloop_app_ack_append's piggyback already cleared pending on this same
+   * step's reply, so re-arm it deterministically before re-sending pn 7. */
   ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -3988,7 +3989,7 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
  * 64-pn recvpn window) must not corrupt srvloop -- app_ack_encode_ranges
  * (respond.c, called directly here as in the tests above) falls back to
  * appending nothing rather than a truncated/overflowing ACK frame; it is
- * emit_ack_only's caller that then has nothing to send, not an encoder
+ * srvloop_emit_ack_only's caller that then has nothing to send, not an encoder
  * crash or garbage frame. */
 static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   struct lp_fix f;
@@ -4041,8 +4042,8 @@ static void test_srvloop_ack_pn_spaces_independent(void) {
  * bare-ACK packet is never sent (RFC 9000 13.2.1's "nothing to acknowledge"
  * case). Uses a second confirmed step with no new packet to observe: the
  * confirm step's own piggyback already cleared pending, so this next step
- * (an empty datagram is not a legal drive, so instead observe emit_ack_only
- * declining directly) is exercised via app_ack_due. */
+ * (an empty datagram is not a legal drive, so instead observe
+ * srvloop_emit_ack_only declining directly) is exercised via app_ack_due. */
 static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
   struct lp_fix f;
   u8            out[1024];
@@ -4158,7 +4159,7 @@ static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   /* Same two-step shape as test_srvloop_ack_ecn_always_disabled: the delay
    * window must elapse and a second eliciting packet arrive before
-   * emit_ack_only actually has an ACK due to send (RFC 9000 13.2.1). */
+   * srvloop_emit_ack_only actually has an ACK due to send (RFC 9000 13.2.1). */
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 8, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
@@ -4206,8 +4207,8 @@ static void test_srvloop_ack_delay_window_boundary(void) {
  * (well within the delay window) -- proven by ackpolicy_should_ack
  * itself (a direct, non-destructive check of the 2-pending case), since
  * driving a second real wired_srvloop_step would immediately act on that
- * due-ness via emit_ack_only and clear pending back to 0 before this test
- * could observe it. */
+ * due-ness via srvloop_emit_ack_only and clear pending back to 0 before this
+ * test could observe it. */
 static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
   ackpolicy p;
   ackpolicy_init(&p);
@@ -4223,7 +4224,7 @@ static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
       1); /* second pending: due immediately, delay window irrelevant */
 }
 
-/* Once app_ack_append actually encodes and sends an ACK, pending is
+/* Once srvloop_app_ack_append actually encodes and sends an ACK, pending is
  * cleared (ackpolicy_on_ack_sent) so the next due-check starts fresh
  * rather than staying stuck at "due" forever. */
 static void test_srvloop_ack_sent_clears_pending_state(void) {
@@ -4235,19 +4236,19 @@ static void test_srvloop_ack_sent_clears_pending_state(void) {
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
-  /* the confirm step's own piggyback (app_ack_append, unconditional) already
-   * sends and clears any pending ACK from confirmation itself; this second
-   * step's ping is the one under test. */
+  /* the confirm step's own piggyback (srvloop_app_ack_append, unconditional)
+   * already sends and clears any pending ACK from confirmation itself; this
+   * second step's ping is the one under test. */
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.app_ack_policy.pending == 1);
   /* GET decoded or not, confirm_pending is already false (post-confirm), so
-   * produce_confirmed's emit_ack_only/emit_response always piggybacks via
-   * app_ack_append (unconditional) -- proven directly here without a second
-   * wired_srvloop_step. */
+   * produce_confirmed's srvloop_emit_ack_only/emit_response always piggybacks
+   * via srvloop_app_ack_append (unconditional) -- proven directly here without
+   * a second wired_srvloop_step. */
   {
     u8  buf[288];
-    usz n = app_ack_append(&f.l, buf, sizeof buf);
+    usz n = srvloop_app_ack_append(&f.l, buf, sizeof buf);
     CHECK(n > 0);
   }
   CHECK(f.l.app_ack_policy.pending == 0);
@@ -4256,9 +4257,9 @@ static void test_srvloop_ack_sent_clears_pending_state(void) {
 /* RFC 9002 7.7: "packets containing only ACK frames SHOULD therefore not be
  * paced." wired_srvloop carries no pacing state at all (no srtt_ms/
  * next_send_ms field, unlike srvrun_conn's data-send path), so
- * wired_srvloop_produce's bare-ACK reply (emit_ack_only, reached here via
- * got_request=0 post-confirmation) is never gated on one -- proven directly:
- * a due ACK is produced unconditionally on the very next call. */
+ * wired_srvloop_produce's bare-ACK reply (srvloop_emit_ack_only, reached here
+ * via got_request=0 post-confirmation) is never gated on one -- proven
+ * directly: a due ACK is produced unconditionally on the very next call. */
 static void test_srvloop_produce_ack_only_ignores_pacing(void) {
   struct lp_fix f;
   wired_obuf    ob;
@@ -5168,13 +5169,14 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
 }
 
 /* A 0-RTT packet keeps a long header (RFC 9000 17.2.3), unlike the
- * short-header 1-RTT packets note_app_rx's short-header pn offset (byte0 +
- * iscid_len) assumes. Drive a real 0-RTT packet through wired_srvloop_step
- * (not just wired_srvloop_recv) and check the App pn space (RFC 9000 12.3,
- * shared with 1-RTT) recorded the 0-RTT packet's own real pn --
+ * short-header 1-RTT packets srvloop_note_app_rx's short-header pn offset
+ * (byte0 + iscid_len) assumes. Drive a real 0-RTT packet through
+ * wired_srvloop_step (not just wired_srvloop_recv) and check the App pn space
+ * (RFC 9000 12.3, shared with 1-RTT) recorded the 0-RTT packet's own real pn --
  * confirmation has not happened yet at this point in a genuine 0-RTT
  * handshake, so the ACK itself does not go out until later; app_rx_pn is
- * the durable record an eventual ACK is built from (step_note_ack_owed). */
+ * the durable record an eventual ACK is built from
+ * (srvloop_step_note_ack_owed). */
 static void test_srvloop_step_zerortt_records_real_pn(void) {
   struct lp_fix f;
   u8            psk[32], out[1024], pkt[256];
@@ -5265,8 +5267,8 @@ static void test_srvloop_pn_baseline_is_largest(void) {
   srvloop_zrtt_send(&f, 0xd3, 300);
   srvloop_zrtt_send(&f, 0xd3, 100);
   CHECK(f.l.app_rx_pn == 100); /* the number to ACK is still the last */
-  CHECK(app_largest_pn(&f.l) == 300);
-  CHECK(pnum_decode((const u8*)"\x90", 1, app_largest_pn(&f.l)) == 400);
+  CHECK(srvloop_app_largest_pn(&f.l) == 300);
+  CHECK(pnum_decode((const u8*)"\x90", 1, srvloop_app_largest_pn(&f.l)) == 400);
 }
 
 /* RFC 9000 12.3: a packet received twice is processed once -- the second
@@ -5293,9 +5295,9 @@ static void test_srvloop_classified_slot_not_reset(void) {
     l.reset_slots = 1;
     l.done_n = l.incomplete_n = l.frame_unexpected_n = 0;
     l.streams[0].req_len                             = 0;
-    if (k == 0) route_note_done(&l, 0);
+    if (k == 0) srvloop_route_note_done(&l, 0);
     if (k == 1) route_note_incomplete_append(&l, 0);
-    if (k == 2) route_note_frame_unexpected(&l, 0);
+    if (k == 2) srvloop_route_note_frame_unexpected(&l, 0);
     CHECK(l.reset_slots == 0);
   }
 }

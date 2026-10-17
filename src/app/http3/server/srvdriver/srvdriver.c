@@ -1,8 +1,28 @@
-#include "app/http3/server/srvdriver/srvdriver.h"
+#include "app/http3/server/srvdriver/srvdriver_impl.h"
 
-#include "app/http3/server/srvpin/srvpin.h"
-#include "common/platform/cliargs/cliargs.h"
-#include "common/platform/exit/exit.h"
+static int srvdriver_conflict(int has_workers, int has_xdp, int has_cores);
+static wired_srvdriver_kind srvdriver_select_tail(int has_workers, int has_xdp);
+static wired_srvdriver_kind srvdriver_select(
+    int has_workers, int has_xdp, int has_cores);
+static u32 srvdriver_xdp_attach_flags(int argc, char** argv);
+static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt);
+static int srvdriver_load_workers(
+    int argc, char** argv, wired_srvworkers_opt* w);
+static int srvdriver_load_threads_cores(
+    int argc, char** argv, wired_srvthreads_opt* threads);
+static int srvdriver_load_threads_xdp(
+    int argc, char** argv, wired_srvdriver_opt* opt);
+static int srvdriver_load_threads(
+    int argc, char** argv, wired_srvdriver_opt* opt);
+static int srvdriver_kind_has_own_pinning(wired_srvdriver_kind kind);
+static int srvdriver_load_pin_core(
+    int argc, char** argv, wired_srvdriver_kind kind, int* pin_core);
+static int srvdriver_load_kind_plain(
+    int argc, char** argv, wired_srvdriver_opt* opt);
+static int srvdriver_load_kind_workers(
+    int argc, char** argv, wired_srvdriver_opt* opt);
+static int srvdriver_load_kind_xdp(
+    int argc, char** argv, wired_srvdriver_opt* opt);
 
 /* --workers cannot combine with --cores/--ifindex (a different SDK entry
  * point entirely); --ifindex alone still composes with --cores (AF_XDP
@@ -125,8 +145,6 @@ static int srvdriver_load_kind_xdp(
   return srvdriver_load_xdp(argc, argv, opt);
 }
 
-typedef int (*srvdriver_load_fn)(int, char**, wired_srvdriver_opt*);
-
 static const srvdriver_load_fn SRVDRIVER_LOAD_BY_KIND[4] = {
     srvdriver_load_kind_plain,   /* WIRED_SRVDRIVER_PLAIN */
     srvdriver_load_kind_workers, /* WIRED_SRVDRIVER_WORKERS */
@@ -136,8 +154,7 @@ static const srvdriver_load_fn SRVDRIVER_LOAD_BY_KIND[4] = {
 
 /* Loads the knobs for the already-selected driver; a no-op for PLAIN beyond
  * --pin-core (srvdriver_load_pin_core, called separately by the caller). */
-static int srvdriver_load_kind(
-    int argc, char** argv, wired_srvdriver_opt* opt) {
+int srvdriver_load_kind(int argc, char** argv, wired_srvdriver_opt* opt) {
   return SRVDRIVER_LOAD_BY_KIND[opt->kind](argc, argv, opt);
 }
 
@@ -149,8 +166,7 @@ static int srvdriver_load_kind(
  * the copy's own address instead of the caller's. */
 /* --port/--kind/--pin-core resolved and validated; opt->run at its -1
  * sentinels, ready for post-parse app overrides. */
-static int srvdriver_parse_head(
-    int argc, char** argv, wired_srvdriver_opt* opt) {
+int srvdriver_parse_head(int argc, char** argv, wired_srvdriver_opt* opt) {
   int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
   int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
   int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
@@ -164,86 +180,4 @@ static int srvdriver_parse_head(
   opt->port             = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   opt->kind             = srvdriver_select(has_workers, has_xdp, has_cores);
   return srvdriver_load_pin_core(argc, argv, opt->kind, &opt->pin_core);
-}
-
-int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
-  if (!srvdriver_parse_head(argc, argv, opt)) return 0;
-  if (!srvdriver_load_kind(argc, argv, opt)) return 0;
-  opt->run.force_retry = wired_cliargs_flag(argc, argv, "--force-retry");
-  return 1;
-}
-
-static int srvdriver_run_plain(
-    wired_srvboot_id*          id,
-    wired_srvrun_handler       h,
-    wired_srvrun_obs           obs,
-    const wired_srvdriver_opt* opt) {
-  if (opt->pin_core >= 0 && wired_srvpin_bind_self(opt->pin_core) < 0)
-    wired_die("--pin-core: pinning failed (bad CPU index?)\n");
-  return wired_server_run_opt(opt->port, id, h, obs, &opt->run);
-}
-
-/* opt->run copied at run time, same rule as srvdriver_run_threads/_xdp. */
-static int srvdriver_run_workers(
-    wired_srvboot_id*          id,
-    wired_srvrun_handler       h,
-    wired_srvrun_obs           obs,
-    const wired_srvdriver_opt* opt) {
-  wired_srvrun_obs     wobs = {0, 0, obs.cert_path, obs.key_path, obs.cc_algo};
-  wired_srvworkers_opt w    = opt->workers;
-  w.run                     = opt->run;
-  return wired_srvworkers_run(opt->port, id, h, wobs, &w) >= 0;
-}
-
-static int srvdriver_run_xdp(
-    wired_srvboot_id*          id,
-    wired_srvrun_handler       h,
-    wired_srvrun_obs           obs,
-    const wired_srvdriver_opt* opt) {
-  wired_srvxdp     xdp = {0};
-  wired_srvrun_opt run;
-  int              ok;
-  if (wired_srvxdp_open(&xdp, &opt->xdp) < 0) wired_die("AF_XDP open failed\n");
-  run     = opt->run;
-  run.xdp = &xdp;
-  ok      = wired_server_run_opt(opt->port, id, h, obs, &run);
-  wired_srvxdp_print_stats(xdp.xsk.fd);
-  wired_srvxdp_close(&xdp);
-  return ok;
-}
-
-/* opt->run is copied in at RUN time, not parse time (same rule as
- * srvdriver_run_xdp's `run = opt->run`): every example sets its app-facing
- * run options (wt_on_datagram etc.) on opt.run AFTER wired_srvdriver_parse,
- * and a parse-time copy would hand every worker a stale zeroed run -- a
- * --cores chat server dropped every received datagram exactly this way. */
-static int srvdriver_run_threads(
-    wired_srvboot_id*          id,
-    wired_srvrun_handler       h,
-    wired_srvrun_obs           obs,
-    const wired_srvdriver_opt* opt) {
-  wired_srvthreads_opt t = opt->threads;
-  t.run                  = opt->run;
-  return wired_srvthreads_run(opt->port, id, h, obs, &t);
-}
-
-typedef int (*srvdriver_run_fn)(
-    wired_srvboot_id*,
-    wired_srvrun_handler,
-    wired_srvrun_obs,
-    const wired_srvdriver_opt*);
-
-static const srvdriver_run_fn SRVDRIVER_RUN_BY_KIND[4] = {
-    srvdriver_run_plain,   /* WIRED_SRVDRIVER_PLAIN */
-    srvdriver_run_workers, /* WIRED_SRVDRIVER_WORKERS */
-    srvdriver_run_xdp,     /* WIRED_SRVDRIVER_XDP */
-    srvdriver_run_threads, /* WIRED_SRVDRIVER_THREADS */
-};
-
-int wired_srvdriver_run(
-    wired_srvboot_id*          id,
-    wired_srvrun_handler       h,
-    wired_srvrun_obs           obs,
-    const wired_srvdriver_opt* opt) {
-  return SRVDRIVER_RUN_BY_KIND[opt->kind](id, h, obs, opt);
 }
