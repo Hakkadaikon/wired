@@ -6,10 +6,6 @@ int wired_main(int argc, char** argv) {
   (void)argv;
   u8 digest[SHA256_DIGEST];
   wired_sha256((const u8*)"abc", 3, digest);
-  wired_dprintf(2, "sha256(\"abc\") = ");
-  for (usz i = 0; i < sizeof digest; i++) {
-    wired_dprintf(2, "%02x", digest[i]);
-  }
-  wired_dprintf(2, "\n");
+  wired_dprintf(2, "sha256(\"abc\") = %.*H\n", (int)sizeof digest, digest);
   return 0;
 }

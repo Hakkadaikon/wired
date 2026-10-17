@@ -82,9 +82,9 @@ static void report_cert(const wired_srvboot_id* id) {
           wired_span_of(fp, sizeof fp), wired_span_of(g_last_fp, sizeof fp))) {
     return;
   }
-  wired_dprintf(2, "%sleaf sha256=", g_have_fp ? "cert reloaded, " : "");
-  wired_dump_hex(2, wired_span_of(fp, sizeof fp));
-  wired_dprintf(2, "\n");
+  wired_dprintf(
+      2, "%sleaf sha256=%.*H\n", g_have_fp ? "cert reloaded, " : "",
+      (int)sizeof fp, fp);
   memcpy(g_last_fp, fp, sizeof fp);
   g_have_fp = 1;
 }

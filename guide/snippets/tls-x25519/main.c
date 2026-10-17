@@ -25,14 +25,12 @@ int wired_main(int argc, char** argv) {
   if (!wired_x25519(bob_shared, bob_priv, alice_pub)) {
     return 1;
   }
-  wired_dprintf(2, "alice public: ");
-  wired_dump_hex(2, wired_span_of(alice_pub, 32));
-  wired_dprintf(2, "\nbob public:   ");
-  wired_dump_hex(2, wired_span_of(bob_pub, 32));
-  wired_dprintf(2, "\nshared:       ");
-  wired_dump_hex(2, wired_span_of(alice_shared, 32));
   int eq = wired_span_eq(
       wired_span_of(alice_shared, 32), wired_span_of(bob_shared, 32));
-  wired_dprintf(2, "\nshared equal: %s\n", eq ? "yes" : "no");
+  wired_dprintf(
+      2,
+      "alice public: %.32H\nbob public:   %.32H\nshared:       %.32H\n"
+      "shared equal: %s\n",
+      alice_pub, bob_pub, alice_shared, eq ? "yes" : "no");
   return 0;
 }

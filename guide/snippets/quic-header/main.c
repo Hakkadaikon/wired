@@ -20,15 +20,12 @@ int wired_main(int argc, char** argv) {
   }
 
   static const char* types[] = {"Initial", "0-RTT", "Handshake", "Retry"};
-  wired_dprintf(2, "built %llu bytes: ", (u64)n);
-  wired_dump_hex(2, wired_span_of(wire, n));
   wired_dprintf(
-      2, "\nform=%s type=%s version=0x%08x\ndcid=",
-      out.form == WIRED_FORM_LONG ? "long" : "short", types[out.long_type],
-      out.version);
-  wired_dump_hex(2, wired_span_of(out.dcid, out.dcid_len));
-  wired_dprintf(2, "\nscid=");
-  wired_dump_hex(2, wired_span_of(out.scid, out.scid_len));
-  wired_dprintf(2, "\n");
+      2,
+      "built %llu bytes: %.*H\nform=%s type=%s version=0x%08x\n"
+      "dcid=%.*H\nscid=%.*H\n",
+      (u64)n, (int)n, wire, out.form == WIRED_FORM_LONG ? "long" : "short",
+      types[out.long_type], out.version, (int)out.dcid_len, out.dcid,
+      (int)out.scid_len, out.scid);
   return 0;
 }
