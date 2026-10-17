@@ -187,14 +187,15 @@ recipes.
 | `ninja [targets]` | Freestanding compile of all of `src/`, or of the named targets. |
 | `lib` | Archive the SDK objects into `build/libwired.a`. |
 | `compdb` | Emit `compile_commands.json` for clangd. |
-| `test` | Build and run the single-TU unity test (ASan + UBSan). |
+| `test` | Build and run the single-TU unity test. |
 | `test-fast` | Same tests as `test`, from parallel shard TUs. |
+| `test-san` | CI only: the unity test under ASan + UBSan. |
 | `check` | `ccn` + `test`. |
 | `ccn [paths]` | Check that every function has CCN ≤ 3 (lizard). |
 | `wire-check` | Check that every source is in `tests/run.c` once and builds one object. |
 | `cov` | Line coverage of the unity test. |
 | `valgrind` | Run the unity test under valgrind. |
-| `san-check [ids]` | Production build with UBSan traps, driven by the guide snippets. |
+| `san-check [ids]` | CI only: production build with UBSan traps, driven by the guide snippets. |
 | `golden-check` | Check that `tests/app/moqt_golden.h` matches its test vectors. |
 | `fuzz-smoke` | Build each fuzz harness and run it once. |
 | `fuzz-ci [secs]` | Run each fuzz harness for `secs` seconds (default 120). |
@@ -222,15 +223,17 @@ Notes on a few recipes:
 - **`valgrind`** names the culprit of a hang that happens only sometimes.
   Freestanding code gets no implicit zeroing, so such a hang usually means
   an uninitialized variable.
-- **`test`** and **`test-fast`** build with AddressSanitizer and
+- **`test-san`** builds the unity test with AddressSanitizer and
   UndefinedBehaviorSanitizer, so an out-of-bounds access (stack, global or
-  heap) or undefined behavior stops the run at the faulting line. `cov` and
-  `valgrind` build without them.
+  heap) or undefined behavior stops the run at the faulting line. It takes
+  several times longer than `test`, so CI runs it (the `sanitize` job) and
+  the local loop does not; run it by hand when chasing memory corruption.
 - **`san-check`** rebuilds the freestanding SDK, examples and guide
   snippets under `build/san/` with UBSan and array-bounds checks in trap
   mode, then runs the guide snippets against them. A check that fires kills
   the server with SIGILL, so the snippet fails. ASan is not available
-  there: its runtime needs libc. It needs go and node 22.
+  there: its runtime needs libc. It needs go and node 22. CI runs it in
+  the same `sanitize` job.
 - **`docs`** reads `wired.h`'s transitive includes and treats warnings as
   errors, so a public declaration without a doxygen comment fails it.
 

@@ -38,6 +38,7 @@ As of writing, the jobs are:
 | `ci.yml`  | test (`just test`)               | any `src/**/*.c`, `tests/**/*.c`   | part of the three-point gate |
 | `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
+| `ci.yml`  | sanitize (job): `just test-san`, `just ninja san` + guide runner | every push | `just test-san` (ASan+UBSan unity test, several times slower than `test`), `just san-check` (needs go + node 22); CI only, not part of the local gate |
 | `ci.yml`  | fuzz smoke (`just fuzz-smoke`)   | any `src/**/*.c`, `fuzz/**`        | `just fuzz-smoke` (clang + libFuzzer/ASan; a `src/` API signature change can break a `fuzz/*.c` harness the three-point gate never compiles — this shipped red to `main` on 2026-08-21) |
 | `ci.yml`  | halstead-check, py-check, sh-check | `src/**`, `examples/**`, `scripts/**`, `*.sh`, `justfile` | `just halstead-check`, `just py-check`, `just sh-check` (pinned ruff/shellcheck/just in the devShell; the host's `just` formats the justfile differently -- use `nix develop -c just --fmt --unstable`) |
 | `ci.yml`  | js (job) | `examples/moqt_chat/frontend/**`, `examples/moqt_chat/e2e/**` | `just js-check` (needs both node_modules installed) |
