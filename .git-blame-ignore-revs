@@ -1,0 +1,5 @@
+# Formatting-only commits for `git blame` to skip. GitHub reads this file
+# itself; locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: brace every control-statement body (clang-format InsertBraces)
+fcfc121f0678d3eee0e320411ee326d31a8d67a5
