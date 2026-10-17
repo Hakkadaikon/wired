@@ -142,27 +142,29 @@ static int can_send(const driver* d) {
   return d->out_len == 0 && pos < G_ORDER_LEN && sends_index(d, pos);
 }
 
+/* Seal a one-byte STREAM frame carrying msg at level into the outbox through
+ * connio. Returns the sealed length, 0 if gated/failed. */
+static usz driver_seal_msg(driver* d, u8 level, u8 msg) {
+  u8           frames[32];
+  stream_frame stf = {
+      .stream_id = 0, .offset = d->tx_off, .length = 1, .data = &msg, .fin = 0};
+  connio_send_in sin = {
+      level,
+      wired_span_of(frames, frame_put_stream(frames, sizeof(frames), &stf))};
+  wired_obuf ob = obuf_of(d->out_buf, sizeof(d->out_buf));
+  return connio_send(&d->io, &sin, &ob);
+}
+
 /* Seal the next outbound transcript message: a one-byte STREAM frame carrying
  * the message type, at its protection level, through connio. */
 static int do_send(driver* d) {
-  u8           pos = hs_pos(d), msg, level, frames[32];
-  stream_frame stf;
-  usz          fl, n;
+  u8  pos = hs_pos(d), msg, level;
+  usz n;
   if (!can_send(d)) return 0;
   msg   = g_order[pos][0];
   level = g_order[pos][1];
   derive_for(d, msg); /* keys for this send level (server SH/Finished/Done) */
-  stf.stream_id = 0;
-  stf.offset    = d->tx_off;
-  stf.length    = 1;
-  stf.data      = &msg;
-  stf.fin       = 0;
-  fl            = frame_put_stream(frames, sizeof(frames), &stf);
-  {
-    connio_send_in sin = {level, wired_span_of(frames, fl)};
-    wired_obuf     ob  = obuf_of(d->out_buf, sizeof(d->out_buf));
-    n                  = connio_send(&d->io, &sin, &ob);
-  }
+  n = driver_seal_msg(d, level, msg);
   if (n == 0) return 0;
   advance_order(d, msg, level);
   d->out_len = n;
