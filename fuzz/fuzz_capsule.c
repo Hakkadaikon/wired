@@ -30,6 +30,7 @@
 #include "app/qpack/qpackdyn/enc_stream_qdyn_enc.c"
 #include "app/qpack/qpackdyn/enc_stream_rx.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
+#include "app/webtransport/capsule/wtcapsule/wtcapsule_utf8.c"
 #include "common/bytes/varint/varint.c"
 
 /* RFC 9297 3: walk every complete capsule, then the WT-typed decoders at

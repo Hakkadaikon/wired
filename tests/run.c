@@ -698,6 +698,7 @@
 #include "app/webtransport/errmap/errmap/errmap.c"
 #include "app/rawquic/rawq.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
+#include "app/webtransport/capsule/wtcapsule/wtcapsule_utf8.c"
 #include "app/webtransport/wtwire/wtwire.c"
 #include "tls/ext/salpn/idna.c"
 #include "tls/ext/salpn/sni_check.c"
