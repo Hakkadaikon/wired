@@ -54,6 +54,58 @@ static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
   id->now_secs                = wired_clock_epoch_secs();
 }
 
+/* Routes every WebTransport and raw-QUIC session callback to the hub. */
+static void hub_callbacks(wired_srvrun_opt* run) {
+  run->wt_on_session           = wired_moqt_on_session;
+  run->wt_session_ctx          = &g_hub;
+  run->wt_on_stream_data       = wired_moqt_on_stream_data;
+  run->wt_stream_data_ctx      = &g_hub;
+  run->wt_on_datagram          = wired_moqt_on_datagram;
+  run->wt_datagram_ctx         = &g_hub;
+  run->wt_on_stream_reset      = wired_moqt_on_stream_reset;
+  run->wt_stream_reset_ctx     = &g_hub;
+  run->wt_on_session_close     = wired_moqt_on_session_close;
+  run->wt_session_close_ctx    = &g_hub;
+  run->wt_on_session_draining  = wired_moqt_on_session_draining;
+  run->wt_session_draining_ctx = &g_hub;
+  run->raw_on_session          = wired_moqt_on_session_raw;
+  run->raw_session_ctx         = &g_hub;
+  run->on_step                 = on_step;
+  run->on_step_ctx             = &g_hub;
+}
+
+/* RFC 7301 3.2: the same static list doubles as the raw-QUIC ALPN set,
+ * unless --no-raw keeps the server WebTransport-only. */
+static void raw_alpns(
+    wired_srvboot_id* id, const char* protocols, int argc, char** argv) {
+  if (!wired_cliargs_flag(argc, argv, "--no-raw")) {
+    id->raw_alpns = protocols;
+  }
+}
+
+/* --qlog/--keylog observers and the --cert/--key PEM pair. */
+static wired_srvrun_obs cli_obs(int argc, char** argv) {
+  return (wired_srvrun_obs){
+      wired_cliargs_str(argc, argv, "--qlog", 0),
+      wired_cliargs_str(argc, argv, "--keylog", 0),
+      wired_cliargs_str(argc, argv, "--cert", 0),
+      wired_cliargs_str(argc, argv, "--key", 0), 0};
+}
+
+/* Driver flags, the offered MoQT versions, and the hub callbacks. */
+static void run_setup(
+    wired_srvdriver_opt* opt, wired_srvboot_id* id, int argc, char** argv) {
+  static char wt_protocols[32];
+  if (!wired_srvdriver_parse(argc, argv, opt)) {
+    wired_die("bad CLI flags (single-process only)\n");
+  }
+  wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
+  raw_alpns(id, wt_protocols, argc, argv);
+  opt->run.incoming_cpu = -1;
+  opt->run.wt_protocols = wt_protocols;
+  hub_callbacks(&opt->run);
+}
+
 __attribute__((force_align_arg_pointer, used)) int wired_main(
     int argc, char** argv) {
   static wired_certreload_store cert_store;
@@ -61,46 +113,14 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_srvboot_demo_keys       keys;
   wired_srvdriver_opt           opt;
   wired_srvrun_handler          h   = {.cb = app_on_request};
-  wired_srvrun_obs              obs = {
-      wired_cliargs_str(argc, argv, "--qlog", 0),
-      wired_cliargs_str(argc, argv, "--keylog", 0),
-      wired_cliargs_str(argc, argv, "--cert", 0),
-      wired_cliargs_str(argc, argv, "--key", 0), 0};
+  wired_srvrun_obs              obs = cli_obs(argc, argv);
 
   server_identity(&id, &keys);
   wired_certreload_load_or_selfsigned(
       obs.cert_path, obs.key_path, &cert_store, &id);
   wired_moqt_init(&g_hub, wired_moqraw_io());
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
-
-  if (!wired_srvdriver_parse(argc, argv, &opt)) {
-    wired_die("bad CLI flags (single-process only)\n");
-  }
-  static char wt_protocols[32];
-  wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
-  /* RFC 7301 3.2: the same static list doubles as the raw-QUIC ALPN set. */
-  if (!wired_cliargs_flag(argc, argv, "--no-raw")) {
-    id.raw_alpns = wt_protocols;
-  }
-
-  opt.run.incoming_cpu            = -1;
-  opt.run.wt_protocols            = wt_protocols;
-  opt.run.wt_on_session           = wired_moqt_on_session;
-  opt.run.wt_session_ctx          = &g_hub;
-  opt.run.wt_on_stream_data       = wired_moqt_on_stream_data;
-  opt.run.wt_stream_data_ctx      = &g_hub;
-  opt.run.wt_on_datagram          = wired_moqt_on_datagram;
-  opt.run.wt_datagram_ctx         = &g_hub;
-  opt.run.wt_on_stream_reset      = wired_moqt_on_stream_reset;
-  opt.run.wt_stream_reset_ctx     = &g_hub;
-  opt.run.wt_on_session_close     = wired_moqt_on_session_close;
-  opt.run.wt_session_close_ctx    = &g_hub;
-  opt.run.wt_on_session_draining  = wired_moqt_on_session_draining;
-  opt.run.wt_session_draining_ctx = &g_hub;
-  opt.run.raw_on_session          = wired_moqt_on_session_raw;
-  opt.run.raw_session_ctx         = &g_hub;
-  opt.run.on_step                 = on_step;
-  opt.run.on_step_ctx             = &g_hub;
+  run_setup(&opt, &id, argc, argv);
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) {
     wired_die("listen failed\n");
