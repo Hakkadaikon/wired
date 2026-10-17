@@ -5,8 +5,11 @@ exit points and parameters per function, then per file. MI is printed in
 its three forms: original (171-based), SEI (with comment weight) and
 Visual Studio (0..100).
 
-With --check, print only what breaks a limit below (compiler warning
-format) and exit 1 if anything does."""
+With --check [--profile NAME], print only what breaks the profile's
+limits (compiler warning format) and exit 1 if anything does.
+
+The ratchet profiles' MI (VS) floors are the MI original floor * 100/171,
+the Visual Studio scaling."""
 
 import json
 import os
@@ -14,25 +17,54 @@ import sys
 
 COLS = "  volume   diff     effort   bugs  mi_orig  mi_sei  mi_vs exits args  location"
 
+
 # Common guidelines: Halstead volume <= 1000 per function and <= 8000 per
 # file, difficulty <= 30 (Verifysoft); delivered bugs <= 0.5 per function
 # and <= 2 per file; MI original >= 65 (Oman/Hagemeister), Visual Studio
 # >= 20; <= 4 exits; <= 7 parameters (SonarQube). MI is a per-function
 # measure: file-level MI falls with file size alone (it would cap files at
 # ~50 lines), so no file MI limit.
-FN_LIMITS = (
-    ("halstead", "volume", "volume", lambda v: v > 1000),
-    ("halstead", "difficulty", "difficulty", lambda v: v > 30),
-    ("halstead", "bugs", "bugs", lambda v: v > 0.5),
-    ("mi", "mi_original", "MI", lambda v: v < 65),
-    ("mi", "mi_visual_studio", "MI (VS)", lambda v: v < 20),
-    ("nexits", "sum", "exits", lambda v: v > 4),
-    ("nargs", "total_functions", "parameters", lambda v: v > 7),
-)
-FILE_LIMITS = (
-    ("halstead", "volume", "volume", lambda v: v > 8000),
-    ("halstead", "bugs", "bugs", lambda v: v > 2),
-)
+def over(x):
+    return lambda v: v > x
+
+
+def under(x):
+    return lambda v: v < x
+
+
+def fn_limits(volume, difficulty, bugs, mi, mi_vs, exits, args):
+    return (
+        ("halstead", "volume", "volume", over(volume)),
+        ("halstead", "difficulty", "difficulty", over(difficulty)),
+        ("halstead", "bugs", "bugs", over(bugs)),
+        ("mi", "mi_original", "MI", under(mi)),
+        ("mi", "mi_visual_studio", "MI (VS)", under(mi_vs)),
+        ("nexits", "sum", "exits", over(exits)),
+        ("nargs", "total_functions", "parameters", over(args)),
+    )
+
+
+def file_limits(volume, bugs):
+    return (
+        ("halstead", "volume", "volume", over(volume)),
+        ("halstead", "bugs", "bugs", over(bugs)),
+    )
+
+
+FN_LIMITS = fn_limits(1000, 30, 0.5, 65, 20, 4, 7)
+FILE_LIMITS = file_limits(8000, 2)
+# --profile: "sdk" (the limits above) for src/, the examples' C and
+# scripts/; a ratchet at the maximum measured when the gate was added
+# (2026-10-17) for the moqt_chat frontend and e2e scripts, which predate
+# it -- they may not get worse.
+PROFILES = {
+    "sdk": (FN_LIMITS, FILE_LIMITS),
+    "frontend": (
+        fn_limits(30767, 89.5, 5.11, -17.9, -10.5, 6, 20),
+        file_limits(96857, 14),
+    ),
+    "e2e": (fn_limits(5627, 37.5, 1.18, 41.8, 24.4, 4, 8), file_limits(21638, 4.42)),
+}
 # Generated data, not code: its volume counts the table's literals.
 EXEMPT = ("src/crypto/asymmetric/ecc/p256fixed/p256fixed_table.c",)
 
@@ -85,18 +117,18 @@ def load(root):
     return sorted(units, key=lambda u: u["name"])
 
 
-def fn_warnings(u):
+def fn_warnings(u, limits):
     return [
         "%s:%d: warning: %s has %s" % (u["name"], s["start_line"], s["name"], b)
         for s in functions(u)
-        for b in breaks(s["metrics"], FN_LIMITS)
+        for b in breaks(s["metrics"], limits)
     ]
 
 
-def file_warnings(u):
+def file_warnings(u, limits):
     return [
         "%s:1: warning: file has %s" % (u["name"], b)
-        for b in breaks(u["metrics"], FILE_LIMITS)
+        for b in breaks(u["metrics"], limits)
     ]
 
 
@@ -108,9 +140,13 @@ def emit(lines):
     sys.stdout.writelines(line + "\n" for line in lines)
 
 
-def check(units):
-    """Print every limit broken (compiler warning format); their count."""
-    lines = [w for u in checked(units) for w in fn_warnings(u) + file_warnings(u)]
+def check(units, profile="sdk"):
+    """Print every limit of profile broken (compiler warning format);
+    their count. An unknown profile raises KeyError."""
+    fn, fl = PROFILES[profile]
+    lines = [
+        w for u in checked(units) for w in fn_warnings(u, fn) + file_warnings(u, fl)
+    ]
     emit(lines)
     return len(lines)
 
@@ -130,7 +166,17 @@ def report(units):
     print("\n".join(row(u["metrics"], u["name"]) for u in units))
 
 
+def profile_of(args):
+    """args after --check: [--profile NAME] DIR."""
+    return args[1] if args[0] == "--profile" else "sdk"
+
+
+def main(args):
+    if args[0] != "--check":
+        report(load(args[0]))
+        return 0
+    return 1 if check(load(args[-1]), profile_of(args[1:])) else 0
+
+
 if __name__ == "__main__":
-    if sys.argv[1] == "--check":
-        sys.exit(1 if check(load(sys.argv[2])) else 0)
-    report(load(sys.argv[1]))
+    sys.exit(main(sys.argv[1:]))

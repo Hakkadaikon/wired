@@ -82,6 +82,32 @@ class CheckTest(unittest.TestCase):
         self.assertEqual(self.run_check(unit("a.ts", m))[0], 0)
 
 
+class ProfileTest(unittest.TestCase):
+    """--profile picks another limit set: the SDK's by default, a ratchet
+    at today's maximum for code that predates the gate (frontend, e2e)."""
+
+    def setUp(self):
+        self.h = load_module()
+
+    def count(self, profile, volume):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "u.json"), "w") as f:
+                json.dump(unit("a.mjs", metrics(volume=volume)), f)
+            with redirect_stdout(io.StringIO()):
+                return self.h.check(self.h.load(d), profile)
+
+    def test_default_profile_is_the_sdk_limits(self):
+        self.assertEqual(self.count("sdk", 5000.0), 1)
+
+    def test_e2e_profile_allows_up_to_its_ratchet(self):
+        self.assertEqual(self.count("e2e", 5000.0), 0)
+        self.assertEqual(self.count("e2e", 6000.0), 1)
+
+    def test_unknown_profile_is_an_error(self):
+        with self.assertRaises(KeyError):
+            self.count("nope", 1.0)
+
+
 class ReportTest(unittest.TestCase):
     def test_null_values_print_a_dash(self):
         h = load_module()
