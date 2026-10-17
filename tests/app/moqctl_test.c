@@ -1135,10 +1135,10 @@ static void test_moqctl_params_include_properties_range(void) {
 /* Decodes the one-parameter list {type, val} under ctx into *out. */
 static int mqpt_take(
     u64 type, const u8* val, usz n, u32 ctx, moqctl_params* out) {
-  mqpt_row r = {type, 0, val, n};
-  u8       buf[32];
-  usz      len  = mqpt_build(buf, sizeof buf, &r);
-  usz      roff = 0;
+  mqpt_row  r = {type, 0, val, n};
+  static u8 buf[32]; /* out views into it (moqctl_params_take is a view API) */
+  usz       len  = mqpt_build(buf, sizeof buf, &r);
+  usz       roff = 0;
   return moqctl_params_take(
       MOQVER_D19, wired_span_of(buf, len), &roff, ctx, out);
 }

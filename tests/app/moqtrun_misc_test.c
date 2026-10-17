@@ -215,6 +215,12 @@ static void test_moqtrun_misc_pub_error_after_ok_closes(void) {
   CHECK(mtrq_closes() == 1);
 }
 
+/* moqtrun_envelope_put's body_fn type; calling the typed encoder through a
+ * cast pointer is undefined (C11 6.3.2.3p8, UBSan -fsanitize=function). */
+static int mtmisc_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_request_ok_encode(buf, off, m);
+}
+
 /* B's REQUEST_OK on the PUBLISH stream sid carrying params sp; 1 when
  * that body decodes under the session's draft (the codec's own per-draft
  * parameter scope, moqctl_request_ok_take). */
@@ -227,7 +233,7 @@ static int mtmi_pub_ok_p(u64 sid, const moqctl_params* sp) {
   ok.params = *sp;
   usz n     = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
-      (moqtrun_body_encode_fn)moqctl_request_ok_encode, &ok);
+      mtmisc_encode_request_ok, &ok);
   wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(msg, n), 0);
   if (moqctl_peek_type(wired_span_of(msg, n), &off, &type, &body) !=
       MOQCTL_OK) {

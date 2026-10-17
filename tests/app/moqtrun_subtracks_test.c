@@ -181,6 +181,17 @@ static i64 mtst_pub_stream_id(usz which) {
   return -1;
 }
 
+/* moqtrun_envelope_put's body_fn type; calling the typed encoder through a
+ * cast pointer is undefined (C11 6.3.2.3p8, UBSan -fsanitize=function). */
+static int mtsub_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_request_ok_encode(buf, off, m);
+}
+
+static int mtsub_encode_request_error(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqctl_request_error_encode(buf, off, m);
+}
+
 /* Sends REQUEST_OK (empty params) on sid as the PUBLISH's receiver. */
 static void mtst_pub_ok(wired_wt_session* s, u64 sid) {
   u8                       msg[16];
@@ -188,7 +199,7 @@ static void mtst_pub_ok(wired_wt_session* s, u64 sid) {
   static moqctl_request_ok ok = {0};
   n                           = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
-      (moqtrun_body_encode_fn)moqctl_request_ok_encode, &ok);
+      mtsub_encode_request_ok, &ok);
   wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
 }
 
@@ -199,7 +210,7 @@ static void mtst_pub_err(wired_wt_session* s, u64 sid, u64 code) {
   e.error_code                  = code;
   n                             = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
-      (moqtrun_body_encode_fn)moqctl_request_error_encode, &e);
+      mtsub_encode_request_error, &e);
   wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
 }
 
