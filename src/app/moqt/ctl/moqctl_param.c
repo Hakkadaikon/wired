@@ -6,8 +6,12 @@ static int moqctl_param_take_varint(wired_span buf, usz* at, u64* out);
 /* ===== Reason Phrase (SS1.4.4) ===== */
 
 static int moqctl_reason_take_len(wired_span buf, usz* at, u64* len) {
-  if (!moqctl_span_take_len(buf, at, len)) return MOQCTL_INSUFFICIENT;
-  if (*len > MOQCTL_MAX_REASON_LEN) return MOQCTL_VIOLATION;
+  if (!moqctl_span_take_len(buf, at, len)) {
+    return MOQCTL_INSUFFICIENT;
+  }
+  if (*len > MOQCTL_MAX_REASON_LEN) {
+    return MOQCTL_VIOLATION;
+  }
   return MOQCTL_OK;
 }
 
@@ -15,17 +19,25 @@ int moqctl_reason_take(wired_span buf, usz* off, moqctl_reason* out) {
   usz at = *off;
   u64 len;
   int r = moqctl_reason_take_len(buf, &at, &len);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   r = moqctl_bytes_take(buf, &at, len, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *off = at;
   return MOQCTL_OK;
 }
 
 int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason) {
   usz at = *off;
-  if (!moqvi_put(buf, &at, reason.n)) return 0;
-  if (!bytes_put(buf, &at, reason)) return 0;
+  if (!moqvi_put(buf, &at, reason.n)) {
+    return 0;
+  }
+  if (!bytes_put(buf, &at, reason)) {
+    return 0;
+  }
   *off = at;
   return 1;
 }

@@ -25,7 +25,9 @@ static void moqtrun_pre_rest(
     wired_span          data,
     usz                 skip,
     int                 fin) {
-  if (skip == data.n && !fin) return;
+  if (skip == data.n && !fin) {
+    return;
+  }
   moqtrun_rx_route(
       hub, p, sid, wired_span_of(data.p + skip, data.n - skip), fin);
 }
@@ -65,10 +67,11 @@ void moqtrun_dispatch_held(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_pre_is(p, stream_id))
+  if (moqtrun_pre_is(p, stream_id)) {
     moqtrun_pre_feed(hub, p, stream_id, data, fin);
-  else
+  } else {
     moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+  }
 }
 
 /* s's peer in hub, 0 for an unknown session or a NULL hub. */
@@ -85,11 +88,14 @@ void wired_moqt_on_stream_data(
     int               fin) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_peer_of_ctx(hub, s);
-  if (!p) return;
-  if (moqtrun_pre_is(p, stream_id))
+  if (!p) {
+    return;
+  }
+  if (moqtrun_pre_is(p, stream_id)) {
     moqtrun_pre_feed(hub, p, stream_id, data, fin);
-  else
+  } else {
     moqtrun_rx_route(hub, p, stream_id, data, fin);
+  }
   moqtrun_hold_replay(hub, p);
   moqtrun_pubdone_sweep(hub);
 }
@@ -118,7 +124,10 @@ int moqtrun_props_have_timeout(wired_span props) {
   usz    off  = 0;
   u64    prev = 0;
   moqkvp kv;
-  while (moqtrun_kvp_next(props, &off, &prev, &kv))
-    if (moqtrun_prop_is_timeout(kv.type)) return 1;
+  while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
+    if (moqtrun_prop_is_timeout(kv.type)) {
+      return 1;
+    }
+  }
   return 0;
 }

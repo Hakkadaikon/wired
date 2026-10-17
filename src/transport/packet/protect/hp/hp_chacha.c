@@ -8,5 +8,7 @@ void hp_chacha_mask(const u8 hp_key[32], const u8 sample[16], u8 mask[5]) {
                 ((u32)sample[2] << 16) | ((u32)sample[3] << 24);
   u8  block[CHACHA_BLOCK];
   chacha20_block(hp_key, counter, sample + 4, block);
-  for (usz i = 0; i < 5; i++) mask[i] = block[i];
+  for (usz i = 0; i < 5; i++) {
+    mask[i] = block[i];
+  }
 }

@@ -27,7 +27,9 @@ static int app_ack_ecn_any_seen(const wired_srvloop* l) {
  * -- the pre-existing non-ECN wire format for a connection/path that never
  * reported an ECN-marked datagram. */
 static void app_ack_set_ecn(const wired_srvloop* l, ack_frame* f) {
-  if (!app_ack_ecn_any_seen(l)) return;
+  if (!app_ack_ecn_any_seen(l)) {
+    return;
+  }
   f->has_ecn = 1;
   f->ect0    = l->ecn_ect0;
   f->ect1    = l->ecn_ect1;
@@ -48,9 +50,12 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
   u64obuf   ranges = {raw, sizeof raw / sizeof raw[0], 0};
   ack_frame f      = {0};
   if (!pnspaces_ack_ranges(
-          &l->ack_recv, PNS_APP, &(pnspaces_ack_out){&largest, &ranges}))
+          &l->ack_recv, PNS_APP, &(pnspaces_ack_out){&largest, &ranges})) {
     return 0;
-  if (!ackrangeconv_to_frame(largest, raw, ranges.len, &f)) return 0;
+  }
+  if (!ackrangeconv_to_frame(largest, raw, ranges.len, &f)) {
+    return 0;
+  }
   f.ack_delay = ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
       ACK_DELAY_EXPONENT_DEFAULT);
@@ -68,7 +73,9 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
  * step's due-check starts fresh. */
 usz srvloop_app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
   usz n = app_ack_encode_ranges(l, buf, cap);
-  if (n) ackpolicy_on_ack_sent(&l->app_ack_policy);
+  if (n) {
+    ackpolicy_on_ack_sent(&l->app_ack_policy);
+  }
   return n;
 }
 
@@ -79,13 +86,19 @@ usz srvloop_app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
  * Suppressed while ack_defer is set: the driving loop (srvrun.c) piggybacks
  * or flushes the pending ACK itself this step. */
 usz srvloop_app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap) {
-  if (l->ack_defer) return 0;
-  if (!app_ack_due(l)) return 0;
+  if (l->ack_defer) {
+    return 0;
+  }
+  if (!app_ack_due(l)) {
+    return 0;
+  }
   return srvloop_app_ack_append(l, buf, cap);
 }
 
 usz wired_srvloop_ack_peek(wired_srvloop* l, u8* buf, usz cap) {
-  if (!l->app_ack_policy.pending) return 0;
+  if (!l->app_ack_policy.pending) {
+    return 0;
+  }
   return app_ack_encode_ranges(l, buf, cap);
 }
 
@@ -145,10 +158,14 @@ int srvloop_confirm_then_maybe_200(
     const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
   wired_obuf ob = obuf_of(out->p, out->cap);
   usz        a;
-  if (!srvloop_confirm_payload(c, &ob)) return 0;
+  if (!srvloop_confirm_payload(c, &ob)) {
+    return 0;
+  }
   a  = ob.len;
   ob = obuf_of(out->p + a, out->cap - a);
-  if (!srvloop_response_frame(c->l, got_request, &ob)) return 0;
+  if (!srvloop_response_frame(c->l, got_request, &ob)) {
+    return 0;
+  }
   out->len = a + ob.len;
   return 1;
 }

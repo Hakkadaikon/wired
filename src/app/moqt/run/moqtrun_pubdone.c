@@ -25,11 +25,12 @@ static int moqtrun_rp_of(
  * a new path ends now with PUBLISH_DONE GOING_AWAY, as its Established
  * subscriptions do. */
 void moqtrun_rp_flush(wired_moqt_hub* hub, const wired_moqtrun_peer* p) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     if (moqtrun_rp_of(&hub->rdv[i], p)) {
       hub->rdv[i].done_status = MOQCTL_DONE_GOING_AWAY;
       moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rp_do_done, 0, 0);
     }
+  }
 }
 
 /* A new path's SUBSCRIBE_OK: a waiter moqtrun_reattach_subs could not
@@ -45,8 +46,9 @@ void moqtrun_rp_do_relinked(
     wired_moqtrun_track*     t,
     u64                      code) {
   usz pi = (usz)(sp - hub->peers);
-  if (!moqtrun_track_sub_by_rid(t, pi, sp->req->request_id))
+  if (!moqtrun_track_sub_by_rid(t, pi, sp->req->request_id)) {
     moqtrun_rp_do_done(hub, sp, r, t, code);
+  }
 }
 
 /* Sub slot si's end: a wait for a new path, or -- status MOQTRUN_RP_NONE,
@@ -61,22 +63,27 @@ static void moqtrun_track_end_slot(
     moqtrun_sub_done_slot(hub, t, si, moqtrun_pubdone_status(t));
     return;
   }
-  if (!moqtrun_rp_wait(hub, t, si, u, status))
+  if (!moqtrun_rp_wait(hub, t, si, u, status)) {
     moqtrun_sub_done_slot(hub, t, si, status);
+  }
 }
 
 void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   wired_moqtrun_up* u      = moqtrun_up_of_track(hub, t);
   u64               status = u ? moqtrun_rp_status(t) : MOQTRUN_RP_NONE;
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
     moqtrun_track_end_slot(hub, t, si, u, status);
+  }
 }
 
 /* A publisher's session is ending: every subscription to its tracks ends
  * with TRACK_ENDED (10.11). */
 void moqtrun_peer_tracks_ended(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (p->tracks[t].in_use) moqtrun_track_ended(hub, &p->tracks[t]);
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (p->tracks[t].in_use) {
+      moqtrun_track_ended(hub, &p->tracks[t]);
+    }
+  }
 }
 
 /* ============ publisher's PUBLISH_DONE relayed (draft 10.11) ============
@@ -97,20 +104,28 @@ void moqtrun_peer_tracks_ended(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
 /* The status a track's subscribers get when it ends now: the publisher's
  * own PUBLISH_DONE status when one is waiting, else TRACK_ENDED. */
 static u64 moqtrun_pubdone_status(const wired_moqtrun_track* t) {
-  if (t->malformed) return MOQCTL_DONE_MALFORMED_TRACK;
+  if (t->malformed) {
+    return MOQCTL_DONE_MALFORMED_TRACK;
+  }
   return t->pubdone_pending ? t->pubdone_status : MOQCTL_DONE_TRACK_ENDED;
 }
 
 /* p's track claimed by its PUBLISH of Request ID rid, else 0. */
 wired_moqtrun_track* moqtrun_pubdone_track_of(wired_moqtrun_peer* p, u64 rid) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_is_req(&p->tracks[t], rid)) return &p->tracks[t];
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (moqtrun_track_is_req(&p->tracks[t], rid)) {
+      return &p->tracks[t];
+    }
+  }
   return 0;
 }
 
 static int moqtrun_pubdone_relaying(const wired_moqtrun_track* t) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-    if (t->relays[r].in_use) return 1;
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (t->relays[r].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 

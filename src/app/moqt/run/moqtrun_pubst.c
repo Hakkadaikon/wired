@@ -49,7 +49,9 @@ static void moqtrun_pubst_attach(
 int moqtrun_pubst_repeat(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
   wired_moqtrun_req* saved = p->req;
-  if (!q->pub_answered) return 0;
+  if (!q->pub_answered) {
+    return 0;
+  }
   p->req = q;
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   p->req = saved;
@@ -63,7 +65,9 @@ int moqtrun_pubst_repeat(
  * REQUEST_ERROR with error code INVALID_FILTER". 1 when params pass. */
 static int moqtrun_pubst_filters_ok(
     const wired_moqtrun_req* q, const moqctl_params* params) {
-  if (moqtrun_rngf_rows_over(q->rngf, q->rngf_n, params)) return 0;
+  if (moqtrun_rngf_rows_over(q->rngf, q->rngf_n, params)) {
+    return 0;
+  }
   return moqtrun_rngf_refusal(params) == MOQTRUN_REQ_ACCEPT;
 }
 
@@ -78,8 +82,12 @@ static int moqtrun_pubst_ok_valid(
   moqctl_request_ok ok  = {0};
   usz               off = 0;
   int               r   = moqctl_request_ok_take(p->ver, body, &off, &ok);
-  if (!moqtrun_take_or_close(hub, p, r)) return 0;
-  if (moqtrun_pubst_filters_ok(p->req, &ok.params)) return 1;
+  if (!moqtrun_take_or_close(hub, p, r)) {
+    return 0;
+  }
+  if (moqtrun_pubst_filters_ok(p->req, &ok.params)) {
+    return 1;
+  }
   moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_FILTER);
   return 0;
 }
@@ -93,12 +101,16 @@ static void moqtrun_pubst_ok(
     wired_moqtrun_req*  q,
     wired_span          body) {
   wired_moqtrun_req* saved = p->req;
-  if (moqtrun_pubst_repeat(hub, p, q)) return;
+  if (moqtrun_pubst_repeat(hub, p, q)) {
+    return;
+  }
   q->pub_answered = 1;
   p->req          = q;
   q->live         = moqtrun_pubst_ok_valid(hub, p, body);
   p->req          = saved;
-  if (q->live) moqtrun_pubst_attach(hub, p, q, body);
+  if (q->live) {
+    moqtrun_pubst_attach(hub, p, q, body);
+  }
 }
 
 static void moqtrun_pubst_error(
@@ -108,7 +120,9 @@ static void moqtrun_pubst_error(
     wired_span          body) {
   usz                  off = 0;
   moqctl_request_error e;
-  if (moqtrun_pubst_repeat(hub, p, q)) return;
+  if (moqtrun_pubst_repeat(hub, p, q)) {
+    return;
+  }
   q->pub_answered = moqctl_request_error_take(body, &off, &e) == MOQCTL_OK;
 }
 
@@ -148,7 +162,10 @@ static const struct {
 
 moqtrun_pubst_fn moqtrun_pubst_lookup(u64 type) {
   for (usz i = 0;
-       i < sizeof moqtrun_pubst_table / sizeof moqtrun_pubst_table[0]; i++)
-    if (moqtrun_pubst_table[i].type == type) return moqtrun_pubst_table[i].fn;
+       i < sizeof moqtrun_pubst_table / sizeof moqtrun_pubst_table[0]; i++) {
+    if (moqtrun_pubst_table[i].type == type) {
+      return moqtrun_pubst_table[i].fn;
+    }
+  }
   return moqtrun_pubst_ignore;
 }

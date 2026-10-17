@@ -26,7 +26,9 @@ usz qpack_prefix_encode(u8* buf, usz cap, const qpack_prefix* p) {
 usz qpack_prefix_decode(const u8* buf, usz n, qpack_prefix* p) {
   usz off =
       qpack_int_decode(wired_span_of(buf, n), 8, &p->required_insert_count);
-  if (off == 0) return 0;
+  if (off == 0) {
+    return 0;
+  }
   p->sign = (buf[off] & PREFIX_SIGN_BIT) ? 1 : 0;
   return prefix_join(
       off,

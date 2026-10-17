@@ -37,7 +37,9 @@ static int moqtrun_up_send(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE,
       moqtrun_up_encode_sub, &m);
   sid = hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n));
-  if (sid < 0) return 0;
+  if (sid < 0) {
+    return 0;
+  }
   pp->request_id_next += 2;
   moqtrun_up_store(u, pp->wt, (u64)sid, m.request_id, k);
   moqtrun_rp_mark(hub, k, pp->wt);
@@ -48,7 +50,9 @@ static int moqtrun_up_send(
 static int moqtrun_up_open(
     wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k) {
   wired_moqtrun_up* u = a ? moqtrun_up_free_slot(hub) : 0;
-  if (!u) return 0;
+  if (!u) {
+    return 0;
+  }
   return moqtrun_up_send(hub, moqtrun_find_by_wt(hub, a->wt), u, k);
 }
 
@@ -63,14 +67,19 @@ static int moqtrun_rdv_fresh(const wired_moqtrun_rdv* r, moqtrun_key k) {
 /* Every SUBSCRIBE waiting for k is answered REQUEST_ERROR code; a wait
  * for a new path keeps waiting. */
 void moqtrun_up_refuse_waiters(wired_moqt_hub* hub, moqtrun_key k, u64 code) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_fresh(&hub->rdv[i], k))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_fresh(&hub->rdv[i], k)) {
       moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_refuse, 0, code);
+    }
+  }
 }
 
 int moqtrun_up_waiters(wired_moqt_hub* hub, moqtrun_key k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_matches(&hub->rdv[i], k)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_matches(&hub->rdv[i], k)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -79,7 +88,9 @@ int moqtrun_up_waiters(wired_moqt_hub* hub, moqtrun_key k) {
  * EXCESSIVE_LOAD. A rendezvous hold keeps waiting for its deadline. */
 static void moqtrun_up_unserved(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, const wired_moqtrun_req* a) {
-  if (!r->up_only) return;
+  if (!r->up_only) {
+    return;
+  }
   moqtrun_rdv_answer(
       hub, r, moqtrun_rdv_do_refuse, 0,
       a ? MOQCTL_ERR_EXCESSIVE_LOAD : MOQCTL_ERR_DOES_NOT_EXIST);
@@ -93,9 +104,13 @@ static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r) {
 void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
   moqtrun_key        k = moqtrun_up_rdv_key(r);
   wired_moqtrun_req* a;
-  if (!moqtrun_up_needs(hub, r)) return;
+  if (!moqtrun_up_needs(hub, r)) {
+    return;
+  }
   a = moqtrun_up_announcer(hub, r->wt, k);
-  if (!moqtrun_up_open(hub, a, k)) moqtrun_up_unserved(hub, r, a);
+  if (!moqtrun_up_open(hub, a, k)) {
+    moqtrun_up_unserved(hub, r, a);
+  }
 }
 
 /* ----- ending an upstream subscription ----- */

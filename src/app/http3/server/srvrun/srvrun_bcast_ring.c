@@ -13,16 +13,18 @@ static usz dgring_len_at(const wired_srvrun_env* env, usz i);
 static int srvrun_bcast_ring_conn(
     wired_srvrun_env* env, int cslot, wired_span data) {
   int ok = 1;
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     ok &= srvrun_bcast_ring_sess(env, cslot, i, data);
+  }
   return ok;
 }
 
 int wired_server_broadcast_datagram_ring(wired_span data) {
   wired_srvrun_env* env = srvrun_caller_env();
   int               ok  = 1;
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     ok &= srvrun_bcast_ring_conn(env, (int)i, data);
+  }
   return ok;
 }
 
@@ -45,7 +47,9 @@ int wired_server_wt_drain_session(wired_wt_session* s) {
   srvrun_conn* c    = srvrun_session_conn(s);
   int          sidx = srvrun_wt_session_slot_or_absent(c, s);
   /* draft-ietf-moq-transport-19 3.6: raw QUIC has no WT_DRAIN_SESSION */
-  if (sidx < 0 || srvrun_conn_is_raw(c)) return 0;
+  if (sidx < 0 || srvrun_conn_is_raw(c)) {
+    return 0;
+  }
   c->wt_drain_pending[sidx] = 1;
   return 1;
 }
@@ -62,8 +66,9 @@ int wired_server_wt_occupancy(wired_wt_occupancy* out) {
   out->sessions         = srvrun_wt_active_total(env);
   out->sessions_cap     = SRVRUN_MAX_WT_SESSIONS_GLOBAL;
   out->peer_streams     = 0;
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     out->peer_streams += srvrun_wt_streams_open(&env->conns[i]);
+  }
   out->peer_streams_cap =
       (usz)WIRED_CONNTABLE_CAP *
       (WIRED_SRVLOOP_MAX_WT_STREAMS + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
@@ -79,7 +84,9 @@ int wired_server_wt_close_session(
     wired_wt_session* s, u32 app_error_code, wired_span message) {
   srvrun_conn* c    = srvrun_session_conn(s);
   int          sidx = srvrun_wt_session_slot_or_absent(c, s);
-  if (sidx < 0) return 0;
+  if (sidx < 0) {
+    return 0;
+  }
   c->wt_close_code[sidx] = app_error_code;
   srvrun_wt_close_record_message(c, sidx, message);
   c->wt_close_pending[sidx] = 1;
@@ -96,8 +103,9 @@ void srvrun_dgring_send_one(
   u8           out[1500];
   wired_obuf   ob = obuf_of(out, sizeof out);
   srvrun_conn* c  = &st->conns[e->conn_slot];
-  if (c->up && c->gen == e->conn_gen)
+  if (c->up && c->gen == e->conn_gen) {
     srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
+  }
 }
 
 /* Queued entry i's (0 = the ring head) payload length. */

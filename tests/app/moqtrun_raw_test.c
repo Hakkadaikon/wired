@@ -24,7 +24,9 @@ static void mtraw_setup(const u8* opts, usz opts_len) {
 /* Close code of the one io.close_session call, ~0 for none. */
 static u64 mtraw_close_code(void) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
-  if (moqtrun_test_count_kind(11) != 1 || !c) return ~(u64)0;
+  if (moqtrun_test_count_kind(11) != 1 || !c) {
+    return ~(u64)0;
+  }
   return c->stream_id;
 }
 
@@ -127,10 +129,11 @@ static void test_moqtrun_raw_policy_refuses(void) {
 static void test_moqtrun_raw_full_hub_closes(void) {
   moqtrun_test_reset();
   wired_moqt_init(&mtraw_hub, moqtrun_test_io());
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     wired_moqt_on_session_raw(
         &mtraw_hub, (wired_wt_session*)(usz)(100 + i),
         moqtrun_test_proto("moqt-22"));
+  }
   CHECK(moqtrun_test_count_kind(11) == 0);
   wired_moqt_on_session_raw(&mtraw_hub, SESS_A, moqtrun_test_proto("moqt-22"));
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
@@ -156,8 +159,9 @@ static void test_moqtrun_raw_close_codes_moqt_only(void) {
       WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY,
       WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES,
   };
-  for (usz i = 0; i < sizeof codes / sizeof codes[0]; i++)
+  for (usz i = 0; i < sizeof codes / sizeof codes[0]; i++) {
     CHECK(codes[i] <= 0x1B);
+  }
   CHECK(WIRED_MOQTRUN_CLOSE_MALFORMED_PATH == MOQRAW_CLOSE_MALFORMED_PATH);
   CHECK(
       WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY ==
@@ -173,12 +177,17 @@ static wired_span mtraw_goaway_uri(const wired_moqtrun_peer* p) {
   wired_span               body;
   moqctl_goaway            g;
   wired_span               none = {0, ~(usz)0};
-  if (!c) return none;
+  if (!c) {
+    return none;
+  }
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return none;
-  if (moqtrun_goaway_decoder(p->ver)(body, &boff, &g) != MOQCTL_OK) return none;
+  }
+  if (moqtrun_goaway_decoder(p->ver)(body, &boff, &g) != MOQCTL_OK) {
+    return none;
+  }
   return g.new_session_uri;
 }
 

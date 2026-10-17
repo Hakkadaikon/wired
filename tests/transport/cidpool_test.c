@@ -22,7 +22,9 @@ static void test_cidpool_retire(void) {
   cidpool p;
   cidpool_init(&p, 5);
   u64 seq;
-  for (int i = 0; i < 3; i++) cidpool_issue(&p, &seq); /* seqs 0,1,2 */
+  for (int i = 0; i < 3; i++) {
+    cidpool_issue(&p, &seq); /* seqs 0,1,2 */
+  }
   /* retiring past next_seq (3) is a protocol violation */
   CHECK(cidpool_retire_prior_to(&p, 4) == 0);
   /* retire_prior_to exactly next_seq retires all issued so far */

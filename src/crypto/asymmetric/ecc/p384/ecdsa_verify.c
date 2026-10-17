@@ -32,7 +32,9 @@ static void p384ev_compute_r(ec_point384* r, fp384ab u, const ec_point384* q) {
 /* valid iff R is finite and (R.x mod n) == r. */
 static int p384ev_check_r(const ec_point384* rpt, const p384_fe r) {
   p384_fe rx;
-  if (rpt->inf) return 0;
+  if (rpt->inf) {
+    return 0;
+  }
   fp384_reduce(rx, rpt->x, p384_n);
   return fp384_eq(rx, r);
 }
@@ -44,7 +46,9 @@ static int p384ev_inputs_ok(
     const p384_fe s,
     const u8      px[48],
     const u8      py[48]) {
-  if (!p384ev_scalar_in_range(r) || !p384ev_scalar_in_range(s)) return 0;
+  if (!p384ev_scalar_in_range(r) || !p384ev_scalar_in_range(s)) {
+    return 0;
+  }
   return p384ev_load_pubkey(q, px, py);
 }
 
@@ -58,7 +62,9 @@ int ecdsa_p384_verify(
   p384_fe     r, s, e, eh, w, u1, u2;
   fp384_from_be(r, sig_r);
   fp384_from_be(s, sig_s);
-  if (!p384ev_inputs_ok(&q, r, s, pub_x, pub_y)) return 0;
+  if (!p384ev_inputs_ok(&q, r, s, pub_x, pub_y)) {
+    return 0;
+  }
   /* e = hash mod n (a 48-byte digest is 384 bits = field size). */
   fp384_from_be(eh, msg_hash);
   fp384_reduce(e, eh, p384_n);

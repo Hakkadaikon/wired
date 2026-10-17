@@ -15,7 +15,9 @@ static inline void poly_blocks(poly* st, const u8* msg, usz len) {
     poly_mulmod(st);
     off += 16;
   }
-  if (off < len) poly_final_block(st, msg + off, len - off);
+  if (off < len) {
+    poly_final_block(st, msg + off, len - off);
+  }
 }
 
 #endif

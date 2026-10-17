@@ -27,8 +27,9 @@ int x509_nc_locate(wired_span tbs, wired_span* val) {
   if (!x509_find_ext(
           tbs,
           wired_span_of(oid_name_constraints, sizeof(oid_name_constraints)),
-          &raw))
+          &raw)) {
     return 0;
+  }
   return der_seq(raw, val);
 }
 
@@ -42,11 +43,12 @@ int x509_nc_half(wired_span seq, u8 want_tag, wired_span* subtrees) {
   u8         tag;
   wired_span v;
   derseq_init(&c, seq);
-  while (derseq_next(&c, &tag, &v))
+  while (derseq_next(&c, &tag, &v)) {
     if (tag == want_tag) {
       *subtrees = v;
       return 1;
     }
+  }
   return 0;
 }
 
@@ -74,7 +76,9 @@ int x509_dn_within_base(wired_span base, wired_span name) {
 /* RFC 5280 4.2.1.10: base's octets equal name's trailing octets,
  * ASCII case-insensitively. */
 static int dns_suffix_eq(wired_span base, wired_span name) {
-  if (name.n < base.n) return 0;
+  if (name.n < base.n) {
+    return 0;
+  }
   return ascii_dns_eq(base, wired_span_of(name.p + name.n - base.n, base.n));
 }
 
@@ -100,8 +104,12 @@ static int dns_eq_or_subdomain(wired_span base, wired_span name) {
  * leading '.' covers subdomains only (the widely-deployed subdomains-only
  * spelling); otherwise base covers itself and every subdomain. */
 int x509_nc_dns_within(wired_span base, wired_span name) {
-  if (base.n == 0) return 1;
-  if (base.p[0] == '.') return dns_suffix_eq(base, name);
+  if (base.n == 0) {
+    return 1;
+  }
+  if (base.p[0] == '.') {
+    return dns_suffix_eq(base, name);
+  }
   return dns_eq_or_subdomain(base, name);
 }
 
@@ -109,7 +117,9 @@ int x509_nc_dns_within(wired_span base, wired_span name) {
  * following the address in base. */
 static int ip_mask_match(const u8* base, const u8* name, usz n) {
   u8 acc = 0;
-  for (usz i = 0; i < n; i++) acc |= (u8)((base[i] ^ name[i]) & base[n + i]);
+  for (usz i = 0; i < n; i++) {
+    acc |= (u8)((base[i] ^ name[i]) & base[n + i]);
+  }
   return acc == 0;
 }
 
@@ -119,7 +129,9 @@ static int ip_mask_match(const u8* base, const u8* name, usz n) {
  * fails closed against it (a base of malformed length never reaches here,
  * see x509_ip_bases_malformed). */
 int x509_nc_ip_within(wired_span base, wired_span name) {
-  if (base.n != 2 * name.n) return 0;
+  if (base.n != 2 * name.n) {
+    return 0;
+  }
   return ip_mask_match(base.p, name.p, name.n);
 }
 
@@ -133,9 +145,13 @@ static void typed_mark(
     nc_matcher m,
     int*       any,
     int*       covered) {
-  if (tag != want) return;
+  if (tag != want) {
+    return;
+  }
   *any = 1;
-  if (m(base, name)) *covered = 1;
+  if (m(base, name)) {
+    *covered = 1;
+  }
 }
 
 /* One GeneralSubtree element folded into *any / *covered. */
@@ -148,6 +164,8 @@ void x509_typed_fold(
     int*       covered) {
   u8         tag;
   wired_span base;
-  if (!subtree_base(sub, &tag, &base)) return;
+  if (!subtree_base(sub, &tag, &base)) {
+    return;
+  }
   typed_mark(tag, base, want, name, m, any, covered);
 }

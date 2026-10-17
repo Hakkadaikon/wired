@@ -21,7 +21,9 @@ typedef struct {
 /* Fetch the directional key `which` from the client's schedule and initialize
  * its header-protection cipher. Returns 1, or 0 if the key is not derived. */
 static int cw_dir_key(client* c, int which, cw_dirkey* dk) {
-  if (!keysched_get(&c->tls.ks, which, &dk->k)) return 0;
+  if (!keysched_get(&c->tls.ks, which, &dk->k)) {
+    return 0;
+  }
   aes128_init(&dk->hp, dk->k->hp);
   return 1;
 }
@@ -40,7 +42,9 @@ int client_build_initial_wire(
     client* c, const clientwire_hdr_in* hdr, wired_obuf* out) {
   u8  ch[CLIENTWIRE_CH_MAX];
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
-  if (ch_len == 0) return 0;
+  if (ch_len == 0) {
+    return 0;
+  }
   initpkt_desc d = {
       hdr->dcid, hdr->scid, wired_span_of(ch, ch_len), hdr->pn, 0};
   return initpkt_build(&d, out);
@@ -71,7 +75,9 @@ int client_seal_handshake_wire(
       0,
       0 /* v1 */};
   protect_keys pk;
-  if (!cw_dir_key(c, KS_CLIENT_HS, &dk)) return 0;
+  if (!cw_dir_key(c, KS_CLIENT_HS, &dk)) {
+    return 0;
+  }
   pk = (protect_keys){dk.k, &dk.hp};
   return srvwire_seal_handshake(&pk, &si, out);
 }
@@ -83,7 +89,9 @@ int client_open_handshake_wire(
   cw_dirkey    dk;
   protect_keys pk;
   (void)in->dcid_len;
-  if (!cw_dir_key(c, KS_SERVER_HS, &dk)) return 0;
+  if (!cw_dir_key(c, KS_SERVER_HS, &dk)) {
+    return 0;
+  }
   pk = (protect_keys){dk.k, &dk.hp};
   return srvwire_open_handshake(&pk, in->pkt, tls);
 }
@@ -92,7 +100,9 @@ int client_open_handshake_wire(
 int client_send_appdata_wire(client* c, const appdata_tx* in, wired_obuf* out) {
   cw_dirkey    dk;
   protect_keys pk;
-  if (!cw_dir_key(c, KS_CLIENT_AP, &dk)) return 0;
+  if (!cw_dir_key(c, KS_CLIENT_AP, &dk)) {
+    return 0;
+  }
   pk = (protect_keys){dk.k, &dk.hp};
   return appdata_send(&pk, in, out);
 }
@@ -104,15 +114,21 @@ int client_send_appdata_wire(client* c, const appdata_tx* in, wired_obuf* out) {
  */
 static int cw_dcid_is_ours(wired_mspan pkt, wired_span scid) {
   u8 d = 0;
-  if (pkt.n < 1u + scid.n) return 0;
-  for (usz i = 0; i < scid.n; i++) d |= pkt.p[1 + i] ^ scid.p[i];
+  if (pkt.n < 1u + scid.n) {
+    return 0;
+  }
+  for (usz i = 0; i < scid.n; i++) {
+    d |= pkt.p[1 + i] ^ scid.p[i];
+  }
   return d == 0;
 }
 
 /* RFC 9000 5.1 / RFC 9001 5: the DCID routes to us and the SERVER_AP key is
  * derived; both gate opening the packet. */
 static int cw_recv_ok(client* c, const clientwire_recv_in* in, cw_dirkey* dk) {
-  if (!cw_dcid_is_ours(in->pkt, in->scid)) return 0;
+  if (!cw_dcid_is_ours(in->pkt, in->scid)) {
+    return 0;
+  }
   return cw_dir_key(c, KS_SERVER_AP, dk);
 }
 
@@ -123,7 +139,9 @@ int client_recv_appdata_wire(
   cw_dirkey    dk;
   protect_keys pk;
   appdata_pkt  ap;
-  if (!cw_recv_ok(c, in, &dk)) return 0;
+  if (!cw_recv_ok(c, in, &dk)) {
+    return 0;
+  }
   pk = (protect_keys){dk.k, &dk.hp};
   ap = (appdata_pkt){in->pkt, (u8)in->scid.n};
   return appdata_recv(&pk, &ap, out);

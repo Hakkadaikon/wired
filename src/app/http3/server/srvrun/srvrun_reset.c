@@ -22,10 +22,12 @@ static void srvrun_reset_wt_send_if_owned(
     u64               err_code);
 
 void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     srvrun_grant_wt_slot_credit(cfg, c, &c->l.wt_streams[i]);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     srvrun_grant_wt_uni_slot_credit(cfg, c, &c->l.wt_uni_streams[i]);
+  }
   srvrun_grant_qenc_credit(cfg, c);
   srvrun_grant_conn_credit(cfg, c);
 }
@@ -35,12 +37,16 @@ void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
 void srvrun_grant_body_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
   u64 v = bodywin_credit_due(&slot->body);
-  if (v) srvrun_send_max_stream_data(cfg, c, slot->stream_id, v);
+  if (v) {
+    srvrun_send_max_stream_data(cfg, c, slot->stream_id, v);
+  }
 }
 
 static void srvrun_grant_req_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* slot) {
-  if (srvrun_req_credit_live(slot)) srvrun_grant_body_credit(cfg, c, slot);
+  if (srvrun_req_credit_live(slot)) {
+    srvrun_grant_body_credit(cfg, c, slot);
+  }
 }
 
 /* RFC 9000 4.1/19.10: as a streamed request body slides its window, raise
@@ -48,8 +54,9 @@ static void srvrun_grant_req_slot_credit(
  * past it, only ever growing); the connection-wide MAX_DATA follows in
  * srvrun_grant_conn_credit (srvrun_req_rx_ceiling). */
 void srvrun_grant_req_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     srvrun_grant_req_slot_credit(cfg, c, &c->l.streams[i]);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.4: this step's stream-close gathering
@@ -70,7 +77,9 @@ void srvrun_grant_req_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
  * srvrun_wt_slot_by_connect_id's own exact-match lookup is what keeps every
  * other open session on this connection untouched. */
 int srvrun_wt_connect_stream_slot(const srvrun_conn* c) {
-  if (!c->l.closed_stream_seen) return -1;
+  if (!c->l.closed_stream_seen) {
+    return -1;
+  }
   return srvrun_wt_slot_by_connect_id(c, c->l.closed_stream_id);
 }
 
@@ -87,7 +96,9 @@ static void srvrun_reset_wt_bidi_if_owned(
     wired_srvloop_wt_stream_slot* slot,
     int                           session_slot,
     u64                           err_code) {
-  if (!slot->in_use || slot->wt_session_slot != session_slot) return;
+  if (!slot->in_use || slot->wt_session_slot != session_slot) {
+    return;
+  }
   srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
   srvrun_wt_bidi_slot_free(c, slot);
 }
@@ -101,7 +112,9 @@ static void srvrun_reset_wt_uni_if_owned(
     wired_srvloop_wt_uni_stream_slot* slot,
     int                               session_slot,
     u64                               err_code) {
-  if (!slot->in_use || slot->wt_session_slot != session_slot) return;
+  if (!slot->in_use || slot->wt_session_slot != session_slot) {
+    return;
+  }
   srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
   srvrun_wt_uni_slot_free(c, slot);
 }
@@ -126,24 +139,29 @@ static void srvrun_reset_wt_send_if_owned(
     srvrun_wtsend*    w,
     int               session_slot,
     u64               err_code) {
-  if (!w->in_use || w->wt_session_slot != session_slot) return;
+  if (!w->in_use || w->wt_session_slot != session_slot) {
+    return;
+  }
   srvrun_send_wt_busy_reset(cfg, c, w->stream_id, err_code);
 }
 
 void srvrun_reset_wt_sends_for_session(
     const srvrun_cfg* cfg, srvrun_conn* c, int session_slot, u64 err_code) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     srvrun_reset_wt_send_if_owned(
         cfg, c, &c->wtsend[i], session_slot, err_code);
+  }
 }
 
 void srvrun_reset_wt_streams_for_session(
     const srvrun_cfg* cfg, srvrun_conn* c, int session_slot, u64 err_code) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     srvrun_reset_wt_bidi_if_owned(
         cfg, c, &c->l.wt_streams[i], session_slot, err_code);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     srvrun_reset_wt_uni_if_owned(
         cfg, c, &c->l.wt_uni_streams[i], session_slot, err_code);
+  }
   srvrun_reset_wt_sends_for_session(cfg, c, session_slot, err_code);
 }

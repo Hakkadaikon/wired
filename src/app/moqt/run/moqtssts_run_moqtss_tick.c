@@ -46,13 +46,16 @@ static void moqtss_tick_paced(wired_moqt_hub* hub, usz sidx, u64 now_ms) {
     moqtss_tick_arm(ss, now_ms);
     return;
   }
-  if (now_ms >= ss->next_obs_ms) moqtss_tick_observe(hub, sidx, now_ms);
+  if (now_ms >= ss->next_obs_ms) {
+    moqtss_tick_observe(hub, sidx, now_ms);
+  }
 }
 
 static void moqtss_tick_sess(wired_moqt_hub* hub, usz sidx, u64 now_ms) {
   moqtss_prune(hub, sidx);
-  if (moqtss_pacer(&hub->peers[sidx].ssts) >= 0)
+  if (moqtss_pacer(&hub->peers[sidx].ssts) >= 0) {
     moqtss_tick_paced(hub, sidx, now_ms);
+  }
 }
 
 static int moqtss_ticks(const wired_moqtrun_peer* p) {
@@ -60,8 +63,11 @@ static int moqtss_ticks(const wired_moqtrun_peer* p) {
 }
 
 void moqtss_tick(wired_moqt_hub* hub, u64 now_ms) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtss_ticks(&hub->peers[i])) moqtss_tick_sess(hub, i, now_ms);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtss_ticks(&hub->peers[i])) {
+      moqtss_tick_sess(hub, i, now_ms);
+    }
+  }
 }
 
 /* ===== per-subscription verdict window ===== */
@@ -72,7 +78,9 @@ static u16 moqtss_shr(u16 v, u64 k) {
 
 /* g past the window's top: slide it up so g is its last bit. */
 void moqtss_rebase_up(wired_moqtrun_sub* s, u64 g) {
-  if (g < s->ssts_base + MOQTSS_WIN) return;
+  if (g < s->ssts_base + MOQTSS_WIN) {
+    return;
+  }
   u64 k         = g - (MOQTSS_WIN - 1) - s->ssts_base;
   s->ssts_known = moqtss_shr(s->ssts_known, k);
   s->ssts_fwd   = moqtss_shr(s->ssts_fwd, k);
@@ -81,7 +89,9 @@ void moqtss_rebase_up(wired_moqtrun_sub* s, u64 g) {
 
 /* g below the window (a late older group): slide it down to g. */
 void moqtss_rebase_down(wired_moqtrun_sub* s, u64 g) {
-  if (g >= s->ssts_base) return;
+  if (g >= s->ssts_base) {
+    return;
+  }
   u64 k         = s->ssts_base - g;
   s->ssts_known = (u16)(s->ssts_known << k);
   s->ssts_fwd   = (u16)(s->ssts_fwd << k);

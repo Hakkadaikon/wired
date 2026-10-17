@@ -4,11 +4,17 @@
  */
 void test_sresetdrive_detect(void) {
   u8 token[SRESETDRIVE_TOKEN];
-  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) token[i] = (u8)(0xa0 + i);
+  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) {
+    token[i] = (u8)(0xa0 + i);
+  }
 
   u8 pkt[SRESETDRIVE_MIN];
-  for (usz i = 0; i < 5; i++) pkt[i] = (u8)i; /* header room */
-  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) pkt[5 + i] = token[i];
+  for (usz i = 0; i < 5; i++) {
+    pkt[i] = (u8)i; /* header room */
+  }
+  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) {
+    pkt[5 + i] = token[i];
+  }
   CHECK(sresetdrive_is_reset(pkt, SRESETDRIVE_MIN, token) == 1);
 
   pkt[SRESETDRIVE_MIN - 1] ^= 0x01; /* corrupt last token byte */

@@ -28,8 +28,11 @@ static const u64 moqtrun_req_first[] = {
 };
 
 int moqtrun_req_is_first(u64 type) {
-  for (usz i = 0; i < MOQTRUN_REQ_FIRST_N; i++)
-    if (moqtrun_req_first[i] == type) return 1;
+  for (usz i = 0; i < MOQTRUN_REQ_FIRST_N; i++) {
+    if (moqtrun_req_first[i] == type) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -65,7 +68,9 @@ static int moqtrun_req_follow_ok(const wired_moqtrun_req* q, u64 type) {
 
 /* kind 0: nothing read yet, so type must open the stream. */
 int moqtrun_req_allowed(const wired_moqtrun_req* q, u64 type) {
-  if (!q->kind) return moqtrun_req_is_first(type);
+  if (!q->kind) {
+    return moqtrun_req_is_first(type);
+  }
   return moqtrun_req_follow_ok(q, type);
 }
 
@@ -74,7 +79,9 @@ int moqtrun_req_allowed(const wired_moqtrun_req* q, u64 type) {
 static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
   usz off = 0;
   q->goaway |= type == MOQCTL_T_GOAWAY;
-  if (q->kind) return;
+  if (q->kind) {
+    return;
+  }
   q->kind = type;
   moqvi_take(body, &off, &q->request_id);
 }
@@ -85,7 +92,9 @@ static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
  * PROTOCOL_VIOLATION; the rest goes to the shared handlers. */
 static moqtrun_ctl_fn moqtrun_req_route(
     wired_moqtrun_req* q, u64 type, wired_span body) {
-  if (!moqtrun_req_allowed(q, type)) return moqtrun_dispatch_close;
+  if (!moqtrun_req_allowed(q, type)) {
+    return moqtrun_dispatch_close;
+  }
   moqtrun_req_note(q, type, body);
   return moqtrun_ctl_lookup(type);
 }
@@ -112,8 +121,9 @@ static int moqtrun_is_late(const wired_moqtrun_peer* p, u64 type) {
  * still wins). */
 static moqtrun_ctl_fn moqtrun_late_route(
     const wired_moqtrun_peer* p, u64 type, moqtrun_ctl_fn fn) {
-  if (fn != moqtrun_dispatch_close && moqtrun_is_late(p, type))
+  if (fn != moqtrun_dispatch_close && moqtrun_is_late(p, type)) {
     return moqtrun_dispatch_going_away;
+  }
   return fn;
 }
 
@@ -131,8 +141,12 @@ static void moqtrun_rid_note(
   usz off  = 0;
   u64 rid  = 0;
   u64 next = ~(u64)0; /* rid + 2 saturates: u64_add_ok keeps it on overflow */
-  if (!moqtrun_rid_counts(peek, type)) return;
-  if (!moqvi_take(body, &off, &rid)) return; /* no ID read: nothing moves */
+  if (!moqtrun_rid_counts(peek, type)) {
+    return;
+  }
+  if (!moqvi_take(body, &off, &rid)) {
+    return; /* no ID read: nothing moves */
+  }
   u64_add_ok(rid, 2, &next);
   p->peer_rid_next = u64_max(p->peer_rid_next, next);
 }
@@ -141,8 +155,9 @@ moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
   peek = moqctl_type_ver(p->ver, peek, &type);
   moqtrun_rid_note(p, peek, type, body);
-  if (p->req && moqtrun_peek_known(peek))
+  if (p->req && moqtrun_peek_known(peek)) {
     return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
+  }
   return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
 }
 

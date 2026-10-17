@@ -115,7 +115,9 @@ static int alg_named_curve(wired_span alg, wired_span* oid) {
   derseq     c;
   wired_span first;
   derseq_init(&c, alg);
-  if (!derseq_next_tagged(&c, DER_OID, &first)) return 0;
+  if (!derseq_next_tagged(&c, DER_OID, &first)) {
+    return 0;
+  }
   return derseq_next_tagged(&c, DER_OID, oid);
 }
 
@@ -123,14 +125,18 @@ static int alg_named_curve(wired_span alg, wired_span* oid) {
 static int reach_alg(wired_span tbs, wired_span* alg) {
   wired_span spki;
   derseq     c;
-  if (!reach_spki(tbs, &spki)) return 0;
+  if (!reach_spki(tbs, &spki)) {
+    return 0;
+  }
   derseq_init(&c, spki);
   return derseq_next_tagged(&c, DER_SEQUENCE, alg);
 }
 
 int x509_ec_curve(wired_span tbs, wired_span* curve_oid) {
   wired_span alg;
-  if (!reach_alg(tbs, &alg)) return 0;
+  if (!reach_alg(tbs, &alg)) {
+    return 0;
+  }
   return alg_named_curve(alg, curve_oid);
 }
 
@@ -148,7 +154,11 @@ static int is_ec_restricted(wired_span alg_oid) {
  * malformed. */
 int x509_ec_restricted_params_ok(wired_span tbs) {
   wired_span alg_oid, key, curve_oid;
-  if (!x509_public_key(tbs, &alg_oid, &key)) return 0;
-  if (!is_ec_restricted(alg_oid)) return 1;
+  if (!x509_public_key(tbs, &alg_oid, &key)) {
+    return 0;
+  }
+  if (!is_ec_restricted(alg_oid)) {
+    return 1;
+  }
   return x509_ec_curve(tbs, &curve_oid);
 }

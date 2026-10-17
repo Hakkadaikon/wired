@@ -5,8 +5,9 @@ void srvloop_step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
   wired_srvloop_recv_out ro;
   wired_srvloop_recv_in  ri = {
       pkt, srvloop_app_largest_pn(l), srvloop_hs_largest_pn(l)};
-  if (wired_srvloop_recv(conn->s, &ri, &ro))
+  if (wired_srvloop_recv(conn->s, &ri, &ro)) {
     srvloop_step_opened(conn, &ro, pkt);
+  }
 }
 
 /* RFC 9000 2.2: re-arm every slot that answered a request this step, so the
@@ -19,7 +20,9 @@ void srvloop_step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
 void srvloop_rearm_reqacc(wired_srvloop* l) {
   for (usz i = 0; i < l->done_n; i++) {
     wired_srvloop_stream_slot* slot = &l->streams[l->done_slots[i]];
-    if (!slot->req_fin) continue;
+    if (!slot->req_fin) {
+      continue;
+    }
     slot->req_len  = 0;
     slot->req_fin  = 0;
     slot->req_done = 0;

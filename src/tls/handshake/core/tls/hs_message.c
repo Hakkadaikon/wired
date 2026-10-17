@@ -3,10 +3,14 @@
 /* RFC 8446 4 */
 
 int hs_message_ready(const u8* buf, usz buffered, usz* msg_len) {
-  if (buffered < HS_HEADER) return 0;
+  if (buffered < HS_HEADER) {
+    return 0;
+  }
   usz body  = ((usz)buf[1] << 16) | ((usz)buf[2] << 8) | buf[3];
   usz total = HS_HEADER + body;
-  if (buffered < total) return 0;
+  if (buffered < total) {
+    return 0;
+  }
   *msg_len = total;
   return 1;
 }

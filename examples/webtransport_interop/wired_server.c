@@ -55,7 +55,9 @@ static usz cstr_len_opt(const char* s) { return s ? wired_cstr_len(s) : 0; }
 static wired_span endpoint_of(wired_span path) {
   wired_span p     = wired_span_strip_lead(path, '/');
   ssz        slash = wired_span_find(p, '/');
-  if (slash < 0) return p;
+  if (slash < 0) {
+    return p;
+  }
   return wired_span_of(p.p, (usz)slash);
 }
 
@@ -80,7 +82,9 @@ static usz g_get_sig_len[FILES_MAX];
 
 static void requests_add(wired_span tok) {
   ssz slash = wired_span_find(tok, '/');
-  if (slash < 0 || g_nfiles >= FILES_MAX) return;
+  if (slash < 0 || g_nfiles >= FILES_MAX) {
+    return;
+  }
   g_endpoint = wired_span_of(tok.p, (usz)slash);
   g_files[g_nfiles++] =
       wired_span_of(tok.p + (usz)slash + 1, tok.n - (usz)slash - 1);
@@ -88,7 +92,9 @@ static void requests_add(wired_span tok) {
 
 /* End of the space-separated token starting at i. */
 static usz token_end(const char* req, usz i, usz n) {
-  while (i < n && req[i] != ' ') i++;
+  while (i < n && req[i] != ' ') {
+    i++;
+  }
   return i;
 }
 
@@ -96,14 +102,17 @@ static void requests_parse(const char* req) {
   usz i = 0, n = cstr_len_opt(req);
   while (i < n) {
     usz j = token_end(req, i, n);
-    if (j > i) requests_add(wired_span_of((const u8*)req + i, j - i));
+    if (j > i) {
+      requests_add(wired_span_of((const u8*)req + i, j - i));
+    }
     i = j + 1;
   }
 }
 
 static void prep_get_lines(void) {
-  for (usz i = 0; i < g_nfiles; i++)
+  for (usz i = 0; i < g_nfiles; i++) {
     g_get_len[i] = wired_wtwire_get_put(g_get[i], GETLINE_CAP, g_files[i]);
+  }
 }
 
 /* --- session table: connect stream id -> endpoint path ------------------- */
@@ -125,21 +134,29 @@ static int session_is(const session_slot* e, u64 sid) {
 }
 
 static session_slot* session_find(u64 sid) {
-  for (usz i = 0; i < SESSIONS_MAX; i++)
-    if (session_is(&g_sessions[i], sid)) return &g_sessions[i];
+  for (usz i = 0; i < SESSIONS_MAX; i++) {
+    if (session_is(&g_sessions[i], sid)) {
+      return &g_sessions[i];
+    }
+  }
   return 0;
 }
 
 static session_slot* session_alloc(void) {
-  for (usz i = 0; i < SESSIONS_MAX; i++)
-    if (!g_sessions[i].used) return &g_sessions[i];
+  for (usz i = 0; i < SESSIONS_MAX; i++) {
+    if (!g_sessions[i].used) {
+      return &g_sessions[i];
+    }
+  }
   return &g_sessions[0]; /* table full: recycle the oldest slot */
 }
 
 static void session_note(const wired_wt_session* s, wired_span path) {
   session_slot* e  = session_find(s->connect_stream_id);
   wired_span    ep = endpoint_of(path);
-  if (!e) e = session_alloc();
+  if (!e) {
+    e = session_alloc();
+  }
   e->used = 1;
   e->sid  = s->connect_stream_id;
   e->len  = wired_cstr_append(e->path, sizeof e->path, 0, ep);
@@ -147,7 +164,9 @@ static void session_note(const wired_wt_session* s, wired_span path) {
 
 static wired_span session_endpoint(const wired_wt_session* s) {
   session_slot* e = session_find(s->connect_stream_id);
-  if (!e) return wired_span_of(0, 0);
+  if (!e) {
+    return wired_span_of(0, 0);
+  }
   return wired_span_of((const u8*)e->path, e->len);
 }
 
@@ -208,7 +227,9 @@ static void setup_downloads(void) {
   char dir[PATH_CAP];
   usz  at;
   wired_fio_mkdir("/downloads");
-  if (!mode_saves_downloads()) return;
+  if (!mode_saves_downloads()) {
+    return;
+  }
   at = wired_cstr_append(dir, sizeof dir, 0, wired_span_cstr("/downloads/"));
   (void)wired_cstr_append(dir, sizeof dir, at, g_endpoint);
   wired_fio_mkdir(dir);
@@ -224,10 +245,14 @@ static void serve_uni_get(wired_wt_session* s, wired_span ep, wired_span file) {
   usz head = wired_wtwire_push_head_put(
       slot + sig, POOL_HEAD - sig, wired_wtwire_basename(file));
   ssz got;
-  if (sig == 0 || head == 0) return;
+  if (sig == 0 || head == 0) {
+    return;
+  }
   head += sig;
   got = www_read(ep, file, wired_mspan_of(slot + head, POOL_BODY));
-  if (got < 0) return; /* missing file: ignore, keep serving */
+  if (got < 0) {
+    return; /* missing file: ignore, keep serving */
+  }
   wired_server_wt_open_uni(s, wired_span_of(slot, head + (usz)got));
 }
 
@@ -236,7 +261,9 @@ static void serve_bidi_get(
     wired_wt_session* s, u64 stream_id, wired_span ep, wired_span file) {
   u8* slot = pool_take();
   ssz got  = www_read(ep, file, wired_mspan_of(slot, POOL_BODY));
-  if (got < 0) return;
+  if (got < 0) {
+    return;
+  }
   wired_server_wt_stream_reply(s, stream_id, wired_span_of(slot, (usz)got));
 }
 
@@ -247,9 +274,13 @@ static void serve_dg_get(wired_wt_session* s, wired_span ep, wired_span file) {
   usz head =
       wired_wtwire_push_head_put(slot, DG_CAP, wired_wtwire_basename(file));
   ssz got;
-  if (head == 0) return;
+  if (head == 0) {
+    return;
+  }
   got = www_read(ep, file, wired_mspan_of(slot + head, DG_CAP - head));
-  if (got < 0) return;
+  if (got < 0) {
+    return;
+  }
   wired_server_wt_send_datagram_to(s, wired_span_of(slot, head + (usz)got));
 }
 
@@ -264,7 +295,9 @@ static usz g_saved; /* files fully saved under /downloads in a send mode */
  * on every client. */
 static void note_saved(wired_wt_session* s) {
   g_saved++;
-  if (g_saved != g_nfiles) return;
+  if (g_saved != g_nfiles) {
+    return;
+  }
   wired_server_wt_close_session(s, 0, wired_span_of(0, 0));
   /* Reference-server behavior: the run ends by the server going away once
    * everything is saved. The graceful drain flushes the close capsule,
@@ -298,14 +331,20 @@ static int stream_is(const stream_slot* e, u64 id) {
 }
 
 static stream_slot* stream_find(u64 id) {
-  for (usz i = 0; i < STREAMS_MAX; i++)
-    if (stream_is(&g_streams[i], id)) return &g_streams[i];
+  for (usz i = 0; i < STREAMS_MAX; i++) {
+    if (stream_is(&g_streams[i], id)) {
+      return &g_streams[i];
+    }
+  }
   return 0;
 }
 
 static stream_slot* stream_alloc(void) {
-  for (usz i = 0; i < STREAMS_MAX; i++)
-    if (g_streams[i].state == ST_FREE) return &g_streams[i];
+  for (usz i = 0; i < STREAMS_MAX; i++) {
+    if (g_streams[i].state == ST_FREE) {
+      return &g_streams[i];
+    }
+  }
   return 0;
 }
 
@@ -313,14 +352,18 @@ static stream_slot* stream_alloc(void) {
  * other than uni-send expect no peer-opened streams (bidi-send replies
  * arrive on streams this server opened, pre-registered as ST_BODY). */
 static int mode_new_stream_state(void) {
-  if (g_mode == MODE_TRANSFER) return ST_GET;
+  if (g_mode == MODE_TRANSFER) {
+    return ST_GET;
+  }
   return g_mode == MODE_UNI_SEND ? ST_PUSH_HEAD : ST_FREE;
 }
 
 static stream_slot* stream_open(u64 id) {
   int          st = mode_new_stream_state();
   stream_slot* e  = st == ST_FREE ? 0 : stream_alloc();
-  if (!e) return 0;
+  if (!e) {
+    return 0;
+  }
   e->state     = st;
   e->stream_id = id;
   e->head_len  = 0;
@@ -331,8 +374,9 @@ static stream_slot* stream_open(u64 id) {
 
 static void head_append(stream_slot* e, wired_span d) {
   usz i;
-  for (i = 0; i < d.n && e->head_len < sizeof e->head; i++)
+  for (i = 0; i < d.n && e->head_len < sizeof e->head; i++) {
     e->head[e->head_len++] = d.p[i];
+  }
 }
 
 /* Full "GET <file>" line gathered (FIN seen): answer by stream type.
@@ -340,12 +384,14 @@ static void head_append(stream_slot* e, wired_span d) {
 static void finish_get(wired_wt_session* s, stream_slot* e) {
   wired_span file;
   wired_span ep = session_endpoint(s);
-  if (!wired_wtwire_get_parse(wired_span_of(e->head, e->head_len), &file))
+  if (!wired_wtwire_get_parse(wired_span_of(e->head, e->head_len), &file)) {
     return;
-  if ((e->stream_id & 3) == 2)
+  }
+  if ((e->stream_id & 3) == 2) {
     serve_uni_get(s, ep, file);
-  else
+  } else {
     serve_bidi_get(s, e->stream_id, ep, file);
+  }
 }
 
 static void feed_none(
@@ -378,7 +424,9 @@ static void push_start(
   dest_build(e->dest, wired_wtwire_basename(name));
   wired_fio_write_new(e->dest, rest);
   e->state = fin ? ST_FREE : ST_PUSH_BODY;
-  if (fin) note_saved(s);
+  if (fin) {
+    note_saved(s);
+  }
 }
 
 static void feed_push_head(
@@ -389,7 +437,9 @@ static void feed_push_head(
   head_append(e, d);
   nl = wired_span_find(wired_span_of(e->head, e->head_len), '\n');
   if (nl < 0) {
-    if (fin) e->state = ST_FREE; /* FIN before any newline: drop */
+    if (fin) {
+      e->state = ST_FREE; /* FIN before any newline: drop */
+    }
     return;
   }
   skip = (usz)nl + 1 - prev; /* header bytes consumed from THIS chunk */
@@ -421,8 +471,12 @@ static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 id, wired_span data, int fin) {
   stream_slot* e = stream_find(id);
   (void)ctx;
-  if (!e) e = stream_open(id);
-  if (!e) return;
+  if (!e) {
+    e = stream_open(id);
+  }
+  if (!e) {
+    return;
+  }
   FEEDS[e->state](s, e, data, fin);
 }
 
@@ -434,22 +488,27 @@ static void prep_sig_gets(wired_wt_session* s, int bidi) {
   for (usz i = 0; i < g_nfiles; i++) {
     usz sig = wired_wtwire_signal_put(
         g_get_sig[i], GET_SIG_CAP, bidi, s->connect_stream_id);
-    for (usz j = 0; j < g_get_len[i]; j++) g_get_sig[i][sig + j] = g_get[i][j];
+    for (usz j = 0; j < g_get_len[i]; j++) {
+      g_get_sig[i][sig + j] = g_get[i][j];
+    }
     g_get_sig_len[i] = sig + g_get_len[i];
   }
 }
 
 static void send_gets_uni(wired_wt_session* s) {
   prep_sig_gets(s, 0);
-  for (usz i = 0; i < g_nfiles; i++)
+  for (usz i = 0; i < g_nfiles; i++) {
     wired_server_wt_open_uni(s, wired_span_of(g_get_sig[i], g_get_sig_len[i]));
+  }
 }
 
 /* Register the reply stream (same id) before the peer's bytes arrive, so
  * on_stream_data streams them to the right /downloads file. */
 static void body_slot_open(u64 sid, wired_span file) {
   stream_slot* e = stream_alloc();
-  if (!e) return;
+  if (!e) {
+    return;
+  }
   e->state     = ST_BODY;
   e->stream_id = sid;
   e->head_len  = 0;
@@ -462,7 +521,9 @@ static void send_gets_bidi(wired_wt_session* s) {
   for (usz i = 0; i < g_nfiles; i++) {
     i64 sid = wired_server_wt_open_bidi(
         s, wired_span_of(g_get_sig[i], g_get_sig_len[i]));
-    if (sid >= 0) body_slot_open((u64)sid, g_files[i]);
+    if (sid >= 0) {
+      body_slot_open((u64)sid, g_files[i]);
+    }
   }
 }
 
@@ -487,18 +548,24 @@ static void dg_request_one(usz i) {
 static void send_gets_dg(wired_wt_session* s) {
   usz w     = g_nfiles < DG_WINDOW ? g_nfiles : DG_WINDOW;
   g_dg_sess = s;
-  for (g_dg_req_next = 0; g_dg_req_next < w; g_dg_req_next++)
+  for (g_dg_req_next = 0; g_dg_req_next < w; g_dg_req_next++) {
     dg_request_one(g_dg_req_next);
+  }
 }
 
 static ssz dg_file_index(wired_span name) {
-  for (usz i = 0; i < g_nfiles; i++)
-    if (wired_span_eq(g_files[i], name)) return (ssz)i;
+  for (usz i = 0; i < g_nfiles; i++) {
+    if (wired_span_eq(g_files[i], name)) {
+      return (ssz)i;
+    }
+  }
   return -1;
 }
 
 static void dg_request_next(void) {
-  if (g_dg_req_next < g_nfiles) dg_request_one(g_dg_req_next++);
+  if (g_dg_req_next < g_nfiles) {
+    dg_request_one(g_dg_req_next++);
+  }
 }
 
 /* One reply saved: mark its file done and release the next request; a
@@ -506,8 +573,12 @@ static void dg_request_next(void) {
  * Returns 1 when the name was newly marked done. */
 static int dg_mark_done(wired_span name) {
   ssz i = dg_file_index(name);
-  if (i < 0) return 0;
-  if (g_dg_done[i]) return 0;
+  if (i < 0) {
+    return 0;
+  }
+  if (g_dg_done[i]) {
+    return 0;
+  }
   g_dg_done[i] = 1;
   dg_request_next();
   return 1;
@@ -524,16 +595,18 @@ static const send_fn SENDS[MODE_COUNT] = {
 };
 
 static void session_send_gets(wired_wt_session* s, wired_span path) {
-  if (SENDS[g_mode] && wired_span_eq(endpoint_of(path), g_endpoint))
+  if (SENDS[g_mode] && wired_span_eq(endpoint_of(path), g_endpoint)) {
     SENDS[g_mode](s);
+  }
 }
 
 static void on_session(
     void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   (void)ctx;
   session_note(s, path);
-  if (g_mode == MODE_HANDSHAKE)
+  if (g_mode == MODE_HANDSHAKE) {
     wired_fio_write_new("/downloads/negotiated_protocol.txt", protocol);
+  }
   session_send_gets(s, path);
 }
 
@@ -541,7 +614,9 @@ static void on_session(
 
 static void dg_serve(wired_wt_session* s, wired_span msg) {
   wired_span file;
-  if (!wired_wtwire_get_parse(msg, &file)) return;
+  if (!wired_wtwire_get_parse(msg, &file)) {
+    return;
+  }
   serve_dg_get(s, session_endpoint(s), file);
 }
 
@@ -549,16 +624,24 @@ static void dg_serve(wired_wt_session* s, wired_span msg) {
 static void dg_save(wired_wt_session* s, wired_span msg) {
   wired_span name, content;
   char       dest[PATH_CAP];
-  if (!wired_wtwire_push_parse(msg, &name, &content)) return;
+  if (!wired_wtwire_push_parse(msg, &name, &content)) {
+    return;
+  }
   dest_build(dest, wired_wtwire_basename(name));
   wired_fio_write_new(dest, content);
   /* release the next request; a fresh save also counts toward the close */
-  if (dg_mark_done(wired_wtwire_basename(name))) note_saved(s);
+  if (dg_mark_done(wired_wtwire_basename(name))) {
+    note_saved(s);
+  }
 }
 
 static void dg_handle(wired_wt_session* s, wired_span msg) {
-  if (g_mode == MODE_TRANSFER) dg_serve(s, msg);
-  if (g_mode == MODE_DG_SEND) dg_save(s, msg);
+  if (g_mode == MODE_TRANSFER) {
+    dg_serve(s, msg);
+  }
+  if (g_mode == MODE_DG_SEND) {
+    dg_save(s, msg);
+  }
 }
 
 /* The SDK strips the RFC 9297 2.1 quarter-stream-id prefix and resolves the
@@ -589,8 +672,9 @@ static int app_on_request(
   (void)more;
   (void)total_size;
   *content_type = "text/plain";
-  for (i = 0; i < sizeof body - 1 && i < body_out->cap; i++)
+  for (i = 0; i < sizeof body - 1 && i < body_out->cap; i++) {
     body_out->p[i] = body[i];
+  }
   body_out->len = i;
   return 1;
 }
@@ -606,9 +690,11 @@ static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
 static wired_certreload_store cert_store;
 
 static int mode_lookup(const char* tc) {
-  for (usz i = 0; i < sizeof MODES / sizeof MODES[0]; i++)
-    if (wired_span_eq_cstr(wired_span_cstr(tc), MODES[i].name))
+  for (usz i = 0; i < sizeof MODES / sizeof MODES[0]; i++) {
+    if (wired_span_eq_cstr(wired_span_cstr(tc), MODES[i].name)) {
       return MODES[i].mode;
+    }
+  }
   return -1;
 }
 
@@ -646,7 +732,8 @@ __attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
   opt.wt_on_session     = on_session;
   opt.wt_protocols      = wired_envp_get(argc, argv, "PROTOCOLS");
 
-  if (!wired_server_run_opt(port, &id, h, obs, &opt))
+  if (!wired_server_run_opt(port, &id, h, obs, &opt)) {
     wired_die("listen failed\n");
+  }
   return 0;
 }

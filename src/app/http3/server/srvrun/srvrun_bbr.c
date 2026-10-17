@@ -9,8 +9,9 @@ int wired_server_wt_stream_send(
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!srvrun_wt_reply_flow_ok(sidx, s, payload.n))
+  if (!srvrun_wt_reply_flow_ok(sidx, s, payload.n)) {
     return srvrun_wtsend_flow_refuse(c);
+  }
   w = srvrun_wtsend_owned(c, sidx, stream_id);
   if (!srvrun_wtsend_accept_round(c, w, payload, fin)) {
     c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
@@ -45,10 +46,11 @@ void srvrun_wtsend_start_fin_now(const srvrun_conn* c, srvrun_wtsend* w) {
  * write() before that write's round has even been ACKed) is deferred, not
  * dropped. */
 void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w) {
-  if (wired_sendsess_done(&w->sess))
+  if (wired_sendsess_done(&w->sess)) {
     srvrun_wtsend_start_fin_now(c, w);
-  else
+  } else {
     w->fin_requested = 1;
+  }
 }
 
 /* draft-ietf-webtrans-http3-16 SS6: the peer ended session slot sidx (its
@@ -62,16 +64,22 @@ void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w) {
  * round) gets nothing more. */
 void srvrun_wt_connect_fin(srvrun_conn* c, int sidx) {
   srvrun_wtsend* w = srvrun_wt_connect_sender(c, sidx);
-  if (srvrun_wt_connect_finable(w)) srvrun_wtsend_request_fin(c, w);
+  if (srvrun_wt_connect_finable(w)) {
+    srvrun_wtsend_request_fin(c, w);
+  }
 }
 
 int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (sidx < 0) return -1;
+  if (sidx < 0) {
+    return -1;
+  }
   w = srvrun_wtsend_owned(c, sidx, stream_id);
-  if (!srvrun_wtsend_open_slot(w)) return -1;
+  if (!srvrun_wtsend_open_slot(w)) {
+    return -1;
+  }
   srvrun_wtsend_request_fin(c, w);
   return 1;
 }
@@ -92,7 +100,9 @@ static int srvrun_bbr_has_bw(const srvrun_conn* c) {
 /* Delivery rate in B/ms: BBR's btl_bw once sampled, else cwnd / srtt (0
  * before the first RTT sample). */
 static u64 srvrun_est_bpms(const srvrun_conn* c) {
-  if (srvrun_bbr_has_bw(c)) return c->cc.bbr.btl_bw;
+  if (srvrun_bbr_has_bw(c)) {
+    return c->cc.bbr.btl_bw;
+  }
   return c->srtt_ms ? c->cc.cwnd / c->srtt_ms : 0;
 }
 
@@ -104,9 +114,13 @@ u64 wired_server_wt_est_kbps(wired_wt_session* s) {
 int wired_server_wt_stream_priority(
     wired_wt_session* s, u64 stream_id, u8 urgency) {
   srvrun_wtsend* w;
-  if (urgency > H3_URGENCY_MAX) return -1;
+  if (urgency > H3_URGENCY_MAX) {
+    return -1;
+  }
   w = srvrun_wtsend_of(s, stream_id);
-  if (!w) return -1;
+  if (!w) {
+    return -1;
+  }
   w->urgency1 = (u8)(urgency + 1);
   return 1;
 }
@@ -114,7 +128,9 @@ int wired_server_wt_stream_priority(
 int wired_server_wt_stream_schedule(
     wired_wt_session* s, u64 stream_id, const wired_wt_sched* k) {
   srvrun_wtsend* w;
-  if (wired_server_wt_stream_priority(s, stream_id, k->urgency) < 0) return -1;
+  if (wired_server_wt_stream_priority(s, stream_id, k->urgency) < 0) {
+    return -1;
+  }
   w        = srvrun_wtsend_of(s, stream_id);
   w->fine  = k->fine;
   w->flow  = k->flow;

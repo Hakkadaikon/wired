@@ -50,7 +50,9 @@ static void test_p256_field_bytes(void) {
       "0123456789abcdeffedcba98765432100011223344556677889900aabbccddee", in);
   p256_fp_from_be(a, in);
   p256_fp_to_be(out, a);
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == in[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == in[i]);
+  }
 }
 
 /* Deterministic xorshift so the differential test is reproducible. */
@@ -81,7 +83,9 @@ static void test_p256_field_fast_matches_generic(void) {
     CHECK(p256_fp_eq(r1, r2));
   }
   /* boundary: a = p - 1. */
-  for (int i = 0; i < 4; i++) a[i] = p256_p[i];
+  for (int i = 0; i < 4; i++) {
+    a[i] = p256_p[i];
+  }
   a[0] -= 1;
   p256_fp_mul(r1, (fpab){a, a}, p256_p);
   p256_fp_sqr_p(r2, a);
@@ -103,9 +107,13 @@ static void test_p256_field_mont_inv_n(void) {
   u64 s = 0x243f6a8885a308d3ULL;
   fe  a, ai, prod, ref, one = {1, 0, 0, 0};
   for (int it = 0; it < 64; it++) {
-    for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
+    for (int i = 0; i < 4; i++) {
+      a[i] = p256_rng(&s);
+    }
     p256_fp_reduce(a, a, p256_n);
-    if (p256_fp_is_zero(a)) continue;
+    if (p256_fp_is_zero(a)) {
+      continue;
+    }
     mont_inv(ai, a, &p256_mont_n);
     p256_fp_mul(prod, (fpab){a, ai}, p256_n);
     CHECK(p256_fp_eq(prod, one));
@@ -124,9 +132,13 @@ static void test_p256_field_inv_p_edges(void) {
   u64 s = 0xb7e151628aed2a6bULL;
   fe  a, ai, prod, ref, one = {1, 0, 0, 0};
   for (int it = 0; it < 64; it++) {
-    for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
+    for (int i = 0; i < 4; i++) {
+      a[i] = p256_rng(&s);
+    }
     p256_fp_reduce(a, a, p256_p);
-    if (p256_fp_is_zero(a)) continue;
+    if (p256_fp_is_zero(a)) {
+      continue;
+    }
     p256_fp_inv_p(ai, a);
     p256_fp_mul_p(prod, a, ai);
     CHECK(p256_fp_eq(prod, one));

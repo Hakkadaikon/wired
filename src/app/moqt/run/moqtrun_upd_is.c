@@ -24,7 +24,9 @@ static int moqtrun_upd_stray(const wired_moqtrun_peer* p);
  * NAMESPACE_DONE any more, a SUBSCRIBE_TRACKS opens no more PUBLISHes)
  * and the hub FINs once its answer is out (3.3.2). */
 void moqtrun_upd_close_ns(wired_moqtrun_req* q) {
-  if (!q || !moqtrun_kind_is_ns(q->kind)) return;
+  if (!q || !moqtrun_kind_is_ns(q->kind)) {
+    return;
+  }
   q->live = 0;
   bytes_memset(q->ns_seen, 0, sizeof q->ns_seen);
 }
@@ -78,10 +80,12 @@ static int moqtrun_upd_allowed(const wired_moqtrun_peer* p) {
  * SUBSCRIBE_TRACKS and PUBLISH_NAMESPACE each have their own ctx bit
  * (draft-22 9.5). */
 static u32 moqtrun_upd_ns_ctx(const wired_moqtrun_req* q) {
-  if (q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE)
+  if (q->kind == MOQNS_T_SUBSCRIBE_NAMESPACE) {
     return MOQCTL_PCTX_UPDATE_SUBSCRIBE_NAMESPACE;
-  if (q->kind == MOQCTL_T_SUBSCRIBE_TRACKS)
+  }
+  if (q->kind == MOQCTL_T_SUBSCRIBE_TRACKS) {
     return MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS;
+  }
   return MOQCTL_PCTX_UPDATE_PUBLISH_NAMESPACE;
 }
 
@@ -89,8 +93,12 @@ static u32 moqtrun_upd_ns_ctx(const wired_moqtrun_req* q) {
  * against, by the request kind riding the stream (10.2.x "MAY appear in"
  * is split the same way). */
 u32 moqtrun_upd_ctx(const wired_moqtrun_peer* p) {
-  if (moqtrun_upd_is_fetch(p)) return MOQCTL_PCTX_UPDATE_FETCH;
-  if (moqtrun_upd_is_ns(p)) return moqtrun_upd_ns_ctx(p->req);
+  if (moqtrun_upd_is_fetch(p)) {
+    return MOQCTL_PCTX_UPDATE_FETCH;
+  }
+  if (moqtrun_upd_is_ns(p)) {
+    return moqtrun_upd_ns_ctx(p->req);
+  }
   return MOQCTL_PCTX_UPDATE_SUBSCRIPTION;
 }
 
@@ -152,8 +160,12 @@ void moqtrun_update_route(
     usz                  peer_idx,
     const moqctl_params* params,
     u64                  rid) {
-  if (moqtrun_fill_malformed(hub, p, params)) return;
-  if (moqtrun_update_route_other(hub, p, params)) return;
+  if (moqtrun_fill_malformed(hub, p, params)) {
+    return;
+  }
+  if (moqtrun_update_route_other(hub, p, params)) {
+    return;
+  }
   moqtrun_update_sub(hub, p, peer_idx, params, rid);
 }
 

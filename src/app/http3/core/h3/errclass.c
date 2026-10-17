@@ -14,6 +14,8 @@ int h3_error_is_reserved(u64 code) {
 }
 
 u64 h3_error_send_value(u64 code, u64 grease_id) {
-  if (code != H3_NO_ERROR) return code;
+  if (code != H3_NO_ERROR) {
+    return code;
+  }
   return grease_id ? grease_id : code;
 }

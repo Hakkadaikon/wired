@@ -7,8 +7,9 @@ static int srvrun_metrics_emit_due(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int srvrun_deferred_ack_due(srvrun_conn* c);
 
 void srvrun_reap_wtsends(srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     srvrun_reap_one_wtsend(c, &c->wtsend[i]);
+  }
 }
 
 /* Sum of receive-window overflow drops across this connection's WT stream
@@ -19,10 +20,12 @@ void srvrun_reap_wtsends(srvrun_conn* c) {
  * the connection. */
 u64 srvrun_wtwin_dropped(const srvrun_conn* c) {
   u64 total = 0;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     total += c->l.wt_streams[i].win.dropped_bytes;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     total += c->l.wt_uni_streams[i].win.dropped_bytes;
+  }
   return total;
 }
 
@@ -47,7 +50,9 @@ static void srvrun_metrics_fill(
 /* 1 once per SRVRUN_METRICS_INTERVAL_MS per connection, arming the next
  * window as a side effect. */
 static int srvrun_metrics_due(srvrun_conn* c, u64 now_ms) {
-  if (now_ms - c->metrics_emit_ms < SRVRUN_METRICS_INTERVAL_MS) return 0;
+  if (now_ms - c->metrics_emit_ms < SRVRUN_METRICS_INTERVAL_MS) {
+    return 0;
+  }
   c->metrics_emit_ms = now_ms;
   return 1;
 }
@@ -66,18 +71,23 @@ void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   char                       rec[256];
   usz                        n;
   wired_qlogevent_metrics_in m;
-  if (!srvrun_metrics_emit_due(ctx, c)) return;
+  if (!srvrun_metrics_emit_due(ctx, c)) {
+    return;
+  }
   srvrun_metrics_fill(c, &m);
   n = wired_qlogevent_metrics(rec, sizeof rec, ctx->now_ms, c->qlog_slot, &m);
-  if (n)
+  if (n) {
     wired_qlog_append(ctx->cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  }
 }
 
 /* 1 iff this step deferred a bare ACK that is due right now; closes the
  * defer window either way (it spans exactly one step). Down connections
  * flush nothing. */
 static int srvrun_deferred_ack_due(srvrun_conn* c) {
-  if (!c->up || !c->l.ack_defer) return 0;
+  if (!c->up || !c->l.ack_defer) {
+    return 0;
+  }
   c->l.ack_defer = 0;
   return ackpolicy_should_ack(
       &c->l.app_ack_policy, c->l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
@@ -90,10 +100,13 @@ static int srvrun_deferred_ack_due(srvrun_conn* c) {
 void srvrun_flush_deferred_ack(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8  pl[SRVRUN_ACK_ROOM];
   usz al;
-  if (!srvrun_deferred_ack_due(c)) return;
+  if (!srvrun_deferred_ack_due(c)) {
+    return;
+  }
   al = wired_srvloop_ack_peek(&c->l, pl, sizeof pl);
-  if (al)
+  if (al) {
     srvrun_seal_send_slice(ctx, c, wired_span_of(pl, al), c->l.tx_pn++, al);
+  }
   srvrun_stage_flush(ctx->cfg); /* the bare ACK stages like a slice; nothing
                                  * later this step would flush it */
 }

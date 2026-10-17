@@ -30,7 +30,9 @@ static int moqtrun_fetch_end_open22(
 
 static moqctl_loc moqtrun_fetch_ok_end(
     wired_moqt_hub* hub, const wired_moqtrun_peer* p, const moqtrun_frange* r) {
-  if (!moqtrun_fetch_end_open22(p, r)) return r->ok_end;
+  if (!moqtrun_fetch_end_open22(p, r)) {
+    return r->ok_end;
+  }
   return moqtrun_fetch_last(&hub->cache, r);
 }
 
@@ -42,7 +44,9 @@ wired_moqtrun_fetch* moqtrun_fetch_begin(
     u64                   request_id,
     const moqtrun_frange* r) {
   wired_moqtrun_fetch* f = moqtrun_fetch_slot(hub);
-  if (!f) return 0;
+  if (!f) {
+    return 0;
+  }
   bytes_memset(f, 0, sizeof *f);
   f->in_use     = 1;
   f->wt         = wt;
@@ -76,7 +80,9 @@ wired_moqtrun_fetch* moqtrun_fetch_accept(
   }
   f->seq.eor_timed_out =
       (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
-  if (descending) moqtrun_fetch_descend(hub, f, r);
+  if (descending) {
+    moqtrun_fetch_descend(hub, f, r);
+  }
   moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
   return f;
 }

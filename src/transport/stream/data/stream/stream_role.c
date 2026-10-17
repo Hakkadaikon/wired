@@ -9,11 +9,15 @@ static int am_initiator(int am_client, u64 stream_id) {
 }
 
 int stream_can_send(int am_client, u64 stream_id) {
-  if (!stream_is_uni(stream_id)) return 1;   /* bidi: either side sends */
+  if (!stream_is_uni(stream_id)) {
+    return 1; /* bidi: either side sends */
+  }
   return am_initiator(am_client, stream_id); /* uni: only the initiator */
 }
 
 int stream_can_receive(int am_client, u64 stream_id) {
-  if (!stream_is_uni(stream_id)) return 1;    /* bidi: either side receives */
+  if (!stream_is_uni(stream_id)) {
+    return 1; /* bidi: either side receives */
+  }
   return !am_initiator(am_client, stream_id); /* uni: only the peer reads */
 }

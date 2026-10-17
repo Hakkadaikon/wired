@@ -23,7 +23,9 @@ void mgf1_sha256(wired_span seed, wired_mspan mask) {
   for (u32 counter = 0; off < mask.n; counter++) {
     mgf1_block(seed, counter, t);
     usz n = min_usz(mask.n - off, 32);
-    for (usz i = 0; i < n; i++) mask.p[off + i] = t[i];
+    for (usz i = 0; i < n; i++) {
+      mask.p[off + i] = t[i];
+    }
     off += n;
   }
 }

@@ -46,7 +46,9 @@ static const u64 S512_H0[8] = {0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
                                0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL};
 
 void sha512_init(sha512_ctx* s) {
-  for (usz i = 0; i < 8; i++) s->h[i] = S512_H0[i];
+  for (usz i = 0; i < 8; i++) {
+    s->h[i] = S512_H0[i];
+  }
   s->total   = 0;
   s->buf_len = 0;
 }
@@ -54,30 +56,41 @@ void sha512_init(sha512_ctx* s) {
 /* Load one 64-bit big-endian word at byte offset o. */
 static u64 load_be64(const u8* p, usz o) {
   u64 v = 0;
-  for (usz j = 0; j < 8; j++) v = (v << 8) | p[o + j];
+  for (usz j = 0; j < 8; j++) {
+    v = (v << 8) | p[o + j];
+  }
   return v;
 }
 
 /* Build the 80-word message sha512_schedule from one 128-byte block. */
 static void sha512_schedule(const u8* p, u64 w[80]) {
-  for (usz i = 0; i < 16; i++) w[i] = load_be64(p, i * 8);
-  for (usz i = 16; i < 80; i++)
+  for (usz i = 0; i < 16; i++) {
+    w[i] = load_be64(p, i * 8);
+  }
+  for (usz i = 16; i < 80; i++) {
     w[i] = S512SS1(w[i - 2]) + w[i - 7] + S512SS0(w[i - 15]) + w[i - 16];
+  }
 }
 
 /* One round: mix the working vector v[0..7] with sha512_schedule word kw. */
 static void sha512_round_step(u64 v[8], u64 kw) {
   u64 t1 = v[7] + S512BS1(v[4]) + CH(v[4], v[5], v[6]) + kw;
   u64 t2 = S512BS0(v[0]) + MAJ(v[0], v[1], v[2]);
-  for (usz j = 7; j > 0; j--) v[j] = v[j - 1]; /* shift e..a down */
+  for (usz j = 7; j > 0; j--) {
+    v[j] = v[j - 1]; /* shift e..a down */
+  }
   v[4] += t1;     /* e += t1 (after shift, v[4] holds old d) */
   v[0] = t1 + t2; /* a = t1 + t2 */
 }
 
 /* Run all 80 rounds over the working vector seeded from the hash state. */
 static void sha512_run_rounds(const u64* h, const u64 w[80], u64 v[8]) {
-  for (usz i = 0; i < 8; i++) v[i] = h[i];
-  for (usz i = 0; i < 80; i++) sha512_round_step(v, S512_K[i] + w[i]);
+  for (usz i = 0; i < 8; i++) {
+    v[i] = h[i];
+  }
+  for (usz i = 0; i < 80; i++) {
+    sha512_round_step(v, S512_K[i] + w[i]);
+  }
 }
 
 static void sha512_compress(sha512_ctx* s, const u8* p) {
@@ -85,7 +98,9 @@ static void sha512_compress(sha512_ctx* s, const u8* p) {
   u64 v[8];
   sha512_schedule(p, w);
   sha512_run_rounds(s->h, w, v);
-  for (usz i = 0; i < 8; i++) s->h[i] += v[i];
+  for (usz i = 0; i < 8; i++) {
+    s->h[i] += v[i];
+  }
 }
 
 /* Absorb whole 128-byte blocks straight from data; returns bytes consumed. */
@@ -100,7 +115,9 @@ static usz sha512_absorb_blocks(sha512_ctx* s, const u8* data, usz len) {
 
 /* Append n bytes (n < block, no overflow) into the pending sha512_buffer. */
 static void sha512_buffer(sha512_ctx* s, const u8* data, usz n) {
-  for (usz i = 0; i < n; i++) s->buf[s->buf_len + i] = data[i];
+  for (usz i = 0; i < n; i++) {
+    s->buf[s->buf_len + i] = data[i];
+  }
   s->buf_len += n;
 }
 

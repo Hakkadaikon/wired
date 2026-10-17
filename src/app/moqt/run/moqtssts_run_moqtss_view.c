@@ -17,21 +17,26 @@ void moqtss_view_of(
     const wired_moqt_hub* hub, usz sidx, u64 alg, moqtss_view* v) {
   const moqtss_sess* ss = &hub->peers[sidx].ssts;
   v->n                  = 0;
-  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++)
-    if (moqtss_view_wants(&ss->sets[k], alg))
+  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) {
+    if (moqtss_view_wants(&ss->sets[k], alg)) {
       moqtss_view_add(hub, v, &ss->sets[k], sidx, k);
+    }
+  }
 }
 
 /* A non-pacing backpressure set's pick: the current tier, clamped to its
  * ladder, nothing when inactive (moqssts_bp_decide without observing). */
 static int moqtss_hold_pick(u64 tier, const moqssts_set* s) {
-  if (!moqssts_set_active(s)) return MOQSSTS_NONE;
+  if (!moqssts_set_active(s)) {
+    return MOQSSTS_NONE;
+  }
   return (int)u64_min(tier, s->n_members - 1);
 }
 
 static void moqtss_bp_hold(const moqtss_sess* ss, moqtss_view* v) {
-  for (usz j = 0; j < v->n; j++)
+  for (usz j = 0; j < v->n; j++) {
     v->out[j] = moqtss_hold_pick(ss->bp.tier, &v->sets[j]);
+  }
 }
 
 /* Session sidx's delivery-rate estimate (io.est_kbps), 0 when unknown. */
@@ -61,15 +66,20 @@ static void moqtss_view_run(
 }
 
 static u64 moqtss_pick_alias(const moqtss_view* v, usz j) {
-  if (v->out[j] < 0) return MOQTSS_PICK_NONE;
+  if (v->out[j] < 0) {
+    return MOQTSS_PICK_NONE;
+  }
   return v->sets[j].m[v->out[j]].track_id;
 }
 
 /* The view's pick for set slot k (NONE when k was not in the view: an
  * algorithm no session list owns, controller.rs "unowned"). */
 static u64 moqtss_view_pick(const moqtss_view* v, usz k) {
-  for (usz j = 0; j < v->n; j++)
-    if (v->slot[j] == k) return moqtss_pick_alias(v, j);
+  for (usz j = 0; j < v->n; j++) {
+    if (v->slot[j] == k) {
+      return moqtss_pick_alias(v, j);
+    }
+  }
   return MOQTSS_PICK_NONE;
 }
 

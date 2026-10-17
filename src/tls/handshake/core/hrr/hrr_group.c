@@ -10,7 +10,9 @@ static u16 hrr_rd16(const u8* p) { return (u16)((p[0] << 8) | p[1]); }
  * body_len. */
 static usz hrr_ext_off(const u8* body, usz body_len) {
   usz sid_len, off;
-  if (body_len < 35) return 0;
+  if (body_len < 35) {
+    return 0;
+  }
   sid_len = body[34];
   off     = 35 + sid_len + 3;           /* + cipher(2) + compression(1) */
   return off + 2 <= body_len ? off : 0; /* room for ext block length */
@@ -34,9 +36,13 @@ typedef struct {
 
 static usz hrr_step(const u8* e, usz room, hrr_scan_state* st) {
   usz el = hrr_rd16(e + 2);
-  if (4 + el > room) return 0;
+  if (4 + el > room) {
+    return 0;
+  }
   st->found = hrr_is_key_share(e, el);
-  if (st->found) st->group = hrr_rd16(e + 4);
+  if (st->found) {
+    st->group = hrr_rd16(e + 4);
+  }
   return 4 + el;
 }
 
@@ -49,7 +55,9 @@ static int hrr_scan_key_share(const u8* ext, usz total, u16* group) {
   hrr_scan_state st = {0, 0};
   while (hrr_scan_more(i, total, st.found)) {
     usz step = hrr_step(ext + i, total - i, &st);
-    if (step == 0) return 0;
+    if (step == 0) {
+      return 0;
+    }
     i += step;
   }
   *group = st.group;
@@ -60,7 +68,9 @@ static int hrr_scan_key_share(const u8* ext, usz total, u16* group) {
  * offset within the body (>0) and set *total to the block length, or 0. */
 static usz hrr_locate_exts(const u8* body, usz body_len, usz* total) {
   usz eoff = hrr_ext_off(body, body_len);
-  if (eoff == 0) return 0;
+  if (eoff == 0) {
+    return 0;
+  }
   *total = hrr_rd16(body + eoff);
   return eoff + 2 + *total <= body_len ? eoff : 0;
 }
@@ -73,8 +83,12 @@ int hrr_selected_group(const u8* hrr_msg, usz len, u16* group) {
   u8  type;
   usz body_len, total, eoff;
   usz hdr = hs_parse(wired_span_of(hrr_msg, len), &type, &body_len);
-  if (!hrr_is_server_hello(hdr, type)) return 0;
+  if (!hrr_is_server_hello(hdr, type)) {
+    return 0;
+  }
   eoff = hrr_locate_exts(hrr_msg + hdr, body_len, &total);
-  if (eoff == 0) return 0;
+  if (eoff == 0) {
+    return 0;
+  }
   return hrr_scan_key_share(hrr_msg + hdr + eoff + 2, total, group);
 }

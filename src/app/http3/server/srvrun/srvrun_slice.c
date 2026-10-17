@@ -13,7 +13,9 @@
  * carrying packet went out. Returns the ACK bytes written at pl[0]. */
 usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
   usz al;
-  if (!c->l.ack_defer) return 0;
+  if (!c->l.ack_defer) {
+    return 0;
+  }
   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
   return sl->len + al <= srvrun_mps(c) ? al : 0;
 }
@@ -28,10 +30,14 @@ int srvrun_seal_send_slice(
   wired_obuf            ob  = obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0, 0, 0, 0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
+  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) {
+    return 0;
+  }
   srvrun_send_staged(
       ctx->cfg, c, wired_span_of(out, ob.len), "1-RTT payload sent\n");
-  if (al) wired_srvloop_ack_mark_sent(&c->l);
+  if (al) {
+    wired_srvloop_ack_mark_sent(&c->l);
+  }
   return 1;
 }
 
@@ -49,11 +55,15 @@ int srvrun_send_stream_slice(
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
       wired_sendq_slice_data(&sess->q, sl), fin};
   u64 pn;
-  if (!appdata_stream_frame(&f, &plb)) return 0;
+  if (!appdata_stream_frame(&f, &plb)) {
+    return 0;
+  }
   pn = c->l.tx_pn++;
   srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
-  if (!srvrun_seal_send_slice(ctx, c, wired_span_of(pl, al + plb.len), pn, al))
+  if (!srvrun_seal_send_slice(
+          ctx, c, wired_span_of(pl, al + plb.len), pn, al)) {
     return 0;
+  }
   return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
 }
 
@@ -69,7 +79,9 @@ int srvrun_send_taken(
     u64                      stream_id,
     const wired_sendq_slice* sl,
     u8                       fin) {
-  if (srvrun_send_stream_slice(ctx, c, sess, stream_id, sl, fin)) return 1;
+  if (srvrun_send_stream_slice(ctx, c, sess, stream_id, sl, fin)) {
+    return 1;
+  }
   wired_sendsess_untake(sess, sl);
   return 0;
 }
@@ -90,8 +102,10 @@ int srvrun_send_slice(
  * loops stay at the CCN gate). */
 usz srvrun_wtsend_inflight_bytes(const srvrun_conn* c) {
   usz total = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
       total += wired_sendsess_inflight_bytes(&c->wtsend[i].sess);
+    }
+  }
   return total;
 }

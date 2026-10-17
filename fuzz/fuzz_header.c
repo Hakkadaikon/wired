@@ -15,7 +15,9 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   const u8* buf = (const u8*)data;
   usz       n   = (usz)size;
 
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
 
   /* wired_header_parse: for a short header the caller must preset
    * dcid_len. Seed it from the first input byte so the fuzzer can reach

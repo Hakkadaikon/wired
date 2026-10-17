@@ -7,10 +7,14 @@
 static int append_body(wired_span body, wired_obuf* out) {
   wired_obuf ob;
   usz        n;
-  if (!body.n) return 1;
+  if (!body.n) {
+    return 1;
+  }
   ob = obuf_of(out->p + out->len, out->cap - out->len);
   n  = h3_frame_put(&ob, H3_FRAME_DATA, body);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   out->len += n;
   return 1;
 }
@@ -19,7 +23,9 @@ static int append_body(wired_span body, wired_obuf* out) {
 int h3req_build(wired_span qpack_headers, wired_span body, wired_obuf* out) {
   wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = h3_frame_put(&head, H3_FRAME_HEADERS, qpack_headers);
-  if (!off) return 0;
+  if (!off) {
+    return 0;
+  }
   out->len = off;
   return append_body(body, out);
 }

@@ -141,8 +141,11 @@ static const len_row LEN_TABLE[] = {
  * table row (an unmeasurable kind). */
 static usz decoded_len(frame_kind kind, const u8* buf, usz n) {
   usz i, rows = sizeof LEN_TABLE / sizeof LEN_TABLE[0];
-  for (i = 0; i < rows; i++)
-    if (LEN_TABLE[i].kind == kind) return LEN_TABLE[i].fn(buf, n);
+  for (i = 0; i < rows; i++) {
+    if (LEN_TABLE[i].kind == kind) {
+      return LEN_TABLE[i].fn(buf, n);
+    }
+  }
   return 0;
 }
 
@@ -154,7 +157,9 @@ static int single_byte(frame_kind kind) {
 /* Bytes the frame at buf occupies, or 0 if the walker cannot measure it. */
 static usz frame_len(u64 type, const u8* buf, usz n) {
   frame_kind kind = frame_classify(type);
-  if (single_byte(kind)) return 1;
+  if (single_byte(kind)) {
+    return 1;
+  }
   return decoded_len(kind, buf, n);
 }
 
@@ -162,16 +167,22 @@ static usz frame_len(u64 type, const u8* buf, usz n) {
  */
 static usz measure(const framewalk* it, u64* type) {
   usz len;
-  if (varint_decode(it->cur, it->remaining, type) == 0) return 0;
+  if (varint_decode(it->cur, it->remaining, type) == 0) {
+    return 0;
+  }
   len = frame_len(*type, it->cur, it->remaining);
   return len > it->remaining ? 0 : len;
 }
 
 int framewalk_next(framewalk* it, framewalk_item* out) {
   usz len;
-  if (it->remaining == 0) return 0;
+  if (it->remaining == 0) {
+    return 0;
+  }
   len = measure(it, &out->type);
-  if (len == 0) return 0;
+  if (len == 0) {
+    return 0;
+  }
   out->start     = it->cur;
   out->remaining = it->remaining;
   it->cur += len;
@@ -186,8 +197,9 @@ int framewalk_ack_eliciting(wired_span pl) {
   framewalk_item fr;
   int            eliciting = 0;
   framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     eliciting |= frame_ack_eliciting(frame_classify(fr.type));
+  }
   return eliciting;
 }
 
@@ -204,7 +216,8 @@ int framewalk_non_probing(wired_span pl) {
   framewalk_item fr;
   int            np = 0;
   framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     np |= !FRAMEWALK_PROBING[frame_classify(fr.type)];
+  }
   return np;
 }

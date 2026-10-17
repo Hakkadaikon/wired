@@ -36,8 +36,12 @@ static void test_p256sign_known_vector(void) {
   psign_hb32(PS_S, ws);
   wired_sha256((const u8*)"sample", 6, h);
   CHECK(p256sign_sign(priv, h, r, s) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(r[i] == wr[i]);
-  for (usz i = 0; i < 32; i++) CHECK(s[i] == ws[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(r[i] == wr[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(s[i] == ws[i]);
+  }
 }
 
 /* Self-produced signature verifies under the existing verifier (round-trip). */
@@ -60,7 +64,9 @@ static void test_p256sign_ps_roundtrip(void) {
 /* 1 if a <= b (big-endian 32-byte). */
 static int le32(const u8 a[32], const u8 b[32]) {
   for (usz i = 0; i < 32; i++) {
-    if (a[i] != b[i]) return a[i] < b[i];
+    if (a[i] != b[i]) {
+      return a[i] < b[i];
+    }
   }
   return 1;
 }

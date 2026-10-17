@@ -445,7 +445,9 @@ static void mk_ku(connrunner* r, int confirmed) {
   keyset_install(&r->io.loop.keys, LEVEL_ONERTT, &(initial_keys){0});
   r->io.loop.handshake_confirmed = confirmed;
   connrunner_keyupdate_init(r);
-  for (usz i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);
+  for (usz i = 0; i < HKDF_PRK; i++) {
+    r->ku_secret[i] = (u8)(i + 1);
+  }
 }
 
 /* RFC 9001 6.2: a peer phase change before the handshake is confirmed must not
@@ -520,8 +522,11 @@ static void test_ku_initiate_blocked_within_3pto(void) {
 /* 1 if two derived traffic secrets are byte-identical. */
 static int ku_secret_match(const u8* a, const u8* b) {
   usz i;
-  for (i = 0; i < HKDF_PRK; i++)
-    if (a[i] != b[i]) return 0;
+  for (i = 0; i < HKDF_PRK; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

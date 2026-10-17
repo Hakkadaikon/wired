@@ -33,8 +33,11 @@ static int moqtsw_relay_owes(
 
 /* Something of A's Groups below G may still reach slot si on t. */
 static int moqtsw_open(const wired_moqtrun_track* t, usz si) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-    if (moqtsw_relay_owes(&t->relays[r], &t->subs[si], si)) return 1;
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (moqtsw_relay_owes(&t->relays[r], &t->subs[si], si)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

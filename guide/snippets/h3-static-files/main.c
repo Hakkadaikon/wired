@@ -14,21 +14,28 @@ static int on_request(void* ctx, wired_http_exchange* x) {
   (void)ctx;
   wired_span_to_cstr(reqpath, sizeof reqpath, wired_h3req_path(x->req));
   if (!wired_staticfile_resolve(
-          ".", reqpath, "index.html", resolved, sizeof resolved))
+          ".", reqpath, "index.html", resolved, sizeof resolved)) {
     return wired_http_reply_text(x, 404, "not found");
+  }
   fd = wired_fio_open(resolved);
-  if (fd < 0) return wired_http_reply_text(x, 404, "not found");
+  if (fd < 0) {
+    return wired_http_reply_text(x, 404, "not found");
+  }
   total = wired_fio_size(resolved);
   got =
       wired_fio_pread(fd, wired_mspan_of(x->body->p, x->body->cap), x->offset);
   wired_fio_close(fd);
-  if (total < 0 || got < 0) return wired_http_reply_text(x, 404, "not found");
+  if (total < 0 || got < 0) {
+    return wired_http_reply_text(x, 404, "not found");
+  }
   if (x->offset == 0) {
     x->content_type = wired_mimetype_for_path(resolved);
     x->total_size   = (u64)total;
   }
   x->body->len = (usz)got;
-  if (x->offset + (u64)got < (u64)total) x->more = 1;
+  if (x->offset + (u64)got < (u64)total) {
+    x->more = 1;
+  }
   return 1;
 }
 

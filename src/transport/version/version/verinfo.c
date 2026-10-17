@@ -9,10 +9,13 @@ static int encode_room(usz cap, usz count, usz n) {
 
 usz verinfo_encode(u8* buf, usz cap, const version_information* vi) {
   usz n = 4 + 4 * vi->count;
-  if (!encode_room(cap, vi->count, n)) return 0;
+  if (!encode_room(cap, vi->count, n)) {
+    return 0;
+  }
   be_put_be32(buf, vi->chosen);
-  for (usz i = 0; i < vi->count; i++)
+  for (usz i = 0; i < vi->count; i++) {
     be_put_be32(buf + 4 + 4 * i, vi->available[i]);
+  }
   return n;
 }
 
@@ -28,10 +31,14 @@ static int decode_len_ok(usz n) {
 
 usz verinfo_decode(const u8* buf, usz n, version_information* vi) {
   usz count;
-  if (!decode_len_ok(n)) return 0;
+  if (!decode_len_ok(n)) {
+    return 0;
+  }
   count      = n / 4 - 1;
   vi->chosen = rd_be32(buf);
   vi->count  = count;
-  for (usz i = 0; i < count; i++) vi->available[i] = rd_be32(buf + 4 + 4 * i);
+  for (usz i = 0; i < count; i++) {
+    vi->available[i] = rd_be32(buf + 4 + 4 * i);
+  }
   return n;
 }

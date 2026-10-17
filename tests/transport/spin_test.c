@@ -39,8 +39,11 @@ static void test_spin_outgoing_ex(void) {
 /* Exactly 1/16 of the byte value space selects disablement. */
 static void test_spin_disabled_selects_one_in_16(void) {
   int count = 0;
-  for (int v = 0; v < 256; v++)
-    if (spin_disabled((u8)v)) count++;
+  for (int v = 0; v < 256; v++) {
+    if (spin_disabled((u8)v)) {
+      count++;
+    }
+  }
   CHECK(count == 16); /* 256/16 */
 }
 
@@ -57,13 +60,18 @@ static void test_spin_disabled_selects_one_in_16(void) {
  * an "at least 1/8" bound the RFC's own math does not actually reach. */
 static void test_spin_disabled_combined_rate_matches_rfc9000_math(void) {
   int client_disabled = 0, either_disabled = 0;
-  for (int c = 0; c < 256; c++)
+  for (int c = 0; c < 256; c++) {
     for (int s = 0; s < 256; s++) {
       int cd = spin_disabled((u8)c);
       int sd = spin_disabled((u8)s);
-      if (cd) client_disabled++;
-      if (cd || sd) either_disabled++;
+      if (cd) {
+        client_disabled++;
+      }
+      if (cd || sd) {
+        either_disabled++;
+      }
     }
+  }
   CHECK(client_disabled == 16 * 256); /* 1/16 of the client's own draws */
   /* 1 - (15/16)^2 over 256*256 draws = (256*256 - 240*240) = 31*256. */
   CHECK(either_disabled == 31 * 256);

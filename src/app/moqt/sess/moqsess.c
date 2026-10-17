@@ -23,7 +23,9 @@ static int moqsess_setup_progress(moqsess* s) {
     s->state = MOQSESS_SETUP_HALF;
     return MOQSESS_CLOSE_NONE;
   }
-  if (s->state == MOQSESS_SETUP_HALF) s->state = MOQSESS_ESTABLISHED;
+  if (s->state == MOQSESS_SETUP_HALF) {
+    s->state = MOQSESS_ESTABLISHED;
+  }
   return MOQSESS_CLOSE_NONE;
 }
 
@@ -59,8 +61,9 @@ static int moqsess_on_send_goaway(moqsess* s) {
 /* A 2nd GOAWAY on the same control stream is a protocol violation; the
  * first is recorded and leaves the session open. */
 static int moqsess_on_recv_goaway(moqsess* s) {
-  if (s->goaway_recv)
+  if (s->goaway_recv) {
     return moqsess_closed(s, MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+  }
   s->goaway_recv = 1;
   return MOQSESS_CLOSE_NONE;
 }
@@ -103,8 +106,12 @@ static const moqsess_handler MOQSESS_HANDLERS[] = {
 
 int moqsess_step(moqsess* s, moqsess_event ev) {
   usz idx = (usz)ev;
-  if (s->state == MOQSESS_CLOSED) return s->close_reason;
-  if (idx >= MOQSESS_HANDLERS_N) return MOQSESS_CLOSE_NONE;
+  if (s->state == MOQSESS_CLOSED) {
+    return s->close_reason;
+  }
+  if (idx >= MOQSESS_HANDLERS_N) {
+    return MOQSESS_CLOSE_NONE;
+  }
   return MOQSESS_HANDLERS[idx](s);
 }
 
@@ -139,7 +146,9 @@ static int moqsess_sub_terminate(moqsub* s, int reason) {
 /* SUBSCRIBE/PUBLISH opens the request: Idle -> Pending. Anything else is a
  * caller misuse (ignored: no legal re-open of an active subscription). */
 static int moqsess_sub_on_open(moqsub* s) {
-  if (s->state != MOQSUB_IDLE) return 0;
+  if (s->state != MOQSUB_IDLE) {
+    return 0;
+  }
   s->state = MOQSUB_PENDING;
   return 1;
 }
@@ -156,13 +165,17 @@ static int moqsess_sub_guard_single_response(moqsub* s) {
 }
 
 static int moqsess_sub_on_ok(moqsub* s) {
-  if (!moqsess_sub_guard_single_response(s)) return 0;
+  if (!moqsess_sub_guard_single_response(s)) {
+    return 0;
+  }
   s->state = MOQSUB_ESTABLISHED;
   return 1;
 }
 
 static int moqsess_sub_on_error(moqsub* s) {
-  if (!moqsess_sub_guard_single_response(s)) return 0;
+  if (!moqsess_sub_guard_single_response(s)) {
+    return 0;
+  }
   return moqsess_sub_terminate(s, MOQSUB_TERM_ERROR);
 }
 
@@ -174,12 +187,16 @@ static int moqsess_sub_on_update(moqsub* s) {
 
 /* STOP_SENDING cancels: legal from Pending(Subscriber) or Established. */
 static int moqsess_sub_stop_sending_legal(const moqsub* s) {
-  if (s->state == MOQSUB_ESTABLISHED) return 1;
+  if (s->state == MOQSUB_ESTABLISHED) {
+    return 1;
+  }
   return s->state == MOQSUB_PENDING && s->role == MOQSUB_ROLE_SUBSCRIBER;
 }
 
 static int moqsess_sub_on_stop_sending(moqsub* s) {
-  if (!moqsess_sub_stop_sending_legal(s)) return 0;
+  if (!moqsess_sub_stop_sending_legal(s)) {
+    return 0;
+  }
   return moqsess_sub_terminate(s, MOQSUB_TERM_STOP_SENDING);
 }
 
@@ -188,7 +205,9 @@ static int moqsess_sub_on_stop_sending(moqsub* s) {
  * subscriber owes a deferred PUBLISH_OK before it FINs (exactly-one-
  * response is satisfied by that late OK, not skipped). */
 static int moqsess_sub_publish_done_legal(const moqsub* s) {
-  if (s->state == MOQSUB_ESTABLISHED) return 1;
+  if (s->state == MOQSUB_ESTABLISHED) {
+    return 1;
+  }
   return s->state == MOQSUB_PENDING && s->role == MOQSUB_ROLE_PUBLISHER;
 }
 
@@ -198,7 +217,9 @@ static int moqsess_sub_owes_late_ok(const moqsub* s) {
 }
 
 static int moqsess_sub_on_publish_done(moqsub* s) {
-  if (!moqsess_sub_publish_done_legal(s)) return 0;
+  if (!moqsess_sub_publish_done_legal(s)) {
+    return 0;
+  }
   if (moqsess_sub_owes_late_ok(s)) {
     s->responded  = 1;
     s->pending_ok = 1;
@@ -234,8 +255,12 @@ static const moqsess_sub_handler MOQSESS_SUB_HANDLERS[] = {
 
 int moqsub_step(moqsub* s, moqsub_event ev) {
   usz idx = (usz)ev;
-  if (s->state == MOQSUB_TERMINATED) return 0;
-  if (idx >= MOQSESS_SUB_HANDLERS_N) return 0;
+  if (s->state == MOQSUB_TERMINATED) {
+    return 0;
+  }
+  if (idx >= MOQSESS_SUB_HANDLERS_N) {
+    return 0;
+  }
   return MOQSESS_SUB_HANDLERS[idx](s);
 }
 
@@ -246,7 +271,9 @@ int moqsub_established(const moqsub* s) {
 int moqsub_terminated(const moqsub* s) { return s->state == MOQSUB_TERMINATED; }
 
 int moqsub_may_forward(const moqsub* s, int forward) {
-  if (!forward) return 0;
+  if (!forward) {
+    return 0;
+  }
   return s->state == MOQSUB_PENDING || s->state == MOQSUB_ESTABLISHED;
 }
 

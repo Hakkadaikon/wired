@@ -29,7 +29,9 @@ static int srvinbox_empty_at(u32 prod, u32 cons) { return cons == prod; }
  * reload) or 0 (room). */
 static int srvinbox_prod_full(u32 prod, const wired_srvinbox_ring* r) {
   u32 cons = __atomic_load_n(&r->cons, __ATOMIC_ACQUIRE);
-  if (!srvinbox_full_at(prod, cons)) return 0;
+  if (!srvinbox_full_at(prod, cons)) {
+    return 0;
+  }
   cons = __atomic_load_n(&r->cons, __ATOMIC_ACQUIRE);
   return srvinbox_full_at(prod, cons);
 }
@@ -37,8 +39,12 @@ static int srvinbox_prod_full(u32 prod, const wired_srvinbox_ring* r) {
 int wired_srvinbox_push(wired_srvinbox_ring* r, const u8* data, usz len) {
   u32                  prod = __atomic_load_n(&r->prod, __ATOMIC_RELAXED);
   wired_srvinbox_slot* slot;
-  if (len > WIRED_SRVINBOX_SLOT_MAX) return 0;
-  if (srvinbox_prod_full(prod, r)) return 0;
+  if (len > WIRED_SRVINBOX_SLOT_MAX) {
+    return 0;
+  }
+  if (srvinbox_prod_full(prod, r)) {
+    return 0;
+  }
   slot = &r->slots[prod & (WIRED_SRVINBOX_DEPTH - 1)];
   bytes_memcpy(slot->buf, data, len);
   slot->len = len;
@@ -53,7 +59,9 @@ int wired_srvinbox_push(wired_srvinbox_ring* r, const u8* data, usz len) {
  * fresh-looking value). */
 static int srvinbox_cons_empty(u32 cons, const wired_srvinbox_ring* r) {
   u32 prod = __atomic_load_n(&r->prod, __ATOMIC_ACQUIRE);
-  if (!srvinbox_empty_at(prod, cons)) return 0;
+  if (!srvinbox_empty_at(prod, cons)) {
+    return 0;
+  }
   prod = __atomic_load_n(&r->prod, __ATOMIC_ACQUIRE);
   return srvinbox_empty_at(prod, cons);
 }
@@ -61,9 +69,13 @@ static int srvinbox_cons_empty(u32 cons, const wired_srvinbox_ring* r) {
 usz wired_srvinbox_pop(wired_srvinbox_ring* r, u8* out_buf, usz out_cap) {
   u32                  cons = __atomic_load_n(&r->cons, __ATOMIC_RELAXED);
   wired_srvinbox_slot* slot;
-  if (srvinbox_cons_empty(cons, r)) return 0;
+  if (srvinbox_cons_empty(cons, r)) {
+    return 0;
+  }
   slot = &r->slots[cons & (WIRED_SRVINBOX_DEPTH - 1)];
-  if (slot->len > out_cap) return 0;
+  if (slot->len > out_cap) {
+    return 0;
+  }
   bytes_memcpy(out_buf, slot->buf, slot->len);
   __atomic_store_n(&r->cons, cons + 1, __ATOMIC_RELEASE);
   return slot->len;

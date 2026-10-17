@@ -10,7 +10,9 @@ static int srvrun_pump_one_slice(
 void srvrun_apply_stream_credit_update(srvrun_conn* c) {
   usz n                  = c->l.max_stream_data_n;
   c->l.max_stream_data_n = 0;
-  for (usz i = 0; i < n; i++) srvrun_apply_one_stream_credit_update(c, i);
+  for (usz i = 0; i < n; i++) {
+    srvrun_apply_one_stream_credit_update(c, i);
+  }
 }
 
 /* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
@@ -36,8 +38,12 @@ int srvrun_has_requeued(const wired_sendsess* sess) {
  * per-stream counterpart, not needed here since srvloop already raises
  * stream credit independently via MAX_STREAM_DATA). */
 void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_conn_credit_has_room(c)) return;
-  if (c->data_blocked_sent_at == c->conn_credit) return;
+  if (srvrun_conn_credit_has_room(c)) {
+    return;
+  }
+  if (c->data_blocked_sent_at == c->conn_credit) {
+    return;
+  }
   srvrun_send_data_blocked(cfg, c, c->conn_credit);
   c->data_blocked_sent_at = c->conn_credit;
 }
@@ -53,9 +59,13 @@ void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
  * every relay open keeps failing until the connection ends. */
 void srvrun_notify_uni_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 limit = srvrun_peer_uni_limit(c);
-  if (!c->uni_blocked_seen) return;
+  if (!c->uni_blocked_seen) {
+    return;
+  }
   c->uni_blocked_seen = 0;
-  if (c->uni_blocked_sent_at == limit) return;
+  if (c->uni_blocked_sent_at == limit) {
+    return;
+  }
   srvrun_send_streams_blocked(cfg, c, 1, limit);
   c->uni_blocked_sent_at = limit;
 }
@@ -71,7 +81,9 @@ void srvrun_notify_uni_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
  * blanket "requeue bypasses everything". */
 int srvrun_pump_gate_ok(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit) {
-  if (srvrun_has_requeued(sess)) return srvrun_sess_log_room(sess);
+  if (srvrun_has_requeued(sess)) {
+    return srvrun_sess_log_room(sess);
+  }
   return srvrun_can_send_new(c, sess, credit);
 }
 
@@ -85,7 +97,9 @@ static int srvrun_pump_one_slice(
     srvrun_notify_conn_blocked(ctx->cfg, c);
     return 0;
   }
-  if (!wired_sendsess_take(&r->sess, &sl)) return 0;
+  if (!wired_sendsess_take(&r->sess, &sl)) {
+    return 0;
+  }
   return srvrun_send_slice(ctx, c, r, &sl);
 }
 
@@ -97,14 +111,18 @@ int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   /* RFC 9000 3.1: a freed slot (reaped, or reset by srvrun_resp_stop) keeps
    * its stale sess; no STREAM frame may follow its RESET_STREAM. */
-  if (!r->in_use) return 0;
+  if (!r->in_use) {
+    return 0;
+  }
   usz inf0 = wired_sendsess_inflight_bytes(&r->sess);
   usz con0 = srvrun_sess_consumed(&r->sess);
   int sent = srvrun_pump_one_slice(ctx, c, r);
   usz inf1 = wired_sendsess_inflight_bytes(&r->sess);
   c->acct_inflight += inf1 - inf0;
   c->acct_consumed += srvrun_sess_consumed(&r->sess) - con0;
-  if (sent) srvrun_pace_charge(c, inf1 - inf0);
+  if (sent) {
+    srvrun_pace_charge(c, inf1 - inf0);
+  }
   return sent;
 }
 
@@ -130,9 +148,12 @@ u8 srvrun_wt_slice_fin(const srvrun_wtsend* w, const wired_sendq_slice* sl) {
 int srvrun_pump_wt_fin_only(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl = {0, 0, 1};
-  if (!w->fin_only_pending) return 0;
-  if (!srvrun_send_stream_slice(ctx, c, &w->sess, w->stream_id, &sl, 1))
+  if (!w->fin_only_pending) {
     return 0;
+  }
+  if (!srvrun_send_stream_slice(ctx, c, &w->sess, w->stream_id, &sl, 1)) {
+    return 0;
+  }
   w->fin_only_pending = 0;
   w->append_open      = 0;
   return 1;
@@ -144,8 +165,12 @@ int srvrun_pump_wt_fin_only(
  * already promoted or if nothing was ever requested. */
 void srvrun_wtsend_promote_fin_if_ready(
     const srvrun_conn* c, srvrun_wtsend* w) {
-  if (!w->fin_requested) return;
-  if (!wired_sendsess_done(&w->sess)) return;
+  if (!w->fin_requested) {
+    return;
+  }
+  if (!wired_sendsess_done(&w->sess)) {
+    return;
+  }
   w->fin_requested = 0;
   srvrun_wtsend_start_fin_now(c, w);
 }

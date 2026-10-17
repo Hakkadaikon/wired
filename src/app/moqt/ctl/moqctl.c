@@ -13,13 +13,18 @@ static u64 moqctl_code_for(
 /* ===== grease / unknown-error normalization (SS17.6) ===== */
 
 int moqctl_is_grease(u64 v) {
-  if (v < 0x9D) return 0;
+  if (v < 0x9D) {
+    return 0;
+  }
   return (v - 0x9D) % 0x7f == 0;
 }
 
 int moqctl_u64_in(const u64* list, usz n, u64 v) {
-  for (usz i = 0; i < n; i++)
-    if (list[i] == v) return 1;
+  for (usz i = 0; i < n; i++) {
+    if (list[i] == v) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -31,7 +36,9 @@ static const u64 MOQCTL_KNOWN_ERRS[] = {
     MOQCTL_ERR_REDIRECT,       MOQCTL_ERR_MALFORMED_AUTH_TOKEN};
 
 u64 moqctl_known_request_error(u64 code) {
-  if (moqctl_u64_in(MOQCTL_KNOWN_ERRS, MOQCTL_KNOWN_ERRS_N, code)) return code;
+  if (moqctl_u64_in(MOQCTL_KNOWN_ERRS, MOQCTL_KNOWN_ERRS_N, code)) {
+    return code;
+  }
   return MOQCTL_ERR_INTERNAL_ERROR;
 }
 
@@ -40,7 +47,9 @@ static const u64 MOQCTL_KNOWN_DONE[] = {
     MOQCTL_DONE_UPDATE_FAILED};
 
 u64 moqctl_known_publish_done(u64 code) {
-  if (moqctl_u64_in(MOQCTL_KNOWN_DONE, MOQCTL_KNOWN_DONE_N, code)) return code;
+  if (moqctl_u64_in(MOQCTL_KNOWN_DONE, MOQCTL_KNOWN_DONE_N, code)) {
+    return code;
+  }
   return MOQCTL_DONE_INTERNAL_ERROR;
 }
 
@@ -71,8 +80,11 @@ static u64 moqctl_code_row_pick(const moqctl_code_row* r, int ver) {
 
 static u64 moqctl_code_for(
     const moqctl_code_row* rows, usz n, int ver, u64 code) {
-  for (usz i = 0; i < n; i++)
-    if (rows[i].code == code) return moqctl_code_row_pick(&rows[i], ver);
+  for (usz i = 0; i < n; i++) {
+    if (rows[i].code == code) {
+      return moqctl_code_row_pick(&rows[i], ver);
+    }
+  }
   return code;
 }
 
@@ -91,22 +103,32 @@ u64 moqctl_publish_done_for(int ver, u64 code) {
 /* ===== Location (SS1.4.2) ===== */
 
 int moqctl_loc_less(moqctl_loc a, moqctl_loc b) {
-  if (a.group != b.group) return a.group < b.group;
+  if (a.group != b.group) {
+    return a.group < b.group;
+  }
   return a.object < b.object;
 }
 
 int moqctl_loc_take(wired_span buf, usz* off, moqctl_loc* out) {
   usz at = *off;
-  if (!moqvi_take(buf, &at, &out->group)) return MOQCTL_INSUFFICIENT;
-  if (!moqvi_take(buf, &at, &out->object)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, &at, &out->group)) {
+    return MOQCTL_INSUFFICIENT;
+  }
+  if (!moqvi_take(buf, &at, &out->object)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   *off = at;
   return MOQCTL_OK;
 }
 
 int moqctl_loc_put(wired_mspan buf, usz* off, moqctl_loc loc) {
   usz at = *off;
-  if (!moqvi_put(buf, &at, loc.group)) return 0;
-  if (!moqvi_put(buf, &at, loc.object)) return 0;
+  if (!moqvi_put(buf, &at, loc.group)) {
+    return 0;
+  }
+  if (!moqvi_put(buf, &at, loc.object)) {
+    return 0;
+  }
   *off = at;
   return 1;
 }

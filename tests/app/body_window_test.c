@@ -17,7 +17,9 @@ typedef struct {
 
 static int bw_sink(void* ctx, wired_span chunk, int fin) {
   bw_rec* r = ctx;
-  for (usz i = 0; i < chunk.n; i++) r->got[r->got_n++] = chunk.p[i];
+  for (usz i = 0; i < chunk.n; i++) {
+    r->got[r->got_n++] = chunk.p[i];
+  }
   if (r->calls < 64) {
     r->lens[r->calls] = chunk.n;
     r->fins[r->calls] = fin;
@@ -30,7 +32,9 @@ static int bw_sink(void* ctx, wired_span chunk, int fin) {
 static void bw_frame(u8* s, usz* n, u64 type, usz plen, u8 v) {
   *n += varint_encode(s + *n, type);
   *n += varint_encode(s + *n, plen);
-  for (usz i = 0; i < plen; i++) s[(*n)++] = v;
+  for (usz i = 0; i < plen; i++) {
+    s[(*n)++] = v;
+  }
 }
 
 static void bw_land(bodywin* w, u8* buf, const u8* s, usz off, usz n, int fin) {
@@ -115,7 +119,9 @@ static void test_bodywin_fin_inside_frame_is_error(void) {
   bw_land(&w, buf, s, 0, 3, 1);
   CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_FRAME_ERROR);
   CHECK(r.got_n <= 1);
-  for (usz i = 0; i < r.calls; i++) CHECK(r.fins[i] == 0);
+  for (usz i = 0; i < r.calls; i++) {
+    CHECK(r.fins[i] == 0);
+  }
 }
 
 /* Same, FIN inside a frame header. */
@@ -141,7 +147,9 @@ static int bw_ends_with_empty_fin(const u8* s, usz n, int late, usz got_n) {
   bw_land(&w, buf, s, 0, n, !late);
   bodywin_pump(&w, buf, bw_sink, &r);
   bw_land(&w, buf, s, n, 0, 1);
-  if (bodywin_pump(&w, buf, bw_sink, &r) != BODYWIN_DONE) return 0;
+  if (bodywin_pump(&w, buf, bw_sink, &r) != BODYWIN_DONE) {
+    return 0;
+  }
   return r.got_n == got_n && r.lens[r.calls - 1] == 0 &&
          r.fins[r.calls - 1] == 1;
 }
@@ -207,9 +215,14 @@ static void test_bodywin_multi_window_reordered(void) {
   u64       credit = BODYWIN_CAP, c;
   for (usz f = 0; f < 5; f++) {
     bw_frame(s, &n, f == 2 ? 0x21 : 0x00, 700 + f * 97, 0);
-    for (usz i = 0; i < 700 + f * 97; i++) s[n - 1 - i] = (u8)(f * 31 + i);
-    if (f != 2)
-      for (usz i = n - (700 + f * 97); i < n; i++) want[wn++] = s[i];
+    for (usz i = 0; i < 700 + f * 97; i++) {
+      s[n - 1 - i] = (u8)(f * 31 + i);
+    }
+    if (f != 2) {
+      for (usz i = n - (700 + f * 97); i < n; i++) {
+        want[wn++] = s[i];
+      }
+    }
   }
   while (sent < n) {
     usz end = credit < n ? (usz)credit : n;
@@ -222,11 +235,15 @@ static void test_bodywin_multi_window_reordered(void) {
     bodywin_pump(&w, buf, bw_sink, &r);
     c = bodywin_credit_due(&w);
     CHECK(c == 0 || c <= w.base + BODYWIN_CAP);
-    if (c) credit = c;
+    if (c) {
+      credit = c;
+    }
   }
   CHECK(w.state == BODYWIN_DONE);
   CHECK(r.got_n == wn && r.fins[r.calls - 1] == 1);
-  for (usz i = 0; i < wn; i++) CHECK(r.got[i] == want[i]);
+  for (usz i = 0; i < wn; i++) {
+    CHECK(r.got[i] == want[i]);
+  }
 }
 
 /* RFC 9114 7.2.4-7.2.7 / 11.2.1: a request stream must not carry the
@@ -272,7 +289,9 @@ static void test_bodywin_window_of_empty_frames(void) {
   bodywin   w = {0};
   bw_rec    r = {0};
   usz       n = 0;
-  while (n < BODYWIN_CAP) bw_frame(s, &n, 0x21, 0, 0);
+  while (n < BODYWIN_CAP) {
+    bw_frame(s, &n, 0x21, 0, 0);
+  }
   bw_land(&w, buf, s, 0, n, 1);
   CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_DONE);
   CHECK(w.base == BODYWIN_CAP && bodywin_frontier(&w) == 0);
@@ -295,7 +314,9 @@ static int bw_cap(void* ctx, u64 type, wired_span value) {
     r->types[r->calls] = type;
     r->lens[r->calls]  = value.n;
   }
-  for (usz i = 0; i < value.n; i++) r->last[i] = value.p[i];
+  for (usz i = 0; i < value.n; i++) {
+    r->last[i] = value.p[i];
+  }
   r->calls++;
   return r->calls != r->reject_at;
 }
@@ -389,7 +410,9 @@ static void test_bodywin_capsule_largest_known_whole(void) {
   n += varint_encode(s + n, 4 + 1028);
   n += varint_encode(s + n, 0x2843);
   n += varint_encode(s + n, 1028);
-  for (usz i = 0; i < 1028; i++) s[n++] = (u8)i;
+  for (usz i = 0; i < 1028; i++) {
+    s[n++] = (u8)i;
+  }
   bw_land(&w, buf, s, 0, n, 0);
   CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
   CHECK(r.calls == 1 && r.types[0] == 0x2843 && r.lens[0] == 1028);
@@ -410,11 +433,15 @@ static void test_bodywin_capsule_oversized_skipped(void) {
   n += varint_encode(s + n, 3 + 600);
   n += varint_encode(s + n, 0x21);
   n += varint_encode(s + n, big);
-  for (usz i = 0; i < 600; i++) s[n++] = 0xee;
+  for (usz i = 0; i < 600; i++) {
+    s[n++] = 0xee;
+  }
   bw_frame(s, &n, 0x00, big - 600, 0xee);
   s[n++] = 0x00;
   s[n++] = 0x06;
-  for (usz i = 0; i < 6; i++) s[n++] = (u8[]){BW_MAXDATA}[i];
+  for (usz i = 0; i < 6; i++) {
+    s[n++] = (u8[]){BW_MAXDATA}[i];
+  }
   bw_land(&w, buf, s, 0, n, 0);
   CHECK(bodywin_capsules(&w, buf, &q, bw_cap, &r) == BODYWIN_OPEN);
   CHECK(r.calls == 2 && r.types[0] == 0x21 && r.lens[0] == 0);

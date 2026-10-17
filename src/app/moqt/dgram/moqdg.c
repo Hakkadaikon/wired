@@ -43,27 +43,41 @@ int moqdg_props_status_ok(const moqdg_obj* o) {
 /* ===== take (11.3.1) ===== */
 
 static int moqdg_take_oid(wired_span buf, usz* at, moqdg_obj* o) {
-  if (moqdg_type_zero_oid(o->type)) return 1;
+  if (moqdg_type_zero_oid(o->type)) {
+    return 1;
+  }
   return moqvi_take(buf, at, &o->object_id);
 }
 
 static int moqdg_take_ids(wired_span buf, usz* at, moqdg_obj* o) {
-  if (!moqvi_take(buf, at, &o->track_alias)) return 0;
-  if (!moqvi_take(buf, at, &o->group_id)) return 0;
+  if (!moqvi_take(buf, at, &o->track_alias)) {
+    return 0;
+  }
+  if (!moqvi_take(buf, at, &o->group_id)) {
+    return 0;
+  }
   return moqdg_take_oid(buf, at, o);
 }
 
 static int moqdg_take_prio(wired_span buf, usz* at, moqdg_obj* o) {
-  if (moqdg_type_default_prio(o->type)) return 1;
-  if (*at >= buf.n) return 0;
+  if (moqdg_type_default_prio(o->type)) {
+    return 1;
+  }
+  if (*at >= buf.n) {
+    return 0;
+  }
   o->priority = buf.p[(*at)++];
   return 1;
 }
 
 static int moqdg_take_props_body(
     wired_span buf, usz* at, u64 len, moqdg_obj* o) {
-  if (len == 0) return MOQDATA_VIOLATION; /* PROPERTIES bit + length 0 */
-  if (len > buf.n - *at) return MOQDATA_INSUFFICIENT;
+  if (len == 0) {
+    return MOQDATA_VIOLATION; /* PROPERTIES bit + length 0 */
+  }
+  if (len > buf.n - *at) {
+    return MOQDATA_INSUFFICIENT;
+  }
   o->props = wired_span_of(buf.p + *at, (usz)len);
   *at += (usz)len;
   return MOQDATA_OK;
@@ -71,34 +85,50 @@ static int moqdg_take_props_body(
 
 static int moqdg_take_props(wired_span buf, usz* at, moqdg_obj* o) {
   u64 len;
-  if (!moqdg_type_props(o->type)) return MOQDATA_OK;
-  if (!moqvi_take(buf, at, &len)) return MOQDATA_INSUFFICIENT;
+  if (!moqdg_type_props(o->type)) {
+    return MOQDATA_OK;
+  }
+  if (!moqvi_take(buf, at, &len)) {
+    return MOQDATA_INSUFFICIENT;
+  }
   return moqdg_take_props_body(buf, at, len, o);
 }
 
 static int moqdg_take_status(wired_span buf, usz* at, moqdg_obj* o) {
-  if (!moqvi_take(buf, at, &o->status)) return MOQDATA_INSUFFICIENT;
-  if (!moqdg_props_status_ok(o)) return MOQDATA_VIOLATION;
+  if (!moqvi_take(buf, at, &o->status)) {
+    return MOQDATA_INSUFFICIENT;
+  }
+  if (!moqdg_props_status_ok(o)) {
+    return MOQDATA_VIOLATION;
+  }
   return MOQDATA_OK;
 }
 
 /* STATUS set: an Object Status and no payload; clear: the rest of the
  * datagram is the payload. */
 static int moqdg_take_tail(wired_span buf, usz* at, moqdg_obj* o) {
-  if (moqdg_type_status(o->type)) return moqdg_take_status(buf, at, o);
+  if (moqdg_type_status(o->type)) {
+    return moqdg_take_status(buf, at, o);
+  }
   o->payload = wired_span_of(buf.p + *at, buf.n - *at);
   *at        = buf.n;
   return MOQDATA_OK;
 }
 
 int moqdg_take_head(wired_span buf, usz* at, moqdg_obj* o) {
-  if (!moqdg_take_ids(buf, at, o)) return MOQDATA_INSUFFICIENT;
-  if (!moqdg_take_prio(buf, at, o)) return MOQDATA_INSUFFICIENT;
+  if (!moqdg_take_ids(buf, at, o)) {
+    return MOQDATA_INSUFFICIENT;
+  }
+  if (!moqdg_take_prio(buf, at, o)) {
+    return MOQDATA_INSUFFICIENT;
+  }
   return MOQDATA_OK;
 }
 
 int moqdg_take_rest(wired_span buf, usz* at, moqdg_obj* o) {
   int r = moqdg_take_props(buf, at, o);
-  if (r != MOQDATA_OK) return r;
+  if (r != MOQDATA_OK) {
+    return r;
+  }
   return moqdg_take_tail(buf, at, o);
 }

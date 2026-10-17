@@ -6,7 +6,9 @@
 /* Decode the value view as a varint into *value (0 if not a single one). */
 static void emit_int(wired_span val, u64* value) {
   u64 v = 0;
-  if (!value) return;
+  if (!value) {
+    return;
+  }
   varint_decode(val.p, val.n, &v);
   *value = v;
 }
@@ -14,7 +16,9 @@ static void emit_int(wired_span val, u64* value) {
 /* Fill the caller's out params from a matched value view. */
 static void stp_emit(wired_span val, const stp_out* out) {
   emit_int(val, out->value);
-  if (out->bytes) *out->bytes = val;
+  if (out->bytes) {
+    *out->bytes = val;
+  }
 }
 
 /* What stp_parse is looking for, and where to put it. */
@@ -29,9 +33,13 @@ static int step_tlv(wired_span tp, usz* off, const stp_want* want) {
   u64        id;
   wired_span val;
   usz r = tparam_get_blob(wired_span_of(tp.p + *off, tp.n - *off), &id, &val);
-  if (r == 0) return -1;
+  if (r == 0) {
+    return -1;
+  }
   *off += r;
-  if (id != want->param_id) return 0;
+  if (id != want->param_id) {
+    return 0;
+  }
   stp_emit(val, want->out);
   return 1;
 }
@@ -41,7 +49,9 @@ int stp_parse(wired_span tp, u64 param_id, const stp_out* out) {
   stp_want want = {param_id, out};
   while (off < tp.n) {
     int s = step_tlv(tp, &off, &want);
-    if (s != 0) return s == 1;
+    if (s != 0) {
+      return s == 1;
+    }
   }
   return 0;
 }

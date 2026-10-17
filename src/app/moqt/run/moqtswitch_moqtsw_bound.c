@@ -36,7 +36,9 @@ static int moqtsw_ends_by(const wired_moqtrun_sub* s, u64 e) {
 /* End no later than Group e, whole (an End Object of a later Group no
  * longer applies). */
 static void moqtsw_end_at(wired_moqtrun_sub* s, u64 e) {
-  if (moqtsw_ends_by(s, e)) return;
+  if (moqtsw_ends_by(s, e)) {
+    return;
+  }
   s->end_group      = e;
   s->has_end_group  = 1;
   s->has_end_object = 0;
@@ -56,7 +58,9 @@ static void moqtsw_bound_old(wired_moqtrun_sub* s) {
 /* B: from {G, 0}, never earlier than its own filter asked. */
 static void moqtsw_bound_new(wired_moqtrun_sub* s) {
   moqctl_loc g = moqctl_loc_of(s->sw_g, 0);
-  if (moqctl_loc_less(s->start, g)) s->start = g;
+  if (moqctl_loc_less(s->start, g)) {
+    s->start = g;
+  }
 }
 
 static void (*const MOQTSW_BOUND_FNS[])(wired_moqtrun_sub*) = {
@@ -113,7 +117,9 @@ static void moqtsw_start(
     const moqctl_switchfrom* sw) {
   wired_moqtrun_track* ot = 0;
   wired_moqtrun_sub*   a  = ops->find(hub, s->session_idx, sw->request_id, &ot);
-  if (!a) return; /* checked in this same dispatch: cannot happen */
+  if (!a) {
+    return; /* checked in this same dispatch: cannot happen */
+  }
   u64 g = u64_max(moqtsw_next(ot), moqtsw_next(t));
   moqtsw_new_side(ops, t, s, g);
   s->sw_peer_rid = a->request_id; /* B names A: moqtsw_orphan */
@@ -129,5 +135,7 @@ void moqtsw_begin(
     wired_moqtrun_sub*   s,
     const moqctl_params* params) {
   const moqctl_param* p = moqtsw_param(params);
-  if (p) moqtsw_start(hub, ops, t, s, &p->sw);
+  if (p) {
+    moqtsw_start(hub, ops, t, s, &p->sw);
+  }
 }

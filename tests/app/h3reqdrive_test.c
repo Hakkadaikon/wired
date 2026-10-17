@@ -21,9 +21,14 @@
 #include "transport/stream/data/appdata/stream_send.h"
 
 static int rd_eq(const u8* a, usz alen, const char* b, usz blen) {
-  if (alen != blen) return 0;
-  for (usz i = 0; i < alen; i++)
-    if (a[i] != (u8)b[i]) return 0;
+  if (alen != blen) {
+    return 0;
+  }
+  for (usz i = 0; i < alen; i++) {
+    if (a[i] != (u8)b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -97,7 +102,9 @@ static void test_reqdrive_empty_body(void) {
 /* Length of a NUL-terminated literal (test-local). */
 static usz cstr(const char* s) {
   usz i = 0;
-  while (s[i]) i++;
+  while (s[i]) {
+    i++;
+  }
   return i;
 }
 
@@ -952,7 +959,9 @@ static void test_reqdrive_recv_get_dyn_null_table_matches_static_only(void) {
  * must fail decode rather than truncate/over-allocate (V-0422). */
 static void test_h3reqdrive_recv_get_oversized_headers_rejected(void) {
   static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 64];
-  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('a' + i % 26);
+  for (usz i = 0; i < sizeof big_value; i++) {
+    big_value[i] = (u8)('a' + i % 26);
+  }
 
   static u8            fs[WIRED_H3_MAX_FIELD_SECTION + 256];
   static u8            req[WIRED_H3_MAX_FIELD_SECTION + 512];
@@ -990,7 +999,9 @@ static void test_h3reqdrive_recv_get_oversized_headers_rejected(void) {
  * (V-0421). */
 static void test_h3reqdrive_trailer_oversized_rejected(void) {
   static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 64];
-  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('b' + i % 26);
+  for (usz i = 0; i < sizeof big_value; i++) {
+    big_value[i] = (u8)('b' + i % 26);
+  }
 
   static u8   fs[64], tfs[WIRED_H3_MAX_FIELD_SECTION + 256];
   static u8   h3[WIRED_H3_MAX_FIELD_SECTION + 512];
@@ -1030,7 +1041,9 @@ static void test_h3reqdrive_trailer_oversized_rejected(void) {
  * the tests with it. rd_ua_value is the shared 'u'-filled value source. */
 static const u8* rd_ua_value(void) {
   static u8 v[WIRED_H3_MAX_FIELD_SECTION + 1];
-  for (usz i = 0; i < sizeof v; i++) v[i] = 'u';
+  for (usz i = 0; i < sizeof v; i++) {
+    v[i] = 'u';
+  }
   return v;
 }
 
@@ -1114,7 +1127,9 @@ static void test_h3reqdrive_trailer_field_section_one_over_cap_rejected(void) {
  * structurally rejected (V-0450). */
 static void test_h3_field_section_over_2048_rejected(void) {
   static u8 big_value[WIRED_H3_MAX_FIELD_SECTION + 1];
-  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)'x';
+  for (usz i = 0; i < sizeof big_value; i++) {
+    big_value[i] = (u8)'x';
+  }
 
   static u8            fs[WIRED_H3_MAX_FIELD_SECTION + 256];
   static u8            req[WIRED_H3_MAX_FIELD_SECTION + 512];
@@ -1161,7 +1176,9 @@ static void test_h3reqdrive_deeply_nested_frames_no_stack_overflow(void) {
   wired_h3reqdrive_req r;
   wired_obuf           hob;
 
-  for (usz i = 0; i < N; i++) h3_len += put_grease_frame(h3 + h3_len, 24);
+  for (usz i = 0; i < N; i++) {
+    h3_len += put_grease_frame(h3 + h3_len, 24);
+  }
 
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
@@ -1187,7 +1204,9 @@ static int rd_hdr_decode(
   u8            req[1024];
   wired_obuf    ob = {req, sizeof req, 0};
   h3conn_req_in in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
-  if (!h3conn_send_request(0, &in, &ob)) return 0;
+  if (!h3conn_send_request(0, &in, &ob)) {
+    return 0;
+  }
   return wired_h3reqdrive_recv_get_dyn(
       wired_span_of(req, ob.len),
       wired_mspan_of(scratch, WIRED_H3_MAX_FIELD_SECTION), dyn, r);
@@ -1197,8 +1216,10 @@ static int rd_hdr_decode(
 static int rd_hdr_is(
     const wired_h3reqdrive_req* r, const char* name, const char* value) {
   wired_span v;
-  if (!wired_http_req_header(r, wired_span_of((const u8*)name, cstr(name)), &v))
+  if (!wired_http_req_header(
+          r, wired_span_of((const u8*)name, cstr(name)), &v)) {
     return 0;
+  }
   return rd_eq(v.p, v.n, value, cstr(value));
 }
 
@@ -1249,9 +1270,10 @@ static void test_reqdrive_req_header_cap(void) {
   wired_h3reqdrive_req r;
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
   put_litname(fs, &off, "xa", "xa");
-  for (usz i = 1; i < WIRED_H3REQDRIVE_MAX_HDRS; i++)
+  for (usz i = 1; i < WIRED_H3REQDRIVE_MAX_HDRS; i++) {
     off += qpack_literal_namref_encode(
         wired_mspan_of(fs + off, 64), &age, wired_span_of((const u8*)"1", 1));
+  }
   put_litname(fs, &off, "xz", "xz");
   CHECK(WIRED_H3REQDRIVE_MAX_HDRS == 32);
   CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
@@ -1294,8 +1316,9 @@ static void test_reqdrive_req_header_chrome(void) {
   wired_h3reqdrive_req r;
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
   put_litname(fs, &off, ":path", "/api");
-  for (usz i = 0; i < sizeof lines / sizeof lines[0]; i++)
+  for (usz i = 0; i < sizeof lines / sizeof lines[0]; i++) {
     put_litname(fs, &off, lines[i][0], lines[i][1]);
+  }
   CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
   CHECK(rd_hdr_is(&r, "cookie", "a=1; b=2; c=3"));
   CHECK(rd_hdr_is(&r, "authorization", "Bearer z"));
@@ -1459,7 +1482,9 @@ static void test_reqdrive_ric_wraps(void) {
   qpack_dyn            t;
   wired_h3reqdrive_req r;
   qpack_dyn_init(&t, 220);
-  for (int i = 0; i < 29; i++) CHECK(qpack_dyn_insert(&t, &f));
+  for (int i = 0; i < 29; i++) {
+    CHECK(qpack_dyn_insert(&t, &f));
+  }
   CHECK(qpack_dyn_insert(&t, &last));
   CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
   CHECK(r.qpack_ric == 30);
@@ -1515,7 +1540,9 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
   usz         n = 4;
   qpack_field f = {wired_span_of(name, sizeof name), wired_span_of(0, 0)};
   wired_h3reqdrive_req r;
-  for (usz i = 0; i < sizeof name; i++) name[i] = 'a';
+  for (usz i = 0; i < sizeof name; i++) {
+    name[i] = 'a';
+  }
   n += qpack_literal_name_encode(wired_mspan_of(fs + n, sizeof fs - n), 0, &f);
   CHECK(n > 4 + sizeof name);
   CHECK(!rd_hdr_decode(fs, n, scratch, 0, &r));
@@ -1534,7 +1561,9 @@ static void test_reqdrive_ric_uses_max_capacity(void) {
   wired_h3reqdrive_req r;
   qpack_dyn_init(&t, 4096);
   qpack_dyn_set_capacity(&t, 220);
-  for (int i = 0; i < 13; i++) CHECK(qpack_dyn_insert(&t, &f));
+  for (int i = 0; i < 13; i++) {
+    CHECK(qpack_dyn_insert(&t, &f));
+  }
   CHECK(rd_hdr_decode(fs, sizeof fs, scratch, &t, &r));
   CHECK(r.qpack_ric == 13);
 }

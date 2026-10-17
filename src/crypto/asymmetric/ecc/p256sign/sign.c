@@ -14,7 +14,9 @@ static usz ps_mulg_count;
 static int ps_compute_r(p256_fe r, const u8 kb[32]) {
   p256_fe x, y;
   ps_mulg_count++;
-  if (!p256fixed_mul_g(x, y, kb)) return 0;
+  if (!p256fixed_mul_g(x, y, kb)) {
+    return 0;
+  }
   p256_fp_reduce_n(r, x);
   return !p256_fp_is_zero(r);
 }
@@ -31,7 +33,9 @@ static void ps_compute_s(p256_fe s, const u8 kb[32], const p256_fe sum) {
 static void ps_low_s(p256_fe s) {
   p256_fe ns;
   p256_fp_sub(ns, (fpab){p256_n, s}, p256_n);
-  if (p256_fp_lt(ns, s)) p256_fp_set(s, ns);
+  if (p256_fp_lt(ns, s)) {
+    p256_fp_set(s, ns);
+  }
 }
 
 /* Context threaded through the RFC 6979 candidate callback: the digest and
@@ -50,7 +54,9 @@ typedef struct {
 static int ps_k_suitable(const u8 kb[32], void* vctx) {
   ps_ctx* c = (ps_ctx*)vctx;
   p256_fe e, eh, d, rd, sum;
-  if (!ps_compute_r(c->rv, kb)) return 0;
+  if (!ps_compute_r(c->rv, kb)) {
+    return 0;
+  }
   p256_fp_from_be(eh, c->hash);
   p256_fp_reduce_n(e, eh);
   p256_fp_from_be(d, c->priv);

@@ -29,10 +29,14 @@ static void result_static(usz w, qpackenc_status_result* out) {
 static int try_static(const u8* digits, qpackenc_status_result* out) {
   i64 idx = qpack_static_find(":status", (const char*)digits);
   usz w;
-  if (idx < 0) return 0;
+  if (idx < 0) {
+    return 0;
+  }
   w = qpack_indexed_encode(
       wired_mspan_of(out->field, sizeof out->field), (u64)idx, 1);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   result_static(w, out);
   return 1;
 }
@@ -60,8 +64,12 @@ static int try_dynamic(
   qpackenc_plan plan;
   wired_obuf    ob = obuf_of(out->field, sizeof out->field);
   qpackenc_plan_field(st, &f, &plan);
-  if (!plan.used_dynamic) return 0;
-  if (!qdyn_indexed_dynamic(plan.field_rel_index, &ob)) return 0;
+  if (!plan.used_dynamic) {
+    return 0;
+  }
+  if (!qdyn_indexed_dynamic(plan.field_rel_index, &ob)) {
+    return 0;
+  }
   out->field_len = ob.len;
   out->required_insert_count =
       qpack_ric_encode(st->total_inserts, max_entries_of(st));
@@ -74,7 +82,9 @@ static int fallback_literal(const u8* digits, qpackenc_status_result* out) {
   usz           w = qpack_literal_namref_encode(
       wired_mspan_of(out->field, sizeof out->field), &r,
       wired_span_of(digits, 3));
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   result_static(w, out);
   return 1;
 }
@@ -84,7 +94,11 @@ int qpackenc_status_line(
   u8 digits[4];
   status_digits(status, digits);
   out->insert_len = 0;
-  if (try_static(digits, out)) return 1;
-  if (try_dynamic(digits, st, out)) return 1;
+  if (try_static(digits, out)) {
+    return 1;
+  }
+  if (try_dynamic(digits, st, out)) {
+    return 1;
+  }
   return fallback_literal(digits, out);
 }

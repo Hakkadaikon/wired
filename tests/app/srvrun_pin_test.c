@@ -120,8 +120,9 @@ static void test_srvrun_connect_slot_freed_after_close(void) {
    * srvrun_open_slot always sets -1 on a real accept, mirrored here so
    * srvrun_free_bigbuf_rows sees the same "never claimed" state it would
    * on a real slot. */
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     conns[slot].resp[i].bigbuf_row = -1;
+  }
   conns[slot].up              = 1;
   conns[slot].boot_rx_bytes   = 999;
   conns[slot].boot_tx_bytes   = 999;

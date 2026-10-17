@@ -7,7 +7,9 @@ static usz mk_crypto(u8* out, u8 offset, const u8* data, u8 len) {
   out[i++] = 0x06;
   out[i++] = offset;
   out[i++] = len;
-  for (u8 j = 0; j < len; j++) out[i++] = data[j];
+  for (u8 j = 0; j < len; j++) {
+    out[i++] = data[j];
+  }
   return i;
 }
 
@@ -20,7 +22,9 @@ static void test_crecv_single_offset0(void) {
   crecv_init(&s);
   CHECK(crecv_collect(&s, frame, n) == 1);
   CHECK(s.received_to == sizeof vd);
-  for (usz i = 0; i < sizeof vd; i++) CHECK(s.buf[i] == vd[i]);
+  for (usz i = 0; i < sizeof vd; i++) {
+    CHECK(s.buf[i] == vd[i]);
+  }
 }
 
 static void test_crecv_out_of_order(void) {

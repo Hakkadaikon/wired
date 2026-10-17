@@ -28,8 +28,12 @@ int wired_h3reqdrive_recv_get_dyn(
   *r            = (wired_h3reqdrive_req){0};
   h3_priority_init(&r->priority);
   r->hdr_base = scratch.p;
-  if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
-  if (!h3reqdrive_decode_sections(stream_data, fs, scratch, dyn, r)) return 0;
+  if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) {
+    return 0;
+  }
+  if (!h3reqdrive_decode_sections(stream_data, fs, scratch, dyn, r)) {
+    return 0;
+  }
   return !path_present_and_empty(r);
 }
 
@@ -52,7 +56,9 @@ static int rd_hdrs_find(
     const wired_h3reqdrive_req* req, wired_span name, wired_span* out) {
   for (usz i = 0; i < req->hdr_count; i++) {
     const wired_h3reqdrive_hdr* h = &req->hdrs[i];
-    if (!rd_hdr_name_is(req, h, name)) continue;
+    if (!rd_hdr_name_is(req, h, name)) {
+      continue;
+    }
     *out = wired_span_of(req->hdr_base + h->value_off, h->value_len);
     return 1;
   }
@@ -66,7 +72,9 @@ static int rd_dedicated_found(
       wired_span_of(req->cookie, req->cookie_len),
       wired_span_of(req->origin, req->origin_len),
       wired_span_of(req->wt_avail, req->wt_avail_len)};
-  if (!v[i].n) return 0;
+  if (!v[i].n) {
+    return 0;
+  }
   *out = v[i];
   return 1;
 }
@@ -75,6 +83,8 @@ static int rd_dedicated_found(
 int wired_http_req_header(
     const wired_h3reqdrive_req* req, wired_span name, wired_span* out) {
   usz d = h3reqdrive_rd_dedicated_idx(name);
-  if (d < RD_DEDICATED_N) return rd_dedicated_found(req, d, out);
+  if (d < RD_DEDICATED_N) {
+    return rd_dedicated_found(req, d, out);
+  }
   return rd_hdrs_find(req, name, out);
 }

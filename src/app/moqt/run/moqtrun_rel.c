@@ -32,8 +32,11 @@ static int moqtrun_track_is_reliable(
 
 /* First free ring in the pool, or 0 (the caller falls back to lossy). */
 static moqtrel_buf* moqtrun_rel_acquire(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++)
-    if (!hub->rel_pool[i].in_use) return &hub->rel_pool[i];
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) {
+    if (!hub->rel_pool[i].in_use) {
+      return &hub->rel_pool[i];
+    }
+  }
   return 0;
 }
 
@@ -46,7 +49,9 @@ static moqtrel_buf* moqtrun_rel_acquire(wired_moqt_hub* hub) {
  * now: a torn Object waits in the relay's fragment first. */
 void moqtrun_rel_take(
     wired_moqt_hub* hub, moqtrel_buf* rb, wired_span whole, u64 born_ms) {
-  if (whole.n == 0) return;
+  if (whole.n == 0) {
+    return;
+  }
   if (!moqtrel_append(rb, whole)) {
     hub->stat_rel_overflow++;
     return;
@@ -91,7 +96,9 @@ void moqtrun_rel_start(
     wired_wt_session*    pub_wt,
     u64                  pub_stream_id,
     wired_span           head) {
-  if (!hub->io.stream_hold || !moqtrun_track_is_reliable(hub, track)) return;
+  if (!hub->io.stream_hold || !moqtrun_track_is_reliable(hub, track)) {
+    return;
+  }
   moqtrun_rel_bind(hub, relay, pub_wt, pub_stream_id, head);
 }
 
@@ -106,8 +113,9 @@ void moqtrun_rel_attach_sub(
     usz                        i,
     u64                        sent,
     u64                        now_ms) {
-  if (!moqtrun_sub_forwards(&track->subs[i]) || !relay->sub_stream_set[i])
+  if (!moqtrun_sub_forwards(&track->subs[i]) || !relay->sub_stream_set[i]) {
     return;
+  }
   rb->subs[i].active       = 1;
   rb->subs[i].shed         = 0; /* a reused slot must not inherit these */
   rb->subs[i].fin_done     = 0;
@@ -128,7 +136,9 @@ void moqtrun_rel_attach_open(
     const wired_moqtrun_relay* relay,
     usz                        i,
     u64                        now_ms) {
-  if (relay->sub_expired >> i & 1) return;
+  if (relay->sub_expired >> i & 1) {
+    return;
+  }
   moqtrun_rel_attach_sub(rb, track, relay, i, rb->tail, now_ms);
   rb->subs[i].before_start = (int)(relay->sub_reframe >> i & 1);
 }

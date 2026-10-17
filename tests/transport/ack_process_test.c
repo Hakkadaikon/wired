@@ -4,8 +4,9 @@
 static void test_ack_process_first_range(void) {
   sentpkt t;
   sentpkt_init(&t);
-  for (u64 pn = 1; pn <= 5; pn++)
+  for (u64 pn = 1; pn <= 5; pn++) {
     sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+  }
   u64 acked[8];
   usz n         = 99;
   u64 ranges[1] = {2}; /* first ack range length */
@@ -18,8 +19,9 @@ static void test_ack_process_first_range(void) {
 static void test_ack_process_gap(void) {
   sentpkt t;
   sentpkt_init(&t);
-  for (u64 pn = 6; pn <= 10; pn++)
+  for (u64 pn = 6; pn <= 10; pn++) {
     sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+  }
   u64 acked[8];
   usz n         = 0;
   u64 ranges[3] = {0, 1, 1}; /* first_len=0, gap=1, range_len=1 */

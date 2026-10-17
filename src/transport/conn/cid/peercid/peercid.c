@@ -17,7 +17,9 @@ static int  peercid_take(peercid* p, const ncid_frame* f);
 static int peercid_hold(peercid* p, u64 seq, const u8* cid, u8 len) {
   for (usz i = 0; i < PEERCID_CAP; i++) {
     peercid_entry* e = &p->e[i];
-    if (e->in_use) continue;
+    if (e->in_use) {
+      continue;
+    }
     *e = (peercid_entry){.seq = seq, .len = len, .in_use = 1};
     bytes_memcpy(e->cid, cid, len);
     return 0;
@@ -34,7 +36,9 @@ void peercid_init(peercid* p, wired_span cid0) {
 /* ponytail: a full retire queue drops the frame; the peer then keeps an ID
  * active and issues fewer new ones. */
 static void peercid_owe(peercid* p, u64 seq) {
-  if (p->retire_n < PEERCID_RETIRE) p->retire[p->retire_n++] = seq;
+  if (p->retire_n < PEERCID_RETIRE) {
+    p->retire[p->retire_n++] = seq;
+  }
 }
 
 /* seq's bit in gone, or 0 outside [rpt, rpt + 64). ponytail: an ID retired
@@ -57,8 +61,11 @@ static int peercid_is(const peercid_entry* e, u64 seq) {
 
 /* The held entry for seq, or 0. */
 static const peercid_entry* peercid_held(const peercid* p, u64 seq) {
-  for (usz i = 0; i < PEERCID_CAP; i++)
-    if (peercid_is(&p->e[i], seq)) return &p->e[i];
+  for (usz i = 0; i < PEERCID_CAP; i++) {
+    if (peercid_is(&p->e[i], seq)) {
+      return &p->e[i];
+    }
+  }
   return 0;
 }
 
@@ -70,7 +77,9 @@ static int peercid_same(const peercid_entry* e, const ncid_frame* f) {
  * carries the same ID, a PROTOCOL_VIOLATION otherwise. */
 static int peercid_store(peercid* p, const ncid_frame* f) {
   const peercid_entry* e = peercid_held(p, f->seq);
-  if (e) return peercid_same(e, f) ? 0 : ERR_PROTOCOL_VIOLATION;
+  if (e) {
+    return peercid_same(e, f) ? 0 : ERR_PROTOCOL_VIOLATION;
+  }
   return peercid_hold(p, f->seq, f->cid, f->cid_len);
 }
 
@@ -79,12 +88,17 @@ static int peercid_below(const peercid_entry* e, u64 rpt) {
 }
 
 static void peercid_drop_below(peercid* p, u64 rpt) {
-  for (usz i = 0; i < PEERCID_CAP; i++)
-    if (peercid_below(&p->e[i], rpt)) peercid_drop(p, &p->e[i]);
+  for (usz i = 0; i < PEERCID_CAP; i++) {
+    if (peercid_below(&p->e[i], rpt)) {
+      peercid_drop(p, &p->e[i]);
+    }
+  }
 }
 
 static void peercid_raise_rpt(peercid* p, u64 rpt) {
-  if (rpt <= p->rpt) return;
+  if (rpt <= p->rpt) {
+    return;
+  }
   p->gone = rpt - p->rpt < 64 ? p->gone >> (rpt - p->rpt) : 0;
   p->rpt  = rpt;
   peercid_drop_below(p, rpt);
@@ -97,12 +111,16 @@ static int peercid_take(peercid* p, const ncid_frame* f) {
     peercid_owe(p, f->seq);
     return 0;
   }
-  if (p->gone & peercid_bit(p, f->seq)) return 0;
+  if (p->gone & peercid_bit(p, f->seq)) {
+    return 0;
+  }
   return peercid_store(p, f);
 }
 
 int peercid_add(peercid* p, const ncid_frame* f) {
-  if (p->empty) return ERR_PROTOCOL_VIOLATION; /* RFC 9000 19.15 */
+  if (p->empty) {
+    return ERR_PROTOCOL_VIOLATION; /* RFC 9000 19.15 */
+  }
   peercid_raise_rpt(p, f->retire_prior_to);
   return peercid_take(p, f);
 }

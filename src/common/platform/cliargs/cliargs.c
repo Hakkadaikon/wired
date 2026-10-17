@@ -17,7 +17,9 @@ static int cli_char_match(char a, char b) { return a && b && a == b; }
 /* NUL-terminated ascii compare, no libc strcmp available. */
 static int cli_streq(const char* a, const char* b) {
   usz i = 0;
-  while (cli_char_match(a[i], b[i])) i++;
+  while (cli_char_match(a[i], b[i])) {
+    i++;
+  }
   return a[i] == b[i];
 }
 
@@ -25,14 +27,18 @@ static int cli_streq(const char* a, const char* b) {
 static int cli_find(int argc, char** argv, const char* flag) {
   int i;
   for (i = 0; i < argc - 1; i++) {
-    if (cli_streq(argv[i], flag)) return i;
+    if (cli_streq(argv[i], flag)) {
+      return i;
+    }
   }
   return -1;
 }
 
 /* One base-10 digit accumulate step; -1 signals "not a digit". */
 static i64 cli_digit_step(i64 acc, char c) {
-  if (c < '0' || c > '9') return -1;
+  if (c < '0' || c > '9') {
+    return -1;
+  }
   return acc * 10 + (c - '0');
 }
 
@@ -56,7 +62,9 @@ i64 wired_cliargs_int(int argc, char** argv, const char* flag, i64 defval) {
   int idx = cli_find(argc, argv, flag);
   i64 val;
   int ok;
-  if (idx < 0) return defval;
+  if (idx < 0) {
+    return defval;
+  }
   val = cli_parse_u64(argv[idx + 1], &ok);
   return ok ? val : defval;
 }
@@ -73,7 +81,9 @@ const char* wired_cliargs_str(
 static int cli_find_any(int argc, char** argv, const char* flag) {
   int i;
   for (i = 0; i < argc; i++) {
-    if (cli_streq(argv[i], flag)) return i;
+    if (cli_streq(argv[i], flag)) {
+      return i;
+    }
   }
   return -1;
 }
@@ -112,8 +122,12 @@ static int ip_octet_invalid(usz ndigits, i64 val) {
 static int ip_octet_parse(const char* s, usz* i, char want, u8* out) {
   i64 val;
   usz n = ip_digits_read(s, i, &val);
-  if (ip_octet_invalid(n, val)) return 0;
-  if (s[*i] != want) return 0;
+  if (ip_octet_invalid(n, val)) {
+    return 0;
+  }
+  if (s[*i] != want) {
+    return 0;
+  }
   *out = (u8)val;
   (*i)++;
   return 1;
@@ -122,7 +136,9 @@ static int ip_octet_parse(const char* s, usz* i, char want, u8* out) {
 /* Separator expected after octet idx: '.' for the first 3, NUL for the
  * last. Hoisted out so the caller's loop body carries only one branch. */
 static char ip_octet_sep(int idx) {
-  if (idx < 3) return '.';
+  if (idx < 3) {
+    return '.';
+  }
   return 0;
 }
 
@@ -131,7 +147,9 @@ int wired_cliargs_ipv4(const char* s, u8 out[4]) {
   usz i = 0;
   int idx;
   for (idx = 0; idx < 4; idx++) {
-    if (!ip_octet_parse(s, &i, ip_octet_sep(idx), &parsed[idx])) return 0;
+    if (!ip_octet_parse(s, &i, ip_octet_sep(idx), &parsed[idx])) {
+      return 0;
+    }
   }
   out[0] = parsed[0];
   out[1] = parsed[1];

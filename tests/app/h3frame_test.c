@@ -1,8 +1,11 @@
 #include "test.h"
 
 static int h3f_bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -105,8 +108,9 @@ static void test_h3_frame_length_mismatch_rejected(void) {
   usz w = h3_frame_put(&ob, H3_FRAME_DATA, wired_span_of(body, sizeof body));
 
   h3_frame f;
-  for (usz short_by = 1; short_by <= sizeof(body); short_by++)
+  for (usz short_by = 1; short_by <= sizeof(body); short_by++) {
     CHECK(h3_frame_get(wired_span_of(buf, w - short_by), &f) == 0);
+  }
 }
 
 void test_h3frame(void) {

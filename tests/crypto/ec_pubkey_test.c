@@ -45,10 +45,16 @@ static void test_ec_pubkey_compressed_odd(void) {
   u8 key[34], x[32], y[32];
   key[0] = 0x00;
   key[1] = 0x03;
-  for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
+  for (usz i = 0; i < 32; i++) {
+    key[2 + i] = p256_gx[i];
+  }
   CHECK(x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(x[i] == p256_gx[i]);
-  for (usz i = 0; i < 32; i++) CHECK(y[i] == p256_gy[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(x[i] == p256_gx[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(y[i] == p256_gy[i]);
+  }
 }
 
 /* The wrong parity tag (0x02, Y even) on the same X recovers p - Y instead
@@ -57,12 +63,17 @@ static void test_ec_pubkey_compressed_even_selects_other_root(void) {
   u8 key[34], x[32], y[32];
   key[0] = 0x00;
   key[1] = 0x02;
-  for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
+  for (usz i = 0; i < 32; i++) {
+    key[2 + i] = p256_gx[i];
+  }
   CHECK(x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 1);
   CHECK((y[31] & 1) == 0);
   int same = 1;
-  for (usz i = 0; i < 32; i++)
-    if (y[i] != p256_gy[i]) same = 0;
+  for (usz i = 0; i < 32; i++) {
+    if (y[i] != p256_gy[i]) {
+      same = 0;
+    }
+  }
   CHECK(same == 0);
 }
 
@@ -71,7 +82,9 @@ static void test_ec_pubkey_bad_tag(void) {
   u8 key[34], x[32], y[32];
   key[0] = 0x00;
   key[1] = 0x05;
-  for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
+  for (usz i = 0; i < 32; i++) {
+    key[2 + i] = p256_gx[i];
+  }
   CHECK(x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 0);
 }
 
@@ -94,10 +107,16 @@ static void test_ec_pubkey384_compressed_odd(void) {
   u8 key[50], x[48], y[48];
   key[0] = 0x00;
   key[1] = 0x03;
-  for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
+  for (usz i = 0; i < 48; i++) {
+    key[2 + i] = p384_gx[i];
+  }
   CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 1);
-  for (usz i = 0; i < 48; i++) CHECK(x[i] == p384_gx[i]);
-  for (usz i = 0; i < 48; i++) CHECK(y[i] == p384_gy[i]);
+  for (usz i = 0; i < 48; i++) {
+    CHECK(x[i] == p384_gx[i]);
+  }
+  for (usz i = 0; i < 48; i++) {
+    CHECK(y[i] == p384_gy[i]);
+  }
 }
 
 /* The wrong parity tag (0x02, Y even) recovers p - Y instead. */
@@ -105,12 +124,17 @@ static void test_ec_pubkey384_compressed_even_selects_other_root(void) {
   u8 key[50], x[48], y[48];
   key[0] = 0x00;
   key[1] = 0x02;
-  for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
+  for (usz i = 0; i < 48; i++) {
+    key[2 + i] = p384_gx[i];
+  }
   CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 1);
   CHECK((y[47] & 1) == 0);
   int same = 1;
-  for (usz i = 0; i < 48; i++)
-    if (y[i] != p384_gy[i]) same = 0;
+  for (usz i = 0; i < 48; i++) {
+    if (y[i] != p384_gy[i]) {
+      same = 0;
+    }
+  }
   CHECK(same == 0);
 }
 
@@ -119,7 +143,9 @@ static void test_ec_pubkey384_bad_tag(void) {
   u8 key[50], x[48], y[48];
   key[0] = 0x00;
   key[1] = 0x05;
-  for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
+  for (usz i = 0; i < 48; i++) {
+    key[2 + i] = p384_gx[i];
+  }
   CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 0);
 }
 

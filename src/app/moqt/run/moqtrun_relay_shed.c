@@ -32,8 +32,11 @@ wired_moqtrun_relay* moqtrun_peer_relay_by_stream(
 }
 
 wired_moqtrun_relay* moqtrun_relay_alloc(wired_moqtrun_track* track) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-    if (!track->relays[r].in_use) return &track->relays[r];
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (!track->relays[r].in_use) {
+      return &track->relays[r];
+    }
+  }
   return 0;
 }
 
@@ -63,8 +66,12 @@ static void moqtrun_relay_shed_one(
     const wired_moqtrun_sub* sub,
     wired_moqtrun_relay*     relay,
     usz                      i) {
-  if (relay->sub_busy_streak[i] < WIRED_MOQTRUN_RESET_AFTER_BUSY) return;
-  if (hub->io.stream_reset(wt, relay->sub_stream_id[i], 0) != 1) return;
+  if (relay->sub_busy_streak[i] < WIRED_MOQTRUN_RESET_AFTER_BUSY) {
+    return;
+  }
+  if (hub->io.stream_reset(wt, relay->sub_stream_id[i], 0) != 1) {
+    return;
+  }
   relay->sub_stream_set[i]  = 0;
   relay->sub_busy_streak[i] = 0;
   relay->sub_expired |= (u32)(moqtss_sub_in_set(sub) != 0) << i;
@@ -83,7 +90,9 @@ static void moqtrun_relay_note_busy(
     wired_moqtrun_relay*     relay,
     usz                      i) {
   hub->stat_relay_drop++;
-  if (relay->sub_busy_streak[i] < 255) relay->sub_busy_streak[i]++;
+  if (relay->sub_busy_streak[i] < 255) {
+    relay->sub_busy_streak[i]++;
+  }
   moqtrun_relay_shed_one(hub, wt, sub, relay, i);
 }
 
@@ -98,7 +107,9 @@ wired_span moqtrun_relay_reframe(
     usz                        i,
     wired_span                 wire,
     moqdata_objseq             seq0) {
-  if (!(relay->sub_reframe >> i & 1)) return wire;
+  if (!(relay->sub_reframe >> i & 1)) {
+    return wire;
+  }
   usz n = moqtrun_reframe_to(hub->alias_scratch, wire, seq0);
   return n ? wired_span_of(hub->alias_scratch, n) : wire;
 }

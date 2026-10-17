@@ -33,8 +33,12 @@ static void srvrun_wtsend_ring_write(srvrun_wtsend* w, wired_span payload) {
  * reaps once fully ACKed. */
 int srvrun_wtsend_stage_round(
     const srvrun_conn* c, srvrun_wtsend* w, wired_span payload, int fin) {
-  if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(c, w);
-  if (srvrun_wtsend_ring_live(w) + payload.n > SRVRUN_WTSEND_BUF) return 0;
+  if (srvrun_wtsend_epoch_acked(w)) {
+    srvrun_wtsend_epoch_reset(c, w);
+  }
+  if (srvrun_wtsend_ring_live(w) + payload.n > SRVRUN_WTSEND_BUF) {
+    return 0;
+  }
   srvrun_wtsend_ring_write(w, payload);
   wired_sendsess_extend(&w->sess, payload.n);
   w->stream_off += payload.n;
@@ -59,9 +63,13 @@ int srvrun_wtsend_accept_round(
 srvrun_wtsend* srvrun_wt_connect_sender(srvrun_conn* c, int sidx) {
   u64            id = srvrun_wt_slot(c, sidx)->connect_stream_id;
   srvrun_wtsend* w  = srvrun_wtsend_find(c, id);
-  if (w) return w;
+  if (w) {
+    return w;
+  }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   w->append_open = 1;
   w->stream_id   = id;
   w->stream_off  = c->wt_connect_sent_len[sidx];
@@ -78,8 +86,9 @@ int srvrun_send_wt_capsule(
   wired_obuf     dfb = obuf_of(df, sizeof df);
   usz            n   = h3_frame_put(&dfb, H3_FRAME_DATA, capsule_bytes);
   srvrun_wtsend* w   = srvrun_wt_connect_sender(c, sidx);
-  if (!w || !srvrun_wtsend_accept_round(c, w, wired_span_of(df, n), fin))
+  if (!w || !srvrun_wtsend_accept_round(c, w, wired_span_of(df, n), fin)) {
     return 0;
+  }
   c->wt_connect_sent_len[sidx] += n;
   return 1;
 }
@@ -99,7 +108,9 @@ int srvrun_wt_connect_finable(const srvrun_wtsend* w) {
 void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx) {
   srvrun_wtsend* w =
       srvrun_wtsend_find(c, srvrun_wt_slot(c, sidx)->connect_stream_id);
-  if (srvrun_wt_connect_finable(w)) w->in_use = 0;
+  if (srvrun_wt_connect_finable(w)) {
+    w->in_use = 0;
+  }
 }
 
 /* 1 iff this rejected append was a live round refused only because the
@@ -114,6 +125,8 @@ int srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len) {
  * count it on (c is 0 when s resolves to no connection at all -- that
  * lookup failure shares the same refusal return). */
 int srvrun_wtsend_flow_refuse(srvrun_conn* c) {
-  if (c) c->stat_wtsend_flow++;
+  if (c) {
+    c->stat_wtsend_flow++;
+  }
   return -1;
 }

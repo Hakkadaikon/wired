@@ -26,7 +26,9 @@ static int dns_eq(wired_span a, wired_span b) { return ascii_dns_eq(a, b); }
 /* Offset of the first '.' in name, or its length if none. */
 static usz first_dot(wired_span name) {
   usz i = 0;
-  while (i < name.n && name.p[i] != '.') i++;
+  while (i < name.n && name.p[i] != '.') {
+    i++;
+  }
   return i;
 }
 
@@ -34,7 +36,9 @@ static usz first_dot(wired_span name) {
  * offset if the label carries none. */
 static usz wildcard_star(wired_span label) {
   usz i = 0;
-  while (i < label.n && label.p[i] != '*') i++;
+  while (i < label.n && label.p[i] != '*') {
+    i++;
+  }
   return i;
 }
 
@@ -45,7 +49,9 @@ static usz wildcard_star(wired_span label) {
 static int label_wildcard_match(wired_span label, wired_span hlabel, usz star) {
   wired_span prefix = wired_span_of(label.p, star);
   wired_span suffix = wired_span_of(label.p + star + 1, label.n - star - 1);
-  if (hlabel.n < prefix.n + suffix.n) return 0;
+  if (hlabel.n < prefix.n + suffix.n) {
+    return 0;
+  }
   return dns_eq(prefix, wired_span_of(hlabel.p, prefix.n)) &&
          dns_eq(
              suffix, wired_span_of(hlabel.p + hlabel.n - suffix.n, suffix.n));
@@ -71,10 +77,13 @@ static int wildcard_match(wired_span entry, wired_span host) {
   usz edot = first_dot(entry);
   usz hdot = first_dot(host);
   usz star = wildcard_star(wired_span_of(entry.p, edot));
-  if (!wildcard_applicable(entry, hdot, host.n)) return 0;
-  if (!label_wildcard_match(
-          wired_span_of(entry.p, edot), wired_span_of(host.p, hdot), star))
+  if (!wildcard_applicable(entry, hdot, host.n)) {
     return 0;
+  }
+  if (!label_wildcard_match(
+          wired_span_of(entry.p, edot), wired_span_of(host.p, hdot), star)) {
+    return 0;
+  }
   return dns_eq(
       wired_span_of(entry.p + edot, entry.n - edot),
       wired_span_of(host.p + hdot, host.n - hdot));

@@ -40,8 +40,9 @@ static void recvmmsg_fill_all(
     mmsg_buf* bufs,
     usz       n,
     u8        cmsgbufs[][WIRED_RECV_CMSG_CAP]) {
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     recvmmsg_fill_slot(&slots[i], &iovs[i], &bufs[i], cmsgbufs[i]);
+  }
 }
 
 /* Copy the kernel-filled length back into each received slot, and turn an
@@ -72,7 +73,9 @@ i64 wired_udp_recvmmsg(i64 fd, mmsg_buf* bufs, usz count) {
   i64     r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
   r = wired_arch_recvmmsg(fd, slots, n, WIRED_MSG_WAITFORONE, 0);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
   return r;
@@ -82,7 +85,9 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, mmsg_buf* bufs, usz count) {
   usz n = 0;
   while (n < count) {
     i64 r = wired_udp_recvfrom(fd, bufs[n].buf, &bufs[n].src);
-    if (r <= 0) break;
+    if (r <= 0) {
+      break;
+    }
     bufs[n].len = (u32)r;
     /* wired_udp_recvfrom carries no cmsg (recvfrom(2) has none): Not-ECT (0)
      * is the safe fallback, same as an absent IP_TOS cmsg. */
@@ -107,7 +112,9 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
   r = wired_arch_recvmmsg(
       fd, slots, n, WIRED_MSG_WAITFORONE | WIRED_MSG_DONTWAIT, 0);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
   return r;

@@ -11,7 +11,9 @@ static int is_ack_or_padding(u64 type) {
 
 int rtxbytes_retransmittable(const u8* buf, usz len) {
   u64 type;
-  if (varint_decode(buf, len, &type) == 0) return -1;
+  if (varint_decode(buf, len, &type) == 0) {
+    return -1;
+  }
   return is_ack_or_padding(type) ? 0 : 1;
 }
 
@@ -20,8 +22,9 @@ static int rebuild_copy(wired_span lost_frame, wired_obuf* out) {
   usz off = 0;
   if (!bytes_put(
           wired_mspan_of(out->p, out->cap), &off,
-          wired_span_of(lost_frame.p, lost_frame.n)))
+          wired_span_of(lost_frame.p, lost_frame.n))) {
     return 0;
+  }
   out->len = lost_frame.n;
   return 1;
 }
@@ -29,7 +32,11 @@ static int rebuild_copy(wired_span lost_frame, wired_obuf* out) {
 int rtxbytes_rebuild(wired_span lost_frame, wired_obuf* out) {
   int rtx = rtxbytes_retransmittable(lost_frame.p, lost_frame.n);
 
-  if (rtx < 0) return 0;
-  if (rtx == 0) return (out->len = 0, 1);
+  if (rtx < 0) {
+    return 0;
+  }
+  if (rtx == 0) {
+    return (out->len = 0, 1);
+  }
   return rebuild_copy(lost_frame, out);
 }

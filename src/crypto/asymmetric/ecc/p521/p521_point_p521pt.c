@@ -44,20 +44,24 @@ static void p521pt_add_distinct(
 static void p521pt_add_finite(jac521* acc, const jac521* q) {
   p521_addt t;
   p521pt_add_uv(&t, acc, q);
-  if (!fp521_eq(t.u1, t.u2))
+  if (!fp521_eq(t.u1, t.u2)) {
     p521pt_add_distinct(acc, &t, acc, q);
-  else if (fp521_eq(t.s1, t.s2))
+  } else if (fp521_eq(t.s1, t.s2)) {
     p521pt_double(acc, acc);
-  else
+  } else {
     fp521_set(acc->Z, (const u64[9]){0});
+  }
 }
 
 static void p521pt_add_step(jac521* acc, const jac521* q) {
-  if (p521pt_is_inf(q)) return;
-  if (p521pt_is_inf(acc))
+  if (p521pt_is_inf(q)) {
+    return;
+  }
+  if (p521pt_is_inf(acc)) {
     *acc = *q;
-  else
+  } else {
     p521pt_add_finite(acc, q);
+  }
 }
 
 static int p521pt_bit(const p521_fe a, usz i) {
@@ -76,7 +80,9 @@ static void p521pt_shamir(jac521* acc, const jac521 tab[4], const u64* u[2]) {
   for (usz i = 521; i-- > 0;) {
     usz sel = (usz)(p521pt_bit(u[0], i) | (p521pt_bit(u[1], i) << 1));
     p521pt_double(acc, acc);
-    if (sel) p521pt_add_step(acc, &tab[sel]);
+    if (sel) {
+      p521pt_add_step(acc, &tab[sel]);
+    }
   }
 }
 
@@ -94,7 +100,9 @@ int p521_mul2_x(
   tab[3] = tab[1];
   p521pt_add_step(&tab[3], &tab[2]);
   p521pt_shamir(&acc, tab, u);
-  if (p521pt_is_inf(&acc)) return 0;
+  if (p521pt_is_inf(&acc)) {
+    return 0;
+  }
   fp521_inv(zi, acc.Z, p521_p);
   p521pt_sqr(zi2, zi);
   fp521_mul_p(rx, acc.X, zi2);

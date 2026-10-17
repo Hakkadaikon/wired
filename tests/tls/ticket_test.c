@@ -1,12 +1,16 @@
 #include "test.h"
 
 static void fill_key(u8 key[TICKET_KEY_LEN], u8 v) {
-  for (usz i = 0; i < TICKET_KEY_LEN; i++) key[i] = v;
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) {
+    key[i] = v;
+  }
 }
 
 static ticket sample_ticket(void) {
   ticket t;
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    t.secret[i] = (u8)i;
+  }
   t.issued_at     = 1700000000ULL;
   t.lifetime_secs = 86400;
   t.age_add       = 0x12345678;
@@ -31,8 +35,9 @@ static void test_ticket_roundtrip(void) {
   CHECK(out.age_add == in.age_add);
   CHECK(out.alpn == in.alpn); /* RFC 8446 4.2.10: ALPN recorded */
   CHECK(out.ticket_nonce == in.ticket_nonce); /* RFC 8446 4.6.1 */
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++)
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     CHECK(out.secret[i] == in.secret[i]);
+  }
 }
 
 /* Flipping one byte anywhere in the sealed blob breaks authentication. */
@@ -77,8 +82,11 @@ static void test_ticket_nonce_varies(void) {
   ticket_seal(&in, key, b);
 
   int same = 1;
-  for (usz i = 0; i < TICKET_NONCE_LEN; i++)
-    if (a[i] != b[i]) same = 0;
+  for (usz i = 0; i < TICKET_NONCE_LEN; i++) {
+    if (a[i] != b[i]) {
+      same = 0;
+    }
+  }
   CHECK(!same);
 }
 
@@ -111,7 +119,9 @@ static void test_ticket_seal_distinct_secret_per_ticket(void) {
   fill_key(key, 0x77);
   ticket a = sample_ticket();
   ticket b = sample_ticket();
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) b.secret[i] = (u8)(0xF0 + i);
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    b.secret[i] = (u8)(0xF0 + i);
+  }
   u8 sealed_a[TICKET_SEALED_LEN];
   u8 sealed_b[TICKET_SEALED_LEN];
   ticket_seal(&a, key, sealed_a);
@@ -125,8 +135,11 @@ static void test_ticket_seal_distinct_secret_per_ticket(void) {
       ticket_open(wired_span_of(sealed_b, TICKET_SEALED_LEN), key, &out_b) ==
       1);
   int same = 1;
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++)
-    if (out_a.secret[i] != out_b.secret[i]) same = 0;
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    if (out_a.secret[i] != out_b.secret[i]) {
+      same = 0;
+    }
+  }
   CHECK(!same);
 }
 

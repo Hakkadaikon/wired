@@ -31,7 +31,9 @@ static void test_gcm256_kat(void) {
       "feffe9928665731c6d6a8f9467308308",
       key);
   gcm256_hb("cafebabefacedbaddecaf888", ivbuf);
-  for (usz i = 0; i < 12; i++) iv[i] = ivbuf[i];
+  for (usz i = 0; i < 12; i++) {
+    iv[i] = ivbuf[i];
+  }
   usz pl = gcm256_hb(
       "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d"
       "8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657"
@@ -47,8 +49,12 @@ static void test_gcm256_kat(void) {
   aes256_init(&a, key);
   gcm256_ctx g = {&a, iv, {aad, al}};
   gcm256_seal(&g, wired_span_of(pt, pl), ct);
-  for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
+  for (usz i = 0; i < pl; i++) {
+    CHECK(ct[i] == want_ct[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ct[pl + i] == want_tag[i]);
+  }
 }
 
 /* Round-trip plus tamper detection (AUTH_FAIL leaves pt untouched). */
@@ -65,15 +71,23 @@ static void test_gcm256_open(void) {
   gcm256_seal(&g, wired_span_of(pt, 20), ct);
 
   CHECK(gcm256_open(&g, wired_span_of(ct, 36), dec) == 1);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
 
   /* flip one tag bit: must reject and not overwrite dec */
-  for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < 20; i++) {
+    dec[i] = 0xCC;
+  }
   u8 bad[36];
-  for (usz i = 0; i < 36; i++) bad[i] = ct[i];
+  for (usz i = 0; i < 36; i++) {
+    bad[i] = ct[i];
+  }
   bad[20] ^= 1;
   CHECK(gcm256_open(&g, wired_span_of(bad, 36), dec) == 0);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
 
   /* flip one AAD byte: must reject */
   gcm256_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
@@ -99,8 +113,11 @@ static void test_gcm256_differs_from_gcm128(void) {
   gcm256_seal(&g256, wired_span_of(pt, 16), ct256);
 
   int same = 1;
-  for (usz i = 0; i < 16 + 16; i++)
-    if (ct128[i] != ct256[i]) same = 0;
+  for (usz i = 0; i < 16 + 16; i++) {
+    if (ct128[i] != ct256[i]) {
+      same = 0;
+    }
+  }
   CHECK(same == 0);
 }
 

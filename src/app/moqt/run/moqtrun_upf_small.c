@@ -35,9 +35,13 @@ static int moqtrun_upf_take(
   moqfetch_seq s  = *seq;
   usz          at = *off;
   int          r  = moqfetch_obj_take_head(b, &at, &s, o);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *head = at - *off;
-  if (moqtrun_upf_torn_small(b, at, *head, o)) return MOQCTL_INSUFFICIENT;
+  if (moqtrun_upf_torn_small(b, at, *head, o)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   *seq = s;
   *off = at;
   return MOQCTL_OK;
@@ -66,7 +70,9 @@ static int moqtrun_upf_step(
   moqfetch_obj o;
   usz          head = 0;
   int          r    = moqtrun_upf_take(b, off, &f->up_seq, &o, &head);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   moqtrun_upf_item(hub, f, &o, moqtrun_upf_pre(b, off, head, &o));
   moqtrun_upf_pass_at(hub, f, b, off);
   return r;

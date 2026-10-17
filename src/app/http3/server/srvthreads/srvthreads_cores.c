@@ -23,7 +23,9 @@ static int srvthreads_cores_more_field(char c) { return c && c != ','; }
 
 /* One base-10 digit accumulate step; -1 signals "not a digit". */
 static int srvthreads_cores_digit(int acc, char c) {
-  if (c < '0' || c > '9') return -1;
+  if (c < '0' || c > '9') {
+    return -1;
+  }
   return acc * 10 + (c - '0');
 }
 
@@ -36,7 +38,9 @@ static usz srvthreads_cores_consume(const char* s, usz* off, int* acc) {
   *acc       = 0;
   while (srvthreads_cores_more_field(s[*off])) {
     *acc = srvthreads_cores_digit(*acc, s[*off]);
-    if (*acc < 0) return 0;
+    if (*acc < 0) {
+      return 0;
+    }
     digits++;
     (*off)++;
   }
@@ -50,7 +54,9 @@ static usz srvthreads_cores_consume(const char* s, usz* off, int* acc) {
 static int srvthreads_cores_parse_one(const char* s, usz* off, int* out) {
   int acc;
   usz digits = srvthreads_cores_consume(s, off, &acc);
-  if (!digits) return 0;
+  if (!digits) {
+    return 0;
+  }
   *out = acc;
   return 1;
 }
@@ -58,7 +64,9 @@ static int srvthreads_cores_parse_one(const char* s, usz* off, int* out) {
 /* 1 and advances *off past a ',' when one follows (more fields to parse); 0
  * with *off left at the NUL when the list ends here. */
 static int srvthreads_cores_parse_more(const char* s, usz* off) {
-  if (s[*off] != ',') return 0;
+  if (s[*off] != ',') {
+    return 0;
+  }
   (*off)++;
   return 1;
 }
@@ -67,7 +75,9 @@ static int srvthreads_cores_parse_more(const char* s, usz* off) {
  * cores[n] and advance *off past it. Returns 1 ok, 0 malformed. */
 static int srvthreads_cores_parse_field(
     const char* s, usz* off, int* cores, int n, int cap) {
-  if (n >= cap) return 0;
+  if (n >= cap) {
+    return 0;
+  }
   return srvthreads_cores_parse_one(s, off, &cores[n]);
 }
 
@@ -85,8 +95,9 @@ static int srvthreads_cores_parse_all(const char* s, int* cores, int cap) {
   int n   = 0;
   while (srvthreads_cores_parse_field(s, &off, cores, n, cap)) {
     n++;
-    if (!srvthreads_cores_parse_more(s, &off))
+    if (!srvthreads_cores_parse_more(s, &off)) {
       return srvthreads_cores_parse_done(s, off, n);
+    }
   }
   return -1;
 }
@@ -94,8 +105,12 @@ static int srvthreads_cores_parse_all(const char* s, int* cores, int cap) {
 int wired_srvthreads_parse_cores(const char* s, wired_srvthreads_opt* opt) {
   int cores[WIRED_SRVTHREADS_MAX];
   int n = srvthreads_cores_parse_all(s, cores, (int)WIRED_SRVTHREADS_MAX);
-  if (n < 0) return 0;
-  for (int i = 0; i < n; i++) opt->cores[i] = cores[i];
+  if (n < 0) {
+    return 0;
+  }
+  for (int i = 0; i < n; i++) {
+    opt->cores[i] = cores[i];
+  }
   opt->n_cores = n;
   return 1;
 }

@@ -64,7 +64,9 @@ void srvrun_reject_wt_slot(
 void srvrun_offer_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   int sidx = srvrun_wt_slot_for_signal(c, slot->sig, slot->sig_have);
-  if (sidx < 0) return;
+  if (sidx < 0) {
+    return;
+  }
   cfg->env->wt_usage.streams++;
   if (!wired_wt_session_offer_stream(
           srvrun_wt_slot(c, sidx), slot->stream_id)) {
@@ -112,7 +114,9 @@ static int wt_stream_delta_pending(
     u64 fin_off,
     u64 delivered_len,
     int fin_delivered) {
-  if (frontier_abs > delivered_len) return 1;
+  if (frontier_abs > delivered_len) {
+    return 1;
+  }
   return wt_stream_fin_only(fin, fin_off, frontier_abs, fin_delivered);
 }
 
@@ -128,7 +132,9 @@ static int wt_stream_delta_ready(
     u64               fin_off,
     u64               delivered_len,
     int               fin_delivered) {
-  if (sidx < 0 || !cfg->wt_on_stream_data) return 0;
+  if (sidx < 0 || !cfg->wt_on_stream_data) {
+    return 0;
+  }
   return wt_stream_delta_pending(
       frontier_abs, fin, fin_off, delivered_len, fin_delivered);
 }
@@ -162,15 +168,18 @@ void srvrun_deliver_wt_stream_delta(
   int fin_now      = wt_delivered_fin(rx->fin, frontier_abs, rx->fin_off);
   if (!wt_stream_delta_ready(
           cfg, sidx, frontier_abs, rx->fin, rx->fin_off, done,
-          *rx->fin_delivered))
+          *rx->fin_delivered)) {
     return;
+  }
   cfg->wt_on_stream_data(
       cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), rx->stream_id,
       wired_span_of(
           rx->buf + (done - rx->win->base), (usz)(frontier_abs - done)),
       fin_now);
   *rx->delivered_len = frontier_abs;
-  if (fin_now) *rx->fin_delivered = 1;
+  if (fin_now) {
+    *rx->fin_delivered = 1;
+  }
 }
 
 /* RFC 9000 2.2 / 19.8: once a WT bidi slot's FIN has been delivered to the
@@ -180,7 +189,9 @@ void srvrun_deliver_wt_stream_delta(
  * WIRED_SRVLOOP_MAX_WT_STREAMS exhausting after that many sequential
  * streams, mirroring srvrun_resp_reap's own release of streams[]. */
 void srvrun_reap_wt_slot(srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  if (!slot->in_use || !slot->fin_delivered) return;
+  if (!slot->in_use || !slot->fin_delivered) {
+    return;
+  }
   c->wt_rx_reaped_total += slot->delivered_len;
   wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
   c->wt_bidi_credit_owed += !(slot->stream_id & 1);

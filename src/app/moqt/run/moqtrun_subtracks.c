@@ -13,9 +13,12 @@ static int  moqtrun_disc_owes(const wired_moqtrun_req* q, usz i);
 
 /* A matching namespace sub has not been told of: NAMESPACE. */
 void moqtrun_disc_sync_new(wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
-  if (!moqtrun_disc_fresh(hub, sub, &hub->reqs[i])) return;
-  if (moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE))
+  if (!moqtrun_disc_fresh(hub, sub, &hub->reqs[i])) {
+    return;
+  }
+  if (moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE)) {
     sub->ns_seen[moqtrun_disc_word(i)] |= moqtrun_disc_bit(i);
+  }
 }
 
 static int moqtrun_disc_heir_at(
@@ -28,8 +31,11 @@ static int moqtrun_disc_heir_at(
  * WIRED_MOQTRUN_MAX_REQS. */
 static usz moqtrun_disc_heir(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++)
-    if (moqtrun_disc_heir_at(hub, k, q)) return k;
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++) {
+    if (moqtrun_disc_heir_at(hub, k, q)) {
+      return k;
+    }
+  }
   return WIRED_MOQTRUN_MAX_REQS;
 }
 
@@ -39,8 +45,9 @@ static void moqtrun_disc_retire(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
   usz k = moqtrun_disc_heir(hub, &hub->reqs[i]);
   if (k == WIRED_MOQTRUN_MAX_REQS &&
-      !moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE_DONE))
+      !moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE_DONE)) {
     return;
+  }
   sub->ns_seen[moqtrun_disc_word(i)] &= ~moqtrun_disc_bit(i);
   sub->ns_seen[moqtrun_disc_word(k)] |= moqtrun_disc_bit(k);
 }
@@ -55,21 +62,25 @@ static void moqtrun_disc_sync_one(
     moqtrun_disc_sync_new(hub, sub, i);
     return;
   }
-  if (!moqtrun_disc_is(&hub->reqs[i], MOQNS_T_PUBLISH_NAMESPACE))
+  if (!moqtrun_disc_is(&hub->reqs[i], MOQNS_T_PUBLISH_NAMESPACE)) {
     moqtrun_disc_retire(hub, sub, i);
+  }
 }
 
 static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     moqtrun_disc_sync_one(hub, sub, i);
+  }
 }
 
 /* Every live SUBSCRIBE_NAMESPACE catches up with the published set.
  * ponytail: O(reqs^2) scan per event; index by prefix if the pool grows. */
 void moqtrun_disc_sync(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_disc_is(&hub->reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_disc_is(&hub->reqs[i], MOQNS_T_SUBSCRIBE_NAMESPACE)) {
       moqtrun_disc_sync_sub(hub, &hub->reqs[i]);
+    }
+  }
 }
 
 static int moqtrun_disc_owes(const wired_moqtrun_req* q, usz i) {
@@ -78,8 +89,11 @@ static int moqtrun_disc_owes(const wired_moqtrun_req* q, usz i) {
 
 /* 1 iff a live subscription still owes reqs[i] a NAMESPACE_DONE. */
 int moqtrun_disc_held(const wired_moqt_hub* hub, usz i) {
-  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++)
-    if (moqtrun_disc_owes(&hub->reqs[k], i)) return 1;
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_REQS; k++) {
+    if (moqtrun_disc_owes(&hub->reqs[k], i)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -113,7 +127,9 @@ u64 moqtrun_subtracks_check(
  * moqtrun_rngf_copy_objects). */
 void moqtrun_subtracks_rngf_item(wired_moqtrun_req* q, const moqctl_param* it) {
   moqctl_rangefilter f;
-  if (!moqtrun_rngf_of(it, &f)) return;
+  if (!moqtrun_rngf_of(it, &f)) {
+    return;
+  }
   moqtrun_rngf_rows_add(q->rngf, &q->rngf_n, it->type, &f);
 }
 
@@ -125,7 +141,9 @@ void moqtrun_subtracks_rngf_item(wired_moqtrun_req* q, const moqctl_param* it) {
 void moqtrun_rngf_copy_objects(
     wired_moqtrun_req* q, const wired_moqtrun_req* st) {
   q->rngf_n = 0;
-  for (usz i = 0; i < st->rngf_n; i++)
-    if (st->rngf[i].ptype != MOQCTL_PARAM_TRACK_PROPERTY_FILTER)
+  for (usz i = 0; i < st->rngf_n; i++) {
+    if (st->rngf[i].ptype != MOQCTL_PARAM_TRACK_PROPERTY_FILTER) {
       q->rngf[q->rngf_n++] = st->rngf[i];
+    }
+  }
 }

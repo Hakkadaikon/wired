@@ -40,7 +40,9 @@ static char mtst_stlog_buf[256];
 static usz  mtst_stlog_at;
 
 static void mtst_stlog_put(const char* z) {
-  while (*z) mtst_stlog_buf[mtst_stlog_at++] = *z++;
+  while (*z) {
+    mtst_stlog_buf[mtst_stlog_at++] = *z++;
+  }
 }
 
 static void mtst_stlog_err(wired_span body) {
@@ -57,14 +59,21 @@ static void mtst_stlog_skip(wired_span body) {
   moqns_pub_skipped m;
   CHECK(moqns_pub_skipped_take(body, &m) == MOQCTL_OK);
   mtst_stlog_put("SKIP:");
-  for (usz i = 0; i < m.name.n && i < 16; i++)
+  for (usz i = 0; i < m.name.n && i < 16; i++) {
     mtst_stlog_buf[mtst_stlog_at++] = (char)m.name.p[i];
+  }
 }
 
 static void mtst_stlog_msg(u64 type, wired_span body) {
-  if (type == MOQCTL_T_REQUEST_OK) mtst_stlog_put("OK");
-  if (type == MOQCTL_T_REQUEST_ERROR) mtst_stlog_err(body);
-  if (type == MOQCTL_T_PUBLISH_SKIPPED) mtst_stlog_skip(body);
+  if (type == MOQCTL_T_REQUEST_OK) {
+    mtst_stlog_put("OK");
+  }
+  if (type == MOQCTL_T_REQUEST_ERROR) {
+    mtst_stlog_err(body);
+  }
+  if (type == MOQCTL_T_PUBLISH_SKIPPED) {
+    mtst_stlog_skip(body);
+  }
   mtst_stlog_put("|");
 }
 
@@ -84,7 +93,9 @@ static const char* mtst_stlog(wired_wt_session* s, u64 sid) {
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c  = &g_calls[i];
     int                      on = (c->kind == 12 || c->kind == 3) && c->s == s;
-    if (on && c->stream_id == sid && !c->refused) mtst_stlog_call(c);
+    if (on && c->stream_id == sid && !c->refused) {
+      mtst_stlog_call(c);
+    }
   }
   mtst_stlog_buf[mtst_stlog_at] = 0;
   return mtst_stlog_buf;
@@ -93,8 +104,12 @@ static const char* mtst_stlog(wired_wt_session* s, u64 sid) {
 static int mtst_stlog_is(wired_wt_session* s, u64 sid, const char* want) {
   const char* got = mtst_stlog(s, sid);
   usz         i   = 0;
-  while (got[i] && got[i] == want[i]) i++;
-  if (got[i] != want[i]) printf("  got \"%s\" want \"%s\"\n", got, want);
+  while (got[i] && got[i] == want[i]) {
+    i++;
+  }
+  if (got[i] != want[i]) {
+    printf("  got \"%s\" want \"%s\"\n", got, want);
+  }
   return got[i] == want[i];
 }
 
@@ -108,8 +123,9 @@ static int mtst_pub_is_open(u64 stream_id) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     const wired_moqtrun_req* q = &mtst_hub.reqs[i];
     if (q->in_use && q->pub_origin_rid && q->opened &&
-        q->stream_id == stream_id)
+        q->stream_id == stream_id) {
       return 1;
+    }
   }
   return 0;
 }
@@ -123,14 +139,19 @@ static usz mtst_pub_opens(wired_wt_session* s, moqctl_publish* out, usz cap) {
     usz                      off = 0;
     u64                      type;
     wired_span               body;
-    if (c->kind != 1 || c->s != s || !mtst_pub_is_open(c->stream_id)) continue;
+    if (c->kind != 1 || c->s != s || !mtst_pub_is_open(c->stream_id)) {
+      continue;
+    }
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
-        type != MOQCTL_T_PUBLISH)
+        type != MOQCTL_T_PUBLISH) {
       continue;
+    }
     off = 0;
-    if (moqctl_publish_take(mtst_ver(s), body, &off, &out[n]) == MOQCTL_OK) n++;
+    if (moqctl_publish_take(mtst_ver(s), body, &off, &out[n]) == MOQCTL_OK) {
+      n++;
+    }
   }
   return n;
 }
@@ -143,13 +164,18 @@ static i64 mtst_pub_stream_id(usz which) {
     usz                      off = 0;
     u64                      type;
     wired_span               body;
-    if (c->kind != 1 || !mtst_pub_is_open(c->stream_id)) continue;
+    if (c->kind != 1 || !mtst_pub_is_open(c->stream_id)) {
+      continue;
+    }
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
-        type != MOQCTL_T_PUBLISH)
+        type != MOQCTL_T_PUBLISH) {
       continue;
-    if (n == which) return (i64)c->stream_id;
+    }
+    if (n == which) {
+      return (i64)c->stream_id;
+    }
     n++;
   }
   return -1;

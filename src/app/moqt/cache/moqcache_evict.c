@@ -15,7 +15,9 @@ static int  moqcache_store(
  * still arriving) becomes a tombstone, so it is never left partial. */
 static int moqcache_evict_one(moqcache* c, u64 tag, u64 group) {
   usz off = moqcache_first_victim(c, tag, group);
-  if (off == c->used) return 0;
+  if (off == c->used) {
+    return 0;
+  }
   moqcache_rec r = moqcache_rec_at(c, off);
   if (moqcache_stays_open(c, r, tag, group)) {
     moqcache_entomb(c, r.tag, r.group);
@@ -35,9 +37,13 @@ static void moqcache_make_room(moqcache* c, moqcache_rec r, usz need) {
  * 0 when it cannot fit (open groups' tombstones hold the rest). */
 static int moqcache_put(moqcache* c, moqcache_rec r, const u8* p, usz len) {
   usz need = MOQCACHE_HDR + len;
-  if (need > c->cap) return 0;
+  if (need > c->cap) {
+    return 0;
+  }
   moqcache_make_room(c, r, need);
-  if (c->used + need > c->cap) return 0;
+  if (c->used + need > c->cap) {
+    return 0;
+  }
   moqcache_write(c, r, p, len);
   return 1;
 }
@@ -49,7 +55,9 @@ static usz moqcache_group_bytes(
   for (usz off = 0; off < c->used;
        off += moqcache_rec_size(moqcache_rec_at(c, off))) {
     moqcache_rec r = moqcache_rec_at(c, off);
-    if (!moqcache_hit(r, tag, group, 0)) continue;
+    if (!moqcache_hit(r, tag, group, 0)) {
+      continue;
+    }
     *dead |= moqcache_dead(r);
     n += moqcache_rec_size(r);
   }
@@ -81,6 +89,10 @@ void moqcache_append(
   int          dead = 0;
   usz          held = moqcache_group_bytes(c, tag, group, &dead);
   moqcache_rec r    = {tag, group, object, payload.n};
-  if (dead) return;
-  if (!moqcache_store(c, r, payload, held)) moqcache_kill(c, tag, group);
+  if (dead) {
+    return;
+  }
+  if (!moqcache_store(c, r, payload, held)) {
+    moqcache_kill(c, tag, group);
+  }
 }

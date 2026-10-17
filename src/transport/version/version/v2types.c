@@ -15,7 +15,10 @@ logical_type v1_logical_type(int wire) {
 }
 
 logical_type v2_logical_type(int wire) {
-  for (int lt = 0; lt < 4; lt++)
-    if (V2_WIRE[lt] == wire) return (logical_type)lt;
+  for (int lt = 0; lt < 4; lt++) {
+    if (V2_WIRE[lt] == wire) {
+      return (logical_type)lt;
+    }
+  }
   return LT_INVALID;
 }

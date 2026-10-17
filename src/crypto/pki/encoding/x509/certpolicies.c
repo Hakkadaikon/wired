@@ -16,8 +16,9 @@ static int cp_locate(wired_span tbs, wired_span* val) {
   wired_span raw;
   if (!x509_find_ext(
           tbs, wired_span_of(oid_cert_policies, sizeof(oid_cert_policies)),
-          &raw))
+          &raw)) {
     return 0;
+  }
   return der_seq(raw, val);
 }
 
@@ -32,7 +33,9 @@ static int policy_info_id(wired_span info, wired_span* oid) {
 /* Append oid to *out if there is room; entries past the cap are dropped
  * (X509_CERT_POLICY_MAX's header comment). */
 static void policy_set_add(x509_policy_set* out, wired_span oid) {
-  if (out->n >= X509_CERT_POLICY_MAX) return;
+  if (out->n >= X509_CERT_POLICY_MAX) {
+    return;
+  }
   out->oid[out->n] = oid;
   out->n++;
 }
@@ -41,7 +44,9 @@ static void policy_set_add(x509_policy_set* out, wired_span oid) {
  * element (no leading OID) is skipped rather than failing the whole scan. */
 static void cp_scan_one(wired_span info, x509_policy_set* out) {
   wired_span oid;
-  if (!policy_info_id(info, &oid)) return;
+  if (!policy_info_id(info, &oid)) {
+    return;
+  }
   policy_set_add(out, oid);
 }
 
@@ -51,12 +56,16 @@ static void cp_scan(wired_span seq, x509_policy_set* out) {
   u8         tag;
   wired_span info;
   derseq_init(&c, seq);
-  while (derseq_next(&c, &tag, &info)) cp_scan_one(info, out);
+  while (derseq_next(&c, &tag, &info)) {
+    cp_scan_one(info, out);
+  }
 }
 
 int x509_cert_policies(wired_span tbs, x509_policy_set* out) {
   wired_span seq;
-  if (!cp_locate(tbs, &seq)) return 0;
+  if (!cp_locate(tbs, &seq)) {
+    return 0;
+  }
   out->n = 0;
   cp_scan(seq, out);
   return 1;
@@ -65,7 +74,10 @@ int x509_cert_policies(wired_span tbs, x509_policy_set* out) {
 int x509_policy_set_has_any(const x509_policy_set* set) {
   wired_span any =
       wired_span_of(x509_oid_any_policy, sizeof(x509_oid_any_policy));
-  for (usz i = 0; i < set->n; i++)
-    if (der_oid_equal(set->oid[i], any)) return 1;
+  for (usz i = 0; i < set->n; i++) {
+    if (der_oid_equal(set->oid[i], any)) {
+      return 1;
+    }
+  }
   return 0;
 }

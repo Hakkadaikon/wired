@@ -39,7 +39,9 @@ static moqssts_set moqssts_t_set(
 }
 
 static u64 moqssts_t_track(const moqssts_set* s, int idx) {
-  if (idx < 0) return MOQSSTS_T_NONE;
+  if (idx < 0) {
+    return MOQSSTS_T_NONE;
+  }
   return s->m[idx].track_id;
 }
 
@@ -162,7 +164,9 @@ static u64 moqssts_t_bp_once(
 
 static void moqssts_t_climb(moqssts_bp* st, const moqssts_set* sets, int g) {
   const u64 open[1] = {1};
-  for (int i = 0; i < g; i++) moqssts_t_bp_once(st, sets, 1, open, 0);
+  for (int i = 0; i < g; i++) {
+    moqssts_t_bp_once(st, sets, 1, open, 0);
+  }
 }
 
 static void test_moqssts_starts_at_the_lowest_tier(void) {
@@ -178,8 +182,9 @@ static void test_moqssts_rises_one_tier_per_five_clear_groups(void) {
   const u64   clear[] = {1};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 4; g++)
+  for (int g = 0; g < 4; g++) {
     CHECK(moqssts_t_bp_once(&st, s, 1, clear, 0) == 10);
+  }
   CHECK(moqssts_t_bp_once(&st, s, 1, clear, 0) == 11);
   CHECK(moqssts_t_bp_once(&st, s, 1, clear, 0) == 11);
 }
@@ -202,8 +207,9 @@ static void test_moqssts_recovers_as_soon_as_the_streams_are_gone(void) {
   moqssts_t_climb(&st, s, 5);
   CHECK(moqssts_t_bp_once(&st, s, 1, one, 0) == 11);
   CHECK(moqssts_t_bp_once(&st, s, 1, two, 0) == 10);
-  for (int g = 7; g < 11; g++)
+  for (int g = 7; g < 11; g++) {
     CHECK(moqssts_t_bp_once(&st, s, 1, drained, 0) == 10);
+  }
   CHECK(moqssts_t_bp_once(&st, s, 1, drained, 0) == 11);
 }
 
@@ -238,8 +244,9 @@ static void test_moqssts_steady_depth_during_cooldown_never_drops_further(
   moqssts_bp_init(&st);
   moqssts_t_climb(&st, s, 15);
   moqssts_t_bp_once(&st, s, 1, two, 0);
-  for (int g = 16; g < 25; g++)
+  for (int g = 16; g < 25; g++) {
     CHECK(moqssts_t_bp_once(&st, s, 1, two, 0) == 11);
+  }
 }
 
 static void test_moqssts_never_drops_below_the_lowest_tier(void) {
@@ -247,8 +254,9 @@ static void test_moqssts_never_drops_below_the_lowest_tier(void) {
   const u64   nine[] = {9};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (u64 g = 0; g < 20; g++)
+  for (u64 g = 0; g < 20; g++) {
     CHECK(moqssts_t_bp_once(&st, s, 1, nine, g * 3) == 10);
+  }
 }
 
 static void test_moqssts_bp_an_inactive_set_forwards_nothing(void) {
@@ -268,7 +276,9 @@ static void test_moqssts_every_active_set_moves_to_the_same_tier(void) {
   int         out[2]  = {0};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 5; g++) moqssts_t_bp_once(&st, s, 2, clear, 0);
+  for (int g = 0; g < 5; g++) {
+    moqssts_t_bp_once(&st, s, 2, clear, 0);
+  }
   moqssts_bp_decide(&st, s, 2, clear, 0, out);
   CHECK(moqssts_t_track(&s[0], out[0]) == 11);
   CHECK(moqssts_t_track(&s[1], out[1]) == 21);
@@ -281,7 +291,9 @@ static void test_moqssts_two_active_sets_with_one_stream_each_rise(void) {
   const u64   one_each[] = {1, 1};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 5; g++) moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  for (int g = 0; g < 5; g++) {
+    moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  }
   CHECK(moqssts_t_bp_once(&st, s, 2, one_each, 0) == 11);
 }
 
@@ -291,7 +303,9 @@ static void test_moqssts_one_deep_set_drops_every_set(void) {
   const u64   one_each[] = {1, 1}, deep[] = {0, 2};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 5; g++) moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  for (int g = 0; g < 5; g++) {
+    moqssts_t_bp_once(&st, s, 2, one_each, 0);
+  }
   CHECK(st.tier == 1);
   CHECK(moqssts_t_bp_once(&st, s, 2, deep, 0) == 10);
 }
@@ -312,14 +326,18 @@ static void test_moqssts_instances_do_not_share_state(void) {
   moqssts_bp  first, second;
   moqssts_bp_init(&first);
   moqssts_bp_init(&second);
-  for (int g = 0; g < 20; g++) moqssts_t_bp_once(&first, s, 1, clear, 0);
+  for (int g = 0; g < 20; g++) {
+    moqssts_t_bp_once(&first, s, 1, clear, 0);
+  }
   CHECK(moqssts_t_bp_once(&second, s, 1, clear, 0) == 10);
 }
 
 static void test_moqssts_cooldown_brackets_the_settle_down_period(void) {
   moqssts_bp st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 5; g++) moqssts_bp_observe(&st, moqssts_obs_make(1, 0));
+  for (int g = 0; g < 5; g++) {
+    moqssts_bp_observe(&st, moqssts_obs_make(1, 0));
+  }
   CHECK(st.tier == 1);
   CHECK(!st.in_cooldown);
   moqssts_bp_observe(&st, moqssts_obs_make(2, 0));
@@ -374,7 +392,9 @@ static void test_moqssts_sets_past_the_cap_forward_nothing(void) {
   CHECK(out[0] == 0);
   CHECK(out[MOQSSTS_MAX_SETS - 1] == 0);
   CHECK(out[MOQSSTS_MAX_SETS] == MOQSSTS_NONE);
-  for (usz i = 0; i <= MOQSSTS_MAX_SETS; i++) out[i] = 99;
+  for (usz i = 0; i <= MOQSSTS_MAX_SETS; i++) {
+    out[i] = 99;
+  }
   moqssts_bp_init(&st);
   moqssts_bp_decide(&st, s, MOQSSTS_MAX_SETS + 1, open, 0, out);
   CHECK(out[0] == 0);
@@ -432,8 +452,9 @@ static void test_moqssts_observe_reports_events(void) {
   moqssts_bp st;
   moqssts_bp_init(&st);
   CHECK(moqssts_bp_observe(&st, moqssts_obs_make(2, 0)) == MOQSSTS_EV_HELD);
-  for (int g = 0; g < 4; g++)
+  for (int g = 0; g < 4; g++) {
     CHECK(moqssts_bp_observe(&st, moqssts_obs_make(1, 0)) == MOQSSTS_EV_HELD);
+  }
   CHECK(moqssts_bp_observe(&st, moqssts_obs_make(1, 0)) == MOQSSTS_EV_UPSHIFT);
   CHECK(
       moqssts_bp_observe(&st, moqssts_obs_make(2, 0)) == MOQSSTS_EV_DOWNSHIFT);
@@ -472,8 +493,12 @@ static void test_moqssts_no_ladder_clamps_the_tier_to_zero(void) {
   int         out[1] = {99};
   moqssts_bp  st;
   moqssts_bp_init(&st);
-  for (int g = 0; g < 5; g++) moqssts_bp_decide(&st, s, 0, zero, 0, out);
-  for (int g = 0; g < 5; g++) moqssts_bp_decide(&st, empty, 1, zero, 0, out);
+  for (int g = 0; g < 5; g++) {
+    moqssts_bp_decide(&st, s, 0, zero, 0, out);
+  }
+  for (int g = 0; g < 5; g++) {
+    moqssts_bp_decide(&st, empty, 1, zero, 0, out);
+  }
   CHECK(out[0] == MOQSSTS_NONE);
   CHECK(st.tier == 0);
   CHECK(moqssts_t_bp_once(&st, s, 1, one, 0) == 10);

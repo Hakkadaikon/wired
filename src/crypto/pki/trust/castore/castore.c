@@ -16,8 +16,12 @@ static int parses_as_cert(wired_span cert_der) {
 }
 
 int castore_add(castore* s, wired_span cert_der) {
-  if (s->count >= s->cap) return 0;
-  if (!parses_as_cert(cert_der)) return 0;
+  if (s->count >= s->cap) {
+    return 0;
+  }
+  if (!parses_as_cert(cert_der)) {
+    return 0;
+  }
   s->roots[s->count] = cert_der;
   s->count++;
   return 1;
@@ -27,15 +31,21 @@ int castore_add(castore* s, wired_span cert_der) {
 static int entry_subject_matches(wired_span entry, wired_span issuer_dn) {
   x509       c;
   wired_span subj;
-  if (!x509_parse(entry, &c)) return 0;
-  if (!x509_subject(c.tbs, &subj)) return 0;
+  if (!x509_parse(entry, &c)) {
+    return 0;
+  }
+  if (!x509_subject(c.tbs, &subj)) {
+    return 0;
+  }
   return x509_dn_equal(issuer_dn, subj);
 }
 
 int castore_find_by_subject(
     const castore* s, wired_span issuer_dn, wired_span* root) {
   for (usz i = 0; i < s->count; i++) {
-    if (!entry_subject_matches(s->roots[i], issuer_dn)) continue;
+    if (!entry_subject_matches(s->roots[i], issuer_dn)) {
+      continue;
+    }
     *root = s->roots[i];
     return 1;
   }

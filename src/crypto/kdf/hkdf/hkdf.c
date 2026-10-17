@@ -15,8 +15,12 @@ void hkdf_extract(wired_span salt, wired_span ikm, u8 prk[HKDF_PRK]) {
 static void expand_block(const hkdf_xctx* c, wired_mspan t, u8 counter) {
   u8  buf[SHA256_DIGEST + 256 + 1];
   usz n = 0;
-  for (usz i = 0; i < t.n; i++) buf[n++] = t.p[i];
-  for (usz i = 0; i < c->info.n; i++) buf[n++] = c->info.p[i];
+  for (usz i = 0; i < t.n; i++) {
+    buf[n++] = t.p[i];
+  }
+  for (usz i = 0; i < c->info.n; i++) {
+    buf[n++] = c->info.p[i];
+  }
   buf[n++] = counter;
   hmac_sha256(wired_span_of(c->prk, HKDF_PRK), wired_span_of(buf, n), t.p);
 }
@@ -24,7 +28,9 @@ static void expand_block(const hkdf_xctx* c, wired_mspan t, u8 counter) {
 /* Copy up to SHA256_DIGEST bytes of t into okm+off, bounded by len. */
 static usz emit(u8* okm, usz off, usz len, const u8 t[SHA256_DIGEST]) {
   usz take = (len - off < SHA256_DIGEST) ? len - off : SHA256_DIGEST;
-  for (usz i = 0; i < take; i++) okm[off + i] = t[i];
+  for (usz i = 0; i < take; i++) {
+    okm[off + i] = t[i];
+  }
   return off + take;
 }
 
@@ -39,7 +45,9 @@ int hkdf_expand(const u8 prk[HKDF_PRK], wired_span info, wired_mspan okm) {
   wired_mspan tp               = {t, 0};
   usz         off              = 0;
   u8          counter          = 1;
-  if (!expand_ok(info.n, okm.n)) return 0;
+  if (!expand_ok(info.n, okm.n)) {
+    return 0;
+  }
   while (off < okm.n) {
     expand_block(&c, tp, counter);
     off  = emit(okm.p, off, okm.n, t);
@@ -51,7 +59,9 @@ int hkdf_expand(const u8 prk[HKDF_PRK], wired_span info, wired_mspan okm) {
 
 /* Append src into info at *off, advancing *off. */
 static void append(u8* info, usz* off, wired_span src) {
-  for (usz i = 0; i < src.n; i++) info[*off + i] = src.p[i];
+  for (usz i = 0; i < src.n; i++) {
+    info[*off + i] = src.p[i];
+  }
   *off += src.n;
 }
 
@@ -74,7 +84,9 @@ int hkdf_expand_label(
     const u8 prk[HKDF_PRK], const hkdf_label* l, wired_mspan okm) {
   u8  info[2 + 1 + 6 + 64 + 1 + 64];
   usz info_len;
-  if (l->label_len > 64 || l->ctx.n > 64) return 0;
+  if (l->label_len > 64 || l->ctx.n > 64) {
+    return 0;
+  }
   info_len = build_label(info, l, okm.n);
   return hkdf_expand(prk, wired_span_of(info, info_len), okm);
 }

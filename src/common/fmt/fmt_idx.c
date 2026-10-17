@@ -14,8 +14,11 @@ static const char* fmt_directive(fmt_sink* s, const char* p, wired_va_list ap);
 /* ---- spec parsing ---- */
 
 static int fmt_idx(const char* set, char c) {
-  for (int i = 0; set[i]; i++)
-    if (set[i] == c) return i;
+  for (int i = 0; set[i]; i++) {
+    if (set[i] == c) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -30,13 +33,17 @@ static const char* fmt_flags(const char* p, fmt_spec* sp) {
 
 static const char* fmt_num(const char* p, int* out) {
   int v = 0;
-  while (*p >= '0' && *p <= '9') v = v * 10 + (*p++ - '0');
+  while (*p >= '0' && *p <= '9') {
+    v = v * 10 + (*p++ - '0');
+  }
   *out = v;
   return p;
 }
 
 static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list ap) {
-  if (*p != '*') return fmt_num(p, &sp->width);
+  if (*p != '*') {
+    return fmt_num(p, &sp->width);
+  }
   sp->width = wired_va_arg(ap, int);
   sp->flags |= FMT_MINUS * (u32)(sp->width < 0);
   sp->width = sp->width < 0 ? -sp->width : sp->width;
@@ -44,8 +51,12 @@ static const char* fmt_width(const char* p, fmt_spec* sp, wired_va_list ap) {
 }
 
 static const char* fmt_prec(const char* p, fmt_spec* sp, wired_va_list ap) {
-  if (*p != '.') return p;
-  if (p[1] != '*') return fmt_num(p + 1, &sp->prec);
+  if (*p != '.') {
+    return p;
+  }
+  if (p[1] != '*') {
+    return fmt_num(p + 1, &sp->prec);
+  }
   sp->prec = wired_va_arg(ap, int);
   return p + 2;
 }

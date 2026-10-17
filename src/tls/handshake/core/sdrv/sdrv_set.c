@@ -13,15 +13,21 @@ void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p) {
 }
 
 u32 sdrv_wire_version(const sdrv* s) {
-  if (s->negotiated_version) return s->negotiated_version;
+  if (s->negotiated_version) {
+    return s->negotiated_version;
+  }
   return s->client_version ? s->client_version : VERSION_1;
 }
 
 /* Copy a connection id (<=20 bytes) into dst, recording its length. Returns 1
  * on success, 0 if len exceeds 20. */
 static int sdrv_set_cid(u8* dst, u8* dst_len, wired_span cid) {
-  if (cid.n > 20) return 0;
-  for (usz i = 0; i < cid.n; i++) dst[i] = cid.p[i];
+  if (cid.n > 20) {
+    return 0;
+  }
+  for (usz i = 0; i < cid.n; i++) {
+    dst[i] = cid.p[i];
+  }
   *dst_len = (u8)cid.n;
   return 1;
 }

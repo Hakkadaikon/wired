@@ -14,8 +14,12 @@ static void srvloop_body_abort(
  * own stream's slot through this. */
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   int i = srvloop_stream_slot_find(l, stream_id);
-  if (i >= 0) return i;
-  if (srvloop_req_closed_has(l, stream_id)) return -2;
+  if (i >= 0) {
+    return i;
+  }
+  if (srvloop_req_closed_has(l, stream_id)) {
+    return -2;
+  }
   return srvloop_stream_slot_claim(l, stream_id);
 }
 
@@ -33,26 +37,33 @@ static int srvloop_body_streaming(const wired_srvloop_stream_slot* slot) {
  * leaves BODYWIN_OPEN, so a later release or abort is silent). */
 static void srvloop_body_abort(
     wired_srvloop* l, wired_srvloop_stream_slot* slot) {
-  if (!l->on_body_abort || !srvloop_body_streaming(slot)) return;
+  if (!l->on_body_abort || !srvloop_body_streaming(slot)) {
+    return;
+  }
   slot->body.state = BODYWIN_ABORTED;
   l->on_body_abort(l->req_ctx, slot->stream_id, slot->abort_code);
 }
 
 void wired_srvloop_abort_bodies(wired_srvloop* l) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     srvloop_body_abort(l, &l->streams[i]);
+  }
 }
 
 void wired_srvloop_slot_cancel(wired_srvloop* l, u64 stream_id, u64 code) {
   int i = srvloop_stream_slot_find(l, stream_id);
-  if (i >= 0) l->streams[i].abort_code = code;
+  if (i >= 0) {
+    l->streams[i].abort_code = code;
+  }
   wired_srvloop_slot_release(l, stream_id);
 }
 
 void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = srvloop_stream_slot_find(l, stream_id);
   srvloop_req_closed_mark(l, stream_id);
-  if (i < 0) return;
+  if (i < 0) {
+    return;
+  }
   srvloop_body_abort(l, &l->streams[i]);
   l->req_body_released += l->streams[i].body.base;
   l->streams[i].in_use         = 0;

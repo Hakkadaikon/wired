@@ -13,8 +13,12 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
   wired_span          frag = live->frags[g % live->n_frags];
   u8                  head[MOQDATA_MSG_OVERHEAD];
   usz                 hn = moqtrun_live_head(live, g, frag.n, head);
-  if (!moqtrun_live_due(hub, dst, i, g)) return;
-  if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) return;
+  if (!moqtrun_live_due(hub, dst, i, g)) {
+    return;
+  }
+  if (hub->io.send_uni2(dst->wt, wired_span_of(head, hn), frag) < 0) {
+    return;
+  }
   live->track.subs[i].stream_count++;
   hub->stat_live_drop += moqtrun_live_gap(live, i, g);
   live->sent_group[i] = g;
@@ -23,19 +27,26 @@ static void moqtrun_live_send_one(wired_moqt_hub* hub, usz i, u64 g) {
 }
 
 static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
-  if (!moqtrun_sub_forwards(&hub->live.track.subs[i])) return;
-  if (!moqtrun_live_owes(&hub->live, i, g)) return;
+  if (!moqtrun_sub_forwards(&hub->live.track.subs[i])) {
+    return;
+  }
+  if (!moqtrun_live_owes(&hub->live, i, g)) {
+    return;
+  }
   moqtrun_live_send_one(hub, i, g);
 }
 
 /* The hub's own live track: the Group current at now_ms to every
  * subscriber behind it. */
 static void moqtrun_live_tick(wired_moqt_hub* hub, u64 now_ms) {
-  if (!hub->live.track.in_use) return;
+  if (!hub->live.track.in_use) {
+    return;
+  }
   u64 g = moqtrun_live_group_at(&hub->live, now_ms);
   moqtrun_track_note(&hub->live.track, g, 0);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     moqtrun_live_serve_sub(hub, i, g);
+  }
 }
 
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
@@ -68,7 +79,8 @@ void moqtrun_live_attach(
       slot, &hub->live.track, peer_idx, hub->live.track.own_alias, m);
   hub->live.sent_any[i] = 0;
   moqtrun_queue_subscribe_ok(p, &hub->live.track, slot);
-  if (moqtrun_sub_forwards(slot))
+  if (moqtrun_sub_forwards(slot)) {
     moqtrun_live_send_one(
         hub, i, moqtrun_live_group_at(&hub->live, hub->live.last_now_ms));
+  }
 }

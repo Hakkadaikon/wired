@@ -4,8 +4,11 @@
  * also for a session the hub is closing (nothing more goes to it). */
 wired_moqtrun_req* moqtrun_sub_req(
     wired_moqt_hub* hub, const wired_moqtrun_peer* p, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_req_sub_of(&hub->reqs[i], p, rid)) return &hub->reqs[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_req_sub_of(&hub->reqs[i], p, rid)) {
+      return &hub->reqs[i];
+    }
+  }
   return 0;
 }
 
@@ -20,9 +23,11 @@ u32 moqtrun_done_reset_code(u64 status) {
 /* Every relay stream of slot si of t is reset with code. */
 void moqtrun_sub_reset_streams(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u32 code) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-    if (t->relays[r].in_use)
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (t->relays[r].in_use) {
       moqtrun_relay_reset_one_sub(hub, t, &t->relays[r], si, code);
+    }
+  }
 }
 
 /* Subscription s (slot of track t; t 0 when s is state kept for a gone

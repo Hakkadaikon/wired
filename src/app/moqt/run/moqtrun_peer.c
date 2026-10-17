@@ -34,8 +34,9 @@ static void moqtrun_peer_life_reset(wired_moqtrun_peer* p) {
   p->goaway_flushed_at = 0;
   p->closing           = 0;
   p->wt_drained        = 0;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
     p->tracks[t].in_use = 0;
+  }
   moqsess_init(&p->sess);
   moqtss_sess_reset(&p->ssts); /* SSTS (moqtssts_run.c) */
 }
@@ -93,16 +94,22 @@ void wired_moqt_on_session(
    * work. Guard by session identity: a callback for an already-tracked s is
    * a no-op instead of allocating a second peer slot and sending SETUP
    * twice on the same WT session. */
-  if (moqtrun_find_by_wt(hub, s)) return;
+  if (moqtrun_find_by_wt(hub, s)) {
+    return;
+  }
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
-  if (!p) return;
+  if (!p) {
+    return;
+  }
   moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol), 0);
 }
 
 /* Review F4 (MoqtRawConn): a raw session the hub cannot track is closed
  * at once, INTERNAL_ERROR (-22 6.6), not left for the idle sweep. */
 static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s) {
-  if (!hub->io.close_session) return;
+  if (!hub->io.close_session) {
+    return;
+  }
   hub->io.close_session(
       s, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR, wired_span_of(0, 0));
 }
@@ -114,7 +121,9 @@ static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s) {
 void wired_moqt_on_session_raw(
     void* app_ctx, wired_wt_session* s, wired_span alpn) {
   wired_moqt_hub* hub = (wired_moqt_hub*)app_ctx;
-  if (moqtrun_find_by_wt(hub, s)) return;
+  if (moqtrun_find_by_wt(hub, s)) {
+    return;
+  }
   wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) {
     moqtrun_refuse_session(hub, s);

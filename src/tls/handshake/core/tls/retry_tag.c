@@ -15,8 +15,12 @@ static const u8 RETRY_NONCE[12] = {0x46, 0x15, 0x99, 0xd3, 0x5d, 0x63,
 static usz build_pseudo(wired_span odcid, wired_span retry, u8* aad) {
   usz n    = 0;
   aad[n++] = (u8)odcid.n;
-  for (usz i = 0; i < odcid.n; i++) aad[n++] = odcid.p[i];
-  for (usz i = 0; i < retry.n; i++) aad[n++] = retry.p[i];
+  for (usz i = 0; i < odcid.n; i++) {
+    aad[n++] = odcid.p[i];
+  }
+  for (usz i = 0; i < retry.n; i++) {
+    aad[n++] = retry.p[i];
+  }
   return n;
 }
 

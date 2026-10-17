@@ -6,10 +6,14 @@
 int udp_transport_open(udp_transport* t, u16 local_port) {
   sockaddr sa;
   i64      fd = wired_udp_socket();
-  if (fd < 0) return (int)fd;
+  if (fd < 0) {
+    return (int)fd;
+  }
   wired_udp_addr(&sa, local_port, (const u8[4]){0, 0, 0, 0});
   i64 r = wired_udp_bind(fd, &sa);
-  if (r < 0) return (int)r;
+  if (r < 0) {
+    return (int)r;
+  }
   t->fd = fd;
   return 0;
 }

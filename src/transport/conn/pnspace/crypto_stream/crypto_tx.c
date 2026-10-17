@@ -24,7 +24,9 @@ static int emit_one(
   crypto_frame f = {c->base_offset + p->pos, c->chunk, tls_bytes.p + p->pos};
   usz          n =
       frame_put_crypto(p->out->p + p->out->len, p->out->cap - p->out->len, &f);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   p->out->len += n;
   p->pos += c->chunk;
   return 1;

@@ -8,7 +8,11 @@ int session_link_tx(memlink* l, wired_span qpkt, ipv4addrs addrs) {
   usz        un   = udp4_build(&ub, &meta, qpkt);
   ipv4_build(
       ip, &(ipv4_head){(u16)(20 + un), addrs.src, addrs.dst, IP_PROTO_UDP});
-  for (usz i = 0; i < 20; i++) frame[i] = ip[i];
-  for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
+  for (usz i = 0; i < 20; i++) {
+    frame[i] = ip[i];
+  }
+  for (usz i = 0; i < un; i++) {
+    frame[20 + i] = udp[i];
+  }
   return memlink_send(l, frame, 20 + un);
 }

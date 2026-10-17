@@ -6,7 +6,9 @@ static usz cc_entry(u8* out, const u8* cert, usz n) {
   out[0] = (u8)(n >> 16);
   out[1] = (u8)(n >> 8);
   out[2] = (u8)n;
-  for (usz i = 0; i < n; i++) out[3 + i] = cert[i];
+  for (usz i = 0; i < n; i++) {
+    out[3 + i] = cert[i];
+  }
   out[3 + n] = 0;
   out[4 + n] = 0;
   return n + 5;
@@ -17,7 +19,9 @@ static usz cc_entry(u8* out, const u8* cert, usz n) {
 static usz cc_body(u8* out, const u8* const* certs, const usz* lens, usz k) {
   usz off = 4, list;
   out[0]  = 0;
-  for (usz i = 0; i < k; i++) off += cc_entry(out + off, certs[i], lens[i]);
+  for (usz i = 0; i < k; i++) {
+    off += cc_entry(out + off, certs[i], lens[i]);
+  }
   list   = off - 4;
   out[1] = (u8)(list >> 16);
   out[2] = (u8)(list >> 8);

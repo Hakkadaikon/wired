@@ -41,7 +41,9 @@ static void test_retry_roundtrip(void) {
   const u8 scid[2]  = {0x50, 0x51};
   const u8 token[5] = {0x10, 0x11, 0x12, 0x13, 0x14};
   u8       tag[RETRY_TAG_LEN];
-  for (usz i = 0; i < RETRY_TAG_LEN; i++) tag[i] = (u8)(0xA0 + i);
+  for (usz i = 0; i < RETRY_TAG_LEN; i++) {
+    tag[i] = (u8)(0xA0 + i);
+  }
 
   u8         buf[64];
   retry_desc rd = {

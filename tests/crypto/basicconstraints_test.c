@@ -33,8 +33,12 @@ static usz bc_pathlen_off(const u8* der, usz len) {
   static const u8 pat[8] = {0x30, 0x06, 0x01, 0x01, 0xff, 0x02, 0x01, 0x00};
   for (usz i = 0; i + sizeof(pat) <= len; i++) {
     usz j = 0;
-    while (j < sizeof(pat) && der[i + j] == pat[j]) j++;
-    if (j == sizeof(pat)) return i;
+    while (j < sizeof(pat) && der[i + j] == pat[j]) {
+      j++;
+    }
+    if (j == sizeof(pat)) {
+      return i;
+    }
   }
   return 0;
 }
@@ -43,8 +47,9 @@ static usz bc_pathlen_off(const u8* der, usz len) {
  * TLV, and parse the copy. The caller owns `der` so the views stay alive. */
 static void mid3_patched(usz rel, u8 v, u8* der, x509* c) {
   usz off;
-  for (usz i = 0; i < sizeof(castore_mid3_der); i++)
+  for (usz i = 0; i < sizeof(castore_mid3_der); i++) {
     der[i] = castore_mid3_der[i];
+  }
   off = bc_pathlen_off(der, sizeof(castore_mid3_der));
   CHECK(off != 0);
   der[off + rel] = v;

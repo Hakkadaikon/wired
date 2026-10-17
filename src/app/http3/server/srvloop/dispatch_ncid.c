@@ -9,8 +9,9 @@ static void gather_one_max_stream_data(wired_srvloop* l, wired_span frame);
 
 static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
   if (!path_decode(
-          frame.p, frame.n, FRAME_PATH_RESPONSE, l->path_response_data))
+          frame.p, frame.n, FRAME_PATH_RESPONSE, l->path_response_data)) {
     return;
+  }
   l->path_response_seen_flag = 1;
 }
 
@@ -27,7 +28,9 @@ int srvloop_gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_PATH_RESPONSE) continue;
+    if (frame_classify(fr.type) != FK_PATH_RESPONSE) {
+      continue;
+    }
     seen = 1;
     gather_one_path_response(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -47,7 +50,9 @@ static void gather_one_ncid(wired_srvloop* l, wired_span frame) {
     l->ncid_malformed = 1;
     return;
   }
-  if (l->ncid_rx_n < WIRED_SRVLOOP_NCID_RX) l->ncid_rx[l->ncid_rx_n++] = f;
+  if (l->ncid_rx_n < WIRED_SRVLOOP_NCID_RX) {
+    l->ncid_rx[l->ncid_rx_n++] = f;
+  }
 }
 
 int srvloop_gather_ncid(wired_srvloop* l, const u8* payload, usz len) {
@@ -56,7 +61,9 @@ int srvloop_gather_ncid(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_NEW_CONNECTION_ID) continue;
+    if (frame_classify(fr.type) != FK_NEW_CONNECTION_ID) {
+      continue;
+    }
     seen = 1;
     gather_one_ncid(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -72,7 +79,9 @@ int srvloop_gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_MAX_DATA) continue;
+    if (frame_classify(fr.type) != FK_MAX_DATA) {
+      continue;
+    }
     seen = 1;
     srvloop_gather_one_max_data(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -82,8 +91,11 @@ int srvloop_gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
 /* Index of stream_id's existing slot in l's this-step MAX_STREAM_DATA
  * latch, or -1 if it has none yet. */
 static int max_stream_data_slot_for(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < l->max_stream_data_n; i++)
-    if (l->max_stream_data_stream_id[i] == stream_id) return (int)i;
+  for (usz i = 0; i < l->max_stream_data_n; i++) {
+    if (l->max_stream_data_stream_id[i] == stream_id) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -100,8 +112,12 @@ static int max_stream_data_slot_for(const wired_srvloop* l, u64 stream_id) {
  * freshly claimed one, else -1 once every slot is already used. */
 static int max_stream_data_slot(wired_srvloop* l, u64 stream_id) {
   int i = max_stream_data_slot_for(l, stream_id);
-  if (i >= 0) return i;
-  if (l->max_stream_data_n >= WIRED_SRVLOOP_MAX_STREAMS) return -1;
+  if (i >= 0) {
+    return i;
+  }
+  if (l->max_stream_data_n >= WIRED_SRVLOOP_MAX_STREAMS) {
+    return -1;
+  }
   i                               = (int)l->max_stream_data_n++;
   l->max_stream_data_stream_id[i] = stream_id;
   return i;
@@ -110,9 +126,13 @@ static int max_stream_data_slot(wired_srvloop* l, u64 stream_id) {
 static void gather_one_max_stream_data(wired_srvloop* l, wired_span frame) {
   stream_data_frame f;
   int               i;
-  if (max_stream_data_decode(frame.p, frame.n, &f) == 0) return;
+  if (max_stream_data_decode(frame.p, frame.n, &f) == 0) {
+    return;
+  }
   i = max_stream_data_slot(l, f.stream_id);
-  if (i >= 0) l->max_stream_data_value[i] = f.value;
+  if (i >= 0) {
+    l->max_stream_data_value[i] = f.value;
+  }
 }
 
 /* RFC 9000 19.10: scan this payload for MAX_STREAM_DATA frames. Returns 1 if
@@ -124,7 +144,9 @@ int srvloop_gather_max_stream_data(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_MAX_STREAM_DATA) continue;
+    if (frame_classify(fr.type) != FK_MAX_STREAM_DATA) {
+      continue;
+    }
     seen = 1;
     gather_one_max_stream_data(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -145,7 +167,9 @@ int srvloop_gather_stream_closes(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (srvloop_is_close_shaped(frame_classify(fr.type), fr.type)) seen = 1;
+    if (srvloop_is_close_shaped(frame_classify(fr.type), fr.type)) {
+      seen = 1;
+    }
     srvloop_gather_one_stream_close(
         l, fr.type, wired_span_of(fr.start, fr.remaining));
     srvloop_gather_one_wt_reset(

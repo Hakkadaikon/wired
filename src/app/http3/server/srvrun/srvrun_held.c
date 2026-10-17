@@ -13,9 +13,11 @@ static int srvrun_wtsend_reapable(const srvrun_conn* c, srvrun_wtsend* w);
  * STOP_SENDING queued this step (c->l.peer_resets) is answered. */
 void srvrun_answer_peer_stops(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   usz n = srvrun_peer_resets_stored(c), freed = 0;
-  for (usz i = 0; i < n; i++)
-    if (c->l.peer_resets[i].is_stop)
+  for (usz i = 0; i < n; i++) {
+    if (c->l.peer_resets[i].is_stop) {
       freed += srvrun_answer_peer_stop(ctx, c, &c->l.peer_resets[i]);
+    }
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -31,7 +33,9 @@ static int srvrun_reset_noted(const srvrun_conn* c, usz i) {
  * 1 when a slot was freed. */
 static usz srvrun_reset_free(srvrun_conn* c, usz i) {
   u64 id = c->l.streams[i].stream_id;
-  if (!srvrun_reset_noted(c, i) || srvrun_resp_find(c, id)) return 0;
+  if (!srvrun_reset_noted(c, i) || srvrun_resp_find(c, id)) {
+    return 0;
+  }
   wired_srvloop_slot_release(&c->l, id);
   return 1;
 }
@@ -42,8 +46,11 @@ static int srvrun_held_is(const srvrun_conn* c, usz i, u64 id) {
 }
 
 static int srvrun_held_slot_of(const srvrun_conn* c, u64 id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (srvrun_held_is(c, i, id)) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (srvrun_held_is(c, i, id)) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -52,7 +59,9 @@ static int srvrun_held_slot_of(const srvrun_conn* c, u64 id) {
  * (1 when freed). */
 static usz srvrun_drop_held(srvrun_conn* c, const wired_srvloop_reset* e) {
   int i = e->is_stop ? -1 : srvrun_held_slot_of(c, e->stream_id);
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   c->wt_held_mask &= ~((u64)1 << i);
   wired_srvloop_slot_release(&c->l, e->stream_id);
   return 1;
@@ -61,8 +70,9 @@ static usz srvrun_drop_held(srvrun_conn* c, const wired_srvloop_reset* e) {
 /* Every held CONNECT reset this step is dropped and its credit returned. */
 void srvrun_drop_held_resets(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   usz n = srvrun_peer_resets_stored(c), freed = 0;
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     freed += srvrun_drop_held(c, &c->l.peer_resets[i]);
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -71,8 +81,9 @@ void srvrun_drop_held_resets(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * request stream (reset_slotless_n). */
 void srvrun_free_reset_reqs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   usz freed = c->l.reset_slotless_n;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     freed += srvrun_reset_free(c, i);
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -116,5 +127,7 @@ void srvrun_reap_one_wtsend(srvrun_conn* c, srvrun_wtsend* w) {
     w->in_use = 0;
     return;
   }
-  if (srvrun_wtsend_reapable(c, w)) w->in_use = 0;
+  if (srvrun_wtsend_reapable(c, w)) {
+    w->in_use = 0;
+  }
 }

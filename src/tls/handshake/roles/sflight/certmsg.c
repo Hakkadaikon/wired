@@ -29,7 +29,9 @@ static void put_entry(wired_obuf* out, wired_span cert) {
  * len(3) + cert_data + extensions(2). */
 static usz certchain_wire_len(const wired_span* certs, usz count) {
   usz total = 0;
-  for (usz i = 0; i < count; i++) total += 3 + certs[i].n + 2;
+  for (usz i = 0; i < count; i++) {
+    total += 3 + certs[i].n + 2;
+  }
   return total;
 }
 
@@ -45,20 +47,26 @@ static int certchain_fits(usz list_len, usz cap) {
 
 static int certchain_ok(const sflight_certchain_in* in, usz cap) {
   usz list_len;
-  if (!certchain_count_ok(in->count)) return 0;
+  if (!certchain_count_ok(in->count)) {
+    return 0;
+  }
   list_len = certchain_wire_len(in->certs, in->count);
   return certchain_fits(list_len, cap);
 }
 
 int sflight_certificate_chain(const sflight_certchain_in* in, wired_obuf* out) {
   usz off, list_len;
-  if (!certchain_ok(in, out->cap)) return 0;
+  if (!certchain_ok(in, out->cap)) {
+    return 0;
+  }
   list_len    = certchain_wire_len(in->certs, in->count);
   off         = hs_begin(out->p, out->cap, HS_CERTIFICATE);
   out->p[off] = 0; /* request_context length 0 */
   put_be24(out->p + off + 1, (u32)list_len);
   out->len = off + 4;
-  for (usz i = 0; i < in->count; i++) put_entry(out, in->certs[i]);
+  for (usz i = 0; i < in->count; i++) {
+    put_entry(out, in->certs[i]);
+  }
   hs_finish(out->p, out->len);
   return 1;
 }

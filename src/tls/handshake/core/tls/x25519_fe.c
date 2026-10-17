@@ -9,7 +9,9 @@ void x25519_fe_frombytes(fe h, const u8* s) {
   u64 t[4];
   for (usz i = 0; i < 4; i++) {
     t[i] = 0;
-    for (usz j = 0; j < 8; j++) t[i] |= (u64)s[i * 8 + j] << (8 * j);
+    for (usz j = 0; j < 8; j++) {
+      t[i] |= (u64)s[i * 8 + j] << (8 * j);
+    }
   }
   h[0] = t[0] & MASK51;
   h[1] = ((t[0] >> 51) | (t[1] << 13)) & MASK51;
@@ -25,8 +27,11 @@ static void x25519_store_reduced(u8* s, const fe r) {
   w[1] = (r[1] >> 13) | (r[2] << 38);
   w[2] = (r[2] >> 26) | (r[3] << 25);
   w[3] = (r[3] >> 39) | (r[4] << 12);
-  for (usz i = 0; i < 4; i++)
-    for (usz j = 0; j < 8; j++) s[i * 8 + j] = (u8)(w[i] >> (8 * j));
+  for (usz i = 0; i < 4; i++) {
+    for (usz j = 0; j < 8; j++) {
+      s[i * 8 + j] = (u8)(w[i] >> (8 * j));
+    }
+  }
 }
 
 /* One weak-carry pass: every limb < 2^51, top carry folded by 19. */
@@ -62,7 +67,9 @@ void x25519_fe_tobytes(u8* s, const fe h) {
   x25519_carry_pass(r);
   x25519_carry_pass(r);
   q = (r[0] + 19) >> 51; /* q==1 iff r >= p (adding 19 overflows 2^255) */
-  for (usz i = 1; i < 5; i++) q = (r[i] + q) >> 51;
+  for (usz i = 1; i < 5; i++) {
+    q = (r[i] + q) >> 51;
+  }
   r[0] += 19 * q;        /* if r >= p, +19 pushes past 2^255 = subtract p */
   x25519_carry_final(r); /* drop the 2^255 carry instead of folding it */
   x25519_store_reduced(s, r);

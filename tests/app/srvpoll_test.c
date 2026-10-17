@@ -13,7 +13,9 @@
  * the fd, or 0 (benign skip) if the sandbox forbids sockets. */
 static int sp_open_socket(i64* sfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4438, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -33,8 +35,12 @@ static void test_srvpoll_spin_step_empty_never_blocks(void) {
   sockaddr srv;
   mmsg_buf bufs[2];
   u8       storage[2][16];
-  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  if (!sp_open_socket(&sfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   for (int i = 0; i < 1000; i++) {
     i64 r = wired_srvpoll_spin_step(sfd, bufs, 2);
     CHECK(r <= 0); /* faithfully passes through "no data" every iteration */
@@ -50,14 +56,18 @@ static void test_srvpoll_spin_step_data_returns_count_unchanged(void) {
   sockaddr srv;
   mmsg_buf bufs[2];
   u8       storage[2][16];
-  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
+  if (!sp_open_socket(&sfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   cfd = wired_udp_socket();
   if (cfd < 0) {
     wired_udp_close(sfd);
     return;
   }
   wired_udp_send(cfd, &srv, wired_span_of((const u8[]){1, 2, 3}, 3));
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   /* Give the datagram a moment to land in the kernel's receive queue before
    * the non-blocking call (loopback UDP is effectively synchronous, but the
    * assertion below tolerates a benign 0/negative race by not hard-failing
@@ -79,8 +89,12 @@ static void test_srvpoll_backoff_grows_on_consecutive_empty(void) {
   mmsg_buf              bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};
-  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  if (!sp_open_socket(&sfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   for (int i = 0; i < 5; i++) {
     i64 r = wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
     CHECK(r <= 0);
@@ -97,19 +111,26 @@ static void test_srvpoll_backoff_resets_on_data(void) {
   mmsg_buf              bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};
-  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
+  if (!sp_open_socket(&sfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   cfd = wired_udp_socket();
   if (cfd < 0) {
     wired_udp_close(sfd);
     return;
   }
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
-  for (int i = 0; i < 3; i++)
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
+  for (int i = 0; i < 3; i++) {
     wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  }
   CHECK(bo.empty_spins == 3);
   wired_udp_send(cfd, &srv, wired_span_of((const u8[]){1, 2, 3}, 3));
   i64 r = wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
-  if (r > 0) CHECK(bo.empty_spins == 0);
+  if (r > 0) {
+    CHECK(bo.empty_spins == 0);
+  }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -122,10 +143,15 @@ static void test_srvpoll_backoff_caps_at_maximum(void) {
   mmsg_buf              bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};
-  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
-  for (int i = 0; i < 1000; i++)
+  if (!sp_open_socket(&sfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
+  for (int i = 0; i < 1000; i++) {
     wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  }
   CHECK(bo.empty_spins == WIRED_SRVPOLL_BACKOFF_MAX);
   wired_udp_close(sfd);
 }

@@ -19,7 +19,9 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c);
  * flow_control stays 0 (wired_wt_session_init): only RFC 9000's own credit
  * applies, there are no WT_MAX_* capsules. */
 static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!srvrun_raw_start_due(c)) return;
+  if (!srvrun_raw_start_due(c)) {
+    return;
+  }
   wired_wt_session_init(&c->wt, RAWQ_NO_CONNECT_ID);
   wired_wt_session_establish(&c->wt);
   c->wt_active = 1;
@@ -110,7 +112,9 @@ void srvrun_on_step_live(
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_live_after(ctx, c, dg, &mark);
   srvrun_live_streams(ctx, c);
-  if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
+  if (srvrun_close_on_step_violation(ctx->cfg, c)) {
+    return;
+  }
   srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
 }
 
@@ -120,5 +124,7 @@ void srvrun_on_step_live(
  * for, so a peer that keeps sending cannot make the server amplify. */
 void srvrun_closing_rx(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 n = ++c->closing_rx;
-  if ((n & (n - 1)) == 0) srvrun_close_resend(cfg, c);
+  if ((n & (n - 1)) == 0) {
+    srvrun_close_resend(cfg, c);
+  }
 }

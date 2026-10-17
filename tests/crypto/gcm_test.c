@@ -20,7 +20,9 @@ static void test_gcm_nist(void) {
   u8     ivbuf[16];
   unhex("feffe9928665731c6d6a8f9467308308", key);
   unhex("cafebabefacedbaddecaf888", ivbuf);
-  for (usz i = 0; i < 12; i++) iv[i] = ivbuf[i];
+  for (usz i = 0; i < 12; i++) {
+    iv[i] = ivbuf[i];
+  }
   usz pl = unhex(
       "d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d"
       "8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657"
@@ -36,8 +38,12 @@ static void test_gcm_nist(void) {
   aes128_init(&a, key);
   gcm_ctx g = {&a, iv, {aad, al}};
   gcm_seal(&g, wired_span_of(pt, pl), ct);
-  for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
+  for (usz i = 0; i < pl; i++) {
+    CHECK(ct[i] == want_ct[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ct[pl + i] == want_tag[i]);
+  }
 }
 
 /* Round-trip plus tamper detection (prover: AUTH_FAIL leaves pt untouched). */
@@ -54,15 +60,23 @@ static void test_gcm_open(void) {
   gcm_seal(&g, wired_span_of(pt, 20), ct);
 
   CHECK(gcm_open(&g, wired_span_of(ct, 36), dec) == 1);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
 
   /* flip one tag bit: must reject and not overwrite dec */
-  for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < 20; i++) {
+    dec[i] = 0xCC;
+  }
   u8 bad[36];
-  for (usz i = 0; i < 36; i++) bad[i] = ct[i];
+  for (usz i = 0; i < 36; i++) {
+    bad[i] = ct[i];
+  }
   bad[20] ^= 1;
   CHECK(gcm_open(&g, wired_span_of(bad, 36), dec) == 0);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
 
   /* flip one AAD byte: must reject */
   gcm_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
@@ -79,7 +93,9 @@ static u8 gcm_diff_rand(void) {
 }
 
 static void gcm_diff_fill(u8* p, usz n) {
-  for (usz i = 0; i < n; i++) p[i] = gcm_diff_rand();
+  for (usz i = 0; i < n; i++) {
+    p[i] = gcm_diff_rand();
+  }
 }
 
 /* gcm_seal/open dispatch to AES-NI when available (gcm.c). This is the
@@ -100,24 +116,34 @@ static void gcm_dispatch_one(usz n, usz an) {
   gcm_ctx g = {&a, nonce, {aad, an}};
 
   CHECK(gcm_seal(&g, wired_span_of(pt, n), ct) == n + 16);
-  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < n; i++) {
+    dec[i] = 0xCC;
+  }
   CHECK(gcm_open(&g, wired_span_of(ct, n + 16), dec) == 1);
-  for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
 
   /* flip one tag bit: must reject and leave dec untouched */
-  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < n; i++) {
+    dec[i] = 0xCC;
+  }
   ct[n] ^= 1;
   CHECK(gcm_open(&g, wired_span_of(ct, n + 16), dec) == 0);
-  for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
 }
 
 static void test_gcm_dispatch(void) {
   static const usz lens[] = {0, 1, 15, 16, 17, 64, 255, 1129, 2048};
   static const usz aads[] = {0, 13, 20};
   gcm_diff_rng            = 0x77697265;
-  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++)
-    for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++)
+  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
+    for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++) {
       gcm_dispatch_one(lens[i], aads[j]);
+    }
+  }
 }
 
 /* Pinning: gcm_open (scalar and, when available, gcmx86_open) must reject a
@@ -137,9 +163,13 @@ static void test_gcm_tamper_rejects(void) {
 
   ct[35] ^= 0x01; /* flip last tag byte */
   CHECK(gcm_open(&g, wired_span_of(ct, 36), dec) == 0);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xAA);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == 0xAA);
+  }
 
-  if (!gcmx86_supported()) return;
+  if (!gcmx86_supported()) {
+    return;
+  }
   gcmx86 x;
   u8     xct[36], xdec[20];
   gcmx86_init(&x, key);
@@ -147,13 +177,17 @@ static void test_gcm_tamper_rejects(void) {
       gcmx86_seal(
           &x, iv, wired_span_of((const u8*)"aad", 3), wired_span_of(pt, 20),
           xct) == 36);
-  for (usz i = 0; i < 20; i++) xdec[i] = 0xAA;
+  for (usz i = 0; i < 20; i++) {
+    xdec[i] = 0xAA;
+  }
   xct[35] ^= 0x01;
   CHECK(
       gcmx86_open(
           &x, iv, wired_span_of((const u8*)"aad", 3), wired_span_of(xct, 36),
           xdec) == 0);
-  for (usz i = 0; i < 20; i++) CHECK(xdec[i] == 0xAA);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(xdec[i] == 0xAA);
+  }
 }
 
 void test_gcm(void) {

@@ -27,7 +27,9 @@ int tls_derive_secret(const derive_secret_in* in, u8* out) {
   u8              thash[TLS_HASH_MAX];
   h->digest(in->messages.p, in->messages.n, thash);
   hkdf_label l = {(const char*)in->label.p, in->label.n, {thash, h->len}};
-  if (h->expand_label(in->secret, &l, wired_mspan_of(out, h->len))) return 1;
+  if (h->expand_label(in->secret, &l, wired_mspan_of(out, h->len))) {
+    return 1;
+  }
   bytes_memset(out, 0, h->len); /* fail closed: never an uninitialized key */
   return 0;
 }
@@ -110,8 +112,12 @@ static void hs_field(
  * byte-for-byte, not just in the bytes AES actually uses). */
 static void protection_keys_zero_tail(
     initial_keys* out, usz key_len, usz hp_len) {
-  for (usz i = key_len; i < AEAD_KEY_MAX; i++) out->key[i] = 0;
-  for (usz i = hp_len; i < AEAD_KEY_MAX; i++) out->hp[i] = 0;
+  for (usz i = key_len; i < AEAD_KEY_MAX; i++) {
+    out->key[i] = 0;
+  }
+  for (usz i = hp_len; i < AEAD_KEY_MAX; i++) {
+    out->hp[i] = 0;
+  }
 }
 
 /* The "<quic |quicv2 ><suffix>" packet-protection label for `version`

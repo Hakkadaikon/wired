@@ -17,7 +17,9 @@ static u64 pf_rng(void) {
 /* A random field element reduced below p. */
 static void pf_rand(p384_fe r) {
   p384_fe t;
-  for (usz i = 0; i < 6; i++) t[i] = pf_rng();
+  for (usz i = 0; i < 6; i++) {
+    t[i] = pf_rng();
+  }
   fp384_reduce(r, t, p384_p);
 }
 
@@ -74,7 +76,9 @@ static void test_p384_field_inv(void) {
 static void test_p384_field_mont_inv_n(void) {
   p384_fe              a, t, inv, prod;
   static const p384_fe one = {1, 0, 0, 0, 0, 0};
-  for (usz i = 0; i < 6; i++) t[i] = pf_rng();
+  for (usz i = 0; i < 6; i++) {
+    t[i] = pf_rng();
+  }
   fp384_reduce(a, t, p384_n);
   mont384_inv(inv, a, &p384_mont_n);
   fp384_mul(prod, (fp384ab){a, inv}, p384_n);
@@ -85,11 +89,15 @@ static void test_p384_field_mont_inv_n(void) {
 static void test_p384_field_bytes(void) {
   u8      be[48], out[48];
   p384_fe a;
-  for (usz i = 0; i < 48; i++) be[i] = (u8)(i * 7 + 1);
+  for (usz i = 0; i < 48; i++) {
+    be[i] = (u8)(i * 7 + 1);
+  }
   be[0] &= 0x7f; /* keep it < p */
   fp384_from_be(a, be);
   fp384_to_be(out, a);
-  for (usz i = 0; i < 48; i++) CHECK(out[i] == be[i]);
+  for (usz i = 0; i < 48; i++) {
+    CHECK(out[i] == be[i]);
+  }
 }
 
 /* Carry propagation at every limb boundary (CVE-2021-4160 class): all-ones

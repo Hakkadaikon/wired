@@ -26,7 +26,9 @@ static int dispatch_raw(
  * credit is owed back (4.6) -- once, since a closed stream returns above. */
 static void reset_request_stream(wired_srvloop* l, u64 id, u64 code) {
   int i;
-  if (!srvloop_qdec_stream_open(l, id)) return;
+  if (!srvloop_qdec_stream_open(l, id)) {
+    return;
+  }
   i = srvloop_qdec_slot_find(l, id);
   if (i >= 0) {
     srvloop_reset_cancel_slot(l, i, code);
@@ -44,15 +46,19 @@ static void reset_request_streams(wired_srvloop* l, wired_span payload) {
   framewalk_item     fr;
   reset_stream_frame rs;
   framewalk_init(&it, payload.p, payload.n);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     if (srvloop_wt_reset_frame(
-            fr.type, wired_span_of(fr.start, fr.remaining), &rs))
+            fr.type, wired_span_of(fr.start, fr.remaining), &rs)) {
       reset_request_stream(l, rs.stream_id, rs.error_code);
+    }
+  }
 }
 
 static void dispatch_request_resets(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (ctx->l) reset_request_streams(ctx->l, payload);
+  if (ctx->l) {
+    reset_request_streams(ctx->l, payload);
+  }
 }
 
 /* The HTTP/3 (and hq-interop) payload path: side channels, then request
@@ -63,7 +69,9 @@ static int dispatch_h3(
   int handled_side = dispatch_gather_side_channels(ctx, in->payload);
   int handled_req  = srvloop_reassemble_and_drive(ctx, in);
   dispatch_request_resets(ctx, in->payload);
-  if (handled_req || handled_side) return 1;
+  if (handled_req || handled_side) {
+    return 1;
+  }
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 
@@ -96,7 +104,9 @@ static int raw_uni_slot(wired_srvloop* l, u64 stream_id) {
  * MoQT header itself, never stripped): land every byte from offset 0. */
 static void raw_land_uni(wired_srvloop* l, const stream_frame* sf) {
   int i = raw_uni_slot(l, sf->stream_id);
-  if (i >= 0) srvloop_gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+  if (i >= 0) {
+    srvloop_gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+  }
   dispatch_qlog_stream_received(l, sf);
 }
 
@@ -125,7 +135,9 @@ static int raw_client_stream_of(u64 type, wired_span frame, stream_frame* sf) {
 /* Route one client STREAM frame on a raw-QUIC connection via rawq_route. */
 static int gather_raw_frame(wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!raw_client_stream_of(type, frame, &sf)) return 0;
+  if (!raw_client_stream_of(type, frame, &sf)) {
+    return 0;
+  }
   raw_land_by_route[rawq_route(
       1, sf.stream_id, wired_span_of(sf.data, (usz)sf.length))](l, &sf);
   return 1;
@@ -161,7 +173,9 @@ static int dispatch_raw_side(
 static int dispatch_raw(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
-  if (dispatch_raw_side(ctx, in->payload)) return 1;
+  if (dispatch_raw_side(ctx, in->payload)) {
+    return 1;
+  }
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 

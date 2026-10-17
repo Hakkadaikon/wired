@@ -6,8 +6,10 @@ static int srvrun_pto_all(srvrun_conn* c, u64 now_ms);
 /* The wtsend half of the probe pass, same budget policy. */
 static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (!srvrun_sess_pto_ok(c, &c->wtsend[i].sess, c->wtsend[i].in_use, now_ms))
+    if (!srvrun_sess_pto_ok(
+            c, &c->wtsend[i].sess, c->wtsend[i].in_use, now_ms)) {
       return 0;
+    }
   }
   return 1;
 }
@@ -21,7 +23,9 @@ static int srvrun_pto_all(srvrun_conn* c, u64 now_ms) {
 
 void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!srvrun_sess_waiting(c)) return;
+  if (!srvrun_sess_waiting(c)) {
+    return;
+  }
   if (!srvrun_pto_all(c, ctx->now_ms)) {
     srvrun_log_close(
         "conn dropped: probe budget exhausted", wired_span_of(0, 0));
@@ -52,7 +56,9 @@ void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot) {
  * from a tick/on_step hook with no packet of that peer's own in flight. */
 void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!c->up) return;
+  if (!c->up) {
+    return;
+  }
   srvrun_flush_wt_drain(c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
@@ -64,7 +70,9 @@ void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot) {
  * srvrun_sess_on_step's own srvrun_pump_datagram call on its own. */
 void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (c->up) srvrun_pump_datagram(ctx, c);
+  if (c->up) {
+    srvrun_pump_datagram(ctx, c);
+  }
 }
 
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
@@ -99,8 +107,12 @@ void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c    = &ctx->st->conns[slot];
   wired_span   scid = wired_span_of(c->scid, ctx->cfg->id->scid_len);
   usz          n = wired_srvboot_partial_ack(&c->boot, scid, out, sizeof out);
-  if (n == 0) return;
-  if (srvrun_boot_gate_blocks(c, 0, n)) return;
+  if (n == 0) {
+    return;
+  }
+  if (srvrun_boot_gate_blocks(c, 0, n)) {
+    return;
+  }
   /* The routing entry stays keyed on the ODCID: pre-switch retransmits
    * still arrive under it, and rekeying here let them claim a COMPETING
    * slot whose flight carried a different initial_source_connection_id

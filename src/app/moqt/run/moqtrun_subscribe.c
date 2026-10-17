@@ -13,7 +13,9 @@ void moqtrun_subscribe_live(
     const moqctl_subscribe* m) {
   wired_moqtrun_track* t    = &hub->live.track;
   wired_moqtrun_sub*   held = moqtrun_track_sub_of_peer(t, peer_idx);
-  if (moqtrun_sub_held_reply(p, t, held)) return;
+  if (moqtrun_sub_held_reply(p, t, held)) {
+    return;
+  }
   wired_moqtrun_sub* slot = moqtrun_sub_slot(t);
   if (!slot) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
@@ -30,7 +32,9 @@ void moqtrun_subscribe_live(
 static u8 moqtrun_pub_prio(wired_span head, u8 dflt) {
   usz            off = 0;
   moqdata_subhdr h;
-  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) return dflt;
+  if (moqdata_subhdr_take(head, &off, &h) != MOQDATA_OK) {
+    return dflt;
+  }
   return moqdata_type_default_priority(h.type) ? dflt : (u8)h.priority;
 }
 
@@ -58,7 +62,9 @@ void moqtrun_prio_set(
 void moqtrun_relay_to_one(
     wired_moqt_hub* hub, wired_moqtrun_sub* sub, wired_span wire, u8 dflt) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (!dst->in_use) return;
+  if (!dst->in_use) {
+    return;
+  }
   /* A refused one-shot open loses this subscriber's whole message (chat's
    * 1 stream = 1 message); count it like the keep-open path's open
    * failures -- stat_open_drop's own doc always promised this loss is
@@ -78,7 +84,9 @@ wired_span moqtrun_hdr_cutoff(
     const wired_moqtrun_sub* s, wired_span wire, u64 group) {
   usz            off = 0;
   moqdata_subhdr hdr;
-  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return wire;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) {
+    return wire;
+  }
   moqdata_objseq seq = moqdata_objseq_of(hdr.type);
   usz            cut = moqtrun_wire_cutoff(s, wire, off, seq, group);
   return wired_span_of(wire.p, cut);
@@ -90,9 +98,13 @@ wired_span moqtrun_hdr_cutoff(
 static int moqtrun_alias_spot(wired_span wire, usz* at, usz* end, u64* cur) {
   usz off = 0;
   u64 type;
-  if (!moqvi_take(wire, &off, &type)) return 0;
+  if (!moqvi_take(wire, &off, &type)) {
+    return 0;
+  }
   *at = off;
-  if (!moqvi_take(wire, &off, cur)) return 0;
+  if (!moqvi_take(wire, &off, cur)) {
+    return 0;
+  }
   *end = off;
   return 1;
 }

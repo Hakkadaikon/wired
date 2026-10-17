@@ -44,8 +44,9 @@ static void test_pending1rtt_rejects_when_full(void) {
   pending1rtt q;
   u8          one[1] = {0};
   pending1rtt_init(&q);
-  for (usz i = 0; i < PENDING1RTT_CAP; i++)
+  for (usz i = 0; i < PENDING1RTT_CAP; i++) {
     CHECK(pending1rtt_store(&q, one, 1));
+  }
   CHECK(!pending1rtt_store(&q, one, 1));
   CHECK(pending1rtt_count(&q) == PENDING1RTT_CAP);
 }

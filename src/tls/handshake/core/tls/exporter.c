@@ -35,7 +35,9 @@ int tls_exporter(
   u8               ctx_hash[SHA256_DIGEST];
   derive_secret_in dsi = {secret, label, {0, 0}, 0};
   hkdf_label       l   = {"exporter", 8, {0, 0}};
-  if (!tls_derive_secret(&dsi, derived)) return 0;
+  if (!tls_derive_secret(&dsi, derived)) {
+    return 0;
+  }
   wired_sha256(context.p, context.n, ctx_hash);
   l.ctx = wired_span_of(ctx_hash, sizeof ctx_hash);
   return hkdf_expand_label(derived, &l, okm);

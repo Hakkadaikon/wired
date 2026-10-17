@@ -37,8 +37,9 @@ void moqtrun_hold_push(
     moqtrun_hold_put(p, sid, data, fin);
     return;
   }
-  if ((sid & 3) == 0)
+  if ((sid & 3) == 0) {
     hub->io.stream_reset(p->wt, sid, MOQTRUN_RESET_EXCESSIVE_LOAD);
+  }
 }
 
 static usz moqtrun_hold_replay_one(
@@ -65,9 +66,13 @@ static int moqtrun_hold_more(const wired_moqtrun_peer* p, usz at, usz n) {
 void moqtrun_hold_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   usz at = 0;
   usz n  = p->hold_len;
-  if (!moqtrun_hold_ready(p)) return;
+  if (!moqtrun_hold_ready(p)) {
+    return;
+  }
   p->hold_len = 0;
-  while (moqtrun_hold_more(p, at, n)) at += moqtrun_hold_replay_one(hub, p, at);
+  while (moqtrun_hold_more(p, at, n)) {
+    at += moqtrun_hold_replay_one(hub, p, at);
+  }
 }
 
 /* The control/hold/data decision for a FRESH uni delivery. */
@@ -77,7 +82,9 @@ static void moqtrun_dispatch_uni_fresh(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_fresh_uni_ctl(hub, p, stream_id, data, fin)) {
+    return;
+  }
   if (moqtrun_hold_gate(p)) {
     moqtrun_hold_push(hub, p, stream_id, data, fin);
     return;
@@ -98,7 +105,9 @@ static int moqtrun_stream_parked(
     moqtrun_hold_push(hub, p, stream_id, data, fin);
     return 1;
   }
-  if (!moqtrun_early_more(p, stream_id, data, fin)) return 0;
+  if (!moqtrun_early_more(p, stream_id, data, fin)) {
+    return 0;
+  }
   moqtrun_early_refetch(hub, p);
   return 1;
 }
@@ -122,7 +131,9 @@ static void moqtrun_dispatch_pub_stream(
     moqtrun_relay_continue(hub, track, relay, data, fin);
     return;
   }
-  if (moqtrun_stream_parked(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_stream_parked(hub, p, stream_id, data, fin)) {
+    return;
+  }
   moqtrun_dispatch_uni_fresh(hub, p, stream_id, data, fin);
 }
 
@@ -134,7 +145,9 @@ void moqtrun_dispatch_data_stream(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_upf_data(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_upf_data(hub, p, stream_id, data, fin)) {
+    return;
+  }
   moqtrun_dispatch_pub_stream(hub, p, stream_id, data, fin);
 }
 

@@ -10,15 +10,21 @@ usz wired_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id) {
   static const u8 sig[2] = {0x54, 0x41};
   wired_mspan     m      = wired_mspan_of(buf, cap);
   usz             off    = 0;
-  if (!varint_put(m, &off, sig[bidi != 0])) return 0;
-  if (!varint_put(m, &off, session_id)) return 0;
+  if (!varint_put(m, &off, sig[bidi != 0])) {
+    return 0;
+  }
+  if (!varint_put(m, &off, session_id)) {
+    return 0;
+  }
   return off;
 }
 
 /* RFC 9297 2.1: HTTP Datagrams are prefixed with the quarter stream ID. */
 usz wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
   usz off = 0;
-  if (!varint_put(wired_mspan_of(buf, cap), &off, session_id / 4)) return 0;
+  if (!varint_put(wired_mspan_of(buf, cap), &off, session_id / 4)) {
+    return 0;
+  }
   return off;
 }
 
@@ -30,8 +36,12 @@ usz wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
 usz wired_wtwire_qsid_take(wired_span dg, u64* session_id) {
   usz off = 0;
   u64 qsid;
-  if (!varint_take(dg, &off, &qsid)) return 0;
-  if (qsid > WTWIRE_QSID_MAX) return 0;
+  if (!varint_take(dg, &off, &qsid)) {
+    return 0;
+  }
+  if (qsid > WTWIRE_QSID_MAX) {
+    return 0;
+  }
   *session_id = qsid * 4;
   return off;
 }
@@ -52,26 +62,37 @@ static wired_span wtwire_trim_front(wired_span s) {
 
 static wired_span wtwire_trim(wired_span s) {
   s = wtwire_trim_front(s);
-  while (s.n && wtwire_is_ws(s.p[s.n - 1])) s.n--;
+  while (s.n && wtwire_is_ws(s.p[s.n - 1])) {
+    s.n--;
+  }
   return s;
 }
 
 static int wtwire_bytes_eq(const u8* p, const char* s, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (p[i] != (u8)s[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (p[i] != (u8)s[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 static int wtwire_has_prefix(wired_span s, const char* pfx, usz n) {
-  if (s.n < n) return 0;
+  if (s.n < n) {
+    return 0;
+  }
   return wtwire_bytes_eq(s.p, pfx, n);
 }
 
 int wired_wtwire_get_parse(wired_span line, wired_span* file) {
   wired_span rest;
-  if (!wtwire_has_prefix(line, "GET ", 4)) return 0;
+  if (!wtwire_has_prefix(line, "GET ", 4)) {
+    return 0;
+  }
   rest = wtwire_trim(wired_span_of(line.p + 4, line.n - 4));
-  if (rest.n == 0) return 0;
+  if (rest.n == 0) {
+    return 0;
+  }
   *file = rest;
   return 1;
 }
@@ -79,15 +100,22 @@ int wired_wtwire_get_parse(wired_span line, wired_span* file) {
 usz wired_wtwire_get_put(u8* buf, usz cap, wired_span filename) {
   wired_mspan m   = wired_mspan_of(buf, cap);
   usz         off = 0;
-  if (!bytes_put(m, &off, wired_span_of((const u8*)"GET ", 4))) return 0;
-  if (!bytes_put(m, &off, filename)) return 0;
+  if (!bytes_put(m, &off, wired_span_of((const u8*)"GET ", 4))) {
+    return 0;
+  }
+  if (!bytes_put(m, &off, filename)) {
+    return 0;
+  }
   return off;
 }
 
 /* Index of the first '\n' in s, or s.n if none. */
 static usz wtwire_find_nl(wired_span s) {
-  for (usz i = 0; i < s.n; i++)
-    if (s.p[i] == '\n') return i;
+  for (usz i = 0; i < s.n; i++) {
+    if (s.p[i] == '\n') {
+      return i;
+    }
+  }
   return s.n;
 }
 
@@ -95,7 +123,9 @@ static usz wtwire_find_nl(wired_span s) {
 static int wtwire_push_fill(
     wired_span msg, usz nl, wired_span* name, wired_span* content) {
   wired_span nm = wtwire_trim(wired_span_of(msg.p + 5, nl - 5));
-  if (nm.n == 0) return 0;
+  if (nm.n == 0) {
+    return 0;
+  }
   *name    = nm;
   *content = wired_span_of(msg.p + nl + 1, msg.n - nl - 1);
   return 1;
@@ -104,14 +134,20 @@ static int wtwire_push_fill(
 int wired_wtwire_push_parse(
     wired_span msg, wired_span* name, wired_span* content) {
   usz nl;
-  if (!wtwire_has_prefix(msg, "PUSH ", 5)) return 0;
+  if (!wtwire_has_prefix(msg, "PUSH ", 5)) {
+    return 0;
+  }
   nl = wtwire_find_nl(msg);
-  if (nl == msg.n) return 0;
+  if (nl == msg.n) {
+    return 0;
+  }
   return wtwire_push_fill(msg, nl, name, content);
 }
 
 static usz wtwire_put_nl(wired_mspan m, usz off) {
-  if (off >= m.n) return 0;
+  if (off >= m.n) {
+    return 0;
+  }
   m.p[off] = '\n';
   return off + 1;
 }
@@ -119,13 +155,19 @@ static usz wtwire_put_nl(wired_mspan m, usz off) {
 usz wired_wtwire_push_head_put(u8* buf, usz cap, wired_span basename) {
   wired_mspan m   = wired_mspan_of(buf, cap);
   usz         off = 0;
-  if (!bytes_put(m, &off, wired_span_of((const u8*)"PUSH ", 5))) return 0;
-  if (!bytes_put(m, &off, basename)) return 0;
+  if (!bytes_put(m, &off, wired_span_of((const u8*)"PUSH ", 5))) {
+    return 0;
+  }
+  if (!bytes_put(m, &off, basename)) {
+    return 0;
+  }
   return wtwire_put_nl(m, off);
 }
 
 wired_span wired_wtwire_basename(wired_span path) {
   usz i = path.n;
-  while (i > 0 && path.p[i - 1] != '/') i--;
+  while (i > 0 && path.p[i - 1] != '/') {
+    i--;
+  }
   return wired_span_of(path.p + i, path.n - i);
 }

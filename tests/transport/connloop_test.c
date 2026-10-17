@@ -301,10 +301,11 @@ static void test_connloop_ack_only_never_tracked(void) {
   c.validated    = 1;
   initial_keys k = {0};
   keyset_install(&c.keys, LEVEL_INITIAL, &k);
-  for (u64 pn = 0; pn <= SENTPKT_CAP; pn++)
+  for (u64 pn = 0; pn <= SENTPKT_CAP; pn++) {
     CHECK(
         connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 0, pn, 40}) ==
         1);
+  }
   CHECK(sentpkt_count(&c.sent) == 0);
   CHECK(c.pto_armed == 0);
   CHECK(

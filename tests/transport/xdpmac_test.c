@@ -6,7 +6,9 @@
 static u32 xm_ip(u32 n) { return 0x0a000000u | (n + 1); }
 
 static void xm_mac(u32 n, u8 out[6]) {
-  for (u32 i = 0; i < 6; i++) out[i] = (u8)(n + i);
+  for (u32 i = 0; i < 6; i++) {
+    out[i] = (u8)(n + i);
+  }
 }
 
 /* learn then lookup returns 1 and the learned MAC. */
@@ -17,7 +19,9 @@ static void test_xdpmac_learn_then_lookup(void) {
   xdpmac_init(&c);
   xdpmac_learn(&c, xm_ip(0), mac);
   CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 1);
-  for (u32 i = 0; i < 6; i++) CHECK(got[i] == mac[i]);
+  for (u32 i = 0; i < 6; i++) {
+    CHECK(got[i] == mac[i]);
+  }
 }
 
 /* an ip never learned misses (0), and mac_out is untouched. */
@@ -26,7 +30,9 @@ static void test_xdpmac_miss(void) {
   u8     got[6] = {0x55, 0x55, 0x55, 0x55, 0x55, 0x55};
   xdpmac_init(&c);
   CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 0);
-  for (u32 i = 0; i < 6; i++) CHECK(got[i] == 0x55);
+  for (u32 i = 0; i < 6; i++) {
+    CHECK(got[i] == 0x55);
+  }
 }
 
 /* re-learning the same ip updates the MAC in place (no second slot). */
@@ -39,7 +45,9 @@ static void test_xdpmac_relearn_updates(void) {
   xdpmac_learn(&c, xm_ip(0), a);
   xdpmac_learn(&c, xm_ip(0), b);
   CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 1);
-  for (u32 i = 0; i < 6; i++) CHECK(got[i] == 2);
+  for (u32 i = 0; i < 6; i++) {
+    CHECK(got[i] == 2);
+  }
 }
 
 /* 64 entries fill the cache; the 65th evicts round-robin: the oldest (first
@@ -56,8 +64,9 @@ static void test_xdpmac_full_evicts_round_robin(void) {
   CHECK(xdpmac_lookup(&c, xm_ip(0), got) == 0);          /* oldest evicted */
   CHECK(xdpmac_lookup(&c, xm_ip(XDPMAC_CAP), got) == 1); /* newest */
   CHECK(got[0] == (u8)XDPMAC_CAP);
-  for (u32 n = 1; n < XDPMAC_CAP; n++)
+  for (u32 n = 1; n < XDPMAC_CAP; n++) {
     CHECK(xdpmac_lookup(&c, xm_ip(n), got) == 1); /* survivors intact */
+  }
 }
 
 void test_xdpmac(void) {

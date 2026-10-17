@@ -22,21 +22,27 @@ static int eku_list_has(wired_span list, wired_span purpose_oid) {
   u8         tag;
   wired_span id;
   derseq_init(&c, list);
-  while (derseq_next(&c, &tag, &id))
-    if (eku_id_matches(tag, id, purpose_oid)) return 1;
+  while (derseq_next(&c, &tag, &id)) {
+    if (eku_id_matches(tag, id, purpose_oid)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* The extKeyUsage extnValue: a SEQUENCE OF KeyPurposeId. */
 static int eku_locate(wired_span tbs, wired_span* list) {
   wired_span val;
-  if (!x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val))
+  if (!x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val)) {
     return 0;
+  }
   return der_seq(val, list);
 }
 
 int x509_eku_allows(wired_span tbs, wired_span purpose_oid) {
   wired_span list;
-  if (!eku_locate(tbs, &list)) return 1;
+  if (!eku_locate(tbs, &list)) {
+    return 1;
+  }
   return eku_list_has(list, purpose_oid);
 }

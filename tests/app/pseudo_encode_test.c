@@ -104,7 +104,9 @@ static void test_pseudo_protocol_roundtrip(void) {
           wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
           &r) == 1);
   CHECK(r.protocol_len == sizeof proto - 1);
-  for (usz i = 0; i < sizeof proto - 1; i++) CHECK(r.protocol[i] == proto[i]);
+  for (usz i = 0; i < sizeof proto - 1; i++) {
+    CHECK(r.protocol[i] == proto[i]);
+  }
   CHECK(r.method_len == sizeof m - 1);
   CHECK(r.scheme_len == sizeof s - 1);
 }
@@ -129,7 +131,9 @@ static void test_pseudo_protocol_omitted(void) {
   CHECK(h3req_enc_pseudo(&in2, &b_ob) == 1);
 
   CHECK(a_ob.len == b_ob.len);
-  for (usz i = 0; i < a_ob.len; i++) CHECK(fs_with[i] == fs_without[i]);
+  for (usz i = 0; i < a_ob.len; i++) {
+    CHECK(fs_with[i] == fs_without[i]);
+  }
 }
 
 void test_pseudo_encode(void) {

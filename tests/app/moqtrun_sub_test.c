@@ -9,7 +9,9 @@ static u64            mtst_rid;
 
 static wired_span mtst_z(const char* z) {
   usz n = 0;
-  while (z[n]) n++;
+  while (z[n]) {
+    n++;
+  }
   return wired_span_of((const u8*)z, n);
 }
 
@@ -44,10 +46,14 @@ static void mtst_filter_to_d22(moqctl_param* it) {
 /* params as session s's draft spells them: only LOCATION_FILTER's wire
  * shape differs (MOQVER_CAP_LOCFILTER_TYPED). */
 static void mtst_params_for(wired_wt_session* s, moqctl_params* p) {
-  if (!(moqver_caps(mtst_ver(s)) & MOQVER_CAP_LOCFILTER_TYPED)) return;
-  for (usz i = 0; i < p->n; i++)
-    if (p->items[i].enc == MOQCTL_PENC_LOCFILTER)
+  if (!(moqver_caps(mtst_ver(s)) & MOQVER_CAP_LOCFILTER_TYPED)) {
+    return;
+  }
+  for (usz i = 0; i < p->n; i++) {
+    if (p->items[i].enc == MOQCTL_PENC_LOCFILTER) {
       mtst_filter_to_d22(&p->items[i]);
+    }
+  }
 }
 
 static int mtst_enc_publish(wired_mspan buf, usz* off, const void* m) {
@@ -81,7 +87,9 @@ static void mtst_publish_p(
   m.name        = *f;
   m.track_alias = alias;
   m.params.n    = 0;
-  if (params) m.params = *params;
+  if (params) {
+    m.params = *params;
+  }
   mtst_params_for(s, &m.params);
   mtst_send(s, ctrl, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
 }
@@ -101,7 +109,9 @@ static void mtst_subscribe_p(
   m.request_id = rid;
   m.name       = *f;
   m.params.n   = 0;
-  if (params) m.params = *params;
+  if (params) {
+    m.params = *params;
+  }
   mtst_params_for(s, &m.params);
   mtst_send(s, ctrl, MOQCTL_T_SUBSCRIBE, mtst_enc_subscribe, &m);
 }
@@ -126,14 +136,20 @@ static const moqctl_subscribe_ok* mtst_last_ok(void) {
   usz                        off = 0, boff = 0;
   u64                        type;
   wired_span                 body;
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return 0;
-  if (type != MOQCTL_T_SUBSCRIBE_OK) return 0;
-  if (moqctl_subscribe_ok_take(mtst_ver(c->s), body, &boff, &ok) != MOQCTL_OK)
+  }
+  if (type != MOQCTL_T_SUBSCRIBE_OK) {
     return 0;
+  }
+  if (moqctl_subscribe_ok_take(mtst_ver(c->s), body, &boff, &ok) != MOQCTL_OK) {
+    return 0;
+  }
   return &ok;
 }
 
@@ -178,8 +194,9 @@ static void test_moqtrun_sub_ns_max_fields(void) {
   mtst_init();
   u64 ca = mtst_join(SESS_A);
   u64 cb = mtst_join(SESS_B);
-  for (usz i = 0; i < MOQCTL_MAX_NS_FIELDS; i++)
+  for (usz i = 0; i < MOQCTL_MAX_NS_FIELDS; i++) {
     f.ns.fields[i] = wired_span_of((const u8*)F + i, 1);
+  }
   f.ns.n = MOQCTL_MAX_NS_FIELDS;
   f.name = mtst_z("alice");
   mtst_publish(SESS_A, ca, &f, 1);
@@ -216,7 +233,9 @@ static void test_moqtrun_sub_ns_over_cap_refused(void) {
   moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
   mtst_init();
   u64 ca = mtst_join(SESS_A);
-  for (usz i = 0; i < sizeof big; i++) big[i] = 'x';
+  for (usz i = 0; i < sizeof big; i++) {
+    big[i] = 'x';
+  }
   f.ns.fields[1] = wired_span_of(big, sizeof big);
   mtst_publish(SESS_A, ca, &f, 1);
   CHECK(mtsub_last_reply_type() == MOQCTL_T_REQUEST_ERROR);
@@ -386,8 +405,9 @@ static usz mtst_stream(u64 g, usz n, int hdr, u8* buf) {
   h.type             = 0x30;
   h.track_alias      = 1;
   h.group_id         = g;
-  if (hdr)
+  if (hdr) {
     moqdata_subhdr_put(wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
+  }
   for (usz i = 0; i < n; i++) {
     u8 b = (u8)i;
     moqdata_obj_put(
@@ -550,16 +570,19 @@ static u64 mtrq_type_of(const moqtrun_test_call* c) {
   wired_span body;
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return 0;
+  }
   return type;
 }
 
 /* Type of the last message recorded as io kind on stream sid; 0 if none. */
 static u64 mtrq_type_on(int kind, u64 sid) {
-  for (usz i = g_n_calls; i > 0; i--)
-    if (g_calls[i - 1].kind == kind && g_calls[i - 1].stream_id == sid)
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind == kind && g_calls[i - 1].stream_id == sid) {
       return mtrq_type_of(&g_calls[i - 1]);
+    }
+  }
   return 0;
 }
 
@@ -568,8 +591,12 @@ static u64 mtrq_type_on(int kind, u64 sid) {
  * there is not a REQUEST_ERROR. */
 static u64 mtrq_err_on(u64 sid) {
   for (usz i = g_n_calls; i > 0; i--) {
-    if (g_calls[i - 1].kind != 3 && g_calls[i - 1].kind != 12) continue;
-    if (g_calls[i - 1].stream_id != sid) continue;
+    if (g_calls[i - 1].kind != 3 && g_calls[i - 1].kind != 12) {
+      continue;
+    }
+    if (g_calls[i - 1].stream_id != sid) {
+      continue;
+    }
     usz                      off = 0, boff = 0;
     u64                      type;
     wired_span               body;
@@ -578,9 +605,12 @@ static u64 mtrq_err_on(u64 sid) {
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
-        type != MOQCTL_T_REQUEST_ERROR)
+        type != MOQCTL_T_REQUEST_ERROR) {
       return ~(u64)0;
-    if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) return ~(u64)0;
+    }
+    if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) {
+      return ~(u64)0;
+    }
     return e.error_code;
   }
   return ~(u64)0;
@@ -588,32 +618,39 @@ static u64 mtrq_err_on(u64 sid) {
 
 static usz mtrq_closes(void) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 11 &&
          g_calls[i].stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  }
   return n;
 }
 
 /* 1 iff the hub FINed its side of sid (io.stream_fin). */
 static int mtrq_fin_on(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 6 && g_calls[i].stream_id == sid) return 1;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 6 && g_calls[i].stream_id == sid) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* Error code of the last io.stream_reset on sid; -1 if none. */
 static int mtrq_reset_code(u64 sid) {
-  for (usz i = g_n_calls; i > 0; i--)
-    if (g_calls[i - 1].kind == 7 && g_calls[i - 1].stream_id == sid)
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind == 7 && g_calls[i - 1].stream_id == sid) {
       return g_calls[i - 1].fin;
+    }
+  }
   return -1;
 }
 
 /* Request-stream slots in use. */
 static usz mtrq_used(void) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     n += mtst_hub.reqs[i].in_use != 0;
+  }
   return n;
 }
 
@@ -830,10 +867,11 @@ static void test_moqtrun_req_per_session_cap(void) {
   mtst_init();
   mtst_join(SESS_B);
   mtst_join(SESS_C);
-  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++)
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
     mtrq_raw(
         SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
         sizeof MTRQ_TSTAT);
+  }
   CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_reset_code(over) == 0x9);
   CHECK(mtrq_closes() == 0);
@@ -854,10 +892,11 @@ static void test_moqtrun_req_pool_full_resets(void) {
   mtst_init();
   for (usz s = 0; s < 4; s++) {
     mtst_join(sess[s]);
-    for (usz i = 0; i < per; i++)
+    for (usz i = 0; i < per; i++) {
       mtrq_raw(
           sess[s], MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
           sizeof MTRQ_TSTAT);
+    }
   }
   CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
@@ -933,8 +972,9 @@ static void test_moqtrun_req_needs_reply_op(void) {
 /* Control-stream replies (io kind 3) the hub sent to s. */
 static usz mtver_replies(wired_wt_session* s) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 3 && g_calls[i].s == s;
+  }
   return n;
 }
 
@@ -1108,13 +1148,18 @@ static u64 mt22_last_error(void) {
   u64                      type;
   wired_span               body;
   moqctl_request_error     e;
-  if (!c || c->s != SESS_B) return ~(u64)0;
+  if (!c || c->s != SESS_B) {
+    return ~(u64)0;
+  }
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
           MOQCTL_OK ||
-      type != MOQCTL_T_REQUEST_ERROR)
+      type != MOQCTL_T_REQUEST_ERROR) {
     return ~(u64)0;
-  if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) return ~(u64)0;
+  }
+  if (moqctl_request_error_take(body, &boff, &e) != MOQCTL_OK) {
+    return ~(u64)0;
+  }
   return e.error_code;
 }
 
@@ -1167,11 +1212,15 @@ static void test_moqtrun_sub_filter22_end_gates(void) {
 static usz mt22_obj_count(wired_span wire) {
   usz            off = 0;
   moqdata_subhdr hdr;
-  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return 0;
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) {
+    return 0;
+  }
   moqdata_objseq seq = moqdata_objseq_of(hdr.type);
   usz            n   = 0;
   moqdata_obj    obj;
-  while (moqdata_obj_take(wire, &off, &seq, &obj) == MOQDATA_OK) n++;
+  while (moqdata_obj_take(wire, &off, &seq, &obj) == MOQDATA_OK) {
+    n++;
+  }
   return n;
 }
 
@@ -1235,8 +1284,9 @@ static void test_moqtrun_sub_filter22_end_object_mid_round_append(void) {
   usz            got = 0;
   while (moqdata_obj_take(
              wired_span_of(c->payload, c->payload_len), &off, &seq, &obj) ==
-         MOQDATA_OK)
+         MOQDATA_OK) {
     got++;
+  }
   CHECK(got == 1);    /* Object 1 only, Object 2 (past End Object) withheld */
   CHECK(c->fin == 1); /* the cut round closes sub's stream right there */
 }
@@ -1266,9 +1316,15 @@ static void test_moqtrun_sub_filter22_end_object_per_sub(void) {
   const moqtrun_test_call* cB = 0;
   const moqtrun_test_call* cC = 0;
   for (usz i = g_n_calls; i > 0; i--) {
-    if (g_calls[i - 1].kind != 4) continue; /* send_uni */
-    if (!cB && g_calls[i - 1].s == SESS_B) cB = &g_calls[i - 1];
-    if (!cC && g_calls[i - 1].s == SESS_C) cC = &g_calls[i - 1];
+    if (g_calls[i - 1].kind != 4) {
+      continue; /* send_uni */
+    }
+    if (!cB && g_calls[i - 1].s == SESS_B) {
+      cB = &g_calls[i - 1];
+    }
+    if (!cC && g_calls[i - 1].s == SESS_C) {
+      cC = &g_calls[i - 1];
+    }
   }
   CHECK(cB != 0 && cC != 0);
   CHECK(mt22_obj_count(wired_span_of(cB->payload, cB->payload_len)) == 1);
@@ -1282,10 +1338,13 @@ static usz mt22_ids_of(wired_span w, int hdr, u64* ids) {
   usz            off = 0, n = 0;
   moqdata_subhdr h = {0};
   moqdata_obj    obj;
-  if (hdr && moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) return 0;
+  if (hdr && moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) {
+    return 0;
+  }
   moqdata_objseq seq = moqdata_objseq_of(h.type);
-  while (n < 4 && moqdata_obj_take(w, &off, &seq, &obj) == MOQDATA_OK)
+  while (n < 4 && moqdata_obj_take(w, &off, &seq, &obj) == MOQDATA_OK) {
     ids[n++] = obj.object_id;
+  }
   return n;
 }
 
@@ -1356,11 +1415,19 @@ static usz mt22_b_stream(u8* buf, int* fin) {
   *fin    = 0;
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
-    if (c->s != SESS_B) continue;
-    if (c->kind == 5) sid = c->stream_id, len = 0, *fin = 0;
-    if (c->stream_id != sid) continue;
+    if (c->s != SESS_B) {
+      continue;
+    }
+    if (c->kind == 5) {
+      sid = c->stream_id, len = 0, *fin = 0;
+    }
+    if (c->stream_id != sid) {
+      continue;
+    }
     if ((c->kind == 5 || c->kind == 3) && !c->refused) {
-      for (usz k = 0; k < c->payload_len; k++) buf[len++] = c->payload[k];
+      for (usz k = 0; k < c->payload_len; k++) {
+        buf[len++] = c->payload[k];
+      }
       *fin |= c->fin;
     }
     *fin |= c->kind == 6;

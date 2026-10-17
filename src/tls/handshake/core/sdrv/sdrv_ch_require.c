@@ -20,7 +20,9 @@ static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span          bytes;
   version_information vi;
-  if (!sdrv_find_version_information(ch_msg, ch_len, &bytes)) return 1;
+  if (!sdrv_find_version_information(ch_msg, ch_len, &bytes)) {
+    return 1;
+  }
   if (verinfo_decode(bytes.p, bytes.n, &vi) != bytes.n) {
     s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
     return 0;
@@ -34,9 +36,12 @@ int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len) {
  */
 static wired_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) return wired_span_of(0, 0);
-  if (!sdrv_ch_exts_span(ch_msg + 4, body, &start, &end))
+  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) {
     return wired_span_of(0, 0);
+  }
+  if (!sdrv_ch_exts_span(ch_msg + 4, body, &start, &end)) {
+    return wired_span_of(0, 0);
+  }
   return wired_span_of(ch_msg + 4 + start, end - start);
 }
 
@@ -46,7 +51,9 @@ static wired_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
  * the other gates to reject on their own terms). */
 static int sdrv_ch_reject_dup_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
-  if (exts.n == 0 || chguard_no_dup_ext(exts)) return 1;
+  if (exts.n == 0 || chguard_no_dup_ext(exts)) {
+    return 1;
+  }
   s->last_error = err_crypto(47);
   return 0;
 }
@@ -59,7 +66,9 @@ static int sdrv_ch_reject_dup_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
  * the other gates to reject on their own terms). */
 static int sdrv_ch_reject_illegal_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
-  if (exts.n == 0 || chguard_ch_legal_exts(exts)) return 1;
+  if (exts.n == 0 || chguard_ch_legal_exts(exts)) {
+    return 1;
+  }
   s->last_error = err_crypto(47);
   return 0;
 }
@@ -73,7 +82,9 @@ static int sdrv_ch_require_version(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span ext;
   int        found =
       sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_VERSIONS, &ext);
-  if (found && tls_ext_versions_has_tls13(ext.p, ext.n)) return 1;
+  if (found && tls_ext_versions_has_tls13(ext.p, ext.n)) {
+    return 1;
+  }
   s->last_error = err_crypto(70);
   return 0;
 }
@@ -88,7 +99,9 @@ static int sdrv_ch_require_algs(sdrv* s, const u8* ch_msg, usz ch_len) {
       sdrv_find_client_ext(ch_msg, ch_len, EXT_SIGNATURE_ALGORITHMS, &sig_ext);
   int has_grp =
       sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &grp_ext);
-  if (chguard_require_algs(has_sig, has_grp)) return 1;
+  if (chguard_require_algs(has_sig, has_grp)) {
+    return 1;
+  }
   s->last_error = err_crypto(109);
   return 0;
 }
@@ -102,7 +115,9 @@ static int sdrv_ch_require_psk_modes(sdrv* s, const u8* ch_msg, usz ch_len) {
   int        modes_dhe_ke =
       sdrv_find_client_ext(ch_msg, ch_len, TLSEXT_T_PSK_MODES, &modes_ext) &&
       tlsext_psk_modes_parse(modes_ext.p, modes_ext.n);
-  if (chguard_psk_modes_ok(has_psk, modes_dhe_ke)) return 1;
+  if (chguard_psk_modes_ok(has_psk, modes_dhe_ke)) {
+    return 1;
+  }
   s->last_error = err_crypto(109);
   return 0;
 }
@@ -114,15 +129,21 @@ static int sdrv_ch_require_psk_modes(sdrv* s, const u8* ch_msg, usz ch_len) {
  * if absent -- chguard_psk_last treats that as "nothing to check". */
 static wired_span sdrv_ch_psk_ext_or_empty(const u8* ch_msg, usz ch_len) {
   wired_span psk_ext;
-  if (sdrv_find_client_psk_ext(ch_msg, ch_len, &psk_ext)) return psk_ext;
+  if (sdrv_find_client_psk_ext(ch_msg, ch_len, &psk_ext)) {
+    return psk_ext;
+  }
   return wired_span_of(0, 0);
 }
 
 static int sdrv_ch_require_psk_last(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span exts    = sdrv_ch_exts(ch_msg, ch_len);
   wired_span psk_ext = sdrv_ch_psk_ext_or_empty(ch_msg, ch_len);
-  if (exts.n == 0) return 1;
-  if (chguard_psk_last(exts, psk_ext)) return 1;
+  if (exts.n == 0) {
+    return 1;
+  }
+  if (chguard_psk_last(exts, psk_ext)) {
+    return 1;
+  }
   s->last_error = err_crypto(47);
   return 0;
 }
@@ -140,14 +161,17 @@ static int sdrv_ch_require_psk_last(sdrv* s, const u8* ch_msg, usz ch_len) {
  * CCN flat. */
 static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len) {
   wired_span ext;
-  if (!sdrv_find_client_ext(ch_msg, ch_len, EXT_SIGNATURE_ALGORITHMS, &ext))
+  if (!sdrv_find_client_ext(ch_msg, ch_len, EXT_SIGNATURE_ALGORITHMS, &ext)) {
     return 0;
+  }
   return tls_ext_sig_algs_has(ext.p, ext.n, SIG_ECDSA_SECP256R1_SHA256);
 }
 
 static int sdrv_ch_require_scheme_offered(
     sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (s->psk_accepted || sdrv_ch_offers_p256_scheme(ch_msg, ch_len)) return 1;
+  if (s->psk_accepted || sdrv_ch_offers_p256_scheme(ch_msg, ch_len)) {
+    return 1;
+  }
   s->last_error = err_crypto(40);
   return 0;
 }
@@ -156,8 +180,12 @@ static int sdrv_ch_require_scheme_offered(
  * sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_negotiate_alpn(s, ch_msg, ch_len); /* the 0-RTT gate reads it */
-  if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
-  if (!sdrv_ch_require_scheme_offered(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) {
+    return 0;
+  }
+  if (!sdrv_ch_require_scheme_offered(s, ch_msg, ch_len)) {
+    return 0;
+  }
   sdrv_ch_take_optional(s, ch_msg, ch_len);
   return 1;
 }
@@ -165,7 +193,9 @@ static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
 /* The extension gate passed and the required fields were taken -- the rest
  * of sdrv_recv_client_hello (split out to keep its CCN low). */
 int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return s->hrr_needed;
+  if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) {
+    return s->hrr_needed;
+  }
   return sdrv_ch_after_required(s, ch_msg, ch_len);
 }
 

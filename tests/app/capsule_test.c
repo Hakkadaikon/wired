@@ -27,7 +27,9 @@ static void test_capsule_roundtrip_small_type(void) {
       capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
   CHECK(type_out == 0x00);
   CHECK(value_out.n == 5);
-  for (usz i = 0; i < 5; i++) CHECK(value_out.p[i] == val[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(value_out.p[i] == val[i]);
+  }
   CHECK(at == 7);
 }
 

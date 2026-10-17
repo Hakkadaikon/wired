@@ -29,7 +29,9 @@ static void newtoken_msg_body(
 static usz newtoken_build_msg(
     u8* msg, wired_span addr, u64 issued_at, const u8* nonce) {
   usz off = 0;
-  if (addr.n + 8 + NEWTOKEN_NONCE > NEWTOKEN_MSG) return 0;
+  if (addr.n + 8 + NEWTOKEN_NONCE > NEWTOKEN_MSG) {
+    return 0;
+  }
   newtoken_msg_body(
       wired_mspan_of(msg, NEWTOKEN_MSG), &off, addr, issued_at, nonce);
   return off;
@@ -52,7 +54,9 @@ int newtoken_wire_make(
     u64        now_secs,
     u8         token[NEWTOKEN_WIRE_LEN]) {
   u8* nonce = token + 8;
-  if (!rng_bytes(nonce, NEWTOKEN_NONCE)) return 0;
+  if (!rng_bytes(nonce, NEWTOKEN_NONCE)) {
+    return 0;
+  }
   be_put_be64(token, now_secs);
   newtoken_mac(key, addr, now_secs, nonce, token + 8 + NEWTOKEN_NONCE);
   return 1;
@@ -62,7 +66,9 @@ int newtoken_wire_make(
  * neither older than issued_at (a token from a manipulated future timestamp)
  * nor expired past NEWTOKEN_MAX_AGE_SECS. */
 static int within_lifetime(u64 issued_at, u64 now_secs) {
-  if (now_secs < issued_at) return 0;
+  if (now_secs < issued_at) {
+    return 0;
+  }
   return now_secs - issued_at <= NEWTOKEN_MAX_AGE_SECS;
 }
 
@@ -83,7 +89,9 @@ static int newtoken_valid(
     wired_span token,
     u64        now_secs,
     u64*       issued_at) {
-  if (token.n != NEWTOKEN_WIRE_LEN) return 0;
+  if (token.n != NEWTOKEN_WIRE_LEN) {
+    return 0;
+  }
   *issued_at = be_get_be64(token.p);
   return within_lifetime(*issued_at, now_secs) &&
          mac_ok(key, addr, *issued_at, token);
@@ -96,7 +104,9 @@ int newtoken_wire_verify(
     u64         now_secs,
     u64*        issued_at,
     wired_span* nonce) {
-  if (!newtoken_valid(key, addr, token, now_secs, issued_at)) return 0;
+  if (!newtoken_valid(key, addr, token, now_secs, issued_at)) {
+    return 0;
+  }
   *nonce = wired_span_of(token.p + 8, NEWTOKEN_NONCE);
   return 1;
 }

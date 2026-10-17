@@ -24,10 +24,14 @@ static int srvrun_path_in_use(
 
 static void srvrun_path_valid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
-  if (!srvrun_path_in_use(cfg, c, k)) return;
+  if (!srvrun_path_in_use(cfg, c, k)) {
+    return;
+  }
 
   c->path.last_valid = *k;
-  if (!srvrun_path_is_gated_target(c, k)) return;
+  if (!srvrun_path_is_gated_target(c, k)) {
+    return;
+  }
   c->path.gated = 0;
   srvrun_path_move(cfg, c, k);
 }
@@ -37,10 +41,13 @@ static void srvrun_path_valid(
  * step's latch. */
 void srvrun_apply_path_response(const srvrun_cfg* cfg, srvrun_conn* c) {
   pathsel_key k;
-  if (!c->l.path_response_seen_flag) return;
+  if (!c->l.path_response_seen_flag) {
+    return;
+  }
   c->l.path_response_seen_flag = 0;
-  if (pathsel_match(&c->path, c->l.path_response_data, &k))
+  if (pathsel_match(&c->path, c->l.path_response_data, &k)) {
     srvrun_path_valid(cfg, c, &k);
+  }
 }
 
 /* A failure of k moves the send path back: k is the gated target or the
@@ -60,9 +67,12 @@ static int srvrun_path_strands(
 static void srvrun_path_failed(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
   int target = srvrun_path_is_gated_target(c, k);
-  if (target) c->path.gated = 0;
-  if (srvrun_path_strands(cfg, c, k, target))
+  if (target) {
+    c->path.gated = 0;
+  }
+  if (srvrun_path_strands(cfg, c, k, target)) {
     srvrun_path_move(cfg, c, &c->path.last_valid);
+  }
 }
 
 /* RFC 9000 8.2.4: the larger of the current PTO and the PTO a new path
@@ -84,8 +94,9 @@ static u64 srvrun_path_abandon_ms(const srvrun_conn* c) {
 
 void srvrun_path_expire(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
   pathsel_key k;
-  while (pathsel_expire(&c->path, now, srvrun_path_abandon_ms(c), &k))
+  while (pathsel_expire(&c->path, now, srvrun_path_abandon_ms(c), &k)) {
     srvrun_path_failed(cfg, c, &k);
+  }
 }
 
 /* RFC 9000 9.4: resend an unanswered challenge one PTO (floored like the
@@ -93,7 +104,9 @@ void srvrun_path_expire(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
  * the same slot with fresh data; the previous data still matches. */
 void srvrun_path_resend(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
   pathsel_slot* s = pathsel_resend_due(&c->path, now, srvrun_path_pto_ms(c));
-  if (!s) return;
+  if (!s) {
+    return;
+  }
   s->tries++;
   srvrun_path_challenge(cfg, c, s, now);
 }

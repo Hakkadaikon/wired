@@ -186,7 +186,9 @@ static void test_sdrv_hrr_transcript_uses_message_hash(void) {
   transcript_add(&expect_tr, hrr, hob.len);
   transcript_hash(&expect_tr, expect);
   transcript_hash(&s.tr, got);
-  for (int i = 0; i < 32; i++) CHECK(expect[i] == got[i]);
+  for (int i = 0; i < 32; i++) {
+    CHECK(expect[i] == got[i]);
+  }
 }
 
 /* RFC 8446 4.4.1 under TLS_AES_256_GCM_SHA384: message_hash carries
@@ -323,7 +325,9 @@ static void test_sdrv_hrr_p256_only_ch_accepted(void) {
   wired_obuf ob = obuf_of(ch, sizeof(ch));
   CHECK(p256_keygen(cli_priv));
   CHECK(p256_pubkey_encode(cli_pub, cli_priv));
-  for (usz i = 0; i < 32; i++) srv_random[i] = (u8)(0xa0 + i);
+  for (usz i = 0; i < 32; i++) {
+    srv_random[i] = (u8)(0xa0 + i);
+  }
   CHECK(tls_client_hello_group(
       &(clienthello_group_in){
           srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0),

@@ -11,8 +11,11 @@ static const u8 V1_GOLDEN[20] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34,
                                  0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
 
 static int same(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

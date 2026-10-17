@@ -15,11 +15,15 @@ usz moqtrun_envelope_put(
     moqtrun_body_encode_fn body_fn,
     const void*            msg) {
   usz eoff = 0;
-  if (!moqvi_put(buf, &eoff, type)) return 0;
+  if (!moqvi_put(buf, &eoff, type)) {
+    return 0;
+  }
   usz len_at = eoff;
   eoff += 2;
   usz body_at = eoff;
-  if (!body_fn(buf, &eoff, msg)) return 0;
+  if (!body_fn(buf, &eoff, msg)) {
+    return 0;
+  }
   buf.p[len_at]     = (u8)((eoff - body_at) >> 8);
   buf.p[len_at + 1] = (u8)(eoff - body_at);
   return eoff;
@@ -55,10 +59,12 @@ static i64 moqtrun_ctl_open_io(
  * leaves them 0 -- moqctl_setup_put_num keeps a 0 option off the wire. */
 void moqtrun_setup_limits(moqctl_setup* s, int ver) {
   u32 caps = moqver_caps(ver);
-  if (caps & MOQVER_CAP_RANGE_FILTERS)
+  if (caps & MOQVER_CAP_RANGE_FILTERS) {
     s->max_filter_ranges = WIRED_MOQTRUN_MAX_FILTER_RANGES;
-  if (caps & MOQVER_CAP_MAX_REQUEST_UPDATES)
+  }
+  if (caps & MOQVER_CAP_MAX_REQUEST_UPDATES) {
     s->max_request_updates = WIRED_MOQTRUN_MAX_REQ_UPDATES;
+  }
 }
 
 void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
@@ -70,7 +76,9 @@ void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
       moqtrun_envelope_put(buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
   i64 sid = moqtrun_ctl_open_io(
       &hub->io, p->wt, p->legacy, wired_span_of(buf.p, off));
-  if (sid < 0) return;
+  if (sid < 0) {
+    return;
+  }
   p->control_stream_id = (u64)sid;
   p->ctl_opened        = 1;
   moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);

@@ -27,27 +27,38 @@ static const struct {
 
 /* The DigestInfo prefix for a digest length, or 0 for an unsupported hash. */
 static const u8* di_prefix(usz hash_len) {
-  for (usz i = 0; i < sizeof(rsa_di) / sizeof(rsa_di[0]); i++)
-    if (rsa_di[i].hash_len == hash_len) return rsa_di[i].prefix;
+  for (usz i = 0; i < sizeof(rsa_di) / sizeof(rsa_di[0]); i++) {
+    if (rsa_di[i].hash_len == hash_len) {
+      return rsa_di[i].prefix;
+    }
+  }
   return 0;
 }
 
 /* Write DigestInfo (prefix + hash) at out. */
 static void put_digestinfo(u8* out, wired_span h) {
   const u8* prefix = di_prefix(h.n);
-  for (usz i = 0; i < RSA_DI_LEN; i++) out[i] = prefix[i];
-  for (usz i = 0; i < h.n; i++) out[RSA_DI_LEN + i] = h.p[i];
+  for (usz i = 0; i < RSA_DI_LEN; i++) {
+    out[i] = prefix[i];
+  }
+  for (usz i = 0; i < h.n; i++) {
+    out[RSA_DI_LEN + i] = h.p[i];
+  }
 }
 
 /* RFC 8017 9.2. Build the expected EM = 0x00 01 FF..FF 00 DigestInfo H.
  * Returns 1 if it fits with PS>=8 octets, else 0. */
 static int emsa_pkcs1(u8* em, usz em_len, wired_span h) {
   usz fixed = 3 + RSA_DI_LEN + h.n; /* 00 01 ...00 prefix H */
-  if (em_len < fixed + 8) return 0;
+  if (em_len < fixed + 8) {
+    return 0;
+  }
   usz ps_end = em_len - fixed + 2;
   em[0]      = 0x00;
   em[1]      = 0x01;
-  for (usz i = 2; i < ps_end; i++) em[i] = 0xff;
+  for (usz i = 2; i < ps_end; i++) {
+    em[i] = 0xff;
+  }
   em[ps_end] = 0x00;
   put_digestinfo(em + ps_end + 1, h);
   return 1;
@@ -63,32 +74,44 @@ int rsa_e_is_f4(const u8* e, usz e_len) { return e_len == 3 && rsa_f4_val(e); }
 /* Constant-time equality over len octets. 1 if equal, else 0. */
 static int ct_equal(const u8* a, const u8* b, usz len) {
   u8 d = 0;
-  for (usz i = 0; i < len; i++) d |= a[i] ^ b[i];
+  for (usz i = 0; i < len; i++) {
+    d |= a[i] ^ b[i];
+  }
   return d == 0;
 }
 
 /* e = 65537 (RFC 8017 common public exponent). */
 static void rsa_e_f4(bn* e) {
-  for (usz i = 0; i < BN_LIMBS; i++) e->v[i] = 0;
+  for (usz i = 0; i < BN_LIMBS; i++) {
+    e->v[i] = 0;
+  }
   e->v[0] = 65537;
 }
 
 /* Modulus length outside the supportable PKCS#1 v1.5 range for this hash. */
 static int n_len_bad(usz n_len, usz hash_len) {
-  if (n_len > (usz)BN_LIMBS * 8) return 1;
+  if (n_len > (usz)BN_LIMBS * 8) {
+    return 1;
+  }
   return n_len < 11 + RSA_DI_LEN + hash_len;
 }
 
 /* Reject inputs that cannot yield a valid PKCS#1 v1.5 signature. */
 static int sizes_bad(usz n_len, usz sig_len, usz hash_len) {
-  if (di_prefix(hash_len) == 0) return 1;
-  if (n_len_bad(n_len, hash_len)) return 1;
+  if (di_prefix(hash_len) == 0) {
+    return 1;
+  }
+  if (n_len_bad(n_len, hash_len)) {
+    return 1;
+  }
   return sig_len != n_len;
 }
 
 /* Sizes acceptable and the exponent is the supported F4. */
 static int rsa_inputs_ok(const rsa_pub* pub, usz sig_len, usz hash_len) {
-  if (sizes_bad(pub->n.n, sig_len, hash_len)) return 0;
+  if (sizes_bad(pub->n.n, sig_len, hash_len)) {
+    return 0;
+  }
   return rsa_e_is_f4(pub->e.p, pub->e.n);
 }
 
@@ -107,16 +130,22 @@ static int rsa_check(const rsav_sn* c, wired_span h) {
   bn_modexp(&m, &c->bn_s, (bn_expmod){&bn_e, &c->bn_n});
   u8 got[BN_LIMBS * 8], want[BN_LIMBS * 8];
   bn_to_be(&m, got, c->n_len);
-  if (!emsa_pkcs1(want, c->n_len, h)) return 0;
+  if (!emsa_pkcs1(want, c->n_len, h)) {
+    return 0;
+  }
   return ct_equal(got, want, c->n_len);
 }
 
 int rsa_pkcs1_verify(const rsa_pub* pub, wired_span sig, wired_span msg_hash) {
-  if (!rsa_inputs_ok(pub, sig.n, msg_hash.n)) return 0;
+  if (!rsa_inputs_ok(pub, sig.n, msg_hash.n)) {
+    return 0;
+  }
   rsav_sn c;
   c.n_len = pub->n.n;
   bn_from_be(&c.bn_n, pub->n.p, pub->n.n);
   bn_from_be(&c.bn_s, sig.p, sig.n);
-  if (bn_cmp(&c.bn_s, &c.bn_n) >= 0) return 0; /* RFC 8017 8.2.2 */
+  if (bn_cmp(&c.bn_s, &c.bn_n) >= 0) {
+    return 0; /* RFC 8017 8.2.2 */
+  }
   return rsa_check(&c, msg_hash);
 }

@@ -15,7 +15,9 @@ static const u8 cw_scid[4] = {0x11, 0x22, 0x33, 0x44};
  * (CLIENT_HS/SERVER_HS/CLIENT_AP/SERVER_AP) are derived, then plant it in c. */
 static void cw_derive_keys(client* c) {
   u8 ecdhe[32], tr[] = "ClientHello||ServerHello";
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(1 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(1 + i);
+  }
   keysched_init(&c->tls.ks);
   CHECK(
       keysched_advance_handshake(
@@ -34,7 +36,9 @@ static void test_cw_initial_roundtrip(void) {
   wired_obuf        ob  = obuf_of(pkt, sizeof(pkt));
   clientwire_hdr_in hdr = {
       wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0};
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(pub, priv);
   tlsdriver_init(&c.tls, priv, pub, 0);
   CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
@@ -74,7 +78,9 @@ static void test_cw_open_server_initial(void) {
     CHECK(client_open_initial_wire(&oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(sh));
-  for (usz i = 0; i < sizeof(sh); i++) CHECK(tls.p[i] == sh[i]);
+  for (usz i = 0; i < sizeof(sh); i++) {
+    CHECK(tls.p[i] == sh[i]);
+  }
 }
 
 /* RFC 9001 5: client seals a Handshake flight with CLIENT_HS; the peer opens it
@@ -132,7 +138,9 @@ static void test_cw_handshake_roundtrip(void) {
     CHECK(client_open_handshake_wire(&c, &oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(fin));
-  for (usz i = 0; i < sizeof(fin); i++) CHECK(tls.p[i] == fin[i]);
+  for (usz i = 0; i < sizeof(fin); i++) {
+    CHECK(tls.p[i] == fin[i]);
+  }
 }
 
 /* WireHS negative: a client-sealed (CLIENT_HS) Handshake packet must NOT open
@@ -199,7 +207,9 @@ static void test_cw_onertt_roundtrip(void) {
     CHECK(client_recv_appdata_wire(&c, &rin, &sf) == 1);
   }
   CHECK(sf.length == sizeof(ok) && sf.fin == 1);
-  for (usz i = 0; i < sizeof(ok); i++) CHECK(sf.data[i] == ok[i]);
+  for (usz i = 0; i < sizeof(ok); i++) {
+    CHECK(sf.data[i] == ok[i]);
+  }
 }
 
 /* RFC 9000 5.1 (#28): a server reply whose DCID is NOT the client's SCID (the

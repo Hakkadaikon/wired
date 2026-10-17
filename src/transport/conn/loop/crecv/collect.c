@@ -7,14 +7,18 @@
 
 void crecv_init(crecv* s) {
   s->received_to = 0;
-  for (usz i = 0; i < CRECV_BUF; i++) s->filled[i] = 0;
+  for (usz i = 0; i < CRECV_BUF; i++) {
+    s->filled[i] = 0;
+  }
 }
 
 /* RFC 9000 19.6: write one CRYPTO frame's data at its offset. Returns 0 if it
  * does not fit the fixed buffer. */
 static int place(crecv* s, const crypto_frame* f) {
   usz end = (usz)f->offset + (usz)f->length;
-  if (end > CRECV_BUF) return 0;
+  if (end > CRECV_BUF) {
+    return 0;
+  }
   for (usz i = 0; i < (usz)f->length; i++) {
     s->buf[f->offset + i]    = f->data[i];
     s->filled[f->offset + i] = 1;
@@ -24,21 +28,26 @@ static int place(crecv* s, const crypto_frame* f) {
 
 /* RFC 9000 7.5: advance the contiguous prefix over newly filled bytes. */
 static void advance_prefix(crecv* s) {
-  while (s->received_to < CRECV_BUF && s->filled[s->received_to])
+  while (s->received_to < CRECV_BUF && s->filled[s->received_to]) {
     s->received_to++;
+  }
 }
 
 /* Decode the CRYPTO frame at frame_start and place it. Returns 0 on a bad
  * decode or overflow. */
 static int take_crypto(crecv* s, wired_span body) {
   crypto_frame f;
-  if (frame_get_crypto(body.p, body.n, &f) == 0) return 0;
+  if (frame_get_crypto(body.p, body.n, &f) == 0) {
+    return 0;
+  }
   return place(s, &f);
 }
 
 /* Handle one walked frame: place CRYPTO, skip everything else. */
 static int on_frame(crecv* s, u64 type, wired_span body) {
-  if (type != FRAME_CRYPTO) return 1;
+  if (type != FRAME_CRYPTO) {
+    return 1;
+  }
   return take_crypto(s, body);
 }
 
@@ -46,8 +55,11 @@ int crecv_collect(crecv* s, const u8* frames, usz len) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, frames, len);
-  while (framewalk_next(&it, &fr))
-    if (!on_frame(s, fr.type, wired_span_of(fr.start, fr.remaining))) return 0;
+  while (framewalk_next(&it, &fr)) {
+    if (!on_frame(s, fr.type, wired_span_of(fr.start, fr.remaining))) {
+      return 0;
+    }
+  }
   advance_prefix(s);
   return 1;
 }

@@ -6,7 +6,9 @@ static usz build_ack(u8* buf, usz cap, const ack_range* r, usz n) {
   f.ack_delay = 0;
   f.has_ecn   = 0;
   f.n_ranges  = n;
-  for (usz i = 0; i < n; i++) f.ranges[i] = r[i];
+  for (usz i = 0; i < n; i++) {
+    f.ranges[i] = r[i];
+  }
   return ack_encode(buf, cap, &f);
 }
 
@@ -20,8 +22,9 @@ void test_ackrange_process(void) {
   {
     sentpkt t;
     sentpkt_init(&t);
-    for (u64 pn = 1; pn <= 5; pn++)
+    for (u64 pn = 1; pn <= 5; pn++) {
       sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+    }
     ack_range r[1] = {{5, 3}};
     usz       len  = build_ack(buf, sizeof buf, r, 1);
     CHECK(len > 0);
@@ -36,8 +39,9 @@ void test_ackrange_process(void) {
   {
     sentpkt t;
     sentpkt_init(&t);
-    for (u64 pn = 1; pn <= 8; pn++)
+    for (u64 pn = 1; pn <= 8; pn++) {
       sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+    }
     ack_range r[2] = {{8, 7}, {4, 3}};
     usz       len  = build_ack(buf, sizeof buf, r, 2);
     CHECK(len > 0);

@@ -16,8 +16,9 @@ static void test_stream_from_quarter(void) {
 
 /* For request-stream IDs (multiples of four) the round trip is exact. */
 static void test_quarter_roundtrip(void) {
-  for (u64 q = 0; q < 1000; q++)
+  for (u64 q = 0; q < 1000; q++) {
     CHECK(h3_quarter_stream_id(h3_stream_from_quarter(q)) == q);
+  }
 }
 
 void test_h3dgram(void) {

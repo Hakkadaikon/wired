@@ -11,7 +11,9 @@ static int  decompress_p256(wired_span key, u8 x[32], u8 y[32]);
 /* SEC1 2.3.3. The BIT STRING value is 0x00 (unused bits) then the 65-byte
  * uncompressed point 0x04 || X || Y. */
 static int is_uncompressed(wired_span key) {
-  if (key.n != 66) return 0;
+  if (key.n != 66) {
+    return 0;
+  }
   return key.p[0] == 0x00 && key.p[1] == 0x04;
 }
 
@@ -22,12 +24,16 @@ int x509_is_compress_tag(u8 tag) { return tag == 0x02 || tag == 0x03; }
 /* SEC1 2.3.3. The 34-byte compressed form: 0x00 unused-bits then 0x02 || X
  * or 0x03 || X, the tag selecting the parity of the recovered Y. */
 static int is_compressed(wired_span key) {
-  if (key.n != 34) return 0;
+  if (key.n != 34) {
+    return 0;
+  }
   return key.p[0] == 0x00 && x509_is_compress_tag(key.p[1]);
 }
 
 static void copy32(u8 dst[32], const u8* src) {
-  for (usz i = 0; i < 32; i++) dst[i] = src[i];
+  for (usz i = 0; i < 32; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* FIPS 186-4 D.1.2.3 P-256 curve parameter b (a = -3). Duplicated from
@@ -62,7 +68,9 @@ void x509_p256_sqrt(p256_fe r, const p256_fe a) {
   r[0] = 1;
   r[1] = r[2] = r[3] = 0;
   for (usz bit = 0; bit < 256; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1) p256_fp_mul_p(r, r, base);
+    if ((e[bit / 64] >> (bit & 63)) & 1) {
+      p256_fp_mul_p(r, r, base);
+    }
     p256_fp_sqr_p(base, base);
   }
 }
@@ -75,7 +83,9 @@ static void p256_y_from_x(p256_fe y, const p256_fe x, int want_odd) {
   p256_fe rhs;
   p256_curve_rhs(rhs, x);
   x509_p256_sqrt(y, rhs);
-  if ((int)(y[0] & 1) != want_odd) p256_fp_sub(y, (fpab){p256_p, y}, p256_p);
+  if ((int)(y[0] & 1) != want_odd) {
+    p256_fp_sub(y, (fpab){p256_p, y}, p256_p);
+  }
 }
 
 /* y^2 == x^3 - 3x + b mod p: confirms the recovered point is genuinely on
@@ -95,9 +105,13 @@ static int decompress_p256(wired_span key, u8 x[32], u8 y[32]) {
   int     want_odd = key.p[1] == 0x03;
   copy32(x, key.p + 2);
   p256_fp_from_be(xf, x);
-  if (!p256_fp_lt(xf, p256_p)) return 0;
+  if (!p256_fp_lt(xf, p256_p)) {
+    return 0;
+  }
   p256_y_from_x(yf, xf, want_odd);
-  if (!p256_on_curve(xf, yf)) return 0;
+  if (!p256_on_curve(xf, yf)) {
+    return 0;
+  }
   p256_fp_to_be(y, yf);
   return 1;
 }
@@ -108,6 +122,8 @@ int x509_ec_pubkey(wired_span spki_key, u8 x[32], u8 y[32]) {
     copy32(y, spki_key.p + 34);
     return 1;
   }
-  if (is_compressed(spki_key)) return decompress_p256(spki_key, x, y);
+  if (is_compressed(spki_key)) {
+    return decompress_p256(spki_key, x, y);
+  }
   return 0;
 }

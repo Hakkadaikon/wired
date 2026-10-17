@@ -26,7 +26,9 @@ static usz fmt_int_pre(char pre[3], const fmt_spec* sp, const fmt_int* a) {
 }
 
 static void fmt_rev(char* dst, const char* src, usz k) {
-  for (usz i = 0; i < k; i++) dst[i] = src[k - 1 - i];
+  for (usz i = 0; i < k; i++) {
+    dst[i] = src[k - 1 - i];
+  }
 }
 
 static void fmt_emit_int(fmt_sink* s, const fmt_spec* sp, const fmt_int* a) {
@@ -70,6 +72,8 @@ void fmt_h_p(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
 
 usz fmt_nlen(const char* p, usz lim) {
   usz n = 0;
-  while (n < lim && p[n]) n++;
+  while (n < lim && p[n]) {
+    n++;
+  }
   return n;
 }

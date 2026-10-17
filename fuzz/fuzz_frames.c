@@ -78,7 +78,9 @@ static void fuzz_frame_decoders(const u8* buf, usz n) {
  * predicates across every packet type. */
 static void fuzz_classify(const u8* buf, usz n) {
   u64 type;
-  if (!varint_decode(buf, n, &type)) return;
+  if (!varint_decode(buf, n, &type)) {
+    return;
+  }
   frame_kind kind = frame_classify(type);
   frame_ack_eliciting(kind);
   frame_is_grease(type);
@@ -112,7 +114,9 @@ static void fuzz_tparams(const u8* data, usz n) {
     u64        v;
     wired_span bytes;
     stp_out    out = {&v, &bytes};
-    if (!stp_parse(tp, ids[i], &out)) continue;
+    if (!stp_parse(tp, ids[i], &out)) {
+      continue;
+    }
     tparam_range_ok(ids[i], v);
     tpverify_iscid(cid_span, bytes);
     tpverify_odcid(cid_span, bytes);
@@ -124,7 +128,9 @@ static void fuzz_tparams(const u8* data, usz n) {
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   const u8* buf = (const u8*)data;
   usz       n   = (usz)size;
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
 
   fuzz_frame_decoders(buf, n);
   fuzz_classify(buf, n);

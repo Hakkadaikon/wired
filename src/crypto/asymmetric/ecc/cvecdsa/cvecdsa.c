@@ -17,7 +17,9 @@ static int cvec_sign(
   u8  content[CVECDSA_CONTENT_MAX], h[32], r[32], s[32];
   usz n = cvecdsa_signed_content(transcript_hash, content);
   wired_sha256(content, n, h);
-  if (!p256sign_sign(priv, h, r, s)) return 0;
+  if (!p256sign_sign(priv, h, r, s)) {
+    return 0;
+  }
   return ecdsasig_encode(r, s, der, 72, der_len);
 }
 
@@ -26,7 +28,9 @@ static void cvec_emit(u8* out, wired_span der, usz* out_len) {
   usz off = hs_begin(out, der.n + 8, HS_CERTIFICATE_VERIFY);
   be_put_be16(out + off, SIG_ECDSA_SECP256R1_SHA256);
   be_put_be16(out + off + 2, (u16)der.n);
-  for (usz i = 0; i < der.n; i++) out[off + 4 + i] = der.p[i];
+  for (usz i = 0; i < der.n; i++) {
+    out[off + 4 + i] = der.p[i];
+  }
   *out_len = off + 4 + der.n;
   hs_finish(out, *out_len);
 }
@@ -39,8 +43,12 @@ int cvecdsa_build(
     usz*       out_len) {
   u8  der[72];
   usz der_len = 0;
-  if (!cvec_sign(priv, transcript_hash, der, &der_len)) return 0;
-  if (cap < der_len + 8) return 0;
+  if (!cvec_sign(priv, transcript_hash, der, &der_len)) {
+    return 0;
+  }
+  if (cap < der_len + 8) {
+    return 0;
+  }
   cvec_emit(out, (wired_span){der, der_len}, out_len);
   return 1;
 }

@@ -9,9 +9,13 @@
  * the offset of the extensions length field, or 0 if it overruns. */
 static usz sh_prefix(wired_span b, u16* cipher, usz* exts) {
   usz p = 34; /* version + random */
-  if (b.n < 35) return 0;
+  if (b.n < 35) {
+    return 0;
+  }
   p += 1 + b.p[34]; /* session_id */
-  if (p + 3 > b.n) return 0;
+  if (p + 3 > b.n) {
+    return 0;
+  }
   *cipher = (u16)b.p[p] << 8 | b.p[p + 1];
   *exts   = p + 3; /* past cipher_suite + compression */
   return *exts;
@@ -19,7 +23,9 @@ static usz sh_prefix(wired_span b, u16* cipher, usz* exts) {
 
 /* Copy the selected version from a ServerHello supported_versions ext_data. */
 static void take_version(wired_span d, u16* version) {
-  if (d.n == 2) *version = (u16)d.p[0] << 8 | d.p[1];
+  if (d.n == 2) {
+    *version = (u16)d.p[0] << 8 | d.p[1];
+  }
 }
 
 /* Where a walked extension writes its findings. pub_cap is the caller's
@@ -45,17 +51,19 @@ static int sh_is_x25519(u16 group, usz pub_len) {
 static int sh_ext_keyshare_ok(wired_span d, sh_fields* f) {
   usz pub_len;
   if (!tls_ext_key_share_parse(
-          d.p, d.n, &f->group, f->pub, &pub_len, f->pub_cap))
+          d.p, d.n, &f->group, f->pub, &pub_len, f->pub_cap)) {
     return 0;
+  }
   /* ext_keyshare_parse already checked pub_len against the group */
   return !f->x25519_only || sh_is_x25519(f->group, pub_len);
 }
 
 static void sh_ext(unsigned t, wired_span d, sh_fields* f) {
-  if (t == EXT_KEY_SHARE)
+  if (t == EXT_KEY_SHARE) {
     f->have_ks = sh_ext_keyshare_ok(d, f);
-  else if (t == EXT_SUPPORTED_VERSIONS)
+  } else if (t == EXT_SUPPORTED_VERSIONS) {
     take_version(d, f->version);
+  }
 }
 
 /* Walk the extensions block reading version and key_share. */
@@ -65,7 +73,9 @@ static int sh_walk(wired_span block, sh_fields* f) {
   while (q + 4 <= block.n) {
     unsigned t    = (unsigned)block.p[q] << 8 | block.p[q + 1];
     usz      dlen = (usz)block.p[q + 2] << 8 | block.p[q + 3];
-    if (q + 4 + dlen > block.n) return 0;
+    if (q + 4 + dlen > block.n) {
+      return 0;
+    }
     sh_ext(t, wired_span_of(block.p + q + 4, dlen), f);
     q += 4 + dlen;
   }
@@ -76,11 +86,15 @@ static int sh_walk(wired_span block, sh_fields* f) {
  * extensions block as a span. */
 static int sh_block(wired_span b, usz exts, wired_span* block) {
   usz blen, q, end;
-  if (exts + 2 > b.n) return 0;
+  if (exts + 2 > b.n) {
+    return 0;
+  }
   blen = (usz)b.p[exts] << 8 | b.p[exts + 1];
   q    = exts + 2;
   end  = q + blen;
-  if (end > b.n) return 0;
+  if (end > b.n) {
+    return 0;
+  }
   *block = wired_span_of(b.p + q, end - q);
   return 1;
 }
@@ -109,8 +123,11 @@ static int sh_legacy_version_ok(wired_span b) {
 static int sh_downgrade_sentinel(wired_span b) {
   static const u8 downgrd[7] = {0x44, 0x4f, 0x57, 0x4e, 0x47, 0x52, 0x44};
   const u8*       r          = b.p + 26;
-  for (usz i = 0; i < 7; i++)
-    if (r[i] != downgrd[i]) return 0;
+  for (usz i = 0; i < 7; i++) {
+    if (r[i] != downgrd[i]) {
+      return 0;
+    }
+  }
   return r[7] <= 1;
 }
 
@@ -127,7 +144,9 @@ static int sh_version_ok(wired_span body, u16 version) {
  * version/downgrade checks over what was taken. */
 static int sh_take(wired_span body, serverhello_out* out, sh_fields* f) {
   wired_span block;
-  if (!sh_locate(body, &out->cipher, &block)) return 0;
+  if (!sh_locate(body, &out->cipher, &block)) {
+    return 0;
+  }
   return sh_walk(block, f) && sh_version_ok(body, out->version);
 }
 
@@ -137,7 +156,9 @@ static int sh_parse(wired_span buf, serverhello_out* out, sh_fields* f) {
   usz body_len;
   f->version   = &out->version;
   out->version = 0; /* absent supported_versions must not read as 1.3 */
-  if (!is_server_hello(buf, &body_len)) return 0;
+  if (!is_server_hello(buf, &body_len)) {
+    return 0;
+  }
   return sh_take(wired_span_of(buf.p + 4, body_len), out, f);
 }
 
@@ -150,7 +171,9 @@ int tls_parse_server_hello(
 int tls_parse_server_hello_group(
     wired_span buf, u8 server_pub[65], u16* group, serverhello_out* out) {
   sh_fields f = {server_pub, 0, 0, 65, 0, 0};
-  if (!sh_parse(buf, out, &f)) return 0;
+  if (!sh_parse(buf, out, &f)) {
+    return 0;
+  }
   *group = f.group;
   return 1;
 }

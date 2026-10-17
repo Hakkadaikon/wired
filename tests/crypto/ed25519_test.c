@@ -3,8 +3,9 @@
 static u8 hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
 static void hexbytes(const char* hex, u8* out, usz n) {
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     out[i] = (u8)((hexnib(hex[i * 2]) << 4) | hexnib(hex[i * 2 + 1]));
+  }
 }
 
 /* Verify a single RFC 8032 7.1 vector accepts, and that flipping one
@@ -14,9 +15,13 @@ static void check_vector(
   u8 A[32], S[64], M[2], tampered[64];
   hexbytes(pk, A, 32);
   hexbytes(sig, S, 64);
-  if (msg_len) hexbytes(msg, M, msg_len);
+  if (msg_len) {
+    hexbytes(msg, M, msg_len);
+  }
   CHECK(ed25519_verify(S, M, msg_len, A) == 1);
-  for (usz i = 0; i < 64; i++) tampered[i] = S[i];
+  for (usz i = 0; i < 64; i++) {
+    tampered[i] = S[i];
+  }
   tampered[0] ^= 0x01;
   CHECK(ed25519_verify(tampered, M, msg_len, A) == 0);
 }
@@ -59,7 +64,9 @@ static void test_sha512_empty(void) {
       0x81, 0xa5, 0x38, 0x32, 0x7a, 0xf9, 0x27, 0xda, 0x3e};
   u8 out[64];
   sha512((const u8*)"", 0, out);
-  for (usz i = 0; i < 64; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 64; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 void test_ed25519(void) {

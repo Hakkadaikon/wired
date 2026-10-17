@@ -21,7 +21,9 @@ static usz client_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i);
+  }
   out[off + 34] = 0;
   out[off + 35] = 0x13;
   out[off + 36] = 0x01;
@@ -43,7 +45,9 @@ static usz client_build_sh(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
@@ -96,7 +100,9 @@ static void test_client_initial_padded(void) {
   u8     cl_priv[32], cl_pub[32], dg[CLIENT_DATAGRAM_MAX];
   client c;
   usz    len;
-  for (usz i = 0; i < 32; i++) cl_priv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    cl_priv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cl_pub, cl_priv);
   tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   len = client_build_initial(&c, dg, sizeof(dg));
@@ -173,7 +179,9 @@ static void test_client_e2e_confirmed(void) {
   c.phase = CLIENT_HS_AUTH;
   c.fd    = -1;
 
-  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(90 + i);
+  for (usz i = 0; i < 32; i++) {
+    cert_seed[i] = (u8)(90 + i);
+  }
   cert_msg_len = client_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
 
   /* server authenticates itself and signs its Finished. */
@@ -286,7 +294,9 @@ static void test_client_policy_valid(void) {
   c.phase = CLIENT_HS_AUTH;
   c.fd    = -1;
 
-  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(100 + i);
+  for (usz i = 0; i < 32; i++) {
+    cert_seed[i] = (u8)(100 + i);
+  }
   cert_msg_len = client_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
 
   CHECK(fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
@@ -321,7 +331,9 @@ static usz rc_cert_msg(u8* out) {
     out[off]     = (u8)(n >> 16);
     out[off + 1] = (u8)(n >> 8);
     out[off + 2] = (u8)n;
-    for (usz j = 0; j < n; j++) out[off + 3 + j] = certs[i][j];
+    for (usz j = 0; j < n; j++) {
+      out[off + 3 + j] = certs[i][j];
+    }
     out[off + 3 + n] = 0;
     out[off + 4 + n] = 0;
     off += n + 5;
@@ -342,12 +354,18 @@ static usz rc_cert_msg(u8* out) {
 /* One DER INTEGER from a 32-byte big-endian scalar. */
 static usz rc_der_int(u8* out, const u8 v[32]) {
   usz n = 32, pad;
-  while (n > 1 && v[32 - n] == 0) n--;
+  while (n > 1 && v[32 - n] == 0) {
+    n--;
+  }
   pad    = (v[32 - n] & 0x80) ? 1 : 0;
   out[0] = 0x02;
   out[1] = (u8)(n + pad);
-  if (pad) out[2] = 0;
-  for (usz i = 0; i < n; i++) out[2 + pad + i] = v[32 - n + i];
+  if (pad) {
+    out[2] = 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    out[2 + pad + i] = v[32 - n + i];
+  }
   return 2 + pad + n;
 }
 
@@ -359,10 +377,16 @@ static usz rc_sign_cv(const fullhs* h, u8* cv) {
   u8  th[32], content[130], chash[32], r[32], s[32], der[80];
   usz rn, sn, dn, body;
   wired_sha256(h->tr, h->tr_len, th);
-  for (usz i = 0; i < 64; i++) content[i] = 0x20;
-  for (usz i = 0; i < 33; i++) content[64 + i] = (u8)rc_cv_ctx[i];
+  for (usz i = 0; i < 64; i++) {
+    content[i] = 0x20;
+  }
+  for (usz i = 0; i < 33; i++) {
+    content[64 + i] = (u8)rc_cv_ctx[i];
+  }
   content[97] = 0x00;
-  for (usz i = 0; i < 32; i++) content[98 + i] = th[i];
+  for (usz i = 0; i < 32; i++) {
+    content[98 + i] = th[i];
+  }
   wired_sha256(content, 130, chash);
   CHECK(p256sign_sign(realchain_leaf_priv, chash, r, s) == 1);
   rn     = rc_der_int(der + 2, r);
@@ -379,7 +403,9 @@ static usz rc_sign_cv(const fullhs* h, u8* cv) {
   cv[5]  = (u8)TLS_SCHEME_ECDSA_P256;
   cv[6]  = (u8)(dn >> 8);
   cv[7]  = (u8)dn;
-  for (usz i = 0; i < dn; i++) cv[8 + i] = der[i];
+  for (usz i = 0; i < dn; i++) {
+    cv[8 + i] = der[i];
+  }
   return 4 + body;
 }
 
@@ -465,7 +491,9 @@ static void test_client_castore_wrong_root(void) {
  * built, so its ClientHello is on record. */
 static void client_bare(client* c, u8 cl_priv[32]) {
   u8 cl_pub[32], dg[1500];
-  for (usz i = 0; i < 32; i++) cl_priv[i] = (u8)(1 + i);
+  for (usz i = 0; i < 32; i++) {
+    cl_priv[i] = (u8)(1 + i);
+  }
   wired_x25519_base(cl_pub, cl_priv);
   tlsdriver_init(&c->tls, cl_priv, cl_pub, 0);
   c->phase    = CLIENT_HS_INITIAL;
@@ -530,9 +558,13 @@ static void test_client_hrr_aborts_no_second_clienthello(void) {
   check_client_aborted_47(&c, hrr, hob.len);
 
   client_bare(&c, cl_priv);
-  for (usz i = 0; i < 32; i++) sv_pub[i] = (u8)(9 + i);
+  for (usz i = 0; i < 32; i++) {
+    sv_pub[i] = (u8)(9 + i);
+  }
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
-  for (usz i = 0; i < 32; i++) sh[6 + i] = hrr_random[i]; /* random @ 4+2 */
+  for (usz i = 0; i < 32; i++) {
+    sh[6 + i] = hrr_random[i]; /* random @ 4+2 */
+  }
   check_client_aborted_47(&c, sh, shn);
 }
 
@@ -544,7 +576,9 @@ static void test_client_rejects_downgraded_serverhello(void) {
   client c;
   usz    shn;
   client_bare(&c, cl_priv);
-  for (usz i = 0; i < 32; i++) sv_pub[i] = (u8)(9 + i);
+  for (usz i = 0; i < 32; i++) {
+    sv_pub[i] = (u8)(9 + i);
+  }
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   /* supported_versions ext_data: header(4) + legacy_version(2) + random(32)
    * + session_id(1) + cipher(2) + compression(1) + exts_len(2) + type/len(4)
@@ -580,8 +614,11 @@ static void test_client_init_fresh_keypair_per_connection(void) {
   CHECK(client_init(&a, &in) == 1);
   CHECK(client_init(&b, &in) == 1);
   int same = 1;
-  for (usz i = 0; i < ECDHE_LEN; i++)
-    if (a.my_priv[i] != b.my_priv[i]) same = 0;
+  for (usz i = 0; i < ECDHE_LEN; i++) {
+    if (a.my_priv[i] != b.my_priv[i]) {
+      same = 0;
+    }
+  }
   CHECK(!same);
   client_close(&a);
   client_close(&b);

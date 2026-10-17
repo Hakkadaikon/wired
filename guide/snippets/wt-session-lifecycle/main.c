@@ -10,8 +10,11 @@ typedef struct {
 static session_state states[4];
 
 static session_state* find(wired_wt_session* s) {
-  for (usz i = 0; i < sizeof states / sizeof states[0]; i++)
-    if (states[i].s == s) return &states[i];
+  for (usz i = 0; i < sizeof states / sizeof states[0]; i++) {
+    if (states[i].s == s) {
+      return &states[i];
+    }
+  }
   return 0;
 }
 
@@ -22,7 +25,9 @@ static void on_session(
   (void)path;
   (void)protocol;
   session_state* st = find(0);
-  if (!st) return;
+  if (!st) {
+    return;
+  }
   *st = (session_state){.s = s};
   wired_log_str("session open\n");
 }
@@ -33,7 +38,9 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   (void)ctx;
   (void)data;
   session_state* st = find(s);
-  if (!st) return;
+  if (!st) {
+    return;
+  }
   if (++st->datagrams == 1) {
     wired_server_wt_drain_session(s);
     wired_log_str("drain sent\n");
@@ -48,7 +55,9 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
 static void on_session_close(void* ctx, wired_wt_session* s) {
   (void)ctx;
   session_state* st = find(s);
-  if (st) st->s = 0;
+  if (st) {
+    st->s = 0;
+  }
   wired_log_str("session closed, state released\n");
 }
 

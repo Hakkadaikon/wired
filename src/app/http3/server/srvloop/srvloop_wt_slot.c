@@ -39,15 +39,20 @@ static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
 
 /* Record client stream_id as ended (see wt_slot_is_stale). */
 void srvloop_wt_closed_mark(wired_srvloop* l, u64 stream_id) {
-  if (!(stream_id & 1)) srvloop_req_closed_mark(l, stream_id);
+  if (!(stream_id & 1)) {
+    srvloop_req_closed_mark(l, stream_id);
+  }
 }
 
 /* Claim and reset a free wt_streams slot for stream_id.
  * @return the slot index, or -1 if the table is full or stream_id is stale. */
 /* The index of a free wt_streams slot, or -1 if the table is full. */
 static int wt_slot_free_index(const wired_srvloop* l) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (!l->wt_streams[i].in_use) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (!l->wt_streams[i].in_use) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -58,16 +63,21 @@ int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
 
 int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
   int already = wired_srvloop_wt_slot_find(l, stream_id);
-  if (already >= 0) return already;
+  if (already >= 0) {
+    return already;
+  }
   return wired_srvloop_wt_slot_claim(l, stream_id);
 }
 
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
-  if (wt_slot_is_stale(l, stream_id)) return;
+  if (wt_slot_is_stale(l, stream_id)) {
+    return;
+  }
   srvloop_wt_closed_mark(l, stream_id);
   /* RFC 9000 4.6: full only for a peer past MAX_STREAMS (wt_refused) */
-  if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS)
+  if (l->wt_refused_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->wt_refused[l->wt_refused_n++] = stream_id;
-  else
+  } else {
     l->wt_refused_overflow = 1;
+  }
 }

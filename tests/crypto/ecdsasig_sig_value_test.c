@@ -11,7 +11,9 @@ static const u8* golden_sig(void) { return x509_golden + 324; }
 /* SEC1 C.5. Pull the two 32-octet INTEGER values out of the golden SEQUENCE. */
 static int golden_rs(u8 r[32], u8 s[32]) {
   der_tlv seq, ri, si;
-  if (!der_read(wired_span_of(golden_sig(), 70), &seq)) return 0;
+  if (!der_read(wired_span_of(golden_sig(), 70), &seq)) {
+    return 0;
+  }
   der_read(seq.val, &ri);
   der_read(wired_span_of(seq.val.p + ri.used, seq.val.n - ri.used), &si);
   for (usz i = 0; i < 32; i++) {
@@ -29,7 +31,9 @@ static void test_sig_golden_roundtrip(void) {
   CHECK(golden_rs(r, s) == 1);
   CHECK(ecdsasig_encode(r, s, out, sizeof(out), &n) == 1);
   CHECK(n == 70);
-  for (usz i = 0; i < 70; i++) CHECK(out[i] == golden_sig()[i]);
+  for (usz i = 0; i < 70; i++) {
+    CHECK(out[i] == golden_sig()[i]);
+  }
 }
 
 /* The encoded SEQUENCE reads back through the DER parser as INTEGER, INTEGER.
@@ -61,16 +65,24 @@ static void test_sig_decode_golden(void) {
   u8 r[32], s[32], dr[32], ds[32], r48[48], s48[48];
   CHECK(golden_rs(r, s) == 1);
   CHECK(ecdsasig_decode(wired_span_of(golden_sig(), 70), dr, ds, 32) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(dr[i] == r[i] && ds[i] == s[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(dr[i] == r[i] && ds[i] == s[i]);
+  }
   CHECK(ecdsasig_decode(wired_span_of(golden_sig(), 70), r48, s48, 48) == 1);
-  for (usz i = 0; i < 16; i++) CHECK(r48[i] == 0 && s48[i] == 0);
-  for (usz i = 0; i < 32; i++) CHECK(r48[16 + i] == r[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(r48[i] == 0 && s48[i] == 0);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(r48[16 + i] == r[i]);
+  }
 }
 
 /* X.690 / CVE-2018-1000180 class: bytes after the SEQUENCE are rejected. */
 static void test_sig_decode_rejects_trailing_data(void) {
   u8 buf[71], r[32], s[32];
-  for (usz i = 0; i < 70; i++) buf[i] = golden_sig()[i];
+  for (usz i = 0; i < 70; i++) {
+    buf[i] = golden_sig()[i];
+  }
   buf[70] = 0x00;
   CHECK(ecdsasig_decode(wired_span_of(buf, 71), r, s, 32) == 0);
 }
@@ -125,7 +137,9 @@ static void test_sig_decode_rejects_oversized_integer(void) {
   sig[2] = 0x02;
   sig[3] = 33; /* 33-byte positive value: 0x01 then 32 zeros */
   sig[4] = 0x01;
-  for (usz i = 5; i < 37; i++) sig[i] = 0x00;
+  for (usz i = 5; i < 37; i++) {
+    sig[i] = 0x00;
+  }
   sig[37] = 0x02;
   sig[38] = 0x01;
   sig[39] = 0x01;

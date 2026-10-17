@@ -74,9 +74,13 @@ static int wyc_rsa_load(
   ssz ml = bssl_bytes(wyc_get(r->attrs, c, "msg"), b->msg, WYC_RSA_BUF);
   usz dl = wyc_rsa_hash(
       wyc_get(r->attrs, c, "g.sha"), b->msg, (usz)(ml < 0 ? 0 : ml), b->dig);
-  if (nl < 0 || el < 0 || sl < 0 || ml < 0 || !dl) return 0;
+  if (nl < 0 || el < 0 || sl < 0 || ml < 0 || !dl) {
+    return 0;
+  }
   usz lead = 0; /* wired's rsa_pub takes the minimal big-endian modulus */
-  while (lead < (usz)nl - 1 && !b->n[lead]) lead++;
+  while (lead < (usz)nl - 1 && !b->n[lead]) {
+    lead++;
+  }
   pub->n = wired_span_of(b->n + lead, (usz)nl - lead);
   pub->e = wired_span_of(b->e, (usz)el);
   *sig   = wired_span_of(b->sig, (usz)sl);
@@ -85,9 +89,15 @@ static int wyc_rsa_load(
 }
 
 static int wyc_rsa_class(const wyc_case* c, int got, int f4) {
-  if (c->result == WYC_ACCEPTABLE) return got ? WYC_R_ACC_Y : WYC_R_ACC_N;
-  if (c->result == WYC_INVALID) return got ? WYC_R_FAIL : WYC_R_INVALID;
-  if (!f4) return WYC_R_SKIP; /* e != 65537 unsupported */
+  if (c->result == WYC_ACCEPTABLE) {
+    return got ? WYC_R_ACC_Y : WYC_R_ACC_N;
+  }
+  if (c->result == WYC_INVALID) {
+    return got ? WYC_R_FAIL : WYC_R_INVALID;
+  }
+  if (!f4) {
+    return WYC_R_SKIP; /* e != 65537 unsupported */
+  }
   return got ? WYC_R_VALID : WYC_R_FAIL;
 }
 
@@ -95,7 +105,9 @@ static int wyc_rsa_one(
     wyc_rsa_buf* b, const wyc_rsa_run* r, const wyc_case* c) {
   rsa_pub    pub;
   wired_span sig, dig;
-  if (!wyc_rsa_load(b, r, c, &pub, &sig, &dig)) return WYC_R_FAIL;
+  if (!wyc_rsa_load(b, r, c, &pub, &sig, &dig)) {
+    return WYC_R_FAIL;
+  }
   int got = r->verify(&pub, sig, dig);
   return wyc_rsa_class(c, got, rsa_e_is_f4(pub.e.p, pub.e.n));
 }
@@ -110,11 +122,14 @@ static void wyc_rsa_note(
     wyc_rsa_tally* t, const wyc_rsa_run* r, const wyc_case* c, int res) {
   t->added++;
   t->count[res]++;
-  if (res == WYC_R_ACC_Y || res == WYC_R_ACC_N)
+  if (res == WYC_R_ACC_Y || res == WYC_R_ACC_N) {
     printf(
         "wyc %s tcId %u acceptable: %s\n", r->file, c->tc_id,
         res == WYC_R_ACC_Y ? "accepted" : "rejected");
-  if (res != WYC_R_FAIL) return;
+  }
+  if (res != WYC_R_FAIL) {
+    return;
+  }
   printf("FAIL %s tcId %u flags=%s\n", r->file, c->tc_id, c->flags);
   if (t->nfail < WYC_RSA_MAXFAIL) {
     t->tc[t->nfail] = c->tc_id;
@@ -125,7 +140,9 @@ static void wyc_rsa_note(
 }
 
 static int wyc_rsa_selected(const wyc_rsa_run* r, const wyc_case* c) {
-  if (!r->only_flag) return 1;
+  if (!r->only_flag) {
+    return 1;
+  }
   return c->result == WYC_INVALID && wyc_has_flag(c, r->only_flag);
 }
 
@@ -136,8 +153,9 @@ static void wyc_rsa_summary(const wyc_rsa_run* r, const wyc_rsa_tally* t) {
       r->file, t->added, t->count[WYC_R_VALID], t->count[WYC_R_INVALID],
       t->count[WYC_R_ACC_Y] + t->count[WYC_R_ACC_N], t->nfail,
       t->count[WYC_R_SKIP]);
-  for (u32 i = 0; i < t->nfail && i < WYC_RSA_MAXFAIL; i++)
+  for (u32 i = 0; i < t->nfail && i < WYC_RSA_MAXFAIL; i++) {
     printf("%s%u:%s", i ? "," : "", t->tc[i], t->fl[i]);
+  }
   printf("]\n");
 }
 
@@ -147,9 +165,11 @@ static void wyc_rsa_loop(const wyc_rsa_run* r) {
   static wyc_rsa_tally t;
   wyc_rsa_tally        z = {{0}, {0}, {0}, 0, 0};
   t                      = z;
-  for (usz i = 0; i < r->n; i++)
-    if (wyc_rsa_selected(r, &r->cases[i]))
+  for (usz i = 0; i < r->n; i++) {
+    if (wyc_rsa_selected(r, &r->cases[i])) {
       wyc_rsa_note(&t, r, &r->cases[i], wyc_rsa_one(&b, r, &r->cases[i]));
+    }
+  }
   wyc_rsa_summary(r, &t);
 }
 

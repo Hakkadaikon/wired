@@ -38,14 +38,18 @@ void wired_srvloop_wt_window_accept(
   *accepted_n = kept < avail ? kept : avail;
   *rel_off    = (usz)lo;
   win->dropped_bytes += kept - *accepted_n;
-  if (*accepted_n) srvloop_wt_window_insert(win, lo, lo + *accepted_n);
+  if (*accepted_n) {
+    srvloop_wt_window_insert(win, lo, lo + *accepted_n);
+  }
 }
 
 /* Shift buf's contents left by shift bytes (buf[i] = buf[i+shift]), safe for
  * this specific direction (dst index always < src index, so every byte is
  * read before it could be overwritten). */
 static void wt_buf_shift_left(u8* buf, usz cap, usz shift) {
-  for (usz i = 0; i + shift < cap; i++) buf[i] = buf[i + shift];
+  for (usz i = 0; i + shift < cap; i++) {
+    buf[i] = buf[i + shift];
+  }
 }
 
 /* Rebase one range by shift, clipping its lo to 0 rather than underflowing
@@ -67,7 +71,9 @@ static void wt_range_rebase_one(
 static void wt_ranges_rebase(wired_srvloop_wt_window* win, usz shift) {
   usz out = 0;
   for (usz i = 0; i < win->range_n; i++) {
-    if (win->range_hi[i] <= shift) continue;
+    if (win->range_hi[i] <= shift) {
+      continue;
+    }
     wt_range_rebase_one(win, i, shift);
     win->range_lo[out] = win->range_lo[i];
     win->range_hi[out] = win->range_hi[i];
@@ -86,7 +92,9 @@ static int wt_window_slide_not_due(
 void wired_srvloop_wt_window_slide(
     wired_srvloop_wt_window* win, u8* buf, usz cap, u64 delivered_to) {
   usz shift = win->frontier;
-  if (wt_window_slide_not_due(win, delivered_to) || shift == 0) return;
+  if (wt_window_slide_not_due(win, delivered_to) || shift == 0) {
+    return;
+  }
   wt_buf_shift_left(buf, cap, shift);
   win->base += shift;
   wt_ranges_rebase(win, shift);

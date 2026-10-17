@@ -21,8 +21,9 @@ void srvrun_grant_wt_uni(const srvrun_cfg* cfg, srvrun_conn* c) {
  * separate uni table -- then raise the uni stream limit for the streams that
  * ended (srvrun_grant_wt_uni). */
 void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
+  }
   srvrun_grant_wt_uni(cfg, c);
 }
 
@@ -53,7 +54,9 @@ int srvrun_seal_max_stream_data(
   stream_data_frame     f   = {stream_id, value};
   wired_srvloop_send_in sin;
   usz                   pln = max_stream_data_encode(plb.p, plb.cap, &f);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -71,7 +74,9 @@ void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) return;
+  if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");
 }
 
@@ -88,7 +93,9 @@ static void srvrun_grant_stream_credit(
     u64               delivered_len,
     u64*              credit_advertised) {
   u64 ceiling = srvrun_wt_slot_credit_ceiling(delivered_len);
-  if (!srvrun_wt_credit_stream_due(ceiling, *credit_advertised)) return;
+  if (!srvrun_wt_credit_stream_due(ceiling, *credit_advertised)) {
+    return;
+  }
   srvrun_send_max_stream_data(cfg, c, stream_id, ceiling);
   *credit_advertised = ceiling;
 }
@@ -107,7 +114,9 @@ static int srvrun_wt_bidi_held(const wired_srvloop_wt_stream_slot* slot) {
  * value sent, never lowered. */
 void srvrun_grant_wt_slot_credit(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  if (!slot->in_use || srvrun_wt_bidi_held(slot)) return;
+  if (!slot->in_use || srvrun_wt_bidi_held(slot)) {
+    return;
+  }
   srvrun_grant_stream_credit(
       cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
 }
@@ -116,7 +125,9 @@ void srvrun_grant_wt_uni_slot_credit(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
-  if (!slot->in_use || slot->credit_hold) return;
+  if (!slot->in_use || slot->credit_hold) {
+    return;
+  }
   srvrun_grant_stream_credit(
       cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
 }

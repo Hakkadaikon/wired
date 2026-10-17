@@ -17,13 +17,17 @@ void udpsess_init(udpsess* s, udp_transport* t, wired_span dcid) {
 }
 
 void udpsess_set_peer(udpsess* s, usz path, const udpsess_peer* peer) {
-  if (path >= UDPSESS_PATHS) return;
+  if (path >= UDPSESS_PATHS) {
+    return;
+  }
   s->paths[path].peer_addr = peer->addr;
   s->paths[path].peer_port = peer->port;
 }
 
 void udpsess_set_dcid(udpsess* s, usz path, wired_span dcid) {
-  if (path >= UDPSESS_PATHS) return;
+  if (path >= UDPSESS_PATHS) {
+    return;
+  }
   s->paths[path].dcid     = dcid.p;
   s->paths[path].dcid_len = (u8)dcid.n;
 }
@@ -41,7 +45,9 @@ static int migrate_ok(const udpsess* s, usz path, int validated) {
 }
 
 int udpsess_migrate(udpsess* s, usz path, int new_path_validated) {
-  if (!migrate_ok(s, path, new_path_validated)) return 0;
+  if (!migrate_ok(s, path, new_path_validated)) {
+    return 0;
+  }
   udp_transport_connect(
       s->t, s->paths[path].peer_addr, s->paths[path].peer_port);
   s->active = path;
@@ -49,7 +55,9 @@ int udpsess_migrate(udpsess* s, usz path, int new_path_validated) {
 }
 
 int udpsess_dcid_for_path(const udpsess* s, usz path, wired_span* dcid) {
-  if (path >= UDPSESS_PATHS || !s->paths[path].dcid) return 0;
+  if (path >= UDPSESS_PATHS || !s->paths[path].dcid) {
+    return 0;
+  }
   *dcid = wired_span_of(s->paths[path].dcid, s->paths[path].dcid_len);
   return 1;
 }

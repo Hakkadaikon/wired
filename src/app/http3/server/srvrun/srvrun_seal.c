@@ -15,8 +15,11 @@ static usz srvrun_path_payload(u8* pl, u8 type, const u8* data, usz n);
  * loop stays at the CCN gate. */
 static u64 srvrun_wt_bidi_delivered_total(const srvrun_conn* c) {
   u64 total = 0;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (c->l.wt_streams[i].in_use) total += c->l.wt_streams[i].delivered_len;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (c->l.wt_streams[i].in_use) {
+      total += c->l.wt_streams[i].delivered_len;
+    }
+  }
   return total;
 }
 
@@ -24,9 +27,11 @@ static u64 srvrun_wt_bidi_delivered_total(const srvrun_conn* c) {
  * half of srvrun_wt_rx_delivered_total's fan-out. */
 static u64 srvrun_wt_uni_delivered_total(const srvrun_conn* c) {
   u64 total = 0;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    if (c->l.wt_uni_streams[i].in_use)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (c->l.wt_uni_streams[i].in_use) {
       total += c->l.wt_uni_streams[i].delivered_len;
+    }
+  }
   return total;
 }
 
@@ -45,9 +50,10 @@ static usz srvrun_challenge_plaintext_len(usz dcid_len) {
 /* n frames of type, one per 8-byte data[i], into pl; their length. */
 static usz srvrun_path_payload(u8* pl, u8 type, const u8* data, usz n) {
   usz len = 0;
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     len += path_encode(
         pl + len, MIN_INITIAL_DATAGRAM - len, type, data + i * PATH_DATA);
+  }
   return len;
 }
 
@@ -69,8 +75,12 @@ int srvrun_seal_path_frames(
   wired_srvloop_send_in sin;
   usz                   want = srvrun_challenge_plaintext_len(dcid.n);
   usz                   pln  = srvrun_path_payload(pl, type, data, n);
-  if (!pln) return 0;
-  for (; pln < want; pln++) pl[pln] = 0; /* PADDING frames (0x00) */
+  if (!pln) {
+    return 0;
+  }
+  for (; pln < want; pln++) {
+    pl[pln] = 0; /* PADDING frames (0x00) */
+  }
   sin = (wired_srvloop_send_in){
       dcid, c->l.tx_pn++, -1, wired_span_of(pl, pln), 0, 0, 0, 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
@@ -84,7 +94,9 @@ int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
   data_frame            f   = {value};
   wired_srvloop_send_in sin;
   usz                   pln = max_data_encode(plb.p, plb.cap, &f);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -101,6 +113,8 @@ int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
 void srvrun_send_max_data(const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_max_data(c, value, &ob)) return;
+  if (!srvrun_seal_max_data(c, value, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_DATA sent\n");
 }

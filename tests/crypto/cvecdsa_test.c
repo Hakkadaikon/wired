@@ -24,7 +24,9 @@ static void cv_hb32(const char* hex, u8 out[32]) {
 
 /* A fixed but arbitrary transcript hash. */
 static void cv_th(u8 th[32]) {
-  for (usz i = 0; i < 32; i++) th[i] = (u8)(i * 7 + 1);
+  for (usz i = 0; i < 32; i++) {
+    th[i] = (u8)(i * 7 + 1);
+  }
 }
 
 /* RFC 8446 4.4.3 signed content: 64*0x20 + ctx + 0x00 + hash. */
@@ -32,10 +34,14 @@ static void test_cvecdsa_signed_content(void) {
   u8 th[32], c[130];
   cv_th(th);
   CHECK(cvecdsa_signed_content(wired_span_of(th, 32), c) == 130);
-  for (usz i = 0; i < 64; i++) CHECK(c[i] == 0x20);
+  for (usz i = 0; i < 64; i++) {
+    CHECK(c[i] == 0x20);
+  }
   CHECK(c[64] == 'T' && c[65] == 'L' && c[66] == 'S');
   CHECK(c[97] == 0x00);
-  for (usz i = 0; i < 32; i++) CHECK(c[98 + i] == th[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(c[98 + i] == th[i]);
+  }
 }
 
 /* Message carries handshake type 0x0f and scheme 0x0403, lengths consistent. */
@@ -58,8 +64,12 @@ static void cv_take_int(const u8* p, u8 out[32]) {
   usz len  = p[1];               /* INTEGER content length */
   usz skip = (len > 32) ? 1 : 0; /* leading 0x00 sign pad */
   usz vlen = len - skip;
-  for (usz i = 0; i < 32; i++) out[i] = 0;
-  for (usz i = 0; i < vlen; i++) out[32 - vlen + i] = p[2 + skip + i];
+  for (usz i = 0; i < 32; i++) {
+    out[i] = 0;
+  }
+  for (usz i = 0; i < vlen; i++) {
+    out[32 - vlen + i] = p[2 + skip + i];
+  }
 }
 
 static void cv_der_extract(const u8* der, u8 r[32], u8 s[32]) {
@@ -95,7 +105,9 @@ static void test_cvecdsa_verify_sha384_transcript(void) {
   cv_hb32(CV_X, priv);
   cv_hb32(CV_QX, qx);
   cv_hb32(CV_QY, qy);
-  for (usz i = 0; i < 48; i++) th[i] = (u8)(0x90 + i);
+  for (usz i = 0; i < 48; i++) {
+    th[i] = (u8)(0x90 + i);
+  }
   CHECK(cvecdsa_build(priv, wired_span_of(th, 48), msg, sizeof msg, &n) == 1);
   CHECK(cvecdsa_signed_content(wired_span_of(th, 48), c) == 146);
   CHECK(c[97] == 0x00 && c[98] == 0x90 && c[145] == (u8)(0x90 + 47));

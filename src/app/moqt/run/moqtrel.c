@@ -38,7 +38,9 @@ static void rel_copy_in(moqtrel_buf* b, wired_span src) {
 void moqtrel_reset(moqtrel_buf* b) { bytes_memset(b, 0, sizeof(*b)); }
 
 int moqtrel_append(moqtrel_buf* b, wired_span src) {
-  if (src.n > rel_free(b)) return 0;
+  if (src.n > rel_free(b)) {
+    return 0;
+  }
   rel_copy_in(b, src);
   return 1;
 }
@@ -65,21 +67,28 @@ static int rel_mark_merges(const moqtrel_buf* b, u64 now_ms) {
 /* A merge keeps the newest mark's time: merged bytes read as old as it,
  * never younger than they are. */
 void moqtrel_mark(moqtrel_buf* b, u64 now_ms) {
-  if (!rel_mark_merges(b, now_ms)) b->mark_ms[b->marks++] = now_ms;
+  if (!rel_mark_merges(b, now_ms)) {
+    b->mark_ms[b->marks++] = now_ms;
+  }
   b->mark_end[b->marks - 1] = b->tail;
 }
 
 u64 moqtrel_age_ms(const moqtrel_buf* b, u32 sub, u64 now_ms) {
   u64 at = b->subs[sub].sent;
-  for (u32 k = 0; k < b->marks; k++)
-    if (b->mark_end[k] > at) return now_ms - b->mark_ms[k];
+  for (u32 k = 0; k < b->marks; k++) {
+    if (b->mark_end[k] > at) {
+      return now_ms - b->mark_ms[k];
+    }
+  }
   return 0;
 }
 
 /* Leading marks wholly below head. */
 static u32 rel_marks_spent(const moqtrel_buf* b) {
   u32 d = 0;
-  while (d < b->marks && b->mark_end[d] <= b->head) d++;
+  while (d < b->marks && b->mark_end[d] <= b->head) {
+    d++;
+  }
   return d;
 }
 
@@ -94,8 +103,11 @@ static void rel_marks_trim(moqtrel_buf* b) {
 
 void moqtrel_reclaim(moqtrel_buf* b) {
   u64 low = b->tail;
-  for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++)
-    if (rel_sub_pins(&b->subs[i])) low = u64_min(low, b->subs[i].sent);
+  for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++) {
+    if (rel_sub_pins(&b->subs[i])) {
+      low = u64_min(low, b->subs[i].sent);
+    }
+  }
   b->head = low;
   rel_marks_trim(b);
 }
@@ -110,13 +122,18 @@ int moqtrel_should_release(const moqtrel_buf* b) {
 
 int moqtrel_stalled(const moqtrel_buf* b, u32 sub, u64 now_ms) {
   const moqtrel_sub* s = &b->subs[sub];
-  if (!rel_sub_pins(s) || s->sent >= b->tail) return 0;
+  if (!rel_sub_pins(s) || s->sent >= b->tail) {
+    return 0;
+  }
   return now_ms - s->last_ok_ms > WIRED_MOQTREL_STALL_MS;
 }
 
 int moqtrel_all_done(const moqtrel_buf* b) {
-  for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++)
-    if (rel_sub_open(&b->subs[i])) return 0;
+  for (u32 i = 0; i < WIRED_MOQTREL_MAX_SUBS; i++) {
+    if (rel_sub_open(&b->subs[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 

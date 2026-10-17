@@ -105,12 +105,16 @@ static void test_h3prio_candidate_table_bounded(void) {
 
   /* order[0..N) must be a permutation of 0..N-1: every index appears once */
   int seen[N];
-  for (usz i = 0; i < N; i++) seen[i] = 0;
+  for (usz i = 0; i < N; i++) {
+    seen[i] = 0;
+  }
   for (usz i = 0; i < N; i++) {
     CHECK(order[i] < N);
     seen[order[i]]++;
   }
-  for (usz i = 0; i < N; i++) CHECK(seen[i] == 1);
+  for (usz i = 0; i < N; i++) {
+    CHECK(seen[i] == 1);
+  }
 }
 
 /* Pinning: RFC 9218 10 -- prio_before's total order (in_use, then urgency,

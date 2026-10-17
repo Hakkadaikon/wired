@@ -16,10 +16,13 @@ static int wyc_hkdf_case(const bssl_attr* a, const wyc_case* c) {
   ssz       nl = bssl_bytes(wyc_get(a, c, "info"), info, sizeof info);
   ssz       wl = bssl_bytes(wyc_get(a, c, "okm"), want, sizeof want);
   u32       n  = wyc_num(wyc_get(a, c, "size"));
-  if (il < 0 || sl < 0 || nl < 0 || wl < 0 || n > WYC_BUF) return WYC_BAD;
+  if (il < 0 || sl < 0 || nl < 0 || wl < 0 || n > WYC_BUF) {
+    return WYC_BAD;
+  }
   hkdf_extract(wired_span_of(salt, (usz)sl), wired_span_of(ikm, (usz)il), prk);
-  if (!hkdf_expand(prk, wired_span_of(info, (usz)nl), wired_mspan_of(okm, n)))
+  if (!hkdf_expand(prk, wired_span_of(info, (usz)nl), wired_mspan_of(okm, n))) {
     return WYC_REJ;
+  }
   return (u32)wl == n && wyc_eq(okm, want, n) ? WYC_OK : WYC_REJ;
 }
 

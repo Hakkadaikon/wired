@@ -14,7 +14,9 @@ void wired_sendsess_arm(
   s->has_acked          = 0;
   s->pto_count          = 0;
   s->stream_base_offset = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) s->log[i].inflight = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    s->log[i].inflight = 0;
+  }
 }
 
 void wired_sendsess_extend(wired_sendsess* s, usz added) {
@@ -33,8 +35,9 @@ u64 wired_sendsess_stream_offset(
 
 usz wired_sendsess_inflight(const wired_sendsess* s) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     n += (usz)(s->log[i].inflight != 0);
+  }
   return n;
 }
 
@@ -48,15 +51,20 @@ int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out) {
 
 /* First free log slot, or -1 when every slot is in flight. */
 static int sendsess_free_slot(const wired_sendsess* s) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (!s->log[i].inflight) return (int)i;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    if (!s->log[i].inflight) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
 int wired_sendsess_sent(
     wired_sendsess* s, const wired_sendq_slice* sl, u64 pn, u64 now_ms) {
   int i = sendsess_free_slot(s);
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   s->log[i].pn       = pn;
   s->log[i].sl       = *sl;
   s->log[i].inflight = 1;
@@ -69,13 +77,18 @@ int wired_sendsess_sent(
  * empty (wired_sendsess_take drains the requeue first). The bound check
  * keeps the function total anyway. */
 void wired_sendsess_untake(wired_sendsess* s, const wired_sendq_slice* sl) {
-  if (s->requeue_n < WIRED_SENDSESS_LOG) s->requeue[s->requeue_n++] = *sl;
+  if (s->requeue_n < WIRED_SENDSESS_LOG) {
+    s->requeue[s->requeue_n++] = *sl;
+  }
 }
 
 usz wired_sendsess_inflight_bytes(const wired_sendsess* s) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (s->log[i].inflight) n += s->log[i].sl.len;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    if (s->log[i].inflight) {
+      n += s->log[i].sl.len;
+    }
+  }
   return n;
 }
 
@@ -85,14 +98,20 @@ static int sent_slice_below(const wired_sent_slice* e, usz floor) {
 }
 
 static usz sendsess_log_floor(const wired_sendsess* s, usz floor) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (sent_slice_below(&s->log[i], floor)) floor = s->log[i].sl.offset;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    if (sent_slice_below(&s->log[i], floor)) {
+      floor = s->log[i].sl.offset;
+    }
+  }
   return floor;
 }
 
 static usz sendsess_requeue_floor(const wired_sendsess* s, usz floor) {
-  for (usz i = 0; i < s->requeue_n; i++)
-    if (s->requeue[i].offset < floor) floor = s->requeue[i].offset;
+  for (usz i = 0; i < s->requeue_n; i++) {
+    if (s->requeue[i].offset < floor) {
+      floor = s->requeue[i].offset;
+    }
+  }
   return floor;
 }
 

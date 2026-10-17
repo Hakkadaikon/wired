@@ -65,7 +65,9 @@ static void install_handshake_secret(
 int keysched_advance_handshake(
     keysched* st, wired_span ecdhe, wired_span transcript) {
   u8 hs[TLS_HASH_MAX];
-  if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
+  if (!ecdhe_ok(st->stage, ecdhe.n)) {
+    return 0;
+  }
   tls_handshake_secret_suite(st->suite, ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
@@ -74,7 +76,9 @@ int keysched_advance_handshake(
 int keysched_advance_handshake_psk(
     keysched* st, wired_span psk, wired_span ecdhe, wired_span transcript) {
   u8 hs[TLS_HASH_MAX];
-  if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
+  if (!ecdhe_ok(st->stage, ecdhe.n)) {
+    return 0;
+  }
   tls_handshake_secret_psk_suite(st->suite, psk.p, ecdhe.p, hs);
   install_handshake_secret(st, hs, transcript);
   return 1;
@@ -83,7 +87,9 @@ int keysched_advance_handshake_psk(
 int keysched_advance_master(
     keysched* st, const u8* transcript, usz transcript_len) {
   app_keys_in in;
-  if (st->stage != 1) return 0;
+  if (st->stage != 1) {
+    return 0;
+  }
   in.master     = st->master;
   in.transcript = wired_span_of(transcript, transcript_len);
   in.version    = st->version;
@@ -105,25 +111,33 @@ static int have(int stage, int which) {
 }
 
 int keysched_get(const keysched* st, int which, const initial_keys** out) {
-  if (!have(st->stage, which)) return 0;
+  if (!have(st->stage, which)) {
+    return 0;
+  }
   *out = &st->keys[which];
   return 1;
 }
 
 int keysched_client_ap_secret(const keysched* st, const u8** out) {
-  if (st->stage < 2) return 0;
+  if (st->stage < 2) {
+    return 0;
+  }
   *out = st->client_ap_secret;
   return 1;
 }
 
 int keysched_server_ap_secret(const keysched* st, const u8** out) {
-  if (st->stage < 2) return 0;
+  if (st->stage < 2) {
+    return 0;
+  }
   *out = st->server_ap_secret;
   return 1;
 }
 
 int keysched_exporter_secret(const keysched* st, const u8** out) {
-  if (st->stage < 2) return 0;
+  if (st->stage < 2) {
+    return 0;
+  }
   *out = st->exporter_secret;
   return 1;
 }

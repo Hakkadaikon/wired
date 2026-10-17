@@ -23,8 +23,9 @@ static int wt_ranges_touches_prev(
  * reaches further. */
 static void wt_ranges_extend_prev(
     wired_srvloop_wt_window* win, usz i, usz out) {
-  if (win->range_hi[i] > win->range_hi[out - 1])
+  if (win->range_hi[i] > win->range_hi[out - 1]) {
     win->range_hi[out - 1] = win->range_hi[i];
+  }
 }
 
 static void wt_ranges_coalesce(wired_srvloop_wt_window* win) {
@@ -57,8 +58,11 @@ void srvloop_wt_window_recompute_frontier(wired_srvloop_wt_window* win) {
  * frontier needs, since every closer range sorts and coalesces first. */
 static usz wt_range_farthest(const wired_srvloop_wt_window* win) {
   usz far = 0;
-  for (usz i = 1; i < win->range_n; i++)
-    if (win->range_lo[i] > win->range_lo[far]) far = i;
+  for (usz i = 1; i < win->range_n; i++) {
+    if (win->range_lo[i] > win->range_lo[far]) {
+      far = i;
+    }
+  }
   return far;
 }
 
@@ -81,7 +85,9 @@ static void wt_range_evict_farthest(wired_srvloop_wt_window* win) {
  * re-recorded even on retransmission, so delivered_len/MAX_STREAM_DATA
  * stopped advancing for that stream permanently. */
 static void wt_range_append(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
-  if (win->range_n >= WIRED_SRVLOOP_WT_MAX_RANGES) wt_range_evict_farthest(win);
+  if (win->range_n >= WIRED_SRVLOOP_WT_MAX_RANGES) {
+    wt_range_evict_farthest(win);
+  }
   win->range_lo[win->range_n] = lo;
   win->range_hi[win->range_n] = hi;
   win->range_n++;
@@ -89,9 +95,10 @@ static void wt_range_append(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
 
 void srvloop_wt_window_insert(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
   int m = srvloop_wt_range_find_mergeable(win, lo, hi);
-  if (m >= 0)
+  if (m >= 0) {
     srvloop_wt_range_merge_into(win, (usz)m, lo, hi);
-  else
+  } else {
     wt_range_append(win, lo, hi);
+  }
   srvloop_wt_window_recompute_frontier(win);
 }

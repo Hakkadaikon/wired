@@ -15,7 +15,9 @@ static void srvrun_send_wt_stream_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, usz i) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_wt_stream_reset(c, i, &ob)) return;
+  if (!srvrun_seal_wt_stream_reset(c, i, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream RESET sent\n");
 }
 
@@ -24,8 +26,9 @@ static void srvrun_send_wt_stream_reset(
  * slots were already freed at latch time (wired_server_wt_stream_reset),
  * so only the wire bytes remain to send. */
 void srvrun_drain_wt_stream_reset(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < c->wt_stream_reset_n; i++)
+  for (usz i = 0; i < c->wt_stream_reset_n; i++) {
     srvrun_send_wt_stream_reset(cfg, c, i);
+  }
   c->wt_stream_reset_n = 0;
 }
 
@@ -54,7 +57,9 @@ static int wt_reset_uni_matches(
 static int wt_reset_bidi_session(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
-    if (!srvrun_wt_reset_bidi_matches(slot, stream_id)) continue;
+    if (!srvrun_wt_reset_bidi_matches(slot, stream_id)) {
+      continue;
+    }
     srvrun_wt_bidi_slot_free(c, slot);
     return slot->wt_session_slot;
   }
@@ -65,7 +70,9 @@ static int wt_reset_bidi_session(srvrun_conn* c, u64 stream_id) {
 static int wt_reset_uni_session(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
-    if (!wt_reset_uni_matches(slot, stream_id)) continue;
+    if (!wt_reset_uni_matches(slot, stream_id)) {
+      continue;
+    }
     srvrun_wt_uni_slot_free(c, slot);
     return slot->wt_session_slot;
   }
@@ -80,7 +87,9 @@ static int wt_reset_uni_session(srvrun_conn* c, u64 stream_id) {
  * plain HTTP/3 request stream's own reset, out of WebTransport's scope). */
 static int wt_reset_session_slot(srvrun_conn* c, u64 stream_id) {
   int sidx = wt_reset_bidi_session(c, stream_id);
-  if (sidx >= 0) return sidx;
+  if (sidx >= 0) {
+    return sidx;
+  }
   return wt_reset_uni_session(c, stream_id);
 }
 
@@ -101,7 +110,9 @@ void srvrun_deliver_wt_reset(
   u32 app_code = 0;
   int mapped =
       rawq_reset_code_in(srvrun_conn_is_raw(c), e->error_code, &app_code);
-  if (!cfg->wt_on_stream_reset) return;
+  if (!cfg->wt_on_stream_reset) {
+    return;
+  }
   cfg->wt_on_stream_reset(
       cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx), e->stream_id, mapped,
       app_code);
@@ -120,7 +131,9 @@ void srvrun_deliver_wt_reset(
 static void srvrun_deliver_one_wt_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
   int sidx = wt_reset_session_slot(c, e->stream_id);
-  if (sidx >= 0) srvrun_deliver_wt_reset(cfg, c, sidx, e);
+  if (sidx >= 0) {
+    srvrun_deliver_wt_reset(cfg, c, sidx, e);
+  }
 }
 
 /* Entries actually stored this step (peer_reset_n counts past the queue). */
@@ -131,8 +144,9 @@ usz srvrun_peer_resets_stored(const srvrun_conn* c) {
 
 void srvrun_deliver_wt_reset_if_owned(const srvrun_cfg* cfg, srvrun_conn* c) {
   usz n = srvrun_peer_resets_stored(c);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     srvrun_deliver_one_wt_reset(cfg, c, &c->l.peer_resets[i]);
+  }
 }
 
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation

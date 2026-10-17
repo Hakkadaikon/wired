@@ -23,7 +23,9 @@ void moqtrun_upf_answer(
   wired_moqtrun_peer* dp;
   wired_moqtrun_req*  q = moqtrun_upf_req(hub, f, &dp);
   f->answered           = 1;
-  if (!q) return;
+  if (!q) {
+    return;
+  }
   wired_moqtrun_req* saved = dp->req;
   dp->req                  = q;
   q->live                  = 0;
@@ -38,8 +40,9 @@ void moqtrun_upf_unanswered_refuse(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqctl_request_error e = {0};
   e.error_code           = MOQCTL_ERR_INTERNAL_ERROR;
-  if (moqtrun_upf_unanswered(f))
+  if (moqtrun_upf_unanswered(f)) {
     moqtrun_upf_answer(hub, f, moqtrun_upf_say_err, &e);
+  }
 }
 
 /* REQUEST_ERROR e for f's FETCH (draft-22 3.2.4: Objects may precede it,
@@ -78,7 +81,9 @@ void moqtrun_upf_failed(
  * whole -- not expected while a leg runs, guarded all the same). */
 void moqtrun_upf_fail(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io, u64 code) {
-  if (!f->in_use) return;
+  if (!f->in_use) {
+    return;
+  }
   moqtrun_upf_drop(hub, f, io);
   moqtrun_upf_failed(hub, f, code, 1);
 }
@@ -88,7 +93,9 @@ void moqtrun_upf_fail(
 /* Delivery order (draft-22 3.2.1): ascending Locations, or Groups
  * descending with Objects ascending within a Group. */
 static int moqtrun_fetch_before(moqctl_loc a, moqctl_loc b, int desc) {
-  if (!desc || a.group == b.group) return moqctl_loc_less(a, b);
+  if (!desc || a.group == b.group) {
+    return moqctl_loc_less(a, b);
+  }
   return a.group > b.group;
 }
 

@@ -38,7 +38,9 @@ static int moqtrun_upf_send_item(
 
 /* pre appended to the n bytes staged in relay_scratch; 0 if it overflows. */
 static int moqtrun_upf_append(wired_moqt_hub* hub, usz* n, wired_span pre) {
-  if (*n + pre.n > sizeof hub->relay_scratch) return 0;
+  if (*n + pre.n > sizeof hub->relay_scratch) {
+    return 0;
+  }
   bytes_memcpy(hub->relay_scratch + *n, pre.p, pre.n);
   *n += pre.n;
   return 1;
@@ -71,8 +73,9 @@ static int moqtrun_upf_write(
   usz          n   = 0;
   moqtrun_upf_obj_of(&d, o, &seq);
   if (!moqtrun_upf_encode(hub, &d, &seq, pre, &n) ||
-      !moqtrun_upf_send_item(hub, f, n))
+      !moqtrun_upf_send_item(hub, f, n)) {
     return 0;
+  }
   f->seq         = seq;
   f->up_last     = moqtrun_upf_loc(o);
   f->has_up_last = 1;

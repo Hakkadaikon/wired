@@ -62,7 +62,9 @@ static int is_namref(wired_span buf) {
 }
 
 usz qpack_literal_namref_head(wired_span buf, qpack_nameref* r) {
-  if (!is_namref(buf)) return 0;
+  if (!is_namref(buf)) {
+    return 0;
+  }
   r->never     = flag(buf.p[0], QPACK_NAMREF_N);
   r->is_static = flag(buf.p[0], QPACK_NAMREF_T);
   return qpack_int_decode(buf, 4, &r->index);
@@ -77,10 +79,13 @@ usz qpack_literal_namref_decode(
 static usz litname_name_encode(wired_mspan buf, int never, wired_span name) {
   qpack_pfx pfx = {3, QPACK_LITNAME | bit(never, QPACK_LITNAME_N)};
   usz       off = qpack_int_encode(buf, pfx, name.n);
-  if (off == 0) return 0;
-  if (!bytes_put(
-          wired_mspan_of(buf.p, buf.n), &off, wired_span_of(name.p, name.n)))
+  if (off == 0) {
     return 0;
+  }
+  if (!bytes_put(
+          wired_mspan_of(buf.p, buf.n), &off, wired_span_of(name.p, name.n))) {
+    return 0;
+  }
   return off;
 }
 
@@ -99,10 +104,13 @@ static int is_litname(wired_span buf) {
 /* H=0: copy the name octets into nm. Returns 1 ok, 0 on overflow. */
 static int name_raw(wired_span oct, wired_obuf* nm) {
   usz off = 0;
-  if (oct.n > nm->cap) return 0;
-  if (!bytes_take(
-          wired_span_of(oct.p, oct.n), &off, wired_mspan_of(nm->p, oct.n)))
+  if (oct.n > nm->cap) {
     return 0;
+  }
+  if (!bytes_take(
+          wired_span_of(oct.p, oct.n), &off, wired_mspan_of(nm->p, oct.n))) {
+    return 0;
+  }
   nm->len = oct.n;
   return 1;
 }
@@ -123,14 +131,20 @@ static int litname_bounds(usz off, u64 len, usz n) {
 static usz litname_name_decode(wired_span buf, int huff, wired_obuf* nm) {
   u64 len;
   usz off = qpack_int_decode(buf, 3, &len);
-  if (!litname_bounds(off, len, buf.n)) return 0;
-  if (!name_octets(wired_span_of(buf.p + off, (usz)len), huff, nm)) return 0;
+  if (!litname_bounds(off, len, buf.n)) {
+    return 0;
+  }
+  if (!name_octets(wired_span_of(buf.p + off, (usz)len), huff, nm)) {
+    return 0;
+  }
   return off + (usz)len;
 }
 
 usz qpack_literal_name_decode(wired_span buf, int* never, qpack_fieldbuf* out) {
   usz off;
-  if (!is_litname(buf)) return 0;
+  if (!is_litname(buf)) {
+    return 0;
+  }
   *never = flag(buf.p[0], QPACK_LITNAME_N);
   off = litname_name_decode(buf, flag(buf.p[0], QPACK_LITNAME_H), &out->name);
   return decode_value(buf, off, &out->value);
@@ -162,7 +176,9 @@ static int is_postbaseref(wired_span buf) {
 }
 
 usz qpack_literal_postbase_head(wired_span buf, qpack_postbaseref* r) {
-  if (!is_postbaseref(buf)) return 0;
+  if (!is_postbaseref(buf)) {
+    return 0;
+  }
   r->never = flag(buf.p[0], QPACK_POSTBASEREF_N);
   return qpack_int_decode(buf, 3, &r->index);
 }

@@ -9,7 +9,9 @@ static usz srvrun_abort_req(
  * slot and the bidi credit it held go back (srvrun_grant_streams). 1 if a
  * live slot was freed, 0 if it already was. */
 static usz srvrun_abort_release(srvrun_conn* c, u8 i) {
-  if (!c->l.streams[i].in_use) return 0;
+  if (!c->l.streams[i].in_use) {
+    return 0;
+  }
   wired_srvloop_slot_release(&c->l, c->l.streams[i].stream_id);
   return 1;
 }
@@ -38,10 +40,11 @@ static usz srvrun_abort_req(
 void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   usz          freed = 0;
-  for (usz i = 0; i < c->l.incomplete_n; i++)
+  for (usz i = 0; i < c->l.incomplete_n; i++) {
     freed += srvrun_abort_req(
         ctx, c, c->l.incomplete_slots[i],
         srvrun_incomplete_code(c, c->l.incomplete_slots[i]));
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -54,9 +57,10 @@ void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
 void srvrun_abort_frame_unexpected_reqs(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   usz          freed = 0;
-  for (usz i = 0; i < c->l.frame_unexpected_n; i++)
+  for (usz i = 0; i < c->l.frame_unexpected_n; i++) {
     freed += srvrun_abort_req(
         ctx, c, c->l.frame_unexpected_slots[i], H3_FRAME_UNEXPECTED);
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -67,7 +71,9 @@ void srvrun_abort_frame_unexpected_reqs(const srvrun_step_ctx* ctx, int slot) {
  * connection had legitimately re-claimed it -- two live responses then
  * share one row and both transmit whatever was written last. */
 void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
-  if (r->bigbuf_row < 0) return;
+  if (r->bigbuf_row < 0) {
+    return;
+  }
   wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
   r->bigbuf_row = -1;
 }

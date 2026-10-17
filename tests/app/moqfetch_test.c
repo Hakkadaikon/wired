@@ -23,13 +23,17 @@ static wired_span moqfetch_t_body(const u8* msg, usz n, u64 want_type) {
 
 static void moqfetch_t_same(const u8* out, usz n, wired_span want) {
   CHECK(n == want.n);
-  for (usz i = 0; i < n && i < want.n; i++) CHECK(out[i] == want.p[i]);
+  for (usz i = 0; i < n && i < want.n; i++) {
+    CHECK(out[i] == want.p[i]);
+  }
 }
 
 static int moqfetch_t_reencode(const moqfetch_fetch* m, wired_span want) {
   u8  out[MOQCTL_MAX_MSG_LEN];
   usz n = 0;
-  if (!moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, m)) return 0;
+  if (!moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, m)) {
+    return 0;
+  }
   moqfetch_t_same(out, n, want);
   return 1;
 }
@@ -106,11 +110,14 @@ static void moqfetch_t_mismatch(const u8* msg, usz msg_len) {
   usz            n = msg_len - 3;
   u8             extra[32];
   moqfetch_fetch m;
-  for (usz cut = 0; cut < n; cut++)
+  for (usz cut = 0; cut < n; cut++) {
     CHECK(
         moqfetch_fetch_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
         MOQCTL_VIOLATION);
-  for (usz i = 0; i < n; i++) extra[i] = b[i];
+  }
+  for (usz i = 0; i < n; i++) {
+    extra[i] = b[i];
+  }
   extra[n] = 0;
   CHECK(
       moqfetch_fetch_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
@@ -206,10 +213,11 @@ static void test_moqfetch_ok_reject(void) {
   static const u8 fwd[]   = {0x00, 0x01, 0x01, 0x01, 0x10, 0x01};
   const u8*       b       = g_moqt_ctl_fetch_ok_basic + 3;
   moqfetch_ok     m;
-  for (usz cut = 0; cut < G_MOQT_CTL_FETCH_OK_BASIC_MSG_LEN; cut++)
+  for (usz cut = 0; cut < G_MOQT_CTL_FETCH_OK_BASIC_MSG_LEN; cut++) {
     CHECK(
         moqfetch_ok_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
         MOQCTL_VIOLATION);
+  }
   CHECK(
       moqfetch_ok_take(MOQVER_D19, wired_span_of(props, sizeof props), &m) ==
       MOQCTL_OK);
@@ -258,13 +266,15 @@ static usz moqfetch_t_stream(
   usz          n = 0;
   CHECK(moqfetch_hdr_take(in, &off, &rid) == MOQCTL_OK);
   CHECK(rid == want_rid);
-  while (k < cap && moqfetch_obj_take(in, &off, &seq, &objs[k]) == MOQCTL_OK)
+  while (k < cap && moqfetch_obj_take(in, &off, &seq, &objs[k]) == MOQCTL_OK) {
     k++;
+  }
   CHECK(off == len);
   CHECK(moqfetch_hdr_put(wired_mspan_of(out, sizeof out), &n, rid));
-  for (usz i = 0; i < k; i++)
+  for (usz i = 0; i < k; i++) {
     CHECK(
         moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &enc, &objs[i]));
+  }
   moqfetch_t_same(out, n, in);
   return k;
 }
@@ -275,7 +285,9 @@ static void test_moqfetch_stream_golden(void) {
       g_moqt_data_fetch_stream_basic, G_MOQT_DATA_FETCH_STREAM_BASIC_LEN, 0, o,
       4);
   CHECK(k == 2);
-  if (k != 2) return;
+  if (k != 2) {
+    return;
+  }
   CHECK(o[0].group == 5 && o[0].object == 0);
   CHECK(o[0].has_subgroup && o[0].subgroup == 0);
   CHECK(o[0].priority == 0x80);
@@ -294,7 +306,9 @@ static void test_moqfetch_stream_end_of_range(void) {
       g_moqt_data_fetch_stream_end_of_range,
       G_MOQT_DATA_FETCH_STREAM_END_OF_RANGE_LEN, 1, o, 4);
   CHECK(k == 3);
-  if (k != 3) return;
+  if (k != 3) {
+    return;
+  }
   CHECK(o[0].flags == MOQFETCH_EOR_NONEXISTENT);
   CHECK(o[0].group == 2 && o[0].object == 3);
   CHECK(!o[0].has_subgroup && o[0].payload.n == 0);
@@ -328,7 +342,9 @@ static void test_moqfetch_eor_timed_out(void) {
   n                 = 0;
   CHECK(moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &seq, &o));
   CHECK(n == sizeof wire);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == wire[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == wire[i]);
+  }
 }
 
 /* Runs one Object decode from a fresh (or given) sequence. */
@@ -479,7 +495,9 @@ static void test_moqfetch_obj_put_reject(void) {
 static int moqfetch_t_frame(const u8* msg, usz n, moqfetch_fetch* m) {
   wired_span body = moqfetch_t_body(msg, n, MOQFETCH_T_FETCH);
   int        r    = moqfetch_fetch_take(MOQVER_D19, body, m);
-  if (r == MOQCTL_OK) CHECK(moqfetch_t_reencode(m, body));
+  if (r == MOQCTL_OK) {
+    CHECK(moqfetch_t_reencode(m, body));
+  }
   return r;
 }
 
@@ -564,10 +582,14 @@ static void moqfetch_t_ftn(usz ns_len, int want) {
   body[n++] = 0x01; /* Standalone */
   body[n++] = 0x01; /* one namespace field */
   CHECK(moqvi_put(m, &n, ns_len));
-  for (usz i = 0; i < ns_len; i++) body[n++] = 'n';
+  for (usz i = 0; i < ns_len; i++) {
+    body[n++] = 'n';
+  }
   body[n++] = 0x01;
   body[n++] = 'b';
-  for (usz i = 0; i < 5; i++) body[n++] = 0x00; /* Start, End, no params */
+  for (usz i = 0; i < 5; i++) {
+    body[n++] = 0x00; /* Start, End, no params */
+  }
   CHECK(moqfetch_fetch_take(MOQVER_D19, wired_span_of(body, n), &f) == want);
 }
 
@@ -585,11 +607,15 @@ static void test_moqfetch_max_length(void) {
   wired_mspan     m      = wired_mspan_of(msg, sizeof msg);
   usz             n      = 0;
   moqfetch_fetch  f;
-  for (; n < sizeof head; n++) msg[n] = head[n];
+  for (; n < sizeof head; n++) {
+    msg[n] = head[n];
+  }
   CHECK(moqvi_put(m, &n, sizeof msg - n - 3));
   msg[n++] = 0x03; /* USE_VALUE */
   msg[n++] = 0x00; /* Token Type */
-  for (; n < sizeof msg; n++) msg[n] = (u8)n;
+  for (; n < sizeof msg; n++) {
+    msg[n] = (u8)n;
+  }
   CHECK(moqfetch_t_frame(msg, sizeof msg, &f) == MOQCTL_OK);
   CHECK(f.params.n == 1);
   CHECK(f.params.items[0].token.value.n == MOQCTL_MAX_MSG_LEN - 18);
@@ -709,9 +735,10 @@ static void moqfetch_t_roundtrip(moqfetch_obj* objs, usz k, int desc) {
   usz          off = 0;
   enc.descending   = desc;
   dec.descending   = desc;
-  for (usz i = 0; i < k; i++)
+  for (usz i = 0; i < k; i++) {
     CHECK(
         moqfetch_obj_put(wired_mspan_of(out, sizeof out), &n, &enc, &objs[i]));
+  }
   for (usz i = 0; i < k; i++) {
     moqfetch_obj d;
     CHECK(
@@ -722,8 +749,9 @@ static void moqfetch_t_roundtrip(moqfetch_obj* objs, usz k, int desc) {
 }
 
 static void test_moqfetch_obj_roundtrip(void) {
-  for (usz i = 0; i < sizeof moqfetch_t_pay; i++)
+  for (usz i = 0; i < sizeof moqfetch_t_pay; i++) {
     moqfetch_t_pay[i] = (u8)(i * 7 + 1);
+  }
   moqfetch_t_asc[7].has_props = 1;
   moqfetch_t_asc[7].props     = wired_span_of(moqfetch_t_props, 2);
   moqfetch_t_asc[8].has_props = 1;
@@ -815,7 +843,9 @@ static void test_moqfetch_req19_standalone_roundtrip(void) {
     usz bn = 0;
     CHECK(moqfetch_fetch_encode(wired_mspan_of(back, sizeof back), &bn, &src));
     CHECK(bn == n);
-    for (usz i = 0; i < n; i++) CHECK(out[i] == back[i]);
+    for (usz i = 0; i < n; i++) {
+      CHECK(out[i] == back[i]);
+    }
   }
 
   /* End Location Object == 0 -> whole group, inclusive end of that group
@@ -910,7 +940,9 @@ static void test_moqfetch_req22_with_filter_roundtrip(void) {
   CHECK(m.range.ek == MOQCTL_REK_UNBOUNDED);
   CHECK(moqfetch_req22_encode(wired_mspan_of(out, sizeof out), &on, &m));
   CHECK(on == n);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == body[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == body[i]);
+  }
 }
 
 /* SS9.20.9: "If omitted from FETCH ..., the fetch ... is unfiltered" ->
@@ -1038,7 +1070,9 @@ static void test_moqfetch_fill_roundtrip(void) {
   CHECK(back.has_timeout == 1 && back.timeout_ms == 5000);
   CHECK(moqfetch_fill_put(wired_mspan_of(out2, sizeof out2), &n2, &back));
   CHECK(n2 == n);
-  for (usz i = 0; i < n; i++) CHECK(out2[i] == out[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out2[i] == out[i]);
+  }
 }
 
 /* SS9.20.9 inside FILL_PARAMETERS: an unfiltered fill is SENT as

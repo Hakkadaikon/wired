@@ -1,7 +1,9 @@
 #include "test.h"
 
 static void set_key(u8 key[NEWTOKEN_KEY]) {
-  for (usz i = 0; i < NEWTOKEN_KEY; i++) key[i] = (u8)(i + 1);
+  for (usz i = 0; i < NEWTOKEN_KEY; i++) {
+    key[i] = (u8)(i + 1);
+  }
 }
 
 /* RFC 9000 8.1.3: a freshly made token verifies for the address and time it
@@ -33,8 +35,11 @@ static void test_newtoken_distinct_per_call(void) {
   CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t1) == 1);
   CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t2) == 1);
   int differs = 0;
-  for (usz i = 0; i < NEWTOKEN_WIRE_LEN; i++)
-    if (t1[i] != t2[i]) differs = 1;
+  for (usz i = 0; i < NEWTOKEN_WIRE_LEN; i++) {
+    if (t1[i] != t2[i]) {
+      differs = 1;
+    }
+  }
   CHECK(differs == 1);
 }
 

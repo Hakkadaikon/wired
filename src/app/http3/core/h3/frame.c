@@ -7,31 +7,42 @@ static usz get_one(wired_span buf, u64 want_type, u64* v);
 
 /* Write Type then Length (two varints). Returns 1 ok, 0 on overflow. */
 int h3frame_put_head(h3frame_wcur* w, u64 type, u64 len) {
-  if (!varint_put(wired_mspan_of(w->buf, w->cap), &w->off, type)) return 0;
+  if (!varint_put(wired_mspan_of(w->buf, w->cap), &w->off, type)) {
+    return 0;
+  }
   return varint_put(wired_mspan_of(w->buf, w->cap), &w->off, len);
 }
 
 usz h3_frame_put(wired_obuf* out, u64 type, wired_span payload) {
   h3frame_wcur w = {out->p, out->cap, 0};
-  if (!h3frame_put_head(&w, type, payload.n)) return 0;
+  if (!h3frame_put_head(&w, type, payload.n)) {
+    return 0;
+  }
   if (!bytes_put(
           wired_mspan_of(w.buf, w.cap), &w.off,
-          wired_span_of(payload.p, payload.n)))
+          wired_span_of(payload.p, payload.n))) {
     return 0;
+  }
   out->len = w.off;
   return w.off;
 }
 
 /* Read Type then Length (two varints). Returns 1 ok, 0 if truncated. */
 int h3frame_get_head(h3frame_rcur* r, u64* type, u64* len) {
-  if (!varint_take(wired_span_of(r->buf, r->n), &r->off, type)) return 0;
+  if (!varint_take(wired_span_of(r->buf, r->n), &r->off, type)) {
+    return 0;
+  }
   return varint_take(wired_span_of(r->buf, r->n), &r->off, len);
 }
 
 usz h3_frame_get(wired_span buf, h3_frame* f) {
   h3frame_rcur r = {buf.p, buf.n, 0};
-  if (!h3frame_get_head(&r, &f->type, &f->payload_len)) return 0;
-  if (r.off + f->payload_len > buf.n) return 0;
+  if (!h3frame_get_head(&r, &f->type, &f->payload_len)) {
+    return 0;
+  }
+  if (r.off + f->payload_len > buf.n) {
+    return 0;
+  }
   f->payload = buf.p + r.off;
   return r.off + f->payload_len;
 }
@@ -40,8 +51,12 @@ usz h3_frame_get(wired_span buf, h3_frame* f) {
  * GOAWAY, MAX_PUSH_ID). Writes type, length, then the value varint. */
 static usz put_one(wired_obuf* out, u64 type, u64 v) {
   h3frame_wcur w = {out->p, out->cap, 0};
-  if (!h3frame_put_head(&w, type, varint_len(v))) return 0;
-  if (!varint_put(wired_mspan_of(w.buf, w.cap), &w.off, v)) return 0;
+  if (!h3frame_put_head(&w, type, varint_len(v))) {
+    return 0;
+  }
+  if (!varint_put(wired_mspan_of(w.buf, w.cap), &w.off, v)) {
+    return 0;
+  }
   out->len = w.off;
   return w.off;
 }
@@ -50,7 +65,9 @@ static usz put_one(wired_obuf* out, u64 type, u64 v) {
  * *len holds the Length field. Returns 1 ok, 0 bad. */
 static int get_one_head(h3frame_rcur* r, u64 want_type, u64* len) {
   u64 type;
-  if (!h3frame_get_head(r, &type, len)) return 0;
+  if (!h3frame_get_head(r, &type, len)) {
+    return 0;
+  }
   return type == want_type;
 }
 
@@ -58,7 +75,9 @@ static int get_one_head(h3frame_rcur* r, u64 want_type, u64* len) {
  * On success advances r->off past the value. Returns 1 ok, 0 bad. */
 static int get_one_body(h3frame_rcur* r, u64 len, u64* v) {
   usz vstart = r->off;
-  if (!varint_take(wired_span_of(r->buf, r->n), &r->off, v)) return 0;
+  if (!varint_take(wired_span_of(r->buf, r->n), &r->off, v)) {
+    return 0;
+  }
   return r->off - vstart == len;
 }
 
@@ -67,8 +86,12 @@ static int get_one_body(h3frame_rcur* r, u64 len, u64* v) {
 static usz get_one(wired_span buf, u64 want_type, u64* v) {
   h3frame_rcur r = {buf.p, buf.n, 0};
   u64          len;
-  if (!get_one_head(&r, want_type, &len)) return 0;
-  if (!get_one_body(&r, len, v)) return 0;
+  if (!get_one_head(&r, want_type, &len)) {
+    return 0;
+  }
+  if (!get_one_body(&r, len, v)) {
+    return 0;
+  }
   return r.off;
 }
 

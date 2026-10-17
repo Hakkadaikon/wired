@@ -50,9 +50,13 @@ void wired_srvrun_env_wt_usage(
 void srvrun_qlog_sent(const srvrun_cfg* cfg, const srvrun_conn* c, usz bytes) {
   char rec[128];
   usz  n;
-  if (!cfg->qlog_path) return;
+  if (!cfg->qlog_path) {
+    return;
+  }
   n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, c->qlog_slot, 0, bytes);
-  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  if (n) {
+    wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  }
 }
 
 /* qlog packet_received (time not tracked at this layer; bytes is the whole
@@ -62,10 +66,14 @@ void srvrun_qlog_recv(
     const srvrun_cfg* cfg, const srvrun_conn* c, u64 pn, usz bytes) {
   char rec[128];
   usz  n;
-  if (!cfg->qlog_path) return;
+  if (!cfg->qlog_path) {
+    return;
+  }
   n = wired_qlogevent_packet_received(
       rec, sizeof rec, 0, c->qlog_slot, pn, bytes);
-  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  if (n) {
+    wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  }
 }
 
 /* qlog stream_frame_sent (RFC 9000 19.8): every STREAM frame this connection
@@ -80,12 +88,16 @@ void srvrun_qlog_stream_sent(
   char                            rec[192];
   usz                             n;
   wired_qlogevent_stream_frame_in in;
-  if (!cfg->qlog_path) return;
+  if (!cfg->qlog_path) {
+    return;
+  }
   in = (wired_qlogevent_stream_frame_in){
       f->stream_id, f->offset, f->length, f->fin, pn};
   n = wired_qlogevent_stream_frame(
       rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_sent", &in);
-  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  if (n) {
+    wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
+  }
 }
 
 srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l) {
@@ -117,6 +129,7 @@ void srvrun_note_recv(
     const srvrun_rxmark*   m,
     const srvrun_conn*     c,
     usz                    bytes) {
-  if (srvrun_rx_advanced(m, &c->l))
+  if (srvrun_rx_advanced(m, &c->l)) {
     srvrun_qlog_recv(ctx->cfg, c, srvrun_rx_pn(m, &c->l), bytes);
+  }
 }

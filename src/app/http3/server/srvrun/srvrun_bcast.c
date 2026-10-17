@@ -22,9 +22,11 @@ static int srvrun_is_broadcast_target(const srvrun_conn* c) {
  * its own next step, same as any other queued datagram; this only makes
  * every eligible connection's slot hold the same payload at once. */
 void srvrun_broadcast_to_all(srvrun_state* st, wired_span data) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_is_broadcast_target(&st->conns[i]))
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (srvrun_is_broadcast_target(&st->conns[i])) {
       srvrun_queue_datagram(&st->conns[i], data);
+    }
+  }
 }
 
 srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
@@ -38,8 +40,11 @@ static i64 srvrun_bcast_tid(int i) {
 
 /* Registry slot index for tid (> 0), or -1 if tid is not registered. */
 int srvrun_bcast_find(i64 tid) {
-  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
-    if (srvrun_bcast_tid(i) == tid) return i;
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++) {
+    if (srvrun_bcast_tid(i) == tid) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -54,8 +59,11 @@ static int srvrun_bcast_try_claim(int i) {
 
 /* The first slot this thread claimed, -1 when the registry is full. */
 static int srvrun_bcast_claim(void) {
-  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
-    if (srvrun_bcast_try_claim(i)) return i;
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++) {
+    if (srvrun_bcast_try_claim(i)) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -67,9 +75,13 @@ void wired_srvrun_broadcast_register(
   i64                 tid = wired_thread_tid();
   int                 slot;
   srvrun_bcast_entry* e;
-  if (srvrun_bcast_find(tid) >= 0) return; /* already registered */
+  if (srvrun_bcast_find(tid) >= 0) {
+    return; /* already registered */
+  }
   slot = srvrun_bcast_claim();
-  if (slot < 0) return; /* registry full, drop the registration */
+  if (slot < 0) {
+    return; /* registry full, drop the registration */
+  }
   e          = &g_srvrun_bcast[slot];
   e->index   = index;
   e->n_total = n_total;
@@ -85,7 +97,9 @@ void wired_srvrun_broadcast_register(
 
 void wired_srvrun_broadcast_unregister(void) {
   int slot = srvrun_bcast_find(wired_thread_tid());
-  if (slot < 0) return;
+  if (slot < 0) {
+    return;
+  }
   __atomic_store_n(&g_srvrun_bcast[slot].tid, 0, __ATOMIC_RELEASE);
   __atomic_sub_fetch(&g_srvrun_bcast_n, 1, __ATOMIC_ACQ_REL);
 }
@@ -105,7 +119,9 @@ static int srvrun_bcast_mesh_target(int t, int my_slot) {
  * lets the loop skip exactly the caller's own registry entry. */
 static void srvrun_bcast_mesh_push(int my_slot, int my_index, wired_span data) {
   for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
-    if (!srvrun_bcast_mesh_target(t, my_slot)) continue;
+    if (!srvrun_bcast_mesh_target(t, my_slot)) {
+      continue;
+    }
     wired_srvinbox_push(
         &__atomic_load_n(
             &g_srvrun_bcast[t].inbox_row, __ATOMIC_RELAXED)[my_index],
@@ -132,6 +148,8 @@ int srvrun_broadcast_direct(wired_span data) {
 int srvrun_broadcast_registered(int slot, wired_span data) {
   srvrun_bcast_entry* e = &g_srvrun_bcast[slot];
   srvrun_broadcast_to_all(&(srvrun_state){e->env->table, e->env->conns}, data);
-  if (e->n_total > 1) srvrun_bcast_mesh_push(slot, e->index, data);
+  if (e->n_total > 1) {
+    srvrun_bcast_mesh_push(slot, e->index, data);
+  }
   return 1;
 }

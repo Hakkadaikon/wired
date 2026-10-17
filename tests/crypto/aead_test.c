@@ -34,8 +34,12 @@ static void test_chapoly_rfc(void) {
 
   chapoly_ctx c = {key, nonce, {aad, al}};
   chapoly_seal(&c, wired_span_of(pt, n), ct);
-  for (usz i = 0; i < n; i++) CHECK(ct[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(ct[n + i] == want_tag[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(ct[i] == want_ct[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ct[n + i] == want_tag[i]);
+  }
 }
 
 static void test_chapoly_open(void) {
@@ -48,13 +52,21 @@ static void test_chapoly_open(void) {
   chapoly_ctx c = {key, nonce, {(const u8*)"aad", 3}};
   chapoly_seal(&c, wired_span_of(pt, 20), ct);
   CHECK(chapoly_open(&c, wired_span_of(ct, 36), dec));
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
   /* tamper the tag: reject, leave dec untouched */
-  for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
-  for (usz i = 0; i < 36; i++) bad[i] = ct[i];
+  for (usz i = 0; i < 20; i++) {
+    dec[i] = 0xCC;
+  }
+  for (usz i = 0; i < 36; i++) {
+    bad[i] = ct[i];
+  }
   bad[20 + 7] ^= 0x80;
   CHECK(chapoly_open(&c, wired_span_of(bad, 36), dec) == 0);
-  for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
+  for (usz i = 0; i < 20; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
 }
 
 /* Pinning: chapoly_open must reject a tampered tag and never write plaintext
@@ -70,7 +82,9 @@ static void test_aead_tamper_rejects(void) {
   chapoly_seal(&c, wired_span_of(pt, 16), ct);
   ct[31] ^= 0x01;
   CHECK(chapoly_open(&c, wired_span_of(ct, 32), dec) == 0);
-  for (usz i = 0; i < 16; i++) CHECK(dec[i] == 0xBB);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(dec[i] == 0xBB);
+  }
 }
 
 void test_aead(void) {

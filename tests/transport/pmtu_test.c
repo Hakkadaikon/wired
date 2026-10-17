@@ -63,7 +63,9 @@ static void test_pmtu_max_probes_above_validated_caps_ceiling_only(void) {
   pmtu_init(&p);
   usz probe = pmtu_next_probe(&p, 0);
   int i;
-  for (i = 0; i <= PMTU_MAX_PROBES; i++) pmtu_on_loss(&p, probe);
+  for (i = 0; i <= PMTU_MAX_PROBES; i++) {
+    pmtu_on_loss(&p, probe);
+  }
   CHECK(p.ceiling == probe);
   CHECK(p.validated == PMTU_BASE);
   CHECK(pmtu_next_probe(&p, 0) == 0); /* ceiling reached -> search ends */
@@ -84,7 +86,9 @@ static void test_pmtu_black_hole_lowers_validated(void) {
   CHECK(grown > PMTU_BASE);
 
   int i;
-  for (i = 0; i <= PMTU_MAX_PROBES; i++) pmtu_on_loss(&p, grown);
+  for (i = 0; i <= PMTU_MAX_PROBES; i++) {
+    pmtu_on_loss(&p, grown);
+  }
   CHECK(p.validated == PMTU_BASE); /* black hole: PLPMTU drops back */
   CHECK(p.ceiling == grown);       /* the failed size still bounds the search */
 }

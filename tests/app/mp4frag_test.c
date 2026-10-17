@@ -8,8 +8,12 @@
 static usz mp4frag_test_box(u8* buf, usz* off, const char* type, usz n) {
   usz at = *off;
   be_put_be32(buf + at, (u32)(8 + n));
-  for (usz i = 0; i < 4; i++) buf[at + 4 + i] = (u8)type[i];
-  for (usz i = 0; i < n; i++) buf[at + 8 + i] = (u8)(0xA0 + i);
+  for (usz i = 0; i < 4; i++) {
+    buf[at + 4 + i] = (u8)type[i];
+  }
+  for (usz i = 0; i < n; i++) {
+    buf[at + 8 + i] = (u8)(0xA0 + i);
+  }
   *off = at + 8 + n;
   return at;
 }

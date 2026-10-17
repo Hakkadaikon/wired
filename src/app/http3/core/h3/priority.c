@@ -13,7 +13,9 @@ int h3_priority_higher(u8 urg_a, u8 urg_b) { return urg_a < urg_b; }
 int h3_urgency_valid(u8 u) { return u <= H3_URGENCY_MAX; }
 
 void h3_priority_set_urgency(h3_priority* p, u8 digit) {
-  if (digit < '0' || digit > '7') return;
+  if (digit < '0' || digit > '7') {
+    return;
+  }
   p->urgency = (u8)(digit - '0');
 }
 
@@ -32,5 +34,7 @@ void h3_priority_set_incremental(h3_priority* p, wired_span v, usz i) {
     p->incremental = 1;
     return;
   }
-  if (sfv_has_flag(v, i)) p->incremental = (u8)(v.p[i + 3] == '1');
+  if (sfv_has_flag(v, i)) {
+    p->incremental = (u8)(v.p[i + 3] == '1');
+  }
 }

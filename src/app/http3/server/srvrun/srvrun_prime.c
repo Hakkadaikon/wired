@@ -44,7 +44,9 @@ static void srvrun_prime_streaming(
     usz                         round_len,
     u64                         base_shift) {
   r->streaming = more != 0;
-  if (!more) return;
+  if (!more) {
+    return;
+  }
   wired_sendsess_set_base_offset(&r->sess, base_shift);
   r->stream_off = base_shift + round_len;
   srvrun_copy_stream_req(r, req);
@@ -59,7 +61,9 @@ static void srvrun_prime_streaming(
  * for more rounds, else just this (only) round's own body. Split out so
  * srvrun_arm_round0's own branch count stays at the CCN gate. */
 static u64 srvrun_round0_total_len(int more, u64 total_size, usz body_len) {
-  if (more) return total_size;
+  if (more) {
+    return total_size;
+  }
   return body_len;
 }
 
@@ -85,13 +89,16 @@ void srvrun_arm_round0(
     u64                        base_shift) {
   const wired_obuf* body = x->body;
   u64 total_len = srvrun_round0_total_len(x->more, x->total_size, body->len);
-  if (c->s.sdrv.alpn == SALPN_HQ)
+  if (c->s.sdrv.alpn == SALPN_HQ) {
     srvrun_arm_hq09_resp(c, r, st, body);
-  else
+  } else {
     srvrun_arm_h3_resp(ctx, c, slot, r, st, x, total_len);
+  }
   wired_sendsess_set_base_offset(&r->sess, base_shift);
   srvrun_prime_streaming(r, &c->l.req, x->more, body->len, base_shift);
-  if (r->streaming) srvrun_resp_ring_init(ctx, c, slot, r);
+  if (r->streaming) {
+    srvrun_resp_ring_init(ctx, c, slot, r);
+  }
 }
 
 /* Run the app handler's round 0 into x, settling a wired_http_handler's
@@ -101,7 +108,9 @@ void srvrun_call_round0(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_http_exchange* x) {
   x->req = &c->l.req;
   srvrun_call_handler(ctx, x);
-  if (ctx->cfg->http) srvrun_http_settle(x);
+  if (ctx->cfg->http) {
+    srvrun_http_settle(x);
+  }
 }
 
 /* RFC 9110 10.1.1: send the 100-continue interim ahead of round 0 when the
@@ -112,6 +121,8 @@ void srvrun_call_round0(
  * one with (srvrun_send_continue's underlying seal simply fails and this
  * still returns 0 -- the final response then starts at offset 0 as usual). */
 u64 srvrun_maybe_send_continue(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!c->l.req.expect_continue) return 0;
+  if (!c->l.req.expect_continue) {
+    return 0;
+  }
   return srvrun_send_continue(cfg, c, c->l.req_stream_id);
 }

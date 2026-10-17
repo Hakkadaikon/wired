@@ -18,7 +18,9 @@ static void test_hp_mask(void) {
   hp_mask(&a, sample, mask);
   u8 want[5];
   uhx("437b9aec36", want, 5);
-  for (usz i = 0; i < 5; i++) CHECK(mask[i] == want[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(mask[i] == want[i]);
+  }
 }
 
 /* Applying the mask twice restores the original (XOR is self-inverse). */
@@ -31,7 +33,9 @@ static void test_hp_apply_roundtrip(void) {
   CHECK(byte0 != b0_orig); /* protection changed the low bits */
   hp_apply(mask, &f);
   CHECK(byte0 == b0_orig);
-  for (usz i = 0; i < 4; i++) CHECK(pn[i] == pn_orig[i]);
+  for (usz i = 0; i < 4; i++) {
+    CHECK(pn[i] == pn_orig[i]);
+  }
 }
 
 void test_hp(void) {

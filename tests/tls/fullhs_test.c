@@ -16,7 +16,9 @@ static usz fullhs_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i);
+  }
   out[off + 34] = 0;
   out[off + 35] = 0x13;
   out[off + 36] = 0x01;
@@ -38,7 +40,9 @@ static usz fullhs_build_sh(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);

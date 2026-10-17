@@ -13,7 +13,9 @@ static u8 gcmx86_rand(void) {
 }
 
 static void gcmx86_fill(u8* p, usz n) {
-  for (usz i = 0; i < n; i++) p[i] = gcmx86_rand();
+  for (usz i = 0; i < n; i++) {
+    p[i] = gcmx86_rand();
+  }
 }
 
 /* Parse hex of arbitrary even length into out; returns byte count. */
@@ -57,13 +59,19 @@ static void test_gcmx86_nist(void) {
   CHECK(
       gcmx86_seal(&x, iv, wired_span_of(aad, al), wired_span_of(pt, pl), out) ==
       pl + 16);
-  for (usz i = 0; i < pl; i++) CHECK(out[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(out[pl + i] == want_tag[i]);
+  for (usz i = 0; i < pl; i++) {
+    CHECK(out[i] == want_ct[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(out[pl + i] == want_tag[i]);
+  }
   CHECK(
       gcmx86_open(
           &x, iv, wired_span_of(aad, al), wired_span_of(out, pl + 16), dec) ==
       pl);
-  for (usz i = 0; i < pl; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < pl; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
 }
 
 /* One differential case: scalar seal == x86 seal byte-for-byte,
@@ -87,23 +95,33 @@ static void gcmx86_diff_one(usz n, usz an) {
       gcmx86_seal(
           &x, nonce, wired_span_of(aad, an), wired_span_of(pt, n), got) ==
       n + 16);
-  for (usz i = 0; i < n + 16; i++) CHECK(got[i] == want[i]);
+  for (usz i = 0; i < n + 16; i++) {
+    CHECK(got[i] == want[i]);
+  }
 
-  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < n; i++) {
+    dec[i] = 0xCC;
+  }
   CHECK(
       gcmx86_open(
           &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       n);
-  for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == pt[i]);
+  }
 
   /* flip one tag bit: must reject and leave the output untouched */
-  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  for (usz i = 0; i < n; i++) {
+    dec[i] = 0xCC;
+  }
   got[n] ^= 1;
   CHECK(
       gcmx86_open(
           &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       0);
-  for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
 }
 
 /* Lengths cover empty, sub-block, exact block, block+1, multi-block, the
@@ -115,13 +133,17 @@ static void test_gcmx86_diff(void) {
                              64, 65, 129, 255, 1129, 2048};
   static const usz aads[] = {0, 13, 20};
   gcmx86_rng              = 0x77697265; /* deterministic across runs */
-  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++)
-    for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++)
+  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++) {
+    for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++) {
       gcmx86_diff_one(lens[i], aads[j]);
+    }
+  }
 }
 
 void test_gcmx86(void) {
-  if (!gcmx86_supported()) return; /* no AES-NI: nothing to run */
+  if (!gcmx86_supported()) {
+    return; /* no AES-NI: nothing to run */
+  }
   test_gcmx86_align();
   test_gcmx86_nist();
   test_gcmx86_diff();

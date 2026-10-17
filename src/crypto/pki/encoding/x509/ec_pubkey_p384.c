@@ -12,18 +12,24 @@ static int  is_uncompressed521(wired_span key);
 
 /* The 98-byte P-384 uncompressed form: 0x00 0x04 || X48 || Y48. */
 static int is_uncompressed384(wired_span key) {
-  if (key.n != 98) return 0;
+  if (key.n != 98) {
+    return 0;
+  }
   return key.p[0] == 0x00 && key.p[1] == 0x04;
 }
 
 /* The 50-byte P-384 compressed form: 0x00 || tag || X48. */
 static int is_compressed384(wired_span key) {
-  if (key.n != 50) return 0;
+  if (key.n != 50) {
+    return 0;
+  }
   return key.p[0] == 0x00 && x509_is_compress_tag(key.p[1]);
 }
 
 static void copy48(u8 dst[48], const u8* src) {
-  for (usz i = 0; i < 48; i++) dst[i] = src[i];
+  for (usz i = 0; i < 48; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* FIPS 186-4 D.1.2.4 P-384 curve parameter b (a = -3). Duplicated from
@@ -54,7 +60,9 @@ static void p384_sqrt(p384_fe r, const p384_fe a) {
   r[0] = 1;
   r[1] = r[2] = r[3] = r[4] = r[5] = 0;
   for (usz bit = 0; bit < 384; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1) fp384_mul_p(r, r, base);
+    if ((e[bit / 64] >> (bit & 63)) & 1) {
+      fp384_mul_p(r, r, base);
+    }
     fp384_sqr_p(base, base);
   }
 }
@@ -63,7 +71,9 @@ static void p384_y_from_x(p384_fe y, const p384_fe x, int want_odd) {
   p384_fe rhs;
   p384_curve_rhs(rhs, x);
   p384_sqrt(y, rhs);
-  if ((int)(y[0] & 1) != want_odd) fp384_sub(y, (fp384ab){p384_p, y}, p384_p);
+  if ((int)(y[0] & 1) != want_odd) {
+    fp384_sub(y, (fp384ab){p384_p, y}, p384_p);
+  }
 }
 
 static int p384_on_curve(const p384_fe x, const p384_fe y) {
@@ -78,9 +88,13 @@ static int decompress_p384(wired_span key, u8 x[48], u8 y[48]) {
   int     want_odd = key.p[1] == 0x03;
   copy48(x, key.p + 2);
   fp384_from_be(xf, x);
-  if (!fp384_lt(xf, p384_p)) return 0;
+  if (!fp384_lt(xf, p384_p)) {
+    return 0;
+  }
   p384_y_from_x(yf, xf, want_odd);
-  if (!p384_on_curve(xf, yf)) return 0;
+  if (!p384_on_curve(xf, yf)) {
+    return 0;
+  }
   fp384_to_be(y, yf);
   return 1;
 }
@@ -91,18 +105,24 @@ int x509_ec_pubkey384(wired_span spki_key, u8 x[48], u8 y[48]) {
     copy48(y, spki_key.p + 50);
     return 1;
   }
-  if (is_compressed384(spki_key)) return decompress_p384(spki_key, x, y);
+  if (is_compressed384(spki_key)) {
+    return decompress_p384(spki_key, x, y);
+  }
   return 0;
 }
 
 /* The 134-byte P-521 uncompressed form: 0x00 0x04 || X66 || Y66. */
 static int is_uncompressed521(wired_span key) {
-  if (key.n != 134) return 0;
+  if (key.n != 134) {
+    return 0;
+  }
   return key.p[0] == 0x00 && key.p[1] == 0x04;
 }
 
 int x509_ec_pubkey521(wired_span spki_key, u8 x[66], u8 y[66]) {
-  if (!is_uncompressed521(spki_key)) return 0;
+  if (!is_uncompressed521(spki_key)) {
+    return 0;
+  }
   bytes_memcpy(x, spki_key.p + 2, 66);
   bytes_memcpy(y, spki_key.p + 68, 66);
   return 1;

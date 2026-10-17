@@ -14,7 +14,9 @@ void srvrun_send_kept(
     const char*       msg) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_kept(c, pl, pln, &ob)) return;
+  if (!srvrun_seal_kept(c, pl, pln, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), msg);
 }
 
@@ -39,14 +41,19 @@ void srvrun_rst_send(
   e->pn         = c->l.tx_pn;
   e->due_ms =
       now_ms + srvrun_pto_deadline_ms(c, SRVRUN_PTO_MAX - (int)e->tries);
-  if (!srvrun_seal_ctl(c, e->pl, e->pln, &ob)) return;
+  if (!srvrun_seal_ctl(c, e->pl, e->pln, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "control frame resent\n");
 }
 
 /* A free entry on c, or 0 when all are awaiting ACKs. */
 static srvrun_rst* srvrun_rst_free(srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (!c->rst[i].pln) return &c->rst[i];
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (!c->rst[i].pln) {
+      return &c->rst[i];
+    }
+  }
   return 0;
 }
 
@@ -61,7 +68,9 @@ void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
    * (SRVRUN_RST_RETX), and every caller's payload fits pl[]; only more than
    * that many aborts unACKed within one RTT would find it full and go out
    * once. Raise SRVRUN_RST_RETX if that is ever seen. */
-  if (!e || !srvrun_rst_fits(pln)) return;
+  if (!e || !srvrun_rst_fits(pln)) {
+    return;
+  }
   bytes_memcpy(e->pl, pl, pln);
   e->pln    = (u8)pln;
   e->tries  = SRVRUN_PTO_MAX;
@@ -96,6 +105,9 @@ static int srvrun_rst_acked(const srvrun_rst* e, u64 lo, u64 hi) {
 
 /* RFC 9000 13.3: an ACK naming a kept packet ends its resends. */
 void srvrun_rst_ack(srvrun_conn* c, u64 lo, u64 hi) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (srvrun_rst_acked(&c->rst[i], lo, hi)) c->rst[i].pln = 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (srvrun_rst_acked(&c->rst[i], lo, hi)) {
+      c->rst[i].pln = 0;
+    }
+  }
 }

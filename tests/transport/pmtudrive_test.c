@@ -39,7 +39,9 @@ static void test_pmtudrive_probe_frame_is_ping_plus_padding_only(void) {
   usz n = build_ping_padding(buf, sizeof(buf), 32);
   CHECK(n == 32);
   CHECK(buf[0] == FRAME_PING);
-  for (usz i = 1; i < n; i++) CHECK(buf[i] == FRAME_PADDING);
+  for (usz i = 1; i < n; i++) {
+    CHECK(buf[i] == FRAME_PADDING);
+  }
 }
 
 /* Only one probe outstanding at a time (RFC 8899 5.1.3 PROBED_SIZE): a

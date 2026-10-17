@@ -16,15 +16,20 @@
  * over CCN 3. */
 static int srvpin_popcount_bytes(const u8* p, usz n) {
   int cnt = 0;
-  for (usz i = 0; i < n; i++)
-    for (u8 b = p[i]; b; b >>= 1) cnt += (int)(b & 1);
+  for (usz i = 0; i < n; i++) {
+    for (u8 b = p[i]; b; b >>= 1) {
+      cnt += (int)(b & 1);
+    }
+  }
   return cnt;
 }
 
 int wired_srvpin_cpu_count(void) {
   u8  mask[WIRED_SRVPIN_MASK_BYTES] = {0};
   i64 r = wired_arch_sched_getaffinity(0, WIRED_SRVPIN_MASK_BYTES, mask);
-  if (r < 0) return (int)r;
+  if (r < 0) {
+    return (int)r;
+  }
   return srvpin_popcount_bytes(mask, WIRED_SRVPIN_MASK_BYTES);
 }
 
@@ -35,7 +40,9 @@ static int srvpin_cpu_index_valid(int cpu_index) {
 
 int wired_srvpin_bind_self(int cpu_index) {
   u64 mask;
-  if (!srvpin_cpu_index_valid(cpu_index)) return -1;
+  if (!srvpin_cpu_index_valid(cpu_index)) {
+    return -1;
+  }
   mask = (u64)1 << cpu_index;
   return (int)wired_arch_sched_setaffinity(
       0, WIRED_SRVPIN_SETMASK_BYTES, &mask);

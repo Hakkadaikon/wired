@@ -4,7 +4,9 @@
 
 /* Close one fd unconditionally; a negative fd is simply not closed. */
 static void srvxdpbpf_close_fd(i64* fd) {
-  if (*fd >= 0) wired_arch_close(*fd);
+  if (*fd >= 0) {
+    wired_arch_close(*fd);
+  }
   *fd = -1;
 }
 
@@ -14,7 +16,9 @@ static i64 srvxdpbpf_load(wired_srvxdpbpf* b, u16 port) {
   u64 insns[XDPBPF_PROG_LEN];
   b->prog_fd = b->link_fd = -1;
   b->map_fd               = xdpbpf_map_create(WIRED_SRVXDPBPF_MAP_ENTRIES);
-  if (b->map_fd < 0) return b->map_fd;
+  if (b->map_fd < 0) {
+    return b->map_fd;
+  }
   xdpbpf_prog_build(insns, (i32)b->map_fd, port);
   b->prog_fd = xdpbpf_prog_load(insns, XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
   return b->prog_fd < 0 ? b->prog_fd : 0;
@@ -42,5 +46,7 @@ i64 wired_srvxdpbpf_register(wired_srvxdpbpf* b, u32 queue_id, u32 xsk_fd) {
 
 void wired_srvxdpbpf_close(wired_srvxdpbpf* b) {
   i64* fds[3] = {&b->link_fd, &b->prog_fd, &b->map_fd};
-  for (usz i = 0; i < 3; i++) srvxdpbpf_close_fd(fds[i]);
+  for (usz i = 0; i < 3; i++) {
+    srvxdpbpf_close_fd(fds[i]);
+  }
 }

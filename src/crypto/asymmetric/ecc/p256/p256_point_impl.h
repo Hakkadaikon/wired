@@ -53,7 +53,9 @@ static inline void p256pt_jac_cswap(jac* a, jac* b, u64 mask);
  * all-ones, unchanged if mask is 0. XOR-mask pattern, mirrors x25519.c's
  * fe_cswap (RFC 7748 5). CCN 1 (loop only, no branch). */
 static inline void fp_cmov(p256_fe r, const p256_fe a, u64 mask) {
-  for (usz i = 0; i < 4; i++) r[i] ^= mask & (r[i] ^ a[i]);
+  for (usz i = 0; i < 4; i++) {
+    r[i] ^= mask & (r[i] ^ a[i]);
+  }
 }
 
 /* Conditional move of a whole Jacobian point (X, Y, Z). CCN 1. */

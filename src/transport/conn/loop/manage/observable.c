@@ -8,7 +8,11 @@ static int long_only_field(int field_id) {
 }
 
 int observable_field(int field_id, int is_long) {
-  if (field_id == OBS_SPIN) return !is_long; /* short header only */
-  if (is_long) return long_only_field(field_id);
+  if (field_id == OBS_SPIN) {
+    return !is_long; /* short header only */
+  }
+  if (is_long) {
+    return long_only_field(field_id);
+  }
   return field_id == OBS_DCID; /* short: only the DCID is plaintext */
 }

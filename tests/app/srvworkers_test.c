@@ -73,8 +73,9 @@ static void sw_supervise_until_reaped(
   wired_srvboot_id     id  = {0};
   wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
-  for (int i = 0; i < 50 && t->pid[0] == pid; i++)
+  for (int i = 0; i < 50 && t->pid[0] == pid; i++) {
     srvworkers_supervise_once(t, 0, &id, h, obs, opt);
+  }
 }
 
 /* Test child body that crashes: a non-zero exit status. */
@@ -172,7 +173,9 @@ static void test_srvworkers_wait_blocks_until_child_exits(void) {
   }
   naps = g_srvworkers_naps;
   /* a stale SIGCHLD from an earlier test may end one sleep early */
-  for (int i = 0; i < 3 && got != pid; i++) got = srvworkers_wait(&status);
+  for (int i = 0; i < 3 && got != pid; i++) {
+    got = srvworkers_wait(&status);
+  }
   CHECK(got == pid);
   CHECK(g_srvworkers_naps == naps);
 }
@@ -335,8 +338,9 @@ static void sw_child_exit7(
 static i64 sw_wait_bounded(i64 pid) {
   i64 status = 0;
   for (int i = 0; i < 500; i++) {
-    if (wired_arch_wait4(pid, &status, 1 /* WNOHANG */, 0) == pid)
+    if (wired_arch_wait4(pid, &status, 1 /* WNOHANG */, 0) == pid) {
       return status & 0xffff;
+    }
     wired_arch_poll(0, 0, 10);
   }
   wired_arch_kill(pid, 9);
@@ -354,7 +358,9 @@ static void test_srvworkers_child_start_exits_when_parent_gone(void) {
 
   srvworkers_test_set_child_fn(sw_child_exit7);
   pid = wired_arch_fork();
-  if (pid == 0) srvworkers_child_start(0, 0, &id, h, obs, 0, -1);
+  if (pid == 0) {
+    srvworkers_child_start(0, 0, &id, h, obs, 0, -1);
+  }
   CHECK(sw_wait_bounded(pid) == 0);
   srvworkers_test_set_child_fn(0);
 }
@@ -378,7 +384,9 @@ static void sw_child_spin(
   (void)h;
   (void)obs;
   (void)worker_index;
-  for (int i = 0; i < 300; i++) wired_arch_poll(0, 0, 10);
+  for (int i = 0; i < 300; i++) {
+    wired_arch_poll(0, 0, 10);
+  }
   wired_arch_exit_group(5);
 }
 
@@ -414,9 +422,12 @@ static i64 sw_run_supervisor(int term) {
 
   wired_sigmask_block_shutdown();
   pid = wired_arch_fork();
-  if (pid == 0)
+  if (pid == 0) {
     wired_arch_exit_group(wired_srvworkers_run(0, &id, h, obs, &opt) ? 3 : 0);
-  if (term) wired_arch_kill(pid, SIGTERM);
+  }
+  if (term) {
+    wired_arch_kill(pid, SIGTERM);
+  }
   wired_sigmask_unblock_shutdown();
   return sw_wait_bounded(pid);
 }
@@ -445,7 +456,9 @@ static void sw_child_wait_term(
   (void)obs;
   (void)worker_index;
   wired_sigterm_install(sw_on_term);
-  for (int i = 0; i < 1000 && !sw_term_seen; i++) wired_arch_poll(0, 0, 10);
+  for (int i = 0; i < 1000 && !sw_term_seen; i++) {
+    wired_arch_poll(0, 0, 10);
+  }
 }
 
 /* TEST: SIGTERM to the supervisor does not kill it; it forwards SIGTERM to

@@ -16,15 +16,18 @@ static int moqtrun_upf_nt_askable(
 static wired_moqtrun_fetch* moqtrun_upf_reset_slot(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
   wired_moqtrun_fetch* d = moqtrun_upf_by_live_data(hub, s, sid);
-  if (!d) return moqtrun_upf_by_req(hub, s, sid);
+  if (!d) {
+    return moqtrun_upf_by_req(hub, s, sid);
+  }
   d->up_data_end = 1; /* nothing more comes on it: no STOP_SENDING */
   return d;
 }
 
 void moqtrun_upf_on_reset(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid) {
   wired_moqtrun_fetch* f = moqtrun_upf_reset_slot(hub, p->wt, sid);
-  if (f)
+  if (f) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+  }
 }
 
 /* Session s is closing: every leg to it ends now with no io toward it. A
@@ -33,21 +36,28 @@ void moqtrun_upf_on_reset(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid) {
  * INTERNAL_ERROR right after (moqtrun_fills_upstream_gone) instead. */
 static void moqtrun_upf_detach_one(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const wired_wt_session* s) {
-  if (f->up_wt == s) f->up_data_open = 0; /* s's stream ids end with it */
-  if (!moqtrun_upf_leg_to(f, s)) return;
+  if (f->up_wt == s) {
+    f->up_data_open = 0; /* s's stream ids end with it */
+  }
+  if (!moqtrun_upf_leg_to(f, s)) {
+    return;
+  }
   moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_NONE);
   moqtrun_upf_failed(hub, f, MOQCTL_ERR_INTERNAL_ERROR, 0);
 }
 
 void moqtrun_upf_detach(wired_moqt_hub* hub, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
     moqtrun_upf_detach_one(hub, &hub->fetches[i], s);
+  }
 }
 
 /* What f keeps is fed again: a payload the transport refused goes out
  * once it takes it (a torn head just waits on). */
 void moqtrun_upf_retry(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (hub->upf_owner != f) return;
+  if (hub->upf_owner != f) {
+    return;
+  }
   moqtrun_upf_feed(
       hub, moqtrun_find_by_wt(hub, f->up_wt), f, wired_span_of(hub->upf_buf, 0),
       f->up_data_end);
@@ -58,7 +68,9 @@ void moqtrun_upf_retry(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
  * it keeps is retried. 1 while f had a leg: the tick does nothing else
  * for it. */
 int moqtrun_upf_tick(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (!moqtrun_upf_live(f)) return 0;
+  if (!moqtrun_upf_live(f)) {
+    return 0;
+  }
   if (hub->live.last_now_ms >= f->up_deadline_ms) {
     f->up_tmo = 1;
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQTRUN_ERR_TIMEOUT);
@@ -102,6 +114,8 @@ u64 moqtrun_upf_nt_refusal(
     const wired_moqtrun_peer* p,
     const moqfetch_req*       m,
     moqtrun_key               k) {
-  if (!moqtrun_upf_nt_askable(hub, p, k)) return MOQCTL_ERR_DOES_NOT_EXIST;
+  if (!moqtrun_upf_nt_askable(hub, p, k)) {
+    return MOQCTL_ERR_DOES_NOT_EXIST;
+  }
   return moqtrun_upf_ft0(&m->params) ? MOQTRUN_ERR_TIMEOUT : MOQTRUN_REQ_ACCEPT;
 }

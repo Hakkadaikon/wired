@@ -24,7 +24,9 @@ static wired_span moqns_t_body(const u8* msg, usz n, u64 want_type) {
 
 static void moqns_t_same(const u8* out, usz n, wired_span want) {
   CHECK(n == want.n);
-  for (usz i = 0; i < n && i < want.n; i++) CHECK(out[i] == want.p[i]);
+  for (usz i = 0; i < n && i < want.n; i++) {
+    CHECK(out[i] == want.p[i]);
+  }
 }
 
 static void test_moqns_subscribe_golden(void) {
@@ -100,11 +102,14 @@ static void test_moqns_length_mismatch(void) {
   u8        extra[G_MOQT_CTL_PUBLISH_NAMESPACE_BASIC_MSG_LEN + 1];
   moqns_req m;
   moqctl_ns ns;
-  for (usz cut = 0; cut < n; cut++)
+  for (usz cut = 0; cut < n; cut++) {
     CHECK(
         moqns_publish_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
         MOQCTL_VIOLATION);
-  for (usz i = 0; i < n; i++) extra[i] = b[i];
+  }
+  for (usz i = 0; i < n; i++) {
+    extra[i] = b[i];
+  }
   extra[n] = 0;
   CHECK(
       moqns_publish_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
@@ -148,7 +153,9 @@ static void test_moqns_total_bound(void) {
   usz         n = 0;
   moqctl_ns   ns;
   wired_mspan m = wired_mspan_of(b, sizeof b);
-  for (usz i = 0; i < sizeof b; i++) b[i] = 'y';
+  for (usz i = 0; i < sizeof b; i++) {
+    b[i] = 'y';
+  }
   b[n++] = 2;
   CHECK(moqvi_put(m, &n, 4095));
   n += 4095;
@@ -261,8 +268,9 @@ static usz moqns_t_tuple_rt(const moqctl_ns* ns, u8* buf, usz cap) {
   buf[n] = 0xaa;
   CHECK(moqctl_ns_take(wired_span_of(buf, n + 1), &off, &d) == MOQCTL_OK);
   CHECK(off == n && d.n == ns->n);
-  for (usz i = 0; i < d.n && i < ns->n; i++)
+  for (usz i = 0; i < d.n && i < ns->n; i++) {
     CHECK(d.fields[i].n == ns->fields[i].n);
+  }
   return n;
 }
 
@@ -280,7 +288,9 @@ static void test_moqns_tuple_roundtrip(void) {
   CHECK(moqns_t_tuple_rt(&ns, buf, sizeof buf) == 3);
   CHECK(buf[0] == 0x01 && buf[1] == 0x01 && buf[2] == 'a');
   ns.n = MOQCTL_MAX_NS_FIELDS;
-  for (usz i = 0; i < ns.n; i++) ns.fields[i] = wired_span_of(a, 1);
+  for (usz i = 0; i < ns.n; i++) {
+    ns.fields[i] = wired_span_of(a, 1);
+  }
   CHECK(moqns_t_tuple_rt(&ns, buf, sizeof buf) == 1 + 32 * 2);
   ns.n         = 1;
   ns.fields[0] = wired_span_of(big, MOQCTL_MAX_FTN_LEN);

@@ -55,7 +55,9 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp     x;
   wired_srvxdp_cfg cfg = *a->xdp_cfg;
   cfg.queue_id         = (u32)a->index;
-  if (wired_srvxdp_open_shared(&x, &cfg, a->bpf) < 0) return;
+  if (wired_srvxdp_open_shared(&x, &cfg, a->bpf) < 0) {
+    return;
+  }
   srvthreads_arm_xdp_run(a, &x);
   wired_srvrun_env_init(a->env);
   wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row, a->env);
@@ -73,10 +75,11 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
 static void srvthreads_worker_main(void* argp) {
   srvthreads_worker_arg* a = (srvthreads_worker_arg*)argp;
   wired_srvpin_bind_self(a->core);
-  if (a->xdp_cfg)
+  if (a->xdp_cfg) {
     srvthreads_worker_serve_xdp(a);
-  else
+  } else {
     srvthreads_worker_serve_udp(a);
+  }
 }
 
 /* Test-only hook (srvworkers.c's g_srvworkers_child_fn precedent): substitute
@@ -119,9 +122,12 @@ wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
   usz sz   = sizeof(wired_srvinbox_ring) * (usz)n_cores * (usz)n_cores;
   i64 base = wired_arch_mmap(
       0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
-  if (base < 0) return 0;
-  for (i64 i = 0; i < (i64)n_cores * n_cores; i++)
+  if (base < 0) {
+    return 0;
+  }
+  for (i64 i = 0; i < (i64)n_cores * n_cores; i++) {
     wired_srvinbox_ring_init((wired_srvinbox_ring*)base + i);
+  }
   return (wired_srvinbox_ring*)base;
 }
 

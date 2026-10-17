@@ -36,7 +36,9 @@ static void test_shbuild_roundtrip(void) {
   CHECK(tls_parse_server_hello(wired_span_of(out, ob.len), got, &sh) == 1);
   CHECK(sh.cipher == 0x1303);
   CHECK(sh.version == 0x0304);
-  for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(got[i] == pub[i]);
+  }
 }
 
 /* A capacity too small for the message yields 0 and no output length. */

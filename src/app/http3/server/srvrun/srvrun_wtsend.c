@@ -7,8 +7,11 @@ static int srvrun_qenc_claim_and_arm(srvrun_conn* c, const u8* prefix, usz n);
  * (RFC 9000 18.2/19.10; MAX_STREAM_DATA later raises it via
  * srvrun_apply_stream_credit_update). 0 when every slot is busy. */
 srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (!c->wtsend[i].in_use) return srvrun_wtsend_take(&c->wtsend[i], credit);
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (!c->wtsend[i].in_use) {
+      return srvrun_wtsend_take(&c->wtsend[i], credit);
+    }
+  }
   return 0;
 }
 
@@ -37,10 +40,13 @@ u64 srvrun_peer_uni_limit(const srvrun_conn* c) {
  * mark into the connection's limit -- monotone, a stale lower raise never
  * lowers it (mirrors srvrun_apply_conn_credit_update's shape). */
 void srvrun_apply_uni_limit_update(srvrun_conn* c) {
-  if (!c->l.max_streams_uni_seen_flag) return;
+  if (!c->l.max_streams_uni_seen_flag) {
+    return;
+  }
   c->l.max_streams_uni_seen_flag = 0;
-  if (c->l.max_streams_uni_seen > c->peer_uni_stream_limit)
+  if (c->l.max_streams_uni_seen > c->peer_uni_stream_limit) {
     c->peer_uni_stream_limit = c->l.max_streams_uni_seen;
+  }
 }
 
 /* Server uni streams opened outside wt_uni_opened: HTTP/3's control (3) and
@@ -80,7 +86,9 @@ i64 srvrun_wtsend_arm_id(
   wired_sendsess_arm(&w->sess, src, payload.n, srvrun_mps(c));
   /* roundbuf epochs are rings (see srvrun_wtsend_stage_round); a view round
    * stays linear -- its bytes live in the app's storage, not roundbuf. */
-  if (!w->view_round) wired_sendq_set_ring(&w->sess.q, SRVRUN_WTSEND_BUF);
+  if (!w->view_round) {
+    wired_sendq_set_ring(&w->sess.q, SRVRUN_WTSEND_BUF);
+  }
   return (i64)id;
 }
 
@@ -90,8 +98,9 @@ i64 srvrun_wtsend_arm_id(
  * encoder-stream instructions (Insert/Duplicate/Set Capacity). */
 static usz srvrun_qenc_prefix(u8* out, usz cap) {
   usz off = 0;
-  if (!varint_put(wired_mspan_of(out, cap), &off, H3_STREAM_QPACK_ENCODER))
+  if (!varint_put(wired_mspan_of(out, cap), &off, H3_STREAM_QPACK_ENCODER)) {
     return 0;
+  }
   return off;
 }
 
@@ -112,7 +121,9 @@ static usz srvrun_qenc_prefix(u8* out, usz cap) {
 static int srvrun_qenc_claim_and_arm(srvrun_conn* c, const u8* prefix, usz n) {
   srvrun_wtsend* w =
       srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   w->append_open = 1;
   srvrun_wtsend_arm_id(c, w, SRVRUN_QENC_STREAM, wired_span_of(prefix, n));
   c->qenc_wtsend_slot   = (int)(w - c->wtsend);
@@ -126,8 +137,12 @@ static int srvrun_qenc_prefix_ok(usz n, usz cap) { return n != 0 && n <= cap; }
 void srvrun_open_qenc_stream(srvrun_conn* c) {
   u8  prefix[1];
   usz n = srvrun_qenc_prefix(prefix, sizeof prefix);
-  if (c->qenc_stream_opened) return;
-  if (!srvrun_qenc_prefix_ok(n, sizeof prefix)) return;
+  if (c->qenc_stream_opened) {
+    return;
+  }
+  if (!srvrun_qenc_prefix_ok(n, sizeof prefix)) {
+    return;
+  }
   srvrun_qenc_claim_and_arm(c, prefix, n);
 }
 

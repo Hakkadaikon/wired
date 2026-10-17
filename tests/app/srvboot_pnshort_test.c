@@ -235,7 +235,9 @@ static u8 pnshort_head[sizeof(neqo_ch_head_dg)];
 static u8 pnshort_tail[sizeof(neqo_ch_tail_dg)];
 
 static wired_mspan pnshort_copy(u8* dst, const u8* src, usz n) {
-  for (usz i = 0; i < n; i++) dst[i] = src[i];
+  for (usz i = 0; i < n; i++) {
+    dst[i] = src[i];
+  }
   return wired_mspan_of(dst, n);
 }
 

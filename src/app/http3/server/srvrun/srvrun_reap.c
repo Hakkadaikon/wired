@@ -11,7 +11,9 @@ static void srvrun_loss_span_add(
  * the entries it would count. */
 static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
   c->ecn_newly += hits;
-  if (newest_ms > c->ecn_sent_ms) c->ecn_sent_ms = newest_ms;
+  if (newest_ms > c->ecn_sent_ms) {
+    c->ecn_sent_ms = newest_ms;
+  }
 }
 
 static void srvrun_cc_range(
@@ -56,22 +58,29 @@ usz srvrun_reap_losses(
       sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
-  for (usz i = 0; i < n; i++) srvrun_loss_span_add(span, &lost[i]);
+  for (usz i = 0; i < n; i++) {
+    srvrun_loss_span_add(span, &lost[i]);
+  }
   return n;
 }
 
 /* Ack/cc accounting for one range on every in-use wtsend session. Loss
  * reaping deliberately does NOT happen here -- see srvrun_feed_acks. */
 void srvrun_ack_range_wt(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
       srvrun_cc_range(c, &c->wtsend[i].sess, lo, hi, now_ms);
+    }
+  }
 }
 
 /* The resp[] half of the ACK-range broadcast, mirroring the wtsend loop. */
 void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use) srvrun_cc_range(c, &c->resp[i].sess, lo, hi, now_ms);
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
+      srvrun_cc_range(c, &c->resp[i].sess, lo, hi, now_ms);
+    }
+  }
 }
 
 /* One loss pass over every in-use wtsend session against the connection's
@@ -80,9 +89,11 @@ void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
 usz srvrun_reap_losses_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
   usz lost = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
       lost += srvrun_reap_losses(
           cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms, span);
+    }
+  }
   return lost;
 }

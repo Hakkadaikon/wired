@@ -19,6 +19,8 @@ int crecv_complete_message(const crecv* s) {
 }
 
 int crecv_complete_message_at(const crecv* s, usz off) {
-  if (s->received_to < off + 4) return 0;
+  if (s->received_to < off + 4) {
+    return 0;
+  }
   return off + msg_total(s->buf + off) <= s->received_to;
 }

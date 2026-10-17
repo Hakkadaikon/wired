@@ -5,7 +5,9 @@ static usz mk_crypto_msg(u8* out, u8 offset, const u8* data, u8 len) {
   out[i++] = 0x06;
   out[i++] = offset;
   out[i++] = len;
-  for (u8 j = 0; j < len; j++) out[i++] = data[j];
+  for (u8 j = 0; j < len; j++) {
+    out[i++] = data[j];
+  }
   return i;
 }
 
@@ -21,7 +23,9 @@ static void test_crecv_message_finished(void) {
   fin[1] = 0;
   fin[2] = 0;
   fin[3] = 32;
-  for (usz i = 0; i < 32; i++) fin[4 + i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    fin[4 + i] = (u8)i;
+  }
 
   crecv_init(&s);
   fn = mk_crypto_msg(f, 0, fin, sizeof fin);
@@ -42,7 +46,9 @@ static void test_crecv_message_split(void) {
   fin[1] = 0;
   fin[2] = 0;
   fin[3] = 32;
-  for (usz i = 0; i < 32; i++) fin[4 + i] = 0xaa;
+  for (usz i = 0; i < 32; i++) {
+    fin[4 + i] = 0xaa;
+  }
 
   crecv_init(&s);
   fn = mk_crypto_msg(f, 0, fin, 20); /* first 20 bytes */
@@ -96,12 +102,16 @@ static void test_crecv_message_at_offset(void) {
   m1[1] = 0;
   m1[2] = 0;
   m1[3] = 8;
-  for (usz i = 0; i < 8; i++) m1[4 + i] = 0x11;
+  for (usz i = 0; i < 8; i++) {
+    m1[4 + i] = 0x11;
+  }
   m2[0] = 0x01; /* ClientHello2: type 1, body 16 */
   m2[1] = 0;
   m2[2] = 0;
   m2[3] = 16;
-  for (usz i = 0; i < 16; i++) m2[4 + i] = 0x22;
+  for (usz i = 0; i < 16; i++) {
+    m2[4 + i] = 0x22;
+  }
 
   crecv_init(&s);
   fn = mk_crypto_msg(f, 0, m1, sizeof m1);

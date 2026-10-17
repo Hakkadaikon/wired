@@ -42,10 +42,14 @@ wired_span moqtrun_head_startobj_cut(
   usz            off = 0;
   moqdata_subhdr h;
   *bare = 0;
-  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) return wire;
+  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) {
+    return wire;
+  }
   moqdata_objseq seq = moqdata_objseq_of(h.type);
   usz            cut = moqtrun_startobj_cut(s, wire, off, &seq, group);
-  if (cut == off) return wire;
+  if (cut == off) {
+    return wire;
+  }
   *bare = cut == wire.n;
   usz n = moqtrun_late_hdr_of(h, sg, hub->relay_scratch);
   n += moqtrun_reframe_to(
@@ -64,7 +68,9 @@ static void moqtrun_relay_object_one(
     u64                  sg) {
   int        bare;
   wired_span w = moqtrun_head_startobj_cut(hub, s, wire, group, sg, &bare);
-  if (bare) return;
+  if (bare) {
+    return;
+  }
   moqtrun_relay_to_one(
       hub, s,
       moqtrun_alias_splice(
@@ -80,9 +86,11 @@ void moqtrun_relay_object(
   moqtrun_subgroup_scan(wire, 0, &seq, &group);
   moqtrun_stream_keys(wire, track->default_pub_prio, &sg, &prio);
   moqtss_prime(hub, track, group); /* SSTS (moqtssts_run.c) */
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets_stream(&track->subs[i], group, sg, prio))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtrun_sub_gets_stream(&track->subs[i], group, sg, prio)) {
       moqtrun_relay_object_one(hub, track, &track->subs[i], wire, group, sg);
+    }
+  }
 }
 
 static int moqtrun_relay_matches(
@@ -92,9 +100,11 @@ static int moqtrun_relay_matches(
 
 static wired_moqtrun_relay* moqtrun_track_relay_by_stream(
     wired_moqtrun_track* track, u64 pub_stream_id) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
-    if (moqtrun_relay_matches(&track->relays[r], pub_stream_id))
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (moqtrun_relay_matches(&track->relays[r], pub_stream_id)) {
       return &track->relays[r];
+    }
+  }
   return 0;
 }
 

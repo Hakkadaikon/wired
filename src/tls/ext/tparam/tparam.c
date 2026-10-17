@@ -8,7 +8,9 @@ usz tparam_put_int(wired_obuf* out, u64 id, u64 value) {
   usz vlen = varint_len(value);
   usz need = varint_len(id) + 1 + vlen;
   usz off;
-  if (vlen == 0 || need > out->cap) return 0;
+  if (vlen == 0 || need > out->cap) {
+    return 0;
+  }
   off = varint_encode(out->p, id);
   off += varint_encode(out->p + off, vlen);
   off += varint_encode(out->p + off, value);
@@ -26,24 +28,33 @@ typedef struct {
  * within buf.n. */
 static int take_value(wired_span buf, usz* off, tparam_hdr* hdr) {
   usz before = *off;
-  if (hdr->vlen > buf.n - *off) return 0;
-  if (!varint_take(
-          wired_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
+  if (hdr->vlen > buf.n - *off) {
     return 0;
+  }
+  if (!varint_take(
+          wired_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value)) {
+    return 0;
+  }
   return *off - before == (usz)hdr->vlen;
 }
 
 /* Read the id and length varints, advancing *off. Returns 1 ok, 0 bad. */
 static int take_id_len(wired_span buf, usz* off, tparam_hdr* hdr) {
-  if (!varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) {
+    return 0;
+  }
   return varint_take(wired_span_of(buf.p, buf.n), off, &hdr->vlen);
 }
 
 usz tparam_get_int(wired_span buf, u64* id, u64* value) {
   usz        off = 0;
   tparam_hdr hdr;
-  if (!take_id_len(buf, &off, &hdr)) return 0;
-  if (!take_value(buf, &off, &hdr)) return 0;
+  if (!take_id_len(buf, &off, &hdr)) {
+    return 0;
+  }
+  if (!take_value(buf, &off, &hdr)) {
+    return 0;
+  }
   *id    = hdr.id;
   *value = hdr.value;
   return off;
@@ -58,8 +69,11 @@ usz tparam_get_int(wired_span buf, u64* id, u64* value) {
 
 /* True if id is already present in seen[0..count). */
 static int id_seen(const u64* seen, usz count, u64 id) {
-  for (usz i = 0; i < count; i++)
-    if (seen[i] == id) return 1;
+  for (usz i = 0; i < count; i++) {
+    if (seen[i] == id) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -80,7 +94,9 @@ static usz seen_step(tparam_seen* s, wired_span buf, usz off) {
   u64        id;
   wired_span val;
   usz r = tparam_get_blob(wired_span_of(buf.p + off, buf.n - off), &id, &val);
-  if (r == 0 || !can_record(s, id)) return 0;
+  if (r == 0 || !can_record(s, id)) {
+    return 0;
+  }
   s->seen[s->count++] = id;
   return r;
 }
@@ -90,7 +106,9 @@ int tparam_no_duplicates(wired_span buf) {
   usz         off = 0;
   while (off < buf.n) {
     usz r = seen_step(&s, buf, off);
-    if (r == 0) return 0;
+    if (r == 0) {
+      return 0;
+    }
     off += r;
   }
   return 1;

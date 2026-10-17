@@ -67,7 +67,9 @@ static void test_name_mismatch_fails(void) {
 static void test_tampered_signature_fails(void) {
   castore s;
   u8      leaf[sizeof(castore_leaf_der)];
-  for (usz i = 0; i < sizeof(leaf); i++) leaf[i] = castore_leaf_der[i];
+  for (usz i = 0; i < sizeof(leaf); i++) {
+    leaf[i] = castore_leaf_der[i];
+  }
   leaf[sizeof(leaf) - 1] ^= 0xff; /* last signature octet */
   wired_span certs[2] = {PV_SPAN(leaf), PV_SPAN(castore_root_der)};
   store_with_root(&s);
@@ -392,8 +394,9 @@ static usz pvc_extensions(usz n_ext, wired_obuf* out) {
   u8           list[64], seq[80];
   wired_obuf   so = obuf_of(seq, sizeof(seq));
   p256cert_enc e  = {list, sizeof(list), 0, 1};
-  for (usz i = 0; i < n_ext; i++)
+  for (usz i = 0; i < n_ext; i++) {
     p256cert_put_pre(&e, wired_span_of(pvc_ext_ca, sizeof(pvc_ext_ca)));
+  }
   p256cert_enc w = p256cert_loaded(seq, p256cert_wrap(&e, DER_SEQUENCE, &so));
   return p256cert_wrap(&w, 0xa3, out);
 }
@@ -436,7 +439,9 @@ static wired_span pvc_cert(u8 serial, usz n_ext, u8* out, usz cap) {
   CHECK(p256sign_sign(pvc_priv, hash, r, s) == 1);
   CHECK(ecdsasig_encode(r, s, sig, sizeof(sig), &sn) == 1);
   bits[0] = 0x00;
-  for (usz i = 0; i < sn; i++) bits[1 + i] = sig[i];
+  for (usz i = 0; i < sn; i++) {
+    bits[1 + i] = sig[i];
+  }
   p256cert_enc b = p256cert_loaded(bits, 1 + sn);
   p256cert_put_pre(&e, wired_span_of(tbs, to.len));
   p256cert_put_pre(&e, wired_span_of(alg, p256cert_sigalg(&ao)));
@@ -453,8 +458,9 @@ static u8 pvc_der[CASTORE_PATH_MAX_CERTS + 2][PVC_CERT_CAP];
 static void pvc_chain(castore* s, wired_span* certs, usz n) {
   castore_init(s, pv_roots, 4);
   CHECK(castore_add(s, pvc_cert(0, 1, pvc_der[0], PVC_CERT_CAP)) == 1);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     certs[i] = pvc_cert((u8)(i + 1), 1, pvc_der[i + 1], PVC_CERT_CAP);
+  }
 }
 
 /* A path of exactly CASTORE_PATH_MAX_CERTS self-issued CA certs is within

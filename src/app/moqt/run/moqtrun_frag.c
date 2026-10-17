@@ -13,11 +13,12 @@ static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
 }
 
 static i32 moqtrun_frag_take_free(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
-  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) {
     if (moqtrun_frag_slot_free(hub, i)) {
       hub->frag_owner[i] = r;
       return (i32)i;
     }
+  }
   return -1;
 }
 
@@ -26,8 +27,12 @@ static i32 moqtrun_frag_take_free(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
  * is exhausted. */
 static i32 moqtrun_frag_slot_for(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n) {
-  if (n >= WIRED_MOQTRUN_RELAY_FRAG_MAX) return -1;
-  if (relay->frag_idx >= 0) return relay->frag_idx;
+  if (n >= WIRED_MOQTRUN_RELAY_FRAG_MAX) {
+    return -1;
+  }
+  if (relay->frag_idx >= 0) {
+    return relay->frag_idx;
+  }
   return moqtrun_frag_take_free(hub, relay);
 }
 
@@ -46,14 +51,17 @@ void moqtrun_frag_release(wired_moqtrun_relay* relay) {
  * An unused entry is skipped: its fields may never have been written, and
  * its buffer already counts as free (moqtrun_frag_slot_free). */
 void moqtrun_frag_release_unless_poisoned(wired_moqtrun_relay* relay) {
-  if (relay->in_use && !moqtrun_relay_poisoned(relay))
+  if (relay->in_use && !moqtrun_relay_poisoned(relay)) {
     moqtrun_frag_release(relay);
+  }
 }
 
 /* An n-byte tail with no buffer to wait in is dropped: counted, and the
  * relay poisoned (moqtrun_relay_end_poisoned ends its subscriber side). */
 void moqtrun_frag_drop(wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n) {
-  if (n == 0) return;
+  if (n == 0) {
+    return;
+  }
   relay->frag_idx = MOQTRUN_FRAG_POISONED;
   hub->stat_frag_drop++;
 }
@@ -128,9 +136,10 @@ wired_span moqtrun_relay_normalize(
   usz total = relay->frag_len + data.n;
   usz off   = 0;
   *born_ms  = moqtrun_relay_born(relay, now);
-  if (relay->frag_len)
+  if (relay->frag_len) {
     bytes_memcpy(
         hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
+  }
   bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   *seq0_out = relay->seq;
   moqtrun_decode_object_loop(

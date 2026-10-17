@@ -17,8 +17,11 @@ static void sh_hex(const char* hex, u8* out, usz n) {
 static int sh_eq(const u8* got, const char* hex, usz n) {
   u8 want[64];
   sh_hex(hex, want, n);
-  for (usz i = 0; i < n; i++)
-    if (got[i] != want[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (got[i] != want[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -43,8 +46,12 @@ static void test_suitehash_select(void) {
 
 static void test_suitehash_secrets(void) {
   u8 ecdhe[32], psk[48], out[48], hs[48];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = 0x11;
-  for (usz i = 0; i < 48; i++) psk[i] = 0x22;
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = 0x11;
+  }
+  for (usz i = 0; i < 48; i++) {
+    psk[i] = 0x22;
+  }
   tls_handshake_secret_suite(TLS_AES_256_GCM_SHA384, ecdhe, hs);
   CHECK(sh_eq(hs, SH_HS, 48));
   tls_handshake_secret_psk_suite(TLS_AES_256_GCM_SHA384, psk, ecdhe, out);
@@ -100,7 +107,9 @@ static void test_suitehash_finished_binder(void) {
   CHECK(tls_finished_check_suite(TLS_AES_256_GCM_SHA384, cts, th, out) == 1);
   out[47] ^= 1;
   CHECK(tls_finished_check_suite(TLS_AES_256_GCM_SHA384, cts, th, out) == 0);
-  for (usz i = 0; i < 48; i++) psk[i] = 0x22;
+  for (usz i = 0; i < 48; i++) {
+    psk[i] = 0x22;
+  }
   tls_binder_compute_suite(
       TLS_AES_256_GCM_SHA384, psk, wired_span_of((const u8*)"trunc", 5), out);
   CHECK(sh_eq(
@@ -122,7 +131,9 @@ static void test_suitehash_finished_binder(void) {
 static void test_suitehash_early_exporter_ku(void) {
   u8           psk[48], master[48], cap[48], out[48];
   initial_keys k;
-  for (usz i = 0; i < 48; i++) psk[i] = 0x22;
+  for (usz i = 0; i < 48; i++) {
+    psk[i] = 0x22;
+  }
   tls_early_keys_suite(TLS_AES_256_GCM_SHA384, psk, (const u8*)"CH", 2, &k);
   CHECK(sh_eq(
       k.key, "0ddb01db7bb67e4d1b1e933a8e10de8a118941dba994014723230a51a76cd158",
@@ -139,7 +150,9 @@ static void test_suitehash_early_exporter_ku(void) {
   /* RFC 9001 6.1: secret_1 = HKDF-Expand-Label(secret_0, "quic ku", "",
    * Hash.length), key/iv re-derived from it, hp kept. */
   sh_hex(SH_CAP, cap, 48);
-  for (usz i = 0; i < 32; i++) k.hp[i] = 0x5a;
+  for (usz i = 0; i < 32; i++) {
+    k.hp[i] = 0x5a;
+  }
   kuswitch_next_keys_suite(TLS_AES_256_GCM_SHA384, cap, &k, out);
   CHECK(sh_eq(
       out,

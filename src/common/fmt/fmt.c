@@ -7,16 +7,22 @@ static void fmt_bytes(fmt_sink* s, const char* p, usz n);
 static char fmt_sign_flag(u32 flags);
 
 void fmt_put(fmt_sink* s, char c) {
-  if (s->n + 1 < s->cap) s->out[s->n] = c;
+  if (s->n + 1 < s->cap) {
+    s->out[s->n] = c;
+  }
   s->n++;
 }
 
 static void fmt_rep(fmt_sink* s, char c, usz count) {
-  for (usz i = 0; i < count; i++) fmt_put(s, c);
+  for (usz i = 0; i < count; i++) {
+    fmt_put(s, c);
+  }
 }
 
 static void fmt_bytes(fmt_sink* s, const char* p, usz n) {
-  for (usz i = 0; i < n; i++) fmt_put(s, p[i]);
+  for (usz i = 0; i < n; i++) {
+    fmt_put(s, p[i]);
+  }
 }
 
 void fmt_field(fmt_sink* s, const fmt_spec* sp, const fmt_piece* pc) {
@@ -39,7 +45,9 @@ static char fmt_sign_flag(u32 flags) {
 }
 
 char fmt_sign(const fmt_spec* sp, int neg) {
-  if (neg) return '-';
+  if (neg) {
+    return '-';
+  }
   return fmt_sign_flag(sp->flags);
 }
 

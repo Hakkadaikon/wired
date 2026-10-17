@@ -13,7 +13,9 @@ static void pf_check_eq_generic(const u8 k[32]) {
   int      fin = p256fixed_mul_g(x, y, k);
   ec_mul(&g, k, &p256_g);
   CHECK(fin == !g.inf);
-  if (!fin) return;
+  if (!fin) {
+    return;
+  }
   CHECK(p256_fp_eq(x, g.x));
   CHECK(p256_fp_eq(y, g.y));
 }
@@ -50,13 +52,21 @@ static void test_p256fixed_boundary(void) {
  * both ends: the d == 0 masked skip and every window position get hit. */
 static void test_p256fixed_window_patterns(void) {
   u8 k[32];
-  for (usz i = 0; i < 32; i++) k[i] = 0x11; /* every window d == 1 */
+  for (usz i = 0; i < 32; i++) {
+    k[i] = 0x11; /* every window d == 1 */
+  }
   pf_check_eq_generic(k);
-  for (usz i = 0; i < 32; i++) k[i] = 0xff; /* every window d == 15 */
+  for (usz i = 0; i < 32; i++) {
+    k[i] = 0xff; /* every window d == 15 */
+  }
   pf_check_eq_generic(k);
-  for (usz i = 0; i < 32; i++) k[i] = (i < 16) ? 0 : 0xf0; /* gappy */
+  for (usz i = 0; i < 32; i++) {
+    k[i] = (i < 16) ? 0 : 0xf0; /* gappy */
+  }
   pf_check_eq_generic(k);
-  for (usz i = 0; i < 32; i++) k[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    k[i] = 0;
+  }
   k[0] = 0x10; /* only the top window set */
   pf_check_eq_generic(k);
 }
@@ -100,7 +110,9 @@ static void test_p256fixed_rfc6979_vector(void) {
   CHECK(p256fixed_mul_g(x, y, kb));
   p256_fp_reduce(r, x, p256_n);
   p256_fp_to_be(rb, r);
-  for (usz i = 0; i < 32; i++) CHECK(rb[i] == wr[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(rb[i] == wr[i]);
+  }
 }
 
 void test_p256fixed(void) {

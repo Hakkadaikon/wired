@@ -14,7 +14,9 @@
  * pending, at the stream's current end (every byte sent so far). */
 static int src_connect_fin_sent(srvrun_conn* c) {
   srvrun_wtsend* w = srvrun_wtsend_find(c, 0);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   return w->append_open == 0 && w->fin_only_pending == 0 &&
          w->fin_requested == 0 && w->stream_off == c->wt_connect_sent_len[0];
 }
@@ -22,8 +24,9 @@ static int src_connect_fin_sent(srvrun_conn* c) {
 /* In-use server send slots on stream id. */
 static int src_wtsend_count(const srvrun_conn* c, u64 id) {
   int n = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     n += c->wtsend[i].in_use && c->wtsend[i].stream_id == id;
+  }
   return n;
 }
 

@@ -45,10 +45,11 @@ static void p384pt_jac_add(jac384* r, p384_addt* t) {
 /* Same-x case: double if s1==s2 (acc==base), else infinity. */
 static void p384pt_add_same_x_jac(
     jac384* acc, const p384_fe s1, const p384_fe s2) {
-  if (fp384_eq(s1, s2))
+  if (fp384_eq(s1, s2)) {
     p384pt_jac_double(acc, acc);
-  else
+  } else {
     p384pt_jac_set_inf(acc);
+  }
 }
 
 /* acc += base, handling infinity and the doubling/inverse case. */
@@ -59,10 +60,11 @@ static void p384pt_jac_add_step(jac384* acc, const jac384* base) {
     return;
   }
   p384pt_add_uv(&t, acc, base);
-  if (fp384_eq(t.u1, t.u2))
+  if (fp384_eq(t.u1, t.u2)) {
     p384pt_add_same_x_jac(acc, t.s1, t.s2);
-  else
+  } else {
     p384pt_jac_add(acc, &t);
+  }
 }
 
 /* Bit `bit` (MSB first) of a 48-byte big-endian scalar. */
@@ -74,7 +76,9 @@ static int p384pt_scalar_bit(const u8 k[48], usz bit) {
 static void p384pt_ec_mul_step(
     jac384* acc, const u8 k[48], const jac384* base, usz bit) {
   p384pt_jac_double(acc, acc);
-  if (p384pt_scalar_bit(k, bit)) p384pt_jac_add_step(acc, base);
+  if (p384pt_scalar_bit(k, bit)) {
+    p384pt_jac_add_step(acc, base);
+  }
 }
 
 /* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
@@ -95,9 +99,13 @@ static void p384pt_jac_to_affine(ec_point384* r, const jac384* j) {
 void p384_point_mul(ec_point384* r, const u8 k[48], const ec_point384* p) {
   jac384 acc, base;
   p384pt_jac_set_inf(&acc);
-  for (usz i = 0; i < 6; i++) acc.X[i] = acc.Y[i] = 0;
+  for (usz i = 0; i < 6; i++) {
+    acc.X[i] = acc.Y[i] = 0;
+  }
   p384pt_jac_from_affine(&base, p);
-  for (usz bit = 0; bit < 384; bit++) p384pt_ec_mul_step(&acc, k, &base, bit);
+  for (usz bit = 0; bit < 384; bit++) {
+    p384pt_ec_mul_step(&acc, k, &base, bit);
+  }
   p384pt_jac_to_affine(r, &acc);
 }
 
@@ -130,7 +138,9 @@ static int p384pt_point_add_special(
 void p384_point_add(
     ec_point384* r, const ec_point384* p, const ec_point384* q) {
   jac384 acc, base;
-  if (p384pt_point_add_special(r, p, q)) return;
+  if (p384pt_point_add_special(r, p, q)) {
+    return;
+  }
   p384pt_jac_from_affine(&acc, p);
   p384pt_jac_from_affine(&base, q);
   p384pt_jac_add_step(

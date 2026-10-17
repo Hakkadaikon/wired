@@ -58,7 +58,9 @@ void srvrun_cold_start(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
  * never went out at all (observed live: the client dropped the same
  * Handshake datagram 0 as a duplicate until its idle timeout). */
 static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
+  if (c->boot_dgram_sent == c->boot_dgram_count) {
+    c->boot_dgram_sent = 0;
+  }
   return (int)srvrun_boot_send_hs_gated(
       ctx->cfg, c, wired_server_is_confirmed(&c->s));
 }
@@ -67,9 +69,10 @@ static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * (boot_resend_flip: see its member doc). */
 static int srvrun_resend_flight_parts(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (c->boot_resend_flip)
+  if (c->boot_resend_flip) {
     return srvrun_resend_hs(ctx, c) +
            srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
+  }
   return srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n") +
          srvrun_resend_hs(ctx, c);
 }
@@ -86,7 +89,9 @@ int srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c) {
    * handshakecorruption stall). The deadline stays due, so the moment more
    * client bytes raise the budget (or a Handshake packet validates the
    * path) the very next tick resends for real. */
-  if (!sent) return 0;
+  if (!sent) {
+    return 0;
+  }
   /* boot PTO: something real went out -- push the boot PTO deadline so the
    * timer-driven probe does not also fire for the same round. */
   c->boot_pto_sent_ms = ctx->now_ms;
@@ -109,7 +114,9 @@ int srvrun_boot_pto_waiting(const srvrun_conn* c) {
 static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
   u64 wait = u64_min(
       srvrun_pto_deadline_ms(c, c->boot_pto_count), SRVRUN_BOOT_RESEND_CAP_MS);
-  if (!srvrun_boot_pto_waiting(c)) return 0;
+  if (!srvrun_boot_pto_waiting(c)) {
+    return 0;
+  }
   return now_ms >= c->boot_pto_sent_ms + wait;
 }
 
@@ -120,7 +127,9 @@ static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
  * probes keep climbing instead of resetting every single one. */
 static void srvrun_boot_pto_resend(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int fired) {
-  if (!srvrun_boot_probe_or_replay(ctx, c)) return;
+  if (!srvrun_boot_probe_or_replay(ctx, c)) {
+    return;
+  }
   c->boot_pto_count = fired;
 }
 
@@ -142,7 +151,9 @@ static void srvrun_boot_pto_resend(
  * peer cannot be told anything it can decrypt, so nothing is sent. */
 static void srvrun_boot_give_up_close(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!c->peer_at_onertt) return;
+  if (!c->peer_at_onertt) {
+    return;
+  }
   (void)wired_server_early_send_keys(&c->s); /* 0.5-RTT seal, RFC 9001 4.9 */
   srvrun_send_app_close(ctx->cfg, c, 0, wired_span_of((const u8*)0, 0));
 }
@@ -150,7 +161,9 @@ static void srvrun_boot_give_up_close(
 void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c     = &ctx->st->conns[slot];
   int          fired = c->boot_pto_count + 1;
-  if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
+  if (!srvrun_boot_pto_due(c, ctx->now_ms)) {
+    return;
+  }
   if (fired >= SRVRUN_BOOT_PTO_MAX) {
     srvrun_boot_give_up_close(ctx, c);
     srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */

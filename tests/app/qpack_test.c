@@ -80,7 +80,9 @@ static void test_qpack_string_decode_oversized_length_rejected(void) {
   qpack_pfx pfx = {7, 0};
   usz       w   = qpack_int_encode(wired_mspan_of(buf, sizeof buf), pfx, 200);
   CHECK(w != 0);
-  for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
+  for (usz i = 0; i < sizeof payload; i++) {
+    payload[i] = (u8)i;
+  }
   CHECK(bytes_put(
       wired_mspan_of(buf, sizeof buf), &w,
       wired_span_of(payload, sizeof payload)));

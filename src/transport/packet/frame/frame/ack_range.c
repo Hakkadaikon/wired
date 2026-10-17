@@ -10,6 +10,8 @@ int ack_range_ok(u64 largest, u64 first_range) {
  * that minus range_len. Subtract stepwise so a large gap or length cannot
  * wrap u64 below zero. */
 int ack_gap_ok(u64 smallest, u64 gap, u64 range_len) {
-  if (smallest < gap + 2) return 0;
+  if (smallest < gap + 2) {
+    return 0;
+  }
   return smallest - gap - 2 >= range_len;
 }

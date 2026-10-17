@@ -104,7 +104,9 @@ static void test_p256_mul_ct_rfc6979_vector(void) {
   ec_mul(&rp, kb, &p256_g);
   p256_fp_reduce(r, rp.x, p256_n);
   p256_fp_to_be(rb, r);
-  for (usz i = 0; i < 32; i++) CHECK(rb[i] == wr[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(rb[i] == wr[i]);
+  }
 }
 
 /* RFC 6090 group law: O + P == P and P + O == P for the point at infinity O

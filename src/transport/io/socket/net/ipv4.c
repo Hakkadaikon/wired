@@ -7,7 +7,9 @@
 #define put_be32 be_put_be32
 
 usz ipv4_build(u8 out[IPV4_HDR], const ipv4_head* h) {
-  for (usz i = 0; i < IPV4_HDR; i++) out[i] = 0;
+  for (usz i = 0; i < IPV4_HDR; i++) {
+    out[i] = 0;
+  }
   out[0] = 0x45; /* version 4, IHL 5 (20 bytes) */
   put_be16(out + 2, h->total_len);
   out[8] = 64; /* TTL */

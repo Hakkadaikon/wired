@@ -32,7 +32,9 @@ static int retry_ok(const connrunner* r, int tag_valid) {
 }
 
 int connrunner_recv_retry(connrunner* r, const retry_event* e) {
-  if (!retry_ok(r, e->tag_valid)) return 0;
+  if (!retry_ok(r, e->tag_valid)) {
+    return 0;
+  }
   return retrydrive_apply(e->token, e->scid, &r->retry);
 }
 
@@ -52,7 +54,9 @@ static void rederive_initial(connrunner* r) {
 }
 
 int connrunner_retry_rederive(connrunner* r) {
-  if (!r->retry.key_rederive) return 0;
+  if (!r->retry.key_rederive) {
+    return 0;
+  }
   rederive_initial(r);
   r->retry.key_rederive = 0; /* RFC 9001 5.2: keys now match the new DCID */
   return 1;
@@ -74,15 +78,20 @@ static int vn_ok(const connrunner* r, const u32* offered, usz n_off) {
 /* RFC 9000 6.2: with a common version chosen, reconnect once within budget;
  * returns 1 (count incremented) or 0 when the single VN retry is spent. */
 static int vn_reconnect(connrunner* r, u32 chosen) {
-  if (!vndrive_should_retry(chosen, r->vn_retry_count)) return 0;
+  if (!vndrive_should_retry(chosen, r->vn_retry_count)) {
+    return 0;
+  }
   r->vn_retry_count++;
   return 1;
 }
 
 int connrunner_recv_vn(connrunner* r, const vn_lists* l, u32* chosen) {
-  if (!vn_ok(r, l->offered.list, l->offered.n)) return 0; /* downgrade/late */
-  if (!vndrive_select(l->offered, l->supported, chosen))
+  if (!vn_ok(r, l->offered.list, l->offered.n)) {
+    return 0; /* downgrade/late */
+  }
+  if (!vndrive_select(l->offered, l->supported, chosen)) {
     return CONNRUNNER_VN_ABORT; /* RFC 9000 6.2: no common version */
+  }
   return vn_reconnect(r, *chosen);
 }
 
@@ -99,7 +108,9 @@ static u32 vn_version_at(const u8* versions, usz i) {
 #define VERS_OFFERED 16
 static usz vn_offered(const vneg_packet* v, u32* out) {
   usz n = v->count < VERS_OFFERED ? v->count : VERS_OFFERED;
-  for (usz i = 0; i < n; i++) out[i] = vn_version_at(v->versions, i);
+  for (usz i = 0; i < n; i++) {
+    out[i] = vn_version_at(v->versions, i);
+  }
   return n;
 }
 
@@ -109,7 +120,9 @@ static int drive_vn(connrunner* r, const u8* pkt, usz len) {
   vneg_packet v;
   u32         offered[VERS_OFFERED], chosen;
   vn_lists    l;
-  if (vneg_parse(pkt, len, &v) == 0) return 1;
+  if (vneg_parse(pkt, len, &v) == 0) {
+    return 1;
+  }
   l.offered   = verlist_of(offered, vn_offered(&v, offered));
   l.supported = verlist_of(g_supported, 2);
   connrunner_recv_vn(r, &l, &chosen);
@@ -143,13 +156,18 @@ static int is_vneg(const u8* pkt, usz len) {
 
 /* Route a long-header packet that is a Retry or VN; 0 if it is neither. */
 static int drive_long(connrunner* r, const u8* pkt, usz len) {
-  if (is_vneg(pkt, len)) return drive_vn(r, pkt, len);
-  if (packet_long_type(pkt[0], VERSION_1) == PT_RETRY)
+  if (is_vneg(pkt, len)) {
+    return drive_vn(r, pkt, len);
+  }
+  if (packet_long_type(pkt[0], VERSION_1) == PT_RETRY) {
     return drive_retry(r, pkt, len);
+  }
   return 0;
 }
 
 int connrunner_recv_reconnect(connrunner* r, const u8* pkt, usz len) {
-  if (!packet_is_long(pkt[0])) return 0;
+  if (!packet_is_long(pkt[0])) {
+    return 0;
+  }
   return drive_long(r, pkt, len);
 }

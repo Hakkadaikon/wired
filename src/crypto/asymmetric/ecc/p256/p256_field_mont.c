@@ -51,8 +51,12 @@ static int mont_needs_sub(const u64 t[6], const p256_fe m) {
  */
 static void mont_finalize(p256_fe r, const u64 t[6], const p256_fe m) {
   int sub = mont_needs_sub(t, m);
-  for (usz i = 0; i < 4; i++) r[i] = t[i];
-  if (sub) p256_fe_sub_raw(r, r, m);
+  for (usz i = 0; i < 4; i++) {
+    r[i] = t[i];
+  }
+  if (sub) {
+    p256_fe_sub_raw(r, r, m);
+  }
 }
 
 /* r = a * b * R^-1 mod m (Montgomery product). a,b < m. */
@@ -77,5 +81,7 @@ void p256_fp_mul_n(p256_fe r, fpab ab) {
 
 void p256_fp_reduce_n(p256_fe r, const p256_fe a) {
   p256_fp_set(r, a);
-  if (p256_fe_ge(r, p256_n)) p256_fe_sub_raw(r, r, p256_n);
+  if (p256_fe_ge(r, p256_n)) {
+    p256_fe_sub_raw(r, r, p256_n);
+  }
 }

@@ -4,8 +4,11 @@
 static int upper(u8 c) { return c >= 'A' && c <= 'Z'; }
 
 int h3_header_name_ok(const u8* name, usz len) {
-  for (usz i = 0; i < len; i++)
-    if (upper(name[i])) return 0;
+  for (usz i = 0; i < len; i++) {
+    if (upper(name[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -13,8 +16,11 @@ int h3_header_name_ok(const u8* name, usz len) {
 static int forbidden(u8 c) { return c == 0x0d || c == 0x0a || c == 0x00; }
 
 int h3_header_bytes_ok(const u8* buf, usz len) {
-  for (usz i = 0; i < len; i++)
-    if (forbidden(buf[i])) return 0;
+  for (usz i = 0; i < len; i++) {
+    if (forbidden(buf[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -23,7 +29,9 @@ int h3_header_bytes_ok(const u8* buf, usz len) {
  * single extra caller). */
 static usz hc_cstr_len(const char* s) {
   usz i = 0;
-  while (s[i]) i++;
+  while (s[i]) {
+    i++;
+  }
   return i;
 }
 
@@ -34,7 +42,9 @@ static usz hc_cstr_len(const char* s) {
 static int hc_bytes_eq(const u8* a, usz alen, const char* b, usz blen) {
   usz shorter = alen < blen ? alen : blen;
   u8  diff    = (u8)(alen != blen);
-  for (usz i = 0; i < shorter; i++) diff |= a[i] ^ (u8)b[i];
+  for (usz i = 0; i < shorter; i++) {
+    diff |= a[i] ^ (u8)b[i];
+  }
   return diff == 0;
 }
 
@@ -52,8 +62,11 @@ static const char* const forbidden_names[] = {
 #define FORBIDDEN_NAMES_N (sizeof(forbidden_names) / sizeof(forbidden_names[0]))
 
 int h3_header_name_forbidden(const u8* name, usz len) {
-  for (usz i = 0; i < FORBIDDEN_NAMES_N; i++)
-    if (hc_str_eq(name, len, forbidden_names[i])) return 1;
+  for (usz i = 0; i < FORBIDDEN_NAMES_N; i++) {
+    if (hc_str_eq(name, len, forbidden_names[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 

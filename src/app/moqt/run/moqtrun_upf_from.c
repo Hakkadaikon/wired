@@ -13,7 +13,9 @@ static const moqtrun_upf_io_fn MOQTRUN_UPF_IO[] = {
 
 /* f's held torn Object head (if any) is let go. */
 void moqtrun_upf_unhold(wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
-  if (hub->upf_owner != f) return;
+  if (hub->upf_owner != f) {
+    return;
+  }
   hub->upf_owner = 0;
   hub->upf_len   = 0;
 }
@@ -23,7 +25,9 @@ void moqtrun_upf_unhold(wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
  * discarded. */
 void moqtrun_upf_drop(wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io) {
   wired_moqtrun_peer* pp = moqtrun_find_by_wt(hub, f->up_wt);
-  if (moqtrun_rdv_peer_open(pp)) MOQTRUN_UPF_IO[io](hub, pp, f);
+  if (moqtrun_rdv_peer_open(pp)) {
+    MOQTRUN_UPF_IO[io](hub, pp, f);
+  }
   f->up_state = WIRED_MOQTRUN_UPF_NONE;
   moqtrun_upf_unhold(hub, f);
 }
@@ -40,7 +44,9 @@ int moqtrun_upf_leg_to(
 
 /* Cancels f's leg if it still runs. */
 void moqtrun_upf_cancel(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (moqtrun_upf_live(f)) moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_CANCEL);
+  if (moqtrun_upf_live(f)) {
+    moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_CANCEL);
+  }
 }
 
 /* ----- the cache side takes over ----- */
@@ -56,7 +62,9 @@ static moqctl_loc moqtrun_upf_covered(const wired_moqtrun_fetch* f) {
 static void moqtrun_upf_from_asc(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int done) {
   moqctl_loc from = f->has_up_last ? moqtrun_after(f->up_last) : f->cursor;
-  if (done) from = moqctl_loc_max(from, moqtrun_upf_covered(f));
+  if (done) {
+    from = moqctl_loc_max(from, moqtrun_upf_covered(f));
+  }
   f->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, f->end);
 }
 
@@ -78,7 +86,9 @@ static void moqtrun_upf_from_desc(
     f->cursor = f->end;
     return;
   }
-  if (f->has_up_last) moqtrun_upf_window(hub, f);
+  if (f->has_up_last) {
+    moqtrun_upf_window(hub, f);
+  }
 }
 
 static const moqtrun_upf_from_fn MOQTRUN_UPF_FROM[] = {
@@ -107,7 +117,9 @@ void moqtrun_upf_resume(
   }
   MOQTRUN_UPF_FROM[f->descending != 0](hub, f, done);
   f->last_ok_ms = hub->live.last_now_ms;
-  if (serve) moqtrun_fetch_serve(hub, f);
+  if (serve) {
+    moqtrun_fetch_serve(hub, f);
+  }
 }
 
 /* ----- answering a FETCH of a track the hub does not hold ----- */

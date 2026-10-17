@@ -33,14 +33,18 @@ static int read_token(const lhdrparse_src* s, usz* off, lhdr* out) {
     return 1;
   }
   used = inittoken_get(s->pkt.p + *off, s->pkt.n - *off, &out->token);
-  if (used == 0) return 0;
+  if (used == 0) {
+    return 0;
+  }
   *off += used;
   return 1;
 }
 
 /* Read the Length varint and record the packet-number offset after it. */
 static int take_length(wired_span pkt, usz* off, lhdr* out) {
-  if (!varint_take(wired_span_of(pkt.p, pkt.n), off, &out->length)) return 0;
+  if (!varint_take(wired_span_of(pkt.p, pkt.n), off, &out->length)) {
+    return 0;
+  }
   out->pn_off = *off;
   return 1;
 }
@@ -50,9 +54,13 @@ static int take_length(wired_span pkt, usz* off, lhdr* out) {
 static usz lhdr_take_prefix(wired_span pkt, lhdr* out) {
   wired_header h;
   usz          off;
-  if (!is_long_header(pkt)) return 0;
+  if (!is_long_header(pkt)) {
+    return 0;
+  }
   off = wired_header_parse(pkt.p, pkt.n, &h);
-  if (off == 0) return 0;
+  if (off == 0) {
+    return 0;
+  }
   locate_cids(pkt.p, &h, out);
   return off;
 }
@@ -64,7 +72,11 @@ usz lhdr_pn_len(u8 byte0_unprotected) {
 int lhdr_parse(wired_span pkt, int is_initial, lhdr* out) {
   lhdrparse_src s   = {pkt, is_initial};
   usz           off = lhdr_take_prefix(pkt, out);
-  if (off == 0) return 0;
-  if (!read_token(&s, &off, out)) return 0;
+  if (off == 0) {
+    return 0;
+  }
+  if (!read_token(&s, &off, out)) {
+    return 0;
+  }
   return take_length(pkt, &off, out);
 }

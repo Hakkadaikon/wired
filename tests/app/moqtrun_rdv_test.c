@@ -14,7 +14,9 @@ static char mrdv_text[256];
 static usz  mrdv_at;
 
 static void mrdv_put(const char* z) {
-  while (*z && mrdv_at < sizeof mrdv_text - 1) mrdv_text[mrdv_at++] = *z++;
+  while (*z && mrdv_at < sizeof mrdv_text - 1) {
+    mrdv_text[mrdv_at++] = *z++;
+  }
 }
 
 static void mrdv_put_hex(u64 v) {
@@ -25,7 +27,9 @@ static void mrdv_put_hex(u64 v) {
     tmp[n++] = hex[v & 0xF];
     v >>= 4;
   } while (v);
-  while (n && mrdv_at < sizeof mrdv_text - 1) mrdv_text[mrdv_at++] = tmp[--n];
+  while (n && mrdv_at < sizeof mrdv_text - 1) {
+    mrdv_text[mrdv_at++] = tmp[--n];
+  }
 }
 
 /* "SOK" SUBSCRIBE_OK, "E<code hex>" REQUEST_ERROR, "ROK" REQUEST_OK,
@@ -33,8 +37,12 @@ static void mrdv_put_hex(u64 v) {
 static void mrdv_put_msg(u64 type, wired_span body) {
   moqctl_request_error e;
   usz                  off = 0;
-  if (type == MOQCTL_T_SUBSCRIBE_OK) mrdv_put("SOK");
-  if (type == MOQCTL_T_REQUEST_OK) mrdv_put("ROK");
+  if (type == MOQCTL_T_SUBSCRIBE_OK) {
+    mrdv_put("SOK");
+  }
+  if (type == MOQCTL_T_REQUEST_OK) {
+    mrdv_put("ROK");
+  }
   if (type == MOQCTL_T_REQUEST_ERROR) {
     CHECK(moqctl_request_error_take(body, &off, &e) == MOQCTL_OK);
     mrdv_put("E");
@@ -53,13 +61,17 @@ static void mrdv_put_call(const moqtrun_test_call* c) {
   usz        off = 0;
   u64        type;
   wired_span body;
-  if (c->kind == 6) mrdv_put("FIN|");
+  if (c->kind == 6) {
+    mrdv_put("FIN|");
+  }
   if (c->kind == 7) {
     mrdv_put("RST");
     mrdv_put_hex((u64)c->fin);
     mrdv_put("|");
   }
-  if ((c->kind != 3 && c->kind != 12) || c->refused) return;
+  if ((c->kind != 3 && c->kind != 12) || c->refused) {
+    return;
+  }
   while (off < all.n) {
     CHECK(moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK);
     mrdv_put_msg(type, body);
@@ -70,9 +82,11 @@ static void mrdv_put_call(const moqtrun_test_call* c) {
  * FIN, its resets. */
 static const char* mrdv_log(wired_wt_session* s, u64 sid) {
   mrdv_at = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].s == s && g_calls[i].stream_id == sid)
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].s == s && g_calls[i].stream_id == sid) {
       mrdv_put_call(&g_calls[i]);
+    }
+  }
   mrdv_text[mrdv_at] = 0;
   return mrdv_text;
 }
@@ -80,8 +94,12 @@ static const char* mrdv_log(wired_wt_session* s, u64 sid) {
 static int mrdv_is(wired_wt_session* s, u64 sid, const char* want) {
   const char* got = mrdv_log(s, sid);
   usz         i   = 0;
-  while (got[i] && got[i] == want[i]) i++;
-  if (got[i] != want[i]) printf("  got \"%s\" want \"%s\"\n", got, want);
+  while (got[i] && got[i] == want[i]) {
+    i++;
+  }
+  if (got[i] != want[i]) {
+    printf("  got \"%s\" want \"%s\"\n", got, want);
+  }
   return got[i] == want[i];
 }
 
@@ -93,12 +111,14 @@ static moqctl_request_error mrdv_err(wired_wt_session* s, u64 sid) {
     usz                      off = 0, boff = 0;
     u64                      type;
     wired_span               body;
-    if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12))
+    if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12)) {
       continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type == MOQCTL_T_REQUEST_ERROR)
+    if (type == MOQCTL_T_REQUEST_ERROR) {
       CHECK(moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK);
+    }
     return e;
   }
   return e;
@@ -112,13 +132,17 @@ static u64 mrdv_alias(wired_wt_session* s, u64 sid) {
     u64                      type;
     wired_span               body;
     moqctl_subscribe_ok      ok;
-    if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12))
+    if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12)) {
       continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type != MOQCTL_T_SUBSCRIBE_OK) continue;
-    if (moqctl_subscribe_ok_take(mtst_ver(s), body, &boff, &ok) != MOQCTL_OK)
+    if (type != MOQCTL_T_SUBSCRIBE_OK) {
+      continue;
+    }
+    if (moqctl_subscribe_ok_take(mtst_ver(s), body, &boff, &ok) != MOQCTL_OK) {
       return ~(u64)0;
+    }
     return ok.track_alias;
   }
   return ~(u64)0;
@@ -127,8 +151,9 @@ static u64 mrdv_alias(wired_wt_session* s, u64 sid) {
 /* Rendezvous slots in use. */
 static usz mrdv_used(void) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     n += mtst_hub.rdv[i].in_use != 0;
+  }
   return n;
 }
 
@@ -303,15 +328,21 @@ static void test_moqtrun_rdv_s10_capacity(void) {
   const usz per = WIRED_MOQTRUN_RDV_PER_SESSION;
   const usz ns  = WIRED_MOQTRUN_MAX_RDV / WIRED_MOQTRUN_RDV_PER_SESSION;
   mrdv_init();
-  for (usz i = 0; i <= per; i++) mrdv_hold(SESS_B, MTRQ_ID(i), 500);
+  for (usz i = 0; i <= per; i++) {
+    mrdv_hold(SESS_B, MTRQ_ID(i), 500);
+  }
   mrdv_check_load(SESS_B, MTRQ_ID(per));
   CHECK(mrdv_used() == per);
-  for (usz i = 0; i < per; i++) CHECK(mrdv_is(SESS_B, MTRQ_ID(i), ""));
+  for (usz i = 0; i < per; i++) {
+    CHECK(mrdv_is(SESS_B, MTRQ_ID(i), ""));
+  }
   mrdv_init();
   for (usz s = 0; s < ns; s++) {
     wired_wt_session* w = (wired_wt_session*)(usz)(100 + s);
     mtst_join(w);
-    for (usz i = 0; i < per; i++) mrdv_hold(w, MTRQ_ID(i), 500);
+    for (usz i = 0; i < per; i++) {
+      mrdv_hold(w, MTRQ_ID(i), 500);
+    }
   }
   CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV);
   mrdv_hold(SESS_B, MRDV_S1, 500);
@@ -392,7 +423,9 @@ static void test_moqtrun_rdv_s15_namespace_only(void) {
   mtns_pub(SESS_A, MRDV_S1, "chat/room1");
   wired_moqt_tick(&mtst_hub, 500);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) CHECK(!mtst_hub.ups[i].in_use);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    CHECK(!mtst_hub.ups[i].in_use);
+  }
 }
 
 /* S16 (10.4/9.2: GOAWAY does not impact subscription state): a hold
@@ -411,8 +444,9 @@ static void test_moqtrun_rdv_s16_goaway(void) {
   mrdv_hold(SESS_B, MRDV_S1, WIRED_MOQTRUN_RDV_MAX_MS);
   wired_moqt_goaway(&mtst_hub, wired_span_of(0, 0), 100);
   while (!moqtrun_find_by_wt(&mtst_hub, SESS_B)->closing &&
-         now < WIRED_MOQTRUN_RDV_MAX_MS)
+         now < WIRED_MOQTRUN_RDV_MAX_MS) {
     wired_moqt_tick(&mtst_hub, now += 50);
+  }
   CHECK(now < WIRED_MOQTRUN_RDV_MAX_MS);
   wired_moqt_tick(&mtst_hub, now += 50);
   CHECK(mrdv_used() == 0);

@@ -7,5 +7,7 @@ u8 hp_protect_byte0(u8 byte0, u8 mask0, int is_long) {
 
 /* RFC 9001 5.4.1 */
 void hp_protect_pn(u8* pn, usz pn_len, const u8* mask) {
-  for (usz i = 0; i < pn_len; i++) pn[i] ^= mask[1 + i];
+  for (usz i = 0; i < pn_len; i++) {
+    pn[i] ^= mask[1 + i];
+  }
 }

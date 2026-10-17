@@ -5,7 +5,9 @@
 /* Compare a digest against its expected bytes. */
 static int s384_eq(const u8 got[48], const u8* want) {
   usz diff = 0;
-  for (usz i = 0; i < 48; i++) diff |= (usz)(got[i] ^ want[i]);
+  for (usz i = 0; i < 48; i++) {
+    diff |= (usz)(got[i] ^ want[i]);
+  }
   return diff == 0;
 }
 
@@ -52,7 +54,9 @@ static void test_sha384_pad_boundary(void) {
       0x30, 0xab, 0xc0, 0xcb, 0x64, 0xc6, 0x12, 0x36, 0xd5, 0xed, 0x56, 0x5e,
       0xe1, 0x91, 0x19, 0xd8, 0xc3, 0x17, 0x79, 0xa3, 0x8f, 0x79, 0x1f, 0xcd};
   u8 msg[112], got[48];
-  for (usz i = 0; i < sizeof(msg); i++) msg[i] = 'a';
+  for (usz i = 0; i < sizeof(msg); i++) {
+    msg[i] = 'a';
+  }
   sha384(msg, 111, got);
   CHECK(s384_eq(got, want_111));
   sha384(msg, 112, got);
@@ -78,7 +82,9 @@ static void test_sha384_is_sha512_truncation(void) {
   sha512_update(&s, msg, 3);
   sha512_final(&s, d512_from_384_state);
 
-  for (usz i = 0; i < 48; i++) CHECK(d512_from_384_state[i] == d384[i]);
+  for (usz i = 0; i < 48; i++) {
+    CHECK(d512_from_384_state[i] == d384[i]);
+  }
 }
 
 void test_sha384(void) {

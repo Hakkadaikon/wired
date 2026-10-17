@@ -11,27 +11,35 @@ static int  gcm_open_scalar(const gcm_ctx* g, wired_span ct, u8* pt);
 /* Start the data counter at J0+1 (J0 itself encrypts the tag). */
 static void data_ctr(const gcm_st* st, gcm_ctr* c) {
   c->a = st->g->aes;
-  for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
+  for (usz i = 0; i < 16; i++) {
+    c->ctr[i] = st->j0[i];
+  }
   gcm_ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
 static void gcm_tag(const gcm_st* st, wired_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
-  for (usz i = 0; i < 16; i++) y[i] = 0;
+  for (usz i = 0; i < 16; i++) {
+    y[i] = 0;
+  }
   gcm_ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
   gcm_ghash_bytes(st->h, y, ct.p, ct.n);
   gcm_put_be64(lens, (u64)st->g->aad.n * 8);
   gcm_put_be64(lens + 8, (u64)ct.n * 8);
   gcm_ghash_block(st->h, y, lens);
   aes128_encrypt(st->g->aes, st->j0, ej0);
-  for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
+  for (usz i = 0; i < 16; i++) {
+    tag[i] = y[i] ^ ej0[i];
+  }
 }
 
 /* Recover the original 16-byte AES-128 key from the first four round-key
  * words (aes128_init sets rk[0..3] to the key itself, FIPS 197 5.2). */
 static void gcm_key_from_aes128(const aes128* a, u8 key[16]) {
-  for (usz i = 0; i < 4; i++) be_put_be32(key + 4 * i, a->rk[i]);
+  for (usz i = 0; i < 4; i++) {
+    be_put_be32(key + 4 * i, a->rk[i]);
+  }
 }
 
 /* Build an AES-NI key schedule from the scalar aes128 already held by
@@ -61,7 +69,9 @@ static int gcm_open_x86_empty(const gcm_ctx* g, wired_span ct) {
 
 static int gcm_open_x86(const gcm_ctx* g, wired_span ct, u8* pt) {
   gcmx86 x;
-  if (ct.n == GCM_TAG) return gcm_open_x86_empty(g, ct);
+  if (ct.n == GCM_TAG) {
+    return gcm_open_x86_empty(g, ct);
+  }
   gcm_x86_from(g, &x);
   return gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
 }
@@ -90,15 +100,20 @@ static int gcm_open_scalar(const gcm_ctx* g, wired_span ct, u8* pt) {
   wired_span body = wired_span_of(ct.p, ct.n - GCM_TAG);
   gcm_setup(g, &st);
   gcm_tag(&st, body, want);
-  if (ct_diff16(want, ct.p + body.n) != 0)
+  if (ct_diff16(want, ct.p + body.n) != 0) {
     return 0; /* reject: leave pt untouched */
+  }
   data_ctr(&st, &c);
   gcm_ctr_xor(&c, body, pt);
   return 1;
 }
 
 int gcm_open(const gcm_ctx* g, wired_span ct, u8* pt) {
-  if (ct.n < GCM_TAG) return 0;
-  if (gcmx86_supported()) return gcm_open_x86(g, ct, pt);
+  if (ct.n < GCM_TAG) {
+    return 0;
+  }
+  if (gcmx86_supported()) {
+    return gcm_open_x86(g, ct, pt);
+  }
   return gcm_open_scalar(g, ct, pt);
 }

@@ -14,14 +14,19 @@ static void sdrv_reset_hs(sdrv* s);
 /* RFC 8446 4 / RFC 9001 4: drive the server handshake flight. */
 
 static void sdrv_copy32(u8* dst, const u8* src) {
-  for (usz i = 0; i < 32; i++) dst[i] = src[i];
+  for (usz i = 0; i < 32; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* 0 if s->san_ipv4 is all-zero (the zero-initialized default, meaning "no
  * IPv4 SAN requested" -- 0.0.0.0 is never a real peer). */
 static int sdrv_has_san_ipv4(const sdrv* s) {
-  for (usz i = 0; i < 4; i++)
-    if (s->san_ipv4[i]) return 1;
+  for (usz i = 0; i < 4; i++) {
+    if (s->san_ipv4[i]) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -59,19 +64,25 @@ static void sdrv_take_chain(sdrv* s, const sdrv_init_in* in) {
     s->cert_count = 0;
     return;
   }
-  for (usz i = 0; i < in->chain_count; i++) s->certs[i] = in->chain[i];
+  for (usz i = 0; i < in->chain_count; i++) {
+    s->certs[i] = in->chain[i];
+  }
   s->cert_count = in->chain_count;
 }
 
 /* Copy in->san_ipv4 into s->san_ipv4[4], or zero it (the "omit" sentinel,
  * see sdrv_has_san_ipv4) when in->san_ipv4 is 0. */
 static void sdrv_copy_san_ipv4(sdrv* s, const u8* san_ipv4) {
-  for (usz i = 0; i < 4; i++) s->san_ipv4[i] = san_ipv4 ? san_ipv4[i] : 0;
+  for (usz i = 0; i < 4; i++) {
+    s->san_ipv4[i] = san_ipv4 ? san_ipv4[i] : 0;
+  }
 }
 
 /* Copy a TICKET_KEY_LEN-byte key into dst, or zero dst when src is 0. */
 static void sdrv_copy_key(u8 dst[TICKET_KEY_LEN], const u8* src) {
-  for (usz i = 0; i < TICKET_KEY_LEN; i++) dst[i] = src ? src[i] : 0;
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) {
+    dst[i] = src ? src[i] : 0;
+  }
 }
 
 /* Copy ticket_key into s as both generations and record whether
@@ -120,7 +131,9 @@ static void sdrv_reset_hs(sdrv* s) {
   s->client_version      = 0;
   s->negotiated_version  = 0;
   s->pref_cid_len        = 0;
-  for (usz i = 0; i < sizeof s->ch1_hash; i++) s->ch1_hash[i] = 0;
+  for (usz i = 0; i < sizeof s->ch1_hash; i++) {
+    s->ch1_hash[i] = 0;
+  }
 }
 
 void sdrv_init(sdrv* s, const sdrv_init_in* in) {
@@ -130,10 +143,11 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   sdrv_copy32(s->p256_priv, in->sign_priv);
   sdrv_copy_san_ipv4(s, in->san_ipv4);
   sdrv_copy_ticket_key(s, in->ticket_key);
-  if (sdrv_use_chain(in))
+  if (sdrv_use_chain(in)) {
     sdrv_take_chain(s, in);
-  else
+  } else {
     sdrv_build_cert(s, in->now_secs);
+  }
   sdrv_reset_hs(s);
   transcript_init(&s->tr);
 }

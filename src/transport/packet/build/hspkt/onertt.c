@@ -18,8 +18,12 @@
 static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
   usz i;
   hdr[0] = keyphase_set(ONERTT_BYTE0, phase_bit);
-  for (i = 0; i < dcid.n; i++) hdr[1 + i] = dcid.p[i];
-  for (i = 0; i < 4; i++) hdr[1 + dcid.n + i] = (u8)(pn >> (8 * (3 - i)));
+  for (i = 0; i < dcid.n; i++) {
+    hdr[1 + i] = dcid.p[i];
+  }
+  for (i = 0; i < 4; i++) {
+    hdr[1 + dcid.n + i] = (u8)(pn >> (8 * (3 - i)));
+  }
   return 5u + dcid.n;
 }
 
@@ -45,7 +49,9 @@ int hspkt_onertt_build(
   usz       pn_off  = 1u + d->dcid.n;
   usz       need    = hdr_len + d->payload.n + GCM_TAG;
   hp_fields hf      = {o, o + pn_off, 4, HP_SHORT_MASK};
-  if (need > out->cap) return 0;
+  if (need > out->cap) {
+    return 0;
+  }
   onertt_seal_gcm(k, d, o, hdr_len);
   hp_mask(k->hp, o + pn_off + 4, mask);
   hp_apply(mask, &hf);
@@ -77,7 +83,9 @@ static int onertt_seal_suite(
     usz                      need,
     wired_obuf*              out) {
   aead_suite_op op;
-  if (need > out->cap) return 0;
+  if (need > out->cap) {
+    return 0;
+  }
   op = (aead_suite_op){suite, k->keys->key, k->keys->iv, d->pn, {o, hdr_len}};
   return aead_suite_seal(&op, d->payload, o + hdr_len) != 0;
 }
@@ -95,8 +103,12 @@ int hspkt_onertt_build_suite(
   usz       pn_off  = 1u + d->dcid.n;
   usz       need    = hdr_len + d->payload.n + aead_tag_len(suite);
   hp_fields hf      = {o, o + pn_off, 4, HP_SHORT_MASK};
-  if (!onertt_seal_suite(suite, k, d, o, hdr_len, need, out)) return 0;
-  if (!hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) return 0;
+  if (!onertt_seal_suite(suite, k, d, o, hdr_len, need, out)) {
+    return 0;
+  }
+  if (!hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) {
+    return 0;
+  }
   hp_apply(mask, &hf);
   out->len = need;
   return 1;

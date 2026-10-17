@@ -24,10 +24,14 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
   u8  scid[8], token[RETRYTOKEN_WIRE_MAX], pkt[128];
   usz tn, n;
   srvrun_retry_prep(ctx, h, scid, token, &tn);
-  if (tn == 0) return;
+  if (tn == 0) {
+    return;
+  }
   n = srvrun_retry_pkt_build(
       h, scid, wired_span_of(token, tn), pkt, sizeof pkt);
-  if (n == 0) return;
+  if (n == 0) {
+    return;
+  }
   srvrun_retry_finish(ctx, h, pkt, n);
 }
 
@@ -69,8 +73,12 @@ static int srvrun_retry_gate_tokened(
 int srvrun_retry_gate(
     const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 1;
-  if (h.token.n != 0) return srvrun_retry_gate_tokened(ctx, &h, odcid);
+  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) {
+    return 1;
+  }
+  if (h.token.n != 0) {
+    return srvrun_retry_gate_tokened(ctx, &h, odcid);
+  }
   srvrun_send_retry(ctx, &h);
   return 1;
 }
@@ -78,7 +86,9 @@ int srvrun_retry_gate(
 /* Stash the token-recovered ODCID on the freshly claimed slot so the accept
  * path advertises it (srvrun_slot_id -> srvboot_tp_odcid). */
 void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
-  if (odcid.n == 0 || odcid.n > WIRED_MAX_CID_LEN) return;
+  if (odcid.n == 0 || odcid.n > WIRED_MAX_CID_LEN) {
+    return;
+  }
   bytes_memcpy(c->retry_odcid, odcid.p, odcid.n);
   c->retry_odcid_len = (u8)odcid.n;
 }
@@ -89,7 +99,9 @@ void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
 int srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg) {
   u8  vn[64];
   usz n = wired_srvboot_vneg(wired_span_of(dg.p, dg.n), vn, sizeof vn);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   srvrun_tx(ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(vn, n));
   return 1;
 }
@@ -104,8 +116,12 @@ static int srvrun_boot_pending(const srvrun_conn* c) {
 static int srvrun_boot_scid_match(
     const srvrun_step_ctx* ctx, usz i, wired_span dcid) {
   const srvrun_conn* c = &ctx->st->conns[i];
-  if (!srvrun_boot_pending(c)) return 0;
-  if (dcid.n != ctx->cfg->id->scid_len) return 0;
+  if (!srvrun_boot_pending(c)) {
+    return 0;
+  }
+  if (dcid.n != ctx->cfg->id->scid_len) {
+    return 0;
+  }
   return ct_diffn(c->scid, dcid.p, dcid.n) == 0;
 }
 
@@ -115,7 +131,10 @@ static int srvrun_boot_scid_match(
  * this, the switched retransmits claimed a competing slot with a
  * different initial_source_connection_id. */
 int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, wired_span dcid) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_boot_scid_match(ctx, i, dcid)) return (int)i;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (srvrun_boot_scid_match(ctx, i, dcid)) {
+      return (int)i;
+    }
+  }
   return -1;
 }

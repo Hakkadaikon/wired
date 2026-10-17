@@ -37,17 +37,23 @@ static int ecdsadiff_ref_verify(const ecdsadiff_tuple* t) {
   p256_fe  r, s, e, w, u1, u2, rx;
   p256_fp_from_be(r, t->r);
   p256_fp_from_be(s, t->s);
-  if (!ecdsadiff_in_range(r) || !ecdsadiff_in_range(s)) return 0;
+  if (!ecdsadiff_in_range(r) || !ecdsadiff_in_range(s)) {
+    return 0;
+  }
   p256_fp_from_be(q.x, t->qx);
   p256_fp_from_be(q.y, t->qy);
   q.inf = 0;
-  if (!ec_on_curve(&q)) return 0;
+  if (!ec_on_curve(&q)) {
+    return 0;
+  }
   p256_fp_from_be(e, t->h);
   p256_fp_reduce(e, e, p256_n);
   mont_inv(w, s, &p256_mont_n);
   p256_fp_mul(u1, (fpab){e, w}, p256_n);
   p256_fp_mul(u2, (fpab){r, w}, p256_n);
-  if (!ecdsadiff_ref_point(&rp, u1, u2, &q)) return 0;
+  if (!ecdsadiff_ref_point(&rp, u1, u2, &q)) {
+    return 0;
+  }
   p256_fp_reduce(rx, rp.x, p256_n);
   return p256_fp_eq(rx, r);
 }
@@ -131,16 +137,22 @@ static void test_ecdsadiff_edges(void) {
   ecdsadiff_tuple t;
   u8              priv[32];
   ecdsadiff_keypair(&t, priv, 99);
-  for (usz i = 0; i < 32; i++) t.h[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    t.h[i] = 0;
+  }
   p256sign_sign(priv, t.h, t.r, t.s);
   ecdsadiff_check(&t, 1);
   p256_fp_to_be(t.h, p256_n);
   ecdsadiff_check(&t, 1);
   ecdsadiff_tuple z = t;
-  for (usz i = 0; i < 32; i++) z.r[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    z.r[i] = 0;
+  }
   ecdsadiff_check(&z, 0);
   z = t;
-  for (usz i = 0; i < 32; i++) z.s[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    z.s[i] = 0;
+  }
   ecdsadiff_check(&z, 0);
   z = t;
   p256_fp_to_be(z.r, p256_n);

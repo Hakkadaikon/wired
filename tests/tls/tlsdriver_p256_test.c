@@ -16,7 +16,9 @@
  * doc: the caller writes the group's real key pair in afterward). */
 static void set_p256_identity(tlsdriver* d, const u8 priv[32]) {
   tlsdriver_set_group(d, GROUP_SECP256R1);
-  for (usz i = 0; i < 32; i++) d->my_priv[i] = priv[i];
+  for (usz i = 0; i < 32; i++) {
+    d->my_priv[i] = priv[i];
+  }
   CHECK(p256_pubkey_encode(d->my_pub, priv) == 1);
 }
 
@@ -32,7 +34,9 @@ static usz build_sh_p256(u8* out, usz cap, const u8 pub[P256_PUBKEY_LEN]) {
                          0,
                          GROUP_SECP256R1,
                          P256_PUBKEY_LEN};
-  for (usz i = 0; i < 32; i++) random[i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    random[i] = (u8)(0x10 + i);
+  }
   CHECK(shbuild_server_hello_group(&in, &ob) == 1);
   return ob.len;
 }
@@ -95,7 +99,9 @@ static void test_tlsdriver_p256_ecdhe_agree(void) {
   /* both reached the same shared secret over real wire bytes */
   CHECK(tlsdriver_shared_secret(&cl, &cs) == 1);
   CHECK(tlsdriver_shared_secret(&sv, &ss) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(cs[i] == ss[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(cs[i] == ss[i]);
+  }
 }
 
 void test_tlsdriver_p256(void) { test_tlsdriver_p256_ecdhe_agree(); }

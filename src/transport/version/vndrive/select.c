@@ -4,7 +4,9 @@
 
 int vndrive_select(verlist offered, verlist supported, u32* chosen) {
   for (usz i = 0; i < supported.n; i++) {
-    if (!u32_in(supported.list[i], offered.list, offered.n)) continue;
+    if (!u32_in(supported.list[i], offered.list, offered.n)) {
+      continue;
+    }
     *chosen = supported.list[i];
     return 1;
   }

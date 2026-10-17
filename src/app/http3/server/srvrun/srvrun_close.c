@@ -11,8 +11,11 @@ static int srvrun_close_allowed(const srvrun_conn* c, usz pln);
 /* 1 iff any packet on c still awaits its ACK -- keeps the poll tick armed
  * (srvrun_slot_waiting) so the resend deadline is honored. */
 static int srvrun_rst_any(const srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (c->rst[i].pln) return 1;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (c->rst[i].pln) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -27,8 +30,11 @@ static int srvrun_wt_close_or_drain_pending(const srvrun_conn* c, int i) {
 
 /* 1 iff any WT session slot has a close or drain latched. */
 static int srvrun_wt_close_drain_any(const srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (srvrun_wt_close_or_drain_pending(c, i)) return 1;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (srvrun_wt_close_or_drain_pending(c, i)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -54,8 +60,12 @@ static int srvrun_rst_due(const srvrun_rst* e, u64 now_ms) {
  * the packet still unACKed (the caller tears the connection down). */
 static int srvrun_rst_retry_one(
     const srvrun_cfg* cfg, srvrun_conn* c, srvrun_rst* e, u64 now) {
-  if (!srvrun_rst_due(e, now)) return 1;
-  if (!e->tries) return 0;
+  if (!srvrun_rst_due(e, now)) {
+    return 1;
+  }
+  if (!e->tries) {
+    return 0;
+  }
   e->tries--;
   srvrun_rst_send(cfg, c, e, now);
   return 1;
@@ -64,8 +74,11 @@ static int srvrun_rst_retry_one(
 /* Resend every kept packet on c whose deadline passed without an ACK.
  * 0 when one has exhausted SRVRUN_PTO_MAX resends. */
 int srvrun_rst_retry(const srvrun_cfg* cfg, srvrun_conn* c, u64 now) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (!srvrun_rst_retry_one(cfg, c, &c->rst[i], now)) return 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (!srvrun_rst_retry_one(cfg, c, &c->rst[i], now)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -102,8 +115,9 @@ int srvrun_seal_close_pl(srvrun_conn* c, wired_span pl, wired_obuf* out) {
 void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c) {
   u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_close_pl(c, wired_span_of(c->close_pl, c->close_pln), &ob))
+  if (!srvrun_seal_close_pl(c, wired_span_of(c->close_pl, c->close_pln), &ob)) {
     return;
+  }
   srvrun_send_now(
       cfg, c, wired_span_of(out, ob.len), "CONNECTION_CLOSE sent\n");
 }
@@ -122,7 +136,9 @@ static int srvrun_close_allowed(const srvrun_conn* c, usz pln) {
  * later (srvrun_close_reap_due). Returns 0, sending nothing, when the
  * connection is already closing or pl is empty. */
 int srvrun_close_send(const srvrun_cfg* cfg, srvrun_conn* c, wired_span pl) {
-  if (!srvrun_close_allowed(c, pl.n)) return 0;
+  if (!srvrun_close_allowed(c, pl.n)) {
+    return 0;
+  }
   bytes_memcpy(c->close_pl, pl.p, pl.n);
   c->close_pln = pl.n;
   srvrun_close_resend(cfg, c);

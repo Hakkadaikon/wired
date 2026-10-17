@@ -27,7 +27,9 @@ int srvloop_is_request_stream(u64 stream_id) { return (stream_id & 0x03) == 0; }
 int srvloop_is_wt_stream_signal(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) {
+    return 0;
+  }
   return v == H3_STREAM_WEBTRANSPORT_BIDI;
 }
 
@@ -48,7 +50,9 @@ int srvloop_sf_is_wt_signalled(const stream_frame* sf) {
  * ALREADY claimed via a loop that does not exist, so only the offset-0 signal
  * check applies then. */
 int srvloop_wt_frame_relevant(const wired_srvloop* l, const stream_frame* sf) {
-  if (srvloop_sf_is_wt_signalled(sf)) return 1;
+  if (srvloop_sf_is_wt_signalled(sf)) {
+    return 1;
+  }
   return l && wired_srvloop_wt_slot_find(l, sf->stream_id) >= 0;
 }
 
@@ -73,7 +77,9 @@ static int sf_is_request(const wired_srvloop* l, const stream_frame* sf) {
 /* 1 if the STREAM frame at `frame` is a client bidi request stream. */
 static int stream_is_request(const wired_srvloop* l, const u8* frame, usz rem) {
   stream_frame sf;
-  if (frame_get_stream(frame, rem, &sf) == 0) return 0;
+  if (frame_get_stream(frame, rem, &sf) == 0) {
+    return 0;
+  }
   return sf_is_request(l, &sf);
 }
 
@@ -91,7 +97,9 @@ int dispatch_stream(
     wired_span                       frame,
     const wired_srvloop_dispatch_in* in) {
   wired_h3srv_req_in rin = {frame, in->scratch};
-  if (!wired_h3srv_on_request(h3, &rin, in->req)) return 0;
+  if (!wired_h3srv_on_request(h3, &rin, in->req)) {
+    return 0;
+  }
   *in->got_request = 1;
   return 1;
 }
@@ -99,7 +107,9 @@ int dispatch_stream(
 /* Raise the accumulator high-water mark to end, clamped to acc->cap. */
 void srvloop_bump_len(wired_srvloop_reqacc* acc, usz end) {
   usz hi = end < acc->cap ? end : acc->cap;
-  if (hi > *acc->len) *acc->len = hi;
+  if (hi > *acc->len) {
+    *acc->len = hi;
+  }
 }
 
 /* RFC 9000 2.2: write one request STREAM frame's data into acc->buf at the
@@ -109,7 +119,9 @@ void srvloop_bump_len(wired_srvloop_reqacc* acc, usz end) {
  * that overflows still shows its leading HEADERS frame). */
 static void gather_one(const stream_frame* sf, wired_srvloop_reqacc* acc) {
   usz off = (usz)sf->offset;
-  if (off >= acc->cap) return;
+  if (off >= acc->cap) {
+    return;
+  }
   bytes_put(
       wired_mspan_of(acc->buf, acc->cap), &off,
       wired_span_of(sf->data, (usz)u64_min(sf->length, acc->cap - off)));
@@ -141,12 +153,13 @@ int srvloop_gather_request(
   int            seen = 0;
   stream_frame   sf;
   framewalk_init(&it, payload, len);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     if (srvloop_request_stream_of(
             l, fr.type, wired_span_of(fr.start, fr.remaining), &sf)) {
       gather_one(&sf, acc);
       seen = 1;
     }
+  }
   return seen;
 }
 
@@ -163,13 +176,17 @@ usz srvloop_acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
 /* Constant-shape 7-octet compare (the CONNECT method token). */
 static int dispatch_bytes_eq7(const u8* m, const u8* want) {
   u8 d = 0;
-  for (usz i = 0; i < 7; i++) d |= m[i] ^ want[i];
+  for (usz i = 0; i < 7; i++) {
+    d |= m[i] ^ want[i];
+  }
   return d == 0;
 }
 
 int srvloop_req_method_is_connect(const wired_h3reqdrive_req* r) {
   static const u8 want[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
-  if (!r->method || r->method_len != sizeof want) return 0;
+  if (!r->method || r->method_len != sizeof want) {
+    return 0;
+  }
   return dispatch_bytes_eq7(r->method, want);
 }
 
@@ -191,7 +208,9 @@ int srvloop_peek_decode_request(
     wired_h3reqdrive_req*            r) {
   stream_frame f  = {0, 0, n, acc->buf, 0};
   wired_obuf   ob = obuf_of(in->wrap.p, in->wrap.n);
-  if (!appdata_stream_frame(&f, &ob)) return 0;
+  if (!appdata_stream_frame(&f, &ob)) {
+    return 0;
+  }
   return wired_h3reqdrive_recv_get_dyn(
       wired_span_of(in->wrap.p, ob.len), in->scratch, dispatch_qdyn(h3), r);
 }

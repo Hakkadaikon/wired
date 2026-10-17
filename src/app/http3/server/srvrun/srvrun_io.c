@@ -66,10 +66,11 @@ i64 srvrun_stage_fd(const srvrun_cfg* cfg, const wired_srvrun_env* e) {
 void srvrun_tx(
     const srvrun_cfg* cfg, i64 fd, const sockaddr* sa, wired_span pkt) {
   cfg->env->tx_flush_count++;
-  if (cfg->xdp)
+  if (cfg->xdp) {
     wired_srvxdp_send(cfg->xdp, sa, pkt);
-  else
+  } else {
     wired_udp_send(fd, sa, pkt);
+  }
 }
 
 /* RFC 9000 13.4.2.2: c's ECN validation failed (ecn_track_fail counted
@@ -114,7 +115,9 @@ void srvrun_send(
     const srvrun_conn* c,
     wired_span         pkt,
     const char*        what) {
-  if (!c->closing) srvrun_send_now(cfg, c, pkt, what);
+  if (!c->closing) {
+    srvrun_send_now(cfg, c, pkt, what);
+  }
 }
 
 /* One unconditional line per connection-ending event (the "conn refused:

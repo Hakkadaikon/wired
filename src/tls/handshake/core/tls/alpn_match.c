@@ -3,8 +3,12 @@
 /* RFC 7301 3.2: byte-for-byte comparison of protocol names. */
 int tls_alpn_equal(wired_span a, wired_span b) {
   u8 diff = 0;
-  if (a.n != b.n) return 0;
-  for (usz i = 0; i < a.n; i++) diff |= a.p[i] ^ b.p[i];
+  if (a.n != b.n) {
+    return 0;
+  }
+  for (usz i = 0; i < a.n; i++) {
+    diff |= a.p[i] ^ b.p[i];
+  }
   return diff == 0;
 }
 

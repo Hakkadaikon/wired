@@ -76,6 +76,8 @@ usz fmt_ip_digits(char* b, u64 v) {
     tmp[k++] = (char)('0' + v % 10);
     v /= 10;
   } while (v);
-  while (k) b[e++] = tmp[--k];
+  while (k) {
+    b[e++] = tmp[--k];
+  }
   return e;
 }

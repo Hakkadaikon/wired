@@ -15,7 +15,9 @@ static int pending1rtt_fits(const pending1rtt* q, usz len) {
 }
 
 int pending1rtt_store(pending1rtt* q, const u8* data, usz len) {
-  if (!pending1rtt_fits(q, len)) return 0;
+  if (!pending1rtt_fits(q, len)) {
+    return 0;
+  }
   bytes_memcpy(q->buf[q->count], data, len);
   q->len[q->count] = len;
   q->count++;
@@ -25,7 +27,9 @@ int pending1rtt_store(pending1rtt* q, const u8* data, usz len) {
 usz pending1rtt_count(const pending1rtt* q) { return q->count; }
 
 int pending1rtt_peek(const pending1rtt* q, usz i, const u8** data, usz* len) {
-  if (i >= q->count) return 0;
+  if (i >= q->count) {
+    return 0;
+  }
   *data = q->buf[i];
   *len  = q->len[i];
   return 1;

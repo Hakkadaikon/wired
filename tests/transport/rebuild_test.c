@@ -8,7 +8,9 @@ static void test_rebuild_stream_retransmittable(void) {
   CHECK(rtxbytes_retransmittable(stream, sizeof stream) == 1);
   CHECK(rtxbytes_rebuild(wired_span_of(stream, sizeof stream), &ob) == 1);
   CHECK(ob.len == sizeof stream);
-  for (usz i = 0; i < sizeof stream; i++) CHECK(out[i] == stream[i]);
+  for (usz i = 0; i < sizeof stream; i++) {
+    CHECK(out[i] == stream[i]);
+  }
 }
 
 static void test_rebuild_crypto_retransmittable(void) {

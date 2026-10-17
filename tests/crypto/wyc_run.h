@@ -30,7 +30,9 @@ typedef struct {
 
 static inline u32 wyc_num(const char* s) {
   u32 v = 0;
-  for (; s && *s >= '0' && *s <= '9'; s++) v = v * 10 + (u32)(*s - '0');
+  for (; s && *s >= '0' && *s <= '9'; s++) {
+    v = v * 10 + (u32)(*s - '0');
+  }
   return v;
 }
 
@@ -51,17 +53,19 @@ static inline void wyc_failed(wyc_stats* s, const wyc_case* c) {
 }
 
 static inline void wyc_tally_valid(wyc_stats* s, const wyc_case* c, int o) {
-  if (o == WYC_OK)
+  if (o == WYC_OK) {
     s->valid_ok++;
-  else
+  } else {
     wyc_failed(s, c);
+  }
 }
 
 static inline void wyc_tally_invalid(wyc_stats* s, const wyc_case* c, int o) {
-  if (o == WYC_REJ)
+  if (o == WYC_REJ) {
     s->inv_rej++;
-  else
+  } else {
     wyc_failed(s, c);
+  }
 }
 
 static inline void wyc_tally_acceptable(
@@ -77,25 +81,29 @@ static inline void wyc_tally(wyc_stats* s, const wyc_case* c, int o) {
   static void (*const by_result[])(wyc_stats*, const wyc_case*, int) = {
       wyc_tally_valid, wyc_tally_invalid, wyc_tally_acceptable};
   s->added++;
-  if (o == WYC_SKIP)
+  if (o == WYC_SKIP) {
     s->skip++;
-  else if (o == WYC_BAD)
+  } else if (o == WYC_BAD) {
     wyc_failed(s, c);
-  else
+  } else {
     by_result[c->result](s, c, o);
+  }
 }
 
 /* Run every case of one Wycheproof JSON file (each identified by tcId). */
 static inline void wyc_loop(
     wyc_stats* s, const bssl_attr* a, const wyc_case* cs, usz n, wyc_fn fn) {
-  for (usz i = 0; i < n; i++) wyc_tally(s, &cs[i], fn(a, &cs[i]));
+  for (usz i = 0; i < n; i++) {
+    wyc_tally(s, &cs[i], fn(a, &cs[i]));
+  }
   printf(
       "wyc %s: added %u valid_ok %u invalid_rejected %u acceptable %u "
       "(accepted %u rejected %u) fail %u skip %u failed=[",
       s->prim, s->added, s->valid_ok, s->inv_rej, s->acc_acc + s->acc_rej,
       s->acc_acc, s->acc_rej, s->fail, s->skip);
-  for (u32 i = 0; i < s->nfail && i < WYC_MAXFAIL; i++)
+  for (u32 i = 0; i < s->nfail && i < WYC_MAXFAIL; i++) {
     printf("%s%u:%s", i ? "," : "", s->fail_id[i], s->fail_flags[i]);
+  }
   printf("]\n");
 }
 
@@ -113,7 +121,9 @@ static inline void wyc_flag_loop(
     int ok  = !hit || fn(a, &cs[i]) == WYC_REJ;
     seen += hit;
     rej += hit && ok;
-    if (ok) continue;
+    if (ok) {
+      continue;
+    }
     wired_test_fails++;
     printf("FAIL %s tcId %u flags=%s\n", file, cs[i].tc_id, cs[i].flags);
   }
@@ -164,9 +174,13 @@ static inline int wyc_aead_check(
     const wyc_aead_ops* o, wyc_aead_in* v, const wyc_case* c) {
   wired_span ad = wired_span_of(v->aad, (usz)v->al);
   usz        n  = (usz)(v->cl + 16);
-  for (ssz i = 0; i < 16; i++) v->ct[v->cl + i] = v->tag[i];
+  for (ssz i = 0; i < 16; i++) {
+    v->ct[v->cl + i] = v->tag[i];
+  }
   int acc = o->open(v->key, v->iv, ad, wired_span_of(v->ct, n), v->out);
-  if (c->result != WYC_VALID) return acc ? WYC_OK : WYC_REJ;
+  if (c->result != WYC_VALID) {
+    return acc ? WYC_OK : WYC_REJ;
+  }
   int good = acc && wyc_eq(v->out, v->msg, (usz)v->ml);
   good     = good &&
              o->seal(
@@ -177,8 +191,12 @@ static inline int wyc_aead_check(
 static inline int wyc_aead_case(
     const wyc_aead_ops* o, const bssl_attr* a, const wyc_case* c) {
   static wyc_aead_in v;
-  if (!wyc_aead_load(&v, a, c)) return WYC_BAD;
-  if (wyc_aead_expressible(o, &v)) return wyc_aead_check(o, &v, c);
+  if (!wyc_aead_load(&v, a, c)) {
+    return WYC_BAD;
+  }
+  if (wyc_aead_expressible(o, &v)) {
+    return wyc_aead_check(o, &v, c);
+  }
   return c->result == WYC_INVALID ? WYC_REJ : WYC_SKIP;
 }
 

@@ -10,7 +10,9 @@ static moqctl_ns mtns_ns(const char* z) {
   usz       at = 0;
   while (z[at]) {
     usz from = at;
-    while (z[at] && z[at] != '/') at++;
+    while (z[at] && z[at] != '/') {
+      at++;
+    }
     ns.fields[ns.n++] = wired_span_of((const u8*)z + from, at - from);
     at += z[at] == '/';
   }
@@ -41,7 +43,9 @@ static char mtns_text[1024];
 static usz  mtns_at;
 
 static void mtns_put(const char* z) {
-  while (*z) mtns_text[mtns_at++] = *z++;
+  while (*z) {
+    mtns_text[mtns_at++] = *z++;
+  }
 }
 
 static void mtns_put_ns(wired_span body) {
@@ -49,8 +53,12 @@ static void mtns_put_ns(wired_span body) {
   CHECK(moqns_suffix_take(body, &ns) == MOQCTL_OK);
   for (usz i = 0; i < ns.n; i++) {
     usz n = ns.fields[i].n < 8 ? ns.fields[i].n : 8; /* long fields: 8 */
-    if (i) mtns_put("/");
-    for (usz k = 0; k < n; k++) mtns_text[mtns_at++] = (char)ns.fields[i].p[k];
+    if (i) {
+      mtns_put("/");
+    }
+    for (usz k = 0; k < n; k++) {
+      mtns_text[mtns_at++] = (char)ns.fields[i].p[k];
+    }
   }
 }
 
@@ -65,12 +73,21 @@ static void mtns_put_err(wired_span body) {
 }
 
 static void mtns_put_msg(u64 type, wired_span body) {
-  if (type == MOQCTL_T_REQUEST_OK) mtns_put("OK");
-  if (type == MOQCTL_T_REQUEST_ERROR) mtns_put_err(body);
-  if (type == MOQNS_T_NAMESPACE) mtns_put("NS:");
-  if (type == MOQNS_T_NAMESPACE_DONE) mtns_put("DONE:");
-  if (type == MOQNS_T_NAMESPACE || type == MOQNS_T_NAMESPACE_DONE)
+  if (type == MOQCTL_T_REQUEST_OK) {
+    mtns_put("OK");
+  }
+  if (type == MOQCTL_T_REQUEST_ERROR) {
+    mtns_put_err(body);
+  }
+  if (type == MOQNS_T_NAMESPACE) {
+    mtns_put("NS:");
+  }
+  if (type == MOQNS_T_NAMESPACE_DONE) {
+    mtns_put("DONE:");
+  }
+  if (type == MOQNS_T_NAMESPACE || type == MOQNS_T_NAMESPACE_DONE) {
     mtns_put_ns(body);
+  }
   mtns_put("|");
 }
 
@@ -92,7 +109,9 @@ static const char* mtns_log(wired_wt_session* s, u64 sid) {
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c  = &g_calls[i];
     int                      on = (c->kind == 12 || c->kind == 3) && c->s == s;
-    if (on && c->stream_id == sid && !c->refused) mtns_put_call(c);
+    if (on && c->stream_id == sid && !c->refused) {
+      mtns_put_call(c);
+    }
   }
   mtns_text[mtns_at] = 0;
   return mtns_text;
@@ -101,8 +120,12 @@ static const char* mtns_log(wired_wt_session* s, u64 sid) {
 static int mtns_is(wired_wt_session* s, u64 sid, const char* want) {
   const char* got = mtns_log(s, sid);
   usz         i   = 0;
-  while (got[i] && got[i] == want[i]) i++;
-  if (got[i] != want[i]) printf("  got \"%s\" want \"%s\"\n", got, want);
+  while (got[i] && got[i] == want[i]) {
+    i++;
+  }
+  if (got[i] != want[i]) {
+    printf("  got \"%s\" want \"%s\"\n", got, want);
+  }
   return got[i] == want[i];
 }
 
@@ -291,7 +314,9 @@ static void mtns_req_with_token(
     wired_wt_session* s, u64 sid, u64 type, const u8* tok, usz n) {
   u8  body[32] = {0x02, 0x01, 0x04, 'c', 'h', 'a', 't', 0x01, 0x03, (u8)n};
   usz at       = 10;
-  for (usz i = 0; i < n; i++) body[at++] = tok[i];
+  for (usz i = 0; i < n; i++) {
+    body[at++] = tok[i];
+  }
   mtrq_raw(s, sid, type, body, at);
 }
 
@@ -337,7 +362,9 @@ static void test_moqtrun_ns_authorization(void) {
  * truncated. */
 static void test_moqtrun_ns_oversized_refused(void) {
   static char big[201];
-  for (usz i = 0; i < 200; i++) big[i] = 'a';
+  for (usz i = 0; i < 200; i++) {
+    big[i] = 'a';
+  }
   mtns_init();
   mtns_pub(SESS_A, MTRQ_S1, big);
   CHECK(mtns_is(SESS_A, MTRQ_S1, "ERR:00|"));
@@ -378,18 +405,24 @@ static void test_moqtrun_ns_per_session_cap(void) {
 static void test_moqtrun_ns_backpressure(void) {
   static char x[4][101];
   for (usz i = 0; i < 4; i++) {
-    for (usz k = 0; k < 100; k++) x[i][k] = 'a';
+    for (usz k = 0; k < 100; k++) {
+      x[i][k] = 'a';
+    }
     x[i][0] = 'x';
     x[i][1] = (char)('1' + i);
   }
   mtns_init();
   mtns_sub(SESS_B, MTRQ_S1, "");
   g_stream_send_reject_n = 1000;
-  for (usz i = 0; i < 3; i++) mtns_pub(SESS_A, MTRQ_ID(i), x[i]);
+  for (usz i = 0; i < 3; i++) {
+    mtns_pub(SESS_A, MTRQ_ID(i), x[i]);
+  }
   wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_ID(0), 0, 0);
   mtns_pub(SESS_A, MTRQ_ID(3), x[3]);
   g_stream_send_reject_n = 0;
-  for (usz i = 0; i < 4; i++) wired_moqt_tick(&mtst_hub, 0);
+  for (usz i = 0; i < 4; i++) {
+    wired_moqt_tick(&mtst_hub, 0);
+  }
   CHECK(mtns_is(
       SESS_B, MTRQ_S1,
       "OK|NS:x1aaaaaa|NS:x2aaaaaa|DONE:x1aaaaaa|NS:x3aaaaaa|NS:x4aaaaaa|"));

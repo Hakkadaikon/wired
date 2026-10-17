@@ -39,7 +39,9 @@ static void h3g_put_connect(u8* out, usz cap, usz* n) {
 }
 
 static void h3g_put(u8* out, usz* n, const u8* p, usz pn) {
-  for (usz i = 0; i < pn; i++) out[(*n)++] = p[i];
+  for (usz i = 0; i < pn; i++) {
+    out[(*n)++] = p[i];
+  }
 }
 
 /* Deliver h3[off, off+len) as one request STREAM frame (stream 0). */

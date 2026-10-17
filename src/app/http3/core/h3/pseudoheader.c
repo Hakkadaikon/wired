@@ -8,8 +8,11 @@ static int byte_differs(const u8* name, const char* lit, usz i) {
 /* Compare a field name [name,len) against a NUL-terminated literal. */
 static int name_eq(const u8* name, usz len, const char* lit) {
   usz i = 0;
-  for (; i < len; i++)
-    if (byte_differs(name, lit, i)) return 0;
+  for (; i < len; i++) {
+    if (byte_differs(name, lit, i)) {
+      return 0;
+    }
+  }
   return lit[i] == 0; /* both ended together */
 }
 
@@ -29,13 +32,18 @@ static int is_pseudo(const u8* name, usz len) {
 
 /* Match a ':'-prefixed name against the table; UNKNOWN if none. */
 static h3_ph_kind pseudoheader_lookup(const u8* name, usz len) {
-  for (usz i = 0; i < sizeof known / sizeof known[0]; i++)
-    if (name_eq(name, len, known[i].name)) return known[i].kind;
+  for (usz i = 0; i < sizeof known / sizeof known[0]; i++) {
+    if (name_eq(name, len, known[i].name)) {
+      return known[i].kind;
+    }
+  }
   return H3_PH_UNKNOWN;
 }
 
 h3_ph_kind h3_ph_classify(const u8* name, usz len) {
-  if (!is_pseudo(name, len)) return H3_PH_NONE;
+  if (!is_pseudo(name, len)) {
+    return H3_PH_NONE;
+  }
   return pseudoheader_lookup(name, len);
 }
 
@@ -48,7 +56,9 @@ void h3_ph_init(h3_ph_set* p) {
 /* Record a known pseudo-header; ordering and duplicates clear p->ok. */
 static void on_pseudo(h3_ph_set* p, h3_ph_kind k) {
   u8 bit = (u8)(1u << k);
-  if (p->saw_regular || (p->seen & bit)) p->ok = 0; /* after regular / dup */
+  if (p->saw_regular || (p->seen & bit)) {
+    p->ok = 0; /* after regular / dup */
+  }
   p->seen |= bit;
 }
 

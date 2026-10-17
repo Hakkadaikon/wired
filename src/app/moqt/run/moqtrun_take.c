@@ -13,8 +13,9 @@ static u64 moqtrun_track_prop(wired_span props, u64 type, u64 dflt) {
   usz    off  = 0;
   u64    prev = 0, out = dflt;
   moqkvp kv;
-  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK)
+  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK) {
     out = moqtrun_prop_num_of(&kv, type, out);
+  }
   return out;
 }
 
@@ -31,7 +32,9 @@ static u8 moqtrun_track_prop_prio(wired_span props) {
 /* Keeps props for SUBSCRIBE_OK (WIRED_MOQTRUN_TRACK_PROPS_MAX's own doc:
  * a larger block is kept as none). */
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props) {
-  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) return;
+  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) {
+    return;
+  }
   bytes_memcpy(t->props, props.p, props.n);
   t->props_len = (u8)props.n;
 }
@@ -91,7 +94,9 @@ void moqtrun_publish_checked(
  * among the causes -- closes the session PROTOCOL_VIOLATION, as FETCH and
  * REQUEST_UPDATE do (ledger 12-13). 1 when r is MOQCTL_OK. */
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
-  if (r == MOQCTL_OK) return 1;
+  if (r == MOQCTL_OK) {
+    return 1;
+  }
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   return 0;
 }
@@ -113,7 +118,9 @@ static int moqtrun_token_by_value(const moqctl_token* t) {
 }
 
 static u32 moqtrun_token_close_code(const moqctl_token* t) {
-  if (moqtrun_token_by_value(t)) return 0;
+  if (moqtrun_token_by_value(t)) {
+    return 0;
+  }
   return t->alias_type == MOQCTL_TOKEN_REGISTER
              ? WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW
              : WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS;
@@ -127,8 +134,12 @@ int moqtrun_take_tok_or_close(
     int                  r,
     const moqctl_params* params) {
   u32 code;
-  if (!moqtrun_take_or_close(hub, p, r)) return 0;
+  if (!moqtrun_take_or_close(hub, p, r)) {
+    return 0;
+  }
   code = moqtrun_token_close_code(moqtrun_auth_token_of(params));
-  if (code) moqtrun_close_with(hub, p, code);
+  if (code) {
+    moqtrun_close_with(hub, p, code);
+  }
   return code == 0;
 }

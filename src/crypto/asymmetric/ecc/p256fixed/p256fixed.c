@@ -18,7 +18,9 @@ static u64 p256fixed_zmask(u64 z) { return ((z | (0 - z)) >> 63) - 1; }
 
 /* r <- a when mask is all-ones, unchanged when 0 (constant-time). */
 static void p256fixed_cmov(p256_fe r, const u64* a, u64 mask) {
-  for (usz i = 0; i < 4; i++) r[i] ^= mask & (r[i] ^ a[i]);
+  for (usz i = 0; i < 4; i++) {
+    r[i] ^= mask & (r[i] ^ a[i]);
+  }
 }
 
 /* r = (a - b) mod p. */
@@ -40,7 +42,9 @@ static void p256fixed_pt_cmov(
 /* (x, y) <- table digit d of window row (1..15); (0, 0) for d == 0. Scans
  * every entry with a masked select so the access pattern is d-oblivious. */
 static void p256fixed_select(p256_fe x, p256_fe y, const u64* row, u64 d) {
-  for (usz i = 0; i < 4; i++) x[i] = y[i] = 0;
+  for (usz i = 0; i < 4; i++) {
+    x[i] = y[i] = 0;
+  }
   for (u64 j = 0; j < 15; j++) {
     u64 m = p256fixed_zmask(d ^ (j + 1)); /* all-ones iff d == j + 1 */
     p256fixed_cmov(x, row + j * 8, m);
@@ -99,7 +103,9 @@ static void p256fixed_step(p256fixed_pt* acc, const u64* row, u64 d) {
 /* Jacobian -> affine; 0 if the point is infinity. */
 static int p256fixed_to_affine(p256_fe x, p256_fe y, const p256fixed_pt* j) {
   p256_fe zi, zi2;
-  if (p256_fp_is_zero(j->jz)) return 0;
+  if (p256_fp_is_zero(j->jz)) {
+    return 0;
+  }
   p256_fp_inv_p(zi, j->jz);
   p256_fp_sqr_p(zi2, zi);
   p256_fp_mul_p(x, j->jx, zi2);
@@ -110,7 +116,8 @@ static int p256fixed_to_affine(p256_fe x, p256_fe y, const p256fixed_pt* j) {
 
 int p256fixed_mul_g(p256_fe out_x, p256_fe out_y, const u8 scalar[32]) {
   p256fixed_pt acc = {{0}, {0}, {0}}; /* infinity */
-  for (usz i = 0; i < 64; i++)
+  for (usz i = 0; i < 64; i++) {
     p256fixed_step(&acc, p256fixed_table[i], p256fixed_digit(scalar, i));
+  }
   return p256fixed_to_affine(out_x, out_y, &acc);
 }

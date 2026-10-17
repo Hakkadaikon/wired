@@ -6,8 +6,9 @@
 static int authorized(const wired_h3reqdrive_req* req) {
   wired_span v;
   if (wired_http_req_header(req, wired_span_cstr("authorization"), &v) &&
-      wired_span_eq_cstr(v, "Bearer secret-token"))
+      wired_span_eq_cstr(v, "Bearer secret-token")) {
     return 1;
+  }
   return wired_span_eq_cstr(
       wired_span_of(req->cookie, req->cookie_len), "session=granted");
 }
@@ -27,9 +28,10 @@ static int on_request(void* ctx, wired_http_exchange* x) {
     wired_http_add_field(x, "set-cookie", "session=granted");
     return wired_http_reply_text(x, 200, "logged in");
   }
-  if (wired_span_eq_cstr(path, "/secret"))
+  if (wired_span_eq_cstr(path, "/secret")) {
     return authorized(x->req) ? wired_http_reply_text(x, 200, "top secret")
                               : wired_http_reply_text(x, 401, "unauthorized");
+  }
   return wired_http_reply_text(x, 404, "not found");
 }
 

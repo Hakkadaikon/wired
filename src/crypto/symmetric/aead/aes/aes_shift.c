@@ -20,18 +20,24 @@ static void add_round_key(u8 s[16], const u32* rk) {
 }
 
 static void sub_bytes(u8 s[16]) {
-  for (usz i = 0; i < 16; i++) s[i] = SBOX[s[i]];
+  for (usz i = 0; i < 16; i++) {
+    s[i] = SBOX[s[i]];
+  }
 }
 
 /* Fill one shifted column c of the output from state s. */
 static void shift_col(const u8 s[16], u8 t[16], usz c) {
-  for (usz r = 0; r < 4; r++) t[4 * c + r] = s[4 * ((c + r) % 4) + r];
+  for (usz r = 0; r < 4; r++) {
+    t[4 * c + r] = s[4 * ((c + r) % 4) + r];
+  }
 }
 
 /* ShiftRows on a column-major state (byte r,c at s[4*c+r]). */
 static void shift_rows(u8 s[16]) {
   u8 t[16];
-  for (usz c = 0; c < 4; c++) shift_col(s, t, c);
+  for (usz c = 0; c < 4; c++) {
+    shift_col(s, t, c);
+  }
   aes128_copy16(s, t);
 }
 
@@ -45,7 +51,9 @@ static void mix_one(u8* col) {
 }
 
 static void mix_columns(u8 s[16]) {
-  for (usz c = 0; c < 4; c++) mix_one(s + 4 * c);
+  for (usz c = 0; c < 4; c++) {
+    mix_one(s + 4 * c);
+  }
 }
 
 /* One full round (rounds 1..9): sub, shift, mix, add. */
@@ -68,17 +76,21 @@ void aes128_encrypt(
   u8 s[16];
   aes128_copy16(s, in);
   add_round_key(s, a->rk);
-  for (usz r = 1; r < AES_ROUNDS; r++) round_full(s, a->rk + 4 * r);
+  for (usz r = 1; r < AES_ROUNDS; r++) {
+    round_full(s, a->rk + 4 * r);
+  }
   round_last(s, a->rk + (usz)4 * AES_ROUNDS);
   aes128_copy16(out, s);
 }
 
 void aes256_init(aes256* a, const u8 key[AES256_KEY]) {
-  for (usz i = 0; i < 8; i++)
+  for (usz i = 0; i < 8; i++) {
     a->rk[i] = ((u32)key[4 * i] << 24) | ((u32)key[4 * i + 1] << 16) |
                ((u32)key[4 * i + 2] << 8) | key[4 * i + 3];
-  for (usz i = 8; i < AES256_RK_WORDS; i++)
+  }
+  for (usz i = 8; i < AES256_RK_WORDS; i++) {
     a->rk[i] = a->rk[i - 8] ^ aes128_schedule_word256(a->rk[i - 1], i);
+  }
 }
 
 void aes256_encrypt(
@@ -86,7 +98,9 @@ void aes256_encrypt(
   u8 s[16];
   aes128_copy16(s, in);
   add_round_key(s, a->rk);
-  for (usz r = 1; r < AES256_ROUNDS; r++) round_full(s, a->rk + 4 * r);
+  for (usz r = 1; r < AES256_ROUNDS; r++) {
+    round_full(s, a->rk + 4 * r);
+  }
   round_last(s, a->rk + (usz)4 * AES256_ROUNDS);
   aes128_copy16(out, s);
 }

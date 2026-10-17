@@ -10,8 +10,12 @@ static int g_srvkeys_drawn;
  * (see srvkeys.h); the acquire/release pair keeps a later reader on another
  * thread from seeing the flag before the bytes. */
 int srvkeys_ready(void) {
-  if (__atomic_load_n(&g_srvkeys_drawn, __ATOMIC_ACQUIRE)) return 1;
-  if (!rng_bytes(&g_srvkeys[0][0], sizeof g_srvkeys)) return 0;
+  if (__atomic_load_n(&g_srvkeys_drawn, __ATOMIC_ACQUIRE)) {
+    return 1;
+  }
+  if (!rng_bytes(&g_srvkeys[0][0], sizeof g_srvkeys)) {
+    return 0;
+  }
   __atomic_store_n(&g_srvkeys_drawn, 1, __ATOMIC_RELEASE);
   return 1;
 }

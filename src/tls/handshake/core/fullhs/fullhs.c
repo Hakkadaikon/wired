@@ -13,8 +13,12 @@ static int  fullhs_policy_checks(const fullhs* h, const u8* cert, usz n);
 /* Append a handshake message to the raw transcript, clamping at the cap so a
  * malformed flight can never overrun. Returns 1 if it fit. */
 int fullhs_tr_add(fullhs* h, const u8* msg, usz len) {
-  if (len > FULLHS_TRANSCRIPT_MAX - h->tr_len) return 0;
-  for (usz i = 0; i < len; i++) h->tr[h->tr_len + i] = msg[i];
+  if (len > FULLHS_TRANSCRIPT_MAX - h->tr_len) {
+    return 0;
+  }
+  for (usz i = 0; i < len; i++) {
+    h->tr[h->tr_len + i] = msg[i];
+  }
   h->tr_len += len;
   return 1;
 }
@@ -66,7 +70,9 @@ static void prime_order(fullhs* h) {
 }
 
 int fullhs_init(fullhs* h, tlsdriver* tls, wired_span sh) {
-  if (!tlsdriver_handshake_secret_ready(tls)) return 0;
+  if (!tlsdriver_handshake_secret_ready(tls)) {
+    return 0;
+  }
   h->tls             = tls;
   h->is_server       = tls->is_server;
   h->peer_cert       = 0;
@@ -94,8 +100,12 @@ void fullhs_set_castore(fullhs* h, const castore* store) { h->castore = store; }
  * one seen (the server's), record the length at which the application traffic
  * secrets are derived. */
 int fullhs_fold_finished(fullhs* h, const u8* fin, usz len) {
-  if (!fullhs_tr_add(h, fin, len)) return 0;
-  if (h->master_tr_len == 0) h->master_tr_len = h->tr_len;
+  if (!fullhs_tr_add(h, fin, len)) {
+    return 0;
+  }
+  if (h->master_tr_len == 0) {
+    h->master_tr_len = h->tr_len;
+  }
   return 1;
 }
 
@@ -118,12 +128,16 @@ static int fullhs_host_ok(const fullhs* h, const x509* x) {
 
 static int fullhs_policy_checks(const fullhs* h, const u8* cert, usz n) {
   x509 x;
-  if (!x509_parse(wired_span_of(cert, n), &x)) return 0;
+  if (!x509_parse(wired_span_of(cert, n), &x)) {
+    return 0;
+  }
   return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
 }
 
 /* No policy set = legacy signature-only behavior; else parse and enforce. */
 int fullhs_policy_ok(const fullhs* h, const u8* cert, usz n) {
-  if (h->policy_now == 0 && h->policy_host_len == 0) return 1;
+  if (h->policy_now == 0 && h->policy_host_len == 0) {
+    return 1;
+  }
   return fullhs_policy_checks(h, cert, n);
 }

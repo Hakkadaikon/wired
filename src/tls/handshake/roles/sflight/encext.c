@@ -14,7 +14,9 @@ static int encext_fits(usz tp_len, usz cap) {
 int sflight_encrypted_extensions(wired_span transport_params, wired_obuf* out) {
   usz        off, ext;
   wired_obuf eob;
-  if (!encext_fits(transport_params.n, out->cap)) return 0;
+  if (!encext_fits(transport_params.n, out->cap)) {
+    return 0;
+  }
   off = hs_begin(out->p, out->cap, HS_ENCRYPTED_EXT);
   eob = obuf_of(out->p + off + 2, out->cap - off - 2);
   ext = tpext_encode(&eob, transport_params);

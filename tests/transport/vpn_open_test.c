@@ -55,7 +55,9 @@ static void roundtrip(usz pn_len, u64 pn) {
   CHECK(pkt[0] == (u8)(0xc0 | (pn_len - 1))); /* byte0 unmasked -> pn_len */
   CHECK((pkt[0] & 0x03) + 1 == pn_len);
   CHECK(out.n == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
+  for (usz i = 0; i < sizeof(payload); i++) {
+    CHECK(out.p[i] == payload[i]);
+  }
 }
 
 static void test_vpn_roundtrip_lengths(void) {
@@ -122,7 +124,9 @@ static void test_vpn_protect_compat(void) {
   vpn_desc   vd     = {wired_mspan_of(pkt, total), 14, length, 0};
   CHECK(vpn_open(&k, &vd, &out));
   CHECK(out.n == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
+  for (usz i = 0; i < sizeof(payload); i++) {
+    CHECK(out.p[i] == payload[i]);
+  }
 }
 
 /* RFC 9000 17.1 / A.3: a peer whose packets have been acked truncates the
@@ -156,7 +160,9 @@ static void test_vpn_truncated_pn_recovered(void) {
   vpn_desc   vd = {wired_mspan_of(pkt, total), pn_off, length, 729};
   CHECK(vpn_open(&k, &vd, &out));
   CHECK(out.n == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
+  for (usz i = 0; i < sizeof(payload); i++) {
+    CHECK(out.p[i] == payload[i]);
+  }
 }
 
 void test_vpn_open(void) {

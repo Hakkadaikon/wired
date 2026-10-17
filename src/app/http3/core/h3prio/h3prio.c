@@ -4,8 +4,12 @@
  * dominates (a live candidate always precedes a dead slot), then ascending
  * urgency, then ascending stream_id breaks a same-urgency tie. */
 static int prio_before(const h3prio_candidate* c, usz a, usz b) {
-  if (c[a].in_use != c[b].in_use) return c[a].in_use > c[b].in_use;
-  if (c[a].urgency != c[b].urgency) return c[a].urgency < c[b].urgency;
+  if (c[a].in_use != c[b].in_use) {
+    return c[a].in_use > c[b].in_use;
+  }
+  if (c[a].urgency != c[b].urgency) {
+    return c[a].urgency < c[b].urgency;
+  }
   return c[a].stream_id < c[b].stream_id;
 }
 
@@ -33,10 +37,14 @@ static void order_insert_one(const h3prio_candidate* c, usz* order, usz i) {
  * n is bounded by a fixed slot table (<=40 in practice), so O(n^2) is
  * simple and plenty fast; a merge/qsort here would be over-engineering. */
 static void order_insert(const h3prio_candidate* c, usz* order, usz n) {
-  for (usz i = 1; i < n; i++) order_insert_one(c, order, i);
+  for (usz i = 1; i < n; i++) {
+    order_insert_one(c, order, i);
+  }
 }
 
 void h3prio_order(const h3prio_candidate* c, usz n, usz* order) {
-  for (usz i = 0; i < n; i++) order[i] = i;
+  for (usz i = 0; i < n; i++) {
+    order[i] = i;
+  }
   order_insert(c, order, n);
 }

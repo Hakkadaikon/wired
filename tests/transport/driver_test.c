@@ -7,7 +7,9 @@
 static int pump(driver* from, driver* to) {
   u8  dg[DRIVER_DGRAM_CAP];
   usz n = driver_take(from, dg, sizeof(dg));
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   driver_feed(to, dg, n);
   return 1;
 }
@@ -28,7 +30,9 @@ static void test_driver_handshake_completes(void) {
     driver_step(&sv);
     pump(&cl, &sv);
     pump(&sv, &cl);
-    if (driver_handshake_complete(&cl) && driver_handshake_complete(&sv)) break;
+    if (driver_handshake_complete(&cl) && driver_handshake_complete(&sv)) {
+      break;
+    }
   }
   CHECK(driver_handshake_complete(&cl) == 1);
   CHECK(driver_handshake_complete(&sv) == 1);

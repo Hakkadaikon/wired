@@ -33,11 +33,14 @@ int moqtrun_sub_held_reply(
     wired_moqtrun_peer*        p,
     const wired_moqtrun_track* t,
     const wired_moqtrun_sub*   held) {
-  if (!held) return 0;
-  if (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION)
+  if (!held) {
+    return 0;
+  }
+  if (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DUPLICATE_SUBSCRIPTION);
-  else
+  } else {
     moqtrun_queue_subscribe_ok(p, t, held);
+  }
   return 1;
 }
 
@@ -50,7 +53,9 @@ void moqtrun_subscribe_blob(
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* held =
       moqtrun_track_sub_of_peer(&hub->blob_track, peer_idx);
-  if (moqtrun_sub_held_reply(p, &hub->blob_track, held)) return;
+  if (moqtrun_sub_held_reply(p, &hub->blob_track, held)) {
+    return;
+  }
   moqtrun_blob_send_first(hub, p, peer_idx, m);
 }
 
@@ -82,7 +87,9 @@ static int moqtrun_sw_refused(
     const moqctl_subscribe*    m) {
   u64 code = moqtsw_check(
       hub, moqtrun_sw_ops(), peer_idx, track, held, m->request_id, &m->params);
-  if (code == MOQTSW_ACCEPT) return 0;
+  if (code == MOQTSW_ACCEPT) {
+    return 0;
+  }
   moqtrun_send_request_error(p, code);
   return 1;
 }
@@ -98,8 +105,12 @@ void moqtrun_subscribe_peer_track(
     moqtrun_key             k,
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* held = moqtrun_track_sub_of_peer(track, peer_idx);
-  if (moqtrun_sw_refused(hub, p, track, held, peer_idx, m)) return;
-  if (moqtrun_sub_held_reply(p, track, held)) return;
+  if (moqtrun_sw_refused(hub, p, track, held, peer_idx, m)) {
+    return;
+  }
+  if (moqtrun_sub_held_reply(p, track, held)) {
+    return;
+  }
   moqtrun_subscribe_fresh(hub, p, track, peer_idx, k, m);
 }
 
@@ -151,7 +162,10 @@ int moqtrun_rdv_holdable(
 }
 
 wired_moqtrun_rdv* moqtrun_rdv_free_slot(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (!hub->rdv[i].in_use) return &hub->rdv[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (!hub->rdv[i].in_use) {
+      return &hub->rdv[i];
+    }
+  }
   return 0;
 }

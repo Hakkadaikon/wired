@@ -30,7 +30,9 @@ void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
  * key_share, not renegotiating algorithms). Only meaningful when
  * s->hrr_sent; sets s->last_error and returns 0 on a mismatch. */
 static int sdrv_ch_retry_cipher_ok(sdrv* s) {
-  if (!s->hrr_sent || s->cipher_suite == s->hrr_cipher_suite) return 1;
+  if (!s->hrr_sent || s->cipher_suite == s->hrr_cipher_suite) {
+    return 1;
+  }
   s->last_error = err_crypto(47); /* illegal_parameter */
   return 0;
 }
@@ -40,7 +42,9 @@ static int sdrv_ch_retry_cipher_ok(sdrv* s) {
 static int sdrv_ch_negotiate_cipher_gate(
     sdrv* s, const u8* ch_msg, usz ch_len) {
   usz body;
-  if (!sdrv_ch_negotiate(s, ch_msg, ch_len, &body)) return 0;
+  if (!sdrv_ch_negotiate(s, ch_msg, ch_len, &body)) {
+    return 0;
+  }
   return sdrv_ch_retry_cipher_ok(s);
 }
 
@@ -49,9 +53,12 @@ static int sdrv_ch_negotiate_cipher_gate(
  * supported_groups names x25519 (the only group this driver implements). */
 static int sdrv_ch_may_retry(const sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span ext;
-  if (s->hrr_sent) return 0;
-  if (!sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &ext))
+  if (s->hrr_sent) {
     return 0;
+  }
+  if (!sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &ext)) {
+    return 0;
+  }
   return tls_ext_groups_has(ext.p, ext.n, GROUP_X25519);
 }
 
@@ -66,8 +73,12 @@ static void sdrv_ch_keyshare_reject(sdrv* s) {
 /* Fresh P-256 ephemeral pair into server_priv/server_pub; switches the
  * connection's ECDHE group on success (RFC 8446 4.2.8). */
 static int sdrv_p256_ephemeral(sdrv* s) {
-  if (!p256_keygen(s->server_priv)) return 0;
-  if (!p256_pubkey_encode(s->server_pub, s->server_priv)) return 0;
+  if (!p256_keygen(s->server_priv)) {
+    return 0;
+  }
+  if (!p256_pubkey_encode(s->server_pub, s->server_priv)) {
+    return 0;
+  }
   s->group = GROUP_SECP256R1;
   return 1;
 }
@@ -87,8 +98,9 @@ static int sdrv_p256_share_ok(const u8* pub) {
  * and failing the handshake outright. */
 static int sdrv_ch_take_p256(sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!sdrv_take_client_keyshare(
-          ch_msg, ch_len, GROUP_SECP256R1, s->client_pub))
+          ch_msg, ch_len, GROUP_SECP256R1, s->client_pub)) {
     return 0;
+  }
   return sdrv_p256_share_ok(s->client_pub) && sdrv_p256_ephemeral(s);
 }
 
@@ -96,8 +108,9 @@ static int sdrv_ch_take_p256(sdrv* s, const u8* ch_msg, usz ch_len) {
  * else (from the x25519 default only) a valid secp256r1 one, switching the
  * group to match. */
 static int sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (sdrv_take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub))
+  if (sdrv_take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub)) {
     return 1;
+  }
   return s->group == GROUP_X25519 && sdrv_ch_take_p256(s, ch_msg, ch_len);
 }
 
@@ -107,7 +120,9 @@ static int sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len) {
  * HRR was armed instead (sdrv_hrr_pending is now 1, not an error) or the
  * ClientHello was rejected (last_error set, sdrv_hrr_pending stays 0). */
 static int sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (sdrv_ch_any_keyshare(s, ch_msg, ch_len)) return 1;
+  if (sdrv_ch_any_keyshare(s, ch_msg, ch_len)) {
+    return 1;
+  }
   if (!sdrv_ch_may_retry(s, ch_msg, ch_len)) {
     sdrv_ch_keyshare_reject(s);
     return 0;
@@ -121,14 +136,18 @@ static int sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
  * absence armed as an HRR instead of an outright rejection. */
 static int sdrv_ch_negotiate_and_keyshare(
     sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (!sdrv_ch_negotiate_cipher_gate(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_negotiate_cipher_gate(s, ch_msg, ch_len)) {
+    return 0;
+  }
   return sdrv_ch_keyshare_or_arm_hrr(s, ch_msg, ch_len);
 }
 
 /* Negotiated, key_share taken, and legacy_session_id recorded -- the
  * required-field half of sdrv_recv_client_hello. */
 int sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (!sdrv_ch_negotiate_and_keyshare(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_negotiate_and_keyshare(s, ch_msg, ch_len)) {
+    return 0;
+  }
   return sdrv_take_client_sid(s, ch_msg, ch_len);
 }
 
@@ -138,7 +157,9 @@ int sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len) {
 int sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span ext;
   int        found = sdrv_find_client_tp_ext(ch_msg, ch_len, &ext);
-  if (encext_required_ok(found)) return 1;
+  if (encext_required_ok(found)) {
+    return 1;
+  }
   s->last_error = err_crypto(109);
   return 0;
 }
@@ -149,7 +170,9 @@ int sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
  * individual takers elsewhere to degrade gracefully. */
 static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
   wired_span ext, tp = wired_span_of(0, 0);
-  if (!sdrv_find_client_tp_ext(ch_msg, ch_len, &ext)) return tp;
+  if (!sdrv_find_client_tp_ext(ch_msg, ch_len, &ext)) {
+    return tp;
+  }
   tpext_decode(ext, &tp);
   return tp;
 }
@@ -160,7 +183,9 @@ static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
  * individual parameter is read out of it. */
 int sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span tp = sdrv_tp_seq(ch_msg, ch_len);
-  if (tp.n == 0 || tparam_no_duplicates(tp)) return 1;
+  if (tp.n == 0 || tparam_no_duplicates(tp)) {
+    return 1;
+  }
   s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
   return 0;
 }
@@ -173,7 +198,9 @@ int sdrv_find_version_information(
     const u8* ch_msg, usz ch_len, wired_span* bytes) {
   wired_span tp    = sdrv_tp_seq(ch_msg, ch_len);
   stp_out    out_v = {0, bytes};
-  if (tp.n == 0) return 0;
+  if (tp.n == 0) {
+    return 0;
+  }
   return stp_parse(tp, TP_VERSION_INFORMATION, &out_v);
 }
 
@@ -201,7 +228,8 @@ int sdrv_ch_take_version_information(sdrv* s, const version_information* vi) {
     return 0;
   }
   vers_init(&us);
-  if (verinfo_pick_compatible(vi, verlist_of(us.versions, us.n), &pick))
+  if (verinfo_pick_compatible(vi, verlist_of(us.versions, us.n), &pick)) {
     s->negotiated_version = pick;
+  }
   return 1;
 }

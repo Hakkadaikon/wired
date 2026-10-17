@@ -17,15 +17,20 @@ static void moqtrun_ctl_step(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 /* PUBLISH_DONE status to each subscription peer index idx holds on t. */
 static void moqtrun_track_done_peer(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 status) {
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    if (moqtrun_sub_is_peer(&t->subs[si], idx))
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (moqtrun_sub_is_peer(&t->subs[si], idx)) {
       moqtrun_sub_done_slot(hub, t, si, status);
+    }
+  }
 }
 
 /* Subscription slots of t held by peer index idx. */
 static int moqtrun_subs_held(const wired_moqtrun_track* t, usz idx) {
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    if (moqtrun_sub_is_peer(&t->subs[si], idx)) return 1;
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (moqtrun_sub_is_peer(&t->subs[si], idx)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -34,8 +39,11 @@ static int moqtrun_track_held(const wired_moqtrun_track* t, usz idx) {
 }
 
 static int moqtrun_peer_tracks_held(const wired_moqtrun_peer* q, usz idx) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_held(&q->tracks[t], idx)) return 1;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (moqtrun_track_held(&q->tracks[t], idx)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -50,14 +58,20 @@ static int moqtrun_own_held(const wired_moqt_hub* hub, usz idx) {
 
 /* Peer index idx still holds a subscription on any track. */
 static int moqtrun_hub_held(const wired_moqt_hub* hub, usz idx) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_peer_held(&hub->peers[i], idx)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_peer_held(&hub->peers[i], idx)) {
+      return 1;
+    }
+  }
   return moqtrun_own_held(hub, idx);
 }
 
 static int moqtrun_peer_publishes(const wired_moqtrun_peer* p) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (p->tracks[t].in_use) return 1;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (p->tracks[t].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -109,8 +123,9 @@ void moqtrun_drain_expire(
     moqtrun_drain_flush(hub, p, now_ms);
     return;
   }
-  if (moqtrun_drain_closeable(p, now_ms))
+  if (moqtrun_drain_closeable(p, now_ms)) {
     moqtrun_peer_close(hub, p, moqtrun_drain_close_code(hub, p));
+  }
 }
 
 int moqtrun_drain_due(const wired_moqtrun_peer* p, u64 now_ms) {
@@ -131,5 +146,7 @@ static void moqtrun_ctl_step(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
  * clock too, not only when the peer sends again: SETUP and GOAWAY must
  * go out even to a silent peer. */
 void moqtrun_ctl_retry(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  if (p->in_use && !p->closing) moqtrun_ctl_step(hub, p);
+  if (p->in_use && !p->closing) {
+    moqtrun_ctl_step(hub, p);
+  }
 }

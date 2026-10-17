@@ -22,9 +22,13 @@ int srvloop_emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   u8                    frames[16];
   usz                   fl;
-  if (!wired_srvloop_seal_keys(c->s, LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_seal_keys(c->s, LEVEL_HANDSHAKE, &dk)) {
+    return 0;
+  }
   fl = encode_ack_one(frames, sizeof frames, c->l->hs_rx_pn);
-  if (fl == 0) return 0;
+  if (fl == 0) {
+    return 0;
+  }
   protect_keys pk = {dk.keys, &dk.hp};
   hspkt_desc   d  = {
       wired_span_of(c->l->cli_scid, c->l->cli_scid_len),

@@ -4,7 +4,9 @@
 
 /* RFC 9369 5 */
 int ticket_version_ok(u32 ticket_version, u32 current_version) {
-  if (ticket_version == current_version) return 1;
+  if (ticket_version == current_version) {
+    return 1;
+  }
   return version_compatible(ticket_version, current_version);
 }
 

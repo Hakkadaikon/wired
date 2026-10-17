@@ -17,7 +17,9 @@ static int moqctl_rngf_take_ranges(
 
 static int moqctl_rngf_take_prop(
     u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
-  if (!moqctl_rngf_has_prop(ptype)) return MOQCTL_OK;
+  if (!moqctl_rngf_has_prop(ptype)) {
+    return MOQCTL_OK;
+  }
   out->has_prop = 1;
   return moqvi_take(v, at, &out->prop_type) ? MOQCTL_OK : MOQCTL_PARAMS_KVFMT;
 }
@@ -25,7 +27,9 @@ static int moqctl_rngf_take_prop(
 /* SetID is one byte (SS10.2.10), then the 0x28/0x29 Property Type. */
 static int moqctl_rngf_take_head(
     u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
-  if (*at >= v.n) return MOQCTL_PARAMS_KVFMT;
+  if (*at >= v.n) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
   out->set_id = v.p[(*at)++];
   return moqctl_rngf_take_prop(ptype, v, at, out);
 }
@@ -46,8 +50,12 @@ static int moqctl_rngf_end_value(
     wired_span v, usz* at, moqctl_rangefilter* f, u64* prev_end) {
   u64           delta;
   moqctl_range* r = &f->r[f->n];
-  if (!moqvi_take(v, at, &delta)) return MOQCTL_PARAMS_KVFMT;
-  if (!u64_add_ok(r->start, delta, &r->end)) f->invalid = 1;
+  if (!moqvi_take(v, at, &delta)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
+  if (!u64_add_ok(r->start, delta, &r->end)) {
+    f->invalid = 1;
+  }
   r->has_end = 1;
   *prev_end  = r->end;
   f->n++;
@@ -70,8 +78,12 @@ static int moqctl_rngf_take_end(
 static int moqctl_rngf_take_range(
     wired_span v, usz* at, moqctl_rangefilter* f, u64* prev_end) {
   u64 delta;
-  if (!moqvi_take(v, at, &delta)) return MOQCTL_PARAMS_KVFMT;
-  if (!moqctl_rngf_start(f, *prev_end, delta)) return MOQCTL_OK;
+  if (!moqvi_take(v, at, &delta)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
+  if (!moqctl_rngf_start(f, *prev_end, delta)) {
+    return MOQCTL_OK;
+  }
   return moqctl_rngf_take_end(v, at, f, prev_end);
 }
 
@@ -84,7 +96,9 @@ static int moqctl_rngf_take_ranges(
   u64 prev_end = 0;
   while (moqctl_rngf_more(v, *at, f)) {
     int r = moqctl_rngf_take_range(v, at, f, &prev_end);
-    if (r != MOQCTL_OK) return r;
+    if (r != MOQCTL_OK) {
+      return r;
+    }
   }
   return MOQCTL_OK;
 }
@@ -99,6 +113,8 @@ int moqctl_rangefilter_take(
     return MOQCTL_OK;
   }
   r = moqctl_rngf_take_head(ptype, value, &at, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_rngf_take_ranges(value, &at, out);
 }

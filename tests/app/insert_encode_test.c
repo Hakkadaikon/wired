@@ -28,7 +28,9 @@ static void test_insert_literal_namelen_boundary(void) {
   u8       name[31];
   const u8 value[] = {'v'};
   u8       out[64];
-  for (usz i = 0; i < sizeof(name); i++) name[i] = 'a';
+  for (usz i = 0; i < sizeof(name); i++) {
+    name[i] = 'a';
+  }
   qpack_field f  = {wired_span_of(name, sizeof(name)), wired_span_of(value, 1)};
   wired_obuf  ob = obuf_of(out, sizeof(out));
   usz         w  = qdyn_insert_literal(&f, &ob);

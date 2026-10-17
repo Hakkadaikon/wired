@@ -48,7 +48,9 @@ static void test_p521_chains(void) {
 /* A flipped bit in the root's signature over the leaf breaks the chain. */
 static void test_p521_tampered(void) {
   u8 leaf[sizeof(p521chain_leaf521_der)];
-  for (usz i = 0; i < sizeof leaf; i++) leaf[i] = p521chain_leaf521_der[i];
+  for (usz i = 0; i < sizeof leaf; i++) {
+    leaf[i] = p521chain_leaf521_der[i];
+  }
   leaf[sizeof leaf - 1] ^= 0x01;
   CHECK(p5c_validate(leaf, sizeof leaf) == 0);
 }

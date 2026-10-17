@@ -89,8 +89,9 @@ static void test_sentmeta_ring_full(void) {
   sentmeta m;
   sentmeta_init(&m);
 
-  for (usz i = 0; i < SENTMETA_CAP; i++)
+  for (usz i = 0; i < SENTMETA_CAP; i++) {
     CHECK(sentmeta_on_sent(&m, &(sentmeta_out){i, 0, 1, 1, 1}) == 1);
+  }
   CHECK(
       sentmeta_on_sent(&m, &(sentmeta_out){9999, 0, 1, 1, 1}) == 0); /* full */
   CHECK(m.count == SENTMETA_CAP);

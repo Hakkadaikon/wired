@@ -50,8 +50,12 @@ static void hsd_mark(hsdriver* s, u8 msg_type) {
 }
 
 int hsdriver_recv(hsdriver* s, u8 msg_type, u8 protection_level) {
-  if (!hsd_step_legal(s, msg_type, protection_level)) return 0;
-  if (protection_level > s->level) s->level = protection_level;
+  if (!hsd_step_legal(s, msg_type, protection_level)) {
+    return 0;
+  }
+  if (protection_level > s->level) {
+    s->level = protection_level;
+  }
   s->recv_count++;
   hsd_mark(s, msg_type);
   return 1;

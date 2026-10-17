@@ -41,7 +41,9 @@ int wired_main(int argc, char** argv) {
   i64 base  = wired_arch_mmap(
       0, envsz, 0x3 /* PROT_READ|PROT_WRITE */,
       0x22 /* MAP_PRIVATE|MAP_ANONYMOUS */, -1, 0);
-  if (base < 0) return 1;
+  if (base < 0) {
+    return 1;
+  }
   wired_srvrun_env* env = (wired_srvrun_env*)base;
   wired_srvrun_env_init(env);
 

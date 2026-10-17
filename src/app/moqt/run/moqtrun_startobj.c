@@ -28,7 +28,9 @@ static usz moqtrun_cutoff_scan(
   usz         off = off0, cut = off0;
   moqdata_obj obj;
   while (moqdata_obj_take(wire, &off, &seq0, &obj) == MOQDATA_OK) {
-    if (obj.object_id > s->end_object) return cut;
+    if (obj.object_id > s->end_object) {
+      return cut;
+    }
     cut = off;
   }
   return cut;
@@ -48,7 +50,9 @@ usz moqtrun_wire_cutoff(
     usz                      off0,
     moqdata_objseq           seq0,
     u64                      group) {
-  if (!moqtrun_end_object_in_group(s, group)) return wire.n;
+  if (!moqtrun_end_object_in_group(s, group)) {
+    return wire.n;
+  }
   return moqtrun_cutoff_scan(s, wire, off0, seq0);
 }
 
@@ -77,7 +81,9 @@ usz moqtrun_startobj_cut(
     usz                      off,
     moqdata_objseq*          seq,
     u64                      group) {
-  if (group != s->start.group) return off;
+  if (group != s->start.group) {
+    return off;
+  }
   return moqtrun_startobj_scan(s, wire, off, seq);
 }
 
@@ -124,9 +130,13 @@ void moqtrun_reattach_one_sub(
     wired_moqt_hub* hub, wired_moqtrun_track* track, usz i, moqtrun_key k) {
   const wired_moqtrun_peer* p = &hub->peers[i];
   usz                       n = moqtrun_sub_name_find(p, k);
-  if (n >= WIRED_MOQTRUN_SUB_NAMES) return;
+  if (n >= WIRED_MOQTRUN_SUB_NAMES) {
+    return;
+  }
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
-  if (!slot) return;
+  if (!slot) {
+    return;
+  }
   *slot             = p->sub_state[n];
   slot->session_idx = i;
   slot->active      = 1;
@@ -150,9 +160,11 @@ void moqtrun_reattach_subs(
     wired_moqtrun_track* track,
     usz                  pub_idx,
     moqtrun_key          k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_reattach_wanted(hub, track, i, pub_idx, k))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_reattach_wanted(hub, track, i, pub_idx, k)) {
       moqtrun_reattach_one_sub(hub, track, i, k);
+    }
+  }
 }
 
 int moqtrun_encode_subscribe_ok(wired_mspan buf, usz* off, const void* m) {

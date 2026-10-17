@@ -24,8 +24,12 @@ static int line_bytes_ok(const rline* L) {
  * (Connection, Keep-Alive, Proxy-Connection, Upgrade) are always malformed,
  * and a TE field's value must be exactly "trailers". */
 static int line_smuggling_ok(const rline* L) {
-  if (h3_header_name_forbidden(L->name, L->name_len)) return 0;
-  if (!h3reqdrive_line_name_is(L, "te")) return 1;
+  if (h3_header_name_forbidden(L->name, L->name_len)) {
+    return 0;
+  }
+  if (!h3reqdrive_line_name_is(L, "te")) {
+    return 1;
+  }
   return h3_header_te_ok(L->value, L->value_len);
 }
 
@@ -38,7 +42,9 @@ int h3reqdrive_line_ok(const rline* L) {
  * (usz)-1 if they do not fit. */
 static usz rd_copy(rd_cursor* cur, const u8* p, usz n) {
   usz at = cur->used;
-  if (n > cur->scr.n - at) return (usz)-1;
+  if (n > cur->scr.n - at) {
+    return (usz)-1;
+  }
   bytes_memcpy(cur->scr.p + at, p, n);
   cur->used += n;
   return at;
@@ -49,7 +55,9 @@ static usz rd_copy(rd_cursor* cur, const u8* p, usz n) {
  * RFC 9204 2.1.1/3.2: a dynamic entry may change after this decode). */
 static usz rd_pos(rd_cursor* cur, const u8* p, usz n) {
   usz at = (usz)p - (usz)cur->scr.p;
-  if (at < cur->scr.n) return at;
+  if (at < cur->scr.n) {
+    return at;
+  }
   return rd_copy(cur, p, n);
 }
 
@@ -81,7 +89,9 @@ static int rd_name_eq(wired_span a, const char* s) {
 /* Index of name in rd_dedicated, RD_DEDICATED_N if it is not one. */
 usz h3reqdrive_rd_dedicated_idx(wired_span name) {
   usz i = 0;
-  while (i < RD_DEDICATED_N && !rd_name_eq(name, rd_dedicated[i])) i++;
+  while (i < RD_DEDICATED_N && !rd_name_eq(name, rd_dedicated[i])) {
+    i++;
+  }
   return i;
 }
 
@@ -95,11 +105,15 @@ static int rd_keeps(const rline* L, const wired_h3reqdrive_req* r) {
 /* RFC 9114 4.2: keep a regular header line for wired_http_req_header. */
 static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r) {
   wired_h3reqdrive_hdr* h;
-  if (!rd_keeps(L, r)) return;
+  if (!rd_keeps(L, r)) {
+    return;
+  }
   h            = &r->hdrs[r->hdr_count];
   h->name_len  = (u16)L->name_len;
   h->value_len = (u16)L->value_len;
-  if (rd_place_line(cur, L, h)) r->hdr_count++;
+  if (rd_place_line(cur, L, h)) {
+    r->hdr_count++;
+  }
 }
 
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
@@ -115,7 +129,9 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
    * decode -- one too large for its scratch or name cap (RFC 9204 7.4) --
    * only rejects the request, like a well-encoded line HTTP/3 rejects. */
   r->qpack_failed = L.ref_bad;
-  if (!c || !h3reqdrive_line_ok(&L)) return 0;
+  if (!c || !h3reqdrive_line_ok(&L)) {
+    return 0;
+  }
   h3reqdrive_classify_line(&L, r);
   cur->off += c;
   cur->used += L.scratch_used;
@@ -126,7 +142,10 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
 /* Walk field lines from cur->off to cur->fs.n into r. Returns 1 ok, 0 on a
  * malformed line. */
 int h3reqdrive_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  while (cur->off < cur->fs.n)
-    if (!h3reqdrive_step_line(cur, r)) return 0;
+  while (cur->off < cur->fs.n) {
+    if (!h3reqdrive_step_line(cur, r)) {
+      return 0;
+    }
+  }
   return 1;
 }

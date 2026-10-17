@@ -64,7 +64,9 @@ void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
   s->start          = moqctl_loc_of(0, 0);
   s->has_end_group  = 0;
   s->has_end_object = 0;
-  if (!s->has_filter) return;
+  if (!s->has_filter) {
+    return;
+  }
   s->start = MOQTRUN_START_FNS[s->filter.sk](moqtrun_track_top(t), &s->filter);
   s->has_end_group  = s->filter.ek != MOQCTL_REK_UNBOUNDED;
   s->has_end_object = s->filter.ek == MOQCTL_REK_OBJ;
@@ -80,7 +82,9 @@ int moqtrun_param_has_filter(const moqctl_param* f) {
 void moqtrun_sub_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f) {
   s->has_filter = (u8)moqtrun_param_has_filter(f);
-  if (s->has_filter) s->filter = f->rl;
+  if (s->has_filter) {
+    s->filter = f->rl;
+  }
   moqtrun_sub_resolve(s, t);
 }
 
@@ -112,8 +116,11 @@ static int moqtrun_ptype_is_rngf(u64 t) {
  * Range Filter parameter. An undecodable value is surfaced as
  * f->invalid: the message layer answers INVALID_FILTER. */
 int moqtrun_rngf_of(const moqctl_param* it, moqctl_rangefilter* f) {
-  if (!moqtrun_ptype_is_rngf(it->type)) return 0;
-  if (moqctl_rangefilter_take(it->type, it->bytes, f) != MOQCTL_OK)
+  if (!moqtrun_ptype_is_rngf(it->type)) {
+    return 0;
+  }
+  if (moqctl_rangefilter_take(it->type, it->bytes, f) != MOQCTL_OK) {
     f->invalid = 1;
+  }
   return 1;
 }

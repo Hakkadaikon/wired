@@ -33,7 +33,9 @@ void moqtrun_pubdone_arm(
     wired_span           body) {
   usz                 off = 0;
   moqctl_publish_done d;
-  if (moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) return;
+  if (moqctl_publish_done_take(body, &off, &d) != MOQCTL_OK) {
+    return;
+  }
   t->pubdone_pending  = 1;
   t->pubdone_status   = d.status_code;
   t->pubdone_streams  = d.stream_count;
@@ -48,7 +50,9 @@ void moqtrun_dispatch_pub_done(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   wired_moqtrun_track* t = moqtrun_pubdone_req_track(p);
   (void)peer_idx;
-  if (t) moqtrun_pubdone_arm(hub, p, t, body);
+  if (t) {
+    moqtrun_pubdone_arm(hub, p, t, body);
+  }
 }
 
 /* ===================== drain (draft 3.6, 10.4) ===================== */
@@ -116,7 +120,9 @@ static int moqtrun_goaway_try(
     const wired_wt_session* s,
     moqctl_goaway           g,
     u64                     deadline) {
-  if (!moqtrun_goaway_target(p, s)) return 0;
+  if (!moqtrun_goaway_target(p, s)) {
+    return 0;
+  }
   moqtrun_goaway_one(hub, p, g, deadline);
   return 1;
 }
@@ -127,7 +133,8 @@ int moqtrun_goaway_send(
   moqctl_goaway g        = {uri, timeout_ms, 0};
   u64           deadline = moqtrun_goaway_deadline(hub, timeout_ms);
   int           sent     = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     sent += moqtrun_goaway_try(hub, &hub->peers[i], s, g, deadline);
+  }
   return sent;
 }

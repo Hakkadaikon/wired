@@ -15,8 +15,12 @@
  * unidirectional stream -- is a STREAM_STATE_ERROR and is rejected. */
 static int on_stream(framedispatch_state* st, const u8* frame, usz len) {
   stream_frame f;
-  if (frame_get_stream(frame, len, &f) == 0) return 0;
-  if (!stream_can_receive(0, f.stream_id)) return 0;
+  if (frame_get_stream(frame, len, &f) == 0) {
+    return 0;
+  }
+  if (!stream_can_receive(0, f.stream_id)) {
+    return 0;
+  }
   return stream_read_push(
       st->stream, f.offset, wired_span_of(f.data, f.length));
 }
@@ -37,7 +41,9 @@ static usz dispatch_ack_wire(const ack_frame* f, u64* wire) {
  * wire (first_len, gap, range_len, ...) form the sent table consumes. */
 static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
   ack_frame f;
-  if (ack_decode(frame, len, &f) == 0) return 0;
+  if (ack_decode(frame, len, &f) == 0) {
+    return 0;
+  }
   st->has_ack =
       1; /* RFC 9000 19.3: expose Largest Acknowledged to the runner */
   st->largest_acked = f.ranges[0].hi;
@@ -54,7 +60,9 @@ static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
  * credit's advertised max so a later overrun is detectable. */
 static int on_max_data(framedispatch_state* st, const u8* frame, usz len) {
   data_frame f;
-  if (max_data_decode(frame, len, &f) == 0) return 0;
+  if (max_data_decode(frame, len, &f) == 0) {
+    return 0;
+  }
   st->credit->max_data = f.value;
   return 1;
 }
@@ -72,7 +80,9 @@ static int on_close(framedispatch_state* st, const u8* frame, usz len) {
  * input is rejected so the caller can close the connection. */
 static int on_datagram(framedispatch_state* st, const u8* frame, usz len) {
   wired_span f = wired_span_of(frame, len);
-  if (!dgdeliver_extract(f, &st->datagram)) return 0;
+  if (!dgdeliver_extract(f, &st->datagram)) {
+    return 0;
+  }
   st->has_datagram = 1;
   return 1;
 }
@@ -94,8 +104,12 @@ static int on_noop(framedispatch_state* st, const u8* frame, usz len) {
  * RESET_STREAM owed. */
 static int on_stop_sending(framedispatch_state* st, const u8* frame, usz len) {
   stop_sending_frame f;
-  if (stop_sending_decode(frame, len, &f) == 0) return 0;
-  if (!stream_can_send(0, f.stream_id)) return 0;
+  if (stop_sending_decode(frame, len, &f) == 0) {
+    return 0;
+  }
+  if (!stream_can_send(0, f.stream_id)) {
+    return 0;
+  }
   st->stop_sending_owed       = 1;
   st->stop_sending_stream_id  = f.stream_id;
   st->stop_sending_error_code = f.error_code;
@@ -107,7 +121,9 @@ static int on_stop_sending(framedispatch_state* st, const u8* frame, usz len) {
  * (RFC 9000 3.2's receiving-part transition), out of scope here. */
 static int on_reset_stream(framedispatch_state* st, const u8* frame, usz len) {
   reset_stream_frame f;
-  if (reset_stream_decode(frame, len, &f) == 0) return 0;
+  if (reset_stream_decode(frame, len, &f) == 0) {
+    return 0;
+  }
   st->has_reset_stream        = 1;
   st->reset_stream_stream_id  = f.stream_id;
   st->reset_stream_error_code = f.error_code;
@@ -147,7 +163,9 @@ int framedispatch_handle(
     return 0;
   }
   h = handler_for(k);
-  if (h == 0) return 0;
+  if (h == 0) {
+    return 0;
+  }
   st->ack_eliciting |= (u8)frame_ack_eliciting(k);
   return h(st, frame.p, frame.n);
 }

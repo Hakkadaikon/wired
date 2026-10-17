@@ -32,7 +32,9 @@ void moqtrun_relay_late_open(
     wired_moqtrun_relay* relay,
     usz                  i,
     int                  fin) {
-  if (moqtrun_late_open_skip(relay, fin)) return;
+  if (moqtrun_late_open_skip(relay, fin)) {
+    return;
+  }
   u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
   usz n = moqtrun_relay_late_hdr(relay, hdr);
   moqtrun_relay_open_one(hub, sub, relay, i, wired_span_of(hdr, n));
@@ -56,8 +58,9 @@ void moqtrun_relay_deliver_one(
     usz                  i,
     moqtrun_round        r) {
   if (relay->sub_stream_set[i]) {
-    if (!moqtrun_round_void(r.wire, r.fin))
+    if (!moqtrun_round_void(r.wire, r.fin)) {
       moqtrun_relay_forward_one(hub, dst->wt, sub, relay, i, r);
+    }
     return;
   }
   moqtrun_relay_late_open(hub, sub, relay, i, r.fin);
@@ -90,7 +93,9 @@ int moqtrun_relay_expire(
     wired_moqtrun_relay*     relay,
     usz                      i,
     u64                      born_ms) {
-  if (!moqtrun_sub_late(sub, hub->live.last_now_ms - born_ms)) return 0;
+  if (!moqtrun_sub_late(sub, hub->live.last_now_ms - born_ms)) {
+    return 0;
+  }
   if (relay->sub_stream_set[i]) {
     hub->io.stream_reset(
         dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_DELIVERY_TIMEOUT);

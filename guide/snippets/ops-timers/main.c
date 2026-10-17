@@ -14,7 +14,9 @@ static void on_step(void* ctx, u64 now_ms) {
       "tick 1\n", "tick 2\n", "tick 3\n"};
   (void)ctx;
   (void)now_ms;
-  if (g_ticks >= TICKS_SHOWN) return;
+  if (g_ticks >= TICKS_SHOWN) {
+    return;
+  }
   wired_log_str(lines[g_ticks]);
   g_ticks++;
 }

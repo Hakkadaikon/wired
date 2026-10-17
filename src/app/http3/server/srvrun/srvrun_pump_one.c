@@ -25,9 +25,10 @@ static int srvrun_pump_one_wt_slice(
     srvrun_notify_conn_blocked(ctx->cfg, c);
     return 0;
   }
-  if (wired_sendsess_take(&w->sess, &sl))
+  if (wired_sendsess_take(&w->sess, &sl)) {
     return srvrun_send_taken(
         ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
+  }
   return srvrun_pump_wt_fin_only(ctx, c, w);
 }
 
@@ -36,14 +37,18 @@ int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   /* Same as srvrun_pump_one: a released slot never sends again -- for a
    * view round its bytes are the app's buffer, free once inflight is 0. */
-  if (!w->in_use) return 0;
+  if (!w->in_use) {
+    return 0;
+  }
   usz inf0 = wired_sendsess_inflight_bytes(&w->sess);
   usz con0 = srvrun_sess_consumed(&w->sess);
   int sent = srvrun_pump_one_wt_slice(ctx, c, w);
   usz inf1 = wired_sendsess_inflight_bytes(&w->sess);
   c->acct_inflight += inf1 - inf0;
   c->acct_consumed += srvrun_sess_consumed(&w->sess) - con0;
-  if (sent) srvrun_pace_charge(c, inf1 - inf0);
+  if (sent) {
+    srvrun_pace_charge(c, inf1 - inf0);
+  }
   return sent;
 }
 
@@ -89,7 +94,9 @@ u32 srvrun_wt_pass_key(const srvrun_conn* c) {
   u32 m = SRVRUN_WT_KEY_IDLE;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     u32 k = srvrun_wtsend_ready_key(c, &c->wtsend[i]);
-    if (k < m) m = k;
+    if (k < m) {
+      m = k;
+    }
   }
   return m;
 }
@@ -117,8 +124,11 @@ static int srvrun_wt_goes_before(
  * (draft-ietf-moq-transport-22 7.2 rules 3-4: group order, then fill
  * before subscription, then Subgroup ID). */
 static int srvrun_wt_flow_beaten(const srvrun_conn* c, const srvrun_wtsend* w) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wt_goes_before(c, &c->wtsend[i], w)) return 1;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (srvrun_wt_goes_before(c, &c->wtsend[i], w)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

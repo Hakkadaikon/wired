@@ -122,7 +122,9 @@ i64 xdpbpf_prog_load(const u64* insns, u32 cnt, wired_mspan log) {
   static const u8    license[] = "Dual MIT/GPL";
   bpf_attr_prog_load attr      = {
       BPF_PROG_TYPE_XDP, cnt, (u64)insns, (u64)license, 0, 0, 0};
-  if (log.n > 0) prog_load_attach_log(&attr, log);
+  if (log.n > 0) {
+    prog_load_attach_log(&attr, log);
+  }
   return wired_arch_bpf(BPF_PROG_LOAD, &attr, sizeof attr);
 }
 

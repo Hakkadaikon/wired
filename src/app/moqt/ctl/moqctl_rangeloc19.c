@@ -21,7 +21,9 @@ static u64 moqctl_rangeloc19_wire_type_abs(const moqctl_rangeloc* r);
 int moqctl_rangeloc_take_end_group(
     wired_span buf, usz* at, u64 start_group, u64* end_group) {
   u64 delta;
-  if (!moqvi_take(buf, at, &delta)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &delta)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return u64_add_ok(start_group, delta, end_group) ? MOQCTL_OK
                                                    : MOQCTL_VIOLATION;
 }
@@ -46,15 +48,21 @@ static int moqctl_rangeloc19_abs_start(
     wired_span buf, usz* at, moqctl_rangeloc* out) {
   out->sk = MOQCTL_RSK_ABS;
   out->ek = MOQCTL_REK_UNBOUNDED;
-  if (!moqvi_take(buf, at, &out->start_group)) return MOQCTL_INSUFFICIENT;
-  if (!moqvi_take(buf, at, &out->start_object)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &out->start_group)) {
+    return MOQCTL_INSUFFICIENT;
+  }
+  if (!moqvi_take(buf, at, &out->start_object)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return MOQCTL_OK;
 }
 
 static int moqctl_rangeloc19_abs_range(
     wired_span buf, usz* at, moqctl_rangeloc* out) {
   int r = moqctl_rangeloc19_abs_start(buf, at, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   out->ek = MOQCTL_REK_GROUP;
   return moqctl_rangeloc_take_end_group(
       buf, at, out->start_group, &out->end_group);
@@ -82,7 +90,9 @@ static const moqctl_rangeloc19_fn MOQCTL_RANGELOC19_FNS[5] = {
 
 static int moqctl_rangeloc19_body(
     u64 type, wired_span buf, usz* at, moqctl_rangeloc* out) {
-  if (type == 0 || type >= MOQCTL_RANGELOC19_FNS_N) return MOQCTL_VIOLATION;
+  if (type == 0 || type >= MOQCTL_RANGELOC19_FNS_N) {
+    return MOQCTL_VIOLATION;
+  }
   return MOQCTL_RANGELOC19_FNS[type](buf, at, out);
 }
 
@@ -91,9 +101,13 @@ int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out) {
   u64 type;
   int r;
   *out = (moqctl_rangeloc){0};
-  if (!moqvi_take(buf, &at, &type)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, &at, &type)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   r = moqctl_rangeloc19_body(type, buf, &at, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *off = at;
   return MOQCTL_OK;
 }
@@ -104,7 +118,11 @@ static u64 moqctl_rangeloc19_wire_type_abs(const moqctl_rangeloc* r) {
 }
 
 u64 moqctl_rangeloc19_wire_type(const moqctl_rangeloc* r) {
-  if (r->sk == MOQCTL_RSK_REL_GROUP) return MOQCTL_FILTER_NEXT_GROUP;
-  if (r->sk == MOQCTL_RSK_NEXT_OBJ) return MOQCTL_FILTER_LARGEST;
+  if (r->sk == MOQCTL_RSK_REL_GROUP) {
+    return MOQCTL_FILTER_NEXT_GROUP;
+  }
+  if (r->sk == MOQCTL_RSK_NEXT_OBJ) {
+    return MOQCTL_FILTER_LARGEST;
+  }
   return moqctl_rangeloc19_wire_type_abs(r);
 }

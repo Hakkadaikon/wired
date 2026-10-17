@@ -57,7 +57,9 @@ int moqtrun_upf_open(
     const moqctl_params*   params) {
   moqfetch_req m   = {0};
   usz          off = 0;
-  if (!pp) return 0;
+  if (!pp) {
+    return 0;
+  }
   m.fetch_type = MOQFETCH_STANDALONE;
   m.track.name = k.name;
   moqctl_ns_take(k.ns, &off, &m.track.ns);
@@ -66,7 +68,9 @@ int moqtrun_upf_open(
       params, (moqver_caps(pp->ver) & MOQVER_CAP_RANGE_FILTERS) != 0,
       f->descending, &m.params);
   i64 sid = moqtrun_upf_send(hub, pp, &m);
-  if (sid < 0) return 0;
+  if (sid < 0) {
+    return 0;
+  }
   moqtrun_upf_store(hub, f, pp, sid, &m);
   moqtrun_upf_store_key(moqtrun_upf_leg_of(hub, f), k);
   return 1;

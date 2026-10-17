@@ -14,7 +14,9 @@ static void test_rtt_constant_stays(void) {
   rtt r;
   rtt_init(&r);
   rtt_sample(&r, 80000, 0, 0, 0);
-  for (usz i = 0; i < 20; i++) rtt_sample(&r, 80000, 0, 0, 0);
+  for (usz i = 0; i < 20; i++) {
+    rtt_sample(&r, 80000, 0, 0, 0);
+  }
   CHECK(r.smoothed_rtt == 80000); /* lo==hi: no integer-division drift */
 }
 

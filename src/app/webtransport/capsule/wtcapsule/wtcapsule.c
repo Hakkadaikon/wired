@@ -26,7 +26,9 @@ static u64 wtcapsule_dir_type(int bidi, u64 bidi_type, u64 uni_type) {
 static int wtcapsule_encode_varint(wired_obuf* out, u64 type, u64 v) {
   u8  body[8];
   usz off = 0;
-  if (!varint_put(wired_mspan_of(body, sizeof body), &off, v)) return 0;
+  if (!varint_put(wired_mspan_of(body, sizeof body), &off, v)) {
+    return 0;
+  }
   return capsule_encode(out, type, wired_span_of(body, off));
 }
 
@@ -42,7 +44,9 @@ int wtcapsule_value_varint(wired_span value, u64* v) {
  * varint. */
 static int wtcapsule_is_sole_varint(
     u64 got_type, u64 type, wired_span value, u64* v) {
-  if (got_type != type) return 0;
+  if (got_type != type) {
+    return 0;
+  }
   return wtcapsule_value_varint(value, v);
 }
 
@@ -53,8 +57,12 @@ static int wtcapsule_decode_varint(wired_span data, usz* at, u64 type, u64* v) {
   usz        local_at = *at;
   u64        got_type;
   wired_span value;
-  if (!capsule_decode(data, &local_at, &got_type, &value)) return 0;
-  if (!wtcapsule_is_sole_varint(got_type, type, value, v)) return 0;
+  if (!capsule_decode(data, &local_at, &got_type, &value)) {
+    return 0;
+  }
+  if (!wtcapsule_is_sole_varint(got_type, type, value, v)) {
+    return 0;
+  }
   *at = local_at;
   return 1;
 }
@@ -63,10 +71,13 @@ int wired_wtcapsule_encode_close(
     wired_obuf* out, u32 app_error_code, wired_span message) {
   u8  body[WTCAPSULE_CLOSE_CODE_LEN + WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz i;
-  if (message.n > WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
+  if (message.n > WTCAPSULE_CLOSE_MESSAGE_MAX) {
+    return 0;
+  }
   be_put_be32(body, app_error_code);
-  for (i = 0; i < message.n; i++)
+  for (i = 0; i < message.n; i++) {
     body[WTCAPSULE_CLOSE_CODE_LEN + i] = message.p[i];
+  }
   return capsule_encode(
       out, WTCAPSULE_TYPE_CLOSE,
       wired_span_of(body, WTCAPSULE_CLOSE_CODE_LEN + message.n));
@@ -99,8 +110,12 @@ int wired_wtcapsule_decode_close(
   usz        local_at = *at;
   u64        type;
   wired_span value;
-  if (!capsule_decode(data, &local_at, &type, &value)) return 0;
-  if (!wtcapsule_is_close(type, value)) return 0;
+  if (!capsule_decode(data, &local_at, &type, &value)) {
+    return 0;
+  }
+  if (!wtcapsule_is_close(type, value)) {
+    return 0;
+  }
   wtcapsule_take_close(value, app_error_code, message);
   *at = local_at;
   return 1;
@@ -110,8 +125,12 @@ int wtcapsule_decode_drain(wired_span data, usz* at) {
   usz        local_at = *at;
   u64        type;
   wired_span value;
-  if (!capsule_decode(data, &local_at, &type, &value)) return 0;
-  if (type != WTCAPSULE_TYPE_DRAIN) return 0;
+  if (!capsule_decode(data, &local_at, &type, &value)) {
+    return 0;
+  }
+  if (type != WTCAPSULE_TYPE_DRAIN) {
+    return 0;
+  }
   *at = local_at;
   return 1;
 }

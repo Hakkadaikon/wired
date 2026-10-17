@@ -8,7 +8,9 @@ static void srvrun_conn_fresh(
 /* Mark every resp[] slot as holding no wired_srvbigbuf row (-1; 0 is a real
  * row index -- see the caller's note). */
 static void srvrun_resp_rows_clear(srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) c->resp[i].bigbuf_row = -1;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    c->resp[i].bigbuf_row = -1;
+  }
 }
 
 /* Start c's congestion control, ECN, HyStart, RTT and PMTU state fresh. */
@@ -52,7 +54,9 @@ int srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int          slot = srvrun_claim_slot(ctx, dcid, is_initial);
   srvrun_conn* c;
-  if (slot < 0) return -1;
+  if (slot < 0) {
+    return -1;
+  }
   c = &ctx->st->conns[slot];
   srvrun_conn_fresh(ctx, c, slot);
   if (srvrun_issue_cid(ctx->cfg, c->scid, ctx->cfg->id->scid_len)) {
@@ -90,7 +94,9 @@ void srvrun_retry_prep(
     u8                     token[RETRYTOKEN_WIRE_MAX],
     usz*                   tn) {
   *tn = 0;
-  if (!cid_generate(scid, 8)) return;
+  if (!cid_generate(scid, 8)) {
+    return;
+  }
   u8 key[KEYRING_KEY];
   keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
   *tn = retrytoken_wire_make(

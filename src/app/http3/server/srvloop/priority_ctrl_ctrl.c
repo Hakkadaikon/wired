@@ -26,7 +26,9 @@ static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
     l->priupdate_violation = err;
     return;
   }
-  if (f->push) return;
+  if (f->push) {
+    return;
+  }
   h3_priority_sfv(f->value, &p);
   wired_srvloop_priority_apply(l, f->element_id, &p);
 }
@@ -50,8 +52,11 @@ static const u64 ctrl_wt_initial_ids[3] = {
     H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI, H3_SETTINGS_WT_INITIAL_MAX_DATA};
 
 static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v) {
-  for (usz i = 0; i < 3; i++)
-    if (ctrl_wt_initial_ids[i] == id) l->peer_wt_initial[i] = v;
+  for (usz i = 0; i < 3; i++) {
+    if (ctrl_wt_initial_ids[i] == id) {
+      l->peer_wt_initial[i] = v;
+    }
+  }
 }
 
 /* RFC 9114 7.2.4: walk a SETTINGS payload's (Identifier, Value) pairs and
@@ -60,8 +65,9 @@ static void ctrl_latch_settings(wired_srvloop* l, const h3_frame* f) {
   wired_span p   = wired_span_of(f->payload, (usz)f->payload_len);
   usz        off = 0;
   u64        id, v;
-  while (varint_take(p, &off, &id) && varint_take(p, &off, &v))
+  while (varint_take(p, &off, &id) && varint_take(p, &off, &v)) {
     ctrl_wt_initial_set(l, id, v);
+  }
 }
 
 /* One generic control-stream frame: SETTINGS-ordering state, plus the
@@ -69,7 +75,9 @@ static void ctrl_latch_settings(wired_srvloop* l, const h3_frame* f) {
 static void ctrl_note_generic(wired_srvloop* l, const h3_frame* f) {
   int is_settings = f->type == H3_FRAME_SETTINGS;
   ctrl_note_frame(l, is_settings);
-  if (is_settings) ctrl_latch_settings(l, f);
+  if (is_settings) {
+    ctrl_latch_settings(l, f);
+  }
 }
 
 /* Decode the H3 frame at l->ctrl.buf[l->ctrl.parsed..len) and act on it if it
@@ -87,7 +95,9 @@ static usz ctrl_walk_one(wired_srvloop* l, wired_span avail) {
     return n;
   }
   n = h3_frame_get(avail, &gf);
-  if (n) ctrl_note_generic(l, &gf);
+  if (n) {
+    ctrl_note_generic(l, &gf);
+  }
   return n;
 }
 
@@ -130,16 +140,21 @@ static int ctrl_is_claimed(const wired_srvloop* l, const stream_frame* sf) {
  * the control type (claiming the stream), or a later frame arrives on the
  * already-claimed stream. */
 static int ctrl_frame_relevant(wired_srvloop* l, const stream_frame* sf) {
-  if (sf->offset == 0)
+  if (sf->offset == 0) {
     return srvloop_ctrl_leading_type_is_control(sf) &&
            srvloop_ctrl_claim(l, sf);
+  }
   return ctrl_is_claimed(l, sf);
 }
 
 int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!srvloop_ctrl_stream_of(type, frame, &sf)) return 0;
-  if (!ctrl_frame_relevant(l, &sf)) return 0;
+  if (!srvloop_ctrl_stream_of(type, frame, &sf)) {
+    return 0;
+  }
+  if (!ctrl_frame_relevant(l, &sf)) {
+    return 0;
+  }
   srvloop_ctrl_land(l, &sf);
   ctrl_walk(l);
   srvloop_ctrl_compact(l);
@@ -177,13 +192,19 @@ static int req_carries_priupdate(const stream_frame* sf) {
  * priupdate for one shared source of truth on the error code). */
 static void req_latch_priupdate_violation(wired_srvloop* l) {
   u16 err;
-  if (!wired_h3srv_priupdate_check(0, 0, 0, &err)) l->priupdate_violation = err;
+  if (!wired_h3srv_priupdate_check(0, 0, 0, &err)) {
+    l->priupdate_violation = err;
+  }
 }
 
 int wired_srvloop_req_priupdate_gather(
     wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!req_stream_of(type, frame, &sf)) return 0;
-  if (req_carries_priupdate(&sf)) req_latch_priupdate_violation(l);
+  if (!req_stream_of(type, frame, &sf)) {
+    return 0;
+  }
+  if (req_carries_priupdate(&sf)) {
+    req_latch_priupdate_violation(l);
+  }
   return 1;
 }

@@ -23,5 +23,7 @@ void test_wyc_rsa_pss(void) {
       WYC_PSS(rsa_pss_3072_sha256_mgf1_32_test),
       WYC_PSS(rsa_pss_4096_sha256_mgf1_32_test),
   };
-  for (usz i = 0; i < sizeof runs / sizeof runs[0]; i++) wyc_rsa_loop(&runs[i]);
+  for (usz i = 0; i < sizeof runs / sizeof runs[0]; i++) {
+    wyc_rsa_loop(&runs[i]);
+  }
 }

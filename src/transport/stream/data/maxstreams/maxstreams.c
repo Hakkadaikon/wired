@@ -9,7 +9,9 @@ int maxstreams_frame(int uni, u64 max, wired_obuf* out) {
   f.uni         = uni ? 1 : 0;
   f.max_streams = max;
   n             = max_streams_encode(out->p, out->cap, &f);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   out->len = n;
   return 1;
 }
@@ -17,7 +19,9 @@ int maxstreams_frame(int uni, u64 max, wired_obuf* out) {
 /* RFC 9000 19.11 */
 int maxstreams_parse(wired_span in, int* uni, u64* max) {
   streams_frame f;
-  if (max_streams_decode(in.p, in.n, &f) == 0) return 0;
+  if (max_streams_decode(in.p, in.n, &f) == 0) {
+    return 0;
+  }
   *uni = f.uni;
   *max = f.max_streams;
   return 1;
@@ -30,7 +34,9 @@ int maxstreams_blocked_frame(int uni, u64 limit, wired_obuf* out) {
   f.uni         = uni ? 1 : 0;
   f.max_streams = limit;
   n             = streams_blocked_encode(out->p, out->cap, &f);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   out->len = n;
   return 1;
 }

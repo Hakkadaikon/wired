@@ -18,18 +18,25 @@ static moqtrun_upd_fn moqtrun_upd_lookup(u64 type);
 wired_moqtrun_sub* moqtrun_hub_sub_by_rid(
     wired_moqt_hub* hub, usz idx, u64 rid, wired_moqtrun_track** t) {
   wired_moqtrun_sub* s = moqtrun_sub_by_rid(hub, idx, rid, t);
-  if (s) return s;
+  if (s) {
+    return s;
+  }
   *t = &hub->blob_track;
   s  = moqtrun_live_track_sub_by_rid(*t, idx, rid);
-  if (s) return s;
+  if (s) {
+    return s;
+  }
   *t = &hub->live.track;
   return moqtrun_live_track_sub_by_rid(*t, idx, rid);
 }
 
 /* The state p remembers for subscription rid (sub_names), else 0. */
 wired_moqtrun_sub* moqtrun_sub_state_by_rid(wired_moqtrun_peer* p, u64 rid) {
-  for (usz i = 0; i < p->sub_names_n; i++)
-    if (p->sub_state[i].request_id == rid) return &p->sub_state[i];
+  for (usz i = 0; i < p->sub_names_n; i++) {
+    if (p->sub_state[i].request_id == rid) {
+      return &p->sub_state[i];
+    }
+  }
   return 0;
 }
 
@@ -42,7 +49,9 @@ wired_moqtrun_sub* moqtrun_upd_target(
     wired_moqtrun_track** t) {
   wired_moqtrun_sub* s =
       moqtrun_hub_sub_by_rid(hub, idx, p->req->request_id, t);
-  if (s) return s;
+  if (s) {
+    return s;
+  }
   *t = 0;
   return moqtrun_sub_state_by_rid(p, p->req->request_id);
 }
@@ -101,8 +110,11 @@ static const struct {
 
 static moqtrun_upd_fn moqtrun_upd_lookup(u64 type) {
   for (usz i = 0; i < sizeof moqtrun_upd_table / sizeof moqtrun_upd_table[0];
-       i++)
-    if (moqtrun_upd_table[i].type == type) return moqtrun_upd_table[i].fn;
+       i++) {
+    if (moqtrun_upd_table[i].type == type) {
+      return moqtrun_upd_table[i].fn;
+    }
+  }
   return moqtrun_upd_ignore;
 }
 
@@ -122,7 +134,9 @@ int moqtrun_upd_forward_on(
     const wired_moqtrun_track* t) {
   s->jl     = t->largest;
   s->has_jl = (u8)t->has_largest;
-  if (t != &hub->blob_track || s->blob_sent) return 1;
+  if (t != &hub->blob_track || s->blob_sent) {
+    return 1;
+  }
   return moqtrun_blob_deliver(hub, p, s);
 }
 
@@ -132,6 +146,7 @@ void moqtrun_upd_params(
     const wired_moqtrun_track* t,
     const moqctl_params*       params) {
   moqtrun_sub_rngf_update(s, params);
-  for (usz i = 0; i < params->n; i++)
+  for (usz i = 0; i < params->n; i++) {
     moqtrun_upd_lookup(params->items[i].type)(s, t, &params->items[i]);
+  }
 }

@@ -6,7 +6,9 @@
 /* Record both MACs from the eth header; 1 iff the frame carries IPv4. */
 static int xdpf_eth(wired_span frame, xdpframe_rx* out) {
   eth_head eh;
-  if (!eth_parse(frame, &eh)) return 0;
+  if (!eth_parse(frame, &eh)) {
+    return 0;
+  }
   bytes_memcpy(out->peer_mac, eh.src, 6);
   bytes_memcpy(out->our_mac, eh.dst, 6);
   return eh.ethertype == ETH_TYPE_IPV4;
@@ -49,7 +51,9 @@ static int xdpf_ip_len_ok(const u8* ip, usz hlen, usz rem) {
 static int xdpf_udp(const u8* ip, usz hlen, xdpframe_rx* out) {
   const u8* udp = ip + hlen;
   sockaddr  dst;
-  if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen) return 0;
+  if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen) {
+    return 0;
+  }
   wired_udp_addr(&out->src, be_get_be16(udp), ip + 12);
   wired_udp_addr(&dst, 0, ip + 16);
   out->our_ip      = wired_udp_addr4_be(&dst);
@@ -62,13 +66,19 @@ static int xdpf_udp(const u8* ip, usz hlen, xdpframe_rx* out) {
 /* Validate and decode the IPv4 + UDP part starting at ip (rem bytes). */
 static int xdpf_ip(const u8* ip, usz rem, xdpframe_rx* out) {
   usz hlen = ip_hlen(ip);
-  if (!xdpf_ip_ok(ip) || !xdpf_ip_len_ok(ip, hlen, rem)) return 0;
+  if (!xdpf_ip_ok(ip) || !xdpf_ip_len_ok(ip, hlen, rem)) {
+    return 0;
+  }
   return xdpf_udp(ip, hlen, out);
 }
 
 int xdpframe_parse(wired_span frame, xdpframe_rx* out) {
-  if (frame.n < XDPFRAME_HDRS) return 0;
-  if (!xdpf_eth(frame, out)) return 0;
+  if (frame.n < XDPFRAME_HDRS) {
+    return 0;
+  }
+  if (!xdpf_eth(frame, out)) {
+    return 0;
+  }
   return xdpf_ip(frame.p + ETH_HDR, frame.n - ETH_HDR, out);
 }
 
@@ -88,7 +98,9 @@ usz xdpframe_build(
       (u16)(IPV4_HDR + UDP_HDR + payload.n), m->udp.addrs.src, m->udp.addrs.dst,
       IP_PROTO_UDP};
   wired_obuf ob;
-  if (frame.n < total) return 0;
+  if (frame.n < total) {
+    return 0;
+  }
   xdpf_put_eth(frame.p, m);
   ipv4_build(frame.p + ETH_HDR, &ih);
   ob = obuf_of(frame.p + XDPFRAME_HDRS - UDP_HDR, frame.n - ETH_HDR - IPV4_HDR);

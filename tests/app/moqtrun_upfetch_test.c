@@ -43,7 +43,9 @@ static void mupf_vers(int uv) {
 
 /* A sends Objects {g, 0} .. {g, n-1} (one byte each) into the cache. */
 static void mupf_cache_group(u64 g, u64 n) {
-  for (u64 o = 0; o < n; o++) mf_obj(g, o, 1);
+  for (u64 o = 0; o < n; o++) {
+    mf_obj(g, o, 1);
+  }
 }
 
 static int mupf_enc22(wired_mspan buf, usz* off, const void* m) {
@@ -80,7 +82,9 @@ static void mupf_fetch_on(
   m.fetch_type = MOQFETCH_STANDALONE;
   m.track      = f;
   m.range      = rl;
-  if (params) m.params = *params;
+  if (params) {
+    m.params = *params;
+  }
   usz n = moqtrun_envelope_put(
       wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH, mupf_enc_for(s), &m);
   CHECK(n != 0);
@@ -100,14 +104,19 @@ static i64 mupf_up(wired_wt_session* s, usz which, moqfetch_req* m) {
     usz                      off = 0;
     u64                      type;
     wired_span               body;
-    if (c->kind != 1 || c->s != s) continue;
+    if (c->kind != 1 || c->s != s) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type != MOQFETCH_T_FETCH || n++ != which) continue;
-    if (moqver_caps(mtst_ver(s)) & MOQVER_CAP_FETCH_BODY_V22)
+    if (type != MOQFETCH_T_FETCH || n++ != which) {
+      continue;
+    }
+    if (moqver_caps(mtst_ver(s)) & MOQVER_CAP_FETCH_BODY_V22) {
       CHECK(moqfetch_req22_take(body, m) == MOQCTL_OK);
-    else
+    } else {
       CHECK(moqfetch_req19_take(mtst_ver(s), body, m) == MOQCTL_OK);
+    }
     return (i64)c->stream_id;
   }
   return -1;
@@ -117,7 +126,9 @@ static i64 mupf_up(wired_wt_session* s, usz which, moqfetch_req* m) {
 static usz mupf_n_up(wired_wt_session* s) {
   moqfetch_req m;
   usz          n = 0;
-  while (mupf_up(s, n, &m) >= 0) n++;
+  while (mupf_up(s, n, &m) >= 0) {
+    n++;
+  }
   return n;
 }
 
@@ -173,7 +184,9 @@ static void mupf_put(const moqfetch_obj* o) {
 static void mupf_obj_b(u64 g, u64 o, usz n, u8 first) {
   static u8    pl[40000];
   moqfetch_obj ob = {0};
-  for (usz i = 0; i < n; i++) pl[i] = first;
+  for (usz i = 0; i < n; i++) {
+    pl[i] = first;
+  }
   ob.flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
              (!mupf_seq.have_loc || mupf_seq.group != g ? MOQFETCH_F_GROUP : 0);
   ob.group = g;
@@ -210,25 +223,31 @@ static void mupf_send(int fin) { mupf_send_on(SESS_A, MUPF_DATA_SID, fin); }
 /* Fetch slots in use. */
 static usz mupf_used(void) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
     n += mtst_hub.fetches[i].in_use != 0;
+  }
   return n;
 }
 
 /* The stream id of B's last fetch stream; ~0 if none. */
 static u64 mupf_fetch_sid(void) {
   u64 sid = ~(u64)0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (mf_opens(&g_calls[i])) sid = g_calls[i].stream_id;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (mf_opens(&g_calls[i])) {
+      sid = g_calls[i].stream_id;
+    }
+  }
   return sid;
 }
 
 /* 1 iff the hub ended B's stream sid with a bare FIN. */
 static int mupf_bare_fin(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 6 && g_calls[i].s == SESS_B &&
-        g_calls[i].stream_id == sid)
+        g_calls[i].stream_id == sid) {
       return 1;
+    }
+  }
   return 0;
 }
 
@@ -252,14 +271,20 @@ static u64 mupf_reply(moqfetch_ok* ok, moqctl_request_error* e) {
     usz                      off = 0, boff = 0;
     u64                      type = 0;
     wired_span               body;
-    if (c->s != SESS_B || c->stream_id != mf_req_sid) continue;
-    if (c->kind != 12 && c->kind != 3) continue;
+    if (c->s != SESS_B || c->stream_id != mf_req_sid) {
+      continue;
+    }
+    if (c->kind != 12 && c->kind != 3) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type == MOQFETCH_T_FETCH_OK)
+    if (type == MOQFETCH_T_FETCH_OK) {
       CHECK(moqfetch_ok_take(mtst_ver(SESS_B), body, ok) == MOQCTL_OK);
-    if (type == MOQCTL_T_REQUEST_ERROR)
+    }
+    if (type == MOQCTL_T_REQUEST_ERROR) {
       CHECK(moqctl_request_error_take(body, &boff, e) == MOQCTL_OK);
+    }
     return type;
   }
   return 0;
@@ -270,10 +295,18 @@ static const char* mupf_log(wired_wt_session* s, u64 sid) {
   mrdv_at = 0;
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
-    if (c->s != s || c->stream_id != sid) continue;
-    if (c->kind == 6) mrdv_put("FIN|");
-    if (c->kind == 7) mrdv_put("RST");
-    if (c->kind == 13) mrdv_put("STOP");
+    if (c->s != s || c->stream_id != sid) {
+      continue;
+    }
+    if (c->kind == 6) {
+      mrdv_put("FIN|");
+    }
+    if (c->kind == 7) {
+      mrdv_put("RST");
+    }
+    if (c->kind == 13) {
+      mrdv_put("STOP");
+    }
     if (c->kind == 7 || c->kind == 13) {
       mrdv_put_hex((u64)c->fin);
       mrdv_put("|");
@@ -286,8 +319,12 @@ static const char* mupf_log(wired_wt_session* s, u64 sid) {
 static int mupf_log_is(wired_wt_session* s, u64 sid, const char* want) {
   const char* got = mupf_log(s, sid);
   usz         i   = 0;
-  while (got[i] && got[i] == want[i]) i++;
-  if (got[i] != want[i]) printf("  log got \"%s\" want \"%s\"\n", got, want);
+  while (got[i] && got[i] == want[i]) {
+    i++;
+  }
+  if (got[i] != want[i]) {
+    printf("  log got \"%s\" want \"%s\"\n", got, want);
+  }
   return got[i] == want[i];
 }
 
@@ -385,10 +422,11 @@ static void test_moqtrun_upfetch_fill_gap(void) {
   CHECK(mf_hdr_rid == rid);
   CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
   CHECK(mf_is_obj(2, 3, 0, 1));
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     CHECK(
         !(g_calls[i].s == SESS_B && g_calls[i].payload_len &&
           g_calls[i].payload[0] == MOQFETCH_T_FETCH_OK));
+  }
   CHECK(mupf_used() == 0);
 }
 
@@ -488,8 +526,12 @@ static usz mupf_n_msgs(u64 type) {
     usz                      off = 0;
     u64                      t   = 0;
     wired_span               body;
-    if (c->s != SESS_B || c->stream_id != mf_req_sid) continue;
-    if (c->kind != 12 && c->kind != 3) continue;
+    if (c->s != SESS_B || c->stream_id != mf_req_sid) {
+      continue;
+    }
+    if (c->kind != 12 && c->kind != 3) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &t, &body);
     n += t == type;
@@ -513,7 +555,9 @@ static void mupf_tried(wired_wt_session* s) {
   CHECK(moqctl_ns_put(wired_mspan_of(r->ns, sizeof r->ns), &n, &f.ns));
   r->ns_len   = n;
   r->name_len = f.name.n;
-  for (usz i = 0; i < f.name.n; i++) r->name[i] = f.name.p[i];
+  for (usz i = 0; i < f.name.n; i++) {
+    r->name[i] = f.name.p[i];
+  }
   r->in_use = 1;
   r->repath = 1;
   r->wt     = SESS_D;
@@ -531,7 +575,9 @@ static void mupf_owner_excluded(int how) {
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
   a->closing          = how == 1;
-  if (how == 3) wired_moqt_on_session_draining(&mtst_hub, SESS_A);
+  if (how == 3) {
+    wired_moqt_on_session_draining(&mtst_hub, SESS_A);
+  }
   mupf_fetch_on(s, mf_track(), mupf_rl(1, 0, 3, 0), 0);
   CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 1);
 }
@@ -540,7 +586,9 @@ static void test_moqtrun_upfetch_owner_excluded(void) {
   for (int how = 0; how < 4; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
-    if (wired_test_fails != fails) printf("  ^ exclusion %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ exclusion %d\n", how);
+    }
   }
 }
 
@@ -654,7 +702,9 @@ static void test_moqtrun_upfetch_hub_owned(void) {
   mupf_init();
   mtst_hub.blob_track.in_use   = 1;
   mtst_hub.blob_track.name_len = 3;
-  for (usz i = 0; i < 3; i++) mtst_hub.blob_track.name[i] = (u8) "bob"[i];
+  for (usz i = 0; i < 3; i++) {
+    mtst_hub.blob_track.name[i] = (u8) "bob"[i];
+  }
   mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
   CHECK(mupf_n_up(SESS_C) == 0 && mupf_refused(MOQCTL_ERR_DOES_NOT_EXIST));
 }
@@ -742,7 +792,9 @@ static void mupf_desc_reject(int after_10) {
   mupf_hdr(m.request_id, 1);
   mupf_obj(2, 0, 1);
   mupf_obj(2, 1, 1);
-  if (after_10) mupf_obj(1, 0, 1);
+  if (after_10) {
+    mupf_obj(1, 0, 1);
+  }
   mupf_eor(MOQFETCH_EOR_NONEXISTENT, 2, after_10 ? 1 : 0);
   mupf_send(0);
   CHECK(mupf_read(1) && mf_fin && mf_n == (usz)(after_10 ? 4 : 3));
@@ -786,11 +838,14 @@ static int mupf_resumed_after_20(void) {
 static void mupf_out_of_place(int how) {
   moqfetch_req m   = {0};
   i64          sid = mupf_span_setup(&m);
-  if (how == 3) mupf_up_ok(sid, 2, 1);
-  if (how == 1) /* only a marker can name a Location behind the last */
+  if (how == 3) {
+    mupf_up_ok(sid, 2, 1);
+  }
+  if (how == 1) { /* only a marker can name a Location behind the last */
     mupf_eor(MOQFETCH_EOR_UNKNOWN, 1, 5);
-  else
+  } else {
     mupf_obj(how == 2 ? 3 : 2, how == 3 ? 5 : 0, 1);
+  }
   mupf_send(0);
   CHECK(mupf_resumed_after_20());
   CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
@@ -801,7 +856,9 @@ static void test_moqtrun_upfetch_out_of_place(void) {
   for (int how = 0; how < 4; how++) {
     int fails = wired_test_fails;
     mupf_out_of_place(how);
-    if (wired_test_fails != fails) printf("  ^ out of place %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ out of place %d\n", how);
+    }
   }
 }
 
@@ -917,12 +974,16 @@ static void mupf_leg_ends(int how) {
   static const u8 goaway[] = {0x10, 0x00, 0x01, 0x00}; /* GOAWAY, no URI */
   moqfetch_req    m        = {0};
   i64             sid      = mupf_span_setup(&m);
-  if (how == 0)
+  if (how == 0) {
     wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MUPF_DATA_SID, 1, 0);
-  if (how == 1)
+  }
+  if (how == 1) {
     wired_moqt_on_stream_data(
         &mtst_hub, SESS_A, (u64)sid, wired_span_of(goaway, 4), 0);
-  if (how == 2) wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  }
+  if (how == 2) {
+    wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  }
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mupf_read(0) && mf_fin && mf_is_obj(1, 2, 0, 1));
   CHECK(how == 2 || mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
@@ -934,7 +995,9 @@ static void test_moqtrun_upfetch_leg_ends(void) {
   for (int how = 0; how < 3; how++) {
     int fails = wired_test_fails;
     mupf_leg_ends(how);
-    if (wired_test_fails != fails) printf("  ^ leg end %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ leg end %d\n", how);
+    }
   }
 }
 
@@ -1095,10 +1158,15 @@ static void test_moqtrun_upfetch_marker_relay(void) {
 static void mupf_requester_gone(int how) {
   moqfetch_req m   = {0};
   i64          sid = mupf_span_setup(&m);
-  if (how == 0) wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mf_req_sid, 1, 0);
-  if (how == 1)
+  if (how == 0) {
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mf_req_sid, 1, 0);
+  }
+  if (how == 1) {
     wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mupf_fetch_sid(), 1, 0);
-  if (how == 2) wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  }
+  if (how == 2) {
+    wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  }
   CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
   CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID, "STOP1|"));
   CHECK(mupf_used() == 0);
@@ -1112,7 +1180,9 @@ static void test_moqtrun_upfetch_requester_gone(void) {
   for (int how = 0; how < 3; how++) {
     int fails = wired_test_fails;
     mupf_requester_gone(how);
-    if (wired_test_fails != fails) printf("  ^ requester gone %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ requester gone %d\n", how);
+    }
   }
 }
 
@@ -1235,10 +1305,12 @@ static void test_moqtrun_upfetch_torn_object(void) {
 /* The reset code the hub gave B's last fetch stream; ~0 if none. */
 static u64 mupf_reset_code(void) {
   u64 sid = mupf_fetch_sid();
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 7 && g_calls[i].s == SESS_B &&
-        g_calls[i].stream_id == sid)
+        g_calls[i].stream_id == sid) {
       return (u64)g_calls[i].fin;
+    }
+  }
   return ~(u64)0;
 }
 
@@ -1254,19 +1326,22 @@ static u64 mupf_done_in(wired_span all) {
     at = off;
     moqctl_peek_type(all, &off, &t, &body);
     if (t == MOQCTL_T_PUBLISH_DONE &&
-        moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK)
+        moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK) {
       return d.status_code;
+    }
   }
   return ~(u64)0;
 }
 
 static u64 mupf_done_status(wired_wt_session* s) {
   u64 st = ~(u64)0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].s == s && (g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
-        st == ~(u64)0)
+        st == ~(u64)0) {
       st = mupf_done_in(
           wired_span_of(g_calls[i].payload, g_calls[i].payload_len));
+    }
+  }
   return st;
 }
 
@@ -1354,7 +1429,9 @@ static void test_moqtrun_upfetch_malformed_group_end(void) {
   wired_moqtrun_track* t =
       moqtrun_pubst_track(&mtst_hub, mtst_hub.cache_tag_next);
   CHECK(t != 0);
-  if (!t) return;
+  if (!t) {
+    return;
+  }
   t->group_end = mf_loc(2, 0);
   t->end_flags |= 2;
   mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
@@ -1389,9 +1466,10 @@ static void test_moqtrun_upfetch_malformed_siblings(void) {
   CHECK(mupf_log_is(SESS_C, (u64)s1, "RST1|STOP1|"));
   CHECK(mupf_used() == 0);
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 7 && g_calls[i].s == SESS_B &&
          g_calls[i].fin == MOQTRUN_RESET_MALFORMED_TRACK;
+  }
   CHECK(n == 2);
 }
 
@@ -1424,10 +1502,13 @@ static moqfetch_seq mupf_cap_seq;
 
 static int mupf_cap_send(wired_wt_session* s, u64 sid, wired_span p, int fin) {
   int r = mupf_cap_next(s, sid, p, fin);
-  if (r <= 0 || s != SESS_B || sid != mupf_fetch_sid()) return r;
+  if (r <= 0 || s != SESS_B || sid != mupf_fetch_sid()) {
+    return r;
+  }
   CHECK(mupf_cap_n + p.n <= sizeof mupf_cap);
-  for (usz i = 0; i < p.n && mupf_cap_n < sizeof mupf_cap; i++)
+  for (usz i = 0; i < p.n && mupf_cap_n < sizeof mupf_cap; i++) {
     mupf_cap[mupf_cap_n++] = p.p[i];
+  }
   return r;
 }
 
@@ -1470,8 +1551,9 @@ static int mupf_cap_is(u64 g, u64 o, usz n, u8 b) {
   moqfetch_obj ob;
   if (moqfetch_obj_take(
           wired_span_of(mupf_cap, mupf_cap_n), &mupf_cap_off, &mupf_cap_seq,
-          &ob) != MOQCTL_OK)
+          &ob) != MOQCTL_OK) {
     return 0;
+  }
   return ob.group == g && ob.object == o && ob.payload.n == n &&
          ob.payload.p[0] == b && ob.payload.p[n - 1] == b;
 }
@@ -1540,7 +1622,9 @@ static void test_moqtrun_upfetch_wide_head(void) {
   mupf_big_setup(&m);
   mupf_obj(1, 0, 1);
   usz at = mupf_n;
-  for (usz i = 0; i < sizeof pl; i++) pl[i] = 0x5A;
+  for (usz i = 0; i < sizeof pl; i++) {
+    pl[i] = 0x5A;
+  }
   ob.flags     = MOQFETCH_F_PROPS;
   ob.group     = 1;
   ob.object    = 1;
@@ -1650,7 +1734,9 @@ static void test_moqtrun_upfetch_mandatory(void) {
 /* Calls the hub made toward s from call index from on. */
 static usz mupf_calls_to(wired_wt_session* s, usz from) {
   usz n = 0;
-  for (usz i = from; i < g_n_calls; i++) n += g_calls[i].s == s;
+  for (usz i = from; i < g_n_calls; i++) {
+    n += g_calls[i].s == s;
+  }
   return n;
 }
 
@@ -1782,7 +1868,9 @@ static void test_moqtrun_upfetch_delta_underflow(void) {
   mupf_up(SESS_A, 0, &m);
   mupf_hdr(m.request_id, 1);
   mupf_obj(2, 0, 1);
-  for (usz i = 0; i < sizeof under; i++) mupf_buf[mupf_n++] = under[i];
+  for (usz i = 0; i < sizeof under; i++) {
+    mupf_buf[mupf_n++] = under[i];
+  }
   mupf_send(0);
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(

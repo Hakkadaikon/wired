@@ -69,7 +69,9 @@ static void fuzz_h3(wired_span in) {
   h3_max_push_id_get(in.p, in.n, &id);
 
   h3_settings s;
-  if (!h3_settings_get(in.p, in.n, &s)) return;
+  if (!h3_settings_get(in.p, in.n, &s)) {
+    return;
+  }
   h3_settings_seen seen;
   h3_settings_seen_init(&seen);
   for (usz i = 0; i < s.n; i++) {

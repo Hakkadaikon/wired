@@ -6,14 +6,19 @@
  * 0 if len exceeds the supported 0x82 long-form ceiling (65535). */
 static usz len_octets(usz len) {
   static const usz cap[] = {0x80, 0x100, 0x10000};
-  for (usz i = 0; i < 3; i++)
-    if (len < cap[i]) return i + 1;
+  for (usz i = 0; i < 3; i++) {
+    if (len < cap[i]) {
+      return i + 1;
+    }
+  }
   return 0;
 }
 
 /* Write nb big-endian length octets of len at out. */
 static void der_put_be(u8* out, usz nb, usz len) {
-  for (usz i = 0; i < nb; i++) out[i] = (u8)(len >> ((nb - 1 - i) * 8));
+  for (usz i = 0; i < nb; i++) {
+    out[i] = (u8)(len >> ((nb - 1 - i) * 8));
+  }
 }
 
 /* X.690 8.1.3. Write the length field for len at out (lo octets total).
@@ -29,8 +34,12 @@ static void der_put_len(u8* out, usz lo, usz len) {
 
 int selfcert_der_tlv(u8 tag, wired_span val, wired_obuf* out) {
   usz lo = len_octets(val.n), off = 0;
-  if (lo == 0) return 0;
-  if (1 + lo + val.n > out->cap) return 0;
+  if (lo == 0) {
+    return 0;
+  }
+  if (1 + lo + val.n > out->cap) {
+    return 0;
+  }
   out->p[off++] = tag;
   der_put_len(out->p + off, lo, val.n);
   off += lo;

@@ -37,8 +37,11 @@ static int certreload_label_ch(const char* s, usz i, u8 c) {
 
 static int certreload_label_eq(wired_span label, const char* s) {
   usz i;
-  for (i = 0; i < label.n; i++)
-    if (!certreload_label_ch(s, i, label.p[i])) return 0;
+  for (i = 0; i < label.n; i++) {
+    if (!certreload_label_ch(s, i, label.p[i])) {
+      return 0;
+    }
+  }
   return s[i] == 0;
 }
 
@@ -55,7 +58,9 @@ static int certreload_key_label(wired_span label) {
 static int certreload_next_key(wired_span text, usz* at, wired_obuf* der) {
   wired_span label;
   while (wired_pem_next(text, at, &label, der)) {
-    if (certreload_key_label(label)) return 1;
+    if (certreload_key_label(label)) {
+      return 1;
+    }
     der->len = 0; /* discard a skipped block's DER */
   }
   return 0;
@@ -85,9 +90,10 @@ static ssz certreload_read_file(const char* path, u8* buf, usz cap) {
 static void certreload_commit(
     const wired_certreload_store* stage, wired_certreload_store* store, usz n) {
   bytes_memcpy(store, stage, sizeof *store);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     store->chain[i].p =
         store->chain_der + (stage->chain[i].p - stage->chain_der);
+  }
 }
 
 /* Decode cert_text/key_text (already read into memory) into stage, and
@@ -101,8 +107,12 @@ static int certreload_decode(
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
   usz n = certreload_load_chain(cert_text, stage);
-  if (n == 0) return 0;
-  if (!certreload_load_key(key_text, stage)) return 0;
+  if (n == 0) {
+    return 0;
+  }
+  if (!certreload_load_key(key_text, stage)) {
+    return 0;
+  }
   certreload_commit(stage, store, n);
   id->chain_count = n;
   id->chain       = store->chain;
@@ -156,8 +166,9 @@ static void certreload_load_or_die(
     const char*             key_path,
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
-  if (!wired_certreload_load(cert_path, key_path, store, id))
+  if (!wired_certreload_load(cert_path, key_path, store, id)) {
     wired_die("certreload: bad cert/key file\n");
+  }
   certreload_log_chain_count(id->chain_count);
 }
 
@@ -166,6 +177,7 @@ void wired_certreload_load_or_selfsigned(
     const char*             key_path,
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
-  if (certreload_path_set(cert_path))
+  if (certreload_path_set(cert_path)) {
     certreload_load_or_die(cert_path, key_path, store, id);
+  }
 }

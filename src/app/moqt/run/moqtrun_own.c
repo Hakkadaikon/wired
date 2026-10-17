@@ -18,8 +18,9 @@ void moqtrun_handle_publish(
   usz            off = 0;
   moqctl_publish m;
   if (!moqtrun_take_tok_or_close(
-          hub, p, moqctl_publish_take(p->ver, body, &off, &m), &m.params))
+          hub, p, moqctl_publish_take(p->ver, body, &off, &m), &m.params)) {
     return;
+  }
   moqtrun_publish_checked(hub, p, peer_idx, &m);
 }
 
@@ -37,14 +38,19 @@ wired_moqtrun_track* moqtrun_find_published_track(
     wired_moqt_hub* hub, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     wired_moqtrun_track* t = moqtrun_peer_track_for_name(&hub->peers[i], k);
-    if (t) return t;
+    if (t) {
+      return t;
+    }
   }
   return 0;
 }
 
 wired_moqtrun_sub* moqtrun_sub_slot(wired_moqtrun_track* track) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (!track->subs[i].active) return &track->subs[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (!track->subs[i].active) {
+      return &track->subs[i];
+    }
+  }
   return 0;
 }
 
@@ -64,8 +70,11 @@ static int moqtrun_sub_holds_alias(const wired_moqtrun_sub* s, usz pi, u64 a) {
 
 static int moqtrun_subs_hold_alias(
     const wired_moqtrun_track* x, usz pi, u64 a) {
-  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++)
-    if (moqtrun_sub_holds_alias(&x->subs[s], pi, a)) return 1;
+  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++) {
+    if (moqtrun_sub_holds_alias(&x->subs[s], pi, a)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -77,8 +86,11 @@ static int moqtrun_track_alias_clash(
 
 static int moqtrun_peer_tracks_clash(
     const wired_moqtrun_peer* q, const wired_moqtrun_track* t, usz pi, u64 a) {
-  for (usz k = 0; k < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; k++)
-    if (moqtrun_track_alias_clash(&q->tracks[k], t, pi, a)) return 1;
+  for (usz k = 0; k < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; k++) {
+    if (moqtrun_track_alias_clash(&q->tracks[k], t, pi, a)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -89,8 +101,11 @@ static int moqtrun_peer_clash(
 
 int moqtrun_peers_clash(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t, usz pi, u64 a) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_peer_clash(&hub->peers[i], t, pi, a)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_peer_clash(&hub->peers[i], t, pi, a)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

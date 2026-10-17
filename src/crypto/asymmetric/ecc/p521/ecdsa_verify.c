@@ -25,23 +25,30 @@ static int p521ev_pubkey(
  * 66 bytes shifted right by 7. */
 static void p521ev_digest_cut(u8 e[66], const u8* d) {
   e[0] = (u8)(d[0] >> 7);
-  for (usz i = 1; i < 66; i++) e[i] = (u8)((d[i - 1] << 1) | (d[i] >> 7));
+  for (usz i = 1; i < 66; i++) {
+    e[i] = (u8)((d[i - 1] << 1) | (d[i] >> 7));
+  }
 }
 
 /* A shorter digest is the integer itself, left-zero-extended. */
 static void p521ev_digest_pad(u8 e[66], const u8* d, usz n) {
-  for (usz i = 0; i < 66 - n; i++) e[i] = 0;
-  for (usz i = 0; i < n; i++) e[66 - n + i] = d[i];
+  for (usz i = 0; i < 66 - n; i++) {
+    e[i] = 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    e[66 - n + i] = d[i];
+  }
 }
 
 /* FIPS 186-4 6.4: e = leftmost min(521, 8*len) bits of the digest, then
  * mod n (e < 2^521 < 2n, so the zero-add's one conditional subtraction). */
 static void p521ev_digest(p521_fe e, const u8* d, usz n) {
   u8 b[66];
-  if (n >= 66)
+  if (n >= 66) {
     p521ev_digest_cut(b, d);
-  else
+  } else {
     p521ev_digest_pad(b, d, n);
+  }
   fp521_from_be(e, b);
   fp521_add(e, e, p521ev_zero, p521_n);
 }
@@ -65,12 +72,16 @@ int ecdsa_p521_verify(
     usz       digest_len) {
   p521ev_in in;
   p521_fe   e, w, u1, u2, rx;
-  if (!p521ev_load(&in, pub_x, pub_y, sig_r, sig_s)) return 0;
+  if (!p521ev_load(&in, pub_x, pub_y, sig_r, sig_s)) {
+    return 0;
+  }
   p521ev_digest(e, digest, digest_len);
   fp521_inv(w, in.s, p521_n); /* w = s^-1, u1 = e*w, u2 = r*w (mod n) */
   fp521_mul(u1, e, w, p521_n);
   fp521_mul(u2, in.r, w, p521_n);
-  if (!p521_mul2_x(rx, u1, u2, in.x, in.y)) return 0;
+  if (!p521_mul2_x(rx, u1, u2, in.x, in.y)) {
+    return 0;
+  }
   fp521_add(rx, rx, p521ev_zero, p521_n); /* x < p < 2n: x mod n */
   return fp521_eq(rx, in.r);
 }

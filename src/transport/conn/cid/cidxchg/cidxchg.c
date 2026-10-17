@@ -14,7 +14,9 @@ static void cidxchg_set(u8* dst, u8* dst_len, wired_span src) {
 
 /* RFC 9000 7.2/7.3 */
 int cidxchg_init(cidxchg* x, wired_span init_dcid, wired_span own_scid) {
-  if (!cidxchg_fits((u8)init_dcid.n, (u8)own_scid.n)) return 0;
+  if (!cidxchg_fits((u8)init_dcid.n, (u8)own_scid.n)) {
+    return 0;
+  }
   cidxchg_set(x->init_dcid, &x->init_dcid_len, init_dcid);
   cidxchg_set(x->own_scid, &x->own_scid_len, own_scid);
   cidxchg_set(x->dcid, &x->dcid_len, init_dcid);
@@ -23,14 +25,18 @@ int cidxchg_init(cidxchg* x, wired_span init_dcid, wired_span own_scid) {
 
 /* RFC 9000 7.2 */
 int cidxchg_on_server_scid(cidxchg* x, const u8* server_scid, u8 scid_len) {
-  if (scid_len > 20) return 0;
+  if (scid_len > 20) {
+    return 0;
+  }
   cidxchg_set(x->dcid, &x->dcid_len, wired_span_of(server_scid, scid_len));
   return 1;
 }
 
 /* RFC 9000 7.3 */
 int cidxchg_remember_odcid(cidxchg* x, const u8* initial_dcid, u8 len) {
-  if (len > 20) return 0;
+  if (len > 20) {
+    return 0;
+  }
   cidxchg_set(
       x->init_dcid, &x->init_dcid_len, wired_span_of(initial_dcid, len));
   return 1;

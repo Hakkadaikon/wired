@@ -40,12 +40,16 @@ static usz pc_build(
 static void pc_be32(u8 b[32], wired_span v) {
   const u8* p = v.p;
   usz       n = v.n;
-  for (usz i = 0; i < 32; i++) b[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    b[i] = 0;
+  }
   if (n > 32) {
     p += n - 32;
     n = 32;
   } /* drop a leading 0x00 sign pad */
-  for (usz i = 0; i < n; i++) b[32 - n + i] = p[i];
+  for (usz i = 0; i < n; i++) {
+    b[32 - n + i] = p[i];
+  }
 }
 
 /* SEC1 C.5. Decode ECDSA-Sig-Value SEQUENCE{ INTEGER r, INTEGER s } -> r, s. */
@@ -53,10 +57,16 @@ static int pc_sig_rs(wired_span der, u8 r[32], u8 s[32]) {
   u8         tag;
   wired_span seq, rv, sv;
   derseq     c;
-  if (!der_seq(der, &seq)) return 0;
+  if (!der_seq(der, &seq)) {
+    return 0;
+  }
   derseq_init(&c, seq);
-  if (!derseq_next(&c, &tag, &rv)) return 0;
-  if (!derseq_next(&c, &tag, &sv)) return 0;
+  if (!derseq_next(&c, &tag, &rv)) {
+    return 0;
+  }
+  if (!derseq_next(&c, &tag, &sv)) {
+    return 0;
+  }
   pc_be32(r, rv);
   pc_be32(s, sv);
   return 1;
@@ -67,10 +77,16 @@ static int pc_split_spki(wired_span spki, wired_span* oid, wired_span* key) {
   u8         tag;
   wired_span seq, alg;
   derseq     c, a;
-  if (!der_seq(spki, &seq)) return 0;
+  if (!der_seq(spki, &seq)) {
+    return 0;
+  }
   derseq_init(&c, seq);
-  if (!derseq_next(&c, &tag, &alg)) return 0;
-  if (!derseq_next(&c, &tag, key)) return 0;
+  if (!derseq_next(&c, &tag, &alg)) {
+    return 0;
+  }
+  if (!derseq_next(&c, &tag, key)) {
+    return 0;
+  }
   derseq_init(&a, alg);
   return derseq_next(&a, &tag, oid);
 }
@@ -78,7 +94,9 @@ static int pc_split_spki(wired_span spki, wired_span* oid, wired_span* key) {
 /* RFC 5480 2.2. The built SPKI round-trips back to the input (x, y). */
 static void test_spki_roundtrip(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x10 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8         spki[128];
@@ -91,13 +109,17 @@ static void test_spki_roundtrip(void) {
 
   u8 rx[32], ry[32];
   CHECK(x509_ec_pubkey(key, rx, ry) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(rx[i] == x[i] && ry[i] == y[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(rx[i] == x[i] && ry[i] == y[i]);
+  }
 }
 
 /* RFC 5280 4.1. The cert parses; sig_alg is ecdsa-with-SHA256. */
 static void test_p256cert_parse(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8  cert[1024];
@@ -106,14 +128,17 @@ static void test_p256cert_parse(void) {
   x509 c;
   CHECK(x509_parse(wired_span_of(cert, clen), &c) == 1);
   CHECK(c.sig_alg_oid.n == sizeof(pc_oid_ecdsa_sha256));
-  for (usz i = 0; i < c.sig_alg_oid.n; i++)
+  for (usz i = 0; i < c.sig_alg_oid.n; i++) {
     CHECK(c.sig_alg_oid.p[i] == pc_oid_ecdsa_sha256[i]);
+  }
 }
 
 /* SEC1. The SPKI inside the cert carries secp256r1 and the input key. */
 static void test_cert_spki_key(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8   cert[1024];
@@ -127,13 +152,17 @@ static void test_cert_spki_key(void) {
 
   u8 rx[32], ry[32];
   CHECK(x509_ec_pubkey(key, rx, ry) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(rx[i] == x[i] && ry[i] == y[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(rx[i] == x[i] && ry[i] == y[i]);
+  }
 }
 
 /* RFC 5280 4.1.1.3 / FIPS 186-4 6.4. The cert verifies its own signature. */
 static void test_cert_selfsigned(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8   cert[1024];
@@ -162,7 +191,9 @@ static void test_cert_selfsigned(void) {
  * the name modern TLS stacks (BoringSSL/curl) check; a foreign host fails. */
 static void test_cert_san_localhost(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8   cert[1024];
@@ -184,9 +215,14 @@ static const u8 pct_oid_san[] = {0x55, 0x1d, 0x11};
 /* 1 if der[i..i+6) is the GeneralName TLV for iPAddress [7] IMPLICIT OCTET
  * STRING (tag 0x87, RFC 5280 4.2.1.6) carrying exactly ip[4]. */
 static int pc_ipv4_tlv_at(const u8* p, const u8 ip[4]) {
-  if (p[0] != 0x87 || p[1] != 4) return 0;
-  for (usz j = 0; j < 4; j++)
-    if (p[2 + j] != ip[j]) return 0;
+  if (p[0] != 0x87 || p[1] != 4) {
+    return 0;
+  }
+  for (usz j = 0; j < 4; j++) {
+    if (p[2 + j] != ip[j]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -195,9 +231,14 @@ static int pc_ipv4_tlv_at(const u8* p, const u8 ip[4]) {
  * match inside the fixed-shape dNSName entry this same GeneralNames
  * SEQUENCE also carries. */
 static int pc_has_san_ipv4(wired_span der, const u8 ip[4]) {
-  if (der.n < 6) return 0;
-  for (usz i = 0; i + 6 <= der.n; i++)
-    if (pc_ipv4_tlv_at(der.p + i, ip)) return 1;
+  if (der.n < 6) {
+    return 0;
+  }
+  for (usz i = 0; i + 6 <= der.n; i++) {
+    if (pc_ipv4_tlv_at(der.p + i, ip)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -205,7 +246,9 @@ static int pc_has_san_ipv4(wired_span der, const u8 ip[4]) {
  * from before this field existed (regression guard). */
 static void test_cert_san_ipv4_omitted(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x50 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x50 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8           cert[1024];
@@ -229,7 +272,9 @@ static void test_cert_san_ipv4_omitted(void) {
  * serverCertificateHashes pinning still enforces hostname validation). */
 static void test_cert_san_ipv4_present(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x60 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x60 + i);
+  }
   pc_pubkey(priv, x, y);
 
   const u8     ip[4] = {160, 251, 55, 132};
@@ -255,7 +300,9 @@ static void test_cert_san_ipv4_present(void) {
  * cert; the browser checks notBefore against ITS OWN clock. */
 static void test_cert_now_secs_14day_window(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x70 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x70 + i);
+  }
   pc_pubkey(priv, x, y);
 
   const u64    now        = 1782988200ULL; /* 2026-07-02T10:30:00Z */
@@ -294,7 +341,9 @@ static void test_cert_now_secs_14day_window(void) {
  * a zero-initialized p256cert_key. */
 static void test_cert_now_secs_zero_keeps_fixed_window(void) {
   u8 priv[32], x[32], y[32];
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x80 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x80 + i);
+  }
   pc_pubkey(priv, x, y);
 
   u8           cert[1024];

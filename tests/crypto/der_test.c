@@ -18,7 +18,9 @@ static void test_der_long_form_1(void) {
   in[0] = DER_OCTET_STRING;
   in[1] = 0x81;
   in[2] = 200;
-  for (usz i = 0; i < 200; i++) in[3 + i] = (u8)i;
+  for (usz i = 0; i < 200; i++) {
+    in[3 + i] = (u8)i;
+  }
   der_tlv t;
   CHECK(der_read(wired_span_of(in, sizeof(in)), &t) == 1);
   CHECK(t.tag == DER_OCTET_STRING && t.val.n == 200 && t.used == 203);

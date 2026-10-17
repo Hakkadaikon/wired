@@ -53,7 +53,9 @@ static usz frame_ins(wired_span buf, enc_ins* i) {
 usz qdyn_enc_apply(wired_span buf, qpack_dyn* t, u64 max, u16* err) {
   enc_ins i;
   usz     end = frame_ins(buf, &i);
-  if (!end) return 0;
+  if (!end) {
+    return 0;
+  }
   if (!enc_applies[i.kind](&i, t, max)) {
     *err = QPACK_ENCODER_STREAM_ERROR;
     return 0;

@@ -19,8 +19,11 @@ static void test_mgf1_kat(void) {
   u8 got[50];
   mgf1_sha256((wired_span){mgf1_seed, 20}, (wired_mspan){got, 50});
   int eq = 1;
-  for (usz i = 0; i < 50; i++)
-    if (got[i] != mgf1_mask[i]) eq = 0;
+  for (usz i = 0; i < 50; i++) {
+    if (got[i] != mgf1_mask[i]) {
+      eq = 0;
+    }
+  }
   CHECK(eq == 1);
 }
 

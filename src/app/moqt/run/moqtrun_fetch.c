@@ -25,8 +25,11 @@ moqctl_loc moqtrun_end_excl(moqctl_loc incl) {
 int moqtrun_fetch_live(const wired_moqtrun_fetch* f) { return f->in_use; }
 
 wired_moqtrun_fetch* moqtrun_fetch_arr_slot(wired_moqtrun_fetch* arr) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (!moqtrun_fetch_live(&arr[i])) return &arr[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (!moqtrun_fetch_live(&arr[i])) {
+      return &arr[i];
+    }
+  }
   return 0;
 }
 
@@ -63,7 +66,9 @@ static u8 moqtrun_fetch_sub_prio(
  * (moqtrun_fetch_obj_of). */
 void moqtrun_fetch_sched(wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
   wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, f->wt);
-  if (!p) return;
+  if (!p) {
+    return;
+  }
   usz            idx = (usz)(p - hub->peers);
   u64            rid = f->is_fill ? f->owner_rid : f->request_id;
   wired_wt_sched k   = moqtrun_sched_of(
@@ -76,8 +81,9 @@ void moqtrun_fetch_sched(wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
  * for it is cancelled first (draft-22 3.2.4), so none outlives it, and a
  * FETCH still unanswered is refused, so none is left without a reply. */
 void moqtrun_fetch_free(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (f->up_state != WIRED_MOQTRUN_UPF_NONE)
+  if (f->up_state != WIRED_MOQTRUN_UPF_NONE) {
     moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_CANCEL);
+  }
   moqtrun_upf_unanswered_refuse(hub, f);
   f->in_use = 0;
 }
@@ -90,7 +96,9 @@ static void moqtrun_fetch_opened(
   f->opened    = 1;
   moqtrun_fetch_sched(hub, f);
   f->last_ok_ms = hub->live.last_now_ms;
-  if (moqtrun_fetch_done(f)) moqtrun_fetch_free(hub, f);
+  if (moqtrun_fetch_done(f)) {
+    moqtrun_fetch_free(hub, f);
+  }
   moqtrun_fill_opened(hub, f);
 }
 
@@ -100,10 +108,14 @@ static void moqtrun_fetch_opened(
 int moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   u8  hdr[16]; /* Type 0x5 + a Request ID varint */
   usz n = 0;
-  if (f->opened) return 1;
+  if (f->opened) {
+    return 1;
+  }
   moqfetch_hdr_put(wired_mspan_of(hdr, sizeof hdr), &n, f->request_id);
   i64 sid = moqtrun_fetch_open_io(hub, f, wired_span_of(hdr, n));
-  if (sid < 0) return 0;
+  if (sid < 0) {
+    return 0;
+  }
   moqtrun_fetch_opened(hub, f, sid);
   return f->in_use;
 }

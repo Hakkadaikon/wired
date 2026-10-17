@@ -20,9 +20,13 @@ static int bc_ca_true(wired_span val) {
   derseq     c;
   u8         tag;
   wired_span bc, b;
-  if (!der_seq(val, &bc)) return 0;
+  if (!der_seq(val, &bc)) {
+    return 0;
+  }
   derseq_init(&c, bc);
-  if (!derseq_next(&c, &tag, &b)) return 0;
+  if (!derseq_next(&c, &tag, &b)) {
+    return 0;
+  }
   return bc_is_true_boolean(tag, b);
 }
 
@@ -33,7 +37,9 @@ static int bc_locate(wired_span tbs, wired_span* val) {
 
 int x509_is_ca(wired_span tbs) {
   wired_span val;
-  if (!bc_locate(tbs, &val)) return 0;
+  if (!bc_locate(tbs, &val)) {
+    return 0;
+  }
   return bc_ca_true(val);
 }
 
@@ -43,9 +49,13 @@ static int bc_pathlen_elem(wired_span val, u8* tag, wired_span* b) {
   derseq     c;
   u8         t;
   wired_span bc, x;
-  if (!der_seq(val, &bc)) return 0;
+  if (!der_seq(val, &bc)) {
+    return 0;
+  }
   derseq_init(&c, bc);
-  if (!derseq_next(&c, &t, &x)) return 0;
+  if (!derseq_next(&c, &t, &x)) {
+    return 0;
+  }
   return derseq_next(&c, tag, b);
 }
 
@@ -58,21 +68,29 @@ static int bc_uint_wf(wired_span b) {
 /* Big-endian content octets as a usz. */
 static usz bc_uint(wired_span b) {
   usz v = 0;
-  for (usz i = 0; i < b.n; i++) v = (v << 8) | b.p[i];
+  for (usz i = 0; i < b.n; i++) {
+    v = (v << 8) | b.p[i];
+  }
   return v;
 }
 
 /* pathLenConstraint INTEGER admits `depth`; a non-INTEGER trailing element or
  * a malformed/negative value rejects (fail closed). */
 static int bc_pathlen_ok(u8 tag, wired_span b, usz depth) {
-  if (tag != DER_INTEGER || !bc_uint_wf(b)) return 0;
+  if (tag != DER_INTEGER || !bc_uint_wf(b)) {
+    return 0;
+  }
   return bc_uint(b) >= depth;
 }
 
 int x509_pathlen_allows(wired_span tbs, usz depth) {
   wired_span val, b;
   u8         tag;
-  if (!bc_locate(tbs, &val)) return 1;
-  if (!bc_pathlen_elem(val, &tag, &b)) return 1;
+  if (!bc_locate(tbs, &val)) {
+    return 1;
+  }
+  if (!bc_pathlen_elem(val, &tag, &b)) {
+    return 1;
+  }
   return bc_pathlen_ok(tag, b, depth);
 }

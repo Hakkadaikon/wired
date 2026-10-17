@@ -25,15 +25,20 @@ static int pss_top_bits_clear(u8 top, usz zero_bits) {
 static void pss_unmask_db(wired_mspan db, const u8* h, usz zero_bits) {
   u8 mask[PSS_MAX_EM];
   mgf1_sha256((wired_span){h, 32}, (wired_mspan){mask, db.n});
-  for (usz i = 0; i < db.n; i++) db.p[i] ^= mask[i];
+  for (usz i = 0; i < db.n; i++) {
+    db.p[i] ^= mask[i];
+  }
   db.p[0] &= (u8)(0xff >> zero_bits);
 }
 
 /* RFC 8017 9.1.2 step 10: PS (zeros) then 0x01 before the salt. */
 static int pss_padding_ok(const u8* db, usz db_len, usz salt_len) {
   usz one = db_len - salt_len - 1;
-  for (usz i = 0; i < one; i++)
-    if (db[i] != 0x00) return 0;
+  for (usz i = 0; i < one; i++) {
+    if (db[i] != 0x00) {
+      return 0;
+    }
+  }
   return db[one] == 0x01;
 }
 
@@ -48,28 +53,38 @@ static int pss_hprime_eq(const u8* mhash, wired_span salt, const u8* h) {
   sha256_update(&s, salt.p, salt.n);
   sha256_final(&s, hp);
   u8 d = 0;
-  for (usz i = 0; i < 32; i++) d |= hp[i] ^ h[i];
+  for (usz i = 0; i < 32; i++) {
+    d |= hp[i] ^ h[i];
+  }
   return d == 0;
 }
 
 /* Reject inputs that cannot form a valid SHA-256/saltLen-32 PSS encoding. */
 static int pss_sizes_bad(usz em_len, usz hash_len) {
-  if (hash_len != 32 || em_len > PSS_MAX_EM) return 1;
+  if (hash_len != 32 || em_len > PSS_MAX_EM) {
+    return 1;
+  }
   return em_len < hash_len + PSS_SALT_LEN + 2; /* RFC 8017 9.1.2 step 3 */
 }
 
 /* RFC 8017 9.1.2 step 5: split maskedDB and H, unmask DB into db. em_db is
  * EM trimmed to the maskedDB length; returns H (= em_db.p + em_db.n). */
 static const u8* pss_recover_db(wired_span em_db, u8* db, usz zero_bits) {
-  for (usz i = 0; i < em_db.n; i++) db[i] = em_db.p[i];
+  for (usz i = 0; i < em_db.n; i++) {
+    db[i] = em_db.p[i];
+  }
   pss_unmask_db((wired_mspan){db, em_db.n}, em_db.p + em_db.n, zero_bits);
   return em_db.p + em_db.n;
 }
 
 /* RFC 8017 9.1.2 steps 3-6: trailer 0xbc and the cleared top bits of EM. */
 static int pss_prefix_bad(wired_span em, usz hash_len, usz em_bits) {
-  if (pss_sizes_bad(em.n, hash_len)) return 1;
-  if (em.p[em.n - 1] != 0xbc) return 1;
+  if (pss_sizes_bad(em.n, hash_len)) {
+    return 1;
+  }
+  if (em.p[em.n - 1] != 0xbc) {
+    return 1;
+  }
   return !pss_top_bits_clear(em.p[0], pss_top_zero_bits(em.n, em_bits));
 }
 
@@ -79,12 +94,16 @@ static int pss_db_consistent(wired_span em_db, usz zero_bits, const u8* mhash) {
   u8         db[PSS_MAX_EM];
   const u8*  h    = pss_recover_db(em_db, db, zero_bits);
   wired_span salt = {db + em_db.n - PSS_SALT_LEN, PSS_SALT_LEN};
-  if (!pss_padding_ok(db, em_db.n, PSS_SALT_LEN)) return 0;
+  if (!pss_padding_ok(db, em_db.n, PSS_SALT_LEN)) {
+    return 0;
+  }
   return pss_hprime_eq(mhash, salt, h);
 }
 
 int emsa_pss_verify(wired_span em, usz em_bits, wired_span mhash) {
-  if (pss_prefix_bad(em, mhash.n, em_bits)) return 0;
+  if (pss_prefix_bad(em, mhash.n, em_bits)) {
+    return 0;
+  }
   usz db_len    = pss_db_len(em.n, mhash.n);
   usz zero_bits = pss_top_zero_bits(em.n, em_bits);
   return pss_db_consistent((wired_span){em.p, db_len}, zero_bits, mhash.p);

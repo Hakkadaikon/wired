@@ -13,24 +13,34 @@ void test_hp_suite(void) {
 
   /* RFC 9001 5.4.3 AES suite: same mask as the AES-ECB path. */
   u8 aes_key[16];
-  for (usz i = 0; i < 16; i++) aes_key[i] = (u8)i;
-  for (usz i = 0; i < 16; i++) sample[i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 16; i++) {
+    aes_key[i] = (u8)i;
+  }
+  for (usz i = 0; i < 16; i++) {
+    sample[i] = (u8)(0x10 + i);
+  }
   CHECK(hp_suite_mask(TLS_AES_128_GCM_SHA256, aes_key, sample, mask) == 1);
   aes128 hp;
   aes128_init(&hp, aes_key);
   u8 want_aes[5];
   hp_mask(&hp, sample, want_aes);
-  for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_aes[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(mask[i] == want_aes[i]);
+  }
 
   /* RFC 9001 5.4.3 AES-256 suite (0x1302): AES-256-ECB over the sample,
    * key 00..1f, sample 10..1f -> openssl enc -aes-256-ecb block
    * e9c3ef8ab23453e6f0749cd636e7a88e (first 5 bytes are the mask). */
   {
     u8 k256[32], want256[5];
-    for (usz i = 0; i < 32; i++) k256[i] = (u8)i;
+    for (usz i = 0; i < 32; i++) {
+      k256[i] = (u8)i;
+    }
     hps_uhx("e9c3ef8ab2", want256, 5);
     CHECK(hp_suite_mask(TLS_AES_256_GCM_SHA384, k256, sample, mask) == 1);
-    for (usz i = 0; i < 5; i++) CHECK(mask[i] == want256[i]);
+    for (usz i = 0; i < 5; i++) {
+      CHECK(mask[i] == want256[i]);
+    }
   }
 
   /* RFC 9001 5.4.4 ChaCha suite: A.5 vector. */
@@ -43,7 +53,9 @@ void test_hp_suite(void) {
       hp_suite_mask(TLS_CHACHA20_POLY1305_SHA256, cha_key, sample, mask) == 1);
   u8 want_cha[5];
   hps_uhx("aefefe7d03", want_cha, 5);
-  for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_cha[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(mask[i] == want_cha[i]);
+  }
 
   /* Unknown suite: no derivation. */
   CHECK(hp_suite_mask(0x0000, cha_key, sample, mask) == 0);

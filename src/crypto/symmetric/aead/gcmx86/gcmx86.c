@@ -10,6 +10,8 @@ static int gcmx86_cpuid_ok(void) {
 
 int gcmx86_supported(void) {
   static int cached; /* 0 unknown, 1 unsupported, 2 supported */
-  if (cached == 0) cached = 1 + gcmx86_cpuid_ok();
+  if (cached == 0) {
+    cached = 1 + gcmx86_cpuid_ok();
+  }
   return cached - 1;
 }

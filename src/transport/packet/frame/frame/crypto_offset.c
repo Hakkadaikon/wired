@@ -2,7 +2,9 @@
 
 /* RFC 9000 19.6 */
 int crypto_offset_ok(u64 offset, u64 len, u64 max_offset) {
-  if (offset + len < offset) return 0; /* wrap */
+  if (offset + len < offset) {
+    return 0; /* wrap */
+  }
   return offset + len <= max_offset;
 }
 

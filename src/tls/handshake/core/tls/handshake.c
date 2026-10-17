@@ -3,7 +3,9 @@
 #include "common/bytes/util/be.h"
 
 usz hs_begin(u8* out, usz cap, u8 msg_type) {
-  if (cap < 4) return 0;
+  if (cap < 4) {
+    return 0;
+  }
   out[0] = msg_type;
   out[1] = out[2] = out[3] = 0; /* length patched later */
   return 4;
@@ -18,9 +20,13 @@ void hs_finish(u8* out, usz total) {
 
 usz hs_parse(wired_span buf, u8* type, usz* body_len) {
   usz len;
-  if (buf.n < 4) return 0;
+  if (buf.n < 4) {
+    return 0;
+  }
   len = ((usz)buf.p[1] << 16) | ((usz)buf.p[2] << 8) | buf.p[3];
-  if (4 + len > buf.n) return 0;
+  if (4 + len > buf.n) {
+    return 0;
+  }
   *type     = buf.p[0];
   *body_len = len;
   return 4;
@@ -36,14 +42,18 @@ static usz put_key_share(u8* out, usz off, const u8 pub[32]) {
   be_put_be16(out + off + 2, 36); /* ext_data length */
   be_put_be16(out + off + 4, GROUP_X25519);
   be_put_be16(out + off + 6, 32); /* key_exchange length */
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   return off + 40;
 }
 
 /* Write legacy_version, random, and an empty legacy_session_id. */
 static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
   be_put_be16(out + off, 0x0303); /* legacy_version = TLS 1.2 */
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = random[i];
+  }
   out[off + 34] = 0; /* legacy_session_id length 0 */
   return off + 35;
 }
@@ -51,7 +61,9 @@ static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
 usz hs_build_hello(
     u8* out, usz cap, u8 msg_type, const u8 random[32], const u8 pub[32]) {
   usz off = hs_begin(out, cap, msg_type);
-  if (off == 0 || cap < 4 + 35 + 4 + 40) return 0;
+  if (off == 0 || cap < 4 + 35 + 4 + 40) {
+    return 0;
+  }
   off = put_hello_prefix(out, off, random);
   be_put_be16(out + off, TLS_AES128_GCM_SHA256); /* one cipher suite */
   out[off + 2] = 0;               /* legacy_compression_methods length 0 */
@@ -66,13 +78,19 @@ usz hs_build_hello(
  * hello; pub lives at body + (35 + 2 + 1 + 2 + 8). */
 /* The key_share extension is present and large enough at offset ks. */
 static int share_present(const u8* body, usz body_len, usz ks) {
-  if (body_len < ks + 40) return 0;
+  if (body_len < ks + 40) {
+    return 0;
+  }
   return body[ks] == 0x00 && body[ks + 1] == EXT_KEY_SHARE;
 }
 
 int hs_peer_share(const u8* body, usz body_len, u8 pub[32]) {
   usz ks = 35 + 2 + 1 + 2; /* prefix + cipher + compression + ext_len */
-  if (!share_present(body, body_len, ks)) return 0;
-  for (usz i = 0; i < 32; i++) pub[i] = body[ks + 8 + i];
+  if (!share_present(body, body_len, ks)) {
+    return 0;
+  }
+  for (usz i = 0; i < 32; i++) {
+    pub[i] = body[ks + 8 + i];
+  }
   return 1;
 }

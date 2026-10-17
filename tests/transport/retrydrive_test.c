@@ -23,9 +23,13 @@ static void test_retrydrive_apply(void) {
   CHECK(s.received == 1);
   CHECK(s.key_rederive == 1);
   CHECK(s.token_len == sizeof tok);
-  for (usz i = 0; i < sizeof tok; i++) CHECK(s.token[i] == tok[i]);
+  for (usz i = 0; i < sizeof tok; i++) {
+    CHECK(s.token[i] == tok[i]);
+  }
   CHECK(s.dcid_len == sizeof scid);
-  for (usz i = 0; i < sizeof scid; i++) CHECK(s.dcid[i] == scid[i]);
+  for (usz i = 0; i < sizeof scid; i++) {
+    CHECK(s.dcid[i] == scid[i]);
+  }
 }
 
 /* apply rejects a token larger than the state buffer. */
@@ -56,7 +60,9 @@ static void test_retrydrive_initial_token(void) {
       wired_span_of(tok, sizeof tok), wired_span_of(scid, sizeof scid), &s);
   retrydrive_initial_token(&s, &t, &len);
   CHECK(len == sizeof tok);
-  for (usz i = 0; i < sizeof tok; i++) CHECK(t[i] == tok[i]);
+  for (usz i = 0; i < sizeof tok; i++) {
+    CHECK(t[i] == tok[i]);
+  }
 }
 
 void test_retrydrive(void) {

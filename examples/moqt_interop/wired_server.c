@@ -73,12 +73,15 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_moqt_init(&g_hub, wired_moqraw_io());
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
 
-  if (!wired_srvdriver_parse(argc, argv, &opt))
+  if (!wired_srvdriver_parse(argc, argv, &opt)) {
     wired_die("bad CLI flags (single-process only)\n");
+  }
   static char wt_protocols[32];
   wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols);
   /* RFC 7301 3.2: the same static list doubles as the raw-QUIC ALPN set. */
-  if (!wired_cliargs_flag(argc, argv, "--no-raw")) id.raw_alpns = wt_protocols;
+  if (!wired_cliargs_flag(argc, argv, "--no-raw")) {
+    id.raw_alpns = wt_protocols;
+  }
 
   opt.run.incoming_cpu            = -1;
   opt.run.wt_protocols            = wt_protocols;
@@ -99,6 +102,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.on_step                 = on_step;
   opt.run.on_step_ctx             = &g_hub;
 
-  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
+  if (!wired_srvdriver_run(&id, h, obs, &opt)) {
+    wired_die("listen failed\n");
+  }
   return 0;
 }

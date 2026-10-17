@@ -39,11 +39,14 @@ static u64 mtup_reply(u64 sid, wired_span* body) {
     const moqtrun_test_call* c   = &g_calls[i - 1];
     usz                      off = 0;
     u64                      type;
-    if ((c->kind != 12 && c->kind != 3) || c->stream_id != sid) continue;
+    if ((c->kind != 12 && c->kind != 3) || c->stream_id != sid) {
+      continue;
+    }
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
-        MOQCTL_OK)
+        MOQCTL_OK) {
       return 0;
+    }
     return type;
   }
   return 0;
@@ -54,9 +57,13 @@ static const moqctl_param* mtup_ok_largest(u64 sid) {
   static moqctl_request_ok ok;
   wired_span               body;
   usz                      off = 0;
-  if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_OK) return 0;
-  if (moqctl_request_ok_take(g_moqtrun_test_ver, body, &off, &ok) != MOQCTL_OK)
+  if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_OK) {
     return 0;
+  }
+  if (moqctl_request_ok_take(g_moqtrun_test_ver, body, &off, &ok) !=
+      MOQCTL_OK) {
+    return 0;
+  }
   return moqctl_params_find(&ok.params, MOQCTL_PARAM_LARGEST_OBJECT);
 }
 
@@ -64,8 +71,12 @@ static u64 mtup_err_code(u64 sid) {
   moqctl_request_error e;
   wired_span           body;
   usz                  off = 0;
-  if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_ERROR) return ~(u64)0;
-  if (moqctl_request_error_take(body, &off, &e) != MOQCTL_OK) return ~(u64)0;
+  if (mtup_reply(sid, &body) != MOQCTL_T_REQUEST_ERROR) {
+    return ~(u64)0;
+  }
+  if (moqctl_request_error_take(body, &off, &e) != MOQCTL_OK) {
+    return ~(u64)0;
+  }
   return e.error_code;
 }
 
@@ -303,8 +314,9 @@ static void test_moqtrun_upd_forward_off_reliable(void) {
   n = mtst_stream(1, 1, 0, buf);
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   wired_moqt_tick(&mtst_hub, 5);
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
+  }
   CHECK(mtrq_reset_code(sid) == 0x1);
 }
 
@@ -700,8 +712,9 @@ static void test_moqtrun_upd_rngf_replace_remove(void) {
 
 static usz mtup_close_count(u32 code) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 11 && g_calls[i].stream_id == code;
+  }
   return n;
 }
 
@@ -713,8 +726,9 @@ static void test_moqtrun_upd_credit_too_many(void) {
   moqctl_ftn    f  = mtup_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   g_stream_send_ok_n = 0; /* answers coalesce: nothing flushes */
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++) {
     mtup_update(SESS_B, MTRQ_S1, &p1);
+  }
   CHECK(mtup_close_count(0x1B) == 0);
   mtup_update(SESS_B, MTRQ_S1, &p1); /* one past the limit */
   CHECK(mtup_close_count(0x1B) == 1);
@@ -728,8 +742,9 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
   moqctl_ftn    f  = mtup_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   g_stream_send_ok_n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++) {
     mtup_update(SESS_B, MTRQ_S1, &p1);
+  }
   g_stream_send_ok_n = -1;       /* transport drains */
   wired_moqt_tick(&mtst_hub, 1); /* flush: coalesced answers out */
   mtup_update(SESS_B, MTRQ_S1, &p1);

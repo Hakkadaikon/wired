@@ -12,16 +12,22 @@ static int moqtss_refuses(
 
 void moqtss_prune(wired_moqt_hub* hub, usz sidx) {
   moqtss_sess* ss = &hub->peers[sidx].ssts;
-  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++)
-    if (ss->sets[k].in_use) moqtss_prune_set(hub, ss, sidx, k);
+  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) {
+    if (ss->sets[k].in_use) {
+      moqtss_prune_set(hub, ss, sidx, k);
+    }
+  }
   moqtss_sync_arm(ss);
 }
 
 /* Open streams over slot k's members (the set's depth, client.rs). */
 u64 moqtss_set_open(const wired_moqt_hub* hub, const moqtss_set* st, usz sidx) {
   u64 sum = 0, open;
-  for (usz i = 0; i < st->n; i++)
-    if (moqtss_live(hub, sidx, st->m[i].alias, &open)) sum += open;
+  for (usz i = 0; i < st->n; i++) {
+    if (moqtss_live(hub, sidx, st->m[i].alias, &open)) {
+      sum += open;
+    }
+  }
   return sum;
 }
 
@@ -42,16 +48,19 @@ static u64 moqtss_room_if(int room) {
 /* Room to join set set_id: a member slot in it, or a free set slot. */
 u64 moqtss_room_in(const moqtss_sess* ss, u64 set_id) {
   int k = moqtss_set_by_id(ss, set_id);
-  if (k >= 0) return moqtss_room_if(ss->sets[k].n < MOQSSTS_MAX_MEMBERS);
+  if (k >= 0) {
+    return moqtss_room_if(ss->sets[k].n < MOQSSTS_MAX_MEMBERS);
+  }
   return moqtss_room_if(moqtss_set_free(ss) >= 0);
 }
 
 /* A member stays in its set (re-tune); anyone else needs room. */
 static u64 moqtss_fit(const moqtss_sess* ss, u64 alias, u64 set_id) {
   int cur = moqtss_set_of_alias(ss, alias);
-  if (cur >= 0)
+  if (cur >= 0) {
     return ss->sets[cur].set_id == set_id ? MOQTSS_ACCEPT
                                           : MOQCTL_ERR_UNSUPPORTED_EXTENSION;
+  }
   return moqtss_room_in(ss, set_id);
 }
 
@@ -74,7 +83,9 @@ u64 moqtss_check(
     const moqctl_ssa*        a) {
   moqtss_sess* ss = &hub->peers[s->session_idx].ssts;
   moqtss_prune(hub, s->session_idx);
-  if (moqtss_refuses(ss, s, params, a)) return MOQCTL_ERR_UNSUPPORTED_EXTENSION;
+  if (moqtss_refuses(ss, s, params, a)) {
+    return MOQCTL_ERR_UNSUPPORTED_EXTENSION;
+  }
   return moqtss_fit(ss, s->track_alias, a->set_id);
 }
 
@@ -83,7 +94,9 @@ void moqtss_join(
     wired_moqt_hub* hub, wired_moqtrun_sub* s, const moqctl_ssa* a) {
   moqtss_sess* ss = &hub->peers[s->session_idx].ssts;
   int          k  = moqtss_set_of_alias(ss, s->track_alias);
-  if (k < 0) k = (int)moqtss_set_claim(ss, a->set_id);
+  if (k < 0) {
+    k = (int)moqtss_set_claim(ss, a->set_id);
+  }
   moqtss_unplace(&ss->sets[k], s->track_alias);
   moqtss_member_insert(&ss->sets[k], s->track_alias, a->threshold_kbps);
   moqtss_set_props(&ss->sets[k], a);

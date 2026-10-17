@@ -28,11 +28,15 @@ static void moqtrun_rel_cut_all(
  * to its subscribers. */
 static void moqtrun_rel_maybe_done(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb) {
-  if (!moqtrel_all_done(rb)) return;
+  if (!moqtrel_all_done(rb)) {
+    return;
+  }
   int fin_seen = rb->fin_seen;
   hub->stat_rel_early_return += (u64)!fin_seen;
   moqtrun_rel_return_ring(hub, relay, rb);
-  if (fin_seen) relay->in_use = 0;
+  if (fin_seen) {
+    relay->in_use = 0;
+  }
 }
 
 /* One full drain pass over a ring: attach late subscribers, a round per
@@ -50,9 +54,12 @@ void moqtrun_rel_drain_one(
     moqtrel_buf*         rb,
     u64                  now_ms) {
   moqtrun_rel_late_attach_all(hub, track, relay, rb, now_ms);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     moqtrun_rel_drain_sub(hub, track, relay, rb, i, now_ms);
-  if (moqtrel_awaits_sub(rb, now_ms)) return;
+  }
+  if (moqtrel_awaits_sub(rb, now_ms)) {
+    return;
+  }
   moqtrel_reclaim(rb);
   moqtrun_rel_maybe_release(hub, rb);
   moqtrun_rel_maybe_done(hub, relay, rb);
@@ -63,7 +70,9 @@ void moqtrun_rel_drain_one(
  * moqtrun_rel_maybe_done freed a moment earlier; a bound ring implies a
  * non-null stream_hold (the moqtrun_rel_start gate). */
 static void moqtrun_rel_maybe_hold(wired_moqt_hub* hub, moqtrel_buf* rb) {
-  if (!rb->in_use || !moqtrel_should_hold(rb)) return;
+  if (!rb->in_use || !moqtrel_should_hold(rb)) {
+    return;
+  }
   hub->io.stream_hold(rb->pub, rb->pub_stream, 1);
   rb->held = 1;
   hub->stat_rel_hold++;
@@ -79,7 +88,9 @@ static void moqtrun_rel_cut_start(
     wired_span                 wire,
     moqdata_objseq             seq,
     u64                        base) {
-  if (!c->before_start) return;
+  if (!c->before_start) {
+    return;
+  }
   usz off         = moqtrun_startobj_cut(sub, wire, 0, &seq, relay->group_id);
   c->sent         = base + off;
   c->before_start = off == wire.n;
@@ -95,13 +106,14 @@ static void moqtrun_rel_cut_all(
     wired_span           whole,
     moqdata_objseq       seq0,
     u64                  base) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     if (moqtrun_rel_sub_open(rb, i)) {
       moqtrun_rel_cut_start(
           &rb->subs[i], &track->subs[i], relay, whole, seq0, base);
       moqtrun_rel_cut_end(
           relay, &rb->subs[i], &track->subs[i], i, whole, seq0, base);
     }
+  }
 }
 
 /* A later delivery on a ring-backed relay: append the whole-Object bytes

@@ -18,7 +18,9 @@ int h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
 static int skip_control_type(const u8* s, usz len, usz* off) {
   u64 type = 0;
   usz n    = varint_decode(s, len, &type);
-  if (!n || type != H3_CONTROL_STREAM_TYPE) return 0;
+  if (!n || type != H3_CONTROL_STREAM_TYPE) {
+    return 0;
+  }
   *off = n;
   return 1;
 }
@@ -28,8 +30,11 @@ int h3conn_peer_settings_ok(const u8* control_stream, usz len) {
   h3_settings_state st  = {0};
   usz               off = 0;
   h3_frame          f   = {0};
-  if (!skip_control_type(control_stream, len, &off)) return 0;
-  if (!h3_frame_get(wired_span_of(control_stream + off, len - off), &f))
+  if (!skip_control_type(control_stream, len, &off)) {
     return 0;
+  }
+  if (!h3_frame_get(wired_span_of(control_stream + off, len - off), &f)) {
+    return 0;
+  }
   return h3_settings_first(&st, f.type);
 }

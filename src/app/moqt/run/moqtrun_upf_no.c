@@ -39,8 +39,9 @@ static void moqtrun_upf_nt_go(
   moqtrun_upf_nt_init(p, f, m);
   if (moqtrun_upf_open(
           hub, f, moqtrun_upf_target(hub, 0, p->wt, k), k, &m->range,
-          &m->params))
+          &m->params)) {
     return;
+  }
   p->req->live = 0;
   f->answered  = 1; /* below, on p->req */
   moqtrun_fetch_free(hub, f);

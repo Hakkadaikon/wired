@@ -14,7 +14,9 @@ static int srvrun_reinit_ok(const srvrun_conn* c);
  * entry count and byte budget above. */
 static usz srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms) {
   usz max = (usz)u64_min(env->dgring_n, SRVRUN_DGRING_DRAIN_MAX);
-  if (now_ms < env->dgring_next_drain_ms) return 0;
+  if (now_ms < env->dgring_next_drain_ms) {
+    return 0;
+  }
   return srvrun_dgring_budget_count(env, max);
 }
 
@@ -24,7 +26,9 @@ static usz srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms) {
 void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   wired_srvrun_env* env = cfg->env;
   usz               n   = srvrun_dgring_slice(env, now_ms);
-  if (n) env->dgring_next_drain_ms = now_ms + SRVRUN_DGRING_DRAIN_MS;
+  if (n) {
+    env->dgring_next_drain_ms = now_ms + SRVRUN_DGRING_DRAIN_MS;
+  }
   while (n--) {
     srvrun_dgring_send_one(cfg, st, &env->dgring[env->dgring_head]);
     env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
@@ -40,24 +44,31 @@ void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
  * its own loop stays at the CCN gate. */
 static void srvrun_goaway_one(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* ob) {
-  if (!srvrun_send_goaway(cfg, c, ob)) return;
+  if (!srvrun_send_goaway(cfg, c, ob)) {
+    return;
+  }
   srvrun_send_wt_drain_all(c);
 }
 
 void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
   u8         out[256];
   wired_obuf ob = obuf_of(out, sizeof out);
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_owes_goaway(&st->conns[i]))
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (srvrun_owes_goaway(&st->conns[i])) {
       srvrun_goaway_one(cfg, &st->conns[i], &ob);
+    }
+  }
 }
 
 /* 1 once every slot has drained (gone down) or never came up — the condition
  * that lets the shutdown grace period end early instead of waiting out the
  * whole budget. */
 int srvrun_all_drained(const srvrun_state* st) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (st->conns[i].up) return 0;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (st->conns[i].up) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -150,16 +161,21 @@ __attribute__((unused)) static void srvrun_test_set_reload(int v) {
  * mutate *id on failure. No-op when reload is disabled (cert_path unset). */
 static void srvrun_reload_cert(
     const srvrun_cfg* cfg, wired_certreload_store* store) {
-  if (!cfg->cert_path) return;
-  if (!wired_certreload_load(cfg->cert_path, cfg->key_path, store, cfg->id))
+  if (!cfg->cert_path) {
+    return;
+  }
+  if (!wired_certreload_load(cfg->cert_path, cfg->key_path, store, cfg->id)) {
     WIRED_LOG("cert reload failed, keeping previous identity\n");
+  }
 }
 
 /* Consume a pending reload request once: mark this generation seen first so a
  * SIGHUP arriving mid-reload is not lost (it bumps the generation again),
  * then (re)load if one was pending. */
 void srvrun_reload_if_requested(const srvrun_cfg* cfg, wired_srvrun_env* env) {
-  if (!srvrun_reload_requested(env)) return;
+  if (!srvrun_reload_requested(env)) {
+    return;
+  }
   env->reload_seen_gen =
       __atomic_load_n(&g_srvrun_reload_gen, __ATOMIC_ACQUIRE);
   srvrun_reload_cert(cfg, &env->certstore);
@@ -177,8 +193,12 @@ static int srvrun_reinit_ok(const srvrun_conn* c) { return !c->up; }
  * shutdown (no new Initial is accepted, fresh slot or existing one alike),
  * and only on a slot eligible to (re)cold-start. */
 int srvrun_is_new(const srvrun_conn* c, wired_mspan dg) {
-  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
-  if (srvrun_shutdown_requested()) return 0;
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) {
+    return 0;
+  }
+  if (srvrun_shutdown_requested()) {
+    return 0;
+  }
   return srvrun_reinit_ok(c);
 }
 

@@ -180,7 +180,9 @@ static void test_connect_protocol_present(void) {
           &r) == 1);
   CHECK(r.protocol_len == sizeof ws);
   CHECK(r.protocol != 0);
-  for (usz i = 0; i < sizeof ws; i++) CHECK(r.protocol[i] == ws[i]);
+  for (usz i = 0; i < sizeof ws; i++) {
+    CHECK(r.protocol[i] == ws[i]);
+  }
 }
 
 /* A CONNECT request without :protocol still parses, protocol_len stays 0. */

@@ -13,7 +13,9 @@ static void srvrun_wt_capsule_arm(srvrun_conn* c, int sidx);
  * none). No-op without a registered callback. */
 static void srvrun_wt_notify(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_span protocol) {
-  if (!cfg->wt_on_session) return;
+  if (!cfg->wt_on_session) {
+    return;
+  }
   cfg->wt_on_session(
       cfg->wt_session_ctx, srvrun_wt_slot(c, sidx),
       wired_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
@@ -98,7 +100,9 @@ void srvrun_start_wt(
    * before reaching here with nothing in between that could claim one, so
    * this never actually fires -- guarding it anyway keeps wt_path/wt_path_len
    * (SRVRUN_MAX_WT_SESSIONS-sized) indexed only by a value in range. */
-  if (sidx < 0) return;
+  if (sidx < 0) {
+    return;
+  }
   srvrun_wt_proto_pick(cfg, c, &p);
   f = (qpack_field){
       wired_span_of(name, sizeof name), wired_span_of(p.sfv, p.sfv_len)};

@@ -2,8 +2,9 @@
 
 /* RFC 9218 10 / 9218-010: mark every buffered PRIORITY_UPDATE slot free. */
 void srvloop_pending_priority_reset(wired_srvloop* l) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++) {
     l->pending_priority[i].in_use = 0;
+  }
 }
 
 /* Packet-number spaces and handshake progress. */

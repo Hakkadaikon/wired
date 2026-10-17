@@ -72,12 +72,18 @@ static void test_resp_build_prefix_matches_full(void) {
   u8         full[512], pre[64];
   u8         body[300];
   wired_obuf fb = {full, sizeof full, 0}, pb = {pre, sizeof pre, 0};
-  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  for (usz i = 0; i < sizeof body; i++) {
+    body[i] = (u8)i;
+  }
   CHECK(h3resp_build(200, "text/html", wired_span_of(body, 300), &fb) == 1);
   CHECK(h3resp_prefix(200, "text/html", 300, &pb) == 1);
   CHECK(pb.len + 300 == fb.len);
-  for (usz i = 0; i < pb.len; i++) CHECK(pre[i] == full[i]);
-  for (usz i = 0; i < 300; i++) CHECK(full[pb.len + i] == body[i]);
+  for (usz i = 0; i < pb.len; i++) {
+    CHECK(pre[i] == full[i]);
+  }
+  for (usz i = 0; i < 300; i++) {
+    CHECK(full[pb.len + i] == body[i]);
+  }
   fb.len = 0;
   pb.len = 0;
   CHECK(h3resp_build(204, 0, wired_span_of(0, 0), &fb) == 1);

@@ -27,7 +27,9 @@ static void bsl_hm_512(wired_span k, wired_span m, u8* o) {
 
 static int bsl_hm_diff(const u8* a, const u8* b, usz n) {
   int d = 0;
-  for (usz i = 0; i < n; i++) d |= a[i] ^ b[i];
+  for (usz i = 0; i < n; i++) {
+    d |= a[i] ^ b[i];
+  }
   return d;
 }
 
@@ -38,7 +40,9 @@ static int bsl_hm_run(const bsl_hm_alg* a, const bssl_case* c) {
   ssz              kn   = bssl_bytes(bssl_get(t, c, "Key"), key, sizeof key);
   ssz              in_n = bssl_bytes(bssl_get(t, c, "Input"), in, sizeof in);
   ssz              wn = bssl_bytes(bssl_get(t, c, "Output"), want, sizeof want);
-  if (kn < 0 || in_n < 0 || wn != (ssz)a->len) return -1;
+  if (kn < 0 || in_n < 0 || wn != (ssz)a->len) {
+    return -1;
+  }
   a->mac(wired_span_of(key, (usz)kn), wired_span_of(in, (usz)in_n), got);
   return bsl_hm_diff(got, want, a->len) == 0;
 }
@@ -58,8 +62,11 @@ static void bsl_hm_case(bsl_hm_alg* a, const bssl_case* c) {
 }
 
 static bsl_hm_alg* bsl_hm_find(bsl_hm_alg* t, const char* name) {
-  for (; t->name; t++)
-    if (bssl_streq(t->name, name)) return t;
+  for (; t->name; t++) {
+    if (bssl_streq(t->name, name)) {
+      return t;
+    }
+  }
   return 0;
 }
 
@@ -79,14 +86,16 @@ void test_bssl_hmac(void) {
     const bssl_case* c = &bssl_hmac_tests_cases[i];
     bsl_hm_alg*      a =
         bsl_hm_find(algs, bssl_get(bssl_hmac_tests_attrs, c, "HMAC"));
-    if (a->mac)
+    if (a->mac) {
       bsl_hm_case(a, c);
-    else
+    } else {
       a->skip++, a->added++;
+    }
   }
-  for (bsl_hm_alg* a = algs; a->name; a++)
+  for (bsl_hm_alg* a = algs; a->name; a++) {
     printf(
         "bssl hmac-%s: added %u pass %u fail %u skip %u%s\n", a->name, a->added,
         a->pass, a->fail, a->skip,
         a->mac ? "" : " (hash/HMAC not implemented)");
+  }
 }

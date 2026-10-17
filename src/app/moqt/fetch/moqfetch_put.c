@@ -34,7 +34,9 @@ static int moqfetch_obj_put_with(
     const moqfetch_obj*     o);
 
 static u64 moqfetch_group_delta(const moqfetch_seq* s, u64 g) {
-  if (!s->have_loc) return g;
+  if (!s->have_loc) {
+    return g;
+  }
   return s->descending ? s->group - g - 1 : g - s->group - 1;
 }
 
@@ -46,7 +48,9 @@ static int moqfetch_put_flags(
 
 static int moqfetch_put_group(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
-  if (!(o->flags & MOQFETCH_F_GROUP)) return 1;
+  if (!(o->flags & MOQFETCH_F_GROUP)) {
+    return 1;
+  }
   return moqvi_put(b, at, moqfetch_group_delta(s, o->group));
 }
 
@@ -59,13 +63,17 @@ static int moqfetch_has_sg_field(u64 flags) {
 static int moqfetch_put_subgroup(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
-  if (!moqfetch_has_sg_field(o->flags)) return 1;
+  if (!moqfetch_has_sg_field(o->flags)) {
+    return 1;
+  }
   return moqvi_put(b, at, o->subgroup);
 }
 
 static int moqfetch_put_object(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
-  if (!(o->flags & MOQFETCH_F_OBJECT)) return 1;
+  if (!(o->flags & MOQFETCH_F_OBJECT)) {
+    return 1;
+  }
   return moqvi_put(
       b, at,
       moqfetch_object_absolute(s, o) ? o->object : o->object - s->object);
@@ -74,14 +82,18 @@ static int moqfetch_put_object(
 static int moqfetch_put_priority(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
-  if (!(o->flags & MOQFETCH_F_PRIORITY)) return 1;
+  if (!(o->flags & MOQFETCH_F_PRIORITY)) {
+    return 1;
+  }
   return moqctl_param_put_uint8(b, at, o->priority);
 }
 
 static int moqfetch_put_props(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
-  if (!(o->flags & MOQFETCH_F_PROPS)) return 1;
+  if (!(o->flags & MOQFETCH_F_PROPS)) {
+    return 1;
+  }
   return moqctl_name_put(b, at, o->props);
 }
 
@@ -100,7 +112,9 @@ static int moqfetch_put_payload_len(
 static int moqfetch_put_eor(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
-  if (!moqvi_put(b, at, o->group)) return 0;
+  if (!moqvi_put(b, at, o->group)) {
+    return 0;
+  }
   return moqvi_put(b, at, o->object);
 }
 
@@ -137,8 +151,11 @@ static int moqfetch_put_all(
     usz*                    at,
     const moqfetch_seq*     s,
     const moqfetch_obj*     o) {
-  for (usz i = 0; i < ops->n; i++)
-    if (!ops->steps[i](b, at, s, o)) return 0;
+  for (usz i = 0; i < ops->n; i++) {
+    if (!ops->steps[i](b, at, s, o)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -149,8 +166,12 @@ static int moqfetch_obj_put_with(
     moqfetch_seq*           seq,
     const moqfetch_obj*     o) {
   int kind = moqfetch_kind(o->flags, seq);
-  if (kind < 0) return 0;
-  if (!moqfetch_put_all(&ops[kind], buf, off, seq, o)) return 0;
+  if (kind < 0) {
+    return 0;
+  }
+  if (!moqfetch_put_all(&ops[kind], buf, off, seq, o)) {
+    return 0;
+  }
   MOQFETCH_KIND_OPS[kind].note(seq, o);
   return 1;
 }

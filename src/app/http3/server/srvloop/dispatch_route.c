@@ -18,8 +18,9 @@ void srvloop_drive_complete(
   stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
   wired_obuf   ob = obuf_of(in->wrap.p, in->wrap.n);
   *acc->done      = 1;
-  if (appdata_stream_frame(&f, &ob))
+  if (appdata_stream_frame(&f, &ob)) {
     dispatch_stream(h3, wired_span_of(in->wrap.p, ob.len), in);
+  }
 }
 
 /* quic-interop-runner's hq-interop (HTTP/0.9 over QUIC, see hq09.h):
@@ -34,7 +35,9 @@ void srvloop_drive_complete_hq09(
     wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
   wired_span path;
   *acc->done = 1;
-  if (!wired_hq09_parse_get(wired_span_of(acc->buf, *acc->len), &path)) return;
+  if (!wired_hq09_parse_get(wired_span_of(acc->buf, *acc->len), &path)) {
+    return;
+  }
   *in->req            = (wired_h3reqdrive_req){0};
   in->req->method     = (const u8*)"GET";
   in->req->method_len = 3;
@@ -76,8 +79,12 @@ static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched) {
   int i = wired_srvloop_slot_for(l, sf->stream_id);
   /* RFC 9000 3.2: a late duplicate of an answered-and-released stream is
    * discarded outright -- it must not consume a slot or count as new. */
-  if (i == -2) return;
-  if (i < 0) return;
+  if (i == -2) {
+    return;
+  }
+  if (i < 0) {
+    return;
+  }
   route_land_bytes(&l->streams[i], sf);
   l->flow_control_violation |= l->streams[i].req_over; /* RFC 9000 4.1 */
   /* u64: the table holds up to WIRED_SRVLOOP_MAX_STREAMS (40) slots, so a
@@ -97,12 +104,13 @@ int srvloop_route_request_frames(
   int            seen = 0;
   stream_frame   sf;
   framewalk_init(&it, payload.p, payload.n);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     if (srvloop_request_stream_of(
             ctx->l, fr.type, wired_span_of(fr.start, fr.remaining), &sf)) {
       route_land(ctx->l, &sf, touched);
       seen = 1;
     }
+  }
   return seen;
 }
 
@@ -123,7 +131,9 @@ static int qdec_settle(wired_srvloop* l, int i) {
 }
 
 void srvloop_qdec_cancel_id(wired_srvloop* l, u64 id) {
-  if (qdec_table_used(l)) qdyn_dec_stream_cancel(&l->h3.qdec, id);
+  if (qdec_table_used(l)) {
+    qdyn_dec_stream_cancel(&l->h3.qdec, id);
+  }
 }
 
 /* RFC 9204 2.2.2.2: "When a stream is reset or reading is abandoned, the
@@ -131,7 +141,9 @@ void srvloop_qdec_cancel_id(wired_srvloop* l, u64 id) {
  * references the encoder still holds for slot i's stream, unless the stream
  * was already settled (qdec_settle). */
 void srvloop_qdec_cancel_slot(wired_srvloop* l, int i) {
-  if (qdec_settle(l, i)) srvloop_qdec_cancel_id(l, l->streams[i].stream_id);
+  if (qdec_settle(l, i)) {
+    srvloop_qdec_cancel_id(l, l->streams[i].stream_id);
+  }
 }
 
 /* RFC 9204 2.2.2.1 / 4.4.1: acknowledge slot i's decoded field sections
@@ -141,7 +153,9 @@ void srvloop_qdec_cancel_slot(wired_srvloop* l, int i) {
 void srvloop_route_qpack_ack(wired_srvloop* l, int i) {
   const wired_h3reqdrive_req* r  = &l->streams[i].req;
   u64                         id = l->streams[i].stream_id;
-  if (r->qpack_failed || !qdec_settle(l, i)) return;
+  if (r->qpack_failed || !qdec_settle(l, i)) {
+    return;
+  }
   qdyn_dec_section_ack(&l->h3.qdec, id, r->qpack_ric);
   qdyn_dec_section_ack(&l->h3.qdec, id, r->qpack_trailer_ric);
 }

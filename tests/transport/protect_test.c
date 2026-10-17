@@ -9,7 +9,9 @@ static void test_protect_nonce_rfc(void) {
   protect_nonce(iv, 2, nonce);
   u8 want[12] = {0xfa, 0x04, 0x4b, 0x2f, 0x42, 0xa3,
                  0xfd, 0x3b, 0x46, 0xfb, 0x25, 0x5e};
-  for (usz i = 0; i < 12; i++) CHECK(nonce[i] == want[i]);
+  for (usz i = 0; i < 12; i++) {
+    CHECK(nonce[i] == want[i]);
+  }
   /* higher pn bytes land in the upper part of the low-8 region */
   protect_nonce(iv, 0x0102, nonce);
   CHECK(nonce[11] == (0x5c ^ 0x02) && nonce[10] == (0x25 ^ 0x01));
@@ -54,8 +56,9 @@ static void test_protect_roundtrip(void) {
   usz             pl  = protect_open(&k, &oio);
   CHECK(pl == sizeof(payload));
   CHECK(pkt[0] == 0xc3 && pkt[17] == 2); /* header restored */
-  for (usz i = 0; i < sizeof(payload); i++)
+  for (usz i = 0; i < sizeof(payload); i++) {
     CHECK(pkt[18 + i] == payload[i]); /* payload restored */
+  }
 }
 
 /* A tampered ciphertext byte makes open fail. */

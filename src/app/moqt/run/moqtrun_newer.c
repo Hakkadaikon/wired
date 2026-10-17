@@ -25,7 +25,9 @@ void moqtrun_track_claim(
    * each SUBSCRIBER's own surviving sub_names ring instead. */
   moqtrun_track_reset_stale_relays(hub, t);
   moqtrun_track_cache_drop(hub, t);
-  if (!t->in_use) moqtrun_track_clear_subs(t);
+  if (!t->in_use) {
+    moqtrun_track_clear_subs(t);
+  }
   t->cache_tag        = ++hub->cache_tag_next;
   t->in_use           = 1;
   t->default_pub_prio = 128; /* hub-owned tracks; moqtrun_track_open reads */
@@ -44,22 +46,28 @@ void moqtrun_track_claim(
  * moqtrun_rel_drop_ring's io-free teardown, a superseded publisher's
  * session is still live: a hold left on its stream would freeze it. */
 void moqtrun_relay_return_ring(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
-  if (!r->in_use || r->rel_idx < 0) return;
+  if (!r->in_use || r->rel_idx < 0) {
+    return;
+  }
   moqtrun_rel_return_ring(hub, r, &hub->rel_pool[r->rel_idx]);
 }
 
 static void moqtrun_track_return_rings(
     wired_moqt_hub* hub, wired_moqtrun_track* t) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     moqtrun_relay_return_ring(hub, &t->relays[r]);
+  }
 }
 
 /* Each still-active subscriber's Stream Count survives into the state a
  * re-attach starts from (PUBLISH_DONE Stream Count, draft-22 9.9). */
 static void moqtrun_track_keep_counts(
     wired_moqt_hub* hub, const wired_moqtrun_track* t) {
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    if (t->subs[si].active) moqtrun_rp_keep_count(hub, &t->subs[si]);
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (t->subs[si].active) {
+      moqtrun_rp_keep_count(hub, &t->subs[si]);
+    }
+  }
 }
 
 /* Frees a superseded track: its subscribers' still-open relay streams are
@@ -94,8 +102,11 @@ static int moqtrun_newer_owner(
 
 static int moqtrun_newer_holds_name(
     wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_newer_owner(hub, i, pub_idx, k)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_newer_owner(hub, i, pub_idx, k)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -111,7 +122,9 @@ static int moqtrun_newer_holds_name(
 void moqtrun_supersede_name(wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     wired_moqtrun_track* t = moqtrun_other_track_for_name(hub, i, pub_idx, k);
-    if (t) moqtrun_track_retire(hub, t);
+    if (t) {
+      moqtrun_track_retire(hub, t);
+    }
   }
 }
 
@@ -123,8 +136,12 @@ void moqtrun_supersede_name(wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
  * stale by definition (its client has moved on to the newer one). */
 wired_moqtrun_track* moqtrun_publish_slot(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, moqtrun_key k) {
-  if (moqtrun_key_oversized(k)) return 0;
-  if (moqtrun_newer_holds_name(hub, peer_idx, k)) return 0;
+  if (moqtrun_key_oversized(k)) {
+    return 0;
+  }
+  if (moqtrun_newer_holds_name(hub, peer_idx, k)) {
+    return 0;
+  }
   return moqtrun_track_alloc_slot(p, k);
 }
 

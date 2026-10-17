@@ -5,7 +5,9 @@
 usz pnum_len(u64 full_pn, u64 largest_acked) {
   u64 need = (full_pn - largest_acked) * 2;
   usz b    = 1;
-  while (b < 4 && need >= ((u64)1 << (8 * b))) b++;
+  while (b < 4 && need >= ((u64)1 << (8 * b))) {
+    b++;
+  }
   return b;
 }
 
@@ -21,7 +23,9 @@ usz pnum_encode(u8* buf, u64 full_pn, usz nbytes) {
 
 static u64 read_be(const u8* buf, usz nbytes) {
   u64 v = 0;
-  for (usz i = 0; i < nbytes; i++) v = (v << 8) | buf[i];
+  for (usz i = 0; i < nbytes; i++) {
+    v = (v << 8) | buf[i];
+  }
   return v;
 }
 
@@ -38,8 +42,12 @@ static int above_window(u64 candidate, u64 expected, u64 win) {
 /* RFC 9000 A.3: pick the candidate nearest to expected_pn that ends in the
  * truncated bits. win = 1<<bits; candidate sits in [expected-win/2, +win/2). */
 static u64 nearest(u64 candidate, u64 expected, u64 win) {
-  if (below_window(candidate, expected, win)) return candidate + win;
-  if (above_window(candidate, expected, win)) return candidate - win;
+  if (below_window(candidate, expected, win)) {
+    return candidate + win;
+  }
+  if (above_window(candidate, expected, win)) {
+    return candidate - win;
+  }
   return candidate;
 }
 

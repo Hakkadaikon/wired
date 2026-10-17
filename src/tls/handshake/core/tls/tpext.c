@@ -6,7 +6,9 @@
 /* RFC 9001 8.2: extension_type(2) + extension_data length(2) + data. */
 usz tpext_encode(wired_obuf* out, wired_span tp) {
   usz off = 4;
-  if (tp.n > 0xFFFF || off + tp.n > out->cap) return 0;
+  if (tp.n > 0xFFFF || off + tp.n > out->cap) {
+    return 0;
+  }
   be_put_be16(out->p, TPEXT_TYPE);
   be_put_be16(out->p + 2, (u16)tp.n);
   bytes_put(
@@ -18,14 +20,18 @@ usz tpext_encode(wired_obuf* out, wired_span tp) {
 
 /* Validate the 4-byte header and read the data length into *len. */
 static int tpext_head(wired_span buf, usz* len) {
-  if (buf.n < 4 || ((u16)buf.p[0] << 8 | buf.p[1]) != TPEXT_TYPE) return 0;
+  if (buf.n < 4 || ((u16)buf.p[0] << 8 | buf.p[1]) != TPEXT_TYPE) {
+    return 0;
+  }
   *len = (usz)buf.p[2] << 8 | buf.p[3];
   return 4 + *len <= buf.n;
 }
 
 usz tpext_decode(wired_span buf, wired_span* tp) {
   usz len;
-  if (!tpext_head(buf, &len)) return 0;
+  if (!tpext_head(buf, &len)) {
+    return 0;
+  }
   *tp = wired_span_of(buf.p + 4, len);
   return 4 + len;
 }

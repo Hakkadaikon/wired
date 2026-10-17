@@ -41,10 +41,13 @@ static int open_pkt(const hsunprot_ctx* c, wired_span* payload) {
   usz pn_len  = (pkt[0] & 0x03u) + 1u;
   usz hdr_len = pn_off + pn_len;
   hp_protect_pn(pkt + pn_off, pn_len, c->mask);
-  if (c->d->pkt.n <= hdr_len + GCM_TAG) return 0;
-  if (!aead_open(
-          c, hdr_len, pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn)))
+  if (c->d->pkt.n <= hdr_len + GCM_TAG) {
     return 0;
+  }
+  if (!aead_open(
+          c, hdr_len, pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn))) {
+    return 0;
+  }
   *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - GCM_TAG);
   return 1;
 }
@@ -64,7 +67,9 @@ int hspkt_unprotect(
    * sender's choice (RFC 9000 17.3.1), and Chrome's ACK-only 1-RTT packets
    * are exactly that minimum shape. open_pkt re-checks against the true
    * header length once the PN length is unmasked. */
-  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) return 0;
+  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) {
+    return 0;
+  }
   hp_mask(k->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask);
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;
   return open_pkt(&c, payload);
@@ -100,7 +105,9 @@ static int open_pkt_suite_head(
   u8* pkt    = c->d->pkt.p;
   usz pn_off = c->d->pn_off;
   usz pn_len = (pkt[0] & 0x03u) + 1u;
-  if (tag_len == 0) return 0;
+  if (tag_len == 0) {
+    return 0;
+  }
   hp_protect_pn(pkt + pn_off, pn_len, c->mask);
   *hdr_len = pn_off + pn_len;
   return c->d->pkt.n > *hdr_len + tag_len;
@@ -111,12 +118,15 @@ static int open_pkt_suite(const hsunprot_suite_ctx* c, wired_span* payload) {
   usz tag_len = aead_tag_len(c->suite);
   u8* pkt     = c->d->pkt.p;
   usz hdr_len;
-  if (!open_pkt_suite_head(c, tag_len, &hdr_len)) return 0;
+  if (!open_pkt_suite_head(c, tag_len, &hdr_len)) {
+    return 0;
+  }
   if (!aead_open_suite(
           c, hdr_len,
           pnum_decode(
-              pkt + c->d->pn_off, hdr_len - c->d->pn_off, c->d->largest_pn)))
+              pkt + c->d->pn_off, hdr_len - c->d->pn_off, c->d->largest_pn))) {
     return 0;
+  }
   *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - tag_len);
   return 1;
 }
@@ -129,10 +139,13 @@ int hspkt_unprotect_suite(
     const hspkt_unprotect_desc* d,
     wired_span*                 payload) {
   hsunprot_suite_ctx c = {suite, k->keys, d, {0}};
-  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) return 0;
-  if (!hp_suite_mask(
-          suite, k->keys->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask))
+  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) {
     return 0;
+  }
+  if (!hp_suite_mask(
+          suite, k->keys->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask)) {
+    return 0;
+  }
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;
   return open_pkt_suite(&c, payload);
 }

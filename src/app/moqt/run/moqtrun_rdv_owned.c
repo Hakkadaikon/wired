@@ -24,8 +24,9 @@ int moqtrun_rdv_owned(const wired_moqtrun_rdv* r, const wired_wt_session* s) {
 static usz moqtrun_rdv_count(
     const wired_moqt_hub* hub, const wired_wt_session* s) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     n += (usz)moqtrun_rdv_owned(&hub->rdv[i], s);
+  }
   return n;
 }
 

@@ -19,29 +19,41 @@ static int moqtss_dec_hit(const moqtss_dec* e, u64 g) {
 }
 
 const moqtss_dec* moqtss_ring_find(const moqtss_set* st, u64 g) {
-  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++)
-    if (moqtss_dec_hit(&st->dec[i], g)) return &st->dec[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++) {
+    if (moqtss_dec_hit(&st->dec[i], g)) {
+      return &st->dec[i];
+    }
+  }
   return 0;
 }
 
 /* moqtail record_group_decision: entries older than largest - KEEP go
  * whenever a decision is recorded (the one being written is kept). */
 static void moqtss_ring_prune(moqtss_set* st) {
-  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++)
-    if (moqtss_dec_stale(st, &st->dec[i])) st->dec[i].used = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++) {
+    if (moqtss_dec_stale(st, &st->dec[i])) {
+      st->dec[i].used = 0;
+    }
+  }
 }
 
 static moqtss_dec* moqtss_ring_lowest(moqtss_set* st) {
   moqtss_dec* low = &st->dec[0];
-  for (usz i = 1; i < WIRED_MOQTRUN_SSTS_RING; i++)
-    if (st->dec[i].group < low->group) low = &st->dec[i];
+  for (usz i = 1; i < WIRED_MOQTRUN_SSTS_RING; i++) {
+    if (st->dec[i].group < low->group) {
+      low = &st->dec[i];
+    }
+  }
   return low;
 }
 
 /* The entry to (re)use: a free one, else the lowest group's. */
 static moqtss_dec* moqtss_ring_slot(moqtss_set* st) {
-  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++)
-    if (!st->dec[i].used) return &st->dec[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++) {
+    if (!st->dec[i].used) {
+      return &st->dec[i];
+    }
+  }
   return moqtss_ring_lowest(st);
 }
 

@@ -15,7 +15,9 @@ static void advance(keyupdate* k) {
 }
 
 int keyupdate_initiate(keyupdate* k) {
-  if (k->updating) return 0; /* prior update not yet acknowledged */
+  if (k->updating) {
+    return 0; /* prior update not yet acknowledged */
+  }
   advance(k);
   k->updating = 1;
   return 1;
@@ -24,7 +26,9 @@ int keyupdate_initiate(keyupdate* k) {
 void keyupdate_acked(keyupdate* k) { k->updating = 0; }
 
 int keyupdate_follow(keyupdate* k) {
-  if (k->updating) return 0; /* wait for our own update to be acked first */
+  if (k->updating) {
+    return 0; /* wait for our own update to be acked first */
+  }
   advance(k);
   return 1;
 }

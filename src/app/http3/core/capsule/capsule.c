@@ -13,7 +13,9 @@ static wired_mspan capsule_out_tail(wired_obuf* out) {
 static usz capsule_wire_size(u64 type, wired_span value) {
   usz type_len = varint_len(type);
   usz len_len  = varint_len(value.n);
-  if (type_len == 0 || len_len == 0) return 0;
+  if (type_len == 0 || len_len == 0) {
+    return 0;
+  }
   return type_len + len_len + value.n;
 }
 
@@ -30,13 +32,17 @@ static void capsule_write(
   wired_mspan tail = capsule_out_tail(out);
   varint_put(tail, &off, type);
   varint_put(tail, &off, value.n);
-  for (usz i = 0; i < value.n; i++) tail.p[off + i] = value.p[i];
+  for (usz i = 0; i < value.n; i++) {
+    tail.p[off + i] = value.p[i];
+  }
   out->len += total;
 }
 
 int capsule_encode(wired_obuf* out, u64 type, wired_span value) {
   usz total = capsule_wire_size(type, value);
-  if (!capsule_fits(out, total)) return 0;
+  if (!capsule_fits(out, total)) {
+    return 0;
+  }
   capsule_write(out, type, value, total);
   return 1;
 }
@@ -48,8 +54,12 @@ int capsule_encode(wired_obuf* out, u64 type, wired_span value) {
 static int capsule_header_read(
     wired_span data, usz at, u64* type, u64* len, usz* consumed) {
   usz off = at;
-  if (!varint_take(data, &off, type)) return 0;
-  if (!varint_take(data, &off, len)) return 0;
+  if (!varint_take(data, &off, type)) {
+    return 0;
+  }
+  if (!varint_take(data, &off, len)) {
+    return 0;
+  }
   *consumed = off - at;
   return 1;
 }
@@ -59,9 +69,13 @@ int capsule_decode(wired_span data, usz* at, u64* type, wired_span* value) {
   u64 len;
   usz consumed;
   usz value_start;
-  if (!capsule_header_read(data, *at, &t, &len, &consumed)) return 0;
+  if (!capsule_header_read(data, *at, &t, &len, &consumed)) {
+    return 0;
+  }
   value_start = *at + consumed;
-  if (len > data.n - value_start) return 0;
+  if (len > data.n - value_start) {
+    return 0;
+  }
   *type  = t;
   *value = wired_span_of(data.p + value_start, len);
   *at    = value_start + len;

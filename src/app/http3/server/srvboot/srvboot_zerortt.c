@@ -27,14 +27,20 @@ usz wired_srvboot_partial_ack(
       a->ecn_ect1,
       a->ecn_ce,
       a->hdr.version};
-  if (!srvboot_acc_ackable(a)) return 0;
-  if (!srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
+  if (!srvboot_acc_ackable(a)) {
+    return 0;
+  }
+  if (!srvwire_seal_initial_frames_lean(&wi, &ob)) {
+    return 0;
+  }
   a->ack_pn++;
   return ob.len;
 }
 
 int wired_srvboot_is_zerortt(const u8* dg, usz len) {
-  if (!srvboot_is_initial_sized(dg, len)) return 0;
+  if (!srvboot_is_initial_sized(dg, len)) {
+    return 0;
+  }
   return packet_long_type(dg[0], be_get_be32(dg + 1)) == PT_0RTT;
 }
 
@@ -50,8 +56,12 @@ static int srvboot_zerortt_fits(const wired_srvboot_acc* a, wired_mspan dg) {
 /* RFC 9001 4.6.1: hold dg verbatim for wired_srvboot_acc_zerortt_take once
  * this boot's 0-RTT keys exist. */
 static void srvboot_zerortt_buffer(wired_srvboot_acc* a, wired_mspan dg) {
-  if (!srvboot_zerortt_fits(a, dg)) return;
-  for (usz i = 0; i < dg.n; i++) a->zerortt_dg[a->zerortt_n][i] = dg.p[i];
+  if (!srvboot_zerortt_fits(a, dg)) {
+    return;
+  }
+  for (usz i = 0; i < dg.n; i++) {
+    a->zerortt_dg[a->zerortt_n][i] = dg.p[i];
+  }
   a->zerortt_len[a->zerortt_n] = dg.n;
   a->zerortt_n++;
 }
@@ -77,10 +87,13 @@ static int srvboot_acc_feed_initial(wired_srvboot_acc* a, wired_mspan dg) {
   const u8* pkts[SRVBOOT_ACC_PKTS];
   usz       offs[SRVBOOT_ACC_PKTS], lens[SRVBOOT_ACC_PKTS], n, got = 0;
   pktlist   pl = {pkts, offs, lens, SRVBOOT_ACC_PKTS};
-  if (!srvboot_acc_admit(a, dg)) return 0;
+  if (!srvboot_acc_admit(a, dg)) {
+    return 0;
+  }
   n = udploop_split(wired_span_of(dg.p, dg.n), &pl);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     got += srvboot_acc_absorb_one(a, wired_mspan_of(dg.p + offs[i], lens[i]));
+  }
   return got != 0;
 }
 
@@ -105,7 +118,9 @@ usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a) {
 }
 
 wired_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i) {
-  if (i >= a->zerortt_n) return wired_span_of(0, 0);
+  if (i >= a->zerortt_n) {
+    return wired_span_of(0, 0);
+  }
   return wired_span_of(a->zerortt_dg[i], a->zerortt_len[i]);
 }
 

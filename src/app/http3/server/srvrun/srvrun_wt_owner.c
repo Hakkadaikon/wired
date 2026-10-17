@@ -73,11 +73,15 @@ static int srvrun_wt_stream_reply_common(
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!srvrun_wt_reply_allowed(c, sidx, s, stream_id, payload.n)) return 0;
+  if (!srvrun_wt_reply_allowed(c, sidx, s, stream_id, payload.n)) {
+    return 0;
+  }
   /* RFC 9000 18.2: the peer's bidi_local TP governs what we may send on a
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   w->append_open     = keep_open;
   w->wt_session_slot = sidx;
   wired_wt_session_note_data_sent(s, payload.n);

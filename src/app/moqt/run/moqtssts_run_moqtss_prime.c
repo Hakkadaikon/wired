@@ -17,8 +17,12 @@ static int moqtss_stampable(const wired_moqtrun_sub* s, u64 g) {
 }
 
 static void moqtss_stamp(wired_moqtrun_sub* s, u64 g, int fwd) {
-  if (!s->ssts_known) s->ssts_base = g;
-  if (!moqtss_stampable(s, g)) return;
+  if (!s->ssts_known) {
+    s->ssts_base = g;
+  }
+  if (!moqtss_stampable(s, g)) {
+    return;
+  }
   moqtss_rebase_up(s, g);
   moqtss_rebase_down(s, g);
   u16 bit       = (u16)(1u << (g - s->ssts_base));
@@ -33,7 +37,9 @@ static u32 moqtss_bit_of(const wired_moqtrun_sub* s, u64 g) {
 }
 
 int moqtss_sub_pass(const wired_moqtrun_sub* s, u64 g) {
-  if (!s->ssts_on) return 1;
+  if (!s->ssts_on) {
+    return 1;
+  }
   return (moqtss_bit_of(s, g) & s->ssts_known & s->ssts_fwd) != 0;
 }
 
@@ -49,7 +55,9 @@ static int moqtss_primes(const wired_moqtrun_sub* s) {
  * reached, s is stamped "not this group" and stays gated rather than
  * forwarding everything. */
 static void moqtss_prime_sub(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g) {
-  if (!moqtss_primes(s)) return;
+  if (!moqtss_primes(s)) {
+    return;
+  }
   int k = moqtss_set_of_alias(&hub->peers[s->session_idx].ssts, s->track_alias);
   u64 pick =
       k < 0 ? MOQTSS_PICK_NONE : moqtss_pick(hub, s->session_idx, (usz)k, g);
@@ -73,20 +81,25 @@ static u64 moqtss_pick_held(wired_moqt_hub* hub, usz sidx, usz k, u64 g) {
 static void moqtss_join_prime_k(
     wired_moqt_hub* hub, wired_moqtrun_sub* s, int k, u64 g) {
   moqtss_sess* ss = &hub->peers[s->session_idx].ssts;
-  if (k < 0 || !moqtss_in_window(&ss->sets[k], g)) return;
+  if (k < 0 || !moqtss_in_window(&ss->sets[k], g)) {
+    return;
+  }
   u64 pick = moqtss_pick_held(hub, s->session_idx, (usz)k, g);
   moqtss_stamp(s, g, pick == s->track_alias);
 }
 
 /* s just joined while group g is in flight: s's verdict for g now. */
 void moqtss_join_prime(wired_moqt_hub* hub, wired_moqtrun_sub* s, u64 g) {
-  if (!moqtss_primes(s)) return;
+  if (!moqtss_primes(s)) {
+    return;
+  }
   moqtss_join_prime_k(
       hub, s,
       moqtss_set_of_alias(&hub->peers[s->session_idx].ssts, s->track_alias), g);
 }
 
 void moqtss_prime(wired_moqt_hub* hub, wired_moqtrun_track* track, u64 g) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     moqtss_prime_sub(hub, &track->subs[i], g);
+  }
 }

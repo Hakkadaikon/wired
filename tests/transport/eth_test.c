@@ -2,8 +2,11 @@
 
 /* Byte-range equality, local to this test. */
 static int eth_bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

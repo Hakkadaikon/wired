@@ -7,14 +7,20 @@
 static const u8* ch_body(const u8* msg, usz len, usz* body_len) {
   u8  type;
   usz off = hs_parse(wired_span_of(msg, len), &type, body_len);
-  if (off == 0 || type != HS_CLIENT_HELLO) return 0;
+  if (off == 0 || type != HS_CLIENT_HELLO) {
+    return 0;
+  }
   return msg + off;
 }
 
 /* RFC 8446 4.1.2: session_id is 0..32 bytes and must fit within the body. */
 static int sid_fits(const u8* b, usz n) {
-  if (n < 35) return 0;
-  if (b[34] > 32) return 0;
+  if (n < 35) {
+    return 0;
+  }
+  if (b[34] > 32) {
+    return 0;
+  }
   return 35 + (usz)b[34] <= n;
 }
 
@@ -22,9 +28,13 @@ static int sid_fits(const u8* b, usz n) {
  * compression_methods length offset, returns 1 if those fields fit. */
 static int comp_offset(const u8* b, usz n, usz* p_comp) {
   usz p;
-  if (!sid_fits(b, n)) return 0;
+  if (!sid_fits(b, n)) {
+    return 0;
+  }
   p = 35 + b[34];
-  if (p + 2 > n) return 0;
+  if (p + 2 > n) {
+    return 0;
+  }
   p += 2 + ((usz)b[p] << 8 | b[p + 1]); /* skip cipher_suites */
   *p_comp = p;
   return p < n;
@@ -32,8 +42,12 @@ static int comp_offset(const u8* b, usz n, usz* p_comp) {
 
 /* RFC 8446 4.1.2: legacy_compression_methods MUST be the single null method. */
 static int comp_is_null_only(const u8* b, usz n, usz p) {
-  if (b[p] != 1) return 0;
-  if (p + 1 >= n) return 0;
+  if (b[p] != 1) {
+    return 0;
+  }
+  if (p + 1 >= n) {
+    return 0;
+  }
   return b[p + 1] == 0;
 }
 
@@ -45,7 +59,9 @@ static int version_ok(const u8* b, usz n) {
 /* version_ok plus a single null compression method, over a validated body. */
 static int legacy_body_ok(const u8* b, usz n) {
   usz p;
-  if (!version_ok(b, n) || !comp_offset(b, n, &p)) return 0;
+  if (!version_ok(b, n) || !comp_offset(b, n, &p)) {
+    return 0;
+  }
   return comp_is_null_only(b, n, p);
 }
 
@@ -58,7 +74,9 @@ int legacy_check_client_hello(const u8* ch_msg, usz len) {
 int legacy_session_id(wired_span ch_msg, const u8** sid, u8* sid_len) {
   usz       body_len;
   const u8* b = ch_body(ch_msg.p, ch_msg.n, &body_len);
-  if (b == 0 || !sid_fits(b, body_len)) return 0;
+  if (b == 0 || !sid_fits(b, body_len)) {
+    return 0;
+  }
   *sid     = b + 35;
   *sid_len = b[34];
   return 1;

@@ -53,7 +53,9 @@ int srvrun_path_is_gated_target(const srvrun_conn* c, const pathsel_key* k) {
  * ID is bound to it -- once, at the first live step. */
 void srvrun_path_seed(const srvrun_cfg* cfg, srvrun_conn* c) {
   pathsel_key k = srvrun_send_key(cfg, c);
-  if (c->path.seeded) return;
+  if (c->path.seeded) {
+    return;
+  }
   c->path.last_valid = k;
   c->path.seeded     = 1;
   peercid_init(&c->pcid, wired_span_of(c->l.cli_scid, c->l.cli_scid_len));
@@ -88,7 +90,9 @@ static int srvrun_path_may_share(
 /* The peer ID a tracked k already uses, or 0. */
 static const peercid_entry* srvrun_path_known_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
-  if (!srvrun_path_tracked(cfg, c, k)) return 0;
+  if (!srvrun_path_tracked(cfg, c, k)) {
+    return 0;
+  }
   return peercid_of(&c->pcid, k);
 }
 
@@ -96,9 +100,12 @@ static const peercid_entry* srvrun_path_cid_for(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept) {
   const peercid_entry* e = srvrun_path_known_cid(cfg, c, k);
   pathsel_key          s = srvrun_send_key(cfg, c);
-  if (e) return e;
-  if (srvrun_path_may_share(cfg, c, k, kept))
+  if (e) {
+    return e;
+  }
+  if (srvrun_path_may_share(cfg, c, k, kept)) {
     return peercid_share(&c->pcid, &s);
+  }
   return peercid_bind(&c->pcid, k);
 }
 
@@ -108,6 +115,8 @@ static const peercid_entry* srvrun_path_cid_for(
  * the one empty ID for every path. */
 const peercid_entry* srvrun_path_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept) {
-  if (c->pcid.empty) return &c->pcid.e[0];
+  if (c->pcid.empty) {
+    return &c->pcid.e[0];
+  }
   return srvrun_path_cid_for(cfg, c, k, kept);
 }

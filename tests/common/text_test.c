@@ -61,11 +61,15 @@ static void test_text_dump(void) {
   static u8   big[300];
   static char got[1024], want[1024];
   int         fds[2];
-  for (usz i = 0; i < sizeof big; i++) big[i] = (u8)i;
+  for (usz i = 0; i < sizeof big; i++) {
+    big[i] = (u8)i;
+  }
   CHECK(pipe(fds) == 0);
   wired_dump_hex(fds[1], wired_span_of(big, sizeof big));
   text_t_read(fds[0], got, sizeof got);
-  for (usz i = 0; i < sizeof big; i++) sprintf(want + 2 * i, "%02x", big[i]);
+  for (usz i = 0; i < sizeof big; i++) {
+    sprintf(want + 2 * i, "%02x", big[i]);
+  }
   CHECK(strcmp(got, want) == 0);
   wired_dump_text(fds[1], wired_span_of((const u8*)"hello wired", 5));
   text_t_read(fds[0], got, sizeof got);

@@ -21,7 +21,9 @@ static int no_leading_zero(wired_span d) { return d.n == 1 || d.p[0] != '0'; }
 
 /* d.n in [1,3], and no leading '0' unless d is the single digit "0". */
 static int octet_digits_shape_ok(wired_span d) {
-  if (!octet_len_ok(d)) return 0;
+  if (!octet_len_ok(d)) {
+    return 0;
+  }
   return no_leading_zero(d);
 }
 
@@ -34,7 +36,9 @@ static int digits_value(wired_span d, u32* out) {
   u32 v = 0;
   for (usz i = 0; i < d.n; i++) {
     int dv = digit_value(d.p[i]);
-    if (dv < 0) return 0;
+    if (dv < 0) {
+      return 0;
+    }
     v = v * 10 + (u32)dv;
   }
   *out = v;
@@ -44,20 +48,26 @@ static int digits_value(wired_span d, u32* out) {
 /* Decimal value of one octet's digits (span.n in [1,3]), rejecting a leading
  * '0' on any but a single "0" digit, and any non-digit. Returns 1 ok. */
 static int octet_digits_value(wired_span d, u32* out) {
-  if (!octet_digits_shape_ok(d)) return 0;
+  if (!octet_digits_shape_ok(d)) {
+    return 0;
+  }
   return digits_value(d, out);
 }
 
 /* Offset of the next '.' in s starting at from, or s.n if none. */
 static usz next_dot(wired_span s, usz from) {
   usz i = from;
-  while (i < s.n && s.p[i] != '.') i++;
+  while (i < s.n && s.p[i] != '.') {
+    i++;
+  }
   return i;
 }
 
 /* Offset just past the separating '.' at s[end] if one is there, else end. */
 static usz skip_dot(wired_span s, usz end) {
-  if (end < s.n) return end + 1;
+  if (end < s.n) {
+    return end + 1;
+  }
   return end;
 }
 
@@ -68,9 +78,12 @@ static int ipv4_octet(wired_span s, usz* off, u8* out) {
   usz start = *off;
   usz end   = next_dot(s, start);
   u32 v;
-  if (!octet_digits_value(wired_span_of(s.p + start, end - start), &v))
+  if (!octet_digits_value(wired_span_of(s.p + start, end - start), &v)) {
     return 0;
-  if (v > 255) return 0;
+  }
+  if (v > 255) {
+    return 0;
+  }
   *off = skip_dot(s, end);
   *out = (u8)v;
   return 1;
@@ -81,8 +94,11 @@ static int ipv4_octet(wired_span s, usz* off, u8* out) {
  * exactly 4 dot-separated octets (a DNS name or an IPv6 literal included). */
 int san_ipv4_parse(wired_span host, u8 out[SAN_IPV4_LEN]) {
   usz off = 0;
-  for (usz i = 0; i < SAN_IPV4_LEN; i++)
-    if (!ipv4_octet(host, &off, &out[i])) return 0;
+  for (usz i = 0; i < SAN_IPV4_LEN; i++) {
+    if (!ipv4_octet(host, &off, &out[i])) {
+      return 0;
+    }
+  }
   return off == host.n;
 }
 
@@ -95,8 +111,9 @@ static int ipv4_entry_matches(wired_span e, const u8 want[SAN_IPV4_LEN]) {
 /* RFC 5280 4.2.1.6. The GeneralNames SEQUENCE value inside the extnValue. */
 int san_names(wired_span tbs, wired_span* names) {
   wired_span san;
-  if (!x509_find_ext(tbs, wired_span_of(oid_san, sizeof(oid_san)), &san))
+  if (!x509_find_ext(tbs, wired_span_of(oid_san, sizeof(oid_san)), &san)) {
     return 0;
+  }
   return der_seq(san, names);
 }
 
@@ -104,9 +121,13 @@ int san_names(wired_span tbs, wired_span* names) {
  * = 1) and folds its match outcome into *match. */
 static void names_match_one(
     u8 tag, wired_span e, wired_span host, int* found_dnsname, int* match) {
-  if (tag != SAN_DNSNAME_TAG) return;
+  if (tag != SAN_DNSNAME_TAG) {
+    return;
+  }
   *found_dnsname = 1;
-  if (x509_entry_matches(e, host)) *match = 1;
+  if (x509_entry_matches(e, host)) {
+    *match = 1;
+  }
 }
 
 /* RFC 5280 4.2.1.6 / RFC 6125 6.4.4: scan the GeneralNames. found_dnsname is
@@ -119,8 +140,9 @@ int x509_names_match(wired_span gn, wired_span host, int* found_dnsname) {
   wired_span e;
   int        match = 0;
   derseq_init(&names, gn);
-  while (derseq_next(&names, &tag, &e))
+  while (derseq_next(&names, &tag, &e)) {
     names_match_one(tag, e, host, found_dnsname, &match);
+  }
   return match;
 }
 

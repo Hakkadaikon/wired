@@ -15,7 +15,9 @@ void migrate_init(migrate* m, u64 cid) {
  * newly detected path drops the previous path's challenge/validation state.
  */
 void migrate_detect(migrate* m) {
-  if (!m->handshake_confirmed) return; /* ignored before handshake */
+  if (!m->handshake_confirmed) {
+    return; /* ignored before handshake */
+  }
   m->detected   = 1;
   m->challenged = 0;
   m->validated  = 0;
@@ -23,11 +25,15 @@ void migrate_detect(migrate* m) {
 }
 
 void migrate_challenge(migrate* m) {
-  if (m->detected) m->challenged = 1; /* challenge follows detection */
+  if (m->detected) {
+    m->challenged = 1; /* challenge follows detection */
+  }
 }
 
 int migrate_validate(migrate* m) {
-  if (!m->detected || !m->challenged) return 0; /* no validation shortcut */
+  if (!m->detected || !m->challenged) {
+    return 0; /* no validation shortcut */
+  }
   m->validated = 1;
   return 1;
 }
@@ -38,7 +44,9 @@ static int confirm_ok(const migrate* m, u64 new_cid) {
 }
 
 int migrate_confirm(migrate* m, u64 new_cid, int port_only) {
-  if (!confirm_ok(m, new_cid)) return 0;
+  if (!confirm_ok(m, new_cid)) {
+    return 0;
+  }
   m->cur_cid   = new_cid; /* switch to the unused CID (old retired) */
   m->confirmed = 1;
   m->port_only = port_only;

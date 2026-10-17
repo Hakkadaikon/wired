@@ -4,7 +4,9 @@
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
 static int rmmsg_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4437, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -23,7 +25,9 @@ static int rmmsg_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
 static void rmmsg_send_n(i64 cfd, const sockaddr* srv, int count, usz len) {
   for (int i = 0; i < count; i++) {
     u8 payload[32];
-    for (usz j = 0; j < len; j++) payload[j] = (u8)i;
+    for (usz j = 0; j < len; j++) {
+      payload[j] = (u8)i;
+    }
     wired_udp_send(cfd, srv, wired_span_of(payload, len));
   }
 }
@@ -37,9 +41,13 @@ static void test_recvmmsg_receives_batch(void) {
   sockaddr srv;
   mmsg_buf bufs[3];
   u8       storage[3][16];
-  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 3; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 3; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   i64 r = wired_udp_recvmmsg(sfd, bufs, 3);
   if (r < 0) {
     /* ENOSYS on a kernel without recvmmsg: nothing more to prove here. */
@@ -65,9 +73,13 @@ static void test_recvmmsg_fallback_receives_batch(void) {
   sockaddr srv;
   mmsg_buf bufs[3];
   u8       storage[3][16];
-  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 3; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 3; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   i64 r = wired_udp_recvmmsg_fallback(sfd, bufs, 3);
   CHECK(r == 3);
   for (i64 i = 0; i < r; i++) {
@@ -86,8 +98,12 @@ static void test_recvmmsg_fallback_empty_returns_zero(void) {
   sockaddr srv;
   mmsg_buf bufs[2];
   u8       storage[2][16];
-  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
-  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  for (usz i = 0; i < 2; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   /* Nothing sent to sfd: recvfrom would block forever on a blocking socket,
    * so instead prove the zero-count slot case: count == 0 is always 0. */
   CHECK(wired_udp_recvmmsg_fallback(sfd, bufs, 0) == 0);
@@ -105,9 +121,13 @@ static void test_recvmmsg_returns_partial_batch(void) {
   sockaddr srv;
   mmsg_buf bufs[8];
   u8       storage[8][16];
-  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 8; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 8; i++) {
+    bufs[i].buf = wired_mspan_of(storage[i], 16);
+  }
   i64 r = wired_udp_recvmmsg(sfd, bufs, 8);
   if (r < 0) { /* ENOSYS: nothing to prove */
     wired_udp_close(cfd);
@@ -115,7 +135,9 @@ static void test_recvmmsg_returns_partial_batch(void) {
     return;
   }
   CHECK(r == 3);
-  for (i64 i = 0; i < r; i++) CHECK(bufs[i].len == 8);
+  for (i64 i = 0; i < r; i++) {
+    CHECK(bufs[i].len == 8);
+  }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }

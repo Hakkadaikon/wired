@@ -4,7 +4,9 @@
 
 /* Copy len bytes src->dst unconditionally (len already validated). */
 static void copy_cid(u8* dst, const u8* src, u8 len) {
-  for (u8 i = 0; i < len; i++) dst[i] = src[i];
+  for (u8 i = 0; i < len; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* True if a CID of length len starting at off fits in n bytes and is
@@ -17,9 +19,13 @@ static int cid_fits(u8 len, usz off, usz n) {
  * copies the CID into dst->p and sets dst->n. Returns 1 ok, 0 truncated. */
 static int read_cid(wired_span buf, usz* off, wired_mspan* dst) {
   u8 len;
-  if (*off >= buf.n) return 0;
+  if (*off >= buf.n) {
+    return 0;
+  }
   len = buf.p[*off];
-  if (!cid_fits(len, *off, buf.n)) return 0;
+  if (!cid_fits(len, *off, buf.n)) {
+    return 0;
+  }
   dst->n = len;
   copy_cid(dst->p, buf.p + *off + 1, len);
   *off += 1 + (usz)len;
@@ -30,8 +36,12 @@ static int read_cid(wired_span buf, usz* off, wired_mspan* dst) {
 static int read_cids(wired_span buf, usz* off, wired_header* h) {
   wired_mspan d = wired_mspan_of(h->dcid, 0);
   wired_mspan s = wired_mspan_of(h->scid, 0);
-  if (!read_cid(buf, off, &d)) return 0;
-  if (!read_cid(buf, off, &s)) return 0;
+  if (!read_cid(buf, off, &d)) {
+    return 0;
+  }
+  if (!read_cid(buf, off, &s)) {
+    return 0;
+  }
   h->dcid_len = (u8)d.n;
   h->scid_len = (u8)s.n;
   return 1;
@@ -39,12 +49,16 @@ static int read_cids(wired_span buf, usz* off, wired_header* h) {
 
 static usz header_parse_long(const u8* buf, usz n, wired_header* h) {
   usz off = 5; /* byte0 + 4-byte version */
-  if (n < off) return 0;
+  if (n < off) {
+    return 0;
+  }
   h->form      = WIRED_FORM_LONG;
   h->long_type = (buf[0] >> 4) & 0x3;
   h->version = ((u32)buf[1] << 24) | ((u32)buf[2] << 16) | ((u32)buf[3] << 8) |
                (u32)buf[4];
-  if (!read_cids(wired_span_of(buf, n), &off, h)) return 0;
+  if (!read_cids(wired_span_of(buf, n), &off, h)) {
+    return 0;
+  }
   return off;
 }
 
@@ -52,7 +66,9 @@ static usz header_parse_long(const u8* buf, usz n, wired_header* h) {
  * (the caller presets h->dcid_len). */
 static usz header_parse_short(const u8* buf, usz n, wired_header* h) {
   u8 dcid_len = h->dcid_len;
-  if (!cid_fits(dcid_len, 0, n)) return 0;
+  if (!cid_fits(dcid_len, 0, n)) {
+    return 0;
+  }
   h->form = WIRED_FORM_SHORT;
   copy_cid(h->dcid, buf + 1, dcid_len);
   h->scid_len = 0;
@@ -60,16 +76,24 @@ static usz header_parse_short(const u8* buf, usz n, wired_header* h) {
 }
 
 usz wired_header_parse(const u8* buf, usz n, wired_header* h) {
-  if (n == 0) return 0;
-  if (buf[0] & 0x80) return header_parse_long(buf, n, h);
+  if (n == 0) {
+    return 0;
+  }
+  if (buf[0] & 0x80) {
+    return header_parse_long(buf, n, h);
+  }
   return header_parse_short(buf, n, h);
 }
 
 /* Append a length-prefixed CID; advance out->len. Returns 1 ok, 0 no room. */
 static int write_cid(wired_obuf* out, wired_span cid) {
-  if (out->len + 1 + cid.n > out->cap) return 0;
+  if (out->len + 1 + cid.n > out->cap) {
+    return 0;
+  }
   out->p[out->len] = (u8)cid.n;
-  for (usz i = 0; i < cid.n; i++) out->p[out->len + 1 + i] = cid.p[i];
+  for (usz i = 0; i < cid.n; i++) {
+    out->p[out->len + 1 + i] = cid.p[i];
+  }
   out->len += 1 + cid.n;
   return 1;
 }
@@ -77,7 +101,9 @@ static int write_cid(wired_obuf* out, wired_span cid) {
 /* Write byte0 (long form + fixed bit + type) and the 4-byte version into
  * buf (cap bytes). Returns 5 (bytes written) or 0 if it does not fit. */
 static usz put_long_prefix(u8* buf, usz cap, const wired_header* h) {
-  if (cap < 5) return 0;
+  if (cap < 5) {
+    return 0;
+  }
   buf[0] = 0xC0 | (u8)(h->long_type << 4);
   buf[1] = (u8)(h->version >> 24);
   buf[2] = (u8)(h->version >> 16);
@@ -90,13 +116,18 @@ static usz put_long_prefix(u8* buf, usz cap, const wired_header* h) {
 static void write_cids(wired_obuf* out, const wired_header* h) {
   const wired_span cid[2] = {
       wired_span_of(h->dcid, h->dcid_len), wired_span_of(h->scid, h->scid_len)};
-  for (usz i = 0; i < 2; i++)
-    if (!write_cid(out, cid[i])) out->len = 0;
+  for (usz i = 0; i < 2; i++) {
+    if (!write_cid(out, cid[i])) {
+      out->len = 0;
+    }
+  }
 }
 
 usz wired_header_build_long(u8* buf, usz cap, const wired_header* h) {
   wired_obuf out = obuf_of(buf, cap);
   out.len        = put_long_prefix(buf, cap, h);
-  if (out.len != 0) write_cids(&out, h);
+  if (out.len != 0) {
+    write_cids(&out, h);
+  }
   return out.len;
 }

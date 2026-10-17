@@ -26,7 +26,9 @@ static int salpn_entry_matches(
  * overruns len (so the caller's loop never runs). */
 static usz list_end(const u8* m, usz len) {
   usz end;
-  if (len < 2) return 0;
+  if (len < 2) {
+    return 0;
+  }
   end = 2 + ((usz)m[0] << 8 | m[1]);
   return end <= len ? end : 0;
 }
@@ -39,7 +41,9 @@ static int salpn_select(
   int hit = 0;
   while (p < end) {
     hit = salpn_entry_matches(alpn_ext_data, end, &p, is_match);
-    if (hit) p = end;
+    if (hit) {
+      p = end;
+    }
   }
   return hit;
 }
@@ -54,7 +58,9 @@ int salpn_select_hq(const u8* alpn_ext_data, usz len) {
 
 /* The protocol this server speaks under `name`, or SALPN_NONE. */
 static salpn_choice salpn_name_choice(const u8* name, usz nlen) {
-  if (tls_alpn_is_h3(name, nlen)) return SALPN_H3;
+  if (tls_alpn_is_h3(name, nlen)) {
+    return SALPN_H3;
+  }
   return tls_alpn_is_hq(name, nlen) ? SALPN_HQ : SALPN_NONE;
 }
 
@@ -79,7 +85,9 @@ salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len) {
   usz p = 2, end = list_end(alpn_ext_data, len);
   while (p < end) {
     salpn_choice c = salpn_entry_choice(alpn_ext_data, end, &p);
-    if (c != SALPN_NONE) return c;
+    if (c != SALPN_NONE) {
+      return c;
+    }
   }
   return SALPN_NONE;
 }
@@ -90,7 +98,9 @@ salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len) {
 static int build_alpn_ext(
     const u8* name, u8 nlen, u8* out, usz cap, usz* out_len) {
   usz total = 6 + 1 + (usz)nlen;
-  if (cap < total) return 0;
+  if (cap < total) {
+    return 0;
+  }
   out[0] = 0x00;
   out[1] = 0x10; /* extension_type = ALPN */
   out[2] = 0x00;
@@ -99,7 +109,9 @@ static int build_alpn_ext(
   out[4] = 0x00;
   out[5] = (u8)(1 + nlen); /* ProtocolNameList length: name_len(1)+name */
   out[6] = nlen;           /* name length */
-  for (usz i = 0; i < nlen; i++) out[7 + i] = name[i];
+  for (usz i = 0; i < nlen; i++) {
+    out[7 + i] = name[i];
+  }
   *out_len = total;
   return 1;
 }
@@ -120,10 +132,13 @@ static int salpn_name_fits(wired_span name) {
 
 int salpn_build_response_tok(wired_span name, wired_obuf* out) {
   usz n = 0;
-  if (!salpn_name_fits(name)) return 0;
-  if (!build_alpn_ext(
-          name.p, (u8)name.n, out->p + out->len, out->cap - out->len, &n))
+  if (!salpn_name_fits(name)) {
     return 0;
+  }
+  if (!build_alpn_ext(
+          name.p, (u8)name.n, out->p + out->len, out->cap - out->len, &n)) {
+    return 0;
+  }
   out->len += n;
   return 1;
 }
@@ -131,8 +146,9 @@ int salpn_build_response_tok(wired_span name, wired_obuf* out) {
 int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len) {
   wired_obuf ob = obuf_of(out, cap);
   if (!salpn_build_response_tok(
-          salpn_choice_name(choice, wired_span_of(0, 0)), &ob))
+          salpn_choice_name(choice, wired_span_of(0, 0)), &ob)) {
     return 0;
+  }
   *out_len = ob.len;
   return 1;
 }

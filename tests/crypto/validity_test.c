@@ -33,8 +33,11 @@ static void test_validity_malformed(void) {
 
 /* 1 if a[0..13) equals the NUL-terminated ASCII literal want. */
 static int utctime_eq(const u8 a[13], const char* want) {
-  for (usz i = 0; i < 13; i++)
-    if (a[i] != (u8)want[i]) return 0;
+  for (usz i = 0; i < 13; i++) {
+    if (a[i] != (u8)want[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -58,7 +61,9 @@ static void test_utctime_encode_year_boundary(void) {
 
 /* Append n bytes from src onto dst at *off, advancing *off. */
 static void vt_append(u8* dst, usz* off, const u8* src, usz n) {
-  for (usz j = 0; j < n; j++) dst[(*off)++] = src[j];
+  for (usz j = 0; j < n; j++) {
+    dst[(*off)++] = src[j];
+  }
 }
 
 /* tbs = SEQUENCE { serial, sigAlg, issuer, Validity SEQUENCE { notBefore

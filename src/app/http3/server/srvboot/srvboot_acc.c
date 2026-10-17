@@ -32,19 +32,25 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
 void wired_srvboot_acc_ecn_note(wired_srvboot_acc* a, u8 ecn) {
   u64* table[4] = {0, &a->ecn_ect1, &a->ecn_ect0, &a->ecn_ce};
   u64* counter  = ecn < 4 ? table[ecn] : (u64*)0;
-  if (counter) (*counter)++;
+  if (counter) {
+    (*counter)++;
+  }
 }
 
 /* Accumulated byte difference between two ids of the same length. */
 static u8 srvboot_cid_diff(const u8* x, const u8* y, u8 len) {
   u8 diff = 0;
-  for (u8 i = 0; i < len; i++) diff |= x[i] ^ y[i];
+  for (u8 i = 0; i < len; i++) {
+    diff |= x[i] ^ y[i];
+  }
   return diff;
 }
 
 /* 1 if the len-byte id x equals the ylen-byte id y. */
 static int srvboot_cid_match(const u8* x, u8 len, const u8* y, u8 ylen) {
-  if (len != ylen) return 0;
+  if (len != ylen) {
+    return 0;
+  }
   return srvboot_cid_diff(x, y, len) == 0;
 }
 
@@ -61,22 +67,30 @@ static int srvboot_acc_alt_match(
  * wired_srvboot_acc_allow). */
 static int srvboot_acc_same_dcid(const wired_srvboot_acc* a, wired_mspan dg) {
   wired_header h;
-  if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
+  if (!wired_header_parse(dg.p, dg.n, &h)) {
+    return 0;
+  }
   return srvboot_cid_match(h.dcid, h.dcid_len, a->hdr.dcid, a->hdr.dcid_len) ||
          srvboot_acc_alt_match(a, &h);
 }
 
 /* Bind the accumulator to its first datagram's header. */
 static int srvboot_acc_bind(wired_srvboot_acc* a, wired_mspan dg) {
-  if (!wired_header_parse(dg.p, dg.n, &a->hdr)) return 0;
+  if (!wired_header_parse(dg.p, dg.n, &a->hdr)) {
+    return 0;
+  }
   a->any = 1;
   return 1;
 }
 
 /* 1 if dg may feed a: an Initial, and (after the first) the same DCID. */
 int srvboot_acc_admit(wired_srvboot_acc* a, wired_mspan dg) {
-  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
-  if (a->any) return srvboot_acc_same_dcid(a, dg);
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) {
+    return 0;
+  }
+  if (a->any) {
+    return srvboot_acc_same_dcid(a, dg);
+  }
   return srvboot_acc_bind(a, dg);
 }
 
@@ -87,7 +101,9 @@ int srvboot_acc_admit(wired_srvboot_acc* a, wired_mspan dg) {
  * post-HelloRetryRequest second Initial) openable with the keys its own
  * Version field names. */
 static int srvboot_pkt_initial_version(wired_mspan pkt, u32* v) {
-  if (pkt.n < 6) return 0;
+  if (pkt.n < 6) {
+    return 0;
+  }
   *v = be_get_be32(pkt.p + 1);
   return srvboot_is_long_initial(pkt.p[0], *v);
 }
@@ -99,8 +115,12 @@ int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   wired_span payload;
   wired_span odcid = wired_span_of(a->hdr.dcid, a->hdr.dcid_len);
   u32        v;
-  if (!srvboot_pkt_initial_version(pkt, &v)) return 0;
-  if (!initpkt_open_ver(odcid, v, pkt, a->largest_pn, &payload)) return 0;
+  if (!srvboot_pkt_initial_version(pkt, &v)) {
+    return 0;
+  }
+  if (!initpkt_open_ver(odcid, v, pkt, a->largest_pn, &payload)) {
+    return 0;
+  }
   crecv_collect(&a->cr, payload.p, payload.n);
   a->largest_pn =
       u64_max(a->largest_pn, srvboot_initial_pn(pkt, a->largest_pn));
@@ -114,7 +134,11 @@ static int srvboot_cid_len_ok(usz n) {
 }
 
 void wired_srvboot_acc_allow(wired_srvboot_acc* a, wired_span dcid) {
-  if (!srvboot_cid_len_ok(dcid.n)) return;
-  for (usz i = 0; i < dcid.n; i++) a->alt_dcid[i] = dcid.p[i];
+  if (!srvboot_cid_len_ok(dcid.n)) {
+    return;
+  }
+  for (usz i = 0; i < dcid.n; i++) {
+    a->alt_dcid[i] = dcid.p[i];
+  }
   a->alt_dcid_len = (u8)dcid.n;
 }

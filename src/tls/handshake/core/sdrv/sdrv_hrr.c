@@ -4,22 +4,29 @@ static int  sdrv_ch_run_gates(sdrv* s, const u8* ch_msg, usz ch_len);
 static void sdrv_hrr_reset_transcript(sdrv* s, const u8* hrr, usz hrr_len);
 
 static int sdrv_ch_run_gates(sdrv* s, const u8* ch_msg, usz ch_len) {
-  for (usz i = 0; i < SDRV_CH_GATE_COUNT; i++)
-    if (!SDRV_CH_GATES[i](s, ch_msg, ch_len)) return 0;
+  for (usz i = 0; i < SDRV_CH_GATE_COUNT; i++) {
+    if (!SDRV_CH_GATES[i](s, ch_msg, ch_len)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->last_error = 0;
   s->hrr_needed = 0;
-  if (!sdrv_ch_run_gates(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_run_gates(s, ch_msg, ch_len)) {
+    return 0;
+  }
   return sdrv_ch_after_gate(s, ch_msg, ch_len);
 }
 
 salpn_sni_outcome sdrv_sni_outcome(const sdrv* s) { return s->sni_outcome; }
 
 int sdrv_enforce_sni(sdrv* s) {
-  if (s->sni_outcome != SALPN_SNI_MISMATCH) return 1;
+  if (s->sni_outcome != SALPN_SNI_MISMATCH) {
+    return 1;
+  }
   s->last_error = err_crypto(TLS_ALERT_UNRECOGNIZED_NAME);
   return 0;
 }
@@ -41,7 +48,9 @@ static void sdrv_hrr_reset_transcript(sdrv* s, const u8* hrr, usz hrr_len) {
 }
 
 int sdrv_build_hrr(sdrv* s, wired_obuf* out) {
-  if (!hrr_build(s->cipher_suite, s->group, wired_span_of(0, 0), out)) return 0;
+  if (!hrr_build(s->cipher_suite, s->group, wired_span_of(0, 0), out)) {
+    return 0;
+  }
   sdrv_hrr_reset_transcript(s, out->p, out->len);
   s->hrr_sent   = 1;
   s->hrr_needed = 0;
@@ -51,13 +60,17 @@ int sdrv_build_hrr(sdrv* s, wired_obuf* out) {
 u64 sdrv_last_error(const sdrv* s) { return s->last_error; }
 
 int sdrv_handshake_secret(const sdrv* s, const u8** secret) {
-  if (!s->hs_ready) return 0;
+  if (!s->hs_ready) {
+    return 0;
+  }
   *secret = s->hs_secret;
   return 1;
 }
 
 int sdrv_early_keys(const sdrv* s, initial_keys* out) {
-  if (!s->early_data_accepted || s->early_keys_dropped) return 0;
+  if (!s->early_data_accepted || s->early_keys_dropped) {
+    return 0;
+  }
   *out = s->early_keys;
   return 1;
 }

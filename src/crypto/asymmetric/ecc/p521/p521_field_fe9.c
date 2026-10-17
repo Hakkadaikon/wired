@@ -6,8 +6,11 @@ static void fe9_fold_top(p521_fe r);
 
 /* 1 if a >= b (limb 8 most significant). */
 int fp521_fe9_ge(const p521_fe a, const p521_fe b) {
-  for (usz i = 9; i-- > 0;)
-    if (a[i] != b[i]) return a[i] > b[i];
+  for (usz i = 9; i-- > 0;) {
+    if (a[i] != b[i]) {
+      return a[i] > b[i];
+    }
+  }
   return 1;
 }
 
@@ -34,7 +37,9 @@ void fp521_fe9_add_raw(p521_fe r, const p521_fe a, const p521_fe b) {
 }
 
 static void fe9_cond_sub(p521_fe r, const p521_fe m) {
-  if (fp521_fe9_ge(r, m)) fp521_fe9_sub_raw(r, r, m);
+  if (fp521_fe9_ge(r, m)) {
+    fp521_fe9_sub_raw(r, r, m);
+  }
 }
 
 void fp521_add(p521_fe r, const p521_fe a, const p521_fe b, const p521_fe m) {
@@ -74,7 +79,9 @@ static void fe9_fold_top(p521_fe r) {
 void fp521_mul_p(p521_fe r, const p521_fe a, const p521_fe b) {
   u64     w[18] = {0};
   p521_fe hi;
-  for (usz i = 0; i < 9; i++) fe9_mul_row(w, a[i], b, i);
+  for (usz i = 0; i < 9; i++) {
+    fe9_mul_row(w, a[i], b, i);
+  }
   for (usz i = 0; i < 9; i++) {
     r[i]  = w[i];
     hi[i] = (w[8 + i] >> 9) | (w[9 + i] << 55);

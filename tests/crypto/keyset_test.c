@@ -10,7 +10,9 @@ void test_keyset(void) {
   CHECK(keyset_for_level(&st, LEVEL_INITIAL, &out) == 0);
 
   initial_keys k;
-  for (int i = 0; i < INITIAL_KEY; i++) k.key[i] = (u8)(i + 1);
+  for (int i = 0; i < INITIAL_KEY; i++) {
+    k.key[i] = (u8)(i + 1);
+  }
 
   CHECK(keyset_install(&st, LEVEL_HANDSHAKE, &k) == 1);
   CHECK(keyset_for_level(&st, LEVEL_HANDSHAKE, &out) == 1);

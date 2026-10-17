@@ -43,7 +43,9 @@ static i64 xsksetup_mmap(usz len, u64 pgoff, i64 fd) {
 }
 
 static i64 xsksetup_munmap(void* addr, usz len) {
-  if (!addr) return 0;
+  if (!addr) {
+    return 0;
+  }
   return wired_arch_munmap((i64)addr, len);
 }
 
@@ -54,8 +56,12 @@ void xsksetup_unwind(xsk* x) {
   xsksetup_munmap(x->map_fill, x->map_fill_len);
   xsksetup_munmap(x->map_tx, x->map_tx_len);
   xsksetup_munmap(x->map_rx, x->map_rx_len);
-  if (x->umem) xsksetup_munmap(x->umem, x->umem_len);
-  if (x->fd >= 0) wired_arch_close(x->fd);
+  if (x->umem) {
+    xsksetup_munmap(x->umem, x->umem_len);
+  }
+  if (x->fd >= 0) {
+    wired_arch_close(x->fd);
+  }
   x->fd = -1;
 }
 
@@ -67,7 +73,9 @@ i64 xsksetup_umem(xsk* x) {
   r                = wired_arch_mmap(
       0, XSKSETUP_UMEM_LEN, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS,
       -1, 0);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   x->umem     = (u8*)r;
   x->umem_len = XSKSETUP_UMEM_LEN;
   reg.addr    = (u64)x->umem;
@@ -86,7 +94,9 @@ i64 xsksetup_ring_sizes(xsk* x) {
       XDP_UMEM_FILL_RING, XDP_UMEM_COMPLETION_RING, XDP_RX_RING, XDP_TX_RING};
   for (usz i = 0; i < 4; i++) {
     i64 r = xsksetup_ring_size(x->fd, names[i]);
-    if (r < 0) return r;
+    if (r < 0) {
+      return r;
+    }
   }
   return 0;
 }
@@ -121,7 +131,9 @@ static i64 xsksetup_map_one(
   xskring_view v;
   usz          len = xsksetup_ring_len(o, entry_size);
   i64          r   = xsksetup_mmap(len, pgoff, x->fd);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   *map     = (void*)r;
   *map_len = len;
   xsksetup_view(&v, *map, o);
@@ -134,7 +146,9 @@ static i64 xsksetup_map_fill_comp(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
       x, &x->fill, &x->map_fill, &x->map_fill_len, XDP_PGOFF_FILL_RING, &mo->fr,
       8);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_map_one(
       x, &x->comp, &x->map_comp, &x->map_comp_len, XDP_PGOFF_COMPLETION_RING,
       &mo->cr, 8);
@@ -145,7 +159,9 @@ static i64 xsksetup_map_rx_tx(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
       x, &x->rx, &x->map_rx, &x->map_rx_len, XDP_PGOFF_RX_RING, &mo->rx,
       sizeof(xdp_desc));
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_map_one(
       x, &x->tx, &x->map_tx, &x->map_tx_len, XDP_PGOFF_TX_RING, &mo->tx,
       sizeof(xdp_desc));
@@ -153,6 +169,8 @@ static i64 xsksetup_map_rx_tx(xsk* x, const xsk_mmap_offsets* mo) {
 
 i64 xsksetup_map_rings(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_fill_comp(x, mo);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_map_rx_tx(x, mo);
 }

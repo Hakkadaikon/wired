@@ -8,8 +8,12 @@
 /* group -> fixed key length table (RFC 7748 for x25519, SEC1 2.3.3
  * uncompressed point for secp256r1). 0 = unrecognised group. */
 static usz group_key_len(u16 group) {
-  if (group == GROUP_X25519) return 32;
-  if (group == GROUP_SECP256R1) return 65;
+  if (group == GROUP_X25519) {
+    return 32;
+  }
+  if (group == GROUP_SECP256R1) {
+    return 65;
+  }
   return 0;
 }
 
@@ -18,13 +22,17 @@ usz tls_ext_key_share_len(u16 group) { return group_key_len(group); }
 usz tls_ext_key_share(u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
   usz entry = 4 + pub_len;   /* group(2) ke_len(2) key */
   usz total = 4 + 2 + entry; /* type(2) ext_len(2) shares_len(2) entry */
-  if (cap < total) return 0;
+  if (cap < total) {
+    return 0;
+  }
   be_put_be16(buf, EXT_KEY_SHARE);
   be_put_be16(buf + 2, (u16)(2 + entry)); /* ext_data length */
   be_put_be16(buf + 4, (u16)entry);       /* client_shares length */
   be_put_be16(buf + 6, group);
   be_put_be16(buf + 8, (u16)pub_len);
-  for (usz i = 0; i < pub_len; i++) buf[10 + i] = pub[i];
+  for (usz i = 0; i < pub_len; i++) {
+    buf[10 + i] = pub[i];
+  }
   return total;
 }
 
@@ -33,21 +41,27 @@ usz tls_ext_key_share(u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
  * n; *klen receives the key length. */
 static int entry_hdr_ok(const u8* buf, usz n, usz* klen) {
   *klen = group_key_len(be_get_be16(buf));
-  if (*klen == 0 || be_get_be16(buf + 2) != *klen) return 0;
+  if (*klen == 0 || be_get_be16(buf + 2) != *klen) {
+    return 0;
+  }
   return 4 + *klen <= n;
 }
 
 /* The entry at buf (n readable) names a recognised group whose key fits in
  * n; *klen receives the key length. */
 static int entry_ok(const u8* buf, usz n, usz* klen) {
-  if (n < 4) return 0;
+  if (n < 4) {
+    return 0;
+  }
   return entry_hdr_ok(buf, n, klen);
 }
 
 int tls_ext_key_share_parse(
     const u8* buf, usz n, u16* group, u8* pub, usz* pub_len, usz pub_cap) {
   usz klen, key = 4;
-  if (!entry_ok(buf, n, &klen) || klen > pub_cap) return 0;
+  if (!entry_ok(buf, n, &klen) || klen > pub_cap) {
+    return 0;
+  }
   *group   = be_get_be16(buf);
   *pub_len = klen;
   return bytes_take(wired_span_of(buf, n), &key, wired_mspan_of(pub, klen));
@@ -58,14 +72,18 @@ int tls_ext_key_share_parse(
  * unrecognised group - unrecognised entries are skipped, not rejected). */
 static int ks_entry_fits(const u8* e, usz avail) {
   usz kelen;
-  if (avail < 4) return 0;
+  if (avail < 4) {
+    return 0;
+  }
   kelen = be_get_be16(e + 2);
   return 4 + kelen <= avail;
 }
 
 /* The 2-byte client_shares length is present and bounds a list within n. */
 static int ks_list_len(const u8* buf, usz n, usz* list) {
-  if (n < 2) return 0;
+  if (n < 2) {
+    return 0;
+  }
   *list = be_get_be16(buf);
   return 2 + *list <= n;
 }
@@ -74,7 +92,9 @@ static int ks_list_len(const u8* buf, usz n, usz* list) {
  * key fits in pub_cap; *klen receives the key length. */
 static int ks_entry_matches(
     const u8* buf, usz avail, u16 want_group, usz pub_cap, usz* klen) {
-  if (be_get_be16(buf) != want_group) return 0;
+  if (be_get_be16(buf) != want_group) {
+    return 0;
+  }
   return entry_ok(buf, avail, klen) && *klen <= pub_cap;
 }
 
@@ -108,6 +128,8 @@ static int ks_find_group(
 int tls_ext_key_share_scan(
     const u8* buf, usz n, u16 want_group, u8* pub, usz* pub_len, usz pub_cap) {
   usz list, off = 2;
-  if (!ks_list_len(buf, n, &list)) return 0;
+  if (!ks_list_len(buf, n, &list)) {
+    return 0;
+  }
   return ks_find_group(buf, &off, 2 + list, want_group, pub, pub_len, pub_cap);
 }

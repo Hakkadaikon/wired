@@ -4,18 +4,24 @@
  * same handshake secret (this is what lets them agree on traffic keys). */
 static void test_schedule_agreement(void) {
   u8 ecdhe[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(i + 1);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(i + 1);
+  }
   u8 hs_a[32], hs_b[32];
   tls_handshake_secret(ecdhe, hs_a);
   tls_handshake_secret(ecdhe, hs_b);
-  for (usz i = 0; i < 32; i++) CHECK(hs_a[i] == hs_b[i]); /* deterministic */
+  for (usz i = 0; i < 32; i++) {
+    CHECK(hs_a[i] == hs_b[i]); /* deterministic */
+  }
 }
 
 /* Client and server derive distinct directions, but each side computing the
  * peer's direction matches: client's "s hs traffic" == server's own keys. */
 static void test_schedule_directions(void) {
   u8 ecdhe[32], hs[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0xA0 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(0xA0 + i);
+  }
   tls_handshake_secret(ecdhe, hs);
   const u8 transcript[] = "ClientHello||ServerHello";
 
@@ -34,12 +40,14 @@ static void test_schedule_directions(void) {
       &s_keys_from_client);
 
   /* server-direction keys are identical whoever derives them */
-  for (usz i = 0; i < INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++) {
     CHECK(s_keys.key[i] == s_keys_from_client.key[i]);
+  }
   /* the two directions differ (client key != server key) */
   int differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++) {
     differ |= (c_keys.key[i] != s_keys.key[i]);
+  }
   CHECK(differ);
 }
 
@@ -58,9 +66,13 @@ static void test_schedule_early(void) {
   tls_early_keys(psk_a, ch, sizeof(ch), &ka2);
   tls_early_keys(psk_b, ch, sizeof(ch), &kb);
 
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(ka.key[i] == ka2.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(ka.key[i] == ka2.key[i]);
+  }
   int differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (ka.key[i] != kb.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (ka.key[i] != kb.key[i]);
+  }
   CHECK(differ); /* different PSK -> different early keys */
 
   /* early keys differ from handshake keys built from the same bytes as a
@@ -69,7 +81,9 @@ static void test_schedule_early(void) {
   tls_handshake_keys(
       &(handshake_keys_in){psk_a, wired_span_of(ch, sizeof(ch)), 0, 0}, &hk);
   differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (ka.key[i] != hk.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (ka.key[i] != hk.key[i]);
+  }
   CHECK(differ);
 }
 
@@ -79,7 +93,9 @@ static void test_schedule_early(void) {
  * explicit VERSION_1 -- the v1-unchanged guard. */
 static void test_schedule_v2_labels(void) {
   u8 ecdhe[32], hs[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x33 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(0x33 + i);
+  }
   tls_handshake_secret(ecdhe, hs);
   const u8 tr[] = "ClientHello||ServerHello";
 
@@ -92,14 +108,24 @@ static void test_schedule_v2_labels(void) {
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1, VERSION_2},
       &k2);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(k0.key[i] == k1.key[i]);
-  for (usz i = 0; i < INITIAL_IV; i++) CHECK(k0.iv[i] == k1.iv[i]);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(k0.hp[i] == k1.hp[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(k0.key[i] == k1.key[i]);
+  }
+  for (usz i = 0; i < INITIAL_IV; i++) {
+    CHECK(k0.iv[i] == k1.iv[i]);
+  }
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(k0.hp[i] == k1.hp[i]);
+  }
   int differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (k1.key[i] != k2.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (k1.key[i] != k2.key[i]);
+  }
   CHECK(differ); /* "quicv2 key" != "quic key" expansion */
   differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (k1.hp[i] != k2.hp[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (k1.hp[i] != k2.hp[i]);
+  }
   CHECK(differ); /* "quicv2 hp" != "quic hp" expansion */
 }
 
@@ -111,16 +137,24 @@ static void test_tls_derive_secret_propagates_expand_failure(void) {
   u8               secret[HKDF_PRK], out[HKDF_PRK], okm[8];
   u8               label[65];
   derive_secret_in in;
-  for (usz i = 0; i < sizeof(secret); i++) secret[i] = (u8)(0x30 + i);
-  for (usz i = 0; i < sizeof(out); i++) out[i] = 0xaa;
-  for (usz i = 0; i < sizeof(label); i++) label[i] = 'x';
+  for (usz i = 0; i < sizeof(secret); i++) {
+    secret[i] = (u8)(0x30 + i);
+  }
+  for (usz i = 0; i < sizeof(out); i++) {
+    out[i] = 0xaa;
+  }
+  for (usz i = 0; i < sizeof(label); i++) {
+    label[i] = 'x';
+  }
   in.secret   = secret;
   in.label    = wired_span_of(label, 12);
   in.messages = wired_span_of(label, 0);
   CHECK(tls_derive_secret(&in, out) == 1);
   in.label = wired_span_of(label, sizeof(label));
   CHECK(tls_derive_secret(&in, out) == 0);
-  for (usz i = 0; i < sizeof(out); i++) CHECK(out[i] == 0);
+  for (usz i = 0; i < sizeof(out); i++) {
+    CHECK(out[i] == 0);
+  }
   CHECK(
       tls_exporter(
           secret, wired_span_of(label, sizeof(label)), wired_span_of(0, 0),
@@ -136,7 +170,9 @@ static void test_exporter_distinct_labels_independent_output(void) {
   u8         okm_a[HKDF_PRK], okm_b[HKDF_PRK], okm_c[HKDF_PRK];
   const char label_a[] = "label a", label_b[] = "label b";
   const u8   ctx1[] = "context-1", ctx2[] = "context-2";
-  for (usz i = 0; i < sizeof(secret); i++) secret[i] = (u8)(0x50 + i);
+  for (usz i = 0; i < sizeof(secret); i++) {
+    secret[i] = (u8)(0x50 + i);
+  }
 
   CHECK(
       tls_exporter(
@@ -167,7 +203,9 @@ static void test_exporter_distinct_labels_independent_output(void) {
  * packet-protection key ("key"), so the two must never coincide. */
 static void test_schedule_hp_key_distinct_from_packet_key(void) {
   u8 ecdhe[32], hs[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x60 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(0x60 + i);
+  }
   tls_handshake_secret(ecdhe, hs);
   const u8 tr[] = "ClientHello||ServerHello";
 
@@ -175,7 +213,9 @@ static void test_schedule_hp_key_distinct_from_packet_key(void) {
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &k);
   int differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (k.key[i] != k.hp[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (k.key[i] != k.hp[i]);
+  }
   CHECK(differ);
 }
 
@@ -188,7 +228,9 @@ static void test_schedule_hp_key_distinct_from_packet_key(void) {
  * make this byte-for-byte comparison fail nondeterministically. */
 static void test_schedule_key_tail_zeroed_and_deterministic(void) {
   u8 ecdhe[32], hs[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x90 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(0x90 + i);
+  }
   tls_handshake_secret(ecdhe, hs);
   const u8 tr[] = "ClientHello||ServerHello";
 
@@ -197,10 +239,18 @@ static void test_schedule_key_tail_zeroed_and_deterministic(void) {
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &a);
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &b);
-  for (usz i = 0; i < AEAD_KEY_MAX; i++) CHECK(a.key[i] == b.key[i]);
-  for (usz i = 0; i < AEAD_KEY_MAX; i++) CHECK(a.hp[i] == b.hp[i]);
-  for (usz i = INITIAL_KEY; i < AEAD_KEY_MAX; i++) CHECK(a.key[i] == 0);
-  for (usz i = INITIAL_HP; i < AEAD_KEY_MAX; i++) CHECK(a.hp[i] == 0);
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) {
+    CHECK(a.key[i] == b.key[i]);
+  }
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) {
+    CHECK(a.hp[i] == b.hp[i]);
+  }
+  for (usz i = INITIAL_KEY; i < AEAD_KEY_MAX; i++) {
+    CHECK(a.key[i] == 0);
+  }
+  for (usz i = INITIAL_HP; i < AEAD_KEY_MAX; i++) {
+    CHECK(a.hp[i] == 0);
+  }
 }
 
 void test_schedule(void) {

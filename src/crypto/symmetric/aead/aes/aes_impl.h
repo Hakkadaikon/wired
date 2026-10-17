@@ -17,7 +17,9 @@ extern const u8 SBOX[256];
 static inline void aes128_copy16(u8* dst, const u8* src);
 
 static inline void aes128_copy16(u8* dst, const u8* src) {
-  for (usz i = 0; i < 16; i++) dst[i] = src[i];
+  for (usz i = 0; i < 16; i++) {
+    dst[i] = src[i];
+  }
 }
 
 #endif

@@ -4,7 +4,9 @@
  * offsets; each decoded frame's payload matches the source slice. */
 static void test_emit_splits(void) {
   u8 src[20];
-  for (usz i = 0; i < sizeof src; i++) src[i] = (u8)(i + 1);
+  for (usz i = 0; i < sizeof src; i++) {
+    src[i] = (u8)(i + 1);
+  }
   u8                    out[128];
   wired_obuf            ob  = obuf_of(out, sizeof out);
   crypto_stream_emit_in ein = {100, 8};
@@ -20,7 +22,9 @@ static void test_emit_splits(void) {
     CHECK(n != 0);
     CHECK(f.offset == expect_off); /* contiguous offsets */
     CHECK(f.length <= 8);          /* respects max_frame */
-    for (u64 i = 0; i < f.length; i++) CHECK(f.data[i] == src[total + i]);
+    for (u64 i = 0; i < f.length; i++) {
+      CHECK(f.data[i] == src[total + i]);
+    }
     expect_off += f.length;
     total += f.length;
     pos += n;
@@ -46,7 +50,9 @@ static void test_recv_reorder_dup(void) {
   CHECK(crypto_stream_recv(&rx, 3, wired_span_of(b, 3)) == 1); /* dup */
   CHECK(crypto_stream_read(&rx, &ob) == 1);
   CHECK(ob.len == 6);
-  for (usz i = 0; i < 6; i++) CHECK(out[i] == (u8)(i + 1));
+  for (usz i = 0; i < 6; i++) {
+    CHECK(out[i] == (u8)(i + 1));
+  }
 
   CHECK(crypto_stream_read(&rx, &ob) == 1);
   CHECK(ob.len == 0); /* nothing new */
@@ -63,7 +69,9 @@ static void test_ecdhe_symmetric(void) {
   wired_x25519_base(spub, spriv);
   crypto_stream_ecdhe(cpriv, spub, cs);
   crypto_stream_ecdhe(spriv, cpub, ss);
-  for (usz i = 0; i < 32; i++) CHECK(cs[i] == ss[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(cs[i] == ss[i]);
+  }
 }
 
 /* RFC 9001 4.1: a real ClientHello survives CRYPTO emit -> recv -> read. */
@@ -106,16 +114,19 @@ static void test_clienthello_roundtrip(void) {
     pos += n;
     nf++;
   }
-  for (usz i = nf; i-- > 0;)
+  for (usz i = nf; i-- > 0;) {
     CHECK(
         crypto_stream_recv(&rx, offs[i], wired_span_of(datp[i], lens[i])) == 1);
+  }
 
   u8         got[1024];
   wired_obuf gb = obuf_of(got, sizeof got);
   CHECK(crypto_stream_read(&rx, &gb) == 1);
   usz got_len = gb.len;
   CHECK(got_len == ch_len);
-  for (usz i = 0; i < ch_len; i++) CHECK(got[i] == ch[i]);
+  for (usz i = 0; i < ch_len; i++) {
+    CHECK(got[i] == ch[i]);
+  }
 }
 
 /* RFC 9000 7.5: data that overflows the reassembly buffer is reported as

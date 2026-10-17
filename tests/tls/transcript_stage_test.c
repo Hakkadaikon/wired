@@ -7,7 +7,9 @@ static int ts_digest_eq(const u8* got, const char* hex) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
-    if (got[i] != b) return 0;
+    if (got[i] != b) {
+      return 0;
+    }
   }
   return 1;
 }

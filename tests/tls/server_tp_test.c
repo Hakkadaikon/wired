@@ -121,7 +121,9 @@ static void test_server_tp_stateless_reset_token(void) {
   wired_obuf ob = obuf_of(buf, sizeof buf);
   wired_span od = wired_span_of(odcid, sizeof odcid);
   wired_span sc = wired_span_of(scid, sizeof scid);
-  for (usz i = 0; i < 16; i++) tok[i] = (u8)(0xe0 + i);
+  for (usz i = 0; i < 16; i++) {
+    tok[i] = (u8)(0xe0 + i);
+  }
   CHECK(
       stp_build_server_ret(
           od, sc, wired_span_of(0, 0), wired_span_of(tok, 16), 0, &ob) == 1);
@@ -173,9 +175,13 @@ static int tp_int_value(const u8* tp, usz n, u64 want, u64* val) {
     u64        id;
     wired_span v;
     usz used = tparam_get_blob(wired_span_of(tp + off, n - off), &id, &v);
-    if (!used) return 0;
+    if (!used) {
+      return 0;
+    }
     off += used;
-    if (id != want) continue;
+    if (id != want) {
+      continue;
+    }
     usz voff = 0;
     return varint_take(v, &voff, val);
   }
@@ -238,16 +244,23 @@ static void test_server_tp_reset_stream_at_empty(void) {
   int ok  = 0;
   while (off < n) {
     usz used = tparam_get_blob(wired_span_of(buf + off, n - off), &id, &found);
-    if (!used) break;
-    if (id == TP_RESET_STREAM_AT && found.n == 0) ok = 1;
+    if (!used) {
+      break;
+    }
+    if (id == TP_RESET_STREAM_AT && found.n == 0) {
+      ok = 1;
+    }
     off += used;
   }
   CHECK(ok);
 
   /* Hand-verified exact byte pair also occurs literally in the buffer. */
   int found_bytes = 0;
-  for (usz i = 0; i + 1 < n; i++)
-    if (buf[i] == 0x1d && buf[i + 1] == 0x00) found_bytes = 1;
+  for (usz i = 0; i + 1 < n; i++) {
+    if (buf[i] == 0x1d && buf[i + 1] == 0x00) {
+      found_bytes = 1;
+    }
+  }
   CHECK(found_bytes);
 }
 

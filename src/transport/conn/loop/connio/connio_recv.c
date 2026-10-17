@@ -17,9 +17,10 @@ static int dispatch_all(connio* io, wired_span frames) {
   framewalk_item fr;
   int            ok = 1;
   framewalk_init(&it, frames.p, frames.n);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     ok &= framedispatch_handle(
         &io->disp, fr.type, wired_span_of(fr.start, fr.remaining));
+  }
   return ok;
 }
 
@@ -41,7 +42,9 @@ static int validates_address(const connio* io, int level) {
  * a server's first Handshake packet (RFC 9000 8.1), then dispatch frames. */
 static int recv_accept(connio* io, int level, wired_span frames) {
   io->rx_pn[level]++; /* RFC 9000 12.3: advance only the inbound space */
-  if (validates_address(io, level)) connloop_validate(&io->loop);
+  if (validates_address(io, level)) {
+    connloop_validate(&io->loop);
+  }
   return dispatch_all(io, frames);
 }
 
@@ -50,7 +53,9 @@ int connio_recv(connio* io, int level, wired_mspan datagram) {
   aes128              hp;
   wired_span          frames;
   connio_recv_in      in = {level, datagram};
-  if (!recv_ready(io, &in, &keys)) return 0;
+  if (!recv_ready(io, &in, &keys)) {
+    return 0;
+  }
   aes128_init(&hp, keys->hp);
   protect_keys k = {keys, &hp};
   rx_desc      d = {datagram, connio_level_is_initial(level), io->rx_pn[level]};
@@ -73,10 +78,14 @@ usz connio_close_on_violation(connio* io, wired_obuf* out) {
   u8             frame[16];
   usz            fl;
   connio_send_in sin;
-  if (!io->disp.violation) return 0;
+  if (!io->disp.violation) {
+    return 0;
+  }
   io->disp.violation = 0;
   fl                 = violation_close_frame(frame, sizeof frame);
-  if (!fl) return 0;
+  if (!fl) {
+    return 0;
+  }
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
@@ -96,10 +105,14 @@ usz connio_close_on_aead_limit(connio* io, wired_obuf* out) {
   u8             frame[16];
   usz            fl;
   connio_send_in sin;
-  if (!io->loop.aead_limit) return 0;
+  if (!io->loop.aead_limit) {
+    return 0;
+  }
   io->loop.aead_limit = 0;
   fl                  = aead_limit_close_frame(frame, sizeof frame);
-  if (!fl) return 0;
+  if (!fl) {
+    return 0;
+  }
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
@@ -117,10 +130,14 @@ usz connio_send_stop_sending_reset(connio* io, wired_obuf* out) {
   u8             frame[32];
   usz            fl;
   connio_send_in sin;
-  if (!io->disp.stop_sending_owed) return 0;
+  if (!io->disp.stop_sending_owed) {
+    return 0;
+  }
   io->disp.stop_sending_owed = 0;
   fl = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
-  if (!fl) return 0;
+  if (!fl) {
+    return 0;
+  }
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }

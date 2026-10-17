@@ -4,7 +4,9 @@
 
 /* RFC 8446 4.2.9: type(2) + ext_data len(2) + list len(1) + 1 mode = 6. */
 int tlsext_psk_modes(u8* out, usz cap, usz* out_len) {
-  if (cap < 6) return 0;
+  if (cap < 6) {
+    return 0;
+  }
   be_put_be16(out, TLSEXT_T_PSK_MODES);
   be_put_be16(out + 2, 2);
   out[4]   = 1;
@@ -22,12 +24,17 @@ static int modes_framed(const u8* out, usz n) {
 
 /* The ke_modes list holds psk_dhe_ke at some index. */
 static int modes_has_dhe(const u8* out, usz cnt) {
-  for (usz i = 0; i < cnt; i++)
-    if (out[5 + i] == TLSEXT_PSK_DHE_KE) return 1;
+  for (usz i = 0; i < cnt; i++) {
+    if (out[5 + i] == TLSEXT_PSK_DHE_KE) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 int tlsext_psk_modes_parse(const u8* out, usz n) {
-  if (n < 6 || !modes_framed(out, n)) return 0;
+  if (n < 6 || !modes_framed(out, n)) {
+    return 0;
+  }
   return modes_has_dhe(out, out[4]);
 }

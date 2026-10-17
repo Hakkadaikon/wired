@@ -10,7 +10,9 @@ static const u8 moqvi_prefix[10] = {0,    0x00, 0x80, 0xC0, 0xE0,
 
 usz moqvi_len(u64 v) {
   usz k = 1;
-  while (k < 9 && (v >> (7 * k)) != 0) k++;
+  while (k < 9 && (v >> (7 * k)) != 0) {
+    k++;
+  }
   return k;
 }
 
@@ -45,29 +47,39 @@ static usz moqvi_hdr_len(u8 b) {
  * (0xFF >> n leaves its value bits; 0 for n >= 8). */
 static u64 moqvi_get_be(const u8* buf, usz n) {
   u64 v = buf[0] & (u8)(0xFF >> n);
-  for (usz i = 1; i < n; i++) v = (v << 8) | buf[i];
+  for (usz i = 1; i < n; i++) {
+    v = (v << 8) | buf[i];
+  }
   return v;
 }
 
 usz moqvi_decode(const u8* buf, usz n, u64* out) {
   usz need;
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   need = moqvi_hdr_len(buf[0]);
-  if (n < need) return 0;
+  if (n < need) {
+    return 0;
+  }
   *out = moqvi_get_be(buf, need);
   return need;
 }
 
 int moqvi_take(wired_span buf, usz* off, u64* out) {
   usz used = moqvi_decode(buf.p + *off, buf.n - *off, out);
-  if (used == 0) return 0;
+  if (used == 0) {
+    return 0;
+  }
   *off += used;
   return 1;
 }
 
 int moqvi_put(wired_mspan buf, usz* off, u64 v) {
   usz need = moqvi_len(v);
-  if (need > buf.n - *off) return 0;
+  if (need > buf.n - *off) {
+    return 0;
+  }
   *off += moqvi_encode(buf.p + *off, v);
   return 1;
 }

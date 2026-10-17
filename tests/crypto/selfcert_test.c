@@ -44,7 +44,9 @@ static void test_der_tlv_overflow(void) {
 static void test_tbs_spki_key(void) {
   u8 pub[32];
   u8 seed[32];
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)i;
+  }
   CHECK(ed25519_keypair(seed, pub) == 1);
 
   u8         tbs[512];
@@ -55,13 +57,17 @@ static void test_tbs_spki_key(void) {
   CHECK(x509_public_key(wired_span_of(tbs, to.len), &oid, &key) == 1);
   /* BIT STRING value: 0x00 unused-bits prefix then the 32-byte key. */
   CHECK(key.n == 33 && key.p[0] == 0x00);
-  for (usz i = 0; i < 32; i++) CHECK(key.p[1 + i] == pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(key.p[1 + i] == pub[i]);
+  }
 }
 
 /* RFC 5280 4.1.1.3. Parse the cert back and verify its own signature. */
 static void test_build_selfsigned(void) {
   u8 seed[32];
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(0x40 + i);
+  }
   u8 pub[32];
   ed25519_keypair(seed, pub);
 
@@ -75,7 +81,9 @@ static void test_build_selfsigned(void) {
   wired_span oid, key;
   CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
   CHECK(key.n == 33);
-  for (usz i = 0; i < 32; i++) CHECK(key.p[1 + i] == pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(key.p[1 + i] == pub[i]);
+  }
 
   /* signatureValue BIT STRING: 0x00 prefix then the 64-byte signature. */
   CHECK(c.sig.n == 65 && c.sig.p[0] == 0x00);

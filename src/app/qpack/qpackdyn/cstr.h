@@ -7,7 +7,9 @@
  * Inline to avoid a libc strlen dependency. */
 static inline usz qdyn_cstr_len(const char* s) {
   usz n = 0;
-  while (s[n]) n++;
+  while (s[n]) {
+    n++;
+  }
   return n;
 }
 

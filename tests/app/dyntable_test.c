@@ -166,12 +166,16 @@ static void test_dyn_large_value_resolves(void) {
   qpack_dyn   t;
   qpack_field e;
   qpack_field f;
-  for (usz i = 0; i < 1500; i++) dt_big[i] = (u8)('a' + i % 26);
+  for (usz i = 0; i < 1500; i++) {
+    dt_big[i] = (u8)('a' + i % 26);
+  }
   f = dt_field("cookie", 6, (const char*)dt_big, 1500);
   qpack_dyn_init(&t, 2016);
   CHECK(qpack_dyn_insert(&t, &f) == 1);
   CHECK(qpack_dyn_get(&t, 0, &e) == 1);
-  if (t.count == 0) return;
+  if (t.count == 0) {
+    return;
+  }
   CHECK(e.name.n == 6 && e.name.p[0] == 'c' && e.value.n == 1500);
   CHECK(e.value.p[0] == 'a' && e.value.p[1499] == dt_big[1499]);
 }
@@ -180,8 +184,12 @@ static void test_dyn_large_value_resolves(void) {
 static int dt_entry_fill(const qpack_dyn* t, u64 abs, usz len, u8 v) {
   qpack_field e;
   usz         bad = 0;
-  if (!qpack_dyn_get(t, abs, &e)) return 0;
-  for (usz i = 0; i < e.value.n; i++) bad += e.value.p[i] != v;
+  if (!qpack_dyn_get(t, abs, &e)) {
+    return 0;
+  }
+  for (usz i = 0; i < e.value.n; i++) {
+    bad += e.value.p[i] != v;
+  }
   return e.value.n == len && bad == 0;
 }
 
@@ -192,12 +200,15 @@ static void test_dyn_wrap_keeps_bytes(void) {
   qpack_dyn_init(&t, 2016);
   for (usz i = 0; i < 20; i++) {
     usz len = 300 + i * 37;
-    for (usz j = 0; j < len; j++) dt_big[j] = (u8)i;
+    for (usz j = 0; j < len; j++) {
+      dt_big[j] = (u8)i;
+    }
     qpack_field f = dt_field("k", 1, (const char*)dt_big, len);
     CHECK(qpack_dyn_insert(&t, &f) == 1);
     CHECK(t.size <= 2016);
-    for (u64 a = t.dropped; a <= i; a++)
+    for (u64 a = t.dropped; a <= i; a++) {
       CHECK(dt_entry_fill(&t, a, 300 + (usz)a * 37, (u8)a));
+    }
   }
   CHECK(t.dropped > 0);
 }

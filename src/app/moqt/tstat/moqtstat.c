@@ -8,7 +8,9 @@
 static int moqtstat_take_body(
     int ver, wired_span body, usz* at, moqctl_subscribe* out) {
   int r = moqctl_ftn_take(body, at, &out->name);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_params_take(
       ver, body, at, MOQCTL_PCTX_TRACK_STATUS, &out->params);
 }
@@ -16,8 +18,9 @@ static int moqtstat_take_body(
 int moqtstat_take(int ver, wired_span body, moqctl_subscribe* out) {
   usz at = 0;
   int r  = MOQCTL_INSUFFICIENT;
-  if (moqvi_take(body, &at, &out->request_id))
+  if (moqvi_take(body, &at, &out->request_id)) {
     r = moqtstat_take_body(ver, body, &at, out);
+  }
   return moqctl_body_end(r, at, body);
 }
 
@@ -36,13 +39,16 @@ int moqtstat_update_take(
     int ver, wired_span body, u32 ctx, moqtstat_update* out) {
   usz at = 0;
   int r  = MOQCTL_INSUFFICIENT;
-  if (moqvi_take(body, &at, &out->request_id))
+  if (moqvi_take(body, &at, &out->request_id)) {
     r = moqctl_params_take(ver, body, &at, ctx, &out->params);
+  }
   return moqctl_body_end(r, at, body);
 }
 
 int moqtstat_update_encode(
     wired_mspan buf, usz* off, const moqtstat_update* m) {
-  if (!moqvi_put(buf, off, m->request_id)) return 0;
+  if (!moqvi_put(buf, off, m->request_id)) {
+    return 0;
+  }
   return moqctl_params_put(buf, off, &m->params);
 }

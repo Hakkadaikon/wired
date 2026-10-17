@@ -29,7 +29,9 @@ static u64 moqtrun_rp_done_status(const wired_moqtrun_track* t) {
  * a session close (no PUBLISH_DONE came); MOQTRUN_RP_NONE for any other
  * end, a Malformed Track included (draft-22 12.1: at once). */
 u64 moqtrun_rp_status(const wired_moqtrun_track* t) {
-  if (t->malformed) return MOQTRUN_RP_NONE;
+  if (t->malformed) {
+    return MOQTRUN_RP_NONE;
+  }
   return t->pubdone_pending ? moqtrun_rp_done_status(t)
                             : MOQCTL_DONE_INTERNAL_ERROR;
 }
@@ -42,8 +44,11 @@ static int moqtrun_up_feeds(
 /* The upstream SUBSCRIBE whose SUBSCRIBE_OK claimed t, else 0. */
 wired_moqtrun_up* moqtrun_up_of_track(
     wired_moqt_hub* hub, const wired_moqtrun_track* t) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
-    if (moqtrun_up_feeds(&hub->ups[i], t)) return &hub->ups[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_feeds(&hub->ups[i], t)) {
+      return &hub->ups[i];
+    }
+  }
   return 0;
 }
 
@@ -76,7 +81,9 @@ static void moqtrun_rp_store(
 void moqtrun_rp_keep_count(wired_moqt_hub* hub, const wired_moqtrun_sub* s) {
   wired_moqtrun_sub* kept =
       moqtrun_sub_state_by_rid(&hub->peers[s->session_idx], s->request_id);
-  if (kept) kept->stream_count = s->stream_count;
+  if (kept) {
+    kept->stream_count = s->stream_count;
+  }
 }
 
 /* The request stream of sub slot si of t if it may wait for a new path:
@@ -103,7 +110,9 @@ int moqtrun_rp_wait(
     u64                     status) {
   wired_moqtrun_req* q = moqtrun_rp_waiter(hub, t, si);
   wired_moqtrun_rdv* r = q ? moqtrun_rdv_admit(hub, q->wt) : 0;
-  if (!r) return 0;
+  if (!r) {
+    return 0;
+  }
   moqtrun_rp_store(hub, r, q, u, status, t->subs[si].stream_count);
   moqtrun_rp_keep_count(hub, &t->subs[si]);
   moqtrun_sub_stop(hub, t, &t->subs[si], moqtrun_done_reset_code(status));

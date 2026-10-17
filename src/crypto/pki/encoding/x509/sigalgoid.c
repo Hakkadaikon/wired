@@ -48,11 +48,12 @@ static const struct {
 
 int x509_sigalg_lookup(wired_span oid, x509_sigalg* out) {
   usz n = sizeof(sao_table) / sizeof(sao_table[0]);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     if (der_oid_equal(
             oid, wired_span_of(sao_table[i].oid, sao_table[i].oid_len))) {
       *out = sao_table[i].alg;
       return 1;
     }
+  }
   return 0;
 }

@@ -47,7 +47,9 @@ static mqmd_goaway_case mqmd_goaway_case_other(void) {
 }
 
 static mqmd_goaway_case mqmd_goaway_case_for(int ver) {
-  if (ver == MOQVER_D18) return mqmd_goaway_case_d18();
+  if (ver == MOQVER_D18) {
+    return mqmd_goaway_case_d18();
+  }
   return mqmd_goaway_case_other();
 }
 
@@ -57,7 +59,9 @@ static void mqmd_goaway_same_bytes(
   usz n = 0;
   CHECK(c->put(wired_mspan_of(out, sizeof out), &n, m));
   CHECK(n == c->body.n);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == c->body.p[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == c->body.p[i]);
+  }
 }
 
 /* GOAWAY (0x10): draft-18 control-stream GOAWAY has a trailing [Request
@@ -76,7 +80,9 @@ static void mqmd_goaway_one(int ver) {
 }
 
 static void test_moqt_golden_goaway_multidraft(void) {
-  for (int ver = 0; ver < MOQVER_COUNT; ver++) mqmd_goaway_one(ver);
+  for (int ver = 0; ver < MOQVER_COUNT; ver++) {
+    mqmd_goaway_one(ver);
+  }
 }
 
 /* LOCATION_FILTER (0x21) inside SUBSCRIBE's parameters: draft-19 is
@@ -85,10 +91,11 @@ static void test_moqt_golden_goaway_multidraft(void) {
  * Length and uses an explicit Filter Type 0x03. Both decode to the same
  * moqctl_rangeloc: Absolute start {5,0}, end = whole Group 5+3=8. */
 static wired_span mqmd_subscribe_lf_body(int ver) {
-  if (ver == MOQVER_D22)
+  if (ver == MOQVER_D22) {
     return mqmd_body(
         g_moqt_ctl_subscribe_params_d22, G_MOQT_CTL_SUBSCRIBE_PARAMS_D22_LEN,
         0);
+  }
   return mqmd_body(
       g_moqt_ctl_subscribe_params, G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN, 0);
 }
@@ -110,7 +117,9 @@ static void mqmd_subscribe_lf_one(int ver) {
 }
 
 static void test_moqt_golden_location_filter_multidraft(void) {
-  for (int ver = 0; ver < MOQVER_COUNT; ver++) mqmd_subscribe_lf_one(ver);
+  for (int ver = 0; ver < MOQVER_COUNT; ver++) {
+    mqmd_subscribe_lf_one(ver);
+  }
 }
 
 /* FETCH (0x16): draft-18/19 share the Standalone/Joining body shape;
@@ -119,16 +128,19 @@ static void test_moqt_golden_location_filter_multidraft(void) {
  * range -- Absolute start {0,0}, End Location (End Group 1, whole group)
  * -- decoded through the version-neutral moqfetch_req. */
 static wired_span mqmd_fetch_body(int ver) {
-  if (ver == MOQVER_D22)
+  if (ver == MOQVER_D22) {
     return mqmd_body(
         g_moqt_ctl_fetch_standalone_d22, G_MOQT_CTL_FETCH_STANDALONE_D22_LEN,
         1);
+  }
   return mqmd_body(
       g_moqt_ctl_fetch_standalone, G_MOQT_CTL_FETCH_STANDALONE_LEN, 1);
 }
 
 static int mqmd_fetch_take(int ver, wired_span body, moqfetch_req* out) {
-  if (ver == MOQVER_D22) return moqfetch_req22_take(body, out);
+  if (ver == MOQVER_D22) {
+    return moqfetch_req22_take(body, out);
+  }
   return moqfetch_req19_take(ver, body, out);
 }
 
@@ -146,7 +158,9 @@ static void mqmd_fetch_one(int ver) {
 }
 
 static void test_moqt_golden_fetch_multidraft(void) {
-  for (int ver = 0; ver < MOQVER_COUNT; ver++) mqmd_fetch_one(ver);
+  for (int ver = 0; ver < MOQVER_COUNT; ver++) {
+    mqmd_fetch_one(ver);
+  }
 }
 
 /* Decodes a SUBSCRIBE golden body in draft ver and re-encodes it: the
@@ -160,7 +174,9 @@ static void mqmd_subscribe_roundtrip(
   CHECK(boff == body.n);
   CHECK(moqctl_subscribe_encode(wired_mspan_of(out, sizeof out), &n, m));
   CHECK(n == body.n);
-  for (usz i = 0; i < n && i < body.n; i++) CHECK(out[i] == body.p[i]);
+  for (usz i = 0; i < n && i < body.n; i++) {
+    CHECK(out[i] == body.p[i]);
+  }
 }
 
 /* LOCATION_FILTER Next Object: draft-19 Largest Object (length-prefixed
@@ -199,7 +215,9 @@ static void test_moqt_golden_subscribe_fill_d22(void) {
       &m);
   p = moqctl_params_find(&m.params, MOQCTL_PARAM_FILL_PARAMETERS);
   CHECK(p != 0);
-  if (!p) return;
+  if (!p) {
+    return;
+  }
   CHECK(moqfetch_fill_take(p->bytes, &f) == MOQCTL_OK);
   CHECK(f.has_filter && !f.inherit);
   CHECK(f.range.sk == MOQCTL_RSK_REL_GROUP && f.range.start_group == 65);
@@ -218,8 +236,9 @@ static int mqmd_fetch_stream_last(int timed_out_ok, moqfetch_obj* last) {
   int          r    = MOQCTL_OK;
   seq.eor_timed_out = timed_out_ok;
   CHECK(moqfetch_hdr_take(in, &off, &rid) == MOQCTL_OK);
-  while (off < in.n && r == MOQCTL_OK)
+  while (off < in.n && r == MOQCTL_OK) {
     r = moqfetch_obj_take(in, &off, &seq, last);
+  }
   return r;
 }
 

@@ -26,8 +26,11 @@ static const h3method_entry H3METHOD_TABLE[] = {
 /* All len octets of a equal b (method tokens are case-sensitive, RFC 9110
  * 9.1). */
 static int h3method_bytes_eq(const u8* a, const char* b, usz len) {
-  for (usz i = 0; i < len; i++)
-    if (a[i] != (u8)b[i]) return 0;
+  for (usz i = 0; i < len; i++) {
+    if (a[i] != (u8)b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -36,8 +39,11 @@ static int h3method_matches(wired_span method, const h3method_entry* e) {
 }
 
 static const h3method_entry* h3method_find(wired_span method) {
-  for (usz i = 0; i < H3METHOD_TABLE_N; i++)
-    if (h3method_matches(method, &H3METHOD_TABLE[i])) return &H3METHOD_TABLE[i];
+  for (usz i = 0; i < H3METHOD_TABLE_N; i++) {
+    if (h3method_matches(method, &H3METHOD_TABLE[i])) {
+      return &H3METHOD_TABLE[i];
+    }
+  }
   return 0;
 }
 

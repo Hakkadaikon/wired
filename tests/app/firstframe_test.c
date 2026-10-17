@@ -20,8 +20,9 @@ static void test_firstframe_request(void) {
 static void test_h3_first_frame_settings_before_other_rejected(void) {
   static const u64 others[] = {
       H3_FRAME_DATA, H3_FRAME_HEADERS, H3_FRAME_GOAWAY, H3_FRAME_CANCEL_PUSH};
-  for (usz i = 0; i < sizeof(others) / sizeof(others[0]); i++)
+  for (usz i = 0; i < sizeof(others) / sizeof(others[0]); i++) {
     CHECK(h3_first_frame_ok(H3_STREAM_KIND_CONTROL, others[i]) == 0);
+  }
   CHECK(h3_first_frame_ok(H3_STREAM_KIND_CONTROL, H3_FRAME_SETTINGS) == 1);
 }
 

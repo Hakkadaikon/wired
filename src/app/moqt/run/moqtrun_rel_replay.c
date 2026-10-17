@@ -9,10 +9,13 @@ void moqtrun_rel_attach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay) {
-  if (relay->rel_idx < 0) return;
+  if (relay->rel_idx < 0) {
+    return;
+  }
   moqtrel_buf* rb = &hub->rel_pool[relay->rel_idx];
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     moqtrun_rel_attach_open(rb, track, relay, i, hub->live.last_now_ms);
+  }
 }
 
 /* 1 while nothing past the SUBGROUP_HEADER was reclaimed (and a header
@@ -76,7 +79,9 @@ void moqtrun_rel_cut_end(
     moqdata_objseq           seq,
     u64                      base) {
   usz cut = moqtrun_wire_cutoff(sub, wire, 0, seq, relay->group_id);
-  if (c->end || cut == wire.n) return;
+  if (c->end || cut == wire.n) {
+    return;
+  }
   c->end = base + cut;
   relay->sub_expired |= moqtrun_sub_bit(i);
 }
@@ -101,7 +106,9 @@ void moqtrun_rel_replay_open(
   u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
   usz n = relay->hdr_len;
   bytes_memcpy(hdr, relay->hdr, n);
-  if (off) n = moqtrun_relay_late_hdr(relay, hdr);
+  if (off) {
+    n = moqtrun_relay_late_hdr(relay, hdr);
+  }
   moqtrun_relay_open_one(hub, sub, relay, i, wired_span_of(hdr, n));
 }
 
@@ -117,8 +124,12 @@ void moqtrun_rel_replay_cuts(
     wired_span               body,
     usz                      off,
     moqdata_objseq           seq) {
-  if (!c->active) return;
-  if (off) moqtrun_rel_lead(c, body, off, seq);
+  if (!c->active) {
+    return;
+  }
+  if (off) {
+    moqtrun_rel_lead(c, body, off, seq);
+  }
   moqtrun_rel_cut_end(
       relay, c, sub, i, body, moqtrun_relay_hdr_seq(relay), relay->hdr_len);
 }

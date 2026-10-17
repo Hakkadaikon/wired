@@ -18,7 +18,9 @@ void moqtrun_ctl_rx(
   p->rx     = moqtrun_rx_is_own_ctl(p, sid) ? &p->ctl_asm : &p->peer_ctl_asm;
   moqtrun_dispatch_ctl_stream(hub, p, (usz)(p - hub->peers), data);
   p->rx = 0;
-  if (fin) moqtrun_ctl_gone(hub, p);
+  if (fin) {
+    moqtrun_ctl_gone(hub, p);
+  }
 }
 
 /* draft-19 3.3: the first client control stream wins; a second one
@@ -58,7 +60,9 @@ static int moqtrun_pre_short(
  * ending in FIN, takes the unsplit path. 1 when kept. */
 int moqtrun_pre_stash(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
-  if (!moqtrun_pre_short(p, data, fin)) return 0;
+  if (!moqtrun_pre_short(p, data, fin)) {
+    return 0;
+  }
   bytes_memcpy(p->pre, data.p, data.n);
   p->pre_n   = (u8)data.n;
   p->pre_sid = sid;
@@ -79,8 +83,12 @@ int moqtrun_fresh_uni_ctl(
     wired_span          data,
     int                 fin) {
   usz at = 0;
-  if (moqtrun_pre_stash(p, sid, data, fin)) return 1;
-  if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) return 0;
+  if (moqtrun_pre_stash(p, sid, data, fin)) {
+    return 1;
+  }
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_CONTROL) {
+    return 0;
+  }
   moqtrun_ctl_adopt_rx(hub, p, sid, data, fin);
   return 1;
 }
@@ -103,8 +111,11 @@ usz moqtrun_hold_rec_len(const wired_moqtrun_peer* p, usz at) {
  * the log whatever their bytes look like (mid-stream bytes must never
  * be re-classified). */
 int moqtrun_hold_has(const wired_moqtrun_peer* p, u64 sid) {
-  for (usz at = 0; at < p->hold_len; at += moqtrun_hold_rec_len(p, at))
-    if (be_get_be64(p->hold + at) == sid) return 1;
+  for (usz at = 0; at < p->hold_len; at += moqtrun_hold_rec_len(p, at)) {
+    if (be_get_be64(p->hold + at) == sid) {
+      return 1;
+    }
+  }
   return 0;
 }
 

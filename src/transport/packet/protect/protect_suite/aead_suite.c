@@ -7,8 +7,12 @@
 
 /* RFC 9001 5.3 nonce: iv with pn XORed into the low 8 bytes. */
 static void suite_nonce(const u8* iv, u64 pn, u8 nonce[12]) {
-  for (usz i = 0; i < 12; i++) nonce[i] = iv[i];
-  for (usz i = 0; i < 8; i++) nonce[11 - i] ^= (u8)(pn >> (8 * i));
+  for (usz i = 0; i < 12; i++) {
+    nonce[i] = iv[i];
+  }
+  for (usz i = 0; i < 8; i++) {
+    nonce[11 - i] ^= (u8)(pn >> (8 * i));
+  }
 }
 
 /* One resolved seal/open after nonce derivation: key, nonce, AAD, the
@@ -45,8 +49,9 @@ static usz aead_gcm_open(const aead_suite_io* io) {
   aes128 a;
   aes128_init(&a, io->key);
   gcm_ctx g = {&a, io->nonce, io->aad};
-  if (!gcm_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out))
+  if (!gcm_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out)) {
     return 0;
+  }
   return io->in.n;
 }
 
@@ -54,16 +59,18 @@ static usz aead_gcm256_open(const aead_suite_io* io) {
   aes256 a;
   aes256_init(&a, io->key);
   gcm256_ctx g = {&a, io->nonce, io->aad};
-  if (!gcm256_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out))
+  if (!gcm256_open(&g, wired_span_of(io->in.p, io->in.n + GCM_TAG), io->out)) {
     return 0;
+  }
   return io->in.n;
 }
 
 static usz cha_open(const aead_suite_io* io) {
   chapoly_ctx c = {io->key, io->nonce, io->aad};
   if (!chapoly_open(
-          &c, wired_span_of(io->in.p, io->in.n + CHAPOLY_TAG), io->out))
+          &c, wired_span_of(io->in.p, io->in.n + CHAPOLY_TAG), io->out)) {
     return 0;
+  }
   return io->in.n;
 }
 
@@ -83,14 +90,18 @@ static const struct {
 /* The table row for suite, or AEAD_SUITE_ROWS when unknown. */
 static usz aead_suite_row(u16 suite) {
   usz i = 0;
-  while (i < AEAD_SUITE_ROWS && aead_suite_tab[i].suite != suite) i++;
+  while (i < AEAD_SUITE_ROWS && aead_suite_tab[i].suite != suite) {
+    i++;
+  }
   return i;
 }
 
 usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
   u8  nonce[12];
   usz r = aead_suite_row(op->suite);
-  if (r == AEAD_SUITE_ROWS) return 0;
+  if (r == AEAD_SUITE_ROWS) {
+    return 0;
+  }
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, pt, out};
   return aead_suite_tab[r].seal(&io);
@@ -99,7 +110,9 @@ usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
 usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
   u8  nonce[12];
   usz r = aead_suite_row(op->suite);
-  if (r == AEAD_SUITE_ROWS) return 0;
+  if (r == AEAD_SUITE_ROWS) {
+    return 0;
+  }
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};
   return aead_suite_tab[r].open(&io);

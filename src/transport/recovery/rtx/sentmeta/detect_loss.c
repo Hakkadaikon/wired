@@ -25,7 +25,9 @@ void sentmeta_detect_loss(
     sentmeta* m, const sentmeta_loss_in* in, sentmeta_u64out lost) {
   *lost.n = 0;
   for (usz i = 0; i < SENTMETA_CAP; i++) {
-    if (!sentmeta_lost_slot(m, i, in)) continue;
+    if (!sentmeta_lost_slot(m, i, in)) {
+      continue;
+    }
     lost.out[(*lost.n)++] = m->pkts[i].pn;
     sentmeta_reclaim(m, i);
   }

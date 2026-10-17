@@ -14,8 +14,9 @@ static void test_clock_vectors(void) {
       {4107542400ULL, 21000301000000ULL}, {1782988200ULL, 20260702103000ULL},
       {1798761599ULL, 20261231235959ULL}, {1798761600ULL, 20270101000000ULL},
   };
-  for (usz i = 0; i < sizeof(v) / sizeof(v[0]); i++)
+  for (usz i = 0; i < sizeof(v) / sizeof(v[0]); i++) {
     CHECK(clock_epoch_to_ymdhms(v[i][0]) == v[i][1]);
+  }
 }
 
 /* The live wall clock lands in a sane window (this SDK ships in 2026+). */

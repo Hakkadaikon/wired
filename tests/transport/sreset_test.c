@@ -3,16 +3,22 @@
 /* The token is deterministic for a key+CID, and distinct CIDs differ. */
 static void test_sreset_token(void) {
   u8 key[SRESET_KEY];
-  for (usz i = 0; i < SRESET_KEY; i++) key[i] = (u8)(i + 1);
+  for (usz i = 0; i < SRESET_KEY; i++) {
+    key[i] = (u8)(i + 1);
+  }
   const u8 cid_a[4] = {1, 2, 3, 4};
   const u8 cid_b[4] = {1, 2, 3, 5};
   u8       ta[16], ta2[16], tb[16];
   sreset_token(key, cid_a, 4, ta);
   sreset_token(key, cid_a, 4, ta2);
   sreset_token(key, cid_b, 4, tb);
-  for (usz i = 0; i < 16; i++) CHECK(ta[i] == ta2[i]); /* deterministic */
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ta[i] == ta2[i]); /* deterministic */
+  }
   int differ = 0;
-  for (usz i = 0; i < 16; i++) differ |= (ta[i] != tb[i]);
+  for (usz i = 0; i < 16; i++) {
+    differ |= (ta[i] != tb[i]);
+  }
   CHECK(differ); /* different CID -> different token */
 }
 
@@ -24,8 +30,12 @@ static void test_sreset_detect(void) {
   sreset_token(key, cid, 8, token);
 
   u8 pkt[40];
-  for (usz i = 0; i < 24; i++) pkt[i] = (u8)i;         /* arbitrary prefix */
-  for (usz i = 0; i < 16; i++) pkt[24 + i] = token[i]; /* trailing token */
+  for (usz i = 0; i < 24; i++) {
+    pkt[i] = (u8)i; /* arbitrary prefix */
+  }
+  for (usz i = 0; i < 16; i++) {
+    pkt[24 + i] = token[i]; /* trailing token */
+  }
   CHECK(sreset_detect(pkt, 40, token) == 1);
 
   pkt[39] ^= 0x01; /* corrupt the last token byte */
@@ -36,7 +46,9 @@ static void test_sreset_detect(void) {
 
 /* Fill with a fixed non-zero pattern so built packets are checkable. */
 static int fill_pattern(u8* buf, usz len) {
-  for (usz i = 0; i < len; i++) buf[i] = (u8)(0xAA + i);
+  for (usz i = 0; i < len; i++) {
+    buf[i] = (u8)(0xAA + i);
+  }
   return 1;
 }
 

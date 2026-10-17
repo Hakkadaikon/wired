@@ -10,11 +10,15 @@ void h3_control_init(h3_control* c) {
 
 /* Latch the first error to occur; later events on a failed connection no-op. */
 static void fail(h3_control* c, h3_error e) {
-  if (c->error == H3_ERR_NONE) c->error = e;
+  if (c->error == H3_ERR_NONE) {
+    c->error = e;
+  }
 }
 
 void h3_control_open(h3_control* c) {
-  if (c->control_open) fail(c, H3_ERR_STREAM_CREATION); /* 2nd stream */
+  if (c->control_open) {
+    fail(c, H3_ERR_STREAM_CREATION); /* 2nd stream */
+  }
   c->control_open = 1;
 }
 
@@ -36,7 +40,9 @@ void h3_control_frame(h3_control* c, int is_settings) {
     first_frame(c, is_settings);
     return;
   }
-  if (is_settings) fail(c, H3_ERR_FRAME_UNEXPECTED); /* 2nd SETTINGS */
+  if (is_settings) {
+    fail(c, H3_ERR_FRAME_UNEXPECTED); /* 2nd SETTINGS */
+  }
 }
 
 /* A GOAWAY id may not exceed a previously received one. */
@@ -54,6 +60,8 @@ void h3_control_goaway(h3_control* c, u64 id) {
 }
 
 int h3_control_accept_request(const h3_control* c, u64 id) {
-  if (!c->goaway_seen) return 1; /* no shutdown in progress */
-  return id < c->goaway_limit;   /* at or above the limit is refused */
+  if (!c->goaway_seen) {
+    return 1; /* no shutdown in progress */
+  }
+  return id < c->goaway_limit; /* at or above the limit is refused */
 }

@@ -9,7 +9,9 @@
  * ticket_nonce(1) || suite(be16). */
 static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
   usz i;
-  for (i = 0; i < TICKET_SECRET_LEN; i++) out[i] = t->secret[i];
+  for (i = 0; i < TICKET_SECRET_LEN; i++) {
+    out[i] = t->secret[i];
+  }
   u8* ts = out + TICKET_SECRET_LEN;
   be_put_be64(ts, t->issued_at);
   be_put_be32(ts + 8, t->lifetime_secs);
@@ -21,7 +23,9 @@ static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
 
 static void ticket_decode(const u8 in[TICKET_PLAIN_LEN], ticket* t) {
   usz i;
-  for (i = 0; i < TICKET_SECRET_LEN; i++) t->secret[i] = in[i];
+  for (i = 0; i < TICKET_SECRET_LEN; i++) {
+    t->secret[i] = in[i];
+  }
   const u8* ts     = in + TICKET_SECRET_LEN;
   t->issued_at     = be_get_be64(ts);
   t->lifetime_secs = be_get_be32(ts + 8);
@@ -44,7 +48,9 @@ void ticket_seal(const ticket* t, const u8 key[TICKET_KEY_LEN], u8* out) {
 }
 
 int ticket_open(wired_span in, const u8 key[TICKET_KEY_LEN], ticket* out) {
-  if (in.n != TICKET_SEALED_LEN) return 0;
+  if (in.n != TICKET_SEALED_LEN) {
+    return 0;
+  }
 
   const u8*   nonce    = in.p;
   const u8*   body     = in.p + TICKET_NONCE_LEN;
@@ -52,7 +58,9 @@ int ticket_open(wired_span in, const u8 key[TICKET_KEY_LEN], ticket* out) {
   chapoly_ctx c        = {key, nonce, {0, 0}};
 
   u8 plain[TICKET_PLAIN_LEN];
-  if (!chapoly_open(&c, wired_span_of(body, body_len), plain)) return 0;
+  if (!chapoly_open(&c, wired_span_of(body, body_len), plain)) {
+    return 0;
+  }
 
   ticket_decode(plain, out);
   return 1;

@@ -26,10 +26,12 @@ static void test_certchain_two_roundtrip(void) {
   CHECK(count == 2);
   CHECK(entries[0].cert_len == sizeof(realchain_leaf_der));
   CHECK(entries[1].cert_len == sizeof(realchain_int_der));
-  for (usz i = 0; i < entries[0].cert_len; i++)
+  for (usz i = 0; i < entries[0].cert_len; i++) {
     CHECK(entries[0].cert_data[i] == realchain_leaf_der[i]);
-  for (usz i = 0; i < entries[1].cert_len; i++)
+  }
+  for (usz i = 0; i < entries[1].cert_len; i++) {
     CHECK(entries[1].cert_data[i] == realchain_int_der[i]);
+  }
 }
 
 /* A 1-entry chain output is byte-identical to the legacy single-cert path. */
@@ -44,7 +46,9 @@ static void test_certchain_single_equals_legacy(void) {
   CHECK(sflight_certificate_chain(&in, &ob_chain));
   CHECK(sflight_certificate(cert, &ob_legacy));
   CHECK(ob_chain.len == ob_legacy.len);
-  for (usz i = 0; i < ob_chain.len; i++) CHECK(out_chain[i] == out_legacy[i]);
+  for (usz i = 0; i < ob_chain.len; i++) {
+    CHECK(out_chain[i] == out_legacy[i]);
+  }
 }
 
 /* count 0 and count > TLS_CERT_CHAIN_MAX are rejected; count 2 is fine. */

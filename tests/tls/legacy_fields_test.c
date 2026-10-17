@@ -8,9 +8,13 @@ static usz legacy_build_ch(
   usz off      = hs_begin(out, 256, 1);
   out[off]     = (u8)(ver >> 8);
   out[off + 1] = (u8)ver;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)i;
+  }
   out[off + 34] = sid_len;
-  for (usz i = 0; i < sid_len; i++) out[off + 35 + i] = (u8)(0xA0 + i);
+  for (usz i = 0; i < sid_len; i++) {
+    out[off + 35 + i] = (u8)(0xA0 + i);
+  }
   usz p            = 35 + sid_len;
   out[off + p]     = 0;
   out[off + p + 1] = 2; /* cipher_suites len */
@@ -18,7 +22,9 @@ static usz legacy_build_ch(
   out[off + p + 3] = 0x01;
   p += 4;
   out[off + p] = comp_len;
-  for (usz i = 0; i < comp_len; i++) out[off + p + 1 + i] = comp[i];
+  for (usz i = 0; i < comp_len; i++) {
+    out[off + p + 1 + i] = comp[i];
+  }
   p += 1 + comp_len;
   out[off + p]     = 0; /* empty extensions block */
   out[off + p + 1] = 0;
@@ -107,7 +113,9 @@ static void test_legacy_session_id_overlong(void) {
   usz       off     = hs_begin(buf, 256, 1);
   buf[off]          = 0x03;
   buf[off + 1]      = 0x03;
-  for (usz i = 0; i < 32; i++) buf[off + 2 + i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    buf[off + 2 + i] = 0;
+  }
   buf[off + 34] = 33; /* invalid: > 32 */
   hs_finish(buf, off + 35 + 33);
   CHECK(

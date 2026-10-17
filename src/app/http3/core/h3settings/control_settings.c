@@ -52,8 +52,12 @@
  */
 static u64 control_settings_grease_id(void) {
   u8 b;
-  if (!rng_bytes(&b, 1)) return 0;
-  if (b & 1) return 0;
+  if (!rng_bytes(&b, 1)) {
+    return 0;
+  }
+  if (b & 1) {
+    return 0;
+  }
   return h3_grease_value(b);
 }
 
@@ -88,9 +92,13 @@ int h3settings_control_stream(
   usz           pre = 0;
   h3settings_in in  = control_settings_in(advertise_wt);
   wired_obuf    ob;
-  if (!h3settings_control_prefix(out, cap, &pre)) return 0;
+  if (!h3settings_control_prefix(out, cap, &pre)) {
+    return 0;
+  }
   ob = obuf_of(out + pre, cap - pre);
-  if (!h3settings_build(&in, &ob)) return 0;
+  if (!h3settings_build(&in, &ob)) {
+    return 0;
+  }
   *out_len = pre + ob.len;
   return 1;
 }

@@ -14,10 +14,16 @@ static int wyc_x_run(const wyc_case* c) {
   int              ok = bssl_bytes(wyc_get(a, c, "private"), k, 32) == 32;
   ok                  = bssl_bytes(wyc_get(a, c, "public"), p, 32) == 32 && ok;
   ok = bssl_bytes(wyc_get(a, c, "shared"), want, 32) == 32 && ok;
-  if (!ok) return WYC_PK_BROKEN;
-  if (!wired_x25519(out, k, p)) return WYC_PK_REJECT;
+  if (!ok) {
+    return WYC_PK_BROKEN;
+  }
+  if (!wired_x25519(out, k, p)) {
+    return WYC_PK_REJECT;
+  }
   u8 d = 0;
-  for (usz i = 0; i < 32; i++) d |= (u8)(out[i] ^ want[i]);
+  for (usz i = 0; i < 32; i++) {
+    d |= (u8)(out[i] ^ want[i]);
+  }
   return d ? WYC_PK_BROKEN : WYC_PK_ACCEPT;
 }
 

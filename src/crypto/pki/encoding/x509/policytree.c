@@ -13,8 +13,11 @@ int x509_policy_tree_nonempty(const x509_policy_tree* t) {
 
 /* 1 if oid appears in set (OID-equal, no policy mapping). */
 static int set_contains(const x509_policy_set* set, wired_span oid) {
-  for (usz i = 0; i < set->n; i++)
-    if (der_oid_equal(set->oid[i], oid)) return 1;
+  for (usz i = 0; i < set->n; i++) {
+    if (der_oid_equal(set->oid[i], oid)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -24,15 +27,21 @@ static int set_contains(const x509_policy_set* set, wired_span oid) {
  * cap). */
 static void intersect_fold(
     wired_span cand, const x509_policy_set* b, x509_policy_set* out) {
-  if (out->n >= X509_CERT_POLICY_MAX) return;
-  if (set_contains(b, cand)) out->oid[out->n++] = cand;
+  if (out->n >= X509_CERT_POLICY_MAX) {
+    return;
+  }
+  if (set_contains(b, cand)) {
+    out->oid[out->n++] = cand;
+  }
 }
 
 /* out = a intersected with b (OID-equal membership, no policy mapping). */
 static void set_intersect(
     const x509_policy_set* a, const x509_policy_set* b, x509_policy_set* out) {
   out->n = 0;
-  for (usz i = 0; i < a->n; i++) intersect_fold(a->oid[i], b, out);
+  for (usz i = 0; i < a->n; i++) {
+    intersect_fold(a->oid[i], b, out);
+  }
 }
 
 /* RFC 5280 6.1.3 (d): the certificate carries certificatePolicies but no
@@ -56,8 +65,11 @@ static void strip_any(const x509_policy_set* in, x509_policy_set* out) {
   wired_span any =
       wired_span_of(x509_oid_any_policy, sizeof(x509_oid_any_policy));
   out->n = 0;
-  for (usz i = 0; i < in->n; i++)
-    if (!der_oid_equal(in->oid[i], any)) out->oid[out->n++] = in->oid[i];
+  for (usz i = 0; i < in->n; i++) {
+    if (!der_oid_equal(in->oid[i], any)) {
+      out->oid[out->n++] = in->oid[i];
+    }
+  }
 }
 
 /* RFC 5280 6.1.3 (d)(2): once inhibit_anypolicy has taken effect, anyPolicy
@@ -72,7 +84,9 @@ static void fold_inhibited(x509_policy_tree* t, const x509_policy_set* cp) {
 /* RFC 5280 6.1.3 (d)(2): anyPolicy is not inhibited -- an anyPolicy
  * statement leaves the tree unchanged; anything else narrows it. */
 static void fold_uninhibited(x509_policy_tree* t, const x509_policy_set* cp) {
-  if (x509_policy_set_has_any(cp)) return;
+  if (x509_policy_set_has_any(cp)) {
+    return;
+  }
   narrow(t, cp);
 }
 
@@ -90,7 +104,9 @@ static void fold_present(
 void x509_policy_tree_fold(
     x509_policy_tree* t, wired_span tbs, int any_inhibited) {
   x509_policy_set cp;
-  if (!x509_policy_tree_nonempty(t)) return;
+  if (!x509_policy_tree_nonempty(t)) {
+    return;
+  }
   if (!x509_cert_policies(tbs, &cp)) {
     t->is_any = 0;
     t->set.n  = 0;

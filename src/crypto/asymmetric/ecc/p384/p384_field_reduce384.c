@@ -58,7 +58,9 @@ void fp384_inv(p384_fe r, const p384_fe a, const p384_fe m) {
   fp384_set(base, a);
   fp384_set_one(r);
   for (usz bit = 0; bit < 384; bit++) {
-    if (fp384_ebit(e, bit)) fp384_mul(r, (fp384ab){r, base}, m);
+    if (fp384_ebit(e, bit)) {
+      fp384_mul(r, (fp384ab){r, base}, m);
+    }
     fp384_sqr(base, base, m);
   }
 }
@@ -70,7 +72,9 @@ void fp384_inv_p(p384_fe r, const p384_fe a) {
   fp384_set(base, a);
   fp384_set_one(r);
   for (usz bit = 0; bit < 384; bit++) {
-    if (fp384_ebit(e, bit)) fp384_mul_p(r, r, base);
+    if (fp384_ebit(e, bit)) {
+      fp384_mul_p(r, r, base);
+    }
     fp384_sqr_p(base, base);
   }
 }

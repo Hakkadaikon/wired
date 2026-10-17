@@ -13,9 +13,11 @@ static int mtdr_prio(wired_wt_session* s, u64 stream_id, u8 urgency) {
 
 /* Urgency last set on one of s's streams; -1 if none. */
 static int mtdr_urgency(wired_wt_session* s) {
-  for (usz i = g_n_calls; i > 0; i--)
-    if (g_calls[i - 1].kind == 13 && g_calls[i - 1].s == s)
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind == 13 && g_calls[i - 1].s == s) {
       return g_calls[i - 1].fin;
+    }
+  }
   return -1;
 }
 
@@ -150,15 +152,19 @@ static usz            mtdr_sched_n;
 
 static int mtdr_sched(
     wired_wt_session* s, u64 stream_id, const wired_wt_sched* k) {
-  if (mtdr_sched_n < sizeof mtdr_sched_log / sizeof mtdr_sched_log[0])
+  if (mtdr_sched_n < sizeof mtdr_sched_log / sizeof mtdr_sched_log[0]) {
     mtdr_sched_log[mtdr_sched_n++] = (mtdr_sched_rec){s, stream_id, *k};
+  }
   return 1;
 }
 
 /* The last class set on one of s's streams; 0 if none. */
 static const mtdr_sched_rec* mtdr_sched_last(wired_wt_session* s) {
-  for (usz i = mtdr_sched_n; i > 0; i--)
-    if (mtdr_sched_log[i - 1].s == s) return &mtdr_sched_log[i - 1];
+  for (usz i = mtdr_sched_n; i > 0; i--) {
+    if (mtdr_sched_log[i - 1].s == s) {
+      return &mtdr_sched_log[i - 1];
+    }
+  }
   return 0;
 }
 
@@ -285,11 +291,12 @@ static int mtdr_reqid(void) {
 /* How many times the hub closed s; *last is the last close's code. */
 static usz mtdr_closes(wired_wt_session* s, u64* last) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 11 && g_calls[i].s == s) {
       n++;
       *last = g_calls[i].stream_id;
     }
+  }
   return n;
 }
 
@@ -327,9 +334,10 @@ static void test_moqtrun_peer_goaway_uri(void) {
 /* Messages of type the hub sent on stream sid (any round kind). */
 static usz mtdr_sent(u64 sid, u64 type) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += (g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
          g_calls[i].stream_id == sid && mtrq_type_of(&g_calls[i]) == type;
+  }
   return n;
 }
 
@@ -339,12 +347,15 @@ static int mtdr_goaway_body(u64 sid, wired_span* body) {
     const moqtrun_test_call* c   = &g_calls[i - 1];
     usz                      off = 0;
     u64                      type;
-    if (c->kind != 3 || c->stream_id != sid) continue;
+    if (c->kind != 3 || c->stream_id != sid) {
+      continue;
+    }
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
             MOQCTL_OK ||
-        type != MOQCTL_T_GOAWAY)
+        type != MOQCTL_T_GOAWAY) {
       continue;
+    }
     return 1;
   }
   return 0;
@@ -356,7 +367,9 @@ static int mtdr_goaway_by(
     u64 sid, int (*take)(wired_span, usz*, moqctl_goaway*), moqctl_goaway* g) {
   wired_span body;
   usz        boff = 0;
-  if (!mtdr_goaway_body(sid, &body)) return 0;
+  if (!mtdr_goaway_body(sid, &body)) {
+    return 0;
+  }
   return take(body, &boff, g) == MOQCTL_OK && boff == body.n;
 }
 
@@ -469,7 +482,9 @@ static void test_moqtrun_goaway_uri_too_long(void) {
 static int mtdr_long_goaway(u64 sid, usz n) {
   for (usz i = g_n_calls; i > 0; i--) {
     const moqtrun_test_call* c = &g_calls[i - 1];
-    if (c->kind != 3 || c->stream_id != sid) continue;
+    if (c->kind != 3 || c->stream_id != sid) {
+      continue;
+    }
     return c->payload[0] == MOQCTL_T_GOAWAY &&
            ((usz)c->payload[1] << 8 | c->payload[2]) > n;
   }
@@ -527,12 +542,13 @@ static u64 mtdr_done_in(const moqtrun_test_call* c, u64* count) {
   u64                 type;
   wired_span          body;
   moqctl_publish_done d;
-  while (moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK)
+  while (moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK) {
     if (type == MOQCTL_T_PUBLISH_DONE &&
         moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK) {
       *count = d.stream_count;
       return d.status_code;
     }
+  }
   return ~(u64)0;
 }
 
@@ -540,9 +556,13 @@ static u64 mtdr_done_in(const moqtrun_test_call* c, u64* count) {
 static u64 mtdr_done_on(u64 sid, u64* count) {
   for (usz i = g_n_calls; i > 0; i--) {
     const moqtrun_test_call* c = &g_calls[i - 1];
-    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) continue;
+    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) {
+      continue;
+    }
     u64 st = mtdr_done_in(c, count);
-    if (st != ~(u64)0) return st;
+    if (st != ~(u64)0) {
+      return st;
+    }
   }
   return ~(u64)0;
 }
@@ -613,31 +633,36 @@ static void test_moqtrun_done_stream_count_real(void) {
 
 /* Id of the last keep-open relay stream opened to s (io kind 5). */
 static u64 mtdr_uni_sid(wired_wt_session* s) {
-  for (usz i = g_n_calls; i > 0; i--)
-    if (g_calls[i - 1].kind == 5 && g_calls[i - 1].s == s)
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind == 5 && g_calls[i - 1].s == s) {
       return g_calls[i - 1].stream_id;
+    }
+  }
   return ~(u64)0;
 }
 
 /* Call index of the first reset of sid (*code its code); g_n_calls if
  * none. */
 static usz mtdr_reset_at(u64 sid, int* code) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) {
       *code = g_calls[i].fin;
       return i;
     }
+  }
   return g_n_calls;
 }
 
 /* Call index of the first round on sid carrying a PUBLISH_DONE. */
 static usz mtdr_done_at(u64 sid) {
   u64 count;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if ((g_calls[i].kind == 3 || g_calls[i].kind == 12) &&
         g_calls[i].stream_id == sid &&
-        mtdr_done_in(&g_calls[i], &count) != ~(u64)0)
+        mtdr_done_in(&g_calls[i], &count) != ~(u64)0) {
       return i;
+    }
+  }
   return g_n_calls;
 }
 

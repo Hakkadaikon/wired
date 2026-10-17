@@ -11,9 +11,12 @@
  * streams late, which RFC 9000 2.1's in-order id use makes implausible. */
 void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
   u64 idx = stream_id / 4;
-  if (idx < w->floor) return;
-  if (idx - w->floor >= 1024)
+  if (idx < w->floor) {
+    return;
+  }
+  if (idx - w->floor >= 1024) {
     srvloop_closed_shift64(w, (idx - w->floor - 1024) / 64 + 1);
+  }
   w->bm[(idx - w->floor) / 64] |= (u64)1 << ((idx - w->floor) % 64);
   srvloop_closed_advance(w);
 }
@@ -21,8 +24,12 @@ void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id) {
 /* 1 if stream_id was already closed (see wired_srvloop_closed_mark). */
 int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id) {
   u64 idx = stream_id / 4;
-  if (idx < w->floor) return 1;
-  if (idx - w->floor >= 1024) return 0;
+  if (idx < w->floor) {
+    return 1;
+  }
+  if (idx - w->floor >= 1024) {
+    return 0;
+  }
   return ((w->bm[(idx - w->floor) / 64] >> ((idx - w->floor) % 64)) & 1) != 0;
 }
 
@@ -39,7 +46,9 @@ int srvloop_req_closed_has(const wired_srvloop* l, u64 stream_id) {
  * @return the slot index, or -1 if the table is full. */
 int srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
-    if (l->streams[i].in_use) continue;
+    if (l->streams[i].in_use) {
+      continue;
+    }
     l->streams[i].in_use         = 1;
     l->streams[i].stream_id      = stream_id;
     l->streams[i].abort_code     = H3_REQUEST_CANCELLED;

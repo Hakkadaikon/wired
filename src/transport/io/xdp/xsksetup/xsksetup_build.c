@@ -24,8 +24,9 @@ static void xsksetup_prime_fill(xsk* x) {
   u32 n   = XSKSETUP_RX_POOL_FRAMES;
   u32 idx = 0;
   u32 got = xskring_prod_reserve(&x->fill, n, &idx);
-  for (u32 i = 0; i < got; i++)
+  for (u32 i = 0; i < got; i++) {
     *xskring_addr_at(&x->fill, idx + i) = (u64)i * XSKSETUP_FRAME_SIZE;
+  }
   xskring_prod_submit(&x->fill, got);
 }
 
@@ -33,7 +34,9 @@ static void xsksetup_prime_fill(xsk* x) {
  * mmap'd ring data yet. */
 static i64 xsksetup_build_head(xsk* x) {
   i64 r = xsksetup_umem(x);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_ring_sizes(x);
 }
 
@@ -42,9 +45,13 @@ static i64 xsksetup_build_head(xsk* x) {
 static i64 xsksetup_build_body(xsk* x, const xsk_cfg* cfg) {
   xsk_mmap_offsets mo;
   i64              r = xsksetup_get_offsets(x->fd, &mo);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   r = xsksetup_map_rings(x, &mo);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_bind(x, cfg);
 }
 
@@ -53,7 +60,9 @@ static i64 xsksetup_build_body(xsk* x, const xsk_cfg* cfg) {
  * stays a single CCN-1 dispatch. */
 static i64 xsksetup_build(xsk* x, const xsk_cfg* cfg) {
   i64 r = xsksetup_build_head(x);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   return xsksetup_build_body(x, cfg);
 }
 
@@ -61,7 +70,9 @@ i64 xsksetup_open(xsk* x, const xsk_cfg* cfg) {
   i64 r;
   *x    = (xsk){0};
   x->fd = wired_arch_socket(AF_XDP, SOCK_RAW, 0);
-  if (x->fd < 0) return x->fd;
+  if (x->fd < 0) {
+    return x->fd;
+  }
   r = xsksetup_build(x, cfg);
   if (r < 0) {
     xsksetup_unwind(x);
@@ -72,7 +83,9 @@ i64 xsksetup_open(xsk* x, const xsk_cfg* cfg) {
 }
 
 void xsksetup_close(xsk* x) {
-  if (x->fd < 0) return;
+  if (x->fd < 0) {
+    return;
+  }
   xsksetup_unwind(x);
 }
 

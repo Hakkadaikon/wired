@@ -22,7 +22,9 @@ static int trailer_decode(
 
 static qpack_ric_ctx dyn_ric_ctx(const qpack_dyn* dyn) {
   qpack_ric_ctx ctx = {0, 0};
-  if (!dyn) return ctx;
+  if (!dyn) {
+    return ctx;
+  }
   ctx.max_entries   = dyn->max_capacity / QPACK_DYN_ENTRY_SIZE_OVERHEAD;
   ctx.total_inserts = dyn->dropped + dyn->count;
   return ctx;
@@ -44,8 +46,12 @@ static int prefix_ric_ok(
 static int prefix_resolve_base(
     const qpack_prefix* p, const qpack_dyn* dyn, u64* base, u64* ric) {
   qpack_ric_ctx ctx = dyn_ric_ctx(dyn);
-  if (!qpack_ric_decode(p->required_insert_count, &ctx, ric)) return 0;
-  if (!prefix_ric_ok(p, *ric, &ctx)) return 0;
+  if (!qpack_ric_decode(p->required_insert_count, &ctx, ric)) {
+    return 0;
+  }
+  if (!prefix_ric_ok(p, *ric, &ctx)) {
+    return 0;
+  }
   *base = qpack_base(*ric, p->sign, p->delta_base);
   return 1;
 }
@@ -54,7 +60,9 @@ usz h3reqdrive_prefix_base(
     wired_span fs, const qpack_dyn* dyn, u64* base, u64* ric) {
   qpack_prefix p;
   usz          off = qpack_prefix_decode(fs.p, fs.n, &p);
-  if (!off) return 0;
+  if (!off) {
+    return 0;
+  }
   return prefix_resolve_base(&p, dyn, base, ric) ? off : 0;
 }
 
@@ -74,7 +82,9 @@ static int decode_lines(
   cur.off       = h3reqdrive_prefix_base(fs, dyn, &cur.dyn.base, &cur.dyn.ric);
   r->qpack_ric  = cur.dyn.ric;
   r->qpack_failed = cur.off == 0;
-  if (cur.off) ok = h3reqdrive_scan_lines(&cur, r);
+  if (cur.off) {
+    ok = h3reqdrive_scan_lines(&cur, r);
+  }
   *used = cur.used;
   return ok;
 }
@@ -96,8 +106,12 @@ static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
       &L);
   r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in h3reqdrive_step_line */
-  if (!c) return 0;
-  if (!trailer_line_ok(&L)) return 0;
+  if (!c) {
+    return 0;
+  }
+  if (!trailer_line_ok(&L)) {
+    return 0;
+  }
   cur->off += c;
   cur->used += L.scratch_used;
   return 1;
@@ -106,8 +120,11 @@ static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
 /* Walk every trailer field line, rejecting the section at the first
  * pseudo-header or malformed line. */
 static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  while (cur->off < cur->fs.n)
-    if (!trailer_step_line(cur, r)) return 0;
+  while (cur->off < cur->fs.n) {
+    if (!trailer_step_line(cur, r)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -121,12 +138,16 @@ static int trailer_decode(
     wired_h3reqdrive_req* r) {
   wired_span tfs = wired_span_of(0, 0);
   rd_cursor  cur;
-  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) return 1;
+  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) {
+    return 1;
+  }
   cur     = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}};
   cur.off = h3reqdrive_prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
   r->qpack_trailer_ric = cur.dyn.ric;
   r->qpack_failed      = cur.off == 0;
-  if (!cur.off) return 0;
+  if (!cur.off) {
+    return 0;
+  }
   return trailer_scan_lines(&cur, r);
 }
 
@@ -139,7 +160,9 @@ int h3reqdrive_decode_sections(
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
   usz used = 0;
-  if (!decode_lines(fs, scr, dyn, r, &used)) return 0;
+  if (!decode_lines(fs, scr, dyn, r, &used)) {
+    return 0;
+  }
   return trailer_decode(
       stream_data, wired_mspan_of(scr.p + used, scr.n - used), dyn, r);
 }

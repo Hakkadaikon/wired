@@ -34,7 +34,9 @@ void connrunner_init(
  * send. */
 static usz advance_close_on_violation(connrunner* r, usz out) {
   wired_obuf ob;
-  if (out) return out;
+  if (out) {
+    return out;
+  }
   ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return connio_close_on_violation(&r->io, &ob);
 }
@@ -44,7 +46,9 @@ static usz advance_close_on_violation(connrunner* r, usz out) {
  * runs when nothing else was already chosen to send this step. */
 static usz advance_close_on_aead_limit(connrunner* r, usz out) {
   wired_obuf ob;
-  if (out) return out;
+  if (out) {
+    return out;
+  }
   ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return connio_close_on_aead_limit(&r->io, &ob);
 }
@@ -54,7 +58,9 @@ static usz advance_close_on_aead_limit(connrunner* r, usz out) {
  * already chosen to send this step. */
 static usz advance_stop_sending_reset(connrunner* r, usz out) {
   wired_obuf ob;
-  if (out) return out;
+  if (out) {
+    return out;
+  }
   ob = obuf_of(r->txbuf, sizeof(r->txbuf));
   return connio_send_stop_sending_reset(&r->io, &ob);
 }
@@ -74,7 +80,9 @@ static void advance_pmtu_reconcile(connrunner* r, u64 now) {
  * coalesced with a regular packet built to send_len. */
 static usz advance_pmtu_probe(connrunner* r, usz out, u64 now) {
   usz sealed;
-  if (out || !r->loop.gate.handshake_confirmed) return out;
+  if (out || !r->loop.gate.handshake_confirmed) {
+    return out;
+  }
   {
     wired_obuf ob = obuf_of(r->txbuf, sizeof(r->txbuf));
     sealed        = connrunner_pmtu_build_probe(r, &ob, now);
@@ -90,7 +98,9 @@ usz connrunner_advance(connrunner* r, u64 now, wired_mspan dgram) {
   u64 sent_before;
   int kind;
   usz out;
-  if (dgram.n) connrunner_process_datagram(r, dgram);
+  if (dgram.n) {
+    connrunner_process_datagram(r, dgram);
+  }
   connrunner_track_acks(r);          /* RFC 9002 A.2.2: drop acked bytes */
   kind = connrunner_pending_kind(r); /* before step clears it */
   connrunner_capture_rtx(r);         /* lost pn before step drains it */
@@ -113,7 +123,9 @@ usz connrunner_advance(connrunner* r, u64 now, wired_mspan dgram) {
 /* Append an armed timer's deadline to ds (RFC 9002 6: unarmed timers do not
  * bound the wait). */
 static void push_armed(const evloop_timer* t, u64* ds, usz* n) {
-  if (t->armed) ds[(*n)++] = t->deadline;
+  if (t->armed) {
+    ds[(*n)++] = t->deadline;
+  }
 }
 
 /* RFC 9002 6.2 / 6.1 / RFC 9000 10.1: the next wakeup is the soonest armed
@@ -130,17 +142,23 @@ static u64 next_deadline(const connrunner* r) {
 /* Milliseconds to wait until the next deadline; 0 means block (no timer). */
 static u64 wait_timeout(const connrunner* r, u64 now) {
   u64 dl = next_deadline(r);
-  if (!dl) return 0;
+  if (!dl) {
+    return 0;
+  }
   return poll_timeout_until(now, dl);
 }
 
 /* Wait for and read one datagram into rxbuf; returns its length, or 0. */
 static usz wait_and_recv(connrunner* r, u64 now) {
   i64 got;
-  if (poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) return 0;
+  if (poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) {
+    return 0;
+  }
   got = wired_udp_recvfrom(
       r->fd, wired_mspan_of(r->rxbuf, sizeof(r->rxbuf)), &r->peer);
-  if (got <= 0) return 0;
+  if (got <= 0) {
+    return 0;
+  }
   return (usz)got;
 }
 
@@ -163,5 +181,7 @@ static int run_done(const connrunner* r, usz i, usz max) {
 
 void connrunner_run(connrunner* r, u64 now, usz max_iterations) {
   usz i;
-  for (i = 0; !run_done(r, i, max_iterations); i++) connrunner_iterate(r, now);
+  for (i = 0; !run_done(r, i, max_iterations); i++) {
+    connrunner_iterate(r, now);
+  }
 }

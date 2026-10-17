@@ -16,7 +16,9 @@
  * and the ECDHE private scalar. */
 static int client_setup(client* c) {
   c->now = clock_ymdhms();
-  if (c->now == 0) return 0;
+  if (c->now == 0) {
+    return 0;
+  }
   return rng_bytes(c->my_priv, ECDHE_LEN);
 }
 
@@ -25,10 +27,14 @@ int client_init(client* c, const client_init_in* in) {
   c->host     = in->server_name.p;
   c->host_len = in->server_name.n;
   c->castore  = 0;
-  if (!client_setup(c)) return 0;
+  if (!client_setup(c)) {
+    return 0;
+  }
   wired_x25519_base(c->my_pub, c->my_priv);
   c->fd = wired_udp_socket();
-  if (c->fd < 0) return 0;
+  if (c->fd < 0) {
+    return 0;
+  }
   wired_udp_addr(&c->peer, in->port, in->server_ip);
   tlsdriver_init(&c->tls, c->my_priv, c->my_pub, 0);
   tlsdriver_set_sni(&c->tls, in->server_name.p, in->server_name.n);
@@ -49,11 +55,15 @@ void client_set_castore(client* c, const castore* store) { c->castore = store; }
 usz client_build_initial(client* c, u8* out, usz cap) {
   u8         ch[CLIENT_HELLO_MAX];
   wired_obuf ob = obuf_of(ch, sizeof(ch));
-  if (!tlsdriver_client_hello(&c->tls, &ob)) return 0;
+  if (!tlsdriver_client_hello(&c->tls, &ob)) {
+    return 0;
+  }
   {
     crypto_stream_emit_in ein = {0, CLIENT_CRYPTO_FRAME};
     wired_obuf            fb  = obuf_of(out, cap);
-    if (!crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb)) return 0;
+    if (!crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb)) {
+      return 0;
+    }
     return pktbuild_init_pad(out, fb.len, cap);
   }
 }
@@ -61,7 +71,9 @@ usz client_build_initial(client* c, u8* out, usz cap) {
 int client_start(client* c) {
   u8  dg[CLIENT_DATAGRAM_MAX];
   usz len = client_build_initial(c, dg, sizeof(dg));
-  if (len == 0) return 0;
+  if (len == 0) {
+    return 0;
+  }
   return wired_udp_send(c->fd, &c->peer, wired_span_of(dg, len)) == (i64)len;
 }
 
@@ -92,8 +104,11 @@ static const struct {
 
 static int feed_auth_msg(client* c, const u8* msg, usz len) {
   u8 t = hs_message_type(msg);
-  for (usz i = 0; i < sizeof(feed_table) / sizeof(feed_table[0]); i++)
-    if (feed_table[i].type == t) return feed_table[i].fn(c, msg, len);
+  for (usz i = 0; i < sizeof(feed_table) / sizeof(feed_table[0]); i++) {
+    if (feed_table[i].type == t) {
+      return feed_table[i].fn(c, msg, len);
+    }
+  }
   return 0;
 }
 
@@ -104,32 +119,44 @@ static int do_confirm(client* c) {
 }
 
 static int feed_confirm(client* c) {
-  if (!fullhs_is_complete(&c->hs)) return 1; /* flight still in progress */
-  if (!do_confirm(c)) return 0;
+  if (!fullhs_is_complete(&c->hs)) {
+    return 1; /* flight still in progress */
+  }
+  if (!do_confirm(c)) {
+    return 0;
+  }
   c->phase = CLIENT_HS_CONFIRMED;
   return 1;
 }
 
 /* RFC 8446 4: drive the fullhs flight, then try to confirm. */
 static int client_feed_auth(client* c, const u8* msg, usz len) {
-  if (!feed_auth_msg(c, msg, len)) return 0;
+  if (!feed_auth_msg(c, msg, len)) {
+    return 0;
+  }
   return feed_confirm(c);
 }
 
 /* Save the ServerHello bytes as the transcript fullhs is seeded from. */
 static void save_sh(client* c, const u8* msg, usz len) {
   c->sh_len = len < sizeof(c->sh_transcript) ? len : sizeof(c->sh_transcript);
-  for (usz i = 0; i < c->sh_len; i++) c->sh_transcript[i] = msg[i];
+  for (usz i = 0; i < c->sh_len; i++) {
+    c->sh_transcript[i] = msg[i];
+  }
 }
 
 /* RFC 9001 4.1: ServerHello fixes the ECDHE secret; seed fullhs from it. The
  * cert acceptance policy (validity window + SAN) is injected here so a
  * client always enforces it — there is no call for the app to forget. */
 static int feed_initial(client* c, const u8* msg, usz len) {
-  if (!tlsdriver_recv_crypto(&c->tls, msg, len)) return 0;
-  save_sh(c, msg, len);
-  if (!fullhs_init(&c->hs, &c->tls, wired_span_of(c->sh_transcript, c->sh_len)))
+  if (!tlsdriver_recv_crypto(&c->tls, msg, len)) {
     return 0;
+  }
+  save_sh(c, msg, len);
+  if (!fullhs_init(
+          &c->hs, &c->tls, wired_span_of(c->sh_transcript, c->sh_len))) {
+    return 0;
+  }
   fullhs_set_policy(&c->hs, c->now, wired_span_of(c->host, c->host_len));
   fullhs_set_castore(&c->hs, c->castore);
   c->phase = CLIENT_HS_AUTH;
@@ -137,23 +164,28 @@ static int feed_initial(client* c, const u8* msg, usz len) {
 }
 
 int client_feed(client* c, const u8* crypto_payload, usz len) {
-  if (c->phase == CLIENT_HS_INITIAL)
+  if (c->phase == CLIENT_HS_INITIAL) {
     return feed_initial(c, crypto_payload, len);
-  if (c->phase == CLIENT_HS_AUTH)
+  }
+  if (c->phase == CLIENT_HS_AUTH) {
     return client_feed_auth(c, crypto_payload, len);
+  }
   return 0;
 }
 
 int client_pump(client* c) {
   u8  dg[CLIENT_DATAGRAM_MAX];
   i64 n = wired_udp_recv(c->fd, wired_mspan_of(dg, sizeof(dg)));
-  if (n <= 0) return 0;
+  if (n <= 0) {
+    return 0;
+  }
   return client_feed(c, dg, (usz)n);
 }
 
 int client_run_handshake(client* c, int max_iterations) {
-  for (int i = 0; i < max_iterations && !client_is_connected(c); i++)
+  for (int i = 0; i < max_iterations && !client_is_connected(c); i++) {
     client_pump(c);
+  }
   return client_is_connected(c);
 }
 
@@ -164,7 +196,9 @@ int client_is_connected(const client* c) {
 /* RFC 8446 E.1.4: tearing the connection down erases the retained secrets
  * (exporter_master_secret among them) along with the socket. */
 void client_close(client* c) {
-  if (c->fd >= 0) wired_arch_close(c->fd);
+  if (c->fd >= 0) {
+    wired_arch_close(c->fd);
+  }
   c->fd = -1;
   keysched_wipe(&c->tls.ks);
 }

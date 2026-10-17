@@ -10,9 +10,14 @@
 #define eq_len(s) qdyn_cstr_len(s)
 
 static int eq(wired_span a, const char* b, usz blen) {
-  if (a.n != blen) return 0;
-  for (usz i = 0; i < a.n; i++)
-    if (a.p[i] != (u8)b[i]) return 0;
+  if (a.n != blen) {
+    return 0;
+  }
+  for (usz i = 0; i < a.n; i++) {
+    if (a.p[i] != (u8)b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

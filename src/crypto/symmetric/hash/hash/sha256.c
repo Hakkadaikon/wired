@@ -26,33 +26,43 @@ static const u32 H0[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
 #define SS1(x) (ROR(x, 17) ^ ROR(x, 19) ^ ((x) >> 10))
 
 void sha256_init(sha256_ctx* s) {
-  for (usz i = 0; i < 8; i++) s->h[i] = H0[i];
+  for (usz i = 0; i < 8; i++) {
+    s->h[i] = H0[i];
+  }
   s->total   = 0;
   s->buf_len = 0;
 }
 
 /* Build the 64-word message schedule from one 64-byte block. */
 static void schedule(const u8* p, u32 w[64]) {
-  for (usz i = 0; i < 16; i++)
+  for (usz i = 0; i < 16; i++) {
     w[i] = ((u32)p[i * 4] << 24) | ((u32)p[i * 4 + 1] << 16) |
            ((u32)p[i * 4 + 2] << 8) | (u32)p[i * 4 + 3];
-  for (usz i = 16; i < 64; i++)
+  }
+  for (usz i = 16; i < 64; i++) {
     w[i] = SS1(w[i - 2]) + w[i - 7] + SS0(w[i - 15]) + w[i - 16];
+  }
 }
 
 /* One round: mix the working vector v[0..7] with schedule word w[i]. */
 static void round_step(u32 v[8], u32 kw) {
   u32 t1 = v[7] + BS1(v[4]) + CH(v[4], v[5], v[6]) + kw;
   u32 t2 = BS0(v[0]) + MAJ(v[0], v[1], v[2]);
-  for (usz j = 7; j > 0; j--) v[j] = v[j - 1]; /* shift e..a down */
+  for (usz j = 7; j > 0; j--) {
+    v[j] = v[j - 1]; /* shift e..a down */
+  }
   v[4] += t1;     /* e += t1 (after shift, v[4] holds old d) */
   v[0] = t1 + t2; /* a = t1 + t2 */
 }
 
 /* Run all 64 rounds over the working vector seeded from the hash state. */
 static void run_rounds(const u32* h, const u32 w[64], u32 v[8]) {
-  for (usz i = 0; i < 8; i++) v[i] = h[i];
-  for (usz i = 0; i < 64; i++) round_step(v, K[i] + w[i]);
+  for (usz i = 0; i < 8; i++) {
+    v[i] = h[i];
+  }
+  for (usz i = 0; i < 64; i++) {
+    round_step(v, K[i] + w[i]);
+  }
 }
 
 static void compress(sha256_ctx* s, const u8* p) {
@@ -60,7 +70,9 @@ static void compress(sha256_ctx* s, const u8* p) {
   u32 v[8];
   schedule(p, w);
   run_rounds(s->h, w, v);
-  for (usz i = 0; i < 8; i++) s->h[i] += v[i];
+  for (usz i = 0; i < 8; i++) {
+    s->h[i] += v[i];
+  }
 }
 
 /* Absorb whole 64-byte blocks straight from data; returns bytes consumed. */
@@ -75,7 +87,9 @@ static usz absorb_blocks(sha256_ctx* s, const u8* data, usz len) {
 
 /* Append n bytes (n < block, no overflow) into the pending buffer. */
 static void buffer(sha256_ctx* s, const u8* data, usz n) {
-  for (usz i = 0; i < n; i++) s->buf[s->buf_len + i] = data[i];
+  for (usz i = 0; i < n; i++) {
+    s->buf[s->buf_len + i] = data[i];
+  }
   s->buf_len += n;
 }
 
@@ -119,16 +133,22 @@ static void pad_message(sha256_ctx* s) {
   u8 b = 0x80;
   sha256_update(s, &b, 1);
   b = 0;
-  while (s->buf_len != 56) sha256_update(s, &b, 1);
+  while (s->buf_len != 56) {
+    sha256_update(s, &b, 1);
+  }
 }
 
 void sha256_final(sha256_ctx* s, u8 out[SHA256_DIGEST]) {
   u64 bits = s->total * 8;
   u8  lenbe[8];
-  for (usz i = 0; i < 8; i++) lenbe[i] = (u8)(bits >> (56 - i * 8));
+  for (usz i = 0; i < 8; i++) {
+    lenbe[i] = (u8)(bits >> (56 - i * 8));
+  }
   pad_message(s);
   sha256_update(s, lenbe, 8);
-  for (usz i = 0; i < 8; i++) put_be32(out + i * 4, s->h[i]);
+  for (usz i = 0; i < 8; i++) {
+    put_be32(out + i * 4, s->h[i]);
+  }
 }
 
 void wired_sha256(const u8* data, usz len, u8 out[SHA256_DIGEST]) {

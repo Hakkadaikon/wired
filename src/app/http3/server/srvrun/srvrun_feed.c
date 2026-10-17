@@ -9,10 +9,12 @@ static int srvrun_acked_between(const srvrun_conn* c, u64 lo, u64 hi);
 static usz srvrun_reap_losses_resps(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, srvrun_loss_span* span) {
   usz lost = 0;
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
       lost += srvrun_reap_losses(
           cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms, span);
+    }
+  }
   return lost;
 }
 
@@ -38,7 +40,9 @@ static int srvrun_pmtu_probe_in_range(const srvrun_conn* c, u64 lo, u64 hi) {
  * a new probe. Entirely independent of the resp[]/wtsend[] ACK accounting
  * above -- a probe's pn belongs to neither log. */
 void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
-  if (!srvrun_pmtu_probe_in_range(c, lo, hi)) return;
+  if (!srvrun_pmtu_probe_in_range(c, lo, hi)) {
+    return;
+  }
   pmtu_on_ack(&c->pmtu, c->pmtu_probe_size);
   srvrun_pmtu_probe_clear(c);
 }
@@ -48,7 +52,9 @@ void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
  * largest_acked (RFC 9002 6.1.1: one packet number space, one
  * largest_acked -- never regresses). Accounting only -- no loss pass. */
 void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  if (hi > c->largest_acked) c->largest_acked = hi;
+  if (hi > c->largest_acked) {
+    c->largest_acked = hi;
+  }
   srvrun_ack_range_wt(c, lo, hi, now_ms);
   srvrun_ack_range_resps(c, lo, hi, now_ms);
   srvrun_rst_ack(c, lo, hi);
@@ -78,7 +84,9 @@ void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
  * (13.4.2.1: the path or peer dropped the marks). A failed validation
  * also stops marking this connection's packets (srvrun_ecn_unmarked). */
 void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
-  if (c->largest_acked <= largest_before) return;
+  if (c->largest_acked <= largest_before) {
+    return;
+  }
   if (!c->l.ecn_ack_seen) {
     ecn_track_on_missing(&c->ecn, c->l.tx_pn);
     return;
@@ -97,8 +105,9 @@ void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
  * unseen, so the answer is unknown and counted as a hit. */
 static int srvrun_acked_between(const srvrun_conn* c, u64 lo, u64 hi) {
   int hit = c->l.ack_n >= sizeof c->l.ack_lo / sizeof c->l.ack_lo[0];
-  for (usz i = 0; i < c->l.ack_n; i++)
+  for (usz i = 0; i < c->l.ack_n; i++) {
     hit |= c->l.ack_lo[i] < hi && c->l.ack_hi[i] > lo;
+  }
   return hit;
 }
 

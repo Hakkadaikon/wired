@@ -12,7 +12,9 @@ static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
   usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i);
+  }
   out[off + 34] = 0;
   out[off + 35] = 0x13;
   out[off + 36] = 0x01;
@@ -34,7 +36,9 @@ static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
@@ -94,7 +98,9 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
   /* both reached the same shared secret over real wire bytes */
   CHECK(tlsdriver_shared_secret(&cl, &cs) == 1);
   CHECK(tlsdriver_shared_secret(&sv, &ss) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(cs[i] == ss[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(cs[i] == ss[i]);
+  }
 }
 
 /* A garbled CRYPTO frame derives nothing. */
@@ -117,7 +123,9 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
   tlsdriver_init(&d, priv, pub, 1);
 
   u8 msg[REASM_CAP + 8];
-  for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
+  for (usz i = 0; i < sizeof(msg); i++) {
+    msg[i] = 1;
+  }
   u8                    frame[REASM_CAP + 64];
   wired_obuf            ob  = obuf_of(frame, sizeof(frame));
   crypto_stream_emit_in ein = {0, 512};

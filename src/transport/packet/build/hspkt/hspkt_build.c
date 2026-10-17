@@ -26,7 +26,9 @@ static tx_desc hspkt_tx_desc(const hspkt_desc* d) {
 int hspkt_build(const protect_keys* k, const hspkt_desc* d, wired_obuf* out) {
   tx_desc t     = hspkt_tx_desc(d);
   usz     total = tx_packet(k, &t, wired_mspan_of(out->p, out->cap));
-  if (total == 0) return 0;
+  if (total == 0) {
+    return 0;
+  }
   out->len = total;
   return 1;
 }
@@ -37,7 +39,9 @@ int hspkt_build_suite(
     u16 suite, const protect_keys* k, const hspkt_desc* d, wired_obuf* out) {
   tx_desc t = hspkt_tx_desc(d);
   usz total = tx_packet_suite(suite, k, &t, wired_mspan_of(out->p, out->cap));
-  if (total == 0) return 0;
+  if (total == 0) {
+    return 0;
+  }
   out->len = total;
   return 1;
 }

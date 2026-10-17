@@ -18,8 +18,9 @@ static void test_sentpkt_count_after_send(void) {
 static void test_sentpkt_full(void) {
   sentpkt t;
   sentpkt_init(&t);
-  for (u64 pn = 0; pn < SENTPKT_CAP; pn++)
+  for (u64 pn = 0; pn < SENTPKT_CAP; pn++) {
     CHECK(sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1}) == 1);
+  }
   CHECK(sentpkt_on_send(&t, &(sentpkt_out){SENTPKT_CAP, 0, 1, 1}) == 0);
   CHECK(sentpkt_count(&t) == SENTPKT_CAP);
 }

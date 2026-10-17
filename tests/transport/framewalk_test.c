@@ -248,8 +248,12 @@ static void test_framewalk_ncid_then_stream(void) {
   u8         buf[96];
   usz        n;
   ncid_frame nf = {.seq = 1, .retire_prior_to = 0, .cid_len = 8};
-  for (usz i = 0; i < 8; i++) nf.cid[i] = (u8)i;
-  for (usz i = 0; i < NCID_TOKEN; i++) nf.token[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 8; i++) {
+    nf.cid[i] = (u8)i;
+  }
+  for (usz i = 0; i < NCID_TOKEN; i++) {
+    nf.token[i] = (u8)(0x40 + i);
+  }
   n = ncid_encode(buf, sizeof buf, &nf);
   CHECK(n > 0);
   stream_frame sf = {

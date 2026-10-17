@@ -23,7 +23,9 @@ static ssz fio_read_result(i64 ret, usz done) {
 static ssz fio_full_result(i64 fd, usz done) {
   u8  probe;
   i64 ret = wired_arch_read(fd, &probe, 1);
-  if (ret > 0) return WIRED_FIO_ETOOBIG;
+  if (ret > 0) {
+    return WIRED_FIO_ETOOBIG;
+  }
   return fio_read_result(ret, done);
 }
 
@@ -32,7 +34,9 @@ static ssz fio_fill(i64 fd, wired_mspan buf) {
   usz done = 0;
   while (done < buf.n) {
     i64 ret = wired_arch_read(fd, buf.p + done, buf.n - done);
-    if (fio_read_done(ret)) return fio_read_result(ret, done);
+    if (fio_read_done(ret)) {
+      return fio_read_result(ret, done);
+    }
     done += (usz)ret;
   }
   return fio_full_result(fd, done);
@@ -41,7 +45,9 @@ static ssz fio_fill(i64 fd, wired_mspan buf) {
 ssz wired_fio_read(const char* path, wired_mspan buf) {
   i64 fd = wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_RDONLY, 0);
   ssz got;
-  if (fd < 0) return (ssz)fd;
+  if (fd < 0) {
+    return (ssz)fd;
+  }
   got = fio_fill(fd, buf);
   wired_arch_close(fd);
   return got;
@@ -65,7 +71,9 @@ ssz wired_fio_pread(i64 fd, wired_mspan buf, u64 off) {
 ssz wired_fio_size(const char* path) {
   u8  st[FIO_STAT_BUF_LEN] = {0};
   i64 ret                  = wired_arch_newfstatat(FIO_AT_FDCWD, path, st, 0);
-  if (ret < 0) return (ssz)ret;
+  if (ret < 0) {
+    return (ssz)ret;
+  }
   return (ssz) * (const i64*)(st + FIO_STAT_SIZE_OFF);
 }
 
@@ -75,7 +83,9 @@ static ssz fio_write_all(i64 fd, wired_span data) {
   usz done = 0;
   while (done < data.n) {
     i64 ret = wired_arch_write(fd, data.p + done, data.n - done);
-    if (ret <= 0) return (ssz)ret;
+    if (ret <= 0) {
+      return (ssz)ret;
+    }
     done += (usz)ret;
   }
   return (ssz)done;
@@ -85,7 +95,9 @@ ssz wired_fio_append(const char* path, wired_span data) {
   i64 fd =
       wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_APPEND_WR, FIO_MODE_OWNER_RW);
   ssz put;
-  if (fd < 0) return (ssz)fd;
+  if (fd < 0) {
+    return (ssz)fd;
+  }
   put = fio_write_all(fd, data);
   wired_arch_close(fd);
   return put;
@@ -103,7 +115,9 @@ i64 wired_fio_write_new(const char* path, wired_span data) {
   i64 fd =
       wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_TRUNC_WR, FIO_MODE_WORLD_R);
   ssz put;
-  if (fd < 0) return fd;
+  if (fd < 0) {
+    return fd;
+  }
   put = fio_write_all(fd, data);
   wired_arch_close(fd);
   return put < 0 ? (i64)put : 0;

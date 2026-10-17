@@ -15,9 +15,14 @@ static void certcache_test_keys(u8 srv_priv[32], u8 srv_pub[32], u8 seed[32]) {
 
 /* 1 if the primed cache's DER equals the driver's own certificate bytes. */
 static int certcache_test_der_eq(const wired_certcache* c, const sdrv* s) {
-  if (c->chain[0].n != s->certs[0].n) return 0;
-  for (usz i = 0; i < s->certs[0].n; i++)
-    if (c->der[i] != s->certs[0].p[i]) return 0;
+  if (c->chain[0].n != s->certs[0].n) {
+    return 0;
+  }
+  for (usz i = 0; i < s->certs[0].n; i++) {
+    if (c->der[i] != s->certs[0].p[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -69,7 +74,9 @@ static void test_certcache_external_chain_noop(void) {
   static wired_certcache cache;
   wired_span             ext[1];
   wired_srvboot_id       id = {0};
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)(0x80 + i);
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(0x80 + i);
+  }
   ext[0]         = wired_span_of(fake, 4);
   id.cert_seed   = seed;
   id.chain       = ext;
@@ -97,8 +104,11 @@ static void test_certcache_san_variant(void) {
   CHECK(with_san.chain[0].n != 0);
   {
     int differ = with_san.chain[0].n != plain.chain[0].n;
-    for (usz i = 0; !differ && i < plain.chain[0].n; i++)
-      if (plain.der[i] != with_san.der[i]) differ = 1;
+    for (usz i = 0; !differ && i < plain.chain[0].n; i++) {
+      if (plain.der[i] != with_san.der[i]) {
+        differ = 1;
+      }
+    }
     CHECK(differ);
   }
   {
@@ -115,7 +125,9 @@ static void test_certcache_prime_idempotent(void) {
   wired_srvboot_id       id = {0};
   u8                     first_byte;
   usz                    first_len;
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)(0x80 + i);
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(0x80 + i);
+  }
   id.cert_seed = seed;
   wired_certcache_prime(&cache, &id);
   first_byte = cache.der[0];

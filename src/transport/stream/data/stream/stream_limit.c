@@ -7,8 +7,12 @@ int stream_max_streams_ok(u64 max_streams) {
 }
 
 int stream_max_id(const stream_kind* k, u64 max_streams, u64* out) {
-  if (max_streams == 0) return 0; /* no stream permitted */
-  if (!stream_max_streams_ok(max_streams)) return 0;
+  if (max_streams == 0) {
+    return 0; /* no stream permitted */
+  }
+  if (!stream_max_streams_ok(max_streams)) {
+    return 0;
+  }
   *out = stream_id(k->is_server, k->is_uni, max_streams - 1);
   return 1;
 }

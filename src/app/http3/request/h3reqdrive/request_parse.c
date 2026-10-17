@@ -16,7 +16,9 @@ static int find_headers_type_ok(u64 t) {
  * rejected before HEADERS. Split out of find_headers's loop so the reject
  * latch stays a single extra branch there. */
 static int find_headers_frame_ok(const h3_frame* f, int* unexpected) {
-  if (find_headers_type_ok(f->type)) return 1;
+  if (find_headers_type_ok(f->type)) {
+    return 1;
+  }
   *unexpected = 1;
   return 0;
 }
@@ -31,9 +33,13 @@ static int find_headers_step(
     wired_span h3, usz* off, h3_frame* f, int* unexpected) {
   h3_frame g    = {0};
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &g);
-  if (!used) return 0;
+  if (!used) {
+    return 0;
+  }
   *f = g;
-  if (!find_headers_frame_ok(f, unexpected)) return 0;
+  if (!find_headers_frame_ok(f, unexpected)) {
+    return 0;
+  }
   *off += used;
   return f->type != H3_FRAME_HEADERS;
 }
@@ -49,7 +55,9 @@ static int find_headers(
   usz      off = 0;
   while (find_headers_step(h3, &off, &f, unexpected)) {
   }
-  if (f.type != H3_FRAME_HEADERS) return 0;
+  if (f.type != H3_FRAME_HEADERS) {
+    return 0;
+  }
   *fs  = wired_span_of(f.payload, (usz)f.payload_len);
   *end = off;
   return 1;
@@ -69,9 +77,13 @@ usz wired_h3reqdrive_headers_end(wired_span h3) {
 static int body_step(wired_span h3, usz* off, wired_h3reqdrive_req* r) {
   h3_frame f    = {0};
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
-  if (!used) return 0;
+  if (!used) {
+    return 0;
+  }
   *off += used;
-  if (f.type != H3_FRAME_DATA) return -1;
+  if (f.type != H3_FRAME_DATA) {
+    return -1;
+  }
   r->body     = f.payload;
   r->body_len = (usz)f.payload_len;
   return 1;
@@ -86,7 +98,9 @@ static int body_step(wired_span h3, usz* off, wired_h3reqdrive_req* r) {
 static int find_body(wired_span h3, usz off, wired_h3reqdrive_req* r) {
   while (off < h3.n) {
     int s = body_step(h3, &off, r);
-    if (s >= 0) return s;
+    if (s >= 0) {
+      return s;
+    }
   }
   return 1;
 }
@@ -96,9 +110,13 @@ int wired_h3reqdrive_request_sections(
   stream_frame f;
   usz          end = 0;
   wired_span   h3;
-  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) {
+    return 0;
+  }
   h3 = wired_span_of(f.data, (usz)f.length);
-  if (!find_headers(h3, fs, &end, &r->frame_unexpected)) return 0;
+  if (!find_headers(h3, fs, &end, &r->frame_unexpected)) {
+    return 0;
+  }
   return find_body(h3, end, r);
 }
 
@@ -109,7 +127,9 @@ int wired_h3reqdrive_request_sections(
 static int body_skip_step(wired_span h3, usz* off) {
   h3_frame f    = {0};
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
-  if (!used) return 0;
+  if (!used) {
+    return 0;
+  }
   *off += used;
   return f.type == H3_FRAME_DATA ? 1 : -1;
 }
@@ -121,7 +141,9 @@ static int body_skip_step(wired_span h3, usz* off) {
  * frame found. */
 static int body_walk_step(wired_span h3, usz* off) {
   int s = body_skip_step(h3, off);
-  if (s == 0) *off = h3.n; /* truncated: nothing usable follows */
+  if (s == 0) {
+    *off = h3.n; /* truncated: nothing usable follows */
+  }
   return s == -1 && *off < h3.n;
 }
 
@@ -142,14 +164,20 @@ static usz body_end_off(wired_span h3, usz off) {
  * not decode -- the two "stop, nothing to check" cases trailer_headers_at's
  * caller shares one return value for. */
 static int trailer_frame_at(wired_span h3, usz off, h3_frame* tf) {
-  if (off >= h3.n) return 0;
+  if (off >= h3.n) {
+    return 0;
+  }
   return h3_frame_get(wired_span_of(h3.p + off, h3.n - off), tf) != 0;
 }
 
 static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
   h3_frame tf = {0};
-  if (!trailer_frame_at(h3, off, &tf)) return 0;
-  if (tf.type != H3_FRAME_HEADERS) return 0;
+  if (!trailer_frame_at(h3, off, &tf)) {
+    return 0;
+  }
+  if (tf.type != H3_FRAME_HEADERS) {
+    return 0;
+  }
   *trailer_fs = wired_span_of(tf.payload, (usz)tf.payload_len);
   return 1;
 }
@@ -159,10 +187,14 @@ int wired_h3reqdrive_request_trailer(
   stream_frame f;
   wired_span   h3;
   usz          end;
-  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) {
+    return 0;
+  }
   h3  = wired_span_of(f.data, (usz)f.length);
   end = wired_h3reqdrive_headers_end(h3); /* the caller already latched any
                                            * reject via request_sections */
-  if (!end) return 0;
+  if (!end) {
+    return 0;
+  }
   return trailer_headers_at(h3, body_end_off(h3, end), trailer_fs);
 }

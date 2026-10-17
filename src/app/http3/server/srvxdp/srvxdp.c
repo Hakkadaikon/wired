@@ -36,9 +36,13 @@ static i64 srvxdp_open_xsk(
     wired_srvxdp* x, const wired_srvxdp_cfg* cfg, wired_srvxdpbpf* bpf) {
   xsk_cfg xc = {cfg->ifindex, cfg->queue_id, cfg->bind_flags};
   i64     r  = xsksetup_open(&x->xsk, &xc);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   r = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
-  if (r < 0) xsksetup_close(&x->xsk);
+  if (r < 0) {
+    xsksetup_close(&x->xsk);
+  }
   return r;
 }
 
@@ -46,10 +50,14 @@ i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   i64 r;
   srvxdp_init_state(x, cfg);
   r = wired_srvxdpbpf_open(&x->bpf, cfg->ifindex, cfg->port, cfg->attach_flags);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   x->bpf_owned = 1;
   r            = srvxdp_open_xsk(x, cfg, &x->bpf);
-  if (r < 0) wired_srvxdpbpf_close(&x->bpf);
+  if (r < 0) {
+    wired_srvxdpbpf_close(&x->bpf);
+  }
   return r;
 }
 
@@ -60,6 +68,8 @@ i64 wired_srvxdp_open_shared(
 }
 
 void wired_srvxdp_close(wired_srvxdp* x) {
-  if (x->bpf_owned) wired_srvxdpbpf_close(&x->bpf);
+  if (x->bpf_owned) {
+    wired_srvxdpbpf_close(&x->bpf);
+  }
   xsksetup_close(&x->xsk);
 }

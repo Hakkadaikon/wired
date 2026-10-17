@@ -12,7 +12,9 @@ int flowviol_close_frame(const flowviol_err* e, wired_obuf* out) {
   f.reason_len = (u64)e->reason.n;
   f.reason     = e->reason.p;
   n            = frame_put_conn_close(out->p, out->cap, &f);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   out->len = n;
   return 1;
 }

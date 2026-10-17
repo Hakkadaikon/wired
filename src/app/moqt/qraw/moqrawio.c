@@ -13,7 +13,9 @@ typedef i64 (*moqrawio_open_fn)(wired_wt_session* s, wired_span payload);
 /* WT stream signal (draft-ietf-webtrans-http3-15 4.2) staged at the buffer
  * head; a raw-QUIC stream carries none (-19 3.3, -22 6.3). */
 static usz moqrawio_sig(wired_wt_session* s, int bidi) {
-  if (g_moqrawio_be->is_raw(s)) return 0;
+  if (g_moqrawio_be->is_raw(s)) {
+    return 0;
+  }
   return wired_wtwire_signal_put(
       g_moqrawio_buf, sizeof g_moqrawio_buf, bidi, s->connect_stream_id);
 }
@@ -21,7 +23,9 @@ static usz moqrawio_sig(wired_wt_session* s, int bidi) {
 static i64 moqrawio_open(
     moqrawio_open_fn open, int bidi, wired_wt_session* s, wired_span p) {
   usz sig = moqrawio_sig(s, bidi);
-  if (p.n > sizeof g_moqrawio_buf - sig) return -1;
+  if (p.n > sizeof g_moqrawio_buf - sig) {
+    return -1;
+  }
   bytes_memcpy(g_moqrawio_buf + sig, p.p, p.n);
   return open(s, wired_span_of(g_moqrawio_buf, sig + p.n));
 }
@@ -47,7 +51,9 @@ static int moqrawio_unlimited(wired_wt_session* s) {
 }
 
 static usz moqrawio_send_budget(wired_wt_session* s) {
-  if (moqrawio_unlimited(s)) return (usz)-1;
+  if (moqrawio_unlimited(s)) {
+    return (usz)-1;
+  }
   return s->max_data > s->sent_data ? (usz)(s->max_data - s->sent_data) : 0;
 }
 

@@ -66,7 +66,9 @@ static void test_rx_split_cap(void) {
  * same convention as udp_test.c's test_udp_socket_dualstack). */
 static void test_udploop_rx_zero_length_datagram_no_crash(void) {
   i64 fd = wired_udp_socket();
-  if (fd < 0) return;
+  if (fd < 0) {
+    return;
+  }
   sockaddr loop;
   wired_udp_addr(&loop, 0, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(fd, &loop) < 0) {

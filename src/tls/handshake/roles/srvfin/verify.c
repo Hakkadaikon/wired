@@ -20,7 +20,9 @@ int srvfin_verify_client_finished_suite(
   u8  type;
   usz body_len, off;
   off = hs_parse(client_finished_msg, &type, &body_len);
-  if (!is_finished_msg(off, type, body_len, tls_hash_of(suite)->len)) return 0;
+  if (!is_finished_msg(off, type, body_len, tls_hash_of(suite)->len)) {
+    return 0;
+  }
   return tls_finished_check_suite(
       suite, client_hs_traffic_secret, transcript_hash,
       client_finished_msg.p + off);

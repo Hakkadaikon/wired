@@ -66,8 +66,11 @@ int srvrun_slot_waiting(const srvrun_conn* c) {
  * silence still makes progress.
  * @return 1 to receive, 0 when the tick expired instead. */
 int srvrun_any_waiting(const srvrun_state* st) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_slot_waiting(&st->conns[i])) return 1;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (srvrun_slot_waiting(&st->conns[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -87,7 +90,9 @@ static int srvrun_polling(const srvrun_cfg* cfg) {
  * the clock read below (1 on every 1024th call) for the spin drivers only,
  * since a blocking step already pays at least one syscall per iteration. */
 int srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env) {
-  if (!srvrun_polling(cfg)) return 1;
+  if (!srvrun_polling(cfg)) {
+    return 1;
+  }
   env->pto_spin++;
   return (env->pto_spin & 1023u) == 0;
 }
@@ -96,9 +101,13 @@ int srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env) {
  * regardless of whether poll(2) ever times out (srvrun_pto_due's doc). */
 void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   u64 now;
-  if (!srvrun_pto_due(cfg, cfg->env)) return;
+  if (!srvrun_pto_due(cfg, cfg->env)) {
+    return;
+  }
   now = clock_mono_ms();
-  if (now < cfg->env->pto_next_ms) return;
+  if (now < cfg->env->pto_next_ms) {
+    return;
+  }
   cfg->env->pto_next_ms = now + SRVRUN_PTO_MS;
   srvrun_fire_ptos(cfg, st);
 }
@@ -123,24 +132,33 @@ static int srvrun_bounded_wait_forced(const srvrun_cfg* cfg) {
 }
 
 int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
-  if (srvrun_bounded_wait_forced(cfg)) return 0;
+  if (srvrun_bounded_wait_forced(cfg)) {
+    return 0;
+  }
   /* Undrained ring entries need further steps to go out (the per-step drain
    * cap holds the rest back); an unbounded block here would strand them. */
-  if (cfg->env->dgring_n) return 0;
+  if (cfg->env->dgring_n) {
+    return 0;
+  }
   return !srvrun_any_waiting(st);
 }
 
 /* The bounded readable-wait over the primary socket, or over both when the
  * preferred-address socket exists (one poll syscall either way). */
 static int srvrun_poll_sockets(const srvrun_cfg* cfg) {
-  if (cfg->env->pref_fd)
+  if (cfg->env->pref_fd) {
     return poll_wait_readable2(cfg->fd, cfg->env->pref_fd, SRVRUN_PTO_MS) > 0;
+  }
   return poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
 }
 
 int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
-  if (srvrun_polling(cfg)) return 1;
-  if (srvrun_may_block_unbounded(cfg, st)) return 1;
+  if (srvrun_polling(cfg)) {
+    return 1;
+  }
+  if (srvrun_may_block_unbounded(cfg, st)) {
+    return 1;
+  }
   return srvrun_poll_sockets(cfg);
 }
 
@@ -148,7 +166,9 @@ int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
  * as wired_srvpoll_spin_step (srvrun_recv below). */
 static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
   i64 n = wired_srvxdp_rx_burst(cfg->xdp, bufs, nbufs);
-  if (!n) wired_arch_pause();
+  if (!n) {
+    wired_arch_pause();
+  }
   return n;
 }
 
@@ -156,7 +176,11 @@ static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
  * spin-step in busy_poll mode, the existing blocking recvmmsg otherwise
  * (byte-identical default path). */
 i64 srvrun_recv(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
-  if (cfg->xdp) return srvrun_recv_xdp(cfg, bufs, nbufs);
-  if (cfg->busy_poll) return wired_srvpoll_spin_step(cfg->fd, bufs, nbufs);
+  if (cfg->xdp) {
+    return srvrun_recv_xdp(cfg, bufs, nbufs);
+  }
+  if (cfg->busy_poll) {
+    return wired_srvpoll_spin_step(cfg->fd, bufs, nbufs);
+  }
   return wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
 }

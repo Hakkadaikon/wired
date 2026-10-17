@@ -30,7 +30,9 @@ void moqtrun_rel_replay(
   moqdata_objseq s0  = moqtrun_relay_hdr_seq(relay);
   moqdata_objseq seq = s0;
   usz off = moqtrun_startobj_cut(sub, body, 0, &seq, relay->group_id);
-  if (off == body.n) return;
+  if (off == body.n) {
+    return;
+  }
   moqtrun_rel_replay_open(hub, sub, relay, i, off);
   moqtrun_rel_attach_sub(rb, track, relay, i, relay->hdr_len + off, now_ms);
   moqtrun_rel_replay_cuts(relay, &rb->subs[i], sub, i, body, off, seq);
@@ -44,8 +46,9 @@ static void moqtrun_rel_late_attach(
     usz                  i,
     u64                  now_ms) {
   if (!moqtrun_rel_late_wanted(track, relay, rb, i) ||
-      !moqtrun_rel_replay_ok(&track->subs[i], relay, rb))
+      !moqtrun_rel_replay_ok(&track->subs[i], relay, rb)) {
     return;
+  }
   moqtrun_rel_replay(hub, track, relay, rb, i, now_ms);
 }
 
@@ -57,9 +60,12 @@ void moqtrun_rel_late_attach_all(
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
     u64                  now_ms) {
-  if (!moqtrun_rel_holds_start(relay, rb)) return;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+  if (!moqtrun_rel_holds_start(relay, rb)) {
+    return;
+  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     moqtrun_rel_late_attach(hub, track, relay, rb, i, now_ms);
+  }
 }
 
 /* 1 while cursor i still expects delivery work (live, not given up on,
@@ -77,7 +83,9 @@ wired_moqtrun_peer* moqtrun_rel_sub_dst(
     const wired_moqtrun_track* track,
     const moqtrel_buf*         rb,
     usz                        i) {
-  if (!moqtrun_rel_sub_open(rb, i)) return 0;
+  if (!moqtrun_rel_sub_open(rb, i)) {
+    return 0;
+  }
   wired_moqtrun_peer* dst = &hub->peers[track->subs[i].session_idx];
   return dst->in_use ? dst : 0;
 }
@@ -101,6 +109,7 @@ void moqtrun_rel_shed(
   rb->subs[i].shed         = 1;
   hub->stat_rel_stall += code == 0;
   moqtss_note_shed(hub, wt); /* SSTS (moqtssts_run.c): congestion */
-  if (code == MOQTRUN_RESET_DELIVERY_TIMEOUT)
+  if (code == MOQTRUN_RESET_DELIVERY_TIMEOUT) {
     moqtrun_note_expired(hub, relay, i);
+  }
 }

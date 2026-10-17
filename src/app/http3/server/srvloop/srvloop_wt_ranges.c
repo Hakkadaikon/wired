@@ -7,7 +7,9 @@ static void wt_ranges_bubble_one(wired_srvloop_wt_window* win, usz i);
 
 void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
-  if (i < 0) return;
+  if (i < 0) {
+    return;
+  }
   l->wt_uni_streams[i].in_use = 0;
   wired_srvloop_closed_mark(&l->wt_uni_closed, stream_id);
 }
@@ -19,7 +21,9 @@ void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
 usz srvloop_wt_window_skip_stale(
     const wired_srvloop_wt_window* win, u64 abs_off, usz n) {
   u64 end = abs_off + n;
-  if (end <= win->base) return 0;
+  if (end <= win->base) {
+    return 0;
+  }
   return abs_off >= win->base ? n : (usz)(end - win->base);
 }
 
@@ -40,16 +44,22 @@ static int wt_range_overlaps(u64 a_lo, u64 a_hi, u64 b_lo, u64 b_hi) {
  * insert loop below to fold a new/expanding range into an existing entry). */
 void srvloop_wt_range_merge_into(
     wired_srvloop_wt_window* win, usz i, u64 lo, u64 hi) {
-  if (lo < win->range_lo[i]) win->range_lo[i] = lo;
-  if (hi > win->range_hi[i]) win->range_hi[i] = hi;
+  if (lo < win->range_lo[i]) {
+    win->range_lo[i] = lo;
+  }
+  if (hi > win->range_hi[i]) {
+    win->range_hi[i] = hi;
+  }
 }
 
 /* The index of an existing range overlapping/adjacent to [lo, hi), or -1. */
 int srvloop_wt_range_find_mergeable(
     const wired_srvloop_wt_window* win, u64 lo, u64 hi) {
-  for (usz i = 0; i < win->range_n; i++)
-    if (wt_range_overlaps(win->range_lo[i], win->range_hi[i], lo, hi))
+  for (usz i = 0; i < win->range_n; i++) {
+    if (wt_range_overlaps(win->range_lo[i], win->range_hi[i], lo, hi)) {
       return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -82,5 +92,7 @@ static void wt_ranges_bubble_one(wired_srvloop_wt_window* win, usz i) {
 }
 
 void srvloop_wt_ranges_sort(wired_srvloop_wt_window* win) {
-  for (usz i = 1; i < win->range_n; i++) wt_ranges_bubble_one(win, i);
+  for (usz i = 1; i < win->range_n; i++) {
+    wt_ranges_bubble_one(win, i);
+  }
 }

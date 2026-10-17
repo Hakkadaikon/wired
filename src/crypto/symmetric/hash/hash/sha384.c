@@ -8,13 +8,17 @@ static const u64 sha384_h0[8] = {0xcbbb9d5dc1059ed8, 0x629a292a367cd507,
 
 void sha384_init(sha512_ctx* s) {
   sha512_init(s);
-  for (usz i = 0; i < 8; i++) s->h[i] = sha384_h0[i];
+  for (usz i = 0; i < 8; i++) {
+    s->h[i] = sha384_h0[i];
+  }
 }
 
 void sha384_final(sha512_ctx* s, u8 out[SHA384_DIGEST]) {
   u8 full[SHA512_DIGEST];
   sha512_final(s, full);
-  for (usz i = 0; i < SHA384_DIGEST; i++) out[i] = full[i];
+  for (usz i = 0; i < SHA384_DIGEST; i++) {
+    out[i] = full[i];
+  }
 }
 
 void sha384(const u8* data, usz len, u8 out[SHA384_DIGEST]) {

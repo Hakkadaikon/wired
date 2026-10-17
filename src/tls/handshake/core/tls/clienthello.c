@@ -14,7 +14,9 @@
  * compression(1+1). RFC 8446 4.1.2. */
 static usz put_prefix(u8* out, usz off, const u8 random[32]) {
   be_put_be16(out + off, 0x0303);
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = random[i];
+  }
   out[off + 34] = 0;
   be_put_be16(out + off + 35, 2);
   be_put_be16(out + off + 37, TLS_AES128_GCM_SHA256);
@@ -28,7 +30,9 @@ static int append_wrapped(wired_obuf* out, u16 type, wired_span body) {
   u8 hdr[4];
   be_put_be16(hdr, type);
   be_put_be16(hdr + 2, (u16)body.n);
-  if (!tls_ext_append(out, wired_span_of(hdr, 4))) return 0;
+  if (!tls_ext_append(out, wired_span_of(hdr, 4))) {
+    return 0;
+  }
   return tls_ext_append(out, body);
 }
 
@@ -57,7 +61,9 @@ static int append_sni(wired_obuf* out, wired_span sni) {
   u8         body[260];
   wired_obuf bob = obuf_of(body + 2, sizeof(body) - 2);
   usz        e;
-  if (sni.n == 0) return 1;
+  if (sni.n == 0) {
+    return 1;
+  }
   e = tls_sni_encode(&bob, sni);
   be_put_be16(body, (u16)e);
   return (e != 0) & append_wrapped(out, SNI_TYPE, wired_span_of(body, e + 2));
@@ -100,9 +106,13 @@ static usz append_exts(
 /* Finish the extensions block at block_start and patch the handshake length. */
 static usz ch_finish(u8* buf, usz off, usz block_start) {
   usz end;
-  if (off == 0) return 0;
+  if (off == 0) {
+    return 0;
+  }
   end = tls_ext_block_finish(buf, off, block_start);
-  if (end != 0) hs_finish(buf, end);
+  if (end != 0) {
+    hs_finish(buf, end);
+  }
   return end;
 }
 
@@ -115,8 +125,9 @@ static usz build_client_hello(
     wired_obuf*                out) {
   usz off = hs_begin(out->p, out->cap, HS_CLIENT_HELLO);
   usz block_start;
-  if (off == 0 || off + 41 + 2 > out->cap)
+  if (off == 0 || off + 41 + 2 > out->cap) {
     return 0; /* header + prefix + ext_len */
+  }
   off         = put_prefix(out->p, off, random);
   block_start = off;
   out->len    = off + 2;

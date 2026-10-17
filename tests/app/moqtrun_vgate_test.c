@@ -10,14 +10,19 @@ static usz mtvg_oks_on(u64 sid) {
   usz n = 0;
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
-    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) continue;
-    if (c->refused) continue;
+    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) {
+      continue;
+    }
+    if (c->refused) {
+      continue;
+    }
     usz        off = 0;
     u64        t;
     wired_span body;
     wired_span all = wired_span_of(c->payload, c->payload_len);
-    while (moqctl_peek_type(all, &off, &t, &body) == MOQCTL_OK)
+    while (moqctl_peek_type(all, &off, &t, &body) == MOQCTL_OK) {
       n += t == MOQCTL_T_REQUEST_OK;
+    }
   }
   return n;
 }
@@ -30,8 +35,9 @@ static void mtvg_pipeline_updates(void) {
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   moqtrun_test_reset();
   g_stream_send_ok_n = 0;
-  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQ_UPDATES; i++)
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQ_UPDATES; i++) {
     mtup_update(SESS_B, MTRQ_S1, &p1);
+  }
 }
 
 /* 12-5, draft-19 10.3.1.7 / draft-22 9.1.7: "If an endpoint receives a
@@ -100,9 +106,11 @@ static void mtvg_update_subtracks_forward(void) {
   mtup_update(SESS_B, MTRQ_S1, &p0);
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtrq_closes() == 0);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (mtst_hub.reqs[i].in_use)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (mtst_hub.reqs[i].in_use) {
       CHECK(mtst_hub.reqs[i].has_forward && mtst_hub.reqs[i].forward == 0);
+    }
+  }
 }
 
 /* draft-22 9.5.2: a SUBSCRIBE_TRACKS's new TRACK_NAMESPACE_PREFIX makes a
@@ -176,11 +184,15 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
   static const u8 name[] = {0x02, 0x04, 'c', 'h',  'a', 't', 0x05, 'r', 'o',
                             'o',  'm',  '1', 0x05, 'a', 'l', 'i',  'c', 'e'};
   const wired_moqtrun_req* q = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (mtst_hub.reqs[i].in_use && mtst_hub.reqs[i].pub_origin_rid)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (mtst_hub.reqs[i].in_use && mtst_hub.reqs[i].pub_origin_rid) {
       q = &mtst_hub.reqs[i];
+    }
+  }
   CHECK(q != 0);
-  if (!q) return 0;
+  if (!q) {
+    return 0;
+  }
   CHECK(q->request_id < 64);
   CHECK(mtst_hub.peers[0].tracks[0].own_alias < 64);
   usz n  = 3;
@@ -191,8 +203,12 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
   w[n++] = go ? 2 : 1;
   w[n++] = 0x10;
   w[n++] = 0x00;
-  if (go) w[n++] = 0x12;
-  if (go) w[n++] = go;
+  if (go) {
+    w[n++] = 0x12;
+  }
+  if (go) {
+    w[n++] = go;
+  }
   w[0] = MOQCTL_T_PUBLISH;
   w[1] = 0;
   w[2] = (u8)(n - 3);
@@ -211,7 +227,9 @@ static void mtvg_hub_publish_in(u8 go) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(1);
   usz                      n = mtvg_publish_wire(want, go);
   CHECK(c != 0);
-  if (!c) return;
+  if (!c) {
+    return;
+  }
   CHECK(c->s == SESS_B && c->payload_len == n);
   CHECK(c->payload_len == n && !ct_diffn(c->payload, want, n));
   wired_span all = wired_span_of(c->payload, c->payload_len);

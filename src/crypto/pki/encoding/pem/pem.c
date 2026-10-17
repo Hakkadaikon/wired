@@ -42,7 +42,9 @@ const u8 pem_quad_n[4] = {3, 2, 0, 1};
 
 static int pem_match_at(wired_span text, usz i, wired_span nd) {
   usz k = 0;
-  while (k < nd.n && text.p[i + k] == nd.p[k]) k++;
+  while (k < nd.n && text.p[i + k] == nd.p[k]) {
+    k++;
+  }
   return k == nd.n;
 }
 
@@ -59,7 +61,9 @@ int pem_find(wired_span text, usz from, wired_span nd, usz* pos) {
 
 /* Index just past the newline ending the line that starts at or after i. */
 usz pem_line_end(wired_span text, usz i) {
-  while (i < text.n && text.p[i] != '\n') i++;
+  while (i < text.n && text.p[i] != '\n') {
+    i++;
+  }
   return i + (usz)(i < text.n);
 }
 
@@ -67,9 +71,13 @@ usz pem_line_end(wired_span text, usz i) {
  * the closing dashes (the rest of the line is CR/LF the decoder skips). */
 int pem_head(wired_span text, usz at, wired_span* label, usz* body) {
   usz b, l;
-  if (!pem_find(text, at, wired_span_of(pem_begin_tag, 11), &b)) return 0;
+  if (!pem_find(text, at, wired_span_of(pem_begin_tag, 11), &b)) {
+    return 0;
+  }
   b += 11;
-  if (!pem_find(text, b, wired_span_of(pem_dashes, 5), &l)) return 0;
+  if (!pem_find(text, b, wired_span_of(pem_dashes, 5), &l)) {
+    return 0;
+  }
   *label = wired_span_of(text.p + b, l - b);
   *body  = l + 5;
   return 1;

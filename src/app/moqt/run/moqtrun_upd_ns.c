@@ -38,7 +38,9 @@ static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns) {
 static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx) {
   moqctl_ns ns;
   usz       at = 0;
-  if (moqctl_ns_take(pfx->bytes, &at, &ns) != MOQCTL_OK) return 0;
+  if (moqctl_ns_take(pfx->bytes, &at, &ns) != MOQCTL_OK) {
+    return 0;
+  }
   return moqtrun_disc_record(q, &ns);
 }
 
@@ -52,9 +54,13 @@ static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx) {
 static u64 moqtrun_upd_ns_prefix(
     wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
   wired_moqtrun_req before = *q;
-  if (!moqtrun_upd_ns_write(q, pfx)) return MOQCTL_ERR_INTERNAL_ERROR;
+  if (!moqtrun_upd_ns_write(q, pfx)) {
+    return MOQCTL_ERR_INTERNAL_ERROR;
+  }
   u64 code = moqtrun_disc_kind_check(hub, q);
-  if (code == MOQTRUN_REQ_ACCEPT) return code;
+  if (code == MOQTRUN_REQ_ACCEPT) {
+    return code;
+  }
   q->ns_len = before.ns_len;
   bytes_memcpy(q->ns, before.ns, before.ns_len);
   return code;
@@ -72,7 +78,9 @@ static u64 moqtrun_upd_ns_verdict(
 static void moqtrun_upd_ns_forward(
     wired_moqtrun_req* q, const moqctl_params* params) {
   const moqctl_param* f = moqctl_params_find(params, MOQCTL_PARAM_FORWARD);
-  if (!f) return;
+  if (!f) {
+    return;
+  }
   q->has_forward = 1;
   q->forward     = moqtrun_param_u8(f);
 }
@@ -105,7 +113,9 @@ static int moqtrun_disc_auth_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
-  if (!hub->authorize_namespace) return 0;
+  if (!hub->authorize_namespace) {
+    return 0;
+  }
   return !hub->authorize_namespace(hub->authorize_ns_ctx, type, &m->ns, t);
 }
 
@@ -114,7 +124,9 @@ static int moqtrun_disc_auth_refused(
 static int moqtrun_disc_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code) {
   *code = MOQCTL_ERR_DOES_NOT_EXIST;
-  if (moqtrun_ns_reserved(&m->ns)) return 1;
+  if (moqtrun_ns_reserved(&m->ns)) {
+    return 1;
+  }
   return moqtrun_disc_auth_refused(hub, type, m, code);
 }
 
@@ -124,8 +136,12 @@ u64 moqtrun_disc_verdict(
     const moqns_req*      m,
     moqtrun_disc_check_fn check) {
   u64 code;
-  if (moqtrun_disc_refused(hub, q->kind, m, &code)) return code;
-  if (!moqtrun_disc_record(q, &m->ns)) return MOQCTL_ERR_INTERNAL_ERROR;
+  if (moqtrun_disc_refused(hub, q->kind, m, &code)) {
+    return code;
+  }
+  if (!moqtrun_disc_record(q, &m->ns)) {
+    return MOQCTL_ERR_INTERNAL_ERROR;
+  }
   return check(hub, q);
 }
 

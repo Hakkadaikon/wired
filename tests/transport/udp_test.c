@@ -14,7 +14,9 @@ static void test_udp_addr_builds_v4_mapped(void) {
   CHECK(sa.family == WIRED_AF_INET6);
   /* port 443 = 0x01BB -> network order 0xBB01 on a little-endian host */
   CHECK(sa.port_be == 0xBB01);
-  for (usz i = 0; i < 10; i++) CHECK(sa.addr[i] == 0);
+  for (usz i = 0; i < 10; i++) {
+    CHECK(sa.addr[i] == 0);
+  }
   CHECK(sa.addr[10] == 0xff && sa.addr[11] == 0xff);
   CHECK(sa.addr[12] == 127 && sa.addr[13] == 0);
   CHECK(sa.addr[14] == 0 && sa.addr[15] == 1);
@@ -26,7 +28,9 @@ static void test_udp_addr_builds_v4_mapped(void) {
 static void test_udp_addr_all_zero_builds_any(void) {
   sockaddr sa;
   wired_udp_addr(&sa, 443, (const u8[4]){0, 0, 0, 0});
-  for (usz i = 0; i < 16; i++) CHECK(sa.addr[i] == 0);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(sa.addr[i] == 0);
+  }
 }
 
 /* The v4 accessor reads the mapped bytes back as a host-order u32 -- what
@@ -51,7 +55,9 @@ static void test_udp_socket_dualstack(void) {
   int v6only = 1;
   u64 len    = sizeof(v6only);
   i64 fd     = wired_udp_socket();
-  if (fd < 0) return;
+  if (fd < 0) {
+    return;
+  }
   if (udp_family != WIRED_AF_INET6) { /* IPv6-less host: AF_INET fallback */
     wired_udp_close(fd);
     return;
@@ -70,7 +76,9 @@ static void test_udp_pmtu_probe_enable_sets_pmtudisc_do(void) {
   int val = 0;
   u64 len = sizeof(val);
   i64 fd  = wired_udp_socket();
-  if (fd < 0) return;
+  if (fd < 0) {
+    return;
+  }
   CHECK(wired_udp_pmtu_probe_enable(fd) == 0);
   CHECK(
       syscall6(

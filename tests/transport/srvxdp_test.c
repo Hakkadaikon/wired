@@ -79,7 +79,9 @@ static void sxt_kernel_rx_push(sxt_world* w, u64 addr) {
       0,    0,    0,    0,    0,    0,    0,    0,    0,    0};
   u32       idx;
   xdp_desc* d;
-  for (usz i = 0; i < 60; i++) w->umem[addr + i] = golden[i];
+  for (usz i = 0; i < 60; i++) {
+    w->umem[addr + i] = golden[i];
+  }
   CHECK(xskring_prod_reserve(&w->krx, 1, &idx) == 1);
   d          = xskring_desc_at(&w->krx, idx);
   d->addr    = addr;
@@ -186,8 +188,9 @@ static void test_srvxdp_completion_reap(void) {
   sxt_learn_peer(&w, &x, &dst);
 
   /* drain txpool to exactly one frame left, then send it */
-  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES - 1; i++)
+  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES - 1; i++) {
     CHECK(xskumem_alloc_get(&x.txpool) >= 0);
+  }
   CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
   /* pool now empty: kernel "completes" the frame it just took off tx */
   CHECK(xskring_cons_peek(&w.ktx, 1, &tx_idx) == 1);
@@ -211,8 +214,9 @@ static void test_srvxdp_txpool_exhaustion(void) {
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
-  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES; i++)
+  for (u32 i = 0; i < SRVXDP_TXPOOL_FRAMES; i++) {
     CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  }
   CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 0);
 }
 

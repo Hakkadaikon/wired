@@ -10,9 +10,12 @@ static int srvrun_pref_wanted(
  * handlers. */
 void srvrun_install_signals(
     const srvrun_cfg* cfg, const wired_srvrun_opt* opt) {
-  if (opt->no_signal_handlers) return;
-  if (!wired_sigterm_install(srvrun_sigterm_handler))
+  if (opt->no_signal_handlers) {
+    return;
+  }
+  if (!wired_sigterm_install(srvrun_sigterm_handler)) {
     WIRED_LOG("SIGTERM install failed, no graceful shutdown\n");
+  }
   srvrun_install_sighup(cfg);
 }
 
@@ -91,7 +94,9 @@ static int srvrun_pref_wanted(
 void srvrun_pref_listen(
     srvrun_cfg* cfg, wired_srvboot_id* id, const wired_srvrun_opt* opt) {
   i64 fd = -1;
-  if (srvrun_pref_wanted(cfg, id)) fd = srvrun_listen(id->pref_v4_port, opt);
+  if (srvrun_pref_wanted(cfg, id)) {
+    fd = srvrun_listen(id->pref_v4_port, opt);
+  }
   if (fd < 0) {
     id->pref_v4 = 0;
     return;

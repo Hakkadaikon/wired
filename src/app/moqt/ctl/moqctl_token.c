@@ -11,7 +11,9 @@ static void moqctl_locfilter_set_largest(moqctl_param* p);
 
 int moqctl_pv_bytes(wired_span buf, usz* at, moqctl_param* p) {
   u64 len;
-  if (!moqctl_span_take_len(buf, at, &len)) return MOQCTL_INSUFFICIENT;
+  if (!moqctl_span_take_len(buf, at, &len)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return moqctl_bytes_take(buf, at, len, &p->bytes);
 }
 
@@ -24,8 +26,12 @@ static const int MOQCTL_TOKEN_HAS_ALIAS[4] = {1, 1, 1, 0};
 static const int MOQCTL_TOKEN_HAS_VALUE[4] = {0, 1, 0, 1};
 
 static int moqctl_token_take_alias(wired_span v, usz* at, moqctl_token* t) {
-  if (!MOQCTL_TOKEN_HAS_ALIAS[t->alias_type]) return MOQCTL_OK;
-  if (!moqvi_take(v, at, &t->alias)) return MOQCTL_PARAMS_KVFMT;
+  if (!MOQCTL_TOKEN_HAS_ALIAS[t->alias_type]) {
+    return MOQCTL_OK;
+  }
+  if (!moqvi_take(v, at, &t->alias)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
   return MOQCTL_OK;
 }
 
@@ -36,16 +42,23 @@ static int moqctl_token_at_end(wired_span v, usz at) {
 }
 
 static int moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t) {
-  if (!MOQCTL_TOKEN_HAS_VALUE[t->alias_type])
+  if (!MOQCTL_TOKEN_HAS_VALUE[t->alias_type]) {
     return moqctl_token_at_end(v, *at);
-  if (!moqvi_take(v, at, &t->token_type)) return MOQCTL_PARAMS_KVFMT;
+  }
+  if (!moqvi_take(v, at, &t->token_type)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
   t->value = wired_span_of(v.p + *at, v.n - *at);
   return MOQCTL_OK;
 }
 
 static int moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t) {
-  if (!moqvi_take(v, at, &t->alias_type)) return MOQCTL_PARAMS_KVFMT;
-  if (t->alias_type > MOQCTL_TOKEN_USE_VALUE) return MOQCTL_PARAMS_KVFMT;
+  if (!moqvi_take(v, at, &t->alias_type)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
+  if (t->alias_type > MOQCTL_TOKEN_USE_VALUE) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
   return moqctl_token_take_alias(v, at, t);
 }
 
@@ -55,20 +68,26 @@ static int moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t) {
 static int moqctl_token_take(wired_span v, moqctl_token* t) {
   usz at = 0;
   int r  = moqctl_token_take_head(v, &at, t);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_token_take_value(v, &at, t);
 }
 
 int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p) {
   int r = moqctl_pv_bytes(buf, at, p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_token_take(p->bytes, &p->token);
 }
 
 /* A Location Filter must fill its Length exactly (SS5.1.2). */
 static int moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f) {
   usz a = 0;
-  if (moqctl_locfilter_take(v, &a, f) != MOQCTL_OK) return MOQCTL_VIOLATION;
+  if (moqctl_locfilter_take(v, &a, f) != MOQCTL_OK) {
+    return MOQCTL_VIOLATION;
+  }
   return a == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
@@ -91,7 +110,9 @@ static void moqctl_locfilter_set_largest(moqctl_param* p) {
 int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p) {
   usz a = 0;
   int r = moqctl_pv_bytes(buf, at, p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   p->has_filter = 1;
   if (moqctl_locfilter_is_quirk(p->bytes)) {
     moqctl_locfilter_set_largest(p);

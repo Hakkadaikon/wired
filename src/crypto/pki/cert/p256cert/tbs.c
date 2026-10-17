@@ -121,7 +121,9 @@ static usz pc_build_gennames(const u8* san_ipv4, wired_obuf* out) {
   p256cert_put(
       &e, PC_SAN_DNSNAME_TAG,
       wired_span_of(pc_cn_value, sizeof(pc_cn_value) - 1));
-  if (san_ipv4) p256cert_put(&e, PC_SAN_IPADDR_TAG, wired_span_of(san_ipv4, 4));
+  if (san_ipv4) {
+    p256cert_put(&e, PC_SAN_IPADDR_TAG, wired_span_of(san_ipv4, 4));
+  }
   return p256cert_wrap(&e, DER_SEQUENCE, out);
 }
 

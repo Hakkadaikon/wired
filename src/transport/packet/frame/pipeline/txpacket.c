@@ -31,7 +31,9 @@ static int tx_build_hdr(
                         d->is_initial, d->token,
                         d->frames.n,   d->pn,
                         TX_PN_LEN};
-  if (lhdr_build(&h, &ho, &len_off) == 0) return 0;
+  if (lhdr_build(&h, &ho, &len_off) == 0) {
+    return 0;
+  }
   *io = (protect_seal_io){
       wired_span_of(hdr, ho.len),
       ho.len - TX_PN_LEN,
@@ -45,7 +47,9 @@ static int tx_build_hdr(
 usz tx_packet(const protect_keys* k, const tx_desc* d, wired_mspan out) {
   u8              hdr[64 + 2 * WIRED_MAX_CID_LEN];
   protect_seal_io io;
-  if (!tx_build_hdr(d, hdr, sizeof(hdr), out, &io)) return 0;
+  if (!tx_build_hdr(d, hdr, sizeof(hdr), out, &io)) {
+    return 0;
+  }
   return protect_seal(k, &io);
 }
 
@@ -55,6 +59,8 @@ usz tx_packet_suite(
     u16 suite, const protect_keys* k, const tx_desc* d, wired_mspan out) {
   u8              hdr[64 + 2 * WIRED_MAX_CID_LEN];
   protect_seal_io io;
-  if (!tx_build_hdr(d, hdr, sizeof(hdr), out, &io)) return 0;
+  if (!tx_build_hdr(d, hdr, sizeof(hdr), out, &io)) {
+    return 0;
+  }
   return protect_seal_suite(suite, k, &io);
 }

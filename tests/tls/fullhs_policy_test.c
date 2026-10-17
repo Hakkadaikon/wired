@@ -18,7 +18,9 @@ static usz fp_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i);
+  }
   out[off + 34] = 0;
   out[off + 35] = 0x13;
   out[off + 36] = 0x01;
@@ -40,7 +42,9 @@ static usz fp_build_sh(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
@@ -128,7 +132,9 @@ static usz fp_wrap_cert(u8* out, const u8* cert, usz n) {
   out[8]   = (u8)(n >> 16);
   out[9]   = (u8)(n >> 8);
   out[10]  = (u8)n;
-  for (usz i = 0; i < n; i++) out[11 + i] = cert[i];
+  for (usz i = 0; i < n; i++) {
+    out[11 + i] = cert[i];
+  }
   out[11 + n] = 0;
   out[12 + n] = 0;
   return 13 + n;
@@ -140,7 +146,9 @@ static usz fp_p256_cert_msg(u8* msg) {
   u8       priv[32], x[32], y[32], cert[600];
   usz      clen;
   ec_point q;
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(3 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(3 + i);
+  }
   ec_mul(&q, priv, &p256_g);
   p256_fp_to_be(x, q.x);
   p256_fp_to_be(y, q.y);
@@ -218,7 +226,9 @@ static void test_fullhs_policy_gate(void) {
   CHECK(fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
   fullhs_set_policy(&cl, 20370101000000ULL, wired_span_of(0, 0)); /* expired */
 
-  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(60 + i);
+  for (usz i = 0; i < 32; i++) {
+    cert_seed[i] = (u8)(60 + i);
+  }
   cert_msg_len = fp_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
 
   /* the server (no policy) authenticates itself and signs its Finished */

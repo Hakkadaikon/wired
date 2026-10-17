@@ -17,7 +17,9 @@ static void test_transport_connect(void) {
  * negative open is tolerated; on success the round-trip must deliver bytes. */
 static void test_transport_loopback(void) {
   udp_transport t;
-  if (udp_transport_open(&t, 0) != 0) return;
+  if (udp_transport_open(&t, 0) != 0) {
+    return;
+  }
 
   sockaddr bound;
   wired_udp_addr(&bound, 0, (const u8[4]){127, 0, 0, 1});

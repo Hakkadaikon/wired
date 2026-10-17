@@ -15,9 +15,13 @@ static int srvrun_seal_stateless_reset(
  * when none. */
 int srvrun_route(const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   int slot = srvrun_find_slot(ctx, dcid);
-  if (slot >= 0) return slot;
+  if (slot >= 0) {
+    return slot;
+  }
   slot = srvrun_find_boot_scid(ctx, dcid);
-  if (slot >= 0) return slot;
+  if (slot >= 0) {
+    return slot;
+  }
   return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }
 
@@ -26,8 +30,11 @@ int srvrun_route(const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
  * admits (a claim that failed for any other reason must not cost a live
  * connection its slot). */
 static int srvrun_table_full(const srvrun_state* st) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (!st->table[i].live) return 0;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (!st->table[i].live) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -35,7 +42,9 @@ static int srvrun_table_full(const srvrun_state* st) {
  * competes at all (a freed slot's stale last_ms must never make it look
  * "oldest"), and among busy slots the smallest last_ms wins. */
 static int srvrun_evict_prefer(const srvrun_state* st, usz i, int best) {
-  if (!srvrun_slot_busy(&st->conns[i])) return 0;
+  if (!srvrun_slot_busy(&st->conns[i])) {
+    return 0;
+  }
   return best < 0 || st->conns[i].last_ms < st->conns[best].last_ms;
 }
 
@@ -44,8 +53,11 @@ static int srvrun_evict_prefer(const srvrun_state* st, usz i, int best) {
  * under the grace floor means no slot at all is over it. */
 static int srvrun_evict_candidate(const srvrun_state* st) {
   int best = -1;
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (srvrun_evict_prefer(st, i, best)) best = (int)i;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (srvrun_evict_prefer(st, i, best)) {
+      best = (int)i;
+    }
+  }
   return best;
 }
 
@@ -71,9 +83,13 @@ static int srvrun_evict_applies(
 int srvrun_evict_for_initial(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int cand;
-  if (!srvrun_evict_applies(ctx, dcid, is_initial)) return -1;
+  if (!srvrun_evict_applies(ctx, dcid, is_initial)) {
+    return -1;
+  }
   cand = srvrun_evict_candidate(ctx->st);
-  if (!srvrun_evict_grace_ok(ctx, cand)) return -1;
+  if (!srvrun_evict_grace_ok(ctx, cand)) {
+    return -1;
+  }
   srvrun_log_close(
       "conn dropped: evicted for a new client", wired_span_of(0, 0));
   srvrun_free_slot(ctx->cfg, ctx->st, cand);
@@ -103,7 +119,9 @@ static int srvrun_seal_stateless_reset(
   u8         key[SRESET_KEY];
   wired_obuf ob = obuf_of(out->p, u64_min(out->cap, trigger_len - 1));
   sreset_key_derive(srvboot_reset_seed(cfg->id), key);
-  if (!sreset_build(key, dcid.p, dcid.n, trigger_len, rng_bytes, &ob)) return 0;
+  if (!sreset_build(key, dcid.p, dcid.n, trigger_len, rng_bytes, &ob)) {
+    return 0;
+  }
   out->len = ob.len;
   return 1;
 }
@@ -112,8 +130,12 @@ void srvrun_send_stateless_reset(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_sreset_applies(dcid, dg)) return;
-  if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) return;
+  if (!srvrun_sreset_applies(dcid, dg)) {
+    return;
+  }
+  if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) {
+    return;
+  }
   srvrun_tx(
       ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
 }

@@ -77,7 +77,9 @@ static void test_mtcf_uni_byte_at_a_time(void) {
   u8              msg[16];
   usz             n = mtctl_uni_ctl(msg, impl, sizeof impl);
   mtcf_token_session(&hub);
-  for (usz i = 0; i < n; i++) mtcf_part(&hub, 2, msg, i, i + 1);
+  for (usz i = 0; i < n; i++) {
+    mtcf_part(&hub, 2, msg, i, i + 1);
+  }
   CHECK(moqsess_established(&hub.peers[0].sess));
   CHECK(hub.peers[0].peer_has_impl == 1);
   CHECK(moqtrun_test_count_kind(11) == 0);

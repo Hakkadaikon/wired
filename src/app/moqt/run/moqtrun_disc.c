@@ -18,7 +18,9 @@ static int moqtrun_disc_same_session(
 void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtstat_update m;
-  if (moqtrun_upd_refused(hub, p)) return;
+  if (moqtrun_upd_refused(hub, p)) {
+    return;
+  }
   if (!moqtrun_take_tok_or_close(
           hub, p,
           moqtss_take(
@@ -28,8 +30,9 @@ void moqtrun_handle_update(
                   moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m),
                   &m.params),
               &m.params),
-          &m.params))
+          &m.params)){
     return;
+  }
   p->req->pending_updates++;
   moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
@@ -116,8 +119,11 @@ int moqtrun_disc_any(
     const wired_moqtrun_req* q,
     u64                      kind,
     moqtrun_disc_rel_fn      rel) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_disc_rel(&hub->reqs[i], q, kind, rel)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_disc_rel(&hub->reqs[i], q, kind, rel)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

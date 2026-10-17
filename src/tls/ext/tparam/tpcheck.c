@@ -4,13 +4,18 @@
 
 /* Whether the first n bytes of a and b are equal. */
 static int bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 int tparam_cid_match(wired_span got, wired_span expected) {
-  if (got.n != expected.n) return 0;
+  if (got.n != expected.n) {
+    return 0;
+  }
   return bytes_eq(got.p, expected.p, got.n);
 }
 
@@ -23,9 +28,12 @@ int tparam_check_original_dcid(wired_span got, wired_span sent_dcid) {
 }
 
 int tparam_check_retry_scid(const tparam_retry_scid_in* in) {
-  if (in->did_retry != in->has_param)
-    return 0;                   /* present iff a Retry was processed */
-  if (!in->did_retry) return 1; /* both absent: nothing to match */
+  if (in->did_retry != in->has_param) {
+    return 0; /* present iff a Retry was processed */
+  }
+  if (!in->did_retry) {
+    return 1; /* both absent: nothing to match */
+  }
   return tparam_cid_match(in->got, in->retry_scid);
 }
 
@@ -44,13 +52,18 @@ static const tp_range_row tp_range[] = {
 
 /* The range row for id, or 0 if id carries no range constraint. */
 static const tp_range_row* range_row(u64 id) {
-  for (usz i = 0; i < sizeof(tp_range) / sizeof(tp_range[0]); i++)
-    if (tp_range[i].id == id) return &tp_range[i];
+  for (usz i = 0; i < sizeof(tp_range) / sizeof(tp_range[0]); i++) {
+    if (tp_range[i].id == id) {
+      return &tp_range[i];
+    }
+  }
   return 0;
 }
 
 int tparam_range_ok(u64 id, u64 value) {
   const tp_range_row* row = range_row(id);
-  if (!row) return 1; /* no constraint on this parameter */
+  if (!row) {
+    return 1; /* no constraint on this parameter */
+  }
   return value >= row->min && value <= row->max;
 }

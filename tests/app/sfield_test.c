@@ -8,8 +8,11 @@
  */
 
 static int sfield_bytes_eq(const u8* p, const char* s, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (p[i] != (u8)s[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (p[i] != (u8)s[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

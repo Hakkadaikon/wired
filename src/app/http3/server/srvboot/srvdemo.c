@@ -36,7 +36,9 @@ int wired_srvboot_cert_sha256(const wired_srvboot_id* id, u8 out[32]) {
       id->priv,        id->pub,      id->cert_seed, id->chain,
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   wired_server_init(&s, &in);
-  if (s.sdrv.cert_count == 0) return 0;
+  if (s.sdrv.cert_count == 0) {
+    return 0;
+  }
   wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, out);
   return 1;
 }
@@ -45,10 +47,13 @@ int wired_srvboot_log_fingerprint(i64 fd, const wired_srvboot_id* id) {
   u8   d[32];
   char line[32 * 3 + 32];
   usz  n = 0;
-  if (!wired_srvboot_cert_sha256(id, d)) return 0;
+  if (!wired_srvboot_cert_sha256(id, d)) {
+    return 0;
+  }
   n = wired_snprintf(line, sizeof line, "cert sha-256 fingerprint: %02x", d[0]);
-  for (usz i = 1; i < 32; i++)
+  for (usz i = 1; i < 32; i++) {
     n += wired_snprintf(line + n, sizeof line - n, ":%02x", d[i]);
+  }
   wired_dprintf(fd, "%s\n", line);
   return 1;
 }

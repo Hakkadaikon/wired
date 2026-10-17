@@ -8,7 +8,9 @@ static int  rx_store(qdyn_encrx* rx, u64 off, wired_span d);
  * nothing new remains. */
 static int rx_trim(const qdyn_encrx* rx, u64* off, wired_span* d) {
   u64 drop = *off < rx->base ? rx->base - *off : 0;
-  if (drop >= d->n) return 0;
+  if (drop >= d->n) {
+    return 0;
+  }
   d->p += drop;
   d->n -= (usz)drop;
   *off += drop;
@@ -28,9 +30,13 @@ static void rx_mark(qdyn_encrx* rx, usz i, int v) {
 /* Write d at off into the window; 0 if it reaches past the window. */
 static int rx_store(qdyn_encrx* rx, u64 off, wired_span d) {
   u64 at = off - rx->base;
-  if (at + d.n > QDYN_ENCRX_CAP) return 0;
+  if (at + d.n > QDYN_ENCRX_CAP) {
+    return 0;
+  }
   bytes_memcpy(rx->buf + at, d.p, d.n);
-  for (usz i = 0; i < d.n; i++) rx_mark(rx, (usz)at + i, 1);
+  for (usz i = 0; i < d.n; i++) {
+    rx_mark(rx, (usz)at + i, 1);
+  }
   rx->hi = (usz)u64_max(rx->hi, at + d.n);
   return 1;
 }

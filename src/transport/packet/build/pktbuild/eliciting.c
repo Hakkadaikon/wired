@@ -10,14 +10,18 @@ static const u8 eliciting_non_kinds[] = {
 
 static int is_non_eliciting(u8 t) {
   for (usz i = 0; i < sizeof(eliciting_non_kinds); i++) {
-    if (eliciting_non_kinds[i] == t) return 1;
+    if (eliciting_non_kinds[i] == t) {
+      return 1;
+    }
   }
   return 0;
 }
 
 int pktbuild_is_eliciting(const u8* frame_types, usz n) {
   for (usz i = 0; i < n; i++) {
-    if (!is_non_eliciting(frame_types[i])) return 1;
+    if (!is_non_eliciting(frame_types[i])) {
+      return 1;
+    }
   }
   return 0;
 }

@@ -21,8 +21,12 @@ static void retry_emit(const retry_packet* r, const retry_process_out* out) {
 int retry_process(
     wired_span retry_pkt, wired_span orig_dcid, const retry_process_out* out) {
   retry_packet r;
-  if (retry_parse(retry_pkt.p, retry_pkt.n, &r) == 0) return 0;
-  if (!retry_verify(orig_dcid, retry_pkt)) return 0;
+  if (retry_parse(retry_pkt.p, retry_pkt.n, &r) == 0) {
+    return 0;
+  }
+  if (!retry_verify(orig_dcid, retry_pkt)) {
+    return 0;
+  }
   retry_emit(&r, out);
   return 1;
 }

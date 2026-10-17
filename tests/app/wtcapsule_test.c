@@ -26,7 +26,9 @@ static void test_wtcapsule_close_roundtrip(void) {
       wired_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(code_out == 0xDEADBEEF);
   CHECK(msg_out.n == 5);
-  for (usz i = 0; i < 5; i++) CHECK(msg_out.p[i] == msg[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(msg_out.p[i] == msg[i]);
+  }
   CHECK(at == out.len);
 }
 
@@ -52,7 +54,9 @@ static void test_wtcapsule_close_encode_rejects_long_message(void) {
   u8         buf[4096];
   wired_obuf out = obuf_of(buf, sizeof buf);
   u8         msg[WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
-  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'x';
+  for (usz i = 0; i < sizeof msg; i++) {
+    msg[i] = 'x';
+  }
 
   CHECK(!wired_wtcapsule_encode_close(&out, 0, wired_span_of(msg, sizeof msg)));
   CHECK(out.len == 0);
@@ -118,7 +122,9 @@ static void test_wtcapsule_close_message_max_len(void) {
   u8         buf[WTCAPSULE_CLOSE_MESSAGE_MAX + 64];
   wired_obuf out = obuf_of(buf, sizeof buf);
   u8         msg[WTCAPSULE_CLOSE_MESSAGE_MAX];
-  for (usz i = 0; i < sizeof msg; i++) msg[i] = (u8)i;
+  for (usz i = 0; i < sizeof msg; i++) {
+    msg[i] = (u8)i;
+  }
   usz        at = 0;
   u32        code_out;
   wired_span msg_out;
@@ -144,7 +150,9 @@ static void test_wtcapsule_decode_close_rejects_oversized(void) {
    * to this test as a macro (WTCAPSULE_CLOSE_CODE_LEN is file-local to
    * wtcapsule.c). */
   u8 body[4 + WTCAPSULE_CLOSE_MESSAGE_MAX + 1];
-  for (usz i = 0; i < sizeof body; i++) body[i] = 0;
+  for (usz i = 0; i < sizeof body; i++) {
+    body[i] = 0;
+  }
   usz        at = 0;
   u32        code_out;
   wired_span msg_out;

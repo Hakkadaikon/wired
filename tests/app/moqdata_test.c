@@ -32,9 +32,14 @@
  */
 
 static int span_eq(wired_span a, const u8* p, usz n) {
-  if (a.n != n) return 0;
-  for (usz i = 0; i < n; i++)
-    if (a.p[i] != p[i]) return 0;
+  if (a.n != n) {
+    return 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    if (a.p[i] != p[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -543,19 +548,29 @@ static usz moqdata_test_unframe_blob(
     wired_span wire, u64 alias, u8* out, usz* n_objects) {
   usz            off = 0;
   moqdata_subhdr hdr;
-  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) return (usz)-1;
-  if (hdr.type != 0x70 || hdr.track_alias != alias || hdr.group_id != 0)
+  if (moqdata_subhdr_take(wire, &off, &hdr) != MOQDATA_OK) {
     return (usz)-1;
+  }
+  if (hdr.type != 0x70 || hdr.track_alias != alias || hdr.group_id != 0) {
+    return (usz)-1;
+  }
   moqdata_objseq seq = moqdata_objseq_of(hdr.type);
   usz            n   = 0;
   *n_objects         = 0;
   while (off < wire.n) {
     moqdata_obj obj;
-    if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return (usz)-1;
-    if (obj.object_id != *n_objects) return (usz)-1;
-    if (obj.payload.n == 0 || obj.payload.n > MOQDATA_BLOB_CHUNK)
+    if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) {
       return (usz)-1;
-    for (usz i = 0; i < obj.payload.n; i++) out[n + i] = obj.payload.p[i];
+    }
+    if (obj.object_id != *n_objects) {
+      return (usz)-1;
+    }
+    if (obj.payload.n == 0 || obj.payload.n > MOQDATA_BLOB_CHUNK) {
+      return (usz)-1;
+    }
+    for (usz i = 0; i < obj.payload.n; i++) {
+      out[n + i] = obj.payload.p[i];
+    }
     n += obj.payload.n;
     (*n_objects)++;
   }
@@ -565,7 +580,9 @@ static usz moqdata_test_unframe_blob(
 /* One blob_build round-trip at size n: framed length within the cap
  * macro's bound, ceil(n / CHUNK) Objects, bytes recovered verbatim. */
 static void moqdata_test_blob_roundtrip_n(usz n) {
-  for (usz i = 0; i < n; i++) g_moqdata_blob[i] = (u8)(i * 7 + 3);
+  for (usz i = 0; i < n; i++) {
+    g_moqdata_blob[i] = (u8)(i * 7 + 3);
+  }
   usz wl = moqdata_blob_build(
       wired_mspan_of(g_moqdata_blob_wire, sizeof g_moqdata_blob_wire), 8,
       wired_span_of(g_moqdata_blob, n));
@@ -594,7 +611,9 @@ static void test_moqdata_blob_build_rejects_empty_and_short_buf(void) {
   CHECK(
       moqdata_blob_build(
           wired_mspan_of(small, sizeof small), 8, wired_span_of(0, 0)) == 0);
-  for (usz i = 0; i < 100; i++) g_moqdata_blob[i] = (u8)i;
+  for (usz i = 0; i < 100; i++) {
+    g_moqdata_blob[i] = (u8)i;
+  }
   CHECK(
       moqdata_blob_build(
           wired_mspan_of(small, sizeof small), 8,

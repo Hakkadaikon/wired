@@ -16,7 +16,9 @@ int crypto_stream_recv(crypto_rx* r, u64 offset, wired_span data) {
  * conflict) is reported to the caller as CRYPTO_BUFFER_EXCEEDED. */
 int crypto_stream_recv_ec(
     crypto_rx* r, u64 offset, wired_span data, u64* error_code) {
-  if (crypto_stream_recv(r, offset, data)) return 1;
+  if (crypto_stream_recv(r, offset, data)) {
+    return 1;
+  }
   *error_code = EC_CRYPTO_BUFFER_EXCEEDED;
   return 0;
 }
@@ -24,8 +26,12 @@ int crypto_stream_recv_ec(
 /* RFC 9000 7.5 */
 int crypto_stream_read(crypto_rx* r, wired_obuf* out) {
   u64 avail = reasm_deliver(&r->reasm) - r->read_upto;
-  if (avail > out->cap) return 0;
-  for (u64 i = 0; i < avail; i++) out->p[i] = r->reasm.buf[r->read_upto + i];
+  if (avail > out->cap) {
+    return 0;
+  }
+  for (u64 i = 0; i < avail; i++) {
+    out->p[i] = r->reasm.buf[r->read_upto + i];
+  }
   r->read_upto += avail;
   out->len = (usz)avail;
   return 1;

@@ -30,7 +30,9 @@ void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
    * nothing: the next post-confirm step (the client's own Finished, which
    * confirms) drains every slot's already-armed sendq exactly as if it had
    * started then. */
-  if (!wired_server_is_confirmed(&c->s)) return;
+  if (!wired_server_is_confirmed(&c->s)) {
+    return;
+  }
   srvrun_acct_resync(c); /* pick up ACK/requeue/reap/re-arm effects wholesale
                           * before any gate reads the cached totals */
   srvrun_prio_refresh(c);
@@ -53,7 +55,9 @@ static void srvrun_qlog_lost_packet(
   char rec[128];
   usz  w =
       wired_qlogevent_packet_lost(rec, sizeof rec, now_ms, c->qlog_slot, pn);
-  if (w) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
+  if (w) {
+    wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
+  }
 }
 
 /* qlog stream_frame_lost (frame-level forensics: moqt-voice-stability
@@ -70,7 +74,9 @@ static void srvrun_qlog_lost_stream_frame(
       stream_id, l->offset, l->length, l->fin, l->pn};
   usz w = wired_qlogevent_stream_frame(
       rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_lost", &in);
-  if (w) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
+  if (w) {
+    wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
+  }
 }
 
 /* Both qlog records for one declared-lost slice -- packet_lost stays for
@@ -83,7 +89,9 @@ static void srvrun_qlog_lost_one(
     u64                              now_ms,
     u64                              stream_id,
     const wired_sendsess_lost_slice* l) {
-  if (!cfg->qlog_path) return;
+  if (!cfg->qlog_path) {
+    return;
+  }
   srvrun_qlog_lost_packet(cfg, c, now_ms, l->pn);
   srvrun_qlog_lost_stream_frame(cfg, c, now_ms, stream_id, l);
 }
@@ -95,8 +103,9 @@ void srvrun_qlog_lost(
     u64                              stream_id,
     const wired_sendsess_lost_slice* lost,
     usz                              n) {
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     srvrun_qlog_lost_one(cfg, c, now_ms, stream_id, &lost[i]);
+  }
 }
 
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
@@ -107,7 +116,9 @@ void srvrun_qlog_lost(
  * srvrun_pto_deadline_ms needs for rttvar -- srtt_ms above stays the simpler
  * ms-only EWMA pacing already relies on, unchanged. */
 void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
-  if (!c->rtt.have_sample) c->rtt_from_pn = c->l.tx_pn;
+  if (!c->rtt.have_sample) {
+    c->rtt_from_pn = c->l.tx_pn;
+  }
   c->latest_rtt_ms = sample_ms;
   c->srtt_ms       = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
   rtt_sample(
@@ -135,7 +146,11 @@ static int srvrun_boot_rtt_unseeded(const srvrun_conn* c) {
  * the real path RTT instead of waiting out the ~1s floor (the dominant
  * cost per connection under the interop runner's handshakeloss profile). */
 void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
-  if (!srvrun_confirm_edge(c, was_booting)) return;
-  if (!srvrun_boot_rtt_unseeded(c)) return;
+  if (!srvrun_confirm_edge(c, was_booting)) {
+    return;
+  }
+  if (!srvrun_boot_rtt_unseeded(c)) {
+    return;
+  }
   srvrun_rtt_note(c, now_ms - c->boot_pto_sent_ms);
 }

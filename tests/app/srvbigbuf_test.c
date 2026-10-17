@@ -128,12 +128,15 @@ static void test_srvbigbuf_pool_exhaustion_falls_back(void) {
   wired_srvbigbuf p;
   int             idx = -1;
   wired_srvbigbuf_init(&p, sbb_rows, WIRED_SRVBIGBUF_ROW_CAP);
-  for (int i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+  for (int i = 0; i < WIRED_SRVBIGBUF_ROWS; i++) {
     CHECK(wired_srvbigbuf_claim(&p, &idx) != 0);
+  }
 
   /* pool exhausted: every further claim fails closed, never allocating a
    * new row or growing the pool past WIRED_SRVBIGBUF_ROWS. */
-  for (int i = 0; i < 5; i++) CHECK(wired_srvbigbuf_claim(&p, &idx) == 0);
+  for (int i = 0; i < 5; i++) {
+    CHECK(wired_srvbigbuf_claim(&p, &idx) == 0);
+  }
 }
 
 void test_srvbigbuf(void) {

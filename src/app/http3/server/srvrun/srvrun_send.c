@@ -14,8 +14,9 @@ void srvrun_send_app_close(
   u8         pl[SRVRUN_CLOSE_PL_MAX];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_app_close_payload(error_code, reason, &plb);
-  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
+  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln))) {
     srvrun_log_close("conn closed by server (app): ", reason);
+  }
 }
 
 /* RFC 9110 10.1.1: build a bare "100 Continue" HEADERS frame (no DATA, RFC
@@ -32,7 +33,9 @@ static int srvrun_continue_payload(
   u8           h3[16];
   wired_obuf   h3b = obuf_of(h3, sizeof h3);
   stream_frame f;
-  if (!h3resp_prefix(100, 0, 0, &h3b)) return 0;
+  if (!h3resp_prefix(100, 0, 0, &h3b)) {
+    return 0;
+  }
   f       = (stream_frame){stream_id, 0, h3b.len, h3, 0};
   *h3_len = h3b.len;
   return appdata_stream_frame(&f, plb) != 0;
@@ -47,7 +50,9 @@ static int srvrun_seal_continue(
   u8                    pl[64];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!srvrun_continue_payload(stream_id, &plb, h3_len)) return 0;
+  if (!srvrun_continue_payload(stream_id, &plb, h3_len)) {
+    return 0;
+  }
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
@@ -70,7 +75,9 @@ usz srvrun_send_continue(const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
   u8         out[128];
   wired_obuf ob     = obuf_of(out, sizeof out);
   usz        h3_len = 0;
-  if (!srvrun_seal_continue(c, stream_id, &ob, &h3_len)) return 0;
+  if (!srvrun_seal_continue(c, stream_id, &ob, &h3_len)) {
+    return 0;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "100 Continue sent\n");
   return h3_len;
 }
@@ -95,6 +102,7 @@ void srvrun_send_transport_close(
   u8         pl[SRVRUN_CLOSE_PL_MAX];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_transport_close_payload(error_code, reason, &plb);
-  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln)))
+  if (srvrun_close_send(cfg, c, wired_span_of(pl, pln))) {
     srvrun_log_close("conn closed by server (transport): ", reason);
+  }
 }

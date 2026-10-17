@@ -11,15 +11,18 @@ static wired_moqtrun_req* moqtrun_up_announcer_skip(
 
 void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
-    if (moqtrun_drain_due(&hub->peers[i], now_ms))
+    if (moqtrun_drain_due(&hub->peers[i], now_ms)) {
       moqtrun_drain_expire(hub, &hub->peers[i], now_ms);
+    }
     moqtrun_ctl_retry(hub, &hub->peers[i]);
     moqtrun_hold_replay(hub, &hub->peers[i]);
   }
 }
 
 int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
-  if (new_uri.n > WIRED_MOQTRUN_GOAWAY_URI_MAX) return -1;
+  if (new_uri.n > WIRED_MOQTRUN_GOAWAY_URI_MAX) {
+    return -1;
+  }
   return moqtrun_goaway_send(hub, 0, new_uri, timeout_ms);
 }
 
@@ -28,7 +31,9 @@ int wired_moqt_goaway(wired_moqt_hub* hub, wired_span new_uri, u64 timeout_ms) {
 void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
-  if (p) p->wt_drained = 1;
+  if (p) {
+    p->wt_drained = 1;
+  }
   moqtrun_goaway_send(
       hub, s, wired_span_of(0, 0), WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
 }
@@ -80,9 +85,11 @@ int moqtrun_up_covers(
  * a track q's namespace covers. */
 void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   u64 bit = moqtrun_rp_bit(hub, q->wt);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_up_covers(q, 0, moqtrun_up_rdv_key(&hub->rdv[i])))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_up_covers(q, 0, moqtrun_up_rdv_key(&hub->rdv[i]))) {
       hub->rdv[i].tried &= ~bit;
+    }
+  }
 }
 
 /* p may be sent a new request: connected, not being closed by the hub
@@ -107,9 +114,11 @@ static int moqtrun_up_candidate(
 
 static wired_moqtrun_req* moqtrun_up_announcer_skip(
     wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k, u64 skip) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_up_candidate(hub, &hub->reqs[i], s, k, skip))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_up_candidate(hub, &hub->reqs[i], s, k, skip)) {
       return &hub->reqs[i];
+    }
+  }
   return 0;
 }
 

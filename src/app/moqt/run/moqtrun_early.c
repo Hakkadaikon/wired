@@ -47,7 +47,9 @@ static void moqtrun_early_stash(
     u64                 sid,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_early_wanted(hub, p, data)) moqtrun_early_put(p, sid, data, fin);
+  if (moqtrun_early_wanted(hub, p, data)) {
+    moqtrun_early_put(p, sid, data, fin);
+  }
 }
 
 static int moqtrun_early_is(const wired_moqtrun_peer* p, u64 sid) {
@@ -58,17 +60,22 @@ static int moqtrun_early_is(const wired_moqtrun_peer* p, u64 sid) {
  * drops the stream. 1 when sid is the kept stream. */
 int moqtrun_early_more(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
-  if (!moqtrun_early_is(p, sid)) return 0;
-  if (moqtrun_early_room(p, data.n))
+  if (!moqtrun_early_is(p, sid)) {
+    return 0;
+  }
+  if (moqtrun_early_room(p, data.n)) {
     moqtrun_early_put(p, sid, data, fin);
-  else
+  } else {
     p->early_n = 0;
+  }
   return 1;
 }
 
 /* The kept stream was reset: nothing of it is relayed. */
 void moqtrun_early_drop(wired_moqtrun_peer* p, u64 sid) {
-  if (moqtrun_early_is(p, sid)) p->early_n = 0;
+  if (moqtrun_early_is(p, sid)) {
+    p->early_n = 0;
+  }
 }
 
 /* A fresh SUBGROUP stream: either relayed whole as one-shot streams
@@ -109,7 +116,9 @@ void moqtrun_dispatch_fresh_stream(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_fresh_fetch_stream(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_fresh_fetch_stream(hub, p, stream_id, data, fin)) {
+    return;
+  }
   moqtrun_fresh_subgroup_relay(hub, p, stream_id, data, fin);
 }
 
@@ -118,8 +127,9 @@ void moqtrun_dispatch_fresh_stream(
 void moqtrun_early_refetch(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   usz at = 0;
   if (moqdata_classify(wired_span_of(p->early, p->early_n), &at) ==
-      MOQDATA_STREAM_FETCH)
+      MOQDATA_STREAM_FETCH) {
     moqtrun_early_replay(hub, p);
+  }
 }
 
 /* An upstream SUBSCRIBE_OK claimed a track of p: the kept stream replays
@@ -127,7 +137,9 @@ void moqtrun_early_refetch(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
  * later OK (moqtrun_early_stash copies it onto itself). */
 void moqtrun_early_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   usz n = p->early_n;
-  if (!n) return;
+  if (!n) {
+    return;
+  }
   p->early_n = 0;
   moqtrun_dispatch_fresh_stream(
       hub, p, p->early_sid, wired_span_of(p->early, n), p->early_fin);

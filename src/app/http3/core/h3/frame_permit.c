@@ -25,7 +25,9 @@ static const int permit_tab[] = {
 
 static int permit_mask(u64 frame_type) {
   int m;
-  if (frame_type >= PERMIT_TAB_N) return C | R | P; /* 7.2.8 unknown/grease */
+  if (frame_type >= PERMIT_TAB_N) {
+    return C | R | P; /* 7.2.8 unknown/grease */
+  }
   m = permit_tab[frame_type];
   return m ? m : C | R | P; /* gap in table */
 }
@@ -40,12 +42,17 @@ int h3_frame_on_stream(u64 frame_type, int stream_kind) {
  * receiving one at all is a connection error of type H3_FRAME_UNEXPECTED. */
 static int is_http2_only_reserved(u64 frame_type) {
   static const u64 reserved[] = {0x02, 0x06, 0x08, 0x09};
-  for (usz i = 0; i < sizeof reserved / sizeof reserved[0]; i++)
-    if (frame_type == reserved[i]) return 1;
+  for (usz i = 0; i < sizeof reserved / sizeof reserved[0]; i++) {
+    if (frame_type == reserved[i]) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 int h3_frame_recv_ok(u64 frame_type) {
-  if (frame_type == H3_FRAME_PUSH_PROMISE) return 0;
+  if (frame_type == H3_FRAME_PUSH_PROMISE) {
+    return 0;
+  }
   return !is_http2_only_reserved(frame_type);
 }

@@ -11,13 +11,17 @@ int wired_main(int argc, char** argv) {
 
   i64 sa = wired_udp_socket();
   i64 sb = wired_udp_socket();
-  if (wired_udp_bind(sa, &a) < 0 || wired_udp_bind(sb, &b) < 0) return 1;
+  if (wired_udp_bind(sa, &a) < 0 || wired_udp_bind(sb, &b) < 0) {
+    return 1;
+  }
 
   /* a -> b, then b reads it along with the sender's address. */
   wired_udp_send(sa, &b, wired_span_cstr("hello"));
   u8  buf[64];
   i64 n = wired_udp_recvfrom(sb, wired_mspan_of(buf, sizeof buf - 1), &from);
-  if (n < 0) return 1;
+  if (n < 0) {
+    return 1;
+  }
   buf[n] = 0;
 
   u16 port =

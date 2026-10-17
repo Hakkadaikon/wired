@@ -55,13 +55,15 @@ static void test_xskring_wraparound(void) {
   for (u32 cycle = 0; cycle < 25; cycle++) {
     u32 idx;
     CHECK(xskring_prod_reserve(&r, 3, &idx) == 3);
-    for (u32 i = 0; i < 3; i++)
+    for (u32 i = 0; i < 3; i++) {
       *xskring_addr_at(&r, idx + i) = 1000 + cycle * 3 + i;
+    }
     xskring_prod_submit(&r, 3);
 
     CHECK(xskring_cons_peek(&r, 3, &idx) == 3);
-    for (u32 i = 0; i < 3; i++)
+    for (u32 i = 0; i < 3; i++) {
       CHECK(*xskring_addr_at(&r, idx + i) == 1000 + cycle * 3 + i);
+    }
     xskring_cons_release(&r, 3);
   }
 }
@@ -100,10 +102,14 @@ static void test_xskring_soak_invariant(void) {
     u32 idx;
     if (pick < 3) {
       u32 g = xskring_prod_reserve(&r, pick + 1, &idx);
-      if (g) xskring_prod_submit(&r, g);
+      if (g) {
+        xskring_prod_submit(&r, g);
+      }
     } else {
       u32 g = xskring_cons_peek(&r, pick - 2, &idx);
-      if (g) xskring_cons_release(&r, g);
+      if (g) {
+        xskring_cons_release(&r, g);
+      }
     }
     CHECK(prod - cons <= 8);
   }

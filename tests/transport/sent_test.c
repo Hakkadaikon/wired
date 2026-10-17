@@ -16,7 +16,9 @@ static void test_sent_ack_accounting(void) {
 static void test_sent_largest_acked_monotonic(void) {
   sent s;
   sent_init(&s);
-  for (u64 pn = 1; pn <= 5; pn++) sent_on_send(&s, &(sent_out){pn, 10, 0});
+  for (u64 pn = 1; pn <= 5; pn++) {
+    sent_on_send(&s, &(sent_out){pn, 10, 0});
+  }
   sent_on_ack(&s, 5);
   CHECK(s.largest_acked == 5);
   sent_on_ack(&s, 2); /* older ack must not lower it */

@@ -5,7 +5,9 @@
 usz qdyn_indexed_dynamic(u64 rel_index, wired_obuf* out) {
   /* RFC 9204 4.5.2: is_static=0 selects the dynamic table (T=0). */
   usz w = qpack_indexed_encode(wired_mspan_of(out->p, out->cap), rel_index, 0);
-  if (w == 0) return 0;
+  if (w == 0) {
+    return 0;
+  }
   out->len = w;
   return w;
 }

@@ -14,7 +14,9 @@ static int appdata_frame_flat(
     usz*      out_len) {
   stream_frame f  = {sid, off, n, d, (u8)(fin ? 1 : 0)};
   wired_obuf   ob = obuf_of(out, cap);
-  if (!appdata_stream_frame(&f, &ob)) return 0;
+  if (!appdata_stream_frame(&f, &ob)) {
+    return 0;
+  }
   *out_len = ob.len;
   return 1;
 }
@@ -35,7 +37,9 @@ static int appdata_send_flat(
   protect_keys pk = {k, hp};
   appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
   wired_obuf   ob = obuf_of(out, cap);
-  if (!appdata_send(&pk, &tx, &ob)) return 0;
+  if (!appdata_send(&pk, &tx, &ob)) {
+    return 0;
+  }
   *out_len = ob.len;
   return 1;
 }
@@ -54,7 +58,9 @@ static int appdata_recv_flat(
   protect_keys pk = {k, hp};
   appdata_pkt  ap = {{pkt, len}, dcid_len};
   stream_frame f;
-  if (!appdata_recv(&pk, &ap, &f)) return 0;
+  if (!appdata_recv(&pk, &ap, &f)) {
+    return 0;
+  }
   *sid  = f.stream_id;
   *off  = f.offset;
   *data = f.data;

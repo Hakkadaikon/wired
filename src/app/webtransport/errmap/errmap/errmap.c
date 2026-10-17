@@ -16,7 +16,9 @@ static int wterrmap_in_range(u64 h) {
 static int wterrmap_reserved(u64 h) { return (h - 0x21) % 0x1f == 0; }
 
 int wired_wterrmap_from_http3(u64 h, u32* n_out) {
-  if (!wterrmap_in_range(h) || wterrmap_reserved(h)) return 0;
+  if (!wterrmap_in_range(h) || wterrmap_reserved(h)) {
+    return 0;
+  }
   u64 shifted = h - WTERRMAP_FIRST;
   *n_out      = (u32)(shifted - shifted / 0x1f);
   return 1;

@@ -59,7 +59,9 @@ void srvrun_arm_h3_resp(
  * no :protocol / origin) stays 0 so the handler still reads it as absent. */
 void srvrun_scratch_view(srvrun_resp* r, usz* off, const u8** p, usz* len) {
   usz n;
-  if (!*p) return;
+  if (!*p) {
+    return;
+  }
   n = (usz)u64_min(*len, sizeof r->stream_req_scratch - *off);
   bytes_memcpy(r->stream_req_scratch + *off, *p, n);
   *p   = r->stream_req_scratch + *off;
@@ -71,7 +73,9 @@ void srvrun_scratch_view(srvrun_resp* r, usz* off, const u8** p, usz* len) {
  * scratch at *off. 0 if it no longer fits. */
 static int srvrun_copy_hdr_part(
     srvrun_resp* r, usz* off, const u8* base, u16* pos, u16 len) {
-  if (len > sizeof r->stream_req_scratch - *off) return 0;
+  if (len > sizeof r->stream_req_scratch - *off) {
+    return 0;
+  }
   bytes_memcpy(r->stream_req_scratch + *off, base + *pos, len);
   *pos = (u16)*off;
   *off += len;
@@ -90,7 +94,9 @@ void srvrun_copy_stream_hdrs(srvrun_resp* r, usz off) {
   wired_h3reqdrive_req* q    = &r->stream_req;
   const u8*             base = q->hdr_base;
   usz                   i    = 0;
-  while (i < q->hdr_count && srvrun_copy_hdr(r, &off, base, &q->hdrs[i])) i++;
+  while (i < q->hdr_count && srvrun_copy_hdr(r, &off, base, &q->hdrs[i])) {
+    i++;
+  }
   q->hdr_count = i;
   q->hdr_base  = r->stream_req_scratch;
 }

@@ -23,24 +23,33 @@ static wired_wt_session* g_live_session;
 static live_slot         g_live_ring[LIVE_RING];
 
 static int live_slot_free(const live_slot* slot) {
-  if (!slot->used) return 1;
+  if (!slot->used) {
+    return 1;
+  }
   return !wired_server_wt_stream_inflight(g_live_session, slot->stream_id);
 }
 
 static live_slot* live_slot_claim(void) {
-  for (usz i = 0; i < LIVE_RING; i++)
-    if (live_slot_free(&g_live_ring[i])) return &g_live_ring[i];
+  for (usz i = 0; i < LIVE_RING; i++) {
+    if (live_slot_free(&g_live_ring[i])) {
+      return &g_live_ring[i];
+    }
+  }
   return 0;
 }
 
 static i64 send_uni2(wired_wt_session* s, wired_span head, wired_span body) {
   live_slot* slot = live_slot_claim();
   usz        sig;
-  if (!slot || head.n + body.n > sizeof slot->buf - 9) return -1;
+  if (!slot || head.n + body.n > sizeof slot->buf - 9) {
+    return -1;
+  }
   g_live_session = s;
   sig            = wired_wtwire_signal_put(
       slot->buf, sizeof slot->buf, 0, s->connect_stream_id);
-  if (sig == 0) return -1;
+  if (sig == 0) {
+    return -1;
+  }
   memcpy(slot->buf + sig, head.p, head.n);
   memcpy(slot->buf + sig + head.n, body.p, body.n);
   i64 sid = wired_server_wt_open_uni(
@@ -69,7 +78,9 @@ static void on_step(void* ctx, u64 now_ms) {
 static int g_live_published = 0;
 
 static void publish_live_once(void) {
-  if (g_live_published) return;
+  if (g_live_published) {
+    return;
+  }
   g_live_published = 1;
   wired_moqt_publish_live(
       &g_hub, wired_span_cstr("movie"), 2, g_layout.frags, g_layout.n_frags,

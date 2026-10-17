@@ -27,10 +27,17 @@ typedef struct {
 static int bsl_ec_fit(u8* dst, usz size, const u8* src, usz n, int digest) {
   usz skip = n > size ? (digest ? 0 : n - size) : 0;
   usz take = n > size && digest ? size : n - skip;
-  for (usz i = 0; i < size; i++) dst[i] = 0;
-  for (usz i = 0; i < take; i++) dst[size - take + i] = src[i];
-  for (usz i = 0; i < skip; i++)
-    if (src[i]) return 0;
+  for (usz i = 0; i < size; i++) {
+    dst[i] = 0;
+  }
+  for (usz i = 0; i < take; i++) {
+    dst[size - take + i] = src[i];
+  }
+  for (usz i = 0; i < skip; i++) {
+    if (src[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -43,13 +50,19 @@ static int bsl_ec_run(const bsl_ec_curve* k, const bssl_case* c) {
     ssz n = bssl_bytes(
         bssl_get(bssl_ecdsa_verify_tests_attrs, c, names[i]), raw[i],
         BSL_EC_MAX);
-    if (n < 0) return -1;
+    if (n < 0) {
+      return -1;
+    }
     /* an over-long value can never be a valid field element: reject */
     ok &= bsl_ec_fit(f[i], k->size, raw[i], (usz)n, i == 4);
     dlen = (usz)n; /* the Digest's, after the last iteration */
   }
-  if (!ok) return 0;
-  if (k->verify_raw) return k->verify_raw(f[0], f[1], f[2], f[3], raw[4], dlen);
+  if (!ok) {
+    return 0;
+  }
+  if (k->verify_raw) {
+    return k->verify_raw(f[0], f[1], f[2], f[3], raw[4], dlen);
+  }
   return k->verify(f[0], f[1], f[2], f[3], f[4]);
 }
 
@@ -70,8 +83,11 @@ static void bsl_ec_case(bsl_ec_curve* k, const bssl_case* c) {
 
 /* The curve's runner, or 0 if wired does not implement the curve. */
 static bsl_ec_curve* bsl_ec_pick(bsl_ec_curve* const ks[3], const char* cv) {
-  for (int i = 0; i < 3; i++)
-    if (bssl_streq(cv, ks[i]->curve)) return ks[i];
+  for (int i = 0; i < 3; i++) {
+    if (bssl_streq(cv, ks[i]->curve)) {
+      return ks[i];
+    }
+  }
   return 0;
 }
 
@@ -87,15 +103,17 @@ void test_bssl_ecdsa(void) {
     const bssl_case* c  = &bssl_ecdsa_verify_tests_cases[i];
     const char*      cv = bssl_get(bssl_ecdsa_verify_tests_attrs, c, "Curve");
     bsl_ec_curve*    k  = bsl_ec_pick(ks, cv);
-    if (k)
+    if (k) {
       bsl_ec_case(k, c);
-    else
+    } else {
       skip++; /* curve not implemented: P-224, secp224k1 */
+    }
   }
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < 3; i++) {
     printf(
         "bssl ecdsa-%s: added %u pass %u fail %u skip 0\n", ks[i]->curve,
         ks[i]->added, ks[i]->pass, ks[i]->fail);
+  }
   printf(
       "bssl ecdsa-other: added %u pass 0 fail 0 skip %u (curve not "
       "implemented)\n",

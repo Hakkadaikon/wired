@@ -13,9 +13,15 @@ static void test_initpkt_keys_rfc(void) {
                            0xfd, 0x3b, 0x46, 0xfb, 0x25, 0x5c};
   const u8 want_hp[16]  = {0x9f, 0x50, 0x44, 0x9e, 0x04, 0xa0, 0xe8, 0x10,
                            0x28, 0x3a, 0x1e, 0x99, 0x33, 0xad, 0xed, 0xd2};
-  for (usz i = 0; i < 16; i++) CHECK(ck.key[i] == want_key[i]);
-  for (usz i = 0; i < 12; i++) CHECK(ck.iv[i] == want_iv[i]);
-  for (usz i = 0; i < 16; i++) CHECK(ck.hp[i] == want_hp[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ck.key[i] == want_key[i]);
+  }
+  for (usz i = 0; i < 12; i++) {
+    CHECK(ck.iv[i] == want_iv[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ck.hp[i] == want_hp[i]);
+  }
 
   /* server keys differ from client keys (RFC 9001 5.2 distinct labels) */
   CHECK(sk.key[0] != ck.key[0] || sk.key[1] != ck.key[1]);
@@ -44,7 +50,9 @@ static void test_initpkt_roundtrip(void) {
   CHECK(crypto.p[0] == 0x06);
   /* CRYPTO frame: type, offset varint (0x00), length varint (0x0b), then CH */
   CHECK(crypto.p[1] == 0x00 && crypto.p[2] == 0x0b);
-  for (usz i = 0; i < sizeof(ch); i++) CHECK(crypto.p[3 + i] == ch[i]);
+  for (usz i = 0; i < sizeof(ch); i++) {
+    CHECK(crypto.p[3 + i] == ch[i]);
+  }
 }
 
 /* A non-zero stream offset lands in the CRYPTO frame header, so a split
@@ -65,7 +73,9 @@ static void test_initpkt_crypto_offset(void) {
   /* CRYPTO frame: type, offset varint (7), length varint (4), the chunk */
   CHECK(crypto.p[0] == 0x06);
   CHECK(crypto.p[1] == 0x07 && crypto.p[2] == 0x04);
-  for (usz i = 0; i < sizeof(ch); i++) CHECK(crypto.p[3 + i] == ch[i]);
+  for (usz i = 0; i < sizeof(ch); i++) {
+    CHECK(crypto.p[3 + i] == ch[i]);
+  }
 }
 
 /* A tampered ciphertext byte makes open fail (AEAD authentication). */

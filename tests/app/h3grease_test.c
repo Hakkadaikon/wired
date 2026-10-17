@@ -7,7 +7,9 @@
 static void test_h3grease_value_roundtrip(void) {
   CHECK(h3_grease_value(0) == 0x21);
   CHECK(h3_grease_value(1) == 0x21 + 0x1f);
-  for (u64 n = 0; n < 300; n++) CHECK(h3_is_reserved(h3_grease_value(n)) == 1);
+  for (u64 n = 0; n < 300; n++) {
+    CHECK(h3_is_reserved(h3_grease_value(n)) == 1);
+  }
 }
 
 /* Pinning: an unknown/reserved (GREASE) frame type is classified in the same

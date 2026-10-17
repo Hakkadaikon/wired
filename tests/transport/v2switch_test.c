@@ -14,8 +14,11 @@ void test_v2switch(void) {
   CHECK(vers_initial_salt(VERSION_2, &s2, &l2) == 1);
   CHECK(l1 == 20 && l2 == 20);
   int same = 1;
-  for (usz i = 0; i < 20; i++)
-    if (s1[i] != s2[i]) same = 0;
+  for (usz i = 0; i < 20; i++) {
+    if (s1[i] != s2[i]) {
+      same = 0;
+    }
+  }
   CHECK(same == 0);
   CHECK(vers_initial_salt(0x5u, &s1, &l1) == 0);
 

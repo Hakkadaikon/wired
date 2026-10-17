@@ -8,7 +8,9 @@ static int srvrun_boot_salvage(const srvrun_conn* c);
  * flight's Initial ACK must carry the ClientHello datagram's own mark
  * (RFC 9000 13.4.1: the peer validates against its FIRST acknowledgment). */
 int srvrun_boot_feed(srvrun_conn* c, wired_mspan dg, u8 ecn) {
-  if (c->up || !c->boot.any) wired_srvboot_acc_reset(&c->boot);
+  if (c->up || !c->boot.any) {
+    wired_srvboot_acc_reset(&c->boot);
+  }
   wired_srvboot_acc_ecn_note(&c->boot, ecn);
   return wired_srvboot_acc_feed(&c->boot, dg);
 }
@@ -27,8 +29,12 @@ static int srvrun_boot_salvage(const srvrun_conn* c) {
 
 int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_boot_feed(c, dg, ctx->ecn)) return srvrun_boot_salvage(c);
-  if (!wired_srvboot_acc_complete(&c->boot)) return SRVRUN_BOOT_PENDING;
+  if (!srvrun_boot_feed(c, dg, ctx->ecn)) {
+    return srvrun_boot_salvage(c);
+  }
+  if (!wired_srvboot_acc_complete(&c->boot)) {
+    return SRVRUN_BOOT_PENDING;
+  }
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
 
@@ -41,7 +47,9 @@ usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
   reset_stream_frame rs = {
       stream_id, err_code, srvrun_wtsend_final_size(c, stream_id)};
-  if (srvrun_wt_send_ended(c, stream_id)) return 0;
+  if (srvrun_wt_send_ended(c, stream_id)) {
+    return 0;
+  }
   return reset_stream_encode(plb->p + at, plb->cap - at, &rs);
 }
 
@@ -61,7 +69,9 @@ usz srvrun_wt_abort_pair(
    * at most 25 bytes), so it is never an encode failure. */
   usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
   usz sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
-  if (!sn) return 0;
+  if (!sn) {
+    return 0;
+  }
   return rn + sn;
 }
 
@@ -84,10 +94,12 @@ usz srvrun_wt_abort_pair(
  * and kills the whole connection with FRAME_ENCODING_ERROR. */
 usz srvrun_wt_busy_reset_payload(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
-  if (!stream_can_send(0, stream_id)) /* client uni */
+  if (!stream_can_send(0, stream_id)) { /* client uni */
     return srvrun_wt_abort_stop(stream_id, err_code, plb, 0);
-  if (!stream_can_receive(0, stream_id)) /* server uni */
+  }
+  if (!stream_can_receive(0, stream_id)) { /* server uni */
     return srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
+  }
   return srvrun_wt_abort_pair(c, stream_id, err_code, plb);
 }
 
@@ -103,7 +115,9 @@ int srvrun_seal_ctl(srvrun_conn* c, const u8* pl, usz pln, wired_obuf* out) {
       0,
       0,
       0};
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   sin.pn = c->l.tx_pn++;
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }

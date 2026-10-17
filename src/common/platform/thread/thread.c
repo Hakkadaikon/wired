@@ -32,7 +32,9 @@ static i64 thread_map_stack(wired_thread* t) {
   i64 base = wired_arch_mmap(
       0, THREAD_MAP_LEN, THREAD_PROT_READ | THREAD_PROT_WRITE,
       THREAD_MAP_PRIVATE | THREAD_MAP_ANONYMOUS, -1, 0);
-  if (base < 0) return base;
+  if (base < 0) {
+    return base;
+  }
   i64 r = wired_arch_mprotect(base, THREAD_GUARD_LEN, THREAD_PROT_NONE);
   if (r < 0) {
     wired_arch_munmap(base, THREAD_MAP_LEN);
@@ -55,7 +57,9 @@ static u8* thread_stack_prep(wired_thread* t, void (*fn)(void*), void* arg) {
 
 i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
   i64 r = thread_map_stack(t);
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   r = wired_arch_clone_raw(
       THREAD_CLONE_FLAGS, thread_stack_prep(t, fn, arg), &t->tid, &t->tid, 0);
   if (r < 0) {
@@ -72,8 +76,9 @@ i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
  * goes back to the load. */
 static void thread_wait_tid(i32* tid) {
   i32 v;
-  while ((v = __atomic_load_n(tid, __ATOMIC_ACQUIRE)) != 0)
+  while ((v = __atomic_load_n(tid, __ATOMIC_ACQUIRE)) != 0) {
     wired_arch_futex(tid, THREAD_FUTEX_WAIT, v, 0, 0, 0);
+  }
 }
 
 i64 wired_thread_join(wired_thread* t) {

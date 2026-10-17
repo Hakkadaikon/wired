@@ -8,7 +8,9 @@ static int  moqtrun_req_send(
 /* ===================== control-message handlers ===================== */
 
 static void moqtrun_buf_append(u8* buf, usz* len, usz cap, wired_span msg) {
-  if (*len + msg.n > cap) return;
+  if (*len + msg.n > cap) {
+    return;
+  }
   bytes_memcpy(buf + *len, msg.p, msg.n);
   *len += msg.n;
 }
@@ -43,14 +45,18 @@ void moqtrun_queue_reply(wired_moqtrun_peer* p, wired_span msg) {
 
 /* The request p is handling established a subscription or track. */
 void moqtrun_req_mark_live(wired_moqtrun_peer* p) {
-  if (p->req) p->req->live = 1;
+  if (p->req) {
+    p->req->live = 1;
+  }
 }
 
 /* The reassembly of the stream p is handling: a request stream's own,
  * else the control stream moqtrun_ctl_rx selected (ctl_asm when no
  * control dispatch is running). */
 wired_moqtrun_ctl_asm* moqtrun_cur_asm(wired_moqtrun_peer* p) {
-  if (p->req) return &p->req->in;
+  if (p->req) {
+    return &p->req->in;
+  }
   return p->rx ? p->rx : &p->ctl_asm;
 }
 
@@ -84,11 +90,15 @@ static int moqtrun_flush_idle(const wired_moqtrun_peer* p, int pending_idx) {
 
 void moqtrun_flush_replies(wired_moqt_io* io, wired_moqtrun_peer* p) {
   int pending_idx = p->armed_idx ^ 1;
-  if (moqtrun_flush_idle(p, pending_idx)) return;
+  if (moqtrun_flush_idle(p, pending_idx)) {
+    return;
+  }
   int r = io->stream_send(
       p->wt, p->control_stream_id,
       wired_span_of(p->send_bufs[pending_idx], p->send_lens[pending_idx]), 0);
-  if (r <= 0) return;
+  if (r <= 0) {
+    return;
+  }
   p->send_lens[p->armed_idx] = 0; /* old armed slot: now safe to reuse */
   p->armed_idx               = pending_idx;
 }
@@ -100,7 +110,9 @@ static int moqtrun_req_send(
     wired_wt_session*  s,
     wired_moqtrun_req* q,
     wired_span         b) {
-  if (q->opened) return io->stream_send(s, q->stream_id, b, 0);
+  if (q->opened) {
+    return io->stream_send(s, q->stream_id, b, 0);
+  }
   q->opened = io->stream_reply_open(s, q->stream_id, b) > 0;
   return q->opened;
 }
@@ -113,10 +125,14 @@ static int moqtrun_req_send(
 void moqtrun_req_flush(
     wired_moqt_io* io, wired_wt_session* s, wired_moqtrun_req* q) {
   int pending_idx = q->armed_idx ^ 1;
-  if (q->send_lens[pending_idx] == 0) return;
+  if (q->send_lens[pending_idx] == 0) {
+    return;
+  }
   wired_span b =
       wired_span_of(q->send_bufs[pending_idx], q->send_lens[pending_idx]);
-  if (moqtrun_req_send(io, s, q, b) <= 0) return;
+  if (moqtrun_req_send(io, s, q, b) <= 0) {
+    return;
+  }
   q->send_lens[q->armed_idx] = 0;
   q->armed_idx               = pending_idx;
   q->pending_updates         = 0;

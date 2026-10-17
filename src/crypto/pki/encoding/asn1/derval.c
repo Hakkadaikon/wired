@@ -2,13 +2,18 @@
 
 /* Byte-equal over n octets. */
 static int der_bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 int der_oid_equal(wired_span oid, wired_span expected) {
-  if (oid.n != expected.n) return 0;
+  if (oid.n != expected.n) {
+    return 0;
+  }
   return der_bytes_eq(oid.p, expected.p, oid.n);
 }
 
@@ -23,7 +28,9 @@ static int der_int_bad(wired_span val) {
 
 /* Point m at the unsigned magnitude. 1 if usable, else 0. */
 static int der_int_mag(wired_span val, wired_span* m) {
-  if (der_int_bad(val)) return 0;
+  if (der_int_bad(val)) {
+    return 0;
+  }
   usz pad = der_has_pad(val) ? 1 : 0;
   *m      = wired_span_of(val.p + pad, val.n - pad);
   return 1;
@@ -32,14 +39,20 @@ static int der_int_mag(wired_span val, wired_span* m) {
 /* Big-endian accumulate; nlen must be <= 8. */
 static u64 der_be(const u8* p, usz nlen) {
   u64 v = 0;
-  for (usz i = 0; i < nlen; i++) v = (v << 8) | p[i];
+  for (usz i = 0; i < nlen; i++) {
+    v = (v << 8) | p[i];
+  }
   return v;
 }
 
 int der_uint(const u8* val, usz val_len, u64* out) {
   wired_span m;
-  if (!der_int_mag(wired_span_of(val, val_len), &m)) return 0;
-  if (m.n > 8) return 0;
+  if (!der_int_mag(wired_span_of(val, val_len), &m)) {
+    return 0;
+  }
+  if (m.n > 8) {
+    return 0;
+  }
   *out = der_be(m.p, m.n);
   return 1;
 }

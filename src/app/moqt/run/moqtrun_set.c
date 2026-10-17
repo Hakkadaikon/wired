@@ -10,9 +10,10 @@ static int moqtrun_sub_in_range(const wired_moqtrun_sub* s, u64 g);
  * evaluable params all admit it; no rows at all is unfiltered. */
 int moqtrun_sub_rngf_pass(const wired_moqtrun_sub* s, u64 oid) {
   int pass = !s->rngf_n; /* no rows: unfiltered */
-  for (usz i = 0; i < s->rngf_n; i++)
+  for (usz i = 0; i < s->rngf_n; i++) {
     pass |= moqtrun_set_dim_pass(
         s, s->rngf[i].set_id, MOQCTL_PARAM_OBJECTID_FILTER, oid);
+  }
   return pass;
 }
 
@@ -31,16 +32,21 @@ static int moqtrun_set_stream_pass(
  * only), so a set with only those passes here. */
 int moqtrun_sub_rngf_stream(const wired_moqtrun_sub* s, u64 sg, u64 prio) {
   int pass = !s->rngf_n;
-  for (usz i = 0; i < s->rngf_n; i++)
+  for (usz i = 0; i < s->rngf_n; i++) {
     pass |= moqtrun_set_stream_pass(s, s->rngf[i].set_id, sg, prio);
+  }
   return pass;
 }
 
 /* min over the non-zero of {publisher's Track Property, subscriber's
  * parameter} (draft-19 8); 0 = neither set a timeout. */
 u64 moqtrun_timeout_min(u64 pub_ms, u64 sub_ms) {
-  if (!pub_ms) return sub_ms;
-  if (!sub_ms) return pub_ms;
+  if (!pub_ms) {
+    return sub_ms;
+  }
+  if (!sub_ms) {
+    return pub_ms;
+  }
   return u64_min(pub_ms, sub_ms);
 }
 

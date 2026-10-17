@@ -33,7 +33,9 @@ static void p384pt_rhs_lhs(p384_fe lhs, p384_fe rhs, const ec_point384* p) {
 
 int p384_point_on_curve(const ec_point384* p) {
   p384_fe lhs, rhs;
-  if (p->inf) return 1;
+  if (p->inf) {
+    return 1;
+  }
   p384pt_rhs_lhs(lhs, rhs, p);
   return fp384_eq(lhs, rhs);
 }

@@ -6,6 +6,8 @@
 usz pnlen_needed(u64 pn, u64 largest_acked) {
   u64 num_unacked = pn - largest_acked;
   usz b           = 1;
-  while (b < 4 && (num_unacked >> (8 * b - 1)) != 0) b++;
+  while (b < 4 && (num_unacked >> (8 * b - 1)) != 0) {
+    b++;
+  }
   return b;
 }

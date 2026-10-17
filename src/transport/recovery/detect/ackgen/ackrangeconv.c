@@ -30,12 +30,15 @@ static int raw_ok(usz n) { return raw_layout_ok(n) && range_count_ok(n); }
 
 static void conv_all_pairs(const u64* raw, usz n, ack_frame* f) {
   usz i;
-  for (i = 1; i <= (n - 1) / 2; i++)
+  for (i = 1; i <= (n - 1) / 2; i++) {
     conv_pair(raw, i, &f->ranges[i - 1], &f->ranges[i]);
+  }
 }
 
 int ackrangeconv_to_frame(u64 largest, const u64* raw, usz n, ack_frame* f) {
-  if (!raw_ok(n)) return 0;
+  if (!raw_ok(n)) {
+    return 0;
+  }
   conv_first(largest, raw[0], f);
   conv_all_pairs(raw, n, f);
   f->n_ranges = (n - 1) / 2 + 1;

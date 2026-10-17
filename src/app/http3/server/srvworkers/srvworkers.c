@@ -36,8 +36,11 @@ static void srvworkers_on_term(int sig) {
  * free of I/O so it is unit-testable without an actual fork.
  * @return slot index in [0,n), or -1 if not found. */
 static int srvworkers_slot_for_pid(const i64* pids, int n, i64 pid) {
-  for (int i = 0; i < n; i++)
-    if (pids[i] == pid) return i;
+  for (int i = 0; i < n; i++) {
+    if (pids[i] == pid) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -117,8 +120,12 @@ static void srvworkers_child_start(
   wired_sigmask_unblock_shutdown();
   wired_arch_rt_sigprocmask(1 /* SIG_UNBLOCK */, &g_srvworkers_wake, 0, 8);
   wired_arch_prctl(1 /* PR_SET_PDEATHSIG */, SIGTERM);
-  if (wired_arch_getppid() != parent) wired_arch_exit_group(0);
-  if (pin_cores) wired_srvpin_bind_self(worker_index);
+  if (wired_arch_getppid() != parent) {
+    wired_arch_exit_group(0);
+  }
+  if (pin_cores) {
+    wired_srvpin_bind_self(worker_index);
+  }
   g_srvworkers_child_fn(port, id, h, obs, worker_index);
   wired_arch_exit_group(0);
 }
@@ -138,10 +145,13 @@ static int srvworkers_fork_one(
   i64 pid;
   wired_sigmask_block_shutdown();
   pid = wired_arch_fork();
-  if (pid == 0)
+  if (pid == 0) {
     srvworkers_child_start(worker_index, port, id, h, obs, pin_cores, parent);
+  }
   wired_sigmask_unblock_shutdown();
-  if (pid < 0) return (int)pid;
+  if (pid < 0) {
+    return (int)pid;
+  }
   t->pid[worker_index] = pid;
   return 0;
 }
@@ -160,7 +170,9 @@ static int srvworkers_fork_all(
   t->n                  = opt->workers;
   for (int i = 0; i < t->n; i++) {
     int r = srvworkers_fork_one(t, i, port, id, h, obs, opt->pin_cores);
-    if (r < 0) return r;
+    if (r < 0) {
+      return r;
+    }
   }
   return 0;
 }
@@ -177,13 +189,18 @@ static int srvworkers_should_forward(const srvworkers_table* t) {
 }
 
 static void srvworkers_kill_all(const srvworkers_table* t) {
-  for (int i = 0; i < t->n; i++)
-    if (t->pid[i]) wired_arch_kill(t->pid[i], SIGTERM);
+  for (int i = 0; i < t->n; i++) {
+    if (t->pid[i]) {
+      wired_arch_kill(t->pid[i], SIGTERM);
+    }
+  }
 }
 
 /* Once SIGTERM has arrived, send it to every still-live worker, once. */
 static void srvworkers_forward(srvworkers_table* t) {
-  if (!srvworkers_should_forward(t)) return;
+  if (!srvworkers_should_forward(t)) {
+    return;
+  }
   t->forwarded = 1;
   srvworkers_kill_all(t);
 }
@@ -193,7 +210,9 @@ static void srvworkers_forward(srvworkers_table* t) {
  * the forward the handler would have (srvworkers_forward). */
 static void srvworkers_sleep(void) {
   i64 sig = wired_arch_rt_sigtimedwait(&g_srvworkers_wake, 0, 0, 8);
-  if (sig == SIGTERM) g_srvworkers_term = 1;
+  if (sig == SIGTERM) {
+    g_srvworkers_term = 1;
+  }
 }
 
 /* wait4 failed (e.g. ECHILD): no child will raise SIGCHLD, so nap instead
@@ -207,8 +226,12 @@ static void srvworkers_nap(void) {
 /* Nothing reaped: sleep until a signal (dead == 0, workers still live) or
  * nap (dead < 0, a wait4 error). */
 static void srvworkers_idle(i64 dead) {
-  if (dead == 0) srvworkers_sleep();
-  if (dead < 0) srvworkers_nap();
+  if (dead == 0) {
+    srvworkers_sleep();
+  }
+  if (dead < 0) {
+    srvworkers_nap();
+  }
 }
 
 /* Reap one exited worker, else block until one exits or SIGTERM arrives --
@@ -230,7 +253,9 @@ static i64 srvworkers_wait(i64* status) {
 /* Empty the slot of a reaped worker (slot < 0: none was reaped).
  * @return 1 when it crashed while not shutting down, so it must respawn. */
 static int srvworkers_reap(srvworkers_table* t, int slot, i64 status) {
-  if (slot < 0) return 0;
+  if (slot < 0) {
+    return 0;
+  }
   t->pid[slot] = 0;
   return srvworkers_should_respawn(status, g_srvworkers_term);
 }
@@ -257,15 +282,19 @@ static void srvworkers_supervise_once(
   srvworkers_block_wake();
   srvworkers_forward(t);
   slot = srvworkers_slot_for_pid(t->pid, t->n, srvworkers_wait(&status));
-  if (srvworkers_reap(t, slot, status))
+  if (srvworkers_reap(t, slot, status)) {
     srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
+  }
   srvworkers_forward(t);
 }
 
 /* Any worker slot still holding an unreaped pid? */
 static int srvworkers_live(const srvworkers_table* t) {
-  for (int i = 0; i < t->n; i++)
-    if (t->pid[i]) return 1;
+  for (int i = 0; i < t->n; i++) {
+    if (t->pid[i]) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -273,8 +302,12 @@ static int srvworkers_live(const srvworkers_table* t) {
  * srvpin's CPU count, and anything beyond the fixed table size is clamped to
  * it (the array behind srvworkers_table cannot hold more). */
 static int srvworkers_resolve_count(int workers) {
-  if (workers == 0) workers = wired_srvpin_cpu_count();
-  if (workers > WIRED_SRVWORKERS_MAX) workers = WIRED_SRVWORKERS_MAX;
+  if (workers == 0) {
+    workers = wired_srvpin_cpu_count();
+  }
+  if (workers > WIRED_SRVWORKERS_MAX) {
+    workers = WIRED_SRVWORKERS_MAX;
+  }
   return workers;
 }
 
@@ -291,7 +324,9 @@ static int srvworkers_start(
     wired_srvrun_handler        h,
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
-  if (!srvkeys_ready()) return -1;
+  if (!srvkeys_ready()) {
+    return -1;
+  }
   sdrv_zerortt_share(); /* on failure 0-RTT replay stays per worker */
   wired_sigterm_install(srvworkers_on_term);
   return srvworkers_fork_all(t, port, id, h, obs, opt);
@@ -308,8 +343,11 @@ int wired_srvworkers_run(
   int                  r;
   local.workers = srvworkers_resolve_count(local.workers);
   r             = srvworkers_start(&t, port, id, h, obs, &local);
-  if (r < 0) return r;
-  while (srvworkers_live(&t))
+  if (r < 0) {
+    return r;
+  }
+  while (srvworkers_live(&t)) {
     srvworkers_supervise_once(&t, port, id, h, obs, &local);
+  }
   return 0;
 }

@@ -36,8 +36,11 @@ const moqctl_params MOQTRUN_UPF_NO_PARAMS;
 /* The peer that publishes k (its PUBLISH, or the hub's upstream SUBSCRIBE
  * claimed it there), else 0. */
 wired_moqtrun_peer* moqtrun_upf_owner(wired_moqt_hub* hub, moqtrun_key k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_peer_track_for_name(&hub->peers[i], k)) return &hub->peers[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_peer_track_for_name(&hub->peers[i], k)) {
+      return &hub->peers[i];
+    }
+  }
   return 0;
 }
 
@@ -60,7 +63,9 @@ wired_moqtrun_peer* moqtrun_upf_target(
     const wired_wt_session* s,
     moqtrun_key             k) {
   wired_moqtrun_req* a;
-  if (moqtrun_upf_owner_ok(hub, op, s, k)) return op;
+  if (moqtrun_upf_owner_ok(hub, op, s, k)) {
+    return op;
+  }
   a = moqtrun_up_announcer(hub, s, k);
   return a ? moqtrun_find_by_wt(hub, a->wt) : 0;
 }
@@ -74,9 +79,11 @@ static int moqtrun_upf_is_filter(u64 type) {
 }
 
 static void moqtrun_upf_filters(const moqctl_params* in, moqctl_params* out) {
-  for (usz i = 0; i < in->n; i++)
-    if (moqtrun_upf_is_filter(in->items[i].type))
+  for (usz i = 0; i < in->n; i++) {
+    if (moqtrun_upf_is_filter(in->items[i].type)) {
       out->items[out->n++] = in->items[i];
+    }
+  }
 }
 
 /* The upstream FETCH's parameters: the same Group Order, and the
@@ -89,8 +96,12 @@ void moqtrun_upf_params(
   order.enc          = MOQCTL_PENC_UINT8;
   order.u8v          = 0x2;
   out->n             = 0;
-  if (desc) out->items[out->n++] = order;
-  if (rngf) moqtrun_upf_filters(in, out);
+  if (desc) {
+    out->items[out->n++] = order;
+  }
+  if (rngf) {
+    moqtrun_upf_filters(in, out);
+  }
 }
 
 /* An inclusive end as a range end: a whole group (what the cache cannot
@@ -125,6 +136,8 @@ i64 moqtrun_upf_send(
       wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH,
       moqtrun_upf_encoder(pp->ver), m);
   i64 sid = n ? hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n)) : -1;
-  if (sid >= 0) pp->request_id_next += 2;
+  if (sid >= 0) {
+    pp->request_id_next += 2;
+  }
   return sid;
 }

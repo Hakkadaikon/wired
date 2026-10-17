@@ -20,8 +20,12 @@ static int wt_session_receive_side_closed(const wired_wt_session* s);
 void srvrun_offer_and_deliver_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   int sidx;
-  if (srvrun_wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
-  if (!slot->in_use) return;
+  if (srvrun_wt_slot_needs_offer(slot)) {
+    srvrun_offer_wt_slot(cfg, c, slot);
+  }
+  if (!slot->in_use) {
+    return;
+  }
   sidx = srvrun_wt_stream_owner(c, slot->offered, slot->wt_session_slot);
   srvrun_wt_rx rx = {slot->stream_id,     slot->buf,     &slot->win,
                      slot->fin,           slot->fin_off, &slot->delivered_len,
@@ -36,8 +40,9 @@ void srvrun_offer_and_deliver_wt_slot(
  * datagram's frames into c->l.wt_streams[], run srvrun_offer_and_deliver_wt_
  * slot over every slot. */
 void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     srvrun_offer_and_deliver_wt_slot(cfg, c, &c->l.wt_streams[i]);
+  }
 }
 
 /* RFC 9297 2.1: close the connection with H3_DATAGRAM_ERROR because a
@@ -152,7 +157,9 @@ void srvrun_deliver_to_known_session(
   int deliver = srvrun_dg_should_deliver(cfg, s);
   cfg->env->wt_usage.datagrams++;
   wired_wt_session_offer_datagram(s, data);
-  if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
+  if (deliver) {
+    cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
+  }
 }
 
 void srvrun_route_rx_datagram(
@@ -164,6 +171,8 @@ void srvrun_route_rx_datagram(
     return;
   }
   s = srvrun_wt_slot(c, sidx);
-  if (wt_session_receive_side_closed(s)) return;
+  if (wt_session_receive_side_closed(s)) {
+    return;
+  }
   srvrun_deliver_to_known_session(cfg, s, data);
 }

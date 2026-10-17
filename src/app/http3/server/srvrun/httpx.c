@@ -13,7 +13,9 @@ int wired_http_reply_text(
 
 int wired_http_add_field(
     wired_http_exchange* x, const char* name, const char* value) {
-  if (x->field_count >= WIRED_HTTP_MAX_FIELDS) return 0;
+  if (x->field_count >= WIRED_HTTP_MAX_FIELDS) {
+    return 0;
+  }
   x->fields[x->field_count++] =
       (wired_http_field){wired_span_cstr(name), wired_span_cstr(value)};
   return 1;

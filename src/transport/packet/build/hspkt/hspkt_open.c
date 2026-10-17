@@ -12,7 +12,9 @@ int hspkt_open(
     u64                 largest_pn,
     wired_span*         payload) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) {
+    return 0;
+  }
   vpn_desc d = {pkt, h.pn_off, h.length, largest_pn};
   return vpn_open(k, &d, payload);
 }
@@ -26,7 +28,9 @@ int hspkt_open_suite(
     u64                 largest_pn,
     wired_span*         payload) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return 0;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) {
+    return 0;
+  }
   vpn_desc d = {pkt, h.pn_off, h.length, largest_pn};
   return vpn_open_suite(suite, k, &d, payload);
 }

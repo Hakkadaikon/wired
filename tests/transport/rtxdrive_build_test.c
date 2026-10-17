@@ -13,7 +13,9 @@ static void test_build_roundtrip(void) {
 
   CHECK(rtxdrive_build(&st, 7, &ob) == 1);
   CHECK(ob.len == sizeof s1);
-  for (usz i = 0; i < sizeof s1; i++) CHECK(out[i] == s1[i]);
+  for (usz i = 0; i < sizeof s1; i++) {
+    CHECK(out[i] == s1[i]);
+  }
 }
 
 static void test_build_ack_skipped(void) {

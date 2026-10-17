@@ -13,7 +13,9 @@ static int is_live(const qpack_dyn* t, u64 abs_index) {
 }
 
 int qpack_dyn_get(const qpack_dyn* t, u64 abs_index, qpack_field* out) {
-  if (!is_live(t, abs_index)) return 0;
+  if (!is_live(t, abs_index)) {
+    return 0;
+  }
   qpack_dyn_entry_at(t, (usz)(abs_index - t->dropped), out);
   return 1;
 }

@@ -9,7 +9,9 @@ static void test_tpext_roundtrip(void) {
   usz        r  = tpext_decode(wired_span_of(buf, w), &out);
   CHECK(w == 4 + sizeof(tp) && r == w);
   CHECK(out.n == sizeof(tp) && out.p == buf + 4);
-  for (usz i = 0; i < sizeof(tp); i++) CHECK(out.p[i] == tp[i]);
+  for (usz i = 0; i < sizeof(tp); i++) {
+    CHECK(out.p[i] == tp[i]);
+  }
   /* wire framing: type 0x0039, length */
   CHECK(buf[0] == 0x00 && buf[1] == 0x39);
   CHECK(buf[2] == 0x00 && buf[3] == (u8)sizeof(tp));

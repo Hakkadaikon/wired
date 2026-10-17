@@ -11,7 +11,9 @@
 static int em_eq(const u8* a, usz alen, const char* b) {
   usz i = 0;
   while (b[i]) {
-    if (i >= alen || a[i] != (u8)b[i]) return 0;
+    if (i >= alen || a[i] != (u8)b[i]) {
+      return 0;
+    }
     i++;
   }
   return i == alen;
@@ -27,7 +29,9 @@ static i64 first_static_index(const u8* fs, usz fs_len) {
   usz c         = off ? qpack_indexed_decode(
                             wired_span_of(fs + off, fs_len - off), &index, &is_static)
                       : 0;
-  if (!c || !is_static) return -1;
+  if (!c || !is_static) {
+    return -1;
+  }
   return (i64)index;
 }
 
@@ -70,9 +74,14 @@ static void test_enc_method_unknown_literal(void) {
 
 /* Two byte ranges are identical. */
 static int enc_bytes_eq(const u8* a, usz alen, const u8* b, usz blen) {
-  if (alen != blen) return 0;
-  for (usz i = 0; i < alen; i++)
-    if (a[i] != b[i]) return 0;
+  if (alen != blen) {
+    return 0;
+  }
+  for (usz i = 0; i < alen; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -119,7 +128,9 @@ static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
   usz      off = 0;
   while (off < n) {
     usz used = h3_frame_get(wired_span_of(h3 + off, n - off), &f);
-    if (!used) return 0;
+    if (!used) {
+      return 0;
+    }
     off += used;
     if (f.type == H3_FRAME_DATA) {
       *b    = f.payload;
@@ -134,7 +145,9 @@ static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
  * viewing it, 0 if no DATA frame is present. */
 static int find_data_body(const u8* req, usz req_len, const u8** b, usz* blen) {
   stream_frame f;
-  if (!frame_get_stream(req, req_len, &f)) return 0;
+  if (!frame_get_stream(req, req_len, &f)) {
+    return 0;
+  }
   return scan_for_data(f.data, (usz)f.length, b, blen);
 }
 

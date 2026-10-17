@@ -37,5 +37,7 @@ void test_wyc_rsa_pkcs1(void) {
       WYC_PKCS1(rsa_signature_4096_sha384_test),
       WYC_PKCS1(rsa_signature_4096_sha512_test),
   };
-  for (usz i = 0; i < sizeof runs / sizeof runs[0]; i++) wyc_rsa_loop(&runs[i]);
+  for (usz i = 0; i < sizeof runs / sizeof runs[0]; i++) {
+    wyc_rsa_loop(&runs[i]);
+  }
 }

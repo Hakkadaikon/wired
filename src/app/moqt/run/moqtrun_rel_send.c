@@ -38,7 +38,9 @@ static void moqtrun_rel_send_ring(
     moqtrun_rel_try_fin(hub, wt, relay, rb, i);
     return;
   }
-  if (moqtrun_rel_budget_wait(hub, wt, span.n)) return;
+  if (moqtrun_rel_budget_wait(hub, wt, span.n)) {
+    return;
+  }
   moqtrun_rel_send_span(hub, wt, relay, rb, i, span, now_ms);
 }
 
@@ -75,10 +77,12 @@ static void moqtrun_rel_send_round(
     moqtrel_buf*         rb,
     usz                  i,
     u64                  now_ms) {
-  if (rb->subs[i].lead_skip)
+  if (rb->subs[i].lead_skip) {
     moqtrun_rel_send_lead(hub, wt, relay, rb, i, now_ms);
-  if (!rb->subs[i].lead_skip)
+  }
+  if (!rb->subs[i].lead_skip) {
     moqtrun_rel_send_ring(hub, wt, relay, rb, i, now_ms);
+  }
 }
 
 /* Cursor i's whole drain turn: skip one with nothing to do or a vanished
@@ -91,7 +95,9 @@ void moqtrun_rel_drain_sub(
     usz                  i,
     u64                  now_ms) {
   wired_moqtrun_peer* dst = moqtrun_rel_sub_dst(hub, track, rb, i);
-  if (!dst) return;
+  if (!dst) {
+    return;
+  }
   int code = moqtrun_rel_give_up(track, relay, rb, i, now_ms);
   if (code != MOQTRUN_REL_KEEP) {
     moqtrun_rel_shed(hub, dst->wt, relay, rb, i, (u32)code);
@@ -104,7 +110,9 @@ void moqtrun_rel_drain_sub(
  * back. held is only ever set through a non-null stream_hold (the gate
  * in moqtrun_rel_start), so no null check is needed. */
 void moqtrun_rel_maybe_release(wired_moqt_hub* hub, moqtrel_buf* rb) {
-  if (!rb->held || !moqtrel_should_release(rb)) return;
+  if (!rb->held || !moqtrel_should_release(rb)) {
+    return;
+  }
   hub->io.stream_hold(rb->pub, rb->pub_stream, 0);
   rb->held = 0;
 }
@@ -114,7 +122,9 @@ void moqtrun_rel_maybe_release(wired_moqt_hub* hub, moqtrel_buf* rb) {
  * receive credit must not stay frozen forever. */
 void moqtrun_rel_return_ring(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, moqtrel_buf* rb) {
-  if (rb->held) hub->io.stream_hold(rb->pub, rb->pub_stream, 0);
+  if (rb->held) {
+    hub->io.stream_hold(rb->pub, rb->pub_stream, 0);
+  }
   rb->in_use     = 0;
   relay->rel_idx = -1;
 }

@@ -23,8 +23,11 @@ typedef struct {
 /* Value of key in case c, or 0 when absent. */
 static inline const char* wyc_get(
     const bssl_attr* attrs, const wyc_case* c, const char* key) {
-  for (u32 i = 0; i < c->n; i++)
-    if (bssl_streq(attrs[c->off + i].key, key)) return attrs[c->off + i].val;
+  for (u32 i = 0; i < c->n; i++) {
+    if (bssl_streq(attrs[c->off + i].key, key)) {
+      return attrs[c->off + i].val;
+    }
+  }
   return 0;
 }
 
@@ -33,10 +36,18 @@ static inline int wyc_has_flag(const wyc_case* c, const char* flag) {
   const char* p = c->flags;
   while (*p) {
     const char* q = flag;
-    while (*q && *p == *q) p++, q++;
-    if (!*q && (*p == ',' || !*p)) return 1;
-    while (*p && *p != ',') p++;
-    if (*p == ',') p++;
+    while (*q && *p == *q) {
+      p++, q++;
+    }
+    if (!*q && (*p == ',' || !*p)) {
+      return 1;
+    }
+    while (*p && *p != ',') {
+      p++;
+    }
+    if (*p == ',') {
+      p++;
+    }
   }
   return 0;
 }

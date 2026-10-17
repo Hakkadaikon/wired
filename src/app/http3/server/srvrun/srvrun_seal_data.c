@@ -13,7 +13,9 @@ static int srvrun_seal_data_blocked(
   data_frame            f   = {limit};
   wired_srvloop_send_in sin;
   usz                   pln = data_blocked_encode(plb.p, plb.cap, &f);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -36,7 +38,9 @@ void srvrun_send_data_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 limit) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_data_blocked(c, limit, &ob)) return;
+  if (!srvrun_seal_data_blocked(c, limit, &ob)) {
+    return;
+  }
   /* Once per blocking ceiling, so cheap enough to log unconditionally: a
    * peer whose MAX_DATA never rises again silently stalls every later
    * stream on the connection. */
@@ -51,7 +55,9 @@ int srvrun_seal_max_streams(
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!maxstreams_frame(uni, value, &plb)) return 0;
+  if (!maxstreams_frame(uni, value, &plb)) {
+    return 0;
+  }
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
@@ -72,7 +78,9 @@ static int srvrun_seal_streams_blocked(
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!maxstreams_blocked_frame(uni, limit, &plb)) return 0;
+  if (!maxstreams_blocked_frame(uni, limit, &plb)) {
+    return 0;
+  }
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
       c->l.tx_pn++,
@@ -94,7 +102,9 @@ void srvrun_send_streams_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 limit) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) return;
+  if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) {
+    return;
+  }
   c->stat_streams_blocked++;
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
 }

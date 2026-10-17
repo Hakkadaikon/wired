@@ -2,7 +2,9 @@
 
 static ticket tf_sample_ticket(void) {
   ticket t;
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    t.secret[i] = (u8)i;
+  }
   t.issued_at     = 1000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0xAAAAAAAAu;

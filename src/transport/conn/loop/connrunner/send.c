@@ -8,8 +8,11 @@
 /* Any ack-eliciting packet sitting in the receive queue (RFC 9000 13.2.1). */
 static int queue_has_eliciting(const connrunner* r) {
   usz i;
-  for (i = 0; i < r->loop.rx_n; i++)
-    if (r->loop.rx[i].ack_eliciting) return 1;
+  for (i = 0; i < r->loop.rx_n; i++) {
+    if (r->loop.rx[i].ack_eliciting) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -30,8 +33,11 @@ int connrunner_pending_kind(const connrunner* r) {
   present[1] = will_owe_ack(r);
   present[2] = r->loop.rtx_n > 0;
   present[3] = r->loop.have_new_data;
-  for (kind = 1; kind <= 3; kind++)
-    if (present[kind]) return kind;
+  for (kind = 1; kind <= 3; kind++) {
+    if (present[kind]) {
+      return kind;
+    }
+  }
   return 0;
 }
 
@@ -42,7 +48,9 @@ int connrunner_pending_kind(const connrunner* r) {
 static usz cr_build_ack(const connrunner* r, wired_obuf* out) {
   ack_frame f  = {0};
   u64       rx = connio_rx_next(&r->io, r->loop.level);
-  if (rx == 0) return 0; /* nothing received to acknowledge */
+  if (rx == 0) {
+    return 0; /* nothing received to acknowledge */
+  }
   f.n_ranges     = 1;
   f.ranges[0].hi = rx - 1;
   f.ranges[0].lo = rx - 1;
@@ -58,29 +66,39 @@ static usz cr_build_ping(wired_obuf* out) {
 
 void connrunner_capture_rtx(connrunner* r) {
   r->rtx_held = r->loop.rtx_n > 0;
-  if (r->rtx_held) r->rtx_pn = r->loop.rtx[0].pn;
+  if (r->rtx_held) {
+    r->rtx_pn = r->loop.rtx[0].pn;
+  }
 }
 
 /* RFC 9002 13.3: re-send the lost packet's actual frame bytes under the new
  * packet number. Falls back to a PING stand-in when no lost pn was captured or
  * its bytes are not held. */
 static usz cr_build_rtx(const connrunner* r, wired_obuf* out) {
-  if (r->rtx_held) rtxdrive_build(&r->rtx, r->rtx_pn, out);
+  if (r->rtx_held) {
+    rtxdrive_build(&r->rtx, r->rtx_pn, out);
+  }
   return out->len ? out->len : cr_build_ping(out);
 }
 
 /* Build the frame bytes for kinds 2/3 (retransmission / new-data stand-in);
  * kind 0 is handled before this is reached. */
 static usz cr_build_data(const connrunner* r, int kind, wired_obuf* out) {
-  if (kind == 2) return cr_build_rtx(r, out);
+  if (kind == 2) {
+    return cr_build_rtx(r, out);
+  }
   return cr_build_ping(out); /* new data */
 }
 
 /* Build the frame bytes for the chosen kind into out (1=ACK, 2=retransmission,
  * 3=new-data stand-in, 0=nothing). Returns the length. */
 static usz cr_build_frames(const connrunner* r, int kind, wired_obuf* out) {
-  if (kind == 1) return cr_build_ack(r, out);
-  if (kind == 0) return 0;
+  if (kind == 1) {
+    return cr_build_ack(r, out);
+  }
+  if (kind == 0) {
+    return 0;
+  }
   return cr_build_data(r, kind, out);
 }
 
@@ -88,9 +106,13 @@ usz connrunner_flush_sends(connrunner* r, u64 sent_before, int kind) {
   u8         frames[64];
   usz        fl;
   wired_obuf fb = obuf_of(frames, sizeof(frames));
-  if (r->loop.next_pn == sent_before) return 0; /* loop sent nothing */
+  if (r->loop.next_pn == sent_before) {
+    return 0; /* loop sent nothing */
+  }
   fl = cr_build_frames(r, kind, &fb);
-  if (fl == 0) return 0;
+  if (fl == 0) {
+    return 0;
+  }
   {
     connio_send_in sin = {r->loop.level, wired_span_of(frames, fl)};
     wired_obuf     ob  = obuf_of(r->txbuf, sizeof(r->txbuf));
@@ -104,7 +126,9 @@ static int kind_in_flight(int kind) { return kind >= 2; }
 
 void connrunner_track_sent(connrunner* r, const connrunner_sent_in* in) {
   int infl;
-  if (in->sent_len == 0) return;
+  if (in->sent_len == 0) {
+    return;
+  }
   infl = kind_in_flight(in->kind);
   {
     sentmeta_out pkt = {
@@ -128,12 +152,15 @@ static int take_lost(const connrunner* r, usz n) {
 
 void connrunner_track_loss_ex(connrunner* r, u64 now, u64* lost, usz* n) {
   *n = 0;
-  if (!r->io.disp.has_ack)
+  if (!r->io.disp.has_ack) {
     return; /* largest_acked is only valid after an ACK */
+  }
   sentmeta_loss_in in = {
       r->io.disp.largest_acked, now, CONNRUNNER_NO_RTT_DELAY};
   sentmeta_detect_loss(&r->sent, &in, (sentmeta_u64out){lost, n});
-  if (take_lost(r, *n)) r->rtx_pn = lost[0], r->rtx_held = 1;
+  if (take_lost(r, *n)) {
+    r->rtx_pn = lost[0], r->rtx_held = 1;
+  }
 }
 
 void connrunner_track_loss(connrunner* r, u64 now) {

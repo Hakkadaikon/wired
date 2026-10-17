@@ -20,7 +20,9 @@ void connrunner_keyupdate_init(connrunner* r) {
   usz          i;
   cur_keys(r, &gen0);
   kuswitch_init(&r->ku, &gen0);
-  for (i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = 0;
+  for (i = 0; i < HKDF_PRK; i++) {
+    r->ku_secret[i] = 0;
+  }
   r->ku_phase         = 0; /* RFC 9001 6.2: generation 0 => phase bit 0 */
   r->ku_completed_at  = (u64)-1;
   r->ku_sent_in_phase = 0;
@@ -50,15 +52,21 @@ int connrunner_recv_keygen(connrunner* r, u8 byte0) {
   /* A peer update to a brand-new generation (no old retained yet) is the only
    * case that derives a next read key; everything else must already hold a
    * key for the bit, or the packet is dropped (RFC 9001 6.5). */
-  if (select_next(r, recv_bit, cur_bit)) return 1;
-  if (!kuswitch_key_for_phase(&r->ku, recv_bit, &keys)) return -1;
+  if (select_next(r, recv_bit, cur_bit)) {
+    return 1;
+  }
+  if (!kuswitch_key_for_phase(&r->ku, recv_bit, &keys)) {
+    return -1;
+  }
   return 0; /* current or retained old generation */
 }
 
 /* RFC 9001 6.5: with no prior completed update the re-initiation floor does not
  * apply; otherwise 3*PTO must have elapsed since the last completion. */
 static int reinit_floor_ok(const connrunner* r, u64 now, u64 pto) {
-  if (r->ku_completed_at == (u64)-1) return 1;
+  if (r->ku_completed_at == (u64)-1) {
+    return 1;
+  }
   return kudrive_can_initiate_again(now, r->ku_completed_at, pto);
 }
 
@@ -82,7 +90,9 @@ static void do_initiate(connrunner* r) {
    */
   kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
   kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
-  for (usz i = 0; i < HKDF_PRK; i++) r->ku_secret[i] = next_secret[i];
+  for (usz i = 0; i < HKDF_PRK; i++) {
+    r->ku_secret[i] = next_secret[i];
+  }
   keyset_install(&r->io.loop.keys, LEVEL_ONERTT, &next);
   kuswitch_apply_phase(&r->ku_phase, r->ku.generation); /* ... before toggle */
   r->ku_unacked       = 1;
@@ -91,7 +101,9 @@ static void do_initiate(connrunner* r) {
 }
 
 int connrunner_maybe_initiate_ku(connrunner* r, const connrunner_ku_in* in) {
-  if (!may_initiate(r, in)) return 0;
+  if (!may_initiate(r, in)) {
+    return 0;
+  }
   do_initiate(r);
   return 1;
 }
@@ -103,13 +115,17 @@ static int may_discard(const connrunner* r, u64 now, u64 pto) {
 }
 
 int connrunner_maybe_discard_ku(connrunner* r, u64 now, u64 pto) {
-  if (!may_discard(r, now, pto)) return 0;
+  if (!may_discard(r, now, pto)) {
+    return 0;
+  }
   kuswitch_discard_old(&r->ku);
   return 1;
 }
 
 void connrunner_ku_completed(connrunner* r, u64 now) {
-  if (!r->ku_unacked) return; /* nothing self-initiated to complete */
-  r->ku_completed_at = now;   /* RFC 9001 6.2: pins both 3*PTO floors */
+  if (!r->ku_unacked) {
+    return; /* nothing self-initiated to complete */
+  }
+  r->ku_completed_at = now; /* RFC 9001 6.2: pins both 3*PTO floors */
   r->ku_unacked      = 0;
 }

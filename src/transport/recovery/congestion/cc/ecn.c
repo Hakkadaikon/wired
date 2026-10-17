@@ -8,7 +8,9 @@ int ecn_counts_valid(ecn_counts prev, ecn_counts next) {
 
 void ecn_on_ce_increase(
     cc* c, u64 prev_ce, u64 new_ce, u64 sent_time, u64 now) {
-  if (!ecn_ce_increased(prev_ce, new_ce)) return;
+  if (!ecn_ce_increased(prev_ce, new_ce)) {
+    return;
+  }
   cc_on_loss(c, sent_time, now);
 }
 
@@ -44,7 +46,9 @@ static int ecn_report_ok(const ecn_track* t, const ecn_report* r) {
 
 void ecn_track_on_counts(
     ecn_track* t, cc* c, const ecn_report* r, u64 sent_time, u64 now) {
-  if (!t->enabled) return;
+  if (!t->enabled) {
+    return;
+  }
   if (!ecn_report_ok(t, r)) {
     ecn_track_fail(t);
     return;
@@ -54,5 +58,7 @@ void ecn_track_on_counts(
 }
 
 void ecn_track_on_missing(ecn_track* t, u64 sent_ect) {
-  if (t->enabled && sent_ect > 0) ecn_track_fail(t);
+  if (t->enabled && sent_ect > 0) {
+    ecn_track_fail(t);
+  }
 }

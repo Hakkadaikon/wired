@@ -33,10 +33,13 @@ static void moqtrun_up_on_ok(
     wired_span          body) {
   usz                 off = 0;
   moqctl_subscribe_ok m;
-  if (u->track_tag) return;
-  if (!moqtrun_take_or_close(
-          hub, pp, moqctl_subscribe_ok_take(pp->ver, body, &off, &m)))
+  if (u->track_tag) {
     return;
+  }
+  if (!moqtrun_take_or_close(
+          hub, pp, moqctl_subscribe_ok_take(pp->ver, body, &off, &m))) {
+    return;
+  }
   moqtrun_up_claim(hub, pp, u, &m);
 }
 
@@ -50,10 +53,13 @@ static void moqtrun_up_on_error(
     wired_span          body) {
   usz                  off = 0;
   moqctl_request_error e;
-  if (u->track_tag) return;
-  if (!moqtrun_take_or_close(
-          hub, pp, moqctl_request_error_take(body, &off, &e)))
+  if (u->track_tag) {
     return;
+  }
+  if (!moqtrun_take_or_close(
+          hub, pp, moqctl_request_error_take(body, &off, &e))) {
+    return;
+  }
   moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), e.error_code);
   hub->io.stream_fin(u->wt, u->stream_id);
   u->in_use = 0;
@@ -68,7 +74,9 @@ static void moqtrun_up_on_done(
     wired_moqtrun_up*   u,
     wired_span          body) {
   wired_moqtrun_track* t = moqtrun_up_track(pp, u);
-  if (!t) return;
+  if (!t) {
+    return;
+  }
   u->done = 1;
   moqtrun_pubdone_arm(hub, pp, t, body);
 }
@@ -81,7 +89,9 @@ void moqtrun_up_on_reset(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id) {
   wired_moqtrun_up*    u = moqtrun_up_of_stream(hub, p->wt, stream_id);
   wired_moqtrun_track* t;
-  if (!u) return;
+  if (!u) {
+    return;
+  }
   t = moqtrun_up_track(p, u);
   moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), MOQCTL_ERR_INTERNAL_ERROR);
   if (t) {
@@ -110,17 +120,20 @@ static void moqtrun_up_route(
     u64                 type,
     wired_span          body) {
   for (usz i = 0; i < sizeof MOQTRUN_UP_ROUTES / sizeof MOQTRUN_UP_ROUTES[0];
-       i++)
-    if (MOQTRUN_UP_ROUTES[i].type == type)
+       i++) {
+    if (MOQTRUN_UP_ROUTES[i].type == type) {
       MOQTRUN_UP_ROUTES[i].fn(hub, pp, u, body);
+    }
+  }
 }
 
 static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64        type = 0;
   wired_span body = {0, 0};
-  while (u->in_use && moqtrun_asm_pop(&u->in, &type, &body) == MOQCTL_OK)
+  while (u->in_use && moqtrun_asm_pop(&u->in, &type, &body) == MOQCTL_OK) {
     moqtrun_up_route(hub, pp, u, type, body);
+  }
 }
 
 /* The waiters' answers go out, and their streams settle, in the same
@@ -132,7 +145,9 @@ int moqtrun_up_rx(
     u64                 stream_id,
     wired_span          data) {
   wired_moqtrun_up* u = moqtrun_up_of_stream(hub, p->wt, stream_id);
-  if (!u) return 0;
+  if (!u) {
+    return 0;
+  }
   moqtrun_asm_push(&u->in, &data);
   moqtrun_up_drain(hub, p, u);
   moqtrun_reqs_tick(hub);

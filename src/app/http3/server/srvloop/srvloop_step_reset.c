@@ -25,8 +25,9 @@ static void srvloop_step_packets(
   usz       offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   pktlist   plist = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
   n               = udploop_split(wired_span_of(dgram.p, dgram.n), &plist);
-  for (i = 0; i < n; i++)
+  for (i = 0; i < n; i++) {
     srvloop_step_one(conn, wired_mspan_of(dgram.p + offs[i], lens[i]));
+  }
 }
 
 /* RFC 9000 12.2: a received datagram may coalesce several QUIC packets (e.g. an

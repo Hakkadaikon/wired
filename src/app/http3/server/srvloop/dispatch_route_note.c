@@ -24,7 +24,9 @@ void srvloop_route_note_done(wired_srvloop* l, int i) {
   l->req           = l->streams[i].req;
   l->req_stream_id = l->streams[i].stream_id;
   srvloop_route_qpack_ack(l, i);
-  if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
+  if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) {
+    l->done_slots[l->done_n++] = (u8)i;
+  }
 }
 
 /* Append slot i to frame_unexpected_slots (RFC 9114 7.2.5/7.2.8, 9114-067/
@@ -32,8 +34,9 @@ void srvloop_route_note_done(wired_srvloop* l, int i) {
  * incomplete branch stays a single extra check there. */
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i) {
   route_unreset(l, i);
-  if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS)
+  if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
+  }
 }
 
 /* RFC 9114 4.1.2: slot holds a whole HEADERS frame -- a rejected request
@@ -50,9 +53,12 @@ static int route_headers_whole(const wired_srvloop_stream_slot* slot) {
 static void route_note_incomplete_append(wired_srvloop* l, int i) {
   route_unreset(l, i);
   l->streams[i].req_incomplete = 1;
-  if (route_headers_whole(&l->streams[i])) l->malformed_slots |= (u64)1 << i;
-  if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)
+  if (route_headers_whole(&l->streams[i])) {
+    l->malformed_slots |= (u64)1 << i;
+  }
+  if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->incomplete_slots[l->incomplete_n++] = (u8)i;
+  }
 }
 
 /* RFC 9114 4.1: slot i's request stream completed (FIN, or a HEADERS frame
@@ -64,10 +70,11 @@ static void route_note_incomplete_append(wired_srvloop* l, int i) {
  * 9114-067/9114-073), which takes the H3_FRAME_UNEXPECTED list instead. */
 static void route_note_incomplete(wired_srvloop* l, int i) {
   wired_srvloop_stream_slot* slot = &l->streams[i];
-  if (slot->req.frame_unexpected)
+  if (slot->req.frame_unexpected) {
     srvloop_route_note_frame_unexpected(l, i);
-  else
+  } else {
     route_note_incomplete_append(l, i);
+  }
 }
 
 /* RFC 9114 4.1 vs hq-interop (see hq09.h): dispatch slot i's just-completed
@@ -78,17 +85,19 @@ void srvloop_route_dispatch_complete(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_reqacc*             acc,
     const wired_srvloop_dispatch_in*  sin) {
-  if (ctx->s->sdrv.alpn == SALPN_HQ)
+  if (ctx->s->sdrv.alpn == SALPN_HQ) {
     srvloop_drive_complete_hq09(acc, sin);
-  else
+  } else {
     srvloop_drive_complete(ctx->h3, acc, sin);
+  }
 }
 
 /* RFC 9204 4.5.1 / 2.1.2: a section prefix that failed to decode is a
  * connection error, not just an aborted request. */
 void srvloop_route_note_qpack(wired_srvloop* l, int i) {
-  if (l->streams[i].req.qpack_failed)
+  if (l->streams[i].req.qpack_failed) {
     l->qpack_stream_violation = QPACK_DECOMPRESSION_FAILED;
+  }
 }
 
 /* A completed stream that yielded no request: reading stops, so a Stream
@@ -105,10 +114,11 @@ static void route_note_rejected(wired_srvloop* l, int i) {
  * rejected stream to abort. */
 void srvloop_route_note_result(wired_srvloop* l, int i, int got) {
   srvloop_route_note_qpack(l, i);
-  if (got)
+  if (got) {
     srvloop_route_note_done(l, i);
-  else
+  } else {
     route_note_rejected(l, i);
+  }
 }
 
 /* RFC 6585 5 / RFC 9110 15.5.14: 431 when the leading HEADERS frame itself
@@ -142,7 +152,9 @@ static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
  * slot i was handled this way. */
 int srvloop_route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i) {
   wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
-  if (!route_is_over(ctx, i)) return 0;
+  if (!route_is_over(ctx, i)) {
+    return 0;
+  }
   slot->req_done             = 1;
   slot->req                  = (wired_h3reqdrive_req){0};
   slot->req.too_large_status = route_too_large_status(slot);
@@ -164,7 +176,9 @@ int srvloop_route_body_on(const wired_srvloop_dispatch_ctx* ctx) {
  * there is none yet -- or the slot was already answered on the buffered
  * path. */
 usz srvloop_route_body_head_len(const wired_srvloop_stream_slot* slot) {
-  if (slot->req_done) return 0;
+  if (slot->req_done) {
+    return 0;
+  }
   return wired_h3reqdrive_headers_end(
       wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)));
 }
@@ -179,7 +193,9 @@ int srvloop_route_body_decode(
   stream_frame       f  = {0, 0, n, slot->req_buf, 0};
   wired_obuf         ob = obuf_of(slot->req_wrap, sizeof slot->req_wrap);
   wired_h3srv_req_in rin;
-  if (!appdata_stream_frame(&f, &ob)) return 0;
+  if (!appdata_stream_frame(&f, &ob)) {
+    return 0;
+  }
   rin = (wired_h3srv_req_in){
       wired_span_of(slot->req_wrap, ob.len),
       wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch)};

@@ -18,7 +18,9 @@ static usz  moqfetch_fill_items(const moqfetch_fill* f, moqctl_params* p);
 static usz moqfetch_req22_filter_slot(const moqctl_params* params) {
   usz i;
   for (i = 0; i < params->n; i++) {
-    if (params->items[i].type >= MOQCTL_PARAM_LOCATION_FILTER) break;
+    if (params->items[i].type >= MOQCTL_PARAM_LOCATION_FILTER) {
+      break;
+    }
   }
   return i;
 }
@@ -30,10 +32,13 @@ static usz moqfetch_req22_filter_slot(const moqctl_params* params) {
 static void moqfetch_req22_put_filter(moqfetch_req* m) {
   moqctl_param* p;
   usz           slot, j;
-  if (moqctl_params_find(&m->params, MOQCTL_PARAM_LOCATION_FILTER)) return;
+  if (moqctl_params_find(&m->params, MOQCTL_PARAM_LOCATION_FILTER)) {
+    return;
+  }
   slot = moqfetch_req22_filter_slot(&m->params);
-  for (j = m->params.n; j > slot; j--)
+  for (j = m->params.n; j > slot; j--) {
     m->params.items[j] = m->params.items[j - 1];
+  }
   p             = &m->params.items[slot];
   p->type       = MOQCTL_PARAM_LOCATION_FILTER;
   p->enc        = MOQCTL_PENC_RANGELOC22;
@@ -44,15 +49,21 @@ static void moqfetch_req22_put_filter(moqfetch_req* m) {
 
 static int moqfetch_req22_put_head(
     wired_mspan buf, usz* off, const moqfetch_req* m) {
-  if (!moqvi_put(buf, off, m->request_id)) return 0;
+  if (!moqvi_put(buf, off, m->request_id)) {
+    return 0;
+  }
   return moqctl_ns_put(buf, off, &m->track.ns);
 }
 
 int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
   moqfetch_req tmp = *m;
   moqfetch_req22_put_filter(&tmp);
-  if (!moqfetch_req22_put_head(buf, off, &tmp)) return 0;
-  if (!moqctl_name_put(buf, off, tmp.track.name)) return 0;
+  if (!moqfetch_req22_put_head(buf, off, &tmp)) {
+    return 0;
+  }
+  if (!moqctl_name_put(buf, off, tmp.track.name)) {
+    return 0;
+  }
   return moqctl_params_put(buf, off, &tmp.params);
 }
 
@@ -63,7 +74,9 @@ int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
 static int moqfetch_fill_params(wired_span v, moqctl_params* p) {
   usz at = 0;
   int r  = moqctl_params_take(MOQVER_D22, v, &at, MOQCTL_PCTX_FETCH, p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return at == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
@@ -72,7 +85,9 @@ static int moqfetch_fill_params(wired_span v, moqctl_params* p) {
 static void moqfetch_fill_filter_of(const moqctl_params* p, moqfetch_fill* o) {
   const moqctl_param* lf = moqctl_params_find(p, MOQCTL_PARAM_LOCATION_FILTER);
   o->inherit             = lf == 0;
-  if (!lf || !lf->has_filter) return;
+  if (!lf || !lf->has_filter) {
+    return;
+  }
   o->has_filter = 1;
   o->range      = lf->rl;
 }
@@ -85,7 +100,9 @@ static int moqfetch_fill_desc_of(const moqctl_params* p) {
 static void moqfetch_fill_tmo_of(const moqctl_params* p, moqfetch_fill* o) {
   const moqctl_param* to = moqctl_params_find(p, MOQCTL_PARAM_FILL_TIMEOUT);
   o->has_timeout         = to != 0;
-  if (to) o->timeout_ms = to->vi;
+  if (to) {
+    o->timeout_ms = to->vi;
+  }
 }
 
 int moqfetch_fill_take(wired_span value, moqfetch_fill* out) {
@@ -94,7 +111,9 @@ int moqfetch_fill_take(wired_span value, moqfetch_fill* out) {
   bytes_memset(out, 0, sizeof *out);
   if (value.n != 0) { /* zero-length: the whole track (Q-02) */
     int r = moqfetch_fill_params(value, &p);
-    if (r != MOQCTL_OK) return r;
+    if (r != MOQCTL_OK) {
+      return r;
+    }
     moqfetch_fill_filter_of(&p, out);
   }
   out->descending = moqfetch_fill_desc_of(&p);

@@ -14,7 +14,9 @@ void wired_sendq_set_ring(wired_sendq* q, usz cap) { q->cap = cap; }
 
 const u8* wired_sendq_slice_data(
     const wired_sendq* q, const wired_sendq_slice* sl) {
-  if (!q->cap) return q->p + sl->offset;
+  if (!q->cap) {
+    return q->p + sl->offset;
+  }
   return q->p + sl->offset % q->cap;
 }
 
@@ -22,13 +24,17 @@ const u8* wired_sendq_slice_data(
  * at the wrap, so a slice's bytes are always contiguous in storage. */
 static usz sendq_take(const wired_sendq* q) {
   usz n = u64_min(q->len - q->cur, q->chunk);
-  if (q->cap) n = u64_min(n, q->cap - q->cur % q->cap);
+  if (q->cap) {
+    n = u64_min(n, q->cap - q->cur % q->cap);
+  }
   return n;
 }
 
 int wired_sendq_next(wired_sendq* q, wired_sendq_slice* out) {
   usz n = sendq_take(q);
-  if (q->cur >= q->len) return 0;
+  if (q->cur >= q->len) {
+    return 0;
+  }
   out->offset = q->cur;
   out->len    = n;
   q->cur += n;

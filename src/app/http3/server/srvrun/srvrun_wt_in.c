@@ -25,8 +25,9 @@ static int srvrun_wt_in_class(
 static u32 srvrun_wt_pass_mask(const srvrun_conn* c) {
   u32 key  = srvrun_wt_pass_key(c);
   u32 mask = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     mask |= (u32)srvrun_wt_in_class(c, &c->wtsend[i], key) << i;
+  }
   return mask;
 }
 
@@ -44,9 +45,11 @@ static int srvrun_wt_in_pass(
 static int srvrun_pump_wt_round_matching(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u32 mask) {
   int sent = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, mask, i))
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, mask, i)) {
       sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
+    }
+  }
   return sent;
 }
 
@@ -106,15 +109,17 @@ static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i) {
  * per-round build used to. */
 void srvrun_prio_refresh(srvrun_conn* c) {
   h3prio_candidate cand[SRVRUN_RESP_SLOTS];
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     cand[i] = srvrun_resp_candidate(c, i);
+  }
   h3prio_order(cand, SRVRUN_RESP_SLOTS, c->prio_order);
 }
 
 static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent = 0;
-  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++)
+  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++) {
     sent |= srvrun_pump_one(ctx, c, &c->resp[c->prio_order[k]]);
+  }
   return sent;
 }
 
@@ -146,14 +151,20 @@ static int srvrun_live_requeued(int in_use, const wired_sendsess* sess) {
 
 /* 1 if any resp[] slot has a PTO probe queued. */
 int srvrun_any_resp_requeued(const srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (srvrun_live_requeued(c->resp[i].in_use, &c->resp[i].sess)) return 1;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (srvrun_live_requeued(c->resp[i].in_use, &c->resp[i].sess)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* 1 if any WT send slot has a PTO probe queued. */
 int srvrun_any_wtsend_requeued(const srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_live_requeued(c->wtsend[i].in_use, &c->wtsend[i].sess)) return 1;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (srvrun_live_requeued(c->wtsend[i].in_use, &c->wtsend[i].sess)) {
+      return 1;
+    }
+  }
   return 0;
 }

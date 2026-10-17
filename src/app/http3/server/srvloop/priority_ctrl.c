@@ -23,8 +23,9 @@ static int ctrl_is_uni_stream_id(u64 stream_id) {
 int srvloop_ctrl_leading_type_is_control(const stream_frame* sf) {
   u64 v;
   usz off = 0;
-  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
+  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v)) {
     return 0;
+  }
   return h3_stream_type_is_control(v);
 }
 
@@ -40,7 +41,9 @@ int srvloop_ctrl_stream_of(u64 type, wired_span frame, stream_frame* sf) {
  * payload: the whole varint for the offset-0 frame, none for any later one
  * (the type never reappears mid-stream). */
 static usz ctrl_skip_len(const stream_frame* sf) {
-  if (sf->offset == 0) return CTRL_TYPE_LEN;
+  if (sf->offset == 0) {
+    return CTRL_TYPE_LEN;
+  }
   return 0;
 }
 
@@ -48,7 +51,9 @@ static usz ctrl_skip_len(const stream_frame* sf) {
  * it lands in l->ctrl's post-type-varint coordinate space (offset 0 of
  * l->ctrl.buf is the type varint's first following byte). */
 static u64 ctrl_abs_off(const stream_frame* sf) {
-  if (sf->offset == 0) return 0;
+  if (sf->offset == 0) {
+    return 0;
+  }
   return sf->offset - CTRL_TYPE_LEN;
 }
 
@@ -62,7 +67,9 @@ static u64 ctrl_abs_off(const stream_frame* sf) {
  * reclaimed (below l->ctrl.base). 0 when nothing new remains. */
 static int ctrl_trim_stale(const wired_srvloop* l, u64* abs, wired_span* d) {
   u64 drop = *abs < l->ctrl.base ? l->ctrl.base - *abs : 0;
-  if (drop >= d->n) return 0;
+  if (drop >= d->n) {
+    return 0;
+  }
   d->p += drop;
   d->n -= (usz)drop;
   *abs += drop;
@@ -78,14 +85,18 @@ static void ctrl_store(wired_srvloop* l, u64 abs, wired_span d) {
     l->ctrl_overflow = 1;
     return;
   }
-  if (off > l->ctrl.len) l->ctrl.len = off;
+  if (off > l->ctrl.len) {
+    l->ctrl.len = off;
+  }
 }
 
 void srvloop_ctrl_land(wired_srvloop* l, const stream_frame* sf) {
   usz        skip = ctrl_skip_len(sf);
   u64        abs  = ctrl_abs_off(sf);
   wired_span d    = wired_span_of(sf->data + skip, (usz)sf->length - skip);
-  if (ctrl_trim_stale(l, &abs, &d)) ctrl_store(l, abs, d);
+  if (ctrl_trim_stale(l, &abs, &d)) {
+    ctrl_store(l, abs, d);
+  }
 }
 
 /* Reclaim the walked prefix: slide the unparsed backlog to buf[0]. */

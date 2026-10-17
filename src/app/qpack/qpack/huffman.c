@@ -77,5 +77,7 @@ void qpack_step_bit(hctx* c, u32 bit) {
     c->ok = 0;
     return;
   }
-  if (code_ready(c->acc, c->nbits)) emit_code(c);
+  if (code_ready(c->acc, c->nbits)) {
+    emit_code(c);
+  }
 }

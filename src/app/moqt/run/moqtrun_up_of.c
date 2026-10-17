@@ -13,14 +13,20 @@ static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {
 }
 
 wired_moqtrun_up* moqtrun_up_of_key(wired_moqt_hub* hub, moqtrun_key k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
-    if (moqtrun_up_matches(&hub->ups[i], k)) return &hub->ups[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_matches(&hub->ups[i], k)) {
+      return &hub->ups[i];
+    }
+  }
   return 0;
 }
 
 wired_moqtrun_up* moqtrun_up_free_slot(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
-    if (!hub->ups[i].in_use) return &hub->ups[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (!hub->ups[i].in_use) {
+      return &hub->ups[i];
+    }
+  }
   return 0;
 }
 
@@ -31,8 +37,11 @@ static int moqtrun_up_on_stream(
 
 wired_moqtrun_up* moqtrun_up_of_stream(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
-    if (moqtrun_up_on_stream(&hub->ups[i], s, sid)) return &hub->ups[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_on_stream(&hub->ups[i], s, sid)) {
+      return &hub->ups[i];
+    }
+  }
   return 0;
 }
 
@@ -43,8 +52,11 @@ static int moqtrun_up_unanswered(
 
 int moqtrun_up_pending_for(
     const wired_moqt_hub* hub, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
-    if (moqtrun_up_unanswered(&hub->ups[i], s)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_unanswered(&hub->ups[i], s)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -55,9 +67,11 @@ static int moqtrun_up_is_track(const wired_moqtrun_track* t, u64 tag) {
 
 wired_moqtrun_track* moqtrun_up_track(
     wired_moqtrun_peer* pp, const wired_moqtrun_up* u) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++)
-    if (moqtrun_up_is_track(&pp->tracks[i], u->track_tag))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
+    if (moqtrun_up_is_track(&pp->tracks[i], u->track_tag)) {
       return &pp->tracks[i];
+    }
+  }
   return 0;
 }
 

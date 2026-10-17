@@ -18,7 +18,9 @@ static void on_session(
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
   (void)ctx;
-  if (!fin) return;
+  if (!fin) {
+    return;
+  }
   wired_dprintf(2, "stream %.*s\n", WIRED_SPAN_ARG(data));
   wired_server_wt_stream_reply(s, stream_id, data);
 }

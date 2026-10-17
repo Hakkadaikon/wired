@@ -30,17 +30,23 @@ const mont384 p384_mont_n = {
     0x6ed46089e88fdc45ULL};
 
 void fp384_set(p384_fe r, const p384_fe a) {
-  for (usz i = 0; i < 6; i++) r[i] = a[i];
+  for (usz i = 0; i < 6; i++) {
+    r[i] = a[i];
+  }
 }
 
 int fp384_is_zero(const p384_fe a) {
   u64 d = 0;
-  for (usz i = 0; i < 6; i++) d |= a[i];
+  for (usz i = 0; i < 6; i++) {
+    d |= a[i];
+  }
   return d == 0;
 }
 
 int fp384_eq(const p384_fe a, const p384_fe b) {
   u64 d = 0;
-  for (usz i = 0; i < 6; i++) d |= a[i] ^ b[i];
+  for (usz i = 0; i < 6; i++) {
+    d |= a[i] ^ b[i];
+  }
   return d == 0;
 }

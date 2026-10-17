@@ -20,7 +20,9 @@ const u8 hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
  * random sentinel. Returns the offset past it. */
 static usz hrr_prefix(u8* out, usz off, u16 cipher_suite) {
   be_put_be16(out + off, 0x0303);
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = hrr_random[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = hrr_random[i];
+  }
   out[off + 34] = 0; /* empty session_id */
   be_put_be16(out + off + 35, cipher_suite);
   out[off + 37] = 0; /* compression */
@@ -63,8 +65,12 @@ static int hrr_cookie_body(wired_obuf* out, wired_span ck) {
 
 /* RFC 8446 4.2.2 cookie: ext_data is opaque cookie<1..2^16-1>. */
 static int hrr_cookie(wired_obuf* out, wired_span ck) {
-  if (ck.n == 0) return 1;
-  if (ck.n > 0xFFFF) return 0;
+  if (ck.n == 0) {
+    return 1;
+  }
+  if (ck.n > 0xFFFF) {
+    return 0;
+  }
   return hrr_cookie_body(out, ck);
 }
 
@@ -79,9 +85,13 @@ static usz hrr_exts(wired_obuf* out, u16 group, wired_span ck) {
 /* Finish the extensions block and patch the handshake length. */
 static usz hrr_finish(u8* buf, usz off, usz block_start) {
   usz end;
-  if (off == 0) return 0;
+  if (off == 0) {
+    return 0;
+  }
   end = tls_ext_block_finish(buf, off, block_start);
-  if (end != 0) hs_finish(buf, end);
+  if (end != 0) {
+    hs_finish(buf, end);
+  }
   return end;
 }
 
@@ -95,13 +105,17 @@ int hrr_build(
   usz        off = hs_begin(out->p, out->cap, HS_SERVER_HELLO);
   usz        block_start, end;
   wired_obuf w;
-  if (!hrr_head_fits(off, out->cap)) return 0;
+  if (!hrr_head_fits(off, out->cap)) {
+    return 0;
+  }
   off         = hrr_prefix(out->p, off, cipher_suite);
   block_start = off;
   w           = obuf_of(out->p, out->cap);
   w.len       = off + 2;
   end = hrr_finish(out->p, hrr_exts(&w, selected_group, cookie), block_start);
-  if (end == 0) return 0;
+  if (end == 0) {
+    return 0;
+  }
   out->len = end;
   return 1;
 }
@@ -118,8 +132,12 @@ static int hrr_mh_fits(usz off, usz n, usz cap) {
 
 usz hrr_message_hash(const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap) {
   usz off = hs_begin(out, cap, HS_MESSAGE_HASH);
-  if (!hrr_mh_fits(off, ch1_hash_len, cap)) return 0;
-  for (usz i = 0; i < ch1_hash_len; i++) out[off + i] = ch1_hash[i];
+  if (!hrr_mh_fits(off, ch1_hash_len, cap)) {
+    return 0;
+  }
+  for (usz i = 0; i < ch1_hash_len; i++) {
+    out[off + i] = ch1_hash[i];
+  }
   hs_finish(out, off + ch1_hash_len);
   return off + ch1_hash_len;
 }

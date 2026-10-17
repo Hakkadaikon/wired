@@ -152,7 +152,9 @@ struct sdt_client {
 /* The DCID this client writes on 1-RTT packets: the server's own SCID once
  * captured, the pre-handshake CID before that (RFC 9000 7.2). */
 static wired_span sdt_dcid(const struct sdt_client* cx) {
-  if (cx->srv_scid_len) return wired_span_of(cx->srv_scid, cx->srv_scid_len);
+  if (cx->srv_scid_len) {
+    return wired_span_of(cx->srv_scid, cx->srv_scid_len);
+  }
   return wired_span_of(g_sdt_cli_scid, 6);
 }
 
@@ -187,14 +189,18 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
       random, cx->pub, wired_span_of((const u8*)0, 0), wired_span_of(tp, tn)};
   wired_obuf ob = obuf_of(ch, cap);
   usz        n  = tls_client_hello(&in, &ob);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   bytes_memcpy(cx->c.tls.transcript_ch, ch, n);
   cx->c.tls.transcript_ch_len = n;
   return n;
 }
 
 static void sdt_client_init(struct sdt_client* cx) {
-  for (usz i = 0; i < 32; i++) cx->priv[i] = (u8)(0x11 + i);
+  for (usz i = 0; i < 32; i++) {
+    cx->priv[i] = (u8)(0x11 + i);
+  }
   wired_x25519_base(cx->pub, cx->priv);
   tlsdriver_init(&cx->c.tls, cx->priv, cx->pub, 0);
   /* Our own raw ClientHello (with the DATAGRAM transport parameter), saved
@@ -202,7 +208,9 @@ static void sdt_client_init(struct sdt_client* cx) {
    * on the wire. */
   cx->ch_len = sdt_build_ch_with_dg_tp(cx, cx->ch, sizeof cx->ch);
   cx->fd     = wired_udp_socket();
-  if (cx->fd >= 0) sdt_set_rcvtimeo(cx->fd, 200); /* 200ms per recv */
+  if (cx->fd >= 0) {
+    sdt_set_rcvtimeo(cx->fd, 200); /* 200ms per recv */
+  }
   wired_udp_addr(&cx->srv, SDT_PORT, (const u8[4]){127, 0, 0, 1});
 }
 
@@ -220,7 +228,9 @@ static void sdt_client_init(struct sdt_client* cx) {
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
   sockaddr from;
   i64      r = wired_udp_recvfrom(fd, wired_mspan_of(buf, cap), &from);
-  if (r <= 0) return 0;
+  if (r <= 0) {
+    return 0;
+  }
   *out_len = (usz)r;
   return 1;
 }
@@ -241,7 +251,9 @@ typedef struct {
  * duplicate/late retransmit must not clobber the first genuine reply). */
 static void sdt_fill_slot(
     u8* dst, usz cap, usz* out_len, const u8* buf, usz len) {
-  if (*out_len != 0) return;
+  if (*out_len != 0) {
+    return;
+  }
   bytes_memcpy(dst, buf, len < cap ? len : cap);
   *out_len = len;
 }
@@ -253,9 +265,12 @@ static void sdt_fill_slot(
 static void sdt_classify_flight_dgram(
     const sdt_flight_slots* s, const u8* buf, usz len) {
   int pt = packet_long_type(buf[0], VERSION_1);
-  if (pt == PT_INITIAL) sdt_fill_slot(s->ini_reply, s->icap, s->ilen, buf, len);
-  if (pt == PT_HANDSHAKE)
+  if (pt == PT_INITIAL) {
+    sdt_fill_slot(s->ini_reply, s->icap, s->ilen, buf, len);
+  }
+  if (pt == PT_HANDSHAKE) {
     sdt_fill_slot(s->hs_reply, s->hcap, s->hlen, buf, len);
+  }
 }
 
 /* One receive-and-classify step; scratch is sized for the larger of the two
@@ -263,7 +278,9 @@ static void sdt_classify_flight_dgram(
 static void sdt_flight_recv_step(i64 fd, const sdt_flight_slots* s) {
   u8  scratch[1500];
   usz n;
-  if (!sdt_recv_one(fd, scratch, sizeof scratch, &n)) return;
+  if (!sdt_recv_one(fd, scratch, sizeof scratch, &n)) {
+    return;
+  }
   sdt_classify_flight_dgram(s, scratch, n);
 }
 
@@ -284,7 +301,9 @@ static int sdt_flight_pending(const sdt_flight_slots* s, u64 dl) {
  */
 static int sdt_initial_round(
     struct sdt_client* cx, wired_span dg, const sdt_flight_slots* s) {
-  if (wired_udp_send(cx->fd, &cx->srv, dg) < 0) return 0;
+  if (wired_udp_send(cx->fd, &cx->srv, dg) < 0) {
+    return 0;
+  }
   sdt_flight_recv_step(cx->fd, s);
   return 1;
 }
@@ -306,8 +325,11 @@ static int sdt_retry_initial(
   u64              dl = clock_mono_ms() + 5000;
   *ilen               = 0;
   *hlen               = 0;
-  while (sdt_flight_pending(&s, dl))
-    if (!sdt_initial_round(cx, dg, &s)) return 0;
+  while (sdt_flight_pending(&s, dl)) {
+    if (!sdt_initial_round(cx, dg, &s)) {
+      return 0;
+    }
+  }
   return sdt_flight_done(&s);
 }
 
@@ -329,7 +351,9 @@ static int sdt_do_initial(
   initpkt_desc d  = {
       wired_span_of(g_sdt_cli_scid, 6), wired_span_of(g_sdt_cli_scid, 6),
       wired_span_of(cx->ch, cx->ch_len), 0, 0};
-  if (!initpkt_build(&d, &ob)) return 0;
+  if (!initpkt_build(&d, &ob)) {
+    return 0;
+  }
   return sdt_retry_initial(
       cx, wired_span_of(dg, ob.len), ini_reply, cap, ilen, hs_reply, hcap,
       hlen);
@@ -366,8 +390,12 @@ static int sdt_do_initial(
 static int sdt_append_chsh(struct sdt_client* cx, wired_span tls) {
   usz         off = 0;
   wired_mspan buf = wired_mspan_of(cx->chsh, sizeof cx->chsh);
-  if (!bytes_put(buf, &off, wired_span_of(cx->ch, cx->ch_len))) return 0;
-  if (!bytes_put(buf, &off, tls)) return 0;
+  if (!bytes_put(buf, &off, wired_span_of(cx->ch, cx->ch_len))) {
+    return 0;
+  }
+  if (!bytes_put(buf, &off, tls)) {
+    return 0;
+  }
   cx->chsh_len = off;
   return 1;
 }
@@ -376,8 +404,12 @@ static int sdt_feed_serverhello(struct sdt_client* cx, wired_span tls) {
   u8                    cframe[600];
   wired_obuf            cb  = obuf_of(cframe, sizeof cframe);
   crypto_stream_emit_in ein = {0, (usz)tls.n};
-  if (!sdt_append_chsh(cx, tls)) return 0;
-  if (!crypto_stream_emit(tls, &ein, &cb)) return 0;
+  if (!sdt_append_chsh(cx, tls)) {
+    return 0;
+  }
+  if (!crypto_stream_emit(tls, &ein, &cb)) {
+    return 0;
+  }
   return tlsdriver_recv_crypto(&cx->c.tls, cframe, cb.len);
 }
 
@@ -389,7 +421,9 @@ static int sdt_feed_serverhello(struct sdt_client* cx, wired_span tls) {
  * once EE's bytes are available -- see sdt_finish_hs_secrets. */
 static int sdt_rederive_hs_keys(struct sdt_client* cx) {
   const u8* shared;
-  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
+  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) {
+    return 0;
+  }
   keysched_init(&cx->c.tls.ks); /* undo the wrong-transcript stage */
   return keysched_advance_handshake(
       &cx->c.tls.ks, wired_span_of(shared, 32),
@@ -401,8 +435,12 @@ static int sdt_rederive_hs_keys(struct sdt_client* cx) {
  * pre-handshake CID in use. */
 static void sdt_capture_srv_scid(struct sdt_client* cx, u8* pkt, usz len) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(pkt, len), 1, &h)) return;
-  if (h.scid.n > sizeof cx->srv_scid) return;
+  if (!lhdr_parse(wired_span_of(pkt, len), 1, &h)) {
+    return;
+  }
+  if (h.scid.n > sizeof cx->srv_scid) {
+    return;
+  }
   bytes_memcpy(cx->srv_scid, h.scid.p, h.scid.n);
   cx->srv_scid_len = (u8)h.scid.n;
 }
@@ -412,8 +450,12 @@ static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
   clientwire_open_in oin = {
       wired_span_of(g_sdt_cli_scid, 6), wired_mspan_of(pkt, len), 0};
   sdt_capture_srv_scid(cx, pkt, len);
-  if (!client_open_initial_wire(&oin, &tls)) return 0;
-  if (!sdt_feed_serverhello(cx, tls)) return 0;
+  if (!client_open_initial_wire(&oin, &tls)) {
+    return 0;
+  }
+  if (!sdt_feed_serverhello(cx, tls)) {
+    return 0;
+  }
   return sdt_rederive_hs_keys(cx);
 }
 
@@ -453,16 +495,21 @@ static int sdt_build_chshee(struct sdt_client* cx, const u8* ee, usz ee_len) {
   usz         sh_len = cx->chsh_len - cx->ch_len;
   wired_mspan buf =
       wired_mspan_of(cx->c.sh_transcript, sizeof cx->c.sh_transcript);
-  if (!bytes_put(buf, &off, wired_span_of(cx->chsh + cx->ch_len, sh_len)))
+  if (!bytes_put(buf, &off, wired_span_of(cx->chsh + cx->ch_len, sh_len))) {
     return 0;
-  if (!bytes_put(buf, &off, wired_span_of(ee, ee_len))) return 0;
+  }
+  if (!bytes_put(buf, &off, wired_span_of(ee, ee_len))) {
+    return 0;
+  }
   cx->c.sh_len = off;
   return 1;
 }
 
 /* Extend cx->c.sh_transcript to SH||EE and seed fullhs from it. */
 static int sdt_seed_fullhs(struct sdt_client* cx, const u8* ee, usz ee_len) {
-  if (!sdt_build_chshee(cx, ee, ee_len)) return 0;
+  if (!sdt_build_chshee(cx, ee, ee_len)) {
+    return 0;
+  }
   return fullhs_init(
       &cx->c.hs, &cx->c.tls, wired_span_of(cx->c.sh_transcript, cx->c.sh_len));
 }
@@ -474,7 +521,9 @@ static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
   u8               hs[HKDF_PRK];
   const u8*        shared;
   derive_secret_in peer_in, self_in;
-  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
+  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) {
+    return 0;
+  }
   tls_handshake_secret(shared, hs);
   peer_in = (derive_secret_in){
       hs, wired_span_of((const u8*)"s hs traffic", 12),
@@ -489,7 +538,9 @@ static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
 
 static int sdt_finish_hs_secrets(
     struct sdt_client* cx, const u8* ee, usz ee_len) {
-  if (!sdt_seed_fullhs(cx, ee, ee_len)) return 0;
+  if (!sdt_seed_fullhs(cx, ee, ee_len)) {
+    return 0;
+  }
   return sdt_rederive_finished_secrets(cx);
 }
 
@@ -520,9 +571,11 @@ static const struct {
 static int sdt_feed_one_hs_msg(struct sdt_client* cx, const u8* m, usz n) {
   u8 t = m[0];
   for (usz i = 0; i < sizeof sdt_hs_feed_table / sizeof sdt_hs_feed_table[0];
-       i++)
-    if (sdt_hs_feed_table[i].type == t)
+       i++) {
+    if (sdt_hs_feed_table[i].type == t) {
       return sdt_hs_feed_table[i].fn(cx, m, n);
+    }
+  }
   return 0;
 }
 
@@ -530,7 +583,9 @@ static int sdt_feed_one_hs_msg(struct sdt_client* cx, const u8* m, usz n) {
  * p[off..), or 0 if the length prefix overruns n. */
 static usz sdt_hs_msg_total(const u8* p, usz off, usz n) {
   usz mlen, total;
-  if (off + 4 > n) return 0;
+  if (off + 4 > n) {
+    return 0;
+  }
   mlen  = ((usz)p[off + 1] << 16) | ((usz)p[off + 2] << 8) | p[off + 3];
   total = 4 + mlen;
   return off + total <= n ? total : 0;
@@ -549,8 +604,12 @@ static int sdt_is_ee(const u8* p, usz total) {
 
 static usz sdt_consume_ee(struct sdt_client* cx, const u8* p, usz n) {
   usz total = sdt_hs_msg_total(p, 0, n);
-  if (!sdt_is_ee(p, total)) return 0;
-  if (!sdt_finish_hs_secrets(cx, p, total)) return 0;
+  if (!sdt_is_ee(p, total)) {
+    return 0;
+  }
+  if (!sdt_finish_hs_secrets(cx, p, total)) {
+    return 0;
+  }
   return total;
 }
 
@@ -560,8 +619,12 @@ static usz sdt_consume_ee(struct sdt_client* cx, const u8* p, usz n) {
 static usz sdt_feed_rest_step(
     struct sdt_client* cx, const u8* p, usz off, usz n) {
   usz total = sdt_hs_msg_total(p, off, n);
-  if (total == 0) return 0;
-  if (!sdt_feed_one_hs_msg(cx, p + off, total)) return 0;
+  if (total == 0) {
+    return 0;
+  }
+  if (!sdt_feed_one_hs_msg(cx, p + off, total)) {
+    return 0;
+  }
   return off + total;
 }
 
@@ -570,7 +633,9 @@ static usz sdt_feed_rest_step(
 static int sdt_feed_rest(struct sdt_client* cx, const u8* p, usz off, usz n) {
   while (off < n) {
     usz next = sdt_feed_rest_step(cx, p, off, n);
-    if (next == 0) return 0;
+    if (next == 0) {
+      return 0;
+    }
     off = next;
   }
   return off == n;
@@ -578,14 +643,18 @@ static int sdt_feed_rest(struct sdt_client* cx, const u8* p, usz off, usz n) {
 
 static int sdt_drive_hs_flight(struct sdt_client* cx, const u8* p, usz n) {
   usz ee_end = sdt_consume_ee(cx, p, n);
-  if (ee_end == 0) return 0;
+  if (ee_end == 0) {
+    return 0;
+  }
   return sdt_feed_rest(cx, p, ee_end, n);
 }
 
 static int sdt_open_handshake(struct sdt_client* cx, u8* pkt, usz len) {
   wired_span  tls;
   appdata_pkt in = {wired_mspan_of(pkt, len), 6};
-  if (!client_open_handshake_wire(&cx->c, &in, &tls)) return 0;
+  if (!client_open_handshake_wire(&cx->c, &in, &tls)) {
+    return 0;
+  }
   return sdt_drive_hs_flight(cx, tls.p, tls.n);
 }
 
@@ -596,12 +665,16 @@ static int sdt_send_finished(struct sdt_client* cx) {
   wired_obuf         fob = obuf_of(fin, sizeof fin);
   wired_obuf         pkt_ob;
   clientwire_seal_in sin;
-  if (!fullhs_send_finished(&cx->c.hs, &fob)) return 0;
+  if (!fullhs_send_finished(&cx->c.hs, &fob)) {
+    return 0;
+  }
   pkt_ob = obuf_of(pkt, sizeof pkt);
   sin    = (clientwire_seal_in){
       {wired_span_of(g_sdt_cli_scid, 6), wired_span_of(g_sdt_cli_scid, 6), 0},
       wired_span_of(fin, fob.len)};
-  if (!client_seal_handshake_wire(&cx->c, &sin, &pkt_ob)) return 0;
+  if (!client_seal_handshake_wire(&cx->c, &sin, &pkt_ob)) {
+    return 0;
+  }
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, pkt_ob.len)) ==
          (i64)pkt_ob.len;
 }
@@ -620,12 +693,16 @@ static int sdt_open_onertt(
   const initial_keys* k;
   aes128              hp;
   wired_span          v;
-  if (!keysched_get(&cx->c.tls.ks, KS_SERVER_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_SERVER_AP, &k)) {
+    return 0;
+  }
   aes128_init(&hp, k->hp);
   {
     protect_keys           pk = {k, &hp};
     hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-    if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
+    if (!hspkt_onertt_open(&pk, &d, &v)) {
+      return 0;
+    }
   }
   *pl  = v.p;
   *pll = v.n;
@@ -637,8 +714,11 @@ static int sdt_payload_has_hs_done(const u8* pl, usz pll) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
-    if (fr.type == 0x1e) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (fr.type == 0x1e) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -657,8 +737,12 @@ static int sdt_recv_is_onertt(i64 r, const u8* pkt) {
 static int sdt_slice_has_hs_done(struct sdt_client* cx, const u8* p, usz n) {
   const u8* pl;
   usz       pll;
-  if ((p[0] & 0x80) != 0) return 0; /* long header: Handshake ACK, not ours */
-  if (!sdt_open_onertt(cx, (u8*)p, n, &pl, &pll)) return 0;
+  if ((p[0] & 0x80) != 0) {
+    return 0; /* long header: Handshake ACK, not ours */
+  }
+  if (!sdt_open_onertt(cx, (u8*)p, n, &pl, &pll)) {
+    return 0;
+  }
   return sdt_payload_has_hs_done(pl, pll);
 }
 
@@ -670,10 +754,15 @@ static int sdt_try_recv_hs_done(struct sdt_client* cx) {
   pktlist   plist = {pkts, offs, lens, 8};
   usz       n, i;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (r <= 0) return 0;
+  if (r <= 0) {
+    return 0;
+  }
   n = udploop_split(wired_span_of(pkt, (usz)r), &plist);
-  for (i = 0; i < n; i++)
-    if (sdt_slice_has_hs_done(cx, pkt + offs[i], lens[i])) return 1;
+  for (i = 0; i < n; i++) {
+    if (sdt_slice_has_hs_done(cx, pkt + offs[i], lens[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -685,8 +774,11 @@ static int sdt_try_recv_hs_done(struct sdt_client* cx) {
  * duplicate flights against the same budget meant for genuine replies. */
 static int sdt_wait_hs_done(struct sdt_client* cx) {
   u64 dl = clock_mono_ms() + 5000;
-  while (clock_mono_ms() < dl)
-    if (sdt_try_recv_hs_done(cx)) return 1;
+  while (clock_mono_ms() < dl) {
+    if (sdt_try_recv_hs_done(cx)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -701,9 +793,12 @@ static int sdt_recv_accept_flight(struct sdt_client* cx) {
   usz ilen = 0, hlen = 0;
   if (!sdt_do_initial(
           cx, ini_reply, sizeof ini_reply, &ilen, hs_reply, sizeof hs_reply,
-          &hlen))
+          &hlen)) {
     return 0;
-  if (!sdt_open_initial(cx, ini_reply, ilen)) return 0;
+  }
+  if (!sdt_open_initial(cx, ini_reply, ilen)) {
+    return 0;
+  }
   return sdt_open_handshake(cx, hs_reply, hlen);
 }
 
@@ -714,13 +809,17 @@ static int sdt_recv_accept_flight(struct sdt_client* cx) {
  * do_confirm ordering, split across two calls since this test drives the
  * wire directly rather than through client_feed). */
 static int sdt_send_own_finished(struct sdt_client* cx) {
-  if (!fullhs_advance_application(&cx->c.hs)) return 0;
+  if (!fullhs_advance_application(&cx->c.hs)) {
+    return 0;
+  }
   return sdt_send_finished(cx);
 }
 
 /* Everything up through the server's Finished. */
 static int sdt_handshake_to_finished(struct sdt_client* cx) {
-  if (!sdt_recv_accept_flight(cx)) return 0;
+  if (!sdt_recv_accept_flight(cx)) {
+    return 0;
+  }
   return sdt_send_own_finished(cx);
 }
 
@@ -743,7 +842,9 @@ static int sdt_handshake_over_socket(struct sdt_client* cx) {
  * value / out-params, not folded into one opaque CHECK. */
 static int sdt_handshake(struct sdt_client* cx) {
   sdt_client_init(cx);
-  if (cx->fd < 0) return -1; /* sandbox: no sockets */
+  if (cx->fd < 0) {
+    return -1; /* sandbox: no sockets */
+  }
   return sdt_handshake_over_socket(cx);
 }
 
@@ -763,9 +864,12 @@ static usz sdt_build_connect(u8* out, usz cap) {
       wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", 12)};
-  if (!h3req_enc_pseudo(&pin, &fob)) return 0;
-  if (!h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)))
+  if (!h3req_enc_pseudo(&pin, &fob)) {
     return 0;
+  }
+  if (!h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len))) {
+    return 0;
+  }
   return hob.len;
 }
 
@@ -789,11 +893,15 @@ static usz sdt_seal_stream(
   appdata_tx          tx = {
       sdt_dcid(cx), pn, stream_id, wired_span_of(payload, plen), 0};
   wired_obuf ob = obuf_of(out, cap);
-  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) {
+    return 0;
+  }
   aes128_init(&hp, k->hp);
   {
     protect_keys pk = {k, &hp};
-    if (!appdata_send(&pk, &tx, &ob)) return 0;
+    if (!appdata_send(&pk, &tx, &ob)) {
+      return 0;
+    }
   }
   return ob.len;
 }
@@ -809,14 +917,19 @@ static int sdt_send_client_settings(struct sdt_client* cx) {
   u8         stream_bytes[9], settings_frame[8], pkt[256];
   wired_obuf fob = obuf_of(settings_frame, sizeof settings_frame);
   usz        plen, flen;
-  if (!h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
+  if (!h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0))) {
     return 0;
+  }
   stream_bytes[0] = 0x00; /* control stream type varint */
   flen            = 1;
-  for (usz i = 0; i < fob.len; i++) stream_bytes[flen + i] = settings_frame[i];
+  for (usz i = 0; i < fob.len; i++) {
+    stream_bytes[flen + i] = settings_frame[i];
+  }
   flen += fob.len;
   plen = sdt_seal_stream(cx, 2, 0, stream_bytes, flen, pkt, sizeof pkt);
-  if (plen == 0) return 0;
+  if (plen == 0) {
+    return 0;
+  }
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, plen)) ==
          (i64)plen;
 }
@@ -826,12 +939,18 @@ static int sdt_send_connect(struct sdt_client* cx) {
   u8  frame[512], pkt[512];
   usz flen = sdt_build_connect(frame, sizeof frame);
   usz plen;
-  if (flen == 0) return 0;
-  if (!sdt_send_client_settings(cx)) return 0;
+  if (flen == 0) {
+    return 0;
+  }
+  if (!sdt_send_client_settings(cx)) {
+    return 0;
+  }
   /* pn 2: pn 0 is the SETTINGS packet above, pn 1 is reserved for the
    * DATAGRAM echo stage's own fixed pn (sdt_build_datagram_pkt). */
   plen = sdt_seal_stream(cx, 0, 2, frame, flen, pkt, sizeof pkt);
-  if (plen == 0) return 0;
+  if (plen == 0) {
+    return 0;
+  }
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, plen)) ==
          (i64)plen;
 }
@@ -846,8 +965,11 @@ static int sdt_send_connect(struct sdt_client* cx) {
  * back" without reimplementing QPACK client-side. */
 /* Byte 0xd9 (QPACK :status 200 indexed line) anywhere in data. */
 static int sdt_has_status_200_byte(const u8* data, u64 len) {
-  for (u64 i = 0; i < len; i++)
-    if (data[i] == 0xd9) return 1;
+  for (u64 i = 0; i < len; i++) {
+    if (data[i] == 0xd9) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -858,8 +980,12 @@ static int sdt_is_stream_frame(const framewalk_item* fr) {
 }
 
 static int sdt_is_our_stream0(const framewalk_item* fr, stream_frame* sf) {
-  if (!sdt_is_stream_frame(fr)) return 0;
-  if (!frame_get_stream(fr->start, fr->remaining, sf)) return 0;
+  if (!sdt_is_stream_frame(fr)) {
+    return 0;
+  }
+  if (!frame_get_stream(fr->start, fr->remaining, sf)) {
+    return 0;
+  }
   return sf->stream_id == 0;
 }
 
@@ -867,7 +993,9 @@ static int sdt_is_our_stream0(const framewalk_item* fr, stream_frame* sf) {
  */
 static int sdt_frame_has_2xx(const framewalk_item* fr) {
   stream_frame sf;
-  if (!sdt_is_our_stream0(fr, &sf)) return 0;
+  if (!sdt_is_our_stream0(fr, &sf)) {
+    return 0;
+  }
   return sdt_has_status_200_byte(sf.data, sf.length);
 }
 
@@ -875,8 +1003,11 @@ static int sdt_stream0_has_2xx(const u8* pl, usz pll) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
-    if (sdt_frame_has_2xx(&fr)) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (sdt_frame_has_2xx(&fr)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -888,8 +1019,12 @@ static int sdt_try_recv_2xx(struct sdt_client* cx) {
   const u8* pl;
   usz       pll;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (!sdt_recv_is_onertt(r, pkt)) return 0;
-  if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) return 0;
+  if (!sdt_recv_is_onertt(r, pkt)) {
+    return 0;
+  }
+  if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) {
+    return 0;
+  }
   return sdt_stream0_has_2xx(pl, pll);
 }
 
@@ -898,8 +1033,11 @@ static int sdt_try_recv_2xx(struct sdt_client* cx) {
  * budget on a loaded server's retransmits as on genuine replies). */
 static int sdt_wait_connect_2xx(struct sdt_client* cx) {
   u64 dl = clock_mono_ms() + 5000;
-  while (clock_mono_ms() < dl)
-    if (sdt_try_recv_2xx(cx)) return 1;
+  while (clock_mono_ms() < dl) {
+    if (sdt_try_recv_2xx(cx)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -911,7 +1049,9 @@ static int sdt_wait_connect_2xx(struct sdt_client* cx) {
 static int sdt_client_ap_key(struct sdt_client* cx, protect_keys* pk) {
   const initial_keys* k;
   static aes128       hp; /* outlives the call, mirrors cw_dirkey's shape */
-  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, KS_CLIENT_AP, &k)) {
+    return 0;
+  }
   aes128_init(&hp, k->hp);
   *pk = (protect_keys){k, &hp};
   return 1;
@@ -934,8 +1074,12 @@ static int sdt_build_datagram_pkt(
   usz               flen = datagram_encode(fb, &df, 0);
   protect_keys      pk;
   hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0};
-  if (flen == 0) return 0;
-  if (!sdt_client_ap_key(cx, &pk)) return 0;
+  if (flen == 0) {
+    return 0;
+  }
+  if (!sdt_client_ap_key(cx, &pk)) {
+    return 0;
+  }
   return hspkt_onertt_build(&pk, &d, out);
 }
 
@@ -950,11 +1094,16 @@ static int sdt_send_datagram(
     struct sdt_client* cx, u64 pn, const u8* payload, usz n) {
   u8         frame[300], pkt[512], wire[300];
   wired_obuf ob = obuf_of(pkt, sizeof pkt);
-  if (n + 1 > sizeof wire) return 0;
-  wire[0] = 0x00;
-  for (usz i = 0; i < n; i++) wire[1 + i] = payload[i];
-  if (!sdt_build_datagram_pkt(cx, pn, wire, n + 1, frame, sizeof frame, &ob))
+  if (n + 1 > sizeof wire) {
     return 0;
+  }
+  wire[0] = 0x00;
+  for (usz i = 0; i < n; i++) {
+    wire[1 + i] = payload[i];
+  }
+  if (!sdt_build_datagram_pkt(cx, pn, wire, n + 1, frame, sizeof frame, &ob)) {
+    return 0;
+  }
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, ob.len)) ==
          (i64)ob.len;
 }
@@ -963,7 +1112,9 @@ static int sdt_send_datagram(
  * want[0..want_len). */
 static int sdt_bytes_eq(const u8* a, const u8* b, usz n) {
   u8 diff = 0;
-  for (usz i = 0; i < n; i++) diff |= (u8)(a[i] ^ b[i]);
+  for (usz i = 0; i < n; i++) {
+    diff |= (u8)(a[i] ^ b[i]);
+  }
   return diff == 0;
 }
 
@@ -975,15 +1126,21 @@ static int sdt_is_datagram_frame(const framewalk_item* fr) {
  */
 /* Decode fr as a DATAGRAM frame into *df. Returns 0 if fr is not one. */
 static int sdt_decode_datagram(const framewalk_item* fr, datagram_frame* df) {
-  if (!sdt_is_datagram_frame(fr)) return 0;
+  if (!sdt_is_datagram_frame(fr)) {
+    return 0;
+  }
   return datagram_decode(fr->start, fr->remaining, df) != 0;
 }
 
 static int sdt_datagram_matches(
     const framewalk_item* fr, const u8* want, usz want_len) {
   datagram_frame df;
-  if (!sdt_decode_datagram(fr, &df)) return 0;
-  if (df.length != want_len) return 0;
+  if (!sdt_decode_datagram(fr, &df)) {
+    return 0;
+  }
+  if (df.length != want_len) {
+    return 0;
+  }
   return sdt_bytes_eq(df.data, want, want_len);
 }
 
@@ -994,12 +1151,19 @@ static int sdt_payload_has_our_datagram(
   u8             prefixed[300];
   framewalk      it;
   framewalk_item fr;
-  if (want_len + 1 > sizeof prefixed) return 0;
+  if (want_len + 1 > sizeof prefixed) {
+    return 0;
+  }
   prefixed[0] = 0x00;
-  for (usz i = 0; i < want_len; i++) prefixed[1 + i] = want[i];
+  for (usz i = 0; i < want_len; i++) {
+    prefixed[1 + i] = want[i];
+  }
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
-    if (sdt_datagram_matches(&fr, prefixed, want_len + 1)) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (sdt_datagram_matches(&fr, prefixed, want_len + 1)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -1014,8 +1178,12 @@ static int sdt_onertt_is_our_echo(
     struct sdt_client* cx, i64 r, u8* pkt, const u8* payload, usz plen) {
   const u8* pl;
   usz       pll;
-  if (!sdt_recv_is_onertt(r, pkt)) return 0;
-  if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) return 0;
+  if (!sdt_recv_is_onertt(r, pkt)) {
+    return 0;
+  }
+  if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) {
+    return 0;
+  }
   return sdt_payload_has_our_datagram(pl, pll, payload, plen);
 }
 
@@ -1024,7 +1192,9 @@ static int sdt_try_recv_echo(
   u8       pkt[1500];
   sockaddr from;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (r <= 0) return -1; /* nothing queued this round */
+  if (r <= 0) {
+    return -1; /* nothing queued this round */
+  }
   return sdt_onertt_is_our_echo(cx, r, pkt, payload, plen);
 }
 
@@ -1033,7 +1203,9 @@ static int sdt_drain_for_echo(
     struct sdt_client* cx, const u8* payload, usz plen) {
   for (int j = 0; j < 5; j++) {
     int r = sdt_try_recv_echo(cx, payload, plen);
-    if (r != 0) return r > 0;
+    if (r != 0) {
+      return r > 0;
+    }
   }
   return 0;
 }
@@ -1045,7 +1217,9 @@ static int sdt_drain_for_echo(
  * caller stops retrying). */
 static int sdt_echo_round(
     struct sdt_client* cx, u64 pn, const u8* payload, usz plen) {
-  if (!sdt_send_datagram(cx, pn, payload, plen)) return -1;
+  if (!sdt_send_datagram(cx, pn, payload, plen)) {
+    return -1;
+  }
   return sdt_drain_for_echo(cx, payload, plen);
 }
 
@@ -1061,7 +1235,9 @@ static int sdt_wait_datagram_echo(
   u64 pn = 1;
   while (clock_mono_ms() < dl) {
     int r = sdt_echo_round(cx, pn++, payload, plen);
-    if (r != 0) return r;
+    if (r != 0) {
+      return r;
+    }
   }
   return 0;
 }
@@ -1093,7 +1269,9 @@ static int sdt_stage_datagram_echo(struct sdt_client* cx) {
 static void sdt_run_wt_stages(struct sdt_client* cx) {
   int wt_ok = sdt_stage_wt_connect(cx);
   CHECK(wt_ok == 1);
-  if (wt_ok) CHECK(sdt_stage_datagram_echo(cx) == 1);
+  if (wt_ok) {
+    CHECK(sdt_stage_datagram_echo(cx) == 1);
+  }
 }
 
 /* STAGE 1 (handshake confirmation) plus everything downstream of it, run
@@ -1102,9 +1280,13 @@ static void sdt_run_wt_stages(struct sdt_client* cx) {
  * elsewhere in this suite -- no CHECK at all in that case). */
 static void sdt_run_from_handshake(struct sdt_client* cx) {
   int hs_ok = sdt_handshake(cx);
-  if (hs_ok == -1) return;
+  if (hs_ok == -1) {
+    return;
+  }
   CHECK(hs_ok == 1);
-  if (hs_ok == 1) sdt_run_wt_stages(cx);
+  if (hs_ok == 1) {
+    sdt_run_wt_stages(cx);
+  }
 }
 
 /* Full scenario: real srvthreads worker (--cores 0 equivalent), real
@@ -1120,8 +1302,9 @@ static void test_srvthreads_datagram_self_echo(void) {
 
   sdt_make_id(&id, priv, pub, seed, rnd);
   __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
-  if (wired_thread_start(&srv_thread, sdt_server_thread, &id) < 0)
+  if (wired_thread_start(&srv_thread, sdt_server_thread, &id) < 0) {
     return; /* sandbox: no thread support */
+  }
 
   sdt_run_from_handshake(&cx);
 
@@ -1200,7 +1383,9 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
    * conns} construction. */
   st = (srvrun_state){env->table, env->conns};
   CHECK(sizeof g_sdt_env_storage >= wired_srvrun_env_size());
-  if (sizeof g_sdt_env_storage < wired_srvrun_env_size()) return;
+  if (sizeof g_sdt_env_storage < wired_srvrun_env_size()) {
+    return;
+  }
   wired_srvrun_env_init(env);
   c = &st.conns[0];
   sdt_mark_wt_active(c);
@@ -1223,8 +1408,9 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
   srvrun_broadcast_to_all(&st, wired_span_of(msg, sizeof msg - 1));
   CHECK(c->dg_pending == 1);
   CHECK(c->dg_pending_len[0] == sizeof msg - 1);
-  for (usz i = 0; i < sizeof msg - 1; i++)
+  for (usz i = 0; i < sizeof msg - 1; i++) {
     CHECK(c->dg_pending_buf[0][i] == msg[i]);
+  }
   /* THE FIX (verified in tests/app/srvinbox_test.c's
    * test_srvinbox_registry_single_worker_reaches_own_env, not repeated here):
    * once this thread calls wired_srvrun_broadcast_register(0, 1, row, env)

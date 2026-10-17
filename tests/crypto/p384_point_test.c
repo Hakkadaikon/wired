@@ -33,7 +33,9 @@ static const u8 pp_n[48] = {
 
 /* A small scalar as 48-byte big-endian. */
 static void pp_scalar(u8 k[48], u8 v) {
-  for (usz i = 0; i < 48; i++) k[i] = 0;
+  for (usz i = 0; i < 48; i++) {
+    k[i] = 0;
+  }
   k[47] = v;
 }
 
@@ -42,8 +44,12 @@ static void pp_expect(const ec_point384* r, const u8* x, const u8* y) {
   CHECK(r->inf == 0);
   fp384_to_be(gx, r->x);
   fp384_to_be(gy, r->y);
-  for (usz i = 0; i < 48; i++) CHECK(gx[i] == x[i]);
-  for (usz i = 0; i < 48; i++) CHECK(gy[i] == y[i]);
+  for (usz i = 0; i < 48; i++) {
+    CHECK(gx[i] == x[i]);
+  }
+  for (usz i = 0; i < 48; i++) {
+    CHECK(gy[i] == y[i]);
+  }
 }
 
 /* G is on the curve. */

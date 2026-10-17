@@ -32,7 +32,9 @@ static int moqtrun_fetch_auth_refused(
  * (2.4.2/2.4.3), then authorization. */
 static u64 moqtrun_fetch_ftn_verdict(
     const wired_moqt_hub* hub, const moqfetch_req* m) {
-  if (moqtrun_ns_reserved(&m->track.ns)) return MOQCTL_ERR_DOES_NOT_EXIST;
+  if (moqtrun_ns_reserved(&m->track.ns)) {
+    return MOQCTL_ERR_DOES_NOT_EXIST;
+  }
   return moqtrun_fetch_auth_refused(hub, m) ? MOQCTL_ERR_UNAUTHORIZED
                                             : MOQTRUN_REQ_ACCEPT;
 }
@@ -47,8 +49,9 @@ static u64 moqtrun_fetch_name_verdict(
  * Range Filters first (INVALID_FILTER), then its name. */
 static u64 moqtrun_fetch_verdict(
     const wired_moqt_hub* hub, const moqfetch_req* m) {
-  if (moqtrun_rngf_refusal(&m->params) != MOQTRUN_REQ_ACCEPT)
+  if (moqtrun_rngf_refusal(&m->params) != MOQTRUN_REQ_ACCEPT) {
     return MOQCTL_ERR_INVALID_FILTER;
+  }
   return moqtrun_fetch_name_verdict(hub, m);
 }
 
@@ -71,8 +74,11 @@ void moqtrun_handle_fetch(
 
 static void moqtrun_fetch_arr_drop(
     wired_moqt_hub* hub, wired_moqtrun_fetch* arr, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (arr[i].wt == s) moqtrun_fetch_free(hub, &arr[i]);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (arr[i].wt == s) {
+      moqtrun_fetch_free(hub, &arr[i]);
+    }
+  }
 }
 
 /* A closed session's fetches end: nothing more is sent for them. */
@@ -88,10 +94,12 @@ void moqtrun_fetches_drop(wired_moqt_hub* hub, wired_wt_session* s) {
 static wired_moqtrun_track* moqtrun_tstat_track(
     wired_moqt_hub* hub, const moqctl_ftn* f) {
   u8 ns_buf[WIRED_MOQTRUN_MAX_NS];
-  if (moqtrun_track_name_matches(&hub->blob_track, f->name))
+  if (moqtrun_track_name_matches(&hub->blob_track, f->name)) {
     return &hub->blob_track;
-  if (moqtrun_track_name_matches(&hub->live.track, f->name))
+  }
+  if (moqtrun_track_name_matches(&hub->live.track, f->name)) {
     return &hub->live.track;
+  }
   return moqtrun_find_published_track(hub, moqtrun_key_of(f, ns_buf));
 }
 
@@ -103,8 +111,12 @@ static u64 moqtrun_tstat_verdict(
     const moqctl_subscribe*    m,
     const wired_moqtrun_track* t) {
   u64 code = MOQCTL_ERR_DOES_NOT_EXIST;
-  if (!t) return code;
-  if (moqtrun_subscribe_refused(hub, m, &code)) return code;
+  if (!t) {
+    return code;
+  }
+  if (moqtrun_subscribe_refused(hub, m, &code)) {
+    return code;
+  }
   return MOQTRUN_REQ_ACCEPT;
 }
 
@@ -112,8 +124,9 @@ static void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
   if (!moqtrun_take_tok_or_close(
-          hub, p, moqtstat_take(p->ver, body, &m), &m.params))
+          hub, p, moqtstat_take(p->ver, body, &m), &m.params)) {
     return;
+  }
   wired_moqtrun_track* t    = moqtrun_tstat_track(hub, &m.name);
   u64                  code = moqtrun_tstat_verdict(hub, &m, t);
   if (code != MOQTRUN_REQ_ACCEPT) {

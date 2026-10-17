@@ -7,7 +7,9 @@ static void test_dispatch_classify(void) {
   CHECK(frame_classify(0x03) == FK_ACK);
   CHECK(frame_classify(0x06) == FK_CRYPTO);
   /* every STREAM type 0x08..0x0f maps to STREAM */
-  for (u64 t = 0x08; t <= 0x0f; t++) CHECK(frame_classify(t) == FK_STREAM);
+  for (u64 t = 0x08; t <= 0x0f; t++) {
+    CHECK(frame_classify(t) == FK_STREAM);
+  }
   CHECK(frame_classify(0x12) == FK_MAX_STREAMS);
   CHECK(frame_classify(0x13) == FK_MAX_STREAMS);
   CHECK(frame_classify(0x1c) == FK_CONNECTION_CLOSE);

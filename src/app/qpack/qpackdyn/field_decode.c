@@ -11,7 +11,9 @@
  * with their measured lengths. Returns 1 ok, 0 if the index is out of range. */
 static int resolve_static(u64 index, qpack_field* out) {
   const char *n, *v;
-  if (!qpack_static_get((usz)index, &n, &v)) return 0;
+  if (!qpack_static_get((usz)index, &n, &v)) {
+    return 0;
+  }
   out->name  = wired_span_of((const u8*)n, qdyn_cstr_len(n));
   out->value = wired_span_of((const u8*)v, qdyn_cstr_len(v));
   return 1;
@@ -45,7 +47,9 @@ static int try_indexed(const qdyn_src* src, qpack_field* out, usz* consumed) {
   u64 index;
   int is_static;
   usz used = qpack_indexed_decode(src->fs, &index, &is_static);
-  if (used == 0) return 0;
+  if (used == 0) {
+    return 0;
+  }
   *consumed = used;
   return is_static ? resolve_static(index, out)
                    : resolve_dynamic(src, index, out);
@@ -57,20 +61,26 @@ static int try_indexed(const qdyn_src* src, qpack_field* out, usz* consumed) {
 static int try_postbase(const qdyn_src* src, qpack_field* out, usz* consumed) {
   u64 postbase;
   usz used = qpack_indexed_postbase_decode(src->fs, &postbase);
-  if (used == 0) return 0;
+  if (used == 0) {
+    return 0;
+  }
   *consumed = used;
   return resolve_postbase(src, postbase, out);
 }
 
 int qdyn_decode_field(const qdyn_src* src, qpack_field* out, usz* consumed) {
-  if (try_indexed(src, out, consumed)) return 1;
+  if (try_indexed(src, out, consumed)) {
+    return 1;
+  }
   return try_postbase(src, out, consumed);
 }
 
 int qdyn_resolve_postbase_name(
     const qdyn_src* src, u64 postbase, wired_span* name) {
   qpack_field f;
-  if (!resolve_postbase(src, postbase, &f)) return 0;
+  if (!resolve_postbase(src, postbase, &f)) {
+    return 0;
+  }
   *name = f.name;
   return 1;
 }
@@ -80,7 +90,9 @@ int qdyn_resolve_name(
   qpack_field f;
   int         ok =
       is_static ? resolve_static(index, &f) : resolve_dynamic(src, index, &f);
-  if (!ok) return 0;
+  if (!ok) {
+    return 0;
+  }
   *name = f.name;
   return 1;
 }

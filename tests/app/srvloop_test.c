@@ -351,7 +351,9 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
               TLS_CHACHA20_POLY1305_SHA256, &pk, wired_mspan_of(hpkt, hob.len),
               &tls) == 1);
       CHECK(tls.n == f.flight_len);
-      for (usz i = 0; i < tls.n; i++) CHECK(tls.p[i] == f.flight[i]);
+      for (usz i = 0; i < tls.n; i++) {
+        CHECK(tls.p[i] == f.flight[i]);
+      }
     }
   }
 
@@ -612,7 +614,9 @@ static void test_srvloop_aes256_only_roundtrip(void) {
   lp_make_client_hello_aes256(&f);
   lp_drive_to_flight(&f);
   CHECK(f.s.sdrv.cipher_suite == TLS_AES_256_GCM_SHA384);
-  if (f.s.phase != WIRED_SERVER_HS_FLIGHT_SENT) return; /* no keys to use */
+  if (f.s.phase != WIRED_SERVER_HS_FLIGHT_SENT) {
+    return; /* no keys to use */
+  }
   {
     wired_srvloop_send_in in = {
         wired_span_of(g_cli_scid, 6),
@@ -776,7 +780,9 @@ static int client_open_onertt(
   protect_keys           pk = {k, &hp};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
   wired_span             v;
-  if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
+  if (!hspkt_onertt_open(&pk, &d, &v)) {
+    return 0;
+  }
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -869,8 +875,12 @@ static void test_srvloop_confirm_carries_spare_cid(void) {
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
   f.l.spare_cid_len = 6;
-  for (usz i = 0; i < 6; i++) f.l.spare_cid[i] = (u8)(0xc0 + i);
-  for (usz i = 0; i < 16; i++) f.l.spare_cid_token[i] = (u8)(0x50 + i);
+  for (usz i = 0; i < 6; i++) {
+    f.l.spare_cid[i] = (u8)(0xc0 + i);
+  }
+  for (usz i = 0; i < 16; i++) {
+    f.l.spare_cid_token[i] = (u8)(0x50 + i);
+  }
   clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
@@ -888,7 +898,7 @@ static void test_srvloop_confirm_carries_spare_cid(void) {
     CHECK(np == 2);
     CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
     framewalk_init(&it, pl, pll);
-    while (framewalk_next(&it, &fr))
+    while (framewalk_next(&it, &fr)) {
       if (fr.type == FRAME_NEW_CID) {
         ncid_frame nf;
         CHECK(ncid_decode(fr.start, fr.remaining, &nf) != 0);
@@ -897,6 +907,7 @@ static void test_srvloop_confirm_carries_spare_cid(void) {
         CHECK(nf.cid[0] == 0xc0 && nf.cid[5] == 0xc5);
         found = 1;
       }
+    }
     CHECK(found == 1);
     CHECK(pl[pll - 1] == 0x1e); /* HANDSHAKE_DONE still trails */
   }
@@ -905,8 +916,11 @@ static void test_srvloop_confirm_carries_spare_cid(void) {
 /* RFC 9000 17.3: the DCID of a short-header packet is out[1 .. 1+len], in the
  * clear (header protection masks only byte0 and the packet number). */
 static int onertt_dcid_is(const u8* pkt, const u8* cid, u8 len) {
-  for (u8 i = 0; i < len; i++)
-    if (pkt[1 + i] != cid[i]) return 0;
+  for (u8 i = 0; i < len; i++) {
+    if (pkt[1 + i] != cid[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -967,13 +981,14 @@ static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
   framewalk_item fr;
   int            found = 0;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     if (fr.type == FRAME_ACK) {
       ack_frame a;
       CHECK(ack_decode(fr.start, fr.remaining, &a) > 0);
       CHECK(a.ranges[0].hi == pn);
       found = 1;
     }
+  }
   CHECK(found);
 }
 
@@ -989,9 +1004,11 @@ static int find_ack_frame(const u8* pl, usz pll, ack_frame* out) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
-    if (is_ack_type(fr.type))
+  while (framewalk_next(&it, &fr)) {
+    if (is_ack_type(fr.type)) {
       return ack_decode(fr.start, fr.remaining, out) > 0;
+    }
+  }
   return 0;
 }
 
@@ -1081,7 +1098,9 @@ static int client_open_handshake(
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
   wired_span   v;
-  if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), 0, &v)) return 0;
+  if (!hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), 0, &v)) {
+    return 0;
+  }
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -1130,14 +1149,20 @@ static void check_confirm_and_200_payload(const u8* pl, usz pll) {
     usz          rem   = fr.remaining;
     stream_frame sf;
     h3conn_resp  resp_out = {0};
-    if (type == 0x1e) done = 1;
-    if (type < 0x08 || type > 0x0f || !frame_get_stream(frame, rem, &sf))
+    if (type == 0x1e) {
+      done = 1;
+    }
+    if (type < 0x08 || type > 0x0f || !frame_get_stream(frame, rem, &sf)) {
       continue;
-    if (sf.stream_id == 3) settings = 1;
+    }
+    if (sf.stream_id == 3) {
+      settings = 1;
+    }
     if (sf.stream_id == 0 &&
         h3conn_recv_response(wired_span_of(frame, rem), &resp_out) &&
-        resp_out.status == 200)
+        resp_out.status == 200) {
       ok200 = 1;
+    }
   }
   CHECK(settings && done && ok200);
 }
@@ -1346,7 +1371,9 @@ static void test_srvloop_confirm_emitted_once(void) {
 /* Prepend a PADDING (0x00) byte to src into dst; returns the new length. */
 static usz lp_pad_prefix(u8* dst, const u8* src, usz n) {
   dst[0] = 0x00; /* RFC 9000 19.1 PADDING */
-  for (usz i = 0; i < n; i++) dst[1 + i] = src[i];
+  for (usz i = 0; i < n; i++) {
+    dst[1 + i] = src[i];
+  }
   return n + 1;
 }
 
@@ -1437,8 +1464,12 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
   lead_len = client_seal_handshake(&f, padding, 1, lead, sizeof lead);
   rest_len =
       client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, rest, sizeof rest);
-  for (i = 0; i < lead_len; i++) dg[off++] = lead[i];
-  for (i = 0; i < rest_len; i++) dg[off++] = rest[i];
+  for (i = 0; i < lead_len; i++) {
+    dg[off++] = lead[i];
+  }
+  for (i = 0; i < rest_len; i++) {
+    dg[off++] = rest[i];
+  }
   CHECK(
       wired_srvloop_step(
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob) ==
@@ -1517,7 +1548,9 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
         &gob));
     glen = gob.len;
   }
-  for (usz i = 0; i < glen; i++) payload[off++] = get[i];
+  for (usz i = 0; i < glen; i++) {
+    payload[off++] = get[i];
+  }
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
@@ -1612,8 +1645,12 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   /* datagram 1: BOTH streams' HEADERS frames in ONE payload -> each stream
    * claims its own slot with its own bytes, nothing completes yet. */
   off = 0;
-  for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
-  for (usz i = 0; i < h4l; i++) payload[off++] = h4[i];
+  for (usz i = 0; i < h0l; i++) {
+    payload[off++] = h0[i];
+  }
+  for (usz i = 0; i < h4l; i++) {
+    payload[off++] = h4[i];
+  }
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
@@ -1625,8 +1662,12 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   /* datagram 2: BOTH streams' DATA+FIN in ONE payload -> both requests
    * complete in the same step, each slot decoding its OWN body. */
   off = 0;
-  for (usz i = 0; i < d0l; i++) payload[off++] = d0[i];
-  for (usz i = 0; i < d4l; i++) payload[off++] = d4[i];
+  for (usz i = 0; i < d0l; i++) {
+    payload[off++] = d0[i];
+  }
+  for (usz i = 0; i < d4l; i++) {
+    payload[off++] = d4[i];
+  }
   slen = client_seal_onertt_pn(&f, 4, payload, off, spkt, sizeof spkt);
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
@@ -1811,8 +1852,12 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
   {
     u8  payload[512];
     usz off = 0;
-    for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
-    for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
+    for (usz i = 0; i < h0l; i++) {
+      payload[off++] = h0[i];
+    }
+    for (usz i = 0; i < wtl; i++) {
+      payload[off++] = wt[i];
+    }
     slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   }
   ob = (wired_obuf){out, sizeof out, 0};
@@ -1821,8 +1866,9 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
   CHECK(f.l.got_request == 0);
   /* only slot 0 (stream 0's) is claimed; no slot exists for stream 4. */
   CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
-  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     CHECK(f.l.streams[i].in_use == 0);
+  }
   /* datagram 2: stream 0's DATA+FIN completes ITS OWN request, unaffected by
    * the WT stream's earlier frame in datagram 1. */
   slen = client_seal_onertt_pn(&f, 4, d0, d0l, spkt, sizeof spkt);
@@ -1834,8 +1880,9 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
       f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
       f.l.req.body[1] == 'A');
   /* stream 4 still claimed no slot after the whole exchange. */
-  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     CHECK(f.l.streams[i].in_use == 0);
+  }
 }
 
 /* hq-interop (see hq09.h) end to end -- a single client
@@ -2020,17 +2067,22 @@ static void test_srvloop_wt_window_spans_several_windows_in_order(void) {
     usz n = total - sent < chunk ? total - sent : chunk;
     usz rel_off, accepted;
     u8  src[137];
-    for (usz i = 0; i < n; i++) src[i] = (u8)((sent + i) & 0xff);
+    for (usz i = 0; i < n; i++) {
+      src[i] = (u8)((sent + i) & 0xff);
+    }
     wired_srvloop_wt_window_accept(&w, sent, n, &rel_off, &accepted);
     CHECK(accepted == n); /* in-order: always fully accepted */
-    for (usz i = 0; i < accepted; i++) buf[rel_off + i] = src[i];
+    for (usz i = 0; i < accepted; i++) {
+      buf[rel_off + i] = src[i];
+    }
     sent += n;
     /* "deliver" everything the frontier now covers, then slide (mirrors
      * srvrun_offer_and_deliver_wt_slot's own delivered_len/slide pairing). */
     {
       u64 frontier_abs = w.base + w.frontier;
-      for (u64 off = delivered; off < frontier_abs; off++)
+      for (u64 off = delivered; off < frontier_abs; off++) {
         CHECK(buf[off - w.base] == (u8)(off & 0xff));
+      }
       delivered = frontier_abs;
     }
     wired_srvloop_wt_window_slide(&w, buf, sizeof buf, delivered);
@@ -2085,8 +2137,11 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
 /* 1 if some streams[] slot has claimed stream_id — the request-reassembly
  * table a WT bidi stream must NEVER appear in, at any offset. */
 static int lp_streams_slot_claims(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (l->streams[i].in_use && l->streams[i].stream_id == stream_id) return 1;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (l->streams[i].in_use && l->streams[i].stream_id == stream_id) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -2121,8 +2176,9 @@ static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(!lp_streams_slot_claims(&f.l, 4));
   CHECK(f.l.got_request == 0);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     CHECK(f.l.streams[i].in_use == 0);
+  }
 }
 
 /* CONCURRENCY (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream (id 4) and
@@ -2143,8 +2199,12 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   {
     u8  payload[512];
     usz off = 0;
-    for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
-    for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
+    for (usz i = 0; i < h0l; i++) {
+      payload[off++] = h0[i];
+    }
+    for (usz i = 0; i < wtl; i++) {
+      payload[off++] = wt[i];
+    }
     slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   }
   ob = (wired_obuf){out, sizeof out, 0};
@@ -2282,8 +2342,9 @@ static void test_srvloop_wt_table_full_refuses_stream(void) {
   lp_wt_step_signal_and_more(&f, 3);
   CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
   CHECK(f.l.wt_refused_n == 1 && f.l.wt_refused[0] == 4);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     CHECK(!f.l.streams[i].in_use);
+  }
   CHECK(f.l.got_request == 0);
 }
 
@@ -2296,8 +2357,9 @@ static void test_srvloop_wt_refuse_overflow_latched(void) {
   u8            out[1024];
   wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     wired_srvloop_wt_refuse(&f.l, 4 * i);
+  }
   CHECK(f.l.wt_refused_overflow == 0);
   wired_srvloop_wt_refuse(&f.l, 4 * WIRED_SRVLOOP_MAX_STREAMS);
   CHECK(f.l.wt_refused_n == WIRED_SRVLOOP_MAX_STREAMS);
@@ -2347,8 +2409,9 @@ static void test_srvloop_wt_long_released_stream_replay_ignored(void) {
   }
   lp_wt_step_signal_and_more(&f, 3);
   CHECK(wired_srvloop_wt_slot_find(&f.l, 4) < 0);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     CHECK(!f.l.streams[i].in_use);
+  }
   lp_wt_fill_table(&f);
   lp_wt_step_signal_and_more(&f, 4);
   CHECK(f.l.wt_refused_n == 0);
@@ -2427,8 +2490,9 @@ static void test_srvloop_wt_room_streams_all_slotted(void) {
     wired_srvloop_step(
         &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, n), &ob);
   }
-  for (u64 k = 0; k < 18; k++)
+  for (u64 k = 0; k < 18; k++) {
     CHECK(wired_srvloop_wt_slot_find(&f.l, 4 + 4 * k) >= 0);
+  }
   CHECK(f.l.wt_refused_n == 0);
 }
 
@@ -2655,8 +2719,9 @@ static void test_srvloop_uni_control_qpack_still_ignored(void) {
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 6) < 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 10) < 0);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     CHECK(f.l.wt_uni_streams[i].in_use == 0);
+  }
   CHECK(f.l.qpack_stream_violation == 0);
   CHECK(f.l.h3.peer_qpack_encoder == 1);
   CHECK(f.l.h3.peer_qpack_decoder == 1);
@@ -2734,8 +2799,12 @@ static usz lp_qenc_frame(u8* out, usz cap, u64 off, const u8* p, usz n) {
   u8           body[64];
   usz          k = 0;
   stream_frame sf;
-  if (off == 0) body[k++] = H3_STREAM_QPACK_ENCODER;
-  for (usz i = 0; i < n; i++) body[k++] = p[i];
+  if (off == 0) {
+    body[k++] = H3_STREAM_QPACK_ENCODER;
+  }
+  for (usz i = 0; i < n; i++) {
+    body[k++] = p[i];
+  }
   sf = (stream_frame){2, off, k, body, 0};
   return frame_put_stream(out, cap, &sf);
 }
@@ -2998,7 +3067,9 @@ static void test_srvloop_qpack_nonminimal_type(void) {
   stream_frame  sf;
   body[n++] = 0x40;
   body[n++] = 0x02;
-  for (usz i = 0; i < sizeof lp_b2_enc; i++) body[n++] = lp_b2_enc[i];
+  for (usz i = 0; i < sizeof lp_b2_enc; i++) {
+    body[n++] = lp_b2_enc[i];
+  }
   sf = (stream_frame){2, 0, n, body, 0};
   lp_confirm(&f, &ob);
   off = frame_put_stream(payload, sizeof payload, &sf);
@@ -3178,8 +3249,9 @@ static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
    * latched, and the (structurally disjoint) WT bidi table untouched. */
   CHECK(f.l.streams[0].in_use == 0);
   CHECK(f.l.peer_closed == 0);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     CHECK(f.l.wt_streams[i].in_use == 0);
+  }
 }
 
 /* RFC 9221 5: a real encoded DATAGRAM frame, driven through the live
@@ -3229,10 +3301,11 @@ static void test_srvloop_datagram_many_coalesced_in_one_packet(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 9);
-  for (i = 0; i < 9; i++)
+  for (i = 0; i < 9; i++) {
     CHECK(
         f.l.rx_datagrams[i].len == 1 &&
         f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
+  }
 }
 
 /* RFC 9221 5: several DATAGRAM frames arriving across separate steps (separate
@@ -3259,10 +3332,11 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
         &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
-  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
+  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
     CHECK(
         f.l.rx_datagrams[i].len == 1 &&
         f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
+  }
   /* one more beyond capacity: dropped, queue stays at max, existing entries
    * untouched. */
   {
@@ -3277,10 +3351,11 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
         &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
-  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
+  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
     CHECK(
         f.l.rx_datagrams[i].len == 1 &&
         f.l.rx_datagrams[i].buf[0] == (u8)('A' + i));
+  }
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload fits within the connection's own
@@ -3293,7 +3368,9 @@ static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
   wired_obuf     ob = {out, sizeof out, 0};
   u8             data[50];
   datagram_frame df = {.length = sizeof data, .data = data};
-  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  for (usz i = 0; i < sizeof data; i++) {
+    data[i] = (u8)i;
+  }
   plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
@@ -3318,7 +3395,9 @@ static void test_srvloop_datagram_998_bytes_not_truncated(void) {
   wired_obuf     ob = {out, sizeof out, 0};
   u8             data[998];
   datagram_frame df = {.length = sizeof data, .data = data};
-  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)(i & 0xff);
+  for (usz i = 0; i < sizeof data; i++) {
+    data[i] = (u8)(i & 0xff);
+  }
   plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 1200; /* RFC 9221 3: server opted in */
@@ -3329,8 +3408,9 @@ static void test_srvloop_datagram_998_bytes_not_truncated(void) {
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(f.l.rx_datagrams[0].len == sizeof data);
   CHECK(f.l.datagram_violation == 0);
-  for (usz i = 0; i < sizeof data; i++)
+  for (usz i = 0; i < sizeof data; i++) {
     CHECK(f.l.rx_datagrams[0].buf[i] == data[i]);
+  }
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload EXCEEDS the connection's own
@@ -3344,7 +3424,9 @@ static void test_srvloop_datagram_exceeding_advertised_limit_rejected(void) {
   wired_obuf     ob = {out, sizeof out, 0};
   u8             data[200];
   datagram_frame df = {.length = sizeof data, .data = data};
-  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  for (usz i = 0; i < sizeof data; i++) {
+    data[i] = (u8)i;
+  }
   plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
@@ -3421,7 +3503,9 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
   lp_drive_to_flight(&f);
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
-  for (usz i = 0; i < rlen; i++) payload[i] = reqb[i];
+  for (usz i = 0; i < rlen; i++) {
+    payload[i] = reqb[i];
+  }
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in2 = {
@@ -3498,7 +3582,9 @@ static void test_srvloop_dispatch_split_request_streams(void) {
   /* HEADERS frame then DATA frame back to back in one payload. */
   lp_split_post_frames(
       payload, sizeof payload, &hl, payload + 256, sizeof payload - 256, &dl);
-  for (usz i = 0; i < dl; i++) payload[hl + i] = payload[256 + i];
+  for (usz i = 0; i < dl; i++) {
+    payload[hl + i] = payload[256 + i];
+  }
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
@@ -3570,12 +3656,14 @@ static int lp_echo_handler(
   (void)offset;
   (void)more;
   (void)total_size;
-  for (i = 0; i < req->body_len && i < body_out->cap; i++)
+  for (i = 0; i < req->body_len && i < body_out->cap; i++) {
     body_out->p[i] = req->body[i];
+  }
   body_out->len = i;
   for (i = 0; i < req->body_len && g_test_history_len < sizeof g_test_history;
-       i++)
+       i++) {
     g_test_history[g_test_history_len++] = req->body[i];
+  }
   return 1;
 }
 
@@ -3601,8 +3689,9 @@ static void lp_post_echo(struct lp_fix* f, const u8* body, usz blen) {
   CHECK(h3conn_recv_response(wired_span_of(pl, rlen), &resp_out) == 1);
   CHECK(resp_out.status == 200);
   CHECK(resp_out.body.n == blen);
-  for (slen = 0; slen < blen; slen++)
+  for (slen = 0; slen < blen; slen++) {
     CHECK(resp_out.body.p[slen] == body[slen]);
+  }
 }
 
 /* HANDLER BODY ON THE WIRE (RFC 9110 9.3.3): with a handler registered, a POST
@@ -3632,10 +3721,16 @@ static int find_ticket_crypto(const u8* pl, usz pll, wired_span* sealed) {
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
     crypto_frame cf;
-    if (fr.type != FRAME_CRYPTO) continue;
-    if (frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
-    if (tls_new_session_ticket_parse(wired_span_of(cf.data, cf.length), sealed))
+    if (fr.type != FRAME_CRYPTO) {
+      continue;
+    }
+    if (frame_get_crypto(fr.start, fr.remaining, &cf) == 0) {
+      continue;
+    }
+    if (tls_new_session_ticket_parse(
+            wired_span_of(cf.data, cf.length), sealed)) {
       return 1;
+    }
   }
   return 0;
 }
@@ -4747,7 +4842,9 @@ static int client_open_onertt_gen1(
   {
     protect_keys           pk = {&next, &hp};
     hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-    if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
+    if (!hspkt_onertt_open(&pk, &d, &v)) {
+      return 0;
+    }
   }
   *pl  = v.p;
   *pll = v.n;
@@ -4785,7 +4882,9 @@ static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
    * real generation-1 attempt below needs the original bytes untouched). */
   {
     u8 copy[1024];
-    for (usz i = 0; i < ob.len; i++) copy[i] = out[i];
+    for (usz i = 0; i < ob.len; i++) {
+      copy[i] = out[i];
+    }
     CHECK(client_open_onertt(&f, copy, ob.len, &pl, &pll) == 0);
   }
   /* ...and a generation-1 opener must succeed and see the ACK. */
@@ -4843,7 +4942,9 @@ static usz lp_seal_ping(struct lp_fix* f, u64 pn, u8* pkt, usz cap) {
       0,
       0,
       0};
-  if (!wired_srvloop_send_onertt(&f->s, &sin, &ob)) return 0;
+  if (!wired_srvloop_send_onertt(&f->s, &sin, &ob)) {
+    return 0;
+  }
   return ob.len;
 }
 
@@ -4882,7 +4983,9 @@ static void test_srvloop_send_at_aead_limit_initiates_key_update(void) {
   CHECK(n > 0);
   CHECK(f.s.ku_send.generation == 1);
   CHECK(f.s.ku_send_count == 1); /* one packet under the new keys */
-  for (usz i = 0; i < n; i++) copy[i] = pkt[i];
+  for (usz i = 0; i < n; i++) {
+    copy[i] = pkt[i];
+  }
   CHECK(client_open_onertt(&f, copy, n, &pl, &pll) == 0); /* not gen 0 */
   CHECK(client_open_onertt_gen1(&f, pkt, n, &pl, &pll) == 1);
   CHECK(keyphase_get(pkt[0]) == 1); /* RFC 9001 6.2: phase follows gen */
@@ -5103,7 +5206,9 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
     cert_seed[i] = (u8)(0x80 + i);
     psk[i]       = (u8)(0xc0 + i);
   }
-  for (usz i = 0; i < sizeof(ch); i++) ch[i] = (u8)i;
+  for (usz i = 0; i < sizeof(ch); i++) {
+    ch[i] = (u8)i;
+  }
   wired_x25519_base(srv_pub, srv_priv);
   {
     wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
@@ -5141,8 +5246,9 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 1);
   CHECK(ro.level == LEVEL_ONERTT);
   CHECK(ro.payload.n == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++)
+  for (usz i = 0; i < sizeof(payload); i++) {
     CHECK(ro.payload.p[i] == payload[i]);
+  }
 }
 
 /* Without early_data_accepted (no 0-RTT keys derived), the same 0-RTT-typed
@@ -5187,7 +5293,9 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   usz slen;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
-  for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xc0 + i);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
   /* White-box, same as test_srvloop_recv_zerortt_opens_with_early_keys. */
   tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
   f.s.sdrv.early_data_accepted = 1;
@@ -5244,7 +5352,9 @@ static void srvloop_zrtt_fix(struct lp_fix* f) {
   u8 psk[32];
   lp_make_client_hello(f);
   lp_drive_to_flight(f);
-  for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xc0 + i);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
   tls_early_keys(psk, f->ch, f->ch_len, &f->s.sdrv.early_keys);
   f->s.sdrv.early_data_accepted = 1;
 }
@@ -5295,9 +5405,15 @@ static void test_srvloop_classified_slot_not_reset(void) {
     l.reset_slots = 1;
     l.done_n = l.incomplete_n = l.frame_unexpected_n = 0;
     l.streams[0].req_len                             = 0;
-    if (k == 0) srvloop_route_note_done(&l, 0);
-    if (k == 1) route_note_incomplete_append(&l, 0);
-    if (k == 2) srvloop_route_note_frame_unexpected(&l, 0);
+    if (k == 0) {
+      srvloop_route_note_done(&l, 0);
+    }
+    if (k == 1) {
+      route_note_incomplete_append(&l, 0);
+    }
+    if (k == 2) {
+      srvloop_route_note_frame_unexpected(&l, 0);
+    }
     CHECK(l.reset_slots == 0);
   }
 }
@@ -5550,8 +5666,9 @@ static void lp_headers_then_reset(
       method, wired_span_of((const u8*)"https", 5),
       wired_span_of((const u8*)"h", 1), path, wired_span_of((const u8*)"", 0)};
   usz off = lp_build_headers_stream(&pin, fin, payload, sizeof payload);
-  if (reset)
+  if (reset) {
     off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  }
   lp_step_payload(f, 3, payload, off);
 }
 

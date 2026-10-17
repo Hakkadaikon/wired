@@ -17,8 +17,12 @@ static int on_request(
   (void)ctx;
   (void)req;
   u64 n = BODY_SIZE - offset;
-  if (n > body_out->cap) n = body_out->cap;
-  for (u64 i = 0; i < n; i++) body_out->p[i] = (u8)(offset + i);
+  if (n > body_out->cap) {
+    n = body_out->cap;
+  }
+  for (u64 i = 0; i < n; i++) {
+    body_out->p[i] = (u8)(offset + i);
+  }
   body_out->len = n;
   *more         = offset + n < BODY_SIZE;
   *total_size   = BODY_SIZE;

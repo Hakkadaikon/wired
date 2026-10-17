@@ -64,8 +64,11 @@ static int moqcache_later(moqcache_rec r, moqcache_rec v) {
  * may arrive. */
 static int moqcache_open(const moqcache* c, moqcache_rec v) {
   for (usz off = 0; off < c->used;
-       off += moqcache_rec_size(moqcache_rec_at(c, off)))
-    if (moqcache_later(moqcache_rec_at(c, off), v)) return 0;
+       off += moqcache_rec_size(moqcache_rec_at(c, off))) {
+    if (moqcache_later(moqcache_rec_at(c, off), v)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -88,8 +91,9 @@ static int moqcache_victim(
 usz moqcache_first_victim(const moqcache* c, u64 tag, u64 group) {
   usz off = 0;
   while (off < c->used &&
-         !moqcache_victim(c, moqcache_rec_at(c, off), tag, group))
+         !moqcache_victim(c, moqcache_rec_at(c, off), tag, group)) {
     off += moqcache_rec_size(moqcache_rec_at(c, off));
+  }
   return off;
 }
 

@@ -11,7 +11,9 @@ int sflight_finished_suite(
     const u8*   transcript_hash,
     wired_obuf* out) {
   usz off, n = tls_hash_of(suite)->len;
-  if (out->cap < 4 + n) return 0;
+  if (out->cap < 4 + n) {
+    return 0;
+  }
   off = hs_begin(out->p, out->cap, HS_FINISHED);
   tls_finished_verify_data_suite(
       suite, finished_key, transcript_hash, out->p + off);

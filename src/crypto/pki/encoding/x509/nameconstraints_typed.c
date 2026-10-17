@@ -22,8 +22,9 @@ static int typed_scan(
   wired_span e;
   int        covered = 0;
   derseq_init(&c, subtrees);
-  while (derseq_next(&c, &tag, &e))
+  while (derseq_next(&c, &tag, &e)) {
     x509_typed_fold(e, want, name, m, any, &covered);
+  }
   return covered;
 }
 
@@ -34,8 +35,12 @@ static int typed_permitted_ok(
     wired_span seq, u8 want, wired_span name, nc_matcher m) {
   wired_span permitted;
   int        any = 0;
-  if (!x509_nc_half(seq, NC_PERMITTED_TAG, &permitted)) return 1;
-  if (typed_scan(permitted, want, name, m, &any)) return 1;
+  if (!x509_nc_half(seq, NC_PERMITTED_TAG, &permitted)) {
+    return 1;
+  }
+  if (typed_scan(permitted, want, name, m, &any)) {
+    return 1;
+  }
   return !any;
 }
 
@@ -45,13 +50,17 @@ static int typed_excluded_ok(
     wired_span seq, u8 want, wired_span name, nc_matcher m) {
   wired_span excluded;
   int        any = 0;
-  if (!x509_nc_half(seq, NC_EXCLUDED_TAG, &excluded)) return 1;
+  if (!x509_nc_half(seq, NC_EXCLUDED_TAG, &excluded)) {
+    return 1;
+  }
   return !typed_scan(excluded, want, name, m, &any);
 }
 
 /* Both halves of the constraint, for one name of one GeneralName form. */
 int x509_typed_name_ok(wired_span seq, u8 want, wired_span name, nc_matcher m) {
-  if (!typed_permitted_ok(seq, want, name, m)) return 0;
+  if (!typed_permitted_ok(seq, want, name, m)) {
+    return 0;
+  }
   return typed_excluded_ok(seq, want, name, m);
 }
 
@@ -61,9 +70,13 @@ static usz half_count(wired_span seq, u8 half) {
   u8         tag;
   wired_span subtrees, e;
   usz        n = 0;
-  if (!x509_nc_half(seq, half, &subtrees)) return 0;
+  if (!x509_nc_half(seq, half, &subtrees)) {
+    return 0;
+  }
   derseq_init(&c, subtrees);
-  while (derseq_next(&c, &tag, &e)) n++;
+  while (derseq_next(&c, &tag, &e)) {
+    n++;
+  }
   return n;
 }
 
@@ -76,8 +89,12 @@ int x509_nc_too_many(wired_span seq) {
 
 int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject) {
   wired_span seq;
-  if (!x509_nc_locate(cert_tbs, &seq)) return 1;
-  if (x509_nc_too_many(seq)) return 0;
+  if (!x509_nc_locate(cert_tbs, &seq)) {
+    return 1;
+  }
+  if (x509_nc_too_many(seq)) {
+    return 0;
+  }
   return x509_typed_name_ok(
       seq, NC_DIRECTORYNAME_TAG, subject, x509_dn_within_base);
 }
@@ -102,7 +119,9 @@ static int nc_ip_malformed(wired_span base, wired_span name) {
 static int half_covers(wired_span seq, u8 half, u8 want, nc_matcher m) {
   wired_span subtrees;
   int        any = 0;
-  if (!x509_nc_half(seq, half, &subtrees)) return 0;
+  if (!x509_nc_half(seq, half, &subtrees)) {
+    return 0;
+  }
   return typed_scan(subtrees, want, subtrees, m, &any);
 }
 
@@ -117,7 +136,9 @@ int x509_ip_bases_malformed(wired_span seq) {
  * nameConstraints carries any URI subtree (either half) rejects outright
  * (fail closed; see the header). */
 static int uri_san_ok(wired_span seq) {
-  if (half_covers(seq, NC_PERMITTED_TAG, NC_URI_TAG, nc_always)) return 0;
+  if (half_covers(seq, NC_PERMITTED_TAG, NC_URI_TAG, nc_always)) {
+    return 0;
+  }
   return !half_covers(seq, NC_EXCLUDED_TAG, NC_URI_TAG, nc_always);
 }
 
@@ -125,8 +146,11 @@ static int uri_san_ok(wired_span seq) {
  * iPAddress against the iPAddress subtrees, URI as above. Forms this SDK
  * never consumes (rfc822Name, otherName, ...) are unconstrained. */
 int x509_san_other_entry_ok(wired_span seq, u8 tag, wired_span e) {
-  if (tag == NC_IPADDR_TAG)
+  if (tag == NC_IPADDR_TAG) {
     return x509_typed_name_ok(seq, tag, e, x509_nc_ip_within);
-  if (tag == NC_URI_TAG) return uri_san_ok(seq);
+  }
+  if (tag == NC_URI_TAG) {
+    return uri_san_ok(seq);
+  }
   return 1;
 }

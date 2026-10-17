@@ -19,16 +19,21 @@ static int moqtrun_rdv_on_stream(
 /* A cancelled request stream's hold goes, unanswered (3.3.3). */
 void moqtrun_rdv_drop_stream(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_on_stream(&hub->rdv[i], s, stream_id))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_on_stream(&hub->rdv[i], s, stream_id)) {
       hub->rdv[i].in_use = 0;
+    }
+  }
 }
 
 /* A closed session's holds go at once: a new session may reuse its handle
  * and stream ids, and must not be answered for them. */
 void moqtrun_rdv_drop_wt(wired_moqt_hub* hub, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_owned(&hub->rdv[i], s)) hub->rdv[i].in_use = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_owned(&hub->rdv[i], s)) {
+      hub->rdv[i].in_use = 0;
+    }
+  }
 }
 
 static int moqtrun_rdv_held_here(const wired_moqtrun_peer* p) {
@@ -39,7 +44,9 @@ static int moqtrun_rdv_held_here(const wired_moqtrun_peer* p) {
  * each, and the first on the stream reads as the SUBSCRIBE's): the hold is
  * answered TIMEOUT first -- the shorter timeout 10.2.6 allows. */
 void moqtrun_rdv_settle_early(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  if (!moqtrun_rdv_held_here(p)) return;
+  if (!moqtrun_rdv_held_here(p)) {
+    return;
+  }
   moqtrun_send_request_error(p, MOQTRUN_ERR_TIMEOUT);
   p->req->rdv_held = 0;
   moqtrun_rdv_drop_stream(hub, p->wt, p->req->stream_id);
@@ -95,7 +102,9 @@ static int moqtrun_ns_field_eq(wired_span f, const char* z, usz n) {
  * "."-led field is an unrecognized reserved namespace and passes to
  * the application (this hub's normal handling). */
 int moqtrun_ns_reserved(const moqctl_ns* ns) {
-  if (!ns->n) return 0;
+  if (!ns->n) {
+    return 0;
+  }
   return moqtrun_ns_field_eq(ns->fields[0], ".", 1) ||
          moqtrun_ns_field_eq(ns->fields[0], ".session", 8);
 }
@@ -109,7 +118,9 @@ int moqtrun_subscribe_refused(
     const wired_moqt_hub* hub, const moqctl_subscribe* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
-  if (!hub->authorize_subscribe) return 0;
+  if (!hub->authorize_subscribe) {
+    return 0;
+  }
   return !hub->authorize_subscribe(hub->authorize_ctx, &m->name, t);
 }
 
@@ -121,6 +132,8 @@ int moqtrun_publish_auth_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
   const moqctl_token* t = moqtrun_auth_token_of(&m->params);
   *code                 = MOQCTL_ERR_UNAUTHORIZED;
-  if (!hub->authorize_publish) return 0;
+  if (!hub->authorize_publish) {
+    return 0;
+  }
   return !hub->authorize_publish(hub->authorize_pub_ctx, &m->name, t);
 }

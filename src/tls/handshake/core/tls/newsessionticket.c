@@ -36,7 +36,9 @@ static void put_nst_prefix(
   body[8] = 1; /* ticket_nonce_len */
   body[9] = t->ticket_nonce;
   be_put_be16(body + 10, TICKET_SEALED_LEN);
-  for (i = 0; i < TICKET_SEALED_LEN; i++) body[12 + i] = sealed[i];
+  for (i = 0; i < TICKET_SEALED_LEN; i++) {
+    body[12 + i] = sealed[i];
+  }
 }
 
 /* RFC 8446 4.2.10: extensions_len(2) followed by early_data(4+4) when
@@ -63,7 +65,9 @@ usz tls_new_session_ticket_encode(
   u8     sealed[TICKET_SEALED_LEN];
   ticket sealed_t = *t;
   usz    off      = hs_begin(out, cap, HS_NEW_SESSION_TICKET);
-  if (off == 0 || cap - off < NST_PREFIX_LEN + 2) return 0;
+  if (off == 0 || cap - off < NST_PREFIX_LEN + 2) {
+    return 0;
+  }
   sealed_t.lifetime_secs = nst_clamp_lifetime(t->lifetime_secs);
   sealed_t.age_add       = nst_random_age_add();
   ticket_seal(&sealed_t, key, sealed);
@@ -95,9 +99,13 @@ static int nst_ticket_fits(usz body_len, usz pre, usz ticket_len) {
  * the ticket field sits after a variable-length nonce. */
 static int nst_take_ticket(wired_span msg, usz body_len, wired_span* sealed) {
   usz pre = 11 + msg.p[4 + 8];
-  if (body_len < pre) return 0;
+  if (body_len < pre) {
+    return 0;
+  }
   usz ticket_len = get_be16(msg.p + 4 + pre - 2);
-  if (!nst_ticket_fits(body_len, pre, ticket_len)) return 0;
+  if (!nst_ticket_fits(body_len, pre, ticket_len)) {
+    return 0;
+  }
   *sealed = wired_span_of(msg.p + 4 + pre, ticket_len);
   return 1;
 }
@@ -105,7 +113,11 @@ static int nst_take_ticket(wired_span msg, usz body_len, wired_span* sealed) {
 int tls_new_session_ticket_parse(wired_span msg, wired_span* sealed) {
   u8  type;
   usz body_len;
-  if (hs_parse(msg, &type, &body_len) == 0) return 0;
-  if (!nst_header_ok(type, body_len)) return 0;
+  if (hs_parse(msg, &type, &body_len) == 0) {
+    return 0;
+  }
+  if (!nst_header_ok(type, body_len)) {
+    return 0;
+  }
   return nst_take_ticket(msg, body_len, sealed);
 }

@@ -52,7 +52,9 @@ static void test_moqvi_decode_official_examples(void) {
       {ex7, 8, 70423237261249041ULL},
       {ex8, 9, 0xFFFFFFFFFFFFFFFFULL},
   };
-  for (usz i = 0; i < 8; i++) check_decode(&g[i]);
+  for (usz i = 0; i < 8; i++) {
+    check_decode(&g[i]);
+  }
 }
 
 /* TEST 2: value 0 in all 9 encoding lengths is accepted (non-minimal
@@ -82,7 +84,9 @@ static void check_encode(const moqvi_enc_vec* g) {
   CHECK(moqvi_len(g->v) == g->n);
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, g->v));
   CHECK(off == g->n);
-  for (usz i = 0; i < g->n; i++) CHECK(buf[i] == g->p[i]);
+  for (usz i = 0; i < g->n; i++) {
+    CHECK(buf[i] == g->p[i]);
+  }
 }
 
 /* TEST 4: minimal-length encode of the draft's example values (the minimal
@@ -105,7 +109,9 @@ static void test_moqvi_encode_official_examples(void) {
       {70423237261249041ULL, ex7, 8},
       {0xFFFFFFFFFFFFFFFFULL, ex8, 9},
   };
-  for (usz i = 0; i < 7; i++) check_encode(&g[i]);
+  for (usz i = 0; i < 7; i++) {
+    check_encode(&g[i]);
+  }
 }
 
 /* TEST 5: encode length steps up exactly at each capacity boundary. */
@@ -124,7 +130,9 @@ static void test_moqvi_encode_boundaries(void) {
       {0xFFFFFFFFFFFFFFULL, b56max, 8},
       {0x100000000000000ULL, b56one, 9},
   };
-  for (usz i = 0; i < 6; i++) check_encode(&g[i]);
+  for (usz i = 0; i < 6; i++) {
+    check_encode(&g[i]);
+  }
 }
 
 static void check_truncated(const u8* p, usz n) {
@@ -156,8 +164,9 @@ static void test_moqvi_roundtrip(void) {
   u8  buf[64];
   usz off = 0;
   usz at  = 0;
-  for (usz i = 0; i < 7; i++)
+  for (usz i = 0; i < 7; i++) {
     CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, vals[i]));
+  }
   for (usz i = 0; i < 7; i++) {
     u64 out = 0;
     CHECK(moqvi_take(wired_span_of(buf, off), &at, &out));

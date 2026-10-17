@@ -18,9 +18,11 @@ static int has_outstanding(
 }
 
 int ackgen_should_ack(const ackgen_state* s, u64 max_ack_delay) {
-  if (!has_outstanding(s->ack_eliciting_received, s->ack_already_pending))
+  if (!has_outstanding(s->ack_eliciting_received, s->ack_already_pending)) {
     return 0;
-  if (second_eliciting(s->ack_eliciting_received, s->ack_already_pending))
+  }
+  if (second_eliciting(s->ack_eliciting_received, s->ack_already_pending)) {
     return 1;
+  }
   return delay_due(s->since_last_ack, max_ack_delay);
 }

@@ -12,7 +12,9 @@ u64 flow_send_avail(const flow_send* f) {
 }
 
 int flow_send_record(flow_send* f, u64 n) {
-  if (n > flow_send_avail(f)) return 0;
+  if (n > flow_send_avail(f)) {
+    return 0;
+  }
   f->sent += n;
   return 1;
 }
@@ -22,7 +24,9 @@ void flow_send_update_max(flow_send* f, u64 max_data) {
 }
 
 int flow_send_blocked(const flow_send* f, u64 want) {
-  if (want == 0) return 0;          /* nothing to send, not blocked */
+  if (want == 0) {
+    return 0; /* nothing to send, not blocked */
+  }
   return want > flow_send_avail(f); /* limit leaves too little room */
 }
 

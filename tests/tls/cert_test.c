@@ -54,7 +54,9 @@ static void test_certverify_ed25519(void) {
     th[i] = (u8)i;
     pk[i] = (u8)(i + 1);
   }
-  for (usz i = 0; i < ED25519_SIG; i++) sig[i] = 0;
+  for (usz i = 0; i < ED25519_SIG; i++) {
+    sig[i] = 0;
+  }
 
   CHECK(
       tls_certverify_ed25519(wired_span_of(sig, 32), th, pk) ==
@@ -66,7 +68,9 @@ static void test_certverify_ed25519(void) {
   build_signed(th, c1);
   build_signed(th, c2);
   CHECK(c1[0] == 0x20 && c1[63] == 0x20 && c1[64] == 'T' && c1[97] == 0x00);
-  for (usz i = 0; i < 130; i++) CHECK(c1[i] == c2[i]);
+  for (usz i = 0; i < 130; i++) {
+    CHECK(c1[i] == c2[i]);
+  }
 }
 
 void test_cert(void) {

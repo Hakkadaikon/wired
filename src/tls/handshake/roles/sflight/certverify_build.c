@@ -11,15 +11,21 @@
 static const char cv_ctx[] = "TLS 1.3, server CertificateVerify";
 
 static void cvb_fill_pad(u8* out) {
-  for (usz i = 0; i < 64; i++) out[i] = 0x20;
+  for (usz i = 0; i < 64; i++) {
+    out[i] = 0x20;
+  }
 }
 
 static void cvb_put_ctx(u8* out) {
-  for (usz i = 0; i < 33; i++) out[i] = (u8)cv_ctx[i];
+  for (usz i = 0; i < 33; i++) {
+    out[i] = (u8)cv_ctx[i];
+  }
 }
 
 static void cvb_put_hash(u8* out, const u8* transcript_hash) {
-  for (usz i = 0; i < 32; i++) out[i] = transcript_hash[i];
+  for (usz i = 0; i < 32; i++) {
+    out[i] = transcript_hash[i];
+  }
 }
 
 /* 64*0x20 + ctx(33) + 0x00 + transcript_hash(32) = 130 octets. */
@@ -34,7 +40,9 @@ int sflight_certificate_verify(
     const u8 seed[32], const u8* transcript_hash, wired_obuf* out) {
   u8  content[130];
   usz off;
-  if (out->cap < 4 + 2 + 2 + ED25519_SIG) return 0;
+  if (out->cap < 4 + 2 + 2 + ED25519_SIG) {
+    return 0;
+  }
   off = hs_begin(out->p, out->cap, HS_CERTIFICATE_VERIFY);
   sflight_cv_signed(transcript_hash, content);
   be_put_be16(out->p + off, SFLIGHT_SCHEME_ED25519);

@@ -20,15 +20,21 @@ static int srvrun_qenc_credit_due(const srvrun_conn* c, u64 ceiling);
  * one-buffer-wide MAX_DATA). */
 usz srvrun_wt_bidi_slots_in_use(const srvrun_conn* c) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (c->l.wt_streams[i].in_use) n++;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (c->l.wt_streams[i].in_use) {
+      n++;
+    }
+  }
   return n;
 }
 
 usz srvrun_wt_uni_slots_in_use(const srvrun_conn* c) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    if (c->l.wt_uni_streams[i].in_use) n++;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (c->l.wt_uni_streams[i].in_use) {
+      n++;
+    }
+  }
   return n;
 }
 
@@ -52,15 +58,19 @@ static u64 srvrun_req_slot_ceiling(const wired_srvloop_stream_slot* slot) {
  * bytes of every released slot plus each live slot's share. */
 u64 srvrun_req_rx_ceiling(const srvrun_conn* c) {
   u64 total = c->l.req_body_released;
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     total += srvrun_req_slot_ceiling(&c->l.streams[i]);
+  }
   return total;
 }
 
 /* 1 while some request body streams. */
 static int srvrun_req_any_streaming(const srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (srvrun_req_credit_live(&c->l.streams[i])) return 1;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (srvrun_req_credit_live(&c->l.streams[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -77,8 +87,9 @@ static int srvrun_conn_credit_live(const srvrun_conn* c) {
  * srvrun_req_rx_ceiling. */
 static u64 srvrun_wt_connect_slack(srvrun_conn* c) {
   u64 n = 0;
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     n += srvrun_wt_rx_slot(c, i) ? BODYWIN_CAP : 0;
+  }
   return n;
 }
 
@@ -114,8 +125,12 @@ void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
                 (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP +
                 srvrun_req_rx_ceiling(c) + slack + srvrun_qenc_rx_ceiling(c);
-  if (!srvrun_conn_credit_moving(c, slack)) return;
-  if (!srvrun_wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
+  if (!srvrun_conn_credit_moving(c, slack)) {
+    return;
+  }
+  if (!srvrun_wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) {
+    return;
+  }
   srvrun_send_max_data(cfg, c, ceiling);
   c->rx_max_data_advertised = ceiling;
 }
@@ -140,7 +155,9 @@ static int srvrun_qenc_credit_due(const srvrun_conn* c, u64 ceiling) {
 void srvrun_grant_qenc_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
   const qdyn_encrx* rx      = &c->l.h3.qenc_rx;
   u64               ceiling = qdyn_encrx_credit(rx);
-  if (!rx->type_len || !srvrun_qenc_credit_due(c, ceiling)) return;
+  if (!rx->type_len || !srvrun_qenc_credit_due(c, ceiling)) {
+    return;
+  }
   srvrun_send_max_stream_data(cfg, c, rx->stream_id, ceiling);
   c->qenc_credit_advertised = ceiling;
 }

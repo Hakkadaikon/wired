@@ -46,8 +46,12 @@
 static int next_hs(const u8* b, usz n, usz* p, const u8** msg, usz* len) {
   usz body;
   u8  type;
-  if (*p + 4 > n) return 0;
-  if (hs_parse(wired_span_of(b + *p, n - *p), &type, &body) != 4) return 0;
+  if (*p + 4 > n) {
+    return 0;
+  }
+  if (hs_parse(wired_span_of(b + *p, n - *p), &type, &body) != 4) {
+    return 0;
+  }
   *msg = b + *p;
   *len = 4 + body;
   *p += *len;
@@ -60,9 +64,15 @@ static int next_hs(const u8* b, usz n, usz* p, const u8** msg, usz* len) {
  * length. Returns the new total length. */
 static usz ch_with_sid(u8* out, const u8* ch, usz ch_len, const u8 sid[32]) {
   usz tail = ch_len - (4 + 35); /* bytes after the len byte */
-  for (usz i = 0; i < 4 + 35; i++) out[i] = ch[i];
-  for (usz i = 0; i < 32; i++) out[4 + 35 + i] = sid[i];
-  for (usz i = 0; i < tail; i++) out[4 + 35 + 32 + i] = ch[4 + 35 + i];
+  for (usz i = 0; i < 4 + 35; i++) {
+    out[i] = ch[i];
+  }
+  for (usz i = 0; i < 32; i++) {
+    out[4 + 35 + i] = sid[i];
+  }
+  for (usz i = 0; i < tail; i++) {
+    out[4 + 35 + 32 + i] = ch[4 + 35 + i];
+  }
   out[4 + 34] = 32;
   hs_finish(out, ch_len + 32);
   return ch_len + 32;
@@ -231,11 +241,13 @@ static void test_sdrv_external_chain(void) {
     CHECK(tls_cert_chain(wired_span_of(cm + 4, cml - 4), &ctx, &co));
     CHECK(count == 2);
     CHECK(entries[0].cert_len == sizeof(realchain_leaf_der));
-    for (usz i = 0; i < entries[0].cert_len; i++)
+    for (usz i = 0; i < entries[0].cert_len; i++) {
       CHECK(entries[0].cert_data[i] == realchain_leaf_der[i]);
+    }
     CHECK(entries[1].cert_len == sizeof(realchain_int_der));
-    for (usz i = 0; i < entries[1].cert_len; i++)
+    for (usz i = 0; i < entries[1].cert_len; i++) {
       CHECK(entries[1].cert_data[i] == realchain_int_der[i]);
+    }
 
     /* CertificateVerify (scheme 0x0403) verifies against the golden leaf's
      * real public key over the transcript through Certificate. */
@@ -840,7 +852,9 @@ static void sdrv_test_init_any(sdrv* s) {
  * silently succeed instead of crashing. */
 static u8* sdrv_test_malloc_exact(const u8* src, usz n) {
   u8* p = malloc(n);
-  for (usz i = 0; i < n; i++) p[i] = src[i];
+  for (usz i = 0; i < n; i++) {
+    p[i] = src[i];
+  }
   return p;
 }
 
@@ -975,7 +989,9 @@ static void test_sdrv_recv_client_hello_dup_ext_rejected(void) {
   CHECK(dup_len != 0);
   exts_len =
       (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
-  for (usz i = 0; i < dup_len; i++) ch[ch_len + i] = dup[i];
+  for (usz i = 0; i < dup_len; i++) {
+    ch[ch_len + i] = dup[i];
+  }
   be_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + dup_len));
   hs_finish(ch, ch_len + dup_len);
   ch_len += dup_len;
@@ -997,8 +1013,9 @@ static void test_sdrv_recv_client_hello_oid_filters_rejected(void) {
   CHECK(ch_len != 0);
   exts_len =
       (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
-  for (usz i = 0; i < sizeof(oid_filters_ext); i++)
+  for (usz i = 0; i < sizeof(oid_filters_ext); i++) {
     ch[ch_len + i] = oid_filters_ext[i];
+  }
   be_put_be16(
       ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + sizeof(oid_filters_ext)));
   hs_finish(ch, ch_len + sizeof(oid_filters_ext));
@@ -1147,12 +1164,15 @@ static void sdrv_test_set_suite(u8* ch, u16 suite) {
 static usz sdrv_test_prepend_suite(
     u8* out, const u8* ch, usz ch_len, u16 suite) {
   usz tail = ch_len - SDRV_TEST_CIPHER_SUITE_OFF;
-  for (usz i = 0; i < SDRV_TEST_CIPHER_SUITE_OFF; i++) out[i] = ch[i];
+  for (usz i = 0; i < SDRV_TEST_CIPHER_SUITE_OFF; i++) {
+    out[i] = ch[i];
+  }
   out[SDRV_TEST_CIPHER_SUITE_OFF]     = (u8)(suite >> 8);
   out[SDRV_TEST_CIPHER_SUITE_OFF + 1] = (u8)suite;
-  for (usz i = 0; i < tail; i++)
+  for (usz i = 0; i < tail; i++) {
     out[SDRV_TEST_CIPHER_SUITE_OFF + 2 + i] =
         ch[SDRV_TEST_CIPHER_SUITE_OFF + i];
+  }
   /* cipher_suites length field is 2 bytes before the first entry. */
   out[SDRV_TEST_CIPHER_SUITE_OFF - 2] = 0;
   out[SDRV_TEST_CIPHER_SUITE_OFF - 1] = 4;
@@ -1421,14 +1441,26 @@ static usz sdrv_test_append_psk(
   u8         modes[8], scratch[256];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
-  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
-  if (!tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + modes_len + eob.len > out_cap) return 0;
-  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) {
+    return 0;
+  }
+  if (!tlsext_pre_shared_key(psk, &eob)) {
+    return 0;
+  }
+  if (ch_len + modes_len + eob.len > out_cap) {
+    return 0;
+  }
+  for (usz i = 0; i < ch_len; i++) {
+    out[i] = ch[i];
+  }
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
+  for (usz i = 0; i < modes_len; i++) {
+    out[ch_len + i] = modes[i];
+  }
   *psk_ext_off = ch_len + modes_len;
-  for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
+  for (usz i = 0; i < eob.len; i++) {
+    out[ch_len + modes_len + i] = scratch[i];
+  }
   be_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
   hs_finish(out, ch_len + modes_len + eob.len);
   return ch_len + modes_len + eob.len;
@@ -1455,18 +1487,34 @@ static usz sdrv_test_append_early_data_then_psk(
   u8         scratch[256];
   wired_obuf eob  = obuf_of(scratch, sizeof(scratch));
   usz        head = ch_len;
-  if (!tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) return 0;
-  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
-  if (!tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + ed_len + modes_len + eob.len > out_cap) return 0;
-  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  if (!tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) {
+    return 0;
+  }
+  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) {
+    return 0;
+  }
+  if (!tlsext_pre_shared_key(psk, &eob)) {
+    return 0;
+  }
+  if (ch_len + ed_len + modes_len + eob.len > out_cap) {
+    return 0;
+  }
+  for (usz i = 0; i < ch_len; i++) {
+    out[i] = ch[i];
+  }
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  for (usz i = 0; i < ed_len; i++) out[head + i] = ed[i];
+  for (usz i = 0; i < ed_len; i++) {
+    out[head + i] = ed[i];
+  }
   head += ed_len;
-  for (usz i = 0; i < modes_len; i++) out[head + i] = modes[i];
+  for (usz i = 0; i < modes_len; i++) {
+    out[head + i] = modes[i];
+  }
   head += modes_len;
   *psk_ext_off = head;
-  for (usz i = 0; i < eob.len; i++) out[head + i] = scratch[i];
+  for (usz i = 0; i < eob.len; i++) {
+    out[head + i] = scratch[i];
+  }
   be_put_be16(
       out + exts_len_off, (u16)(old_exts_len + ed_len + modes_len + eob.len));
   hs_finish(out, head + eob.len);
@@ -1630,7 +1678,9 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
-  for (usz i = 0; i < 32; i++) CHECK(s.psk_secret[i] == f.psk[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(s.psk_secret[i] == f.psk[i]);
+  }
   sh_ob = obuf_of(sh, sizeof(sh));
   fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (sdrv_flight_out){&sh_ob, &fl_ob};
@@ -1708,7 +1758,9 @@ static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv_flight_out  fo       = {&sh_ob, &fl_ob};
   sdrv_psk_fixture_init(&f);
   t.issued_at = wired_clock_epoch_secs();
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(0x50 + i);
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    t.secret[i] = (u8)(0x50 + i);
+  }
   ticket_seal(&t, f.ticket_key, f.sealed);
   CHECK(hkdf_expand_label_384(t.secret, &l, wired_mspan_of(psk, 48)) == 1);
   ch2_len = sdrv_test_psk_ch_suite(
@@ -1731,11 +1783,19 @@ static usz sdrv_test_append_psk_no_modes(
   usz        old_exts_len;
   u8         scratch[256];
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
-  if (!tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + eob.len > out_cap) return 0;
-  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  if (!tlsext_pre_shared_key(psk, &eob)) {
+    return 0;
+  }
+  if (ch_len + eob.len > out_cap) {
+    return 0;
+  }
+  for (usz i = 0; i < ch_len; i++) {
+    out[i] = ch[i];
+  }
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
+  for (usz i = 0; i < eob.len; i++) {
+    out[ch_len + i] = scratch[i];
+  }
   be_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
   hs_finish(out, ch_len + eob.len);
   return ch_len + eob.len;
@@ -1820,7 +1880,9 @@ static void test_sdrv_psk_not_last_rejected(void) {
   trailer_len = 6;
   exts_len =
       (usz)ch2[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch2[SDRV_TEST_EXTS_LEN_OFF + 1];
-  for (usz i = 0; i < trailer_len; i++) ch2[ch2_len + i] = trailer[i];
+  for (usz i = 0; i < trailer_len; i++) {
+    ch2[ch2_len + i] = trailer[i];
+  }
   be_put_be16(ch2 + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + trailer_len));
   hs_finish(ch2, ch2_len + trailer_len);
   ch2_len += trailer_len;
@@ -1848,7 +1910,9 @@ static usz sdrv_test_0rtt_ch(
         wired_span_of(zero_binder, sizeof(zero_binder))};
     ch2_len = sdrv_test_append_early_data_then_psk(
         ch2, ch2_cap, f->ch, f->ch_len, &psk, psk_ext_off);
-    if (ch2_len == 0) return 0;
+    if (ch2_len == 0) {
+      return 0;
+    }
   }
   trunc_len = sdrv_test_psk_truncate_len(*psk_ext_off, sizeof(f->sealed));
   tls_binder_compute(f->psk, wired_span_of(ch2, trunc_len), binder);
@@ -1891,9 +1955,15 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   CHECK(s.early_data_accepted == 1);
   tls_early_keys(f.psk, ch2, ch2_len, &want);
   CHECK(sdrv_early_keys(&s, &got) == 1);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(got.key[i] == want.key[i]);
-  for (usz i = 0; i < INITIAL_IV; i++) CHECK(got.iv[i] == want.iv[i]);
-  for (usz i = 0; i < INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(got.key[i] == want.key[i]);
+  }
+  for (usz i = 0; i < INITIAL_IV; i++) {
+    CHECK(got.iv[i] == want.iv[i]);
+  }
+  for (usz i = 0; i < INITIAL_HP; i++) {
+    CHECK(got.hp[i] == want.hp[i]);
+  }
 }
 
 /* Ticket-key rotation: a ticket sealed under the previous key still opens
@@ -2060,7 +2130,9 @@ static void test_sdrv_psk_unknown_identity_falls_back(void) {
     cert_priv[i] = (u8)(0x80 + i);
   }
   wired_x25519_base(srv_pub, srv_priv);
-  for (usz i = 0; i < sizeof(garbage); i++) garbage[i] = (u8)(0xee ^ i);
+  for (usz i = 0; i < sizeof(garbage); i++) {
+    garbage[i] = (u8)(0xee ^ i);
+  }
 
   {
     tlsext_psk_in psk = {
@@ -2095,8 +2167,9 @@ static void test_sdrv_psk_binder_mismatch_aborts(void) {
     cert_priv[i] = (u8)(0x80 + i);
   }
   wired_x25519_base(srv_pub, srv_priv);
-  for (usz i = 0; i < sizeof(wrong_binder); i++)
+  for (usz i = 0; i < sizeof(wrong_binder); i++) {
     wrong_binder[i] = (u8)(0x11 + i);
+  }
 
   {
     tlsext_psk_in psk = {
@@ -2241,8 +2314,9 @@ static void sdrv_test_enforce_sni(
   CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
   CHECK(sdrv_sni_outcome(&s) == outcome);
   CHECK(sdrv_enforce_sni(&s) == want_ok);
-  if (!want_ok)
+  if (!want_ok) {
     CHECK(sdrv_last_error(&s) == err_crypto(TLS_ALERT_UNRECOGNIZED_NAME));
+  }
 }
 
 /* A mismatch fails enforce_sni and records unrecognized_name. */
@@ -2278,9 +2352,15 @@ static void test_sdrv_pref_addr_tp(void) {
   wired_span     val = {0, 0};
   stp_out        out = {0, &val};
   sdrv_pref_addr p;
-  for (usz i = 0; i < 16; i++) v6[i] = (u8)(0x60 + i);
-  for (usz i = 0; i < 6; i++) cid[i] = (u8)(0xc0 + i);
-  for (usz i = 0; i < 16; i++) tok[i] = (u8)(0x30 + i);
+  for (usz i = 0; i < 16; i++) {
+    v6[i] = (u8)(0x60 + i);
+  }
+  for (usz i = 0; i < 6; i++) {
+    cid[i] = (u8)(0xc0 + i);
+  }
+  for (usz i = 0; i < 16; i++) {
+    tok[i] = (u8)(0x30 + i);
+  }
   /* unarmed: nothing appended */
   CHECK(sdrv_flight_emit_ee_pref_addr(&s, &tob) == 1);
   CHECK(tob.len == 0);
@@ -2289,13 +2369,21 @@ static void test_sdrv_pref_addr_tp(void) {
   CHECK(sdrv_flight_emit_ee_pref_addr(&s, &tob) == 1);
   CHECK(stp_parse(wired_span_of(tpbuf, tob.len), TP_PREFERRED_ADDRESS, &out));
   CHECK(val.n == 4 + 2 + 16 + 2 + 1 + 6 + 16);
-  for (usz i = 0; i < 4; i++) CHECK(val.p[i] == v4[i]);
+  for (usz i = 0; i < 4; i++) {
+    CHECK(val.p[i] == v4[i]);
+  }
   CHECK(val.p[4] == 0x01 && val.p[5] == 0xbb); /* port 443 big-endian */
-  for (usz i = 0; i < 16; i++) CHECK(val.p[6 + i] == v6[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(val.p[6 + i] == v6[i]);
+  }
   CHECK(val.p[22] == 0x01 && val.p[23] == 0xbb);
   CHECK(val.p[24] == 6);
-  for (usz i = 0; i < 6; i++) CHECK(val.p[25 + i] == cid[i]);
-  for (usz i = 0; i < 16; i++) CHECK(val.p[31 + i] == tok[i]);
+  for (usz i = 0; i < 6; i++) {
+    CHECK(val.p[25 + i] == cid[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(val.p[31 + i] == tok[i]);
+  }
 }
 
 /* Raw-QUIC MoQT ALPN through the driver (plan S6, RFC 7301 3.1/3.2):
@@ -2313,7 +2401,9 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
   ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256};
   t.issued_at = wired_clock_epoch_secs();
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = f->secret[i];
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    t.secret[i] = f->secret[i];
+  }
   ticket_seal(&t, f->ticket_key, f->sealed);
 }
 
@@ -2351,7 +2441,9 @@ static void test_sdrv_raw_alpn_selected(void) {
   CHECK(s.alpn == SALPN_RAW);
   CHECK(s.alpn_tok.p == (const u8*)list + 8 && s.alpn_tok.n == 2);
   CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
-  for (usz i = 0; i < sizeof want; i++) CHECK(flight[4 + 2 + i] == want[i]);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(flight[4 + 2 + i] == want[i]);
+  }
 }
 
 /* RFC 7301 3.2 / RFC 9001 8.1: nothing the client offers is spoken -- the
@@ -2387,7 +2479,9 @@ static int sdrv_test_0rtt_alpn(u8 ticket_alpn, int raw) {
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   sdrv_psk_fixture_reseal(&f, ticket_alpn);
-  if (raw) sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  if (raw) {
+    sdrv_test_alpn_to_m9(f.ch, f.ch_len);
+  }
   sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
   ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
   CHECK(ch2_len != 0);
@@ -2552,7 +2646,9 @@ void test_sdrv(void) {
   /* both derive the same handshake secret from the shared ECDHE. */
   tls_handshake_secret(shared_cli, hs);
   CHECK(sdrv_handshake_secret(&s, &srv_hs_secret));
-  for (usz i = 0; i < 32; i++) CHECK(hs[i] == srv_hs_secret[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(hs[i] == srv_hs_secret[i]);
+  }
 
   /* split the flight into its four messages. */
   CHECK(next_hs(flight, hs_len, &p, &ee, &eel));

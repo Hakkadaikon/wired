@@ -36,7 +36,9 @@ static int recv_allowed(const connloop* c, int level) {
 }
 
 int connloop_on_recv(connloop* c, int level, usz len) {
-  if (c->phase == CONNLOOP_CLOSED) return 0;
+  if (c->phase == CONNLOOP_CLOSED) {
+    return 0;
+  }
   c->recv_bytes += len; /* RFC 9000 8.1: budget grows even when dropped */
   return recv_allowed(c, level) ? 1 : 0;
 }
@@ -44,15 +46,23 @@ int connloop_on_recv(connloop* c, int level, usz len) {
 /* RFC 9001 4.9: the level is a non-regressing, currently-permitted ceiling.
  * 1-RTT (rank 2) is barred until the handshake completes. */
 static int send_level_ok(const connloop* c, int level) {
-  if (level <= c->send_level) return level == c->send_level;
-  if (!key_promote_ok(c->send_level, level)) return 0;
+  if (level <= c->send_level) {
+    return level == c->send_level;
+  }
+  if (!key_promote_ok(c->send_level, level)) {
+    return 0;
+  }
   return level <= key_send_level(c->handshake_complete, c->handshake_confirmed);
 }
 
 /* RFC 9000 10.2 / 8.1: open phase, key present, and within the amp budget. */
 static int send_gated(const connloop* c, int level, usz len) {
-  if (c->phase != CONNLOOP_ACTIVE) return 0;
-  if (!level_usable(c, level)) return 0;
+  if (c->phase != CONNLOOP_ACTIVE) {
+    return 0;
+  }
+  if (!level_usable(c, level)) {
+    return 0;
+  }
   pathbudget b = {c->recv_bytes, c->sent_bytes, c->validated};
   return udploop_send_allowed(&b, len);
 }
@@ -68,10 +78,14 @@ static int send_ok(const connloop* c, int level, usz len) {
 }
 
 int connloop_on_send(connloop* c, const connloop_send_in* in) {
-  if (!send_ok(c, in->level, in->len)) return 0;
+  if (!send_ok(c, in->level, in->len)) {
+    return 0;
+  }
   c->send_level = in->level;
   c->sent_bytes += in->len;
-  if (!in->ack_eliciting) return 1;
+  if (!in->ack_eliciting) {
+    return 1;
+  }
   {
     sentpkt_out pkt = {in->pn, 0, 1, in->len};
     sentpkt_on_send(&c->sent, &pkt);
@@ -86,8 +100,9 @@ void connloop_validate(connloop* c) {
 
 void connloop_on_auth_fail(connloop* c, int is_chacha) {
   c->auth_fail_count++;
-  if (aead_integrity_exceeded(c->auth_fail_count, is_chacha))
+  if (aead_integrity_exceeded(c->auth_fail_count, is_chacha)) {
     c->aead_limit = 1; /* RFC 9001 6.6: caller must close(AEAD_LIMIT_REACHED) */
+  }
 }
 
 usz connloop_on_ack(connloop* c, const connloop_ack_in* in) {
@@ -100,9 +115,12 @@ usz connloop_on_ack(connloop* c, const connloop_ack_in* in) {
 }
 
 int connloop_on_pto(connloop* c, const connloop_pto_in* in) {
-  if (!level_usable(c, in->level))
+  if (!level_usable(c, in->level)) {
     return 0; /* never probe at a discarded level */
-  if (sentpkt_count(&c->sent) == 0) return 0; /* no probe, stay disarmed */
+  }
+  if (sentpkt_count(&c->sent) == 0) {
+    return 0; /* no probe, stay disarmed */
+  }
   {
     sentpkt_out pkt = {in->pn, 0, 1, in->len}; /* probe is a new packet */
     sentpkt_on_send(&c->sent, &pkt);
@@ -123,8 +141,9 @@ static const int connloop_next[] = {
 };
 
 void connloop_close(connloop* c, int peer_closed) {
-  if (c->phase == CONNLOOP_ACTIVE && peer_closed)
+  if (c->phase == CONNLOOP_ACTIVE && peer_closed) {
     c->phase = CONNLOOP_DRAINING; /* peer close skips local closing */
-  else
+  } else {
     c->phase = connloop_next[c->phase];
+  }
 }

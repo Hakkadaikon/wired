@@ -16,9 +16,13 @@ static int wyc_ed_run(const wyc_case* c) {
   ssz              m = bssl_bytes(wyc_get(a, c, "msg"), msg, sizeof msg);
   ssz              s = bssl_bytes(wyc_get(a, c, "sig"), sig, sizeof sig);
   ssz              p = bssl_bytes(wyc_get(a, c, "g.publicKey.pk"), pk, 32);
-  if (m < 0 || s < 0 || p != 32) return WYC_PK_BROKEN;
+  if (m < 0 || s < 0 || p != 32) {
+    return WYC_PK_BROKEN;
+  }
   /* a signature that is not 64 bytes can never be accepted */
-  if (s != 64) return WYC_PK_REJECT;
+  if (s != 64) {
+    return WYC_PK_REJECT;
+  }
   return ed25519_verify(sig, msg, (usz)m, pk) ? WYC_PK_ACCEPT : WYC_PK_REJECT;
 }
 

@@ -30,7 +30,9 @@ static void test_leaf_not_signed_by_leaf(void) {
 /* Tampering a tbs byte breaks the signature. */
 static void test_tampered_tbs_fails(void) {
   u8 leaf[sizeof(castore_leaf_der)];
-  for (usz i = 0; i < sizeof(leaf); i++) leaf[i] = castore_leaf_der[i];
+  for (usz i = 0; i < sizeof(leaf); i++) {
+    leaf[i] = castore_leaf_der[i];
+  }
   leaf[40] ^= 0xff; /* inside the tbsCertificate */
   CHECK(
       castore_verify_signed_by(
@@ -44,7 +46,9 @@ static void test_tampered_tbs_fails(void) {
  * the inner/outer mismatch can cause rejection. */
 static void test_sigalg_mismatch_fails(void) {
   u8 leaf[sizeof(castore_leaf_der)];
-  for (usz i = 0; i < sizeof(leaf); i++) leaf[i] = castore_leaf_der[i];
+  for (usz i = 0; i < sizeof(leaf); i++) {
+    leaf[i] = castore_leaf_der[i];
+  }
   leaf[331] ^= 0x01; /* outer sigAlg OID value byte */
   CHECK(
       castore_verify_signed_by(

@@ -5,7 +5,9 @@
 #define TLSEXT_T_PRE_SHARED_KEY 0x0029
 
 static void psk_copy(u8* dst, const u8* src, usz n) {
-  for (usz i = 0; i < n; i++) dst[i] = src[i];
+  for (usz i = 0; i < n; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* RFC 8446 4.2.11: ext_data = identities_len(2) + (id_len(2)+id+age(4)) +
@@ -19,7 +21,9 @@ int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out) {
   usz binder_len = in->binder.n;
   usz total      = psk_total(id_len, binder_len);
   u8* p          = out->p;
-  if (out->cap < total) return 0;
+  if (out->cap < total) {
+    return 0;
+  }
   be_put_be16(p, TLSEXT_T_PRE_SHARED_KEY);
   be_put_be16(p + 2, (u16)(total - 4));
   be_put_be16(p + 4, (u16)(2 + id_len + 4));
@@ -68,7 +72,9 @@ static int psk_offer_ok(const u8* out, usz n, usz id_len) {
 
 int tlsext_pre_shared_key_parse(const u8* out, usz n, tlsext_psk_offer* off) {
   usz id_len = (n >= 8) ? ((usz)out[6] << 8 | out[7]) : 0;
-  if (!psk_offer_ok(out, n, id_len)) return 0;
+  if (!psk_offer_ok(out, n, id_len)) {
+    return 0;
+  }
   off->binder_len = out[14 + id_len];
   off->identity   = out + 8;
   off->id_len     = id_len;

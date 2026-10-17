@@ -30,7 +30,9 @@ static int srvboot_build_flight_bytes(
  * the raw value expresses (neqo: pn 731 in one byte after an ack of 729). */
 u64 srvboot_initial_pn(wired_mspan dg, u64 largest_pn) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 0;
+  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) {
+    return 0;
+  }
   return pnum_decode(dg.p + h.pn_off, lhdr_pn_len(dg.p[0]), largest_pn);
 }
 
@@ -59,8 +61,12 @@ static int srvboot_seal_next(
       0,
       0,
       0};
-  if (out->dgram_count >= WIRED_SRVBOOT_FLIGHT_MAX) return 0;
-  if (!wired_srvloop_send_handshake(sv->s, &in, &tail)) return 0;
+  if (out->dgram_count >= WIRED_SRVBOOT_FLIGHT_MAX) {
+    return 0;
+  }
+  if (!wired_srvloop_send_handshake(sv->s, &in, &tail)) {
+    return 0;
+  }
   out->dgram_len[out->dgram_count++] = tail.len;
   out->flight->len += tail.len;
   *off += n;
@@ -74,8 +80,11 @@ static int srvboot_seal_hs_flight(
   usz off          = 0;
   out->dgram_count = 0;
   out->flight->len = 0;
-  while (off < flight.n)
-    if (!srvboot_seal_next(sv, flight, &off, out)) return 0;
+  while (off < flight.n) {
+    if (!srvboot_seal_next(sv, flight, &off, out)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -90,8 +99,9 @@ static int srvboot_seal_flight(
   wired_srvloop_send_in in0 = {sv->cli_scid, sv->ini_pn,  (i64)sv->ack_pn,
                                fb->sh,       sv->ini_off, sv->ect0,
                                sv->ect1,     sv->ce};
-  if (!wired_srvloop_send_initial_ver(sv->version, sv->s, &in0, out->initial))
+  if (!wired_srvloop_send_initial_ver(sv->version, sv->s, &in0, out->initial)) {
     return 0;
+  }
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
 
@@ -112,8 +122,12 @@ static int srvboot_build_flight_bytes(
   wired_obuf      sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
   wired_obuf      fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
   sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  if (!version_compatible(client_version, reply_version)) return 0;
-  if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
+  if (!version_compatible(client_version, reply_version)) {
+    return 0;
+  }
+  if (!wired_server_build_flight(conn->s, id->random, &fo)) {
+    return 0;
+  }
   *fb = (srvboot_flight_bytes){
       wired_span_of(sh, sh_ob.len), wired_span_of(flight, fl_ob.len)};
   return 1;
@@ -152,9 +166,12 @@ int srvboot_flight(
       a->ini_tx_off, a->ecn_ect0,
       a->ecn_ect1,   a->ecn_ce};
   if (!srvboot_build_flight_bytes(
-          conn, id, a->hdr.version, reply_version, sh, flight, &fb))
+          conn, id, a->hdr.version, reply_version, sh, flight, &fb)) {
     return 0;
-  if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
+  }
+  if (!srvboot_seal_flight(&sv, &fb, out)) {
+    return 0;
+  }
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
    * numbers 0..dgram_count-1. */
   conn->l->hs_tx_pn = out->dgram_count;

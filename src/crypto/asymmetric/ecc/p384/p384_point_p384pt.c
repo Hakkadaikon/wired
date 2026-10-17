@@ -25,12 +25,16 @@ void p384pt_fp_dbl(p384_fe r, const p384_fe a) { p384pt_fp_add(r, a, a); }
 void p384pt_jac_from_affine(jac384* j, const ec_point384* p) {
   fp384_set(j->X, p->x);
   fp384_set(j->Y, p->y);
-  for (usz i = 0; i < 6; i++) j->Z[i] = 0;
+  for (usz i = 0; i < 6; i++) {
+    j->Z[i] = 0;
+  }
   j->Z[0] = p->inf ? 0 : 1;
 }
 
 void p384pt_jac_set_inf(jac384* j) {
-  for (usz i = 0; i < 6; i++) j->Z[i] = 0;
+  for (usz i = 0; i < 6; i++) {
+    j->Z[i] = 0;
+  }
 }
 
 int p384pt_jac_is_inf(const jac384* j) { return fp384_is_zero(j->Z); }

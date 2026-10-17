@@ -36,7 +36,9 @@ static int moqfetch_sg_zero(
 static int moqfetch_sg_prior(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   (void)b, (void)at;
-  if (!s->have_subgroup) return MOQCTL_VIOLATION;
+  if (!s->have_subgroup) {
+    return MOQCTL_VIOLATION;
+  }
   o->subgroup = s->subgroup;
   return MOQCTL_OK;
 }
@@ -44,7 +46,9 @@ static int moqfetch_sg_prior(
 static int moqfetch_sg_next(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   (void)b, (void)at;
-  if (!s->have_subgroup) return MOQCTL_VIOLATION;
+  if (!s->have_subgroup) {
+    return MOQCTL_VIOLATION;
+  }
   return moqfetch_add(s->subgroup, 1, &o->subgroup);
 }
 
@@ -63,7 +67,9 @@ static int moqfetch_take_subgroup(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   o->subgroup     = 0;
   o->has_subgroup = !(o->flags & MOQFETCH_F_DATAGRAM);
-  if (!o->has_subgroup) return MOQCTL_OK;
+  if (!o->has_subgroup) {
+    return MOQCTL_OK;
+  }
   return MOQFETCH_SG_TAKE[o->flags & MOQFETCH_F_SUBGROUP_MASK](b, at, s, o);
 }
 
@@ -76,7 +82,9 @@ int moqfetch_object_absolute(const moqfetch_seq* s, const moqfetch_obj* o) {
 static int moqfetch_object_resolve(
     const moqfetch_seq* s, moqfetch_obj* o, u64 d) {
   o->object = d;
-  if (moqfetch_object_absolute(s, o)) return MOQCTL_OK;
+  if (moqfetch_object_absolute(s, o)) {
+    return MOQCTL_OK;
+  }
   return moqfetch_add(s->object, d, &o->object);
 }
 
@@ -84,17 +92,23 @@ static int moqfetch_object_resolve(
 static int moqfetch_take_object(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   u64 d;
-  if (!(o->flags & MOQFETCH_F_OBJECT))
+  if (!(o->flags & MOQFETCH_F_OBJECT)) {
     return moqfetch_add(s->object, 1, &o->object);
-  if (!moqvi_take(b, at, &d)) return MOQCTL_INSUFFICIENT;
+  }
+  if (!moqvi_take(b, at, &d)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return moqfetch_object_resolve(s, o, d);
 }
 
 static int moqfetch_take_priority(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
-  if (o->flags & MOQFETCH_F_PRIORITY)
+  if (o->flags & MOQFETCH_F_PRIORITY) {
     return moqctl_param_take_uint8(b, at, &o->priority);
-  if (!s->have_priority) return MOQCTL_VIOLATION;
+  }
+  if (!s->have_priority) {
+    return MOQCTL_VIOLATION;
+  }
   o->priority = s->priority;
   return MOQCTL_OK;
 }
@@ -105,7 +119,9 @@ static int moqfetch_take_props(
   (void)s;
   o->props     = wired_span_of(b.p, 0);
   o->has_props = (o->flags & MOQFETCH_F_PROPS) != 0;
-  if (!o->has_props) return MOQCTL_OK;
+  if (!o->has_props) {
+    return MOQCTL_OK;
+  }
   return moqctl_name_take(b, at, &o->props);
 }
 
@@ -122,7 +138,9 @@ static int moqfetch_take_payload(
 int moqfetch_take_eor(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   (void)s;
-  if (!moqvi_take(b, at, &o->group)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(b, at, &o->group)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return moqvi_take(b, at, &o->object) ? MOQCTL_OK : MOQCTL_INSUFFICIENT;
 }
 
@@ -132,7 +150,9 @@ static int moqfetch_take_payload_len(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   u64 n;
   (void)s;
-  if (!moqvi_take(b, at, &n)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(b, at, &n)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   o->payload = wired_span_of(b.p + *at, (usz)n);
   return MOQCTL_OK;
 }

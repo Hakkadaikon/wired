@@ -40,8 +40,12 @@ static int mont6_needs_sub(const u64 t[8], const p384_fe m) {
 
 static void mont6_finalize(p384_fe r, const u64 t[8], const p384_fe m) {
   int sub = mont6_needs_sub(t, m);
-  for (usz i = 0; i < 6; i++) r[i] = t[i];
-  if (sub) fp384_fe6_sub_raw(r, r, m);
+  for (usz i = 0; i < 6; i++) {
+    r[i] = t[i];
+  }
+  if (sub) {
+    fp384_fe6_sub_raw(r, r, m);
+  }
 }
 
 void mont384_mul(p384_fe r, fp384ab ab, const mont384* mont) {

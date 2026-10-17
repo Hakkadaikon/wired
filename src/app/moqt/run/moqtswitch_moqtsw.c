@@ -76,7 +76,9 @@ static int moqtsw_valid(
     const moqtsw_req*        r,
     const moqctl_switchfrom* sw) {
   wired_moqtrun_track* ot = 0;
-  if (sw->request_id == r->rid || !moqtsw_target_ok(hub, r)) return 0;
+  if (sw->request_id == r->rid || !moqtsw_target_ok(hub, r)) {
+    return 0;
+  }
   return moqtsw_old_ok(ops->find(hub, r->idx, sw->request_id, &ot), ot, r->t);
 }
 
@@ -89,8 +91,12 @@ static const u64 MOQTSW_CONFLICTS[] = {
     MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT};
 
 static int moqtsw_conflict(const moqctl_params* params) {
-  for (usz i = 0; i < sizeof MOQTSW_CONFLICTS / sizeof MOQTSW_CONFLICTS[0]; i++)
-    if (moqctl_params_find(params, MOQTSW_CONFLICTS[i])) return 1;
+  for (usz i = 0; i < sizeof MOQTSW_CONFLICTS / sizeof MOQTSW_CONFLICTS[0];
+       i++) {
+    if (moqctl_params_find(params, MOQTSW_CONFLICTS[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -100,7 +106,9 @@ static u64 moqtsw_shape(
     const moqtsw_req*        r,
     const moqctl_params*     params,
     const moqctl_switchfrom* sw) {
-  if (moqtsw_conflict(params)) return MOQCTL_ERR_INVALID_SWITCH;
+  if (moqtsw_conflict(params)) {
+    return MOQCTL_ERR_INVALID_SWITCH;
+  }
   return moqtsw_valid(hub, ops, r, sw) ? MOQTSW_ACCEPT
                                        : MOQCTL_ERR_INVALID_SWITCH;
 }
@@ -120,17 +128,23 @@ static int moqtsw_off(const wired_moqt_hub* hub, const moqctl_params* params) {
 }
 
 int moqtsw_take(const wired_moqt_hub* hub, int r, const moqctl_params* params) {
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqtsw_off(hub, params) ? MOQCTL_VIOLATION : MOQCTL_OK;
 }
 
 u64 moqtsw_pub_refusal(const moqctl_params* params, u64 prior) {
-  if (prior != MOQTSW_ACCEPT) return prior;
+  if (prior != MOQTSW_ACCEPT) {
+    return prior;
+  }
   return moqtsw_param(params) ? MOQCTL_ERR_INVALID_SWITCH : MOQTSW_ACCEPT;
 }
 
 u64 moqtsw_sub_refusal(const moqctl_params* params, int hub_track, u64 prior) {
-  if (prior != MOQTSW_ACCEPT) return prior;
+  if (prior != MOQTSW_ACCEPT) {
+    return prior;
+  }
   return hub_track ? moqtsw_pub_refusal(params, prior) : MOQTSW_ACCEPT;
 }
 

@@ -11,7 +11,9 @@
 static inline int tpverify_cid_eq(wired_span a, wired_span b) {
   usz n = a.n < b.n ? a.n : b.n;
   u8  d = (u8)(a.n ^ b.n);
-  for (usz i = 0; i < n; i++) d |= (u8)(a.p[i] ^ b.p[i]);
+  for (usz i = 0; i < n; i++) {
+    d |= (u8)(a.p[i] ^ b.p[i]);
+  }
   return d == 0;
 }
 

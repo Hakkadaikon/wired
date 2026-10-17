@@ -68,7 +68,9 @@ static void test_udp_checksum_zero_field_accepted_unchecked(void) {
   be_put_be16(dg + 4, udp_len);
   dg[6] = 0;
   dg[7] = 0; /* sender opted out of the checksum */
-  for (usz i = 0; i < 4; i++) dg[UDP_HDR + i] = pl[i];
+  for (usz i = 0; i < 4; i++) {
+    dg[UDP_HDR + i] = pl[i];
+  }
   CHECK(udp4_check(wired_span_of(dg, udp_len), addrs) == 1);
 }
 
@@ -95,8 +97,12 @@ static void test_net_datagram_over_link(void) {
   ipv4_build(
       ip,
       &(ipv4_head){(u16)(IPV4_HDR + un), 0x0a000001, 0x0a000002, IP_PROTO_UDP});
-  for (usz i = 0; i < IPV4_HDR; i++) frame[i] = ip[i];
-  for (usz i = 0; i < un; i++) frame[IPV4_HDR + i] = udp[i];
+  for (usz i = 0; i < IPV4_HDR; i++) {
+    frame[i] = ip[i];
+  }
+  for (usz i = 0; i < un; i++) {
+    frame[IPV4_HDR + i] = udp[i];
+  }
 
   memlink l;
   memlink_init(&l);

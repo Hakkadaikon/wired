@@ -31,8 +31,12 @@ static int moqtrun_upd_fits(
     const wired_moqtrun_track* t,
     const moqctl_params*       params,
     u8                         was_off) {
-  if (!moqtrun_fill_room(hub, t, s, params)) return 0;
-  if (!moqtrun_upd_turned_on(was_off, s, t)) return 1;
+  if (!moqtrun_fill_room(hub, t, s, params)) {
+    return 0;
+  }
+  if (!moqtrun_upd_turned_on(was_off, s, t)) {
+    return 1;
+  }
   return moqtrun_upd_forward_on(hub, p, s, t);
 }
 
@@ -46,7 +50,9 @@ int moqtrun_upd_apply(
     const moqctl_params*       params) {
   wired_moqtrun_sub before = *s;
   moqtrun_upd_params(s, t, params);
-  if (moqtrun_upd_fits(hub, p, s, t, params, before.forward_off)) return 1;
+  if (moqtrun_upd_fits(hub, p, s, t, params, before.forward_off)) {
+    return 1;
+  }
   *s = before;
   return 0;
 }
@@ -84,7 +90,9 @@ static void moqtrun_relays_resched(
   usz i = (usz)(s - t->subs);
   for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     const wired_moqtrun_relay* rl = &t->relays[r];
-    if (!moqtrun_relay_holds(rl, i)) continue;
+    if (!moqtrun_relay_holds(rl, i)) {
+      continue;
+    }
     wired_wt_sched k =
         moqtrun_sub_key(s, rl->pub_prio, rl->group_id, rl->subgroup_id);
     moqtrun_sched_apply(hub, wt, (i64)rl->sub_stream_id[i], &k);
@@ -104,9 +112,11 @@ static int moqtrun_fill_open_of(
 /* Re-classes subscription {wt, rid}'s open fill streams. */
 static void moqtrun_fills_resched(
     wired_moqt_hub* hub, const wired_wt_session* wt, u64 rid) {
-  for (usz j = 0; j < WIRED_MOQTRUN_MAX_FETCHES; j++)
-    if (moqtrun_fill_open_of(&hub->fetches[j], wt, rid))
+  for (usz j = 0; j < WIRED_MOQTRUN_MAX_FETCHES; j++) {
+    if (moqtrun_fill_open_of(&hub->fetches[j], wt, rid)) {
       moqtrun_fetch_sched(hub, &hub->fetches[j]);
+    }
+  }
 }
 
 /* An applied update re-classes the subscription's streams still open
@@ -118,7 +128,9 @@ void moqtrun_upd_resched(
     wired_moqtrun_peer*        p,
     const wired_moqtrun_sub*   s,
     const wired_moqtrun_track* t) {
-  if (!t) return;
+  if (!t) {
+    return;
+  }
   moqtrun_relays_resched(hub, p->wt, t, s);
   moqtrun_fills_resched(hub, p->wt, s->request_id);
 }

@@ -77,10 +77,16 @@ static live_session g_live[BIG_SLOTS];
 /* The live_session owned by s, claimed on its first live send; 0 when
  * every one is taken. */
 static live_session* live_session_for(wired_wt_session* s) {
-  for (usz i = 0; i < BIG_SLOTS; i++)
-    if (g_live[i].s == s) return &g_live[i];
-  for (usz i = 0; i < BIG_SLOTS; i++)
-    if (g_live[i].s == 0) return &g_live[i];
+  for (usz i = 0; i < BIG_SLOTS; i++) {
+    if (g_live[i].s == s) {
+      return &g_live[i];
+    }
+  }
+  for (usz i = 0; i < BIG_SLOTS; i++) {
+    if (g_live[i].s == 0) {
+      return &g_live[i];
+    }
+  }
   return 0;
 }
 
@@ -92,8 +98,11 @@ static int live_slot_free(const live_session* ls, const live_slot* slot) {
 }
 
 static live_slot* live_slot_claim(live_session* ls) {
-  for (usz i = 0; i < LIVE_RING; i++)
-    if (live_slot_free(ls, &ls->ring[i])) return &ls->ring[i];
+  for (usz i = 0; i < LIVE_RING; i++) {
+    if (live_slot_free(ls, &ls->ring[i])) {
+      return &ls->ring[i];
+    }
+  }
   return 0;
 }
 
@@ -104,10 +113,14 @@ static i64 moqt_io_send_uni2(
     wired_wt_session* s, wired_span head, wired_span body) {
   live_session* ls   = live_session_for(s);
   live_slot*    slot = ls ? live_slot_claim(ls) : 0;
-  if (!slot || head.n + body.n > sizeof slot->buf - BIG_SIG_MAX) return -1;
+  if (!slot || head.n + body.n > sizeof slot->buf - BIG_SIG_MAX) {
+    return -1;
+  }
   usz sig =
       wired_wtwire_signal_put(slot->buf, BIG_SIG_MAX, 0, s->connect_stream_id);
-  if (sig == 0) return -1;
+  if (sig == 0) {
+    return -1;
+  }
   bytes_memcpy(slot->buf + sig, head.p, head.n);
   bytes_memcpy(slot->buf + sig + head.n, body.p, body.n);
   i64 sid = wired_server_wt_open_uni(
@@ -121,11 +134,14 @@ static i64 moqt_io_send_uni2(
 }
 
 static void live_session_release(wired_wt_session* s) {
-  for (usz i = 0; i < BIG_SLOTS; i++)
+  for (usz i = 0; i < BIG_SLOTS; i++) {
     if (g_live[i].s == s) {
       g_live[i].s = 0;
-      for (usz j = 0; j < LIVE_RING; j++) g_live[i].ring[j].used = 0;
+      for (usz j = 0; j < LIVE_RING; j++) {
+        g_live[i].ring[j].used = 0;
+      }
     }
+  }
 }
 
 /* Live/closed session counts for the relay-stats line: incremented and
@@ -144,7 +160,9 @@ static void on_session(
 /* wired_wt_on_session_close-shaped: frees the session's staging ring (its
  * views are dead with the connection) before the hub forgets the peer. */
 static void on_session_close(void* ctx, wired_wt_session* s) {
-  if (g_sessions_live) g_sessions_live--;
+  if (g_sessions_live) {
+    g_sessions_live--;
+  }
   g_sessions_closed++;
   live_session_release(s);
   wired_moqt_on_session_close(ctx, s);
@@ -171,9 +189,14 @@ static int authorize_room_ns(
   (void)ctx;
   (void)msg_type;
   (void)token;
-  if (ns->n < ROOM_NS_N) return 0;
-  for (usz i = 0; i < ROOM_NS_N; i++)
-    if (!wired_span_eq_cstr(ns->fields[i], ROOM_NS[i])) return 0;
+  if (ns->n < ROOM_NS_N) {
+    return 0;
+  }
+  for (usz i = 0; i < ROOM_NS_N; i++) {
+    if (!wired_span_eq_cstr(ns->fields[i], ROOM_NS[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -185,11 +208,16 @@ static int origin_allowed(void* ctx, wired_span origin, wired_span authority) {
   const char* list = (const char*)ctx;
   (void)authority;
   for (usz start = 0, i = 0;; i++) {
-    if (list[i] != ',' && list[i] != 0) continue;
+    if (list[i] != ',' && list[i] != 0) {
+      continue;
+    }
     if (wired_span_eq(
-            wired_span_of((const u8*)list + start, i - start), origin))
+            wired_span_of((const u8*)list + start, i - start), origin)) {
       return 1;
-    if (list[i] == 0) return 0;
+    }
+    if (list[i] == 0) {
+      return 0;
+    }
     start = i + 1;
   }
 }
@@ -296,7 +324,9 @@ static const char* g_goaway_uri = "";
  * when a datagram arrives; live clients ACK and send audio, so it does. */
 static void goaway_on_shutdown(wired_moqt_hub* hub) {
   static int sent;
-  if (sent || !*wired_srvrun_shutdown_word()) return;
+  if (sent || !*wired_srvrun_shutdown_word()) {
+    return;
+  }
   sent = 1;
   wired_moqt_goaway(hub, wired_span_cstr(g_goaway_uri), GOAWAY_TIMEOUT_MS);
   wired_log_str("moqt: shutdown requested, GOAWAY sent\n");
@@ -311,16 +341,21 @@ static void on_step(void* ctx, u64 now_ms) {
   static u64 next_ms;
   wired_moqt_tick((wired_moqt_hub*)ctx, now_ms);
   goaway_on_shutdown((wired_moqt_hub*)ctx);
-  if (now_ms < next_ms) return;
+  if (now_ms < next_ms) {
+    return;
+  }
   next_ms = now_ms + 10000;
-  if (relay_stats_moved()) log_relay_stats("moqt relay(10s): ");
+  if (relay_stats_moved()) {
+    log_relay_stats("moqt relay(10s): ");
+  }
 }
 
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
   *have_it           = ip_str != 0;
-  if (ip_str && !wired_cliargs_ipv4(ip_str, san_ipv4))
+  if (ip_str && !wired_cliargs_ipv4(ip_str, san_ipv4)) {
     wired_die("--san-ipv4: expected dotted-quad a.b.c.d\n");
+  }
 }
 
 /* --cc cubic|bbr: parsed into CC_ALGO_* (cc.h) for wired_srvrun_obs.cc_algo.
@@ -332,8 +367,11 @@ static int cc_algo_of(const char* name) {
     const char* name;
     int         algo;
   } table[] = {{"cubic", CC_ALGO_CUBIC}, {"bbr", CC_ALGO_BBR}};
-  for (usz i = 0; i < sizeof table / sizeof table[0]; i++)
-    if (wired_cstr_eq(name, table[i].name)) return table[i].algo;
+  for (usz i = 0; i < sizeof table / sizeof table[0]; i++) {
+    if (wired_cstr_eq(name, table[i].name)) {
+      return table[i].algo;
+    }
+  }
   wired_die(
       "--cc: expected cubic or bbr (NewReno is not selectable via --cc)\n");
   return 0;
@@ -371,14 +409,19 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
       argc, argv, "--key", wired_envp_get(argc, argv, "WIRED_KEY"));
   wired_certreload_load_or_selfsigned(
       obs.cert_path, obs.key_path, &cert_store, &id);
-  if (!wired_srvboot_log_fingerprint(2, &id)) wired_die("cert build failed\n");
+  if (!wired_srvboot_log_fingerprint(2, &id)) {
+    wired_die("cert build failed\n");
+  }
 
   g_goaway_uri = wired_cliargs_str(
       argc, argv, "--goaway-uri",
       wired_envp_get(argc, argv, "WIRED_GOAWAY_URI"));
-  if (!g_goaway_uri) g_goaway_uri = "";
-  if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX)
+  if (!g_goaway_uri) {
+    g_goaway_uri = "";
+  }
+  if (wired_cstr_len(g_goaway_uri) > WIRED_MOQTRUN_GOAWAY_URI_MAX) {
     wired_die("WIRED_GOAWAY_URI: longer than 8192 bytes\n");
+  }
   wired_moqt_io io = wired_moqraw_io();
   io.send_uni2     = moqt_io_send_uni2;
   wired_moqt_init(&g_hub, io);
@@ -397,15 +440,17 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   g_hub.ssts_algs    = chat_ssts_algs;
   g_hub.ssts_alg_n   = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
 
-  if (!wired_srvdriver_parse(argc, argv, &opt))
+  if (!wired_srvdriver_parse(argc, argv, &opt)) {
     wired_die(
         "bad CLI flags (moqt_chat is single-process only: do not pass "
         "--workers/--cores/--ifindex)\n");
+  }
   /* draft-22 6.2.1: the WebTransport subprotocols offered ("moqt-22
    * moqt-19 moqt-18"); none negotiated = the draft-19 legacy session. */
   static char wt_protocols[32];
-  if (!wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols))
+  if (!wired_moqt_wt_protocols(wt_protocols, sizeof wt_protocols)) {
     wired_die("wt_protocols buffer too small\n");
+  }
   opt.run.wt_protocols       = wt_protocols;
   opt.run.incoming_cpu       = -1;
   opt.run.wt_on_session      = on_session;
@@ -430,9 +475,13 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.on_step_ctx             = &g_hub;
   opt.run.wt_origin_ctx =
       (void*)wired_envp_get(argc, argv, "WIRED_ALLOWED_ORIGINS");
-  if (opt.run.wt_origin_ctx) opt.run.wt_origin_check = origin_allowed;
+  if (opt.run.wt_origin_ctx) {
+    opt.run.wt_origin_check = origin_allowed;
+  }
 
-  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
+  if (!wired_srvdriver_run(&id, h, obs, &opt)) {
+    wired_die("listen failed\n");
+  }
   log_relay_stats("moqt relay: ");
   return 0;
 }

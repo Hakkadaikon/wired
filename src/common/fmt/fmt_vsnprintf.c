@@ -5,7 +5,9 @@ static i64 fmt_write_all(i64 fd, const char* buf, usz n);
 usz wired_vsnprintf(char* out, usz cap, const char* fmt, wired_va_list ap) {
   fmt_sink s = {out, cap, 0};
   fmt_run(&s, fmt, ap);
-  if (cap) out[s.n < cap ? s.n : cap - 1] = 0;
+  if (cap) {
+    out[s.n < cap ? s.n : cap - 1] = 0;
+  }
   return s.n;
 }
 
@@ -21,7 +23,9 @@ usz wired_snprintf(char* out, usz cap, const char* fmt, ...) {
 usz wired_obuf_printf(wired_obuf* b, const char* fmt, ...) {
   usz           room = b->cap - b->len;
   wired_va_list ap;
-  if (room == 0) return 0;
+  if (room == 0) {
+    return 0;
+  }
   wired_va_start(ap, fmt);
   usz n = wired_vsnprintf((char*)b->p + b->len, room, fmt, ap);
   wired_va_end(ap);
@@ -34,7 +38,9 @@ static i64 fmt_write_all(i64 fd, const char* buf, usz n) {
   usz done = 0;
   while (done < n) {
     i64 r = wired_arch_write(fd, buf + done, n - done);
-    if (r <= 0) return r;
+    if (r <= 0) {
+      return r;
+    }
     done += (usz)r;
   }
   return (i64)n;

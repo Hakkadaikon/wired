@@ -4,7 +4,9 @@
 
 /* RFC 8446 4.2.1: type(2) + ext_data length(2) + list length(1) + versions. */
 usz tls_ext_supported_versions(u8* buf, usz cap) {
-  if (cap < 7) return 0;
+  if (cap < 7) {
+    return 0;
+  }
   be_put_be16(buf, EXT_SUPPORTED_VERSIONS);
   be_put_be16(buf + 2, 3);
   buf[4] = 2;
@@ -20,7 +22,9 @@ static int versions_header_ok(const u8* buf, usz n) {
 
 /* extension_type matches and the body is fully readable. */
 static int versions_framed(const u8* buf, usz n) {
-  if (n < 5) return 0;
+  if (n < 5) {
+    return 0;
+  }
   return versions_header_ok(buf, n) &&
          ((usz)buf[2] << 8 | buf[3]) == (usz)buf[4] + 1;
 }
@@ -38,12 +42,17 @@ static int is_tls13_at(const u8* buf, usz i) {
 
 /* Scan cnt versions for TLS 1.3. */
 static int versions_scan(const u8* buf, usz cnt) {
-  for (usz i = 0; i < cnt; i++)
-    if (is_tls13_at(buf, i)) return 1;
+  for (usz i = 0; i < cnt; i++) {
+    if (is_tls13_at(buf, i)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 int tls_ext_versions_has_tls13(const u8* buf, usz n) {
-  if (!versions_framed(buf, n)) return 0;
+  if (!versions_framed(buf, n)) {
+    return 0;
+  }
   return versions_scan(buf, versions_count(buf));
 }

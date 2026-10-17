@@ -12,8 +12,12 @@ static void srvxdp_tx_meta(
     const sockaddr* dst,
     const u8        peer_mac[6],
     xdpframe_tx*    m) {
-  for (usz i = 0; i < 6; i++) m->dst_mac[i] = peer_mac[i];
-  for (usz i = 0; i < 6; i++) m->src_mac[i] = x->our_mac[i];
+  for (usz i = 0; i < 6; i++) {
+    m->dst_mac[i] = peer_mac[i];
+  }
+  for (usz i = 0; i < 6; i++) {
+    m->src_mac[i] = x->our_mac[i];
+  }
   m->udp.ports.sport = x->port;
   m->udp.ports.dport = be_get_be16((const u8*)&dst->port_be);
   m->udp.addrs.src   = be_get_be32((const u8*)&x->ip_be);
@@ -45,9 +49,13 @@ i64 wired_srvxdp_send(wired_srvxdp* x, const sockaddr* dst, wired_span pkt) {
   i64         addr;
   usz         n;
 
-  if (!xdpmac_lookup(&x->macs, wired_udp_addr4_be(dst), peer_mac)) return 0;
+  if (!xdpmac_lookup(&x->macs, wired_udp_addr4_be(dst), peer_mac)) {
+    return 0;
+  }
   addr = srvxdp_txpool_get(x);
-  if (addr < 0) return 0;
+  if (addr < 0) {
+    return 0;
+  }
 
   srvxdp_tx_meta(x, dst, peer_mac, &m);
   n = xdpframe_build(
@@ -66,7 +74,9 @@ static const char* const SRVXDP_STAT_NAMES[6] = {
 static void srvxdp_log_stat_line(const char* name, u64 v) {
   char line[64];
   usz  at = 0;
-  while (*name) line[at++] = *name++;
+  while (*name) {
+    line[at++] = *name++;
+  }
   line[at++] = ' ';
   wired_fmt_u64(line, &at, &(wired_fmt_u64_in){v, 1});
   line[at++] = '\n';
@@ -76,7 +86,10 @@ static void srvxdp_log_stat_line(const char* name, u64 v) {
 
 void wired_srvxdp_print_stats(i64 fd) {
   u64 stats[6];
-  if (xsksetup_stats(fd, stats) < 0) return;
-  for (usz i = 0; i < 6; i++)
+  if (xsksetup_stats(fd, stats) < 0) {
+    return;
+  }
+  for (usz i = 0; i < 6; i++) {
     srvxdp_log_stat_line(SRVXDP_STAT_NAMES[i], stats[i]);
+  }
 }

@@ -44,9 +44,15 @@ static void test_v2ku_appendix_key_iv_hp(void) {
   hkdf_expand_label(A5_SECRET, &lk, wired_mspan_of(key, 32));
   hkdf_expand_label(A5_SECRET, &li, wired_mspan_of(iv, 12));
   hkdf_expand_label(A5_SECRET, &lh, wired_mspan_of(hp, 32));
-  for (usz i = 0; i < 32; i++) CHECK(key[i] == A5_KEY[i]);
-  for (usz i = 0; i < 12; i++) CHECK(iv[i] == A5_IV[i]);
-  for (usz i = 0; i < 32; i++) CHECK(hp[i] == A5_HP[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(key[i] == A5_KEY[i]);
+  }
+  for (usz i = 0; i < 12; i++) {
+    CHECK(iv[i] == A5_IV[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(hp[i] == A5_HP[i]);
+  }
 }
 
 /* RFC 9369 3.3.2 "quicv2 ku": the key-update secret the appendix derives
@@ -55,7 +61,9 @@ static void test_v2ku_appendix_key_iv_hp(void) {
 static void test_v2ku_appendix_ku(void) {
   u8 ku[32];
   ku_next_secret_v(VERSION_2, A5_SECRET, ku);
-  for (usz i = 0; i < 32; i++) CHECK(ku[i] == A5_KU[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(ku[i] == A5_KU[i]);
+  }
 }
 
 /* RFC 9369 3.3.2 (referencing RFC 9001 5.3): nonce = iv XOR left-padded
@@ -66,9 +74,15 @@ static void test_v2ku_appendix_nonce(void) {
                               0xfc, 0xe3, 0x28, 0xff, 0x4a, 0x29};
   u8        pn_be[12]      = {0};
   u8        nonce[12];
-  for (usz i = 0; i < 8; i++) pn_be[11 - i] = (u8)(pn >> (8 * i));
-  for (usz i = 0; i < 12; i++) nonce[i] = A5_IV[i] ^ pn_be[i];
-  for (usz i = 0; i < 12; i++) CHECK(nonce[i] == want_nonce[i]);
+  for (usz i = 0; i < 8; i++) {
+    pn_be[11 - i] = (u8)(pn >> (8 * i));
+  }
+  for (usz i = 0; i < 12; i++) {
+    nonce[i] = A5_IV[i] ^ pn_be[i];
+  }
+  for (usz i = 0; i < 12; i++) {
+    CHECK(nonce[i] == want_nonce[i]);
+  }
 }
 
 /* RFC 9369 A.5: sealing the 1-byte PING payload (0x01) under (key, nonce,
@@ -84,7 +98,9 @@ static void test_v2ku_appendix_seal(void) {
   u8       ct[17];
   chapoly_ctx c = {A5_KEY, nonce, wired_span_of(aad, 4)};
   chapoly_seal(&c, wired_span_of(pt, 1), ct);
-  for (usz i = 0; i < 17; i++) CHECK(ct[i] == want_ct[i]);
+  for (usz i = 0; i < 17; i++) {
+    CHECK(ct[i] == want_ct[i]);
+  }
 }
 
 /* RFC 9369 A.5: the ChaCha20 header-protection mask over the appendix's
@@ -98,11 +114,17 @@ static void test_v2ku_appendix_header_protection(void) {
   u8       mask[5];
   u8       header[4] = {0x42, 0x00, 0xbf, 0xf4};
   hp_chacha_mask(A5_HP, sample, mask);
-  for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_mask[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(mask[i] == want_mask[i]);
+  }
   /* RFC 9001 5.4.1: short header masks the low 5 bits of byte0. */
   header[0] ^= mask[0] & 0x1f;
-  for (usz i = 1; i < 4; i++) header[i] ^= mask[i];
-  for (usz i = 0; i < 4; i++) CHECK(header[i] == want_header[i]);
+  for (usz i = 1; i < 4; i++) {
+    header[i] ^= mask[i];
+  }
+  for (usz i = 0; i < 4; i++) {
+    CHECK(header[i] == want_header[i]);
+  }
 }
 
 void test_v2ku_appendix(void) {

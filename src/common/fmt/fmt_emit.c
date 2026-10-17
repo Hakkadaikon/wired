@@ -33,7 +33,9 @@ static void fmt_emit_dec(fmt_sink* s, const fmt_spec* sp, u64 bits, int neg) {
   fmt_split(&r, bits);
   b[0] = '0';
   end  = fmt_dec_body(b, &r, fmt_fprec(sp), (sp->flags & FMT_HASH) != 0);
-  if (fmt_round_up(&r, b[end])) fmt_carry(b, end);
+  if (fmt_round_up(&r, b[end])) {
+    fmt_carry(b, end);
+  }
   pc.body    = b + (b[0] == '0');
   pc.bodylen = end + 1 - (usz)(pc.body - b);
   pc.prelen  = (usz)(pre[0] = fmt_sign(sp, neg)) != 0;

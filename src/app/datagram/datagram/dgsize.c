@@ -12,7 +12,9 @@ static const u64 dg_varint_max[4] = {
  * room = length-varint + payload. 0 if none fits. RFC 9221 5. */
 static u64 dg_payload_in_width(u64 room, u64 cap) {
   u64 vlen = varint_len(cap);
-  if (room <= vlen) return 0;
+  if (room <= vlen) {
+    return 0;
+  }
   return (room - vlen < cap) ? room - vlen : cap;
 }
 
@@ -28,7 +30,9 @@ static u64 dg_best_payload(u64 room) {
 
 u64 datagram_max_payload(u64 max_frame_size, int with_len) {
   u64 room;
-  if (max_frame_size < 2) return 0; /* need at least type + 1 byte */
-  room = max_frame_size - 1;        /* RFC 9221 5: minus the type byte */
+  if (max_frame_size < 2) {
+    return 0; /* need at least type + 1 byte */
+  }
+  room = max_frame_size - 1; /* RFC 9221 5: minus the type byte */
   return with_len ? dg_best_payload(room) : room;
 }

@@ -14,7 +14,9 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(int v);
  * the slot is closing. */
 int srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!c->closing) return 0;
+  if (!c->closing) {
+    return 0;
+  }
   if (srvrun_close_reap_due(c, ctx->now_ms)) {
     srvrun_note_ghost(ctx, c);
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
@@ -28,7 +30,9 @@ int srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot) {
  * srvrun_boot_pto_waiting requires !confirmed), then flush any queued
  * broadcast DATAGRAM -- split out so the loop below stays flat. */
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
-  if (srvrun_closing_tick(ctx, slot)) return;
+  if (srvrun_closing_tick(ctx, slot)) {
+    return;
+  }
   srvrun_pto_slot(ctx, slot);
   srvrun_boot_pto_slot(ctx, slot);
   srvrun_grant_retry_slot(ctx, slot);
@@ -42,7 +46,9 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
  * probe/flush pass over every waiting slot. */
 void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   srvrun_step_ctx ctx = {cfg, 0, st, clock_mono_ms(), 0};
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    srvrun_tick_slot(&ctx, (int)i);
+  }
 }
 
 /* RFC 9001 4.6.1: dg is a 0-RTT datagram arriving on a slot still mid-boot
@@ -54,7 +60,9 @@ void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
  * step path (srvrun_step_and_reap), which opens directly with the
  * connection's now-installed keys. */
 static int srvrun_boot_zerortt(srvrun_conn* c, wired_mspan dg) {
-  if (c->up || !wired_srvboot_is_zerortt(dg.p, dg.n)) return 0;
+  if (c->up || !wired_srvboot_is_zerortt(dg.p, dg.n)) {
+    return 0;
+  }
   wired_srvboot_acc_feed(&c->boot, dg);
   return 1;
 }
@@ -76,7 +84,9 @@ static int srvrun_unconfirmed_up(const srvrun_conn* c) {
 }
 
 int srvrun_boot_early_onertt(srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) return 0;
+  if (!srvrun_unconfirmed_up(c) || !srvrun_short_header(dg)) {
+    return 0;
+  }
   wired_srvboot_acc_hold(&c->boot, dg);
   c->peer_at_onertt = 1; /* the client finished: 1-RTT proves it */
   return 1;
@@ -109,7 +119,9 @@ int srvrun_serve_boot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
 /* c is up, unconfirmed, and still has boot datagrams the antiamp gate held
  * back -- the condition srvrun_boot_release_pending gates its send on. */
 static int srvrun_boot_has_pending_tail(const srvrun_conn* c) {
-  if (!c->up || wired_server_is_confirmed(&c->s)) return 0;
+  if (!c->up || wired_server_is_confirmed(&c->s)) {
+    return 0;
+  }
   return c->boot_dgram_sent < c->boot_dgram_count;
 }
 
@@ -121,8 +133,9 @@ static int srvrun_boot_has_pending_tail(const srvrun_conn* c) {
  * Initial) while waiting for the still-held-back tail; without this, that
  * growing boot_rx_bytes budget never gets spent and the tail sits forever. */
 void srvrun_boot_release_pending(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (srvrun_boot_has_pending_tail(c))
+  if (srvrun_boot_has_pending_tail(c)) {
     srvrun_boot_send_hs_gated(ctx->cfg, c, 0);
+  }
 }
 
 /* Test-only override forcing challenge_generate to behave as if
@@ -141,6 +154,8 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
  * writes nothing meaningful to data) on RNG failure, so the caller never
  * sends an unpredictable-in-name-only (actually zero or stale) challenge. */
 int srvrun_gen_path_challenge(u8 data[PATH_DATA]) {
-  if (g_srvrun_path_challenge_force_fail) return 0;
+  if (g_srvrun_path_challenge_force_fail) {
+    return 0;
+  }
   return challenge_generate(data);
 }

@@ -17,8 +17,12 @@ static int srvdriver_run_xdp(
     const wired_srvdriver_opt* opt);
 
 int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
-  if (!srvdriver_parse_head(argc, argv, opt)) return 0;
-  if (!srvdriver_load_kind(argc, argv, opt)) return 0;
+  if (!srvdriver_parse_head(argc, argv, opt)) {
+    return 0;
+  }
+  if (!srvdriver_load_kind(argc, argv, opt)) {
+    return 0;
+  }
   opt->run.force_retry = wired_cliargs_flag(argc, argv, "--force-retry");
   return 1;
 }
@@ -28,8 +32,9 @@ static int srvdriver_run_plain(
     wired_srvrun_handler       h,
     wired_srvrun_obs           obs,
     const wired_srvdriver_opt* opt) {
-  if (opt->pin_core >= 0 && wired_srvpin_bind_self(opt->pin_core) < 0)
+  if (opt->pin_core >= 0 && wired_srvpin_bind_self(opt->pin_core) < 0) {
     wired_die("--pin-core: pinning failed (bad CPU index?)\n");
+  }
   return wired_server_run_opt(opt->port, id, h, obs, &opt->run);
 }
 
@@ -53,7 +58,9 @@ static int srvdriver_run_xdp(
   wired_srvxdp     xdp = {0};
   wired_srvrun_opt run;
   int              ok;
-  if (wired_srvxdp_open(&xdp, &opt->xdp) < 0) wired_die("AF_XDP open failed\n");
+  if (wired_srvxdp_open(&xdp, &opt->xdp) < 0) {
+    wired_die("AF_XDP open failed\n");
+  }
   run     = opt->run;
   run.xdp = &xdp;
   ok      = wired_server_run_opt(opt->port, id, h, obs, &run);

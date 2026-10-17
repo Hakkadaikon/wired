@@ -18,12 +18,17 @@ static int outranks_best(
 /* candidates[0..n) is non-empty: scan for the most urgent index. */
 static usz pick_best(const dgpriority_candidate* candidates, usz n) {
   usz best = 0;
-  for (usz i = 1; i < n; i++)
-    if (outranks_best(candidates, best, i)) best = i;
+  for (usz i = 1; i < n; i++) {
+    if (outranks_best(candidates, best, i)) {
+      best = i;
+    }
+  }
   return best;
 }
 
 i64 dgpriority_pick(const dgpriority_candidate* candidates, usz n) {
-  if (n == 0) return -1;
+  if (n == 0) {
+    return -1;
+  }
   return (i64)pick_best(candidates, n);
 }

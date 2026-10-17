@@ -42,7 +42,9 @@ static void test_ecdsa_p384_swapped(void) {
 /* A flipped hash byte must fail. */
 static void test_ecdsa_p384_bad_hash(void) {
   u8 h[48];
-  for (usz i = 0; i < 48; i++) h[i] = ev_h[i];
+  for (usz i = 0; i < 48; i++) {
+    h[i] = ev_h[i];
+  }
   h[0] ^= 0x80;
   CHECK(ecdsa_p384_verify(ev_x, ev_y, ev_r, ev_s, h) == 0);
 }
@@ -50,14 +52,18 @@ static void test_ecdsa_p384_bad_hash(void) {
 /* r = 0 is out of range and rejected before any curve work. */
 static void test_ecdsa_p384_zero_r(void) {
   u8 z[48];
-  for (usz i = 0; i < 48; i++) z[i] = 0;
+  for (usz i = 0; i < 48; i++) {
+    z[i] = 0;
+  }
   CHECK(ecdsa_p384_verify(ev_x, ev_y, z, ev_s, ev_h) == 0);
 }
 
 /* An off-curve public key is rejected. */
 static void test_ecdsa_p384_off_curve(void) {
   u8 x[48];
-  for (usz i = 0; i < 48; i++) x[i] = ev_x[i];
+  for (usz i = 0; i < 48; i++) {
+    x[i] = ev_x[i];
+  }
   x[47] ^= 0x01;
   CHECK(ecdsa_p384_verify(x, ev_y, ev_r, ev_s, ev_h) == 0);
 }

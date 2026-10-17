@@ -34,18 +34,25 @@ static const moqver_row moqver_table[MOQVER_COUNT] = {
 
 static int moqver_tok_eq(wired_span token, const char* tok) {
   usz n = wired_cstr_len(tok);
-  if (token.n != n) return 0;
+  if (token.n != n) {
+    return 0;
+  }
   return ct_diffn(token.p, (const u8*)tok, n) == 0;
 }
 
 static int moqver_find_row(wired_span token) {
-  for (int i = 0; i < MOQVER_COUNT; i++)
-    if (moqver_tok_eq(token, moqver_table[i].tok)) return moqver_table[i].ver;
+  for (int i = 0; i < MOQVER_COUNT; i++) {
+    if (moqver_tok_eq(token, moqver_table[i].tok)) {
+      return moqver_table[i].ver;
+    }
+  }
   return -1;
 }
 
 int moqver_find(wired_span token) {
-  if (token.n == 0) return MOQVER_D19;
+  if (token.n == 0) {
+    return MOQVER_D19;
+  }
   return moqver_find_row(token);
 }
 
@@ -57,15 +64,18 @@ u32 moqver_caps(int ver) {
 
 static usz moqver_offer_len(void) {
   usz off = 0;
-  for (int i = 0; i < MOQVER_COUNT; i++)
+  for (int i = 0; i < MOQVER_COUNT; i++) {
     off += wired_cstr_len(moqver_table[i].tok) + (i > 0 ? 1 : 0);
+  }
   return off;
 }
 
 static void moqver_offer_write(char* out) {
   usz off = 0;
   for (int i = 0; i < MOQVER_COUNT; i++) {
-    if (i > 0) out[off++] = ' ';
+    if (i > 0) {
+      out[off++] = ' ';
+    }
     usz tn = wired_cstr_len(moqver_table[i].tok);
     bytes_memcpy(out + off, moqver_table[i].tok, tn);
     off += tn;
@@ -75,7 +85,9 @@ static void moqver_offer_write(char* out) {
 
 usz wired_moqt_wt_protocols(char* out, usz cap) {
   usz len = moqver_offer_len();
-  if (len + 1 > cap) return 0;
+  if (len + 1 > cap) {
+    return 0;
+  }
   moqver_offer_write(out);
   return len;
 }

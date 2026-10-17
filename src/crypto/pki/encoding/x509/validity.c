@@ -16,7 +16,9 @@ static int is_digit(u8 c) { return c >= '0' && c <= '9'; }
 static int digits(const u8* p, usz n, u64* out) {
   u64 v = 0;
   for (usz i = 0; i < n; i++) {
-    if (!is_digit(p[i])) return 0;
+    if (!is_digit(p[i])) {
+      return 0;
+    }
     v = v * 10 + (u64)(p[i] - '0');
   }
   *out = v;
@@ -34,28 +36,40 @@ static u64 century(u64 yy) { return yy < 50 ? 2000 : 1900; }
 /* UTCTime YYMMDDHHMMSS digits into a full YYYYMMDDHHMMSS. */
 static int utc_digits(const u8* v, u64* out) {
   u64 yy, rest;
-  if (!digits(v, 2, &yy)) return 0;
-  if (!digits(v + 2, 10, &rest)) return 0;
+  if (!digits(v, 2, &yy)) {
+    return 0;
+  }
+  if (!digits(v + 2, 10, &rest)) {
+    return 0;
+  }
   *out = (yy + century(yy)) * 10000000000ULL + rest;
   return 1;
 }
 
 /* RFC 5280 4.1.2.5.1. UTCTime is YYMMDDHHMMSSZ. */
 static int utctime(wired_span v, u64* out) {
-  if (!zterm(v, 13)) return 0;
+  if (!zterm(v, 13)) {
+    return 0;
+  }
   return utc_digits(v.p, out);
 }
 
 /* RFC 5280 4.1.2.5.2. GeneralizedTime is YYYYMMDDHHMMSSZ. */
 static int gentime(wired_span v, u64* out) {
-  if (!zterm(v, 15)) return 0;
+  if (!zterm(v, 15)) {
+    return 0;
+  }
   return digits(v.p, 14, out);
 }
 
 /* Decode a Time (UTCTime or GeneralizedTime) into YYYYMMDDHHMMSS. */
 static int time_value(u8 tag, wired_span v, u64* out) {
-  if (tag == DER_UTCTIME) return utctime(v, out);
-  if (tag == DER_GENTIME) return gentime(v, out);
+  if (tag == DER_UTCTIME) {
+    return utctime(v, out);
+  }
+  if (tag == DER_GENTIME) {
+    return gentime(v, out);
+  }
   return 0;
 }
 
@@ -68,7 +82,9 @@ static int tbs_to_validity(wired_span tbs, derseq* c) {
 static int next_time(derseq* c, u64* out) {
   u8         tag;
   wired_span v;
-  if (!derseq_next(c, &tag, &v)) return 0;
+  if (!derseq_next(c, &tag, &v)) {
+    return 0;
+  }
   return time_value(tag, v, out);
 }
 
@@ -82,7 +98,9 @@ static int validity_bounds(wired_span val, u64* nb, u64* na) {
 /* The Validity SEQUENCE value out of tbs. */
 static int reach_validity(wired_span tbs, wired_span* v) {
   derseq c;
-  if (!tbs_to_validity(tbs, &c)) return 0;
+  if (!tbs_to_validity(tbs, &c)) {
+    return 0;
+  }
   return derseq_next_tagged(&c, DER_SEQUENCE, v);
 }
 
@@ -92,7 +110,9 @@ static int in_window(u64 nb, u64 na, u64 now) { return nb <= now && now <= na; }
 int x509_validity_ok(wired_span tbs, u64 now) {
   wired_span v;
   u64        nb, na;
-  if (!reach_validity(tbs, &v)) return 0;
+  if (!reach_validity(tbs, &v)) {
+    return 0;
+  }
   return validity_bounds(v, &nb, &na) && in_window(nb, na, now);
 }
 
@@ -107,8 +127,9 @@ static void put_2digits(u64 v, u8* out) {
 static void utctime_fields(u64 ymdhms, u8 out[12]) {
   static const u64 divisor[6] = {10000000000ULL, 100000000ULL, 1000000ULL,
                                  10000ULL,       100ULL,       1ULL};
-  for (usz i = 0; i < 6; i++)
+  for (usz i = 0; i < 6; i++) {
     put_2digits((ymdhms / divisor[i]) % 100, out + 2 * i);
+  }
 }
 
 void x509_utctime_encode(u64 ymdhms, u8 out[13]) {

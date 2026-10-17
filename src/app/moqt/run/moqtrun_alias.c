@@ -38,8 +38,11 @@ static int moqtrun_sub_state_clash(
 
 static int moqtrun_ring_clash(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t, u64 a) {
-  for (usz i = 0; i < p->sub_names_n; i++)
-    if (moqtrun_sub_state_clash(p, i, t, a)) return 1;
+  for (usz i = 0; i < p->sub_names_n; i++) {
+    if (moqtrun_sub_state_clash(p, i, t, a)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -63,8 +66,11 @@ static int moqtrun_reqs_clash(
     const wired_wt_session*    wt,
     const wired_moqtrun_track* t,
     u64                        a) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_req_alias_clash(&hub->reqs[i], wt, t, a)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_req_alias_clash(&hub->reqs[i], wt, t, a)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -92,8 +98,12 @@ static int moqtrun_alias_taken(
 u64 moqtrun_session_alias(
     const wired_moqt_hub* hub, usz pi, const wired_moqtrun_track* t) {
   u64 a = 0;
-  if (!moqtrun_alias_taken(hub, pi, t, t->own_alias)) return t->own_alias;
-  while (moqtrun_alias_taken(hub, pi, t, a)) a++;
+  if (!moqtrun_alias_taken(hub, pi, t, t->own_alias)) {
+    return t->own_alias;
+  }
+  while (moqtrun_alias_taken(hub, pi, t, a)) {
+    a++;
+  }
   return a;
 }
 
@@ -104,8 +114,11 @@ int moqtrun_sub_is_peer(const wired_moqtrun_sub* sub, usz idx) {
 
 /* The Established sub slot peer index idx holds on t, else 0. */
 wired_moqtrun_sub* moqtrun_track_sub_of_peer(wired_moqtrun_track* t, usz idx) {
-  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++)
-    if (moqtrun_sub_is_peer(&t->subs[s], idx)) return &t->subs[s];
+  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++) {
+    if (moqtrun_sub_is_peer(&t->subs[s], idx)) {
+      return &t->subs[s];
+    }
+  }
   return 0;
 }
 
@@ -123,7 +136,11 @@ int moqtrun_reattach_wanted(
     usz                   i,
     usz                   pub_idx,
     moqtrun_key           k) {
-  if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) return 0;
-  if (moqtrun_track_sub_of_peer(t, i)) return 0;
+  if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) {
+    return 0;
+  }
+  if (moqtrun_track_sub_of_peer(t, i)) {
+    return 0;
+  }
   return moqtrun_sub_name_known(&hub->peers[i], k);
 }

@@ -40,17 +40,25 @@ static wired_span pem_text(const char* s, usz n) {
 }
 
 static int pem_bytes_eq(const wired_obuf* der, const u8* exp, usz n) {
-  if (der->len != n) return 0;
+  if (der->len != n) {
+    return 0;
+  }
   for (usz i = 0; i < n; i++) {
-    if (der->p[i] != exp[i]) return 0;
+    if (der->p[i] != exp[i]) {
+      return 0;
+    }
   }
   return 1;
 }
 
 static int pem_label_is(wired_span label, const char* exp, usz n) {
-  if (label.n != n) return 0;
+  if (label.n != n) {
+    return 0;
+  }
   for (usz i = 0; i < n; i++) {
-    if (label.p[i] != (u8)exp[i]) return 0;
+    if (label.p[i] != (u8)exp[i]) {
+      return 0;
+    }
   }
   return 1;
 }
@@ -177,8 +185,11 @@ static const char pem_alphabet[] =
 
 /* Index of c in the alphabet, or -1. */
 static int pem_alphabet_index(u8 c) {
-  for (int i = 0; i < 64; i++)
-    if ((u8)pem_alphabet[i] == c) return i;
+  for (int i = 0; i < 64; i++) {
+    if ((u8)pem_alphabet[i] == c) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -212,7 +223,9 @@ static void pem_check_byte(u8 c) {
  * rejects. Pins the arithmetic, table-free classifier (CVE-2021-24116
  * class: a secret-indexed lookup table leaks key bytes through the cache). */
 static void test_pem_every_byte_classified(void) {
-  for (int c = 0; c < 256; c++) pem_check_byte((u8)c);
+  for (int c = 0; c < 256; c++) {
+    pem_check_byte((u8)c);
+  }
 }
 
 void test_pem(void) {

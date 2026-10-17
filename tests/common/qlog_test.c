@@ -25,7 +25,9 @@ static void test_qlog_append_frames_one_record(void) {
     ssz n       = wired_fio_read(qlogt_path, wired_mspan_of(out, sizeof out));
     CHECK(n == (ssz)(sizeof(rec) - 1 + 2));
     CHECK(out[0] == 0x1E);
-    for (usz i = 0; i < sizeof(rec) - 1; i++) CHECK(out[1 + i] == (u8)rec[i]);
+    for (usz i = 0; i < sizeof(rec) - 1; i++) {
+      CHECK(out[1 + i] == (u8)rec[i]);
+    }
     CHECK(out[n - 1] == '\n');
   }
   qlogt_unlink();

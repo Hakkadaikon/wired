@@ -111,9 +111,14 @@ static void test_wtwire_qsid_take_range(void) {
 }
 
 static int span_is(wired_span s, const char* str, usz n) {
-  if (s.n != n) return 0;
-  for (usz i = 0; i < n; i++)
-    if (s.p[i] != (u8)str[i]) return 0;
+  if (s.n != n) {
+    return 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    if (s.p[i] != (u8)str[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

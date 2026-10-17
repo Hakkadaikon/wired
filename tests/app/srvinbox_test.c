@@ -22,7 +22,9 @@ static void test_srvinbox_push_pop_roundtrip(void) {
   CHECK(wired_srvinbox_push(&r, sib_msg_a, sizeof sib_msg_a) == 1);
   n = wired_srvinbox_pop(&r, out, sizeof out);
   CHECK(n == sizeof sib_msg_a);
-  for (usz i = 0; i < sizeof sib_msg_a; i++) CHECK(out[i] == sib_msg_a[i]);
+  for (usz i = 0; i < sizeof sib_msg_a; i++) {
+    CHECK(out[i] == sib_msg_a[i]);
+  }
 }
 
 /* Popping an empty ring returns 0 and leaves nothing behind. */
@@ -107,10 +109,11 @@ static void sib_stress_producer_fn(void* argp) {
   sib_stress_producer_arg* a = (sib_stress_producer_arg*)argp;
   u8                       b = 0;
   for (u32 i = 0; i < SIB_STRESS_N; i++) {
-    if (wired_srvinbox_push(a->r, &b, 1))
+    if (wired_srvinbox_push(a->r, &b, 1)) {
       a->sent++;
-    else
+    } else {
       a->dropped++;
+    }
   }
 }
 
@@ -125,7 +128,9 @@ static void sib_stress_consumer_fn(void* argp) {
     }
     if (__atomic_load_n(a->stop, __ATOMIC_ACQUIRE)) {
       /* Drain whatever the producer published just before it finished. */
-      while (wired_srvinbox_pop(a->r, out, sizeof out)) a->received++;
+      while (wired_srvinbox_pop(a->r, out, sizeof out)) {
+        a->received++;
+      }
       return;
     }
   }
@@ -183,7 +188,9 @@ static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
   wired_srvinbox_ring row[1];
   srvrun_conn*        c;
   CHECK(sizeof g_sib_env_storage >= wired_srvrun_env_size());
-  if (sizeof g_sib_env_storage < wired_srvrun_env_size()) return;
+  if (sizeof g_sib_env_storage < wired_srvrun_env_size()) {
+    return;
+  }
   wired_srvrun_env_init(env);
   wired_srvinbox_ring_init(&row[0]);
   c = &env->conns[0];
@@ -195,8 +202,9 @@ static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
           wired_span_of(sib_msg_a, sizeof sib_msg_a)) == 1);
   CHECK(c->dg_pending == 1);
   CHECK(c->dg_pending_len[0] == sizeof sib_msg_a);
-  for (usz i = 0; i < sizeof sib_msg_a; i++)
+  for (usz i = 0; i < sizeof sib_msg_a; i++) {
     CHECK(c->dg_pending_buf[0][i] == sib_msg_a[i]);
+  }
   wired_srvrun_broadcast_unregister();
 }
 
@@ -257,7 +265,9 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
 
   CHECK(sizeof g_sib_mesh_env_a >= wired_srvrun_env_size());
   CHECK(sizeof g_sib_mesh_env_b >= wired_srvrun_env_size());
-  if (sizeof g_sib_mesh_env_a < wired_srvrun_env_size()) return;
+  if (sizeof g_sib_mesh_env_a < wired_srvrun_env_size()) {
+    return;
+  }
   wired_srvrun_env_init(env_a);
   wired_srvrun_env_init(env_b);
   conn_a = &env_a->conns[0];
@@ -282,8 +292,9 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
    * through any ring). */
   CHECK(conn_a->dg_pending == 1);
   CHECK(conn_a->dg_pending_len[0] == sizeof sib_msg_b);
-  for (usz i = 0; i < sizeof sib_msg_b; i++)
+  for (usz i = 0; i < sizeof sib_msg_b; i++) {
     CHECK(conn_a->dg_pending_buf[0][i] == sib_msg_b[i]);
+  }
   /* Worker B's own row, column 0 (worker A's source column), holds A's
    * broadcast for B's own next-step drain -- delivered through
    * wired_server_broadcast_datagram alone, never by writing B's ring
@@ -291,7 +302,9 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
    * srvrun_bcast_drain_self's job (srvrun.c), exercised by srvrun_test.c's
    * poll-tick tests, not this ring-level test. */
   CHECK(wired_srvinbox_pop(&row_b[0], out, sizeof out) == sizeof sib_msg_b);
-  for (usz i = 0; i < sizeof sib_msg_b; i++) CHECK(out[i] == sib_msg_b[i]);
+  for (usz i = 0; i < sizeof sib_msg_b; i++) {
+    CHECK(out[i] == sib_msg_b[i]);
+  }
   /* A's own row is NOT pushed for its own broadcast anymore (own-row
    * inclusion was replaced by the direct env fan-out above -- pushing it too
    * would double-deliver: once now, once more when A drains its own row on

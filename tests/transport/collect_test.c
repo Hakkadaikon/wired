@@ -18,8 +18,12 @@ static void test_collect_lost_streams(void) {
 
   CHECK(rtxbytes_collect(&st, (lost_pns){lost, 4}, &ob) == 1);
   CHECK(ob.len == sizeof s1 + sizeof s2);
-  for (usz i = 0; i < sizeof s1; i++) CHECK(out[i] == s1[i]);
-  for (usz i = 0; i < sizeof s2; i++) CHECK(out[sizeof s1 + i] == s2[i]);
+  for (usz i = 0; i < sizeof s1; i++) {
+    CHECK(out[i] == s1[i]);
+  }
+  for (usz i = 0; i < sizeof s2; i++) {
+    CHECK(out[sizeof s1 + i] == s2[i]);
+  }
 }
 
 static void test_collect_no_room(void) {

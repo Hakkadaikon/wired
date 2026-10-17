@@ -13,8 +13,9 @@ static usz moqtrun_track_index_for_name(
     const wired_moqtrun_peer* p, moqtrun_key k) {
   usz t = 0;
   while (t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER &&
-         !moqtrun_track_key_matches(&p->tracks[t], k))
+         !moqtrun_track_key_matches(&p->tracks[t], k)) {
     t++;
+  }
   return t;
 }
 
@@ -29,8 +30,11 @@ wired_moqtrun_track* moqtrun_track_slot_for_name(
 /* Finds p's first free track slot, else 0 (all
  * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER already in use). */
 static wired_moqtrun_track* moqtrun_track_free_slot(wired_moqtrun_peer* p) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (!p->tracks[t].in_use) return &p->tracks[t];
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (!p->tracks[t].in_use) {
+      return &p->tracks[t];
+    }
+  }
   return 0;
 }
 
@@ -54,8 +58,11 @@ int moqtrun_sub_name_eq(const wired_moqtrun_peer* p, usz i, moqtrun_key k) {
 
 /* p's ring index recording k, else WIRED_MOQTRUN_SUB_NAMES. */
 usz moqtrun_sub_name_find(const wired_moqtrun_peer* p, moqtrun_key k) {
-  for (usz i = 0; i < p->sub_names_n; i++)
-    if (moqtrun_sub_name_eq(p, i, k)) return i;
+  for (usz i = 0; i < p->sub_names_n; i++) {
+    if (moqtrun_sub_name_eq(p, i, k)) {
+      return i;
+    }
+  }
   return WIRED_MOQTRUN_SUB_NAMES;
 }
 
@@ -72,7 +79,9 @@ static usz moqtrun_sub_name_store(wired_moqtrun_peer* p, moqtrun_key k) {
   bytes_memcpy(p->sub_ns[p->sub_names_at], k.ns.p, k.ns.n);
   p->sub_ns_lens[p->sub_names_at] = k.ns.n;
   p->sub_names_at = (u8)((p->sub_names_at + 1) % WIRED_MOQTRUN_SUB_NAMES);
-  if (p->sub_names_n < WIRED_MOQTRUN_SUB_NAMES) p->sub_names_n++;
+  if (p->sub_names_n < WIRED_MOQTRUN_SUB_NAMES) {
+    p->sub_names_n++;
+  }
   return at;
 }
 
@@ -82,9 +91,13 @@ static usz moqtrun_sub_name_store(wired_moqtrun_peer* p, moqtrun_key k) {
  * match a recorded track name, so it is not stored. */
 void moqtrun_note_sub_name(
     wired_moqtrun_peer* p, moqtrun_key k, const wired_moqtrun_sub* s) {
-  if (moqtrun_key_oversized(k)) return;
+  if (moqtrun_key_oversized(k)) {
+    return;
+  }
   usz i = moqtrun_sub_name_find(p, k);
-  if (i == WIRED_MOQTRUN_SUB_NAMES) i = moqtrun_sub_name_store(p, k);
+  if (i == WIRED_MOQTRUN_SUB_NAMES) {
+    i = moqtrun_sub_name_store(p, k);
+  }
   p->sub_state[i] = *s;
 }
 

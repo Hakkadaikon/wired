@@ -30,10 +30,14 @@ static void srvloop_init_ctrl(wired_srvloop* l) {
 }
 
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
-  if (cli_scid_len > 20) return 0;
+  if (cli_scid_len > 20) {
+    return 0;
+  }
   wired_h3srv_state_init(&l->h3, DEFAULT_QPACK_MAX_TABLE_CAP);
   l->cli_scid_len = cli_scid_len;
-  for (usz i = 0; i < cli_scid_len; i++) l->cli_scid[i] = cli_scid[i];
+  for (usz i = 0; i < cli_scid_len; i++) {
+    l->cli_scid[i] = cli_scid[i];
+  }
   srvloop_init_pn(l);
   srvloop_init_req(l);
   srvloop_init_ecn(l);
@@ -68,5 +72,7 @@ u64* srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn) {
 
 void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn) {
   u64* counter = srvloop_ecn_counter_for(l, ecn);
-  if (counter) (*counter)++;
+  if (counter) {
+    (*counter)++;
+  }
 }

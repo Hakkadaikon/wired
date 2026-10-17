@@ -18,7 +18,9 @@ static int slot_in_range(const sentpkt* t, usz i, ap_pnrange r) {
 /* Remove every in-flight packet in r, appending pns to out. */
 static void ap_ack_range(sentpkt* t, ap_pnrange r, u64out out) {
   for (usz i = 0; i < SENTPKT_CAP; i++) {
-    if (!slot_in_range(t, i, r)) continue;
+    if (!slot_in_range(t, i, r)) {
+      continue;
+    }
     t->e[i].state       = SP_ACKED;
     t->e[i].used        = 0;
     out.out[(*out.n)++] = t->e[i].pn;
@@ -29,7 +31,9 @@ static void ap_ack_range(sentpkt* t, ap_pnrange r, u64out out) {
  * top of each successive range is the previous low minus gap minus 2. */
 void ack_process(sentpkt* t, const ackset* acked, u64out newly_acked) {
   *newly_acked.n = 0;
-  if (acked->n_ranges == 0) return;
+  if (acked->n_ranges == 0) {
+    return;
+  }
   u64 hi = acked->ack_largest;
   u64 lo = hi - acked->ack_ranges[0];
   ap_ack_range(t, (ap_pnrange){lo, hi}, newly_acked);

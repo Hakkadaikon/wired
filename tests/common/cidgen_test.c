@@ -24,8 +24,11 @@ static void test_cidgen_distinct_and_full(void) {
   CHECK(cid_generate(a, 20) == 1);
   CHECK(cid_generate(b, 20) == 1);
   int differ = 0;
-  for (usz i = 0; i < 20; i++)
-    if (a[i] != b[i]) differ = 1;
+  for (usz i = 0; i < 20; i++) {
+    if (a[i] != b[i]) {
+      differ = 1;
+    }
+  }
   CHECK(differ);
 }
 

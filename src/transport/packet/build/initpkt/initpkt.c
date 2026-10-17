@@ -23,9 +23,13 @@ static int build_payload(
     wired_span crypto, u64 off, usz target, wired_obuf* out) {
   usz                   n, fill = initpkt_min_usz(target, out->cap);
   crypto_stream_emit_in in = {off, crypto.n};
-  if (!crypto_stream_emit(crypto, &in, out)) return 0;
+  if (!crypto_stream_emit(crypto, &in, out)) {
+    return 0;
+  }
   n = out->len;
-  for (; n < fill; n++) out->p[n] = 0x00;
+  for (; n < fill; n++) {
+    out->p[n] = 0x00;
+  }
   out->len = n;
   return 1;
 }
@@ -54,7 +58,9 @@ static int initpkt_seal(
   tx_desc      t = {byte0, d->dcid, d->scid, 1, wired_span_of((const u8*)0, 0),
                     d->pn, payload, version};
   total          = tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
-  if (total == 0) return 0;
+  if (total == 0) {
+    return 0;
+  }
   out->len = total;
   return 1;
 }
@@ -67,10 +73,13 @@ int initpkt_build_ver(u32 version, const initpkt_desc* d, wired_obuf* out) {
   u8           payload[1200];
   wired_obuf   po    = obuf_of(payload, sizeof(payload));
   u8           byte0 = initpkt_byte0(version);
-  if (byte0 == 0) return 0;
-  if (!build_payload(
-          d->crypto, d->crypto_off, pad_target(d->dcid.n, d->scid.n), &po))
+  if (byte0 == 0) {
     return 0;
+  }
+  if (!build_payload(
+          d->crypto, d->crypto_off, pad_target(d->dcid.n, d->scid.n), &po)) {
+    return 0;
+  }
   initpkt_derive_ver(d->dcid, version, &ck, &sk);
   return initpkt_seal(
       byte0, version, d, &ck, wired_span_of(payload, po.len), out);

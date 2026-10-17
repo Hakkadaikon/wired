@@ -123,7 +123,9 @@ static void test_moqkvp_take_len_65535_accepted(void) {
   moqkvp_len_buf[1] = 0xC0; /* Length 65535 as 3-byte varint */
   moqkvp_len_buf[2] = 0xFF;
   moqkvp_len_buf[3] = 0xFF;
-  for (usz i = 0; i < MOQKVP_MAX_LEN; i++) moqkvp_len_buf[4 + i] = (u8)i;
+  for (usz i = 0; i < MOQKVP_MAX_LEN; i++) {
+    moqkvp_len_buf[4 + i] = (u8)i;
+  }
 
   CHECK(
       moqkvp_take(
@@ -188,7 +190,9 @@ static void test_moqkvp_roundtrip(void) {
   CHECK(moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &odd));
   CHECK(off == sizeof golden);
   CHECK(prev == 5);
-  for (usz i = 0; i < sizeof golden; i++) CHECK(buf[i] == golden[i]);
+  for (usz i = 0; i < sizeof golden; i++) {
+    CHECK(buf[i] == golden[i]);
+  }
 }
 
 /* TEST 11: put rejects a Type below the running Type (Delta would be

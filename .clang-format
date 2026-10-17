@@ -15,3 +15,7 @@ AlignConsecutiveDeclarations:
 AlignEscapedNewlines: Left
 AlignTrailingComments:
   Kind: Always
+# Every if/else/for/while/do body gets braces, one-line bodies included.
+# clang-format's own docs warn this can misformat code it cannot fully
+# parse (macros); the full test suite and fuzz harnesses are the check.
+InsertBraces: true

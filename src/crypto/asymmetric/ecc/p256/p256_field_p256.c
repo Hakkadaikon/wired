@@ -11,7 +11,9 @@ static void fp_reduce_p256(p256_fe r, const u64 w[8]);
 
 /* Assemble a 256-bit value from eight 32-bit words, e[0] least significant. */
 static void from_words(p256_fe t, const u64 e[8]) {
-  for (usz i = 0; i < 4; i++) t[i] = e[2 * i] | (e[2 * i + 1] << 32);
+  for (usz i = 0; i < 4; i++) {
+    t[i] = e[2 * i] | (e[2 * i + 1] << 32);
+  }
 }
 
 /* The nine Solinas terms s1..s9 as word-index tables into c0..c15; 0xff marks a
@@ -32,15 +34,18 @@ static const u8 P256_TERMS[9][8] = {
 /* A 256-bit term is < 2^256 < 2p, so at most one subtraction of p brings it
  * below p (the precondition of p256_fp_add / p256_fp_sub). */
 static void reduce_once_p(p256_fe r) {
-  if (p256_fe_ge(r, p256_p)) p256_fe_sub_raw(r, r, p256_p);
+  if (p256_fe_ge(r, p256_p)) {
+    p256_fe_sub_raw(r, r, p256_p);
+  }
 }
 
 /* Build term row `t` (0..8) from the 512-bit accumulator into fe out, reduced
  * below p so it satisfies the < p precondition of p256_fp_add / p256_fp_sub. */
 static void build_term(p256_fe out, const u64 w[8], usz t) {
   u64 e[8];
-  for (usz i = 0; i < 8; i++)
+  for (usz i = 0; i < 8; i++) {
     e[i] = (P256_TERMS[t][i] == 0xff) ? 0 : p256_w32(w, P256_TERMS[t][i]);
+  }
   from_words(out, e);
   reduce_once_p(out);
 }
@@ -113,7 +118,9 @@ void p256_fp_inv(p256_fe r, const p256_fe a, const p256_fe m) {
   r[0] = 1;
   r[1] = r[2] = r[3] = 0;
   for (usz bit = 0; bit < 256; bit++) {
-    if ((e[bit / 64] >> (bit & 63)) & 1) p256_fp_mul(r, (fpab){r, base}, m);
+    if ((e[bit / 64] >> (bit & 63)) & 1) {
+      p256_fp_mul(r, (fpab){r, base}, m);
+    }
     p256_fp_sqr(base, base, m);
   }
 }

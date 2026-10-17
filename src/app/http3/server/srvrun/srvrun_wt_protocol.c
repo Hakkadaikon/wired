@@ -49,23 +49,32 @@ u16 srvrun_http_status(const wired_http_exchange* x) {
  * loses its content. */
 void srvrun_http_settle(wired_http_exchange* x) {
   x->status = srvrun_http_status(x);
-  if (!srvrun_http_ok(x)) srvrun_http_reject(x);
-  if (srvrun_http_status_bodiless(x->status)) srvrun_http_drop_content(x);
+  if (!srvrun_http_ok(x)) {
+    srvrun_http_reject(x);
+  }
+  if (srvrun_http_status_bodiless(x->status)) {
+    srvrun_http_drop_content(x);
+  }
 }
 
 /* All len octets of m equal want (draft-ietf-webtrans-http3-15 SS3: the
  * :protocol value is matched byte for byte, same idiom as connect.c's own
  * method_is_connect). */
 int srvrun_wt_bytes_eq(const u8* m, const u8* want, usz len) {
-  for (usz i = 0; i < len; i++)
-    if (m[i] != want[i]) return 0;
+  for (usz i = 0; i < len; i++) {
+    if (m[i] != want[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 /* r's :protocol equals the n-octet token want. */
 static int wt_protocol_token_eq(
     const wired_h3reqdrive_req* r, const u8* want, usz n) {
-  if (!r->protocol || r->protocol_len != n) return 0;
+  if (!r->protocol || r->protocol_len != n) {
+    return 0;
+  }
   return srvrun_wt_bytes_eq(r->protocol, want, n);
 }
 
@@ -79,7 +88,9 @@ static int wt_protocol_is_webtransport(const wired_h3reqdrive_req* r) {
                            'n', 's', 'p', 'o', 'r', 't'};
   static const u8 d15[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
                            'p', 'o', 'r', 't', '-', 'h', '3'};
-  if (wt_protocol_token_eq(r, d7, sizeof d7)) return 1;
+  if (wt_protocol_token_eq(r, d7, sizeof d7)) {
+    return 1;
+  }
   return wt_protocol_token_eq(r, d15, sizeof d15);
 }
 
@@ -89,7 +100,9 @@ static int wt_protocol_is_webtransport(const wired_h3reqdrive_req* r) {
  * below). */
 static int wt_method_is_connect(const wired_h3reqdrive_req* r) {
   static const u8 want[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
-  if (!r->method || r->method_len != sizeof want) return 0;
+  if (!r->method || r->method_len != sizeof want) {
+    return 0;
+  }
   return srvrun_wt_bytes_eq(r->method, want, sizeof want);
 }
 
@@ -104,7 +117,9 @@ static int wt_ext_fields_present(const wired_h3reqdrive_req* r) {
 /* r's request line is CONNECT with :scheme/:authority/:path all present:
  * the Extended CONNECT shape, checked before :protocol. */
 static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r) {
-  if (!wt_method_is_connect(r)) return 0;
+  if (!wt_method_is_connect(r)) {
+    return 0;
+  }
   return wt_ext_fields_present(r);
 }
 
@@ -113,8 +128,12 @@ static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r) {
  * negotiated (settings always advertised, Step 1 above) and a WebTransport
  * token (see wt_protocol_is_webtransport). */
 int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
-  if (!wt_ext_connect_shape_ok(r)) return 0;
-  if (!wt_protocol_is_webtransport(r)) return 0;
+  if (!wt_ext_connect_shape_ok(r)) {
+    return 0;
+  }
+  if (!wt_protocol_is_webtransport(r)) {
+    return 0;
+  }
   return h3_connect_protocol_ok(r, 1);
 }
 
@@ -133,8 +152,12 @@ int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
  * RFC 9114 4.4) is unaffected: r->protocol is 0 there, so this returns 0 and
  * the normal method-status/app-handler path still runs. */
 int srvrun_is_wt_connect_unsupported_protocol(const wired_h3reqdrive_req* r) {
-  if (!wt_ext_connect_shape_ok(r)) return 0;
-  if (!r->protocol) return 0;
+  if (!wt_ext_connect_shape_ok(r)) {
+    return 0;
+  }
+  if (!r->protocol) {
+    return 0;
+  }
   return !wt_protocol_is_webtransport(r);
 }
 
@@ -143,7 +166,9 @@ int srvrun_is_wt_connect_unsupported_protocol(const wired_h3reqdrive_req* r) {
  * origin header reaches the callback as an empty span. */
 static int wt_origin_app_ok(
     const srvrun_cfg* cfg, const wired_h3reqdrive_req* r) {
-  if (!cfg->wt_origin_check) return 1;
+  if (!cfg->wt_origin_check) {
+    return 1;
+  }
   return cfg->wt_origin_check(
              cfg->wt_origin_ctx, wired_span_of(r->origin, r->origin_len),
              wired_span_of(r->authority, r->authority_len)) != 0;
@@ -155,6 +180,8 @@ static int wt_origin_app_ok(
  * rejection reason: it only applies to browser clients, which this SDK
  * cannot detect server-side. */
 int srvrun_wt_origin_ok(const srvrun_cfg* cfg, const wired_h3reqdrive_req* r) {
-  if (r->origin && !r->origin_len) return 0; /* present but empty */
+  if (r->origin && !r->origin_len) {
+    return 0; /* present but empty */
+  }
   return wt_origin_app_ok(cfg, r);
 }

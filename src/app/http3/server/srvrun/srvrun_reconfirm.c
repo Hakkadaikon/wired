@@ -9,7 +9,9 @@ static usz  srvrun_seal_boot_probe(srvrun_conn* c, u8* out, usz cap);
 /* Remember the server ID of a packet this step actually opened. */
 static void srvrun_note_dcid(
     srvrun_conn* c, wired_mspan dg, const srvrun_rxmark* mark) {
-  if (!srvrun_rx_app_adv(mark, &c->l) || !srvrun_dcid_room(c, dg)) return;
+  if (!srvrun_rx_app_adv(mark, &c->l) || !srvrun_dcid_room(c, dg)) {
+    return;
+  }
   bytes_memcpy(c->rx_dcid, dg.p + 1, c->s.sdrv.iscid_len);
 }
 
@@ -24,12 +26,16 @@ void srvrun_path_step(
     wired_mspan            dg,
     const srvrun_rxmark*   mark) {
   int kept;
-  if (!ctx->peer) return;
+  if (!ctx->peer) {
+    return;
+  }
   srvrun_path_seed(ctx->cfg, c);
   srvrun_path_take_cids(ctx->cfg, c);
   srvrun_apply_path_response(ctx->cfg, c);
   kept = srvrun_dcid_kept(c, dg);
-  if (srvrun_rebind_due(ctx, c)) srvrun_path_switch(ctx, c, kept);
+  if (srvrun_rebind_due(ctx, c)) {
+    srvrun_path_switch(ctx, c, kept);
+  }
   srvrun_path_probe(ctx, c, kept);
   srvrun_note_dcid(c, dg, mark);
   srvrun_path_retire(ctx->cfg, c);
@@ -52,15 +58,21 @@ static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8                 out[512];
   wired_obuf         ob   = obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
-  if (!wired_srvloop_reconfirm(&conn, &ob)) return;
+  if (!wired_srvloop_reconfirm(&conn, &ob)) {
+    return;
+  }
   srvrun_send(
       ctx->cfg, c, wired_span_of(ob.p, ob.len), "confirmation resent\n");
 }
 
 void srvrun_reconfirm_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
-  if (!wired_server_is_confirmed(&c->s)) return;
-  if (!srvrun_leads_handshake(dg)) return;
+  if (!wired_server_is_confirmed(&c->s)) {
+    return;
+  }
+  if (!srvrun_leads_handshake(dg)) {
+    return;
+  }
   srvrun_reconfirm(ctx, c);
 }
 
@@ -107,15 +119,21 @@ static usz srvrun_seal_boot_probe(srvrun_conn* c, u8* out, usz cap) {
       0,
       0,
       0};
-  if (!wired_server_early_send_keys(&c->s)) return 0;
-  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
+  if (!wired_server_early_send_keys(&c->s)) {
+    return 0;
+  }
+  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) {
+    return 0;
+  }
   return ob.len;
 }
 
 int srvrun_send_boot_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8  out[128];
   usz n = srvrun_seal_boot_probe(c, out, sizeof out);
-  if (n == 0 || srvrun_boot_gate_blocks(c, 0, n)) return 0;
+  if (n == 0 || srvrun_boot_gate_blocks(c, 0, n)) {
+    return 0;
+  }
   srvrun_boot_send(ctx->cfg, c, wired_span_of(out, n), "boot keepalive sent\n");
   c->boot_pto_sent_ms = ctx->now_ms;
   c->boot_pto_count   = 0;

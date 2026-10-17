@@ -47,7 +47,9 @@ static void moqtrun_subscribe_checked(
     usz                     peer_idx,
     const moqctl_subscribe* m,
     wired_span              body) {
-  if (moqtrun_fill_malformed(hub, p, &m->params)) return;
+  if (moqtrun_fill_malformed(hub, p, &m->params)) {
+    return;
+  }
   u64 code = moqtsw_sub_refusal( /* SWITCH_FROM: never on a hub track */
       &m->params, moqtrun_ssts_hub_track(hub, m),
       moqtss_sub_refusal( /* SSTS (moqtssts_run.c) */
@@ -72,8 +74,9 @@ void moqtrun_handle_subscribe(
                   hub, moqctl_subscribe_take(p->ver, body, &off, &m),
                   &m.params),
               &m.params),
-          &m.params))
+          &m.params)){
     return;
+  }
   moqtrun_subscribe_checked(hub, p, peer_idx, &m, body);
 }
 
@@ -120,7 +123,9 @@ static void moqtrun_sched_legacy(
     wired_wt_session*     wt,
     u64                   sid,
     const wired_wt_sched* k) {
-  if (!hub->io.stream_priority) return;
+  if (!hub->io.stream_priority) {
+    return;
+  }
   hub->io.stream_priority(
       wt, sid, WIRED_MOQTRUN_URGENCY(k->fine >> 8, k->fine & 0xff));
 }
@@ -131,7 +136,9 @@ void moqtrun_sched_apply(
     wired_wt_session*     wt,
     i64                   sid,
     const wired_wt_sched* k) {
-  if (sid < 0) return;
+  if (sid < 0) {
+    return;
+  }
   if (hub->io.stream_sched) {
     hub->io.stream_sched(wt, (u64)sid, k);
     return;

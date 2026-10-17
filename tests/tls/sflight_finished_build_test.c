@@ -13,8 +13,12 @@ void test_sflight_finished_build(void) {
   u8         type;
   wired_obuf ob = obuf_of(out, sizeof(out));
 
-  for (usz i = 0; i < sizeof(key); i++) key[i] = (u8)(i + 1);
-  for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x80 + i);
+  for (usz i = 0; i < sizeof(key); i++) {
+    key[i] = (u8)(i + 1);
+  }
+  for (usz i = 0; i < 32; i++) {
+    thash[i] = (u8)(0x80 + i);
+  }
 
   CHECK(sflight_finished(key, thash, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);

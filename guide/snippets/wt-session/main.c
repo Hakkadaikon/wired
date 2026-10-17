@@ -10,7 +10,9 @@ static void on_resource(
     wired_wt_resource_decision* out) {
   (void)ctx;
   (void)authority;
-  if (wired_span_eq_cstr(path, "/forbidden")) out->status = 405;
+  if (wired_span_eq_cstr(path, "/forbidden")) {
+    out->status = 405;
+  }
 }
 
 static void on_session(

@@ -29,7 +29,9 @@ static int loss_is_lost(const sentpkt* t, usz i, const loss_params* lp) {
 void loss_detect(sentpkt* t, const loss_params* p, u64out lost) {
   *lost.n = 0;
   for (usz i = 0; i < SENTPKT_CAP; i++) {
-    if (!loss_is_lost(t, i, p)) continue;
+    if (!loss_is_lost(t, i, p)) {
+      continue;
+    }
     t->e[i].state         = SP_LOST;
     lost.out[(*lost.n)++] = t->e[i].pn;
   }

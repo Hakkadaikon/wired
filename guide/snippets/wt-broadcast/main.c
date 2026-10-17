@@ -10,7 +10,9 @@
  * not a broadcast at all. */
 static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   (void)ctx;
-  if (data.n == 0) return;
+  if (data.n == 0) {
+    return;
+  }
   wired_span rest = wired_span_of(data.p + 1, data.n - 1);
   switch (data.p[0]) {
     case 1:

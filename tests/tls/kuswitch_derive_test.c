@@ -4,17 +4,23 @@
  * re-derived from it, and hp is left unchanged. */
 void test_kuswitch_derive(void) {
   u8 cur[32];
-  for (usz i = 0; i < 32; i++) cur[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    cur[i] = (u8)i;
+  }
 
   initial_keys next;
-  for (usz i = 0; i < INITIAL_HP; i++) next.hp[i] = 0xAB; /* sentinel */
+  for (usz i = 0; i < INITIAL_HP; i++) {
+    next.hp[i] = 0xAB; /* sentinel */
+  }
   u8 next_secret[32];
   kuswitch_next_keys(cur, &next, next_secret);
 
   /* next_secret matches the standalone kuderive output (re-uses it) */
   u8 expect_secret[32];
   ku_next_secret(cur, expect_secret);
-  for (usz i = 0; i < 32; i++) CHECK(next_secret[i] == expect_secret[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(next_secret[i] == expect_secret[i]);
+  }
 
   /* key/iv match Expand-Label from that secret */
   u8         ek[INITIAL_KEY], ev[INITIAL_IV];
@@ -22,17 +28,25 @@ void test_kuswitch_derive(void) {
   hkdf_label li = {"quic iv", 7, {0, 0}};
   hkdf_expand_label(expect_secret, &lk, wired_mspan_of(ek, INITIAL_KEY));
   hkdf_expand_label(expect_secret, &li, wired_mspan_of(ev, INITIAL_IV));
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(next.key[i] == ek[i]);
-  for (usz i = 0; i < INITIAL_IV; i++) CHECK(next.iv[i] == ev[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(next.key[i] == ek[i]);
+  }
+  for (usz i = 0; i < INITIAL_IV; i++) {
+    CHECK(next.iv[i] == ev[i]);
+  }
 
   /* RFC 9001 6.1: hp untouched */
-  for (usz i = 0; i < INITIAL_HP; i++) CHECK(next.hp[i] == 0xAB);
+  for (usz i = 0; i < INITIAL_HP; i++) {
+    CHECK(next.hp[i] == 0xAB);
+  }
 
   /* deterministic */
   initial_keys again;
   u8           again_secret[32];
   kuswitch_next_keys(cur, &again, again_secret);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(again.key[i] == next.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(again.key[i] == next.key[i]);
+  }
 }
 
 /* RFC 8446 5.3: TLS_CHACHA20_POLY1305_SHA256's key is 32 bytes, not the
@@ -42,17 +56,23 @@ void test_kuswitch_derive(void) {
  * to open). */
 void test_kuswitch_derive_suite_chacha20_full_key(void) {
   u8 cur[32];
-  for (usz i = 0; i < 32; i++) cur[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    cur[i] = (u8)i;
+  }
 
   initial_keys next;
-  for (usz i = 0; i < AEAD_KEY_MAX; i++) next.key[i] = 0;
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) {
+    next.key[i] = 0;
+  }
   u8 next_secret[32];
   kuswitch_next_keys_suite(0x1303, cur, &next, next_secret);
 
   u8         ek[32];
   hkdf_label lk = {"quic key", 8, {0, 0}};
   hkdf_expand_label(next_secret, &lk, wired_mspan_of(ek, 32));
-  for (usz i = 0; i < 32; i++) CHECK(next.key[i] == ek[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(next.key[i] == ek[i]);
+  }
 }
 
 /* Same call, but suite 0x1301 (AES-128-GCM) derives exactly the same 16
@@ -60,15 +80,21 @@ void test_kuswitch_derive_suite_chacha20_full_key(void) {
  * superset, not a behavior change for the existing AES-only callers. */
 void test_kuswitch_derive_suite_aes_matches_plain(void) {
   u8 cur[32];
-  for (usz i = 0; i < 32; i++) cur[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    cur[i] = (u8)(0x40 + i);
+  }
 
   initial_keys plain, suite;
   u8           plain_secret[32], suite_secret[32];
   kuswitch_next_keys(cur, &plain, plain_secret);
   kuswitch_next_keys_suite(0x1301, cur, &suite, suite_secret);
 
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(suite.key[i] == plain.key[i]);
-  for (usz i = 0; i < INITIAL_IV; i++) CHECK(suite.iv[i] == plain.iv[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(suite.key[i] == plain.key[i]);
+  }
+  for (usz i = 0; i < INITIAL_IV; i++) {
+    CHECK(suite.iv[i] == plain.iv[i]);
+  }
 }
 
 /* RFC 9001 6.3/6.5: kuswitch_state keeps BOTH the current and the
@@ -117,7 +143,9 @@ void test_kuswitch_twogen(void) {
   {
     const u8* p   = (const u8*)&st.old;
     u8        any = 0;
-    for (usz i = 0; i < sizeof st.old; i++) any |= p[i];
+    for (usz i = 0; i < sizeof st.old; i++) {
+      any |= p[i];
+    }
     CHECK(any == 0);
   }
 }

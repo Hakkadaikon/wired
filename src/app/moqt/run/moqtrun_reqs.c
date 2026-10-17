@@ -17,8 +17,12 @@ static int moqtrun_req_fin_cancels(
 wired_moqtrun_req* moqtrun_req_for(
     wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id, wired_span data) {
   wired_moqtrun_req* q = moqtrun_req_find(hub, s, stream_id);
-  if (q) return q;
-  if (data.n == 0) return 0;
+  if (q) {
+    return q;
+  }
+  if (data.n == 0) {
+    return 0;
+  }
   return moqtrun_req_admit(hub, s, stream_id);
 }
 
@@ -49,7 +53,9 @@ static int moqtrun_req_may_end(const wired_moqtrun_req* q) {
  * sent (an orphan, or a request that could not be decoded) -- a reset
  * with INTERNAL_ERROR (draft 3.3.4). 1 when accepted. */
 static int moqtrun_req_end_out(wired_moqt_io* io, wired_moqtrun_req* q) {
-  if (q->opened) return io->stream_fin(q->wt, q->stream_id) > 0;
+  if (q->opened) {
+    return io->stream_fin(q->wt, q->stream_id) > 0;
+  }
   return io->stream_reset(q->wt, q->stream_id, MOQTRUN_RESET_INTERNAL_ERROR) >
          0;
 }
@@ -65,7 +71,9 @@ static int moqtrun_req_both_ended(const wired_moqtrun_req* q) {
  * refused send or end is retried on the next delivery or tick. */
 void moqtrun_req_settle(wired_moqt_io* io, wired_moqtrun_req* q) {
   moqtrun_req_flush(io, q->wt, q);
-  if (moqtrun_req_may_end(q)) q->fin_out = moqtrun_req_end_out(io, q);
+  if (moqtrun_req_may_end(q)) {
+    q->fin_out = moqtrun_req_end_out(io, q);
+  }
   q->in_use = !moqtrun_req_both_ended(q);
 }
 
@@ -83,7 +91,9 @@ static int moqtrun_pubst_awaiting(const wired_moqtrun_req* q) {
  * after sending PUBLISH_DONE"; d19 10.11 / d22 9.9 "the final message
  * before closing the subscription's bidi stream"). */
 void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
-  if (!q->in_use) return;
+  if (!q->in_use) {
+    return;
+  }
   if (moqtrun_pubst_awaiting(q)) {
     moqtrun_req_flush(io, q->wt, q);
     return;
@@ -98,8 +108,9 @@ void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
   moqtrun_up_sync(hub);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
+  }
 }
 
 /* 1 iff q's first message is still incomplete but its Type is already
@@ -107,14 +118,18 @@ void moqtrun_reqs_tick(wired_moqt_hub* hub) {
 static int moqtrun_req_bad_open(const wired_moqtrun_req* q) {
   usz at   = 0;
   u64 type = 0;
-  if (q->kind || !moqvi_take(moqtrun_asm_rest(&q->in), &at, &type)) return 0;
+  if (q->kind || !moqvi_take(moqtrun_asm_rest(&q->in), &at, &type)) {
+    return 0;
+  }
   return !moqtrun_req_is_first(type);
 }
 
 /* draft 3.3: the opening Type is judged as soon as it is readable -- Object
  * data sent on a bidi stream need never complete a control message. */
 void moqtrun_req_check_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  if (!moqtrun_req_bad_open(p->req)) return;
+  if (!moqtrun_req_bad_open(p->req)) {
+    return;
+  }
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
@@ -137,5 +152,7 @@ static int moqtrun_req_fin_cancels(
 void moqtrun_req_note_fin(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q, int fin) {
   q->fin_in |= fin;
-  if (fin && moqtrun_req_fin_cancels(p, q)) moqtrun_req_cancel(hub, p, q);
+  if (fin && moqtrun_req_fin_cancels(p, q)) {
+    moqtrun_req_cancel(hub, p, q);
+  }
 }

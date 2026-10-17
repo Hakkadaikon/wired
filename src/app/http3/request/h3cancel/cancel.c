@@ -21,10 +21,14 @@ int h3cancel_request(u64 stream_id, u64 final_size, wired_obuf* out) {
   wired_obuf         ob = obuf_of(out->p, out->cap);
   usz                rn, sn;
   rn = put_reset(&ob, &rs);
-  if (!rn) return 0;
+  if (!rn) {
+    return 0;
+  }
   ob = obuf_of(out->p + rn, out->cap - rn);
   sn = put_stop(&ob, stream_id);
-  if (!sn) return 0;
+  if (!sn) {
+    return 0;
+  }
   out->len = rn + sn;
   return 1;
 }

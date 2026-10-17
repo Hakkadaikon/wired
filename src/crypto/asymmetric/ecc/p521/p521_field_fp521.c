@@ -15,19 +15,25 @@ void fp521_mul(p521_fe r, const p521_fe a, const p521_fe b, const p521_fe m) {
   p521_fe acc = {0};
   for (usz i = 521; i-- > 0;) {
     fp521_add(acc, acc, acc, m);
-    if (fe9_bit(a, i)) fp521_add(acc, acc, b, m);
+    if (fe9_bit(a, i)) {
+      fp521_add(acc, acc, b, m);
+    }
   }
   fp521_set(r, acc);
 }
 
 static void fe9_shr1(p521_fe a) {
-  for (usz i = 0; i < 8; i++) a[i] = (a[i] >> 1) | (a[i + 1] << 63);
+  for (usz i = 0; i < 8; i++) {
+    a[i] = (a[i] >> 1) | (a[i + 1] << 63);
+  }
   a[8] >>= 1;
 }
 
 /* x = x / 2 mod m (m odd). */
 static void fe9_half(p521_fe x, const p521_fe m) {
-  if (x[0] & 1) fp521_fe9_add_raw(x, x, m);
+  if (x[0] & 1) {
+    fp521_fe9_add_raw(x, x, m);
+  }
   fe9_shr1(x);
 }
 
@@ -60,15 +66,23 @@ void fp521_inv(p521_fe r, const p521_fe a, const p521_fe m) {
   fp521_invst s = {{0}, {0}, {1}, {0}};
   fp521_set(s.u, a);
   fp521_set(s.v, m);
-  while (!fp521_inv_done(&s)) fp521_inv_step(&s, m);
+  while (!fp521_inv_done(&s)) {
+    fp521_inv_step(&s, m);
+  }
   fp521_set(r, fp521_eq(s.u, fp521_one) ? s.x1 : s.x2);
 }
 
 void fp521_from_be(p521_fe r, const u8 b[66]) {
-  for (usz i = 0; i < 9; i++) r[i] = 0;
-  for (usz k = 0; k < 66; k++) r[k / 8] |= (u64)b[65 - k] << (8 * (k & 7));
+  for (usz i = 0; i < 9; i++) {
+    r[i] = 0;
+  }
+  for (usz k = 0; k < 66; k++) {
+    r[k / 8] |= (u64)b[65 - k] << (8 * (k & 7));
+  }
 }
 
 void fp521_to_be(u8 b[66], const p521_fe a) {
-  for (usz k = 0; k < 66; k++) b[65 - k] = (u8)(a[k / 8] >> (8 * (k & 7)));
+  for (usz k = 0; k < 66; k++) {
+    b[65 - k] = (u8)(a[k / 8] >> (8 * (k & 7)));
+  }
 }

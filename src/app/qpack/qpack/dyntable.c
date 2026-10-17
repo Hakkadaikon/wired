@@ -40,7 +40,9 @@ static int over_capacity(const qpack_dyn* t, usz need) {
  * never overwrites a live byte, and count stays within
  * QPACK_DYN_MAX_ENTRIES. */
 static void make_room(qpack_dyn* t, usz need) {
-  while (t->count > 0 && over_capacity(t, need)) evict_oldest(t);
+  while (t->count > 0 && over_capacity(t, need)) {
+    evict_oldest(t);
+  }
 }
 
 /* Write src at the ring's tail, mirrored so it reads back contiguously. */
@@ -66,7 +68,9 @@ static void store_entry(qpack_dyn* t, const qpack_field* f) {
 
 int qpack_dyn_insert(qpack_dyn* t, const qpack_field* f) {
   usz need = entry_size(f->name.n, f->value.n);
-  if (need > t->capacity) return 0;
+  if (need > t->capacity) {
+    return 0;
+  }
   make_room(t, need);
   store_entry(t, f);
   return 1;

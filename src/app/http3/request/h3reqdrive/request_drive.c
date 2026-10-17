@@ -12,7 +12,9 @@ int wired_h3reqdrive_send_method(
   wired_obuf       fsb = obuf_of(fs, sizeof(fs));
   h3req_headers_in hin = {in->path, in->authority};
   h3conn_req_in    rin;
-  if (!h3req_enc_method(in->method, &hin, &fsb)) return 0;
+  if (!h3req_enc_method(in->method, &hin, &fsb)) {
+    return 0;
+  }
   rin = (h3conn_req_in){wired_span_of(fs, fsb.len), in->body};
   return h3conn_send_request(stream_id, &rin, out);
 }
@@ -29,7 +31,9 @@ int wired_h3reqdrive_send_get(
 /* Length of a NUL-terminated static-table string. */
 usz h3reqdrive_cstr_len(const char* s) {
   usz i = 0;
-  while (s[i]) i++;
+  while (s[i]) {
+    i++;
+  }
   return i;
 }
 
@@ -73,9 +77,12 @@ static int borrow_static(const qpack_field* f, rline* L) {
  * decode. 0 if the value does not fit scr. */
 static int indexed_keep(
     const qpack_field* f, u8 lead, wired_mspan scr, rline* L) {
-  if ((lead & LINE_INDEXED_STATIC) == LINE_INDEXED_STATIC)
+  if ((lead & LINE_INDEXED_STATIC) == LINE_INDEXED_STATIC) {
     return borrow_static(f, L);
-  if (f->value.n > scr.n) return 0;
+  }
+  if (f->value.n > scr.n) {
+    return 0;
+  }
   bytes_memcpy(scr.p, f->value.p, f->value.n);
   h3reqdrive_literal_line(L, f->name, scr, f->value.n);
   return 1;

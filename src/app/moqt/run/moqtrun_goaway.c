@@ -12,15 +12,18 @@ static u32 moqtrun_setup_opt_bad(
     const moqctl_setup*       m);
 
 void moqtrun_subtracks_pub_reset(wired_moqt_hub* hub, wired_moqtrun_req* q) {
-  if (q->opened)
+  if (q->opened) {
     hub->io.stream_reset(q->wt, q->stream_id, MOQTRUN_RESET_INTERNAL_ERROR);
+  }
   q->in_use = 0;
 }
 
 void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_subtracks_pub_of_tag(&hub->reqs[i], tag))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_subtracks_pub_of_tag(&hub->reqs[i], tag)) {
       moqtrun_subtracks_pub_reset(hub, &hub->reqs[i]);
+    }
+  }
 }
 
 void moqtrun_dispatch_publish(
@@ -59,8 +62,9 @@ static int moqtrun_goaway_bad(
     wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
   usz off = 0;
   if (moqtrun_goaway_decoder(p->ver)(body, &off, g) != MOQCTL_OK ||
-      g->new_session_uri.n)
+      g->new_session_uri.n) {
     return 1;
+  }
   return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
 }
 
@@ -75,8 +79,9 @@ static int moqtrun_goaway_rid_bad(
 /* Session close code a control-stream GOAWAY calls for; 0 for none. */
 static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
   moqctl_goaway g = {0};
-  if (moqtrun_goaway_bad(p, body, &g))
+  if (moqtrun_goaway_bad(p, body, &g)) {
     return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  }
   return moqtrun_goaway_rid_bad(p, &g) ? WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID
                                        : 0;
 }
@@ -88,9 +93,13 @@ static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
 void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
-  if (p->req) return;
+  if (p->req) {
+    return;
+  }
   u32 code = moqtrun_goaway_close(p, body);
-  if (code) moqtrun_close_with(hub, p, code);
+  if (code) {
+    moqtrun_close_with(hub, p, code);
+  }
 }
 
 /* draft-19 3.3: one control stream per peer -- a 2nd one (or a 2nd
@@ -126,7 +135,11 @@ u32 moqtrun_setup_take_code(
     moqctl_setup*             m) {
   usz off = 0;
   int r   = moqctl_setup_take(body, &off, m);
-  if (r == MOQCTL_PARAMS_KVFMT) return (u32)MOQCTL_CLOSE_KVFMT_ERROR;
-  if (r != MOQCTL_OK) return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  if (r == MOQCTL_PARAMS_KVFMT) {
+    return (u32)MOQCTL_CLOSE_KVFMT_ERROR;
+  }
+  if (r != MOQCTL_OK) {
+    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  }
   return moqtrun_setup_opt_bad(hub, p, m);
 }

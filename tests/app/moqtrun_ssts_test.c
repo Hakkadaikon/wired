@@ -36,7 +36,9 @@ static int mtss_enc_setup(wired_mspan buf, usz* off, const void* m) {
 static void mtss_client_setup(wired_wt_session* s, const u64* algs, int n) {
   moqctl_setup m = {0};
   u8           buf[64];
-  for (int i = 0; i < n; i++) m.ssts_algs[i] = algs[i];
+  for (int i = 0; i < n; i++) {
+    m.ssts_algs[i] = algs[i];
+  }
   m.ssts_alg_n = (u8)(n < 0 ? 0 : n);
   m.has_ssts   = (u8)(n >= 0);
   usz len      = moqtrun_envelope_put(
@@ -69,14 +71,19 @@ static u64 mtss_ok_alias(u64 sid) {
     usz                      off = 0, boff = 0;
     u64                      type;
     wired_span               body;
-    if ((c->kind != 12 && c->kind != 3) || c->stream_id != sid) continue;
+    if ((c->kind != 12 && c->kind != 3) || c->stream_id != sid) {
+      continue;
+    }
     if (moqctl_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
-        type != MOQCTL_T_SUBSCRIBE_OK)
+        type != MOQCTL_T_SUBSCRIBE_OK) {
       return ~(u64)0;
-    if (moqctl_subscribe_ok_take(mtst_ver(c->s), body, &boff, &ok) != MOQCTL_OK)
+    }
+    if (moqctl_subscribe_ok_take(mtst_ver(c->s), body, &boff, &ok) !=
+        MOQCTL_OK) {
       return ~(u64)0;
+    }
     return ok.track_alias;
   }
   return ~(u64)0;
@@ -132,7 +139,9 @@ static usz mtss_wire(u64 a, u64 g, usz n, int hdr, u8* buf) {
   h.type             = 0x30;
   h.track_alias      = a;
   h.group_id         = g;
-  if (hdr) moqdata_subhdr_put(out, &off, &h);
+  if (hdr) {
+    moqdata_subhdr_put(out, &off, &h);
+  }
   for (usz i = 0; i < n; i++) {
     u8 b = (u8)i;
     moqdata_obj_put(out, &off, 0, wired_span_of(&b, 1));
@@ -166,15 +175,21 @@ static int mtss_is_open(const moqtrun_test_call* c, u64 a, u64 g) {
   usz        off = 0;
   u64        type, al, gr;
   wired_span p = wired_span_of(c->payload, c->payload_len);
-  if (c->s != SESS_B || (c->kind != 4 && c->kind != 5)) return 0;
-  if (!moqvi_take(p, &off, &type) || !moqvi_take(p, &off, &al)) return 0;
+  if (c->s != SESS_B || (c->kind != 4 && c->kind != 5)) {
+    return 0;
+  }
+  if (!moqvi_take(p, &off, &type) || !moqvi_take(p, &off, &al)) {
+    return 0;
+  }
   return moqvi_take(p, &off, &gr) && al == a && gr == g;
 }
 
 /* Streams opened to B for (alias a, Group g). */
 static usz mtss_opens(u64 a, u64 g) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++) n += (usz)mtss_is_open(&g_calls[i], a, g);
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += (usz)mtss_is_open(&g_calls[i], a, g);
+  }
   return n;
 }
 
@@ -183,10 +198,13 @@ static usz mtss_opens(u64 a, u64 g) {
 static usz mtss_sends(u64 a, u64 g) {
   usz n = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (!mtss_is_open(&g_calls[i], a, g)) continue;
-    for (usz j = i + 1; j < g_n_calls; j++)
+    if (!mtss_is_open(&g_calls[i], a, g)) {
+      continue;
+    }
+    for (usz j = i + 1; j < g_n_calls; j++) {
       n += g_calls[j].kind == 3 && g_calls[j].s == SESS_B &&
            g_calls[j].stream_id == g_calls[i].stream_id;
+    }
   }
   return n;
 }
@@ -209,9 +227,11 @@ static moqtss_sess* mtss_b(void) {
 
 /* B's set MTSS_SET, or 0. */
 static const moqtss_set* mtss_set7(void) {
-  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++)
-    if (mtss_b()->sets[k].in_use && mtss_b()->sets[k].set_id == MTSS_SET)
+  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) {
+    if (mtss_b()->sets[k].in_use && mtss_b()->sets[k].set_id == MTSS_SET) {
       return &mtss_b()->sets[k];
+    }
+  }
   return 0;
 }
 
@@ -230,15 +250,20 @@ static int mtss_hub_setup(
   wired_moqt_on_session(
       &mtst_hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
   const moqtrun_test_call* c = moqtrun_test_last_kind(5);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   *raw = wired_span_of(c->payload, c->payload_len);
   moqctl_peek_type(*raw, &off, &type, &body);
   return moqctl_setup_take(body, &boff, s) == MOQCTL_OK;
 }
 
 static int mtss_has_bytes(wired_span hay, const u8* n, usz nn) {
-  for (usz i = 0; i + nn <= hay.n; i++)
-    if (!ct_diffn(hay.p + i, n, nn)) return 1;
+  for (usz i = 0; i + nn <= hay.n; i++) {
+    if (!ct_diffn(hay.p + i, n, nn)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -261,7 +286,9 @@ static void test_moqtrun_ssts_setup_option(void) {
 
 static int mtss_enc_raw(wired_mspan buf, usz* off, const void* m) {
   const wired_span* v = (const wired_span*)m;
-  if (buf.n - *off < v->n) return 0;
+  if (buf.n - *off < v->n) {
+    return 0;
+  }
   bytes_memcpy(buf.p + *off, v->p, v->n);
   *off += v->n;
   return 1;
@@ -327,9 +354,11 @@ static void test_moqtrun_ssts_refused_not_negotiated(void) {
 
 /* 1 iff the hub closed B with PROTOCOL_VIOLATION. */
 static int mtss_b_violated(void) {
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 11 && g_calls[i].s == SESS_B)
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 11 && g_calls[i].s == SESS_B) {
       return g_calls[i].stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+    }
+  }
   return 0;
 }
 
@@ -383,10 +412,11 @@ static void test_moqtrun_ssts_forward_after_decision(void) {
   mtss_more(h, 2, 0);
   mtss_more(h, 1, 1);
   CHECK(mtss_opens(mtss_ah, 0) == 0);
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     CHECK(
         !(g_calls[i].s == SESS_B && g_calls[i].kind >= 3 &&
           g_calls[i].kind <= 5));
+  }
 }
 
 /* WholeGroup: the chosen member's keep-open Group arrives from Object 0
@@ -446,8 +476,12 @@ static void test_moqtrun_ssts_one_member_reliable(void) {
  * group 4 hi. */
 static void test_moqtrun_ssts_bp_upshift(void) {
   mtss_room();
-  for (u64 g = 0; g < 5; g++) mtss_group_both(g);
-  for (u64 g = 0; g < 4; g++) CHECK(mtss_got(g, 1));
+  for (u64 g = 0; g < 5; g++) {
+    mtss_group_both(g);
+  }
+  for (u64 g = 0; g < 4; g++) {
+    CHECK(mtss_got(g, 1));
+  }
   CHECK(mtss_got(4, 0));
 }
 
@@ -455,7 +489,9 @@ static void test_moqtrun_ssts_bp_upshift(void) {
  * and 6 never FIN) makes Group 7 drop to lo. */
 static void test_moqtrun_ssts_bp_downshift(void) {
   mtss_room();
-  for (u64 g = 0; g < 5; g++) mtss_group_both(g);
+  for (u64 g = 0; g < 5; g++) {
+    mtss_group_both(g);
+  }
   mtss_push(1, 5, 1, 0);
   mtss_push(1, 6, 1, 0);
   CHECK(mtss_opens(mtss_ah, 5) == 1 && mtss_opens(mtss_ah, 6) == 1);
@@ -564,9 +600,10 @@ static void mtss_dg(u64 pub_alias, u8 g) {
 
 static usz mtss_dg_to_b(u64 a) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 9 && g_calls[i].s == SESS_B &&
          g_calls[i].payload_len > 1 && g_calls[i].payload[1] == a;
+  }
   return n;
 }
 
@@ -613,7 +650,9 @@ static void test_moqtrun_ssts_sets_number_groups_independently(void) {
   u64 h, l;
   mtss_room();
   mtss_second_set(&h, &l);
-  for (u64 g = 90; g < 100; g++) mtss_group_both(g);
+  for (u64 g = 90; g < 100; g++) {
+    mtss_group_both(g);
+  }
   mtss_tier(1);
   mtss_push(3, 3, 1, 1); /* set 8 group 3: hi */
   mtss_push(1, 100, 1, 1);
@@ -647,7 +686,9 @@ static void test_moqtrun_ssts_restart_numbering(void) {
   moqctl_params ph = mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, 2000, 2);
   moqctl_params pl = mtss_ssa(MTSS_SET, MOQSSTS_ALG_BACKPRESSURE, 500, 2);
   mtss_room();
-  for (u64 g = 0; g < 10; g++) mtss_group_both(g);
+  for (u64 g = 0; g < 10; g++) {
+    mtss_group_both(g);
+  }
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
   mtss_ctrl_a = mtst_join(SESS_A);
   mtst_publish(SESS_A, mtss_ctrl_a, &hi, 1);
@@ -684,8 +725,11 @@ static void test_moqtrun_ssts_ctrl_subscribe_refused(void) {
  * its second member arriving right after gets nothing. */
 static void test_moqtrun_ssts_late_group_decided_once(void) {
   mtss_room();
-  for (u64 g = 0; g < 16; g++)
-    if (g != 8) mtss_push(1, g, 1, 1);
+  for (u64 g = 0; g < 16; g++) {
+    if (g != 8) {
+      mtss_push(1, g, 1, 1);
+    }
+  }
   moqtrun_test_reset();
   mtss_tier(1);
   mtss_push(1, 8, 1, 1);
@@ -794,12 +838,16 @@ static void test_moqtrun_ssts_resubscribe_other_set(void) {
  * drops to lo. */
 static void test_moqtrun_ssts_shed_downshifts(void) {
   mtss_room();
-  for (u64 g = 0; g < 5; g++) mtss_group_both(g);
+  for (u64 g = 0; g < 5; g++) {
+    mtss_group_both(g);
+  }
   CHECK(mtss_got(4, 0));
   mtss_push(1, 5, 1, 0);
   u64 h6                    = mtss_push(1, 6, 1, 0);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h6, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) {
+    mtss_more(h6, 1, 0);
+  }
   g_stream_send_reject_sess = 0;
   CHECK(mtst_hub.stat_relay_reset == 1);
   CHECK(mtss_b()->timeouts == 1);
@@ -813,10 +861,14 @@ static void test_moqtrun_ssts_shed_downshifts(void) {
  * is not sent; Group 6 goes on. */
 static void test_moqtrun_ssts_shed_no_reopen(void) {
   mtss_room();
-  for (u64 g = 0; g < 5; g++) mtss_group_both(g);
+  for (u64 g = 0; g < 5; g++) {
+    mtss_group_both(g);
+  }
   u64 h5                    = mtss_push(1, 5, 1, 0);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h5, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) {
+    mtss_more(h5, 1, 0);
+  }
   g_stream_send_reject_sess = 0;
   CHECK(mtst_hub.stat_relay_reset == 1);
   mtss_more(h5, 1, 0);
@@ -830,7 +882,9 @@ static void test_moqtrun_ssts_shed_needs_bp_set(void) {
   u64 h0 = mtss_push(1, 0, 1, 0);
   CHECK(mtss_opens(mtss_ah, 0) == 1);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h0, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) {
+    mtss_more(h0, 1, 0);
+  }
   g_stream_send_reject_sess = 0;
   CHECK(mtst_hub.stat_relay_reset == 1);
   CHECK(mtss_b()->timeouts == 0);
@@ -919,7 +973,9 @@ static void test_moqtrun_ssts_join_skips_pruned_group(void) {
   mtss_client_setup(SESS_B, mtss_algs_both, 2);
   mtss_sub(MTSS_SID_HI, mtss_hi(), &ph);
   mtss_ah = mtss_ok_alias(MTSS_SID_HI);
-  for (u64 g = 0; g <= 10; g++) mtss_push(1, g, 1, 1);
+  for (u64 g = 0; g <= 10; g++) {
+    mtss_push(1, g, 1, 1);
+  }
   u64 l = mtss_push(2, 2, 1, 0);
   mtss_tier(0); /* a decision made now would pick lo */
   mtss_sub(MTSS_SID_LO, mtss_lo(), &pl);
@@ -1022,7 +1078,9 @@ static void test_moqtrun_ssts_window_keeps_newest(void) {
 static void test_moqtrun_ssts_lag_inside_window(void) {
   mtss_room();
   mtss_tier(1);
-  for (u64 g = 0; g < 5; g++) mtss_push(1, g, 1, 1);
+  for (u64 g = 0; g < 5; g++) {
+    mtss_push(1, g, 1, 1);
+  }
   mtss_tier(0);
   mtss_push(2, 2, 1, 1);
   CHECK(mtss_opens(mtss_ah, 2) == 1 && mtss_opens(mtss_al, 2) == 0);
@@ -1035,7 +1093,9 @@ static void test_moqtrun_ssts_lag_inside_window(void) {
 static void test_moqtrun_ssts_lag_outside_window(void) {
   mtss_room();
   mtss_tier(1);
-  for (u64 g = 0; g < 7; g++) mtss_push(1, g, 1, 1);
+  for (u64 g = 0; g < 7; g++) {
+    mtss_push(1, g, 1, 1);
+  }
   mtss_tier(0);
   mtss_push(2, 0, 1, 1);
   CHECK(mtss_opens(mtss_al, 0) == 1);
@@ -1057,7 +1117,9 @@ static void test_moqtrun_ssts_hold_clamps_to_ladder(void) {
   mtss_sub(20, x, &px);
   CHECK(mtss_set7() && mtss_set7()->n == 3);
   mtss_second_set(&h, &l);
-  for (u64 g = 0; g < 10; g++) mtss_push(1, g, 1, 1);
+  for (u64 g = 0; g < 10; g++) {
+    mtss_push(1, g, 1, 1);
+  }
   CHECK(mtss_b()->bp.tier == 2);
   CHECK(mtss_opens(mtss_ah, 9) == 1);
   mtss_push(3, 0, 1, 1);
@@ -1076,7 +1138,9 @@ static void test_moqtrun_ssts_inactive_set_does_not_pace(void) {
     mtss_push(3, g, 1, 1);
     mtss_push(4, g, 1, 1);
   }
-  for (u64 g = 0; g < 4; g++) CHECK(mtss_opens(h, g) == 0);
+  for (u64 g = 0; g < 4; g++) {
+    CHECK(mtss_opens(h, g) == 0);
+  }
   CHECK(mtss_opens(h, 4) == 1 && mtss_opens(l, 4) == 0);
 }
 
@@ -1106,7 +1170,9 @@ static void test_moqtrun_ssts_paused_pacer_still_rises(void) {
   mtss_room();
   mtss_second_set(&h, &l);
   mtss_tick(1000);
-  for (u64 t = 1100; t <= 1500; t += 100) mtss_tick(t);
+  for (u64 t = 1100; t <= 1500; t += 100) {
+    mtss_tick(t);
+  }
   CHECK(mtss_b()->bp.tier == 1);
   mtss_push(3, 0, 1, 1);
   mtss_push(4, 0, 1, 1);
@@ -1132,7 +1198,9 @@ static void test_moqtrun_ssts_tick_consumes_shed(void) {
   mtss_tier(1);
   u64 h5                    = mtss_push(1, 5, 1, 0);
   g_stream_send_reject_sess = SESS_B;
-  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) mtss_more(h5, 1, 0);
+  for (int r = 0; r < WIRED_MOQTRUN_RESET_AFTER_BUSY; r++) {
+    mtss_more(h5, 1, 0);
+  }
   g_stream_send_reject_sess = 0;
   CHECK(mtss_b()->timeouts == 1);
   mtss_tick(1100);

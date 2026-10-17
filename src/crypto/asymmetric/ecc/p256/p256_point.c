@@ -33,7 +33,9 @@ static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point* p) {
 
 int ec_on_curve(const ec_point* p) {
   p256_fe lhs, rhs;
-  if (p->inf) return 1;
+  if (p->inf) {
+    return 1;
+  }
   rhs_lhs(lhs, rhs, p);
   return p256_fp_eq(lhs, rhs);
 }

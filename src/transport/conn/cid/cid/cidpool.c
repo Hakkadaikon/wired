@@ -11,13 +11,19 @@ u64 cidpool_active_count(const cidpool* p) {
 }
 
 int cidpool_issue(cidpool* p, u64* seq) {
-  if (cidpool_active_count(p) >= p->limit) return 0;
+  if (cidpool_active_count(p) >= p->limit) {
+    return 0;
+  }
   *seq = p->next_seq++;
   return 1;
 }
 
 int cidpool_retire_prior_to(cidpool* p, u64 retire_prior_to) {
-  if (retire_prior_to > p->next_seq) return 0; /* retires an unissued seq */
-  if (retire_prior_to > p->retire_lo) p->retire_lo = retire_prior_to;
+  if (retire_prior_to > p->next_seq) {
+    return 0; /* retires an unissued seq */
+  }
+  if (retire_prior_to > p->retire_lo) {
+    p->retire_lo = retire_prior_to;
+  }
   return 1;
 }

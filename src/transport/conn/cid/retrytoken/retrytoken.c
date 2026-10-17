@@ -6,13 +6,17 @@
 #define RETRYTOKEN_MSG 64 /* addr + odcid, both bounded small */
 
 static void copy_bytes(u8* dst, const u8* src, usz len) {
-  for (usz i = 0; i < len; i++) dst[i] = src[i];
+  for (usz i = 0; i < len; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* Concatenate addr and odcid into msg; returns the combined length, or 0 if
  * they do not fit. */
 static usz build_msg(u8* msg, const retrytoken_in* in) {
-  if (in->addr.n + in->odcid.n > RETRYTOKEN_MSG) return 0;
+  if (in->addr.n + in->odcid.n > RETRYTOKEN_MSG) {
+    return 0;
+  }
   copy_bytes(msg, in->addr.p, in->addr.n);
   copy_bytes(msg + in->addr.n, in->odcid.p, in->odcid.n);
   return in->addr.n + in->odcid.n;
@@ -42,7 +46,9 @@ usz retrytoken_wire_make(
     wired_span odcid,
     u8         token[RETRYTOKEN_WIRE_MAX]) {
   retrytoken_in in = {addr, odcid};
-  if (odcid.n > 20) return 0;
+  if (odcid.n > 20) {
+    return 0;
+  }
   token[0] = (u8)odcid.n;
   copy_bytes(token + 1, odcid.p, odcid.n);
   retrytoken_make(key, &in, token + 1 + odcid.n);
@@ -52,8 +58,12 @@ usz retrytoken_wire_make(
 /* 1 if the framing holds: odcid_len within the CID cap and the token long
  * enough to carry it plus the HMAC. */
 static int retrytoken_wire_framed(wired_span token) {
-  if (token.n < 1 + RETRYTOKEN_LEN) return 0;
-  if (token.p[0] > 20) return 0;
+  if (token.n < 1 + RETRYTOKEN_LEN) {
+    return 0;
+  }
+  if (token.p[0] > 20) {
+    return 0;
+  }
   return token.n == (usz)1 + token.p[0] + RETRYTOKEN_LEN;
 }
 
@@ -63,7 +73,9 @@ int retrytoken_wire_verify(
     wired_span  token,
     wired_span* odcid) {
   retrytoken_in in;
-  if (!retrytoken_wire_framed(token)) return 0;
+  if (!retrytoken_wire_framed(token)) {
+    return 0;
+  }
   *odcid = wired_span_of(token.p + 1, token.p[0]);
   in     = (retrytoken_in){addr, *odcid};
   return retrytoken_verify(key, &in, token.p + 1 + token.p[0]);

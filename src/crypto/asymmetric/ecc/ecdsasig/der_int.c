@@ -13,7 +13,9 @@ static int der_int_strip_more(const u8 val[32], usz i) {
 /* SEC1 C.5. Index of the first significant octet (minimal big-endian form). */
 static usz der_int_strip(const u8 val[32]) {
   usz i = 0;
-  while (der_int_strip_more(val, i)) i++;
+  while (der_int_strip_more(val, i)) {
+    i++;
+  }
   return i;
 }
 
@@ -24,8 +26,12 @@ static int der_int_needs_pad(u8 lead) { return (lead & 0x80) != 0; }
  * buf (33 octets max). Returns the content length. */
 static usz der_int_content(const u8 val[32], usz start, u8* buf) {
   usz off = 0;
-  if (der_int_needs_pad(val[start])) buf[off++] = 0;
-  for (usz i = start; i < 32; i++) buf[off++] = val[i];
+  if (der_int_needs_pad(val[start])) {
+    buf[off++] = 0;
+  }
+  for (usz i = start; i < 32; i++) {
+    buf[off++] = val[i];
+  }
   return off;
 }
 
@@ -34,7 +40,9 @@ int ecdsasig_encode_integer(const u8 val[32], u8* out, usz cap, usz* out_len) {
   usz        start = der_int_strip(val);
   usz        n     = der_int_content(val, start, buf);
   wired_obuf o     = obuf_of(out, cap);
-  if (!selfcert_der_tlv(DER_INTEGER, wired_span_of(buf, n), &o)) return 0;
+  if (!selfcert_der_tlv(DER_INTEGER, wired_span_of(buf, n), &o)) {
+    return 0;
+  }
   *out_len = o.len;
   return 1;
 }

@@ -10,7 +10,11 @@ int appdata_recv(const protect_keys* k, const appdata_pkt* p, stream_frame* f) {
    * history, so largest_pn is 0; full-pn recovery across truncated PNs is the
    * srvloop path's job (RFC 9000 A.3). */
   hspkt_onertt_open_desc d = {p->pkt, p->dcid_len, 0};
-  if (!hspkt_onertt_open(k, &d, &payload)) return 0;
-  if (payload.n == 0) return 0;
+  if (!hspkt_onertt_open(k, &d, &payload)) {
+    return 0;
+  }
+  if (payload.n == 0) {
+    return 0;
+  }
   return frame_get_stream(payload.p, payload.n, f) != 0;
 }

@@ -28,27 +28,37 @@ static int srvdriver_load_kind_xdp(
  * point entirely); --ifindex alone still composes with --cores (AF_XDP
  * multi-queue mode, see srvdriver_load_threads). */
 static int srvdriver_conflict(int has_workers, int has_xdp, int has_cores) {
-  if (!has_workers) return 0;
+  if (!has_workers) {
+    return 0;
+  }
   return has_xdp || has_cores;
 }
 
 /* Which driver to run once has_workers is known not to conflict. */
 static wired_srvdriver_kind srvdriver_select_tail(
     int has_workers, int has_xdp) {
-  if (has_xdp) return WIRED_SRVDRIVER_XDP;
-  if (has_workers) return WIRED_SRVDRIVER_WORKERS;
+  if (has_xdp) {
+    return WIRED_SRVDRIVER_XDP;
+  }
+  if (has_workers) {
+    return WIRED_SRVDRIVER_WORKERS;
+  }
   return WIRED_SRVDRIVER_PLAIN;
 }
 
 static wired_srvdriver_kind srvdriver_select(
     int has_workers, int has_xdp, int has_cores) {
-  if (has_cores) return WIRED_SRVDRIVER_THREADS;
+  if (has_cores) {
+    return WIRED_SRVDRIVER_THREADS;
+  }
   return srvdriver_select_tail(has_workers, has_xdp);
 }
 
 /* XDP_FLAGS_SKB_MODE (2) when --skb-mode is set, else native mode (0). */
 static u32 srvdriver_xdp_attach_flags(int argc, char** argv) {
-  if (wired_cliargs_flag(argc, argv, "--skb-mode")) return 2u;
+  if (wired_cliargs_flag(argc, argv, "--skb-mode")) {
+    return 2u;
+  }
   return 0u;
 }
 
@@ -60,9 +70,12 @@ static u32 srvdriver_xdp_attach_flags(int argc, char** argv) {
 static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt) {
   wired_srvxdp_cfg* xdp     = &opt->xdp;
   i64               ifindex = wired_cliargs_int(argc, argv, "--ifindex", -1);
-  if (ifindex < 0) return 0;
-  if (!wired_cliargs_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip))
+  if (ifindex < 0) {
     return 0;
+  }
+  if (!wired_cliargs_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip)) {
+    return 0;
+  }
   xdp->ifindex      = (u32)ifindex;
   xdp->queue_id     = (u32)wired_cliargs_int(argc, argv, "--queue", 0);
   xdp->port         = opt->port;
@@ -84,7 +97,9 @@ static int srvdriver_load_workers(
 static int srvdriver_load_threads_cores(
     int argc, char** argv, wired_srvthreads_opt* threads) {
   const char* cores_str = wired_cliargs_str(argc, argv, "--cores", "");
-  if (!wired_srvthreads_parse_cores(cores_str, threads)) return 0;
+  if (!wired_srvthreads_parse_cores(cores_str, threads)) {
+    return 0;
+  }
   threads->control_core =
       (int)wired_cliargs_int(argc, argv, "--control-core", -1);
   return 1;
@@ -98,7 +113,9 @@ static int srvdriver_load_threads_xdp(
     opt->threads.xdp = 0;
     return 1;
   }
-  if (!srvdriver_load_xdp(argc, argv, opt)) return 0;
+  if (!srvdriver_load_xdp(argc, argv, opt)) {
+    return 0;
+  }
   opt->threads.xdp = &opt->xdp;
   return 1;
 }
@@ -107,7 +124,9 @@ static int srvdriver_load_threads_xdp(
  * fills opt->xdp too and points threads.xdp at it (AF_XDP multi-queue). */
 static int srvdriver_load_threads(
     int argc, char** argv, wired_srvdriver_opt* opt) {
-  if (!srvdriver_load_threads_cores(argc, argv, &opt->threads)) return 0;
+  if (!srvdriver_load_threads_cores(argc, argv, &opt->threads)) {
+    return 0;
+  }
   return srvdriver_load_threads_xdp(argc, argv, opt);
 }
 
@@ -121,7 +140,9 @@ static int srvdriver_kind_has_own_pinning(wired_srvdriver_kind kind) {
 static int srvdriver_load_pin_core(
     int argc, char** argv, wired_srvdriver_kind kind, int* pin_core) {
   *pin_core = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
-  if (*pin_core < 0) return 1;
+  if (*pin_core < 0) {
+    return 1;
+  }
   return !srvdriver_kind_has_own_pinning(kind);
 }
 
@@ -170,7 +191,9 @@ int srvdriver_parse_head(int argc, char** argv, wired_srvdriver_opt* opt) {
   int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
   int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
   int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
-  if (srvdriver_conflict(has_workers, has_xdp, has_cores)) return 0;
+  if (srvdriver_conflict(has_workers, has_xdp, has_cores)) {
+    return 0;
+  }
   *opt = (wired_srvdriver_opt){0};
   /* run's -1 sentinels (CPU 0 / core 0 are valid targets, so 0 cannot mean
    * "off"): set here once so every driver kind starts from the documented

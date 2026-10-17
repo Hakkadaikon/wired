@@ -14,9 +14,11 @@ static void test_h3_settings_defaults_bounded(void) {
   usz         consumed = 0;
   CHECK(h3_stream_type_parse(wired_span_of(buf, n), &stype, &consumed) == 1);
   CHECK(h3_settings_get(buf + consumed, n - consumed, &out) != 0);
-  for (usz i = 0; i < out.n; i++)
-    if (out.pairs[i].id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE)
+  for (usz i = 0; i < out.n; i++) {
+    if (out.pairs[i].id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE) {
       CHECK(out.pairs[i].value == WIRED_H3_MAX_FIELD_SECTION);
+    }
+  }
   CHECK(QPACK_DYN_MAX_ENTRIES == DEFAULT_QPACK_MAX_TABLE_CAP / 32);
 }
 
@@ -65,15 +67,21 @@ void test_h3settings_control_settings_advertises_connect_protocol(void) {
   CHECK(sr > 0);
 
   int found = 0;
-  for (usz i = 0; i < s.n; i++)
-    if (s.pairs[i].id == H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) found = 1;
+  for (usz i = 0; i < s.n; i++) {
+    if (s.pairs[i].id == H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) {
+      found = 1;
+    }
+  }
   CHECK(found == 1);
 }
 
 /* 1 if the parsed SETTINGS carry the (id, value) pair. */
 static int hcs_has_pair(const h3_settings* s, u64 id, u64 value) {
-  for (usz i = 0; i < s->n; i++)
-    if (s->pairs[i].id == id && s->pairs[i].value == value) return 1;
+  for (usz i = 0; i < s->n; i++) {
+    if (s->pairs[i].id == id && s->pairs[i].value == value) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -84,8 +92,11 @@ static int hcs_has_pair(const h3_settings* s, u64 id, u64 value) {
  * ERR_METHOD_NOT_SUPPORTED); without it neither appears. */
 /* The value the parsed SETTINGS carry for id, or 0 if absent. */
 static u64 hcs_value(const h3_settings* s, u64 id) {
-  for (usz i = 0; i < s->n; i++)
-    if (s->pairs[i].id == id) return s->pairs[i].value;
+  for (usz i = 0; i < s->n; i++) {
+    if (s->pairs[i].id == id) {
+      return s->pairs[i].value;
+    }
+  }
   return 0;
 }
 
@@ -121,8 +132,9 @@ static void hcs_wt_limits_never_exhaust(void) {
 static void hcs_control_stream_fits_buffer(void) {
   u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
   usz n = 0;
-  for (usz i = 0; i < 256; i++)
+  for (usz i = 0; i < 256; i++) {
     CHECK(h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
+  }
 }
 
 void test_h3settings_control_settings_advertises_wt(void) {
@@ -184,8 +196,9 @@ void test_h3settings_zerortt_compatible_raised_fields_ok(void) {
       {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0},
       {0x4000, 100, 4, 1, 1, 2, 0, 0, 0, 0},
   };
-  for (usz i = 0; i < sizeof raised / sizeof raised[0]; i++)
+  for (usz i = 0; i < sizeof raised / sizeof raised[0]; i++) {
     CHECK(h3settings_zerortt_compatible(&prior, &raised[i]) == 1);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15/RFC 9297: withdrawing enable_h3_datagram
@@ -207,8 +220,9 @@ void test_h3settings_zerortt_compatible_lowered_core_limit_rejected(void) {
       {0x4000, 50, 4, 1, 1, 1, 0, 0, 0, 0},
       {0x4000, 100, 2, 1, 1, 1, 0, 0, 0, 0},
   };
-  for (usz i = 0; i < sizeof lowered / sizeof lowered[0]; i++)
+  for (usz i = 0; i < sizeof lowered / sizeof lowered[0]; i++) {
     CHECK(h3settings_zerortt_compatible(&prior, &lowered[i]) == 0);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 3.2 (WTH3-019): "if the server accepts

@@ -9,10 +9,16 @@
  * public key. */
 static void rebuild_signed(const u8* thash, u8 out[130]) {
   static const char ctx[] = "TLS 1.3, server CertificateVerify";
-  for (usz i = 0; i < 64; i++) out[i] = 0x20;
-  for (usz i = 0; i < 33; i++) out[64 + i] = (u8)ctx[i];
+  for (usz i = 0; i < 64; i++) {
+    out[i] = 0x20;
+  }
+  for (usz i = 0; i < 33; i++) {
+    out[64 + i] = (u8)ctx[i];
+  }
   out[97] = 0x00;
-  for (usz i = 0; i < 32; i++) out[98 + i] = thash[i];
+  for (usz i = 0; i < 32; i++) {
+    out[98 + i] = thash[i];
+  }
 }
 
 void test_sflight_certverify_build(void) {
@@ -25,8 +31,12 @@ void test_sflight_certverify_build(void) {
   wired_span sig;
   wired_obuf ob = obuf_of(out, sizeof(out));
 
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)(i + 7);
-  for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(i + 7);
+  }
+  for (usz i = 0; i < 32; i++) {
+    thash[i] = (u8)(0x40 + i);
+  }
   CHECK(ed25519_keypair(seed, pub));
 
   CHECK(sflight_certificate_verify(seed, thash, &ob));

@@ -49,10 +49,13 @@ static void test_dispatch_ack(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  for (u64 pn = 1; pn <= 5; pn++)
+  for (u64 pn = 1; pn <= 5; pn++) {
     sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+  }
   ack_frame f;
-  for (usz i = 0; i < sizeof f; i++) ((u8*)&f)[i] = 0;
+  for (usz i = 0; i < sizeof f; i++) {
+    ((u8*)&f)[i] = 0;
+  }
   f.n_ranges     = 1;
   f.ranges[0].hi = 5;
   f.ranges[0].lo = 3;

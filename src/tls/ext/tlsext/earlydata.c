@@ -6,7 +6,9 @@
 
 /* RFC 8446 4.2.10: ClientHello form is type(2) + ext_data len(2) = 0. */
 int tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
-  if (cap < 4) return 0;
+  if (cap < 4) {
+    return 0;
+  }
   be_put_be16(out, TLSEXT_T_EARLY_DATA);
   be_put_be16(out + 2, 0);
   *out_len = 4;
@@ -16,7 +18,9 @@ int tlsext_early_data_ch(u8* out, usz cap, usz* out_len) {
 /* RFC 8446 4.2.10: NewSessionTicket form carries a 4-byte max_early_data_size.
  */
 int tlsext_early_data_nst(u32 max_size, wired_obuf* out) {
-  if (out->cap < 8) return 0;
+  if (out->cap < 8) {
+    return 0;
+  }
   be_put_be16(out->p, TLSEXT_T_EARLY_DATA);
   be_put_be16(out->p + 2, 4);
   be_put_be32(out->p + 4, max_size);
@@ -31,7 +35,9 @@ static int nst_framed(const u8* out, usz n) {
 }
 
 int tlsext_early_data_nst_parse(const u8* out, usz n, u32* max_size) {
-  if (!nst_framed(out, n)) return 0;
+  if (!nst_framed(out, n)) {
+    return 0;
+  }
   *max_size = (u32)out[4] << 24 | (u32)out[5] << 16 | (u32)out[6] << 8 | out[7];
   return 1;
 }

@@ -32,18 +32,24 @@ const mont p256_mont_n = {
     0xccd1c8aaee00bc4fULL};
 
 void p256_fp_set(p256_fe r, const p256_fe a) {
-  for (usz i = 0; i < 4; i++) r[i] = a[i];
+  for (usz i = 0; i < 4; i++) {
+    r[i] = a[i];
+  }
 }
 
 int p256_fp_is_zero(const p256_fe a) {
   u64 d = 0;
-  for (usz i = 0; i < 4; i++) d |= a[i];
+  for (usz i = 0; i < 4; i++) {
+    d |= a[i];
+  }
   return d == 0;
 }
 
 int p256_fp_eq(const p256_fe a, const p256_fe b) {
   u64 d = 0;
-  for (usz i = 0; i < 4; i++) d |= a[i] ^ b[i];
+  for (usz i = 0; i < 4; i++) {
+    d |= a[i] ^ b[i];
+  }
   return d == 0;
 }
 
@@ -65,16 +71,17 @@ void p256_fp_add(p256_fe r, fpab ab, const p256_fe m) {
   u64     carry = fe_add_raw(t, ab.a, ab.b);
   /* Single subtract of m suffices since a,b < m (sum < 2m). */
   int over = carry || p256_fe_ge(t, m);
-  if (over)
+  if (over) {
     p256_fe_sub_raw(r, t, m);
-  else
+  } else {
     p256_fp_set(r, t);
+  }
 }
 
 void p256_fp_sub(p256_fe r, fpab ab, const p256_fe m) {
-  if (p256_fe_ge(ab.a, ab.b))
+  if (p256_fe_ge(ab.a, ab.b)) {
     p256_fe_sub_raw(r, ab.a, ab.b);
-  else {
+  } else {
     p256_fe t;
     p256_fe_sub_raw(t, ab.b, ab.a);
     p256_fe_sub_raw(r, m, t);

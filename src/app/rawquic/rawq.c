@@ -23,7 +23,9 @@ static const u64 rawq_signal_of[2] = {
 static int rawq_leads_with(wired_span first, u64 want) {
   u64 v;
   usz off = 0;
-  if (!varint_take(first, &off, &v)) return 0;
+  if (!varint_take(first, &off, &v)) {
+    return 0;
+  }
   return v == want;
 }
 
@@ -39,7 +41,9 @@ u64 rawq_reset_code_out(int raw, u32 app) {
 
 /* Raw QUIC: the wire code is the MoQT code itself when it fits in u32. */
 static int rawq_code_in_raw(u64 wire, u32* app) {
-  if (wire > 0xffffffffull) return 0;
+  if (wire > 0xffffffffull) {
+    return 0;
+  }
   *app = (u32)wire;
   return 1;
 }

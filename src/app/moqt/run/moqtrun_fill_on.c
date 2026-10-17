@@ -41,8 +41,12 @@ static int moqtrun_fill_due(
     moqfetch_fill*             fill,
     moqtrun_frange*            r) {
   moqctl_rangeloc rl;
-  if (!moqtrun_fill_requested(fp, sub, track)) return 0;
-  if (moqfetch_fill_take(fp->bytes, fill) != MOQCTL_OK) return 0;
+  if (!moqtrun_fill_requested(fp, sub, track)) {
+    return 0;
+  }
+  if (moqfetch_fill_take(fp->bytes, fill) != MOQCTL_OK) {
+    return 0;
+  }
   rl = moqtrun_fill_rl(fill, sub);
   return moqtrun_fetch_resolve(track, &rl, r);
 }
@@ -79,7 +83,9 @@ static int moqtrun_fill_bad(const moqctl_params* params) {
  * closed. */
 int moqtrun_fill_malformed(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
-  if (!moqtrun_fill_bad(params)) return 0;
+  if (!moqtrun_fill_bad(params)) {
+    return 0;
+  }
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   return 1;
 }
@@ -94,7 +100,9 @@ static void moqtrun_fill_from_param(
     const moqctl_param*  fp) {
   moqfetch_fill  fill;
   moqtrun_frange r;
-  if (!moqtrun_fill_due(track, sub, fp, &fill, &r)) return;
+  if (!moqtrun_fill_due(track, sub, fp, &fill, &r)) {
+    return;
+  }
   moqtrun_fill_open(hub, p, sub, rid, &fill, &r);
 }
 
@@ -133,7 +141,10 @@ static int moqtrun_sub_has_rid(const wired_moqtrun_sub* s, usz idx, u64 rid) {
 
 wired_moqtrun_sub* moqtrun_track_sub_by_rid(
     wired_moqtrun_track* t, usz idx, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_has_rid(&t->subs[i], idx, rid)) return &t->subs[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtrun_sub_has_rid(&t->subs[i], idx, rid)) {
+      return &t->subs[i];
+    }
+  }
   return 0;
 }

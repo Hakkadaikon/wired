@@ -14,7 +14,9 @@ static int ctx_fields_fit(wired_span label, wired_span app_context) {
 /* Append one 8-bit-length-prefixed field (label or app_context) at *off,
  * advancing *off. Returns 1 ok, 0 if out lacks capacity. */
 static int put_len8_field(u8* out, usz cap, usz* off, wired_span field) {
-  if (*off + 1 + field.n > cap) return 0;
+  if (*off + 1 + field.n > cap) {
+    return 0;
+  }
   out[*off] = (u8)field.n;
   *off += 1;
   bytes_memcpy(out + *off, field.p, field.n);
@@ -27,8 +29,12 @@ static int put_len8_field(u8* out, usz cap, usz* off, wired_span field) {
 static usz put_ctx_fields(
     u8* out, usz cap, wired_span label, wired_span app_context) {
   usz off = 8;
-  if (!put_len8_field(out, cap, &off, label)) return 0;
-  if (!put_len8_field(out, cap, &off, app_context)) return 0;
+  if (!put_len8_field(out, cap, &off, label)) {
+    return 0;
+  }
+  if (!put_len8_field(out, cap, &off, app_context)) {
+    return 0;
+  }
   return off;
 }
 
@@ -38,7 +44,9 @@ usz wt_exporter_ctx_encode(
     wired_span app_context,
     u8*        out,
     usz        cap) {
-  if (!ctx_fields_fit(label, app_context) || cap < 8) return 0;
+  if (!ctx_fields_fit(label, app_context) || cap < 8) {
+    return 0;
+  }
   be_put_be64(out, session_id);
   return put_ctx_fields(out, cap, label, app_context);
 }
@@ -54,7 +62,9 @@ int wt_exporter(
   usz ctx_len =
       wt_exporter_ctx_encode(session_id, label, app_context, ctx, sizeof ctx);
   static const u8 exporter_label[] = "EXPORTER-WebTransport";
-  if (!ctx_len) return 0;
+  if (!ctx_len) {
+    return 0;
+  }
   return tls_exporter(
       exporter_secret, wired_span_of(exporter_label, sizeof exporter_label - 1),
       wired_span_of(ctx, ctx_len), okm);

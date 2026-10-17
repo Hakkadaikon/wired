@@ -19,13 +19,17 @@ static usz within(usz p, usz need, usz n) {
 }
 
 static usz skip_v8(const u8* b, usz n, usz p) {
-  if (within(p, 1, n) == 0) return 0;
+  if (within(p, 1, n) == 0) {
+    return 0;
+  }
   return within(p + 1 + b[p], 0, n);
 }
 
 /* Skip a 2-byte-length-prefixed vector at p (cipher_suites). */
 static usz skip_v16(const u8* b, usz n, usz p) {
-  if (within(p, 2, n) == 0) return 0;
+  if (within(p, 2, n) == 0) {
+    return 0;
+  }
   return within(p + 2 + ((usz)b[p] << 8 | b[p + 1]), 0, n);
 }
 
@@ -46,9 +50,13 @@ static int ch_one(const ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   unsigned t    = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
   usz      dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
   usz      pub_len;
-  if (*q + 4 + dlen > blk->end) return -1;
+  if (*q + 4 + dlen > blk->end) {
+    return -1;
+  }
   *q += 4 + dlen;
-  if (t != EXT_KEY_SHARE) return 0;
+  if (t != EXT_KEY_SHARE) {
+    return 0;
+  }
   return tls_ext_key_share_scan(
       blk->b + *q - dlen, dlen, want_group, pub, &pub_len, 65);
 }
@@ -58,7 +66,9 @@ static int ch_one(const ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
 static int ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
   ch_block blk = {b, end};
   int      r   = 0;
-  while (r == 0 && q + 4 <= end) r = ch_one(&blk, &q, want_group, pub);
+  while (r == 0 && q + 4 <= end) {
+    r = ch_one(&blk, &q, want_group, pub);
+  }
   return r == 1;
 }
 
@@ -74,9 +84,13 @@ static int is_client_hello(const u8* buf, usz n, usz* body_len) {
 static int parse_client_hello_keyshare(
     const u8* buf, usz n, u16 want_group, u8 pub[65]) {
   usz body, exts, blen;
-  if (!is_client_hello(buf, n, &body)) return 0;
+  if (!is_client_hello(buf, n, &body)) {
+    return 0;
+  }
   exts = ch_prefix(buf + 4, body);
-  if (exts == 0) return 0;
+  if (exts == 0) {
+    return 0;
+  }
   blen = (usz)buf[4 + exts] << 8 | buf[5 + exts];
   return ch_walk(buf + 4, exts + 2, exts + 2 + blen, want_group, pub);
 }
@@ -91,10 +105,13 @@ static int parse_client_hello_keyshare(
 static int server_hello_ok(const tlsdriver* d, const u8* msg, usz n, u8* pub) {
   serverhello_out sh;
   u16             got_group;
-  if (hrr_is_hello_retry(msg, n)) return 0;
-  if (!tls_parse_server_hello_group(
-          wired_span_of(msg, n), pub, &got_group, &sh))
+  if (hrr_is_hello_retry(msg, n)) {
     return 0;
+  }
+  if (!tls_parse_server_hello_group(
+          wired_span_of(msg, n), pub, &got_group, &sh)) {
+    return 0;
+  }
   return got_group == d->group;
 }
 
@@ -102,8 +119,12 @@ static int server_hello_ok(const tlsdriver* d, const u8* msg, usz n, u8* pub) {
  * server. Returns 1 on success; a rejected ServerHello records the
  * illegal_parameter (47) abort in d->last_error (RFC 8446 4.1.3/4.2.1). */
 int tlsdriver_peer_keyshare(tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
-  if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
-  if (server_hello_ok(d, msg, n, pub)) return 1;
+  if (d->is_server) {
+    return parse_client_hello_keyshare(msg, n, d->group, pub);
+  }
+  if (server_hello_ok(d, msg, n, pub)) {
+    return 1;
+  }
   d->last_error = err_crypto(47);
   return 0;
 }

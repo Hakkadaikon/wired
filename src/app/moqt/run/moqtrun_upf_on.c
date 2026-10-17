@@ -63,9 +63,11 @@ static void moqtrun_upf_reply(
     u64                  type,
     wired_span           body) {
   for (usz i = 0; i < sizeof MOQTRUN_UPF_ROUTES / sizeof MOQTRUN_UPF_ROUTES[0];
-       i++)
-    if (MOQTRUN_UPF_ROUTES[i].type == type)
+       i++) {
+    if (MOQTRUN_UPF_ROUTES[i].type == type) {
       MOQTRUN_UPF_ROUTES[i].fn(hub, pp, f, body);
+    }
+  }
 }
 
 /* GOAWAY on the request stream (9.2): the leg ends (no re-issue); a
@@ -79,8 +81,9 @@ static void moqtrun_upf_goaway(
     moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
-  if (moqtrun_upf_live(f))
+  if (moqtrun_upf_live(f)) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+  }
 }
 
 /* 1 when the message was a GOAWAY. */
@@ -95,7 +98,9 @@ static int moqtrun_upf_route(
     moqtrun_upf_goaway(hub, pp, f, goaways);
     return 1;
   }
-  if (moqtrun_upf_live(f)) moqtrun_upf_reply(hub, pp, f, type, body);
+  if (moqtrun_upf_live(f)) {
+    moqtrun_upf_reply(hub, pp, f, type, body);
+  }
   return 0;
 }
 
@@ -113,8 +118,9 @@ static void moqtrun_upf_drain(
   wired_span body    = {0, 0};
   int        goaways = 0;
   while (!pp->closing && moqtrun_upf_popped(moqtrun_asm_pop(
-                             &moqtrun_upf_leg_of(hub, f)->in, &type, &body)))
+                             &moqtrun_upf_leg_of(hub, f)->in, &type, &body))) {
     goaways += moqtrun_upf_route(hub, pp, f, type, body, goaways);
+  }
 }
 
 static int moqtrun_upf_on_req(
@@ -124,8 +130,11 @@ static int moqtrun_upf_on_req(
 
 wired_moqtrun_fetch* moqtrun_upf_by_req(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_on_req(&hub->fetches[i], s, sid)) return &hub->fetches[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_on_req(&hub->fetches[i], s, sid)) {
+      return &hub->fetches[i];
+    }
+  }
   return 0;
 }
 
@@ -134,7 +143,9 @@ wired_moqtrun_fetch* moqtrun_upf_by_req(
 int moqtrun_upf_rx(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, u64 sid, wired_span data) {
   wired_moqtrun_fetch* f = moqtrun_upf_by_req(hub, pp->wt, sid);
-  if (!f) return 0;
+  if (!f) {
+    return 0;
+  }
   moqtrun_asm_push(&moqtrun_upf_leg_of(hub, f)->in, &data);
   moqtrun_upf_drain(hub, pp, f);
   moqtrun_reqs_tick(hub);

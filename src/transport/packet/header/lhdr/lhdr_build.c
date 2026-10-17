@@ -12,7 +12,9 @@ u8 lhdr_byte0_pnlen(u8 byte0, u8 pn_len) {
 
 /* Copy a CID into h (len already validated <= WIRED_MAX_CID_LEN). */
 static void set_cid(u8* dst, const u8* src, usz len) {
-  for (usz i = 0; i < len; i++) dst[i] = src[i];
+  for (usz i = 0; i < len; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* True if both CIDs are within the QUIC max length. */
@@ -25,14 +27,18 @@ static int cids_ok(const lhdr_desc* d) {
 static usz lhdr_put_prefix(const lhdr_desc* d, wired_obuf* out) {
   wired_header h = {0};
   usz          w;
-  if (!cids_ok(d)) return 0;
+  if (!cids_ok(d)) {
+    return 0;
+  }
   h.version  = d->version;
   h.dcid_len = (u8)d->dcid.n;
   h.scid_len = (u8)d->scid.n;
   set_cid(h.dcid, d->dcid.p, d->dcid.n);
   set_cid(h.scid, d->scid.p, d->scid.n);
   w = wired_header_build_long(out->p, out->cap, &h);
-  if (w != 5 + 1 + d->dcid.n + 1 + d->scid.n) return 0;
+  if (w != 5 + 1 + d->dcid.n + 1 + d->scid.n) {
+    return 0;
+  }
   out->p[0] = lhdr_byte0_pnlen(d->byte0, d->pn_len);
   return w;
 }
@@ -41,9 +47,13 @@ static usz lhdr_put_prefix(const lhdr_desc* d, wired_obuf* out) {
  * overflow. */
 static int put_token(const lhdr_desc* d, wired_obuf* out) {
   usz w;
-  if (!d->is_initial) return 1;
+  if (!d->is_initial) {
+    return 1;
+  }
   w = inittoken_put(out->p + out->len, out->cap - out->len, d->token);
-  if (w == 0) return 0;
+  if (w == 0) {
+    return 0;
+  }
   out->len += w;
   return 1;
 }
@@ -54,9 +64,12 @@ static int put_len_pn(
     const lhdr_desc* d, wired_obuf* out, usz* length_off_out) {
   u64 remaining   = (u64)d->pn_len + d->payload_len + 16;
   *length_off_out = out->len;
-  if (!varint_put(wired_mspan_of(out->p, out->cap), &out->len, remaining))
+  if (!varint_put(wired_mspan_of(out->p, out->cap), &out->len, remaining)) {
     return 0;
-  if (out->len + d->pn_len > out->cap) return 0;
+  }
+  if (out->len + d->pn_len > out->cap) {
+    return 0;
+  }
   out->len += pnum_encode(out->p + out->len, d->pn, d->pn_len);
   return 1;
 }
@@ -68,7 +81,11 @@ static int put_body(const lhdr_desc* d, wired_obuf* out, usz* length_off_out) {
 
 usz lhdr_build(const lhdr_desc* d, wired_obuf* out, usz* length_off_out) {
   out->len = lhdr_put_prefix(d, out);
-  if (out->len == 0) return 0;
-  if (!put_body(d, out, length_off_out)) return 0;
+  if (out->len == 0) {
+    return 0;
+  }
+  if (!put_body(d, out, length_off_out)) {
+    return 0;
+  }
   return out->len;
 }

@@ -51,8 +51,9 @@ static void derive_keys(
 static wired_span initial_salt(u32 version) {
   const u8* salt;
   usz       len;
-  if (!version_initial_salt(version, &salt, &len))
+  if (!version_initial_salt(version, &salt, &len)) {
     version_initial_salt(VERSION_1, &salt, &len);
+  }
   return wired_span_of(salt, len);
 }
 

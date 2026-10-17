@@ -32,7 +32,9 @@ static void plus_five(const u32 h[5], u32 g[5]) {
 /* Select g if h >= 2^130-5 (i.e. g did not borrow), else keep h. */
 static void select_mod(u32 h[5], const u32 g[5]) {
   u32 mask = (g[4] >> 31) - 1; /* all-ones if no borrow */
-  for (usz i = 0; i < 5; i++) h[i] = (h[i] & ~mask) | (g[i] & mask);
+  for (usz i = 0; i < 5; i++) {
+    h[i] = (h[i] & ~mask) | (g[i] & mask);
+  }
 }
 
 /* Pack the 5 26-bit limbs into four 32-bit words. */

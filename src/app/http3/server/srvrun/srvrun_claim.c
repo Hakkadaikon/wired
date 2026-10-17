@@ -9,14 +9,17 @@ static int srvrun_xdp_core_routing(const srvrun_cfg* cfg);
  * could not go out (no 1-RTT key yet, budget), the plain replay, so this
  * path is never worse than the replay alone. */
 int srvrun_boot_probe_or_replay(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (c->peer_at_onertt && srvrun_send_boot_probe(ctx, c)) return 1;
+  if (c->peer_at_onertt && srvrun_send_boot_probe(ctx, c)) {
+    return 1;
+  }
   return srvrun_resend_boot_flight(ctx, c);
 }
 
 static void srvrun_resend_flight_on_hs_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int booting, wired_mspan dg) {
-  if (srvrun_hs_probe_pending(c, booting, dg))
+  if (srvrun_hs_probe_pending(c, booting, dg)) {
     srvrun_boot_probe_or_replay(ctx, c);
+  }
 }
 
 /* Confirmation landed this very step (booting = the pre-step state):
@@ -26,8 +29,9 @@ static void srvrun_resend_flight_on_hs_probe(
 void srvrun_flush_held_on_confirm(
     const srvrun_step_ctx* ctx, int slot, int booting) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (booting && !srvrun_awaiting_confirm(c))
+  if (booting && !srvrun_awaiting_confirm(c)) {
     srvrun_boot_flush_zerortt(ctx, c, slot);
+  }
 }
 
 void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
@@ -48,7 +52,9 @@ void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   /* confirm may have landed inside serve_boot: seed the RTT estimators
    * from the boot flight's round trip either way (no-op off the edge). */
   srvrun_seed_boot_rtt(c, booting, ctx->now_ms);
-  if (consumed) return;
+  if (consumed) {
+    return;
+  }
   if (c->up) {
     srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
@@ -63,7 +69,9 @@ void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
  * a legitimate zero-length CID on its own, so reject dcid_len < 0 first). */
 wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
   int dcid_len = dcidresolve_len(dg, short_hdr_len);
-  if (dcid_len < 0) return wired_span_of(0, 0);
+  if (dcid_len < 0) {
+    return wired_span_of(0, 0);
+  }
   return dcidresolve_dcid(dg, dcid_len);
 }
 
@@ -71,7 +79,9 @@ wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
  * datagram is malformed, or its DCID belongs to no connection this process
  * has open). */
 int srvrun_find_slot(const srvrun_step_ctx* ctx, wired_span dcid) {
-  if (dcid.p == 0) return -1;
+  if (dcid.p == 0) {
+    return -1;
+  }
   return conntable_find(
       ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
@@ -90,7 +100,9 @@ int srvrun_claim_refused(wired_span dcid, int is_initial) {
 
 int srvrun_claim_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
-  if (srvrun_claim_refused(dcid, is_initial)) return -1;
+  if (srvrun_claim_refused(dcid, is_initial)) {
+    return -1;
+  }
   return conntable_insert(
       ctx->st->table, WIRED_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
@@ -111,9 +123,12 @@ static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
  * policy (see NEW_CONNECTION_ID note in srvrun.h's core_id doc). Returns 1 on
  * success matching cid_generate's own contract. */
 int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
-  if (!cid_generate(cid, cid_len)) return 0;
-  if (srvrun_xdp_core_routing(cfg))
+  if (!cid_generate(cid, cid_len)) {
+    return 0;
+  }
+  if (srvrun_xdp_core_routing(cfg)) {
     ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
+  }
   return 1;
 }
 
@@ -127,7 +142,11 @@ int srvrun_cc_algo(const srvrun_cfg* cfg) {
  * spare_cid_len 0 and no frame is ever sent -- the connection works, the
  * client simply cannot migrate. */
 void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!srvrun_issue_cid(cfg, c->l.spare_cid, cfg->id->scid_len)) return;
-  if (!cid_generate(c->l.spare_cid_token, NCID_TOKEN)) return;
+  if (!srvrun_issue_cid(cfg, c->l.spare_cid, cfg->id->scid_len)) {
+    return;
+  }
+  if (!cid_generate(c->l.spare_cid_token, NCID_TOKEN)) {
+    return;
+  }
   c->l.spare_cid_len = cfg->id->scid_len;
 }

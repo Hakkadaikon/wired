@@ -13,14 +13,20 @@ static int wire_bits(u8 byte0) { return (byte0 >> 4) & 0x3; }
  * not know the type-bit layout for `version` (RFC 9000 17.2 for v1, RFC
  * 9369 3.2 for v2; other versions are not interpreted here). */
 static logical_type logical_for(int wire, u32 version) {
-  if (version == VERSION_1) return v1_logical_type(wire);
-  if (version == VERSION_2) return v2_logical_type(wire);
+  if (version == VERSION_1) {
+    return v1_logical_type(wire);
+  }
+  if (version == VERSION_2) {
+    return v2_logical_type(wire);
+  }
   return LT_INVALID;
 }
 
 int packet_long_type(u8 byte0, u32 version) {
   logical_type lt;
-  if (!packet_is_long(byte0)) return PT_NONE;
+  if (!packet_is_long(byte0)) {
+    return PT_NONE;
+  }
   lt = logical_for(wire_bits(byte0), version);
   return lt == LT_INVALID ? PT_NONE : (int)lt;
 }

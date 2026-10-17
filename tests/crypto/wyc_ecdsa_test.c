@@ -33,10 +33,18 @@ typedef struct {
  * (ASN.1 sign byte), zero-extend short values. 0 if it does not fit. */
 static int wyc_ec_fit(u8* dst, usz size, const u8* v, usz n) {
   usz skip = 0;
-  while (skip < n && n - skip > size && !v[skip]) skip++;
-  if (n - skip > size) return 0;
-  for (usz i = 0; i < size; i++) dst[i] = 0;
-  for (usz i = skip; i < n; i++) dst[size - (n - skip) + (i - skip)] = v[i];
+  while (skip < n && n - skip > size && !v[skip]) {
+    skip++;
+  }
+  if (n - skip > size) {
+    return 0;
+  }
+  for (usz i = 0; i < size; i++) {
+    dst[i] = 0;
+  }
+  for (usz i = skip; i < n; i++) {
+    dst[size - (n - skip) + (i - skip)] = v[i];
+  }
   return 1;
 }
 
@@ -57,12 +65,16 @@ static int wyc_ec_run(const wyc_ec_cfg* k, const wyc_case* c) {
   u8        msg[WYC_EC_MSG], x[66], y[66], r[66], s[66], h[64];
   ssz       m  = bssl_bytes(wyc_get(k->attrs, c, "msg"), msg, sizeof msg);
   ssz       sn = bssl_bytes(wyc_get(k->attrs, c, "sig"), sig, sizeof sig);
-  if (m < 0 || sn < 0 || !wyc_ec_key(k, c, x, y)) return WYC_PK_BROKEN;
+  if (m < 0 || sn < 0 || !wyc_ec_key(k, c, x, y)) {
+    return WYC_PK_BROKEN;
+  }
   k->hash(msg, (usz)m, h);
-  if (!ecdsasig_decode(wired_span_of(sig, (usz)sn), r, s, k->size))
+  if (!ecdsasig_decode(wired_span_of(sig, (usz)sn), r, s, k->size)) {
     return WYC_PK_REJECT;
-  if (k->verify_raw)
+  }
+  if (k->verify_raw) {
     return k->verify_raw(x, y, r, s, h, 64) ? WYC_PK_ACCEPT : WYC_PK_REJECT;
+  }
   return k->verify(x, y, r, s, h) ? WYC_PK_ACCEPT : WYC_PK_REJECT;
 }
 

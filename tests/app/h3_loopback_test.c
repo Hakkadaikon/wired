@@ -185,7 +185,9 @@ static int lb_open_onertt(
   protect_keys           pk = {k, &hp};
   hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
   wired_span             v;
-  if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
+  if (!hspkt_onertt_open(&pk, &d, &v)) {
+    return 0;
+  }
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -195,7 +197,9 @@ static int lb_open_onertt(
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
 static int lb_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -239,14 +243,18 @@ static void test_loopback_initial_datagram(void) {
   i64      sfd, n;
 
   sfd = wired_udp_socket();
-  if (sfd < 0) return; /* sandbox: no sockets */
+  if (sfd < 0) {
+    return; /* sandbox: no sockets */
+  }
   wired_udp_addr(&srv, 4434, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(sfd, &srv) < 0) {
     wired_udp_close(sfd);
     return;
   }
 
-  for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(pub, priv);
   tlsdriver_init(&c.tls, priv, pub, 0);
   {
@@ -286,7 +294,9 @@ static void test_loopback_wire_confirm_and_get(void) {
   const u8*     pl;
   usz           pll;
 
-  if (!lb_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: benign skip */
+  if (!lb_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: benign skip */
+  }
 
   lb_make_client_hello(&f);
   lb_drive_to_flight(&f);
@@ -380,7 +390,9 @@ static void test_srvboot_accept(void) {
   wired_obuf       iob   = {ini, sizeof ini, 0};
   wired_obuf       hob   = {hs, sizeof hs, 0};
 
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
@@ -431,7 +443,9 @@ static void sb_accept_cids(
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500];
   usz              total = 0;
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
@@ -452,7 +466,9 @@ static void sb_check_hdr_dcid(wired_span dg, wired_span want) {
   wired_header h;
   CHECK(wired_header_parse(dg.p, dg.n, &h) != 0);
   CHECK(h.dcid_len == want.n);
-  for (usz i = 0; i < want.n; i++) CHECK(h.dcid[i] == want.p[i]);
+  for (usz i = 0; i < want.n; i++) {
+    CHECK(h.dcid[i] == want.p[i]);
+  }
 }
 
 /* RFC 9000 7.2 / 17.2: the server addresses every reply to the client's SCID.
@@ -532,7 +548,9 @@ static void test_srvboot_acks_actual_initial_pn(void) {
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   usz                total = 0;
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
@@ -550,8 +568,11 @@ static void test_srvboot_acks_actual_initial_pn(void) {
 
 /* v is one of p's listed supported versions. */
 static int vneg_lists(const vneg_packet* p, u32 v) {
-  for (usz i = 0; i < p->count; i++)
-    if (be_get_be32(p->versions + 4 * i) == v) return 1;
+  for (usz i = 0; i < p->count; i++) {
+    if (be_get_be32(p->versions + 4 * i) == v) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -570,9 +591,13 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   dg[3] = 0x0a;
   dg[4] = 0x0a; /* GREASE-shaped version, never supported (RFC 8999 6) */
   dg[5] = 8;    /* DCID */
-  for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
+  for (usz i = 0; i < 8; i++) {
+    dg[6 + i] = (u8)(0x11 * (i + 1));
+  }
   dg[14] = 5; /* SCID */
-  for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
+  for (usz i = 0; i < 5; i++) {
+    dg[15 + i] = (u8)(0xa0 + i);
+  }
   n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn);
   CHECK(n > 0);
   CHECK(vneg_parse(vn, n, &p) == n);
@@ -596,9 +621,13 @@ static void test_srvboot_vneg_not_owed_for_v2(void) {
   dg[3]       = 0x43;
   dg[4]       = 0xcf; /* QUIC v2 version number */
   dg[5]       = 8;
-  for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
+  for (usz i = 0; i < 8; i++) {
+    dg[6 + i] = (u8)(0x11 * (i + 1));
+  }
   dg[14] = 5;
-  for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
+  for (usz i = 0; i < 5; i++) {
+    dg[15 + i] = (u8)(0xa0 + i);
+  }
   u8 vn[64];
   CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
@@ -631,7 +660,9 @@ static void test_srvboot_vneg_guards(void) {
 static usz sb_build_raw_ch(client* c, u8* ch, usz cap) {
   usz n;
   u8  cpriv[32], cpub[32];
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c->tls, cpriv, cpub, 0);
   n = tlsdriver_raw_client_hello(&c->tls, ch, cap);
@@ -656,13 +687,14 @@ static usz sb_seal_ch_chunk(
  * offer intact -- exactly the shape RFC 8446 4.1.4 answers with a
  * HelloRetryRequest. Returns 1 on a rewrite, 0 if no entry matched. */
 static usz sb_break_keyshare_group(u8* ch, usz n) {
-  for (usz i = 0; i + 4 <= n; i++)
+  for (usz i = 0; i + 4 <= n; i++) {
     if (ch[i] == 0 && ch[i + 1] == 0x1d && ch[i + 2] == 0 &&
         ch[i + 3] == 0x20) {
       ch[i]     = 0x11;
       ch[i + 1] = 0xec;
       return 1;
     }
+  }
   return 0;
 }
 
@@ -770,7 +802,9 @@ static void test_bootacc_zerortt_coalesced_with_initial_buffered(void) {
   nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 3);
   nz = sb_build_zerortt_dg(z, sizeof z, 0xcc);
   CHECK(nd + nz <= sizeof dg);
-  for (usz i = 0; i < nz; i++) dg[nd + i] = z[i];
+  for (usz i = 0; i < nz; i++) {
+    dg[nd + i] = z[i];
+  }
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd + nz)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);      /* the CH still lands */
@@ -900,7 +934,9 @@ static void test_bootacc_duplicate_idempotent(void) {
   usz n2 =
       sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
   u8 copy[1400];
-  for (usz i = 0; i < n1; i++) copy[i] = dg1[i];
+  for (usz i = 0; i < n1; i++) {
+    copy[i] = dg1[i];
+  }
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(copy, n1)) == 1);
@@ -1058,7 +1094,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
    * HelloRetryRequest (RFC 8446 4.1.4), not a refusal -- unservable means
    * the client never offered any group this server implements. */
   hit = 0;
-  for (usz i = 0; i + 4 <= n; i++)
+  for (usz i = 0; i + 4 <= n; i++) {
     if (ch[i] == 0 && ch[i + 1] == 0x02 && ch[i + 2] == 0 &&
         ch[i + 3] == 0x1d) {
       ch[i + 2] = 0x11;
@@ -1066,6 +1102,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
       hit       = 1;
       break;
     }
+  }
   CHECK(hit == 1);
   nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 3);
   wired_srvboot_acc_reset(&a);
@@ -1304,14 +1341,17 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
     k = (protect_keys){&sk, &hp};
     CHECK(rx_packet(&k, &d, &frames) == 1);
     /* find and decode the type-0x03 (ECN) ACK among the frames. */
-    for (off = 0; off + 8 < frames.n && !seen; off++)
+    for (off = 0; off + 8 < frames.n && !seen; off++) {
       if (frames.p[off] == 0x03 && frames.p[off + 1] == 0x03) {
         ack_frame f;
-        if (ack_decode(frames.p + off, frames.n - off, &f) == 0) continue;
+        if (ack_decode(frames.p + off, frames.n - off, &f) == 0) {
+          continue;
+        }
         CHECK(f.has_ecn == 1);
         CHECK(f.ect0 == 2 && f.ect1 == 0 && f.ce == 1);
         seen = 1;
       }
+    }
     CHECK(seen == 1);
   }
 }
@@ -1461,7 +1501,9 @@ static void sb_split_boot(struct sb_split_fix* f) {
   f->iob = obuf_of(f->ini, sizeof f->ini);
   f->hob = obuf_of(f->hs, sizeof f->hs);
   f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0, 0};
-  for (usz i = 0; i < 32; i++) f->cpriv[i] = (u8)(7 + i);
+  for (usz i = 0; i < 32; i++) {
+    f->cpriv[i] = (u8)(7 + i);
+  }
   wired_x25519_base(cpub, f->cpriv);
   tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
   f->ch_len = tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
@@ -1535,12 +1577,16 @@ static void sb_split_check_finished(
   while (p + 4 <= fln && fl[p] != HS_FINISHED) {
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);
     CHECK(p + mlen <= fln);
-    if (p + mlen > fln) return; /* garbled reassembly: already FAILed above */
+    if (p + mlen > fln) {
+      return; /* garbled reassembly: already FAILed above */
+    }
     transcript_add(tr, fl + p, mlen);
     p += mlen;
   }
   CHECK(p + 4 <= fln);
-  if (p + 4 > fln) return; /* no Finished found: already FAILed above */
+  if (p + 4 > fln) {
+    return; /* no Finished found: already FAILed above */
+  }
   transcript_hash(tr, th);
   CHECK(tls_finished_check(s_traffic, th, fl + p + 4) == 1);
 }

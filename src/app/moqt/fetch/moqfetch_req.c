@@ -54,7 +54,9 @@ static void moqfetch_req_from_fetch(
 int moqfetch_req19_take(int ver, wired_span body, moqfetch_req* out) {
   moqfetch_fetch f;
   int            r = moqfetch_fetch_take(ver, body, &f);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *out = (moqfetch_req){0};
   moqfetch_req_from_fetch(&f, out);
   return MOQCTL_OK;
@@ -90,7 +92,9 @@ static int moqfetch_req19_unrepresentable(const moqfetch_req* m) {
 
 int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
   moqfetch_fetch f = {0};
-  if (moqfetch_req19_unrepresentable(m)) return 0;
+  if (moqfetch_req19_unrepresentable(m)) {
+    return 0;
+  }
   moqfetch_req_to_fetch(m, &f);
   return moqfetch_fetch_encode(buf, off, &f);
 }
@@ -99,7 +103,9 @@ int moqfetch_req19_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
  * (draft-22 parameters, so LOCATION_FILTER decodes per SS9.20.9, not d19's
  * Length-prefixed SS5.1.2 shape). */
 static int moqfetch_req22_take_head(wired_span b, usz* at, moqfetch_req* m) {
-  if (!moqvi_take(b, at, &m->request_id)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(b, at, &m->request_id)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return moqctl_ftn_take(b, at, &m->track); /* SS2.4.1 FTN <= 4096 */
 }
 
@@ -124,11 +130,14 @@ static void moqfetch_req22_range_from_params(moqfetch_req* m) {
 int moqfetch_req22_take(wired_span body, moqfetch_req* out) {
   usz at = 0;
   int r  = moqfetch_req22_take_head(body, &at, out);
-  if (r == MOQCTL_OK)
+  if (r == MOQCTL_OK) {
     r = moqctl_params_take(
         MOQVER_D22, body, &at, MOQCTL_PCTX_FETCH, &out->params);
+  }
   r = moqctl_body_end(r, at, body);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   out->is_joining = 0;
   out->fetch_type = MOQFETCH_STANDALONE;
   moqfetch_req22_range_from_params(out);

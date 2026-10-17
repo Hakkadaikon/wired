@@ -42,7 +42,9 @@ static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
 static int srvrun_close_on_req_frame_error(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "request stream ended inside a frame";
-  if (!c->l.req_frame_error) return 0;
+  if (!c->l.req_frame_error) {
+    return 0;
+  }
   c->l.req_frame_error = 0;
   srvrun_send_app_close(
       cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
@@ -52,7 +54,9 @@ static int srvrun_close_on_req_frame_error(
 /* The latched WT signal violation, consumed. */
 static int srvrun_close_on_wt_signal_latched(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!c->l.wt_signal_mid_stream_violation) return 0;
+  if (!c->l.wt_signal_mid_stream_violation) {
+    return 0;
+  }
   c->l.wt_signal_mid_stream_violation = 0;
   srvrun_close_on_wt_signal_violation(cfg, c);
   return 1;
@@ -64,7 +68,9 @@ static int srvrun_close_on_wt_signal_latched(
 static int srvrun_close_on_ctrl_overflow(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "control stream backlog too large";
-  if (!c->l.ctrl_overflow) return 0;
+  if (!c->l.ctrl_overflow) {
+    return 0;
+  }
   c->l.ctrl_overflow = 0;
   srvrun_send_app_close(
       cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
@@ -74,8 +80,12 @@ static int srvrun_close_on_ctrl_overflow(
 /* The two H3_FRAME_ERROR latches (the WT signal, a truncated request), then
  * the control-stream overflow. */
 int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_wt_signal_latched(cfg, c)) return 1;
-  if (srvrun_close_on_req_frame_error(cfg, c)) return 1;
+  if (srvrun_close_on_wt_signal_latched(cfg, c)) {
+    return 1;
+  }
+  if (srvrun_close_on_req_frame_error(cfg, c)) {
+    return 1;
+  }
   return srvrun_close_on_ctrl_overflow(cfg, c);
 }
 
@@ -84,7 +94,9 @@ int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
 static int srvrun_close_on_refused_overflow(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "stream limit exceeded";
-  if (!c->l.wt_refused_overflow) return 0;
+  if (!c->l.wt_refused_overflow) {
+    return 0;
+  }
   c->l.wt_refused_overflow = 0;
   srvrun_send_transport_close(
       cfg, c, ERR_STREAM_LIMIT_ERROR, wired_span_of(reason, sizeof reason - 1));
@@ -102,7 +114,9 @@ int srvrun_flow_violated(const srvrun_conn* c) {
 static int srvrun_close_on_flow_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "stream data past flow control credit";
-  if (!srvrun_flow_violated(c)) return 0;
+  if (!srvrun_flow_violated(c)) {
+    return 0;
+  }
   c->l.flow_control_violation = 0;
   srvrun_send_transport_close(
       cfg, c, ERR_FLOW_CONTROL_ERROR, wired_span_of(reason, sizeof reason - 1));
@@ -111,7 +125,9 @@ static int srvrun_close_on_flow_violation(
 
 /* The AEAD integrity limit (RFC 9001 6.6). */
 static int srvrun_close_on_aead_reached(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!srvrun_aead_limit_reached(c)) return 0;
+  if (!srvrun_aead_limit_reached(c)) {
+    return 0;
+  }
   srvrun_close_on_aead_limit(cfg, c);
   return 1;
 }
@@ -121,7 +137,9 @@ static int srvrun_close_on_aead_reached(const srvrun_cfg* cfg, srvrun_conn* c) {
 int srvrun_close_on_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "connection id error";
   u8 code = c->l.ncid_malformed ? ERR_FRAME_ENCODING_ERROR : c->cid_err;
-  if (!code) return 0;
+  if (!code) {
+    return 0;
+  }
   c->l.ncid_malformed = 0;
   c->cid_err          = 0;
   srvrun_send_transport_close(
@@ -131,14 +149,20 @@ int srvrun_close_on_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* The AEAD integrity limit, then a connection ID error. */
 static int srvrun_close_on_aead_or_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_aead_reached(cfg, c)) return 1;
+  if (srvrun_close_on_aead_reached(cfg, c)) {
+    return 1;
+  }
   return srvrun_close_on_cid(cfg, c);
 }
 
 /* The stream-limit overflow, a flow-control violation, then the AEAD
  * integrity limit and connection ID errors. */
 int srvrun_close_on_limits(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_refused_overflow(cfg, c)) return 1;
-  if (srvrun_close_on_flow_violation(cfg, c)) return 1;
+  if (srvrun_close_on_refused_overflow(cfg, c)) {
+    return 1;
+  }
+  if (srvrun_close_on_flow_violation(cfg, c)) {
+    return 1;
+  }
   return srvrun_close_on_aead_or_cid(cfg, c);
 }

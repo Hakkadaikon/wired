@@ -41,7 +41,9 @@ static void compute_r(ec_point* r, fpab u, const ec_point* q) {
 /* valid iff R is finite and (R.x mod n) == r. */
 static int check_r(const ec_point* rpt, const p256_fe r) {
   p256_fe rx;
-  if (rpt->inf) return 0;
+  if (rpt->inf) {
+    return 0;
+  }
   p256_fp_reduce_n(rx, rpt->x);
   return p256_fp_eq(rx, r);
 }
@@ -53,7 +55,9 @@ static int inputs_ok(
     const p256_fe s,
     const u8      px[32],
     const u8      py[32]) {
-  if (!scalar_in_range(r) || !scalar_in_range(s)) return 0;
+  if (!scalar_in_range(r) || !scalar_in_range(s)) {
+    return 0;
+  }
   return load_pubkey(q, px, py);
 }
 
@@ -67,7 +71,9 @@ int ecdsa_p256_verify(
   p256_fe  r, s, e, eh, w, u1, u2;
   p256_fp_from_be(r, sig_r);
   p256_fp_from_be(s, sig_s);
-  if (!inputs_ok(&q, r, s, pub_x, pub_y)) return 0;
+  if (!inputs_ok(&q, r, s, pub_x, pub_y)) {
+    return 0;
+  }
   /* e = hash mod n (SHA-256 digest is 256 bits = field size). */
   p256_fp_from_be(eh, msg_hash);
   p256_fp_reduce_n(e, eh);

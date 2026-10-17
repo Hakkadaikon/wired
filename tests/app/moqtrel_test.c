@@ -19,7 +19,9 @@ static u8          g_moqtrel_src[WIRED_MOQTREL_CAP];
  * at the ring's current tail; returns moqtrel_append's result. */
 static int moqtrel_test_fill(usz n) {
   u64 base = g_moqtrel_rb.tail;
-  for (usz i = 0; i < n; i++) g_moqtrel_src[i] = (u8)((base + i) & 0xff);
+  for (usz i = 0; i < n; i++) {
+    g_moqtrel_src[i] = (u8)((base + i) & 0xff);
+  }
   return moqtrel_append(&g_moqtrel_rb, wired_span_of(g_moqtrel_src, n));
 }
 
@@ -187,14 +189,23 @@ static void test_moqtrel_wraps_ring_end_many_times(void) {
   g_moqtrel_rb.subs[0].active = 1;
   int ok                      = 1;
   while (g_moqtrel_rb.tail < 2 * WIRED_MOQTREL_CAP) {
-    if (moqtrel_test_fill(1000) != 1) ok = 0;
+    if (moqtrel_test_fill(1000) != 1) {
+      ok = 0;
+    }
     for (;;) {
       wired_span r   = moqtrel_next_round(&g_moqtrel_rb, 0);
       u64        off = g_moqtrel_rb.subs[0].sent;
-      if (r.n == 0) break;
-      if (r.p != g_moqtrel_rb.buf + off % WIRED_MOQTREL_CAP) ok = 0;
-      for (usz i = 0; i < r.n; i++)
-        if (r.p[i] != (u8)((off + i) & 0xff)) ok = 0;
+      if (r.n == 0) {
+        break;
+      }
+      if (r.p != g_moqtrel_rb.buf + off % WIRED_MOQTREL_CAP) {
+        ok = 0;
+      }
+      for (usz i = 0; i < r.n; i++) {
+        if (r.p[i] != (u8)((off + i) & 0xff)) {
+          ok = 0;
+        }
+      }
       moqtrel_note_sent(&g_moqtrel_rb, 0, r.n, 0);
     }
     moqtrel_reclaim(&g_moqtrel_rb);

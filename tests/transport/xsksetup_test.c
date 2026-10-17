@@ -11,7 +11,9 @@ static void test_xsksetup_open_close(void) {
   xsk     x;
   xsk_cfg cfg = {1, 0, 2 /* XDP_COPY */};
   i64     r   = xsksetup_open(&x, &cfg);
-  if (r < 0) return; /* sandbox: skip */
+  if (r < 0) {
+    return; /* sandbox: skip */
+  }
   CHECK(x.umem != 0);
   CHECK(x.rx.producer != 0 && x.rx.consumer != 0);
   CHECK(x.tx.producer != 0 && x.tx.consumer != 0);

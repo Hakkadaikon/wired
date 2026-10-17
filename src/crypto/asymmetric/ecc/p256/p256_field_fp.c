@@ -14,7 +14,9 @@ static void mont_from(p256_fe r, const p256_fe a, const mont* mont) {
 
 /* acc <- acc^16 (4 in-place Montgomery squarings, one window's worth). */
 static void mont_sqr4(p256_fe acc, const mont* mont) {
-  for (usz i = 0; i < 4; i++) mont_mul(acc, (fpab){acc, acc}, mont);
+  for (usz i = 0; i < 4; i++) {
+    mont_mul(acc, (fpab){acc, acc}, mont);
+  }
 }
 
 /* tbl[i] = a^i in Montgomery form (tbl[0] = R, the Montgomery one), the
@@ -22,8 +24,9 @@ static void mont_sqr4(p256_fe acc, const mont* mont) {
 static void mont_inv_table(p256_fe tbl[16], const p256_fe a, const mont* mont) {
   p256_fp_set(tbl[0], mont->one);
   mont_mul(tbl[1], (fpab){a, mont->rr}, mont); /* to Montgomery */
-  for (usz i = 2; i < 16; i++)
+  for (usz i = 2; i < 16; i++) {
     mont_mul(tbl[i], (fpab){tbl[i - 1], tbl[1]}, mont);
+  }
 }
 
 /* a^(m-2) mod m via Montgomery mul (Fermat inverse), 4-bit windows over the
@@ -46,7 +49,9 @@ void mont_inv(p256_fe r, const p256_fe a, const mont* mont) {
 
 /* r <- r^(2^k): k in-place Solinas squarings. */
 static void fp_sqr_k(p256_fe r, usz k) {
-  for (usz i = 0; i < k; i++) p256_fp_sqr_p(r, r);
+  for (usz i = 0; i < k; i++) {
+    p256_fp_sqr_p(r, r);
+  }
 }
 
 /* t == a^(2^k - 1) -> t = a^(2^(2k) - 1): the all-ones doubling step of the

@@ -15,7 +15,9 @@ static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "qpack error";
   u16             code     = c->l.qpack_stream_violation;
-  if (!code) return 0;
+  if (!code) {
+    return 0;
+  }
   c->l.qpack_stream_violation = 0;
   srvrun_send_app_close(cfg, c, code, wired_span_of(reason, sizeof reason - 1));
   return 1;
@@ -23,8 +25,12 @@ static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_frame_error(cfg, c)) return 1;
-  if (srvrun_close_on_qpack(cfg, c)) return 1;
+  if (srvrun_close_on_frame_error(cfg, c)) {
+    return 1;
+  }
+  if (srvrun_close_on_qpack(cfg, c)) {
+    return 1;
+  }
   return srvrun_close_on_limits(cfg, c);
 }
 
@@ -33,7 +39,9 @@ static int srvrun_close_on_step_violation_rest(
  * current one began. Runs before the step's gathering so this step's own
  * resets land in the window they belong to. */
 void srvrun_roll_reset_window(srvrun_conn* c, u64 now_ms) {
-  if (now_ms - c->reset_window_start_ms < SRVRUN_RESET_WINDOW_MS) return;
+  if (now_ms - c->reset_window_start_ms < SRVRUN_RESET_WINDOW_MS) {
+    return;
+  }
   c->reset_window_start_ms = now_ms;
   c->l.peer_reset_count    = 0;
   c->wt_sess_window_count  = 0; /* same window, SS5.2 session churn */
@@ -57,7 +65,9 @@ static int srvrun_reset_flooded(const srvrun_cfg* cfg, const srvrun_conn* c) {
 
 static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "stream reset rate exceeded";
-  if (!srvrun_reset_flooded(cfg, c)) return 0;
+  if (!srvrun_reset_flooded(cfg, c)) {
+    return 0;
+  }
   srvrun_send_app_close(
       cfg, c, H3_EXCESSIVE_LOAD, wired_span_of(reason, sizeof reason - 1));
   return 1;
@@ -68,7 +78,9 @@ int srvrun_close_on_step_violation(const srvrun_cfg* cfg, srvrun_conn* c) {
     srvrun_close_on_datagram_violation(cfg, c);
     return 1;
   }
-  if (srvrun_close_on_reset_flood(cfg, c)) return 1;
+  if (srvrun_close_on_reset_flood(cfg, c)) {
+    return 1;
+  }
   return srvrun_close_on_step_violation_rest(cfg, c);
 }
 
@@ -76,15 +88,21 @@ int srvrun_close_on_step_violation(const srvrun_cfg* cfg, srvrun_conn* c) {
  * draining after a peer CONNECTION_CLOSE (RFC 9000 10.2.2). */
 void srvrun_send_step_reply(
     const srvrun_cfg* cfg, srvrun_conn* c, int produced, wired_span out) {
-  if (c->l.peer_closed) return;
-  if (produced) srvrun_send(cfg, c, out, "1-RTT reply sealed and sent\n");
+  if (c->l.peer_closed) {
+    return;
+  }
+  if (produced) {
+    srvrun_send(cfg, c, out, "1-RTT reply sealed and sent\n");
+  }
 }
 
 /* RFC 9001 6.3: a rotation just confirmed (ku.generation advanced past what
  * this step last observed) -- record when, so the retained old key's
  * 3x-PTO retention floor (srvrun_ku_discard_stale) has a start line. */
 void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
-  if (c->s.ku.generation == c->ku_seen_gen) return;
+  if (c->s.ku.generation == c->ku_seen_gen) {
+    return;
+  }
   c->ku_seen_gen      = c->s.ku.generation;
   c->ku_rotated_at_ms = now_ms;
 }
@@ -96,9 +114,10 @@ void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
  * ACKed. Not a WebTransport application code, so a browser surfaces it as
  * a reset with no application error (draft-ietf-webtrans-http3-15 4.4). */
 void srvrun_refuse_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < c->l.wt_refused_n; i++)
+  for (usz i = 0; i < c->l.wt_refused_n; i++) {
     srvrun_send_wt_busy_reset(
         cfg, c, c->l.wt_refused[i], srvrun_refuse_code(c, H3_REQUEST_REJECTED));
+  }
   c->wt_bidi_credit_owed += c->l.wt_refused_n;
   c->l.wt_refused_n = 0;
 }
@@ -129,6 +148,7 @@ int srvrun_raw_start_due(const srvrun_conn* c) {
 
 void srvrun_raw_notify(const srvrun_cfg* cfg, srvrun_conn* c) {
   wired_srvrun_env* e = cfg->env;
-  if (e->raw_on_session)
+  if (e->raw_on_session) {
     e->raw_on_session(e->raw_session_ctx, &c->wt, c->s.sdrv.alpn_tok);
+  }
 }

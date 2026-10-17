@@ -8,25 +8,31 @@
 
 /* Write type and length varints. Returns 1 ok, 0 on overflow. */
 static int put_new_token_head(wired_obuf* o, u64 length) {
-  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_NEW_TOKEN))
+  if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, FRAME_NEW_TOKEN)) {
     return 0;
+  }
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, length);
 }
 
 usz new_token_encode(u8* buf, usz cap, const new_token_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
-  if (!put_new_token_head(&o, f->length)) return 0;
+  if (!put_new_token_head(&o, f->length)) {
+    return 0;
+  }
   if (!bytes_put(
           wired_mspan_of(o.p, o.cap), &o.len,
-          wired_span_of(f->token, (usz)f->length)))
+          wired_span_of(f->token, (usz)f->length))) {
     return 0;
+  }
   return o.len;
 }
 
 /* Point f->token at f->length bytes at *off (in.n total). Returns 1 ok, 0 if
  * the token runs past in.n. */
 static int take_token_view(wired_span in, usz* off, new_token_frame* f) {
-  if (*off + (usz)f->length > in.n) return 0;
+  if (*off + (usz)f->length > in.n) {
+    return 0;
+  }
   f->token = in.p + *off;
   *off += (usz)f->length;
   return 1;
@@ -34,8 +40,12 @@ static int take_token_view(wired_span in, usz* off, new_token_frame* f) {
 
 usz new_token_decode(const u8* buf, usz n, new_token_frame* f) {
   usz off = 1; /* type byte */
-  if (!varint_take(wired_span_of(buf, n), &off, &f->length)) return 0;
-  if (!take_token_view(wired_span_of(buf, n), &off, f)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, &f->length)) {
+    return 0;
+  }
+  if (!take_token_view(wired_span_of(buf, n), &off, f)) {
+    return 0;
+  }
   return off;
 }
 
@@ -43,14 +53,20 @@ usz new_token_decode(const u8* buf, usz n, new_token_frame* f) {
 
 usz retire_cid_encode(u8* buf, usz cap, u64 seq) {
   usz off = 0;
-  if (!varint_put(wired_mspan_of(buf, cap), &off, FRAME_RETIRE_CID)) return 0;
-  if (!varint_put(wired_mspan_of(buf, cap), &off, seq)) return 0;
+  if (!varint_put(wired_mspan_of(buf, cap), &off, FRAME_RETIRE_CID)) {
+    return 0;
+  }
+  if (!varint_put(wired_mspan_of(buf, cap), &off, seq)) {
+    return 0;
+  }
   return off;
 }
 
 usz retire_cid_decode(const u8* buf, usz n, u64* seq) {
   usz off = 1; /* type byte */
-  if (!varint_take(wired_span_of(buf, n), &off, seq)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, seq)) {
+    return 0;
+  }
   return off;
 }
 
@@ -58,11 +74,14 @@ usz retire_cid_decode(const u8* buf, usz n, u64* seq) {
 
 usz path_encode(u8* buf, usz cap, u8 type, const u8 data[PATH_DATA]) {
   usz off = 0;
-  if (cap == 0) return 0;
+  if (cap == 0) {
+    return 0;
+  }
   buf[off++] = type;
   if (!bytes_put(
-          wired_mspan_of(buf, cap), &off, wired_span_of(data, PATH_DATA)))
+          wired_mspan_of(buf, cap), &off, wired_span_of(data, PATH_DATA))) {
     return 0;
+  }
   return off;
 }
 
@@ -73,21 +92,29 @@ static int type_is(const u8* buf, usz n, u8 type) {
 
 usz path_decode(const u8* buf, usz n, u8 type, u8 data[PATH_DATA]) {
   usz off = 1; /* type byte */
-  if (!type_is(buf, n, type)) return 0;
-  if (!bytes_take(wired_span_of(buf, n), &off, wired_mspan_of(data, PATH_DATA)))
+  if (!type_is(buf, n, type)) {
     return 0;
+  }
+  if (!bytes_take(
+          wired_span_of(buf, n), &off, wired_mspan_of(data, PATH_DATA))) {
+    return 0;
+  }
   return off;
 }
 
 /* --- HANDSHAKE_DONE (19.20) --- */
 
 usz handshake_done_encode(u8* buf, usz cap) {
-  if (cap == 0) return 0;
+  if (cap == 0) {
+    return 0;
+  }
   buf[0] = FRAME_HANDSHAKE_DONE;
   return 1;
 }
 
 usz handshake_done_decode(const u8* buf, usz n) {
-  if (n == 0 || buf[0] != FRAME_HANDSHAKE_DONE) return 0;
+  if (n == 0 || buf[0] != FRAME_HANDSHAKE_DONE) {
+    return 0;
+  }
   return 1;
 }

@@ -28,18 +28,24 @@ static int udp_octets_zero(const u8 octets[4]) {
 static void udp_addr_map4(u8 addr[16], const u8 octets[4]) {
   addr[10] = 0xff;
   addr[11] = 0xff;
-  for (usz i = 0; i < 4; i++) addr[12 + i] = octets[i];
+  for (usz i = 0; i < 4; i++) {
+    addr[12 + i] = octets[i];
+  }
 }
 
 void wired_udp_addr(sockaddr* sa, u16 port, const u8 octets[4]) {
-  for (usz i = 0; i < 16; i++) sa->addr[i] = 0;
+  for (usz i = 0; i < 16; i++) {
+    sa->addr[i] = 0;
+  }
   sa->family   = WIRED_AF_INET6;
   sa->port_be  = hton16(port);
   sa->flowinfo = 0;
   sa->scope_id = 0;
   /* all-zero octets ask for the dual-stack any-address :: -- a mapped
    * ::ffff:0.0.0.0 would bind the socket IPv4-only (see udp.h). */
-  if (!udp_octets_zero(octets)) udp_addr_map4(sa->addr, octets);
+  if (!udp_octets_zero(octets)) {
+    udp_addr_map4(sa->addr, octets);
+  }
 }
 
 /* Family of every socket this process opens: AF_INET6 dual-stack, or
@@ -49,7 +55,9 @@ u16 udp_family = WIRED_AF_INET6;
 
 void udp_kaddr_in(sockaddr* sa) {
   u8 a4[4];
-  if (sa->family != WIRED_AF_INET) return;
+  if (sa->family != WIRED_AF_INET) {
+    return;
+  }
   bytes_memcpy(a4, (const u8*)sa + 4, 4);
   wired_udp_addr(sa, hton16(sa->port_be), a4);
 }
@@ -68,7 +76,9 @@ static void udp_kaddr_pack4(sockaddr* k) {
 u32 udp_kaddr_out(const sockaddr* sa, u16 family, sockaddr* out) {
   *out = *sa;
   udp_kaddr_in(out); /* a raw kernel sockaddr_in (getsockname) as well */
-  if (family == WIRED_AF_INET6) return sizeof(*out);
+  if (family == WIRED_AF_INET6) {
+    return sizeof(*out);
+  }
   udp_kaddr_pack4(out);
   return WIRED_SOCKADDR_IN_LEN;
 }
@@ -77,7 +87,9 @@ u32 udp_kaddr_out(const sockaddr* sa, u16 family, sockaddr* out) {
 static i64 udp_socket_v6(void) {
   int v6only = 0;
   i64 fd     = wired_arch_socket(WIRED_AF_INET6, WIRED_SOCK_DGRAM, 0);
-  if (fd < 0) return fd;
+  if (fd < 0) {
+    return fd;
+  }
   /* dual stack: v4 peers arrive v4-mapped on the same fd. Linux defaults
    * IPV6_V6ONLY to 0 already; setting it explicitly pins the behavior
    * against a flipped net.ipv6.bindv6only sysctl. */
@@ -88,7 +100,9 @@ static i64 udp_socket_v6(void) {
 
 i64 wired_udp_socket(void) {
   i64 fd = udp_socket_v6();
-  if (fd != -WIRED_EAFNOSUPPORT) return fd;
+  if (fd != -WIRED_EAFNOSUPPORT) {
+    return fd;
+  }
   udp_family = WIRED_AF_INET;
   return wired_arch_socket(WIRED_AF_INET, WIRED_SOCK_DGRAM, 0);
 }

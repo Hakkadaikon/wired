@@ -16,7 +16,9 @@ static int nc_admit(wired_span seq, wired_span child_tbs);
 /* One SAN GeneralNames entry; a dNSName entry also records its presence,
  * which rules out the CN fallback below. */
 static int san_entry_ok(wired_span seq, u8 tag, wired_span e, int* has_dns) {
-  if (tag != NC_DNSNAME_TAG) return x509_san_other_entry_ok(seq, tag, e);
+  if (tag != NC_DNSNAME_TAG) {
+    return x509_san_other_entry_ok(seq, tag, e);
+  }
   *has_dns = 1;
   return x509_typed_name_ok(seq, tag, e, x509_nc_dns_within);
 }
@@ -27,8 +29,11 @@ static int san_list_ok(wired_span seq, wired_span gn, int* has_dns) {
   u8         tag;
   wired_span e;
   derseq_init(&c, gn);
-  while (derseq_next(&c, &tag, &e))
-    if (!san_entry_ok(seq, tag, e, has_dns)) return 0;
+  while (derseq_next(&c, &tag, &e)) {
+    if (!san_entry_ok(seq, tag, e, has_dns)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -37,9 +42,12 @@ static int san_list_ok(wired_span seq, wired_span gn, int* has_dns) {
 static int child_san_ok(wired_span seq, wired_span child_tbs, int* has_dns) {
   wired_span raw, gn;
   if (!x509_find_ext(
-          child_tbs, wired_span_of(nc_oid_san, sizeof(nc_oid_san)), &raw))
+          child_tbs, wired_span_of(nc_oid_san, sizeof(nc_oid_san)), &raw)) {
     return 1;
-  if (!der_seq(raw, &gn)) return 0;
+  }
+  if (!der_seq(raw, &gn)) {
+    return 0;
+  }
   return san_list_ok(seq, gn, has_dns);
 }
 
@@ -63,7 +71,9 @@ static int nc_host_byte(u8 c) {
  * x509_san_matches' CN-ID fallback could match a hostname against. */
 static int nc_dns_shaped(wired_span cn) {
   int ok = cn.n != 0;
-  for (usz i = 0; i < cn.n; i++) ok &= nc_host_byte(cn.p[i]);
+  for (usz i = 0; i < cn.n; i++) {
+    ok &= nc_host_byte(cn.p[i]);
+  }
   return ok;
 }
 
@@ -76,16 +86,24 @@ static int nc_dns_shaped(wired_span cn) {
  * SAN-less IP-literal-CN leaves. */
 static int cn_fallback_ok(wired_span seq, wired_span child_tbs) {
   wired_span cn;
-  if (!x509_subject_cn(child_tbs, &cn)) return 1;
-  if (!nc_dns_shaped(cn)) return 1;
+  if (!x509_subject_cn(child_tbs, &cn)) {
+    return 1;
+  }
+  if (!nc_dns_shaped(cn)) {
+    return 1;
+  }
   return x509_typed_name_ok(seq, NC_DNSNAME_TAG, cn, x509_nc_dns_within);
 }
 
 /* The child's SAN entries and, when no SAN dNSName exists, its CN. */
 static int child_names_ok(wired_span seq, wired_span child_tbs) {
   int has_dns = 0;
-  if (!child_san_ok(seq, child_tbs, &has_dns)) return 0;
-  if (has_dns) return 1;
+  if (!child_san_ok(seq, child_tbs, &has_dns)) {
+    return 0;
+  }
+  if (has_dns) {
+    return 1;
+  }
   return cn_fallback_ok(seq, child_tbs);
 }
 
@@ -93,7 +111,9 @@ static int child_names_ok(wired_span seq, wired_span child_tbs) {
  * unreadable subject fails closed. */
 static int child_subject_ok(wired_span seq, wired_span child_tbs) {
   wired_span subj;
-  if (!x509_subject(child_tbs, &subj)) return 0;
+  if (!x509_subject(child_tbs, &subj)) {
+    return 0;
+  }
   return x509_typed_name_ok(
       seq, NC_DIRECTORYNAME_TAG, subj, x509_dn_within_base);
 }
@@ -106,13 +126,19 @@ static int nc_usable(wired_span seq) {
 
 /* A usable extension admits the child's subject and its names. */
 static int nc_admit(wired_span seq, wired_span child_tbs) {
-  if (!nc_usable(seq)) return 0;
-  if (!child_subject_ok(seq, child_tbs)) return 0;
+  if (!nc_usable(seq)) {
+    return 0;
+  }
+  if (!child_subject_ok(seq, child_tbs)) {
+    return 0;
+  }
   return child_names_ok(seq, child_tbs);
 }
 
 int x509_name_constraints_admit(wired_span issuer_tbs, wired_span child_tbs) {
   wired_span seq;
-  if (!x509_nc_locate(issuer_tbs, &seq)) return 1;
+  if (!x509_nc_locate(issuer_tbs, &seq)) {
+    return 1;
+  }
   return nc_admit(seq, child_tbs);
 }

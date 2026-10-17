@@ -25,14 +25,19 @@ int srvrun_boot_probe_armed(const srvrun_conn* c) {
  * version-dependent, so this reads the packet's own Version field rather
  * than assuming v1's). */
 static int srvrun_pkt_is_initial(wired_mspan dg, usz off) {
-  if (off + 5 > dg.n) return 0;
+  if (off + 5 > dg.n) {
+    return 0;
+  }
   return packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) == PT_INITIAL;
 }
 
 /* 1 if every packet at offs[0..n) within dg is an Initial. */
 static int srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (!srvrun_pkt_is_initial(dg, offs[i])) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (!srvrun_pkt_is_initial(dg, offs[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -57,8 +62,12 @@ static int srvrun_dgram_all_initial(wired_mspan dg) {
  * coalesces anything beyond Initials (srvrun_dgram_all_initial says no)
  * carries handshake progress and takes the step path instead. */
 int srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_awaiting_confirm(c)) return 0;
-  if (c->boot_ini_len == 0) return 0;
+  if (!srvrun_awaiting_confirm(c)) {
+    return 0;
+  }
+  if (c->boot_ini_len == 0) {
+    return 0;
+  }
   return srvrun_dgram_all_initial(dg);
 }
 
@@ -75,15 +84,18 @@ int srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg) {
  * marked in_use -- srvrun_open_slot only zeroes the conn struct on reuse, it
  * never touches wired_srvbigbuf's own in_use[] bookkeeping. */
 void srvrun_free_bigbuf_rows(wired_srvrun_env* env, srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     srvrun_resp_release_bigbuf(env, &c->resp[i]);
+  }
 }
 
 /* Close every open WT session slot on c, not just one -- whole-connection
  * teardown must never leave a session behind. */
 void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
-    if (!(*srvrun_wt_active_slot(c, i))) continue;
+    if (!(*srvrun_wt_active_slot(c, i))) {
+      continue;
+    }
     srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, i));
     wired_wt_session_close(srvrun_wt_slot(c, i));
     (*srvrun_wt_active_slot(c, i)) = 0;
@@ -129,7 +141,9 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
 /* RFC 9000 21.6: 1 if c is a boot (claimed, not yet confirmed) older than
  * SRVRUN_BOOT_DEADLINE_MS -- reaped however fresh its last fragment is. */
 int srvrun_boot_overdue(const srvrun_conn* c, u64 now_ms) {
-  if (!srvrun_slot_busy(c) || wired_server_is_confirmed(&c->s)) return 0;
+  if (!srvrun_slot_busy(c) || wired_server_is_confirmed(&c->s)) {
+    return 0;
+  }
   return now_ms - c->boot_claim_ms >= SRVRUN_BOOT_DEADLINE_MS;
 }
 

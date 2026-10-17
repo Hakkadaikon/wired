@@ -34,7 +34,9 @@ void moqtrun_fetch_obj_of(
   o->group  = it->loc.group;
   o->object = it->loc.object;
   o->flags  = eor;
-  if (it->unknown) return;
+  if (it->unknown) {
+    return;
+  }
   o->flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
              (moqtrun_fetch_new_group(s, it->loc.group) ? MOQFETCH_F_GROUP : 0);
   o->has_subgroup = 1;
@@ -77,8 +79,9 @@ void moqtrun_fetch_after(
     moqtrun_fwin*              w) {
   w->end    = f->end;
   w->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, w->end);
-  while (moqtrun_fwin_more(f, w))
+  while (moqtrun_fwin_more(f, w)) {
     moqtrun_fwin_down(hub, f->cache_tag, f->lo, w);
+  }
 }
 
 /* Sends the item at f's cursor (FIN on the last); 0 when the transport

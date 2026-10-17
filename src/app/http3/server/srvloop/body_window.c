@@ -21,20 +21,28 @@ static int bodywin_in(const bodywin* w, u64 off) {
 }
 
 static void bodywin_put(bodywin* w, u8* buf, u64 off, u8 v) {
-  if (!bodywin_in(w, off)) return;
+  if (!bodywin_in(w, off)) {
+    return;
+  }
   buf[off - w->base] = v;
   bodywin_set(w, (usz)(off - w->base), 1);
 }
 
 void bodywin_land(bodywin* w, u8* buf, u64 off, wired_span data, int fin) {
-  for (usz i = 0; i < data.n; i++) bodywin_put(w, buf, off + i, data.p[i]);
-  if (fin) w->fin_off = off + data.n;
+  for (usz i = 0; i < data.n; i++) {
+    bodywin_put(w, buf, off + i, data.p[i]);
+  }
+  if (fin) {
+    w->fin_off = off + data.n;
+  }
   w->fin |= (u8)(fin != 0);
 }
 
 usz bodywin_frontier(const bodywin* w) {
   usz n = 0;
-  while (n < BODYWIN_CAP && bodywin_bit(w, n)) n++;
+  while (n < BODYWIN_CAP && bodywin_bit(w, n)) {
+    n++;
+  }
   return n;
 }
 
@@ -44,8 +52,11 @@ static int bodywin_bit_at(const bodywin* w, usz i) {
 }
 
 void bodywin_consume(bodywin* w, u8* buf, usz n) {
-  for (usz i = 0; i + n < BODYWIN_CAP; i++) buf[i] = buf[i + n];
-  for (usz i = 0; i < BODYWIN_CAP; i++)
+  for (usz i = 0; i + n < BODYWIN_CAP; i++) {
+    buf[i] = buf[i + n];
+  }
+  for (usz i = 0; i < BODYWIN_CAP; i++) {
     bodywin_set(w, i, bodywin_bit_at(w, i + n));
+  }
   w->base += n;
 }

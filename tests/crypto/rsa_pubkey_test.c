@@ -24,7 +24,9 @@ static usz rpk_int(u8* out, const u8* v, usz len) {
   usz o  = 1;
   out[0] = 0x02;
   o += rpk_len(out + o, len);
-  for (usz i = 0; i < len; i++) out[o + i] = v[i];
+  for (usz i = 0; i < len; i++) {
+    out[o + i] = v[i];
+  }
   return o + len;
 }
 
@@ -38,7 +40,9 @@ static usz rpk_key(u8* out, const u8* nv, usz nl, const u8* ev, usz el) {
   out[0] = 0x00; /* BIT STRING unused bits */
   out[1] = 0x30;
   o += rpk_len(out + o, blen);
-  for (usz i = 0; i < blen; i++) out[o + i] = body[i];
+  for (usz i = 0; i < blen; i++) {
+    out[o + i] = body[i];
+  }
   return o + blen;
 }
 
@@ -47,7 +51,9 @@ static usz rpk_key(u8* out, const u8* nv, usz nl, const u8* ev, usz el) {
 static usz rpk_padded_n(u8* out, usz len) {
   out[0] = 0x00; /* sign pad */
   out[1] = 0xc1;
-  for (usz i = 2; i < len; i++) out[i] = 0xaa;
+  for (usz i = 2; i < len; i++) {
+    out[i] = 0xaa;
+  }
   out[len] = 0x01; /* odd */
   return len + 1;
 }

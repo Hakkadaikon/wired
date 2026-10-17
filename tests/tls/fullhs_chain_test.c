@@ -16,7 +16,9 @@ static usz fc_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i);
+  }
   out[off + 34] = 0;
   out[off + 35] = 0x13;
   out[off + 36] = 0x01;
@@ -38,7 +40,9 @@ static usz fc_build_sh(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
@@ -104,7 +108,9 @@ static usz fc_cert_msg(
     out[off]     = (u8)(n >> 16);
     out[off + 1] = (u8)(n >> 8);
     out[off + 2] = (u8)n;
-    for (usz j = 0; j < n; j++) out[off + 3 + j] = certs[i][j];
+    for (usz j = 0; j < n; j++) {
+      out[off + 3 + j] = certs[i][j];
+    }
     out[off + 3 + n] = 0;
     out[off + 4 + n] = 0;
     off += n + 5;
@@ -135,10 +141,14 @@ static void test_fullhs_chain_stale_buffer(void) {
   u8        th[SHA256_DIGEST];
   usz       shn, buf_len, cv_len;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
-  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(70 + i);
+  for (usz i = 0; i < 32; i++) {
+    cert_seed[i] = (u8)(70 + i);
+  }
   buf_len = fc_build_cert_msg(cert_seed, buf, sizeof(buf));
   CHECK(fullhs_recv_cert(&cl, buf, buf_len) == 1);
-  for (usz i = 0; i < buf_len; i++) buf[i] = 0xaa; /* buffer dies */
+  for (usz i = 0; i < buf_len; i++) {
+    buf[i] = 0xaa; /* buffer dies */
+  }
   {
     wired_obuf cvob = obuf_of(cv, sizeof(cv));
     wired_sha256(cl.tr, cl.tr_len, th);
@@ -163,10 +173,12 @@ static void test_fullhs_chain_retained(void) {
   CHECK(cl.cert_count == 2);
   CHECK(cl.cert_lens[0] == sizeof(realchain_leaf_der));
   CHECK(cl.cert_lens[1] == sizeof(realchain_int_der));
-  for (usz i = 0; i < cl.cert_lens[0]; i++)
+  for (usz i = 0; i < cl.cert_lens[0]; i++) {
     CHECK(cl.tr[cl.cert_off[0] + i] == realchain_leaf_der[i]);
-  for (usz i = 0; i < cl.cert_lens[1]; i++)
+  }
+  for (usz i = 0; i < cl.cert_lens[1]; i++) {
     CHECK(cl.tr[cl.cert_off[1] + i] == realchain_int_der[i]);
+  }
   CHECK(cl.peer_cert == cl.tr + cl.cert_off[0]);
 }
 
@@ -210,7 +222,9 @@ static void test_fullhs_castore_wrong_root(void) {
           wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   fullhs_set_castore(&cl, &store); /* this leaf can't anchor here */
 
-  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(80 + i);
+  for (usz i = 0; i < 32; i++) {
+    cert_seed[i] = (u8)(80 + i);
+  }
   cert_msg_len = fc_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
 
   CHECK(fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);

@@ -39,10 +39,11 @@ static void jac_add(jac* r, p256_addt* t) {
 
 /* Same-x case: double if s1==s2 (acc==base), else result is infinity. */
 static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2) {
-  if (p256_fp_eq(s1, s2))
+  if (p256_fp_eq(s1, s2)) {
     p256pt_jac_double(acc, acc);
-  else
+  } else {
     acc->Z[0] = acc->Z[1] = acc->Z[2] = acc->Z[3] = 0;
+  }
 }
 
 /* acc += base, handling infinity and the doubling/inverse case. */
@@ -53,10 +54,11 @@ static void jac_add_step(jac* acc, const jac* base) {
     return;
   }
   p256pt_add_uv(&t, acc, base);
-  if (p256_fp_eq(t.u1, t.u2))
+  if (p256_fp_eq(t.u1, t.u2)) {
     add_same_x_jac(acc, t.s1, t.s2);
-  else
+  } else {
     jac_add(acc, &t);
+  }
 }
 
 /* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
@@ -99,7 +101,9 @@ static int add_full_infinity(jac* r, const jac* a, const jac* b) {
  * (base) is finite, but the ladder's r0 starts at infinity and can land on
  * either side of the sum, so both must be covered here first. */
 static void jac_add_full(jac* r, const jac* a, const jac* b) {
-  if (add_full_infinity(r, a, b)) return;
+  if (add_full_infinity(r, a, b)) {
+    return;
+  }
   *r = *a;
   jac_add_step(r, b);
 }

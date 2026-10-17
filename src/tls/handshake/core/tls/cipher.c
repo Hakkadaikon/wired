@@ -5,8 +5,11 @@ static int cipher_rank(u16 suite) {
   static const u16 pref[] = {
       TLS_AES_128_GCM_SHA256, TLS_CHACHA20_POLY1305_SHA256,
       TLS_AES_256_GCM_SHA384};
-  for (usz i = 0; i < sizeof pref / sizeof *pref; i++)
-    if (pref[i] == suite) return (int)i + 1;
+  for (usz i = 0; i < sizeof pref / sizeof *pref; i++) {
+    if (pref[i] == suite) {
+      return (int)i + 1;
+    }
+  }
   return 0;
 }
 
@@ -19,14 +22,19 @@ static int prefer(u16 s, u16 chosen, int found) {
 }
 
 static void fold(u16 s, u16* chosen, int* found) {
-  if (!cipher_supported(s)) return;
-  if (prefer(s, *chosen, *found)) *chosen = s;
+  if (!cipher_supported(s)) {
+    return;
+  }
+  if (prefer(s, *chosen, *found)) {
+    *chosen = s;
+  }
   *found = 1;
 }
 
 int cipher_select(const u8* offered, usz n_pairs, u16* chosen) {
   int found = 0;
-  for (usz i = 0; i < n_pairs; i++)
+  for (usz i = 0; i < n_pairs; i++) {
     fold((u16)((offered[2 * i] << 8) | offered[2 * i + 1]), chosen, &found);
+  }
   return found;
 }

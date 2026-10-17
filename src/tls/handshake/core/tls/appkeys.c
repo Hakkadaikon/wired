@@ -25,8 +25,12 @@ static usz appkeys_hp_len(u16 suite) {
  * (e.g. two independent derivations of the same AES keys must compare equal
  * byte-for-byte, not just in the bytes AES actually uses). */
 static void appkeys_zero_tail(initial_keys* out, usz key_len, usz hp_len) {
-  for (usz i = key_len; i < AEAD_KEY_MAX; i++) out->key[i] = 0;
-  for (usz i = hp_len; i < AEAD_KEY_MAX; i++) out->hp[i] = 0;
+  for (usz i = key_len; i < AEAD_KEY_MAX; i++) {
+    out->key[i] = 0;
+  }
+  for (usz i = hp_len; i < AEAD_KEY_MAX; i++) {
+    out->hp[i] = 0;
+  }
 }
 
 /* Expand one packet-protection field under the "<quic |quicv2 ><suffix>"

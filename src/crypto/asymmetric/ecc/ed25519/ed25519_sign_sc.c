@@ -9,14 +9,18 @@ static void hash_r(u8 r[32], const u8 prefix[32], const u8* msg, usz msg_len);
 
 /* Accumulate a[i]*b into the schoolbook column array at offset i. */
 static void sc_mul_row(u64 t[64], const u8 a[32], const u8 b[32], usz i) {
-  for (usz j = 0; j < 32; j++) t[i + j] += (u64)a[i] * b[j];
+  for (usz j = 0; j < 32; j++) {
+    t[i + j] += (u64)a[i] * b[j];
+  }
 }
 
 /* 256x256 -> 512-bit product of two 32-byte little-endian scalars. */
 static void sc_mul512(u8 out[64], const u8 a[32], const u8 b[32]) {
   u64 t[64] = {0};
   u64 c     = 0;
-  for (usz i = 0; i < 32; i++) sc_mul_row(t, a, b, i);
+  for (usz i = 0; i < 32; i++) {
+    sc_mul_row(t, a, b, i);
+  }
   for (usz i = 0; i < 64; i++) {
     t[i] += c;
     out[i] = (u8)t[i];
@@ -56,7 +60,9 @@ int ed25519_keypair(
   u8 h[64], a[32];
   ge B, A;
   sha512(seed, 32, h);
-  for (usz i = 0; i < 32; i++) a[i] = h[i];
+  for (usz i = 0; i < 32; i++) {
+    a[i] = h[i];
+  }
   sc_clamp(a);
   ed_ge_base(&B);
   ed_ge_scalarmult(&A, a, &B);
@@ -85,7 +91,9 @@ int ed25519_sign(
   u8 A_enc[32];
   ge B, R, A;
   sha512(seed, 32, h);
-  for (usz i = 0; i < 32; i++) a[i] = h[i];
+  for (usz i = 0; i < 32; i++) {
+    a[i] = h[i];
+  }
   sc_clamp(a);
   ed_ge_base(&B);
   ed_ge_scalarmult(&A, a, &B);
@@ -107,8 +115,12 @@ int ed25519_verify(
   u8        k[32];
   const u8* R = sig;
   const u8* S = sig + 32;
-  if (ed25519_sign_sc_ge(S, ORDER_L)) return 0; /* S must be < L */
-  if (!ed25519_sign_decode_checked(&A, pubkey)) return 0;
+  if (ed25519_sign_sc_ge(S, ORDER_L)) {
+    return 0; /* S must be < L */
+  }
+  if (!ed25519_sign_decode_checked(&A, pubkey)) {
+    return 0;
+  }
   ed25519_sign_hash_k(k, R, pubkey, (wired_span){msg, msg_len});
   return ed25519_sign_check_equation(S, k, &A, R);
 }

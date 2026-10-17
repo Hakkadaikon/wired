@@ -21,8 +21,11 @@ static const u8 xdpft_golden[60] = {
 static u16 xdpft_ntoh16(u16 v) { return (u16)((v >> 8) | (v << 8)); }
 
 static int xdpft_mac_eq(const u8* a, const u8* b) {
-  for (usz i = 0; i < 6; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < 6; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -50,7 +53,9 @@ static void test_xdpframe_rx_golden(void) {
 static int xdpft_rejects(usz n, usz off, u8 val) {
   u8          f[60];
   xdpframe_rx rx;
-  for (usz i = 0; i < 60; i++) f[i] = xdpft_golden[i];
+  for (usz i = 0; i < 60; i++) {
+    f[i] = xdpft_golden[i];
+  }
   f[off] = val;
   return xdpframe_parse(wired_span_of(f, n), &rx) == 0;
 }
@@ -137,8 +142,12 @@ static void test_xdpframe_reflect(void) {
   u8          buf[64];
   const u8    pl[2] = {'y', 'o'};
   CHECK(xdpframe_parse(wired_span_of(xdpft_golden, 60), &rx) == 1);
-  for (usz i = 0; i < 6; i++) m.dst_mac[i] = rx.peer_mac[i];
-  for (usz i = 0; i < 6; i++) m.src_mac[i] = rx.our_mac[i];
+  for (usz i = 0; i < 6; i++) {
+    m.dst_mac[i] = rx.peer_mac[i];
+  }
+  for (usz i = 0; i < 6; i++) {
+    m.src_mac[i] = rx.our_mac[i];
+  }
   m.udp.ports.sport = rx.dport;
   m.udp.ports.dport = xdpft_ntoh16(rx.src.port_be);
   m.udp.addrs.src   = rx.our_ip;

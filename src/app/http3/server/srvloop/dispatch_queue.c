@@ -15,9 +15,13 @@ static void gather_one_datagram(wired_srvloop* l, u64 type, wired_span frame);
  * accepted, content ignored" behavior already covers it unchanged, so this adds
  * classification without altering that path's outcome. */
 void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
-  if (sf->offset == 0) srvloop_gather_wt_uni_classify(l, sf);
+  if (sf->offset == 0) {
+    srvloop_gather_wt_uni_classify(l, sf);
+  }
   srvloop_gather_qpack_enc(l, sf);
-  if (!srvloop_wt_uni_frame_relevant(l, sf)) return;
+  if (!srvloop_wt_uni_frame_relevant(l, sf)) {
+    return;
+  }
   srvloop_gather_wt_uni_land(l, sf);
 }
 
@@ -30,7 +34,9 @@ void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
  * STREAM frame does. */
 static int gather_uni_frame(wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!srvloop_client_uni_stream_of(type, frame, &sf)) return 0;
+  if (!srvloop_client_uni_stream_of(type, frame, &sf)) {
+    return 0;
+  }
   srvloop_gather_wt_uni_frame(l, &sf);
   return 1;
 }
@@ -46,8 +52,9 @@ int srvloop_gather_uni_stream(wired_srvloop* l, const u8* payload, usz len) {
   framewalk_item fr;
   int            seen = 0;
   framewalk_init(&it, payload, len);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     seen |= gather_uni_frame(l, fr.type, wired_span_of(fr.start, fr.remaining));
+  }
   return seen;
 }
 
@@ -62,9 +69,10 @@ int srvloop_gather_ctrl_priupdate(
   framewalk_item fr;
   int            seen = 0;
   framewalk_init(&it, payload, len);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     seen |= wired_srvloop_ctrl_gather(
         l, fr.type, wired_span_of(fr.start, fr.remaining));
+  }
   return seen;
 }
 
@@ -78,9 +86,10 @@ int srvloop_gather_req_priupdate(wired_srvloop* l, const u8* payload, usz len) {
   framewalk_item fr;
   int            seen = 0;
   framewalk_init(&it, payload, len);
-  while (framewalk_next(&it, &fr))
+  while (framewalk_next(&it, &fr)) {
     seen |= wired_srvloop_req_priupdate_gather(
         l, fr.type, wired_span_of(fr.start, fr.remaining));
+  }
   return seen;
 }
 
@@ -116,7 +125,9 @@ static int datagram_size_ok(const wired_srvloop* l, usz payload_len) {
  * (gather_one_datagram) has already confirmed the type and queue room. */
 static void queue_decoded_datagram(wired_srvloop* l, wired_span frame) {
   wired_span payload;
-  if (!dgdeliver_extract(frame, &payload)) return;
+  if (!dgdeliver_extract(frame, &payload)) {
+    return;
+  }
   if (!datagram_size_ok(l, payload.n)) {
     l->datagram_violation = 1;
     return;
@@ -131,8 +142,12 @@ static void queue_decoded_datagram(wired_srvloop* l, wired_span frame) {
  * dropping one under sustained load is within spec rather than a bug to fix.
  */
 static void gather_one_datagram(wired_srvloop* l, u64 type, wired_span frame) {
-  if (frame_classify(type) != FK_DATAGRAM) return;
-  if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) return;
+  if (frame_classify(type) != FK_DATAGRAM) {
+    return;
+  }
+  if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) {
+    return;
+  }
   queue_decoded_datagram(l, frame);
 }
 
@@ -148,7 +163,9 @@ int srvloop_gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) == FK_DATAGRAM) seen = 1;
+    if (frame_classify(fr.type) == FK_DATAGRAM) {
+      seen = 1;
+    }
     gather_one_datagram(l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
@@ -162,8 +179,12 @@ int srvloop_gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
  * against). */
 int srvloop_reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
   reset_stream_frame f;
-  if (frame_classify(type) != FK_RESET_STREAM) return 0;
-  if (reset_stream_decode(frame.p, frame.n, &f) == 0) return 0;
+  if (frame_classify(type) != FK_RESET_STREAM) {
+    return 0;
+  }
+  if (reset_stream_decode(frame.p, frame.n, &f) == 0) {
+    return 0;
+  }
   *stream_id_out = f.stream_id;
   return 1;
 }
@@ -173,7 +194,9 @@ int srvloop_reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
  * branch count at the CCN gate. */
 int srvloop_wt_reset_frame(
     u64 type, wired_span frame, reset_stream_frame* out) {
-  if (frame_classify(type) != FK_RESET_STREAM) return 0;
+  if (frame_classify(type) != FK_RESET_STREAM) {
+    return 0;
+  }
   return reset_stream_decode(frame.p, frame.n, out) != 0;
 }
 
@@ -181,6 +204,8 @@ int srvloop_wt_reset_frame(
  * decoded into *out. Mirrors srvloop_wt_reset_frame for the other close-shaped
  * frame kind. */
 int srvloop_wt_stop_frame(u64 type, wired_span frame, stop_sending_frame* out) {
-  if (frame_classify(type) != FK_STOP_SENDING) return 0;
+  if (frame_classify(type) != FK_STOP_SENDING) {
+    return 0;
+  }
   return stop_sending_decode(frame.p, frame.n, out) != 0;
 }

@@ -23,7 +23,9 @@ static void srvrun_recv_serve_one(
     i64               fd) {
   i64 r           = wired_udp_recvmmsg_nowait(fd, bufs, nbufs);
   cfg->env->rx_fd = fd;
-  if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
+  if (r > 0) {
+    srvrun_serve_batch(cfg, st, bufs, r);
+  }
   cfg->env->rx_fd = 0;
 }
 
@@ -36,13 +38,17 @@ static void srvrun_recv_serve(
     return;
   }
   r = srvrun_recv(cfg, bufs, nbufs);
-  if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
+  if (r > 0) {
+    srvrun_serve_batch(cfg, st, bufs, r);
+  }
 }
 
 /* wired_srvrun_opt.on_step: the app's own per-step work (e.g. a clock-
  * paced publisher), given the same monotonic clock the loop's timers use. */
 static void srvrun_app_step(const srvrun_cfg* cfg) {
-  if (cfg->on_step) cfg->on_step(cfg->on_step_ctx, clock_mono_ms());
+  if (cfg->on_step) {
+    cfg->on_step(cfg->on_step_ctx, clock_mono_ms());
+  }
 }
 
 void srvrun_step(
@@ -50,7 +56,9 @@ void srvrun_step(
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
-  if (srvrun_wait_input(cfg, st)) srvrun_recv_serve(cfg, st, bufs, nbufs);
+  if (srvrun_wait_input(cfg, st)) {
+    srvrun_recv_serve(cfg, st, bufs, nbufs);
+  }
   srvrun_app_step(cfg);
   /* RFC 9002 6.2: evaluate every slot's PTO deadlines on EVERY iteration,
    * not only on a poll timeout -- a steady inbound stream (e.g. the peer's
@@ -74,15 +82,17 @@ void srvrun_step(
  * (the caller should stop), 0 to keep draining. */
 static int srvrun_drain_tick(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, int tick) {
-  if (poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0)
+  if (poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0) {
     srvrun_step(cfg, st, bufs, SRVRUN_RX_BATCH);
+  }
   return srvrun_all_drained(st) || tick >= SRVRUN_DRAIN_TICKS;
 }
 
 /* Point each batch slot at env's own storage. */
 static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs) {
-  for (usz i = 0; i < SRVRUN_RX_BATCH; i++)
+  for (usz i = 0; i < SRVRUN_RX_BATCH; i++) {
     bufs[i].buf = wired_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
+  }
 }
 
 /* RFC 9114 8.1 / 9114-077: when about to close with H3_NO_ERROR, occasionally
@@ -94,8 +104,12 @@ static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs) {
  * greasing, same fallback. */
 static u64 srvrun_close_grease_id(void) {
   u8 b;
-  if (!rng_bytes(&b, 1)) return 0;
-  if (b & 1) return 0;
+  if (!rng_bytes(&b, 1)) {
+    return 0;
+  }
+  if (b & 1) {
+    return 0;
+  }
   return h3_grease_value(b);
 }
 
@@ -106,12 +120,14 @@ static u64 srvrun_close_grease_id(void) {
  * the intent to stop accepting new requests on it). h3_error_send_value
  * substitutes an occasional grease code per connection (9114-077, above). */
 static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (st->conns[i].up)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (st->conns[i].up) {
       srvrun_send_app_close(
           cfg, &st->conns[i],
           h3_error_send_value(H3_NO_ERROR, srvrun_close_grease_id()),
           wired_span_of(0, 0));
+    }
+  }
 }
 
 /* Receive datagrams until told to stop: normal service while no shutdown has
@@ -123,17 +139,23 @@ void srvrun_loop(const srvrun_cfg* cfg) {
   int          tick = 0;
   conntable_init(st.table, WIRED_CONNTABLE_CAP);
   srvrun_rx_init(cfg->env, bufs);
-  while (!srvrun_shutdown_requested())
+  while (!srvrun_shutdown_requested()) {
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);
+  }
   srvrun_goaway_all(cfg, &st);
-  while (!srvrun_drain_tick(cfg, &st, bufs, tick)) tick++;
+  while (!srvrun_drain_tick(cfg, &st, bufs, tick)) {
+    tick++;
+  }
   srvrun_close_drained(cfg, &st);
 }
 
 /* Arm SIGHUP only when a cert path was given (cfg.cert_path unset means
  * reload is disabled, so there is nothing to reload into). */
 void srvrun_install_sighup(const srvrun_cfg* cfg) {
-  if (!cfg->cert_path) return;
-  if (!wired_sighup_install(srvrun_sighup_handler))
+  if (!cfg->cert_path) {
+    return;
+  }
+  if (!wired_sighup_install(srvrun_sighup_handler)) {
     WIRED_LOG("SIGHUP install failed, no cert reload\n");
+  }
 }

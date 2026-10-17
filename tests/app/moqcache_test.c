@@ -22,7 +22,9 @@ static int mc_loc_eq(moqctl_loc a, moqctl_loc b) {
 }
 
 static void mc_put(moqcache* c, u64 tag, u64 g, u64 o, usz n) {
-  for (usz i = 0; i < n; i++) mc_payload[i] = (u8)(g * 16 + o);
+  for (usz i = 0; i < n; i++) {
+    mc_payload[i] = (u8)(g * 16 + o);
+  }
   moqcache_append(c, tag, g, o, wired_span_of(mc_payload, n));
 }
 
@@ -254,11 +256,12 @@ static void test_moqcache_walk_resumes(void) {
   moqcache_item it;
   moqctl_loc    end = mc_loc(3, 0);
   mc_init(&c, sizeof mc_arena);
-  for (u64 g = 0; g < 3; g++)
+  for (u64 g = 0; g < 3; g++) {
     for (u64 o = 0; o < 2; o++) {
       mc_put(&c, 2, g, o, 1);
       mc_put(&c, MC_TAG, g, o, 1);
     }
+  }
   for (int pass = 0; pass < 2; pass++) {
     u64 n = 0;
     for (moqctl_loc cur = moqcache_skip(&c, MC_TAG, mc_loc(0, 0), end);

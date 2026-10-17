@@ -19,7 +19,9 @@ static int serial_ok(const tbscert* t) {
 }
 
 int tbscert_serial(const tbscert* t, wired_span* serial) {
-  if (!serial_ok(t)) return 0;
+  if (!serial_ok(t)) {
+    return 0;
+  }
   *serial = t->serial;
   return 1;
 }

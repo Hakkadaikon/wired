@@ -31,7 +31,9 @@ static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
   usz at = 0;
   u64 type;
   u16 len;
-  if (moqctl_peek_header(rest, &at, &type, &len) != MOQCTL_OK) return 0;
+  if (moqctl_peek_header(rest, &at, &type, &len) != MOQCTL_OK) {
+    return 0;
+  }
   *total = at + len;
   return len > WIRED_MOQTRUN_CTL_MSG_MAX;
 }
@@ -43,7 +45,9 @@ static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
  * later deliveries (a->skip), and reported as MOQTRUN_ASM_OVER_CAP
  * (moqtrun_dispatch_over_cap). */
 int moqtrun_asm_pop(wired_moqtrun_ctl_asm* a, u64* type, wired_span* body) {
-  if (a->skip) return MOQCTL_INSUFFICIENT; /* rest of a held message */
+  if (a->skip) {
+    return MOQCTL_INSUFFICIENT; /* rest of a held message */
+  }
   wired_span rest  = moqtrun_asm_rest(a);
   usz        total = 0;
   if (moqtrun_asm_over_cap(rest, &total)) {
@@ -65,8 +69,9 @@ static void moqtrun_ctl_drain(
   wired_span body = {0, 0};
   int        r;
   while ((r = moqtrun_asm_pop(moqtrun_cur_asm(p), &type, &body)) !=
-         MOQCTL_INSUFFICIENT)
+         MOQCTL_INSUFFICIENT) {
     moqtrun_msg_route(p, r, type, body)(hub, p, peer_idx, body);
+  }
 }
 
 /* Dispatches every complete control message found in data on the stream
@@ -100,9 +105,13 @@ usz wired_moqt_publish_blob(
     u64             track_alias,
     wired_span      blob,
     wired_mspan     wire) {
-  if (moqtrun_key_oversized(moqtrun_key_name(name))) return 0;
+  if (moqtrun_key_oversized(moqtrun_key_name(name))) {
+    return 0;
+  }
   usz n = moqdata_blob_build(wire, track_alias, blob);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   moqtrun_track_claim(
       hub, &hub->blob_track, moqtrun_key_name(name), track_alias);
   hub->blob_wire = wired_span_of(wire.p, n);

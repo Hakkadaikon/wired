@@ -6,7 +6,9 @@ static usz chg_put_tlv(u8* buf, usz off, unsigned type, const u8* data, usz n) {
   buf[off + 1] = (u8)type;
   buf[off + 2] = (u8)(n >> 8);
   buf[off + 3] = (u8)n;
-  for (usz i = 0; i < n; i++) buf[off + 4 + i] = data[i];
+  for (usz i = 0; i < n; i++) {
+    buf[off + 4 + i] = data[i];
+  }
   return off + 4 + n;
 }
 

@@ -106,7 +106,9 @@ static void test_salpn_raw_pick_truncations(void) {
   u8 buf[sizeof sraw_moq00_18];
   for (usz n = 0; n <= sizeof sraw_moq00_18; n++) {
     wired_span tok = {0, 0};
-    for (usz i = 0; i < n; i++) buf[i] = sraw_moq00_18[i];
+    for (usz i = 0; i < n; i++) {
+      buf[i] = sraw_moq00_18[i];
+    }
     CHECK(
         (sraw_pick(buf, n, SRAW_LIST, &tok) == SALPN_RAW) ==
         (n == sizeof sraw_moq00_18));
@@ -126,11 +128,15 @@ static void test_salpn_raw_ee_bytes(void) {
   wired_span        tok = wired_span_of((const u8*)list + 8, 7);
   CHECK(salpn_build_response_tok(salpn_choice_name(SALPN_RAW, tok), &ob));
   CHECK(ob.len == sizeof want);
-  for (usz i = 0; i < sizeof want; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(out[i] == want[i]);
+  }
   ob = obuf_of(out, sizeof out);
   CHECK(salpn_build_response_tok(salpn_choice_name(SALPN_H3, tok), &ob));
   CHECK(ob.len == sizeof want_h3);
-  for (usz i = 0; i < sizeof want_h3; i++) CHECK(out[i] == want_h3[i]);
+  for (usz i = 0; i < sizeof want_h3; i++) {
+    CHECK(out[i] == want_h3[i]);
+  }
   ob = obuf_of(out, sizeof out);
   CHECK(!salpn_build_response_tok(salpn_choice_name(SALPN_NONE, tok), &ob));
   CHECK(!salpn_build_response_tok(
@@ -149,7 +155,9 @@ static void test_salpn_raw_ee_message(void) {
   wired_obuf      ob = obuf_of(out, sizeof out);
   CHECK(eebuild_encrypted_extensions(
       wired_span_of((const u8*)"moqt-19", 7), wired_span_of(tp, 1), 0, &ob));
-  for (usz i = 0; i < sizeof want; i++) CHECK(out[4 + 2 + i] == want[i]);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(out[4 + 2 + i] == want[i]);
+  }
 }
 
 /* ---- S8: wired_srvboot_id.raw_alpns reaches the TLS layer ---- */

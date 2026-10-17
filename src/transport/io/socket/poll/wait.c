@@ -7,7 +7,9 @@ void poll_fill_readable(pollfd* p, i64 fd) {
 }
 
 static i64 poll_result(i64 r, u16 revents) {
-  if (r < 0) return r;
+  if (r < 0) {
+    return r;
+  }
   /* r == 0 means timeout: revents is 0, so POLLIN test yields 0. */
   return (revents & POLLIN) ? 1 : 0;
 }

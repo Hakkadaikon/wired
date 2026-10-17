@@ -5,15 +5,21 @@
 static int ch_has_ext(const u8* body, usz body_len, unsigned type) {
   usz p = 35 + 4 + 2; /* prefix + cipher_suites(2+2) + compression(1+1) */
   usz block_len, end, q;
-  if (body_len < p + 2) return 0;
+  if (body_len < p + 2) {
+    return 0;
+  }
   block_len = (usz)body[p] << 8 | body[p + 1];
   q         = p + 2;
   end       = q + block_len;
-  if (end > body_len) return 0;
+  if (end > body_len) {
+    return 0;
+  }
   while (q + 4 <= end) {
     unsigned t    = (unsigned)body[q] << 8 | body[q + 1];
     usz      dlen = (usz)body[q + 2] << 8 | body[q + 3];
-    if (t == type) return 1;
+    if (t == type) {
+      return 1;
+    }
     q += 4 + dlen;
   }
   return 0;

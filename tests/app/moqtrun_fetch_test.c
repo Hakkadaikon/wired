@@ -19,7 +19,9 @@ static moqctl_ftn mf_track(void) { return mtst_ftn("chat", "room1", "alice"); }
 static void mf_init(usz cap) {
   moqctl_ftn f = mf_track();
   mtst_init();
-  if (cap) wired_moqt_cache_attach(&mtst_hub, mf_arena, cap);
+  if (cap) {
+    wired_moqt_cache_attach(&mtst_hub, mf_arena, cap);
+  }
   mf_pub_sid = 2; /* client uni streams are 2 mod 4 */
   mf_ctrl_a  = mtst_join(SESS_A);
   mf_ctrl_b  = mtst_join(SESS_B);
@@ -37,7 +39,9 @@ static u64 mf_obj_on(u64 g, u64 o, usz n, int fin) {
   h.track_alias      = MF_ALIAS;
   h.group_id         = g;
   moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
-  for (usz i = 0; i < n; i++) pl[i] = (u8)(16 * g + o);
+  for (usz i = 0; i < n; i++) {
+    pl[i] = (u8)(16 * g + o);
+  }
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
   mf_pub_sid += 4;
@@ -124,15 +128,19 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     wired_span               body;
     moqfetch_ok              ok;
     moqctl_request_error     e;
-    if (c->kind != 12 || c->stream_id != mf_req_sid) continue;
+    if (c->kind != 12 || c->stream_id != mf_req_sid) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type == MOQFETCH_T_FETCH_OK &&
-        moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK)
+        moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK) {
       *end = ok.end;
+    }
     if (type == MOQCTL_T_REQUEST_ERROR &&
-        moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK)
+        moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK) {
       *code = e.error_code;
+    }
     return type;
   }
   return 0;
@@ -167,7 +175,9 @@ static int     mf_fin;
 static u64     mf_hdr_rid;
 
 static void mf_append(u8* buf, usz* len, const moqtrun_test_call* c) {
-  for (usz i = 0; i < c->payload_len; i++) buf[(*len)++] = c->payload[i];
+  for (usz i = 0; i < c->payload_len; i++) {
+    buf[(*len)++] = c->payload[i];
+  }
 }
 
 /* 1 iff c opens a fetch stream (FETCH_HEADER Type 0x5) to SESS_B. */
@@ -203,12 +213,15 @@ static int mf_read_seq(moqfetch_seq seq) {
   usz       len = mf_gather(buf), off = 0;
   mf_n = 0;
   if (moqfetch_hdr_take(wired_span_of(buf, len), &off, &mf_hdr_rid) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return 0;
+  }
   while (off < len && mf_n < 32) {
     moqfetch_obj o;
-    if (moqfetch_obj_take(wired_span_of(buf, len), &off, &seq, &o) != MOQCTL_OK)
+    if (moqfetch_obj_take(wired_span_of(buf, len), &off, &seq, &o) !=
+        MOQCTL_OK) {
       return 0;
+    }
     mf_items[mf_n].flags  = o.flags;
     mf_items[mf_n].group  = o.group;
     mf_items[mf_n].object = o.object;
@@ -291,7 +304,9 @@ static int mf_read_desc(void) {
  * nothing is fetched upstream.) */
 static void test_moqtrun_fetch_descending_unknown_groups(void) {
   mf_init(2 * (MOQCACHE_HDR + 1));
-  for (u64 g = 0; g < 4; g++) mf_obj(g, 0, 1);
+  for (u64 g = 0; g < 4; g++) {
+    mf_obj(g, 0, 1);
+  }
   g_open_bidi_fail_n = 1;
   mf_standalone_order(mf_loc(0, 0), mf_loc(3, 0), 0x2);
   CHECK(mf_read_desc());
@@ -537,27 +552,38 @@ static void test_moqtrun_fetch_requester_leaves(void) {
   g_stream_send_ok_n = -1;
   usz before         = g_n_calls;
   wired_moqt_tick(&mtst_hub, 1);
-  for (usz i = before; i < g_n_calls; i++) CHECK(g_calls[i].s != SESS_B);
+  for (usz i = before; i < g_n_calls; i++) {
+    CHECK(g_calls[i].s != SESS_B);
+  }
 }
 
 /* 1 iff no fetch slot is in use. */
 static int mf_no_fetch(void) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (mtst_hub.fetches[i].in_use) return 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (mtst_hub.fetches[i].in_use) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 /* B's fetch data stream id (its FETCH_HEADER open). */
 static u64 mf_data_sid(void) {
-  for (usz i = g_n_calls; i-- > 0;)
-    if (mf_opens(&g_calls[i])) return g_calls[i].stream_id;
+  for (usz i = g_n_calls; i-- > 0;) {
+    if (mf_opens(&g_calls[i])) {
+      return g_calls[i].stream_id;
+    }
+  }
   return ~(u64)0;
 }
 
 /* 1 iff the hub reset stream sid toward B. */
 static int mf_reset_sent(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) return 1;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -631,11 +657,17 @@ static int mf_relayed(u64 g, u64 o) {
   usz                      off = 0;
   moqdata_subhdr           h;
   moqdata_obj              obj;
-  if (!c || c->s != SESS_B) return 0;
+  if (!c || c->s != SESS_B) {
+    return 0;
+  }
   wired_span w = wired_span_of(c->payload, c->payload_len);
-  if (moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) return 0;
+  if (moqdata_subhdr_take(w, &off, &h) != MOQDATA_OK) {
+    return 0;
+  }
   moqdata_objseq seq = moqdata_objseq_of(h.type);
-  if (moqdata_obj_take(w, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  if (moqdata_obj_take(w, &off, &seq, &obj) != MOQDATA_OK) {
+    return 0;
+  }
   return h.group_id == g && obj.object_id == o;
 }
 
@@ -699,9 +731,15 @@ static void test_moqtrun_fetch_join_unknown_request(void) {
 /* draft-22 FETCH (SS9.11) body without Parameters: no LOCATION_FILTER. */
 static int mf_enc_fetch22_bare(wired_mspan buf, usz* off, const void* v) {
   const moqfetch_req* m = v;
-  if (!moqvi_put(buf, off, m->request_id)) return 0;
-  if (!moqctl_ns_put(buf, off, &m->track.ns)) return 0;
-  if (!moqctl_name_put(buf, off, m->track.name)) return 0;
+  if (!moqvi_put(buf, off, m->request_id)) {
+    return 0;
+  }
+  if (!moqctl_ns_put(buf, off, &m->track.ns)) {
+    return 0;
+  }
+  if (!moqctl_name_put(buf, off, m->track.name)) {
+    return 0;
+  }
   return moqvi_put(buf, off, 0);
 }
 
@@ -720,7 +758,9 @@ static void mf_fetch22(const moqctl_rangeloc* rl) {
   m.request_id = mf_req_sid;
   m.track      = mf_track();
   m.params.n   = 0;
-  if (rl) m.range = *rl;
+  if (rl) {
+    m.range = *rl;
+  }
   n = moqtrun_envelope_put(
       wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
       rl ? mf_enc_fetch22 : mf_enc_fetch22_bare, &m);

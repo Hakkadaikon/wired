@@ -24,25 +24,38 @@
  */
 
 static int moqdg_test_bytes_eq(wired_span a, const u8* p, usz n) {
-  if (a.n != n) return 0;
-  for (usz i = 0; i < n; i++)
-    if (a.p[i] != p[i]) return 0;
+  if (a.n != n) {
+    return 0;
+  }
+  for (usz i = 0; i < n; i++) {
+    if (a.p[i] != p[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 /* TEST: every valid Type value from the 11.3.1 list is accepted. */
 static void test_moqdg_type_valid_accepts(void) {
   static const u8 hi[] = {0x20, 0x21, 0x24, 0x25, 0x28, 0x29, 0x2c, 0x2d};
-  for (u64 t = 0x00; t <= 0x0f; t++) CHECK(moqdg_type_valid(t));
-  for (usz i = 0; i < sizeof hi; i++) CHECK(moqdg_type_valid(hi[i]));
+  for (u64 t = 0x00; t <= 0x0f; t++) {
+    CHECK(moqdg_type_valid(t));
+  }
+  for (usz i = 0; i < sizeof hi; i++) {
+    CHECK(moqdg_type_valid(hi[i]));
+  }
 }
 
 /* TEST: STATUS+EOG values and everything outside 0b00X0XXXX rejected. */
 static void test_moqdg_type_valid_rejects(void) {
   static const u8 seog[] = {0x22, 0x23, 0x26, 0x27, 0x2a, 0x2b, 0x2e, 0x2f};
   static const u8 form[] = {0x10, 0x18, 0x1f, 0x30, 0x40, 0x80, 0xd0};
-  for (usz i = 0; i < sizeof seog; i++) CHECK(!moqdg_type_valid(seog[i]));
-  for (usz i = 0; i < sizeof form; i++) CHECK(!moqdg_type_valid(form[i]));
+  for (usz i = 0; i < sizeof seog; i++) {
+    CHECK(!moqdg_type_valid(seog[i]));
+  }
+  for (usz i = 0; i < sizeof form; i++) {
+    CHECK(!moqdg_type_valid(form[i]));
+  }
   CHECK(!moqdg_type_valid(0x100));
   CHECK(!moqdg_type_valid(0x108)); /* 0x08 + bit 8: low byte alone lies */
   CHECK(!moqdg_type_valid((u64)-1));
@@ -210,8 +223,9 @@ static void test_moqdg_take_insufficient(void) {
       g_moqt_data_dgram_insufficient_ids,
       G_MOQT_DATA_DGRAM_INSUFFICIENT_IDS_LEN, MOQDATA_INSUFFICIENT);
   /* basic: 4 header bytes precede the payload; 0..3 all truncate */
-  for (usz n = 0; n < 4; n++)
+  for (usz n = 0; n < 4; n++) {
     moqdg_test_take_rejects(g_moqt_data_dgram_basic, n, MOQDATA_INSUFFICIENT);
+  }
   /* status form cut before the Status varint */
   moqdg_test_take_rejects(
       g_moqt_data_dgram_status_eot, 4, MOQDATA_INSUFFICIENT);

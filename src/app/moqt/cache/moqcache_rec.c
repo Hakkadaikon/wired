@@ -28,8 +28,9 @@ static int moqcache_at_or_after(moqcache_rec r, u64 tag, moqctl_loc cur) {
 /* Offset of tag's first record from off reaching cur, else c->used. */
 static usz moqcache_scan(const moqcache* c, usz off, u64 tag, moqctl_loc cur) {
   while (off < c->used &&
-         !moqcache_at_or_after(moqcache_rec_at(c, off), tag, cur))
+         !moqcache_at_or_after(moqcache_rec_at(c, off), tag, cur)) {
     off += moqcache_rec_size(moqcache_rec_at(c, off));
+  }
   return off;
 }
 
@@ -64,13 +65,17 @@ static int moqcache_holds(const moqcache* c, usz off, moqctl_loc cur) {
 
 /* Where a skipped (nonexistent) stretch ends. */
 static moqctl_loc moqcache_gap_end(const moqcache* c, usz off, moqctl_loc end) {
-  if (off == c->used) return end;
+  if (off == c->used) {
+    return end;
+  }
   return moqctl_loc_min(moqcache_rec_first(moqcache_rec_at(c, off)), end);
 }
 
 moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end) {
   usz off = moqcache_find(c, tag, cur);
-  if (moqcache_holds(c, off, cur) || !moqcache_covered(c, tag, cur)) return cur;
+  if (moqcache_holds(c, off, cur) || !moqcache_covered(c, tag, cur)) {
+    return cur;
+  }
   return moqcache_gap_end(c, off, end);
 }
 
@@ -85,11 +90,13 @@ int moqcache_is_obj(moqcache_rec r, moqctl_loc cur) {
 moqctl_loc moqcache_unknown_stop(
     const moqcache* c, usz off, moqctl_loc cur, moqctl_loc end) {
   moqctl_loc stop = end;
-  if (off < c->used)
+  if (off < c->used) {
     stop = moqctl_loc_of(
         moqcache_rec_at(c, off).group + moqcache_dead(moqcache_rec_at(c, off)),
         0);
-  if (!moqctl_loc_less(cur, stop))
+  }
+  if (!moqctl_loc_less(cur, stop)) {
     stop = moqctl_loc_of(cur.group, cur.object + 1);
+  }
   return moqctl_loc_min(stop, end);
 }

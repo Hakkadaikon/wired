@@ -11,7 +11,9 @@ static void moqtrun_dispatch_skip(
 
 static void moqtrun_impl_copy(wired_moqtrun_peer* p, const moqctl_setup* m) {
   usz n = (usz)u64_min(m->implementation.n, WIRED_MOQTRUN_IMPL_MAX);
-  if (!m->has_implementation) return;
+  if (!m->has_implementation) {
+    return;
+  }
   bytes_memcpy(p->peer_impl, m->implementation.p, n);
   p->peer_impl_len = n;
   p->peer_has_impl = 1;
@@ -60,7 +62,9 @@ static void moqtrun_dispatch_pub_notify(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   (void)body;
-  if (p->req) return;
+  if (p->req) {
+    return;
+  }
   moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
@@ -105,15 +109,20 @@ static const struct {
 };
 
 moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
-  for (usz i = 0; i < MOQTRUN_CTL_TABLE_N; i++)
-    if (moqtrun_ctl_table[i].type == type) return moqtrun_ctl_table[i].fn;
+  for (usz i = 0; i < MOQTRUN_CTL_TABLE_N; i++) {
+    if (moqtrun_ctl_table[i].type == type) {
+      return moqtrun_ctl_table[i].fn;
+    }
+  }
   return moqtrun_dispatch_not_supported;
 }
 
 /* Closes p's session with code, after which nothing more is sent on it;
  * 0 when the io table has no close_session. */
 int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
-  if (!hub->io.close_session) return 0;
+  if (!hub->io.close_session) {
+    return 0;
+  }
   hub->io.close_session(p->wt, code, wired_span_of(0, 0));
   p->closing = 1;
   return 1;
@@ -125,7 +134,9 @@ int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
  * stream alive. */
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   wired_moqtrun_ctl_asm* a = moqtrun_cur_asm(p);
-  if (!moqtrun_peer_close(hub, p, code)) return;
+  if (!moqtrun_peer_close(hub, p, code)) {
+    return;
+  }
   a->at   = a->n;
   a->skip = (usz)-1;
 }
@@ -149,7 +160,11 @@ void moqtrun_dispatch_over_cap(
 }
 
 moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
-  if (peek == MOQCTL_UNKNOWN_TYPE) return moqtrun_dispatch_close;
-  if (peek == MOQTRUN_ASM_OVER_CAP) return moqtrun_dispatch_over_cap;
+  if (peek == MOQCTL_UNKNOWN_TYPE) {
+    return moqtrun_dispatch_close;
+  }
+  if (peek == MOQTRUN_ASM_OVER_CAP) {
+    return moqtrun_dispatch_over_cap;
+  }
   return moqtrun_ctl_lookup(type);
 }

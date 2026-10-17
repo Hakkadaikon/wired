@@ -16,10 +16,11 @@ static int srv_emit_flight(
 static int srv_advance_handshake(wired_server* s, u8 ecdhe[X25519_LEN]) {
   wired_span ecdhe_span = wired_span_of(ecdhe, X25519_LEN);
   wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
-  if (s->sdrv.psk_accepted)
+  if (s->sdrv.psk_accepted) {
     return keysched_advance_handshake_psk(
         &s->sched, wired_span_of(s->sdrv.psk_secret, server_srv_hash(s)->len),
         ecdhe_span, tr_span);
+  }
   return keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
 }
 
@@ -31,8 +32,12 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[X25519_LEN]) {
  * client key) rejection already ran there: hs_ready is only set after the
  * shared secret passed it. */
 static int srv_derive_hs(wired_server* s, u8 ecdhe[X25519_LEN]) {
-  if (!s->sdrv.hs_ready) return 0;
-  for (usz i = 0; i < X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
+  if (!s->sdrv.hs_ready) {
+    return 0;
+  }
+  for (usz i = 0; i < X25519_LEN; i++) {
+    ecdhe[i] = s->sdrv.ecdhe_secret[i];
+  }
   keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
   /* RFC 9369 3.3.1: Handshake/1-RTT packet-protection labels follow the
    * connection's negotiated version ("quicv2 " prefix under v2). */
@@ -43,8 +48,12 @@ static int srv_derive_hs(wired_server* s, u8 ecdhe[X25519_LEN]) {
 static int srv_install_hs_keys(wired_server* s) {
   u8                  ecdhe[X25519_LEN];
   const initial_keys* shs;
-  if (!srv_derive_hs(s, ecdhe)) return 0;
-  if (!keysched_get(&s->sched, KS_SERVER_HS, &shs)) return 0;
+  if (!srv_derive_hs(s, ecdhe)) {
+    return 0;
+  }
+  if (!keysched_get(&s->sched, KS_SERVER_HS, &shs)) {
+    return 0;
+  }
   return keyset_install(&s->keys, LEVEL_HANDSHAKE, shs);
 }
 
@@ -58,14 +67,20 @@ static int srv_after_flight(wired_server* s, const sdrv_flight_out* out) {
 /* Build the flight via sdrv and finish the transcript/key bookkeeping. */
 static int srv_emit_flight(
     wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
-  if (!sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
+  if (!sdrv_build_server_flight(&s->sdrv, server_random, out)) {
+    return 0;
+  }
   return srv_after_flight(s, out);
 }
 
 int wired_server_build_flight(
     wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
-  if (s->phase != WIRED_SERVER_HS_CH_RECVD) return 0;
-  if (!srv_emit_flight(s, server_random, out)) return 0;
+  if (s->phase != WIRED_SERVER_HS_CH_RECVD) {
+    return 0;
+  }
+  if (!srv_emit_flight(s, server_random, out)) {
+    return 0;
+  }
   s->phase = WIRED_SERVER_HS_FLIGHT_SENT;
   return 1;
 }
@@ -78,7 +93,9 @@ int server_srv_verify_finished(
   const u8*        hs;
   u8               th[TLS_HASH_MAX];
   derive_secret_in dsi;
-  if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
+  if (!sdrv_handshake_secret(&s->sdrv, &hs)) {
+    return 0;
+  }
   dsi.secret   = hs;
   dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
   dsi.messages = wired_span_of(s->tr, s->tr_through_sh);

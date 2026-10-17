@@ -141,8 +141,11 @@ static void test_lhdr_rfc9001_a2(void) {
   usz        w = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w == sizeof(expect));
   int match = 1;
-  for (usz i = 0; i < sizeof(expect); i++)
-    if (out[i] != expect[i]) match = 0;
+  for (usz i = 0; i < sizeof(expect); i++) {
+    if (out[i] != expect[i]) {
+      match = 0;
+    }
+  }
   CHECK(match);
   /* Length field is the two-byte varint 0x449e at its recorded offset. */
   CHECK(out[len_off] == 0x44 && out[len_off + 1] == 0x9e);

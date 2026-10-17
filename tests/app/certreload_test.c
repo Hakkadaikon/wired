@@ -133,7 +133,9 @@ static void test_certreload_loads_nine_cert_chain(void) {
       wired_certreload_load(crt_cert_nine_path, crt_key_path, &store, &id) ==
       1);
   CHECK(id.chain_count == 9);
-  for (i = 0; i < 9; i++) CHECK(id.chain[i].n == sizeof(realchain_leaf_der));
+  for (i = 0; i < 9; i++) {
+    CHECK(id.chain[i].n == sizeof(realchain_leaf_der));
+  }
   crt_unlink(crt_cert_nine_path);
   crt_unlink(crt_key_path);
 }

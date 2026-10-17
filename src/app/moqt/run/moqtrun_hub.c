@@ -10,7 +10,9 @@ static void moqtrun_hub_rel_stats_clear(wired_moqt_hub* hub);
 static void moqtrun_hub_pools_clear(wired_moqt_hub* hub);
 
 static void moqtrun_frag_pool_clear(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) hub->frag_owner[i] = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) {
+    hub->frag_owner[i] = 0;
+  }
 }
 
 static void moqtrun_fetch_arr_clear(wired_moqtrun_fetch* arr) {
@@ -83,7 +85,9 @@ static void moqtrun_hub_rel_stats_clear(wired_moqt_hub* hub) {
 }
 
 static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) {
+    moqtrel_reset(&hub->rel_pool[i]);
+  }
   moqtss_hub_init(hub); /* SSTS (moqtssts_run.c): off */
   moqtrun_reqs_clear(hub);
   moqtrun_rdv_clear(hub);

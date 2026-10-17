@@ -211,7 +211,9 @@ static void test_qpack_literal_never_bit_preserved(void) {
 static void test_qpack_oversized_value_rejects_whole_line(void) {
   const u8 nm[] = {'n'};
   u8       big_value[64];
-  for (usz i = 0; i < sizeof big_value; i++) big_value[i] = (u8)('a' + i % 26);
+  for (usz i = 0; i < sizeof big_value; i++) {
+    big_value[i] = (u8)('a' + i % 26);
+  }
   u8          buf[128];
   qpack_field ef = {
       wired_span_of(nm, 1), wired_span_of(big_value, sizeof big_value)};

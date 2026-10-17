@@ -51,12 +51,16 @@ void test_negotiate_build_response(void) {
                                  0x74, 0x65, 0x72, 0x6f, 0x70};
   CHECK(salpn_build_response(SALPN_H3, out, sizeof(out), &n) == 1);
   CHECK(n == 9);
-  for (usz i = 0; i < 9; i++) CHECK(out[i] == want_h3[i]);
+  for (usz i = 0; i < 9; i++) {
+    CHECK(out[i] == want_h3[i]);
+  }
   CHECK(salpn_build_response(SALPN_H3, out, 8, &n) == 0); /* too small */
 
   CHECK(salpn_build_response(SALPN_HQ, out, sizeof(out), &n) == 1);
   CHECK(n == 17);
-  for (usz i = 0; i < 17; i++) CHECK(out[i] == want_hq[i]);
+  for (usz i = 0; i < 17; i++) {
+    CHECK(out[i] == want_hq[i]);
+  }
   CHECK(salpn_build_response(SALPN_HQ, out, 16, &n) == 0); /* too small */
 
   CHECK(salpn_build_response(SALPN_NONE, out, sizeof(out), &n) == 0);

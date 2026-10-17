@@ -42,7 +42,9 @@ static int spec_matches(const instr_spec* s, u8 b) {
  * Returns its index, or count if none (cannot happen for total maskings). */
 static usz spec_classify(const instr_spec* specs, usz count, u8 b) {
   usz i = 0;
-  while (i < count && !spec_matches(&specs[i], b)) i++;
+  while (i < count && !spec_matches(&specs[i], b)) {
+    i++;
+  }
   return i;
 }
 
@@ -61,9 +63,13 @@ typedef struct {
 /* Decode one instruction from the set: classify the leading byte, read its
  * prefix integer. Fills *f, returns bytes consumed or 0. */
 static usz instr_decode(wired_span buf, const instr_set* s, instr_field* f) {
-  if (buf.n == 0) return 0;
+  if (buf.n == 0) {
+    return 0;
+  }
   f->kind = spec_classify(s->specs, s->count, buf.p[0]);
-  if (f->kind >= s->count) return 0;
+  if (f->kind >= s->count) {
+    return 0;
+  }
   return qpack_int_decode(buf, s->specs[f->kind].prefix_bits, &f->value);
 }
 

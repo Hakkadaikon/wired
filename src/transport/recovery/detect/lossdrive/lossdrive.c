@@ -10,7 +10,9 @@ static int slot_lost(const sentpkt* t, usz i) {
 /* RFC 9002 6: reclaim slots marked lost so the table no longer tracks them. */
 static void drop_lost(sentpkt* t) {
   for (usz i = 0; i < SENTPKT_CAP; i++) {
-    if (slot_lost(t, i)) t->e[i].used = 0;
+    if (slot_lost(t, i)) {
+      t->e[i].used = 0;
+    }
   }
 }
 

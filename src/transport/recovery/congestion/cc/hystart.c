@@ -22,7 +22,9 @@ void hystart_init(hystart* h) {
  * MAX_RTT_THRESH). */
 static u64 hystart_eta(u64 last_min) {
   u64 eta = last_min / 8;
-  if (eta < HYSTART_MIN_ETA) return HYSTART_MIN_ETA;
+  if (eta < HYSTART_MIN_ETA) {
+    return HYSTART_MIN_ETA;
+  }
   return eta > HYSTART_MAX_ETA ? HYSTART_MAX_ETA : eta;
 }
 
@@ -43,7 +45,9 @@ static void hystart_maybe_roll(hystart* h, u64 acked_pn, u64 next_pn) {
     h->have_boundary = 1;
     return;
   }
-  if (acked_pn >= h->round_end_pn) hystart_roll(h, next_pn);
+  if (acked_pn >= h->round_end_pn) {
+    hystart_roll(h, next_pn);
+  }
 }
 
 /* Exit verdict: enough samples this round, a previous round to compare, and
@@ -57,7 +61,9 @@ static int hystart_due(const hystart* h) {
 /* RFC 9406 4.2: a delay increase enters CSS with this round's min as the
  * baseline; slow start itself goes on. */
 static int hystart_ss_step(hystart* h) {
-  if (!hystart_due(h)) return 0;
+  if (!hystart_due(h)) {
+    return 0;
+  }
   h->css          = 1;
   h->css_baseline = h->curr_round_min;
   h->css_rounds   = 0;
@@ -86,7 +92,9 @@ u64 hystart_acked(const hystart* h, u64 acked) {
 
 int hystart_sample(hystart* h, u64 rtt_ms, u64 acked_pn, u64 next_pn) {
   hystart_maybe_roll(h, acked_pn, next_pn);
-  if (rtt_ms < h->curr_round_min) h->curr_round_min = rtt_ms;
+  if (rtt_ms < h->curr_round_min) {
+    h->curr_round_min = rtt_ms;
+  }
   h->samples++;
   return h->css ? hystart_css_step(h) : hystart_ss_step(h);
 }

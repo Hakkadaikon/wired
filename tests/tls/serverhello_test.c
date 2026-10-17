@@ -7,7 +7,9 @@ static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz block, end;
   out[off]     = 0x03;
   out[off + 1] = 0x03; /* legacy_version */
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = (u8)(0x10 + i); /* random */
+  for (usz i = 0; i < 32; i++) {
+    out[off + 2 + i] = (u8)(0x10 + i); /* random */
+  }
   out[off + 34] = 0; /* session_id len */
   out[off + 35] = 0x13;
   out[off + 36] = 0x01; /* cipher_suite */
@@ -31,7 +33,9 @@ static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
   out[off + 5] = 0x1d;
   out[off + 6] = 0x00;
   out[off + 7] = 32;
-  for (usz i = 0; i < 32; i++) out[off + 8 + i] = pub[i];
+  for (usz i = 0; i < 32; i++) {
+    out[off + 8 + i] = pub[i];
+  }
   off += 40;
   out[block]     = (u8)((off - block - 2) >> 8);
   out[block + 1] = (u8)(off - block - 2);
@@ -44,12 +48,16 @@ static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
 static void test_server_hello_roundtrip(void) {
   u8              pub[32], got[32], buf[256];
   serverhello_out sh = {0, 0};
-  for (usz i = 0; i < 32; i++) pub[i] = (u8)(0x80 + i);
+  for (usz i = 0; i < 32; i++) {
+    pub[i] = (u8)(0x80 + i);
+  }
   usz w = build_sh(buf, sizeof(buf), pub);
   CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 1);
   CHECK(sh.cipher == 0x1301);
   CHECK(sh.version == 0x0304);
-  for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(got[i] == pub[i]);
+  }
 }
 
 static void test_server_hello_wrong_type(void) {
@@ -107,7 +115,9 @@ static void test_server_hello_rejects_downgrade_sentinel(void) {
   u8              pub[32]     = {0}, got[32], buf[256];
   serverhello_out sh;
   usz             w = build_sh(buf, sizeof(buf), pub);
-  for (usz i = 0; i < 8; i++) buf[6 + 24 + i] = sentinel[i];
+  for (usz i = 0; i < 8; i++) {
+    buf[6 + 24 + i] = sentinel[i];
+  }
   CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 0);
   buf[6 + 24 + 7] = 0x00; /* TLS 1.1-and-below sentinel */
   CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 0);

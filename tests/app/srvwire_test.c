@@ -34,7 +34,9 @@ static void test_srvwire_initial_roundtrip(void) {
   srvwire_open_initial_in oin = {wired_span_of(dcid, 8), 1};
   CHECK(srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
   CHECK(tls.n == sizeof(sh));
-  for (usz i = 0; i < sizeof(sh); i++) CHECK(tls.p[i] == sh[i]);
+  for (usz i = 0; i < sizeof(sh); i++) {
+    CHECK(tls.p[i] == sh[i]);
+  }
 }
 
 /* A flipped ciphertext byte must fail AEAD on open. */
@@ -95,7 +97,9 @@ static void hs_keys(initial_keys* k, aes128* hp) {
     k->key[i] = (u8)(0x10 + i);
     k->hp[i]  = (u8)(0x90 + i);
   }
-  for (usz i = 0; i < 12; i++) k->iv[i] = (u8)(0x30 + i);
+  for (usz i = 0; i < 12; i++) {
+    k->iv[i] = (u8)(0x30 + i);
+  }
   aes128_init(hp, k->hp);
 }
 
@@ -127,7 +131,9 @@ static void test_srvwire_handshake_roundtrip(void) {
   wired_span tls = {0, 0};
   CHECK(srvwire_open_handshake(&pk, wired_mspan_of(pkt, ob.len), &tls));
   CHECK(tls.n == sizeof(fl));
-  for (usz i = 0; i < sizeof(fl); i++) CHECK(tls.p[i] == fl[i]);
+  for (usz i = 0; i < sizeof(fl); i++) {
+    CHECK(tls.p[i] == fl[i]);
+  }
 }
 
 /* Wrong Handshake keys must fail to open. */
@@ -168,9 +174,11 @@ static int find_trailing_ack(const u8* frames, usz n, ack_frame* ack) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, frames, n);
-  while (framewalk_next(&it, &fr))
-    if (fr.type == FRAME_ACK)
+  while (framewalk_next(&it, &fr)) {
+    if (fr.type == FRAME_ACK) {
       return ack_decode(fr.start, fr.remaining, ack) != 0;
+    }
+  }
   return 0;
 }
 

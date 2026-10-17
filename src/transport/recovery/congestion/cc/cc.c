@@ -30,7 +30,9 @@ static void grow(cc* c, u64 acked) {
 
 /* Leave recovery once an ack arrives for a packet sent after it began. */
 static void maybe_exit_recovery(cc* c, u64 sent_time) {
-  if (c->in_recovery && sent_time > c->recovery_start) c->in_recovery = 0;
+  if (c->in_recovery && sent_time > c->recovery_start) {
+    c->in_recovery = 0;
+  }
 }
 
 /* RFC 9438 4.1: lift cwnd onto the cubic curve at `now`; before the first
@@ -42,7 +44,9 @@ static void grow_cubic(cc* c, u64 acked, u64 now) {
     return;
   }
   target = cubic_w(now - c->epoch_ms, c->k_ms, c->w_max_seg) * MAX_DATAGRAM;
-  if (target > c->cwnd) c->cwnd = target;
+  if (target > c->cwnd) {
+    c->cwnd = target;
+  }
 }
 
 /* BBR: acks only feed the samplers; cwnd moves in cc_bbr_tick. */
@@ -65,7 +69,9 @@ void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now) {
     return;
   }
   maybe_exit_recovery(c, sent_time);
-  if (!c->in_recovery) grow_algo(c, acked, now);
+  if (!c->in_recovery) {
+    grow_algo(c, acked, now);
+  }
 }
 
 /* RFC 9438 4.6/4.7: remember W_max (fast convergence), re-anchor the cubic
@@ -79,12 +85,16 @@ static u64 loss_window_cubic(cc* c, u64 now) {
 }
 
 static u64 loss_window(cc* c, u64 now) {
-  if (c->algo == CC_ALGO_CUBIC) return loss_window_cubic(c, now);
+  if (c->algo == CC_ALGO_CUBIC) {
+    return loss_window_cubic(c, now);
+  }
   return u64_max(c->cwnd / 2, CC_MIN_WINDOW);
 }
 
 void cc_on_loss(cc* c, u64 sent_time, u64 now) {
-  if (c->in_recovery || sent_time < c->recovery_start) return; /* once/window */
+  if (c->in_recovery || sent_time < c->recovery_start) {
+    return; /* once/window */
+  }
   c->ssthresh       = loss_window(c, now);
   c->cwnd           = c->ssthresh;
   c->in_recovery    = 1;
@@ -95,7 +105,9 @@ void cc_on_loss(cc* c, u64 sent_time, u64 now) {
  * (congestion_recovery_start_time = 0). BBR sizes cwnd from its own model
  * (bbr_set_cwnd), so it is left alone. */
 void cc_on_persistent(cc* c) {
-  if (c->algo == CC_ALGO_BBR) return;
+  if (c->algo == CC_ALGO_BBR) {
+    return;
+  }
   c->cwnd           = CC_MIN_WINDOW;
   c->in_recovery    = 0;
   c->recovery_start = 0;
@@ -121,7 +133,9 @@ static int bbr_round_counts(const cc* c, u64 rate) {
  * datagram (~ms) and would spin the 8-phase cycle into noise -- and the
  * next round's baseline. */
 static void bbr_round_feed(cc* c, u64 now_ms, u64 rate) {
-  if (bbr_round_counts(c, rate)) bbr_on_round(&c->bbr, rate);
+  if (bbr_round_counts(c, rate)) {
+    bbr_on_round(&c->bbr, rate);
+  }
   bbr_cycle_tick(&c->bbr);
   c->round_bytes    = 0;
   c->round_start_ms = now_ms;
@@ -131,7 +145,9 @@ static void bbr_round_feed(cc* c, u64 now_ms, u64 rate) {
 static void bbr_round_close(cc* c, u64 now_ms) {
   u64 span = now_ms - c->round_start_ms;
   u64 need = u64_max(c->bbr.rtprop_ms, 1);
-  if (span < need || !c->round_bytes) return;
+  if (span < need || !c->round_bytes) {
+    return;
+  }
   bbr_round_feed(c, now_ms, c->round_bytes / span);
 }
 
@@ -144,23 +160,30 @@ static void bbr_round_close(cc* c, u64 now_ms) {
 /* cwnd = cwnd_gain x BDP once the estimators have data. */
 static void bbr_set_cwnd(cc* c) {
   u64 bdp = bbr_bdp(c);
-  if (!bdp) return;
+  if (!bdp) {
+    return;
+  }
   c->cwnd = u64_max(bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, CC_BBR_MIN_CWND);
 }
 
 void cc_bbr_tick(cc* c, u64 inflight_bytes, u64 now_ms) {
-  if (c->algo != CC_ALGO_BBR) return;
+  if (c->algo != CC_ALGO_BBR) {
+    return;
+  }
   bbr_round_close(c, now_ms);
   bbr_drained(&c->bbr, inflight_bytes <= bbr_bdp(c));
-  if (!bbr_check_probe_rtt(&c->bbr, now_ms))
+  if (!bbr_check_probe_rtt(&c->bbr, now_ms)) {
     bbr_probe_rtt_exit(&c->bbr, now_ms);
+  }
   bbr_set_cwnd(c);
 }
 
 /* BBR rate: mtu / (pacing_gain x btl_bw), floored at 1ms once bw is known. */
 static u64 bbr_pacing_ms(const cc* c, u64 mtu) {
   u64 rate = bbr_pacing_gain_pct(&c->bbr) * c->bbr.btl_bw / 100;
-  if (!rate) return 0;
+  if (!rate) {
+    return 0;
+  }
   return u64_max(mtu / rate, 1);
 }
 
@@ -175,6 +198,8 @@ static u64 newreno_pacing_ms(const cc* c, u64 srtt_ms, u64 mtu) {
 }
 
 u64 cc_pacing_ms(const cc* c, u64 srtt_ms, u64 mtu) {
-  if (c->algo == CC_ALGO_BBR) return bbr_pacing_ms(c, mtu);
+  if (c->algo == CC_ALGO_BBR) {
+    return bbr_pacing_ms(c, mtu);
+  }
   return newreno_pacing_ms(c, srtt_ms, mtu);
 }

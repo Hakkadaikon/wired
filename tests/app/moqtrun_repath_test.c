@@ -65,8 +65,9 @@ static void mrp_group(wired_wt_session* s, u64 sid, u64 g, u64 status) {
   h.group_id         = g;
   moqdata_subhdr_put(out, &off, &h);
   moqdata_obj_put(out, &off, 0, wired_span_of(&b, 1));
-  if (status != MOQDATA_STATUS_NORMAL)
+  if (status != MOQDATA_STATUS_NORMAL) {
     moqdata_obj_put_status(out, &off, 0, status);
+  }
   wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off), 1);
 }
 
@@ -88,10 +89,16 @@ static usz mrp_dones(wired_wt_session* s, u64* st) {
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
     u64                      x;
-    if (c->s != s || c->stream_id != MRDV_S1) continue;
-    if (c->kind != 3 && c->kind != 12) continue;
+    if (c->s != s || c->stream_id != MRDV_S1) {
+      continue;
+    }
+    if (c->kind != 3 && c->kind != 12) {
+      continue;
+    }
     x = mtdr_done_in(c, &count);
-    if (x == ~(u64)0) continue;
+    if (x == ~(u64)0) {
+      continue;
+    }
     n++;
     *st       = x;
     mrp_count = count;
@@ -107,12 +114,13 @@ static int mrp_done_once_n(u64 status, u64 streams) {
   nc     = mrp_count;
   ok     = ok && mrp_dones(SESS_D, &sd) == 1;
   ok     = ok && nc == streams && mrp_count == streams;
-  if (!ok || sc != status || sd != status)
+  if (!ok || sc != status || sd != status) {
     printf(
         "  done C %llx/%llu D %llx/%llu want %llx/%llu\n",
         (unsigned long long)sc, (unsigned long long)nc, (unsigned long long)sd,
         (unsigned long long)mrp_count, (unsigned long long)status,
         (unsigned long long)streams);
+  }
   return ok && sc == status && sd == status;
 }
 
@@ -126,10 +134,12 @@ static int mrp_no_done(void) {
 
 /* 1 iff the hub reset its stream sid toward s. */
 static int mrp_reset_on(wired_wt_session* s, i64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 7 && g_calls[i].s == s &&
-        g_calls[i].stream_id == (u64)sid)
+        g_calls[i].stream_id == (u64)sid) {
       return 1;
+    }
+  }
   return 0;
 }
 
@@ -137,11 +147,18 @@ static int mrp_reset_on(wired_wt_session* s, i64 sid) {
 enum { MRP_GA, MRP_IE, MRP_RESET, MRP_CLOSE, MRP_ENDS };
 
 static void mrp_end(int how) {
-  if (how == MRP_GA) mups_done(mrp_up_a, MOQCTL_DONE_GOING_AWAY);
-  if (how == MRP_IE) mups_done(mrp_up_a, MOQCTL_DONE_INTERNAL_ERROR);
-  if (how == MRP_RESET)
+  if (how == MRP_GA) {
+    mups_done(mrp_up_a, MOQCTL_DONE_GOING_AWAY);
+  }
+  if (how == MRP_IE) {
+    mups_done(mrp_up_a, MOQCTL_DONE_INTERNAL_ERROR);
+  }
+  if (how == MRP_RESET) {
     wired_moqt_on_stream_reset(&mtst_hub, SESS_A, mrp_up_a, 1, 0);
-  if (how == MRP_CLOSE) wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  }
+  if (how == MRP_CLOSE) {
+    wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  }
 }
 
 /* A GOING_AWAY from A, B announced: B gets one SUBSCRIBE in the same
@@ -178,7 +195,9 @@ static void test_moqtrun_repath_each_end(void) {
     CHECK(sid >= 0);
     mrp_ok(SESS_B, sid);
     CHECK(mrp_relayed(SESS_B));
-    if (wired_test_fails != fails) printf("  ^ end %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ end %d\n", how);
+    }
   }
 }
 
@@ -212,7 +231,9 @@ static void test_moqtrun_repath_hub_closes(void) {
     CHECK(mups_n_up(SESS_B) == 1);
     mrp_ok(SESS_B, mrp_up(SESS_B, 0));
     CHECK(mrp_relayed(SESS_B));
-    if (wired_test_fails != fails) printf("  ^ drain %d\n", drain);
+    if (wired_test_fails != fails) {
+      printf("  ^ drain %d\n", drain);
+    }
   }
 }
 
@@ -234,8 +255,9 @@ static void test_moqtrun_repath_final_status(void) {
     CHECK(mrp_done_once(moqctl_publish_done_for(g_moqtrun_test_ver, st[i])));
     CHECK(mups_n_up(SESS_B) == 0);
     CHECK(mrdv_used() == 0);
-    if (wired_test_fails != fails)
+    if (wired_test_fails != fails) {
       printf("  ^ status %llx\n", (unsigned long long)st[i]);
+    }
   }
 }
 
@@ -291,7 +313,9 @@ static void test_moqtrun_repath_expiry_status(void) {
     mrp_end(how);
     wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
     CHECK(mrp_done_once(want[how]));
-    if (wired_test_fails != fails) printf("  ^ end %d\n", how);
+    if (wired_test_fails != fails) {
+      printf("  ^ end %d\n", how);
+    }
   }
 }
 
@@ -536,11 +560,12 @@ static void test_moqtrun_repath_stream_count(void) {
  * memory starts unzeroed; a plain waiter's claim leaves both unset). */
 static void test_moqtrun_repath_done_fields_set_at_claim(void) {
   mrp_init();
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     if (!mtst_hub.rdv[i].in_use) {
       mtst_hub.rdv[i].done_status = 0x7777;
       mtst_hub.rdv[i].done_count  = 99;
     }
+  }
   mrp_group(SESS_A, MUPS_DATA_SID, 0, MOQDATA_STATUS_NORMAL);
   mrp_end(MRP_GA);
   wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_RDV_MAX_MS);
@@ -667,8 +692,9 @@ static void test_moqtrun_repath_no_room(void) {
   moqctl_ftn f = mtst_ftn("other", "room9", "x");
   u64        st;
   mrp_init();
-  for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++)
+  for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
     mrdv_hold_f(SESS_C, 12 + 4 * i, &f, 1000);
+  }
   mrp_end(MRP_GA);
   CHECK(mrp_dones(SESS_C, &st) == 1 && st == MOQCTL_DONE_GOING_AWAY);
   CHECK(mrp_dones(SESS_D, &st) == 0);
@@ -680,8 +706,12 @@ static usz mrp_dones_on(wired_wt_session* s, u64 sid) {
   u64 count;
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
-    if (c->s != s || c->stream_id != sid) continue;
-    if (c->kind != 3 && c->kind != 12) continue;
+    if (c->s != s || c->stream_id != sid) {
+      continue;
+    }
+    if (c->kind != 3 && c->kind != 12) {
+      continue;
+    }
     n += mtdr_done_in(c, &count) != ~(u64)0;
   }
   return n;
@@ -713,8 +743,9 @@ static void test_moqtrun_repath_session_share(void) {
   mtst_join(SESS_C);
   mtst_join(MRP_E);
   mtns_pub(MRP_E, MRDV_S1, "chat/room2");
-  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
     mrp_sub_ok(SESS_A, "room1", names[i], MTRQ_ID(10 + i), 7 + i);
+  }
   mrp_sub_ok(MRP_E, "room2", "x", MTRQ_ID(20), 7);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
   CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
@@ -722,8 +753,9 @@ static void test_moqtrun_repath_session_share(void) {
   mtst_send(
       MRP_E, (u64)mrp_up(MRP_E, 0), MOQCTL_T_PUBLISH_DONE, mups_enc_done, &d);
   CHECK(mrp_dones_on(SESS_C, MTRQ_ID(20)) == 1);
-  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
     CHECK(mrp_dones_on(SESS_C, MTRQ_ID(10 + i)) == 0);
+  }
   CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
 }
 
@@ -739,14 +771,20 @@ static void test_moqtrun_repath_table_full(void) {
   for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RDV; i++) {
     mtst_join((wired_wt_session*)(40 + i));
     mups_sub((wired_wt_session*)(40 + i), MRDV_S1);
-    if (!i) mrp_up_a = (u64)mups_up_sid();
-    if (!i) mups_ok(mrp_up_a);
+    if (!i) {
+      mrp_up_a = (u64)mups_up_sid();
+    }
+    if (!i) {
+      mups_ok(mrp_up_a);
+    }
   }
   mrp_end(MRP_GA);
-  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RDV; i++)
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RDV; i++) {
     if (mrp_dones((wired_wt_session*)(40 + i), &st) == 1 &&
-        st == MOQCTL_DONE_GOING_AWAY)
+        st == MOQCTL_DONE_GOING_AWAY) {
       dones++;
+    }
+  }
   CHECK(dones == 1);
   CHECK(mrp_dones((wired_wt_session*)(40 + WIRED_MOQTRUN_MAX_RDV), &st) == 1);
   CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV);

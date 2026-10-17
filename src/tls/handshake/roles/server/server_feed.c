@@ -32,7 +32,9 @@ static usz srv_ch_len(const wired_server* s) {
  * (the PSK and ClientHello it is derived over are both retained). */
 static void srv_keylog_early(const wired_server* s) {
   u8 secret[TLS_HASH_MAX];
-  if (!s->sdrv.early_data_accepted) return;
+  if (!s->sdrv.early_data_accepted) {
+    return;
+  }
   tls_early_traffic_secret_suite(
       s->sdrv.cipher_suite, s->sdrv.psk_secret,
       wired_span_of(s->tr, srv_ch_len(s)), secret);
@@ -51,9 +53,11 @@ static const struct {
 
 static void srv_keylog_master(const wired_server* s) {
   const u8* secret;
-  for (usz i = 0; i < sizeof srv_keylog_sched / sizeof *srv_keylog_sched; i++)
-    if (srv_keylog_sched[i].get(&s->sched, &secret))
+  for (usz i = 0; i < sizeof srv_keylog_sched / sizeof *srv_keylog_sched; i++) {
+    if (srv_keylog_sched[i].get(&s->sched, &secret)) {
       srv_keylog_line(s, srv_keylog_sched[i].label, secret);
+    }
+  }
 }
 
 /* A verified client Finished is the earliest point every secret is
@@ -61,7 +65,9 @@ static void srv_keylog_master(const wired_server* s) {
  * match the peer), so the whole log is written at confirmation. No-op when
  * no keylog path is set (opt-in). */
 static void srv_keylog(const wired_server* s, const u8* c_hs_traffic) {
-  if (!s->keylog_path) return;
+  if (!s->keylog_path) {
+    return;
+  }
   srv_keylog_early(s);
   srv_keylog_line(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", c_hs_traffic);
   srv_keylog_line(s, "SERVER_HANDSHAKE_TRAFFIC_SECRET", s->sdrv.s_hs_traffic);
@@ -79,8 +85,12 @@ static void srv_keylog(const wired_server* s, const u8* c_hs_traffic) {
 static int srv_seed_kuswitch_recv(wired_server* s) {
   const initial_keys* client_ap;
   const u8*           secret;
-  if (!keysched_get(&s->sched, KS_CLIENT_AP, &client_ap)) return 0;
-  if (!keysched_client_ap_secret(&s->sched, &secret)) return 0;
+  if (!keysched_get(&s->sched, KS_CLIENT_AP, &client_ap)) {
+    return 0;
+  }
+  if (!keysched_client_ap_secret(&s->sched, &secret)) {
+    return 0;
+  }
   kuswitch_init(&s->ku, client_ap);
   bytes_memcpy(s->ku_secret, secret, server_srv_hash(s)->len);
   return 1;
@@ -92,8 +102,12 @@ static int srv_seed_kuswitch_recv(wired_server* s) {
 static int srv_seed_kuswitch_send(wired_server* s) {
   const initial_keys* server_ap;
   const u8*           secret;
-  if (!keysched_get(&s->sched, KS_SERVER_AP, &server_ap)) return 0;
-  if (!keysched_server_ap_secret(&s->sched, &secret)) return 0;
+  if (!keysched_get(&s->sched, KS_SERVER_AP, &server_ap)) {
+    return 0;
+  }
+  if (!keysched_server_ap_secret(&s->sched, &secret)) {
+    return 0;
+  }
   kuswitch_init(&s->ku_send, server_ap);
   bytes_memcpy(s->ku_send_secret, secret, server_srv_hash(s)->len);
   return 1;
@@ -107,7 +121,9 @@ static void srv_seed_kuswitch(wired_server* s) {
 
 static int srv_complete(
     wired_server* s, const u8* msg, usz len, const u8* c_hs_traffic) {
-  if (!srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
+  if (!srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) {
+    return 0;
+  }
   srv_keylog(s, c_hs_traffic);
   /* RFC 8446 4.6.1/7.1: resumption_master_secret needs the transcript
    * through the verified client Finished, not just through the server's
@@ -125,8 +141,12 @@ static int srv_complete(
  * match. The forged path returns 0 having promoted nothing. */
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
   u8 c_traffic[TLS_HASH_MAX];
-  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
-  if (!server_srv_verify_finished(s, msg, len, c_traffic)) return 0;
+  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) {
+    return 0;
+  }
+  if (!server_srv_verify_finished(s, msg, len, c_traffic)) {
+    return 0;
+  }
   /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
    * verify above pinned to Hash.length bytes -- the reassembled prefix
    * may run past it (bytes another packet smeared into the stream), and
@@ -138,16 +158,23 @@ static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
   const u8* msg;
   usz       mlen;
-  if (!crecv_collect(&s->crecv, crypto_payload, len)) return 0;
-  if (!crecv_complete_message(&s->crecv)) return 0;
+  if (!crecv_collect(&s->crecv, crypto_payload, len)) {
+    return 0;
+  }
+  if (!crecv_complete_message(&s->crecv)) {
+    return 0;
+  }
   crecv_message(&s->crecv, &msg, &mlen);
   return srv_on_finished(s, msg, mlen);
 }
 
 int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
-  if (!srvfin_should_send_handshake_done(s->fin.confirmed, s->hs_done_sent))
+  if (!srvfin_should_send_handshake_done(s->fin.confirmed, s->hs_done_sent)) {
     return 0;
-  if (!srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
+  }
+  if (!srvfin_handshake_done_frame(out->p, out->cap, &out->len)) {
+    return 0;
+  }
   s->hs_done_sent = 1;
   return 1;
 }

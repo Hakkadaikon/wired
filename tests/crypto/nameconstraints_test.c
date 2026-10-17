@@ -536,17 +536,23 @@ static u8 nct_big_a[NCT_BIG], nct_big_b[NCT_BIG];
 /* Build the tbs with n permitted dNSName subtrees into nct_big_b. */
 static wired_span nct_tbs_many(usz n) {
   usz k = 0;
-  for (usz i = 0; i < n; i++)
-    for (usz j = 0; j < sizeof(nct_sub_example); j++)
+  for (usz i = 0; i < n; i++) {
+    for (usz j = 0; j < sizeof(nct_sub_example); j++) {
       nct_big_a[k++] = nct_sub_example[j];
+    }
+  }
   k = nct_wrap(0xa0, nct_big_a, k, nct_big_b, NCT_BIG);         /* [0] */
   k = nct_wrap(0x30, nct_big_b, k, nct_big_a, NCT_BIG);         /* NameConstr */
   k = nct_wrap(0x04, nct_big_a, k, nct_big_b + 5, NCT_BIG - 5); /* extnValue */
-  for (usz j = 0; j < 5; j++) nct_big_b[j] = nct_oid_nc_tlv[j];
+  for (usz j = 0; j < 5; j++) {
+    nct_big_b[j] = nct_oid_nc_tlv[j];
+  }
   k = nct_wrap(0x30, nct_big_b, k + 5, nct_big_a, NCT_BIG); /* Extension */
   k = nct_wrap(0x30, nct_big_a, k, nct_big_b, NCT_BIG);     /* SEQ OF Ext */
   k = nct_wrap(0xa3, nct_big_b, k, nct_big_a + 12, NCT_BIG - 12); /* [3] */
-  for (usz j = 0; j < 12; j++) nct_big_a[j] = nct_dummy6[j];
+  for (usz j = 0; j < 12; j++) {
+    nct_big_a[j] = nct_dummy6[j];
+  }
   k = nct_wrap(0x30, nct_big_a, k + 12, nct_big_b, NCT_BIG); /* tbs */
   return wired_span_of(nct_big_b, k);
 }

@@ -19,7 +19,9 @@ static void moqtrun_fill_wait_put(
     const moqtrun_frange* r,
     const moqfetch_fill*  fill) {
   wired_moqtrun_fetch* w = moqtrun_fetch_arr_slot(hub->fetch_waits);
-  if (!w) return;
+  if (!w) {
+    return;
+  }
   bytes_memset(w, 0, sizeof *w);
   w->in_use     = 1;
   w->is_fill    = 1;
@@ -42,19 +44,25 @@ static void moqtrun_fill_wait_convert(
     wired_moqt_hub* hub, wired_moqtrun_fetch* w) {
   moqtrun_frange       r = {w->cache_tag, w->cursor, w->end, {0, 0}};
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, w->wt, w->request_id, &r);
-  if (!f) return;
+  if (!f) {
+    return;
+  }
   moqtrun_fill_flag(hub, f, w->owner_rid, w->descending, &r);
   f->failed       = w->failed;
   f->up_budget_ms = w->up_budget_ms;
   f->up_tmo       = w->up_tmo;
   w->in_use       = 0;
-  if (!f->failed) moqtrun_upf_fill(hub, f, &r);
+  if (!f->failed) {
+    moqtrun_upf_fill(hub, f, &r);
+  }
 }
 
 void moqtrun_fill_waits_tick(wired_moqt_hub* hub, int descending) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_in_pass(&hub->fetch_waits[i], descending))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fetch_in_pass(&hub->fetch_waits[i], descending)) {
       moqtrun_fill_wait_convert(hub, &hub->fetch_waits[i]);
+    }
+  }
 }
 
 /* A filter as a FETCH range: no filter fills everything up to the
@@ -68,7 +76,9 @@ static moqctl_rangeloc moqtrun_fill_rl_of(int has, const moqctl_rangeloc* rl) {
  * or the subscription's own Location filter when it is omitted. */
 moqctl_rangeloc moqtrun_fill_rl(
     const moqfetch_fill* fill, const wired_moqtrun_sub* sub) {
-  if (fill->inherit) return moqtrun_fill_rl_of(sub->has_filter, &sub->filter);
+  if (fill->inherit) {
+    return moqtrun_fill_rl_of(sub->has_filter, &sub->filter);
+  }
   return moqtrun_fill_rl_of(fill->has_filter, &fill->range);
 }
 

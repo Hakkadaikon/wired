@@ -17,14 +17,19 @@ int srvloop_has_close(wired_span pl) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
-    if (srvloop_close_type(fr.type)) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (srvloop_close_type(fr.type)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* Record one ACK range on l's per-step list; overflow is dropped. */
 static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi) {
-  if (l->ack_n >= sizeof l->ack_lo / sizeof l->ack_lo[0]) return;
+  if (l->ack_n >= sizeof l->ack_lo / sizeof l->ack_lo[0]) {
+    return;
+  }
   l->ack_lo[l->ack_n] = lo;
   l->ack_hi[l->ack_n] = hi;
   l->ack_n++;
@@ -42,7 +47,9 @@ static int srvloop_ecn_newer(const wired_srvloop* l, const ack_frame* f) {
 /* Latch a type-0x03 ACK's ECN counts for the caller's per-step ECN
  * validation (RFC 9000 13.4.2) -- counts are cumulative, largest wins. */
 static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f) {
-  if (!srvloop_ecn_newer(l, f)) return;
+  if (!srvloop_ecn_newer(l, f)) {
+    return;
+  }
   l->ecn_ack_seen    = 1;
   l->ecn_ack_largest = f->ranges[0].hi;
   l->ecn_ack_ect0    = f->ect0;
@@ -53,9 +60,12 @@ static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f) {
 /* Decode one ACK frame and record its ranges (RFC 9000 19.3). */
 static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
   ack_frame f;
-  if (ack_decode(buf, n, &f) == 0) return;
-  for (usz i = 0; i < f.n_ranges; i++)
+  if (ack_decode(buf, n, &f) == 0) {
+    return;
+  }
+  for (usz i = 0; i < f.n_ranges; i++) {
     srvloop_push_ack(l, f.ranges[i].lo, f.ranges[i].hi);
+  }
   srvloop_note_ecn(l, &f);
 }
 
@@ -66,9 +76,11 @@ void srvloop_collect_acks(wired_srvloop* l, wired_span pl) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
-    if (frame_classify(fr.type) == FK_ACK)
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) == FK_ACK) {
       srvloop_take_ack(l, fr.start, fr.remaining);
+    }
+  }
 }
 
 /* RFC 9000 13.2.1/13.2.2: an ack-eliciting packet in this pn space records
@@ -83,7 +95,9 @@ void srvloop_note_ack_owed(
     wired_span     pl,
     u64            pn,
     u64            now_ms) {
-  if (!framewalk_ack_eliciting(pl)) return;
+  if (!framewalk_ack_eliciting(pl)) {
+    return;
+  }
   pnspaces_on_recv(recv, space, pn);
   ackpolicy_on_eliciting(policy, now_ms);
 }

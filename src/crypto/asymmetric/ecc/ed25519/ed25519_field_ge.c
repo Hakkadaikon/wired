@@ -8,7 +8,9 @@ static void ge_add_cd(fe c, fe d, const ge* p1, const ge* p2);
 /* Constant-time-ish conditional move: h <- g when cond != 0. */
 void ed_fe_cmov(fe h, const fe g, int cond) {
   u64 mask = (u64)(0 - (u64)(cond != 0));
-  for (usz i = 0; i < 5; i++) h[i] ^= mask & (h[i] ^ g[i]);
+  for (usz i = 0; i < 5; i++) {
+    h[i] ^= mask & (h[i] ^ g[i]);
+  }
 }
 
 /* sqrt(-1) mod p, needed when v*x^2 = -u (RFC 8032 5.1.3 case 2). */

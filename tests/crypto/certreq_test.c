@@ -27,7 +27,9 @@ static void test_certreq_roundtrip(void) {
   CHECK(certreq_parse(wired_span_of(out, o.len), &cr) == 1);
   CHECK(cr.ctx.n == 0);
   CHECK(cr.sig_algs.n == sizeof(sa));
-  for (usz i = 0; i < sizeof(sa); i++) CHECK(cr.sig_algs.p[i] == sa[i]);
+  for (usz i = 0; i < sizeof(sa); i++) {
+    CHECK(cr.sig_algs.p[i] == sa[i]);
+  }
 }
 
 static void test_certreq_build_no_room(void) {

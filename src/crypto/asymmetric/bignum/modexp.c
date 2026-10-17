@@ -36,13 +36,17 @@ static u64 bn_shl1(bn* a) {
 
 /* True when an overflow bit or a>=m means one modulus must be subtracted. */
 static int need_reduce(u64 over, const bn* a, const bn* m) {
-  if (over) return 1;
+  if (over) {
+    return 1;
+  }
   return bn_cmp(a, m) >= 0;
 }
 
 /* Subtract one modulus from r when over or r>=m. */
 static void reduce_once(bn* r, u64 over, const bn* m) {
-  if (need_reduce(over, r, m)) bn_sub(r, m);
+  if (need_reduce(over, r, m)) {
+    bn_sub(r, m);
+  }
 }
 
 /* Multiplicand and modulus of one modular multiply. */
@@ -54,7 +58,9 @@ typedef struct {
 /* r = (2*r + add_a*a) mod m, the per-bit step of double-and-add. */
 static void mul_step(bn* r, int add_a, bn_mulctx c) {
   reduce_once(r, bn_shl1(r), c.m);
-  if (add_a) reduce_once(r, bn_add(r, c.a), c.m);
+  if (add_a) {
+    reduce_once(r, bn_add(r, c.a), c.m);
+  }
 }
 
 /* bit i (0 = LSB) of x. */
@@ -65,7 +71,9 @@ static int bn_bit(const bn* x, usz i) {
 /* Index of the top nonzero limb + 1, or 0 for zero. */
 static usz bn_top_limb(const bn* x) {
   usz i = BN_LIMBS;
-  while (i > 0 && x->v[i - 1] == 0) i--;
+  while (i > 0 && x->v[i - 1] == 0) {
+    i--;
+  }
   return i;
 }
 
@@ -84,14 +92,18 @@ static usz bn_limb_bits(u64 v) {
  * leaks nothing and avoids walking thousands of leading zero bits. */
 static usz bn_bits(const bn* x) {
   usz i = bn_top_limb(x);
-  if (i == 0) return 0;
+  if (i == 0) {
+    return 0;
+  }
   return (i - 1) * 64 + bn_limb_bits(x->v[i - 1]);
 }
 
 /* r = (a * b) mod m, with a,b < m. Division-free (double-and-add). */
 static void modmul(bn* r, const bn* b, bn_mulctx c) {
   bn acc = {{0}};
-  for (usz i = bn_bits(b); i > 0; i--) mul_step(&acc, bn_bit(b, i - 1), c);
+  for (usz i = bn_bits(b); i > 0; i--) {
+    mul_step(&acc, bn_bit(b, i - 1), c);
+  }
   *r = acc;
 }
 
@@ -101,7 +113,9 @@ void bn_modexp(bn* out, const bn* base, bn_expmod em) {
   result.v[0]      = 1; /* 1 mod m, m>1 */
   for (usz i = bn_bits(em.exp); i > 0; i--) {
     modmul(&result, &result, c); /* square */
-    if (bn_bit(em.exp, i - 1)) modmul(&result, base, c);
+    if (bn_bit(em.exp, i - 1)) {
+      modmul(&result, base, c);
+    }
   }
   *out = result;
 }

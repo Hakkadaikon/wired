@@ -35,7 +35,9 @@ static void test_srvkeys_random_and_distinct(void) {
  * later in the same process). */
 static void test_srvkeys_stable(void) {
   u8 first[SRVKEYS_LEN];
-  for (usz i = 0; i < SRVKEYS_LEN; i++) first[i] = srvkeys_ticket()[i];
+  for (usz i = 0; i < SRVKEYS_LEN; i++) {
+    first[i] = srvkeys_ticket()[i];
+  }
   CHECK(srvkeys_ready() == 1);
   CHECK(ct_diffn(srvkeys_ticket(), first, SRVKEYS_LEN) == 0);
 }

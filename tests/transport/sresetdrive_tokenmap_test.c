@@ -18,11 +18,15 @@ void test_sresetdrive_tokenmap(void) {
 
   const u8* got = 0;
   CHECK(sresetdrive_map_find(&m, wired_span_of(cid_a, 4), &got) == 1);
-  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) CHECK(got[i] == tok_a[i]);
+  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) {
+    CHECK(got[i] == tok_a[i]);
+  }
 
   /* same prefix, different length must not collide */
   CHECK(sresetdrive_map_find(&m, wired_span_of(cid_b, 5), &got) == 1);
-  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) CHECK(got[i] == tok_b[i]);
+  for (u8 i = 0; i < SRESETDRIVE_TOKEN; i++) {
+    CHECK(got[i] == tok_b[i]);
+  }
 
   const u8 unknown[4] = {9, 9, 9, 9};
   CHECK(sresetdrive_map_find(&m, wired_span_of(unknown, 4), &got) == 0);

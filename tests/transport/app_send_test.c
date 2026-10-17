@@ -31,7 +31,9 @@ static void test_app_roundtrip(void) {
   CHECK(off == 0);
   CHECK(fin == 1);
   CHECK(dlen == sizeof(body));
-  for (usz i = 0; i < sizeof(body); i++) CHECK(data[i] == body[i]);
+  for (usz i = 0; i < sizeof(body); i++) {
+    CHECK(data[i] == body[i]);
+  }
 }
 
 /* A tampered ciphertext byte makes recv fail (AEAD authentication). */

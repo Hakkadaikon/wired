@@ -6,7 +6,9 @@
 static void test_retrytoken_wire_roundtrip(void) {
   u8 key[RETRYTOKEN_KEY];
   u8 token[RETRYTOKEN_WIRE_MAX];
-  for (usz i = 0; i < RETRYTOKEN_KEY; i++) key[i] = (u8)(i + 1);
+  for (usz i = 0; i < RETRYTOKEN_KEY; i++) {
+    key[i] = (u8)(i + 1);
+  }
   const u8   addr[4]  = {192, 0, 2, 1};
   const u8   odcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   wired_span got      = {0, 0};
@@ -17,7 +19,9 @@ static void test_retrytoken_wire_roundtrip(void) {
       retrytoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, n), &got) == 1);
   CHECK(got.n == 8);
-  for (usz i = 0; i < 8; i++) CHECK(got.p[i] == odcid[i]);
+  for (usz i = 0; i < 8; i++) {
+    CHECK(got.p[i] == odcid[i]);
+  }
 }
 
 /* Tampering any input breaks verification: the HMAC, the embedded ODCID,
@@ -25,7 +29,9 @@ static void test_retrytoken_wire_roundtrip(void) {
 static void test_retrytoken_wire_tamper_rejected(void) {
   u8 key[RETRYTOKEN_KEY];
   u8 token[RETRYTOKEN_WIRE_MAX];
-  for (usz i = 0; i < RETRYTOKEN_KEY; i++) key[i] = (u8)(i + 1);
+  for (usz i = 0; i < RETRYTOKEN_KEY; i++) {
+    key[i] = (u8)(i + 1);
+  }
   const u8   addr[4]  = {192, 0, 2, 1};
   const u8   addr2[4] = {192, 0, 2, 2};
   const u8   odcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
@@ -54,7 +60,9 @@ static void test_retrytoken_wire_malformed_rejected(void) {
   u8         bad[RETRYTOKEN_WIRE_MAX];
   const u8   addr[4] = {192, 0, 2, 1};
   wired_span got;
-  for (usz i = 0; i < sizeof bad; i++) bad[i] = 0;
+  for (usz i = 0; i < sizeof bad; i++) {
+    bad[i] = 0;
+  }
   CHECK(
       retrytoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(bad, 10), &got) == 0);
@@ -95,7 +103,9 @@ void test_retrytoken(void) {
   test_retrytoken_wire_malformed_rejected();
   test_retrytoken_wire_verify_rejects_short_token();
   u8 key[RETRYTOKEN_KEY];
-  for (usz i = 0; i < RETRYTOKEN_KEY; i++) key[i] = (u8)(i + 1);
+  for (usz i = 0; i < RETRYTOKEN_KEY; i++) {
+    key[i] = (u8)(i + 1);
+  }
   const u8 addr[4]  = {192, 0, 2, 1};
   const u8 addr2[4] = {192, 0, 2, 2};
   const u8 odcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};

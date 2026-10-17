@@ -4,15 +4,21 @@
 static const char cvec_ctx[] = "TLS 1.3, server CertificateVerify";
 
 static void cvec_fill_pad(u8* out) {
-  for (usz i = 0; i < 64; i++) out[i] = 0x20;
+  for (usz i = 0; i < 64; i++) {
+    out[i] = 0x20;
+  }
 }
 
 static void cvec_put_ctx(u8* out) {
-  for (usz i = 0; i < 33; i++) out[i] = (u8)cvec_ctx[i];
+  for (usz i = 0; i < 33; i++) {
+    out[i] = (u8)cvec_ctx[i];
+  }
 }
 
 static void cvec_put_hash(u8* out, wired_span transcript_hash) {
-  for (usz i = 0; i < transcript_hash.n; i++) out[i] = transcript_hash.p[i];
+  for (usz i = 0; i < transcript_hash.n; i++) {
+    out[i] = transcript_hash.p[i];
+  }
 }
 
 usz cvecdsa_signed_content(wired_span transcript_hash, u8* out) {

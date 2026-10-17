@@ -4,15 +4,21 @@
 
 /* Copy a short key (<= block) into the zero-filled block. */
 static void short_key(wired_span key, u8 kb[SHA256_BLOCK]) {
-  for (usz i = 0; i < SHA256_BLOCK; i++) kb[i] = 0;
-  for (usz i = 0; i < key.n; i++) kb[i] = key.p[i];
+  for (usz i = 0; i < SHA256_BLOCK; i++) {
+    kb[i] = 0;
+  }
+  for (usz i = 0; i < key.n; i++) {
+    kb[i] = key.p[i];
+  }
 }
 
 /* Normalize the key into a 64-byte block: hash it if it is too long,
  * otherwise zero-pad. (FIPS 198-1 step 1-3.) */
 static void key_block(wired_span key, u8 kb[SHA256_BLOCK]) {
   if (key.n > SHA256_BLOCK) {
-    for (usz i = 0; i < SHA256_BLOCK; i++) kb[i] = 0;
+    for (usz i = 0; i < SHA256_BLOCK; i++) {
+      kb[i] = 0;
+    }
     wired_sha256(key.p, key.n, kb);
   } else {
     short_key(key, kb);
@@ -22,7 +28,9 @@ static void key_block(wired_span key, u8 kb[SHA256_BLOCK]) {
 /* XOR each block byte with pad and feed it into the hash. */
 static void feed_pad(sha256_ctx* s, const u8 kb[SHA256_BLOCK], u8 pad) {
   u8 b[SHA256_BLOCK];
-  for (usz i = 0; i < SHA256_BLOCK; i++) b[i] = kb[i] ^ pad;
+  for (usz i = 0; i < SHA256_BLOCK; i++) {
+    b[i] = kb[i] ^ pad;
+  }
   sha256_update(s, b, SHA256_BLOCK);
 }
 
@@ -87,11 +95,14 @@ static void hmac512_hash2(
  * it is longer than the block (RFC 2104 2, steps 1-3). */
 static void hmac512_key_block(
     const hmac512_hash* h, wired_span key, u8 kb[SHA512_BLOCK]) {
-  for (usz i = 0; i < SHA512_BLOCK; i++) kb[i] = 0;
-  if (key.n > SHA512_BLOCK)
+  for (usz i = 0; i < SHA512_BLOCK; i++) {
+    kb[i] = 0;
+  }
+  if (key.n > SHA512_BLOCK) {
     hmac512_hash2(h, key, wired_span_of(kb, 0), kb);
-  else
+  } else {
     bytes_memcpy(kb, key.p, key.n);
+  }
 }
 
 /* H((K ^ pad) || msg) */
@@ -102,7 +113,9 @@ static void hmac512_pad_hash(
     wired_span          msg,
     u8*                 out) {
   u8 b[SHA512_BLOCK];
-  for (usz i = 0; i < SHA512_BLOCK; i++) b[i] = kb[i] ^ pad;
+  for (usz i = 0; i < SHA512_BLOCK; i++) {
+    b[i] = kb[i] ^ pad;
+  }
   hmac512_hash2(h, wired_span_of(b, SHA512_BLOCK), msg, out);
 }
 

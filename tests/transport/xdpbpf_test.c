@@ -38,7 +38,9 @@ static const u64 xbt_golden[XDPBPF_PROG_LEN] = {
 static void test_xdpbpf_prog_build_golden(void) {
   u64 out[XDPBPF_PROG_LEN];
   CHECK(xdpbpf_prog_build(out, 5, 4433) == XDPBPF_PROG_LEN);
-  for (usz i = 0; i < XDPBPF_PROG_LEN; i++) CHECK(out[i] == xbt_golden[i]);
+  for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
+    CHECK(out[i] == xbt_golden[i]);
+  }
 }
 
 /* Rebuilding with a different map fd and port changes only idx14 (dport) and
@@ -48,8 +50,11 @@ static void test_xdpbpf_prog_build_patches_two_words(void) {
   u64 out[XDPBPF_PROG_LEN];
   usz diffs = 0;
   CHECK(xdpbpf_prog_build(out, 9, 1234) == XDPBPF_PROG_LEN);
-  for (usz i = 0; i < XDPBPF_PROG_LEN; i++)
-    if (out[i] != xbt_golden[i]) diffs++;
+  for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
+    if (out[i] != xbt_golden[i]) {
+      diffs++;
+    }
+  }
   CHECK(diffs == 2);
   CHECK(out[14] != xbt_golden[14]);
   CHECK(out[35] != xbt_golden[35]);
@@ -57,7 +62,9 @@ static void test_xdpbpf_prog_build_patches_two_words(void) {
 
 /* close fd iff it is a valid (non-negative) descriptor. */
 static void xbt_close_if_open(i64 fd) {
-  if (fd >= 0) syscall1(SYS_close, fd);
+  if (fd >= 0) {
+    syscall1(SYS_close, fd);
+  }
 }
 
 /* --- static instruction decode -------------------------------------------
@@ -89,8 +96,11 @@ static xbt_insn xbt_decode(u64 v) {
 static const u8 xbt_jump_codes[] = {0x2d, 0x35, 0x55, 0x45, 0x05};
 
 static int xbt_is_jump(u8 code) {
-  for (usz i = 0; i < sizeof xbt_jump_codes; i++)
-    if (xbt_jump_codes[i] == code) return 1;
+  for (usz i = 0; i < sizeof xbt_jump_codes; i++) {
+    if (xbt_jump_codes[i] == code) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -265,7 +275,9 @@ static void test_xdpbpf_prog_has_no_backward_branch(void) {
   CHECK(xdpbpf_prog_build(prog, 5, 4433) == XDPBPF_PROG_LEN);
   for (usz i = 0; i < XDPBPF_PROG_LEN; i++) {
     xbt_insn in = xbt_decode(prog[i]);
-    if (!xbt_is_jump(in.code)) continue;
+    if (!xbt_is_jump(in.code)) {
+      continue;
+    }
     CHECK(xbt_off_signed(in.off) >= 0);
   }
 }
@@ -310,7 +322,9 @@ static void test_xdpbpf_prog_load_rejects_corrupted(i64 map_fd) {
  * convention as tests/app/srvpoll_test.c's "sandbox: skip"). */
 static void test_xdpbpf_map_and_prog_load(void) {
   i64 map_fd = xdpbpf_map_create(64);
-  if (map_fd < 0) return; /* sandbox: skip */
+  if (map_fd < 0) {
+    return; /* sandbox: skip */
+  }
   test_xdpbpf_prog_load_accepts_golden(map_fd);
   test_xdpbpf_prog_load_rejects_corrupted(map_fd);
   xbt_close_if_open(map_fd);

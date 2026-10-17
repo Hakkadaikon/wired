@@ -31,7 +31,9 @@ int kuswitch_key_for_phase(
     *keys = &state->cur;
     return 1;
   }
-  if (!state->have_old) return 0;
+  if (!state->have_old) {
+    return 0;
+  }
   *keys = &state->old;
   return 1;
 }

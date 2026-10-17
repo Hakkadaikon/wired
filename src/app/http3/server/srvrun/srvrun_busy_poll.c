@@ -32,10 +32,13 @@ static void srvrun_ghost_add(
  * peer's closing-period stragglers go unanswered instead of drawing a
  * stateless reset. */
 void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!ctx->cfg->id) return; /* no identity, no scid to remember */
+  if (!ctx->cfg->id) {
+    return; /* no identity, no scid to remember */
+  }
   srvrun_ghost_add(ctx, c->scid, ctx->cfg->id->scid_len);
-  if (c->l.spare_cid_len)
+  if (c->l.spare_cid_len) {
     srvrun_ghost_add(ctx, c->l.spare_cid, c->l.spare_cid_len);
+  }
 }
 
 /* RFC 9000 10.3 for a datagram no slot claims: refuse and reset -- unless
@@ -45,7 +48,9 @@ void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * on a cleanly closed connection). */
 static void srvrun_refuse_unroutable(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
-  if (srvrun_ghost_match(ctx, dcid)) return;
+  if (srvrun_ghost_match(ctx, dcid)) {
+    return;
+  }
   srvrun_send_new_conn_refusal(ctx, dcid, dg);
   srvrun_send_stateless_reset(ctx, dcid, dg);
 }
@@ -63,7 +68,9 @@ static void srvrun_route_and_serve(
     srvrun_refuse_unroutable(ctx, dcid, dg);
     return;
   }
-  if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
+  if (odcid.n) {
+    srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
+  }
   srvrun_serve_slot(ctx, slot, dg);
 }
 
@@ -81,20 +88,28 @@ static int srvrun_size_violation(wired_mspan dg) {
 static void srvrun_serve_sized(const srvrun_step_ctx* ctx, wired_mspan dg) {
   wired_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
   wired_span odcid = {0, 0};
-  if (srvrun_vneg(ctx, dg)) return;
-  if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) return;
+  if (srvrun_vneg(ctx, dg)) {
+    return;
+  }
+  if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) {
+    return;
+  }
   srvrun_route_and_serve(ctx, dcid, dg, odcid);
 }
 
 void srvrun_serve(const srvrun_step_ctx* ctx, wired_mspan dg) {
-  if (srvrun_size_violation(dg)) return;
+  if (srvrun_size_violation(dg)) {
+    return;
+  }
   srvrun_serve_sized(ctx, dg);
 }
 
 /* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd; best-effort like
  * SO_REUSEPORT, a no-op when <= 0 or unsupported by the kernel/driver. */
 static void srvrun_maybe_busy_poll(i64 fd, int so_busy_poll_us) {
-  if (so_busy_poll_us > 0) wired_udp_busy_poll_enable(fd, so_busy_poll_us);
+  if (so_busy_poll_us > 0) {
+    wired_udp_busy_poll_enable(fd, so_busy_poll_us);
+  }
 }
 
 /* SO_PREFER_BUSY_POLL only has kernel effect when SO_BUSY_POLL is also
@@ -106,25 +121,31 @@ static int srvrun_prefer_busy_poll_wanted(const wired_srvrun_opt* opt) {
 /* so_prefer_busy_poll/so_busy_poll_budget: best-effort like SO_REUSEPORT and
  * srvrun_maybe_busy_poll above, each independently opt-in. */
 static void srvrun_maybe_prefer_busy_poll(i64 fd, const wired_srvrun_opt* opt) {
-  if (srvrun_prefer_busy_poll_wanted(opt))
+  if (srvrun_prefer_busy_poll_wanted(opt)) {
     wired_udp_prefer_busy_poll_enable(fd, 1);
+  }
 }
 
 static void srvrun_maybe_busy_poll_budget(i64 fd, const wired_srvrun_opt* opt) {
-  if (opt->so_busy_poll_budget > 0)
+  if (opt->so_busy_poll_budget > 0) {
     wired_udp_busy_poll_budget_set(fd, opt->so_busy_poll_budget);
+  }
 }
 
 /* -1 = disabled (wired_srvrun_opt's own sentinel; see srvrun.h). */
 static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt) {
-  if (opt->incoming_cpu >= 0) wired_udp_incoming_cpu_set(fd, opt->incoming_cpu);
+  if (opt->incoming_cpu >= 0) {
+    wired_udp_incoming_cpu_set(fd, opt->incoming_cpu);
+  }
 }
 
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
 i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   sockaddr sa;
   i64      fd = wired_udp_socket();
-  if (fd < 0) return fd;
+  if (fd < 0) {
+    return fd;
+  }
   /* Best-effort: lets multiple srvworkers children share one port. A
    * single-worker run does not need it, so a failure here is not fatal --
    * fall through to bind unconditionally. */
@@ -144,6 +165,8 @@ i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   srvrun_maybe_busy_poll_budget(fd, opt);
   srvrun_maybe_incoming_cpu(fd, opt);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
-  if (wired_udp_bind(fd, &sa) < 0) return -1;
+  if (wired_udp_bind(fd, &sa) < 0) {
+    return -1;
+  }
   return fd;
 }

@@ -8,8 +8,12 @@ static void reduce_once_p384(p384_fe r);
 /* Starts at shift 384: with a,b < 2^384 (not necessarily < m) the product
  * can reach m<<384, and m > 2^383 keeps that quotient digit at most 1. */
 static void fe6_reduce_wide(p384_fe r, u64 w[12], const p384_fe m) {
-  for (usz sh = 385; sh-- > 0;) fp384_fe6_reduce_step(w, m, sh);
-  for (usz i = 0; i < 6; i++) r[i] = w[i];
+  for (usz sh = 385; sh-- > 0;) {
+    fp384_fe6_reduce_step(w, m, sh);
+  }
+  for (usz i = 0; i < 6; i++) {
+    r[i] = w[i];
+  }
 }
 
 void fp384_mul(p384_fe r, fp384ab ab, const p384_fe m) {
@@ -45,7 +49,9 @@ static u64 w32_384(const u64 w[12], usz c) {
 
 /* Assemble a 384-bit value from twelve 32-bit words, e[0] least significant. */
 static void from_words6(p384_fe t, const u64 e[12]) {
-  for (usz i = 0; i < 6; i++) t[i] = e[2 * i] | (e[2 * i + 1] << 32);
+  for (usz i = 0; i < 6; i++) {
+    t[i] = e[2 * i] | (e[2 * i + 1] << 32);
+  }
 }
 
 /* The ten Solinas terms as word-index tables into c0..c23; 0xff marks a zero
@@ -66,14 +72,17 @@ static const u8 P384_TERMS[10][12] = {
 
 /* Each term is < 2^384 < 2p, so one subtraction of p brings it below p. */
 static void reduce_once_p384(p384_fe r) {
-  if (fp384_fe6_ge(r, p384_p)) fp384_fe6_sub_raw(r, r, p384_p);
+  if (fp384_fe6_ge(r, p384_p)) {
+    fp384_fe6_sub_raw(r, r, p384_p);
+  }
 }
 
 /* Build term row t (0..9) from the accumulator, reduced below p. */
 void fp384_build_term384(p384_fe out, const u64 w[12], usz t) {
   u64 e[12];
-  for (usz i = 0; i < 12; i++)
+  for (usz i = 0; i < 12; i++) {
     e[i] = (P384_TERMS[t][i] == 0xff) ? 0 : w32_384(w, P384_TERMS[t][i]);
+  }
   from_words6(out, e);
   reduce_once_p384(out);
 }

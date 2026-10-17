@@ -20,7 +20,9 @@ int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
 int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end) {
   usz exts = sdrv_ch_prefix(b, body);
   usz blen;
-  if (exts == 0) return 0;
+  if (exts == 0) {
+    return 0;
+  }
   blen   = (usz)b[exts] << 8 | b[exts + 1];
   *start = exts + 2;
   *end   = *start + blen;
@@ -32,8 +34,12 @@ int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end) {
 int sdrv_take_client_keyshare(
     const u8* ch, usz ch_len, u16 want_group, u8 pub[65]) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+    return 0;
+  }
   return sdrv_ch_walk(ch + 4, start, end, want_group, pub);
 }
 
@@ -43,8 +49,12 @@ static int sdrv_ch_ext_one(
     const sdrv_ch_block* blk, usz* q, unsigned want_type, wired_span* ext) {
   unsigned type;
   usz      dlen, start = *q;
-  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
-  if (type != want_type) return 0;
+  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) {
+    return -1;
+  }
+  if (type != want_type) {
+    return 0;
+  }
   *ext = wired_span_of(blk->b + start, 4 + dlen);
   return 1;
 }
@@ -58,7 +68,9 @@ int sdrv_ch_find_ext(
     const u8* b, usz q, usz end, unsigned want_type, wired_span* ext) {
   sdrv_ch_block blk = {b, end};
   int           r   = 0;
-  while (r == 0 && q + 4 <= end) r = sdrv_ch_ext_one(&blk, &q, want_type, ext);
+  while (r == 0 && q + 4 <= end) {
+    r = sdrv_ch_ext_one(&blk, &q, want_type, ext);
+  }
   return r == 1;
 }
 
@@ -68,15 +80,23 @@ int sdrv_ch_find_ext(
  * extension. */
 int sdrv_find_client_tp_ext(const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+    return 0;
+  }
   return sdrv_ch_find_ext(ch + 4, start, end, TPEXT_TYPE, ext);
 }
 
 int sdrv_find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+    return 0;
+  }
   return sdrv_ch_find_ext(ch + 4, start, end, SDRV_PSK_EXT_TYPE, ext);
 }
 
@@ -88,8 +108,12 @@ int sdrv_find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext) {
 int sdrv_find_client_ext(
     const u8* ch, usz ch_len, unsigned want_type, wired_span* ext) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+    return 0;
+  }
   return sdrv_ch_find_ext(ch + 4, start, end, want_type, ext);
 }
 
@@ -102,8 +126,12 @@ void sdrv_take_peer_max_datagram_frame_size(
   wired_span ext, tp;
   stp_out    out_v = {out, 0};
   *out             = 0;
-  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) return;
-  if (tpext_decode(ext, &tp) == 0) return;
+  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) {
+    return;
+  }
+  if (tpext_decode(ext, &tp) == 0) {
+    return;
+  }
   stp_parse(tp, TP_MAX_DATAGRAM_FRAME_SIZE, &out_v);
 }
 
@@ -117,8 +145,12 @@ void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
   wired_span ext, tp;
   stp_out    out_v = {out, 0};
   *out             = 0;
-  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) return;
-  if (tpext_decode(ext, &tp) == 0) return;
+  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) {
+    return;
+  }
+  if (tpext_decode(ext, &tp) == 0) {
+    return;
+  }
   stp_parse(tp, param_id, &out_v);
 }
 
@@ -134,7 +166,9 @@ int sdrv_sid_fits(const u8* ch_msg, usz ch_len) {
  * empty legacy_session_id; a non-empty one is a connection error of type
  * PROTOCOL_VIOLATION. Sets s->last_error and returns 0 on that rejection. */
 int sdrv_reject_nonempty_sid(sdrv* s, u8 len) {
-  if (len == 0) return 1;
+  if (len == 0) {
+    return 1;
+  }
   s->last_error = ERR_PROTOCOL_VIOLATION;
   return 0;
 }

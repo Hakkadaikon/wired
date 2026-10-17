@@ -11,9 +11,11 @@ static int moqtrun_upf_data_out(const wired_moqtrun_fetch* f);
 
 static wired_moqtrun_fetch* moqtrun_upf_by_rid(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_waits_data(&hub->fetches[i], s, rid))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_waits_data(&hub->fetches[i], s, rid)) {
       return &hub->fetches[i];
+    }
+  }
   return 0;
 }
 
@@ -28,11 +30,13 @@ static int moqtrun_upf_awaits_stream(
  * ponytail: one early slot per peer; a per-leg header stash if two cut
  * headers at once become common. */
 void moqtrun_upf_torn_unheld(wired_moqt_hub* hub, const wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_awaits_stream(&hub->fetches[i], s))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_awaits_stream(&hub->fetches[i], s)) {
       moqtrun_upf_fail(
           hub, &hub->fetches[i], MOQTRUN_UPF_IO_CANCEL,
           MOQCTL_ERR_INTERNAL_ERROR);
+    }
+  }
 }
 
 /* A fresh fetch data stream answering one of the hub's upstream FETCHes
@@ -49,7 +53,9 @@ int moqtrun_upf_bind(
   wired_moqtrun_fetch* f   = moqfetch_hdr_take(data, &at, &rid) == MOQCTL_OK
                                  ? moqtrun_upf_by_rid(hub, p->wt, rid)
                                  : 0;
-  if (!f) return 0;
+  if (!f) {
+    return 0;
+  }
   f->up_data_open = 1;
   f->up_data_sid  = sid;
   moqtrun_upf_feed(hub, p, f, wired_span_of(data.p + at, data.n - at), fin);
@@ -63,8 +69,11 @@ static int moqtrun_upf_data_is(
 
 wired_moqtrun_fetch* moqtrun_upf_by_data(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_data_is(&hub->fetches[i], s, sid)) return &hub->fetches[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_data_is(&hub->fetches[i], s, sid)) {
+      return &hub->fetches[i];
+    }
+  }
   return 0;
 }
 
@@ -77,8 +86,12 @@ int moqtrun_upf_data(
     wired_span          data,
     int                 fin) {
   wired_moqtrun_fetch* f = moqtrun_upf_by_data(hub, p->wt, sid);
-  if (!f) return 0;
-  if (moqtrun_upf_live(f)) moqtrun_upf_feed(hub, p, f, data, fin);
+  if (!f) {
+    return 0;
+  }
+  if (moqtrun_upf_live(f)) {
+    moqtrun_upf_feed(hub, p, f, data, fin);
+  }
   return 1;
 }
 
@@ -102,8 +115,11 @@ int moqtrun_upf_mandatory(wired_span props) {
   usz    off  = 0;
   u64    prev = 0;
   moqkvp kv;
-  while (moqtrun_kvp_next(props, &off, &prev, &kv))
-    if (moqtrun_upf_is_mand(kv.type)) return 1;
+  while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
+    if (moqtrun_upf_is_mand(kv.type)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

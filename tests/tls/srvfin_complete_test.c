@@ -7,8 +7,12 @@
  * violation: nothing is installed and it is not confirmed. */
 void test_srvfin_complete(void) {
   u8 ecdhe[32], tr[16];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(i + 1);
-  for (usz i = 0; i < 16; i++) tr[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(i + 1);
+  }
+  for (usz i = 0; i < 16; i++) {
+    tr[i] = (u8)(0x40 + i);
+  }
 
   /* order violation: schedule still at init stage */
   {
@@ -45,6 +49,8 @@ void test_srvfin_complete(void) {
     /* installed keys are the server application keys from the schedule */
     const initial_keys* sap;
     CHECK(keysched_get(&sched, KS_SERVER_AP, &sap) == 1);
-    for (usz i = 0; i < INITIAL_KEY; i++) CHECK(k->key[i] == sap->key[i]);
+    for (usz i = 0; i < INITIAL_KEY; i++) {
+      CHECK(k->key[i] == sap->key[i]);
+    }
   }
 }

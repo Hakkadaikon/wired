@@ -56,7 +56,9 @@ static int sendsess_lost_eligible(
 
 static int sendsess_lost(
     const wired_sent_slice* e, u64 largest_acked, u64 now_ms, u64 srtt_us) {
-  if (!sendsess_lost_eligible(e, largest_acked)) return 0;
+  if (!sendsess_lost_eligible(e, largest_acked)) {
+    return 0;
+  }
   return sendsess_lost_by_packet(e, largest_acked) ||
          sendsess_lost_by_time(e, now_ms, srtt_us);
 }
@@ -64,7 +66,9 @@ static int sendsess_lost(
 /* Move log entry i's slice to the requeue (dropped silently if full — the
  * next detect pass picks it up again since the entry stays in flight). */
 static void sendsess_requeue(wired_sendsess* s, usz i) {
-  if (s->requeue_n >= WIRED_SENDSESS_LOG) return;
+  if (s->requeue_n >= WIRED_SENDSESS_LOG) {
+    return;
+  }
   s->requeue[s->requeue_n++] = s->log[i].sl;
   s->log[i].inflight         = 0;
 }
@@ -76,7 +80,9 @@ static void sendsess_report_lost(
     wired_sendsess_lost_slice* lost,
     usz                        cap,
     usz                        i) {
-  if (!lost || i >= cap) return;
+  if (!lost || i >= cap) {
+    return;
+  }
   lost[i] = (wired_sendsess_lost_slice){
       e->pn, wired_sendsess_stream_offset(s, &e->sl), e->sl.len, e->sl.fin,
       e->sent_ms};
@@ -90,12 +96,13 @@ usz wired_sendsess_detect_lost(
     wired_sendsess_lost_slice* lost,
     usz                        cap) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     if (sendsess_lost(&s->log[i], largest_acked, now_ms, srtt_us)) {
       sendsess_report_lost(s, &s->log[i], lost, cap, n);
       sendsess_requeue(s, i);
       n++;
     }
+  }
   return n;
 }
 
@@ -108,14 +115,19 @@ static int sendsess_older(const wired_sendsess* s, int best, usz i) {
 /* Index of the oldest in-flight entry, -1 when none is. */
 static int sendsess_oldest(const wired_sendsess* s) {
   int best = -1;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (sendsess_older(s, best, i)) best = (int)i;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    if (sendsess_older(s, best, i)) {
+      best = (int)i;
+    }
+  }
   return best;
 }
 
 int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
   int i = sendsess_oldest(s);
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   *out = s->log[(usz)i].sent_ms;
   return 1;
 }
@@ -125,14 +137,20 @@ int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
  * in flight for a later pass. */
 static int sendsess_requeue_oldest(wired_sendsess* s) {
   int i = sendsess_oldest(s);
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   sendsess_requeue(s, (usz)i);
   return 1;
 }
 
 int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
-  if (sendsess_oldest(s) < 0) return 1;
-  if (s->pto_count >= max) return 0;
+  if (sendsess_oldest(s) < 0) {
+    return 1;
+  }
+  if (s->pto_count >= max) {
+    return 0;
+  }
   s->pto_count++;
   /* RFC 9002 6.2.4: a PTO probe may carry up to two datagrams -- requeue
    * the two oldest slices so a fully lost tail recovers in parallel
@@ -150,15 +168,17 @@ static usz sendsess_live_min(usz off, int live, usz base) {
 
 /* Fold the in-flight log's offsets into the running minimum. */
 static usz sendsess_log_min_off(const wired_sendsess* s, usz base) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     base = sendsess_live_min(s->log[i].sl.offset, s->log[i].inflight, base);
+  }
   return base;
 }
 
 /* Fold the requeue's offsets into the running minimum. */
 static usz sendsess_requeue_min_off(const wired_sendsess* s, usz base) {
-  for (usz i = 0; i < s->requeue_n; i++)
+  for (usz i = 0; i < s->requeue_n; i++) {
     base = sendsess_live_min(s->requeue[i].offset, 1, base);
+  }
   return base;
 }
 
@@ -177,8 +197,12 @@ static int sendsess_pending(const wired_sendsess* s) {
 }
 
 int wired_sendsess_done(wired_sendsess* s) {
-  if (!s->active) return 0;
-  if (sendsess_pending(s)) return 0;
+  if (!s->active) {
+    return 0;
+  }
+  if (sendsess_pending(s)) {
+    return 0;
+  }
   s->active = 0;
   return 1;
 }

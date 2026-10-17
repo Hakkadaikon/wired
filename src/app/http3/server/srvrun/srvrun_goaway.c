@@ -28,7 +28,9 @@ static int srvrun_goaway_payload(u64 at, u64 id, wired_obuf* plb) {
   u8           h3[16];
   usz          h3n = h3_goaway_put(h3, sizeof h3, id);
   stream_frame f;
-  if (h3n == 0) return 0;
+  if (h3n == 0) {
+    return 0;
+  }
   f = (stream_frame){SRVRUN_CTRL_STREAM, at, h3n, h3, 0};
   return appdata_stream_frame(&f, plb);
 }
@@ -41,10 +43,13 @@ int srvrun_send_goaway(const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   u8         pl[64];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   c->goaway_id   = c->l.req_next_id; /* every stream taken up keeps going */
-  if (!srvrun_goaway_payload(c->l.ctrl_settings_len, c->goaway_id, &plb))
+  if (!srvrun_goaway_payload(c->l.ctrl_settings_len, c->goaway_id, &plb)) {
     return 0;
+  }
   /* RFC 9000 13.3: kept and resent at the same offset until ACKed */
-  if (!srvrun_seal_kept(c, pl, plb.len, out)) return 0;
+  if (!srvrun_seal_kept(c, pl, plb.len, out)) {
+    return 0;
+  }
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
   return 1;
@@ -58,8 +63,12 @@ int srvrun_send_goaway(const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
 static void srvrun_send_wt_drain(srvrun_conn* c, int sidx) {
   u8         body[8];
   wired_obuf bob = obuf_of(body, sizeof body);
-  if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) return;
-  if (!wtcapsule_encode_drain(&bob)) return;
+  if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) {
+    return;
+  }
+  if (!wtcapsule_encode_drain(&bob)) {
+    return;
+  }
   srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0);
 }
 
@@ -68,22 +77,30 @@ static void srvrun_send_wt_drain(srvrun_conn* c, int sidx) {
  * http3-15 SS4.7 ties this capsule to ("a server sends WT_DRAIN_SESSION [...]
  * when [...] the connection is going away, for example, [...] GOAWAY"). */
 void srvrun_send_wt_drain_all(srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(c, i);
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (srvrun_wt_is_active(c, i)) {
+      srvrun_send_wt_drain(c, i);
+    }
+  }
 }
 
 static void srvrun_flush_wt_drain_one(srvrun_conn* c, int i) {
-  if (!c->wt_drain_pending[i]) return;
+  if (!c->wt_drain_pending[i]) {
+    return;
+  }
   c->wt_drain_pending[i] = 0;
-  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(c, i);
+  if (srvrun_wt_is_active(c, i)) {
+    srvrun_send_wt_drain(c, i);
+  }
 }
 
 /* Send every session slot's pending wired_server_wt_drain_session
  * (wt_drain_pending). srvrun_send_wt_drain's own ESTABLISHED->DRAINING
  * guard keeps it to one capsule per session. */
 void srvrun_flush_wt_drain(srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     srvrun_flush_wt_drain_one(c, i);
+  }
 }
 
 /* GOAWAY is HTTP/3-only (RFC 9114 5.2, a control-stream frame): an
@@ -103,7 +120,9 @@ int srvrun_owes_goaway(const srvrun_conn* c) {
 /* 1 iff data can join c's pending queue: our SETTINGS went out (RFC 9297
  * 2.1), it fits one entry, and the queue has room. */
 static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
-  if (!c->l.h3.settings_sent) return 0;
+  if (!c->l.h3.settings_sent) {
+    return 0;
+  }
   return data.n <= sizeof c->dg_pending_buf[0] &&
          c->dg_pending < SRVRUN_DG_PENDING_Q;
 }
@@ -141,7 +160,9 @@ static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
  * is full, or our own SETTINGS have not been sent yet (RFC 9297 2.1) */
 int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
   usz i = (c->dg_pending_head + (usz)c->dg_pending) % SRVRUN_DG_PENDING_Q;
-  if (!srvrun_dg_queueable(c, data)) return 0;
+  if (!srvrun_dg_queueable(c, data)) {
+    return 0;
+  }
   bytes_memcpy(c->dg_pending_buf[i], data.p, data.n);
   c->dg_pending_len[i] = data.n;
   c->dg_pending++;

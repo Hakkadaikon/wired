@@ -52,7 +52,9 @@ static void test_moqtrun_fill_subscribe_opens(void) {
 /* Fetch streams opened toward B (FETCH_HEADER type byte). */
 static usz mfill_opens(void) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++) n += mf_opens(&g_calls[i]) != 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += mf_opens(&g_calls[i]) != 0;
+  }
   return n;
 }
 
@@ -203,7 +205,9 @@ static void mfill_obj_c(u64 g, u64 o, usz n) {
   h.track_alias      = MF_ALIAS;
   h.group_id         = g;
   moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
-  for (usz i = 0; i < n; i++) pl[i] = (u8)(16 * g + o);
+  for (usz i = 0; i < n; i++) {
+    pl[i] = (u8)(16 * g + o);
+  }
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
   wired_moqt_on_stream_data(
@@ -356,9 +360,10 @@ static void test_moqtrun_fill_descending_skips_gap(void) {
  * the only header the publisher fixtures write). */
 static usz mfill_live_count(void) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].s == SESS_B && g_calls[i].kind == 4 &&
          g_calls[i].payload_len && g_calls[i].payload[0] == 0x30;
+  }
   return n;
 }
 
@@ -403,8 +408,11 @@ static void test_moqtrun_fill_update_overlap_dup(void) {
 /* The i-th fetch stream id opened toward B (open order). */
 static u64 mfill_sid(usz which) {
   usz seen = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (mf_opens(&g_calls[i]) && seen++ == which) return g_calls[i].stream_id;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (mf_opens(&g_calls[i]) && seen++ == which) {
+      return g_calls[i].stream_id;
+    }
+  }
   return ~(u64)0;
 }
 
@@ -446,9 +454,11 @@ static void test_moqtrun_fill_cancel_resets_all(void) {
 /* The reset code the hub sent on stream sid (rides the recorder's fin
  * field), or -1 when sid was never reset. */
 static int mfill_reset_code(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid)
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 7 && g_calls[i].stream_id == sid) {
       return g_calls[i].fin;
+    }
+  }
   return -1;
 }
 
@@ -526,8 +536,9 @@ static void test_moqtrun_fill_blocked_upstream_gone(void) {
   wired_moqt_tick(&mtst_hub, 1);
   u64 sid = mf_data_sid(); /* opened only to signal the failure */
   CHECK(mfill_reset_code(sid) == MOQTRUN_RESET_INTERNAL_ERROR);
-  for (usz i = 0; i < g_n_calls; i++) /* header only, no Objects */
+  for (usz i = 0; i < g_n_calls; i++) { /* header only, no Objects */
     CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid));
+  }
   CHECK(mf_no_fetch());
 }
 
@@ -540,13 +551,17 @@ static u64 mfill_done_count(u64 sid) {
     u64                      type;
     wired_span               body;
     moqctl_publish_done      d;
-    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) continue;
+    if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) {
+      continue;
+    }
     while (moqctl_peek_type(
                wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
-           MOQCTL_OK)
+           MOQCTL_OK) {
       if (type == MOQCTL_T_PUBLISH_DONE &&
-          moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK)
+          moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK) {
         return d.stream_count;
+      }
+    }
   }
   return ~(u64)0;
 }
@@ -588,8 +603,9 @@ static void test_moqtrun_fill_done_waits_for_held(void) {
  * one round refused); their stream ids come back through mfill_sid. */
 static void mfill_occupy_slots(void) {
   g_stream_send_ok_n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
     mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  }
 }
 
 /* A fill accepted while every fetch-serving slot is busy is held -- no
@@ -642,8 +658,9 @@ static void test_moqtrun_fill_slot_full_done_waits(void) {
   mfill_subscribe_req(&sub);
   wired_moqt_on_session_close(&mtst_hub, SESS_A); /* upstream gone */
   CHECK(mfill_done_count(MTRQ_S1) == ~(u64)0);    /* deferred */
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
     wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mfill_sid(i), 0, 0);
+  }
   g_stream_send_ok_n = -1;
   wired_moqt_tick(&mtst_hub, 1); /* opens only to signal the failure */
   CHECK(mfill_reset_code(mf_data_sid()) == MOQTRUN_RESET_INTERNAL_ERROR);
@@ -653,19 +670,23 @@ static void test_moqtrun_fill_slot_full_done_waits(void) {
 
 /* The index of the first accepted data round on sid, or ~0. */
 static usz mfill_send_idx(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == 3 && g_calls[i].stream_id == sid &&
-        !g_calls[i].refused)
+        !g_calls[i].refused) {
       return i;
+    }
+  }
   return ~(usz)0;
 }
 
 /* B's long-lived relay stream (SUBGROUP_HEADER opening round). */
 static u64 mfill_relay_sid(void) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].s == SESS_B && g_calls[i].kind == 5 &&
-        g_calls[i].payload_len && g_calls[i].payload[0] == 0x30)
+        g_calls[i].payload_len && g_calls[i].payload[0] == 0x30) {
       return g_calls[i].stream_id;
+    }
+  }
   return ~(u64)0;
 }
 
@@ -674,7 +695,9 @@ static void mfill_obj_more(u64 sid, u64 g, u64 o, usz n) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   u8  pl[MOQTRUN_TEST_MAX_PAYLOAD];
   usz off = 0;
-  for (usz i = 0; i < n; i++) pl[i] = (u8)(16 * g + o);
+  for (usz i = 0; i < n; i++) {
+    pl[i] = (u8)(16 * g + o);
+  }
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 0);

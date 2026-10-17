@@ -25,7 +25,9 @@ static void test_rsachain_sha256(void) {
       rct_validate(
           rsachain_rroot_der, sizeof(rsachain_rroot_der), rsachain_rleaf256_der,
           sizeof(rsachain_rleaf256_der)) == 1);
-  for (usz i = 0; i < sizeof(bad); i++) bad[i] = rsachain_rleaf256_der[i];
+  for (usz i = 0; i < sizeof(bad); i++) {
+    bad[i] = rsachain_rleaf256_der[i];
+  }
   bad[sizeof(bad) - 1] ^= 0x01;
   CHECK(
       rct_validate(

@@ -47,11 +47,17 @@ static i64 mups_up(wired_wt_session* s, usz which, moqctl_subscribe* m) {
     usz                      off = 0, boff = 0;
     u64                      type;
     wired_span               body;
-    if (c->kind != 1 || c->s != s) continue;
+    if (c->kind != 1 || c->s != s) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-    if (type != MOQCTL_T_SUBSCRIBE) continue;
-    if (n++ != which) continue;
+    if (type != MOQCTL_T_SUBSCRIBE) {
+      continue;
+    }
+    if (n++ != which) {
+      continue;
+    }
     CHECK(moqctl_subscribe_take(mtst_ver(s), body, &boff, m) == MOQCTL_OK);
     return (i64)c->stream_id;
   }
@@ -62,7 +68,9 @@ static i64 mups_up(wired_wt_session* s, usz which, moqctl_subscribe* m) {
 static usz mups_n_up(wired_wt_session* s) {
   moqctl_subscribe m;
   usz              n = 0;
-  while (mups_up(s, n, &m) >= 0) n++;
+  while (mups_up(s, n, &m) >= 0) {
+    n++;
+  }
   return n;
 }
 
@@ -96,8 +104,9 @@ static void mups_done(u64 sid, u64 status) {
 /* Upstream entries in use. */
 static usz mups_used(void) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
     n += mtst_hub.ups[i].in_use != 0;
+  }
   return n;
 }
 
@@ -107,10 +116,18 @@ static const char* mups_up_log(u64 sid) {
   mrdv_at = 0;
   for (usz i = 0; i < g_n_calls; i++) {
     const moqtrun_test_call* c = &g_calls[i];
-    if (c->s != SESS_A || c->stream_id != sid) continue;
-    if (c->kind == 6) mrdv_put("FIN|");
-    if (c->kind == 7) mrdv_put("RST");
-    if (c->kind == 13) mrdv_put("STOP");
+    if (c->s != SESS_A || c->stream_id != sid) {
+      continue;
+    }
+    if (c->kind == 6) {
+      mrdv_put("FIN|");
+    }
+    if (c->kind == 7) {
+      mrdv_put("RST");
+    }
+    if (c->kind == 13) {
+      mrdv_put("STOP");
+    }
     if (c->kind == 7 || c->kind == 13) {
       mrdv_put_hex((u64)c->fin);
       mrdv_put("|");
@@ -123,8 +140,12 @@ static const char* mups_up_log(u64 sid) {
 static int mups_up_is(u64 sid, const char* want) {
   const char* got = mups_up_log(sid);
   usz         i   = 0;
-  while (got[i] && got[i] == want[i]) i++;
-  if (got[i] != want[i]) printf("  up got \"%s\" want \"%s\"\n", got, want);
+  while (got[i] && got[i] == want[i]) {
+    i++;
+  }
+  if (got[i] != want[i]) {
+    printf("  up got \"%s\" want \"%s\"\n", got, want);
+  }
   return got[i] == want[i];
 }
 
@@ -174,10 +195,14 @@ static u64 mups_relayed_alias(wired_wt_session* s) {
     const moqtrun_test_call* c   = &g_calls[i];
     usz                      off = 0;
     moqdata_subhdr           h;
-    if (c->s != s || (c->kind != 4 && c->kind != 5)) continue;
+    if (c->s != s || (c->kind != 4 && c->kind != 5)) {
+      continue;
+    }
     if (moqdata_subhdr_take(
-            wired_span_of(c->payload, c->payload_len), &off, &h) == MOQDATA_OK)
+            wired_span_of(c->payload, c->payload_len), &off, &h) ==
+        MOQDATA_OK) {
       alias = h.track_alias;
+    }
   }
   return alias;
 }
@@ -453,12 +478,15 @@ static void mups_xver(int pv, int sv) {
 }
 
 static void test_moqtrun_upsub_cross_draft(void) {
-  for (int pv = 0; pv < MOQVER_COUNT; pv++)
+  for (int pv = 0; pv < MOQVER_COUNT; pv++) {
     for (int sv = 0; sv < MOQVER_COUNT; sv++) {
       int fails = wired_test_fails;
       mups_xver(pv, sv);
-      if (wired_test_fails != fails) printf("  ^ pub %d sub %d\n", pv, sv);
+      if (wired_test_fails != fails) {
+        printf("  ^ pub %d sub %d\n", pv, sv);
+      }
     }
+  }
 }
 
 void test_moqtrun_upsub(void) {

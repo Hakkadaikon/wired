@@ -19,14 +19,18 @@ static void test_chacha_block(void) {
   uh("76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7"
      "da41597c5157488d7724e03fb8d84a376a43b8f41518a11cc387b669b2ee6586",
      want);
-  for (usz i = 0; i < 64; i++) CHECK(ks[i] == want[i]);
+  for (usz i = 0; i < 64; i++) {
+    CHECK(ks[i] == want[i]);
+  }
 }
 
 /* RFC 8439 2.4.2: encrypt the sunscreen plaintext, key 00..1f, nonce
  * 00:00:00:00:00:00:00:4a:00:00:00:00, counter 1. */
 static void test_chacha_encrypt(void) {
   u8 key[32], nonce[12], pt[114], want[114], ct[114];
-  for (usz i = 0; i < 32; i++) key[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    key[i] = (u8)i;
+  }
   uh("000000000000004a00000000", nonce);
   usz n =
       uh("4c616469657320616e642047656e746c656d656e206f662074686520636c6173"
@@ -41,7 +45,9 @@ static void test_chacha_encrypt(void) {
      want);
   chacha_ctx c = {key, nonce, 1};
   chacha20_xor(&c, wired_span_of(pt, n), ct);
-  for (usz i = 0; i < n; i++) CHECK(ct[i] == want[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(ct[i] == want[i]);
+  }
 }
 
 void test_chacha20(void) {

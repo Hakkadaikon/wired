@@ -15,7 +15,9 @@ int wired_main(int argc, char** argv) {
   usz n = wired_header_build_long(wire, sizeof wire, &in);
 
   wired_header out = {0};
-  if (n == 0 || wired_header_parse(wire, n, &out) != n) return 1;
+  if (n == 0 || wired_header_parse(wire, n, &out) != n) {
+    return 1;
+  }
 
   static const char* types[] = {"Initial", "0-RTT", "Handshake", "Retry"};
   wired_dprintf(2, "built %llu bytes: ", (u64)n);

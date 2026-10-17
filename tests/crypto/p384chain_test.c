@@ -79,8 +79,9 @@ static void test_p384_tampered(void) {
   castore    s;
   u8         leaf384[sizeof(p384chain_leaf384_der)];
   wired_span certs[1] = {wired_span_of(leaf384, sizeof(leaf384))};
-  for (usz i = 0; i < sizeof(leaf384); i++)
+  for (usz i = 0; i < sizeof(leaf384); i++) {
     leaf384[i] = p384chain_leaf384_der[i];
+  }
   leaf384[sizeof(leaf384) - 1] ^= 0x01;
   castore_init(&s, pc_roots, 2);
   CHECK(

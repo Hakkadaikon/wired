@@ -27,7 +27,9 @@ static int pmtu_viable(const pmtu* p, usz next) {
  * first time (searching was still 1) so a later re-check does not keep
  * pushing the PMTU_RAISE_TIMER's start forward. */
 static void conclude_search(pmtu* p, u64 now) {
-  if (p->searching) p->complete_at = now;
+  if (p->searching) {
+    p->complete_at = now;
+  }
   p->searching = 0;
 }
 
@@ -43,7 +45,9 @@ usz pmtu_next_probe(pmtu* p, u64 now) {
 }
 
 void pmtu_on_ack(pmtu* p, usz size) {
-  if (size > p->validated) p->validated = size; /* path carries this size */
+  if (size > p->validated) {
+    p->validated = size; /* path carries this size */
+  }
   p->probe         = 0;
   p->probe_count   = 0; /* RFC 8899 5.1.3: an ack resets PROBE_COUNT */
   p->probe_sent_at = 0; /* RFC 8899 5.1.1: the PROBE_TIMER is canceled */
@@ -60,12 +64,16 @@ static int is_black_hole(const pmtu* p, usz size) {
 static void pmtu_black_hole(pmtu* p) { p->validated = PMTU_BASE; }
 
 void pmtu_on_loss(pmtu* p, usz size) {
-  p->probe_count++;                         /* RFC 8899 5.1.3 */
-  if (size < p->ceiling) p->ceiling = size; /* size is too big for the path */
+  p->probe_count++; /* RFC 8899 5.1.3 */
+  if (size < p->ceiling) {
+    p->ceiling = size; /* size is too big for the path */
+  }
   p->lost          = size;
   p->probe         = 0;
   p->probe_sent_at = 0; /* RFC 8899 5.1.1: the PROBE_TIMER is reinitialized */
-  if (is_black_hole(p, size)) pmtu_black_hole(p);
+  if (is_black_hole(p, size)) {
+    pmtu_black_hole(p);
+  }
 }
 
 usz pmtu_mps(const pmtu* p) { return p->validated - PMTU_OVERHEAD; }
@@ -74,12 +82,16 @@ usz pmtu_mps(const pmtu* p) { return p->validated - PMTU_OVERHEAD; }
  * (probe_sent_at is set the moment pmtu_next_probe sends one, and
  * cleared by on_ack/on_loss when it resolves). */
 int pmtu_probe_timer_due(const pmtu* p, u64 now) {
-  if (!p->probe) return 0;
+  if (!p->probe) {
+    return 0;
+  }
   return now - p->probe_sent_at >= PMTU_PROBE_TIMER_US;
 }
 
 int pmtu_raise_timer_due(const pmtu* p, u64 now) {
-  if (p->searching) return 0;
+  if (p->searching) {
+    return 0;
+  }
   return now - p->complete_at >= PMTU_RAISE_TIMER_US;
 }
 

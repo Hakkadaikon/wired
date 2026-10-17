@@ -22,7 +22,9 @@ static int akr_slot_in_range(const sentpkt* t, usz i, akr_pnrange r) {
 /* Ack every in-flight packet in r, appending pns to out. */
 static void akr_ack_range(sentpkt* t, akr_pnrange r, u64out out) {
   for (usz i = 0; i < SENTPKT_CAP; i++) {
-    if (!akr_slot_in_range(t, i, r)) continue;
+    if (!akr_slot_in_range(t, i, r)) {
+      continue;
+    }
     t->e[i].state       = SP_ACKED;
     t->e[i].used        = 0;
     out.out[(*out.n)++] = t->e[i].pn;
@@ -32,9 +34,12 @@ static void akr_ack_range(sentpkt* t, akr_pnrange r, u64out out) {
 int ackrange_process(sentpkt* t, wired_span acks, u64out newly_acked) {
   ack_frame f;
   *newly_acked.n = 0;
-  if (ack_decode(acks.p, acks.n, &f) == 0) return 0;
-  for (usz i = 0; i < f.n_ranges; i++)
+  if (ack_decode(acks.p, acks.n, &f) == 0) {
+    return 0;
+  }
+  for (usz i = 0; i < f.n_ranges; i++) {
     akr_ack_range(
         t, (akr_pnrange){f.ranges[i].lo, f.ranges[i].hi}, newly_acked);
+  }
   return 1;
 }

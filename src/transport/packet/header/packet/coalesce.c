@@ -13,7 +13,9 @@ void coalesce_begin(coalesce_iter* it, const u8* dgram, usz total) {
 
 /* Skip one length-prefixed connection ID at *p (n total). Returns 1 ok. */
 static int skip_cid(const u8* buf, usz n, usz* p) {
-  if (*p >= n) return 0;
+  if (*p >= n) {
+    return 0;
+  }
   *p += 1 + (usz)buf[*p];
   return *p <= n;
 }
@@ -33,7 +35,9 @@ static int has_token(const u8* buf) {
 /* Skip the Initial token (a varint length plus that many bytes). */
 static int skip_token(const u8* buf, usz n, usz* p) {
   u64 tlen;
-  if (!varint_take(wired_span_of(buf, n), p, &tlen)) return 0;
+  if (!varint_take(wired_span_of(buf, n), p, &tlen)) {
+    return 0;
+  }
   *p += (usz)tlen;
   return *p <= n;
 }
@@ -41,7 +45,9 @@ static int skip_token(const u8* buf, usz n, usz* p) {
 /* Advance *p over the version and both connection IDs of a long header. */
 static int skip_long_prefix(const u8* buf, usz n, usz* p) {
   *p += 5; /* byte0 + 4-byte version */
-  if (*p > n || !skip_cid(buf, n, p)) return 0;
+  if (*p > n || !skip_cid(buf, n, p)) {
+    return 0;
+  }
   return skip_cid(buf, n, p);
 }
 
@@ -52,7 +58,9 @@ static int has_prefix_room(wired_span buf, usz p) { return buf.n - p >= 5; }
 /* Skip the token (Initial only, identified from the packet's own bytes at
  * pkt_start before the prefix advanced *p past them) or nothing. */
 static int skip_optional_token(wired_span buf, const u8* pkt_start, usz* p) {
-  if (!has_token(pkt_start)) return 1;
+  if (!has_token(pkt_start)) {
+    return 1;
+  }
   return skip_token(buf.p, buf.n, p);
 }
 
@@ -60,8 +68,12 @@ static int skip_optional_token(wired_span buf, const u8* pkt_start, usz* p) {
  * packet starts at buf.p[*p] == the header's byte0 on entry. */
 static int skip_to_length(wired_span buf, usz* p) {
   const u8* pkt_start = buf.p + *p;
-  if (!has_prefix_room(buf, *p)) return 0;
-  if (!skip_long_prefix(buf.p, buf.n, p)) return 0;
+  if (!has_prefix_room(buf, *p)) {
+    return 0;
+  }
+  if (!skip_long_prefix(buf.p, buf.n, p)) {
+    return 0;
+  }
   return skip_optional_token(buf, pkt_start, p);
 }
 
@@ -69,21 +81,29 @@ static int skip_to_length(wired_span buf, usz* p) {
  * returns its total length from off, or 0 if it runs past the datagram. */
 static usz take_length_bound(wired_span buf, usz off, usz* p) {
   u64 length;
-  if (!varint_take(wired_span_of(buf.p, buf.n), p, &length)) return 0;
-  if (*p + (usz)length > buf.n) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), p, &length)) {
+    return 0;
+  }
+  if (*p + (usz)length > buf.n) {
+    return 0;
+  }
   return *p - off + (usz)length;
 }
 
 /* Total bytes of the long-header packet at off, or 0 if malformed. */
 static usz long_packet_len(const u8* buf, usz n, usz off) {
   usz p = off;
-  if (!skip_to_length(wired_span_of(buf, n), &p)) return 0;
+  if (!skip_to_length(wired_span_of(buf, n), &p)) {
+    return 0;
+  }
   return take_length_bound(wired_span_of(buf, n), off, &p);
 }
 
 /* Emit a packet [off, off+len) and advance the cursor by len. */
 static int coalesce_emit(coalesce_iter* it, coalesced* out, usz len) {
-  if (len == 0) return 0;
+  if (len == 0) {
+    return 0;
+  }
   out->data = it->dgram + it->off;
   out->len  = len;
   it->off += len;
@@ -92,8 +112,11 @@ static int coalesce_emit(coalesce_iter* it, coalesced* out, usz len) {
 
 int coalesce_next(coalesce_iter* it, coalesced* out) {
   usz rest = it->total - it->off;
-  if (it->off >= it->total) return 0;
-  if ((it->dgram[it->off] & 0x80) == 0)
+  if (it->off >= it->total) {
+    return 0;
+  }
+  if ((it->dgram[it->off] & 0x80) == 0) {
     return coalesce_emit(it, out, rest); /* short */
+  }
   return coalesce_emit(it, out, long_packet_len(it->dgram, it->total, it->off));
 }

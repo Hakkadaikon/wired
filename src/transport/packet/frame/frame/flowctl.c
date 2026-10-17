@@ -10,15 +10,21 @@ static int put_at(wired_obuf* o, u64 v) {
 
 /* One-varint frame body (MAX_DATA, DATA_BLOCKED): type then value. */
 static usz put_one_varint_frame(wired_obuf* o, u64 type, u64 value) {
-  if (!put_at(o, type)) return 0;
-  if (!put_at(o, value)) return 0;
+  if (!put_at(o, type)) {
+    return 0;
+  }
+  if (!put_at(o, value)) {
+    return 0;
+  }
   return o->len;
 }
 
 /* Decode a one-varint frame, skipping the type byte at buf[0]. */
 static usz get_one_varint_frame(const u8* buf, usz n, u64* value) {
   usz off = 1; /* type byte */
-  if (!varint_take(wired_span_of(buf, n), &off, value)) return 0;
+  if (!varint_take(wired_span_of(buf, n), &off, value)) {
+    return 0;
+  }
   return off;
 }
 
@@ -26,16 +32,24 @@ static usz get_one_varint_frame(const u8* buf, usz n, u64* value) {
  * one-varint frame (type, stream_id) followed by the value. */
 static usz put_two_varint_frame(
     wired_obuf* o, u64 type, const stream_data_frame* f) {
-  if (put_one_varint_frame(o, type, f->stream_id) == 0) return 0;
-  if (!put_at(o, f->value)) return 0;
+  if (put_one_varint_frame(o, type, f->stream_id) == 0) {
+    return 0;
+  }
+  if (!put_at(o, f->value)) {
+    return 0;
+  }
   return o->len;
 }
 
 /* Decode a two-varint frame: stream_id then value. */
 static usz get_two_varint_frame(const u8* buf, usz n, stream_data_frame* f) {
   usz off = get_one_varint_frame(buf, n, &f->stream_id);
-  if (off == 0) return 0;
-  if (!varint_take(wired_span_of(buf, n), &off, &f->value)) return 0;
+  if (off == 0) {
+    return 0;
+  }
+  if (!varint_take(wired_span_of(buf, n), &off, &f->value)) {
+    return 0;
+  }
   return off;
 }
 

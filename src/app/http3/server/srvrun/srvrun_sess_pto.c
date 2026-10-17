@@ -6,7 +6,9 @@ static int srvrun_any_send_active(const srvrun_conn* c);
 
 void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (c->closing) return; /* RFC 9000 10.2.1: no response, pump, or ACK */
+  if (c->closing) {
+    return; /* RFC 9000 10.2.1: no response, pump, or ACK */
+  }
   srvrun_feed_acks(ctx, ctx->cfg, c);
   srvrun_acct_resync(c);
   cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
@@ -31,15 +33,21 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
 /* 1 if any resp[] slot is in use -- a connection with at least one response
  * still being built or in flight. */
 static int srvrun_any_resp_active(const srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use) return 1;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* 1 if any WT send slot is in use -- the wtsend side of the same check. */
 static int srvrun_any_wtsend_active(const srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use) return 1;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -97,9 +105,13 @@ u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count) {
  * stays 0 until the first one, and have_old is 0 until then too). */
 void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
   u64 floor_ms;
-  if (!c->s.ku.have_old) return;
+  if (!c->s.ku.have_old) {
+    return;
+  }
   floor_ms = 3u * srvrun_pto_deadline_ms(c, 0);
-  if (now_ms >= c->ku_rotated_at_ms + floor_ms) kuswitch_discard_old(&c->s.ku);
+  if (now_ms >= c->ku_rotated_at_ms + floor_ms) {
+    kuswitch_discard_old(&c->s.ku);
+  }
 }
 
 /* 1 if sess's oldest in-flight slice is still within its PTO window (RFC
@@ -109,7 +121,9 @@ void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
 int srvrun_sess_pto_due(
     const srvrun_conn* c, const wired_sendsess* sess, u64 now_ms) {
   u64 sent_ms;
-  if (!wired_sendsess_oldest_sent_ms(sess, &sent_ms)) return 0;
+  if (!wired_sendsess_oldest_sent_ms(sess, &sent_ms)) {
+    return 0;
+  }
   return now_ms >= sent_ms + srvrun_pto_deadline_ms(c, sess->pto_count);
 }
 
@@ -118,7 +132,9 @@ int srvrun_sess_pto_due(
  * connection slot down -- shared by resp[] and wtsend slots alike). */
 int srvrun_sess_pto_ok(
     const srvrun_conn* c, wired_sendsess* sess, int in_use, u64 now_ms) {
-  if (!in_use || !srvrun_sess_pto_due(c, sess, now_ms)) return 1;
+  if (!in_use || !srvrun_sess_pto_due(c, sess, now_ms)) {
+    return 1;
+  }
   return wired_sendsess_pto_fire(sess, SRVRUN_PTO_MAX);
 }
 
@@ -136,8 +152,9 @@ int srvrun_sess_pto_ok(
  *   slot's budget is spent (caller tears the connection slot down). */
 int srvrun_pto_resps(srvrun_conn* c, u64 now_ms) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    if (!srvrun_sess_pto_ok(c, &c->resp[i].sess, c->resp[i].in_use, now_ms))
+    if (!srvrun_sess_pto_ok(c, &c->resp[i].sess, c->resp[i].in_use, now_ms)) {
       return 0;
+    }
   }
   return 1;
 }

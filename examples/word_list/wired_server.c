@@ -35,8 +35,12 @@ static int history_room(usz i, usz n) {
  */
 static void history_append(const u8* body, usz n) {
   usz i;
-  if (g_history_len < HISTORY_MAX) g_history[g_history_len++] = '\n';
-  for (i = 0; history_room(i, n); i++) g_history[g_history_len++] = body[i];
+  if (g_history_len < HISTORY_MAX) {
+    g_history[g_history_len++] = '\n';
+  }
+  for (i = 0; history_room(i, n); i++) {
+    g_history[g_history_len++] = body[i];
+  }
 }
 
 /* Application/driver configuration, resolved once at startup from argv and
@@ -63,7 +67,9 @@ static void access_log(
     u64               nbytes) {
   char line[512];
   usz  at = 0;
-  if (!cfg->access_log) return;
+  if (!cfg->access_log) {
+    return;
+  }
   at         = wired_cstr_append(line, sizeof line, at, method);
   line[at++] = ' ';
   at         = wired_cstr_append(line, sizeof line - 39, at, path);
@@ -95,18 +101,26 @@ static u64 serve_static_round(
     u64*        total_size) {
   ssz fd = wired_fio_open(resolved);
   ssz total, got;
-  if (fd < 0) return not_found(body_out);
+  if (fd < 0) {
+    return not_found(body_out);
+  }
   total = wired_fio_size(resolved);
   if (total < 0) {
     wired_fio_close(fd);
     return not_found(body_out);
   }
-  if (offset == 0) *total_size = (u64)total;
+  if (offset == 0) {
+    *total_size = (u64)total;
+  }
   got = wired_fio_pread(fd, wired_mspan_of(body_out->p, body_out->cap), offset);
   wired_fio_close(fd);
-  if (got < 0) return not_found(body_out);
+  if (got < 0) {
+    return not_found(body_out);
+  }
   body_out->len = (usz)got;
-  if (offset + (u64)got < (u64)total) *more = 1;
+  if (offset + (u64)got < (u64)total) {
+    *more = 1;
+  }
   return 200;
 }
 
@@ -129,9 +143,12 @@ static u64 serve_static(
   char reqpath[400];
   wired_span_to_cstr(reqpath, sizeof reqpath, path);
   if (!wired_staticfile_resolve(
-          cfg->root, reqpath, cfg->index, resolved, sizeof resolved))
+          cfg->root, reqpath, cfg->index, resolved, sizeof resolved)) {
     return not_found(body_out);
-  if (offset == 0) *content_type = wired_mimetype_for_path(resolved);
+  }
+  if (offset == 0) {
+    *content_type = wired_mimetype_for_path(resolved);
+  }
   return serve_static_round(resolved, offset, body_out, more, total_size);
 }
 
@@ -170,7 +187,9 @@ static int app_on_request(
                                              cfg, path, offset, body_out, content_type, more,
                                              total_size)
                                        : serve_history(req, body_out);
-  if (offset == 0) access_log(cfg, method, path, status, body_out->len);
+  if (offset == 0) {
+    access_log(cfg, method, path, status, body_out->len);
+  }
   return 1;
 }
 
@@ -200,9 +219,13 @@ static void app_selfcheck(void) {
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
   app_on_request(&cfg, &post, 0, &ob, &content_type, &more, &total_size);
-  if (!selfcheck_echo_ok(&ob, out)) wired_die("selfcheck: echo failed\n");
+  if (!selfcheck_echo_ok(&ob, out)) {
+    wired_die("selfcheck: echo failed\n");
+  }
   app_on_request(&cfg, &get, 0, &ob, &content_type, &more, &total_size);
-  if (!selfcheck_history_ok(&ob, out)) wired_die("selfcheck: history failed\n");
+  if (!selfcheck_history_ok(&ob, out)) {
+    wired_die("selfcheck: history failed\n");
+  }
   g_history_len = 0;
 }
 
@@ -241,8 +264,9 @@ static void load_config(app_config* cfg, int argc, char** argv) {
    * a real certificate; absent, the demo stays self-signed. */
   cfg->cert_path = wired_cliargs_str(argc, argv, "--cert", 0);
   cfg->key_path  = wired_cliargs_str(argc, argv, "--key", "key.pem");
-  if (!wired_srvdriver_parse(argc, argv, &cfg->driver))
+  if (!wired_srvdriver_parse(argc, argv, &cfg->driver)) {
     wired_die("bad driver flag combination\n");
+  }
   cfg->driver.run.busy_poll =
       (int)wired_cliargs_int(argc, argv, "--busy-poll", 0);
   cfg->driver.run.incoming_cpu = -1;
@@ -269,7 +293,9 @@ static const u8 g_migrate_v6[16] = {0xfd, 0x00, 0xca, 0xfe, 0xca, 0xfe,
  * replies' source back to 4433, so the client sees the server answering
  * from the preferred address as RFC 9000 9.6.2 requires. */
 static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
-  if (!wired_cliargs_flag(argc, argv, "--migrate-addr")) return;
+  if (!wired_cliargs_flag(argc, argv, "--migrate-addr")) {
+    return;
+  }
   id->pref_v4      = g_migrate_v4;
   id->pref_v6      = g_migrate_v6;
   id->pref_v4_port = 4433;
@@ -299,7 +325,8 @@ int wired_main(int argc, char** argv) {
       cfg.key_path,
       /* CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
       (int)wired_cliargs_int(argc, argv, "--cc-algo", 0)};
-  if (!wired_srvdriver_run(&id, h, obs, &cfg.driver))
+  if (!wired_srvdriver_run(&id, h, obs, &cfg.driver)) {
     wired_die("listen failed\n");
+  }
   return 0;
 }

@@ -32,9 +32,15 @@ static void test_derive_ver_v1_matches_default(void) {
   initial_keys ck1, sk1, ck2, sk2;
   initpkt_derive(wired_span_of(dcid, 8), &ck1, &sk1);
   initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_1, &ck2, &sk2);
-  for (usz i = 0; i < 16; i++) CHECK(ck1.key[i] == ck2.key[i]);
-  for (usz i = 0; i < 12; i++) CHECK(ck1.iv[i] == ck2.iv[i]);
-  for (usz i = 0; i < 16; i++) CHECK(ck1.hp[i] == ck2.hp[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ck1.key[i] == ck2.key[i]);
+  }
+  for (usz i = 0; i < 12; i++) {
+    CHECK(ck1.iv[i] == ck2.iv[i]);
+  }
+  for (usz i = 0; i < 16; i++) {
+    CHECK(ck1.hp[i] == ck2.hp[i]);
+  }
 }
 
 /* v2 Initial keys differ from v1's (RFC 9369 3.3.1's distinct salt, already
@@ -46,8 +52,11 @@ static void test_derive_ver_v2_differs_from_v1(void) {
   int          same_key = 1;
   initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_1, &ck1, &sk1);
   initpkt_derive_ver(wired_span_of(dcid, 8), VERSION_2, &ck2, &sk2);
-  for (usz i = 0; i < 16; i++)
-    if (ck1.key[i] != ck2.key[i]) same_key = 0;
+  for (usz i = 0; i < 16; i++) {
+    if (ck1.key[i] != ck2.key[i]) {
+      same_key = 0;
+    }
+  }
   CHECK(!same_key);
 }
 
@@ -72,7 +81,9 @@ static void test_initpkt_ver_v2_roundtrip(void) {
       wired_span_of(dcid, 8), VERSION_2, wired_mspan_of(pkt, o.len), 0,
       &crypto));
   CHECK(crypto.p[0] == 0x06); /* CRYPTO frame type */
-  for (usz i = 0; i < 4; i++) CHECK(crypto.p[3 + i] == ch[i]);
+  for (usz i = 0; i < 4; i++) {
+    CHECK(crypto.p[3 + i] == ch[i]);
+  }
 }
 
 /* Opening a v2-built Initial as if it were v1 fails (AEAD authentication:
@@ -149,7 +160,9 @@ static void test_is_initial_v1_0rtt_bits_rejected(void) {
 static u8 vneg_dg[1200];
 
 static void vneg_dg_init(u32 unsupported_version) {
-  for (usz i = 0; i < sizeof(vneg_dg); i++) vneg_dg[i] = 0;
+  for (usz i = 0; i < sizeof(vneg_dg); i++) {
+    vneg_dg[i] = 0;
+  }
   vneg_dg[0] = 0x80; /* long header, some unsupported version */
   be_put_be32(vneg_dg + 1, unsupported_version);
   vneg_dg[5] = 0; /* DCID len 0 */
@@ -169,8 +182,12 @@ static void test_vneg_lists_v1_and_v2(void) {
    * are both empty so the list starts at offset 7. */
   for (usz off = 7; off + 4 <= n; off += 4) {
     u32 v = be_get_be32(out + off);
-    if (v == VERSION_1) saw_v1 = 1;
-    if (v == VERSION_2) saw_v2 = 1;
+    if (v == VERSION_1) {
+      saw_v1 = 1;
+    }
+    if (v == VERSION_2) {
+      saw_v2 = 1;
+    }
   }
   CHECK(saw_v1 && saw_v2);
 }

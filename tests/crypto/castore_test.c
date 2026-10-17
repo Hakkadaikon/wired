@@ -78,7 +78,9 @@ static void test_add_full_store_fails(void) {
   castore       s;
   castore_entry roots[2];
   castore_init(&s, roots, 2);
-  for (usz i = 0; i < 2; i++) CHECK(castore_add(&s, cst_root_span()) == 1);
+  for (usz i = 0; i < 2; i++) {
+    CHECK(castore_add(&s, cst_root_span()) == 1);
+  }
   CHECK(castore_add(&s, cst_root_span()) == 0);
 }
 
@@ -88,7 +90,9 @@ static void test_castore_cap(void) {
   castore_entry roots[150];
   wired_span    root, dn;
   castore_init(&s, roots, 150);
-  for (usz i = 0; i < 150; i++) CHECK(castore_add(&s, cst_root_span()) == 1);
+  for (usz i = 0; i < 150; i++) {
+    CHECK(castore_add(&s, cst_root_span()) == 1);
+  }
   leaf_issuer(&dn);
   CHECK(castore_find_by_subject(&s, dn, &root) == 1);
 }

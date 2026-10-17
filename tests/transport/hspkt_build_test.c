@@ -34,7 +34,9 @@ static void test_hspkt_build_roundtrip(void) {
   wired_span out;
   CHECK(hspkt_open(&pk, wired_mspan_of(pkt, o.len), 0, &out));
   CHECK(out.n == sizeof(frames));
-  for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
+  for (usz i = 0; i < sizeof(frames); i++) {
+    CHECK(out.p[i] == frames[i]);
+  }
 }
 
 /* RFC 9000 17.2: long-header form (high bit set) with Handshake type bits

@@ -14,8 +14,9 @@ static int qenc_may_hold(const wired_srvloop* l, const stream_frame* sf);
 
 static void gather_wt_land(wired_srvloop* l, const stream_frame* sf) {
   int i = srvloop_wt_slot_for(l, sf);
-  if (i >= 0 && srvloop_wt_sig_ready(&l->wt_streams[i], sf))
+  if (i >= 0 && srvloop_wt_sig_ready(&l->wt_streams[i], sf)) {
     srvloop_gather_wt_one(sf, &l->wt_streams[i]);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: if the walked frame at `frame` is WT bidi
@@ -24,8 +25,12 @@ static void gather_wt_land(wired_srvloop* l, const stream_frame* sf) {
  * srvloop_gather_request's seen semantics). */
 int srvloop_gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!srvloop_client_bidi_stream_of(type, frame, &sf)) return 0;
-  if (!srvloop_wt_frame_relevant(l, &sf)) return 0;
+  if (!srvloop_client_bidi_stream_of(type, frame, &sf)) {
+    return 0;
+  }
+  if (!srvloop_wt_frame_relevant(l, &sf)) {
+    return 0;
+  }
   gather_wt_land(l, &sf);
   return 1;
 }
@@ -58,8 +63,12 @@ static int is_wt_signal_mid_stream(const stream_frame* sf) {
 static int gather_one_wt_signal_violation(
     wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
-  if (!srvloop_client_bidi_stream_of(type, frame, &sf)) return 0;
-  if (!is_wt_signal_mid_stream(&sf)) return 0;
+  if (!srvloop_client_bidi_stream_of(type, frame, &sf)) {
+    return 0;
+  }
+  if (!is_wt_signal_mid_stream(&sf)) {
+    return 0;
+  }
   l->wt_signal_mid_stream_violation = 1;
   return 1;
 }
@@ -78,9 +87,13 @@ int srvloop_gather_server_bidi_frame(
     wired_srvloop* l, u64 type, wired_span frame) {
   stream_frame sf;
   int          i;
-  if (!srvloop_server_bidi_stream_of(type, frame, &sf)) return 0;
+  if (!srvloop_server_bidi_stream_of(type, frame, &sf)) {
+    return 0;
+  }
   i = wired_srvloop_wt_slot_find(l, sf.stream_id);
-  if (i >= 0) srvloop_gather_wt_one(&sf, &l->wt_streams[i]);
+  if (i >= 0) {
+    srvloop_gather_wt_one(&sf, &l->wt_streams[i]);
+  }
   return 1;
 }
 
@@ -122,7 +135,9 @@ int srvloop_is_uni_stream(u64 stream_id) { return (stream_id & 0x03) == 2; }
 int srvloop_uni_stream_type_accepted(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) {
+    return 0;
+  }
   return wired_h3srv_accept_uni(v);
 }
 
@@ -137,9 +152,12 @@ void srvloop_uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
   u64 v;
   usz off = 0;
   u16 err;
-  if (!varint_take(data, &off, &v)) return;
-  if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err))
+  if (!varint_take(data, &off, &v)) {
+    return;
+  }
+  if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err)) {
     l->qpack_stream_violation = err;
+  }
 }
 
 /* RFC 9204 4.2: 1 if sf is the offset-0 frame of a stream whose leading type
@@ -182,8 +200,9 @@ static int qenc_stream_known(const wired_srvloop* l, const stream_frame* sf) {
 /* Record sf's stream as typed once its leading type varint is whole at
  * offset 0 (RFC 9114 6.2), so none of its later chunks is ever held. */
 void srvloop_uni_type_mark(wired_srvloop* l, const stream_frame* sf) {
-  if (!qenc_frame_untyped(sf))
+  if (!qenc_frame_untyped(sf)) {
     wired_srvloop_closed_mark(&l->uni_typed, sf->stream_id);
+  }
 }
 
 /* RFC 9000 2.2: 1 if sf may start the encoder window as a candidate -- no

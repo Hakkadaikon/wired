@@ -140,7 +140,9 @@ void srvrun_wt_hold(srvrun_conn* c, srvrun_resp* r) {
   const wired_srvloop_stream_slot* s =
       srvrun_req_slot_of(c, c->l.req_stream_id);
   r->in_use = 0;
-  if (!s) return;
+  if (!s) {
+    return;
+  }
   c->wt_held_mask |= (u64)1 << (s - c->l.streams);
   c->wt_held_id[s - c->l.streams] = s->stream_id;
 }

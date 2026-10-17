@@ -12,9 +12,13 @@ static usz moqlim_t_req22(u8* b, usz cap, usz ns_len, usz name_len) {
   usz         n = 0;
   CHECK(moqvi_put(m, &n, 0) && moqvi_put(m, &n, 1));
   CHECK(moqvi_put(m, &n, ns_len));
-  for (usz i = 0; i < ns_len; i++) b[n++] = 'n';
+  for (usz i = 0; i < ns_len; i++) {
+    b[n++] = 'n';
+  }
   CHECK(moqvi_put(m, &n, name_len));
-  for (usz i = 0; i < name_len; i++) b[n++] = 't';
+  for (usz i = 0; i < name_len; i++) {
+    b[n++] = 't';
+  }
   b[n++] = 0x00; /* Number of Parameters */
   return n;
 }

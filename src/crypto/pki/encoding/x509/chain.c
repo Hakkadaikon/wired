@@ -16,8 +16,12 @@ static int ch_next_seq_tlv(derseq* c, wired_span* tlv) {
   u8         tag;
   wired_span val;
   usz        start = c->off;
-  if (!derseq_next(c, &tag, &val)) return 0;
-  if (tag != DER_SEQUENCE) return 0;
+  if (!derseq_next(c, &tag, &val)) {
+    return 0;
+  }
+  if (tag != DER_SEQUENCE) {
+    return 0;
+  }
   *tlv = wired_span_of(c->p + start, c->off - start);
   return 1;
 }
@@ -52,7 +56,9 @@ int x509_subject(wired_span tbs, wired_span* subject) {
 /* 1 if the two byte spans of equal length differ nowhere. */
 static int ch_bytes_eq(const u8* a, const u8* b, usz n) {
   usz diff = 0;
-  for (usz i = 0; i < n; i++) diff |= (usz)(a[i] ^ b[i]);
+  for (usz i = 0; i < n; i++) {
+    diff |= (usz)(a[i] ^ b[i]);
+  }
   return diff == 0;
 }
 

@@ -37,15 +37,23 @@ void driver_init(driver* d, int is_server, wired_span dcid) {
 
 void driver_feed(driver* d, const u8* dgram, usz len) {
   usz i;
-  if (len > DRIVER_DGRAM_CAP) len = DRIVER_DGRAM_CAP;
-  for (i = 0; i < len; i++) d->in_buf[i] = dgram[i];
+  if (len > DRIVER_DGRAM_CAP) {
+    len = DRIVER_DGRAM_CAP;
+  }
+  for (i = 0; i < len; i++) {
+    d->in_buf[i] = dgram[i];
+  }
   d->in_len = len;
 }
 
 usz driver_take(driver* d, u8* out, usz cap) {
   usz i, n = d->out_len;
-  if (n > cap) n = cap;
-  for (i = 0; i < n; i++) out[i] = d->out_buf[i];
+  if (n > cap) {
+    n = cap;
+  }
+  for (i = 0; i < n; i++) {
+    out[i] = d->out_buf[i];
+  }
   d->out_len = 0;
   return n;
 }
@@ -64,8 +72,9 @@ static int sends_index(const driver* d, u8 pos) {
  * the same direction's material to interoperate (RFC 9001 5). */
 static void install_level(driver* d, int level, int which) {
   const initial_keys* k;
-  if (keysched_get(&d->ks, which, &k))
+  if (keysched_get(&d->ks, which, &k)) {
     keyset_install(&d->io.loop.keys, level, k);
+  }
 }
 
 /* RFC 8446 7.1: derive and install the keys a handled message unlocks.
@@ -87,7 +96,9 @@ static void derive_for(driver* d, u8 msg_type) {
 /* RFC 8446 4.4: CertificateVerify marks the peer authenticated, opening the
  * gate hsdriver enforces before the Finished step. */
 static void advance_order(driver* d, u8 msg_type, u8 level) {
-  if (msg_type == HSD_CERT_VERIFY) hsdriver_cert_verified(&d->hs);
+  if (msg_type == HSD_CERT_VERIFY) {
+    hsdriver_cert_verified(&d->hs);
+  }
   hsdriver_recv(&d->hs, msg_type, level);
 }
 
@@ -114,7 +125,9 @@ static int open_message(driver* d, u8 level, u8* msg) {
   wired_obuf gb = obuf_of(got, sizeof(got));
   int ok    = connio_recv(&d->io, level, wired_mspan_of(d->in_buf, d->in_len));
   d->in_len = 0;
-  if (!ok) return 0;
+  if (!ok) {
+    return 0;
+  }
   stream_read_pull(&d->io.stream, &gb);
   *msg = got[0];
   return gb.len == 1;
@@ -124,11 +137,15 @@ static int open_message(driver* d, u8 level, u8* msg) {
  * schedule with the recovered message. Returns 1 if a message was processed. */
 static int do_recv(driver* d) {
   u8 pos = hs_pos(d), level, msg;
-  if (!can_recv(d)) return 0;
+  if (!can_recv(d)) {
+    return 0;
+  }
   level = g_order[pos][1];
   derive_for(
       d, g_order[pos][0]); /* keys before this level opens (RFC 9001 4) */
-  if (!open_message(d, level, &msg)) return 0;
+  if (!open_message(d, level, &msg)) {
+    return 0;
+  }
   advance_order(d, msg, level); /* wire-recovered type drives the order */
   d->rx_done++;
   return 1;
@@ -160,12 +177,16 @@ static usz driver_seal_msg(driver* d, u8 level, u8 msg) {
 static int do_send(driver* d) {
   u8  pos = hs_pos(d), msg, level;
   usz n;
-  if (!can_send(d)) return 0;
+  if (!can_send(d)) {
+    return 0;
+  }
   msg   = g_order[pos][0];
   level = g_order[pos][1];
   derive_for(d, msg); /* keys for this send level (server SH/Finished/Done) */
   n = driver_seal_msg(d, level, msg);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   advance_order(d, msg, level);
   d->out_len = n;
   d->tx_off++;
@@ -176,7 +197,9 @@ static int do_send(driver* d) {
 int driver_step(driver* d) {
   int adv = do_recv(d);
   sync_completion(d);
-  if (adv) return 1;
+  if (adv) {
+    return 1;
+  }
   adv = do_send(d);
   sync_completion(d);
   return adv;
@@ -193,6 +216,8 @@ static int driver_run_continues(driver* d, usz i, usz max_steps) {
 
 usz driver_run(driver* d, usz max_steps) {
   usz i = 0;
-  while (driver_run_continues(d, i, max_steps) && driver_step(d)) i++;
+  while (driver_run_continues(d, i, max_steps) && driver_step(d)) {
+    i++;
+  }
   return i;
 }

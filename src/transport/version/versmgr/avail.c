@@ -9,8 +9,11 @@ void vers_init(vers_set* s) {
 }
 
 static int in_list(const u32* list, usz n, u32 v) {
-  for (usz i = 0; i < n; i++)
-    if (list[i] == v) return 1;
+  for (usz i = 0; i < n; i++) {
+    if (list[i] == v) {
+      return 1;
+    }
+  }
   return 0;
 }
 

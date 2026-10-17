@@ -107,8 +107,9 @@ static void sr_make_confirmed_conn(
    * cwnd/log/PTO gates, not flow control -- are not incidentally blocked by
    * an unrelated 0 stream credit; a test that specifically wants to
    * exercise the stream-credit gate overrides this afterward. */
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     c->resp[i].stream_credit = c->s.sdrv.peer_initial_max_data;
+  }
 }
 
 /* The packet srvrun_send_app_close puts on the wire: the RFC 9000 10.2.3
@@ -119,7 +120,9 @@ static int sr_seal_app_close(
   u8         pl[64];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_app_close_payload(error_code, reason, &plb);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   return srvrun_seal_close_pl(c, wired_span_of(pl, pln), out);
 }
 
@@ -130,7 +133,9 @@ static int sr_seal_transport_close(
   u8         pl[64];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_transport_close_payload(error_code, reason, &plb);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   return srvrun_seal_close_pl(c, wired_span_of(pl, pln), out);
 }
 
@@ -139,7 +144,9 @@ static int sr_seal_transport_close(
 static int sr_find_goaway_id(const u8* pl, usz pll, u64* id) {
   stream_frame sf;
   usz          n = frame_get_stream(pl, pll, &sf);
-  if (n == 0 || sf.stream_id != SRVRUN_CTRL_STREAM) return 0;
+  if (n == 0 || sf.stream_id != SRVRUN_CTRL_STREAM) {
+    return 0;
+  }
   return h3_goaway_get(sf.data, (usz)sf.length, id) > 0;
 }
 
@@ -150,9 +157,12 @@ static int sr_find_path_challenge(const u8* pl, usz pll, u8 data_out[8]) {
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) continue;
-    if (path_decode(fr.start, fr.remaining, FRAME_PATH_CHALLENGE, data_out))
+    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) {
+      continue;
+    }
+    if (path_decode(fr.start, fr.remaining, FRAME_PATH_CHALLENGE, data_out)) {
       return 1;
+    }
   }
   return 0;
 }
@@ -163,7 +173,9 @@ static int sr_count_frames(const u8* pl, usz pll, frame_kind k) {
   framewalk_item fr;
   int            n = 0;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr)) n += frame_classify(fr.type) == k;
+  while (framewalk_next(&it, &fr)) {
+    n += frame_classify(fr.type) == k;
+  }
   return n;
 }
 
@@ -453,14 +465,19 @@ static void srvrunt_qlog_unlink(void) {
 /* Match the NUL-terminated needle at p (caller guarantees needle-len bytes
  * are readable). */
 static int sr_bytes_match(const u8* p, const char* s) {
-  for (usz i = 0; s[i]; i++)
-    if (p[i] != (u8)s[i]) return 0;
+  for (usz i = 0; s[i]; i++) {
+    if (p[i] != (u8)s[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 static usz sr_needle_len(const char* s) {
   usz n = 0;
-  while (s[n]) n++;
+  while (s[n]) {
+    n++;
+  }
   return n;
 }
 
@@ -470,8 +487,12 @@ static int sr_qlog_count(const char* needle) {
   int cnt       = 0;
   ssz n  = wired_fio_read(srvrunt_qlog_path, wired_mspan_of(buf, sizeof buf));
   usz nl = sr_needle_len(needle);
-  if (n < 0) return 0;
-  for (usz i = 0; i + nl <= (usz)n; i++) cnt += sr_bytes_match(buf + i, needle);
+  if (n < 0) {
+    return 0;
+  }
+  for (usz i = 0; i + nl <= (usz)n; i++) {
+    cnt += sr_bytes_match(buf + i, needle);
+  }
   return cnt;
 }
 
@@ -640,7 +661,9 @@ static void test_srvrun_send_stream_slice_writes_stream_frame_sent(void) {
   srvrun_step_ctx ctx = {&cfg, 0, 0, 7000, 0};
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  for (usz i = 0; i < sizeof body; i++) {
+    body[i] = (u8)i;
+  }
   srvrunt_qlog_unlink();
   wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, sizeof body);
   {
@@ -669,7 +692,9 @@ static void test_srvrun_send_stream_slice_no_qlog_path_writes_nothing(void) {
   srvrun_step_ctx ctx = {&cfg, 0, 0, 7000, 0};
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  for (usz i = 0; i < sizeof body; i++) {
+    body[i] = (u8)i;
+  }
   srvrunt_qlog_unlink();
   wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, sizeof body);
   {
@@ -1184,7 +1209,9 @@ static usz sr_build_client_initial(
   client     c;
   u8         cpriv[32], cpub[32];
   wired_obuf ob = obuf_of(dg, cap);
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(11 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
@@ -1480,7 +1507,9 @@ static void test_srvrun_full_table_short_header_no_evict(void) {
   u8               short_hdr[64];
   sr_fill_table_busy(table, st.conns, 100); /* everyone evictable by age */
   short_hdr[0] = 0x40;                      /* short header form bit */
-  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)(0xa0 + i);
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0xa0 + i);
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1527,9 +1556,15 @@ static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wtr_seed = 20260811;
-  for (usz i = 0; i < sizeof expected; i++) expected[i] = (u8)(wtr_rand());
-  for (usz i = 0; i < sizeof got; i++) got[i] = 0;
-  for (usz i = 0; i < sizeof acked; i++) acked[i] = 0;
+  for (usz i = 0; i < sizeof expected; i++) {
+    expected[i] = (u8)(wtr_rand());
+  }
+  for (usz i = 0; i < sizeof got; i++) {
+    got[i] = 0;
+  }
+  for (usz i = 0; i < sizeof acked; i++) {
+    acked[i] = 0;
+  }
   w         = &c.wtsend[0];
   w->in_use = 1;
   {
@@ -1542,24 +1577,30 @@ static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
     now += 5;
     if (staged < target) { /* stage one more round when the ring has room */
       usz n = 50 + wtr_rand() % 300;
-      if (n > target - staged) n = target - staged;
+      if (n > target - staged) {
+        n = target - staged;
+      }
       if (srvrun_wtsend_accept_round(
-              &c, w, wired_span_of(expected + staged, n), 0))
+              &c, w, wired_span_of(expected + staged, n), 0)) {
         staged += n;
+      }
     }
     for (int k = 0; k < 4; k++) { /* pump a few slices */
       wired_sendq_slice sl;
-      if (!wired_sendsess_take(&w->sess, &sl)) break;
+      if (!wired_sendsess_take(&w->sess, &sl)) {
+        break;
+      }
       {
         const u8* sd  = wired_sendq_slice_data(&w->sess.q, &sl);
         u64       abs = wired_sendsess_stream_offset(&w->sess, &sl);
         CHECK(ct_diffn(sd, expected + abs, sl.len) == 0);
         bytes_memcpy(recv + abs, sd, sl.len);
-        for (usz i = 0; i < sl.len; i++)
+        for (usz i = 0; i < sl.len; i++) {
           if (!got[abs + i]) {
             got[abs + i] = 1;
             delivered++;
           }
+        }
       }
       if (!wired_sendsess_sent(&w->sess, &sl, pn, now)) {
         wired_sendsess_untake(&w->sess, &sl);
@@ -1574,22 +1615,30 @@ static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
     for (int k = 0; k < 8 && pn > 2; k++) {
       u64 pick = 0;
       if (wtr_rand() & 1) {
-        for (u64 p = 1; p < pn - 1; p++)
+        for (u64 p = 1; p < pn - 1; p++) {
           if (!acked[p]) {
             pick = p;
             break;
           }
+        }
       } else {
         pick = 1 + wtr_rand() % (pn - 2); /* excludes pn-1, the newest */
-        if (acked[pick]) pick = 0;
+        if (acked[pick]) {
+          pick = 0;
+        }
       }
-      if (!pick) continue;
+      if (!pick) {
+        continue;
+      }
       acked[pick] = 1;
       wired_sendsess_ack(&w->sess, pick, pick);
-      if (pick > largest_acked) largest_acked = pick;
+      if (pick > largest_acked) {
+        largest_acked = pick;
+      }
     }
-    if (iter % 16 == 15) /* let stragglers requeue and retransmit */
+    if (iter % 16 == 15) { /* let stragglers requeue and retransmit */
       wired_sendsess_detect_lost(&w->sess, largest_acked, now, 10000, 0, 0);
+    }
   }
   CHECK(staged == target);    /* staging never wedged on a partial epoch */
   CHECK(delivered == target); /* every byte reached the subscriber */
@@ -1663,7 +1712,9 @@ static void test_srvrun_stateless_reset_gates(void) {
   u8  dcid[8]  = {0xd2, 1, 2, 3, 4, 5, 6, 7};
   usz total    = sr_build_client_initial(initial, sizeof initial, dcid, 8);
   short_hdr[0] = 0x40;
-  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)i;
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)i;
+  }
   CHECK(
       srvrun_sreset_applies(
           wired_span_of(dcid, 8), wired_mspan_of(initial, total)) == 0);
@@ -1694,7 +1745,9 @@ static void test_srvrun_unknown_dcid_short_header_sends_reset(void) {
   usz              tx_before;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   short_hdr[0] = 0x40;
-  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)(0x30 + i);
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0x30 + i);
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1867,7 +1920,9 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
     CHECK(st.conns[0].up == 1);
-    for (usz i = 0; i < id.scid_len; i++) first_scid[i] = st.conns[0].scid[i];
+    for (usz i = 0; i < id.scid_len; i++) {
+      first_scid[i] = st.conns[0].scid[i];
+    }
     first_boot_ini_len     = st.conns[0].boot_ini_len;
     first_boot_dgram_count = st.conns[0].boot_dgram_count;
     CHECK(first_boot_ini_len > 0);
@@ -1889,8 +1944,9 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   CHECK(
       conntable_find(
           table, WIRED_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
-  for (usz i = 0; i < id.scid_len; i++)
+  for (usz i = 0; i < id.scid_len; i++) {
     CHECK(st.conns[0].scid[i] == first_scid[i]);
+  }
   CHECK(st.conns[0].boot_ini_len == first_boot_ini_len);
   CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
@@ -1915,7 +1971,9 @@ static srvrun_cfg sr_antiamp_cfg(wired_srvboot_id* id) {
  * srvrun_send only ever looks at the span's length once cfg->fd is -1). */
 static void sr_antiamp_seed_flight(srvrun_conn* c) {
   bytes_memset(c, 0, sizeof *c);
-  for (usz i = 0; i < 4; i++) c->boot_dgram_len[i] = 1000;
+  for (usz i = 0; i < 4; i++) {
+    c->boot_dgram_len[i] = 1000;
+  }
   c->boot_dgram_count = 4;
   c->boot_dgram_sent  = 0;
 }
@@ -2150,8 +2208,12 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
     rx_after_boot = st.conns[0].boot_rx_bytes;
     /* short header (0x40), this slot's own SCID as DCID, then garbage */
     garbage[0] = 0x40;
-    for (i = 0; i < id.scid_len; i++) garbage[1 + i] = st.conns[0].scid[i];
-    for (; 1 + i < sizeof garbage; i++) garbage[1 + i] = (u8)(0xaa + i);
+    for (i = 0; i < id.scid_len; i++) {
+      garbage[1 + i] = st.conns[0].scid[i];
+    }
+    for (; 1 + i < sizeof garbage; i++) {
+      garbage[1 + i] = (u8)(0xaa + i);
+    }
     srvrun_serve(&ctx, wired_mspan_of(garbage, sizeof garbage));
   }
   CHECK(st.conns[0].boot_rx_bytes == rx_after_boot + sizeof garbage);
@@ -2214,10 +2276,14 @@ static usz sr_append_handshake_pkt(u8* dg, usz off, const u8* dcid, u8 n) {
   dg[off++] = 0;
   dg[off++] = 1; /* version 1 */
   dg[off++] = n;
-  for (usz i = 0; i < n; i++) dg[off++] = dcid[i];
+  for (usz i = 0; i < n; i++) {
+    dg[off++] = dcid[i];
+  }
   dg[off++] = 0; /* scid_len 0 */
   dg[off++] = 5; /* Length: 5 (1-byte varint) */
-  for (usz i = 0; i < 5; i++) dg[off++] = (u8)(0xa0 + i);
+  for (usz i = 0; i < 5; i++) {
+    dg[off++] = (u8)(0xa0 + i);
+  }
   return off;
 }
 
@@ -2253,7 +2319,9 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
 
     /* the same Initial coalesced with an (undecryptable) Handshake packet:
      * classification, not decryption, is what is under test here */
-    for (usz i = 0; i < total; i++) dg2[i] = dg[i];
+    for (usz i = 0; i < total; i++) {
+      dg2[i] = dg[i];
+    }
     n2 = sr_append_handshake_pkt(dg2, total, st.conns[0].scid, id.scid_len);
     srvrun_serve(&ctx, wired_mspan_of(dg2, n2));
   }
@@ -2421,8 +2489,9 @@ static void test_srvrun_boot_give_up_closes_finished_peer(void) {
     {
       u8  straggler[64] = {0x40, 0};
       usz base;
-      for (usz i = 0; i < (usz)id.scid_len; i++)
+      for (usz i = 0; i < (usz)id.scid_len; i++) {
         straggler[1 + i] = st.conns[0].scid[i];
+      }
       base = srvrun_test_send_count();
       srvrun_serve(&ctx, wired_mspan_of(straggler, 50));
       CHECK(srvrun_test_send_count() == base); /* ghost: total silence */
@@ -2435,7 +2504,9 @@ static void test_srvrun_boot_give_up_closes_finished_peer(void) {
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(client* c, u8* ch, usz cap) {
   u8 cpriv[32], cpub[32];
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(11 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c->tls, cpriv, cpub, 0);
   return tlsdriver_raw_client_hello(&c->tls, ch, cap);
@@ -2500,8 +2571,12 @@ static void test_srvrun_stalled_boot_swept(void) {
   usz n1 = sr_seal_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz n2 =
       sr_seal_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
-  for (usz i = 0; i < n1; i++) d1[i] = dg1[i];
-  for (usz i = 0; i < n2; i++) d2[i] = dg2[i];
+  for (usz i = 0; i < n1; i++) {
+    d1[i] = dg1[i];
+  }
+  for (usz i = 0; i < n2; i++) {
+    d2[i] = dg2[i];
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -2536,7 +2611,9 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
   dg[0]                 = 0xd3;
   dg[4]                 = 0xcf; /* alien version */
   dg[5]                 = 6;
-  for (usz i = 0; i < 6; i++) dg[6 + i] = (u8)(0x60 + i);
+  for (usz i = 0; i < 6; i++) {
+    dg[6 + i] = (u8)(0x60 + i);
+  }
   dg[12] = 4;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
@@ -3026,8 +3103,11 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   }
   CHECK(sr_chal(&c, -1, &new_peer) != 0);
   CHECK(!sr_valid(&c, -1, &new_peer));
-  for (usz i = 0; i < PATH_DATA; i++)
-    if (sr_chal(&c, -1, &new_peer)->data[i]) any_nonzero = 1;
+  for (usz i = 0; i < PATH_DATA; i++) {
+    if (sr_chal(&c, -1, &new_peer)->data[i]) {
+      any_nonzero = 1;
+    }
+  }
   CHECK(any_nonzero == 1);
 }
 
@@ -3166,8 +3246,9 @@ static void test_srvrun_path_response_mismatch_does_not_validate(void) {
   u8            wrong[PATH_DATA];
   srvrun_state  st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
-  for (usz i = 0; i < PATH_DATA; i++)
+  for (usz i = 0; i < PATH_DATA; i++) {
     wrong[i] = (u8)(sr_chal(&c, -1, &new_peer)->data[i] ^ 0xff);
+  }
   wrong[0] ^= 0x01; /* differs by at least one bit even if XOR above
                      * happened to reproduce the original by coincidence */
   sr_send_path_response(&f, &st, &new_peer, wrong);
@@ -3223,8 +3304,9 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
     srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #1 */
   }
-  for (usz i = 0; i < PATH_DATA; i++)
+  for (usz i = 0; i < PATH_DATA; i++) {
     first_challenge[i] = sr_chal(&c, -1, &mid_peer)->data[i];
+  }
   {
     srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, sr_ping_dg(&f)); /* rebind #2 */
@@ -3535,8 +3617,9 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
     ack_frame a;
     i64 r = wired_udp_recvfrom(nfd, wired_mspan_of(pkt, sizeof pkt), &from);
     if (r > 0 && client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1 &&
-        find_ack_frame(pl, pll, &a) == 1)
+        find_ack_frame(pl, pll, &a) == 1) {
       acked |= a.ranges[0].hi == 5;
+    }
   }
   CHECK(acked == 1);
   while (poll_wait_readable(ofd, 0) > 0) {
@@ -3545,8 +3628,9 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
     usz       pll;
     ack_frame a;
     i64 r = wired_udp_recvfrom(ofd, wired_mspan_of(pkt, sizeof pkt), &from);
-    if (r > 0 && client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1)
+    if (r > 0 && client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1) {
       old_acked |= find_ack_frame(pl, pll, &a) == 1;
+    }
   }
   CHECK(old_acked == 0);
   wired_udp_close(sfd);
@@ -4159,14 +4243,20 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     usz       pll;
     sockaddr  from;
     i64 n = wired_udp_recvfrom(fd, wired_mspan_of(pkt, sizeof pkt), &from);
-    if (n <= 0) break;
+    if (n <= 0) {
+      break;
+    }
     r.n++;
     r.dcid0   = pkt[1];
     r.port_be = from.port_be;
     r.len     = (usz)n;
-    if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) != 1) continue;
+    if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) != 1) {
+      continue;
+    }
     sr_rx_note(&r, pl, pll);
-    if (r.n == 1) r.first_chal = r.chal;
+    if (r.n == 1) {
+      r.first_chal = r.chal;
+    }
   }
   return r;
 }
@@ -4428,8 +4518,9 @@ static void sr_serve_onertt(
         0,  0,   0, 0, 0,         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
-    for (int i = 0; i < times; i++)
+    for (int i = 0; i < times; i++) {
       srvrun_serve(&ctx, wired_mspan_of(spkt, slen));
+    }
   }
 }
 
@@ -4684,8 +4775,9 @@ static int sr_body_handler(
   (void)offset;
   (void)more;
   (void)total_size;
-  for (usz i = 0; i < 2500 && i < body_out->cap; i++)
+  for (usz i = 0; i < 2500 && i < body_out->cap; i++) {
     body_out->p[i] = (u8)(i & 0xff);
+  }
   body_out->len = 2500;
   return 1;
 }
@@ -4707,7 +4799,9 @@ static int sr_bigbuf_body_handler(
   (void)offset;
   (void)more;
   (void)total_size;
-  for (usz i = 0; i < body_out->cap; i++) body_out->p[i] = (u8)(i & 0xff);
+  for (usz i = 0; i < body_out->cap; i++) {
+    body_out->p[i] = (u8)(i & 0xff);
+  }
   body_out->len = body_out->cap;
   return 1;
 }
@@ -4729,7 +4823,9 @@ static int sr_tiny_body_handler(
   (void)offset;
   (void)more;
   (void)total_size;
-  if (body_out->cap < 1) return 0;
+  if (body_out->cap < 1) {
+    return 0;
+  }
   body_out->p[0] = 'x';
   body_out->len  = 1;
   return 1;
@@ -4738,7 +4834,9 @@ static int sr_tiny_body_handler(
 /* Local socket pair on its own port (4439; the recvmmsg tests own 4437). */
 static int sr_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4439, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -4762,11 +4860,18 @@ static usz sr_collect_stream(
   stream_frame   sf;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
-    if (fr.type < 0x08 || fr.type > 0x0f) continue;
-    if (frame_get_stream(fr.start, fr.remaining, &sf) == 0) continue;
-    for (usz i = 0; i < sf.length && sf.offset + i < cap; i++)
+    if (fr.type < 0x08 || fr.type > 0x0f) {
+      continue;
+    }
+    if (frame_get_stream(fr.start, fr.remaining, &sf) == 0) {
+      continue;
+    }
+    for (usz i = 0; i < sf.length && sf.offset + i < cap; i++) {
       asm_buf[sf.offset + i] = sf.data[i];
-    if ((usz)(sf.offset + sf.length) > high) high = sf.offset + sf.length;
+    }
+    if ((usz)(sf.offset + sf.length) > high) {
+      high = sf.offset + sf.length;
+    }
     *fin |= sf.fin;
   }
   return high;
@@ -4791,8 +4896,9 @@ static sr_stream_bucket* sr_bucket_for(
     sr_stream_bucket* buckets, usz max_streams, u64 stream_id) {
   usz i;
   for (i = 0; i < max_streams; i++) {
-    if (buckets[i].used && buckets[i].stream_id == stream_id)
+    if (buckets[i].used && buckets[i].stream_id == stream_id) {
       return &buckets[i];
+    }
     if (!buckets[i].used) {
       buckets[i].used      = 1;
       buckets[i].stream_id = stream_id;
@@ -4810,13 +4916,22 @@ static void sr_collect_stream_multi(
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
     sr_stream_bucket* b;
-    if (fr.type < 0x08 || fr.type > 0x0f) continue;
-    if (frame_get_stream(fr.start, fr.remaining, &sf) == 0) continue;
+    if (fr.type < 0x08 || fr.type > 0x0f) {
+      continue;
+    }
+    if (frame_get_stream(fr.start, fr.remaining, &sf) == 0) {
+      continue;
+    }
     b = sr_bucket_for(buckets, max_streams, sf.stream_id);
-    if (!b) continue;
-    for (usz i = 0; i < sf.length && sf.offset + i < b->cap; i++)
+    if (!b) {
+      continue;
+    }
+    for (usz i = 0; i < sf.length && sf.offset + i < b->cap; i++) {
       b->buf[sf.offset + i] = sf.data[i];
-    if ((usz)(sf.offset + sf.length) > b->high) b->high = sf.offset + sf.length;
+    }
+    if ((usz)(sf.offset + sf.length) > b->high) {
+      b->high = sf.offset + sf.length;
+    }
     b->fin |= sf.fin;
   }
 }
@@ -4865,7 +4980,9 @@ static void test_srvrun_parallel_responses_three_streams(void) {
   sockaddr                 srv, from;
   i64                      sfd, cfd;
   usz                      off, slen;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
@@ -4889,7 +5006,9 @@ static void test_srvrun_parallel_responses_three_streams(void) {
             wired_span_of((const u8*)"h", 1)},
         &gob));
     plen = gob.len;
-    for (usz j = 0; j < plen; j++) payload[off++] = get[j];
+    for (usz j = 0; j < plen; j++) {
+      payload[off++] = get[j];
+    }
   }
   slen = client_seal_onertt(&f, payload, off, spkt, sizeof spkt);
   {
@@ -4944,11 +5063,14 @@ static void test_srvrun_parallel_responses_three_streams(void) {
     int       all_fin;
     i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
     CHECK(r > 0);
-    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1)
+    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1) {
       sr_collect_stream_multi(pl, pll, buckets, 3);
+    }
     all_fin = buckets[0].used && buckets[0].fin && buckets[1].used &&
               buckets[1].fin && buckets[2].used && buckets[2].fin;
-    if (all_fin) break;
+    if (all_fin) {
+      break;
+    }
   }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
@@ -4961,7 +5083,9 @@ static void test_srvrun_parallel_responses_three_streams(void) {
     CHECK(buckets[i].fin == 1);
     CHECK(h3resp_prefix(200, 0, 1, &preb) == 1);
     CHECK(buckets[i].high == preb.len + 1);
-    for (usz j = 0; j < preb.len; j++) CHECK(buckets[i].buf[j] == pre[j]);
+    for (usz j = 0; j < preb.len; j++) {
+      CHECK(buckets[i].buf[j] == pre[j]);
+    }
     CHECK(buckets[i].buf[preb.len] == (u8)paths[i][1]);
   }
 }
@@ -4985,7 +5109,9 @@ static void test_srvrun_takeover_streams_large_body(void) {
   i64              sfd, cfd;
   usz              glen, slen, high = 0;
   int              fin = 0;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
@@ -5052,7 +5178,9 @@ static void test_srvrun_takeover_streams_large_body(void) {
     usz       pll;
     i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
     CHECK(r > 0);
-    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) != 1) continue;
+    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) != 1) {
+      continue;
+    }
     high = sr_collect_stream(pl, pll, asm_buf, sizeof asm_buf, high, &fin);
   }
   wired_udp_close(cfd);
@@ -5061,8 +5189,12 @@ static void test_srvrun_takeover_streams_large_body(void) {
   CHECK(h3resp_prefix(200, 0, 2500, &preb) == 1);
   CHECK(fin == 1);
   CHECK(high == preb.len + 2500);
-  for (usz i = 0; i < preb.len; i++) CHECK(asm_buf[i] == pre[i]);
-  for (usz i = 0; i < 2500; i++) CHECK(asm_buf[preb.len + i] == (u8)(i & 0xff));
+  for (usz i = 0; i < preb.len; i++) {
+    CHECK(asm_buf[i] == pre[i]);
+  }
+  for (usz i = 0; i < 2500; i++) {
+    CHECK(asm_buf[preb.len + i] == (u8)(i & 0xff));
+  }
 }
 
 /* CC SELECTION: the run config's algorithm choice reaches each fresh
@@ -5138,7 +5270,9 @@ static void test_srvrun_hystart_ends_slow_start(void) {
       CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 0) == 1);
     }
     c->l.tx_pn = 8; /* production: sending advanced the next pn */
-    for (u64 pn = 0; pn < 8; pn++) srvrun_hystart_ack(c, pn, pn, 40);
+    for (u64 pn = 0; pn < 8; pn++) {
+      srvrun_hystart_ack(c, pn, pn, 40);
+    }
     CHECK(c->cc.ssthresh == ~(u64)0); /* still slow start */
     /* round 2: RTT jumped to 60 >= 40 + eta(5): Conservative Slow Start
      * (RFC 9406 4.2) on the 8th sample -- growth drops to a quarter */
@@ -5147,7 +5281,9 @@ static void test_srvrun_hystart_ends_slow_start(void) {
       CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 100) == 1);
     }
     c->l.tx_pn = 16;
-    for (u64 pn = 8; pn < 16; pn++) srvrun_hystart_ack(c, pn, pn, 160);
+    for (u64 pn = 8; pn < 16; pn++) {
+      srvrun_hystart_ack(c, pn, pn, 160);
+    }
     CHECK(c->cc.ssthresh == ~(u64)0);
     CHECK(srvrun_css_acked(c, 1200) == 300);
     /* rounds 3..6 stay at 160 (above the ~145 baseline: no spurious
@@ -5159,7 +5295,9 @@ static void test_srvrun_hystart_ends_slow_start(void) {
     }
     for (u64 pn = 16; pn < 48; pn += 8) {
       c->l.tx_pn = pn + 8;
-      for (u64 k = pn; k < pn + 8; k++) srvrun_hystart_ack(c, k, 200, 360);
+      for (u64 k = pn; k < pn + 8; k++) {
+        srvrun_hystart_ack(c, k, 200, 360);
+      }
     }
     CHECK(c->cc.ssthresh == ~(u64)0); /* 4 CSS round ends so far */
     c->l.tx_pn = 49;
@@ -5978,7 +6116,9 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
   st          = (srvrun_state){table, conns};
   bufs[0].buf = wired_mspan_of(storage[0], sizeof storage[0]);
   bufs[1].buf = wired_mspan_of(storage[1], sizeof storage[1]);
-  for (int i = 0; i < 50; i++) srvrun_step(&cfg, &st, bufs, 2);
+  for (int i = 0; i < 50; i++) {
+    srvrun_step(&cfg, &st, bufs, 2);
+  }
   wired_udp_close(fd);
   /* reaching here (instead of hanging in the harness) is the assertion */
   CHECK(1);
@@ -6004,7 +6144,9 @@ static void test_srvrun_polling_pto_tick(void) {
   st                   = (srvrun_state){table, conns};
   g_srvrun_pto_next_ms = 0;
   g_srvrun_pto_spin    = 0;
-  for (int i = 0; i < 1023; i++) srvrun_polling_ptos(&cfg, &st);
+  for (int i = 0; i < 1023; i++) {
+    srvrun_polling_ptos(&cfg, &st);
+  }
   /* not yet due: the clock was never read */
   CHECK(g_srvrun_pto_next_ms == 0);
   /* 1024th spin: due, arms the window */
@@ -6281,11 +6423,13 @@ static int srvrun_seal_wt_busy_reset(
  * wire, not a re-seal of a value the test chose. */
 static u64 sr_kept_reset_code(const srvrun_conn* c, u64 id) {
   reset_stream_frame rs;
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
     if (c->rst[i].pln &&
         reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
-        rs.stream_id == id)
+        rs.stream_id == id) {
       return rs.error_code;
+    }
+  }
   return ~0ULL;
 }
 
@@ -6321,8 +6465,9 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_wt_session_init(&c.wt, 4); /* leaves state UNESTABLISHED */
   c.wt_active = 1;
-  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     CHECK(wired_wt_session_offer_stream(&c.wt, 100 + i) == 1);
+  }
   c.l.wt_streams[0].in_use    = 1;
   c.l.wt_streams[0].stream_id = 996; /* client bidi (996 % 4 == 0) */
   c.l.wt_streams[0].offered   = 0;
@@ -6412,8 +6557,9 @@ static void test_srvrun_wt_uni_stream_buffer_full_sends_reset(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_wt_session_init(&c.wt, 4);
   c.wt_active = 1;
-  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     CHECK(wired_wt_session_offer_stream(&c.wt, 200 + i) == 1);
+  }
   c.l.wt_uni_streams[0].in_use    = 1;
   c.l.wt_uni_streams[0].stream_id = 778; /* client uni (778 % 4 == 2) */
   c.l.wt_uni_streams[0].offered   = 0;
@@ -7650,8 +7796,11 @@ static void test_srvrun_seal_app_close_is_application_level(void) {
   CHECK(ccf.reason_len == 14);
   {
     int eq = 1;
-    for (usz i = 0; i < 14; i++)
-      if (ccf.reason[i] != reason[i]) eq = 0;
+    for (usz i = 0; i < 14; i++) {
+      if (ccf.reason[i] != reason[i]) {
+        eq = 0;
+      }
+    }
     CHECK(eq);
   }
 }
@@ -8378,8 +8527,9 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
   CHECK(datagram_decode(pl, pll, &df) == pll);
   CHECK(df.length == 1 + sizeof sr_dg_payload);
   CHECK(df.data[0] == 0x01); /* qsid prefix (4/4) */
-  for (usz i = 0; i < sizeof sr_dg_payload; i++)
+  for (usz i = 0; i < sizeof sr_dg_payload; i++) {
     CHECK(df.data[1 + i] == sr_dg_payload[i]);
+  }
 }
 
 /* RFC 9297 2.1: a QUIC DATAGRAM must never be queued before this
@@ -8502,10 +8652,11 @@ static void test_srvrun_datagram_second_queue_kept_behind_first(void) {
   CHECK(c.dg_pending_len[1] == sizeof sr_dg_second);
   CHECK(c.dg_pending_buf[0][0] == sr_dg_first[0]);
   CHECK(c.dg_pending_buf[1][0] == sr_dg_second[0]);
-  for (usz i = 2; i < SRVRUN_DG_PENDING_Q; i++)
+  for (usz i = 2; i < SRVRUN_DG_PENDING_Q; i++) {
     CHECK(
         srvrun_queue_datagram(
             &c, wired_span_of(sr_dg_first, sizeof sr_dg_first)) == 1);
+  }
   CHECK(
       srvrun_queue_datagram(
           &c, wired_span_of(sr_dg_second, sizeof sr_dg_second)) == 0);
@@ -8557,8 +8708,9 @@ static void sr_dg_handler(void* app_ctx, wired_wt_session* s, wired_span data) {
   g_srdg_calls++;
   g_srdg_last_sess = s;
   g_srdg_last_len  = data.n;
-  for (usz i = 0; i < data.n && i < sizeof g_srdg_last_buf; i++)
+  for (usz i = 0; i < data.n && i < sizeof g_srdg_last_buf; i++) {
     g_srdg_last_buf[i] = data.p[i];
+  }
 }
 
 /* Establish a WT session on c via the same path
@@ -8658,8 +8810,9 @@ static void test_srvrun_rx_datagram_delivers_to_callback(void) {
   CHECK(conns[0].l.rx_datagram_n == 0); /* queue drained */
   CHECK(g_srdg_last_len == sizeof sr_rxdg_content);
   CHECK(g_srdg_last_sess == &conns[0].wt);
-  for (usz i = 0; i < sizeof sr_rxdg_content; i++)
+  for (usz i = 0; i < sizeof sr_rxdg_content; i++) {
     CHECK(g_srdg_last_buf[i] == sr_rxdg_content[i]);
+  }
 }
 
 /* MULTIPLE DATAGRAMS: several queued in one drain are all delivered, in
@@ -9297,7 +9450,9 @@ static void test_srvrun_oversized_datagram_latches_violation_on_step(void) {
   srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
   u8              data[200];
   datagram_frame  df = {.length = sizeof data, .data = data};
-  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  for (usz i = 0; i < sizeof data; i++) {
+    data[i] = (u8)i;
+  }
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
@@ -9354,8 +9509,9 @@ static void sr_stream_data_handler(
   g_srsd_last_stream_id = stream_id;
   g_srsd_last_len       = data.n;
   g_srsd_last_fin       = fin;
-  for (usz i = 0; i < data.n && i < sizeof g_srsd_last_buf; i++)
+  for (usz i = 0; i < data.n && i < sizeof g_srsd_last_buf; i++) {
     g_srsd_last_buf[i] = data.p[i];
+  }
 }
 
 /* Set a WT bidi slot's receive window as if n contiguous bytes had been
@@ -9872,8 +10028,9 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
      * payload. */
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       CHECK(df.data[1 + i] == sr_dg_payload[i]);
+    }
     /* Re-fed as if the CLIENT sent this back: the client's own datagram to
      * the server carries the same qsid prefix, so the wire bytes can be
      * reused verbatim. */
@@ -10246,8 +10403,9 @@ static void test_srvrun_wt_accept_records_path(void) {
   }
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt_path_len[0] == sizeof custom_path - 1);
-  for (usz i = 0; i < sizeof custom_path - 1; i++)
+  for (usz i = 0; i < sizeof custom_path - 1; i++) {
     CHECK(conns[0].wt_path[0][i] == custom_path[i]);
+  }
 }
 
 /* DISTINCT PATHS: two simultaneously-open sessions bound to different :path
@@ -10290,10 +10448,12 @@ static void test_srvrun_wt_distinct_paths_coexist(void) {
   }
   CHECK(conns[0].wt_path_len[0] == sizeof path_a - 1);
   CHECK(conns[0].wt_path_len[1] == sizeof path_b - 1);
-  for (usz i = 0; i < sizeof path_a - 1; i++)
+  for (usz i = 0; i < sizeof path_a - 1; i++) {
     CHECK(conns[0].wt_path[0][i] == path_a[i]);
-  for (usz i = 0; i < sizeof path_b - 1; i++)
+  }
+  for (usz i = 0; i < sizeof path_b - 1; i++) {
     CHECK(conns[0].wt_path[1][i] == path_b[i]);
+  }
 }
 
 /* ROUTING: srvrun_wt_slot_by_connect_id resolves a stream/datagram reference
@@ -10717,8 +10877,9 @@ static void test_srvrun_wt_reused_slot_has_no_stale_data(void) {
  * callback whose signature carries no such handle), so tests exercising it
  * must isolate themselves from whatever an earlier test left behind. */
 static void sr_reset_global_table(void) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     g_srvrun_state.conns[i] = (srvrun_conn){0};
+  }
   conntable_init(g_srvrun_table, WIRED_CONNTABLE_CAP);
 }
 
@@ -10763,8 +10924,9 @@ static void test_srvrun_broadcast_datagram_skips_unused_slot(void) {
   CHECK(
       wired_server_broadcast_datagram(
           wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     CHECK(g_srvrun_state.conns[i].dg_pending == 0);
+  }
 }
 
 /* BOUNDARY: a payload larger than the per-connection dg_pending_buf capacity
@@ -10878,8 +11040,9 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
     u8              wire[1 + sizeof sr_dg_payload];
     datagram_frame  in;
     wire[0] = 0x01; /* qsid=1 (4/4) */
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       wire[1 + i] = sr_dg_payload[i];
+    }
     in.length = sizeof wire;
     in.data   = wire;
     dgpll     = datagram_encode(wired_mspan_of(dgpl, sizeof dgpl), &in, 1);
@@ -10911,14 +11074,16 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
     CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       CHECK(df.data[1 + i] == sr_dg_payload[i]);
+    }
     CHECK(client_open_onertt(&f1, sendob1.p, sendob1.len, &pl, &pll) == 1);
     CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       CHECK(df.data[1 + i] == sr_dg_payload[i]);
+    }
   }
 }
 
@@ -11091,8 +11256,9 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
   wired_srvbigbuf_init(
       &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
       WIRED_SRVBIGBUF_ROW_CAP);
-  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++) {
     CHECK(wired_srvbigbuf_claim(&g_srvrun_env.bigbuf, &held[i]) != 0);
+  }
   {
     srvrun_cfg cfg = {
         -1,
@@ -11136,8 +11302,9 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
   CHECK(c.resp[0].in_use == 1);
   CHECK(c.resp[0].bigbuf_row == -1); /* fell back, not a pool row */
   CHECK(c.resp[0].sess.q.len <= WIRED_SRVRUN_RESP_MAX);
-  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++) {
     wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
+  }
 }
 
 /* Streaming test handler: serves a fixed-size counting pattern
@@ -11178,13 +11345,21 @@ static int sr_stream_body_handler(
   (void)hctx;
   (void)req;
   (void)ct;
-  if (offset == sr_stream_fail_at_offset) return 0;
+  if (offset == sr_stream_fail_at_offset) {
+    return 0;
+  }
   remaining = offset < actual_total ? (usz)(actual_total - offset) : 0;
   n         = remaining < cap ? remaining : cap;
-  for (usz i = 0; i < n; i++) body_out->p[i] = (u8)((offset + i) & 0xff);
+  for (usz i = 0; i < n; i++) {
+    body_out->p[i] = (u8)((offset + i) & 0xff);
+  }
   body_out->len = n;
-  if (offset == 0) *total_size = sr_stream_total_len;
-  if (offset + n < actual_total) *more = 1;
+  if (offset == 0) {
+    *total_size = sr_stream_total_len;
+  }
+  if (offset + n < actual_total) {
+    *more = 1;
+  }
   return 1;
 }
 
@@ -11211,10 +11386,16 @@ static int sr_stream_body_handler_by_path(
   usz n = remaining < cap ? remaining : cap;
   (void)hctx;
   (void)ct;
-  for (usz i = 0; i < n; i++) body_out->p[i] = req->path[0];
+  for (usz i = 0; i < n; i++) {
+    body_out->p[i] = req->path[0];
+  }
   body_out->len = n;
-  if (offset == 0) *total_size = sr_stream_total_len;
-  if (offset + n < sr_stream_total_len) *more = 1;
+  if (offset == 0) {
+    *total_size = sr_stream_total_len;
+  }
+  if (offset + n < sr_stream_total_len) {
+    *more = 1;
+  }
   return 1;
 }
 
@@ -11236,7 +11417,9 @@ static void sr_drive_resp_round_to_done(
   while (!sr_round_fully_acked(&r->sess)) {
     u64 pn0 = c->l.tx_pn;
     srvrun_pump_sess(ctx, 0);
-    if (c->l.tx_pn == pn0) break; /* nothing sendable (e.g. cwnd/credit) */
+    if (c->l.tx_pn == pn0) {
+      break; /* nothing sendable (e.g. cwnd/credit) */
+    }
     wired_sendsess_ack(&r->sess, pn0, c->l.tx_pn - 1);
   }
 }
@@ -11334,8 +11517,9 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
   wired_srvbigbuf_init(
       &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
       WIRED_SRVBIGBUF_ROW_CAP);
-  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++) {
     CHECK(wired_srvbigbuf_claim(&g_srvrun_env.bigbuf, &held[i]) != 0);
+  }
   {
     srvrun_cfg cfg = {
         -1,
@@ -11384,8 +11568,9 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
     CHECK(c.resp[0].sess.q.len == fixed_cap + 10); /* ring: cumulative */
     CHECK(c.resp[0].streaming == 0);
   }
-  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++) {
     wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
+  }
 }
 
 /* A round-1+ handler failure (simulating a mid-stream read error)
@@ -11806,9 +11991,12 @@ static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
       wired_sendq_slice sl;
       while (wired_sendsess_take(&r->sess, &sl)) {
         u64 abs = wired_sendsess_stream_offset(&r->sess, &sl);
-        for (usz i = 0; i < sl.len && abs + i < sizeof asm_buf; i++)
+        for (usz i = 0; i < sl.len && abs + i < sizeof asm_buf; i++) {
           asm_buf[abs + i] = r->sess.q.p[sl.offset + i];
-        if (abs + sl.len > high) high = (usz)(abs + sl.len);
+        }
+        if (abs + sl.len > high) {
+          high = (usz)(abs + sl.len);
+        }
         fin |= sl.fin;
         CHECK(wired_sendsess_sent(&r->sess, &sl, c.l.tx_pn++, 0) == 1);
       }
@@ -11818,7 +12006,9 @@ static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
   }
   CHECK(high == 300);
   CHECK(fin == 1);
-  for (usz i = 0; i < 300; i++) CHECK(asm_buf[i] == (u8)(i & 0xff));
+  for (usz i = 0; i < 300; i++) {
+    CHECK(asm_buf[i] == (u8)(i & 0xff));
+  }
 }
 
 /* Two connections streaming concurrently each claim their own bigbuf
@@ -12609,7 +12799,9 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   usz           glen, slen;
   const u8*     pl;
   usz           pll;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.peer = srv;
@@ -12663,7 +12855,9 @@ static void test_srvrun_closes_with_aead_limit_reached_on_step(void) {
   const u8*        pl;
   usz              pll, rn;
   conn_close_frame ccf;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.peer = srv;
@@ -12728,7 +12922,9 @@ static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
   sockaddr      srv, from;
   i64           sfd, cfd;
   usz           slen;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.peer = srv;
@@ -13915,7 +14111,9 @@ static u64 sr_pc_setup(
   wired_sendsess_arm(&c->resp[0].sess, body, len, SRVRUN_CHUNK);
   base       = c->largest_acked + 10;
   c->l.tx_pn = base;
-  if (sampled) srvrun_rtt_note(c, 10);
+  if (sampled) {
+    srvrun_rtt_note(c, 10);
+  }
   return base;
 }
 
@@ -13930,8 +14128,11 @@ static u64 sr_pc_run(srvrun_conn* c, u64 base, u64 n, u64 mid) {
                     0,  0};
   srvrun_state    st  = {0, c};
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1100 + 500 * n, 0};
-  for (u64 i = 0; i < n; i++)
-    if (i != mid) sr_pc_send(c, base + i, 1000 + 500 * i);
+  for (u64 i = 0; i < n; i++) {
+    if (i != mid) {
+      sr_pc_send(c, base + i, 1000 + 500 * i);
+    }
+  }
   sr_pc_send(c, base + 10, 1000 + 500 * n);
   c->l.tx_pn     = base + 11;
   c->l.ack_lo[0] = base + 10;
@@ -13996,7 +14197,9 @@ static u64 sr_pc_check(u64 span_ms, u64 before, usz ack_n) {
   srvrun_conn      c;
   u64              base = sr_pc_setup(&c, &f, body, sizeof body, 1);
   srvrun_loss_span s    = {1000 + span_ms, 1000, base, base + 5};
-  for (usz i = 0; i < ack_n; i++) c.l.ack_lo[i] = c.l.ack_hi[i] = base + 10;
+  for (usz i = 0; i < ack_n; i++) {
+    c.l.ack_lo[i] = c.l.ack_hi[i] = base + 10;
+  }
   c.l.ack_n = ack_n;
   srvrun_persistent_check(&c, &s, base - 1 + before);
   return c.cc.cwnd;
@@ -14232,9 +14435,15 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
       srvrun_pump_sess(&ctx, 0);
       for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
         const wired_sent_slice* e = &c.resp[1].sess.log[i];
-        if (!e->inflight) continue;
-        if (!found || e->pn < lo) lo = e->pn;
-        if (!found || e->pn > hi) hi = e->pn;
+        if (!e->inflight) {
+          continue;
+        }
+        if (!found || e->pn < lo) {
+          lo = e->pn;
+        }
+        if (!found || e->pn > hi) {
+          hi = e->pn;
+        }
         found = 1;
       }
       if (found) {
@@ -14378,8 +14587,12 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
 
   for (i = 0; i < 8; i++) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    if (!srvrun_pmtu_try_probe(&ctx, &c)) break;
-    if (srvrun_pmtu_probe_outstanding(&c)) break;
+    if (!srvrun_pmtu_try_probe(&ctx, &c)) {
+      break;
+    }
+    if (srvrun_pmtu_probe_outstanding(&c)) {
+      break;
+    }
     /* seal failed silently (the bug): clear the candidate so the loop can't
      * spin forever even pre-fix, and prove it took >1 attempt. */
     c.pmtu.probe = 0;
@@ -15165,9 +15378,13 @@ static void test_srvrun_spare_cid_routes_from_accept(void) {
   ob                        = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   id.scid_len = 6;
-  for (usz i = 0; i < 6; i++) c.scid[i] = (u8)(0x11 * (i + 1));
+  for (usz i = 0; i < 6; i++) {
+    c.scid[i] = (u8)(0x11 * (i + 1));
+  }
   c.l.spare_cid_len = 6;
-  for (usz i = 0; i < 6; i++) c.l.spare_cid[i] = spare[i];
+  for (usz i = 0; i < 6; i++) {
+    c.l.spare_cid[i] = spare[i];
+  }
   conntable_init(table, WIRED_CONNTABLE_CAP);
   CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, odcid, 6) == 0);
   {
@@ -15428,7 +15645,9 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   sockaddr         peer = {0};
   srvrun_state     st   = {table, sr_test_conns()};
   usz              n, nd;
-  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(11 + i);
+  }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
   n = tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
@@ -15552,8 +15771,11 @@ static int sr_has_handshake_done(const u8* pl, usz pll) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl, pll);
-  while (framewalk_next(&it, &fr))
-    if (fr.type == FRAME_HANDSHAKE_DONE) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (fr.type == FRAME_HANDSHAKE_DONE) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -15625,13 +15847,17 @@ static void test_srvrun_reconfirm_idempotent_bytes(void) {
     CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 1);
     CHECK(client_open_onertt(&f, out, ob1.len, &pl, &pll) == 1);
     first_len = pll;
-    for (usz i = 0; i < pll; i++) first[i] = pl[i];
+    for (usz i = 0; i < pll; i++) {
+      first[i] = pl[i];
+    }
     ob1 = (wired_obuf){out, sizeof out, 0};
     CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 1);
     CHECK(client_open_onertt(&f, out, ob1.len, &pl, &pll) == 1);
   }
   CHECK(pll == first_len);
-  for (usz i = 0; i < pll; i++) CHECK(pl[i] == first[i]);
+  for (usz i = 0; i < pll; i++) {
+    CHECK(pl[i] == first[i]);
+  }
 }
 
 /* WIRING (srvrun_serve_slot): a confirmed connection that receives a
@@ -16106,8 +16332,11 @@ static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
  * value appear verbatim in the QPACK payload. */
 static int srn_wt_contains(const u8* hay, usz n, const char* needle) {
   usz m = wired_cstr_len(needle);
-  for (usz i = 0; i + m <= n; i++)
-    if (srvrun_wt_bytes_eq(hay + i, (const u8*)needle, m)) return 1;
+  for (usz i = 0; i + m <= n; i++) {
+    if (srvrun_wt_bytes_eq(hay + i, (const u8*)needle, m)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -16441,8 +16670,9 @@ static void     srn_wt_open_uni_on_session(
   /* The interop example opens every REQUESTS-listed file's GET at once
    * (session_send_gets -> send_gets_uni, wired_server.c) -- 5 here, matching
    * a real run's file count, not 1. */
-  for (int i = 0; i < 5; i++)
+  for (int i = 0; i < 5; i++) {
     wired_server_wt_open_uni(s, wired_span_of(sr_wt_ordering_get, 5));
+  }
 }
 
 /* WIRE ORDERING (draft-ietf-webtrans-http3-15 3.2): "From the client's
@@ -16465,7 +16695,9 @@ static void test_srvrun_wt_connect_200_precedes_uni_stream_on_wire(void) {
   u8            obuf[1024];
   sockaddr      srv, from;
   i64           sfd, cfd;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -16503,8 +16735,12 @@ static void test_srvrun_wt_connect_200_precedes_uni_stream_on_wire(void) {
     framewalk_init(&it, pl, pll);
     while (framewalk_next(&it, &item)) {
       stream_frame sf;
-      if (frame_get_stream(item.start, item.remaining, &sf) == 0) continue;
-      if (first_stream_id == (u64)-1) first_stream_id = sf.stream_id;
+      if (frame_get_stream(item.start, item.remaining, &sf) == 0) {
+        continue;
+      }
+      if (first_stream_id == (u64)-1) {
+        first_stream_id = sf.stream_id;
+      }
       nframes++;
     }
     CHECK(nframes >= 1);
@@ -16621,7 +16857,9 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
     static u8   scratch3[1024];
     qpack_field fl;
     wired_obuf  ob3 = {req, sizeof req, 0};
-    for (usz i = 0; i < sizeof big; i++) big[i] = 'a';
+    for (usz i = 0; i < sizeof big; i++) {
+      big[i] = 'a';
+    }
     big[0]   = '"';
     big[299] = '"';
     fl       = (qpack_field){
@@ -16688,12 +16926,20 @@ static void sr_wtsend_ack_all_inflight(
   int found = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     const wired_sent_slice* e = &s->log[i];
-    if (!e->inflight) continue;
-    if (!found || e->pn < lo) lo = e->pn;
-    if (!found || e->pn > hi) hi = e->pn;
+    if (!e->inflight) {
+      continue;
+    }
+    if (!found || e->pn < lo) {
+      lo = e->pn;
+    }
+    if (!found || e->pn > hi) {
+      hi = e->pn;
+    }
     found = 1;
   }
-  if (!found) return;
+  if (!found) {
+    return;
+  }
   srvrun_feed_ack_range(c, lo, hi, now);
   c->srtt_ms      = 0;
   c->next_send_ms = 0;
@@ -16716,7 +16962,9 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   usz           high = 0;
   int           fin  = 0;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -16748,8 +16996,9 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
   wired_udp_close(sfd);
   CHECK(fin == 1);
   CHECK(high == sizeof sr_wtsend_hello);
-  for (usz i = 0; i < sizeof sr_wtsend_hello; i++)
+  for (usz i = 0; i < sizeof sr_wtsend_hello; i++) {
     CHECK(asm_buf[i] == sr_wtsend_hello[i]);
+  }
   CHECK(
       wired_server_wt_open_uni(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
@@ -16769,7 +17018,9 @@ static void test_srvrun_uni_open_refused_sends_streams_blocked(void) {
   sockaddr      srv, from;
   i64           sfd, cfd, id;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->peer                                = srv;
@@ -16818,7 +17069,9 @@ static void test_srvrun_uni_open_refused_streams_blocked_sent_once(void) {
   sockaddr      srv;
   i64           sfd, cfd, id;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->peer                                = srv;
@@ -16868,8 +17121,9 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   CHECK(wired_server_wt_open_bidi(&c->wt, wired_span_of(pay, sizeof pay)) == 5);
   CHECK(c->wtsend[0].sess.q.p == c->wtsend[0].roundbuf);
   CHECK(c->wtsend[0].sess.q.len == sizeof pay);
-  for (usz i = 0; i < sizeof pay; i++)
+  for (usz i = 0; i < sizeof pay; i++) {
     CHECK(c->wtsend[0].roundbuf[i] == pay[i]);
+  }
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
@@ -17226,7 +17480,9 @@ static void test_srvrun_wtsend_large_payload_still_copies(void) {
   static u8      pay[49664 + 336]; /* ~50000B, just past the 49664B floor */
   srvrun_conn*   c;
   srvrun_wtsend* w;
-  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)i;
+  for (usz i = 0; i < sizeof pay; i++) {
+    pay[i] = (u8)i;
+  }
   ob        = (wired_obuf){obuf, sizeof obuf, 0};
   c         = sr_wtsend_fixture(&f, &ob);
   w         = &c->wtsend[0];
@@ -17274,8 +17530,12 @@ static int sr_wtsend_pump_recv_stream(
   srvrun_step_ctx ctx = {&cfg, srv, &st, 0, 0};
   srvrun_pump_sess(&ctx, 0);
   r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (r <= 0) return 0;
-  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) return 0;
+  if (r <= 0) {
+    return 0;
+  }
+  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) {
+    return 0;
+  }
   return frame_get_stream(pl, pll, sf) > 0;
 }
 
@@ -17296,7 +17556,9 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   stream_frame  sf;
   srvrun_conn*  c;
   u8            scratch[3];
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17312,17 +17574,23 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   /* round 1 is NOT yet acknowledged: the next round is still accepted --
    * copied into the slot's staging (scratch may be scribbled right after)
    * -- and reaches the wire at its own offset with no ACK in between. */
-  for (usz i = 0; i < sizeof scratch; i++) scratch[i] = sr_wtsend_more[i];
+  for (usz i = 0; i < sizeof scratch; i++) {
+    scratch[i] = sr_wtsend_more[i];
+  }
   CHECK(
       wired_server_wt_stream_send(&c->wt, 15, wired_span_of(scratch, 3), 0) ==
       1);
-  for (usz i = 0; i < sizeof scratch; i++) scratch[i] = 0xee;
+  for (usz i = 0; i < sizeof scratch; i++) {
+    scratch[i] = 0xee;
+  }
   CHECK(c->stat_wtsend_busy == 0);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.offset == sizeof sr_wtsend_hello);
   CHECK(sf.fin == 0);
   CHECK(sf.length == 3);
-  for (usz i = 0; i < 3; i++) CHECK(sf.data[i] == sr_wtsend_more[i]);
+  for (usz i = 0; i < 3; i++) {
+    CHECK(sf.data[i] == sr_wtsend_more[i]);
+  }
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* an empty round has no slice for a FIN to ride on -- a misuse
    * rejection, NOT a busy drop, so the busy counter stays put */
@@ -17390,7 +17658,9 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   srvrun_conn*  c;
   static u8     big[SRVRUN_WTSEND_BUF];
   int           rcvbuf = 1 << 20;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   /* One pump sends many slices but the drain below reads one at a time, so
    * a whole SRVRUN_WTSEND_BUF of datagrams waits in sfd at once; the default
    * receive buffer (~200 KB including per-datagram overhead) drops the tail
@@ -17421,8 +17691,9 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   {
     stream_frame sf;
     usz          slices = (SRVRUN_WTSEND_BUF + SRVRUN_CHUNK - 1) / SRVRUN_CHUNK;
-    for (usz i = 0; i < slices; i++)
+    for (usz i = 0; i < slices; i++) {
       CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+    }
   }
   sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   CHECK(wired_server_wt_stream_send(&c->wt, 15, wired_span_of(big, 1), 0) == 1);
@@ -17455,7 +17726,9 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   i64           sfd, cfd;
   stream_frame  sf;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17501,7 +17774,9 @@ static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
   i64           sfd, cfd;
   stream_frame  sf;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17562,10 +17837,16 @@ static int sr_recv_reset_stream(
   usz       rn;
   sockaddr  from;
   i64       r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (r <= 0) return 0;
-  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) return 0;
+  if (r <= 0) {
+    return 0;
+  }
+  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) {
+    return 0;
+  }
   rn = reset_stream_decode(pl, pll, rs);
-  if (rn == 0) return 0;
+  if (rn == 0) {
+    return 0;
+  }
   *alone = rn == pll;
   return 1;
 }
@@ -17583,8 +17864,9 @@ static void sr_wtsend_mark_sent(srvrun_conn* c, usz i) {
 static void sr_wtsend_deliver_and_reap(srvrun_conn* c, usz i) {
   wired_sendq_slice sl;
   u64               pn = 7000;
-  while (wired_sendsess_take(&c->wtsend[i].sess, &sl))
+  while (wired_sendsess_take(&c->wtsend[i].sess, &sl)) {
     CHECK(wired_sendsess_sent(&c->wtsend[i].sess, &sl, pn++, 0));
+  }
   wired_sendsess_ack(&c->wtsend[i].sess, 7000, pn);
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[i].in_use == 0);
@@ -17606,7 +17888,9 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
   sockaddr      srv;
   i64           sfd, cfd;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17653,7 +17937,9 @@ static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
   i64           sfd, cfd;
   srvrun_conn*  c;
   i64           id2;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17703,7 +17989,9 @@ static void test_srvrun_wt_stream_stop_sends_stop_sending(void) {
   sockaddr      srv;
   i64           sfd, cfd;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17745,7 +18033,9 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
   sockaddr      srv;
   i64           sfd, cfd;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -17753,8 +18043,9 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
       wired_server_wt_open_uni_stream(
           &c->wt, wired_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) ==
       15);
-  for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++)
+  for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++) {
     CHECK(wired_server_wt_stream_reset(&c->wt, 1003 + 4 * i, 0x42) == 1);
+  }
   CHECK(wired_server_wt_stream_reset(&c->wt, 15, 0x42) == 0);
   CHECK(c->wtsend[0].in_use == 1); /* slot NOT released on refusal */
   CHECK(c->wt_stream_reset_n == SRVRUN_WT_RESET_LATCH);
@@ -17919,8 +18210,12 @@ static void sr_h3data(wired_obuf* b, usz from) {
   usz h = varint_encode(hdr, H3_FRAME_DATA);
   h += varint_encode(hdr + h, n);
   CHECK(b->len + h <= b->cap);
-  for (usz i = n; i-- > 0;) b->p[from + h + i] = b->p[from + i];
-  for (usz i = 0; i < h; i++) b->p[from + i] = hdr[i];
+  for (usz i = n; i-- > 0;) {
+    b->p[from + h + i] = b->p[from + i];
+  }
+  for (usz i = 0; i < h; i++) {
+    b->p[from + i] = hdr[i];
+  }
   b->len += h;
 }
 
@@ -17932,10 +18227,14 @@ static wired_srvloop_stream_slot* sr_wtcap_feed(
     srvrun_conn* c, usz from, wired_span bytes) {
   int                        i = wired_srvloop_slot_for(&c->l, 4);
   wired_srvloop_stream_slot* slot;
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   slot = &c->l.streams[i];
   bodywin_land(&slot->body, slot->req_buf, from, bytes, 0);
-  if (from + bytes.n > slot->req_len) slot->req_len = from + bytes.n;
+  if (from + bytes.n > slot->req_len) {
+    slot->req_len = from + bytes.n;
+  }
   slot->req_done = 1;
   return slot;
 }
@@ -18615,8 +18914,9 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
 static void test_srvrun_send_wt_drain_all_skips_inactive_slot(void) {
   srvrun_conn* conns = sr_test_conns();
   srvrun_send_wt_drain_all(&conns[0]);
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     CHECK(conns[0].wtsend[i].in_use == 0); /* nothing staged */
+  }
 }
 
 /* ===== W-14/WTH3-067: WT_CLOSE_SESSION capsule immediately followed by FIN
@@ -18659,7 +18959,9 @@ static void test_srvrun_wt_close_session_truncates_at_utf8_boundary(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
-  for (usz i = 0; i < WTCAPSULE_CLOSE_MESSAGE_MAX - 1; i++) msg[i] = 'a';
+  for (usz i = 0; i < WTCAPSULE_CLOSE_MESSAGE_MAX - 1; i++) {
+    msg[i] = 'a';
+  }
   msg[WTCAPSULE_CLOSE_MESSAGE_MAX - 1] = 0xC3; /* lead of a 2-byte sequence */
   msg[WTCAPSULE_CLOSE_MESSAGE_MAX]     = 0xA9; /* its continuation byte */
   CHECK(
@@ -18682,7 +18984,9 @@ static void test_srvrun_wt_close_session_truncates_at_invalid_byte(void) {
   srvrun_conn*  c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
-  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  for (usz i = 0; i < sizeof msg; i++) {
+    msg[i] = 'a';
+  }
   msg[10] = 0xFF;
   CHECK(
       wired_server_wt_close_session(
@@ -18777,8 +19081,12 @@ static int sr_recv_stream(
   const u8* pl;
   usz       pll;
   i64       r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
-  if (r <= 0) return 0;
-  if (!client_open_onertt(f, pkt, (usz)r, &pl, &pll)) return 0;
+  if (r <= 0) {
+    return 0;
+  }
+  if (!client_open_onertt(f, pkt, (usz)r, &pl, &pll)) {
+    return 0;
+  }
   return frame_get_stream(pl, pll, sf) > 0 && sf->stream_id == stream_id;
 }
 
@@ -18799,7 +19107,9 @@ static void test_srvrun_wt_close_capsule_retransmitted_after_loss(void) {
   i64             sfd, cfd;
   stream_frame    sf;
   srvrun_conn*    c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   poll_set_nonblock(sfd);
   c                         = sr_wtsend_fixture(&f, &ob);
   c->peer                   = srv;
@@ -18960,7 +19270,9 @@ static void test_srvrun_wt_open_bidi_reply_received(void) {
   CHECK(g_srsd_last_stream_id == (u64)id);
   CHECK(g_srsd_last_len == sizeof reply);
   CHECK(g_srsd_last_fin == 1);
-  for (usz i = 0; i < sizeof reply; i++) CHECK(g_srsd_last_buf[i] == reply[i]);
+  for (usz i = 0; i < sizeof reply; i++) {
+    CHECK(g_srsd_last_buf[i] == reply[i]);
+  }
 }
 
 /* wired_server_wt_stream_reply arms the caller-named client bidi stream with
@@ -18981,8 +19293,9 @@ static void test_srvrun_wt_stream_reply_arms_given_stream_verbatim(void) {
   CHECK(c->wtsend[0].in_use == 1);
   CHECK(c->wtsend[0].stream_id == 8);
   CHECK(c->wtsend[0].sess.q.p == c->wtsend[0].roundbuf);
-  for (usz i = 0; i < sizeof pay; i++)
+  for (usz i = 0; i < sizeof pay; i++) {
     CHECK(c->wtsend[0].roundbuf[i] == pay[i]);
+  }
   CHECK(
       c->wtsend[0].stream_credit ==
       c->s.sdrv.peer_initial_max_stream_data_bidi_local);
@@ -19024,10 +19337,11 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
   srvrun_conn*    c;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
-  for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     CHECK(
         wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
         15 + 4 * (i64)i);
+  }
   CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) < 0);
   {
     srvrun_cfg cfg = {
@@ -19039,8 +19353,9 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
     srvrun_feed_ack_range(c, 0, c->l.tx_pn, 1); /* covers every pn */
   }
   srvrun_reap_wtsends(c);
-  for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+  for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     CHECK(c->wtsend[i].in_use == 0);
+  }
   CHECK(
       wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
       15 + 4 * (i64)SRVRUN_WT_SEND_SLOTS);
@@ -19058,10 +19373,11 @@ static void test_srvrun_wt_send_slots_beside_qpack_streams(void) {
   c->l.h3.settings_sent  = 1;
   srvrun_open_qpack_streams(c);
   CHECK(c->qenc_stream_opened && c->qdec_stream_opened);
-  for (int i = 0; i < 3 + 4 * 3; i++)
+  for (int i = 0; i < 3 + 4 * 3; i++) {
     CHECK(
         wired_server_wt_open_uni(&c->wt, wired_span_of(pay, sizeof pay)) ==
         15 + 4 * (i64)i);
+  }
 }
 
 /* RFC 9000 4.1/19.10: a peer uni-stream credit below one chunk blocks the
@@ -19161,7 +19477,9 @@ static void test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice(
   srvrun_conn*  c;
   srvrun_cfg    cfg;
   srvrun_state  st;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -19301,13 +19619,16 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
   sockaddr         srv, from;
   i64              sfd, cfd;
   srvrun_conn*     c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
   for (usz i = 0; i < 5; i++) {
-    for (usz j = 0; j < sizeof sr_wtsend_bodies[i]; j++)
+    for (usz j = 0; j < sizeof sr_wtsend_bodies[i]; j++) {
       sr_wtsend_bodies[i][j] = (u8)(i * 31 + j);
+    }
     buckets[i].buf = sr_wtsend_asm[i];
     buckets[i].cap = sizeof sr_wtsend_asm[i];
     CHECK(
@@ -19331,20 +19652,24 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
     usz       pll;
     i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
     CHECK(r > 0);
-    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1)
+    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1) {
       sr_collect_stream_multi(pl, pll, buckets, 5);
+    }
   }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
   for (usz i = 0; i < 5; i++) {
     usz b = 0;
-    while (b < 5 && buckets[b].stream_id != 15 + 4 * i) b++;
+    while (b < 5 && buckets[b].stream_id != 15 + 4 * i) {
+      b++;
+    }
     CHECK(b < 5);
     CHECK(buckets[b].used == 1);
     CHECK(buckets[b].fin == 1);
     CHECK(buckets[b].high == sizeof sr_wtsend_bodies[i]);
-    for (usz j = 0; j < sizeof sr_wtsend_bodies[i]; j++)
+    for (usz j = 0; j < sizeof sr_wtsend_bodies[i]; j++) {
       CHECK(buckets[b].buf[j] == sr_wtsend_bodies[i][j]);
+    }
   }
 }
 
@@ -19368,8 +19693,9 @@ static void test_srvrun_wt_send_datagram_to_prefixes_qsid(void) {
     CHECK(e->conn_slot == 0);
     CHECK(e->len == 1 + sizeof sr_dg_payload);
     CHECK(e->buf[0] == 0x01);
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       CHECK(e->buf[1 + i] == sr_dg_payload[i]);
+    }
   }
   {
     u8             out[1600];
@@ -19393,8 +19719,9 @@ static void test_srvrun_wt_send_datagram_to_prefixes_qsid(void) {
     qn = wired_wtwire_qsid_take(wired_span_of(df.data, df.length), &sid);
     CHECK(qn == 1);
     CHECK(sid == 4);
-    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    for (usz i = 0; i < sizeof sr_dg_payload; i++) {
       CHECK(df.data[1 + i] == sr_dg_payload[i]);
+    }
   }
 }
 
@@ -19471,11 +19798,14 @@ static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->s.sdrv.peer_max_datagram_frame_size = 65535;
-  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)i;
-  for (int i = 0; i < 20; i++)
+  for (usz i = 0; i < sizeof pay; i++) {
+    pay[i] = (u8)i;
+  }
+  for (int i = 0; i < 20; i++) {
     CHECK(
         wired_server_wt_send_datagram_to(
             &c->wt, wired_span_of(pay, sizeof pay)) == 1);
+  }
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -19487,8 +19817,9 @@ static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
      * far under the tiny-datagram slice cap. */
     CHECK(srvrun_test_send_count() >= 1);
     CHECK(srvrun_test_send_count() <= 4);
-    for (int i = 0; i < 64 && g_srvrun_env.dgring_n; i++)
+    for (int i = 0; i < 64 && g_srvrun_env.dgring_n; i++) {
       srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    }
     CHECK(srvrun_test_send_count() == 20); /* nothing lost, only paced */
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -19527,8 +19858,9 @@ static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
     /* inside the pacing interval nothing more goes out */
     srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS - 1);
     CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
-    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
+    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++) {
       srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    }
     CHECK(srvrun_test_send_count() == 200);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -19545,10 +19877,11 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->s.sdrv.peer_max_datagram_frame_size = 65535;
-  for (int i = 0; i < SRVRUN_DGRING_CAP; i++)
+  for (int i = 0; i < SRVRUN_DGRING_CAP; i++) {
     CHECK(
         wired_server_wt_send_datagram_to(
             &c->wt, wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  }
   CHECK(
       wired_server_wt_send_datagram_to(
           &c->wt, wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 0);
@@ -19557,8 +19890,9 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
-    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++)
+    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++) {
       srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    }
   }
   CHECK(g_srvrun_env.dgring_n == 0);
   CHECK(
@@ -19681,8 +20015,9 @@ static void test_srvrun_broadcast_datagram_ring_full_reports_failure(void) {
   u8            pay[1] = {0x77};
   ob                   = (wired_obuf){obuf, sizeof obuf, 0};
   sr_wtsend_fixture(&f, &ob);
-  for (int i = 0; i < SRVRUN_DGRING_CAP; i++)
+  for (int i = 0; i < SRVRUN_DGRING_CAP; i++) {
     CHECK(wired_server_broadcast_datagram_ring(wired_span_of(pay, 1)) == 1);
+  }
   CHECK(wired_server_broadcast_datagram_ring(wired_span_of(pay, 1)) == 0);
   CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
 }
@@ -19804,8 +20139,12 @@ static void test_srvrun_broadcast_ring_preserves_fifo_order_within_one_step(
     /* Entry layout: [c0 A][c1 A][c2 A][c0 B][c1 B][c2 B] -- every recipient's
      * two copies keep msg_a strictly ahead of msg_b in the ring. */
     const srvrun_dgring_entry* e = g_srvrun_env.dgring;
-    for (usz i = 0; i < 3; i++) CHECK(e[i].buf[e[i].len - 1] == msg_a[0]);
-    for (usz i = 3; i < 6; i++) CHECK(e[i].buf[e[i].len - 1] == msg_b[0]);
+    for (usz i = 0; i < 3; i++) {
+      CHECK(e[i].buf[e[i].len - 1] == msg_a[0]);
+    }
+    for (usz i = 3; i < 6; i++) {
+      CHECK(e[i].buf[e[i].len - 1] == msg_b[0]);
+    }
   }
 }
 
@@ -20124,8 +20463,9 @@ static void test_srvrun_wt_slot_released_after_fin_and_reclaimed(void) {
     srvrun_offer_wt_streams(&cfg, c);
   }
   /* every slot's FIN was delivered and the slot freed. */
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     CHECK(c->l.wt_streams[i].in_use == 0);
+  }
   /* a fresh (5th) stream id now successfully claims a slot. */
   CHECK(wired_srvloop_wt_slot_claim(&c->l, 100) >= 0);
 }
@@ -20259,9 +20599,12 @@ static void test_srvrun_rst_table_holds_every_tracked_stream(void) {
                       WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +
                       SRVRUN_MAX_WT_SESSIONS + 1;
   usz             kept = 0;
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     srvrun_send_wt_busy_reset(&cfg, c, 4 * i, H3_REQUEST_REJECTED);
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++) kept += c->rst[i].pln != 0;
+  }
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    kept += c->rst[i].pln != 0;
+  }
   CHECK(kept == n);
 }
 
@@ -20537,8 +20880,9 @@ static void test_srvrun_wt_offer_reject_returns_credit(void) {
   u64             base = srvrun_stream_limit_base(&ctx);
   wired_wt_session_init(&c->wt, 0); /* unestablished: offers buffer */
   c->wt_active = 1;
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     c->wt.streams[i].in_use = 1;
+  }
   c->l.wt_streams[0].in_use        = 1;
   c->l.wt_streams[0].stream_id     = 4;
   c->l.wt_uni_streams[0].in_use    = 1;
@@ -20683,8 +21027,12 @@ static void test_srvrun_reset_queue_overflow_closes(void) {
 /* The transport error code of c's latched CONNECTION_CLOSE (~0 if none). */
 static u64 sr_close_code(const srvrun_conn* c, int* is_app) {
   conn_close_frame ccf;
-  if (!c->closing) return ~0ULL;
-  if (!frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) return ~0ULL;
+  if (!c->closing) {
+    return ~0ULL;
+  }
+  if (!frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) {
+    return ~0ULL;
+  }
   *is_app = ccf.is_app;
   return ccf.error_code;
 }
@@ -20692,11 +21040,13 @@ static u64 sr_close_code(const srvrun_conn* c, int* is_app) {
 /* The final size of the kept RESET_STREAM naming stream id, ~0 if none. */
 static u64 sr_kept_reset_final(const srvrun_conn* c, u64 id) {
   reset_stream_frame rs;
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
     if (c->rst[i].pln &&
         reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
-        rs.stream_id == id)
+        rs.stream_id == id) {
       return rs.final_size;
+    }
+  }
   return ~0ULL;
 }
 
@@ -20854,7 +21204,9 @@ static void test_srvrun_capsule_only_conn_regrows_max_data(void) {
   conns[0].l.streams[0].stream_id = 4;
   slot                            = srvrun_wt_rx_slot(&conns[0], 0);
   CHECK(slot != 0);
-  if (!slot) return;
+  if (!slot) {
+    return;
+  }
   slot->body.base = 5000; /* capsule bytes consumed so far */
   srvrun_grant_conn_credit(&cfg, &conns[0]);
   CHECK(conns[0].rx_max_data_advertised == 5000 + BODYWIN_CAP);
@@ -21023,7 +21375,9 @@ static void test_srvrun_ecn_failed_conn_sends_not_ect(void) {
   static const u8    pkt[3]  = {1, 2, 3};
   static srvrun_conn c;
   srvrun_cfg         cfg = {.fd = -1, .env = &g_srvrun_env, 0};
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   wired_udp_recvtos_enable(sfd);
   wired_udp_ect0_enable(cfd);
   c      = (srvrun_conn){0};
@@ -21117,7 +21471,9 @@ static void test_srvrun_qenc_stream_opens_with_type_prefix_only(void) {
   sockaddr      srv, from;
   i64           sfd, cfd;
   srvrun_conn*  c;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   ob      = (wired_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
   c->peer = srv;
@@ -21182,10 +21538,13 @@ static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
   u64 index;
   int is_static;
   usz off = qpack_prefix_decode(fs, n, &(qpack_prefix){0});
-  if (!off) return -1;
-  if (!qpack_indexed_decode(
-          wired_span_of(fs + off, n - off), &index, &is_static))
+  if (!off) {
     return -1;
+  }
+  if (!qpack_indexed_decode(
+          wired_span_of(fs + off, n - off), &index, &is_static)) {
+    return -1;
+  }
   return !is_static;
 }
 
@@ -21219,8 +21578,9 @@ static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
     /* byte 0 is the stream's one-time type prefix; the Insert instruction
      * follows it. */
     CHECK(w->sess.q.len == 1 + ins.insert_len);
-    for (usz i = 0; i < ins.insert_len; i++)
+    for (usz i = 0; i < ins.insert_len; i++) {
       CHECK(w->roundbuf[1 + i] == ins.insert_instr[i]);
+    }
   }
   CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == 1);
 }
@@ -21306,10 +21666,14 @@ static void test_srvrun_on_step_fires_per_step(void) {
   cfg.on_step_ctx   = 0;
   g_sr_step_calls   = 0;
   g_sr_step_last_ms = 0;
-  for (int i = 0; i < 3; i++) srvrun_step(&cfg, &st, bufs, 2);
+  for (int i = 0; i < 3; i++) {
+    srvrun_step(&cfg, &st, bufs, 2);
+  }
   CHECK(g_sr_step_calls == 3);
   cfg.on_step = 0;
-  for (int i = 0; i < 3; i++) srvrun_step(&cfg, &st, bufs, 2);
+  for (int i = 0; i < 3; i++) {
+    srvrun_step(&cfg, &st, bufs, 2);
+  }
   CHECK(g_sr_step_calls == 3);
   wired_udp_close(fd);
 }
@@ -21417,8 +21781,9 @@ static void sr_reset_burst_step(
   u8                 payload[1024], spkt[1400];
   usz                off = 0, slen;
   reset_stream_frame rs  = {4, 0x10c, 0};
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
+  }
   slen = client_seal_onertt_pn(f, pn, payload, off, spkt, sizeof spkt);
   srvrun_on_step(ctx, c, wired_mspan_of(spkt, slen));
 }
@@ -21663,7 +22028,9 @@ static void test_srvrun_slow_trickle_preauth_evicted(void) {
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              n    = sr_raw_ch(&c, ch, sizeof ch);
   usz n1 = sr_seal_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
-  for (usz i = 0; i < n1; i++) again[i] = dg1[i];
+  for (usz i = 0; i < n1; i++) {
+    again[i] = dg1[i];
+  }
   sr_make_id(&id, priv, pub, seed, rnd);
   CHECK(n > 100);
   {
@@ -21739,7 +22106,9 @@ static usz sr_zerortt_dg(u8* dg, const u8* dcid, u8 dcid_len, u8 fp) {
   dg[n++] = 0;
   dg[n++] = 1; /* version 1 */
   dg[n++] = dcid_len;
-  for (u8 i = 0; i < dcid_len; i++) dg[n++] = dcid[i];
+  for (u8 i = 0; i < dcid_len; i++) {
+    dg[n++] = dcid[i];
+  }
   dg[n++] = 0;    /* SCID len 0 */
   dg[n++] = 0x02; /* Length: pn(1) + 1 payload byte */
   dg[n++] = 0;    /* packet number */
@@ -21784,15 +22153,17 @@ static void test_srvrun_conn_state_growth_bounded_under_worst_case_peer(void) {
       wired_srvboot_acc_zerortt_count(&st.conns[0].boot) ==
       WIRED_SRVBOOT_ZERORTT_MAX);
   /* the WT stream slot table refuses past its last slot */
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     CHECK(wired_srvloop_wt_slot_claim(&st.conns[0].l, 4 + 4 * i) >= 0);
+  }
   CHECK(
       wired_srvloop_wt_slot_claim(
           &st.conns[0].l, 4 + 4 * WIRED_SRVLOOP_MAX_WT_STREAMS) < 0);
   /* a session's pre-establishment stream buffer refuses past its last slot */
   wired_wt_session_init(&s, 4);
-  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     CHECK(wired_wt_session_offer_stream(&s, 8 + 4 * i) == 1);
+  }
   CHECK(
       wired_wt_session_offer_stream(
           &s, 8 + 4 * WIRED_WT_MAX_BUFFERED_STREAMS) == 0);
@@ -21814,16 +22185,19 @@ static void test_srvrun_wt_stream_churn_bounded_by_slot_table(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   for (u64 round = 0; round < 3; round++) {
     u64 base = 100 + round * 100;
-    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
       CHECK(wired_srvloop_wt_slot_claim(&c->l, base + 4 * i) >= 0);
+    }
     CHECK(
         wired_srvloop_wt_slot_claim(
             &c->l, base + 4 * WIRED_SRVLOOP_MAX_WT_STREAMS) < 0);
-    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
       wired_srvloop_wt_slot_release(&c->l, base + 4 * i);
+    }
   }
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     CHECK(c->l.wt_streams[i].in_use == 0);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 SS6 (V-0496): a WT_CLOSE_SESSION capsule
@@ -22098,7 +22472,9 @@ static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
 static usz sr_big_req_fit(u8* out, usz cap, usz target, int body) {
   for (usz n = 1; n < 4000; n++) {
     usz len = body ? sr_big_req(out, cap, 1, n) : sr_big_req(out, cap, n, 0);
-    if (len == target) return n;
+    if (len == target) {
+      return n;
+    }
   }
   return 0;
 }
@@ -22120,7 +22496,9 @@ static void sr_sl_send_stream(srvrun_conn* c, const u8* d, usz n, int fin) {
 static int sr_resp_is_status(const srvrun_resp* r, u16 status) {
   u8         want[64];
   wired_obuf ob = obuf_of(want, sizeof want);
-  if (!h3resp_prefix_field(status, 0, 0, 0, &ob)) return 0;
+  if (!h3resp_prefix_field(status, 0, 0, 0, &ob)) {
+    return 0;
+  }
   return r->in_use && r->sess.q.len == ob.len &&
          srvrun_wt_bytes_eq(r->sess.q.p, want, ob.len);
 }
@@ -22165,9 +22543,10 @@ static void sr_og_send_connect(srvrun_conn* c, const char* origin, usz olen) {
       wired_span_of((const u8*)"origin", 6),
       wired_span_of((const u8*)origin, olen)};
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
-  if (olen)
+  if (olen) {
     fob.len += qpack_literal_name_encode(
         wired_mspan_of(fields + fob.len, sizeof fields - fob.len), 0, &of);
+  }
   CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
   {
     stream_frame sf = {0, 0, hob.len, h3buf, 0};
@@ -22329,8 +22708,9 @@ static int sr_on_body(
     int                         fin) {
   (void)ctx;
   (void)stream_id;
-  for (usz i = 0; i < chunk.n && g_sr_body.got_n < 4096; i++)
+  for (usz i = 0; i < chunk.n && g_sr_body.got_n < 4096; i++) {
     g_sr_body.got[g_sr_body.got_n++] = chunk.p[i];
+  }
   g_sr_body.calls++;
   g_sr_body.total += chunk.n;
   g_sr_body.saw_post = req->method_len == 4 && req->method[0] == 'P';
@@ -22367,7 +22747,9 @@ static void sr_body_send(srvrun_conn* c, const u8* d, usz n, int fin) {
     u8           pl[800];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
     stream_frame sf  = {0, sent, k, d + sent, (u8)(fin && sent + k == n)};
-    if (!k) return;
+    if (!k) {
+      return;
+    }
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     sr_sl_step(c, pl, sob.len);
     sent += k;
@@ -22465,7 +22847,9 @@ static void test_srvrun_handler_on_body_reaches_cfg(void) {
   opt.core_id      = -1;
   cfg = srvrun_build_cfg(&g_srvrun_env, 0, 0, h, (wired_srvrun_obs){0}, &opt);
   CHECK(cfg.on_body == sr_on_body);
-  if (cfg.fd >= 0) wired_udp_close(cfg.fd);
+  if (cfg.fd >= 0) {
+    wired_udp_close(cfg.fd);
+  }
 }
 
 /* RFC 9000 19.5: a STOP_SENDING alone, sealed as its own 1-RTT packet --
@@ -22501,9 +22885,15 @@ static int sr_is_stop_sending(const u8* pkt, usz n, u64 id) {
   const u8*          pl;
   usz                pll;
   stop_sending_frame ss;
-  if (client_open_onertt(&g_sl_f, (u8*)pkt, n, &pl, &pll) != 1) return 0;
-  if (pl[0] != FRAME_STOP_SENDING) return 0;
-  if (stop_sending_decode(pl, pll, &ss) != pll) return 0;
+  if (client_open_onertt(&g_sl_f, (u8*)pkt, n, &pl, &pll) != 1) {
+    return 0;
+  }
+  if (pl[0] != FRAME_STOP_SENDING) {
+    return 0;
+  }
+  if (stop_sending_decode(pl, pll, &ss) != pll) {
+    return 0;
+  }
   return ss.stream_id == id && ss.error_code == H3_NO_ERROR;
 }
 
@@ -22516,7 +22906,9 @@ static void test_srvrun_early_413_also_stops_sending(void) {
   sockaddr     srv, from;
   int          stops = 0;
   usz          sent;
-  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
   sr_sl_send_stream(c, req, 2000, 0);
   g_sl_cfg.fd = cfd;
@@ -22535,7 +22927,9 @@ static void test_srvrun_early_413_also_stops_sending(void) {
   for (usz k = 0; k < sent; k++) {
     u8  pkt[1500];
     i64 r = wired_udp_recvfrom(sfd, wired_mspan_of(pkt, sizeof pkt), &from);
-    if (r > 0) stops += sr_is_stop_sending(pkt, (usz)r, 0);
+    if (r > 0) {
+      stops += sr_is_stop_sending(pkt, (usz)r, 0);
+    }
   }
   CHECK(stops == 1);
   g_sl_cfg.fd = -1;
@@ -22571,9 +22965,12 @@ static void test_srvrun_on_body_past_initial_max_data(void) {
     u8           d[700], pl[800];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
     stream_frame sf  = {0, sent, k, d, (u8)(sent + k == total)};
-    if (!k) break;
-    for (usz i = 0; i < k; i++)
+    if (!k) {
+      break;
+    }
+    for (usz i = 0; i < k; i++) {
       d[i] = sent + i < hn ? head[sent + i] : (u8)(sent + i - hn);
+    }
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     sr_sl_step(c, pl, sob.len);
     sent += k;
@@ -22599,7 +22996,9 @@ static u64 sr_cap_credit(const srvrun_conn* c) {
 /* RFC 9000 4.1: the credit never reaches past the window. */
 static void sr_cap_check_credit(const srvrun_conn* c) {
   const wired_srvloop_stream_slot* s = srvrun_req_slot_of(c, 0);
-  if (s) CHECK(sr_cap_credit(c) <= s->body.base + SR_REQ_BUF_CAP);
+  if (s) {
+    CHECK(sr_cap_credit(c) <= s->body.base + SR_REQ_BUF_CAP);
+  }
 }
 
 /* Bytes the client may send now at offset at on stream 0, at most 700. */
@@ -22619,7 +23018,9 @@ static usz sr_cap_send(srvrun_conn* c, u64 from, const u8* d, usz n) {
     u8           pl[800];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
     stream_frame sf  = {0, from + sent, k, d + sent, 0};
-    if (!k) break;
+    if (!k) {
+      break;
+    }
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     sr_sl_step(c, pl, sob.len);
     sr_cap_check_credit(c);
@@ -22632,7 +23033,9 @@ static usz sr_cap_send(srvrun_conn* c, u64 from, const u8* d, usz n) {
  * returns the last value. */
 static u64 sr_cap_run(wired_obuf* ob, usz n) {
   u64 v = 0;
-  while (ob->len < n) CHECK(wtcapsule_encode_max_data(ob, ++v) == 1);
+  while (ob->len < n) {
+    CHECK(wtcapsule_encode_max_data(ob, ++v) == 1);
+  }
   return v;
 }
 
@@ -22664,7 +23067,9 @@ static void test_srvrun_wt_close_message_too_long_resets_and_closes(void) {
   wired_obuf   cb   = obuf_of(caps, sizeof caps);
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  for (usz i = 0; i < sizeof msg; i++) {
+    msg[i] = 'a';
+  }
   /* Build the body directly (wired_wtcapsule_encode_close itself rejects an
    * over-cap message, matching this draft's own limit) -- the TEST must
    * exercise the wire-level violation a non-conforming peer could still
@@ -22672,7 +23077,9 @@ static void test_srvrun_wt_close_message_too_long_resets_and_closes(void) {
   {
     u8 body[4 + sizeof msg];
     be_put_be32(body, 7);
-    for (usz i = 0; i < sizeof msg; i++) body[4 + i] = msg[i];
+    for (usz i = 0; i < sizeof msg; i++) {
+      body[4 + i] = msg[i];
+    }
     CHECK(
         capsule_encode(
             &cb, WTCAPSULE_TYPE_CLOSE, wired_span_of(body, sizeof body)) == 1);
@@ -22715,7 +23122,9 @@ static void test_srvrun_wt_close_message_at_max_len_closes_session(void) {
   wired_obuf   cb   = obuf_of(caps, sizeof caps);
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  for (usz i = 0; i < sizeof msg; i++) msg[i] = 'a';
+  for (usz i = 0; i < sizeof msg; i++) {
+    msg[i] = 'a';
+  }
   CHECK(
       wired_wtcapsule_encode_close(&cb, 7, wired_span_of(msg, sizeof msg)) ==
       1);
@@ -23086,10 +23495,11 @@ static usz sr_sl_wt_with_initial(srvrun_conn* c, u64 uni, u64 bidi, u64 data) {
 static void sr_sl_flow_capsule(srvrun_conn* c, usz hlen, int data, u64 v) {
   static u8  caps[64];
   wired_obuf cb = obuf_of(caps, sizeof caps);
-  if (data)
+  if (data) {
     CHECK(wtcapsule_encode_max_data(&cb, v) == 1);
-  else
+  } else {
     CHECK(wtcapsule_encode_max_streams(&cb, 0, v) == 1);
+  }
   sr_h3data(&cb, 0);
   CHECK(sr_cap_send(c, hlen, caps, cb.len) == cb.len);
 }
@@ -23507,11 +23917,14 @@ static int sr_hx_handler(void* hctx, wired_http_exchange* x) {
   x->status       = g_sr_hx.status;
   x->content_type = g_sr_hx.ct;
   x->field_count  = g_sr_hx.n;
-  for (usz i = 0; i < g_sr_hx.n && i < WIRED_HTTP_MAX_FIELDS; i++)
+  for (usz i = 0; i < g_sr_hx.n && i < WIRED_HTTP_MAX_FIELDS; i++) {
     x->fields[i] = g_sr_hx.f[i];
+  }
   x->more       = g_sr_hx.more;
   x->total_size = g_sr_hx.total_size;
-  if (!g_sr_hx.body) return 0;
+  if (!g_sr_hx.body) {
+    return 0;
+  }
   x->body->len = wired_cstr_len(g_sr_hx.body);
   bytes_memcpy(x->body->p, g_sr_hx.body, x->body->len);
   return 1;
@@ -23537,7 +23950,9 @@ static void sr_hx_decode_lines(wired_span fs, sr_hx_dec* d) {
         wired_span_of(fs.p + off, fs.n - off),
         wired_mspan_of(d->scr + used, sizeof d->scr - used), &dyn, L);
     CHECK(c != 0);
-    if (!c) return;
+    if (!c) {
+      return;
+    }
     off += c;
     used += L->scratch_used;
   }
@@ -23685,8 +24100,9 @@ static void test_srvrun_http_bad_field_is_500(void) {
 static void test_srvrun_http_field_count_limit(void) {
   wired_http_field f[WIRED_HTTP_MAX_FIELDS];
   sr_hx_dec        d;
-  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++)
+  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++) {
     f[i] = (wired_http_field)SR_HX_FIELD(sr_hx_ck_n, sr_hx_ck_a);
+  }
   g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, 0, 0, 0};
   sr_hx_run(&d);
   CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS);
@@ -23702,9 +24118,10 @@ static void test_srvrun_http_field_bytes_limit(void) {
   usz              each = WIRED_HTTP_FIELD_BYTES_MAX / WIRED_HTTP_MAX_FIELDS;
   sr_hx_dec        d;
   bytes_memset(big, 'v', sizeof big);
-  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++)
+  for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++) {
     f[i] = (wired_http_field){
         wired_span_of(sr_hx_ck_n, 1), wired_span_of(big, each - 1)};
+  }
   g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, "x", 0, 0};
   sr_hx_run(&d);
   CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS && d.body.n == 1);
@@ -23913,7 +24330,9 @@ static void test_srvrun_stateless_reset_survives_cert_reload(void) {
   wired_obuf        ob      = obuf_of(out, sizeof out);
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrun_pin_reset_seed(env, &id);
-  for (usz i = 0; i < 32; i++) seed2[i] = (u8)(seed[i] ^ 0x5a);
+  for (usz i = 0; i < 32; i++) {
+    seed2[i] = (u8)(seed[i] ^ 0x5a);
+  }
   id.cert_seed = seed2; /* what a SIGHUP reload does to id */
   {
     srvrun_cfg cfg = {
@@ -24178,7 +24597,9 @@ static int sr_long_ct_handler(
   (void)offset;
   (void)more;
   (void)total_size;
-  for (usz i = 0; i + 1 < sizeof g_sr_long_ct; i++) g_sr_long_ct[i] = 'a';
+  for (usz i = 0; i + 1 < sizeof g_sr_long_ct; i++) {
+    g_sr_long_ct[i] = 'a';
+  }
   *ct           = g_sr_long_ct;
   body_out->len = 0;
   return 1;
@@ -24292,8 +24713,9 @@ static void test_srvrun_flow_violation_survives_slot_release(void) {
 /* ===== srvthreads broadcast registry under concurrent registration ===== */
 
 static void sr_bcast_reset(void) {
-  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++) {
     g_srvrun_bcast[i] = (srvrun_bcast_entry){0};
+  }
   g_srvrun_bcast_n = 0;
 }
 
@@ -24348,7 +24770,9 @@ static void test_srvrun_bcast_concurrent_register(void) {
         __atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) ==
         SR_BCAST_RACERS);
     __atomic_store_n(&g_sr_bcast_go, 2, __ATOMIC_RELEASE);
-    for (int i = 0; i < SR_BCAST_RACERS; i++) wired_thread_join(&t[i]);
+    for (int i = 0; i < SR_BCAST_RACERS; i++) {
+      wired_thread_join(&t[i]);
+    }
     CHECK(__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) == 0);
   }
   sr_bcast_reset();
@@ -24372,7 +24796,9 @@ static void test_srvrun_free_slot_wipes_keys(void) {
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   conns[0].s.ku.cur.key[0] = 0x5a; /* certainly nonzero key material */
   srvrun_free_slot(&cfg, &st, 0);
-  for (usz i = 0; i < sizeof conns[0].s; i++) any |= p[i];
+  for (usz i = 0; i < sizeof conns[0].s; i++) {
+    any |= p[i];
+  }
   CHECK(any == 0);
   conns[0] = (srvrun_conn){0};
 }
@@ -24399,8 +24825,9 @@ static void test_srvrun_ghost_remembers_spare_cid(void) {
         0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, g_srvrun_state.conns};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
-    for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++)
+    for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++) {
       g_srvrun_env.ghosts[i] = (srvrun_ghost){0};
+    }
     srvrun_note_ghost(&ctx, c);
     CHECK(srvrun_ghost_match(&ctx, wired_span_of(c->scid, 6)) == 1);
     CHECK(srvrun_ghost_match(&ctx, wired_span_of(c->l.spare_cid, 6)) == 1);

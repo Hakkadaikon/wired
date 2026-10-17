@@ -4,7 +4,9 @@ static void srv_resumption_master_secret(const wired_server* s, u8* out);
 
 /* RFC 9001 4.9 / RFC 8446 7.1 (0.5-RTT) */
 int wired_server_early_send_keys(wired_server* s) {
-  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
+  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) {
+    return 0;
+  }
   return srvfin_early_send_keys(&s->fin, s->tr, s->tr_through_flight);
 }
 
@@ -24,7 +26,9 @@ static void srv_resumption_master_secret(const wired_server* s, u8* out) {
 }
 
 int wired_server_resumption_secret(const wired_server* s, u8* out) {
-  if (!wired_server_is_confirmed(s)) return 0;
+  if (!wired_server_is_confirmed(s)) {
+    return 0;
+  }
   srv_resumption_master_secret(s, out);
   return 1;
 }

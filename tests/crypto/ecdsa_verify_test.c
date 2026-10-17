@@ -56,7 +56,9 @@ static void test_ecdsa_bad_sig(void) {
 static void test_ecdsa_zero_r(void) {
   u8 qx[32], qy[32], r[32], s[32], h[32];
   load_vec(qx, qy, r, s, h);
-  for (usz i = 0; i < 32; i++) r[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    r[i] = 0;
+  }
   CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 0);
 }
 

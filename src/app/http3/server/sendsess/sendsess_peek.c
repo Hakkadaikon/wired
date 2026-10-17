@@ -6,8 +6,12 @@ static void sendsess_note_largest(wired_sendsess* s, u64 hi);
 
 /* Fold one log entry into the peek accumulation. */
 static usz peek_one(const wired_sent_slice* e, u64 lo, u64 hi, u64* newest) {
-  if (!sendsess_hit(e, lo, hi)) return 0;
-  if (e->sent_ms > *newest) *newest = e->sent_ms;
+  if (!sendsess_hit(e, lo, hi)) {
+    return 0;
+  }
+  if (e->sent_ms > *newest) {
+    *newest = e->sent_ms;
+  }
   return e->sl.len;
 }
 
@@ -15,9 +19,12 @@ usz wired_sendsess_peek_ack(
     const wired_sendsess* s, u64 lo, u64 hi, u64* newest_sent_ms) {
   usz n      = 0;
   u64 newest = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     n += peek_one(&s->log[i], lo, hi, &newest);
-  if (n) *newest_sent_ms = newest;
+  }
+  if (n) {
+    *newest_sent_ms = newest;
+  }
   return n;
 }
 
@@ -32,13 +39,18 @@ static int sendsess_hit(const wired_sent_slice* e, u64 lo, u64 hi) {
 
 /* Track the highest acknowledged pn; it never regresses. */
 static void sendsess_note_largest(wired_sendsess* s, u64 hi) {
-  if (!s->has_acked || hi > s->largest_acked) s->largest_acked = hi;
+  if (!s->has_acked || hi > s->largest_acked) {
+    s->largest_acked = hi;
+  }
   s->has_acked = 1;
 }
 
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
   sendsess_note_largest(s, hi);
   s->pto_count = 0; /* the peer is alive: probe budget starts over */
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (sendsess_hit(&s->log[i], lo, hi)) s->log[i].inflight = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    if (sendsess_hit(&s->log[i], lo, hi)) {
+      s->log[i].inflight = 0;
+    }
+  }
 }

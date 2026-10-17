@@ -27,7 +27,9 @@ static void test_onertt_roundtrip(void) {
   hspkt_onertt_open_desc od = {wired_mspan_of(pkt, o.len), 5, 0};
   CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof(frames));
-  for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
+  for (usz i = 0; i < sizeof(frames); i++) {
+    CHECK(out.p[i] == frames[i]);
+  }
 }
 
 /* RFC 9000 17.3: short-header form has the high bit of byte0 clear. After
@@ -88,7 +90,9 @@ static usz seal_truncated(
   usz    hdr_len = pn_off + pn_len;
   usz    i;
   out[0] = 0x40u | (u8)(pn_len - 1u); /* short header, fixed bit, pn length */
-  for (i = 0; i < dcid_len; i++) out[1 + i] = dcid[i];
+  for (i = 0; i < dcid_len; i++) {
+    out[1 + i] = dcid[i];
+  }
   pnum_encode(out + pn_off, full_pn, pn_len);
   protect_nonce(k->iv, full_pn, nonce);
   aes128_init(&aead, k->key);
@@ -123,7 +127,9 @@ static void test_onertt_truncated_pn(void) {
   hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 5, 299};
   CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof frames);
-  for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
+  for (usz i = 0; i < sizeof frames; i++) {
+    CHECK(out.p[i] == frames[i]);
+  }
 
   /* Without the right baseline the recovered PN is 44, the nonce is wrong,
    * and authentication fails — confirms the test exercises PN recovery. */
@@ -154,7 +160,9 @@ static void test_onertt_min_length_short_pn(void) {
   hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 6, 30};
   CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof frames);
-  for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
+  for (usz i = 0; i < sizeof frames; i++) {
+    CHECK(out.p[i] == frames[i]);
+  }
 }
 
 void test_onertt(void) {

@@ -71,27 +71,32 @@ static int is_inverse_pair(const ec_point* p, const ec_point* q) {
 
 /* Same x: result is either infinity (inverse pair) or 2p (p == q). */
 static void add_same_x(ec_point* r, const ec_point* p, const ec_point* q) {
-  if (is_inverse_pair(p, q))
+  if (is_inverse_pair(p, q)) {
     r->inf = 1;
-  else
+  } else {
     ec_double(r, p);
+  }
 }
 
 /* Handle an infinity operand. Returns 1 if r was set, 0 if both are finite. */
 static int add_infinity(ec_point* r, const ec_point* p, const ec_point* q) {
-  if (p->inf)
+  if (p->inf) {
     ec_set(r, q);
-  else if (q->inf)
+  } else if (q->inf) {
     ec_set(r, p);
-  else
+  } else {
     return 0;
+  }
   return 1;
 }
 
 void ec_add(ec_point* r, const ec_point* p, const ec_point* q) {
-  if (add_infinity(r, p, q)) return;
-  if (p256_fp_eq(p->x, q->x))
+  if (add_infinity(r, p, q)) {
+    return;
+  }
+  if (p256_fp_eq(p->x, q->x)) {
     add_same_x(r, p, q);
-  else
+  } else {
     add_distinct(r, p, q);
+  }
 }

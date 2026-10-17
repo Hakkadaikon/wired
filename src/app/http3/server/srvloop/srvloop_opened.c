@@ -40,7 +40,9 @@ static int step_newer_dropped(
  * says to discard after removing protection. */
 static int step_admit(
     wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
-  if (step_newer_dropped(l, s, o)) return 0;
+  if (step_newer_dropped(l, s, o)) {
+    return 0;
+  }
   srvloop_note_app_rx(l, s, o);
   srvloop_note_hs_rx(l, o);
   return !srvloop_step_dup(l, o->level);
@@ -62,8 +64,12 @@ static int step_np_raises(
 static void step_note_np(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
   int raised = step_np_raises(l, o, pl);
-  if (opened_is_short(o)) l->step_np_new = raised;
-  if (!raised) return;
+  if (opened_is_short(o)) {
+    l->step_np_new = raised;
+  }
+  if (!raised) {
+    return;
+  }
   l->np_hi   = l->app_rx_pn;
   l->np_seen = 1;
 }
@@ -75,14 +81,18 @@ void srvloop_step_opened(
     wired_mspan                   pkt) {
   wired_srvloop* l = conn->l;
   srvloop_opened o = {ro->level, pkt};
-  if (!step_admit(l, conn->s, &o)) return;
+  if (!step_admit(l, conn->s, &o)) {
+    return;
+  }
   step_note_np(l, &o, ro->payload);
   l->peer_closed |= srvloop_has_close(ro->payload);
   /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
    * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
    * Handshake level could otherwise hit an unrelated 1-RTT pn by
    * coincidence. */
-  if (ro->level == LEVEL_ONERTT) srvloop_collect_acks(l, ro->payload);
+  if (ro->level == LEVEL_ONERTT) {
+    srvloop_collect_acks(l, ro->payload);
+  }
   srvloop_step_note_ack_owed(l, ro->payload, ro->level);
   srvloop_step_dispatch(conn, ro->payload);
 }

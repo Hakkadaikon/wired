@@ -33,7 +33,9 @@ static void moqtsw_release_new(
     wired_moqt_hub* hub, const moqtsw_ops* ops, const wired_moqtrun_sub* a) {
   wired_moqtrun_track* bt = 0;
   wired_moqtrun_sub*   b  = ops->find(hub, a->session_idx, a->sw_peer_rid, &bt);
-  if (!moqtsw_new_of(b, a)) return;
+  if (!moqtsw_new_of(b, a)) {
+    return;
+  }
   b->sw_role = MOQTSW_ROLE_NONE;
   ops->remember(hub, b);
 }
@@ -45,7 +47,9 @@ static int moqtsw_try(
     wired_moqtrun_track* t,
     usz                  si) {
   wired_moqtrun_sub* a = &t->subs[si];
-  if (!moqtsw_due(hub, ops, t, si)) return 0;
+  if (!moqtsw_due(hub, ops, t, si)) {
+    return 0;
+  }
   a->sw_role = MOQTSW_ROLE_NONE;
   moqtsw_release_new(hub, ops, a);
   MOQTSW_END_FNS[a->sw_done](hub, ops, t, si);
@@ -79,8 +83,11 @@ static int moqtsw_is_new(const wired_moqtrun_sub* b) {
 
 static int moqtsw_old_on_track(
     const wired_moqtrun_track* t, const wired_moqtrun_sub* b) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtsw_old_of(&t->subs[i], b)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtsw_old_of(&t->subs[i], b)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -88,8 +95,11 @@ static int moqtsw_old_on_track(
  * its re-PUBLISH keeps its switch (moqtsw_try). */
 static int moqtsw_old_on_peer(
     const wired_moqtrun_peer* p, const wired_moqtrun_sub* b) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtsw_old_on_track(&p->tracks[t], b)) return 1;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (moqtsw_old_on_track(&p->tracks[t], b)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -100,8 +110,11 @@ static int moqtsw_peer_holds_old(
 
 static int moqtsw_old_alive(
     const wired_moqt_hub* hub, const wired_moqtrun_sub* b) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtsw_peer_holds_old(&hub->peers[i], b)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtsw_peer_holds_old(&hub->peers[i], b)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -111,7 +124,9 @@ static int moqtsw_old_alive(
  * switching set (moqtsw_release_new's twin, from B's side). */
 void moqtsw_orphan(
     wired_moqt_hub* hub, const moqtsw_ops* ops, wired_moqtrun_sub* b) {
-  if (!moqtsw_is_new(b) || moqtsw_old_alive(hub, b)) return;
+  if (!moqtsw_is_new(b) || moqtsw_old_alive(hub, b)) {
+    return;
+  }
   b->sw_role = MOQTSW_ROLE_NONE;
   ops->remember(hub, b);
 }
@@ -125,9 +140,13 @@ int moqtsw_visit(
   /* A withdrawn track's slots are leftovers: their session_idx may name
    * another client by now. A re-attach recounts and orphan-checks its
    * own copy (moqtsw_reattached). */
-  if (!t->in_use) return 0;
+  if (!t->in_use) {
+    return 0;
+  }
   moqtsw_orphan(hub, ops, &t->subs[si]);
-  if (!moqtsw_waiting(&t->subs[si])) return 0;
+  if (!moqtsw_waiting(&t->subs[si])) {
+    return 0;
+  }
   int ended = moqtsw_try(hub, ops, t, si);
   *live += (u32)!ended;
   return ended;

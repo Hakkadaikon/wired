@@ -34,7 +34,9 @@ static int moqtrun_pubst_next(
     u64*                      type,
     wired_span*               body) {
   int r = q->in_use ? moqtrun_asm_pop(&q->in, type, body) : MOQCTL_INSUFFICIENT;
-  if (r == MOQCTL_INSUFFICIENT) return 0;
+  if (r == MOQCTL_INSUFFICIENT) {
+    return 0;
+  }
   moqctl_type_ver(p->ver, r, type);
   return 1;
 }
@@ -47,8 +49,9 @@ void moqtrun_pubst_recv(
   u64        type = 0;
   wired_span body = {0, 0};
   moqtrun_asm_push(&q->in, &data);
-  while (moqtrun_pubst_next(p, q, &type, &body))
+  while (moqtrun_pubst_next(p, q, &type, &body)) {
     moqtrun_pubst_lookup(type)(hub, p, q, body);
+  }
   moqtrun_reqs_tick_one(&hub->io, q);
 }
 
@@ -70,7 +73,9 @@ static int moqtrun_dispatch_pubst(
     wired_span          data,
     int                 fin) {
   wired_moqtrun_req* pq = moqtrun_pubst_slot(hub, p->wt, stream_id);
-  if (!pq) return 0;
+  if (!pq) {
+    return 0;
+  }
   pq->fin_in |= fin;
   moqtrun_pubst_recv(hub, p, pq, data);
   return 1;
@@ -118,7 +123,9 @@ void moqtrun_dispatch_other(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_dispatch_own_req(hub, p, stream_id, data, fin)) return;
+  if (moqtrun_dispatch_own_req(hub, p, stream_id, data, fin)) {
+    return;
+  }
   moqtrun_dispatch_client_bidi(hub, p, stream_id, data, fin);
 }
 
@@ -137,8 +144,9 @@ void moqtrun_rx_route(
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_rx_on_ctl(p, stream_id))
+  if (moqtrun_rx_on_ctl(p, stream_id)) {
     moqtrun_ctl_rx(hub, p, stream_id, data, fin);
-  else
+  } else {
     moqtrun_dispatch_other(hub, p, stream_id, data, fin);
+  }
 }

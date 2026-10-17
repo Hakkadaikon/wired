@@ -9,7 +9,9 @@ int rng_bytes(u8* buf, usz len) {
   usz done = 0;
   while (done < len) {
     i64 ret = wired_arch_getrandom(buf + done, len - done, 0);
-    if (rng_no_progress(ret)) return 0;
+    if (rng_no_progress(ret)) {
+      return 0;
+    }
     done += (usz)ret;
   }
   return 1;

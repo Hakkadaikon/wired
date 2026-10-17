@@ -9,7 +9,9 @@ static void test_sni_roundtrip(void) {
   usz        r  = tls_sni_decode(wired_span_of(buf, w), &out);
   CHECK(w == 3 + sizeof(host) && r == w);
   CHECK(out.n == sizeof(host) && out.p == buf + 3);
-  for (usz i = 0; i < sizeof(host); i++) CHECK(out.p[i] == host[i]);
+  for (usz i = 0; i < sizeof(host); i++) {
+    CHECK(out.p[i] == host[i]);
+  }
   /* wire: name_type host_name, length */
   CHECK(buf[0] == 0x00);
   CHECK(buf[1] == 0x00 && buf[2] == (u8)sizeof(host));

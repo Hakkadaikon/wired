@@ -18,9 +18,13 @@ static int srvrun_wtsend_app_bidi(const srvrun_wtsend* w);
 void srvrun_resp_refill(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   usz room;
-  if (!srvrun_resp_streaming_live(r)) return;
+  if (!srvrun_resp_streaming_live(r)) {
+    return;
+  }
   room = wired_sendsess_ring_room(&r->sess, r->ring_cap);
-  if (room < r->ring_cap / 4) return;
+  if (room < r->ring_cap / 4) {
+    return;
+  }
   srvrun_resp_refill_write(ctx, c, slot, r, srvrun_resp_refill_take(r, room));
 }
 
@@ -55,15 +59,20 @@ u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
  * session's lifetime so the peer's flow-control capsules keep landing in it
  * (srvrun_wt_rx_capsules); srvrun_close_wt_session_slot releases it then. */
 void srvrun_resp_release_stream(srvrun_conn* c, u64 stream_id) {
-  if (srvrun_wt_slot_by_connect_id(c, stream_id) < 0)
+  if (srvrun_wt_slot_by_connect_id(c, stream_id) < 0) {
     wired_srvloop_slot_release(&c->l, stream_id);
+  }
 }
 
 usz srvrun_resp_reap(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   srvrun_resp_refill(ctx, c, slot, r);
-  if (srvrun_resp_not_yet_idle(r)) return 0;
-  if (r->streaming) return 0;
+  if (srvrun_resp_not_yet_idle(r)) {
+    return 0;
+  }
+  if (r->streaming) {
+    return 0;
+  }
   srvrun_resp_release_stream(c, r->stream_id);
   srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
@@ -83,8 +92,9 @@ usz srvrun_reap_one(
 
 void srvrun_reap_resps(const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
   usz freed = 0;
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     freed += srvrun_reap_one(ctx, c, slot, &c->resp[i]);
+  }
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
@@ -108,8 +118,11 @@ usz srvrun_resp_stop(
 
 /* 1 iff stream_id still has a live WT bidi receive slot. */
 static int srvrun_wt_rx_live(srvrun_conn* c, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (srvrun_wt_reset_bidi_matches(&c->l.wt_streams[i], stream_id)) return 1;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (srvrun_wt_reset_bidi_matches(&c->l.wt_streams[i], stream_id)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -127,6 +140,8 @@ void srvrun_wtsend_stop_notify(
     srvrun_conn*               c,
     const srvrun_wtsend*       w,
     const wired_srvloop_reset* e) {
-  if (!srvrun_wtsend_app_bidi(w) || srvrun_wt_rx_live(c, e->stream_id)) return;
+  if (!srvrun_wtsend_app_bidi(w) || srvrun_wt_rx_live(c, e->stream_id)) {
+    return;
+  }
   srvrun_deliver_wt_reset(cfg, c, w->wt_session_slot, e);
 }

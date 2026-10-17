@@ -107,7 +107,9 @@ static int es_apply_all(wired_span buf, qpack_dyn* t, u16* err) {
   usz off = 0, n;
   while (off < buf.n) {
     n = qdyn_enc_apply(wired_span_of(buf.p + off, buf.n - off), t, 4096, err);
-    if (n == 0) return 0;
+    if (n == 0) {
+      return 0;
+    }
     off += n;
   }
   return 1;
@@ -118,8 +120,12 @@ static int es_entry_is(
     const qpack_dyn* t, u64 abs, const char* name, const char* value) {
   qpack_field f;
   usz         nl = 0, vl = 0;
-  while (name[nl]) nl++;
-  while (value[vl]) vl++;
+  while (name[nl]) {
+    nl++;
+  }
+  while (value[vl]) {
+    vl++;
+  }
   return qpack_dyn_get(t, abs, &f) && f.name.n == nl && f.value.n == vl &&
          ct_diffn(f.name.p, (const u8*)name, nl) == 0 &&
          ct_diffn(f.value.p, (const u8*)value, vl) == 0;
@@ -159,8 +165,9 @@ static void test_enc_stream_prefix_incomplete(void) {
   qpack_dyn t;
   u16       err = 0;
   qpack_dyn_init(&t, 220);
-  for (usz i = 0; i < sizeof b3_enc; i++)
+  for (usz i = 0; i < sizeof b3_enc; i++) {
     CHECK(qdyn_enc_apply(wired_span_of(b3_enc, i), &t, 4096, &err) == 0);
+  }
   CHECK(err == 0 && t.count == 0);
 }
 
@@ -195,8 +202,11 @@ static usz es_stream(u8* out) {
       wired_span_of(b5_enc, sizeof b5_enc)};
   usz n    = 0;
   out[n++] = 0x02;
-  for (usz i = 0; i < 4; i++)
-    for (usz j = 0; j < parts[i].n; j++) out[n++] = parts[i].p[j];
+  for (usz i = 0; i < 4; i++) {
+    for (usz j = 0; j < parts[i].n; j++) {
+      out[n++] = parts[i].p[j];
+    }
+  }
   return n;
 }
 
@@ -215,8 +225,9 @@ static void test_encrx_byte_by_byte(void) {
   usz               n   = es_stream(s);
   u16               err = 0;
   es_rx_init(&rx, &t);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     CHECK(qdyn_encrx_feed(&rx, i, wired_span_of(s + i, 1), &t, 4096, &err));
+  }
   CHECK(t.count == 4 && t.size == 215 && rx.base == n && rx.type_len == 1);
   CHECK(es_entry_is(&t, 4, "custom-key", "custom-value2"));
 }
@@ -282,8 +293,9 @@ static void test_encrx_holds_whole_credit(void) {
   CHECK(qdyn_encrx_credit(&rx) == QDYN_ENCRX_CAP);
   CHECK(qdyn_encrx_feed(
       &rx, QDYN_ENCRX_CAP - 1, wired_span_of(dup, 1), &t, 4096, &err));
-  for (u64 o = 3; o + 1 < QDYN_ENCRX_CAP; o += 2)
+  for (u64 o = 3; o + 1 < QDYN_ENCRX_CAP; o += 2) {
     CHECK(qdyn_encrx_feed(&rx, o, wired_span_of(pad, 2), &t, 4096, &err));
+  }
   CHECK(t.dropped + t.count == 0 && err == 0);
   CHECK(qdyn_encrx_feed(&rx, 0, wired_span_of(ins, 3), &t, 4096, &err));
   CHECK(err == 0 && rx.base == QDYN_ENCRX_CAP);
@@ -350,11 +362,12 @@ static void test_enc_stream_advertised_capacity_fits_ring(void) {
   qpack_dyn       t;
   u16             err = 0;
   qpack_dyn_init(&t, DEFAULT_QPACK_MAX_TABLE_CAP);
-  for (usz i = 0; i <= DEFAULT_QPACK_MAX_TABLE_CAP / 32; i++)
+  for (usz i = 0; i <= DEFAULT_QPACK_MAX_TABLE_CAP / 32; i++) {
     CHECK(
         qdyn_enc_apply(
             wired_span_of(empty, 2), &t, DEFAULT_QPACK_MAX_TABLE_CAP, &err) ==
         2);
+  }
   CHECK(err == 0);
 }
 

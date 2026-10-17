@@ -12,10 +12,14 @@ static u64 mtmi_relayed_alias(wired_wt_session* s) {
     const moqtrun_test_call* c   = &g_calls[i - 1];
     usz                      off = 0;
     moqdata_subhdr           h;
-    if (c->kind != 4 || c->s != s) continue;
+    if (c->kind != 4 || c->s != s) {
+      continue;
+    }
     if (moqdata_subhdr_take(
-            wired_span_of(c->payload, c->payload_len), &off, &h) != MOQDATA_OK)
+            wired_span_of(c->payload, c->payload_len), &off, &h) !=
+        MOQDATA_OK) {
       return ~(u64)0;
+    }
     return h.track_alias;
   }
   return ~(u64)0;
@@ -30,8 +34,12 @@ static u64 mtmi_setup(int fwd0, moqctl_publish* pub) {
   u64 ca = mtst_join(SESS_A);
   mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
-  if (fwd0) mtst_subtracks_fwd0(SESS_B, MTRQ_S1, "chat");
-  if (!fwd0) mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  if (fwd0) {
+    mtst_subtracks_fwd0(SESS_B, MTRQ_S1, "chat");
+  }
+  if (!fwd0) {
+    mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  }
   CHECK(mtst_pub_opens(SESS_B, pub, 1) == 1);
   i64 sid = mtst_pub_stream_id(0);
   CHECK(sid >= 0);
@@ -67,7 +75,9 @@ static u64 mtmi_accepted(void) {
   moqctl_publish pub;
   i64            sid = mtst_pub_stream_id(0);
   CHECK(mtst_pub_opens(SESS_B, &pub, 1) == 1);
-  if (sid < 0) return ~(u64)0;
+  if (sid < 0) {
+    return ~(u64)0;
+  }
   mtst_pub_ok(SESS_B, (u64)sid);
   return (u64)sid;
 }
@@ -79,8 +89,9 @@ static usz mtmi_dg_to_b(void) {
   wired_moqt_on_datagram(
       &mtst_hub, SESS_A,
       wired_span_of(MOQTRUN_TEST_DG_CHAT, sizeof MOQTRUN_TEST_DG_CHAT));
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 9 && g_calls[i].s == SESS_B;
+  }
   return n;
 }
 
@@ -218,8 +229,10 @@ static int mtmi_pub_ok_p(u64 sid, const moqctl_params* sp) {
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       (moqtrun_body_encode_fn)moqctl_request_ok_encode, &ok);
   wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(msg, n), 0);
-  if (moqctl_peek_type(wired_span_of(msg, n), &off, &type, &body) != MOQCTL_OK)
+  if (moqctl_peek_type(wired_span_of(msg, n), &off, &type, &body) !=
+      MOQCTL_OK) {
     return 0;
+  }
   return moqctl_request_ok_take(g_moqtrun_test_ver, body, &boff, &back) ==
          MOQCTL_OK;
 }
@@ -237,7 +250,9 @@ static void mtmi_pub_ok_refused(u64 sid, int decodes) {
     CHECK(mtrq_fin_on(sid) == 1);
     CHECK(mtrq_closes() == 0);
   }
-  if (!decodes) CHECK(mtrq_closes() == 1);
+  if (!decodes) {
+    CHECK(mtrq_closes() == 1);
+  }
   CHECK(mtmi_dg_to_b() == 0);
 }
 
@@ -288,7 +303,9 @@ static void test_moqtrun_misc_pub_ok_filter_ok(void) {
   mtmi_subtracks_p(&none);
   i64 sid = mtst_pub_stream_id(0);
   CHECK(sid >= 0);
-  if (!mtmi_pub_ok_p((u64)sid, &lo)) return; /* d22: not a PUBLISH_OK param */
+  if (!mtmi_pub_ok_p((u64)sid, &lo)) {
+    return; /* d22: not a PUBLISH_OK param */
+  }
   CHECK(mtrq_closes() == 0);
   CHECK(mtrq_err_on((u64)sid) == ~(u64)0);
   CHECK(mtmi_dg_to_b() == 0); /* Object 5 is outside {0..4} */
@@ -455,11 +472,15 @@ static void test_moqtrun_misc_d22_publish_params(void) {
   const wired_moqtrun_req* q = 0;
   g_moqtrun_test_ver         = MOQVER_D22;
   mtmi_subtracks_fwd1_go2();
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (mtst_hub.reqs[i].in_use && mtst_hub.reqs[i].pub_origin_rid)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (mtst_hub.reqs[i].in_use && mtst_hub.reqs[i].pub_origin_rid) {
       q = &mtst_hub.reqs[i];
+    }
+  }
   CHECK(q != 0);
-  if (!q) return;
+  if (!q) {
+    return;
+  }
   CHECK(q->request_id < 64 && q->pub_alias < 64);
   want[n++] = (u8)q->request_id;
   bytes_memcpy(want + n, name, sizeof name);

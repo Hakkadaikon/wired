@@ -11,9 +11,11 @@ static void srvrun_stream_credit_raise(u64* credit, u64 value);
  * not any one stream's. */
 usz srvrun_inflight_bytes_all(const srvrun_conn* c) {
   usz total = srvrun_wtsend_inflight_bytes(c);
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
       total += wired_sendsess_inflight_bytes(&c->resp[i].sess);
+    }
+  }
   return total;
 }
 
@@ -38,9 +40,11 @@ static int srvrun_cwnd_has_room(const srvrun_conn* c) {
  * slot -- the wtsend side of srvrun_conn_consumed_bytes' fan-out. */
 static usz srvrun_wtsend_consumed_bytes(const srvrun_conn* c) {
   usz total = 0;
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use)
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (c->wtsend[i].in_use) {
       total += c->wtsend[i].sess.stream_base_offset + c->wtsend[i].sess.q.cur;
+    }
+  }
   return total;
 }
 
@@ -55,9 +59,11 @@ static usz srvrun_wtsend_consumed_bytes(const srvrun_conn* c) {
  * way in-flight bytes are). */
 usz srvrun_conn_consumed_bytes(const srvrun_conn* c) {
   usz total = srvrun_wtsend_consumed_bytes(c);
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use)
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) {
       total += c->resp[i].sess.stream_base_offset + c->resp[i].sess.q.cur;
+    }
+  }
   return total;
 }
 
@@ -112,8 +118,12 @@ int srvrun_can_send_new(
  * this one's value persisting (srvloop.h's l->max_data_seen is this step's
  * observation only, not a running value itself). */
 void srvrun_apply_conn_credit_update(srvrun_conn* c) {
-  if (!c->l.max_data_seen_flag) return;
-  if (c->l.max_data_seen > c->conn_credit) c->conn_credit = c->l.max_data_seen;
+  if (!c->l.max_data_seen_flag) {
+    return;
+  }
+  if (c->l.max_data_seen > c->conn_credit) {
+    c->conn_credit = c->l.max_data_seen;
+  }
   c->l.max_data_seen_flag = 0;
 }
 
@@ -121,7 +131,9 @@ void srvrun_apply_conn_credit_update(srvrun_conn* c) {
  * raise-only rule -- split out so srvrun_apply_stream_credit_update's own
  * CCN stays at the gate. */
 static void srvrun_stream_credit_raise(u64* credit, u64 value) {
-  if (value > *credit) *credit = value;
+  if (value > *credit) {
+    *credit = value;
+  }
 }
 
 /* w is claimed and sending on stream_id. */
@@ -131,8 +143,11 @@ int srvrun_wtsend_matches(const srvrun_wtsend* w, u64 stream_id) {
 
 /* The in-use WT send slot on stream_id, or 0 if none. */
 srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (srvrun_wtsend_matches(&c->wtsend[i], stream_id)) return &c->wtsend[i];
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (srvrun_wtsend_matches(&c->wtsend[i], stream_id)) {
+      return &c->wtsend[i];
+    }
+  }
   return 0;
 }
 
@@ -143,10 +158,12 @@ srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id) {
 void srvrun_apply_one_stream_credit_update(srvrun_conn* c, usz i) {
   srvrun_resp*   r = srvrun_resp_find(c, c->l.max_stream_data_stream_id[i]);
   srvrun_wtsend* w = srvrun_wtsend_find(c, c->l.max_stream_data_stream_id[i]);
-  if (r)
+  if (r) {
     srvrun_stream_credit_raise(
         &r->stream_credit, c->l.max_stream_data_value[i]);
-  if (w)
+  }
+  if (w) {
     srvrun_stream_credit_raise(
         &w->stream_credit, c->l.max_stream_data_value[i]);
+  }
 }

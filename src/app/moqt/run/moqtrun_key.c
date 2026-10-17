@@ -41,8 +41,10 @@ void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
 moqtrun_key moqtrun_key_of(const moqctl_ftn* f, u8* ns_buf) {
   moqtrun_key k;
   usz         n = 0;
-  if (!moqctl_ns_put(wired_mspan_of(ns_buf, WIRED_MOQTRUN_MAX_NS), &n, &f->ns))
+  if (!moqctl_ns_put(
+          wired_mspan_of(ns_buf, WIRED_MOQTRUN_MAX_NS), &n, &f->ns)) {
     n = WIRED_MOQTRUN_MAX_NS + 1;
+  }
   k.ns   = wired_span_of(ns_buf, n);
   k.name = f->name;
   return k;
@@ -70,8 +72,11 @@ void moqtrun_record_track_key(wired_moqtrun_track* t, moqtrun_key k) {
 }
 
 int moqtrun_bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

@@ -58,7 +58,9 @@ static void test_ecdsa_p521_valid_and_tamper(void) {
   u8 h[64];
   CHECK(ev5_verify(ev5_x, ev5_y, ev5_r, ev5_s) == 1);
   CHECK(ev5_verify(ev5_x, ev5_y, ev5_s, ev5_r) == 0);
-  for (usz i = 0; i < 64; i++) h[i] = ev5_h[i];
+  for (usz i = 0; i < 64; i++) {
+    h[i] = ev5_h[i];
+  }
   h[63] ^= 1;
   CHECK(ecdsa_p521_verify(ev5_x, ev5_y, ev5_r, ev5_s, h, 64) == 0);
 }
@@ -75,10 +77,14 @@ static void test_ecdsa_p521_scalar_range(void) {
 /* A public key off the curve, or with a coordinate >= 2^521, is rejected. */
 static void test_ecdsa_p521_bad_pubkey(void) {
   u8 y[66];
-  for (usz i = 0; i < 66; i++) y[i] = ev5_y[i];
+  for (usz i = 0; i < 66; i++) {
+    y[i] = ev5_y[i];
+  }
   y[65] ^= 1;
   CHECK(ev5_verify(ev5_x, y, ev5_r, ev5_s) == 0);
-  for (usz i = 0; i < 66; i++) y[i] = ev5_y[i];
+  for (usz i = 0; i < 66; i++) {
+    y[i] = ev5_y[i];
+  }
   y[0] |= 0x80;
   CHECK(ev5_verify(ev5_x, y, ev5_r, ev5_s) == 0);
 }
@@ -90,8 +96,9 @@ static void test_ecdsa_p521_digest_truncation(void) {
   u8 d[66];
   d[0] = 0;
   d[1] = (u8)(ev5_h[0] >> 1);
-  for (usz i = 1; i < 64; i++)
+  for (usz i = 1; i < 64; i++) {
     d[i + 1] = (u8)((ev5_h[i - 1] << 7) | (ev5_h[i] >> 1));
+  }
   d[65] = (u8)((ev5_h[63] << 7) | 0x7f); /* low 7 bits are cut off */
   CHECK(ecdsa_p521_verify(ev5_x, ev5_y, ev5_r, ev5_s, d, 66) == 1);
   CHECK(ecdsa_p521_verify(ev5_x, ev5_y, ev5_r, ev5_s, ev5_h, 63) == 0);

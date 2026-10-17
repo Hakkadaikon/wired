@@ -9,12 +9,16 @@
  * peer), matching the per-connection build's own treatment. */
 static int certcache_san_nonzero(const u8* ip) {
   int nonzero = 0;
-  for (usz i = 0; i < 4; i++) nonzero |= ip[i];
+  for (usz i = 0; i < 4; i++) {
+    nonzero |= ip[i];
+  }
   return nonzero;
 }
 
 static const u8* certcache_san(const u8* ip) {
-  if (!ip) return 0;
+  if (!ip) {
+    return 0;
+  }
   return certcache_san_nonzero(ip) ? ip : 0;
 }
 
@@ -38,8 +42,12 @@ static void certcache_build(wired_certcache* c, const wired_srvboot_id* id) {
 }
 
 void wired_certcache_prime(wired_certcache* c, wired_srvboot_id* id) {
-  if (id->chain_count != 0) return;
-  if (!c->primed) certcache_build(c, id);
+  if (id->chain_count != 0) {
+    return;
+  }
+  if (!c->primed) {
+    certcache_build(c, id);
+  }
   id->chain       = c->chain;
   id->chain_count = 1;
 }

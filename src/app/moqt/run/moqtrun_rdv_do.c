@@ -27,7 +27,9 @@ void moqtrun_rdv_answer(
   wired_moqtrun_peer* sp;
   wired_moqtrun_req*  q = moqtrun_rdv_target(hub, r, &sp);
   r->in_use             = 0;
-  if (!q) return;
+  if (!q) {
+    return;
+  }
   wired_moqtrun_req* saved = sp->req;
   sp->req                  = q;
   q->rdv_held              = 0;
@@ -87,9 +89,10 @@ static int moqtrun_rdv_own_up(
  * upstream SUBSCRIBE) has nothing left to wait for, and would otherwise
  * keep that upstream alive forever. */
 static void moqtrun_rdv_own_refuse(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
-  if (r->up_only)
+  if (r->up_only) {
     moqtrun_rdv_answer(
         hub, r, moqtrun_rdv_do_refuse, 0, MOQCTL_ERR_DOES_NOT_EXIST);
+  }
 }
 
 static void moqtrun_rdv_resolve_one(
@@ -105,9 +108,11 @@ static void moqtrun_rdv_resolve_one(
 
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_matches(&hub->rdv[i], k))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_matches(&hub->rdv[i], k)) {
       moqtrun_rdv_resolve_one(hub, &hub->rdv[i], t);
+    }
+  }
 }
 
 /* Past its deadline, or its target gone (swept without an answer). */
@@ -126,9 +131,11 @@ static moqtrun_rdv_fn moqtrun_rdv_expiry(const wired_moqtrun_rdv* r) {
  * each TIMEOUT or PUBLISH_DONE and FINs its stream, and its upstream sweep
  * then cancels an upstream SUBSCRIBE nobody waits for any more. */
 void moqtrun_rdv_tick(wired_moqt_hub* hub, u64 now_ms) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
-    if (moqtrun_rdv_due(hub, &hub->rdv[i], now_ms))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_due(hub, &hub->rdv[i], now_ms)) {
       moqtrun_rdv_answer(
           hub, &hub->rdv[i], moqtrun_rdv_expiry(&hub->rdv[i]), 0,
           MOQTRUN_ERR_TIMEOUT);
+    }
+  }
 }

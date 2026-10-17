@@ -30,15 +30,20 @@ static usz mtal_stream(u64 a, int hdr, u8 b, u8* buf) {
   wired_mspan    out = wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD);
   h.type             = 0x30;
   h.track_alias      = a;
-  if (hdr) moqdata_subhdr_put(out, &off, &h);
+  if (hdr) {
+    moqdata_subhdr_put(out, &off, &h);
+  }
   moqdata_obj_put(out, &off, 0, wired_span_of(&b, 1));
   return off;
 }
 
 /* The last io call of kind addressed to B, else 0. */
 static const moqtrun_test_call* mtal_to_b(int kind) {
-  for (usz i = g_n_calls; i-- > 0;)
-    if (g_calls[i].kind == kind && g_calls[i].s == SESS_B) return &g_calls[i];
+  for (usz i = g_n_calls; i-- > 0;) {
+    if (g_calls[i].kind == kind && g_calls[i].s == SESS_B) {
+      return &g_calls[i];
+    }
+  }
   return 0;
 }
 
@@ -48,7 +53,9 @@ static u64 mtal_alias_to_b(int kind) {
   const moqtrun_test_call* c   = mtal_to_b(kind);
   u64                      v   = (u64)-1;
   usz                      off = 0;
-  if (!c) return v;
+  if (!c) {
+    return v;
+  }
   wired_span p = wired_span_of(c->payload, c->payload_len);
   moqvi_take(p, &off, &v);
   moqvi_take(p, &off, &v);
@@ -61,7 +68,9 @@ static int mtal_tail_kept(int kind, const u8* src, usz n) {
   const moqtrun_test_call* c = mtal_to_b(kind);
   usz                      a = 0, b = 0;
   u64                      v;
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   wired_span p = wired_span_of(c->payload, c->payload_len);
   moqvi_take(p, &a, &v);
   moqvi_take(p, &a, &v);

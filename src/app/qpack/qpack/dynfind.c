@@ -1,9 +1,13 @@
 #include "app/qpack/qpack/dynfind.h"
 
 static int df_bytes_eq(wired_span a, wired_span b) {
-  if (a.n != b.n) return 0;
+  if (a.n != b.n) {
+    return 0;
+  }
   u8 diff = 0;
-  for (usz i = 0; i < a.n; i++) diff |= (u8)(a.p[i] ^ b.p[i]);
+  for (usz i = 0; i < a.n; i++) {
+    diff |= (u8)(a.p[i] ^ b.p[i]);
+  }
   return diff == 0;
 }
 
@@ -11,7 +15,9 @@ static int df_bytes_eq(wired_span a, wired_span b) {
 static int classify(const qpack_dyn* t, usz off, const qpack_field* f) {
   qpack_field e;
   qpack_dyn_entry_at(t, off, &e);
-  if (!df_bytes_eq(e.name, f->name)) return 0;
+  if (!df_bytes_eq(e.name, f->name)) {
+    return 0;
+  }
   return df_bytes_eq(e.value, f->value) ? 2 : 1;
 }
 
@@ -47,7 +53,10 @@ static int scan_one(qdf_scan* s, usz off) {
 /* RFC 9204 2.1: prefer a full name+value match; fall back to name-only. */
 int qpack_dyn_find(const qpack_dyn* t, const qpack_field* f, qpack_match* m) {
   qdf_scan s = {t, f, m, 0};
-  for (usz off = 0; off < t->count; off++)
-    if (scan_one(&s, off)) return 1;
+  for (usz off = 0; off < t->count; off++) {
+    if (scan_one(&s, off)) {
+      return 1;
+    }
+  }
   return s.found;
 }

@@ -39,8 +39,9 @@ static void test_moqctl_peek_type_length_mismatch(void) {
   u64        type;
   wired_span body;
 
-  for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_OK_BASIC_LEN; i++)
+  for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_OK_BASIC_LEN; i++) {
     buf[i] = g_moqt_ctl_subscribe_ok_basic[i];
+  }
   buf[2] = G_MOQT_CTL_SUBSCRIBE_OK_BASIC_MSG_LEN + 1; /* claim one more byte
                                                           than actually
                                                           present */
@@ -253,7 +254,9 @@ static void test_moqctl_setup_roundtrip(void) {
     out[len_at + 1] = (u8)(eoff - body_at);
   }
   CHECK(eoff == G_MOQT_CTL_SETUP_IMPL_LEN);
-  for (usz i = 0; i < eoff; i++) CHECK(out[i] == g_moqt_ctl_setup_impl[i]);
+  for (usz i = 0; i < eoff; i++) {
+    CHECK(out[i] == g_moqt_ctl_setup_impl[i]);
+  }
 }
 
 /* Shared re-encode helper for the remaining messages: writes Type (vi64) +
@@ -314,8 +317,9 @@ static void test_moqctl_subscribe_roundtrip(void) {
 
   moqctl_reencode(out, sizeof out, type, moqctl_encode_subscribe, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_subscribe_basic[i]);
+  }
 }
 
 static int moqctl_encode_subscribe_ok(
@@ -347,8 +351,9 @@ static void test_moqctl_subscribe_ok_roundtrip(void) {
   moqctl_reencode(
       out, sizeof out, type, moqctl_encode_subscribe_ok, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_SUBSCRIBE_OK_BASIC_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_subscribe_ok_basic[i]);
+  }
 }
 
 static int moqctl_encode_publish(wired_mspan buf, usz* off, const void* m) {
@@ -379,8 +384,9 @@ static void test_moqctl_publish_roundtrip(void) {
 
   moqctl_reencode(out, sizeof out, type, moqctl_encode_publish, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_PUBLISH_BASIC_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_publish_basic[i]);
+  }
 }
 
 static int moqctl_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
@@ -410,8 +416,9 @@ static void test_moqctl_request_ok_roundtrip(void) {
   moqctl_reencode(
       out, sizeof out, type, moqctl_encode_request_ok, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_REQUEST_OK_BASIC_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_request_ok_basic[i]);
+  }
 }
 
 static int moqctl_encode_request_error(
@@ -445,8 +452,9 @@ static void test_moqctl_request_error_roundtrip(void) {
   moqctl_reencode(
       out, sizeof out, type, moqctl_encode_request_error, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_REQUEST_ERROR_NOT_SUPPORTED_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_request_error_not_supported[i]);
+  }
 }
 
 static int moqctl_encode_publish_done(
@@ -479,8 +487,9 @@ static void test_moqctl_publish_done_roundtrip(void) {
   moqctl_reencode(
       out, sizeof out, type, moqctl_encode_publish_done, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_PUBLISH_DONE_TRACK_ENDED_LEN);
-  for (usz i = 0; i < out_len; i++)
+  for (usz i = 0; i < out_len; i++) {
     CHECK(out[i] == g_moqt_ctl_publish_done_track_ended[i]);
+  }
 }
 
 static int moqctl_encode_goaway(wired_mspan buf, usz* off, const void* m) {
@@ -508,7 +517,9 @@ static void test_moqctl_goaway_roundtrip(void) {
 
   moqctl_reencode(out, sizeof out, type, moqctl_encode_goaway, &m, &out_len);
   CHECK(out_len == G_MOQT_CTL_GOAWAY_EMPTY_LEN);
-  for (usz i = 0; i < out_len; i++) CHECK(out[i] == g_moqt_ctl_goaway_empty[i]);
+  for (usz i = 0; i < out_len; i++) {
+    CHECK(out[i] == g_moqt_ctl_goaway_empty[i]);
+  }
 }
 
 /* draft-18 SS10.4: a control-stream GOAWAY ends with [Request ID]:
@@ -525,7 +536,9 @@ static void test_moqctl_goaway18_request_id(void) {
   CHECK(m.new_session_uri.n == 0 && m.timeout == 5 && m.request_id == 4);
   CHECK(moqctl_goaway18_encode(wired_mspan_of(out, sizeof out), &n, &m));
   CHECK(n == sizeof wire);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == wire[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == wire[i]);
+  }
 }
 
 /* A draft-19 body (no Request ID) is cut short for draft-18, and the
@@ -558,7 +571,9 @@ static void test_moqctl_goaway_uri_boundary(void) {
    * only need decode acceptance here. */
   at = 0;
   CHECK(moqvi_put(wired_mspan_of(buf_ok, sizeof buf_ok), &at, 8192));
-  for (usz i = 0; i < MOQCTL_MAX_URI_LEN; i++) buf_ok[at + i] = 'a';
+  for (usz i = 0; i < MOQCTL_MAX_URI_LEN; i++) {
+    buf_ok[at + i] = 'a';
+  }
   at += MOQCTL_MAX_URI_LEN;
   CHECK(moqvi_put(wired_mspan_of(buf_ok, sizeof buf_ok), &at, 0));
   {
@@ -572,7 +587,9 @@ static void test_moqctl_goaway_uri_boundary(void) {
   CHECK(moqvi_put(
       wired_mspan_of(buf_reject, sizeof buf_reject), &at,
       MOQCTL_MAX_URI_LEN + 1));
-  for (usz i = 0; i < MOQCTL_MAX_URI_LEN + 1; i++) buf_reject[at + i] = 'a';
+  for (usz i = 0; i < MOQCTL_MAX_URI_LEN + 1; i++) {
+    buf_reject[at + i] = 'a';
+  }
   at += MOQCTL_MAX_URI_LEN + 1;
   {
     usz off = 0;
@@ -592,7 +609,9 @@ static void test_moqctl_reason_boundary(void) {
 
   at = 0;
   CHECK(moqvi_put(wired_mspan_of(buf_ok, sizeof buf_ok), &at, 1024));
-  for (usz i = 0; i < 1024; i++) buf_ok[at + i] = 'x';
+  for (usz i = 0; i < 1024; i++) {
+    buf_ok[at + i] = 'x';
+  }
   at += 1024;
   {
     usz off = 0;
@@ -602,7 +621,9 @@ static void test_moqctl_reason_boundary(void) {
 
   at = 0;
   CHECK(moqvi_put(wired_mspan_of(buf_reject, sizeof buf_reject), &at, 1025));
-  for (usz i = 0; i < 1025; i++) buf_reject[at + i] = 'x';
+  for (usz i = 0; i < 1025; i++) {
+    buf_reject[at + i] = 'x';
+  }
   at += 1025;
   {
     usz off = 0;
@@ -874,7 +895,9 @@ static usz moqctl_test_auth_param(u8* buf, usz cap, const u8* tok, usz n) {
   CHECK(moqvi_put(
       wired_mspan_of(buf, cap), &off, MOQCTL_PARAM_AUTHORIZATION_TOKEN));
   CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, n));
-  for (usz i = 0; i < n; i++) buf[off + i] = tok[i];
+  for (usz i = 0; i < n; i++) {
+    buf[off + i] = tok[i];
+  }
   return off + n;
 }
 
@@ -1005,7 +1028,9 @@ static usz mqpt_build(u8* buf, usz cap, const mqpt_row* r) {
   usz off = 0;
   CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, 1));
   CHECK(moqvi_put(wired_mspan_of(buf, cap), &off, r->type));
-  for (usz i = 0; i < r->n; i++) buf[off + i] = r->val[i];
+  for (usz i = 0; i < r->n; i++) {
+    buf[off + i] = r->val[i];
+  }
   return off + r->n;
 }
 
@@ -1024,8 +1049,11 @@ static void mqpt_check_one(const mqpt_row* r, u32 bit) {
 }
 
 static void test_moqctl_params_registry_scope(void) {
-  for (usz i = 0; i < MQPT_REGISTRY_N; i++)
-    for (u32 b = 0; b < 20; b++) mqpt_check_one(&MQPT_REGISTRY[i], 1u << b);
+  for (usz i = 0; i < MQPT_REGISTRY_N; i++) {
+    for (u32 b = 0; b < 20; b++) {
+      mqpt_check_one(&MQPT_REGISTRY[i], 1u << b);
+    }
+  }
 }
 
 /* draft-18 SS10.2.x "MAY appear in" (no SUBSCRIBE_TRACKS inheritance,
@@ -1072,8 +1100,11 @@ static void mqpt_check_one_v(int ver, const mqpt_row* r, u32 bit) {
 }
 
 static void mqpt_check_table(int ver, const mqpt_row* rows, usz n) {
-  for (usz i = 0; i < n; i++)
-    for (u32 b = 0; b < 20; b++) mqpt_check_one_v(ver, &rows[i], 1u << b);
+  for (usz i = 0; i < n; i++) {
+    for (u32 b = 0; b < 20; b++) {
+      mqpt_check_one_v(ver, &rows[i], 1u << b);
+    }
+  }
 }
 
 static void test_moqctl_params_registry_scope_per_draft(void) {
@@ -1133,7 +1164,9 @@ static void test_moqctl_params_location_filter_roundtrip(void) {
   CHECK(out.items[0].rl.ek == MOQCTL_REK_GROUP);
   CHECK(moqctl_params_put(wired_mspan_of(buf, sizeof buf), &off, &out));
   CHECK(off == 2 + sizeof val);
-  for (usz i = 0; i < sizeof val; i++) CHECK(buf[2 + i] == val[i]);
+  for (usz i = 0; i < sizeof val; i++) {
+    CHECK(buf[2 + i] == val[i]);
+  }
 }
 
 /* A Location Filter that is not exactly its Length: unknown Filter Type
@@ -1144,11 +1177,12 @@ static void test_moqctl_params_location_filter_malformed(void) {
   static const u8      short_[]   = {0x02, 0x04, 0x05};
   static moqctl_params out;
   const u8*            cases[3] = {bad_type, trailing, short_};
-  for (usz i = 0; i < 3; i++)
+  for (usz i = 0; i < 3; i++) {
     CHECK(
         mqpt_take(
             MOQCTL_PARAM_LOCATION_FILTER, cases[i], 1 + cases[i][0],
             MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_VIOLATION);
+  }
 }
 
 /* TRACK_NAMESPACE_PREFIX (10.2.19) is a bare Track Namespace (2.4.1):
@@ -1208,7 +1242,9 @@ static int mqpt_twice(const mqpt_row* r, u32 ctx, moqctl_params* out) {
   usz roff = 0;
   buf[0]   = 2; /* count */
   CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
-  for (usz i = 0; i < r->n; i++) buf[off + i] = r->val[i];
+  for (usz i = 0; i < r->n; i++) {
+    buf[off + i] = r->val[i];
+  }
   return moqctl_params_take(
       MOQVER_D19, wired_span_of(buf, off + r->n), &roff, ctx, out);
 }
@@ -1281,7 +1317,9 @@ static void mqpt_golden_reencode(
   usz len = 0;
   moqctl_reencode(out, sizeof out, type, fn, m, &len);
   CHECK(len == n);
-  for (usz i = 0; i < len; i++) CHECK(out[i] == g[i]);
+  for (usz i = 0; i < len; i++) {
+    CHECK(out[i] == g[i]);
+  }
 }
 
 /* Golden subscribe_params: FORWARD 1, SUBSCRIBER_PRIORITY 64,
@@ -1452,7 +1490,9 @@ static void test_moqctl_rangefilter_value_roundtrip(void) {
   CHECK(moqctl_rangefilter_put(
       wired_mspan_of(out, sizeof out), &off, MOQCTL_PARAM_SUBGROUP_FILTER, &f));
   CHECK(off == sizeof v);
-  for (usz i = 0; i < off; i++) CHECK(out[i] == v[i]);
+  for (usz i = 0; i < off; i++) {
+    CHECK(out[i] == v[i]);
+  }
 }
 
 /* An omitted final End is open-ended; 0x28/0x29 carry a Property Type;
@@ -1489,7 +1529,9 @@ static void test_moqctl_rangefilter_overflow_and_truncated(void) {
   v[off++] = 0x00;
   for (usz i = 0; i < 5; i++) { /* five max varints: 5*(2^62-1) wraps */
     v[off] = 0xFF;
-    for (usz k = 1; k < 8; k++) v[off + k] = 0xFF;
+    for (usz k = 1; k < 8; k++) {
+      v[off + k] = 0xFF;
+    }
     off += 8;
   }
   CHECK(

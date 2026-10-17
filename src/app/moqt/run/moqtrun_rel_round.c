@@ -22,9 +22,12 @@ static int moqtrun_rel_expiry(
     const moqtrel_buf*         rb,
     usz                        i,
     u64                        now_ms) {
-  if (moqtrel_stalled(rb, (u32)i, now_ms)) return 0;
-  if (moqtrun_sub_late(&track->subs[i], moqtrel_age_ms(rb, (u32)i, now_ms)))
+  if (moqtrel_stalled(rb, (u32)i, now_ms)) {
+    return 0;
+  }
+  if (moqtrun_sub_late(&track->subs[i], moqtrel_age_ms(rb, (u32)i, now_ms))) {
     return MOQTRUN_RESET_DELIVERY_TIMEOUT;
+  }
   return MOQTRUN_REL_KEEP;
 }
 
@@ -39,8 +42,9 @@ int moqtrun_rel_give_up(
     const moqtrel_buf*         rb,
     usz                        i,
     u64                        now_ms) {
-  if (!moqtrun_sub_gets_relay(&track->subs[i], relay))
+  if (!moqtrun_sub_gets_relay(&track->subs[i], relay)) {
     return MOQTRUN_RESET_CANCELLED;
+  }
   return moqtrun_rel_expiry(track, rb, i, now_ms);
 }
 
@@ -60,8 +64,12 @@ void moqtrun_rel_try_fin(
     wired_moqtrun_relay* relay,
     moqtrel_buf*         rb,
     usz                  i) {
-  if (!moqtrun_rel_ends_at(rb, i, rb->subs[i].sent)) return;
-  if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) != 1) return;
+  if (!moqtrun_rel_ends_at(rb, i, rb->subs[i].sent)) {
+    return;
+  }
+  if (hub->io.stream_fin(wt, relay->sub_stream_id[i]) != 1) {
+    return;
+  }
   rb->subs[i].fin_done = 1;
   hub->stat_rel_fin_out++;
 }
@@ -82,7 +90,9 @@ static void moqtrun_rel_round_ok(
     int             fin_flag,
     u64             now_ms) {
   moqtrel_note_sent(rb, (u32)i, n, now_ms);
-  if (!fin_flag) return;
+  if (!fin_flag) {
+    return;
+  }
   rb->subs[i].fin_done = 1;
   hub->stat_rel_fin_out++;
 }
@@ -92,7 +102,9 @@ static void moqtrun_rel_round_ok(
  * traffic; a table without send_budget never constrains. */
 static int moqtrun_rel_budget_ok(
     wired_moqt_hub* hub, wired_wt_session* wt, usz n) {
-  if (!hub->io.send_budget) return 1;
+  if (!hub->io.send_budget) {
+    return 1;
+  }
   return hub->io.send_budget(wt) >= n + WIRED_MOQTREL_HEADROOM;
 }
 
@@ -104,7 +116,9 @@ static int moqtrun_rel_budget_ok(
  * publisher hold) forever. A healthy line recovers credit within an RTT,
  * far under the stall clock. */
 int moqtrun_rel_budget_wait(wired_moqt_hub* hub, wired_wt_session* wt, usz n) {
-  if (moqtrun_rel_budget_ok(hub, wt, n)) return 0;
+  if (moqtrun_rel_budget_ok(hub, wt, n)) {
+    return 0;
+  }
   hub->stat_rel_wait++;
   return 1;
 }
@@ -113,7 +127,9 @@ int moqtrun_rel_budget_wait(wired_moqt_hub* hub, wired_wt_session* wt, usz n) {
 wired_span moqtrun_rel_next(const moqtrel_buf* rb, usz i) {
   wired_span s   = moqtrel_next_round(rb, (u32)i);
   u64        end = rb->subs[i].end;
-  if (end) s.n = (usz)u64_min(s.n, end - rb->subs[i].sent);
+  if (end) {
+    s.n = (usz)u64_min(s.n, end - rb->subs[i].sent);
+  }
   return s;
 }
 

@@ -46,8 +46,11 @@ static const kind_row TABLE[] = {
 
 frame_kind frame_classify(u64 type) {
   usz n = sizeof(TABLE) / sizeof(TABLE[0]);
-  for (usz i = 0; i < n; i++)
-    if (TABLE[i].type == type) return (frame_kind)TABLE[i].kind;
+  for (usz i = 0; i < n; i++) {
+    if (TABLE[i].type == type) {
+      return (frame_kind)TABLE[i].kind;
+    }
+  }
   return FK_UNKNOWN;
 }
 
@@ -57,6 +60,8 @@ static int non_eliciting(frame_kind k) {
 }
 
 int frame_ack_eliciting(frame_kind kind) {
-  if (kind == FK_UNKNOWN) return 0;
+  if (kind == FK_UNKNOWN) {
+    return 0;
+  }
   return !non_eliciting(kind);
 }

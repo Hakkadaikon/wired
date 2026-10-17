@@ -33,8 +33,9 @@ static void moqtrun_handle_disc(
     moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
-  if (!moqtrun_take_tok_or_close(hub, p, take(p->ver, body, &m), &m.params))
+  if (!moqtrun_take_tok_or_close(hub, p, take(p->ver, body, &m), &m.params)) {
     return;
+  }
   moqtrun_disc_answer(p, moqtrun_disc_verdict(hub, p->req, &m, check));
 }
 
@@ -44,7 +45,9 @@ void moqtrun_dispatch_publish_ns(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   moqtrun_handle_disc(hub, p, body, moqns_publish_take, moqtrun_disc_pub_check);
-  if (p->req && p->req->live) moqtrun_rp_untry(hub, p->req);
+  if (p->req && p->req->live) {
+    moqtrun_rp_untry(hub, p->req);
+  }
 }
 
 void moqtrun_dispatch_subscribe_ns(
@@ -115,8 +118,11 @@ static int moqtrun_disc_covered(
     const wired_moqt_hub*    hub,
     const wired_moqtrun_req* sub,
     const wired_moqtrun_req* q) {
-  for (usz j = 0; j < WIRED_MOQTRUN_MAX_REQS; j++)
-    if (moqtrun_disc_carries(hub, sub, j, q)) return 1;
+  for (usz j = 0; j < WIRED_MOQTRUN_MAX_REQS; j++) {
+    if (moqtrun_disc_carries(hub, sub, j, q)) {
+      return 1;
+    }
+  }
   return 0;
 }
 

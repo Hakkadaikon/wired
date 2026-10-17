@@ -38,8 +38,12 @@ int srvrun_boot_finish(
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   r = wired_srvboot_accept_acc(&conn, &sid, &c->boot, &out);
-  if (!r) return srvrun_refuse(ctx, c);
-  if (r == WIRED_SRVBOOT_HRR) return srvrun_boot_hrr_sent(ctx, c, iob.len);
+  if (!r) {
+    return srvrun_refuse(ctx, c);
+  }
+  if (r == WIRED_SRVBOOT_HRR) {
+    return srvrun_boot_hrr_sent(ctx, c, iob.len);
+  }
   return srvrun_boot_up(ctx, slot, c, dg, &sid, &out);
 }
 
@@ -70,8 +74,9 @@ static void srvrun_boot_wire(
  * boot send/PTO paths can (re)send it. */
 static void srvrun_boot_stash(srvrun_conn* c, const wired_srvboot_out* out) {
   c->boot_ini_len = out->initial->len;
-  for (usz i = 0; i < out->dgram_count; i++)
+  for (usz i = 0; i < out->dgram_count; i++) {
     c->boot_dgram_len[i] = out->dgram_len[i];
+  }
   c->boot_dgram_count = out->dgram_count;
   c->boot_dgram_sent  = 0;
 }

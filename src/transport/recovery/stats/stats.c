@@ -20,8 +20,11 @@ static int is_lost_slot(const sent* s, usz i) {
 /* Count tracked slots currently in PKT_LOST state. */
 static usz count_lost(const sent* s) {
   usz lost = 0;
-  for (usz i = 0; i < SENT_CAP; i++)
-    if (is_lost_slot(s, i)) lost++;
+  for (usz i = 0; i < SENT_CAP; i++) {
+    if (is_lost_slot(s, i)) {
+      lost++;
+    }
+  }
   return lost;
 }
 

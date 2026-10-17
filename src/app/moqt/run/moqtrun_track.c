@@ -7,14 +7,20 @@ static int moqtrun_loc_newer(const wired_moqtrun_track* t, moqctl_loc l);
 /* Clears t's subscriber slots -- only needed the first time a fresh (not
  * re-PUBLISHed) slot is claimed. */
 void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].active = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    t->subs[i].active = 0;
+  }
 }
 
 /* Also forgets each subscription's newest Group: a re-PUBLISH restarts
  * Group numbering. */
 void moqtrun_track_clear_relays(wired_moqtrun_track* t) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) t->relays[r].in_use = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].newest_sid = 0;
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    t->relays[r].in_use = 0;
+  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    t->subs[i].newest_sid = 0;
+  }
 }
 
 /* 1 iff relay r's subscriber slot si names a stream AND that slot's
@@ -38,17 +44,24 @@ void moqtrun_relay_reset_one_sub(
     wired_moqtrun_relay* r,
     usz                  si,
     u32                  code) {
-  if (!moqtrun_relay_orphan_ok(t, r, si)) return;
+  if (!moqtrun_relay_orphan_ok(t, r, si)) {
+    return;
+  }
   wired_moqtrun_peer* dst = &hub->peers[t->subs[si].session_idx];
-  if (dst->in_use) hub->io.stream_reset(dst->wt, r->sub_stream_id[si], code);
+  if (dst->in_use) {
+    hub->io.stream_reset(dst->wt, r->sub_stream_id[si], code);
+  }
   r->sub_stream_set[si] = 0;
 }
 
 void moqtrun_relay_reset_stale(
     wired_moqt_hub* hub, wired_moqtrun_track* t, wired_moqtrun_relay* r) {
-  if (!r->in_use) return;
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+  if (!r->in_use) {
+    return;
+  }
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
     moqtrun_relay_reset_one_sub(hub, t, r, si, MOQTRUN_RESET_INTERNAL_ERROR);
+  }
 }
 
 /* A publisher that drops mid-share (crash, network loss -- no clean FIN)
@@ -65,8 +78,9 @@ void moqtrun_relay_reset_stale(
  * bookkeeping this walk needs. */
 void moqtrun_track_reset_stale_relays(
     wired_moqt_hub* hub, wired_moqtrun_track* t) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     moqtrun_relay_reset_stale(hub, t, &t->relays[r]);
+  }
 }
 
 /* Returns relay r's bound ring to the pool on a publisher-side teardown
@@ -82,19 +96,23 @@ void moqtrun_track_reset_stale_relays(
  * new PUBLISH opens new ones), and a receive slot resets its hold flag
  * when claimed, so the freeze can never leak onto a new stream. */
 void moqtrun_rel_drop_ring(wired_moqt_hub* hub, wired_moqtrun_relay* r) {
-  if (!r->in_use || r->rel_idx < 0) return;
+  if (!r->in_use || r->rel_idx < 0) {
+    return;
+  }
   hub->rel_pool[r->rel_idx].in_use = 0;
   r->rel_idx                       = -1;
 }
 
 void moqtrun_track_drop_rings(wired_moqt_hub* hub, wired_moqtrun_track* t) {
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     moqtrun_rel_drop_ring(hub, &t->relays[r]);
+  }
 }
 
 void moqtrun_peer_drop_rings(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
     moqtrun_track_drop_rings(hub, &p->tracks[t]);
+  }
 }
 
 /* Claims slot t for a PUBLISH naming name/track_alias: clears subs only on
@@ -125,14 +143,18 @@ void moqtrun_track_seed_largest(
     wired_moqtrun_track* t, const moqctl_params* params) {
   const moqctl_param* l =
       moqctl_params_find(params, MOQCTL_PARAM_LARGEST_OBJECT);
-  if (l) moqtrun_track_note(t, l->loc.group, l->loc.object);
+  if (l) {
+    moqtrun_track_note(t, l->loc.group, l->loc.object);
+  }
 }
 
 /* A live track's incarnation ends: its cached Objects go and its fills
  * reset INTERNAL_ERROR (a slot never claimed holds no tag worth trusting). */
 void moqtrun_track_cache_drop(
     wired_moqt_hub* hub, const wired_moqtrun_track* t) {
-  if (!t->in_use) return;
+  if (!t->in_use) {
+    return;
+  }
   moqtrun_fills_upstream_gone(hub, t->cache_tag);
   moqcache_release(&hub->cache, t->cache_tag);
 }

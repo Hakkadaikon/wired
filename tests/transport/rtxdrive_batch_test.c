@@ -18,8 +18,12 @@ static void test_batch_concat(void) {
 
   CHECK(rtxdrive_batch(&st, (lost_pns){lost, 4}, &ob) == 1);
   CHECK(ob.len == sizeof s1 + sizeof s2);
-  for (usz i = 0; i < sizeof s1; i++) CHECK(out[i] == s1[i]);
-  for (usz i = 0; i < sizeof s2; i++) CHECK(out[sizeof s1 + i] == s2[i]);
+  for (usz i = 0; i < sizeof s1; i++) {
+    CHECK(out[i] == s1[i]);
+  }
+  for (usz i = 0; i < sizeof s2; i++) {
+    CHECK(out[sizeof s1 + i] == s2[i]);
+  }
 }
 
 /* cap holds the first frame but not the second: the batch stops, keeping what
@@ -38,7 +42,9 @@ static void test_batch_truncates_on_cap(void) {
 
   CHECK(rtxdrive_batch(&st, (lost_pns){lost, 2}, &ob) == 1);
   CHECK(ob.len == sizeof s1);
-  for (usz i = 0; i < sizeof s1; i++) CHECK(out[i] == s1[i]);
+  for (usz i = 0; i < sizeof s1; i++) {
+    CHECK(out[i] == s1[i]);
+  }
 }
 
 static void test_batch_empty_store(void) {

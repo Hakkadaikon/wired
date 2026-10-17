@@ -9,7 +9,9 @@ static int on_headers(h3_req_state* state) {
     *state = H3_REQ_HEADERS;
     return 1;
   }
-  if (*state == H3_REQ_TRAILERS) return 0;
+  if (*state == H3_REQ_TRAILERS) {
+    return 0;
+  }
   *state = H3_REQ_TRAILERS; /* trailer after HEADERS or DATA */
   return 1;
 }
@@ -25,7 +27,11 @@ static int on_data(h3_req_state* state) {
 }
 
 int h3_reqstream_frame(h3_req_state* state, u64 frame_type) {
-  if (frame_type == H3_FRAME_HEADERS) return on_headers(state);
-  if (frame_type == H3_FRAME_DATA) return on_data(state);
+  if (frame_type == H3_FRAME_HEADERS) {
+    return on_headers(state);
+  }
+  if (frame_type == H3_FRAME_DATA) {
+    return on_data(state);
+  }
   return 0; /* RFC 9114 7.1: other frame types are not valid here */
 }

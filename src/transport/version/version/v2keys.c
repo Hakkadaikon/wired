@@ -13,14 +13,20 @@ static const u8 V2_SALT[INITIAL_SALT_LEN] = {
     0x81, 0xbe, 0x6e, 0x26, 0x9d, 0xcb, 0xf9, 0xbd, 0x2e, 0xd9};
 
 static const u8* salt_for(u32 version) {
-  if (version == VERSION_1) return V1_SALT;
-  if (version == VERSION_2) return V2_SALT;
+  if (version == VERSION_1) {
+    return V1_SALT;
+  }
+  if (version == VERSION_2) {
+    return V2_SALT;
+  }
   return 0;
 }
 
 int version_initial_salt(u32 version, const u8** salt, usz* len) {
   const u8* s = salt_for(version);
-  if (!s) return 0;
+  if (!s) {
+    return 0;
+  }
   *salt = s;
   *len  = INITIAL_SALT_LEN;
   return 1;
@@ -29,8 +35,9 @@ int version_initial_salt(u32 version, const u8** salt, usz* len) {
 usz version_quic_label(u8* buf, u32 version, const char* suffix, usz sfx_len) {
   const char* prefix;
   usz         prefix_len;
-  if (!version_label_prefix(version, &prefix, &prefix_len))
+  if (!version_label_prefix(version, &prefix, &prefix_len)) {
     version_label_prefix(VERSION_1, &prefix, &prefix_len);
+  }
   bytes_memcpy(buf, prefix, prefix_len);
   bytes_memcpy(buf + prefix_len, suffix, sfx_len);
   return prefix_len + sfx_len;

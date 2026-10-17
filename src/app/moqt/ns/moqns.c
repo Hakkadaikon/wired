@@ -5,14 +5,18 @@
 /* 10.15 Figure 17 / 10.18 Figure 20: Request ID, Track Namespace (Prefix),
  * Number of Parameters, Parameters. */
 static int moqns_req_take_head(wired_span body, usz* at, moqns_req* out) {
-  if (!moqvi_take(body, at, &out->request_id)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(body, at, &out->request_id)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return moqctl_ns_take(body, at, &out->ns);
 }
 
 static int moqns_req_take(int ver, wired_span body, u32 ctx, moqns_req* out) {
   usz at = 0;
   int r  = moqns_req_take_head(body, &at, out);
-  if (r == MOQCTL_OK) r = moqctl_params_take(ver, body, &at, ctx, &out->params);
+  if (r == MOQCTL_OK) {
+    r = moqctl_params_take(ver, body, &at, ctx, &out->params);
+  }
   return moqctl_body_end(r, at, body);
 }
 
@@ -29,8 +33,12 @@ int moqns_subscribe_tracks_take(int ver, wired_span body, moqns_req* out) {
 }
 
 int moqns_req_encode(wired_mspan buf, usz* off, const moqns_req* m) {
-  if (!moqvi_put(buf, off, m->request_id)) return 0;
-  if (!moqctl_ns_put(buf, off, &m->ns)) return 0;
+  if (!moqvi_put(buf, off, m->request_id)) {
+    return 0;
+  }
+  if (!moqctl_ns_put(buf, off, &m->ns)) {
+    return 0;
+  }
   return moqctl_params_put(buf, off, &m->params);
 }
 
@@ -48,12 +56,16 @@ int moqns_pub_skipped_take(wired_span body, moqns_pub_skipped* out) {
   usz        at = 0;
   moqctl_ftn f;
   int        r = moqctl_ftn_take(body, &at, &f);
-  if (r == MOQCTL_OK) *out = (moqns_pub_skipped){f.ns, f.name};
+  if (r == MOQCTL_OK) {
+    *out = (moqns_pub_skipped){f.ns, f.name};
+  }
   return moqctl_body_end(r, at, body);
 }
 
 int moqns_pub_skipped_encode(
     wired_mspan buf, usz* off, const moqns_pub_skipped* m) {
-  if (!moqctl_ns_put(buf, off, &m->ns)) return 0;
+  if (!moqctl_ns_put(buf, off, &m->ns)) {
+    return 0;
+  }
   return moqctl_name_put(buf, off, m->name);
 }

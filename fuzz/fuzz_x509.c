@@ -20,7 +20,9 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   wired_span cert = wired_span_of((const u8*)data, (usz)size);
 
   x509 x;
-  if (!x509_parse(cert, &x)) return 0;
+  if (!x509_parse(cert, &x)) {
+    return 0;
+  }
 
   /* tbsCertificate is well-formed enough to have been sliced out above;
    * fuzz its own structured sub-parsers on the same bytes. */

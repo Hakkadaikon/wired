@@ -25,12 +25,20 @@ static void test_retry_tag_v2_constants(void) {
 
   int key_match = 1, nonce_match = 1, key_diff = 0, nonce_diff = 0;
   for (usz i = 0; i < 16; i++) {
-    if (key[i] != want_key[i]) key_match = 0;
-    if (key[i] != v1_key[i]) key_diff = 1;
+    if (key[i] != want_key[i]) {
+      key_match = 0;
+    }
+    if (key[i] != v1_key[i]) {
+      key_diff = 1;
+    }
   }
   for (usz i = 0; i < 12; i++) {
-    if (nonce[i] != want_nonce[i]) nonce_match = 0;
-    if (nonce[i] != v1_nonce[i]) nonce_diff = 1;
+    if (nonce[i] != want_nonce[i]) {
+      nonce_match = 0;
+    }
+    if (nonce[i] != v1_nonce[i]) {
+      nonce_diff = 1;
+    }
   }
   CHECK(key_match == 1);   /* golden v2 key */
   CHECK(nonce_match == 1); /* golden v2 nonce */
@@ -69,8 +77,12 @@ static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   u8  aad[1 + 8 + sizeof(retry_no_tag)];
   usz n    = 0;
   aad[n++] = (u8)sizeof(odcid);
-  for (usz i = 0; i < sizeof(odcid); i++) aad[n++] = odcid[i];
-  for (usz i = 0; i < sizeof(retry_no_tag); i++) aad[n++] = retry_no_tag[i];
+  for (usz i = 0; i < sizeof(odcid); i++) {
+    aad[n++] = odcid[i];
+  }
+  for (usz i = 0; i < sizeof(retry_no_tag); i++) {
+    aad[n++] = retry_no_tag[i];
+  }
 
   aes128 a;
   u8     tag[16];
@@ -78,7 +90,9 @@ static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   gcm_ctx g = {&a, nonce, wired_span_of(aad, n)};
   gcm_seal(&g, wired_span_of(0, 0), tag);
 
-  for (usz i = 0; i < 16; i++) CHECK(tag[i] == want_tag[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(tag[i] == want_tag[i]);
+  }
 }
 
 void test_retry_tag_v2(void) {

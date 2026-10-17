@@ -12,7 +12,9 @@ static int fits(usz token_len, usz scid_len) {
 int retrydrive_apply(
     wired_span retry_token, wired_span retry_scid, retrydrive_state* out) {
   usz off = 0;
-  if (!fits(retry_token.n, retry_scid.n)) return 0;
+  if (!fits(retry_token.n, retry_scid.n)) {
+    return 0;
+  }
   bytes_put(
       wired_mspan_of(out->token, sizeof out->token), &off,
       wired_span_of(retry_token.p, retry_token.n));

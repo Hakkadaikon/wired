@@ -48,7 +48,9 @@ int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want) {
 int srvrun_boot_send_initial(
     const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
   int confirmed = wired_server_is_confirmed(&c->s);
-  if (srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len)) return 0;
+  if (srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len)) {
+    return 0;
+  }
   srvrun_boot_send(cfg, c, wired_span_of(c->boot_ini, c->boot_ini_len), what);
   return 1;
 }
@@ -56,7 +58,9 @@ int srvrun_boot_send_initial(
 /* Offset into boot_hs where the first not-yet-sent datagram starts. */
 static usz srvrun_boot_sent_off(const srvrun_conn* c) {
   usz off = 0;
-  for (usz i = 0; i < c->boot_dgram_sent; i++) off += c->boot_dgram_len[i];
+  for (usz i = 0; i < c->boot_dgram_sent; i++) {
+    off += c->boot_dgram_len[i];
+  }
   return off;
 }
 
@@ -72,7 +76,9 @@ usz srvrun_boot_send_hs_gated(
   while (c->boot_dgram_sent < c->boot_dgram_count) {
     wired_span pkt =
         wired_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
-    if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) return sent;
+    if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) {
+      return sent;
+    }
     srvrun_boot_send(cfg, c, pkt, "server Handshake flight sent\n");
     off += pkt.n;
     c->boot_dgram_sent++;
@@ -109,7 +115,9 @@ int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
       &c->boot, wired_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
       sizeof pkt);
   WIRED_LOG("srvboot accept failed\n");
-  if (n) srvrun_send(ctx->cfg, c, wired_span_of(pkt, n), "boot refused\n");
+  if (n) {
+    srvrun_send(ctx->cfg, c, wired_span_of(pkt, n), "boot refused\n");
+  }
   return 0;
 }
 

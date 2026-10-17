@@ -17,8 +17,9 @@ static int moqtsw_step_track(
     wired_moqtrun_track* t,
     u32*                 live) {
   int n = 0;
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
     n += moqtsw_visit(hub, ops, t, si, live);
+  }
   return n;
 }
 
@@ -28,9 +29,12 @@ static int moqtsw_step_peer(
     wired_moqtrun_peer* p,
     u32*                live) {
   int n = 0;
-  if (!p->in_use) return 0;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  if (!p->in_use) {
+    return 0;
+  }
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
     n += moqtsw_step_track(hub, ops, &p->tracks[t], live);
+  }
   return n;
 }
 
@@ -39,9 +43,12 @@ static int moqtsw_step_peer(
 int moqtsw_step(wired_moqt_hub* hub, const moqtsw_ops* ops) {
   int n    = 0;
   u32 live = 0;
-  if (!hub->sw_live) return 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+  if (!hub->sw_live) {
+    return 0;
+  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     n += moqtsw_step_peer(hub, ops, &hub->peers[i], &live);
+  }
   hub->sw_live = live;
   return n;
 }

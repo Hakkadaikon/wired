@@ -51,10 +51,14 @@ static usz mtsw_sub_body(
                           0x05, 'r',  'o', 'o', 'm', '1'};
   usz             n    = 0;
   b[n++]               = (u8)rid;
-  for (usz i = 0; i < sizeof ns; i++) b[n++] = ns[i];
+  for (usz i = 0; i < sizeof ns; i++) {
+    b[n++] = ns[i];
+  }
   wired_span nm = mtst_z(name);
   b[n++]        = (u8)nm.n;
-  for (usz i = 0; i < nm.n; i++) b[n++] = nm.p[i];
+  for (usz i = 0; i < nm.n; i++) {
+    b[n++] = nm.p[i];
+  }
   b[n++] = 0x01; /* one parameter */
   b[n++] = 0x24; /* SWITCH_FROM, Type delta from 0 */
   b[n++] = 0x03;
@@ -78,8 +82,9 @@ static usz mtsw_bytes(u64 alias, u64 g, usz n, int hdr, u8* buf) {
   h.type             = 0x30;
   h.track_alias      = alias;
   h.group_id         = g;
-  if (hdr)
+  if (hdr) {
     moqdata_subhdr_put(wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
+  }
   for (usz i = 0; i < n; i++) {
     u8 v = (u8)i;
     moqdata_obj_put(
@@ -114,11 +119,17 @@ static usz mtsw_open_at(u64 alias, u64 g, usz from) {
     const moqtrun_test_call* c = &g_calls[i];
     moqdata_subhdr           h;
     usz                      off = 0;
-    if ((c->kind != 4 && c->kind != 5) || c->s != SESS_B) continue;
-    if (moqdata_subhdr_take(
-            wired_span_of(c->payload, c->payload_len), &off, &h) != MOQDATA_OK)
+    if ((c->kind != 4 && c->kind != 5) || c->s != SESS_B) {
       continue;
-    if (h.track_alias == alias && h.group_id == g) return i;
+    }
+    if (moqdata_subhdr_take(
+            wired_span_of(c->payload, c->payload_len), &off, &h) !=
+        MOQDATA_OK) {
+      continue;
+    }
+    if (h.track_alias == alias && h.group_id == g) {
+      return i;
+    }
   }
   return g_n_calls;
 }
@@ -127,8 +138,9 @@ static usz mtsw_open_at(u64 alias, u64 g, usz from) {
 static usz mtsw_opened(u64 alias, u64 g) {
   usz n = 0;
   for (usz i = mtsw_open_at(alias, g, 0); i < g_n_calls;
-       i     = mtsw_open_at(alias, g, i + 1))
+       i     = mtsw_open_at(alias, g, i + 1)) {
     n++;
+  }
   return n;
 }
 
@@ -140,17 +152,22 @@ static u64 mtsw_sub_sid(u64 alias, u64 g) {
 
 /* Index of the first call of kind on sid; g_n_calls if none. */
 static usz mtsw_call_at(int kind, u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == kind && g_calls[i].stream_id == sid) return i;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == kind && g_calls[i].stream_id == sid) {
+      return i;
+    }
+  }
   return g_n_calls;
 }
 
 /* 1 iff B's stream sid ended with a FIN (stream_fin, or a fin=1 send). */
 static int mtsw_fin_seen(u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].stream_id == sid &&
-        (g_calls[i].kind == 6 || (g_calls[i].kind == 3 && g_calls[i].fin)))
+        (g_calls[i].kind == 6 || (g_calls[i].kind == 3 && g_calls[i].fin))) {
       return 1;
+    }
+  }
   return 0;
 }
 
@@ -162,10 +179,15 @@ static usz mtsw_dones(u64 sid, usz* first) {
   for (usz i = 0; i < g_n_calls; i++) {
     u64 count;
     if ((g_calls[i].kind != 3 && g_calls[i].kind != 12) ||
-        g_calls[i].stream_id != sid)
+        g_calls[i].stream_id != sid) {
       continue;
-    if (mtdr_done_in(&g_calls[i], &count) == ~(u64)0) continue;
-    if (!n) *first = i;
+    }
+    if (mtdr_done_in(&g_calls[i], &count) == ~(u64)0) {
+      continue;
+    }
+    if (!n) {
+      *first = i;
+    }
     n++;
   }
   return n;
@@ -260,15 +282,18 @@ static void test_moqtrun_switch_no_group_twice(void) {
     mtsw_group(mtsw_sid(MTSW_HI, g), MTSW_HI, g, 1);
     mtsw_group(mtsw_sid(MTSW_LO, g), MTSW_LO, g, 1);
   }
-  for (u64 g = 0; g < 6; g++)
+  for (u64 g = 0; g < 6; g++) {
     CHECK(mtsw_opened(MTSW_HI, g) + mtsw_opened(MTSW_LO, g) == 1);
+  }
 }
 
 /* NoGap (Soft): hi for g < G, lo for g >= G, every Group FINned (one-shot
  * streams carry their FIN). */
 static void test_moqtrun_switch_soft_no_gap(void) {
   mtsw_setup();
-  for (u64 g = 0; g < 2; g++) mtsw_group(mtsw_sid(MTSW_HI, g), MTSW_HI, g, 1);
+  for (u64 g = 0; g < 2; g++) {
+    mtsw_group(mtsw_sid(MTSW_HI, g), MTSW_HI, g, 1);
+  }
   mtsw_group(mtsw_sid(MTSW_LO, 1), MTSW_LO, 1, 1);
   mtsw_switch(MTSW_SOFT, MTSW_DONE); /* G = 2 */
   for (u64 g = 2; g < 5; g++) {
@@ -513,9 +538,11 @@ static void test_moqtrun_switch_cancel_new_soft_keeps_draining(void) {
 static usz mtsw_open_relays(void) {
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   usz                 n = 0;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
       n += a->tracks[t].relays[r].in_use != 0;
+    }
+  }
   return n;
 }
 
@@ -669,9 +696,11 @@ static void test_moqtrun_switch_update(void) {
 /* B's subscription on A's track named name (any slot), else 0. */
 static wired_moqtrun_sub* mtsw_sub_named(const char* name) {
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_name_matches(&a->tracks[t], mtst_z(name)))
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (moqtrun_track_name_matches(&a->tracks[t], mtst_z(name))) {
       return moqtrun_track_sub_of_peer(&a->tracks[t], mtst_idx(SESS_B));
+    }
+  }
   return 0;
 }
 
@@ -880,7 +909,9 @@ static void test_moqtrun_switch_subscriber_closes(void) {
   mtsw_more(mtsw_sid(MTSW_HI, 3), 1);
   mtsw_group(mtsw_sid(MTSW_LO, 4), MTSW_LO, 4, 1);
   wired_moqt_tick(&mtst_hub, 100000);
-  for (usz i = n; i < g_n_calls; i++) CHECK(g_calls[i].s != SESS_B);
+  for (usz i = n; i < g_n_calls; i++) {
+    CHECK(g_calls[i].s != SESS_B);
+  }
   CHECK(mtst_hub.sw_live == 0);
 }
 
@@ -938,7 +969,9 @@ static void test_moqtrun_switch_ssts_member_refused(void) {
   mtst_hub.ssts_algs  = algs;
   mtst_hub.ssts_alg_n = 1;
   CHECK(mtsw_hi() != 0);
-  if (mtsw_hi()) mtsw_hi()->ssts_on = 1; /* hi is a set member */
+  if (mtsw_hi()) {
+    mtsw_hi()->ssts_on = 1; /* hi is a set member */
+  }
   mtsw_switch(MTSW_SOFT, MTSW_DONE);
   mtsw_check_refused();
 
@@ -964,7 +997,9 @@ static void test_moqtrun_switch_ssts_member_refused(void) {
   mtst_hub.ssts_alg_n = 1;
   mtst_subscribe_p(SESS_B, MTRQ_S2, &lo, MTSW_RID_LO, 0);
   CHECK(mtsw_lo() != 0);
-  if (mtsw_lo()) mtsw_lo()->ssts_on = 1; /* the activating side */
+  if (mtsw_lo()) {
+    mtsw_lo()->ssts_on = 1; /* the activating side */
+  }
   mtsw_update_sw(MTRQ_S2, 6, MTSW_RID_HI, MTSW_SOFT, MTSW_DONE);
   CHECK(mtrq_err_on(MTRQ_S2) == MOQCTL_ERR_INVALID_SWITCH);
   CHECK(mtsw_hi() && !mtsw_hi()->has_end_group);

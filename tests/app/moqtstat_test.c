@@ -22,7 +22,9 @@ static wired_span moqtstat_t_body(const u8* msg, usz n, u64 want_type) {
 
 static void moqtstat_t_same(const u8* out, usz n, wired_span want) {
   CHECK(n == want.n);
-  for (usz i = 0; i < n && i < want.n; i++) CHECK(out[i] == want.p[i]);
+  for (usz i = 0; i < n && i < want.n; i++) {
+    CHECK(out[i] == want.p[i]);
+  }
 }
 
 static void test_moqtstat_golden(void) {
@@ -66,11 +68,14 @@ static void test_moqtstat_length_mismatch(void) {
   usz              n = G_MOQT_CTL_TRACK_STATUS_BASIC_MSG_LEN;
   u8               extra[G_MOQT_CTL_TRACK_STATUS_BASIC_MSG_LEN + 1];
   moqctl_subscribe m;
-  for (usz cut = 0; cut < n; cut++)
+  for (usz cut = 0; cut < n; cut++) {
     CHECK(
         moqtstat_take(MOQVER_D19, wired_span_of(b, cut), &m) ==
         MOQCTL_VIOLATION);
-  for (usz i = 0; i < n; i++) extra[i] = b[i];
+  }
+  for (usz i = 0; i < n; i++) {
+    extra[i] = b[i];
+  }
   extra[n] = 0;
   CHECK(
       moqtstat_take(MOQVER_D19, wired_span_of(extra, n + 1), &m) ==
@@ -91,7 +96,9 @@ static void test_moqtstat_ok_golden(void) {
   }
   p = moqctl_params_find(&m.params, MOQCTL_PARAM_LARGEST_OBJECT);
   CHECK(p != 0);
-  if (p) CHECK(p->loc.group == 2 && p->loc.object == 5);
+  if (p) {
+    CHECK(p->loc.group == 2 && p->loc.object == 5);
+  }
   CHECK(m.track_properties.n == 2);
   CHECK(m.track_properties.p[0] == 0x0e);
   CHECK(moqctl_request_ok_encode(wired_mspan_of(out, sizeof out), &n, &m));
@@ -151,12 +158,15 @@ static void test_moqtstat_update_length_mismatch(void) {
   usz             n = G_MOQT_CTL_REQUEST_UPDATE_FORWARD_MSG_LEN;
   u8              extra[G_MOQT_CTL_REQUEST_UPDATE_FORWARD_MSG_LEN + 1];
   moqtstat_update m;
-  for (usz cut = 0; cut < n; cut++)
+  for (usz cut = 0; cut < n; cut++) {
     CHECK(
         moqtstat_update_take(
             MOQVER_D19, wired_span_of(b, cut), MOQCTL_PCTX_UPDATE_SUBSCRIPTION,
             &m) == MOQCTL_VIOLATION);
-  for (usz i = 0; i < n; i++) extra[i] = b[i];
+  }
+  for (usz i = 0; i < n; i++) {
+    extra[i] = b[i];
+  }
   extra[n] = 0;
   CHECK(
       moqtstat_update_take(
@@ -206,7 +216,9 @@ static int moqtstat_t_prefix(usz first_len) {
   body[n++] = 0x34; /* TRACK_NAMESPACE_PREFIX */
   body[n++] = 0x02; /* two fields */
   CHECK(moqvi_put(m, &n, first_len));
-  for (usz i = 0; i < first_len; i++) body[n++] = 'p';
+  for (usz i = 0; i < first_len; i++) {
+    body[n++] = 'p';
+  }
   body[n++] = 0x01;
   body[n++] = 'q';
   return moqtstat_update_take(

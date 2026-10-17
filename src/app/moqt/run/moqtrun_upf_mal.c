@@ -50,7 +50,9 @@ static int moqtrun_upf_malformed(
  * learns why -- unless that open sent the range whole and freed f. */
 static void moqtrun_upf_mal_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_fetch_open(hub, f);
-  if (f->in_use) moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_MALFORMED_TRACK);
+  if (f->in_use) {
+    moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_MALFORMED_TRACK);
+  }
 }
 
 static int moqtrun_upf_other_leg(
@@ -77,9 +79,11 @@ static int moqtrun_upf_same_track(
 
 static void moqtrun_upf_mal_peers(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_upf_same_track(hub, &hub->fetches[i], f))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_same_track(hub, &hub->fetches[i], f)) {
       moqtrun_upf_mal_stop(hub, &hub->fetches[i]);
+    }
+  }
 }
 
 /* t is one of p's own tracks. Compared as addresses: t may be 0 or in
@@ -97,10 +101,11 @@ static int moqtrun_peer_owns(
  * track: only its own legs stop. */
 static void moqtrun_upf_mal(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   wired_moqtrun_track* t = moqtrun_upf_track(hub, f);
-  if (moqtrun_peer_owns(moqtrun_find_by_wt(hub, f->up_wt), t))
+  if (moqtrun_peer_owns(moqtrun_find_by_wt(hub, f->up_wt), t)) {
     t->malformed = 1;
-  else
+  } else {
     moqtrun_upf_mal_peers(hub, f);
+  }
   moqtrun_upf_mal_stop(hub, f);
 }
 
@@ -115,8 +120,9 @@ void moqtrun_upf_item(
     moqtrun_upf_mal(hub, f);
     return;
   }
-  if (!moqtrun_upf_relay(hub, f, o, pre))
+  if (!moqtrun_upf_relay(hub, f, o, pre)) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+  }
 }
 
 /* The next bytes c of the Object being passed through: Malformed when
@@ -129,7 +135,9 @@ int moqtrun_upf_chunk(
     moqtrun_upf_mal(hub, f);
     return 0;
   }
-  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) return 0;
+  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) {
+    return 0;
+  }
   f->up_pl_at += c.n;
   f->up_pl_left -= c.n;
   f->last_ok_ms = hub->live.last_now_ms;

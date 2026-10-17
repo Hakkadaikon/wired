@@ -3,7 +3,9 @@
 #include "common/bytes/util/num.h"
 
 int vndrive_accept(int handshake_complete, u32 sent_version, verlist offered) {
-  if (handshake_complete) return 0;
+  if (handshake_complete) {
+    return 0;
+  }
   /* RFC 9000 6.2: sent_version in offered is the downgrade signal. */
   return u32_in(sent_version, offered.list, offered.n) == 0;
 }

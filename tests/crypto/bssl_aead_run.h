@@ -48,7 +48,9 @@ static int bssl_load(bssl_in* v, const bssl_attr* a, const bssl_case* c) {
 
 static int bssl_same(const u8* a, const u8* b, usz n) {
   u8 d = 0;
-  for (usz i = 0; i < n; i++) d |= (u8)(a[i] ^ b[i]);
+  for (usz i = 0; i < n; i++) {
+    d |= (u8)(a[i] ^ b[i]);
+  }
   return d == 0;
 }
 
@@ -59,7 +61,9 @@ static int bssl_unrepresentable(const bssl_in* v) {
 
 /* Truncated/odd-length tag or FAILS: open(CT||TAG) must fail. */
 static int bssl_rejects(const bssl_run* r, bssl_in* v) {
-  for (ssz i = 0; i < v->tl; i++) v->ct[v->cl + i] = v->tag[i];
+  for (ssz i = 0; i < v->tl; i++) {
+    v->ct[v->cl + i] = v->tag[i];
+  }
   return !r->open(
       v->key, v->nonce, wired_span_of(v->ad, (usz)v->al),
       wired_span_of(v->ct, (usz)(v->cl + v->tl)), v->pt);
@@ -80,10 +84,18 @@ static int bssl_roundtrip(const bssl_run* r, bssl_in* v) {
 
 /* 1 pass, 0 fail, BSSL_SKIP for a nonce wired's API cannot take. */
 static int bssl_one(const bssl_run* r, bssl_in* v, const bssl_case* c) {
-  if (!bssl_load(v, r->attrs, c) || (usz)v->kl != r->keylen) return 0;
-  if (v->nl != BSSL_NONCE) return BSSL_SKIP;
-  if (bssl_get(r->attrs, c, "FAILS")) return bssl_rejects(r, v);
-  if (bssl_unrepresentable(v)) return bssl_rejects(r, v);
+  if (!bssl_load(v, r->attrs, c) || (usz)v->kl != r->keylen) {
+    return 0;
+  }
+  if (v->nl != BSSL_NONCE) {
+    return BSSL_SKIP;
+  }
+  if (bssl_get(r->attrs, c, "FAILS")) {
+    return bssl_rejects(r, v);
+  }
+  if (bssl_unrepresentable(v)) {
+    return bssl_rejects(r, v);
+  }
   return bssl_roundtrip(r, v);
 }
 
@@ -91,8 +103,9 @@ static void bssl_loop(bssl_run* r, const bssl_case* cs, usz n) {
   static bssl_in v;
   for (usz i = 0; i < n; i++) {
     int res = bssl_one(r, &v, &cs[i]);
-    if (res == 0)
+    if (res == 0) {
       printf("FAIL %s:%u-%u\n", r->file, cs[i].line_first, cs[i].line_last);
+    }
     r->pass += res == 1;
     r->fail += res == 0;
     r->skip += res == BSSL_SKIP;

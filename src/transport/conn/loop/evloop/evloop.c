@@ -26,14 +26,18 @@ void evloop_init(evloop* c, const evloop_init_in* in) {
 }
 
 void evloop_on_receive(evloop* c, int ack_eliciting) {
-  if (c->rx_n >= EVLOOP_QCAP) return;
+  if (c->rx_n >= EVLOOP_QCAP) {
+    return;
+  }
   c->rx[c->rx_n++].ack_eliciting = ack_eliciting;
 }
 
 /* RFC 9000 13.2.1: an ack-eliciting receive owes an ACK; others do not. */
 static void drain_one(evloop* c, const evloop_rx* r) {
   connloop_on_recv(&c->gate, c->level, c->send_len);
-  if (r->ack_eliciting) c->ack_owed = 1;
+  if (r->ack_eliciting) {
+    c->ack_owed = 1;
+  }
 }
 
 /* RFC 9002 6.2.2.1: a datagram received while blocked by the anti-
@@ -43,7 +47,9 @@ static void drain_one(evloop* c, const evloop_rx* r) {
  * reach (9002-038). Validated paths are not amplification-limited, so this
  * is a no-op once validated. */
 static void pto_reset_on_recv(evloop* c, u64 now) {
-  if (c->gate.validated) return;
+  if (c->gate.validated) {
+    return;
+  }
   c->pto.armed    = 1;
   c->pto.deadline = now;
 }
@@ -51,8 +57,12 @@ static void pto_reset_on_recv(evloop* c, u64 now) {
 /* Phase 1: process every queued receive, then clear the queue. */
 static void phase_receive(evloop* c, u64 now) {
   usz i;
-  if (c->rx_n > 0) pto_reset_on_recv(c, now);
-  for (i = 0; i < c->rx_n; i++) drain_one(c, &c->rx[i]);
+  if (c->rx_n > 0) {
+    pto_reset_on_recv(c, now);
+  }
+  for (i = 0; i < c->rx_n; i++) {
+    drain_one(c, &c->rx[i]);
+  }
   c->rx_n = 0;
 }
 
@@ -64,11 +74,15 @@ static int timer_fires(const evloop_timer* t, u64 now) {
 /* RFC 9002 6.1: the loss timer pulls the oldest in-flight packet out and
  * queues its data for retransmission under a fresh number. */
 static void loss_act(evloop* c) {
-  if (c->rtx_n >= EVLOOP_QCAP) return;
+  if (c->rtx_n >= EVLOOP_QCAP) {
+    return;
+  }
   c->rtx[c->rtx_n].pn  = c->next_pn; /* placeholder: the lost original */
   c->rtx[c->rtx_n].len = c->send_len;
   c->rtx_n++;
-  if (c->bytes_in_flight >= c->send_len) c->bytes_in_flight -= c->send_len;
+  if (c->bytes_in_flight >= c->send_len) {
+    c->bytes_in_flight -= c->send_len;
+  }
 }
 
 /* RFC 9000 8.1: even a PTO probe is subject to the anti-amplification budget on
@@ -83,8 +97,12 @@ static int antiamp_ok(const evloop* c) {
  */
 static void pto_act(evloop* c) {
   connloop_pto_in in = {c->level, c->next_pn, c->send_len};
-  if (!antiamp_ok(c)) return;
-  if (connloop_on_pto(&c->gate, &in)) c->next_pn++;
+  if (!antiamp_ok(c)) {
+    return;
+  }
+  if (connloop_on_pto(&c->gate, &in)) {
+    c->next_pn++;
+  }
 }
 
 /* RFC 9000 10.1: idle expiry moves the connection toward draining. */
@@ -94,7 +112,9 @@ static void idle_act(evloop* c) { connloop_close(&c->gate, 0); }
  * the action twice. */
 static void run_timer(
     evloop_timer* t, u64 now, void (*act)(evloop*), evloop* c) {
-  if (!timer_fires(t, now)) return;
+  if (!timer_fires(t, now)) {
+    return;
+  }
   t->armed = 0;
   act(c);
 }
@@ -109,8 +129,12 @@ static void phase_timers(evloop* c, u64 now) {
 /* RFC 9002 7.7 / RFC 9000 8.1: a send needs BOTH the congestion window open and
  * the anti-amplification budget -- neither gate alone admits it. */
 static int send_permitted(const evloop* c) {
-  if (c->gate.phase != CONNLOOP_ACTIVE) return 0;
-  if (!cwndctl_can_send(c->bytes_in_flight, c->cwnd, c->send_len)) return 0;
+  if (c->gate.phase != CONNLOOP_ACTIVE) {
+    return 0;
+  }
+  if (!cwndctl_can_send(c->bytes_in_flight, c->cwnd, c->send_len)) {
+    return 0;
+  }
   return antiamp_ok(c);
 }
 
@@ -131,16 +155,19 @@ static void emit_retransmit(evloop* c) {
 
 /* RFC 9002 6: with the gates open, recovery outranks new data. */
 static void send_data(evloop* c) {
-  if (c->rtx_n > 0)
+  if (c->rtx_n > 0) {
     emit_retransmit(c);
-  else if (c->have_new_data)
+  } else if (c->have_new_data) {
     evloop_emit(c);
+  }
 }
 
 /* Phase 3: prefer an owed ACK, then a retransmission, then new data; each
  * still subject to both send gates. */
 static void phase_send(evloop* c) {
-  if (!send_permitted(c)) return;
+  if (!send_permitted(c)) {
+    return;
+  }
   if (c->ack_owed) { /* RFC 9000 13.2.1: ACK rides the next send */
     evloop_emit(c);
     c->ack_owed = 0;
@@ -150,7 +177,9 @@ static void phase_send(evloop* c) {
 }
 
 void evloop_step(evloop* c, u64 now) {
-  if (c->gate.phase == CONNLOOP_CLOSED) return;
+  if (c->gate.phase == CONNLOOP_CLOSED) {
+    return;
+  }
   phase_receive(c, now);
   phase_timers(c, now);
   phase_send(c);
@@ -163,20 +192,26 @@ static int step_done(const evloop* c, usz i, usz max) {
 
 void evloop_run(evloop* c, u64 now, usz max_iterations) {
   usz i;
-  for (i = 0; !step_done(c, i, max_iterations); i++) evloop_step(c, now);
+  for (i = 0; !step_done(c, i, max_iterations); i++) {
+    evloop_step(c, now);
+  }
 }
 
 int evloop_initiate_key_update(evloop* c, u64 now) {
   keyupdate_in in = {
       c->gate.handshake_confirmed, c->key_update_time, now, c->pto_period};
-  if (!keyupdate_may_initiate(&in)) return 0;
+  if (!keyupdate_may_initiate(&in)) {
+    return 0;
+  }
   c->key_generation++;      /* RFC 9001 6: advance the send generation */
   c->key_update_time = now; /* retain the prior key for 3*PTO */
   return 1;
 }
 
 int evloop_old_key_retained(const evloop* c, u64 now) {
-  if (c->key_generation == 0) return 0; /* no prior generation exists yet */
+  if (c->key_generation == 0) {
+    return 0; /* no prior generation exists yet */
+  }
   return oldkey_retain(c->key_update_time, now, c->pto_period);
 }
 

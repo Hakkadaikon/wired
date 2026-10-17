@@ -20,13 +20,16 @@ static void on_datagram(void* ctx, wired_wt_session* s, wired_span data) {
   moqdg_obj o   = {0};
   o.track_alias = 2;
   o.payload     = wired_span_cstr("ping-obj");
-  if (moqdg_put(wired_mspan_of(dg, sizeof dg), &off, &o) == MOQDATA_OK)
+  if (moqdg_put(wired_mspan_of(dg, sizeof dg), &off, &o) == MOQDATA_OK) {
     wired_server_wt_send_datagram_to(s, wired_span_of(dg, off));
+  }
 
   usz n = moqdata_blob_build(
       wired_mspan_of(g_wire, sizeof g_wire), 1,
       wired_span_of(g_blob, BLOB_LEN));
-  if (n) wired_moqraw_io().send_uni(s, wired_span_of(g_wire, n));
+  if (n) {
+    wired_moqraw_io().send_uni(s, wired_span_of(g_wire, n));
+  }
 }
 
 int wired_main(int argc, char** argv) {
@@ -36,7 +39,9 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_demo(&id, &keys, 0x50, "guide-md");
   id.max_datagram_frame_size = 65535; /* WebTransport requires DATAGRAM */
 
-  for (usz i = 0; i < BLOB_LEN; i++) g_blob[i] = (u8)('a' + i % 26);
+  for (usz i = 0; i < BLOB_LEN; i++) {
+    g_blob[i] = (u8)('a' + i % 26);
+  }
 
   /* No hub here, so no SETUP or requests: the "moqt-22" subprotocol only
    * says the session speaks draft-22's data plane. */

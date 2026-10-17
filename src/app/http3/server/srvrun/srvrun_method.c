@@ -44,8 +44,12 @@ void srvrun_dispatch_wt_gated(
  * path. */
 u16 srvrun_method_status(const wired_h3reqdrive_req* r) {
   wired_span method = wired_span_of(r->method, r->method_len);
-  if (!h3_method_is_known(method)) return 501;
-  if (!h3_method_is_allowed(method)) return 405;
+  if (!h3_method_is_known(method)) {
+    return 501;
+  }
+  if (!h3_method_is_allowed(method)) {
+    return 405;
+  }
   return 0;
 }
 
@@ -80,7 +84,9 @@ static int srvrun_req_answered(srvrun_conn* c, u64 id) {
 /* Claim a fresh resp[] slot for c->l.req_stream_id, or 0 when the stream
  * was already answered (srvrun_req_answered) or every slot is busy. */
 static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
-  if (srvrun_req_answered(c, c->l.req_stream_id)) return 0;
+  if (srvrun_req_answered(c, c->l.req_stream_id)) {
+    return 0;
+  }
   return srvrun_resp_claim(c, c->l.req_stream_id);
 }
 
@@ -92,16 +98,21 @@ static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
  * through as a plain CONNECT). 0 once neither applies. Split out of
  * srvrun_dispatch_resp so its own branch count stays at the CCN gate. */
 static u16 srvrun_non_wt_status(const wired_h3reqdrive_req* r) {
-  if (r->too_large_status) return r->too_large_status;
-  if (srvrun_is_wt_connect_unsupported_protocol(r)) return 501;
+  if (r->too_large_status) {
+    return r->too_large_status;
+  }
+  if (srvrun_is_wt_connect_unsupported_protocol(r)) {
+    return 501;
+  }
   return srvrun_method_status(r);
 }
 
 /* A 413/431 answers a request the server stopped reading (an overflow, or
  * on_body declining): ask the client to stop sending the rest. */
 static void srvrun_stop_unread(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (c->l.req.too_large_status)
+  if (c->l.req.too_large_status) {
     srvrun_send_stop_sending(cfg, c, c->l.req_stream_id);
+  }
 }
 
 /* Route a claimed slot to WT dispatch, a method/protocol-status response
@@ -145,7 +156,9 @@ void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
     return;
   }
   r = srvrun_start_resp_claim(c);
-  if (!r) return;
+  if (!r) {
+    return;
+  }
   srvrun_dispatch_resp(ctx, c, slot, r);
 }
 
@@ -162,7 +175,11 @@ void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
  */
 u8 srvrun_slice_fin(
     const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl) {
-  if (srvrun_wt_slot_by_connect_id(c, r->stream_id) >= 0) return 0;
-  if (r->streaming) return 0; /* the handler still owes bytes */
+  if (srvrun_wt_slot_by_connect_id(c, r->stream_id) >= 0) {
+    return 0;
+  }
+  if (r->streaming) {
+    return 0; /* the handler still owes bytes */
+  }
   return (u8)(sl->offset + sl->len == r->sess.q.len);
 }

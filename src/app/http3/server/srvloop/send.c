@@ -59,7 +59,9 @@ int wired_srvloop_send_handshake(
       in->ce,
       sdrv_wire_version(&s->sdrv)};
   protect_keys k;
-  if (!wired_srvloop_seal_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_seal_keys(s, LEVEL_HANDSHAKE, &dk)) {
+    return 0;
+  }
   k = (protect_keys){dk.keys, &dk.hp};
   return srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
@@ -84,7 +86,9 @@ static int send_onertt_keys(
     *out = (protect_keys){&s->ku_send.cur, hp};
     return 1;
   }
-  if (!wired_srvloop_seal_keys(s, LEVEL_ONERTT, dk)) return 0;
+  if (!wired_srvloop_seal_keys(s, LEVEL_ONERTT, dk)) {
+    return 0;
+  }
   *out = (protect_keys){dk->keys, &dk->hp};
   return 1;
 }
@@ -111,8 +115,12 @@ static int ku_can_initiate(const wired_server* s) {
  * peer packet in the new phase dies of idle timeout first. */
 static int ku_limit_gate(wired_server* s) {
   int chacha = aead_is_chacha(s->sdrv.cipher_suite);
-  if (!aead_needs_update(s->ku_send_count, chacha)) return 1;
-  if (!ku_can_initiate(s)) return 0;
+  if (!aead_needs_update(s->ku_send_count, chacha)) {
+    return 1;
+  }
+  if (!ku_can_initiate(s)) {
+    return 0;
+  }
   srvloop_ku_rotate_send(s);
   return 1;
 }
@@ -129,14 +137,20 @@ static int send_onertt_seal(
   protect_keys          pk;
   hspkt_onertt_desc     d = {
       in->cli_scid, in->pn, in->payload, send_onertt_phase(s)};
-  if (!send_onertt_keys(s, &dk, &hp, &pk)) return 0;
+  if (!send_onertt_keys(s, &dk, &hp, &pk)) {
+    return 0;
+  }
   return hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
 }
 
 int wired_srvloop_send_onertt(
     wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
-  if (!ku_limit_gate(s)) return 0;
-  if (!send_onertt_seal(s, in, out)) return 0;
+  if (!ku_limit_gate(s)) {
+    return 0;
+  }
+  if (!send_onertt_seal(s, in, out)) {
+    return 0;
+  }
   s->ku_send_count++; /* RFC 9001 6.6: one more packet under these keys */
   return 1;
 }

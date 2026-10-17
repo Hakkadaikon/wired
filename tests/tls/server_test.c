@@ -116,7 +116,9 @@ static usz srv_wrap_crypto(const u8* msg, usz len, u8* out, usz cap) {
   usz                   n;
   wired_obuf            ob  = obuf_of(out, cap);
   crypto_stream_emit_in ein = {0, 256};
-  if (!crypto_stream_emit(wired_span_of(msg, len), &ein, &ob)) return 0;
+  if (!crypto_stream_emit(wired_span_of(msg, len), &ein, &ob)) {
+    return 0;
+  }
   n = ob.len;
   return n;
 }
@@ -173,8 +175,9 @@ static void test_wired_server_exposes_early_data_used(void) {
   drive_to_flight(&f);
   CHECK(wired_server_early_data_used(&f.s) == 0);
   f.s.sdrv.early_data_accepted = 1;
-  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++)
+  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++) {
     f.s.sdrv.early_keys.key[i] = (u8)(0x5a + i);
+  }
   CHECK(wired_server_early_data_used(&f.s) == 1);
   CHECK(sdrv_early_keys(&f.s.sdrv, &ek) == 1);
 
@@ -184,13 +187,18 @@ static void test_wired_server_exposes_early_data_used(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   CHECK(wired_server_early_data_used(&f.s) == 1);
   CHECK(sdrv_early_keys(&f.s.sdrv, &ek) == 0);
-  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++)
+  for (usz i = 0; i < sizeof(f.s.sdrv.early_keys.key); i++) {
     CHECK(f.s.sdrv.early_keys.key[i] == 0);
+  }
 
-  for (usz i = 0; i < 32; i++) nonzero |= f.s.sched.exporter_secret[i];
+  for (usz i = 0; i < 32; i++) {
+    nonzero |= f.s.sched.exporter_secret[i];
+  }
   CHECK(nonzero != 0);
   wired_server_close(&f.s); /* fd is -1: only the wipe runs */
-  for (usz i = 0; i < 32; i++) CHECK(f.s.sched.exporter_secret[i] == 0);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(f.s.sched.exporter_secret[i] == 0);
+  }
   {
     const u8* exp;
     CHECK(keysched_exporter_secret(&f.s.sched, &exp) == 0);
@@ -212,7 +220,9 @@ static void test_server_finished_trailing_bytes_not_in_transcript(void) {
   drive_to_flight(&f);
   make_client_finished(&f);
   /* junk CRYPTO arrives FIRST, at the offset right behind the Finished */
-  for (usz i = 0; i < sizeof junk; i++) junk[i] = (u8)(0xa0 + i);
+  for (usz i = 0; i < sizeof junk; i++) {
+    junk[i] = (u8)(0xa0 + i);
+  }
   {
     crypto_stream_emit_in ein = {0, 256};
     wired_obuf            ob  = obuf_of(jpay, sizeof jpay);
@@ -311,7 +321,9 @@ static void test_server_fin_before_flight(void) {
   {
     u8  fin[40];
     usz off = hs_begin(fin, sizeof(fin), HS_FINISHED);
-    for (usz i = 0; i < 32; i++) fin[off + i] = 0;
+    for (usz i = 0; i < 32; i++) {
+      fin[off + i] = 0;
+    }
     hs_finish(fin, off + 32);
     plen = srv_wrap_crypto(fin, off + 32, payload, sizeof(payload));
   }
@@ -323,9 +335,15 @@ static void test_server_fin_before_flight(void) {
 /* Concatenate the raw transcript through the server Finished into buf. */
 static usz client_transcript(struct srv_fix* f, u8* buf) {
   usz n = 0, i;
-  for (i = 0; i < f->ch_len; i++) buf[n++] = f->ch[i];
-  for (i = 0; i < f->sh_len; i++) buf[n++] = f->sh[i];
-  for (i = 0; i < f->flight_len; i++) buf[n++] = f->flight[i];
+  for (i = 0; i < f->ch_len; i++) {
+    buf[n++] = f->ch[i];
+  }
+  for (i = 0; i < f->sh_len; i++) {
+    buf[n++] = f->sh[i];
+  }
+  for (i = 0; i < f->flight_len; i++) {
+    buf[n++] = f->flight[i];
+  }
   return n;
 }
 
@@ -348,7 +366,9 @@ static void client_ap_keys(
 static int ap_keys_eq(const initial_keys* a, const initial_keys* b) {
   const u8 *pa = (const u8*)a, *pb = (const u8*)b;
   int       diff = 0;
-  for (usz i = 0; i < sizeof(initial_keys); i++) diff |= pa[i] ^ pb[i];
+  for (usz i = 0; i < sizeof(initial_keys); i++) {
+    diff |= pa[i] ^ pb[i];
+  }
   return diff == 0;
 }
 
@@ -434,7 +454,9 @@ static void test_server_records_client_random(void) {
   drive_to_flight(&f);
   /* ch_msg layout (RFC 8446 4.1.2): 4-byte handshake header, then
    * legacy_version(2), then random(32) -- offset 6. */
-  for (usz i = 0; i < 32; i++) CHECK(f.s.client_random[i] == f.ch[6 + i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(f.s.client_random[i] == f.ch[6 + i]);
+  }
 }
 
 #define SYS_unlinkat 263
@@ -483,7 +505,9 @@ static void test_server_keylog_path_writes_line(void) {
     const char label[] = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
     usz        label_n = sizeof(label) - 1;
     CHECK(n > 0);
-    for (usz i = 0; i < label_n; i++) CHECK(out[i] == (u8)label[i]);
+    for (usz i = 0; i < label_n; i++) {
+      CHECK(out[i] == (u8)label[i]);
+    }
     CHECK(out[label_n] == ' ');
     CHECK(out[label_n + 1] == 'a' && out[label_n + 2] == '0'); /* ch[6]=0xa0 */
   }
@@ -514,7 +538,9 @@ typedef struct {
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
   ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
-  for (usz i = 0; i < TICKET_KEY_LEN; i++) f->ticket_key[i] = (u8)(0xd0 + i);
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) {
+    f->ticket_key[i] = (u8)(0xd0 + i);
+  }
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     f->secret[i] = (u8)(0x60 + i);
     t.secret[i]  = f->secret[i];
@@ -542,14 +568,26 @@ static usz srvt_psk_append(
   u8         modes[8], scratch[256];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
-  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
-  if (!tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + modes_len + eob.len > out_cap) return 0;
-  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) {
+    return 0;
+  }
+  if (!tlsext_pre_shared_key(psk, &eob)) {
+    return 0;
+  }
+  if (ch_len + modes_len + eob.len > out_cap) {
+    return 0;
+  }
+  for (usz i = 0; i < ch_len; i++) {
+    out[i] = ch[i];
+  }
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
+  for (usz i = 0; i < modes_len; i++) {
+    out[ch_len + i] = modes[i];
+  }
   *psk_ext_off = ch_len + modes_len;
-  for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
+  for (usz i = 0; i < eob.len; i++) {
+    out[ch_len + modes_len + i] = scratch[i];
+  }
   be_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
   hs_finish(out, ch_len + modes_len + eob.len);
   return ch_len + modes_len + eob.len;
@@ -628,7 +666,9 @@ static void drive_psk_to_flight(
    * plain f->ch make_psk_client_hello started from. */
   CHECK(ch2_len <= sizeof(f->ch));
   f->ch_len = ch2_len;
-  for (usz i = 0; i < ch2_len; i++) f->ch[i] = ch2[i];
+  for (usz i = 0; i < ch2_len; i++) {
+    f->ch[i] = ch2[i];
+  }
 }
 
 /* Same as make_client_finished, but for a PSK-resumption ClientHello: base
@@ -709,7 +749,9 @@ static void test_server_psk_accepted_keys_match_client(void) {
   wired_x25519(shared, f.cli_priv, f.sh_pub);
   tls_handshake_secret_psk(pf.psk, shared, want_hs);
   CHECK(sdrv_handshake_secret(&f.s.sdrv, &sdrv_hs) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(sdrv_hs[i] == want_hs[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(sdrv_hs[i] == want_hs[i]);
+  }
 
   /* The connection's real Handshake-level keys (keyschedule.c, via
    * server.c's srv_advance_handshake) match a client's PSK derivation too,
@@ -720,8 +762,12 @@ static void test_server_psk_accepted_keys_match_client(void) {
     initial_keys        want;
     u8                  tr_sh[1024];
     usz                 tr_sh_len = 0;
-    for (usz i = 0; i < f.ch_len; i++) tr_sh[tr_sh_len++] = f.ch[i];
-    for (usz i = 0; i < f.sh_len; i++) tr_sh[tr_sh_len++] = f.sh[i];
+    for (usz i = 0; i < f.ch_len; i++) {
+      tr_sh[tr_sh_len++] = f.ch[i];
+    }
+    for (usz i = 0; i < f.sh_len; i++) {
+      tr_sh[tr_sh_len++] = f.sh[i];
+    }
     CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &got) == 1);
     tls_handshake_keys(
         &(handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1, 0},
@@ -755,7 +801,9 @@ static void test_server_psk_accepted_keys_match_client(void) {
  * on another file's include order). */
 static int srvt_keys_differ(const initial_keys* a, const initial_keys* b) {
   int d = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    d |= (a->key[i] != b->key[i]);
+  }
   return d;
 }
 

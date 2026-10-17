@@ -28,10 +28,12 @@ static void datagram_slot_clear(wired_wt_buffered_datagram* slot) {
 void wired_wt_session_init(wired_wt_session* s, u64 connect_stream_id) {
   s->state             = WIRED_WT_UNESTABLISHED;
   s->connect_stream_id = connect_stream_id;
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     stream_slot_clear(&s->streams[i]);
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++)
+  }
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++) {
     datagram_slot_clear(&s->datagrams[i]);
+  }
   s->max_streams_bidi    = 0;
   s->max_streams_uni     = 0;
   s->opened_streams_bidi = 0;
@@ -42,19 +44,25 @@ void wired_wt_session_init(wired_wt_session* s, u64 connect_stream_id) {
 }
 
 int wired_wt_session_establish(wired_wt_session* s) {
-  if (s->state != WIRED_WT_UNESTABLISHED) return 0;
+  if (s->state != WIRED_WT_UNESTABLISHED) {
+    return 0;
+  }
   s->state = WIRED_WT_ESTABLISHED;
   return 1;
 }
 
 int wired_wt_session_drain(wired_wt_session* s) {
-  if (s->state != WIRED_WT_ESTABLISHED) return 0;
+  if (s->state != WIRED_WT_ESTABLISHED) {
+    return 0;
+  }
   s->state = WIRED_WT_DRAINING;
   return 1;
 }
 
 int wired_wt_session_close(wired_wt_session* s) {
-  if (s->state == WIRED_WT_CLOSED) return 0;
+  if (s->state == WIRED_WT_CLOSED) {
+    return 0;
+  }
   s->state = WIRED_WT_CLOSED;
   return 1;
 }
@@ -67,24 +75,34 @@ static int session_associates_directly(const wired_wt_session* s) {
 }
 
 static wired_wt_buffered_stream* stream_free_slot(wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
-    if (!s->streams[i].in_use) return &s->streams[i];
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
+    if (!s->streams[i].in_use) {
+      return &s->streams[i];
+    }
+  }
   return 0;
 }
 
 int wired_wt_session_offer_stream(wired_wt_session* s, u64 stream_id) {
   wired_wt_buffered_stream* slot;
-  if (session_associates_directly(s)) return 1;
+  if (session_associates_directly(s)) {
+    return 1;
+  }
   slot = stream_free_slot(s);
-  if (!slot) return 0;
+  if (!slot) {
+    return 0;
+  }
   slot->in_use    = 1;
   slot->stream_id = stream_id;
   return 1;
 }
 
 static wired_wt_buffered_datagram* datagram_free_slot(wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++)
-    if (!s->datagrams[i].in_use) return &s->datagrams[i];
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++) {
+    if (!s->datagrams[i].in_use) {
+      return &s->datagrams[i];
+    }
+  }
   return 0;
 }
 
@@ -98,15 +116,21 @@ static void datagram_slot_fill(
 /* An oversized datagram gets no slot: dropped whole, never truncated. */
 static wired_wt_buffered_datagram* datagram_slot_for(
     wired_wt_session* s, wired_span data) {
-  if (data.n > WIRED_WT_BUFFERED_DATAGRAM_CAP) return 0;
+  if (data.n > WIRED_WT_BUFFERED_DATAGRAM_CAP) {
+    return 0;
+  }
   return datagram_free_slot(s);
 }
 
 int wired_wt_session_offer_datagram(wired_wt_session* s, wired_span data) {
   wired_wt_buffered_datagram* slot;
-  if (session_associates_directly(s)) return 1;
+  if (session_associates_directly(s)) {
+    return 1;
+  }
   slot = datagram_slot_for(s, data);
-  if (!slot) return 0;
+  if (!slot) {
+    return 0;
+  }
   datagram_slot_fill(slot, data);
   return 1;
 }
@@ -137,15 +161,18 @@ static int stream_limit_increase_ok(
 }
 
 static void stream_limit_set(wired_wt_session* s, int bidi, u64 max_streams) {
-  if (bidi)
+  if (bidi) {
     s->max_streams_bidi = max_streams;
-  else
+  } else {
     s->max_streams_uni = max_streams;
+  }
 }
 
 int wired_wt_session_set_max_streams(
     wired_wt_session* s, int bidi, u64 max_streams) {
-  if (!stream_limit_increase_ok(s, bidi, max_streams)) return 0;
+  if (!stream_limit_increase_ok(s, bidi, max_streams)) {
+    return 0;
+  }
   stream_limit_set(s, bidi, max_streams);
   return 1;
 }
@@ -157,10 +184,11 @@ int wired_wt_session_stream_open_allowed(const wired_wt_session* s, int bidi) {
 }
 
 void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi) {
-  if (bidi)
+  if (bidi) {
     s->opened_streams_bidi += 1;
-  else
+  } else {
     s->opened_streams_uni += 1;
+  }
 }
 
 /* draft-ietf-webtrans-http3-16 SS5.6.4: a value that does not increase the
@@ -168,7 +196,9 @@ void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi) {
  * baseline as WT_MAX_STREAMS: SETTINGS_WT_INITIAL_MAX_DATA (SS5.5.3),
  * default 0, which is the stored 0 this server starts from. */
 int wired_wt_session_set_max_data(wired_wt_session* s, u64 max_data) {
-  if (max_data <= s->max_data) return 0;
+  if (max_data <= s->max_data) {
+    return 0;
+  }
   s->max_data = max_data;
   return 1;
 }

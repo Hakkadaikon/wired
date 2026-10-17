@@ -56,14 +56,18 @@ int qdyn_enc_insert_value(
     qpack_dyn* t, const wired_obuf* sc, wired_span b, usz off) {
   wired_obuf  v = {sc->p + sc->len, sc->cap - sc->len, 0};
   qpack_field f;
-  if (!qpack_string_decode(wired_span_of(b.p + off, b.n - off), &v)) return 0;
+  if (!qpack_string_decode(wired_span_of(b.p + off, b.n - off), &v)) {
+    return 0;
+  }
   f = (qpack_field){wired_span_of(sc->p, sc->len), wired_span_of(v.p, v.len)};
   return qpack_dyn_insert(t, &f);
 }
 
 /* RFC 9204 4.3.1 / 5: a capacity past the advertised limit is an error. */
 int qdyn_enc_capacity(const enc_ins* i, qpack_dyn* t, u64 max) {
-  if (!qpack_capacity_within_limit(i->v, max)) return 0;
+  if (!qpack_capacity_within_limit(i->v, max)) {
+    return 0;
+  }
   qpack_dyn_set_capacity(t, (usz)i->v);
   return 1;
 }
@@ -72,7 +76,9 @@ int qdyn_enc_capacity(const enc_ins* i, qpack_dyn* t, u64 max) {
 static int qdyn_enc_static_name(const qpack_dyn* t, u64 idx, wired_obuf* sc) {
   const char *n, *v;
   (void)t;
-  if (!qpack_static_get((usz)idx, &n, &v)) return 0;
+  if (!qpack_static_get((usz)idx, &n, &v)) {
+    return 0;
+  }
   return qdyn_enc_keep(sc, wired_span_of((const u8*)n, qdyn_cstr_len(n)));
 }
 

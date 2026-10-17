@@ -8,8 +8,9 @@
  * reveals the packet-number length) and AEAD-open the payload in place. */
 int rx_packet(const protect_keys* k, const rx_desc* d, wired_span* frames) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(d->pkt.p, d->pkt.n), d->is_initial, &h))
+  if (!lhdr_parse(wired_span_of(d->pkt.p, d->pkt.n), d->is_initial, &h)) {
     return 0;
+  }
   vpn_desc v = {d->pkt, h.pn_off, h.length, d->largest_pn};
   return vpn_open(k, &v, frames);
 }

@@ -55,12 +55,16 @@ static int srvrun_tok_eq(const char* s, usz n, wired_span item) {
  * server subprotocol list (wired_srvrun_opt.wt_protocols). */
 static usz srvrun_tok_len(const char* s) {
   usz n = 0;
-  while (s[n] && s[n] != ' ') n++;
+  while (s[n] && s[n] != ' ') {
+    n++;
+  }
   return n;
 }
 
 static const char* srvrun_skip_spaces(const char* s) {
-  while (*s == ' ') s++;
+  while (*s == ' ') {
+    s++;
+  }
   return s;
 }
 
@@ -70,7 +74,9 @@ static int srvrun_wt_server_has(const char* list, wired_span item) {
   const char* s = list;
   while (*s) {
     usz n = srvrun_tok_len(s);
-    if (srvrun_tok_eq(s, n, item)) return 1;
+    if (srvrun_tok_eq(s, n, item)) {
+      return 1;
+    }
     s = srvrun_skip_spaces(s + n);
   }
   return 0;
@@ -84,7 +90,9 @@ static int srvrun_wt_try_next(
     const char* list, sfield_iter* it, u8* out, usz cap) {
   wired_obuf ob = obuf_of(out, cap);
   int        rc = sfield_next_string(it, &ob);
-  if (rc <= 0) return -1;
+  if (rc <= 0) {
+    return -1;
+  }
   return srvrun_wt_server_has(list, wired_span_of(out, ob.len)) ? (int)ob.len
                                                                 : 0;
 }
@@ -100,7 +108,9 @@ static usz srvrun_wt_select(
   sfield_iter it;
   int         r = 0;
   sfield_iter_init(&it, avail);
-  while (r == 0) r = srvrun_wt_try_next(list, &it, out, cap);
+  while (r == 0) {
+    r = srvrun_wt_try_next(list, &it, out, cap);
+  }
   return r < 0 ? 0 : (usz)r;
 }
 
@@ -109,7 +119,9 @@ static usz srvrun_wt_select(
 static usz srvrun_wt_negotiate(
     const srvrun_cfg* cfg, const srvrun_conn* c, u8* out, usz cap) {
   const wired_h3reqdrive_req* req = &c->l.req;
-  if (!cfg->wt_protocols || !req->wt_avail_len) return 0;
+  if (!cfg->wt_protocols || !req->wt_avail_len) {
+    return 0;
+  }
   return srvrun_wt_select(
       cfg->wt_protocols, wired_span_of(req->wt_avail, req->wt_avail_len), out,
       cap);
@@ -122,8 +134,11 @@ void srvrun_wt_proto_pick(
     const srvrun_cfg* cfg, const srvrun_conn* c, srvrun_wt_proto* p) {
   p->tok_len = srvrun_wt_negotiate(cfg, c, p->tok, sizeof p->tok);
   p->sfv_len = 0;
-  if (p->tok_len)
+  if (p->tok_len) {
     p->sfv_len = sfield_string_encode(
         p->sfv, sizeof p->sfv, wired_span_of(p->tok, p->tok_len));
-  if (!p->sfv_len) p->tok_len = 0;
+  }
+  if (!p->sfv_len) {
+    p->tok_len = 0;
+  }
 }

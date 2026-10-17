@@ -8,8 +8,11 @@ static int wt_slot_matches(
 
 /* The first free pending_priority[] slot, or -1 if the table is full. */
 static int pending_priority_free_slot(const wired_srvloop* l) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++)
-    if (!l->pending_priority[i].in_use) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++) {
+    if (!l->pending_priority[i].in_use) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -22,8 +25,12 @@ static int pending_priority_free_slot(const wired_srvloop* l) {
 static void pending_priority_set(
     wired_srvloop* l, u64 stream_id, const h3_priority* p) {
   int i = srvloop_pending_priority_find(l, stream_id);
-  if (i < 0) i = pending_priority_free_slot(l);
-  if (i < 0) return;
+  if (i < 0) {
+    i = pending_priority_free_slot(l);
+  }
+  if (i < 0) {
+    return;
+  }
   l->pending_priority[i].in_use    = 1;
   l->pending_priority[i].stream_id = stream_id;
   l->pending_priority[i].priority  = *p;
@@ -32,10 +39,11 @@ static void pending_priority_set(
 void wired_srvloop_priority_apply(
     wired_srvloop* l, u64 stream_id, const h3_priority* p) {
   int i = srvloop_stream_slot_find(l, stream_id);
-  if (i >= 0)
+  if (i >= 0) {
     l->streams[i].priority = *p;
-  else
+  } else {
     pending_priority_set(l, stream_id, p);
+  }
 }
 
 /* RFC 9218 10: a response scheduler (srvrun.c) needs stream_id's current
@@ -45,7 +53,9 @@ void wired_srvloop_priority_apply(
 int wired_srvloop_priority_of(
     const wired_srvloop* l, u64 stream_id, h3_priority* out) {
   int i = srvloop_stream_slot_find(l, stream_id);
-  if (i < 0) return 0;
+  if (i < 0) {
+    return 0;
+  }
   *out = l->streams[i].priority;
   return 1;
 }
@@ -60,7 +70,10 @@ static int wt_slot_matches(
  * reassembling stream_id.
  * @return the slot index, or -1 if this stream has no slot yet. */
 int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (wt_slot_matches(&l->wt_streams[i], stream_id)) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (wt_slot_matches(&l->wt_streams[i], stream_id)) {
+      return (int)i;
+    }
+  }
   return -1;
 }

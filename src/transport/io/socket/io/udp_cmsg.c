@@ -64,7 +64,9 @@ i64 wired_udp_send_batch(
   while (off < buf.n) {
     usz n = gso_batch_seglen(buf.n - off, segsize);
     i64 r = wired_udp_send(fd, sa, wired_span_of(buf.p + off, n));
-    if (r < 0) return r;
+    if (r < 0) {
+      return r;
+    }
     sent += r;
     off += n;
   }
@@ -79,7 +81,9 @@ static u64 cmsg_align(u64 n) { return (n + 7) & ~(u64)7; }
  * field or the payload it claims to have. */
 static int cmsg_entry_in_bounds(const u8* control, u64 controllen, u64 off) {
   u64 cmsg_len;
-  if (off + WIRED_CMSG_HDR_LEN > controllen) return 0;
+  if (off + WIRED_CMSG_HDR_LEN > controllen) {
+    return 0;
+  }
   cmsg_len = *(const u64*)(control + off);
   /* cmsg_len must cover at least its own header and fit inside the buffer
    * the kernel actually wrote: 0 or an overflowing length is not a valid
@@ -95,14 +99,18 @@ static int cmsg_is_ip_tos_pair(i32 level, i32 type) {
 }
 
 static int cmsg_type_carries_ecn(i32 level, i32 type) {
-  if (cmsg_is_ip_tos_pair(level, type)) return 1;
+  if (cmsg_is_ip_tos_pair(level, type)) {
+    return 1;
+  }
   return level == WIRED_IPPROTO_IPV6 && type == WIRED_IPV6_TCLASS;
 }
 
 static int cmsg_entry_is_ip_tos(const u8* control, u64 off, u8* tos) {
   i32 level = *(const i32*)(control + off + 8);
   i32 type  = *(const i32*)(control + off + 12);
-  if (!cmsg_type_carries_ecn(level, type)) return 0;
+  if (!cmsg_type_carries_ecn(level, type)) {
+    return 0;
+  }
   *tos = control[off + WIRED_CMSG_HDR_LEN] & 0x03;
   return 1;
 }
@@ -117,7 +125,9 @@ u8 udp_cmsg_read_ip_tos(const u8* control, u64 controllen) {
   u8  tos;
   while (cmsg_entry_in_bounds(control, controllen, off)) {
     u64 cmsg_len = *(const u64*)(control + off);
-    if (cmsg_entry_is_ip_tos(control, off, &tos)) return tos;
+    if (cmsg_entry_is_ip_tos(control, off, &tos)) {
+      return tos;
+    }
     off += cmsg_align(cmsg_len);
   }
   return 0;

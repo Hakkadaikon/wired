@@ -25,15 +25,21 @@ static int ku_bitstring_wf(wired_span v) { return v.n >= 1; }
 static int ku_bit_set(wired_span v, usz pos) {
   usz byte_off = 1 + pos / 8;
   u8  mask     = (u8)(0x80 >> (pos % 8));
-  if (byte_off >= v.n) return 0;
+  if (byte_off >= v.n) {
+    return 0;
+  }
   return (v.p[byte_off] & mask) != 0;
 }
 
 /* X.690 8.6. val decodes as a well-formed BIT STRING TLV. */
 static int ku_read_bitstring(wired_span val, wired_span* bits) {
   der_tlv t;
-  if (!der_read(val, &t)) return 0;
-  if (t.tag != DER_BIT_STRING) return 0;
+  if (!der_read(val, &t)) {
+    return 0;
+  }
+  if (t.tag != DER_BIT_STRING) {
+    return 0;
+  }
   *bits = t.val;
   return ku_bitstring_wf(*bits);
 }
@@ -42,14 +48,17 @@ static int ku_read_bitstring(wired_span val, wired_span* bits) {
  */
 static int ku_locate(wired_span tbs, wired_span* bits) {
   wired_span val;
-  if (!x509_find_ext(tbs, wired_span_of(oid_ku, sizeof(oid_ku)), &val))
+  if (!x509_find_ext(tbs, wired_span_of(oid_ku, sizeof(oid_ku)), &val)) {
     return 0;
+  }
   return ku_read_bitstring(val, bits);
 }
 
 int x509_can_sign_certs(wired_span tbs) {
   wired_span bits;
-  if (!ku_locate(tbs, &bits)) return 1;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
   return ku_bit_set(bits, KEYUSAGE_BIT_KEYCERTSIGN);
 }
 
@@ -68,7 +77,9 @@ static int ku_bit_set_4(wired_span v, usz a, usz b, usz c, usz d) {
  * default). */
 int x509_keyagreement_ok(wired_span tbs) {
   wired_span bits;
-  if (!ku_locate(tbs, &bits)) return 1;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
   return ku_bit_set(bits, KEYUSAGE_BIT_KEYAGREEMENT);
 }
 
@@ -77,7 +88,9 @@ int x509_keyagreement_ok(wired_span tbs) {
  * keyUsage is unconstrained. */
 int x509_ed_leaf_sig_ok(wired_span tbs) {
   wired_span bits;
-  if (!ku_locate(tbs, &bits)) return 1;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
   return ku_bit_set_2(
       bits, KEYUSAGE_BIT_DIGITALSIGNATURE, KEYUSAGE_BIT_NONREPUDIATION);
 }
@@ -87,7 +100,9 @@ int x509_ed_leaf_sig_ok(wired_span tbs) {
  * keyCertSign, cRLSign. Absent keyUsage is unconstrained. */
 int x509_ed_ca_ok(wired_span tbs) {
   wired_span bits;
-  if (!ku_locate(tbs, &bits)) return 1;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
   return ku_bit_set_4(
       bits, KEYUSAGE_BIT_DIGITALSIGNATURE, KEYUSAGE_BIT_NONREPUDIATION,
       KEYUSAGE_BIT_KEYCERTSIGN, KEYUSAGE_BIT_CRLSIGN);
@@ -106,8 +121,12 @@ static int ku_bit_set_5(wired_span v, usz a, usz b, usz c, usz d, usz e) {
  * is unconstrained (RFC 5280 default). */
 int x509_ecdh_keyusage_ok(wired_span tbs) {
   wired_span bits;
-  if (!ku_locate(tbs, &bits)) return 1;
-  if (!ku_bit_set(bits, KEYUSAGE_BIT_KEYAGREEMENT)) return 0;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
+  if (!ku_bit_set(bits, KEYUSAGE_BIT_KEYAGREEMENT)) {
+    return 0;
+  }
   return !ku_bit_set_5(
       bits, KEYUSAGE_BIT_DIGITALSIGNATURE, KEYUSAGE_BIT_NONREPUDIATION,
       KEYUSAGE_BIT_KEYENCIPHERMENT, KEYUSAGE_BIT_KEYCERTSIGN,

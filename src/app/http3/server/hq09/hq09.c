@@ -9,14 +9,18 @@ static int hq09_is_newline(u8 c) { return c == '\r' || c == '\n'; }
  * TrimRight("\r\n")). Returns the trimmed length. */
 static usz hq09_trim_newlines(wired_span line) {
   usz n = line.n;
-  while (n > 0 && hq09_is_newline(line.p[n - 1])) n--;
+  while (n > 0 && hq09_is_newline(line.p[n - 1])) {
+    n--;
+  }
   return n;
 }
 
 /* Trailing bare spaces at line's end (mirrors TrimRight(" ")), applied
  * after hq09_trim_newlines. */
 static usz hq09_trim_spaces(const u8* p, usz n) {
-  while (n > 0 && p[n - 1] == ' ') n--;
+  while (n > 0 && p[n - 1] == ' ') {
+    n--;
+  }
   return n;
 }
 
@@ -25,7 +29,9 @@ static usz hq09_trim_spaces(const u8* p, usz n) {
  * split above). */
 static int hq09_bytes_differ(const u8* p, const u8* want, usz wlen) {
   usz i = 0;
-  while (i < wlen && p[i] == want[i]) i++;
+  while (i < wlen && p[i] == want[i]) {
+    i++;
+  }
   return i != wlen;
 }
 
@@ -37,7 +43,9 @@ static int hq09_is_get_slash(const u8* p, usz n) {
 
 int wired_hq09_parse_get(wired_span line, wired_span* path) {
   usz n = hq09_trim_spaces(line.p, hq09_trim_newlines(line));
-  if (!hq09_is_get_slash(line.p, n)) return 0;
+  if (!hq09_is_get_slash(line.p, n)) {
+    return 0;
+  }
   *path = wired_span_of(line.p + 4, n - 4);
   return 1;
 }

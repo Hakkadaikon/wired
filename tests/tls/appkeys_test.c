@@ -4,7 +4,9 @@
  * from the handshake-level keys built from the same bytes (distinct label). */
 void test_appkeys(void) {
   u8 ecdhe[32];
-  for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(0x10 + i);
+  for (usz i = 0; i < 32; i++) {
+    ecdhe[i] = (u8)(0x10 + i);
+  }
   u8 hs[32], ms[32];
   tls_handshake_secret(ecdhe, hs);
   tls_master_secret(hs, ms);
@@ -21,10 +23,14 @@ void test_appkeys(void) {
       &(app_keys_in){ms, wired_span_of(transcript, sizeof(transcript)), 1, 0},
       &s);
 
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c.key[i] == c2.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(c.key[i] == c2.key[i]);
+  }
 
   int differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (c.key[i] != s.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (c.key[i] != s.key[i]);
+  }
   CHECK(differ); /* client vs server direction differ */
 
   /* "c ap traffic" keys differ from "c hs traffic" keys over same inputs */
@@ -34,7 +40,9 @@ void test_appkeys(void) {
           ms, wired_span_of(transcript, sizeof(transcript)), 0, 0},
       &hk);
   differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (c.key[i] != hk.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (c.key[i] != hk.key[i]);
+  }
   CHECK(differ);
 
   /* RFC 9369 3.3.1: v2's "quicv2 " label prefix must change the expanded
@@ -49,9 +57,15 @@ void test_appkeys(void) {
       &(app_keys_in){
           ms, wired_span_of(transcript, sizeof(transcript)), 1, VERSION_2},
       &s2);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(s1.key[i] == s.key[i]);
-  for (usz i = 0; i < INITIAL_IV; i++) CHECK(s1.iv[i] == s.iv[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(s1.key[i] == s.key[i]);
+  }
+  for (usz i = 0; i < INITIAL_IV; i++) {
+    CHECK(s1.iv[i] == s.iv[i]);
+  }
   differ = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) differ |= (s2.key[i] != s1.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    differ |= (s2.key[i] != s1.key[i]);
+  }
   CHECK(differ);
 }

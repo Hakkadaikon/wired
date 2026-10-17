@@ -34,8 +34,12 @@ static int sdrv_find_psk_offer(
 static int find_client_early_data_ext(
     const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+    return 0;
+  }
   return sdrv_ch_find_ext(ch + 4, start, end, SDRV_EARLY_DATA_EXT_TYPE, ext);
 }
 
@@ -56,10 +60,14 @@ static zerortt_seen* sdrv_zerortt_seen(void) { return g_sdrv_zerortt_tab; }
 
 int sdrv_zerortt_share(void) {
   i64 p;
-  if (g_sdrv_zerortt_tab != &g_sdrv_zerortt_seen) return 1;
+  if (g_sdrv_zerortt_tab != &g_sdrv_zerortt_seen) {
+    return 1;
+  }
   p = wired_arch_mmap(
       0, sizeof(zerortt_seen), SDRV_PROT_RW, SDRV_MAP_SHARED_ANON, -1, 0);
-  if (p < 0) return 0;
+  if (p < 0) {
+    return 0;
+  }
   bytes_memcpy((void*)p, &g_sdrv_zerortt_seen, sizeof(zerortt_seen));
   g_sdrv_zerortt_tab = (zerortt_seen*)p;
   return 1;
@@ -76,7 +84,9 @@ static int sdrv_early_data_eligible(
     const ticket* t, const tlsext_psk_offer* off) {
   int first_use = zerortt_seen_check(
       sdrv_zerortt_seen(), wired_span_of(off->identity, off->id_len));
-  if (!zerortt_replay_ok(1, first_use)) return 0;
+  if (!zerortt_replay_ok(1, first_use)) {
+    return 0;
+  }
   return ticket_freshness_ok(t, off->ticket_age, wired_clock_epoch_secs());
 }
 
@@ -89,7 +99,9 @@ static int sdrv_early_data_wanted(
     const ticket*           t,
     const tlsext_psk_offer* off) {
   wired_span ed_ext;
-  if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) return 0;
+  if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) {
+    return 0;
+  }
   return sdrv_early_data_eligible(t, off);
 }
 
@@ -132,8 +144,9 @@ static void sdrv_psk_accept_opened(
    * ticket-stored resumption_master_secret. */
   sdrv_psk_from_ticket_secret(t, s->psk_secret);
   if (sdrv_early_alpn_ok(s, t) &&
-      sdrv_early_data_wanted(ch_msg, ch_len, t, off))
+      sdrv_early_data_wanted(ch_msg, ch_len, t, off)) {
     sdrv_take_early_keys(s, ch_msg, ch_len);
+  }
 }
 
 /* RFC 8446 4.2.11: the ticket opens AND its hash is the negotiated suite's
@@ -160,7 +173,9 @@ static int sdrv_psk_try_offer(
   ticket t      = {{0}, 0, 0, 0, 0, 0, 0};
   int    opened = sdrv_psk_open_usable(s, off, &t);
   int    bound  = sdrv_psk_binder_ok(s, &t, ch_msg, psk_ext, off);
-  if (!opened) return 1;
+  if (!opened) {
+    return 1;
+  }
   if (!bound) {
     s->last_error = err_crypto(51); /* decrypt_error, RFC 8446 4.2.11.2 */
     return 0;
@@ -179,8 +194,12 @@ static int sdrv_find_psk_offer(
     usz               ch_len,
     wired_span*       psk_ext,
     tlsext_psk_offer* off) {
-  if (!s->has_ticket_key) return 0;
-  if (!sdrv_find_client_psk_ext(ch_msg, ch_len, psk_ext)) return 0;
+  if (!s->has_ticket_key) {
+    return 0;
+  }
+  if (!sdrv_find_client_psk_ext(ch_msg, ch_len, psk_ext)) {
+    return 0;
+  }
   return tlsext_pre_shared_key_parse(psk_ext->p, psk_ext->n, off);
 }
 
@@ -192,6 +211,8 @@ static int sdrv_find_psk_offer(
 int sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span       psk_ext;
   tlsext_psk_offer off;
-  if (!sdrv_find_psk_offer(s, ch_msg, ch_len, &psk_ext, &off)) return 1;
+  if (!sdrv_find_psk_offer(s, ch_msg, ch_len, &psk_ext, &off)) {
+    return 1;
+  }
   return sdrv_psk_try_offer(s, ch_msg, ch_len, psk_ext, &off);
 }

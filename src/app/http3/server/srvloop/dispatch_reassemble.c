@@ -28,7 +28,9 @@ static int reassemble_single(
 static int route_body_start(
     const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot) {
   usz n = srvloop_route_body_head_len(slot);
-  if (!n || !srvloop_route_body_decode(ctx, slot, n)) return 0;
+  if (!n || !srvloop_route_body_decode(ctx, slot, n)) {
+    return 0;
+  }
   bodywin_consume(&slot->body, slot->req_buf, n);
   slot->body.on = 1;
   return 1;
@@ -80,7 +82,9 @@ static void route_body_pump(wired_srvloop* l, int i) {
       route_body_frame_error, route_body_frame_unexpected};
   wired_srvloop_stream_slot* slot = &l->streams[i];
   route_body_call            c    = {l, slot};
-  if (slot->body.state != BODYWIN_OPEN) return;
+  if (slot->body.state != BODYWIN_OPEN) {
+    return;
+  }
   settle[bodywin_pump(&slot->body, slot->req_buf, route_body_sink, &c)](l, i);
 }
 
@@ -93,8 +97,12 @@ static int route_body_ready(
 /* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
  * streaming path (the buffered completion below then stays out of it). */
 static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
-  if (!srvloop_route_body_on(ctx)) return 0;
-  if (!route_body_ready(ctx, &ctx->l->streams[i])) return 0;
+  if (!srvloop_route_body_on(ctx)) {
+    return 0;
+  }
+  if (!route_body_ready(ctx, &ctx->l->streams[i])) {
+    return 0;
+  }
   route_body_pump(ctx->l, i);
   return 1;
 }
@@ -117,7 +125,9 @@ void srvloop_route_complete_slot(
   wired_srvloop_dispatch_in  sin  = {
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
-  if (route_answered_early(ctx, i)) return;
+  if (route_answered_early(ctx, i)) {
+    return;
+  }
   if (!srvloop_request_complete(ctx->h3, &acc, &sin)) {
     srvloop_route_note_qpack(
         ctx->l, i); /* RFC 9204 2.2.3: no FIN may ever come */
@@ -132,8 +142,11 @@ static void route_complete_touched(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in,
     u64                               touched) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if ((touched >> i) & (u64)1) srvloop_route_complete_slot(ctx, in, (int)i);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if ((touched >> i) & (u64)1) {
+      srvloop_route_complete_slot(ctx, in, (int)i);
+    }
+  }
 }
 
 /* The routed (ctx->l != 0) reassembly path: per-frame slot routing, then
@@ -142,7 +155,9 @@ static int reassemble_routed(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
   u64 touched = 0;
-  if (!srvloop_route_request_frames(ctx, in->payload, &touched)) return 0;
+  if (!srvloop_route_request_frames(ctx, in->payload, &touched)) {
+    return 0;
+  }
   route_complete_touched(ctx, in, touched);
   return 1;
 }
@@ -152,10 +167,12 @@ static int reassemble_routed(
 static int reassemble_single(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
-  if (!srvloop_gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc))
+  if (!srvloop_gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) {
     return 0;
-  if (srvloop_request_complete(ctx->h3, ctx->acc, in))
+  }
+  if (srvloop_request_complete(ctx->h3, ctx->acc, in)) {
     srvloop_drive_complete(ctx->h3, ctx->acc, in);
+  }
   return 1;
 }
 

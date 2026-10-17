@@ -34,14 +34,18 @@ static void moqtrun_fill_upstream_gone_one(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_upf_cancel(hub, f);
   f->failed = 1;
-  if (f->opened || f->up_wt) moqtrun_fetch_fail_due(hub, f);
+  if (f->opened || f->up_wt) {
+    moqtrun_fetch_fail_due(hub, f);
+  }
 }
 
 static void moqtrun_fills_tag_gone(
     wired_moqt_hub* hub, wired_moqtrun_fetch* arr, u64 tag) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fill_of_tag(&arr[i], tag))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fill_of_tag(&arr[i], tag)) {
       moqtrun_fill_upstream_gone_one(hub, &arr[i]);
+    }
+  }
 }
 
 void moqtrun_fills_upstream_gone(wired_moqt_hub* hub, u64 tag) {
@@ -61,9 +65,11 @@ int moqtrun_fetch_in_pass(const wired_moqtrun_fetch* f, int descending) {
  * Waiting fills move into freed slots first, so they serve this pass. */
 void moqtrun_fetches_tick(wired_moqt_hub* hub, int descending) {
   moqtrun_fill_waits_tick(hub, descending);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_in_pass(&hub->fetches[i], descending))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fetch_in_pass(&hub->fetches[i], descending)) {
       moqtrun_fetch_tick_one(hub, &hub->fetches[i]);
+    }
+  }
 }
 
 /* 1 iff f answers request rid, or is a fill owned by subscription rid
@@ -83,8 +89,11 @@ static void moqtrun_fetch_arr_cancel(
     wired_moqtrun_fetch*    arr,
     const wired_wt_session* s,
     u64                     rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_is_req(&arr[i], s, rid)) moqtrun_fetch_stop(hub, &arr[i]);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fetch_is_req(&arr[i], s, rid)) {
+      moqtrun_fetch_stop(hub, &arr[i]);
+    }
+  }
 }
 
 /* The FETCH request rid of s was cancelled (3.3.3): its fetch stops,
@@ -105,9 +114,11 @@ static int moqtrun_fetch_on_stream(
  * can be sent on it, so its slot is freed. */
 void moqtrun_fetches_stream_gone(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fetch_on_stream(&hub->fetches[i], s, sid))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fetch_on_stream(&hub->fetches[i], s, sid)) {
       moqtrun_fetch_free(hub, &hub->fetches[i]);
+    }
+  }
 }
 
 static int moqtrun_encode_fetch_ok(wired_mspan buf, usz* off, const void* m) {

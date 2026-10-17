@@ -15,17 +15,22 @@ static void test_rtx_fifo(void) {
 static void test_rtx_drains_in_order(void) {
   rtx_queue q;
   rtx_init(&q);
-  for (u8 i = 0; i < 10; i++) rtx_push(&q, &i, 1);
+  for (u8 i = 0; i < 10; i++) {
+    rtx_push(&q, &i, 1);
+  }
   u8 out[4];
-  for (u8 i = 0; i < 10; i++)
+  for (u8 i = 0; i < 10; i++) {
     CHECK(rtx_pop(&q, out, sizeof(out)) == 1 && out[0] == i);
+  }
 }
 
 static void test_rtx_full_and_oversize(void) {
   rtx_queue q;
   rtx_init(&q);
   u8 byte = 0x42;
-  for (usz i = 0; i < RTX_SLOTS; i++) CHECK(rtx_push(&q, &byte, 1) == 1);
+  for (usz i = 0; i < RTX_SLOTS; i++) {
+    CHECK(rtx_push(&q, &byte, 1) == 1);
+  }
   CHECK(rtx_push(&q, &byte, 1) == 0); /* full */
   /* pop into too-small buffer is refused without losing the frame */
   rtx_queue q2;

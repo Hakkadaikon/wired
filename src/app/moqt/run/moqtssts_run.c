@@ -78,8 +78,11 @@ u8 moqtss_alg_bit(u64 id) {
 }
 
 static int moqtss_hub_runs(const wired_moqt_hub* hub, u64 id) {
-  for (usz i = 0; i < hub->ssts_alg_n; i++)
-    if (hub->ssts_algs[i] == id) return 1;
+  for (usz i = 0; i < hub->ssts_alg_n; i++) {
+    if (hub->ssts_algs[i] == id) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -91,8 +94,12 @@ static int moqtss_offers(
 void moqtss_setup_opt(
     const wired_moqt_hub* hub, const wired_moqtrun_peer* p, moqctl_setup* s) {
   usz n = (usz)u64_min(hub->ssts_alg_n, MOQCTL_SSTS_MAX_ALGS);
-  if (!moqtss_offers(hub, p)) return;
-  for (usz i = 0; i < n; i++) s->ssts_algs[i] = hub->ssts_algs[i];
+  if (!moqtss_offers(hub, p)) {
+    return;
+  }
+  for (usz i = 0; i < n; i++) {
+    s->ssts_algs[i] = hub->ssts_algs[i];
+  }
   s->ssts_alg_n = (u8)n;
   s->has_ssts   = 1;
 }
@@ -106,9 +113,10 @@ void moqtss_negotiate(
     const wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_setup* m) {
   u8  algs = 0;
   usz n    = moqtss_client_n(m);
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     algs |= (u8)(moqtss_alg_bit(m->ssts_algs[i]) *
                  moqtss_hub_runs(hub, m->ssts_algs[i]));
+  }
   p->ssts.algs = (u8)(algs * (p->ver == MOQVER_D22));
 }
 
@@ -118,7 +126,9 @@ void moqtss_sess_reset(moqtss_sess* s) {
   s->next_obs_ms = 0;
   s->obs_armed   = 0;
   moqssts_bp_init(&s->bp);
-  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) s->sets[k].in_use = 0;
+  for (usz k = 0; k < WIRED_MOQTRUN_SSTS_SETS; k++) {
+    s->sets[k].in_use = 0;
+  }
 }
 
 /* ===== parameter ===== */
@@ -137,7 +147,9 @@ static int moqtss_unknown(
 }
 
 int moqtss_take(const wired_moqt_hub* hub, int r, const moqctl_params* params) {
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqtss_unknown(hub, params) ? MOQCTL_VIOLATION : MOQCTL_OK;
 }
 
@@ -146,7 +158,9 @@ static int moqtss_unsettable_ssa(int unsettable, const moqctl_params* params) {
 }
 
 u64 moqtss_sub_refusal(const moqctl_params* params, int unsettable, u64 prior) {
-  if (prior != MOQTSS_ACCEPT) return prior;
+  if (prior != MOQTSS_ACCEPT) {
+    return prior;
+  }
   return moqtss_unsettable_ssa(unsettable, params)
              ? MOQCTL_ERR_UNSUPPORTED_EXTENSION
              : MOQTSS_ACCEPT;
@@ -155,7 +169,10 @@ u64 moqtss_sub_refusal(const moqctl_params* params, int unsettable, u64 prior) {
 /* ===== switching sets (switching_set.rs) ===== */
 
 int moqtss_member_at(const moqtss_set* st, u64 alias) {
-  for (usz i = 0; i < st->n; i++)
-    if (st->m[i].alias == alias) return (int)i;
+  for (usz i = 0; i < st->n; i++) {
+    if (st->m[i].alias == alias) {
+      return (int)i;
+    }
+  }
   return -1;
 }

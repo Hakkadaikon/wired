@@ -15,7 +15,9 @@ static int locally_initiated(int am_server, u64 stream_id) {
  * either way; a uni stream permits data in only one direction. */
 static int direction_ok(int am_server, u64 stream_id, int needs_send) {
   int other_is_client = am_server != 0; /* the peer of a server is a client */
-  if (!stream_is_uni(stream_id)) return 1; /* bidi: no restriction */
+  if (!stream_is_uni(stream_id)) {
+    return 1; /* bidi: no restriction */
+  }
   return needs_send ? stream_can_send(other_is_client, stream_id)
                     : stream_can_receive(other_is_client, stream_id);
 }
@@ -26,7 +28,9 @@ static int direction_ok(int am_server, u64 stream_id, int needs_send) {
 static int creation_ok(
     int am_server, u64 stream_id, const streams* local_streams) {
   u64 index;
-  if (!locally_initiated(am_server, stream_id)) return 1;
+  if (!locally_initiated(am_server, stream_id)) {
+    return 1;
+  }
   index = stream_id >> 2;
   return index < local_streams->opened;
 }
@@ -36,6 +40,8 @@ int streamstate_ok(
     u64            stream_id,
     int            needs_send,
     const streams* local_streams) {
-  if (!direction_ok(am_server, stream_id, needs_send)) return 0;
+  if (!direction_ok(am_server, stream_id, needs_send)) {
+    return 0;
+  }
   return creation_ok(am_server, stream_id, local_streams);
 }

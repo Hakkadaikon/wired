@@ -8,8 +8,9 @@ int pktbuild_framepack(
   for (usz i = 0; i < n_frames; i++) {
     if (!bytes_put(
             wired_mspan_of(out->p, out->cap), &out->len,
-            wired_span_of(frames[i].p, frames[i].n)))
+            wired_span_of(frames[i].p, frames[i].n))) {
       return 0;
+    }
   }
   return 1;
 }

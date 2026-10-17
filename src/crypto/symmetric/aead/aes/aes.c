@@ -41,7 +41,9 @@ static u32 sub_word(u32 w) {
 
 /* The per-word key-schedule core: rotate+sub+rcon on multiples of 4. */
 static u32 schedule_word(u32 prev, usz i) {
-  if (i % 4 != 0) return prev;
+  if (i % 4 != 0) {
+    return prev;
+  }
   return sub_word((prev << 8) | (prev >> 24)) ^ ((u32)RCON[i / 4 - 1] << 24);
 }
 
@@ -50,16 +52,21 @@ static u32 schedule_word(u32 prev, usz i) {
  * additionally applies SubWord alone at the halfway word (i%Nk==4), which
  * AES-128/192 do not have. */
 u32 aes128_schedule_word256(u32 prev, usz i) {
-  if (i % 8 == 0)
+  if (i % 8 == 0) {
     return sub_word((prev << 8) | (prev >> 24)) ^ ((u32)RCON[i / 8 - 1] << 24);
-  if (i % 8 == 4) return sub_word(prev);
+  }
+  if (i % 8 == 4) {
+    return sub_word(prev);
+  }
   return prev;
 }
 
 void aes128_init(aes128* a, const u8 key[AES_BLOCK]) {
-  for (usz i = 0; i < 4; i++)
+  for (usz i = 0; i < 4; i++) {
     a->rk[i] = ((u32)key[4 * i] << 24) | ((u32)key[4 * i + 1] << 16) |
                ((u32)key[4 * i + 2] << 8) | key[4 * i + 3];
-  for (usz i = 4; i < AES_RK_WORDS; i++)
+  }
+  for (usz i = 4; i < AES_RK_WORDS; i++) {
     a->rk[i] = a->rk[i - 4] ^ schedule_word(a->rk[i - 1], i);
+  }
 }

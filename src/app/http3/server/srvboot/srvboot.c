@@ -26,8 +26,12 @@ int srvboot_is_initial_sized(const u8* dg, usz len) {
 }
 
 int wired_srvboot_is_initial(const u8* dg, usz len) {
-  if (!srvboot_is_initial_sized(dg, len)) return 0;
-  if (!srvboot_is_long_initial(dg[0], be_get_be32(dg + 1))) return 0;
+  if (!srvboot_is_initial_sized(dg, len)) {
+    return 0;
+  }
+  if (!srvboot_is_long_initial(dg[0], be_get_be32(dg + 1))) {
+    return 0;
+  }
   return len >= (usz)6 + dg[5];
 }
 
@@ -47,11 +51,14 @@ static int srvboot_set_cids(
     const wired_header*       h) {
   wired_span scid = wired_span_of(id->scid, id->scid_len);
   wired_span dcid = wired_span_of(h->dcid, h->dcid_len);
-  if (!id->retry_odcid_len) return wired_server_set_cids(conn->s, dcid, scid);
+  if (!id->retry_odcid_len) {
+    return wired_server_set_cids(conn->s, dcid, scid);
+  }
   if (!sdrv_set_cids_retried(
           &conn->s->sdrv, dcid, scid,
-          wired_span_of(id->retry_odcid, id->retry_odcid_len)))
+          wired_span_of(id->retry_odcid, id->retry_odcid_len))) {
     return 0;
+  }
   return sdrv_set_retry_scid(&conn->s->sdrv, dcid);
 }
 
@@ -104,6 +111,8 @@ int srvboot_init(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
       wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);
   srvboot_set_reset_token(conn, id);
-  if (!srvboot_set_cids(conn, id, h)) return 0;
+  if (!srvboot_set_cids(conn, id, h)) {
+    return 0;
+  }
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);
 }

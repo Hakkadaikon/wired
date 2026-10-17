@@ -8,19 +8,25 @@ static usz fmt_digits(char tmp[20], u64 v, usz width) {
     tmp[k++] = (char)('0' + (v % 10));
     v /= 10;
   } while (v);
-  while (k < width) tmp[k++] = '0';
+  while (k < width) {
+    tmp[k++] = '0';
+  }
   return k;
 }
 
 void wired_fmt_u64(char* out, usz* at, const wired_fmt_u64_in* in) {
   char tmp[20];
   usz  k = fmt_digits(tmp, in->v, in->width);
-  while (k) out[(*at)++] = tmp[--k];
+  while (k) {
+    out[(*at)++] = tmp[--k];
+  }
 }
 
 void wired_log_str(const char* s) {
   usz n = 0;
-  while (s[n]) n++;
+  while (s[n]) {
+    n++;
+  }
   wired_arch_write(2, s, n);
 }
 

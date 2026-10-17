@@ -73,7 +73,9 @@ static inline usz block_n(usz off, usz len) {
 /* Copy up to 16 bytes from p+off into b, zero-padding the rest. */
 static inline void load_block(u8 b[16], const u8* p, usz off, usz len) {
   usz n = block_n(off, len);
-  for (usz i = 0; i < 16; i++) b[i] = (i < n) ? p[off + i] : 0;
+  for (usz i = 0; i < 16; i++) {
+    b[i] = (i < n) ? p[off + i] : 0;
+  }
 }
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
@@ -81,20 +83,26 @@ static inline usz ctr_chunk(gcm_ctr* c, wired_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
   aes128_encrypt(c->a, c->ctr, ks);
-  for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
+  for (usz i = 0; i < n; i++) {
+    out[i] = in.p[i] ^ ks[i];
+  }
   gcm_ctr_inc(c->ctr);
   return n;
 }
 
 /* Shift a 128-bit big-endian value right by one bit. */
 static inline void shr1(u8 x[16]) {
-  for (usz i = 15; i > 0; i--) x[i] = (u8)((x[i] >> 1) | (x[i - 1] << 7));
+  for (usz i = 15; i > 0; i--) {
+    x[i] = (u8)((x[i] >> 1) | (x[i - 1] << 7));
+  }
   x[0] >>= 1;
 }
 
 /* z ^= v & mask (per-byte), then v = (v >> 1) reduced by R when its LSB set. */
 static inline void gf_step(u8 z[16], u8 v[16], u8 mask) {
-  for (usz j = 0; j < 16; j++) z[j] ^= v[j] & mask;
+  for (usz j = 0; j < 16; j++) {
+    z[j] ^= v[j] & mask;
+  }
   u8 lsb = (u8) - (v[15] & 1);
   shr1(v);
   v[0] ^= 0xe1 & lsb;
@@ -102,7 +110,9 @@ static inline void gf_step(u8 z[16], u8 v[16], u8 mask) {
 
 /* XOR 16 bytes of src into dst. */
 static inline void gcm_xor16(u8* dst, const u8* src) {
-  for (usz i = 0; i < 16; i++) dst[i] ^= src[i];
+  for (usz i = 0; i < 16; i++) {
+    dst[i] ^= src[i];
+  }
 }
 /* GF(2^128) multiply z = x * y per SP 800-38D (bit-reflected polynomial
  * R = 0xe1 in the high byte). y is consumed. */
@@ -112,8 +122,9 @@ static inline void gcm_gf_mul(const u8 x[16], const u8 y[16], u8 z[16]) {
     z[i] = 0;
     v[i] = x[i];
   }
-  for (usz bit = 0; bit < 128; bit++)
+  for (usz bit = 0; bit < 128; bit++) {
     gf_step(z, v, (u8) - ((y[bit / 8] >> (7 - bit % 8)) & 1));
+  }
 }
 
 #endif

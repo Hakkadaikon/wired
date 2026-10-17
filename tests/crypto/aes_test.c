@@ -18,7 +18,9 @@ static void test_aes_fips197(void) {
   hb("3925841d02dc09fbdc118597196a0b32", want);
   aes128_init(&a, key);
   aes128_encrypt(&a, in, out);
-  for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 /* FIPS 197 Appendix C.1: all-from-the-spec vector. */
@@ -30,7 +32,9 @@ static void test_aes_appendix_c(void) {
   hb("69c4e0d86a7b0430d8cdb78070b4c55a", want);
   aes128_init(&a, key);
   aes128_encrypt(&a, in, out);
-  for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 /* FIPS 197 Appendix B: MixColumns multiplies each state column by the fixed
@@ -46,9 +50,13 @@ static void test_aes_appendix_c(void) {
 /* Run mix_one on one column and check it against the expected output. */
 static void check_mix_one(const u8 in[4], const u8 want[4]) {
   u8 col[4];
-  for (usz j = 0; j < 4; j++) col[j] = in[j];
+  for (usz j = 0; j < 4; j++) {
+    col[j] = in[j];
+  }
   mix_one(col);
-  for (usz j = 0; j < 4; j++) CHECK(col[j] == want[j]);
+  for (usz j = 0; j < 4; j++) {
+    CHECK(col[j] == want[j]);
+  }
 }
 
 static void test_aes_mix_columns_matrix(void) {
@@ -61,12 +69,16 @@ static void test_aes_mix_columns_matrix(void) {
       {{0xb8, 0x41, 0x11, 0xf1}, {0x48, 0xf8, 0xd3, 0x7a}},
       {{0x1e, 0x27, 0x98, 0xe5}, {0x28, 0x06, 0x26, 0x4c}},
   };
-  for (usz i = 0; i < 4; i++) check_mix_one(cases[i].in, cases[i].want);
+  for (usz i = 0; i < 4; i++) {
+    check_mix_one(cases[i].in, cases[i].want);
+  }
 }
 
 static int bytes16_differ(const u8 a[16], const u8 b[16]) {
   int differs = 0;
-  for (usz i = 0; i < 16; i++) differs |= (a[i] != b[i]);
+  for (usz i = 0; i < 16; i++) {
+    differs |= (a[i] != b[i]);
+  }
   return differs;
 }
 
@@ -78,7 +90,9 @@ static int bytes16_differ(const u8 a[16], const u8 b[16]) {
 static void test_aes_no_key_restriction_beyond_length(void) {
   u8     zero_key[16] = {0}, ff_key[16], in[16] = {0}, out_zero[16], out_ff[16];
   aes128 a_zero, a_ff;
-  for (usz i = 0; i < 16; i++) ff_key[i] = 0xff;
+  for (usz i = 0; i < 16; i++) {
+    ff_key[i] = 0xff;
+  }
 
   aes128_init(&a_zero, zero_key);
   aes128_encrypt(&a_zero, in, out_zero);
@@ -113,7 +127,9 @@ static void test_aes256_appendix_c3(void) {
   hb("8ea2b7ca516745bfeafc49904b496089", want);
   aes256_init(&a, key);
   aes256_encrypt(&a, in, out);
-  for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 /* FIPS 197 6.2: no restriction on an appropriately generated key beyond its
@@ -121,7 +137,9 @@ static void test_aes256_appendix_c3(void) {
 static void test_aes256_no_key_restriction_beyond_length(void) {
   u8     zero_key[32] = {0}, ff_key[32], in[16] = {0}, out_zero[16], out_ff[16];
   aes256 a_zero, a_ff;
-  for (usz i = 0; i < 32; i++) ff_key[i] = 0xff;
+  for (usz i = 0; i < 32; i++) {
+    ff_key[i] = 0xff;
+  }
 
   aes256_init(&a_zero, zero_key);
   aes256_encrypt(&a_zero, in, out_zero);

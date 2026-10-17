@@ -10,12 +10,15 @@ static void srvrun_send_max_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 value) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_max_streams(c, uni, value, &ob)) return;
+  if (!srvrun_seal_max_streams(c, uni, value, &ob)) {
+    return;
+  }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "MAX_STREAMS sent\n");
-  if (uni)
+  if (uni) {
     c->uni_stream_limit_advertised = value;
-  else
+  } else {
     c->stream_limit_advertised = value;
+  }
 }
 
 /* RFC 9000 4.6/19.11: raise the advertised bidi stream limit by n to match
@@ -34,7 +37,9 @@ static void srvrun_send_max_streams(
 void srvrun_grant_streams(
     const srvrun_step_ctx* ctx, srvrun_conn* c, u64 base, usz n) {
   u64 current = c->stream_limit_advertised ? c->stream_limit_advertised : base;
-  if (!n) return;
+  if (!n) {
+    return;
+  }
   srvrun_send_max_streams(ctx->cfg, c, 0, current + n);
   /* RFC 9000 4.6: the frame is fire-and-forget -- arm the bounded
    * re-announce (see srvrun_conn.grant_retry_ms's doc). */
@@ -54,7 +59,9 @@ static int srvrun_grant_retry_due(const srvrun_conn* c, u64 now_ms) {
 
 void srvrun_grant_retry_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!srvrun_grant_retry_due(c, ctx->now_ms)) return;
+  if (!srvrun_grant_retry_due(c, ctx->now_ms)) {
+    return;
+  }
   c->grant_retries--;
   c->grant_retry_ms = ctx->now_ms + srvrun_pto_deadline_ms(c, 0);
   srvrun_send_max_streams(ctx->cfg, c, 0, c->stream_limit_advertised);
@@ -68,7 +75,9 @@ void srvrun_grant_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c, usz n) {
   u64 current = c->uni_stream_limit_advertised
                     ? c->uni_stream_limit_advertised
                     : wired_srvloop_uni_stream_limit();
-  if (n) srvrun_send_max_streams(cfg, c, 1, current + (u64)n);
+  if (n) {
+    srvrun_send_max_streams(cfg, c, 1, current + (u64)n);
+  }
 }
 
 /* RFC 9000 4.6: "An endpoint that receives a STREAMS_BLOCKED frame SHOULD
@@ -82,7 +91,9 @@ void srvrun_grant_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c, usz n) {
  * not even latched, see wired_srvloop.streams_blocked_seen_flag's doc). */
 void srvrun_reannounce_stream_limit(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
-  if (!c->l.streams_blocked_seen_flag) return;
+  if (!c->l.streams_blocked_seen_flag) {
+    return;
+  }
   c->l.streams_blocked_seen_flag = 0;
   srvrun_send_max_streams(
       cfg, c, 0,
@@ -93,7 +104,9 @@ void srvrun_reannounce_stream_limit(
  * sighting re-sends the uni limit already in force (or the transport-
  * parameter default before any uni release raised it). */
 void srvrun_reannounce_uni_stream_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!c->l.streams_blocked_uni_seen_flag) return;
+  if (!c->l.streams_blocked_uni_seen_flag) {
+    return;
+  }
   c->l.streams_blocked_uni_seen_flag = 0;
   srvrun_send_max_streams(
       cfg, c, 1,
@@ -108,14 +121,20 @@ void srvrun_reannounce_uni_stream_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
  * traffic), so sending one unconditionally every step would put an unasked-
  * for frame on the wire of every plain HTTP/3 connection too. */
 static int wt_any_bidi_slot_in_use(const srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    if (c->l.wt_streams[i].in_use) return 1;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (c->l.wt_streams[i].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 static int wt_any_uni_slot_in_use(const srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    if (c->l.wt_uni_streams[i].in_use) return 1;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (c->l.wt_uni_streams[i].in_use) {
+      return 1;
+    }
+  }
   return 0;
 }
 

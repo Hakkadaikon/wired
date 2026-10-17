@@ -33,12 +33,16 @@ static void test_datagram_buffered_then_established(void) {
 static void test_stream_buffer_limit_rejects_overflow(void) {
   wired_wt_session s;
   wired_wt_session_init(&s, 4);
-  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     CHECK(wired_wt_session_offer_stream(&s, i + 100) == 1);
+  }
   CHECK(wired_wt_session_offer_stream(&s, 999) == 0);
   int used = 0;
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
-    if (s.streams[i].in_use) used++;
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
+    if (s.streams[i].in_use) {
+      used++;
+    }
+  }
   CHECK(used == WIRED_WT_MAX_BUFFERED_STREAMS);
 }
 
@@ -49,8 +53,9 @@ static void test_datagram_buffer_limit_drops_overflow(void) {
   u8               a                = 0xaa;
   u8               overflow_payload = 0xff;
   wired_wt_session_init(&s, 4);
-  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++)
+  for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++) {
     CHECK(wired_wt_session_offer_datagram(&s, wired_span_of(&a, 1)) == 1);
+  }
   CHECK(
       wired_wt_session_offer_datagram(
           &s, wired_span_of(&overflow_payload, 1)) == 0);
@@ -129,8 +134,9 @@ static void test_established_new_stream_associates_directly(void) {
   wired_wt_session_establish(&s);
   CHECK(wired_wt_session_offer_stream(&s, 42) == 1);
   /* no buffer slot was consumed: buffering only matters pre-establishment */
-  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+  for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++) {
     CHECK(s.streams[i].in_use == 0);
+  }
 }
 
 /* A freshly-initialized session has no WT_MAX_STREAMS/WT_MAX_DATA limit

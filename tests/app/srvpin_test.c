@@ -33,7 +33,9 @@ static void test_srvpin_bind_self_zero_sets_only_cpu0(void) {
   CHECK(wired_srvpin_bind_self(0) == 0);
   CHECK(sp_raw_getaffinity(mask, sizeof mask) >= 0);
   CHECK(sp_byte_is_only_bit(mask[0], 0));
-  for (usz i = 1; i < sizeof mask; i++) CHECK(mask[i] == 0);
+  for (usz i = 1; i < sizeof mask; i++) {
+    CHECK(mask[i] == 0);
+  }
 }
 
 /* TEST 3: an out-of-range CPU index (far beyond any real CPU count) is

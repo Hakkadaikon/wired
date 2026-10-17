@@ -10,8 +10,12 @@ static usz  emit_pref_addr_value(const sdrv* s, u8* buf);
 /* Append msg to flight (advancing flight->len) and fold it into the
  * transcript. Returns 1 if it fit. */
 int sdrv_flight_emit_msg(sdrv* s, wired_span msg, wired_obuf* flight) {
-  if (msg.n > flight->cap - flight->len) return 0;
-  for (usz i = 0; i < msg.n; i++) flight->p[flight->len + i] = msg.p[i];
+  if (msg.n > flight->cap - flight->len) {
+    return 0;
+  }
+  for (usz i = 0; i < msg.n; i++) {
+    flight->p[flight->len + i] = msg.p[i];
+  }
   flight->len += msg.n;
   transcript_add(&s->tr, msg.p, msg.n);
   return 1;
@@ -44,10 +48,13 @@ static int sdrv_ecdhe(const sdrv* s, u8 ecdhe[ECDHE_LEN]) {
 int sdrv_flight_derive_secret(sdrv* s) {
   u8              ecdhe[ECDHE_LEN], th[TLS_HASH_MAX];
   const tls_hash* h = tls_hash_of(s->cipher_suite);
-  if (!sdrv_ecdhe(s, ecdhe)) return 0;
+  if (!sdrv_ecdhe(s, ecdhe)) {
+    return 0;
+  }
   /* keep the secret for the connection's own key schedule (server.c) */
-  for (usz i = 0; i < sizeof(s->ecdhe_secret); i++)
+  for (usz i = 0; i < sizeof(s->ecdhe_secret); i++) {
     s->ecdhe_secret[i] = ecdhe[i];
+  }
   sdrv_derive_handshake_secret(s, ecdhe);
   transcript_hash_suite(&s->tr, s->cipher_suite, th);
   hkdf_label l = {"s hs traffic", 12, {th, h->len}};
@@ -80,9 +87,13 @@ int sdrv_flight_emit_ee_version_info(const sdrv* s, wired_obuf* tob) {
   vers_init(&us);
   vi.chosen      = sdrv_wire_version(s);
   vi.n_available = us.n;
-  for (usz i = 0; i < us.n; i++) vi.available[i] = us.versions[i];
+  for (usz i = 0; i < us.n; i++) {
+    vi.available[i] = us.versions[i];
+  }
   n = version_info_encode(tob->p + tob->len, tob->cap - tob->len, &vi);
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   tob->len += n;
   return 1;
 }
@@ -119,7 +130,9 @@ int sdrv_flight_emit_ee_pref_addr(const sdrv* s, wired_obuf* tob) {
   u8         value[4 + 2 + 16 + 2 + 1 + 20 + 16];
   usz        vn, before, w;
   wired_obuf tail;
-  if (!s->pref_cid_len) return 1;
+  if (!s->pref_cid_len) {
+    return 1;
+  }
   vn     = emit_pref_addr_value(s, value);
   before = tob->len;
   tail   = obuf_of(tob->p + before, tob->cap - before);

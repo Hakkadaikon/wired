@@ -19,7 +19,9 @@ static usz utf8_truncate_scan(wired_span msg, usz cap);
  * U+10FFFF -- split out purely to keep each caller's branch count at the
  * CCN gate. */
 static usz utf8_long_seq_len(u8 lead) {
-  if (lead < 0xF0) return 3;
+  if (lead < 0xF0) {
+    return 3;
+  }
   return lead < 0xF5 ? 4 : 0;
 }
 
@@ -27,7 +29,9 @@ static usz utf8_long_seq_len(u8 lead) {
  * to be >= 0x80, utf8_seq_len's own check) is a continuation byte or an
  * overlong C0/C1 lead. */
 static usz utf8_multibyte_len(u8 lead) {
-  if (lead < 0xC2) return 0;
+  if (lead < 0xC2) {
+    return 0;
+  }
   return lead < 0xE0 ? 2 : utf8_long_seq_len(lead);
 }
 
@@ -49,13 +53,18 @@ static int utf8_continuation_byte_ok(const u8* p, usz k) {
  * split out so the "does the sequence even fit" bounds check stays its own
  * branch. */
 static int utf8_continuations_shaped(const u8* p, usz n) {
-  for (usz k = 1; k < n; k++)
-    if (!utf8_continuation_byte_ok(p, k)) return 0;
+  for (usz k = 1; k < n; k++) {
+    if (!utf8_continuation_byte_ok(p, k)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 static int utf8_continuations_ok(wired_span msg, usz i, usz n) {
-  if (i + n > msg.n) return 0;
+  if (i + n > msg.n) {
+    return 0;
+  }
   return utf8_continuations_shaped(msg.p + i, n);
 }
 
@@ -66,8 +75,12 @@ static int utf8_continuations_ok(wired_span msg, usz i, usz n) {
  * is an overlong continuation (< 0xA0), and the UTF-16 surrogate range
  * (lead 0xED, second byte 0xA0-0xBF). */
 static int utf8_3byte_shape_ok(const u8* p) {
-  if (p[0] == 0xE0) return p[1] >= 0xA0;
-  if (p[0] == 0xED) return p[1] < 0xA0;
+  if (p[0] == 0xE0) {
+    return p[1] >= 0xA0;
+  }
+  if (p[0] == 0xED) {
+    return p[1] < 0xA0;
+  }
   return 1;
 }
 
@@ -75,8 +88,12 @@ static int utf8_3byte_shape_ok(const u8* p) {
  * range -- 0xF0 forbids an overlong second byte (< 0x90), and 0xF4 forbids
  * one that would reach past U+10FFFF (>= 0x90). */
 static int utf8_4byte_shape_ok(const u8* p) {
-  if (p[0] == 0xF0) return p[1] >= 0x90;
-  if (p[0] == 0xF4) return p[1] < 0x90;
+  if (p[0] == 0xF0) {
+    return p[1] >= 0x90;
+  }
+  if (p[0] == 0xF4) {
+    return p[1] < 0x90;
+  }
   return 1;
 }
 
@@ -84,7 +101,9 @@ static int utf8_4byte_shape_ok(const u8* p) {
  * 4-byte lead can violate (a 1- or 2-byte sequence has no such exclusion
  * left once utf8_seq_len already rejected an overlong C0/C1 lead). */
 static int utf8_shape_ok(const u8* p, usz n) {
-  if (n == 3) return utf8_3byte_shape_ok(p);
+  if (n == 3) {
+    return utf8_3byte_shape_ok(p);
+  }
   return n == 4 ? utf8_4byte_shape_ok(p) : 1;
 }
 
@@ -104,7 +123,9 @@ static int utf8_at_ok(wired_span msg, usz i, usz* n) {
 
 int wtcapsule_utf8_valid(wired_span msg) {
   usz i = 0, n;
-  while (i < msg.n && utf8_at_ok(msg, i, &n)) i += n;
+  while (i < msg.n && utf8_at_ok(msg, i, &n)) {
+    i += n;
+  }
   return i == msg.n;
 }
 
@@ -121,7 +142,9 @@ static int utf8_seq_fits(wired_span msg, usz i, usz cap, usz* n) {
  * "no truncation needed" return stays its only other branch (CCN). */
 static usz utf8_truncate_scan(wired_span msg, usz cap) {
   usz i = 0, n;
-  while (i < cap && utf8_seq_fits(msg, i, cap, &n)) i += n;
+  while (i < cap && utf8_seq_fits(msg, i, cap, &n)) {
+    i += n;
+  }
   return i;
 }
 

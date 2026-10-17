@@ -46,9 +46,12 @@ static void moqtrun_sub_note_open(
     wired_moqtrun_sub*         sub,
     const wired_moqtrun_relay* relay,
     u64                        sid) {
-  if (!moqtrun_relay_supersedes(hub, sub, relay)) return;
-  if (sub->newest_sid)
+  if (!moqtrun_relay_supersedes(hub, sub, relay)) {
+    return;
+  }
+  if (sub->newest_sid) {
     hub->io.stream_reset(wt, sub->newest_sid, MOQTRUN_RESET_INTERNAL_ERROR);
+  }
   sub->newest_group = relay->group_id;
   sub->newest_sid   = sid;
 }
@@ -87,7 +90,9 @@ void moqtrun_relay_open_one(
     usz                  i,
     wired_span           wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (!dst->in_use) return;
+  if (!dst->in_use) {
+    return;
+  }
   wired_span cut_wire = moqtrun_hdr_cutoff(sub, wire, relay->group_id);
   wired_span out      = moqtrun_alias_splice(hub, cut_wire, sub->track_alias);
   i64        sid      = hub->io.open_uni_stream(dst->wt, out);
@@ -121,9 +126,11 @@ void moqtrun_relay_open_all(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     wired_span           wire) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets_relay(&track->subs[i], relay))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtrun_sub_gets_relay(&track->subs[i], relay)) {
       moqtrun_relay_open_sub(hub, &track->subs[i], relay, i, wire);
+    }
+  }
 }
 
 /* Saves the stream's SUBGROUP_HEADER bytes on relay for late-joining
@@ -133,7 +140,9 @@ void moqtrun_relay_open_all(
  * hdr_len 0 (late joiners are then skipped rather than sent garbage). */
 void moqtrun_relay_save_hdr_raw(
     wired_moqtrun_relay* relay, wired_span data, usz off) {
-  if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
+  if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) {
+    return;
+  }
   bytes_memcpy(relay->hdr, data.p, off);
   relay->hdr_len = off;
 }

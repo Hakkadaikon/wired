@@ -25,7 +25,9 @@ u64 cubic_k_ms(u64 w_max_seg) { return icbrt(w_max_seg * 750000000u); }
  * Rounding, not truncation: the concave side must reach exactly
  * beta * W_max at t = 0 despite K itself being a truncated cube root. */
 static u64 cubic_mag(u64 m) {
-  if (m > CUBIC_D_CAP) m = CUBIC_D_CAP;
+  if (m > CUBIC_D_CAP) {
+    m = CUBIC_D_CAP;
+  }
   return (m * m * m + 1250000000u) / 2500000000u;
 }
 
@@ -40,6 +42,8 @@ u64 cubic_w(u64 t_ms, u64 k_ms, u64 w_max_seg) {
 }
 
 u64 cubic_wmax_fastconv(u64 w_seg, u64 prev_wmax_seg) {
-  if (w_seg < prev_wmax_seg) return w_seg * 17 / 20;
+  if (w_seg < prev_wmax_seg) {
+    return w_seg * 17 / 20;
+  }
   return w_seg;
 }

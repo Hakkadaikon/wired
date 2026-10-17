@@ -11,8 +11,9 @@ static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now);
  * first bandwidth sample); Reno/Cubic at RFC 9002 7.7's 1.25 * cwnd /
  * srtt. Callers guarantee srtt_ms != 0. */
 static u64 srvrun_pace_rate_raw(const srvrun_conn* c) {
-  if (c->cc.algo == CC_ALGO_BBR && c->cc.bbr.btl_bw)
+  if (c->cc.algo == CC_ALGO_BBR && c->cc.bbr.btl_bw) {
     return bbr_pacing_gain_pct(&c->cc.bbr) * c->cc.bbr.btl_bw / 100;
+  }
   return 5 * c->cc.cwnd / (4 * c->srtt_ms);
 }
 
@@ -27,7 +28,9 @@ static u64 srvrun_pace_rate(const srvrun_conn* c) {
  * very first paced pass is not stalled (real monotonic now_ms is never 0 --
  * only a fresh connection carries the 0 stamp). */
 static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
-  if (!c->pace_refill_ms) return SRVRUN_PACE_BURST;
+  if (!c->pace_refill_ms) {
+    return SRVRUN_PACE_BURST;
+  }
   return c->pace_tokens + (now_ms - c->pace_refill_ms) * srvrun_pace_rate(c);
 }
 
@@ -37,7 +40,9 @@ static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
  */
 void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u64 t;
-  if (!c->srtt_ms) return; /* unpaced until the first RTT sample */
+  if (!c->srtt_ms) {
+    return; /* unpaced until the first RTT sample */
+  }
   t                 = srvrun_pace_new_tokens(c, ctx->now_ms);
   c->pace_tokens    = t > SRVRUN_PACE_BURST ? SRVRUN_PACE_BURST : t;
   c->pace_refill_ms = ctx->now_ms;
@@ -56,8 +61,12 @@ void srvrun_pace_charge(srvrun_conn* c, usz bytes) {
  * the bucket and cannot overflow a shallow bottleneck queue; past one poll
  * tick, the absolute next_send_ms deadline as before. */
 int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  if (!c->srtt_ms) return 1;
-  if (srvrun_pace_within_poll_tick(c)) return c->pace_tokens > 0;
+  if (!c->srtt_ms) {
+    return 1;
+  }
+  if (srvrun_pace_within_poll_tick(c)) {
+    return c->pace_tokens > 0;
+  }
   return ctx->now_ms >= c->next_send_ms;
 }
 
@@ -87,7 +96,9 @@ int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
  * a no-op (send stays due now) while the real interval already fits inside
  * one poll tick, see srvrun_pace_within_poll_tick. */
 void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (srvrun_pace_within_poll_tick(c)) return;
+  if (srvrun_pace_within_poll_tick(c)) {
+    return;
+  }
   c->next_send_ms =
       ctx->now_ms + cc_pacing_ms(&c->cc, c->srtt_ms, MAX_DATAGRAM);
 }
@@ -112,9 +123,12 @@ u64 srvrun_css_acked(const srvrun_conn* c, u64 bytes) {
  * current window. Round boundary: the next pn to be sent. Does NOT touch
  * the RTT estimator -- see srvrun_hystart_range's comment for why. */
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
-  if (!srvrun_hystart_paces(c)) return;
-  if (hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
+  if (!srvrun_hystart_paces(c)) {
+    return;
+  }
+  if (hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn)) {
     c->cc.ssthresh = c->cc.cwnd;
+  }
 }
 
 /* Feed every in-flight packet an ACK range covers to the hystart detector
@@ -133,8 +147,9 @@ void srvrun_hystart_range(
     srvrun_conn* c, const wired_sendsess* sess, u64 lo, u64 hi, u64 now) {
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     const wired_sent_slice* e = &sess->log[i];
-    if (wired_sendsess_covered(e, lo, hi))
+    if (wired_sendsess_covered(e, lo, hi)) {
       srvrun_hystart_ack(c, e->pn, e->sent_ms, now);
+    }
   }
 }
 
@@ -159,7 +174,8 @@ void srvrun_hystart_range(
  * forever). The count also feeds RFC 9000 13.4.2.1's ECN bound. */
 u64 srvrun_range_hits(const wired_sendsess* sess, u64 lo, u64 hi) {
   u64 n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     n += (u64)wired_sendsess_covered(&sess->log[i], lo, hi);
+  }
   return n;
 }

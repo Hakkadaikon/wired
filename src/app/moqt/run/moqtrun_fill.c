@@ -21,10 +21,14 @@ static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_fetch_after(hub, f, next, &w);
   int fin = moqtrun_fwin_drained(&w);
   if (hub->io.stream_send(
-          f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <= 0)
+          f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <=
+      0) {
     return 0;
+  }
   moqtrun_fetch_advance(hub, f, seq, &w);
-  if (fin) moqtrun_fetch_free(hub, f);
+  if (fin) {
+    moqtrun_fetch_free(hub, f);
+  }
   return 1;
 }
 
@@ -36,7 +40,9 @@ static void moqtrun_fetch_pump(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
 /* Serves f until it ends or the transport refuses a round. Nothing left
  * on an open stream (the upstream FETCH covered the rest) is a FIN. */
 void moqtrun_fetch_serve(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (!moqtrun_fetch_open(hub, f)) return;
+  if (!moqtrun_fetch_open(hub, f)) {
+    return;
+  }
   if (moqtrun_fetch_done(f)) {
     hub->io.stream_fin(f->wt, f->stream_id);
     moqtrun_fetch_free(hub, f);
@@ -48,7 +54,9 @@ void moqtrun_fetch_serve(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
 /* Ends f early: its data stream is reset with code and the slot freed. */
 void moqtrun_fetch_stop_code(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, u32 code) {
-  if (f->opened) hub->io.stream_reset(f->wt, f->stream_id, code);
+  if (f->opened) {
+    hub->io.stream_reset(f->wt, f->stream_id, code);
+  }
   moqtrun_fetch_free(hub, f);
 }
 
@@ -80,8 +88,11 @@ static int moqtrun_fill_held_of(
 
 static int moqtrun_fill_held_in(
     const wired_moqtrun_fetch* arr, const wired_wt_session* s, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++)
-    if (moqtrun_fill_held_of(&arr[i], s, rid)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_fill_held_of(&arr[i], s, rid)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -113,22 +124,28 @@ static u32 moqtrun_fetch_stall_code(const wired_moqtrun_fetch* f) {
  * INTERNAL_ERROR now, a held fill the moment the transport grants one
  * -- opened only to signal the failure (3.3.4). */
 int moqtrun_fetch_fail_due(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (!f->failed) return 0;
-  if (moqtrun_fetch_open(hub, f))
+  if (!f->failed) {
+    return 0;
+  }
+  if (moqtrun_fetch_open(hub, f)) {
     moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
+  }
   return 1;
 }
 
 static void moqtrun_fetch_tick_cache(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_fetch_serve(hub, f);
-  if (moqtrun_fetch_stalled(hub, f))
+  if (moqtrun_fetch_stalled(hub, f)) {
     moqtrun_fetch_stop_code(hub, f, moqtrun_fetch_stall_code(f));
+  }
 }
 
 /* While its upstream FETCH runs, f only watches that FETCH's budget: the
  * cache side neither serves nor stall-checks until it ends. */
 void moqtrun_fetch_tick_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (moqtrun_upf_tick(hub, f) || moqtrun_fetch_fail_due(hub, f)) return;
+  if (moqtrun_upf_tick(hub, f) || moqtrun_fetch_fail_due(hub, f)) {
+    return;
+  }
   moqtrun_fetch_tick_cache(hub, f);
 }

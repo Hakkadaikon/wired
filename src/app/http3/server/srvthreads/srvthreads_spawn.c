@@ -37,13 +37,17 @@ static i64 srvthreads_spawn_all(
   for (int i = 0; i < n; i++) {
     i64 r =
         wired_thread_start(&threads[i], srvthreads_worker_trampoline, &args[i]);
-    if (r < 0) return r;
+    if (r < 0) {
+      return r;
+    }
   }
   return 0;
 }
 
 static void srvthreads_join_all(wired_thread* threads, int n) {
-  for (int i = 0; i < n; i++) wired_thread_join(&threads[i]);
+  for (int i = 0; i < n; i++) {
+    wired_thread_join(&threads[i]);
+  }
 }
 
 /* Control's timed wait for the shared shutdown word: loop a FUTEX_WAIT with
@@ -54,21 +58,26 @@ static void srvthreads_join_all(wired_thread* threads, int n) {
 static void srvthreads_wait_shutdown(int* word) {
   timespec ts = {
       SRVTHREADS_WAIT_MS / 1000, (i64)(SRVTHREADS_WAIT_MS % 1000) * 1000000};
-  while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
+  while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0) {
     wired_arch_futex(word, SRVTHREADS_FUTEX_WAIT, 0, &ts, 0, 0);
+  }
 }
 
 /* Open the shared per-interface BPF filter in XDP mode; a no-op success (fd
  * table left zeroed, never used) in UDP mode. */
 static i64 srvthreads_open_bpf(
     wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
-  if (!xdp) return 0;
+  if (!xdp) {
+    return 0;
+  }
   return wired_srvxdpbpf_open(bpf, xdp->ifindex, xdp->port, xdp->attach_flags);
 }
 
 static void srvthreads_close_bpf(
     wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
-  if (xdp) wired_srvxdpbpf_close(bpf);
+  if (xdp) {
+    wired_srvxdpbpf_close(bpf);
+  }
 }
 
 /* SIGTERM/SIGHUP handler installed by the control thread only:
@@ -100,9 +109,13 @@ static void srvthreads_start_workers(
 static int srvthreads_alloc_state(
     u8** envs, wired_srvinbox_ring** mesh, int n) {
   *envs = srvthreads_alloc_envs(n);
-  if (!*envs) return 0;
+  if (!*envs) {
+    return 0;
+  }
   *mesh = srvthreads_alloc_mesh(n);
-  if (*mesh) return 1;
+  if (*mesh) {
+    return 1;
+  }
   srvthreads_free_envs(*envs, n);
   return 0;
 }
@@ -116,8 +129,12 @@ static int srvthreads_setup(
     wired_srvinbox_ring**   mesh,
     int                     n,
     const wired_srvxdp_cfg* xdp) {
-  if (srvthreads_open_bpf(bpf, xdp) < 0) return 0;
-  if (srvthreads_alloc_state(envs, mesh, n)) return 1;
+  if (srvthreads_open_bpf(bpf, xdp) < 0) {
+    return 0;
+  }
+  if (srvthreads_alloc_state(envs, mesh, n)) {
+    return 1;
+  }
   srvthreads_close_bpf(bpf, xdp);
   return 0;
 }
@@ -130,15 +147,18 @@ static void srvthreads_fill_args(
     wired_srvinbox_ring*         mesh,
     int                          n,
     const int*                   cores) {
-  for (int i = 0; i < n; i++)
+  for (int i = 0; i < n; i++) {
     srvthreads_fill_arg(&args[i], common, i, envs, mesh, n, cores);
+  }
 }
 
 /* Bind the control thread to its own core, if requested (opt->control_core
  * >= 0), before touching anything else -- pinning is cheapest to do first
  * and has no other ordering dependency. */
 static void srvthreads_pin_control(int control_core) {
-  if (control_core >= 0) wired_srvpin_bind_self(control_core);
+  if (control_core >= 0) {
+    wired_srvpin_bind_self(control_core);
+  }
 }
 
 /* Spawn every worker, wait for the shutdown word, then join them all. */
@@ -164,8 +184,12 @@ int wired_srvthreads_run(
 
   srvthreads_pin_control(opt->control_core);
   /* draw the ticket/Retry seeds before any worker thread can race the draw */
-  if (!srvkeys_ready()) return 0;
-  if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) return 0;
+  if (!srvkeys_ready()) {
+    return 0;
+  }
+  if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) {
+    return 0;
+  }
   srvthreads_fill_common(&common, port, id, h, obs, opt, &bpf);
   srvthreads_fill_args(args, &common, envs, mesh, n, opt->cores);
   srvthreads_serve(args, n);

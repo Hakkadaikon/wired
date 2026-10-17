@@ -18,17 +18,23 @@ void sreset_token(
     u8        token[SRESET_TOKEN]) {
   u8 mac[SHA256_DIGEST];
   hmac_sha256(wired_span_of(key, SRESET_KEY), wired_span_of(cid, cid_len), mac);
-  for (usz i = 0; i < SRESET_TOKEN; i++) token[i] = mac[i]; /* truncate */
+  for (usz i = 0; i < SRESET_TOKEN; i++) {
+    token[i] = mac[i]; /* truncate */
+  }
 }
 
 int sreset_detect(const u8* dgram, usz len, const u8 token[SRESET_TOKEN]) {
-  if (len < SRESET_TOKEN) return 0; /* too short to carry a token */
+  if (len < SRESET_TOKEN) {
+    return 0; /* too short to carry a token */
+  }
   return ct_diff16(dgram + len - SRESET_TOKEN, token) == 0;
 }
 
 usz sreset_size(usz trigger_len) {
   usz cap = trigger_len * 3;
-  if (cap > 0) cap -= 1; /* strictly under 3x, not 3x itself */
+  if (cap > 0) {
+    cap -= 1; /* strictly under 3x, not 3x itself */
+  }
   return u64_max(cap, SRESET_MIN);
 }
 
@@ -39,7 +45,9 @@ int sreset_build(
     usz       trigger_len,
     int (*rand_fill)(u8* buf, usz len),
     wired_obuf* out) {
-  if (out->cap < SRESET_MIN) return 0;
+  if (out->cap < SRESET_MIN) {
+    return 0;
+  }
   usz len = u64_min(sreset_size(trigger_len), out->cap);
 
   rand_fill(out->p, len);

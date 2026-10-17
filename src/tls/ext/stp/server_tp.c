@@ -41,8 +41,9 @@ static int put_blob(wired_obuf* out, u64 id, wired_span val) {
 /* Append all integer-valued parameters. Returns 1 if every one fit. */
 static int put_int_params(wired_obuf* out) {
   int ok = 1;
-  for (usz i = 0; i < sizeof(int_params) / sizeof(int_params[0]); i++)
+  for (usz i = 0; i < sizeof(int_params) / sizeof(int_params[0]); i++) {
     ok &= put_int(out, int_params[i].id, int_params[i].val);
+  }
   return ok;
 }
 
@@ -62,7 +63,9 @@ static int put_int_opt(wired_obuf* out, u64 id, u64 val) {
  * max_datagram_frame_size (RFC 9221 3). */
 static int put_tunables(wired_obuf* out, const stp_limits* lim) {
   stp_limits d = {0};
-  if (!lim) lim = &d;
+  if (!lim) {
+    lim = &d;
+  }
   return put_int(
              out, TP_INITIAL_MAX_DATA,
              lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
@@ -89,7 +92,9 @@ static int put_reset_stream_at(wired_obuf* out) {
  * unexpected one is a TRANSPORT_PARAMETER_ERROR at the peer (RFC 9000 7.3).
  */
 static int put_rscid(wired_obuf* out, wired_span rscid) {
-  if (rscid.n == 0) return 1;
+  if (rscid.n == 0) {
+    return 1;
+  }
   return put_blob(out, TP_RETRY_SOURCE_CONNECTION_ID, rscid);
 }
 
@@ -98,7 +103,9 @@ static int put_rscid(wired_obuf* out, wired_span rscid) {
  * length is a caller bug and fails the build rather than emitting a TP the
  * peer must reject. */
 static int put_sreset_token(wired_obuf* out, wired_span token) {
-  if (token.n == 0) return 1;
+  if (token.n == 0) {
+    return 1;
+  }
   return token.n == 16 && put_blob(out, TP_STATELESS_RESET_TOKEN, token);
 }
 

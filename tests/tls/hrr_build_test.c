@@ -25,7 +25,9 @@ static const u8* hrr_find_ext(const u8* ext, usz total, u16 t, usz* elen) {
 static void test_hrr_random_sentinel(void) {
   u8 fixed[32];
   wired_sha256((const u8*)"HelloRetryRequest", 17, fixed);
-  for (int i = 0; i < 32; i++) CHECK(hrr_random[i] == fixed[i]);
+  for (int i = 0; i < 32; i++) {
+    CHECK(hrr_random[i] == fixed[i]);
+  }
 }
 
 /* RFC 8446 4.1.4: HRR wire form without cookie. */
@@ -45,7 +47,9 @@ static void test_hrr_build_no_cookie(void) {
 
   body = out + 4;
   CHECK(hrrt_rd16(body) == 0x0303); /* legacy_version */
-  for (int i = 0; i < 32; i++) CHECK(body[2 + i] == hrr_random[i]);
+  for (int i = 0; i < 32; i++) {
+    CHECK(body[2 + i] == hrr_random[i]);
+  }
   CHECK(body[34] == 0); /* empty session_id */
   ext       = body + 38;
   ext_total = hrrt_rd16(ext);
@@ -75,7 +79,9 @@ static void test_hrr_build_cookie(void) {
   ext += 2;
   c = hrr_find_ext(ext, ext_total, 44, &elen);
   CHECK(c != 0 && elen == 7 && hrrt_rd16(c) == 5);
-  for (int i = 0; i < 5; i++) CHECK(c[2 + i] == ck[i]);
+  for (int i = 0; i < 5; i++) {
+    CHECK(c[2 + i] == ck[i]);
+  }
 }
 
 static void test_hrr_build_overflow(void) {
@@ -93,20 +99,26 @@ static void test_hrr_message_hash_shape(void) {
   u8  hash[32], out[64];
   u8  type;
   usz body_len, n;
-  for (int i = 0; i < 32; i++) hash[i] = (u8)i;
+  for (int i = 0; i < 32; i++) {
+    hash[i] = (u8)i;
+  }
   n = hrr_message_hash(hash, 32, out, sizeof(out));
   CHECK(n == 36);
   CHECK(hs_parse(wired_span_of(out, n), &type, &body_len) == 4);
   CHECK(type == 254);
   CHECK(body_len == 32);
-  for (int i = 0; i < 32; i++) CHECK(out[4 + i] == hash[i]);
+  for (int i = 0; i < 32; i++) {
+    CHECK(out[4 + i] == hash[i]);
+  }
 }
 
 /* Too small a buffer for the header or the hash body is rejected. */
 static void test_hrr_message_hash_overflow(void) {
   u8  hash[32], out[10];
   usz n;
-  for (int i = 0; i < 32; i++) hash[i] = (u8)i;
+  for (int i = 0; i < 32; i++) {
+    hash[i] = (u8)i;
+  }
   n = hrr_message_hash(hash, 32, out, sizeof(out));
   CHECK(n == 0);
 }

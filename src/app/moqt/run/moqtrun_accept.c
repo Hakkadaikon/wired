@@ -12,7 +12,9 @@ void moqtrun_largest_param(
   params->items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
   params->items[0].enc  = MOQCTL_PENC_LOCATION;
   params->n             = top != 0;
-  if (top) params->items[0].loc = *top;
+  if (top) {
+    params->items[0].loc = *top;
+  }
 }
 
 /* SUBSCRIBE_OK with s's alias; LARGEST_OBJECT once t has published
@@ -42,8 +44,9 @@ static u64 moqtrun_accept_code(
     const wired_moqtrun_track* track,
     wired_moqtrun_sub*         slot,
     const moqctl_params*       params) {
-  if (!moqtrun_fill_room(hub, track, slot, params))
+  if (!moqtrun_fill_room(hub, track, slot, params)) {
     return MOQCTL_ERR_INTERNAL_ERROR;
+  }
   return moqtss_on_subscribe(hub, slot, params, track);
 }
 
@@ -84,7 +87,9 @@ void moqtrun_accept_subscribe(
  * the send is refused. */
 int moqtrun_blob_deliver(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_sub* slot) {
-  if (!moqtrun_sub_forwards(slot)) return 1;
+  if (!moqtrun_sub_forwards(slot)) {
+    return 1;
+  }
   slot->blob_sent = hub->io.send_uni(p->wt, hub->blob_wire) >= 0;
   hub->stat_open_drop += !slot->blob_sent;
   slot->stream_count += slot->blob_sent;

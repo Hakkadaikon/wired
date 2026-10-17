@@ -34,7 +34,9 @@ static inline u64 poly_row(const u32 h[5], u32 a, u32 b, u32 c, u32 d, u32 e) {
 
 /* Byte i of a final block of n message bytes: data, then 0x01, then zeros. */
 static inline u8 pad_byte(const u8* m, usz i, usz n) {
-  if (i < n) return m[i];
+  if (i < n) {
+    return m[i];
+  }
   return (i == n) ? 1 : 0;
 }
 
@@ -68,7 +70,9 @@ static inline void poly_mulmod(poly* st) {
 /* Pad a final partial block: copy n bytes, append 0x01, zero the rest. */
 static inline void poly_final_block(poly* st, const u8* m, usz n) {
   u8 b[16];
-  for (usz i = 0; i < 16; i++) b[i] = pad_byte(m, i, n);
+  for (usz i = 0; i < 16; i++) {
+    b[i] = pad_byte(m, i, n);
+  }
   poly_add(st, b, 0); /* hibit already provided by the 0x01 byte in b */
   poly_mulmod(st);
 }

@@ -35,7 +35,9 @@ static void xskring_reload_prod(xskring* r) {
 }
 
 u32 xskring_prod_reserve(xskring* r, u32 n, u32* idx) {
-  if (xskring_free(r) < n) xskring_reload_cons(r);
+  if (xskring_free(r) < n) {
+    xskring_reload_cons(r);
+  }
   u32 free    = xskring_free(r);
   u32 granted = free < n ? free : n;
   *idx        = r->cached_prod;
@@ -48,7 +50,9 @@ void xskring_prod_submit(xskring* r, u32 n) {
 }
 
 u32 xskring_cons_peek(xskring* r, u32 n, u32* idx) {
-  if (xskring_avail(r) < n) xskring_reload_prod(r);
+  if (xskring_avail(r) < n) {
+    xskring_reload_prod(r);
+  }
   u32 avail   = xskring_avail(r);
   u32 granted = avail < n ? avail : n;
   *idx        = r->cached_cons;

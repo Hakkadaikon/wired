@@ -5,7 +5,9 @@
 
 int h3_stream_type_parse(wired_span buf, u64* type, usz* consumed) {
   usz off = 0;
-  if (!varint_take(wired_span_of(buf.p, buf.n), &off, type)) return 0;
+  if (!varint_take(wired_span_of(buf.p, buf.n), &off, type)) {
+    return 0;
+  }
   *consumed = off;
   return 1;
 }

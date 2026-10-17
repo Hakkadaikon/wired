@@ -21,8 +21,11 @@ static int is_space(u8 c) { return c == 0x20; }
  * BMPString, UniversalString, TeletexString 8-bit) this SDK does not
  * decode. */
 static int has_non_ascii(wired_span s) {
-  for (usz i = 0; i < s.n; i++)
-    if (s.p[i] & 0x80) return 1;
+  for (usz i = 0; i < s.n; i++) {
+    if (s.p[i] & 0x80) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -35,7 +38,9 @@ static void cursor_init(dirstring_cursor* c, wired_span s) {
 /* Advance past a run of one or more spaces starting at c->i (caller has
  * already confirmed c->i is a space). */
 static void cursor_skip_space_run(dirstring_cursor* c) {
-  while (c->i < c->s.n && is_space(c->s.p[c->i])) c->i++;
+  while (c->i < c->s.n && is_space(c->s.p[c->i])) {
+    c->i++;
+  }
 }
 
 /* c->i is a space: consume the run. A leading run (nothing emitted yet)
@@ -48,8 +53,12 @@ static void cursor_skip_space_run(dirstring_cursor* c) {
 static int cursor_next_space(dirstring_cursor* c, u8* out) {
   int was_emitted = c->emitted;
   cursor_skip_space_run(c);
-  if (!was_emitted) return cursor_next(c, out);
-  if (c->i >= c->s.n) return 0;
+  if (!was_emitted) {
+    return cursor_next(c, out);
+  }
+  if (c->i >= c->s.n) {
+    return 0;
+  }
   *out = 0x20;
   return 1;
 }
@@ -57,8 +66,12 @@ static int cursor_next_space(dirstring_cursor* c, u8* out) {
 /* Pull the next normalized character out of *c into *out. Returns 1 if a
  * character was produced, 0 at end of input. */
 static int cursor_next(dirstring_cursor* c, u8* out) {
-  if (c->i >= c->s.n) return 0;
-  if (is_space(c->s.p[c->i])) return cursor_next_space(c, out);
+  if (c->i >= c->s.n) {
+    return 0;
+  }
+  if (is_space(c->s.p[c->i])) {
+    return cursor_next_space(c, out);
+  }
   *out = ascii_lower(c->s.p[c->i]);
   c->i++;
   c->emitted = 1;
@@ -71,7 +84,9 @@ static int step_equal(dirstring_cursor* a, dirstring_cursor* b, int* more) {
   u8  ca, cb;
   int ha = cursor_next(a, &ca);
   int hb = cursor_next(b, &cb);
-  if (ha != hb) return 0;
+  if (ha != hb) {
+    return 0;
+  }
   *more = ha;
   return !ha || ca == cb;
 }
@@ -79,8 +94,12 @@ static int step_equal(dirstring_cursor* a, dirstring_cursor* b, int* more) {
 /* Byte-exact comparison (RFC 4518 preparation skipped). */
 static int dirstring_bytes_eq(wired_span a, wired_span b) {
   usz diff = 0;
-  if (a.n != b.n) return 0;
-  for (usz i = 0; i < a.n; i++) diff |= (usz)(a.p[i] ^ b.p[i]);
+  if (a.n != b.n) {
+    return 0;
+  }
+  for (usz i = 0; i < a.n; i++) {
+    diff |= (usz)(a.p[i] ^ b.p[i]);
+  }
   return diff == 0;
 }
 
@@ -93,14 +112,19 @@ static int either_non_ascii(wired_span a, wired_span b) {
 /* Drain both cursors in lockstep; 1 if every step matched through to EOF. */
 static int cursors_equal(dirstring_cursor* a, dirstring_cursor* b) {
   int more = 1;
-  while (more)
-    if (!step_equal(a, b, &more)) return 0;
+  while (more) {
+    if (!step_equal(a, b, &more)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 int x509_dirstring_ci_equal(wired_span a, wired_span b) {
   dirstring_cursor ca, cb;
-  if (either_non_ascii(a, b)) return dirstring_bytes_eq(a, b);
+  if (either_non_ascii(a, b)) {
+    return dirstring_bytes_eq(a, b);
+  }
   cursor_init(&ca, a);
   cursor_init(&cb, b);
   return cursors_equal(&ca, &cb);

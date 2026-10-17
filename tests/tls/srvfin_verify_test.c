@@ -10,8 +10,12 @@
 void test_srvfin_verify(void) {
   u8 secret[HKDF_PRK];
   u8 th[SHA256_DIGEST];
-  for (usz i = 0; i < HKDF_PRK; i++) secret[i] = (u8)(i + 7);
-  for (usz i = 0; i < SHA256_DIGEST; i++) th[i] = (u8)(0x30 + i);
+  for (usz i = 0; i < HKDF_PRK; i++) {
+    secret[i] = (u8)(i + 7);
+  }
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
+    th[i] = (u8)(0x30 + i);
+  }
 
   /* client side: hand-build the Finished message */
   u8  msg[64];
@@ -27,7 +31,9 @@ void test_srvfin_verify(void) {
 
   /* tampered verify_data is rejected */
   u8 bad[64];
-  for (usz i = 0; i < total; i++) bad[i] = msg[i];
+  for (usz i = 0; i < total; i++) {
+    bad[i] = msg[i];
+  }
   bad[off] ^= 0x01;
   CHECK(
       srvfin_verify_client_finished(wired_span_of(bad, total), secret, th) ==
@@ -35,7 +41,9 @@ void test_srvfin_verify(void) {
 
   /* a different transcript hash does not verify */
   u8 th2[SHA256_DIGEST];
-  for (usz i = 0; i < SHA256_DIGEST; i++) th2[i] = th[i];
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
+    th2[i] = th[i];
+  }
   th2[0] ^= 0xFF;
   CHECK(
       srvfin_verify_client_finished(wired_span_of(msg, total), secret, th2) ==
@@ -43,7 +51,9 @@ void test_srvfin_verify(void) {
 
   /* wrong handshake type (not Finished) is rejected */
   u8 wt[64];
-  for (usz i = 0; i < total; i++) wt[i] = msg[i];
+  for (usz i = 0; i < total; i++) {
+    wt[i] = msg[i];
+  }
   wt[0] = HS_CLIENT_HELLO;
   CHECK(
       srvfin_verify_client_finished(wired_span_of(wt, total), secret, th) == 0);
@@ -56,7 +66,9 @@ void test_srvfin_verify(void) {
   /* wrong body length: a Finished header claiming 16-byte body */
   u8  shortmsg[32];
   usz so = hs_begin(shortmsg, sizeof shortmsg, HS_FINISHED);
-  for (usz i = 0; i < 16; i++) shortmsg[so + i] = 0;
+  for (usz i = 0; i < 16; i++) {
+    shortmsg[so + i] = 0;
+  }
   hs_finish(shortmsg, so + 16);
   CHECK(
       srvfin_verify_client_finished(

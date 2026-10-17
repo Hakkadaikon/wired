@@ -14,7 +14,9 @@ static void classify_regular(const rline* L, wired_h3reqdrive_req* r);
 usz h3reqdrive_decode_line(
     wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
   usz c = 0;
-  for (usz i = 0; !c && i < 4; i++) c = line_forms[i](fs, scr, dyn, L);
+  for (usz i = 0; !c && i < 4; i++) {
+    c = line_forms[i](fs, scr, dyn, L);
+  }
   return c;
 }
 
@@ -28,15 +30,18 @@ static int is_request_pseudo(h3_ph_kind k) {
 int h3reqdrive_line_name_is(const rline* L, const char* s) {
   usz n    = h3reqdrive_cstr_len(s);
   u8  diff = (u8)(L->name_len != n);
-  for (usz i = 0; i < n && i < L->name_len; i++) diff |= L->name[i] ^ (u8)s[i];
+  for (usz i = 0; i < n && i < L->name_len; i++) {
+    diff |= L->name[i] ^ (u8)s[i];
+  }
   return diff == 0;
 }
 
 /* RFC 9218 5: a regular `priority` header carries the request's priority
  * field value; other regular fields stay ignored. */
 static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
-  if (h3reqdrive_line_name_is(L, "priority"))
+  if (h3reqdrive_line_name_is(L, "priority")) {
     h3_priority_sfv(wired_span_of(L->value, L->value_len), &r->priority);
+  }
 }
 
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6 / RFC 9220 3: a regular
@@ -44,7 +49,9 @@ static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
  * validate. Same borrow-or-scratch view as any other recovered line; other
  * regular fields stay ignored. */
 static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
-  if (!h3reqdrive_line_name_is(L, "origin")) return;
+  if (!h3reqdrive_line_name_is(L, "origin")) {
+    return;
+  }
   r->origin     = L->value;
   r->origin_len = L->value_len;
 }
@@ -55,8 +62,12 @@ static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
  * (unlike origin's borrowed view, see request_drive.h); a value that does not
  * fit is dropped, leaving the offer absent. */
 static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r) {
-  if (!h3reqdrive_line_name_is(L, "wt-available-protocols")) return;
-  if (L->value_len > sizeof r->wt_avail) return;
+  if (!h3reqdrive_line_name_is(L, "wt-available-protocols")) {
+    return;
+  }
+  if (L->value_len > sizeof r->wt_avail) {
+    return;
+  }
   bytes_memcpy(r->wt_avail, L->value, L->value_len);
   r->wt_avail_len = L->value_len;
 }
@@ -73,15 +84,18 @@ static usz cookie_sep_len(const wired_h3reqdrive_req* r) {
 static void cookie_join(wired_h3reqdrive_req* r, const u8* value, usz vlen) {
   usz sep = cookie_sep_len(r);
   usz cap = sizeof r->cookie - r->cookie_len;
-  if (sep + vlen > cap) return;
+  if (sep + vlen > cap) {
+    return;
+  }
   bytes_memcpy(r->cookie + r->cookie_len, "; ", sep);
   bytes_memcpy(r->cookie + r->cookie_len + sep, value, vlen);
   r->cookie_len += sep + vlen;
 }
 
 static void take_cookie(const rline* L, wired_h3reqdrive_req* r) {
-  if (h3reqdrive_line_name_is(L, "cookie"))
+  if (h3reqdrive_line_name_is(L, "cookie")) {
     cookie_join(r, L->value, L->value_len);
+  }
 }
 
 /* RFC 9110 10.1.1: a regular `expect` field carrying exactly "100-continue"
@@ -92,13 +106,16 @@ static int value_is_100_continue(const rline* L) {
   static const u8 want[] = "100-continue";
   usz             n      = sizeof want - 1;
   u8              diff   = (u8)(L->value_len != n);
-  for (usz i = 0; i < n && i < L->value_len; i++) diff |= L->value[i] ^ want[i];
+  for (usz i = 0; i < n && i < L->value_len; i++) {
+    diff |= L->value[i] ^ want[i];
+  }
   return diff == 0;
 }
 
 static void take_expect(const rline* L, wired_h3reqdrive_req* r) {
-  if (h3reqdrive_line_name_is(L, "expect") && value_is_100_continue(L))
+  if (h3reqdrive_line_name_is(L, "expect") && value_is_100_continue(L)) {
     r->expect_continue = 1;
+  }
 }
 
 /* A regular (non-pseudo-header) field: at most priority (RFC 9218 5), origin

@@ -45,7 +45,9 @@ static int recover_x(fe x, const fe u, const fe v) {
   ed_fe_sq(vx2, x);
   ed_fe_mul(vx2, vx2, v);
   ed_fe_neg(nu, u);
-  if (ed_fe_equal(vx2, u)) return 1;
+  if (ed_fe_equal(vx2, u)) {
+    return 1;
+  }
   ed_fe_sqrtm1(t);
   ed_fe_mul(x, x, t);
   return ed_fe_equal(vx2, nu);
@@ -84,7 +86,9 @@ static int y_is_canonical(const fe y, const u8 in[32]) {
   u8 canon[32];
   u8 diff = 0;
   ed_fe_tobytes(canon, y);
-  for (usz i = 0; i < 31; i++) diff |= canon[i] ^ in[i];
+  for (usz i = 0; i < 31; i++) {
+    diff |= canon[i] ^ in[i];
+  }
   diff |= canon[31] ^ (in[31] & 0x7f);
   return diff == 0;
 }
@@ -95,7 +99,9 @@ static int decode_xy(ge* p, const u8 in[32], int* x_0_out) {
   fe u, v;
   *x_0_out = in[31] >> 7;
   ed_fe_frombytes(p->Y, in);
-  if (!y_is_canonical(p->Y, in)) return 0;
+  if (!y_is_canonical(p->Y, in)) {
+    return 0;
+  }
   decode_uv(u, v, p->Y);
   return recover_x(p->X, u, v);
 }
@@ -103,7 +109,9 @@ static int decode_xy(ge* p, const u8 in[32], int* x_0_out) {
 /* The identity encodes as y = 1 with sign bit 0: 0x01 then 31 zero bytes. */
 static int ed_enc_is_identity(const u8 e[32]) {
   u8 diff = (u8)(e[0] ^ 0x01);
-  for (usz i = 1; i < 32; i++) diff |= e[i];
+  for (usz i = 1; i < 32; i++) {
+    diff |= e[i];
+  }
   return diff == 0;
 }
 
@@ -119,8 +127,12 @@ int ed_ge_is_small_order(const ge* p) {
 
 int ed_ge_decode(ge* p, const u8 in[32]) {
   int x_0;
-  if (!decode_xy(p, in, &x_0)) return 0;
-  if (decode_sign_fails(p->X, x_0)) return 0;
+  if (!decode_xy(p, in, &x_0)) {
+    return 0;
+  }
+  if (decode_sign_fails(p->X, x_0)) {
+    return 0;
+  }
   apply_sign(p->X, x_0);
   ed_fe_1(p->Z);
   ed_fe_mul(p->T, p->X, p->Y);

@@ -12,7 +12,9 @@ static void moqtrun_fetch_held(
     moqtrun_key                k);
 
 void moqtrun_fetch_start(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (f) moqtrun_fetch_serve(hub, f);
+  if (f) {
+    moqtrun_fetch_serve(hub, f);
+  }
 }
 
 /* 10.12.3 INVALID_RANGE: nothing published, Start past the Largest
@@ -30,7 +32,9 @@ static void moqtrun_fetch_clamp(
   moqctl_loc top = moqtrun_after(t->largest);
   r->end         = moqtrun_end_excl(end);
   r->ok_end      = end;
-  if (!moqctl_loc_less(top, r->end)) return;
+  if (!moqctl_loc_less(top, r->end)) {
+    return;
+  }
   r->end    = top;
   r->ok_end = t->largest;
 }
@@ -42,10 +46,14 @@ int moqtrun_fetch_resolve(
     const moqctl_rangeloc*     rl,
     moqtrun_frange*            r) {
   moqctl_loc start, end;
-  if (rl->sk == MOQCTL_RSK_NEXT_OBJ) return 0; /* always past Largest */
+  if (rl->sk == MOQCTL_RSK_NEXT_OBJ) {
+    return 0; /* always past Largest */
+  }
   start = MOQTRUN_START_FNS[rl->sk](moqtrun_track_top(t), rl);
   end   = moqfetch_req_end(rl, t->largest);
-  if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) return 0;
+  if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) {
+    return 0;
+  }
   r->tag   = t->cache_tag;
   r->start = start;
   moqtrun_fetch_clamp(r, t, end);
@@ -127,5 +135,7 @@ void moqtrun_fill_flag(
   f->is_fill           = 1;
   f->owner_rid         = owner_rid;
   f->seq.eor_timed_out = 1;
-  if (descending) moqtrun_fetch_descend(hub, f, r);
+  if (descending) {
+    moqtrun_fetch_descend(hub, f, r);
+  }
 }

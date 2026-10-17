@@ -42,8 +42,11 @@ static int wt_slot_is_connect_id(const srvrun_conn* c, int i, u64 stream_id) {
 }
 
 int srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (wt_slot_is_connect_id(c, i, stream_id)) return i;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (wt_slot_is_connect_id(c, i, stream_id)) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -65,8 +68,11 @@ static int srvrun_wt_conn_flow_control(const srvrun_conn* c) {
 /* The first currently-inactive session slot among all SRVRUN_MAX_WT_SESSIONS,
  * or -1 if every one holds an open session. */
 static int srvrun_wt_free_slot_any(const srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (!srvrun_wt_is_active(c, i)) return i;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (!srvrun_wt_is_active(c, i)) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -84,15 +90,18 @@ static int srvrun_wt_single_session_full(const srvrun_conn* c) {
  * The accept-path capacity check (accept below the limit, reject at it) and
  * the reuse point once a slot frees. */
 int srvrun_wt_free_slot(const srvrun_conn* c) {
-  if (srvrun_wt_single_session_full(c)) return -1;
+  if (srvrun_wt_single_session_full(c)) {
+    return -1;
+  }
   return srvrun_wt_free_slot_any(c);
 }
 
 /* Active WT sessions (both slots) across every connection of env. */
 usz srvrun_wt_active_total(const wired_srvrun_env* env) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     n += (usz)env->conns[i].wt_active + (usz)env->conns[i].wt1_active;
+  }
   return n;
 }
 
@@ -107,8 +116,11 @@ int srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c) {
 /* The first active session slot, -1 if none: the target of a stream that
  * carries no signal (raw QUIC's implicit session). */
 int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (srvrun_wt_is_active(c, i)) return i;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (srvrun_wt_is_active(c, i)) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -118,7 +130,9 @@ int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
 static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid) {
   usz        off = 0;
   wired_span s   = wired_span_of(sig, have);
-  if (!varint_take(s, &off, sid)) return 0;
+  if (!varint_take(s, &off, sid)) {
+    return 0;
+  }
   return varint_take(s, &off, sid);
 }
 
@@ -127,8 +141,9 @@ static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid) {
  * to none, -1), or -- no signal at all (raw QUIC) -- the first active one. */
 int srvrun_wt_slot_for_signal(const srvrun_conn* c, const u8* sig, u8 have) {
   u64 sid;
-  if (!srvrun_wt_signal_session(sig, have, &sid))
+  if (!srvrun_wt_signal_session(sig, have, &sid)) {
     return srvrun_wt_slot_for_new_stream(c);
+  }
   return srvrun_wt_slot_by_connect_id(c, sid);
 }
 

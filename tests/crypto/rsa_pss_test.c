@@ -74,7 +74,9 @@ static void test_rsa_pss_valid(void) {
 /* A flipped signature byte must fail. */
 static void test_rsa_pss_tampered_sig(void) {
   u8 bad[256];
-  for (usz i = 0; i < 256; i++) bad[i] = pss_sig[i];
+  for (usz i = 0; i < 256; i++) {
+    bad[i] = pss_sig[i];
+  }
   bad[128] ^= 0x01;
   CHECK(
       rsa_pss_verify(
@@ -84,7 +86,9 @@ static void test_rsa_pss_tampered_sig(void) {
 /* A wrong message hash must fail. */
 static void test_rsa_pss_wrong_hash(void) {
   u8 h[32];
-  for (usz i = 0; i < 32; i++) h[i] = pss_hash[i];
+  for (usz i = 0; i < 32; i++) {
+    h[i] = pss_hash[i];
+  }
   h[0] ^= 0xff;
   CHECK(
       rsa_pss_verify(

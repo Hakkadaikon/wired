@@ -12,7 +12,9 @@ void test_discard_driver(void) {
   keyset_init(&st);
 
   initial_keys k;
-  for (int i = 0; i < INITIAL_KEY; i++) k.key[i] = (u8)i;
+  for (int i = 0; i < INITIAL_KEY; i++) {
+    k.key[i] = (u8)i;
+  }
 
   keyset_install(&st, LEVEL_INITIAL, &k);
   const initial_keys* out = 0;

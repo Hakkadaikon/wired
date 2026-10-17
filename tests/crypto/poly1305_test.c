@@ -18,7 +18,9 @@ static void test_poly1305_rfc(void) {
     want[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                    (lo <= '9' ? lo - '0' : lo - 'a' + 10));
   }
-  for (usz i = 0; i < 16; i++) CHECK(tag[i] == want[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(tag[i] == want[i]);
+  }
 }
 
 void test_poly1305(void) { test_poly1305_rfc(); }

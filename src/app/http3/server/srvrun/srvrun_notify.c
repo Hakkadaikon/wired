@@ -17,7 +17,9 @@ static int srvrun_wt_close_body_ok(wired_span value);
  * session's storage can be reused by a later connection -- an app keying
  * per-session state on the session pointer frees it in this callback. */
 void srvrun_notify_wt_close(const srvrun_cfg* cfg, wired_wt_session* s) {
-  if (cfg->wt_on_session_close == 0) return;
+  if (cfg->wt_on_session_close == 0) {
+    return;
+  }
   cfg->wt_on_session_close(cfg->wt_session_close_ctx, s);
 }
 
@@ -55,8 +57,11 @@ static int srvrun_req_slot_matches(const wired_srvloop_stream_slot* s, u64 id) {
 
 /* Index of the request reassembly slot claimed for stream id, -1 if none. */
 static int srvrun_req_slot_idx(const srvrun_conn* c, u64 id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (srvrun_req_slot_matches(&c->l.streams[i], id)) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (srvrun_req_slot_matches(&c->l.streams[i], id)) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -74,7 +79,9 @@ static wired_srvloop_stream_slot* srvrun_req_slot_mut(srvrun_conn* c, u64 id) {
 }
 
 wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx) {
-  if (!srvrun_wt_is_active(c, sidx)) return 0;
+  if (!srvrun_wt_is_active(c, sidx)) {
+    return 0;
+  }
   return srvrun_req_slot_mut(c, srvrun_wt_slot_c(c, sidx)->connect_stream_id);
 }
 
@@ -88,7 +95,9 @@ usz srvrun_wt_capsule_start(const srvrun_conn* c) {
   const wired_srvloop_stream_slot* slot =
       srvrun_req_slot_of(c, c->l.req_stream_id);
   h3_frame f;
-  if (!slot) return 0;
+  if (!slot) {
+    return 0;
+  }
   return h3_frame_get(wired_span_of(slot->req_buf, slot->req_len), &f);
 }
 
@@ -124,8 +133,9 @@ int srvrun_wt_capsule_is_flow_control(u64 type) {
  * a protocol violation the caller closes the session over with
  * WT_FLOW_CONTROL_ERROR (draft-ietf-webtrans-http3-16 SS5.6.2/SS5.6.4). */
 static int srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
-  if (type == WTCAPSULE_TYPE_MAX_DATA)
+  if (type == WTCAPSULE_TYPE_MAX_DATA) {
     return wired_wt_session_set_max_data(s, v);
+  }
   return wired_wt_session_set_max_streams(
       s, type == WTCAPSULE_TYPE_MAX_STREAMS_BIDI, v);
 }
@@ -139,9 +149,13 @@ static int srvrun_wt_capsule_raise(wired_wt_session* s, u64 type, u64 v) {
  * same length violation. */
 static int srvrun_wt_close_body_ok(wired_span value) {
   usz msg_n;
-  if (value.n < WTCAPSULE_CLOSE_CODE_LEN) return 0;
+  if (value.n < WTCAPSULE_CLOSE_CODE_LEN) {
+    return 0;
+  }
   msg_n = value.n - WTCAPSULE_CLOSE_CODE_LEN;
-  if (msg_n > WTCAPSULE_CLOSE_MESSAGE_MAX) return 0;
+  if (msg_n > WTCAPSULE_CLOSE_MESSAGE_MAX) {
+    return 0;
+  }
   return wtcapsule_utf8_valid(
       wired_span_of(value.p + WTCAPSULE_CLOSE_CODE_LEN, msg_n));
 }
@@ -150,7 +164,9 @@ static int srvrun_wt_close_body_ok(wired_span value) {
  * session (0); an invalid body (too long or not UTF-8) additionally latches
  * H3_MESSAGE_ERROR so the caller resets the CONNECT stream with it. */
 int srvrun_wt_capsule_close(srvrun_wt_caprx* x, wired_span value) {
-  if (!srvrun_wt_close_body_ok(value)) x->violation_code = H3_MESSAGE_ERROR;
+  if (!srvrun_wt_close_body_ok(value)) {
+    x->violation_code = H3_MESSAGE_ERROR;
+  }
   return 0;
 }
 
@@ -161,8 +177,12 @@ int srvrun_wt_capsule_close(srvrun_wt_caprx* x, wired_span value) {
  * caller's WT_SESSION_GONE default instead. */
 int srvrun_wt_capsule_streams_blocked(srvrun_wt_caprx* x, wired_span value) {
   u64 v;
-  if (!wtcapsule_value_varint(value, &v)) return 0;
-  if (wtsession_streams_blocked_ok(v)) return 1;
+  if (!wtcapsule_value_varint(value, &v)) {
+    return 0;
+  }
+  if (wtsession_streams_blocked_ok(v)) {
+    return 1;
+  }
   x->violation_code = WTERR_FLOW_CONTROL_ERROR;
   return 0;
 }
@@ -176,8 +196,12 @@ int srvrun_wt_capsule_streams_blocked(srvrun_wt_caprx* x, wired_span value) {
 int srvrun_wt_capsule_flow_raise(
     srvrun_wt_caprx* x, u64 type, wired_span value) {
   u64 v;
-  if (!wtcapsule_value_varint(value, &v)) return 0;
-  if (srvrun_wt_capsule_raise(x->s, type, v)) return 1;
+  if (!wtcapsule_value_varint(value, &v)) {
+    return 0;
+  }
+  if (srvrun_wt_capsule_raise(x->s, type, v)) {
+    return 1;
+  }
   x->violation_code = WTERR_FLOW_CONTROL_ERROR;
   return 0;
 }

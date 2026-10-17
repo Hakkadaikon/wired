@@ -43,9 +43,13 @@ static void test_retry_process_ok(void) {
           wired_span_of(pkt, n), wired_span_of(odcid, 8),
           &(retry_process_out){&tok_ob, new_dcid, &new_dcil}) == 1);
   CHECK(tok_ob.len == 6);
-  for (usz i = 0; i < 6; i++) CHECK(out_token[i] == token[i]);
+  for (usz i = 0; i < 6; i++) {
+    CHECK(out_token[i] == token[i]);
+  }
   CHECK(new_dcil == 5);
-  for (usz i = 0; i < 5; i++) CHECK(new_dcid[i] == scid[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(new_dcid[i] == scid[i]);
+  }
 }
 
 /* A tampered tag (wrong ODCID) is rejected and outputs are untouched. */
@@ -57,7 +61,9 @@ static void test_retry_process_bad_tag(void) {
   usz      n = make_retry(pkt, sizeof(pkt), odcid, 8, scid, 3, token, 2);
 
   u8 wrong[8];
-  for (usz i = 0; i < 8; i++) wrong[i] = odcid[i];
+  for (usz i = 0; i < 8; i++) {
+    wrong[i] = odcid[i];
+  }
   wrong[0] ^= 0x80;
 
   u8 out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0xff;

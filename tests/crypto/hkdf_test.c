@@ -6,7 +6,9 @@ static int hex_eq(const u8* got, const char* hex, usz len) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
-    if (got[i] != b) return 0;
+    if (got[i] != b) {
+      return 0;
+    }
   }
   return 1;
 }
@@ -14,9 +16,15 @@ static int hex_eq(const u8* got, const char* hex, usz len) {
 /* RFC 5869 Appendix A.1 (SHA-256). */
 static void test_hkdf_rfc5869(void) {
   u8 ikm[22], salt[13], info[10], prk[32], okm[42];
-  for (usz i = 0; i < 22; i++) ikm[i] = 0x0b;
-  for (usz i = 0; i < 13; i++) salt[i] = (u8)i;
-  for (usz i = 0; i < 10; i++) info[i] = (u8)(0xf0 + i);
+  for (usz i = 0; i < 22; i++) {
+    ikm[i] = 0x0b;
+  }
+  for (usz i = 0; i < 13; i++) {
+    salt[i] = (u8)i;
+  }
+  for (usz i = 0; i < 10; i++) {
+    info[i] = (u8)(0xf0 + i);
+  }
 
   hkdf_extract(wired_span_of(salt, 13), wired_span_of(ikm, 22), prk);
   CHECK(hex_eq(
@@ -38,14 +46,20 @@ static void test_hkdf_expand_label(void) {
   u8         prk[32], a[16], b[16];
   hkdf_label lk = {"quic key", 8, {0, 0}};
   hkdf_label li = {"quic iv", 7, {0, 0}};
-  for (usz i = 0; i < 32; i++) prk[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    prk[i] = (u8)i;
+  }
   CHECK(hkdf_expand_label(prk, &lk, wired_mspan_of(a, 16)));
   CHECK(hkdf_expand_label(prk, &lk, wired_mspan_of(b, 16)));
-  for (usz i = 0; i < 16; i++) CHECK(a[i] == b[i]); /* deterministic */
+  for (usz i = 0; i < 16; i++) {
+    CHECK(a[i] == b[i]); /* deterministic */
+  }
   /* a different label gives different output */
   CHECK(hkdf_expand_label(prk, &li, wired_mspan_of(b, 16)));
   int differ = 0;
-  for (usz i = 0; i < 16; i++) differ |= (a[i] != b[i]);
+  for (usz i = 0; i < 16; i++) {
+    differ |= (a[i] != b[i]);
+  }
   CHECK(differ);
 }
 
@@ -66,9 +80,15 @@ static void test_hkdf_expand_length_too_large(void) {
  * before being baked in here, per the RFC's own test vector). */
 static void test_hkdf_rfc5869_case2(void) {
   u8 ikm[80], salt[80], info[80], prk[32], okm[82];
-  for (usz i = 0; i < 80; i++) ikm[i] = (u8)i;
-  for (usz i = 0; i < 80; i++) salt[i] = (u8)(0x60 + i);
-  for (usz i = 0; i < 80; i++) info[i] = (u8)(0xb0 + i);
+  for (usz i = 0; i < 80; i++) {
+    ikm[i] = (u8)i;
+  }
+  for (usz i = 0; i < 80; i++) {
+    salt[i] = (u8)(0x60 + i);
+  }
+  for (usz i = 0; i < 80; i++) {
+    info[i] = (u8)(0xb0 + i);
+  }
 
   hkdf_extract(wired_span_of(salt, 80), wired_span_of(ikm, 80), prk);
   CHECK(hex_eq(
@@ -87,7 +107,9 @@ static void test_hkdf_rfc5869_case2(void) {
 /* RFC 5869 Appendix A.3: SHA-256, zero-length salt and info, L=42. */
 static void test_hkdf_rfc5869_case3(void) {
   u8 ikm[22], prk[32], okm[42];
-  for (usz i = 0; i < 22; i++) ikm[i] = 0x0b;
+  for (usz i = 0; i < 22; i++) {
+    ikm[i] = 0x0b;
+  }
 
   hkdf_extract(wired_span_of(0, 0), wired_span_of(ikm, 22), prk);
   CHECK(hex_eq(
@@ -109,9 +131,15 @@ static void test_hkdf_rfc5869_case3(void) {
  * baked in here. */
 static void test_hkdf384_case1(void) {
   u8 ikm[22], salt[13], info[10], prk[48], okm[42];
-  for (usz i = 0; i < 22; i++) ikm[i] = 0x0b;
-  for (usz i = 0; i < 13; i++) salt[i] = (u8)i;
-  for (usz i = 0; i < 10; i++) info[i] = (u8)(0xf0 + i);
+  for (usz i = 0; i < 22; i++) {
+    ikm[i] = 0x0b;
+  }
+  for (usz i = 0; i < 13; i++) {
+    salt[i] = (u8)i;
+  }
+  for (usz i = 0; i < 10; i++) {
+    info[i] = (u8)(0xf0 + i);
+  }
 
   hkdf_extract_384(wired_span_of(salt, 13), wired_span_of(ikm, 22), prk);
   CHECK(hex_eq(
@@ -130,9 +158,15 @@ static void test_hkdf384_case1(void) {
 
 static void test_hkdf384_case2(void) {
   u8 ikm[80], salt[80], info[80], prk[48], okm[82];
-  for (usz i = 0; i < 80; i++) ikm[i] = (u8)i;
-  for (usz i = 0; i < 80; i++) salt[i] = (u8)(0x60 + i);
-  for (usz i = 0; i < 80; i++) info[i] = (u8)(0xb0 + i);
+  for (usz i = 0; i < 80; i++) {
+    ikm[i] = (u8)i;
+  }
+  for (usz i = 0; i < 80; i++) {
+    salt[i] = (u8)(0x60 + i);
+  }
+  for (usz i = 0; i < 80; i++) {
+    info[i] = (u8)(0xb0 + i);
+  }
 
   hkdf_extract_384(wired_span_of(salt, 80), wired_span_of(ikm, 80), prk);
   CHECK(hex_eq(
@@ -152,7 +186,9 @@ static void test_hkdf384_case2(void) {
 
 static void test_hkdf384_case3(void) {
   u8 ikm[22], prk[48], okm[42];
-  for (usz i = 0; i < 22; i++) ikm[i] = 0x0b;
+  for (usz i = 0; i < 22; i++) {
+    ikm[i] = 0x0b;
+  }
 
   hkdf_extract_384(wired_span_of(0, 0), wired_span_of(ikm, 22), prk);
   CHECK(hex_eq(
@@ -188,13 +224,19 @@ static void test_hkdf384_expand_label(void) {
   u8         prk[48], a[16], b[16];
   hkdf_label lk = {"quic key", 8, {0, 0}};
   hkdf_label li = {"quic iv", 7, {0, 0}};
-  for (usz i = 0; i < 48; i++) prk[i] = (u8)i;
+  for (usz i = 0; i < 48; i++) {
+    prk[i] = (u8)i;
+  }
   CHECK(hkdf_expand_label_384(prk, &lk, wired_mspan_of(a, 16)));
   CHECK(hkdf_expand_label_384(prk, &lk, wired_mspan_of(b, 16)));
-  for (usz i = 0; i < 16; i++) CHECK(a[i] == b[i]); /* deterministic */
+  for (usz i = 0; i < 16; i++) {
+    CHECK(a[i] == b[i]); /* deterministic */
+  }
   CHECK(hkdf_expand_label_384(prk, &li, wired_mspan_of(b, 16)));
   int differ = 0;
-  for (usz i = 0; i < 16; i++) differ |= (a[i] != b[i]);
+  for (usz i = 0; i < 16; i++) {
+    differ |= (a[i] != b[i]);
+  }
   CHECK(differ);
 }
 

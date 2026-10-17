@@ -39,7 +39,9 @@ static void moqtrun_upf_answer_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_ok* up) {
   moqfetch_ok         ok = {0};
   wired_moqtrun_peer* dp = moqtrun_find_by_wt(hub, f->wt);
-  if (!moqtrun_upf_unanswered(f) || !dp) return;
+  if (!moqtrun_upf_unanswered(f) || !dp) {
+    return;
+  }
   ok.end              = moqtrun_upf_end_for(dp, f->up_end);
   ok.end_of_track     = up->end_of_track;
   ok.track_properties = up->track_properties;
@@ -57,7 +59,9 @@ static int moqtrun_upf_complete(
 
 /* The request is complete: the cache side takes the rest. */
 void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
-  if (!moqtrun_upf_complete(hub, f)) return;
+  if (!moqtrun_upf_complete(hub, f)) {
+    return;
+  }
   moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_FIN);
   moqtrun_upf_resume(hub, f, 1, 1);
 }
@@ -90,7 +94,9 @@ static void moqtrun_upf_ok(
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok) {
   moqctl_loc e = moqtrun_upf_ok_end(pp, ok);
-  if (f->up_state != WIRED_MOQTRUN_UPF_SENT) return;
+  if (f->up_state != WIRED_MOQTRUN_UPF_SENT) {
+    return;
+  }
   if (moqctl_loc_less(e, f->up_lo)) {
     moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);

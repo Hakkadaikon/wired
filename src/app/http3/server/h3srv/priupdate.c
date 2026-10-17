@@ -29,11 +29,12 @@ static const struct {
 
 int wired_h3srv_priupdate_check(
     int on_control_stream, int push, u64 element_id, u16* err) {
-  for (usz i = 0; i < sizeof(priupdate_rules) / sizeof(*priupdate_rules); i++)
+  for (usz i = 0; i < sizeof(priupdate_rules) / sizeof(*priupdate_rules); i++) {
     if (priupdate_rules[i].hit(on_control_stream, push, element_id)) {
       *err = priupdate_rules[i].code;
       return 0;
     }
+  }
   *err = 0;
   return 1;
 }

@@ -29,8 +29,12 @@ usz moqtrun_upf_pass(
  * holds none); 0 when they do not fit. */
 int moqtrun_upf_join(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f, wired_span* data) {
-  if (hub->upf_owner != f) return 1;
-  if (hub->upf_len + data->n > sizeof hub->upf_buf) return 0;
+  if (hub->upf_owner != f) {
+    return 1;
+  }
+  if (hub->upf_len + data->n > sizeof hub->upf_buf) {
+    return 0;
+  }
   bytes_memcpy(hub->upf_buf + hub->upf_len, data->p, data->n);
   *data = wired_span_of(hub->upf_buf, hub->upf_len + data->n);
   return 1;
@@ -49,7 +53,9 @@ static int moqtrun_upf_hold(
     moqtrun_upf_unhold(hub, f);
     return 1;
   }
-  if (!moqtrun_upf_holdable(hub, f, rest.n, cap)) return 0;
+  if (!moqtrun_upf_holdable(hub, f, rest.n, cap)) {
+    return 0;
+  }
   bytes_move_down(hub->upf_buf, rest.p, rest.n);
   hub->upf_len   = rest.n;
   hub->upf_owner = f;
@@ -77,8 +83,9 @@ static int moqtrun_upf_cut(
  * small Object or head. */
 static int moqtrun_upf_keep(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span rest) {
-  if (moqtrun_upf_blocked(f, rest))
+  if (moqtrun_upf_blocked(f, rest)) {
     return moqtrun_upf_hold(hub, f, rest, sizeof hub->upf_buf + 1);
+  }
   return moqtrun_upf_hold(hub, f, rest, WIRED_MOQTRUN_RELAY_FRAG_MAX);
 }
 
@@ -107,7 +114,9 @@ void moqtrun_upf_rest(
     int                  r,
     wired_span           rest,
     int                  fin) {
-  if (!moqtrun_upf_live(f)) return;
+  if (!moqtrun_upf_live(f)) {
+    return;
+  }
   if (r < MOQCTL_INSUFFICIENT) {
     moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);

@@ -22,7 +22,9 @@ static int is_indexed(wired_span buf) {
 }
 
 usz qpack_indexed_decode(wired_span buf, u64* index, int* is_static) {
-  if (!is_indexed(buf)) return 0;
+  if (!is_indexed(buf)) {
+    return 0;
+  }
   *is_static = (buf.p[0] & QPACK_STATIC) ? 1 : 0;
   return qpack_int_decode(buf, 6, index);
 }
@@ -43,6 +45,8 @@ static int is_postbase_indexed(wired_span buf) {
 }
 
 usz qpack_indexed_postbase_decode(wired_span buf, u64* postbase) {
-  if (!is_postbase_indexed(buf)) return 0;
+  if (!is_postbase_indexed(buf)) {
+    return 0;
+  }
   return qpack_int_decode(buf, 4, postbase);
 }

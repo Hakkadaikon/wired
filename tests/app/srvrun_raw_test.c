@@ -27,7 +27,9 @@ static int               g_srr_mapped;
 static u32               g_srr_code;
 
 static void srr_note(char e) {
-  if (g_srr_logn < sizeof g_srr_log - 1) g_srr_log[g_srr_logn++] = e;
+  if (g_srr_logn < sizeof g_srr_log - 1) {
+    g_srr_log[g_srr_logn++] = e;
+  }
 }
 
 static int srr_log_is(const char* want) {
@@ -328,8 +330,11 @@ static void test_srvrun_raw_close_long_reason(void) {
 
 /* The kept control packet whose frames start with type t, or 0. */
 static const srvrun_rst* srr_kept(const srvrun_conn* c, u8 t) {
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++)
-    if (c->rst[i].pln && c->rst[i].pl[0] == t) return &c->rst[i];
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (c->rst[i].pln && c->rst[i].pl[0] == t) {
+      return &c->rst[i];
+    }
+  }
   return 0;
 }
 
@@ -483,7 +488,9 @@ static void test_srvrun_raw_uni_capacity(void) {
   srvrun_conn*    c   = srr_raw_live();
   u64             n   = wired_srvloop_uni_stream_limit();
   CHECK(WIRED_SRVLOOP_MAX_WT_UNI_STREAMS >= n);
-  for (u64 i = 0; i < n; i++) srr_stream(c, 2 + 4 * i, d, 1);
+  for (u64 i = 0; i < n; i++) {
+    srr_stream(c, 2 + 4 * i, d, 1);
+  }
   CHECK(g_srr_logn == 1 + n);
 }
 
@@ -643,8 +650,9 @@ static void test_srvrun_raw_reply_has_no_settings(void) {
     stream_frame sf;
     done |= fr.type == 0x1e;
     if (fr.type >= 0x08 && fr.type <= 0x0f &&
-        frame_get_stream(fr.start, fr.remaining, &sf))
+        frame_get_stream(fr.start, fr.remaining, &sf)) {
       h3 |= (sf.stream_id & 3) == 3;
+    }
   }
   CHECK(done == 1);
   CHECK(h3 == 0);

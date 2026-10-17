@@ -28,7 +28,9 @@ static int srvloop_frame_past_limit(
     const wired_srvloop* l, const framewalk_item* fr) {
   u64 id;
   usz t = varint_decode(fr->start, fr->remaining, &id);
-  if (!SRVLOOP_NAMES_STREAM[frame_classify(fr->type)]) return 0;
+  if (!SRVLOOP_NAMES_STREAM[frame_classify(fr->type)]) {
+    return 0;
+  }
   return varint_decode(fr->start + t, fr->remaining - t, &id) &&
          srvloop_id_past_limit(l, id);
 }
@@ -40,8 +42,11 @@ static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, pl.p, pl.n);
-  while (framewalk_next(&it, &fr))
-    if (srvloop_frame_past_limit(l, &fr)) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (srvloop_frame_past_limit(l, &fr)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -70,14 +75,16 @@ void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
  * own branch count at the CCN gate. */
 void srvloop_step_note_ack_owed(
     wired_srvloop* l, wired_span payload, int level) {
-  if (level == LEVEL_ONERTT)
+  if (level == LEVEL_ONERTT) {
     srvloop_note_ack_owed(
         &l->ack_recv, PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
         l->now_ms);
-  if (level == LEVEL_HANDSHAKE)
+  }
+  if (level == LEVEL_HANDSHAKE) {
     srvloop_note_ack_owed(
         &l->ack_recv, PNS_HANDSHAKE, &l->hs_ack_policy, payload, l->hs_rx_pn,
         l->now_ms);
+  }
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
@@ -88,8 +95,9 @@ void srvloop_step_note_ack_owed(
  * (an ack-eliciting packet seen before, or one older than the receive
  * window, which is treated as received). */
 int srvloop_step_dup(const wired_srvloop* l, int level) {
-  if (level == LEVEL_ONERTT)
+  if (level == LEVEL_ONERTT) {
     return recvpn_seen(&l->ack_recv.r[PNS_APP], l->app_rx_pn);
+  }
   return level == LEVEL_HANDSHAKE &&
          recvpn_seen(&l->ack_recv.r[PNS_HANDSHAKE], l->hs_rx_pn);
 }

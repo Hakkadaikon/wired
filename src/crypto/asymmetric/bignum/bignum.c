@@ -1,7 +1,9 @@
 #include "crypto/asymmetric/bignum/bignum.h"
 
 static void bn_zero(bn* a) {
-  for (usz i = 0; i < BN_LIMBS; i++) a->v[i] = 0;
+  for (usz i = 0; i < BN_LIMBS; i++) {
+    a->v[i] = 0;
+  }
 }
 
 void bn_from_be(bn* out, const u8* be, usz len) {
@@ -23,20 +25,26 @@ void bn_to_be(const bn* a, u8* be, usz len) {
 
 /* -1/0/1 for a single limb pair. */
 static int limb_cmp(u64 x, u64 y) {
-  if (x < y) return -1;
+  if (x < y) {
+    return -1;
+  }
   return x > y ? 1 : 0;
 }
 
 int bn_cmp(const bn* a, const bn* b) {
   for (usz k = BN_LIMBS; k > 0; k--) {
     int c = limb_cmp(a->v[k - 1], b->v[k - 1]);
-    if (c) return c;
+    if (c) {
+      return c;
+    }
   }
   return 0;
 }
 
 int bn_is_zero(const bn* a) {
   u64 acc = 0;
-  for (usz i = 0; i < BN_LIMBS; i++) acc |= a->v[i];
+  for (usz i = 0; i < BN_LIMBS; i++) {
+    acc |= a->v[i];
+  }
   return acc == 0;
 }

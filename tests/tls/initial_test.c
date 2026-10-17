@@ -6,7 +6,9 @@ static int keq(const u8* got, const char* hex, usz len) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     u8 b = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
                 (lo <= '9' ? lo - '0' : lo - 'a' + 10));
-    if (got[i] != b) return 0;
+    if (got[i] != b) {
+      return 0;
+    }
   }
   return 1;
 }
@@ -14,8 +16,11 @@ static int keq(const u8* got, const char* hex, usz len) {
 /* Byte-exact compare (keq above compares against a hex string; this compares
  * two raw byte buffers). */
 static int same_bytes(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

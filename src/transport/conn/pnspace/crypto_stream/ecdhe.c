@@ -25,8 +25,11 @@ int crypto_stream_ecdhe_group(
     const u8 my_priv[ECDHE_LEN],
     const u8 peer_pub[ECDHE_LEN],
     u8       shared[ECDHE_LEN]) {
-  if (group == GROUP_X25519)
+  if (group == GROUP_X25519) {
     return crypto_stream_ecdhe(my_priv, peer_pub, shared);
-  if (group == GROUP_SECP256R1) return ecdh_p256(my_priv, peer_pub, shared);
+  }
+  if (group == GROUP_SECP256R1) {
+    return ecdh_p256(my_priv, peer_pub, shared);
+  }
   return 0;
 }

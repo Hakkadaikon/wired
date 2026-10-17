@@ -16,8 +16,9 @@ static usz pc_build_sigval(wired_span sig, wired_obuf* out) {
   bits[0] = 0x00;
   if (!bytes_put(
           wired_mspan_of(bits, sizeof(bits)), &off,
-          wired_span_of(sig.p, sig.n)))
+          wired_span_of(sig.p, sig.n))) {
     return 0;
+  }
   p256cert_enc e = p256cert_loaded(bits, off);
   return p256cert_wrap(&e, DER_BIT_STRING, out);
 }
@@ -26,7 +27,9 @@ static usz pc_build_sigval(wired_span sig, wired_obuf* out) {
 static int pc_sign_tbs(const u8 priv[32], wired_span tbs, wired_obuf* sig) {
   u8 hash[32], r[32], s[32];
   wired_sha256(tbs.p, tbs.n, hash);
-  if (!p256sign_sign(priv, hash, r, s)) return 0;
+  if (!p256sign_sign(priv, hash, r, s)) {
+    return 0;
+  }
   return ecdsasig_encode(r, s, sig->p, sig->cap, &sig->len);
 }
 
@@ -34,7 +37,9 @@ static int pc_sign_tbs(const u8 priv[32], wired_span tbs, wired_obuf* sig) {
 static usz pc_sigval(const u8 priv[32], wired_span tbs, wired_obuf* vo) {
   u8         sig[80];
   wired_obuf go = obuf_of(sig, sizeof(sig));
-  if (!pc_sign_tbs(priv, tbs, &go)) return 0;
+  if (!pc_sign_tbs(priv, tbs, &go)) {
+    return 0;
+  }
   return pc_build_sigval(wired_span_of(sig, go.len), vo);
 }
 
@@ -55,8 +60,12 @@ int p256cert_build(const p256cert_key* k, wired_obuf* out) {
   wired_obuf to = obuf_of(tbs, sizeof(tbs));
   wired_obuf vo = obuf_of(sv, sizeof(sv));
   usz        svn;
-  if (!p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to)) return 0;
+  if (!p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to)) {
+    return 0;
+  }
   svn = pc_sigval(k->priv, wired_span_of(tbs, to.len), &vo);
-  if (!svn) return 0;
+  if (!svn) {
+    return 0;
+  }
   return pc_assemble(wired_span_of(tbs, to.len), wired_span_of(sv, svn), out);
 }

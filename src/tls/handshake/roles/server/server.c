@@ -11,7 +11,9 @@ static int srv_hrr_ready(const wired_server* s);
 /* RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4: server handshake orchestrator. */
 
 static void srv_copy32(u8* dst, const u8* src) {
-  for (usz i = 0; i < 32; i++) dst[i] = src[i];
+  for (usz i = 0; i < 32; i++) {
+    dst[i] = src[i];
+  }
 }
 
 /* RFC 8446 B.4: the negotiated suite's hash (secrets are Hash.length). */
@@ -24,7 +26,9 @@ const tls_hash* server_srv_hash(const wired_server* s) {
 usz server_srv_tr_add(wired_server* s, const u8* msg, usz len) {
   usz room = WIRED_SERVER_TRANSCRIPT_MAX - s->tr_len;
   usz n    = len < room ? len : room;
-  for (usz i = 0; i < n; i++) s->tr[s->tr_len + i] = msg[i];
+  for (usz i = 0; i < n; i++) {
+    s->tr[s->tr_len + i] = msg[i];
+  }
   s->tr_len += n;
   return s->tr_len;
 }
@@ -69,7 +73,9 @@ void wired_server_set_limits(
 }
 
 void wired_server_set_reset_token(wired_server* s, const u8 token[16]) {
-  for (usz i = 0; i < 16; i++) s->sdrv.sreset_token[i] = token[i];
+  for (usz i = 0; i < 16; i++) {
+    s->sdrv.sreset_token[i] = token[i];
+  }
   s->sdrv.sreset_token_set = 1;
 }
 
@@ -82,7 +88,9 @@ void wired_server_set_keylog_path(wired_server* s, const char* path) {
  * sdrv_recv_client_hello, so this only guards the copy itself). */
 static void srv_record_client_random(
     wired_server* s, const u8* ch_msg, usz ch_len) {
-  if (ch_len < SRV_CH_RANDOM_OFF + 32u) return;
+  if (ch_len < SRV_CH_RANDOM_OFF + 32u) {
+    return;
+  }
   srv_copy32(s->client_random, ch_msg + SRV_CH_RANDOM_OFF);
 }
 
@@ -91,7 +99,9 @@ static void srv_record_client_random(
  * wired_server_recv_initial to keep its own CCN flat. */
 static int srv_accept_client_hello(
     wired_server* s, const u8* ch_msg, usz ch_len) {
-  if (!sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
+  if (!sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) {
+    return 0;
+  }
   return sdrv_enforce_sni(&s->sdrv);
 }
 
@@ -101,15 +111,21 @@ static int srv_accept_client_hello(
  * and the phase stays HS_INITIAL so the retried ClientHello2 re-enters
  * wired_server_recv_initial). */
 static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len) {
-  if (sdrv_hrr_pending(&s->sdrv)) return 1;
+  if (sdrv_hrr_pending(&s->sdrv)) {
+    return 1;
+  }
   server_srv_tr_add(s, ch_msg, ch_len);
   s->phase = WIRED_SERVER_HS_CH_RECVD;
   return 1;
 }
 
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
-  if (s->phase != WIRED_SERVER_HS_INITIAL) return 0;
-  if (!srv_accept_client_hello(s, ch_msg, ch_len)) return 0;
+  if (s->phase != WIRED_SERVER_HS_INITIAL) {
+    return 0;
+  }
+  if (!srv_accept_client_hello(s, ch_msg, ch_len)) {
+    return 0;
+  }
   srv_record_client_random(s, ch_msg, ch_len);
   return srv_fold_ch(s, ch_msg, ch_len);
 }
@@ -122,8 +138,12 @@ static int srv_hrr_ready(const wired_server* s) {
 int wired_server_build_hrr(wired_server* s, wired_obuf* out) {
   u8  mh[4 + TLS_HASH_MAX];
   usz mh_len;
-  if (!srv_hrr_ready(s)) return 0;
-  if (!sdrv_build_hrr(&s->sdrv, out)) return 0;
+  if (!srv_hrr_ready(s)) {
+    return 0;
+  }
+  if (!sdrv_build_hrr(&s->sdrv, out)) {
+    return 0;
+  }
   /* RFC 8446 4.4.1: the raw transcript restarts as
    * message_hash(Hash(ClientHello1)) || HRR, mirroring the hashed
    * transcript sdrv_build_hrr just reset -- ClientHello1 itself was never

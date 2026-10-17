@@ -8,8 +8,9 @@ int wired_h3srv_on_request(
     const wired_h3srv_req_in* in,
     wired_h3reqdrive_req*     req) {
   if (!wired_h3reqdrive_recv_get_dyn(
-          in->stream_data, in->scratch, &st->qdyn, req))
+          in->stream_data, in->scratch, &st->qdyn, req)) {
     return 0;
+  }
   st->request_seen = 1;
   return 1;
 }
@@ -25,7 +26,9 @@ int wired_h3srv_build_response(
     const wired_h3srv_state*   st,
     const wired_h3srv_send_in* in,
     wired_obuf*                out) {
-  if (!may_respond(st)) return 0;
+  if (!may_respond(st)) {
+    return 0;
+  }
   return h3conn_send_response(in->stream_id, &in->resp, out);
 }
 
@@ -35,7 +38,9 @@ int wired_h3srv_build_response(
 static int is_head(wired_span method) {
   static const u8 head[4] = {'H', 'E', 'A', 'D'};
   u8              diff    = (method.n != 4);
-  for (usz i = 0; i < 4 && i < method.n; i++) diff |= method.p[i] ^ head[i];
+  for (usz i = 0; i < 4 && i < method.n; i++) {
+    diff |= method.p[i] ^ head[i];
+  }
   return diff == 0;
 }
 
@@ -45,6 +50,8 @@ int wired_h3srv_build_response_for_method(
     const wired_h3srv_resp_for_method_in* in,
     wired_obuf*                           out) {
   wired_h3srv_send_in send = in->send;
-  if (is_head(in->method)) send.resp.body = wired_span_of(0, 0);
+  if (is_head(in->method)) {
+    send.resp.body = wired_span_of(0, 0);
+  }
   return wired_h3srv_build_response(st, &send, out);
 }

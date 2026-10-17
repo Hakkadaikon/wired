@@ -46,6 +46,8 @@ int frame_server_recv_forbidden(frame_kind kind) {
 }
 
 int frame_is_grease(u64 type) {
-  if (type < 0x21) return 0;
+  if (type < 0x21) {
+    return 0;
+  }
   return (type - 0x21) % 0x1f == 0; /* 0x1f*N + 0x21 reserved points */
 }

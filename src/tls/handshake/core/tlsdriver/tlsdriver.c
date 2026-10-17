@@ -18,7 +18,9 @@ void tlsdriver_init(
     d->my_priv[i] = my_priv[i];
     d->my_pub[i]  = my_pub[i];
   }
-  for (i = 0; i < ECDHE_LEN; i++) d->shared[i] = 0;
+  for (i = 0; i < ECDHE_LEN; i++) {
+    d->shared[i] = 0;
+  }
   crypto_stream_rx_init(&d->rx);
   hsdriver_init(&d->hs, is_server);
   keysched_init(&d->ks);
@@ -56,7 +58,9 @@ int tlsdriver_client_hello(tlsdriver* d, wired_obuf* out) {
   u8                    ch[512];
   usz                   n  = tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   crypto_stream_emit_in in = {0, TLSDRIVER_CRYPTO_MAX};
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
    * handshake can prepend them to the ServerHello transcript later -- see
    * the field's doc comment in tlsdriver.h. */

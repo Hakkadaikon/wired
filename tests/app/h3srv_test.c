@@ -16,9 +16,14 @@
 #include "transport/stream/data/appdata/stream_send.h"
 
 static int srv_eq(const u8* a, usz alen, const char* b, usz blen) {
-  if (alen != blen) return 0;
-  for (usz i = 0; i < alen; i++)
-    if (a[i] != (u8)b[i]) return 0;
+  if (alen != blen) {
+    return 0;
+  }
+  for (usz i = 0; i < alen; i++) {
+    if (a[i] != (u8)b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 

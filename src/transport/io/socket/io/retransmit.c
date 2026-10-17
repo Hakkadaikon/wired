@@ -9,14 +9,18 @@ void rtx_init(rtx_queue* q) {
 /* Copy len bytes into the slot at tail and advance. */
 static void store(rtx_queue* q, const u8* frame, usz len) {
   rtx_frame* s = &q->slots[q->tail];
-  for (usz i = 0; i < len; i++) s->data[i] = frame[i];
+  for (usz i = 0; i < len; i++) {
+    s->data[i] = frame[i];
+  }
   s->len  = len;
   q->tail = (q->tail + 1) % RTX_SLOTS;
   q->count++;
 }
 
 int rtx_push(rtx_queue* q, const u8* frame, usz len) {
-  if (q->count == RTX_SLOTS || len > RTX_FRAME) return 0;
+  if (q->count == RTX_SLOTS || len > RTX_FRAME) {
+    return 0;
+  }
   store(q, frame, len);
   return 1;
 }
@@ -24,13 +28,17 @@ int rtx_push(rtx_queue* q, const u8* frame, usz len) {
 /* Copy the head slot into out and advance. */
 static usz take(rtx_queue* q, u8* out) {
   rtx_frame* s = &q->slots[q->head];
-  for (usz i = 0; i < s->len; i++) out[i] = s->data[i];
+  for (usz i = 0; i < s->len; i++) {
+    out[i] = s->data[i];
+  }
   q->head = (q->head + 1) % RTX_SLOTS;
   q->count--;
   return s->len;
 }
 
 usz rtx_pop(rtx_queue* q, u8* out, usz cap) {
-  if (q->count == 0 || q->slots[q->head].len > cap) return 0;
+  if (q->count == 0 || q->slots[q->head].len > cap) {
+    return 0;
+  }
   return take(q, out);
 }

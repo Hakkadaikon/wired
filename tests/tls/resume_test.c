@@ -11,7 +11,9 @@ static void test_resume_session_roundtrip(void) {
   u8     psk[32] = {0};
   u8     blob[RESUME_TICKET_MAX + 64];
   usz    n;
-  for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xA0 + i);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xA0 + i);
+  }
   CHECK(
       resume_store(
           &r, wired_span_of(tk, 4),
@@ -43,7 +45,9 @@ static void test_resume_early_keys_from_session(void) {
   u8           psk[32] = {0};
   u8           ch[8]   = {'c', 'h', 'b', 'y', 't', 'e', 's', '!'};
   initial_keys want, got;
-  for (usz i = 0; i < 32; i++) psk[i] = (u8)(3 * i + 1);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(3 * i + 1);
+  }
   CHECK(
       resume_store(
           &r, wired_span_of(tk, 4),
@@ -51,7 +55,9 @@ static void test_resume_early_keys_from_session(void) {
               1, 2, 3, psk, wired_span_of(0, 0), wired_span_of(0, 0)}) == 1);
   tls_early_keys(psk, ch, sizeof ch, &want);
   CHECK(resume_early_keys(&r, ch, sizeof ch, &got) == 1);
-  for (usz i = 0; i < sizeof want.key; i++) CHECK(got.key[i] == want.key[i]);
+  for (usz i = 0; i < sizeof want.key; i++) {
+    CHECK(got.key[i] == want.key[i]);
+  }
   {
     resume nopsk = {0};
     CHECK(resume_early_keys(&nopsk, ch, sizeof ch, &got) == 0);

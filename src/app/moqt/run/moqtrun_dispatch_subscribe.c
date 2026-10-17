@@ -18,8 +18,9 @@ void moqtrun_dispatch_subscribe_tracks(
     return;
   }
   if (!moqtrun_take_tok_or_close(
-          hub, p, moqns_subscribe_tracks_take(p->ver, body, &m), &m.params))
+          hub, p, moqns_subscribe_tracks_take(p->ver, body, &m), &m.params)) {
     return;
+  }
   moqtrun_subtracks_admit(hub, p, &m);
 }
 
@@ -55,7 +56,9 @@ static int moqtrun_subtracks_matches(
     usz                        st_peer_idx) {
   u64        n_pre, n_all;
   wired_span pre, all;
-  if (pub_idx == st_peer_idx) return 0;
+  if (pub_idx == st_peer_idx) {
+    return 0;
+  }
   pre = moqtrun_disc_fields(st, &n_pre);
   all = moqtrun_disc_fields_of(wired_span_of(t->ns, t->ns_len), &n_all);
   return moqtrun_disc_starts(pre, all) && moqtrun_subtracks_tp_pass(st, t);
@@ -67,7 +70,9 @@ int moqtrun_subtracks_candidate(
     usz                        pub_idx,
     usz                        st_peer_idx,
     usz                        slot) {
-  if (!t->in_use || moqtrun_subtracks_tried(st, t, slot)) return 0;
+  if (!t->in_use || moqtrun_subtracks_tried(st, t, slot)) {
+    return 0;
+  }
   return moqtrun_subtracks_matches(st, t, pub_idx, st_peer_idx);
 }
 
@@ -86,10 +91,12 @@ static void moqtrun_subtracks_u8_add(moqctl_params* out, u64 type, u8 v) {
  * are the whole "explicitly communicated" set (3.6.2). */
 moqctl_params moqtrun_subtracks_publish_params(const wired_moqtrun_req* st) {
   moqctl_params out = {0};
-  if (st->has_forward)
+  if (st->has_forward) {
     moqtrun_subtracks_u8_add(&out, MOQCTL_PARAM_FORWARD, st->forward);
-  if (st->group_order)
+  }
+  if (st->group_order) {
     moqtrun_subtracks_u8_add(&out, MOQCTL_PARAM_GROUP_ORDER, st->group_order);
+  }
   return out;
 }
 
@@ -101,7 +108,9 @@ moqctl_params moqtrun_subtracks_publish_params(const wired_moqtrun_req* st) {
 wired_moqtrun_req* moqtrun_subtracks_claim_slot(
     wired_moqt_hub* hub, wired_moqtrun_peer* st_peer, u64 st_rid) {
   wired_moqtrun_req* q = moqtrun_req_free_slot(hub);
-  if (!q) return 0;
+  if (!q) {
+    return 0;
+  }
   moqtrun_req_open(q, st_peer->wt, 0);
   q->pub_origin_rid = st_rid;
   q->request_id     = st_peer->request_id_next;

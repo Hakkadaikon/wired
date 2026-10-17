@@ -6,6 +6,8 @@
 int cid_len_valid(u8 len) { return len >= 1 && len <= 20; }
 
 int cid_generate(u8* cid, u8 len) {
-  if (!cid_len_valid(len)) return 0;
+  if (!cid_len_valid(len)) {
+    return 0;
+  }
   return rng_bytes(cid, len);
 }

@@ -45,10 +45,13 @@ static int moqtrun_tp_row_ok(
     wired_span                  props) {
   u64 v   = 0;
   int hit = 0;
-  if (!moqtrun_track_prop_has(props, r->prop_type, &v)) return 0;
-  for (usz i = 0; i < st->rngf_n; i++)
+  if (!moqtrun_track_prop_has(props, r->prop_type, &v)) {
+    return 0;
+  }
+  for (usz i = 0; i < st->rngf_n; i++) {
     hit |= moqtrun_row_same_param(&st->rngf[i], r) &
            moqtrun_row_in(&st->rngf[i], v);
+  }
   return hit;
 }
 
@@ -60,9 +63,10 @@ static int moqtrun_row_tp_of_set(const wired_moqtrun_rngrow* r, u8 set) {
 static int moqtrun_tp_set_pass(
     const wired_moqtrun_req* st, u8 set, wired_span props) {
   int ok = 1;
-  for (usz i = 0; i < st->rngf_n; i++)
+  for (usz i = 0; i < st->rngf_n; i++) {
     ok &= !moqtrun_row_tp_of_set(&st->rngf[i], set) |
           moqtrun_tp_row_ok(st, &st->rngf[i], props);
+  }
   return ok;
 }
 
@@ -74,8 +78,9 @@ int moqtrun_subtracks_tp_pass(
     const wired_moqtrun_req* st, const wired_moqtrun_track* t) {
   wired_span props = wired_span_of(t->props, t->props_len);
   int        pass  = !st->rngf_n;
-  for (usz i = 0; i < st->rngf_n; i++)
+  for (usz i = 0; i < st->rngf_n; i++) {
     pass |= moqtrun_tp_set_pass(st, st->rngf[i].set_id, props);
+  }
   return pass;
 }
 
@@ -86,8 +91,9 @@ int moqtrun_subtracks_tp_pass(
 static void moqtrun_subtracks_note_rngf(
     wired_moqtrun_req* q, const moqctl_params* params) {
   q->rngf_n = 0;
-  for (usz i = 0; i < params->n; i++)
+  for (usz i = 0; i < params->n; i++) {
     moqtrun_subtracks_rngf_item(q, &params->items[i]);
+  }
 }
 
 /* draft-22 3.3.2 / draft-19 5.1.3: a malformed or repeated Range Filter, or
@@ -96,7 +102,9 @@ static void moqtrun_subtracks_note_rngf(
 static u64 moqtrun_subtracks_verdict(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
   u64 code = moqtrun_rngf_refusal(&m->params);
-  if (code != MOQTRUN_REQ_ACCEPT) return code;
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    return code;
+  }
   return moqtrun_disc_verdict(hub, p->req, m, moqtrun_subtracks_check);
 }
 
@@ -121,7 +129,8 @@ static void moqtrun_subtracks_note_params(
 void moqtrun_subtracks_admit(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
   u64 code = moqtrun_subtracks_verdict(hub, p, m);
-  if (code == MOQTRUN_REQ_ACCEPT)
+  if (code == MOQTRUN_REQ_ACCEPT) {
     moqtrun_subtracks_note_params(p->req, &m->params);
+  }
   moqtrun_disc_answer(p, code);
 }

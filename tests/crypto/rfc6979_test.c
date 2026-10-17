@@ -22,7 +22,9 @@ static void test_rfc6979_sample_k(void) {
   r6979_hb32(R6979_K, want);
   wired_sha256((const u8*)"sample", 6, h);
   p256sign_k(priv, h, k);
-  for (usz i = 0; i < 32; i++) CHECK(k[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(k[i] == want[i]);
+  }
 }
 
 /* Group order n (FIPS 186-4 D.1.2.3), big-endian 32 bytes, cross-checked by
@@ -76,7 +78,9 @@ static void test_rfc6979_retry_skips_rejected_candidates(void) {
   CHECK(ctx.calls == 3);    /* rejected twice, accepted on the 3rd draw */
   CHECK(ps_k_in_range(kr)); /* the accepted candidate is still in range */
   int differs = 0;
-  for (usz i = 0; i < 32; i++) differs |= (k0[i] != kr[i]);
+  for (usz i = 0; i < 32; i++) {
+    differs |= (k0[i] != kr[i]);
+  }
   CHECK(differs != 0); /* retried past the first candidate k0 would use */
 }
 

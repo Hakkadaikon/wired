@@ -2,7 +2,9 @@
 
 /* RFC 9000 12.3 */
 void pnspace_init(pnspace* s) {
-  for (usz i = 0; i < PNS_COUNT; i++) s->next[i] = 0;
+  for (usz i = 0; i < PNS_COUNT; i++) {
+    s->next[i] = 0;
+  }
 }
 
 u64 pnspace_next(pnspace* s, pns_space space) {

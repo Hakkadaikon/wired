@@ -17,7 +17,9 @@ static void test_hs_clienthello_roundtrip(void) {
 
   u8 got[32];
   CHECK(hs_peer_share(out + body, body_len, got) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(got[i] == pub[i]);
+  }
 }
 
 /* ServerHello uses the same framing and also round-trips its share. */

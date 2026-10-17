@@ -12,7 +12,9 @@ static int moqtrun_stream_sgid(
  * -- never a header-less continuation round. */
 wired_span moqtrun_alias_splice(wired_moqt_hub* hub, wired_span wire, u64 a) {
   usz at = 0, end = 0;
-  if (!moqtrun_alias_respell(hub, wire, a, &at, &end)) return wire;
+  if (!moqtrun_alias_respell(hub, wire, a, &at, &end)) {
+    return wire;
+  }
   bytes_memcpy(hub->alias_scratch, wire.p, at);
   usz n = at + moqvi_encode(hub->alias_scratch + at, a);
   bytes_memcpy(hub->alias_scratch + n, wire.p + end, wire.n - end);
@@ -30,8 +32,12 @@ static int moqtrun_stream_sgid(
   moqdata_objseq seq = moqdata_objseq_of(h->type);
   moqdata_obj    obj;
   *sg = h->subgroup_id;
-  if (moqdata_type_sgid_mode(h->type) != 1) return 1;
-  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  if (moqdata_type_sgid_mode(h->type) != 1) {
+    return 1;
+  }
+  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) {
+    return 0;
+  }
   *sg = obj.object_id;
   return 1;
 }
@@ -41,7 +47,9 @@ static int moqtrun_stream_sgid(
 int moqtrun_stream_keys(wired_span wire, u8 dflt, u64* sg, u8* prio) {
   usz            off = 0;
   moqdata_subhdr h;
-  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) return 0;
+  if (moqdata_subhdr_take(wire, &off, &h) != MOQDATA_OK) {
+    return 0;
+  }
   *prio = moqtrun_stream_prio(&h, dflt);
   return moqtrun_stream_sgid(wire, off, &h, sg);
 }
@@ -66,7 +74,9 @@ usz moqtrun_reframe_to(u8* out, wired_span wire, moqdata_objseq seq) {
   usz         off = 0, dl = 0;
   u64         delta;
   moqdata_obj obj;
-  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) return 0;
+  if (moqdata_obj_take(wire, &off, &seq, &obj) != MOQDATA_OK) {
+    return 0;
+  }
   moqvi_take(wire, &dl, &delta);
   usz n = moqvi_encode(out, obj.object_id);
   bytes_memcpy(out + n, wire.p + dl, wire.n - dl);

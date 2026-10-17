@@ -14,8 +14,9 @@ static void gather_one_path_challenge(wired_srvloop* l, wired_span frame);
  * of l->peer_resets (wired_srvloop's own doc). Past the queue's end only
  * the count grows, so the caller sees the overflow. */
 static void push_peer_reset(wired_srvloop* l, u64 id, u64 code, int is_stop) {
-  if (l->peer_reset_n < WIRED_SRVLOOP_RESET_Q)
+  if (l->peer_reset_n < WIRED_SRVLOOP_RESET_Q) {
     l->peer_resets[l->peer_reset_n] = (wired_srvloop_reset){id, code, is_stop};
+  }
   l->peer_reset_n++;
   l->peer_reset_count++;
 }
@@ -27,10 +28,12 @@ static void push_peer_reset(wired_srvloop* l, u64 id, u64 code, int is_stop) {
 void srvloop_gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   reset_stream_frame rs;
   stop_sending_frame ss;
-  if (srvloop_wt_reset_frame(type, frame, &rs))
+  if (srvloop_wt_reset_frame(type, frame, &rs)) {
     push_peer_reset(l, rs.stream_id, rs.error_code, 0);
-  if (srvloop_wt_stop_frame(type, frame, &ss))
+  }
+  if (srvloop_wt_stop_frame(type, frame, &ss)) {
     push_peer_reset(l, ss.stream_id, ss.error_code, 1);
+  }
 }
 
 /* RFC 9000 19.8: 1 if frame is a client bidi STREAM frame with FIN set,
@@ -43,7 +46,9 @@ void srvloop_gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
  * bytes. */
 static int stream_fin_id(u64 type, wired_span frame, u64* stream_id_out) {
   stream_frame sf;
-  if (!srvloop_client_bidi_stream_of(type, frame, &sf) || !sf.fin) return 0;
+  if (!srvloop_client_bidi_stream_of(type, frame, &sf) || !sf.fin) {
+    return 0;
+  }
   *stream_id_out = sf.stream_id;
   return 1;
 }
@@ -55,7 +60,9 @@ static int stream_fin_id(u64 type, wired_span frame, u64* stream_id_out) {
  * from srvloop_gather_one_stream_close to keep its own branch count at the CCN
  * gate. */
 static int closed_frame_id(u64 type, wired_span frame, u64* stream_id_out) {
-  if (srvloop_reset_stream_id(type, frame, stream_id_out)) return 1;
+  if (srvloop_reset_stream_id(type, frame, stream_id_out)) {
+    return 1;
+  }
   return stream_fin_id(type, frame, stream_id_out);
 }
 
@@ -71,7 +78,9 @@ static int closed_frame_id(u64 type, wired_span frame, u64* stream_id_out) {
 void srvloop_gather_one_stream_close(
     wired_srvloop* l, u64 type, wired_span frame) {
   u64 stream_id;
-  if (!closed_frame_id(type, frame, &stream_id)) return;
+  if (!closed_frame_id(type, frame, &stream_id)) {
+    return;
+  }
   l->closed_stream_id   = stream_id;
   l->closed_stream_seen = 1;
 }
@@ -101,8 +110,12 @@ static int max_data_is_new_high(const wired_srvloop* l, u64 candidate) {
  * decodes. */
 void srvloop_gather_one_max_data(wired_srvloop* l, wired_span frame) {
   data_frame f;
-  if (max_data_decode(frame.p, frame.n, &f) == 0) return;
-  if (max_data_is_new_high(l, f.value)) l->max_data_seen = f.value;
+  if (max_data_decode(frame.p, frame.n, &f) == 0) {
+    return;
+  }
+  if (max_data_is_new_high(l, f.value)) {
+    l->max_data_seen = f.value;
+  }
   l->max_data_seen_flag = 1;
 }
 
@@ -121,8 +134,12 @@ static int max_streams_uni_is_new_high(
 static void gather_one_max_streams_uni(wired_srvloop* l, wired_span frame) {
   int uni;
   u64 max;
-  if (!maxstreams_parse(frame, &uni, &max)) return;
-  if (!max_streams_uni_is_new_high(l, uni, max)) return;
+  if (!maxstreams_parse(frame, &uni, &max)) {
+    return;
+  }
+  if (!max_streams_uni_is_new_high(l, uni, max)) {
+    return;
+  }
   l->max_streams_uni_seen      = max;
   l->max_streams_uni_seen_flag = 1;
 }
@@ -136,7 +153,9 @@ int srvloop_gather_max_streams_uni(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_MAX_STREAMS) continue;
+    if (frame_classify(fr.type) != FK_MAX_STREAMS) {
+      continue;
+    }
     seen = 1;
     gather_one_max_streams_uni(l, wired_span_of(fr.start, fr.remaining));
   }
@@ -146,8 +165,12 @@ int srvloop_gather_max_streams_uni(
 /* RFC 9000 19.14: latch which STREAMS_BLOCKED direction was seen -- the two
  * directions carry independent limits, so each gets its own flag. */
 static void note_streams_blocked(wired_srvloop* l, u64 type) {
-  if (type == FRAME_STREAMS_BLOCKED_BIDI) l->streams_blocked_seen_flag = 1;
-  if (type == FRAME_STREAMS_BLOCKED_UNI) l->streams_blocked_uni_seen_flag = 1;
+  if (type == FRAME_STREAMS_BLOCKED_BIDI) {
+    l->streams_blocked_seen_flag = 1;
+  }
+  if (type == FRAME_STREAMS_BLOCKED_UNI) {
+    l->streams_blocked_uni_seen_flag = 1;
+  }
 }
 
 /* RFC 9000 19.14: scan this payload for a STREAMS_BLOCKED frame (either
@@ -163,7 +186,9 @@ int srvloop_gather_streams_blocked(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_STREAMS_BLOCKED) continue;
+    if (frame_classify(fr.type) != FK_STREAMS_BLOCKED) {
+      continue;
+    }
     seen = 1;
     note_streams_blocked(l, fr.type);
   }
@@ -178,10 +203,14 @@ int srvloop_gather_streams_blocked(
  * runner can answer each one; past WIRED_SRVLOOP_PATH_RX they are dropped. */
 static void gather_one_path_challenge(wired_srvloop* l, wired_span frame) {
   usz n = l->path_challenge_rx_n;
-  if (n >= WIRED_SRVLOOP_PATH_RX) return;
+  if (n >= WIRED_SRVLOOP_PATH_RX) {
+    return;
+  }
   if (path_decode(
-          frame.p, frame.n, FRAME_PATH_CHALLENGE, l->path_challenge_rx_data[n]))
+          frame.p, frame.n, FRAME_PATH_CHALLENGE,
+          l->path_challenge_rx_data[n])) {
     l->path_challenge_rx_n = n + 1;
+  }
 }
 
 int srvloop_gather_path_challenge(
@@ -191,7 +220,9 @@ int srvloop_gather_path_challenge(
   int            seen = 0;
   framewalk_init(&it, payload, len);
   while (framewalk_next(&it, &fr)) {
-    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) continue;
+    if (frame_classify(fr.type) != FK_PATH_CHALLENGE) {
+      continue;
+    }
     seen = 1;
     gather_one_path_challenge(l, wired_span_of(fr.start, fr.remaining));
   }

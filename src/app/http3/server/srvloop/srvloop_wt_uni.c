@@ -8,7 +8,9 @@ static int wt_uni_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id);
 
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_slot_find(l, stream_id);
-  if (i < 0) return;
+  if (i < 0) {
+    return;
+  }
   l->wt_streams[i].in_use = 0;
   srvloop_wt_closed_mark(l, stream_id);
 }
@@ -23,8 +25,11 @@ static int wt_uni_slot_matches(
  * reassembling stream_id.
  * @return the slot index, or -1 if this stream has no slot yet. */
 int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    if (wt_uni_slot_matches(&l->wt_uni_streams[i], stream_id)) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (wt_uni_slot_matches(&l->wt_uni_streams[i], stream_id)) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -38,8 +43,11 @@ static int wt_uni_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
 /* Claim and reset a free wt_uni_streams slot for stream_id. */
 /* The index of a free wt_uni_streams slot, or -1 if the table is full. */
 static int wt_uni_slot_free_index(const wired_srvloop* l) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    if (!l->wt_uni_streams[i].in_use) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (!l->wt_uni_streams[i].in_use) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 

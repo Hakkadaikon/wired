@@ -17,7 +17,9 @@ static void hps_aes256(const u8* hp_key, const u8 sample[16], u8 mask[5]) {
   u8     block[AES_BLOCK];
   aes256_init(&hp, hp_key);
   aes256_encrypt(&hp, sample, block);
-  for (usz i = 0; i < 5; i++) mask[i] = block[i];
+  for (usz i = 0; i < 5; i++) {
+    mask[i] = block[i];
+  }
 }
 
 /* RFC 9001 5.4.4: ChaCha20 keystream block. */
@@ -37,7 +39,9 @@ static const struct {
 int hp_suite_mask(
     u16 suite, const u8* hp_key, const u8 sample[16], u8 mask[5]) {
   for (usz i = 0; i < sizeof hps_tab / sizeof *hps_tab; i++) {
-    if (hps_tab[i].suite != suite) continue;
+    if (hps_tab[i].suite != suite) {
+      continue;
+    }
     hps_tab[i].mask(hp_key, sample, mask);
     return 1;
   }

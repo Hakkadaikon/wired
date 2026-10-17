@@ -4,7 +4,9 @@
  * paths (flipped binder byte, tampered transcript, wrong PSK). */
 
 static void binder_fill(u8* p, usz n, u8 base) {
-  for (usz i = 0; i < n; i++) p[i] = (u8)(base + i);
+  for (usz i = 0; i < n; i++) {
+    p[i] = (u8)(base + i);
+  }
 }
 
 static void test_binder_verify_ok(void) {
@@ -53,7 +55,9 @@ static void test_binder_deterministic(void) {
   u8       b1[32], b2[32];
   tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), b1);
   tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), b2);
-  for (usz i = 0; i < 32; i++) CHECK(b1[i] == b2[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(b1[i] == b2[i]);
+  }
 }
 
 /* Self-consistency sub-vector (RFC 8448 full trace was not retrievable in
@@ -81,7 +85,9 @@ static void test_binder_key_matches_manual_derivation(void) {
 
   u8 got[32];
   tls_binder_key(psk, got);
-  for (usz i = 0; i < 32; i++) CHECK(got[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(got[i] == want[i]);
+  }
 }
 
 void test_binder(void) {

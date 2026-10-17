@@ -40,8 +40,12 @@ void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
   io->byte0    = in->byte0;
   io->dcid_len = (u8)dcid.n;
   pnspaces_init(&io->tx);
-  for (i = 0; i < PNS_COUNT; i++) io->rx_pn[i] = 0;
-  for (i = 0; i < dcid.n; i++) io->dcid[i] = dcid.p[i];
+  for (i = 0; i < PNS_COUNT; i++) {
+    io->rx_pn[i] = 0;
+  }
+  for (i = 0; i < dcid.n; i++) {
+    io->dcid[i] = dcid.p[i];
+  }
 }
 
 /* RFC 9000 12.3: a protection level and its packet number space share the same
@@ -69,7 +73,9 @@ static int send_ready(
   connloop_send_in sin = {
       in->level, framewalk_ack_eliciting(in->frames),
       connio_tx_next(io, in->level), in->frames.n};
-  if (!pn_space_ready(io, in->level)) return 0;
+  if (!pn_space_ready(io, in->level)) {
+    return 0;
+  }
   return connloop_on_send(&io->loop, &sin) &&
          keyset_for_level(&io->loop.keys, in->level, keys);
 }
@@ -78,7 +84,9 @@ usz connio_send(connio* io, const connio_send_in* in, wired_obuf* out) {
   const initial_keys* keys;
   aes128              hp;
   usz                 n;
-  if (!send_ready(io, in, &keys)) return 0;
+  if (!send_ready(io, in, &keys)) {
+    return 0;
+  }
   aes128_init(&hp, keys->hp);
   protect_keys k    = {keys, &hp};
   wired_span   none = wired_span_of((const u8*)0, 0);

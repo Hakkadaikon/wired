@@ -15,7 +15,9 @@ void connection_init(connection* c, const connection_init_in* in) {
   conn_init(&c->conn);
   c->link      = in->link;
   c->is_server = in->is_server;
-  for (usz i = 0; i < 8; i++) c->dcid[i] = in->dcid[i];
+  for (usz i = 0; i < 8; i++) {
+    c->dcid[i] = in->dcid[i];
+  }
 }
 
 int connection_send(connection* c, int level, wired_span frames) {
@@ -23,7 +25,9 @@ int connection_send(connection* c, int level, wired_span frames) {
   aes128              hp;
   u8                  out[MEMLINK_MTU];
   usz                 n;
-  if (!keyset_for_level(&c->keys, level, &k)) return 0;
+  if (!keyset_for_level(&c->keys, level, &k)) {
+    return 0;
+  }
   aes128_init(&hp, k->hp);
   protect_keys pk   = {k, &hp};
   wired_span   none = wired_span_of((const u8*)0, 0);
@@ -32,7 +36,9 @@ int connection_send(connection* c, int level, wired_span frames) {
                        none,       CONN_PN,
                        frames,     0 /* QUIC v1 */};
   n                 = tx_packet(&pk, &t, wired_mspan_of(out, sizeof(out)));
-  if (n == 0) return 0;
+  if (n == 0) {
+    return 0;
+  }
   return memlink_send(c->link, out, n);
 }
 
@@ -42,7 +48,9 @@ int connection_send(connection* c, int level, wired_span frames) {
 static int recv_open(connection* c, const initial_keys* k, wired_span* frames) {
   aes128 hp;
   usz    rn = memlink_recv(c->link, c->rxbuf, sizeof(c->rxbuf));
-  if (rn == 0) return 0;
+  if (rn == 0) {
+    return 0;
+  }
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
   rx_desc      d  = {wired_mspan_of(c->rxbuf, rn), 1, 0};
@@ -52,8 +60,12 @@ static int recv_open(connection* c, const initial_keys* k, wired_span* frames) {
 int connection_recv(connection* c, int level, framewalk* iter) {
   const initial_keys* k;
   wired_span          frames;
-  if (!keyset_for_level(&c->keys, level, &k)) return 0;
-  if (!recv_open(c, k, &frames)) return 0;
+  if (!keyset_for_level(&c->keys, level, &k)) {
+    return 0;
+  }
+  if (!recv_open(c, k, &frames)) {
+    return 0;
+  }
   framewalk_init(iter, frames.p, frames.n);
   return 1;
 }

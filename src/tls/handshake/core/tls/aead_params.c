@@ -13,8 +13,11 @@ static const struct {
 };
 
 usz aead_key_len(u16 suite) {
-  for (usz i = 0; i < sizeof aead_params_tab / sizeof *aead_params_tab; i++)
-    if (aead_params_tab[i].suite == suite) return aead_params_tab[i].key_len;
+  for (usz i = 0; i < sizeof aead_params_tab / sizeof *aead_params_tab; i++) {
+    if (aead_params_tab[i].suite == suite) {
+      return aead_params_tab[i].key_len;
+    }
+  }
   return 0;
 }
 

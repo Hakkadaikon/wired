@@ -14,9 +14,13 @@ static usz build_sigalg(wired_obuf* out) {
   u8         oid[16];
   wired_obuf o = obuf_of(oid, sizeof(oid));
   if (!selfcert_der_tlv(
-          DER_OID, wired_span_of(oid_ed25519_sig, sizeof(oid_ed25519_sig)), &o))
+          DER_OID, wired_span_of(oid_ed25519_sig, sizeof(oid_ed25519_sig)),
+          &o)) {
     return 0;
-  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(oid, o.len), out)) return 0;
+  }
+  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(oid, o.len), out)) {
+    return 0;
+  }
   return out->len;
 }
 
@@ -26,8 +30,9 @@ static usz build_sigval(const u8 sig[64], wired_obuf* out) {
   usz off = 1;
   bits[0] = 0x00;
   bytes_put(wired_mspan_of(bits, sizeof(bits)), &off, wired_span_of(sig, 64));
-  if (!selfcert_der_tlv(DER_BIT_STRING, wired_span_of(bits, off), out))
+  if (!selfcert_der_tlv(DER_BIT_STRING, wired_span_of(bits, off), out)) {
     return 0;
+  }
   return out->len;
 }
 
@@ -36,18 +41,23 @@ static int assemble(const wired_span* parts, usz cnt, wired_obuf* out) {
   u8  body[768];
   usz off = 0;
   int ok  = 1;
-  for (usz i = 0; i < cnt; i++)
+  for (usz i = 0; i < cnt; i++) {
     ok &= bytes_put(
         wired_mspan_of(body, sizeof(body)), &off,
         wired_span_of(parts[i].p, parts[i].n));
+  }
   return ok && selfcert_der_tlv(DER_SEQUENCE, wired_span_of(body, off), out);
 }
 
 /* Derive the public key and sign the freshly built TBS. 0 on any failure. */
 static int sign_tbs(const u8 seed[32], wired_obuf* tbs, u8 sig[64]) {
   u8 pub[32];
-  if (!ed25519_keypair(seed, pub)) return 0;
-  if (!selfcert_tbs(pub, tbs)) return 0;
+  if (!ed25519_keypair(seed, pub)) {
+    return 0;
+  }
+  if (!selfcert_tbs(pub, tbs)) {
+    return 0;
+  }
   return ed25519_sign(seed, tbs->p, tbs->len, sig);
 }
 
@@ -60,9 +70,13 @@ int selfcert_build(const u8 seed[32], wired_obuf* cert_out) {
   wired_obuf ao = obuf_of(alg, sizeof(alg));
   wired_obuf vo = obuf_of(sv, sizeof(sv));
   usz        an = build_sigalg(&ao);
-  if (!sign_tbs(seed, &to, sig)) return 0;
+  if (!sign_tbs(seed, &to, sig)) {
+    return 0;
+  }
   usz        sn      = build_sigval(sig, &vo);
   wired_span parts[] = {{tbs, to.len}, {alg, an}, {sv, sn}};
-  if (!parts_ok(parts)) return 0;
+  if (!parts_ok(parts)) {
+    return 0;
+  }
   return assemble(parts, 3, cert_out);
 }

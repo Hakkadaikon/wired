@@ -1,12 +1,16 @@
 #include "test.h"
 
 static void fill_nst_key(u8 key[TICKET_KEY_LEN], u8 v) {
-  for (usz i = 0; i < TICKET_KEY_LEN; i++) key[i] = v;
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) {
+    key[i] = v;
+  }
 }
 
 static ticket nst_sample_ticket(void) {
   ticket t;
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(i + 1);
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
+    t.secret[i] = (u8)(i + 1);
+  }
   t.issued_at     = 1720000000ULL;
   t.lifetime_secs = 7200;
   t.age_add       = 0; /* overwritten by tls_new_session_ticket_encode */
@@ -104,8 +108,9 @@ static void test_nst_roundtrip(void) {
   CHECK(ticket_open(sealed, key, &opened) == 1);
   CHECK(opened.lifetime_secs == t.lifetime_secs);
   CHECK(opened.issued_at == t.issued_at);
-  for (usz i = 0; i < TICKET_SECRET_LEN; i++)
+  for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     CHECK(opened.secret[i] == t.secret[i]);
+  }
   /* RFC 8446 4.6.1: the wire ticket_age_add and the value sealed inside the
    * ticket (recovered here via ticket_open) are the same random draw,
    * so the server can later reverse obfuscated_ticket_age using only the

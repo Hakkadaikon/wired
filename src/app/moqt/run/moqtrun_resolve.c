@@ -32,7 +32,9 @@ wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
     int                 fin) {
   usz classify_off = 0;
   int kind         = moqdata_classify(data, &classify_off);
-  if (kind != MOQDATA_STREAM_SUBGROUP) return 0;
+  if (kind != MOQDATA_STREAM_SUBGROUP) {
+    return 0;
+  }
   return moqtrun_decode_fresh_subgroup(hub, p, data, whole_end, fin);
 }
 
@@ -46,8 +48,11 @@ static int moqtrun_track_pub_rid(const wired_moqtrun_track* t, u64 rid) {
  * or the hub's own upstream SUBSCRIBE whose SUBSCRIBE_OK claimed it
  * (moqtrun_up_claim) -- the only requests this hub holds upstream. */
 static int moqtrun_peer_pub_rid(const wired_moqtrun_peer* p, u64 rid) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++)
-    if (moqtrun_track_pub_rid(&p->tracks[i], rid)) return 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
+    if (moqtrun_track_pub_rid(&p->tracks[i], rid)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -57,14 +62,18 @@ static int moqtrun_inbound_fetch_routed(
     const wired_moqtrun_peer* p, wired_span data) {
   usz at  = 0;
   u64 rid = 0;
-  if (moqfetch_hdr_take(data, &at, &rid) != MOQCTL_OK) return 0;
+  if (moqfetch_hdr_take(data, &at, &rid) != MOQCTL_OK) {
+    return 0;
+  }
   return moqtrun_peer_pub_rid(p, rid);
 }
 
 /* STOP_SENDING code on a peer-initiated stream the hub turns away. */
 void moqtrun_stream_stop(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid, u32 code) {
-  if (hub->io.stream_stop) hub->io.stream_stop(p->wt, sid, code);
+  if (hub->io.stream_stop) {
+    hub->io.stream_stop(p->wt, sid, code);
+  }
 }
 
 /* A first delivery ending inside its FETCH_HEADER (Type, then a cut
@@ -79,8 +88,9 @@ static int moqtrun_fetch_hdr_short(wired_span data, int fin) {
  * completes its header (moqtrun_early_refetch). 1 when kept. */
 int moqtrun_fetch_hdr_keep(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin) {
-  if (!moqtrun_fetch_hdr_short(data, fin) || !moqtrun_early_free(p, data.n))
+  if (!moqtrun_fetch_hdr_short(data, fin) || !moqtrun_early_free(p, data.n)) {
     return 0;
+  }
   moqtrun_early_put(p, sid, data, fin);
   return 1;
 }
@@ -94,7 +104,9 @@ static void moqtrun_fetch_stream_refuse(
     wired_span          data,
     int                 fin) {
   moqtrun_stream_stop(hub, p, sid, MOQTRUN_RESET_CANCELLED);
-  if (moqtrun_fetch_hdr_short(data, fin)) moqtrun_upf_torn_unheld(hub, p->wt);
+  if (moqtrun_fetch_hdr_short(data, fin)) {
+    moqtrun_upf_torn_unheld(hub, p->wt);
+  }
 }
 
 /* A fetch data stream's whole FETCH_HEADER routes it by Request ID: one
@@ -108,9 +120,12 @@ static void moqtrun_fetch_stream_route(
     u64                 sid,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_upf_bind(hub, p, sid, data, fin)) return;
-  if (!moqtrun_inbound_fetch_routed(p, data))
+  if (moqtrun_upf_bind(hub, p, sid, data, fin)) {
+    return;
+  }
+  if (!moqtrun_inbound_fetch_routed(p, data)) {
     moqtrun_fetch_stream_refuse(hub, p, sid, data, fin);
+  }
 }
 
 /* A fresh uni classifying as a fetch data stream (FETCH_HEADER, 11.4.4).
@@ -123,9 +138,12 @@ int moqtrun_fresh_fetch_stream(
     wired_span          data,
     int                 fin) {
   usz at = 0;
-  if (moqdata_classify(data, &at) != MOQDATA_STREAM_FETCH) return 0;
-  if (!moqtrun_fetch_hdr_keep(p, sid, data, fin))
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_FETCH) {
+    return 0;
+  }
+  if (!moqtrun_fetch_hdr_keep(p, sid, data, fin)) {
     moqtrun_fetch_stream_route(hub, p, sid, data, fin);
+  }
   return 1;
 }
 
@@ -134,7 +152,11 @@ int moqtrun_fresh_fetch_stream(
 int moqtrun_early_alias_unknown(wired_moqtrun_peer* p, wired_span data) {
   usz            at = 0, off = 0;
   moqdata_subhdr h;
-  if (moqdata_classify(data, &at) != MOQDATA_STREAM_SUBGROUP) return 0;
-  if (moqdata_subhdr_take(data, &off, &h) != MOQDATA_OK) return 0;
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_SUBGROUP) {
+    return 0;
+  }
+  if (moqdata_subhdr_take(data, &off, &h) != MOQDATA_OK) {
+    return 0;
+  }
   return moqtrun_track_by_alias(p, h.track_alias) == 0;
 }

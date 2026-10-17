@@ -52,7 +52,9 @@ static void test_bbr_cycle_advances_only_in_probe_bw(void) {
   start = b.cycle_idx;
   bbr_cycle_tick(&b);
   CHECK(b.cycle_idx == (start + 1) % 8);
-  for (int i = 0; i < 8; i++) bbr_cycle_tick(&b);
+  for (int i = 0; i < 8; i++) {
+    bbr_cycle_tick(&b);
+  }
   CHECK(b.cycle_idx == (start + 1) % 8); /* wrapped mod 8 */
 }
 

@@ -10,8 +10,9 @@ static void moqssts_serve_tier(
 static u64 moqssts_spent(
     const moqssts_set* sets, usz n, u32 mask, const int* out) {
   u64 spent = 0;
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     spent += moqssts_sel_kbps(&sets[i], out[i]) * moqssts_has(mask, i);
+  }
   return spent;
 }
 
@@ -38,9 +39,10 @@ void moqssts_default_decide(
   moqssts_none_all(out, n);
   n = moqssts_nsets(n);
   /* Strict priority: rank 0 first, each tier before the next sees anything. */
-  for (u32 rank = 0; rank < 256; rank++)
+  for (u32 rank = 0; rank < 256; rank++) {
     moqssts_serve_tier(
         sets, n, moqssts_tier_mask(sets, n, rank), &remaining, out);
+  }
 }
 
 /* ===== backpressure algorithm (backpressure/state.rs, mod.rs) ===== */

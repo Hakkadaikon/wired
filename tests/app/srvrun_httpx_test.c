@@ -20,8 +20,9 @@ static void test_srvrun_httpx_add_field(void) {
   CHECK(wired_http_add_field(&x, "location", "/target"));
   CHECK(x.field_count == 1 && x.fields[0].name.n == 8);
   CHECK(memcmp(x.fields[0].value.p, "/target", 7) == 0);
-  while (x.field_count < WIRED_HTTP_MAX_FIELDS)
+  while (x.field_count < WIRED_HTTP_MAX_FIELDS) {
     CHECK(wired_http_add_field(&x, "x-a", "1"));
+  }
   CHECK(!wired_http_add_field(&x, "x-b", "2"));
   CHECK(x.field_count == WIRED_HTTP_MAX_FIELDS);
 }

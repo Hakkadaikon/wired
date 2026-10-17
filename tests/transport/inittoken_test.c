@@ -7,7 +7,9 @@ static void test_inittoken_roundtrip(void) {
   usz w = inittoken_put(buf, sizeof(buf), wired_span_of(tok, sizeof(tok)));
   usz r = inittoken_get(buf, w, &out);
   CHECK(w == 1 + sizeof(tok) && r == w && out.n == sizeof(tok));
-  for (usz i = 0; i < sizeof(tok); i++) CHECK(out.p[i] == tok[i]);
+  for (usz i = 0; i < sizeof(tok); i++) {
+    CHECK(out.p[i] == tok[i]);
+  }
 }
 
 static void test_inittoken_empty(void) {

@@ -30,8 +30,9 @@ u8* srvrun_resp_storage(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, srvrun_resp* r) {
   u8* fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
   u8* big;
-  if (r->bigbuf_row >= 0)
+  if (r->bigbuf_row >= 0) {
     return wired_srvbigbuf_row(&ctx->cfg->env->bigbuf, r->bigbuf_row);
+  }
   big = wired_srvbigbuf_claim(&ctx->cfg->env->bigbuf, &r->bigbuf_row);
   return big ? big : fixed;
 }
@@ -49,8 +50,9 @@ usz srvrun_resp_storage_cap(const srvrun_resp* r) {
  * read-only companion for callers that only need the existing base. */
 u8* srvrun_resp_storage_ro(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, srvrun_resp* r) {
-  if (r->bigbuf_row >= 0)
+  if (r->bigbuf_row >= 0) {
     return wired_srvbigbuf_row(&ctx->cfg->env->bigbuf, r->bigbuf_row);
+  }
   return ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
 }
 
@@ -73,7 +75,9 @@ u8* srvrun_resp_shrink_to_fixed(
     u8*                    st,
     usz                    total) {
   u8* fixed;
-  if (r->bigbuf_row < 0 || total > WIRED_SRVRUN_RESP_MAX) return st;
+  if (r->bigbuf_row < 0 || total > WIRED_SRVRUN_RESP_MAX) {
+    return st;
+  }
   fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
   bytes_memcpy(fixed, st, total);
   wired_srvbigbuf_release(&ctx->cfg->env->bigbuf, r->bigbuf_row);
@@ -122,10 +126,13 @@ static void srvrun_qenc_send_insert(
     srvrun_conn* c, const qpackenc_status_result* ins) {
   srvrun_wtsend* w = srvrun_plumbing_wtsend(
       c, c->qenc_stream_opened, c->qenc_wtsend_slot, SRVRUN_QENC_STREAM);
-  if (!w) return;
-  if (ins->insert_len)
+  if (!w) {
+    return;
+  }
+  if (ins->insert_len) {
     srvrun_wtsend_stage_round(
         c, w, wired_span_of(ins->insert_instr, ins->insert_len), 0);
+  }
   qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
 }
 
@@ -141,8 +148,9 @@ int srvrun_h3_resp_prefix(
   qpackenc_status_result ins;
   if (!h3resp_prefix_fields_qenc(
           srvrun_http_status(x), x->content_type, total_len, f,
-          srvrun_qenc_active(c), &ins, pob))
+          srvrun_qenc_active(c), &ins, pob)) {
     return 0;
+  }
   srvrun_qenc_send_insert(c, &ins);
   return 1;
 }

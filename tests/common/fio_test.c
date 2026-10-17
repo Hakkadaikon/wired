@@ -16,7 +16,9 @@ static void fiot_make(const u8* data, usz n) {
       SYS_openat, FIOT_AT_FDCWD, (i64)fiot_path, FIOT_O_CREATE_WR, FIOT_MODE, 0,
       0);
   CHECK(fd >= 0);
-  if (n) CHECK(syscall3(SYS_write, fd, data, n) == (i64)n);
+  if (n) {
+    CHECK(syscall3(SYS_write, fd, data, n) == (i64)n);
+  }
   syscall1(SYS_close, fd);
 }
 
@@ -30,7 +32,9 @@ static void test_fio_roundtrip(void) {
   u8 out[16] = {0};
   fiot_make(data, 5);
   CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 5);
-  for (usz i = 0; i < 5; i++) CHECK(out[i] == data[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(out[i] == data[i]);
+  }
   fiot_unlink();
 }
 
@@ -117,7 +121,9 @@ static void test_fio_open_pread_close_roundtrip(void) {
   fd = wired_fio_open(fiot_path);
   CHECK(fd >= 0);
   CHECK(wired_fio_pread(fd, wired_mspan_of(out, sizeof out), 0) == 5);
-  for (usz i = 0; i < 5; i++) CHECK(out[i] == data[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(out[i] == data[i]);
+  }
   wired_fio_close(fd);
   fiot_unlink();
 }

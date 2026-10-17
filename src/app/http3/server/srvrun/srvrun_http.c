@@ -11,11 +11,12 @@ static usz srvrun_http_ct_len(const char* ct);
  * advertised max_idle_timeout, and every boot past its deadline, freeing
  * the slot for a new client. */
 void srvrun_sweep_idle(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     if (srvrun_reap_due(&st->conns[i], now_ms)) {
       srvrun_log_close("conn dropped: idle timeout", wired_span_of(0, 0));
       srvrun_free_slot(cfg, st, (int)i);
     }
+  }
 }
 
 /* Cold-start outcome for a slot: on success, rekey its table entry to the
@@ -37,15 +38,18 @@ void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
    * by the peer from the moment it learns it -- quic-go switches its DCID
    * to it right after the handshake flight, long before any migration --
    * so it must route here from the same moment. */
-  if (c->l.spare_cid_len)
+  if (c->l.spare_cid_len) {
     conntable_set_alt2(
         ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->l.spare_cid,
         c->l.spare_cid_len);
+  }
 }
 
 /* The 7-argument handler run over x's members (0 without one). */
 static int srvrun_call_cb(const srvrun_cfg* cfg, wired_http_exchange* x) {
-  if (!cfg->handler) return 0;
+  if (!cfg->handler) {
+    return 0;
+  }
   return cfg->handler(
       cfg->ctx, x->req, x->offset, x->body, &x->content_type, &x->more,
       &x->total_size);
@@ -59,7 +63,9 @@ static int srvrun_call_cb(const srvrun_cfg* cfg, wired_http_exchange* x) {
 void srvrun_call_handler(const srvrun_step_ctx* ctx, wired_http_exchange* x) {
   const srvrun_cfg* cfg = ctx->cfg;
   int ok = cfg->http ? cfg->http(cfg->ctx, x) : srvrun_call_cb(cfg, x);
-  if (!ok) x->body->len = 0;
+  if (!ok) {
+    x->body->len = 0;
+  }
 }
 
 /* RFC 9110 15: a final status (2xx-5xx); 1xx are interim, the rest are
@@ -83,8 +89,11 @@ static int srvrun_http_tchar(u8 c) {
 
 /* RFC 9110 5.1: field-name = token = 1*tchar. */
 static int srvrun_http_token_ok(wired_span n) {
-  for (usz i = 0; i < n.n; i++)
-    if (!srvrun_http_tchar(n.p[i])) return 0;
+  for (usz i = 0; i < n.n; i++) {
+    if (!srvrun_http_tchar(n.p[i])) {
+      return 0;
+    }
+  }
   return n.n != 0;
 }
 
@@ -110,7 +119,9 @@ static usz srvrun_http_ct_len(const char* ct) {
 int srvrun_http_fields_ok(const wired_http_exchange* x) {
   usz total = srvrun_http_ct_len(x->content_type);
   for (usz i = 0; i < x->field_count; i++) {
-    if (!srvrun_http_field_ok(&x->fields[i])) return 0;
+    if (!srvrun_http_field_ok(&x->fields[i])) {
+      return 0;
+    }
     total += x->fields[i].name.n + x->fields[i].value.n;
   }
   return total <= WIRED_HTTP_FIELD_BYTES_MAX;

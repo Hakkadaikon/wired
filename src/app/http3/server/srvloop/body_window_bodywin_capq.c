@@ -11,7 +11,9 @@ static int  bodywin_capq_partial(const bodywin_capq* q);
 
 /* Drop the n buffered bytes in front of q. */
 static void bodywin_capq_shift(bodywin_capq* q, usz n) {
-  for (usz i = 0; i + n < q->n; i++) q->buf[i] = q->buf[i + n];
+  for (usz i = 0; i + n < q->n; i++) {
+    q->buf[i] = q->buf[i + n];
+  }
   q->n -= n;
 }
 
@@ -27,7 +29,9 @@ static int bodywin_capq_oversized(bodywin_capctx* k, u64 type, usz h, u64 len) {
 static int bodywin_capq_whole(bodywin_capctx* k, u64 type, usz h, u64 len) {
   bodywin_capq* q = k->q;
   int           ok;
-  if (len > q->n - h) return 2;
+  if (len > q->n - h) {
+    return 2;
+  }
   ok = k->fn(k->ctx, type, wired_span_of(q->buf + h, (usz)len));
   bodywin_capq_shift(q, h + (usz)len);
   return ok != 0;
@@ -38,9 +42,12 @@ static int bodywin_capq_whole(bodywin_capctx* k, u64 type, usz h, u64 len) {
 static int bodywin_capq_pop(bodywin_capctx* k) {
   u64 type, len;
   usz h = bodywin_head(k->q->buf, k->q->n, &type, &len);
-  if (!h) return 2;
-  if (len > BODYWIN_CAPSULE_CAP - h)
+  if (!h) {
+    return 2;
+  }
+  if (len > BODYWIN_CAPSULE_CAP - h) {
     return bodywin_capq_oversized(k, type, h, len);
+  }
   return bodywin_capq_whole(k, type, h, len);
 }
 
@@ -63,7 +70,9 @@ static int bodywin_capq_feed(bodywin_capctx* k, wired_span chunk, usz* at) {
     return 1;
   }
   n = (usz)u64_min(BODYWIN_CAPSULE_CAP - q->n, n);
-  for (usz i = 0; i < n; i++) q->buf[q->n++] = chunk.p[(*at)++];
+  for (usz i = 0; i < n; i++) {
+    q->buf[q->n++] = chunk.p[(*at)++];
+  }
   return bodywin_capq_drain(k);
 }
 
@@ -71,8 +80,11 @@ static int bodywin_capq_feed(bodywin_capctx* k, wired_span chunk, usz* at) {
 static int bodywin_cap_sink(void* ctx, wired_span chunk, int fin) {
   usz at = 0;
   (void)fin;
-  while (at < chunk.n)
-    if (!bodywin_capq_feed(ctx, chunk, &at)) return 0;
+  while (at < chunk.n) {
+    if (!bodywin_capq_feed(ctx, chunk, &at)) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -85,13 +97,16 @@ int bodywin_capsules(
   bodywin_capctx k = {q, fn, ctx};
   /* RFC 9297 3.3: the stream ended inside a capsule. */
   if (bodywin_pump(w, buf, bodywin_cap_sink, &k) == BODYWIN_DONE &&
-      bodywin_capq_partial(q))
+      bodywin_capq_partial(q)) {
     w->state = BODYWIN_FRAME_ERROR;
+  }
   return w->state;
 }
 
 u64 bodywin_credit_due(bodywin* w) {
-  if (w->base <= w->granted) return 0;
+  if (w->base <= w->granted) {
+    return 0;
+  }
   w->granted = w->base;
   return w->base + BODYWIN_CAP;
 }

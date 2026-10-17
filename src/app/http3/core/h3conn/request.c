@@ -8,10 +8,14 @@ int h3conn_send_request(
     u64 stream_id, const h3conn_req_in* in, wired_obuf* out) {
   u8         h3[1500];
   wired_obuf h3ob = obuf_of(h3, sizeof(h3));
-  if (!h3req_build(in->qpack_headers, in->body, &h3ob)) return 0;
+  if (!h3req_build(in->qpack_headers, in->body, &h3ob)) {
+    return 0;
+  }
   {
     stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
-    if (!appdata_stream_frame(&f, out)) return 0;
+    if (!appdata_stream_frame(&f, out)) {
+      return 0;
+    }
     return 1;
   }
 }

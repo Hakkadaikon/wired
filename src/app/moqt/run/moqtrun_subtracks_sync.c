@@ -57,7 +57,9 @@ static int moqtrun_subtracks_opened(
     wired_moqtrun_req*         q,
     const wired_moqtrun_track* t,
     const wired_moqtrun_req*   st) {
-  if (!q) return 0;
+  if (!q) {
+    return 0;
+  }
   return moqtrun_subtracks_open_pub(hub, st_peer, q, t, st);
 }
 
@@ -70,8 +72,12 @@ static int moqtrun_subtracks_try_open(
     wired_moqtrun_req*         q,
     const wired_moqtrun_track* t,
     const wired_moqtrun_req*   st) {
-  if (moqtrun_subtracks_opened(hub, st_peer, q, t, st)) return 1;
-  if (q) q->in_use = 0;
+  if (moqtrun_subtracks_opened(hub, st_peer, q, t, st)) {
+    return 1;
+  }
+  if (q) {
+    q->in_use = 0;
+  }
   return 0;
 }
 
@@ -85,8 +91,9 @@ static void moqtrun_subtracks_offer(
     wired_moqtrun_track* t) {
   wired_moqtrun_req* q =
       moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
-  if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st))
+  if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st)) {
     moqtrun_subtracks_send_skipped(st, t);
+  }
 }
 
 /* A session already subscribed to t (a held SUBSCRIBE that t's PUBLISH
@@ -99,8 +106,9 @@ static void moqtrun_subtracks_attempt(
     wired_moqtrun_req*   st,
     wired_moqtrun_track* t,
     usz                  slot) {
-  if (!moqtrun_track_sub_of_peer(t, (usz)(st_peer - hub->peers)))
+  if (!moqtrun_track_sub_of_peer(t, (usz)(st_peer - hub->peers))) {
     moqtrun_subtracks_offer(hub, st_peer, st, t);
+  }
   moqtrun_subtracks_mark_tried(st, t, slot);
 }
 
@@ -115,11 +123,14 @@ static void moqtrun_subtracks_sync_one(
     usz                  slot) {
   wired_moqtrun_peer* sp;
   usz                 st_idx;
-  if (!moqtrun_disc_is(st, MOQCTL_T_SUBSCRIBE_TRACKS)) return;
+  if (!moqtrun_disc_is(st, MOQCTL_T_SUBSCRIBE_TRACKS)) {
+    return;
+  }
   sp     = moqtrun_find_by_wt(hub, st->wt);
   st_idx = (usz)(sp - hub->peers);
-  if (moqtrun_subtracks_candidate(st, t, pub_idx, st_idx, slot))
+  if (moqtrun_subtracks_candidate(st, t, pub_idx, st_idx, slot)) {
     moqtrun_subtracks_attempt(hub, sp, st, t, slot);
+  }
 }
 
 /* Every live SUBSCRIBE_TRACKS against every in-use track of peer pub_idx:
@@ -130,18 +141,23 @@ static void moqtrun_subtracks_sync_track(
     wired_moqt_hub* hub, usz pub_idx, usz track_idx) {
   wired_moqtrun_track* t    = &hub->peers[pub_idx].tracks[track_idx];
   usz                  slot = moqtrun_subtracks_slot(pub_idx, track_idx);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     moqtrun_subtracks_sync_one(hub, &hub->reqs[i], t, pub_idx, slot);
+  }
 }
 
 static void moqtrun_subtracks_sync_peer(wired_moqt_hub* hub, usz pub_idx) {
-  for (usz ti = 0; ti < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; ti++)
+  for (usz ti = 0; ti < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; ti++) {
     moqtrun_subtracks_sync_track(hub, pub_idx, ti);
+  }
 }
 
 void moqtrun_subtracks_sync(wired_moqt_hub* hub) {
-  for (usz pi = 0; pi < WIRED_MOQTRUN_MAX_SESSIONS; pi++)
-    if (hub->peers[pi].in_use) moqtrun_subtracks_sync_peer(hub, pi);
+  for (usz pi = 0; pi < WIRED_MOQTRUN_MAX_SESSIONS; pi++) {
+    if (hub->peers[pi].in_use) {
+      moqtrun_subtracks_sync_peer(hub, pi);
+    }
+  }
 }
 
 /* A track's retirement (unpublish / slot reuse, T-07/T-08): every PUBLISH

@@ -18,8 +18,11 @@ int srvloop_has_stream(const u8* payload, usz len) {
   framewalk      it;
   framewalk_item fr;
   framewalk_init(&it, payload, len);
-  while (framewalk_next(&it, &fr))
-    if (srvloop_is_stream(fr.type)) return 1;
+  while (framewalk_next(&it, &fr)) {
+    if (srvloop_is_stream(fr.type)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -36,12 +39,16 @@ static int has_frame(const u8* payload, usz len) {
  * (curl's control / QPACK, RFC 9114 6.2) is accepted but drives no request; a
  * CRYPTO/handshake payload is handed to wired_server_feed. */
 int srvloop_feed_or_accept(wired_server* s, const u8* payload, usz len) {
-  if (srvloop_has_stream(payload, len)) return 1;
+  if (srvloop_has_stream(payload, len)) {
+    return 1;
+  }
   return wired_server_feed(s, payload, len);
 }
 
 int dispatch_non_request(wired_server* s, const u8* payload, usz len) {
-  if (!has_frame(payload, len)) return 0;
+  if (!has_frame(payload, len)) {
+    return 0;
+  }
   return srvloop_feed_or_accept(s, payload, len);
 }
 
@@ -51,7 +58,9 @@ int dispatch_non_request(wired_server* s, const u8* payload, usz len) {
  * entirely rather than dereferencing a null loop. */
 static int dispatch_gather_wt(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_wt_stream(ctx->l, payload.p, payload.n);
 }
 
@@ -61,7 +70,9 @@ static int dispatch_gather_wt(
  * than dereferencing a null loop. */
 int dispatch_gather_datagrams(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_rx_datagrams(ctx->l, payload.p, payload.n);
 }
 
@@ -70,7 +81,9 @@ int dispatch_gather_datagrams(
  * 4.3 / RFC 9114 6.2), mirroring dispatch_gather_wt for the uni table. */
 static int dispatch_gather_uni(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_uni_stream(ctx->l, payload.p, payload.n);
 }
 
@@ -84,7 +97,9 @@ static int dispatch_gather_uni(
  * the handshake). */
 int dispatch_gather_closes(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_stream_closes(ctx->l, payload.p, payload.n);
 }
 
@@ -95,7 +110,9 @@ int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
       got_path_resp, got_path_chal, got_ncid;
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   got_max_data = srvloop_gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data =
       srvloop_gather_max_stream_data(ctx->l, payload.p, payload.n);
@@ -115,7 +132,9 @@ int dispatch_gather_flowctl(
  * mirroring dispatch_gather_uni for the PRIORITY_UPDATE-applying walk. */
 static int dispatch_gather_ctrl_priupdate(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_ctrl_priupdate(ctx->l, payload.p, payload.n);
 }
 
@@ -125,7 +144,9 @@ static int dispatch_gather_ctrl_priupdate(
  */
 static int dispatch_gather_req_priupdate(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
-  if (!ctx->l) return 0;
+  if (!ctx->l) {
+    return 0;
+  }
   return srvloop_gather_req_priupdate(ctx->l, payload.p, payload.n);
 }
 
@@ -161,8 +182,11 @@ static int qdec_slot_is(const wired_srvloop_stream_slot* slot, u64 id) {
 
 /* The request slot of stream id, -1 if it has none (never claims one). */
 int srvloop_qdec_slot_find(const wired_srvloop* l, u64 id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if (qdec_slot_is(&l->streams[i], id)) return (int)i;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (qdec_slot_is(&l->streams[i], id)) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
@@ -182,5 +206,7 @@ int srvloop_qdec_stream_open(const wired_srvloop* l, u64 id) {
 void srvloop_reset_cancel_slot(wired_srvloop* l, int i, u64 code) {
   l->streams[i].abort_code = code; /* reported if its body is cut short */
   srvloop_qdec_cancel_slot(l, i);
-  if (!l->streams[i].req_done) l->reset_slots |= (u64)1 << i;
+  if (!l->streams[i].req_done) {
+    l->reset_slots |= (u64)1 << i;
+  }
 }

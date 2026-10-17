@@ -15,9 +15,13 @@ static int sdrv_binder_len_ok(const sdrv* s, const tlsext_psk_offer* off);
  * the field overruns ch_msg, exceeds 32 bytes, or is non-empty. */
 int sdrv_take_client_sid(sdrv* s, const u8* ch_msg, usz ch_len) {
   u8 len;
-  if (!sdrv_sid_fits(ch_msg, ch_len)) return 0;
+  if (!sdrv_sid_fits(ch_msg, ch_len)) {
+    return 0;
+  }
   len = ch_msg[4 + 34];
-  if (!sdrv_reject_nonempty_sid(s, len)) return 0;
+  if (!sdrv_reject_nonempty_sid(s, len)) {
+    return 0;
+  }
   s->client_sid_len = len;
   return 1;
 }
@@ -33,8 +37,9 @@ void sdrv_negotiate_alpn(sdrv* s, const u8* ch_msg, usz ch_len) {
   s->alpn     = SALPN_NONE;
   s->alpn_tok = wired_span_of(0, 0);
   if (!salpn_find_extension(
-          wired_span_of(ch_msg, ch_len), SALPN_EXT_TYPE, &ext))
+          wired_span_of(ch_msg, ch_len), SALPN_EXT_TYPE, &ext)) {
     return;
+  }
   s->alpn = salpn_raw_pick(ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
 }
 
@@ -47,8 +52,12 @@ void sdrv_negotiate_alpn(sdrv* s, const u8* ch_msg, usz ch_len) {
  * on a mismatch; the caller (server.c) decides using s->sni_outcome. */
 static void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len) {
   x509 leaf;
-  if (s->cert_count == 0) return;
-  if (!x509_parse(s->certs[0], &leaf)) return;
+  if (s->cert_count == 0) {
+    return;
+  }
+  if (!x509_parse(s->certs[0], &leaf)) {
+    return;
+  }
   s->sni_outcome = salpn_sni_check(ch_msg, ch_len, leaf.tbs);
 }
 
@@ -68,9 +77,13 @@ static int sdrv_ch_cipher_suites(
     const u8* body, usz body_len, wired_span* out) {
   usz p = sdrv_skip_vec(wired_span_of(body, body_len), 34, 1);
   usz n;
-  if (!sdrv_prefix_fits(p, 2, body_len)) return 0;
+  if (!sdrv_prefix_fits(p, 2, body_len)) {
+    return 0;
+  }
   n = sdrv_prefix_len(body, p, 2);
-  if (!cipher_vec_ok(p, n, body_len)) return 0;
+  if (!cipher_vec_ok(p, n, body_len)) {
+    return 0;
+  }
   *out = wired_span_of(body + p + 2, n);
   return 1;
 }
@@ -84,7 +97,9 @@ static int sdrv_ch_cipher_suites(
  * falling back to an unconfigured suite. */
 static int sdrv_negotiate_cipher(sdrv* s, const u8* body, usz body_len) {
   wired_span suites;
-  if (!sdrv_ch_cipher_suites(body, body_len, &suites)) return 0;
+  if (!sdrv_ch_cipher_suites(body, body_len, &suites)) {
+    return 0;
+  }
   return cipher_select(suites.p, suites.n / 2, &s->cipher_suite);
 }
 
@@ -94,7 +109,9 @@ static int sdrv_negotiate_cipher(sdrv* s, const u8* body, usz body_len) {
  * ClientHello's body, and both are needed before sdrv_take_client_keyshare/
  * sdrv_take_client_sid can run. */
 int sdrv_ch_negotiate(sdrv* s, const u8* ch_msg, usz ch_len, usz* body) {
-  if (!sdrv_is_client_hello(ch_msg, ch_len, body)) return 0;
+  if (!sdrv_is_client_hello(ch_msg, ch_len, body)) {
+    return 0;
+  }
   return sdrv_negotiate_cipher(s, ch_msg + 4, *body);
 }
 

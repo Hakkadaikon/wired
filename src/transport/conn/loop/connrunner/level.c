@@ -25,7 +25,9 @@ static int long_level(u8 byte0, u32 version, int* level) {
 }
 
 int connrunner_packet_level(u8 byte0, u32 version, int* level) {
-  if (packet_is_long(byte0)) return long_level(byte0, version, level);
+  if (packet_is_long(byte0)) {
+    return long_level(byte0, version, level);
+  }
   *level = LEVEL_ONERTT; /* RFC 9000 17.3: short header is 1-RTT */
   return 1;
 }

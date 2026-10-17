@@ -6,7 +6,9 @@
 int h3req_enc_header(wired_span name, wired_span value, wired_obuf* out) {
   qpack_field f = {name, value};
   usz n = qpack_literal_name_encode(wired_mspan_of(out->p, out->cap), 0, &f);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   out->len = n;
   return 1;
 }

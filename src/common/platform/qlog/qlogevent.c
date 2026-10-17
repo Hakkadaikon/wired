@@ -26,12 +26,16 @@ static int qev_reserve(qev_w* w, usz n) {
 }
 
 static void qev_copy(qev_w* w, const char* s, usz n) {
-  for (usz i = 0; i < n; i++) w->out[w->at++] = s[i];
+  for (usz i = 0; i < n; i++) {
+    w->out[w->at++] = s[i];
+  }
 }
 
 static void qev_put_str(qev_w* w, const char* s) {
   usz n = wired_cstr_len(s);
-  if (!qev_reserve(w, n)) return;
+  if (!qev_reserve(w, n)) {
+    return;
+  }
   qev_copy(w, s, n);
 }
 
@@ -47,7 +51,9 @@ static usz qev_digits(u64 v) {
 
 static void qev_put_u64(qev_w* w, u64 v) {
   usz n = qev_digits(v);
-  if (!qev_reserve(w, n)) return;
+  if (!qev_reserve(w, n)) {
+    return;
+  }
   wired_fmt_u64(w->out, &w->at, &(wired_fmt_u64_in){v, n});
 }
 

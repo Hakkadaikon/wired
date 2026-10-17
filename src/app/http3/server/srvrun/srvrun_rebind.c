@@ -22,12 +22,16 @@ static void srvrun_path_probe_fresh(
  * happens at all (9.5). */
 void srvrun_path_switch(const srvrun_step_ctx* ctx, srvrun_conn* c, int kept) {
   pathsel_key to = srvrun_arrival_key(ctx), from = srvrun_send_key(ctx->cfg, c);
-  if (!srvrun_path_cid(ctx->cfg, c, &to, kept)) return;
+  if (!srvrun_path_cid(ctx->cfg, c, &to, kept)) {
+    return;
+  }
   srvrun_path_chal_new(ctx, c, &to, &from);
   srvrun_path_chal_old(ctx, c, &from, &to);
   c->path.target = to;
   c->path.gated  = (u8)srvrun_path_gates(ctx->cfg, c, &to);
-  if (!c->path.gated) srvrun_path_move(ctx->cfg, c, &to);
+  if (!c->path.gated) {
+    srvrun_path_move(ctx->cfg, c, &to);
+  }
 }
 
 /* RFC 9000 9.6.2: this connection sends from the preferred-address socket
@@ -44,7 +48,9 @@ int srvrun_path_reverts(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
 static int srvrun_rebind_allowed(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   pathsel_key a = srvrun_arrival_key(ctx), t = srvrun_target_key(ctx->cfg, c);
-  if (srvrun_awaiting_confirm(c) || srvrun_path_reverts(ctx, c)) return 0;
+  if (srvrun_awaiting_confirm(c) || srvrun_path_reverts(ctx, c)) {
+    return 0;
+  }
   return !pathsel_key_eq(&a, &t);
 }
 
@@ -52,7 +58,9 @@ static int srvrun_rebind_allowed(
  * non-probing and numbered above every earlier non-probing one
  * (srvloop's step_np_new) may move the target. */
 int srvrun_rebind_due(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  if (!c->l.step_np_new || c->replay) return 0;
+  if (!c->l.step_np_new || c->replay) {
+    return 0;
+  }
   return srvrun_rebind_allowed(ctx, c);
 }
 
@@ -75,7 +83,9 @@ static int srvrun_path_answer(
     usz                    n,
     int                    kept) {
   const peercid_entry* e = srvrun_path_cid(ctx->cfg, c, a, kept);
-  if (!e) return 0;
+  if (!e) {
+    return 0;
+  }
   srvrun_path_send(
       ctx->cfg, c, a, e, FRAME_PATH_RESPONSE,
       &c->l.path_challenge_rx_data[0][0], n);
@@ -92,12 +102,16 @@ static void srvrun_path_probe_fresh(
     usz                    n,
     int                    kept) {
   pathsel_slot* s = pathsel_claim_free(&c->path, a);
-  if (!s) return;
+  if (!s) {
+    return;
+  }
   /* bind the path's peer ID (with the 9.5 exception), then challenge before
    * answering: the first datagram on the new path carries the
    * PATH_CHALLENGE; a path without a peer ID frees the slot, unanswered */
   s->in_use = srvrun_path_cid(ctx->cfg, c, a, kept) != 0;
-  if (!s->in_use) return;
+  if (!s->in_use) {
+    return;
+  }
   srvrun_path_arm(ctx->cfg, c, s, ctx->now_ms);
   (void)srvrun_path_answer(ctx, c, a, n, kept);
 }
@@ -105,7 +119,9 @@ static void srvrun_path_probe_fresh(
 void srvrun_path_probe(const srvrun_step_ctx* ctx, srvrun_conn* c, int kept) {
   pathsel_key a = srvrun_arrival_key(ctx);
   usz         n = srvrun_path_challenge_take(c);
-  if (!n) return;
+  if (!n) {
+    return;
+  }
   if (srvrun_path_tracked(ctx->cfg, c, &a)) {
     (void)srvrun_path_answer(ctx, c, &a, n, kept);
     return;

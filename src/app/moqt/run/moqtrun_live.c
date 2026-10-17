@@ -23,7 +23,9 @@ static wired_moqtrun_sub* moqtrun_peer_sub_by_rid(
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
     *t                   = &q->tracks[i];
     wired_moqtrun_sub* s = moqtrun_live_track_sub_by_rid(*t, idx, rid);
-    if (s) return s;
+    if (s) {
+      return s;
+    }
   }
   return 0;
 }
@@ -42,7 +44,9 @@ wired_moqtrun_sub* moqtrun_sub_by_rid(
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     wired_moqtrun_sub* s =
         moqtrun_live_peer_sub_by_rid(&hub->peers[i], idx, rid, t);
-    if (s) return s;
+    if (s) {
+      return s;
+    }
   }
   return 0;
 }
@@ -51,7 +55,9 @@ wired_moqtrun_sub* moqtrun_sub_by_rid(
  * below 0) for a Relative, Joining Start itself for an Absolute Joining
  * Fetch. */
 static u64 moqtrun_join_group(const moqfetch_req* m, moqctl_loc jl) {
-  if (m->fetch_type == MOQFETCH_ABSOLUTE_JOINING) return m->joining_start;
+  if (m->fetch_type == MOQFETCH_ABSOLUTE_JOINING) {
+    return m->joining_start;
+  }
   return jl.group - u64_min(m->joining_start, jl.group);
 }
 
@@ -95,8 +101,9 @@ static void moqtrun_fetch_joining(
  * one (10.12), both into moqfetch_req. */
 int moqtrun_fetch_take(
     const wired_moqtrun_peer* p, wired_span body, moqfetch_req* m) {
-  if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22)
+  if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22) {
     return moqfetch_req22_take(body, m);
+  }
   return moqfetch_req19_take(p->ver, body, m);
 }
 

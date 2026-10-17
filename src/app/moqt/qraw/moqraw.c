@@ -27,8 +27,11 @@
 #define MOQRAW_A_LIT (MOQRAW_C_UNRES | MOQRAW_C_SUB | MOQRAW_C_COLON)
 
 static int moqraw_in(const char* set, u8 c) {
-  for (usz i = 0; set[i]; i++)
-    if ((u8)set[i] == c) return 1;
+  for (usz i = 0; set[i]; i++) {
+    if ((u8)set[i] == c) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -56,8 +59,9 @@ static unsigned moqraw_pct(wired_span s, usz i) {
 /* Bytes the token at s.p[i] spans under allow: 3 for %HH, 1 for an allowed
  * byte, 0 when malformed. */
 static usz moqraw_tok(wired_span s, usz i, unsigned allow) {
-  if (s.p[i] == '%')
+  if (s.p[i] == '%') {
     return (usz)moqraw_pct(s, i) * !!(allow & MOQRAW_C_PCT) * 3;
+  }
   return (moqraw_cls(s.p[i]) & allow) != 0;
 }
 
@@ -74,7 +78,9 @@ static int moqraw_scan(wired_span s, unsigned allow) {
 /* Index of the first c in s, s.n when absent. */
 static usz moqraw_find(wired_span s, u8 c) {
   usz i = 0;
-  while (i < s.n && s.p[i] != c) i++;
+  while (i < s.n && s.p[i] != c) {
+    i++;
+  }
   return i;
 }
 
@@ -85,8 +91,9 @@ static wired_span moqraw_sub(wired_span s, usz from, usz to) {
 /* 3.2.3 port = *DIGIT, here also at most 65535 (a 16-bit UDP port). */
 static int moqraw_port_ok(wired_span port) {
   u64 v = 0;
-  for (usz i = 0; i < port.n; i++)
+  for (usz i = 0; i < port.n; i++) {
     v = u64_min(v * 10 + (u64)(u8)(port.p[i] - '0'), 65536);
+  }
   return moqraw_scan(port, MOQRAW_C_DIGIT) && v <= 65535;
 }
 
@@ -115,18 +122,24 @@ static int moqraw_lit_ok(wired_span hp) {
 }
 
 static int moqraw_hostport_ok(wired_span hp) {
-  if (hp.n && hp.p[0] == '[') return moqraw_lit_ok(hp);
+  if (hp.n && hp.p[0] == '[') {
+    return moqraw_lit_ok(hp);
+  }
   return moqraw_reg_ok(hp);
 }
 
 int moqraw_path_ok(wired_span path) {
-  if (path.n == 0) return 1;
+  if (path.n == 0) {
+    return 1;
+  }
   return path.p[0] == '/' && moqraw_scan(path, MOQRAW_A_PATH);
 }
 
 int moqraw_authority_ok(wired_span authority) {
   usz at = moqraw_find(authority, '@');
-  if (at == authority.n) return moqraw_hostport_ok(authority);
+  if (at == authority.n) {
+    return moqraw_hostport_ok(authority);
+  }
   return moqraw_scan(moqraw_sub(authority, 0, at), MOQRAW_A_UINFO) &&
          moqraw_hostport_ok(moqraw_sub(authority, at + 1, authority.n));
 }
@@ -154,7 +167,9 @@ static u32 moqraw_hook_code(
 
 static u32 moqraw_opt_code(
     int has, wired_span v, const moqraw_rule* r, moqraw_hook hook, void* ctx) {
-  if (!has) return 0;
+  if (!has) {
+    return 0;
+  }
   return r->syntax(v) ? moqraw_hook_code(r, hook, ctx, v) : r->malformed;
 }
 
@@ -162,7 +177,9 @@ static u32 moqraw_opt_code(
 static u32 moqraw_raw_code(const moqctl_setup* m, const moqraw_policy* pol) {
   u32 c = moqraw_opt_code(
       m->has_path, m->path, &moqraw_rule_path, pol->accept_path, pol->ctx);
-  if (c) return c;
+  if (c) {
+    return c;
+  }
   return moqraw_opt_code(
       m->has_authority, m->authority, &moqraw_rule_authority,
       pol->accept_authority, pol->ctx);
@@ -170,12 +187,16 @@ static u32 moqraw_raw_code(const moqctl_setup* m, const moqraw_policy* pol) {
 
 /* Over WebTransport either option's presence closes the session. */
 static u32 moqraw_wt_code(const moqctl_setup* m) {
-  if (m->has_path) return MOQRAW_CLOSE_INVALID_PATH;
+  if (m->has_path) {
+    return MOQRAW_CLOSE_INVALID_PATH;
+  }
   return m->has_authority ? MOQRAW_CLOSE_INVALID_AUTHORITY : 0;
 }
 
 u32 moqraw_setup_verdict(
     int raw, const moqctl_setup* m, const moqraw_policy* pol) {
-  if (!raw) return moqraw_wt_code(m);
+  if (!raw) {
+    return moqraw_wt_code(m);
+  }
   return moqraw_raw_code(m, pol ? pol : &moqraw_accept_all);
 }

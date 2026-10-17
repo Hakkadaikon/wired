@@ -12,8 +12,12 @@ static int  wt_uni_sig_ready(
 /* 1 if sf belongs in the encoder window, taking the window for its stream
  * when it leads the encoder stream or may be held as a candidate. */
 static int qenc_owns(wired_srvloop* l, const stream_frame* sf) {
-  if (sf->stream_id == l->h3.qenc_rx.stream_id) return 1;
-  if (!srvloop_qenc_takes(l, sf)) return 0;
+  if (sf->stream_id == l->h3.qenc_rx.stream_id) {
+    return 1;
+  }
+  if (!srvloop_qenc_takes(l, sf)) {
+    return 0;
+  }
   qdyn_encrx_take(&l->h3.qenc_rx, sf->stream_id);
   return 1;
 }
@@ -21,7 +25,9 @@ static int qenc_owns(wired_srvloop* l, const stream_frame* sf) {
 /* The window let go of stream id (its type turned out not to be the
  * encoder's): its type is known from now on. */
 static void qenc_note_released(wired_srvloop* l, u64 id) {
-  if (!l->h3.qenc_rx.stream_id) wired_srvloop_closed_mark(&l->uni_typed, id);
+  if (!l->h3.qenc_rx.stream_id) {
+    wired_srvloop_closed_mark(&l->uni_typed, id);
+  }
 }
 
 /* RFC 9204 4.2 / 4.3: feed sf, if it belongs to the encoder window, at its
@@ -29,11 +35,14 @@ static void qenc_note_released(wired_srvloop* l, u64 id) {
  * invalid one latches l->qpack_stream_violation. */
 void srvloop_gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
   u16 err = 0;
-  if (!qenc_owns(l, sf)) return;
+  if (!qenc_owns(l, sf)) {
+    return;
+  }
   if (!qdyn_encrx_feed(
           &l->h3.qenc_rx, sf->offset, wired_span_of(sf->data, (usz)sf->length),
-          &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err))
+          &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err)) {
     l->qpack_stream_violation = err;
+  }
   qenc_note_released(l, sf->stream_id);
 }
 
@@ -46,7 +55,9 @@ void srvloop_gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
 static int is_wt_uni_stream_type(wired_span data) {
   u64 v;
   usz off = 0;
-  if (!varint_take(data, &off, &v)) return 0;
+  if (!varint_take(data, &off, &v)) {
+    return 0;
+  }
   return v == H3_STREAM_WEBTRANSPORT;
 }
 
@@ -86,10 +97,11 @@ void srvloop_gather_wt_uni_one(
   usz n       = (usz)sf->length - skip;
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
-  if (accepted)
+  if (accepted) {
     bytes_put(
         wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
         wired_span_of(sf->data + skip + (n - accepted), accepted));
+  }
   if (sf->fin) {
     slot->fin     = 1;
     slot->fin_off = abs_off + n;
@@ -102,7 +114,9 @@ void srvloop_gather_wt_uni_one(
  * accumulated leading bytes (which may span several frames). */
 static int wt_uni_slot_for_type(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_uni_slot_claim(l, sf->stream_id);
-  if (i < 0) return -1;
+  if (i < 0) {
+    return -1;
+  }
   l->wt_uni_streams[i].sig_pending = 1;
   return i;
 }
@@ -110,7 +124,9 @@ static int wt_uni_slot_for_type(wired_srvloop* l, const stream_frame* sf) {
 /* draft-ietf-webtrans-http3-15 4.3: the wt_uni_streams[] slot index for sf,
  * which srvloop_wt_uni_frame_relevant already confirmed is WT uni traffic. */
 static int wt_uni_slot_for(wired_srvloop* l, const stream_frame* sf) {
-  if (sf->offset == 0) return wt_uni_slot_for_type(l, sf);
+  if (sf->offset == 0) {
+    return wt_uni_slot_for_type(l, sf);
+  }
   return wired_srvloop_wt_uni_slot_find(l, sf->stream_id);
 }
 
@@ -122,12 +138,16 @@ void dispatch_qlog_stream_received(wired_srvloop* l, const stream_frame* sf) {
   char                            rec[192];
   usz                             n;
   wired_qlogevent_stream_frame_in in;
-  if (!l->qlog_path) return;
+  if (!l->qlog_path) {
+    return;
+  }
   in = (wired_qlogevent_stream_frame_in){
       sf->stream_id, sf->offset, sf->length, sf->fin, l->app_rx_pn};
   n = wired_qlogevent_stream_frame(
       rec, sizeof rec, l->now_ms, l->qlog_group, "stream_frame_received", &in);
-  if (n) wired_qlog_append(l->qlog_path, wired_span_of((const u8*)rec, n));
+  if (n) {
+    wired_qlog_append(l->qlog_path, wired_span_of((const u8*)rec, n));
+  }
 }
 
 /* srvloop_wt_sig_resolve over a uni slot's own signal fields. */
@@ -141,8 +161,9 @@ static int wt_uni_sig_ready(
  * traffic) into its slot, claiming one on the leading type frame. */
 void srvloop_gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
   int i = wt_uni_slot_for(l, sf);
-  if (i >= 0 && wt_uni_sig_ready(&l->wt_uni_streams[i], sf))
+  if (i >= 0 && wt_uni_sig_ready(&l->wt_uni_streams[i], sf)) {
     srvloop_gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+  }
   dispatch_qlog_stream_received(l, sf);
 }
 

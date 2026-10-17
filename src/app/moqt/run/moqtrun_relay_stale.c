@@ -45,10 +45,13 @@ static int moqtrun_relay_stale_cut(
     wired_moqtrun_peer*      dst,
     wired_moqtrun_relay*     relay,
     usz                      i) {
-  if (!moqtrun_relay_stale_for(sub, relay)) return 0;
-  if (relay->sub_stream_set[i])
+  if (!moqtrun_relay_stale_for(sub, relay)) {
+    return 0;
+  }
+  if (relay->sub_stream_set[i]) {
     hub->io.stream_reset(
         dst->wt, relay->sub_stream_id[i], MOQTRUN_RESET_INTERNAL_ERROR);
+  }
   relay->sub_stream_set[i] = 0;
   relay->sub_expired |= moqtrun_sub_bit(i);
   return 1;
@@ -81,7 +84,9 @@ static wired_span moqtrun_relay_end_cut(
     const wired_moqtrun_sub* sub,
     int*                     fin) {
   usz cut = moqtrun_wire_cutoff(sub, wire, 0, seq0, relay->group_id);
-  if (cut == wire.n) return wire;
+  if (cut == wire.n) {
+    return wire;
+  }
   relay->sub_expired |= moqtrun_sub_bit(i);
   *fin = 1;
   return wired_span_of(wire.p, cut);
@@ -100,8 +105,12 @@ static void moqtrun_relay_append_one(
     moqtrun_round        r,
     u64                  born_ms) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (moqtrun_relay_skips(dst, relay, i)) return;
-  if (moqtrun_relay_gone(hub, sub, dst, relay, i, born_ms)) return;
+  if (moqtrun_relay_skips(dst, relay, i)) {
+    return;
+  }
+  if (moqtrun_relay_gone(hub, sub, dst, relay, i, born_ms)) {
+    return;
+  }
   usz cut = moqtrun_startobj_cut(sub, r.wire, 0, &r.seq0, relay->group_id);
   r.wire  = wired_span_of(r.wire.p + cut, r.wire.n - cut);
   r.wire  = moqtrun_relay_end_cut(relay, i, r.wire, r.seq0, sub, &r.fin);
@@ -117,7 +126,9 @@ void moqtrun_relay_append_all(
     int                  fin,
     u64                  born_ms) {
   moqtrun_round r = {wire, seq0, fin};
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (moqtrun_sub_gets_relay(&track->subs[i], relay))
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtrun_sub_gets_relay(&track->subs[i], relay)) {
       moqtrun_relay_append_one(hub, &track->subs[i], relay, i, r, born_ms);
+    }
+  }
 }

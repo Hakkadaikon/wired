@@ -6,7 +6,9 @@
 static void test_hmac_vectors(void) {
   u8 mac[SHA256_DIGEST];
   u8 key1[20];
-  for (usz i = 0; i < 20; i++) key1[i] = 0x0b;
+  for (usz i = 0; i < 20; i++) {
+    key1[i] = 0x0b;
+  }
   hmac_sha256(
       wired_span_of(key1, 20), wired_span_of((const u8*)"Hi There", 8), mac);
   CHECK(digest_eq(
@@ -22,7 +24,9 @@ static void test_hmac_vectors(void) {
 /* A key longer than the block size is hashed first (RFC 4231 case 6). */
 static void test_hmac_long_key(void) {
   u8 key[131], mac[SHA256_DIGEST];
-  for (usz i = 0; i < 131; i++) key[i] = 0xaa;
+  for (usz i = 0; i < 131; i++) {
+    key[i] = 0xaa;
+  }
   hmac_sha256(
       wired_span_of(key, 131),
       wired_span_of(
@@ -44,15 +48,21 @@ static void check_hmac_truncated_16(
     wired_span key, wired_span msg, const u8 full[SHA256_DIGEST]) {
   u8 sentinel = 0xa5;
   u8 out16[17];
-  for (usz i = 0; i < 17; i++) out16[i] = sentinel;
+  for (usz i = 0; i < 17; i++) {
+    out16[i] = sentinel;
+  }
   hmac_sha256_truncated(key, msg, out16, 16);
-  for (usz i = 0; i < 16; i++) CHECK(out16[i] == full[i]);
+  for (usz i = 0; i < 16; i++) {
+    CHECK(out16[i] == full[i]);
+  }
   CHECK(out16[16] == sentinel); /* byte 17 untouched */
 }
 
 static void test_hmac_truncated(void) {
   u8 key1[20];
-  for (usz i = 0; i < 20; i++) key1[i] = 0x0b;
+  for (usz i = 0; i < 20; i++) {
+    key1[i] = 0x0b;
+  }
   wired_span key = wired_span_of(key1, 20);
   wired_span msg = wired_span_of((const u8*)"Hi There", 8);
 
@@ -64,7 +74,9 @@ static void test_hmac_truncated(void) {
   /* Tlen = 32 (no truncation) must reproduce the full MAC exactly. */
   u8 out32[SHA256_DIGEST];
   hmac_sha256_truncated(key, msg, out32, SHA256_DIGEST);
-  for (usz i = 0; i < SHA256_DIGEST; i++) CHECK(out32[i] == full[i]);
+  for (usz i = 0; i < SHA256_DIGEST; i++) {
+    CHECK(out32[i] == full[i]);
+  }
 
   /* Tlen = 0 writes nothing. */
   u8 out0 = 0xa5;
@@ -75,7 +87,9 @@ static void test_hmac_truncated(void) {
 /* Compare a 48-byte HMAC-SHA-384 MAC against its expected bytes. */
 static int hmac384_eq(const u8 got[SHA384_DIGEST], const u8* want) {
   usz diff = 0;
-  for (usz i = 0; i < SHA384_DIGEST; i++) diff |= (usz)(got[i] ^ want[i]);
+  for (usz i = 0; i < SHA384_DIGEST; i++) {
+    diff |= (usz)(got[i] ^ want[i]);
+  }
   return diff == 0;
 }
 
@@ -94,7 +108,9 @@ static void test_hmac384_vectors(void) {
       0x5e, 0x69, 0xe2, 0xc7, 0x8b, 0x32, 0x39, 0xec, 0xfa, 0xb2, 0x16, 0x49};
   u8 mac[SHA384_DIGEST];
   u8 key1[20];
-  for (usz i = 0; i < 20; i++) key1[i] = 0x0b;
+  for (usz i = 0; i < 20; i++) {
+    key1[i] = 0x0b;
+  }
   hmac_sha384(
       wired_span_of(key1, 20), wired_span_of((const u8*)"Hi There", 8), mac);
   CHECK(hmac384_eq(mac, want1));
@@ -114,7 +130,9 @@ static void test_hmac384_long_key(void) {
       0x3c, 0xd1, 0x1f, 0x05, 0x03, 0x3a, 0xc4, 0xc6, 0x0c, 0x2e, 0xf6, 0xab,
       0x40, 0x30, 0xfe, 0x82, 0x96, 0x24, 0x8d, 0xf1, 0x63, 0xf4, 0x49, 0x52};
   u8 key[131], mac[SHA384_DIGEST];
-  for (usz i = 0; i < 131; i++) key[i] = 0xaa;
+  for (usz i = 0; i < 131; i++) {
+    key[i] = 0xaa;
+  }
   hmac_sha384(
       wired_span_of(key, 131),
       wired_span_of(
@@ -143,7 +161,9 @@ static void test_hmac512_vectors(void) {
       0x5d, 0x6a, 0x1e, 0x52, 0x95, 0xe6, 0x4f, 0x73, 0xf6, 0x3f, 0x0a,
       0xec, 0x8b, 0x91, 0x5a, 0x98, 0x5d, 0x78, 0x65, 0x98};
   u8 key[131], mac[SHA512_DIGEST];
-  for (usz i = 0; i < 131; i++) key[i] = 0xaa;
+  for (usz i = 0; i < 131; i++) {
+    key[i] = 0xaa;
+  }
   hmac_sha512(
       wired_span_of((const u8*)"Jefe", 4),
       wired_span_of((const u8*)"what do ya want for nothing?", 28), mac);

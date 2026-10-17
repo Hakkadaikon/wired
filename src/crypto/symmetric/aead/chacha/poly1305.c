@@ -14,6 +14,10 @@ static void poly_clamp_r(poly* st, const u8 key[16]) {
 
 void poly_init(poly* st, const u8 key[32]) {
   poly_clamp_r(st, key);
-  for (usz i = 0; i < 5; i++) st->h[i] = 0;
-  for (usz i = 0; i < 4; i++) st->pad[i] = poly1305_rd32le(key + 16 + 4 * i);
+  for (usz i = 0; i < 5; i++) {
+    st->h[i] = 0;
+  }
+  for (usz i = 0; i < 4; i++) {
+    st->pad[i] = poly1305_rd32le(key + 16 + 4 * i);
+  }
 }

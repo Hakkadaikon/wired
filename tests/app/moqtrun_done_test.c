@@ -53,8 +53,9 @@ static void mtdn_group(u64 sid, u64 g) {
 static usz mtdn_published(void) {
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   usz                 n = 0;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
     n += a->tracks[t].in_use != 0;
+  }
   return n;
 }
 
@@ -111,7 +112,9 @@ static void test_moqtrun_pubdone_count_after_supersede(void) {
 static void test_moqtrun_pubdone_n_groups(void) {
   u64 count = 0;
   mtdn_setup();
-  for (u64 g = 0; g < 4; g++) mtdn_group(2002 + 4 * g, g);
+  for (u64 g = 0; g < 4; g++) {
+    mtdn_group(2002 + 4 * g, g);
+  }
   mtdn_done(MOQCTL_DONE_TRACK_ENDED, 4);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
   CHECK(count == 4);
@@ -208,17 +211,20 @@ static void test_moqtrun_pubdone_status_passthrough(void) {
 static void mtdn_status_group(u64 sid, u64 g, usz n, u64 status) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz off = mtst_stream(g, n, 1, buf);
-  if (status != MOQDATA_STATUS_NORMAL)
+  if (status != MOQDATA_STATUS_NORMAL) {
     moqdata_obj_put_status(wired_mspan_of(buf, sizeof buf), &off, 0, status);
+  }
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
 }
 
 /* 1 iff the hub did io op kind (7 reset, 13 stop) on A's stream sid. */
 static int mtdn_op_on(int kind, u64 sid) {
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     if (g_calls[i].kind == kind && g_calls[i].s == SESS_A &&
-        g_calls[i].stream_id == sid)
+        g_calls[i].stream_id == sid) {
       return 1;
+    }
+  }
   return 0;
 }
 
@@ -339,7 +345,7 @@ static void mtall_pubdone(void) {
 /* Publisher and subscriber on different drafts: B's PUBLISH_DONE decodes
  * in B's draft, its status spelled for B. */
 static void test_moqtrun_pubdone_xver(void) {
-  for (int pv = 0; pv < MOQVER_COUNT; pv++)
+  for (int pv = 0; pv < MOQVER_COUNT; pv++) {
     for (int sv = 0; sv < MOQVER_COUNT; sv++) {
       u64 count = 0;
       mtdn_setup_v(pv, sv);
@@ -350,6 +356,7 @@ static void test_moqtrun_pubdone_xver(void) {
           moqctl_publish_done_for(sv, MOQCTL_DONE_SUBSCRIPTION_ENDED));
       CHECK(count == 1);
     }
+  }
 }
 
 /* B SUBSCRIBEd on its control stream, so no request stream carries the

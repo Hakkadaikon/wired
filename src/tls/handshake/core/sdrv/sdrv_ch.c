@@ -15,10 +15,14 @@ static int sdrv_ch_one(
  * as the sole bounds check -- the loop guard alone permits reading the
  * header before confirming the header's OWN declared length also fits. */
 int sdrv_ch_hdr(const sdrv_ch_block* blk, usz* q, unsigned* type, usz* dlen) {
-  if (*q + 4 > blk->end) return 0;
+  if (*q + 4 > blk->end) {
+    return 0;
+  }
   *type = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
   *dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
-  if (*q + 4 + *dlen > blk->end) return 0;
+  if (*q + 4 + *dlen > blk->end) {
+    return 0;
+  }
   *q += 4 + *dlen;
   return 1;
 }
@@ -37,7 +41,9 @@ static int sdrv_ch_one(
     const sdrv_ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   unsigned type;
   usz      dlen, start = *q;
-  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
+  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) {
+    return -1;
+  }
   return (type == EXT_KEY_SHARE)
              ? sdrv_ch_keyshare_scan(blk->b + start + 4, dlen, want_group, pub)
              : 0;
@@ -46,7 +52,9 @@ static int sdrv_ch_one(
 int sdrv_ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
   sdrv_ch_block blk = {b, end};
   int           r   = 0;
-  while (r == 0 && q + 4 <= end) r = sdrv_ch_one(&blk, &q, want_group, pub);
+  while (r == 0 && q + 4 <= end) {
+    r = sdrv_ch_one(&blk, &q, want_group, pub);
+  }
   return r == 1;
 }
 
@@ -61,7 +69,9 @@ usz sdrv_prefix_len(const u8* b, usz p, usz w) {
 /* Skip a w-byte-length-prefixed vector at p; return the offset past it
  * (0 = overrun). */
 usz sdrv_skip_vec(wired_span b, usz p, usz w) {
-  if (!sdrv_prefix_fits(p, w, b.n)) return 0;
+  if (!sdrv_prefix_fits(p, w, b.n)) {
+    return 0;
+  }
   p += w + sdrv_prefix_len(b.p, p, w);
   return p <= b.n ? p : 0;
 }

@@ -21,8 +21,9 @@ int wired_server_wt_stream_stop(
   srvrun_conn* c = srvrun_session_conn(s);
   usz          i;
   if (srvrun_wt_stop_refused(
-          c, srvrun_wt_session_slot_or_absent(c, s), stream_id))
+          c, srvrun_wt_session_slot_or_absent(c, s), stream_id)) {
     return 0;
+  }
   i                              = c->wt_stream_reset_n++;
   c->wt_stream_reset_id[i]       = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;
@@ -67,7 +68,9 @@ static int srvrun_dgring_target_ok(
 
 /* The next free ring entry (FIFO tail), or 0 when the ring is full. */
 static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env) {
-  if (env->dgring_n >= SRVRUN_DGRING_CAP) return 0;
+  if (env->dgring_n >= SRVRUN_DGRING_CAP) {
+    return 0;
+  }
   return &env->dgring[(env->dgring_head + env->dgring_n) % SRVRUN_DGRING_CAP];
 }
 
@@ -76,7 +79,9 @@ static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env) {
  * nothing on raw QUIC (draft-ietf-moq-transport-19 11.3). Its length, 0
  * for none. */
 static usz srvrun_dg_prefix_put(u8* buf, usz cap, int raw, u64 connect_id) {
-  if (!rawq_dgram_prefix_len(raw, connect_id)) return 0;
+  if (!rawq_dgram_prefix_len(raw, connect_id)) {
+    return 0;
+  }
   return wtwire_qsid_put(buf, cap, connect_id);
 }
 
@@ -91,8 +96,9 @@ static int srvrun_dgring_fill(
     wired_span           payload) {
   usz qn = srvrun_dg_prefix_put(e->buf, sizeof e->buf, raw, connect_id);
   if (qn != rawq_dgram_prefix_len(raw, connect_id) ||
-      payload.n > sizeof e->buf - qn)
+      payload.n > sizeof e->buf - qn) {
     return 0;
+  }
   bytes_memcpy(e->buf + qn, payload.p, payload.n);
   e->len       = qn + payload.n;
   e->conn_slot = conn_slot;
@@ -103,8 +109,12 @@ static int srvrun_dgring_push(
     wired_srvrun_env* env, int slot, u64 connect_id, wired_span payload) {
   srvrun_dgring_entry* e   = srvrun_dgring_tail(env);
   int                  raw = srvrun_conn_is_raw(&env->conns[slot]);
-  if (!e) return 0;
-  if (!srvrun_dgring_fill(e, slot, raw, connect_id, payload)) return 0;
+  if (!e) {
+    return 0;
+  }
+  if (!srvrun_dgring_fill(e, slot, raw, connect_id, payload)) {
+    return 0;
+  }
   e->conn_gen = env->conns[slot].gen;
   env->dgring_n++;
   return 1;
@@ -114,7 +124,9 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload) {
   wired_srvrun_env* env;
   int               slot;
   srvrun_session_conn_env(s, &env, &slot);
-  if (!srvrun_dgring_target_ok(env, slot, s)) return 0;
+  if (!srvrun_dgring_target_ok(env, slot, s)) {
+    return 0;
+  }
   return srvrun_dgring_push(env, slot, s->connect_stream_id, payload);
 }
 
@@ -135,7 +147,9 @@ static int srvrun_bcast_ring_target(wired_srvrun_env* env, int cslot, int i) {
  * the qsid-prefixed payload exceeds a ring slot) reports 0. */
 int srvrun_bcast_ring_sess(
     wired_srvrun_env* env, int cslot, int i, wired_span data) {
-  if (!srvrun_bcast_ring_target(env, cslot, i)) return 1;
+  if (!srvrun_bcast_ring_target(env, cslot, i)) {
+    return 1;
+  }
   return srvrun_dgring_push(
       env, cslot, srvrun_wt_slot(&env->conns[cslot], i)->connect_stream_id,
       data);

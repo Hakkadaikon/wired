@@ -15,14 +15,20 @@ static int pathsel_holds(const pathsel_slot* s, const pathsel_key* k) {
 }
 
 pathsel_slot* pathsel_find(pathsel* p, const pathsel_key* k) {
-  for (usz i = 0; i < PATHSEL_SLOTS; i++)
-    if (pathsel_holds(&p->slot[i], k)) return &p->slot[i];
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    if (pathsel_holds(&p->slot[i], k)) {
+      return &p->slot[i];
+    }
+  }
   return 0;
 }
 
 static pathsel_slot* pathsel_first_free(pathsel* p) {
-  for (usz i = 0; i < PATHSEL_SLOTS; i++)
-    if (!p->slot[i].in_use) return &p->slot[i];
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    if (!p->slot[i].in_use) {
+      return &p->slot[i];
+    }
+  }
   return 0;
 }
 
@@ -32,7 +38,9 @@ static pathsel_slot* pathsel_victim(pathsel* p, const pathsel_key* keep) {
 }
 
 static pathsel_slot* pathsel_take(pathsel_slot* s, const pathsel_key* k) {
-  if (!s) return 0;
+  if (!s) {
+    return 0;
+  }
   *s        = (pathsel_slot){0};
   s->key    = *k;
   s->in_use = 1;
@@ -42,7 +50,9 @@ static pathsel_slot* pathsel_take(pathsel_slot* s, const pathsel_key* k) {
 pathsel_slot* pathsel_claim(
     pathsel* p, const pathsel_key* k, const pathsel_key* keep) {
   pathsel_slot* s = pathsel_find(p, k);
-  if (s) return s;
+  if (s) {
+    return s;
+  }
   s = pathsel_first_free(p);
   return pathsel_take(s ? s : pathsel_victim(p, keep), k);
 }
@@ -69,9 +79,11 @@ static int pathsel_answers(const pathsel_slot* s, const u8 resp[PATH_DATA]) {
 }
 
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out) {
-  for (usz i = 0; i < PATHSEL_SLOTS; i++)
-    if (pathsel_answers(&p->slot[i], resp))
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    if (pathsel_answers(&p->slot[i], resp)) {
       return pathsel_release(&p->slot[i], out);
+    }
+  }
   return 0;
 }
 
@@ -80,9 +92,11 @@ static int pathsel_expired(const pathsel_slot* s, u64 now_ms, u64 timeout_ms) {
 }
 
 int pathsel_expire(pathsel* p, u64 now_ms, u64 timeout_ms, pathsel_key* out) {
-  for (usz i = 0; i < PATHSEL_SLOTS; i++)
-    if (pathsel_expired(&p->slot[i], now_ms, timeout_ms))
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    if (pathsel_expired(&p->slot[i], now_ms, timeout_ms)) {
       return pathsel_release(&p->slot[i], out);
+    }
+  }
   return 0;
 }
 
@@ -91,7 +105,10 @@ static int pathsel_resend(const pathsel_slot* s, u64 now_ms, u64 pto_ms) {
 }
 
 pathsel_slot* pathsel_resend_due(pathsel* p, u64 now_ms, u64 pto_ms) {
-  for (usz i = 0; i < PATHSEL_SLOTS; i++)
-    if (pathsel_resend(&p->slot[i], now_ms, pto_ms)) return &p->slot[i];
+  for (usz i = 0; i < PATHSEL_SLOTS; i++) {
+    if (pathsel_resend(&p->slot[i], now_ms, pto_ms)) {
+      return &p->slot[i];
+    }
+  }
   return 0;
 }

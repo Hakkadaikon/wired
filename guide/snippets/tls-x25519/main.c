@@ -19,8 +19,12 @@ int wired_main(int argc, char** argv) {
   wired_x25519_base(bob_pub, bob_priv);
   /* Each side combines its own private key with the other's public key.
    * A 0 return means a low-order peer key: reject the handshake. */
-  if (!wired_x25519(alice_shared, alice_priv, bob_pub)) return 1;
-  if (!wired_x25519(bob_shared, bob_priv, alice_pub)) return 1;
+  if (!wired_x25519(alice_shared, alice_priv, bob_pub)) {
+    return 1;
+  }
+  if (!wired_x25519(bob_shared, bob_priv, alice_pub)) {
+    return 1;
+  }
   wired_dprintf(2, "alice public: ");
   wired_dump_hex(2, wired_span_of(alice_pub, 32));
   wired_dprintf(2, "\nbob public:   ");

@@ -136,7 +136,9 @@ static void test_rawq_srvloop_raw_routes(void) {
   u = wired_srvloop_wt_uni_slot_find(&rawq_test_loop, 2);
   b = wired_srvloop_wt_slot_find(&rawq_test_loop, 0);
   CHECK(u >= 0 && b >= 0);
-  if (u < 0 || b < 0) return;
+  if (u < 0 || b < 0) {
+    return;
+  }
   CHECK(rawq_test_loop.wt_uni_streams[u].type_len == 0);
   CHECK(rawq_test_loop.wt_uni_streams[u].sig_pending == 0);
   CHECK(rawq_test_loop.wt_uni_streams[u].buf[0] == 0x6f);

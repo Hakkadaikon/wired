@@ -3,11 +3,15 @@
 /* be<->limb round-trips and preserves byte order. */
 static void test_bn_be_roundtrip(void) {
   u8 be[256], out[256];
-  for (usz i = 0; i < 256; i++) be[i] = (u8)(i + 1);
+  for (usz i = 0; i < 256; i++) {
+    be[i] = (u8)(i + 1);
+  }
   bn a;
   bn_from_be(&a, be, 256);
   bn_to_be(&a, out, 256);
-  for (usz i = 0; i < 256; i++) CHECK(out[i] == be[i]);
+  for (usz i = 0; i < 256; i++) {
+    CHECK(out[i] == be[i]);
+  }
 
   /* most significant byte sits in the top limb */
   CHECK((a.v[31] >> 56) == 0x01);
@@ -21,7 +25,9 @@ static void test_bn_from_be_short(void) {
   bn a;
   bn_from_be(&a, be, 3);
   CHECK(a.v[0] == 0x10000);
-  for (usz i = 1; i < BN_LIMBS; i++) CHECK(a.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) {
+    CHECK(a.v[i] == 0);
+  }
 }
 
 static void test_bn_cmp_zero(void) {

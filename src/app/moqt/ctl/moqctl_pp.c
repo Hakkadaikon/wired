@@ -8,9 +8,13 @@ static int moqctl_params_take_loop(
 static int moqctl_params_take_step(
     wired_span buf, usz* at, u32 ctx, int ver, u64* prev, moqctl_params* out) {
   int r;
-  if (out->n >= MOQCTL_MAX_PARAMS) return MOQCTL_VIOLATION;
+  if (out->n >= MOQCTL_MAX_PARAMS) {
+    return MOQCTL_VIOLATION;
+  }
   r = moqctl_param_take_one(buf, at, ctx, ver, *prev, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *prev = out->items[out->n - 1].type;
   return MOQCTL_OK;
 }
@@ -20,7 +24,9 @@ static int moqctl_params_take_loop(
   u64 prev = 0;
   for (u64 i = 0; i < count; i++) {
     int r = moqctl_params_take_step(buf, at, ctx, ver, &prev, out);
-    if (r != MOQCTL_OK) return r;
+    if (r != MOQCTL_OK) {
+      return r;
+    }
   }
   return MOQCTL_OK;
 }
@@ -31,15 +37,21 @@ int moqctl_params_take(
   u64 count;
   int r;
   out->n = 0;
-  if (!moqvi_take(buf, &at, &count)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, &at, &count)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   r = moqctl_params_take_loop(buf, &at, ctx, ver, count, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *off = at;
   return MOQCTL_OK;
 }
 
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v) {
-  if (*at + 1 > buf.n) return 0;
+  if (*at + 1 > buf.n) {
+    return 0;
+  }
   buf.p[*at] = (u8)v;
   *at += 1;
   return 1;
@@ -58,6 +70,8 @@ int moqctl_pp_location(wired_mspan buf, usz* at, const moqctl_param* p) {
 }
 
 int moqctl_pp_bytes(wired_mspan buf, usz* at, const moqctl_param* p) {
-  if (!moqvi_put(buf, at, p->bytes.n)) return 0;
+  if (!moqvi_put(buf, at, p->bytes.n)) {
+    return 0;
+  }
   return bytes_put(buf, at, p->bytes);
 }

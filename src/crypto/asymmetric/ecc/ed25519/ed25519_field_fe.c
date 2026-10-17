@@ -10,11 +10,15 @@ void ed_fe_1(fe h) {
 }
 
 void ed_fe_copy(fe h, const fe f) {
-  for (usz i = 0; i < 5; i++) h[i] = f[i];
+  for (usz i = 0; i < 5; i++) {
+    h[i] = f[i];
+  }
 }
 
 void ed_fe_add(fe h, const fe f, const fe g) {
-  for (usz i = 0; i < 5; i++) h[i] = f[i] + g[i];
+  for (usz i = 0; i < 5; i++) {
+    h[i] = f[i] + g[i];
+  }
 }
 
 /* h = f - g (mod p), adding 2p first to stay non-negative. */
@@ -22,7 +26,9 @@ void ed_fe_sub(fe h, const fe f, const fe g) {
   static const u64 twop[5] = {
       0xfffffffffffdaULL, 0xffffffffffffeULL, 0xffffffffffffeULL,
       0xffffffffffffeULL, 0xffffffffffffeULL};
-  for (usz i = 0; i < 5; i++) h[i] = f[i] + twop[i] - g[i];
+  for (usz i = 0; i < 5; i++) {
+    h[i] = f[i] + twop[i] - g[i];
+  }
 }
 
 /* One column of the schoolbook product with the 19-fold wrap past 2^255. */
@@ -50,7 +56,9 @@ static void fe_reduce(fe h, unsigned __int128 t[5]) {
 
 void ed_fe_mul(fe h, const fe f, const fe g) {
   unsigned __int128 t[5];
-  for (usz i = 0; i < 5; i++) t[i] = mul_col(f, g, i);
+  for (usz i = 0; i < 5; i++) {
+    t[i] = mul_col(f, g, i);
+  }
   fe_reduce(h, t);
 }
 
@@ -59,7 +67,9 @@ void ed_fe_sq(fe h, const fe f) { ed_fe_mul(h, f, f); }
 /* Repeated squaring: out = in^(2^n). */
 static void fe_sqn(fe out, const fe in, usz n) {
   ed_fe_copy(out, in);
-  for (usz i = 0; i < n; i++) ed_fe_sq(out, out);
+  for (usz i = 0; i < n; i++) {
+    ed_fe_sq(out, out);
+  }
 }
 
 /* z = f^(p-2): modular inverse via the standard ref10 addition chain. */

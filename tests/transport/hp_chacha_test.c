@@ -17,5 +17,7 @@ void test_hp_chacha(void) {
   hpc_uhx("5e5cd55c41f69080575d7999c25a5bfb", sample, 16);
   hp_chacha_mask(hpkey, sample, mask);
   hpc_uhx("aefefe7d03", want, 5);
-  for (usz i = 0; i < 5; i++) CHECK(mask[i] == want[i]);
+  for (usz i = 0; i < 5; i++) {
+    CHECK(mask[i] == want[i]);
+  }
 }

@@ -8,8 +8,12 @@
 static void test_certverify_bad_scheme(void) {
   u8            th[32], sig[64];
   certverify_in in;
-  for (usz i = 0; i < 32; i++) th[i] = (u8)i;
-  for (usz i = 0; i < 64; i++) sig[i] = 0;
+  for (usz i = 0; i < 32; i++) {
+    th[i] = (u8)i;
+  }
+  for (usz i = 0; i < 64; i++) {
+    sig[i] = 0;
+  }
   in.cert            = wired_span_of(x509_golden, sizeof(x509_golden));
   in.sig             = wired_span_of(sig, sizeof(sig));
   in.transcript_hash = th;
@@ -27,7 +31,9 @@ static void test_certverify_ecdsa_bogus(void) {
    * wrong signature. */
   const u8      sig[] = {0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01};
   certverify_in in;
-  for (usz i = 0; i < 32; i++) th[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    th[i] = (u8)i;
+  }
   in.scheme          = TLS_SCHEME_ECDSA_P256;
   in.cert            = wired_span_of(x509_golden, sizeof(x509_golden));
   in.sig             = wired_span_of(sig, sizeof(sig));
@@ -40,7 +46,9 @@ static void test_certverify_ecdsa_malformed(void) {
   u8            th[32];
   const u8      sig[] = {0x02, 0x01, 0x01}; /* a bare INTEGER, not SEQUENCE */
   certverify_in in;
-  for (usz i = 0; i < 32; i++) th[i] = (u8)i;
+  for (usz i = 0; i < 32; i++) {
+    th[i] = (u8)i;
+  }
   in.scheme          = TLS_SCHEME_ECDSA_P256;
   in.cert            = wired_span_of(x509_golden, sizeof(x509_golden));
   in.sig             = wired_span_of(sig, sizeof(sig));

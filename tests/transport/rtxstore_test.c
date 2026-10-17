@@ -9,7 +9,9 @@ static void test_rtxstore_store_get_roundtrip(void) {
   CHECK(rtxbytes_store(&st, 7, wired_span_of(frame, sizeof frame)) == 1);
   CHECK(rtxbytes_get(&st, 7, &got) == 1);
   CHECK(got.n == sizeof frame);
-  for (usz i = 0; i < sizeof frame; i++) CHECK(got.p[i] == frame[i]);
+  for (usz i = 0; i < sizeof frame; i++) {
+    CHECK(got.p[i] == frame[i]);
+  }
 }
 
 static void test_rtxstore_miss(void) {

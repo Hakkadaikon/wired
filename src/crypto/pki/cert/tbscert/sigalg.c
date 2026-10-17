@@ -12,6 +12,8 @@ int tbscert_sigalg_oid(const tbscert* t, wired_span* oid) {
 
 int tbscert_sigalg_matches(const tbscert* t, wired_span outer_oid) {
   wired_span oid;
-  if (!tbscert_sigalg_oid(t, &oid)) return 0;
+  if (!tbscert_sigalg_oid(t, &oid)) {
+    return 0;
+  }
   return der_oid_equal(oid, outer_oid);
 }

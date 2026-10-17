@@ -20,7 +20,9 @@ static int namref_name(
     wired_span fs, const qdyn_src* dyn, rline* L, wired_span* name) {
   qpack_nameref r   = {0, 0, 0};
   qdyn_src      src = {dyn->table, dyn->base, fs, dyn->ric};
-  if (!qpack_literal_namref_head(fs, &r)) return 0;
+  if (!qpack_literal_namref_head(fs, &r)) {
+    return 0;
+  }
   L->ref_bad = !qdyn_resolve_name(&src, r.is_static, r.index, name);
   return !L->ref_bad;
 }
@@ -33,9 +35,13 @@ static usz line_namref(
   wired_obuf    vb = obuf_of(scr.p, scr.n);
   wired_span    name;
   usz           c;
-  if (!namref_name(fs, dyn, L, &name)) return 0;
+  if (!namref_name(fs, dyn, L, &name)) {
+    return 0;
+  }
   c = qpack_literal_namref_decode(fs, &r, &vb);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   h3reqdrive_literal_line(L, name, scr, vb.len);
   return c;
 }
@@ -44,7 +50,9 @@ static usz line_namref(
 static int postbase_name(
     wired_span fs, const qdyn_src* dyn, rline* L, wired_span* name) {
   qpack_postbaseref r = {0, 0};
-  if (!qpack_literal_postbase_head(fs, &r)) return 0;
+  if (!qpack_literal_postbase_head(fs, &r)) {
+    return 0;
+  }
   L->ref_bad = !qdyn_resolve_postbase_name(dyn, r.index, name);
   return !L->ref_bad;
 }
@@ -57,9 +65,13 @@ static usz line_postbase(
   wired_obuf        vb = obuf_of(scr.p, scr.n);
   wired_span        name;
   usz               c;
-  if (!postbase_name(fs, dyn, L, &name)) return 0;
+  if (!postbase_name(fs, dyn, L, &name)) {
+    return 0;
+  }
   c = qpack_literal_postbase_decode(fs, &r, &vb);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   h3reqdrive_literal_line(L, name, scr, vb.len);
   return c;
 }
@@ -78,7 +90,9 @@ static usz line_litname(
   qpack_fieldbuf fb   = {
       obuf_of(scr.p, half), obuf_of(scr.p + half, scr.n - half)};
   usz c = qpack_literal_name_decode(fs, &never, &fb);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   L->name         = scr.p;
   L->name_len     = fb.name.len;
   L->value        = scr.p + half;

@@ -17,7 +17,9 @@ static u16 take_be16(const u8* p) { return (u16)((u16)p[0] << 8 | p[1]); }
 
 /* Append a big-endian 16-bit port at *off. Returns 1 if it fit. */
 static int pa_put_port(wired_mspan v, usz* off, u16 port) {
-  if (*off + 2 > v.n) return 0;
+  if (*off + 2 > v.n) {
+    return 0;
+  }
   be_put_be16(v.p + *off, port);
   *off += 2;
   return 1;
@@ -47,13 +49,17 @@ usz tparam_put_preferred_address(
   u8         v[61]; /* 4+2+16+2+1 + 20 + 16 */
   usz        vlen = pa_build_value(v, sizeof(v), pa);
   wired_obuf out  = obuf_of(buf, cap);
-  if (vlen == 0) return 0;
+  if (vlen == 0) {
+    return 0;
+  }
   return tparam_put_blob(&out, TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
 }
 
 /* Read a big-endian 16-bit port at *off into *port. Returns 1 if present. */
 static int pa_take_port(wired_span v, usz* off, u16* port) {
-  if (*off + 2 > v.n) return 0;
+  if (*off + 2 > v.n) {
+    return 0;
+  }
   *port = take_be16(v.p + *off);
   *off += 2;
   return 1;
@@ -73,9 +79,12 @@ static int pa_take_addrs(wired_span v, usz* off, struct preferred_address* pa) {
  * bytes_take has actually written it. */
 static int pa_take_cid(wired_span v, usz* off, struct preferred_address* pa) {
   if (!bytes_take(
-          wired_span_of(v.p, v.n), off, wired_mspan_of(&pa->cid_len, 1)))
+          wired_span_of(v.p, v.n), off, wired_mspan_of(&pa->cid_len, 1))) {
     return 0;
-  if (pa->cid_len > 20) return 0;
+  }
+  if (pa->cid_len > 20) {
+    return 0;
+  }
   return bytes_take(
       wired_span_of(v.p, v.n), off, wired_mspan_of(pa->cid, pa->cid_len));
 }
@@ -83,7 +92,9 @@ static int pa_take_cid(wired_span v, usz* off, struct preferred_address* pa) {
 /* Read cid_len, cid, reset token. Returns 1 ok, 0 if bad. */
 static int pa_take_cid_token(
     wired_span v, usz* off, struct preferred_address* pa) {
-  if (!pa_take_cid(v, off, pa)) return 0;
+  if (!pa_take_cid(v, off, pa)) {
+    return 0;
+  }
   return bytes_take(
       wired_span_of(v.p, v.n), off, wired_mspan_of(pa->reset_token, 16));
 }
@@ -100,7 +111,9 @@ static int pa_parse_value(wired_span v, struct preferred_address* pa) {
  * even passing an unread id by value to a helper counts as a read for
  * uninitialized-value analysis. */
 static int pa_blob_is_preferred_address(usz r, u64 id) {
-  if (r == 0) return 0;
+  if (r == 0) {
+    return 0;
+  }
   return id == TP_PREFERRED_ADDRESS;
 }
 
@@ -109,7 +122,11 @@ usz tparam_get_preferred_address(
   u64        id = 0;
   wired_span v;
   usz        r = tparam_get_blob(wired_span_of(buf, n), &id, &v);
-  if (!pa_blob_is_preferred_address(r, id)) return 0;
-  if (!pa_parse_value(v, pa)) return 0;
+  if (!pa_blob_is_preferred_address(r, id)) {
+    return 0;
+  }
+  if (!pa_parse_value(v, pa)) {
+    return 0;
+  }
   return r;
 }

@@ -20,7 +20,9 @@ void connrunner_pmtu_init(connrunner* r) {
  * need retransmission if the probe is lost (RFC 8899 3.4). Returns size, or
  * 0 if size does not fit cap. */
 static usz build_ping_padding(u8* buf, usz cap, usz size) {
-  if (size == 0 || size > cap) return 0;
+  if (size == 0 || size > cap) {
+    return 0;
+  }
   buf[0] = FRAME_PING;
   bytes_memset(buf + 1, FRAME_PADDING, size - 1);
   return size;
@@ -44,7 +46,9 @@ static int within_min_probe_interval(const connrunner* r, u64 now) {
  * pmtu_probe_held, which stays 0 until a probe is actually sealed (below),
  * and the next call recomputes the candidate fresh from validated/ceiling. */
 static usz gate_min_interval(const connrunner* r, u64 now, usz size) {
-  if (!size) return 0;
+  if (!size) {
+    return 0;
+  }
   return within_min_probe_interval(r, now) ? 0 : size;
 }
 
@@ -54,8 +58,12 @@ static usz gate_min_interval(const connrunner* r, u64 now, usz size) {
  * the PMTU_RAISE_TIMER fires after Search Complete, resume the search first
  * so a larger candidate becomes available again. */
 static usz next_probe_size(connrunner* r, u64 now) {
-  if (r->pmtu_probe_held) return 0;
-  if (pmtu_raise_timer_due(&r->pmtu, now)) pmtu_resume_search(&r->pmtu);
+  if (r->pmtu_probe_held) {
+    return 0;
+  }
+  if (pmtu_raise_timer_due(&r->pmtu, now)) {
+    pmtu_resume_search(&r->pmtu);
+  }
   return gate_min_interval(r, now, pmtu_next_probe(&r->pmtu, now));
 }
 
@@ -69,7 +77,9 @@ static usz seal_probe(
   r->pmtu_probe_pn   = connio_tx_next(&r->io, r->loop.level);
   sealed             = connio_send(&r->io, &sin, out);
   r->pmtu_probe_held = sealed != 0;
-  if (sealed) r->pmtu_last_probe_sent_at = now;
+  if (sealed) {
+    r->pmtu_last_probe_sent_at = now;
+  }
   return sealed;
 }
 
@@ -77,9 +87,13 @@ usz connrunner_pmtu_build_probe(connrunner* r, wired_obuf* out, u64 now) {
   u8  frame[PMTU_MAX];
   usz size = next_probe_size(r, now);
   usz fl;
-  if (!size) return 0;
+  if (!size) {
+    return 0;
+  }
   fl = build_ping_padding(frame, sizeof(frame), size);
-  if (!fl) return 0;
+  if (!fl) {
+    return 0;
+  }
   return seal_probe(r, wired_span_of(frame, fl), out, now);
 }
 
@@ -90,20 +104,26 @@ static int is_outstanding_probe(const connrunner* r, u64 pn) {
 }
 
 void connrunner_pmtu_on_ack(connrunner* r, u64 pn) {
-  if (!is_outstanding_probe(r, pn)) return;
+  if (!is_outstanding_probe(r, pn)) {
+    return;
+  }
   pmtu_on_ack(&r->pmtu, r->pmtu.probe);
   r->pmtu_probe_held = 0;
 }
 
 void connrunner_pmtu_on_loss(connrunner* r, u64 pn) {
-  if (!is_outstanding_probe(r, pn)) return;
+  if (!is_outstanding_probe(r, pn)) {
+    return;
+  }
   pmtu_on_loss(&r->pmtu, r->pmtu.probe);
   r->pmtu_probe_held = 0;
 }
 
 void connrunner_pmtu_track_sent(connrunner* r, u64 now, usz len) {
   sentmeta_out pkt;
-  if (!r->pmtu_probe_held || len == 0) return;
+  if (!r->pmtu_probe_held || len == 0) {
+    return;
+  }
   pkt = (sentmeta_out){r->pmtu_probe_pn, now, 1, 1, len};
   sentmeta_on_sent(&r->sent, &pkt);
 }
@@ -111,8 +131,11 @@ void connrunner_pmtu_track_sent(connrunner* r, u64 now, usz len) {
 /* 1 if pn appears anywhere in lost[0..n). */
 static int pn_in_lost(const u64* lost, usz n, u64 pn) {
   usz i;
-  for (i = 0; i < n; i++)
-    if (lost[i] == pn) return 1;
+  for (i = 0; i < n; i++) {
+    if (lost[i] == pn) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -130,12 +153,18 @@ static int probe_was_acked(const connrunner* r) {
 static void reconcile_loss(
     connrunner* r, u64 pn, const u64* lost, usz n, u64 now) {
   int expired = pmtu_probe_timer_due(&r->pmtu, now);
-  if (pn_in_lost(lost, n, pn) || expired) connrunner_pmtu_on_loss(r, pn);
+  if (pn_in_lost(lost, n, pn) || expired) {
+    connrunner_pmtu_on_loss(r, pn);
+  }
 }
 
 void connrunner_pmtu_reconcile(connrunner* r, const u64* lost, usz n, u64 now) {
   u64 pn = r->pmtu_probe_pn;
-  if (!r->pmtu_probe_held) return;
-  if (probe_was_acked(r)) return connrunner_pmtu_on_ack(r, pn);
+  if (!r->pmtu_probe_held) {
+    return;
+  }
+  if (probe_was_acked(r)) {
+    return connrunner_pmtu_on_ack(r, pn);
+  }
   reconcile_loss(r, pn, lost, n, now);
 }

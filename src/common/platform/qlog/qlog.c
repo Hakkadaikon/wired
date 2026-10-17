@@ -11,7 +11,9 @@
 
 ssz wired_qlog_append(const char* path, wired_span record) {
   u8 frame[QLOG_MAX_RECORD + QLOG_FRAME_OVERHEAD];
-  if (record.n > QLOG_MAX_RECORD) return WIRED_FIO_ETOOBIG;
+  if (record.n > QLOG_MAX_RECORD) {
+    return WIRED_FIO_ETOOBIG;
+  }
   frame[0] = QLOG_RS;
   bytes_memcpy(frame + 1, record.p, record.n);
   frame[1 + record.n] = '\n';

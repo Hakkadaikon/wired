@@ -34,7 +34,9 @@ static int recv_handshake(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   wired_srvloop_dirkeys dk;
-  if (!wired_srvloop_open_keys(s, LEVEL_HANDSHAKE, &dk)) return 0;
+  if (!wired_srvloop_open_keys(s, LEVEL_HANDSHAKE, &dk)) {
+    return 0;
+  }
   protect_keys pk = {dk.keys, &dk.hp};
   return hspkt_open_suite(
       s->sdrv.cipher_suite, &pk, in->dgram, in->hs_largest_pn, &out->payload);
@@ -52,13 +54,17 @@ static usz onertt_hdr_len(u8 dcid_len) { return 1u + (usz)dcid_len + 4u; }
 static void onertt_backup(
     wired_mspan pkt, u8 dcid_len, u8 save[RECV_ONERTT_HDR_MAX]) {
   usz n = onertt_hdr_len(dcid_len);
-  for (usz i = 0; i < n && i < pkt.n; i++) save[i] = pkt.p[i];
+  for (usz i = 0; i < n && i < pkt.n; i++) {
+    save[i] = pkt.p[i];
+  }
 }
 
 static void onertt_restore(
     wired_mspan pkt, u8 dcid_len, const u8 save[RECV_ONERTT_HDR_MAX]) {
   usz n = onertt_hdr_len(dcid_len);
-  for (usz i = 0; i < n && i < pkt.n; i++) pkt.p[i] = save[i];
+  for (usz i = 0; i < n && i < pkt.n; i++) {
+    pkt.p[i] = save[i];
+  }
 }
 
 /* Try opening with one key candidate; restores the header bytes first so a
@@ -105,7 +111,9 @@ static void onertt_rotate_to(
     wired_server* s, const initial_keys* next, const u8* next_secret) {
   kuswitch_rotate(&s->ku, next);
   bytes_memcpy(s->ku_secret, next_secret, TLS_HASH_MAX);
-  if (s->ku_send.generation < s->ku.generation) srvloop_ku_rotate_send(s);
+  if (s->ku_send.generation < s->ku.generation) {
+    srvloop_ku_rotate_send(s);
+  }
 }
 
 /* RFC 9001 6.3: current generation first (the common case, every packet
@@ -116,7 +124,9 @@ static int onertt_try_known(
     const wired_srvloop_recv_in* in,
     const u8                     save[RECV_ONERTT_HDR_MAX],
     wired_srvloop_recv_out*      out) {
-  if (onertt_try(s, in, &s->ku.cur, save, out)) return 1;
+  if (onertt_try(s, in, &s->ku.cur, save, out)) {
+    return 1;
+  }
   return s->ku.have_old && onertt_try(s, in, &s->ku.old, save, out);
 }
 
@@ -135,7 +145,9 @@ static int onertt_try_next_gen(
       s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
   bytes_memcpy(next.hp, s->ku.cur.hp, AEAD_KEY_MAX);
-  if (!onertt_try(s, in, &next, save, out)) return 0;
+  if (!onertt_try(s, in, &next, save, out)) {
+    return 0;
+  }
   onertt_rotate_to(s, &next, next_secret);
   return 1;
 }
@@ -161,9 +173,13 @@ static int recv_onertt(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   u8 save[RECV_ONERTT_HDR_MAX];
-  if (!s->ku_seeded) return 0;
+  if (!s->ku_seeded) {
+    return 0;
+  }
   onertt_backup(in->dgram, s->sdrv.iscid_len, save);
-  if (onertt_try_any(s, in, save, out)) return 1;
+  if (onertt_try_any(s, in, save, out)) {
+    return 1;
+  }
   s->ku_auth_fail++;
   return 0;
 }
@@ -193,7 +209,9 @@ static int recv_zerortt(
     wired_server* s, const wired_srvloop_recv_in* in, wired_span* payload) {
   initial_keys keys;
   aes128       hp;
-  if (!sdrv_early_keys(&s->sdrv, &keys)) return 0;
+  if (!sdrv_early_keys(&s->sdrv, &keys)) {
+    return 0;
+  }
   aes128_init(&hp, keys.hp);
   {
     protect_keys pk = {&keys, &hp};
@@ -222,7 +240,9 @@ static int recv_dispatch(
     out->level = LEVEL_ONERTT;
     return recv_zerortt(s, in, &out->payload);
   }
-  if (!connrunner_packet_level(in->dgram.p[0], version, &out->level)) return 0;
+  if (!connrunner_packet_level(in->dgram.p[0], version, &out->level)) {
+    return 0;
+  }
   return recv_at_level(s, in, out);
 }
 
@@ -230,6 +250,8 @@ int wired_srvloop_recv(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  if (in->dgram.n == 0) return 0;
+  if (in->dgram.n == 0) {
+    return 0;
+  }
   return recv_dispatch(s, in, out);
 }

@@ -10,7 +10,9 @@ static void test_idna_ascii_passthrough(void) {
   usz      n = salpn_idna_to_ascii(
       wired_span_of(host, sizeof(host) - 1), out, sizeof(out));
   CHECK(n == sizeof(host) - 1);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == host[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == host[i]);
+  }
 }
 
 /* An already-encoded A-label ("xn--...") is itself pure ASCII and passes
@@ -22,7 +24,9 @@ static void test_idna_alabel_passthrough(void) {
   usz      n = salpn_idna_to_ascii(
       wired_span_of(host, sizeof(host) - 1), out, sizeof(out));
   CHECK(n == sizeof(host) - 1);
-  for (usz i = 0; i < n; i++) CHECK(out[i] == host[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(out[i] == host[i]);
+  }
 }
 
 /* A raw U-label (actual non-ASCII codepoints, UTF-8 "café.example") is

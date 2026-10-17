@@ -9,14 +9,18 @@ void memlink_init(memlink* l) {
 /* Copy len bytes into the tail slot and advance. */
 static void enqueue(memlink* l, const u8* buf, usz len) {
   memlink_dgram* d = &l->slots[l->tail];
-  for (usz i = 0; i < len; i++) d->data[i] = buf[i];
+  for (usz i = 0; i < len; i++) {
+    d->data[i] = buf[i];
+  }
   d->len  = len;
   l->tail = (l->tail + 1) % MEMLINK_SLOTS;
   l->count++;
 }
 
 int memlink_send(memlink* l, const u8* buf, usz len) {
-  if (l->count == MEMLINK_SLOTS || len > MEMLINK_MTU) return 0;
+  if (l->count == MEMLINK_SLOTS || len > MEMLINK_MTU) {
+    return 0;
+  }
   enqueue(l, buf, len);
   return 1;
 }
@@ -24,13 +28,17 @@ int memlink_send(memlink* l, const u8* buf, usz len) {
 /* Copy the head slot into out and advance. */
 static usz dequeue(memlink* l, u8* out) {
   memlink_dgram* d = &l->slots[l->head];
-  for (usz i = 0; i < d->len; i++) out[i] = d->data[i];
+  for (usz i = 0; i < d->len; i++) {
+    out[i] = d->data[i];
+  }
   l->head = (l->head + 1) % MEMLINK_SLOTS;
   l->count--;
   return d->len;
 }
 
 usz memlink_recv(memlink* l, u8* out, usz cap) {
-  if (l->count == 0 || l->slots[l->head].len > cap) return 0;
+  if (l->count == 0 || l->slots[l->head].len > cap) {
+    return 0;
+  }
   return dequeue(l, out);
 }

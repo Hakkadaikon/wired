@@ -23,20 +23,26 @@ void moqtrun_rngf_rows_add(
 static void moqtrun_rngf_add_item(
     wired_moqtrun_sub* s, const moqctl_param* it) {
   moqctl_rangefilter f;
-  if (!moqtrun_rngf_of(it, &f)) return;
+  if (!moqtrun_rngf_of(it, &f)) {
+    return;
+  }
   moqtrun_rngf_rows_add(s->rngf, &s->rngf_n, it->type, &f);
 }
 
 /* SUBSCRIBE: the message is the subscription's whole Range Filter set. */
 void moqtrun_sub_rngf_set(wired_moqtrun_sub* s, const moqctl_params* params) {
   s->rngf_n = 0;
-  for (usz i = 0; i < params->n; i++)
+  for (usz i = 0; i < params->n; i++) {
     moqtrun_rngf_add_item(s, &params->items[i]);
+  }
 }
 
 int moqtrun_rngf_msg_has(const moqctl_params* params, u64 ptype) {
-  for (usz i = 0; i < params->n; i++)
-    if (params->items[i].type == ptype) return 1;
+  for (usz i = 0; i < params->n; i++) {
+    if (params->items[i].type == ptype) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -46,9 +52,11 @@ int moqtrun_rngf_msg_has(const moqctl_params* params, u64 ptype) {
 static void moqtrun_rngf_drop_mentioned(
     wired_moqtrun_sub* s, const moqctl_params* params) {
   usz w = 0;
-  for (usz i = 0; i < s->rngf_n; i++)
-    if (!moqtrun_rngf_msg_has(params, s->rngf[i].ptype))
+  for (usz i = 0; i < s->rngf_n; i++) {
+    if (!moqtrun_rngf_msg_has(params, s->rngf[i].ptype)) {
       s->rngf[w++] = s->rngf[i];
+    }
+  }
   s->rngf_n = (u8)w;
 }
 
@@ -56,8 +64,9 @@ static void moqtrun_rngf_drop_mentioned(
 void moqtrun_sub_rngf_update(
     wired_moqtrun_sub* s, const moqctl_params* params) {
   moqtrun_rngf_drop_mentioned(s, params);
-  for (usz i = 0; i < params->n; i++)
+  for (usz i = 0; i < params->n; i++) {
     moqtrun_rngf_add_item(s, &params->items[i]);
+  }
 }
 
 int moqtrun_row_in(const wired_moqtrun_rngrow* r, u64 v) {

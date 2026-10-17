@@ -24,9 +24,13 @@ static void moqtrun_relay_save_hdr(
   moqdata_subhdr hdr;
   relay->hdr_len = 0;
   if (!moqtrun_stream_keys(
-          data, relay->default_pub_prio, &relay->subgroup_id, &relay->pub_prio))
+          data, relay->default_pub_prio, &relay->subgroup_id,
+          &relay->pub_prio)) {
     return;
-  if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) return;
+  }
+  if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) {
+    return;
+  }
   moqtrun_relay_save_hdr_raw(relay, data, off);
 }
 
@@ -127,7 +131,9 @@ void moqtrun_cache_obj(
     wired_moqtrun_track* t,
     u64                  group,
     const moqdata_obj*   o) {
-  if (!moqtrun_cacheable(hub, t, o->status)) return;
+  if (!moqtrun_cacheable(hub, t, o->status)) {
+    return;
+  }
   moqcache_append(&hub->cache, t->cache_tag, group, o->object_id, o->payload);
 }
 

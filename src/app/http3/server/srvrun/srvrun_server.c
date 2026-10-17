@@ -14,7 +14,9 @@ static i64 srvrun_wt_open_bidi_common(
  * the stream and everything sent on it. */
 int srvrun_wt_uni_open_ok(
     srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload) {
-  if (!srvrun_wt_open_flow_ok(sidx, s, 0, payload)) return 0;
+  if (!srvrun_wt_open_flow_ok(sidx, s, 0, payload)) {
+    return 0;
+  }
   return srvrun_wt_uni_grant_ok(c);
 }
 
@@ -28,7 +30,9 @@ i64 srvrun_wt_open_uni_common(
     return -1;
   }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
-  if (!w) return -1;
+  if (!w) {
+    return -1;
+  }
   w->append_open     = keep_open;
   w->wt_session_slot = sidx;
   wired_wt_session_note_stream_opened(s, 0);
@@ -56,7 +60,9 @@ i64 wired_server_wt_open_uni_stream(wired_wt_session* s, wired_span payload) {
 static void srvrun_wt_preclaim_bidi_recv(
     srvrun_conn* c, wired_wt_session* s, int sidx, u64 id) {
   int i = wired_srvloop_wt_slot_claim_local(&c->l, id);
-  if (i < 0) return;
+  if (i < 0) {
+    return;
+  }
   c->l.wt_streams[i].offered         = 1;
   c->l.wt_streams[i].wt_session_slot = sidx; /* its owner, D1 */
   wired_wt_session_offer_stream(s, id);
@@ -76,7 +82,9 @@ static i64 srvrun_wt_open_bidi_common(
   }
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
-  if (!w) return -1;
+  if (!w) {
+    return -1;
+  }
   w->append_open     = keep_open;
   w->wt_session_slot = sidx;
   wired_wt_session_note_stream_opened(s, 1);
@@ -109,7 +117,9 @@ int srvrun_wt_reply_flow_ok(int sidx, wired_wt_session* s, usz len) {
  * none. */
 int srvrun_wt_rx_owner(const srvrun_conn* c, u64 stream_id) {
   int i = wired_srvloop_wt_slot_find(&c->l, stream_id);
-  if (i >= 0) return c->l.wt_streams[i].wt_session_slot;
+  if (i >= 0) {
+    return c->l.wt_streams[i].wt_session_slot;
+  }
   i = wired_srvloop_wt_uni_slot_find(&c->l, stream_id);
   return i >= 0 ? c->l.wt_uni_streams[i].wt_session_slot : SRVRUN_WT_UNTRACKED;
 }

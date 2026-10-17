@@ -11,18 +11,22 @@ void srvrun_wt_rx_capsules_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
   srvrun_wt_caprx            x    = {0, 0, 0, WTERR_SESSION_GONE};
-  if (!slot) return;
-  if (srvrun_wt_rx_walk(cfg, c, sidx, slot, &x))
+  if (!slot) {
+    return;
+  }
+  if (srvrun_wt_rx_walk(cfg, c, sidx, slot, &x)) {
     srvrun_grant_body_credit(cfg, c, slot);
-  else
+  } else {
     srvrun_wt_rx_fail(cfg, c, sidx, x.violation_code);
+  }
 }
 
 /* Per-step receive pass over every session slot, same fan-out shape as
  * srvrun_drain_wt_close_pending. */
 void srvrun_wt_rx_capsules(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     srvrun_wt_rx_capsules_one(cfg, c, i);
+  }
 }
 
 void srvrun_close_wt_on_stream_close(const srvrun_cfg* cfg, srvrun_conn* c) {
@@ -60,8 +64,9 @@ void srvrun_send_wt_close(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   if (!wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
           wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])) ||
-      !srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1))
+      !srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 1)) {
     srvrun_reset_connect_stream_code(cfg, c, sidx, WTERR_SESSION_GONE);
+  }
   srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
 }
 
@@ -84,18 +89,22 @@ static const srvrun_sess_close_fn srvrun_sess_close_by_raw[2] = {
 
 static void srvrun_drain_wt_close_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int i) {
-  if (!c->wt_close_pending[i]) return;
+  if (!c->wt_close_pending[i]) {
+    return;
+  }
   c->wt_close_pending[i] = 0;
-  if (srvrun_wt_is_active(c, i))
+  if (srvrun_wt_is_active(c, i)) {
     srvrun_sess_close_by_raw[srvrun_conn_is_raw(c)](cfg, c, i);
+  }
 }
 
 /* Drain every session slot's pending wired_server_wt_close_session
  * (wt_close_pending, latched from an app callback), same per-step shape as
  * srvrun_wt_rx_capsules. */
 void srvrun_drain_wt_close_pending(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     srvrun_drain_wt_close_one(cfg, c, i);
+  }
 }
 
 /* Seal latch entry i into out as its own 1-RTT packet: a standard

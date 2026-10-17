@@ -17,8 +17,9 @@ static int moqssts_bp_clear(moqssts_bp* st) {
   st->in_cooldown = 0;
   st->high_streak = 0;
   st->clear_streak++;
-  if (st->clear_streak < MOQSSTS_UPSHIFT_GOP_STREAK)
+  if (st->clear_streak < MOQSSTS_UPSHIFT_GOP_STREAK) {
     return exited ? MOQSSTS_EV_COOLDOWN_EXIT : MOQSSTS_EV_HELD;
+  }
   st->tier++;
   st->clear_streak = 0;
   return MOQSSTS_EV_UPSHIFT;
@@ -27,7 +28,9 @@ static int moqssts_bp_clear(moqssts_bp* st) {
 /* Congested outside cooldown: drop one tier and start settling down. */
 static int moqssts_bp_congested(moqssts_bp* st, u64 depth) {
   st->clear_streak = 0;
-  if (depth < MOQSSTS_DOWNSHIFT_DEPTH || st->tier == 0) return MOQSSTS_EV_HELD;
+  if (depth < MOQSSTS_DOWNSHIFT_DEPTH || st->tier == 0) {
+    return MOQSSTS_EV_HELD;
+  }
   st->tier--;
   st->in_cooldown  = 1;
   st->cooldown_ref = depth;
@@ -57,7 +60,9 @@ static int moqssts_bp_rising(moqssts_bp* st, u64 depth, u64 ref) {
     return MOQSSTS_EV_HELD;
   }
   st->high_streak++;
-  if (!moqssts_bp_rising_hit(st)) return MOQSSTS_EV_HELD;
+  if (!moqssts_bp_rising_hit(st)) {
+    return MOQSSTS_EV_HELD;
+  }
   return moqssts_bp_drop(st);
 }
 
@@ -66,28 +71,37 @@ static int moqssts_bp_cooldown(moqssts_bp* st, moqssts_obs ob) {
   u64 ref          = st->cooldown_ref;
   st->clear_streak = 0;
   st->cooldown_ref = ob.depth;
-  if (moqssts_bp_timeout_hit(st, ob)) return moqssts_bp_drop(st);
+  if (moqssts_bp_timeout_hit(st, ob)) {
+    return moqssts_bp_drop(st);
+  }
   return moqssts_bp_rising(st, ob.depth, ref);
 }
 
 int moqssts_bp_observe(moqssts_bp* st, moqssts_obs ob) {
-  if (ob.depth <= MOQSSTS_DEPTH_TARGET) return moqssts_bp_clear(st);
-  if (st->in_cooldown) return moqssts_bp_cooldown(st, ob);
+  if (ob.depth <= MOQSSTS_DEPTH_TARGET) {
+    return moqssts_bp_clear(st);
+  }
+  if (st->in_cooldown) {
+    return moqssts_bp_cooldown(st, ob);
+  }
   return moqssts_bp_congested(st, ob.depth);
 }
 
 /* Longest ladder - 1 (0 with no sets): the tier can go no higher. */
 static u64 moqssts_bp_max_index(const moqssts_set* sets, usz n) {
   u64 longest = 0;
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     longest = u64_max(longest, moqssts_nmem(&sets[i]));
+  }
   return u64_max(longest, 1) - 1;
 }
 
 /* Active sets (which have >= 1 member) forward the shared tier, clamped to
  * their own ladder. */
 static int moqssts_bp_pick(u64 tier, const moqssts_set* s) {
-  if (!moqssts_set_active(s)) return MOQSSTS_NONE;
+  if (!moqssts_set_active(s)) {
+    return MOQSSTS_NONE;
+  }
   return (int)u64_min(tier, moqssts_nmem(s) - 1);
 }
 
@@ -104,6 +118,8 @@ int moqssts_bp_decide(
   ev = moqssts_bp_observe(
       st, moqssts_obs_make(moqssts_active_depth(sets, n, open), timeouts));
   st->tier = u64_min(st->tier, moqssts_bp_max_index(sets, n));
-  for (usz i = 0; i < n; i++) out[i] = moqssts_bp_pick(st->tier, &sets[i]);
+  for (usz i = 0; i < n; i++) {
+    out[i] = moqssts_bp_pick(st->tier, &sets[i]);
+  }
   return ev;
 }

@@ -2,8 +2,12 @@
 
 static void test_ncid_roundtrip(void) {
   ncid_frame in = {.seq = 5, .retire_prior_to = 2, .cid_len = 4};
-  for (usz i = 0; i < 4; i++) in.cid[i] = (u8)(0xA0 + i);
-  for (usz i = 0; i < NCID_TOKEN; i++) in.token[i] = (u8)(i * 3);
+  for (usz i = 0; i < 4; i++) {
+    in.cid[i] = (u8)(0xA0 + i);
+  }
+  for (usz i = 0; i < NCID_TOKEN; i++) {
+    in.token[i] = (u8)(i * 3);
+  }
   u8  buf[64];
   usz w = ncid_encode(buf, sizeof(buf), &in);
   CHECK(w != 0 && buf[0] == FRAME_NEW_CID);
@@ -101,8 +105,12 @@ static void test_ncid_decode_rejects_over_max_len(void) {
   buf[w++] = 0;  /* seq = 0 */
   buf[w++] = 0;  /* retire_prior_to = 0 */
   buf[w++] = 21; /* cid length byte: NCID_MAX_LEN + 1 */
-  for (int i = 0; i < 21; i++) buf[w++] = 0xAA;
-  for (int i = 0; i < NCID_TOKEN; i++) buf[w++] = 0;
+  for (int i = 0; i < 21; i++) {
+    buf[w++] = 0xAA;
+  }
+  for (int i = 0; i < NCID_TOKEN; i++) {
+    buf[w++] = 0;
+  }
 
   ncid_frame out;
   CHECK(ncid_decode(buf, w, &out) == 0);
@@ -117,7 +125,9 @@ static void test_ncid_decode_rejects_zero_len(void) {
   buf[w++] = 1; /* seq = 1 */
   buf[w++] = 0; /* retire_prior_to = 0 */
   buf[w++] = 0; /* cid length byte: zero */
-  for (int i = 0; i < NCID_TOKEN; i++) buf[w++] = 0;
+  for (int i = 0; i < NCID_TOKEN; i++) {
+    buf[w++] = 0;
+  }
 
   ncid_frame out;
   CHECK(ncid_decode(buf, w, &out) == 0);

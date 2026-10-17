@@ -19,9 +19,12 @@ int srvloop_connect_headers_complete(
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in) {
   usz n = srvloop_acc_headers_frame_len(acc);
-  if (n == 0) return 0;
-  if (!srvloop_peek_decode_request(h3, acc, in, n, in->req))
+  if (n == 0) {
+    return 0;
+  }
+  if (!srvloop_peek_decode_request(h3, acc, in, n, in->req)) {
     return !in->req->qpack_failed;
+  }
   return srvloop_req_method_is_connect(in->req);
 }
 
@@ -32,8 +35,12 @@ int srvloop_request_complete(
     const wired_h3srv_state*         h3,
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in) {
-  if (*acc->done) return 0;
-  if (*acc->fin) return 1;
+  if (*acc->done) {
+    return 0;
+  }
+  if (*acc->fin) {
+    return 1;
+  }
   return srvloop_connect_headers_complete(h3, acc, in);
 }
 
@@ -71,10 +78,14 @@ int srvloop_server_bidi_stream_of(
 static void wt_sig_absorb(u8* sig, u8* have, const stream_frame* sf) {
   usz off = (usz)sf->offset;
   usz n;
-  if (off >= WT_SIG_CAP) return;
+  if (off >= WT_SIG_CAP) {
+    return;
+  }
   n = (usz)u64_min((u64)sf->length, (u64)(WT_SIG_CAP - off));
   bytes_put(wired_mspan_of(sig, WT_SIG_CAP), &off, wired_span_of(sf->data, n));
-  if (off > *have) *have = (u8)off;
+  if (off > *have) {
+    *have = (u8)off;
+  }
 }
 
 /* The two leading varints' (type/signal + session id) combined encoded
@@ -88,8 +99,12 @@ static usz wt_sig_parse(const u8* sig, u8 have) {
   u64        v;
   usz        off = 0;
   wired_span s   = wired_span_of(sig, have);
-  if (!varint_take(s, &off, &v)) return 0;
-  if (!varint_take(s, &off, &v)) return 0;
+  if (!varint_take(s, &off, &v)) {
+    return 0;
+  }
+  if (!varint_take(s, &off, &v)) {
+    return 0;
+  }
   return off;
 }
 
@@ -100,10 +115,14 @@ static usz wt_sig_parse(const u8* sig, u8 have) {
  * signal; nothing of it is application data). */
 int srvloop_wt_sig_resolve(
     u8* sig, u8* have, u8* pending, usz* len, const stream_frame* sf) {
-  if (!*pending) return 1;
+  if (!*pending) {
+    return 1;
+  }
   wt_sig_absorb(sig, have, sf);
   *len = wt_sig_parse(sig, *have);
-  if (!*len) return 0;
+  if (!*len) {
+    return 0;
+  }
   *pending = 0;
   return 1;
 }
@@ -114,7 +133,9 @@ int srvloop_wt_sig_resolve(
  * inside the signal (usually the offset-0 frame, but a split signal's
  * session id can arrive in a later frame). */
 usz srvloop_wt_frame_skip(const stream_frame* sf, usz sig_len) {
-  if (sf->offset >= sig_len) return 0;
+  if (sf->offset >= sig_len) {
+    return 0;
+  }
   return (usz)u64_min(sig_len - sf->offset, sf->length);
 }
 
@@ -146,10 +167,11 @@ void srvloop_gather_wt_one(
   usz n       = (usz)sf->length - skip;
   usz rel_off, accepted;
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
-  if (accepted)
+  if (accepted) {
     bytes_put(
         wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
         wired_span_of(sf->data + skip + (n - accepted), accepted));
+  }
   if (sf->fin) {
     slot->fin     = 1;
     slot->fin_off = abs_off + n;
@@ -177,7 +199,9 @@ static int wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf) {
  * the leading signal frame. */
 int srvloop_wt_slot_for(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_slot_find(l, sf->stream_id);
-  if (i >= 0 || sf->offset != 0) return i;
+  if (i >= 0 || sf->offset != 0) {
+    return i;
+  }
   return wt_slot_for_signal(l, sf);
 }
 

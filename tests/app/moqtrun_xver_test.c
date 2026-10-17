@@ -16,7 +16,9 @@ static int mtxv_setup_of(const char* tok, moqctl_setup* s) {
   wired_moqt_on_session(
       &hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto(tok));
   const moqtrun_test_call* c = moqtrun_test_last_kind(5);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   moqctl_peek_type(
       wired_span_of(c->payload, c->payload_len), &off, &type, &body);
   return moqctl_setup_take(body, &boff, s) == MOQCTL_OK;
@@ -50,7 +52,9 @@ static void test_moqtrun_xver_setup_d19_d22_carry_options(void) {
 static void mtxv_init(int pv, int sv, usz cap) {
   moqctl_ftn f = mf_track();
   mtst_init();
-  if (cap) wired_moqt_cache_attach(&mtst_hub, mf_arena, cap);
+  if (cap) {
+    wired_moqt_cache_attach(&mtst_hub, mf_arena, cap);
+  }
   mf_pub_sid                                 = 2;
   mf_ctrl_a                                  = mtst_join(SESS_A);
   mf_ctrl_b                                  = mtst_join(SESS_B);
@@ -67,10 +71,14 @@ static wired_span mtxv_last_body(wired_wt_session* s, u64 type) {
     usz                      off = 0;
     u64                      t   = 0;
     wired_span               body;
-    if (c->s != s || (c->kind != 3 && c->kind != 12)) continue;
+    if (c->s != s || (c->kind != 3 && c->kind != 12)) {
+      continue;
+    }
     moqctl_peek_type(
         wired_span_of(c->payload, c->payload_len), &off, &t, &body);
-    if (t == type) return body;
+    if (t == type) {
+      return body;
+    }
   }
   return wired_span_of(0, 0);
 }
@@ -89,7 +97,9 @@ static int mtxv_sub_ok_in(int sv) {
 /* 1 iff the only relay call to B of io kind is exactly bytes[0..n). */
 static int mtxv_relayed_as(int kind, const u8* bytes, usz n) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(kind);
-  if (moqtrun_test_count_kind(kind) != 1 || c->s != SESS_B) return 0;
+  if (moqtrun_test_count_kind(kind) != 1 || c->s != SESS_B) {
+    return 0;
+  }
   return c->payload_len == n && !ct_diffn(c->payload, bytes, n);
 }
 
@@ -216,7 +226,9 @@ static void test_moqtrun_xver_joining_d19_sub_of_d22_pub(void) {
   CHECK(mf_loc_eq(mf_ok_end(), 1, 1));
   CHECK(mf_read());
   CHECK(mf_n == 2 && mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 1, 0, 1));
-  for (usz i = 0; i < g_n_calls; i++) CHECK(g_calls[i].s != SESS_A);
+  for (usz i = 0; i < g_n_calls; i++) {
+    CHECK(g_calls[i].s != SESS_A);
+  }
 }
 
 void test_moqtrun_xver(void) {

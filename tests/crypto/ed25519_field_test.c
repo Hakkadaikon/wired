@@ -11,8 +11,9 @@
 static u8 edf_hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
 static void edf_hexbytes(const char* hex, u8* out, usz n) {
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     out[i] = (u8)((edf_hexnib(hex[i * 2]) << 4) | edf_hexnib(hex[i * 2 + 1]));
+  }
 }
 
 /* RFC 8032 5.1.3 step 1: "If the resulting value is >= p, decoding fails."
@@ -89,7 +90,9 @@ static void test_ed25519_field_decode_encode_roundtrip(void) {
       32);
   CHECK(ed_ge_decode(&p, in) == 1);
   ed_ge_encode(out, &p);
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == in[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == in[i]);
+  }
 }
 
 /* The 8 canonical encodings of the small-order (torsion) points, re-derived

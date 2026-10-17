@@ -19,7 +19,9 @@
 static int dcid_matches(const connrunner* r, wired_mspan pkt) {
   int        dcid_len = dcidresolve_len(pkt, r->io.dcid_len);
   wired_span dcid;
-  if (dcid_len < 0 || (u8)dcid_len != r->io.dcid_len) return 0;
+  if (dcid_len < 0 || (u8)dcid_len != r->io.dcid_len) {
+    return 0;
+  }
   dcid = dcidresolve_dcid(pkt, dcid_len);
   return ct_diffn(dcid.p, r->io.dcid, r->io.dcid_len) == 0;
 }
@@ -28,7 +30,9 @@ static int dcid_matches(const connrunner* r, wired_mspan pkt) {
  * off its Key Phase bit; -1 means the generation it names has no key, so the
  * packet is dropped. Long-header levels are not key-phase gated. */
 static int phase_admits(connrunner* r, u8 byte0, int level) {
-  if (level != LEVEL_ONERTT) return 1;
+  if (level != LEVEL_ONERTT) {
+    return 1;
+  }
   return connrunner_recv_keygen(r, byte0) != -1;
 }
 
@@ -59,7 +63,9 @@ typedef struct {
 static int open_one(connrunner* r, const recv_open_in* in, int* elicited) {
   r->io.disp.ack_eliciting = 0;
   r->io.disp.has_ack       = 0;
-  if (!connio_recv(&r->io, in->level, in->pkt)) return 0;
+  if (!connio_recv(&r->io, in->level, in->pkt)) {
+    return 0;
+  }
   *elicited = r->io.disp.ack_eliciting; /* RFC 9000 13.2.1 */
   return 1;
 }
@@ -69,8 +75,12 @@ static int open_one(connrunner* r, const recv_open_in* in, int* elicited) {
  * is handled but never queued as an ack-eliciting receive (returns 0). */
 static int recv_one(connrunner* r, wired_mspan pkt, int* elicited) {
   recv_open_in in = {0, pkt};
-  if (connrunner_recv_reconnect(r, pkt.p, pkt.n)) return 0;
-  if (!recv_level_and_dcid(r, pkt, &in.level)) return 0;
+  if (connrunner_recv_reconnect(r, pkt.p, pkt.n)) {
+    return 0;
+  }
+  if (!recv_level_and_dcid(r, pkt, &in.level)) {
+    return 0;
+  }
   return open_one(r, &in, elicited);
 }
 
@@ -87,8 +97,9 @@ usz connrunner_process_datagram(connrunner* r, wired_mspan dgram) {
   n                  = udploop_split(wired_span_of(dgram.p, dgram.n), &out);
   for (i = 0; i < n; i++) {
     int elicited = 0;
-    if (!recv_one(r, wired_mspan_of(dgram.p + offs[i], lens[i]), &elicited))
+    if (!recv_one(r, wired_mspan_of(dgram.p + offs[i], lens[i]), &elicited)) {
       continue;
+    }
     feed_loop(r, elicited);
     accepted++;
   }
@@ -103,11 +114,16 @@ static int slot_acked(const sentmeta_pkt* p, u64 largest) {
 /* Acknowledge slot i if it is at or below `largest`. */
 static void ack_one(sentmeta* m, usz i, u64 largest) {
   sentmeta_acked out;
-  if (slot_acked(&m->pkts[i], largest)) sentmeta_on_ack(m, m->pkts[i].pn, &out);
+  if (slot_acked(&m->pkts[i], largest)) {
+    sentmeta_on_ack(m, m->pkts[i].pn, &out);
+  }
 }
 
 void connrunner_track_acks(connrunner* r) {
-  if (!r->io.disp.has_ack) return;
-  for (usz i = 0; i < SENTMETA_CAP; i++)
+  if (!r->io.disp.has_ack) {
+    return;
+  }
+  for (usz i = 0; i < SENTMETA_CAP; i++) {
     ack_one(&r->sent, i, r->io.disp.largest_acked);
+  }
 }

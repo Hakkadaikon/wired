@@ -34,28 +34,37 @@ static void moqtrun_rel_tick_relay(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     u64                  now_ms) {
-  if (!relay->in_use || relay->rel_idx < 0) return;
+  if (!relay->in_use || relay->rel_idx < 0) {
+    return;
+  }
   moqtrun_rel_drain_one(
       hub, track, relay, &hub->rel_pool[relay->rel_idx], now_ms);
 }
 
 static void moqtrun_rel_tick_track(
     wired_moqt_hub* hub, wired_moqtrun_track* track, u64 now_ms) {
-  if (!track->in_use) return;
-  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+  if (!track->in_use) {
+    return;
+  }
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
     moqtrun_rel_tick_relay(hub, track, &track->relays[r], now_ms);
+  }
 }
 
 static void moqtrun_rel_tick_peer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 now_ms) {
-  if (!p->in_use) return;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+  if (!p->in_use) {
+    return;
+  }
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
     moqtrun_rel_tick_track(hub, &p->tracks[t], now_ms);
+  }
 }
 
 void moqtrun_rel_tick_all(wired_moqt_hub* hub, u64 now_ms) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     moqtrun_rel_tick_peer(hub, &hub->peers[i], now_ms);
+  }
 }
 
 /* ============== end of the reliable-relay (moqtrel) block ============== */
@@ -70,9 +79,12 @@ static void moqtrun_relay_continue_lossy(
     moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
-  if (moqtrun_relay_round_due(whole, fin))
+  if (moqtrun_relay_round_due(whole, fin)) {
     moqtrun_relay_append_all(hub, track, relay, whole, seq0, fin, born_ms);
-  if (fin) relay->in_use = 0;
+  }
+  if (fin) {
+    relay->in_use = 0;
+  }
 }
 
 /* A later call on an already-relayed publisher stream: forward its
@@ -102,7 +114,9 @@ static void moqtrun_relay_forward(
 /* A poisoned relay only absorbs its publisher's bytes, so they never get
  * re-classified as a fresh stream, and frees at the publisher's FIN. */
 void moqtrun_relay_sink(wired_moqtrun_relay* relay, int fin) {
-  if (fin) relay->in_use = 0;
+  if (fin) {
+    relay->in_use = 0;
+  }
 }
 
 /* The round that poisoned relay (moqtrun_frag_drop) ends its subscriber
@@ -114,7 +128,9 @@ void moqtrun_relay_end_poisoned(
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     int                  fin) {
-  if (!moqtrun_relay_poisoned(relay)) return;
+  if (!moqtrun_relay_poisoned(relay)) {
+    return;
+  }
   moqtrun_relay_reset_stale(hub, track, relay);
   moqtrun_relay_return_ring(hub, relay);
   moqtrun_relay_sink(relay, fin);
@@ -152,7 +168,9 @@ void moqtrun_relay_open_end_hit(
     usz                  i,
     usz                  cut_n,
     usz                  wire_n) {
-  if (cut_n == wire_n) return;
+  if (cut_n == wire_n) {
+    return;
+  }
   hub->io.stream_fin(wt, sid);
   relay->sub_expired |= moqtrun_sub_bit(i);
 }

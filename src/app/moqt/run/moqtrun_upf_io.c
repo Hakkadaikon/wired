@@ -61,7 +61,9 @@ static int moqtrun_upf_try(
     const moqctl_params*  params) {
   moqcache_item   gap;
   moqctl_rangeloc rl;
-  if (f->up_tmo || !moqtrun_upf_gap(&hub->cache, r, &gap)) return 0;
+  if (f->up_tmo || !moqtrun_upf_gap(&hub->cache, r, &gap)) {
+    return 0;
+  }
   moqtrun_upf_span(f, r, &gap, &rl);
   return moqtrun_upf_open(
       hub, f, moqtrun_upf_target(hub, moqtrun_upf_owner(hub, k), f->wt, k), k,
@@ -77,9 +79,13 @@ void moqtrun_upf_go(
     moqtrun_key           k,
     const moqtrun_frange* r,
     const moqctl_params*  params) {
-  if (!f) return;
+  if (!f) {
+    return;
+  }
   moqtrun_upf_budget_of(f, params);
-  if (!moqtrun_upf_try(hub, f, k, r, params)) moqtrun_fetch_serve(hub, f);
+  if (!moqtrun_upf_try(hub, f, k, r, params)) {
+    moqtrun_fetch_serve(hub, f);
+  }
 }
 
 /* A fill f over r: its upstream FETCH goes out when the cache lacks part
@@ -87,8 +93,9 @@ void moqtrun_upf_go(
 void moqtrun_upf_fill(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqtrun_frange* r) {
   wired_moqtrun_track* t = moqtrun_pubst_track(hub, f->cache_tag);
-  if (t)
+  if (t) {
     moqtrun_upf_try(hub, f, moqtrun_track_key(t), r, &MOQTRUN_UPF_NO_PARAMS);
+  }
 }
 
 /* ----- ending the leg ----- */
@@ -96,8 +103,9 @@ void moqtrun_upf_fill(
 /* STOP_SENDING on the upstream data stream while it still sends. */
 static void moqtrun_upf_stop_data(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, const wired_moqtrun_fetch* f) {
-  if (f->up_data_open && !f->up_data_end)
+  if (f->up_data_open && !f->up_data_end) {
     moqtrun_stream_stop(hub, pp, f->up_data_sid, MOQTRUN_RESET_CANCELLED);
+  }
 }
 
 void moqtrun_upf_io_none(

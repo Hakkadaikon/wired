@@ -16,8 +16,11 @@ static void test_gso_cmsg_build(void) {
   u8  buf[WIRED_GSO_CMSG_SPACE];
   int eq = 1;
   wired_udp_gso_cmsg_build(buf, 1200);
-  for (usz i = 0; i < WIRED_GSO_CMSG_SPACE; i++)
-    if (buf[i] != want[i]) eq = 0;
+  for (usz i = 0; i < WIRED_GSO_CMSG_SPACE; i++) {
+    if (buf[i] != want[i]) {
+      eq = 0;
+    }
+  }
   CHECK(eq);
 }
 
@@ -25,7 +28,9 @@ static void test_gso_cmsg_build(void) {
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
 static int gso_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4436, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -44,7 +49,9 @@ static int gso_recv_count(i64 sfd) {
   u8  rx[64];
   int n = 0;
   for (int i = 0; i < 3; i++) {
-    if (wired_udp_recv(sfd, wired_mspan_of(rx, sizeof rx)) <= 0) break;
+    if (wired_udp_recv(sfd, wired_mspan_of(rx, sizeof rx)) <= 0) {
+      break;
+    }
     n++;
   }
   return n;
@@ -56,8 +63,12 @@ static void test_send_batch_delivers_segments(void) {
   i64      sfd, cfd;
   sockaddr srv;
   u8       payload[30]; /* 3 segments of 10 bytes */
-  for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
-  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  for (usz i = 0; i < sizeof payload; i++) {
+    payload[i] = (u8)i;
+  }
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(
       wired_udp_send_batch(
           cfd, &srv, wired_span_of(payload, sizeof payload), 10) ==
@@ -73,8 +84,12 @@ static void test_send_gso_delivers_total_bytes(void) {
   i64      sfd, cfd;
   sockaddr srv;
   u8       payload[30];
-  for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
-  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  for (usz i = 0; i < sizeof payload; i++) {
+    payload[i] = (u8)i;
+  }
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(
       wired_udp_send_gso(
           cfd, &srv, wired_span_of(payload, sizeof payload), 10) ==
@@ -92,7 +107,9 @@ static void test_reuseport_enable_allows_shared_bind(void) {
   i64      fd1, fd2;
   sockaddr addr;
   fd1 = wired_udp_socket();
-  if (fd1 < 0) return; /* sandbox: skip */
+  if (fd1 < 0) {
+    return; /* sandbox: skip */
+  }
   fd2 = wired_udp_socket();
   if (fd2 < 0) {
     wired_udp_close(fd1);
@@ -122,7 +139,9 @@ static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
   sockaddr srv;
   u8       rx[64];
   mmsg_buf bufs[1] = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
-  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) < 0);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
@@ -136,7 +155,9 @@ static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
   u8       rx[64];
   mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8 payload[5] = {1, 2, 3, 4, 5};
-  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(
       wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
       (i64)sizeof payload);
@@ -150,7 +171,9 @@ static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
  * whether or not the kernel/driver actually supports SO_BUSY_POLL. */
 static void test_busy_poll_enable_does_not_crash(void) {
   i64 fd = wired_udp_socket();
-  if (fd < 0) return; /* sandbox: skip */
+  if (fd < 0) {
+    return; /* sandbox: skip */
+  }
   wired_udp_busy_poll_enable(fd, 50);
   wired_udp_close(fd);
   CHECK(1);
@@ -161,7 +184,9 @@ static void test_busy_poll_enable_does_not_crash(void) {
  * verifying kernel-side effect. */
 static void test_prefer_busy_poll_enable_does_not_crash(void) {
   i64 fd = wired_udp_socket();
-  if (fd < 0) return; /* sandbox: skip */
+  if (fd < 0) {
+    return; /* sandbox: skip */
+  }
   wired_udp_prefer_busy_poll_enable(fd, 1);
   wired_udp_close(fd);
   CHECK(1);
@@ -169,7 +194,9 @@ static void test_prefer_busy_poll_enable_does_not_crash(void) {
 
 static void test_busy_poll_budget_set_does_not_crash(void) {
   i64 fd = wired_udp_socket();
-  if (fd < 0) return; /* sandbox: skip */
+  if (fd < 0) {
+    return; /* sandbox: skip */
+  }
   wired_udp_busy_poll_budget_set(fd, 8);
   wired_udp_close(fd);
   CHECK(1);
@@ -178,7 +205,9 @@ static void test_busy_poll_budget_set_does_not_crash(void) {
 /* SET direction only. */
 static void test_incoming_cpu_set_does_not_crash(void) {
   i64 fd = wired_udp_socket();
-  if (fd < 0) return; /* sandbox: skip */
+  if (fd < 0) {
+    return; /* sandbox: skip */
+  }
   wired_udp_incoming_cpu_set(fd, 0);
   wired_udp_close(fd);
   CHECK(1);
@@ -189,7 +218,9 @@ static void test_incoming_cpu_set_does_not_crash(void) {
  * port 4436/4437 socket pairs above. */
 static int ecn_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
-  if (*sfd < 0) return 0;
+  if (*sfd < 0) {
+    return 0;
+  }
   wired_udp_addr(srv, 4438, (const u8[4]){127, 0, 0, 1});
   if (wired_udp_bind(*sfd, srv) < 0) {
     wired_udp_close(*sfd);
@@ -214,7 +245,9 @@ static void test_udp_ect0_enable_sets_tos(void) {
   u8       rx[64];
   mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8 payload[3] = {1, 2, 3};
-  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(wired_udp_ect0_enable(cfd) == 0);
   CHECK(
       wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
@@ -233,7 +266,9 @@ static void test_udp_send_tos_overrides_socket_ect0(void) {
   u8       rx[64];
   mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8 payload[3] = {4, 5, 6};
-  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(wired_udp_ect0_enable(cfd) == 0);
   CHECK(
       wired_udp_send_tos(
@@ -255,7 +290,9 @@ static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
   u8       rx[64];
   mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8 payload[3] = {9, 9, 9};
-  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(
       wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
       (i64)sizeof payload);
@@ -278,15 +315,20 @@ static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
       {wired_mspan_of(rx2, sizeof rx2), {0}, 0, 0}};
   const u8 payload[3] = {1, 2, 3};
   int      n, i;
-  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
   CHECK(wired_udp_ect0_enable(cfd) == 0);
-  for (i = 0; i < 3; i++)
+  for (i = 0; i < 3; i++) {
     CHECK(
         wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
         (i64)sizeof payload);
+  }
   n = (int)wired_udp_recvmmsg(sfd, bufs, 3);
   CHECK(n == 3);
-  for (i = 0; i < n; i++) CHECK(bufs[i].ecn == 2); /* ECT(0), every slot */
+  for (i = 0; i < n; i++) {
+    CHECK(bufs[i].ecn == 2); /* ECT(0), every slot */
+  }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }

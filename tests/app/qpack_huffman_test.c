@@ -4,9 +4,14 @@
 #include "test.h"
 
 static int hf_eq(const u8* a, usz alen, const char* b, usz blen) {
-  if (alen != blen) return 0;
-  for (usz i = 0; i < alen; i++)
-    if (a[i] != (u8)b[i]) return 0;
+  if (alen != blen) {
+    return 0;
+  }
+  for (usz i = 0; i < alen; i++) {
+    if (a[i] != (u8)b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -112,7 +117,9 @@ static void test_huffman_litname_hname(void) {
  * rather than looping or growing unbounded. */
 static void test_qpack_huffman_decode_cost_bounded(void) {
   u8 src[256];
-  for (usz i = 0; i < sizeof src; i++) src[i] = 0xff;
+  for (usz i = 0; i < sizeof src; i++) {
+    src[i] = 0xff;
+  }
   u8         out[256];
   wired_obuf ob = obuf_of(out, sizeof out);
   /* 0xff repeated is not a valid Huffman stream (EOS prefix) -- decode must

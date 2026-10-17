@@ -13,7 +13,9 @@ static int dcidresolve_long_len(wired_mspan dg) {
 }
 
 int dcidresolve_len(wired_mspan dg, u8 short_hdr_len) {
-  if (dcidresolve_is_long(dg)) return dcidresolve_long_len(dg);
+  if (dcidresolve_is_long(dg)) {
+    return dcidresolve_long_len(dg);
+  }
   return dcidresolve_short_len(dg, short_hdr_len);
 }
 
@@ -23,6 +25,8 @@ static usz dcidresolve_offset(wired_mspan dg) {
 
 wired_span dcidresolve_dcid(wired_mspan dg, int dcid_len) {
   usz off = dcidresolve_offset(dg);
-  if (dcid_len < 0 || off + (usz)dcid_len > dg.n) return wired_span_of(0, 0);
+  if (dcid_len < 0 || off + (usz)dcid_len > dg.n) {
+    return wired_span_of(0, 0);
+  }
   return wired_span_of(dg.p + off, (usz)dcid_len);
 }

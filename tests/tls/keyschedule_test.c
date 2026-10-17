@@ -1,12 +1,16 @@
 #include "test.h"
 
 static void fill(u8* p, usz n, u8 base) {
-  for (usz i = 0; i < n; i++) p[i] = (u8)(base + i);
+  for (usz i = 0; i < n; i++) {
+    p[i] = (u8)(base + i);
+  }
 }
 
 static int keys_differ(const initial_keys* a, const initial_keys* b) {
   int d = 0;
-  for (usz i = 0; i < INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    d |= (a->key[i] != b->key[i]);
+  }
   return d;
 }
 
@@ -93,11 +97,15 @@ static void test_keyschedule_matches_oneshot(void) {
   tls_handshake_secret(ecdhe, hs);
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &ref);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(c_hs->key[i] == ref.key[i]);
+  }
   tls_master_secret(hs, master);
   tls_app_keys(
       &(app_keys_in){master, wired_span_of(tr, sizeof(tr)), 1, 0}, &ref);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(s_ap->key[i] == ref.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(s_ap->key[i] == ref.key[i]);
+  }
 
   /* directions and stages produce distinct keys */
   CHECK(keys_differ(c_hs, s_hs));
@@ -128,12 +136,18 @@ static void test_keyschedule_psk_matches_oneshot(void) {
   tls_handshake_secret_psk(psk, ecdhe, hs);
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0, 0}, &ref);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(c_hs->key[i] == ref.key[i]);
+  }
   tls_handshake_keys(
       &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1, 0}, &ref);
-  for (usz i = 0; i < INITIAL_KEY; i++) CHECK(s_hs->key[i] == ref.key[i]);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    CHECK(s_hs->key[i] == ref.key[i]);
+  }
   tls_master_secret(hs, master);
-  for (usz i = 0; i < 32; i++) CHECK(st.master[i] == master[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(st.master[i] == master[i]);
+  }
 }
 
 /* Same psk/ecdhe/transcript, PSK vs plain branch: the derived Handshake keys
@@ -178,7 +192,9 @@ static void test_keyschedule_exporter_secret_matches_oneshot(void) {
   tls_handshake_secret(ecdhe, hs);
   tls_master_secret(hs, master);
   tls_exporter_master_secret(master, tr, sizeof(tr), ref);
-  for (usz i = 0; i < 32; i++) CHECK(exp[i] == ref[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(exp[i] == ref[i]);
+  }
 }
 
 /* RFC 8446 E.1.4: once the connection is torn down the retained
@@ -196,13 +212,19 @@ static void test_exporter_master_secret_zeroized_after_use(void) {
       &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
   keysched_advance_master(&st, tr, sizeof(tr));
   CHECK(keysched_exporter_secret(&st, &exp) == 1);
-  for (usz i = 0; i < 32; i++) nonzero |= exp[i];
+  for (usz i = 0; i < 32; i++) {
+    nonzero |= exp[i];
+  }
   CHECK(nonzero != 0);
   keysched_wipe(&st);
   CHECK(keysched_exporter_secret(&st, &exp) == 0);
   CHECK(keysched_client_ap_secret(&st, &exp) == 0);
-  for (usz i = 0; i < 32; i++) CHECK(st.exporter_secret[i] == 0);
-  for (usz i = 0; i < 32; i++) CHECK(st.master[i] == 0);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(st.exporter_secret[i] == 0);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(st.master[i] == 0);
+  }
   CHECK(st.stage == 0);
 }
 

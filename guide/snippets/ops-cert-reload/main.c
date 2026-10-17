@@ -79,8 +79,9 @@ static void report_cert(const wired_srvboot_id* id) {
   wired_sha256(id->chain[0].p, id->chain[0].n, fp);
   if (g_have_fp &&
       wired_span_eq(
-          wired_span_of(fp, sizeof fp), wired_span_of(g_last_fp, sizeof fp)))
+          wired_span_of(fp, sizeof fp), wired_span_of(g_last_fp, sizeof fp))) {
     return;
+  }
   wired_dprintf(2, "%sleaf sha256=", g_have_fp ? "cert reloaded, " : "");
   wired_dump_hex(2, wired_span_of(fp, sizeof fp));
   wired_dprintf(2, "\n");
@@ -95,7 +96,9 @@ static void report_cert(const wired_srvboot_id* id) {
 static int g_deployed = 0;
 
 static void deploy_cert_b(void) {
-  if (g_deployed) return;
+  if (g_deployed) {
+    return;
+  }
   g_deployed = 1;
   wired_fio_write_new("live-cert.pem", wired_span_cstr(CERT_B));
   wired_fio_write_new("live-key.pem", wired_span_cstr(KEY_B));

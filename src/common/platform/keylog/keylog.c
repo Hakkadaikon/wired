@@ -22,8 +22,11 @@ static int keylog_put_hexbyte(wired_mspan buf, usz* off, u8 b) {
 
 /* Append the lowercase hex encoding of src into buf at *off. */
 static int keylog_put_hex(wired_mspan buf, usz* off, wired_span src) {
-  for (usz i = 0; i < src.n; i++)
-    if (!keylog_put_hexbyte(buf, off, src.p[i])) return 0;
+  for (usz i = 0; i < src.n; i++) {
+    if (!keylog_put_hexbyte(buf, off, src.p[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -37,27 +40,35 @@ static int keylog_put_char(wired_mspan buf, usz* off, u8 c) {
 
 /* "label " */
 static int keylog_build_label(wired_mspan line, usz* off, const char* label) {
-  if (!keylog_put_str(line, off, label)) return 0;
+  if (!keylog_put_str(line, off, label)) {
+    return 0;
+  }
   return keylog_put_char(line, off, ' ');
 }
 
 /* "cr-hex " */
 static int keylog_build_cr(
     wired_mspan line, usz* off, const u8 client_random[32]) {
-  if (!keylog_put_hex(line, off, wired_span_of(client_random, 32))) return 0;
+  if (!keylog_put_hex(line, off, wired_span_of(client_random, 32))) {
+    return 0;
+  }
   return keylog_put_char(line, off, ' ');
 }
 
 /* "label cr-hex " */
 static int keylog_build_head(
     wired_mspan line, usz* off, const char* label, const u8 client_random[32]) {
-  if (!keylog_build_label(line, off, label)) return 0;
+  if (!keylog_build_label(line, off, label)) {
+    return 0;
+  }
   return keylog_build_cr(line, off, client_random);
 }
 
 /* "secret-hex\n" */
 static int keylog_build_tail(wired_mspan line, usz* off, wired_span secret) {
-  if (!keylog_put_hex(line, off, secret)) return 0;
+  if (!keylog_put_hex(line, off, secret)) {
+    return 0;
+  }
   return keylog_put_char(line, off, '\n');
 }
 
@@ -68,7 +79,9 @@ static int keylog_build(
     const char* label,
     const u8    client_random[32],
     wired_span  secret) {
-  if (!keylog_build_head(line, off, label, client_random)) return 0;
+  if (!keylog_build_head(line, off, label, client_random)) {
+    return 0;
+  }
   return keylog_build_tail(line, off, secret);
 }
 
@@ -81,7 +94,8 @@ ssz wired_keylog_append(
   usz off = 0;
   if (!keylog_build(
           wired_mspan_of(line, sizeof line), &off, label, client_random,
-          secret))
+          secret)) {
     return WIRED_FIO_ETOOBIG;
+  }
   return wired_fio_append(path, wired_span_of(line, off));
 }

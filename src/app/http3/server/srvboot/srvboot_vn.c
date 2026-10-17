@@ -10,7 +10,9 @@ int wired_srvboot_accept(
     wired_srvboot_out*        out) {
   wired_srvboot_acc a; /* single-datagram fast path, caller-stack lifetime */
   wired_srvboot_acc_reset(&a);
-  if (!wired_srvboot_acc_feed(&a, in->dgram)) return 0;
+  if (!wired_srvboot_acc_feed(&a, in->dgram)) {
+    return 0;
+  }
   return wired_srvboot_accept_acc(conn, in->id, &a, out);
 }
 
@@ -24,7 +26,9 @@ static int srvboot_vn_sized(wired_span dg) {
  * version this server speaks (RFC 9368 5 supported set: v1, v2). */
 static int srvboot_vn_alien(u32 v) {
   vers_set s;
-  if (v == 0) return 0;
+  if (v == 0) {
+    return 0;
+  }
   vers_init(&s);
   return !vers_supports(&s, v);
 }
@@ -38,8 +42,12 @@ usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap) {
   vers_set     s;
   wired_header h;
   vneg_desc    d;
-  if (!srvboot_vn_owed(dg)) return 0;
-  if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
+  if (!srvboot_vn_owed(dg)) {
+    return 0;
+  }
+  if (!wired_header_parse(dg.p, dg.n, &h)) {
+    return 0;
+  }
   vers_init(&s);
   d = (vneg_desc){
       wired_span_of(h.dcid, h.dcid_len), wired_span_of(h.scid, h.scid_len),

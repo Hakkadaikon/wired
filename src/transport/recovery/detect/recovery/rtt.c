@@ -47,10 +47,11 @@ void rtt_sample(
     u64  max_ack_delay,
     int  handshake_confirmed) {
   u64 clamped = clamp_ack_delay(ack_delay, max_ack_delay, handshake_confirmed);
-  if (!r->have_sample)
+  if (!r->have_sample) {
     first_sample(r, latest_rtt);
-  else
+  } else {
     next_sample(r, latest_rtt, clamped);
+  }
 }
 
 u64 rtt_pto(const rtt* r, u64 max_ack_delay) {

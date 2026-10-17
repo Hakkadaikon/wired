@@ -39,9 +39,13 @@ static int srvrun_pace_or_probe_ok(
  * slot 0's first slice push next_send_ms a full ms into the future before
  * slots 4/8 ever got a turn in the same step, starving them completely). */
 int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!srvrun_pace_or_probe_ok(ctx, c)) return 0;
+  if (!srvrun_pace_or_probe_ok(ctx, c)) {
+    return 0;
+  }
   int sent = srvrun_pump_round(ctx, c);
-  if (sent) srvrun_pace_next(ctx, c);
+  if (sent) {
+    srvrun_pace_next(ctx, c);
+  }
   return sent;
 }
 
@@ -59,7 +63,9 @@ int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
  * would need retransmission if the probe is lost (RFC 8899 3.4). Returns
  * len, or 0 if it does not fit cap. */
 static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
-  if (len == 0 || len > cap) return 0;
+  if (len == 0 || len > cap) {
+    return 0;
+  }
   buf[0] = FRAME_PING;
   bytes_memset(buf + 1, FRAME_PADDING, len - 1);
   return len;
@@ -76,7 +82,9 @@ static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
  * reason -- reused here instead of a second hand-derived margin. Returns 0
  * if size is at or below the overhead (no room for even a 1-byte PING). */
 usz srvrun_pmtu_probe_len(usz size) {
-  if (size <= PMTU_OVERHEAD) return 0;
+  if (size <= PMTU_OVERHEAD) {
+    return 0;
+  }
   return size - PMTU_OVERHEAD;
 }
 
@@ -91,7 +99,9 @@ static int srvrun_seal_pmtu_probe(
   wired_srvloop_send_in sin;
   usz                   len = srvrun_pmtu_probe_len(size);
   usz                   pln = srvrun_pmtu_probe_payload(pl, sizeof pl, len);
-  if (!pln) return 0;
+  if (!pln) {
+    return 0;
+  }
   *pn = c->l.tx_pn++;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
@@ -126,7 +136,9 @@ void srvrun_pmtu_probe_clear(srvrun_conn* c) {
  * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
  * doc on the same style of poll-driven deadline). */
 static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
-  if (!pmtu_probe_timer_due(&c->pmtu, now_us)) return;
+  if (!pmtu_probe_timer_due(&c->pmtu, now_us)) {
+    return;
+  }
   pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
   srvrun_pmtu_probe_clear(c);
 }
@@ -138,7 +150,9 @@ static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
  * RFC 9002 RTT state already on this us clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
   srvrun_pmtu_reap_timeout(c, now_us);
-  if (srvrun_pmtu_probe_outstanding(c)) return 0;
+  if (srvrun_pmtu_probe_outstanding(c)) {
+    return 0;
+  }
   return pmtu_next_probe(&c->pmtu, now_us);
 }
 
@@ -161,7 +175,9 @@ static int srvrun_pmtu_send_probe(
   u8         buf[PMTU_MAX];
   wired_obuf out = obuf_of(buf, sizeof buf);
   u64        pn;
-  if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 0;
+  if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) {
+    return 0;
+  }
   c->pmtu_probe_pn      = pn;
   c->pmtu_probe_size    = size;
   c->pmtu_probe_sent_ms = ctx->now_ms;
@@ -176,7 +192,9 @@ static int srvrun_pmtu_send_probe(
 static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u64 now_us = ctx->now_ms * 1000;
   usz size   = srvrun_pmtu_probe_candidate(c, now_us);
-  if (!size) return 0;
+  if (!size) {
+    return 0;
+  }
   return srvrun_pmtu_send_probe(ctx, c, size);
 }
 
@@ -202,6 +220,8 @@ static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * exclusive to either a probe or a normal pass -- never both (the short-circuit
  * below skips the normal pass on the same opportunity a probe went out). */
 int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (srvrun_pmtu_try_probe(ctx, c)) return 1;
+  if (srvrun_pmtu_try_probe(ctx, c)) {
+    return 1;
+  }
   return srvrun_pump_round_gated(ctx, c);
 }

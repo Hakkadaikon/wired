@@ -28,10 +28,14 @@ static usz priupdate_ctrl_payload(
   usz          off = 1; /* control type 0x00, single byte */
   h3_priupdate f   = {push, element_id, wired_span_of((const u8*)pfv, pfv_len)};
   usz          n;
-  if (cap < 1) return 0;
+  if (cap < 1) {
+    return 0;
+  }
   out[0] = 0x00;
   n      = h3_priupdate_put(out + off, cap - off, &f);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   return off + n;
 }
 
@@ -159,12 +163,19 @@ static usz settings_ctrl_payload(u8* out, usz cap) {
   u8         sf[8];
   wired_obuf sob = obuf_of(sf, sizeof sf);
   usz        i;
-  if (cap < 1) return 0;
-  if (!h3_frame_put(&sob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
+  if (cap < 1) {
     return 0;
-  if (cap < 1 + sob.len) return 0;
+  }
+  if (!h3_frame_put(&sob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0))) {
+    return 0;
+  }
+  if (cap < 1 + sob.len) {
+    return 0;
+  }
   out[0] = 0x00;
-  for (i = 0; i < sob.len; i++) out[1 + i] = sf[i];
+  for (i = 0; i < sob.len; i++) {
+    out[1 + i] = sf[i];
+  }
   return 1 + sob.len;
 }
 

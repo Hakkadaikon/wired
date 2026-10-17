@@ -43,14 +43,18 @@ static void moqfetch_note_obj(moqfetch_seq* s, const moqfetch_obj* o) {
 
 /* 0x20C only where the stream's draft has it (draft-22 SS11.4.1). */
 static int moqfetch_is_eor(u64 flags, const moqfetch_seq* s) {
-  if (flags == MOQFETCH_EOR_TIMED_OUT) return s->eor_timed_out;
+  if (flags == MOQFETCH_EOR_TIMED_OUT) {
+    return s->eor_timed_out;
+  }
   return flags == MOQFETCH_EOR_NONEXISTENT || flags == MOQFETCH_EOR_UNKNOWN;
 }
 
 /* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C (/ 0x20C) an End of
  * Range (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
 int moqfetch_kind(u64 flags, const moqfetch_seq* s) {
-  if (flags < 0x80) return 0;
+  if (flags < 0x80) {
+    return 0;
+  }
   return moqfetch_is_eor(flags, s) ? 1 : -1;
 }
 
@@ -78,7 +82,9 @@ static int moqfetch_run(
     moqfetch_obj*            o) {
   for (usz i = 0; i < ops->n; i++) {
     int r = ops->steps[i](b, at, s, o);
-    if (r != MOQCTL_OK) return r;
+    if (r != MOQCTL_OK) {
+      return r;
+    }
   }
   ops->note(s, o);
   return MOQCTL_OK;
@@ -91,9 +97,13 @@ static int moqfetch_obj_take_at(
     moqfetch_seq*            s,
     moqfetch_obj*            o) {
   u64 flags;
-  if (!moqvi_take(b, at, &flags)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(b, at, &flags)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   int kind = moqfetch_kind(flags, s);
-  if (kind < 0) return MOQCTL_VIOLATION;
+  if (kind < 0) {
+    return MOQCTL_VIOLATION;
+  }
   moqfetch_obj_clear(o, flags);
   return moqfetch_run(&ops[kind], b, at, s, o);
 }
@@ -108,7 +118,9 @@ static int moqfetch_obj_take_with(
   usz          at   = *off;
   moqfetch_seq next = *seq;
   int          r    = moqfetch_obj_take_at(ops, buf, &at, &next, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *seq = next;
   *off = at;
   return MOQCTL_OK;

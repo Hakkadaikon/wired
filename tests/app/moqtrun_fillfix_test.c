@@ -108,9 +108,10 @@ static const u8 MFFX_UNKNOWN[] = {0x01, 0x3e, 0x00};
 
 static usz mffx_pv_closes(void) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     n += g_calls[i].kind == 11 && g_calls[i].s == SESS_B &&
          g_calls[i].stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  }
   return n;
 }
 
@@ -140,8 +141,9 @@ static void test_moqtrun_fillfix_malformed_update(void) {
   moqctl_params upd = mffx_raw(wired_span_of(MFFX_TRUNC, sizeof MFFX_TRUNC), 0);
   mtup_update(SESS_B, MTRQ_S1, &upd);
   CHECK(mffx_pv_closes() == 1);
-  for (usz i = before; i < g_n_calls; i++)
+  for (usz i = before; i < g_n_calls; i++) {
     CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == MTRQ_S1));
+  }
   CHECK(mfill_opens() == 0);
 }
 

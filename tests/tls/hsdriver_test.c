@@ -6,13 +6,27 @@
  * index `stop`. Asserts every step is accepted; verifies cert before the
  * peer's Finished so the auth gate is open. */
 static void drive_until(hsdriver* s, int stop) {
-  if (stop > 0) CHECK(hsdriver_recv(s, HSD_CLIENT_HELLO, 0) == 1);
-  if (stop > 1) CHECK(hsdriver_recv(s, HSD_SERVER_HELLO, 0) == 1);
-  if (stop > 2) CHECK(hsdriver_recv(s, HSD_ENCRYPTED_EXT, 1) == 1);
-  if (stop > 3) CHECK(hsdriver_recv(s, HSD_CERTIFICATE, 1) == 1);
-  if (stop > 4) CHECK(hsdriver_recv(s, HSD_CERT_VERIFY, 1) == 1);
-  if (stop > 5) hsdriver_cert_verified(s);
-  if (stop > 5) CHECK(hsdriver_recv(s, HSD_FINISHED, 1) == 1);
+  if (stop > 0) {
+    CHECK(hsdriver_recv(s, HSD_CLIENT_HELLO, 0) == 1);
+  }
+  if (stop > 1) {
+    CHECK(hsdriver_recv(s, HSD_SERVER_HELLO, 0) == 1);
+  }
+  if (stop > 2) {
+    CHECK(hsdriver_recv(s, HSD_ENCRYPTED_EXT, 1) == 1);
+  }
+  if (stop > 3) {
+    CHECK(hsdriver_recv(s, HSD_CERTIFICATE, 1) == 1);
+  }
+  if (stop > 4) {
+    CHECK(hsdriver_recv(s, HSD_CERT_VERIFY, 1) == 1);
+  }
+  if (stop > 5) {
+    hsdriver_cert_verified(s);
+  }
+  if (stop > 5) {
+    CHECK(hsdriver_recv(s, HSD_FINISHED, 1) == 1);
+  }
 }
 
 /* RFC 8446 4: server flight may not begin before ClientHello is received. */

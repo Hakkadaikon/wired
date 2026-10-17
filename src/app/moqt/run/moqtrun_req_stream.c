@@ -6,8 +6,11 @@ static void moqtrun_req_body_reset(wired_moqtrun_req* q);
 
 wired_moqtrun_req* moqtrun_req_find(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_req_is(&hub->reqs[i], s, stream_id)) return &hub->reqs[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_req_is(&hub->reqs[i], s, stream_id)) {
+      return &hub->reqs[i];
+    }
+  }
   return 0;
 }
 
@@ -18,8 +21,11 @@ static int moqtrun_req_slot_free(const wired_moqt_hub* hub, usz i) {
 }
 
 wired_moqtrun_req* moqtrun_req_free_slot(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
-    if (moqtrun_req_slot_free(hub, i)) return &hub->reqs[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_req_slot_free(hub, i)) {
+      return &hub->reqs[i];
+    }
+  }
   return 0;
 }
 
@@ -83,8 +89,9 @@ int moqtrun_req_owned(const wired_moqtrun_req* q, wired_wt_session* s) {
 
 usz moqtrun_req_count(const wired_moqt_hub* hub, wired_wt_session* s) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     n += (usz)moqtrun_req_owned(&hub->reqs[i], s);
+  }
   return n;
 }
 
@@ -97,7 +104,9 @@ wired_moqtrun_req* moqtrun_req_admit(
       moqtrun_req_count(hub, s) < WIRED_MOQTRUN_MAX_REQS_PER_SESSION
           ? moqtrun_req_free_slot(hub)
           : 0;
-  if (q) return moqtrun_req_open(q, s, stream_id);
+  if (q) {
+    return moqtrun_req_open(q, s, stream_id);
+  }
   hub->io.stream_reset(s, stream_id, MOQTRUN_RESET_EXCESSIVE_LOAD);
   return 0;
 }

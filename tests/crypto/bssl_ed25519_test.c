@@ -25,7 +25,9 @@ static int bssl_ed_load(const bssl_case* c, bssl_ed_case* v) {
 
 static int bssl_ed_same(const u8* a, const u8* b, usz n) {
   u8 d = 0;
-  for (usz i = 0; i < n; i++) d |= (u8)(a[i] ^ b[i]);
+  for (usz i = 0; i < n; i++) {
+    d |= (u8)(a[i] ^ b[i]);
+  }
   return d == 0;
 }
 
@@ -40,7 +42,9 @@ static int bssl_ed_run(const bssl_ed_case* v) {
 
 static int bssl_ed_case_ok(const bssl_case* c) {
   static bssl_ed_case v;
-  if (!bssl_ed_load(c, &v)) return 0;
+  if (!bssl_ed_load(c, &v)) {
+    return 0;
+  }
   return bssl_ed_run(&v);
 }
 
@@ -52,10 +56,11 @@ void test_bssl_ed25519(void) {
     const bssl_case* c  = &bssl_ed25519_tests_cases[i];
     int              ok = bssl_ed_case_ok(c);
     CHECK(ok);
-    if (!ok)
+    if (!ok) {
       printf(
           "FAIL ed25519_tests.txt:%u-%u\n", (unsigned)c->line_first,
           (unsigned)c->line_last);
+    }
     pass += (u32)ok;
     fail += (u32)!ok;
   }

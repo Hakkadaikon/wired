@@ -10,8 +10,11 @@ static int srvrun_resp_matches(const srvrun_resp* r, u64 stream_id) {
 /* The in-use resp[] slot answering stream_id, or 0 if none (RFC 9000 2.2:
  * at most one response per request stream at a time). */
 srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (srvrun_resp_matches(&c->resp[i], stream_id)) return &c->resp[i];
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (srvrun_resp_matches(&c->resp[i], stream_id)) {
+      return &c->resp[i];
+    }
+  }
   return 0;
 }
 
@@ -21,7 +24,9 @@ srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id) {
  * per-connection behavior but per stream instead of per connection. */
 srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    if (c->resp[i].in_use) continue;
+    if (c->resp[i].in_use) {
+      continue;
+    }
     c->resp[i].in_use    = 1;
     c->resp[i].stream_id = stream_id;
     /* Start from no send state: a slot freed mid-send (srvrun_resp_stop)
@@ -105,7 +110,9 @@ void srvrun_wt_resource_decide(
     const srvrun_conn*          c,
     wired_wt_resource_decision* out) {
   *out = (wired_wt_resource_decision){0, 0, 0};
-  if (!cfg->wt_resource_check) return;
+  if (!cfg->wt_resource_check) {
+    return;
+  }
   cfg->wt_resource_check(
       cfg->wt_resource_ctx,
       wired_span_of(c->l.req.authority, c->l.req.authority_len),

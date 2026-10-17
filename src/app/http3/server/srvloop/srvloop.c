@@ -9,7 +9,9 @@ void srvloop_body_reset(wired_srvloop_stream_slot* slot) {
  * then stays past the delivered bytes, so a late retransmission of them is
  * stale and never reaches the app twice. */
 void srvloop_body_rearm(wired_srvloop_stream_slot* slot) {
-  if (!slot->body.on) srvloop_body_reset(slot);
+  if (!slot->body.on) {
+    srvloop_body_reset(slot);
+  }
 }
 
 /* Mark every stream reassembly slot free and its accumulator clean (RFC 9000

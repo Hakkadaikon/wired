@@ -14,9 +14,13 @@ static u64 srvrun_wt_stream_limit(const wired_wt_session* s, int bidi);
 static void srvrun_open_qdec_stream(srvrun_conn* c) {
   static const u8 type[] = {H3_STREAM_QPACK_DECODER};
   srvrun_wtsend*  w;
-  if (!srvrun_qdec_open_due(c)) return;
+  if (!srvrun_qdec_open_due(c)) {
+    return;
+  }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
-  if (!w) return;
+  if (!w) {
+    return;
+  }
   w->append_open = 1;
   srvrun_wtsend_arm_id(c, w, SRVRUN_QDEC_STREAM, wired_span_of(type, 1));
   c->qdec_wtsend_slot   = (int)(w - c->wtsend);
@@ -26,7 +30,9 @@ static void srvrun_open_qdec_stream(srvrun_conn* c) {
 /* RFC 9114 6.2 / RFC 9204 4.2: open the QPACK encoder and decoder streams
  * once SETTINGS is sent; raw QUIC never sends it and opens neither. */
 void srvrun_open_qpack_streams(srvrun_conn* c) {
-  if (!c->l.h3.settings_sent) return;
+  if (!c->l.h3.settings_sent) {
+    return;
+  }
   srvrun_open_qenc_stream(c);
   srvrun_open_qdec_stream(c);
 }
@@ -37,7 +43,9 @@ void srvrun_open_qpack_streams(srvrun_conn* c) {
 srvrun_wtsend* srvrun_plumbing_wtsend(
     srvrun_conn* c, int opened, int slot, u64 stream_id) {
   srvrun_wtsend* w = &c->wtsend[slot];
-  if (!opened) return 0;
+  if (!opened) {
+    return 0;
+  }
   return srvrun_wtsend_matches(w, stream_id) ? w : 0;
 }
 
@@ -57,9 +65,12 @@ void srvrun_flush_qdec(srvrun_conn* c) {
   u8         b[QDYN_DEC_OUT_MAX];
   wired_obuf ob      = obuf_of(b, sizeof b);
   u64        inserts = c->l.h3.qdyn.dropped + c->l.h3.qdyn.count;
-  if (!qdyn_dec_pending(&c->l.h3.qdec, inserts, &ob)) return;
-  if (srvrun_qdec_send(c, wired_span_of(b, ob.len)))
+  if (!qdyn_dec_pending(&c->l.h3.qdec, inserts, &ob)) {
+    return;
+  }
+  if (srvrun_qdec_send(c, wired_span_of(b, ob.len))) {
     qdyn_dec_sent(&c->l.h3.qdec, inserts);
+  }
 }
 
 /* 1 iff opening one more stream of the given direction AND sending
@@ -129,8 +140,12 @@ void srvrun_wt_notify_streams_blocked(
   u8         body[16];
   wired_obuf bob = obuf_of(body, sizeof body);
   u64        lim = srvrun_wt_stream_limit(s, bidi);
-  if (!srvrun_wt_streams_blocked_owed(sidx, s, bidi)) return;
-  if (!wtcapsule_encode_streams_blocked(&bob, bidi, lim)) return;
+  if (!srvrun_wt_streams_blocked_owed(sidx, s, bidi)) {
+    return;
+  }
+  if (!wtcapsule_encode_streams_blocked(&bob, bidi, lim)) {
+    return;
+  }
   srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0);
 }
 
@@ -139,7 +154,9 @@ void srvrun_wt_notify_streams_blocked(
  * srvrun_pump_sess pass sends a STREAMS_BLOCKED(uni) (srvrun_notify_uni_
  * blocked's own doc -- this call site has no srvrun_cfg to send through). */
 int srvrun_wt_uni_grant_ok(srvrun_conn* c) {
-  if (srvrun_uni_open_allowed(c)) return 1;
+  if (srvrun_uni_open_allowed(c)) {
+    return 1;
+  }
   c->uni_blocked_seen = 1;
   return 0;
 }

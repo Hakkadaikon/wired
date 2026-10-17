@@ -19,7 +19,9 @@ static void srvrun_wtsend_stop(
   u8                   pl[32];
   wired_obuf           plb = obuf_of(pl, sizeof pl);
   const srvrun_wtsend* w   = srvrun_wtsend_find(c, e->stream_id);
-  if (!w) return;
+  if (!w) {
+    return;
+  }
   srvrun_wtsend_stop_notify(cfg, c, w, e);
   srvrun_send_kept(
       cfg, c, pl,
@@ -46,7 +48,9 @@ static void srvrun_connect_stop(
 static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id) {
   const int open[3] = {
       c->l.h3.settings_sent != 0, c->qenc_stream_opened, c->qdec_stream_opened};
-  if (stream_id > SRVRUN_QDEC_STREAM || stream_id % 4 != 3) return 0;
+  if (stream_id > SRVRUN_QDEC_STREAM || stream_id % 4 != 3) {
+    return 0;
+  }
   return open[stream_id / 4];
 }
 
@@ -55,7 +59,9 @@ static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id) {
  * with H3_CLOSED_CRITICAL_STREAM instead of resetting the stream. */
 static int srvrun_stop_on_critical(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  if (!srvrun_critical_send(c, stream_id)) return 0;
+  if (!srvrun_critical_send(c, stream_id)) {
+    return 0;
+  }
   srvrun_send_app_close(
       cfg, c, H3_CLOSED_CRITICAL_STREAM,
       wired_span_of((const u8*)"critical stream stopped", 23));
@@ -73,7 +79,9 @@ static usz srvrun_req_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
   u8         pl[48];
   wired_obuf plb = obuf_of(pl, sizeof pl);
-  if (!srvrun_req_slot_of(c, e->stream_id)) return 0;
+  if (!srvrun_req_slot_of(c, e->stream_id)) {
+    return 0;
+  }
   srvrun_send_kept(
       ctx->cfg, c, pl,
       srvrun_wt_abort_pair(c, e->stream_id, e->error_code, &plb),
@@ -102,6 +110,8 @@ static usz srvrun_answer_stream_stop(
  * (srvrun_stop_on_critical); any other is answered on its stream. */
 usz srvrun_answer_peer_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
-  if (srvrun_stop_on_critical(ctx->cfg, c, e->stream_id)) return 0;
+  if (srvrun_stop_on_critical(ctx->cfg, c, e->stream_id)) {
+    return 0;
+  }
   return srvrun_answer_stream_stop(ctx, c, e);
 }

@@ -24,9 +24,13 @@ static int mp4frag_size_ok(u32 size, usz remaining) {
 /* Reads the box at *off; 0 when the header is truncated or the size is
  * unusable. On 1, *off advances past the box. */
 static int mp4frag_box_take(wired_span file, usz* off, mp4frag_box* b) {
-  if (file.n - *off < 8) return 0;
+  if (file.n - *off < 8) {
+    return 0;
+  }
   u32 size = be_get_be32(file.p + *off);
-  if (!mp4frag_size_ok(size, file.n - *off)) return 0;
+  if (!mp4frag_size_ok(size, file.n - *off)) {
+    return 0;
+  }
   b->start = *off;
   b->end   = *off + size;
   b->type  = be_get_be32(file.p + *off + 4);
@@ -39,7 +43,9 @@ static int mp4frag_box_take(wired_span file, usz* off, mp4frag_box* b) {
 static int mp4frag_scan_init(wired_span file, usz* off, mp4frag_layout* out) {
   mp4frag_box b;
   while (mp4frag_box_take(file, off, &b)) {
-    if (b.type != mp4frag_fourcc("moov")) continue;
+    if (b.type != mp4frag_fourcc("moov")) {
+      continue;
+    }
     out->init = wired_span_of(file.p, b.end);
     return 1;
   }
@@ -57,8 +63,12 @@ static int mp4frag_mdat_ok(const mp4frag_box* mdat, const mp4frag_layout* out) {
 static int mp4frag_take_mdat(
     wired_span file, usz* off, const mp4frag_box* moof, mp4frag_layout* out) {
   mp4frag_box mdat;
-  if (!mp4frag_box_take(file, off, &mdat)) return 0;
-  if (!mp4frag_mdat_ok(&mdat, out)) return 0;
+  if (!mp4frag_box_take(file, off, &mdat)) {
+    return 0;
+  }
+  if (!mp4frag_mdat_ok(&mdat, out)) {
+    return 0;
+  }
   out->frags[out->n_frags++] =
       wired_span_of(file.p + moof->start, mdat.end - moof->start);
   return 1;
@@ -78,7 +88,9 @@ static int mp4frag_moof_bad(
 static int mp4frag_scan_frags_step(
     wired_span file, usz* off, mp4frag_layout* out) {
   mp4frag_box b;
-  if (!mp4frag_box_take(file, off, &b)) return 0;
+  if (!mp4frag_box_take(file, off, &b)) {
+    return 0;
+  }
   return !mp4frag_moof_bad(file, off, &b, out);
 }
 
@@ -86,7 +98,9 @@ static int mp4frag_scan_frags_step(
  * 0 on any malformed box or pair. */
 static int mp4frag_scan_frags(wired_span file, usz* off, mp4frag_layout* out) {
   while (*off < file.n) {
-    if (!mp4frag_scan_frags_step(file, off, out)) return 0;
+    if (!mp4frag_scan_frags_step(file, off, out)) {
+      return 0;
+    }
   }
   return 1;
 }
@@ -94,7 +108,11 @@ static int mp4frag_scan_frags(wired_span file, usz* off, mp4frag_layout* out) {
 int mp4frag_scan(wired_span file, mp4frag_layout* out) {
   usz off      = 0;
   out->n_frags = 0;
-  if (!mp4frag_scan_init(file, &off, out)) return 0;
-  if (!mp4frag_scan_frags(file, &off, out)) return 0;
+  if (!mp4frag_scan_init(file, &off, out)) {
+    return 0;
+  }
+  if (!mp4frag_scan_frags(file, &off, out)) {
+    return 0;
+  }
   return out->n_frags != 0;
 }

@@ -15,7 +15,9 @@ static usz pn_len_of(u8 byte0) { return (usz)(byte0 & 0x03) + 1; }
 /* True if the sample and the [pn_off, pn_off+length) region fit in pkt. */
 static int region_ok(const vpn_desc* d) {
   usz sample = hp_sample_offset(d->pn_off);
-  if (!hp_sample_ok(d->pkt.n, sample)) return 0;
+  if (!hp_sample_ok(d->pkt.n, sample)) {
+    return 0;
+  }
   /* pn_off <= pkt.n (parse invariant), so pkt.n - pn_off cannot underflow;
    * this form rejects a huge attacker Length that would overflow
    * pn_off + length. */
@@ -60,11 +62,15 @@ static int vpn_aead_open(
 int vpn_open(const protect_keys* k, const vpn_desc* d, wired_span* payload) {
   usz          pn_len;
   vpnopen_dims v;
-  if (!region_ok(d)) return 0;
+  if (!region_ok(d)) {
+    return 0;
+  }
   v.pn      = remove_hp(k->hp, d, &pn_len);
   v.hdr_len = d->pn_off + pn_len;
   v.ct_len  = (usz)d->length - pn_len - GCM_TAG;
-  if (!vpn_aead_open(k->keys, d->pkt.p, &v)) return 0;
+  if (!vpn_aead_open(k->keys, d->pkt.p, &v)) {
+    return 0;
+  }
   *payload = wired_span_of(d->pkt.p + v.hdr_len, v.ct_len);
   return 1;
 }
@@ -76,8 +82,9 @@ static int remove_hp_suite(
     u16 suite, const u8* hp_key, const vpn_desc* d, usz* pn_len) {
   u8  mask[5];
   u8* pkt = d->pkt.p;
-  if (!hp_suite_mask(suite, hp_key, pkt + hp_sample_offset(d->pn_off), mask))
+  if (!hp_suite_mask(suite, hp_key, pkt + hp_sample_offset(d->pn_off), mask)) {
     return 0;
+  }
   pkt[0] ^= mask[0] & HP_LONG_MASK;
   *pn_len = pn_len_of(pkt[0]);
   hp_protect_pn(pkt + d->pn_off, *pn_len, mask);
@@ -108,8 +115,12 @@ static int vpn_length_ok(const vpn_desc* d, usz tag_len) {
  * (an unrecognized suite) also fails here. */
 static int region_ok_suite(const vpn_desc* d, usz tag_len) {
   usz sample = hp_sample_offset(d->pn_off);
-  if (tag_len == 0) return 0;
-  if (!hp_sample_ok(d->pkt.n, sample)) return 0;
+  if (tag_len == 0) {
+    return 0;
+  }
+  if (!hp_sample_ok(d->pkt.n, sample)) {
+    return 0;
+  }
   return vpn_length_ok(d, tag_len);
 }
 
@@ -122,7 +133,9 @@ static int vpn_open_dims_suite(
     usz             tag_len,
     vpnopen_dims*   v) {
   usz pn_len;
-  if (!remove_hp_suite(suite, hp_key, d, &pn_len)) return 0;
+  if (!remove_hp_suite(suite, hp_key, d, &pn_len)) {
+    return 0;
+  }
   v->pn      = pnum_decode(d->pkt.p + d->pn_off, pn_len, d->largest_pn);
   v->hdr_len = d->pn_off + pn_len;
   v->ct_len  = (usz)d->length - pn_len - tag_len;
@@ -137,7 +150,9 @@ static int vpn_open_suite_head(
     const vpn_desc*     d,
     usz                 tag_len,
     vpnopen_dims*       v) {
-  if (!region_ok_suite(d, tag_len)) return 0;
+  if (!region_ok_suite(d, tag_len)) {
+    return 0;
+  }
   return vpn_open_dims_suite(suite, k->keys->hp, d, tag_len, v);
 }
 
@@ -147,8 +162,12 @@ int vpn_open_suite(
     u16 suite, const protect_keys* k, const vpn_desc* d, wired_span* payload) {
   usz          tag_len = aead_tag_len(suite);
   vpnopen_dims v;
-  if (!vpn_open_suite_head(suite, k, d, tag_len, &v)) return 0;
-  if (!vpn_aead_open_suite(suite, k->keys, d->pkt.p, &v)) return 0;
+  if (!vpn_open_suite_head(suite, k, d, tag_len, &v)) {
+    return 0;
+  }
+  if (!vpn_aead_open_suite(suite, k->keys, d->pkt.p, &v)) {
+    return 0;
+  }
   *payload = wired_span_of(d->pkt.p + v.hdr_len, v.ct_len);
   return 1;
 }

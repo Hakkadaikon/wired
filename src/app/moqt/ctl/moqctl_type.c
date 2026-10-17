@@ -24,10 +24,12 @@ static const u64 MOQCTL_KNOWN_IMPL[] = {
 };
 
 static int moqctl_classify_type(u64 type) {
-  if (moqctl_u64_in(MOQCTL_KNOWN_IMPL, MOQCTL_KNOWN_IMPL_N, type))
+  if (moqctl_u64_in(MOQCTL_KNOWN_IMPL, MOQCTL_KNOWN_IMPL_N, type)) {
     return MOQCTL_OK;
-  if (moqctl_u64_in(MOQCTL_KNOWN_UNIMPL, MOQCTL_KNOWN_UNIMPL_N, type))
+  }
+  if (moqctl_u64_in(MOQCTL_KNOWN_UNIMPL, MOQCTL_KNOWN_UNIMPL_N, type)) {
     return MOQCTL_KNOWN_UNIMPLEMENTED;
+  }
   return MOQCTL_UNKNOWN_TYPE;
 }
 
@@ -45,24 +47,34 @@ static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire) {
 }
 
 static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire) {
-  for (usz i = 0; i < MOQCTL_TYPE_ROWS_N; i++)
-    if (moqctl_type_row_is(&MOQCTL_TYPE_ROWS[i], ver, wire))
+  for (usz i = 0; i < MOQCTL_TYPE_ROWS_N; i++) {
+    if (moqctl_type_row_is(&MOQCTL_TYPE_ROWS[i], ver, wire)) {
       return &MOQCTL_TYPE_ROWS[i];
+    }
+  }
   return 0;
 }
 
 int moqctl_type_ver(int ver, int peek, u64* type) {
   const moqctl_type_row* r;
-  if (peek != MOQCTL_UNKNOWN_TYPE) return peek;
+  if (peek != MOQCTL_UNKNOWN_TYPE) {
+    return peek;
+  }
   r = moqctl_type_row_for(ver, *type);
-  if (!r) return peek;
+  if (!r) {
+    return peek;
+  }
   *type = r->type;
   return r->peek;
 }
 
 int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
-  if (!moqvi_take(buf, at, type)) return MOQCTL_INSUFFICIENT;
-  if (buf.n - *at < 2) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, at, type)) {
+    return MOQCTL_INSUFFICIENT;
+  }
+  if (buf.n - *at < 2) {
+    return MOQCTL_INSUFFICIENT;
+  }
   *len = be_get_be16(buf.p + *at);
   *at += 2;
   return MOQCTL_OK;
@@ -77,8 +89,12 @@ int moqctl_peek_type(
   u64 type;
   u16 len;
   int r = moqctl_peek_header(buf, &at, &type, &len);
-  if (r != MOQCTL_OK) return r;
-  if (buf.n - at < len) return MOQCTL_INSUFFICIENT;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
+  if (buf.n - at < len) {
+    return MOQCTL_INSUFFICIENT;
+  }
   *type_out = type;
   *body     = wired_span_of(buf.p + at, len);
   *off      = at + len;
@@ -93,7 +109,11 @@ static int moqctl_body_left(usz off, wired_span body) {
 }
 
 int moqctl_body_end(int r, usz off, wired_span body) {
-  if (r == MOQCTL_INSUFFICIENT) return MOQCTL_VIOLATION;
-  if (r != MOQCTL_OK) return r;
+  if (r == MOQCTL_INSUFFICIENT) {
+    return MOQCTL_VIOLATION;
+  }
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_body_left(off, body);
 }

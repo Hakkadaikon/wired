@@ -6,11 +6,15 @@
 /* RFC 6979 Section 3.2 for P-256 / SHA-256 (hlen == qlen == 256 bits). */
 
 static void p256sign_copy(u8* dst, const u8* src, usz n) {
-  for (usz i = 0; i < n; i++) dst[i] = src[i];
+  for (usz i = 0; i < n; i++) {
+    dst[i] = src[i];
+  }
 }
 
 static void p256sign_set(u8* dst, u8 val, usz n) {
-  for (usz i = 0; i < n; i++) dst[i] = val;
+  for (usz i = 0; i < n; i++) {
+    dst[i] = val;
+  }
 }
 
 /* bits2octets(hash): reduce the 256-bit hash mod n into 32 big-endian bytes. */
@@ -60,7 +64,9 @@ static void ps_advance(u8 k[32], u8 v[32]) {
 /* 1 if v is both in [1,n-1] and accepted by the caller's suitability check
  * (RFC 6979 Section 3.2 step h.3 / Section 3.4). */
 static int ps_accept(const u8 v[32], p256sign_k_ok ok, void* ctx) {
-  if (!ps_k_in_range(v)) return 0;
+  if (!ps_k_in_range(v)) {
+    return 0;
+  }
   return ok(v, ctx);
 }
 
@@ -69,7 +75,9 @@ static void ps_gen_candidate(
     u8 k[32], u8 v[32], u8 out[32], p256sign_k_ok ok, void* ctx) {
   for (;;) {
     hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
-    if (ps_accept(v, ok, ctx)) break;
+    if (ps_accept(v, ok, ctx)) {
+      break;
+    }
     ps_advance(k, v);
   }
   p256sign_copy(out, v, 32);

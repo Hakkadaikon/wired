@@ -27,8 +27,9 @@ static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
   wired_span        all = wired_span_of(e->gso_stage, e->gso_len);
   i64               fd  = srvrun_stage_fd(cfg, e);
   e->tx_flush_count++;
-  if (wired_udp_send_gso(fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0)
+  if (wired_udp_send_gso(fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0) {
     return;
+  }
   wired_udp_send_batch(fd, &e->gso_peer, all, (u16)e->gso_seg_size);
 }
 
@@ -38,13 +39,16 @@ static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
  * happened at staging time (srvrun_send_staged). */
 void srvrun_stage_flush(const srvrun_cfg* cfg) {
   wired_srvrun_env* e = cfg->env;
-  if (e->gso_count == 0) return;
-  if (e->gso_count == 1)
+  if (e->gso_count == 0) {
+    return;
+  }
+  if (e->gso_count == 1) {
     srvrun_tx(
         cfg, srvrun_stage_fd(cfg, e), &e->gso_peer,
         wired_span_of(e->gso_stage, e->gso_len));
-  else
+  } else {
     srvrun_stage_tx_multi(cfg);
+  }
   srvrun_stage_reset(e);
 }
 
@@ -84,7 +88,9 @@ void srvrun_stage_put(
   bytes_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
   e->gso_len += pkt.n;
   e->gso_count++;
-  if (pkt.n < e->gso_seg_size) srvrun_stage_flush(cfg);
+  if (pkt.n < e->gso_seg_size) {
+    srvrun_stage_flush(cfg);
+  }
 }
 
 /* srvrun_send, except the wire syscall is deferred into the env's GSO stage

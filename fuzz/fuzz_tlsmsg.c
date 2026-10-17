@@ -52,8 +52,12 @@
 static void fuzz_framing(const u8* buf, usz n) {
   usz msg_len;
   hs_message_ready(buf, n, &msg_len);
-  if (n >= 1) hs_message_type(buf);
-  if (n >= HS_HEADER) tls_message_complete(n, tls_message_len(buf));
+  if (n >= 1) {
+    hs_message_type(buf);
+  }
+  if (n >= HS_HEADER) {
+    tls_message_complete(n, tls_message_len(buf));
+  }
 }
 
 /* Whole-message parsers: each validates its own msg_type/lengths. */
@@ -86,7 +90,9 @@ static void fuzz_ch_extensions(wired_span msg) {
                                   0x002b, 0x002d, 0x0033, 0x0039};
   for (usz i = 0; i < sizeof(ext_types) / sizeof(ext_types[0]); i++) {
     wired_span ext;
-    if (!salpn_find_extension(msg, ext_types[i], &ext)) continue;
+    if (!salpn_find_extension(msg, ext_types[i], &ext)) {
+      continue;
+    }
     salpn_negotiate(ext.p, ext.n);
     wired_span host;
     salpn_extract_sni(ext, &host);

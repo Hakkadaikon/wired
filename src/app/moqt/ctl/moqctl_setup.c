@@ -29,10 +29,12 @@ static void moqctl_setup_apply_path_authority(
 /* MAX_FILTER_RANGES / MAX_REQUEST_UPDATES (SS10.4): even option types,
  * their value one varint (kv->num). */
 static void moqctl_setup_apply_limits(moqctl_setup* out, const moqkvp* kv) {
-  if (kv->type == MOQCTL_OPT_MAX_FILTER_RANGES)
+  if (kv->type == MOQCTL_OPT_MAX_FILTER_RANGES) {
     out->max_filter_ranges = kv->num;
-  if (kv->type == MOQCTL_OPT_MAX_REQUEST_UPDATES)
+  }
+  if (kv->type == MOQCTL_OPT_MAX_REQUEST_UPDATES) {
     out->max_request_updates = kv->num;
+  }
 }
 
 /* SSTS_ALGORITHMS (moqtail): concatenated varints, no count. Two passes
@@ -44,8 +46,12 @@ static int moqctl_ssts_known(u64 alg) {
 }
 
 static void moqctl_ssts_keep(moqctl_setup* out, u64 alg, int known) {
-  if (moqctl_ssts_known(alg) != known) return;
-  if (out->ssts_alg_n >= MOQCTL_SSTS_MAX_ALGS) return;
+  if (moqctl_ssts_known(alg) != known) {
+    return;
+  }
+  if (out->ssts_alg_n >= MOQCTL_SSTS_MAX_ALGS) {
+    return;
+  }
   out->ssts_algs[out->ssts_alg_n++] = alg;
 }
 
@@ -54,7 +60,9 @@ static int moqctl_ssts_take_list(wired_span v, moqctl_setup* out, int known) {
   usz at = 0;
   u64 alg;
   while (at < v.n) {
-    if (!moqvi_take(v, &at, &alg)) return 0;
+    if (!moqvi_take(v, &at, &alg)) {
+      return 0;
+    }
     moqctl_ssts_keep(out, alg, known);
   }
   return 1;
@@ -64,9 +72,13 @@ static int moqctl_ssts_take_list(wired_span v, moqctl_setup* out, int known) {
  * parsed closes the session KEY_VALUE_FORMATTING_ERROR, so a list ending
  * mid-varint is MOQCTL_PARAMS_KVFMT. A repeat replaces the earlier one. */
 static int moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv) {
-  if (kv->type != MOQCTL_OPT_SSTS_ALGORITHMS) return MOQCTL_OK;
+  if (kv->type != MOQCTL_OPT_SSTS_ALGORITHMS) {
+    return MOQCTL_OK;
+  }
   out->ssts_alg_n = 0;
-  if (!moqctl_ssts_take_list(kv->raw, out, 1)) return MOQCTL_PARAMS_KVFMT;
+  if (!moqctl_ssts_take_list(kv->raw, out, 1)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
   moqctl_ssts_take_list(kv->raw, out, 0);
   out->has_ssts = 1;
   return MOQCTL_OK;
@@ -88,7 +100,9 @@ static int moqctl_setup_take_one(
     wired_span buf, usz* at, u64* prev, moqctl_setup* out) {
   moqkvp kv;
   int    r = moqkvp_take(buf, at, prev, &kv);
-  if (r != MOQKVP_OK) return MOQCTL_VIOLATION;
+  if (r != MOQKVP_OK) {
+    return MOQCTL_VIOLATION;
+  }
   return moqctl_setup_apply_kvp(out, &kv);
 }
 
@@ -96,7 +110,9 @@ static int moqctl_setup_take_loop(wired_span buf, usz* at, moqctl_setup* out) {
   u64 prev = 0;
   while (*at < buf.n) {
     int r = moqctl_setup_take_one(buf, at, &prev, out);
-    if (r != MOQCTL_OK) return r;
+    if (r != MOQCTL_OK) {
+      return r;
+    }
   }
   return MOQCTL_OK;
 }
@@ -106,7 +122,9 @@ int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out) {
   int r;
   *out = (moqctl_setup){0};
   r    = moqctl_setup_take_loop(buf, &at, out);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   *off = at;
   return MOQCTL_OK;
 }

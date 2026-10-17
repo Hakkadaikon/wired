@@ -27,8 +27,12 @@ typedef struct {
 /* Copy val (vlen octets) into a NUL-terminated C string. Returns 1 ok, 0 if it
  * does not fit in buf of VALBUF_CAP octets (terminator included). */
 static int val_cstr(const u8* val, usz vlen, char* buf) {
-  if (vlen >= VALBUF_CAP) return 0;
-  for (usz i = 0; i < vlen; i++) buf[i] = (char)val[i];
+  if (vlen >= VALBUF_CAP) {
+    return 0;
+  }
+  for (usz i = 0; i < vlen; i++) {
+    buf[i] = (char)val[i];
+  }
   buf[vlen] = 0;
   return 1;
 }
@@ -36,7 +40,9 @@ static int val_cstr(const u8* val, usz vlen, char* buf) {
 /* RFC 9204 4.5.2. Static-table index of (name, val) if both are short enough to
  * compare and present, else -1. */
 static i64 static_index(const pseudo_field* f, char* buf) {
-  if (!val_cstr(f->val, f->vlen, buf)) return -1;
+  if (!val_cstr(f->val, f->vlen, buf)) {
+    return -1;
+  }
   return qpack_static_find(f->name, buf);
 }
 
@@ -47,8 +53,9 @@ static usz put_pseudo(const pseudo_field* f, u8* out, usz cap) {
   char          buf[VALBUF_CAP];
   i64           idx = static_index(f, buf);
   qpack_nameref r   = {f->name_idx, 1, 0};
-  if (idx >= 0)
+  if (idx >= 0) {
     return qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
+  }
   return qpack_literal_namref_encode(
       wired_mspan_of(out, cap), &r, wired_span_of(f->val, f->vlen));
 }
@@ -64,7 +71,9 @@ static usz put_section_prefix(u8* out, usz cap) {
 static int put_fields(const pseudo_field* fields, usz n, wired_obuf* out) {
   for (usz i = 0; i < n; i++) {
     usz w = put_pseudo(&fields[i], out->p + out->len, out->cap - out->len);
-    if (!w) return 0;
+    if (!w) {
+      return 0;
+    }
     out->len += w;
   }
   return 1;
@@ -78,7 +87,9 @@ static int put_protocol(wired_span protocol, wired_obuf* out) {
   qpack_field     f      = {wired_span_of(name, sizeof name - 1), protocol};
   usz             w      = qpack_literal_name_encode(
       wired_mspan_of(out->p + out->len, out->cap - out->len), 0, &f);
-  if (!w) return 0;
+  if (!w) {
+    return 0;
+  }
   out->len += w;
   return 1;
 }
@@ -86,7 +97,9 @@ static int put_protocol(wired_span protocol, wired_obuf* out) {
 /* Append :protocol when non-empty; an empty span omits it entirely. Returns 1
  * ok, 0 on overflow. */
 static int put_optional_protocol(wired_span protocol, wired_obuf* out) {
-  if (protocol.n == 0) return 1;
+  if (protocol.n == 0) {
+    return 1;
+  }
   return put_protocol(protocol, out);
 }
 
@@ -95,7 +108,9 @@ static int put_optional_protocol(wired_span protocol, wired_obuf* out) {
 static int put_section(
     const pseudo_field* fields, usz nf, wired_span protocol, wired_obuf* out) {
   usz off = put_section_prefix(out->p, out->cap);
-  if (!off) return 0;
+  if (!off) {
+    return 0;
+  }
   out->len = off;
   return put_fields(fields, nf, out) && put_optional_protocol(protocol, out);
 }

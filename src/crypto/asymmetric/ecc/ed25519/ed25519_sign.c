@@ -15,7 +15,9 @@ const u8 ORDER_L[32] = {0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
 /* a >= b for 32-byte little-endian integers. */
 int ed25519_sign_sc_ge(const u8 a[32], const u8 b[32]) {
   for (usz i = 32; i-- > 0;) {
-    if (a[i] != b[i]) return a[i] > b[i];
+    if (a[i] != b[i]) {
+      return a[i] > b[i];
+    }
   }
   return 1;
 }
@@ -45,14 +47,20 @@ static int sc_shl1(u8 r[32], int bit) {
 static void sc_dbl_add_bit(u8 r[32], int bit) {
   int overflow = sc_shl1(r, bit);
   int reduce   = overflow | ed25519_sign_sc_ge(r, ORDER_L);
-  if (reduce) sc_subl(r);
+  if (reduce) {
+    sc_subl(r);
+  }
 }
 
 /* out = in (64-byte LE) mod L, via bitwise shift-and-reduce (RFC 8032: the
  * digest is reduced mod the group order). */
 void ed25519_sign_sc_reduce64(u8 out[32], const u8 in[64]) {
-  for (usz i = 0; i < 32; i++) out[i] = 0;
-  for (usz i = 512; i-- > 0;) sc_dbl_add_bit(out, (in[i >> 3] >> (i & 7)) & 1);
+  for (usz i = 0; i < 32; i++) {
+    out[i] = 0;
+  }
+  for (usz i = 512; i-- > 0;) {
+    sc_dbl_add_bit(out, (in[i >> 3] >> (i & 7)) & 1);
+  }
 }
 
 /* k = SHA-512(R || A || M) mod L (RFC 8032 5.1.7 step 2). */
@@ -69,7 +77,9 @@ void ed25519_sign_hash_k(u8 k[32], const u8* R, const u8* A, wired_span msg) {
 
 static int bytes_equal(const u8 a[32], const u8 b[32]) {
   u8 diff = 0;
-  for (usz i = 0; i < 32; i++) diff |= a[i] ^ b[i];
+  for (usz i = 0; i < 32; i++) {
+    diff |= a[i] ^ b[i];
+  }
   return diff == 0;
 }
 
@@ -85,7 +95,9 @@ static int compute_rhs(
     u8 out[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge kA, rhs;
   ed_ge_scalarmult(&kA, k, A);
-  if (!ed25519_sign_decode_checked(&rhs, R)) return 0;
+  if (!ed25519_sign_decode_checked(&rhs, R)) {
+    return 0;
+  }
   ed_ge_add(&rhs, &rhs, &kA);
   ed_ge_encode(out, &rhs);
   return 1;
@@ -96,7 +108,9 @@ int ed25519_sign_check_equation(
     const u8 S[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge B, sB;
   u8 lhs[32], want[32];
-  if (!compute_rhs(want, k, A, R)) return 0;
+  if (!compute_rhs(want, k, A, R)) {
+    return 0;
+  }
   ed_ge_base(&B);
   ed_ge_scalarmult(&sB, S, &B);
   ed_ge_encode(lhs, &sB);

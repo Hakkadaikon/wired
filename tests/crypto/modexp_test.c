@@ -1,7 +1,9 @@
 #include "test.h"
 
 static void bn_small(bn* a, u64 x) {
-  for (usz i = 0; i < BN_LIMBS; i++) a->v[i] = 0;
+  for (usz i = 0; i < BN_LIMBS; i++) {
+    a->v[i] = 0;
+  }
   a->v[0] = x;
 }
 
@@ -13,7 +15,9 @@ static void test_modexp_known(void) {
   bn_small(&mod, 497);
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
   CHECK(out.v[0] == 445);
-  for (usz i = 1; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
 }
 
 /* exp 0 -> 1; exp 1 -> base. */
@@ -38,7 +42,9 @@ static void test_modexp_rsa_small(void) {
   bn_small(&n, 3233);
   bn_modexp(&out, &s, (bn_expmod){&e, &n});
   CHECK(out.v[0] == 65);
-  for (usz i = 1; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
 }
 
 /* Carry across the limb 0 -> 1 boundary: (2^64-1)^2 mod 2^128 =
@@ -52,7 +58,9 @@ static void test_modexp_limb_boundary_square(void) {
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
   CHECK(out.v[0] == 1);
   CHECK(out.v[1] == 0xfffffffffffffffeULL);
-  for (usz i = 2; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 2; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
 }
 
 /* All-ones two-limb operand: (2^128-1)^2 mod 2^256 = 2^256 - 2^129 + 1. */
@@ -82,7 +90,9 @@ static void test_modexp_all_ones_full_width(void) {
   bn_small(&exp, 2);
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
   CHECK(out.v[0] == 1);
-  for (usz i = 1; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
   bn_small(&exp, 3);
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
   CHECK(bn_cmp(&out, &base) == 0);
@@ -101,7 +111,9 @@ static void test_modexp_cross_checked(void) {
   CHECK(out.v[0] == 0x941);
   CHECK(out.v[1] == 0xfffffffffffffb64ULL);
   CHECK(out.v[2] == 0xe2);
-  for (usz i = 3; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 3; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
 }
 
 /* The modulus itself and m-1 as operands, and a single all-ones limb as the
@@ -110,7 +122,9 @@ static void test_modexp_cross_checked(void) {
  * is the only carry). */
 static void test_modexp_modulus_as_operand(void) {
   bn base, exp, mod, out;
-  for (usz i = 0; i < BN_LIMBS; i++) mod.v[i] = 0xffffffffffffffffULL;
+  for (usz i = 0; i < BN_LIMBS; i++) {
+    mod.v[i] = 0xffffffffffffffffULL;
+  }
   base = mod;
   bn_small(&exp, 3);
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
@@ -124,7 +138,9 @@ static void test_modexp_modulus_as_operand(void) {
   bn_small(&exp, 2);
   bn_modexp(&out, &base, (bn_expmod){&exp, &mod});
   CHECK(out.v[0] == 1);
-  for (usz i = 1; i < BN_LIMBS; i++) CHECK(out.v[i] == 0);
+  for (usz i = 1; i < BN_LIMBS; i++) {
+    CHECK(out.v[i] == 0);
+  }
 }
 
 void test_modexp(void) {

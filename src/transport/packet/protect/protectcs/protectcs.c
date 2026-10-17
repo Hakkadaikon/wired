@@ -16,8 +16,9 @@ static int pcs_apply_hp(const protectcs_keys* k, const protectcs_seal_io* io) {
   u8        mask[5];
   hp_fields f = {
       io->pkt, io->pkt + io->pn_off, io->pn_len, form_mask(io->pkt[0])};
-  if (!hp_suite_mask(k->suite, k->hp_key, io->pkt + io->pn_off + 4, mask))
+  if (!hp_suite_mask(k->suite, k->hp_key, io->pkt + io->pn_off + 4, mask)) {
     return 0;
+  }
   hp_apply(mask, &f);
   return 1;
 }
@@ -30,8 +31,12 @@ int protectcs_seal(
   usz n = aead_suite_seal(
       &op, wired_span_of(io->pkt + hdr_len, io->payload_len),
       io->pkt + hdr_len);
-  if (n == 0) return 0;
-  if (!pcs_apply_hp(k, io)) return 0;
+  if (n == 0) {
+    return 0;
+  }
+  if (!pcs_apply_hp(k, io)) {
+    return 0;
+  }
   *out_len = hdr_len + n;
   return 1;
 }
@@ -39,7 +44,9 @@ int protectcs_seal(
 /* Decode the pn_len-byte packet number at pkt+pn_off into a full value. */
 static u64 pcs_read_pn(const u8* pkt, usz pn_off, usz pn_len) {
   u64 pn = 0;
-  for (usz i = 0; i < pn_len; i++) pn = (pn << 8) | pkt[pn_off + i];
+  for (usz i = 0; i < pn_len; i++) {
+    pn = (pn << 8) | pkt[pn_off + i];
+  }
   return pn;
 }
 
@@ -48,7 +55,9 @@ static u64 pcs_read_pn(const u8* pkt, usz pn_off, usz pn_len) {
  */
 static usz pcs_remove_hp(const protectcs_keys* k, u8* pkt, usz pn_off) {
   u8 mask[5];
-  if (!hp_suite_mask(k->suite, k->hp_key, pkt + pn_off + 4, mask)) return 0;
+  if (!hp_suite_mask(k->suite, k->hp_key, pkt + pn_off + 4, mask)) {
+    return 0;
+  }
   pkt[0] ^= mask[0] & form_mask(pkt[0]);
   usz pn_len = (pkt[0] & 0x03) + 1;
   hp_protect_pn(&pkt[pn_off], pn_len, mask);
@@ -59,15 +68,18 @@ int protectcs_open(
     const protectcs_keys* k, const protectcs_open_io* io, wired_span* payload) {
   u8* pkt    = io->pkt.p;
   usz pn_len = pcs_remove_hp(k, pkt, io->pn_off);
-  if (pn_len == 0) return 0;
+  if (pn_len == 0) {
+    return 0;
+  }
   usz           hdr_len = io->pn_off + pn_len;
   usz           ct_len  = io->pkt.n - hdr_len - 16;
   aead_suite_op op      = {
       k->suite, k->key, k->iv, pcs_read_pn(pkt, io->pn_off, pn_len),
       wired_span_of(pkt, hdr_len)};
   if (!aead_suite_open(
-          &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len))
+          &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len)) {
     return 0;
+  }
   *payload = wired_span_of(pkt + hdr_len, ct_len);
   return 1;
 }

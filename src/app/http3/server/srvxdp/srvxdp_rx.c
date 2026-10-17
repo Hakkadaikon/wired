@@ -11,9 +11,12 @@ static u32  srvxdp_rx_drain(wired_srvxdp* x, u32 rx_idx, u32 n, mmsg_buf* bufs);
 static u32 srvxdp_reap_comp(wired_srvxdp* x) {
   u32 idx;
   u32 n = xskring_cons_peek(&x->xsk.comp, x->xsk.comp.size, &idx);
-  for (u32 i = 0; i < n; i++)
+  for (u32 i = 0; i < n; i++) {
     xskumem_alloc_put(&x->txpool, *xskring_addr_at(&x->xsk.comp, idx + i));
-  if (n) xskring_cons_release(&x->xsk.comp, n);
+  }
+  if (n) {
+    xskring_cons_release(&x->xsk.comp, n);
+  }
   return n;
 }
 
@@ -22,7 +25,9 @@ static u32 srvxdp_reap_comp(wired_srvxdp* x) {
 static void srvxdp_learn(wired_srvxdp* x, const xdpframe_rx* rx) {
   xdpmac_learn(&x->macs, wired_udp_addr4_be(&rx->src), rx->peer_mac);
   if (!x->have_mac) {
-    for (usz i = 0; i < 6; i++) x->our_mac[i] = rx->our_mac[i];
+    for (usz i = 0; i < 6; i++) {
+      x->our_mac[i] = rx->our_mac[i];
+    }
     x->have_mac = 1;
   }
 }
@@ -33,8 +38,12 @@ static void srvxdp_learn(wired_srvxdp* x, const xdpframe_rx* rx) {
 static int srvxdp_rx_one(wired_srvxdp* x, u64 addr, u32 len, mmsg_buf* out) {
   xdpframe_rx rx;
   wired_span  frame = wired_span_of(x->xsk.umem + addr, len);
-  if (!xdpframe_parse(frame, &rx)) return 0;
-  if (rx.payload_len > out->buf.n) return 0;
+  if (!xdpframe_parse(frame, &rx)) {
+    return 0;
+  }
+  if (rx.payload_len > out->buf.n) {
+    return 0;
+  }
   srvxdp_learn(x, &rx);
   bytes_memcpy(out->buf.p, rx.payload, rx.payload_len);
   out->len = (u32)rx.payload_len;
@@ -61,7 +70,9 @@ static u32 srvxdp_rx_drain(wired_srvxdp* x, u32 rx_idx, u32 n, mmsg_buf* bufs) {
   u32 filled = 0;
   for (u32 i = 0; i < n; i++) {
     xdp_desc* d = xskring_desc_at(&x->xsk.rx, rx_idx + i);
-    if (srvxdp_rx_one(x, d->addr, d->len, &bufs[filled])) filled++;
+    if (srvxdp_rx_one(x, d->addr, d->len, &bufs[filled])) {
+      filled++;
+    }
   }
   return filled;
 }
@@ -73,7 +84,9 @@ i64 wired_srvxdp_rx_burst(wired_srvxdp* x, mmsg_buf* bufs, usz nbufs) {
   srvxdp_reap_comp(x);
   n      = xskring_cons_peek(&x->xsk.rx, (u32)nbufs, &rx_idx);
   filled = srvxdp_rx_drain(x, rx_idx, n, bufs);
-  if (!n) return filled;
+  if (!n) {
+    return filled;
+  }
   srvxdp_refill(x, rx_idx, n);
   xskring_cons_release(&x->xsk.rx, n);
   return filled;
@@ -83,7 +96,9 @@ i64 wired_srvxdp_rx_burst(wired_srvxdp* x, mmsg_buf* bufs, usz nbufs) {
  * empty. Returns the frame address, or -1 if still empty. */
 i64 srvxdp_txpool_get(wired_srvxdp* x) {
   i64 addr = xskumem_alloc_get(&x->txpool);
-  if (addr >= 0) return addr;
+  if (addr >= 0) {
+    return addr;
+  }
   srvxdp_reap_comp(x);
   return xskumem_alloc_get(&x->txpool);
 }

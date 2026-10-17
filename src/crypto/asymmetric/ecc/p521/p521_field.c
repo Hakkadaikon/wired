@@ -13,17 +13,23 @@ const p521_fe p521_n = {
 const p521_fe fp521_one = {1};
 
 void fp521_set(p521_fe r, const p521_fe a) {
-  for (usz i = 0; i < 9; i++) r[i] = a[i];
+  for (usz i = 0; i < 9; i++) {
+    r[i] = a[i];
+  }
 }
 
 int fp521_is_zero(const p521_fe a) {
   u64 d = 0;
-  for (usz i = 0; i < 9; i++) d |= a[i];
+  for (usz i = 0; i < 9; i++) {
+    d |= a[i];
+  }
   return d == 0;
 }
 
 int fp521_eq(const p521_fe a, const p521_fe b) {
   u64 d = 0;
-  for (usz i = 0; i < 9; i++) d |= a[i] ^ b[i];
+  for (usz i = 0; i < 9; i++) {
+    d |= a[i] ^ b[i];
+  }
   return d == 0;
 }

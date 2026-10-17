@@ -27,23 +27,32 @@ static int mimetype_ext_mismatch(const char* a, const char* ext, usz i) {
 /* 1 if a[0..n) equals the NUL-terminated ext exactly. */
 static int mimetype_ext_eq(const char* a, usz n, const char* ext) {
   usz i = 0;
-  for (; i < n; i++)
-    if (mimetype_ext_mismatch(a, ext, i)) return 0;
+  for (; i < n; i++) {
+    if (mimetype_ext_mismatch(a, ext, i)) {
+      return 0;
+    }
+  }
   return ext[i] == 0;
 }
 
 /* Track the last '.' seen in the current path segment: reset to "none" (n) at
  * each '/', recorded at each '.'. */
 static void mimetype_track_dot(const char* path, usz i, usz n, usz* dot) {
-  if (path[i] == '/') *dot = n;
-  if (path[i] == '.') *dot = i;
+  if (path[i] == '/') {
+    *dot = n;
+  }
+  if (path[i] == '.') {
+    *dot = i;
+  }
 }
 
 /* Scan path for the last '.' in its final segment. Returns n (no extension)
  * when none is found. */
 static usz mimetype_last_dot(const char* path, usz n) {
   usz dot = n;
-  for (usz i = 0; i < n; i++) mimetype_track_dot(path, i, n, &dot);
+  for (usz i = 0; i < n; i++) {
+    mimetype_track_dot(path, i, n, &dot);
+  }
   return dot;
 }
 
@@ -55,7 +64,9 @@ static const char* mimetype_find_ext(const char* path, usz* len) {
   usz n   = wired_cstr_len(path);
   usz dot = mimetype_last_dot(path, n);
   *len    = 0;
-  if (dot == n || dot + 1 == n) return 0;
+  if (dot == n || dot + 1 == n) {
+    return 0;
+  }
   *len = n - dot - 1;
   return path + dot + 1;
 }
@@ -63,9 +74,11 @@ static const char* mimetype_find_ext(const char* path, usz* len) {
 /* Look up ext[0..len) in the table. Returns the Content-Type, or 0 if none
  * matches. */
 static const char* mimetype_lookup(const char* ext, usz len) {
-  for (usz i = 0; i < MIMETYPE_TABLE_LEN; i++)
-    if (mimetype_ext_eq(ext, len, MIMETYPE_TABLE[i].ext))
+  for (usz i = 0; i < MIMETYPE_TABLE_LEN; i++) {
+    if (mimetype_ext_eq(ext, len, MIMETYPE_TABLE[i].ext)) {
       return MIMETYPE_TABLE[i].content_type;
+    }
+  }
   return 0;
 }
 

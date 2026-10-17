@@ -14,9 +14,11 @@ static int moqtrun_req_holds(const wired_moqtrun_req* q, u64 rid);
  * than WIRED_MOQTRUN_MAX_NAME), so a REPUBLISH does not re-attach it
  * (moqtrun_reattach_subs). */
 void moqtrun_sub_names_forget(wired_moqtrun_peer* p, u64 rid) {
-  for (usz i = 0; i < p->sub_names_n; i++)
-    if (p->sub_state[i].request_id == rid)
+  for (usz i = 0; i < p->sub_names_n; i++) {
+    if (p->sub_state[i].request_id == rid) {
       p->sub_name_lens[i] = WIRED_MOQTRUN_MAX_NAME + 1;
+    }
+  }
 }
 
 int moqtrun_track_is_req(const wired_moqtrun_track* t, u64 rid) {
@@ -26,9 +28,11 @@ int moqtrun_track_is_req(const wired_moqtrun_track* t, u64 rid) {
 /* A cancelled PUBLISH withdraws its track. */
 static void moqtrun_peer_unpublish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 rid) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_is_req(&p->tracks[t], rid))
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    if (moqtrun_track_is_req(&p->tracks[t], rid)) {
       moqtrun_track_retire(hub, &p->tracks[t]);
+    }
+  }
 }
 
 /* draft-ietf-moq-transport-19 3.3.3: the request is cancelled -- its
@@ -45,8 +49,9 @@ void moqtrun_req_cancel(
   moqtrun_peer_unpublish(hub, p, q->request_id);
   moqtrun_fetches_cancel(hub, p->wt, q->request_id);
   moqtrun_rdv_drop_stream(hub, p->wt, q->stream_id);
-  if (!q->fin_out)
+  if (!q->fin_out) {
     hub->io.stream_reset(p->wt, q->stream_id, MOQTRUN_RESET_CANCELLED);
+  }
   q->in_use = 0;
 }
 
@@ -55,7 +60,9 @@ void moqtrun_req_cancel(
 static void moqtrun_stream_frag_release(wired_moqtrun_peer* p, u64 stream_id) {
   wired_moqtrun_track* t;
   wired_moqtrun_relay* r = moqtrun_peer_relay_by_stream(p, stream_id, &t);
-  if (r) moqtrun_frag_release_unless_poisoned(r);
+  if (r) {
+    moqtrun_frag_release_unless_poisoned(r);
+  }
 }
 
 /* A reset control stream kills the session (draft-19 3.3); a reset
@@ -91,7 +98,9 @@ void wired_moqt_on_stream_reset(
   wired_moqtrun_req*  q   = moqtrun_req_find(hub, s, stream_id);
   (void)mapped;
   (void)app_error_code;
-  if (!p) return;
+  if (!p) {
+    return;
+  }
   moqtrun_fetches_stream_gone(hub, s, stream_id);
   moqtrun_reset_dispatch(hub, p, q, stream_id);
   moqtsw_step(hub, moqtrun_sw_ops()); /* SWITCH_FROM: Hard cut on B gone */

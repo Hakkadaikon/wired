@@ -12,7 +12,9 @@ static int srvrun_ghost_hit(const srvrun_ghost* g, wired_span dcid, u64 now_ms);
 int srvrun_route_or_evict(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   int slot = srvrun_route(ctx, dcid, dg);
-  if (slot >= 0) return slot;
+  if (slot >= 0) {
+    return slot;
+  }
   return srvrun_evict_for_initial(
       ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }
@@ -38,9 +40,13 @@ static int srvrun_seal_new_conn_refusal(
   usz              fn;
   conn_close_frame cc = {0, ERR_CONNECTION_REFUSED, 0, 0, 0};
   srvwire_seal_in  wi;
-  if (!lhdr_parse(dg, 1, &h)) return 0;
+  if (!lhdr_parse(dg, 1, &h)) {
+    return 0;
+  }
   fn = frame_put_conn_close(fr, sizeof fr, &cc);
-  if (!fn) return 0;
+  if (!fn) {
+    return 0;
+  }
   /* refused in the version the client's own Initial used (its header's
    * Version field -- lhdr_parse already proved dg holds one) */
   wi = (srvwire_seal_in){h.dcid,
@@ -66,9 +72,12 @@ void srvrun_send_new_conn_refusal(
   u8         out[128];
   u8         scid[8] = {0};
   wired_obuf ob      = obuf_of(out, sizeof out);
-  if (!srvrun_is_refusable_new_conn(dcid, dg)) return;
-  if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob))
+  if (!srvrun_is_refusable_new_conn(dcid, dg)) {
     return;
+  }
+  if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob)) {
+    return;
+  }
   srvrun_tx(
       ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
   wired_log_str("conn refused: table full\n");
@@ -85,8 +94,12 @@ static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, wired_mspan dg) {
  * and a post-Retry Initial routes by the token path instead. */
 int srvrun_retry_applies(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
-  if (!srvrun_retry_wanted(ctx, dg)) return 0;
-  if (srvrun_find_slot(ctx, dcid) >= 0) return 0;
+  if (!srvrun_retry_wanted(ctx, dg)) {
+    return 0;
+  }
+  if (srvrun_find_slot(ctx, dcid) >= 0) {
+    return 0;
+  }
   return srvrun_find_boot_scid(ctx, dcid) < 0;
 }
 
@@ -97,7 +110,9 @@ int srvrun_retry_consumed(
     wired_span             dcid,
     wired_mspan            dg,
     wired_span*            odcid) {
-  if (!srvrun_retry_applies(ctx, dcid, dg)) return 0;
+  if (!srvrun_retry_applies(ctx, dcid, dg)) {
+    return 0;
+  }
   return srvrun_retry_gate(ctx, dg, odcid);
 }
 
@@ -111,7 +126,10 @@ static int srvrun_ghost_hit(
 
 int srvrun_ghost_match(const srvrun_step_ctx* ctx, wired_span dcid) {
   const wired_srvrun_env* env = ctx->cfg->env;
-  for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++)
-    if (srvrun_ghost_hit(&env->ghosts[i], dcid, ctx->now_ms)) return 1;
+  for (usz i = 0; i < SRVRUN_GHOST_SLOTS; i++) {
+    if (srvrun_ghost_hit(&env->ghosts[i], dcid, ctx->now_ms)) {
+      return 1;
+    }
+  }
   return 0;
 }

@@ -111,7 +111,9 @@ static const qpack_static_entry table[QPACK_STATIC_COUNT] = {
 };
 
 int qpack_static_get(usz index, const char** name, const char** value) {
-  if (index >= QPACK_STATIC_COUNT) return 0;
+  if (index >= QPACK_STATIC_COUNT) {
+    return 0;
+  }
   *name  = table[index].name;
   *value = table[index].value;
   return 1;
@@ -120,7 +122,9 @@ int qpack_static_get(usz index, const char** name, const char** value) {
 /* Two NUL-terminated strings compare equal byte for byte. */
 static int str_eq(const char* a, const char* b) {
   while (*a == *b) {
-    if (*a == 0) return 1;
+    if (*a == 0) {
+      return 1;
+    }
     a++;
     b++;
   }
@@ -133,7 +137,10 @@ static int entry_eq(usz i, const char* name, const char* value) {
 }
 
 i64 qpack_static_find(const char* name, const char* value) {
-  for (usz i = 0; i < QPACK_STATIC_COUNT; i++)
-    if (entry_eq(i, name, value)) return (i64)i;
+  for (usz i = 0; i < QPACK_STATIC_COUNT; i++) {
+    if (entry_eq(i, name, value)) {
+      return (i64)i;
+    }
+  }
   return -1;
 }

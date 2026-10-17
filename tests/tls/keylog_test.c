@@ -143,7 +143,9 @@ static void tkl_expect_line(
   want[n++] = ' ';
   n += tkl_put_hex(want + n, secret, 32);
   want[n++] = '\n';
-  for (usz i = 0; i < n; i++) CHECK(file[*off + i] == want[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(file[*off + i] == want[i]);
+  }
   *off += n;
 }
 
@@ -199,7 +201,9 @@ static void test_tls_keylog_early_data(void) {
   tkl_client_hello(&f);
   tkl_server_flight(&f);
   wired_server_set_keylog_path(&f.s, tkl_path);
-  for (usz i = 0; i < 32; i++) f.s.sdrv.psk_secret[i] = (u8)(0x70 + i);
+  for (usz i = 0; i < 32; i++) {
+    f.s.sdrv.psk_secret[i] = (u8)(0x70 + i);
+  }
   f.s.sdrv.early_data_accepted = 1;
   tkl_early_secret(f.s.sdrv.psk_secret, &f, early);
   tkl_unlink();

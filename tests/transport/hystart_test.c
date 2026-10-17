@@ -6,8 +6,9 @@
  * boundary), returning the last verdict. */
 static int hs_feed(hystart* h, u64 rtt, u64 pn0, int n, u64 next_pn) {
   int exit_now = 0;
-  for (int i = 0; i < n; i++)
+  for (int i = 0; i < n; i++) {
     exit_now = hystart_sample(h, rtt, pn0 + (u64)i, next_pn);
+  }
   return exit_now;
 }
 
@@ -62,8 +63,9 @@ static void test_hystart_css_resumes_slow_start(void) {
 static void test_hystart_css_rounds_exit(void) {
   hystart h;
   hs_enter_css(&h);
-  for (u64 r = 2; r < 6; r++)
+  for (u64 r = 2; r < 6; r++) {
     CHECK(hs_feed(&h, 50, r * 10, 8, r * 10 + 10) == 0);
+  }
   CHECK(hystart_sample(&h, 50, 60, 70) == 1); /* 5th round boundary */
 }
 

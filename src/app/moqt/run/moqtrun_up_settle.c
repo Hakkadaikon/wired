@@ -26,7 +26,9 @@ static void moqtrun_up_cancel(
     wired_moqtrun_up*    u,
     wired_moqtrun_track* t) {
   moqtrun_up_reset(hub, pp, u);
-  if (t) moqtrun_track_retire(hub, t);
+  if (t) {
+    moqtrun_track_retire(hub, t);
+  }
   u->in_use = 0;
 }
 
@@ -34,16 +36,20 @@ static void moqtrun_up_cancel(
  * taken over (a PUBLISH of the same name: cancelled). */
 void moqtrun_up_end(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
-  if (u->done)
+  if (u->done) {
     hub->io.stream_fin(u->wt, u->stream_id);
-  else
+  } else {
     moqtrun_up_reset(hub, pp, u);
+  }
   u->in_use = 0;
 }
 
 static int moqtrun_up_any_sub(const wired_moqtrun_track* t) {
-  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++)
-    if (t->subs[si].active) return 1;
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (t->subs[si].active) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -69,7 +75,9 @@ static void moqtrun_up_settle(
     moqtrun_up_end(hub, pp, u);
     return;
   }
-  if (!moqtrun_up_wanted(hub, u, t)) moqtrun_up_cancel(hub, pp, u, t);
+  if (!moqtrun_up_wanted(hub, u, t)) {
+    moqtrun_up_cancel(hub, pp, u, t);
+  }
 }
 
 /* A publisher session the hub is closing keeps u, untouched, until the
@@ -77,14 +85,18 @@ static void moqtrun_up_settle(
  * (a wait for a new path, as for the publisher's own close). */
 static void moqtrun_up_settle_open(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
-  if (!pp->closing) moqtrun_up_settle(hub, pp, u);
+  if (!pp->closing) {
+    moqtrun_up_settle(hub, pp, u);
+  }
 }
 
 /* A publisher session gone takes u with it, no io (NoLeakOnClose); its
  * track already ended for every subscriber. */
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   wired_moqtrun_peer* pp;
-  if (!u->in_use) return;
+  if (!u->in_use) {
+    return;
+  }
   pp = moqtrun_find_by_wt(hub, u->wt);
   if (!pp) {
     u->in_use = 0;
@@ -94,10 +106,12 @@ static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
 }
 
 void moqtrun_up_sync(wired_moqt_hub* hub) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
     moqtrun_up_sweep_one(hub, &hub->ups[i]);
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++)
+  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     moqtrun_up_wait_one(hub, &hub->rdv[i]);
+  }
 }
 
 /* ----- the publisher's replies on the hub's stream ----- */

@@ -24,15 +24,22 @@ static void keylogt_check_line(
   ssz n        = wired_fio_read(keylogt_path, wired_mspan_of(out, sizeof out));
   usz label_n  = 0;
   usz i;
-  while (label[label_n]) label_n++;
+  while (label[label_n]) {
+    label_n++;
+  }
   CHECK(n > 0);
-  for (i = 0; label[i]; i++) CHECK(out[i] == (u8)label[i]);
+  for (i = 0; label[i]; i++) {
+    CHECK(out[i] == (u8)label[i]);
+  }
   CHECK(out[label_n] == ' ');
-  for (i = 0; cr_hex[i]; i++) CHECK(out[label_n + 1 + i] == (u8)cr_hex[i]);
+  for (i = 0; cr_hex[i]; i++) {
+    CHECK(out[label_n + 1 + i] == (u8)cr_hex[i]);
+  }
   {
     usz secret_off = label_n + 1 + 64 + 1;
-    for (i = 0; secret_hex[i]; i++)
+    for (i = 0; secret_hex[i]; i++) {
       CHECK(out[secret_off + i] == (u8)secret_hex[i]);
+    }
     CHECK(out[secret_off + i] == '\n');
     CHECK((usz)n == secret_off + i + 1);
   }

@@ -16,7 +16,9 @@ void srvrun_path_move(
   c->tx_fd = to.fd;
   e        = srvrun_path_cid(cfg, c, &to, 0);
   /* ponytail: with no ID left the old one stays; the peer must issue more */
-  if (!e) return;
+  if (!e) {
+    return;
+  }
   bytes_memcpy(c->l.cli_scid, e->cid, e->len);
   c->l.cli_scid_len = e->len;
 }
@@ -27,7 +29,9 @@ static void srvrun_send_to(
     const srvrun_conn* c,
     const pathsel_key* k,
     wired_span         pkt) {
-  if (c->closing) return;
+  if (c->closing) {
+    return;
+  }
   srvrun_tx(cfg, k->fd, &k->peer, pkt);
   srvrun_qlog_sent(cfg, c, pkt.n);
   g_srvrun_send_count++;
@@ -46,7 +50,9 @@ void srvrun_path_send(
   u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob   = obuf_of(out, sizeof out);
   wired_span dcid = wired_span_of(e->cid, e->len);
-  if (!srvrun_seal_path_frames(c, dcid, type, data, n, &ob)) return;
+  if (!srvrun_seal_path_frames(c, dcid, type, data, n, &ob)) {
+    return;
+  }
   srvrun_send_to(cfg, c, k, wired_span_of(out, ob.len));
 }
 
@@ -71,7 +77,9 @@ void srvrun_path_challenge(
  * the path validates on the next one. */
 void srvrun_path_arm(
     const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now) {
-  if (!s) return;
+  if (!s) {
+    return;
+  }
   s->first_ms = now;
   s->tries    = 0;
   srvrun_path_challenge(cfg, c, s, now);
@@ -84,7 +92,9 @@ void srvrun_path_chal_new(
     srvrun_conn*           c,
     const pathsel_key*     to,
     const pathsel_key*     from) {
-  if (srvrun_path_is_valid(c, to) || pathsel_find(&c->path, to)) return;
+  if (srvrun_path_is_valid(c, to) || pathsel_find(&c->path, to)) {
+    return;
+  }
   srvrun_path_arm(ctx->cfg, c, pathsel_claim(&c->path, to, from), ctx->now_ms);
 }
 
@@ -95,7 +105,9 @@ void srvrun_path_chal_old(
     srvrun_conn*           c,
     const pathsel_key*     from,
     const pathsel_key*     to) {
-  if (pathsel_key_eq(from, to)) return;
+  if (pathsel_key_eq(from, to)) {
+    return;
+  }
   srvrun_path_arm(ctx->cfg, c, pathsel_claim(&c->path, from, to), ctx->now_ms);
 }
 

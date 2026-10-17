@@ -84,18 +84,21 @@ static void fuzz_ctl_body(int ver, u64 type, wired_span body) {
     moqctl_request_ok_take(ver, body, &off, &m);
   } else if (type == MOQCTL_T_REQUEST_ERROR) {
     moqctl_request_error m;
-    if (moqctl_request_error_take(body, &off, &m) == MOQCTL_OK)
+    if (moqctl_request_error_take(body, &off, &m) == MOQCTL_OK) {
       moqctl_request_error_for(ver, m.error_code);
+    }
   } else if (type == MOQCTL_T_PUBLISH_DONE) {
     moqctl_publish_done m;
-    if (moqctl_publish_done_take(body, &off, &m) == MOQCTL_OK)
+    if (moqctl_publish_done_take(body, &off, &m) == MOQCTL_OK) {
       moqctl_publish_done_for(ver, m.status_code);
+    }
   } else if (type == MOQCTL_T_GOAWAY) {
     moqctl_goaway m;
-    if (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID)
+    if (moqver_caps(ver) & MOQVER_CAP_GOAWAY_REQID) {
       moqctl_goaway18_take(body, &off, &m);
-    else
+    } else {
       moqctl_goaway_take(body, &off, &m);
+    }
   }
 }
 
@@ -113,10 +116,11 @@ static void fuzz_ctl_body_more(int ver, u64 type, wired_span body) {
   switch (type) {
     case MOQFETCH_T_FETCH:
       moqfetch_fetch_take(ver, body, &fetch);
-      if (moqver_caps(ver) & MOQVER_CAP_FETCH_BODY_V22)
+      if (moqver_caps(ver) & MOQVER_CAP_FETCH_BODY_V22) {
         moqfetch_req22_take(body, &fr);
-      else
+      } else {
         moqfetch_req19_take(ver, body, &fr);
+      }
       break;
     case MOQFETCH_T_FETCH_OK:
       moqfetch_ok_take(ver, body, &fok);
@@ -160,7 +164,9 @@ static void fuzz_ctl_stream(int ver, wired_span in) {
     u64        type;
     wired_span body;
     int        r = moqctl_peek_type(in, &off, &type, &body);
-    if (r == MOQCTL_INSUFFICIENT) break;
+    if (r == MOQCTL_INSUFFICIENT) {
+      break;
+    }
     r = moqctl_type_ver(ver, r, &type);
     if (r != MOQCTL_OK && r != MOQCTL_KNOWN_UNIMPLEMENTED) {
       moqsess_step(&sess, MOQSESS_EV_MALFORMED_CTRL);
@@ -168,8 +174,12 @@ static void fuzz_ctl_stream(int ver, wired_span in) {
     }
     fuzz_ctl_body(ver, type, body);
     fuzz_ctl_body_more(ver, type, body);
-    if (type == MOQCTL_T_SETUP) moqsess_step(&sess, MOQSESS_EV_RECV_SETUP);
-    if (type == MOQCTL_T_GOAWAY) moqsess_step(&sess, MOQSESS_EV_RECV_GOAWAY);
+    if (type == MOQCTL_T_SETUP) {
+      moqsess_step(&sess, MOQSESS_EV_RECV_SETUP);
+    }
+    if (type == MOQCTL_T_GOAWAY) {
+      moqsess_step(&sess, MOQSESS_EV_RECV_GOAWAY);
+    }
     moqsess_should_buffer(&sess);
     moqsess_established(&sess);
     moqsess_may_reject_request(&sess);
@@ -187,7 +197,9 @@ static void fuzz_fetch_stream(int ver, wired_span in) {
     moqfetch_obj obj;
     seq.descending    = desc;
     seq.eor_timed_out = (moqver_caps(ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0;
-    if (moqfetch_hdr_take(in, &off, &rid) != MOQCTL_OK) return;
+    if (moqfetch_hdr_take(in, &off, &rid) != MOQCTL_OK) {
+      return;
+    }
     while (moqfetch_obj_take(in, &off, &seq, &obj) == MOQCTL_OK) {
     }
   }
@@ -198,11 +210,17 @@ static void fuzz_fetch_stream(int ver, wired_span in) {
 static void fuzz_data_stream(int ver, wired_span in) {
   usz off  = 0;
   int kind = moqdata_classify(in, &off);
-  if (kind == MOQDATA_STREAM_FETCH) fuzz_fetch_stream(ver, in);
-  if (kind != MOQDATA_STREAM_SUBGROUP) return;
+  if (kind == MOQDATA_STREAM_FETCH) {
+    fuzz_fetch_stream(ver, in);
+  }
+  if (kind != MOQDATA_STREAM_SUBGROUP) {
+    return;
+  }
 
   moqdata_subhdr h;
-  if (moqdata_subhdr_take(in, &off, &h) != MOQDATA_OK) return;
+  if (moqdata_subhdr_take(in, &off, &h) != MOQDATA_OK) {
+    return;
+  }
   moqdata_objseq seq = moqdata_objseq_of(h.type);
   moqdata_obj    obj;
   while (moqdata_obj_take(in, &off, &seq, &obj) == MOQDATA_OK) {
@@ -244,13 +262,21 @@ static void fuzz_dgram(wired_span in) {
   static u8 out[MOQDG_HDR_MAX + 9 + 65536];
   usz       off = 0, n = 0, off2 = 0;
   moqdg_obj a, b;
-  if (in.n > sizeof out - MOQDG_HDR_MAX - 9) return;
-  if (moqdg_take(in, &off, &a) != MOQDATA_OK) return;
-  if (moqdg_put(wired_mspan_of(out, sizeof out), &n, &a) != MOQDATA_OK)
+  if (in.n > sizeof out - MOQDG_HDR_MAX - 9) {
+    return;
+  }
+  if (moqdg_take(in, &off, &a) != MOQDATA_OK) {
+    return;
+  }
+  if (moqdg_put(wired_mspan_of(out, sizeof out), &n, &a) != MOQDATA_OK) {
     __builtin_trap();
-  if (moqdg_take(wired_span_of(out, n), &off2, &b) != MOQDATA_OK)
+  }
+  if (moqdg_take(wired_span_of(out, n), &off2, &b) != MOQDATA_OK) {
     __builtin_trap();
-  if (!fuzz_dg_eq(&a, &b)) __builtin_trap();
+  }
+  if (!fuzz_dg_eq(&a, &b)) {
+    __builtin_trap();
+  }
 }
 
 /* The FETCH object cache (10.12.3) driven by 4-byte ops {tag|release,
@@ -262,7 +288,9 @@ static void fuzz_cache_read(moqcache* c, u64 tag) {
   for (int i = 0; i < 64 && moqctl_loc_less(cur, end); i++) {
     moqcache_item it;
     moqcache_item_at(c, tag, cur, end, &it);
-    if (!moqctl_loc_less(cur, it.next)) __builtin_trap();
+    if (!moqctl_loc_less(cur, it.next)) {
+      __builtin_trap();
+    }
     cur = moqcache_skip(c, tag, it.next, end);
   }
 }
@@ -274,19 +302,24 @@ static void fuzz_cache(wired_span in) {
   for (usz i = 0; i + 4 <= in.n; i += 4) {
     const u8* op  = in.p + i;
     usz       len = op[3] < in.n - i ? op[3] : in.n - i;
-    if (op[0] & 0x80)
+    if (op[0] & 0x80) {
       moqcache_release(&c, op[0] & 1);
-    else
+    } else {
       moqcache_append(
           &c, op[0] & 1, op[1] & 7, op[2] & 7, wired_span_of(in.p + i, len));
-    if (op[0] & 0x40) fuzz_cache_read(&c, op[0] & 1); /* lookups interleave */
+    }
+    if (op[0] & 0x40) {
+      fuzz_cache_read(&c, op[0] & 1); /* lookups interleave */
+    }
   }
   fuzz_cache_read(&c, 0);
   fuzz_cache_read(&c, 1);
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
-  if (size == 0) return 0;
+  if (size == 0) {
+    return 0;
+  }
   int        ver = data[0] % MOQVER_COUNT;
   wired_span in  = wired_span_of((const u8*)data + 1, (usz)size - 1);
   fuzz_ctl_stream(ver, in);

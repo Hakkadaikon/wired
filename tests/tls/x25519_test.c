@@ -20,7 +20,9 @@ static void test_x25519_rfc_v1(void) {
   hb32(
       "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552", want);
   CHECK(wired_x25519(out, scalar, point) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 /* RFC 7748 Section 5.2 test vector 2. */
@@ -35,7 +37,9 @@ static void test_x25519_rfc_v2(void) {
   hb32(
       "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957", want);
   CHECK(wired_x25519(out, scalar, point) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 /* RFC 7748 6.1: a low-order point yields an all-zero shared secret, which must
@@ -47,10 +51,14 @@ static void test_x25519_low_order_rejected(void) {
   scalar[0]  = 5;
   scalar[31] = 0x40;
   CHECK(wired_x25519(out, scalar, low_order) == 0); /* u = 0 */
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == 0);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == 0);
+  }
   low_order[0] = 1;
   CHECK(wired_x25519(out, scalar, low_order) == 0); /* u = 1 */
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == 0);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == 0);
+  }
 }
 
 /* An ECDHE exchange agrees: pub_a = a*G, pub_b = b*G, a*pub_b == b*pub_a. */
@@ -64,7 +72,9 @@ static void test_x25519_ecdhe(void) {
   wired_x25519_base(pb, b);
   wired_x25519(sa, a, pb);
   wired_x25519(sb, b, pa);
-  for (usz i = 0; i < 32; i++) CHECK(sa[i] == sb[i]); /* shared secret */
+  for (usz i = 0; i < 32; i++) {
+    CHECK(sa[i] == sb[i]); /* shared secret */
+  }
 }
 
 /* RFC 7748 5 (p.343-344, non-canonical values paragraph): u-coordinates in
@@ -76,11 +86,15 @@ static void test_x25519_ecdhe(void) {
  * being pinned here. */
 static void test_x25519_noncanonical_u_reduced(void) {
   u8 scalar[32] = {9}, noncanon[32], canon[32] = {18}, out_nc[32], out_c[32];
-  for (usz i = 0; i < 31; i++) noncanon[i] = 0xff;
+  for (usz i = 0; i < 31; i++) {
+    noncanon[i] = 0xff;
+  }
   noncanon[31] = 0x7f; /* top bit clear: value == 2^255-1 == p+18 */
   CHECK(wired_x25519(out_nc, scalar, noncanon) == 1);
   CHECK(wired_x25519(out_c, scalar, canon) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(out_nc[i] == out_c[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out_nc[i] == out_c[i]);
+  }
 }
 
 /* RFC 7748 5.2 iterative test: k=u=9 (the base point), 1 iteration then
@@ -94,7 +108,9 @@ static void test_x25519_rfc_iterate_1(void) {
   hb32(
       "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079", want);
   CHECK(wired_x25519(out, nine, nine) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(out[i] == want[i]);
+  }
 }
 
 static void test_x25519_rfc_iterate_1000(void) {
@@ -103,10 +119,16 @@ static void test_x25519_rfc_iterate_1000(void) {
       "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51", want);
   for (int i = 0; i < 1000; i++) {
     wired_x25519(next, k, u);
-    for (usz j = 0; j < 32; j++) u[j] = k[j];
-    for (usz j = 0; j < 32; j++) k[j] = next[j];
+    for (usz j = 0; j < 32; j++) {
+      u[j] = k[j];
+    }
+    for (usz j = 0; j < 32; j++) {
+      k[j] = next[j];
+    }
   }
-  for (usz i = 0; i < 32; i++) CHECK(k[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(k[i] == want[i]);
+  }
 }
 
 /* RFC 7748 6.1 Diffie-Hellman fixed vector: Alice's and Bob's key pairs and
@@ -131,13 +153,21 @@ static void test_x25519_rfc_dh_alice_bob(void) {
 
   wired_x25519_base(pa, a);
   wired_x25519_base(pb, b);
-  for (usz i = 0; i < 32; i++) CHECK(pa[i] == want_pa[i]);
-  for (usz i = 0; i < 32; i++) CHECK(pb[i] == want_pb[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(pa[i] == want_pa[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(pb[i] == want_pb[i]);
+  }
 
   wired_x25519(ka, a, pb);
   wired_x25519(kb, b, pa);
-  for (usz i = 0; i < 32; i++) CHECK(ka[i] == want_k[i]);
-  for (usz i = 0; i < 32; i++) CHECK(kb[i] == want_k[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(ka[i] == want_k[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(kb[i] == want_k[i]);
+  }
 }
 
 /* RFC 7748 5 decodeScalar25519: k_list[0] &= 248, k_list[31] &= 127,
@@ -148,31 +178,43 @@ static void test_x25519_rfc_dh_alice_bob(void) {
  * unity build includes x25519.c before this file. */
 static void test_x25519_clamp_rfc7748(void) {
   u8 in[32], out[32];
-  for (usz i = 0; i < 32; i++) in[i] = 0xff;
+  for (usz i = 0; i < 32; i++) {
+    in[i] = 0xff;
+  }
   clamp(out, in);
   CHECK((out[0] & 0x07) == 0);  /* low 3 bits cleared */
   CHECK(out[0] == 0xf8);        /* only the low 3 bits changed */
   CHECK((out[31] & 0x80) == 0); /* bit 255 cleared */
   CHECK((out[31] & 0x40) != 0); /* bit 254 forced set */
   CHECK(out[31] == 0x7f);       /* 0xff & 127 | 64 */
-  for (usz i = 1; i < 31; i++) CHECK(out[i] == 0xff); /* untouched bytes */
+  for (usz i = 1; i < 31; i++) {
+    CHECK(out[i] == 0xff); /* untouched bytes */
+  }
 }
 
 /* All-zero input: the forced bit 254 is the only bit that must turn on. */
 static void test_x25519_clamp_zero_forces_bit254(void) {
   u8 in[32] = {0}, out[32];
   clamp(out, in);
-  for (usz i = 0; i < 31; i++) CHECK(out[i] == 0);
+  for (usz i = 0; i < 31; i++) {
+    CHECK(out[i] == 0);
+  }
   CHECK(out[31] == 0x40);
 }
 
 /* clamp() writes to out without mutating its scalar input (in != out). */
 static void test_x25519_clamp_does_not_mutate_input(void) {
   u8 in[32], out[32], want[32];
-  for (usz i = 0; i < 32; i++) in[i] = (u8)(i * 7 + 1);
-  for (usz i = 0; i < 32; i++) want[i] = in[i];
+  for (usz i = 0; i < 32; i++) {
+    in[i] = (u8)(i * 7 + 1);
+  }
+  for (usz i = 0; i < 32; i++) {
+    want[i] = in[i];
+  }
   clamp(out, in);
-  for (usz i = 0; i < 32; i++) CHECK(in[i] == want[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(in[i] == want[i]);
+  }
 }
 
 void test_x25519(void) {

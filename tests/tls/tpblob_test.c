@@ -1,14 +1,19 @@
 #include "test.h"
 
 static int mem_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 static void test_blob_token(void) {
   u8 tok[16];
-  for (usz i = 0; i < 16; i++) tok[i] = (u8)(i + 1);
+  for (usz i = 0; i < 16; i++) {
+    tok[i] = (u8)(i + 1);
+  }
   u8         buf[64];
   u64        id;
   wired_span v;
@@ -57,13 +62,21 @@ static void test_blob_truncated(void) {
 
 static struct preferred_address sample_pa(void) {
   struct preferred_address pa;
-  for (usz i = 0; i < 4; i++) pa.ipv4[i] = (u8)(10 + i);
-  for (usz i = 0; i < 16; i++) pa.ipv6[i] = (u8)(0x20 + i);
-  for (usz i = 0; i < 16; i++) pa.reset_token[i] = (u8)(0x40 + i);
+  for (usz i = 0; i < 4; i++) {
+    pa.ipv4[i] = (u8)(10 + i);
+  }
+  for (usz i = 0; i < 16; i++) {
+    pa.ipv6[i] = (u8)(0x20 + i);
+  }
+  for (usz i = 0; i < 16; i++) {
+    pa.reset_token[i] = (u8)(0x40 + i);
+  }
   pa.ipv4_port = 4433;
   pa.ipv6_port = 8443;
   pa.cid_len   = 5;
-  for (usz i = 0; i < 5; i++) pa.cid[i] = (u8)(0x90 + i);
+  for (usz i = 0; i < 5; i++) {
+    pa.cid[i] = (u8)(0x90 + i);
+  }
   return pa;
 }
 

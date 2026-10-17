@@ -39,9 +39,13 @@ static void init_state(const u8* key, u32 counter, const u8* nonce, u32 s[16]) {
   s[1] = 0x3320646e;
   s[2] = 0x79622d32;
   s[3] = 0x6b206574;
-  for (usz i = 0; i < 8; i++) s[4 + i] = rd32(key + 4 * i);
+  for (usz i = 0; i < 8; i++) {
+    s[4 + i] = rd32(key + 4 * i);
+  }
   s[12] = counter;
-  for (usz i = 0; i < 3; i++) s[13 + i] = rd32(nonce + 4 * i);
+  for (usz i = 0; i < 3; i++) {
+    s[13 + i] = rd32(nonce + 4 * i);
+  }
 }
 
 /* Add the original state back in and serialize little-endian to out. */
@@ -62,8 +66,12 @@ void chacha20_block(
     u8       out[CHACHA_BLOCK]) {
   u32 s[16], x[16];
   init_state(key, counter, nonce, s);
-  for (usz i = 0; i < 16; i++) x[i] = s[i];
-  for (usz i = 0; i < 10; i++) double_round(x);
+  for (usz i = 0; i < 16; i++) {
+    x[i] = s[i];
+  }
+  for (usz i = 0; i < 10; i++) {
+    double_round(x);
+  }
   serialize(x, s, out);
 }
 
@@ -72,7 +80,9 @@ static usz xor_chunk(const chacha_ctx* c, wired_span in, u8* out) {
   u8  ks[CHACHA_BLOCK];
   usz n = (in.n < CHACHA_BLOCK) ? in.n : CHACHA_BLOCK;
   chacha20_block(c->key, c->counter, c->nonce, ks);
-  for (usz i = 0; i < n; i++) out[i] = in.p[i] ^ ks[i];
+  for (usz i = 0; i < n; i++) {
+    out[i] = in.p[i] ^ ks[i];
+  }
   return n;
 }
 

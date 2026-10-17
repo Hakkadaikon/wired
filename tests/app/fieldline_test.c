@@ -112,10 +112,11 @@ static void test_qpack_fieldline_whole_line_granularity(void) {
 
   /* any truncation of the line fails the whole decode -- there is no
    * partial/byte-at-a-time decode API to fall back to. */
-  for (usz cut = 1; cut < w; cut++)
+  for (usz cut = 1; cut < w; cut++) {
     CHECK(
         qpack_indexed_decode(wired_span_of(buf, w - cut), &index, &is_static) ==
         0);
+  }
 }
 
 void test_fieldline(void) {

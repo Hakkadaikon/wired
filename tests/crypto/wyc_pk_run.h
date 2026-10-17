@@ -26,8 +26,12 @@ typedef struct {
 
 /* Is verdict v the Wycheproof-expected outcome for c->result? */
 static int wyc_pk_expected(const wyc_case* c, int v) {
-  if (v == WYC_PK_BROKEN) return 0;
-  if (c->result == WYC_ACCEPTABLE) return 1;
+  if (v == WYC_PK_BROKEN) {
+    return 0;
+  }
+  if (c->result == WYC_ACCEPTABLE) {
+    return 1;
+  }
   return v == (c->result == WYC_VALID);
 }
 
@@ -52,8 +56,12 @@ static void wyc_pk_acceptable(wyc_pk_tally* t, const wyc_case* c, int v) {
 
 static void wyc_pk_one(wyc_pk_tally* t, const wyc_case* c, int v) {
   t->added++;
-  if (!wyc_pk_expected(c, v)) return wyc_pk_fail(t, c);
-  if (c->result == WYC_ACCEPTABLE) return wyc_pk_acceptable(t, c, v);
+  if (!wyc_pk_expected(c, v)) {
+    return wyc_pk_fail(t, c);
+  }
+  if (c->result == WYC_ACCEPTABLE) {
+    return wyc_pk_acceptable(t, c, v);
+  }
   t->valid_ok += (u32)(c->result == WYC_VALID);
   t->inv_rej += (u32)(c->result == WYC_INVALID);
 }
@@ -64,15 +72,18 @@ static void wyc_pk_summary(const wyc_pk_tally* t) {
       "(accepted %u rejected %u) fail %u skip 0 failed=[",
       t->prim, t->added, t->valid_ok, t->inv_rej, t->acc, t->acc_acc,
       t->acc_rej, t->fail);
-  for (u32 i = 0; i < t->fail && i < WYC_PK_MAXFAIL; i++)
+  for (u32 i = 0; i < t->fail && i < WYC_PK_MAXFAIL; i++) {
     printf("%s%u:%s", i ? "," : "", t->bad_id[i], t->bad_flags[i]);
+  }
   printf("]\n");
 }
 
 /* Run every case of one Wycheproof file; cases are identified by tcId. */
 static void wyc_pk_all(
     wyc_pk_tally* t, const wyc_case* cs, u32 n, wyc_pk_fn run) {
-  for (u32 i = 0; i < n; i++) wyc_pk_one(t, &cs[i], run(&cs[i]));
+  for (u32 i = 0; i < n; i++) {
+    wyc_pk_one(t, &cs[i], run(&cs[i]));
+  }
   wyc_pk_summary(t);
 }
 
@@ -89,7 +100,9 @@ static inline void wyc_pk_flag_rejected(
     int ok  = !hit || run(&cs[i]) == WYC_PK_REJECT;
     cnt += (u32)hit;
     bad += (u32)!ok;
-    if (!ok) printf("FAIL %s tcId %u flags=%s\n", name, cs[i].tc_id, flag);
+    if (!ok) {
+      printf("FAIL %s tcId %u flags=%s\n", name, cs[i].tc_id, flag);
+    }
   }
   wired_test_fails += (int)bad;
   printf("wyc %s: cases %u fail %u\n", name, cnt, bad);

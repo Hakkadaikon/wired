@@ -14,8 +14,12 @@ static usz tx(memlink* l, const u8* qpkt, usz qlen, u32 src, u32 dst) {
   wired_obuf ub   = obuf_of(udp, sizeof(udp));
   usz        un   = udp4_build(&ub, &meta, wired_span_of(qpkt, qlen));
   ipv4_build(ip, &(ipv4_head){(u16)(20 + un), src, dst, IP_PROTO_UDP});
-  for (usz i = 0; i < 20; i++) frame[i] = ip[i];
-  for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
+  for (usz i = 0; i < 20; i++) {
+    frame[i] = ip[i];
+  }
+  for (usz i = 0; i < un; i++) {
+    frame[20 + i] = udp[i];
+  }
   memlink_send(l, frame, 20 + un);
   return 20 + un;
 }
@@ -25,11 +29,16 @@ static usz rx(memlink* l, u8* qpkt, usz cap, u32 src, u32 dst) {
   u8  frame[1520];
   usz fn = memlink_recv(l, frame, sizeof(frame));
   usz un = fn - 20;
-  if (fn == 0 || !ipv4_check(frame)) return 0;
-  if (!udp4_check(wired_span_of(frame + 20, un), (ipv4addrs){src, dst}))
+  if (fn == 0 || !ipv4_check(frame)) {
     return 0;
+  }
+  if (!udp4_check(wired_span_of(frame + 20, un), (ipv4addrs){src, dst})) {
+    return 0;
+  }
   usz qlen = un - UDP_HDR;
-  for (usz i = 0; i < qlen && i < cap; i++) qpkt[i] = frame[20 + UDP_HDR + i];
+  for (usz i = 0; i < qlen && i < cap; i++) {
+    qpkt[i] = frame[20 + UDP_HDR + i];
+  }
   return qlen;
 }
 
@@ -42,11 +51,15 @@ static usz make_client_initial(
   usz hl = hs_build_hello(hello, sizeof(hello), HS_CLIENT_HELLO, rnd, c->pub);
   crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz          cl = frame_put_crypto(crypto, sizeof(crypto), &cf);
-  for (usz i = 0; i < 18; i++) hdr[i] = 0;
+  for (usz i = 0; i < 18; i++) {
+    hdr[i] = 0;
+  }
   hdr[0] = 0xc3;
   hdr[4] = 1;
   hdr[5] = 8;
-  for (usz i = 0; i < 8; i++) hdr[6 + i] = c->dcid[i];
+  for (usz i = 0; i < 8; i++) {
+    hdr[6 + i] = c->dcid[i];
+  }
   hdr[17]            = 1; /* packet number 1 */
   protect_keys    k  = {ik, hp};
   protect_seal_io io = {
@@ -68,9 +81,12 @@ static int server_read_initial(
   crypto_frame    cf;
   u8              type;
   usz             body_len;
-  if (pl == 0 || frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0)
+  if (pl == 0 || frame_get_crypto(pkt + 18, pl, &cf) == 0) {
     return 0;
+  }
+  if (hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0) {
+    return 0;
+  }
   return hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
@@ -108,7 +124,9 @@ static void test_endpoint_handshake(void) {
   usz rn = rx(&link, rxpkt, sizeof(rxpkt), ca, sa);
   CHECK(rn == qn);
   CHECK(server_read_initial(rxpkt, rn, &cik, &chp, peer_pub) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(peer_pub[i] == cl.pub[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(peer_pub[i] == cl.pub[i]);
+  }
 
   /* both agree on the handshake secret from the same ECDHE inputs */
   const u8      tr[] = "transcript";
@@ -126,8 +144,9 @@ static void test_endpoint_handshake(void) {
         &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1, 0},
         &cl_sees_server);
   }
-  for (usz i = 0; i < INITIAL_KEY; i++)
+  for (usz i = 0; i < INITIAL_KEY; i++) {
     CHECK(cl_sees_server.key[i] == sv.hs_keys.key[i]);
+  }
 
   /* 1-RTT STREAM data round-trips under the agreed (server) handshake keys */
   aes128 shp;
@@ -141,7 +160,9 @@ static void test_endpoint_handshake(void) {
       .fin       = 1};
   usz sfl      = frame_put_stream(sframe, sizeof(sframe), &sf);
   u8  shdr[18] = {0x43, 0, 0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7};
-  for (usz i = 0; i < 8; i++) shdr[6 + i] = dcid[i];
+  for (usz i = 0; i < 8; i++) {
+    shdr[6 + i] = dcid[i];
+  }
   protect_keys    sk  = {&sv.hs_keys, &shp};
   protect_seal_io sio = {
       wired_span_of(shdr, 18),           14, 4, 7, wired_span_of(sframe, sfl),

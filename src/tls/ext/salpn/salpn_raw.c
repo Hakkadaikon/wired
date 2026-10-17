@@ -13,7 +13,9 @@ static int salpn_raw_is_tok_byte(char c) { return c != ' ' && c != 0; }
 /* Bytes of the space-delimited token starting at p. */
 static usz salpn_raw_tok_len(const char* p) {
   usz n = 0;
-  while (salpn_raw_is_tok_byte(p[n])) n++;
+  while (salpn_raw_is_tok_byte(p[n])) {
+    n++;
+  }
   return n;
 }
 
@@ -33,7 +35,9 @@ static const char* salpn_raw_next(const char* p) {
 static const char* salpn_raw_find(const char* list, wired_span nm) {
   const char* p = salpn_raw_str(list);
   while (*p) {
-    if (salpn_raw_tok_is(p, nm)) return p;
+    if (salpn_raw_tok_is(p, nm)) {
+      return p;
+    }
     p = salpn_raw_next(p);
   }
   return 0;
@@ -70,15 +74,21 @@ static const struct {
 };
 
 static salpn_choice salpn_raw_name_choice(wired_span nm, const char* raw) {
-  for (usz i = 0; i < sizeof SALPN_RAW_CLASSES / sizeof *SALPN_RAW_CLASSES; i++)
-    if (SALPN_RAW_CLASSES[i].match(nm, raw)) return SALPN_RAW_CLASSES[i].choice;
+  for (usz i = 0; i < sizeof SALPN_RAW_CLASSES / sizeof *SALPN_RAW_CLASSES;
+       i++) {
+    if (SALPN_RAW_CLASSES[i].match(nm, raw)) {
+      return SALPN_RAW_CLASSES[i].choice;
+    }
+  }
   return SALPN_NONE;
 }
 
 /* ProtocolNameList end offset, or 0 if len is short or list_len overruns. */
 static usz salpn_raw_list_end(const u8* m, usz len) {
   usz end;
-  if (len < 2) return 0;
+  if (len < 2) {
+    return 0;
+  }
   end = 2 + ((usz)m[0] << 8 | m[1]);
   return end <= len ? end : 0;
 }
@@ -108,8 +118,9 @@ static salpn_choice salpn_raw_step(salpn_raw_walk* w) {
 /* On SALPN_RAW, *tok views the configured entry (outlives the CH). */
 static salpn_choice salpn_raw_finish(
     salpn_choice c, const salpn_raw_walk* w, wired_span* tok) {
-  if (c == SALPN_RAW)
+  if (c == SALPN_RAW) {
     *tok = wired_span_of((const u8*)salpn_raw_find(w->raw, w->nm), w->nm.n);
+  }
   return c;
 }
 
@@ -122,6 +133,8 @@ salpn_choice salpn_raw_pick(
       raw_list,
       {0, 0}};
   salpn_choice c = SALPN_NONE;
-  while (c == SALPN_NONE && w.p < w.end) c = salpn_raw_step(&w);
+  while (c == SALPN_NONE && w.p < w.end) {
+    c = salpn_raw_step(&w);
+  }
   return salpn_raw_finish(c, &w, tok);
 }

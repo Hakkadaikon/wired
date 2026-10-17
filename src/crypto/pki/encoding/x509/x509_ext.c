@@ -18,8 +18,12 @@ static int scan_duplicates(wired_span ext);
 static int reach_extensions(wired_span tbs, wired_span* ext) {
   derseq     c;
   wired_span wrapped;
-  if (!x509_at_extensions(tbs, &c)) return 0;
-  if (!derseq_next_tagged(&c, X509_EXTENSIONS_TAG, &wrapped)) return 0;
+  if (!x509_at_extensions(tbs, &c)) {
+    return 0;
+  }
+  if (!derseq_next_tagged(&c, X509_EXTENSIONS_TAG, &wrapped)) {
+    return 0;
+  }
   return der_seq(wrapped, ext);
 }
 
@@ -28,7 +32,9 @@ static int ext_id_is(wired_span e, wired_span oid) {
   derseq     f;
   wired_span id;
   derseq_init(&f, e);
-  if (!derseq_next_tagged(&f, DER_OID, &id)) return 0;
+  if (!derseq_next_tagged(&f, DER_OID, &id)) {
+    return 0;
+  }
   return der_oid_equal(id, oid);
 }
 
@@ -44,8 +50,12 @@ static int ext_critical(wired_span e) {
   u8         tag;
   wired_span id, v;
   derseq_init(&f, e);
-  if (!derseq_next_tagged(&f, DER_OID, &id)) return 0;
-  if (!derseq_next(&f, &tag, &v)) return 0;
+  if (!derseq_next_tagged(&f, DER_OID, &id)) {
+    return 0;
+  }
+  if (!derseq_next(&f, &tag, &v)) {
+    return 0;
+  }
   return is_true_boolean(tag, v);
 }
 
@@ -56,11 +66,12 @@ static int ext_value(wired_span e, wired_span* val) {
   u8         tag;
   wired_span o;
   derseq_init(&f, e);
-  while (derseq_next(&f, &tag, &o))
+  while (derseq_next(&f, &tag, &o)) {
     if (tag == DER_OCTET_STRING) {
       *val = o;
       return 1;
     }
+  }
   return 0;
 }
 
@@ -70,14 +81,19 @@ static int find_in_extensions(wired_span ext, wired_span oid, wired_span* val) {
   u8         tag;
   wired_span e;
   derseq_init(&exts, ext);
-  while (derseq_next(&exts, &tag, &e))
-    if (ext_id_is(e, oid)) return ext_value(e, val);
+  while (derseq_next(&exts, &tag, &e)) {
+    if (ext_id_is(e, oid)) {
+      return ext_value(e, val);
+    }
+  }
   return 0;
 }
 
 int x509_find_ext(wired_span tbs, wired_span oid, wired_span* val) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) return 0;
+  if (!reach_extensions(tbs, &ext)) {
+    return 0;
+  }
   return find_in_extensions(ext, oid, val);
 }
 
@@ -115,16 +131,23 @@ static int ext_id(wired_span e, wired_span* id) {
 
 /* 1 if id matches one of the known extension OIDs. */
 static int id_is_known(wired_span id) {
-  for (usz i = 0; i < KNOWN_EXT_OID_COUNT; i++)
-    if (der_oid_equal(id, known_ext_oids[i])) return 1;
+  for (usz i = 0; i < KNOWN_EXT_OID_COUNT; i++) {
+    if (der_oid_equal(id, known_ext_oids[i])) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 /* RFC 5280 4.2. One Extension rejects iff it is critical and unrecognized. */
 static int ext_is_unknown_critical(wired_span e) {
   wired_span id;
-  if (!ext_id(e, &id)) return 1;
-  if (!ext_critical(e)) return 0;
+  if (!ext_id(e, &id)) {
+    return 1;
+  }
+  if (!ext_critical(e)) {
+    return 0;
+  }
   return !id_is_known(id);
 }
 
@@ -134,14 +157,19 @@ static int scan_unknown_critical(wired_span ext) {
   u8         tag;
   wired_span e;
   derseq_init(&exts, ext);
-  while (derseq_next(&exts, &tag, &e))
-    if (ext_is_unknown_critical(e)) return 1;
+  while (derseq_next(&exts, &tag, &e)) {
+    if (ext_is_unknown_critical(e)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 int x509_has_unknown_critical(wired_span tbs) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) return 0;
+  if (!reach_extensions(tbs, &ext)) {
+    return 0;
+  }
   return scan_unknown_critical(ext);
 }
 
@@ -152,8 +180,11 @@ static usz count_ext_id(wired_span ext, wired_span oid) {
   wired_span e;
   usz        n = 0;
   derseq_init(&exts, ext);
-  while (derseq_next(&exts, &tag, &e))
-    if (ext_id_is(e, oid)) n++;
+  while (derseq_next(&exts, &tag, &e)) {
+    if (ext_id_is(e, oid)) {
+      n++;
+    }
+  }
   return n;
 }
 
@@ -161,7 +192,9 @@ static usz count_ext_id(wired_span ext, wired_span oid) {
  * extnID is left to ext_is_unknown_critical, which already rejects it). */
 static int ext_repeated(wired_span ext, wired_span e) {
   wired_span id;
-  if (!ext_id(e, &id)) return 0;
+  if (!ext_id(e, &id)) {
+    return 0;
+  }
   return count_ext_id(ext, id) > 1;
 }
 
@@ -172,13 +205,18 @@ static int scan_duplicates(wired_span ext) {
   u8         tag;
   wired_span e;
   derseq_init(&exts, ext);
-  while (derseq_next(&exts, &tag, &e))
-    if (ext_repeated(ext, e)) return 1;
+  while (derseq_next(&exts, &tag, &e)) {
+    if (ext_repeated(ext, e)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
 int x509_has_duplicate_ext(wired_span tbs) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) return 0;
+  if (!reach_extensions(tbs, &ext)) {
+    return 0;
+  }
   return scan_duplicates(ext);
 }

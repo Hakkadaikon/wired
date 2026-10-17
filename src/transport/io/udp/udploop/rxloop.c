@@ -18,6 +18,8 @@ usz udploop_split(wired_span dgram, const pktlist* out) {
 
 usz udploop_rx(i64 fd, wired_mspan buf, const pktlist* out) {
   i64 r = wired_udp_recv(fd, buf); /* RFC 9000 12.2: one datagram */
-  if (r <= 0) return 0;            /* EAGAIN/empty/error */
+  if (r <= 0) {
+    return 0; /* EAGAIN/empty/error */
+  }
   return udploop_split(wired_span_of(buf.p, (usz)r), out);
 }

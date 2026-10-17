@@ -35,7 +35,9 @@ static int moqctl_param_take_value(
 
 static int moqctl_param_in_range(
     const moqctl_param_rule* rule, const moqctl_param* p) {
-  if (rule->enc != MOQCTL_PENC_UINT8) return 1;
+  if (rule->enc != MOQCTL_PENC_UINT8) {
+    return 1;
+  }
   return p->u8v >= rule->lo && p->u8v <= rule->hi;
 }
 
@@ -44,13 +46,18 @@ static int moqctl_param_in_range(
 static int moqctl_param_take_checked(
     wired_span buf, usz* at, const moqctl_param_rule* rule, moqctl_param* p) {
   int r = moqctl_param_take_value(buf, at, rule->enc, p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   return moqctl_param_in_range(rule, p) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
 static int moqctl_param_dup(const moqctl_params* out, u64 type) {
-  for (usz i = 0; i < out->n; i++)
-    if (out->items[i].type == type) return 1;
+  for (usz i = 0; i < out->n; i++) {
+    if (out->items[i].type == type) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -76,7 +83,9 @@ static int moqctl_param_admit(
 static int moqctl_param_take_delta(
     wired_span buf, usz* at, u64 prev, moqctl_param* p) {
   u64 delta;
-  if (!moqvi_take(buf, at, &delta)) return MOQCTL_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &delta)) {
+    return MOQCTL_INSUFFICIENT;
+  }
   return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_VIOLATION;
 }
 
@@ -90,7 +99,9 @@ static int moqctl_param_typed_filter(const moqctl_param_rule* rule, int ver) {
 static void moqctl_param_rule_select(
     const moqctl_param_rule* rule, int ver, moqctl_param_rule* over) {
   *over = *rule;
-  if (moqctl_param_typed_filter(rule, ver)) over->enc = MOQCTL_PENC_RANGELOC22;
+  if (moqctl_param_typed_filter(rule, ver)) {
+    over->enc = MOQCTL_PENC_RANGELOC22;
+  }
 }
 
 static int moqctl_param_take_body(
@@ -102,10 +113,13 @@ static int moqctl_param_take_body(
     moqctl_param*  p) {
   const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
   moqctl_param_rule        over = {0};
-  if (!rule) return MOQCTL_VIOLATION;
-  moqctl_param_rule_select(rule, ver, &over);
-  if (!moqctl_param_admit(&over, ver, ctx, out, p->type))
+  if (!rule) {
     return MOQCTL_VIOLATION;
+  }
+  moqctl_param_rule_select(rule, ver, &over);
+  if (!moqctl_param_admit(&over, ver, ctx, out, p->type)) {
+    return MOQCTL_VIOLATION;
+  }
   p->enc = over.enc;
   return moqctl_param_take_checked(buf, at, &over, p);
 }
@@ -114,9 +128,13 @@ int moqctl_param_take_one(
     wired_span buf, usz* at, u32 ctx, int ver, u64 prev, moqctl_params* out) {
   moqctl_param p = {0};
   int          r = moqctl_param_take_delta(buf, at, prev, &p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   r = moqctl_param_take_body(buf, at, ctx, ver, out, &p);
-  if (r != MOQCTL_OK) return r;
+  if (r != MOQCTL_OK) {
+    return r;
+  }
   out->items[out->n] = p;
   out->n++;
   return MOQCTL_OK;

@@ -20,7 +20,9 @@ static int eebuild_fits(usz alpn_len, usz tp_len, usz cap) {
  * early_data is nonzero. Returns bytes written (0 or 4). */
 static usz eebuild_early_data(u8* out, usz cap, int early_data) {
   usz n;
-  if (!early_data) return 0;
+  if (!early_data) {
+    return 0;
+  }
   tlsext_early_data_ch(out, cap, &n);
   return n;
 }
@@ -39,11 +41,14 @@ int eebuild_encrypted_extensions(
     wired_obuf* out) {
   usz        off, at, n;
   wired_obuf eob;
-  if (!eebuild_fits(alpn.n, transport_params.n, out->cap)) return 0;
+  if (!eebuild_fits(alpn.n, transport_params.n, out->cap)) {
+    return 0;
+  }
   off = hs_begin(out->p, out->cap, HS_ENCRYPTED_EXT);
   eob = obuf_of(out->p + off + 2, out->cap - off - 2);
-  if (!salpn_build_response_tok(alpn, &eob))
+  if (!salpn_build_response_tok(alpn, &eob)) {
     return 0; /* nothing negotiated or too small -- nothing built */
+  }
   at = off + 2 + eob.len;
   n  = eob.len +
        eebuild_tail(out->p + at, out->cap - at, transport_params, early_data);

@@ -36,7 +36,9 @@ static usz bodywin_header_take(const bodywin_run* r, u64* type, u64* len) {
 static int bodywin_header(bodywin_run* r) {
   u64 type, len;
   usz n = bodywin_header_take(r, &type, &len);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   if (bodywin_forbidden(type)) {
     r->w->state = BODYWIN_FRAME_UNEXPECTED;
     return 0;
@@ -63,15 +65,18 @@ static void bodywin_call(
 
 /* Only DATA payload reaches fn; other frame types are skipped. */
 static void bodywin_deliver(const bodywin_run* r, usz n, int fin) {
-  if (r->w->is_data)
+  if (r->w->is_data) {
     bodywin_call(r->w, wired_span_of(r->buf + r->pos, n), fin, r->fn, r->ctx);
+  }
 }
 
 /* The available part of the current frame's payload, never past its end. */
 static int bodywin_payload(bodywin_run* r) {
   usz n   = (usz)u64_min(r->w->left, r->fr - r->pos);
   int fin = bodywin_chunk_fin(r, n);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   bodywin_deliver(r, n, fin);
   r->w->left -= n;
   r->pos += n;
@@ -79,7 +84,9 @@ static int bodywin_payload(bodywin_run* r) {
 }
 
 static int bodywin_step(bodywin_run* r) {
-  if (r->w->left) return bodywin_payload(r);
+  if (r->w->left) {
+    return bodywin_payload(r);
+  }
   return bodywin_header(r);
 }
 
@@ -96,7 +103,9 @@ static int bodywin_at_end(const bodywin* w) {
 }
 
 static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx) {
-  if (!bodywin_at_end(w)) return;
+  if (!bodywin_at_end(w)) {
+    return;
+  }
   if (w->left + bodywin_frontier(w)) {
     w->state = BODYWIN_FRAME_ERROR;
     return;

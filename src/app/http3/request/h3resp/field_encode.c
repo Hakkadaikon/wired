@@ -28,7 +28,9 @@ static usz resp_put_prefix(u64 required_insert_count, u8* out, usz cap) {
  * an insert. */
 static qpackenc_state* qenc_or_fallback(
     qpackenc_state* qenc, qpackenc_state* tmp) {
-  if (qenc) return qenc;
+  if (qenc) {
+    return qenc;
+  }
   qpackenc_init(tmp, 0);
   return tmp;
 }
@@ -45,8 +47,12 @@ static usz put_status_line(
     qpackenc_status_result* r) {
   qpackenc_state tmp;
   qenc = qenc_or_fallback(qenc, &tmp);
-  if (!qpackenc_status_line(status, qenc, r)) return 0;
-  if (r->field_len > cap) return 0;
+  if (!qpackenc_status_line(status, qenc, r)) {
+    return 0;
+  }
+  if (r->field_len > cap) {
+    return 0;
+  }
   bytes_memcpy(out, r->field, r->field_len);
   return r->field_len;
 }
@@ -57,8 +63,9 @@ static usz put_content_type_line(const char* content_type, u8* out, usz cap) {
   qpack_nameref r   = {QPACK_CONTENT_TYPE_NAME_INDEX, 1, 0};
   usz           len = wired_cstr_len(content_type);
   i64           idx = qpack_static_find("content-type", content_type);
-  if (idx >= 0)
+  if (idx >= 0) {
     return qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
+  }
   return qpack_literal_namref_encode(
       wired_mspan_of(out, cap), &r,
       wired_span_of((const u8*)content_type, len));
@@ -69,9 +76,13 @@ static usz put_content_type_line(const char* content_type, u8* out, usz cap) {
 static int append_content_type(
     const char* content_type, u8* out, usz cap, usz* off) {
   usz n;
-  if (!content_type) return 1;
+  if (!content_type) {
+    return 1;
+  }
   n = put_content_type_line(content_type, out + *off, cap - *off);
-  if (!n) return 0;
+  if (!n) {
+    return 0;
+  }
   *off += n;
   return 1;
 }
@@ -98,9 +109,13 @@ static usz put_prefix_and_status(
   usz status_len =
       put_status_line(status, qenc, status_buf, sizeof status_buf, r);
   usz pre_len;
-  if (!status_len) return 0;
+  if (!status_len) {
+    return 0;
+  }
   pre_len = resp_put_prefix(r->required_insert_count, out, cap);
-  if (!prefix_and_status_fit(pre_len, status_len, cap)) return 0;
+  if (!prefix_and_status_fit(pre_len, status_len, cap)) {
+    return 0;
+  }
   bytes_memcpy(out + pre_len, status_buf, status_len);
   return pre_len + status_len;
 }
@@ -112,7 +127,9 @@ static int append_extra_fields(
   for (usz i = 0; i < n; i++) {
     usz c = qpack_literal_name_encode(
         wired_mspan_of(out + *off, cap - *off), 0, &extra[i]);
-    if (!c) return 0;
+    if (!c) {
+      return 0;
+    }
     *off += c;
   }
   return 1;
@@ -128,7 +145,9 @@ static usz put_status_and_ct(
     usz                     cap,
     qpackenc_status_result* r) {
   usz off = put_prefix_and_status(status, qenc, out, cap, r);
-  if (!off) return 0;
+  if (!off) {
+    return 0;
+  }
   return append_content_type(content_type, out, cap, &off) ? off : 0;
 }
 
@@ -147,8 +166,12 @@ int h3resp_encode_headers_fields_qenc(
     wired_obuf*             out) {
   usz off = put_status_and_ct(
       status, content_type, qenc, out->p, out->cap, insert_out);
-  if (!off) return 0;
-  if (!append_extra_fields(extra, n_extra, out->p, out->cap, &off)) return 0;
+  if (!off) {
+    return 0;
+  }
+  if (!append_extra_fields(extra, n_extra, out->p, out->cap, &off)) {
+    return 0;
+  }
   out->len = off;
   return 1;
 }

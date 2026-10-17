@@ -10,7 +10,9 @@ static pathsel_key pc_key(i64 fd, u16 n) {
 /* A NEW_CONNECTION_ID frame: seq, rpt, a 6-byte ID filled with b. */
 static ncid_frame pc_ncid(u64 seq, u64 rpt, u8 b) {
   ncid_frame f = {seq, rpt, 6, {0}, {0}};
-  for (usz i = 0; i < 6; i++) f.cid[i] = b;
+  for (usz i = 0; i < 6; i++) {
+    f.cid[i] = b;
+  }
   return f;
 }
 

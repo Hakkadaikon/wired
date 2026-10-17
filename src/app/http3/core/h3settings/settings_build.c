@@ -26,7 +26,9 @@
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(const h3settings_in* in, h3_settings* s) {
-  if (!in->enable_connect_protocol) return;
+  if (!in->enable_connect_protocol) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_ENABLE_CONNECT_PROTOCOL;
   s->pairs[s->n].value = 1;
   s->n++;
@@ -34,7 +36,9 @@ static void append_connect_protocol(const h3settings_in* in, h3_settings* s) {
 
 /* RFC 9297 2.1.1: append SETTINGS_H3_DATAGRAM when requested. */
 static void append_h3_datagram(const h3settings_in* in, h3_settings* s) {
-  if (!in->enable_h3_datagram) return;
+  if (!in->enable_h3_datagram) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_H3_DATAGRAM;
   s->pairs[s->n].value = 1;
   s->n++;
@@ -44,7 +48,9 @@ static void append_h3_datagram(const h3settings_in* in, h3_settings* s) {
  * WebTransport settings when requested (see H3_SETTINGS_WT_DRAFT02's
  * doc for why the legacy pair is still required). */
 static void append_wt_max_sessions(const h3settings_in* in, h3_settings* s) {
-  if (!in->wt_max_sessions) return;
+  if (!in->wt_max_sessions) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_WT_MAX_SESSIONS;
   s->pairs[s->n].value = in->wt_max_sessions;
   s->n++;
@@ -60,7 +66,9 @@ static void append_wt_max_sessions(const h3settings_in* in, h3_settings* s) {
  * UNI when requested. */
 static void append_wt_initial_max_streams_uni(
     const h3settings_in* in, h3_settings* s) {
-  if (!in->wt_initial_max_streams_uni) return;
+  if (!in->wt_initial_max_streams_uni) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
   s->pairs[s->n].value = in->wt_initial_max_streams_uni;
   s->n++;
@@ -69,7 +77,9 @@ static void append_wt_initial_max_streams_uni(
 /* draft-ietf-webtrans-http3-15 5.5.2: bidi counterpart of the above. */
 static void append_wt_initial_max_streams_bidi(
     const h3settings_in* in, h3_settings* s) {
-  if (!in->wt_initial_max_streams_bidi) return;
+  if (!in->wt_initial_max_streams_bidi) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
   s->pairs[s->n].value = in->wt_initial_max_streams_bidi;
   s->n++;
@@ -79,7 +89,9 @@ static void append_wt_initial_max_streams_bidi(
  * when requested. */
 static void append_wt_initial_max_data(
     const h3settings_in* in, h3_settings* s) {
-  if (!in->wt_initial_max_data) return;
+  if (!in->wt_initial_max_data) {
+    return;
+  }
   s->pairs[s->n].id    = H3_SETTINGS_WT_INITIAL_MAX_DATA;
   s->pairs[s->n].value = in->wt_initial_max_data;
   s->n++;
@@ -91,7 +103,9 @@ static void append_wt_initial_max_data(
  * (h3settings_control_stream), keeping this function itself
  * deterministic and easy to test byte-for-byte. */
 static void append_grease(const h3settings_in* in, h3_settings* s) {
-  if (!in->grease_id) return;
+  if (!in->grease_id) {
+    return;
+  }
   s->pairs[s->n].id    = in->grease_id;
   s->pairs[s->n].value = 0;
   s->n++;
@@ -116,7 +130,9 @@ int h3settings_build(const h3settings_in* in, wired_obuf* out) {
   append_grease(in, &s);
 
   usz w = h3_settings_put(out->p, out->cap, &s);
-  if (w == 0) return 0;
+  if (w == 0) {
+    return 0;
+  }
   out->len = w;
   return 1;
 }

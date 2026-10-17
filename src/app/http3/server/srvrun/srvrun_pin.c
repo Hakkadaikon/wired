@@ -4,7 +4,9 @@
  * in env, unless the caller already set one: tokens advertised before a
  * certificate reload stay valid after it (RFC 9000 10.3). */
 void srvrun_pin_reset_seed(wired_srvrun_env* env, wired_srvboot_id* id) {
-  if (id->reset_seed) return;
+  if (id->reset_seed) {
+    return;
+  }
   bytes_memcpy(env->reset_seed, id->cert_seed, sizeof env->reset_seed);
   id->reset_seed = env->reset_seed;
 }
@@ -17,9 +19,13 @@ int wired_srvrun_serve_env(
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt) {
   srvrun_cfg cfg;
-  if (!srvkeys_ready()) return 0; /* no ticket/Retry seed: refuse to run */
+  if (!srvkeys_ready()) {
+    return 0; /* no ticket/Retry seed: refuse to run */
+  }
   cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
-  if (cfg.fd < 0) return 0;
+  if (cfg.fd < 0) {
+    return 0;
+  }
   srvrun_pin_reset_seed(env, id);
   env->on_body_abort           = h.on_body_abort;
   env->wt_on_session_draining  = opt->wt_on_session_draining;

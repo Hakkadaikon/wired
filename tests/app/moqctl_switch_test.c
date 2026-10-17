@@ -22,13 +22,18 @@
 static int mcsw_take(int ver, const u8* b, usz n, u32 ctx, moqctl_params* out) {
   usz off = 0;
   int r   = moqctl_params_take(ver, wired_span_of(b, n), &off, ctx, out);
-  if (r == MOQCTL_OK && off != n) return 99;
+  if (r == MOQCTL_OK && off != n) {
+    return 99;
+  }
   return r;
 }
 
 static int mcsw_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++)
-    if (a[i] != b[i]) return 0;
+  for (usz i = 0; i < n; i++) {
+    if (a[i] != b[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -36,7 +41,9 @@ static int mcsw_eq(const u8* a, const u8* b, usz n) {
 static int mcsw_reencode(const moqctl_params* p, const u8* want, usz n) {
   u8  buf[128];
   usz off = 0;
-  if (!moqctl_params_put(wired_mspan_of(buf, sizeof buf), &off, p)) return 0;
+  if (!moqctl_params_put(wired_mspan_of(buf, sizeof buf), &off, p)) {
+    return 0;
+  }
   return off == n && mcsw_eq(buf, want, n);
 }
 
@@ -72,7 +79,9 @@ static void test_mcsw_switch_from_golden_decode(void) {
           &p) == MOQCTL_OK);
   sw = moqctl_params_find(&p, MOQCTL_PARAM_SWITCH_FROM);
   CHECK(sw != 0);
-  if (!sw) return;
+  if (!sw) {
+    return;
+  }
   CHECK(sw->enc == MOQCTL_PENC_SWITCHFROM);
   CHECK(sw->sw.request_id == 7);
   CHECK(sw->sw.mode == MOQCTL_SWITCH_HARD);
@@ -169,7 +178,9 @@ static void test_mcsw_ssa_norank(void) {
           &p) == MOQCTL_OK);
   a = moqctl_params_find(&p, MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT);
   CHECK(a != 0);
-  if (!a) return;
+  if (!a) {
+    return;
+  }
   CHECK(a->enc == MOQCTL_PENC_SSA);
   CHECK(a->ssa.set_id == 1);
   CHECK(a->ssa.algorithm_id == MOQCTL_SSTS_ALG_DEFAULT);
@@ -274,14 +285,18 @@ static void test_mcsw_subscribe_message(void) {
 static int mcsw_setup(const u8* b, usz n, moqctl_setup* s) {
   usz off = 0;
   int r   = moqctl_setup_take(wired_span_of(b, n), &off, s);
-  if (r == MOQCTL_OK && off != n) return 99;
+  if (r == MOQCTL_OK && off != n) {
+    return 99;
+  }
   return r;
 }
 
 static int mcsw_setup_reencode(const moqctl_setup* s, const u8* b, usz n) {
   u8  out[64];
   usz off = 0;
-  if (!moqctl_setup_encode(wired_mspan_of(out, sizeof out), &off, s)) return 0;
+  if (!moqctl_setup_encode(wired_mspan_of(out, sizeof out), &off, s)) {
+    return 0;
+  }
   return off == n && mcsw_eq(out, b, n);
 }
 

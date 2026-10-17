@@ -45,8 +45,12 @@ static void test_p256_pubkey_roundtrip(void) {
     u8 xbe[32], ybe[32];
     p256_fp_to_be(xbe, p.x);
     p256_fp_to_be(ybe, p.y);
-    for (usz i = 0; i < 32; i++) CHECK(xbe[i] == pub[1 + i]);
-    for (usz i = 0; i < 32; i++) CHECK(ybe[i] == pub[33 + i]);
+    for (usz i = 0; i < 32; i++) {
+      CHECK(xbe[i] == pub[1 + i]);
+    }
+    for (usz i = 0; i < 32; i++) {
+      CHECK(ybe[i] == pub[33 + i]);
+    }
   }
 }
 
@@ -64,8 +68,12 @@ static void test_p256_pubkey_encode_scalar_one(void) {
   CHECK(p256_pubkey_encode(pub, priv) == 1);
   p256_fp_to_be(gx, p256_g.x);
   p256_fp_to_be(gy, p256_g.y);
-  for (usz i = 0; i < 32; i++) CHECK(pub[1 + i] == gx[i]);
-  for (usz i = 0; i < 32; i++) CHECK(pub[33 + i] == gy[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(pub[1 + i] == gx[i]);
+  }
+  for (usz i = 0; i < 32; i++) {
+    CHECK(pub[33 + i] == gy[i]);
+  }
 }
 
 /* --- ECDH shared-secret wrapper ------------------------------------------ */
@@ -84,7 +92,9 @@ static void test_p256_ecdh_symmetry(void) {
   CHECK(p256_pubkey_encode(pub_b, priv_b) == 1);
   CHECK(p256_ecdh(secret_a, priv_a, pub_b) == 1);
   CHECK(p256_ecdh(secret_b, priv_b, pub_a) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(secret_a[i] == secret_b[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(secret_a[i] == secret_b[i]);
+  }
 }
 
 /* ecdh(1, B) == X(B): hand-computable base case (scalar 1 is the identity for
@@ -96,7 +106,9 @@ static void test_p256_ecdh_scalar_one(void) {
   CHECK(p256_keygen(priv_b) == 1);
   CHECK(p256_pubkey_encode(pub_b, priv_b) == 1);
   CHECK(p256_ecdh(secret, priv_one, pub_b) == 1);
-  for (usz i = 0; i < 32; i++) CHECK(secret[i] == pub_b[1 + i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(secret[i] == pub_b[1 + i]);
+  }
 }
 
 /* Boundary scalar n-1 (largest valid private key) still produces a valid

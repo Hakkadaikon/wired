@@ -118,7 +118,9 @@ static const char* moqtrun_test_ver_tok(void) {
 static void moqtrun_test_session(wired_moqt_hub* hub, wired_wt_session* s) {
   wired_moqt_on_session(hub, s, wired_span_of(0, 0), wired_span_of(0, 0));
   wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, s);
-  if (p) p->ver = g_moqtrun_test_ver;
+  if (p) {
+    p->ver = g_moqtrun_test_ver;
+  }
 }
 
 /* Runs fn once per supported draft whose caps hold every bit of need and
@@ -129,10 +131,14 @@ static void moqtrun_test_vers(u32 need, u32 deny, void (*fn)(void)) {
   for (int v = 0; v < MOQVER_COUNT; v++) {
     u32 caps  = moqver_caps(v);
     int fails = wired_test_fails;
-    if ((caps & need) != need || (caps & deny)) continue;
+    if ((caps & need) != need || (caps & deny)) {
+      continue;
+    }
     g_moqtrun_test_ver = v;
     fn();
-    if (wired_test_fails != fails) printf("  ^ under MOQVER id %d\n", v);
+    if (wired_test_fails != fails) {
+      printf("  ^ under MOQVER id %d\n", v);
+    }
   }
   g_moqtrun_test_ver = MOQVER_D19;
 }
@@ -175,7 +181,9 @@ static void moqtrun_test_record(
   c->refused           = 0;
   c->payload_len =
       p.n < MOQTRUN_TEST_MAX_PAYLOAD ? p.n : MOQTRUN_TEST_MAX_PAYLOAD;
-  for (usz i = 0; i < c->payload_len; i++) c->payload[i] = p.p[i];
+  for (usz i = 0; i < c->payload_len; i++) {
+    c->payload[i] = p.p[i];
+  }
   c->payload_hash = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, p.p, p.n);
 }
 
@@ -195,9 +203,15 @@ static int moqtrun_test_stream_send_ret(wired_wt_session* s) {
     g_stream_send_reject_n--;
     return 0;
   }
-  if (g_stream_send_reject_sess && s == g_stream_send_reject_sess) return 0;
-  if (g_stream_send_ok_n == 0) return 0;
-  if (g_stream_send_ok_n > 0) g_stream_send_ok_n--;
+  if (g_stream_send_reject_sess && s == g_stream_send_reject_sess) {
+    return 0;
+  }
+  if (g_stream_send_ok_n == 0) {
+    return 0;
+  }
+  if (g_stream_send_ok_n > 0) {
+    g_stream_send_ok_n--;
+  }
   return 1;
 }
 
@@ -206,7 +220,9 @@ static int moqtrun_test_stream_send(
   usz before = g_n_calls;
   moqtrun_test_record(3, s, stream_id, fin, payload);
   int r = moqtrun_test_stream_send_ret(s);
-  if (!r && g_n_calls > before) g_calls[before].refused = 1;
+  if (!r && g_n_calls > before) {
+    g_calls[before].refused = 1;
+  }
   return r;
 }
 
@@ -219,7 +235,9 @@ static i64 moqtrun_test_send_uni(wired_wt_session* s, wired_span payload) {
     g_send_uni_fail_n--;
     return -1;
   }
-  if (g_send_uni_reject_sess && s == g_send_uni_reject_sess) return -1;
+  if (g_send_uni_reject_sess && s == g_send_uni_reject_sess) {
+    return -1;
+  }
   return sid;
 }
 
@@ -233,11 +251,15 @@ static i64 moqtrun_test_send_uni2(
   i64 sid    = g_next_stream_id++;
   usz before = g_n_calls;
   moqtrun_test_record(8, s, (u64)sid, 1, head);
-  if (g_n_calls == before) return sid; /* overflow: head wasn't recorded */
+  if (g_n_calls == before) {
+    return sid; /* overflow: head wasn't recorded */
+  }
   moqtrun_test_call* c    = &g_calls[g_n_calls - 1];
   usz                room = MOQTRUN_TEST_MAX_PAYLOAD - c->payload_len;
   usz                take = body.n < room ? body.n : room;
-  for (usz i = 0; i < take; i++) c->payload[c->payload_len + i] = body.p[i];
+  for (usz i = 0; i < take; i++) {
+    c->payload[c->payload_len + i] = body.p[i];
+  }
   c->payload_len = head.n + body.n; /* true length, buffer may be shorter */
   c->payload_hash =
       moqtrun_test_fnv1a64(c->payload_hash, body.p, body.n); /* head+body */
@@ -245,7 +267,9 @@ static i64 moqtrun_test_send_uni2(
     g_send_uni2_fail_n--;
     return -1;
   }
-  if (g_send_uni2_reject_sess && s == g_send_uni2_reject_sess) return -1;
+  if (g_send_uni2_reject_sess && s == g_send_uni2_reject_sess) {
+    return -1;
+  }
   return sid;
 }
 
@@ -286,7 +310,9 @@ static int moqtrun_test_stream_reset(
  * for the session named by g_send_dg_reject_sess, 1 otherwise. */
 static int moqtrun_test_send_datagram(wired_wt_session* s, wired_span payload) {
   moqtrun_test_record(9, s, 0, 0, payload);
-  if (g_send_dg_reject_sess && s == g_send_dg_reject_sess) return 0;
+  if (g_send_dg_reject_sess && s == g_send_dg_reject_sess) {
+    return 0;
+  }
   return 1;
 }
 
@@ -346,14 +372,20 @@ static wired_moqt_io moqtrun_test_io(void) {
 
 static usz moqtrun_test_count_kind(int kind) {
   usz n = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == kind) n++;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == kind) {
+      n++;
+    }
+  }
   return n;
 }
 
 static const moqtrun_test_call* moqtrun_test_last_kind(int kind) {
-  for (usz i = g_n_calls; i > 0; i--)
-    if (g_calls[i - 1].kind == kind) return &g_calls[i - 1];
+  for (usz i = g_n_calls; i > 0; i--) {
+    if (g_calls[i - 1].kind == kind) {
+      return &g_calls[i - 1];
+    }
+  }
   return 0;
 }
 
@@ -475,7 +507,9 @@ static usz mtctl_setup_msg(u8* buf, const u8* opts, usz opts_len) {
   buf[1] = 0x00;
   buf[2] = (u8)(opts_len >> 8);
   buf[3] = (u8)opts_len;
-  for (usz i = 0; i < opts_len; i++) buf[4 + i] = opts[i];
+  for (usz i = 0; i < opts_len; i++) {
+    buf[4 + i] = opts[i];
+  }
   return 4 + opts_len;
 }
 
@@ -588,12 +622,15 @@ static void test_moqtrun_second_ctl_stream_violates(void) {
         moqtrun_test_proto(moqtrun_test_ver_tok()));
     wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(uni, un), 0);
     CHECK(moqtrun_test_count_kind(11) == 0); /* the first is accepted */
-    if (kind == 0)                           /* a 2nd uni 0x2F00 */
+    if (kind == 0) {                         /* a 2nd uni 0x2F00 */
       wired_moqt_on_stream_data(&hub, SESS_A, 6, mtctl_span(uni, un), 0);
-    if (kind == 1) /* a 2nd SETUP on the accepted stream */
+    }
+    if (kind == 1) { /* a 2nd SETUP on the accepted stream */
       wired_moqt_on_stream_data(&hub, SESS_A, 2, mtctl_span(setup, sn), 0);
-    if (kind == 2) /* a SETUP-first bidi after the uni */
+    }
+    if (kind == 2) { /* a SETUP-first bidi after the uni */
       wired_moqt_on_stream_data(&hub, SESS_A, 0, mtctl_span(setup, sn), 0);
+    }
     CHECK(moqtrun_test_count_kind(11) == 1);
     const moqtrun_test_call* c = moqtrun_test_last_kind(11);
     CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
@@ -681,7 +718,9 @@ static void test_moqtrun_token_session_opens_uni_ctl(void) {
   CHECK(moqtrun_test_count_kind(5) == 1); /* one keep-open uni */
   const moqtrun_test_call* c = moqtrun_test_last_kind(5);
   CHECK(c && c->payload_len >= 2);
-  if (!c || c->payload_len < 2) return;
+  if (!c || c->payload_len < 2) {
+    return;
+  }
   CHECK(c->payload[0] == 0xAF); /* Stream Type 0x2F00 (1.4.1 varint) */
   CHECK(c->payload[1] == 0x00);
   /* The same two bytes are also the SETUP message's own Type field --
@@ -730,9 +769,10 @@ static void test_moqtrun_refused_uni_ctl_open_retries(void) {
 
   wired_moqt_tick(&hub, 1);
   CHECK(moqtrun_test_count_kind(5) == 2); /* retried, accepted */
-  if (moqtrun_test_count_kind(5))
+  if (moqtrun_test_count_kind(5)) {
     CHECK(
         hub.peers[0].control_stream_id == moqtrun_test_last_kind(5)->stream_id);
+  }
 
   wired_moqt_tick(&hub, 2);
   CHECK(moqtrun_test_count_kind(5) == 2); /* opened: no more attempts */
@@ -782,7 +822,9 @@ static void test_moqtrun_goaway_waits_for_ctl_open(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   const moqtrun_test_call* c = moqtrun_test_last_kind(3);
   CHECK(c && c->stream_id == hub.peers[0].control_stream_id);
-  if (!c) return;
+  if (!c) {
+    return;
+  }
   usz        off = 0;
   u64        type;
   wired_span body;
@@ -1221,10 +1263,13 @@ static usz mtasm_tstat_then_subscribe(usz body_len) {
 static usz mtasm_reply_types(u64* out, usz cap) {
   usz n = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 3 || g_calls[i].s != SESS_B) continue;
+    if (g_calls[i].kind != 3 || g_calls[i].s != SESS_B) {
+      continue;
+    }
     usz off = 0;
-    while (off < g_calls[i].payload_len && n < cap)
+    while (off < g_calls[i].payload_len && n < cap) {
       out[n++] = mtskip_next_type(&g_calls[i], &off);
+    }
   }
   return n;
 }
@@ -1298,7 +1343,9 @@ static void mtasm_check_closed(u32 code) {
   u64                      types[4];
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(moqtrun_test_count_kind(11) == 1);
-  if (!c) return;
+  if (!c) {
+    return;
+  }
   CHECK(c->s == SESS_B);
   CHECK(c->stream_id == code);
   CHECK(mtasm_reply_types(types, 4) == 0);
@@ -1335,7 +1382,9 @@ static void test_moqtrun_ctl_publish_ok_alias_d18_only(void) {
   mtasm_feed_typed("moqt-18", (u8)MOQCTL_T_PUBLISH_OK18);
   CHECK(moqtrun_test_count_kind(11) == 0);
   CHECK(mtasm_reply_types(got, 4) == nw);
-  for (usz i = 0; i < nw; i++) CHECK(got[i] == want[i]);
+  for (usz i = 0; i < nw; i++) {
+    CHECK(got[i] == want[i]);
+  }
   mtasm_feed_typed("", (u8)MOQCTL_T_PUBLISH_OK18);
   mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
@@ -1372,14 +1421,17 @@ static void test_moqtrun_ctl_over_max_closes_session(void) {
  * reference it in the same translation unit. */
 static u64 mtsub_last_reply_type(void) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(3);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   usz        off = 0;
   u64        type;
   wired_span body;
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return 0;
+  }
   return type;
 }
 
@@ -1470,8 +1522,9 @@ static void test_moqtrun_object_relay_preserves_bytes(void) {
 
   const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
   CHECK(sent->payload_len == G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
-  for (usz i = 0; i < G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN; i++)
+  for (usz i = 0; i < G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN; i++) {
     CHECK(sent->payload[i] == g_moqt_data_subgroup_stream_basic[i]);
+  }
 }
 
 /* Two Established subscribers, two Objects each get their
@@ -1517,11 +1570,16 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
   CHECK(moqtrun_test_count_kind(4) == 4);
   CHECK(moqtrun_test_count_kind(3) == 0);
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 4) continue;
+    if (g_calls[i].kind != 4) {
+      continue;
+    }
     usz matches = 0;
-    for (usz j = 0; j < g_n_calls; j++)
-      if (g_calls[j].kind == 4 && g_calls[j].stream_id == g_calls[i].stream_id)
+    for (usz j = 0; j < g_n_calls; j++) {
+      if (g_calls[j].kind == 4 &&
+          g_calls[j].stream_id == g_calls[i].stream_id) {
         matches++;
+      }
+    }
     CHECK(matches == 1);
   }
 }
@@ -1545,8 +1603,9 @@ static void test_moqtrun_subscribe_nonzero_timeout_accepted(void) {
    * hand since no golden vector carries this parameter (draft SS10.2
    * varint parameter encoding: Delta Type then value). */
   u8 sub_with_timeout[G_MOQT_CTL_SUBSCRIBE_BASIC_LEN + 2];
-  for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_BASIC_LEN; i++)
+  for (usz i = 0; i < G_MOQT_CTL_SUBSCRIBE_BASIC_LEN; i++) {
     sub_with_timeout[i] = g_moqt_ctl_subscribe_basic[i];
+  }
   /* index 22 is the golden's trailing Num Params byte (0x00): bump it to
    * 1, then append Delta Type 0x06, Value 0x05. */
   sub_with_timeout[22] = 0x01;
@@ -1643,17 +1702,23 @@ static u64 mtauth_last_error_code(void) {
   usz                      body_off = 0;
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return (u64)-1;
-  if (type != MOQCTL_T_REQUEST_ERROR) return (u64)-1;
-  if (moqctl_request_error_take(body, &body_off, &e) != MOQCTL_OK)
+  }
+  if (type != MOQCTL_T_REQUEST_ERROR) {
     return (u64)-1;
+  }
+  if (moqctl_request_error_take(body, &body_off, &e) != MOQCTL_OK) {
+    return (u64)-1;
+  }
   return e.error_code;
 }
 
 static usz mtauth_active_subs(const wired_moqtrun_track* t) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) n += t->subs[i].active != 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    n += t->subs[i].active != 0;
+  }
   return n;
 }
 
@@ -1892,7 +1957,9 @@ static u64 moqtrun_test_publish_reply(
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz len = 0, off = 0;
   u64 type = 0;
-  while (z[len]) len++;
+  while (z[len]) {
+    len++;
+  }
   usz n = moqtrun_test_rename_track(
       g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, (const u8*)z, len,
       buf);
@@ -1901,7 +1968,9 @@ static u64 moqtrun_test_publish_reply(
   CHECK(moqtrun_test_count_kind(3) == 1);
   const moqtrun_test_call* c = moqtrun_test_last_kind(3);
   wired_span               body;
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   moqctl_peek_type(
       wired_span_of(c->payload, c->payload_len), &off, &type, &body);
   return type;
@@ -2097,10 +2166,18 @@ static void test_moqtrun_chat_object_relays_to_all_three_subscribers(void) {
   CHECK(moqtrun_test_count_kind(4) == 3); /* one send_uni per subscriber */
   int seen_b = 0, seen_c = 0, seen_d = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 4) continue;
-    if (g_calls[i].s == SESS_B) seen_b = 1;
-    if (g_calls[i].s == SESS_C) seen_c = 1;
-    if (g_calls[i].s == SESS_D) seen_d = 1;
+    if (g_calls[i].kind != 4) {
+      continue;
+    }
+    if (g_calls[i].s == SESS_B) {
+      seen_b = 1;
+    }
+    if (g_calls[i].s == SESS_C) {
+      seen_c = 1;
+    }
+    if (g_calls[i].s == SESS_D) {
+      seen_d = 1;
+    }
   }
   CHECK(seen_b && seen_c && seen_d);
 }
@@ -2389,7 +2466,9 @@ static void test_moqtrun_multi_object_stream_relays_in_one_send_uni(void) {
   CHECK(sent->s == SESS_B);
   CHECK(sent->fin == 0);
   CHECK(sent->payload_len == total);
-  for (usz i = 0; i < total; i++) CHECK(sent->payload[i] == stream[i]);
+  for (usz i = 0; i < total; i++) {
+    CHECK(sent->payload[i] == stream[i]);
+  }
 }
 
 /* The audio track's real shape: moqtVoiceClient.ts's sendOpusFrame writes
@@ -2445,7 +2524,9 @@ static void test_moqtrun_data_stream_continues_across_calls_without_header(
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->s == SESS_B);
   CHECK(sent->payload_len == second_off);
-  for (usz i = 0; i < second_off; i++) CHECK(sent->payload[i] == second[i]);
+  for (usz i = 0; i < second_off; i++) {
+    CHECK(sent->payload[i] == second[i]);
+  }
 }
 
 /* A header-less second call on a stream_id this hub has NOT already bound
@@ -2779,9 +2860,15 @@ static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
   CHECK(moqtrun_test_count_kind(5) == 2); /* one open per subscriber */
   u64 sid_b = 0, sid_c = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 5) continue;
-    if (g_calls[i].s == SESS_B) sid_b = g_calls[i].stream_id;
-    if (g_calls[i].s == SESS_C) sid_c = g_calls[i].stream_id;
+    if (g_calls[i].kind != 5) {
+      continue;
+    }
+    if (g_calls[i].s == SESS_B) {
+      sid_b = g_calls[i].stream_id;
+    }
+    if (g_calls[i].s == SESS_C) {
+      sid_c = g_calls[i].stream_id;
+    }
   }
   CHECK(sid_b != 0 && sid_c != 0 && sid_b != sid_c);
 
@@ -2796,9 +2883,15 @@ static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
       &hub, SESS_A, 999, wired_span_of(second, second_off), 0);
   CHECK(moqtrun_test_count_kind(3) == 2); /* each subscriber's own append */
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 3) continue;
-    if (g_calls[i].s == SESS_B) CHECK(g_calls[i].stream_id == sid_b);
-    if (g_calls[i].s == SESS_C) CHECK(g_calls[i].stream_id == sid_c);
+    if (g_calls[i].kind != 3) {
+      continue;
+    }
+    if (g_calls[i].s == SESS_B) {
+      CHECK(g_calls[i].stream_id == sid_b);
+    }
+    if (g_calls[i].s == SESS_C) {
+      CHECK(g_calls[i].stream_id == sid_c);
+    }
   }
 }
 
@@ -2854,13 +2947,14 @@ static void test_moqtrun_relay_table_full_counts(void) {
       0);
 
   moqtrun_test_reset();
-  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RELAYS; i++)
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RELAYS; i++) {
     wired_moqt_on_stream_data(
         &hub, SESS_A, 999 + 4 * (u64)i,
         wired_span_of(
             g_moqt_data_subgroup_stream_basic,
             G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
         0 /* keep-open: each claims a relay entry */);
+  }
   CHECK(moqtrun_test_count_kind(5) == WIRED_MOQTRUN_MAX_RELAYS);
   CHECK(hub.stat_relay_full == 1); /* the one past the table is counted */
 }
@@ -2905,8 +2999,9 @@ static void test_moqtrun_busy_streak_sheds_after_threshold(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   CHECK(moqtrun_test_count_kind(7) == 0); /* K-1: still bound */
   CHECK(hub.stat_relay_reset == 0);
 
@@ -2927,8 +3022,9 @@ static void test_moqtrun_busy_streak_sheds_after_threshold(void) {
   const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
   CHECK(opened->payload_len == relay->hdr_len);
   CHECK(opened->payload[0] == (relay->hdr[0] & ~0x40)); /* mid-subgroup */
-  for (usz i = 1; i < opened->payload_len; i++)
+  for (usz i = 1; i < opened->payload_len; i++) {
     CHECK(opened->payload[i] == relay->hdr[i]);
+  }
 
   /* And the round after that appends normally to the fresh stream. */
   u64 fresh_id = opened->stream_id;
@@ -2946,12 +3042,14 @@ static void test_moqtrun_busy_streak_success_resets(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   moqtrun_test_send_audio_round(&hub, 999, 20); /* accepted: streak -> 0 */
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++) {
     moqtrun_test_send_audio_round(&hub, 999, (u8)(30 + v));
+  }
   CHECK(moqtrun_test_count_kind(7) == 0);
   CHECK(hub.stat_relay_reset == 0);
 }
@@ -2965,8 +3063,9 @@ static void test_moqtrun_shed_stream_skips_publisher_fin(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   CHECK(moqtrun_test_count_kind(7) == 1); /* shed happened */
 
   moqtrun_test_reset();
@@ -3121,15 +3220,19 @@ static void test_moqtrun_busy_shed_isolated_per_subscriber(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_B; /* starve B only */
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   CHECK(moqtrun_test_count_kind(7) == 1);
   CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
   CHECK(hub.stat_relay_reset == 1);
   /* C received every round; only B's sends were refused. */
   usz c_sends = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 3 && g_calls[i].s == SESS_C) c_sends++;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 3 && g_calls[i].s == SESS_C) {
+      c_sends++;
+    }
+  }
   CHECK(c_sends == WIRED_MOQTRUN_RESET_AFTER_BUSY);
 }
 
@@ -3144,8 +3247,9 @@ static void test_moqtrun_shed_refused_retries_next_round(void) {
   moqtrun_test_reset();
   g_stream_reset_ret     = 0; /* SDK refuses the reset */
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY + 1;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   CHECK(moqtrun_test_count_kind(7) == 1); /* attempted, refused */
   CHECK(hub.stat_relay_reset == 0);
   moqtrun_test_send_audio_round(&hub, 999, 20); /* still busy: retried */
@@ -3186,8 +3290,9 @@ static void test_moqtrun_republish_clears_busy_streak(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v); /* streak at K-1 */
+  }
 
   moqtrun_test_publish_alice_audio(&hub, ctrl_a); /* rejoin: relays clear */
   wired_moqt_on_stream_data(
@@ -3386,8 +3491,9 @@ static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   /* The stream's own header bytes, FIRST_OBJECT (0x40) cleared: this
    * stream starts mid-subgroup (draft-22 2.2 / 11.3.1). */
   CHECK(opened->payload[0] == (first[0] & ~0x40));
-  for (usz i = 1; i < opened->payload_len; i++)
+  for (usz i = 1; i < opened->payload_len; i++) {
     CHECK(opened->payload[i] == first[i]);
+  }
   u64 late_sid = opened->stream_id;
 
   /* The round after that appends to the late-opened stream normally. */
@@ -3487,7 +3593,9 @@ static void test_moqtrun_torn_object_held_until_complete(void) {
   CHECK(moqtrun_test_count_kind(3) == 1); /* completed: forwarded whole */
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->payload_len == obj_n);
-  for (usz i = 0; i < obj_n; i++) CHECK(sent->payload[i] == obj[i]);
+  for (usz i = 0; i < obj_n; i++) {
+    CHECK(sent->payload[i] == obj[i]);
+  }
 }
 
 /* A delivery carrying [tail of Object A][all of Object B][head of Object
@@ -3527,7 +3635,9 @@ static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->payload_len == b_end); /* A+B whole, C's head held back */
-  for (usz i = 0; i < b_end; i++) CHECK(sent->payload[i] == abc[i]);
+  for (usz i = 0; i < b_end; i++) {
+    CHECK(sent->payload[i] == abc[i]);
+  }
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -3535,7 +3645,9 @@ static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
   CHECK(moqtrun_test_count_kind(3) == 1); /* C completes */
   sent = moqtrun_test_last_kind(3);
   CHECK(sent->payload_len == n - b_end);
-  for (usz i = 0; i < n - b_end; i++) CHECK(sent->payload[i] == abc[b_end + i]);
+  for (usz i = 0; i < n - b_end; i++) {
+    CHECK(sent->payload[i] == abc[b_end + i]);
+  }
 }
 
 /* The OPENING delivery can be torn too: header + one whole Object + the
@@ -3560,7 +3672,9 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
   CHECK(moqtrun_test_count_kind(5) == 1);
   const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
   CHECK(opened->payload_len == whole_end); /* torn tail not in the open */
-  for (usz i = 0; i < whole_end; i++) CHECK(opened->payload[i] == wire[i]);
+  for (usz i = 0; i < whole_end; i++) {
+    CHECK(opened->payload[i] == wire[i]);
+  }
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -3568,8 +3682,9 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->payload_len == n - whole_end); /* the completed 2nd Object */
-  for (usz i = 0; i < n - whole_end; i++)
+  for (usz i = 0; i < n - whole_end; i++) {
     CHECK(sent->payload[i] == wire[whole_end + i]);
+  }
 }
 
 /* The OPENING delivery can even be torn before its FIRST Object completes
@@ -3603,7 +3718,9 @@ static void test_moqtrun_fresh_torn_first_object_accepted(void) {
   CHECK(moqtrun_test_count_kind(5) == 1); /* opened despite 0 whole Objects */
   const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
   CHECK(opened->payload_len == hdr_end); /* header alone, torn head held */
-  for (usz i = 0; i < hdr_end; i++) CHECK(opened->payload[i] == wire[i]);
+  for (usz i = 0; i < hdr_end; i++) {
+    CHECK(opened->payload[i] == wire[i]);
+  }
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -3612,8 +3729,9 @@ static void test_moqtrun_fresh_torn_first_object_accepted(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->payload_len == n - hdr_end); /* Object 0 + Object 1, in order */
-  for (usz i = 0; i < n - hdr_end; i++)
+  for (usz i = 0; i < n - hdr_end; i++) {
     CHECK(sent->payload[i] == wire[hdr_end + i]);
+  }
 }
 
 /* A one-shot delivery (FIN with the data) whose Objects are ALL torn has
@@ -3659,7 +3777,9 @@ static void test_moqtrun_frag_overflow_counted(void) {
 static usz moqtrun_test_big_object(usz obj_bytes, u8* out) {
   static u8 pay[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
   usz       n = 0;
-  for (usz i = 0; i < sizeof pay; i++) pay[i] = (u8)(i * 7);
+  for (usz i = 0; i < sizeof pay; i++) {
+    pay[i] = (u8)(i * 7);
+  }
   usz guess = obj_bytes - 4; /* same Payload Length width as the end */
   moqdata_obj_put(
       wired_mspan_of(out, obj_bytes + 8), &n, 1, wired_span_of(pay, guess));
@@ -3696,8 +3816,9 @@ static void moqtrun_test_send_small_obj(wired_moqt_hub* hub, u64 sid) {
 
 static usz moqtrun_test_frag_free(const wired_moqt_hub* hub) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++)
+  for (usz i = 0; i < WIRED_MOQTRUN_FRAG_POOL; i++) {
     n += (usz)moqtrun_frag_slot_free(hub, i);
+  }
   return n;
 }
 
@@ -3718,21 +3839,24 @@ static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
   moqtrun_test_subscribe_audio_as(&hub, SESS_C);
   usz n = moqtrun_test_big_object(WIRED_MOQTRUN_RELAY_FRAG_MAX, obj);
   CHECK(n == WIRED_MOQTRUN_RELAY_FRAG_MAX);
-  for (usz i = 0; i <= WIRED_MOQTRUN_FRAG_POOL; i++)
+  for (usz i = 0; i <= WIRED_MOQTRUN_FRAG_POOL; i++) {
     moqtrun_test_open_torn(&hub, alias[i], 999 + 4 * i, obj, n - 1);
+  }
   CHECK(hub.stat_frag_drop == 1); /* only the 9th found no buffer */
   CHECK(moqtrun_test_frag_free(&hub) == 0);
   CHECK(moqtrun_test_count_kind(7) == 1); /* the 9th's subscriber stream */
   CHECK(moqtrun_test_last_kind(7)->s == SESS_C);
 
   moqtrun_test_reset();
-  for (usz i = 0; i < 4; i++) /* the screen streams complete their Object */
+  for (usz i = 0; i < 4; i++) { /* the screen streams complete their Object */
     wired_moqt_on_stream_data(
         &hub, SESS_A, 999 + 4 * i, wired_span_of(obj + n - 1, 1), 0);
+  }
   CHECK(moqtrun_test_count_kind(3) == 4);
   u64 want = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj, n);
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     CHECK(g_calls[i].kind != 3 || g_calls[i].payload_hash == want);
+  }
   CHECK(moqtrun_test_frag_free(&hub) == 4);
 
   moqtrun_test_reset(); /* the dropped stream's later bytes go nowhere */
@@ -4176,13 +4300,15 @@ static void test_moqtrun_reattach_survives_nine_subscribed_names(void) {
   wired_wt_session* const pubs[3] = {SESS_A, SESS_C, SESS_D};
   for (usz p = 0; p < 3; p++) {
     u64 ctrl = moqtrun_test_join(&hub, pubs[p]);
-    for (usz t = 0; t < 3; t++)
+    for (usz t = 0; t < 3; t++) {
       moqtrun_test_publish_named(
           &hub, pubs[p], ctrl, names[p * 3 + t], lens[p * 3 + t], (u8)(t + 1));
+    }
   }
   u64 ctrl_b = moqtrun_test_join(&hub, SESS_B);
-  for (usz i = 0; i < 9; i++)
+  for (usz i = 0; i < 9; i++) {
     moqtrun_test_subscribe_named(&hub, SESS_B, ctrl_b, names[i], lens[i]);
+  }
 
   wired_moqt_on_session_close(&hub, SESS_A);
   moqtrun_test_reset();
@@ -4311,7 +4437,9 @@ static u8 g_test_wire[MOQDATA_BLOB_WIRE_CAP(sizeof g_test_blob)];
 /* Publishes a small (recorder-sized) blob and returns its framed length
  * (the framing itself is moqdata_blob_build's, pinned in moqdata_test). */
 static usz moqtrun_test_publish_small_blob(wired_moqt_hub* hub, usz n) {
-  for (usz i = 0; i < n; i++) g_test_blob[i] = (u8)(i * 7 + 3);
+  for (usz i = 0; i < n; i++) {
+    g_test_blob[i] = (u8)(i * 7 + 3);
+  }
   return wired_moqt_publish_blob(
       hub, wired_span_of(MOVIE_NAME, 5), 8, wired_span_of(g_test_blob, n),
       wired_mspan_of(g_test_wire, sizeof g_test_wire));
@@ -4332,13 +4460,16 @@ static void moqtrun_test_subscribe_movie(
 /* Type of the last control reply (0 when none); *body receives its body. */
 static u64 moqtrun_test_last_reply(wired_span* body) {
   const moqtrun_test_call* c = moqtrun_test_last_kind(3);
-  if (!c) return 0;
+  if (!c) {
+    return 0;
+  }
   usz off  = 0;
   u64 type = 0;
   if (moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
-      MOQCTL_OK)
+      MOQCTL_OK) {
     return 0;
+  }
   return type;
 }
 
@@ -4432,8 +4563,11 @@ static void test_moqtrun_blob_two_peers_each_get_copy(void) {
   CHECK(moqtrun_test_count_kind(4) == 2);
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
   usz to_a = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 4 && g_calls[i].s == SESS_A) to_a++;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 4 && g_calls[i].s == SESS_A) {
+      to_a++;
+    }
+  }
   CHECK(to_a == 1);
 }
 
@@ -4505,7 +4639,9 @@ static wired_span g_live_frags[3];
 /* Three distinct 40/50/60-byte fragments, cadence 2000 ms from t0=1000. */
 static void moqtrun_test_publish_live(wired_moqt_hub* hub) {
   for (usz f = 0; f < 3; f++) {
-    for (usz i = 0; i < 40 + 10 * f; i++) g_live_frag[f][i] = (u8)(f * 50 + i);
+    for (usz i = 0; i < 40 + 10 * f; i++) {
+      g_live_frag[f][i] = (u8)(f * 50 + i);
+    }
     g_live_frags[f] = wired_span_of(g_live_frag[f], 40 + 10 * f);
   }
   CHECK(
@@ -4668,7 +4804,9 @@ static void test_moqtrun_live_refused_send_retries_then_drops(void) {
   /* Once the clock left Group 2, its fragment is never attempted again --
    * the scan starts after the (timely, refused) Group-2 attempt above. */
   for (usz i = after_refusal; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 8) continue;
+    if (g_calls[i].kind != 8) {
+      continue;
+    }
     u8  p[64];
     usz pn;
     CHECK(moqtrun_test_live_group(&g_calls[i], p, &pn) != 2); /* never late */
@@ -4689,8 +4827,11 @@ static void test_moqtrun_live_two_subscribers_independent(void) {
   wired_moqt_tick(&hub, 3000);
   CHECK(moqtrun_test_last_kind(8)->s == SESS_B);
   usz to_b = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 8 && g_calls[i].s == SESS_B) to_b++;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 8 && g_calls[i].s == SESS_B) {
+      to_b++;
+    }
+  }
   CHECK(to_b == 2);
   CHECK(hub.stat_live_sent == 3);
 }
@@ -4735,7 +4876,9 @@ static void test_moqtrun_live_and_blob_coexist(void) {
   moqtrun_test_publish_live(&hub);
   static const u8 INIT_NAME[10] = {'m', 'o', 'v', 'i', 'e',
                                    '/', 'i', 'n', 'i', 't'};
-  for (usz i = 0; i < 100; i++) g_test_blob[i] = (u8)i;
+  for (usz i = 0; i < 100; i++) {
+    g_test_blob[i] = (u8)i;
+  }
   CHECK(
       wired_moqt_publish_blob(
           &hub, wired_span_of(INIT_NAME, 10), 9,
@@ -4794,11 +4937,14 @@ static void test_moqtrun_dg_relays_identical_bytes_to_subscriber(void) {
   CHECK(moqtrun_test_count_kind(9) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(9);
   CHECK(sent != 0);
-  if (!sent) return;
+  if (!sent) {
+    return;
+  }
   CHECK(sent->s == SESS_B);
   CHECK(sent->payload_len == sizeof MOQTRUN_TEST_DG_CHAT);
-  for (usz i = 0; i < sizeof MOQTRUN_TEST_DG_CHAT; i++)
+  for (usz i = 0; i < sizeof MOQTRUN_TEST_DG_CHAT; i++) {
     CHECK(sent->payload[i] == MOQTRUN_TEST_DG_CHAT[i]);
+  }
   CHECK(hub.stat_dg_sent == 1);
   CHECK(hub.stat_dg_drop == 0 && hub.stat_dg_bad == 0);
 }
@@ -4822,13 +4968,22 @@ static void test_moqtrun_dg_relays_to_all_three_subscribers(void) {
   CHECK(moqtrun_test_count_kind(9) == 3);
   int seen_b = 0, seen_c = 0, seen_d = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 9) continue;
+    if (g_calls[i].kind != 9) {
+      continue;
+    }
     CHECK(g_calls[i].payload_len == sizeof MOQTRUN_TEST_DG_CHAT);
-    for (usz j = 0; j < sizeof MOQTRUN_TEST_DG_CHAT; j++)
+    for (usz j = 0; j < sizeof MOQTRUN_TEST_DG_CHAT; j++) {
       CHECK(g_calls[i].payload[j] == MOQTRUN_TEST_DG_CHAT[j]);
-    if (g_calls[i].s == SESS_B) seen_b = 1;
-    if (g_calls[i].s == SESS_C) seen_c = 1;
-    if (g_calls[i].s == SESS_D) seen_d = 1;
+    }
+    if (g_calls[i].s == SESS_B) {
+      seen_b = 1;
+    }
+    if (g_calls[i].s == SESS_C) {
+      seen_c = 1;
+    }
+    if (g_calls[i].s == SESS_D) {
+      seen_d = 1;
+    }
   }
   CHECK(seen_b && seen_c && seen_d);
   CHECK(hub.stat_dg_sent == 3);
@@ -5017,7 +5172,9 @@ static void test_moqt_reliable_relay_retries_refused_send(void) {
   CHECK(refused->stream_id == relay_sid);
   usz round_n = refused->payload_len;
   u8  round[MOQTRUN_TEST_MAX_PAYLOAD];
-  for (usz i = 0; i < round_n; i++) round[i] = refused->payload[i];
+  for (usz i = 0; i < round_n; i++) {
+    round[i] = refused->payload[i];
+  }
   CHECK(hub.stat_relay_drop == 0); /* a held byte is not a dropped byte */
 
   moqtrun_test_reset();
@@ -5026,7 +5183,9 @@ static void test_moqt_reliable_relay_retries_refused_send(void) {
   const moqtrun_test_call* retried = moqtrun_test_last_kind(3);
   CHECK(retried->stream_id == relay_sid);
   CHECK(retried->payload_len == round_n);
-  for (usz i = 0; i < round_n; i++) CHECK(retried->payload[i] == round[i]);
+  for (usz i = 0; i < round_n; i++) {
+    CHECK(retried->payload[i] == round[i]);
+  }
 
   moqtrun_test_reset();
   wired_moqt_tick(&hub, 6); /* accepted above: nothing left to resend */
@@ -5058,9 +5217,15 @@ static void moqtrun_test_start_reliable_two_subs(
   usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
   wired_moqt_on_stream_data(hub, SESS_A, 999, wired_span_of(first, first_n), 0);
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 5) continue;
-    if (g_calls[i].s == SESS_B) *sid_b = g_calls[i].stream_id;
-    if (g_calls[i].s == SESS_C) *sid_c = g_calls[i].stream_id;
+    if (g_calls[i].kind != 5) {
+      continue;
+    }
+    if (g_calls[i].s == SESS_B) {
+      *sid_b = g_calls[i].stream_id;
+    }
+    if (g_calls[i].s == SESS_C) {
+      *sid_c = g_calls[i].stream_id;
+    }
   }
 }
 
@@ -5069,9 +5234,12 @@ static void moqtrun_test_start_reliable_two_subs(
 static usz moqtrun_test_concat_sends(wired_wt_session* sess, u8* out, usz cap) {
   usz n = 0;
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 3 || g_calls[i].s != sess) continue;
-    for (usz b = 0; b < g_calls[i].payload_len && n < cap; b++)
+    if (g_calls[i].kind != 3 || g_calls[i].s != sess) {
+      continue;
+    }
+    for (usz b = 0; b < g_calls[i].payload_len && n < cap; b++) {
       out[n++] = g_calls[i].payload[b];
+    }
   }
   return n;
 }
@@ -5084,7 +5252,9 @@ static void moqtrun_test_send_big_round(
     wired_moqt_hub* hub, u64 pub_sid, u8 v, usz payload_n) {
   static u8 payload[WIRED_MOQTREL_ROUND_MAX];
   static u8 buf[WIRED_MOQTREL_ROUND_MAX + 16];
-  for (usz i = 0; i < payload_n; i++) payload[i] = v;
+  for (usz i = 0; i < payload_n; i++) {
+    payload[i] = v;
+  }
   usz off = 0;
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, 1,
@@ -5102,7 +5272,9 @@ static void test_moqt_reliable_relay_holds_then_releases_publisher(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_B; /* the subscriber stops accepting */
-  for (u8 v = 0; v < 3; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  for (u8 v = 0; v < 3; v++) {
+    moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  }
   CHECK(moqtrun_test_count_kind(10) == 0); /* 48009 used: under watermark */
   moqtrun_test_send_big_round(&hub, 999, 3, 16000);
   CHECK(moqtrun_test_count_kind(10) == 1); /* 64012 used: hold lands */
@@ -5144,11 +5316,15 @@ static void test_moqt_reliable_relay_two_speed_subs_no_loss(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_C; /* C falls behind, B keeps up */
-  for (u8 v = 1; v <= 3; v++) moqtrun_test_send_audio_round(&hub, 999, v);
+  for (u8 v = 1; v <= 3; v++) {
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   u8  got_b[64];
   usz got_b_n = moqtrun_test_concat_sends(SESS_B, got_b, sizeof got_b);
   CHECK(got_b_n == exp_n);
-  for (usz i = 0; i < exp_n; i++) CHECK(got_b[i] == exp[i]);
+  for (usz i = 0; i < exp_n; i++) {
+    CHECK(got_b[i] == exp[i]);
+  }
 
   g_stream_send_reject_sess = 0; /* C accepts again */
   moqtrun_test_reset();
@@ -5157,7 +5333,9 @@ static void test_moqt_reliable_relay_two_speed_subs_no_loss(void) {
   u8  got_c[64];
   usz got_c_n = moqtrun_test_concat_sends(SESS_C, got_c, sizeof got_c);
   CHECK(got_c_n == exp_n); /* the whole backlog, byte-identical */
-  for (usz i = 0; i < exp_n; i++) CHECK(got_c[i] == exp[i]);
+  for (usz i = 0; i < exp_n; i++) {
+    CHECK(got_c[i] == exp[i]);
+  }
 }
 
 /* A subscriber that leaves (session close) stops pinning the ring: the
@@ -5170,7 +5348,9 @@ static void test_moqt_reliable_relay_sub_leave_unblocks_ring(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_C; /* C stops accepting and pins head */
-  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  for (u8 v = 0; v < 4; v++) {
+    moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  }
   CHECK(moqtrun_test_count_kind(10) == 1); /* the pinned ring held */
   CHECK(moqtrun_test_last_kind(10)->fin == 1);
 
@@ -5198,7 +5378,9 @@ static void test_moqt_reliable_relay_sheds_stalled_sub(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_C; /* C accepts nothing from t=0 on */
-  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  for (u8 v = 0; v < 4; v++) {
+    moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  }
   CHECK(moqtrun_test_count_kind(10) == 1); /* C pins the ring: held */
 
   moqtrun_test_reset();
@@ -5229,8 +5411,11 @@ static void test_moqt_reliable_relay_sheds_stalled_sub(void) {
 
 static usz moqtrun_test_rings_in_use(const wired_moqt_hub* hub) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++)
-    if (hub->rel_pool[i].in_use) n++;
+  for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) {
+    if (hub->rel_pool[i].in_use) {
+      n++;
+    }
+  }
   return n;
 }
 
@@ -5243,9 +5428,10 @@ static void test_moqt_reliable_relay_pool_returns_after_all_done(void) {
   moqtrun_test_start_reliable_fixture(&hub); /* stream 999: first ring */
   u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
   usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
-  for (u64 sid = 1003; sid <= 1011; sid += 4) /* three more streams */
+  for (u64 sid = 1003; sid <= 1011; sid += 4) { /* three more streams */
     wired_moqt_on_stream_data(
         &hub, SESS_A, sid, wired_span_of(first, first_n), 0);
+  }
   CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
   CHECK(hub.stat_relay_full == 0);
 
@@ -5282,9 +5468,10 @@ static void test_moqt_reliable_relay_pool_kept_while_sub_drains(void) {
 
   u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
   usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
-  for (u64 sid = 999; sid <= 1011; sid += 4) /* audio takes every ring */
+  for (u64 sid = 999; sid <= 1011; sid += 4) { /* audio takes every ring */
     wired_moqt_on_stream_data(
         &hub, SESS_A, sid, wired_span_of(first, first_n), 0);
+  }
   CHECK(moqtrun_test_rings_in_use(&hub) == WIRED_MOQTREL_POOL);
   CHECK(hub.stat_relay_full == 0);
 
@@ -5326,8 +5513,9 @@ static void test_moqt_relay_lossy_path_unchanged_for_high_alias(void) {
 
   moqtrun_test_reset();
   g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY;
-  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++) {
     moqtrun_test_send_audio_round(&hub, 999, v);
+  }
   CHECK(moqtrun_test_count_kind(7) == 1); /* busy streak shed, as ever */
   CHECK(moqtrun_test_last_kind(7)->stream_id == relay_sid);
   CHECK(hub.stat_relay_reset == 1);
@@ -5462,8 +5650,9 @@ static void test_moqt_reliable_relay_never_resends_a_shed_stream(void) {
 
   moqtrun_test_reset();
   moqtrun_test_send_audio_round(&hub, 999, 2); /* lossy continuation now */
-  for (usz i = 0; i < g_n_calls; i++)
+  for (usz i = 0; i < g_n_calls; i++) {
     CHECK(!(g_calls[i].kind == 3 && g_calls[i].stream_id == sid_c));
+  }
   CHECK(moqtrun_test_count_kind(5) == 1); /* C re-opened afresh instead */
   CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
 }
@@ -5531,7 +5720,9 @@ static void test_moqt_reliable_relay_supersede_returns_ring_and_hold(void) {
   moqtrun_test_start_reliable_fixture(&hub);
   moqtrun_test_reset();
   g_stream_send_reject_sess = SESS_B; /* the subscriber stops accepting */
-  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  for (u8 v = 0; v < 4; v++) {
+    moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  }
   CHECK(moqtrun_test_count_kind(10) == 1); /* hold landed on SESS_A/999 */
   CHECK(moqtrun_test_rings_in_use(&hub) == 1);
   g_stream_send_reject_sess = 0;
@@ -5590,7 +5781,9 @@ static void test_moqt_reliable_relay_budget_defers_then_sends_same_span(void) {
   const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->stream_id == relay_sid);
   CHECK(sent->payload_len == exp_n);
-  for (usz i = 0; i < exp_n; i++) CHECK(sent->payload[i] == exp[i]);
+  for (usz i = 0; i < exp_n; i++) {
+    CHECK(sent->payload[i] == exp[i]);
+  }
 
   moqtrun_test_reset();
   wired_moqt_tick(&hub, 7); /* accepted above: nothing left to resend */
@@ -5681,9 +5874,12 @@ static usz moqtrun_test_start_reliable_no_subs(wired_moqt_hub* hub, u8* first) {
 static usz moqtrun_test_late_expect(
     const u8* first, usz first_n, usz hdr_n, u8 lo, u8 hi, u8* exp) {
   usz n = 0;
-  for (usz i = hdr_n; i < first_n; i++) exp[n++] = first[i];
-  for (u8 v = lo; v <= hi; v++)
+  for (usz i = hdr_n; i < first_n; i++) {
+    exp[n++] = first[i];
+  }
+  for (u8 v = lo; v <= hi; v++) {
     moqdata_obj_put(wired_mspan_of(exp, 64), &n, 1, wired_span_of(&v, 1));
+  }
   return n;
 }
 
@@ -5696,16 +5892,29 @@ static int moqtrun_test_got_whole(
     const u8*         exp,
     usz               exp_n) {
   const moqtrun_test_call* open = 0;
-  for (usz i = 0; i < g_n_calls; i++)
-    if (g_calls[i].kind == 5 && g_calls[i].s == sess) open = &g_calls[i];
-  if (!open || open->payload_len != hdr_n) return 0;
-  for (usz i = 0; i < hdr_n; i++)
-    if (open->payload[i] != first[i]) return 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind == 5 && g_calls[i].s == sess) {
+      open = &g_calls[i];
+    }
+  }
+  if (!open || open->payload_len != hdr_n) {
+    return 0;
+  }
+  for (usz i = 0; i < hdr_n; i++) {
+    if (open->payload[i] != first[i]) {
+      return 0;
+    }
+  }
   u8  got[64];
   usz got_n = moqtrun_test_concat_sends(sess, got, sizeof got);
-  if (got_n != exp_n) return 0;
-  for (usz i = 0; i < exp_n; i++)
-    if (got[i] != exp[i]) return 0;
+  if (got_n != exp_n) {
+    return 0;
+  }
+  for (usz i = 0; i < exp_n; i++) {
+    if (got[i] != exp[i]) {
+      return 0;
+    }
+  }
   return 1;
 }
 
@@ -5783,7 +5992,9 @@ static void test_moqt_reliable_relay_unsubscribed_hold_is_bounded(void) {
   u8             first[MOQTRUN_TEST_MAX_PAYLOAD];
   moqtrun_test_start_reliable_no_subs(&hub, first);
   moqtrun_test_reset();
-  for (u8 v = 0; v < 4; v++) moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  for (u8 v = 0; v < 4; v++) {
+    moqtrun_test_send_big_round(&hub, 999, v, 16000);
+  }
   CHECK(moqtrun_test_count_kind(10) == 1); /* held at the watermark */
   CHECK(moqtrun_test_last_kind(10)->fin == 1);
   CHECK(hub.stat_rel_overflow == 0);
@@ -5891,8 +6102,12 @@ static void test_moqt_reliable_relay_late_sub_across_torn_object(void) {
   usz hdr_n = hub.peers[0].tracks[1].relays[0].hdr_len;
   u8  exp[64];
   usz exp_n = 0;
-  for (usz i = hdr_n; i < first_n; i++) exp[exp_n++] = first[i];
-  for (usz i = 0; i < obj_n; i++) exp[exp_n++] = obj[i];
+  for (usz i = hdr_n; i < first_n; i++) {
+    exp[exp_n++] = first[i];
+  }
+  for (usz i = 0; i < obj_n; i++) {
+    exp[exp_n++] = obj[i];
+  }
   CHECK(moqtrun_test_got_whole(SESS_B, first, hdr_n, exp, exp_n));
   CHECK(moqtrun_test_last_kind(3)->fin == 1);
 }
@@ -5903,8 +6118,9 @@ static void test_moqt_reliable_relay_late_sub_across_torn_object(void) {
  * bounds: 129 calls into a 128-slot recorder overflows by exactly one. */
 static void test_moqtrun_recording_overflow_counts_and_does_not_crash(void) {
   moqtrun_test_reset();
-  for (int i = 0; i < MOQTRUN_TEST_MAX_CALLS + 1; i++)
+  for (int i = 0; i < MOQTRUN_TEST_MAX_CALLS + 1; i++) {
     moqtrun_test_stream_fin(SESS_A, (u64)i);
+  }
   CHECK(g_n_calls == MOQTRUN_TEST_MAX_CALLS);
   CHECK(g_overflow == 1);
   /* this test deliberately overflows; clear it so the next test's
@@ -5922,7 +6138,9 @@ static void test_moqtrun_payload_hash_detects_tail_past_truncation(void) {
   moqtrun_test_reset();
   u8 a[MOQTRUN_TEST_MAX_PAYLOAD + 8];
   u8 b[MOQTRUN_TEST_MAX_PAYLOAD + 8];
-  for (usz i = 0; i < sizeof a; i++) a[i] = b[i] = (u8)i;
+  for (usz i = 0; i < sizeof a; i++) {
+    a[i] = b[i] = (u8)i;
+  }
   b[sizeof b - 1] ^= 0xff; /* differ only past the truncation boundary */
   moqtrun_test_stream_send(SESS_A, 1, wired_span_of(a, sizeof a), 0);
   moqtrun_test_stream_send(SESS_A, 2, wired_span_of(b, sizeof b), 0);
@@ -5931,9 +6149,10 @@ static void test_moqtrun_payload_hash_detects_tail_past_truncation(void) {
    * can't tell these two calls apart either. */
   CHECK(g_calls[0].payload_len == MOQTRUN_TEST_MAX_PAYLOAD);
   CHECK(g_calls[1].payload_len == MOQTRUN_TEST_MAX_PAYLOAD);
-  for (usz i = 0; i < MOQTRUN_TEST_MAX_PAYLOAD; i++)
-    CHECK(g_calls[0].payload[i] == g_calls[1].payload[i]);   /* truncated copy
-                                                              * looks equal */
+  for (usz i = 0; i < MOQTRUN_TEST_MAX_PAYLOAD; i++) {
+    CHECK(g_calls[0].payload[i] == g_calls[1].payload[i]); /* truncated copy
+                                                            * looks equal */
+  }
   CHECK(g_calls[0].payload_hash != g_calls[1].payload_hash); /* hash tells
                                                                  them apart */
   moqtrun_test_reset();
@@ -5960,7 +6179,9 @@ static void test_moqtrun_reattach_unknown_name_claims_no_slot(void) {
   static const u8 nobody[] = {'n', 'o', 'b', 'o', 'd', 'y'};
   moqtrun_reattach_one_sub(
       &hub, t, 0, moqtrun_key_name(wired_span_of(nobody, sizeof nobody)));
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) CHECK(!t->subs[i].active);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    CHECK(!t->subs[i].active);
+  }
 }
 
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */

@@ -85,18 +85,24 @@ static inline void gcmx86_clmul256(
 
 static inline gcmx86_v gcmx86_load(const u8* p) {
   gcmx86_v v;
-  for (usz i = 0; i < 16; i++) v[i] = p[i];
+  for (usz i = 0; i < 16; i++) {
+    v[i] = p[i];
+  }
   return v;
 }
 static inline void gcmx86_store(u8* p, gcmx86_v v) {
-  for (usz i = 0; i < 16; i++) p[i] = v[i];
+  for (usz i = 0; i < 16; i++) {
+    p[i] = v[i];
+  }
 }
 /* Load n (<=16) bytes byte-reversed into a GHASH operand, zero-padded.
  * GHASH treats blocks as big-endian bit strings; reversing the bytes puts
  * them in the little-endian lane order the CLMUL math below expects. */
 static inline gcmx86_v gcmx86_load_rev(const u8* p, usz n) {
   gcmx86_v v = {0};
-  for (usz i = 0; i < n; i++) v[15 - i] = p[i];
+  for (usz i = 0; i < n; i++) {
+    v[15 - i] = p[i];
+  }
   return v;
 }
 /* Reverse the 16 bytes of a register (GHASH operand <-> wire order). */
@@ -108,7 +114,9 @@ static inline gcmx86_v gcmx86_rev(gcmx86_v a) {
  */
 static inline gcmx86_v gcmx86_aes(const gcmx86* x, gcmx86_v in) {
   gcmx86_v s = in ^ gcmx86_load(x->rk[0]);
-  for (usz i = 1; i < 10; i++) s = wired_arch_aesenc(s, gcmx86_load(x->rk[i]));
+  for (usz i = 1; i < 10; i++) {
+    s = wired_arch_aesenc(s, gcmx86_load(x->rk[i]));
+  }
   return wired_arch_aesenclast(s, gcmx86_load(x->rk[10]));
 }
 /* GF(2^128) multiply of byte-reversed GHASH operands (SP 800-38D 6.3). */
@@ -122,17 +130,22 @@ static inline gcmx86_v gcmx86_gfmul(gcmx86_v a, gcmx86_v b) {
  * per block, y = (y ^ block) * H. */
 static inline gcmx86_v gcmx86_ghash(gcmx86_v h, gcmx86_v y, wired_span in) {
   usz off = 0;
-  for (; off + 16 <= in.n; off += 16)
+  for (; off + 16 <= in.n; off += 16) {
     y = gcmx86_gfmul(y ^ gcmx86_rev(gcmx86_load(in.p + off)), h);
-  if (off < in.n)
+  }
+  if (off < in.n) {
     y = gcmx86_gfmul(y ^ gcmx86_load_rev(in.p + off, in.n - off), h);
+  }
   return y;
 }
 /* Increment the low 32 bits of a counter block big-endian (SP 800-38D 6.2).
  */
 static inline void gcmx86_inc32(u8 j[16]) {
-  for (usz i = 16; i > 12; i--)
-    if (++j[i - 1] != 0) return;
+  for (usz i = 16; i > 12; i--) {
+    if (++j[i - 1] != 0) {
+      return;
+    }
+  }
 }
 /* Advance the counter and XOR one full keystream block into out. */
 static inline void gcmx86_ctr_block(

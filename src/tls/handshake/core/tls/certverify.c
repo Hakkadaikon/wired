@@ -16,15 +16,21 @@
 static const char cv_ctx_str[] = "TLS 1.3, server CertificateVerify";
 
 static void fill_pad(u8 out[64]) {
-  for (usz i = 0; i < 64; i++) out[i] = 0x20;
+  for (usz i = 0; i < 64; i++) {
+    out[i] = 0x20;
+  }
 }
 
 static void put_ctx(u8* out) {
-  for (usz i = 0; i < 33; i++) out[i] = (u8)cv_ctx_str[i];
+  for (usz i = 0; i < 33; i++) {
+    out[i] = (u8)cv_ctx_str[i];
+  }
 }
 
 static void put_hash(u8* out, const u8 transcript_hash[32]) {
-  for (usz i = 0; i < 32; i++) out[i] = transcript_hash[i];
+  for (usz i = 0; i < 32; i++) {
+    out[i] = transcript_hash[i];
+  }
 }
 
 static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
@@ -38,7 +44,9 @@ static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
 static int cert_spki_key(wired_span cert, wired_span* key) {
   x509       c;
   wired_span oid;
-  if (!x509_parse(cert, &c)) return 0;
+  if (!x509_parse(cert, &c)) {
+    return 0;
+  }
   return x509_public_key(c.tbs, &oid, key);
 }
 
@@ -51,21 +59,31 @@ typedef struct {
 static int ecdsa_inputs(
     wired_span cert, wired_span sig, certverify_ecdsa_fields* f) {
   wired_span key;
-  if (!cert_spki_key(cert, &key)) return 0;
-  if (!x509_ec_pubkey(key, f->x, f->y)) return 0;
+  if (!cert_spki_key(cert, &key)) {
+    return 0;
+  }
+  if (!x509_ec_pubkey(key, f->x, f->y)) {
+    return 0;
+  }
   return ecdsasig_decode(sig, f->r, f->s, 32);
 }
 
 static int verify_ecdsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   certverify_ecdsa_fields f;
-  if (!ecdsa_inputs(cert, sig, &f)) return 0;
+  if (!ecdsa_inputs(cert, sig, &f)) {
+    return 0;
+  }
   return ecdsa_p256_verify(f.x, f.y, f.r, f.s, hash);
 }
 
 static int verify_rsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   wired_span key, n, e;
-  if (!cert_spki_key(cert, &key)) return 0;
-  if (!x509_rsa_pubkey(key, &n, &e)) return 0;
+  if (!cert_spki_key(cert, &key)) {
+    return 0;
+  }
+  if (!x509_rsa_pubkey(key, &n, &e)) {
+    return 0;
+  }
   /* RFC 8446 9.1: rsa_pss_rsae_sha256 is RSASSA-PSS (never PKCS#1 v1.5). */
   rsa_pub pub = {n, e};
   return rsa_pss_verify(&pub, sig, wired_span_of(hash, 32));
@@ -81,8 +99,12 @@ static int is_ed25519_bits(wired_span bits) {
  * octet. */
 static int ed25519_key(wired_span cert, const u8** key) {
   wired_span bits;
-  if (!cert_spki_key(cert, &bits)) return 0;
-  if (!is_ed25519_bits(bits)) return 0;
+  if (!cert_spki_key(cert, &bits)) {
+    return 0;
+  }
+  if (!is_ed25519_bits(bits)) {
+    return 0;
+  }
   *key = bits.p + 1;
   return 1;
 }
@@ -90,8 +112,12 @@ static int ed25519_key(wired_span cert, const u8** key) {
 static int verify_ed25519(
     wired_span cert, wired_span sig, const u8 content[130]) {
   const u8* key;
-  if (sig.n != ED25519_SIG) return 0;
-  if (!ed25519_key(cert, &key)) return 0;
+  if (sig.n != ED25519_SIG) {
+    return 0;
+  }
+  if (!ed25519_key(cert, &key)) {
+    return 0;
+  }
   return ed25519_verify(sig.p, content, 130, key);
 }
 
@@ -99,17 +125,20 @@ static int verify_ed25519(
 static int verify_hashed(const certverify_in* in, const u8 content[130]) {
   u8 hash[32];
   wired_sha256(content, 130, hash);
-  if (in->scheme == TLS_SCHEME_ECDSA_P256)
+  if (in->scheme == TLS_SCHEME_ECDSA_P256) {
     return verify_ecdsa(in->cert, in->sig, hash);
-  if (in->scheme == TLS_SCHEME_RSA_PSS_SHA256)
+  }
+  if (in->scheme == TLS_SCHEME_RSA_PSS_SHA256) {
     return verify_rsa(in->cert, in->sig, hash);
+  }
   return 0;
 }
 
 int tls_verify_cert_signature(const certverify_in* in) {
   u8 content[130];
   cv_build_signed(in->transcript_hash, content);
-  if (in->scheme == TLS_SCHEME_ED25519)
+  if (in->scheme == TLS_SCHEME_ED25519) {
     return verify_ed25519(in->cert, in->sig, content);
+  }
   return verify_hashed(in, content);
 }

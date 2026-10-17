@@ -25,8 +25,9 @@ static void transcript_hash384(const transcript* t, u8* out) {
 }
 
 void transcript_hash_suite(const transcript* t, u16 suite, u8* out) {
-  if (suite == TLS_AES_256_GCM_SHA384)
+  if (suite == TLS_AES_256_GCM_SHA384) {
     transcript_hash384(t, out);
-  else
+  } else {
     transcript_hash(t, out);
+  }
 }

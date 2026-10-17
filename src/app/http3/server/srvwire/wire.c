@@ -13,7 +13,9 @@ static int  srvwire_initial_tx_lean_ver(
  * byte sits at frames[0] where frame_get_crypto expects it. */
 int srvwire_take_crypto(wired_span frames, wired_span* tls) {
   crypto_frame cf;
-  if (!frame_get_crypto(frames.p, frames.n, &cf)) return 0;
+  if (!frame_get_crypto(frames.p, frames.n, &cf)) {
+    return 0;
+  }
   *tls = wired_span_of(cf.data, (usz)cf.length);
   return 1;
 }
@@ -21,7 +23,9 @@ int srvwire_take_crypto(wired_span frames, wired_span* tls) {
 /* RFC 9000 19.3.2: attach in's cumulative ECN counts, turning the ACK into
  * type 0x03 -- skipped (plain 0x02) while all three are still zero. */
 static void srvwire_ack_set_ecn(const srvwire_seal_in* in, ack_frame* f) {
-  if ((in->ect0 | in->ect1 | in->ce) == 0) return;
+  if ((in->ect0 | in->ect1 | in->ce) == 0) {
+    return;
+  }
   f->has_ecn = 1;
   f->ect0    = in->ect0;
   f->ect1    = in->ect1;
@@ -46,10 +50,14 @@ static usz put_ack_one(wired_obuf* out, const srvwire_seal_in* in) {
 int srvwire_append_ack(wired_obuf* frames, const srvwire_seal_in* in) {
   wired_obuf tail;
   usz        a;
-  if (in->ack_pn < 0) return 1;
+  if (in->ack_pn < 0) {
+    return 1;
+  }
   tail = obuf_of(frames->p + frames->len, frames->cap - frames->len);
   a    = put_ack_one(&tail, in);
-  if (a == 0) return 0;
+  if (a == 0) {
+    return 0;
+  }
   frames->len += a;
   return 1;
 }
@@ -59,7 +67,9 @@ int srvwire_append_ack(wired_obuf* frames, const srvwire_seal_in* in) {
  * overflow. */
 int srvwire_emit_frames(const srvwire_seal_in* in, wired_obuf* out) {
   crypto_stream_emit_in ein = {in->crypto_off, in->tls.n};
-  if (!crypto_stream_emit(in->tls, &ein, out)) return 0;
+  if (!crypto_stream_emit(in->tls, &ein, out)) {
+    return 0;
+  }
   return srvwire_append_ack(out, in);
 }
 
@@ -77,7 +87,9 @@ static usz init_payload_floor(u8 dcid_len, u8 scid_len) {
 /* Zero-fill frames up to the 1200-byte Initial floor (bounded by out->cap). */
 static void pad_initial_frames(wired_obuf* frames, usz floor) {
   usz fill = floor < frames->cap ? floor : frames->cap;
-  for (; frames->len < fill; frames->len++) frames->p[frames->len] = 0x00;
+  for (; frames->len < fill; frames->len++) {
+    frames->p[frames->len] = 0x00;
+  }
 }
 
 /* RFC 9000 17.2 byte0 for a long-header Initial under `version`: long form +
@@ -102,7 +114,9 @@ static int srvwire_initial_tx_lean_ver(
   aes128       hp;
   usz          total;
   u8           byte0 = srvwire_initial_byte0(version);
-  if (byte0 == 0) return 0;
+  if (byte0 == 0) {
+    return 0;
+  }
   initpkt_derive_ver(in->dcid, version, &ck, &sk);
   aes128_init(&hp, sk.hp);
   protect_keys k = {&sk, &hp};
@@ -116,7 +130,9 @@ static int srvwire_initial_tx_lean_ver(
       wired_span_of(fb->p, fb->len),
       version};
   total = tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
-  if (total == 0) return 0;
+  if (total == 0) {
+    return 0;
+  }
   out->len = total;
   return 1;
 }
@@ -145,6 +161,8 @@ int srvwire_seal_initial_ver(
     u32 version, const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
   wired_obuf fb = obuf_of(frames, sizeof frames);
-  if (!srvwire_emit_frames(in, &fb)) return 0;
+  if (!srvwire_emit_frames(in, &fb)) {
+    return 0;
+  }
   return srvwire_initial_tx_ver(version, in, &fb, out);
 }

@@ -39,17 +39,22 @@ static void note_app_rx_short(
  * after byte0+DCID like a short-header 1-RTT packet. */
 static void note_app_rx_long(wired_srvloop* l, wired_mspan pkt) {
   lhdr h;
-  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) {
+    return;
+  }
   app_rx_record(l, pkt.p + h.pn_off, lhdr_pn_len(pkt.p[0]));
 }
 
 void srvloop_note_app_rx(
     wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
-  if (o->level != LEVEL_ONERTT) return;
-  if (srvloop_app_pkt_is_long(o->pkt.p[0]))
+  if (o->level != LEVEL_ONERTT) {
+    return;
+  }
+  if (srvloop_app_pkt_is_long(o->pkt.p[0])) {
     note_app_rx_long(l, o->pkt);
-  else
+  } else {
     note_app_rx_short(l, s, o->pkt);
+  }
 }
 
 /* The largest Handshake packet number received so far (0 before any), the
@@ -65,8 +70,12 @@ u64 srvloop_hs_largest_pn(const wired_srvloop* l) {
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
 void srvloop_note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   lhdr h;
-  if (o->level != LEVEL_HANDSHAKE) return;
-  if (!lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
+  if (o->level != LEVEL_HANDSHAKE) {
+    return;
+  }
+  if (!lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) {
+    return;
+  }
   l->hs_rx_pn = pnum_decode(
       o->pkt.p + h.pn_off, lhdr_pn_len(o->pkt.p[0]), srvloop_hs_largest_pn(l));
   l->hs_rx_hi   = u64_max(srvloop_hs_largest_pn(l), l->hs_rx_pn);

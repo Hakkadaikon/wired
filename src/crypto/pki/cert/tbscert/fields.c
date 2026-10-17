@@ -18,15 +18,21 @@ static int take_wrapped(derseq* c, wired_span* inner) {
   u8         tag;
   wired_span outer;
   der_tlv    t;
-  if (!derseq_next(c, &tag, &outer)) return 0;
-  if (!der_read(outer, &t)) return 0;
+  if (!derseq_next(c, &tag, &outer)) {
+    return 0;
+  }
+  if (!der_read(outer, &t)) {
+    return 0;
+  }
   *inner = t.val;
   return 1;
 }
 
 /* RFC 5280 4.1.2.1. Optional version: present only with the [0] tag. */
 static int opt_version(derseq* c, tbscert* o) {
-  if (peek_is(c, TBS_VERSION_TAG)) return take_wrapped(c, &o->version);
+  if (peek_is(c, TBS_VERSION_TAG)) {
+    return take_wrapped(c, &o->version);
+  }
   return 1;
 }
 
@@ -41,14 +47,19 @@ static int take_slot(derseq* c, wired_span* s) {
 static int take_body(derseq* c, tbscert* o) {
   wired_span* slots[6] = {&o->serial,   &o->sig_alg, &o->issuer,
                           &o->validity, &o->subject, &o->spki};
-  for (usz i = 0; i < 6; i++)
-    if (!take_slot(c, slots[i])) return 0;
+  for (usz i = 0; i < 6; i++) {
+    if (!take_slot(c, slots[i])) {
+      return 0;
+    }
+  }
   return 1;
 }
 
 /* RFC 5280 4.1.2.9. Optional extensions: present only with the [3] tag. */
 static int opt_extensions(derseq* c, tbscert* o) {
-  if (peek_is(c, TBS_EXTENSIONS_TAG)) return take_wrapped(c, &o->extensions);
+  if (peek_is(c, TBS_EXTENSIONS_TAG)) {
+    return take_wrapped(c, &o->extensions);
+  }
   return 1;
 }
 
@@ -62,7 +73,9 @@ int tbscert_parse(wired_span tbs, tbscert* out) {
   derseq     c;
   out->version    = wired_span_of(0, 0);
   out->extensions = wired_span_of(0, 0);
-  if (!der_seq(tbs, &v)) return 0;
+  if (!der_seq(tbs, &v)) {
+    return 0;
+  }
   derseq_init(&c, v);
   return tbs_walk(&c, out);
 }

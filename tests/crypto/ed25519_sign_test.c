@@ -4,8 +4,9 @@
 static u8 sgn_hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
 static void sgn_hexbytes(const char* hex, u8* out, usz n) {
-  for (usz i = 0; i < n; i++)
+  for (usz i = 0; i < n; i++) {
     out[i] = (u8)((sgn_hexnib(hex[i * 2]) << 4) | sgn_hexnib(hex[i * 2 + 1]));
+  }
 }
 
 /* One RFC 8032 7.1 vector: seed -> public, (seed,msg) -> signature, and the
@@ -20,15 +21,23 @@ static void sign_vector(
   sgn_hexbytes(seed, sd, 32);
   sgn_hexbytes(pub, want_pk, 32);
   sgn_hexbytes(sig, want_sig, 64);
-  if (msg_len) sgn_hexbytes(msg, M, msg_len);
+  if (msg_len) {
+    sgn_hexbytes(msg, M, msg_len);
+  }
 
   ed25519_keypair(sd, got_pk);
-  for (usz i = 0; i < 32; i++) CHECK(got_pk[i] == want_pk[i]);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(got_pk[i] == want_pk[i]);
+  }
 
   ed25519_sign(sd, M, msg_len, got_sig);
-  for (usz i = 0; i < 64; i++) CHECK(got_sig[i] == want_sig[i]);
+  for (usz i = 0; i < 64; i++) {
+    CHECK(got_sig[i] == want_sig[i]);
+  }
 
-  for (usz i = 0; i < 32; i++) pk[i] = want_pk[i];
+  for (usz i = 0; i < 32; i++) {
+    pk[i] = want_pk[i];
+  }
   CHECK(ed25519_verify(got_sig, M, msg_len, pk) == 1);
 }
 
@@ -174,11 +183,15 @@ static void test_ed25519_verify_rejects_noncanonical_key(void) {
  * signature is a pure function of (seed, msg) with no side channel for an
  * independent public key to enter. */
 static void sgn_fill_seed(u8 seed[32]) {
-  for (usz i = 0; i < 32; i++) seed[i] = (u8)(i * 7 + 1);
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(i * 7 + 1);
+  }
 }
 
 static void sgn_check_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++) CHECK(a[i] == b[i]);
+  for (usz i = 0; i < n; i++) {
+    CHECK(a[i] == b[i]);
+  }
 }
 
 static void test_ed25519_sign_derives_pubkey_from_seed_only(void) {

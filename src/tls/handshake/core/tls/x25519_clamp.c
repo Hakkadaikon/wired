@@ -5,7 +5,9 @@ static int  x25519_nonzero(const u8 out[32]);
 
 /* Clamp the scalar per RFC 7748 (clear low 3 bits, set bit 254, clear 255). */
 static void clamp(u8 e[32], const u8 scalar[32]) {
-  for (usz i = 0; i < 32; i++) e[i] = scalar[i];
+  for (usz i = 0; i < 32; i++) {
+    e[i] = scalar[i];
+  }
   e[0] &= 248;
   e[31] = (e[31] & 127) | 64;
 }
@@ -37,7 +39,9 @@ void x25519_ladder(fe x2, fe z2, const u8 e[32], const fe x1) {
  * in constant time (OR-accumulate all bytes, branch only on the fold). */
 static int x25519_nonzero(const u8 out[32]) {
   u8 d = 0;
-  for (usz i = 0; i < 32; i++) d |= out[i];
+  for (usz i = 0; i < 32; i++) {
+    d |= out[i];
+  }
   return d != 0;
 }
 

@@ -18,9 +18,13 @@ static int srvrun_broadcast_fits(wired_span data) {
 
 int wired_server_broadcast_datagram(wired_span data) {
   int slot;
-  if (!srvrun_broadcast_fits(data)) return 0;
+  if (!srvrun_broadcast_fits(data)) {
+    return 0;
+  }
   slot = srvrun_bcast_find(wired_thread_tid());
-  if (slot < 0) return srvrun_broadcast_direct(data);
+  if (slot < 0) {
+    return srvrun_broadcast_direct(data);
+  }
   return srvrun_broadcast_registered(slot, data);
 }
 
@@ -31,7 +35,9 @@ static void srvrun_bcast_drain_one(
     srvrun_state* st, wired_srvinbox_ring* row, int j) {
   u8  buf[WIRED_SRVINBOX_SLOT_MAX];
   usz n = wired_srvinbox_pop(&row[j], buf, sizeof buf);
-  if (n) srvrun_broadcast_to_all(st, wired_span_of(buf, n));
+  if (n) {
+    srvrun_broadcast_to_all(st, wired_span_of(buf, n));
+  }
 }
 
 /* This thread's own registry slot, or -1 if there is nothing to drain: fewer
@@ -39,7 +45,9 @@ static void srvrun_bcast_drain_one(
  * mirroring wired_server_broadcast_datagram's own <= 1 guard) or the calling
  * thread never registered at all. */
 static int srvrun_bcast_drain_slot(void) {
-  if (__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) <= 1) return -1;
+  if (__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) <= 1) {
+    return -1;
+  }
   return srvrun_bcast_find(wired_thread_tid());
 }
 
@@ -50,9 +58,12 @@ static int srvrun_bcast_drain_slot(void) {
  * than blocking this one). */
 void srvrun_bcast_drain_self(srvrun_state* st) {
   int slot = srvrun_bcast_drain_slot();
-  if (slot < 0) return;
-  for (int j = 0; j < g_srvrun_bcast[slot].n_total; j++)
+  if (slot < 0) {
+    return;
+  }
+  for (int j = 0; j < g_srvrun_bcast[slot].n_total; j++) {
     srvrun_bcast_drain_one(st, g_srvrun_bcast[slot].inbox_row, j);
+  }
 }
 
 /* The env the calling thread's loop drives: a registered srvthreads worker's
@@ -73,8 +84,11 @@ static int wt_slot_holds_session(srvrun_conn* c, int i, wired_wt_session* s) {
 }
 
 static int srvrun_conn_owns_session(srvrun_conn* c, wired_wt_session* s) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (wt_slot_holds_session(c, i, s)) return 1;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (wt_slot_holds_session(c, i, s)) {
+      return 1;
+    }
+  }
   return 0;
 }
 
@@ -83,8 +97,11 @@ static int srvrun_conn_owns_session(srvrun_conn* c, wired_wt_session* s) {
  * WHICH slot (wt_close_pending[sidx], srvrun_reset_wt_streams_for_session's
  * own session_slot param) rather than just whether c owns s at all. */
 int srvrun_conn_session_slot(srvrun_conn* c, wired_wt_session* s) {
-  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
-    if (wt_slot_holds_session(c, i, s)) return i;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (wt_slot_holds_session(c, i, s)) {
+      return i;
+    }
+  }
   return -1;
 }
 
@@ -96,8 +113,11 @@ static int conn_is_session_owner(srvrun_conn* c, wired_wt_session* s) {
  * when no live connection owns it (a stale or foreign session pointer). */
 static int srvrun_session_conn_slot(
     wired_srvrun_env* env, wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++)
-    if (conn_is_session_owner(&env->conns[i], s)) return (int)i;
+  for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    if (conn_is_session_owner(&env->conns[i], s)) {
+      return (int)i;
+    }
+  }
   return -1;
 }
 
