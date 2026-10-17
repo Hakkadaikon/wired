@@ -61,10 +61,10 @@ static void xbt_close_if_open(i64 fd) {
 }
 
 /* --- static instruction decode -------------------------------------------
- * Every field of struct bpf_insn, unpacked from the packed u64 (the exact
- * inverse of xdpbpf.c's bpf_insn helper) so a test can assert on opcode,
- * registers, jump offset and immediate directly, without a real BPF_PROG_LOAD
- * (CAP_BPF is normally absent in this sandbox). */
+ * Every field of struct xdpbpf_bpf_insn, unpacked from the packed u64 (the
+ * exact inverse of xdpbpf.c's xdpbpf_bpf_insn helper) so a test can assert on
+ * opcode, registers, jump offset and immediate directly, without a real
+ * BPF_PROG_LOAD (CAP_BPF is normally absent in this sandbox). */
 typedef struct {
   u8  code;
   u8  dst;

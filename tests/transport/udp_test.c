@@ -85,7 +85,7 @@ static void test_udp_pmtu_probe_enable_sets_pmtudisc_do(void) {
 static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
   u8 control[WIRED_GSO_CMSG_SPACE] = {0};
   /* cmsg_len = 0 at offset 0: malformed, must not be walked as an entry. */
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
 /* Variant: a cmsg_len claiming more bytes than the buffer holds must
@@ -94,7 +94,7 @@ static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
 static void test_udp_recvmmsg_cmsg_len_overflow_no_oob_read(void) {
   u8 control[WIRED_GSO_CMSG_SPACE] = {0};
   *(u64*)(control + 0)             = 0xffffffffffffffffULL;
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
 /* An unrelated cmsg entry (arbitrary level/type) ahead of IP_TOS must
@@ -111,7 +111,7 @@ static void test_udp_recvmmsg_skips_unrelated_cmsg_to_find_ip_tos(void) {
   *(i32*)(control + 32) = WIRED_IPPROTO_IP;
   *(i32*)(control + 36) = WIRED_IP_TOS;
   control[40]           = 2;
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 2);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 2);
 }
 
 /* On a dual-stack socket a native-v6 (and on some kernels a v4-mapped)
@@ -123,7 +123,7 @@ static void test_udp_cmsg_ecn_ipv6_tclass(void) {
   *(i32*)(control + 8)             = 41; /* IPPROTO_IPV6 */
   *(i32*)(control + 12)            = 67; /* IPV6_TCLASS */
   control[16]                      = 3;  /* CE */
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 3);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 3);
 }
 
 /* An IP_TOS cmsg whose payload byte is Not-ECT (0x00) reads back 0. */
@@ -133,16 +133,16 @@ static void test_udp_recvmmsg_not_ect_reads_as_zero(void) {
   *(i32*)(control + 8)             = WIRED_IPPROTO_IP;
   *(i32*)(control + 12)            = WIRED_IP_TOS;
   control[16]                      = 0;
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
 /* No cmsg at all (controllen 0, as when IP_RECVTOS is off or MSG_CTRUNC
  * truncated the buffer to nothing) falls back to Not-ECT (0). */
 static void test_udp_recvmmsg_no_cmsg_defaults_to_zero(void) {
-  CHECK(cmsg_read_ip_tos((const u8*)0, 0) == 0);
+  CHECK(udp_cmsg_read_ip_tos((const u8*)0, 0) == 0);
 }
 
-/* cmsg_read_ip_tos's IP_TOS entry offsets (cmsg_len@0, cmsg_level@8,
+/* udp_cmsg_read_ip_tos's IP_TOS entry offsets (cmsg_len@0, cmsg_level@8,
  * cmsg_type@12, payload@16) match wired_udp_gso_cmsg_build's manual Linux
  * cmsghdr layout for UDP_SEGMENT -- the same ABI convention read here that
  * that function writes there. */
@@ -153,7 +153,7 @@ static void test_udp_recvmmsg_cmsg_layout_matches_kernel_abi(void) {
   *(i32*)(control + 8)  = WIRED_IPPROTO_IP;
   *(i32*)(control + 12) = WIRED_IP_TOS;
   control[16]           = 3; /* CE */
-  CHECK(cmsg_read_ip_tos(control, sizeof control) == 3);
+  CHECK(udp_cmsg_read_ip_tos(control, sizeof control) == 3);
 }
 
 /* MSG_CTRUNC set on a slot's msg_flags means the cmsg buffer must not

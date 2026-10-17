@@ -247,7 +247,7 @@ static void test_udp_send_tos_overrides_socket_ect0(void) {
 }
 
 /* A sender that never called wired_udp_ect0_enable delivers Not-ECT
- * (0) -- no cmsg is attached for an unmarked packet, and cmsg_read_ip_tos's
+ * (0) -- no cmsg is attached for an unmarked packet, and udp_cmsg_read_ip_tos's
  * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
 static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
   i64      sfd, cfd;
