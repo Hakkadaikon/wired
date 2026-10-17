@@ -2993,6 +2993,7 @@ static void test_moqtrun_newer_group_resets_finished_older_stream(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
+  hub.newest_group_only = 1;
   moqtrun_test_setup_audio_relay(&hub);
   u64 old_sid = moqtrun_test_open_audio_group(&hub, 999, 0);
   wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
@@ -3012,6 +3013,7 @@ static void test_moqtrun_newer_group_cuts_open_older_relay(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
+  hub.newest_group_only = 1;
   moqtrun_test_setup_audio_relay(&hub);
   u64 old_sid = moqtrun_test_open_audio_group(&hub, 999, 0);
   moqtrun_test_open_audio_group(&hub, 1003, 1);
@@ -3024,6 +3026,25 @@ static void test_moqtrun_newer_group_cuts_open_older_relay(void) {
   CHECK(moqtrun_test_count_kind(5) == 0); /* no re-open */
   CHECK(moqtrun_test_count_kind(6) == 0); /* no FIN on the dead id */
   CHECK(old_sid != 0);
+}
+
+/* draft-22 7.4: "A relay MUST NOT reorder or drop objects received on a
+ * multi-object stream" -- by default a newer Group's stream leaves the
+ * older one alone, and the older publisher stream's later rounds still
+ * reach the subscriber. */
+static void test_moqtrun_newer_group_keeps_older_by_default(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+  moqtrun_test_open_audio_group(&hub, 999, 0);
+  moqtrun_test_open_audio_group(&hub, 1003, 1);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 7);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_count_kind(7) == 0);
 }
 
 /* A reliable (ring-backed) track delivers every Group whole: a newer
@@ -6028,6 +6049,7 @@ static void mtall_main(void) {
   test_moqtrun_republish_forgets_newest_group();
   test_moqtrun_reattach_forgets_newest_group();
   test_moqtrun_newer_group_keeps_reliable_stream();
+  test_moqtrun_newer_group_keeps_older_by_default();
   test_moqtrun_busy_streak_success_resets();
   test_moqtrun_shed_stream_skips_publisher_fin();
   test_moqtrun_busy_shed_isolated_per_subscriber();

@@ -137,6 +137,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_live_sent                 = 0;
   hub->stat_live_drop                 = 0;
   hub->reliable_alias_limit           = 0;
+  hub->newest_group_only              = 0;
   hub->stat_rel_stall                 = 0;
   hub->stat_timeout_reset             = 0;
   hub->stat_rel_overflow              = 0;
@@ -7519,18 +7520,28 @@ static int moqtrun_relay_newer_for(
          (!sub->newest_sid || relay->group_id > sub->newest_group);
 }
 
-/* Lossy stream sid just opened for sub on relay: in a newer Group it
- * resets the previous newest stream -- even one the publisher already
- * FIN'd and the hub stopped tracking -- so its stale backlog does not
- * hold the newer Group back (draft-22 7.2 sends a subscription's Groups
- * in order), and becomes the newest. */
+/* relay's newer Group supersedes sub's older ones (hub policy). */
+static int moqtrun_relay_supersedes(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_relay* relay) {
+  return hub->newest_group_only && moqtrun_relay_newer_for(sub, relay);
+}
+
+/* Lossy stream sid just opened for sub on relay, under
+ * hub->newest_group_only: in a newer Group it resets the previous newest
+ * stream -- even one the publisher already FIN'd and the hub stopped
+ * tracking -- so its stale backlog does not hold the newer Group back
+ * (draft-22 7.2 sends a subscription's Groups in order), and becomes the
+ * newest. Off, newest_sid stays 0, so moqtrun_relay_stale_for never cuts
+ * an older Group either. */
 static void moqtrun_sub_note_open(
     wired_moqt_hub*            hub,
     wired_wt_session*          wt,
     wired_moqtrun_sub*         sub,
     const wired_moqtrun_relay* relay,
     u64                        sid) {
-  if (!moqtrun_relay_newer_for(sub, relay)) return;
+  if (!moqtrun_relay_supersedes(hub, sub, relay)) return;
   if (sub->newest_sid)
     hub->io.stream_reset(wt, sub->newest_sid, MOQTRUN_RESET_INTERNAL_ERROR);
   sub->newest_group = relay->group_id;

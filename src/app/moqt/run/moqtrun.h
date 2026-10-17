@@ -1410,6 +1410,13 @@ typedef struct {
    * retried from a moqtrel ring, publisher held back instead of dropping).
    * The wired_moqt_init default 0 keeps every track on the lossy path. */
   u64 reliable_alias_limit;
+  /** 1: a lossy subscription keeps only its newest Group -- opening its
+   * stream in a newer Group resets the older Group's stream and drops that
+   * Group's later rounds, so a stale backlog never holds live media back.
+   * The wired_moqt_init default 0 forwards every Group whole: draft-18..22
+   * forbid a relay to drop Objects of a multi-object stream, so only an
+   * app that trades completeness for latency (live voice) turns it on. */
+  u8 newest_group_only;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */
