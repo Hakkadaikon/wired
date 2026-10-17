@@ -7,9 +7,8 @@ set -eu
 raise_stack
 # build/unity/run.c: tests/run.c with a .text section per .c (gen_ninja.sh).
 ninja build/unity/run.c
-# No sanitizers: coverage does not need them and they would skew the profile.
-# shellcheck disable=SC2086 # TESTFLAGS_PLAIN is a word list
-"$CC" $TESTFLAGS_PLAIN -fprofile-instr-generate -fcoverage-mapping \
+# shellcheck disable=SC2086 # TESTFLAGS is a word list
+"$CC" $TESTFLAGS -fprofile-instr-generate -fcoverage-mapping \
     build/unity/run.c -o build/quic_test_cov
 LLVM_PROFILE_FILE=build/quic_test.profraw ./build/quic_test_cov
 llvm-profdata merge -sparse build/quic_test.profraw -o build/quic_test.profdata

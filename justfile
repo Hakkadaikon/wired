@@ -51,6 +51,10 @@ test: fmt gen-ninja
 test-fast: fmt gen-ninja
     sh scripts/just/test.sh --fast
 
+# CI only: the unity test under ASan + UBSan (slow).
+test-san: gen-ninja
+    sh scripts/just/test.sh --san
+
 # ccn + test.
 check: ccn test
 
@@ -85,7 +89,7 @@ wire-check: ninja
 cov: fmt gen-ninja
     sh scripts/just/cov.sh
 
-# Production build with UBSan/bounds traps, driven by the guide snippets.
+# CI only: production build with UBSan/bounds traps, run by the guide snippets.
 san-check *ids: gen-ninja
     # No ids = all snippets. Needs go + node 22 on PATH.
     sh scripts/just/san_check.sh {{ ids }}
