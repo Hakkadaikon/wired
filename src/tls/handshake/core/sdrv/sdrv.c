@@ -117,7 +117,8 @@ void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
   s->raw_alpns = raw_alpns;
 }
 
-void sdrv_init(sdrv* s, const sdrv_init_in* in) {
+/* Negotiation defaults before any ClientHello is seen. */
+static void sdrv_reset_nego(sdrv* s) {
   s->limits                       = (stp_limits){0};
   s->sreset_token_set             = 0;
   s->peer_max_datagram_frame_size = 0;
@@ -126,15 +127,10 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->raw_alpns                    = 0;
   s->cipher_suite                 = TLS_AES_128_GCM_SHA256;
   s->group                        = GROUP_X25519;
-  sdrv_copy32(s->server_priv, in->server_priv_x25519);
-  sdrv_copy32(s->server_pub, in->server_pub_x25519);
-  sdrv_copy32(s->p256_priv, in->sign_priv);
-  sdrv_copy_san_ipv4(s, in->san_ipv4);
-  sdrv_copy_ticket_key(s, in->ticket_key);
-  if (sdrv_use_chain(in))
-    sdrv_take_chain(s, in);
-  else
-    sdrv_build_cert(s, in->now_secs);
+}
+
+/* Per-handshake progress: CIDs, PSK/0-RTT/HRR outcomes, versions. */
+static void sdrv_reset_hs(sdrv* s) {
   s->hs_ready            = 0;
   s->odcid_len           = 0;
   s->iscid_len           = 0;
@@ -152,6 +148,20 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   s->negotiated_version  = 0;
   s->pref_cid_len        = 0;
   for (usz i = 0; i < sizeof s->ch1_hash; i++) s->ch1_hash[i] = 0;
+}
+
+void sdrv_init(sdrv* s, const sdrv_init_in* in) {
+  sdrv_reset_nego(s);
+  sdrv_copy32(s->server_priv, in->server_priv_x25519);
+  sdrv_copy32(s->server_pub, in->server_pub_x25519);
+  sdrv_copy32(s->p256_priv, in->sign_priv);
+  sdrv_copy_san_ipv4(s, in->san_ipv4);
+  sdrv_copy_ticket_key(s, in->ticket_key);
+  if (sdrv_use_chain(in))
+    sdrv_take_chain(s, in);
+  else
+    sdrv_build_cert(s, in->now_secs);
+  sdrv_reset_hs(s);
   transcript_init(&s->tr);
 }
 
