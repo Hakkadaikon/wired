@@ -1,12 +1,15 @@
-#include "app/qpack/qpack/huffman.h"
-
 /* RFC 7541 Appendix B static Huffman code, in canonical form. HSYM lists the
  * 257 symbols (0..255 plus EOS=256) ordered by (code length, code value).
  * For a code of length L: HFIRST[L] is the first canonical code of that
  * length, HIDX[L] the index of its first symbol in HSYM, HCNT[L] the number
  * of codes of that length. A code value c of length L decodes to
  * HSYM[HIDX[L] + (c - HFIRST[L])] when c - HFIRST[L] < HCNT[L]. */
-#define HUFF_MAXLEN 30
+
+#include "app/qpack/qpack/huffman_impl.h"
+
+static int  code_ready(u32 acc, u32 L);
+static void put_sym(hctx* c, u16 sym);
+static void emit_code(hctx* c);
 
 static const u16 HSYM[257] = {
     48,  49,  50,  97,  99,  101, 105, 111, 115, 116, 32,  37,  45,  46,  47,
@@ -28,29 +31,21 @@ static const u16 HSYM[257] = {
     21,  23,  24,  25,  26,  27,  28,  29,  30,  31,  127, 220, 249, 10,  13,
     22,  256,
 };
+
 static const u32 HFIRST[31] = {
     0,         0,         0,         0,        0,        0,        20,
     92,        248,       508,       1016,     2042,     4090,     8184,
     16380,     32764,     65534,     131068,   262136,   524272,   1048550,
     2097116,   4194258,   8388568,   16777194, 33554412, 67108832, 134217694,
     268435426, 536870910, 1073741820};
+
 static const u16 HIDX[31] = {
     0,  0,  0,  0,  0,  0,   10,  36,  68,  74,  74,  79,  82,  84,  90, 92,
     95, 95, 95, 95, 98, 106, 119, 145, 174, 186, 190, 205, 224, 253, 253};
+
 static const u16 HCNT[31] = {0,  0,  0,  0, 0,  10, 26, 32, 6, 0, 5,
                              3,  2,  6,  2, 3,  0,  0,  0,  3, 8, 13,
                              26, 29, 12, 4, 15, 19, 29, 0,  4};
-
-/* Running decode state: a bit accumulator (acc) of nbits bits, plus the
- * output cursor (out, capacity dcap). ok stays 1 until a rule is broken. */
-typedef struct {
-  u32 acc;
-  u32 nbits;
-  u8* out;
-  usz dcap;
-  usz olen;
-  int ok;
-} hctx;
 
 /* A complete code of length L sits in acc when its offset is within range. */
 static int code_ready(u32 acc, u32 L) {
@@ -75,7 +70,7 @@ static void emit_code(hctx* c) {
 
 /* Fold one input bit into the accumulator, completing a symbol if ready or
  * failing once the run exceeds the longest code (RFC 7541 Appendix B). */
-static void step_bit(hctx* c, u32 bit) {
+void qpack_step_bit(hctx* c, u32 bit) {
   c->acc = (c->acc << 1) | bit;
   c->nbits++;
   if (c->nbits > HUFF_MAXLEN) {
@@ -83,33 +78,4 @@ static void step_bit(hctx* c, u32 bit) {
     return;
   }
   if (code_ready(c->acc, c->nbits)) emit_code(c);
-}
-
-/* Feed the 8 bits of one octet, most significant first, halting on error. */
-static void step_octet(hctx* c, u8 byte) {
-  for (u32 b = 8; b != 0 && c->ok; b--) step_bit(c, (byte >> (b - 1)) & 1u);
-}
-
-/* Feed every input octet into c; a broken octet leaves c->ok clear so the
- * remaining octets are stepped over as no-ops. */
-static void feed(hctx* c, wired_span src) {
-  for (usz i = 0; i < src.n; i++) step_octet(c, src.p[i]);
-}
-
-/* RFC 7541 5.2: the leftover bits must form valid padding -- fewer than 8 and
- * all ones (the EOS prefix). c->ok must also still hold. */
-static int pad_valid(const hctx* c) {
-  return c->nbits < 8 && (c->nbits == 0 || c->acc == ((1u << c->nbits) - 1u));
-}
-
-/* The decode succeeded if no rule was broken and the trailing bits pad cleanly.
- */
-static int decode_ok(const hctx* c) { return c->ok && pad_valid(c); }
-
-int qpack_huffman_decode(wired_span src, wired_obuf* dst) {
-  hctx c = {0, 0, dst->p, dst->cap, 0, 1};
-  feed(&c, src);
-  if (!decode_ok(&c)) return 0;
-  dst->len = c.olen;
-  return 1;
 }
