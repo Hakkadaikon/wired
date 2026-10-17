@@ -459,8 +459,9 @@ The limits:
   a track outside any set (voice) still is. Source:
   `moqtrun_relay_shed_one`.
 - **A newer Group cuts only the newest older stream** — Affects:
-  subscribers on the lossy path. The lossy relay remembers one stream per
-  subscription. When a newer Group opens, it resets that stream and any
+  subscribers on the lossy path of a hub with `newest_group_only` set (off
+  by default; the moqt_chat example sets it). The lossy relay remembers one
+  stream per subscription. When a newer Group opens, it resets that stream and any
   older Group stream whose publisher is still sending. Another Subgroup of
   an older Group that the publisher already ended still drains. These resets
   do not feed backpressure, because the hub cannot tell whether the stream

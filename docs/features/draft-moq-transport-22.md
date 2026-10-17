@@ -1462,7 +1462,8 @@ draft-18 and draft-19.
   any accumulated busy-streak counters from the prior incarnation.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_republish_clears_busy_streak`
-- [x] MQ22-202 When a lossy relay opens a subscriber stream in a Group newer
+- [x] MQ22-202 When `newest_group_only` is set (an opt-in hub policy, off by
+  default) and a lossy relay opens a subscriber stream in a Group newer
   than any it opened for that subscription, the implementation shall reset the
   subscription's previous newest stream (even one the publisher already
   ended), so the older Group's unsent backlog never holds the newer Group
@@ -1478,6 +1479,12 @@ draft-18 and draft-19.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_same_group_stream_keeps_sibling`,
     `test_moqtrun_newer_group_keeps_reliable_stream`
+- [x] MQ22-220 By default (`newest_group_only` 0), a newer Group's stream
+  shall reset nothing and an older Group's later rounds shall still be
+  forwarded: "A relay MUST NOT reorder or drop objects received on a
+  multi-object stream" (section 7.4).
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_newer_group_keeps_older_by_default`
 - [x] MQ22-205 A re-PUBLISH or re-attach shall forget the subscription's
   newest Group, since the new incarnation's Group numbering restarts.
   - test: `tests/app/moqtrun_test.c` —

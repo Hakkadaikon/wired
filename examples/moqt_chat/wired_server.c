@@ -383,6 +383,8 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   io.send_uni2     = moqt_io_send_uni2;
   wired_moqt_init(&g_hub, io);
   g_hub.reliable_alias_limit = CHAT_ALIAS_LIMIT;
+  /* Live voice/video: a newer Group outranks the rest of an older one. */
+  g_hub.newest_group_only = 1;
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
   g_hub.authorize_namespace = authorize_room_ns;
   /* Experimental moqtail-compatible track switching (draft-22 only):
