@@ -227,20 +227,12 @@ static i64 srvworkers_wait(i64* status) {
   return dead ? dead : -1;
 }
 
-/* Empty the slot of a reaped worker and respawn it if it crashed while not
- * shutting down. */
-static void srvworkers_reap(
-    srvworkers_table*           t,
-    int                         slot,
-    i64                         status,
-    u16                         port,
-    wired_srvboot_id*           id,
-    wired_srvrun_handler        h,
-    wired_srvrun_obs            obs,
-    const wired_srvworkers_opt* opt) {
+/* Empty the slot of a reaped worker (slot < 0: none was reaped).
+ * @return 1 when it crashed while not shutting down, so it must respawn. */
+static int srvworkers_reap(srvworkers_table* t, int slot, i64 status) {
+  if (slot < 0) return 0;
   t->pid[slot] = 0;
-  if (srvworkers_should_respawn(status, g_srvworkers_term))
-    srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
+  return srvworkers_should_respawn(status, g_srvworkers_term);
 }
 
 /* Reap at most one child that changed state, find which
@@ -265,7 +257,8 @@ static void srvworkers_supervise_once(
   srvworkers_block_wake();
   srvworkers_forward(t);
   slot = srvworkers_slot_for_pid(t->pid, t->n, srvworkers_wait(&status));
-  if (slot >= 0) srvworkers_reap(t, slot, status, port, id, h, obs, opt);
+  if (srvworkers_reap(t, slot, status))
+    srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
   srvworkers_forward(t);
 }
 
