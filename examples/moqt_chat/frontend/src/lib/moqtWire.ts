@@ -1561,7 +1561,11 @@ export function decodeFetchObject(
 			fail("truncated fetch Object: no Publisher Priority");
 		priority = bytes[pos++];
 	}
-	if ((f & FETCH_PROPERTIES) !== 0n) pos += Number(take());
+	// take() advances pos past the length varint; read it before adding.
+	if ((f & FETCH_PROPERTIES) !== 0n) {
+		const propsLen = Number(take());
+		pos += propsLen;
+	}
 	const payloadLen = Number(take());
 	if (pos + payloadLen > bytes.length) fail("truncated fetch Object payload");
 	const payload = bytes.slice(pos, pos + payloadLen);

@@ -226,6 +226,18 @@ describe("FETCH data stream (11.4.4)", () => {
 		}
 	}
 
+	it("an Object with Properties skips the Properties Length varint and its bytes", () => {
+		// flags 0x3f (0x20 = Properties present), Group 5, Subgroup 7,
+		// Object 3, Priority 0x80, Properties Length 2 + aa bb, payload "a".
+		const bytes = hexToBytes("3f0507038002aabb0161");
+		const { object, len } = decodeFetchObject(bytes, 0, newFetchSeq());
+		expect(object.group).toBe(5n);
+		expect(object.object).toBe(3n);
+		expect(object.priority).toBe(0x80);
+		expect(bytesToHex(object.payload)).toBe("61");
+		expect(len).toBe(bytes.length);
+	});
+
 	it("a truncated Object throws so the reader waits for more bytes", () => {
 		const bytes = hexToBytes("1c050080026869"); // payload says 2 bytes, both present
 		expect(() =>
