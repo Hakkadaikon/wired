@@ -17,118 +17,136 @@
 // timeout.
 
 import {
-  joinStabilityClient,
-  waitFirstDecode,
-  clientMetrics,
-  closeClient,
+	clientMetrics,
+	closeClient,
+	joinStabilityClient,
+	waitFirstDecode,
 } from "../lib/stabilityClient.mjs";
 
 export async function run({ pageUrl, server, arg, log }) {
-  const detectMaxMs = Number(arg("detect-max-ms", "3000"));
-  const rejoinMaxMs = Number(arg("rejoin-max-ms", "15000"));
-  const failures = [];
-  const clients = [];
-  for (const tag of ["user1", "user2"]) {
-    log(`joining ${tag}`);
-    clients.push(
-      await joinStabilityClient({ pageUrl, serverUrl: "", certHash: server.certHash, participantId: tag }),
-    );
-  }
-  for (const c of clients) await waitFirstDecode(c);
-  const sendCount = (c) =>
-    c.page.evaluate(
-      () => (window.__wiredVoiceTapBuf ?? []).filter((e) => e.dir === "send").length,
-    );
+	const detectMaxMs = Number(arg("detect-max-ms", "3000"));
+	const rejoinMaxMs = Number(arg("rejoin-max-ms", "15000"));
+	const failures = [];
+	const clients = [];
+	for (const tag of ["user1", "user2"]) {
+		log(`joining ${tag}`);
+		clients.push(
+			await joinStabilityClient({
+				pageUrl,
+				serverUrl: "",
+				certHash: server.certHash,
+				participantId: tag,
+			}),
+		);
+	}
+	for (const c of clients) await waitFirstDecode(c);
+	const sendCount = (c) =>
+		c.page.evaluate(
+			() =>
+				(window.__wiredVoiceTapBuf ?? []).filter((e) => e.dir === "send")
+					.length,
+		);
 
-  const before = {};
-  for (const c of clients) {
-    before[c.tag] = await c.page.evaluate(() => ({
-      decoded: window.__decodedFrameCount ?? 0,
-    }));
-    before[c.tag].sends = await sendCount(c);
-  }
-  const hashBeforeKill = server.certHash;
+	const before = {};
+	for (const c of clients) {
+		before[c.tag] = await c.page.evaluate(() => ({
+			decoded: window.__decodedFrameCount ?? 0,
+		}));
+		before[c.tag].sends = await sendCount(c);
+	}
+	const hashBeforeKill = server.certHash;
 
-  const statusIs = (c, status, timeout) =>
-    c.page.waitForFunction(
-      (s) =>
-        document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === s,
-      { timeout, polling: 100 },
-      status,
-    );
+	const statusIs = (c, status, timeout) =>
+		c.page.waitForFunction(
+			(s) =>
+				document
+					.querySelector('[data-testid="status"]')
+					?.getAttribute("data-status") === s,
+			{ timeout, polling: 100 },
+			status,
+		);
 
-  log("both clients decoding; SIGKILL the hub");
-  const killAt = Date.now();
-  await server.stop("SIGKILL");
-  const detection = await Promise.all(
-    clients.map(async (c) => {
-      try {
-        await statusIs(c, "disconnected", detectMaxMs);
-        return { tag: c.tag, detectMs: Date.now() - killAt };
-      } catch {
-        return { tag: c.tag, detectMs: null };
-      }
-    }),
-  );
-  for (const d of detection) {
-    if (d.detectMs === null)
-      failures.push(`${d.tag}: badge not disconnected within ${detectMaxMs}ms of the kill`);
-  }
+	log("both clients decoding; SIGKILL the hub");
+	const killAt = Date.now();
+	await server.stop("SIGKILL");
+	const detection = await Promise.all(
+		clients.map(async (c) => {
+			try {
+				await statusIs(c, "disconnected", detectMaxMs);
+				return { tag: c.tag, detectMs: Date.now() - killAt };
+			} catch {
+				return { tag: c.tag, detectMs: null };
+			}
+		}),
+	);
+	for (const d of detection) {
+		if (d.detectMs === null)
+			failures.push(
+				`${d.tag}: badge not disconnected within ${detectMaxMs}ms of the kill`,
+			);
+	}
 
-  log("restarting the hub; waiting for auto-rejoin (no manual reconnect)");
-  await server.restart("SIGKILL");
-  if (server.certHash !== hashBeforeKill) {
-    failures.push(
-      "hub cert fingerprint changed across the restart; the pages pinned the old " +
-        "hash, so the auto-rejoin handshake cannot succeed",
-    );
-  }
-  const restartAt = Date.now();
-  const rejoins = await Promise.all(
-    clients.map(async (c) => {
-      try {
-        await statusIs(c, "connected", rejoinMaxMs);
-        return { tag: c.tag, rejoinMs: Date.now() - restartAt };
-      } catch {
-        return { tag: c.tag, rejoinMs: null };
-      }
-    }),
-  );
-  for (const r of rejoins) {
-    if (r.rejoinMs === null)
-      failures.push(`${r.tag}: not connected again within ${rejoinMaxMs}ms of the restart`);
-  }
+	log("restarting the hub; waiting for auto-rejoin (no manual reconnect)");
+	await server.restart("SIGKILL");
+	if (server.certHash !== hashBeforeKill) {
+		failures.push(
+			"hub cert fingerprint changed across the restart; the pages pinned the old " +
+				"hash, so the auto-rejoin handshake cannot succeed",
+		);
+	}
+	const restartAt = Date.now();
+	const rejoins = await Promise.all(
+		clients.map(async (c) => {
+			try {
+				await statusIs(c, "connected", rejoinMaxMs);
+				return { tag: c.tag, rejoinMs: Date.now() - restartAt };
+			} catch {
+				return { tag: c.tag, rejoinMs: null };
+			}
+		}),
+	);
+	for (const r of rejoins) {
+		if (r.rejoinMs === null)
+			failures.push(
+				`${r.tag}: not connected again within ${rejoinMaxMs}ms of the restart`,
+			);
+	}
 
-  const after = {};
-  for (const c of clients) {
-    try {
-      await waitFirstDecode(c, { past: before[c.tag].decoded, timeoutMs: 10000 });
-    } catch {
-      failures.push(`${c.tag}: audio decode did not resume after the auto-rejoin`);
-    }
-    after[c.tag] = await c.page.evaluate(() => ({
-      decoded: window.__decodedFrameCount ?? 0,
-    }));
-    after[c.tag].sends = await sendCount(c);
-    if (after[c.tag].sends <= before[c.tag].sends) {
-      failures.push(
-        `${c.tag}: no new voice send after the rejoin ` +
-          `(${before[c.tag].sends} -> ${after[c.tag].sends})`,
-      );
-    }
-  }
+	const after = {};
+	for (const c of clients) {
+		try {
+			await waitFirstDecode(c, {
+				past: before[c.tag].decoded,
+				timeoutMs: 10000,
+			});
+		} catch {
+			failures.push(
+				`${c.tag}: audio decode did not resume after the auto-rejoin`,
+			);
+		}
+		after[c.tag] = await c.page.evaluate(() => ({
+			decoded: window.__decodedFrameCount ?? 0,
+		}));
+		after[c.tag].sends = await sendCount(c);
+		if (after[c.tag].sends <= before[c.tag].sends) {
+			failures.push(
+				`${c.tag}: no new voice send after the rejoin ` +
+					`(${before[c.tag].sends} -> ${after[c.tag].sends})`,
+			);
+		}
+	}
 
-  const report = { detection, rejoins, before, after, metrics: {} };
-  for (const c of clients) {
-    report.metrics[c.tag] = await clientMetrics(c);
-    delete report.metrics[c.tag]?.voiceTapEvents; // bulky; not graded here
-  }
-  for (const c of clients) {
-    // "Connection lost." is the app's own legitimate reaction to the hub
-    // dying -- this scenario CAUSES that; only other page errors gate.
-    for (const e of c.errors.filter((m) => !m.includes("Connection lost")))
-      failures.push(`${c.tag} page error: ${e}`);
-    await closeClient(c);
-  }
-  return { report, failures };
+	const report = { detection, rejoins, before, after, metrics: {} };
+	for (const c of clients) {
+		report.metrics[c.tag] = await clientMetrics(c);
+		delete report.metrics[c.tag]?.voiceTapEvents; // bulky; not graded here
+	}
+	for (const c of clients) {
+		// "Connection lost." is the app's own legitimate reaction to the hub
+		// dying -- this scenario CAUSES that; only other page errors gate.
+		for (const e of c.errors.filter((m) => !m.includes("Connection lost")))
+			failures.push(`${c.tag} page error: ${e}`);
+		await closeClient(c);
+	}
+	return { report, failures };
 }

@@ -5,53 +5,60 @@
 // run.sh/run-voice.sh manage the server from bash; scenarios need the
 // lifecycle under the test's own control, hence this module.
 
-import { spawn, execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
 const FINGERPRINT_RE = /cert sha-256 fingerprint: ([0-9A-Fa-f:]+)/;
 const FINGERPRINT_TIMEOUT_MS = 5000;
 
 function launch(binPath, args, logPath, wrap, env) {
-  const argv = [...(wrap ?? []), binPath, ...args];
-  const proc = spawn(argv[0], argv.slice(1), {
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...env },
-  });
-  let buffered = "";
-  let notify = () => {};
-  // The fingerprint goes to the server's stderr; log and scan both streams
-  // so this module does not care which one carries it.
-  const onData = (chunk) => {
-    appendFileSync(logPath, chunk);
-    buffered += chunk.toString();
-    notify();
-  };
-  proc.stdout.on("data", onData);
-  proc.stderr.on("data", onData);
+	const argv = [...(wrap ?? []), binPath, ...args];
+	const proc = spawn(argv[0], argv.slice(1), {
+		stdio: ["ignore", "pipe", "pipe"],
+		env: { ...process.env, ...env },
+	});
+	let buffered = "";
+	let notify = () => {};
+	// The fingerprint goes to the server's stderr; log and scan both streams
+	// so this module does not care which one carries it.
+	const onData = (chunk) => {
+		appendFileSync(logPath, chunk);
+		buffered += chunk.toString();
+		notify();
+	};
+	proc.stdout.on("data", onData);
+	proc.stderr.on("data", onData);
 
-  const certHash = new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`no cert fingerprint within ${FINGERPRINT_TIMEOUT_MS}ms; log: ${logPath}`));
-    }, FINGERPRINT_TIMEOUT_MS);
-    notify = () => {
-      const m = buffered.match(FINGERPRINT_RE);
-      if (!m) return;
-      clearTimeout(timer);
-      notify = () => {};
-      resolve(m[1]);
-    };
-    proc.on("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`server exited (code ${code}) before printing a fingerprint`));
-    });
-    notify();
-  });
-  return { proc, certHash };
+	const certHash = new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			reject(
+				new Error(
+					`no cert fingerprint within ${FINGERPRINT_TIMEOUT_MS}ms; log: ${logPath}`,
+				),
+			);
+		}, FINGERPRINT_TIMEOUT_MS);
+		notify = () => {
+			const m = buffered.match(FINGERPRINT_RE);
+			if (!m) return;
+			clearTimeout(timer);
+			notify = () => {};
+			resolve(m[1]);
+		};
+		proc.on("exit", (code) => {
+			clearTimeout(timer);
+			reject(
+				new Error(`server exited (code ${code}) before printing a fingerprint`),
+			);
+		});
+		notify();
+	});
+	return { proc, certHash };
 }
 
 function waitExit(proc) {
-  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => proc.once("exit", resolve));
+	if (proc.exitCode !== null || proc.signalCode !== null)
+		return Promise.resolve();
+	return new Promise((resolve) => proc.once("exit", resolve));
 }
 
 /**
@@ -69,38 +76,38 @@ function waitExit(proc) {
  *   this host must not be touched.
  */
 export async function startServer({ binPath, logPath, args = [], wrap, env }) {
-  let current = launch(binPath, args, logPath, wrap, env);
-  let certHash = await current.certHash;
-  const killServer = (signal) => {
-    if (!wrap) {
-      current.proc.kill(signal);
-      return;
-    }
-    const flag = signal === "SIGKILL" ? "-KILL" : "-TERM";
-    try {
-      execSync(`pkill ${flag} -P ${current.proc.pid} -x wired_server`);
-    } catch {
-      /* no process left to kill */
-    }
-  };
+	let current = launch(binPath, args, logPath, wrap, env);
+	let certHash = await current.certHash;
+	const killServer = (signal) => {
+		if (!wrap) {
+			current.proc.kill(signal);
+			return;
+		}
+		const flag = signal === "SIGKILL" ? "-KILL" : "-TERM";
+		try {
+			execSync(`pkill ${flag} -P ${current.proc.pid} -x wired_server`);
+		} catch {
+			/* no process left to kill */
+		}
+	};
 
-  return {
-    get pid() {
-      return current.proc.pid;
-    },
-    get certHash() {
-      return certHash;
-    },
-    /** SIGKILL simulates a crash (S-restart scenarios); SIGTERM is a clean stop. */
-    async stop(signal = "SIGTERM") {
-      killServer(signal);
-      await waitExit(current.proc);
-    },
-    async restart(signal = "SIGKILL") {
-      await this.stop(signal);
-      current = launch(binPath, args, logPath, wrap, env);
-      certHash = await current.certHash;
-      return certHash;
-    },
-  };
+	return {
+		get pid() {
+			return current.proc.pid;
+		},
+		get certHash() {
+			return certHash;
+		},
+		/** SIGKILL simulates a crash (S-restart scenarios); SIGTERM is a clean stop. */
+		async stop(signal = "SIGTERM") {
+			killServer(signal);
+			await waitExit(current.proc);
+		},
+		async restart(signal = "SIGKILL") {
+			await this.stop(signal);
+			current = launch(binPath, args, logPath, wrap, env);
+			certHash = await current.certHash;
+			return certHash;
+		},
+	};
 }

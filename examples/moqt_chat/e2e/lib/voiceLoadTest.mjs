@@ -58,71 +58,78 @@ const DECODE_COUNTER_INIT_SCRIPT = `
 `;
 
 async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
-  const ctx = await browser.createBrowserContext();
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.evaluateOnNewDocument(DECODE_COUNTER_INIT_SCRIPT);
+	const ctx = await browser.createBrowserContext();
+	const page = await ctx.newPage();
+	const errors = [];
+	page.on("pageerror", (e) => errors.push(e.message));
+	await page.evaluateOnNewDocument(DECODE_COUNTER_INIT_SCRIPT);
 
-  // The e2e harness always runs with RNNoise off: N worklets (one per
-  // headless Chrome) on a shared box is a test-environment CPU artifact,
-  // and the transport gates (loss/jitter/plc) must measure the network
-  // path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
-  const nsOffUrl = new URL(pageUrl);
-  nsOffUrl.searchParams.set("ns", "0");
-  await page.goto(nsOffUrl.href);
-  await setServerUrl(page);
-  await page.type('input[data-testid="certHash"]', certHash);
-  await page.click(`[data-testid="participant-${participantId}"]`);
-  await page.click('[data-testid="connect"]');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
-    { timeout: JOIN_TIMEOUT_MS },
-  );
+	// The e2e harness always runs with RNNoise off: N worklets (one per
+	// headless Chrome) on a shared box is a test-environment CPU artifact,
+	// and the transport gates (loss/jitter/plc) must measure the network
+	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
+	const nsOffUrl = new URL(pageUrl);
+	nsOffUrl.searchParams.set("ns", "0");
+	await page.goto(nsOffUrl.href);
+	await setServerUrl(page);
+	await page.type('input[data-testid="certHash"]', certHash);
+	await page.click(`[data-testid="participant-${participantId}"]`);
+	await page.click('[data-testid="connect"]');
+	await page.waitForFunction(
+		() =>
+			document
+				.querySelector('[data-testid="status"]')
+				?.getAttribute("data-status") === "connected",
+		{ timeout: JOIN_TIMEOUT_MS },
+	);
 
-  const seenIds = new Set();
-  const received = [];
-  const pollHandle = setInterval(async () => {
-    let texts;
-    try {
-      texts = await page.evaluate(() =>
-        [...document.querySelectorAll('[data-testid="message"]')].map((e) => e.textContent),
-      );
-    } catch {
-      return;
-    }
-    for (const line of texts) {
-      const m = line.match(/msg:[A-Za-z0-9]+:\d+/);
-      if (!m) continue;
-      const id = m[0];
-      if (seenIds.has(id)) continue;
-      seenIds.add(id);
-      received.push({ id, receiverTag: participantId, receivedAt: Date.now() });
-    }
-  }, 100);
+	const seenIds = new Set();
+	const received = [];
+	const pollHandle = setInterval(async () => {
+		let texts;
+		try {
+			texts = await page.evaluate(() =>
+				[...document.querySelectorAll('[data-testid="message"]')].map(
+					(e) => e.textContent,
+				),
+			);
+		} catch {
+			return;
+		}
+		for (const line of texts) {
+			const m = line.match(/msg:[A-Za-z0-9]+:\d+/);
+			if (!m) continue;
+			const id = m[0];
+			if (seenIds.has(id)) continue;
+			seenIds.add(id);
+			received.push({ id, receiverTag: participantId, receivedAt: Date.now() });
+		}
+	}, 100);
 
-  return {
-    tag: participantId,
-    page,
-    errors,
-    received,
-    stopPolling: () => clearInterval(pollHandle),
-  };
+	return {
+		tag: participantId,
+		page,
+		errors,
+		received,
+		stopPolling: () => clearInterval(pollHandle),
+	};
 }
 
 async function sendOneMessage(client, seq) {
-  const id = `msg:${client.tag}:${seq}`;
-  await client.page.evaluate((text) => {
-    const input = document.querySelector('input[data-testid="text"]');
-    const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    ).set;
-    setter.call(input, text);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  }, id);
-  return { id, senderTag: client.tag, sentAt: Date.now() };
+	const id = `msg:${client.tag}:${seq}`;
+	await client.page.evaluate((text) => {
+		const input = document.querySelector('input[data-testid="text"]');
+		const setter = Object.getOwnPropertyDescriptor(
+			window.HTMLInputElement.prototype,
+			"value",
+		).set;
+		setter.call(input, text);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+		input.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		);
+	}, id);
+	return { id, senderTag: client.tag, sentAt: Date.now() };
 }
 
 /**
@@ -136,76 +143,84 @@ async function sendOneMessage(client, seq) {
  * @param {number} opts.settleMs
  */
 export async function runChatVoiceLoadTest({
-  browser,
-  pageUrl,
-  certHash,
-  clientCount,
-  messagesPerClient,
-  sendIntervalMs,
-  settleMs,
+	browser,
+	pageUrl,
+	certHash,
+	clientCount,
+	messagesPerClient,
+	sendIntervalMs,
+	settleMs,
 }) {
-  if (clientCount > MAX_CLIENTS) {
-    throw new Error(
-      `clientCount ${clientCount} exceeds MAX_CLIENTS ${MAX_CLIENTS} ` +
-        "(frontend's fixed candidate participant id list)",
-    );
-  }
-  const tags = CANDIDATE_PARTICIPANT_IDS.slice(0, clientCount);
-  const clients = [];
-  for (const tag of tags) {
-    clients.push(await joinVoiceClient(browser, pageUrl, certHash, tag));
-    await new Promise((r) => setTimeout(r, 1500));
-  }
+	if (clientCount > MAX_CLIENTS) {
+		throw new Error(
+			`clientCount ${clientCount} exceeds MAX_CLIENTS ${MAX_CLIENTS} ` +
+				"(frontend's fixed candidate participant id list)",
+		);
+	}
+	const tags = CANDIDATE_PARTICIPANT_IDS.slice(0, clientCount);
+	const clients = [];
+	for (const tag of tags) {
+		clients.push(await joinVoiceClient(browser, pageUrl, certHash, tag));
+		await new Promise((r) => setTimeout(r, 1500));
+	}
 
-  // Give the mic pipeline (getUserMedia -> AudioEncoder -> first
-  // sendOpusFrame, which opens the long-lived audio relay stream) a moment
-  // to actually start producing frames before chat sending begins, so voice
-  // traffic is genuinely concurrent with chat rather than trailing it.
-  await new Promise((r) => setTimeout(r, 2000));
+	// Give the mic pipeline (getUserMedia -> AudioEncoder -> first
+	// sendOpusFrame, which opens the long-lived audio relay stream) a moment
+	// to actually start producing frames before chat sending begins, so voice
+	// traffic is genuinely concurrent with chat rather than trailing it.
+	await new Promise((r) => setTimeout(r, 2000));
 
-  const sent = [];
-  for (let seq = 0; seq < messagesPerClient; seq++) {
-    for (const client of clients) {
-      sent.push(await sendOneMessage(client, seq));
-      await new Promise((r) => setTimeout(r, sendIntervalMs));
-    }
-  }
+	const sent = [];
+	for (let seq = 0; seq < messagesPerClient; seq++) {
+		for (const client of clients) {
+			sent.push(await sendOneMessage(client, seq));
+			await new Promise((r) => setTimeout(r, sendIntervalMs));
+		}
+	}
 
-  await new Promise((r) => setTimeout(r, settleMs));
+	await new Promise((r) => setTimeout(r, settleMs));
 
-  const received = clients.flatMap((c) => c.received);
-  const pageErrors = Object.fromEntries(clients.map((c) => [c.tag, c.errors]));
-  const decodedFrameCounts = {};
-  const uniStreamOpenCounts = {};
-  const decodeTimelines = {};
-  const voiceTapEvents = {};
-  for (const c of clients) {
-    try {
-      decodedFrameCounts[c.tag] = await c.page.evaluate(() => window.__decodedFrameCount ?? 0);
-      uniStreamOpenCounts[c.tag] = await c.page.evaluate(() => window.__uniStreamOpenCount ?? 0);
-      decodeTimelines[c.tag] = await c.page.evaluate(() => window.__decodeTimeline ?? []);
-      voiceTapEvents[c.tag] = await c.page.evaluate(() => window.__wiredVoiceTapBuf ?? []);
-    } catch {
-      decodedFrameCounts[c.tag] = null;
-      uniStreamOpenCounts[c.tag] = null;
-      decodeTimelines[c.tag] = null;
-      voiceTapEvents[c.tag] = null;
-    }
-  }
+	const received = clients.flatMap((c) => c.received);
+	const pageErrors = Object.fromEntries(clients.map((c) => [c.tag, c.errors]));
+	const decodedFrameCounts = {};
+	const uniStreamOpenCounts = {};
+	const decodeTimelines = {};
+	const voiceTapEvents = {};
+	for (const c of clients) {
+		try {
+			decodedFrameCounts[c.tag] = await c.page.evaluate(
+				() => window.__decodedFrameCount ?? 0,
+			);
+			uniStreamOpenCounts[c.tag] = await c.page.evaluate(
+				() => window.__uniStreamOpenCount ?? 0,
+			);
+			decodeTimelines[c.tag] = await c.page.evaluate(
+				() => window.__decodeTimeline ?? [],
+			);
+			voiceTapEvents[c.tag] = await c.page.evaluate(
+				() => window.__wiredVoiceTapBuf ?? [],
+			);
+		} catch {
+			decodedFrameCounts[c.tag] = null;
+			uniStreamOpenCounts[c.tag] = null;
+			decodeTimelines[c.tag] = null;
+			voiceTapEvents[c.tag] = null;
+		}
+	}
 
-  for (const c of clients) c.stopPolling();
-  for (const c of clients) await c.page.browserContext().close();
+	for (const c of clients) c.stopPolling();
+	for (const c of clients) await c.page.browserContext().close();
 
-  return {
-    ...summarizeDelivery(sent, received, tags),
-    pageErrors,
-    clientCount,
-    decodedFrameCounts,
-    uniStreamOpenCounts,
-    decodeTimelines,
-    // Report-only (no pass/fail gate): per-frame trace metrics plus the raw
-    // per-page event arrays they were computed from.
-    voiceTrace: summarizeVoiceTrace(voiceTapEvents),
-    voiceTapEvents,
-  };
+	return {
+		...summarizeDelivery(sent, received, tags),
+		pageErrors,
+		clientCount,
+		decodedFrameCounts,
+		uniStreamOpenCounts,
+		decodeTimelines,
+		// Report-only (no pass/fail gate): per-frame trace metrics plus the raw
+		// per-page event arrays they were computed from.
+		voiceTrace: summarizeVoiceTrace(voiceTapEvents),
+		voiceTapEvents,
+	};
 }

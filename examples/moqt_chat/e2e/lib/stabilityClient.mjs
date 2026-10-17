@@ -11,8 +11,8 @@
 // measured here, not from the UI badge).
 
 import puppeteer from "puppeteer-core";
-import { resolveChromeLaunch } from "./chromeLaunch.mjs";
 import { E2E_SERVER_URL } from "./args.mjs";
+import { resolveChromeLaunch } from "./chromeLaunch.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 
@@ -171,128 +171,149 @@ export const WT_INSTRUMENTATION_SCRIPT = `
  * @param {string} opts.participantId user1..user4
  * @param {string[]} [opts.initScripts] extra scripts injected before navigation (after WT_INSTRUMENTATION_SCRIPT)
  */
-export async function joinStabilityClient({ pageUrl, serverUrl, certHash, participantId, initScripts }) {
-  const { executablePath, env } = resolveChromeLaunch();
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: "new",
-    env,
-    // Chrome's default CDP protocolTimeout (180s) is shorter than a large
-    // attachment's own waitForSelector wait, so a slow round trip fails at
-    // the CDP layer with a misleading net::ERR_* before that wait ever
-    // expires. Match it to the longest scenario timeout in this directory.
-    protocolTimeout: 900_000,
-    args: [
-      "--no-sandbox",
-      "--use-fake-device-for-media-stream",
-      "--use-fake-ui-for-media-stream",
-    ],
-  });
-  const client = {
-    tag: participantId,
-    browser,
-    page: null,
-    errors: [],
-    joinedAt: null,
-  };
-  await connectClient(client, { pageUrl, serverUrl, certHash, participantId, initScripts });
-  return client;
+export async function joinStabilityClient({
+	pageUrl,
+	serverUrl,
+	certHash,
+	participantId,
+	initScripts,
+}) {
+	const { executablePath, env } = resolveChromeLaunch();
+	const browser = await puppeteer.launch({
+		executablePath,
+		headless: "new",
+		env,
+		// Chrome's default CDP protocolTimeout (180s) is shorter than a large
+		// attachment's own waitForSelector wait, so a slow round trip fails at
+		// the CDP layer with a misleading net::ERR_* before that wait ever
+		// expires. Match it to the longest scenario timeout in this directory.
+		protocolTimeout: 900_000,
+		args: [
+			"--no-sandbox",
+			"--use-fake-device-for-media-stream",
+			"--use-fake-ui-for-media-stream",
+		],
+	});
+	const client = {
+		tag: participantId,
+		browser,
+		page: null,
+		errors: [],
+		joinedAt: null,
+	};
+	await connectClient(client, {
+		pageUrl,
+		serverUrl,
+		certHash,
+		participantId,
+		initScripts,
+	});
+	return client;
 }
 
 /** (Re)connect an existing client object's browser to the room. Usable both
  * for the initial join and for a rejoin after the server came back. */
 export async function connectClient(
-  client,
-  { pageUrl, serverUrl, certHash, participantId, initScripts = [] },
+	client,
+	{ pageUrl, serverUrl, certHash, participantId, initScripts = [] },
 ) {
-  const page = await client.browser.newPage();
-  client.page = page;
-  page.on("pageerror", (e) => client.errors.push(e.message));
-  await page.evaluateOnNewDocument(WT_INSTRUMENTATION_SCRIPT);
-  for (const script of initScripts) await page.evaluateOnNewDocument(script);
-  await page.evaluateOnNewDocument(
-    (prefs) => localStorage.setItem("moqt-chat.join", JSON.stringify(prefs)),
-    {
-      url: serverUrl || E2E_SERVER_URL,
-      certHash,
-      name: participantId,
-    },
-  );
-  // The e2e harness always runs with RNNoise off: 4 worklets (one per
-  // headless Chrome) on a shared box is a test-environment CPU artifact,
-  // and the transport gates (loss/jitter/plc) must measure the network
-  // path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
-  const nsOffUrl = new URL(pageUrl);
-  nsOffUrl.searchParams.set("ns", "0");
-  await page.goto(nsOffUrl.href);
-  await page.waitForFunction(
-    (h) => document.querySelector('input[data-testid="certHash"]')?.value === h,
-    { timeout: JOIN_TIMEOUT_MS },
-    certHash,
-  );
-  await page.click(`[data-testid="participant-${participantId}"]`);
-  const connectStart = Date.now();
-  await page.click('[data-testid="connect"]');
-  try {
-    await page.waitForFunction(
-      () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
-      { timeout: JOIN_TIMEOUT_MS },
-    );
-  } catch (err) {
-    const state = await page
-      .evaluate(() => ({
-        status: document.querySelector('[data-testid="status"]')?.getAttribute("data-status") ?? "(no badge)",
-        wtEvents: window.__wtEvents ?? [],
-      }))
-      .catch(() => null);
-    throw new Error(
-      `${participantId} did not reach connected in ${JOIN_TIMEOUT_MS}ms; ` +
-        `state=${JSON.stringify(state)}`,
-      { cause: err },
-    );
-  }
-  client.joinedAt = Date.now();
-  client.connectStart = connectStart;
-  return client;
+	const page = await client.browser.newPage();
+	client.page = page;
+	page.on("pageerror", (e) => client.errors.push(e.message));
+	await page.evaluateOnNewDocument(WT_INSTRUMENTATION_SCRIPT);
+	for (const script of initScripts) await page.evaluateOnNewDocument(script);
+	await page.evaluateOnNewDocument(
+		(prefs) => localStorage.setItem("moqt-chat.join", JSON.stringify(prefs)),
+		{
+			url: serverUrl || E2E_SERVER_URL,
+			certHash,
+			name: participantId,
+		},
+	);
+	// The e2e harness always runs with RNNoise off: 4 worklets (one per
+	// headless Chrome) on a shared box is a test-environment CPU artifact,
+	// and the transport gates (loss/jitter/plc) must measure the network
+	// path, not worklet CPU (see noiseSuppressionDefault in joinPrefs.ts).
+	const nsOffUrl = new URL(pageUrl);
+	nsOffUrl.searchParams.set("ns", "0");
+	await page.goto(nsOffUrl.href);
+	await page.waitForFunction(
+		(h) => document.querySelector('input[data-testid="certHash"]')?.value === h,
+		{ timeout: JOIN_TIMEOUT_MS },
+		certHash,
+	);
+	await page.click(`[data-testid="participant-${participantId}"]`);
+	const connectStart = Date.now();
+	await page.click('[data-testid="connect"]');
+	try {
+		await page.waitForFunction(
+			() =>
+				document
+					.querySelector('[data-testid="status"]')
+					?.getAttribute("data-status") === "connected",
+			{ timeout: JOIN_TIMEOUT_MS },
+		);
+	} catch (err) {
+		const state = await page
+			.evaluate(() => ({
+				status:
+					document
+						.querySelector('[data-testid="status"]')
+						?.getAttribute("data-status") ?? "(no badge)",
+				wtEvents: window.__wtEvents ?? [],
+			}))
+			.catch(() => null);
+		throw new Error(
+			`${participantId} did not reach connected in ${JOIN_TIMEOUT_MS}ms; ` +
+				`state=${JSON.stringify(state)}`,
+			{ cause: err },
+		);
+	}
+	client.joinedAt = Date.now();
+	client.connectStart = connectStart;
+	return client;
 }
 
 /** Wait until this page decoded at least `past` + 1 audio frames.
  * Returns the wall-clock time the threshold was crossed. */
-export async function waitFirstDecode(client, { past = 0, timeoutMs = 15000 } = {}) {
-  await client.page.waitForFunction(
-    (past) => (window.__decodedFrameCount ?? 0) > past,
-    { timeout: timeoutMs },
-    past,
-  );
-  return Date.now();
+export async function waitFirstDecode(
+	client,
+	{ past = 0, timeoutMs = 15000 } = {},
+) {
+	await client.page.waitForFunction(
+		(past) => (window.__decodedFrameCount ?? 0) > past,
+		{ timeout: timeoutMs },
+		past,
+	);
+	return Date.now();
 }
 
 /** Snapshot the page's instrumentation counters. */
 export async function clientMetrics(client) {
-  try {
-    return await client.page.evaluate(() => ({
-      decodedFrameCount: window.__decodedFrameCount ?? 0,
-      lastDecodeAt: window.__lastDecodeAt ?? null,
-      decodeTimeline: window.__decodeTimeline ?? [],
-      wtEvents: window.__wtEvents ?? [],
-      wtUniStreams: window.__wtUniStreams ?? [],
-      wtOutUniStreams: window.__wtOutUniStreams ?? [],
-      voiceTapEvents: window.__wiredVoiceTapBuf ?? [],
-    }));
-  } catch {
-    return null;
-  }
+	try {
+		return await client.page.evaluate(() => ({
+			decodedFrameCount: window.__decodedFrameCount ?? 0,
+			lastDecodeAt: window.__lastDecodeAt ?? null,
+			decodeTimeline: window.__decodeTimeline ?? [],
+			wtEvents: window.__wtEvents ?? [],
+			wtUniStreams: window.__wtUniStreams ?? [],
+			wtOutUniStreams: window.__wtOutUniStreams ?? [],
+			voiceTapEvents: window.__wiredVoiceTapBuf ?? [],
+		}));
+	} catch {
+		return null;
+	}
 }
 
 /** Abrupt disconnect: SIGKILL the whole browser process. No clean close is
  * sent, so the server's state for this client lingers. */
 export async function crashClient(client) {
-  const proc = client.browser.process();
-  proc.kill("SIGKILL");
-  await new Promise((r) => proc.once("exit", r));
+	const proc = client.browser.process();
+	proc.kill("SIGKILL");
+	await new Promise((r) => proc.once("exit", r));
 }
 
 /** Clean teardown (end-of-scenario, not part of the measured behavior). */
 export async function closeClient(client) {
-  await client.browser.close().catch(() => {});
+	await client.browser.close().catch(() => {});
 }

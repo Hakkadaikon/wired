@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 // `just e2e-screen` (see ../justfile): real-browser check that screen-share
 // frames captured by one participant (VP8 encode -> MOQT Objects over a
 // dedicated uni stream, see screenSharePipeline.ts) arrive, reassemble, and
@@ -32,14 +33,14 @@
 // other wired_server on that port shares it and steals this run's
 // handshake: pick a free port when one is running here.
 
-import puppeteer from "puppeteer-core";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
-import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
-import { startServer } from "./lib/serverControl.mjs";
+import puppeteer from "puppeteer-core";
 import { arg, E2E_PORT, setServerUrl } from "./lib/args.mjs";
-import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
+import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
 import { screenGapStats } from "./lib/screenMetrics.mjs";
+import { fakeDisplayMediaScript } from "./lib/screenShareFake.mjs";
+import { startServer } from "./lib/serverControl.mjs";
 
 const frontendPort = arg("frontend-port", "8092");
 const logPath = arg("log", "/tmp/moqt-screenshare-check.log");
@@ -47,32 +48,39 @@ const timeoutMs = Number(arg("timeout-ms", "30000"));
 const minFrames = Number(arg("min-frames", "3"));
 const loadMode = process.argv.includes("--load");
 const portraitMode = process.argv.includes("--portrait");
-const participantIds = loadMode ? ["user1", "user2", "user3", "user4"] : ["user1", "user2"];
-const fakeScreen = portraitMode ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+const participantIds = loadMode
+	? ["user1", "user2", "user3", "user4"]
+	: ["user1", "user2"];
+const fakeScreen = portraitMode
+	? { width: 720, height: 1280 }
+	: { width: 1280, height: 720 };
 const fakeScript = fakeDisplayMediaScript(fakeScreen);
 
 let server, frontend, browser;
 const clients = [];
 async function join(id) {
-  const ctx = await browser.createBrowserContext();
-  const page = await ctx.newPage();
-  const c = { id, consoleErrors: [], page, ctx };
-  clients.push(c);
-  page.on("console", (m) => {
-    if (m.type() === "error") c.consoleErrors.push(m.text());
-  });
-  page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
-  await page.evaluateOnNewDocument(fakeScript);
-  await page.goto(`http://localhost:${frontendPort}/`);
-  await setServerUrl(page);
-  await page.type('input[data-testid="certHash"]', server.certHash);
-  await page.click(`[data-testid="participant-${id}"]`);
-  await page.click('[data-testid="connect"]');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
-    { timeout: timeoutMs },
-  );
-  return c;
+	const ctx = await browser.createBrowserContext();
+	const page = await ctx.newPage();
+	const c = { id, consoleErrors: [], page, ctx };
+	clients.push(c);
+	page.on("console", (m) => {
+		if (m.type() === "error") c.consoleErrors.push(m.text());
+	});
+	page.on("pageerror", (e) => c.consoleErrors.push(String(e)));
+	await page.evaluateOnNewDocument(fakeScript);
+	await page.goto(`http://localhost:${frontendPort}/`);
+	await setServerUrl(page);
+	await page.type('input[data-testid="certHash"]', server.certHash);
+	await page.click(`[data-testid="participant-${id}"]`);
+	await page.click('[data-testid="connect"]');
+	await page.waitForFunction(
+		() =>
+			document
+				.querySelector('[data-testid="status"]')
+				?.getAttribute("data-status") === "connected",
+		{ timeout: timeoutMs },
+	);
+	return c;
 }
 
 const startSharing = (c) => c.page.click('[data-testid="screen-toggle"]');
@@ -86,117 +94,146 @@ const tapEntries = (c) => c.page.evaluate(() => window.__wiredScreenTap ?? []);
 // other signal (build, unit tests, this file's tap-based checks) stayed
 // green. This is the check that would have caught it.
 const nonBlackFraction = (c, testid) =>
-  c.page.evaluate((tid) => {
-    const canvas = document.querySelector(`[data-testid="${tid}"]`);
-    if (!canvas) return null;
-    const ctx = canvas.getContext("2d");
-    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let nonBlack = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i] > 8 || data[i + 1] > 8 || data[i + 2] > 8) nonBlack++;
-    }
-    return nonBlack / (data.length / 4);
-  }, testid);
+	c.page.evaluate((tid) => {
+		const canvas = document.querySelector(`[data-testid="${tid}"]`);
+		if (!canvas) return null;
+		const ctx = canvas.getContext("2d");
+		const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+		let nonBlack = 0;
+		for (let i = 0; i < data.length; i += 4) {
+			if (data[i] > 8 || data[i + 1] > 8 || data[i + 2] > 8) nonBlack++;
+		}
+		return nonBlack / (data.length / 4);
+	}, testid);
 
 const summary = {
-  ok: false,
-  mode: loadMode ? "load-4way" : portraitMode ? "2-participant-portrait" : "2-participant",
-  fakeScreen,
-  clients: [],
-  errors: [],
+	ok: false,
+	mode: loadMode
+		? "load-4way"
+		: portraitMode
+			? "2-participant-portrait"
+			: "2-participant",
+	fakeScreen,
+	clients: [],
+	errors: [],
 };
 try {
-  server = await startServer({ binPath: "./wired_server", logPath, args: ["--port", String(E2E_PORT)] });
-  frontend = spawn(
-    "python3",
-    ["-m", "http.server", frontendPort, "--directory", "frontend/out"],
-    { stdio: "ignore" },
-  );
-  await sleep(1000);
+	server = await startServer({
+		binPath: "./wired_server",
+		logPath,
+		args: ["--port", String(E2E_PORT)],
+	});
+	frontend = spawn(
+		"python3",
+		["-m", "http.server", frontendPort, "--directory", "frontend/out"],
+		{ stdio: "ignore" },
+	);
+	await sleep(1000);
 
-  const { executablePath, env } = resolveChromeLaunch();
-  browser = await puppeteer.launch({
-    executablePath,
-    headless: "new",
-    env,
-    args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required", "--use-fake-ui-for-media-stream"],
-  });
+	const { executablePath, env } = resolveChromeLaunch();
+	browser = await puppeteer.launch({
+		executablePath,
+		headless: "new",
+		env,
+		args: [
+			"--no-sandbox",
+			"--autoplay-policy=no-user-gesture-required",
+			"--use-fake-ui-for-media-stream",
+		],
+	});
 
-  const participants = [];
-  for (const id of participantIds) participants.push(await join(id));
+	const participants = [];
+	for (const id of participantIds) participants.push(await join(id));
 
-  for (const c of participants) await startSharing(c);
-  await sleep(500);
+	for (const c of participants) await startSharing(c);
+	await sleep(500);
 
-  // Every sharer's own outgoing-preview tile must actually have pixels
-  // drawn into it, not just exist in the DOM as a black rectangle.
-  for (const c of participants) {
-    const frac = await nonBlackFraction(c, "screen-tile-own");
-    if (frac === null) summary.errors.push(`${c.id}: screen-tile-own canvas not found`);
-    else if (frac < 0.5)
-      summary.errors.push(`${c.id}: screen-tile-own canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, own preview looks blank)`);
-  }
+	// Every sharer's own outgoing-preview tile must actually have pixels
+	// drawn into it, not just exist in the DOM as a black rectangle.
+	for (const c of participants) {
+		const frac = await nonBlackFraction(c, "screen-tile-own");
+		if (frac === null)
+			summary.errors.push(`${c.id}: screen-tile-own canvas not found`);
+		else if (frac < 0.5)
+			summary.errors.push(
+				`${c.id}: screen-tile-own canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, own preview looks blank)`,
+			);
+	}
 
-  if (loadMode) {
-    await participants[0].page.type('input[data-testid="text"]', "hello from load scenario");
-    await participants[0].page.keyboard.press("Enter");
-  }
+	if (loadMode) {
+		await participants[0].page.type(
+			'input[data-testid="text"]',
+			"hello from load scenario",
+		);
+		await participants[0].page.keyboard.press("Enter");
+	}
 
-  // Every participant should see every OTHER sharer's frames arrive.
-  for (const viewer of participants) {
-    try {
-      await viewer.page.waitForFunction(
-        (n) => window.__wiredScreenTap && window.__wiredScreenTap.length >= n,
-        { timeout: timeoutMs },
-        minFrames,
-      );
-    } catch (e) {
-      summary.errors.push(`${viewer.id}: did not accumulate ${minFrames} tap entries: ${e}`);
-    }
-    const entries = await tapEntries(viewer);
-    const bad = entries.filter((e) => e.width < 100 || e.height < 100);
-    if (bad.length > 0)
-      summary.errors.push(`${viewer.id}: ${bad.length} tap entries with implausible dimensions`);
-    // The decoded frames' aspect must be the shared screen's own, within
-    // the rounding a codec's macroblock alignment can add.
-    const wantAspect = fakeScreen.width / fakeScreen.height;
-    const skewed = entries.filter((e) => Math.abs(e.width / e.height - wantAspect) > 0.02);
-    if (skewed.length > 0)
-      summary.errors.push(
-        `${viewer.id}: ${skewed.length}/${entries.length} tap entries with aspect != ${wantAspect.toFixed(4)} (first: ${skewed[0].width}x${skewed[0].height})`,
-      );
-    viewer.tapCount = entries.length;
-    viewer.senders = [...new Set(entries.map((e) => e.senderId))];
-    // Report-only here (a 30 s run is too short to gate on): the gap
-    // between consecutive decoded frames per sender, and how many gaps
-    // reached the tile's 3 s "Stalled" threshold (stallDetector.ts).
-    viewer.gaps = screenGapStats(entries, 3000);
-  }
+	// Every participant should see every OTHER sharer's frames arrive.
+	for (const viewer of participants) {
+		try {
+			await viewer.page.waitForFunction(
+				(n) => window.__wiredScreenTap && window.__wiredScreenTap.length >= n,
+				{ timeout: timeoutMs },
+				minFrames,
+			);
+		} catch (e) {
+			summary.errors.push(
+				`${viewer.id}: did not accumulate ${minFrames} tap entries: ${e}`,
+			);
+		}
+		const entries = await tapEntries(viewer);
+		const bad = entries.filter((e) => e.width < 100 || e.height < 100);
+		if (bad.length > 0)
+			summary.errors.push(
+				`${viewer.id}: ${bad.length} tap entries with implausible dimensions`,
+			);
+		// The decoded frames' aspect must be the shared screen's own, within
+		// the rounding a codec's macroblock alignment can add.
+		const wantAspect = fakeScreen.width / fakeScreen.height;
+		const skewed = entries.filter(
+			(e) => Math.abs(e.width / e.height - wantAspect) > 0.02,
+		);
+		if (skewed.length > 0)
+			summary.errors.push(
+				`${viewer.id}: ${skewed.length}/${entries.length} tap entries with aspect != ${wantAspect.toFixed(4)} (first: ${skewed[0].width}x${skewed[0].height})`,
+			);
+		viewer.tapCount = entries.length;
+		viewer.senders = [...new Set(entries.map((e) => e.senderId))];
+		// Report-only here (a 30 s run is too short to gate on): the gap
+		// between consecutive decoded frames per sender, and how many gaps
+		// reached the tile's 3 s "Stalled" threshold (stallDetector.ts).
+		viewer.gaps = screenGapStats(entries, 3000);
+	}
 
-  // 2-participant mode only: also confirm the viewer's remote tile canvas
-  // has real pixel content, not just a nonzero tap count (same rationale as
-  // the own-preview check above -- draw and decode are separate failure
-  // points).
-  if (!loadMode) {
-    const [sharer, viewer] = participants;
-    const frac = await nonBlackFraction(viewer, `screen-tile-${sharer.id}`);
-    if (frac === null) summary.errors.push(`${viewer.id}: screen-tile-${sharer.id} canvas not found`);
-    else if (frac < 0.5)
-      summary.errors.push(`${viewer.id}: screen-tile-${sharer.id} canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, remote tile looks blank)`);
-  }
+	// 2-participant mode only: also confirm the viewer's remote tile canvas
+	// has real pixel content, not just a nonzero tap count (same rationale as
+	// the own-preview check above -- draw and decode are separate failure
+	// points).
+	if (!loadMode) {
+		const [sharer, viewer] = participants;
+		const frac = await nonBlackFraction(viewer, `screen-tile-${sharer.id}`);
+		if (frac === null)
+			summary.errors.push(
+				`${viewer.id}: screen-tile-${sharer.id} canvas not found`,
+			);
+		else if (frac < 0.5)
+			summary.errors.push(
+				`${viewer.id}: screen-tile-${sharer.id} canvas is ${(frac * 100).toFixed(0)}% non-black (want >=50%, remote tile looks blank)`,
+			);
+	}
 
-  for (const c of participants) await c.ctx.close();
+	for (const c of participants) await c.ctx.close();
 } catch (e) {
-  summary.errors.push(String(e));
+	summary.errors.push(String(e));
 } finally {
-  summary.clients = clients.map(({ page, ctx, ...r }) => r);
-  try {
-    if (browser) await browser.close();
-  } catch (e) {
-    summary.errors.push(`browser close: ${e}`);
-  }
-  if (frontend) frontend.kill();
-  if (server) await server.stop();
+	summary.clients = clients.map(({ page, ctx, ...r }) => r);
+	try {
+		if (browser) await browser.close();
+	} catch (e) {
+		summary.errors.push(`browser close: ${e}`);
+	}
+	if (frontend) frontend.kill();
+	if (server) await server.stop();
 }
 
 summary.ok = summary.errors.length === 0;

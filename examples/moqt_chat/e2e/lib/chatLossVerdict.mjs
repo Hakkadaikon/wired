@@ -13,14 +13,14 @@
 // hand-rolled since ids can contain ':' which \b does not treat as a
 // boundary character).
 function headContainsId(head, id) {
-  const at = head.indexOf(id);
-  if (at < 0) return false;
-  const after = head[at + id.length];
-  return after === undefined || !/[0-9]/.test(after);
+	const at = head.indexOf(id);
+	if (at < 0) return false;
+	const after = head[at + id.length];
+	return after === undefined || !/[0-9]/.test(after);
 }
 
 function findByHead(streams, id) {
-  return streams.find((s) => headContainsId(s.head, id));
+	return streams.find((s) => headContainsId(s.head, id));
 }
 
 /**
@@ -31,15 +31,20 @@ function findByHead(streams, id) {
  * @param {Record<string, {head:string,bytes:number,closed:string|null}[]>} args.uniStreams receiver's incoming-uni tap, keyed by tag
  * @returns {string} a human-readable verdict for report.json
  */
-export function classifyMissingChat({ id, receiver, outUniStreams, uniStreams }) {
-  const sender = id.split(":")[1];
-  const recv = findByHead(uniStreams[receiver] ?? [], id);
-  if (recv) {
-    return `arrived (bytes=${recv.bytes}, closed=${recv.closed}, head=${JSON.stringify(recv.head)})`;
-  }
-  const sent = findByHead(outUniStreams[sender] ?? [], id);
-  if (sent) {
-    return `sent (bytes=${sent.bytes}, closed=${sent.closed}) but never arrived -- upstream/relay loss`;
-  }
-  return "never sent by the client -- frontend send bug";
+export function classifyMissingChat({
+	id,
+	receiver,
+	outUniStreams,
+	uniStreams,
+}) {
+	const sender = id.split(":")[1];
+	const recv = findByHead(uniStreams[receiver] ?? [], id);
+	if (recv) {
+		return `arrived (bytes=${recv.bytes}, closed=${recv.closed}, head=${JSON.stringify(recv.head)})`;
+	}
+	const sent = findByHead(outUniStreams[sender] ?? [], id);
+	if (sent) {
+		return `sent (bytes=${sent.bytes}, closed=${sent.closed}) but never arrived -- upstream/relay loss`;
+	}
+	return "never sent by the client -- frontend send bug";
 }

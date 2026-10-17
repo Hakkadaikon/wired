@@ -17,87 +17,95 @@
 import { summarizeDelivery } from "./metrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
+
 import { setServerUrl } from "./args.mjs";
 
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 export const MAX_CLIENTS = CANDIDATE_PARTICIPANT_IDS.length;
 
 async function joinClient(browser, pageUrl, certHash, participantId) {
-  const ctx = await browser.createBrowserContext();
-  const page = await ctx.newPage();
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+	const ctx = await browser.createBrowserContext();
+	const page = await ctx.newPage();
+	const errors = [];
+	page.on("pageerror", (e) => errors.push(e.message));
 
-  // connect() also starts the voice pipeline (useMoqtChat.ts's
-  // connectChatThenVoice), so even this chat-only load test spins up an
-  // RNNoise worklet per client unless told not to -- the e2e harness always
-  // runs with RNNoise off (see noiseSuppressionDefault in joinPrefs.ts): N
-  // worklets on a shared box is a test-environment CPU artifact, and this
-  // test's own delivery/latency numbers must measure the transport, not
-  // worklet CPU.
-  const nsOffUrl = new URL(pageUrl);
-  nsOffUrl.searchParams.set("ns", "0");
-  await page.goto(nsOffUrl.href);
-  await setServerUrl(page);
-  await page.type('input[data-testid="certHash"]', certHash);
-  await page.click(`[data-testid="participant-${participantId}"]`);
-  await page.click('[data-testid="connect"]');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
-    { timeout: JOIN_TIMEOUT_MS },
-  );
+	// connect() also starts the voice pipeline (useMoqtChat.ts's
+	// connectChatThenVoice), so even this chat-only load test spins up an
+	// RNNoise worklet per client unless told not to -- the e2e harness always
+	// runs with RNNoise off (see noiseSuppressionDefault in joinPrefs.ts): N
+	// worklets on a shared box is a test-environment CPU artifact, and this
+	// test's own delivery/latency numbers must measure the transport, not
+	// worklet CPU.
+	const nsOffUrl = new URL(pageUrl);
+	nsOffUrl.searchParams.set("ns", "0");
+	await page.goto(nsOffUrl.href);
+	await setServerUrl(page);
+	await page.type('input[data-testid="certHash"]', certHash);
+	await page.click(`[data-testid="participant-${participantId}"]`);
+	await page.click('[data-testid="connect"]');
+	await page.waitForFunction(
+		() =>
+			document
+				.querySelector('[data-testid="status"]')
+				?.getAttribute("data-status") === "connected",
+		{ timeout: JOIN_TIMEOUT_MS },
+	);
 
-  // Poll the message list for new (tag, seq) ids rather than instrumenting
-  // the app's own code -- black-box test of what a real user would see
-  // rendered. Each rendered message is one [data-testid="message"] div
-  // (page.tsx), so the regex only has to find the msg:tag:seq token inside
-  // its text.
-  const seenIds = new Set();
-  const received = [];
-  const pollHandle = setInterval(async () => {
-    let texts;
-    try {
-      texts = await page.evaluate(() =>
-        [...document.querySelectorAll('[data-testid="message"]')].map((e) => e.textContent),
-      );
-    } catch {
-      return; // page navigating/closing: skip this tick
-    }
-    for (const line of texts) {
-      const m = line.match(/msg:[A-Za-z0-9]+:\d+/);
-      if (!m) continue;
-      const id = m[0];
-      if (seenIds.has(id)) continue;
-      seenIds.add(id);
-      received.push({ id, receiverTag: participantId, receivedAt: Date.now() });
-    }
-  }, 100);
+	// Poll the message list for new (tag, seq) ids rather than instrumenting
+	// the app's own code -- black-box test of what a real user would see
+	// rendered. Each rendered message is one [data-testid="message"] div
+	// (page.tsx), so the regex only has to find the msg:tag:seq token inside
+	// its text.
+	const seenIds = new Set();
+	const received = [];
+	const pollHandle = setInterval(async () => {
+		let texts;
+		try {
+			texts = await page.evaluate(() =>
+				[...document.querySelectorAll('[data-testid="message"]')].map(
+					(e) => e.textContent,
+				),
+			);
+		} catch {
+			return; // page navigating/closing: skip this tick
+		}
+		for (const line of texts) {
+			const m = line.match(/msg:[A-Za-z0-9]+:\d+/);
+			if (!m) continue;
+			const id = m[0];
+			if (seenIds.has(id)) continue;
+			seenIds.add(id);
+			received.push({ id, receiverTag: participantId, receivedAt: Date.now() });
+		}
+	}, 100);
 
-  return {
-    tag: participantId,
-    page,
-    errors,
-    received,
-    stopPolling: () => clearInterval(pollHandle),
-  };
+	return {
+		tag: participantId,
+		page,
+		errors,
+		received,
+		stopPolling: () => clearInterval(pollHandle),
+	};
 }
 
 async function sendOneMessage(client, seq) {
-  const id = `msg:${client.tag}:${seq}`;
-  await client.page.evaluate((text) => {
-    const input = document.querySelector('input[data-testid="text"]');
-    const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    ).set;
-    setter.call(input, text);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    // ChatComposer submits on Enter's onKeyDown (page.tsx), not a form
-    // submit event -- dispatch the keydown directly on the input so React's
-    // synthetic event handler sees it regardless of DOM focus.
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  }, id);
-  return { id, senderTag: client.tag, sentAt: Date.now() };
+	const id = `msg:${client.tag}:${seq}`;
+	await client.page.evaluate((text) => {
+		const input = document.querySelector('input[data-testid="text"]');
+		const setter = Object.getOwnPropertyDescriptor(
+			window.HTMLInputElement.prototype,
+			"value",
+		).set;
+		setter.call(input, text);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+		// ChatComposer submits on Enter's onKeyDown (page.tsx), not a form
+		// submit event -- dispatch the keydown directly on the input so React's
+		// synthetic event handler sees it regardless of DOM focus.
+		input.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		);
+	}, id);
+	return { id, senderTag: client.tag, sentAt: Date.now() };
 }
 
 /**
@@ -111,44 +119,48 @@ async function sendOneMessage(client, seq) {
  * @param {number} opts.settleMs extra wait after the last send before grading
  */
 export async function runChatLoadTest({
-  browser,
-  pageUrl,
-  certHash,
-  clientCount,
-  messagesPerClient,
-  sendIntervalMs,
-  settleMs,
+	browser,
+	pageUrl,
+	certHash,
+	clientCount,
+	messagesPerClient,
+	sendIntervalMs,
+	settleMs,
 }) {
-  if (clientCount > MAX_CLIENTS) {
-    throw new Error(
-      `clientCount ${clientCount} exceeds MAX_CLIENTS ${MAX_CLIENTS} ` +
-        "(frontend's fixed candidate participant id list)",
-    );
-  }
-  const tags = CANDIDATE_PARTICIPANT_IDS.slice(0, clientCount);
-  const clients = [];
-  for (const tag of tags) {
-    // Serial join: joining is not itself under test here, and serializing
-    // keeps this test isolated to steady-state chat throughput.
-    clients.push(await joinClient(browser, pageUrl, certHash, tag));
-    await new Promise((r) => setTimeout(r, 1500));
-  }
+	if (clientCount > MAX_CLIENTS) {
+		throw new Error(
+			`clientCount ${clientCount} exceeds MAX_CLIENTS ${MAX_CLIENTS} ` +
+				"(frontend's fixed candidate participant id list)",
+		);
+	}
+	const tags = CANDIDATE_PARTICIPANT_IDS.slice(0, clientCount);
+	const clients = [];
+	for (const tag of tags) {
+		// Serial join: joining is not itself under test here, and serializing
+		// keeps this test isolated to steady-state chat throughput.
+		clients.push(await joinClient(browser, pageUrl, certHash, tag));
+		await new Promise((r) => setTimeout(r, 1500));
+	}
 
-  const sent = [];
-  for (let seq = 0; seq < messagesPerClient; seq++) {
-    for (const client of clients) {
-      sent.push(await sendOneMessage(client, seq));
-      await new Promise((r) => setTimeout(r, sendIntervalMs));
-    }
-  }
+	const sent = [];
+	for (let seq = 0; seq < messagesPerClient; seq++) {
+		for (const client of clients) {
+			sent.push(await sendOneMessage(client, seq));
+			await new Promise((r) => setTimeout(r, sendIntervalMs));
+		}
+	}
 
-  await new Promise((r) => setTimeout(r, settleMs));
+	await new Promise((r) => setTimeout(r, settleMs));
 
-  const received = clients.flatMap((c) => c.received);
-  const pageErrors = Object.fromEntries(clients.map((c) => [c.tag, c.errors]));
+	const received = clients.flatMap((c) => c.received);
+	const pageErrors = Object.fromEntries(clients.map((c) => [c.tag, c.errors]));
 
-  for (const c of clients) c.stopPolling();
-  for (const c of clients) await c.page.browserContext().close();
+	for (const c of clients) c.stopPolling();
+	for (const c of clients) await c.page.browserContext().close();
 
-  return { ...summarizeDelivery(sent, received, tags), pageErrors, clientCount };
+	return {
+		...summarizeDelivery(sent, received, tags),
+		pageErrors,
+		clientCount,
+	};
 }

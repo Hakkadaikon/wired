@@ -8,7 +8,7 @@
 // pins that. Also installs window.__wiredScreenTap so screenTap.ts
 // records every decoded frame.
 export function fakeDisplayMediaScript({ width = 1280, height = 720 } = {}) {
-  return `
+	return `
   (() => {
     const canvas = document.createElement("canvas");
     canvas.width = ${width};

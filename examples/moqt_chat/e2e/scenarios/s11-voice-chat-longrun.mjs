@@ -21,7 +21,7 @@ import { run as runS10 } from "./s10-voice-chat-longevity.mjs";
 const FIVE_MIN_MS = "300000";
 
 export async function run(ctx) {
-  const arg = (name, fallback) =>
-    ctx.arg(name, name === "talk-ms" ? FIVE_MIN_MS : fallback);
-  return runS10({ ...ctx, arg });
+	const arg = (name, fallback) =>
+		ctx.arg(name, name === "talk-ms" ? FIVE_MIN_MS : fallback);
+	return runS10({ ...ctx, arg });
 }

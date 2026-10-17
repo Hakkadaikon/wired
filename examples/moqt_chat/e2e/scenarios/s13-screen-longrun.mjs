@@ -23,14 +23,18 @@
 // so the 4-client shape only shows the hub's counters, while 2 clients
 // leave enough CPU for the gates to mean "the share held up over time".
 
-import { E2E_PORT } from "../lib/args.mjs";
-import path from "node:path";
 import { readFileSync } from "node:fs";
-import { startUdpProxy } from "../lib/udpProxy.mjs";
-import { screenGapStats } from "../lib/screenMetrics.mjs";
+import path from "node:path";
+import { E2E_PORT } from "../lib/args.mjs";
 import { parseJsonSeq } from "../lib/qlogStreamForensics.mjs";
+import { screenGapStats } from "../lib/screenMetrics.mjs";
 import { FAKE_DISPLAY_MEDIA_SCRIPT } from "../lib/screenShareFake.mjs";
-import { joinStabilityClient, clientMetrics, closeClient } from "../lib/stabilityClient.mjs";
+import {
+	clientMetrics,
+	closeClient,
+	joinStabilityClient,
+} from "../lib/stabilityClient.mjs";
+import { startUdpProxy } from "../lib/udpProxy.mjs";
 
 const PROXY_BASE = 24433;
 const SERVER_PORT = E2E_PORT;
@@ -39,138 +43,166 @@ const STALL_MS = 3000; // stallDetector.ts's SCREEN_STALL_MS
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function sendChat(client, id) {
-  await client.page.evaluate((text) => {
-    const input = document.querySelector('input[data-testid="text"]');
-    const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLInputElement.prototype,
-      "value",
-    ).set;
-    setter.call(input, text);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  }, id);
+	await client.page.evaluate((text) => {
+		const input = document.querySelector('input[data-testid="text"]');
+		const setter = Object.getOwnPropertyDescriptor(
+			window.HTMLInputElement.prototype,
+			"value",
+		).set;
+		setter.call(input, text);
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+		input.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+		);
+	}, id);
 }
 
 // Last recovery:metrics_updated per connection (group_id) from the hub's
 // qlog, when --server-qlog=1 wrote one; the counters are cumulative.
 function hubSendCounters(qlogPath) {
-  let text;
-  try {
-    text = readFileSync(qlogPath, "utf8");
-  } catch {
-    return null;
-  }
-  const last = {};
-  for (const r of parseJsonSeq(text)) {
-    if (r.name !== "recovery:metrics_updated") continue;
-    const { wtsend_ok, wtsend_busy, wtsend_flow, wtwin_drop, streams_blocked } = r.data ?? r;
-    last[r.group_id] = { wtsend_ok, wtsend_busy, wtsend_flow, wtwin_drop, streams_blocked };
-  }
-  return last;
+	let text;
+	try {
+		text = readFileSync(qlogPath, "utf8");
+	} catch {
+		return null;
+	}
+	const last = {};
+	for (const r of parseJsonSeq(text)) {
+		if (r.name !== "recovery:metrics_updated") continue;
+		const { wtsend_ok, wtsend_busy, wtsend_flow, wtwin_drop, streams_blocked } =
+			r.data ?? r;
+		last[r.group_id] = {
+			wtsend_ok,
+			wtsend_busy,
+			wtsend_flow,
+			wtwin_drop,
+			streams_blocked,
+		};
+	}
+	return last;
 }
 
 export async function run({ pageUrl, server, arg, log }) {
-  const talkMs = Number(arg("talk-ms", "180000"));
-  const chatIntervalMs = Number(arg("chat-interval-ms", "500"));
-  const lossRate = Number(arg("loss-rate", "0.01"));
-  const seed = Number(arg("impair-seed", "1"));
-  const TAGS = ALL_TAGS.slice(0, Math.min(ALL_TAGS.length, Math.max(2, Number(arg("clients", "4")))));
-  const evidenceDir = arg(
-    "evidence-dir",
-    path.join(path.dirname(new URL(import.meta.url).pathname), "../../../../tasks/voice-stability/s13-screen-longrun"),
-  );
-  const proxy = await startUdpProxy({
-    listenBase: PROXY_BASE,
-    upstreamPort: SERVER_PORT,
-    flowCount: TAGS.length,
-    profile: { lossRate, seed },
-  });
-  const clients = [];
-  try {
-    for (let i = 0; i < TAGS.length; i++) {
-      log(`joining ${TAGS[i]} via proxy flow ${i} (loss ${lossRate})`);
-      clients.push(
-        await joinStabilityClient({
-          pageUrl,
-          serverUrl: `https://127.0.0.1:${proxy.port(i)}/`,
-          certHash: server.certHash,
-          participantId: TAGS[i],
-          initScripts: [FAKE_DISPLAY_MEDIA_SCRIPT],
-        }),
-      );
-    }
-    for (const c of clients) await c.page.click('[data-testid="screen-toggle"]');
-    for (const c of clients) {
-      await c.page.waitForFunction(
-        (n) => (window.__wiredScreenTap ?? []).length >= n,
-        { timeout: 30000 },
-        TAGS.length - 1,
-      );
-    }
-    log(`all ${TAGS.length} sharing; chatting for ${talkMs}ms`);
+	const talkMs = Number(arg("talk-ms", "180000"));
+	const chatIntervalMs = Number(arg("chat-interval-ms", "500"));
+	const lossRate = Number(arg("loss-rate", "0.01"));
+	const seed = Number(arg("impair-seed", "1"));
+	const TAGS = ALL_TAGS.slice(
+		0,
+		Math.min(ALL_TAGS.length, Math.max(2, Number(arg("clients", "4")))),
+	);
+	const evidenceDir = arg(
+		"evidence-dir",
+		path.join(
+			path.dirname(new URL(import.meta.url).pathname),
+			"../../../../tasks/voice-stability/s13-screen-longrun",
+		),
+	);
+	const proxy = await startUdpProxy({
+		listenBase: PROXY_BASE,
+		upstreamPort: SERVER_PORT,
+		flowCount: TAGS.length,
+		profile: { lossRate, seed },
+	});
+	const clients = [];
+	try {
+		for (let i = 0; i < TAGS.length; i++) {
+			log(`joining ${TAGS[i]} via proxy flow ${i} (loss ${lossRate})`);
+			clients.push(
+				await joinStabilityClient({
+					pageUrl,
+					serverUrl: `https://127.0.0.1:${proxy.port(i)}/`,
+					certHash: server.certHash,
+					participantId: TAGS[i],
+					initScripts: [FAKE_DISPLAY_MEDIA_SCRIPT],
+				}),
+			);
+		}
+		for (const c of clients)
+			await c.page.click('[data-testid="screen-toggle"]');
+		for (const c of clients) {
+			await c.page.waitForFunction(
+				(n) => (window.__wiredScreenTap ?? []).length >= n,
+				{ timeout: 30000 },
+				TAGS.length - 1,
+			);
+		}
+		log(`all ${TAGS.length} sharing; chatting for ${talkMs}ms`);
 
-    const start = Date.now();
-    let seq = 0;
-    while (Date.now() - start < talkMs) {
-      for (const c of clients) await sendChat(c, `msg:${c.tag}:${seq}`);
-      seq++;
-      await sleep(chatIntervalMs);
-    }
+		const start = Date.now();
+		let seq = 0;
+		while (Date.now() - start < talkMs) {
+			for (const c of clients) await sendChat(c, `msg:${c.tag}:${seq}`);
+			seq++;
+			await sleep(chatIntervalMs);
+		}
 
-    const failures = [];
-    const gaps = {};
-    const taps = {};
-    const stalledTiles = {};
-    const screenStreams = {};
-    for (const c of clients) {
-      const entries = await c.page.evaluate(() => window.__wiredScreenTap ?? []);
-      taps[c.tag] = entries;
-      gaps[c.tag] = screenGapStats(entries, STALL_MS);
-      stalledTiles[c.tag] = await c.page.evaluate(() =>
-        [...document.querySelectorAll('[data-testid^="screen-stalled-"]')].map((e) => e.dataset.testid),
-      );
-      for (const sender of TAGS) {
-        if (sender === c.tag) continue;
-        const g = gaps[c.tag][sender];
-        if (!g) {
-          failures.push(`${c.tag}: never decoded a frame from ${sender}`);
-          continue;
-        }
-        if (g.gapP99Ms !== null && g.gapP99Ms >= STALL_MS)
-          failures.push(`${c.tag}<-${sender}: frame gap p99 ${g.gapP99Ms}ms (want < ${STALL_MS})`);
-        if (g.stalls > 0) failures.push(`${c.tag}<-${sender}: ${g.stalls} stall(s) of ${STALL_MS}ms+`);
-      }
-      const m = await clientMetrics(c);
-      // This client's own long-lived uni streams (chat's one-shot uploads
-      // are a few dozen bytes; a screen stream is many KB): more than one
-      // means the write timeout fired and the share reopened its stream.
-      screenStreams[c.tag] = (m?.wtOutUniStreams ?? [])
-        .filter((s) => s.bytes >= 1000)
-        .map(({ openedAt, bytes, closed }) => ({ openedAt, bytes, closed }));
-      const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
-      if (dead.length > 0) failures.push(`${c.tag}: connection died mid-run (${dead[0].closeInfo})`);
-      for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
-    }
+		const failures = [];
+		const gaps = {};
+		const taps = {};
+		const stalledTiles = {};
+		const screenStreams = {};
+		for (const c of clients) {
+			const entries = await c.page.evaluate(
+				() => window.__wiredScreenTap ?? [],
+			);
+			taps[c.tag] = entries;
+			gaps[c.tag] = screenGapStats(entries, STALL_MS);
+			stalledTiles[c.tag] = await c.page.evaluate(() =>
+				[...document.querySelectorAll('[data-testid^="screen-stalled-"]')].map(
+					(e) => e.dataset.testid,
+				),
+			);
+			for (const sender of TAGS) {
+				if (sender === c.tag) continue;
+				const g = gaps[c.tag][sender];
+				if (!g) {
+					failures.push(`${c.tag}: never decoded a frame from ${sender}`);
+					continue;
+				}
+				if (g.gapP99Ms !== null && g.gapP99Ms >= STALL_MS)
+					failures.push(
+						`${c.tag}<-${sender}: frame gap p99 ${g.gapP99Ms}ms (want < ${STALL_MS})`,
+					);
+				if (g.stalls > 0)
+					failures.push(
+						`${c.tag}<-${sender}: ${g.stalls} stall(s) of ${STALL_MS}ms+`,
+					);
+			}
+			const m = await clientMetrics(c);
+			// This client's own long-lived uni streams (chat's one-shot uploads
+			// are a few dozen bytes; a screen stream is many KB): more than one
+			// means the write timeout fired and the share reopened its stream.
+			screenStreams[c.tag] = (m?.wtOutUniStreams ?? [])
+				.filter((s) => s.bytes >= 1000)
+				.map(({ openedAt, bytes, closed }) => ({ openedAt, bytes, closed }));
+			const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
+			if (dead.length > 0)
+				failures.push(
+					`${c.tag}: connection died mid-run (${dead[0].closeInfo})`,
+				);
+			for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
+		}
 
-    const report = {
-      clients: TAGS.length,
-      talkMs,
-      chatIntervalMs,
-      lossRate,
-      seed,
-      chatRounds: seq,
-      gaps,
-      screenStreams,
-      stalledTiles,
-      // Raw per-frame receive taps (screenTap.ts), so a gap can be placed
-      // in time offline.
-      taps,
-      hubSendCounters: hubSendCounters(path.join(evidenceDir, "server.qlog")),
-      proxyStats: proxy.stats(),
-    };
-    for (const c of clients) await closeClient(c);
-    return { report, failures };
-  } finally {
-    proxy.close();
-  }
+		const report = {
+			clients: TAGS.length,
+			talkMs,
+			chatIntervalMs,
+			lossRate,
+			seed,
+			chatRounds: seq,
+			gaps,
+			screenStreams,
+			stalledTiles,
+			// Raw per-frame receive taps (screenTap.ts), so a gap can be placed
+			// in time offline.
+			taps,
+			hubSendCounters: hubSendCounters(path.join(evidenceDir, "server.qlog")),
+			proxyStats: proxy.stats(),
+		};
+		for (const c of clients) await closeClient(c);
+		return { report, failures };
+	} finally {
+		proxy.close();
+	}
 }

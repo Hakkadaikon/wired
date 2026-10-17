@@ -4,62 +4,89 @@
 //
 //   just e2e-stability s20-attachment-1mb
 
-import { joinStabilityClient, closeClient } from "../lib/stabilityClient.mjs";
+import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
 
 export async function run({ pageUrl, serverUrl, server, arg, log }) {
-  const bytes = Number(arg("bytes", "1000000"));
-  const opts = (tag) => ({ pageUrl, serverUrl, certHash: server.certHash, participantId: tag });
-  const failures = [];
-  const report = { bytes };
-  const clients = [];
-  try {
-    const sender = await joinStabilityClient(opts("user1"));
-    clients.push(sender);
-    const receiver = await joinStabilityClient(opts("user2"));
-    clients.push(receiver);
-    await receiver.page.waitForSelector('[data-testid="quality-user1"]', { timeout: 10000 });
+	const bytes = Number(arg("bytes", "1000000"));
+	const opts = (tag) => ({
+		pageUrl,
+		serverUrl,
+		certHash: server.certHash,
+		participantId: tag,
+	});
+	const failures = [];
+	const report = { bytes };
+	const clients = [];
+	try {
+		const sender = await joinStabilityClient(opts("user1"));
+		clients.push(sender);
+		const receiver = await joinStabilityClient(opts("user2"));
+		clients.push(receiver);
+		await receiver.page.waitForSelector('[data-testid="quality-user1"]', {
+			timeout: 10000,
+		});
 
-    log(`user1 sends ${bytes} bytes`);
-    // The bytes are generated and later checked inside the pages: shipping
-    // them through CDP as base64 crashes the page target near 100 MB.
-    await sender.page.evaluate((n) => {
-      const data = new Uint8Array(n);
-      for (let i = 0; i < n; i++) data[i] = (i * 37 + 11) & 0xff;
-      const dt = new DataTransfer();
-      dt.items.add(new File([data], "big.png", { type: "image/png" }));
-      const input = document.querySelector('input[data-testid="attachment-file"]');
-      input.files = dt.files;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, bytes);
-    await sender.page.waitForSelector('[data-testid="draft-remove"]', { timeout: 10000 });
-    const start = Date.now();
-    await sender.page.evaluate(() =>
-      document
-        .querySelector('input[data-testid="text"]')
-        .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-    );
+		log(`user1 sends ${bytes} bytes`);
+		// The bytes are generated and later checked inside the pages: shipping
+		// them through CDP as base64 crashes the page target near 100 MB.
+		await sender.page.evaluate((n) => {
+			const data = new Uint8Array(n);
+			for (let i = 0; i < n; i++) data[i] = (i * 37 + 11) & 0xff;
+			const dt = new DataTransfer();
+			dt.items.add(new File([data], "big.png", { type: "image/png" }));
+			const input = document.querySelector(
+				'input[data-testid="attachment-file"]',
+			);
+			input.files = dt.files;
+			input.dispatchEvent(new Event("change", { bubbles: true }));
+		}, bytes);
+		await sender.page.waitForSelector('[data-testid="draft-remove"]', {
+			timeout: 10000,
+		});
+		const start = Date.now();
+		await sender.page.evaluate(() =>
+			document
+				.querySelector('input[data-testid="text"]')
+				.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+				),
+		);
 
-    try {
-      // Scaled so --bytes=50000000 (the app's ATTACHMENT_MAX_BYTES) still
-      // has headroom at this machine's measured ~3.6 MiB/s: 60s floor plus
-      // 1s per 256 KiB.
-      const waitMs = 60_000 + (bytes / (256 * 1024)) * 1000;
-      await receiver.page.waitForSelector('[data-testid="message-image"]', { timeout: waitMs });
-      report.deliveredMs = Date.now() - start;
-      const got = await receiver.page.evaluate(async () => {
-        const buf = new Uint8Array(await (await fetch(document.querySelector('[data-testid="message-image"]').src)).arrayBuffer());
-        let bad = -1;
-        for (let i = 0; i < buf.length && bad < 0; i++) if (buf[i] !== ((i * 37 + 11) & 0xff)) bad = i;
-        return { len: buf.length, bad };
-      });
-      report.receivedBytes = got.len;
-      if (got.len !== bytes || got.bad >= 0) failures.push(`byte mismatch: sent ${bytes}, received ${got.len}, first bad offset ${got.bad}`);
-    } catch (err) {
-      failures.push(`receiver never showed the image: ${err}`);
-    }
-    for (const c of clients) if (c.errors.length) failures.push(`${c.tag} page errors: ${c.errors.join("; ")}`);
-  } finally {
-    for (const c of clients) await closeClient(c);
-  }
-  return { report, failures };
+		try {
+			// Scaled so --bytes=50000000 (the app's ATTACHMENT_MAX_BYTES) still
+			// has headroom at this machine's measured ~3.6 MiB/s: 60s floor plus
+			// 1s per 256 KiB.
+			const waitMs = 60_000 + (bytes / (256 * 1024)) * 1000;
+			await receiver.page.waitForSelector('[data-testid="message-image"]', {
+				timeout: waitMs,
+			});
+			report.deliveredMs = Date.now() - start;
+			const got = await receiver.page.evaluate(async () => {
+				const buf = new Uint8Array(
+					await (
+						await fetch(
+							document.querySelector('[data-testid="message-image"]').src,
+						)
+					).arrayBuffer(),
+				);
+				let bad = -1;
+				for (let i = 0; i < buf.length && bad < 0; i++)
+					if (buf[i] !== ((i * 37 + 11) & 0xff)) bad = i;
+				return { len: buf.length, bad };
+			});
+			report.receivedBytes = got.len;
+			if (got.len !== bytes || got.bad >= 0)
+				failures.push(
+					`byte mismatch: sent ${bytes}, received ${got.len}, first bad offset ${got.bad}`,
+				);
+		} catch (err) {
+			failures.push(`receiver never showed the image: ${err}`);
+		}
+		for (const c of clients)
+			if (c.errors.length)
+				failures.push(`${c.tag} page errors: ${c.errors.join("; ")}`);
+	} finally {
+		for (const c of clients) await closeClient(c);
+	}
+	return { report, failures };
 }

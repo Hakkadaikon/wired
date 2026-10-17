@@ -7,9 +7,9 @@
 // the chat-only counterpart this mirrors.
 
 import puppeteer from "puppeteer-core";
-import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
-import { runChatVoiceLoadTest, MAX_CLIENTS } from "./lib/voiceLoadTest.mjs";
 import { arg } from "./lib/args.mjs";
+import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
+import { MAX_CLIENTS, runChatVoiceLoadTest } from "./lib/voiceLoadTest.mjs";
 
 const certHash = arg("cert-hash", process.env.CERT_HASH ?? "");
 const pageUrl = arg("url", "http://localhost:8091/");
@@ -24,71 +24,72 @@ const maxLossRate = Number(arg("max-loss-rate", "1"));
 const maxVoiceLossRate = Number(arg("max-voice-loss-rate", "0.001"));
 
 if (!certHash) {
-  console.error(
-    "missing --cert-hash=<sha256 fingerprint> (copy from the server's startup log)",
-  );
-  process.exit(2);
+	console.error(
+		"missing --cert-hash=<sha256 fingerprint> (copy from the server's startup log)",
+	);
+	process.exit(2);
 }
 if (clientCount > MAX_CLIENTS) {
-  console.error(`--clients=${clientCount} exceeds MAX_CLIENTS=${MAX_CLIENTS}`);
-  process.exit(2);
+	console.error(`--clients=${clientCount} exceeds MAX_CLIENTS=${MAX_CLIENTS}`);
+	process.exit(2);
 }
 
 const { executablePath, env } = resolveChromeLaunch();
 const browser = await puppeteer.launch({
-  executablePath,
-  headless: "new",
-  env,
-  args: [
-    "--no-sandbox",
-    "--use-fake-device-for-media-stream",
-    "--use-fake-ui-for-media-stream", // auto-grant the getUserMedia permission prompt
-  ],
+	executablePath,
+	headless: "new",
+	env,
+	args: [
+		"--no-sandbox",
+		"--use-fake-device-for-media-stream",
+		"--use-fake-ui-for-media-stream", // auto-grant the getUserMedia permission prompt
+	],
 });
 
 let result;
 try {
-  result = await runChatVoiceLoadTest({
-    browser,
-    pageUrl,
-    certHash,
-    clientCount,
-    messagesPerClient,
-    sendIntervalMs,
-    settleMs,
-  });
+	result = await runChatVoiceLoadTest({
+		browser,
+		pageUrl,
+		certHash,
+		clientCount,
+		messagesPerClient,
+		sendIntervalMs,
+		settleMs,
+	});
 } finally {
-  await browser.close();
+	await browser.close();
 }
 
 console.log(JSON.stringify(result, null, 2));
 
 const failures = [];
 if (result.lossRate > maxLossRate) {
-  failures.push(`chat lossRate ${result.lossRate} > max ${maxLossRate}`);
+	failures.push(`chat lossRate ${result.lossRate} > max ${maxLossRate}`);
 }
 {
-  let received = 0;
-  let lost = 0;
-  for (const page of Object.values(result.voiceTrace ?? {})) {
-    for (const sender of Object.values(page.perSender ?? {})) {
-      received += sender.loss.received;
-      lost += sender.loss.lost;
-    }
-  }
-  const voiceLossRate = received + lost > 0 ? lost / (received + lost) : 0;
-  if (voiceLossRate > maxVoiceLossRate) {
-    failures.push(
-      `voice lossRate ${voiceLossRate.toFixed(5)} (${lost}/${received + lost}) > max ${maxVoiceLossRate}`,
-    );
-  }
+	let received = 0;
+	let lost = 0;
+	for (const page of Object.values(result.voiceTrace ?? {})) {
+		for (const sender of Object.values(page.perSender ?? {})) {
+			received += sender.loss.received;
+			lost += sender.loss.lost;
+		}
+	}
+	const voiceLossRate = received + lost > 0 ? lost / (received + lost) : 0;
+	if (voiceLossRate > maxVoiceLossRate) {
+		failures.push(
+			`voice lossRate ${voiceLossRate.toFixed(5)} (${lost}/${received + lost}) > max ${maxVoiceLossRate}`,
+		);
+	}
 }
 for (const [tag, errs] of Object.entries(result.pageErrors)) {
-  if (errs.length > 0) failures.push(`client ${tag} had page errors: ${errs.join("; ")}`);
+	if (errs.length > 0)
+		failures.push(`client ${tag} had page errors: ${errs.join("; ")}`);
 }
 
 if (failures.length > 0) {
-  console.error("FAIL:\n" + failures.map((f) => `  - ${f}`).join("\n"));
-  process.exit(1);
+	console.error("FAIL:\n" + failures.map((f) => `  - ${f}`).join("\n"));
+	process.exit(1);
 }
 console.log("PASS");

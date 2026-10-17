@@ -11,19 +11,19 @@
 // 65536 frames per sender (~21 min at 50 fps) -- fine for a load-test run.
 
 function nearestRankPercentile(sorted, p) {
-  if (sorted.length === 0) return null;
-  const rank = Math.ceil((p / 100) * sorted.length);
-  return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1];
+	if (sorted.length === 0) return null;
+	const rank = Math.ceil((p / 100) * sorted.length);
+	return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1];
 }
 
 export function percentileStats(values) {
-  if (values.length === 0) return null;
-  const s = values.slice().sort((a, b) => a - b);
-  return {
-    p50: nearestRankPercentile(s, 50),
-    p95: nearestRankPercentile(s, 95),
-    p99: nearestRankPercentile(s, 99),
-  };
+	if (values.length === 0) return null;
+	const s = values.slice().sort((a, b) => a - b);
+	return {
+		p50: nearestRankPercentile(s, 50),
+		p95: nearestRankPercentile(s, 95),
+		p99: nearestRankPercentile(s, 99),
+	};
 }
 
 // Forward u16 distance; > 32768 means the frame is behind `expected`
@@ -31,150 +31,157 @@ export function percentileStats(values) {
 const u16Gap = (seq, expected) => (seq - expected) & 0xffff;
 
 export function seqGapStats(recvEvents) {
-  let lost = 0;
-  const burstHistogram = {};
-  let expected = null;
-  for (const e of recvEvents) {
-    if (expected !== null) {
-      const gap = u16Gap(e.seq, expected);
-      if (gap > 32768) continue; // late/reordered: don't move expected back
-      if (gap > 0) {
-        lost += gap;
-        burstHistogram[gap] = (burstHistogram[gap] ?? 0) + 1;
-      }
-    }
-    expected = (e.seq + 1) & 0xffff;
-  }
-  const received = recvEvents.length;
-  return {
-    received,
-    lost,
-    lossRate: received + lost === 0 ? 0 : lost / (received + lost),
-    burstHistogram,
-  };
+	let lost = 0;
+	const burstHistogram = {};
+	let expected = null;
+	for (const e of recvEvents) {
+		if (expected !== null) {
+			const gap = u16Gap(e.seq, expected);
+			if (gap > 32768) continue; // late/reordered: don't move expected back
+			if (gap > 0) {
+				lost += gap;
+				burstHistogram[gap] = (burstHistogram[gap] ?? 0) + 1;
+			}
+		}
+		expected = (e.seq + 1) & 0xffff;
+	}
+	const received = recvEvents.length;
+	return {
+		received,
+		lost,
+		lossRate: received + lost === 0 ? 0 : lost / (received + lost),
+		burstHistogram,
+	};
 }
 
 export function interArrivalStats(recvEvents) {
-  const deltas = [];
-  for (let i = 1; i < recvEvents.length; i++) {
-    deltas.push(recvEvents[i].t - recvEvents[i - 1].t);
-  }
-  const histogram = {};
-  for (const d of deltas) {
-    const lo = Math.max(0, Math.floor(d / 5) * 5);
-    const bucket = d >= 100 ? ">100" : `${lo}-${lo + 5}`;
-    histogram[bucket] = (histogram[bucket] ?? 0) + 1;
-  }
-  const stats = percentileStats(deltas) ?? { p50: null, p95: null, p99: null };
-  return { ...stats, histogram };
+	const deltas = [];
+	for (let i = 1; i < recvEvents.length; i++) {
+		deltas.push(recvEvents[i].t - recvEvents[i - 1].t);
+	}
+	const histogram = {};
+	for (const d of deltas) {
+		const lo = Math.max(0, Math.floor(d / 5) * 5);
+		const bucket = d >= 100 ? ">100" : `${lo}-${lo + 5}`;
+		histogram[bucket] = (histogram[bucket] ?? 0) + 1;
+	}
+	const stats = percentileStats(deltas) ?? { p50: null, p95: null, p99: null };
+	return { ...stats, histogram };
 }
 
 export function playheadLagStats(playEvents) {
-  const lags = playEvents.map((e) => e.lag).filter((v) => typeof v === "number");
-  if (lags.length === 0) return null;
-  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
-  const q = Math.floor(lags.length / 4);
-  const { p50, p95 } = percentileStats(lags);
-  return {
-    min: Math.min(...lags),
-    max: Math.max(...lags),
-    p50,
-    p95,
-    // last >> first reveals a monotonically growing playhead backlog.
-    firstQuarterMeanMs: mean(q > 0 ? lags.slice(0, q) : lags),
-    lastQuarterMeanMs: mean(q > 0 ? lags.slice(-q) : lags),
-  };
+	const lags = playEvents
+		.map((e) => e.lag)
+		.filter((v) => typeof v === "number");
+	if (lags.length === 0) return null;
+	const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+	const q = Math.floor(lags.length / 4);
+	const { p50, p95 } = percentileStats(lags);
+	return {
+		min: Math.min(...lags),
+		max: Math.max(...lags),
+		p50,
+		p95,
+		// last >> first reveals a monotonically growing playhead backlog.
+		firstQuarterMeanMs: mean(q > 0 ? lags.slice(0, q) : lags),
+		lastQuarterMeanMs: mean(q > 0 ? lags.slice(-q) : lags),
+	};
 }
 
 export function sendBytesMean(sendEvents) {
-  const sizes = sendEvents.map((e) => e.bytes).filter((v) => typeof v === "number");
-  if (sizes.length === 0) return null;
-  return sizes.reduce((a, b) => a + b, 0) / sizes.length;
+	const sizes = sendEvents
+		.map((e) => e.bytes)
+		.filter((v) => typeof v === "number");
+	if (sizes.length === 0) return null;
+	return sizes.reduce((a, b) => a + b, 0) / sizes.length;
 }
 
 function groupBySrc(events) {
-  const groups = new Map();
-  for (const e of events) {
-    const key = e.src ?? "";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(e);
-  }
-  return groups;
+	const groups = new Map();
+	for (const e of events) {
+		const key = e.src ?? "";
+		if (!groups.has(key)) groups.set(key, []);
+		groups.get(key).push(e);
+	}
+	return groups;
 }
 
 // pageTag -> Map(seq -> first send t) built from each page's own send events.
 function sendTimesByPage(pagesEvents) {
-  const out = new Map();
-  for (const [tag, events] of Object.entries(pagesEvents)) {
-    const bySeq = new Map();
-    for (const e of events ?? []) {
-      if (e.dir === "send" && !bySeq.has(e.seq)) bySeq.set(e.seq, e.t);
-    }
-    out.set(tag, bySeq);
-  }
-  return out;
+	const out = new Map();
+	for (const [tag, events] of Object.entries(pagesEvents)) {
+		const bySeq = new Map();
+		for (const e of events ?? []) {
+			if (e.dir === "send" && !bySeq.has(e.seq)) bySeq.set(e.seq, e.t);
+		}
+		out.set(tag, bySeq);
+	}
+	return out;
 }
 
 function latenciesAgainst(sendTimes, events) {
-  const out = [];
-  for (const e of events) {
-    const t0 = sendTimes.get(e.seq);
-    if (t0 !== undefined) out.push(e.t - t0);
-  }
-  return out;
+	const out = [];
+	for (const e of events) {
+		const t0 = sendTimes.get(e.seq);
+		if (t0 !== undefined) out.push(e.t - t0);
+	}
+	return out;
 }
 
 // Buffer dwell per seq: first drain t minus first recv t, same page/epoch.
 function dwellTimes(recvEvents, drainEvents) {
-  const recvBySeq = new Map();
-  for (const e of recvEvents) if (!recvBySeq.has(e.seq)) recvBySeq.set(e.seq, e.t);
-  const out = [];
-  const seen = new Set();
-  for (const e of drainEvents) {
-    if (seen.has(e.seq)) continue;
-    seen.add(e.seq);
-    const t0 = recvBySeq.get(e.seq);
-    if (t0 !== undefined) out.push(e.t - t0);
-  }
-  return out;
+	const recvBySeq = new Map();
+	for (const e of recvEvents)
+		if (!recvBySeq.has(e.seq)) recvBySeq.set(e.seq, e.t);
+	const out = [];
+	const seen = new Set();
+	for (const e of drainEvents) {
+		if (seen.has(e.seq)) continue;
+		seen.add(e.seq);
+		const t0 = recvBySeq.get(e.seq);
+		if (t0 !== undefined) out.push(e.t - t0);
+	}
+	return out;
 }
 
 export function depthStats(drainEvents) {
-  return percentileStats(
-    drainEvents.map((e) => e.depth).filter((v) => typeof v === "number"),
-  );
+	return percentileStats(
+		drainEvents.map((e) => e.depth).filter((v) => typeof v === "number"),
+	);
 }
 
 export function summarizeVoiceTrace(pagesEvents) {
-  const sendTimes = sendTimesByPage(pagesEvents);
-  const out = {};
-  for (const [tag, events] of Object.entries(pagesEvents)) {
-    const evs = events ?? [];
-    const recvGroups = groupBySrc(evs.filter((e) => e.dir === "recv"));
-    const drainGroups = groupBySrc(evs.filter((e) => e.dir === "drain"));
-    const perSender = {};
-    for (const [src, recvs] of recvGroups) {
-      const drains = drainGroups.get(src) ?? [];
-      const senderSends = sendTimes.get(src) ?? new Map();
-      const senderEvents = pagesEvents[src] ?? [];
-      perSender[src] = {
-        recvLatencyMs: percentileStats(latenciesAgainst(senderSends, recvs)),
-        drainLatencyMs: percentileStats(latenciesAgainst(senderSends, drains)),
-        dwellMs: percentileStats(dwellTimes(recvs, drains)),
-        loss: seqGapStats(recvs),
-        interArrivalMs: interArrivalStats(recvs),
-        sendBytesMean: sendBytesMean(senderEvents.filter((e) => e.dir === "send")),
-        depth: depthStats(drains),
-        plcCount: drains.filter((e) => e.plc === true).length,
-      };
-    }
-    const plays = evs.filter((e) => e.dir === "play");
-    out[tag] = {
-      perSender,
-      playheadLag: playheadLagStats(plays),
-      playCount: plays.length,
-      skippedCount: plays.filter((e) => e.skipped === true).length,
-    };
-  }
-  return out;
+	const sendTimes = sendTimesByPage(pagesEvents);
+	const out = {};
+	for (const [tag, events] of Object.entries(pagesEvents)) {
+		const evs = events ?? [];
+		const recvGroups = groupBySrc(evs.filter((e) => e.dir === "recv"));
+		const drainGroups = groupBySrc(evs.filter((e) => e.dir === "drain"));
+		const perSender = {};
+		for (const [src, recvs] of recvGroups) {
+			const drains = drainGroups.get(src) ?? [];
+			const senderSends = sendTimes.get(src) ?? new Map();
+			const senderEvents = pagesEvents[src] ?? [];
+			perSender[src] = {
+				recvLatencyMs: percentileStats(latenciesAgainst(senderSends, recvs)),
+				drainLatencyMs: percentileStats(latenciesAgainst(senderSends, drains)),
+				dwellMs: percentileStats(dwellTimes(recvs, drains)),
+				loss: seqGapStats(recvs),
+				interArrivalMs: interArrivalStats(recvs),
+				sendBytesMean: sendBytesMean(
+					senderEvents.filter((e) => e.dir === "send"),
+				),
+				depth: depthStats(drains),
+				plcCount: drains.filter((e) => e.plc === true).length,
+			};
+		}
+		const plays = evs.filter((e) => e.dir === "play");
+		out[tag] = {
+			perSender,
+			playheadLag: playheadLagStats(plays),
+			playCount: plays.length,
+			skippedCount: plays.filter((e) => e.skipped === true).length,
+		};
+	}
+	return out;
 }

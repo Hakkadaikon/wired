@@ -14,19 +14,19 @@ import dgram from "node:dgram";
 // Deterministic LCG (Numerical Recipes constants) so a loss pattern can be
 // reproduced exactly from --impair-seed. One stream per flow.
 function lcg(seed) {
-  let s = seed >>> 0;
-  return () => {
-    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-    return s / 2 ** 32;
-  };
+	let s = seed >>> 0;
+	return () => {
+		s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+		return s / 2 ** 32;
+	};
 }
 
 function bindSocket(port) {
-  return new Promise((resolve, reject) => {
-    const sock = dgram.createSocket("udp4");
-    sock.once("error", reject);
-    sock.bind(port, "127.0.0.1", () => resolve(sock));
-  });
+	return new Promise((resolve, reject) => {
+		const sock = dgram.createSocket("udp4");
+		sock.once("error", reject);
+		sock.bind(port, "127.0.0.1", () => resolve(sock));
+	});
 }
 
 /**
@@ -37,88 +37,96 @@ function bindSocket(port) {
  * @param {object} [opts.profile]     {lossRate=0, seed=1, jitterBaseMs=0, jitterSpreadMs=0}
  */
 export async function startUdpProxy({
-  listenBase,
-  upstreamPort,
-  flowCount,
-  profile = {},
+	listenBase,
+	upstreamPort,
+	flowCount,
+	profile = {},
 }) {
-  const { lossRate = 0, seed = 1, jitterBaseMs = 0, jitterSpreadMs = 0 } = profile;
-  const upstreamHost = "127.0.0.1";
-  const flows = [];
-  // A jitter-delayed packet can outlive close(): its setTimeout fires after
-  // the sockets are gone and dgram throws ERR_SOCKET_DGRAM_NOT_RUNNING,
-  // crashing the whole runner. Drop deliveries scheduled past close.
-  let closed = false;
+	const {
+		lossRate = 0,
+		seed = 1,
+		jitterBaseMs = 0,
+		jitterSpreadMs = 0,
+	} = profile;
+	const upstreamHost = "127.0.0.1";
+	const flows = [];
+	// A jitter-delayed packet can outlive close(): its setTimeout fires after
+	// the sockets are gone and dgram throws ERR_SOCKET_DGRAM_NOT_RUNNING,
+	// crashing the whole runner. Drop deliveries scheduled past close.
+	let closed = false;
 
-  const impair = (flow, deliver) => {
-    flow.stats.seen++;
-    if (Date.now() < flow.outageUntil) {
-      flow.stats.dropped++;
-      return;
-    }
-    if (lossRate > 0 && flow.rand() < lossRate) {
-      flow.stats.dropped++;
-      return;
-    }
-    flow.stats.forwarded++;
-    if (jitterBaseMs > 0 || jitterSpreadMs > 0) {
-      setTimeout(() => {
-        if (!closed) deliver();
-      }, jitterBaseMs + flow.rand() * jitterSpreadMs);
-      return;
-    }
-    deliver();
-  };
+	const impair = (flow, deliver) => {
+		flow.stats.seen++;
+		if (Date.now() < flow.outageUntil) {
+			flow.stats.dropped++;
+			return;
+		}
+		if (lossRate > 0 && flow.rand() < lossRate) {
+			flow.stats.dropped++;
+			return;
+		}
+		flow.stats.forwarded++;
+		if (jitterBaseMs > 0 || jitterSpreadMs > 0) {
+			setTimeout(
+				() => {
+					if (!closed) deliver();
+				},
+				jitterBaseMs + flow.rand() * jitterSpreadMs,
+			);
+			return;
+		}
+		deliver();
+	};
 
-  for (let i = 0; i < flowCount; i++) {
-    const down = await bindSocket(listenBase + i);
-    const flow = {
-      down,
-      up: null,
-      clientPort: null,
-      outageUntil: 0,
-      rand: lcg(seed + i),
-      stats: { seen: 0, forwarded: 0, dropped: 0, rebinds: 0 },
-    };
-    const attachUpstream = (sock) => {
-      sock.on("message", (msg) => {
-        if (flow.clientPort === null) return;
-        impair(flow, () => flow.down.send(msg, flow.clientPort, "127.0.0.1"));
-      });
-    };
-    flow.up = dgram.createSocket("udp4");
-    attachUpstream(flow.up);
-    flow.attachUpstream = attachUpstream;
-    down.on("message", (msg, rinfo) => {
-      flow.clientPort = rinfo.port;
-      impair(flow, () => flow.up.send(msg, upstreamPort, upstreamHost));
-    });
-    flows.push(flow);
-  }
+	for (let i = 0; i < flowCount; i++) {
+		const down = await bindSocket(listenBase + i);
+		const flow = {
+			down,
+			up: null,
+			clientPort: null,
+			outageUntil: 0,
+			rand: lcg(seed + i),
+			stats: { seen: 0, forwarded: 0, dropped: 0, rebinds: 0 },
+		};
+		const attachUpstream = (sock) => {
+			sock.on("message", (msg) => {
+				if (flow.clientPort === null) return;
+				impair(flow, () => flow.down.send(msg, flow.clientPort, "127.0.0.1"));
+			});
+		};
+		flow.up = dgram.createSocket("udp4");
+		attachUpstream(flow.up);
+		flow.attachUpstream = attachUpstream;
+		down.on("message", (msg, rinfo) => {
+			flow.clientPort = rinfo.port;
+			impair(flow, () => flow.up.send(msg, upstreamPort, upstreamHost));
+		});
+		flows.push(flow);
+	}
 
-  return {
-    port(i) {
-      return listenBase + i;
-    },
-    outage(i, ms) {
-      flows[i].outageUntil = Date.now() + ms;
-    },
-    rebind(i) {
-      const old = flows[i].up;
-      flows[i].up = dgram.createSocket("udp4");
-      flows[i].attachUpstream(flows[i].up);
-      flows[i].stats.rebinds++;
-      old.close();
-    },
-    stats() {
-      return flows.map((f) => ({ ...f.stats }));
-    },
-    close() {
-      closed = true;
-      for (const f of flows) {
-        f.down.close();
-        f.up.close();
-      }
-    },
-  };
+	return {
+		port(i) {
+			return listenBase + i;
+		},
+		outage(i, ms) {
+			flows[i].outageUntil = Date.now() + ms;
+		},
+		rebind(i) {
+			const old = flows[i].up;
+			flows[i].up = dgram.createSocket("udp4");
+			flows[i].attachUpstream(flows[i].up);
+			flows[i].stats.rebinds++;
+			old.close();
+		},
+		stats() {
+			return flows.map((f) => ({ ...f.stats }));
+		},
+		close() {
+			closed = true;
+			for (const f of flows) {
+				f.down.close();
+				f.up.close();
+			}
+		},
+	};
 }
