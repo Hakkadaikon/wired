@@ -37,28 +37,20 @@ static int ecn_report_bounded(
 
 /* 1 when the report is consistent: counts never decrease, no ECT(1) (we
  * only ever mark ECT(0)), and the totals are bounded as above. */
-static int ecn_report_ok(
-    const ecn_track* t, ecn_counts next, u64 ect1, u64 sent_ect, u64 newly) {
-  return ecn_counts_valid(t->prev, next) && ect1 == 0 &&
-         ecn_report_bounded(t->prev, next, sent_ect, newly);
+static int ecn_report_ok(const ecn_track* t, const ecn_report* r) {
+  return ecn_counts_valid(t->prev, r->next) && r->ect1 == 0 &&
+         ecn_report_bounded(t->prev, r->next, r->sent_ect, r->newly_acked);
 }
 
 void ecn_track_on_counts(
-    ecn_track* t,
-    cc*        c,
-    ecn_counts next,
-    u64        ect1,
-    u64        sent_ect,
-    u64        newly_acked,
-    u64        sent_time,
-    u64        now) {
+    ecn_track* t, cc* c, const ecn_report* r, u64 sent_time, u64 now) {
   if (!t->enabled) return;
-  if (!ecn_report_ok(t, next, ect1, sent_ect, newly_acked)) {
+  if (!ecn_report_ok(t, r)) {
     ecn_track_fail(t);
     return;
   }
-  ecn_on_ce_increase(c, t->prev.ce, next.ce, sent_time, now);
-  t->prev = next;
+  ecn_on_ce_increase(c, t->prev.ce, r->next.ce, sent_time, now);
+  t->prev = r->next;
 }
 
 void ecn_track_on_missing(ecn_track* t, u64 sent_ect) {

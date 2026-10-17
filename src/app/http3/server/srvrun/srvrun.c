@@ -9154,9 +9154,12 @@ static void srvrun_feed_ecn(srvrun_conn* c, u64 largest_before, u64 now_ms) {
     ecn_track_on_missing(&c->ecn, c->l.tx_pn);
     return;
   }
-  ecn_track_on_counts(
-      &c->ecn, &c->cc, (ecn_counts){c->l.ecn_ack_ce, c->l.ecn_ack_ect0},
-      c->l.ecn_ack_ect1, c->l.tx_pn, c->ecn_newly, c->ecn_sent_ms, now_ms);
+  ecn_report r = {
+      {c->l.ecn_ack_ce, c->l.ecn_ack_ect0},
+      c->l.ecn_ack_ect1,
+      c->l.tx_pn,
+      c->ecn_newly};
+  ecn_track_on_counts(&c->ecn, &c->cc, &r, c->ecn_sent_ms, now_ms);
 }
 
 /* 1 if this step's ACK frame acknowledges some pn strictly between lo and

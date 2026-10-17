@@ -87,7 +87,7 @@ static void test_ecn_ce_from_ack_triggers_cc_loss(void) {
   ecn_track_init(&t);
   u64 cwnd_before = c.cwnd;
   ecn_track_on_counts(
-      &t, &c, (ecn_counts){d.ce, d.ect0}, d.ect1, 10, 9, 100, 200);
+      &t, &c, &(ecn_report){{d.ce, d.ect0}, d.ect1, 10, 9}, 100, 200);
   CHECK(c.in_recovery == 1);
   CHECK(c.cwnd < cwnd_before);
   CHECK(t.enabled == 1);
@@ -95,7 +95,7 @@ static void test_ecn_ce_from_ack_triggers_cc_loss(void) {
   /* same cumulative counts again: no new increase, no second shrink */
   u64 cwnd_after = c.cwnd;
   ecn_track_on_counts(
-      &t, &c, (ecn_counts){d.ce, d.ect0}, d.ect1, 12, 0, 100, 300);
+      &t, &c, &(ecn_report){{d.ce, d.ect0}, d.ect1, 12, 0}, 100, 300);
   CHECK(c.cwnd == cwnd_after);
 }
 
@@ -108,23 +108,23 @@ static void test_ecn_counts_valid_rejects_decrease_wired(void) {
   ecn_track t;
   cc_init(&c);
   ecn_track_init(&t);
-  ecn_track_on_counts(&t, &c, (ecn_counts){2, 5}, 0, 10, 7, 100, 200);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{2, 5}, 0, 10, 7}, 100, 200);
   CHECK(t.enabled == 1 && t.prev.ce == 2);
   u64 cwnd_before = c.cwnd;
-  ecn_track_on_counts(&t, &c, (ecn_counts){1, 6}, 0, 10, 0, 100, 300);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{1, 6}, 0, 10, 0}, 100, 300);
   CHECK(t.enabled == 0);
   CHECK(t.fail_count == 1);
   CHECK(c.cwnd == cwnd_before);
   /* once disabled, even a plausible report is ignored */
-  ecn_track_on_counts(&t, &c, (ecn_counts){9, 1}, 0, 10, 0, 100, 400);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{9, 1}, 0, 10, 0}, 100, 400);
   CHECK(t.prev.ce == 2 && t.fail_count == 1);
   /* exceeding the number of ECT packets sent also fails */
   ecn_track_init(&t);
-  ecn_track_on_counts(&t, &c, (ecn_counts){3, 8}, 0, 10, 0, 100, 500);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{3, 8}, 0, 10, 0}, 100, 500);
   CHECK(t.enabled == 0 && t.fail_count == 1);
   /* ECT(1) reported while we only ever mark ECT(0) also fails */
   ecn_track_init(&t);
-  ecn_track_on_counts(&t, &c, (ecn_counts){0, 4}, 1, 10, 0, 100, 600);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{0, 4}, 1, 10, 0}, 100, 600);
   CHECK(t.enabled == 0 && t.fail_count == 1);
 }
 
@@ -159,16 +159,16 @@ static void test_ecn_suppressed_counts_fail_validation(void) {
   ecn_track_init(&t);
   u64 cwnd_before = c.cwnd;
   /* increase 5 for 5 newly acked: exactly accounted, passes */
-  ecn_track_on_counts(&t, &c, (ecn_counts){0, 5}, 0, 20, 5, 100, 200);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{0, 5}, 0, 20, 5}, 100, 200);
   CHECK(t.enabled == 1 && t.prev.ect0 == 5);
   /* increase 6 for 4 newly acked: earlier ACK frames were lost, passes */
-  ecn_track_on_counts(&t, &c, (ecn_counts){1, 10}, 0, 20, 4, 100, 300);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{1, 10}, 0, 20, 4}, 100, 300);
   CHECK(t.enabled == 1 && t.prev.ce == 1 && t.prev.ect0 == 10);
   CHECK(c.in_recovery == 1); /* the CE increase still counted */
   /* increase 2 (ect0 +2, ce +0) for 5 newly acked: suppressed, fails */
   c.in_recovery = 0;
   c.cwnd        = cwnd_before;
-  ecn_track_on_counts(&t, &c, (ecn_counts){1, 12}, 0, 20, 5, 100, 400);
+  ecn_track_on_counts(&t, &c, &(ecn_report){{1, 12}, 0, 20, 5}, 100, 400);
   CHECK(t.enabled == 0);
   CHECK(t.fail_count == 1);
   CHECK(c.cwnd == cwnd_before && c.in_recovery == 0);
@@ -191,7 +191,7 @@ static void test_ecn_inflated_ce_floors_at_min_window(void) {
      * started, so recovery exits and the next CE increase counts again */
     cc_on_ack(&c, 1, 1000 * i, 1000 * i + 1);
     ecn_track_on_counts(
-        &t, &c, (ecn_counts){i, 0}, 0, 1000, 1, 1000 * i, 1000 * i + 1);
+        &t, &c, &(ecn_report){{i, 0}, 0, 1000, 1}, 1000 * i, 1000 * i + 1);
     CHECK(c.cwnd >= CC_MIN_WINDOW);
   }
   CHECK(c.cwnd == CC_MIN_WINDOW);
