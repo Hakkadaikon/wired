@@ -34,6 +34,7 @@ KEYLOG=""
 echo "wired webtransport interop server: testcase=$TESTCASE"
 
 # PROTOCOLS / TESTCASE / REQUESTS reach the binary through the environment.
+# shellcheck disable=SC2086 # each optional flag is empty or "--flag value"
 exec /wired/wired_server \
   --port 443 \
   --cert /certs/cert.pem \

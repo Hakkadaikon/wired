@@ -71,6 +71,7 @@ KEYLOG=""
 # The runner health-checks the endpoint before starting the client.
 echo "wired interop server: testcase=$TESTCASE"
 
+# shellcheck disable=SC2086 # each optional flag is empty or "--flag value"
 exec /wired/wired_server \
   --port 443 \
   --root /www \

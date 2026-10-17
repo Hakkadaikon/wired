@@ -7,7 +7,7 @@
 set -u
 RUNNER=$1
 SERVERS=$2
-cd "$RUNNER"
+cd "$RUNNER" || exit 1
 fail=0
 echo "| Server | Goodput (5 runs) |"
 echo "|---|---|"
