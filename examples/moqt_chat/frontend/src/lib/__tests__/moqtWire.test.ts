@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
 	bytesToHex,
@@ -546,6 +547,52 @@ describe("object_datagram", () => {
 				status: 4n,
 			}),
 		).toThrow(MoqtDecodeError);
+	});
+
+	it("every valid Type round-trips encode -> decode with its fields", () => {
+		const types = [...Array(0x30).keys()]
+			.map(BigInt)
+			.filter((t) => (t & ~0x2fn) === 0n && (t & 0x22n) !== 0x22n);
+		fc.assert(
+			fc.property(
+				fc.constantFrom(...types),
+				fc.bigInt({ min: 0n, max: 1n << 40n }),
+				fc.integer({ min: 0, max: 255 }),
+				fc.uint8Array({ minLength: 1, maxLength: 4 }),
+				fc.uint8Array({ maxLength: 4 }),
+				(type, n, priority, properties, payload) => {
+					const o = {
+						type,
+						trackAlias: n,
+						groupId: n + 1n,
+						objectId: (type & 0x04n) === 0n ? n + 2n : 0n,
+						priority: (type & 0x08n) === 0n ? priority : 0,
+						status: 0n,
+						properties: (type & 0x01n) !== 0n ? properties : new Uint8Array(0),
+						payload: (type & 0x20n) === 0n ? payload : new Uint8Array(0),
+					};
+					expect(decodeObjectDatagram(encodeObjectDatagram(o))).toEqual(o);
+				},
+			),
+		);
+	});
+
+	it("a STATUS datagram without properties carries any Status", () => {
+		const o = { type: 0x2cn, trackAlias: 1n, groupId: 2n, status: 3n };
+		expect(bytesToHex(encodeObjectDatagram(o))).toBe("2c010203");
+		expect(decodeObjectDatagram(hexToBytes("2c010203")).status).toBe(3n);
+	});
+
+	it("decode rejects truncation and STATUS + PROPERTIES non-Normal", () => {
+		for (const hex of [
+			"000102",
+			"0101020300",
+			"01010203020a",
+			"2901020301aa04",
+		])
+			expect(() => decodeObjectDatagram(hexToBytes(hex))).toThrow(
+				MoqtDecodeError,
+			);
 	});
 });
 

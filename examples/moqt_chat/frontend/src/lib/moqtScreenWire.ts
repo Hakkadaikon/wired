@@ -54,12 +54,10 @@ function getU16(bytes: Uint8Array, offset: number): number {
  * with width u16 | height u16 | codec len u8 + bytes appended only for the
  * keyframe's idx=0 chunk). */
 export function encodeScreenObjectMessage(chunk: ScreenChunk): Uint8Array {
-	const hasCodecInfo = chunk.keyframe && chunk.idx === 0;
-	const codecBytes = hasCodecInfo
-		? new TextEncoder().encode(chunk.codec ?? "")
-		: undefined;
-	const metaLen = hasCodecInfo ? 2 + 2 + 1 + (codecBytes?.length ?? 0) : 0;
-	const out = new Uint8Array(CHUNK_HEADER_LEN + metaLen + chunk.data.length);
+	const meta = screenChunkMeta(chunk);
+	const out = new Uint8Array(
+		CHUNK_HEADER_LEN + meta.length + chunk.data.length,
+	);
 
 	putU16(out, 0, chunk.seq);
 	putU16(out, 2, chunk.idx);
@@ -67,16 +65,22 @@ export function encodeScreenObjectMessage(chunk: ScreenChunk): Uint8Array {
 	out[6] = chunk.keyframe ? KEYFRAME_FLAG : 0;
 	new DataView(out.buffer).setUint32(7, chunk.timestampUs, false);
 
-	let pos = CHUNK_HEADER_LEN;
-	if (hasCodecInfo && codecBytes) {
-		putU16(out, pos, chunk.width ?? 0);
-		putU16(out, pos + 2, chunk.height ?? 0);
-		out[pos + 4] = codecBytes.length;
-		out.set(codecBytes, pos + 5);
-		pos += 5 + codecBytes.length;
-	}
-	out.set(chunk.data, pos);
+	out.set(meta, CHUNK_HEADER_LEN);
+	out.set(chunk.data, CHUNK_HEADER_LEN + meta.length);
 	return out;
+}
+
+/** width u16 | height u16 | codec len u8 + bytes, only for the keyframe's
+ * idx=0 chunk; empty for every other chunk. */
+function screenChunkMeta(chunk: ScreenChunk): Uint8Array {
+	if (!chunk.keyframe || chunk.idx !== 0) return new Uint8Array(0);
+	const codecBytes = new TextEncoder().encode(chunk.codec ?? "");
+	const meta = new Uint8Array(5 + codecBytes.length);
+	putU16(meta, 0, chunk.width ?? 0);
+	putU16(meta, 2, chunk.height ?? 0);
+	meta[4] = codecBytes.length;
+	meta.set(codecBytes, 5);
+	return meta;
 }
 
 /** Decodes one screen-share chunk from a MoQT Object body; the inverse of

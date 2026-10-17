@@ -68,13 +68,9 @@ function putU16(view: DataView, offset: number, value: number): void {
 export function encodeAttachmentChunkMessage(
 	chunk: AttachmentChunk,
 ): Uint8Array {
-	const hasMeta = chunk.idx === 0;
-	const mimeBytes = hasMeta
-		? new TextEncoder().encode(chunk.mimeType ?? "")
-		: undefined;
-	const metaLen = hasMeta ? 1 + (mimeBytes?.length ?? 0) + 4 : 0;
+	const meta = attachmentChunkMeta(chunk);
 	const out = new Uint8Array(
-		1 + CHUNK_HEADER_LEN + metaLen + chunk.data.length,
+		1 + CHUNK_HEADER_LEN + meta.length + chunk.data.length,
 	);
 	const view = new DataView(out.buffer);
 
@@ -85,16 +81,25 @@ export function encodeAttachmentChunkMessage(
 	putU16(view, 10, chunk.idx);
 	putU16(view, 12, chunk.count);
 
-	let pos = 1 + CHUNK_HEADER_LEN;
-	if (hasMeta && mimeBytes) {
-		out[pos] = mimeBytes.length;
-		out.set(mimeBytes, pos + 1);
-		pos += 1 + mimeBytes.length;
-		putU32(view, pos, chunk.totalBytes ?? 0);
-		pos += 4;
-	}
-	out.set(chunk.data, pos);
+	out.set(meta, 1 + CHUNK_HEADER_LEN);
+	out.set(chunk.data, 1 + CHUNK_HEADER_LEN + meta.length);
 	return out;
+}
+
+/** mimeType len u8 + mimeType + totalBytes u32 BE on the idx===0 chunk;
+ * empty for every other chunk. */
+function attachmentChunkMeta(chunk: AttachmentChunk): Uint8Array {
+	if (chunk.idx !== 0) return new Uint8Array(0);
+	const mimeBytes = new TextEncoder().encode(chunk.mimeType ?? "");
+	const meta = new Uint8Array(1 + mimeBytes.length + 4);
+	meta[0] = mimeBytes.length;
+	meta.set(mimeBytes, 1);
+	putU32(
+		new DataView(meta.buffer),
+		1 + mimeBytes.length,
+		chunk.totalBytes ?? 0,
+	);
+	return meta;
 }
 
 /** Decodes one attachment chunk from a MoQT Object body; the inverse of
@@ -317,6 +322,24 @@ function isTrustedChunk(chunk: AttachmentChunk): boolean {
 	return true;
 }
 
+function newPendingAttachment(
+	chunk: AttachmentChunk,
+	now: number,
+): PendingAttachment {
+	// chunk.count * MAX_ATTACHMENT_CHUNK_BYTES over- rather than
+	// under-estimates the real size (the last chunk is usually smaller),
+	// which only makes the deadline a bit more generous -- never tighter.
+	const sizeBound = chunk.count * MAX_ATTACHMENT_CHUNK_BYTES;
+	return {
+		count: chunk.count,
+		mimeType: chunk.idx === 0 ? (chunk.mimeType ?? "") : "",
+		chunks: new Array(chunk.count),
+		received: 0,
+		startedAt: now,
+		deadlineMs: now + attachmentTimeoutMs(sizeBound),
+	};
+}
+
 /** Feeds one chunk into the reassembler. Returns the reassembled attachment
  * bytes once `count` distinct chunks for the same messageId+attachmentIdx
  * key have all arrived, else null. A pending frame stale for more than its
@@ -336,18 +359,7 @@ export function attachmentReassemblerPush(
 	const key = keyOf(chunk);
 	let frame = reassembler.pending.get(key);
 	if (!frame) {
-		// chunk.count * MAX_ATTACHMENT_CHUNK_BYTES over- rather than
-		// under-estimates the real size (the last chunk is usually smaller),
-		// which only makes the deadline a bit more generous -- never tighter.
-		const sizeBound = chunk.count * MAX_ATTACHMENT_CHUNK_BYTES;
-		frame = {
-			count: chunk.count,
-			mimeType: chunk.idx === 0 ? (chunk.mimeType ?? "") : "",
-			chunks: new Array(chunk.count),
-			received: 0,
-			startedAt: now,
-			deadlineMs: now + attachmentTimeoutMs(sizeBound),
-		};
+		frame = newPendingAttachment(chunk, now);
 		reassembler.pending.set(key, frame);
 	}
 	if (chunk.idx === 0 && chunk.mimeType !== undefined) {

@@ -101,6 +101,35 @@ describe("encodeScreenObjectMessage / decodeScreenObjectMessage", () => {
 
 		expect(encodeScreenObjectMessage(decoded.chunk)).toEqual(golden);
 	});
+
+	it("a keyframe idx=0 chunk without metadata encodes zeros and an empty codec", () => {
+		const header = [0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0, 0, 0, 0x02];
+		expect(
+			encodeScreenObjectMessage({
+				seq: 1,
+				idx: 0,
+				count: 1,
+				keyframe: true,
+				timestampUs: 2,
+				data: bytes(0xcc),
+			}),
+		).toEqual(bytes(...header, 0, 0, 0, 0, 0, 0xcc));
+	});
+
+	it("a keyframe chunk with idx>0 carries no metadata", () => {
+		expect(
+			encodeScreenObjectMessage({
+				seq: 1,
+				idx: 1,
+				count: 2,
+				keyframe: true,
+				timestampUs: 2,
+				width: 9,
+				codec: "vp8",
+				data: bytes(0xcc),
+			}),
+		).toEqual(bytes(0, 1, 0, 1, 0, 2, 1, 0, 0, 0, 2, 0xcc));
+	});
 });
 
 describe("screen frame reassembly", () => {

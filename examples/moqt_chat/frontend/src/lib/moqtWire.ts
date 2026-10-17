@@ -1230,6 +1230,32 @@ export type ObjectDatagramInit = Pick<
 > &
 	Partial<ObjectDatagram>;
 
+/** Properties Length + Properties at `pos`: the Properties bytes and the
+ * offset just past them. */
+function takeDatagramProperties(
+	bytes: Uint8Array,
+	pos: number,
+): [Uint8Array, number] {
+	const len = decodeVarint(bytes, pos);
+	if (len.value === 0n) {
+		fail(
+			"PROTOCOL_VIOLATION: OBJECT_DATAGRAM PROPERTIES bit with Properties Length 0",
+		);
+	}
+	const start = pos + len.len;
+	const end = start + Number(len.value);
+	if (end > bytes.length) fail("truncated OBJECT_DATAGRAM: properties");
+	return [bytes.slice(start, end), end];
+}
+
+function checkDatagramStatus(properties: Uint8Array, status: bigint): void {
+	if (properties.length > 0 && status !== 0n) {
+		fail(
+			"PROTOCOL_VIOLATION: OBJECT_DATAGRAM properties with a non-Normal status",
+		);
+	}
+}
+
 /** Decodes one whole datagram as an OBJECT_DATAGRAM. Throws
  * MoqtDecodeError on a truncated datagram or a PROTOCOL_VIOLATION (invalid
  * Type, PROPERTIES bit with a Properties Length of 0, STATUS + PROPERTIES
@@ -1261,29 +1287,15 @@ export function decodeObjectDatagram(bytes: Uint8Array): ObjectDatagram {
 		priority = bytes[pos];
 		pos += 1;
 	}
-	let properties = new Uint8Array(0);
+	let properties: Uint8Array = new Uint8Array(0);
 	if ((t & DGRAM_PROPERTIES) !== 0n) {
-		const len = decodeVarint(bytes, pos);
-		if (len.value === 0n) {
-			fail(
-				"PROTOCOL_VIOLATION: OBJECT_DATAGRAM PROPERTIES bit with Properties Length 0",
-			);
-		}
-		pos += len.len;
-		const end = pos + Number(len.value);
-		if (end > bytes.length) fail("truncated OBJECT_DATAGRAM: properties");
-		properties = bytes.slice(pos, end);
-		pos = end;
+		[properties, pos] = takeDatagramProperties(bytes, pos);
 	}
 	let status = 0n;
 	let payload = new Uint8Array(0);
 	if ((t & DGRAM_STATUS) !== 0n) {
 		status = decodeVarint(bytes, pos).value;
-		if (properties.length > 0 && status !== 0n) {
-			fail(
-				"PROTOCOL_VIOLATION: OBJECT_DATAGRAM properties with a non-Normal status",
-			);
-		}
+		checkDatagramStatus(properties, status);
 	} else {
 		payload = bytes.slice(pos);
 	}
@@ -1299,13 +1311,7 @@ export function decodeObjectDatagram(bytes: Uint8Array): ObjectDatagram {
 	};
 }
 
-/** Inverse of decodeObjectDatagram: one datagram's bytes, minimal varints.
- * Throws MoqtDecodeError on the same violations decodeObjectDatagram
- * rejects. */
-export function encodeObjectDatagram(o: ObjectDatagramInit): Uint8Array {
-	const t = o.type;
-	const properties = o.properties ?? new Uint8Array(0);
-	const status = o.status ?? 0n;
+function checkEncodableDatagram(t: bigint, properties: Uint8Array): void {
 	if (!objectDatagramTypeValid(t)) {
 		fail(
 			`PROTOCOL_VIOLATION: invalid OBJECT_DATAGRAM type 0x${t.toString(16)}`,
@@ -1316,25 +1322,43 @@ export function encodeObjectDatagram(o: ObjectDatagramInit): Uint8Array {
 			"PROTOCOL_VIOLATION: OBJECT_DATAGRAM PROPERTIES bit with no properties",
 		);
 	}
-	if (properties.length > 0 && status !== 0n) {
-		fail(
-			"PROTOCOL_VIOLATION: OBJECT_DATAGRAM properties with a non-Normal status",
-		);
-	}
+}
+
+/** The last field: Object Status when the STATUS bit is set, else the
+ * payload. */
+function datagramTail(
+	t: bigint,
+	status: bigint,
+	payload: Uint8Array,
+): Uint8Array {
+	return (t & DGRAM_STATUS) !== 0n ? encodeVarint(status) : payload;
+}
+
+/** Inverse of decodeObjectDatagram: one datagram's bytes, minimal varints.
+ * Throws MoqtDecodeError on the same violations decodeObjectDatagram
+ * rejects. */
+export function encodeObjectDatagram(o: ObjectDatagramInit): Uint8Array {
+	const {
+		type: t,
+		objectId = 0n,
+		priority = 0,
+		status = 0n,
+		properties = new Uint8Array(0),
+		payload = new Uint8Array(0),
+	} = o;
+	checkEncodableDatagram(t, properties);
+	checkDatagramStatus(properties, status);
 	const parts = [
 		encodeVarint(t),
 		encodeVarint(o.trackAlias),
 		encodeVarint(o.groupId),
 	];
-	if ((t & DGRAM_ZERO_OBJECT_ID) === 0n)
-		parts.push(encodeVarint(o.objectId ?? 0n));
-	if ((t & DGRAM_DEFAULT_PRIORITY) === 0n)
-		parts.push(Uint8Array.of(o.priority ?? 0));
+	if ((t & DGRAM_ZERO_OBJECT_ID) === 0n) parts.push(encodeVarint(objectId));
+	if ((t & DGRAM_DEFAULT_PRIORITY) === 0n) parts.push(Uint8Array.of(priority));
 	if ((t & DGRAM_PROPERTIES) !== 0n) {
 		parts.push(encodeVarint(BigInt(properties.length)), properties);
 	}
-	if ((t & DGRAM_STATUS) !== 0n) parts.push(encodeVarint(status));
-	else parts.push(o.payload ?? new Uint8Array(0));
+	parts.push(datagramTail(t, status, payload));
 	return concatBytes(parts);
 }
 
@@ -1458,6 +1482,41 @@ function inherited<T>(v: T | undefined, what: string): T {
 	return v;
 }
 
+// The Group, Subgroup and Object fields in wire order; each reads its
+// varint through `take` only when the flags put it on the wire.
+function fetchGroup(
+	newGroup: boolean,
+	seq: FetchSeq,
+	take: () => bigint,
+): bigint {
+	if (!newGroup) return inherited(seq.group, "Group");
+	if (seq.group === undefined) return take();
+	return seq.group + take() + 1n;
+}
+
+function fetchSubgroup(
+	f: bigint,
+	seq: FetchSeq,
+	take: () => bigint,
+): bigint | undefined {
+	if ((f & FETCH_DATAGRAM) !== 0n) return undefined;
+	const mode = f & 0x03n;
+	if (mode === 0n) return 0n;
+	if (mode === 3n) return take();
+	return inherited(seq.subgroup, "Subgroup") + (mode - 1n);
+}
+
+function fetchObjectId(
+	f: bigint,
+	newGroup: boolean,
+	seq: FetchSeq,
+	take: () => bigint,
+): bigint {
+	if ((f & FETCH_OBJECT) === 0n) return inherited(seq.object, "Object") + 1n;
+	if (newGroup || seq.object === undefined) return take();
+	return seq.object + take();
+}
+
 /** Decode one fetch Object (or End of Range) at `offset`, updating `seq`
  * only on success. Throws MoqtDecodeError when the bytes run out mid-item
  * (a stream reader waits for more) or on a PROTOCOL_VIOLATION. Groups are
@@ -1491,21 +1550,9 @@ export function decodeFetchObject(
 	if (f >= 128n)
 		fail(`PROTOCOL_VIOLATION: fetch Serialization Flags 0x${f.toString(16)}`);
 	const newGroup = (f & FETCH_GROUP) !== 0n;
-	let group: bigint;
-	if (!newGroup) group = inherited(seq.group, "Group");
-	else if (seq.group === undefined) group = take();
-	else group = seq.group + take() + 1n;
-	let subgroup: bigint | undefined;
-	if ((f & FETCH_DATAGRAM) === 0n) {
-		const mode = f & 0x03n;
-		if (mode === 0n) subgroup = 0n;
-		else if (mode === 3n) subgroup = take();
-		else subgroup = inherited(seq.subgroup, "Subgroup") + (mode - 1n);
-	}
-	let object: bigint;
-	if ((f & FETCH_OBJECT) === 0n) object = inherited(seq.object, "Object") + 1n;
-	else if (newGroup || seq.object === undefined) object = take();
-	else object = seq.object + take();
+	const group = fetchGroup(newGroup, seq, take);
+	const subgroup = fetchSubgroup(f, seq, take);
+	const object = fetchObjectId(f, newGroup, seq, take);
 	let priority: number;
 	if ((f & FETCH_PRIORITY) === 0n)
 		priority = inherited(seq.priority, "Priority");

@@ -527,3 +527,56 @@ describe("attachmentReassemblerPush key reuse across independent cycles", () => 
 		expect(secondResult).toEqual(bytes(4, 5));
 	});
 });
+
+describe("attachmentReassemblerPush duplicate / out-of-range / late-metadata chunks", () => {
+	it("ignores a duplicate and an idx >= count, and takes the idx 0 mimeType once it arrives", () => {
+		const state = attachmentReassemblerInit();
+		const chunk = (idx: number, data: Uint8Array): AttachmentChunk => ({
+			messageId: 7,
+			attachmentIdx: 0,
+			seq: 0,
+			idx,
+			count: 2,
+			mimeType: idx === 0 ? "image/png" : undefined,
+			data,
+		});
+		expect(attachmentReassemblerPush(state, chunk(1, bytes(2)))).toBeNull();
+		expect(state.pending.get("7:0")?.mimeType).toBe("");
+		expect(attachmentReassemblerPush(state, chunk(1, bytes(9)))).toBeNull();
+		expect(attachmentReassemblerPush(state, chunk(5, bytes(9)))).toBeNull();
+		expect(state.pending.get("7:0")?.received).toBe(1);
+		expect(attachmentReassemblerPush(state, chunk(0, bytes(1)))).toEqual(
+			bytes(1, 2),
+		);
+	});
+
+	it("records the mimeType when idx 0 opens the frame", () => {
+		const state = attachmentReassemblerInit();
+		attachmentReassemblerPush(state, {
+			messageId: 8,
+			attachmentIdx: 0,
+			seq: 0,
+			idx: 0,
+			count: 2,
+			mimeType: "image/png",
+			data: bytes(1),
+		});
+		expect(state.pending.get("8:0")?.mimeType).toBe("image/png");
+	});
+});
+
+describe("encodeAttachmentChunkMessage idx=0 without metadata", () => {
+	it("writes an empty MIME type and totalBytes 0", () => {
+		const out = encodeAttachmentChunkMessage({
+			messageId: 1,
+			attachmentIdx: 2,
+			seq: 3,
+			idx: 0,
+			count: 1,
+			data: bytes(0xaa),
+		});
+		expect(out).toEqual(
+			bytes(0xfd, 0, 0, 0, 1, 2, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0xaa),
+		);
+	});
+});

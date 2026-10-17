@@ -257,6 +257,42 @@ describe("FETCH data stream (11.4.4)", () => {
 		expect(b.object.priority).toBe(0x80);
 		expect(bytesToUtf8(b.object.payload)).toBe("b");
 	});
+
+	it("walks every Subgroup mode and the Object delta forms", () => {
+		// 1f: new G5, explicit Subgroup 7, Object 3, prio 0x80
+		// 01: Subgroup = prior; 02: Subgroup = prior + 1; 04: Subgroup 0,
+		// Object = prior + 2; 40: datagram, no Subgroup.
+		const bytes = hexToBytes(
+			"1f05070380 0161 010162 020163 04020164 400165".replace(/ /g, ""),
+		);
+		const seq = newFetchSeq();
+		const got = [];
+		for (let pos = 0; pos < bytes.length; ) {
+			const { object, len } = decodeFetchObject(bytes, pos, seq);
+			got.push([
+				object.group,
+				seq.subgroup,
+				object.object,
+				object.priority,
+				bytesToUtf8(object.payload),
+			]);
+			pos += len;
+		}
+		expect(got).toEqual([
+			[5n, 7n, 3n, 0x80, "a"],
+			[5n, 7n, 4n, 0x80, "b"],
+			[5n, 8n, 5n, 0x80, "c"],
+			[5n, 0n, 7n, 0x80, "d"],
+			[5n, undefined, 8n, 0x80, "e"],
+		]);
+	});
+
+	it("rejects a missing Priority and an inherited one with no prior", () => {
+		for (const hex of ["1c0500", "0c05000161"])
+			expect(() =>
+				decodeFetchObject(hexToBytes(hex), 0, newFetchSeq()),
+			).toThrow(MoqtDecodeError);
+	});
 });
 
 // draft-ietf-moq-transport-22: the wire forms that differ from draft-19 --
