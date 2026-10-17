@@ -113,14 +113,16 @@ static void test_resp_build_prefix_fields(void) {
   wired_obuf             pb   = {pre, sizeof pre, 0};
   h3req_resp             resp = {0};
   qpackenc_status_result ins;
+  h3resp_fields          fl = {f, 2};
   usz off = 4; /* prefix (2) + :status 302, static index 66 (2) */
-  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, f, 2, 0, &ins, &pb) == 1);
+  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, fl, 0, &ins, &pb) == 1);
   CHECK(h3req_resp_parse(wired_span_of(pre, pb.len), &resp) == 1);
   CHECK(rb_litname_is(resp.headers, &off, "location", "/a"));
   CHECK(rb_litname_is(resp.headers, &off, "set-cookie", "x=1"));
   CHECK(off == resp.headers.n);
   pb.len = 0;
-  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, f, 0, 0, &ins, &pb) == 1);
+  fl.n   = 0;
+  CHECK(h3resp_prefix_fields_qenc(302, 0, 0, fl, 0, &ins, &pb) == 1);
   CHECK(pb.len == 2 + 4); /* HEADERS type + length + 4-byte section */
 }
 

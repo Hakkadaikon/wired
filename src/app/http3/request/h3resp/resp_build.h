@@ -53,17 +53,22 @@ int h3resp_prefix_field_qenc(
     qpackenc_status_result* insert_out,
     wired_obuf*             out);
 
-/* Same as h3resp_prefix_field_qenc, but with n_extra trailing Literal
+/* A list of response fields: p[0..n). */
+typedef struct {
+  const qpack_field* p;
+  usz                n;
+} h3resp_fields;
+
+/* Same as h3resp_prefix_field_qenc, but with extra.n trailing Literal
  * Field Lines With Literal Name (RFC 9204 4.5.6), one per entry of
- * extra[0..n_extra), in order -- e.g. an application's own response
- * headers. n_extra == 0 adds none. Returns 1 with out->len set, 0 if out
+ * extra.p[0..extra.n), in order -- e.g. an application's own response
+ * headers. extra.n == 0 adds none. Returns 1 with out->len set, 0 if out
  * lacks capacity. */
 int h3resp_prefix_fields_qenc(
     u16                     status,
     const char*             content_type,
     u64                     body_len,
-    const qpack_field*      extra,
-    usz                     n_extra,
+    h3resp_fields           extra,
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out);

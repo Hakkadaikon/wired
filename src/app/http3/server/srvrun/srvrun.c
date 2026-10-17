@@ -7363,6 +7363,24 @@ static void srvrun_qenc_send_insert(
   qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
 }
 
+/* Build x's response prefix (HEADERS + DATA header for total_len body
+ * bytes) into pob and forward any QPACK Insert it generated. Returns 0 when
+ * the app's fields overflow pob. */
+static int srvrun_h3_resp_prefix(
+    srvrun_conn*               c,
+    const wired_http_exchange* x,
+    u64                        total_len,
+    wired_obuf*                pob) {
+  h3resp_fields          f = {x->fields, x->field_count};
+  qpackenc_status_result ins;
+  if (!h3resp_prefix_fields_qenc(
+          srvrun_http_status(x), x->content_type, total_len, f,
+          srvrun_qenc_active(c), &ins, pob))
+    return 0;
+  srvrun_qenc_send_insert(c, &ins);
+  return 1;
+}
+
 static void srvrun_arm_h3_resp_framed(
     const srvrun_step_ctx*     ctx,
     srvrun_conn*               c,
@@ -7371,18 +7389,14 @@ static void srvrun_arm_h3_resp_framed(
     u8*                        st,
     const wired_http_exchange* x,
     u64                        total_len) {
-  u8                     pre[SRVRUN_RESP_HDR_ROOM];
-  wired_obuf             pob  = obuf_of(pre, sizeof pre);
-  const wired_obuf*      body = x->body;
-  qpackenc_status_result ins;
-  usz                    off;
-  if (!h3resp_prefix_fields_qenc(
-          srvrun_http_status(x), x->content_type, total_len, x->fields,
-          x->field_count, srvrun_qenc_active(c), &ins, &pob)) {
+  u8                pre[SRVRUN_RESP_HDR_ROOM];
+  wired_obuf        pob  = obuf_of(pre, sizeof pre);
+  const wired_obuf* body = x->body;
+  usz               off;
+  if (!srvrun_h3_resp_prefix(c, x, total_len, &pob)) {
     r->arm_failed = 1; /* the app's fields overflow the prefix room */
     return;
   }
-  srvrun_qenc_send_insert(c, &ins);
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   bytes_put(
       wired_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,

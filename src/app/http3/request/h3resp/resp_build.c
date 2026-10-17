@@ -76,7 +76,7 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
 
 /* Same as h3resp_prefix_field, but :status is encoded through qenc's
  * dynamic table when non-null (put_headers_qenc), and extra is a list of
- * n_extra fields. *insert_out receives any pending encoder-stream
+ * fields. *insert_out receives any pending encoder-stream
  * instruction the :status line generated (insert_len == 0 if none, always
  * the case when qenc == 0) -- the caller sends it on the QPACK encoder
  * stream and calls qpackenc_note_sent once it does (RFC 9204 4.3.3 /
@@ -85,14 +85,13 @@ int h3resp_prefix_fields_qenc(
     u16                     status,
     const char*             content_type,
     u64                     body_len,
-    const qpack_field*      extra,
-    usz                     n_extra,
+    h3resp_fields           extra,
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
   wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers_qenc(
-      status, content_type, extra, n_extra, qenc, insert_out, &head);
+      status, content_type, extra.p, extra.n, qenc, insert_out, &head);
   if (!off) return 0;
   out->len = off;
   return prefix_data_hdr(body_len, out);
@@ -106,8 +105,9 @@ int h3resp_prefix_field_qenc(
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
+  h3resp_fields f = {extra, extra != 0};
   return h3resp_prefix_fields_qenc(
-      status, content_type, body_len, extra, extra != 0, qenc, insert_out, out);
+      status, content_type, body_len, f, qenc, insert_out, out);
 }
 
 int h3resp_prefix_field(
