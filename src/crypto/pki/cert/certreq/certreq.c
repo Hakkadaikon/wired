@@ -30,14 +30,17 @@ int certreq_build(wired_span sig_algs, wired_obuf* out) {
 
 /* RFC 8446 4.3.2: read the context and extensions block of the body b.
  * Sets *ctx and *ext. Returns 1 if framed. */
+/* The context length byte and the extensions length both fit in b. */
+static int certreq_has_heads(wired_span b) {
+  return b.n >= 1 && 1 + (usz)b.p[0] + 2 <= b.n;
+}
+
 static int split_body(wired_span b, wired_span* ctx, wired_span* ext) {
-  usz e;
-  if (b.n < 1 || 1 + (usz)b.p[0] + 2 > b.n) return 0;
-  *ctx        = wired_span_of(b.p + 1, b.p[0]);
-  e           = 1 + b.p[0];
-  usz ext_len = (usz)b.p[e] << 8 | b.p[e + 1];
-  *ext        = wired_span_of(b.p + e + 2, ext_len);
-  return e + 2 + ext_len <= b.n;
+  if (!certreq_has_heads(b)) return 0;
+  usz e = 1 + (usz)b.p[0];
+  *ctx  = wired_span_of(b.p + 1, b.p[0]);
+  *ext  = wired_span_of(b.p + e + 2, be_get_be16(b.p + e));
+  return e + 2 + ext->n <= b.n;
 }
 
 /* The 2-byte ext_data length of the extension at offset q. */
