@@ -2911,26 +2911,48 @@ static void moqtrun_fetch_after(
 /* Sends the item at f's cursor (FIN on the last); 0 when the transport
  * refused it -- the cursor stays and the item is looked up afresh on the
  * next try. relay_scratch is free here (its doc). */
-static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+/* Encodes the item at f's cursor into relay_scratch; returns its length,
+ * seq advanced past it and *next the location after it. */
+static usz moqtrun_fetch_encode_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    moqfetch_seq*        seq,
+    moqctl_loc*          next) {
   moqcache_item it;
   moqfetch_obj  o;
-  moqtrun_fwin  w;
-  moqfetch_seq  seq = f->seq;
-  usz           n   = 0;
+  usz           n = 0;
   moqcache_item_at(&hub->cache, f->cache_tag, f->cursor, f->end, &it);
-  moqtrun_fetch_obj_of(&o, &it, &seq, moqtrun_fetch_eor(f));
+  moqtrun_fetch_obj_of(&o, &it, seq, moqtrun_fetch_eor(f));
   moqfetch_obj_put(
-      wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, &seq,
+      wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, seq,
       &o);
-  moqtrun_fetch_after(hub, f, it.next, &w);
+  *next = it.next;
+  return n;
+}
+
+/* f past the item just sent: its seq, window and liveness stamp. */
+static void moqtrun_fetch_advance(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    moqfetch_seq         seq,
+    const moqtrun_fwin*  w) {
+  f->seq        = seq;
+  f->cursor     = w->cursor;
+  f->end        = w->end;
+  f->last_ok_ms = hub->live.last_now_ms;
+}
+
+static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqtrun_fwin w;
+  moqctl_loc   next;
+  moqfetch_seq seq = f->seq;
+  usz          n   = moqtrun_fetch_encode_one(hub, f, &seq, &next);
+  moqtrun_fetch_after(hub, f, next, &w);
   int fin = moqtrun_fwin_drained(&w);
   if (hub->io.stream_send(
           f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <= 0)
     return 0;
-  f->seq        = seq;
-  f->cursor     = w.cursor;
-  f->end        = w.end;
-  f->last_ok_ms = hub->live.last_now_ms;
+  moqtrun_fetch_advance(hub, f, seq, &w);
   if (fin) moqtrun_fetch_free(hub, f);
   return 1;
 }
@@ -5085,6 +5107,40 @@ static int moqtrun_subtracks_encode_pub(
   return moqctl_publish_encode(buf, off, m);
 }
 
+/* The PUBLISH m for t on st_peer's session, naming q's request_id. */
+static void moqtrun_subtracks_pub_fill(
+    moqctl_publish*            m,
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        st_peer,
+    const wired_moqtrun_req*   q,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  usz off        = 0;
+  m->request_id  = q->request_id;
+  m->track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
+  m->params      = moqtrun_subtracks_publish_params(st);
+  moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
+  m->name.name = wired_span_of(t->name, t->name_len);
+}
+
+/* q once its PUBLISH for t went out on stream sid with alias. */
+static void moqtrun_subtracks_pub_opened(
+    wired_moqtrun_req*         q,
+    i64                        sid,
+    u64                        alias,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  q->stream_id     = (u64)sid;
+  q->opened        = 1;
+  q->kind          = MOQCTL_T_PUBLISH;
+  q->pub_track_tag = t->cache_tag;
+  q->pub_alias     = alias;
+  q->has_forward   = st->has_forward;
+  q->forward       = st->forward;
+  q->group_order   = st->group_order;
+  moqtrun_rngf_copy_objects(q, st);
+}
+
 /* Opens a fresh PUBLISH bidi stream on st_peer's session for t, naming q's
  * request_id and st_peer's session alias for t (10.9; draft-22 3.1.3,
  * moqtrun_session_alias), kept on q as pub_alias; 1 sent, 0 when the transport
@@ -5100,29 +5156,14 @@ static int moqtrun_subtracks_open_pub(
   u8
                  msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
                      WIRED_MOQTRUN_MAX_NAME + 32];
-  moqctl_publish m   = {0};
-  usz            off = 0;
-  i64            sid;
-  usz            n;
-  m.request_id  = q->request_id;
-  m.track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
-  m.params      = moqtrun_subtracks_publish_params(st);
-  moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m.name.ns);
-  m.name.name = wired_span_of(t->name, t->name_len);
-  n           = moqtrun_envelope_put(
+  moqctl_publish m = {0};
+  moqtrun_subtracks_pub_fill(&m, hub, st_peer, q, t, st);
+  usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH,
       moqtrun_subtracks_encode_pub, &m);
-  sid = hub->io.open_bidi_stream(st_peer->wt, wired_span_of(msg, n));
+  i64 sid = hub->io.open_bidi_stream(st_peer->wt, wired_span_of(msg, n));
   if (sid < 0) return 0;
-  q->stream_id     = (u64)sid;
-  q->opened        = 1;
-  q->kind          = MOQCTL_T_PUBLISH;
-  q->pub_track_tag = t->cache_tag;
-  q->pub_alias     = m.track_alias;
-  q->has_forward   = st->has_forward;
-  q->forward       = st->forward;
-  q->group_order   = st->group_order;
-  moqtrun_rngf_copy_objects(q, st);
+  moqtrun_subtracks_pub_opened(q, sid, m.track_alias, t, st);
   return 1;
 }
 
@@ -7590,6 +7631,23 @@ static void moqtrun_sub_note_open(
  * late-opens it on a later round (moqtrun_relay_late_open), a ring-backed
  * one retries on the next drain while the ring still holds the stream's
  * start (moqtrun_rel_late_attach_all), else it gets nothing. */
+/* Records sub slot i's freshly opened relay stream sid (sent out first). */
+static void moqtrun_relay_opened(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  dst,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    i64                  sid,
+    wired_span           out) {
+  moqtrun_prio_set(hub, dst->wt, sid, sub, out, relay->default_pub_prio);
+  sub->stream_count++;
+  moqtrun_sub_note_open(hub, dst->wt, sub, relay, (u64)sid);
+  relay->sub_stream_id[i]   = (u64)sid;
+  relay->sub_stream_set[i]  = 1;
+  relay->sub_busy_streak[i] = 0;
+}
+
 static void moqtrun_relay_open_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -7605,12 +7663,7 @@ static void moqtrun_relay_open_one(
     hub->stat_open_drop++;
     return;
   }
-  moqtrun_prio_set(hub, dst->wt, sid, sub, out, relay->default_pub_prio);
-  sub->stream_count++;
-  moqtrun_sub_note_open(hub, dst->wt, sub, relay, (u64)sid);
-  relay->sub_stream_id[i]   = (u64)sid;
-  relay->sub_stream_set[i]  = 1;
-  relay->sub_busy_streak[i] = 0;
+  moqtrun_relay_opened(hub, dst, sub, relay, i, sid, out);
   moqtrun_relay_open_end_hit(
       hub, dst->wt, (u64)sid, relay, i, cut_wire.n, wire.n);
 }
@@ -7679,6 +7732,40 @@ static void moqtrun_relay_save_hdr(
  * (moqtrun_rel_start) additionally binds a ring and records each opened
  * subscriber stream as a ring cursor (moqtrun_rel_attach_subs); the open
  * calls themselves are shared with the lossy path. */
+/* A just-claimed relay entry for pub_stream_id, lossy and with no
+ * subscriber stream open yet. */
+static void moqtrun_relay_claim_init(
+    wired_moqtrun_relay*       relay,
+    const wired_moqtrun_track* track,
+    u64                        pub_stream_id) {
+  relay->in_use           = 1;
+  relay->default_pub_prio = track->default_pub_prio;
+  relay->pub_stream_id    = pub_stream_id;
+  relay->rel_idx          = -1; /* lossy until moqtrun_rel_start binds a ring */
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    relay->sub_stream_set[i]  = 0;
+    relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
+  }
+  moqtrun_frag_release(relay);
+}
+
+/* relay's per-stream state from its first delivery wire, whole Objects up
+ * to whole_end: the held tail and the saved SUBGROUP_HEADER. */
+static void moqtrun_relay_head_init(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_relay* relay,
+    wired_span           wire,
+    usz                  whole_end) {
+  relay->sub_expired = 0;
+  relay->sub_reframe = 0;
+  relay->subgroup_id = 0;
+  relay->pub_prio    = relay->default_pub_prio;
+  moqtrun_relay_save_frag(
+      hub, relay, wire.p + whole_end, wire.n - whole_end,
+      hub->live.last_now_ms);
+  moqtrun_relay_save_hdr(relay, wire);
+}
+
 static void moqtrun_relay_start(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
@@ -7691,26 +7778,11 @@ static void moqtrun_relay_start(
     hub->stat_relay_full++; /* whole message lost for every subscriber */
     return;
   }
-  relay->in_use           = 1;
-  relay->default_pub_prio = track->default_pub_prio;
-  relay->pub_stream_id    = pub_stream_id;
-  relay->rel_idx          = -1; /* lossy until moqtrun_rel_start binds a ring */
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
-    relay->sub_stream_set[i]  = 0;
-    relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
-  }
-  moqtrun_frag_release(relay);
+  moqtrun_relay_claim_init(relay, track, pub_stream_id);
   moqtrun_rel_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));
-  relay->sub_expired = 0;
-  relay->sub_reframe = 0;
-  relay->subgroup_id = 0;
-  relay->pub_prio    = relay->default_pub_prio;
-  moqtrun_relay_save_frag(
-      hub, relay, wire.p + whole_end, wire.n - whole_end,
-      hub->live.last_now_ms);
-  moqtrun_relay_save_hdr(relay, wire);
+  moqtrun_relay_head_init(hub, relay, wire, whole_end);
   moqtrun_subgroup_scan(
       wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);
   moqtss_prime(hub, track, relay->group_id); /* SSTS (moqtssts_run.c) */
