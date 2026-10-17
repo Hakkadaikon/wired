@@ -165,28 +165,19 @@ static wired_srvinbox_ring* srvthreads_row_at(
   return mesh + (usz)i * (usz)n_cores;
 }
 
-/* Fill one worker's argument block: per-worker env pointer/index/core-scoped
- * xdp cfg, plus a deep-enough copy of id -- SIGHUP reload writes
- * id->chain/chain_count/cert_seed in place, and every worker must see only
- * its own copy. run's no_signal_handlers is forced to 1: only the control
- * thread installs SIGTERM/SIGHUP. */
-static void srvthreads_fill_arg(
+/* Fill the fields every worker's argument block shares, including a
+ * deep-enough copy of id -- SIGHUP reload writes id->chain/chain_count/
+ * cert_seed in place, and every worker must see only its own copy. run's
+ * no_signal_handlers is forced to 1: only the control thread installs
+ * SIGTERM/SIGHUP. */
+static void srvthreads_fill_common(
     srvthreads_worker_arg*      a,
-    int                         i,
-    u8*                         envs,
-    wired_srvinbox_ring*        mesh,
-    int                         n,
     u16                         port,
     const wired_srvboot_id*     id,
     wired_srvrun_handler        h,
     wired_srvrun_obs            obs,
     const wired_srvthreads_opt* opt,
     wired_srvxdpbpf*            bpf) {
-  a->index                  = i;
-  a->core                   = opt->cores[i];
-  a->n_total                = n;
-  a->inbox_row              = srvthreads_row_at(mesh, i, n);
-  a->env                    = srvthreads_env_at(envs, i);
   a->port                   = port;
   a->id                     = *id;
   a->h                      = h;
@@ -195,6 +186,24 @@ static void srvthreads_fill_arg(
   a->run.no_signal_handlers = 1;
   a->xdp_cfg                = opt->xdp;
   a->bpf                    = bpf;
+}
+
+/* Fill worker i's argument block: the shared fields from common, then the
+ * per-worker env pointer/index/pin core/inbox row. */
+static void srvthreads_fill_arg(
+    srvthreads_worker_arg*       a,
+    const srvthreads_worker_arg* common,
+    int                          i,
+    u8*                          envs,
+    wired_srvinbox_ring*         mesh,
+    int                          n,
+    const int*                   cores) {
+  *a           = *common;
+  a->index     = i;
+  a->core      = cores[i];
+  a->n_total   = n;
+  a->inbox_row = srvthreads_row_at(mesh, i, n);
+  a->env       = srvthreads_env_at(envs, i);
 }
 
 /* Spawn every worker thread. On the first wired_thread_start failure, stops
@@ -293,18 +302,14 @@ static int srvthreads_setup(
 
 /* Fill every worker's argument block ahead of spawning any thread. */
 static void srvthreads_fill_args(
-    srvthreads_worker_arg*      args,
-    u8*                         envs,
-    wired_srvinbox_ring*        mesh,
-    int                         n,
-    u16                         port,
-    const wired_srvboot_id*     id,
-    wired_srvrun_handler        h,
-    wired_srvrun_obs            obs,
-    const wired_srvthreads_opt* opt,
-    wired_srvxdpbpf*            bpf) {
+    srvthreads_worker_arg*       args,
+    const srvthreads_worker_arg* common,
+    u8*                          envs,
+    wired_srvinbox_ring*         mesh,
+    int                          n,
+    const int*                   cores) {
   for (int i = 0; i < n; i++)
-    srvthreads_fill_arg(&args[i], i, envs, mesh, n, port, id, h, obs, opt, bpf);
+    srvthreads_fill_arg(&args[i], common, i, envs, mesh, n, cores);
 }
 
 /* Bind the control thread to its own core, if requested (opt->control_core
@@ -314,14 +319,22 @@ static void srvthreads_pin_control(int control_core) {
   if (control_core >= 0) wired_srvpin_bind_self(control_core);
 }
 
+/* Spawn every worker, wait for the shutdown word, then join them all. */
+static void srvthreads_serve(srvthreads_worker_arg* args, int n) {
+  wired_thread threads[WIRED_SRVTHREADS_MAX] = {0};
+  srvthreads_start_workers(threads, args, n);
+  srvthreads_wait_shutdown(wired_srvrun_shutdown_word());
+  srvthreads_join_all(threads, n);
+}
+
 int wired_srvthreads_run(
     u16                         port,
     wired_srvboot_id*           id,
     wired_srvrun_handler        h,
     wired_srvrun_obs            obs,
     const wired_srvthreads_opt* opt) {
-  wired_thread          threads[WIRED_SRVTHREADS_MAX] = {0};
   srvthreads_worker_arg args[WIRED_SRVTHREADS_MAX];
+  srvthreads_worker_arg common;
   wired_srvxdpbpf       bpf = {-1, -1, -1};
   u8*                   envs;
   wired_srvinbox_ring*  mesh;
@@ -331,11 +344,9 @@ int wired_srvthreads_run(
   /* draw the ticket/Retry seeds before any worker thread can race the draw */
   if (!srvkeys_ready()) return 0;
   if (!srvthreads_setup(&bpf, &envs, &mesh, n, opt->xdp)) return 0;
-  srvthreads_fill_args(args, envs, mesh, n, port, id, h, obs, opt, &bpf);
-
-  srvthreads_start_workers(threads, args, n);
-  srvthreads_wait_shutdown(wired_srvrun_shutdown_word());
-  srvthreads_join_all(threads, n);
+  srvthreads_fill_common(&common, port, id, h, obs, opt, &bpf);
+  srvthreads_fill_args(args, &common, envs, mesh, n, opt->cores);
+  srvthreads_serve(args, n);
 
   srvthreads_close_bpf(&bpf, opt->xdp);
   srvthreads_free_mesh(mesh, n);

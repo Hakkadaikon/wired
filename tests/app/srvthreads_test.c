@@ -78,7 +78,7 @@ static void test_srvthreads_run_joins_all_workers_on_shutdown(void) {
  * only the pin target comes from cores[i]. */
 static void test_srvthreads_fill_arg_maps_cores_to_pin_target(void) {
   wired_srvthreads_opt  opt = {0};
-  srvthreads_worker_arg a;
+  srvthreads_worker_arg a, common;
   __builtin_memset(&a, 0, sizeof a); /* deterministic pre-fill state */
   wired_srvboot_id     id = {0};
   wired_srvrun_handler h  = {0};
@@ -90,7 +90,8 @@ static void test_srvthreads_fill_arg_maps_cores_to_pin_target(void) {
   opt.n_cores  = 2;
   opt.cores[0] = 5;
   opt.cores[1] = 9;
-  srvthreads_fill_arg(&a, 1, envs, mesh, 2, 4433, &id, h, obs, &opt, 0);
+  srvthreads_fill_common(&common, 4433, &id, h, obs, &opt, 0);
+  srvthreads_fill_arg(&a, &common, 1, envs, mesh, 2, opt.cores);
   CHECK(a.index == 1); /* mesh row/column and XDP queue id stay the index */
   CHECK(a.core == 9);  /* the CPU to pin to comes from cores[i] */
 }
