@@ -9477,17 +9477,45 @@ static usz srvrun_resp_stop(
   return 1;
 }
 
+/* 1 iff stream_id still has a live WT bidi receive slot. */
+static int srvrun_wt_rx_live(srvrun_conn* c, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (wt_reset_bidi_matches(&c->l.wt_streams[i], stream_id)) return 1;
+  return 0;
+}
+
+/* 1 iff w is the send part of a bidi stream an app session owns. */
+static int srvrun_wtsend_app_bidi(const srvrun_wtsend* w) {
+  return !(w->stream_id & 2) && w->wt_session_slot >= 0;
+}
+
+/* draft-ietf-moq-transport-19 3.3.3: a peer that already FIN'd its half
+ * cancels with STOP_SENDING alone. That FIN's delivery reaped the receive
+ * slot srvrun_deliver_wt_reset_if_owned routes by, so the stop reaches
+ * the app here, through the send part's own session. */
+static void srvrun_wtsend_stop_notify(
+    const srvrun_cfg*          cfg,
+    srvrun_conn*               c,
+    const srvrun_wtsend*       w,
+    const wired_srvloop_reset* e) {
+  if (!srvrun_wtsend_app_bidi(w) || srvrun_wt_rx_live(c, e->stream_id)) return;
+  srvrun_deliver_wt_reset(cfg, c, w->wt_session_slot, e);
+}
+
 /* RFC 9000 3.5 on a WT stream this server sends on: RESET_STREAM with the
  * peer's code at the bytes already sent, and stop sending. */
 static void srvrun_wtsend_stop(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 code) {
-  u8         pl[32];
-  wired_obuf plb = obuf_of(pl, sizeof pl);
-  if (!srvrun_wtsend_find(c, stream_id)) return;
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
+  u8                   pl[32];
+  wired_obuf           plb = obuf_of(pl, sizeof pl);
+  const srvrun_wtsend* w   = srvrun_wtsend_find(c, e->stream_id);
+  if (!w) return;
+  srvrun_wtsend_stop_notify(cfg, c, w, e);
   srvrun_send_kept(
-      cfg, c, pl, srvrun_wt_abort_reset(c, stream_id, code, &plb, 0),
+      cfg, c, pl,
+      srvrun_wt_abort_reset(c, e->stream_id, e->error_code, &plb, 0),
       "WT stream RESET sent\n");
-  srvrun_wtsend_release(c, stream_id);
+  srvrun_wtsend_release(c, e->stream_id);
 }
 
 /* RFC 9000 3.5 on session slot sidx's CONNECT stream: reset it with the
@@ -9554,7 +9582,7 @@ static usz srvrun_answer_stream_stop(
     srvrun_connect_stop(ctx->cfg, c, sidx, e->error_code);
     return 0;
   }
-  srvrun_wtsend_stop(ctx->cfg, c, e->stream_id, e->error_code);
+  srvrun_wtsend_stop(ctx->cfg, c, e);
   r = srvrun_resp_find(c, e->stream_id);
   return r ? srvrun_resp_stop(ctx, c, r, e->error_code)
            : srvrun_req_stop(ctx, c, e);

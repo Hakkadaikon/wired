@@ -17363,7 +17363,8 @@ static void test_srvrun_wt_stopped_stream_sends_nothing(void) {
   CHECK(id >= 0);
   w = &c->wtsend[0];
   CHECK(srvrun_pump_wt_round(&ctx, c) == 1); /* sends while in use */
-  srvrun_wtsend_stop(&cfg, c, (u64)id, H3_REQUEST_CANCELLED);
+  srvrun_wtsend_stop(
+      &cfg, c, &(wired_srvloop_reset){(u64)id, H3_REQUEST_CANCELLED, 1});
   CHECK(!wired_server_wt_stream_inflight(&c->wt, (u64)id));
   usz cur = w->sess.q.cur;
   CHECK(srvrun_pump_wt_round(&ctx, c) == 0);
@@ -20614,6 +20615,52 @@ static void test_srvrun_wt_two_resets_one_step_both_delivered(void) {
   CHECK(g_sr_wt_reset_calls == 2);
   CHECK(c->l.wt_streams[0].in_use == 0);
   CHECK(c->l.wt_uni_streams[0].in_use == 0);
+}
+
+/* Session slot 0 live, owning a reply send part on client bidi stream 4
+ * and, when rx_live, the stream's receive slot too; a peer STOP_SENDING
+ * on 4 queued for this step. */
+static srvrun_conn* sr_wt_stop_after_fin_fixture(
+    struct lp_fix*   f,
+    srvrun_cfg*      cfg,
+    srvrun_state*    st,
+    srvrun_step_ctx* ctx,
+    int              rx_live) {
+  srvrun_conn*   c                   = sr_wt_credit_fixture(f, cfg, st, ctx);
+  srvrun_wtsend* w                   = srvrun_wtsend_claim(c, 1000);
+  cfg->wt_on_stream_reset            = sr_wt_on_stream_reset;
+  c->wt_active                       = 1;
+  w->stream_id                       = 4;
+  w->wt_session_slot                 = 0;
+  c->l.wt_streams[0].in_use          = rx_live;
+  c->l.wt_streams[0].stream_id       = 4;
+  c->l.wt_streams[0].wt_session_slot = 0;
+  c->l.peer_resets[0] = (wired_srvloop_reset){4, wired_wterrmap_to_http3(0), 1};
+  c->l.peer_reset_n   = 1;
+  g_sr_wt_reset_calls = 0;
+  return c;
+}
+
+/* draft-ietf-moq-transport-19 3.3.3: a peer that already FIN'd its half
+ * cancels with STOP_SENDING alone. The FIN's delivery already reaped the
+ * stream's receive slot, so the stop must still reach the app through the
+ * send part's own session -- once, and once only while the receive slot
+ * is still live. */
+static void test_srvrun_wt_stop_after_fin_reaches_app(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  for (int rx_live = 0; rx_live < 2; rx_live++) {
+    srvrun_conn* c = sr_wt_stop_after_fin_fixture(&f, &cfg, &st, &ctx, rx_live);
+    srvrun_answer_peer_stops(&ctx, c);
+    srvrun_deliver_wt_reset_if_owned(&cfg, c);
+    CHECK(g_sr_wt_reset_calls == 1);
+    CHECK(g_sr_wt_reset_stream == 4);
+    CHECK(g_sr_wt_reset_session == srvrun_wt_slot(c, 0));
+    CHECK(srvrun_wtsend_find(c, 4) == 0);
+    *c = (srvrun_conn){0};
+  }
 }
 
 /* More resets in one step than the queue holds (two per tracked stream) is
@@ -24742,6 +24789,7 @@ void test_srvrun(void) {
   test_srvrun_wt_reset_unmapped_delivers_no_app_error_code();
   test_srvrun_wt_reset_unrelated_stream_not_delivered();
   test_srvrun_wt_two_resets_one_step_both_delivered();
+  test_srvrun_wt_stop_after_fin_reaches_app();
   test_srvrun_reset_queue_overflow_closes();
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
