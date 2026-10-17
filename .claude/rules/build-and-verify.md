@@ -39,6 +39,8 @@ As of writing, the jobs are:
 | `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
 | `ci.yml`  | fuzz smoke (`just fuzz-smoke`)   | any `src/**/*.c`, `fuzz/**`        | `just fuzz-smoke` (clang + libFuzzer/ASan; a `src/` API signature change can break a `fuzz/*.c` harness the three-point gate never compiles — this shipped red to `main` on 2026-08-21) |
+| `ci.yml`  | halstead-check, py-check, sh-check | `src/**`, `examples/**`, `scripts/**`, `*.sh`, `justfile` | `just halstead-check`, `just py-check`, `just sh-check` (pinned ruff/shellcheck/just in the devShell; the host's `just` formats the justfile differently -- use `nix develop -c just --fmt --unstable`) |
+| `ci.yml`  | js (job) | `examples/moqt_chat/frontend/**`, `examples/moqt_chat/e2e/**` | `just js-check` (needs both node_modules installed) |
 | `docs.yml`| build+deploy (`just docs` + guide `pnpm build`) | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`, anything under `guide/`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below); `cd guide && pnpm build` |
 | `guide.yml`| site (`pnpm lint/check/test/build/test:dist`) | any `guide/**` | `cd guide && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm test:dist` |
 | `guide.yml`| snippets (runner vs `golden.txt`) | any `src/**`, `guide/**`, `scripts/gen_ninja.sh` | `just guide-verify` (an SDK log/behavior change that alters a page's output fails here; update the golden with `node runner/run.ts --update <id>` and review the diff) |

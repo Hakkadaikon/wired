@@ -1,10 +1,15 @@
 ---
 description: Every function must have CCN <= 3; count branches before writing, push compound conditions into predicate helpers and branch-clusters into table+function-pointer dispatch.
-appliesTo: when writing or editing any function in src/, before running the CCN gate
+appliesTo: when writing or editing any function in src/, examples/*/*.c or scripts/, before running the CCN gate
 alwaysApply: true
 ---
 
 # CCN ≤ 3 for every function
+
+Scope: src/ and the examples' C (`just ccn`, `just lint`, `just
+halstead-check`), scripts/ Python (CCN <= 3 in `just py-check`, Halstead
+in `just halstead-check`). The moqt_chat frontend (CCN <= 10) and e2e
+scripts are capped separately in `just js-check`.
 
 Two more per-function limits ride the same gates: nesting depth ≤ 2
 (`just ccn`, lizard ND) and cognitive complexity ≤ 4 (`just lint`,

@@ -4,7 +4,7 @@
 # Every recipe body is at most two lines; anything longer lives in
 # scripts/just/ (shared helpers in lib.sh, the compile flags in flags.sh).
 
-set ignore-comments := true
+set ignore-comments
 
 # --- environment ------------------------------------------------------------
 
@@ -54,9 +54,10 @@ test-fast: fmt gen-ninja
 # ccn + test.
 check: ccn test
 
-# CCN <= 3 and nesting depth <= 2 for every function (lizard).
-ccn *paths="src":
-    # Default is all of src/ (the gate); pass files to measure only those.
+# CCN <= 3 and nesting depth <= 2 for every C function (lizard).
+ccn *paths="src examples/*/*.c examples/*/*.h":
+    # Default is src/ and the examples' C (the gate); pass files to measure
+    # only those.
     # The nesting limit is the tree's maximum when it was set.
     lizard {{ paths }} --CCN 3 -END -T max_nesting_depth=2 -w
 
@@ -69,7 +70,7 @@ halstead *paths="src":
     sh scripts/just/rca.sh {{ paths }}
 
 # Halstead/MI/exits/parameter limits per function and file (rust-code-analysis).
-halstead-check *paths="src":
+halstead-check *paths="src examples/*/*.c examples/*/*.h scripts":
     sh scripts/just/rca.sh --check {{ paths }}
 
 # Report only: per-function cognitive complexity; 0 scores are not listed.
@@ -91,6 +92,18 @@ valgrind: gen-ninja
 # Verify tests/app/moqt_golden.h has no drift.
 golden-check:
     sh scripts/just/golden_check.sh
+
+# Python: ruff, unittests, CCN <= 3.
+py-check:
+    sh scripts/just/py_check.sh
+
+# Shell: shellcheck every tracked .sh; justfile in `just --fmt` form.
+sh-check:
+    sh scripts/just/sh_check.sh
+
+# moqt_chat frontend and e2e: biome, tsc, unit tests, complexity limits.
+js-check:
+    sh scripts/just/js_check.sh
 
 # --- fuzz -------------------------------------------------------------------
 

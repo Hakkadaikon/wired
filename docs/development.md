@@ -112,9 +112,10 @@ to.
 ## Build system
 
 `just` is a command runner: each `just <recipe>` runs a named recipe from
-the `justfile`. All compiler flags are defined once in the `justfile`, and
-sources are found automatically, so adding a `src/**/*.c` file needs no
-`justfile` edit.
+the `justfile`. Every recipe body is one or two lines; anything longer is
+a script under `scripts/just/`. All compiler flags are defined once, in
+`scripts/just/flags.sh`, and sources are found automatically, so adding a
+`src/**/*.c` file needs no `justfile` edit.
 
 The code is compiled in two different ways, and both matter.
 
@@ -335,6 +336,15 @@ listed.
 | lint | `just lint` | Any `src/` file changed |
 | golden-check | `just golden-check` | MoQT test vectors changed |
 | fuzz smoke | `just fuzz-smoke` | A `src/` function signature changed |
+| py-check | `just py-check` | Any `scripts/**/*.py` or `tests/scripts/` changed |
+| sh-check | `just sh-check` | Any `.sh` or the `justfile` changed |
+| js (job) | `just js-check` | The moqt_chat frontend or e2e changed |
+
+`ccn`, `halstead-check` and `lint` cover the examples' C as well as `src/`,
+and `halstead-check` also covers `scripts/`. The frontend and e2e get their
+own limits in `js-check`: frontend CCN <= 10, and for e2e CCN and for both
+the Halstead set, a cap at the maximum measured when the gate was added
+(`PROFILES` in `scripts/halstead.py`), so they cannot get worse.
 
 Two other workflows matter: `docs.yml` runs `just docs` on every push to
 `main`, and `guide.yml` runs the guide snippets against their

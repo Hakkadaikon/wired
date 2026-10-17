@@ -32,6 +32,12 @@ jobs:
       - name: halstead-check (Halstead, MI, exits, parameters)
         run: nix develop -c just halstead-check
 
+      - name: py-check (ruff, unittests, CCN <= 3 for scripts/)
+        run: nix develop -c just py-check
+
+      - name: sh-check (shellcheck, justfile format)
+        run: nix develop -c just sh-check
+
       - name: golden-check (moqt_golden.h matches the testvectors JSON)
         run: nix develop -c just golden-check
 
@@ -40,3 +46,30 @@ jobs:
 
       - name: fuzz smoke (each harness builds and survives 1 run)
         run: nix develop -c just fuzz-smoke
+
+  # The moqt_chat frontend and its e2e scripts: biome, tsc, both unit
+  # suites and their complexity limits (just js-check).
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: examples/moqt_chat/frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: examples/moqt_chat/frontend/pnpm-lock.yaml
+
+      - name: install frontend and e2e dependencies
+        run: |
+          (cd examples/moqt_chat/frontend && pnpm install --frozen-lockfile)
+          (cd examples/moqt_chat/e2e && npm ci)
+
+      - name: js-check
+        run: nix develop -c just js-check
