@@ -14,6 +14,9 @@ void wired_sendq_set_ring(wired_sendq* q, usz cap) { q->cap = cap; }
 
 const u8* wired_sendq_slice_data(
     const wired_sendq* q, const wired_sendq_slice* sl) {
+  if (!q->p) {
+    return 0; /* no buffer: offsetting null is undefined (C11 6.5.6) */
+  }
   if (!q->cap) {
     return q->p + sl->offset;
   }

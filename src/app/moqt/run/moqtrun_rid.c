@@ -164,6 +164,9 @@ moqtrun_ctl_fn moqtrun_msg_route(
 /* ===================== control-stream reassembly ===================== */
 
 void moqtrun_span_drop(wired_span* s, usz d) {
+  if (d == 0) {
+    return; /* s->p may be null: no arithmetic on it (C11 6.5.6) */
+  }
   s->p += d;
   s->n -= d;
 }

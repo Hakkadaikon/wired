@@ -8,8 +8,14 @@ void wired_srvbigbuf_init(wired_srvbigbuf* p, u8* rows, usz row_cap) {
   }
 }
 
+/* A pool with no backing rows (p->rows == 0) has no row to point into:
+ * offsetting a null pointer, even by 0, is undefined (C11 6.5.6). */
+static int srvbigbuf_row_valid(const wired_srvbigbuf* p, int row_idx) {
+  return p->rows && row_idx >= 0 && row_idx < WIRED_SRVBIGBUF_ROWS;
+}
+
 u8* wired_srvbigbuf_row(const wired_srvbigbuf* p, int row_idx) {
-  if (row_idx < 0 || row_idx >= WIRED_SRVBIGBUF_ROWS) {
+  if (!srvbigbuf_row_valid(p, row_idx)) {
     return 0;
   }
   return p->rows + (usz)row_idx * p->row_cap;
