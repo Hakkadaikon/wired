@@ -246,6 +246,9 @@ A change that breaks any of these is not done.
   compound condition into a named predicate helper, split three or more
   `if (!put(...)) return 0;` lines into two helpers, and replace a branch
   cluster with a lookup table of function pointers. Verify: `just ccn`.
+- **Nesting depth ≤ 2 and cognitive complexity ≤ 4 for every function.**
+  Both limits were the tree's maximum when they were set. `just ccn` checks
+  the nesting depth and `just lint` checks the cognitive complexity.
 - **MECE: one domain, one directory.** Do not scatter a concern across
   directories or merge two concerns into one.
 - **One global namespace.** Grep `src/` before adding any name. When you
@@ -329,10 +332,10 @@ Two other workflows matter: `docs.yml` runs `just docs` on every push to
 `golden.txt` (locally `just guide-verify`). Run `find .github/workflows
 -type f` to see the full, current list.
 
-Two recipes only report, and neither CI nor the gate runs them. `just
-metrics` shows each function's NLOC, length and nesting depth, then each
-file's NLOC. `just cognitive` shows each function's cognitive complexity.
-Both take paths, like `just ccn`.
+Two recipes only report the values behind those limits. `just metrics`
+shows each function's NLOC, length and nesting depth, then each file's
+NLOC. `just cognitive` shows each function's cognitive complexity. Both
+take paths, like `just ccn`.
 
 ## Adding a domain
 

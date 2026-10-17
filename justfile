@@ -31,7 +31,11 @@ fuzzflags := warnflags + " -g -fsanitize=fuzzer,address -Isrc"
 # (6k+ hits) are left out on purpose.
 tidychecks := ("-*,cert-*,bugprone-*,clang-analyzer-*"
     + ",-bugprone-easily-swappable-parameters,-bugprone-reserved-identifier"
-    + ",-cert-dcl37-c,-cert-dcl51-cpp")
+    + ",-cert-dcl37-c,-cert-dcl51-cpp"
+    + ",readability-function-cognitive-complexity")
+# Cognitive complexity <= 4 for every function: the tree's maximum when the
+# limit was set (`just cognitive` reports every score).
+tidyconfig := "{CheckOptions: {readability-function-cognitive-complexity.Threshold: 4}}"
 tidyflags := target + " -ffreestanding -nostdlib -fno-builtin -Isrc"
 # The C sources clang-format owns, largest first, NUL-separated; the pipe
 # into clang-format runs 8 files per process, one process per core (a
@@ -69,7 +73,8 @@ gen-ninja:
     # Every variant (freestanding, tests, fuzz, examples, guide, lint) lives
     # in one build.ninja; see scripts/gen_ninja.sh.
     CFLAGS="{{cflags}}" TESTFLAGS="{{testflags}}" FUZZFLAGS="{{fuzzflags}}" \
-        TIDYCHECKS="{{tidychecks}}" TIDYFLAGS="{{tidyflags}}" \
+        TIDYCHECKS="{{tidychecks}}" TIDYCONFIG="{{tidyconfig}}" \
+        TIDYFLAGS="{{tidyflags}}" \
         CC="{{cc}}" sh scripts/gen_ninja.sh
 
 # Compile freestanding (all of src/, or the named ninja targets).
@@ -111,10 +116,11 @@ test-fast: fmt gen-ninja
 # ccn + test.
 check: ccn test
 
-# CCN <= 3 for every function (lizard).
+# CCN <= 3 and nesting depth <= 2 for every function (lizard).
 ccn *paths="src":
     # Default is all of src/ (the gate); pass files to measure only those.
-    lizard {{paths}} --CCN 3 -w
+    # The nesting limit is the tree's maximum when it was set.
+    lizard {{paths}} --CCN 3 -END -T max_nesting_depth=2 -w
 
 # Report only: function NLOC/CCN/length/nesting (ND) and file NLOC (lizard).
 metrics *paths="src":

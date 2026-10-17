@@ -15,6 +15,7 @@ cc="${CC:-clang}"
 : "${TESTFLAGS:?TESTFLAGS not set -- run via 'just gen-ninja'}"
 : "${FUZZFLAGS:?FUZZFLAGS not set -- run via 'just gen-ninja'}"
 : "${TIDYCHECKS:?TIDYCHECKS not set -- run via 'just gen-ninja'}"
+: "${TIDYCONFIG:?TIDYCONFIG not set -- run via 'just gen-ninja'}"
 : "${TIDYFLAGS:?TIDYFLAGS not set -- run via 'just gen-ninja'}"
 
 srcs=$(find src -name '*.c' | sort)
@@ -35,6 +36,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "testflags = $TESTFLAGS"
     echo "fuzzflags = $FUZZFLAGS"
     echo "tidychecks = $TIDYCHECKS"
+    echo "tidyconfig = $TIDYCONFIG"
     echo "tidyflags = $TIDYFLAGS"
     echo
     echo "rule cc_freestanding"
@@ -83,7 +85,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "# lint: clang-tidy on one file, then a stamp. clang-tidy drops -MD,"
     echo "# so the header deps come from a separate preprocessor-only pass."
     echo "rule tidy"
-    echo "  command = clang-tidy -checks='\$tidychecks' --warnings-as-errors='*' --quiet \$in -- \$tidyflags && \$cc \$tidyflags -MM -MT \$out -MF \$out.d \$in && touch \$out"
+    echo "  command = clang-tidy -checks='\$tidychecks' -config='\$tidyconfig' --warnings-as-errors='*' --quiet \$in -- \$tidyflags && \$cc \$tidyflags -MM -MT \$out -MF \$out.d \$in && touch \$out"
     echo "  depfile = \$out.d"
     echo "  deps = gcc"
     echo "  description = TIDY \$in"

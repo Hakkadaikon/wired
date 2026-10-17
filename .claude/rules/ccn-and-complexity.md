@@ -6,6 +6,10 @@ alwaysApply: true
 
 # CCN ≤ 3 for every function
 
+Two more per-function limits ride the same gates: nesting depth ≤ 2
+(`just ccn`, lizard ND) and cognitive complexity ≤ 4 (`just lint`,
+clang-tidy). `just metrics` / `just cognitive` print the current values.
+
 `just ccn` must exit 0. Initial drafts landed at CCN 4–6 almost
 every time and had to be re-split (#4). Count branches BEFORE writing — removing
 them afterward is expensive.
