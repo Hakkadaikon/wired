@@ -2656,31 +2656,34 @@ static int wt_delivered_fin(u8 fin, u64 frontier_abs, u64 fin_off) {
   return fin && frontier_abs >= fin_off;
 }
 
+/* One WT bidi or uni slot's receive state, as the delivery below reads
+ * and advances it (the two slot types share these fields, not a type). */
+typedef struct {
+  u64                            stream_id;
+  const u8*                      buf;
+  const wired_srvloop_wt_window* win;
+  u8                             fin;
+  u64                            fin_off;
+  u64*                           delivered_len;
+  int*                           fin_delivered;
+} srvrun_wt_rx;
+
 static void srvrun_deliver_wt_stream_delta(
-    const srvrun_cfg*              cfg,
-    srvrun_conn*                   c,
-    int                            sidx,
-    u64                            stream_id,
-    const u8*                      buf,
-    const wired_srvloop_wt_window* win,
-    u8                             fin,
-    u64                            fin_off,
-    u64*                           delivered_len,
-    int*                           fin_delivered) {
-  u64 frontier_abs = wt_frontier_abs(win);
-  int fin_now      = wt_delivered_fin(fin, frontier_abs, fin_off);
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, const srvrun_wt_rx* rx) {
+  u64 frontier_abs = wt_frontier_abs(rx->win);
+  u64 done         = *rx->delivered_len;
+  int fin_now      = wt_delivered_fin(rx->fin, frontier_abs, rx->fin_off);
   if (!wt_stream_delta_ready(
-          cfg, sidx, frontier_abs, fin, fin_off, *delivered_len,
-          *fin_delivered))
+          cfg, sidx, frontier_abs, rx->fin, rx->fin_off, done,
+          *rx->fin_delivered))
     return;
   cfg->wt_on_stream_data(
-      cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), stream_id,
+      cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), rx->stream_id,
       wired_span_of(
-          buf + (*delivered_len - win->base),
-          (usz)(frontier_abs - *delivered_len)),
+          rx->buf + (done - rx->win->base), (usz)(frontier_abs - done)),
       fin_now);
-  *delivered_len = frontier_abs;
-  if (fin_now) *fin_delivered = 1;
+  *rx->delivered_len = frontier_abs;
+  if (fin_now) *rx->fin_delivered = 1;
 }
 
 /* RFC 9000 2.2 / 19.8: once a WT bidi slot's FIN has been delivered to the
@@ -2709,9 +2712,10 @@ static void srvrun_offer_and_deliver_wt_slot(
   if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
   if (!slot->in_use) return;
   sidx = srvrun_wt_stream_owner(c, slot->offered, slot->wt_session_slot);
-  srvrun_deliver_wt_stream_delta(
-      cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
-      slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
+  srvrun_wt_rx rx = {slot->stream_id,     slot->buf,     &slot->win,
+                     slot->fin,           slot->fin_off, &slot->delivered_len,
+                     &slot->fin_delivered};
+  srvrun_deliver_wt_stream_delta(cfg, c, sidx, &rx);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
   srvrun_reap_wt_slot(c, slot);
@@ -2954,9 +2958,10 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
   if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
   if (!slot->in_use) return;
   sidx = srvrun_wt_stream_owner(c, slot->offered, slot->wt_session_slot);
-  srvrun_deliver_wt_stream_delta(
-      cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
-      slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
+  srvrun_wt_rx rx = {slot->stream_id,     slot->buf,     &slot->win,
+                     slot->fin,           slot->fin_off, &slot->delivered_len,
+                     &slot->fin_delivered};
+  srvrun_deliver_wt_stream_delta(cfg, c, sidx, &rx);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
   srvrun_reap_wt_uni_slot(c, slot);
