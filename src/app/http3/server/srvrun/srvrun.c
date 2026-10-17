@@ -5170,31 +5170,34 @@ static srvrun_conn* srvrun_session_conn(wired_wt_session* s) {
   return srvrun_session_conn_env(s, &env, &slot);
 }
 
+/* Mark the free slot w in use, seeded with credit and no send state. */
+static srvrun_wtsend* srvrun_wtsend_take(srvrun_wtsend* w, u64 credit) {
+  w->in_use        = 1;
+  w->stream_credit = credit;
+  /* Start from no send state, as srvrun_resp_claim does: a slot freed
+   * mid-send (reset, STOP_SENDING) keeps its old sess and offsets. */
+  w->sess             = (wired_sendsess){0};
+  w->stream_off       = 0;
+  w->append_open      = 0;
+  w->view_round       = 0;
+  w->fin_only_pending = 0; /* a reused slot may still carry a
+                               stale 1 from its prior stream */
+  w->fin_requested   = 0;
+  w->urgency1        = 0;
+  w->fine            = 0;
+  w->flow            = 0;
+  w->order           = 0;
+  w->tie             = 0;
+  w->wt_session_slot = -1;
+  return w;
+}
+
 /* Claim the first free WT send slot on c with the given stream credit seed
  * (RFC 9000 18.2/19.10; MAX_STREAM_DATA later raises it via
  * srvrun_apply_stream_credit_update). 0 when every slot is busy. */
 static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (c->wtsend[i].in_use) continue;
-    c->wtsend[i].in_use        = 1;
-    c->wtsend[i].stream_credit = credit;
-    /* Start from no send state, as srvrun_resp_claim does: a slot freed
-     * mid-send (reset, STOP_SENDING) keeps its old sess and offsets. */
-    c->wtsend[i].sess             = (wired_sendsess){0};
-    c->wtsend[i].stream_off       = 0;
-    c->wtsend[i].append_open      = 0;
-    c->wtsend[i].view_round       = 0;
-    c->wtsend[i].fin_only_pending = 0; /* a reused slot may still carry a
-                                           stale 1 from its prior stream */
-    c->wtsend[i].fin_requested   = 0;
-    c->wtsend[i].urgency1        = 0;
-    c->wtsend[i].fine            = 0;
-    c->wtsend[i].flow            = 0;
-    c->wtsend[i].order           = 0;
-    c->wtsend[i].tie             = 0;
-    c->wtsend[i].wt_session_slot = -1;
-    return &c->wtsend[i];
-  }
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    if (!c->wtsend[i].in_use) return srvrun_wtsend_take(&c->wtsend[i], credit);
   return 0;
 }
 
