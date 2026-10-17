@@ -69,22 +69,35 @@ void session_init(session* s, const session_init_in* in) {
   for (usz i = 0; i < 8; i++) s->dcid[i] = in->dcid[i];
 }
 
+/* Seal payload as packet number pn under header byte byte0 and push it
+ * onto the link from/to addrs. Returns 0 if it does not fit. */
+static int session_seal_tx(
+    session*            s,
+    const protect_keys* k,
+    u8                  byte0,
+    u8                  pn,
+    wired_span          payload,
+    ipv4addrs           addrs) {
+  u8 hdr[18], out[1200];
+  fill_header(hdr, byte0, s->dcid, pn);
+  protect_seal_io io = {wired_span_of(hdr, 18),          14, 4, pn, payload,
+                        wired_mspan_of(out, sizeof(out))};
+  usz             n  = protect_seal(k, &io);
+  if (n == 0) return 0;
+  return link_tx(s->link, wired_span_of(out, n), addrs);
+}
+
 int session_client_hello(session* s) {
-  u8  hello[256], crypto[300], hdr[18], out[1200];
+  u8  hello[256], crypto[300];
   u8  rnd[32] = {0};
   usz hl =
       hs_build_hello(hello, sizeof(hello), HS_CLIENT_HELLO, rnd, s->ep.pub);
   crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz          cl = frame_put_crypto(crypto, sizeof(crypto), &cf);
-  fill_header(hdr, 0xc3, s->dcid, 1);
-  protect_keys    k  = {&s->ikeys, &s->ihp};
-  protect_seal_io io = {
-      wired_span_of(hdr, 18),          14, 4, 1, wired_span_of(crypto, cl),
-      wired_mspan_of(out, sizeof(out))};
-  usz pn = protect_seal(&k, &io);
-  if (pn == 0) return 0;
-  return link_tx(
-      s->link, wired_span_of(out, pn), (ipv4addrs){SESSION_CA, SESSION_SA});
+  protect_keys k  = {&s->ikeys, &s->ihp};
+  return session_seal_tx(
+      s, &k, 0xc3, 1, wired_span_of(crypto, cl),
+      (ipv4addrs){SESSION_CA, SESSION_SA});
 }
 
 /* Decode a received Initial's CRYPTO frame and extract the peer's share. */
@@ -153,23 +166,17 @@ static u32 peer_addr(int is_server) {
 }
 
 int session_send_stream(session* s, const session_msg* m) {
-  u8           fr[1024], hdr[18], out[1200];
+  u8           fr[1024];
   stream_frame sf = {
       .stream_id = m->stream_id,
       .offset    = 0,
       .length    = m->data.n,
       .data      = m->data.p,
       .fin       = m->fin};
-  usz fl = frame_put_stream(fr, sizeof(fr), &sf);
-  fill_header(hdr, 0x43, s->dcid, 7); /* short-header form, pn 7 */
-  protect_keys    k  = {&s->ep.hs_keys, &s->hshp};
-  protect_seal_io io = {
-      wired_span_of(hdr, 18),          14, 4, 7, wired_span_of(fr, fl),
-      wired_mspan_of(out, sizeof(out))};
-  usz pn = protect_seal(&k, &io);
-  if (pn == 0) return 0;
-  return link_tx(
-      s->link, wired_span_of(out, pn),
+  usz          fl = frame_put_stream(fr, sizeof(fr), &sf);
+  protect_keys k  = {&s->ep.hs_keys, &s->hshp};
+  return session_seal_tx(
+      s, &k, 0x43, 7, wired_span_of(fr, fl), /* short-header form, pn 7 */
       (ipv4addrs){my_addr(s->is_server), peer_addr(s->is_server)});
 }
 
