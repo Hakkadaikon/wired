@@ -113,6 +113,9 @@ static usz fill_pending(sha256_ctx* s, const u8* data, usz len) {
 }
 
 void sha256_update(sha256_ctx* s, const u8* data, usz len) {
+  if (len == 0) {
+    return; /* data may be NULL: no pointer arithmetic on it (C11 6.5.6) */
+  }
   usz off = fill_pending(s, data, len);
   off += absorb_blocks(s, data + off, len - off);
   buffer(s, data + off, len - off);

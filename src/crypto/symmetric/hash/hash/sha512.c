@@ -141,6 +141,9 @@ static usz sha512_fill_pending(sha512_ctx* s, const u8* data, usz len) {
 }
 
 void sha512_update(sha512_ctx* s, const u8* data, usz len) {
+  if (len == 0) {
+    return; /* data may be NULL: no pointer arithmetic on it (C11 6.5.6) */
+  }
   usz off = sha512_fill_pending(s, data, len);
   off += sha512_absorb_blocks(s, data + off, len - off);
   sha512_buffer(s, data + off, len - off);
