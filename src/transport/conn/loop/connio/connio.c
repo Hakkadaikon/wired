@@ -19,11 +19,9 @@ static u8 level_byte0(int level) {
   return level_is_initial(level) ? 0xc3 : 0xe3;
 }
 
-void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
-  usz i;
-  connloop_init(&io->loop, in->is_server);
-  stream_read_init(&io->stream);
-  flow_credit_init(&io->credit, in->initial_max_data);
+/* Point the frame dispatcher at io's stream/sent/credit state and clear
+ * every per-packet flag it reports. */
+static void connio_disp_init(connio* io) {
   io->disp.stream            = &io->stream;
   io->disp.sent              = &io->loop.sent;
   io->disp.credit            = &io->credit;
@@ -34,8 +32,16 @@ void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
   io->disp.violation         = 0;
   io->disp.stop_sending_owed = 0;
   io->disp.has_reset_stream  = 0;
-  io->byte0                  = in->byte0;
-  io->dcid_len               = (u8)dcid.n;
+}
+
+void connio_init(connio* io, wired_span dcid, const connio_init_in* in) {
+  usz i;
+  connloop_init(&io->loop, in->is_server);
+  stream_read_init(&io->stream);
+  flow_credit_init(&io->credit, in->initial_max_data);
+  connio_disp_init(io);
+  io->byte0    = in->byte0;
+  io->dcid_len = (u8)dcid.n;
   pnspaces_init(&io->tx);
   for (i = 0; i < PNS_COUNT; i++) io->rx_pn[i] = 0;
   for (i = 0; i < dcid.n; i++) io->dcid[i] = dcid.p[i];
