@@ -1,6 +1,7 @@
 // Run every guide snippet for real and compare its normalized output with the
 // committed golden.txt. Usage: node runner/run.ts [--update] [id...]
 // Expects build/guide/<id> to exist (`just ninja guide`); builds the Go clients.
+// GUIDE_BIN overrides that directory (`just san-check` runs build/san/guide).
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,7 +11,7 @@ import { expandSteps, type Run, type Step } from '../src/lib/steps.ts';
 
 const guide = join(import.meta.dirname, '..');
 const root = join(guide, '..');
-const bin = join(root, 'build/guide');
+const bin = process.env.GUIDE_BIN ?? join(root, 'build/guide');
 const port = Number(process.env.GUIDE_PORT ?? 4433);
 const addr = `127.0.0.1:${port}`;
 

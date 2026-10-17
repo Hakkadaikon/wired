@@ -85,6 +85,11 @@ wire-check: ninja
 cov: fmt gen-ninja
     sh scripts/just/cov.sh
 
+# Production build with UBSan/bounds traps, driven by the guide snippets.
+san-check *ids: gen-ninja
+    # No ids = all snippets. Needs go + node 22 on PATH.
+    sh scripts/just/san_check.sh {{ ids }}
+
 # Run the unity test binary under valgrind --track-origins.
 valgrind: gen-ninja
     sh scripts/just/valgrind.sh

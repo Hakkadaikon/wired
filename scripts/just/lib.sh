@@ -11,7 +11,10 @@ nix_reexec() {
 }
 
 # The test binary's frame (test_srvrun) outgrew the 8MB default stack.
+# A fixed 1GiB, not `unlimited`: an unlimited stack switches the kernel to
+# the legacy bottom-up mmap layout, which overlaps ASan's shadow memory and
+# aborts the sanitized test binary before main.
 raise_stack() {
     # shellcheck disable=SC3045 # not POSIX, but dash and bash both have it
-    ulimit -s unlimited 2>/dev/null || ulimit -s 65536
+    ulimit -s 1048576 2>/dev/null || ulimit -s 65536
 }

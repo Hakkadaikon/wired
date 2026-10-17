@@ -15,7 +15,19 @@ CFLAGS="$TARGET -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -stat
 # hosted test: -mbranches-within-32B-boundaries works around this host's
 # Cascade Lake JCC erratum, which otherwise swings test runtime ~40% on
 # code-placement luck and makes perf comparisons between commits meaningless.
-TESTFLAGS="$WARNFLAGS $CONNFLAGS -mbranches-within-32B-boundaries -Isrc -Itests"
+TESTFLAGS_PLAIN="$WARNFLAGS $CONNFLAGS -mbranches-within-32B-boundaries -Isrc -Itests"
+# ASan + UBSan on every hosted test run: stack/global/heap out-of-bounds and
+# UB abort the run at the faulting access (a stack canary would only catch a
+# write that reaches the canary, at return). valgrind.sh uses the _PLAIN set:
+# valgrind cannot run an ASan binary. -fno-inline-functions: ASan gives
+# every local its own redzoned slot, so with the test_* callees inlined
+# test_srvrun's frame grew from 8.5MB to 2.3GB and overflowed the stack.
+SANFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -fno-inline-functions"
+TESTFLAGS="$TESTFLAGS_PLAIN $SANFLAGS"
+# san-check: the freestanding build with UBSan + array-bounds checks in trap
+# mode (no runtime, so it links without libc; a hit is SIGILL at the faulting
+# instruction). ASan cannot be used here: its runtime needs libc.
+SANCFLAGS="$CFLAGS -fsanitize=undefined,bounds -fsanitize-trap=all -fno-omit-frame-pointer"
 # fuzz: hosted, ASan + libFuzzer.
 FUZZFLAGS="$WARNFLAGS -g -fsanitize=fuzzer,address -Isrc"
 # clang-tidy: CERT C + bug finders, minus this repo's unavoidable noise --
@@ -27,4 +39,4 @@ TIDYCHECKS="-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-par
 # limit was set (`just cognitive` reports every score).
 TIDYCONFIG="{CheckOptions: {readability-function-cognitive-complexity.Threshold: 4}}"
 TIDYFLAGS="$TARGET -ffreestanding -nostdlib -fno-builtin -Isrc"
-export CC CFLAGS TESTFLAGS FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS
+export CC CFLAGS SANCFLAGS TESTFLAGS TESTFLAGS_PLAIN FUZZFLAGS TIDYCHECKS TIDYCONFIG TIDYFLAGS

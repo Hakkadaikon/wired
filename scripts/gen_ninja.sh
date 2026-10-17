@@ -29,6 +29,8 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "cc = $cc"
     echo "cflags = $CFLAGS"
     echo "testflags = $TESTFLAGS"
+    echo "testflags_plain = $TESTFLAGS_PLAIN"
+    echo "sancflags = $SANCFLAGS"
     echo "fuzzflags = $FUZZFLAGS"
     echo "tidychecks = $TIDYCHECKS"
     echo "tidyconfig = $TIDYCONFIG"
@@ -63,6 +65,13 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     printf '%s\n' "  command = awk '/^#include \".*\\.c\"\$\$/ { print \"#pragma clang section text=\\\".text.u\" n++ \"\\\"\" } { print }' \$in > \$out"
     echo "  description = GEN \$out"
     echo
+    echo "# valgrind cannot run an ASan binary: same unity TU, no sanitizers."
+    echo "rule cc_hosted_bin_plain"
+    echo "  command = \$cc \$testflags_plain -MD -MF \$out.d \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
     echo "rule cc_hosted_link"
     echo "  command = \$cc \$testflags \$in -o \$out"
     echo "  description = LINK \$out"
@@ -71,6 +80,17 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "  command = \$cc \$fuzzflags -MD -MF \$out.d \$in -o \$out"
     echo "  depfile = \$out.d"
     echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
+    echo "# san-check: freestanding + UBSan/bounds in trap mode (flags.sh)."
+    echo "rule cc_san"
+    echo "  command = \$cc \$sancflags -MD -MF \$out.d -c \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
+    echo "rule cc_san_bin"
+    echo "  command = \$cc \$sancflags \$in -o \$out"
     echo "  description = CC \$out"
     echo
     echo "rule cc_freestanding_bin"
@@ -106,6 +126,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "# section took ~8 of the build's ~10 minutes."
     echo "build build/unity/run.c: text_sections tests/run.c"
     echo "build build/quic_test: cc_hosted_bin build/unity/run.c"
+    echo "build build/quic_test_plain: cc_hosted_bin_plain build/unity/run.c"
     echo
     echo "# fast dev-loop variant: run.c split into shard TUs (gen_shards.py,"
     echo "# K must match its constant) compiled in parallel, linked into one"
@@ -156,6 +177,26 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
         guide_bins="$guide_bins build/guide/$id"
     done
     echo "build guide: phony$guide_bins"
+    echo
+    echo "# san-check: the SDK, examples and guide snippets rebuilt under"
+    echo "# build/san/ with \$sancflags (UBSan + bounds, trap mode)."
+    san_bins=""
+    printf '%s\n' "$srcs" | while read -r f; do
+        echo "build build/san/${f%.c}.o: cc_san $f"
+    done
+    sanlib=$(printf '%s\n' "$libobjs" | tr ' ' '\n' | sed '/^$/d; s|^build/|build/san/|' | tr '\n' ' ')
+    echo "build build/san/libwired.a: ar $sanlib"
+    for ex in word_list webtransport_interop moqt_chat moqt_interop; do
+        echo "build build/san/examples/$ex/wired_server: cc_san_bin $(ex_srcs "$ex") build/san/libwired.a"
+        san_bins="$san_bins build/san/examples/$ex/wired_server"
+    done
+    for f in guide/snippets/*/main.c; do
+        [ -f "$f" ] || continue
+        id=$(basename "$(dirname "$f")")
+        echo "build build/san/guide/$id: cc_san_bin $f build/san/libwired.a"
+        san_bins="$san_bins build/san/guide/$id"
+    done
+    echo "build san: phony$san_bins"
     echo
     echo "# lint: one stamp per src/**.c and examples/*/*.c (just lint runs it"
     echo "# in the devShell)."

@@ -6,6 +6,11 @@
 set -eu
 . scripts/just/lib.sh
 raise_stack
+# detect_stack_use_after_return=0: the SDK's threads are raw clone(2)
+# without CLONE_SETTLS, so they share the parent's TLS and with it ASan's
+# per-thread fake stack; with it on, two threads use one fake stack and the
+# threaded tests crash inside ASan itself.
+export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_stack_use_after_return=0}"
 if [ "${1:-}" = "--fast" ]; then
     python3 scripts/gen_shards.py
     ninja build/quic_test_fast && build/quic_test_fast
