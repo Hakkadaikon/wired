@@ -55,25 +55,21 @@ static void test_sreset_build(void) {
   u8       want[SRESET_TOKEN];
   sreset_token(key, cid, 8, want);
 
-  u8  out[128];
-  usz out_len = 0;
-  CHECK(sreset_build(key, cid, 8, 40, fill_pattern, out, 128, &out_len) == 1);
-  CHECK(out_len < 40 * 3);
-  CHECK(out_len >= SRESET_MIN);
-  CHECK(ct_diff16(out + out_len - SRESET_TOKEN, want) == 0);
+  u8         out[128];
+  wired_obuf ob = obuf_of(out, 128);
+  CHECK(sreset_build(key, cid, 8, 40, fill_pattern, &ob) == 1);
+  CHECK(ob.len < 40 * 3);
+  CHECK(ob.len >= SRESET_MIN);
+  CHECK(ct_diff16(out + ob.len - SRESET_TOKEN, want) == 0);
 
   /* out_cap smaller than the natural size clamps the packet down. */
-  usz small_len = 0;
-  CHECK(
-      sreset_build(key, cid, 8, 1200, fill_pattern, out, 30, &small_len) == 1);
-  CHECK(small_len == 30);
+  wired_obuf small = obuf_of(out, 30);
+  CHECK(sreset_build(key, cid, 8, 1200, fill_pattern, &small) == 1);
+  CHECK(small.len == 30);
 
   /* out_cap below the minimum cannot carry a token: refused. */
-  usz tiny_len = 0;
-  CHECK(
-      sreset_build(
-          key, cid, 8, 1200, fill_pattern, out, SRESET_MIN - 1, &tiny_len) ==
-      0);
+  wired_obuf tiny = obuf_of(out, SRESET_MIN - 1);
+  CHECK(sreset_build(key, cid, 8, 1200, fill_pattern, &tiny) == 0);
 }
 
 /* Pinning: RFC 9000 10.3.3 / CVE-2024-2169-class loop-DoS -- the server's
@@ -97,9 +93,9 @@ static void test_sreset_size_strictly_below_trigger_len(void) {
     usz trig = triggers[i];
     usz cap  = u64_min(128, trig - 1); /* mirrors srvrun_seal_stateless_reset */
     u8  out[128];
-    usz len = 0;
-    CHECK(sreset_build(key, cid, 8, trig, fill_pattern, out, cap, &len) == 1);
-    CHECK(len < trig);
+    wired_obuf ob = obuf_of(out, cap);
+    CHECK(sreset_build(key, cid, 8, trig, fill_pattern, &ob) == 1);
+    CHECK(ob.len < trig);
   }
 }
 

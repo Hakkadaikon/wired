@@ -11367,14 +11367,11 @@ static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
  * triggering datagram's size (10.3.3). */
 static int srvrun_seal_stateless_reset(
     const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out) {
-  u8  key[SRESET_KEY];
-  usz cap = u64_min(out->cap, trigger_len - 1);
-  usz len;
+  u8         key[SRESET_KEY];
+  wired_obuf ob = obuf_of(out->p, u64_min(out->cap, trigger_len - 1));
   sreset_key_derive(srvboot_reset_seed(cfg->id), key);
-  if (!sreset_build(
-          key, dcid.p, dcid.n, trigger_len, rng_bytes, out->p, cap, &len))
-    return 0;
-  out->len = len;
+  if (!sreset_build(key, dcid.p, dcid.n, trigger_len, rng_bytes, &ob)) return 0;
+  out->len = ob.len;
   return 1;
 }
 

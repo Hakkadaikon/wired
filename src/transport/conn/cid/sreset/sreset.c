@@ -38,16 +38,12 @@ int sreset_build(
     usz       cid_len,
     usz       trigger_len,
     int (*rand_fill)(u8* buf, usz len),
-    u8*  out,
-    usz  out_cap,
-    usz* out_len) {
-  if (out_cap < SRESET_MIN) return 0;
-  usz len = u64_min(sreset_size(trigger_len), out_cap);
+    wired_obuf* out) {
+  if (out->cap < SRESET_MIN) return 0;
+  usz len = u64_min(sreset_size(trigger_len), out->cap);
 
-  rand_fill(out, len);
-  u8 token[SRESET_TOKEN];
-  sreset_token(key, cid, cid_len, token);
-  for (usz i = 0; i < SRESET_TOKEN; i++) out[len - SRESET_TOKEN + i] = token[i];
-  *out_len = len;
+  rand_fill(out->p, len);
+  sreset_token(key, cid, cid_len, out->p + len - SRESET_TOKEN);
+  out->len = len;
   return 1;
 }

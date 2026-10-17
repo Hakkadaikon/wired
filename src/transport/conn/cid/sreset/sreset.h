@@ -1,6 +1,7 @@
 #ifndef SRESET_SRESET_H
 #define SRESET_SRESET_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 10.3 stateless reset. An endpoint derives a 16-byte Stateless
@@ -43,19 +44,17 @@ int sreset_detect(const u8* dgram, usz len, const u8 token[SRESET_TOKEN]);
  * SRESET_MIN bytes to look like a valid short header. */
 usz sreset_size(usz trigger_len);
 
-/* Build a stateless reset packet for `cid` into `out` (capacity `out_cap`).
- * Size is sreset_size(trigger_len), clamped to out_cap. The leading
+/* Build a stateless reset packet for `cid` into out->p (capacity out->cap).
+ * Size is sreset_size(trigger_len), clamped to out->cap. The leading
  * bytes are random (via `rand_fill`, e.g. rng_bytes) and the trailing
- * 16 bytes are the token derived from `key`+`cid`. Writes the packet length
- * to *out_len. Returns 1 on success, 0 if out_cap is below the minimum. */
+ * 16 bytes are the token derived from `key`+`cid`. Sets out->len to the
+ * packet length. Returns 1 on success, 0 if out->cap is below the minimum. */
 int sreset_build(
     const u8  key[SRESET_KEY],
     const u8* cid,
     usz       cid_len,
     usz       trigger_len,
     int (*rand_fill)(u8* buf, usz len),
-    u8*  out,
-    usz  out_cap,
-    usz* out_len);
+    wired_obuf* out);
 
 #endif
