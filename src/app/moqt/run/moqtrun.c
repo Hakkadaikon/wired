@@ -104,7 +104,7 @@ static void moqtrun_fetches_clear(wired_moqt_hub* hub) {
   hub->upf_owner = 0;
 }
 
-void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
+static void moqtrun_hub_tracks_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     hub->peers[i].in_use = 0;
     moqtrun_peer_clear_relays(&hub->peers[i]);
@@ -113,43 +113,51 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   moqtrun_track_clear_relays(&hub->live.track);
   hub->blob_track.subgroup_timeout_ms = 0; /* no PUBLISH property sets it */
   hub->live.track.subgroup_timeout_ms = 0;
-  hub->io                             = io;
-  hub->join_seq_next                  = 0;
-  hub->authorize_subscribe            = 0;
-  hub->authorize_ctx                  = 0;
-  hub->authorize_publish              = 0;
-  hub->authorize_pub_ctx              = 0;
-  hub->authorize_namespace            = 0;
-  hub->authorize_ns_ctx               = 0;
-  hub->raw_policy                     = (moqraw_policy){0};
-  hub->stat_frag_drop                 = 0;
-  hub->stat_relay_sent                = 0;
-  hub->stat_relay_drop                = 0;
-  hub->stat_open_drop                 = 0;
-  hub->stat_relay_reset               = 0;
-  hub->stat_relay_full                = 0;
-  hub->stat_dg_sent                   = 0;
-  hub->stat_dg_drop                   = 0;
-  hub->stat_dg_bad                    = 0;
   hub->blob_track.in_use              = 0;
   hub->live.track.in_use              = 0;
   hub->live.last_now_ms               = 0;
-  hub->stat_live_sent                 = 0;
-  hub->stat_live_drop                 = 0;
-  hub->reliable_alias_limit           = 0;
-  hub->newest_group_only              = 0;
-  hub->stat_rel_stall                 = 0;
-  hub->stat_timeout_reset             = 0;
-  hub->stat_rel_overflow              = 0;
-  hub->stat_rel_wait                  = 0;
-  hub->stat_rel_sent                  = 0;
-  hub->stat_rel_refused               = 0;
-  hub->stat_rel_rings                 = 0;
-  hub->stat_rel_in_bytes              = 0;
-  hub->stat_rel_fin_in                = 0;
-  hub->stat_rel_fin_out               = 0;
-  hub->stat_rel_hold                  = 0;
-  hub->stat_rel_early_return          = 0;
+}
+
+static void moqtrun_hub_auth_clear(wired_moqt_hub* hub) {
+  hub->authorize_subscribe = 0;
+  hub->authorize_ctx       = 0;
+  hub->authorize_publish   = 0;
+  hub->authorize_pub_ctx   = 0;
+  hub->authorize_namespace = 0;
+  hub->authorize_ns_ctx    = 0;
+  hub->raw_policy          = (moqraw_policy){0};
+}
+
+static void moqtrun_hub_relay_stats_clear(wired_moqt_hub* hub) {
+  hub->stat_frag_drop   = 0;
+  hub->stat_relay_sent  = 0;
+  hub->stat_relay_drop  = 0;
+  hub->stat_open_drop   = 0;
+  hub->stat_relay_reset = 0;
+  hub->stat_relay_full  = 0;
+  hub->stat_dg_sent     = 0;
+  hub->stat_dg_drop     = 0;
+  hub->stat_dg_bad      = 0;
+  hub->stat_live_sent   = 0;
+  hub->stat_live_drop   = 0;
+}
+
+static void moqtrun_hub_rel_stats_clear(wired_moqt_hub* hub) {
+  hub->stat_rel_stall        = 0;
+  hub->stat_timeout_reset    = 0;
+  hub->stat_rel_overflow     = 0;
+  hub->stat_rel_wait         = 0;
+  hub->stat_rel_sent         = 0;
+  hub->stat_rel_refused      = 0;
+  hub->stat_rel_rings        = 0;
+  hub->stat_rel_in_bytes     = 0;
+  hub->stat_rel_fin_in       = 0;
+  hub->stat_rel_fin_out      = 0;
+  hub->stat_rel_hold         = 0;
+  hub->stat_rel_early_return = 0;
+}
+
+static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) moqtrel_reset(&hub->rel_pool[i]);
   moqtss_hub_init(hub); /* SSTS (moqtssts_run.c): off */
   moqtrun_reqs_clear(hub);
@@ -159,8 +167,20 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   moqcache_init(&hub->cache, 0, 0);
   hub->cache_tag_next = 0;
   moqtrun_fetches_clear(hub);
-  hub->switch_track = 0; /* SWITCH_FROM (moqtswitch.c): off */
-  hub->sw_live      = 0;
+}
+
+void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
+  moqtrun_hub_tracks_clear(hub);
+  moqtrun_hub_auth_clear(hub);
+  moqtrun_hub_relay_stats_clear(hub);
+  moqtrun_hub_rel_stats_clear(hub);
+  moqtrun_hub_pools_clear(hub);
+  hub->io                   = io;
+  hub->join_seq_next        = 0;
+  hub->reliable_alias_limit = 0;
+  hub->newest_group_only    = 0;
+  hub->switch_track         = 0; /* SWITCH_FROM (moqtswitch.c): off */
+  hub->sw_live              = 0;
 }
 
 int wired_moqt_cache_attach(wired_moqt_hub* hub, u8* arena, usz size) {
@@ -241,6 +261,49 @@ static void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
 }
 
+static void moqtrun_peer_ctl_reset(wired_moqtrun_peer* p) {
+  p->ctl_opened        = 0;
+  p->request_id_next   = 1; /* hub is the server: odd, 1-origin (SS10.2) */
+  p->peer_rid_next     = 0; /* client Request IDs: even, 0-origin */
+  p->sub_names_n       = 0;
+  p->sub_names_at      = 0;
+  p->send_lens[0]      = 0;
+  p->send_lens[1]      = 0;
+  p->armed_idx         = 0;
+  p->ctl_asm.n         = 0;
+  p->ctl_asm.at        = 0;
+  p->ctl_asm.skip      = 0;
+  p->req               = 0;
+  p->control_stream_id = 0;
+}
+
+static void moqtrun_peer_rx_reset(wired_moqtrun_peer* p) {
+  p->peer_ctl_set       = 0;
+  p->peer_ctl_stream_id = 0;
+  p->setup_recv         = 0;
+  p->rx_sid             = 0;
+  p->rx                 = 0;
+  p->peer_ctl_asm.n     = 0;
+  p->peer_ctl_asm.at    = 0;
+  p->peer_ctl_asm.skip  = 0;
+  p->peer_impl_len      = 0;
+  p->peer_has_impl      = 0;
+}
+
+static void moqtrun_peer_life_reset(wired_moqtrun_peer* p) {
+  p->hold_len          = 0;
+  p->early_n           = 0;
+  p->pre_n             = 0;
+  p->goaway_deadline   = (u64)-1;
+  p->goaway_flushed_at = 0;
+  p->closing           = 0;
+  p->wt_drained        = 0;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    p->tracks[t].in_use = 0;
+  moqsess_init(&p->sess);
+  moqtss_sess_reset(&p->ssts); /* SSTS (moqtssts_run.c) */
+}
+
 /* Initializes a freshly allocated peer slot for s and sends its SETUP,
  * split out of wired_moqt_on_session to keep that function's own branch
  * count at the CCN gate. SETUP goes out on send_bufs[0]: that slot becomes
@@ -254,46 +317,15 @@ static void moqtrun_init_peer(
     int                 ver,
     int                 legacy,
     int                 raw) {
-  p->in_use          = 1;
-  p->wt              = s;
-  p->ver             = ver;
-  p->legacy          = (u8)legacy;
-  p->raw             = (u8)raw;
-  p->ctl_opened      = 0;
-  p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
-  p->peer_rid_next   = 0; /* client Request IDs: even, 0-origin */
-  p->join_seq        = hub->join_seq_next++;
-  p->sub_names_n     = 0;
-  p->sub_names_at    = 0;
-  p->send_lens[0]    = 0;
-  p->send_lens[1]    = 0;
-  p->armed_idx       = 0;
-  p->ctl_asm.n       = 0;
-  p->ctl_asm.at      = 0;
-  p->ctl_asm.skip    = 0;
-  p->req             = 0;
-  p->peer_ctl_set    = 0;
-  p->peer_ctl_stream_id = 0;
-  p->setup_recv         = 0;
-  p->rx_sid             = 0;
-  p->rx                 = 0;
-  p->peer_ctl_asm.n     = 0;
-  p->peer_ctl_asm.at    = 0;
-  p->peer_ctl_asm.skip  = 0;
-  p->peer_impl_len      = 0;
-  p->peer_has_impl      = 0;
-  p->hold_len           = 0;
-  p->early_n            = 0;
-  p->pre_n              = 0;
-  p->goaway_deadline    = (u64)-1;
-  p->goaway_flushed_at  = 0;
-  p->closing            = 0;
-  p->wt_drained         = 0;
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    p->tracks[t].in_use = 0;
-  moqsess_init(&p->sess);
-  p->control_stream_id = 0;
-  moqtss_sess_reset(&p->ssts); /* SSTS (moqtssts_run.c) */
+  p->in_use   = 1;
+  p->wt       = s;
+  p->ver      = ver;
+  p->legacy   = (u8)legacy;
+  p->raw      = (u8)raw;
+  p->join_seq = hub->join_seq_next++;
+  moqtrun_peer_ctl_reset(p);
+  moqtrun_peer_rx_reset(p);
+  moqtrun_peer_life_reset(p);
   moqtrun_ctl_open(hub, p);
 }
 
@@ -8428,13 +8460,8 @@ static int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
   return (stream_id & 3) == 0 && hub->io.stream_reply_open != 0;
 }
 
-static wired_moqtrun_req* moqtrun_req_open(
-    wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id) {
-  q->in_use       = 1;
-  q->wt           = s;
-  q->stream_id    = stream_id;
-  q->kind         = 0;
-  q->request_id   = MOQTRUN_RID_NONE;
+/* q's stream-level state: framing, send slots, FIN/GOAWAY flags. */
+static void moqtrun_req_stream_reset(wired_moqtrun_req* q) {
   q->opened       = 0;
   q->in.n         = 0;
   q->in.at        = 0;
@@ -8447,6 +8474,10 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->rdv_held     = 0;
   q->fin_in       = 0;
   q->fin_out      = 0;
+}
+
+/* q's request-level state: discovery, updates and the PUBLISH it drives. */
+static void moqtrun_req_body_reset(wired_moqtrun_req* q) {
   q->done_pending = 0;
   q->done_status  = 0;
   q->done_count   = 0;
@@ -8462,6 +8493,17 @@ static wired_moqtrun_req* moqtrun_req_open(
   q->group_order    = 0;
   q->rngf_n         = 0;
   q->pub_answered   = 0;
+}
+
+static wired_moqtrun_req* moqtrun_req_open(
+    wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id) {
+  q->in_use     = 1;
+  q->wt         = s;
+  q->stream_id  = stream_id;
+  q->kind       = 0;
+  q->request_id = MOQTRUN_RID_NONE;
+  moqtrun_req_stream_reset(q);
+  moqtrun_req_body_reset(q);
   return q;
 }
 
