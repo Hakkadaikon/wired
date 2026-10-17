@@ -11160,6 +11160,38 @@ static void srvrun_resp_rows_clear(srvrun_conn* c) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) c->resp[i].bigbuf_row = -1;
 }
 
+/* Start c's congestion control, ECN, HyStart, RTT and PMTU state fresh. */
+static void srvrun_conn_cc_init(const srvrun_cfg* cfg, srvrun_conn* c) {
+  cc_init_algo(&c->cc, srvrun_cc_algo(cfg));
+  ecn_track_init(&c->ecn);
+  hystart_init(&c->hs);
+  rtt_init(&c->rtt);
+  pmtu_init(&c->pmtu);
+}
+
+/* Wipe the just-claimed slot c (index slot) for a new connection from
+ * ctx->peer, bumping its generation. */
+static void srvrun_conn_fresh(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
+  u32 gen          = c->gen + 1;
+  *c               = (srvrun_conn){0};
+  c->gen           = gen;
+  c->peer          = *ctx->peer;
+  c->boot_claim_ms = ctx->now_ms;
+  c->qlog_slot     = (u64)slot;
+  c->l.qlog_path   = ctx->cfg->qlog_path;
+  c->l.qlog_group  = (u64)slot;
+  srvrun_conn_cc_init(ctx->cfg, c);
+  /* the {0} slot wipe above left every resp[].bigbuf_row at 0 -- a VALID
+   * pool row index. The teardown sweep (srvrun_free_bigbuf_rows) would then
+   * release row 0 on behalf of responses that never claimed anything,
+   * freeing it out from under another connection mid-delivery. -1 = "holds
+   * no row", matching srvrun_resp_claim's own reset. */
+  srvrun_resp_rows_clear(c);
+  c->pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
+  c->tx_fd         = srvrun_rx_fd(ctx->cfg);
+}
+
 /* Claim and initialize a fresh slot for dcid: record the peer, and generate
  * this slot's own scid (never cfg->id's fixed one — every slot sharing it
  * would collapse conntable's routing back to a single slot). Returns the slot
@@ -11167,32 +11199,13 @@ static void srvrun_resp_rows_clear(srvrun_conn* c) {
  * claimed slot is freed again rather than run with an all-zero scid). */
 static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
-  int slot = srvrun_claim_slot(ctx, dcid, is_initial);
+  int          slot = srvrun_claim_slot(ctx, dcid, is_initial);
+  srvrun_conn* c;
   if (slot < 0) return -1;
-  u32 gen                            = ctx->st->conns[slot].gen + 1;
-  ctx->st->conns[slot]               = (srvrun_conn){0};
-  ctx->st->conns[slot].gen           = gen;
-  ctx->st->conns[slot].peer          = *ctx->peer;
-  ctx->st->conns[slot].boot_claim_ms = ctx->now_ms;
-  ctx->st->conns[slot].qlog_slot     = (u64)slot;
-  ctx->st->conns[slot].l.qlog_path   = ctx->cfg->qlog_path;
-  ctx->st->conns[slot].l.qlog_group  = (u64)slot;
-  cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
-  ecn_track_init(&ctx->st->conns[slot].ecn);
-  hystart_init(&ctx->st->conns[slot].hs);
-  rtt_init(&ctx->st->conns[slot].rtt);
-  pmtu_init(&ctx->st->conns[slot].pmtu);
-  /* the {0} slot wipe above left every resp[].bigbuf_row at 0 -- a VALID
-   * pool row index. The teardown sweep (srvrun_free_bigbuf_rows) would then
-   * release row 0 on behalf of responses that never claimed anything,
-   * freeing it out from under another connection mid-delivery. -1 = "holds
-   * no row", matching srvrun_resp_claim's own reset. */
-  srvrun_resp_rows_clear(&ctx->st->conns[slot]);
-  ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
-  ctx->st->conns[slot].tx_fd         = srvrun_rx_fd(ctx->cfg);
-  if (srvrun_issue_cid(
-          ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len)) {
-    srvrun_issue_spare_cid(ctx->cfg, &ctx->st->conns[slot]);
+  c = &ctx->st->conns[slot];
+  srvrun_conn_fresh(ctx, c, slot);
+  if (srvrun_issue_cid(ctx->cfg, c->scid, ctx->cfg->id->scid_len)) {
+    srvrun_issue_spare_cid(ctx->cfg, c);
     return slot;
   }
   conntable_remove(ctx->st->table, WIRED_CONNTABLE_CAP, slot);
