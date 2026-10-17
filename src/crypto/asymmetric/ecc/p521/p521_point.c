@@ -44,8 +44,13 @@ typedef struct {
 static int p521pt_is_inf(const jac521* j) { return fp521_is_zero(j->Z); }
 
 /* dbl-2001-b (a = -3): alpha = 3(X-Z^2)(X+Z^2), beta = X*Y^2. */
-static void p521pt_double(jac521* r, const jac521* p) {
-  p521_fe delta, gamma, beta, alpha, t, s;
+static void p521pt_dbl_ab(
+    p521_fe       alpha,
+    p521_fe       beta,
+    p521_fe       gamma,
+    p521_fe       delta,
+    const jac521* p) {
+  p521_fe t, s;
   p521pt_sqr(delta, p->Z);
   p521pt_sqr(gamma, p->Y);
   fp521_mul_p(beta, p->X, gamma);
@@ -54,15 +59,17 @@ static void p521pt_double(jac521* r, const jac521* p) {
   fp521_mul_p(alpha, t, s);
   p521pt_dbl(t, alpha);
   p521pt_add(alpha, alpha, t);
-  p521pt_add(t, p->Y, p->Z); /* Z3 = (Y+Z)^2 - gamma - delta */
-  p521pt_sqr(t, t);
-  p521pt_sub(t, t, gamma);
-  p521pt_sub(r->Z, t, delta);
+}
+
+/* X3 = alpha^2 - 8 beta, Y3 = alpha (4 beta - X3) - 8 gamma^2. */
+static void p521pt_dbl_xy(
+    jac521* r, const p521_fe alpha, const p521_fe beta, const p521_fe gamma) {
+  p521_fe t, s;
   p521pt_dbl(s, beta);
   p521pt_dbl(s, s); /* 4 beta */
   p521pt_sqr(r->X, alpha);
   p521pt_sub(r->X, r->X, s);
-  p521pt_sub(r->X, r->X, s); /* X3 = alpha^2 - 8 beta */
+  p521pt_sub(r->X, r->X, s);
   p521pt_sub(s, s, r->X);
   fp521_mul_p(s, alpha, s);
   p521pt_sqr(t, gamma);
@@ -70,6 +77,16 @@ static void p521pt_double(jac521* r, const jac521* p) {
   p521pt_dbl(t, t);
   p521pt_dbl(t, t); /* 8 gamma^2 */
   p521pt_sub(r->Y, s, t);
+}
+
+static void p521pt_double(jac521* r, const jac521* p) {
+  p521_fe delta, gamma, beta, alpha, t;
+  p521pt_dbl_ab(alpha, beta, gamma, delta, p);
+  p521pt_add(t, p->Y, p->Z); /* Z3 = (Y+Z)^2 - gamma - delta */
+  p521pt_sqr(t, t);
+  p521pt_sub(t, t, gamma);
+  p521pt_sub(r->Z, t, delta);
+  p521pt_dbl_xy(r, alpha, beta, gamma);
 }
 
 /* add-2007-bl intermediates. */
@@ -88,20 +105,27 @@ static void p521pt_add_uv(p521_addt* t, const jac521* p, const jac521* q) {
   fp521_mul_p(t->s2, t->s2, t->z1z1);
 }
 
-/* r = p + q for distinct x (u1 != u2). r may alias p. */
-static void p521pt_add_distinct(
-    jac521* r, const p521_addt* a, const jac521* p, const jac521* q) {
-  p521_fe h, rr, i, j, v, t;
-  p521pt_sub(h, a->u2, a->u1);
-  p521pt_sub(rr, a->s2, a->s1);
-  p521pt_dbl(rr, rr);
-  p521pt_add(t, p->Z, q->Z); /* Z3 = ((Z1+Z2)^2 - Z1Z1 - Z2Z2) H */
+/* Z3 = ((Z1+Z2)^2 - Z1Z1 - Z2Z2) H. r may alias p. */
+static void p521pt_add_z(
+    jac521*          r,
+    const p521_addt* a,
+    const jac521*    p,
+    const jac521*    q,
+    const p521_fe    h) {
+  p521_fe t;
+  p521pt_add(t, p->Z, q->Z);
   p521pt_sqr(t, t);
   p521pt_sub(t, t, a->z1z1);
   p521pt_sub(t, t, a->z2z2);
   fp521_mul_p(r->Z, t, h);
+}
+
+/* X3 = r^2 - J - 2V, Y3 = r (V - X3) - 2 S1 J with I = (2H)^2. */
+static void p521pt_add_xy(
+    jac521* r, const p521_addt* a, const p521_fe h, const p521_fe rr) {
+  p521_fe i, j, v, t;
   p521pt_dbl(t, h);
-  p521pt_sqr(i, t); /* I = (2H)^2 */
+  p521pt_sqr(i, t);
   fp521_mul_p(j, h, i);
   fp521_mul_p(v, a->u1, i);
   p521pt_sqr(r->X, rr);
@@ -113,6 +137,17 @@ static void p521pt_add_distinct(
   fp521_mul_p(v, a->s1, j);
   p521pt_dbl(v, v);
   p521pt_sub(r->Y, t, v);
+}
+
+/* r = p + q for distinct x (u1 != u2). r may alias p. */
+static void p521pt_add_distinct(
+    jac521* r, const p521_addt* a, const jac521* p, const jac521* q) {
+  p521_fe h, rr;
+  p521pt_sub(h, a->u2, a->u1);
+  p521pt_sub(rr, a->s2, a->s1);
+  p521pt_dbl(rr, rr);
+  p521pt_add_z(r, a, p, q, h);
+  p521pt_add_xy(r, a, h, rr);
 }
 
 /* acc += q with both finite: same x means double (same y) or infinity. */
