@@ -9,14 +9,9 @@
 # any of them and `ninja` alone builds just the freestanding default.
 set -eu
 
-cc="${CC:-clang}"
-# Flag sets come from justfile (single source of truth), passed as env vars.
-: "${CFLAGS:?CFLAGS not set -- run via 'just gen-ninja'}"
-: "${TESTFLAGS:?TESTFLAGS not set -- run via 'just gen-ninja'}"
-: "${FUZZFLAGS:?FUZZFLAGS not set -- run via 'just gen-ninja'}"
-: "${TIDYCHECKS:?TIDYCHECKS not set -- run via 'just gen-ninja'}"
-: "${TIDYCONFIG:?TIDYCONFIG not set -- run via 'just gen-ninja'}"
-: "${TIDYFLAGS:?TIDYFLAGS not set -- run via 'just gen-ninja'}"
+# Flag sets: scripts/just/flags.sh (single source of truth).
+. scripts/just/flags.sh
+cc=$CC
 
 srcs=$(find src -name '*.c' | sort)
 objs=$(printf '%s\n' "$srcs" | sed 's|^|build/|; s|\.c$|.o|' | tr '\n' ' ')
@@ -131,7 +126,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     done
     echo
     # every .c of an example dir is one program (an example may be split)
-    ex_srcs() { ls examples/"$1"/*.c | tr '\n' ' ' | sed 's/ $//'; }
+    ex_srcs() { find examples/"$1" -maxdepth 1 -name '*.c' | sort | tr '\n' ' ' | sed 's/ $//'; }
     echo "# the SDK archive and the example server built against it."
     echo "build build/libwired.a: ar $libobjs"
     echo "build examples/word_list/wired_server: cc_freestanding_bin \$"
