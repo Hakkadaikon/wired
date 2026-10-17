@@ -34,3 +34,6 @@ examples/*/public/key.pem
 # examples removed in e8a6fd3f; local leftovers (keys, node_modules, e2e)
 /examples/webtransport_chat/
 /examples/webtransport_echo/
+
+# Python bytecode caches (scripts/, tests/scripts/)
+__pycache__/
