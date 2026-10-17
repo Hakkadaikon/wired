@@ -140,7 +140,7 @@ _rca mode paths:
     set -eu
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     for p in {{paths}}; do
-        rust-code-analysis-cli -m -O json -I '*.[ch]' -p "$p" -o "$tmp" >/dev/null
+        rust-code-analysis-cli -m -O json -I '*.[ch]' '*.py' '*.ts' '*.tsx' -p "$p" -o "$tmp" >/dev/null
     done
     python3 scripts/halstead.py {{mode}} "$tmp"
 
