@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 60/74 tested, 14 indirect, 0 untested.**
+**Coverage: 62/81 tested, 14 indirect, 5 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -23,11 +23,8 @@ Legend:
     `test_h3settings_control_settings_advertises_wt`
   - test: `tests/app/h3settings_build_test.c` —
     `test_h3settings_build_h3_datagram_and_wt_enabled`
-- [x] WTH3-002 (§3.1) Where the server has not sent a SETTINGS_WT_ENABLED
-  setting indicating WebTransport support, clients are expected to not
-  attempt to establish WebTransport sessions; the server shall keep the
-  default value of SETTINGS_WT_ENABLED at 0 unless WebTransport is
-  configured.
+- [x] WTH3-002 (§3.1) Where WebTransport is not configured, the server shall
+  leave SETTINGS_WT_ENABLED at its default value 0 by not sending it.
   - test: `tests/app/h3settings_build_test.c` —
     `test_h3settings_build_h3_datagram_and_wt_disabled`
   - test: `tests/app/h3settings_control_settings_test.c` —
@@ -44,9 +41,9 @@ Legend:
     `test_h3settings_build_h3_datagram_and_wt_enabled`
   - test: `tests/app/h3settings_control_settings_test.c` —
     `test_h3settings_control_settings_advertises_wt`
-- [x] WTH3-005 (§3.1) The server shall send a max_datagram_frame_size
-  transport parameter with a value greater than 0 to indicate support for
-  QUIC datagrams.
+- [x] WTH3-005 (§3.1) Where WebTransport is configured, the server shall
+  send a max_datagram_frame_size transport parameter with a value greater
+  than 0 to indicate support for QUIC datagrams.
   - test: `tests/tls/server_tp_test.c` —
     `test_server_tp_datagram_frame_size`
 - [x] WTH3-006 (§3.1) The server shall send an empty reset_stream_at
@@ -57,19 +54,20 @@ Legend:
   WebTransport setting/parameter, then the server shall treat all
   established and newly incoming WebTransport sessions as malformed.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_connect_after_client_settings_establishes`
+    `test_srvrun_wt_held_connect_rejected_after_settings`
   - evidence: `srvrun_wt_tp_ok` rejects a newly incoming CONNECT when the
-    peer never advertised `max_datagram_frame_size`; only newly incoming
-    sessions are gated, not already-established ones.
-- [x] WTH3-008 (§3.1) For draft versions of WebTransport, the server shall
-  advertise SETTINGS_WT_ENABLED using the draft-specific codepoint(s) so
-  the peer can identify the supported version(s).
+    peer never advertised `max_datagram_frame_size`; the client's
+    SETTINGS_H3_DATAGRAM and reset_stream_at are not checked, and only newly
+    incoming sessions are gated, not already-established ones.
+- [x] WTH3-008 (§3.1, §7.1) For draft versions of WebTransport, the server
+  shall send SETTINGS_WT_ENABLED with the codepoint of each draft version
+  it supports, so the peer can identify the supported version(s).
   - test: `tests/app/h3settings_build_test.c` —
     `test_h3settings_build_h3_datagram_and_wt_enabled`
   - evidence: the built SETTINGS carry both the draft-02 (0x2b603742) and
-    draft-15 (0x2c7cf000) codepoints in the same frame.
-- [x] WTH3-009 (§3.1) For draft versions of WebTransport, the server shall
-  not process any incoming WebTransport requests until the client's
+    the current (0x2c7cf000, -16 §9.2) codepoints in the same frame.
+- [x] WTH3-009 (§3.1, §7.1) For draft versions of WebTransport, the server
+  shall not process any incoming WebTransport requests until the client's
   SETTINGS have been received.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_before_client_settings_held`
@@ -86,14 +84,18 @@ Legend:
   shall require the `:protocol` pseudo-header field to equal
   "webtransport-h3" (or the deployed "webtransport" draft-07 token).
   - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_establishes_session`
+  - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_webtransport_token`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_plain_connect_no_protocol_no_wt_session`
 - [~] WTH3-011 (§3.2) The `:scheme` field of a WebTransport CONNECT request
   shall be https.
-  - evidence: `wt_ext_fields_present` (srvrun.c) requires `:scheme` to be
-    present but does not check its value equals "https"; no test asserts
-    rejection of a non-https `:scheme`.
+  - evidence: `wt_ext_fields_present` (srvrun_wt_protocol.c) requires
+    `:scheme` to be present (`tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_missing_scheme_no_session`) but does not check
+    that its value equals "https"; no test asserts rejection of a
+    non-https `:scheme`.
 - [x] WTH3-012 (§3.2) Both the `:authority` and `:path` values shall be set
   on a WebTransport CONNECT request; these fields identify the desired
   WebTransport server resource.
@@ -117,7 +119,7 @@ Legend:
     decides each Origin (an absent header reaches it as an empty span); a
     present-but-empty Origin is refused with 403 before the callback. With
     no callback set, only the well-formedness check applies.
-- [x] WTH3-014 (§3.2) If Origin verification fails, then the server shall
+- [x] WTH3-014 (§3.2) If Origin verification fails, then the server should
   reply with status code 403.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_origin_malformed_403`
@@ -129,9 +131,8 @@ Legend:
     `test_srvrun_wt_connect_establishes_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_origin_ok_establishes`
-- [x] WTH3-016 (§3.2) Where the HTTP/3 server has no WebTransport server
-  associated with the specified `:authority` and `:path` values, the
-  server should reply with status code 405.
+- [x] WTH3-016 (§3.2) Where the target resource does not support
+  WebTransport, the server should reply with status code 405.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_resource_check_405_no_session`
   - evidence: the app registers a `wired_wt_resource_check` callback
@@ -152,30 +153,32 @@ Legend:
     report a 3xx status with a Location value; `srvrun_reject_wt_redirect`
     builds the redirect response carrying a Literal Field Line With Literal
     Name Location header.
-- [~] WTH3-019 (§3.2) Clients shall not initiate WebTransport in 0-RTT
-  packets; if the server accepts 0-RTT, the server shall not reduce the
-  limit of maximum open WebTransport sessions or other initial flow
-  control values from those negotiated during the previous session, else
-  the server shall close the connection with H3_SETTINGS_ERROR.
-  - test: `tests/app/h3settings_control_settings_test.c` —
-    `test_h3settings_zerortt_compatible_wt_session_limit_lowered_rejected`
-  - test: `tests/app/h3settings_control_settings_test.c` —
-    `test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected`
-  - evidence: `h3settings_zerortt_compatible` (9114-066) already
-    covers `wt_max_sessions` ("the limit of maximum open WebTransport
-    sessions") and `wt_initial_max_streams_uni/bidi`/`wt_initial_max_data`
-    (WTH3-051's "other initial flow control values") in its general
-    never-regress rule; both are pinned down directly by the tests above.
-  - gap: this SDK's session limit (`SRVRUN_MAX_WT_SESSIONS`) is still a
-    compile-time constant, not renegotiated per connection, and no store
-    of the settings sent when a resumed ticket was issued exists to
-    supply the `prior` argument on a live 0-RTT accept path (same gap as
-    9114-066).
+- [~] WTH3-019 (§3.2) If the server accepts 0-RTT, then the server shall
+  not reduce the WebTransport-related initial flow control SETTINGS values
+  from those negotiated during the previous session.
+  - evidence: the server's SETTINGS_WT_INITIAL_* values are compile-time
+    constants (`DEFAULT_WT_INITIAL_*`, control_settings.c), so they never
+    decrease between sessions; `h3settings_zerortt_compatible` also checks
+    the never-reduce rule, but its WebTransport test functions in
+    `tests/app/h3settings_control_settings_test.c` are not invoked from
+    `tests/run.c`.
+  - gap: no store of the settings sent when a resumed ticket was issued
+    exists to supply the `prior` argument on a live 0-RTT accept path (same
+    gap as 9114-066).
 - [x] WTH3-020 (§3.2) The Capsule Protocol is negotiated for the
   "webtransport-h3" upgrade token when the server sends a 2xx response.
-  - test: `tests/app/wtcapsule_test.c` — `test_wtcapsule_close_roundtrip`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_establishes_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_session_capsule_received`
+- [~] WTH3-075 (§3.2) The server shall not process bytes received on the
+  CONNECT stream as capsules until it sends a 2xx response accepting the
+  session, and shall discard them if the session is rejected.
+  - evidence: the capsule receive cursor is armed only when
+    `srvrun_start_wt` establishes the session (`srvrun_wt_capsule_arm`),
+    starting right after the request HEADERS (`tests/app/srvrun_test.c` —
+    `test_srvrun_wt_capsule_start_skips_connect_headers`); no test sends
+    capsules ahead of the 2xx or on a rejected CONNECT.
 
 ## §3.3 Application Protocol Negotiation
 
@@ -195,20 +198,14 @@ Legend:
   session establishment is unaffected.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_negotiate_absent_offer_no_header`
-- [x] WTH3-024 (§3.3) If the WT-Available-Protocols header field is
-  malformed (not a valid Structured Field List), then the server shall
-  treat the field as if it were ignored (RFC 9651/8941 error handling).
+- [x] WTH3-024 (§3.3) If the WT-Available-Protocols header field holds a
+  value type other than String (or is otherwise not a valid Structured
+  Field List), then the server shall ignore the entire field.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_negotiate_bad_syntax_no_header`
-- [x] WTH3-025 (§3.3) A server that requires application protocol
-  negotiation may reject the session if the WT-Available-Protocols header
-  field is absent or malformed.
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_negotiate_disabled_unchanged`
-  - evidence: negotiation is opt-in (`cfg->wt_protocols == 0` disables it
-    entirely); the cited test pins the disabled-negotiation behavior. No
-    test exercises a server configured to reject on missing/malformed
-    offers (a stricter mode this SDK does not implement).
+- [x] WTH3-076 (§3.3) The server shall ignore any parameters on
+  WT-Available-Protocols list members.
+  - test: `tests/app/sfield_test.c` — `test_sfield_parameters_are_skipped`
 
 ## §3.4 Prioritization
 
@@ -246,20 +243,24 @@ Legend:
   client-initiated bidirectional stream.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_client_bidi_id_establishes_session`
-- [x] WTH3-030 (§4) If an endpoint receives a session ID on a
+- [ ] WTH3-030 (§4) If the server receives a session ID on a
   unidirectional stream, bidirectional stream, or datagram that does not
   correspond to a client-initiated bidirectional stream ID, then the
   server shall close the connection with an H3_ID_ERROR error code.
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_connect_non_client_bidi_id_rejected`
-- [x] WTH3-031 (§4) Session IDs corresponding to closed sessions shall not
+  - gap: only a CONNECT on a non-client-bidi id is checked
+    (`test_srvrun_wt_connect_non_client_bidi_id_rejected`), and it resets
+    that stream with H3_ID_ERROR rather than closing the connection; the
+    session ID in a WT data stream header is not checked (such a stream is
+    buffered and later rejected), and a datagram's Quarter Stream ID always
+    maps to a multiple of 4.
+- [~] WTH3-031 (§4) Session IDs corresponding to closed sessions shall not
   themselves be considered invalid for the client-initiated-bidi-stream
   check; endpoints handle data for closed sessions per session
   termination rules.
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_foreign_stream_id_rejected`
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_close_frees_slot_for_new_accept`
+  - evidence: no session-ID validity check exists that could reject them
+    (WTH3-030); an id with no live session simply misses the slot table
+    (`tests/app/srvrun_test.c` — `test_srvrun_wt_foreign_stream_id_rejected`,
+    `test_srvrun_wt_close_frees_slot_for_new_accept`).
 
 ## §4.2 Unidirectional Streams
 
@@ -285,23 +286,28 @@ Legend:
   - test: `tests/app/srvloop_test.c` —
     `test_srvloop_wt_bidi_stream_not_request`
   - test: `tests/app/srvloop_test.c` — `test_srvloop_wt_bidi_stream_reassembled`
-- [x] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is sent as a
+- [~] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is received as a
   frame type on an HTTP/3 stream other than the very first bytes of a
-  request stream, then the implementation shall treat this as a
-  connection error of type H3_FRAME_ERROR.
+  request stream, then the server shall treat this as a connection error
+  of type H3_FRAME_ERROR.
   - test: `tests/app/srvloop_test.c` —
     `test_srvloop_wt_signal_mid_stream_latches_violation`
-  - evidence: `gather_one_wt_signal_violation` (`dispatch.c`) detects the
-    signal varint at a non-zero stream offset and latches
-    `wt_signal_mid_stream_violation`; `srvrun_close_on_step_violation`
-    closes the connection with H3_FRAME_ERROR on the next step.
+  - evidence: the test asserts the detection latch
+    (`wt_signal_mid_stream_violation`); the close with H3_FRAME_ERROR that
+    `srvrun_close_on_step_violation` performs on the next step is not
+    asserted by any test.
 
 ## §4.4 Resetting Data Streams
 
-- [x] WTH3-036 (§4.4) A WebTransport endpoint may send a RESET_STREAM or a
-  STOP_SENDING frame for a WebTransport data stream, propagated to the
-  application.
-  - test: `tests/transport/stream_ctl_test.c` — `test_reset_stream`
+- [x] WTH3-036 (§4.4) The server shall propagate a RESET_STREAM or
+  STOP_SENDING for a WebTransport data stream to the application, and
+  shall take an application error code for each reset/stop it sends.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_reset_mapped_delivers_app_error_code`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stream_reset_sends_reset_and_frees_slot`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stream_stop_sends_stop_sending`
 - [x] WTH3-037 (§4.4) WebTransport application error codes for streams
   shall be remapped into the WT_APPLICATION_ERROR range, where 0x00000000
   corresponds to 0x52e4a40fa8db and 0xffffffff corresponds to
@@ -323,20 +329,17 @@ Legend:
     codec itself stays tested
     (`tests/transport/stream_ctl_test.c`) for the day peer-TP tracking
     lands.
-- [x] WTH3-039 (§4.4) WebTransport endpoints shall forward the error code
-  for a stream associated with a known session to the application that
+- [x] WTH3-039 (§4.4) The server shall deliver the error code of a stream
+  reset associated with a known session unchanged to the application that
   owns that session.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_stream_reply_arms_given_stream_verbatim`
+    `test_srvrun_wt_reset_mapped_delivers_app_error_code`
 - [x] WTH3-040 (§4.4) If a RESET_STREAM or STOP_SENDING frame is received
   with an error code outside the WT_APPLICATION_ERROR range, then the
   implementation should deliver this to the application as a stream reset
   with no application error code.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_reset_mapped_delivers_app_error_code`
-  - evidence: the receive-side stream-reset handling path in srvrun.c now
-    calls `wired_wterrmap_from_http3` to decide whether a mapped application
-    error code or none is delivered to the app.
+    `test_srvrun_wt_reset_unmapped_delivers_no_app_error_code`
 
 ## §4.5 Datagrams
 
@@ -348,12 +351,6 @@ Legend:
 
 ## §4.6 Buffering Incoming Streams and Datagrams
 
-- [~] WTH3-042 (§4.6) The client shall wait for receipt of the server's
-  SETTINGS frame before establishing any WebTransport sessions.
-  - evidence: client-side behavior in principle; the server-observable
-    counterpart is WTH3-009 (server does not process incoming WT requests
-    until the client's own SETTINGS have arrived), now implemented and
-    tested there.
 - [x] WTH3-043 (§4.6) WebTransport endpoints should buffer streams and
   datagrams until they can be associated with an established session.
   - test: `tests/app/wt_session_test.c` —
@@ -380,13 +377,14 @@ Legend:
 
 ## §4.7 Interaction with the HTTP/3 GOAWAY Frame
 
-- [x] WTH3-047 (§4.7) A client receiving GOAWAY shall not initiate CONNECT
-  requests for new WebTransport sessions on that connection.
-  - test: `tests/app/goaway_check_test.c` — `test_goaway_check`
-  - evidence: the generic GOAWAY-id monotonicity/rejection check
-    (`goaway_check` family) applies to all new client-initiated
-    request streams, including WebTransport CONNECT streams; no
-    WT-specific test drives a CONNECT arriving after GOAWAY.
+- [~] WTH3-047 (§4.7) When the server has sent GOAWAY, the server shall not
+  accept CONNECT requests for new WebTransport sessions on streams at or
+  past the GOAWAY stream ID.
+  - evidence: `srvrun_start_resp` refuses any request stream at or past the
+    sent GOAWAY id with H3_REQUEST_REJECTED before method dispatch, so a
+    WebTransport CONNECT takes the same path (`tests/app/srvrun_test.c` —
+    `test_srvrun_goaway_id_past_largest_accepted`, driven with GET); no
+    test drives a CONNECT past GOAWAY.
 - [x] WTH3-048 (§4.7) An HTTP/3 GOAWAY frame is also a signal to
   applications to initiate shutdown for all WebTransport sessions; to
   shut down a single session, either endpoint can send a
@@ -433,50 +431,35 @@ Legend:
     automatically at the same stage as the application traffic secrets,
     `keysched_exporter_secret`).
   - gap: no application-facing WebTransport session API exposes this yet
-    (draft-ietf-webtrans-http3-15 leaves the exporter-request API's shape
+    (draft-ietf-webtrans-http3-16 leaves the exporter-request API's shape
     to the implementation).
 
 ## §5.1 Negotiating the Use of Flow Control
 
-- [~] WTH3-051 (§5.1) A WebTransport endpoint that allows a session to
-  share a transport connection with other sessions shall enable flow
-  control by sending a non-zero SETTINGS_WT_INITIAL_MAX_STREAMS_UNI,
-  SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI, or SETTINGS_WT_INITIAL_MAX_DATA.
-  - test: `tests/app/h3settings_build_test.c` —
-    `test_h3settings_build_wt_flow_control_initial_limits`
-  - test: `tests/app/h3settings_build_test.c` —
-    `test_h3settings_build_wt_flow_control_zero_omits_pairs`
-  - gap: the three SETTINGS_WT_INITIAL_MAX_* identifiers (0x2b64/0x2b65/
-    0x2b61) are now defined and `h3settings_build` sends each when its
-    `h3settings_in` field is non-zero, but no caller decides to enable
-    them yet -- this SDK's 2-session cap (`SRVRUN_MAX_WT_SESSIONS`) remains
-    a static limit, and every existing call site still passes 0 for these
-    three fields (relying on the pre-existing per-session capsule
-    mechanism, WTH3-056/059/060/062).
-- [x] WTH3-052 (§5.1) If flow control is not enabled, the server shall
-  reject more than one simultaneous WebTransport session with a
-  H3_REQUEST_REJECTED status.
+- [x] WTH3-051 (§5.1, §8) The server shall enable flow control by sending
+  non-zero SETTINGS_WT_INITIAL_MAX_STREAMS_UNI,
+  SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI and SETTINGS_WT_INITIAL_MAX_DATA.
+  - test: `tests/app/h3settings_control_settings_test.c` —
+    `test_h3settings_control_settings_advertises_wt`
+  - evidence: the server sends 2^60 / 2^60 / 2^62-1
+    (`DEFAULT_WT_INITIAL_*`, control_settings.c); the test checks each
+    advertised value is accepted as a non-zero limit and that 1000 streams
+    fit under it. Flow control is then on whenever the client also sends
+    a non-zero one (`srvrun_wt_seed_limits`).
+- [x] WTH3-052 (§5.1) If flow control is not enabled and the server
+  receives more than one WebTransport session on the connection, then the
+  server shall reset the excessive CONNECT streams with
+  H3_REQUEST_REJECTED.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_reject_at_session_limit`
+    `test_srvrun_second_wt_connect_rejected_when_flow_control_disabled`
+- [x] WTH3-053 (§5.1) If flow control is not enabled, then the server
+  shall ignore receipt of any flow control capsules.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_second_wt_connect_sends_reset_stream`
-  - evidence: this SDK's fixed 2-session cap is stricter than "exactly
-    one", so the cited tests demonstrate the analogous reject-at-limit
-    behavior rather than the spec's literal single-session default.
-- [~] WTH3-053 (§5.1) If flow control is not enabled, an endpoint shall
-  ignore receipt of any flow control capsules.
-  - test: `tests/app/wtcapsule_test.c` —
-    `test_wtcapsule_max_streams_decoded_value_ignored_until_applied`
+    `test_srvrun_wt_max_data_capsule_ignored_when_flow_control_disabled`
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
-  - evidence: the CONNECT-stream receive path now decodes and applies
-    WT_MAX_DATA/WT_MAX_STREAMS (WTH3-056/060); a session that never
-    received one keeps allowing streams/data unconditionally, and a capsule
-    that does not increase a limit closes the session with
-    WT_FLOW_CONTROL_ERROR (WTH3-069/071).
-  - gap: the server applies a peer's flow-control capsules whether or not
-    SETTINGS_WT_INITIAL_* enabled flow control, so the "ignore when not
-    enabled" branch itself is never taken.
+    `test_srvrun_wt_max_streams_capsule_ignored_when_flow_control_disabled`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_streams_blocked_ignored_when_flow_control_disabled`
 
 ## §5.2 Limiting the Number of Simultaneous Sessions
 
@@ -484,17 +467,18 @@ Legend:
   WebTransport sessions to prevent excessive resource consumption, using
   H3_REQUEST_REJECTED or HTTP status code 429.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_second_wt_connect_rejected_429`
+    `test_srvrun_wt_reject_at_session_limit`
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_second_wt_connect_sends_reset_stream`
+    `test_srvrun_wt_session_creation_rate_limited`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_second_wt_connect_rejected_429`
   - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_occupancy_counts_open`
   - evidence: `wired_server_wt_occupancy` reports the open sessions and
     the cap, so an application can shed load before the limit is hit.
-- [x] WTH3-055 (§5.2) An endpoint that does not support pooling and flow
-  control shall not accept more than one incoming WebTransport session at
-  a time.
+- [x] WTH3-055 (§5.2) While flow control is not enabled, the server shall
+  not accept more than one incoming WebTransport session at a time.
   - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_limit_one_matches_legacy_behavior`
+    `test_srvrun_second_wt_connect_rejected_when_flow_control_disabled`
 
 ## §5.3 Limiting the Number of Streams Within a Session
 
@@ -509,6 +493,8 @@ Legend:
     `test_srvrun_wt_rx_max_streams_capsules_raise_limits`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_rx_max_streams_capsule_via_dispatch_raises_limit`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_initial_max_streams_from_settings`
 - [x] WTH3-057 (§5.3) An endpoint shall not open more streams than
   permitted by the current stream limit set by its peer.
   - test: `tests/app/wt_session_test.c` —
@@ -523,17 +509,21 @@ Legend:
   WT_FLOW_CONTROL_ERROR error code.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_refused_stream_reset_and_credited`
-  - evidence: this server advertises no WT_MAX_STREAMS of its own, so an
-    incoming stream can never exceed a session limit it set; the
-    receiver-side close cannot trigger. What does bound incoming streams
-    is the fixed stream table: a stream beyond it is reset with
-    H3_REQUEST_REJECTED and its QUIC stream credit is returned.
-- [~] WTH3-059 (§5.3) The WT_STREAMS_BLOCKED capsule can be sent to
-  indicate that an endpoint was unable to create a stream due to the
-  session-level stream limit.
+  - evidence: this server advertises 2^60 streams per direction
+    (WTH3-051) and never lowers it with a WT_MAX_STREAMS of its own, so an
+    incoming stream can never exceed the limit and the receiver-side close
+    cannot trigger. What does bound incoming streams is the fixed stream
+    table: a stream beyond it is reset with H3_REQUEST_REJECTED and its
+    QUIC stream credit is returned.
+- [x] WTH3-059 (§5.3, §5.6.3) When the server wishes to open a stream but is
+  unable to due to the session-level stream limit set by its peer, the
+  server should send a WT_STREAMS_BLOCKED capsule.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_uni_blocked_sends_streams_blocked`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_bidi_blocked_sends_streams_blocked`
   - test: `tests/app/wtcapsule_test.c` —
     `test_wtcapsule_streams_blocked_roundtrip`
-  - gap: codec exists and is tested; no send-site triggers it yet.
 - [x] WTH3-069 (§5.6.2) If a received WT_MAX_STREAMS value does not
   increase the session's current stream limit for that direction (the
   same value or a decrease) or exceeds 2^60, then the server shall close
@@ -548,6 +538,8 @@ Legend:
     `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_max_streams_over_ceiling_closes_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_initial_max_streams_from_settings`
 - [x] WTH3-070 (§5.6.3) If a received WT_STREAMS_BLOCKED value exceeds
   2^60, then the server shall close the WebTransport session with a
   WT_FLOW_CONTROL_ERROR error code.
@@ -567,30 +559,35 @@ Legend:
     `test_srvrun_wt_rx_max_data_capsule_via_dispatch_unblocks_send`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_rx_max_data_capsule_via_on_step_raises_max_data`
-- [~] WTH3-061 (§5.4) If an endpoint receives Stream Body data in excess
-  of the WT_MAX_DATA limit, then the endpoint shall close the
-  WebTransport session with a WT_FLOW_CONTROL_ERROR error code.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_initial_max_data_from_settings`
+- [x] WTH3-077 (§5.6.4) The server shall not send Stream Body data on a
+  session's streams in excess of the Maximum Data value advertised by the
+  peer.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_open_uni_exceeding_max_data_refused`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_reply_exceeding_max_data_refused`
-  - evidence: the cited tests cover the sending side (the server refuses
-    a send past the peer's WT_MAX_DATA). This server advertises no
-    WT_MAX_DATA of its own, so received data can never exceed a limit it
-    set and the receiver-side close cannot trigger; QUIC stream and
-    connection credit bound received data instead.
-- [~] WTH3-062 (§5.4) The WT_DATA_BLOCKED capsule can be sent to indicate
-  that an endpoint was unable to send data due to a WT_MAX_DATA limit.
-  - test: `tests/app/wtcapsule_test.c` —
-    `test_wtcapsule_data_blocked_roundtrip`
-  - gap: codec exists and is tested; no send-site triggers it yet.
-- [x] WTH3-063 (§5.4) Per-stream data limits are provided by QUIC natively
-  (WT_MAX_STREAM_DATA and WT_STREAM_DATA_BLOCKED capsules are prohibited
-  and must not be used).
-  - test: `tests/app/wtcapsule_test.c` —
-    `test_wtcapsule_no_per_stream_flow_control_capsule`
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_max_stream_data_wire_shape`
+- [~] WTH3-061 (§5.4) If an endpoint receives Stream Body data in excess
+  of the WT_MAX_DATA limit, then the endpoint shall close the
+  WebTransport session with a WT_FLOW_CONTROL_ERROR error code.
+  - evidence: this server advertises 2^62-1 bytes (WTH3-051) and never
+    lowers it, so received data can never exceed the limit and the
+    receiver-side close cannot trigger; QUIC stream and connection credit
+    bound received data instead.
+- [ ] WTH3-062 (§5.4, §5.6.5) When the server wishes to send data but is
+  unable to due to session-level flow control, the server should send a
+  WT_DATA_BLOCKED capsule.
+  - gap: the codec exists (`test_wtcapsule_data_blocked_roundtrip`) but no
+    send site emits it; a data-limited open stages nothing on the CONNECT
+    stream (`test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing`).
+- [ ] WTH3-063 (§5.4) If the server receives a WT_MAX_STREAM_DATA or a
+  WT_STREAM_DATA_BLOCKED capsule, then the server shall treat it as a
+  session error.
+  - gap: the two capsule types are not defined in the SDK
+    (wtcapsule.h), so they are skipped like any unknown capsule
+    (`test_srvrun_wt_rx_unknown_capsule_skipped`) instead of closing the
+    session.
 - [x] WTH3-071 (§5.6.4) If a received WT_MAX_DATA value does not increase
   the session's current data limit (the same value or a decrease), then
   the server shall close the WebTransport session with a
@@ -601,6 +598,21 @@ Legend:
     `test_flow_control_max_data_decreasing_rejected`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_nonincreasing_flow_control_capsule_closes_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_initial_max_data_from_settings`
+
+## §5.6 Flow Control Capsules
+
+- [~] WTH3-078 (§5.6) While flow control is enabled, the server should send
+  WT_MAX_DATA and WT_MAX_STREAMS capsules as it consumes data or closes
+  streams, and shall not wait for a WT_DATA_BLOCKED or WT_STREAMS_BLOCKED
+  capsule before sending them.
+  - evidence: the server never sends WT_MAX_DATA/WT_MAX_STREAMS; it
+    advertises effectively unbounded initial limits instead (2^60 streams,
+    2^62-1 bytes, WTH3-051), which a peer cannot exhaust
+    (`tests/app/h3settings_control_settings_test.c` —
+    `test_h3settings_control_settings_advertises_wt`), so no credit
+    update is ever owed.
 
 ## §6 Session Termination
 
@@ -622,6 +634,8 @@ Legend:
     `test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_connect_stream_reset_leaves_other_sessions_streams`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_send_datagram_to_requires_send_side_open`
   - evidence: `srvrun_reset_wt_streams_for_session` resets every WT bidi/uni
     stream the closing session owns (tracked via `wt_session_slot`) with
     WT_SESSION_GONE when its CONNECT stream closes; datagram send/receive
@@ -633,26 +647,22 @@ Legend:
   - test: `tests/app/wtcapsule_test.c` — `test_wtcapsule_close_roundtrip`
   - test: `tests/app/wtcapsule_test.c` —
     `test_wtcapsule_close_encode_rejects_long_message`
-- [~] WTH3-067 (§6) An endpoint that sends a WT_CLOSE_SESSION capsule
-  shall immediately send a FIN on the CONNECT stream; if additional
-  stream data is received on the CONNECT stream after receiving a
-  WT_CLOSE_SESSION capsule, the stream shall be reset with code
-  H3_MESSAGE_ERROR.
+- [x] WTH3-067 (§6) When the server sends a WT_CLOSE_SESSION capsule, the
+  server shall immediately send a FIN on the CONNECT stream.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_send_wt_close_seals_capsule_with_fin`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_latches_pending`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_drain_wt_close_pending_closes_session`
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_close_session_capsule_received`
-  - evidence: the send side is complete: the public
-    `wired_server_wt_close_session` API latches the close request, and
-    `srvrun_drain_wt_close_pending` seals the WT_CLOSE_SESSION capsule
-    immediately followed by a FIN on the CONNECT stream; the capsule is
-    retransmitted until acknowledged
-    (`test_srvrun_wt_close_capsule_retransmitted_after_loss`). On receive,
-    a WT_CLOSE_SESSION terminates the session at once, so trailing data is
-    never read; resetting it with H3_MESSAGE_ERROR specifically is not
-    implemented.
+  - evidence: the public `wired_server_wt_close_session` API latches the
+    close request, and `srvrun_drain_wt_close_pending` seals the
+    WT_CLOSE_SESSION capsule as the CONNECT stream's last round, so the FIN
+    follows it; capsules travel inside HTTP/3 DATA frames on the CONNECT
+    stream (RFC 9297 3.2, see 9297-024 in [rfc9297.md](rfc9297.md)). The
+    sending side was checked against webtransport-go.
+- [x] WTH3-079 (§6) When the server receives a WT_CLOSE_SESSION capsule,
+  the server shall either close or reset the CONNECT stream in response.
   - test: `tests/app/srvrun_close_test.c` —
     `test_srvrun_close_peer_capsule_fins_connect`
   - test: `tests/app/srvrun_close_test.c` —
@@ -661,16 +671,16 @@ Legend:
     `test_srvrun_close_peer_capsule_and_fin_one_fin`
   - test: `tests/app/srvrun_close_test.c` —
     `test_srvrun_close_bad_capsule_resets_no_fin`
-  - evidence: the recipient side ("the recipient MUST either close or
-    reset the stream in response"): after the peer's WT_CLOSE_SESSION or
-    its FIN on the CONNECT stream, `srvrun_wt_connect_fin` closes this
-    server's side with a FIN at the stream's current end, once (an invalid
-    close body resets the stream instead, WTH3-072). Loopback-tested only;
-    the moq-playa interop case (`transport.closed`) has not been re-run.
-  - evidence: capsules travel inside HTTP/3 DATA frames on the CONNECT
-    stream (RFC 9297 3.2, see 9297-024 in [rfc9297.md](rfc9297.md)). The
-    sending side was checked against webtransport-go; the receiving side
-    is unit-proven and loopback-tested only.
+  - evidence: `srvrun_wt_connect_fin` closes this server's side with a FIN
+    at the stream's current end, once (an invalid close body resets the
+    stream instead, WTH3-072). Loopback-tested only; the moq-playa interop
+    case (`transport.closed`) has not been re-run.
+- [ ] WTH3-080 (§6) If additional stream data is received on the CONNECT
+  stream after a WT_CLOSE_SESSION capsule, then the server shall reset the
+  stream with code H3_MESSAGE_ERROR.
+  - gap: a received WT_CLOSE_SESSION terminates the session at once, so
+    trailing data is never read; resetting with H3_MESSAGE_ERROR on it is
+    not implemented.
 - [x] WTH3-068 (§6) Cleanly terminating a CONNECT stream without a
   WT_CLOSE_SESSION capsule shall be semantically equivalent to
   terminating it with a WT_CLOSE_SESSION capsule carrying error code 0
@@ -680,10 +690,9 @@ Legend:
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_other_stream_reset_does_not_close_wt_session`
 - [x] WTH3-072 (§6) If a received WT_CLOSE_SESSION capsule's Application
-  Error Message exceeds 1024 bytes or is not valid UTF-8, then the
-  server shall reset the CONNECT stream with error code H3_MESSAGE_ERROR
-  (leaving the session itself untouched -- a well-formed WT_CLOSE_SESSION
-  still terminates the session per WTH3-064).
+  Error Message exceeds 1024 bytes or is not valid UTF-8, then the server
+  shall reset the CONNECT stream with error code H3_MESSAGE_ERROR (which
+  also terminates the session, per WTH3-064).
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_message_too_long_resets_and_closes`
   - test: `tests/app/srvrun_test.c` —
@@ -703,6 +712,31 @@ Legend:
     `test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_truncates_at_utf8_boundary`
+- [ ] WTH3-081 (§6) When the server sends a WT_CLOSE_SESSION and intends to
+  close the QUIC connection, the server should wait until all CONNECT
+  streams have been closed by the peer before sending CONNECTION_CLOSE.
+  - gap: no ordering between WT_CLOSE_SESSION delivery and
+    CONNECTION_CLOSE is implemented.
+
+## §8 Security Considerations
+
+- [x] WTH3-082 (§8) The server should track the use of WebTransport
+  features, such as the number of incoming streams and datagrams, and set
+  limits on their use.
+  - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_usage_counters_exposed`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stream_churn_bounded_by_slot_table`
+- [~] WTH3-083 (§8) The server should implement a fairness scheme that
+  gives each session sharing a connection a reasonable share of sending
+  and stream-opening resources.
+  - evidence: the WT send pump serves one slice per stream per pass, so
+    equal flows share the link (`tests/app/srvrun_test.c` —
+    `test_srvrun_wt_sched_equal_flows_share`,
+    `test_srvrun_wt_sched_one_slice_per_pass`); the share is per stream,
+    not per session, and stream opening has no per-session fairness.
+
+## §9.5 HTTP/3 Error Code Registration
+
 - [x] WTH3-074 (§9.5) WT_BUFFERED_STREAM_REJECTED and WT_SESSION_GONE are
   HTTP/3-level error codes registered in the IANA "HTTP/3 Error Code"
   registry, and the server shall send them as their own raw value, never
@@ -717,15 +751,25 @@ Legend:
 Client-only, intermediary-only, and informational requirements this server
 SDK does not implement, excluded from the coverage denominator:
 
-- (§2.1.1) Web-security-model constraints on WebTransport clients (Web
-  Platform API exposure, browser-specific rate-limit-quota behavior) —
-  client/browser behavior.
+- (§2.1.1) QPACK static decompression and Huffman decoding support —
+  tracked in the RFC 9204 ledger.
 - (§2.1.2) The capsule-based WebTransport-over-a-single-stream protocol
   defined in draft-ietf-webtrans-http2 (the "webtransport" HTTP/2 upgrade
-  token variant) — a distinct protocol from this document's native-stream
-  mapping; out of this SDK's HTTP/3-only scope.
-- (§3.2) WebTransport client behavior on receiving a 3xx redirect (MUST
-  NOT auto-follow) — client behavior.
+  token variant) and the SHOULD to prefer this document's protocol — a
+  distinct protocol from this document's native-stream mapping; out of
+  this SDK's HTTP/3-only scope.
+- (§3.1) Client duties: treating SETTINGS_WT_ENABLED > 1 as
+  H3_SETTINGS_ERROR, not attempting sessions before the server's setting,
+  sending the draft codepoint, not establishing sessions when server
+  requirements are unmet, and the optional WT_REQUIREMENTS_NOT_MET close —
+  client behavior.
+- (§3.2) The browser client's duty to send Origin, not auto-following a 3xx
+  redirect, and closing with H3_SETTINGS_ERROR when resumed SETTINGS reduce
+  flow control values — client behavior.
+- (§3.3) A server that requires application protocol negotiation rejecting
+  a request with no suitable or a malformed WT-Available-Protocols —
+  optional (MAY) strict mode this SDK does not ship; negotiation is opt-in
+  and never rejects.
 - (§3.3) Client-side WT-Available-Protocols header construction and
   WT_ALPN_ERROR session closure on an invalid WT-Protocol response —
   client behavior.
@@ -736,17 +780,25 @@ SDK does not implement, excluded from the coverage denominator:
   alternative to real pooling support — optional (MAY) elaboration this
   SDK does not implement as a distinct code path from the session-limit
   behavior already covered (WTH3-052/054/055).
-- (§5.1) Rate limit header fields communicating quota policies
+- (§4.3) The client's duty to send the 0x41 signal on the bidirectional
+  streams it opens — client behavior (server recognition is WTH3-034).
+- (§4.4) An intermediary forwarding RESET_STREAM/STOP_SENDING with the
+  same frame type and error code — intermediary behavior.
+- (§4.6) The client waiting for the server's SETTINGS before sending
+  CONNECT — client behavior (the server-side hold is WTH3-009).
+- (§4.7) A client that received GOAWAY opening a new connection for new
+  sessions — client behavior.
+- (§5.1) Clients not attempting more than one session when flow control is
+  not enabled — client behavior (the server-side reject is WTH3-052).
+- (§5.2) Rate limit header fields communicating quota policies
   (I-D.ietf-httpapi-ratelimit-headers) — a separate draft this SDK does
   not implement.
-- (§5.6.1) Intermediary-specific flow-control-capsule consumption and
-  re-expression behavior — this SDK is an endpoint, not a WebTransport
+- (§5.6.1-§5.6.5) Intermediary-specific flow-control-capsule consumption
+  and re-expression behavior — this SDK is an endpoint, not a WebTransport
   intermediary.
 - (§7) Considerations for future WebTransport versions beyond the
   currently negotiated draft codepoints — forward-looking guidance, not a
   requirement on this draft's own implementation.
-- (§8) Qualitative security guidance (fairness schemes, suspicious-activity
-  detection via H3_EXCESSIVE_LOAD, client-side session-count
-  self-limiting) — informational, not a directly testable server
-  requirement; `H3_EXCESSIVE_LOAD` is defined (RFC 9114) but this
-  draft only recommends its use, it does not require it.
+- (§8) Client-side session-count self-limiting, and the optional (MAY)
+  H3_EXCESSIVE_LOAD close on suspicious activity — client behavior /
+  optional; `H3_EXCESSIVE_LOAD` is defined (RFC 9114) but not used here.
