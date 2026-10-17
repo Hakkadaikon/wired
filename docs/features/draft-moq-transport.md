@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 200/209 tested, 9 indirect, 0 untested.**
+**Coverage: 211/248 tested, 22 indirect, 15 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -45,8 +45,10 @@ Legend:
   to 2^64-1) using the MOQT variable-length integer encoding.
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_official_examples`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_boundaries`
-- [x] MOQT-003 The implementation shall encode a variable-length integer using
-  the minimum number of bytes that can represent the value.
+- [x] MOQT-003 (SS1.4.1) The implementation shall encode a variable-length
+  integer in a length whose usable bits hold the value, choosing the minimum
+  one (the draft permits any such length; the shortest is this encoder's
+  choice).
   - test: `tests/app/moqvi_test.c` — `test_moqvi_roundtrip`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_official_examples`
 - [x] MOQT-004 Where a variable-length integer is encoded with more bytes than
@@ -97,14 +99,14 @@ Legend:
   protocol violation.
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65535_accepted`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65536_violation`
-- [x] MOQT-014 Where a Key-Value-Pair's Value does not match the serialization
-  defined by a Type the implementation understands, the implementation shall
-  report a formatting error distinct from a protocol violation.
-  - test: `tests/app/moqkvp_test.c` — `test_moqkvp_put_rejects`
-  - evidence: `moqctl_setup_take` maps a malformed known Setup Option to
-    session close; the KVP layer itself exposes only the codec-level put-side
-    rejection tested here (`moqkvp_put_rejects`); the formatting-vs-violation
-    distinction is fully exercised at the SETUP layer (see MOQT-045).
+- [~] MOQT-014 (SS1.4.3) If a Key-Value-Pair of a Type the implementation
+  understands has a Value that does not match that Type's serialization, then
+  the server shall close the session with KEY_VALUE_FORMATTING_ERROR.
+  - evidence: the codec reports the distinct formatting result for a malformed
+    AUTHORIZATION TOKEN (`test_moqctl_params_auth_token_malformed_kvfmt`) and a
+    client SETUP whose known option is malformed closes
+    KEY_VALUE_FORMATTING_ERROR (`test_moqtrun_ssts_setup_malformed_closes`, run
+    on a draft-22 session); no draft-19 session test drives the close.
 - [x] MOQT-015 The implementation shall not use the minimum encoding length for
   a Key-Value-Pair's Delta Type or even-Type Value as a decode requirement
   (non-minimal encodings are valid).
@@ -150,32 +152,67 @@ Legend:
 
 ## SS2.4.2 Malformed Tracks
 
-- [~] MOQT-025 If a subscriber detects a Malformed Track, then the
-  implementation shall cancel the corresponding subscription for that Track
-  from that publisher.
-  - evidence: The subset's malformed-track surface is limited to what the hub
-    itself can detect from wire framing (unknown Object Status, cumulative
-    Object ID overflow -- see MOQT-071/MOQT-072); the general receiver-side
-    malformed-track catalog in SS2.4.2 (priority mismatch across a Subgroup ID,
-    Object ID exceeding the Subgroup/Group/Track final, differing final Objects
-    across FIN'd streams, duplicate Objects with different payload) is not
-    implemented by this loss-free single-hub subset -- see Out of scope.
+- [x] MOQT-025 (SS2.4.2) When the hub, as subscriber, detects a Malformed Track
+  (an Object past the track's END_OF_TRACK or a Group's END_OF_GROUP, or a
+  conflicting repeat), it shall cancel its subscription and fetches for that
+  Track from that publisher.
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_after_end_of_track`
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_malformed_past_end`
+- [x] MOQT-209 (SS2.4.2) When the hub detects a Malformed Track, it shall end
+  every downstream subscription of the track with PUBLISH_DONE MALFORMED_TRACK
+  and reset the track's fetch streams with MALFORMED_TRACK.
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_after_end_of_track`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_after_end_of_group`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_resets_fetch`
+- [x] MOQT-210 (SS2.4.2) The hub shall not cache an Object that triggered
+  Malformed Track status.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_malformed_past_end`
 
 ## SS2.5 Properties / SS2.5.1 Mandatory Track Properties
 
-- [x] MOQT-026 The implementation shall recognize Property type ranges
-  0x78-0x7F and 0x3800-0x3FFF as reserved for application-specific use.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_grease_pattern`
-  - evidence: `moqctl_is_grease` and the Track Properties residual-span decode
-    (MOQT-053) pass these ranges through uninterpreted; no dedicated boundary
-    test pins the exact 0x78-0x7F/0x3800-0x3FFF edges.
-- [x] MOQT-027 The implementation shall recognize Property types in the range
+- [~] MOQT-026 (SS2.5) The hub shall forward Properties in the
+  application-specific ranges 0x78-0x7F and 0x3800-0x3FFF unchanged, without
+  interpreting them.
+  - evidence: every Property outside DEFAULT_PUBLISHER_PRIORITY and the
+    delivery timeouts is relayed as an opaque span (MOQT-211); no test uses a
+    code point in these ranges.
+- [~] MOQT-027 (SS2.5.1) The implementation shall classify Property types
   0x4000-0x7FFF as Mandatory Track Properties.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_grease_pattern`
-  - evidence: No dedicated boundary test for the 0x4000-0x7FFF range itself;
-    the codec treats Track Properties as an opaque residual span (MOQT-053) and
-    does not currently classify or reject individual Mandatory Track Property
-    types.
+  - evidence: `moqtrun_upf_mandatory` classifies the range;
+    `test_moqtrun_upfetch_mandatory` uses type 0x4000 only, so the upper edge
+    is untested.
+- [x] MOQT-211 (SS2.5, SS9.6) The hub shall forward Track and Object Properties
+  it does not interpret unchanged, keeping them with a cached Track or Object,
+  and shall include a Track's Properties in the SUBSCRIBE_OK and FETCH_OK it
+  sends.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_include_properties_1_forwards`
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_no_track_waits_ok`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_reencode`
+- [ ] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
+  Object Property, then the hub shall treat the track as Malformed.
+  - gap: Object Properties are relayed opaque; no Mandatory-range check.
+- [ ] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
+  hub does not understand, then the hub shall answer REQUEST_ERROR
+  UNSUPPORTED_EXTENSION and not forward the track.
+  - gap: only the upstream FETCH_OK path checks the Mandatory range.
+- [ ] MOQT-214 (SS2.5.1) If an upstream SUBSCRIBE_OK carries a Mandatory Track
+  Property the hub does not understand, then the hub shall cancel the upstream
+  subscription and answer its pending downstream subscribers REQUEST_ERROR
+  UNSUPPORTED_EXTENSION.
+  - gap: only the upstream FETCH_OK path checks the Mandatory range.
+- [x] MOQT-215 (SS2.5.1) If an upstream FETCH_OK carries a Mandatory Track
+  Property the hub does not understand, then the hub shall cancel the upstream
+  FETCH, answering an unanswered downstream FETCH REQUEST_ERROR
+  UNSUPPORTED_EXTENSION and resetting one whose data already went out.
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_mandatory`
 
 ## SS3.2.1 Reserved Namespaces / SS3.2.2 Session-Level Tracks
 
@@ -236,19 +273,32 @@ Legend:
   - test: `tests/app/moqsess_test.c` — `test_moqsess_second_control_stream`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_on_session_twice_is_idempotent`
+- [~] MOQT-216 (SS3.3) The hub shall not use a Message Parameter that needs
+  negotiation before it has received the peer's SETUP.
+  - evidence: the hub's first message is its SETUP (MOQT-029) and every request
+    it initiates (upstream SUBSCRIBE/FETCH, PUBLISH for a SUBSCRIBE_TRACKS)
+    follows a request from an Established peer; no test isolates the ordering.
+- [x] MOQT-217 (SS3.3.2, SS3.3.3) The hub shall not FIN its direction of a
+  request stream before it has sent the response (and PUBLISH_DONE for an
+  Established subscription), and shall FIN promptly after a REQUEST_ERROR or a
+  final response.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_req_refusal_fins_and_frees`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_fin_keeps_request`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
 
-## SS3.3.4 Stream Reset Error Codes / SS3.5 Termination (used subset)
+## SS3.5 Termination: error codes (used subset)
 
-- [x] MOQT-037 The implementation shall recognize the session termination error
-  code table entries it uses (NO_ERROR, INTERNAL_ERROR, PROTOCOL_VIOLATION,
-  INVALID_REQUEST_ID, DUPLICATE_TRACK_ALIAS, KEY_VALUE_FORMATTING_ERROR,
-  INVALID_PATH, GOAWAY_TIMEOUT, INVALID_AUTHORITY).
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_grease_pattern`
-  - evidence: These codes are used as `#define`s at their call sites
-    (moqctl.h/moqsess.h) rather than round-tripped through a codec; no
-    dedicated test enumerates the full table, but each code's use is exercised
-    at its own violation site (see the sess/data/ctl unwanted-behavior items
-    throughout this file).
+- [~] MOQT-037 (SS3.5) The implementation shall use the session termination
+  error codes of the draft's table (NO_ERROR, INTERNAL_ERROR,
+  PROTOCOL_VIOLATION, INVALID_REQUEST_ID, KEY_VALUE_FORMATTING_ERROR,
+  INVALID_PATH, MALFORMED_PATH, GOAWAY_TIMEOUT, AUTH_TOKEN_CACHE_OVERFLOW,
+  UNKNOWN_AUTH_TOKEN_ALIAS, INVALID_AUTHORITY, MALFORMED_AUTHORITY,
+  TOO_MANY_REQUEST_UPDATES) with their draft values.
+  - evidence: the codes are `#define`s at their call sites (moqctl.h /
+    moqtrun.h), each exercised at its own violation site in this file; no test
+    enumerates the table.
 
 ## SS3.4 Unidirectional Stream Types
 
@@ -305,6 +355,15 @@ Legend:
   protocol violation.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_goaway_on_request_stream_produces_no_reply`
+- [~] MOQT-218 (SS3.6) When the hub drains, it should send GOAWAY to its
+  downstream subscribers before it unsubscribes from upstream publishers.
+  - evidence: `wired_moqt_goaway` sends GOAWAY to every session at once
+    (`test_moqtrun_goaway_once_per_session`) and cancels upstream subscriptions
+    only at the timeout; no test orders the two.
+- [ ] MOQT-235 (SS10.4) After sending GOAWAY, the hub should avoid initiating
+  new requests unless migration requires them.
+  - gap: the hub still sends upstream SUBSCRIBE/FETCH to a peer it sent GOAWAY
+    (`test_moqtrun_upfetch_upsub_skips_goaway` pins that).
 
 ## SS9 Relays (SS9.4/9.6/9.7 forwarding discipline)
 
@@ -316,10 +375,16 @@ Legend:
     `test_moqtrun_object_relay_two_subscribers_two_objects`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_normalize_forwards_only_whole_objects`
-- [x] MOQT-049 A relay shall not modify Object header fields or payload when
-  forwarding an Object.
+- [x] MOQT-049 (SS9.7, SS2.1) A relay shall not modify Object fields (Location,
+  status, Properties) or the payload when forwarding; only the stream header of
+  a late-opened stream is re-encoded (FIRST_OBJECT cleared, a mode-0b01
+  Subgroup ID spelled out, the first Object ID absolute).
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_preserves_bytes`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_subscriber_gets_late_opened_stream`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_open_sgid_mode1_explicit`
 - [x] MOQT-050 The relay shall have an Established upstream subscription before
   sending SUBSCRIBE_OK in response to a downstream SUBSCRIBE.
   - test: `tests/app/moqtrun_test.c` —
@@ -346,13 +411,43 @@ Legend:
     announcer (SS9.5 says each matching publisher; the hub keys one track
     per name). An upstream subscription nobody downstream wants any more
     is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
-- [~] MOQT-052 A relay may aggregate authorized subscriptions for a given Track
-  when multiple subscribers request it, forwarding a single upstream Object to
-  every matching downstream subscriber.
+- [x] MOQT-052 (SS9.4) A relay may aggregate authorized subscriptions for a
+  given Track when multiple subscribers request it, forwarding a single
+  upstream Object to every matching downstream subscriber.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_two_share_one`
+- [x] MOQT-226 (SS9.1) If an Object arrives again with a different payload than
+  the hub holds for it, then the hub shall treat the track as Malformed and not
+  relay it.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_malformed_conflict`
+- [ ] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
+  exist, it should neither cache nor forward that Object if it arrives later.
+  - gap: no test drives an Object after its End of Group / gap marker was
+    cached.
+- [x] MOQT-228 (SS9.2, SS9.5) When the hub subscribes upstream for a downstream
+  SUBSCRIBE, it shall use Forward 1 (FORWARD omitted).
   - test: `tests/app/moqtrun_upsub_test.c` —
-    `test_moqtrun_upsub_two_share_one`
+    `test_moqtrun_upsub_ok_after_upstream`
+- [~] MOQT-224 (SS7.3, SS10.2) The hub shall not copy a downstream
+  subscription's Message Parameters (Subscriber Priority, Group Order, delivery
+  timeouts) into its upstream SUBSCRIBE.
+  - evidence: `test_moqtrun_upsub_ok_after_upstream` asserts the upstream
+    SUBSCRIBE carries no parameter, but its downstream SUBSCRIBE carries none
+    either.
+- [x] MOQT-229 (SS9.4, SS9.5, SS10.12.3, SS10.13) A FETCH whose range the cache
+  cannot vouch for shall be completed by one FETCH upstream to the track's
+  owner (or, for a track the hub does not hold, the covering announcer, with
+  FETCH_OK withheld until the upstream FETCH_OK and copied from it), delivery
+  pausing at the gap until the upstream answers or the budget ends.
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_budget`
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_gap_to_owner`
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_no_track_waits_ok`
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_upstream_draft`
 
 ## SS10 Control Messages: common envelope
 
@@ -408,15 +503,12 @@ Legend:
 
 ## SS10.1 Request ID
 
-- [x] MOQT-059 The client shall generate even-numbered Request IDs starting at
-  0, and the server shall generate odd-numbered Request IDs starting at 1,
-  incrementing by 2 for each new request.
-  - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_chat_and_audio_get_different_aliases`
-  - evidence: The hub's own `request_id_next` field increments by 2 per new
-    server-initiated request (moqtrun.h); no dedicated test isolates the
-    arithmetic outside the alias-allocation tests, so this is `[~]` rather than
-    `[x]`.
+- [~] MOQT-059 (SS10.1) The client shall generate even-numbered Request IDs
+  starting at 0, and the server shall generate odd-numbered Request IDs
+  starting at 1, incrementing by 2 for each new request.
+  - evidence: `test_moqtrun_upfetch_gap_to_owner` and
+    `test_moqtrun_upsub_ok_after_upstream` assert that the hub's own Request
+    IDs are odd; the step of 2 (`request_id_next`) is not asserted.
 - [x] MOQT-060 If an endpoint receives a Request ID whose least significant bit
   is incorrect for the sender, then the implementation shall close the session
   with INVALID_REQUEST_ID.
@@ -451,14 +543,18 @@ Legend:
   the one it appears in, then the implementation shall close the session with a
   protocol violation.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_scope_violation`
-- [x] MOQT-067 Message Parameters in SUBSCRIBE, PUBLISH_OK, and FETCH shall not
-  cause the publisher to alter the payload of the Objects it sends.
-  - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_object_relay_preserves_bytes`
-  - evidence: No parameter value is ever consulted when constructing an
-    Object's payload in moqtrun.c; the relay-preserves-bytes test demonstrates
-    payload identity end-to-end but does not vary parameters to isolate this
-    specific guarantee.
+- [~] MOQT-233 (SS10.2.2) If an AUTHORIZATION TOKEN's Token structure cannot be
+  decoded, then the hub shall close the session with
+  KEY_VALUE_FORMATTING_ERROR.
+  - evidence: the codec returns the distinct formatting result
+    (`test_moqctl_params_auth_token_malformed_kvfmt`); only a malformed Setup
+    Option is mapped to the session close (`moqtrun_setup_take_code`), and no
+    run-layer test sends a malformed token.
+- [~] MOQT-067 (SS10.2) Message Parameters in SUBSCRIBE, PUBLISH_OK, and FETCH
+  shall not cause the publisher to alter the payload of the Objects it sends.
+  - evidence: no parameter value is consulted when relaying a payload;
+    `test_moqtrun_object_relay_preserves_bytes` shows payload identity but does
+    not vary the parameters.
 
 ## SS10.2.3/10.2.4 SUBGROUP_DELIVERY_TIMEOUT / OBJECT_DELIVERY_TIMEOUT
 
@@ -483,6 +579,36 @@ Legend:
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_subgroup_timeout_min`
 
+## SS10.2.5/10.2.6 FILL_TIMEOUT / RENDEZVOUS_TIMEOUT, SS8 subgroup timer
+
+- [x] MOQT-231 (SS10.2.6, SS9.5) Where a SUBSCRIBE for a track with no
+  publisher carries a non-zero RENDEZVOUS_TIMEOUT, the hub shall hold it
+  (capped) and answer SUBSCRIBE_OK once the track is published, without also
+  sending that subscriber a PUBLISH for it, or REQUEST_ERROR TIMEOUT when the
+  timeout passes; with 0 or none it shall answer DOES_NOT_EXIST at once.
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s1_one_answer`
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s4_resolve`
+  - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s6_clamp`
+  - test: `tests/app/moqtrun_rdv_test.c` —
+    `test_moqtrun_rdv_s12_subtracks_skips_held`
+- [~] MOQT-232 (SS10.2.5) The hub shall bound the wait for upstream FETCHes by
+  FILL_TIMEOUT (clamped to its own budget, which also applies when the
+  parameter is absent) and report what is still missing as an unknown range;
+  with FILL_TIMEOUT 0 it shall not wait at all.
+  - evidence: `test_moqtrun_upfetch_budget` shows the bound on a draft-19
+    requester; the FILL_TIMEOUT 0 case
+    (`test_moqtrun_upfetch_fill_timeout_zero`) runs with a draft-22 requester
+    only.
+- [~] MOQT-225 (SS8) Where SUBGROUP_DELIVERY_TIMEOUT is non-zero, the hub shall
+  reset a Subgroup stream not fully delivered within that time after the
+  upstream FIN, and drop such datagrams.
+  - evidence: the hub applies the effective subgroup timeout as an age bound
+    like OBJECT_DELIVERY_TIMEOUT
+    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); no FIN-armed timer is
+    tested.
+
 ## SS10.2.17 FORWARD Parameter
 
 - [x] MOQT-071 The implementation shall encode/decode the FORWARD parameter
@@ -503,27 +629,33 @@ Legend:
 - [x] MOQT-074 Endpoints shall ignore unrecognized Setup Options.
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_setup_unknown_option_ignored`
-- [x] MOQT-075 Senders shall not repeat the same Setup Option Type in a message
-  unless the option explicitly allows multiple instances.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
-  - evidence: `moqctl_setup_encode` writes each of
-    PATH/AUTHORITY/MOQT_IMPLEMENTATION at most once by construction; no test
-    drives an encoder input with a duplicate to confirm rejection on decode
-    (decode simply keeps the last-seen value for a repeated known option,
-    matching the KVP layer's own duplicate-tolerant model).
+- [~] MOQT-075 (SS10.3) Senders shall not repeat the same Setup Option Type in
+  a message unless the option explicitly allows multiple instances.
+  - evidence: `moqctl_setup_encode` writes each option at most once by
+    construction (`test_moqctl_setup_roundtrip` round-trips one of each); no
+    test inspects an encoded SETUP for repeats.
 
 ## SS10.3.1.1 AUTHORITY / SS10.3.1.2 PATH / SS10.3.1.5 MOQT_IMPLEMENTATION
 
 - [x] MOQT-076 The implementation shall decode the PATH (0x01) and AUTHORITY
   (0x05) Setup Options as byte-string values.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_path_option_decode`
-- [~] MOQT-077 If a PATH or AUTHORITY option is received while WebTransport is
-  used, then the implementation shall close the session with INVALID_PATH or
-  INVALID_AUTHORITY respectively.
-  - evidence: `moqctl_setup_take` only surfaces `has_path`/`has_authority` to
-    the caller (moqctl.h's own doc: "WebTransport-context rejection is a
-    session-layer decision"); no session-layer test in this ledger exercises
-    the WT-context rejection itself.
+- [x] MOQT-077 (SS10.3.1.1, SS10.3.1.2) If a PATH or AUTHORITY option is
+  received while WebTransport is used, then the implementation shall close the
+  session with INVALID_PATH or INVALID_AUTHORITY respectively.
+  - test: `tests/app/moqraw_test.c` — `test_moqraw_wt`
+  - test: `tests/app/moqtrun_raw_test.c` —
+    `test_moqtrun_raw_same_setup_on_wt_closes`
+- [x] MOQT-234 (SS10.3.1.1, SS10.3.1.2) On a native-QUIC session, the hub shall
+  close with MALFORMED_PATH / MALFORMED_AUTHORITY on a PATH or AUTHORITY that
+  breaks the URI rules, and with INVALID_PATH / INVALID_AUTHORITY on one it
+  does not serve.
+  - test: `tests/app/moqraw_test.c` — `test_moqraw_path`
+  - test: `tests/app/moqraw_test.c` — `test_moqraw_authority`
+  - test: `tests/app/moqraw_test.c` — `test_moqraw_hook`
+- [ ] MOQT-237 (SS10.3.1.5) The hub should send a MOQT_IMPLEMENTATION Setup
+  Option carrying only its name and version.
+  - gap: the hub's SETUP carries only MAX_FILTER_RANGES / MAX_REQUEST_UPDATES.
 - [x] MOQT-078 The implementation shall decode the MOQT_IMPLEMENTATION (0x07)
   Setup Option as a UTF-8 byte-string value.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
@@ -536,12 +668,12 @@ Legend:
 - [x] MOQT-080 If the New Session URI Length exceeds 8192 bytes, then the
   implementation shall close the session with a protocol violation.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_uri_boundary`
-- [x] MOQT-081 A client shall send a zero-length New Session URI in any GOAWAY
-  it sends.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_roundtrip`
-  - evidence: The wire codec accepts and round-trips a zero-length URI; no test
-    asserts the client-side encoder path specifically refuses a non-zero URI
-    (the receiving side's rejection is MOQT-032 above).
+- [~] MOQT-081 (SS10.4) The hub's GOAWAY shall carry the application's New
+  Session URI on a WebTransport session and a zero-length one (reuse the
+  current URI) on a native-QUIC session, keeping the current scheme.
+  - evidence: `test_moqtrun_raw_goaway_uri_empty` (sessions joined as moqt-22;
+    the encoding is draft-independent) and
+    `test_moqtrun_goaway_once_per_session`.
 
 ## SS10.5 REQUEST_OK
 
@@ -549,14 +681,12 @@ Legend:
   + Length + Number of Parameters + Parameters + Track Properties (the
   remaining message bytes).
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-- [x] MOQT-083 If a REQUEST_OK variant that must have empty Track Properties
-  (e.g. PUBLISH_OK) carries non-empty Track Properties, then the implementation
-  shall close the session with a protocol violation.
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-  - evidence: `moqctl_request_ok_take` always decodes the residual span and
-    lets the caller (which knows which request it answers) enforce the
-    per-variant empty-Track-Properties rule (moqctl.h's own doc); no
-    session/run-layer test exercises the enforcement itself.
+- [ ] MOQT-083 (SS10.5) If a REQUEST_OK that must have empty Track Properties
+  (PUBLISH_OK, REQUEST_UPDATE_OK, SUBSCRIBE_NAMESPACE_OK, PUBLISH_NAMESPACE_OK)
+  carries Track Properties, then the implementation shall close the session
+  with a protocol violation.
+  - gap: `moqctl_request_ok_take` decodes the tail and no caller rejects a
+    non-empty one; `test_moqctl_request_ok_roundtrip` covers the codec only.
 
 ## SS10.6 REQUEST_ERROR
 
@@ -570,14 +700,12 @@ Legend:
   REDIRECT.
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_request_error_redirect_roundtrip`
-- [x] MOQT-086 If a server receives a Redirect with a non-zero Connect URI
-  Length, then the implementation shall close the session with a protocol
-  violation.
-  - test: `tests/app/moqctl_test.c` —
-    `test_moqctl_request_error_redirect_roundtrip`
-  - evidence: `moqctl_request_error_take` decodes the Redirect structure
-    symmetrically for either role; the server-specific non-zero-URI rejection
-    is a session-layer decision not exercised by a dedicated test.
+- [ ] MOQT-086 (SS10.6.1) If the hub receives a Redirect with a non-zero
+  Connect URI Length, or with a non-empty Track Name for a namespace-scoped
+  request, then it shall close the session with a protocol violation.
+  - gap: `moqctl_request_error_take` decodes the Redirect for either role and
+    no caller checks it; `test_moqctl_request_error_redirect_roundtrip` covers
+    the codec only.
 - [x] MOQT-087 The implementation shall recognize the REQUEST_ERROR codes it
   uses: INTERNAL_ERROR, NOT_SUPPORTED, GOING_AWAY, INVALID_FILTER,
   UNINTERESTED, DOES_NOT_EXIST, UNAUTHORIZED, REDIRECT.
@@ -603,11 +731,15 @@ Legend:
   (0x4) + Length + Track Alias + Number of Parameters + Parameters + Track
   Properties.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_subscribe_ok_roundtrip`
-- [x] MOQT-092 If a subscriber sends more than one SUBSCRIBE_OK or
-  REQUEST_ERROR in response to the same SUBSCRIBE, then the implementation
-  shall treat the second response as a session-level protocol fault.
+- [x] MOQT-092 (SS5.1) If the hub receives more than one SUBSCRIBE_OK or
+  REQUEST_ERROR for its SUBSCRIBE, or more than one REQUEST_OK or REQUEST_ERROR
+  for its PUBLISH, then it shall close the session with a protocol violation.
   - test: `tests/app/moqsess_test.c` —
     `test_moqsub_duplicate_response_is_session_fault`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_second_ok_closes`
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_error_after_ok_closes`
 - [x] MOQT-093 If a publisher rejects a SUBSCRIBE with REQUEST_ERROR, then no
   Object shall be sent for that subscription.
   - test: `tests/app/moqsess_test.c` — `test_moqsub_subscribe_rejected`
@@ -651,13 +783,21 @@ Legend:
   it uses: INTERNAL_ERROR, TRACK_ENDED, GOING_AWAY.
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
-- [~] MOQT-103 If a publisher did not open any data stream for a subscription,
-  then it shall set PUBLISH_DONE's Stream Count to 0.
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_relay_table_full_counts`
-  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
-  - evidence: the hub now sends PUBLISH_DONE (MOQT-197), but always with
-    the draft's "unknown" Stream Count (2^62-1) rather than an exact count,
-    so the zero-stream case is never encoded as 0.
+- [x] MOQT-103 (SS10.11) If a publisher did not open any data stream for a
+  subscription, then it shall set PUBLISH_DONE's Stream Count to 0.
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_datagram_only`
+- [x] MOQT-239 (SS10.11) The hub shall relay a publisher's PUBLISH_DONE to each
+  subscriber with the publisher's status and the exact count of streams the hub
+  opened for that subscriber, only after every stream the publisher counted has
+  been relayed to its end, waiting a bounded time.
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_n_groups`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_waits_late_stream`
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_wait_bounded`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_status_passthrough`
 
 ## SS10 Reason Phrase / Location / Track Namespace shared structures used in control messages
 
@@ -669,7 +809,7 @@ Legend:
     `test_moqctl_location_roundtrip_and_order`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
 
-## SS9.3.1 Location Filter (subscription filtering)
+## SS5.1.2 Location Filters (subscription filtering)
 
 - [x] MOQT-105 The implementation shall decode a Location Filter's Filter Type
   as one of Next Group Start (0x1), Largest Object (0x2), AbsoluteStart (0x3),
@@ -702,6 +842,11 @@ Legend:
   - evidence: the Location Filter is evaluated when objects are replayed to
     a late subscriber over the reliable relay, and Objects of the start
     Group below the start Object are cut on every relay path.
+- [ ] MOQT-222 (SS5.1.2) If a SUBSCRIBE's Location Filter cannot be satisfied
+  (e.g. its End Group is already fully published), then the hub should answer
+  REQUEST_ERROR INVALID_RANGE.
+  - gap: only the draft-22 typed LOCATION_FILTER is refused INVALID_RANGE
+    (`test_moqtrun_sub_filter22_inverted`).
 
 ## SS14 Grease
 
@@ -722,14 +867,35 @@ Legend:
   to two different Tracks simultaneously in the same session.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [~] MOQT-112 If a subscriber receives a PUBLISH or SUBSCRIBE_OK reusing a
-  Track Alias already bound to a different Established subscription, then the
-  implementation shall close the session with DUPLICATE_TRACK_ALIAS.
-  - evidence: The hub allocates aliases itself per-track (starting from 0
-    independently per track, see moqtrun_test.c's own comment on
-    `test_moqtrun_chat_and_audio_get_different_aliases`) and never receives an
-    attacker-controlled alias to validate; the receiver-side duplicate-alias
-    rejection is not exercised by any test in this subset.
+- [ ] MOQT-112 (SS11.1) If the hub receives a PUBLISH or an upstream
+  SUBSCRIBE_OK reusing a Track Alias already bound to a different Established
+  subscription of that session, then it shall close the session with
+  DUPLICATE_TRACK_ALIAS.
+  - gap: publishers and upstream publishers choose these aliases, but no test
+    drives a reused one.
+
+## SS11.3.1 Object Datagram / SS11.5.2 Padding Datagrams
+
+- [ ] MOQT-243 (SS11, SS11.3.1) If a datagram has an unknown or invalid Type,
+  then the hub shall close the session with PROTOCOL_VIOLATION.
+  - gap: the hub drops and counts it (`test_moqtrun_dg_malformed_counts_bad`);
+    the datagram path has no close.
+- [x] MOQT-244 (SS11.3.1) The implementation shall decode an OBJECT_DATAGRAM by
+  its Type bits (PROPERTIES, END_OF_GROUP, ZERO_OBJECT_ID, DEFAULT_PRIORITY,
+  STATUS) and reject the invalid Types (STATUS with END_OF_GROUP, outside
+  0b00X0XXXX), an empty Properties with the bit set, and Properties on a
+  non-Normal status.
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_type_valid_accepts`
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_type_valid_rejects`
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_take_basic`
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_take_zero_oid_eog`
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_take_props`
+  - test: `tests/app/moqdg_test.c` — `test_moqdg_take_reject_golden`
+- [~] MOQT-246 (SS11.5.2) The hub shall discard a padding datagram (Type
+  0x132B3E29).
+  - evidence: a datagram whose Type is not an OBJECT_DATAGRAM Type is dropped
+    whole (`test_moqtrun_dg_malformed_counts_bad`); no test sends the padding
+    Type itself.
 
 ## SS11.2.1.1 Object Status
 
@@ -783,18 +949,20 @@ Legend:
   shall be omitted from the header and the Subgroup shall inherit the priority
   from the subscription's control message.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
-- [x] MOQT-124 Where the END_OF_GROUP bit is set and the stream terminates with
-  a FIN, the implementation shall infer that no Object with the same Group ID
-  and a larger Object ID exists.
-  - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_normalize_forwards_only_whole_objects`
-  - evidence: The bit is decoded (MOQT-078) but the specific inference "no
-    larger Object ID exists once END_OF_GROUP FINs" is not asserted by a
-    dedicated test; it is implicit in how the relay forwards whole Objects.
-- [x] MOQT-125 When the Original Publisher opens a new Subgroup, it shall set
-  the FIRST_OBJECT bit to indicate the first Object in the stream is the first
-  Object ever published in that Subgroup.
+- [~] MOQT-124 (SS11.4.2) Where the END_OF_GROUP bit is set and the stream
+  terminates with a FIN, the implementation shall infer that no Object with the
+  same Group ID and a larger Object ID exists.
+  - evidence: the bit is decoded (MOQT-122); the Malformed Track checks use the
+    END_OF_GROUP status (`test_moqtrun_pubdone_malformed_after_end_of_group`),
+    not this inference.
+- [x] MOQT-125 (SS2.2, SS11.4.2) The hub shall forward the FIRST_OBJECT bit of
+  a Subgroup that begins with the first Object ever published in it, and clear
+  it on a stream it opens mid-Subgroup.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_object_relay_preserves_bytes`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_subscriber_gets_late_opened_stream`
 - [x] MOQT-126 The implementation shall encode/decode a SUBGROUP_HEADER
   byte-exact against its wire fields (Type, Track Alias, Group ID, optional
   Subgroup ID, optional Publisher Priority).
@@ -868,11 +1036,15 @@ Legend:
   publisher's FIN.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_interleaved_chat_messages_close_independently`
-- [x] MOQT-140 A subscriber that joins after a Subgroup stream has already
-  started shall still receive a relay stream, opened carrying the already-sent
-  SUBGROUP_HEADER.
+- [x] MOQT-140 (SS11.4.3) A subscriber that joins after a Subgroup stream has
+  already started shall still receive a relay stream, opened carrying the
+  already-sent SUBGROUP_HEADER with FIRST_OBJECT cleared.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
+- [ ] MOQT-247 (SS11.4.3) When a subscriber sends STOP_SENDING on a Subgroup
+  relay stream, the hub should reset that stream and not open a new one for the
+  rest of that Subgroup.
+  - gap: no test drives STOP_SENDING on a relay data stream.
 
 ## SS11.5.1 Padding Streams
 
@@ -880,7 +1052,7 @@ Legend:
   stream (Type 0x132B3E28).
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_padding_stream_discarded`
 
-## SS3.7 Congestion Control / flow control priority
+## SS11.4.2 Subgroup Header: flow control priority
 
 - [~] MOQT-142 Endpoints shall allocate connection flow control to the control
   streams before allocating it to any data streams, so a receiver does not
@@ -928,6 +1100,11 @@ Legend:
 - [x] MOQT-150 If the responder FINs its own direction without ever sending a
   response, then the requester shall treat the request as failed.
   - test: `tests/app/moqsess_test.c` — `test_moqsub_early_fin_before_response`
+- [~] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
+  FETCH, the hub shall reset the data streams it holds open for it.
+  - evidence: `test_moqtrun_fetch_cancelled_by_request_reset` asserts the FETCH
+    data stream reset; `test_moqtrun_req_reset_unsubscribes` asserts only that
+    the subscription is gone.
 
 ## SS10 Control Messages: session-machine unwanted behavior (additional coverage)
 
@@ -1154,14 +1331,25 @@ Legend:
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_per_subscriber`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_update_applies`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_op_absent`
-- [x] MOQT-186 A REQUEST_UPDATE of a SUBSCRIBE, on that subscription's
-  request stream, shall replace its parameters all-or-nothing: a refused
-  update changes nothing.
+- [x] MOQT-186 (SS10.9) A REQUEST_UPDATE of a SUBSCRIBE, on that subscription's
+  request stream, shall replace its parameters all-or-nothing: present ones
+  replace, absent ones stay, and a refused update changes none of them (the
+  subscription then ends, MOQT-238).
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_forward_toggles`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_params_replace`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_failed_changes_nothing`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_survives_rejoin`
+- [x] MOQT-238 (SS10.9.1) When a REQUEST_UPDATE of a subscription the hub
+  publishes fails, the hub shall answer REQUEST_ERROR, end the subscription
+  with PUBLISH_DONE UPDATE_FAILED and FIN the request stream.
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_pub_update_failed_fins`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_upd_failed_changes_nothing`
+- [ ] MOQT-223 (SS7.2) The hub should schedule its control streams first, then
+  request streams, then Object data.
+  - gap: only Object streams get an explicit class (MOQT-185).
 - [x] MOQT-187 A TRACK_STATUS shall be answered with REQUEST_OK carrying the
   track's largest location (or none when empty), or REQUEST_ERROR when the
   track is unknown or the authorizer refuses.
@@ -1169,17 +1357,21 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_empty`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_unknown_and_blob`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_authorized`
-- [x] MOQT-188 Where an application installs an authorizer, every SUBSCRIBE,
-  TRACK_STATUS, PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE shall be shown to
-  it, and a refusal shall be REQUEST_ERROR UNAUTHORIZED; an Alias-based
-  authorization token shall close the session (the hub keeps no token
-  cache, 10.2.2): REGISTER with AUTH_TOKEN_CACHE_OVERFLOW, DELETE and
-  USE_ALIAS with UNKNOWN_AUTH_TOKEN_ALIAS.
+- [x] MOQT-188 (SS9.4, SS9.5, SS10.2.2) Where an application installs an
+  authorizer, every SUBSCRIBE, TRACK_STATUS, PUBLISH, PUBLISH_NAMESPACE and
+  SUBSCRIBE_NAMESPACE shall be shown to it, and a refusal shall be
+  REQUEST_ERROR UNAUTHORIZED; an Alias-based authorization token shall close
+  the session (the hub keeps no token cache, SS10.3.1.3): REGISTER with
+  AUTH_TOKEN_CACHE_OVERFLOW, DELETE and USE_ALIAS with
+  UNKNOWN_AUTH_TOKEN_ALIAS.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_requires_authorization`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_alias_token_rejected`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_authorization`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_authorized`
+  - test: `tests/app/moqtrun_upd_test.c` —
+    `test_moqtrun_publish_requires_authorization`
 
 ## Hub relay: delivery timeouts
 
@@ -1211,6 +1403,37 @@ Legend:
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_cache_unknown`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_stream_end_of_range`
+- [x] MOQT-240 (SS10.12, SS10.13) The implementation shall encode/decode FETCH
+  (Standalone, Relative and Absolute Joining) and FETCH_OK, close the session
+  on another Fetch Type, and the hub shall refuse INVALID_RANGE a Standalone
+  FETCH when nothing is published, its Start is past the Largest Object or its
+  End is not past its Start, cutting an End past the Largest to {Largest.Group,
+  Largest.Object + 1}.
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_standalone_golden`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_joining_golden`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_bad_type_and_scope`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_ok_golden`
+  - test: `tests/app/moqfetch_test.c` —
+    `test_moqfetch_req19_standalone_roundtrip`
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_nothing_published`
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_range_against_largest`
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_end_before_start`
+- [x] MOQT-245 (SS11.4.4) The implementation shall encode/decode a FETCH_HEADER
+  stream: Serialization Flags with the Subgroup encoding and field-presence
+  bits, the Datagram bit, End of Non-Existent / Unknown Range, absolute IDs on
+  the first Object, and a PROTOCOL_VIOLATION for an unknown flags value, a
+  prior-Object reference with no prior Object, or a Group / Object ID out of
+  range.
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_hdr`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_stream_golden`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_flags_reject`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_after_eor_reject`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_subgroup_modes`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_group_order`
+  - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_overflow`
 - [x] MOQT-192 A joining FETCH (relative or absolute) shall resolve against
   the joined subscription so that FETCH plus SUBSCRIBE leave no gap, and an
   invalid range or unknown joined request shall be refused.
@@ -1231,6 +1454,14 @@ Legend:
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_publisher_leaves`
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_stall_gives_up`
+- [x] MOQT-221 (SS5.2) When the hub cancels an upstream FETCH, it shall reset
+  its request stream and send STOP_SENDING on it.
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_mandatory`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_budget`
+- [x] MOQT-242 (SS10.13) If an upstream FETCH_OK's End Location is smaller than
+  the FETCH's Start Location, then the hub shall close that session with
+  PROTOCOL_VIOLATION.
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_bad_end`
 
 ## Hub relay: namespace discovery
 
@@ -1280,16 +1511,16 @@ Legend:
 
 ## Hub relay: Object Datagrams
 
-- [x] MOQT-199 An Object Datagram shall be relayed byte-identical to every
-  subscriber of the track its alias names, and a malformed or unknown-alias
-  datagram shall be counted and dropped.
+- [x] MOQT-199 (SS11.3) An Object Datagram shall be relayed byte-identical to
+  every subscriber of the track its alias names, and a datagram whose alias
+  names none of the sender's tracks shall be dropped and counted.
   - test: `tests/app/moqdg_test.c` — `test_moqdg_roundtrip_golden`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_identical_bytes_to_subscriber`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_to_all_three_subscribers`
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_malformed_counts_bad`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_dg_unknown_alias_counts_bad`
 
 ## Hub features completed in the multi-draft round (ledger ch. 10)
 
@@ -1355,6 +1586,20 @@ Legend:
     `test_subtracks_skip_then_no_publish`
   - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_roundtrip`
   - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_rejects`
+- [x] MOQT-219 (SS5.1.3, SS6.3) A TRACK_PROPERTY_FILTER on SUBSCRIBE_TRACKS
+  shall let only tracks whose Track Property value is in range be PUBLISHed to
+  the subscriber.
+  - test: `tests/app/moqtrun_misc_test.c` —
+    `test_moqtrun_misc_subtracks_track_prop_filter`
+- [ ] MOQT-230 (SS10.19) Where an authorizer is installed, every
+  SUBSCRIBE_TRACKS shall be shown to it, and a refusal shall be REQUEST_ERROR
+  UNAUTHORIZED.
+  - gap: the authorizer hooks cover SUBSCRIBE, TRACK_STATUS, PUBLISH,
+    PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE only.
+- [~] MOQT-241 (SS10.19.1) A PUBLISH the hub sends for a SUBSCRIBE_TRACKS shall
+  carry that SUBSCRIBE_TRACKS's GROUP_ORDER.
+  - evidence: `test_moqtrun_misc_d22_publish_params` pins the PUBLISH bytes on
+    a draft-22 session only.
 - [x] MOQT-203 (SS10.9, SS10.9.2) A REQUEST_UPDATE of a FETCH, PUBLISH_NAMESPACE
   or SUBSCRIBE_NAMESPACE on its request stream shall be served: an accepted
   update is acknowledged (a new SUBSCRIBE_NAMESPACE prefix takes effect for
@@ -1432,6 +1677,10 @@ Legend:
   - note: ledger 10-9. Only OBJECTID_FILTER gates delivery, and only at the
     per-Object (datagram) gate; the other filter types are validated and stored
     but pass (see Out of scope).
+- [ ] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) If a PRIORITY_FILTER value
+  exceeds 255, or an OBJECT_PROPERTY_FILTER / TRACK_PROPERTY_FILTER names an
+  odd Property Type, then the hub shall answer REQUEST_ERROR INVALID_FILTER.
+  - gap: the Range Filter validation does not check either.
 
 ## Not implemented
 
@@ -1443,7 +1692,22 @@ namespace requests, MAX_REQUEST_UPDATES and Range Filter validation were
 listed here until ledger ch. 10 implemented them (MOQT-028, MOQT-070,
 MOQT-200 through MOQT-208).
 
-None.
+The 2026-10 re-audit against the draft text found these rules unmet; each
+is an open `[ ]` item above:
+
+- Mandatory Track Properties on PUBLISH, upstream SUBSCRIBE_OK and as an
+  Object Property (MOQT-212 to MOQT-214).
+- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222),
+  and the PRIORITY_FILTER / Property Type value checks (MOQT-236).
+- Control streams scheduled ahead of data (MOQT-223).
+- Dropping an Object already recorded as not existing (MOQT-227).
+- Authorizing SUBSCRIBE_TRACKS (MOQT-230).
+- No new upstream requests after the hub's own GOAWAY (MOQT-235).
+- A MOQT_IMPLEMENTATION Setup Option in the hub's SETUP (MOQT-237).
+- Closing the session on an invalid datagram Type (MOQT-243).
+- Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
+- Enforcing empty Track Properties in REQUEST_OK, the Redirect checks and
+  DUPLICATE_TRACK_ALIAS (MOQT-083, MOQT-086, MOQT-112).
 
 ## Out of scope
 
@@ -1461,10 +1725,10 @@ from the coverage denominator above:
 - (SS2.4.2) The general receiver-side Malformed Track detection catalog
   (Publisher Priority mismatch across a Subgroup ID, Object ID exceeding a
   Subgroup/Group/Track final, differing finals across FIN'd streams,
-  duplicate Objects with a different payload, Forwarding Preference change)
-  — beyond the decode-time violations (unknown Object Status, Object ID
-  overflow), only an Object past END_OF_GROUP / END_OF_TRACK is detected
-  (PUBLISH_DONE MALFORMED_TRACK, as draft-22 MQ22-025).
+  Forwarding Preference change) — beyond the decode-time violations
+  (unknown Object Status, Object ID overflow), only an Object past
+  END_OF_GROUP / END_OF_TRACK and a conflicting repeat met on an upstream
+  FETCH are detected (MOQT-209, MOQT-226).
 - (SS3.1, SS3.1.1-3.1.6) The `moqt` URI scheme, fragment identifiers, and
   MOQT URI dereferencing — client-side concerns of a server-only hub.
   Native-QUIC sessions themselves (SS3.1.5: ALPN `moqt-19`, PATH/AUTHORITY
@@ -1474,8 +1738,9 @@ from the coverage denominator above:
 - (SS3.6, SS9.4.1, SS9.5.1) Session Migration and graceful relay
   switchover beyond the GOAWAY mechanics covered above — this is a single
   hub with no upstream relay to switch to.
-- (SS5.1.3, SS5.1.4) Acting on SUBGROUP_FILTER, PRIORITY_FILTER,
-  OBJECT_PROPERTY_FILTER and TRACK_PROPERTY_FILTER at delivery, and on
+- (SS5.1.3, SS5.1.4) Acting on SUBGROUP_FILTER, PRIORITY_FILTER and
+  OBJECT_PROPERTY_FILTER at delivery (TRACK_PROPERTY_FILTER does filter a
+  SUBSCRIBE_TRACKS's PUBLISHes, MOQT-219), and on
   OBJECTID_FILTER for stream-forwarded Objects — these are decoded,
   validated, counted against MAX_FILTER_RANGES and updated (MOQT-208), but
   the group-granular stream gates never see the fields they filter on, so
@@ -1492,16 +1757,24 @@ from the coverage denominator above:
   namespace (MOQT-194), but each Track still has one publisher;
   aggregation/deduplication across publishers of a Track is not
   implemented.
-- (SS10.2.5, SS10.2.14, SS10.2.16) FILL_TIMEOUT, EXPIRES and
-  NEW_GROUP_REQUEST — decoded by the registry, not acted on. (SS10.2.6)
-  RENDEZVOUS_TIMEOUT is acted on since 12-1 (ff1c0df): a SUBSCRIBE for a
-  track with no publisher is held until one arrives or the timeout
-  (capped at 1.5 s) answers TIMEOUT, see tests/app/moqtrun_rdv_test.c.
+- (SS10.2.15, SS10.2.18) EXPIRES and NEW_GROUP_REQUEST — decoded by the
+  registry, not acted on; the hub never sends NEW_GROUP_REQUEST or
+  REQUEST_UPDATE upstream. (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
+  on, MOQT-231 and MOQT-232.)
+- (SS5.1) Sending incomplete Objects as they arrive (SHOULD) — on an
+  existing Subgroup stream the hub forwards whole Objects only (MOQT-137).
+- (SS6.3.1) Aggregating and propagating filters upstream — the hub makes
+  one upstream SUBSCRIBE per track with no parameters (MOQT-224).
+- (SS8, SS11.4.3) Delivery-timeout checks before retransmission and
+  RESET_STREAM_AT — retransmission and resets happen below the MOQT layer,
+  which resets with RESET_STREAM only.
+- (SS10.2.2) Token validity (MALFORMED_AUTH_TOKEN, expiry) — left to the
+  application's authorizer, which can only refuse UNAUTHORIZED.
 - (SS10.3.1.3, SS10.3.1.4) MAX_AUTH_TOKEN_CACHE_SIZE and AUTHORIZATION
   TOKEN as a Setup Option — not advertised; the hub keeps no token cache,
   so Alias-based tokens close the session (MOQT-188). (MAX_FILTER_RANGES and
   MAX_REQUEST_UPDATES are advertised, MOQT-206.)
-- (SS11.5.2) Padding Datagrams — not sent.
+- (SS11.5, SS11.5.2) Padding streams and datagrams — not sent.
 - (SS12, SS12.1--12.9) MOQT Properties (MAX_CACHE_DURATION,
   DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
   Immutable Properties, Prior Group/Object ID Gap) as Track/Object
