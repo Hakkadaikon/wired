@@ -15,7 +15,7 @@
  * (--ifindex N --ip a.b.c.d), or thread-based fan-out (--cores a,b,c). */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim and _start */
-#include "wired.h"
+#include "word_list.h"
 
 /* In-memory message store. POST bodies are appended (newline-separated); GET
  * returns the whole log. Outside the connection state on purpose: re-initing
@@ -41,115 +41,6 @@ static void history_append(const u8* body, usz n) {
   for (i = 0; history_room(i, n); i++) {
     g_history[g_history_len++] = body[i];
   }
-}
-
-/* Application/driver configuration, resolved once at startup from argv and
- * handed to app_on_request as its opaque ctx. --root selects static file
- * mode; absent, the demo history mode runs unchanged (back-compat). driver
- * carries which of the four run paths wired_srvdriver_run takes. */
-typedef struct {
-  const char*         root;       /**< document root, or 0 for history mode */
-  const char*         index;      /**< index file name for dir requests */
-  const char*         access_log; /**< access log path, or 0 to disable */
-  const char*         cert_path;  /**< cert.pem path (--cert) */
-  const char*         key_path;   /**< key.pem path (--key) */
-  wired_srvdriver_opt driver;     /**< resolved driver selection + knobs */
-} app_config;
-
-/* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
- * single-line format, no log levels/rotation -- add if an operator needs it).
- */
-static void access_log(
-    const app_config* cfg,
-    wired_span        method,
-    wired_span        path,
-    u64               status,
-    u64               nbytes) {
-  char line[512];
-  usz  at = 0;
-  if (!cfg->access_log) {
-    return;
-  }
-  at         = wired_cstr_append(line, sizeof line, at, method);
-  line[at++] = ' ';
-  at         = wired_cstr_append(line, sizeof line - 39, at, path);
-  at += wired_snprintf(
-      line + at, sizeof line - at, " %llu %llu\n", status, nbytes);
-  wired_fio_append(cfg->access_log, wired_span_of((const u8*)line, at));
-}
-
-/* Write the 404 body and return its status code. */
-static u64 not_found(wired_obuf* body_out) {
-  body_out->len = 0;
-  wired_obuf_put(body_out, wired_span_cstr("404 Not Found\n"));
-  return 404;
-}
-
-/* Read one round of resolved's bytes starting at offset into body_out,
- * requesting another round (*more = 1) whenever bytes remain past this
- * round. total_size is reported once, on the first round, so a caller that
- * frames the body with an upfront length field (HTTP/3's DATA frame) can
- * write that length before the rest of the bytes exist. A file that fits in
- * one round (the common case) never sets *more: this is plain
- * wired_fio_read's whole-file behavior, only reached via open+pread so the
- * two paths share one read loop instead of diverging. */
-static u64 serve_static_round(
-    const char* resolved,
-    u64         offset,
-    wired_obuf* body_out,
-    int*        more,
-    u64*        total_size) {
-  ssz fd = wired_fio_open(resolved);
-  ssz total, got;
-  if (fd < 0) {
-    return not_found(body_out);
-  }
-  total = wired_fio_size(resolved);
-  if (total < 0) {
-    wired_fio_close(fd);
-    return not_found(body_out);
-  }
-  if (offset == 0) {
-    *total_size = (u64)total;
-  }
-  got = wired_fio_pread(fd, wired_mspan_of(body_out->p, body_out->cap), offset);
-  wired_fio_close(fd);
-  if (got < 0) {
-    return not_found(body_out);
-  }
-  body_out->len = (usz)got;
-  if (offset + (u64)got < (u64)total) {
-    *more = 1;
-  }
-  return 200;
-}
-
-/* Static-file mode (quiche-server's --root/--index): resolve the request path
- * under cfg->root and serve the file's bytes, or a 404 body when it does not
- * resolve/open (the wire :status stays 200 -- see srvloop/respond.c, which
- * hard-codes 200 for every decoded request; changing that is a larger,
- * separate change). The logged status reflects whether the file was found.
- * A body larger than one round (body_out->cap) streams via serve_static_round
- * across repeated calls at increasing offset (see wired_srvloop_handler). */
-static u64 serve_static(
-    const app_config* cfg,
-    wired_span        path,
-    u64               offset,
-    wired_obuf*       body_out,
-    const char**      content_type,
-    int*              more,
-    u64*              total_size) {
-  char resolved[512];
-  char reqpath[400];
-  wired_span_to_cstr(reqpath, sizeof reqpath, path);
-  if (!wired_staticfile_resolve(
-          cfg->root, reqpath, cfg->index, resolved, sizeof resolved)) {
-    return not_found(body_out);
-  }
-  if (offset == 0) {
-    *content_type = wired_mimetype_for_path(resolved);
-  }
-  return serve_static_round(resolved, offset, body_out, more, total_size);
 }
 
 /* History-demo mode (--root absent): RFC 9110 9.3.1 (GET) returns the log;
@@ -183,12 +74,12 @@ static int app_on_request(
   const app_config* cfg    = (const app_config*)ctx;
   wired_span        method = wired_span_of(req->method, req->method_len);
   wired_span        path   = wired_span_of(req->path, req->path_len);
-  u64               status = cfg->root ? serve_static(
+  u64               status = cfg->root ? wl_serve_static(
                                              cfg, path, offset, body_out, content_type, more,
                                              total_size)
                                        : serve_history(req, body_out);
   if (offset == 0) {
-    access_log(cfg, method, path, status, body_out->len);
+    wl_access_log(cfg, method, path, status, body_out->len);
   }
   return 1;
 }
@@ -302,6 +193,23 @@ static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
   id->pref_v6_port = 4433;
 }
 
+/* Optional transport tuning; 0 keeps the built-in defaults (server_tp.c). */
+static void app_transport_tuning(wired_srvboot_id* id, int argc, char** argv) {
+  id->max_data         = (u64)wired_cliargs_int(argc, argv, "--max-data", 0);
+  id->max_streams_bidi = (u64)wired_cliargs_int(argc, argv, "--max-streams", 0);
+  app_pref_addr(id, argc, argv);
+}
+
+/* qlog/keylog paths, the cert pair SIGHUP re-reads, and the CC algorithm. */
+static wired_srvrun_obs app_obs(const app_config* cfg, int argc, char** argv) {
+  return (wired_srvrun_obs){
+      wired_cliargs_str(argc, argv, "--qlog-file", 0),
+      wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg->cert_path,
+      cfg->key_path,
+      /* CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
+      (int)wired_cliargs_int(argc, argv, "--cc-algo", 0)};
+}
+
 /* The real entry point, called from _start (see wired.h's WIRED_MAIN block)
  * with argc/argv recovered from the kernel stack. */
 int wired_main(int argc, char** argv) {
@@ -309,23 +217,13 @@ int wired_main(int argc, char** argv) {
   wired_srvboot_demo_keys keys;
   app_config              cfg = {0};
   wired_srvrun_handler    h   = {.cb = app_on_request, .ctx = &cfg};
-  wired_srvrun_obs        obs;
   app_selfcheck();
   load_config(&cfg, argc, argv);
   server_identity(&id, &keys);
-  /* Optional transport tuning; 0 keeps the built-in defaults (server_tp.c). */
-  id.max_data         = (u64)wired_cliargs_int(argc, argv, "--max-data", 0);
-  id.max_streams_bidi = (u64)wired_cliargs_int(argc, argv, "--max-streams", 0);
-  app_pref_addr(&id, argc, argv);
+  app_transport_tuning(&id, argc, argv);
   wired_certreload_load_or_selfsigned(
       cfg.cert_path, cfg.key_path, &cert_store, &id);
-  obs = (wired_srvrun_obs){
-      wired_cliargs_str(argc, argv, "--qlog-file", 0),
-      wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg.cert_path,
-      cfg.key_path,
-      /* CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
-      (int)wired_cliargs_int(argc, argv, "--cc-algo", 0)};
-  if (!wired_srvdriver_run(&id, h, obs, &cfg.driver)) {
+  if (!wired_srvdriver_run(&id, h, app_obs(&cfg, argc, argv), &cfg.driver)) {
     wired_die("listen failed\n");
   }
   return 0;
