@@ -211,9 +211,14 @@ static void fmt_split_frac(fmt_fparts* r, u64 mant, int ex) {
   r->f     = mant & (((u64)1 << r->s) - 1);
 }
 
+/* IEEE-754 binary64 significand with the implicit bit for exponent field e. */
+static u64 fmt_mant(u64 bits, u64 e) {
+  return (bits & (((u64)1 << 52) - 1)) | ((u64)(e != 0) << 52);
+}
+
 static void fmt_split(fmt_fparts* r, u64 bits) {
   u64 e    = (bits >> 52) & 0x7ff;
-  u64 mant = (bits & (((u64)1 << 52) - 1)) | ((u64)(e != 0) << 52);
+  u64 mant = fmt_mant(bits, e);
   int ex   = (int)(e + (e == 0)) - 1075;
   *r       = (fmt_fparts){0, 0, 0};
   if (ex < 0) {
