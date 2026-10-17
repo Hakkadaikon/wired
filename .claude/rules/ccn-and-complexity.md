@@ -9,6 +9,15 @@ alwaysApply: true
 Two more per-function limits ride the same gates: nesting depth ≤ 2
 (`just ccn`, lizard ND) and cognitive complexity ≤ 4 (`just lint`,
 clang-tidy). `just metrics` / `just cognitive` print the current values.
+`just halstead-check` adds Halstead volume/difficulty/bugs, MI, exits (<= 4)
+and parameters (<= 7) per function, and volume <= 8000 / bugs <= 2 per
+.c/.h file (limits in scripts/halstead.py). A function over volume ~1000 is
+too long: extract steps before it lands. A file nearing the limit gets a
+new sibling `<stem>_<topic>.c`; cross-piece helpers go in `<stem>_impl.h`
+with the module prefix (hot crypto helpers as `static inline` there, or the
+per-object build stops inlining them: P-256/AES-GCM lost 40-65%), and the
+new file is wired into tests/run.c (and any fuzz harness that includes the
+base .c).
 
 `just ccn` must exit 0. Initial drafts landed at CCN 4–6 almost
 every time and had to be re-split (#4). Count branches BEFORE writing — removing

@@ -249,6 +249,15 @@ A change that breaks any of these is not done.
 - **Nesting depth ≤ 2 and cognitive complexity ≤ 4 for every function.**
   Both limits were the tree's maximum when they were set. `just ccn` checks
   the nesting depth and `just lint` checks the cognitive complexity.
+- **Halstead, MI, exits and parameters per function, size per file.**
+  `just halstead-check` fails on a function over Halstead volume 1000,
+  difficulty 30 or 0.5 estimated bugs, MI below 65, more than 4 exits or
+  7 parameters, and on a `.c`/`.h` over volume 8000 or 2 estimated bugs.
+  A file over the limit is split: functions and tables used by one piece
+  stay `static` there, and those several pieces share are declared in a
+  `<stem>_impl.h` internal header with the module prefix. A hot helper
+  (crypto field or block math) goes there as `static inline` instead, or
+  the per-object build loses the inlining and the code slows down.
 - **MECE: one domain, one directory.** Do not scatter a concern across
   directories or merge two concerns into one.
 - **One global namespace.** Grep `src/` before adding any name. When you

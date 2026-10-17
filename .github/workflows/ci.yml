@@ -29,6 +29,9 @@ jobs:
       - name: ccn (lizard, CCN <= 3)
         run: nix develop -c just ccn
 
+      - name: halstead-check (Halstead, MI, exits, parameters)
+        run: nix develop -c just halstead-check
+
       - name: golden-check (moqt_golden.h matches the testvectors JSON)
         run: nix develop -c just golden-check
 
