@@ -30,20 +30,33 @@ static int pc_sign_tbs(const u8 priv[32], wired_span tbs, wired_obuf* sig) {
   return ecdsasig_encode(r, s, sig->p, sig->cap, &sig->len);
 }
 
-int p256cert_build(const p256cert_key* k, wired_obuf* out) {
-  u8           tbs[512], alg[16], sig[80], sv[96], body[640];
-  wired_obuf   to = obuf_of(tbs, sizeof(tbs));
+/* Sign the TBS and wrap the signature as a signatureValue TLV into vo. */
+static usz pc_sigval(const u8 priv[32], wired_span tbs, wired_obuf* vo) {
+  u8         sig[80];
+  wired_obuf go = obuf_of(sig, sizeof(sig));
+  if (!pc_sign_tbs(priv, tbs, &go)) return 0;
+  return pc_build_sigval(wired_span_of(sig, go.len), vo);
+}
+
+/* RFC 5280 4.1. Certificate SEQUENCE{ tbs, signatureAlgorithm, sigValue }. */
+static int pc_assemble(wired_span tbs, wired_span sv, wired_obuf* out) {
+  u8           alg[16], body[640];
   wired_obuf   ao = obuf_of(alg, sizeof(alg));
-  wired_obuf   go = obuf_of(sig, sizeof(sig));
-  wired_obuf   vo = obuf_of(sv, sizeof(sv));
-  usz          an = p256cert_sigalg(&ao), svn;
   p256cert_enc e  = {body, sizeof(body), 0, 1};
-  if (!p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to)) return 0;
-  if (!pc_sign_tbs(k->priv, wired_span_of(tbs, to.len), &go)) return 0;
-  svn = pc_build_sigval(wired_span_of(sig, go.len), &vo);
-  p256cert_put_pre(&e, wired_span_of(tbs, to.len));
-  p256cert_put_pre(&e, wired_span_of(alg, an));
-  p256cert_put_pre(&e, wired_span_of(sv, svn));
+  p256cert_put_pre(&e, tbs);
+  p256cert_put_pre(&e, wired_span_of(alg, p256cert_sigalg(&ao)));
+  p256cert_put_pre(&e, sv);
   out->len = p256cert_wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
+}
+
+int p256cert_build(const p256cert_key* k, wired_obuf* out) {
+  u8         tbs[512], sv[96];
+  wired_obuf to = obuf_of(tbs, sizeof(tbs));
+  wired_obuf vo = obuf_of(sv, sizeof(sv));
+  usz        svn;
+  if (!p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to)) return 0;
+  svn = pc_sigval(k->priv, wired_span_of(tbs, to.len), &vo);
+  if (!svn) return 0;
+  return pc_assemble(wired_span_of(tbs, to.len), wired_span_of(sv, svn), out);
 }
