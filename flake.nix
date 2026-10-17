@@ -20,6 +20,8 @@
           pkgs.llvmPackages_latest.llvm
           pkgs.just
           pkgs.python3Packages.lizard # a python tool; no top-level attr
+          # Halstead and maintainability index (`just halstead`)
+          pkgs.rust-code-analysis
           pkgs.doxygen
           pkgs.ninja
         ];

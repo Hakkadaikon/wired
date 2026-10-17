@@ -128,6 +128,17 @@ metrics *paths="src":
     {{no_nix_shell}} && exec nix develop -c just metrics {{paths}}
     lizard -END {{paths}}
 
+# Report only: Halstead metrics and maintainability index per function and file.
+halstead *paths="src":
+    #!/usr/bin/env sh
+    {{no_nix_shell}} && exec nix develop -c just halstead {{paths}}
+    set -eu
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    for p in {{paths}}; do
+        rust-code-analysis-cli -m -O json -I '*.c' -p "$p" -o "$tmp" >/dev/null
+    done
+    python3 scripts/halstead.py "$tmp"
+
 # Report only: per-function cognitive complexity; 0 scores are not listed.
 cognitive *paths="src":
     #!/usr/bin/env sh

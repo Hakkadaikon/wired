@@ -335,7 +335,10 @@ Two other workflows matter: `docs.yml` runs `just docs` on every push to
 Two recipes only report the values behind those limits. `just metrics`
 shows each function's NLOC, length and nesting depth, then each file's
 NLOC. `just cognitive` shows each function's cognitive complexity. Both
-take paths, like `just ccn`.
+take paths, like `just ccn`. `just halstead` also only reports: Halstead
+volume, difficulty, effort and estimated bugs, and the maintainability
+index in its original, SEI and Visual Studio forms, per function and per
+file (rust-code-analysis). No limit is set on these.
 
 ## Adding a domain
 
