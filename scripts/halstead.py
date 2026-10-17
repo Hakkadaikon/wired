@@ -37,12 +37,19 @@ FILE_LIMITS = (
 EXEMPT = ("src/crypto/asymmetric/ecc/p256fixed/p256fixed_table.c",)
 
 
+def cell(v, width, prec):
+    """v right-aligned in width with prec decimals; '-' for null."""
+    return "-".rjust(width) if v is None else "%*.*f" % (width, prec, v)
+
+
 def row(m, where):
     h, mi = m["halstead"], m["mi"]
-    return "%8.0f %6.1f %10.0f %6.2f %8.1f %7.1f %6.1f %5.0f %4.0f  %s" % (
-        h["volume"], h["difficulty"], h["effort"], h["bugs"],
-        mi["mi_original"], mi["mi_sei"], mi["mi_visual_studio"],
-        m["nexits"]["sum"], m["nargs"]["total_functions"], where)
+    cells = ((h["volume"], 8, 0), (h["difficulty"], 6, 1),
+             (h["effort"], 10, 0), (h["bugs"], 6, 2),
+             (mi["mi_original"], 8, 1), (mi["mi_sei"], 7, 1),
+             (mi["mi_visual_studio"], 6, 1), (m["nexits"]["sum"], 5, 0),
+             (m["nargs"]["total_functions"], 4, 0))
+    return " ".join(cell(*c) for c in cells) + "  " + where
 
 
 def functions(space):
@@ -53,8 +60,11 @@ def functions(space):
 
 
 def breaks(m, limits):
+    """Labels of the limits m breaks. A null value (rust-code-analysis emits
+    it for a function with no operands) has nothing to measure."""
     return ["%s %.2f" % (label, m[a][b])
-            for a, b, label, bad in limits if bad(m[a][b])]
+            for a, b, label, bad in limits
+            if m[a][b] is not None and bad(m[a][b])]
 
 
 def load(root):
@@ -93,6 +103,7 @@ def report(units):
         print(row(u["metrics"], u["name"]))
 
 
-if sys.argv[1] == "--check":
-    sys.exit(1 if check(load(sys.argv[2])) else 0)
-report(load(sys.argv[1]))
+if __name__ == "__main__":
+    if sys.argv[1] == "--check":
+        sys.exit(1 if check(load(sys.argv[2])) else 0)
+    report(load(sys.argv[1]))
