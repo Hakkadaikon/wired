@@ -147,25 +147,37 @@ static usz pc_build_extensions(const u8* san_ipv4, wired_obuf* out) {
   return p256cert_wrap(&es, PC_EXTENSIONS_TAG, out);
 }
 
+/* RFC 5280 4.1.2.5. Emit the validity SEQUENCE onto e. */
+static void tbs_put_validity(p256cert_enc* e, u64 now_secs) {
+  u8         val[48];
+  wired_obuf vo = obuf_of(val, sizeof(val));
+  p256cert_put_pre(e, wired_span_of(val, pc_build_validity(now_secs, &vo)));
+}
+
+/* RFC 5280 4.1.2.9. Emit the [3] extensions onto e. */
+static void tbs_put_exts(p256cert_enc* e, const u8* san_ipv4) {
+  u8         exts[96];
+  wired_obuf xo = obuf_of(exts, sizeof(exts));
+  p256cert_put_pre(e, wired_span_of(exts, pc_build_extensions(san_ipv4, &xo)));
+}
+
 int p256cert_tbs(
     const u8    x[32],
     const u8    y[32],
     const u8*   san_ipv4,
     u64         now_secs,
     wired_obuf* out) {
-  u8           name[80], val[48], spki[128], exts[96], body[512];
+  u8           name[80], spki[128], body[512];
   wired_obuf   no = obuf_of(name, sizeof(name));
-  wired_obuf   vo = obuf_of(val, sizeof(val));
   wired_obuf   so = obuf_of(spki, sizeof(spki));
-  wired_obuf   xo = obuf_of(exts, sizeof(exts));
   usz          nn = pc_build_name(&no);
   p256cert_enc e  = {body, sizeof(body), 0, 1};
   p256cert_spki(x, y, &so);
   tbs_head(&e, wired_span_of(name, nn));
-  p256cert_put_pre(&e, wired_span_of(val, pc_build_validity(now_secs, &vo)));
+  tbs_put_validity(&e, now_secs);
   p256cert_put_pre(&e, wired_span_of(name, nn)); /* subject */
   p256cert_put_pre(&e, wired_span_of(spki, so.len));
-  p256cert_put_pre(&e, wired_span_of(exts, pc_build_extensions(san_ipv4, &xo)));
+  tbs_put_exts(&e, san_ipv4);
   out->len = p256cert_wrap(&e, DER_SEQUENCE, out);
   return out->len != 0;
 }
