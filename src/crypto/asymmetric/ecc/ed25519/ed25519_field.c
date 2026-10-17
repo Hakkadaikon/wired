@@ -254,35 +254,57 @@ static void ge_zero(ge* p) {
   fe_0(p->T);
 }
 
+/* Base point B x coordinate (RFC 8032 5.1). */
+static void fe_basex(fe out) {
+  static const u8 b[32] = {0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9,
+                           0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
+                           0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0,
+                           0xfe, 0x53, 0x6e, 0xcd, 0xd3, 0x36, 0x69, 0x21};
+  fe_frombytes(out, b);
+}
+
+/* Base point B y coordinate = 4/5 (RFC 8032 5.1). */
+static void fe_basey(fe out) {
+  static const u8 b[32] = {0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+                           0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+                           0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+                           0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
+  fe_frombytes(out, b);
+}
+
 void ed_ge_base(ge* p) {
-  static const u8 bx[32] = {0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9,
-                            0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
-                            0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0,
-                            0xfe, 0x53, 0x6e, 0xcd, 0xd3, 0x36, 0x69, 0x21};
-  static const u8 by[32] = {0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-                            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-                            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
-                            0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66};
-  fe_frombytes(p->X, bx);
-  fe_frombytes(p->Y, by);
+  fe_basex(p->X);
+  fe_basey(p->Y);
   fe_1(p->Z);
   fe_mul(p->T, p->X, p->Y);
 }
 
-void ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
-  fe a, b, c, d, e, f, g, h, t, d2;
-  fe_d(d2);
-  fe_add(d2, d2, d2); /* 2*d */
+/* a = (Y1-X1)(Y2-X2), b = (Y1+X1)(Y2+X2) (RFC 8032 5.1.4). */
+static void ge_add_ab(fe a, fe b, const ge* p1, const ge* p2) {
+  fe t;
   fe_sub(a, p1->Y, p1->X);
   fe_sub(t, p2->Y, p2->X);
   fe_mul(a, a, t);
   fe_add(b, p1->Y, p1->X);
   fe_add(t, p2->Y, p2->X);
   fe_mul(b, b, t);
+}
+
+/* c = T1*2*d*T2, d = Z1*2*Z2 (RFC 8032 5.1.4). */
+static void ge_add_cd(fe c, fe d, const ge* p1, const ge* p2) {
+  fe d2;
+  fe_d(d2);
+  fe_add(d2, d2, d2); /* 2*d */
   fe_mul(c, p1->T, p2->T);
   fe_mul(c, c, d2);
   fe_mul(d, p1->Z, p2->Z);
   fe_add(d, d, d);
+}
+
+void ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
+  fe a, b, c, d, e, f, g, h;
+  ge_add_ab(a, b, p1, p2);
+  ge_add_cd(c, d, p1, p2);
   fe_sub(e, b, a);
   fe_sub(f, d, c);
   fe_add(g, d, c);
