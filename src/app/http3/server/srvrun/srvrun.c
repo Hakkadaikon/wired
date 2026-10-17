@@ -9429,6 +9429,28 @@ static usz srvrun_resp_refill_take(const srvrun_resp* r, usz room) {
   return take < room ? take : room;
 }
 
+/* Run the handler for the next body chunk straight into r's ring (at most
+ * take bytes, contiguous at the ring's write position) and extend the live
+ * sendsess over what it wrote. */
+static void srvrun_resp_refill_write(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    slot,
+    srvrun_resp*           r,
+    usz                    take) {
+  u8*        base = srvrun_resp_storage_ro(ctx, slot, c, r);
+  wired_obuf body = obuf_of(
+      base + (usz)(r->sess.q.p - base) + r->sess.q.len % r->ring_cap, take);
+  wired_http_exchange x = {0};
+  x.req                 = &r->stream_req;
+  x.offset              = r->stream_off;
+  x.body                = &body;
+  srvrun_call_handler(ctx, &x);
+  wired_sendsess_extend(&r->sess, body.len);
+  r->stream_off += body.len;
+  r->streaming = x.more != 0;
+}
+
 /* Feed r's ring: whenever enough acknowledged space has been reclaimed
  * (wired_sendsess_ring_room), run the handler for the next body chunk
  * directly into the ring and extend the live sendsess over it -- earlier
@@ -9442,24 +9464,11 @@ static usz srvrun_resp_refill_take(const srvrun_resp* r, usz room) {
  * c->l.req -- see stream_req's own doc. */
 static void srvrun_resp_refill(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  usz                 room, take;
-  u8*                 base;
-  wired_obuf          body;
-  wired_http_exchange x = {0};
+  usz room;
   if (!srvrun_resp_streaming_live(r)) return;
   room = wired_sendsess_ring_room(&r->sess, r->ring_cap);
   if (room < r->ring_cap / 4) return;
-  take = srvrun_resp_refill_take(r, room);
-  base = srvrun_resp_storage_ro(ctx, slot, c, r);
-  body = obuf_of(
-      base + (usz)(r->sess.q.p - base) + r->sess.q.len % r->ring_cap, take);
-  x.req    = &r->stream_req;
-  x.offset = r->stream_off;
-  x.body   = &body;
-  srvrun_call_handler(ctx, &x);
-  wired_sendsess_extend(&r->sess, body.len);
-  r->stream_off += body.len;
-  r->streaming = x.more != 0;
+  srvrun_resp_refill_write(ctx, c, slot, r, srvrun_resp_refill_take(r, room));
 }
 
 /* Once r's session goes idle (wired_sendsess_done: every slice sent and
