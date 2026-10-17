@@ -21,6 +21,18 @@ static int on_stream(framedispatch_state* st, const u8* frame, usz len) {
       st->stream, f.offset, wired_span_of(f.data, f.length));
 }
 
+/* RFC 9000 19.3.1: replay decoded ranges as the wire (first_len, gap,
+ * range_len, ...) form into wire. Returns the number of values written. */
+static usz dispatch_ack_wire(const ack_frame* f, u64* wire) {
+  usz w     = 0;
+  wire[w++] = f->ranges[0].hi - f->ranges[0].lo;
+  for (usz i = 1; i < f->n_ranges; i++) {
+    wire[w++] = f->ranges[i - 1].lo - f->ranges[i].hi - 2;
+    wire[w++] = f->ranges[i].hi - f->ranges[i].lo;
+  }
+  return w;
+}
+
 /* RFC 9000 19.3: an ACK frame is decoded to its ranges, then replayed as the
  * wire (first_len, gap, range_len, ...) form the sent table consumes. */
 static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
@@ -29,13 +41,8 @@ static int on_ack(framedispatch_state* st, const u8* frame, usz len) {
   st->has_ack =
       1; /* RFC 9000 19.3: expose Largest Acknowledged to the runner */
   st->largest_acked = f.ranges[0].hi;
-  u64 wire[2 * ACK_MAX_RANGES];
-  usz w     = 0;
-  wire[w++] = f.ranges[0].hi - f.ranges[0].lo;
-  for (usz i = 1; i < f.n_ranges; i++) {
-    wire[w++] = f.ranges[i - 1].lo - f.ranges[i].hi - 2;
-    wire[w++] = f.ranges[i].hi - f.ranges[i].lo;
-  }
+  u64    wire[2 * ACK_MAX_RANGES];
+  usz    w = dispatch_ack_wire(&f, wire);
   u64    acked[SENTPKT_CAP];
   usz    n      = 0;
   ackset ackset = {f.ranges[0].hi, wire, w};
