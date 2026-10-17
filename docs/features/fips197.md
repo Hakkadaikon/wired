@@ -3,9 +3,9 @@
 # FIPS 197 — Advanced Encryption Standard (AES)
 
 EARS requirement ledger extracted from the spec text
-(`tasks/specs/fips197.pdf`, not in git). Each requirement carries the test
+(`tasks/specs/fips197.txt`, not in git). Each requirement carries the test
 that demonstrates it; an unchecked box with no test line is an open gap.
-Status as of 2026-07.
+Status as of 2026-10.
 
 Legend:
 
@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 9/14 tested, 5 indirect, 0 untested.**
+**Coverage: 12/15 tested, 3 indirect, 0 untested.**
 
 ## §3 Notation and Conventions
 
@@ -27,9 +27,9 @@ Legend:
 
 ## §4 Mathematical Preliminaries
 
-- [~] F197-002 (§4.2) The implementation shall multiply two bytes in
-  GF(2^8) by polynomial multiplication reduced modulo
-  m(x) = x^8+x^4+x^3+x+1.
+- [~] F197-002 (§4.1, §4.2) The implementation shall add two bytes in
+  GF(2^8) by XOR and multiply them by polynomial multiplication reduced
+  modulo m(x) = x^8+x^4+x^3+x+1 (XTIMES for multiplication by {02}).
   - evidence: `XTIME` in `src/crypto/symmetric/aead/aes/aes.c` implements the
     modular reduction (`((x << 1) ^ ((x >> 7) * 0x1b))`, the byte form of
     m(x)); `MIX_COLUMNS`/`INV_MIX_COLUMNS`-style multiplication by fixed
@@ -59,13 +59,10 @@ Legend:
     `src/crypto/symmetric/aead/aes/aes.c` implement
     `t[4c+r] = s[4*((c+r)%4)+r]`; only exercised end to end via the
     known-answer tests, no isolated SHIFTROWS assertion.
-- [~] F197-007 (§5.1.3) The implementation shall mix each column of the
+- [x] F197-007 (§5.1.3) The implementation shall mix each column of the
   state by multiplying it by the fixed matrix
   [{02},{01},{01},{03}] in MIXCOLUMNS().
-  - evidence: `mix_one`/`mix_columns` in
-    `src/crypto/symmetric/aead/aes/aes.c` implement the four output-byte
-    equations of Eq. 5.8 directly; only exercised end to end via the
-    known-answer tests, no isolated MIXCOLUMNS assertion.
+  - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
 - [x] F197-008 (§5.1.4) The implementation shall combine each round key
   (four words from the key schedule) with the state by XOR in
   ADDROUNDKEY(), invoked once before the first round and once per round
@@ -83,18 +80,18 @@ Legend:
   w[i-1] otherwise.
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-  - gap: only the AES-128 branch (`i % 4 == 0`) is implemented or tested
-    (`schedule_word` in `src/crypto/symmetric/aead/aes/aes.c`); the
-    Nk=6/Nk=8 branches (AES-192/AES-256, including the extra AES-256
-    SUBWORD step) do not exist in this SDK. See "Out of scope".
+  - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
+  - gap: the Nk=4 (`schedule_word`) and Nk=8 (`aes128_schedule_word256`,
+    including the extra SUBWORD at i mod 8 = 4) branches are shown only
+    through the cipher output; the Nk=6 branch (AES-192) is not shipped.
 - [x] F197-010 (§5.2, Table 5) The implementation shall use the ten fixed
   round constants Rcon[1..10] = {01,02,04,08,10,20,40,80,1b,36} (each
   left-most byte only, low three bytes zero) in KEYEXPANSION().
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-  - gap: only the first 10 constants are present, matching the AES-128 path
-    that consumes all ten; AES-192/256 use a subset, which is moot since
-    those key sizes are unimplemented.
+  - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
+  - gap: AES-128 consumes all ten constants and AES-256 the first seven;
+    no test asserts the table values outside the cipher output.
 
 ## §5.3 INVCIPHER() / EQINVCIPHER()
 
@@ -104,17 +101,16 @@ below.
 
 ## §6 Implementation Considerations
 
-- [~] F197-016 (§6.1) The implementation shall support at least one of the
+- [x] F197-016 (§6.1) The implementation shall support at least one of the
   three key lengths (128, 192, or 256 bits).
-  - evidence: 128-bit keys are supported
-    (`AES_BLOCK`/`aes128_init` in
-    `src/crypto/symmetric/aead/aes/aes.c`); this satisfies the "at least
-    one" requirement. 192- and 256-bit keys are not supported — see "Out of
-    scope".
+  - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
+  - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
 - [x] F197-017 (§6.2) The implementation shall impose no restriction on an
   appropriately generated cryptographic key beyond its length.
   - test: `tests/crypto/aes_test.c` —
     `test_aes_no_key_restriction_beyond_length`
+  - test: `tests/crypto/aes_test.c` —
+    `test_aes256_no_key_restriction_beyond_length`
   - evidence: `aes128_init` (`src/crypto/symmetric/aead/aes/aes.c`)
     schedules every key byte unconditionally with no validation branch;
     the test drives the all-zero and all-0xff 16-byte keys (the values a
@@ -122,22 +118,25 @@ below.
     confirms both succeed and produce distinct ciphertext.
 - [~] F197-018 (§6.5) The implementation shall use AES only in conjunction
   with a FIPS-approved or NIST-recommended mode of operation.
-  - evidence: `aes128_encrypt` (`src/crypto/symmetric/aead/aes/aes.h`)
-    is called from exactly two sites in `src/`: `gcm.c` (SP 800-38D GCM
-    counter mode) and `hp.c` (RFC 9001 5.4.3 header-protection mask, an
-    AES-ECB *encrypt* of a sample, the approved usage that RFC calls for).
-    No other call site of `aes128_encrypt` exists in `src/` (confirmed
-    by grep), and the header exposes no raw-block entry point beyond it;
-    an exhaustive negative test would have to re-assert this same call-site
-    enumeration rather than exercise a runtime rejection, so the grep-based
-    evidence stands in place of a dedicated test.
+  - evidence: `aes128_encrypt`/`aes256_encrypt`
+    (`src/crypto/symmetric/aead/aes/aes.h`) and the AES-NI rounds in
+    `src/crypto/symmetric/aead/gcmx86/` are called only from the GCM
+    modules (SP 800-38D counter mode, `gcm_*.c`, `gcmx86_ctr.c`) and the
+    header-protection mask (`hp.c`, `hp_suite.c`: RFC 9001 5.4.3 AES-ECB
+    encryption of one sample), confirmed by grep of `src/`. A negative
+    test would only re-assert that call-site enumeration.
 
 ## Appendix A/B/C — Key Expansion, Cipher, and Example Vectors
 
-- [x] F197-019 (App. A.1, B) The implementation shall reproduce the
-  Appendix A.1 key-schedule and Appendix B CIPHER() known-answer vector for
-  a 128-bit key.
+- [x] F197-019 (App. A.1, B, C.1) The implementation shall reproduce the
+  Appendix B and Appendix C.1 CIPHER() known-answer vectors for a 128-bit
+  key (whose round keys are those of Appendix A.1).
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
+  - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
+- [x] F197-020 (App. A.3, C.3) The implementation shall reproduce the
+  Appendix C.3 CIPHER() known-answer vector for a 256-bit key (Nk=8,
+  Nr=14).
+  - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
 
 ## Out of scope
 
@@ -161,11 +160,14 @@ the coverage denominator:
 - (§6.3) Parameter Extensions (guidance to implementers about future
   revisions defining new Nk/Nb/Nr values) — forward-looking guidance to
   standards implementers, not a testable requirement of this Standard.
-- (§6.4) Implementation Suggestions Regarding Various Platforms
-  (side-channel/cache-timing hardening suggestions, informative) —
-  non-normative implementation advice, not a SHALL requirement.
-- (Appendix C) Reference to the NIST CSRC website for additional example
-  vectors — a pointer to external resources, not a requirement; the
-  Appendix B vector this SDK does implement is covered above (F197-019).
+- (§6.4) Implementation Suggestions Regarding Various Platforms, including
+  "protecting implementations ... against implementation attacks ...
+  should be considered" — the Standard places this outside its own scope;
+  the scalar path uses a table S-box (the AES-NI path in `gcmx86` does
+  not).
+- (App. A.2, C.2) AES-192 key expansion and example vector — AES-192 not
+  shipped (see above).
+- (Announcement 8) Export-control compliance ("must comply with all
+  federal laws") — legal notice, not an implementation rule.
 - (Appendix D) Change log (informative) — editorial history of the
   publication, not a normative requirement.
