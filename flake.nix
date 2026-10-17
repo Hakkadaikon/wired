@@ -22,6 +22,10 @@
           pkgs.python3Packages.lizard # a python tool; no top-level attr
           # Halstead and maintainability index (`just halstead`)
           pkgs.rust-code-analysis
+          # Python lint/format for scripts/ and shell lint for scripts/ and
+          # the examples' helper scripts
+          pkgs.ruff
+          pkgs.shellcheck
           pkgs.doxygen
           pkgs.ninja
         ];
