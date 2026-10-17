@@ -1,4 +1,14 @@
-#include "crypto/symmetric/hash/hash/sha512.h"
+#include "crypto/symmetric/hash/hash/sha512_impl.h"
+
+static u64  load_be64(const u8* p, usz o);
+static void sha512_schedule(const u8* p, u64 w[80]);
+static void sha512_round_step(u64 v[8], u64 kw);
+static void sha512_run_rounds(const u64* h, const u64 w[80], u64 v[8]);
+static void sha512_compress(sha512_ctx* s, const u8* p);
+static usz  sha512_absorb_blocks(sha512_ctx* s, const u8* data, usz len);
+static void sha512_buffer(sha512_ctx* s, const u8* data, usz n);
+static usz  sha512_pending_take(const sha512_ctx* s, usz len);
+static usz  sha512_fill_pending(sha512_ctx* s, const u8* data, usz len);
 
 /* FIPS 180-4 4.2.3 round constants. */
 static const u64 S512_K[80] = {
@@ -34,14 +44,6 @@ static const u64 S512_H0[8] = {0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
                                0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
                                0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL,
                                0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL};
-
-#define S512ROR(x, n) (((x) >> (n)) | ((x) << (64 - (n))))
-#define CH(x, y, z) (((x) & (y)) ^ (~(x) & (z)))
-#define MAJ(x, y, z) (((x) & (y)) ^ ((x) & (z)) ^ ((y) & (z)))
-#define S512BS0(x) (S512ROR(x, 28) ^ S512ROR(x, 34) ^ S512ROR(x, 39))
-#define S512BS1(x) (S512ROR(x, 14) ^ S512ROR(x, 18) ^ S512ROR(x, 41))
-#define S512SS0(x) (S512ROR(x, 1) ^ S512ROR(x, 8) ^ ((x) >> 7))
-#define S512SS1(x) (S512ROR(x, 19) ^ S512ROR(x, 61) ^ ((x) >> 6))
 
 void sha512_init(sha512_ctx* s) {
   for (usz i = 0; i < 8; i++) s->h[i] = S512_H0[i];
@@ -126,39 +128,4 @@ void sha512_update(sha512_ctx* s, const u8* data, usz len) {
   off += sha512_absorb_blocks(s, data + off, len - off);
   sha512_buffer(s, data + off, len - off);
   s->total += len;
-}
-
-/* Append 0x80 then zero bytes until exactly 112 bytes sit in the block,
- * leaving room for the 16-byte length (FIPS 180-4 5.1.2). */
-static void sha512_pad_message(sha512_ctx* s) {
-  u8 b = 0x80;
-  sha512_update(s, &b, 1);
-  b = 0;
-  while (s->buf_len != 112) sha512_update(s, &b, 1);
-}
-
-/* Write the 128-bit message length: high 64 bits are always zero here. */
-static void put_len(u8 lenbe[16], u64 bits) {
-  for (usz i = 0; i < 8; i++) lenbe[i] = 0;
-  for (usz i = 0; i < 8; i++) lenbe[8 + i] = (u8)(bits >> (56 - i * 8));
-}
-
-/* Store one 64-bit hash word big-endian at out[0..7]. */
-static void sha512_put_be64(u8* out, u64 v) {
-  for (usz j = 0; j < 8; j++) out[j] = (u8)(v >> (56 - j * 8));
-}
-
-void sha512_final(sha512_ctx* s, u8 out[SHA512_DIGEST]) {
-  u8 lenbe[16];
-  put_len(lenbe, s->total * 8);
-  sha512_pad_message(s);
-  sha512_update(s, lenbe, 16);
-  for (usz i = 0; i < 8; i++) sha512_put_be64(out + i * 8, s->h[i]);
-}
-
-void sha512(const u8* data, usz len, u8 out[SHA512_DIGEST]) {
-  sha512_ctx s;
-  sha512_init(&s);
-  sha512_update(&s, data, len);
-  sha512_final(&s, out);
 }

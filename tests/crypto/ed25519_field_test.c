@@ -74,13 +74,13 @@ static void test_ed25519_field_decode_rejects_no_sqrt(void) {
   CHECK(ed_ge_decode(&p, in) == 0);
 }
 
-/* Regression for the fe_tobytes carry bug this suite's Red run exposed: a
+/* Regression for the ed_fe_tobytes carry bug this suite's Red run exposed: a
  * field element whose raw (pre-reduction) limbs sum to exactly p must
  * reduce to 0, not to 19. y = 1 drives decode_uv's u = y^2-1 through exactly
  * that pre-reduction value, so a correct decode of y=1,x_0=0 (checked above)
  * is itself evidence the carry chain is now correct; this test pins the
  * known-good RFC 8032 7.1 TEST 1 public key still round-trips through
- * decode/encode, which depends on fe_tobytes across many field elements. */
+ * decode/encode, which depends on ed_fe_tobytes across many field elements. */
 static void test_ed25519_field_decode_encode_roundtrip(void) {
   ed_ge p;
   u8    in[32], out[32];
