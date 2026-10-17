@@ -6,7 +6,7 @@
 
 #define POOL_SLOTS 6
 #define POOL_HEAD 128
-#define POOL_BODY (2u * 1024 * 1024)
+#define POOL_BODY ((usz)2 * 1024 * 1024)
 #define DG_SLOTS 200
 #define DG_CAP 1152
 

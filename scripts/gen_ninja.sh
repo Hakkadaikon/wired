@@ -157,9 +157,10 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     done
     echo "build guide: phony$guide_bins"
     echo
-    echo "# lint: one stamp per src/**.c (just lint runs it in the devShell)."
+    echo "# lint: one stamp per src/**.c and examples/*/*.c (just lint runs it"
+    echo "# in the devShell)."
     stamps=""
-    for f in $srcs; do
+    for f in $srcs $(find examples -mindepth 2 -maxdepth 2 -name '*.c' | sort); do
         echo "build build/lint/${f%.c}.stamp: tidy $f"
         stamps="$stamps build/lint/${f%.c}.stamp"
     done
