@@ -1,0 +1,67 @@
+---
+title: printf formats
+description: The formats wired_dprintf and friends accept, and %H, a wired-only conversion that prints bytes as hex.
+sidebar:
+  order: 6
+---
+
+`wired.h` has a printf that needs no libc: `wired_snprintf`,
+`wired_vsnprintf`, `wired_dprintf` and `wired_obuf_printf`. All four accept
+the same formats.
+
+## The C conversions
+
+`%d %i %u %x %X %p %s %c %% %f` work as in C, with the length modifiers
+`hh h l ll z`, the flags `-` `0` `+` space `#`, and a number or `*` for
+width and precision. `%.*s` with `WIRED_SPAN_ARG(span)` prints a
+`wired_span` that is not NUL-terminated.
+
+The differences from C's printf are listed at the top of
+`common/fmt/fmt.h`. For example, `%p` always prints `0x` and lowercase hex,
+and NULL prints `0x0`.
+
+## Bytes as hex: %H
+
+`%H` is a wired extension that C's printf does not have. It prints bytes as
+lowercase hex with no separators.
+
+| Format | Arguments | Prints |
+|---|---|---|
+| `%.*H` | `int n, const u8* p` | `n` bytes at `p` |
+| `%.32H` | `const u8* p` | 32 bytes at `p` |
+| `%H` | `const u8* p` | nothing (the pointer is still consumed) |
+
+```c
+u8 digest[SHA256_DIGEST];
+wired_sha256((const u8*)"abc", 3, digest);
+wired_dprintf(2, "sha256 = %.*H\n", (int)sizeof digest, digest);
+```
+
+`%.*H` takes its arguments in the same order as `%.*s`, so a `wired_span`
+goes straight in through `WIRED_SPAN_ARG`:
+
+```c
+wired_dprintf(2, "dcid=%.*H\n", WIRED_SPAN_ARG(dcid));
+```
+
+`%H` differs from `%s` in these ways:
+
+- The precision is a count of input bytes, not of output characters:
+  `%.4H` prints 4 bytes as 8 characters.
+- `%H` with no precision means zero bytes. It prints nothing but still
+  consumes the pointer, so the arguments after it stay in place.
+- A NULL pointer with one or more bytes prints `(null)`.
+- Width and the `-` flag pad the whole hex text with spaces.
+- There is no length limit: the bytes go to the output one at a time, with
+  no internal buffer.
+
+Because C has no such conversion, a `%H` format passed to libc's printf
+will not print the same thing.
+
+## Unknown conversions
+
+A conversion wired does not know (for example `%q`) is printed as `%` and
+that character. If a `*` width or precision comes before it, that `int` has
+already been consumed, so the arguments after it shift by one. C leaves
+unknown conversions undefined too: keep the format and the arguments in
+step.

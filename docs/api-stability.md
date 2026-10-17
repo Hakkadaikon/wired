@@ -229,7 +229,9 @@ loading it whole.
 | `wired_hex_encode`, `wired_dump_hex`, `wired_dump_text` | Hex-encode a view; write a view to an fd as hex or text. |
 
 - The formatter supports `%d %i %u %x %X %p %s %c %% %f` with flags, width,
-  precision and length modifiers. `wired_dprintf` only calls write(2).
+  precision and length modifiers, plus `%H`, a wired extension that prints
+  bytes as lowercase hex: `"%.*H"` takes a byte count and a pointer (the
+  pair `WIRED_SPAN_ARG` yields). `wired_dprintf` only calls write(2).
   Differences from C99 are listed in `common/fmt/fmt.h`.
 - `wired_obuf_printf` appends at `len`, writes at most `cap - len - 1`
   bytes, and returns the bytes appended.

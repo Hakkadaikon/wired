@@ -21,4 +21,6 @@ import Example from '../../../../components/Example.astro';
 - `wired_header_parse(buf, n, &h)` はそれらを読み戻し、消費したバイト数を返します。
   入力が途中で切れているか不正なときは 0 を返します。
 - `wired_dprintf` は数値と文字列 (`%llu`, `%08x`, `%s`) を stderr に書き出します。
-  バイト列を 16 進で出す変換指定は printf に無いので、`wired_dump_hex` を使います。
+  バイト列（組み立てたヘッダーと 2 つのコネクション ID）は、wired 独自の変換 `%.*H` で 16 進にして、同じ 1 回の呼び出しで出します。
+  `%.*H` には、バイト数とバイト列の先頭を順に渡します。
+  詳しくは [printf の書式](../../concepts/formatting/) を見てください。

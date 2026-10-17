@@ -21,5 +21,7 @@ again.
   fit).
 - `wired_header_parse(buf, n, &h)` reads them back and returns the bytes
   consumed (0 on truncated or malformed input).
-- `wired_dprintf` formats numbers and strings (`%llu`, `%08x`, `%s`) to stderr;
-  `wired_dump_hex` writes a byte span as hex, which printf has no conversion for.
+- `wired_dprintf` formats numbers and strings (`%llu`, `%08x`, `%s`) to stderr.
+  The byte strings (the built header and the two connection IDs) go into the
+  same call as hex through `%.*H`, a wired-only conversion that takes a byte
+  count and then a pointer. See [printf formats](../../concepts/formatting/).

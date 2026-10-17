@@ -15,5 +15,7 @@ the digest is the "abc" test vector from FIPS 180 and RFC 6234.
 
 - `wired_sha256(data, len, out)` hashes `len` bytes into a
   `SHA256_DIGEST` (32) byte buffer in one call.
-- `wired_dprintf(2, "%02x", byte)` writes each byte as two hex digits;
-  `wired.h` has a libc-free printf (`wired_snprintf`, `wired_dprintf`).
+- `wired_dprintf(2, "... %.*H\n", (int)sizeof digest, digest)` writes the
+  32-byte digest as hex in one call. `%H` is a wired-only conversion that
+  prints bytes as hex; its precision (passed through `.*`) is the byte
+  count. See [printf formats](../../concepts/formatting/).
