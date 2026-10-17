@@ -90,12 +90,17 @@ static u16 bpf_off(int from, int to) { return (u16)(to - (from + 1)); }
  * BPF_IDX_PASS instead of the old idx21, since the redirect-map epilogue
  * moved to make room for the core-routing block. dport itself (idx14) is
  * patched by the caller after this runs. */
-static void bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
+/* idx 0-4: load data/data_end and require 42 bytes (eth+IPv4+UDP). */
+static void bpf_prog_bounds(u64 out[XDPBPF_PROG_LEN]) {
   out[0] = bpf_insn(BPF_INSN_LDXW, 2, 1, 0, 0);
   out[1] = bpf_insn(BPF_INSN_LDXW, 3, 1, 4, 0);
   out[2] = bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
   out[3] = bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 42);
   out[4] = bpf_insn(BPF_INSN_JGT_REG, 5, 3, bpf_off(4, BPF_IDX_PASS), 0);
+}
+
+/* idx 5-10: EtherType IPv4, IHL=5, not a fragment. */
+static void bpf_prog_ipv4(u64 out[XDPBPF_PROG_LEN]) {
   out[5] = bpf_insn(BPF_INSN_LDXH, 4, 2, 12, 0);
   out[6] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(6, BPF_IDX_PASS), 0x0008);
   out[7] = bpf_insn(BPF_INSN_LDXB, 4, 2, 14, 0);
@@ -103,10 +108,20 @@ static void bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
   out[9] = bpf_insn(BPF_INSN_LDXH, 4, 2, 20, 0);
   out[10] =
       bpf_insn(BPF_INSN_JSET_IMM, 4, 0, bpf_off(10, BPF_IDX_PASS), 0xff3f);
+}
+
+/* idx 11-14: protocol UDP and the dport compare (patched by the caller). */
+static void bpf_prog_udp(u64 out[XDPBPF_PROG_LEN]) {
   out[11] = bpf_insn(BPF_INSN_LDXB, 4, 2, 23, 0);
   out[12] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(12, BPF_IDX_PASS), 17);
   out[13] = bpf_insn(BPF_INSN_LDXH, 4, 2, 36, 0);
   out[14] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(14, BPF_IDX_PASS), 0);
+}
+
+static void bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
+  bpf_prog_bounds(out);
+  bpf_prog_ipv4(out);
+  bpf_prog_udp(out);
 }
 
 /* idx 15-20: short-header boundary check (data+44<=data_end, since the core
