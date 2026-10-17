@@ -429,13 +429,12 @@ static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
  * 7.1 client_/server_handshake_traffic_secret, used only for each side's
  * Finished verify_data) from that SAME `sh` span -- but per RFC 8446 7.1
  * those secrets are Transcript-Hash(ClientHello..ServerHello) alone, EE
- * excluded (the real server's sdrv_flight.c derive_secret() computes
- * s_hs_traffic from s->tr right after build_server_hello, strictly before
- * emit_hs_flight/EE exist). So fullhs_init's internal seed_secrets
- * ends up deriving
- * hs_traffic_peer/self from CH||SH||EE, which will never match the real
- * peer's CH||SH-only secret -- this is the same pre-existing transcript gap
- * as tlsdriver_recv_crypto (see sdt_open_initial's doc), just one call
+ * excluded (the real server's sdrv_flight.c sdrv_flight_derive_secret()
+ * computes s_hs_traffic from s->tr right after build_server_hello, strictly
+ * before emit_hs_flight/EE exist). So fullhs_init's internal seed_secrets ends
+ * up deriving hs_traffic_peer/self from CH||SH||EE, which will never match the
+ * real peer's CH||SH-only secret -- this is the same pre-existing transcript
+ * gap as tlsdriver_recv_crypto (see sdt_open_initial's doc), just one call
  * layer up, and not something a caller can route around via fullhs's
  * public API (there is no separate "extend the transcript without touching
  * hs_traffic" entry point). Recomputing hs_traffic_peer/self directly here

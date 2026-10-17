@@ -6,7 +6,7 @@
 
 /* Differential: ecdsa_p256_verify (fixed-base G table + fast n-reduction)
  * against a reference built only from the generic API (constant-time
- * ec_mul ladder for both u1*G and u2*Q, long-division p256_fp_reduce /
+ * ec_mul x25519_ladder for both u1*G and u2*Q, long-division p256_fp_reduce /
  * p256_fp_mul over n). FIPS 186-4 6.4.2 either way; the two must agree on
  * every (r, s, Q, hash) tuple, valid or not. */
 
@@ -14,7 +14,7 @@ typedef struct {
   u8 qx[32], qy[32], r[32], s[32], h[32];
 } ecdsadiff_tuple;
 
-/* Reference u1*G + u2*Q via the generic ladder; 0 if R is infinity. */
+/* Reference u1*G + u2*Q via the generic x25519_ladder; 0 if R is infinity. */
 static int ecdsadiff_ref_point(
     ec_point* rp, const p256_fe u1, const p256_fe u2, const ec_point* q) {
   ec_point a, b;

@@ -750,7 +750,7 @@ static void test_moqtrun_ssts_mixed_algorithms(void) {
   CHECK(mtss_opens(h, 0) == 1 && mtss_opens(l, 0) == 0);
 }
 
-/* A full ladder (MOQSSTS_MAX_MEMBERS) refuses a 5th member
+/* A full x25519_ladder (MOQSSTS_MAX_MEMBERS) refuses a 5th member
  * INTERNAL_ERROR and stays as it was. */
 static void test_moqtrun_ssts_full_set_refused(void) {
   moqctl_ftn    h2 = mtst_ftn("chat", "room1", "s2");
@@ -1044,9 +1044,9 @@ static void test_moqtrun_ssts_lag_outside_window(void) {
 /* ============ review round 3: pacing set edge cases ============ */
 
 /* A non-pacing backpressure set takes the shared tier clamped to its own
- * ladder: set 7 (pacing, 3 rungs: lo 500 / x5 1000 / hi 2000) climbs to
+ * x25519_ladder: set 7 (pacing, 3 rungs: lo 500 / x5 1000 / hi 2000) climbs to
  * tier 2 after 10 clear groups; set 8 (2 rungs) then picks its own top,
- * rung 1 (s2), never a rung past its ladder. */
+ * rung 1 (s2), never a rung past its x25519_ladder. */
 static void test_moqtrun_ssts_hold_clamps_to_ladder(void) {
   u64           h, l;
   moqctl_ftn    x  = mtst_ftn("chat", "room1", "x5");

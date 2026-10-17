@@ -40,7 +40,8 @@ static void test_x25519_rfc_v2(void) {
 
 /* RFC 7748 6.1: a low-order point yields an all-zero shared secret, which must
  * be rejected (a non-contributory key exchange). u=0 and u=1 are order-1/2
- * points; an honest ladder sends them to zero, and wired_x25519 returns 0. */
+ * points; an honest x25519_ladder sends them to zero, and wired_x25519 returns
+ * 0. */
 static void test_x25519_low_order_rejected(void) {
   u8 scalar[32] = {0}, out[32], low_order[32] = {0};
   scalar[0]  = 5;
@@ -71,7 +72,7 @@ static void test_x25519_ecdhe(void) {
  * treated as if reduced mod p. u = p+18 = 2^255-1 (all bytes 0xff, top bit
  * of byte 31 masked to 0 per the same section) must give the identical
  * result to the canonical u = 18. Independently re-derived via a from-
- * scratch ladder reimplementation (not copied from a search hit) before
+ * scratch x25519_ladder reimplementation (not copied from a search hit) before
  * being pinned here. */
 static void test_x25519_noncanonical_u_reduced(void) {
   u8 scalar[32] = {9}, noncanon[32], canon[32] = {18}, out_nc[32], out_c[32];
@@ -85,9 +86,9 @@ static void test_x25519_noncanonical_u_reduced(void) {
 /* RFC 7748 5.2 iterative test: k=u=9 (the base point), 1 iteration then
  * 1000 iterations of k_next=X25519(k,u), u_next=k (the sequence swaps k and
  * u each round). 1,000,000 iterations is skipped: correct but far too slow
- * for a unit test. Values re-derived from a from-scratch Montgomery-ladder
- * reimplementation of RFC 7748's own pseudocode before being baked in here,
- * not copied from a search result. */
+ * for a unit test. Values re-derived from a from-scratch
+ * Montgomery-x25519_ladder reimplementation of RFC 7748's own pseudocode before
+ * being baked in here, not copied from a search result. */
 static void test_x25519_rfc_iterate_1(void) {
   u8 nine[32] = {9}, out[32], want[32];
   hb32(

@@ -1038,7 +1038,7 @@ static void test_sdrv_keyshare_walk_rejects_overclaimed_exts_len(void) {
 /* Same corruption, targeting the transport-parameters walk specifically: a
  * ClientHello carrying a real transport_parameters extension, but whose
  * outer extensions-length claims far more than the real buffer holds, must
- * not let find_client_tp_ext walk out of bounds either. The key_share
+ * not let sdrv_find_client_tp_ext walk out of bounds either. The key_share
  * extension is left intact (so the earlier key_share walk in
  * sdrv_recv_client_hello still succeeds normally and control reaches
  * the transport-parameters walk); the TP extension's own type field is
@@ -1579,7 +1579,8 @@ static void test_sdrv_psk_fixture_pinned(void) {
 
 /* A valid ticket with a correctly computed binder is accepted --
  * psk_accepted set, psk_secret recorded, and the flight still builds (the
- * PSK-branch key schedule in sdrv_flight.c's derive_secret runs end to end).
+ * PSK-branch key schedule in sdrv_flight.c's sdrv_flight_derive_secret runs end
+ * to end).
  */
 static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   sdrv_psk_fixture f;
@@ -2281,11 +2282,11 @@ static void test_sdrv_pref_addr_tp(void) {
   for (usz i = 0; i < 6; i++) cid[i] = (u8)(0xc0 + i);
   for (usz i = 0; i < 16; i++) tok[i] = (u8)(0x30 + i);
   /* unarmed: nothing appended */
-  CHECK(emit_ee_pref_addr(&s, &tob) == 1);
+  CHECK(sdrv_flight_emit_ee_pref_addr(&s, &tob) == 1);
   CHECK(tob.len == 0);
   p = (sdrv_pref_addr){v4, 443, v6, 443, cid, 6, tok};
   sdrv_set_preferred_address(&s, &p);
-  CHECK(emit_ee_pref_addr(&s, &tob) == 1);
+  CHECK(sdrv_flight_emit_ee_pref_addr(&s, &tob) == 1);
   CHECK(stp_parse(wired_span_of(tpbuf, tob.len), TP_PREFERRED_ADDRESS, &out));
   CHECK(val.n == 4 + 2 + 16 + 2 + 1 + 6 + 16);
   for (usz i = 0; i < 4; i++) CHECK(val.p[i] == v4[i]);

@@ -139,7 +139,7 @@ static void test_moqssts_an_empty_set_list_decides_nothing(void) {
 
 /* ===== backpressure/tests.rs ===== */
 
-/* A set with a three-rung ladder: 500, 1000 and 2000 kbps. */
+/* A set with a three-rung x25519_ladder: 500, 1000 and 2000 kbps. */
 static moqssts_set moqssts_t_bpset(u64 id, int active) {
   const moqssts_t_pair l[] = {
       {500, id * 10}, {1000, id * 10 + 1}, {2000, id * 10 + 2}};

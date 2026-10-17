@@ -241,10 +241,10 @@ static void test_fullhs_bad_finished(void) {
   CHECK(fullhs_is_complete(&cl) == 0);
 }
 
-/* tr_add (fullhs.c) rejects an append that would overrun
+/* fullhs_tr_add (fullhs.c) rejects an append that would overrun
  * FULLHS_TRANSCRIPT_MAX rather than overflow h->tr: with tr_len parked one
  * byte short of the room a Finished message needs, fullhs_send_finished
- * (which folds its own output into the transcript via tr_add) must fail
+ * (which folds its own output into the transcript via fullhs_tr_add) must fail
  * and leave tr_len untouched -- no out-of-bounds write into h->tr. */
 static void test_fullhs_send_finished_rejects_over_cap(void) {
   fullhs     h = {0};

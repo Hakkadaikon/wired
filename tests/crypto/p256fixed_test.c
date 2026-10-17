@@ -5,7 +5,7 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
 
-/* Fixed-base result must equal the generic ladder's for the same scalar
+/* Fixed-base result must equal the generic x25519_ladder's for the same scalar
  * (including both reporting infinity the same way). */
 static void pf_check_eq_generic(const u8 k[32]) {
   ec_point g;

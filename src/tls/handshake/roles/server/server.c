@@ -1,17 +1,12 @@
-#include "tls/handshake/roles/server/server.h"
+#include "tls/handshake/roles/server/server_impl.h"
 
-#include "common/bytes/util/bytes.h"
-#include "common/platform/keylog/keylog.h"
-#include "tls/handshake/core/hrr/hrr_build.h"
-#include "tls/handshake/core/tls/finished.h"
-#include "tls/handshake/core/tls/handshake.h"
-#include "tls/handshake/core/tls/hs_message.h"
-#include "tls/handshake/core/tls/schedule.h"
-#include "tls/handshake/core/tls/transcript.h"
-#include "tls/handshake/core/tls/x25519.h"
-#include "tls/handshake/roles/srvfin/hsdone.h"
-#include "tls/handshake/roles/srvfin/verify.h"
-#include "transport/conn/loop/crecv/message.h"
+static void srv_copy32(u8* dst, const u8* src);
+static void srv_record_client_random(
+    wired_server* s, const u8* ch_msg, usz ch_len);
+static int srv_accept_client_hello(
+    wired_server* s, const u8* ch_msg, usz ch_len);
+static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len);
+static int srv_hrr_ready(const wired_server* s);
 
 /* RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4: server handshake orchestrator. */
 
@@ -20,13 +15,13 @@ static void srv_copy32(u8* dst, const u8* src) {
 }
 
 /* RFC 8446 B.4: the negotiated suite's hash (secrets are Hash.length). */
-static const tls_hash* srv_hash(const wired_server* s) {
+const tls_hash* server_srv_hash(const wired_server* s) {
   return tls_hash_of(s->sdrv.cipher_suite);
 }
 
 /* Append msg into the raw transcript buffer (truncates silently at capacity;
  * the cap is sized for a full flight). Returns the new length. */
-static usz srv_tr_add(wired_server* s, const u8* msg, usz len) {
+usz server_srv_tr_add(wired_server* s, const u8* msg, usz len) {
   usz room = WIRED_SERVER_TRANSCRIPT_MAX - s->tr_len;
   usz n    = len < room ? len : room;
   for (usz i = 0; i < n; i++) s->tr[s->tr_len + i] = msg[i];
@@ -82,10 +77,6 @@ void wired_server_set_keylog_path(wired_server* s, const char* path) {
   s->keylog_path = path;
 }
 
-/* RFC 8446 4.1.2: legacy_version(2) precedes ClientHello.random, both after
- * the 4-byte handshake header (HS_HEADER) put_prefix wrote them at. */
-#define SRV_CH_RANDOM_OFF (HS_HEADER + 2)
-
 /* Record ClientHello.random off ch_msg for later keylog lines; a no-op if
  * ch_msg is too short to carry it (already validated well-formed by
  * sdrv_recv_client_hello, so this only guards the copy itself). */
@@ -111,7 +102,7 @@ static int srv_accept_client_hello(
  * wired_server_recv_initial). */
 static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len) {
   if (sdrv_hrr_pending(&s->sdrv)) return 1;
-  srv_tr_add(s, ch_msg, ch_len);
+  server_srv_tr_add(s, ch_msg, ch_len);
   s->phase = WIRED_SERVER_HS_CH_RECVD;
   return 1;
 }
@@ -137,265 +128,10 @@ int wired_server_build_hrr(wired_server* s, wired_obuf* out) {
    * message_hash(Hash(ClientHello1)) || HRR, mirroring the hashed
    * transcript sdrv_build_hrr just reset -- ClientHello1 itself was never
    * folded in (srv_fold_ch skipped it). */
-  mh_len = hrr_message_hash(s->sdrv.ch1_hash, srv_hash(s)->len, mh, sizeof mh);
+  mh_len = hrr_message_hash(
+      s->sdrv.ch1_hash, server_srv_hash(s)->len, mh, sizeof mh);
   s->tr_len = 0;
-  srv_tr_add(s, mh, mh_len);
-  srv_tr_add(s, out->p, out->len);
-  return 1;
-}
-
-/* RFC 8446 7.1: the same PSK-vs-plain Handshake Secret branch
- * sdrv_flight.c's sdrv_derive_handshake_secret already establishes for
- * sdrv's own flight -- here for the connection's real packet-protection key
- * schedule, over the identical ecdhe (sdrv's own stored shared secret) and
- * the identical transcript-through-ServerHello, so both Handshake Secret
- * computations agree byte-for-byte whenever a PSK was accepted. */
-static int srv_advance_handshake(wired_server* s, u8 ecdhe[X25519_LEN]) {
-  wired_span ecdhe_span = wired_span_of(ecdhe, X25519_LEN);
-  wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
-  if (s->sdrv.psk_accepted)
-    return keysched_advance_handshake_psk(
-        &s->sched, wired_span_of(s->sdrv.psk_secret, srv_hash(s)->len),
-        ecdhe_span, tr_span);
-  return keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
-}
-
-/* RFC 8446 7.1: derive the Handshake key set over the transcript through
- * ServerHello and install the Handshake-level keys, reusing the ECDHE shared
- * secret sdrv's flight derivation already computed over the identical
- * (server_priv, client_pub) pair -- recomputing the scalar multiply here
- * doubled the per-connection ECDHE cost. RFC 7748 6.1's all-zero (low-order
- * client key) rejection already ran there: hs_ready is only set after the
- * shared secret passed it. */
-static int srv_derive_hs(wired_server* s, u8 ecdhe[X25519_LEN]) {
-  if (!s->sdrv.hs_ready) return 0;
-  for (usz i = 0; i < X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
-  keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
-  /* RFC 9369 3.3.1: Handshake/1-RTT packet-protection labels follow the
-   * connection's negotiated version ("quicv2 " prefix under v2). */
-  keysched_set_version(&s->sched, sdrv_wire_version(&s->sdrv));
-  return srv_advance_handshake(s, ecdhe);
-}
-
-static int srv_install_hs_keys(wired_server* s) {
-  u8                  ecdhe[X25519_LEN];
-  const initial_keys* shs;
-  if (!srv_derive_hs(s, ecdhe)) return 0;
-  if (!keysched_get(&s->sched, KS_SERVER_HS, &shs)) return 0;
-  return keyset_install(&s->keys, LEVEL_HANDSHAKE, shs);
-}
-
-/* Record the flight in the transcript and install the Handshake key. */
-static int srv_after_flight(wired_server* s, const sdrv_flight_out* out) {
-  s->tr_through_sh     = srv_tr_add(s, out->sh->p, out->sh->len);
-  s->tr_through_flight = srv_tr_add(s, out->hs->p, out->hs->len);
-  return srv_install_hs_keys(s);
-}
-
-/* Build the flight via sdrv and finish the transcript/key bookkeeping. */
-static int srv_emit_flight(
-    wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
-  if (!sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
-  return srv_after_flight(s, out);
-}
-
-int wired_server_build_flight(
-    wired_server* s, const u8* server_random, const sdrv_flight_out* out) {
-  if (s->phase != WIRED_SERVER_HS_CH_RECVD) return 0;
-  if (!srv_emit_flight(s, server_random, out)) return 0;
-  s->phase = WIRED_SERVER_HS_FLIGHT_SENT;
-  return 1;
-}
-
-/* RFC 8446 4.4.4: verify the client Finished against the client handshake
- * traffic secret (written to c_traffic for the key log) and the transcript
- * hash through the server Finished. */
-static int srv_verify_finished(
-    wired_server* s, const u8* msg, usz len, u8* c_traffic) {
-  const u8*        hs;
-  u8               th[TLS_HASH_MAX];
-  derive_secret_in dsi;
-  if (!sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
-  dsi.secret   = hs;
-  dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
-  dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
-  dsi.suite    = s->sdrv.cipher_suite;
-  tls_derive_secret(&dsi, c_traffic);
-  srv_hash(s)->digest(s->tr, s->tr_through_flight, th);
-  return srvfin_verify_client_finished_suite(
-      s->sdrv.cipher_suite, wired_span_of(msg, len), c_traffic, th);
-}
-
-/* NSS Key Log Format (SSLKEYLOGFILE, draft-ietf-tls-keylogfile 3/4): one
- * "<LABEL> <client_random> <secret>" line per secret. */
-static void srv_keylog_line(
-    const wired_server* s, const char* label, const u8* secret) {
-  wired_keylog_append(
-      s->keylog_path, label, s->client_random,
-      wired_span_of(secret, srv_hash(s)->len));
-}
-
-/* RFC 8446 4.4.1: with 0-RTT accepted there was no HRR, so the transcript
- * opens with the ClientHello; its length is the 24-bit handshake header. */
-static usz srv_ch_len(const wired_server* s) {
-  return HS_HEADER + ((usz)s->tr[1] << 16 | (usz)s->tr[2] << 8 | s->tr[3]);
-}
-
-/* RFC 8446 7.1: client_early_traffic_secret, only when 0-RTT was accepted
- * (the PSK and ClientHello it is derived over are both retained). */
-static void srv_keylog_early(const wired_server* s) {
-  u8 secret[TLS_HASH_MAX];
-  if (!s->sdrv.early_data_accepted) return;
-  tls_early_traffic_secret_suite(
-      s->sdrv.cipher_suite, s->sdrv.psk_secret,
-      wired_span_of(s->tr, srv_ch_len(s)), secret);
-  srv_keylog_line(s, "CLIENT_EARLY_TRAFFIC_SECRET", secret);
-}
-
-/* RFC 8446 7.1: secrets the confirmed key schedule retains, by label. */
-static const struct {
-  const char* label;
-  int (*get)(const keysched*, const u8**);
-} srv_keylog_sched[] = {
-    {"CLIENT_TRAFFIC_SECRET_0", keysched_client_ap_secret},
-    {"SERVER_TRAFFIC_SECRET_0", keysched_server_ap_secret},
-    {"EXPORTER_SECRET", keysched_exporter_secret},
-};
-
-static void srv_keylog_master(const wired_server* s) {
-  const u8* secret;
-  for (usz i = 0; i < sizeof srv_keylog_sched / sizeof *srv_keylog_sched; i++)
-    if (srv_keylog_sched[i].get(&s->sched, &secret))
-      srv_keylog_line(s, srv_keylog_sched[i].label, secret);
-}
-
-/* A verified client Finished is the earliest point every secret is
- * known-good (logging an unverified one would leak a value never proven to
- * match the peer), so the whole log is written at confirmation. No-op when
- * no keylog path is set (opt-in). */
-static void srv_keylog(const wired_server* s, const u8* c_hs_traffic) {
-  if (!s->keylog_path) return;
-  srv_keylog_early(s);
-  srv_keylog_line(s, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", c_hs_traffic);
-  srv_keylog_line(s, "SERVER_HANDSHAKE_TRAFFIC_SECRET", s->sdrv.s_hs_traffic);
-  srv_keylog_master(s);
-}
-
-/* RFC 8446 7.1: on a verified client Finished, complete the handshake. The
- * application_traffic_secret_0 is derived over the transcript through the
- * server Finished (tr_through_flight), NOT the client Finished, so both peers
- * reach the same 1-RTT keys. */
-/* RFC 9001 6: seed generation 0 of the peer-driven (recv) key schedule from
- * the just-confirmed client_ap keys/secret, so a later Key Update can
- * derive generation 1 (kuswitch/derive.h needs the secret, not just
- * key/iv/hp). */
-static int srv_seed_kuswitch_recv(wired_server* s) {
-  const initial_keys* client_ap;
-  const u8*           secret;
-  if (!keysched_get(&s->sched, KS_CLIENT_AP, &client_ap)) return 0;
-  if (!keysched_client_ap_secret(&s->sched, &secret)) return 0;
-  kuswitch_init(&s->ku, client_ap);
-  bytes_memcpy(s->ku_secret, secret, srv_hash(s)->len);
-  return 1;
-}
-
-/* RFC 9001 6.2: seed generation 0 of the send-side key schedule the same
- * way, in lockstep with the recv side, so this endpoint's own send keys can
- * be advanced once a peer update is confirmed. */
-static int srv_seed_kuswitch_send(wired_server* s) {
-  const initial_keys* server_ap;
-  const u8*           secret;
-  if (!keysched_get(&s->sched, KS_SERVER_AP, &server_ap)) return 0;
-  if (!keysched_server_ap_secret(&s->sched, &secret)) return 0;
-  kuswitch_init(&s->ku_send, server_ap);
-  bytes_memcpy(s->ku_send_secret, secret, srv_hash(s)->len);
-  return 1;
-}
-
-static void srv_seed_kuswitch(wired_server* s) {
-  int recv_ok  = srv_seed_kuswitch_recv(s);
-  int send_ok  = srv_seed_kuswitch_send(s);
-  s->ku_seeded = recv_ok && send_ok;
-}
-
-static int srv_complete(
-    wired_server* s, const u8* msg, usz len, const u8* c_hs_traffic) {
-  if (!srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
-  srv_keylog(s, c_hs_traffic);
-  /* RFC 8446 4.6.1/7.1: resumption_master_secret needs the transcript
-   * through the verified client Finished, not just through the server's
-   * own Finished -- fold it in now that it has actually verified. */
-  s->tr_through_client_fin = srv_tr_add(s, msg, len);
-  srv_seed_kuswitch(s);
-  /* RFC 9001 4.9.3: 1-RTT keys are installed now; the 0-RTT keys are no
-   * longer needed and must not outlive the switch. */
-  sdrv_discard_early_keys(&s->sdrv);
-  s->phase = WIRED_SERVER_HS_CONFIRMED;
-  return 1;
-}
-
-/* Process the reassembled client Finished: verify, then complete only on a
- * match. The forged path returns 0 having promoted nothing. */
-static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
-  u8 c_traffic[TLS_HASH_MAX];
-  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
-  if (!srv_verify_finished(s, msg, len, c_traffic)) return 0;
-  /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
-   * verify above pinned to Hash.length bytes -- the reassembled prefix
-   * may run past it (bytes another packet smeared into the stream), and
-   * folding the excess mints a resumption_master_secret no client can
-   * match: every ticket from such a connection then fails its binder. */
-  return srv_complete(s, msg, HS_HEADER + srv_hash(s)->len, c_traffic);
-}
-
-int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
-  const u8* msg;
-  usz       mlen;
-  if (!crecv_collect(&s->crecv, crypto_payload, len)) return 0;
-  if (!crecv_complete_message(&s->crecv)) return 0;
-  crecv_message(&s->crecv, &msg, &mlen);
-  return srv_on_finished(s, msg, mlen);
-}
-
-int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
-  if (!srvfin_should_send_handshake_done(s->fin.confirmed, s->hs_done_sent))
-    return 0;
-  if (!srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
-  s->hs_done_sent = 1;
-  return 1;
-}
-
-int wired_server_early_data_used(const wired_server* s) {
-  return s->sdrv.early_data_accepted;
-}
-
-int wired_server_is_confirmed(const wired_server* s) {
-  return s->phase == WIRED_SERVER_HS_CONFIRMED;
-}
-
-/* RFC 9001 4.9 / RFC 8446 7.1 (0.5-RTT) */
-int wired_server_early_send_keys(wired_server* s) {
-  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
-  return srvfin_early_send_keys(&s->fin, s->tr, s->tr_through_flight);
-}
-
-/* RFC 8446 7.1: resumption_master_secret = Derive-Secret(Master Secret,
- * "res master", ClientHello...client Finished) -- the transcript spans all
- * handshake messages through the CLIENT's Finished, not the server's. This
- * server only ever issues a ticket post-confirmation
- * (wired_server_is_confirmed), by which point tr_through_client_fin is
- * always set -- see wired_server_resumption_secret. */
-static void srv_resumption_master_secret(const wired_server* s, u8* out) {
-  derive_secret_in in;
-  in.secret   = s->sched.master;
-  in.label    = wired_span_of((const u8*)"res master", 10);
-  in.messages = wired_span_of(s->tr, s->tr_through_client_fin);
-  in.suite    = s->sdrv.cipher_suite;
-  tls_derive_secret(&in, out);
-}
-
-int wired_server_resumption_secret(const wired_server* s, u8* out) {
-  if (!wired_server_is_confirmed(s)) return 0;
-  srv_resumption_master_secret(s, out);
+  server_srv_tr_add(s, mh, mh_len);
+  server_srv_tr_add(s, out->p, out->len);
   return 1;
 }

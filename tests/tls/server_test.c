@@ -685,9 +685,9 @@ static void client_ap_keys_psk(
 /* A PSK-accepted connection's Handshake Secret (recomputed the RFC
  * 8446 7.1 PSK way from the accepted ticket's secret + the real ECDHE) must
  * equal BOTH sdrv's own internal Handshake Secret (used to build sdrv's
- * flight, sdrv_flight.c's derive_secret) AND, downstream, the connection's
- * real application traffic keys the server actually installs -- proving
- * server.c's srv_advance_handshake branch and keyschedule.c's PSK entry
+ * flight, sdrv_flight.c's sdrv_flight_derive_secret) AND, downstream, the
+ * connection's real application traffic keys the server actually installs --
+ * proving server.c's srv_advance_handshake branch and keyschedule.c's PSK entry
  * point are wired to the identical ecdhe/transcript sdrv used, not a
  * silently diverging computation. */
 static void test_server_psk_accepted_keys_match_client(void) {

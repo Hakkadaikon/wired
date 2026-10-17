@@ -1,24 +1,18 @@
-#include "tls/handshake/core/fullhs/fullhs.h"
+#include "tls/handshake/core/fullhs/fullhs_impl.h"
 
-#include "crypto/kdf/keys/discard_driver.h"
-#include "crypto/kdf/keys/keyset.h"
-#include "crypto/pki/encoding/x509/san.h"
-#include "crypto/pki/encoding/x509/validity.h"
-#include "crypto/pki/encoding/x509/x509.h"
-#include "crypto/pki/trust/castore/pathvalidate.h"
-#include "tls/handshake/core/tls/cert.h"
-#include "tls/handshake/core/tls/certverify.h"
-#include "tls/handshake/core/tls/finished.h"
-#include "tls/handshake/core/tls/hs_message.h"
-#include "tls/handshake/core/tls/hsdriver.h"
-#include "tls/handshake/core/tls/schedule.h"
-#include "tls/keys/schedule_drive/keyschedule.h"
+static void hs_traffic(
+    const u8 hs[HKDF_PRK], wired_span sh, int is_server, u8 out[HKDF_PRK]);
+static void seed_secrets(fullhs* h, const u8* sh, usz sh_len);
+static void prime_order(fullhs* h);
+static int  fullhs_time_ok(const fullhs* h, const x509* x);
+static int  fullhs_host_ok(const fullhs* h, const x509* x);
+static int  fullhs_policy_checks(const fullhs* h, const u8* cert, usz n);
 
 /* RFC 8446 4.4 / RFC 9001 4.1: full handshake orchestration. */
 
 /* Append a handshake message to the raw transcript, clamping at the cap so a
  * malformed flight can never overrun. Returns 1 if it fit. */
-static int tr_add(fullhs* h, const u8* msg, usz len) {
+int fullhs_tr_add(fullhs* h, const u8* msg, usz len) {
   if (len > FULLHS_TRANSCRIPT_MAX - h->tr_len) return 0;
   for (usz i = 0; i < len; i++) h->tr[h->tr_len + i] = msg[i];
   h->tr_len += len;
@@ -26,7 +20,7 @@ static int tr_add(fullhs* h, const u8* msg, usz len) {
 }
 
 /* RFC 8446 4.4.1: Transcript-Hash over every message buffered so far. */
-static void tr_hash(const fullhs* h, u8 out[SHA256_DIGEST]) {
+void fullhs_tr_hash(const fullhs* h, u8 out[SHA256_DIGEST]) {
   wired_sha256(h->tr, h->tr_len, out);
 }
 
@@ -53,8 +47,8 @@ static void seed_secrets(fullhs* h, const u8* sh, usz sh_len) {
   tlsdriver_shared_secret(h->tls, &ecdhe);
   tls_handshake_secret(ecdhe, hs);
   h->tr_len = 0;
-  tr_add(h, h->tls->transcript_ch, h->tls->transcript_ch_len);
-  tr_add(h, sh, sh_len);
+  fullhs_tr_add(h, h->tls->transcript_ch, h->tls->transcript_ch_len);
+  fullhs_tr_add(h, sh, sh_len);
   tr_span = wired_span_of(h->tr, h->tr_len);
   /* peer direction is the opposite of our own role. */
   hs_traffic(hs, tr_span, !h->is_server, h->hs_traffic_peer);
@@ -99,14 +93,14 @@ void fullhs_set_castore(fullhs* h, const castore* store) { h->castore = store; }
 /* RFC 8446 7.1: fold a Finished into the transcript and, if it is the first
  * one seen (the server's), record the length at which the application traffic
  * secrets are derived. */
-static int fold_finished(fullhs* h, const u8* fin, usz len) {
-  if (!tr_add(h, fin, len)) return 0;
+int fullhs_fold_finished(fullhs* h, const u8* fin, usz len) {
+  if (!fullhs_tr_add(h, fin, len)) return 0;
   if (h->master_tr_len == 0) h->master_tr_len = h->tr_len;
   return 1;
 }
 
 /* The peer's protection level for handshake-flight messages is Handshake. */
-static int order_ok(fullhs* h, u8 msg_type) {
+int fullhs_order_ok(fullhs* h, u8 msg_type) {
   return hsdriver_recv(&h->tls->hs, msg_type, HSD_PROT_HANDSHAKE);
 }
 
@@ -129,168 +123,7 @@ static int fullhs_policy_checks(const fullhs* h, const u8* cert, usz n) {
 }
 
 /* No policy set = legacy signature-only behavior; else parse and enforce. */
-static int fullhs_policy_ok(const fullhs* h, const u8* cert, usz n) {
+int fullhs_policy_ok(const fullhs* h, const u8* cert, usz n) {
   if (h->policy_now == 0 && h->policy_host_len == 0) return 1;
   return fullhs_policy_checks(h, cert, n);
-}
-
-/* Every CertificateEntry of the wire chain, leaf first. */
-static int fullhs_chain_parse(
-    wired_span cert_msg, const tls_cert_chain_out* out) {
-  wired_span ctx;
-  wired_span body =
-      wired_span_of(cert_msg.p + HS_HEADER, cert_msg.n - HS_HEADER);
-  return tls_cert_chain(body, &ctx, out);
-}
-
-/* RFC 5280 6.1: when a trust store is set, the whole wire chain must chain
- * link-by-link to one of its anchors. NULL store skips. */
-static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n) {
-  wired_span certs[TLS_CERT_CHAIN_MAX];
-  if (h->castore == 0) return 1;
-  for (usz i = 0; i < n; i++)
-    certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
-  return castore_validate_chain(h->castore, certs, n);
-}
-
-/* The leaf passes the acceptance policy and the chain anchors to the store. */
-static int fullhs_cert_checks(const fullhs* h, const tls_cert_entry* e, usz n) {
-  if (n < 1) return 0;
-  if (!fullhs_policy_ok(h, e[0].cert_data, e[0].cert_len)) return 0;
-  return fullhs_chain_ok(h, e, n);
-}
-
-/* Parse and accept (or reject) the wire chain. */
-static int fullhs_chain_accept(
-    const fullhs* h, wired_span cert_msg, const tls_cert_chain_out* out) {
-  if (!fullhs_chain_parse(cert_msg, out)) return 0;
-  return fullhs_cert_checks(h, out->entries, *out->count);
-}
-
-/* Record every cert as an offset into the transcript copy of cert_msg (the
- * bytes tr_add appended at `base`), so the views outlive the caller's
- * datagram buffer for the rest of the handshake. */
-typedef struct {
-  usz                   base;
-  wired_span            cert_msg;
-  const tls_cert_entry* e;
-  usz                   n;
-} fullhs_chain_rec_in;
-
-static void fullhs_cert_record(fullhs* h, const fullhs_chain_rec_in* in) {
-  for (usz i = 0; i < in->n; i++) {
-    h->cert_off[i]  = in->base + (usz)(in->e[i].cert_data - in->cert_msg.p);
-    h->cert_lens[i] = in->e[i].cert_len;
-  }
-  h->cert_count    = in->n;
-  h->peer_cert     = h->tr + h->cert_off[0];
-  h->peer_cert_len = h->cert_lens[0];
-}
-
-/* On any reject nothing is recorded, so the CertificateVerify signature can
- * never verify and cert_verified stays shut. */
-static int fullhs_cert_take(fullhs* h, wired_span cert_msg) {
-  tls_cert_entry      e[TLS_CERT_CHAIN_MAX];
-  usz                 n;
-  fullhs_chain_rec_in rec;
-  tls_cert_chain_out  out = {e, TLS_CERT_CHAIN_MAX, &n};
-  if (!fullhs_chain_accept(h, cert_msg, &out)) return 0;
-  rec.base = h->tr_len;
-  if (!tr_add(h, cert_msg.p, cert_msg.n)) return 0;
-  rec.cert_msg = cert_msg;
-  rec.e        = e;
-  rec.n        = n;
-  fullhs_cert_record(h, &rec);
-  return 1;
-}
-
-int fullhs_recv_cert(fullhs* h, const u8* cert_msg, usz len) {
-  if (!order_ok(h, HSD_CERTIFICATE)) return 0;
-  return fullhs_cert_take(h, wired_span_of(cert_msg, len));
-}
-
-/* Verify the CertificateVerify signature over the transcript hash through the
- * Certificate message (the message body precedes the running hash). */
-static int cv_verify(fullhs* h, wired_span cv_msg, u16 scheme) {
-  u16        sig_scheme;
-  wired_span sig,
-      body = wired_span_of(cv_msg.p + HS_HEADER, cv_msg.n - HS_HEADER);
-  u8            th[SHA256_DIGEST];
-  certverify_in in;
-  if (!tls_certverify_parse(body, &sig_scheme, &sig)) return 0;
-  tr_hash(h, th);
-  in.scheme          = scheme;
-  in.cert            = wired_span_of(h->peer_cert, h->peer_cert_len);
-  in.sig             = sig;
-  in.transcript_hash = th;
-  return tls_verify_cert_signature(&in);
-}
-
-int fullhs_recv_certverify(fullhs* h, wired_span cv_msg, u16 scheme) {
-  if (!cv_verify(h, cv_msg, scheme)) return 0;
-  if (!order_ok(h, HSD_CERT_VERIFY)) return 0;
-  hsdriver_cert_verified(&h->tls->hs);
-  return tr_add(h, cv_msg.p, cv_msg.n);
-}
-
-/* A well-sized Finished whose verify_data matches the peer's handshake traffic
- * secret over the current transcript. Checked before the order machine is
- * advanced so a bad Finished never marks the handshake complete. */
-static int fin_verifies(fullhs* h, const u8* fin_msg, usz len) {
-  u8 th[SHA256_DIGEST];
-  if (len != HS_HEADER + TLS_VERIFY_DATA) return 0;
-  tr_hash(h, th);
-  return tls_finished_check(h->hs_traffic_peer, th, fin_msg + HS_HEADER);
-}
-
-int fullhs_recv_finished(fullhs* h, const u8* fin_msg, usz len) {
-  if (!fin_verifies(h, fin_msg, len)) return 0;
-  if (!order_ok(h, HSD_FINISHED)) return 0;
-  return fold_finished(h, fin_msg, len);
-}
-
-int fullhs_send_finished(fullhs* h, wired_obuf* out) {
-  u8 th[SHA256_DIGEST];
-  if (out->cap < HS_HEADER + TLS_VERIFY_DATA) return 0;
-  out->p[0] = HSD_FINISHED;
-  out->p[1] = 0;
-  out->p[2] = 0;
-  out->p[3] = TLS_VERIFY_DATA;
-  tr_hash(h, th);
-  tls_finished_verify_data(h->hs_traffic_self, th, out->p + HS_HEADER);
-  out->len = HS_HEADER + TLS_VERIFY_DATA;
-  return fold_finished(h, out->p, out->len);
-}
-
-/* Install the 1-RTT keys for our send direction, unlocking 1-RTT sending. */
-static void install_app(fullhs* h) {
-  const initial_keys* k;
-  int                 which = h->is_server ? KS_SERVER_AP : KS_CLIENT_AP;
-  if (keysched_get(&h->tls->ks, which, &k))
-    keyset_install(&h->tls->keys, LEVEL_ONERTT, k);
-}
-
-/* RFC 8446 7.1: application_traffic_secret_0 is derived over the transcript
- * through the server's Finished, which is the last message buffered once the
- * peer's Finished was accepted. */
-int fullhs_advance_application(fullhs* h) {
-  if (!hsdriver_complete(&h->tls->hs)) return 0;
-  keysched_advance_master(&h->tls->ks, h->tr, h->master_tr_len);
-  install_app(h);
-  return 1;
-}
-
-int fullhs_confirmed(fullhs* h) {
-  if (!hsdriver_recv(&h->tls->hs, HSD_HANDSHAKE_DONE, HSD_PROT_1RTT)) return 0;
-  if (key_should_discard_handshake(hsdriver_confirmed(&h->tls->hs)))
-    keyset_discard(&h->tls->keys, LEVEL_HANDSHAKE);
-  return 1;
-}
-
-int fullhs_is_complete(const fullhs* h) {
-  return hsdriver_complete(&h->tls->hs);
-}
-
-int fullhs_is_confirmed(const fullhs* h) {
-  return hsdriver_confirmed(&h->tls->hs);
 }

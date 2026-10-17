@@ -32,8 +32,8 @@ static void test_p256_scalar(void) {
 }
 
 /* ec_mul is a point on the curve for boundary and random scalars: the
- * Montgomery-ladder constant-time implementation (RFC 6090-style two-
- * accumulator ladder, see p256_point.c) must still produce a valid curve
+ * Montgomery-x25519_ladder constant-time implementation (RFC 6090-style two-
+ * accumulator x25519_ladder, see p256_point.c) must still produce a valid curve
  * point (or infinity, only for k==0). */
 static void mul_on_curve(const u8 k[32]) {
   ec_point p;

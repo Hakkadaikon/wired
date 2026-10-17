@@ -119,7 +119,7 @@ static void test_p256_field_mont_inv_n(void) {
 /* a * (a^-1) == 1 (mod p) via the fast Fermat inverse on random inputs, and
  * on the boundaries 1, p-1, and the reduced all-ones pattern, each boundary
  * also cross-checked against the generic slow oracle. Pins p256_fp_inv_p's
- * exponentiation so a reshaped power ladder cannot silently drift. */
+ * exponentiation so a reshaped power x25519_ladder cannot silently drift. */
 static void test_p256_field_inv_p_edges(void) {
   u64 s = 0xb7e151628aed2a6bULL;
   fe  a, ai, prod, ref, one = {1, 0, 0, 0};

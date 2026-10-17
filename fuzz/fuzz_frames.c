@@ -16,6 +16,7 @@
 #include "tls/ext/stp/parse_tp.c"
 #include "tls/ext/tparam/tparam.c"
 #include "tls/ext/tparam/tpblob.c"
+#include "tls/ext/tparam/tpblob_pa.c"
 #include "tls/ext/tparam/tpcheck.c"
 #include "tls/ext/tpverify/iscid.c"
 #include "tls/ext/tpverify/odcid.c"

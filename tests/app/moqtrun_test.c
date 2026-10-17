@@ -1087,7 +1087,7 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
 /* Session B sends prefix || SUBSCRIBE(alice) in one delivery after A has
  * published alice; returns the hub's one reply round to B. */
 static const moqtrun_test_call* mtskip_prefix_then_subscribe(
-    const u8* prefix, usz prefix_len) {
+    const u8* prefix, usz sdrv_prefix_len) {
   wired_moqt_hub hub;
   u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
   wired_moqt_io  io = moqtrun_test_io();
@@ -1097,13 +1097,13 @@ static const moqtrun_test_call* mtskip_prefix_then_subscribe(
   moqtrun_test_publish_alice(&hub);
   moqtrun_test_session(&hub, SESS_B);
   u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
-  bytes_memcpy(buf, prefix, prefix_len);
+  bytes_memcpy(buf, prefix, sdrv_prefix_len);
   bytes_memcpy(
-      buf + prefix_len, g_moqt_ctl_subscribe_basic,
+      buf + sdrv_prefix_len, g_moqt_ctl_subscribe_basic,
       G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
   wired_moqt_on_stream_data(
       &hub, SESS_B, ctrl_b,
-      wired_span_of(buf, prefix_len + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN), 0);
+      wired_span_of(buf, sdrv_prefix_len + G_MOQT_CTL_SUBSCRIBE_BASIC_LEN), 0);
   return moqtrun_test_last_kind(3);
 }
 
