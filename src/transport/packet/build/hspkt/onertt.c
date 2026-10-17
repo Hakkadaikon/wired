@@ -23,22 +23,30 @@ static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
   return 5u + dcid.n;
 }
 
+/* RFC 9001 5.3: AES-128-GCM seal d->payload after the hdr_len-byte header
+ * at o, the header as AAD. */
+static void onertt_seal_gcm(
+    const protect_keys* k, const hspkt_onertt_desc* d, u8* o, usz hdr_len) {
+  u8     nonce[INITIAL_IV];
+  aes128 aead;
+  protect_nonce(k->keys->iv, d->pn, nonce);
+  aes128_init(&aead, k->keys->key);
+  gcm_ctx g = {&aead, nonce, {o, hdr_len}};
+  gcm_seal(&g, d->payload, o + hdr_len);
+}
+
 /* RFC 9001 5.3/5.4: seal payload after the header, then header-protect with
  * the short-header byte0 mask. */
 int hspkt_onertt_build(
     const protect_keys* k, const hspkt_onertt_desc* d, wired_obuf* out) {
-  u8        nonce[INITIAL_IV], mask[5];
-  aes128    aead;
+  u8        mask[5];
   u8*       o       = out->p;
   usz       hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
   usz       pn_off  = 1u + d->dcid.n;
   usz       need    = hdr_len + d->payload.n + GCM_TAG;
   hp_fields hf      = {o, o + pn_off, 4, HP_SHORT_MASK};
   if (need > out->cap) return 0;
-  protect_nonce(k->keys->iv, d->pn, nonce);
-  aes128_init(&aead, k->keys->key);
-  gcm_ctx g = {&aead, nonce, {o, hdr_len}};
-  gcm_seal(&g, d->payload, o + hdr_len);
+  onertt_seal_gcm(k, d, o, hdr_len);
   hp_mask(k->hp, o + pn_off + 4, mask);
   hp_apply(mask, &hf);
   out->len = need;
