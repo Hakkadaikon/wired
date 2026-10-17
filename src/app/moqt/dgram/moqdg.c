@@ -1,16 +1,27 @@
-#include "app/moqt/dgram/moqdg.h"
+#include "app/moqt/dgram/moqdg_impl.h"
 
-#include "app/moqt/vi/moqvi.h"
-#include "common/bytes/util/bytes.h"
+static int moqdg_type_form_ok(u64 t);
+static int moqdg_type_status_eog(u64 t);
+static int moqdg_take_oid(wired_span buf, usz* at, moqdg_obj* o);
+static int moqdg_take_ids(wired_span buf, usz* at, moqdg_obj* o);
+static int moqdg_take_prio(wired_span buf, usz* at, moqdg_obj* o);
+static int moqdg_take_props_body(
+    wired_span buf, usz* at, u64 len, moqdg_obj* o);
+static int moqdg_take_props(wired_span buf, usz* at, moqdg_obj* o);
+static int moqdg_take_status(wired_span buf, usz* at, moqdg_obj* o);
+static int moqdg_take_tail(wired_span buf, usz* at, moqdg_obj* o);
 
 /* draft-ietf-moq-transport-19 11.3.1 OBJECT_DATAGRAM codec. */
 
 /* ===== Type bits (11.3.1) ===== */
 
-static int moqdg_type_props(u64 t) { return (t & 0x01) != 0; }
-static int moqdg_type_zero_oid(u64 t) { return (t & 0x04) != 0; }
-static int moqdg_type_default_prio(u64 t) { return (t & 0x08) != 0; }
-static int moqdg_type_status(u64 t) { return (t & 0x20) != 0; }
+int moqdg_type_props(u64 t) { return (t & 0x01) != 0; }
+
+int moqdg_type_zero_oid(u64 t) { return (t & 0x04) != 0; }
+
+int moqdg_type_default_prio(u64 t) { return (t & 0x08) != 0; }
+
+int moqdg_type_status(u64 t) { return (t & 0x20) != 0; }
 
 /* 0b00X0XXXX: every bit above 5 and bit 4 clear (0x00..0x0F,
  * 0x20..0x2F). Type is a vi64, so values >= 0x100 whose low byte looks
@@ -25,7 +36,7 @@ int moqdg_type_valid(u64 type) {
 }
 
 /* Only Normal (0x0) Objects can carry Properties (11.3.1 / 11.2.1.2). */
-static int moqdg_props_status_ok(const moqdg_obj* o) {
+int moqdg_props_status_ok(const moqdg_obj* o) {
   return o->props.n == 0 || o->status == MOQDATA_STATUS_NORMAL;
 }
 
@@ -80,95 +91,14 @@ static int moqdg_take_tail(wired_span buf, usz* at, moqdg_obj* o) {
   return MOQDATA_OK;
 }
 
-static int moqdg_take_head(wired_span buf, usz* at, moqdg_obj* o) {
+int moqdg_take_head(wired_span buf, usz* at, moqdg_obj* o) {
   if (!moqdg_take_ids(buf, at, o)) return MOQDATA_INSUFFICIENT;
   if (!moqdg_take_prio(buf, at, o)) return MOQDATA_INSUFFICIENT;
   return MOQDATA_OK;
 }
 
-static int moqdg_take_rest(wired_span buf, usz* at, moqdg_obj* o) {
+int moqdg_take_rest(wired_span buf, usz* at, moqdg_obj* o) {
   int r = moqdg_take_props(buf, at, o);
   if (r != MOQDATA_OK) return r;
   return moqdg_take_tail(buf, at, o);
-}
-
-static int moqdg_take_body(wired_span buf, usz* at, moqdg_obj* o, usz* off) {
-  int r = moqdg_take_head(buf, at, o);
-  if (r != MOQDATA_OK) return r;
-  r = moqdg_take_rest(buf, at, o);
-  if (r != MOQDATA_OK) return r;
-  *off = *at;
-  return MOQDATA_OK;
-}
-
-int moqdg_take(wired_span buf, usz* off, moqdg_obj* out) {
-  usz at = *off;
-  u64 type;
-  if (!moqvi_take(buf, &at, &type)) return MOQDATA_INSUFFICIENT;
-  if (!moqdg_type_valid(type)) return MOQDATA_VIOLATION;
-  *out      = (moqdg_obj){0};
-  out->type = type;
-  return moqdg_take_body(buf, &at, out, off);
-}
-
-/* ===== put (11.3.1) ===== */
-
-static int moqdg_put_oid(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (moqdg_type_zero_oid(o->type)) return 1;
-  return moqvi_put(buf, at, o->object_id);
-}
-
-static int moqdg_put_ids(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (!moqvi_put(buf, at, o->track_alias)) return 0;
-  if (!moqvi_put(buf, at, o->group_id)) return 0;
-  return moqdg_put_oid(buf, at, o);
-}
-
-static int moqdg_put_prio(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (moqdg_type_default_prio(o->type)) return 1;
-  if (*at >= buf.n) return 0;
-  buf.p[(*at)++] = (u8)o->priority;
-  return 1;
-}
-
-static int moqdg_put_head(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (!moqvi_put(buf, at, o->type)) return 0;
-  if (!moqdg_put_ids(buf, at, o)) return 0;
-  return moqdg_put_prio(buf, at, o);
-}
-
-static int moqdg_put_props(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (!moqdg_type_props(o->type)) return 1;
-  if (!moqvi_put(buf, at, o->props.n)) return 0;
-  return bytes_put(buf, at, o->props);
-}
-
-static int moqdg_put_tail(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (moqdg_type_status(o->type)) return moqvi_put(buf, at, o->status);
-  return bytes_put(buf, at, o->payload);
-}
-
-/* The PROPERTIES bit requires a non-empty Properties field (11.3.1). */
-static int moqdg_put_props_ok(const moqdg_obj* o) {
-  return !moqdg_type_props(o->type) || o->props.n != 0;
-}
-
-static int moqdg_put_valid(const moqdg_obj* o) {
-  if (!moqdg_type_valid(o->type)) return 0;
-  if (!moqdg_put_props_ok(o)) return 0;
-  return moqdg_props_status_ok(o);
-}
-
-static int moqdg_put_body(wired_mspan buf, usz* at, const moqdg_obj* o) {
-  if (!moqdg_put_head(buf, at, o)) return 0;
-  if (!moqdg_put_props(buf, at, o)) return 0;
-  return moqdg_put_tail(buf, at, o);
-}
-
-int moqdg_put(wired_mspan buf, usz* off, const moqdg_obj* o) {
-  usz at = *off;
-  if (!moqdg_put_valid(o)) return MOQDATA_VIOLATION;
-  if (!moqdg_put_body(buf, &at, o)) return MOQDATA_INSUFFICIENT;
-  *off = at;
-  return MOQDATA_OK;
 }
