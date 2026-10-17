@@ -49,22 +49,23 @@ static void carry_reduce(poly* st, u64 d[5]) {
   st->h[0] &= 0x3ffffff;
 }
 
+/* One schoolbook row: h[0]*a + h[1]*b + h[2]*c + h[3]*d + h[4]*e. */
+static u64 poly_row(const u32 h[5], u32 a, u32 b, u32 c, u32 d, u32 e) {
+  return (u64)h[0] * a + (u64)h[1] * b + (u64)h[2] * c + (u64)h[3] * d +
+         (u64)h[4] * e;
+}
+
 /* Schoolbook multiply h*r mod 2^130-5, then carry-reduce into 26-bit limbs. */
 static void poly_mulmod(poly* st) {
-  u64 d[5];
-  u32 r0 = st->r[0], r1 = st->r[1], r2 = st->r[2], r3 = st->r[3], r4 = st->r[4];
-  u32 s1 = r1 * 5, s2 = r2 * 5, s3 = r3 * 5, s4 = r4 * 5;
-  u32* h = st->h;
-  d[0]   = (u64)h[0] * r0 + (u64)h[1] * s4 + (u64)h[2] * s3 + (u64)h[3] * s2 +
-           (u64)h[4] * s1;
-  d[1]   = (u64)h[0] * r1 + (u64)h[1] * r0 + (u64)h[2] * s4 + (u64)h[3] * s3 +
-           (u64)h[4] * s2;
-  d[2]   = (u64)h[0] * r2 + (u64)h[1] * r1 + (u64)h[2] * r0 + (u64)h[3] * s4 +
-           (u64)h[4] * s3;
-  d[3]   = (u64)h[0] * r3 + (u64)h[1] * r2 + (u64)h[2] * r1 + (u64)h[3] * r0 +
-           (u64)h[4] * s4;
-  d[4]   = (u64)h[0] * r4 + (u64)h[1] * r3 + (u64)h[2] * r2 + (u64)h[3] * r1 +
-           (u64)h[4] * r0;
+  u64        d[5];
+  const u32* r  = st->r;
+  const u32* h  = st->h;
+  u32        s1 = r[1] * 5, s2 = r[2] * 5, s3 = r[3] * 5, s4 = r[4] * 5;
+  d[0] = poly_row(h, r[0], s4, s3, s2, s1);
+  d[1] = poly_row(h, r[1], r[0], s4, s3, s2);
+  d[2] = poly_row(h, r[2], r[1], r[0], s4, s3);
+  d[3] = poly_row(h, r[3], r[2], r[1], r[0], s4);
+  d[4] = poly_row(h, r[4], r[3], r[2], r[1], r[0]);
   carry_reduce(st, d);
 }
 
