@@ -8,19 +8,32 @@ any violation or duplicate id. Usage: ledger_check.py <ledger.md>
 import re
 import sys
 from collections import defaultdict
+from operator import itemgetter
 
 from ledger_table import parse
 
 
+def _has_test_commit(row):
+    return bool(row["test"] and row["commit"])
+
+
+def _has_why(row):
+    return bool(row["why"])
+
+
+def _never(row):
+    return False
+
+
+# verdict -> what a `done` row with that verdict must have filled
+COMPLETE = {"fixed": _has_test_commit, "already-safe": _has_test_commit, "n/a": _has_why}
+
+
 def violations(row):
-    v, test, commit, why = row["verdict"], row["test"], row["commit"], row["why"]
-    if row["status"] != "done":
+    if row["status"] != "done" or COMPLETE.get(row["verdict"], _never)(row):
         return []
-    if v in ("fixed", "already-safe") and test and commit:
-        return []
-    if v == "n/a" and why:
-        return []
-    return [f"{row['id']}: done without a complete verdict/test/commit ({v!r}, {test!r}, {commit!r})"]
+    return [f"{row['id']}: done without a complete verdict/test/commit "
+            f"({row['verdict']!r}, {row['test']!r}, {row['commit']!r})"]
 
 
 def known_tests(root="tests"):
@@ -33,35 +46,51 @@ def known_tests(root="tests"):
     return names
 
 
+def _cites_c_tests(row):
+    return row["status"] == "done" and row["verdict"] in ("fixed", "already-safe")
+
+
+def _missing(cited, names):
+    return [t for t in cited if t not in names]
+
+
 def test_missing(row, names):
-    if row["status"] != "done" or row["verdict"] not in ("fixed", "already-safe"):
+    # a row citing no test_* (e.g. an audit output for deps rows) passes
+    if not _cites_c_tests(row):
         return []
-    cited = re.findall(r"\btest_[A-Za-z0-9_]+", row["test"])
-    if not cited:
-        return []  # a non-C evidence (e.g. an audit output) is allowed for deps rows
-    missing = [t for t in cited if t not in names]
+    missing = _missing(re.findall(r"\btest_[A-Za-z0-9_]+", row["test"]), names)
     return [f"{row['id']}: cited test not found in tests/: {', '.join(missing)}"] if missing else []
+
+
+def _duplicate(r, seen):
+    dup = [f"duplicate id {r['id']}"] if r["id"] in seen else []
+    seen.add(r["id"])
+    return dup
+
+
+def check_rows(rows, names):
+    bad, seen, counts = [], set(), defaultdict(lambda: [0, 0, 0])
+    for r in rows:
+        bad += _duplicate(r, seen) + violations(r) + test_missing(r, names)
+        counts[r["section"]][("open", "triaged", "done").index(r["status"])] += 1
+    return bad, counts
+
+
+def print_counts(counts):
+    for sec, (o, t, d) in counts.items():
+        print(f"{sec}: open={o} triaged={t} done={d}")
+    total = sum(map(sum, counts.values()))
+    done = sum(map(itemgetter(2), counts.values()))
+    print(f"TOTAL {total} rows, {done} done")
 
 
 def main(path):
     rows = parse(open(path, encoding="utf-8").read().splitlines())
-    bad, seen, counts = [], set(), defaultdict(lambda: [0, 0, 0])
-    names = known_tests()
-    for r in rows:
-        if r["id"] in seen:
-            bad.append(f"duplicate id {r['id']}")
-        seen.add(r["id"])
-        bad += violations(r)
-        bad += test_missing(r, names)
-        counts[r["section"]][("open", "triaged", "done").index(r["status"])] += 1
-    for sec, (o, t, d) in counts.items():
-        print(f"{sec}: open={o} triaged={t} done={d}")
-    total = sum(sum(c) for c in counts.values())
-    done = sum(c[2] for c in counts.values())
-    print(f"TOTAL {total} rows, {done} done")
+    bad, counts = check_rows(rows, known_tests())
+    print_counts(counts)
     for b in bad:
         print("ERROR", b)
-    return 1 if bad else 0
+    return int(bool(bad))
 
 
 if __name__ == "__main__":

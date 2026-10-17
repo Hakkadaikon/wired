@@ -26,25 +26,34 @@ def format_row(d):
     return "| " + " | ".join(_cell(d.get(k, "")) for k in KEYS) + " |"
 
 
+def _cells(line):
+    return [c.strip().replace("\\|", "|") for c in _SPLIT.split(line.strip())[1:-1]]
+
+
 def parse_row(line):
     """The dict for one `| V-nnnn | ...` table row, or None."""
     if not line.startswith("| V-"):
         return None
-    cells = [c.strip().replace("\\|", "|") for c in _SPLIT.split(line.strip())[1:-1]]
+    cells = _cells(line)
     if len(cells) != len(KEYS):
         return None
     return dict(zip(KEYS, cells))
+
+
+def _section(ln, section):
+    return ln[3:].strip() if ln.startswith("## ") else section
+
+
+def _add(rows, d, section):
+    if d:
+        d["section"] = section
+        rows.append(d)
 
 
 def parse(lines):
     """Every entry row, each tagged with its `## ` section."""
     rows, section = [], "(none)"
     for ln in lines:
-        if ln.startswith("## "):
-            section = ln[3:].strip()
-            continue
-        d = parse_row(ln)
-        if d:
-            d["section"] = section
-            rows.append(d)
+        section = _section(ln, section)
+        _add(rows, parse_row(ln), section)
     return rows
