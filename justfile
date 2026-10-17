@@ -128,16 +128,21 @@ metrics *paths="src":
     {{no_nix_shell}} && exec nix develop -c just metrics {{paths}}
     lizard -END {{paths}}
 
-# Report only: Halstead metrics and maintainability index per function and file.
-halstead *paths="src":
+# Report only: Halstead, maintainability index, exits and parameters.
+halstead *paths="src": (_rca "" paths)
+
+# Halstead/MI/exits/parameter limits per function and file (rust-code-analysis).
+halstead-check *paths="src": (_rca "--check" paths)
+
+_rca mode paths:
     #!/usr/bin/env sh
-    {{no_nix_shell}} && exec nix develop -c just halstead {{paths}}
+    {{no_nix_shell}} && exec nix develop -c just _rca "{{mode}}" "{{paths}}"
     set -eu
     tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
     for p in {{paths}}; do
-        rust-code-analysis-cli -m -O json -I '*.c' -p "$p" -o "$tmp" >/dev/null
+        rust-code-analysis-cli -m -O json -I '*.[ch]' -p "$p" -o "$tmp" >/dev/null
     done
-    python3 scripts/halstead.py "$tmp"
+    python3 scripts/halstead.py {{mode}} "$tmp"
 
 # Report only: per-function cognitive complexity; 0 scores are not listed.
 cognitive *paths="src":
