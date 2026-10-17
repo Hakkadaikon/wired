@@ -59,12 +59,16 @@ def functions(space):
         yield from functions(s)
 
 
+def broken(m, limit):
+    """Whether m breaks limit. A null value (rust-code-analysis emits it
+    for a function with no operands) has nothing to measure."""
+    a, b, _, bad = limit
+    return m[a][b] is not None and bad(m[a][b])
+
+
 def breaks(m, limits):
-    """Labels of the limits m breaks. A null value (rust-code-analysis emits
-    it for a function with no operands) has nothing to measure."""
-    return ["%s %.2f" % (label, m[a][b])
-            for a, b, label, bad in limits
-            if m[a][b] is not None and bad(m[a][b])]
+    return ["%s %.2f" % (lim[2], m[lim[0]][lim[1]])
+            for lim in limits if broken(m, lim)]
 
 
 def load(root):
@@ -76,31 +80,44 @@ def load(root):
     return sorted(units, key=lambda u: u["name"])
 
 
+def fn_warnings(u):
+    return ["%s:%d: warning: %s has %s" %
+            (u["name"], s["start_line"], s["name"], b)
+            for s in functions(u) for b in breaks(s["metrics"], FN_LIMITS)]
+
+
+def file_warnings(u):
+    return ["%s:1: warning: file has %s" % (u["name"], b)
+            for b in breaks(u["metrics"], FILE_LIMITS)]
+
+
+def checked(units):
+    return [u for u in units if u["name"] not in EXEMPT]
+
+
+def emit(lines):
+    sys.stdout.writelines(line + "\n" for line in lines)
+
+
 def check(units):
-    n = 0
-    for u in units:
-        if u["name"] in EXEMPT:
-            continue
-        for s in functions(u):
-            for b in breaks(s["metrics"], FN_LIMITS):
-                print("%s:%d: warning: %s has %s" %
-                      (u["name"], s["start_line"], s["name"], b))
-                n += 1
-        for b in breaks(u["metrics"], FILE_LIMITS):
-            print("%s:1: warning: file has %s" % (u["name"], b))
-            n += 1
-    return n
+    """Print every limit broken (compiler warning format); their count."""
+    lines = [w for u in checked(units)
+             for w in fn_warnings(u) + file_warnings(u)]
+    emit(lines)
+    return len(lines)
+
+
+def fn_rows(units):
+    return [row(s["metrics"], "%s@%d@%s" %
+                (s["name"], s["start_line"], u["name"]))
+            for u in units for s in functions(u)]
 
 
 def report(units):
     print("per function\n" + COLS)
-    for u in units:
-        for s in functions(u):
-            print(row(s["metrics"], "%s@%d@%s" %
-                      (s["name"], s["start_line"], u["name"])))
+    print("\n".join(fn_rows(units)))
     print("\nper file\n" + COLS)
-    for u in units:
-        print(row(u["metrics"], u["name"]))
+    print("\n".join(row(u["metrics"], u["name"]) for u in units))
 
 
 if __name__ == "__main__":
