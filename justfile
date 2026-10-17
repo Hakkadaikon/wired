@@ -222,8 +222,9 @@ fuzz-smoke: gen-ninja
 # Nightly sweep: every fuzz harness for secs seconds each.
 fuzz-ci secs="120": gen-ninja
     #!/usr/bin/env sh
-    # Each run seeds from and grows fuzz/corpus/<harness>/ (the Fuzz workflow
-    # commits it).
+    # Each run seeds from and grows fuzz/corpus/<harness>/. The Fuzz workflow
+    # only uploads the grown corpus as an artifact; inputs worth keeping are
+    # committed to fuzz/corpus/ by hand.
     set -eu
     for f in fuzz/fuzz_*.c; do t=${f%.c}; ninja "$t"
         "./$t" -max_total_time={{secs}} -artifact_prefix=fuzz/ "fuzz/corpus/${t#fuzz/}"
