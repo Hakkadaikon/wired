@@ -11,9 +11,9 @@ results. How to write and run a test is in [Development](development.md).
 ## Where the coverage lives
 
 - **[Features](features/README.md)**: 45 specs (RFCs, FIPS, NIST SPs, and
-  four drafts). Each one has its own requirement ledger. **1894 of 1896
-  requirements are demonstrated (1649 directly tested, 245 indirectly
-  tested); 2 remain untested.** The per-category tables are on that page.
+  four drafts). Each one has its own requirement ledger. **2001 of 2261
+  requirements are demonstrated (1548 directly tested, 453 indirectly
+  tested); 260 remain untested.** The per-category tables are on that page.
 - **[Interop Results](interop.md)**: runs against independent
   implementations such as quic-go and webtransport-go, driven by
   [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner).

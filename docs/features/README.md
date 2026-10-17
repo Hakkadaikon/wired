@@ -26,7 +26,10 @@ boxes; it is run by hand, not in CI.
 
 ## What the markers mean
 
-- `[x]` tested: a named test function proves this requirement.
+- `[x]` tested: a named test function proves this requirement. The test
+  has to drive the code the shipping server runs. A test of a helper that
+  no production path calls shows only that the helper works, so it counts
+  as indirect at most.
 - `[~]` indirect: no test targets it alone, but other tests exercise it. An
   evidence line, or `test:` lines for the tests that cover part of it, says
   which ones.
@@ -66,85 +69,85 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 1894/1896 requirements demonstrated (99.9%) — 1649 directly tested,
-245 indirect, 2 untested.**
+**Total: 2001/2261 requirements demonstrated (88.5%) — 1548 directly tested,
+453 indirect, 260 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 197/197 | 159 | 38 | 0 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 68/68 | 53 | 15 | 0 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 67/67 | 58 | 9 | 0 |
-| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/15 | 12 | 3 | 0 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 229/278 | 138 | 91 | 49 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 72/78 | 48 | 24 | 6 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 66/75 | 42 | 24 | 9 |
+| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/16 | 13 | 2 | 1 |
 
 ## QUIC extensions
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 27/27 | 23 | 4 | 0 |
-| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 9/9 | 6 | 3 | 0 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 21/21 | 18 | 3 | 0 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 25/25 | 21 | 4 | 0 |
-| [RFC 9308 — Applicability (informational)](rfc9308.md) | 4/4 | 2 | 2 | 0 |
-| [RFC 9312 — Manageability (informational)](rfc9312.md) | 4/4 | 2 | 2 | 0 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 31/31 | 21 | 10 | 0 |
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/26 | 18 | 4 | 4 |
+| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 3/8 | 0 | 3 | 5 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 22/25 | 18 | 4 | 3 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 23/29 | 18 | 5 | 6 |
+| [RFC 9308 — Applicability (informational)](rfc9308.md) | 7/10 | 5 | 2 | 3 |
+| [RFC 9312 — Manageability (informational)](rfc9312.md) | 4/5 | 0 | 4 | 1 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 29/34 | 21 | 8 | 5 |
 
 ## TLS and PKI
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 105/105 | 86 | 19 | 0 |
-| [RFC 5280 — X.509 / PKI](rfc5280.md) | 44/44 | 35 | 9 | 0 |
-| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 18 | 3 | 0 |
-| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 10/10 | 8 | 2 | 0 |
-| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 16/16 | 14 | 2 | 0 |
-| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 13/13 | 10 | 3 | 0 |
-| [RFC 6125 — Service identity verification](rfc6125.md) | 11/11 | 9 | 2 | 0 |
-| [RFC 7301 — ALPN](rfc7301.md) | 14/14 | 13 | 1 | 0 |
-| [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 22/22 | 19 | 3 | 0 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 118/131 | 89 | 29 | 13 |
+| [RFC 5280 — X.509 / PKI](rfc5280.md) | 54/57 | 41 | 13 | 3 |
+| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 17/21 | 14 | 3 | 4 |
+| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |
+| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 18/19 | 13 | 5 | 1 |
+| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/14 | 9 | 2 | 3 |
+| [RFC 6125 — Service identity verification](rfc6125.md) | 11/14 | 8 | 3 | 3 |
+| [RFC 7301 — ALPN](rfc7301.md) | 14/15 | 12 | 2 | 1 |
+| [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 23/23 | 18 | 5 | 0 |
 
 ## Cryptographic primitives
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 21/21 | 17 | 4 | 0 |
-| [RFC 7748 — X25519](rfc7748.md) | 15/15 | 13 | 2 | 0 |
-| [RFC 8032 — Ed25519](rfc8032.md) | 17/17 | 16 | 1 | 0 |
-| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 21/21 | 18 | 3 | 0 |
-| [RFC 5869 — HKDF](rfc5869.md) | 8/8 | 7 | 1 | 0 |
-| [RFC 6090 — EC arithmetic](rfc6090.md) | 22/22 | 20 | 2 | 0 |
-| [FIPS 197 — AES](fips197.md) | 14/14 | 9 | 5 | 0 |
-| [SP 800-38D — GCM](sp800-38d.md) | 20/20 | 14 | 6 | 0 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 21/21 | 19 | 2 | 0 |
-| [FIPS 180-4 — SHA-2](fips180-4.md) | 25/25 | 23 | 2 | 0 |
-| [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 8 | 0 | 0 |
+| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 31/34 | 21 | 10 | 3 |
+| [RFC 7748 — X25519](rfc7748.md) | 16/16 | 13 | 3 | 0 |
+| [RFC 8032 — Ed25519](rfc8032.md) | 20/20 | 18 | 2 | 0 |
+| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 21/21 | 16 | 5 | 0 |
+| [RFC 5869 — HKDF](rfc5869.md) | 9/9 | 9 | 0 | 0 |
+| [RFC 6090 — EC arithmetic](rfc6090.md) | 27/28 | 24 | 3 | 1 |
+| [FIPS 197 — AES](fips197.md) | 15/15 | 12 | 3 | 0 |
+| [SP 800-38D — GCM](sp800-38d.md) | 23/23 | 15 | 8 | 0 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 23/25 | 20 | 3 | 2 |
+| [FIPS 180-4 — SHA-2](fips180-4.md) | 26/26 | 24 | 2 | 0 |
+| [FIPS 198-1 — HMAC](fips198-1.md) | 10/10 | 9 | 1 | 0 |
 
 ## HTTP/3 and QPACK
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 81/81 | 71 | 10 | 0 |
-| [RFC 9110 — HTTP semantics](rfc9110.md) | 28/28 | 24 | 4 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 48 | 7 | 0 |
-| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 16/16 | 15 | 1 | 0 |
-| [RFC 9218 — Extensible priorities](rfc9218.md) | 20/20 | 15 | 5 | 0 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 75/97 | 49 | 26 | 22 |
+| [RFC 9110 — HTTP semantics](rfc9110.md) | 28/43 | 21 | 7 | 15 |
+| [RFC 9204 — QPACK](rfc9204.md) | 60/65 | 50 | 10 | 5 |
+| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 16 | 1 | 0 |
+| [RFC 9218 — Extensible priorities](rfc9218.md) | 19/22 | 13 | 6 | 3 |
 
 ## WebTransport
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 74/74 | 60 | 14 | 0 |
-| [RFC 9220 — Extended CONNECT](rfc9220.md) | 11/11 | 10 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 23/23 | 17 | 6 | 0 |
+| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 76/81 | 62 | 14 | 5 |
+| [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/10 | 9 | 1 | 0 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 25/26 | 18 | 7 | 1 |
 
 ## MOQT
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 215/215 | 206 | 9 | 0 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 209/209 | 200 | 9 | 0 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 227/229 | 217 | 10 | 2 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 219/248 | 189 | 30 | 29 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 224/248 | 187 | 37 | 24 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 233/259 | 198 | 35 | 26 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,
@@ -159,8 +162,8 @@ section.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 768 — UDP](rfc768.md) | 5/5 | 4 | 1 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 9/9 | 7 | 2 | 0 |
+| [RFC 768 — UDP](rfc768.md) | 9/9 | 9 | 0 | 0 |
+| [RFC 791 — IPv4](rfc791.md) | 13/17 | 9 | 4 | 4 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 5/5 | 4 | 1 | 0 |
 
 ---
