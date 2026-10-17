@@ -60,6 +60,7 @@ typedef struct {
 } fmt_fparts;
 
 void fmt_put(fmt_sink* s, char c);
+void fmt_rep(fmt_sink* s, char c, usz count);
 void fmt_field(fmt_sink* s, const fmt_spec* sp, const fmt_piece* pc);
 char fmt_sign(const fmt_spec* sp, int neg);
 u64  fmt_get(const fmt_spec* sp, wired_va_list ap, int sgn);
@@ -78,6 +79,7 @@ void fmt_carry(char* b, usz end);
 usz  fmt_ip_digits(char* b, u64 v);
 void fmt_run(fmt_sink* s, const char* fmt, wired_va_list ap);
 
+void fmt_h_hex(fmt_sink* s, const fmt_spec* sp, wired_va_list ap);
 extern const fmt_handler fmt_tab[128];
 
 #endif

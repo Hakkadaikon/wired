@@ -8,8 +8,17 @@
  * @file
  * libc-free printf-compatible formatter.
  *
- * Conversions: %d %i %u %x %X %p %s %c %% %f; length modifiers hh h l ll z;
- * flags `-` `0` `+` space `#`; width, precision, and `*` for both.
+ * Conversions: %d %i %u %x %X %p %s %c %% %f, plus %H (below); length
+ * modifiers hh h l ll z; flags `-` `0` `+` space `#`; width, precision,
+ * and `*` for both.
+ *
+ * %H is a wired extension, not C: it prints bytes as lowercase hex. The
+ * precision is the BYTE count (not an output length, unlike %s) and the
+ * argument points at the bytes: `"%.*H"` takes (int n, const u8* p) --
+ * the order WIRED_SPAN_ARG gives -- and `"%.32H"` a fixed 32. No
+ * precision means zero bytes (the pointer is still consumed). A NULL
+ * pointer with n > 0 prints "(null)". Width and `-` pad the hex text.
+ * There is no length limit: the bytes stream through the sink.
  *
  * Deviations from C99 (deliberate, to stay small):
  *  - %p prints "0x" + lowercase hex, and NULL prints "0x0".
@@ -19,6 +28,9 @@
  *    18446744073709551615; precision above 40 is clamped to 40; the
  *    fraction is exact to 2^-60.
  *  - An unknown conversion is copied through verbatim ("%" + the char).
+ *    A `*` width or precision before it has already consumed its int,
+ *    so the arguments after it shift -- as with any unknown conversion
+ *    in C, it is the caller's bug.
  */
 
 /** Variadic argument list (compiler builtin, not ISA specific). */

@@ -154,6 +154,7 @@
 #include "common/fmt/fmt.c"
 #include "common/fmt/fmt_emit.c"
 #include "common/fmt/fmt_h.c"
+#include "common/fmt/fmt_hex.c"
 #include "common/fmt/fmt_idx.c"
 #include "common/fmt/fmt_split.c"
 #include "common/fmt/fmt_vsnprintf.c"

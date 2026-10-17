@@ -66,7 +66,7 @@ static void fmt_h_f(fmt_sink* s, const fmt_spec* sp, wired_va_list ap) {
 }
 
 const fmt_handler fmt_tab[128] = {
-    ['d'] = fmt_h_d,   ['i'] = fmt_h_d, ['u'] = fmt_h_u, ['x'] = fmt_h_x,
-    ['X'] = fmt_h_x,   ['p'] = fmt_h_p, ['s'] = fmt_h_s, ['c'] = fmt_h_c,
-    ['%'] = fmt_h_pct, ['f'] = fmt_h_f,
+    ['d'] = fmt_h_d,   ['i'] = fmt_h_d, ['u'] = fmt_h_u,   ['x'] = fmt_h_x,
+    ['X'] = fmt_h_x,   ['p'] = fmt_h_p, ['s'] = fmt_h_s,   ['c'] = fmt_h_c,
+    ['%'] = fmt_h_pct, ['f'] = fmt_h_f, ['H'] = fmt_h_hex,
 };

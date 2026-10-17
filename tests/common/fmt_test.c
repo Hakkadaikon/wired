@@ -89,6 +89,35 @@ static void test_fmt_str(void) {
   FT("abc", "abc");
 }
 
+/* %H (wired extension): the precision is a byte count, the argument a
+ * pointer to those bytes, printed as lowercase hex. */
+static void test_fmt_hex_bytes(void) {
+  static const u8 d[] = {0x00, 0x01, 0xab, 0xff};
+  FT("", "%.*H", 0, d);
+  FT("00", "%.*H", 1, d);
+  FT("0001abff", "%.*H", 4, d);
+  FT("0001abff", "%.4H", d);
+  FT("[  0001]", "[%6.2H]", d);
+  FT("[0001  ]", "[%-6.2H]", d);
+  FT("[0001]", "[%2.2H]", d);
+  FT("key 01ab|", "%.*s %.2H|", 3, "keyx", d + 1);
+  FT("(null)", "%.*H", 2, (const u8*)0);
+  FT("", "%.*H", 0, (const u8*)0);
+  /* No precision: zero bytes, but the pointer is still consumed. */
+  FT("|7", "%H|%d", d, 7);
+}
+
+/* %H streams: no internal buffer caps the input length. */
+static void test_fmt_hex_bytes_long(void) {
+  static u8 big[300];
+  char      b[700];
+  big[0]   = 0x12;
+  big[299] = 0xef;
+  CHECK(wired_snprintf(b, sizeof b, "%.*H", 300, big) == 600);
+  CHECK(b[0] == '1' && b[1] == '2' && b[598] == 'e' && b[599] == 'f');
+  CHECK(b[600] == 0);
+}
+
 static void test_fmt_float(void) {
   FT("0.000000", "%f", 0.0);
   FT("-0.000000", "%f", -0.0);
@@ -163,6 +192,8 @@ void test_fmt(void) {
   test_fmt_int();
   test_fmt_flags();
   test_fmt_str();
+  test_fmt_hex_bytes();
+  test_fmt_hex_bytes_long();
   test_fmt_float();
   test_fmt_trunc();
   test_fmt_dprintf();

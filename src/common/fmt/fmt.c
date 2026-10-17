@@ -2,7 +2,6 @@
 
 #include "common/fmt/fmt_impl.h"
 
-static void fmt_rep(fmt_sink* s, char c, usz count);
 static void fmt_bytes(fmt_sink* s, const char* p, usz n);
 static char fmt_sign_flag(u32 flags);
 
@@ -13,7 +12,7 @@ void fmt_put(fmt_sink* s, char c) {
   s->n++;
 }
 
-static void fmt_rep(fmt_sink* s, char c, usz count) {
+void fmt_rep(fmt_sink* s, char c, usz count) {
   for (usz i = 0; i < count; i++) {
     fmt_put(s, c);
   }
