@@ -2,6 +2,7 @@
 #include "castore_pc_golden.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
+#include "crypto/pki/trust/castore/pathvalidate_impl.h"
 #include "test.h"
 
 /* RFC 5280 6.1 path-validation checks driven through castore_validate_chain
@@ -81,6 +82,26 @@ static void test_nc_self_issued_intermediate_skipped(void) {
   CHECK(castore_validate_chain(&s, certs, 3, PKP_NOW_IN) == 1);
 }
 
+/* RFC 5280 7.1 caseIgnoreMatch: cleaf's issuer is spelled CN=PATH CASE
+ * ROOT, croot's subject CN=Path Case Root. The anchor lookup (root not
+ * sent) and the issuer/subject link (root sent) both match (openssl
+ * verify: OK). */
+static void test_path_issuer_case_differs_ok(void) {
+  castore    s;
+  wired_span certs[2] = {PKP_SPAN(pkp_cleaf_der), PKP_SPAN(pkp_croot_der)};
+  pkp_store(&s, PKP_SPAN(pkp_croot_der));
+  CHECK(castore_validate_chain(&s, certs, 1, PKP_NOW_IN) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, PKP_NOW_IN) == 1);
+}
+
+/* RFC 5280 6.1 "self-issued": subject and issuer DNs match under 7.1 rules,
+ * so cself (CN=Path Case Root issued by CN=PATH CASE ROOT) is self-issued;
+ * cleaf (CN=leaf.example) is not. */
+static void test_self_issued_case_insensitive(void) {
+  CHECK(castore_cert_self_issued(PKP_SPAN(pkp_cself_der)) == 1);
+  CHECK(castore_cert_self_issued(PKP_SPAN(pkp_cleaf_der)) == 0);
+}
+
 void test_pathvalidate_path(void) {
   test_path_validity_in_window_ok();
   test_path_intermediate_expired_rejects();
@@ -88,4 +109,6 @@ void test_pathvalidate_path(void) {
   test_require_explicit_policy_root_omitted_rejects();
   test_require_explicit_policy_root_omitted_ok();
   test_nc_self_issued_intermediate_skipped();
+  test_path_issuer_case_differs_ok();
+  test_self_issued_case_insensitive();
 }

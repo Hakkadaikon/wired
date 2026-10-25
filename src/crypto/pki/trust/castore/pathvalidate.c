@@ -42,7 +42,8 @@ static int cert_subject(wired_span cert, wired_span* dn) {
   return x509_subject(c.tbs, dn);
 }
 
-/* RFC 5280 6.1.3. certs[i]'s issuer equals certs[i+1]'s subject. */
+/* RFC 5280 6.1.3 (a)(4) with the 7.1 comparison: certs[i]'s issuer equals
+ * certs[i+1]'s subject under RFC 4518 caseIgnoreMatch. */
 static int names_chain(wired_span child, wired_span parent) {
   wired_span iss, subj;
   if (!castore_cert_issuer(child, &iss)) {
@@ -51,11 +52,12 @@ static int names_chain(wired_span child, wired_span parent) {
   if (!cert_subject(parent, &subj)) {
     return 0;
   }
-  return x509_dn_equal(iss, subj);
+  return x509_dn_equal_ci(iss, subj);
 }
 
 /* RFC 5280 6.1: "a certificate is self-issued if the DNs that appear in the
- * subject and issuer fields are identical". Malformed Name fields are not
+ * subject and issuer fields are identical" -- compared by the 7.1 rules
+ * (caseIgnoreMatch), the same as name chaining. Malformed Name fields are not
  * self-issued (fails open into being counted, the strict side). */
 int castore_cert_self_issued(wired_span cert) {
   wired_span iss, subj;
@@ -65,7 +67,7 @@ int castore_cert_self_issued(wired_span cert) {
   if (!cert_subject(cert, &subj)) {
     return 0;
   }
-  return x509_dn_equal(iss, subj);
+  return x509_dn_equal_ci(iss, subj);
 }
 
 /* RFC 5280 4.2. cert carries no unrecognized critical extension and no
