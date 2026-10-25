@@ -35,6 +35,14 @@
  * closed). */
 int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject);
 
+/* RFC 5280 4.2.1.10: "If a certificate with a critical name constraints
+ * extension carries minimum or maximum ... the application MUST either
+ * process these fields or reject the certificate." This SDK does not, so
+ * returns 1 if tbs's nameConstraints is critical and some GeneralSubtree
+ * carries a minimum other than 0 or any maximum, or the critical extension
+ * is malformed; 0 otherwise (absent, non-critical, or base-only). */
+int x509_nc_unprocessed_critical(wired_span tbs);
+
 /* RFC 5280 4.2.1.10 / 6.1.4 (g). cert's nameConstraints extension, applied
  * to the whole child certificate: the child's subject Name against
  * directoryName subtrees (the x509_name_constraints_permit rule above), and

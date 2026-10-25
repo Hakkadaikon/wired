@@ -115,6 +115,40 @@ static void test_leaf_ku_without_digital_signature_rejects(void) {
   CHECK(castore_validate_chain(&s, ok, 1, PKP_NOW_IN) == 1);
 }
 
+/* A lone self-signed CA registered as its own anchor: the path is just the
+ * certificate, so only its extension checks can reject it. */
+static int pkp_lone(wired_span cert) {
+  castore    s;
+  wired_span certs[1] = {cert};
+  pkp_store(&s, cert);
+  return castore_validate_chain(&s, certs, 1, PKP_NOW_IN);
+}
+
+/* RFC 5280 4.2.1.10: a critical nameConstraints whose GeneralSubtree
+ * carries minimum 1 or a maximum is rejected (this SDK does not process
+ * them); the same subtree in a non-critical extension is ignorable. */
+static void test_critical_nc_min_max_rejects(void) {
+  CHECK(pkp_lone(PKP_SPAN(pkp_ncmin_der)) == 0);
+  CHECK(pkp_lone(PKP_SPAN(pkp_ncmax_der)) == 0);
+  CHECK(pkp_lone(PKP_SPAN(pkp_ncminnc_der)) == 1);
+}
+
+/* RFC 5280 4.2.1.11: policy mapping is not supported, so a critical
+ * policyConstraints carrying inhibitPolicyMapping is rejected; one with
+ * only requireExplicitPolicy is processed and accepted. */
+static void test_critical_pc_inhibit_mapping_rejects(void) {
+  CHECK(pkp_lone(PKP_SPAN(pkp_pcipm_der)) == 0);
+  CHECK(pkp_lone(PKP_SPAN(pkp_pcrep_der)) == 1);
+}
+
+/* RFC 5280 4.2.1.4: policy qualifiers are not interpreted, so a critical
+ * certificatePolicies carrying one (a CPS pointer) is rejected; the same
+ * extension non-critical is accepted. */
+static void test_critical_cp_qualifier_rejects(void) {
+  CHECK(pkp_lone(PKP_SPAN(pkp_cpq_der)) == 0);
+  CHECK(pkp_lone(PKP_SPAN(pkp_cpqnc_der)) == 1);
+}
+
 void test_pathvalidate_path(void) {
   test_path_validity_in_window_ok();
   test_path_intermediate_expired_rejects();
@@ -125,4 +159,7 @@ void test_pathvalidate_path(void) {
   test_path_issuer_case_differs_ok();
   test_self_issued_case_insensitive();
   test_leaf_ku_without_digital_signature_rejects();
+  test_critical_nc_min_max_rejects();
+  test_critical_pc_inhibit_mapping_rejects();
+  test_critical_cp_qualifier_rejects();
 }

@@ -13,6 +13,8 @@ static const u8 oid_inhibit_any_policy[] = {0x55, 0x1d, 0x36};
 /* RFC 5280 4.2.1.11. requireExplicitPolicy is [0] IMPLICIT SkipCerts, the
  * first element of PolicyConstraints when present. */
 #define POLICYCONSTRAINTS_REQEXP_TAG 0x80
+/* inhibitPolicyMapping is [1] IMPLICIT SkipCerts. */
+#define POLICYCONSTRAINTS_INHIBIT_MAP_TAG 0x81
 
 /* A DER INTEGER's content octets, decoded via the shared unsigned-integer
  * reader. X509_SKIPCERTS_MALFORMED on a negative/oversized encoding. */
@@ -59,6 +61,33 @@ u64 x509_require_explicit_policy(wired_span tbs) {
     return X509_SKIPCERTS_NONE;
   }
   return policy_constraints_reqexp(seq);
+}
+
+/* The PolicyConstraints SEQUENCE carries [1] inhibitPolicyMapping. */
+static int pc_has_inhibit_mapping(wired_span seq) {
+  derseq     c;
+  u8         tag;
+  wired_span v;
+  derseq_init(&c, seq);
+  while (derseq_next(&c, &tag, &v)) {
+    if (tag == POLICYCONSTRAINTS_INHIBIT_MAP_TAG) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int x509_pc_unprocessed_critical(wired_span tbs) {
+  wired_span seq;
+  if (!x509_ext_critical(
+          tbs, wired_span_of(
+                   oid_policy_constraints, sizeof(oid_policy_constraints)))) {
+    return 0;
+  }
+  if (!policy_constraints_locate(tbs, &seq)) {
+    return 1;
+  }
+  return pc_has_inhibit_mapping(seq);
 }
 
 /* RFC 5280 4.2.1.14. InhibitAnyPolicy's extnValue is a bare SkipCerts

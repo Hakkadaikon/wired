@@ -6,6 +6,7 @@
  */
 
 #include "crypto/pki/encoding/x509/basicconstraints.h"
+#include "crypto/pki/encoding/x509/certpolicies.h"
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/dirstring.h"
 #include "crypto/pki/encoding/x509/eku.h"

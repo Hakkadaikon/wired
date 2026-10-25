@@ -27,6 +27,10 @@ int x509_tbs_cursor(wired_span tbs, derseq* c);
  * value, 0 if absent or malformed. */
 int x509_find_ext(wired_span tbs, wired_span oid, wired_span* val);
 
+/* RFC 5280 4.1.2.9. 1 if tbs carries the extension oid and marks it
+ * critical (TRUE); 0 if it is absent or non-critical. */
+int x509_ext_critical(wired_span tbs, wired_span oid);
+
 /* RFC 5280 4.2. 1 if any extension in tbs is marked critical (TRUE) and its
  * extnID is not one this SDK understands (basicConstraints, subjectAltName,
  * keyUsage, extKeyUsage); 0 if every critical extension is known, or there

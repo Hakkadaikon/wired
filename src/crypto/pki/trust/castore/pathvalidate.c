@@ -2,6 +2,8 @@
 
 static int cert_subject(wired_span cert, wired_span* dn);
 static int names_chain(wired_span child, wired_span parent);
+static int has_unprocessed_critical(wired_span tbs);
+static int tbs_extensions_ok(wired_span tbs);
 static int cert_extensions_ok(wired_span cert);
 static int cert_can_issue(wired_span cert);
 static int cert_spki_oid(wired_span cert, wired_span* tbs, wired_span* oid);
@@ -70,19 +72,47 @@ int castore_cert_self_issued(wired_span cert) {
   return x509_dn_equal_ci(iss, subj);
 }
 
-/* RFC 5280 4.2. cert carries no unrecognized critical extension and no
- * extnID more than once ("MUST NOT include more than one instance of a
- * particular extension" -- a second nameConstraints/basicConstraints/...
- * instance would otherwise be silently ignored by x509_find_ext). */
+/* RFC 5280 4.2.1.4/4.2.1.10/4.2.1.11: a known critical extension carrying
+ * a field this SDK does not process (policy qualifiers, subtree
+ * minimum/maximum, inhibitPolicyMapping) must reject the certificate. */
+static int (*const unprocessed_critical[])(wired_span) = {
+    x509_cp_unprocessed_critical,
+    x509_nc_unprocessed_critical,
+    x509_pc_unprocessed_critical,
+};
+#define PV_UNPROCESSED_COUNT \
+  (sizeof(unprocessed_critical) / sizeof(unprocessed_critical[0]))
+
+static int has_unprocessed_critical(wired_span tbs) {
+  for (usz i = 0; i < PV_UNPROCESSED_COUNT; i++) {
+    if (unprocessed_critical[i](tbs)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* RFC 5280 4.2. tbs carries no unrecognized critical extension, no known
+ * critical one with unprocessed fields, and no extnID more than once ("MUST
+ * NOT include more than one instance of a particular extension" -- a second
+ * nameConstraints/basicConstraints/... instance would otherwise be silently
+ * ignored by x509_find_ext). */
+static int tbs_extensions_ok(wired_span tbs) {
+  if (x509_has_unknown_critical(tbs)) {
+    return 0;
+  }
+  if (has_unprocessed_critical(tbs)) {
+    return 0;
+  }
+  return !x509_has_duplicate_ext(tbs);
+}
+
 static int cert_extensions_ok(wired_span cert) {
   x509 c;
   if (!x509_parse(cert, &c)) {
     return 0;
   }
-  if (x509_has_unknown_critical(c.tbs)) {
-    return 0;
-  }
-  return !x509_has_duplicate_ext(c.tbs);
+  return tbs_extensions_ok(c.tbs);
 }
 
 /* Every certificate in the path (leaf through tail) passes the RFC 5280 4.2

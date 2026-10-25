@@ -6,6 +6,7 @@ static int is_true_boolean(u8 tag, wired_span v);
 static int ext_critical(wired_span e);
 static int ext_value(wired_span e, wired_span* val);
 static int find_in_extensions(wired_span ext, wired_span oid, wired_span* val);
+static int critical_in_extensions(wired_span ext, wired_span oid);
 static int ext_id(wired_span e, wired_span* id);
 static int id_is_known(wired_span id);
 static int ext_is_unknown_critical(wired_span e);
@@ -95,6 +96,28 @@ int x509_find_ext(wired_span tbs, wired_span oid, wired_span* val) {
     return 0;
   }
   return find_in_extensions(ext, oid, val);
+}
+
+/* Scan the extensions SEQUENCE for the wanted extnID's critical flag. */
+static int critical_in_extensions(wired_span ext, wired_span oid) {
+  derseq     exts;
+  u8         tag;
+  wired_span e;
+  derseq_init(&exts, ext);
+  while (derseq_next(&exts, &tag, &e)) {
+    if (ext_id_is(e, oid)) {
+      return ext_critical(e);
+    }
+  }
+  return 0;
+}
+
+int x509_ext_critical(wired_span tbs, wired_span oid) {
+  wired_span ext;
+  if (!reach_extensions(tbs, &ext)) {
+    return 0;
+  }
+  return critical_in_extensions(ext, oid);
 }
 
 /* RFC 5280 4.2. extnIDs this SDK understands the semantics of. Any other

@@ -18,6 +18,20 @@ static void typed_mark(
 /* id-ce-nameConstraints = 2.5.29.30 */
 static const u8 oid_name_constraints[] = {0x55, 0x1d, 0x1e};
 
+/* RFC 5280 4.2.1.10 min/max processing rule (see the header). */
+int x509_nc_unprocessed_critical(wired_span tbs) {
+  wired_span seq;
+  if (!x509_ext_critical(
+          tbs,
+          wired_span_of(oid_name_constraints, sizeof(oid_name_constraints)))) {
+    return 0;
+  }
+  if (!x509_nc_locate(tbs, &seq)) {
+    return 1;
+  }
+  return x509_nc_bounded(seq);
+}
+
 /* id-ce-subjectAltName = 2.5.29.17 */
 const u8 nc_oid_san[] = {0x55, 0x1d, 0x11};
 

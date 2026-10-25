@@ -26,6 +26,9 @@
 #define NC_DIRECTORYNAME_TAG 0xa4
 #define NC_URI_TAG 0x86
 #define NC_IPADDR_TAG 0x87
+/* RFC 5280 4.2.1.10. GeneralSubtree minimum is [0] IMPLICIT BaseDistance
+ * (DEFAULT 0), maximum [1]. */
+#define NC_MINIMUM_TAG 0x80
 
 typedef int (*nc_matcher)(wired_span base, wired_span name);
 
@@ -43,6 +46,7 @@ void x509_typed_fold(
     int*       covered);
 int x509_typed_name_ok(wired_span seq, u8 want, wired_span name, nc_matcher m);
 int x509_nc_too_many(wired_span seq);
+int x509_nc_bounded(wired_span seq);
 int x509_ip_bases_malformed(wired_span seq);
 int x509_san_other_entry_ok(wired_span seq, u8 tag, wired_span e);
 
