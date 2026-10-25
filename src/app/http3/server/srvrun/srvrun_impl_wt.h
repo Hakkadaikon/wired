@@ -73,6 +73,8 @@ usz  srvrun_app_close_payload(
     u64 error_code, wired_span reason, wired_obuf* plb);
 int  srvrun_seal_close_pl(srvrun_conn* c, wired_span pl, wired_obuf* out);
 void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c);
+void srvrun_close_send_long(const srvrun_cfg* cfg, srvrun_conn* c);
+usz  srvrun_close_long_frame(const srvrun_conn* c, u8* fr);
 int  srvrun_close_send(const srvrun_cfg* cfg, srvrun_conn* c, wired_span pl);
 void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason);

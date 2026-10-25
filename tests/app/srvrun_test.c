@@ -2066,6 +2066,57 @@ static void test_srvrun_initial_dropped_after_handshake_rx(void) {
   CHECK(srvrun_test_send_count() == 0);
 }
 
+/* RFC 9000 10.2.3: a close raised before the handshake is confirmed also
+ * goes out in a Handshake packet, and in an Initial packet while the
+ * Initial keys are live; the application close is carried there as a
+ * transport close with APPLICATION_ERROR and no reason. */
+static void test_srvrun_unconfirmed_close_all_levels(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               fr[SRVRUN_CLOSE_PL_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  srvrun_conn*     c    = &st.conns[0];
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 hs_pn, ini_pn;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(c->up == 1);
+  CHECK(wired_server_is_confirmed(&c->s) == 0);
+  CHECK(c->ini_next_pn >= 2); /* past the accept flight's Initial (pn 1) */
+  hs_pn  = c->l.hs_tx_pn;
+  ini_pn = c->ini_next_pn;
+  srvrun_test_reset_send_count();
+  srvrun_send_app_close(&cfg, c, 0x101, wired_span_of(0, 0));
+  CHECK(c->closing == 1);
+  CHECK(srvrun_test_send_count() == 3); /* Initial + Handshake + 1-RTT */
+  CHECK(c->ini_next_pn == ini_pn + 1);
+  CHECK(c->l.hs_tx_pn == hs_pn + 1);
+  /* the Handshake/Initial copy: 0x1c, APPLICATION_ERROR, frame type 0,
+   * empty reason -- never the 0x1d with its application code */
+  CHECK(srvrun_close_long_frame(c, fr) == 4);
+  CHECK(fr[0] == FRAME_CONN_CLOSE_TPT && fr[1] == ERR_APPLICATION_ERROR);
+  CHECK(fr[2] == 0 && fr[3] == 0);
+  /* a client Handshake packet was processed: no Initial any more */
+  c->l.hs_rx_seen = 1;
+  srvrun_test_reset_send_count();
+  srvrun_close_resend(&cfg, c);
+  CHECK(srvrun_test_send_count() == 2);
+  CHECK(c->ini_next_pn == ini_pn + 1);
+  /* confirmed: 1-RTT only */
+  c->s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_test_reset_send_count();
+  srvrun_close_resend(&cfg, c);
+  CHECK(srvrun_test_send_count() == 1);
+  *c = (srvrun_conn){0};
+}
+
 /* @file
  * RFC 9000 8.1 anti-amplification limit on the boot flight send path
  * (srvrun_boot_send_hs_gated/srvrun_boot_send/srvrun_boot_budget). Drives
@@ -25232,6 +25283,7 @@ void test_srvrun(void) {
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();
+  test_srvrun_unconfirmed_close_all_levels();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
