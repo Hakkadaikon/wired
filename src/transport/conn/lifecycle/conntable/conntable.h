@@ -67,5 +67,10 @@ int conntable_rekey(conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
  * @return 1 on success, 0 if i is out of range or cid_len exceeds
  *   WIRED_MAX_CID_LEN (the slot is left untouched). */
 int conntable_set_alt2(conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
+/** Replace slot i's primary CID with cid, without keeping the old one
+ * (RFC 9000 5.1.2: the peer retired it).
+ * @return 1 on success, 0 if i is out of range or cid_len exceeds
+ *   WIRED_MAX_CID_LEN (the slot is left untouched). */
+int conntable_set_cid(conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
 
 #endif

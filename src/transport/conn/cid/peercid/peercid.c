@@ -1,9 +1,9 @@
 #include "transport/conn/cid/peercid/peercid_impl.h"
 
-static int  peercid_hold(peercid* p, u64 seq, const u8* cid, u8 len);
-static void peercid_owe(peercid* p, u64 seq);
-static u64  peercid_bit(const peercid* p, u64 seq);
-static int  peercid_is(const peercid_entry* e, u64 seq);
+static int                  peercid_hold(peercid* p, const ncid_frame* f);
+static void                 peercid_owe(peercid* p, u64 seq);
+static u64                  peercid_bit(const peercid* p, u64 seq);
+static int                  peercid_is(const peercid_entry* e, u64 seq);
 static const peercid_entry* peercid_held(const peercid* p, u64 seq);
 static int  peercid_same(const peercid_entry* e, const ncid_frame* f);
 static int  peercid_store(peercid* p, const ncid_frame* f);
@@ -14,23 +14,28 @@ static int  peercid_take(peercid* p, const ncid_frame* f);
 
 /* Hold cid as seq in a free entry. 0, or CONNECTION_ID_LIMIT_ERROR when
  * none is free (RFC 9000 5.1.1). */
-static int peercid_hold(peercid* p, u64 seq, const u8* cid, u8 len) {
+static int peercid_hold(peercid* p, const ncid_frame* f) {
   for (usz i = 0; i < PEERCID_CAP; i++) {
     peercid_entry* e = &p->e[i];
     if (e->in_use) {
       continue;
     }
-    *e = (peercid_entry){.seq = seq, .len = len, .in_use = 1};
-    bytes_memcpy(e->cid, cid, len);
+    *e = (peercid_entry){.seq = f->seq, .len = f->cid_len, .in_use = 1};
+    bytes_memcpy(e->cid, f->cid, f->cid_len);
+    bytes_memcpy(e->token, f->token, NCID_TOKEN);
+    e->has_token = f->seq != 0; /* the handshake's ID carries none */
     return 0;
   }
   return ERR_CONNECTION_ID_LIMIT_ERROR;
 }
 
 void peercid_init(peercid* p, wired_span cid0) {
-  *p       = (peercid){0};
-  p->empty = cid0.n == 0;
-  (void)peercid_hold(p, 0, cid0.p, (u8)cid0.n);
+  ncid_frame f = {0};
+  *p           = (peercid){0};
+  p->empty     = cid0.n == 0;
+  f.cid_len    = (u8)cid0.n;
+  bytes_memcpy(f.cid, cid0.p, cid0.n);
+  (void)peercid_hold(p, &f);
 }
 
 /* ponytail: a full retire queue drops the frame; the peer then keeps an ID
@@ -80,7 +85,7 @@ static int peercid_store(peercid* p, const ncid_frame* f) {
   if (e) {
     return peercid_same(e, f) ? 0 : ERR_PROTOCOL_VIOLATION;
   }
-  return peercid_hold(p, f->seq, f->cid, f->cid_len);
+  return peercid_hold(p, f);
 }
 
 static int peercid_below(const peercid_entry* e, u64 rpt) {

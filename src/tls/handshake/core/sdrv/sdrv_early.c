@@ -116,10 +116,13 @@ static int sdrv_early_data_wanted(
 
 /* RFC 8446 4.2.10 / RFC 9001 4.6.1: derive and cache the 0-RTT key/iv/hp
  * (client_early_traffic_secret) over the accepted PSK and the raw
- * ClientHello bytes -- the same inputs a peer's own 0-RTT sender used. */
+ * ClientHello bytes -- the same inputs a peer's own 0-RTT sender used,
+ * under the labels of the client's original version (RFC 9369 4.1: 0-RTT
+ * never switches to the negotiated version). */
 static void sdrv_take_early_keys(sdrv* s, const u8* ch_msg, usz ch_len) {
-  tls_early_keys_suite(
-      s->cipher_suite, s->psk_secret, ch_msg, ch_len, &s->early_keys);
+  tls_early_keys_suite_ver(
+      s->cipher_suite, s->client_version ? s->client_version : VERSION_1,
+      s->psk_secret, ch_msg, ch_len, &s->early_keys);
   s->early_data_accepted = 1;
 }
 

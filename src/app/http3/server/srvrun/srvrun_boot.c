@@ -110,7 +110,7 @@ wired_srvboot_id srvrun_slot_id(
 /* RFC 9000 10.2: answer an authenticated-but-unservable boot with an
  * Initial CONNECTION_CLOSE so the peer fails fast instead of retrying into
  * its handshake timeout. Always reports the boot failed. */
-int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+int srvrun_refuse(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8  pkt[1500];
   u64 err = sdrv_last_error(&c->s.sdrv);
   usz n   = wired_srvboot_refusal(

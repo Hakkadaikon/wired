@@ -94,12 +94,9 @@ static void srvrun_tx_conn(
 }
 
 void srvrun_send_now(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what) {
   (void)what; /* WIRED_LOG compiles out without -DWIRED_DEBUG */
-  if (pkt.n) {
+  if (pkt.n && srvrun_send_spend(cfg, c, pkt.n)) { /* RFC 9000 8 */
     srvrun_tx_conn(cfg, c, pkt);
     srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
@@ -111,10 +108,7 @@ void srvrun_send_now(
 /* srvrun_send_now, except on a closing connection: RFC 9000 10.2.1 lets it
  * send nothing but its CONNECTION_CLOSE again (srvrun_close_resend). */
 void srvrun_send(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what) {
   if (!c->closing) {
     srvrun_send_now(cfg, c, pkt, what);
   }

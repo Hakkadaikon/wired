@@ -30,7 +30,9 @@ void srvrun_path_step(
     return;
   }
   srvrun_path_seed(ctx->cfg, c);
+  srvrun_path_note_rx(ctx, c, dg.n);
   srvrun_path_take_cids(ctx->cfg, c);
+  srvrun_path_take_retires(ctx, c);
   srvrun_apply_path_response(ctx->cfg, c);
   kept = srvrun_dcid_kept(c, dg);
   if (srvrun_rebind_due(ctx, c)) {

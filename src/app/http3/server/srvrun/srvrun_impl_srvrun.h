@@ -1,7 +1,9 @@
 #ifndef APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_SRVRUN_H
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_SRVRUN_H
 
+#include "app/http3/server/srvrun/srvrun_impl_cid.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
+#include "app/http3/server/srvrun/srvrun_impl_rst.h"
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/stats/stats.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -355,30 +357,6 @@ typedef struct {
  * (RFC 9221 1), but one already queued is never overwritten. */
 #define SRVRUN_DG_PENDING_Q 4
 
-/* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
- * connection keeps until ACKed. Sized so every stream this connection can
- * track -- request slots, WT bidi/uni receive slots, WT send slots, both
- * CONNECT streams -- can be aborted at once, plus the GOAWAY: 93 entries,
- * about 6.7 KB per connection. An entry lives about one RTT (until ACKed);
- * one that exhausts SRVRUN_PTO_MAX resends tears the connection down. */
-#define SRVRUN_RST_RETX                                       \
-  (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
-   WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +  \
-   SRVRUN_MAX_WT_SESSIONS + 1)
-
-/* One control packet awaiting its ACK: the exact frames sent (at most 42
- * bytes -- RESET_STREAM + STOP_SENDING is 1 + three 8-byte varints, then
- * 1 + two; a GOAWAY STREAM frame is smaller), resent verbatim so a final
- * size or stream offset never changes (RFC 9000 4.5/2.2). pln 0 marks a
- * free entry; tries is the resends left. */
-typedef struct {
-  u8  pl[48];
-  u8  pln;
-  u8  tries;
-  u64 pn;
-  u64 due_ms;
-} srvrun_rst;
-
 /* Per-connection server state. Members are grouped by alignment (8-byte,
  * then 4-byte, then byte arrays) so the struct carries no padding. */
 typedef struct {
@@ -452,6 +430,8 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9000 5.1.1/9.4: migration bookkeeping. */
+  srvrun_mig mig;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
    * advanced (s->ku.generation), used to floor how long the retained old
    * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless

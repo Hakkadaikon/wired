@@ -84,6 +84,19 @@ typedef struct {
   /** RFC 9001 6.6: received 1-RTT packets that failed to open under any
    * retained generation, toward the AEAD integrity limit. */
   u64 ku_auth_fail;
+  /** RFC 9369 4.1: 1 once a Handshake packet (always in the negotiated
+   * version) opened; from then on original-version Initials are dropped,
+   * until then they still open under the original version's keys. */
+  int hs_rx_seen;
+  /** RFC 9000 17.4: spin bit of the highest-numbered 1-RTT packet received,
+   * which the server reflects on its own 1-RTT packets. */
+  int spin_rx;
+  /** RFC 9000 17.4: 1 when this connection's random draw (about 1 in 16)
+   * disabled spin participation; it then sends spin 0 throughout. */
+  int spin_off;
+  /** RFC 9287 3.1: per-connection random seed the greased QUIC Bit of each
+   * 1-RTT packet is drawn from. */
+  u64 grease_seed;
   /** RFC 8446 4 / 4.4.4: the CRYPTO_ERROR (RFC 9000 20.1) a handshake
    * message latched for the caller to close the connection with --
    * unexpected_message for one of the wrong type or phase, decrypt_error

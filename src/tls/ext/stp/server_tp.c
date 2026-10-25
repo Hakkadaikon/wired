@@ -1,6 +1,7 @@
 #include "tls/ext/stp/server_tp.h"
 
 #include "app/datagram/datagram/datagram.h"
+#include "tls/ext/grease/grease.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpblob.h"
 
@@ -123,6 +124,14 @@ static int put_sreset_token(wired_obuf* out, wired_span token) {
   return token.n == 16 && put_blob(out, TP_STATELESS_RESET_TOKEN, token);
 }
 
+/* RFC 9287 3: grease_quic_bit with an empty value -- this server accepts
+ * packets with the QUIC Bit cleared (no receive path tests it). */
+static int put_grease_quic_bit(wired_obuf* out) {
+  usz n = grease_encode(out->p + out->len, out->cap - out->len);
+  out->len += n;
+  return n != 0;
+}
+
 int stp_build_server_ret(
     wired_span        original_dcid,
     wired_span        initial_scid,
@@ -135,7 +144,8 @@ int stp_build_server_ret(
   ok = put_blob(out, TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
        put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
        put_rscid(out, rscid) & put_sreset_token(out, sreset_token) &
-       put_blob(out, TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
+       put_blob(out, TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid) &
+       put_grease_quic_bit(out);
   return ok;
 }
 

@@ -151,4 +151,6 @@ void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
     return;
   }
   c->l.spare_cid_len = cfg->id->scid_len;
+  c->mig.spare       = 1;
+  c->mig.next        = 2;
 }

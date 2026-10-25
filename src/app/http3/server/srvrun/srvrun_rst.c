@@ -57,6 +57,8 @@ static srvrun_rst* srvrun_rst_free(srvrun_conn* c) {
   return 0;
 }
 
+int srvrun_rst_room(srvrun_conn* c) { return srvrun_rst_free(c) != 0; }
+
 /* 1 iff a payload of pln bytes can be kept (nonempty, fits pl[]). */
 static int srvrun_rst_fits(usz pln) {
   return pln && pln <= sizeof(((srvrun_rst*)0)->pl);

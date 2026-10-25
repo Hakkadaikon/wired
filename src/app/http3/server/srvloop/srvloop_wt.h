@@ -867,6 +867,12 @@ typedef struct {
    * Prior To above its Sequence Number, or a bad length): the owner closes
    * with FRAME_ENCODING_ERROR. Never cleared by this loop. */
   int ncid_malformed;
+  /** RFC 9000 19.16: the sequence numbers of the RETIRE_CONNECTION_ID
+   * frames processed this step (one past WIRED_SRVLOOP_NCID_RX is
+   * skipped); the owner retires and replaces them. */
+  u64 retire_rx[WIRED_SRVLOOP_NCID_RX];
+  /** Entries used in retire_rx; reset at the start of every step. */
+  usz retire_rx_n;
   /** RFC 9000 13.4 / RFC 9002 19.3.2: this connection's cumulative count of
    * received datagrams marked ECT(0)/ECT(1)/CE (RFC 3168), monotonically
    * increasing across the connection's whole lifetime -- an ACK frame reports

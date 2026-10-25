@@ -77,14 +77,14 @@ wired_span sdrv_sreset_token_span(const sdrv* s) {
 
 /* RFC 9368 3/4: append this server's version_information transport
  * parameter -- Chosen = the version the flight replies in, Available = the
- * supported set in preference order (v2 then v1). Sent unconditionally
+ * accepted set (sdrv_set_versions) in preference order. Sent unconditionally
  * (legal whether or not the client offered one). Returns 1, 0 on
  * overflow. */
 int sdrv_flight_emit_ee_version_info(const sdrv* s, wired_obuf* tob) {
   vers_set     us;
   version_info vi;
   usz          n;
-  vers_init(&us);
+  vers_init_mask(&us, s->versions);
   vi.chosen      = sdrv_wire_version(s);
   vi.n_available = us.n;
   for (usz i = 0; i < us.n; i++) {

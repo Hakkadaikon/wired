@@ -1,7 +1,8 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h);
-static int  srvrun_retry_token_gen_ok(
+static void srvrun_send_retry(
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version);
+static int srvrun_retry_token_gen_ok(
     const srvrun_step_ctx* ctx,
     wired_span             token,
     wired_span*            odcid,
@@ -26,8 +27,10 @@ static int srvrun_boot_scid_match(
  * token): DCID = the client's SCID (RFC 9000 7.2), a fresh random SCID the
  * client will derive its next Initial keys from (RFC 9001 5.2), the wire
  * token binding the peer address to h's DCID (the true ODCID), and the
- * RFC 9001 5.8 integrity tag patched over the assembled packet. */
-static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
+ * RFC 9001 5.8 integrity tag patched over the assembled packet -- all in the
+ * Initial's own version (RFC 9369 4.1). */
+static void srvrun_send_retry(
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version) {
   u8  scid[8], token[SRVRUN_RETRY_TOKEN_MAX], pkt[128];
   usz tn, n;
   srvrun_retry_prep(ctx, h, scid, token, &tn);
@@ -35,11 +38,11 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
     return;
   }
   n = srvrun_retry_pkt_build(
-      h, scid, wired_span_of(token, tn), pkt, sizeof pkt);
+      h, version, scid, wired_span_of(token, tn), pkt, sizeof pkt);
   if (n == 0) {
     return;
   }
-  srvrun_retry_finish(ctx, h, pkt, n);
+  srvrun_retry_finish(ctx, h, version, pkt, n);
 }
 
 /* Verify token under the key `back` epochs before now. */
@@ -116,7 +119,7 @@ static int srvrun_token_act(
     return 0;
   }
   if (verdict == SRVRUN_TOK_RETRY) {
-    srvrun_send_retry(ctx, h);
+    srvrun_send_retry(ctx, h, be_get_be32(dg.p + 1));
     return 1;
   }
   srvrun_send_initial_close(ctx, dg, ERR_INVALID_TOKEN);
@@ -155,8 +158,9 @@ void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
  * to the sender — no connection slot is involved (RFC 9000 5.2.2). Returns 1
  * when the datagram was consumed this way. */
 int srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg) {
-  u8  vn[64];
-  usz n = wired_srvboot_vneg(wired_span_of(dg.p, dg.n), vn, sizeof vn);
+  u8  vn[WIRED_SRVBOOT_VN_MAX];
+  usz n = wired_srvboot_vneg(
+      wired_span_of(dg.p, dg.n), ctx->cfg->id->versions, vn, sizeof vn);
   if (!n) {
     return 0;
   }

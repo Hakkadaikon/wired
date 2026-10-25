@@ -143,3 +143,11 @@ int conntable_set_alt2(
   t[i].alt2_cid_len = cid_len;
   return 1;
 }
+
+int conntable_set_cid(conntable* t, usz cap, int i, const u8* cid, u8 cid_len) {
+  if (!conntable_rekey_ok(cap, i, cid_len)) {
+    return 0;
+  }
+  conntable_set_primary(&t[i], cid, cid_len);
+  return 1;
+}

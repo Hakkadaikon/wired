@@ -8,6 +8,10 @@
 
 #define VERSION_1 0x00000001u
 #define VERSION_2 0x6b3343cfu /* RFC 9369 */
+/** wired_srvboot_id.versions bit: accept QUIC v1 (RFC 9000). */
+#define WIRED_VERSIONS_V1 0x1u
+/** wired_srvboot_id.versions bit: accept QUIC v2 (RFC 9369). */
+#define WIRED_VERSIONS_V2 0x2u
 
 /* A reserved version matches the 0x?a?a?a?a GREASE pattern (RFC 8999 6) and
  * is never selected. */

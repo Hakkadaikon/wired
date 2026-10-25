@@ -2,6 +2,8 @@
 
 static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms);
 static int srvrun_pto_all(srvrun_conn* c, u64 now_ms);
+static int srvrun_reset_after(
+    const srvrun_conn* c, const srvrun_rxmark* mark, wired_mspan dg);
 
 /* The wtsend half of the probe pass, same budget policy. */
 static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms) {
@@ -75,12 +77,24 @@ void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
   }
 }
 
+/* RFC 9000 10.3.1: nothing in dg decrypted, and it ends in a peer reset
+ * token. */
+static int srvrun_reset_after(
+    const srvrun_conn* c, const srvrun_rxmark* mark, wired_mspan dg) {
+  return !srvrun_rx_app_adv(mark, &c->l) && srvrun_peer_reset_hit(c, dg);
+}
+
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 void srvrun_step_and_reap(
     const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
-  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_conn*  c    = &ctx->st->conns[slot];
+  srvrun_rxmark mark = srvrun_rx_mark(&c->l);
   srvrun_on_step(ctx, c, dg);
+  if (srvrun_reset_after(c, &mark, dg)) {
+    srvrun_peer_reset_drain(ctx, slot);
+    return;
+  }
   if (c->l.peer_closed) {
     srvrun_log_close_alert(
         "conn closed by peer (CONNECTION_CLOSE)", c->l.peer_close_code);
