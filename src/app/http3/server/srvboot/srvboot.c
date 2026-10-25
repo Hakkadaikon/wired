@@ -106,7 +106,7 @@ int srvboot_init(
       id->priv,        id->pub,      id->cert_seed, id->chain,
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   srvboot_init_server(conn, id, &in);
-  sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns);   /* RFC 7301 3.2 */
+  sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
   sdrv_set_alpn_client_order(&conn->s->sdrv, id->alpn_client_order);
   sdrv_set_early_data(&conn->s->sdrv, id->early_data); /* RFC 8446 E.5 */
   wired_server_set_limits(
