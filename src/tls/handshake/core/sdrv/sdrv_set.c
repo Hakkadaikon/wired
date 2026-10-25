@@ -50,3 +50,8 @@ int sdrv_set_cids_retried(
 int sdrv_set_retry_scid(sdrv* s, wired_span rscid) {
   return sdrv_set_cid(s->rscid, &s->rscid_len, rscid);
 }
+
+int sdrv_set_peer_scid(sdrv* s, wired_span scid) {
+  s->peer_scid_set = 1;
+  return sdrv_set_cid(s->peer_scid, &s->peer_scid_len, scid);
+}

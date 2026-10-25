@@ -116,5 +116,11 @@ int srvboot_init(
   if (!srvboot_set_cids(conn, id, h)) {
     return 0;
   }
+  /* RFC 9000 7.3: the ClientHello's initial_source_connection_id is
+   * checked against this Initial's SCID. */
+  if (!sdrv_set_peer_scid(
+          &conn->s->sdrv, wired_span_of(h->scid, h->scid_len))) {
+    return 0;
+  }
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);
 }

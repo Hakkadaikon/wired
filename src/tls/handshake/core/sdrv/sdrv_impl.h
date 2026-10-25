@@ -25,6 +25,7 @@
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/ext/tparam/tpcheck.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/core/tls/binder.h"
@@ -124,6 +125,8 @@ void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
 int  sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len);
 int  sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len);
 int  sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int  sdrv_ch_check_client_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int  sdrv_ch_check_iscid(sdrv* s, const u8* ch_msg, usz ch_len);
 int  sdrv_find_version_information(
     const u8* ch_msg, usz ch_len, wired_span* bytes);
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
@@ -175,6 +178,6 @@ static inline int sdrv_vec_ok(
   return sdrv_count_ok(sdrv_vec_count(d.p + w, d.n - w, step), min);
 }
 
-extern const sdrv_ch_gate SDRV_CH_GATES[14];
+extern const sdrv_ch_gate SDRV_CH_GATES[16];
 
 #endif

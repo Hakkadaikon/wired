@@ -2589,6 +2589,7 @@ static usz sr_raw_ch(client* c, u8* ch, usz cap) {
   }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&c->tls, wired_span_of(g_cli_scid, 6)) == 1);
   return tlsdriver_raw_client_hello(&c->tls, ch, cap);
 }
 
@@ -15730,6 +15731,7 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&c.tls, wired_span_of(g_cli_scid, 6)) == 1);
   n = tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
   CHECK(n > 100);
   nd = sr_seal_ch_half(dg, sizeof dg, g_sr_odcid, 8, wired_span_of(ch, 60), 0);

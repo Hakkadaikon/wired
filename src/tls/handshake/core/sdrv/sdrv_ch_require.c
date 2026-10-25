@@ -207,6 +207,8 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_require_psk_shape,
     sdrv_ch_require_tp_ext,
     sdrv_ch_reject_dup_tp,
+    sdrv_ch_check_client_tp,
+    sdrv_ch_check_iscid,
     sdrv_ch_check_version_information,
     sdrv_ch_reject_dup_ext,
     sdrv_ch_reject_illegal_ext,

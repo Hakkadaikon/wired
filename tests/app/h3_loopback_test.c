@@ -667,6 +667,7 @@ static usz sb_build_raw_ch(client* c, u8* ch, usz cap) {
   }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&c->tls, wired_span_of(g_scid, 6)) == 1);
   n = tlsdriver_raw_client_hello(&c->tls, ch, cap);
   CHECK(n > 100); /* both split chunks below must be non-empty */
   return n;
@@ -1203,6 +1204,11 @@ static void test_srvboot_hrr_v2_switch_accepts_ch2_with_v1_chosen(void) {
   sb_make_id(&id, priv, pub, seed, rnd);
   tp_len = version_info_encode(tp, sizeof tp, &vi);
   CHECK(tp_len != 0);
+  {
+    wired_obuf tob = obuf_of(tp + tp_len, sizeof tp - tp_len);
+    tp_len += tparam_put_blob(
+        &tob, TP_INITIAL_SOURCE_CONNECTION_ID, wired_span_of(g_scid, 6));
+  }
   for (usz i = 0; i < 32; i++) {
     cli_priv[i] = (u8)(i + 1);
     cli_rnd[i]  = (u8)(0xa0 + i);
@@ -1367,12 +1373,13 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
 
 /* Strip the trailing quic_transport_parameters extension (RFC 9001 8.2, type
  * 0x0039) off a ClientHello built by sb_build_raw_ch: tlsdriver_raw_
- * client_hello always offers an empty TP payload (tlsdriver.c), and
- * append_exts (clienthello.c) always appends it last, so its whole TLV
- * (header(4)+0 = 4 bytes) is always the final 4 bytes of ch -- same shape as
+ * client_hello offers only initial_source_connection_id (0x0f, 6, g_scid:
+ * 8 bytes, tlsdriver.c), and append_exts (clienthello.c) always appends it
+ * last, so its whole TLV (header(4)+8 = 12 bytes) is always the final bytes
+ * of ch -- same shape as
  * sdrv_test.c's sdrv_test_strip_tp_ext, ported here since that helper is
  * file-static to sdrv_test.c. */
-#define SDRV_H3_TP_BODY_LEN 0
+#define SDRV_H3_TP_BODY_LEN 8
 static usz sb_strip_tp_ext(u8* ch, usz ch_len) {
   usz cut      = 4 + SDRV_H3_TP_BODY_LEN;
   usz nlen     = ch_len - cut;
@@ -1510,6 +1517,7 @@ static void sb_split_boot(struct sb_split_fix* f) {
   }
   wired_x25519_base(cpub, f->cpriv);
   tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&f->c.tls, wired_span_of(g_scid, 6)) == 1);
   f->ch_len = tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
   CHECK(f->ch_len > 0);
   {

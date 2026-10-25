@@ -186,6 +186,12 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
     tn +=
         tparam_put_int(&tob3, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   }
+  { /* RFC 9000 7.3: name our Initial's SCID */
+    wired_obuf tob4 = obuf_of(tp + tn, sizeof tp - tn);
+    tn += tparam_put_blob(
+        &tob4, TP_INITIAL_SOURCE_CONNECTION_ID,
+        wired_span_of(g_sdt_cli_scid, 6));
+  }
   static const u8 random[32] = {0};
   clienthello_in  in         = {
       random, cx->pub, wired_span_of((const u8*)0, 0), wired_span_of(tp, tn)};

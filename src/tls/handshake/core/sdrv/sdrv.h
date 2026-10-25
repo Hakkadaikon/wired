@@ -219,6 +219,14 @@ typedef struct {
                     * the Retry packet's SCID, advertised only when
                     * a Retry preceded this handshake */
   u8 rscid_len;    /**< bytes used in rscid; 0 = no Retry */
+  /** RFC 9000 7.3: the Source CID of the client's Initial as seen on the
+   * wire; initial_source_connection_id must equal it. */
+  u8 peer_scid[20];
+  /** Bytes used in peer_scid (0..20). */
+  u8 peer_scid_len;
+  /** 1 once sdrv_set_peer_scid ran: only a driver that saw the Initial
+   * header can check initial_source_connection_id against it. */
+  u8 peer_scid_set;
   /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
    * the EncryptedExtensions transport parameters when sreset_token_set is 1.
    * The caller derives it from a restart-stable secret (sreset_key_
@@ -365,6 +373,14 @@ int sdrv_set_cids_retried(
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
 int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
+
+/** Record the Source CID of the client's Initial (RFC 9000 7.3): the
+ * ClientHello must then carry an initial_source_connection_id equal to it,
+ * or it is rejected with TRANSPORT_PARAMETER_ERROR.
+ * @param s the server driver
+ * @param scid the client's Initial Source CID (at most 20 bytes)
+ * @return 1 on success, 0 when scid exceeds 20 bytes */
+int sdrv_set_peer_scid(sdrv* s, wired_span scid);
 
 /** Key rotation: also open presented tickets under prev (TICKET_KEY_LEN
  * bytes, copied), the previous generation of the ticket key. Call after

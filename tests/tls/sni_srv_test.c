@@ -25,14 +25,16 @@ struct snisrv_fix {
 
 /* A real ClientHello offering server_name sni (n 0: none) and ALPN h3. */
 static usz snisrv_ch(u8* ch, usz cap, wired_span sni) {
-  u8 cli_priv[32], cli_pub[32], rnd[32];
+  /* RFC 9000 7.3: initial_source_connection_id = the Initial's SCID */
+  static const u8 tp[] = {TP_INITIAL_SOURCE_CONNECTION_ID, 4, 1, 2, 3, 4};
+  u8              cli_priv[32], cli_pub[32], rnd[32];
   for (usz i = 0; i < 32; i++) {
     cli_priv[i] = (u8)(i + 1);
     rnd[i]      = (u8)(0xa0 + i);
   }
   wired_x25519_base(cli_pub, cli_priv);
   return tls_client_hello(
-      &(clienthello_in){rnd, cli_pub, sni, wired_span_of(0, 0)},
+      &(clienthello_in){rnd, cli_pub, sni, wired_span_of(tp, sizeof tp)},
       &(wired_obuf){ch, cap, 0});
 }
 
