@@ -76,8 +76,9 @@ static void sendsess_requeue(wired_sendsess* s, usz i) {
   if (s->requeue_n >= WIRED_SENDSESS_LOG) {
     return;
   }
-  s->requeue[s->requeue_n++] = s->log[i].sl;
-  s->log[i].inflight         = 0;
+  s->requeue_pn[s->requeue_n] = s->log[i].pn + 1;
+  s->requeue[s->requeue_n++]  = s->log[i].sl;
+  s->log[i].inflight          = 0;
 }
 
 /* Report one lost slice to the caller's array (skipped without one). */

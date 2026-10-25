@@ -95,7 +95,31 @@ static void test_srvrun_rec_granularity_floor(void) {
   CHECK(c.resp[0].sess.requeue_n == 1);
 }
 
+/* RFC 9000 13.3 on the server path: pn 100 is declared lost by the
+ * packet threshold when pn 103 is acked, then a late ACK of pn 100 arrives
+ * before the retransmit went out -- the pump must send new data, never
+ * pn 100's already-delivered slice. */
+static void test_srvrun_rec_spurious_loss_not_resent(void) {
+  static u8         body[5 * SRVRUN_CHUNK];
+  struct lp_fix     f;
+  srvrun_conn       c;
+  u8                obuf[1024];
+  wired_obuf        ob = {obuf, sizeof obuf, 0};
+  wired_sendq_slice sl;
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  for (u64 pn = 100; pn < 104; pn++) {
+    srvrec_log(&c, pn, 1);
+  }
+  srvrec_ack(&c, 101, 103, 2);
+  CHECK(c.resp[0].sess.requeue_n == 1);
+  srvrec_ack(&c, 100, 100, 3);
+  CHECK(c.resp[0].sess.requeue_n == 0);
+  CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+  CHECK(sl.offset == 4 * SRVRUN_CHUNK); /* new data, not offset 0 */
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
+  test_srvrun_rec_spurious_loss_not_resent();
 }

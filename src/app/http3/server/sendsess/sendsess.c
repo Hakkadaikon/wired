@@ -42,8 +42,11 @@ usz wired_sendsess_inflight(const wired_sendsess* s) {
 }
 
 int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out) {
+  s->taken_pn = 0;
   if (s->requeue_n) {
-    *out = s->requeue[--s->requeue_n];
+    s->requeue_n--;
+    *out        = s->requeue[s->requeue_n];
+    s->taken_pn = s->requeue_pn[s->requeue_n];
     return 1;
   }
   return wired_sendq_next(&s->q, out);
@@ -78,7 +81,8 @@ int wired_sendsess_sent(
  * keeps the function total anyway. */
 void wired_sendsess_untake(wired_sendsess* s, const wired_sendq_slice* sl) {
   if (s->requeue_n < WIRED_SENDSESS_LOG) {
-    s->requeue[s->requeue_n++] = *sl;
+    s->requeue_pn[s->requeue_n] = s->taken_pn;
+    s->requeue[s->requeue_n++]  = *sl;
   }
 }
 

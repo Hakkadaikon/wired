@@ -40,6 +40,7 @@ static void srvrun_cc_sample(
  * but feed neither. */
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
+  wired_sendsess_ack_requeued(sess, lo, hi); /* RFC 9000 13.3 */
   if (!srvrun_range_hits(sess, lo, hi)) {
     return;
   }

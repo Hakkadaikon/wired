@@ -561,6 +561,30 @@ static void test_sendsess_reclaim_base_and_ring_room(void) {
   CHECK(wired_sendsess_reclaim_base(&s) == 40); /* requeued slice pins it */
 }
 
+/* RFC 9000 13.3: a slice requeued as lost whose packet is then
+ * acknowledged is dropped, not resent; a requeued slice whose packet stays
+ * unacknowledged keeps its place, and an untaken slice keeps its pn. */
+static void test_sendsess_requeue_dropped_on_late_ack(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 30, 10);
+  for (u64 pn = 0; pn < 3; pn++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 0) == 1);
+  }
+  wired_sendsess_ack(&s, 2, 2);
+  CHECK(wired_sendsess_detect_lost(&s, 2, 10, 1000, 0, 0) == 2);
+  CHECK(s.requeue_n == 2);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  wired_sendsess_untake(&s, &sl); /* the taken slice keeps its lost pn */
+  wired_sendsess_ack_requeued(&s, 0, 0);
+  CHECK(s.requeue_n == 1);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(sl.offset == 10); /* pn 1's slice, the one still unacknowledged */
+  CHECK(wired_sendsess_take(&s, &sl) == 0); /* pn 0's slice is not resent */
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -590,4 +614,5 @@ void test_sendsess(void) {
   test_sendsess_untake_reoffers_sendq_slice();
   test_sendsess_untake_reoffers_requeued_slice();
   test_sendsess_reclaim_base_and_ring_room();
+  test_sendsess_requeue_dropped_on_late_ack();
 }
