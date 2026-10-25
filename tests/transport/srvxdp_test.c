@@ -241,10 +241,32 @@ static void test_srvxdp_print_stats_bad_fd(void) {
   wired_srvxdp_print_stats(-1);
 }
 
+/* RFC 9000 14 / RFC 791 3.2 on the shipping send path: every frame
+ * wired_srvxdp_send builds has DF set and a fresh Identification. */
+static void test_srvxdp_send_sets_df_unique_id(void) {
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[1] = {0x40};
+  u32              idx;
+  const u8*        ip[2];
+  sxt_init(&w, &x);
+  sxt_learn_peer(&w, &x, &dst);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  CHECK(xskring_cons_peek(&w.ktx, 2, &idx) == 2);
+  for (u32 i = 0; i < 2; i++) {
+    ip[i] = w.umem + xskring_desc_at(&w.ktx, idx + i)->addr + ETH_HDR;
+    CHECK(ip[i][6] == 0x40 && ip[i][7] == 0);
+  }
+  CHECK(be_get_be16(ip[0] + 4) != be_get_be16(ip[1] + 4));
+}
+
 void test_srvxdp(void) {
   test_srvxdp_rx_basic();
   test_srvxdp_rx_conservation();
   test_srvxdp_send_basic();
+  test_srvxdp_send_sets_df_unique_id();
   test_srvxdp_completion_reap();
   test_srvxdp_txpool_exhaustion();
   test_srvxdp_mac_miss();

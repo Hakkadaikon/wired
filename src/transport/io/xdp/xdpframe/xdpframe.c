@@ -96,7 +96,7 @@ usz xdpframe_build(
   usz       total = XDPFRAME_HDRS + payload.n;
   ipv4_head ih    = {
       (u16)(IPV4_HDR + UDP_HDR + payload.n), m->udp.addrs.src, m->udp.addrs.dst,
-      IP_PROTO_UDP};
+      IP_PROTO_UDP, m->ip_id};
   wired_obuf ob;
   if (frame.n < total) {
     return 0;

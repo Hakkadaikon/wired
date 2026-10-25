@@ -7,7 +7,7 @@ int session_link_tx(memlink* l, wired_span qpkt, ipv4addrs addrs) {
   wired_obuf ub   = obuf_of(udp, sizeof(udp));
   usz        un   = udp4_build(&ub, &meta, qpkt);
   ipv4_build(
-      ip, &(ipv4_head){(u16)(20 + un), addrs.src, addrs.dst, IP_PROTO_UDP});
+      ip, &(ipv4_head){(u16)(20 + un), addrs.src, addrs.dst, IP_PROTO_UDP, 0});
   for (usz i = 0; i < 20; i++) {
     frame[i] = ip[i];
   }

@@ -55,6 +55,8 @@ typedef struct {
   u8 src_mac[6];
   /** UDP ports and IPv4 addresses in host order */
   udp4meta udp;
+  /** IPv4 Identification for this datagram (RFC 791 3.2) */
+  u16 ip_id;
 } xdpframe_tx;
 
 /** Build a complete eth+IPv4+UDP frame around payload, with the IPv4 header

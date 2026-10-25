@@ -38,6 +38,9 @@ typedef struct {
   int           have_mac;   /**< 0 until our_mac is learned */
   u32           ip_be;      /**< cfg->ip, network byte order */
   u16           port;       /**< cfg->port, host order */
+  /** next IPv4 Identification to send (RFC 791 3.2; DF is always set, so
+   * a per-socket counter suffices, RFC 6864 4.1) */
+  u16 ip_id;
   /** BPF map/prog/link owned by this instance; fds are -1 when opened
    * against a shared wired_srvxdpbpf (wired_srvxdp_open_shared) */
   wired_srvxdpbpf bpf;

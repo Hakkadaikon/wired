@@ -110,7 +110,8 @@ static void test_xdpframe_tx_roundtrip(void) {
   const xdpframe_tx m     = {
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x02},
       {0x02, 0x07, 0x00, 0x00, 0x00, 0x01},
-      {{4433, 5555}, {0x0a070001, 0x0a070002}}};
+      {{4433, 5555}, {0x0a070001, 0x0a070002}},
+      0};
   eth_head    eh;
   xdpframe_rx rx;
   usz         n = xdpframe_build(
@@ -152,6 +153,7 @@ static void test_xdpframe_reflect(void) {
   m.udp.ports.dport = xdpft_ntoh16(rx.src.port_be);
   m.udp.addrs.src   = rx.our_ip;
   m.udp.addrs.dst   = wired_udp_addr4_be(&rx.src);
+  m.ip_id           = 0;
   usz n             = xdpframe_build(
       wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 2));
   CHECK(n == XDPFRAME_HDRS + 2);
