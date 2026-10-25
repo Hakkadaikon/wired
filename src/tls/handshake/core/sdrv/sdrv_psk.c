@@ -141,6 +141,8 @@ void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_take_peer_max_datagram_frame_size(
       ch_msg, ch_len, &s->peer_max_datagram_frame_size);
   sdrv_take_peer_tp_int(
+      ch_msg, ch_len, TP_MAX_IDLE_TIMEOUT, &s->peer_max_idle_timeout);
+  sdrv_take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_DATA, &s->peer_initial_max_data);
   sdrv_take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,

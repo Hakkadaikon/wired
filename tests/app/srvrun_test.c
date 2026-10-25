@@ -670,8 +670,11 @@ static void test_srvrun_send_stream_slice_writes_stream_frame_sent(void) {
   {
     wired_sendq_slice sl;
     CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    c.idle_tx_ms = 0;
     CHECK(srvrun_send_stream_slice(&ctx, &c, &c.resp[0].sess, 11, &sl, 1));
   }
+  /* RFC 9000 10.1: the first ack-eliciting send restarts the idle timer */
+  CHECK(c.idle_tx_ms == 7000);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_sent\",\"stream_id\":11,\"offset\":0,"
@@ -1192,6 +1195,7 @@ static void sr_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;
@@ -2838,6 +2842,66 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
 }
 
+/* One confirmed, idle slot at last_ms 1000 for the idle-period tests. */
+static srvrun_conn* sr_idle_slot(srvrun_state* st, conntable* table) {
+  static const u8 k[4] = {7, 7, 7, 7};
+  srvrun_conn*    c    = &st->conns[0];
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  *c         = (srvrun_conn){0};
+  c->up      = 1;
+  c->last_ms = 1000;
+  c->s.phase = WIRED_SERVER_HS_CONFIRMED;
+  rtt_init(&c->rtt);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k, 4) == 0);
+  return c;
+}
+
+/* 1 if slot 0 survives an idle sweep at now_ms. */
+static int sr_idle_survives(srvrun_state* st, u64 now_ms) {
+  srvrun_sweep_idle(srvrun_test_envcfg(), st, now_ms);
+  return st->conns[0].up;
+}
+
+/* RFC 9000 10.1: the idle period is the minimum of both endpoints'
+ * max_idle_timeout (the client's from its ClientHello, this server's from
+ * the app-set limit or the 30 s default), never below three PTOs, and is
+ * measured from the later of the last receive and the first ack-eliciting
+ * send after it. */
+static void test_srvrun_idle_uses_negotiated_timeout(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, g_srvrun_state.conns};
+  srvrun_conn* c  = sr_idle_slot(&st, table);
+  u64          floor;
+  /* client 10 s < server default 30 s */
+  c->s.sdrv.peer_max_idle_timeout = 10000;
+  CHECK(sr_idle_survives(&st, 1000 + 9999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 10000) == 0);
+  /* server (app) 8 s < client 10 s */
+  c                                 = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout   = 10000;
+  c->s.sdrv.limits.max_idle_timeout = 8000;
+  CHECK(sr_idle_survives(&st, 1000 + 7999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 8000) == 0);
+  /* client 0 = no limit: the server's own value alone */
+  c = sr_idle_slot(&st, table);
+  CHECK(sr_idle_survives(&st, 1000 + 29999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 30000) == 0);
+  /* a send after the receive restarts the timer */
+  c                               = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout = 10000;
+  c->idle_tx_ms                   = 4000;
+  CHECK(sr_idle_survives(&st, 4000 + 9999) == 1);
+  CHECK(sr_idle_survives(&st, 4000 + 10000) == 0);
+  /* 3*PTO above a tiny negotiated value wins */
+  c                               = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout = 1;
+  floor                           = 3 * srvrun_pto_deadline_ms(c, 0);
+  CHECK(floor > 1);
+  CHECK(srvrun_idle_ms(c) == floor);
+  CHECK(sr_idle_survives(&st, 1000 + floor - 1) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + floor) == 0);
+}
+
 /* A connection torn down (here, idle sweep) mid-streaming-response
  * releases its resp[] slots' claimed bigbuf pool rows -- otherwise
  * wired_srvbigbuf's own in_use[] bookkeeping never learns the row is free
@@ -2886,10 +2950,13 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
                     0,  0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
-  st.conns[2].up      = 0;
-  st.conns[2].last_ms = 0;
+  st.conns[2].up         = 0;
+  st.conns[2].last_ms    = 0;
+  st.conns[2].idle_tx_ms = 99;
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
   CHECK(st.conns[2].last_ms == 12345);
+  /* RFC 9000 10.1: the next ack-eliciting send restarts the timer anew */
+  CHECK(st.conns[2].idle_tx_ms == 0);
 }
 
 /* RFC 9000 13.4 / RFC 9002 19.3.2: a datagram's ECN codepoint (carried on
@@ -25143,6 +25210,7 @@ void test_srvrun(void) {
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
   test_srvrun_idle_sweep_evicts_expired();
+  test_srvrun_idle_uses_negotiated_timeout();
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_serve_slot_notes_ecn();

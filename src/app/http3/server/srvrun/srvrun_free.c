@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "transport/conn/lifecycle/closelife/idlefloor.h"
 
 static int srvrun_pkt_is_initial(wired_mspan dg, usz off);
 static int srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n);
@@ -133,9 +134,23 @@ void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
  * table entry forever). */
 int srvrun_slot_busy(const srvrun_conn* c) { return c->up || c->boot.any; }
 
-/* 1 if c has been silent at least the advertised idle timeout. */
+/* RFC 9000 10.1: c's idle period -- the negotiated minimum of both
+ * max_idle_timeout values, raised to at least three PTOs. */
+u64 srvrun_idle_ms(const srvrun_conn* c) {
+  return idle_floor(
+      wired_server_idle_timeout_ms(&c->s), srvrun_pto_deadline_ms(c, 0));
+}
+
+/* RFC 9000 10.1: the idle timer restarts on every receive and on the first
+ * ack-eliciting send after it. */
+static u64 srvrun_idle_since(const srvrun_conn* c) {
+  return u64_max(c->last_ms, c->idle_tx_ms);
+}
+
+/* 1 if c has been idle at least its idle period. */
 static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
-  return srvrun_slot_busy(c) && now_ms - c->last_ms >= WIRED_SRVRUN_IDLE_MS;
+  return srvrun_slot_busy(c) &&
+         now_ms - srvrun_idle_since(c) >= srvrun_idle_ms(c);
 }
 
 /* RFC 9000 21.6: 1 if c is a boot (claimed, not yet confirmed) older than

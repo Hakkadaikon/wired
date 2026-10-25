@@ -37,7 +37,8 @@ void srvrun_flush_held_on_confirm(
 void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
   int          booting = srvrun_awaiting_confirm(c);
-  c->last_ms = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
+  c->last_ms    = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
+  c->idle_tx_ms = 0;           /* the next ack-eliciting send restarts it */
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse. */
   c->boot_rx_bytes += dg.n;

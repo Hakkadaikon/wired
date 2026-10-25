@@ -32,6 +32,9 @@ typedef struct {
    * ClientHello transport parameters; 0 = not advertised (peer does not
    * support DATAGRAM) */
   u64 peer_max_datagram_frame_size;
+  /** peer's max_idle_timeout (0x01, RFC 9000 10.1) in ms from the
+   * ClientHello transport parameters; 0 = absent (no limit). */
+  u64 peer_max_idle_timeout;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit

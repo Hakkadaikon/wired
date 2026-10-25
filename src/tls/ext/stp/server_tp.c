@@ -13,7 +13,6 @@
 static const struct {
   u64 id, val;
 } int_params[] = {
-    {TP_MAX_IDLE_TIMEOUT, STP_DEFAULT_IDLE_TIMEOUT_MS},
     {TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, STP_DEFAULT_STREAM_DATA_LOCAL},
     {TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, STP_DEFAULT_STREAM_DATA_REMOTE},
     {TP_INITIAL_MAX_STREAM_DATA_UNI, STP_DEFAULT_STREAM_DATA_LOCAL},
@@ -50,6 +49,10 @@ static int put_int_params(wired_obuf* out) {
 /* A zero field keeps the built-in default. */
 static u64 lim_or(u64 v, u64 dflt) { return v ? v : dflt; }
 
+u64 stp_idle_timeout_ms(const stp_limits* lim) {
+  return lim_or(lim ? lim->max_idle_timeout : 0, STP_DEFAULT_IDLE_TIMEOUT_MS);
+}
+
 /* Append an integer TP only when val is non-zero (RFC 9221 3: 0 or absent
  * both mean "not supported", so omitting it is equivalent and cheaper). No
  * built-in default: unlike max_data/max_streams_bidi, absence is the correct
@@ -66,7 +69,8 @@ static int put_tunables(wired_obuf* out, const stp_limits* lim) {
   if (!lim) {
     lim = &d;
   }
-  return put_int(
+  return put_int(out, TP_MAX_IDLE_TIMEOUT, stp_idle_timeout_ms(lim)) &
+         put_int(
              out, TP_INITIAL_MAX_DATA,
              lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
          put_int(

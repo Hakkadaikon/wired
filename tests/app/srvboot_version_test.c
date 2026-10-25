@@ -219,6 +219,8 @@ struct sbv_fix {
 
 /* Too big for the stack of a test that boots several times. */
 static struct sbv_fix g_sbv_fix;
+/* wired_srvboot_id.idle_timeout_ms for sbv_boot_ch (0 = default). */
+static u64 g_sbv_idle_ms;
 
 /* A minimal but real ClientHello (x25519 key_share only) whose transport
  * parameter list is exactly `tp` -- enough for wired_server_recv_initial
@@ -316,6 +318,7 @@ static int sbv_boot_ch(struct sbv_fix* f, wired_span ch, wired_span hdr_scid) {
   id.scid                      = (const u8*)"SRVI";
   id.scid_len                  = 4;
   id.random                    = srv_priv;
+  id.idle_timeout_ms           = g_sbv_idle_ms;
   wired_obuf         init_ob   = obuf_of(init_buf, sizeof(init_buf));
   wired_obuf         flight_ob = obuf_of(flight_buf, sizeof(flight_buf));
   wired_srvboot_out  out       = {&init_ob, &flight_ob, {0}, 0, 0};
@@ -363,6 +366,34 @@ static void sbv_check_range(u64 id, u64 value, int want) {
   if (!want) {
     CHECK(sdrv_last_error(&g_sbv_fix.s.sdrv) == ERR_TRANSPORT_PARAMETER_ERROR);
   }
+}
+
+/* Boot with the server's idle_timeout_ms = ours and a ClientHello whose
+ * max_idle_timeout is peer (0 = absent); return the negotiated value. */
+static u64 sbv_idle_negotiated(u64 ours, u64 peer) {
+  static const u8 scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  u8              tp[16], ch[512];
+  wired_obuf      tob = obuf_of(tp, sizeof tp);
+  usz tn = peer ? tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, peer) : 0;
+  usz n  = sbv_make_client_hello_tp(ch, sizeof(ch), wired_span_of(tp, tn));
+  bytes_memset(&g_sbv_fix, 0, sizeof g_sbv_fix);
+  g_sbv_idle_ms = ours;
+  CHECK(
+      sbv_boot_ch(&g_sbv_fix, wired_span_of(ch, n), wired_span_of(scid, 4)) ==
+      1);
+  g_sbv_idle_ms = 0;
+  return wired_server_idle_timeout_ms(&g_sbv_fix.s);
+}
+
+/* RFC 9000 10.1 / RFC 9308 10: the app-set idle timeout and the client's
+ * max_idle_timeout negotiate to their minimum; an absent one imposes no
+ * limit, and an unset server value is the 30 s default. */
+static void test_srvboot_idle_timeout_negotiated(void) {
+  CHECK(sbv_idle_negotiated(7000, 9000) == 7000);
+  CHECK(sbv_idle_negotiated(7000, 4000) == 4000);
+  CHECK(sbv_idle_negotiated(7000, 0) == 7000);
+  CHECK(sbv_idle_negotiated(0, 0) == 30000);
+  CHECK(sbv_idle_negotiated(0, 60000) == 30000);
 }
 
 static void test_srvboot_tp_ranges_validated(void) {
@@ -468,5 +499,6 @@ void test_srvboot_version(void) {
   test_srvboot_v1_initial_with_vi_switches_to_v2();
   test_srvboot_iscid_validated();
   test_srvboot_tp_ranges_validated();
+  test_srvboot_idle_timeout_negotiated();
   test_srvboot_flight_pn_continues_past_partial_ack();
 }

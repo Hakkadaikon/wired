@@ -35,6 +35,11 @@ typedef struct {
                                 * (RFC 9221 3); 0 = not advertised (no
                                 * default -- opt in once DATAGRAM delivery is
                                 * wired end-to-end) */
+  /** RFC 9000 10.1 / RFC 9308 10: the max_idle_timeout this server
+   * advertises, in ms; 0 = the 30 s default. A connection idles out after
+   * the smaller of this and the client's value (wired_server_idle_timeout_
+   * ms), but never before three PTOs. */
+  u64 idle_timeout_ms;
   /** RFC 5280 4.2.1.6: 4-byte IPv4 address (network byte order) added to the
    * self-signed certificate's Subject Alternative Name as an iPAddress
    * entry, alongside the fixed dNSName=localhost -- a browser validating a

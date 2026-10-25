@@ -41,6 +41,15 @@ int srvrun_seal_send_slice(
   return 1;
 }
 
+/* RFC 9000 10.1: the first ack-eliciting send since the last receive
+ * restarts the idle timer. shortcut: only STREAM sends count, not
+ * control-frame-only packets; widen if those ever carry a connection. */
+static void srvrun_idle_note_tx(srvrun_conn* c, u64 now_ms) {
+  if (!c->idle_tx_ms) {
+    c->idle_tx_ms = now_ms;
+  }
+}
+
 int srvrun_send_stream_slice(
     const srvrun_step_ctx*   ctx,
     srvrun_conn*             c,
@@ -59,6 +68,7 @@ int srvrun_send_stream_slice(
     return 0;
   }
   pn = c->l.tx_pn++;
+  srvrun_idle_note_tx(c, ctx->now_ms);
   srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
   if (!srvrun_seal_send_slice(
           ctx, c, wired_span_of(pl, al + plb.len), pn, al)) {

@@ -112,6 +112,7 @@ int srvboot_init(
   wired_server_set_limits(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
       wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);
+  conn->s->sdrv.limits.max_idle_timeout = id->idle_timeout_ms;
   srvboot_set_reset_token(conn, id);
   if (!srvboot_set_cids(conn, id, h)) {
     return 0;

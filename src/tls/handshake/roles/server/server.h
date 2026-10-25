@@ -157,6 +157,14 @@ void wired_server_set_limits(
     u64           max_streams_uni,
     u64           max_datagram_frame_size);
 
+/** RFC 9000 10.1 / RFC 9308 10: this connection's negotiated idle timeout
+ * in ms -- the minimum of the max_idle_timeout this server advertises and
+ * the client's (a 0 / absent value imposes no limit). Before the
+ * ClientHello is processed it is the server's own value.
+ * @param s the server
+ * @return the negotiated idle timeout in ms, 0 = none */
+u64 wired_server_idle_timeout_ms(const wired_server* s);
+
 /** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
  * the server's handshake SCID in the transport parameters. Derive it from a
  * restart-stable secret (sreset_key_derive + sreset_token) so a

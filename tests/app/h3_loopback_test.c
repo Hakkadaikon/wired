@@ -366,6 +366,7 @@ static void sb_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;
@@ -1470,6 +1471,7 @@ static void sb_make_chain_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;

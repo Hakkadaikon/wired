@@ -381,6 +381,9 @@ typedef struct {
   wired_server  s;
   wired_srvloop l;
   u64           last_ms; /**< monotonic ms of the last routed datagram */
+  /** RFC 9000 10.1: monotonic ms of the first ack-eliciting (STREAM) send
+   * since last_ms's receive, 0 = none yet; the idle timer restarts here. */
+  u64 idle_tx_ms;
   /** RFC 9000 10.2: when the closing state (closing) ends -- three times
    * the PTO after the close went out. */
   u64 closing_until_ms;

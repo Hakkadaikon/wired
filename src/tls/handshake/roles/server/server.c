@@ -82,6 +82,11 @@ void wired_server_set_limits(
   s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;
 }
 
+u64 wired_server_idle_timeout_ms(const wired_server* s) {
+  return idledrive_effective(
+      stp_idle_timeout_ms(&s->sdrv.limits), s->sdrv.peer_max_idle_timeout);
+}
+
 void wired_server_set_reset_token(wired_server* s, const u8 token[16]) {
   for (usz i = 0; i < 16; i++) {
     s->sdrv.sreset_token[i] = token[i];
