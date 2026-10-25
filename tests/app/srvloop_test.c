@@ -3813,7 +3813,7 @@ static void test_srvloop_close_frame_detected(void) {
   u8               cc[32];
   u8               ping[1] = {0x01};
   conn_close_frame tpt     = {0, 0x132, 0, 0, 0}; /* TLS decode_error */
-  conn_close_frame app     = {1, 0, 0, 0, 0};
+  conn_close_frame app     = {1, 0x100, 0, 0, 0}; /* H3_NO_ERROR */
   u64              code    = 7;
   usz              n       = frame_put_conn_close(cc, sizeof cc, &tpt);
   CHECK(n > 0);
@@ -3822,7 +3822,7 @@ static void test_srvloop_close_frame_detected(void) {
   n = frame_put_conn_close(cc, sizeof cc, &app);
   CHECK(n > 0);
   CHECK(srvloop_has_close(wired_span_of(cc, n), &code) == 1);
-  CHECK(code == 0);
+  CHECK(code == 0); /* 0x1d codes are the application's, not CRYPTO_ERROR */
   code = 7;
   CHECK(srvloop_has_close(wired_span_of(ping, 1), &code) == 0);
   CHECK(code == 7);
