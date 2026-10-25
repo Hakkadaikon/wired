@@ -50,6 +50,20 @@ static int put_int_params(wired_obuf* out) {
 /* A zero field keeps the built-in default. */
 static u64 lim_or(u64 v, u64 dflt) { return v ? v : dflt; }
 
+void stp_remembered(const stp_limits* lim, u64 out[STP_REMEMBERED_N]) {
+  stp_limits d = {0};
+  if (!lim) {
+    lim = &d;
+  }
+  out[0] = lim_or(lim->max_data, STP_DEFAULT_MAX_DATA);
+  out[1] = STP_DEFAULT_STREAM_DATA_LOCAL;
+  out[2] = STP_DEFAULT_STREAM_DATA_REMOTE;
+  out[3] = STP_DEFAULT_STREAM_DATA_LOCAL;
+  out[4] = lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI);
+  out[5] = lim_or(lim->max_streams_uni, STP_DEFAULT_MAX_STREAMS_UNI);
+  out[STP_REMEMBERED_DGRAM] = lim->max_datagram_frame_size;
+}
+
 /* Append an integer TP only when val is non-zero (RFC 9221 3: 0 or absent
  * both mean "not supported", so omitting it is equivalent and cheaper). No
  * built-in default: unlike max_data/max_streams_bidi, absence is the correct

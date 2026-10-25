@@ -5,6 +5,7 @@
  * and the functions and tables more than one piece uses. Not public API. */
 
 #include "app/datagram/datagram/datagram.h"
+#include "app/datagram/datagram/zerortt_dgram.h"
 #include "common/arch/arch.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
@@ -37,7 +38,9 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/ticketfreshness.h"
+#include "tls/handshake/core/tls/ticketversion.h"
 #include "tls/handshake/core/tls/tpext.h"
+#include "tls/handshake/core/tls/zerortt_params.h"
 #include "transport/conn/loop/manage/zerortt_policy.h"
 #include "transport/conn/loop/manage/zerortt_seen.h"
 #include "transport/version/version/verinfo.h"

@@ -4,9 +4,25 @@
 #include "common/platform/rng/rng.h"
 #include "crypto/symmetric/aead/chacha/aead.h"
 
+/* version(be32) || tp[](be64 each), the layout's tail. */
+static void ticket_encode_tail(const ticket* t, u8* p) {
+  be_put_be32(p, t->version);
+  for (usz i = 0; i < STP_REMEMBERED_N; i++) {
+    be_put_be64(p + 4 + 8 * i, t->tp[i]);
+  }
+}
+
+static void ticket_decode_tail(const u8* p, ticket* t) {
+  t->version = be_get_be32(p);
+  for (usz i = 0; i < STP_REMEMBERED_N; i++) {
+    t->tp[i] = be_get_be64(p + 4 + 8 * i);
+  }
+}
+
 /* Serialize ticket into the fixed plaintext layout: secret ||
  * issued_at(be64) || lifetime_secs(be32) || age_add(be32) || alpn(1) ||
- * ticket_nonce(1) || suite(be16) || sni(32) || origin_at(be64). */
+ * ticket_nonce(1) || suite(be16) || sni(32) || origin_at(be64) ||
+ * version(be32) || tp[STP_REMEMBERED_N](be64 each). */
 static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
   usz i;
   for (i = 0; i < TICKET_SECRET_LEN; i++) {
@@ -23,6 +39,7 @@ static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
     ts[20 + i] = t->sni[i];
   }
   be_put_be64(ts + 20 + TICKET_SNI_LEN, t->origin_at);
+  ticket_encode_tail(t, ts + 28 + TICKET_SNI_LEN);
 }
 
 static void ticket_decode(const u8 in[TICKET_PLAIN_LEN], ticket* t) {
@@ -41,6 +58,7 @@ static void ticket_decode(const u8 in[TICKET_PLAIN_LEN], ticket* t) {
     t->sni[i] = ts[20 + i];
   }
   t->origin_at = be_get_be64(ts + 20 + TICKET_SNI_LEN);
+  ticket_decode_tail(ts + 28 + TICKET_SNI_LEN, t);
 }
 
 void ticket_seal(const ticket* t, const u8 key[TICKET_KEY_LEN], u8* out) {

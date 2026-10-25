@@ -125,7 +125,7 @@ static void test_sdrv_session_id_echo(void) {
  * connection error of type PROTOCOL_VIOLATION. */
 static void test_sdrv_nonempty_session_id_rejected(void) {
   u8   cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
-  u8   ch[512], ch2[600], srv_random[32], sid[32];
+  u8   ch[512], ch2[700], srv_random[32], sid[32];
   usz  ch_len, ch2_len;
   sdrv s;
 
@@ -1254,7 +1254,7 @@ static void test_sdrv_suite_chacha_only(void) {
  * the server's choice, independent of the client's offer order. */
 static void test_sdrv_suite_prefers_aes(void) {
   u8   cli_priv[32], cli_pub[32], srv_random[32];
-  u8   ch[512], ch2[600], sh[256];
+  u8   ch[512], ch2[700], sh[256];
   usz  ch_len, ch2_len, sh_len;
   sdrv s;
   for (usz i = 0; i < 32; i++) {
@@ -1439,7 +1439,7 @@ static usz sdrv_test_append_psk(
    * offset 41) plus the 4-byte handshake header. */
   usz        exts_len_off = 45;
   usz        old_exts_len;
-  u8         modes[8], scratch[256];
+  u8         modes[8], scratch[320];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) {
@@ -1485,7 +1485,7 @@ static usz sdrv_test_append_early_data_then_psk(
   usz        old_exts_len;
   u8         ed[4], modes[8];
   usz        ed_len, modes_len;
-  u8         scratch[256];
+  u8         scratch[320];
   wired_obuf eob  = obuf_of(scratch, sizeof(scratch));
   usz        head = ch_len;
   if (!tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) {
@@ -1562,8 +1562,17 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {
-      {0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, SDRV_TEST_ORIGIN_AT};
+  ticket t = {{0},
+              0,
+              7200,
+              0,
+              0,
+              0,
+              TLS_AES_128_GCM_SHA256,
+              {0},
+              SDRV_TEST_ORIGIN_AT,
+              VERSION_1,
+              {0}};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1641,7 +1650,7 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   u8               sh[256], flight[2048];
@@ -1738,7 +1747,7 @@ static void sdrv_test_psk_init_srv(sdrv* s, const sdrv_psk_fixture* f) {
 static void test_sdrv_psk_hash_mismatch_falls_back(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len;
   sdrv_psk_fixture_init(&f);
   ch2_len = sdrv_test_psk_ch_suite(
@@ -1755,9 +1764,10 @@ static void test_sdrv_psk_hash_mismatch_falls_back(void) {
 static int sdrv_test_psk_aged(u64 age_secs) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len;
-  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  ticket           t = {{0}, 0, 7200,      0,  0, 0, TLS_AES_128_GCM_SHA256,
+                        {0}, 0, VERSION_1, {0}};
   sdrv_psk_fixture_init(&f);
   t.issued_at = wired_clock_epoch_secs() - age_secs;
   bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
@@ -1787,9 +1797,10 @@ static void test_sdrv_psk_expired_ticket_falls_back(void) {
 static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch2[700], psk[48], sh[256], flight[2048];
+  u8               ch2[800], psk[48], sh[256], flight[2048];
   usz              ch2_len;
-  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, {0}, 0};
+  ticket           t = {{0}, 0, 7200,      0,  0, 0, TLS_AES_256_GCM_SHA384,
+                        {0}, 0, VERSION_1, {0}};
   static const u8  nonce[1] = {0};
   hkdf_label       l        = {"resumption", 10, {nonce, 1}};
   wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
@@ -1820,7 +1831,7 @@ static usz sdrv_test_append_psk_no_modes(
     u8* out, usz out_cap, const u8* ch, usz ch_len, const tlsext_psk_in* psk) {
   usz        exts_len_off = SDRV_TEST_EXTS_LEN_OFF;
   usz        old_exts_len;
-  u8         scratch[256];
+  u8         scratch[320];
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_pre_shared_key(psk, &eob)) {
     return 0;
@@ -1844,7 +1855,7 @@ static void test_sdrv_psk_without_modes_rejected(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               binder[HKDF_PRK] = {0};
   usz              ch2_len;
   tlsext_psk_in    psk;
@@ -1877,7 +1888,7 @@ static void test_sdrv_psk_not_last_rejected(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   u8               trailer[16];
@@ -1973,7 +1984,7 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len, psk_ext_off;
   initial_keys     want, got;
   sdrv_psk_fixture_init(&f);
@@ -2012,7 +2023,7 @@ static void test_sdrv_psk_previous_ticket_key_opens(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700], newer[TICKET_KEY_LEN];
+  u8               ch2[800], newer[TICKET_KEY_LEN];
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   for (usz i = 0; i < 32; i++) {
@@ -2039,7 +2050,7 @@ static void test_sdrv_psk_without_early_data_no_0rtt(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   initial_keys     got;
@@ -2088,7 +2099,7 @@ static void test_sdrv_no_ticket_key_disables_0rtt(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len, psk_ext_off;
   initial_keys     got;
   sdrv_psk_fixture_init(&f);
@@ -2120,7 +2131,7 @@ static void test_sdrv_early_data_replay_rejected(void) {
   sdrv_psk_fixture f;
   sdrv             s1, s2;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   for (usz i = 0; i < 32; i++) {
@@ -2161,7 +2172,7 @@ static void test_sdrv_psk_unknown_identity_falls_back(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               garbage[TICKET_SEALED_LEN];
   u8               binder[HKDF_PRK] = {0};
   usz              ch2_len, psk_ext_off;
@@ -2199,7 +2210,7 @@ static void test_sdrv_psk_binder_mismatch_aborts(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               wrong_binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
@@ -2238,7 +2249,7 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
-  u8               ch2[700];
+  u8               ch2[800];
   u8               binder[HKDF_PRK];
   usz              ch2_len, psk_ext_off, trunc_len;
   sdrv_psk_fixture_init(&f);
@@ -2440,7 +2451,8 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  ticket t    = {{0}, 0, 7200,      0,  alpn, 0, TLS_AES_128_GCM_SHA256,
+                 {0}, 0, VERSION_1, {0}};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = f->secret[i];
@@ -2516,7 +2528,7 @@ static void test_sdrv_no_alpn_match_is_0x178(void) {
 static int sdrv_test_0rtt_alpn(u8 ticket_alpn, int raw) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[700];
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
   usz              ch2_len, psk_ext_off;
   sdrv_psk_fixture_init(&f);
   sdrv_psk_fixture_reseal(&f, ticket_alpn);
@@ -2550,6 +2562,99 @@ static void test_sdrv_0rtt_alpn_gate(void) {
   CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
 }
 
+/* A 0-RTT offer of a ticket issued on `version` with t.tp = issued (the
+ * limits its connection advertised), to a server on `current` whose limits
+ * are lim. Returns psk_accepted; *early receives early_data_accepted. */
+static int sdrv_test_0rtt_cfg(
+    u32               version,
+    const u64         issued[STP_REMEMBERED_N],
+    u32               current,
+    const stp_limits* lim,
+    int*              early) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
+  usz              ch2_len, off;
+  ticket           t = {{0}, 0, 7200,    0,  0, 0, TLS_AES_128_GCM_SHA256,
+                        {0}, 0, version, {0}};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs();
+  bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
+  bytes_memcpy(t.tp, issued, sizeof t.tp);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &off);
+  CHECK(ch2_len != 0);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+    sdrv_set_early_data(&s, 1);
+    sdrv_set_client_version(&s, current);
+    s.limits = *lim;
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  *early = s.early_data_accepted;
+  return s.psk_accepted;
+}
+
+/* RFC 9369 5: a ticket from another QUIC version is not accepted -- full
+ * handshake, no 0-RTT -- even though v1 and v2 are compatible. */
+static void test_sdrv_ticket_version_bound(void) {
+  u64        issued[STP_REMEMBERED_N];
+  stp_limits lim = {0};
+  int        early;
+  stp_remembered(&lim, issued);
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 1);
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_2, &lim, &early) == 0);
+  CHECK(early == 0);
+  CHECK(sdrv_test_0rtt_cfg(VERSION_2, issued, VERSION_1, &lim, &early) == 0);
+  CHECK(early == 0);
+}
+
+/* RFC 9000 7.4.1 / RFC 9001 4.6.3: a limit lowered since the ticket was
+ * issued declines 0-RTT (the PSK still resumes); an equal or raised one
+ * keeps it. */
+static void test_sdrv_0rtt_limits_not_reduced(void) {
+  u64        issued[STP_REMEMBERED_N];
+  stp_limits lim = {0};
+  int        early;
+  stp_remembered(&lim, issued);
+  lim.max_data = issued[0] - 1;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 0);
+  lim.max_data = issued[0] + 1;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 1);
+  lim                  = (stp_limits){0};
+  lim.max_streams_bidi = issued[4] - 1;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 0);
+  issued[1] += 1; /* stream-data window advertised larger than now */
+  lim = (stp_limits){0};
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 0);
+}
+
+/* RFC 9221 3: accepting 0-RTT needs max_datagram_frame_size >= the value
+ * sent on the ticket's connection. */
+static void test_sdrv_0rtt_datagram_not_shrunk(void) {
+  u64        issued[STP_REMEMBERED_N];
+  stp_limits lim = {0};
+  int        early;
+  lim.max_datagram_frame_size = 1200;
+  stp_remembered(&lim, issued);
+  lim.max_datagram_frame_size = 1199;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 0);
+  lim.max_datagram_frame_size = 0;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 0);
+  lim.max_datagram_frame_size = 1200;
+  CHECK(sdrv_test_0rtt_cfg(VERSION_1, issued, VERSION_1, &lim, &early) == 1);
+  CHECK(early == 1);
+}
+
 /* f's ticket sealed bound to ticket_sni (n 0: no server_name) and offered
  * (PSK + early_data) by a ClientHello carrying sni. Returns psk_accepted;
  * *ee_sni is whether EncryptedExtensions echoed server_name. */
@@ -2557,14 +2662,15 @@ static int sdrv_test_psk_sni(
     wired_span ticket_sni, wired_span sni, int* ee_sni) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[900];
   u8               sh[256], flight[2048];
   wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
   wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
   sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
   wired_span       d;
   usz              ch2_len, off;
-  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  ticket           t = {{0}, 0, 7200,      0,  0, 0, TLS_AES_128_GCM_SHA256,
+                        {0}, 0, VERSION_1, {0}};
   sdrv_psk_fixture_init(&f);
   t.issued_at = wired_clock_epoch_secs();
   bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
@@ -2750,7 +2856,7 @@ static usz sdrv_test_hrr_ch2(
 static void test_sdrv_psk_binder_after_hrr_accepted(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch1[600], hrr[256], ch2[700];
+  u8               ch1[600], hrr[256], ch2[800];
   usz              hrr_len, ch2_len;
   sdrv_psk_fixture_init(&f);
   sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
@@ -2764,7 +2870,7 @@ static void test_sdrv_psk_binder_after_hrr_accepted(void) {
 static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch1[600], hrr[256], ch2[700], binder[HKDF_PRK] = {0};
+  u8               ch1[600], hrr[256], ch2[800], binder[HKDF_PRK] = {0};
   usz              hrr_len, ch2_len, off = 0;
   tlsext_psk_in    in = {
       wired_span_of(f.sealed, sizeof(f.sealed)), 0,
@@ -2787,7 +2893,7 @@ static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
 static void test_sdrv_no_early_data_after_hrr(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch1[600], hrr[256], ch2[700];
+  u8               ch1[600], hrr[256], ch2[800];
   usz              hrr_len, ch2_len;
   initial_keys     got;
   sdrv_psk_fixture_init(&f);
@@ -2896,7 +3002,7 @@ static void test_sdrv_ch_wrong_type_is_unexpected_message(void) {
 static void test_sdrv_psk_no_binder_aborts(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch2[700];
+  u8               ch2[800];
   usz              off, n;
   tlsext_psk_in    in;
   sdrv_psk_fixture_init(&f);
@@ -2991,7 +3097,7 @@ static void test_sdrv_ch_share_outside_groups_rejected(void) {
 static void test_sdrv_0rtt_needs_app_opt_in(void) {
   sdrv_psk_fixture f;
   sdrv             s;
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len, off;
   initial_keys     got;
   sdrv_psk_fixture_init(&f);
@@ -3078,6 +3184,9 @@ void test_sdrv(void) {
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
+  test_sdrv_ticket_version_bound();
+  test_sdrv_0rtt_limits_not_reduced();
+  test_sdrv_0rtt_datagram_not_shrunk();
   test_sdrv_psk_bound_to_sni();
   test_sdrv_signature_algorithms_cert();
   test_sdrv_sni_absent();
