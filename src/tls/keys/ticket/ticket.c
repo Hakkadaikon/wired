@@ -6,7 +6,7 @@
 
 /* Serialize ticket into the fixed plaintext layout: secret ||
  * issued_at(be64) || lifetime_secs(be32) || age_add(be32) || alpn(1) ||
- * ticket_nonce(1) || suite(be16) || sni(32). */
+ * ticket_nonce(1) || suite(be16) || sni(32) || origin_at(be64). */
 static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
   usz i;
   for (i = 0; i < TICKET_SECRET_LEN; i++) {
@@ -22,6 +22,7 @@ static void ticket_encode(const ticket* t, u8 out[TICKET_PLAIN_LEN]) {
   for (i = 0; i < TICKET_SNI_LEN; i++) {
     ts[20 + i] = t->sni[i];
   }
+  be_put_be64(ts + 20 + TICKET_SNI_LEN, t->origin_at);
 }
 
 static void ticket_decode(const u8 in[TICKET_PLAIN_LEN], ticket* t) {
@@ -39,6 +40,7 @@ static void ticket_decode(const u8 in[TICKET_PLAIN_LEN], ticket* t) {
   for (i = 0; i < TICKET_SNI_LEN; i++) {
     t->sni[i] = ts[20 + i];
   }
+  t->origin_at = be_get_be64(ts + 20 + TICKET_SNI_LEN);
 }
 
 void ticket_seal(const ticket* t, const u8 key[TICKET_KEY_LEN], u8* out) {

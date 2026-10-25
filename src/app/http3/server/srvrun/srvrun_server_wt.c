@@ -5,6 +5,7 @@ static int srvrun_wt_rx_hold_uni(wired_srvloop* l, u64 stream_id, int hold);
 static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_send_over(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_reset_refused(srvrun_conn* c, int sidx, u64 stream_id);
+static int srvrun_wt_stop_moot(srvrun_conn* c, int sidx, u64 stream_id);
 
 /* Set the bidi receive slot reassembling stream_id to hold (or resume) its
  * credit raises, -1 when no wt_streams slot holds the id -- the bidi half
@@ -112,11 +113,18 @@ static int srvrun_wt_reset_refused(srvrun_conn* c, int sidx, u64 stream_id) {
          srvrun_wt_foreign(c, sidx, stream_id);
 }
 
+/* The latch is full, stream_id is foreign to session slot sidx, or the
+ * peer already reset it (RFC 9000 3.5). */
+static int srvrun_wt_stop_moot(srvrun_conn* c, int sidx, u64 stream_id) {
+  return c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH ||
+         srvrun_wt_foreign(c, sidx, stream_id) ||
+         srvrun_peer_reset_seen(c, stream_id);
+}
+
 /* 1 iff wired_server_wt_stream_stop latches nothing: no live connection,
- * the latch is full, or stream_id is foreign to session slot sidx. */
+ * or srvrun_wt_stop_moot. */
 int srvrun_wt_stop_refused(srvrun_conn* c, int sidx, u64 stream_id) {
-  return !c || c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH ||
-         srvrun_wt_foreign(c, sidx, stream_id);
+  return !c || srvrun_wt_stop_moot(c, sidx, stream_id);
 }
 
 int wired_server_wt_stream_reset(

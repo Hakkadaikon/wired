@@ -7,6 +7,8 @@ static int wt_reset_uni_matches(
 static int  wt_reset_bidi_session(srvrun_conn* c, u64 stream_id);
 static int  wt_reset_uni_session(srvrun_conn* c, u64 stream_id);
 static int  wt_reset_session_slot(srvrun_conn* c, u64 stream_id);
+static void srvrun_note_peer_reset(
+    srvrun_conn* c, const wired_srvloop_reset* e);
 static void srvrun_deliver_one_wt_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e);
 
@@ -142,9 +144,24 @@ usz srvrun_peer_resets_stored(const srvrun_conn* c) {
   return n < WIRED_SRVLOOP_RESET_Q ? n : WIRED_SRVLOOP_RESET_Q;
 }
 
+/* RFC 9000 3.5: record a peer RESET_STREAM (peer_reset_seen's doc). */
+static void srvrun_note_peer_reset(
+    srvrun_conn* c, const wired_srvloop_reset* e) {
+  if (!e->is_stop) {
+    wired_srvloop_closed_mark(
+        &c->peer_reset_seen[e->stream_id & 3], e->stream_id);
+  }
+}
+
+int srvrun_peer_reset_seen(const srvrun_conn* c, u64 stream_id) {
+  return wired_srvloop_closed_has(
+      &c->peer_reset_seen[stream_id & 3], stream_id);
+}
+
 void srvrun_deliver_wt_reset_if_owned(const srvrun_cfg* cfg, srvrun_conn* c) {
   usz n = srvrun_peer_resets_stored(c);
   for (usz i = 0; i < n; i++) {
+    srvrun_note_peer_reset(c, &c->l.peer_resets[i]);
     srvrun_deliver_one_wt_reset(cfg, c, &c->l.peer_resets[i]);
   }
 }

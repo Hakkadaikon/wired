@@ -93,6 +93,12 @@ typedef struct {
    * start-time cert_seed, so a certificate reload (which rewrites cert_seed
    * in place) never changes a token a live connection was already given. */
   const u8* reset_seed;
+  /** RFC 8446 Appendix E.5: 1 to accept 0-RTT (early data) on resumed
+   * connections and advertise it in issued tickets; 0 (the default)
+   * resumes as 1-RTT only. 0-RTT data is replayable (RFC 8446 8): enable
+   * it only when the application's early requests are safe to replay.
+   * Needs ticket_key. */
+  int early_data;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
@@ -342,6 +348,14 @@ usz wired_srvboot_partial_ack(
 /** @param a the accumulator
  * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a);
+
+/** RFC 9001 4.1.3: a client sends only its ClientHello at the Initial
+ * level, so Initial CRYPTO bytes past it would stay unconsumed once the
+ * connection moves on to Handshake keys -- a PROTOCOL_VIOLATION.
+ * @param a the accumulator
+ * @return 1 if a is complete and its contiguous CRYPTO prefix runs past the
+ *   ClientHello. */
+int wired_srvboot_acc_trailing(const wired_srvboot_acc* a);
 
 /** wired_srvboot_accept_acc return: a HelloRetryRequest went out instead of
  * the accept flight (RFC 8446 4.1.4 -- the ClientHello offered no x25519

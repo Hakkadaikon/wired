@@ -24,3 +24,7 @@ int crecv_complete_message_at(const crecv* s, usz off) {
   }
   return off + msg_total(s->buf + off) <= s->received_to;
 }
+
+usz crecv_message_end_at(const crecv* s, usz off) {
+  return off + msg_total(s->buf + off);
+}

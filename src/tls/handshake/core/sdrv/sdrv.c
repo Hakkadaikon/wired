@@ -88,7 +88,8 @@ static void sdrv_copy_key(u8 dst[TICKET_KEY_LEN], const u8* src) {
 /* Copy ticket_key into s as both generations and record whether
  * resumption is enabled (ticket_key set). */
 static void sdrv_copy_ticket_key(sdrv* s, const u8* ticket_key) {
-  s->has_ticket_key = ticket_key != 0;
+  s->has_ticket_key     = ticket_key != 0;
+  s->early_data_enabled = 0;
   sdrv_copy_key(s->ticket_key, ticket_key);
   sdrv_copy_key(s->ticket_key_prev, ticket_key);
 }
@@ -96,6 +97,8 @@ static void sdrv_copy_ticket_key(sdrv* s, const u8* ticket_key) {
 void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev) {
   sdrv_copy_key(s->ticket_key_prev, prev);
 }
+
+void sdrv_set_early_data(sdrv* s, int on) { s->early_data_enabled = on; }
 
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
   s->raw_alpns = raw_alpns;
@@ -126,6 +129,8 @@ static void sdrv_reset_hs(sdrv* s) {
   s->tp_odcid_len        = 0;
   s->rscid_len           = 0;
   s->psk_accepted        = 0;
+  s->psk_origin_at       = 0;
+  s->psk_dhe_ke          = 0;
   s->early_data_accepted = 0;
   s->early_keys_dropped  = 0;
   s->last_error          = 0;

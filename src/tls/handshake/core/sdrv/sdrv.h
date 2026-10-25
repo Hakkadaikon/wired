@@ -78,11 +78,23 @@ typedef struct {
   u64 last_error;
   /** 1 when ticket_key is set; 0 disables resumption. */
   int has_ticket_key;
+  /** RFC 8446 Appendix E.5: 1 once the application asked for 0-RTT
+   * (sdrv_set_early_data); 0, the sdrv_init default, resumes as 1-RTT
+   * only and issues tickets without early_data. */
+  int early_data_enabled;
   /** RFC 8446 4.2.11/4.2.11.2: set by sdrv_recv_client_hello when the
    * ClientHello's pre_shared_key ticket opened under ticket_key and its
    * binder verified. psk_secret (the opened ticket's resumption secret) is
    * only meaningful when this is 1. */
   int psk_accepted;
+  /** RFC 8446 4.6.1: the accepted ticket's origin_at (the original full
+   * handshake's time), carried into tickets issued on this connection;
+   * meaningful when psk_accepted. */
+  u64 psk_origin_at;
+  /** RFC 8446 4.2.9: 1 when the ClientHello's psk_key_exchange_modes
+   * offered psk_dhe_ke, the only mode this server resumes with; a session
+   * ticket is issued only then. Set by sdrv_recv_client_hello. */
+  int psk_dhe_ke;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
@@ -369,6 +381,15 @@ int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
  * @param prev the previous ticket key */
 void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev);
 
+/** RFC 8446 Appendix E.5: "TLS implementations MUST NOT enable 0-RTT ...
+ * unless specifically requested by the application." on = 1 accepts
+ * 0-RTT on a resumed connection (still subject to the replay, freshness
+ * and ALPN gates); 0 (the sdrv_init default) never does. Call after
+ * sdrv_init, before sdrv_recv_client_hello.
+ * @param s driver state
+ * @param on 1 to accept 0-RTT, 0 to refuse it */
+void sdrv_set_early_data(sdrv* s, int on);
+
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
  *
@@ -446,7 +467,8 @@ u32 sdrv_wire_version(const sdrv* s);
  * @return 1 if a HelloRetryRequest is pending, 0 otherwise. */
 int sdrv_hrr_pending(const sdrv* s);
 
-/** 0-RTT is ever admitted under the negotiated ALPN: never on a raw-QUIC
+/** 0-RTT is ever admitted: the application enabled it
+ * (sdrv_set_early_data), and never on a raw-QUIC
  * id (draft-ietf-moq-transport-18 3.3.1 / -22 6.3.1 let a relay refuse
  * it). A session ticket issued here advertises early data only when this
  * holds (RFC 8446 4.2.10).

@@ -13,6 +13,8 @@ static int srvrun_close_on_flow_violation(
     const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_aead_reached(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_aead_or_cid(const srvrun_cfg* cfg, srvrun_conn* c);
+static int srvrun_close_on_transport_error(
+    const srvrun_cfg* cfg, srvrun_conn* c);
 
 /* 1 if this step's own gathering (dispatch.c) latched a connection-ending
  * violation and closed c over it -- datagram_violation (RFC 9221 3) or
@@ -147,9 +149,28 @@ int srvrun_close_on_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
-/* The AEAD integrity limit, then a connection ID error. */
+/* RFC 9000 12.4 / 17.2 / 19: a packet srvloop refused (its
+ * transport_error latch: a forbidden, unknown or malformed frame, a stream
+ * frame on the wrong kind of stream, Reserved Bits set, no frames). */
+static int srvrun_close_on_transport_error(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "frame violation";
+  u64             code     = c->l.transport_error;
+  if (!code) {
+    return 0;
+  }
+  c->l.transport_error = 0;
+  srvrun_send_transport_close(
+      cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+/* The AEAD integrity limit, a refused packet, then a connection ID error. */
 static int srvrun_close_on_aead_or_cid(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_close_on_aead_reached(cfg, c)) {
+    return 1;
+  }
+  if (srvrun_close_on_transport_error(cfg, c)) {
     return 1;
   }
   return srvrun_close_on_cid(cfg, c);

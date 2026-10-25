@@ -34,6 +34,17 @@ int tls_binder_verify(
 void tls_binder_compute_suite(
     u16 suite, const u8* psk, wired_span truncated_ch, u8* out);
 
+/* RFC 8446 4.2.11.2: the binder over an already-computed transcript hash
+ * (Hash.length bytes) -- after a HelloRetryRequest that hash covers
+ * message_hash(ClientHello1) || HelloRetryRequest || Truncate(ClientHello2),
+ * which only the caller's running transcript can supply. */
+void tls_binder_compute_hash(
+    u16 suite, const u8* psk, const u8* thash, u8* out);
+
+/* Constant-time verify against tls_binder_compute_hash. */
+int tls_binder_verify_hash(
+    u16 suite, const u8* psk, const u8* thash, const u8* received);
+
 /* Same as tls_binder_verify over suite's hash. */
 int tls_binder_verify_suite(
     u16 suite, const u8* psk, wired_span truncated_ch, const u8* received);

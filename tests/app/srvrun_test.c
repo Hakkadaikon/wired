@@ -14231,7 +14231,7 @@ static void test_srvrun_conn_credit_exhausted_sends_data_blocked(void) {
     srvrun_test_reset_send_count();
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_test_send_count() == 1);
-    CHECK(c.data_blocked_sent_at == c.conn_credit);
+    CHECK(c.data_blocked.sent_at == c.conn_credit);
   }
 }
 
@@ -14268,7 +14268,7 @@ static void test_srvrun_conn_credit_exhausted_data_blocked_sent_once(void) {
 
 /* A later MAX_DATA raise past the ceiling DATA_BLOCKED was last sent for
  * makes the next block (once the new, higher ceiling is also exhausted)
- * send again -- data_blocked_sent_at tracks the CEILING, not "ever sent". */
+ * send again -- data_blocked.sent_at tracks the CEILING, not "ever sent". */
 static void test_srvrun_conn_credit_raised_then_blocked_resends(void) {
   static u8     body[8 * SRVRUN_CHUNK];
   struct lp_fix f;
@@ -14297,7 +14297,7 @@ static void test_srvrun_conn_credit_raised_then_blocked_resends(void) {
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_test_send_count() >= 1); /* the raised chunk's send, */
     /* plus a fresh DATA_BLOCKED for the new (also-exhausted) ceiling. */
-    CHECK(c.data_blocked_sent_at == c.conn_credit);
+    CHECK(c.data_blocked.sent_at == c.conn_credit);
   }
 }
 
@@ -19768,6 +19768,7 @@ static void test_srvrun_wt_open_bidi_reply_received(void) {
     usz          fl = frame_put_stream(frm, sizeof frm, &sf);
     wired_obuf   sob;
     CHECK(fl != 0);
+    c->l.local_opened[0] = c->wt_bidi_opened; /* srvrun_live_prepare's */
     slen = client_seal_onertt_pn(&f, 3, frm, fl, spkt, sizeof spkt);
     sob  = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
@@ -21789,6 +21790,24 @@ static void test_srvrun_ctrl_overflow_closes(void) {
   CHECK(is_app == 1);
 }
 
+/* RFC 8446 4 / RFC 9001 4.8 (#72): a latched handshake alert (here
+ * unexpected_message) closes the connection with that CRYPTO_ERROR as a
+ * transport-level CONNECTION_CLOSE, once. */
+static void test_srvrun_hs_error_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 1;
+  c->s.hs_error          = 0x10a;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(c->closing == 1);
+  CHECK(sr_close_code(c, &is_app) == 0x10a);
+  CHECK(is_app == 0);
+  CHECK(c->s.hs_error == 0);
+}
+
 /* RFC 9204 2.1.2 / 4.2: a latched QPACK violation (here a section that
  * would block) closes the connection with that code. */
 static void test_srvrun_qpack_violation_closes(void) {
@@ -23406,7 +23425,7 @@ static int srvrun_seal_stop_sending(
   u8         pl[32];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   return srvrun_seal_ctl(
-      c, pl, srvrun_wt_abort_stop(stream_id, err_code, &plb, 0), out);
+      c, pl, srvrun_wt_abort_stop(c, stream_id, err_code, &plb, 0), out);
 }
 
 /* RFC 9114 4.1.2: an early answer asks the client to stop sending the
@@ -24929,10 +24948,11 @@ static void sr_abort_free_slot(void) {
   srvrun_free_slot(&g_sl_cfg, &st, 0);
 }
 
-/* One frame (RESET_STREAM or STOP_SENDING) on stream 0 from the client. */
-static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code) {
+/* One frame (RESET_STREAM or STOP_SENDING) on stream 0 from the client; a
+ * RESET_STREAM's Final Size is the bytes the client sent (RFC 9000 4.5). */
+static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code, u64 sent) {
   u8                 pl[32];
-  reset_stream_frame rs = {0, code, 0};
+  reset_stream_frame rs = {0, code, sent};
   stop_sending_frame ss = {0, code};
   usz                n  = stop ? stop_sending_encode(pl, sizeof pl, &ss)
                                : reset_stream_encode(pl, sizeof pl, &rs);
@@ -24948,7 +24968,7 @@ static void test_srvrun_on_body_reset_mid_body_aborts(void) {
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
   CHECK(g_sr_body.calls >= 1 && g_sr_body.fins == 0);
-  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED, n / 2);
   CHECK(g_sr_abort.calls == 1);
   CHECK(g_sr_abort.stream_id == 0);
   CHECK(g_sr_abort.code == H3_REQUEST_CANCELLED);
@@ -24989,7 +25009,7 @@ static void test_srvrun_stop_before_response_resets_and_aborts(void) {
   srvrun_conn* c = sr_abort_fixture();
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
-  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
   CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_final(c, 0) == 0);
   CHECK(g_sr_abort.calls == 1 && g_sr_abort.code == H3_REQUEST_CANCELLED);
@@ -25004,7 +25024,7 @@ static void test_srvrun_stop_before_response_resets_and_aborts(void) {
 static void test_srvrun_stop_before_response_buffered(void) {
   srvrun_conn* c = sr_sl_fixture();
   sr_sl_send_headers(c, 0, "GET", 0); /* HEADERS, no FIN yet */
-  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
   CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_final(c, 0) == 0);
   sr_sl_send_headers(c, 0, "GET", 1);
@@ -25379,6 +25399,288 @@ static void test_srvrun_ghost_remembers_spare_cid(void) {
     CHECK(srvrun_ghost_match(&ctx, wired_span_of(c->l.spare_cid, 6)) == 1);
   }
   *c = (srvrun_conn){0};
+}
+
+/* ===== RFC 9000 12.4 / 17.2 / 19: frame validation on the server receive
+ * path -- a client packet srvloop refuses (transport_error) closes the
+ * connection with the matching transport error code. */
+static u64 sr_fv_close(const u8* pl, usz n) {
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  u64          code;
+  sr_sl_step(c, pl, n);
+  code = sr_close_code(c, &is_app);
+  return is_app ? ~1ULL : code; /* an H3 close is not what these test */
+}
+
+/* RFC 9000 19.7: NEW_TOKEN is server-to-client only. */
+static void test_srvrun_client_new_token_closes(void) {
+  static const u8 pl[] = {0x07, 0x01, 0xaa};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 19.20: HANDSHAKE_DONE is server-to-client only. */
+static void test_srvrun_client_handshake_done_closes(void) {
+  static const u8 pl[] = {0x01, 0x1e};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 12.4: an unknown frame type after a valid PING. */
+static void test_srvrun_unknown_frame_type_closes(void) {
+  static const u8 pl[] = {0x01, 0x21, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.3.1: Largest 1, First Range 0, then Gap 5 -- a range below
+ * packet number 0. */
+static void test_srvrun_negative_ack_range_closes(void) {
+  static const u8 pl[] = {0x02, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.14: STREAMS_BLOCKED at 2^60 is legal, 2^60 + 1 is not;
+ * nor is a MAX_STREAMS above 2^60 (4.6). */
+static void test_srvrun_streams_blocked_over_2_60_closes(void) {
+  u8 pl[] = {0x16, 0xd0, 0, 0, 0, 0, 0, 0, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ~0ULL);
+  pl[8] = 0x01;
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+  pl[0] = 0x12; /* MAX_STREAMS (bidi), RFC 9000 4.6 / 19.11 */
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.8: STREAM data on the server's own uni control stream (3),
+ * or on server bidi stream 1 the server never opened. */
+static void test_srvrun_stream_on_server_stream_closes(void) {
+  u8 pl[] = {0x0a, 0x03, 0x01, 'x'};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_STREAM_STATE_ERROR);
+  pl[1] = 0x01;
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_STREAM_STATE_ERROR);
+}
+
+/* RFC 9000 19.5/19.10: STOP_SENDING or MAX_STREAM_DATA for client uni
+ * stream 2 (the server only receives on it); MAX_STREAM_DATA for server
+ * uni stream 15, not opened yet (3, 7, 11 are the H3 plumbing streams). */
+static void test_srvrun_receive_only_stream_frames_close(void) {
+  static const u8 stop[] = {0x05, 0x02, 0x00};
+  u8              msd[]  = {0x11, 0x02, 0x40, 0x64};
+  CHECK(sr_fv_close(stop, sizeof stop) == ERR_STREAM_STATE_ERROR);
+  CHECK(sr_fv_close(msd, sizeof msd) == ERR_STREAM_STATE_ERROR);
+  msd[1] = 15;
+  CHECK(sr_fv_close(msd, sizeof msd) == ERR_STREAM_STATE_ERROR);
+  msd[1] = 3; /* the open control stream: fine */
+  CHECK(sr_fv_close(msd, sizeof msd) == ~0ULL);
+}
+
+/* RFC 9000 7.5: a ClientHello CRYPTO chunk reaching past the boot
+ * reassembly buffer (never expanded) refuses the boot with
+ * CRYPTO_BUFFER_EXCEEDED, the code srvrun_refuse's Initial close carries. */
+static void test_srvrun_boot_crypto_overflow_refused(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               chunk[60] = {1};
+  srvrun_conn*     c         = sr_test_conns();
+  srvrun_cfg       cfg       = {0};
+  srvrun_step_ctx  ctx       = {&cfg, 0, 0, 0, 0};
+  wired_obuf       o         = obuf_of(dg, sizeof dg);
+  initpkt_desc     d         = {
+      wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
+      wired_span_of(chunk, sizeof chunk), 0, CRECV_BUF - 10};
+  CHECK(initpkt_build(&d, &o) == 1);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  cfg.fd  = -1;
+  cfg.id  = &id;
+  cfg.env = &g_srvrun_env;
+  CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
+  CHECK(sdrv_last_error(&c->s.sdrv) == ERR_CRYPTO_BUFFER_EXCEEDED);
+  d.crypto_off = CRECV_BUF - sizeof chunk; /* ends exactly at the edge */
+  o            = obuf_of(dg, sizeof dg);
+  c            = sr_test_conns();
+  CHECK(initpkt_build(&d, &o) == 1);
+  CHECK(
+      srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) ==
+      SRVRUN_BOOT_PENDING);
+}
+
+/* RFC 9000 3.5: once the peer reset a stream (this step's RESET_STREAM
+ * queue, as srvloop fills it), the app's stream_stop latches nothing and an
+ * abort sends no STOP_SENDING for it -- a client bidi abort keeps only its
+ * RESET_STREAM half. A stream the peer did not reset still gets one. */
+static void test_srvrun_no_stop_sending_after_peer_reset(void) {
+  struct lp_fix      f;
+  u8                 obuf[1024], pl[48];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  wired_obuf         plb = obuf_of(pl, sizeof pl);
+  srvrun_conn*       c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg         cfg = {0};
+  reset_stream_frame rs;
+  usz                n;
+  cfg.fd              = -1;
+  cfg.env             = &g_srvrun_env;
+  c->l.peer_resets[0] = (wired_srvloop_reset){2, 7, 0};
+  c->l.peer_resets[1] = (wired_srvloop_reset){4, 7, 0};
+  c->l.peer_resets[2] = (wired_srvloop_reset){8, 7, 1}; /* a STOP_SENDING */
+  c->l.peer_reset_n   = 3;
+  srvrun_deliver_wt_reset_if_owned(&cfg, c);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 2, 0x44) == 0);
+  CHECK(c->wt_stream_reset_n == 0);
+  CHECK(srvrun_wt_busy_reset_payload(c, 2, 9, &plb) == 0);
+  n = srvrun_wt_busy_reset_payload(c, 4, 9, &plb);
+  CHECK(n != 0 && reset_stream_decode(pl, n, &rs) == n); /* RESET alone */
+  CHECK(wired_server_wt_stream_stop(&c->wt, 6, 0x44) == 1);
+  n = srvrun_wt_busy_reset_payload(c, 8, 9, &plb);
+  CHECK(n != 0 && reset_stream_decode(pl, n, &rs) < n); /* + STOP_SENDING */
+  bytes_memset(c->peer_reset_seen, 0, sizeof c->peer_reset_seen);
+}
+
+/* RFC 9001 4.1.3: Initial CRYPTO running one byte past the ClientHello
+ * would be left unconsumed once the server moves to Handshake keys -- the
+ * boot is refused with PROTOCOL_VIOLATION instead of accepted. */
+static void test_srvrun_boot_trailing_initial_crypto_refused(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               ch[1400], cpriv[32], cpub[32];
+  client           cl;
+  srvrun_conn*     c   = sr_test_conns();
+  srvrun_cfg       cfg = {0};
+  srvrun_step_ctx  ctx = {&cfg, 0, 0, 0, 0};
+  wired_obuf       o   = obuf_of(dg, sizeof dg);
+  usz              n;
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(11 + i);
+  }
+  wired_x25519_base(cpub, cpriv);
+  tlsdriver_init(&cl.tls, cpriv, cpub, 0);
+  n     = tlsdriver_raw_client_hello(&cl.tls, ch, sizeof ch - 1);
+  ch[n] = 0x01; /* one Initial CRYPTO byte past the ClientHello */
+  {
+    initpkt_desc d = {
+        wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
+        wired_span_of(ch, n + 1), 0, 0};
+    CHECK(n > 100 && initpkt_build(&d, &o) == 1);
+  }
+  sr_make_id(&id, priv, pub, seed, rnd);
+  cfg.fd  = -1;
+  cfg.id  = &id;
+  cfg.env = &g_srvrun_env;
+  CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
+  CHECK(sdrv_last_error(&c->s.sdrv) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9001 6: a client KeyUpdate (handshake type 24) in 1-RTT CRYPTO
+ * closes with 0x010a (CRYPTO_ERROR + unexpected_message). */
+static void test_srvrun_client_tls_key_update_closes(void) {
+  static const u8 pl[] = {0x06, 0x00, 0x05, 24, 0, 0, 1, 0};
+  CHECK(sr_fv_close(pl, sizeof pl) == 0x010a);
+}
+
+/* RFC 9000 4.5: on client uni stream 2 (grease type 0x21, ignored by
+ * HTTP/3), data past a FIN's final size, a second FIN moving it, and a
+ * RESET_STREAM below the bytes received are each a FINAL_SIZE_ERROR; a
+ * RESET_STREAM matching them is not. */
+static void test_srvrun_final_size_violations_close(void) {
+  static const u8 past[]  = {0x0b, 2, 1, 0x21, 0x0e, 2, 1, 1, 0x21};
+  static const u8 moved[] = {0x0b, 2, 1, 0x21, 0x0b, 2, 2, 0x21, 0x21};
+  static const u8 below[] = {0x0a, 2, 3, 0x21, 0, 0, 0x04, 2, 0, 1};
+  static const u8 match[] = {0x0a, 2, 3, 0x21, 0, 0, 0x04, 2, 0, 3};
+  CHECK(sr_fv_close(past, sizeof past) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(moved, sizeof moved) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(below, sizeof below) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(match, sizeof match) == ~0ULL);
+}
+
+/* RFC 9000 4.1 / 4.5: two streams' final sizes summing past the connection
+ * limit (STP_DEFAULT_MAX_DATA, nothing raised) close with
+ * FLOW_CONTROL_ERROR; summing exactly to it does not. Each reset counts
+ * every byte up to its final size, sent or not. */
+static void test_srvrun_conn_receive_limit_closes(void) {
+  u8  pl[32];
+  u64 half = STP_DEFAULT_MAX_DATA / 2;
+  usz n    = 0;
+  for (u64 id = 2; id <= 6; id += 4) {
+    reset_stream_frame rs = {id, 0, half};
+    n += reset_stream_encode(pl + n, sizeof pl - n, &rs);
+  }
+  CHECK(sr_fv_close(pl, n) == ~0ULL);
+  n = 0;
+  for (u64 id = 2; id <= 6; id += 4) {
+    reset_stream_frame rs = {id, 0, half + (id == 6)};
+    n += reset_stream_encode(pl + n, sizeof pl - n, &rs);
+  }
+  CHECK(sr_fv_close(pl, n) == ERR_FLOW_CONTROL_ERROR);
+}
+
+/* RFC 9000 13.3: once client uni stream 2's FIN fixed its final size no
+ * MAX_STREAM_DATA goes out for it; stream 6 (no FIN) still gets one. */
+static void test_srvrun_no_max_stream_data_after_final_size(void) {
+  static const u8 pl[] = {0x0b, 2, 1, 0x21, 0x0a, 6, 1, 0x21};
+  srvrun_conn*    c    = sr_sl_fixture();
+  u64             pn;
+  sr_sl_step(c, pl, sizeof pl);
+  CHECK(c->closing == 0);
+  pn = c->l.tx_pn;
+  srvrun_send_max_stream_data(&g_sl_cfg, c, 2, 1u << 20);
+  CHECK(c->l.tx_pn == pn);
+  srvrun_send_max_stream_data(&g_sl_cfg, c, 6, 1u << 20);
+  CHECK(c->l.tx_pn == pn + 1);
+}
+
+/* RFC 9000 4.1: still blocked on the same MAX_DATA with nothing in flight,
+ * DATA_BLOCKED goes out again once a PTO has passed -- not before. */
+static void test_srvrun_data_blocked_repeats_after_pto(void) {
+  static u8          body[4 * SRVRUN_CHUNK];
+  struct lp_fix      f;
+  static srvrun_conn c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_state       st  = {0, &c};
+  srvrun_step_ctx    ctx = {&cfg, 0, &st, 1, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  cfg.fd                  = -1;
+  cfg.env                 = &g_srvrun_env;
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  srvrun_pump_sess(&ctx, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 1);
+  ctx.now_ms = 1 + srvrun_pto_deadline_ms(&c, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 2);
+}
+
+/* RFC 9000 4.1 / 19.13: a response blocked on its own stream credit (the
+ * connection credit wide open) sends one STREAM_DATA_BLOCKED naming that
+ * credit; a second pass at the same ceiling sends nothing more. */
+static void test_srvrun_stream_credit_blocked_sends_sdb(void) {
+  static u8          body[4 * SRVRUN_CHUNK];
+  struct lp_fix      f;
+  static srvrun_conn c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_state       st  = {0, &c};
+  srvrun_step_ctx    ctx = {&cfg, 0, &st, 1, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  cfg.fd                  = -1;
+  cfg.env                 = &g_srvrun_env;
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = 1u << 24;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = SRVRUN_CHUNK / 2;
+  c.resp[0].sdb           = (srvrun_blocked_mark){0, 0};
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  srvrun_pump_sess(&ctx, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c.resp[0].sdb.sent_at == SRVRUN_CHUNK / 2);
 }
 
 void test_srvrun(void) {
@@ -25786,6 +26088,7 @@ void test_srvrun(void) {
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_qpack_violation_closes();
+  test_srvrun_hs_error_closes();
   test_srvrun_qdec_stream_opens_with_qpack_streams();
   test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();
@@ -26082,4 +26385,20 @@ void test_srvrun(void) {
   test_srvrun_bcast_concurrent_register();
   test_srvrun_free_slot_wipes_keys();
   test_srvrun_ghost_remembers_spare_cid();
+  test_srvrun_client_new_token_closes();
+  test_srvrun_client_handshake_done_closes();
+  test_srvrun_unknown_frame_type_closes();
+  test_srvrun_negative_ack_range_closes();
+  test_srvrun_streams_blocked_over_2_60_closes();
+  test_srvrun_stream_on_server_stream_closes();
+  test_srvrun_receive_only_stream_frames_close();
+  test_srvrun_boot_crypto_overflow_refused();
+  test_srvrun_no_stop_sending_after_peer_reset();
+  test_srvrun_boot_trailing_initial_crypto_refused();
+  test_srvrun_client_tls_key_update_closes();
+  test_srvrun_final_size_violations_close();
+  test_srvrun_conn_receive_limit_closes();
+  test_srvrun_no_max_stream_data_after_final_size();
+  test_srvrun_data_blocked_repeats_after_pto();
+  test_srvrun_stream_credit_blocked_sends_sdb();
 }
