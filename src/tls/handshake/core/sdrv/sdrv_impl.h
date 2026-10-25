@@ -114,8 +114,9 @@ int  sdrv_find_version_information(
     const u8* ch_msg, usz ch_len, wired_span* bytes);
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_check_grease_quic_bit(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len);
 
-extern const sdrv_ch_gate SDRV_CH_GATES[9];
+extern const sdrv_ch_gate SDRV_CH_GATES[10];
 
 #endif

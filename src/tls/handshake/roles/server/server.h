@@ -88,6 +88,15 @@ typedef struct {
    * version) opened; from then on original-version Initials are dropped,
    * until then they still open under the original version's keys. */
   int hs_rx_seen;
+  /** RFC 9000 17.4: spin bit of the highest-numbered 1-RTT packet received,
+   * which the server reflects on its own 1-RTT packets. */
+  int spin_rx;
+  /** RFC 9000 17.4: 1 when this connection's random draw (about 1 in 16)
+   * disabled spin participation; it then sends spin 0 throughout. */
+  int spin_off;
+  /** RFC 9287 3.1: per-connection random seed the greased QUIC Bit of each
+   * 1-RTT packet is drawn from. */
+  u64 grease_seed;
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed

@@ -112,6 +112,7 @@ static void sdrv_reset_nego(sdrv* s) {
   s->limits                       = (stp_limits){0};
   s->sreset_token_set             = 0;
   s->peer_max_datagram_frame_size = 0;
+  s->peer_grease_quic_bit         = 0;
   s->alpn                         = SALPN_NONE;
   s->alpn_tok                     = wired_span_of(0, 0);
   s->raw_alpns                    = 0;

@@ -4,9 +4,11 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/ext/grease/bitset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/aeadlimit.h"
 #include "tls/keys/keyupdate/keyphase.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from
@@ -130,13 +132,30 @@ static int ku_limit_gate(wired_server* s) {
  * generation (hspkt_onertt_build's byte0 has no way to infer the
  * phase from the keys alone -- the wire bit is the only signal a peer
  * uses to detect an update, RFC 9001 6.3). */
+/* RFC 9287 3.1: toward a client that advertised grease_quic_bit, clear the
+ * QUIC Bit on about half the 1-RTT packets, the choice keyed by this
+ * connection's secret seed so an observer cannot predict it. shortcut: a
+ * multiply-mix of seed^pn, not a PRF; swap in a keyed hash if the bit must
+ * resist analysis. */
+static int send_onertt_clear_bit(const wired_server* s, u64 pn) {
+  u64 x = (s->grease_seed ^ pn) * 0x9e3779b97f4a7c15ull;
+  return greasebit_may_clear(s->sdrv.peer_grease_quic_bit) && (x >> 63);
+}
+
+/* RFC 9000 17.4: the server reflects the spin bit it last saw, unless this
+ * connection drew spin disablement (then 0 throughout). */
+static int send_onertt_spin(const wired_server* s) {
+  return spin_outgoing_ex(1, s->spin_rx, s->spin_off);
+}
+
 static int send_onertt_seal(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   aes128                hp;
   protect_keys          pk;
-  hspkt_onertt_desc     d = {
-      in->cli_scid, in->pn, in->payload, send_onertt_phase(s)};
+  hspkt_onertt_desc d = {in->cli_scid,        in->pn,
+                         in->payload,         send_onertt_phase(s),
+                         send_onertt_spin(s), send_onertt_clear_bit(s, in->pn)};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) {
     return 0;
   }

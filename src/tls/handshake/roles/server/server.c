@@ -1,6 +1,9 @@
+#include "common/platform/rng/rng.h"
 #include "tls/handshake/roles/server/server_impl.h"
+#include "transport/conn/cid/spin/spin.h"
 
 static void srv_copy32(u8* dst, const u8* src);
+static void srv_draw_wire_seeds(wired_server* s);
 static void srv_record_client_random(
     wired_server* s, const u8* ch_msg, usz ch_len);
 static int srv_accept_client_hello(
@@ -33,6 +36,19 @@ usz server_srv_tr_add(wired_server* s, const u8* msg, usz len) {
   return s->tr_len;
 }
 
+/* RFC 9000 17.4 / RFC 9287 3.1: this connection's random draws -- spin
+ * participation (1 in 16 disable) and the QUIC Bit grease seed. A failed
+ * RNG leaves zeros: spin disabled, a fixed (still legal) grease pattern. */
+static void srv_draw_wire_seeds(wired_server* s) {
+  u8 r[9] = {0};
+  rng_bytes(r, sizeof r);
+  s->spin_off    = spin_disabled(r[0]);
+  s->grease_seed = 0;
+  for (usz i = 1; i < sizeof r; i++) {
+    s->grease_seed = (s->grease_seed << 8) | r[i];
+  }
+}
+
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   sdrv_init_in din = {in->server_priv_x25519, in->server_pub_x25519,
                       in->cert_seed,          in->chain,
@@ -55,6 +71,8 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->ku_send_count     = 0;
   s->ku_auth_fail      = 0;
   s->hs_rx_seen        = 0;
+  s->spin_rx           = 0;
+  srv_draw_wire_seeds(s);
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {

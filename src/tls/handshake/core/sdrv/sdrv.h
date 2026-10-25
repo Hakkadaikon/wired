@@ -32,6 +32,10 @@ typedef struct {
    * ClientHello transport parameters; 0 = not advertised (peer does not
    * support DATAGRAM) */
   u64 peer_max_datagram_frame_size;
+  /** RFC 9287 3: 1 when the ClientHello carried grease_quic_bit (empty
+   * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
+   * may grease the bit (wired_srvloop_send_onertt). */
+  int peer_grease_quic_bit;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit

@@ -1076,7 +1076,7 @@ static int sdt_build_datagram_pkt(
   datagram_frame    df   = {n, payload};
   usz               flen = datagram_encode(fb, &df, 0);
   protect_keys      pk;
-  hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0};
+  hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0, 0, 0};
   if (flen == 0) {
     return 0;
   }

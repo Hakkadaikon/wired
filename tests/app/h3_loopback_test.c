@@ -167,8 +167,12 @@ static usz lb_seal_onertt(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      0,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;

@@ -14,6 +14,7 @@
 #include "ee_find.h"
 #include "realchain_golden.h"
 #include "test.h"
+#include "tls/ext/grease/grease.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/earlydata.h"
@@ -847,6 +848,38 @@ static u64 sdrv_test_vi_error(const u8* vi, usz n) {
     return 0;
   }
   return sdrv_last_error(&s);
+}
+
+/* RFC 9287 3: a client's grease_quic_bit with an empty value is recorded
+ * (its packets may then carry a cleared QUIC Bit); a non-empty value is a
+ * TRANSPORT_PARAMETER_ERROR; absence leaves greasing off. */
+static void test_sdrv_recv_client_hello_grease_quic_bit(void) {
+  u8   cli_pub[32], srv_random[32], tpbuf[32], ch[512];
+  u8   one = 1;
+  usz  i;
+  sdrv s;
+  for (i = 0; i < 3; i++) {
+    wired_obuf tob    = obuf_of(tpbuf, sizeof(tpbuf));
+    usz        tp_len = 0, ch_len;
+    if (i < 2) {
+      tp_len =
+          tparam_put_blob(&tob, TP_GREASE_QUIC_BIT, wired_span_of(&one, i));
+      CHECK(tp_len != 0);
+    } else {
+      tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_DATA, 1000);
+    }
+    sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+    ch_len = sdrv_test_client_hello_tp(
+        ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
+    CHECK(ch_len != 0);
+    if (i == 1) {
+      CHECK(!sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
+    } else {
+      CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(s.peer_grease_quic_bit == (i == 0));
+    }
+  }
 }
 
 /* RFC 9368 4: a zero Chosen Version, a zero Available Version, or a Chosen
@@ -2683,6 +2716,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_version_information_ok();
   test_sdrv_recv_client_hello_version_information_malformed_rejected();
   test_sdrv_recv_client_hello_version_information_invalid_entries();
+  test_sdrv_recv_client_hello_grease_quic_bit();
   test_sdrv_recv_client_hello_no_supported_versions_rejected();
   test_sdrv_recv_client_hello_non_tls13_version_rejected();
   test_sdrv_recv_client_hello_no_sig_algs_rejected();
