@@ -19,6 +19,11 @@
  * buf (cap total), or 0 if it does not fit. */
 usz tls_ext_supported_groups(u8* buf, usz cap);
 
+/* Encode supported_groups offering group only -- RFC 8446 4.2.8: a client
+ * lists every group it sends a KeyShareEntry for. Returns bytes written, or
+ * 0 if it does not fit. */
+usz tls_ext_supported_group(u8* buf, usz cap, u16 group);
+
 /* Encode signature_algorithms offering ecdsa_secp256r1_sha256,
  * rsa_pss_rsae_sha256 and ed25519. Returns bytes written, or 0 if no room. */
 usz tls_ext_sig_algs(u8* buf, usz cap);
