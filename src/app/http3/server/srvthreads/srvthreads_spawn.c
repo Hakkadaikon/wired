@@ -177,7 +177,7 @@ int wired_srvthreads_run(
     const wired_srvthreads_opt* opt) {
   srvthreads_worker_arg args[WIRED_SRVTHREADS_MAX];
   srvthreads_worker_arg common;
-  wired_srvxdpbpf       bpf = {-1, -1, -1};
+  wired_srvxdpbpf       bpf = {-1, -1, -1, {{0, 0, 0}}};
   u8*                   envs;
   wired_srvinbox_ring*  mesh;
   int                   n = opt->n_cores;

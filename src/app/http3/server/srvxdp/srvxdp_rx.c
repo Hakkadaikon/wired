@@ -38,7 +38,8 @@ static void srvxdp_learn(wired_srvxdp* x, const xdpframe_rx* rx) {
 static int srvxdp_rx_one(wired_srvxdp* x, u64 addr, u32 len, mmsg_buf* out) {
   xdpframe_rx rx;
   wired_span  frame = wired_span_of(x->xsk.umem + addr, len);
-  if (!xdpframe_parse(frame, &rx)) {
+  u32         flags = (u32)(x->skip_udp_csum != 0) * XDPFRAME_SKIP_UDP_CSUM;
+  if (!xdpframe_parse(frame, flags, &rx)) {
     return 0;
   }
   if (rx.payload_len > out->buf.n) {

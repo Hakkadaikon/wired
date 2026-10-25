@@ -90,7 +90,7 @@ page: **[Interop Results](../interop.md)**.
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 22/25 | 18 | 4 | 3 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 23/29 | 18 | 5 | 6 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 7/10 | 5 | 2 | 3 |
-| [RFC 9312 — Manageability (informational)](rfc9312.md) | 4/5 | 0 | 4 | 1 |
+| [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 1 | 4 | 0 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 29/34 | 21 | 8 | 5 |
 
 ## TLS and PKI
@@ -163,7 +163,7 @@ section.
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 768 — UDP](rfc768.md) | 9/9 | 9 | 0 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 13/17 | 9 | 4 | 4 |
+| [RFC 791 — IPv4](rfc791.md) | 16/16 | 14 | 2 | 0 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 5/5 | 4 | 1 | 0 |
 
 ---

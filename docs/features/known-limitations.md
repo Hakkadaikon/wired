@@ -786,9 +786,15 @@ those directly.
   congestion leaves cwnd (the congestion window) to BBR's model. Source:
   `srvrun_loss_unbroken` (ponytail),
   [rfc9002.md](rfc9002.md) Out of scope.
-- **IPv4/UDP/IP details** — Affects: unusual IP traffic. There are no IP
-  options, no fragmentation or reassembly and no ToS use. TTL is fixed at 64
-  on the AF_XDP path, and the UDP source port 0 case is not handled. Source:
+- **IPv4/UDP/IP details** — Affects: unusual IP traffic. wired never
+  fragments and sends no IP options; on the AF_XDP path, received fragments
+  and option-bearing datagrams (IHL > 5) are dropped: the BPF filter passes
+  them to the kernel, whose reassembled or option-processed result lands on
+  the unread port-reservation socket. This is deliberate: DF is always set
+  and RFC 9000 §14 rules out QUIC paths that need fragmentation. The kernel
+  UDP driver receives both normally. There is no ToS use, TTL is fixed at
+  64 on the AF_XDP path, and the UDP source port 0 case is not handled.
+  On `veth`, `--skip-udp-csum` is needed (CHECKSUM_PARTIAL frames). Source:
   [rfc791.md](rfc791.md), [rfc768.md](rfc768.md) Out of scope.
 - **Connection migration interop** — Affects: clients that migrate. The
   [interop page](../interop.md) records `connectionmigration` as partial: it
@@ -955,6 +961,14 @@ those directly.
 - **AF_XDP path is IPv4 only** — Affects: IPv6 deployments that want the
   kernel-bypass driver. It uses a fixed 20-byte IPv4 header with no options.
   Source: [rfc791.md](rfc791.md).
+- **AF_XDP CID routing is obfuscated, not encrypted** — Affects: AF_XDP
+  multi-queue (`--ifindex` with `--cores`) deployments facing a determined
+  on-path observer. The core id in each connection ID is masked with a
+  keyed multiply/xorshift mix of the next four CID bytes, under a key drawn
+  per process and shared only with the BPF steering program (RFC 9312
+  §2.6). The BPF side cannot run a block cipher, so this is weaker than
+  QUIC-LB's AES-based schemes. Source: [rfc9312.md](rfc9312.md) 9312-005,
+  `ncid_route_key`.
 - **Hub and socket tuning** — see [Capacity limits](#capacity-limits).
 
 ## Capacity limits

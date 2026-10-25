@@ -2,6 +2,7 @@
 #define WIRED_SRVXDPBPF_SRVXDPBPF_H
 
 #include "common/platform/sys/syscall.h"
+#include "transport/packet/frame/frame/ncid_worker.h"
 
 /** @file
  * Shared per-interface BPF objects for the AF_XDP driver: one XSKMAP plus
@@ -22,10 +23,14 @@ typedef struct {
   i64 prog_fd;
   /** BPF link fd attaching the program to the interface */
   i64 link_fd;
+  /** per-process key the program unmasks CID routing bytes with; every
+   * wired_srvxdp registered here copies it for ncid_route_encode */
+  ncid_route_key route_key;
 } wired_srvxdpbpf;
 
-/** Create the XSKMAP (WIRED_SRVXDPBPF_MAP_ENTRIES slots), build and load the
- * redirect-filter program around it (xdpbpf_prog_build, dport == port),
+/** Generate b->route_key, create the XSKMAP (WIRED_SRVXDPBPF_MAP_ENTRIES
+ * slots), build and load the redirect-filter program around both
+ * (xdpbpf_prog_build, dport == port),
  * and attach it to the interface with a BPF link. On any failure, everything
  * already built is closed in reverse order and every fd is left at -1.
  * @param b            output; all three fds valid on success, -1 on failure

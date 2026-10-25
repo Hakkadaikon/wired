@@ -12,7 +12,9 @@ usz ipv4_build(u8 out[IPV4_HDR], const ipv4_head* h) {
   }
   out[0] = 0x45; /* version 4, IHL 5 (20 bytes) */
   put_be16(out + 2, h->total_len);
-  out[8] = 64; /* TTL */
+  put_be16(out + 4, h->id); /* RFC 791 3.2 Identification */
+  out[6] = 0x40;            /* RFC 9000 14: DF set, MF 0, offset 0 */
+  out[8] = 64;              /* TTL */
   out[9] = h->proto;
   put_be32(out + 12, h->src);
   put_be32(out + 16, h->dst);
