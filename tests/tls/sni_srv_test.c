@@ -1,5 +1,6 @@
 #include "app/http3/server/srvboot/srvboot.h"
 #include "common/diag/error/error.h"
+#include "ee_find.h"
 #include "test.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -81,4 +82,37 @@ static void test_snisrv_malformed_sni_decode_error(void) {
   CHECK(snisrv_boot(&f, ch, n) == 1);
 }
 
-void test_sni_srv(void) { test_snisrv_malformed_sni_decode_error(); }
+/* The EncryptedExtensions the accepted connection sent: the transcript
+ * message right after ServerHello. */
+static const u8* snisrv_ee(const struct snisrv_fix* f) {
+  return f->s.tr + f->s.tr_through_sh;
+}
+
+/* Boot from a fresh ClientHello offering sni. */
+static void snisrv_boot_sni(struct snisrv_fix* f, wired_span sni) {
+  u8  ch[512];
+  usz n = snisrv_ch(ch, sizeof ch, sni);
+  *f    = (struct snisrv_fix){0};
+  CHECK(snisrv_boot(f, ch, n) == 1);
+  CHECK(snisrv_ee(f)[0] == 0x08); /* HS_ENCRYPTED_EXT */
+}
+
+/* RFC 6066 3: the matched server_name chose the certificate, so a full
+ * handshake echoes an empty server_name (type 0, length 0); with no SNI
+ * offered nothing is echoed. RFC 8446 4.2.7: an x25519 share is this
+ * server's first choice, so no supported_groups is sent. */
+static void test_snisrv_ee_server_name_echo(void) {
+  static struct snisrv_fix f;
+  wired_span               d = {0, 0};
+  snisrv_boot_sni(&f, wired_span_of((const u8*)"localhost", 9));
+  CHECK(ee_find(snisrv_ee(&f), SNI_TYPE, &d));
+  CHECK(d.n == 0);
+  CHECK(!ee_find(snisrv_ee(&f), 0x000a, &d));
+  snisrv_boot_sni(&f, wired_span_of(0, 0));
+  CHECK(!ee_find(snisrv_ee(&f), SNI_TYPE, &d));
+}
+
+void test_sni_srv(void) {
+  test_snisrv_malformed_sni_decode_error();
+  test_snisrv_ee_server_name_echo();
+}

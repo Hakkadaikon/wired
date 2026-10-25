@@ -3,7 +3,9 @@
 static int emit_ee_tp(sdrv* s, wired_obuf* tob);
 static int sdrv_alpn_settled(sdrv* s);
 static int emit_ee_ready(sdrv* s, wired_obuf* tob);
-static int emit_ee(sdrv* s, wired_obuf* flight);
+static unsigned sdrv_ee_sni_flag(const sdrv* s);
+static unsigned sdrv_ee_flags(const sdrv* s);
+static int      emit_ee(sdrv* s, wired_obuf* flight);
 static int emit_cert(sdrv* s, wired_obuf* flight);
 static int emit_certverify(sdrv* s, wired_obuf* flight);
 static int emit_finished(sdrv* s, wired_obuf* flight);
@@ -39,6 +41,23 @@ static int emit_ee_ready(sdrv* s, wired_obuf* tob) {
   return sdrv_alpn_settled(s) && emit_ee_tp(s, tob);
 }
 
+/* RFC 6066 3: echo an empty server_name when the name was checked against
+ * the certificate (MATCH) on a full handshake -- never on a resumption
+ * (6066-014: the PSK path sends no certificate). */
+static unsigned sdrv_ee_sni_flag(const sdrv* s) {
+  return s->sni_outcome == SALPN_SNI_MATCH && !s->psk_accepted
+             ? EEBUILD_SERVER_NAME
+             : 0;
+}
+
+/* RFC 8446 4.2.10 early_data, RFC 6066 3 server_name, and RFC 8446 4.2.7
+ * supported_groups when the client's share steered us off x25519. */
+static unsigned sdrv_ee_flags(const sdrv* s) {
+  unsigned groups = s->group != GROUP_X25519 ? EEBUILD_GROUPS : 0;
+  return (s->early_data_accepted ? EEBUILD_EARLY_DATA : 0) |
+         sdrv_ee_sni_flag(s) | groups;
+}
+
 static int emit_ee(sdrv* s, wired_obuf* flight) {
   u8         tp[256], msg[1024];
   wired_obuf tob = obuf_of(tp, sizeof(tp));
@@ -48,7 +67,7 @@ static int emit_ee(sdrv* s, wired_obuf* flight) {
   }
   if (!eebuild_encrypted_extensions(
           salpn_choice_name(s->alpn, s->alpn_tok), wired_span_of(tp, tob.len),
-          s->early_data_accepted, &mob)) {
+          sdrv_ee_flags(s), &mob)) {
     return 0;
   }
   return sdrv_flight_emit_msg(s, wired_span_of(msg, mob.len), flight);
