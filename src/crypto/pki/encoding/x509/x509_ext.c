@@ -1,12 +1,8 @@
 #include "crypto/pki/encoding/x509/x509_impl.h"
 
-static int reach_extensions(wired_span tbs, wired_span* ext);
-static int ext_id_is(wired_span e, wired_span oid);
 static int is_true_boolean(u8 tag, wired_span v);
-static int ext_critical(wired_span e);
 static int ext_value(wired_span e, wired_span* val);
 static int find_in_extensions(wired_span ext, wired_span oid, wired_span* val);
-static int critical_in_extensions(wired_span ext, wired_span oid);
 static int ext_id(wired_span e, wired_span* id);
 static int id_is_known(wired_span id);
 static int ext_is_unknown_critical(wired_span e);
@@ -16,7 +12,7 @@ static int ext_repeated(wired_span ext, wired_span e);
 static int scan_duplicates(wired_span ext);
 
 /* RFC 5280 4.1.2.9. Reach the extensions SEQUENCE value inside [3]. */
-static int reach_extensions(wired_span tbs, wired_span* ext) {
+int x509_ext_reach(wired_span tbs, wired_span* ext) {
   derseq     c;
   wired_span wrapped;
   if (!x509_at_extensions(tbs, &c)) {
@@ -29,7 +25,7 @@ static int reach_extensions(wired_span tbs, wired_span* ext) {
 }
 
 /* RFC 5280 4.1.2.9. extnID of one Extension equals the wanted OID. */
-static int ext_id_is(wired_span e, wired_span oid) {
+int x509_ext_id_is(wired_span e, wired_span oid) {
   derseq     f;
   wired_span id;
   derseq_init(&f, e);
@@ -46,7 +42,7 @@ static int is_true_boolean(u8 tag, wired_span v) {
 
 /* RFC 5280 4.1.2.9. critical of one Extension: the element right after
  * extnID when it is a BOOLEAN, else the X.690 DEFAULT FALSE. */
-static int ext_critical(wired_span e) {
+int x509_ext_is_critical(wired_span e) {
   derseq     f;
   u8         tag;
   wired_span id, v;
@@ -83,7 +79,7 @@ static int find_in_extensions(wired_span ext, wired_span oid, wired_span* val) {
   wired_span e;
   derseq_init(&exts, ext);
   while (derseq_next(&exts, &tag, &e)) {
-    if (ext_id_is(e, oid)) {
+    if (x509_ext_id_is(e, oid)) {
       return ext_value(e, val);
     }
   }
@@ -92,32 +88,10 @@ static int find_in_extensions(wired_span ext, wired_span oid, wired_span* val) {
 
 int x509_find_ext(wired_span tbs, wired_span oid, wired_span* val) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) {
+  if (!x509_ext_reach(tbs, &ext)) {
     return 0;
   }
   return find_in_extensions(ext, oid, val);
-}
-
-/* Scan the extensions SEQUENCE for the wanted extnID's critical flag. */
-static int critical_in_extensions(wired_span ext, wired_span oid) {
-  derseq     exts;
-  u8         tag;
-  wired_span e;
-  derseq_init(&exts, ext);
-  while (derseq_next(&exts, &tag, &e)) {
-    if (ext_id_is(e, oid)) {
-      return ext_critical(e);
-    }
-  }
-  return 0;
-}
-
-int x509_ext_critical(wired_span tbs, wired_span oid) {
-  wired_span ext;
-  if (!reach_extensions(tbs, &ext)) {
-    return 0;
-  }
-  return critical_in_extensions(ext, oid);
 }
 
 /* RFC 5280 4.2. extnIDs this SDK understands the semantics of. Any other
@@ -168,7 +142,7 @@ static int ext_is_unknown_critical(wired_span e) {
   if (!ext_id(e, &id)) {
     return 1;
   }
-  if (!ext_critical(e)) {
+  if (!x509_ext_is_critical(e)) {
     return 0;
   }
   return !id_is_known(id);
@@ -190,7 +164,7 @@ static int scan_unknown_critical(wired_span ext) {
 
 int x509_has_unknown_critical(wired_span tbs) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) {
+  if (!x509_ext_reach(tbs, &ext)) {
     return 0;
   }
   return scan_unknown_critical(ext);
@@ -204,7 +178,7 @@ static usz count_ext_id(wired_span ext, wired_span oid) {
   usz        n = 0;
   derseq_init(&exts, ext);
   while (derseq_next(&exts, &tag, &e)) {
-    if (ext_id_is(e, oid)) {
+    if (x509_ext_id_is(e, oid)) {
       n++;
     }
   }
@@ -238,7 +212,7 @@ static int scan_duplicates(wired_span ext) {
 
 int x509_has_duplicate_ext(wired_span tbs) {
   wired_span ext;
-  if (!reach_extensions(tbs, &ext)) {
+  if (!x509_ext_reach(tbs, &ext)) {
     return 0;
   }
   return scan_duplicates(ext);

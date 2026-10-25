@@ -20,5 +20,8 @@
 #define KNOWN_EXT_OID_COUNT (sizeof(known_ext_oids) / sizeof(known_ext_oids[0]))
 
 int x509_at_extensions(wired_span tbs, derseq* c);
+int x509_ext_reach(wired_span tbs, wired_span* ext);
+int x509_ext_id_is(wired_span e, wired_span oid);
+int x509_ext_is_critical(wired_span e);
 
 #endif
