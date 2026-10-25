@@ -16,6 +16,7 @@
 #include "crypto/pki/cert/p256cert/p256cert.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+#include "tls/ext/legacy/legacy_fields.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/salpn/salpn_raw.h"
@@ -59,10 +60,23 @@ typedef struct {
  * direction -- presence alone is the signal). */
 #define SDRV_EARLY_DATA_EXT_TYPE 0x002a
 
+/* RFC 8446 4.2.3: signature_algorithms_cert (0x0032), the same
+ * SignatureSchemeList shape as signature_algorithms. */
+#define SDRV_SIG_ALGS_CERT_EXT_TYPE 0x0032
+
 /* mmap(2) flags for a region fork(2) children keep sharing with the parent
  * (Linux <sys/mman.h>). */
 #define SDRV_PROT_RW 0x3
 #define SDRV_MAP_SHARED_ANON 0x21
+
+/* RFC 8446 3.4 vector walking shared by the ClientHello shape gates
+ * (sdrv_ch_shape.c, sdrv_ch_psk.c). */
+/* One entry of a vector at q (n bytes readable): the offset past it, or 0
+ * if it does not fit or breaks a per-entry minimum. */
+typedef usz (*sdrv_vec_step)(const u8* p, usz q, usz n);
+
+/* sdrv_vec_count's "an entry broke" result. */
+#define SDRV_VEC_BAD ((usz) - 1)
 
 /* One pre-condition check run before any field is taken from the
  * ClientHello; each sets s->last_error and returns 0 to reject. Table-driven
@@ -115,7 +129,52 @@ int  sdrv_find_version_information(
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_reject(sdrv* s, u8 alert);
+int sdrv_ch_require_decodable(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_null_compression(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_ext_shapes(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_psk_shape(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_ks_with_groups(sdrv* s, const u8* ch_msg, usz ch_len);
 
-extern const sdrv_ch_gate SDRV_CH_GATES[9];
+/* The offset past the w-byte-length-prefixed entry at q, or 0 if its
+ * prefix or its declared bytes run past n. */
+static inline usz sdrv_entry_end(const u8* p, usz q, usz n, usz w) {
+  usz e;
+  if (q + w > n) {
+    return 0;
+  }
+  e = q + w + sdrv_prefix_len(p, q, w);
+  return e <= n ? e : 0;
+}
+
+/* Entries in p[0..n) walked by step, exactly filling n; SDRV_VEC_BAD if
+ * one breaks (0 is a valid count: an empty vector). */
+static inline usz sdrv_vec_count(const u8* p, usz n, sdrv_vec_step step) {
+  usz q = 0, c = 0;
+  while (q < n) {
+    q = step(p, q, n);
+    c++;
+    if (q == 0) {
+      return SDRV_VEC_BAD;
+    }
+  }
+  return c;
+}
+
+/* c is a real count (not SDRV_VEC_BAD) of at least min entries. */
+static inline int sdrv_count_ok(usz c, usz min) {
+  return c != SDRV_VEC_BAD && c >= min;
+}
+
+/* d is exactly one w-prefixed vector of at least min well-formed entries. */
+static inline int sdrv_vec_ok(
+    wired_span d, usz w, sdrv_vec_step step, usz min) {
+  if (d.n == 0 || sdrv_entry_end(d.p, 0, d.n, w) != d.n) {
+    return 0;
+  }
+  return sdrv_count_ok(sdrv_vec_count(d.p + w, d.n - w, step), min);
+}
+
+extern const sdrv_ch_gate SDRV_CH_GATES[14];
 
 #endif

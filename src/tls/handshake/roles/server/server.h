@@ -84,6 +84,18 @@ typedef struct {
   /** RFC 9001 6.6: received 1-RTT packets that failed to open under any
    * retained generation, toward the AEAD integrity limit. */
   u64 ku_auth_fail;
+  /** RFC 8446 4 / 4.4.4: the CRYPTO_ERROR (RFC 9000 20.1) a handshake
+   * message latched for the caller to close the connection with --
+   * unexpected_message for one of the wrong type or phase, decrypt_error
+   * for a client Finished that does not verify. 0 = none
+   * (wired_server_hs_error). */
+  u64 hs_error;
+  /** Handshake CRYPTO stream bytes already consumed (the verified client
+   * Finished): a retransmission of them is no new message. */
+  usz hs_rx_used;
+  /** Initial CRYPTO stream bytes the accepted ClientHello(s) spanned:
+   * Initial CRYPTO data past this is a further handshake message. */
+  usz ini_rx_end;
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
@@ -206,6 +218,26 @@ int wired_server_build_flight(
  * @param len length of crypto_payload in octets
  * @return 1 if it advanced the handshake, 0 otherwise. */
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len);
+
+/** RFC 8446 4 / RFC 9001 4.1.3: route one opened packet's frames by its
+ * encryption level before they reach wired_server_feed. Handshake: passed
+ * on. Initial: never passed on (the ClientHello was taken at boot); CRYPTO
+ * data past the accepted ClientHello(s) is a further handshake message and
+ * latches unexpected_message. 1-RTT: a client sends no handshake message
+ * there, so any CRYPTO frame latches unexpected_message and the packet is
+ * not passed on.
+ * @param s the orchestrator
+ * @param level LEVEL_INITIAL, LEVEL_HANDSHAKE or LEVEL_ONERTT
+ * @param payload the packet's opened frames
+ * @return 1 to dispatch the payload, 0 to drop it. */
+int wired_server_crypto_level_ok(
+    wired_server* s, int level, wired_span payload);
+
+/** The CRYPTO_ERROR a handshake message latched (see wired_server.hs_error),
+ * cleared by the read so the caller closes once.
+ * @param s the orchestrator
+ * @return the error code, or 0 when none is pending. */
+u64 wired_server_take_hs_error(wired_server* s);
 
 /** RFC 9001 4.1.2 / RFC 9000 19.20: write the HANDSHAKE_DONE frame, at most
  * once and only after confirmation.

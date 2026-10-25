@@ -48,10 +48,11 @@ static int append_self(wired_obuf* out, ext_enc enc) {
  * signature_algorithms, key_share. ks[75] fits the widest supported group
  * (secp256r1: 4 + 2 + 4 + 65). */
 static int append_core(wired_obuf* out, const u8* pub, u16 group, usz pub_len) {
-  u8  ks[75];
+  u8  ks[75], gr[8];
   usz kw = tls_ext_key_share(ks, sizeof(ks), group, pub, pub_len);
+  usz gw = tls_ext_supported_group(gr, sizeof(gr), group);
   int ok = append_self(out, tls_ext_supported_versions);
-  ok &= append_self(out, tls_ext_supported_groups);
+  ok &= (gw != 0) & tls_ext_append(out, wired_span_of(gr, gw));
   ok &= append_self(out, tls_ext_sig_algs);
   return ok & (kw != 0) & tls_ext_append(out, wired_span_of(ks, kw));
 }

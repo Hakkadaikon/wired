@@ -15,6 +15,12 @@
  * the message is truncated/not a ClientHello. */
 int legacy_check_client_hello(const u8* ch_msg, usz len);
 
+/* RFC 8446 4.1.2: 1 if the ClientHello ch_msg (len bytes) carries exactly
+ * the single null compression method (0x01 0x00), 0 otherwise -- the
+ * compression half of legacy_check_client_hello alone (legacy_version is
+ * ignored by a TLS 1.3 server, 4.2.1). */
+int legacy_compression_ok(const u8* ch_msg, usz len);
+
 /* Locate legacy_session_id in the ClientHello ch_msg (len bytes). On success
  * sets *sid to the session_id bytes (or ch_msg+offset with *sid_len 0 when
  * empty) and *sid_len to its length (0..32), returning 1. Returns 0 if the

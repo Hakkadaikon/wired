@@ -8,6 +8,7 @@ static int  sdrv_p256_ephemeral(sdrv* s);
 static int  sdrv_p256_share_ok(const u8* pub);
 static int  sdrv_ch_take_p256(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len);
+static int  sdrv_ch_share_listed(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_negotiate_and_keyshare(
     sdrv* s, const u8* ch_msg, usz ch_len);
@@ -114,6 +115,20 @@ static int sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len) {
   return s->group == GROUP_X25519 && sdrv_ch_take_p256(s, ch_msg, ch_len);
 }
 
+/* RFC 8446 4.2.8: "Clients MUST NOT offer any KeyShareEntry values for
+ * groups not listed in the client's supported_groups" -- the share just
+ * taken (s->group) must be a listed group, else illegal_parameter, so the
+ * server never answers in a group the client did not offer (8446-109). */
+static int sdrv_ch_share_listed(sdrv* s, const u8* ch_msg, usz ch_len) {
+  wired_span ext;
+  if (sdrv_find_client_ext(ch_msg, ch_len, EXT_SUPPORTED_GROUPS, &ext) &&
+      tls_ext_groups_has(ext.p, ext.n, s->group)) {
+    return 1;
+  }
+  s->last_error = err_crypto(47);
+  return 0;
+}
+
 /* The client's key_share taken directly, or (its absence) recorded
  * as "HRR needed" instead of an outright rejection. Returns 1 if the caller
  * should keep processing this ClientHello as a normal (non-HRR) one, 0 if
@@ -121,7 +136,7 @@ static int sdrv_ch_any_keyshare(sdrv* s, const u8* ch_msg, usz ch_len) {
  * ClientHello was rejected (last_error set, sdrv_hrr_pending stays 0). */
 static int sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len) {
   if (sdrv_ch_any_keyshare(s, ch_msg, ch_len)) {
-    return 1;
+    return sdrv_ch_share_listed(s, ch_msg, ch_len);
   }
   if (!sdrv_ch_may_retry(s, ch_msg, ch_len)) {
     sdrv_ch_keyshare_reject(s);

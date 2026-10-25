@@ -93,6 +93,12 @@ typedef struct {
    * start-time cert_seed, so a certificate reload (which rewrites cert_seed
    * in place) never changes a token a live connection was already given. */
   const u8* reset_seed;
+  /** RFC 8446 Appendix E.5: 1 to accept 0-RTT (early data) on resumed
+   * connections and advertise it in issued tickets; 0 (the default)
+   * resumes as 1-RTT only. 0-RTT data is replayable (RFC 8446 8): enable
+   * it only when the application's early requests are safe to replay.
+   * Needs ticket_key. */
+  int early_data;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

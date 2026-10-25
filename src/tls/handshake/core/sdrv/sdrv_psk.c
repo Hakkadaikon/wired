@@ -5,7 +5,8 @@ static int sdrv_ch_cipher_suites(const u8* body, usz body_len, wired_span* out);
 static int sdrv_negotiate_cipher(sdrv* s, const u8* body, usz body_len);
 static wired_span sdrv_psk_truncate(
     const u8* ch_msg, wired_span psk_ext, usz id_len);
-static int sdrv_binder_len_ok(const sdrv* s, const tlsext_psk_offer* off);
+static int  sdrv_binder_len_ok(const sdrv* s, const tlsext_psk_offer* off);
+static void sdrv_psk_binder_hash(const sdrv* s, wired_span truncated, u8* out);
 
 /* RFC 8446 4.1.2 / RFC 9001 8.4: a compliant ClientHello's legacy_session_id
  * is always empty (rejected otherwise by sdrv_reject_nonempty_sid), so there
@@ -201,6 +202,16 @@ static int sdrv_binder_len_ok(const sdrv* s, const tlsext_psk_offer* off) {
   return off->binder_len == tls_hash_of(s->cipher_suite)->len;
 }
 
+/* RFC 8446 4.2.11.2: Transcript-Hash(..., Truncate(ClientHello)) -- the
+ * running transcript (empty on a first ClientHello; message_hash(
+ * ClientHello1) || HelloRetryRequest after an HRR, sdrv_build_hrr) with the
+ * truncated ClientHello folded into a copy, so s->tr itself is untouched. */
+static void sdrv_psk_binder_hash(const sdrv* s, wired_span truncated, u8* out) {
+  transcript tr = s->tr;
+  transcript_add(&tr, truncated.p, truncated.n);
+  transcript_hash_suite(&tr, s->cipher_suite, out);
+}
+
 /* The opened ticket's binder verifies against the truncated ClientHello.
  * RFC 8446 4.2.11.2: a mismatch here is the hard-abort case, never a
  * fallback -- the caller must propagate 0 all the way out of
@@ -212,8 +223,9 @@ int sdrv_psk_binder_ok(
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
   wired_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
-  u8         psk[TLS_HASH_MAX];
+  u8         psk[TLS_HASH_MAX], thash[TLS_HASH_MAX];
   sdrv_psk_from_ticket_secret(t, psk);
+  sdrv_psk_binder_hash(s, truncated, thash);
   return sdrv_binder_len_ok(s, off) &&
-         tls_binder_verify_suite(s->cipher_suite, psk, truncated, off->binder);
+         tls_binder_verify_hash(s->cipher_suite, psk, thash, off->binder);
 }

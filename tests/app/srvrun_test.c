@@ -21323,6 +21323,24 @@ static void test_srvrun_ctrl_overflow_closes(void) {
   CHECK(is_app == 1);
 }
 
+/* RFC 8446 4 / RFC 9001 4.8 (#72): a latched handshake alert (here
+ * unexpected_message) closes the connection with that CRYPTO_ERROR as a
+ * transport-level CONNECTION_CLOSE, once. */
+static void test_srvrun_hs_error_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 1;
+  c->s.hs_error          = 0x10a;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(c->closing == 1);
+  CHECK(sr_close_code(c, &is_app) == 0x10a);
+  CHECK(is_app == 0);
+  CHECK(c->s.hs_error == 0);
+}
+
 /* RFC 9204 2.1.2 / 4.2: a latched QPACK violation (here a section that
  * would block) closes the connection with that code. */
 static void test_srvrun_qpack_violation_closes(void) {
@@ -25305,6 +25323,7 @@ void test_srvrun(void) {
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_qpack_violation_closes();
+  test_srvrun_hs_error_closes();
   test_srvrun_qdec_stream_opens_with_qpack_streams();
   test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();

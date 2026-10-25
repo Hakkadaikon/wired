@@ -10,18 +10,26 @@
  * (the sealed pre_shared_key identity bytes, which are unique per issuance
  * since ticket_seal draws a fresh random nonce every call); it feeds
  * zerortt_replay_ok's ticket_first_use argument (zerortt_policy.h).
- * ponytail: fixed-size ring, oldest entry evicted on overflow -- no
- * persistence/cross-process sharing (this SDK is one process per server), a
- * ticket also expires on its own lifetime so an evicted-then-replayed entry
- * is bounded by that, not unbounded. */
+ * A fixed-size ring: when it is full, the oldest entry is evicted only once
+ * it can no longer be replayed (ZERORTT_SEEN_LIVE_SECS after it was
+ * recorded); until then a new identity is refused (RFC 8446 8.2: a server
+ * that cannot record a ClientHello must not accept its 0-RTT). */
 
 #define ZERORTT_SEEN_CAP 4096
+
+/* RFC 8446 8.2 / 8.3: how long after recording an entry a replay of it can
+ * still pass the ticket-age freshness check -- the claimed-vs-measured
+ * skew may sit anywhere in [-W, +W] (W = TICKET_FRESHNESS_WINDOW_SECS, 10)
+ * when first accepted, so a replay fails it at most 2W later; +1 rounds the
+ * one-second clock up. */
+#define ZERORTT_SEEN_LIVE_SECS 21
 
 /** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
  * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
   u8  digest[ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
   usz next;                         /* ring write cursor */
+  u64 at[ZERORTT_SEEN_CAP];         /* epoch secs each digest was recorded */
   usz count;                        /* entries filled so far (<= CAP) */
   int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
 } zerortt_seen;
@@ -35,5 +43,8 @@ void zerortt_seen_init(zerortt_seen* s);
  * on first use (identity was not already recorded), 0 on a replay (already
  * recorded). */
 int zerortt_seen_check(zerortt_seen* s, wired_span identity);
+/* zerortt_seen_check at now_secs (epoch seconds) instead of the clock; a
+ * full ring whose oldest entry is still live refuses (returns 0). */
+int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs);
 
 #endif
