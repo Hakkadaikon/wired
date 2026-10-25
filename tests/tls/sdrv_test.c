@@ -2528,6 +2528,114 @@ static void test_sdrv_zerortt_shared_across_fork(void) {
       0);
 }
 
+/* RFC 8446 4.1.4: ClientHello1 = f's ClientHello relabelled so its only
+ * key_share is a (non-decodable) secp256r1 entry -- no usable share, so the
+ * server arms a HelloRetryRequest. Builds that HRR into hrr (length in
+ * hrr_len). */
+static void sdrv_test_hrr_round1(
+    sdrv* s, sdrv_psk_fixture* f, u8* ch1, u8* hrr, usz* hrr_len) {
+  wired_obuf hob = obuf_of(hrr, 256);
+  for (usz i = 0; i < f->ch_len; i++) {
+    ch1[i] = f->ch[i];
+  }
+  be_put_be16(ch1 + SDRV_TEST_KEYSHARE_TYPE_OFF + 6, GROUP_SECP256R1);
+  sdrv_test_psk_init_srv(s, f);
+  CHECK(sdrv_recv_client_hello(s, ch1, f->ch_len) == 1);
+  CHECK(sdrv_hrr_pending(s) == 1);
+  CHECK(sdrv_build_hrr(s, &hob) == 1);
+  *hrr_len = hob.len;
+}
+
+/* RFC 8446 4.2.11.2 / 4.4.1, recomputed test-side from the raw bytes (not
+ * the server's transcript object): SHA-256(message_hash || HRR ||
+ * Truncate(ClientHello2)), message_hash = 0xfe 00 00 20 || SHA-256(CH1). */
+static void sdrv_test_hrr_binder_hash(
+    const u8*  ch1,
+    usz        ch1_len,
+    const u8*  hrr,
+    usz        hrr_len,
+    wired_span trunc,
+    u8         out[32]) {
+  u8         mh[4 + 32];
+  sha256_ctx h;
+  mh[0] = 0xfe;
+  mh[1] = 0;
+  mh[2] = 0;
+  mh[3] = 32;
+  wired_sha256(ch1, ch1_len, mh + 4);
+  sha256_init(&h);
+  sha256_update(&h, mh, sizeof mh);
+  sha256_update(&h, hrr, hrr_len);
+  sha256_update(&h, trunc.p, trunc.n);
+  sha256_final(&h, out);
+}
+
+/* ClientHello2 (x25519 share, optionally early_data) offering f's ticket
+ * with its binder over the post-HRR transcript. Returns its length. */
+static usz sdrv_test_hrr_ch2(
+    sdrv_psk_fixture* f,
+    const u8*         ch1,
+    const u8*         hrr,
+    usz               hrr_len,
+    int               early,
+    u8*               ch2,
+    usz               cap) {
+  u8            binder[HKDF_PRK] = {0}, th[32];
+  usz           off              = 0, n;
+  tlsext_psk_in in               = {
+      wired_span_of(f->sealed, sizeof(f->sealed)), 0,
+      wired_span_of(binder, sizeof binder)};
+  usz (*append)(u8*, usz, const u8*, usz, const tlsext_psk_in*, usz*) =
+      early ? sdrv_test_append_early_data_then_psk : sdrv_test_append_psk;
+  CHECK(append(ch2, cap, f->ch, f->ch_len, &in, &off) != 0);
+  sdrv_test_hrr_binder_hash(
+      ch1, f->ch_len, hrr, hrr_len,
+      wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f->sealed))),
+      th);
+  tls_binder_compute_hash(TLS_AES_128_GCM_SHA256, f->psk, th, binder);
+  n = append(ch2, cap, f->ch, f->ch_len, &in, &off);
+  CHECK(n != 0);
+  return n;
+}
+
+/* RFC 8446 4.2.11.2 (#3): resumption after a HelloRetryRequest -- the
+ * ClientHello2 binder covers message_hash(CH1) || HRR || Truncate(CH2), and
+ * a binder computed that way is accepted (it used to fail as decrypt_error,
+ * the server hashing Truncate(CH2) alone). */
+static void test_sdrv_psk_binder_after_hrr_accepted(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700];
+  usz              hrr_len, ch2_len;
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  ch2_len = sdrv_test_hrr_ch2(&f, ch1, hrr, hrr_len, 0, ch2, sizeof ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+}
+
+/* The flip side: after an HRR, a binder over Truncate(CH2) alone (the
+ * no-HRR transcript) is a mismatch -- decrypt_error, never a fallback. */
+static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700], binder[HKDF_PRK] = {0};
+  usz              hrr_len, ch2_len, off = 0;
+  tlsext_psk_in    in = {
+      wired_span_of(f.sealed, sizeof(f.sealed)), 0,
+      wired_span_of(binder, sizeof binder)};
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  CHECK(sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off));
+  tls_binder_compute(
+      f.psk,
+      wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f.sealed))),
+      binder);
+  ch2_len = sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(51));
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2583,6 +2691,8 @@ void test_sdrv(void) {
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();
+  test_sdrv_psk_binder_after_hrr_accepted();
+  test_sdrv_psk_binder_after_hrr_needs_transcript();
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
