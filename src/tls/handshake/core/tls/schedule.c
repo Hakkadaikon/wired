@@ -178,8 +178,9 @@ void tls_early_traffic_secret(
       wired_span_of(client_hello, client_hello_len), out);
 }
 
-void tls_early_keys_suite(
+void tls_early_keys_suite_ver(
     u16           suite,
+    u32           version,
     const u8*     psk,
     const u8*     client_hello,
     usz           client_hello_len,
@@ -187,9 +188,17 @@ void tls_early_keys_suite(
   u8 ts[TLS_HASH_MAX];
   tls_early_traffic_secret_suite(
       suite, psk, wired_span_of(client_hello, client_hello_len), ts);
-  /* RFC 9368 2.3: 0-RTT is only ever sent under the client's original
-   * version, before any compatible switch -- always the v1 labels here. */
-  protection_keys_suite(ts, suite, VERSION_1, out);
+  protection_keys_suite(ts, suite, version, out);
+}
+
+void tls_early_keys_suite(
+    u16           suite,
+    const u8*     psk,
+    const u8*     client_hello,
+    usz           client_hello_len,
+    initial_keys* out) {
+  tls_early_keys_suite_ver(
+      suite, VERSION_1, psk, client_hello, client_hello_len, out);
 }
 
 void tls_early_keys(

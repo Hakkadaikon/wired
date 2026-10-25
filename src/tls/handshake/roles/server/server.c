@@ -54,6 +54,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->ku_seeded         = 0;
   s->ku_send_count     = 0;
   s->ku_auth_fail      = 0;
+  s->hs_rx_seen        = 0;
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {

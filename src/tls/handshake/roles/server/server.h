@@ -84,6 +84,10 @@ typedef struct {
   /** RFC 9001 6.6: received 1-RTT packets that failed to open under any
    * retained generation, toward the AEAD integrity limit. */
   u64 ku_auth_fail;
+  /** RFC 9369 4.1: 1 once a Handshake packet (always in the negotiated
+   * version) opened; from then on original-version Initials are dropped,
+   * until then they still open under the original version's keys. */
+  int hs_rx_seen;
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed

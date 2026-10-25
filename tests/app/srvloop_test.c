@@ -13,6 +13,7 @@
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/instruction.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tparam/tparam.h"
@@ -33,6 +34,7 @@
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
+#include "transport/packet/build/initpkt/initpkt.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
@@ -5326,6 +5328,154 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   CHECK(f.l.app_rx_pn == 3);
 }
 
+/* The fixture after a compatible switch: the client's first flight was v1
+ * (RFC 9368 2.2 original version) and the server negotiated v2. */
+static void lp_switch_v1_to_v2(struct lp_fix* f) {
+  f->s.sdrv.client_version     = VERSION_1;
+  f->s.sdrv.negotiated_version = VERSION_2;
+}
+
+/* One client Initial of `version` carrying a PING-sized CRYPTO chunk,
+ * keyed from the fixture's ODCID (g_cli_scid, RFC 9001 5.2). */
+static usz lp_client_initial_ver(u32 version, u8* pkt, usz cap) {
+  static const u8 crypto[1] = {0};
+  initpkt_desc    d         = {
+      wired_span_of(g_cli_scid, 6), wired_span_of(g_cli_scid, 6),
+      wired_span_of(crypto, 1), 7, 0};
+  wired_obuf o = obuf_of(pkt, cap);
+  CHECK(initpkt_build_ver(version, &d, &o));
+  return o.len;
+}
+
+/* One client Handshake packet (CLIENT_HS keys) framed in `version`. */
+static usz lp_client_handshake_ver(
+    struct lp_fix* f, u32 version, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          ob = {pkt, cap, 0};
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys    pk = {k, &hp};
+    srvwire_seal_in in = {
+        wired_span_of((const u8*)0, 0),
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(ping, 1),
+        0,
+        0,
+        0,
+        0,
+        version};
+    CHECK(srvwire_seal_handshake(&pk, &in, &ob));
+  }
+  return ob.len;
+}
+
+static int lp_recv(struct lp_fix* f, u8* pkt, usz n) {
+  wired_srvloop_recv_in  ri = {wired_mspan_of(pkt, n), 0, 0};
+  wired_srvloop_recv_out ro;
+  return wired_srvloop_recv(&f->s, &ri, &ro);
+}
+
+/* RFC 9369 4.1: after switching v1 -> v2 the server keeps its original
+ * (v1) Initial receive keys until it processes a Handshake packet in the
+ * negotiated version: a v1 Initial the client sent before it saw the v2
+ * flight still opens, as does a v2 one; once a v2 Handshake packet opened,
+ * v1 Initials are dropped while v2 Initials keep opening. */
+static void test_srvloop_recv_v1_initial_until_v2_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 0);
+  n = lp_client_handshake_ver(&f, VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 1);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1: "Both endpoints MUST send Handshake and 1-RTT packets using
+ * the negotiated version. An endpoint MUST drop packets using any other
+ * version." -- a Handshake packet in the original v1 is dropped (and does
+ * not retire the v1 Initial keys). */
+static void test_srvloop_recv_drops_original_version_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_handshake_ver(&f, VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  CHECK(f.s.hs_rx_seen == 0);
+}
+
+/* RFC 9369 4.1: "Servers can accept 0-RTT and then process 0-RTT packets
+ * from the original version." After the v1 -> v2 switch a v1 0-RTT packet
+ * (v1 type bits 0b01 -- v2's Initial bits) still opens under the early
+ * keys, which carry the original version's labels. */
+static void test_srvloop_recv_v1_zerortt_after_v2_switch(void) {
+  struct lp_fix f;
+  u8            psk[32], pkt[256];
+  aes128        hp;
+  const u8      payload[1] = {0x01};
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
+  f.s.sdrv.early_data_accepted = 1;
+  lp_switch_v1_to_v2(&f);
+  aes128_init(&hp, f.s.sdrv.early_keys.hp);
+  {
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    tx_desc      d  = {
+        0xd3,
+        wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        wired_span_of(0, 0),
+        2,
+        wired_span_of(payload, sizeof(payload)),
+        VERSION_1};
+    n = tx_packet_suite(
+        f.s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
+    CHECK(n != 0);
+  }
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1 / 3.3.2: with a v2 original version the 0-RTT keys carry
+ * the "quicv2 " labels -- the server derives them from the client's
+ * original version, not v1's. */
+static void test_sdrv_early_keys_use_original_version_labels(void) {
+  u8           psk[32], ch[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  initial_keys v1, v2;
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_1, psk, ch, sizeof ch, &v1);
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_2, psk, ch, sizeof ch, &v2);
+  CHECK(ct_diff16(v1.key, v2.key) != 0);
+}
+
 /* One 0-RTT PING at pn, byte0 picking the truncated pn length, sealed for
  * the fixture f (early keys set as in test_srvloop_step_zerortt_records_
  * real_pn) into pkt; returns its length. */
@@ -5853,6 +6003,10 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
+  test_srvloop_recv_v1_initial_until_v2_handshake();
+  test_srvloop_recv_drops_original_version_handshake();
+  test_srvloop_recv_v1_zerortt_after_v2_switch();
+  test_sdrv_early_keys_use_original_version_labels();
   test_srvloop_pn_baseline_is_largest();
   test_srvloop_duplicate_packet_dropped();
   test_srvloop_classified_slot_not_reset();
