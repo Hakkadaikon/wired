@@ -34,7 +34,7 @@ static void test_valid_chain(void) {
   castore    s;
   wired_span certs[2] = {PV_SPAN(castore_leaf_der), PV_SPAN(castore_root_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
 /* A single self-signed root that is itself the anchor validates. */
@@ -42,7 +42,7 @@ static void test_lone_root_chain(void) {
   castore    s;
   wired_span certs[1] = {PV_SPAN(castore_root_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 1) == 1);
+  CHECK(castore_validate_chain(&s, certs, 1, 0) == 1);
 }
 
 /* Root not registered: no anchor, so the path fails. */
@@ -50,7 +50,7 @@ static void test_unregistered_root_fails(void) {
   castore    s;
   wired_span certs[2] = {PV_SPAN(castore_leaf_der), PV_SPAN(castore_root_der)};
   castore_init(&s, pv_roots, 4);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* Issuer/subject mismatch between adjacent certs breaks the link. The leaf is
@@ -60,7 +60,7 @@ static void test_name_mismatch_fails(void) {
   castore    s;
   wired_span certs[2] = {PV_SPAN(castore_leaf_der), PV_SPAN(castore_leaf_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* A tampered leaf signature fails even with a matching name and anchor. */
@@ -73,7 +73,7 @@ static void test_tampered_signature_fails(void) {
   leaf[sizeof(leaf) - 1] ^= 0xff; /* last signature octet */
   wired_span certs[2] = {PV_SPAN(leaf), PV_SPAN(castore_root_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* RFC 5280 6.1.4: a non-CA cert used as an issuer must break the chain, even
@@ -86,7 +86,7 @@ static void test_non_ca_intermediate_fails(void) {
       PV_SPAN(castore_root2_der)};
   castore_init(&s, pv_roots, 4);
   CHECK(castore_add(&s, PV_SPAN(castore_root2_der)) == 1);
-  CHECK(castore_validate_chain(&s, certs, 3) == 0);
+  CHECK(castore_validate_chain(&s, certs, 3, 0) == 0);
 }
 
 static void store_with_root3(castore* s) {
@@ -102,7 +102,7 @@ static void test_pathlen_zero_direct_leaf_ok(void) {
       PV_SPAN(castore_leafm_der), PV_SPAN(castore_mid3_der),
       PV_SPAN(castore_root3_der)};
   store_with_root3(&s);
-  CHECK(castore_validate_chain(&s, certs, 3) == 1);
+  CHECK(castore_validate_chain(&s, certs, 3, 0) == 1);
 }
 
 /* RFC 5280 6.1.4 (m): mid3 asserts pathlen:0, so a further CA below it (sub3)
@@ -114,7 +114,7 @@ static void test_pathlen_zero_sub_ca_fails(void) {
       PV_SPAN(castore_leaf3_der), PV_SPAN(castore_sub3_der),
       PV_SPAN(castore_mid3_der), PV_SPAN(castore_root3_der)};
   store_with_root3(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 0);
 }
 
 /* RFC 5280 6.1: the same certificate must not appear more than once in the
@@ -125,7 +125,7 @@ static void test_duplicate_cert_fails(void) {
   castore    s;
   wired_span certs[2] = {PV_SPAN(castore_root_der), PV_SPAN(castore_root_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* The duplicate appears at the tail of a longer, otherwise-valid path. */
@@ -135,7 +135,7 @@ static void test_duplicate_cert_at_tail_fails(void) {
       PV_SPAN(castore_leaf_der), PV_SPAN(castore_root_der),
       PV_SPAN(castore_root_der)};
   store_with_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 3) == 0);
+  CHECK(castore_validate_chain(&s, certs, 3, 0) == 0);
 }
 
 static void store_with_ku_root(castore* s) {
@@ -151,7 +151,7 @@ static void test_ed_leaf_keyusage_rejects(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_ku_ed_leaf_reject_der), PV_SPAN(castore_ku_root_der)};
   store_with_ku_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* The same shape with digitalSignature set (and extKeyUsage serverAuth)
@@ -162,7 +162,7 @@ static void test_ed_leaf_keyusage_accepts(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_ku_ed_leaf_ok_der), PV_SPAN(castore_ku_root_der)};
   store_with_ku_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
 /* RFC 8410 5: an id-X25519 cert whose keyUsage is present without
@@ -172,7 +172,7 @@ static void test_x25519_leaf_keyusage_rejects(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_ku_x25519_leaf_reject_der), PV_SPAN(castore_ku_root_der)};
   store_with_ku_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 /* An id-X25519 leaf with keyAgreement set, and no extKeyUsage restriction,
@@ -182,7 +182,7 @@ static void test_x25519_leaf_keyusage_accepts(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_ku_x25519_leaf_ok_der), PV_SPAN(castore_ku_root_der)};
   store_with_ku_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
 /* RFC 8410 5: an issuer whose SPKI is id-Ed25519 and whose keyUsage is
@@ -197,7 +197,7 @@ static void test_ed_ca_keyusage_rejects(void) {
       PV_SPAN(castore_ku_ed_leaf_ok_der),
       PV_SPAN(castore_ku_ed_mid_reject_der)};
   store_with_ku_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 static void store_with_si_root(castore* s) {
@@ -217,7 +217,7 @@ static void test_self_issued_excluded_from_pathlen(void) {
       PV_SPAN(castore_si_leaf_der), PV_SPAN(castore_si_mid2_der),
       PV_SPAN(castore_si_mid_der), PV_SPAN(castore_si_root_der)};
   store_with_si_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 1);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 1);
 }
 
 static void store_with_nc_root(castore* s) {
@@ -233,7 +233,7 @@ static void test_name_constraints_permitted_subject_ok(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_nc_leaf_ok_der), PV_SPAN(castore_nc_root_der)};
   store_with_nc_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
 /* Same root, a leaf whose subject (O=Bad Org) falls outside every permitted
@@ -245,7 +245,7 @@ static void test_name_constraints_excluded_subject_rejects(void) {
   wired_span certs[2] = {
       PV_SPAN(castore_nc_leaf_bad_der), PV_SPAN(castore_nc_root_der)};
   store_with_nc_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 2) == 0);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 0);
 }
 
 static void store_with_ncsan_root(castore* s) {
@@ -264,7 +264,7 @@ static void test_nc_dns_inherited_across_intermediate_rejects(void) {
       PV_SPAN(castore_ncsan_leaf_evil_der), PV_SPAN(castore_ncsan_b_der),
       PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
   store_with_ncsan_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 0);
 }
 
 /* The same chain with a leaf SAN inside A's permitted subtree validates
@@ -275,7 +275,7 @@ static void test_nc_dns_inherited_across_intermediate_ok(void) {
       PV_SPAN(castore_ncsan_leaf_ok_der), PV_SPAN(castore_ncsan_b_der),
       PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
   store_with_ncsan_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 1);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 1);
 }
 
 /* RFC 5280 6.1.4 (g)(2): a leaf inside A's permitted subtree but inside its
@@ -288,7 +288,7 @@ static void test_nc_dns_excluded_inherited_rejects(void) {
       PV_SPAN(castore_ncsan_leaf_excl_der), PV_SPAN(castore_ncsan_b_der),
       PV_SPAN(castore_ncsan_a_der), PV_SPAN(castore_ncsan_root_der)};
   store_with_ncsan_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 0);
 }
 
 static void store_with_ncx_root(castore* s) {
@@ -306,7 +306,7 @@ static void test_ncx_excluded_in_a_survives_permitted_in_b(void) {
       PV_SPAN(castore_ncx_leaf_excl_der), PV_SPAN(castore_ncx_b_der),
       PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
   store_with_ncx_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 0);
 }
 
 /* b's permittedSubtrees is not lost because a (above it) had only an
@@ -318,7 +318,7 @@ static void test_ncx_permitted_in_b_after_excluded_only_a_rejects(void) {
       PV_SPAN(castore_ncx_leaf_evil_der), PV_SPAN(castore_ncx_b_der),
       PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
   store_with_ncx_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 0);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 0);
 }
 
 /* A leaf inside b's permitted subtree and outside a's excluded one
@@ -329,7 +329,7 @@ static void test_ncx_intersection_ok(void) {
       PV_SPAN(castore_ncx_leaf_ok_der), PV_SPAN(castore_ncx_b_der),
       PV_SPAN(castore_ncx_a_der), PV_SPAN(castore_ncx_root_der)};
   store_with_ncx_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 4) == 1);
+  CHECK(castore_validate_chain(&s, certs, 4, 0) == 1);
 }
 
 static void store_with_pc_root(castore* s) {
@@ -348,7 +348,7 @@ static void test_require_explicit_policy_matching_policy_ok(void) {
       PV_SPAN(castore_pc_leaf3_der), PV_SPAN(castore_pc_mid2_der),
       PV_SPAN(castore_pc_root_der)};
   store_with_pc_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 3) == 1);
+  CHECK(castore_validate_chain(&s, certs, 3, 0) == 1);
 }
 
 /* Same mid2 (requireExplicitPolicy:0, policy_x), but leaf4 asserts a
@@ -360,7 +360,7 @@ static void test_require_explicit_policy_disjoint_policy_rejects(void) {
       PV_SPAN(castore_pc_leaf4_der), PV_SPAN(castore_pc_mid2_der),
       PV_SPAN(castore_pc_root_der)};
   store_with_pc_root(&s);
-  CHECK(castore_validate_chain(&s, certs, 3) == 0);
+  CHECK(castore_validate_chain(&s, certs, 3, 0) == 0);
 }
 
 /* ---- Runtime P-256 self-issued CA builder. Every certificate it emits has
@@ -469,7 +469,7 @@ static void test_chain_at_cap_ok(void) {
   castore    s;
   wired_span certs[CASTORE_PATH_MAX_CERTS + 1];
   pvc_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1);
-  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS) == 1);
+  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS, 0) == 1);
 }
 
 /* One certificate more than CASTORE_PATH_MAX_CERTS -- every link valid,
@@ -480,7 +480,7 @@ static void test_chain_over_cap_rejects(void) {
   castore    s;
   wired_span certs[CASTORE_PATH_MAX_CERTS + 1];
   pvc_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1);
-  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1) == 0);
+  CHECK(castore_validate_chain(&s, certs, CASTORE_PATH_MAX_CERTS + 1, 0) == 0);
 }
 
 /* RFC 5280 4.2: "A certificate MUST NOT include more than one instance of a
@@ -491,9 +491,9 @@ static void test_duplicate_extension_rejects(void) {
   wired_span certs[1];
   pvc_chain(&s, certs, 0);
   certs[0] = pvc_cert(1, 2, pvc_der[1], PVC_CERT_CAP);
-  CHECK(castore_validate_chain(&s, certs, 1) == 0);
+  CHECK(castore_validate_chain(&s, certs, 1, 0) == 0);
   certs[0] = pvc_cert(1, 1, pvc_der[1], PVC_CERT_CAP);
-  CHECK(castore_validate_chain(&s, certs, 1) == 1);
+  CHECK(castore_validate_chain(&s, certs, 1, 0) == 1);
 }
 
 void test_pathvalidate(void) {

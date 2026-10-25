@@ -15,16 +15,17 @@ static int policy_step_constraints(
     wired_span tbs, u64* explicit_policy, u64* inhibit_any);
 
 /* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
- * whose subject equals the tail's issuer, and which signs the tail. */
-int castore_tail_anchored(const castore* s, wired_span tail) {
-  wired_span iss, root;
+ * whose subject equals the tail's issuer, and which signs the tail. Views
+ * the matched root in *root. */
+int castore_tail_anchor(const castore* s, wired_span tail, wired_span* root) {
+  wired_span iss;
   if (!castore_cert_issuer(tail, &iss)) {
     return 0;
   }
-  if (!castore_find_ca_anchor(s, iss, &root)) {
+  if (!castore_find_ca_anchor(s, iss, root)) {
     return 0;
   }
-  return castore_verify_signed_by(tail, root);
+  return castore_verify_signed_by(tail, *root);
 }
 
 /* RFC 5280 6.1.4 (m). The issuer's pathLenConstraint must admit the number of
@@ -105,8 +106,8 @@ static int issuer_constrains_below(const wired_span* certs, usz j) {
 
 /* Every issuer certificate's nameConstraints (if any) admits every
  * certificate below it in the path. certs[0] (the leaf) issues nothing, so
- * j starts at 1; certs[n_certs-1] (the trust anchor) DOES participate up to
- * and including n_certs-1, unlike castore_policy_processing_ok's walk -- a
+ * j starts at 1; the tail certs[n_certs-1] DOES participate, even when it
+ * is the trust anchor itself sent on the wire -- a
  * trust anchor's own nameConstraints are conventionally enforced against every
  * certificate it (directly or transitively) issued, matching common
  * implementations (verified against OpenSSL 3.0.13 `verify`, which reports

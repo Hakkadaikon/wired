@@ -24,8 +24,11 @@
  * if keyUsage is present, keyCertSign set), and certs[i]'s signature must
  * verify under certs[i+1]'s key. The tail certs[n_certs-1] must chain to a
  * trust anchor in s: a registered root whose subject equals the tail's issuer
- * (and which signs the tail). Returns 1 if the whole path validates, else 0. */
+ * (and which signs the tail). When now (decimal YYYYMMDDHHMMSS, the
+ * x509_validity_ok convention) is non-zero, every certificate's validity
+ * period and the matched anchor's must include it (RFC 5280 6.1.3 (a)(2));
+ * 0 skips the time check. Returns 1 if the whole path validates, else 0. */
 int castore_validate_chain(
-    const castore* s, const wired_span* certs, usz n_certs);
+    const castore* s, const wired_span* certs, usz n_certs, u64 now);
 
 #endif

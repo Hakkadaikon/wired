@@ -14,7 +14,7 @@ static int rct_validate(
   wired_span certs[1] = {wired_span_of(leaf, leaf_len)};
   castore_init(&s, rct_roots, 2);
   CHECK(castore_add(&s, wired_span_of(root, root_len)) == 1);
-  return castore_validate_chain(&s, certs, 1);
+  return castore_validate_chain(&s, certs, 1, 0);
 }
 
 /* sha256WithRSAEncryption under an RSA-2048 root verifies; a tampered

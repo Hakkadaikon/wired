@@ -21,7 +21,8 @@ static int fullhs_chain_parse(
 }
 
 /* RFC 5280 6.1: when a trust store is set, the whole wire chain must chain
- * link-by-link to one of its anchors. NULL store skips. */
+ * link-by-link to one of its anchors, every certificate inside its validity
+ * period at policy_now (0 skips the time check). NULL store skips. */
 static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n) {
   wired_span certs[TLS_CERT_CHAIN_MAX];
   if (h->castore == 0) {
@@ -30,7 +31,7 @@ static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n) {
   for (usz i = 0; i < n; i++) {
     certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
   }
-  return castore_validate_chain(h->castore, certs, n);
+  return castore_validate_chain(h->castore, certs, n, h->policy_now);
 }
 
 /* The leaf passes the acceptance policy and the chain anchors to the store. */
