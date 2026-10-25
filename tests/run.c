@@ -496,8 +496,12 @@
 #include "transport/conn/loop/driver/driver.c"
 #include "tls/handshake/roles/client/client.c"
 #include "tls/handshake/core/sdrv/sdrv.c"
+#include "tls/handshake/core/sdrv/sdrv_certsig.c"
 #include "tls/handshake/core/sdrv/sdrv_ch.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_require.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_decode.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_shape.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_psk.c"
 #include "tls/handshake/core/sdrv/sdrv_early.c"
 #include "tls/handshake/core/sdrv/sdrv_hrr.c"
 #include "tls/handshake/core/sdrv/sdrv_p256.c"
@@ -519,6 +523,7 @@
 #include "tls/ext/salpn/ch_ext.c"
 #include "tls/ext/salpn/negotiate.c"
 #include "tls/ext/salpn/salpn_raw.c"
+#include "tls/ext/salpn/salpn_raw_server.c"
 #include "tls/ext/salpn/sni_extract.c"
 #include "tls/ext/stp/server_tp.c"
 #include "tls/ext/stp/parse_tp.c"
@@ -607,6 +612,7 @@
 #include "tls/handshake/roles/server/server.c"
 #include "tls/handshake/roles/server/server_early.c"
 #include "tls/handshake/roles/server/server_feed.c"
+#include "tls/handshake/roles/server/server_order.c"
 #include "tls/handshake/roles/server/server_srv.c"
 #include "tls/handshake/roles/server/serverio.c"
 #include "app/http3/server/h3srv/control.c"
@@ -788,6 +794,8 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule_utf8.c"
 #include "app/webtransport/wtwire/wtwire.c"
 #include "tls/ext/salpn/idna.c"
+#include "tls/ext/salpn/idna_utf8.c"
+#include "tls/ext/salpn/punycode.c"
 #include "tls/ext/salpn/sni_check.c"
 #include "tls/handshake/core/tls/chguard.c"
 #include "tls/handshake/core/tls/cryptolevel.c"
@@ -1347,6 +1355,7 @@
 #include "tls/chguard_test.c"
 #include "tls/negotiate_test.c"
 #include "tls/salpn_raw_test.c"
+#include "tls/sni_srv_test.c"
 #include "tls/sni_extract_test.c"
 #include "tls/server_tp_test.c"
 #include "app/h3settings_control_open_test.c"
@@ -1946,9 +1955,11 @@ int main(void) {
   test_negotiate_selects_hq_when_only_offered();
   test_negotiate_none_when_neither_offered();
   test_salpn_raw();
+  test_sni_srv();
   test_sni_extract_from_clienthello();
   test_sni_extract_truncated();
   test_sni_extract_wrong_name_type();
+  test_sni_extract_empty();
   test_server_tp();
   test_h3settings_control_open();
   test_h3settings_build();

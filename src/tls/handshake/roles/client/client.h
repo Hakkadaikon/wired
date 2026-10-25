@@ -40,9 +40,12 @@ typedef struct {
   usz       sh_len;
   u8        my_priv[ECDHE_LEN];
   u8        my_pub[ECDHE_LEN];
-  const u8* host;         /* expected server name, view (caller-owned) */
-  usz       host_len;     /* 0 skips the SAN hostname check */
-  u64       now;          /* YYYYMMDDHHMMSS; 0 skips the validity check */
+  /* RFC 6125 6.4.2: the server name in A-label form, sent as SNI and
+   * matched against the certificate's SAN (never empty once init ran) */
+  u8             host_buf[255];
+  const u8*      host; /* host_buf */
+  usz            host_len;
+  u64            now;     /* YYYYMMDDHHMMSS; 0 skips the validity check */
   const castore* castore; /* NULL skips chain validation */
 } client;
 
@@ -56,11 +59,13 @@ typedef struct {
 
 /* Open a UDP socket, connect to in->server_ip:in->port, generate our X25519
  * key pair and initialize the handshake drivers. in->server_name names the
- * host: it is carried as SNI in the ClientHello AND enforced against the
- * server certificate's SAN (RFC 6125). server_name is a view; keep it alive
- * for the connection. init also reads the wall clock so the certificate
- * validity window (RFC 5280 6.1) is enforced by default; a clock failure
- * fails init. Returns 1 on success, 0 on RNG/clock/socket failure. */
+ * host: converted to its A-label form (RFC 6125 6.4.2, salpn_idna_to_ascii)
+ * it is carried as SNI in the ClientHello AND enforced against the server
+ * certificate's SAN (RFC 6125 6.4), so the hostname check is always on --
+ * an empty or unconvertible server_name fails init. init also reads the wall
+ * clock so the certificate validity window (RFC 5280 6.1) is enforced by
+ * default; a clock failure fails init. Returns 1 on success, 0 on a bad
+ * server_name or RNG/clock/socket failure. */
 int client_init(client* c, const client_init_in* in);
 
 /* Override the wall clock used for the certificate validity check (packed

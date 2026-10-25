@@ -6,15 +6,15 @@ static void bpf_prog_epilogue(u64 out[XDPBPF_PROG_LEN]);
 static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]);
 static void prog_load_attach_log(bpf_attr_prog_load* attr, wired_mspan log);
 
-/* idx 24-31: long-header path (RFC 9000 17.2) -- boundary-check up to
- * offset 49 (version(4) + DCID-len(1) byte + the DCID's own first byte),
- * read the explicit DCID length byte at offset 47, fall back on a
- * zero-length DCID (no core id byte exists then), else read the DCID's
- * first byte at offset 48 into r2 the same way the short path does. */
+/* idx 23-30: long-header path (RFC 9000 17.2) -- boundary-check up to
+ * offset 48 + BPF_DCID_SPAN (version(4) + DCID-len(1) byte + the DCID bytes
+ * the mix reads), read the explicit DCID length byte at offset 47, fall back
+ * on a zero-length DCID (no routing byte exists then), else point r5 at the
+ * DCID (offset 48) and fall through into BPF_IDX_MIX. */
 static void bpf_prog_long_path(u64 out[XDPBPF_PROG_LEN]) {
   int i      = BPF_IDX_LONG;
   out[i]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
-  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 49);
+  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 48 + BPF_DCID_SPAN);
   out[i + 2] = xdpbpf_bpf_insn(
       BPF_INSN_JGT_REG, 5, 3, xdpbpf_bpf_off(i + 2, BPF_IDX_FALLBACK), 0);
   out[i + 3] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 4, 2, 47, 0);
@@ -22,14 +22,12 @@ static void bpf_prog_long_path(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_HAS_DCID), 0);
   out[i + 5] = xdpbpf_bpf_insn(
       BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(i + 5, BPF_IDX_FALLBACK), 0);
-  out[BPF_IDX_HAS_DCID]     = xdpbpf_bpf_insn(BPF_INSN_LDXB, 2, 2, 48, 0);
-  out[BPF_IDX_HAS_DCID + 1] = xdpbpf_bpf_insn(
-      BPF_INSN_JA, 0, 0,
-      xdpbpf_bpf_off(BPF_IDX_HAS_DCID + 1, BPF_IDX_KEY_CHECK), 0);
+  out[BPF_IDX_HAS_DCID]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[BPF_IDX_HAS_DCID + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 48);
 }
 
-/* idx 32-33 (BPF_IDX_KEY_CHECK, BPF_IDX_KEY_SKIP): the short/long paths both
- * land at KEY_CHECK with the DCID's first byte in r2 -- a client's self-
+/* idx 48-49 (BPF_IDX_KEY_CHECK, BPF_IDX_KEY_SKIP): the short/long paths both
+ * land at KEY_CHECK with the unmasked routing byte in r2 -- a client's self-
  * chosen initial DCID (RFC 9000 7.2) is an unconstrained random byte, so
  * unlike the fallback key (rx_queue_index, always < the RX queue count)
  * this key is NOT guaranteed to be a valid XSKMAP index. Values >=
@@ -40,8 +38,8 @@ static void bpf_prog_long_path(u64 out[XDPBPF_PROG_LEN]) {
  * the handshake-drop bug this check closes. The fallback path itself does
  * not need this same check: see its comment.
  *
- * Both jumps here are FORWARD (KEY_CHECK=32 -> FALLBACK=34, KEY_SKIP=33 ->
- * REDIRECT=35): this block sits *before* BPF_IDX_FALLBACK in program order
+ * Both jumps here are FORWARD (KEY_CHECK=48 -> FALLBACK=50, KEY_SKIP=49 ->
+ * REDIRECT=51): this block sits *before* BPF_IDX_FALLBACK in program order
  * specifically so neither edge is a backward branch. An earlier revision
  * placed the range check right after the fallback's key load, so the
  * fallback instruction fell through into the check and the check's reject
@@ -58,7 +56,7 @@ static void bpf_prog_key_check(u64 out[XDPBPF_PROG_LEN]) {
       BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(BPF_IDX_KEY_SKIP, BPF_IDX_REDIRECT), 0);
 }
 
-/* idx 34,35-41: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
+/* idx 50,51-57: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
  * original template's only routing key before this task -- already bounded
  * by the NIC's actual RX queue count, so it needs no range check of its
  * own), then the shared redirect-map epilogue every path above converges
@@ -81,8 +79,8 @@ static void bpf_prog_epilogue(u64 out[XDPBPF_PROG_LEN]) {
 }
 
 /* Fixed filter template (see xdpbpf.h for the full semantics); dport
- * (idx14) and map_fd (the LDDW at BPF_IDX_REDIRECT) are patched per call by
- * xdpbpf_prog_build. */
+ * (idx14), the route key (the three LDDWs in BPF_IDX_MIX) and map_fd (the
+ * LDDW at BPF_IDX_REDIRECT) are patched per call by xdpbpf_prog_build. */
 static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]) {
   xdpbpf_bpf_prog_prologue(out);
   xdpbpf_bpf_prog_header_split(out);
@@ -92,8 +90,10 @@ static void bpf_prog_template(u64 out[XDPBPF_PROG_LEN]) {
   bpf_prog_epilogue(out);
 }
 
-usz xdpbpf_prog_build(u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port) {
+usz xdpbpf_prog_build(
+    u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port, const ncid_route_key* key) {
   bpf_prog_template(out);
+  xdpbpf_bpf_prog_mix(out, key);
   out[14] = xdpbpf_bpf_insn(
       BPF_INSN_JNE_IMM, 4, 0, xdpbpf_bpf_off(14, BPF_IDX_PASS),
       xdpbpf_bpf_htons(port));

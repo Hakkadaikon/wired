@@ -71,6 +71,13 @@ int legacy_check_client_hello(const u8* ch_msg, usz len) {
   return b != 0 && legacy_body_ok(b, body_len);
 }
 
+int legacy_compression_ok(const u8* ch_msg, usz len) {
+  usz       body_len, p;
+  const u8* b = ch_body(ch_msg, len, &body_len);
+  return b != 0 && comp_offset(b, body_len, &p) &&
+         comp_is_null_only(b, body_len, p);
+}
+
 int legacy_session_id(wired_span ch_msg, const u8** sid, u8* sid_len) {
   usz       body_len;
   const u8* b = ch_body(ch_msg.p, ch_msg.n, &body_len);

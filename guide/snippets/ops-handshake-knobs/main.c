@@ -25,9 +25,9 @@ int wired_main(int argc, char** argv) {
   static wired_srvboot_demo_keys keys;
   wired_srvboot_id               id;
   wired_srvboot_demo(&id, &keys, 0x50, "guide-h3");
-  /* Non-0 enables session-ticket resumption/0-RTT (RFC 8446 4.6.1): the
-   * SDK's per-process ticket seed; the sealing side and this id derive the
-   * same rotating ticket keys from it. */
+  /* Non-0 enables session-ticket resumption (RFC 8446 4.6.1): the SDK's
+   * per-process ticket seed; the sealing side and this id derive the same
+   * rotating ticket keys from it. 0-RTT also needs id.early_data = 1. */
   id.ticket_key = wired_srvloop_ticket_key();
 
   wired_srvrun_opt opt = {0};

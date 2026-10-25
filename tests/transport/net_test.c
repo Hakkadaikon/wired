@@ -10,7 +10,7 @@ static void test_checksum_rfc1071(void) {
 /* A built IPv4 header verifies; flipping a byte breaks verification. */
 static void test_ipv4_checksum(void) {
   u8 hdr[IPV4_HDR];
-  ipv4_build(hdr, &(ipv4_head){1200, 0x7f000001, 0x7f000002, IP_PROTO_UDP});
+  ipv4_build(hdr, &(ipv4_head){1200, 0x7f000001, 0x7f000002, IP_PROTO_UDP, 0});
   CHECK(hdr[0] == 0x45 && hdr[9] == IP_PROTO_UDP);
   CHECK(ipv4_check(hdr) == 1);
   hdr[12] ^= 0x01;
@@ -21,9 +21,21 @@ static void test_ipv4_checksum(void) {
  * header (no options) is 5 words = 20 bytes, encoded in the low nibble. */
 static void test_ipv4_ihl_min5(void) {
   u8 hdr[IPV4_HDR];
-  ipv4_build(hdr, &(ipv4_head){20, 0x7f000001, 0x7f000002, IP_PROTO_UDP});
+  ipv4_build(hdr, &(ipv4_head){20, 0x7f000001, 0x7f000002, IP_PROTO_UDP, 0});
   CHECK((hdr[0] & 0x0f) == 5);
   CHECK((hdr[0] & 0x0f) * 4 == IPV4_HDR);
+}
+
+/* RFC 9000 14: DF is set on every IPv4 datagram; RFC 791 3.2: the
+ * Identification field carries the caller's per-datagram value (MF, the
+ * reserved bit and the fragment offset stay zero). */
+static void test_ipv4_df_and_id(void) {
+  u8 hdr[IPV4_HDR];
+  ipv4_build(
+      hdr, &(ipv4_head){1200, 0x7f000001, 0x7f000002, IP_PROTO_UDP, 0xbeef});
+  CHECK(hdr[4] == 0xbe && hdr[5] == 0xef);
+  CHECK(hdr[6] == 0x40 && hdr[7] == 0x00);
+  CHECK(ipv4_check(hdr) == 1);
 }
 
 /* A built UDP datagram verifies under its pseudo-header; tamper breaks it. */
@@ -95,8 +107,8 @@ static void test_net_datagram_over_link(void) {
   wired_obuf ub    = obuf_of(udp, sizeof(udp));
   usz        un    = udp4_build(&ub, &meta, wired_span_of(pl, 5));
   ipv4_build(
-      ip,
-      &(ipv4_head){(u16)(IPV4_HDR + un), 0x0a000001, 0x0a000002, IP_PROTO_UDP});
+      ip, &(ipv4_head){
+              (u16)(IPV4_HDR + un), 0x0a000001, 0x0a000002, IP_PROTO_UDP, 0});
   for (usz i = 0; i < IPV4_HDR; i++) {
     frame[i] = ip[i];
   }
@@ -119,6 +131,7 @@ void test_net(void) {
   test_checksum_rfc1071();
   test_ipv4_checksum();
   test_ipv4_ihl_min5();
+  test_ipv4_df_and_id();
   test_udp_checksum();
   test_udp_checksum_zero_result_becomes_all_ones();
   test_udp_checksum_zero_field_accepted_unchecked();

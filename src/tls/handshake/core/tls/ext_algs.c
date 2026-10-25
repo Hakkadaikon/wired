@@ -3,15 +3,19 @@
 #include "common/bytes/util/be.h"
 
 /* RFC 8446 4.2.7: type(2) + ext_data length(2) + list length(2) + groups. */
-usz tls_ext_supported_groups(u8* buf, usz cap) {
+usz tls_ext_supported_group(u8* buf, usz cap, u16 group) {
   if (cap < 8) {
     return 0;
   }
   be_put_be16(buf, EXT_SUPPORTED_GROUPS);
   be_put_be16(buf + 2, 4);
   be_put_be16(buf + 4, 2);
-  be_put_be16(buf + 6, GROUP_X25519);
+  be_put_be16(buf + 6, group);
   return 8;
+}
+
+usz tls_ext_supported_groups(u8* buf, usz cap) {
+  return tls_ext_supported_group(buf, cap, GROUP_X25519);
 }
 
 /* RFC 8446 4.2.3: type(2) + ext_data length(2) + list length(2) + schemes. */
@@ -69,6 +73,10 @@ static int ext16_has(const u8* buf, usz n, u16 type, u16 want) {
 
 int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme) {
   return ext16_has(buf, n, EXT_SIGNATURE_ALGORITHMS, scheme);
+}
+
+int tls_ext_sig_algs_cert_has(const u8* buf, usz n, u16 scheme) {
+  return ext16_has(buf, n, EXT_SIGNATURE_ALGORITHMS_CERT, scheme);
 }
 
 int tls_ext_groups_has(const u8* buf, usz n, u16 group) {

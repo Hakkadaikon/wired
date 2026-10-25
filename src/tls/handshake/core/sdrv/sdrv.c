@@ -88,7 +88,8 @@ static void sdrv_copy_key(u8 dst[TICKET_KEY_LEN], const u8* src) {
 /* Copy ticket_key into s as both generations and record whether
  * resumption is enabled (ticket_key set). */
 static void sdrv_copy_ticket_key(sdrv* s, const u8* ticket_key) {
-  s->has_ticket_key = ticket_key != 0;
+  s->has_ticket_key     = ticket_key != 0;
+  s->early_data_enabled = 0;
   sdrv_copy_key(s->ticket_key, ticket_key);
   sdrv_copy_key(s->ticket_key_prev, ticket_key);
 }
@@ -97,8 +98,14 @@ void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev) {
   sdrv_copy_key(s->ticket_key_prev, prev);
 }
 
+void sdrv_set_early_data(sdrv* s, int on) { s->early_data_enabled = on; }
+
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
   s->raw_alpns = raw_alpns;
+}
+
+void sdrv_set_alpn_client_order(sdrv* s, int on) {
+  s->alpn_client_order = on != 0;
 }
 
 /* Negotiation defaults before any ClientHello is seen. */
@@ -109,6 +116,7 @@ static void sdrv_reset_nego(sdrv* s) {
   s->alpn                         = SALPN_NONE;
   s->alpn_tok                     = wired_span_of(0, 0);
   s->raw_alpns                    = 0;
+  s->alpn_client_order            = 0;
   s->cipher_suite                 = TLS_AES_128_GCM_SHA256;
   s->group                        = GROUP_X25519;
 }
@@ -134,6 +142,8 @@ static void sdrv_reset_hs(sdrv* s) {
   for (usz i = 0; i < sizeof s->ch1_hash; i++) {
     s->ch1_hash[i] = 0;
   }
+  bytes_memset(s->sni_digest, 0, sizeof s->sni_digest);
+  s->cert_sigs_offered = 0;
 }
 
 void sdrv_init(sdrv* s, const sdrv_init_in* in) {

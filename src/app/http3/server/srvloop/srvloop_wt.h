@@ -701,6 +701,9 @@ typedef struct {
   usz frame_unexpected_n; /**< entries valid in frame_unexpected_slots this
                               step */
   int peer_closed;        /**< 1 once a peer CONNECTION_CLOSE frame was seen */
+  /** RFC 9000 19.19: that CONNECTION_CLOSE's error code, logged when the
+   * slot is reaped (a 0x01xx CRYPTO_ERROR names a TLS alert, RFC 8446 6.2) */
+  u64 peer_close_code;
   /** RFC 9000 3.2: bit i is set when a RESET_STREAM this step ended slot i's
    * request while it was still being received -- not one completed or
    * rejected this step (those lists' owners answer it). A slot answered in
@@ -1033,14 +1036,6 @@ void wired_srvloop_set_handler(
  * @param cli_scid_len cli_scid length in octets
  * @return 1, or 0 if cli_scid_len exceeds 20. */
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
-
-/** RFC 9000 13.3: 1 once stream_id's receive part is in Size Known or Reset
- * Recvd (a FIN or RESET_STREAM fixed its final size) -- no more
- * MAX_STREAM_DATA for it.
- * @param l the loop
- * @param stream_id the stream to ask about
- * @return 1 if the final size is known, else 0. */
-int wired_srvloop_rx_final_known(const wired_srvloop* l, u64 stream_id);
 
 /** RFC 9000 2.2: the streams[] slot reassembling request stream_id,
  * allocating a free one on first sight -- dispatch.c routes each request

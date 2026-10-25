@@ -11,6 +11,7 @@
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
+#include "ee_find.h"
 #include "realchain_golden.h"
 #include "test.h"
 #include "tls/ext/salpn/ch_ext.h"
@@ -1557,7 +1558,7 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
+  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1750,7 +1751,7 @@ static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv             s;
   u8               ch2[700], psk[48], sh[256], flight[2048];
   usz              ch2_len;
-  ticket           t        = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384};
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, {0}};
   static const u8  nonce[1] = {0};
   hkdf_label       l        = {"resumption", 10, {nonce, 1}};
   wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
@@ -1949,6 +1950,7 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
+    sdrv_set_early_data(&s, 1);
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
@@ -2094,6 +2096,7 @@ static void test_sdrv_early_data_replay_rejected(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s1, &in);
+    sdrv_set_early_data(&s1, 1);
   }
   CHECK(sdrv_recv_client_hello(&s1, ch2, ch2_len));
   CHECK(s1.psk_accepted == 1);
@@ -2399,7 +2402,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, {0}};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = f->secret[i];
@@ -2489,6 +2492,7 @@ static int sdrv_test_0rtt_alpn(u8 ticket_alpn, int raw) {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
     sdrv_set_raw_alpns(&s, "m9");
+    sdrv_set_early_data(&s, 1);
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
@@ -2506,6 +2510,109 @@ static void test_sdrv_0rtt_alpn_gate(void) {
   CHECK(sdrv_test_0rtt_alpn(SALPN_HQ, 0) == 0);
   CHECK(sdrv_test_0rtt_alpn(SALPN_H3, 0) == 1);
   CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
+}
+
+/* f's ticket sealed bound to ticket_sni (n 0: no server_name) and offered
+ * (PSK + early_data) by a ClientHello carrying sni. Returns psk_accepted;
+ * *ee_sni is whether EncryptedExtensions echoed server_name. */
+static int sdrv_test_psk_sni(
+    wired_span ticket_sni, wired_span sni, int* ee_sni) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
+  u8               sh[256], flight[2048];
+  wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  wired_span       d;
+  usz              ch2_len, off;
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs();
+  bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
+  salpn_sni_digest(ticket_sni, t.sni);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  f.ch_len = tls_client_hello(
+      &(clienthello_in){f.srv_random, f.cli_pub, sni, wired_span_of(0, 0)},
+      &(wired_obuf){f.ch, sizeof(f.ch), 0});
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &off);
+  CHECK(ch2_len != 0);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  *ee_sni = ee_find(flight, 0x0000, &d);
+  return s.psk_accepted;
+}
+
+/* RFC 6066 3: a ticket resumes only under the server_name it was issued
+ * under (compared case-insensitively); another name, or a name on only one
+ * side, falls back to a full handshake -- which, its name matching the
+ * certificate, echoes server_name, while a resumption never does
+ * (6066-014). */
+static void test_sdrv_psk_bound_to_sni(void) {
+  wired_span lh    = wired_span_of((const u8*)"localhost", 9);
+  wired_span lh_uc = wired_span_of((const u8*)"LocalHost", 9);
+  wired_span other = wired_span_of((const u8*)"other.example", 13);
+  wired_span none  = wired_span_of(0, 0);
+  int        ee    = -1;
+  CHECK(sdrv_test_psk_sni(lh, lh, &ee) == 1);
+  CHECK(ee == 0);
+  CHECK(sdrv_test_psk_sni(lh_uc, lh, &ee) == 1);
+  CHECK(sdrv_test_psk_sni(none, none, &ee) == 1);
+  CHECK(sdrv_test_psk_sni(other, lh, &ee) == 0);
+  CHECK(ee == 1);
+  CHECK(sdrv_test_psk_sni(none, lh, &ee) == 0);
+  CHECK(sdrv_test_psk_sni(lh, none, &ee) == 0);
+  CHECK(ee == 0);
+}
+
+/* f's plain ClientHello with one extension (ext, header included) appended
+ * at the end, the extensions and handshake lengths patched. */
+static usz sdrv_test_append_ext(
+    const sdrv_psk_fixture* f, wired_span ext, u8* out, usz cap) {
+  usz off = SDRV_TEST_EXTS_LEN_OFF;
+  usz old = (usz)f->ch[off] << 8 | f->ch[off + 1];
+  CHECK(f->ch_len + ext.n <= cap);
+  bytes_memcpy(out, f->ch, f->ch_len);
+  bytes_memcpy(out + f->ch_len, ext.p, ext.n);
+  be_put_be16(out + off, (u16)(old + ext.n));
+  hs_finish(out, f->ch_len + ext.n);
+  return f->ch_len + ext.n;
+}
+
+/* The chain-signature verdict for f's ClientHello plus ext (n 0: none). */
+static int sdrv_test_cert_sigs(wired_span ext) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch[700];
+  usz              n;
+  sdrv_psk_fixture_init(&f);
+  n = sdrv_test_append_ext(&f, ext, ch, sizeof ch);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch, n)); /* sent anyway, 4.4.2.2 */
+  return s.cert_sigs_offered;
+}
+
+/* RFC 8446 4.2.3: signature_algorithms_cert (50), when present, judges the
+ * chain's signatures instead of signature_algorithms. The self-signed leaf
+ * is ecdsa_secp256r1_sha256 (0x0403): offered by signature_algorithms
+ * alone, not by a cert list of rsa_pss_rsae_sha256 (0x0804) only, and
+ * again once 0x0403 is in the cert list. */
+static void test_sdrv_signature_algorithms_cert(void) {
+  static const u8 pss[]  = {0x00, 0x32, 0x00, 0x04, 0x00, 0x02, 0x08, 0x04};
+  static const u8 both[] = {0x00, 0x32, 0x00, 0x06, 0x00,
+                            0x04, 0x08, 0x04, 0x04, 0x03};
+  CHECK(sdrv_test_cert_sigs(wired_span_of(0, 0)) == 1);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(pss, sizeof pss)) == 0);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(both, sizeof both)) == 1);
 }
 
 /* RFC 8446 8.1 across forked workers (srvworkers): once the replay tracker
@@ -2526,6 +2633,338 @@ static void test_sdrv_zerortt_shared_across_fork(void) {
   CHECK(
       zerortt_seen_check(sdrv_zerortt_seen(), wired_span_of(id, sizeof id)) ==
       0);
+}
+
+/* RFC 8446 4.1.4: ClientHello1 = f's ClientHello relabelled so its only
+ * key_share is a (non-decodable) secp256r1 entry -- no usable share, so the
+ * server arms a HelloRetryRequest. Builds that HRR into hrr (length in
+ * hrr_len). */
+static void sdrv_test_hrr_round1(
+    sdrv* s, sdrv_psk_fixture* f, u8* ch1, u8* hrr, usz* hrr_len) {
+  wired_obuf hob = obuf_of(hrr, 256);
+  for (usz i = 0; i < f->ch_len; i++) {
+    ch1[i] = f->ch[i];
+  }
+  be_put_be16(ch1 + SDRV_TEST_KEYSHARE_TYPE_OFF + 6, GROUP_SECP256R1);
+  sdrv_test_psk_init_srv(s, f);
+  CHECK(sdrv_recv_client_hello(s, ch1, f->ch_len) == 1);
+  CHECK(sdrv_hrr_pending(s) == 1);
+  CHECK(sdrv_build_hrr(s, &hob) == 1);
+  *hrr_len = hob.len;
+}
+
+/* RFC 8446 4.2.11.2 / 4.4.1, recomputed test-side from the raw bytes (not
+ * the server's transcript object): SHA-256(message_hash || HRR ||
+ * Truncate(ClientHello2)), message_hash = 0xfe 00 00 20 || SHA-256(CH1). */
+static void sdrv_test_hrr_binder_hash(
+    const u8*  ch1,
+    usz        ch1_len,
+    const u8*  hrr,
+    usz        hrr_len,
+    wired_span trunc,
+    u8         out[32]) {
+  u8         mh[4 + 32];
+  sha256_ctx h;
+  mh[0] = 0xfe;
+  mh[1] = 0;
+  mh[2] = 0;
+  mh[3] = 32;
+  wired_sha256(ch1, ch1_len, mh + 4);
+  sha256_init(&h);
+  sha256_update(&h, mh, sizeof mh);
+  sha256_update(&h, hrr, hrr_len);
+  sha256_update(&h, trunc.p, trunc.n);
+  sha256_final(&h, out);
+}
+
+/* ClientHello2 (x25519 share, optionally early_data) offering f's ticket
+ * with its binder over the post-HRR transcript. Returns its length. */
+static usz sdrv_test_hrr_ch2(
+    sdrv_psk_fixture* f,
+    const u8*         ch1,
+    const u8*         hrr,
+    usz               hrr_len,
+    int               early,
+    u8*               ch2,
+    usz               cap) {
+  u8            binder[HKDF_PRK] = {0}, th[32];
+  usz           off              = 0, n;
+  tlsext_psk_in in               = {
+      wired_span_of(f->sealed, sizeof(f->sealed)), 0,
+      wired_span_of(binder, sizeof binder)};
+  usz (*append)(u8*, usz, const u8*, usz, const tlsext_psk_in*, usz*) =
+      early ? sdrv_test_append_early_data_then_psk : sdrv_test_append_psk;
+  CHECK(append(ch2, cap, f->ch, f->ch_len, &in, &off) != 0);
+  sdrv_test_hrr_binder_hash(
+      ch1, f->ch_len, hrr, hrr_len,
+      wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f->sealed))),
+      th);
+  tls_binder_compute_hash(TLS_AES_128_GCM_SHA256, f->psk, th, binder);
+  n = append(ch2, cap, f->ch, f->ch_len, &in, &off);
+  CHECK(n != 0);
+  return n;
+}
+
+/* RFC 8446 4.2.11.2 (#3): resumption after a HelloRetryRequest -- the
+ * ClientHello2 binder covers message_hash(CH1) || HRR || Truncate(CH2), and
+ * a binder computed that way is accepted (it used to fail as decrypt_error,
+ * the server hashing Truncate(CH2) alone). */
+static void test_sdrv_psk_binder_after_hrr_accepted(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700];
+  usz              hrr_len, ch2_len;
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  ch2_len = sdrv_test_hrr_ch2(&f, ch1, hrr, hrr_len, 0, ch2, sizeof ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+}
+
+/* The flip side: after an HRR, a binder over Truncate(CH2) alone (the
+ * no-HRR transcript) is a mismatch -- decrypt_error, never a fallback. */
+static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700], binder[HKDF_PRK] = {0};
+  usz              hrr_len, ch2_len, off = 0;
+  tlsext_psk_in    in = {
+      wired_span_of(f.sealed, sizeof(f.sealed)), 0,
+      wired_span_of(binder, sizeof binder)};
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  CHECK(sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off));
+  tls_binder_compute(
+      f.psk,
+      wired_span_of(ch2, sdrv_test_psk_truncate_len(off, sizeof(f.sealed))),
+      binder);
+  ch2_len = sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 0);
+  CHECK(sdrv_last_error(&s) == err_crypto(51));
+}
+
+/* RFC 8446 4.1.2 / 4.2.10 (#75): "Early data is not permitted after a
+ * HelloRetryRequest." A ClientHello2 that keeps early_data still resumes
+ * (valid post-HRR binder) but gets no 0-RTT keys. */
+static void test_sdrv_no_early_data_after_hrr(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700];
+  usz              hrr_len, ch2_len;
+  initial_keys     got;
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  sdrv_set_early_data(&s, 1); /* only the HRR forbids it here */
+  ch2_len = sdrv_test_hrr_ch2(&f, ch1, hrr, hrr_len, 1, ch2, sizeof ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(sdrv_early_keys(&s, &got) == 0);
+}
+
+/* --- ClientHello validation (RFC 8446 4.1.2 / 4.2 / 6 / 9.2) ----------- */
+
+/* A fresh server and a well-formed ClientHello from sdrv_test_client_hello;
+ * returns its length. */
+static usz sdrv_test_ch_setup(sdrv* s, u8* ch, usz cap) {
+  u8  cli_pub[32], srv_random[32];
+  usz n;
+  sdrv_dgram_test_setup(s, cli_pub, srv_random);
+  n = sdrv_test_client_hello(ch, cap, cli_pub, srv_random);
+  CHECK(n != 0);
+  return n;
+}
+
+/* Append one raw extension TLV to ch (ch_len bytes), patching the
+ * extensions-length and handshake-length fields. Returns the new length. */
+static usz sdrv_test_append_raw_ext(u8* ch, usz ch_len, const u8* ext, usz n) {
+  usz exts_len =
+      (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
+  for (usz i = 0; i < n; i++) {
+    ch[ch_len + i] = ext[i];
+  }
+  be_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + n));
+  hs_finish(ch, ch_len + n);
+  return ch_len + n;
+}
+
+/* The CRYPTO_ERROR a refused ClientHello recorded (0 if it was accepted). */
+static u64 sdrv_test_ch_error(sdrv* s, const u8* ch, usz n) {
+  if (sdrv_recv_client_hello(s, ch, n)) {
+    return 0;
+  }
+  return sdrv_last_error(s);
+}
+
+/* RFC 8446 4.1.2 (#73): legacy_compression_methods other than the single
+ * null method is illegal_parameter. Its one method byte is at ch offset 44
+ * (header 4 + version/random 34 + empty session_id 1 + cipher_suites 2+2 +
+ * methods length 1). */
+static void test_sdrv_ch_compression_not_null_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  CHECK(ch[43] == 1 && ch[44] == 0);
+  ch[44] = 1;
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(47));
+}
+
+/* RFC 8446 6.2 (#74): structural breakage is decode_error -- a byte past
+ * the extensions block, an odd cipher_suites length, a 33-byte
+ * legacy_session_id, an extension whose length overruns the block. */
+static void test_sdrv_ch_malformed_is_decode_error(void) {
+  static const usz offs[] = {40, 38, SDRV_TEST_GROUPS_TYPE_OFF + 3};
+  static const u8  vals[] = {3, 33, 0xff};
+  sdrv             s;
+  u8               ch[600], junk = 0;
+  usz              n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n                  = sdrv_test_append_raw_ext(ch, n, &junk, 1);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  for (usz i = 0; i < sizeof offs / sizeof *offs; i++) {
+    n           = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    ch[offs[i]] = vals[i];
+    CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  }
+}
+
+/* RFC 8446 6.2: an extension body that does not decode -- a
+ * supported_groups list length past its body, a KeyShareEntry whose key
+ * runs past client_shares -- is decode_error, not "absent" (which used to
+ * arm a HelloRetryRequest). */
+static void test_sdrv_ch_bad_ext_body_is_decode_error(void) {
+  static const usz offs[] = {
+      SDRV_TEST_GROUPS_TYPE_OFF + 5, SDRV_TEST_KEYSHARE_TYPE_OFF + 9};
+  sdrv s;
+  u8   ch[600];
+  for (usz i = 0; i < sizeof offs / sizeof *offs; i++) {
+    usz n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    ch[offs[i]]++;
+    CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  }
+}
+
+/* RFC 8446 4: a handshake message other than ClientHello where one is
+ * expected is unexpected_message. */
+static void test_sdrv_ch_wrong_type_is_unexpected_message(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  ch[0]  = HS_SERVER_HELLO;
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(10));
+}
+
+/* RFC 8446 4.2.11 (#74, 8446-113): a pre_shared_key with no binder aborts
+ * with decode_error instead of falling back to a full handshake. */
+static void test_sdrv_psk_no_binder_aborts(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              off, n;
+  tlsext_psk_in    in;
+  sdrv_psk_fixture_init(&f);
+  in = (tlsext_psk_in){
+      wired_span_of(f.sealed, sizeof(f.sealed)), 0, wired_span_of(0, 0)};
+  n = sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off);
+  CHECK(n != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_test_ch_error(&s, ch2, n) == err_crypto(50));
+}
+
+/* RFC 8446 4.2.11: a well-formed offer of two identities is not malformed;
+ * this server only resumes a single-identity offer, so it falls back to a
+ * full handshake (8446-053), never aborts. */
+static void test_sdrv_psk_two_identities_falls_back(void) {
+  u8   psk[4 + 2 + 2 * 10 + 2 + 2 * 33] = {0x00, 0x29, 0x00, 0x5a, 0x00, 0x14};
+  u8   modes[8], ch[700];
+  usz  modes_len, p = 6, n;
+  sdrv s;
+  for (usz i = 0; i < 2; i++, p += 10) {
+    psk[p + 1] = 4; /* identity<4>, age 0 */
+  }
+  psk[p + 1] = 2 * 33;
+  for (usz i = 0, q = p + 2; i < 2; i++, q += 33) {
+    psk[q] = 32;
+  }
+  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  CHECK(tlsext_psk_modes(modes, sizeof modes, &modes_len));
+  n = sdrv_test_append_raw_ext(ch, n, modes, modes_len);
+  n = sdrv_test_append_raw_ext(ch, n, psk, sizeof psk);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+  CHECK(s.psk_accepted == 0);
+}
+
+/* RFC 8446 4.2.3 / 9.2 (8446-124): signature_algorithms_cert is recognized
+ * -- a well-formed list is accepted (the single chain is sent regardless,
+ * as 4.4.2.2 allows), a malformed one is decode_error. */
+static void test_sdrv_ch_sig_algs_cert(void) {
+  static const u8 good[] = {0x00, 0x32, 0x00, 0x04, 0x00, 0x02, 0x04, 0x03};
+  static const u8 bad[]  = {0x00, 0x32, 0x00, 0x03, 0x00, 0x01, 0x04};
+  sdrv            s;
+  u8              ch[700];
+  usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n                 = sdrv_test_append_raw_ext(ch, n, good, sizeof good);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n = sdrv_test_append_raw_ext(ch, n, bad, sizeof bad);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+}
+
+/* RFC 8446 4.2.1 (8446-107): unknown versions listed alongside 0x0304
+ * (a GREASE value first) are ignored and TLS 1.3 is selected. The original
+ * single-version extension is blotted to an unknown type. */
+static void test_sdrv_ch_versions_unknown_ignored(void) {
+  static const u8 vers[] = {0x00, 0x2b, 0x00, 0x05, 0x04,
+                            0x7a, 0x7a, 0x03, 0x04};
+  sdrv            s;
+  u8              ch[700];
+  usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_VERSIONS_TYPE_OFF);
+  n = sdrv_test_append_raw_ext(ch, n, vers, sizeof vers);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+}
+
+/* RFC 8446 9.2 (#76, 8446-126): supported_groups without key_share is
+ * missing_extension (it used to arm a HelloRetryRequest). The reverse is
+ * test_sdrv_recv_client_hello_no_supported_groups_rejected. */
+static void test_sdrv_ch_groups_without_key_share_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_KEYSHARE_TYPE_OFF);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(109));
+  CHECK(sdrv_hrr_pending(&s) == 0);
+}
+
+/* RFC 8446 4.2.8 (#76, 8446-109): an x25519 share whose group the client's
+ * supported_groups does not list (relabelled to secp256r1 at its single
+ * entry, offset +6) is illegal_parameter -- the server never answers in an
+ * unlisted group. */
+static void test_sdrv_ch_share_outside_groups_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  be_put_be16(ch + SDRV_TEST_GROUPS_TYPE_OFF + 6, GROUP_SECP256R1);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(47));
+}
+
+/* RFC 8446 Appendix E.5 (#77): 0-RTT stays off until the application
+ * enables it -- the same eligible early_data offer resumes as 1-RTT, with
+ * no 0-RTT keys, under the sdrv_init default. */
+static void test_sdrv_0rtt_needs_app_opt_in(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              ch2_len, off;
+  initial_keys     got;
+  sdrv_psk_fixture_init(&f);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof ch2, &off);
+  CHECK(ch2_len != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_early_allowed(&s) == 0);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(sdrv_early_keys(&s, &got) == 0);
 }
 
 void test_sdrv(void) {
@@ -2583,9 +3022,25 @@ void test_sdrv(void) {
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();
+  test_sdrv_psk_binder_after_hrr_accepted();
+  test_sdrv_psk_binder_after_hrr_needs_transcript();
+  test_sdrv_no_early_data_after_hrr();
+  test_sdrv_0rtt_needs_app_opt_in();
+  test_sdrv_ch_compression_not_null_rejected();
+  test_sdrv_ch_malformed_is_decode_error();
+  test_sdrv_ch_bad_ext_body_is_decode_error();
+  test_sdrv_ch_wrong_type_is_unexpected_message();
+  test_sdrv_psk_no_binder_aborts();
+  test_sdrv_psk_two_identities_falls_back();
+  test_sdrv_ch_sig_algs_cert();
+  test_sdrv_ch_versions_unknown_ignored();
+  test_sdrv_ch_groups_without_key_share_rejected();
+  test_sdrv_ch_share_outside_groups_rejected();
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
+  test_sdrv_psk_bound_to_sni();
+  test_sdrv_signature_algorithms_cert();
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
   test_sdrv_sni_mismatch();

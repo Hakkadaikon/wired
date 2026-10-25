@@ -15,6 +15,8 @@ static int step_np_raises(
     const wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static void step_note_np(
     wired_srvloop* l, const srvloop_opened* o, wired_span pl);
+static void step_frames(
+    const wired_srvloop_conn* conn, const wired_srvloop_recv_out* ro);
 
 /* A short-header 1-RTT packet (not a long-header 0-RTT one). */
 static int opened_is_short(const srvloop_opened* o) {
@@ -96,6 +98,24 @@ static void step_note_np(
   l->np_seen = 1;
 }
 
+/* The admitted packet's frames: ACKs, ack-owed bookkeeping, then dispatch
+ * -- unless its encryption level may not carry the CRYPTO it holds
+ * (wired_server_crypto_level_ok; Initial is never dispatched after boot). */
+static void step_frames(
+    const wired_srvloop_conn* conn, const wired_srvloop_recv_out* ro) {
+  /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
+   * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
+   * Handshake level could otherwise hit an unrelated 1-RTT pn by
+   * coincidence. */
+  if (ro->level == LEVEL_ONERTT) {
+    srvloop_collect_acks(conn->l, ro->payload);
+  }
+  srvloop_step_note_ack_owed(conn->l, ro->payload, ro->level);
+  if (wired_server_crypto_level_ok(conn->s, ro->level, ro->payload)) {
+    srvloop_step_dispatch(conn, ro->payload);
+  }
+}
+
 /* An opened packet: admitted (step_admit), then its frames processed. */
 void srvloop_step_opened(
     const wired_srvloop_conn*     conn,
@@ -107,14 +127,6 @@ void srvloop_step_opened(
     return;
   }
   step_note_np(l, &o, ro->payload);
-  l->peer_closed |= srvloop_has_close(ro->payload);
-  /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
-   * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
-   * Handshake level could otherwise hit an unrelated 1-RTT pn by
-   * coincidence. */
-  if (ro->level == LEVEL_ONERTT) {
-    srvloop_collect_acks(l, ro->payload);
-  }
-  srvloop_step_note_ack_owed(l, ro->payload, ro->level);
-  srvloop_step_dispatch(conn, ro->payload);
+  l->peer_closed |= srvloop_has_close(ro->payload, &l->peer_close_code);
+  step_frames(conn, ro);
 }

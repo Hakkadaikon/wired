@@ -763,6 +763,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       0);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x133); /* decrypt_error */
   {
     const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 0);
@@ -1049,6 +1050,9 @@ static void test_srvloop_ticket_early_data_only_off_raw(void) {
   u32           got = 0;
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn = SALPN_H3;
+  /* RFC 8446 Appendix E.5: no early_data until the application opts in. */
+  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 2);
+  sdrv_set_early_data(&f.s.sdrv, 1);
   CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 10);
   CHECK(tlsext_early_data_nst_parse(msg + ext + 2, 8, &got) == 1);
   CHECK(got == 0xffffffff);
@@ -3812,15 +3816,20 @@ static void test_srvloop_ticket_not_resent(void) {
 static void test_srvloop_close_frame_detected(void) {
   u8               cc[32];
   u8               ping[1] = {0x01};
-  conn_close_frame tpt     = {0, 0, 0, 0, 0};
-  conn_close_frame app     = {1, 0, 0, 0, 0};
+  conn_close_frame tpt     = {0, 0x132, 0, 0, 0}; /* TLS decode_error */
+  conn_close_frame app     = {1, 0x100, 0, 0, 0}; /* H3_NO_ERROR */
+  u64              code    = 7;
   usz              n       = frame_put_conn_close(cc, sizeof cc, &tpt);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
+  CHECK(srvloop_has_close(wired_span_of(cc, n), &code) == 1);
+  CHECK(code == 0x132); /* RFC 8446 6.2: the peer's alert is kept to log */
   n = frame_put_conn_close(cc, sizeof cc, &app);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
-  CHECK(srvloop_has_close(wired_span_of(ping, 1)) == 0);
+  CHECK(srvloop_has_close(wired_span_of(cc, n), &code) == 1);
+  CHECK(code == 0); /* 0x1d codes are the application's, not CRYPTO_ERROR */
+  code = 7;
+  CHECK(srvloop_has_close(wired_span_of(ping, 1), &code) == 0);
+  CHECK(code == 7);
 }
 
 /* An ack-eliciting 1-RTT packet (here, a PING frame) records its pn
@@ -5883,7 +5892,45 @@ static void test_srvloop_zerortt_refused_frames_latch_error(void) {
   }
 }
 
+/* RFC 8446 4 (#72) on the production step path: a Handshake packet whose
+ * CRYPTO carries a message other than the client Finished latches
+ * unexpected_message, and a forged Finished decrypt_error, for srvrun to
+ * close with (srvrun_close_on_step_violation). */
+static void test_srvloop_unexpected_hs_message_latches(void) {
+  struct lp_fix f;
+  u8            cpkt[512], out[512], cert[8] = {11, 0, 0, 4, 0, 0, 0, 0};
+  usz           clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  clen = client_seal_handshake(&f, cert, sizeof cert, cpkt, sizeof cpkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+}
+
+/* RFC 9001 6 / RFC 8446 4: a client sends no handshake message in 1-RTT
+ * (KeyUpdate is forbidden in QUIC); a 1-RTT CRYPTO frame latches
+ * unexpected_message. */
+static void test_srvloop_onertt_crypto_latches(void) {
+  struct lp_fix f;
+  u8            out[1024], cpkt[256];
+  u8            ku[] = {0x06, 0x00, 0x05, 24, 0, 0, 1, 0}; /* CRYPTO(KU) */
+  usz           clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(wired_server_take_hs_error(&f.s) == 0);
+  clen   = client_seal_onertt(&f, ku, sizeof ku, cpkt, sizeof cpkt);
+  ob.len = 0;
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+}
+
 void test_srvloop(void) {
+  test_srvloop_unexpected_hs_message_latches();
+  test_srvloop_onertt_crypto_latches();
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
   test_srvloop_reset_notes_only_receiving_slot();

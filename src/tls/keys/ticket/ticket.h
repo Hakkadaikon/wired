@@ -16,7 +16,11 @@
 /* Sealed-ticket framing: nonce || ciphertext || tag. */
 #define TICKET_NONCE_LEN 12
 #define TICKET_TAG_LEN 16
-#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2)
+/* RFC 6066 3: the issuing connection's server_name digest
+ * (salpn_sni_digest: SHA-256, all zero = no server_name). */
+#define TICKET_SNI_LEN 32
+#define TICKET_PLAIN_LEN \
+  (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + TICKET_SNI_LEN)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -36,6 +40,9 @@ typedef struct {
    * resumption must negotiate a suite with the same hash, and 0-RTT the
    * very same suite. */
   u16 suite;
+  /** RFC 6066 3: the server_name the session was established under, as
+   * salpn_sni_digest; a resumption offering another name is refused. */
+  u8 sni[TICKET_SNI_LEN];
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

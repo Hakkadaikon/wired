@@ -81,36 +81,69 @@ void xdpbpf_bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]) {
   bpf_prog_udp(out);
 }
 
-/* idx 15-20: short-header boundary check (data+44<=data_end, since the core
- * id byte is at offset 43), read the QUIC header's first byte, and split on
- * its top bit (RFC 9000 17.2/17.3: 1 = long header candidate, 0 = short
- * header -- a top bit of 0 is never valid on the wire this filter expects,
- * so it falls back rather than misreading a non-QUIC byte as a core id). */
+/* idx 15-19: short-header boundary check (data+48<=data_end: the DCID's
+ * first BPF_DCID_SPAN bytes start at offset 43), read the QUIC header's first
+ * byte, and split on the Header Form bit (RFC 9000 17.2/17.3: 1 = long
+ * header, 0 = short header). An earlier revision sent Header Form 0 to the
+ * fallback and treated 0x80-without-0x40 as "short", so real 1-RTT packets
+ * were never routed by CID. */
 void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]) {
   int i      = BPF_IDX_CORE_START;
   out[i]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
-  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 44);
+  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 43 + BPF_DCID_SPAN);
   out[i + 2] = xdpbpf_bpf_insn(
       BPF_INSN_JGT_REG, 5, 3, xdpbpf_bpf_off(i + 2, BPF_IDX_FALLBACK), 0);
   out[i + 3] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 4, 2, 42, 0);
   out[i + 4] = xdpbpf_bpf_insn(
-      BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_CHECK_LONG), 0x80);
-  out[i + 5] = xdpbpf_bpf_insn(
-      BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(i + 5, BPF_IDX_FALLBACK), 0);
+      BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(i + 4, BPF_IDX_LONG), 0x80);
 }
 
-/* idx 21-23: BPF_IDX_CHECK_LONG splits short (top bit 1, next bit 0) from
- * long (both bits 1); the short path reads the DCID's first byte straight
- * out of the fixed short-header layout (offset 43, RFC 9000 17.3) into r2,
- * overwriting the data pointer with the core-routing key -- r2 is dead for
- * data access from here on, same reuse the original template already made
- * of r2 at the old idx15 (rx_queue_index load). */
+/* idx 20-22 (BPF_IDX_SHORT): the short path points r5 at the DCID in the
+ * fixed short-header layout (offset 43, RFC 9000 17.3) and jumps to the
+ * shared unmasking block (BPF_IDX_MIX). */
 void xdpbpf_bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]) {
-  out[BPF_IDX_CHECK_LONG] = xdpbpf_bpf_insn(
-      BPF_INSN_JSET_IMM, 4, 0, xdpbpf_bpf_off(BPF_IDX_CHECK_LONG, BPF_IDX_LONG),
-      0x40);
-  out[BPF_IDX_CHECK_LONG + 1] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 2, 2, 43, 0);
-  out[BPF_IDX_CHECK_LONG + 2] = xdpbpf_bpf_insn(
-      BPF_INSN_JA, 0, 0,
-      xdpbpf_bpf_off(BPF_IDX_CHECK_LONG + 2, BPF_IDX_KEY_CHECK), 0);
+  int i      = BPF_IDX_SHORT;
+  out[i]     = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[i + 1] = xdpbpf_bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 43);
+  out[i + 2] =
+      xdpbpf_bpf_insn(BPF_INSN_JA, 0, 0, xdpbpf_bpf_off(i + 2, BPF_IDX_MIX), 0);
+}
+
+/* Emit the 16-byte LDDW r_dst = imm (imm low half in the first slot's imm,
+ * high half in the second's). */
+static void bpf_lddw(u64* out, u8 dst, u64 imm) {
+  out[0] = xdpbpf_bpf_insn(BPF_INSN_LDDW_IMM, dst, 0, 0, (i32)(u32)imm);
+  out[1] = xdpbpf_bpf_insn(0, 0, 0, 0, (i32)(u32)(imm >> 32));
+}
+
+/* idx 31-38: load cid[0] into r6 and w = LE cid[1..4] into r7, then
+ * r7 = (w ^ k0) * k1 (ncid_route_mask's first round). */
+static void bpf_prog_mix_head(u64* out, const ncid_route_key* key) {
+  out[0] = xdpbpf_bpf_insn(BPF_INSN_LDXB, 6, 5, 0, 0);
+  out[1] = xdpbpf_bpf_insn(BPF_INSN_LDXW, 7, 5, 1, 0);
+  bpf_lddw(out + 2, 8, key->k[0]);
+  out[4] = xdpbpf_bpf_insn(BPF_INSN_XOR64_REG, 7, 8, 0, 0);
+  bpf_lddw(out + 5, 8, key->k[1]);
+  out[7] = xdpbpf_bpf_insn(BPF_INSN_MUL64_REG, 7, 8, 0, 0);
+}
+
+/* idx 39-47: r7 ^= r7 >> 32; r7 *= k2; mask = r7 >> 56; r2 = cid[0] ^ mask
+ * (the routing key), exactly ncid_route_decode. */
+static void bpf_prog_mix_tail(u64* out, const ncid_route_key* key) {
+  out[0] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 8, 7, 0, 0);
+  out[1] = xdpbpf_bpf_insn(BPF_INSN_RSH64_IMM, 8, 0, 0, 32);
+  out[2] = xdpbpf_bpf_insn(BPF_INSN_XOR64_REG, 7, 8, 0, 0);
+  bpf_lddw(out + 3, 8, key->k[2]);
+  out[5] = xdpbpf_bpf_insn(BPF_INSN_MUL64_REG, 7, 8, 0, 0);
+  out[6] = xdpbpf_bpf_insn(BPF_INSN_RSH64_IMM, 7, 0, 0, 56);
+  out[7] = xdpbpf_bpf_insn(BPF_INSN_XOR64_REG, 6, 7, 0, 0);
+  out[8] = xdpbpf_bpf_insn(BPF_INSN_MOV64_REG, 2, 6, 0, 0);
+}
+
+/* idx 31-47 (BPF_IDX_MIX): r5 points at a DCID whose first BPF_DCID_SPAN
+ * bytes are bounds-checked; recover the core index into r2 (RFC 9312 2.6
+ * obfuscated routing byte, see ncid_route_key) and fall into KEY_CHECK. */
+void xdpbpf_bpf_prog_mix(u64 out[XDPBPF_PROG_LEN], const ncid_route_key* key) {
+  bpf_prog_mix_head(out + BPF_IDX_MIX, key);
+  bpf_prog_mix_tail(out + BPF_IDX_MIX + 8, key);
 }

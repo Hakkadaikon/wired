@@ -22,6 +22,7 @@ static void srvxdp_tx_meta(
   m->udp.ports.dport = be_get_be16((const u8*)&dst->port_be);
   m->udp.addrs.src   = be_get_be32((const u8*)&x->ip_be);
   m->udp.addrs.dst   = wired_udp_addr4_be(dst);
+  m->ip_id           = x->ip_id++;
 }
 
 /* Submit one TX-pool frame (addr, n bytes already built) to the tx ring and

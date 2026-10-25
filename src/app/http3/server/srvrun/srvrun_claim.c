@@ -109,11 +109,13 @@ int srvrun_claim_slot(
 
 /* AF_XDP core-routing (see wired_srvrun_opt.core_id): only in XDP mode with a
  * non-negative core_id does a freshly generated CID get its leading byte
- * overwritten with this worker's own core/queue index, so the BPF filter can
- * key an XSKMAP lookup off the CID instead of the NIC's rx_queue_index.
- * Neither guard is a validating boundary -- ncid_worker_encode itself
- * already no-ops (returns < 0) on a zero-length cid; there is simply nothing
- * to embed into. */
+ * set to this worker's own core/queue index masked under the BPF program's
+ * key (ncid_route_encode, RFC 9312 2.6: unreadable to on-path observers),
+ * so the BPF filter can key an XSKMAP lookup off the CID instead of the
+ * NIC's rx_queue_index.
+ * Neither guard is a validating boundary -- ncid_route_encode itself
+ * already no-ops (returns < 0) on a cid shorter than NCID_ROUTE_MIN_LEN;
+ * there is simply nothing to embed into. */
 static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
   return cfg->xdp != 0 && cfg->core_id >= 0;
 }
@@ -127,7 +129,7 @@ int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
     return 0;
   }
   if (srvrun_xdp_core_routing(cfg)) {
-    ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
+    ncid_route_encode(cid, cid_len, (u8)cfg->core_id, &cfg->xdp->route_key);
   }
   return 1;
 }

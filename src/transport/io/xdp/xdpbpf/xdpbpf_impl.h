@@ -25,6 +25,9 @@
 #define BPF_INSN_JNE_IMM 0x55   /* BPF_JMP|BPF_JNE|BPF_K: if r_dst!=imm goto */
 #define BPF_INSN_JSET_IMM 0x45  /* BPF_JMP|BPF_JSET|BPF_K: if r_dst&imm goto */
 #define BPF_INSN_JA 0x05        /* BPF_JMP|BPF_JA: unconditional goto */
+#define BPF_INSN_XOR64_REG 0xaf /* BPF_ALU64|BPF_XOR|BPF_X: r_dst ^= r_src */
+#define BPF_INSN_MUL64_REG 0x2f /* BPF_ALU64|BPF_MUL|BPF_X: r_dst *= r_src */
+#define BPF_INSN_RSH64_IMM 0x77 /* BPF_ALU64|BPF_RSH|BPF_K: r_dst >>= imm */
 #define BPF_INSN_LDDW_IMM 0x18  /* BPF_LD|BPF_DW|BPF_IMM: 16-byte wide load */
 #define BPF_INSN_CALL 0x85      /* BPF_JMP|BPF_CALL */
 #define BPF_INSN_EXIT 0x95      /* BPF_JMP|BPF_EXIT */
@@ -37,14 +40,18 @@
  * of the core-routing extension starts, so the jump-offset arithmetic below
  * reads as "index of X" rather than a bare number repeated at every use. */
 #define BPF_IDX_CORE_START 15 /* short-header boundary check begins */
-#define BPF_IDX_CHECK_LONG 21 /* top-bit set: decide short vs long */
-#define BPF_IDX_LONG 24       /* long-header path begins */
-#define BPF_IDX_HAS_DCID 30   /* long header, DCID len != 0 */
-#define BPF_IDX_KEY_CHECK 32  /* DCID-byte key range check (< map size) */
-#define BPF_IDX_KEY_SKIP 33   /* key in range: skip the fallback load */
-#define BPF_IDX_FALLBACK 34   /* rx_queue_index fallback key load */
-#define BPF_IDX_REDIRECT 35   /* map fd load + bpf_redirect_map() call */
-#define BPF_IDX_PASS 40       /* dport/boundary miss -> XDP_PASS */
+#define BPF_IDX_SHORT 20      /* Header Form 0: short-header path */
+#define BPF_IDX_LONG 23       /* Header Form 1: long-header path */
+#define BPF_IDX_HAS_DCID 29   /* long header, DCID len != 0 */
+#define BPF_IDX_MIX 31        /* r5 -> DCID: unmask the routing byte */
+#define BPF_IDX_KEY_CHECK 48  /* routing-key range check (< map size) */
+#define BPF_IDX_KEY_SKIP 49   /* key in range: skip the fallback load */
+#define BPF_IDX_FALLBACK 50   /* rx_queue_index fallback key load */
+#define BPF_IDX_REDIRECT 51   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 56       /* dport/boundary miss -> XDP_PASS */
+/* Bytes of the DCID the mix reads past its start: cid[0] plus cid[1..4]
+ * (NCID_ROUTE_MIN_LEN), so each path bounds-checks dcid + 5 <= data_end. */
+#define BPF_DCID_SPAN 5
 
 /* Number of XSKMAP slots the DCID-byte routing key must stay under. The
  * server-side XSKMAP is always sized WIRED_SRVXDPBPF_MAP_ENTRIES
@@ -103,5 +110,6 @@ u16  xdpbpf_bpf_off(int from, int to);
 void xdpbpf_bpf_prog_prologue(u64 out[XDPBPF_PROG_LEN]);
 void xdpbpf_bpf_prog_header_split(u64 out[XDPBPF_PROG_LEN]);
 void xdpbpf_bpf_prog_short_path(u64 out[XDPBPF_PROG_LEN]);
+void xdpbpf_bpf_prog_mix(u64 out[XDPBPF_PROG_LEN], const ncid_route_key* key);
 
 #endif

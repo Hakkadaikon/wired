@@ -1,5 +1,6 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
+#include <string.h> /* strstr: hosted test build only */
 #include <unistd.h>
 
 #include "app/http3/core/h3/errclass.h"
@@ -1199,6 +1200,8 @@ static void sr_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->raw_alpns               = 0;
+  id->alpn_client_order       = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
@@ -1221,6 +1224,11 @@ static usz sr_build_client_initial(
   }
   return ob.len;
 }
+
+/* A fixed AF_XDP CID routing key for the core-id tests (any key with odd
+ * multipliers; wired_srvxdpbpf_open draws a random one). */
+static const ncid_route_key g_sr_route_key = {
+    {0x0123456789abcdefULL, 0x9e3779b97f4a7c15ULL, 0xbf58476d1ce4e5b9ULL}};
 
 static const u8 g_sr_odcid[8] = {0x11, 0x22, 0x33, 0x44,
                                  0x55, 0x66, 0x77, 0x88};
@@ -1372,6 +1380,75 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
   CHECK(n > 0);
   /* no slot was claimed for the refused client */
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
+/* fn's stderr output (up to cap-1 bytes, NUL-terminated) via a pipe on
+ * fd 2, the same capture the conntable-refusal test uses. */
+static ssize_t sr_capture_log(
+    void (*fn)(void*), void* arg, char* buf, usz cap) {
+  int     saved = dup(2), pipefd[2];
+  ssize_t n;
+  CHECK(pipe(pipefd) == 0);
+  dup2(pipefd[1], 2);
+  close(pipefd[1]);
+  fn(arg);
+  dup2(saved, 2);
+  close(saved);
+  n = read(pipefd[0], buf, cap - 1);
+  close(pipefd[0]);
+  buf[n > 0 ? n : 0] = 0;
+  return n;
+}
+
+static int sr_log_has(const char* log, const char* want) {
+  return strstr(log, want) != 0;
+}
+
+static void sr_log_peer_alert(void* arg) {
+  srvrun_log_close_alert("conn closed by peer (CONNECTION_CLOSE)", *(u64*)arg);
+}
+
+struct sr_refuse_arg {
+  const srvrun_step_ctx* ctx;
+  srvrun_conn*           c;
+};
+
+static void sr_do_refuse(void* arg) {
+  struct sr_refuse_arg* a = arg;
+  CHECK(srvrun_refuse(a->ctx, a->c) == 0);
+}
+
+/* RFC 8446 6.2: a refused ClientHello logs the TLS alert it sends (here
+ * decode_error, 0x132), and a peer CONNECTION_CLOSE carrying a CRYPTO_ERROR
+ * logs the received alert; a non-TLS close code keeps the plain line. */
+static void test_srvrun_logs_tls_alerts(void) {
+  wired_srvboot_id     id;
+  u8                   priv[32], pub[32], seed[32], rnd[32];
+  char                 log[160];
+  sockaddr             peer = {0};
+  conntable            table[WIRED_CONNTABLE_CAP];
+  srvrun_state         st   = {table, g_srvrun_state.conns};
+  u64                  code = 0x178;
+  srvrun_conn*         c    = &g_srvrun_state.conns[0];
+  struct sr_refuse_arg ra;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx  = {&cfg, &peer, &st, 0, 0};
+    *c                   = (srvrun_conn){0};
+    c->s.sdrv.last_error = 0x132;
+    ra                   = (struct sr_refuse_arg){&ctx, c};
+    CHECK(sr_capture_log(sr_do_refuse, &ra, log, sizeof log) > 0);
+    CHECK(sr_log_has(log, "conn refused: handshake failed (TLS alert 50)"));
+  }
+  CHECK(sr_capture_log(sr_log_peer_alert, &code, log, sizeof log) > 0);
+  CHECK(sr_log_has(log, "(CONNECTION_CLOSE) (TLS alert 120)\n"));
+  code = 0;
+  CHECK(sr_capture_log(sr_log_peer_alert, &code, log, sizeof log) > 0);
+  CHECK(sr_log_has(log, "(CONNECTION_CLOSE)\n"));
+  *c = (srvrun_conn){0};
 }
 
 /* Shared fixture for the full-table eviction tests below: fill every
@@ -1776,6 +1853,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
                                 * an uninitialized txpool.nfree is read as a
                                 * garbage free-list index, not just its
                                 * non-0-ness */
+  fake_xdp.route_key = g_sr_route_key;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1792,7 +1870,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  CHECK(st.conns[0].scid[0] == 15);
+  CHECK(ncid_route_decode(st.conns[0].scid, &g_sr_route_key) == 15);
 }
 
 /* MIN/MAX core ids both land in the leading byte (bits=8 boundary). */
@@ -1806,6 +1884,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
   wired_srvxdp fake_xdp = {0}; /* zeroed, same reason as the sibling test
                                 * above -- this path also reaches
                                 * wired_srvxdp_send */
+  fake_xdp.route_key = g_sr_route_key;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1822,7 +1901,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  CHECK(st.conns[0].scid[0] == 0);
+  CHECK(ncid_route_decode(st.conns[0].scid, &g_sr_route_key) == 0);
 }
 
 /* NON-XDP MODE (xdp == 0, the SO_REUSEPORT/plain-UDP default): core_id is
@@ -1884,14 +1963,15 @@ static void test_srvrun_issue_cid_xdp_negative_core_id_no_embed(void) {
 }
 
 /* CORE_ID embedding via the shared seam directly (xdp on, core_id in
- * range): the leading byte is exactly the core id, regardless of whatever
- * cid_generate randomly produced there first. */
+ * range): the CID carries the core id masked under the BPF program's key
+ * (RFC 9312 2.6), recoverable only with that key. */
 static void test_srvrun_issue_cid_xdp_embeds_core_id(void) {
-  u8           cid[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
-  wired_srvxdp fake_xdp;
-  srvrun_cfg   cfg = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
+  u8           cid[8]   = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+  wired_srvxdp fake_xdp = {0};
+  srvrun_cfg   cfg      = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
+  fake_xdp.route_key    = g_sr_route_key;
   CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
-  CHECK(cid[0] == 15);
+  CHECK(ncid_route_decode(cid, &g_sr_route_key) == 15);
 }
 
 /* BOOT RETRANSMIT (RFC 9000 13.3): before the handshake is confirmed, the
@@ -21244,6 +21324,24 @@ static void test_srvrun_ctrl_overflow_closes(void) {
   CHECK(is_app == 1);
 }
 
+/* RFC 8446 4 / RFC 9001 4.8 (#72): a latched handshake alert (here
+ * unexpected_message) closes the connection with that CRYPTO_ERROR as a
+ * transport-level CONNECTION_CLOSE, once. */
+static void test_srvrun_hs_error_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 1;
+  c->s.hs_error          = 0x10a;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(c->closing == 1);
+  CHECK(sr_close_code(c, &is_app) == 0x10a);
+  CHECK(is_app == 0);
+  CHECK(c->s.hs_error == 0);
+}
+
 /* RFC 9204 2.1.2 / 4.2: a latched QPACK violation (here a section that
  * would block) closes the connection with that code. */
 static void test_srvrun_qpack_violation_closes(void) {
@@ -25162,6 +25260,7 @@ void test_srvrun(void) {
   test_srvrun_new_conn_refusal_wire_content();
   test_srvrun_new_conn_refusal_skips_ineligible_datagrams();
   test_srvrun_full_conntable_sends_refusal();
+  test_srvrun_logs_tls_alerts();
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
   test_srvrun_hq09_resp_has_no_h3_framing();
@@ -25508,6 +25607,7 @@ void test_srvrun(void) {
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_qpack_violation_closes();
+  test_srvrun_hs_error_closes();
   test_srvrun_qdec_stream_opens_with_qpack_streams();
   test_srvrun_qdec_waits_for_stream_open();
   test_srvrun_qenc_credit_regranted();

@@ -1,6 +1,5 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 #include "common/diag/error/error.h"
-#include "tls/handshake/core/tls/keyupdate_reject.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/permit.h"
 #include "transport/packet/header/packet/resbits.h"
@@ -13,7 +12,6 @@ static int srvloop_frame_stream_bad(
     const wired_srvloop* l, const framewalk_item* fr, frame_kind k);
 static u64 srvloop_frame_value_error(
     const wired_srvloop* l, const framewalk_item* fr, frame_kind k);
-static int srvloop_post_handshake_crypto(frame_kind k, packet_type pt);
 static u64 srvloop_frame_error(
     const wired_srvloop* l, const framewalk_item* fr, packet_type pt);
 static u64 srvloop_walk_left(const framewalk* it);
@@ -92,25 +90,11 @@ static u64 srvloop_frame_value_error(
   return srvloop_frame_stream_bad(l, fr, k) ? ERR_STREAM_STATE_ERROR : 0;
 }
 
-/* RFC 9001 6: "MUST treat the receipt of a TLS KeyUpdate message as a
- * connection error of type 0x010a". A client's only other post-handshake
- * message would answer a CertificateRequest this server never sends (RFC
- * 8446 4.6), so any 1-RTT CRYPTO from the client is that same
- * unexpected_message. */
-static int srvloop_post_handshake_crypto(frame_kind k, packet_type pt) {
-  return k == FK_CRYPTO && pt == PKT_1RTT;
-}
-
 static u64 srvloop_frame_error(
     const wired_srvloop* l, const framewalk_item* fr, packet_type pt) {
   frame_kind k = frame_classify(fr->type);
-  if (srvloop_frame_forbidden(k, pt)) {
-    return ERR_PROTOCOL_VIOLATION;
-  }
-  if (srvloop_post_handshake_crypto(k, pt)) {
-    return tls_keyupdate_reject_code();
-  }
-  return srvloop_frame_value_error(l, fr, k);
+  return srvloop_frame_forbidden(k, pt) ? ERR_PROTOCOL_VIOLATION
+                                        : srvloop_frame_value_error(l, fr, k);
 }
 
 /* RFC 9000 12.4 / 19.3.1: the walk stops at an unknown frame type or at a

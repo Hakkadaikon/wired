@@ -8,16 +8,18 @@
 #define IPV4_HDR 20
 #define IP_PROTO_UDP 17
 
-/** Total length (header + payload), addresses (host order), and protocol
- * for a 20-byte IPv4 header. */
+/** Total length (header + payload), addresses (host order), protocol and
+ * Identification for a 20-byte IPv4 header. */
 typedef struct {
   u16 total_len;
   u32 src;
   u32 dst;
   u8  proto;
+  u16 id;
 } ipv4_head;
 
-/* Build a 20-byte IPv4 header into out per h. Fills in the header checksum.
+/* Build a 20-byte IPv4 header into out per h, with DF set (RFC 9000 14) and
+ * h->id as the Identification. Fills in the header checksum.
  * Returns IPV4_HDR. */
 usz ipv4_build(u8 out[IPV4_HDR], const ipv4_head* h);
 

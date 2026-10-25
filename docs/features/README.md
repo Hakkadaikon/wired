@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2015/2261 requirements demonstrated (89.1%) — 1582 directly tested,
-433 indirect, 246 untested.**
+**Total: 2038/2260 requirements demonstrated (90.2%) — 1615 directly tested,
+423 indirect, 222 untested.**
 
 ## QUIC core
 
@@ -90,21 +90,21 @@ page: **[Interop Results](../interop.md)**.
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 22/25 | 18 | 4 | 3 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 23/29 | 18 | 5 | 6 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 7/10 | 5 | 2 | 3 |
-| [RFC 9312 — Manageability (informational)](rfc9312.md) | 4/5 | 0 | 4 | 1 |
+| [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 1 | 4 | 0 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 29/34 | 21 | 8 | 5 |
 
 ## TLS and PKI
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 118/131 | 89 | 29 | 13 |
-| [RFC 5280 — X.509 / PKI](rfc5280.md) | 54/57 | 41 | 13 | 3 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 127/131 | 102 | 25 | 4 |
+| [RFC 5280 — X.509 / PKI](rfc5280.md) | 57/57 | 47 | 10 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 21 | 0 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 19/19 | 15 | 4 | 0 |
-| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/14 | 9 | 2 | 3 |
-| [RFC 6125 — Service identity verification](rfc6125.md) | 11/14 | 8 | 3 | 3 |
-| [RFC 7301 — ALPN](rfc7301.md) | 14/15 | 12 | 2 | 1 |
+| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 14/14 | 13 | 1 | 0 |
+| [RFC 6125 — Service identity verification](rfc6125.md) | 14/14 | 11 | 3 | 0 |
+| [RFC 7301 — ALPN](rfc7301.md) | 15/15 | 13 | 2 | 0 |
 | [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 23/23 | 18 | 5 | 0 |
 
 ## Cryptographic primitives
@@ -163,7 +163,7 @@ section.
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 768 — UDP](rfc768.md) | 9/9 | 9 | 0 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 13/17 | 9 | 4 | 4 |
+| [RFC 791 — IPv4](rfc791.md) | 16/16 | 14 | 2 | 0 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 5/5 | 4 | 1 | 0 |
 
 ---

@@ -2,6 +2,7 @@
 
 #include "common/arch/arch.h"
 #include "common/bytes/util/ct.h"
+#include "common/platform/clock/clock.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 void zerortt_seen_init(zerortt_seen* s) {
@@ -22,12 +23,13 @@ static int zerortt_seen_find(const zerortt_seen* s, const u8 digest[32]) {
 
 /* Append digest at the ring's write cursor, growing count until CAP, then
  * wrapping and overwriting the oldest entry. */
-static void zerortt_seen_record(zerortt_seen* s, const u8 digest[32]) {
+static void zerortt_seen_record(zerortt_seen* s, const u8 digest[32], u64 now) {
   usz i;
   for (i = 0; i < 32; i++) {
     s->digest[s->next][i] = digest[i];
   }
-  s->next = (s->next + 1) % ZERORTT_SEEN_CAP;
+  s->at[s->next] = now;
+  s->next        = (s->next + 1) % ZERORTT_SEEN_CAP;
   if (s->count < ZERORTT_SEEN_CAP) {
     s->count++;
   }
@@ -42,21 +44,38 @@ static void zerortt_seen_lock(zerortt_seen* s) {
   }
 }
 
-/* Find, and record on a miss. 1 on first use. Caller holds s->lock. */
-static int zerortt_seen_find_or_record(zerortt_seen* s, const u8 digest[32]) {
+/* The ring is full and its oldest entry (next to be overwritten) could
+ * still be replayed -- evicting it would let that replay through. */
+static int zerortt_seen_full_live(const zerortt_seen* s, u64 now) {
+  return s->count == ZERORTT_SEEN_CAP &&
+         now < s->at[s->next] + ZERORTT_SEEN_LIVE_SECS;
+}
+
+/* Find, and record on a miss. 1 on first use; 0 on a replay or when there
+ * is no room to record (RFC 8446 8.2: refuse rather than forget). Caller
+ * holds s->lock. */
+static int zerortt_seen_find_or_record(
+    zerortt_seen* s, const u8 digest[32], u64 now) {
   if (zerortt_seen_find(s, digest) >= 0) {
     return 0;
   }
-  zerortt_seen_record(s, digest);
+  if (zerortt_seen_full_live(s, now)) {
+    return 0;
+  }
+  zerortt_seen_record(s, digest, now);
   return 1;
 }
 
 int zerortt_seen_check(zerortt_seen* s, wired_span identity) {
+  return zerortt_seen_check_at(s, identity, wired_clock_epoch_secs());
+}
+
+int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs) {
   u8  digest[32];
   int first;
   wired_sha256(identity.p, identity.n, digest);
   zerortt_seen_lock(s);
-  first = zerortt_seen_find_or_record(s, digest);
+  first = zerortt_seen_find_or_record(s, digest, now_secs);
   __atomic_store_n(&s->lock, 0, __ATOMIC_RELEASE);
   return first;
 }

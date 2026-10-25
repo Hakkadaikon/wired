@@ -71,10 +71,14 @@ KEYLOG=""
 # The runner health-checks the endpoint before starting the client.
 echo "wired interop server: testcase=$TESTCASE"
 
+# --alpn-client-order: RFC 7301 3.2 lets the server pick by its own
+# preference, but msquic offers [hq-interop, h3] and speaks hq-interop
+# whatever is selected, so the interop server keeps the client's order.
 # shellcheck disable=SC2086 # each optional flag is empty or "--flag value"
 exec /wired/wired_server \
   --port 443 \
   --root /www \
   --cert /certs/cert.pem \
   --key /certs/priv.key \
+  --alpn-client-order \
   $QLOG $KEYLOG $RETRY $MIGRATE

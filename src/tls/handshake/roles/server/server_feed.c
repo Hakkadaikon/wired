@@ -12,6 +12,8 @@ static void srv_seed_kuswitch(wired_server* s);
 static int  srv_complete(
     wired_server* s, const u8* msg, usz len, const u8* c_hs_traffic);
 static int srv_on_finished(wired_server* s, const u8* msg, usz len);
+static int srv_expects_finished(const wired_server* s, const u8* msg);
+static int srv_latch(wired_server* s, u8 alert);
 
 /* NSS Key Log Format (SSLKEYLOGFILE, draft-ietf-tls-keylogfile 3/4): one
  * "<LABEL> <client_random> <secret>" line per secret. */
@@ -137,16 +139,31 @@ static int srv_complete(
   return 1;
 }
 
-/* Process the reassembled client Finished: verify, then complete only on a
- * match. The forged path returns 0 having promoted nothing. */
+/* RFC 8446 4 / A.2: in Handshake space the server waits for exactly one
+ * message, the client Finished, and only once its own flight is out. */
+static int srv_expects_finished(const wired_server* s, const u8* msg) {
+  return s->phase == WIRED_SERVER_HS_FLIGHT_SENT && msg[0] == HS_FINISHED;
+}
+
+/* Record the alert the caller closes with; always 0 (nothing advanced). */
+static int srv_latch(wired_server* s, u8 alert) {
+  s->hs_error = err_crypto(alert);
+  return 0;
+}
+
+/* Process the reassembled next handshake message: a client Finished in
+ * FLIGHT_SENT is verified and completes only on a match; anything else is
+ * unexpected_message (RFC 8446 4), a Finished that does not verify is
+ * decrypt_error (4.4.4). Neither path promotes anything. */
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
   u8 c_traffic[TLS_HASH_MAX];
-  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) {
-    return 0;
+  if (!srv_expects_finished(s, msg)) {
+    return srv_latch(s, 10); /* unexpected_message */
   }
   if (!server_srv_verify_finished(s, msg, len, c_traffic)) {
-    return 0;
+    return srv_latch(s, 51); /* decrypt_error */
   }
+  s->hs_rx_used = HS_HEADER + server_srv_hash(s)->len;
   /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
    * verify above pinned to Hash.length bytes -- the reassembled prefix
    * may run past it (bytes another packet smeared into the stream), and
@@ -161,10 +178,10 @@ int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
   if (!crecv_collect(&s->crecv, crypto_payload, len)) {
     return 0;
   }
-  if (!crecv_complete_message(&s->crecv)) {
+  if (!crecv_complete_message_at(&s->crecv, s->hs_rx_used)) {
     return 0;
   }
-  crecv_message(&s->crecv, &msg, &mlen);
+  crecv_message_at(&s->crecv, s->hs_rx_used, &msg, &mlen);
   return srv_on_finished(s, msg, mlen);
 }
 

@@ -69,12 +69,13 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
 
 /* Build a golden eth+IPv4+UDP frame (10.7.0.2:5555 -> 10.7.0.1:4433,
  * payload = "hi") at umem offset addr, matching xdpframe_test.c's vector,
- * and hand it to the "kernel" as one RX descriptor. */
-static void sxt_kernel_rx_push(sxt_world* w, u64 addr) {
+ * with byte off XORed by x (x = 0: unchanged), and hand it to the "kernel"
+ * as one RX descriptor. */
+static void sxt_kernel_rx_push_x(sxt_world* w, u64 addr, usz off, u8 x) {
   static const u8 golden[60] = {
       0x02, 0x07, 0x00, 0x00, 0x00, 0x01, 0x02, 0x07, 0x00, 0x00, 0x00, 0x02,
       0x08, 0x00, 0x45, 0x00, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x40, 0x11,
-      0x00, 0x00, 10,   7,    0,    2,    10,   7,    0,    1,    0x15, 0xb3,
+      0x66, 0xbf, 10,   7,    0,    2,    10,   7,    0,    1,    0x15, 0xb3,
       0x11, 0x51, 0x00, 0x0a, 0x00, 0x00, 'h',  'i',  0,    0,    0,    0,
       0,    0,    0,    0,    0,    0,    0,    0,    0,    0};
   u32       idx;
@@ -82,12 +83,55 @@ static void sxt_kernel_rx_push(sxt_world* w, u64 addr) {
   for (usz i = 0; i < 60; i++) {
     w->umem[addr + i] = golden[i];
   }
+  w->umem[addr + off] ^= x;
   CHECK(xskring_prod_reserve(&w->krx, 1, &idx) == 1);
   d          = xskring_desc_at(&w->krx, idx);
   d->addr    = addr;
   d->len     = 60;
   d->options = 0;
   xskring_prod_submit(&w->krx, 1);
+}
+
+static void sxt_kernel_rx_push(sxt_world* w, u64 addr) {
+  sxt_kernel_rx_push_x(w, addr, 0, 0);
+}
+
+/* rx_burst over one pushed frame with byte off XORed by x: the number of
+ * datagrams delivered. */
+static i64 sxt_rx_mutated(wired_srvxdp* x, sxt_world* w, usz off, u8 v) {
+  u8       payload_buf[64];
+  mmsg_buf bufs[4];
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
+  sxt_kernel_rx_push_x(w, 0, off, v);
+  return wired_srvxdp_rx_burst(x, bufs, 4);
+}
+
+/* RFC 791 3.1 / RFC 768 on the shipping receive path: a frame with a bad
+ * IP header checksum or a wrong non-zero UDP checksum is dropped; the
+ * skip_udp_csum opt-out (veth CHECKSUM_PARTIAL) accepts the UDP case only. */
+static void test_srvxdp_rx_drops_bad_headers(void) {
+  static sxt_world w;
+  wired_srvxdp     x;
+  sxt_init(&w, &x);
+  CHECK(sxt_rx_mutated(&x, &w, ETH_HDR + 10, 0x01) == 0);
+  CHECK(sxt_rx_mutated(&x, &w, 40, 0x12) == 0);
+  x.skip_udp_csum = 1;
+  CHECK(sxt_rx_mutated(&x, &w, 40, 0x12) == 1);
+  CHECK(sxt_rx_mutated(&x, &w, ETH_HDR + 10, 0x01) == 0);
+}
+
+/* RFC 791 3.1: TTL 0 with a consistent header checksum (sum 0x9940 - 0x4000
+ * = 0x5940, checksum 0xa6bf) is dropped on the shipping receive path. */
+static void test_srvxdp_rx_drops_ttl_zero(void) {
+  static sxt_world w;
+  wired_srvxdp     x;
+  u8               payload_buf[64];
+  mmsg_buf         bufs[4];
+  sxt_init(&w, &x);
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
+  sxt_kernel_rx_push_x(&w, 0, ETH_HDR + 8, 0x40);
+  w.umem[ETH_HDR + 10] = 0xa6;
+  CHECK(wired_srvxdp_rx_burst(&x, bufs, 4) == 0);
 }
 
 /* 1: rx_burst parses one pushed frame into bufs[0] and returns its RX
@@ -162,7 +206,7 @@ static void test_srvxdp_send_basic(void) {
   CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 3)) == 1);
   CHECK(xskring_cons_peek(&w.ktx, 1, &idx) == 1);
   d = xskring_desc_at(&w.ktx, idx);
-  CHECK(xdpframe_parse(wired_span_of(w.umem + d->addr, d->len), &rx) == 1);
+  CHECK(xdpframe_parse(wired_span_of(w.umem + d->addr, d->len), 0, &rx) == 1);
   CHECK(rx.payload_len == 3 && rx.payload[0] == 0xc0 && rx.payload[2] == 0xee);
   /* the frame's source must be our identity, byte-exact on the wire:
    * 10.7.0.1:4433 (a reversed source IP passed every earlier check) */
@@ -241,10 +285,34 @@ static void test_srvxdp_print_stats_bad_fd(void) {
   wired_srvxdp_print_stats(-1);
 }
 
+/* RFC 9000 14 / RFC 791 3.2 on the shipping send path: every frame
+ * wired_srvxdp_send builds has DF set and a fresh Identification. */
+static void test_srvxdp_send_sets_df_unique_id(void) {
+  static sxt_world w;
+  wired_srvxdp     x;
+  sockaddr         dst;
+  const u8         pl[1] = {0x40};
+  u32              idx;
+  const u8*        ip[2];
+  sxt_init(&w, &x);
+  sxt_learn_peer(&w, &x, &dst);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  CHECK(xskring_cons_peek(&w.ktx, 2, &idx) == 2);
+  for (u32 i = 0; i < 2; i++) {
+    ip[i] = w.umem + xskring_desc_at(&w.ktx, idx + i)->addr + ETH_HDR;
+    CHECK(ip[i][6] == 0x40 && ip[i][7] == 0);
+  }
+  CHECK(be_get_be16(ip[0] + 4) != be_get_be16(ip[1] + 4));
+}
+
 void test_srvxdp(void) {
   test_srvxdp_rx_basic();
   test_srvxdp_rx_conservation();
+  test_srvxdp_rx_drops_bad_headers();
+  test_srvxdp_rx_drops_ttl_zero();
   test_srvxdp_send_basic();
+  test_srvxdp_send_sets_df_unique_id();
   test_srvxdp_completion_reap();
   test_srvxdp_txpool_exhaustion();
   test_srvxdp_mac_miss();

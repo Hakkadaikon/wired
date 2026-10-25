@@ -603,6 +603,28 @@ static void test_client_init_succeeds(void) {
   client_close(&c);
 }
 
+/* RFC 6125 6.4.2: client_init keeps the server name in A-label form -- the
+ * SNI it sends and the identity it matches -- and refuses an empty or
+ * unconvertible one, so the hostname check is never skipped. */
+static void test_client_init_host_alabel(void) {
+  static const char want[] = "xn--caf-dma.example";
+  client            c;
+  client_init_in    in = {
+      (const u8[4]){127, 0, 0, 1}, 4433,
+      wired_span_of((const u8*)"caf\xc3\xa9.example", 13)};
+  CHECK(client_init(&c, &in) == 1);
+  CHECK(c.host_len == sizeof want - 1);
+  for (usz i = 0; i < c.host_len && i < sizeof want; i++) {
+    CHECK(c.host[i] == (u8)want[i]);
+  }
+  CHECK(c.tls.sni_len == sizeof want - 1);
+  client_close(&c);
+  in.server_name = wired_span_of(0, 0);
+  CHECK(client_init(&c, &in) == 0);
+  in.server_name = wired_span_of((const u8*)"\xc0\xaf", 2);
+  CHECK(client_init(&c, &in) == 0);
+}
+
 /* RFC 8446 E.1.5/9.7: client_init draws my_priv via rng_bytes for every
  * call, so two independent connections never derive the same ECDHE
  * keypair -- distinct handshakes get unrelated shared secrets and hence
@@ -637,5 +659,6 @@ void test_client(void) {
   test_client_castore_confirmed();
   test_client_castore_wrong_root();
   test_client_init_succeeds();
+  test_client_init_host_alabel();
   test_client_init_fresh_keypair_per_connection();
 }

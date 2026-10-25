@@ -6,7 +6,7 @@
 
 /* 1: close on a fresh {-1,-1,-1} object is a safe no-op, twice. */
 static void test_srvxdpbpf_close_idempotent(void) {
-  wired_srvxdpbpf b = {-1, -1, -1};
+  wired_srvxdpbpf b = {-1, -1, -1, {{0, 0, 0}}};
   wired_srvxdpbpf_close(&b);
   CHECK(b.map_fd == -1 && b.prog_fd == -1 && b.link_fd == -1);
   wired_srvxdpbpf_close(&b);
@@ -16,7 +16,7 @@ static void test_srvxdpbpf_close_idempotent(void) {
 /* 2: register through a closed (map_fd == -1) object propagates the
  * kernel's error instead of pretending success. */
 static void test_srvxdpbpf_register_bad_map(void) {
-  wired_srvxdpbpf b = {-1, -1, -1};
+  wired_srvxdpbpf b = {-1, -1, -1, {{0, 0, 0}}};
   CHECK(wired_srvxdpbpf_register(&b, 0, 0) < 0);
 }
 

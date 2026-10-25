@@ -49,7 +49,7 @@ static u32 ticket_max_early_data(const wired_server* s) {
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   /* RFC 8446 4.2.10 alpn; ticket_nonce 0: one ticket per connection, so
    * it is unique across this connection's tickets (RFC 8446 4.6.1). */
-  ticket t = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0, s->sdrv.cipher_suite};
+  ticket t = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0, s->sdrv.cipher_suite, {0}};
   u8     key[KEYRING_KEY];
   t.issued_at = wired_clock_epoch_secs();
   if (!srvkeys_ready()) {
@@ -58,6 +58,7 @@ static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   if (!wired_server_resumption_secret(s, t.secret)) {
     return 0;
   }
+  bytes_memcpy(t.sni, s->sdrv.sni_digest, TICKET_SNI_LEN); /* RFC 6066 3 */
   keyring_key(srvkeys_ticket(), t.issued_at, 0, key);
   return tls_new_session_ticket_encode(
       msg, msg_cap, &t, key, ticket_max_early_data(s));

@@ -4,9 +4,11 @@ static int  env_ok(wired_span frame, ipv4addrs addrs);
 static void copy_n(u8* dst, const u8* src, usz n);
 static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low);
 
-/* Validate a received frame's IP+UDP envelope. Returns 1 if it checks out. */
+/* Validate a received frame's IP+UDP envelope. Returns 1 if it checks out.
+ * A frame shorter than the IPv4 header is refused before ipv4_check reads
+ * it and before frame.n - IPV4_HDR could underflow. */
 static int env_ok(wired_span frame, ipv4addrs addrs) {
-  if (frame.n == 0 || !ipv4_check(frame.p)) {
+  if (frame.n < IPV4_HDR || !ipv4_check(frame.p)) {
     return 0;
   }
   return udp4_check(wired_span_of(frame.p + 20, frame.n - 20), addrs);

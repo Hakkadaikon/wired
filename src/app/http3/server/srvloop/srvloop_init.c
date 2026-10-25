@@ -33,6 +33,7 @@ void srvloop_init_req(wired_srvloop* l) {
   l->req_ctx             = 0;
   l->got_request         = 0;
   l->peer_closed         = 0;
+  l->peer_close_code     = 0;
   l->resp_external       = 0;
   l->peer_reset_n        = 0;
   l->peer_reset_count    = 0;
