@@ -487,6 +487,7 @@
 #include "crypto/pki/encoding/x509/policytree.c"
 #include "crypto/pki/trust/castore/castore.c"
 #include "crypto/pki/trust/castore/chainverify.c"
+#include "crypto/pki/trust/castore/chainverify_ecdsa.c"
 #include "crypto/pki/trust/castore/pathvalidate.c"
 #include "crypto/pki/trust/castore/pathvalidate_path.c"
 #include "crypto/pki/trust/castore/pathvalidate_skipcerts.c"
