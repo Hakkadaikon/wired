@@ -17,15 +17,19 @@
 #include "crypto/symmetric/hash/hash/sha384.h"
 #include "crypto/symmetric/hash/hash/sha512.h"
 
-/* View issuer_cert's subjectPublicKey BIT STRING value and its algorithm OID.
- */
-static int issuer_key(
-    wired_span issuer_cert, wired_span* alg, wired_span* key) {
+/* The issuer's tbsCertificate (for its SPKI parameters), SPKI algorithm OID
+ * and subjectPublicKey BIT STRING value. */
+typedef struct {
+  wired_span tbs, alg, key;
+} chv_issuer;
+
+static int issuer_key(wired_span issuer_cert, chv_issuer* is) {
   x509 c;
   if (!x509_parse(issuer_cert, &c)) {
     return 0;
   }
-  return x509_public_key(c.tbs, alg, key);
+  is->tbs = c.tbs;
+  return x509_public_key(c.tbs, &is->alg, &is->key);
 }
 
 /* Digest dispatch: hash kind -> length and function. */
@@ -105,7 +109,7 @@ static void chv_hash_to_scalar32(const u8* hash, u8 h32[32]) {
   }
 }
 
-static int chv_verify_p256(wired_span key, wired_span sig, const u8* hash) {
+static int chv_verify_p256(wired_span key, wired_span sig, wired_span hash) {
   u8 x[32], y[32], r[32], s[32], h32[32];
   if (!x509_ec_pubkey(key, x, y)) {
     return 0;
@@ -113,7 +117,7 @@ static int chv_verify_p256(wired_span key, wired_span sig, const u8* hash) {
   if (!ecdsasig_decode(sig, r, s, 32)) {
     return 0;
   }
-  chv_hash_to_scalar32(hash, h32);
+  chv_hash_to_scalar32(hash.p, h32);
   return ecdsa_p256_verify(x, y, r, s, h32);
 }
 
@@ -155,16 +159,46 @@ static int chv_verify_p521(wired_span key, wired_span sig, wired_span hash) {
   return ecdsa_p521_verify(x, y, r, s, hash.p, hash.n);
 }
 
-/* The SPKI BIT STRING length selects the curve: 66 bytes P-256, 98 P-384,
- * 134 P-521. */
-static int chv_verify_ecdsa(wired_span key, wired_span sig, wired_span hash) {
-  if (key.n == 134) {
-    return chv_verify_p521(key, sig, hash);
+/* One supported curve: its namedCurve test, the shortest digest whose
+ * security strength meets the curve's (FIPS 186-4 6.1.1/6.4: SHA-256 for
+ * P-256, SHA-384 for P-384, SHA-512 for P-521; SHA-224 meets none), and its
+ * verifier. */
+typedef struct {
+  int (*is)(wired_span curve_oid);
+  usz min_hash;
+  int (*verify)(wired_span key, wired_span sig, wired_span hash);
+} chv_curve;
+
+static const chv_curve chv_curves[] = {
+    {x509_is_p256, 32, chv_verify_p256},
+    {x509_is_p384, 48, chv_verify_p384},
+    {x509_is_p521, 64, chv_verify_p521},
+};
+
+static int chv_curve_find(wired_span curve_oid, const chv_curve** cv) {
+  for (usz i = 0; i < sizeof(chv_curves) / sizeof(chv_curves[0]); i++) {
+    if (chv_curves[i].is(curve_oid)) {
+      *cv = &chv_curves[i];
+      return 1;
+    }
   }
-  if (key.n == 98) {
-    return chv_verify_p384(key, sig, hash);
+  return 0;
+}
+
+/* RFC 5480 2.1.1: the curve is the SPKI's namedCurve. Absent, implicitCurve
+ * (NULL) and specifiedCurve parameters fail x509_ec_curve. */
+static int chv_curve_of(const chv_issuer* is, const chv_curve** cv) {
+  wired_span curve;
+  return x509_ec_curve(is->tbs, &curve) && chv_curve_find(curve, cv);
+}
+
+static int chv_verify_ecdsa(
+    const chv_issuer* is, wired_span sig, wired_span hash) {
+  const chv_curve* cv;
+  if (!chv_curve_of(is, &cv)) {
+    return 0;
   }
-  return chv_verify_p256(key, sig, hash.p);
+  return hash.n >= cv->min_hash && cv->verify(is->key, sig, hash);
 }
 
 static int chv_verify_rsa(wired_span key, wired_span sig, wired_span hash) {
@@ -177,26 +211,25 @@ static int chv_verify_rsa(wired_span key, wired_span sig, wired_span hash) {
 }
 
 /* The issuer SPKI must be an EC key when the sigAlg says ECDSA. */
-static int verify_ecdsa_key(
-    const chv_signed* sg, wired_span alg, wired_span key) {
-  return x509_is_ec(alg) &&
-         chv_verify_ecdsa(key, sg->sig, wired_span_of(sg->hash, sg->hash_len));
+static int verify_ecdsa_key(const chv_signed* sg, const chv_issuer* is) {
+  return x509_is_ec(is->alg) &&
+         chv_verify_ecdsa(is, sg->sig, wired_span_of(sg->hash, sg->hash_len));
 }
 
 /* The issuer SPKI must be an RSA key when the sigAlg says PKCS#1. */
-static int verify_rsa_key(
-    const chv_signed* sg, wired_span alg, wired_span key) {
-  return x509_is_rsa(alg) &&
-         chv_verify_rsa(key, sg->sig, wired_span_of(sg->hash, sg->hash_len));
+static int verify_rsa_key(const chv_signed* sg, const chv_issuer* is) {
+  return x509_is_rsa(is->alg) &&
+         chv_verify_rsa(
+             is->key, sg->sig, wired_span_of(sg->hash, sg->hash_len));
 }
 
 /* RFC 5280 6.1.3. Dispatch on the sigAlg's key kind, cross-checked against
  * the issuer's actual SPKI key type. */
-static int verify_by_key(const chv_signed* sg, wired_span alg, wired_span key) {
+static int verify_by_key(const chv_signed* sg, const chv_issuer* is) {
   if (sg->sa.key_kind == X509_SIG_ECDSA) {
-    return verify_ecdsa_key(sg, alg, key);
+    return verify_ecdsa_key(sg, is);
   }
-  return verify_rsa_key(sg, alg, key);
+  return verify_rsa_key(sg, is);
 }
 
 /* RFC 5280 4.1.1.2. The inner tbsCertificate.signatureAlgorithm OID must equal
@@ -226,13 +259,13 @@ static int cert_signed(wired_span cert, chv_signed* sg) {
 }
 
 int castore_verify_signed_by(wired_span cert, wired_span issuer_cert) {
-  wired_span alg, key;
+  chv_issuer is;
   chv_signed sg;
-  if (!issuer_key(issuer_cert, &alg, &key)) {
+  if (!issuer_key(issuer_cert, &is)) {
     return 0;
   }
   if (!cert_signed(cert, &sg)) {
     return 0;
   }
-  return verify_by_key(&sg, alg, key);
+  return verify_by_key(&sg, &is);
 }

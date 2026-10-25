@@ -37,12 +37,14 @@ static int p5c_validate(const u8* leaf, usz n) {
   return castore_validate_chain(&s, certs, 1);
 }
 
-/* RFC 5280 6.1: leaves signed by the P-521 root with ecdsa-with-SHA512,
- * -SHA256 and -SHA384 (RFC 5758 3.2) all validate. */
+/* RFC 5280 6.1: a leaf signed by the P-521 root with ecdsa-with-SHA512
+ * validates. The P-521 root's -SHA256 and -SHA384 signatures (RFC 5758 3.2)
+ * are refused: FIPS 186-4 6.1.1/6.4 requires a hash at least as strong as
+ * the curve, i.e. SHA-512 for P-521. */
 static void test_p521_chains(void) {
   CHECK(p5c_validate(p521chain_leaf521_der, sizeof p521chain_leaf521_der));
-  CHECK(p5c_validate(p521chain_leaf256_der, sizeof p521chain_leaf256_der));
-  CHECK(p5c_validate(p521chain_leaf384_der, sizeof p521chain_leaf384_der));
+  CHECK(!p5c_validate(p521chain_leaf256_der, sizeof p521chain_leaf256_der));
+  CHECK(!p5c_validate(p521chain_leaf384_der, sizeof p521chain_leaf384_der));
 }
 
 /* A flipped bit in the root's signature over the leaf breaks the chain. */

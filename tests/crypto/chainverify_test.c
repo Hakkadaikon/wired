@@ -2,6 +2,7 @@
 
 #include "castore_golden.h"
 #include "chv_sha512_golden.h"
+#include "spkialg_golden.h"
 #include "test.h"
 
 static wired_span chv_leaf_span(void) {
@@ -66,6 +67,33 @@ static void test_ecdsa_sha512_self_signed(void) {
   CHECK(castore_verify_signed_by(c256, c256) == 1);
 }
 
+#define CHV_SELF(c)         \
+  castore_verify_signed_by( \
+      wired_span_of(c, sizeof(c)), wired_span_of(c, sizeof(c)))
+
+/* RFC 5480 2.1.1: the issuer key's curve comes from its namedCurve; absent,
+ * implicitCurve (NULL) and specifiedCurve parameters are refused, and so is
+ * a P-256 point labelled secp384r1. Each certificate is correctly
+ * self-signed. */
+static void test_chainverify_named_curve(void) {
+  CHECK(CHV_SELF(spkialg_p256_ok) == 1);
+  CHECK(CHV_SELF(spkialg_p256_noparams) == 0);
+  CHECK(CHV_SELF(spkialg_p256_implicit) == 0);
+  CHECK(CHV_SELF(spkialg_p256_specified) == 0);
+  CHECK(CHV_SELF(spkialg_p256_as_p384) == 0);
+}
+
+/* FIPS 186-4 6.1.1/6.4: the hash must be at least as strong as the curve
+ * (SHA-384+ for P-384, SHA-512 for P-521); SHA-224 is below every supported
+ * curve. */
+static void test_chainverify_hash_strength(void) {
+  CHECK(CHV_SELF(spkialg_p384_sha384) == 1);
+  CHECK(CHV_SELF(spkialg_p521_sha512) == 1);
+  CHECK(CHV_SELF(spkialg_p384_sha256) == 0);
+  CHECK(CHV_SELF(spkialg_p521_sha384) == 0);
+  CHECK(CHV_SELF(spkialg_p256_sha224) == 0);
+}
+
 void test_chainverify(void) {
   test_ecdsa_sha512_self_signed();
   test_leaf_signed_by_root();
@@ -73,4 +101,6 @@ void test_chainverify(void) {
   test_leaf_not_signed_by_leaf();
   test_tampered_tbs_fails();
   test_sigalg_mismatch_fails();
+  test_chainverify_named_curve();
+  test_chainverify_hash_strength();
 }

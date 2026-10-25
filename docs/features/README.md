@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2008/2261 requirements demonstrated (88.8%) — 1557 directly tested,
-451 indirect, 253 untested.**
+**Total: 2011/2261 requirements demonstrated (88.9%) — 1559 directly tested,
+452 indirect, 250 untested.**
 
 ## QUIC core
 
@@ -99,7 +99,7 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 8446 — TLS 1.3](rfc8446.md) | 118/131 | 89 | 29 | 13 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 54/57 | 41 | 13 | 3 |
-| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 19/21 | 16 | 3 | 2 |
+| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 18 | 3 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 19/19 | 15 | 4 | 0 |
 | [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/14 | 9 | 2 | 3 |
@@ -119,7 +119,7 @@ page: **[Interop Results](../interop.md)**.
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 28/28 | 26 | 2 | 0 |
 | [FIPS 197 — AES](fips197.md) | 15/15 | 12 | 3 | 0 |
 | [SP 800-38D — GCM](sp800-38d.md) | 23/23 | 15 | 8 | 0 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 23/25 | 20 | 3 | 2 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 24/25 | 20 | 4 | 1 |
 | [FIPS 180-4 — SHA-2](fips180-4.md) | 26/26 | 24 | 2 | 0 |
 | [FIPS 198-1 — HMAC](fips198-1.md) | 10/10 | 9 | 1 | 0 |
 
