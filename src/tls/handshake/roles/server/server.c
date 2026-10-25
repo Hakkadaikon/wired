@@ -5,8 +5,9 @@ static void srv_record_client_random(
     wired_server* s, const u8* ch_msg, usz ch_len);
 static int srv_accept_client_hello(
     wired_server* s, const u8* ch_msg, usz ch_len);
-static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len);
-static int srv_hrr_ready(const wired_server* s);
+static int  srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len);
+static int  srv_hrr_ready(const wired_server* s);
+static void srv_reset_counters(wired_server* s);
 
 /* RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4: server handshake orchestrator. */
 
@@ -33,6 +34,17 @@ usz server_srv_tr_add(wired_server* s, const u8* msg, usz len) {
   return s->tr_len;
 }
 
+/* Key Update counters and handshake-message order state (wired_server_init,
+ * split out to keep its own size flat). */
+static void srv_reset_counters(wired_server* s) {
+  s->ku_seeded     = 0;
+  s->ku_send_count = 0;
+  s->ku_auth_fail  = 0;
+  s->hs_error      = 0;
+  s->hs_rx_used    = 0;
+  s->ini_rx_end    = 0;
+}
+
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   sdrv_init_in din = {in->server_priv_x25519, in->server_pub_x25519,
                       in->cert_seed,          in->chain,
@@ -51,12 +63,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->tr_through_sh     = 0;
   s->tr_through_flight = 0;
   s->keylog_path       = 0;
-  s->ku_seeded         = 0;
-  s->ku_send_count     = 0;
-  s->ku_auth_fail      = 0;
-  s->hs_error          = 0;
-  s->hs_rx_used        = 0;
-  s->ini_rx_end        = 0;
+  srv_reset_counters(s);
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {

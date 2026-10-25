@@ -496,6 +496,8 @@
 #include "tls/handshake/core/sdrv/sdrv_ch.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_require.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_decode.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_shape.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_psk.c"
 #include "tls/handshake/core/sdrv/sdrv_early.c"
 #include "tls/handshake/core/sdrv/sdrv_hrr.c"
 #include "tls/handshake/core/sdrv/sdrv_p256.c"
