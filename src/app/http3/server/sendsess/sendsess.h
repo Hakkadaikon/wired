@@ -158,8 +158,9 @@ typedef struct {
  * @param s the session
  * @param largest_acked highest packet number the peer has acknowledged
  * @param now_ms current monotonic time
- * @param srtt_us smoothed RTT, microseconds (0 before any sample: time
- *   threshold is skipped, packet threshold alone still applies)
+ * @param loss_delay_us RFC 9002 6.1.2's time threshold, microseconds
+ *   (lossdrive_loss_delay; 0 before any RTT sample: the time threshold is
+ *   skipped, the packet threshold alone still applies)
  * @param lost receives the lost slices (0 to skip reporting)
  * @param cap slots at lost
  * @return slices newly declared lost. */
@@ -167,7 +168,7 @@ usz wired_sendsess_detect_lost(
     wired_sendsess*            s,
     u64                        largest_acked,
     u64                        now_ms,
-    u64                        srtt_us,
+    u64                        loss_delay_us,
     wired_sendsess_lost_slice* lost,
     usz                        cap);
 

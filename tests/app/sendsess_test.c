@@ -190,10 +190,10 @@ static void test_sendsess_time_threshold_declares_lost_alone(void) {
   wired_sendsess_ack(&s, 5, 5); /* largest_acked=5: pn 4 is only 1 below */
   {
     wired_sendsess_lost_slice lost[1] = {0};
-    /* srtt=1000us -> time threshold = 9/8*1000 = 1125us. at now_ms=2
-     * (2000us elapsed), well past it; packet threshold alone (5-4=1 < 3)
-     * would not have caught this. */
-    CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1000, lost, 1) == 1);
+    /* loss_delay=1125us (9/8 * srtt 1000us). at now_ms=2 (2000us
+     * elapsed), well past it; packet threshold alone (5-4=1 < 3) would not
+     * have caught this. */
+    CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1125, lost, 1) == 1);
     CHECK(lost[0].pn == 4);
   }
   CHECK(s.requeue_n == 1);
@@ -238,10 +238,9 @@ static void test_sendsess_packet_threshold_requires_later_ack(void) {
   CHECK(wired_sendsess_inflight(&s) == 1);
 }
 
-/* srtt_us == 0 (no RTT sample yet) must not spuriously satisfy the time
- * threshold -- loss_by_time's elapsed>=threshold could otherwise fire
- * on any elapsed time with threshold computed from a zero RTT. Same setup
- * as above but srtt_us=0: pn 4 must stay in flight. */
+/* loss_delay_us == 0 (no RTT sample yet) must not spuriously satisfy the
+ * time threshold -- elapsed >= 0 would otherwise fire on any elapsed time.
+ * Same setup as above but loss_delay_us=0: pn 4 must stay in flight. */
 static void test_sendsess_time_threshold_skipped_without_rtt_sample(void) {
   u8                bytes[20];
   wired_sendsess    s;

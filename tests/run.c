@@ -749,6 +749,7 @@
 #include "app/http3/server/srvrun/srvrun_raw.c"
 #include "app/http3/server/srvrun/srvrun_reannounce.c"
 #include "app/http3/server/srvrun/srvrun_reap.c"
+#include "app/http3/server/srvrun/srvrun_recover.c"
 #include "app/http3/server/srvrun/srvrun_rebind.c"
 #include "app/http3/server/srvrun/srvrun_reconfirm.c"
 #include "app/http3/server/srvrun/srvrun_recv.c"
@@ -1488,6 +1489,7 @@
 #include "app/srvrun_pin_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
+#include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "app/srvkeys_test.c"
@@ -2113,6 +2115,7 @@ int main(void) {
   test_srvrun_pin();
   test_srvrun_close();
   test_srvrun_raw();
+  test_srvrun_rec();
   test_sigmask();
   test_certreload();
   test_srvkeys();

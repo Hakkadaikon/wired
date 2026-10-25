@@ -144,4 +144,6 @@ extern srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
 extern int g_srvrun_bcast_n; /* registered entry count (atomic) */
 ;
 
+u64 srvrun_loss_delay_us(const srvrun_conn* c);
+
 #endif

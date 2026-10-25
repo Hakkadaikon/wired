@@ -70,7 +70,7 @@ usz srvrun_reap_losses(
     srvrun_loss_span*  span) {
   wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
   usz                       n = wired_sendsess_detect_lost(
-      sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
+      sess, c->largest_acked, now_ms, srvrun_loss_delay_us(c), lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
   for (usz i = 0; i < n; i++) {
