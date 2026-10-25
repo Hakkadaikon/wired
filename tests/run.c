@@ -371,6 +371,7 @@
 #include "transport/conn/cid/pathsel/pathsel.c"
 #include "transport/conn/cid/peercid/peercid.c"
 #include "transport/conn/cid/peercid/peercid_live.c"
+#include "transport/conn/cid/peercid/peercid_reset.c"
 #include "transport/conn/cid/path/prefaddr.c"
 #include "transport/conn/cid/pmtu/pmtu.c"
 #include "transport/packet/protect/protect/protect.c"

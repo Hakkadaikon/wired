@@ -1,6 +1,7 @@
 #include "transport/conn/cid/pathsel/pathsel.h"
 
 #include "common/bytes/util/ct.h"
+#include "transport/conn/cid/path/antiamp.h"
 
 static int pathsel_peer_eq(const sockaddr* a, const sockaddr* b) {
   return a->port_be == b->port_be && ct_diffn(a->addr, b->addr, 16) == 0;
@@ -47,6 +48,15 @@ static pathsel_slot* pathsel_take(pathsel_slot* s, const pathsel_key* k) {
   return s;
 }
 
+/* A slot just taken for the fresh path starts from its datagram. */
+static pathsel_slot* pathsel_seed_rx(pathsel* p, pathsel_slot* s) {
+  if (s && pathsel_key_eq(&s->key, &p->fresh)) {
+    s->rx_bytes = p->fresh_n;
+    p->fresh_n  = 0;
+  }
+  return s;
+}
+
 pathsel_slot* pathsel_claim(
     pathsel* p, const pathsel_key* k, const pathsel_key* keep) {
   pathsel_slot* s = pathsel_find(p, k);
@@ -54,17 +64,39 @@ pathsel_slot* pathsel_claim(
     return s;
   }
   s = pathsel_first_free(p);
-  return pathsel_take(s ? s : pathsel_victim(p, keep), k);
+  return pathsel_seed_rx(p, pathsel_take(s ? s : pathsel_victim(p, keep), k));
 }
 
 pathsel_slot* pathsel_claim_free(pathsel* p, const pathsel_key* k) {
-  return pathsel_take(pathsel_first_free(p), k);
+  return pathsel_seed_rx(p, pathsel_take(pathsel_first_free(p), k));
+}
+
+void pathsel_note_rx(pathsel* p, const pathsel_key* k, u64 n) {
+  pathsel_slot* s = pathsel_find(p, k);
+  p->fresh        = *k;
+  p->fresh_n      = s ? 0 : n;
+  if (s) {
+    s->rx_bytes += n;
+  }
+}
+
+void pathsel_note_tx(pathsel* p, const pathsel_key* k, u64 n) {
+  pathsel_slot* s = pathsel_find(p, k);
+  if (s) {
+    s->tx_bytes += n;
+  }
+}
+
+u64 pathsel_budget(pathsel* p, const pathsel_key* k) {
+  pathsel_slot* s = pathsel_find(p, k);
+  return s ? antiamp_budget(s->rx_bytes, s->tx_bytes) : PATHSEL_NO_LIMIT;
 }
 
 /* Free s and report its path. */
-static int pathsel_release(pathsel_slot* s, pathsel_key* out) {
-  *out      = s->key;
-  s->in_use = 0;
+static int pathsel_release(pathsel* p, pathsel_slot* s, pathsel_key* out) {
+  *out             = s->key;
+  s->in_use        = 0;
+  p->matched_small = s->small;
   return 1;
 }
 
@@ -81,7 +113,7 @@ static int pathsel_answers(const pathsel_slot* s, const u8 resp[PATH_DATA]) {
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out) {
   for (usz i = 0; i < PATHSEL_SLOTS; i++) {
     if (pathsel_answers(&p->slot[i], resp)) {
-      return pathsel_release(&p->slot[i], out);
+      return pathsel_release(p, &p->slot[i], out);
     }
   }
   return 0;
@@ -94,7 +126,7 @@ static int pathsel_expired(const pathsel_slot* s, u64 now_ms, u64 timeout_ms) {
 int pathsel_expire(pathsel* p, u64 now_ms, u64 timeout_ms, pathsel_key* out) {
   for (usz i = 0; i < PATHSEL_SLOTS; i++) {
     if (pathsel_expired(&p->slot[i], now_ms, timeout_ms)) {
-      return pathsel_release(&p->slot[i], out);
+      return pathsel_release(p, &p->slot[i], out);
     }
   }
   return 0;
