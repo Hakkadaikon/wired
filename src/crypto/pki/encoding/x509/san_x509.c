@@ -93,8 +93,8 @@ int x509_subject_cn(wired_span tbs, wired_span* val) {
   return name_cn_value(subject, val);
 }
 
-/* RFC 6125 6.4.4: the CN-ID fallback -- only reached when the certificate has
- * no dNSName SAN entry at all. */
+/* RFC 6125 6.4.4: the CN-ID fallback -- only reached when the certificate
+ * presents no DNS-ID, URI-ID or SRV-ID. */
 static int cn_id_matches(wired_span tbs, wired_span host) {
   wired_span cn;
   if (!x509_subject_cn(tbs, &cn)) {
@@ -119,15 +119,15 @@ static int ipv4_san_matches(
 }
 
 /* RFC 5280 4.2.1.6: dNSName-based matching, with the RFC 6125 6.4.4 CN-ID
- * fallback when the certificate has no dNSName SAN entry at all. */
+ * fallback only when the SAN presents no DNS-ID, URI-ID or SRV-ID. */
 static int dns_san_matches(wired_span tbs, wired_span hostname) {
   wired_span gn;
-  int        found_dnsname = 0;
-  int        match         = 0;
+  int        found_id = 0;
+  int        match    = 0;
   if (san_names(tbs, &gn)) {
-    match = x509_names_match(gn, hostname, &found_dnsname);
+    match = x509_names_match(gn, hostname, &found_id);
   }
-  return found_dnsname ? match : cn_id_matches(tbs, hostname);
+  return found_id ? match : cn_id_matches(tbs, hostname);
 }
 
 int x509_san_matches(wired_span tbs, wired_span hostname) {

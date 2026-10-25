@@ -10,7 +10,9 @@ static int dns_eq(wired_span a, wired_span b);
 static usz first_dot(wired_span name);
 static usz wildcard_star(wired_span label);
 static int label_wildcard_match(wired_span label, wired_span hlabel, usz star);
+static int is_alabel(wired_span label);
 static int is_wildcard(wired_span entry);
+static int is_srv_othername(u8 tag, wired_span e);
 static int wildcard_applicable(wired_span entry, usz hdot, usz host_n);
 static int wildcard_match(wired_span entry, wired_span host);
 
@@ -57,11 +59,22 @@ static int label_wildcard_match(wired_span label, wired_span hlabel, usz star) {
              suffix, wired_span_of(hlabel.p + hlabel.n - suffix.n, suffix.n));
 }
 
+/* RFC 5890 2.3.2.1: an A-label starts with the ACE prefix "xn--" (any
+ * case). */
+static int is_alabel(wired_span label) {
+  static const u8 ace[] = {'x', 'n', '-', '-'};
+  return label.n >= sizeof(ace) && dns_eq(
+                                       wired_span_of(label.p, sizeof(ace)),
+                                       wired_span_of(ace, sizeof(ace)));
+}
+
 /* RFC 6125 6.4.3. entry's left-most label contains a '*' (rule 2's fragment
- * wildcard covers the plain "*." case too, star at offset 0). */
+ * wildcard covers the plain "*." case too, star at offset 0) and is not an
+ * A-label (rule 3: no wildcard embedded within an A-label). */
 static int is_wildcard(wired_span entry) {
-  usz ldot = first_dot(entry);
-  return ldot < entry.n && wildcard_star(wired_span_of(entry.p, ldot)) < ldot;
+  usz        ldot  = first_dot(entry);
+  wired_span label = wired_span_of(entry.p, ldot);
+  return ldot < entry.n && wildcard_star(label) < ldot && !is_alabel(label);
 }
 
 /* entry carries a fragment wildcard and host actually has a label to match
@@ -92,4 +105,25 @@ static int wildcard_match(wired_span entry, wired_span host) {
 /* One GeneralName dNSName entry matches the hostname. */
 int x509_entry_matches(wired_span e, wired_span host) {
   return dns_eq(e, host) || wildcard_match(e, host);
+}
+
+/* RFC 4985 2: id-on-dnsSRV = 1.3.6.1.5.5.7.8.7. */
+static const u8 san_oid_dns_srv[] = {0x2b, 0x06, 0x01, 0x05,
+                                     0x05, 0x07, 0x08, 0x07};
+
+/* An otherName whose type-id is id-on-dnsSRV (an SRV-ID). */
+static int is_srv_othername(u8 tag, wired_span e) {
+  derseq     c;
+  wired_span id;
+  derseq_init(&c, e);
+  return tag == SAN_OTHERNAME_TAG && derseq_next_tagged(&c, DER_OID, &id) &&
+         der_oid_equal(
+             id, wired_span_of(san_oid_dns_srv, sizeof(san_oid_dns_srv)));
+}
+
+/* RFC 6125 6.4.4: the entry is a DNS-ID, URI-ID or SRV-ID, any of which
+ * rules out the CN-ID fallback. */
+int san_presented_id(u8 tag, wired_span e) {
+  return tag == SAN_DNSNAME_TAG || tag == SAN_URI_TAG ||
+         is_srv_othername(tag, e);
 }

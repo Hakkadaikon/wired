@@ -2,6 +2,7 @@
 
 #include "chain_golden.h"
 #include "crypto/pki/encoding/x509/x509.h"
+#include "san_id_golden.h"
 #include "test.h"
 
 /* Parse a golden cert and match host (a string literal span) against it. */
@@ -242,6 +243,39 @@ static void test_san_ipv4_cn_id_fallback_no_match(void) {
           sizeof(host) - 1) == 0);
 }
 
+/* RFC 6125 6.4.4: a URI-ID or SRV-ID among the presented identifiers rules
+ * out the CN-ID fallback even with no DNS-ID, so CN=host.example no longer
+ * matches; an rfc822Name (not a server identifier type) leaves the fallback
+ * in place. */
+static void test_san_uri_srv_suppress_cn_fallback(void) {
+  const u8 host[] = "host.example";
+  CHECK(
+      san_match(
+          sanid_iduri_der, sizeof(sanid_iduri_der), host, sizeof(host) - 1) ==
+      0);
+  CHECK(
+      san_match(
+          sanid_idsrv_der, sizeof(sanid_idsrv_der), host, sizeof(host) - 1) ==
+      0);
+  CHECK(
+      san_match(
+          sanid_idmail_der, sizeof(sanid_idmail_der), host, sizeof(host) - 1) ==
+      1);
+}
+
+/* RFC 6125 6.4.3 rule 3: a '*' inside an IDN A-label (xn--ab*, in either
+ * case of the xn-- prefix) is not treated as a wildcard. */
+static void test_san_alabel_wildcard_no_match(void) {
+  const u8 h1[] = "xn--abc.example.net";
+  const u8 h2[] = "xn--cde.example.net";
+  CHECK(
+      san_match(sanid_idxn_der, sizeof(sanid_idxn_der), h1, sizeof(h1) - 1) ==
+      0);
+  CHECK(
+      san_match(sanid_idxn_der, sizeof(sanid_idxn_der), h2, sizeof(h2) - 1) ==
+      0);
+}
+
 void test_san(void) {
   test_exact_match();
   test_wildcard_match();
@@ -261,4 +295,6 @@ void test_san(void) {
   test_san_ipv6_hostname_mismatch();
   test_san_ipv4_cn_id_fallback();
   test_san_ipv4_cn_id_fallback_no_match();
+  test_san_uri_srv_suppress_cn_fallback();
+  test_san_alabel_wildcard_no_match();
 }
