@@ -200,6 +200,10 @@ int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len) {
 }
 
 const sdrv_ch_gate SDRV_CH_GATES[] = {
+    sdrv_ch_require_decodable,
+    sdrv_ch_require_null_compression,
+    sdrv_ch_require_ext_shapes,
+    sdrv_ch_require_psk_shape,
     sdrv_ch_require_tp_ext,
     sdrv_ch_reject_dup_tp,
     sdrv_ch_check_version_information,

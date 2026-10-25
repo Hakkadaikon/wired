@@ -15,6 +15,7 @@
 #include "crypto/pki/cert/p256cert/p256cert.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+#include "tls/ext/legacy/legacy_fields.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/salpn/salpn_raw.h"
@@ -57,6 +58,10 @@ typedef struct {
  * included, if the ClientHello carries one (the body is empty in this
  * direction -- presence alone is the signal). */
 #define SDRV_EARLY_DATA_EXT_TYPE 0x002a
+
+/* RFC 8446 4.2.3: signature_algorithms_cert (0x0032), the same
+ * SignatureSchemeList shape as signature_algorithms. */
+#define SDRV_SIG_ALGS_CERT_EXT_TYPE 0x0032
 
 /* mmap(2) flags for a region fork(2) children keep sharing with the parent
  * (Linux <sys/mman.h>). */
@@ -112,7 +117,12 @@ int  sdrv_find_version_information(
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_decodable(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_null_compression(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_ext_shapes(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_psk_shape(sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_ch_require_ks_with_groups(sdrv* s, const u8* ch_msg, usz ch_len);
 
-extern const sdrv_ch_gate SDRV_CH_GATES[9];
+extern const sdrv_ch_gate SDRV_CH_GATES[13];
 
 #endif

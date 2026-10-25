@@ -2654,6 +2654,167 @@ static void test_sdrv_no_early_data_after_hrr(void) {
   CHECK(sdrv_early_keys(&s, &got) == 0);
 }
 
+/* --- ClientHello validation (RFC 8446 4.1.2 / 4.2 / 6 / 9.2) ----------- */
+
+/* A fresh server and a well-formed ClientHello from sdrv_test_client_hello;
+ * returns its length. */
+static usz sdrv_test_ch_setup(sdrv* s, u8* ch, usz cap) {
+  u8  cli_pub[32], srv_random[32];
+  usz n;
+  sdrv_dgram_test_setup(s, cli_pub, srv_random);
+  n = sdrv_test_client_hello(ch, cap, cli_pub, srv_random);
+  CHECK(n != 0);
+  return n;
+}
+
+/* Append one raw extension TLV to ch (ch_len bytes), patching the
+ * extensions-length and handshake-length fields. Returns the new length. */
+static usz sdrv_test_append_ext(u8* ch, usz ch_len, const u8* ext, usz n) {
+  usz exts_len =
+      (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
+  for (usz i = 0; i < n; i++) {
+    ch[ch_len + i] = ext[i];
+  }
+  be_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + n));
+  hs_finish(ch, ch_len + n);
+  return ch_len + n;
+}
+
+/* The CRYPTO_ERROR a refused ClientHello recorded (0 if it was accepted). */
+static u64 sdrv_test_ch_error(sdrv* s, const u8* ch, usz n) {
+  if (sdrv_recv_client_hello(s, ch, n)) {
+    return 0;
+  }
+  return sdrv_last_error(s);
+}
+
+/* RFC 8446 4.1.2 (#73): legacy_compression_methods other than the single
+ * null method is illegal_parameter. Its one method byte is at ch offset 44
+ * (header 4 + version/random 34 + empty session_id 1 + cipher_suites 2+2 +
+ * methods length 1). */
+static void test_sdrv_ch_compression_not_null_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  CHECK(ch[43] == 1 && ch[44] == 0);
+  ch[44] = 1;
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(47));
+}
+
+/* RFC 8446 6.2 (#74): structural breakage is decode_error -- a byte past
+ * the extensions block, an odd cipher_suites length, a 33-byte
+ * legacy_session_id, an extension whose length overruns the block. */
+static void test_sdrv_ch_malformed_is_decode_error(void) {
+  static const usz offs[] = {40, 38, SDRV_TEST_GROUPS_TYPE_OFF + 3};
+  static const u8  vals[] = {3, 33, 0xff};
+  sdrv             s;
+  u8               ch[600], junk = 0;
+  usz              n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n                  = sdrv_test_append_ext(ch, n, &junk, 1);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  for (usz i = 0; i < sizeof offs / sizeof *offs; i++) {
+    n           = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    ch[offs[i]] = vals[i];
+    CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  }
+}
+
+/* RFC 8446 6.2: an extension body that does not decode -- a
+ * supported_groups list length past its body, a KeyShareEntry whose key
+ * runs past client_shares -- is decode_error, not "absent" (which used to
+ * arm a HelloRetryRequest). */
+static void test_sdrv_ch_bad_ext_body_is_decode_error(void) {
+  static const usz offs[] = {
+      SDRV_TEST_GROUPS_TYPE_OFF + 5, SDRV_TEST_KEYSHARE_TYPE_OFF + 9};
+  sdrv s;
+  u8   ch[600];
+  for (usz i = 0; i < sizeof offs / sizeof *offs; i++) {
+    usz n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+    ch[offs[i]]++;
+    CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+  }
+}
+
+/* RFC 8446 4: a handshake message other than ClientHello where one is
+ * expected is unexpected_message. */
+static void test_sdrv_ch_wrong_type_is_unexpected_message(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  ch[0]  = HS_SERVER_HELLO;
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(10));
+}
+
+/* RFC 8446 4.2.11 (#74, 8446-113): a pre_shared_key with no binder aborts
+ * with decode_error instead of falling back to a full handshake. */
+static void test_sdrv_psk_no_binder_aborts(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              off, n;
+  tlsext_psk_in    in;
+  sdrv_psk_fixture_init(&f);
+  in = (tlsext_psk_in){
+      wired_span_of(f.sealed, sizeof(f.sealed)), 0, wired_span_of(0, 0)};
+  n = sdrv_test_append_psk(ch2, sizeof ch2, f.ch, f.ch_len, &in, &off);
+  CHECK(n != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_test_ch_error(&s, ch2, n) == err_crypto(50));
+}
+
+/* RFC 8446 4.2.11: a well-formed offer of two identities is not malformed;
+ * this server only resumes a single-identity offer, so it falls back to a
+ * full handshake (8446-053), never aborts. */
+static void test_sdrv_psk_two_identities_falls_back(void) {
+  u8   psk[4 + 2 + 2 * 10 + 2 + 2 * 33] = {0x00, 0x29, 0x00, 0x5a, 0x00, 0x14};
+  u8   modes[8], ch[700];
+  usz  modes_len, p = 6, n;
+  sdrv s;
+  for (usz i = 0; i < 2; i++, p += 10) {
+    psk[p + 1] = 4; /* identity<4>, age 0 */
+  }
+  psk[p + 1] = 2 * 33;
+  for (usz i = 0, q = p + 2; i < 2; i++, q += 33) {
+    psk[q] = 32;
+  }
+  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  CHECK(tlsext_psk_modes(modes, sizeof modes, &modes_len));
+  n = sdrv_test_append_ext(ch, n, modes, modes_len);
+  n = sdrv_test_append_ext(ch, n, psk, sizeof psk);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+  CHECK(s.psk_accepted == 0);
+}
+
+/* RFC 8446 4.2.3 / 9.2 (8446-124): signature_algorithms_cert is recognized
+ * -- a well-formed list is accepted (the single chain is sent regardless,
+ * as 4.4.2.2 allows), a malformed one is decode_error. */
+static void test_sdrv_ch_sig_algs_cert(void) {
+  static const u8 good[] = {0x00, 0x32, 0x00, 0x04, 0x00, 0x02, 0x04, 0x03};
+  static const u8 bad[]  = {0x00, 0x32, 0x00, 0x03, 0x00, 0x01, 0x04};
+  sdrv            s;
+  u8              ch[700];
+  usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n                 = sdrv_test_append_ext(ch, n, good, sizeof good);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  n = sdrv_test_append_ext(ch, n, bad, sizeof bad);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
+}
+
+/* RFC 8446 4.2.1 (8446-107): unknown versions listed alongside 0x0304
+ * (a GREASE value first) are ignored and TLS 1.3 is selected. The original
+ * single-version extension is blotted to an unknown type. */
+static void test_sdrv_ch_versions_unknown_ignored(void) {
+  static const u8 vers[] = {0x00, 0x2b, 0x00, 0x05, 0x04,
+                            0x7a, 0x7a, 0x03, 0x04};
+  sdrv            s;
+  u8              ch[700];
+  usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_VERSIONS_TYPE_OFF);
+  n = sdrv_test_append_ext(ch, n, vers, sizeof vers);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2712,6 +2873,14 @@ void test_sdrv(void) {
   test_sdrv_psk_binder_after_hrr_accepted();
   test_sdrv_psk_binder_after_hrr_needs_transcript();
   test_sdrv_no_early_data_after_hrr();
+  test_sdrv_ch_compression_not_null_rejected();
+  test_sdrv_ch_malformed_is_decode_error();
+  test_sdrv_ch_bad_ext_body_is_decode_error();
+  test_sdrv_ch_wrong_type_is_unexpected_message();
+  test_sdrv_psk_no_binder_aborts();
+  test_sdrv_psk_two_identities_falls_back();
+  test_sdrv_ch_sig_algs_cert();
+  test_sdrv_ch_versions_unknown_ignored();
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
