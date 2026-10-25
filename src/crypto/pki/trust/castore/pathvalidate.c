@@ -170,6 +170,22 @@ int castore_cert_spki_ku_ok(wired_span cert, int is_ca) {
   return ed_family_ok(tbs, oid, is_ca);
 }
 
+/* RFC 5280 4.2.1.12 / RFC 8446 4.4.2.2: the leaf's key signs the TLS
+ * CertificateVerify, so a keyUsage it carries must assert digitalSignature
+ * -- a purpose consistent with both keyUsage and serverAuth. An
+ * id-X25519/X448 key cannot sign; its keyAgreement rule is
+ * castore_cert_spki_ku_ok's. */
+int castore_leaf_ku_signs(wired_span leaf) {
+  wired_span tbs, oid;
+  if (!cert_spki_oid(leaf, &tbs, &oid)) {
+    return 0;
+  }
+  if (is_x25519_family(oid)) {
+    return 1;
+  }
+  return x509_digital_signature_ok(tbs);
+}
+
 /* RFC 5280 6.1.4/RFC 8410 5. parent is a CA permitted to sign certificates
  * with an admissible SPKI-specific keyUsage. */
 static int parent_may_issue(wired_span parent) {

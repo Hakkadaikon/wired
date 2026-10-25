@@ -10,6 +10,12 @@
  * keyCertSign, or malformed. */
 int x509_can_sign_certs(wired_span tbs);
 
+/* RFC 5280 4.2.1.3 / RFC 8446 4.4.2.2. 1 if the cert's key may verify a
+ * signature such as TLS CertificateVerify: keyUsage absent (unconstrained),
+ * or present with digitalSignature set. 0 if keyUsage is present without
+ * digitalSignature, or malformed. */
+int x509_digital_signature_ok(wired_span tbs);
+
 /* RFC 8410 5. 1 if a cert whose SubjectPublicKeyInfo is id-X25519/id-X448
  * may be used for key agreement: keyUsage absent (unconstrained), or
  * present with keyAgreement set. 0 if keyUsage is present without

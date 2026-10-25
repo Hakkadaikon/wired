@@ -102,6 +102,19 @@ static void test_self_issued_case_insensitive(void) {
   CHECK(castore_cert_self_issued(PKP_SPAN(pkp_cleaf_der)) == 0);
 }
 
+/* RFC 5280 4.2.1.12 + RFC 8446 4.4.2.2: the leaf is used to sign
+ * CertificateVerify, so a keyUsage without digitalSignature (kuenc:
+ * keyEncipherment only) is rejected even with serverAuth EKU; kuds
+ * (digitalSignature + keyEncipherment) is accepted. */
+static void test_leaf_ku_without_digital_signature_rejects(void) {
+  castore    s;
+  wired_span bad[1] = {PKP_SPAN(pkp_kuenc_der)};
+  wired_span ok[1]  = {PKP_SPAN(pkp_kuds_der)};
+  pkp_store(&s, PKP_SPAN(pkp_root_der));
+  CHECK(castore_validate_chain(&s, bad, 1, PKP_NOW_IN) == 0);
+  CHECK(castore_validate_chain(&s, ok, 1, PKP_NOW_IN) == 1);
+}
+
 void test_pathvalidate_path(void) {
   test_path_validity_in_window_ok();
   test_path_intermediate_expired_rejects();
@@ -111,4 +124,5 @@ void test_pathvalidate_path(void) {
   test_nc_self_issued_intermediate_skipped();
   test_path_issuer_case_differs_ok();
   test_self_issued_case_insensitive();
+  test_leaf_ku_without_digital_signature_rejects();
 }

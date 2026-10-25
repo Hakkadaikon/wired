@@ -62,6 +62,14 @@ int x509_can_sign_certs(wired_span tbs) {
   return ku_bit_set(bits, KEYUSAGE_BIT_KEYCERTSIGN);
 }
 
+int x509_digital_signature_ok(wired_span tbs) {
+  wired_span bits;
+  if (!ku_locate(tbs, &bits)) {
+    return 1;
+  }
+  return ku_bit_set(bits, KEYUSAGE_BIT_DIGITALSIGNATURE);
+}
+
 /* 1 if bit `a` or bit `b` is set. */
 static int ku_bit_set_2(wired_span v, usz a, usz b) {
   return ku_bit_set(v, a) || ku_bit_set(v, b);

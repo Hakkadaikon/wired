@@ -24,6 +24,7 @@ int castore_cert_issuer(wired_span cert, wired_span* dn);
 int castore_cert_self_issued(wired_span cert);
 int castore_all_extensions_ok(const wired_span* certs, usz n_certs);
 int castore_cert_spki_ku_ok(wired_span cert, int is_ca);
+int castore_leaf_ku_signs(wired_span leaf);
 int castore_link_ok(wired_span child, wired_span parent);
 int castore_find_ca_anchor(const castore* s, wired_span iss, wired_span* root);
 int castore_tail_anchor(const castore* s, wired_span tail, wired_span* root);

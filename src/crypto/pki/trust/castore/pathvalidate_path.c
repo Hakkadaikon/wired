@@ -81,9 +81,13 @@ static int certs_hygienic(const wired_span* certs, usz n_certs) {
   return no_duplicate_certs(certs, n_certs);
 }
 
-/* The leaf's purpose (EKU + RFC 8410 SPKI-specific keyUsage). */
+/* The leaf's purpose: EKU serverAuth, a keyUsage that lets it sign
+ * (RFC 5280 4.2.1.12), and the RFC 8410 SPKI-specific keyUsage. */
 static int leaf_purpose_ok(wired_span leaf) {
   if (!castore_leaf_allows_server_auth(leaf)) {
+    return 0;
+  }
+  if (!castore_leaf_ku_signs(leaf)) {
     return 0;
   }
   return castore_cert_spki_ku_ok(leaf, 0);
