@@ -1,5 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+static int srvrun_blocked_due(
+    const srvrun_conn* c, const srvrun_blocked_mark* m, u64 ceiling, u64 now);
 static int srvrun_pump_one_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r);
 
@@ -25,8 +27,22 @@ int srvrun_has_requeued(const wired_sendsess* sess) {
   return sess->requeue_n != 0;
 }
 
+/* RFC 9000 4.1: "SHOULD send a STREAM_DATA_BLOCKED or DATA_BLOCKED frame
+ * ... periodically" while blocked with no ack-eliciting packets in flight:
+ * due for a ceiling not yet signaled, and again once a PTO passed since the
+ * last one with nothing in flight -- a lost one is otherwise the peer's last
+ * word on it. */
+static int srvrun_blocked_due(
+    const srvrun_conn* c, const srvrun_blocked_mark* m, u64 ceiling, u64 now) {
+  if (m->sent_at != ceiling) {
+    return 1;
+  }
+  return c->acct_inflight == 0 &&
+         now - m->sent_ms >= srvrun_pto_deadline_ms(c, 0);
+}
+
 /* RFC 9000 4.1/19.12: tell the peer THIS connection ran out of send credit,
- * once per distinct ceiling (data_blocked_sent_at != c->conn_credit -- a
+ * once per distinct ceiling (data_blocked.sent_at != c->conn_credit -- a
  * later MAX_DATA raise makes a stale sent-at send again if blocked a second
  * time). Without this, a peer whose own autotuning lags a fast multi-stream
  * transfer never learns the SERVER is blocked and has no signal to raise
@@ -37,15 +53,37 @@ int srvrun_has_requeued(const wired_sendsess* sess) {
  * same scope DATA_BLOCKED itself carries (STREAM_DATA_BLOCKED would be the
  * per-stream counterpart, not needed here since srvloop already raises
  * stream credit independently via MAX_STREAM_DATA). */
-void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
+void srvrun_notify_conn_blocked(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_conn_credit_has_room(c)) {
     return;
   }
-  if (c->data_blocked_sent_at == c->conn_credit) {
+  if (!srvrun_blocked_due(c, &c->data_blocked, c->conn_credit, ctx->now_ms)) {
     return;
   }
-  srvrun_send_data_blocked(cfg, c, c->conn_credit);
-  c->data_blocked_sent_at = c->conn_credit;
+  srvrun_send_data_blocked(ctx->cfg, c, c->conn_credit);
+  c->data_blocked.sent_at = c->conn_credit;
+  c->data_blocked.sent_ms = ctx->now_ms;
+}
+
+/* RFC 9000 4.1 / 19.13: the per-stream counterpart -- sess blocked on its
+ * own stream credit sends STREAM_DATA_BLOCKED, on the same once-per-
+ * ceiling-then-every-PTO schedule (m). */
+void srvrun_notify_stream_blocked(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    u64                    stream_id,
+    const wired_sendsess*  sess,
+    u64                    credit,
+    srvrun_blocked_mark*   m) {
+  if (!srvrun_stream_credit_blocked(c, sess, credit)) {
+    return;
+  }
+  if (!srvrun_blocked_due(c, m, credit, ctx->now_ms)) {
+    return;
+  }
+  srvrun_send_stream_data_blocked(ctx->cfg, c, stream_id, credit);
+  m->sent_at = credit;
+  m->sent_ms = ctx->now_ms;
 }
 
 /* RFC 9000 4.6/19.14: srvrun_notify_conn_blocked's uni-stream mirror. A
@@ -94,7 +132,9 @@ static int srvrun_pump_one_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
   if (!srvrun_pump_gate_ok(c, &r->sess, r->stream_credit)) {
-    srvrun_notify_conn_blocked(ctx->cfg, c);
+    srvrun_notify_conn_blocked(ctx, c);
+    srvrun_notify_stream_blocked(
+        ctx, c, r->stream_id, &r->sess, r->stream_credit, &r->sdb);
     return 0;
   }
   if (!wired_sendsess_take(&r->sess, &sl)) {

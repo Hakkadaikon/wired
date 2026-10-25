@@ -10,6 +10,9 @@ static void srvloop_init_violation(wired_srvloop* l) {
   l->qpack_stream_violation         = 0;
   l->wt_signal_mid_stream_violation = 0;
   l->flow_control_violation         = 0;
+  l->transport_error                = 0;
+  l->local_opened[0]                = 0;
+  l->local_opened[1]                = 0;
   l->peer_stream_limit[0]           = 0;
   l->peer_stream_limit[1]           = 0;
   l->peer_wt_initial[0]             = 0;
@@ -53,6 +56,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   /* also zeroes wt_uni_closed/uni_typed */
   srvloop_wt_uni_streams_reset(l);
   srvloop_pending_priority_reset(l);
+  srvloop_rxacct_reset(l);
   return 1;
 }
 

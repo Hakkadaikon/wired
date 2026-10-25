@@ -17,6 +17,9 @@ typedef struct {
   u8  buf[CRECV_BUF];    /**< reassembled CRYPTO stream bytes */
   u8  filled[CRECV_BUF]; /**< 1 where a byte has been written */
   usz received_to;       /**< contiguous bytes available from offset 0 */
+  /** RFC 9000 7.5: 1 once a CRYPTO frame reached past buf -- the buffer is
+   * never expanded, so the owner closes with CRYPTO_BUFFER_EXCEEDED. */
+  int overflow;
 } crecv;
 
 /** Start with an empty reassembly buffer.
