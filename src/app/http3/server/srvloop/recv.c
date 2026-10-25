@@ -1,7 +1,6 @@
 #include "app/http3/server/srvloop/recv.h"
 
 #include "app/http3/server/srvloop/keys.h"
-#include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/keys/kuswitch/derive.h"
@@ -12,20 +11,11 @@
 #include "transport/packet/header/packet/ptype.h"
 #include "transport/version/version/version.h"
 
-/* RFC 8999 5.1: the Version field of a long header. A short header carries
- * none -- 1-RTT is always in the connection's negotiated version. */
-static u32 recv_pkt_version(const wired_server* s, wired_mspan dg) {
-  if (dg.n < 5 || !packet_is_long(dg.p[0])) {
-    return sdrv_wire_version(&s->sdrv);
-  }
-  return be_get_be32(dg.p + 1);
-}
-
 /* RFC 9001 5.1: open a received Initial under the keys derived from the
  * client's original DCID and the packet's own version (RFC 9369 3.3.1 /
  * 4.1: after a compatible switch to v2 the client's later Initials arrive
  * v2-keyed, but ones it sent before seeing the v2 flight are still v1 --
- * recv_version_ok decided this version may open here); the raw frame
+ * srvloop_recv_version_ok decided this version may open here); the raw frame
  * payload is returned (the dispatcher walks it). The established loop does
  * not track an Initial-space largest (the space is done after the client's
  * ack of the server flight), so 0 stands in as the recovery baseline. */
@@ -35,7 +25,7 @@ static int recv_initial(
     wired_srvloop_recv_out*      out) {
   return initpkt_open_ver(
       wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
-      recv_pkt_version(s, in->dgram), in->dgram, 0, &out->payload);
+      srvloop_recv_pkt_version(s, in->dgram), in->dgram, 0, &out->payload);
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
@@ -236,33 +226,6 @@ static int recv_zerortt(
   }
 }
 
-/* The client's original version: its first Initial's (RFC 9368 2.2). */
-static u32 recv_orig_version(const wired_server* s) {
-  return s->sdrv.client_version ? s->sdrv.client_version : VERSION_1;
-}
-
-/* RFC 9369 4.1: the original version still carries 0-RTT (a client never
- * sends 0-RTT in the negotiated version) and Initials until a Handshake
- * packet -- necessarily in the negotiated version -- has been processed. */
-static int recv_orig_type_ok(const wired_server* s, int type) {
-  return type == PT_0RTT || (type == PT_INITIAL && !s->hs_rx_seen);
-}
-
-static int recv_orig_ok(const wired_server* s, u32 ver, int type) {
-  return ver == recv_orig_version(s) && recv_orig_type_ok(s, type);
-}
-
-/* RFC 9369 4.1: Initial, Handshake and 1-RTT packets in the negotiated
- * version; 0-RTT never is (recv_orig_ok's alone). */
-static int recv_wire_ok(const wired_server* s, u32 ver, int type) {
-  return type != PT_0RTT && ver == sdrv_wire_version(&s->sdrv);
-}
-
-/* RFC 9369 4.1: "An endpoint MUST drop packets using any other version." */
-static int recv_version_ok(const wired_server* s, u32 ver, int type) {
-  return recv_orig_ok(s, ver, type) || recv_wire_ok(s, ver, type);
-}
-
 /* Version already admitted; picks the 0-RTT path or the normal
  * Initial/Handshake/1-RTT level dispatch, reading type bits under the
  * packet's own version (RFC 9369 3.2). */
@@ -290,9 +253,9 @@ static int recv_dispatch(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  u32 ver  = recv_pkt_version(s, in->dgram);
+  u32 ver  = srvloop_recv_pkt_version(s, in->dgram);
   int type = packet_long_type(in->dgram.p[0], ver);
-  if (!recv_version_ok(s, ver, type)) {
+  if (!srvloop_recv_version_ok(s, ver, type)) {
     return 0;
   }
   return recv_by_type(s, in, out, ver, type);
