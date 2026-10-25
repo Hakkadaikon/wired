@@ -1759,6 +1759,8 @@ int main(void) {
   test_tokentype();
   test_tpblob();
   test_tpcheck();
+  test_tparam_range_ok();
+  test_tparam_client_tp_ok();
   test_tpext();
   test_v2keys();
   test_v2types();
