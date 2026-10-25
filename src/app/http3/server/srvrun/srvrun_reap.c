@@ -1,6 +1,8 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms);
+static void srvrun_cc_sample(
+    srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms);
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms);
 static void srvrun_loss_span_add(
@@ -16,19 +18,32 @@ static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
   }
 }
 
-static void srvrun_cc_range(
+/* The RTT, ECN and congestion inputs of the packets [lo, hi] acked. */
+static void srvrun_cc_sample(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
-  usz bytes  = wired_sendsess_peek_ack(sess, lo, hi, &newest);
-  u64 hits   = srvrun_range_hits(sess, lo, hi);
-  srvrun_ecn_note_acked(c, hits, newest);
+  usz bytes;
+  if (lo > hi) {
+    return;
+  }
+  bytes = wired_sendsess_peek_ack(sess, lo, hi, &newest);
+  srvrun_ecn_note_acked(c, srvrun_range_hits(sess, lo, hi), newest);
   if (bytes) {
     srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
     cc_on_ack(&c->cc, srvrun_css_acked(c, bytes), newest, now_ms);
-  } else if (!hits) {
+  }
+}
+
+/* RFC 9000 9.4: packets sent before the congestion controller and RTT
+ * estimator were reset for a new path (below cc_from_pn) are acknowledged
+ * but feed neither. */
+static void srvrun_cc_range(
+    srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
+  if (!srvrun_range_hits(sess, lo, hi)) {
     return;
   }
+  srvrun_cc_sample(c, sess, u64_max(lo, c->cc_from_pn), hi, now_ms);
   wired_sendsess_ack(sess, lo, hi);
 }
 

@@ -354,13 +354,15 @@ typedef struct {
 /* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
  * connection keeps until ACKed. Sized so every stream this connection can
  * track -- request slots, WT bidi/uni receive slots, WT send slots, both
- * CONNECT streams -- can be aborted at once, plus the GOAWAY: 93 entries,
- * about 6.7 KB per connection. An entry lives about one RTT (until ACKed);
+ * CONNECT streams -- can be aborted at once, plus the GOAWAY, the owed
+ * RETIRE_CONNECTION_IDs (PEERCID_RETIRE) and the two NEW_CONNECTION_IDs
+ * replacing retired IDs (RFC 9000 13.3): 99 entries, about 7.1 KB per
+ * connection. An entry lives about one RTT (until ACKed);
  * one that exhausts SRVRUN_PTO_MAX resends tears the connection down. */
 #define SRVRUN_RST_RETX                                       \
   (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
    WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +  \
-   SRVRUN_MAX_WT_SESSIONS + 1)
+   SRVRUN_MAX_WT_SESSIONS + 1 + PEERCID_RETIRE + 2)
 
 /* One control packet awaiting its ACK: the exact frames sent (at most 42
  * bytes -- RESET_STREAM + STOP_SENDING is 1 + three 8-byte varints, then
@@ -447,6 +449,17 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9000 9.4: the first packet number sent after the congestion
+   * controller and RTT estimator were reset for a new path; ACKs and
+   * losses of packets below it feed neither (0: never reset). */
+  u64 cc_from_pn;
+  /** RFC 9000 5.1.1: the sequence numbers of the two connection IDs this
+   * server has issued and not seen retired -- scid (the handshake's, 0)
+   * and the spare (l.spare_cid, 1) -- and the next one to issue (0 until
+   * the spare is issued, meaning 1). */
+  u64 scid_seq;
+  u64 spare_seq;
+  u64 cid_next_seq;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
    * advanced (s->ku.generation), used to floor how long the retained old
    * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless

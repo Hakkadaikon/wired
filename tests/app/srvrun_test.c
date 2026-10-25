@@ -3324,18 +3324,24 @@ static void sr_send_path_response(
 }
 
 /* A PATH_RESPONSE matching the outstanding challenge validates the
- * path: it becomes the last validated path and its slot frees. */
+ * path: it becomes the last validated path and its challenge is done. The
+ * rebind datagram was small, so that challenge went out unexpanded and a
+ * fresh full-size one follows (RFC 9000 8.2.1). */
 static void test_srvrun_path_response_matching_validates(void) {
-  struct lp_fix f;
-  srvrun_conn   c;
-  conntable     table[WIRED_CONNTABLE_CAP];
-  sockaddr      new_peer;
-  srvrun_state  st = {table, &c};
+  struct lp_fix       f;
+  srvrun_conn         c;
+  conntable           table[WIRED_CONNTABLE_CAP];
+  sockaddr            new_peer;
+  srvrun_state        st = {table, &c};
+  u8                  old[PATH_DATA];
+  const pathsel_slot* s;
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   CHECK(!sr_valid(&c, -1, &new_peer));
-  sr_send_path_response(&f, &st, &new_peer, sr_chal(&c, -1, &new_peer)->data);
+  bytes_memcpy(old, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
+  sr_send_path_response(&f, &st, &new_peer, old);
   CHECK(sr_valid(&c, -1, &new_peer));
-  CHECK(sr_chal(&c, -1, &new_peer) == 0);
+  s = sr_chal(&c, -1, &new_peer);
+  CHECK(s == 0 || (ct_diff8(s->data, old) != 0 && s->small == 0));
 }
 
 /* A PATH_RESPONSE differing in even 1 of the 8 bytes from the
@@ -4326,6 +4332,9 @@ static void sr_net_close(sr_net* n) {
 /* What one client socket received since the last drain. */
 typedef struct {
   int n, chal, resp, retire;
+  int resp_np;    /* datagrams carrying a PATH_RESPONSE and a PING */
+  int ncid;       /* NEW_CONNECTION_ID frames */
+  usz chal_len;   /* size of the last datagram carrying a PATH_CHALLENGE */
   int first_chal; /* PATH_CHALLENGEs in the first datagram received */
   u8  dcid0;
   u16 port_be;
@@ -4336,6 +4345,9 @@ static void sr_rx_note(sr_rx* r, const u8* pl, usz pll) {
   r->chal += sr_count_frames(pl, pll, FK_PATH_CHALLENGE);
   r->resp += sr_count_frames(pl, pll, FK_PATH_RESPONSE);
   r->retire += sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID);
+  r->ncid += sr_count_frames(pl, pll, FK_NEW_CONNECTION_ID);
+  r->resp_np += sr_count_frames(pl, pll, FK_PATH_RESPONSE) &&
+                sr_count_frames(pl, pll, FK_PING);
 }
 
 static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
@@ -4355,6 +4367,9 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     r.len     = (usz)n;
     if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) != 1) {
       continue;
+    }
+    if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE)) {
+      r.chal_len = (usz)n;
     }
     sr_rx_note(&r, pl, pll);
     if (r.n == 1) {
@@ -4594,6 +4609,434 @@ static void test_srvrun_path_wire_retire_unused(void) {
   }
   CHECK(sr_drain(&f, n.bfd).retire == 1);
   sr_net_close(&n);
+}
+
+/* RFC 9000 9.3.3: a PATH_CHALLENGE on the active path is answered with a
+ * non-probing packet -- the PATH_RESPONSE rides with a PING. */
+static void test_srvrun_path_wire_active_answer_non_probing(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0}; /* the send path itself */
+    sr_rx      r;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+    r = sr_drain(&f, n.afd);
+    CHECK(r.resp == 1 && r.resp_np == 1);
+  }
+  sr_net_close(&n);
+}
+
+/* 1 if c keeps a packet whose frames lead with frame type t for resending
+ * until ACKed (RFC 9000 13.3). */
+static int sr_kept(const srvrun_conn* c, u8 t) {
+  int hit = 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    hit |= c->rst[i].pln && c->rst[i].pl[0] == t;
+  }
+  return hit;
+}
+
+/* RFC 9000 5.1.2/13.3: a RETIRE_CONNECTION_ID is retransmitted until
+ * acknowledged -- the packet carrying it is kept for resending. */
+static void test_srvrun_path_retire_kept(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 1, 0xc1));
+  CHECK(sr_kept(&c, 0x19) == 1);
+}
+
+/* A confirmed slot 0 routed by its handshake ID (seq 0) and its spare
+ * (seq 1), issued the production way (srvrun_issue_spare_cid). */
+static void sr_spare_setup(
+    srvrun_conn* c, struct lp_fix* f, conntable* table, const srvrun_cfg* cfg) {
+  sockaddr old_peer, new_peer;
+  sr_path_setup(c, f, table, &old_peer, &new_peer);
+  srvrun_issue_spare_cid(cfg, c);
+  CHECK(c->l.spare_cid_len == cfg->id->scid_len);
+  CHECK(
+      conntable_insert(
+          table, WIRED_CONNTABLE_CAP, f->s.sdrv.iscid, f->s.sdrv.iscid_len) ==
+      0);
+  CHECK(
+      conntable_set_alt2(
+          table, WIRED_CONNTABLE_CAP, 0, c->l.spare_cid, c->l.spare_cid_len) ==
+      1);
+}
+
+/* RFC 9000 5.1.1/19.16: the peer retiring the spare ID gets a fresh one
+ * (sequence 2) in a NEW_CONNECTION_ID kept until ACKed; the new ID routes
+ * to the connection and the retired one no longer does. */
+static void test_srvrun_retired_cid_replenished(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, &c};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], old[6];
+  u8               retire[2] = {0x19, 1};
+  sr_net           n;
+  sr_rx            r;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sr_spare_setup(&c, &f, table, &cfg);
+  }
+  bytes_memcpy(old, c.l.spare_cid, 6);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(retire, sizeof retire));
+  }
+  r = sr_drain(&f, n.afd);
+  CHECK(r.ncid == 1);
+  CHECK(sr_kept(&c, 0x18) == 1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, old, 6) == -1);
+  CHECK(ct_diffn(c.l.spare_cid, old, 6) != 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, c.l.spare_cid, 6) == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 19.16: retiring a sequence number never issued is a
+ * PROTOCOL_VIOLATION. */
+static void test_srvrun_retire_unissued_closes(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, &c};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               retire[2] = {0x19, 2};
+  sockaddr         old_peer  = {0};
+  int              is_app;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sr_spare_setup(&c, &f, table, &cfg);
+  }
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  {
+    sr_arrival a = {&old_peer, -1, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(retire, sizeof retire));
+  }
+  CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 5.1.2: with every resend entry busy, an owed
+ * RETIRE_CONNECTION_ID stays queued (bounded, PEERCID_RETIRE) instead of
+ * going out untracked; a freed entry lets it out, kept. */
+static void test_srvrun_retire_bound(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    c.rst[i].pln   = 1;
+    c.rst[i].pl[0] = 0x01;
+  }
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 1, 0xc1));
+  CHECK(c.pcid.retire_n == 1);
+  CHECK(sr_kept(&c, 0x19) == 0);
+  c.rst[0].pln = 0;
+  sr_tick(&st, 1);
+  CHECK(c.pcid.retire_n == 0);
+  CHECK(sr_kept(&c, 0x19) == 1);
+}
+
+/* RFC 9000 8.2.1/8.2.2/8: a probe from a new path in a small datagram
+ * allows 3x its size there -- below 1200 bytes, so the challenge and the
+ * response go out unexpanded, within the budget, and the challenge is
+ * marked small. */
+static void test_srvrun_path_amp_unpadded_probe(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival    a = {&n.b, n.sfd, 0, 0, 0};
+    sr_rx         r;
+    pathsel_slot* s;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+    r = sr_drain(&f, n.bfd);
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(r.resp == 1 && r.chal == 1);
+    CHECK(r.len < 1200);
+    CHECK(s != 0 && s->small == 1);
+    CHECK(s->tx_bytes <= 3 * s->rx_bytes);
+  }
+  sr_net_close(&n);
+}
+
+/* RFC 9000 9.3/8: after a migration to an unvalidated path, the send path
+ * itself is capped at 3x what arrived from it: a datagram past the budget
+ * is not sent; nor is a CONNECTION_CLOSE (10.2.1). */
+static void test_srvrun_path_amp_limits_send_path(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  static u8     big[1200];
+  srvrun_cfg    cfg = {0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.b, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+  }
+  (void)sr_drain(&f, n.bfd);
+  CHECK(sr_peer_is(&c, &n.b));
+  cfg.fd  = n.sfd;
+  cfg.env = &g_srvrun_env;
+  srvrun_send(&cfg, &c, wired_span_of(big, sizeof big), "big\n");
+  CHECK(sr_drain(&f, n.bfd).n == 0);
+  {
+    pathsel_slot* s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0);
+    s->tx_bytes = 3 * s->rx_bytes;
+  }
+  srvrun_send_transport_close(&cfg, &c, 0, wired_span_of(0, 0));
+  CHECK(sr_drain(&f, n.bfd).n == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 8.2.1: a migration validated by a small (budget-limited)
+ * challenge is challenged again at full size once validated. */
+static void test_srvrun_path_small_revalidated(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival    a = {&n.b, n.sfd, 0, 0, 0};
+    u8            fr[16];
+    usz           fl;
+    sr_rx         r;
+    pathsel_slot* s;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0 && s->small == 1);
+    (void)sr_drain(&f, n.bfd);
+    fl = path_encode(fr, sizeof fr, FRAME_PATH_RESPONSE, s->data);
+    sr_serve_at(&f, &st, &a, 6, wired_span_of(fr, fl));
+    CHECK(sr_valid(&c, n.sfd, &n.b));
+    r = sr_drain(&f, n.bfd);
+    CHECK(r.chal == 1 && r.chal_len >= 1200);
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0 && s->small == 0);
+  }
+  sr_net_close(&n);
+}
+
+/* Migrate c to p (fd -1) and answer the challenge: p validates. */
+static void sr_migrate_validated(
+    struct lp_fix* f, srvrun_state* st, srvrun_conn* c, const sockaddr* p) {
+  pathsel_slot* s;
+  sr_np(f, st, p, 5);
+  s = sr_chal(c, -1, p);
+  CHECK(s != 0);
+  sr_resp(f, st, p, 6, s->data);
+  CHECK(sr_valid(c, -1, p));
+}
+
+/* RFC 9000 9.4: validating a new peer address resets the congestion
+ * controller and RTT estimator to initial values and starts the
+ * old-path cut-off at the next packet number. */
+static void test_srvrun_path_migration_resets_cc(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer, other;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  wired_udp_addr(&other, 4433, (const u8[4]){127, 0, 0, 2});
+  c.cc.cwnd = 999999;
+  c.srtt_ms = 77;
+  sr_migrate_validated(&f, &st, &c, &other);
+  CHECK(c.cc.cwnd == CC_INIT_WINDOW);
+  CHECK(c.srtt_ms == 0 && c.rtt.have_sample == 0);
+  CHECK(c.cc_from_pn != 0 && c.cc_from_pn <= c.l.tx_pn);
+}
+
+/* RFC 9000 9.4: a change of the peer's port alone keeps them. */
+static void test_srvrun_path_port_only_keeps_cc(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  c.cc.cwnd = 999999;
+  c.srtt_ms = 77;
+  sr_migrate_validated(&f, &st, &c, &new_peer);
+  CHECK(c.cc.cwnd == 999999 && c.srtt_ms == 77);
+  CHECK(c.cc_from_pn == 0);
+}
+
+/* RFC 9000 9.4: an ACK of packets sent before the reset (on the old path)
+ * clears them but feeds neither the RTT estimator nor the window. */
+static void test_srvrun_path_old_path_ack_ignored(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           pn0;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  pn0                 = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             cwnd;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4);
+    rtt_init(&c.rtt);
+    c.cc_from_pn  = c.l.tx_pn; /* the reset came after these went out */
+    cwnd          = c.cc.cwnd;
+    c.l.ack_lo[0] = pn0;
+    c.l.ack_hi[0] = pn0 + 3;
+    c.l.ack_n     = 1;
+    ctx.now_ms    = 50;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+    CHECK(c.rtt.have_sample == 0);
+    CHECK(c.cc.cwnd == cwnd);
+  }
+}
+
+/* A datagram that looks like a short header and ends in tok. */
+static void sr_reset_dg(u8* dg, usz n, const u8* dcid, const u8 tok[16]) {
+  for (usz i = 0; i < n; i++) {
+    dg[i] = (u8)(0x77 + 13 * i);
+  }
+  dg[0] = 0x41;
+  bytes_memcpy(dg + 1, dcid, 8);
+  bytes_memcpy(dg + n - 16, tok, 16);
+}
+
+/* A confirmed slot 0 whose send path uses the peer's seq-1 ID (seq 0
+ * retired by Retire Prior To 1), which carries reset token tok. */
+static void sr_reset_setup(
+    srvrun_conn*   c,
+    struct lp_fix* f,
+    conntable*     table,
+    srvrun_state*  st,
+    const u8       tok[16]) {
+  sockaddr   old_peer, new_peer;
+  ncid_frame nf = sr_cid(1, 1, 0xc1);
+  bytes_memcpy(nf.token, tok, 16);
+  sr_path_setup(c, f, table, &old_peer, &new_peer);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, c->scid, 8) == 0);
+  sr_ncid(f, st, &old_peer, 4, nf);
+  CHECK(c->l.cli_scid[0] == 0xc1);
+}
+
+/* RFC 9000 10.3.1: a datagram no connection claims whose last 16 bytes are
+ * the token of a peer ID in use puts that connection into draining: the
+ * slot is dropped and nothing more is sent to it. */
+static void test_srvrun_peer_stateless_reset_unroutable(void) {
+  struct lp_fix    f;
+  srvrun_conn*     cp = &g_srvrun_state.conns[0]; /* routing walks 64 */
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, g_srvrun_state.conns};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], tok[16], dg[40];
+  u8               other[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+  sockaddr         peer     = {0};
+  bytes_memset(tok, 0x5e, sizeof tok);
+  sr_reset_setup(cp, &f, table, &st, tok);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_reset_dg(dg, sizeof dg, other, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    dg[sizeof dg - 1] ^= 1; /* another token: not a reset */
+    srvrun_serve(&ctx, wired_mspan_of(dg, sizeof dg));
+    CHECK(cp->up == 1);
+    dg[sizeof dg - 1] ^= 1;
+    srvrun_serve(&ctx, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(cp->up == 0);
+}
+
+/* RFC 9000 10.3.1: the same check on a datagram that routes to the slot but
+ * cannot be decrypted. */
+static void test_srvrun_peer_stateless_reset_undecryptable(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  u8            tok[16], dg[40];
+  sockaddr      peer = {0};
+  bytes_memset(tok, 0x6f, sizeof tok);
+  sr_reset_setup(&c, &f, table, &st, tok);
+  sr_reset_dg(dg, sizeof dg, f.s.sdrv.iscid, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve_slot(&ctx, 0, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(c.up == 0);
+}
+
+/* RFC 9000 10.3.1: a token of an ID the server never sent on is not
+ * checked (seq 1 held, seq 0 still in use). */
+static void test_srvrun_peer_stateless_reset_unused_id_ignored(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  sockaddr      old_peer, new_peer, peer = {0};
+  u8            tok[16], dg[40];
+  ncid_frame    nf = sr_cid(1, 0, 0xc1);
+  bytes_memset(tok, 0x7a, sizeof tok);
+  bytes_memcpy(nf.token, tok, 16);
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, nf);
+  sr_reset_dg(dg, sizeof dg, f.s.sdrv.iscid, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve_slot(&ctx, 0, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(c.up == 1);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -25208,6 +25651,20 @@ void test_srvrun(void) {
   test_srvrun_path_wire_probe_challenged_first();
   test_srvrun_path_wire_retire();
   test_srvrun_path_wire_retire_unused();
+  test_srvrun_path_wire_active_answer_non_probing();
+  test_srvrun_path_retire_kept();
+  test_srvrun_retired_cid_replenished();
+  test_srvrun_retire_unissued_closes();
+  test_srvrun_retire_bound();
+  test_srvrun_path_amp_unpadded_probe();
+  test_srvrun_path_amp_limits_send_path();
+  test_srvrun_path_small_revalidated();
+  test_srvrun_path_migration_resets_cc();
+  test_srvrun_path_port_only_keeps_cc();
+  test_srvrun_path_old_path_ack_ignored();
+  test_srvrun_peer_stateless_reset_unroutable();
+  test_srvrun_peer_stateless_reset_undecryptable();
+  test_srvrun_peer_stateless_reset_unused_id_ignored();
 
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();

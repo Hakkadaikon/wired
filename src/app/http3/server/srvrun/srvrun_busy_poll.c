@@ -45,10 +45,11 @@ void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * it names a freshly closed connection (RFC 9000 10.2.2: its peer's own
  * CONNECTION_CLOSE retransmit or final ack is expected traffic during the
  * closing period, and a reset here read to the peer as a transport error
- * on a cleanly closed connection). */
+ * on a cleanly closed connection), or is itself the peer's Stateless Reset
+ * of a live one (10.3.1). */
 static void srvrun_refuse_unroutable(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
-  if (srvrun_ghost_match(ctx, dcid)) {
+  if (srvrun_ghost_match(ctx, dcid) || srvrun_peer_reset_any(ctx, dg)) {
     return;
   }
   srvrun_send_new_conn_refusal(ctx, dcid, dg);
