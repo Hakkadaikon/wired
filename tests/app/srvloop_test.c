@@ -4982,6 +4982,26 @@ static usz lp_seal_ping(struct lp_fix* f, u64 pn, u8* pkt, usz cap) {
   return ob.len;
 }
 
+/* RFC 9000 10.3: every packet the server sends is at least 22 bytes longer
+ * than the connection ID length it asks the peer to use (its own iscid),
+ * PADDING added as needed -- a lone PING to a client with a zero-length or
+ * short ID included -- and the padded payload still opens to the PING. */
+static void test_srvloop_send_pads_short_packet(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  n = lp_seal_ping(&f, 20, pkt, sizeof pkt); /* 6-byte client ID */
+  CHECK(n >= 22u + f.s.sdrv.iscid_len);
+  CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1);
+  CHECK(pll > 0 && pl[pll - 1] == 0x01); /* PADDING first, PING kept */
+  f.l.cli_scid_len = 0;
+  n                = lp_seal_ping(&f, 21, pkt, sizeof pkt);
+  CHECK(n >= 22u + f.s.sdrv.iscid_len);
+}
+
 /* RFC 9001 6.6: one packet BELOW the AES-GCM confidentiality limit is still
  * sealed under the current generation -- no update, the counter just
  * reaches the limit. */
@@ -6024,6 +6044,7 @@ void test_srvloop(void) {
   test_srvloop_send_keys_follow_peer_update_before_ack();
   test_srvloop_recv_failed_decrypt_does_not_advance_generation();
   test_srvloop_send_below_aead_limit_keeps_generation();
+  test_srvloop_send_pads_short_packet();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();

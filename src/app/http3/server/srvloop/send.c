@@ -3,6 +3,7 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/aeadlimit.h"
@@ -125,6 +126,33 @@ static int ku_limit_gate(wired_server* s) {
   return 1;
 }
 
+/* RFC 9000 10.3: the shortest payload that makes the packet 22 bytes longer
+ * than the connection ID the server asks the peer to use (its own iscid),
+ * so it cannot be told apart from a Stateless Reset. The short header
+ * always carries a 4-byte packet number. */
+#define SEND_PAD_MAX 40
+
+static usz send_onertt_min_payload(
+    const wired_server* s, const wired_srvloop_send_in* in) {
+  usz fixed = 5u + in->cli_scid.n + aead_tag_len(s->sdrv.cipher_suite);
+  usz want  = 22u + s->sdrv.iscid_len;
+  return want > fixed ? want - fixed : 0;
+}
+
+/* pl, or a copy into buf led by enough PADDING frames (0x00) to reach min:
+ * leading, so a trailing STREAM frame without a Length still ends the
+ * packet. */
+static wired_span send_onertt_padded(wired_span pl, usz min, u8* buf) {
+  usz pad;
+  if (pl.n >= min) {
+    return pl;
+  }
+  pad = min - pl.n;
+  bytes_memset(buf, 0, pad);
+  bytes_memcpy(buf + pad, pl.p, pl.n);
+  return wired_span_of(buf, min);
+}
+
 /* RFC 9001 5 / 5.1 / 6: 1-RTT payload sealed with the own-direction
  * SERVER_AP, its Key Phase bit set to this endpoint's current send-side
  * generation (hspkt_onertt_build's byte0 has no way to infer the
@@ -135,8 +163,11 @@ static int send_onertt_seal(
   wired_srvloop_dirkeys dk;
   aes128                hp;
   protect_keys          pk;
+  u8                    buf[SEND_PAD_MAX];
   hspkt_onertt_desc     d = {
-      in->cli_scid, in->pn, in->payload, send_onertt_phase(s)};
+      in->cli_scid, in->pn,
+      send_onertt_padded(in->payload, send_onertt_min_payload(s, in), buf),
+      send_onertt_phase(s)};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) {
     return 0;
   }
