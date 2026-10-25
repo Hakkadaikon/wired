@@ -40,14 +40,43 @@ static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
   put_hash(out + 98, transcript_hash);
 }
 
-/* View the end-entity certificate's subjectPublicKey BIT STRING value. */
-static int cert_spki_key(wired_span cert, wired_span* key) {
+/* Accepts the SPKI (tbs for its parameters, algorithm OID) for a scheme. */
+typedef int (*certverify_alg_fn)(wired_span tbs, wired_span alg_oid);
+
+/* RFC 5480 2.1.1: ecdsa_secp256r1_sha256 needs id-ecPublicKey (not the
+ * restricted id-ecDH / id-ecMQV) with the secp256r1 namedCurve; absent,
+ * implicitCurve and specifiedCurve parameters fail x509_ec_curve. */
+static int cv_alg_p256(wired_span tbs, wired_span alg_oid) {
+  wired_span curve;
+  return x509_is_ec(alg_oid) && x509_ec_curve(tbs, &curve) &&
+         x509_is_p256(curve);
+}
+
+/* RFC 8446 4.2.3: rsa_pss_rsae_* needs an rsaEncryption key. */
+static int cv_alg_rsa(wired_span tbs, wired_span alg_oid) {
+  (void)tbs;
+  return x509_is_rsa(alg_oid);
+}
+
+/* RFC 8410 3/6: only an id-Ed25519 key is an Ed25519 verification key. */
+static int cv_alg_ed25519(wired_span tbs, wired_span alg_oid) {
+  (void)tbs;
+  return x509_is_ed25519(alg_oid);
+}
+
+/* View the end-entity certificate's subjectPublicKey BIT STRING value,
+ * provided its SPKI algorithm is one alg_ok accepts. */
+static int cert_spki_key(
+    wired_span cert, certverify_alg_fn alg_ok, wired_span* key) {
   x509       c;
   wired_span oid;
   if (!x509_parse(cert, &c)) {
     return 0;
   }
-  return x509_public_key(c.tbs, &oid, key);
+  if (!x509_public_key(c.tbs, &oid, key)) {
+    return 0;
+  }
+  return alg_ok(c.tbs, oid);
 }
 
 /* An ECDSA public key + (r, s) signature, all fixed 32-byte fields. */
@@ -59,7 +88,7 @@ typedef struct {
 static int ecdsa_inputs(
     wired_span cert, wired_span sig, certverify_ecdsa_fields* f) {
   wired_span key;
-  if (!cert_spki_key(cert, &key)) {
+  if (!cert_spki_key(cert, cv_alg_p256, &key)) {
     return 0;
   }
   if (!x509_ec_pubkey(key, f->x, f->y)) {
@@ -78,7 +107,7 @@ static int verify_ecdsa(wired_span cert, wired_span sig, const u8 hash[32]) {
 
 static int verify_rsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   wired_span key, n, e;
-  if (!cert_spki_key(cert, &key)) {
+  if (!cert_spki_key(cert, cv_alg_rsa, &key)) {
     return 0;
   }
   if (!x509_rsa_pubkey(key, &n, &e)) {
@@ -99,7 +128,7 @@ static int is_ed25519_bits(wired_span bits) {
  * octet. */
 static int ed25519_key(wired_span cert, const u8** key) {
   wired_span bits;
-  if (!cert_spki_key(cert, &bits)) {
+  if (!cert_spki_key(cert, cv_alg_ed25519, &bits)) {
     return 0;
   }
   if (!is_ed25519_bits(bits)) {
