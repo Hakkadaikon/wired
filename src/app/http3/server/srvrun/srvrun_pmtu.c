@@ -6,7 +6,8 @@ static int srvrun_pace_or_probe_ok(
 static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len);
 static int srvrun_seal_pmtu_probe(
     srvrun_conn* c, usz size, wired_obuf* out, u64* pn);
-static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us);
+static int  srvrun_pmtu_probe_lost(const srvrun_conn* c, u64 now_us);
+static void srvrun_pmtu_reap_lost(srvrun_conn* c, u64 now_us);
 static usz  srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us);
 static int  srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size);
@@ -117,7 +118,7 @@ static int srvrun_seal_pmtu_probe(
 
 /* Clear c's outstanding-probe tracking, letting the next opportunity
  * (srvrun_pmtu_probe_candidate) start a fresh probe -- shared by the ACK
- * (srvrun_pmtu_reap_ack) and PROBE_TIMER (srvrun_pmtu_reap_timeout)
+ * (srvrun_pmtu_reap_ack) and loss (srvrun_pmtu_reap_lost)
  * resolution paths, both of which must leave at most one probe outstanding
  * (RFC 8899 5.1.3 PROBED_SIZE is a single value). */
 void srvrun_pmtu_probe_clear(srvrun_conn* c) {
@@ -126,17 +127,27 @@ void srvrun_pmtu_probe_clear(srvrun_conn* c) {
   c->pmtu_probe_sent_ms = 0;
 }
 
-/* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that has not been
- * acked/lost within PMTU_PROBE_TIMER_US is itself treated as a loss --
- * without this, an unanswered probe leaves pmtu_probe_pn outstanding
- * forever and srvrun_pmtu_probe_candidate never starts another -- the ACK
- * path alone never resolves a probe the peer never acknowledges at all.
- * Polled once per send opportunity
- * (srvrun_pmtu_try_probe), matching how this connection has no dedicated
- * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
- * doc on the same style of poll-driven deadline). */
-static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
-  if (!pmtu_probe_timer_due(&c->pmtu, now_us)) {
+/* The outstanding probe is lost: RFC 9000 14.4 detects a probe's loss like
+ * any other packet's, so three later packets acknowledged (RFC 9002 6.1.1
+ * kPacketThreshold) declare it, and the RFC 8899 5.1.1 PROBE_TIMER covers a
+ * probe nothing after it was acknowledged for. */
+static int srvrun_pmtu_probe_lost(const srvrun_conn* c, u64 now_us) {
+  if (!srvrun_pmtu_probe_outstanding(c)) {
+    return 0;
+  }
+  return pmtu_probe_timer_due(&c->pmtu, now_us) ||
+         loss_by_packet(c->largest_acked, c->pmtu_probe_pn);
+}
+
+/* Resolve a lost probe (srvrun_pmtu_probe_lost) into pmtu_on_loss, which
+ * re-offers the same size until PROBE_COUNT reaches MAX_PROBES (RFC 8899
+ * 5.2). Without this an unanswered probe leaves pmtu_probe_pn outstanding
+ * forever and srvrun_pmtu_probe_candidate never starts another. Polled once
+ * per send opportunity (srvrun_pmtu_try_probe): this connection has no
+ * dedicated timer thread, only per-step polling (see srvrun_pto_deadline_ms's
+ * own doc on the same style of poll-driven deadline). */
+static void srvrun_pmtu_reap_lost(srvrun_conn* c, u64 now_us) {
+  if (!srvrun_pmtu_probe_lost(c, now_us)) {
     return;
   }
   pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
@@ -145,13 +156,18 @@ static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
 
 /* The next candidate size to probe on c, or 0 if none: a probe already
  * outstanding or a concluded search (pmtu_next_probe's own gate) both
- * read as "nothing to do this opportunity". now_us converts srvrun's ms
- * clock into pmtu.c's us unit (matching RTT_INITIAL_US and the other
- * RFC 9002 RTT state already on this us clock). */
+ * read as "nothing to do this opportunity". RFC 8899 5.2: once the
+ * PMTU_RAISE_TIMER fires in SEARCH_COMPLETE the search resumes first.
+ * now_us converts srvrun's ms clock into pmtu.c's us unit (matching
+ * RTT_INITIAL_US and the other RFC 9002 RTT state already on this us
+ * clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
-  srvrun_pmtu_reap_timeout(c, now_us);
+  srvrun_pmtu_reap_lost(c, now_us);
   if (srvrun_pmtu_probe_outstanding(c)) {
     return 0;
+  }
+  if (pmtu_raise_timer_due(&c->pmtu, now_us)) {
+    pmtu_resume_search(&c->pmtu);
   }
   return pmtu_next_probe(&c->pmtu, now_us);
 }

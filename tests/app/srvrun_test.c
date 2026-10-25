@@ -15089,6 +15089,61 @@ static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
   CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
 }
 
+/* A connection with one DPLPMTUD probe of `size` outstanding under pn 7,
+ * sent at time 0 (the state srvrun_pmtu_send_probe leaves behind). */
+static void sr_pmtu_outstanding(srvrun_conn* c, usz size) {
+  *c = (srvrun_conn){0};
+  pmtu_init(&c->pmtu);
+  c->pmtu_probe_pn   = 7;
+  c->pmtu_probe_size = size;
+  c->pmtu.probe      = size;
+}
+
+/* RFC 8899 5.2/5.3.3 on the server loop: a probe the packet threshold
+ * declares lost (RFC 9000 14.4 / RFC 9002 6.1.1: three later packets acked)
+ * is re-offered at the same size until MAX_PROBES -- one loss no longer caps
+ * the search for the connection's lifetime. Fewer than three later packets
+ * acked leaves it outstanding. */
+static void test_srvrun_pmtu_lost_probe_retried(void) {
+  srvrun_conn c;
+  usz         size = PMTU_BASE + PMTU_STEP;
+  sr_pmtu_outstanding(&c, size);
+  c.largest_acked = 9;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == 0); /* still outstanding */
+  CHECK(c.pmtu.probe_count == 0);
+  for (int i = 1; i < PMTU_MAX_PROBES; i++) {
+    c.largest_acked = c.pmtu_probe_pn + 3;
+    CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == size); /* retried */
+    CHECK(c.pmtu.probe_count == i);
+    CHECK(c.pmtu.ceiling == PMTU_MAX);
+    /* the retry goes out under a later pn (srvrun_pmtu_send_probe) */
+    c.pmtu_probe_pn   = 7 + 10 * (u64)i;
+    c.pmtu_probe_size = size;
+  }
+  c.largest_acked = c.pmtu_probe_pn + 3;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == 0); /* MAX_PROBES: done */
+  CHECK(c.pmtu.ceiling == size);
+  CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
+}
+
+/* RFC 8899 5.2: in SEARCH_COMPLETE the server loop resumes the search once
+ * the PMTU_RAISE_TIMER expires, so a size ruled out earlier is probed
+ * again instead of capping the PMTU for the connection's lifetime. */
+static void test_srvrun_pmtu_raise_timer_resumes_search(void) {
+  srvrun_conn c  = {0};
+  usz         v2 = PMTU_BASE + 2 * PMTU_STEP;
+  pmtu_init(&c.pmtu);
+  c.pmtu_probe_pn  = SRVRUN_PMTU_NO_PROBE;
+  c.pmtu.validated = PMTU_BASE + PMTU_STEP;
+  c.pmtu.ceiling   = v2; /* v2 was lost MAX_PROBES times */
+  c.pmtu.lost      = v2;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5) == 0);
+  CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5 + PMTU_RAISE_TIMER_US - 1) == 0);
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5 + PMTU_RAISE_TIMER_US) == v2);
+  CHECK(c.pmtu.phase == PMTU_PHASE_SEARCHING);
+}
+
 /* RFC 8899 4.4: PMTU_MAX is the target WIRE size (datagram bytes on the
  * path), not a plaintext payload length -- srvrun_pmtu_send_probe must leave
  * room in its size-`size` buffer for the short header (1 + dcid.n + 4) and
@@ -25775,6 +25830,8 @@ void test_srvrun(void) {
   test_srvrun_pmtu_ack_raises_validated();
   test_srvrun_pmtu_ack_outside_range_no_effect();
   test_srvrun_pmtu_timeout_reaped_as_loss();
+  test_srvrun_pmtu_lost_probe_retried();
+  test_srvrun_pmtu_raise_timer_resumes_search();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_data_datagrams_fit_validated_probe();
