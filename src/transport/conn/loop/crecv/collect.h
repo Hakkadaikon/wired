@@ -9,8 +9,12 @@
  * messages. Out-of-order and split frames are placed at their offset; only the
  * contiguous prefix from offset 0 is exposed to TLS. Fixed buffer, no alloc. */
 
-/** Reassembly buffer capacity in bytes. */
-#define CRECV_BUF 2048
+/** Reassembly buffer capacity in bytes. RFC 9000 7.5: an implementation
+ * "MUST support buffering at least 4096 bytes" of out-of-order CRYPTO data;
+ * the buffer spans offset 0..CRECV_BUF of one level's stream, so 4096 is
+ * exactly that floor (a larger ClientHello is refused with
+ * CRYPTO_BUFFER_EXCEEDED, never expanded). */
+#define CRECV_BUF 4096
 
 /** CRYPTO stream reassembly state. */
 typedef struct {
