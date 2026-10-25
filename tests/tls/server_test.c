@@ -539,7 +539,8 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  ticket t    = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  t.issued_at = wired_clock_epoch_secs(); /* within its lifetime */
   for (usz i = 0; i < TICKET_KEY_LEN; i++) {
     f->ticket_key[i] = (u8)(0xd0 + i);
   }

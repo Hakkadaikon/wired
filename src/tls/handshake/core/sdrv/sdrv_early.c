@@ -17,6 +17,8 @@ static void sdrv_psk_accept_opened(
     const u8*               ch_msg,
     usz                     ch_len,
     const tlsext_psk_offer* off);
+static int sdrv_ticket_live(const ticket* t);
+static int sdrv_ticket_usable(const sdrv* s, const ticket* t);
 static int sdrv_psk_open_usable(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t);
 static int sdrv_psk_try_offer(
@@ -164,17 +166,29 @@ static void sdrv_psk_accept_opened(
   }
 }
 
-/* RFC 8446 4.2.11: the ticket opens AND its hash is the negotiated suite's
- * -- a PSK of another hash is unusable here, so it is ignored like an
- * unknown identity (full handshake), never keyed under the wrong hash.
- * RFC 6066 3: likewise a ticket bound to another server_name (or to one
- * when none is offered now, or none when one is) -- the server "proceeds
- * with a full handshake". */
+/* RFC 8446 4.6.1: a ticket is valid only for ticket_lifetime seconds from
+ * issuance, for 1-RTT resumption as much as for 0-RTT -- past it the
+ * keying material it carries is no longer usable. */
+static int sdrv_ticket_live(const ticket* t) {
+  return wired_clock_epoch_secs() < t->issued_at + t->lifetime_secs;
+}
+
+/* RFC 8446 4.2.11: the ticket's hash is the negotiated suite's -- a PSK of
+ * another hash is unusable here, never keyed under the wrong hash. RFC 6066
+ * 3: it is bound to this server_name (or to none when none is offered) --
+ * the server "proceeds with a full handshake" otherwise. RFC 8446 4.6.1:
+ * it is within its lifetime. */
+static int sdrv_ticket_usable(const sdrv* s, const ticket* t) {
+  return tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len &&
+         ct_diffn(t->sni, s->sni_digest, TICKET_SNI_LEN) == 0 &&
+         sdrv_ticket_live(t);
+}
+
+/* The ticket opens and is usable (sdrv_ticket_usable); otherwise it is
+ * ignored like an unknown identity (full handshake, RFC 8446 4.2.11). */
 static int sdrv_psk_open_usable(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
-  return sdrv_psk_open_ticket(s, off, t) &&
-         tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len &&
-         ct_diffn(t->sni, s->sni_digest, TICKET_SNI_LEN) == 0;
+  return sdrv_psk_open_ticket(s, off, t) && sdrv_ticket_usable(s, t);
 }
 
 /* A parsed pre_shared_key offer: open its ticket and verify the binder.

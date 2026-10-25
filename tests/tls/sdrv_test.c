@@ -1750,6 +1750,36 @@ static void test_sdrv_psk_hash_mismatch_falls_back(void) {
   CHECK(s.psk_accepted == 0);
 }
 
+/* f's ticket re-sealed as issued age_secs ago (lifetime 7200 s) and
+ * offered with f's PSK binder; returns whether the PSK was accepted. */
+static int sdrv_test_psk_aged(u64 age_secs) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              ch2_len;
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs() - age_secs;
+  bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  ch2_len = sdrv_test_psk_ch_suite(
+      &f, TLS_AES_128_GCM_SHA256, TLS_AES_128_GCM_SHA256, f.psk, ch2,
+      sizeof ch2);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  return s.psk_accepted;
+}
+
+/* RFC 8446 4.6.1: a ticket is usable only within its ticket_lifetime. An
+ * expired one is ignored like an unknown identity (full handshake, RFC 8446
+ * 4.2.11), even for plain 1-RTT resumption without early data. Boundary:
+ * age lifetime - 1 resumes, age == lifetime does not. */
+static void test_sdrv_psk_expired_ticket_falls_back(void) {
+  CHECK(sdrv_test_psk_aged(7200 - 60) == 1);
+  CHECK(sdrv_test_psk_aged(7200) == 0);
+  CHECK(sdrv_test_psk_aged(7200 * 10) == 0);
+}
+
 /* A ticket issued under TLS_AES_256_GCM_SHA384 resumes under it: PSK =
  * HKDF-Expand-Label(resumption_master_secret, "resumption", 0x00, 48) over
  * SHA-384 (RFC 8446 4.6.1, raw hkdf_expand_label_384 here), its 48-byte
@@ -3019,6 +3049,7 @@ void test_sdrv(void) {
   test_sdrv_psk_fixture_pinned();
   test_sdrv_psk_hash_mismatch_falls_back();
   test_sdrv_psk_sha384_ticket_accepted();
+  test_sdrv_psk_expired_ticket_falls_back();
   test_sdrv_psk_valid_ticket_and_binder_accepted();
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();
