@@ -51,6 +51,8 @@ int sreset_build(
   usz len = u64_min(sreset_size(trigger_len), out->cap);
 
   rand_fill(out->p, len);
+  /* RFC 9000 10.3 Figure 10: Header Form 0, Fixed Bit 1, rest random. */
+  out->p[0] = (u8)((out->p[0] & 0x3f) | 0x40);
   sreset_token(key, cid, cid_len, out->p + len - SRESET_TOKEN);
   out->len = len;
   return 1;

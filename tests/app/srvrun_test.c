@@ -1748,6 +1748,29 @@ static void test_srvrun_stateless_reset_seal_token_and_size(void) {
   CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, want, 16) == 0);
 }
 
+/* RFC 9000 10.3 Figure 10: a Stateless Reset looks like a short header --
+ * Header Form 0, Fixed Bit 1 -- on every build, not just the half whose
+ * random first byte happens to match. */
+static void test_srvrun_stateless_reset_first_byte_short_form(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
+  int              bad     = 0;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  for (int i = 0; i < 16; i++) {
+    u8         out[128];
+    wired_obuf ob = obuf_of(out, sizeof out);
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), 64, &ob) ==
+        1);
+    bad += (out[0] & 0xc0) != 0x40;
+  }
+  CHECK(bad == 0);
+}
+
 /* The token must be reproducible across a server restart -- two independent
  * cfg instances built from the same identity seal byte-identical token
  * tails for the same DCID. */
@@ -25068,6 +25091,7 @@ void test_srvrun(void) {
   test_srvrun_reaped_slot_bytes_stay_in_max_data_base();
   test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
+  test_srvrun_stateless_reset_first_byte_short_form();
   test_srvrun_stateless_reset_token_survives_restart();
   test_srvrun_stateless_reset_gates();
   test_srvrun_unknown_dcid_short_header_sends_reset();
