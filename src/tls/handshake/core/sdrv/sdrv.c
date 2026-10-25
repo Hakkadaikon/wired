@@ -166,6 +166,7 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   }
   sdrv_reset_hs(s);
   transcript_init(&s->tr);
+  sdrv_zerortt_open();
 }
 
 void sdrv_set_client_version(sdrv* s, u32 version) {

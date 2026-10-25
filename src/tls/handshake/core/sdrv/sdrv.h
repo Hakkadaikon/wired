@@ -501,8 +501,8 @@ int sdrv_early_allowed(const sdrv* s);
 int sdrv_zerortt_share(void);
 
 /** RFC 8446 8.2: open this process's 0-RTT recording window at secs (epoch
- * seconds) instead of at the first 0-RTT attempt; 0-RTT is refused for
- * ZERORTT_SEEN_LIVE_SECS after it opens.
+ * seconds) instead of at the first sdrv_init; for ZERORTT_SEEN_LIVE_SECS
+ * after it opens, 0-RTT on a ticket issued before it is refused.
  * @param secs epoch seconds the server started recording. */
 void sdrv_zerortt_set_started(u64 secs);
 

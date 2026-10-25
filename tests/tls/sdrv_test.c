@@ -2186,10 +2186,12 @@ static void test_sdrv_no_ticket_key_disables_0rtt(void) {
  * attempt) is refused for 0-RTT on its second use even though the PSK/binder
  * are still valid -- RFC 8446 8.1 single-use ticket enforcement. PSK-only
  * (non-0-RTT) resumption still proceeds; only early_data is rejected. */
-/* RFC 8446 8.2: while the replay store's recording window overlaps
- * start-up, a first-use, fresh 0-RTT offer is still refused (the PSK
- * handshake itself proceeds); the window is reopened at "now" here. */
-static void test_sdrv_0rtt_refused_during_startup(void) {
+/* One fresh 0-RTT ClientHello (new sealed ticket, issued at t0 or a tick
+ * later) through sdrv with the 0-RTT recording window opened at
+ * t0 + start_off; returns early_data_accepted (the PSK itself must be
+ * accepted either way). */
+static int sdrv_test_0rtt_with_start(u64 start_off) {
+  u64              t0 = wired_clock_epoch_secs();
   sdrv_psk_fixture f;
   sdrv             s;
   u8               srv_priv[32], srv_pub[32], cert_priv[32];
@@ -2208,11 +2210,20 @@ static void test_sdrv_0rtt_refused_during_startup(void) {
     sdrv_init(&s, &in);
     sdrv_set_early_data(&s, 1);
   }
-  sdrv_zerortt_set_started(wired_clock_epoch_secs());
+  sdrv_zerortt_set_started(t0 + start_off);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
-  CHECK(s.early_data_accepted == 0);
-  sdrv_zerortt_set_started(1); /* back to "started long ago" */
+  return s.early_data_accepted;
+}
+
+/* RFC 8446 8.2: while the recording window overlaps start-up, 0-RTT on a
+ * ticket issued before the window opened (an earlier instance's) is
+ * refused and the PSK handshake proceeds; a ticket issued at or after the
+ * window start (this instance's own) keeps 0-RTT. */
+static void test_sdrv_0rtt_refused_during_startup(void) {
+  CHECK(sdrv_test_0rtt_with_start(2) == 0); /* ticket predates window */
+  CHECK(sdrv_test_0rtt_with_start(0) == 1); /* own ticket */
+  sdrv_zerortt_set_started(1);              /* back to "started long ago" */
 }
 
 static void test_sdrv_early_data_replay_rejected(void) {

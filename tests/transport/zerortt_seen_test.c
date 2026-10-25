@@ -111,22 +111,27 @@ static void test_seen_two_threads_accept_once(void) {
   }
 }
 
-/* RFC 8446 8.2: the recording window opens at the first query, refuses
- * 0-RTT for ZERORTT_SEEN_LIVE_SECS (a pre-start ClientHello's replay may
- * still be fresh), and an explicit start time moves it. */
-static void test_seen_starting_window(void) {
+/* RFC 8446 8.2: the recording window opens once (the first open/query
+ * wins); within ZERORTT_SEEN_LIVE_SECS of it only a ticket issued before it
+ * is pre-start, and an explicit start time moves it. */
+static void test_seen_pre_start_window(void) {
   zerortt_seen s;
+  u64          live = ZERORTT_SEEN_LIVE_SECS;
   zerortt_seen_init(&s);
-  CHECK(zerortt_seen_starting(&s, 500) == 1);
-  CHECK(zerortt_seen_starting(&s, 500 + ZERORTT_SEEN_LIVE_SECS - 1) == 1);
-  CHECK(zerortt_seen_starting(&s, 500 + ZERORTT_SEEN_LIVE_SECS) == 0);
+  zerortt_seen_open(&s, 500);
+  zerortt_seen_open(&s, 900);                       /* already open */
+  CHECK(zerortt_seen_pre_start(&s, 499, 500) == 1); /* older ticket */
+  CHECK(zerortt_seen_pre_start(&s, 499, 500 + live - 1) == 1);
+  CHECK(zerortt_seen_pre_start(&s, 499, 500 + live) == 0); /* window over */
+  CHECK(zerortt_seen_pre_start(&s, 500, 500) == 0);        /* own ticket */
   zerortt_seen_set_started(&s, 1000);
-  CHECK(zerortt_seen_starting(&s, 1000) == 1);
-  CHECK(zerortt_seen_starting(&s, 1000 + ZERORTT_SEEN_LIVE_SECS) == 0);
+  CHECK(zerortt_seen_pre_start(&s, 999, 1000) == 1);
+  zerortt_seen_init(&s);
+  CHECK(zerortt_seen_pre_start(&s, 99, 100) == 1); /* query opens it */
 }
 
 void test_zerortt_seen(void) {
-  test_seen_starting_window();
+  test_seen_pre_start_window();
   test_seen_two_threads_accept_once();
   test_seen_fresh_is_first_use();
   test_seen_replay_is_not_first_use();

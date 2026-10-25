@@ -838,13 +838,16 @@ those directly.
   worker killed inside that scan (SIGKILL at that instant) would leave
   0-RTT acceptance blocked in every worker until restart. Source:
   `zerortt_seen.c` (ponytail), `sdrv_zerortt_share`.
-- **No 0-RTT for the first 21 s of the replay window** — Affects: clients
-  resuming with early data right after the server starts. The 0-RTT replay
-  store opens its recording window at the first 0-RTT attempt and refuses
-  early data for `ZERORTT_SEEN_LIVE_SECS` (21 s) after that (RFC 8446 8.2:
-  a ClientHello accepted before a restart is in no record); those
-  connections fall back to 1-RTT. `sdrv_zerortt_set_started` moves the
-  window's start. Source: `zerortt_seen_starting`,
+- **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
+  clients resuming with early data, on a ticket an earlier server instance
+  issued (a fixed `ticket_key` across restarts), right after the server
+  starts. The 0-RTT replay store opens its recording window at the first
+  `sdrv_init` and, for `ZERORTT_SEEN_LIVE_SECS` (21 s), refuses early data
+  on any ticket issued before that (RFC 8446 8.2: a ClientHello accepted
+  before a restart is in no record); those connections fall back to 1-RTT.
+  Tickets this instance issued keep 0-RTT. The check has one-second
+  granularity, so a ticket issued in the same second the window opened is
+  not caught. Source: `zerortt_seen_pre_start` (shortcut),
   [rfc8446.md](rfc8446.md) 8446-123.
 - **Cipher suites: preference AES-128-GCM, ChaCha20-Poly1305, AES-256-GCM**
   — Affects: clients that insist on their own suite order. All three TLS 1.3

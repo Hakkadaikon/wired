@@ -95,12 +95,17 @@ static int sdrv_early_data_eligible(
   if (!zerortt_replay_ok(1, first_use)) {
     return 0;
   }
-  /* RFC 8446 8.2: no 0-RTT while the recording window overlaps start-up
-   * (an earlier instance's accepted ClientHello is in no record here). */
-  if (zerortt_seen_starting(sdrv_zerortt_seen(), now)) {
+  /* RFC 8446 8.2: no 0-RTT on a pre-start ticket while the recording
+   * window overlaps start-up (an earlier instance's accepted ClientHello is
+   * in no record here). */
+  if (zerortt_seen_pre_start(sdrv_zerortt_seen(), t->issued_at, now)) {
     return 0;
   }
   return ticket_freshness_ok(t, off->ticket_age, now);
+}
+
+void sdrv_zerortt_open(void) {
+  zerortt_seen_open(sdrv_zerortt_seen(), wired_clock_epoch_secs());
 }
 
 void sdrv_zerortt_set_started(u64 secs) {

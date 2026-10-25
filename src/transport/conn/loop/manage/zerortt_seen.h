@@ -33,7 +33,7 @@ typedef struct {
   usz count;                        /* entries filled so far (<= CAP) */
   int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
   /* epoch secs the recording window opened (0 = not yet): see
-   * zerortt_seen_starting */
+   * zerortt_seen_pre_start */
   u64 started;
 } zerortt_seen;
 
@@ -50,15 +50,22 @@ int zerortt_seen_check(zerortt_seen* s, wired_span identity);
  * full ring whose oldest entry is still live refuses (returns 0). */
 int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs);
 
-/* RFC 8446 8.2: 1 while s's recording window still overlaps start-up --
- * a ClientHello an earlier server instance accepted 0-RTT for just before
- * this one started is in no record here, yet its replay can still pass
- * freshness for ZERORTT_SEEN_LIVE_SECS. The window opens at the first call
- * (or zerortt_seen_set_started); every earlier call is at or after process
- * start, so [first call, +LIVE) covers every attempt in [start, +LIVE). */
-int zerortt_seen_starting(zerortt_seen* s, u64 now_secs);
-/* Open s's recording window at secs instead of at the first
- * zerortt_seen_starting call (e.g. a server that knows its start time). */
+/* RFC 8446 8.2: open s's recording window at now_secs unless it is
+ * already open. The server opens it before it issues any ticket (sdrv_init),
+ * so every ticket this instance issued has issued_at >= the window start. */
+void zerortt_seen_open(zerortt_seen* s, u64 now_secs);
+/* RFC 8446 8.2: 1 when a ticket issued at issued_at predates s's window
+ * (opening it now if needed) while now_secs is still within
+ * ZERORTT_SEEN_LIVE_SECS of the window start -- an earlier server instance
+ * may have accepted 0-RTT for a ClientHello on that ticket that is in no
+ * record here, and its replay can still pass freshness. A ticket this
+ * instance issued cannot carry such a ClientHello.
+ * shortcut: second granularity, so a ticket issued by an earlier instance
+ * in the very second this one opened its window is not caught; carry
+ * milliseconds in the ticket if restarts that fast matter. */
+int zerortt_seen_pre_start(zerortt_seen* s, u64 issued_at, u64 now_secs);
+/* Open s's recording window at secs, replacing any earlier start (e.g. a
+ * server that knows its own start time). */
 void zerortt_seen_set_started(zerortt_seen* s, u64 secs);
 
 #endif

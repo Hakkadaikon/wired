@@ -111,6 +111,9 @@ int  sdrv_ch_negotiate(sdrv* s, const u8* ch_msg, usz ch_len, usz* body);
 void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len);
 void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len);
 void sdrv_ch_note_cert_sigs(sdrv* s, const u8* ch_msg, usz ch_len);
+/* RFC 8446 8.2: open the process-wide 0-RTT recording window (no-op once
+ * open), before this connection can issue a ticket (sdrv_early.c). */
+void sdrv_zerortt_open(void);
 int sdrv_psk_open_ticket(const sdrv* s, const tlsext_psk_offer* off, ticket* t);
 void sdrv_psk_from_ticket_secret(const ticket* t, u8* psk_out);
 int  sdrv_psk_binder_ok(

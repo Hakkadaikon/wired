@@ -81,12 +81,17 @@ int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs) {
   return first;
 }
 
-int zerortt_seen_starting(zerortt_seen* s, u64 now_secs) {
+void zerortt_seen_open(zerortt_seen* s, u64 now_secs) {
   u64 unset = 0;
   __atomic_compare_exchange_n(
       &s->started, &unset, now_secs, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-  return now_secs < __atomic_load_n(&s->started, __ATOMIC_ACQUIRE) +
-                        ZERORTT_SEEN_LIVE_SECS;
+}
+
+int zerortt_seen_pre_start(zerortt_seen* s, u64 issued_at, u64 now_secs) {
+  u64 started;
+  zerortt_seen_open(s, now_secs);
+  started = __atomic_load_n(&s->started, __ATOMIC_ACQUIRE);
+  return issued_at < started && now_secs < started + ZERORTT_SEEN_LIVE_SECS;
 }
 
 void zerortt_seen_set_started(zerortt_seen* s, u64 secs) {
