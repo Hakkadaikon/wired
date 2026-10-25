@@ -157,7 +157,11 @@ i64 wired_udp_ect0_enable(i64 fd) {
 }
 
 i64 wired_udp_pmtu_probe_enable(i64 fd) {
-  int val = WIRED_IP_PMTUDISC_DO;
+  int val = WIRED_IP_PMTUDISC_PROBE;
+  /* same dual-stack pairing as wired_udp_ect0_enable: the v6 option covers
+   * native v6 peers and is best-effort. */
+  wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_MTU_DISCOVER, &val, sizeof(val));
   return wired_arch_setsockopt(
       fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER, &val, sizeof(val));
 }
