@@ -10,6 +10,8 @@
 
 #define EXT_SUPPORTED_GROUPS 0x000a
 #define EXT_SIGNATURE_ALGORITHMS 0x000d
+/* RFC 8446 4.2.3: signature_algorithms_cert, same body shape. */
+#define EXT_SIGNATURE_ALGORITHMS_CERT 0x0032
 
 #define SIG_ECDSA_SECP256R1_SHA256 0x0403
 #define SIG_RSA_PSS_RSAE_SHA256 0x0804
@@ -18,6 +20,11 @@
 /* Encode supported_groups offering x25519 only. Returns bytes written into
  * buf (cap total), or 0 if it does not fit. */
 usz tls_ext_supported_groups(u8* buf, usz cap);
+
+/* Encode supported_groups offering group only -- RFC 8446 4.2.8: a client
+ * lists every group it sends a KeyShareEntry for. Returns bytes written, or
+ * 0 if it does not fit. */
+usz tls_ext_supported_group(u8* buf, usz cap, u16 group);
 
 /* Encode signature_algorithms offering ecdsa_secp256r1_sha256,
  * rsa_pss_rsae_sha256 and ed25519. Returns bytes written, or 0 if no room. */
@@ -30,6 +37,10 @@ usz tls_ext_sig_algs(u8* buf, usz cap);
  * one. Returns 1 if present, 0 if absent, malformed, or scheme is not in the
  * list. */
 int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme);
+
+/* RFC 8446 4.2.3: tls_ext_sig_algs_has for the signature_algorithms_cert
+ * extension (type 0x0032), the list that judges certificate signatures. */
+int tls_ext_sig_algs_cert_has(const u8* buf, usz n, u16 scheme);
 
 /* RFC 8446 4.2.7: `group` appears in the supported_groups extension at buf
  * (header included). What decides whether a share-less ClientHello can be

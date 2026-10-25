@@ -1,6 +1,7 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
 static int  srvloop_close_type(u64 type);
+static u64  srvloop_close_alert_code(const conn_close_frame* cc);
 static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi);
 static int  srvloop_ecn_newer(const wired_srvloop* l, const ack_frame* f);
 static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f);
@@ -11,14 +12,26 @@ static int srvloop_close_type(u64 type) {
   return type == FRAME_CONN_CLOSE_TPT || type == FRAME_CONN_CLOSE_APP;
 }
 
+/* RFC 9000 19.19: only the transport variant carries a CRYPTO_ERROR; a
+ * 0x1d code belongs to the application (e.g. H3_NO_ERROR 0x100), so it is
+ * not reported as a TLS alert. */
+static u64 srvloop_close_alert_code(const conn_close_frame* cc) {
+  return cc->is_app ? 0 : cc->error_code;
+}
+
 /* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
- * (either variant, any encryption level — the peer is closing or draining). */
-int srvloop_has_close(wired_span pl) {
-  framewalk      it;
-  framewalk_item fr;
+ * (either variant, any encryption level — the peer is closing or draining),
+ * with its error code in *code (0 if the frame does not decode) for the
+ * close log (RFC 8446 6.2: a CRYPTO_ERROR carries the peer's TLS alert). */
+int srvloop_has_close(wired_span pl, u64* code) {
+  framewalk        it;
+  framewalk_item   fr;
+  conn_close_frame cc = {0, 0, 0, 0, 0};
   framewalk_init(&it, pl.p, pl.n);
   while (framewalk_next(&it, &fr)) {
     if (srvloop_close_type(fr.type)) {
+      frame_get_conn_close(fr.start, fr.remaining, &cc);
+      *code = srvloop_close_alert_code(&cc);
       return 1;
     }
   }

@@ -180,6 +180,7 @@ static int sdrv_ch_require_scheme_offered(
  * sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_negotiate_alpn(s, ch_msg, ch_len); /* the 0-RTT gate reads it */
+  sdrv_check_sni(s, ch_msg, ch_len);      /* the ticket check reads it */
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) {
     return 0;
   }
@@ -200,6 +201,10 @@ int sdrv_ch_after_gate(sdrv* s, const u8* ch_msg, usz ch_len) {
 }
 
 const sdrv_ch_gate SDRV_CH_GATES[] = {
+    sdrv_ch_require_decodable,
+    sdrv_ch_require_null_compression,
+    sdrv_ch_require_ext_shapes,
+    sdrv_ch_require_psk_shape,
     sdrv_ch_require_tp_ext,
     sdrv_ch_reject_dup_tp,
     sdrv_ch_check_version_information,
@@ -207,6 +212,7 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_reject_illegal_ext,
     sdrv_ch_require_version,
     sdrv_ch_require_algs,
+    sdrv_ch_require_ks_with_groups,
     sdrv_ch_require_psk_modes,
     sdrv_ch_require_psk_last,
 };

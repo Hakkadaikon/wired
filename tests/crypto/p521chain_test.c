@@ -34,7 +34,7 @@ static int p5c_validate(const u8* leaf, usz n) {
   wired_span certs[1] = {wired_span_of(leaf, n)};
   castore_init(&s, p5c_roots, 1);
   CHECK(castore_add(&s, P5C_SPAN(p521chain_root_der)) == 1);
-  return castore_validate_chain(&s, certs, 1);
+  return castore_validate_chain(&s, certs, 1, 0);
 }
 
 /* RFC 5280 6.1: a leaf signed by the P-521 root with ecdsa-with-SHA512

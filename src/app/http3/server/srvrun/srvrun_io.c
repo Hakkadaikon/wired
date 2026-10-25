@@ -136,3 +136,23 @@ void srvrun_log_close(const char* what, wired_span reason) {
   line[n]   = 0;
   wired_log_str(line);
 }
+
+/* RFC 8446 6.2: implementations "SHOULD provide a way to facilitate logging
+ * the sending and receiving of alerts". A close whose error code is a
+ * CRYPTO_ERROR (0x0100 | alert, RFC 9001 4.8) logs what followed by the
+ * alert number; any other code logs what alone (srvrun_log_close's line). */
+void srvrun_log_close_alert(const char* what, u64 code) {
+  static const char tag[] = " (TLS alert ";
+  char              line[160];
+  usz               n = wired_cstr_len(what);
+  bytes_memcpy(line, what, n);
+  if (err_is_crypto(code)) {
+    bytes_memcpy(line + n, tag, sizeof tag - 1);
+    n += sizeof tag - 1;
+    wired_fmt_u64(line, &n, &(wired_fmt_u64_in){err_alert(code), 1});
+    line[n++] = ')';
+  }
+  line[n++] = '\n';
+  line[n]   = 0;
+  wired_log_str(line);
+}

@@ -115,6 +115,9 @@ int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
       &c->boot, wired_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
       sizeof pkt);
   WIRED_LOG("srvboot accept failed\n");
+  if (err_is_crypto(err)) { /* RFC 8446 6.2: log the alert being sent */
+    srvrun_log_close_alert("conn refused: handshake failed", err);
+  }
   if (n) {
     srvrun_send(ctx->cfg, c, wired_span_of(pkt, n), "boot refused\n");
   }

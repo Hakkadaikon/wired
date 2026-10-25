@@ -38,3 +38,22 @@ void test_sni_extract_wrong_name_type(void) {
   wired_span host;
   CHECK(salpn_extract_sni(wired_span_of(list, sizeof(list)), &host) == 0);
 }
+
+/* RFC 6066 3: server_name_list<1..2^16-1> and HostName<1..2^16-1> -- an
+ * empty list, an empty HostName, or bytes past the one entry are malformed,
+ * never a usable name. */
+void test_sni_extract_empty(void) {
+  u8         empty_list[2] = {0x00, 0x00};
+  u8         empty_host[5] = {0x00, 0x03, 0x00, 0x00, 0x00};
+  u8         trailing[7]   = {0x00, 0x04, 0x00, 0x00, 0x01, 'x', 0xff};
+  u8         ext_tail[7]   = {0x00, 0x04, 0x00, 0x00, 0x01, 'x', 0xff};
+  u8         ok[6]         = {0x00, 0x04, 0x00, 0x00, 0x01, 'x'};
+  wired_span host;
+  CHECK(salpn_extract_sni(wired_span_of(empty_list, 2), &host) == 0);
+  CHECK(salpn_extract_sni(wired_span_of(empty_host, 5), &host) == 0);
+  trailing[1] = 0x05; /* list holds the entry plus one stray byte */
+  CHECK(salpn_extract_sni(wired_span_of(trailing, 7), &host) == 0);
+  CHECK(salpn_extract_sni(wired_span_of(ext_tail, 7), &host) == 0);
+  CHECK(salpn_extract_sni(wired_span_of(ok, 6), &host) == 1);
+  CHECK(host.n == 1 && host.p[0] == 'x');
+}

@@ -76,6 +76,16 @@ static void test_srvdriver_parse_xdp(void) {
   CHECK(opt.xdp.ifindex == 3);
   CHECK(opt.xdp.port == opt.port);
   CHECK(opt.xdp.port == 4433);
+  CHECK(opt.xdp.skip_udp_csum == 0); /* UDP checksums verified by default */
+}
+
+/* --skip-udp-csum is the explicit veth CHECKSUM_PARTIAL opt-out. */
+static void test_srvdriver_parse_xdp_skip_udp_csum(void) {
+  char*               argv[] = {"prog", "--ifindex", "3",
+                                "--ip", "10.0.0.1",  "--skip-udp-csum"};
+  wired_srvdriver_opt opt    = {0};
+  CHECK(wired_srvdriver_parse(6, argv, &opt) == 1);
+  CHECK(opt.xdp.skip_udp_csum == 1);
 }
 
 static void test_srvdriver_parse_threads_with_xdp(void) {
@@ -190,6 +200,7 @@ void test_srvdriver(void) {
   test_srvdriver_parse_workers();
   test_srvdriver_parse_threads();
   test_srvdriver_parse_xdp();
+  test_srvdriver_parse_xdp_skip_udp_csum();
   test_srvdriver_parse_threads_with_xdp();
   test_srvdriver_parse_workers_cores_conflict();
   test_srvdriver_parse_workers_ifindex_conflict();

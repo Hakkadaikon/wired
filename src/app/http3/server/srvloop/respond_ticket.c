@@ -37,7 +37,8 @@ static int tickets_owed(const wired_server* s, u64 left) {
 }
 
 /* The fields this connection's tickets share: RFC 8446 4.2.10 alpn, the
- * suite, the origin, and a lifetime cut to what the cap leaves. */
+ * suite, the RFC 6066 3 server_name digest, the origin, and a lifetime cut to
+ * what the cap leaves. */
 static int ticket_fill(const wired_server* s, u64 now, u64 left, ticket* t) {
   *t = (ticket){
       {0},
@@ -47,7 +48,9 @@ static int ticket_fill(const wired_server* s, u64 now, u64 left, ticket* t) {
       (u8)s->sdrv.alpn,
       0,
       s->sdrv.cipher_suite,
+      {0},
       ticket_origin(s, now)};
+  bytes_memcpy(t->sni, s->sdrv.sni_digest, TICKET_SNI_LEN); /* RFC 6066 3 */
   return srvkeys_ready() && wired_server_resumption_secret(s, t->secret);
 }
 

@@ -11,6 +11,7 @@ static int nc_always(wired_span base, wired_span name);
 static int nc_ip_malformed(wired_span base, wired_span name);
 static int half_covers(wired_span seq, u8 half, u8 want, nc_matcher m);
 static int uri_san_ok(wired_span seq);
+static int san_typed_entry_ok(wired_span seq, u8 tag, wired_span e);
 
 /* Scan a GeneralSubtrees SEQUENCE for bases of one GeneralName form; *any
  * records whether at least one entry had that form. Returns 1 if some entry
@@ -142,15 +143,35 @@ static int uri_san_ok(wired_span seq) {
   return !half_covers(seq, NC_EXCLUDED_TAG, NC_URI_TAG, nc_always);
 }
 
-/* One SAN GeneralNames entry whose form this SDK evaluates beyond dNSName:
- * iPAddress against the iPAddress subtrees, URI as above. Forms this SDK
- * never consumes (rfc822Name, otherName, ...) are unconstrained. */
-int x509_san_other_entry_ok(wired_span seq, u8 tag, wired_span e) {
-  if (tag == NC_IPADDR_TAG) {
-    return x509_typed_name_ok(seq, tag, e, x509_nc_ip_within);
+/* SAN GeneralName forms matched against subtrees of their own form:
+ * iPAddress by address/mask, directoryName (its [4] EXPLICIT content is
+ * the Name TLV) by RDN prefix like the subject (RFC 5280 4.2.1.10). */
+static const struct {
+  u8         tag;
+  nc_matcher m;
+} san_typed_forms[] = {
+    {NC_IPADDR_TAG, x509_nc_ip_within},
+    {NC_DIRECTORYNAME_TAG, x509_dn_within_base},
+};
+#define SAN_TYPED_FORM_COUNT \
+  (sizeof(san_typed_forms) / sizeof(san_typed_forms[0]))
+
+/* An entry of a san_typed_forms form against its subtrees; any other form
+ * this SDK never consumes (rfc822Name, otherName, ...) is unconstrained. */
+static int san_typed_entry_ok(wired_span seq, u8 tag, wired_span e) {
+  for (usz i = 0; i < SAN_TYPED_FORM_COUNT; i++) {
+    if (san_typed_forms[i].tag == tag) {
+      return x509_typed_name_ok(seq, tag, e, san_typed_forms[i].m);
+    }
   }
+  return 1;
+}
+
+/* One SAN GeneralNames entry whose form this SDK evaluates beyond dNSName:
+ * iPAddress and directoryName against their subtrees, URI as above. */
+int x509_san_other_entry_ok(wired_span seq, u8 tag, wired_span e) {
   if (tag == NC_URI_TAG) {
     return uri_san_ok(seq);
   }
-  return 1;
+  return san_typed_entry_ok(seq, tag, e);
 }

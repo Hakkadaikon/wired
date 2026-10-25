@@ -6,6 +6,7 @@
 #include "tls/handshake/core/tls/tpext.h"
 
 static void test_eebuild_early_data_accepted(void);
+static void test_eebuild_server_name_groups(void);
 
 /* The protocol id a fixed (non-raw) negotiation outcome names. */
 static wired_span eebuild_test_name(salpn_choice c) {
@@ -52,6 +53,28 @@ void test_eebuild(void) {
       eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), 0, &ob));
 
   test_eebuild_early_data_accepted();
+  test_eebuild_server_name_groups();
+}
+
+/* RFC 6066 3 empty server_name (00 00 00 00) then RFC 8446 4.2.7
+ * supported_groups (00 0a 00 06 00 04 00 1d 00 17), hand-encoded, after the
+ * transport parameters; a cap one byte short of them is refused. */
+static void test_eebuild_server_name_groups(void) {
+  static const u8 want[14] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00,
+                              0x06, 0x00, 0x04, 0x00, 0x1d, 0x00, 0x17};
+  const u8        tp[5]    = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  u8              out[128];
+  wired_obuf      ob = obuf_of(out, sizeof(out));
+  unsigned        fl = EEBUILD_SERVER_NAME | EEBUILD_GROUPS;
+  CHECK(eebuild_encrypted_extensions(
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), fl, &ob));
+  CHECK(ob.len == 4 + 2 + 9 + 4 + 5 + sizeof want);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(out[ob.len - sizeof want + i] == want[i]);
+  }
+  ob = obuf_of(out, ob.len - 1);
+  CHECK(!eebuild_encrypted_extensions(
+      eebuild_test_name(SALPN_H3), wired_span_of(tp, sizeof(tp)), fl, &ob));
 }
 
 /* RFC 8446 4.2.10: early_data 1 appends the empty early_data extension

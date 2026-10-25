@@ -13,7 +13,7 @@ static usz tx(memlink* l, const u8* qpkt, usz qlen, u32 src, u32 dst) {
   udp4meta   meta = {{4433, 4433}, {src, dst}};
   wired_obuf ub   = obuf_of(udp, sizeof(udp));
   usz        un   = udp4_build(&ub, &meta, wired_span_of(qpkt, qlen));
-  ipv4_build(ip, &(ipv4_head){(u16)(20 + un), src, dst, IP_PROTO_UDP});
+  ipv4_build(ip, &(ipv4_head){(u16)(20 + un), src, dst, IP_PROTO_UDP, 0});
   for (usz i = 0; i < 20; i++) {
     frame[i] = ip[i];
   }

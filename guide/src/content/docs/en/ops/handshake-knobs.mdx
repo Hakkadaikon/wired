@@ -21,6 +21,10 @@ key log output.
   current key seals new tickets, and the current or previous key opens
   presented ones. A ticket older than that is ignored and the client gets
   a full handshake.
+- Resumption alone does not accept 0-RTT: RFC 8446 Appendix E.5 requires
+  the application to ask for it, since 0-RTT data can be replayed. Set
+  `id.early_data = 1` as well only when every request a client may send
+  early is safe to process twice. This page leaves it off.
 - `opt.force_retry = 1` makes every Initial without a valid Retry token
   get a stateless Retry first (RFC 9000 8.1.2) -- the quic-interop-runner's
   retry testcase's server mode. A real client handles this transparently;

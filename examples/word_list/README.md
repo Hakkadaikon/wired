@@ -46,7 +46,7 @@ QUIC + TLS 1.3 handshake against this server and received `HTTP/3 200`.
 | `--pin-core N` | unpinned | pin the single-process server to CPU N |
 | `--workers N [--pin-cores 1]` | — | N forked worker processes (`SO_REUSEPORT`) |
 | `--cores a,b,c [--control-core N]` | — | worker threads pinned to those CPUs |
-| `--ifindex N [--queue N --ip a.b.c.d --skb-mode]` | — | AF_XDP driver (root) |
+| `--ifindex N [--queue N --ip a.b.c.d --skb-mode --skip-udp-csum]` | — | AF_XDP driver (root) |
 
 `--workers` cannot combine with `--cores` or `--ifindex`, and `--pin-core`
 cannot combine with `--workers` or `--cores` (they have their own pinning
@@ -72,5 +72,9 @@ makes the server die at startup instead of silently falling back to self-signed.
   NIC, add `--cores` with one CPU per queue.
 - AF_XDP does not support MTU > 1500; on `veth` and similar interfaces, add
   `--skb-mode` (generic XDP).
+- The AF_XDP driver verifies the IPv4 header and UDP checksums. A `veth`
+  peer in the same host sends frames whose UDP checksum is left to offload
+  (CHECKSUM_PARTIAL); add `--skip-udp-csum` there, or those frames are
+  dropped.
 - Virtual NICs such as `virtio_net` may fail to transmit under generic XDP —
   prefer the plain UDP driver there.

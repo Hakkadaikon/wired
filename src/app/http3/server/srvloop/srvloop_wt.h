@@ -702,6 +702,9 @@ typedef struct {
   usz frame_unexpected_n; /**< entries valid in frame_unexpected_slots this
                               step */
   int peer_closed;        /**< 1 once a peer CONNECTION_CLOSE frame was seen */
+  /** RFC 9000 19.19: that CONNECTION_CLOSE's error code, logged when the
+   * slot is reaped (a 0x01xx CRYPTO_ERROR names a TLS alert, RFC 8446 6.2) */
+  u64 peer_close_code;
   /** RFC 9000 3.2: bit i is set when a RESET_STREAM this step ended slot i's
    * request while it was still being received -- not one completed or
    * rejected this step (those lists' owners answer it). A slot answered in

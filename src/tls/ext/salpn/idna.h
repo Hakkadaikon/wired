@@ -4,29 +4,22 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 6125 6.4.2 / RFC 5891 4.4: hostname comparison for a SNI/DNS-ID value
- * containing non-ASCII (internationalized) labels compares the A-label form
- * (the "xn--..." Punycode (RFC 3492) ACE encoding), not the raw U-label
- * Unicode text.
+/* RFC 6125 6.4.2 / RFC 5891 4.4: a DNS-ID or SNI value with
+ * internationalized labels is compared in A-label form (the "xn--..."
+ * Punycode (RFC 3492) ACE encoding), never as raw U-label Unicode, so
+ * x509_san_matches' RFC 6125 6.4.1 ASCII comparison applies unchanged.
  *
- * This SDK's DNS-ID matching (x509_san_matches, resume_sni_
- * compatible) already operates correctly on names that are already in
- * A-label / all-ASCII form: RFC 6125 6.4.1's ASCII case-insensitive byte
- * comparison needs no Unicode-aware step to compare two "xn--..." labels or
- * two plain ASCII labels.
- *
- * What is NOT implemented: converting a raw U-label (actual Unicode
- * codepoints, e.g. UTF-8 "café.example") into its A-label ("xn--caf-
- * dma.example") per the RFC 3492 Punycode algorithm. salpn_idna_to_ascii
- * below only recognizes the already-ASCII case; a caller that hands it
- * non-ASCII input gets a clean 0 (reject), never a silently wrong
- * conversion. */
+ * Each label of host (UTF-8, labels split at '.') is converted on its own:
+ * an all-ASCII label is copied as is, any other is a U-label and becomes
+ * "xn--" + its Punycode. The IDNA2008 mapping and validity steps (RFC 5891
+ * 5.3-5.4: NFC, case folding, the code point tables) are the caller's: the
+ * input labels must already be valid U-labels (RFC 5895 is the
+ * application-side mapping). */
 
-/* If host is already all-ASCII (every byte < 0x80), copies it into out
- * verbatim (the A-label / ASCII-only case needs no transformation) and
- * returns the byte count. Returns 0 if host contains any non-ASCII byte
- * (Punycode U-label -> A-label conversion is not implemented) or does not
- * fit in cap. */
+/* Write host's A-label form into out and return its byte count. Returns 0
+ * if host is empty or over 255 bytes, has an empty label or malformed
+ * UTF-8, a label's A-label exceeds 63 octets, or the result does not fit
+ * cap. */
 usz salpn_idna_to_ascii(wired_span host, u8* out, usz cap);
 
 #endif

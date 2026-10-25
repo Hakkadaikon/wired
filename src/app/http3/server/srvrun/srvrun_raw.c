@@ -6,6 +6,9 @@ static int srvrun_close_on_step_violation_rest(
 static u32 srvrun_reset_limit(const srvrun_cfg* cfg);
 static int srvrun_reset_flooded(const srvrun_cfg* cfg, const srvrun_conn* c);
 static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c);
+static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c);
+static int srvrun_close_on_hs_or_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c);
 
 /* The second half of srvrun_close_on_step_violation: the H3_FRAME_ERROR
  * latches, then the limits (srvrun_close_on_limits). */
@@ -73,9 +76,34 @@ static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
+/* RFC 8446 4 / 4.4.4: a handshake message latched an alert (an
+ * out-of-order or wrong-level message, a forged client Finished) -- close
+ * with that CRYPTO_ERROR (RFC 9001 4.8). */
+static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "unexpected handshake message";
+  u64             code     = wired_server_take_hs_error(&c->s);
+  if (!code) {
+    return 0;
+  }
+  srvrun_send_transport_close(
+      cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
+static int srvrun_close_on_hs_or_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_close_on_hs_error(cfg, c)) {
+    return 1;
+  }
+  if (!c->l.datagram_violation) {
+    return 0;
+  }
+  srvrun_close_on_datagram_violation(cfg, c);
+  return 1;
+}
+
 int srvrun_close_on_step_violation(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (c->l.datagram_violation) {
-    srvrun_close_on_datagram_violation(cfg, c);
+  if (srvrun_close_on_hs_or_datagram(cfg, c)) {
     return 1;
   }
   if (srvrun_close_on_reset_flood(cfg, c)) {

@@ -24,7 +24,8 @@ static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
    * get_be32 round-trips it; a host-order u32 here byte-reverses the
    * reply's source IP on the wire. */
   bytes_memcpy((u8*)&x->ip_be, cfg->ip, 4);
-  x->port = cfg->port;
+  x->port          = cfg->port;
+  x->skip_udp_csum = cfg->skip_udp_csum;
   xdpmac_init(&x->macs);
   xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
 }
@@ -39,7 +40,8 @@ static i64 srvxdp_open_xsk(
   if (r < 0) {
     return r;
   }
-  r = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
+  x->route_key = bpf->route_key;
+  r            = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
   if (r < 0) {
     xsksetup_close(&x->xsk);
   }

@@ -60,7 +60,28 @@ static void test_session_guards(void) {
   CHECK(session_recv_stream(&s, &got) == 0); /* empty link */
 }
 
+/* A frame shorter than the 20-byte IPv4 header is dropped before any
+ * header read: frame.n - 20 must not underflow into a huge UDP span. */
+static void test_session_rejects_short_frame(void) {
+  const u8 dcid[8]  = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8       priv[32] = {9};
+  u8       shortf[19];
+  memlink  link;
+  memlink_init(&link);
+  session         s;
+  session_init_in in = {priv, dcid, &link, 0};
+  session_init(&s, &in);
+  for (usz i = 0; i < sizeof shortf; i++) {
+    shortf[i] = 0;
+  }
+  shortf[0] = 0x45;
+  memlink_send(&link, shortf, sizeof shortf);
+  stream_frame got;
+  CHECK(session_recv_stream(&s, &got) == 0);
+}
+
 void test_session(void) {
   test_session_e2e();
   test_session_guards();
+  test_session_rejects_short_frame();
 }

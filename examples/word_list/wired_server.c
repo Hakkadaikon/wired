@@ -129,6 +129,7 @@ static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
   /* RFC 8446 4.6.1: the seed append_ticket_frame (respond.c) derives its
    * rotating ticket keys from -- opening derives the same keys. */
   id->ticket_key = wired_srvloop_ticket_key();
+  id->early_data = 1; /* interop zerortt: this demo's GETs are replay-safe */
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
@@ -197,6 +198,9 @@ static void app_pref_addr(wired_srvboot_id* id, int argc, char** argv) {
 static void app_transport_tuning(wired_srvboot_id* id, int argc, char** argv) {
   id->max_data         = (u64)wired_cliargs_int(argc, argv, "--max-data", 0);
   id->max_streams_bidi = (u64)wired_cliargs_int(argc, argv, "--max-streams", 0);
+  /* RFC 7301 3.2: the interop image keeps the client's ALPN order (msquic
+   * offers [hq-interop, h3] and then speaks hq-interop regardless). */
+  id->alpn_client_order = wired_cliargs_flag(argc, argv, "--alpn-client-order");
   app_pref_addr(id, argc, argv);
 }
 

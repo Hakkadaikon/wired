@@ -58,7 +58,7 @@ static void test_p384_mixed_chain(void) {
       castore_add(
           &s, wired_span_of(p384chain_root_der, sizeof(p384chain_root_der))) ==
       1);
-  CHECK(castore_validate_chain(&s, certs, 2) == 1);
+  CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
 /* An all-P-384 leaf signed directly by the P-384 root validates. */
@@ -71,7 +71,7 @@ static void test_p384_full_chain(void) {
       castore_add(
           &s, wired_span_of(p384chain_root_der, sizeof(p384chain_root_der))) ==
       1);
-  CHECK(castore_validate_chain(&s, certs, 1) == 1);
+  CHECK(castore_validate_chain(&s, certs, 1, 0) == 1);
 }
 
 /* A tampered P-384 root signature over the intermediate breaks the chain. */
@@ -88,7 +88,7 @@ static void test_p384_tampered(void) {
       castore_add(
           &s, wired_span_of(p384chain_root_der, sizeof(p384chain_root_der))) ==
       1);
-  CHECK(castore_validate_chain(&s, certs, 1) == 0);
+  CHECK(castore_validate_chain(&s, certs, 1, 0) == 0);
 }
 
 void test_p384chain(void) {

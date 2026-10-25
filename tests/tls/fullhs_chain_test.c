@@ -1,4 +1,5 @@
 #include "castore_golden.h"
+#include "castore_path_golden.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/pki/cert/selfcert/selfcert.h"
 #include "realchain_golden.h"
@@ -272,6 +273,35 @@ static void test_fullhs_castore_swapped(void) {
   CHECK(fullhs_recv_cert(&cl, msg, n) == 0);
 }
 
+/* RFC 5280 6.1.3 (a)(2) on the client path: [vleaf, vint] anchored at
+ * pkp_root is accepted while every window is open, and rejected once
+ * policy_now is past the intermediate's notAfter (the leaf is still valid,
+ * so only the chain-wide time check can catch it). */
+static void fc_expired_int_case(u64 now, int want) {
+  tlsdriver     cltls, svtls;
+  fullhs        cl;
+  castore       store;
+  castore_entry roots[2];
+  const u8*     certs[2] = {pkp_vleaf_der, pkp_vint_der};
+  usz           lens[2]  = {sizeof(pkp_vleaf_der), sizeof(pkp_vint_der)};
+  u8            sh[512], msg[1024];
+  usz           shn, n;
+  fc_new_client(&cltls, &svtls, &cl, sh, &shn);
+  castore_init(&store, roots, 2);
+  CHECK(
+      castore_add(&store, wired_span_of(pkp_root_der, sizeof(pkp_root_der))) ==
+      1);
+  fullhs_set_castore(&cl, &store);
+  fullhs_set_policy(&cl, now, wired_span_of(0, 0));
+  n = fc_cert_msg(msg, certs, lens, 2);
+  CHECK(fullhs_recv_cert(&cl, msg, n) == want);
+}
+
+static void test_fullhs_castore_expired_int(void) {
+  fc_expired_int_case(20261101000000ULL, 1);
+  fc_expired_int_case(20300101000000ULL, 0);
+}
+
 void test_fullhs_chain(void) {
   fc_realchain[0]     = realchain_leaf_der;
   fc_realchain[1]     = realchain_int_der;
@@ -282,4 +312,5 @@ void test_fullhs_chain(void) {
   test_fullhs_castore_ok();
   test_fullhs_castore_wrong_root();
   test_fullhs_castore_swapped();
+  test_fullhs_castore_expired_int();
 }

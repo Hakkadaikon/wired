@@ -75,7 +75,7 @@ int srvloop_wt_range_find_mergeable(
 void srvloop_wt_ranges_sort(wired_srvloop_wt_window* win);
 void srvloop_wt_window_recompute_frontier(wired_srvloop_wt_window* win);
 void srvloop_wt_window_insert(wired_srvloop_wt_window* win, u64 lo, u64 hi);
-int  srvloop_has_close(wired_span pl);
+int  srvloop_has_close(wired_span pl, u64* code);
 void srvloop_collect_acks(wired_srvloop* l, wired_span pl);
 void srvloop_note_ack_owed(
     pnspaces_recv* recv,

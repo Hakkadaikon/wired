@@ -1,7 +1,9 @@
 #include "tls/handshake/roles/server/server.h"
 
+#include "common/bytes/util/bytes.h"
 #include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
+#include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tlsext/pskmodes.h"
@@ -537,7 +539,7 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, 0};
+  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
   for (usz i = 0; i < TICKET_KEY_LEN; i++) {
     f->ticket_key[i] = (u8)(0xd0 + i);
   }
@@ -839,6 +841,158 @@ static void test_server_no_psk_regression_unchanged(void) {
   test_server_ap_keys_match_client();
 }
 
+/* --- RFC 8446 4 / A.2: handshake message order (state x message) ------- */
+
+/* The server's phases a test can reach, and the next handshake message
+ * kinds a client could send it. */
+enum { SRVT_INITIAL, SRVT_CH_RECVD, SRVT_FLIGHT_SENT, SRVT_CONFIRMED };
+enum { SRVT_FIN, SRVT_FIN_FORGED, SRVT_CH, SRVT_CERT, SRVT_KEY_UPDATE };
+
+/* Bring f to phase (after make_client_hello + make_client_finished's
+ * inputs); CONFIRMED consumes the genuine Finished at stream offset 0. */
+static void srvt_to_phase(struct srv_fix* f, int phase) {
+  u8                   srv_priv[32], srv_pub[32], cert_seed[32], pl[256];
+  wired_server_init_in sin;
+  make_client_hello(f);
+  if (phase >= SRVT_FLIGHT_SENT) {
+    drive_to_flight(f);
+    make_client_finished(f);
+  }
+  if (phase == SRVT_CONFIRMED) {
+    usz n = srv_wrap_crypto(f->cli_fin, f->cli_fin_len, pl, sizeof pl);
+    CHECK(wired_server_feed(&f->s, pl, n) == 1);
+  }
+  if (phase >= SRVT_FLIGHT_SENT) {
+    return;
+  }
+  /* no flight yet: a well-framed (unverifiable) Finished stands in */
+  f->cli_fin_len = hs_begin(f->cli_fin, sizeof f->cli_fin, HS_FINISHED) + 32;
+  bytes_memset(f->cli_fin + 4, 0, 32);
+  hs_finish(f->cli_fin, f->cli_fin_len);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
+  wired_server_init(&f->s, &sin);
+  if (phase == SRVT_CH_RECVD) {
+    CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
+  }
+}
+
+/* The message bytes of kind into msg; returns its length. */
+static usz srvt_message(struct srv_fix* f, int kind, u8* msg) {
+  static const u8 types[] = {0, 0, 0, 11, 24}; /* Certificate, KeyUpdate */
+  usz             n       = 4 + 32;
+  if (kind == SRVT_CH) {
+    bytes_memcpy(msg, f->ch, f->ch_len);
+    return f->ch_len;
+  }
+  bytes_memcpy(msg, f->cli_fin, f->cli_fin_len);
+  if (kind == SRVT_FIN_FORGED) {
+    msg[4] ^= 0x01;
+  }
+  if (kind >= SRVT_CERT) {
+    msg[0] = types[kind];
+  }
+  return n;
+}
+
+/* RFC 8446 4: "If an implementation receives an unexpected message, it MUST
+ * abort the handshake with an unexpected_message alert"; 4.4.4: a Finished
+ * that does not verify is decrypt_error. Every phase x every next
+ * Handshake-space message (a CONFIRMED server sees it after the Finished
+ * it consumed, at stream offset 36): only the genuine Finished in
+ * FLIGHT_SENT advances, with no alert. */
+static void test_server_message_order_table(void) {
+  static const u64 want[4][5] = {
+      /* FIN    FORGED  CH     CERT   KEY_UPDATE */
+      {0x10a, 0x10a, 0x10a, 0x10a, 0x10a}, /* INITIAL */
+      {0x10a, 0x10a, 0x10a, 0x10a, 0x10a}, /* CH_RECVD */
+      {0, 0x133, 0x10a, 0x10a, 0x10a},     /* FLIGHT_SENT */
+      {0x10a, 0x10a, 0x10a, 0x10a, 0x10a}, /* CONFIRMED */
+  };
+  for (int ph = 0; ph < 4; ph++) {
+    for (int k = 0; k < 5; k++) {
+      struct srv_fix        f;
+      u8                    msg[600], pl[700];
+      usz                   n, pn;
+      wired_obuf            ob;
+      crypto_stream_emit_in ein = {0, 1024};
+      srvt_to_phase(&f, ph);
+      n               = srvt_message(&f, k, msg);
+      ein.base_offset = ph == SRVT_CONFIRMED ? f.cli_fin_len : 0;
+      ob              = obuf_of(pl, sizeof pl);
+      CHECK(crypto_stream_emit(wired_span_of(msg, n), &ein, &ob));
+      pn = ob.len;
+      CHECK(wired_server_feed(&f.s, pl, pn) == (want[ph][k] == 0));
+      CHECK(wired_server_take_hs_error(&f.s) == want[ph][k]);
+      CHECK(wired_server_take_hs_error(&f.s) == 0); /* cleared by the read */
+    }
+  }
+}
+
+/* A CONFIRMED server's retransmitted Finished (the same bytes at the same
+ * offset) is no new message: no alert. */
+static void test_server_finished_retransmit_no_alert(void) {
+  struct srv_fix f;
+  u8             pl[256];
+  usz            n;
+  srvt_to_phase(&f, SRVT_CONFIRMED);
+  n = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, pl, sizeof pl);
+  CHECK(wired_server_feed(&f.s, pl, n) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0);
+}
+
+/* RFC 8446 4.1.2 (8446-014): a ClientHello once TLS 1.3 is negotiated (any
+ * phase past INITIAL) is refused with unexpected_message. */
+static void test_server_second_client_hello_unexpected(void) {
+  for (int ph = SRVT_CH_RECVD; ph <= SRVT_CONFIRMED; ph++) {
+    struct srv_fix f;
+    srvt_to_phase(&f, ph);
+    CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 0);
+    CHECK(sdrv_last_error(&f.s.sdrv) == 0x10a);
+  }
+}
+
+/* RFC 8446 4 / RFC 9001 4.1.3 by encryption level: Initial CRYPTO inside
+ * the accepted ClientHello (a retransmission) is ignored, past it is a
+ * second message; 1-RTT carries no handshake message at all; Handshake is
+ * passed on. Initial is never dispatched after boot. */
+static void test_server_crypto_level_routing(void) {
+  struct srv_fix        f;
+  u8                    pl[700];
+  wired_obuf            ob;
+  crypto_stream_emit_in ein  = {0, 1024};
+  static const u8       ping = 0x01;
+  srvt_to_phase(&f, SRVT_CONFIRMED);
+  ob = obuf_of(pl, sizeof pl);
+  CHECK(crypto_stream_emit(wired_span_of(f.ch, f.ch_len), &ein, &ob));
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_INITIAL, wired_span_of(pl, ob.len)) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0);
+  ein.base_offset = f.ch_len;
+  ob              = obuf_of(pl, sizeof pl);
+  CHECK(crypto_stream_emit(wired_span_of(f.ch, 8), &ein, &ob));
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_INITIAL, wired_span_of(pl, ob.len)) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_HANDSHAKE, wired_span_of(pl, ob.len)) == 1);
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_ONERTT, wired_span_of(&ping, 1)) == 1);
+  CHECK(wired_server_take_hs_error(&f.s) == 0);
+  CHECK(
+      wired_server_crypto_level_ok(
+          &f.s, LEVEL_ONERTT, wired_span_of(pl, ob.len)) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+}
+
 void test_server(void) {
   test_server_happy();
   test_wired_server_exposes_early_data_used();
@@ -847,6 +1001,10 @@ void test_server(void) {
   test_server_forged_finished();
   test_server_flight_before_ch();
   test_server_fin_before_flight();
+  test_server_message_order_table();
+  test_server_finished_retransmit_no_alert();
+  test_server_second_client_hello_unexpected();
+  test_server_crypto_level_routing();
   test_server_ap_keys_match_client();
   test_server_records_client_random();
   test_server_no_keylog_path_writes_nothing();

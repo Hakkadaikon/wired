@@ -1,6 +1,7 @@
 #include "crypto/pki/trust/castore/castore.h"
 
 #include "crypto/pki/encoding/x509/chain.h"
+#include "crypto/pki/encoding/x509/dirstring.h"
 #include "crypto/pki/encoding/x509/x509.h"
 
 void castore_init(castore* s, castore_entry* roots, usz cap) {
@@ -27,7 +28,8 @@ int castore_add(castore* s, wired_span cert_der) {
   return 1;
 }
 
-/* RFC 5280 6.1. 1 if the entry's subject Name equals issuer_dn. */
+/* RFC 5280 6.1 / 7.1. 1 if the entry's subject Name equals issuer_dn under
+ * RFC 4518 caseIgnoreMatch. */
 static int entry_subject_matches(wired_span entry, wired_span issuer_dn) {
   x509       c;
   wired_span subj;
@@ -37,7 +39,7 @@ static int entry_subject_matches(wired_span entry, wired_span issuer_dn) {
   if (!x509_subject(c.tbs, &subj)) {
     return 0;
   }
-  return x509_dn_equal(issuer_dn, subj);
+  return x509_dn_equal_ci(issuer_dn, subj);
 }
 
 int castore_find_by_subject(
