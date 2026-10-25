@@ -17,7 +17,6 @@ static void sdrv_psk_accept_opened(
     const u8*               ch_msg,
     usz                     ch_len,
     const tlsext_psk_offer* off);
-static int sdrv_ticket_live(const ticket* t);
 static int sdrv_ticket_usable(const sdrv* s, const ticket* t);
 static int sdrv_psk_open_usable(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t);
@@ -160,7 +159,7 @@ static int sdrv_early_alpn_ok(const sdrv* s, const ticket* t) {
 /* RFC 8446 4.1.2: "Early data is not permitted after a HelloRetryRequest"
  * -- a ClientHello2 that keeps early_data still resumes, as 1-RTT. */
 static int sdrv_early_permitted(const sdrv* s, const ticket* t) {
-  return !s->hrr_sent && sdrv_early_alpn_ok(s, t);
+  return !s->hrr_sent && sdrv_early_alpn_ok(s, t) && sdrv_early_limits_ok(s, t);
 }
 
 /* A ticket that opened AND whose binder verified: record psk_accepted/
@@ -184,22 +183,15 @@ static void sdrv_psk_accept_opened(
   }
 }
 
-/* RFC 8446 4.6.1: a ticket is valid only for ticket_lifetime seconds from
- * issuance, for 1-RTT resumption as much as for 0-RTT -- past it the
- * keying material it carries is no longer usable. */
-static int sdrv_ticket_live(const ticket* t) {
-  return wired_clock_epoch_secs() < t->issued_at + t->lifetime_secs;
-}
-
 /* RFC 8446 4.2.11: the ticket's hash is the negotiated suite's -- a PSK of
  * another hash is unusable here, never keyed under the wrong hash. RFC 6066
  * 3: it is bound to this server_name (or to none when none is offered) --
  * the server "proceeds with a full handshake" otherwise. RFC 8446 4.6.1:
- * it is within its lifetime. */
+ * it is within its lifetime. RFC 9369 5: a ticket of another QUIC version
+ * falls back the same way (no 0-RTT either). */
 static int sdrv_ticket_usable(const sdrv* s, const ticket* t) {
   return tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len &&
-         ct_diffn(t->sni, s->sni_digest, TICKET_SNI_LEN) == 0 &&
-         sdrv_ticket_live(t);
+         sdrv_ticket_bound(s, t) && sdrv_ticket_live(t);
 }
 
 /* The ticket opens and is usable (sdrv_ticket_usable); otherwise it is
@@ -221,7 +213,7 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t      = {{0}, 0, 0, 0, 0, 0, 0, {0}, 0};
+  ticket t      = {{0}, 0, 0, 0, 0, 0, 0, {0}, 0, 0, {0}};
   int    opened = sdrv_psk_open_usable(s, off, &t);
   int    bound  = sdrv_psk_binder_ok(s, &t, ch_msg, psk_ext, off);
   if (!opened) {

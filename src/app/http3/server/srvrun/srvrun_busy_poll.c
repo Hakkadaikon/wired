@@ -7,7 +7,8 @@ static void srvrun_route_and_serve(
     const srvrun_step_ctx* ctx,
     wired_span             dcid,
     wired_mspan            dg,
-    wired_span             odcid);
+    wired_span             odcid,
+    int                    validated);
 static int  srvrun_size_violation(wired_mspan dg);
 static void srvrun_serve_sized(const srvrun_step_ctx* ctx, wired_mspan dg);
 static void srvrun_maybe_busy_poll(i64 fd, int so_busy_poll_us);
@@ -58,12 +59,14 @@ static void srvrun_refuse_unroutable(
 
 /* Route dg to its slot and serve it there, threading a retry-recovered
  * ODCID (if any) onto the freshly claimed slot before the accept path
- * reads it (srvrun_slot_id -> srvboot_tp_odcid). */
+ * reads it (srvrun_slot_id -> srvboot_tp_odcid), and whether its token
+ * validated the address (RFC 9000 8.1). */
 static void srvrun_route_and_serve(
     const srvrun_step_ctx* ctx,
     wired_span             dcid,
     wired_mspan            dg,
-    wired_span             odcid) {
+    wired_span             odcid,
+    int                    validated) {
   int slot = srvrun_route_or_evict(ctx, dcid, dg);
   if (slot < 0) {
     srvrun_refuse_unroutable(ctx, dcid, dg);
@@ -72,6 +75,7 @@ static void srvrun_route_and_serve(
   if (odcid.n) {
     srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
   }
+  ctx->st->conns[slot].addr_validated |= (u8)validated;
   srvrun_serve_slot(ctx, slot, dg);
 }
 
@@ -87,15 +91,16 @@ static int srvrun_size_violation(wired_mspan dg) {
  * route it to its slot. Split from srvrun_serve so neither carries more than
  * one guard beyond its own entry check (CCN). */
 static void srvrun_serve_sized(const srvrun_step_ctx* ctx, wired_mspan dg) {
-  wired_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
-  wired_span odcid = {0, 0};
+  wired_span dcid      = srvrun_dcid(dg, ctx->cfg->id->scid_len);
+  wired_span odcid     = {0, 0};
+  int        validated = 0;
   if (srvrun_vneg(ctx, dg)) {
     return;
   }
-  if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) {
+  if (srvrun_retry_consumed(ctx, dcid, dg, &odcid, &validated)) {
     return;
   }
-  srvrun_route_and_serve(ctx, dcid, dg, odcid);
+  srvrun_route_and_serve(ctx, dcid, dg, odcid, validated);
 }
 
 void srvrun_serve(const srvrun_step_ctx* ctx, wired_mspan dg) {

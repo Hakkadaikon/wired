@@ -91,23 +91,27 @@ usz srvrun_retry_pkt_build(
   return retry_build(pkt, cap, &d);
 }
 
-/* scid + wire token for the Retry answering h, or 0 tn on RNG/overflow
- * failure. */
+/* scid + tagged wire token for the Retry answering h, or 0 tn on
+ * RNG/overflow failure. RFC 9000 8.1.1: the TOKEN_TAG_RETRY first byte
+ * tells it apart from a NEW_TOKEN token when it comes back. */
 void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
     u8                     scid[8],
-    u8                     token[RETRYTOKEN_WIRE_MAX],
+    u8                     token[SRVRUN_RETRY_TOKEN_MAX],
     usz*                   tn) {
+  usz n;
   *tn = 0;
   if (!cid_generate(scid, 8)) {
     return;
   }
   u8 key[KEYRING_KEY];
   keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
-  *tn = retrytoken_wire_make(
+  token[0] = TOKEN_TAG_RETRY;
+  n        = retrytoken_wire_make(
       key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid,
-      token);
+      token + 1);
+  *tn = n ? 1 + n : 0;
 }
 
 /* Assemble the Retry with its real integrity tag and send it: pkt already

@@ -30,8 +30,10 @@ void srvrun_boot_send(
  * flight big enough to exhaust the 3x budget deadlocked against a client
  * whose own PTO probes (small Handshake PINGs) could never raise the budget
  * back above one full datagram -- the interop amplificationlimit case. */
+/* RFC 9000 8.1: a valid Retry or NEW_TOKEN token validated it up front
+ * (addr_validated). */
 static int srvrun_path_validated(const srvrun_conn* c, int confirmed) {
-  return confirmed || c->l.hs_rx_seen;
+  return confirmed || c->l.hs_rx_seen || c->addr_validated;
 }
 
 /* The antiamp gate applies only until the path is validated. */

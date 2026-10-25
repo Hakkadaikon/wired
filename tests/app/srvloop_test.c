@@ -3948,6 +3948,26 @@ static usz lp_confirm_tickets(
   return n;
 }
 
+/* RFC 9369 5 / RFC 9000 7.4.1 / RFC 9221 3: every issued ticket records
+ * this connection's wire version and the limits it advertised, and the
+ * grown confirmation still fits the replay cache. */
+static void test_srvloop_ticket_seals_version_and_limits(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT];
+  u64           want[STP_REMEMBERED_N];
+  lp_confirm(&f, &ob);
+  CHECK(
+      lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT) ==
+      SRVLOOP_TICKET_COUNT);
+  stp_remembered(&f.s.sdrv.limits, want);
+  CHECK(t[0].version == sdrv_wire_version(&f.s.sdrv));
+  CHECK(t[0].version != 0);
+  CHECK(ct_diffn((const u8*)t[0].tp, (const u8*)want, sizeof want) == 0);
+  CHECK(f.l.confirm_frames_len != 0);
+}
+
 /* RFC 8446 Appendix C.4: the confirmation offers SRVLOOP_TICKET_COUNT (> 1)
  * single-use tickets, so a client can resume that many connections; each
  * has its own ticket_nonce and so its own PSK (RFC 8446 4.6.1). A full
@@ -6564,6 +6584,7 @@ void test_srvloop(void) {
   test_srvloop_no_ticket_before_confirm();
   test_srvloop_ticket_not_resent();
   test_srvloop_confirm_sends_several_tickets();
+  test_srvloop_ticket_seals_version_and_limits();
   test_srvloop_no_ticket_without_psk_dhe_ke();
   test_srvloop_resumed_ticket_keeps_origin();
   test_srvloop_no_ticket_past_resumption_cap();

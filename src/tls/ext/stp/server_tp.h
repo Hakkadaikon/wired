@@ -75,6 +75,20 @@ typedef struct {
                                 * wired end-to-end) */
 } stp_limits;
 
+/** RFC 9000 7.4.1 / RFC 9221 3: how many advertised limits a client
+ * remembers for 0-RTT and the server must not reduce when accepting it. */
+#define STP_REMEMBERED_N 7
+/** Index of max_datagram_frame_size in the stp_remembered output. */
+#define STP_REMEMBERED_DGRAM 6
+
+/** The values this server advertises for the limits a 0-RTT client
+ * remembers, defaults applied: initial_max_data, initial_max_stream_data_
+ * bidi_local, _bidi_remote, _uni, initial_max_streams_bidi, _uni, then
+ * max_datagram_frame_size (index STP_REMEMBERED_DGRAM).
+ * @param lim the configured limits (0 = every default)
+ * @param out receives STP_REMEMBERED_N values */
+void stp_remembered(const stp_limits* lim, u64 out[STP_REMEMBERED_N]);
+
 int stp_build_server(
     wired_span original_dcid, wired_span initial_scid, wired_obuf* out);
 
