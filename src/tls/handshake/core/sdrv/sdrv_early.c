@@ -55,6 +55,10 @@ static int find_client_early_data_ext(
  * would itself race between threads. */
 static zerortt_seen g_sdrv_zerortt_seen;
 
+_Static_assert(
+    ZERORTT_SEEN_LIVE_SECS > 2 * TICKET_FRESHNESS_WINDOW_SECS,
+    "a replay store entry must outlive every replay that passes freshness");
+
 static zerortt_seen* g_sdrv_zerortt_tab = &g_sdrv_zerortt_seen;
 
 static zerortt_seen* sdrv_zerortt_seen(void) { return g_sdrv_zerortt_tab; }
