@@ -3,6 +3,7 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "common/diag/error/error.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/aeadlimit.h"
@@ -107,14 +108,29 @@ static int ku_can_initiate(const wired_server* s) {
   return s->ku_seeded && s->ku_send.generation == s->ku.generation;
 }
 
+/* RFC 9001 6.6: "RECOMMENDED that endpoints immediately close the
+ * connection with ... AEAD_LIMIT_REACHED before reaching a state where key
+ * updates are not possible" -- the limit is near and the peer has not yet
+ * followed the previous update, so latch the close while the remaining
+ * margin can still seal it. */
+static int ku_limit_near_stuck(const wired_server* s, int chacha) {
+  return aead_needs_update(
+             s->ku_send_count + SRVLOOP_KU_CLOSE_MARGIN, chacha) &&
+         !ku_can_initiate(s);
+}
+
+static void ku_note_limit_near(wired_server* s, int chacha) {
+  if (ku_limit_near_stuck(s, chacha) && !s->ku_error) {
+    s->ku_error = ERR_AEAD_LIMIT_REACHED;
+  }
+}
+
 /* RFC 9001 6.6: once the confidentiality limit for the negotiated AEAD is
  * reached, the current keys MUST NOT seal another packet -- initiate a Key
- * Update (6.1) if allowed, else refuse. Returns 1 if sealing may proceed.
- * ponytail: a limit hit while the previous update is still unconfirmed
- * stalls sends rather than closing the connection; 2^23 packets without one
- * peer packet in the new phase dies of idle timeout first. */
+ * Update (6.1) if allowed, else refuse. Returns 1 if sealing may proceed. */
 static int ku_limit_gate(wired_server* s) {
   int chacha = aead_is_chacha(s->sdrv.cipher_suite);
+  ku_note_limit_near(s, chacha);
   if (!aead_needs_update(s->ku_send_count, chacha)) {
     return 1;
   }

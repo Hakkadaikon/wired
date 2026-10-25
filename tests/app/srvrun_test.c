@@ -13139,6 +13139,101 @@ static void test_srvrun_closes_with_aead_limit_reached_on_step(void) {
   wired_udp_close(sfd);
 }
 
+/* Seal one 1-RTT PING under c's own send keys (wired_srvloop_send_onertt,
+ * every srvrun reply's path). */
+static usz sr_seal_ping_server(srvrun_conn* c, u8* pkt, usz cap) {
+  static const u8       ping[1] = {0x01};
+  wired_obuf            ob      = obuf_of(pkt, cap);
+  wired_srvloop_send_in sin     = {
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(ping, 1),
+      0,
+      0,
+      0,
+      0};
+  return wired_srvloop_send_onertt(&c->s, &sin, &ob) ? ob.len : 0;
+}
+
+/* A confirmed connection on a socket-free cfg, for the latched-close tests
+ * below; returns the step context over c. */
+static srvrun_step_ctx sr_ku_ctx(
+    srvrun_conn* c, struct lp_fix* f, srvrun_cfg* cfg, srvrun_state* st) {
+  static u8  obuf[1024];
+  wired_obuf ob = {obuf, sizeof obuf, 0};
+  *c            = (srvrun_conn){0};
+  sr_make_confirmed_conn(c, f, &ob);
+  *cfg     = (srvrun_cfg){0};
+  cfg->fd  = -1;
+  cfg->env = &g_srvrun_env;
+  *st      = (srvrun_state){0, c};
+  return (srvrun_step_ctx){cfg, &c->peer, st, 0, 0};
+}
+
+/* 1 if c sent (and keeps) a transport CONNECTION_CLOSE carrying code. */
+static int sr_closed_with(const srvrun_conn* c, u64 code) {
+  conn_close_frame ccf;
+  if (!c->closing || !frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) {
+    return 0;
+  }
+  return ccf.is_app == 0 && ccf.error_code == code;
+}
+
+/* RFC 9001 6.4: old keys opening a packet numbered above one the new keys
+ * protected closes the connection with KEY_UPDATE_ERROR. */
+static void test_srvrun_closes_on_key_update_error(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx = sr_ku_ctx(&c, &f, &cfg, &st);
+  initial_keys    k0  = c.s.ku.cur, k1;
+  u8              pkt[256];
+  usz             n;
+  lp_ku_next(c.s.ku_secret, &k0, &k1);
+  n = lp_seal_ku(&c.s, &k1, 1, 7, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  n = lp_seal_ku(&c.s, &k1, 1, 9, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(c.closing == 0);
+  n = lp_seal_ku(&c.s, &k0, 0, 8, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(ERR_KEY_UPDATE_ERROR == 0x0e); /* RFC 9001 6.7 */
+  CHECK(sr_closed_with(&c, ERR_KEY_UPDATE_ERROR));
+  CHECK(c.s.ku_error == 0); /* sent once, cleared */
+}
+
+/* RFC 9001 6.6: the confidentiality limit is near while this server's own
+ * update is still unconfirmed by the peer -- no further update is possible,
+ * so the connection closes with AEAD_LIMIT_REACHED, sealed under the keys'
+ * remaining margin. */
+static void test_srvrun_closes_with_aead_limit_when_no_update(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx = sr_ku_ctx(&c, &f, &cfg, &st);
+  initial_keys    k0  = c.s.ku.cur;
+  u8              pkt[256];
+  usz             n;
+  u64             tx;
+  c.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  n                 = sr_seal_ping_server(&c, pkt, sizeof pkt);
+  CHECK(n > 0);
+  CHECK(c.s.ku_send.generation == 1 && c.s.ku.generation == 0);
+  c.s.ku_send_count = AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN;
+  CHECK(sr_seal_ping_server(&c, pkt, sizeof pkt) > 0); /* latches */
+  CHECK(c.s.ku_error == ERR_AEAD_LIMIT_REACHED);
+  n = lp_seal_ku(&c.s, &k0, 0, 7, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(sr_closed_with(&c, ERR_AEAD_LIMIT_REACHED));
+  tx = c.s.ku_send_count;
+  /* the close itself was sealed, inside the margin */
+  CHECK(tx > AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN + 1);
+  CHECK(tx < AEAD_LIMIT_AESGCM);
+}
+
 /* Multi-range: srvrun_on_step's shared ACK state is not merely a
  * single-pn passthrough -- two datagrams with a gap between their pns (7,
  * then 9, skipping 8) drive the exact same two-range gap-encoding through
@@ -25674,6 +25769,8 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_inflight_zero_after_reap();
   test_srvrun_wt_stream_inflight_append_open_survives_reap();
   test_srvrun_closes_with_aead_limit_reached_on_step();
+  test_srvrun_closes_on_key_update_error();
+  test_srvrun_closes_with_aead_limit_when_no_update();
   test_srvrun_reset_flood_under_threshold_keeps_connection();
   test_srvrun_reset_flood_over_threshold_closes_excessive_load();
   test_srvrun_reset_flood_threshold_configurable();

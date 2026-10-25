@@ -78,6 +78,21 @@ typedef struct {
   u8 ku_send_secret[TLS_HASH_MAX]; /**< current generation's server_ap
                                     * secret */
   int ku_seeded; /**< 1 once ku/ku_send hold real generation-0 keys */
+  /** RFC 9001 6.3: the next receive generation's keys, derived ahead of
+   * time (at seeding and after every rotation) so an apparent Key Update
+   * costs one AEAD attempt, never an on-demand HKDF. */
+  initial_keys ku_next;
+  /** The client_ap secret of ku_next, adopted when it rotates in. */
+  u8 ku_next_secret[TLS_HASH_MAX];
+  /** RFC 9001 6.5: lowest and highest packet number opened under ku.cur --
+   * an old-phase packet below ku_cur_lo is a delayed one (old keys), above
+   * ku_cur_hi a Key Update (ku_next). */
+  u64 ku_cur_lo;
+  /** See ku_cur_lo. */
+  u64 ku_cur_hi;
+  /** RFC 9001 6.4 / 6.6: KEY_UPDATE_ERROR or AEAD_LIMIT_REACHED latched by
+   * the 1-RTT receive/seal path for the caller to close with; 0 = none. */
+  u64 ku_error;
   /** RFC 9001 6.6: 1-RTT packets sealed under ku_send's current generation;
    * reset on every rotation, drives the confidentiality-limit Key Update. */
   u64 ku_send_count;
@@ -164,6 +179,12 @@ void wired_server_set_limits(
  * @param s the server
  * @return the negotiated idle timeout in ms, 0 = none */
 u64 wired_server_idle_timeout_ms(const wired_server* s);
+
+/** RFC 9001 6.3: derive s->ku_next (and its secret) from the current
+ * receive generation's secret, and reset the current generation's packet
+ * number range. Called at seeding and right after every receive rotation.
+ * @param s the server */
+void server_ku_derive_next(wired_server* s);
 
 /** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
  * the server's handshake SCID in the transport parameters. Derive it from a
