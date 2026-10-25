@@ -763,6 +763,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       0);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x133); /* decrypt_error */
   {
     const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 0);
@@ -5841,7 +5842,45 @@ static void test_srvloop_ncid_malformed(void) {
   CHECK(f.l.ncid_rx_n == 0);
 }
 
+/* RFC 8446 4 (#72) on the production step path: a Handshake packet whose
+ * CRYPTO carries a message other than the client Finished latches
+ * unexpected_message, and a forged Finished decrypt_error, for srvrun to
+ * close with (srvrun_close_on_step_violation). */
+static void test_srvloop_unexpected_hs_message_latches(void) {
+  struct lp_fix f;
+  u8            cpkt[512], out[512], cert[8] = {11, 0, 0, 4, 0, 0, 0, 0};
+  usz           clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  clen = client_seal_handshake(&f, cert, sizeof cert, cpkt, sizeof cpkt);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+}
+
+/* RFC 9001 6 / RFC 8446 4: a client sends no handshake message in 1-RTT
+ * (KeyUpdate is forbidden in QUIC); a 1-RTT CRYPTO frame latches
+ * unexpected_message. */
+static void test_srvloop_onertt_crypto_latches(void) {
+  struct lp_fix f;
+  u8            out[1024], cpkt[256];
+  u8            ku[] = {0x06, 0x00, 0x05, 24, 0, 0, 1, 0}; /* CRYPTO(KU) */
+  usz           clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(wired_server_take_hs_error(&f.s) == 0);
+  clen   = client_seal_onertt(&f, ku, sizeof ku, cpkt, sizeof cpkt);
+  ob.len = 0;
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob);
+  CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
+}
+
 void test_srvloop(void) {
+  test_srvloop_unexpected_hs_message_latches();
+  test_srvloop_onertt_crypto_latches();
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
   test_srvloop_reset_notes_only_receiving_slot();
