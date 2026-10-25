@@ -211,6 +211,7 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_reject_illegal_ext,
     sdrv_ch_require_version,
     sdrv_ch_require_algs,
+    sdrv_ch_require_ks_with_groups,
     sdrv_ch_require_psk_modes,
     sdrv_ch_require_psk_last,
 };

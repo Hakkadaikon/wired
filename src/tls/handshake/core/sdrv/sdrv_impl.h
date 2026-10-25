@@ -123,6 +123,6 @@ int sdrv_ch_require_ext_shapes(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_require_psk_shape(sdrv* s, const u8* ch_msg, usz ch_len);
 int sdrv_ch_require_ks_with_groups(sdrv* s, const u8* ch_msg, usz ch_len);
 
-extern const sdrv_ch_gate SDRV_CH_GATES[13];
+extern const sdrv_ch_gate SDRV_CH_GATES[14];
 
 #endif

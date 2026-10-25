@@ -2815,6 +2815,30 @@ static void test_sdrv_ch_versions_unknown_ignored(void) {
   CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
 }
 
+/* RFC 8446 9.2 (#76, 8446-126): supported_groups without key_share is
+ * missing_extension (it used to arm a HelloRetryRequest). The reverse is
+ * test_sdrv_recv_client_hello_no_supported_groups_rejected. */
+static void test_sdrv_ch_groups_without_key_share_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_KEYSHARE_TYPE_OFF);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(109));
+  CHECK(sdrv_hrr_pending(&s) == 0);
+}
+
+/* RFC 8446 4.2.8 (#76, 8446-109): an x25519 share whose group the client's
+ * supported_groups does not list (relabelled to secp256r1 at its single
+ * entry, offset +6) is illegal_parameter -- the server never answers in an
+ * unlisted group. */
+static void test_sdrv_ch_share_outside_groups_rejected(void) {
+  sdrv s;
+  u8   ch[600];
+  usz  n = sdrv_test_ch_setup(&s, ch, sizeof ch);
+  be_put_be16(ch + SDRV_TEST_GROUPS_TYPE_OFF + 6, GROUP_SECP256R1);
+  CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(47));
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2881,6 +2905,8 @@ void test_sdrv(void) {
   test_sdrv_psk_two_identities_falls_back();
   test_sdrv_ch_sig_algs_cert();
   test_sdrv_ch_versions_unknown_ignored();
+  test_sdrv_ch_groups_without_key_share_rejected();
+  test_sdrv_ch_share_outside_groups_rejected();
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
