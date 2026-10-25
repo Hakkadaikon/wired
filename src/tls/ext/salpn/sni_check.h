@@ -10,16 +10,18 @@
 /** Classification of a ClientHello's server_name against this server's
  * certificate identity. */
 typedef enum {
-  SALPN_SNI_ABSENT = 0, /**< no server_name extension offered, or it was
-                         * present but malformed (RFC 6066 3: a server
-                         * MAY ignore a malformed extension) */
+  SALPN_SNI_ABSENT = 0, /**< no server_name extension offered */
   SALPN_SNI_MATCH,      /**< offered name matches tbs's SAN/CN-ID */
-  SALPN_SNI_MISMATCH    /**< offered name matches neither */
+  SALPN_SNI_MISMATCH,   /**< offered name matches neither */
+  /** present but unparseable (salpn_extract_sni): RFC 6066 3's
+   * <1..2^16-1> bounds, RFC 8446 6.2 decode_error */
+  SALPN_SNI_MALFORMED
 } salpn_sni_outcome;
 
 /* Extract the server_name (RFC 6066 3) from ch_msg, if any, and check it
  * against tbs (the server's own certificate tbsCertificate, RFC 6125 6) via
- * x509_san_matches. RFC 6066 3 leaves the ABSENT and MISMATCH outcomes
+ * x509_san_matches. A present extension salpn_extract_sni rejects is
+ * MALFORMED. RFC 6066 3 leaves the ABSENT and MISMATCH outcomes
  * to server policy (SHOULD NOT establish / MAY ignore): this function only
  * classifies, callers such as sdrv_recv_client_hello decide whether a
  * MISMATCH degrades to unrecognized_name (TLS_ALERT_UNRECOGNIZED_NAME)

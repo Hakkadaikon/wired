@@ -5,21 +5,21 @@
 #include "tls/ext/salpn/sni_extract.h"
 #include "tls/handshake/core/tls/sni.h"
 
-/* RFC 6066 3: locate the server_name extension and extract its host_name, if
- * any is present and well-formed. */
-static int sni_take_host(const u8* ch_msg, usz ch_len, wired_span* host) {
-  wired_span ext;
-  if (!salpn_find_extension(wired_span_of(ch_msg, ch_len), SNI_TYPE, &ext)) {
-    return 0;
+/* RFC 6066 3: the extracted host_name against tbs, or MALFORMED when the
+ * present extension does not parse. */
+static salpn_sni_outcome sni_match(wired_span ext, wired_span tbs) {
+  wired_span host;
+  if (!salpn_extract_sni(ext, &host)) {
+    return SALPN_SNI_MALFORMED;
   }
-  return salpn_extract_sni(ext, host);
+  return x509_san_matches(tbs, host) ? SALPN_SNI_MATCH : SALPN_SNI_MISMATCH;
 }
 
 salpn_sni_outcome salpn_sni_check(
     const u8* ch_msg, usz ch_len, wired_span tbs) {
-  wired_span host;
-  if (!sni_take_host(ch_msg, ch_len, &host)) {
+  wired_span ext;
+  if (!salpn_find_extension(wired_span_of(ch_msg, ch_len), SNI_TYPE, &ext)) {
     return SALPN_SNI_ABSENT;
   }
-  return x509_san_matches(tbs, host) ? SALPN_SNI_MATCH : SALPN_SNI_MISMATCH;
+  return sni_match(ext, tbs);
 }

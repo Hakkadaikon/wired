@@ -111,11 +111,9 @@ typedef struct {
   /** RFC 6066 3: the ClientHello's server_name extension checked against
    * this driver's own certificate (salpn_sni_check), set by
    * sdrv_recv_client_hello. SALPN_SNI_ABSENT when the client sent
-   * no server_name (or it was malformed); this SDK's policy is to continue
-   * the handshake in every case (RFC 6066 3 leaves both a mismatch alert and
-   * silently continuing as valid server behavior) -- the field is exposed so
-   * a caller (server.c) MAY choose to send unrecognized_name
-   * (TLS_ALERT_UNRECOGNIZED_NAME) on SALPN_SNI_MISMATCH instead. */
+   * no server_name, SALPN_SNI_MALFORMED when it did not parse.
+   * sdrv_recv_client_hello itself continues in every case; the caller
+   * (server.c) closes via sdrv_enforce_sni. */
   salpn_sni_outcome sni_outcome;
   /** RFC 9368 2.2: the QUIC version the client's Initial actually arrived
    * in, recorded via sdrv_set_client_version before
@@ -381,10 +379,10 @@ int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len);
 /** RFC 6066 3: the outcome of checking the last ClientHello's server_name
  * against this driver's own certificate (set by sdrv_recv_client_hello
  * via salpn_sni_check). SALPN_SNI_ABSENT if the client sent no
- * server_name (or it was malformed) or no certificate was available yet to
- * check against. A SALPN_SNI_MISMATCH never fails the handshake on its
- * own (RFC 6066 3 permits continuing); a caller that wants to enforce
- * unrecognized_name checks this and closes with
+ * server_name or no certificate was available yet to check against;
+ * SALPN_SNI_MALFORMED if the extension did not parse. A SALPN_SNI_MISMATCH
+ * never fails the handshake on its own (RFC 6066 3 permits continuing); a
+ * caller that wants to enforce unrecognized_name checks this and closes with
  * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) itself.
  * @param s driver state
  * @return the last checked SNI outcome. */
@@ -392,8 +390,9 @@ salpn_sni_outcome sdrv_sni_outcome(const sdrv* s);
 
 /** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
  * SALPN_SNI_MISMATCH sets s->last_error to
- * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
- * ABSENT are no-ops. Call right after a successful
+ * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) and fails, a
+ * SALPN_SNI_MALFORMED sets err_crypto(50) (decode_error, RFC 8446 6.2)
+ * and fails; MATCH and ABSENT are no-ops. Call right after a successful
  * sdrv_recv_client_hello when the caller wants unrecognized_name
  * enforced instead of RFC 6066 3's silent-continue default.
  * @param s driver state

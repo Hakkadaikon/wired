@@ -1340,6 +1340,7 @@
 #include "tls/chguard_test.c"
 #include "tls/negotiate_test.c"
 #include "tls/salpn_raw_test.c"
+#include "tls/sni_srv_test.c"
 #include "tls/sni_extract_test.c"
 #include "tls/server_tp_test.c"
 #include "app/h3settings_control_open_test.c"
@@ -1938,9 +1939,11 @@ int main(void) {
   test_negotiate_selects_hq_when_only_offered();
   test_negotiate_none_when_neither_offered();
   test_salpn_raw();
+  test_sni_srv();
   test_sni_extract_from_clienthello();
   test_sni_extract_truncated();
   test_sni_extract_wrong_name_type();
+  test_sni_extract_empty();
   test_server_tp();
   test_h3settings_control_open();
   test_h3settings_build();
