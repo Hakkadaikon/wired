@@ -24,7 +24,7 @@ int ncid_worker_encode(u8* cid, usz cid_len, int bits, u32 worker_idx);
  * cid_len==0. */
 int ncid_worker_decode(const u8* cid, usz cid_len, int bits);
 
-/* RFC 9312 2.6 / RFC 9000 5.1: a routing byte readable only by holders of a
+/** RFC 9312 2.6 / RFC 9000 5.1: a routing byte readable only by holders of a
  * per-process key (the AF_XDP BPF steering program and the server), not by
  * an on-path observer. cid[0] = core ^ mask, where mask is a keyed mix of
  * cid[1..4], so each CID of a connection shows an unrelated first byte.
