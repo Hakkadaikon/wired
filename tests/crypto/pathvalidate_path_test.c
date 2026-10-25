@@ -68,10 +68,24 @@ static void test_require_explicit_policy_root_omitted_ok(void) {
   CHECK(castore_validate_chain(&s, certs, 2, 0) == 1);
 }
 
+/* RFC 5280 6.1.3 (b)/(c): ncmid permits only dirName O=Good; the
+ * self-issued intermediate ncmid2 (CN=Path NC Mid, not the final
+ * certificate) lies outside it but is skipped, and ncleaf's subject
+ * O=Good/CN=leaf.example is inside: accepted (openssl verify: OK). */
+static void test_nc_self_issued_intermediate_skipped(void) {
+  castore    s;
+  wired_span certs[3] = {
+      PKP_SPAN(pkp_ncleaf_der), PKP_SPAN(pkp_ncmid2_der),
+      PKP_SPAN(pkp_ncmid_der)};
+  pkp_store(&s, PKP_SPAN(pkp_root_der));
+  CHECK(castore_validate_chain(&s, certs, 3, PKP_NOW_IN) == 1);
+}
+
 void test_pathvalidate_path(void) {
   test_path_validity_in_window_ok();
   test_path_intermediate_expired_rejects();
   test_path_anchor_expired_rejects();
   test_require_explicit_policy_root_omitted_rejects();
   test_require_explicit_policy_root_omitted_ok();
+  test_nc_self_issued_intermediate_skipped();
 }

@@ -4,6 +4,8 @@ static int  cert_pathlen_ok(wired_span cert, usz below);
 static usz  non_self_issued_below(const wired_span* certs, usz i);
 static int  step_ok(const wired_span* certs, usz i);
 static int  subject_admitted(wired_span issuer, wired_span child);
+static int  nc_skipped(const wired_span* certs, usz k);
+static int  below_admitted(const wired_span* certs, usz j, usz k);
 static int  issuer_constrains_below(const wired_span* certs, usz j);
 static void skipcerts_lower(u64* counter, u64 v);
 static int  apply_require_explicit(wired_span tbs, u64* explicit_policy);
@@ -88,6 +90,18 @@ static int subject_admitted(wired_span issuer, wired_span child) {
   return x509_name_constraints_admit(ci.tbs, cc.tbs);
 }
 
+/* RFC 5280 6.1.3 (b)/(c): "If certificate i is self-issued and it is not
+ * the final certificate in the path, skip this step for certificate i."
+ * certs[0] is the final certificate and is always checked. */
+static int nc_skipped(const wired_span* certs, usz k) {
+  return k > 0 && castore_cert_self_issued(certs[k]);
+}
+
+/* certs[k] is skipped or admitted by issuer certs[j]'s nameConstraints. */
+static int below_admitted(const wired_span* certs, usz j, usz k) {
+  return nc_skipped(certs, k) || subject_admitted(certs[j], certs[k]);
+}
+
 /* RFC 5280 6.1.4 (g): issuer certs[j]'s nameConstraints applies to every
  * certificate below it in the path (nearer the leaf): certs[0..j). Checking
  * each issuer independently against every certificate below it realizes
@@ -97,7 +111,7 @@ static int subject_admitted(wired_span issuer, wired_span child) {
  * issuer's own excluded set covers it. */
 static int issuer_constrains_below(const wired_span* certs, usz j) {
   for (usz k = 0; k < j; k++) {
-    if (!subject_admitted(certs[j], certs[k])) {
+    if (!below_admitted(certs, j, k)) {
       return 0;
     }
   }
