@@ -605,6 +605,7 @@
 #include "tls/handshake/roles/server/server.c"
 #include "tls/handshake/roles/server/server_early.c"
 #include "tls/handshake/roles/server/server_feed.c"
+#include "tls/handshake/roles/server/server_order.c"
 #include "tls/handshake/roles/server/server_srv.c"
 #include "tls/handshake/roles/server/serverio.c"
 #include "app/http3/server/h3srv/control.c"

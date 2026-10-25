@@ -54,6 +54,9 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->ku_seeded         = 0;
   s->ku_send_count     = 0;
   s->ku_auth_fail      = 0;
+  s->hs_error          = 0;
+  s->hs_rx_used        = 0;
+  s->ini_rx_end        = 0;
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {
@@ -102,6 +105,7 @@ static int srv_accept_client_hello(
   if (!sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) {
     return 0;
   }
+  s->ini_rx_end += ch_len; /* ClientHello1 + (after an HRR) ClientHello2 */
   return sdrv_enforce_sni(&s->sdrv);
 }
 
@@ -121,6 +125,8 @@ static int srv_fold_ch(wired_server* s, const u8* ch_msg, usz ch_len) {
 
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
   if (s->phase != WIRED_SERVER_HS_INITIAL) {
+    /* RFC 8446 4.1.2: a ClientHello once TLS 1.3 is negotiated */
+    s->sdrv.last_error = err_crypto(10); /* unexpected_message */
     return 0;
   }
   if (!srv_accept_client_hello(s, ch_msg, ch_len)) {
