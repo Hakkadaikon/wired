@@ -32,6 +32,9 @@ typedef struct {
   u64 at[ZERORTT_SEEN_CAP];         /* epoch secs each digest was recorded */
   usz count;                        /* entries filled so far (<= CAP) */
   int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
+  /* epoch secs the recording window opened (0 = not yet): see
+   * zerortt_seen_starting */
+  u64 started;
 } zerortt_seen;
 
 /* Reset s to empty. */
@@ -46,5 +49,16 @@ int zerortt_seen_check(zerortt_seen* s, wired_span identity);
 /* zerortt_seen_check at now_secs (epoch seconds) instead of the clock; a
  * full ring whose oldest entry is still live refuses (returns 0). */
 int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs);
+
+/* RFC 8446 8.2: 1 while s's recording window still overlaps start-up --
+ * a ClientHello an earlier server instance accepted 0-RTT for just before
+ * this one started is in no record here, yet its replay can still pass
+ * freshness for ZERORTT_SEEN_LIVE_SECS. The window opens at the first call
+ * (or zerortt_seen_set_started); every earlier call is at or after process
+ * start, so [first call, +LIVE) covers every attempt in [start, +LIVE). */
+int zerortt_seen_starting(zerortt_seen* s, u64 now_secs);
+/* Open s's recording window at secs instead of at the first
+ * zerortt_seen_starting call (e.g. a server that knows its start time). */
+void zerortt_seen_set_started(zerortt_seen* s, u64 secs);
 
 #endif

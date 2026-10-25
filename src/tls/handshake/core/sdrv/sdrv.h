@@ -500,6 +500,12 @@ int sdrv_early_allowed(const sdrv* s);
  *   tracker then stays per-process). */
 int sdrv_zerortt_share(void);
 
+/** RFC 8446 8.2: open this process's 0-RTT recording window at secs (epoch
+ * seconds) instead of at the first 0-RTT attempt; 0-RTT is refused for
+ * ZERORTT_SEEN_LIVE_SECS after it opens.
+ * @param secs epoch seconds the server started recording. */
+void sdrv_zerortt_set_started(u64 secs);
+
 /** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
  * this driver's only supported group) into out, fold it into the
  * transcript, and arm ClientHello2 handling: sdrv_recv_client_hello.

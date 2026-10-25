@@ -89,12 +89,22 @@ int sdrv_zerortt_share(void) {
  * proceeds as 1-RTT (RFC 8446 4.2.10). */
 static int sdrv_early_data_eligible(
     const ticket* t, const tlsext_psk_offer* off) {
+  u64 now       = wired_clock_epoch_secs();
   int first_use = zerortt_seen_check(
       sdrv_zerortt_seen(), wired_span_of(off->identity, off->id_len));
   if (!zerortt_replay_ok(1, first_use)) {
     return 0;
   }
-  return ticket_freshness_ok(t, off->ticket_age, wired_clock_epoch_secs());
+  /* RFC 8446 8.2: no 0-RTT while the recording window overlaps start-up
+   * (an earlier instance's accepted ClientHello is in no record here). */
+  if (zerortt_seen_starting(sdrv_zerortt_seen(), now)) {
+    return 0;
+  }
+  return ticket_freshness_ok(t, off->ticket_age, now);
+}
+
+void sdrv_zerortt_set_started(u64 secs) {
+  zerortt_seen_set_started(sdrv_zerortt_seen(), secs);
 }
 
 /* RFC 8446 4.2.10: the ClientHello asked for 0-RTT (an early_data extension

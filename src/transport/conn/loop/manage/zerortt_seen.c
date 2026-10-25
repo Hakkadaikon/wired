@@ -6,9 +6,10 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 void zerortt_seen_init(zerortt_seen* s) {
-  s->next  = 0;
-  s->count = 0;
-  s->lock  = 0;
+  s->next    = 0;
+  s->count   = 0;
+  s->lock    = 0;
+  s->started = 0;
 }
 
 /* The index of an existing entry matching digest, or -1. */
@@ -78,4 +79,16 @@ int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs) {
   first = zerortt_seen_find_or_record(s, digest, now_secs);
   __atomic_store_n(&s->lock, 0, __ATOMIC_RELEASE);
   return first;
+}
+
+int zerortt_seen_starting(zerortt_seen* s, u64 now_secs) {
+  u64 unset = 0;
+  __atomic_compare_exchange_n(
+      &s->started, &unset, now_secs, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+  return now_secs < __atomic_load_n(&s->started, __ATOMIC_ACQUIRE) +
+                        ZERORTT_SEEN_LIVE_SECS;
+}
+
+void zerortt_seen_set_started(zerortt_seen* s, u64 secs) {
+  __atomic_store_n(&s->started, secs, __ATOMIC_RELEASE);
 }

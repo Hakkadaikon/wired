@@ -2186,6 +2186,35 @@ static void test_sdrv_no_ticket_key_disables_0rtt(void) {
  * attempt) is refused for 0-RTT on its second use even though the PSK/binder
  * are still valid -- RFC 8446 8.1 single-use ticket enforcement. PSK-only
  * (non-0-RTT) resumption still proceeds; only early_data is rejected. */
+/* RFC 8446 8.2: while the replay store's recording window overlaps
+ * start-up, a first-use, fresh 0-RTT offer is still refused (the PSK
+ * handshake itself proceeds); the window is reopened at "now" here. */
+static void test_sdrv_0rtt_refused_during_startup(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+    sdrv_set_early_data(&s, 1);
+  }
+  sdrv_zerortt_set_started(wired_clock_epoch_secs());
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  sdrv_zerortt_set_started(1); /* back to "started long ago" */
+}
+
 static void test_sdrv_early_data_replay_rejected(void) {
   sdrv_psk_fixture f;
   sdrv             s1, s2;
@@ -3076,6 +3105,9 @@ static void test_sdrv_0rtt_needs_app_opt_in(void) {
 }
 
 void test_sdrv(void) {
+  /* the 0-RTT tests below run as a server started long ago (RFC 8446 8.2
+   * start-up refusal is test_sdrv_0rtt_refused_during_startup's) */
+  sdrv_zerortt_set_started(1);
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
   test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len();
@@ -3133,6 +3165,7 @@ void test_sdrv(void) {
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();
+  test_sdrv_0rtt_refused_during_startup();
   test_sdrv_psk_binder_after_hrr_accepted();
   test_sdrv_psk_binder_after_hrr_needs_transcript();
   test_sdrv_no_early_data_after_hrr();

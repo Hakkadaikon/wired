@@ -111,7 +111,22 @@ static void test_seen_two_threads_accept_once(void) {
   }
 }
 
+/* RFC 8446 8.2: the recording window opens at the first query, refuses
+ * 0-RTT for ZERORTT_SEEN_LIVE_SECS (a pre-start ClientHello's replay may
+ * still be fresh), and an explicit start time moves it. */
+static void test_seen_starting_window(void) {
+  zerortt_seen s;
+  zerortt_seen_init(&s);
+  CHECK(zerortt_seen_starting(&s, 500) == 1);
+  CHECK(zerortt_seen_starting(&s, 500 + ZERORTT_SEEN_LIVE_SECS - 1) == 1);
+  CHECK(zerortt_seen_starting(&s, 500 + ZERORTT_SEEN_LIVE_SECS) == 0);
+  zerortt_seen_set_started(&s, 1000);
+  CHECK(zerortt_seen_starting(&s, 1000) == 1);
+  CHECK(zerortt_seen_starting(&s, 1000 + ZERORTT_SEEN_LIVE_SECS) == 0);
+}
+
 void test_zerortt_seen(void) {
+  test_seen_starting_window();
   test_seen_two_threads_accept_once();
   test_seen_fresh_is_first_use();
   test_seen_replay_is_not_first_use();
