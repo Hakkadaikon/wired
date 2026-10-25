@@ -18,15 +18,17 @@ static void full_carry(u32 h[5]) {
   h[4] &= 0x3ffffff;
 }
 
-/* Compute g = h + 5 (the candidate for h >= 2^130-5) into g[5]. */
+/* Compute g = h + 5 - 2^130 (the candidate for h >= 2^130-5) into g[5]. The
+ * top limb keeps its carry unmasked: masking it first turned h + 5 = 2^130
+ * into a borrow and left h = 2^130-5 + k unreduced (RFC 8439 A.3 #5). */
 static void plus_five(const u32 h[5], u32 g[5]) {
   u32 c = 5;
-  for (usz i = 0; i < 5; i++) {
+  for (usz i = 0; i < 4; i++) {
     g[i] = h[i] + c;
     c    = g[i] >> 26;
     g[i] &= 0x3ffffff;
   }
-  g[4] -= (1 << 26); /* subtract 2^130 to complete mod-(2^130-5) test */
+  g[4] = h[4] + c - (1 << 26);
 }
 
 /* Select g if h >= 2^130-5 (i.e. g did not borrow), else keep h. */

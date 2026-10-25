@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2002/2261 requirements demonstrated (88.5%) — 1551 directly tested,
-451 indirect, 259 untested.**
+**Total: 2003/2261 requirements demonstrated (88.6%) — 1552 directly tested,
+451 indirect, 258 untested.**
 
 ## QUIC core
 
@@ -111,7 +111,7 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 31/34 | 21 | 10 | 3 |
+| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 32/34 | 22 | 10 | 2 |
 | [RFC 7748 — X25519](rfc7748.md) | 16/16 | 13 | 3 | 0 |
 | [RFC 8032 — Ed25519](rfc8032.md) | 20/20 | 18 | 2 | 0 |
 | [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 21/21 | 16 | 5 | 0 |
