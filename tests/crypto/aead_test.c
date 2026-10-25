@@ -149,6 +149,51 @@ static const struct {
      "13000000000000000000000000000000"},
 };
 
+/* RFC 8439 A.4 Poly1305 key generation #1-#3: key, nonce, one-time key. */
+static const struct {
+  const char* key;
+  const char* nonce;
+  const char* otk;
+} rfc8439_a4_vecs[] = {
+    {"0000000000000000000000000000000000000000000000000000000000000000",
+     "000000000000000000000000",
+     "76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7"},
+    {"0000000000000000000000000000000000000000000000000000000000000001",
+     "000000000000000000000002",
+     "ecfa254f845f647473d3cb140da9e87606cb33066c447b87bc2666dde3fbb739"},
+    {"1c9240a5eb55d38af333888604f6b5f0473917c1402b80099dca5cbc207075c0",
+     "000000000000000000000002",
+     "965e3bc6f9ec7ed9560808f4d229f94b137ff275ca9b3fcbdd59deaad23310ae"},
+};
+
+/* RFC 8439 A.5: key, nonce, AAD, ciphertext || received tag, and the
+ * plaintext (decrypted by an independent Python ChaCha20; it starts
+ * "Internet-Drafts are draft documents"). */
+static const char* const rfc8439_a5_key =
+    "1c9240a5eb55d38af333888604f6b5f0473917c1402b80099dca5cbc207075c0";
+static const char* const rfc8439_a5_nonce = "000000000102030405060708";
+static const char* const rfc8439_a5_aad   = "f33388860000000000004e91";
+static const char* const rfc8439_a5_ct_tag =
+    "64a0861575861af460f062c79be643bd5e805cfd345cf389f108670ac76c8cb2"
+    "4c6cfc18755d43eea09ee94e382d26b0bdb7b73c321b0100d4f03b7f355894cf"
+    "332f830e710b97ce98c8a84abd0b948114ad176e008d33bd60f982b1ff37c855"
+    "9797a06ef4f0ef61c186324e2b3506383606907b6a7c02b0f9f6157b53c867e4"
+    "b9166c767b804d46a59b5216cde7a4e99040c5a40433225ee282a1b0a06c523e"
+    "af4534d7f83fa1155b0047718cbc546a0d072b04b3564eea1b422273f548271a"
+    "0bb2316053fa76991955ebd63159434ecebb4e466dae5a1073a6727627097a10"
+    "49e617d91d361094fa68f0ff77987130305beaba2eda04df997b714d6c6f2c29"
+    "a6ad5cb4022b02709beead9d67890cbb22392336fea1851f38";
+static const char* const rfc8439_a5_pt =
+    "496e7465726e65742d4472616674732061726520647261667420646f63756d65"
+    "6e74732076616c696420666f722061206d6178696d756d206f6620736978206d"
+    "6f6e74687320616e64206d617920626520757064617465642c207265706c6163"
+    "65642c206f72206f62736f6c65746564206279206f7468657220646f63756d65"
+    "6e747320617420616e792074696d652e20497420697320696e617070726f7072"
+    "6961746520746f2075736520496e7465726e65742d4472616674732061732072"
+    "65666572656e6365206d6174657269616c206f7220746f206369746520746865"
+    "6d206f74686572207468616e206173202fe2809c776f726b20696e2070726f67"
+    "726573732e2fe2809d";
+
 /* Compare n bytes. */
 static int rfc8439_eq(const u8* a, const u8* b, usz n) {
   u8 d = 0;
@@ -178,9 +223,42 @@ static void test_rfc8439_a3_poly1305(void) {
   }
 }
 
+/* RFC 8439 A.4 #1-#3: the one-time key is the first 32 bytes of the
+ * counter-0 block (2.6), which chapoly's tag derivation uses. */
+static void test_rfc8439_a4_keygen(void) {
+  for (usz i = 0; i < 3; i++) {
+    u8 key[32], nonce[12], want[32], block[64];
+    uh2(rfc8439_a4_vecs[i].key, key);
+    uh2(rfc8439_a4_vecs[i].nonce, nonce);
+    uh2(rfc8439_a4_vecs[i].otk, want);
+    chacha20_block(key, 0, nonce, block);
+    CHECK(rfc8439_eq(block, want, 32));
+  }
+}
+
+/* RFC 8439 A.5: the received ciphertext authenticates and decrypts to the
+ * expected plaintext; a flipped tag bit is rejected. */
+static void test_rfc8439_a5_open(void) {
+  u8  key[32], nonce[12], aad[12], ct[265 + 16], want[265], pt[265];
+  usz al, n;
+  uh2(rfc8439_a5_key, key);
+  uh2(rfc8439_a5_nonce, nonce);
+  al = uh2(rfc8439_a5_aad, aad);
+  n  = uh2(rfc8439_a5_ct_tag, ct);
+  uh2(rfc8439_a5_pt, want);
+  chapoly_ctx c = {key, nonce, {aad, al}};
+  CHECK(n == sizeof(ct));
+  CHECK(chapoly_open(&c, wired_span_of(ct, n), pt) == 1);
+  CHECK(rfc8439_eq(pt, want, sizeof(want)));
+  ct[n - 1] ^= 0x01;
+  CHECK(chapoly_open(&c, wired_span_of(ct, n), pt) == 0);
+}
+
 void test_aead(void) {
   test_chapoly_rfc();
   test_chapoly_open();
   test_aead_tamper_rejects();
   test_rfc8439_a3_poly1305();
+  test_rfc8439_a4_keygen();
+  test_rfc8439_a5_open();
 }
