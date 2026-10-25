@@ -163,7 +163,7 @@ section.
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 768 — UDP](rfc768.md) | 9/9 | 9 | 0 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 13/17 | 9 | 4 | 4 |
+| [RFC 791 — IPv4](rfc791.md) | 16/16 | 14 | 2 | 0 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 5/5 | 4 | 1 | 0 |
 
 ---
