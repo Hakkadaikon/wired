@@ -82,6 +82,15 @@ static void test_rfc6979_retry_skips_rejected_candidates(void) {
     differs |= (k0[i] != kr[i]);
   }
   CHECK(differs != 0); /* retried past the first candidate k0 would use */
+  /* RFC 6979 3.2 h.3: the 3rd draw after two K = HMAC_K(V || 0x00),
+   * V = HMAC_K(V) steps, from a Python hmac model whose 1st draw equals the
+   * A.2.5 k above. */
+  u8 want[32];
+  r6979_hb32(
+      "7b8dc9ad8ce159abca1b9915fc1470e91d5ad2443b3032557e78f47e180ab702", want);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(kr[i] == want[i]);
+  }
 }
 
 void test_rfc6979(void) {
