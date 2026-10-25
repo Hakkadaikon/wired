@@ -21,6 +21,12 @@ usz verinfo_encode(u8* buf, usz cap, const version_information* vi);
 
 /* Decode n bytes (a multiple of 4, at least 4) into vi. Returns bytes
  * consumed, or 0 if truncated, misaligned, or too many Available Versions. */
+/* Also 0 (RFC 9368 4 parsing failure) when the Chosen Version or any
+ * Available Version is zero. */
 usz verinfo_decode(const u8* buf, usz n, version_information* vi);
+/* RFC 9368 4: 1 if the Chosen Version appears in Available Versions -- a
+ * server treats a client's Version Information failing this as a parsing
+ * failure. */
+int verinfo_chosen_listed(const version_information* vi);
 
 #endif

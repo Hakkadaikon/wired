@@ -32,6 +32,10 @@ typedef struct {
    * ClientHello transport parameters; 0 = not advertised (peer does not
    * support DATAGRAM) */
   u64 peer_max_datagram_frame_size;
+  /** RFC 9287 3: 1 when the ClientHello carried grease_quic_bit (empty
+   * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
+   * may grease the bit (wired_srvloop_send_onertt). */
+  int peer_grease_quic_bit;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit
@@ -70,6 +74,10 @@ typedef struct {
    * server's (salpn_raw_pick_server, the default) -- for clients that
    * ignore the selected protocol (sdrv_set_alpn_client_order). */
   int alpn_client_order;
+  /** RFC 9308 13: WIRED_VERSIONS_* bits this server accepts (0 = all),
+   * set by sdrv_set_versions; compatible version negotiation and the
+   * advertised Available Versions draw from this set. */
+  u32 versions;
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -297,6 +305,13 @@ void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
  * @param s driver state
  * @param on 1 client order, 0 server order (the sdrv_init default) */
 void sdrv_set_alpn_client_order(sdrv* s, int on);
+
+/** RFC 9308 13: restrict the versions compatible version negotiation may
+ * select and the version_information this server advertises.
+ * @param s driver state
+ * @param versions WIRED_VERSIONS_* bits, 0 = every supported version (the
+ *        sdrv_init default) */
+void sdrv_set_versions(sdrv* s, u32 versions);
 
 /** Inputs to sdrv_init.
  *

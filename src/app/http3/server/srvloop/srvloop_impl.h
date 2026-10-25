@@ -13,6 +13,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/ack.h"

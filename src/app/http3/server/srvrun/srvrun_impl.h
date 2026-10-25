@@ -80,7 +80,12 @@ void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
 usz srvrun_retry_pkt_build(
-    const lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap);
+    const lhdr* h,
+    u32         version,
+    const u8    scid[8],
+    wired_span  token,
+    u8*         pkt,
+    usz         cap);
 void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
@@ -88,7 +93,7 @@ void srvrun_retry_prep(
     u8                     token[RETRYTOKEN_WIRE_MAX],
     usz*                   tn);
 void srvrun_retry_finish(
-    const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n);
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version, u8* pkt, usz n);
 int srvrun_retry_gate(
     const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid);
 void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid);

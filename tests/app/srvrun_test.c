@@ -1200,6 +1200,7 @@ static void sr_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }
@@ -3766,7 +3767,7 @@ static usz sr_seal_dcid(
   aes128_init(&hp, k->hp);
   {
     protect_keys      pk = {k, &hp};
-    hspkt_onertt_desc d  = {dcid, pn, pl, 0};
+    hspkt_onertt_desc d  = {dcid, pn, pl, 0, 0, 0};
     wired_obuf        o  = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     return o.len;

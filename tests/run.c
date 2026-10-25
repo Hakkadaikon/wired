@@ -628,6 +628,7 @@
 #include "app/http3/server/srvloop/body_window_bodywin_capq.c"
 #include "app/http3/server/srvloop/keys.c"
 #include "app/http3/server/srvloop/recv.c"
+#include "app/http3/server/srvloop/recv_version.c"
 #include "app/http3/server/srvloop/priority_ctrl.c"
 #include "app/http3/server/srvloop/priority_ctrl_ctrl.c"
 #include "app/http3/server/srvloop/dispatch.c"

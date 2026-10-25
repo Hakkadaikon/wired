@@ -2,6 +2,8 @@
 
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/aead/gcm/gcm.h"
+#include "tls/handshake/core/tls/retry_tag_v2.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9001 5.8 fixed key and nonce for the v1 Retry Integrity Tag. */
 static const u8 RETRY_KEY[16]   = {0xbe, 0x0c, 0x69, 0x0b, 0x9f, 0x66,
@@ -24,21 +26,46 @@ static usz build_pseudo(wired_span odcid, wired_span retry, u8* aad) {
   return n;
 }
 
-void retry_tag(wired_span odcid, wired_span retry, u8 tag[RETRY_TAG]) {
-  u8     aad[1 + 20 + 1500]; /* ponytail: MTU-bounded pseudo-packet scratch */
-  aes128 a;
-  usz    aad_len = build_pseudo(odcid, retry, aad);
-  aes128_init(&a, RETRY_KEY);
-  gcm_ctx g = {&a, RETRY_NONCE, {aad, aad_len}};
+/* RFC 9369 3.3.3: v2 has its own fixed key and nonce; every other version
+ * this SDK sends keeps RFC 9001 5.8's. */
+static void retry_key_nonce(u32 version, const u8** key, const u8** nonce) {
+  usz len;
+  if (version == VERSION_2) {
+    retry_tag_v2_key(key, &len);
+    retry_tag_v2_nonce(nonce, &len);
+    return;
+  }
+  *key   = RETRY_KEY;
+  *nonce = RETRY_NONCE;
+}
+
+void retry_tag_ver(
+    u32 version, wired_span odcid, wired_span retry, u8 tag[RETRY_TAG]) {
+  u8        aad[1 + 20 + 1500]; /* ponytail: MTU-bounded pseudo-packet */
+  aes128    a;
+  const u8* key;
+  const u8* nonce;
+  usz       aad_len = build_pseudo(odcid, retry, aad);
+  retry_key_nonce(version, &key, &nonce);
+  aes128_init(&a, key);
+  gcm_ctx g = {&a, nonce, {aad, aad_len}};
   /* empty plaintext: the AEAD tag over the pseudo-packet is the integrity tag
    */
   gcm_seal(&g, wired_span_of(0, 0), tag);
 }
 
-int retry_verify(wired_span odcid, wired_span retry_with_tag) {
+void retry_tag(wired_span odcid, wired_span retry, u8 tag[RETRY_TAG]) {
+  retry_tag_ver(VERSION_1, odcid, retry, tag);
+}
+
+int retry_verify_ver(u32 version, wired_span odcid, wired_span retry_with_tag) {
   u8         want[RETRY_TAG];
   wired_span retry =
       wired_span_of(retry_with_tag.p, retry_with_tag.n - RETRY_TAG);
-  retry_tag(odcid, retry, want);
+  retry_tag_ver(version, odcid, retry, want);
   return ct_diff16(want, retry_with_tag.p + retry.n) == 0;
+}
+
+int retry_verify(wired_span odcid, wired_span retry_with_tag) {
+  return retry_verify_ver(VERSION_1, odcid, retry_with_tag);
 }
