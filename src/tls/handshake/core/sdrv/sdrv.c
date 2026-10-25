@@ -121,6 +121,8 @@ static void sdrv_reset_hs(sdrv* s) {
   s->tp_odcid_len        = 0;
   s->rscid_len           = 0;
   s->psk_accepted        = 0;
+  s->psk_origin_at       = 0;
+  s->psk_dhe_ke          = 0;
   s->early_data_accepted = 0;
   s->early_keys_dropped  = 0;
   s->last_error          = 0;

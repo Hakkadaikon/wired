@@ -16,7 +16,7 @@
 /* Sealed-ticket framing: nonce || ciphertext || tag. */
 #define TICKET_NONCE_LEN 12
 #define TICKET_TAG_LEN 16
-#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2)
+#define TICKET_PLAIN_LEN (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + 8)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -36,6 +36,11 @@ typedef struct {
    * resumption must negotiate a suite with the same hash, and 0-RTT the
    * very same suite. */
   u16 suite;
+  /** RFC 8446 4.6.1: when the full (non-PSK) handshake whose keying
+   * material this ticket carries forward took place (same clock as
+   * issued_at). A ticket re-issued on a resumed connection inherits it, so
+   * the server can cap the total lifetime of that material. */
+  u64 origin_at;
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

@@ -1555,9 +1555,14 @@ typedef struct {
   u8  cli_pub[32], srv_random[32];
 } sdrv_psk_fixture;
 
+/* RFC 8446 4.6.1: the fixture ticket's original full-handshake time, which
+ * an accepted resumption must carry forward (sdrv.psk_origin_at). */
+#define SDRV_TEST_ORIGIN_AT 1700000000ULL
+
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
+  ticket t = {
+      {0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, SDRV_TEST_ORIGIN_AT};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1604,6 +1609,7 @@ static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
   }
   CHECK(sdrv_recv_client_hello(&s, f.ch, f.ch_len));
   CHECK(s.psk_accepted == 0);
+  CHECK(s.psk_dhe_ke == 0); /* RFC 8446 4.2.9: no psk_key_exchange_modes */
   sh_ob = obuf_of(sh, sizeof(sh));
   fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (sdrv_flight_out){&sh_ob, &fl_ob};
@@ -1678,6 +1684,8 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
+  CHECK(s.psk_dhe_ke == 1);                      /* RFC 8446 4.2.9 */
+  CHECK(s.psk_origin_at == SDRV_TEST_ORIGIN_AT); /* RFC 8446 4.6.1 */
   for (usz i = 0; i < 32; i++) {
     CHECK(s.psk_secret[i] == f.psk[i]);
   }
@@ -1750,7 +1758,7 @@ static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv             s;
   u8               ch2[700], psk[48], sh[256], flight[2048];
   usz              ch2_len;
-  ticket           t        = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384};
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, 0};
   static const u8  nonce[1] = {0};
   hkdf_label       l        = {"resumption", 10, {nonce, 1}};
   wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
@@ -2399,7 +2407,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, 0};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = f->secret[i];

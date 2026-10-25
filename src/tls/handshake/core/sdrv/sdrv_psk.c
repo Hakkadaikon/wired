@@ -115,6 +115,14 @@ int sdrv_ch_negotiate(sdrv* s, const u8* ch_msg, usz ch_len, usz* body) {
   return sdrv_negotiate_cipher(s, ch_msg + 4, *body);
 }
 
+/* RFC 8446 4.2.9: the ClientHello's psk_key_exchange_modes offers
+ * psk_dhe_ke. */
+static int sdrv_ch_offers_psk_dhe_ke(const u8* ch_msg, usz ch_len) {
+  wired_span ext;
+  return sdrv_find_client_ext(ch_msg, ch_len, TLSEXT_T_PSK_MODES, &ext) &&
+         tlsext_psk_modes_parse(ext.p, ext.n);
+}
+
 /* The peer-advertised fields (transport-parameter integers, ALPN) that never
  * fail the ClientHello -- absent/malformed just leaves a default and lets
  * the caller (server.c) fail later on its own terms (see each helper's doc).
@@ -137,6 +145,7 @@ void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
       ch_msg, ch_len, TP_INITIAL_MAX_STREAMS_UNI,
       &s->peer_initial_max_streams_uni);
   sdrv_check_sni(s, ch_msg, ch_len);
+  s->psk_dhe_ke = sdrv_ch_offers_psk_dhe_ke(ch_msg, ch_len);
   transcript_add(&s->tr, ch_msg, ch_len);
 }
 

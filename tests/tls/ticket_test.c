@@ -16,6 +16,8 @@ static ticket sample_ticket(void) {
   t.age_add       = 0x12345678;
   t.alpn          = 3; /* SALPN_RAW */
   t.ticket_nonce  = 5;
+  t.suite         = 0x1301;
+  t.origin_at     = 1699990000ULL;
   return t;
 }
 
@@ -35,6 +37,7 @@ static void test_ticket_roundtrip(void) {
   CHECK(out.age_add == in.age_add);
   CHECK(out.alpn == in.alpn); /* RFC 8446 4.2.10: ALPN recorded */
   CHECK(out.ticket_nonce == in.ticket_nonce); /* RFC 8446 4.6.1 */
+  CHECK(out.origin_at == in.origin_at);       /* RFC 8446 4.6.1 */
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     CHECK(out.secret[i] == in.secret[i]);
   }

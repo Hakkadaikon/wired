@@ -138,7 +138,8 @@ static void sdrv_psk_accept_opened(
     const u8*               ch_msg,
     usz                     ch_len,
     const tlsext_psk_offer* off) {
-  s->psk_accepted = 1;
+  s->psk_accepted  = 1;
+  s->psk_origin_at = t->origin_at; /* RFC 8446 4.6.1 */
   /* s->psk_secret feeds RFC 8446 7.1's Early Secret = HKDF-Extract(0, PSK)
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
@@ -170,7 +171,7 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t      = {{0}, 0, 0, 0, 0, 0, 0};
+  ticket t      = {{0}, 0, 0, 0, 0, 0, 0, 0};
   int    opened = sdrv_psk_open_usable(s, off, &t);
   int    bound  = sdrv_psk_binder_ok(s, &t, ch_msg, psk_ext, off);
   if (!opened) {

@@ -79,6 +79,14 @@ typedef struct {
    * binder verified. psk_secret (the opened ticket's resumption secret) is
    * only meaningful when this is 1. */
   int psk_accepted;
+  /** RFC 8446 4.6.1: the accepted ticket's origin_at (the original full
+   * handshake's time), carried into tickets issued on this connection;
+   * meaningful when psk_accepted. */
+  u64 psk_origin_at;
+  /** RFC 8446 4.2.9: 1 when the ClientHello's psk_key_exchange_modes
+   * offered psk_dhe_ke, the only mode this server resumes with; a session
+   * ticket is issued only then. Set by sdrv_recv_client_hello. */
+  int psk_dhe_ke;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
