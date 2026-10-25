@@ -20,4 +20,10 @@ void retry_tag(wired_span odcid, wired_span retry, u8 tag[RETRY_TAG]);
  * the full Retry packet (its last 16 bytes are the tag). Returns 1 if valid. */
 int retry_verify(wired_span odcid, wired_span retry_with_tag);
 
+/* retry_tag / retry_verify under the key and nonce of `version`: RFC 9369
+ * 3.3.3's for QUIC v2, RFC 9001 5.8's for anything else. */
+void retry_tag_ver(
+    u32 version, wired_span odcid, wired_span retry, u8 tag[RETRY_TAG]);
+int retry_verify_ver(u32 version, wired_span odcid, wired_span retry_with_tag);
+
 #endif

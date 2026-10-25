@@ -2,6 +2,8 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "transport/version/version/v2types.h"
+#include "transport/version/version/version.h"
 
 /* Append a length-prefixed CID; returns 1 ok, 0 if no room. */
 static int retry_put_cid(wired_obuf* out, wired_span cid) {
@@ -20,13 +22,21 @@ static int retry_fits(usz cap, const retry_desc* d) {
   return need <= cap;
 }
 
+/* RFC 9000 17.2.5 / RFC 9369 3.2: long form, fixed bit and the Retry type
+ * bits of the packet's own version (v1 0b11, v2 0b00). */
+static u8 retry_byte0(u32 version) {
+  int wire = version == VERSION_2 ? v2_packet_type(LT_RETRY)
+                                  : v1_packet_type(LT_RETRY);
+  return (u8)(0xC0 | (wire << 4));
+}
+
 usz retry_build(u8* buf, usz cap, const retry_desc* d) {
   wired_obuf out = obuf_of(buf, cap);
   out.len        = 5;
   if (!retry_fits(cap, d)) {
     return 0;
   }
-  buf[0] = 0xF0; /* RFC 9000 17.2.5: long form, fixed bit, type Retry (0x3) */
+  buf[0] = retry_byte0(d->version);
   be_put_be32(buf + 1, d->version);
   retry_put_cid(&out, d->dcid); /* room checked above */
   retry_put_cid(&out, d->scid);
