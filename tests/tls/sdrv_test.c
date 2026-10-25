@@ -2777,7 +2777,7 @@ static usz sdrv_test_ch_setup(sdrv* s, u8* ch, usz cap) {
 
 /* Append one raw extension TLV to ch (ch_len bytes), patching the
  * extensions-length and handshake-length fields. Returns the new length. */
-static usz sdrv_test_append_ext(u8* ch, usz ch_len, const u8* ext, usz n) {
+static usz sdrv_test_append_raw_ext(u8* ch, usz ch_len, const u8* ext, usz n) {
   usz exts_len =
       (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
   for (usz i = 0; i < n; i++) {
@@ -2818,7 +2818,7 @@ static void test_sdrv_ch_malformed_is_decode_error(void) {
   sdrv             s;
   u8               ch[600], junk = 0;
   usz              n = sdrv_test_ch_setup(&s, ch, sizeof ch);
-  n                  = sdrv_test_append_ext(ch, n, &junk, 1);
+  n                  = sdrv_test_append_raw_ext(ch, n, &junk, 1);
   CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
   for (usz i = 0; i < sizeof offs / sizeof *offs; i++) {
     n           = sdrv_test_ch_setup(&s, ch, sizeof ch);
@@ -2887,8 +2887,8 @@ static void test_sdrv_psk_two_identities_falls_back(void) {
   }
   n = sdrv_test_ch_setup(&s, ch, sizeof ch);
   CHECK(tlsext_psk_modes(modes, sizeof modes, &modes_len));
-  n = sdrv_test_append_ext(ch, n, modes, modes_len);
-  n = sdrv_test_append_ext(ch, n, psk, sizeof psk);
+  n = sdrv_test_append_raw_ext(ch, n, modes, modes_len);
+  n = sdrv_test_append_raw_ext(ch, n, psk, sizeof psk);
   CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
   CHECK(s.psk_accepted == 0);
 }
@@ -2902,10 +2902,10 @@ static void test_sdrv_ch_sig_algs_cert(void) {
   sdrv            s;
   u8              ch[700];
   usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
-  n                 = sdrv_test_append_ext(ch, n, good, sizeof good);
+  n                 = sdrv_test_append_raw_ext(ch, n, good, sizeof good);
   CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
   n = sdrv_test_ch_setup(&s, ch, sizeof ch);
-  n = sdrv_test_append_ext(ch, n, bad, sizeof bad);
+  n = sdrv_test_append_raw_ext(ch, n, bad, sizeof bad);
   CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(50));
 }
 
@@ -2919,7 +2919,7 @@ static void test_sdrv_ch_versions_unknown_ignored(void) {
   u8              ch[700];
   usz             n = sdrv_test_ch_setup(&s, ch, sizeof ch);
   sdrv_test_blot_ext_type(ch, SDRV_TEST_VERSIONS_TYPE_OFF);
-  n = sdrv_test_append_ext(ch, n, vers, sizeof vers);
+  n = sdrv_test_append_raw_ext(ch, n, vers, sizeof vers);
   CHECK(sdrv_test_ch_error(&s, ch, n) == 0);
 }
 
