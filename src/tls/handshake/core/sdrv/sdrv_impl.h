@@ -181,4 +181,9 @@ static inline int sdrv_vec_ok(
 
 extern const sdrv_ch_gate SDRV_CH_GATES[15];
 
+/* sdrv_early_ticket.c: the resumed ticket's own checks. */
+int sdrv_early_limits_ok(const sdrv* s, const ticket* t);
+int sdrv_ticket_live(const ticket* t);
+int sdrv_ticket_bound(const sdrv* s, const ticket* t);
+
 #endif

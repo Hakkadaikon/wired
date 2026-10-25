@@ -504,6 +504,7 @@
 #include "tls/handshake/core/sdrv/sdrv_ch_shape.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_psk.c"
 #include "tls/handshake/core/sdrv/sdrv_early.c"
+#include "tls/handshake/core/sdrv/sdrv_early_ticket.c"
 #include "tls/handshake/core/sdrv/sdrv_hrr.c"
 #include "tls/handshake/core/sdrv/sdrv_p256.c"
 #include "tls/handshake/core/sdrv/sdrv_psk.c"
