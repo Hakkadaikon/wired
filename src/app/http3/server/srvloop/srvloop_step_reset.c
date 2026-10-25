@@ -13,6 +13,7 @@ static void srvloop_step_reset(wired_srvloop* l) {
   l->ecn_ack_seen       = 0;
   l->step_np_new        = 0;
   l->ncid_rx_n          = 0;
+  l->retire_rx_n        = 0;
   l->done_n             = 0;
   l->incomplete_n       = 0;
   l->frame_unexpected_n = 0;

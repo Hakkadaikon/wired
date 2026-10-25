@@ -109,7 +109,7 @@ int dispatch_gather_closes(
 int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
-      got_path_resp, got_path_chal, got_ncid;
+      got_path_resp, got_path_chal, got_ncid, got_retire;
   if (!ctx->l) {
     return 0;
   }
@@ -123,8 +123,10 @@ int dispatch_gather_flowctl(
   got_path_resp = srvloop_gather_path_response(ctx->l, payload.p, payload.n);
   got_path_chal = srvloop_gather_path_challenge(ctx->l, payload.p, payload.n);
   got_ncid      = srvloop_gather_ncid(ctx->l, payload.p, payload.n);
+  got_retire    = srvloop_gather_retire(ctx->l, payload.p, payload.n);
   return got_max_data | got_max_stream_data | got_max_streams |
-         got_streams_blocked | got_path_resp | got_path_chal | got_ncid;
+         got_streams_blocked | got_path_resp | got_path_chal | got_ncid |
+         got_retire;
 }
 
 /* RFC 9218 7.1 / 10: 1 if ctx has a loop to reassemble the peer's control
