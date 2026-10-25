@@ -2636,6 +2636,24 @@ static void test_sdrv_psk_binder_after_hrr_needs_transcript(void) {
   CHECK(sdrv_last_error(&s) == err_crypto(51));
 }
 
+/* RFC 8446 4.1.2 / 4.2.10 (#75): "Early data is not permitted after a
+ * HelloRetryRequest." A ClientHello2 that keeps early_data still resumes
+ * (valid post-HRR binder) but gets no 0-RTT keys. */
+static void test_sdrv_no_early_data_after_hrr(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch1[600], hrr[256], ch2[700];
+  usz              hrr_len, ch2_len;
+  initial_keys     got;
+  sdrv_psk_fixture_init(&f);
+  sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  ch2_len = sdrv_test_hrr_ch2(&f, ch1, hrr, hrr_len, 1, ch2, sizeof ch2);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(sdrv_early_keys(&s, &got) == 0);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2693,6 +2711,7 @@ void test_sdrv(void) {
   test_sdrv_early_data_replay_rejected();
   test_sdrv_psk_binder_after_hrr_accepted();
   test_sdrv_psk_binder_after_hrr_needs_transcript();
+  test_sdrv_no_early_data_after_hrr();
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();

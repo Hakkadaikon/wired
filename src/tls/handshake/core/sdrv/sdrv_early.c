@@ -10,6 +10,7 @@ static int sdrv_early_data_wanted(
 static void sdrv_take_early_keys(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ticket_alpn_matches(const sdrv* s, const ticket* t);
 static int  sdrv_early_alpn_ok(const sdrv* s, const ticket* t);
+static int  sdrv_early_permitted(const sdrv* s, const ticket* t);
 static void sdrv_psk_accept_opened(
     sdrv*                   s,
     const ticket*           t,
@@ -129,6 +130,12 @@ static int sdrv_early_alpn_ok(const sdrv* s, const ticket* t) {
          sdrv_ticket_alpn_matches(s, t);
 }
 
+/* RFC 8446 4.1.2: "Early data is not permitted after a HelloRetryRequest"
+ * -- a ClientHello2 that keeps early_data still resumes, as 1-RTT. */
+static int sdrv_early_permitted(const sdrv* s, const ticket* t) {
+  return !s->hrr_sent && sdrv_early_alpn_ok(s, t);
+}
+
 /* A ticket that opened AND whose binder verified: record psk_accepted/
  * psk_secret and derive 0-RTT keys when the ClientHello asked for them and
  * the ticket is not a replay. */
@@ -143,7 +150,7 @@ static void sdrv_psk_accept_opened(
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
   sdrv_psk_from_ticket_secret(t, s->psk_secret);
-  if (sdrv_early_alpn_ok(s, t) &&
+  if (sdrv_early_permitted(s, t) &&
       sdrv_early_data_wanted(ch_msg, ch_len, t, off)) {
     sdrv_take_early_keys(s, ch_msg, ch_len);
   }
