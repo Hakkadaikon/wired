@@ -62,9 +62,9 @@ static u32 srvdriver_xdp_attach_flags(int argc, char** argv) {
   return 0u;
 }
 
-/* --ifindex/--ip/--queue/--skb-mode into opt->xdp (opt->port, already
- * resolved by wired_srvdriver_parse, seeds the BPF redirect filter). Shared
- * by WIRED_SRVDRIVER_XDP and WIRED_SRVDRIVER_THREADS (the latter when
+/* --ifindex/--ip/--queue/--skb-mode/--skip-udp-csum into opt->xdp (opt->port,
+ * already resolved by wired_srvdriver_parse, seeds the BPF redirect filter).
+ * Shared by WIRED_SRVDRIVER_XDP and WIRED_SRVDRIVER_THREADS (the latter when
  * --ifindex was also given, selecting AF_XDP multi-queue mode: worker i
  * serves queue i). */
 static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt) {
@@ -76,11 +76,12 @@ static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt) {
   if (!wired_cliargs_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip)) {
     return 0;
   }
-  xdp->ifindex      = (u32)ifindex;
-  xdp->queue_id     = (u32)wired_cliargs_int(argc, argv, "--queue", 0);
-  xdp->port         = opt->port;
-  xdp->bind_flags   = 0;
-  xdp->attach_flags = srvdriver_xdp_attach_flags(argc, argv);
+  xdp->ifindex       = (u32)ifindex;
+  xdp->queue_id      = (u32)wired_cliargs_int(argc, argv, "--queue", 0);
+  xdp->port          = opt->port;
+  xdp->bind_flags    = 0;
+  xdp->attach_flags  = srvdriver_xdp_attach_flags(argc, argv);
+  xdp->skip_udp_csum = wired_cliargs_flag(argc, argv, "--skip-udp-csum");
   return 1;
 }
 

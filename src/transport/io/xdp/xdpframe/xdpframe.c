@@ -2,6 +2,7 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "transport/io/socket/net/checksum.h"
 
 /* Record both MACs from the eth header; 1 iff the frame carries IPv4. */
 static int xdpf_eth(wired_span frame, xdpframe_rx* out) {
@@ -45,13 +46,27 @@ static int xdpf_ip_len_ok(const u8* ip, usz hlen, usz rem) {
   return total >= hlen + UDP_HDR && (usz)total <= rem;
 }
 
+/* RFC 791 3.1: TTL non-zero, and the header checksum over all hlen bytes
+ * (options included) sums to zero. */
+static int xdpf_ip_sane(const u8* ip, usz hlen) {
+  return ip[8] != 0 && cksum(ip, hlen) == 0;
+}
+
+/* RFC 768: the UDP datagram's checksum (zero = none sent) verifies over the
+ * pseudo-header, or the caller opted out (XDPFRAME_SKIP_UDP_CSUM). */
+static int xdpf_udp_csum_ok(const u8* ip, usz hlen, u32 flags) {
+  ipv4addrs a = {be_get_be32(ip + 12), be_get_be32(ip + 16)};
+  return (flags & XDPFRAME_SKIP_UDP_CSUM) ||
+         udp4_check(wired_span_of(ip + hlen, be_get_be16(ip + 2) - hlen), a);
+}
+
 /* Decode the UDP header (starting hlen bytes into ip, past any IP options)
- * into out. The checksums are not verified here on purpose — see
- * xdpframe_parse in the header. */
-static int xdpf_udp(const u8* ip, usz hlen, xdpframe_rx* out) {
+ * into out, after checking its length and checksum. */
+static int xdpf_udp(const u8* ip, usz hlen, u32 flags, xdpframe_rx* out) {
   const u8* udp = ip + hlen;
   sockaddr  dst;
-  if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen) {
+  if (be_get_be16(udp + 4) != be_get_be16(ip + 2) - hlen ||
+      !xdpf_udp_csum_ok(ip, hlen, flags)) {
     return 0;
   }
   wired_udp_addr(&out->src, be_get_be16(udp), ip + 12);
@@ -63,23 +78,30 @@ static int xdpf_udp(const u8* ip, usz hlen, xdpframe_rx* out) {
   return 1;
 }
 
-/* Validate and decode the IPv4 + UDP part starting at ip (rem bytes). */
-static int xdpf_ip(const u8* ip, usz rem, xdpframe_rx* out) {
-  usz hlen = ip_hlen(ip);
-  if (!xdpf_ip_ok(ip) || !xdpf_ip_len_ok(ip, hlen, rem)) {
-    return 0;
-  }
-  return xdpf_udp(ip, hlen, out);
+/* The IPv4 header is well-formed, fits in rem bytes, and passes the TTL and
+ * checksum checks (only read once the length check proved hlen <= rem). */
+static int xdpf_ip_valid(const u8* ip, usz hlen, usz rem) {
+  return xdpf_ip_ok(ip) && xdpf_ip_len_ok(ip, hlen, rem) &&
+         xdpf_ip_sane(ip, hlen);
 }
 
-int xdpframe_parse(wired_span frame, xdpframe_rx* out) {
+/* Validate and decode the IPv4 + UDP part starting at ip (rem bytes). */
+static int xdpf_ip(const u8* ip, usz rem, u32 flags, xdpframe_rx* out) {
+  usz hlen = ip_hlen(ip);
+  if (!xdpf_ip_valid(ip, hlen, rem)) {
+    return 0;
+  }
+  return xdpf_udp(ip, hlen, flags, out);
+}
+
+int xdpframe_parse(wired_span frame, u32 flags, xdpframe_rx* out) {
   if (frame.n < XDPFRAME_HDRS) {
     return 0;
   }
   if (!xdpf_eth(frame, out)) {
     return 0;
   }
-  return xdpf_ip(frame.p + ETH_HDR, frame.n - ETH_HDR, out);
+  return xdpf_ip(frame.p + ETH_HDR, frame.n - ETH_HDR, flags, out);
 }
 
 /* Write the eth header at the frame start. */

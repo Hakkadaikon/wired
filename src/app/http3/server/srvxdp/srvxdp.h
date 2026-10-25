@@ -25,6 +25,9 @@ typedef struct {
   u16 port;         /**< our UDP port, host order */
   u16 bind_flags;   /**< passed through to xsk_cfg */
   u32 attach_flags; /**< 0 = native XDP, XDP_FLAGS_SKB_MODE(2) = generic/veth */
+  /** 1 = do not verify received UDP checksums (veth CHECKSUM_PARTIAL frames,
+   * see XDPFRAME_SKIP_UDP_CSUM); 0 (the default) verifies them */
+  int skip_udp_csum;
 } wired_srvxdp_cfg;
 
 /** One open AF_XDP driver instance: the socket/rings, the TX frame pool,
@@ -38,6 +41,8 @@ typedef struct {
   int           have_mac;   /**< 0 until our_mac is learned */
   u32           ip_be;      /**< cfg->ip, network byte order */
   u16           port;       /**< cfg->port, host order */
+  /** cfg->skip_udp_csum */
+  int skip_udp_csum;
   /** next IPv4 Identification to send (RFC 791 3.2; DF is always set, so
    * a per-socket counter suffices, RFC 6864 4.1) */
   u16 ip_id;

@@ -47,8 +47,9 @@ typedef struct {
 } wired_srvdriver_opt;
 
 /** Parse `--port`/`--workers`/`--ifindex`/`--queue`/`--ip`/`--skb-mode`/
- * `--cores`/`--control-core`/`--pin-core` from argv into *opt, applying the
- * same exclusive-combination rules as examples/word_list's driver_select:
+ * `--skip-udp-csum`/`--cores`/`--control-core`/`--pin-core` from argv into
+ * *opt, applying the same exclusive-combination rules as examples/word_list's
+ * driver_select:
  * `--workers` cannot combine with `--cores` or `--ifindex`; `--pin-core`
  * cannot combine with `--workers` (use its own `--pin-cores`) or `--cores`
  * (use `--control-core`). `--ifindex` alone still composes with `--cores`
