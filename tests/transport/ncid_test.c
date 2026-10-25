@@ -133,7 +133,29 @@ static void test_ncid_decode_rejects_zero_len(void) {
   CHECK(ncid_decode(buf, w, &out) == 0);
 }
 
+/* RFC 9312 2.6 routing byte: every core 0..255 round-trips under a keygen'd
+ * key, the mask depends on cid[1..4] (flipping cid[4] changes it for some
+ * core), and a CID shorter than NCID_ROUTE_MIN_LEN is refused. */
+static void test_ncid_route_roundtrip(void) {
+  ncid_route_key k;
+  u8             cid[8] = {0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
+  usz            moved  = 0;
+  CHECK(ncid_route_keygen(&k) == 1);
+  CHECK((k.k[1] & 1) == 1 && (k.k[2] & 1) == 1);
+  for (u32 core = 0; core < 256; core++) {
+    CHECK(ncid_route_encode(cid, sizeof cid, (u8)core, &k) == 0);
+    CHECK(ncid_route_decode(cid, &k) == core);
+    cid[4] ^= 0x01;
+    moved += ncid_route_decode(cid, &k) != core;
+    cid[4] ^= 0x01;
+    cid[1] = (u8)(cid[1] + 1);
+  }
+  CHECK(moved > 200);
+  CHECK(ncid_route_encode(cid, NCID_ROUTE_MIN_LEN - 1, 1, &k) < 0);
+}
+
 void test_ncid(void) {
+  test_ncid_route_roundtrip();
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
   test_ncid_worker_roundtrip();
