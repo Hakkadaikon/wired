@@ -40,7 +40,8 @@ static i64 srvxdp_open_xsk(
   if (r < 0) {
     return r;
   }
-  r = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
+  x->route_key = bpf->route_key;
+  r            = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
   if (r < 0) {
     xsksetup_close(&x->xsk);
   }

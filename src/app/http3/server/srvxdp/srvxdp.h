@@ -43,6 +43,8 @@ typedef struct {
   u16           port;       /**< cfg->port, host order */
   /** cfg->skip_udp_csum */
   int skip_udp_csum;
+  /** the BPF program's CID routing key (wired_srvxdpbpf.route_key) */
+  ncid_route_key route_key;
   /** next IPv4 Identification to send (RFC 791 3.2; DF is always set, so
    * a per-socket counter suffices, RFC 6864 4.1) */
   u16 ip_id;

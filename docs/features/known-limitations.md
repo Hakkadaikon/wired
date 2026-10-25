@@ -961,6 +961,14 @@ those directly.
 - **AF_XDP path is IPv4 only** — Affects: IPv6 deployments that want the
   kernel-bypass driver. It uses a fixed 20-byte IPv4 header with no options.
   Source: [rfc791.md](rfc791.md).
+- **AF_XDP CID routing is obfuscated, not encrypted** — Affects: AF_XDP
+  multi-queue (`--ifindex` with `--cores`) deployments facing a determined
+  on-path observer. The core id in each connection ID is masked with a
+  keyed multiply/xorshift mix of the next four CID bytes, under a key drawn
+  per process and shared only with the BPF steering program (RFC 9312
+  §2.6). The BPF side cannot run a block cipher, so this is weaker than
+  QUIC-LB's AES-based schemes. Source: [rfc9312.md](rfc9312.md) 9312-005,
+  `ncid_route_key`.
 - **Hub and socket tuning** — see [Capacity limits](#capacity-limits).
 
 ## Capacity limits

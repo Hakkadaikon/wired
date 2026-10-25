@@ -3,14 +3,16 @@
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
+#include "transport/packet/frame/frame/ncid_worker.h"
 
 /** @file
  * XDP filter program builder plus the bpf(2) calls needed to run it: create
  * an XSKMAP, load the program, and attach it to an interface with a BPF
  * link. The filter redirects IPv4/UDP frames for one destination port to the
- * XSKMAP, keyed by the QUIC destination CID's leading byte (packed with a
- * worker/core index by ncid_worker_encode, bits=8) when the packet's
- * QUIC header is readable; it falls back to the NIC rx_queue_index when the
+ * XSKMAP, keyed by the worker/core index the QUIC destination CID carries
+ * (ncid_route_encode: cid[0] masked by a keyed mix of cid[1..4], the key
+ * patched into the program, RFC 9312 2.6) when the packet's QUIC header is
+ * readable; it falls back to the NIC rx_queue_index when the
  * core-id byte cannot be located (too-short packet, a zero-length DCID on a
  * long header, or a DCID byte value that is out of range for the XSKMAP --
  * a client's self-chosen initial DCID, RFC 9000 7.2, is an unconstrained
@@ -30,14 +32,16 @@
  * explicit length byte, straight off the wire. */
 
 /** Number of u64 instructions xdpbpf_prog_build() emits. */
-#define XDPBPF_PROG_LEN 42
+#define XDPBPF_PROG_LEN 58
 
 /** Build the XDP filter into out: eth/IPv4 (IHL=5, non-fragment)/UDP with
- * dport == port is redirected to the XSKMAP map_fd, keyed by the QUIC core-
- * routing byte (falling back to rx_queue_index, see @file); anything else is
- * XDP_PASS. Pure function: a fixed template with the port and map fd patched
- * in. Returns XDPBPF_PROG_LEN. */
-usz xdpbpf_prog_build(u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port);
+ * dport == port is redirected to the XSKMAP map_fd, keyed by the core index
+ * ncid_route_decode(dcid, key) recovers (falling back to rx_queue_index, see
+ * @file); anything else is XDP_PASS. Pure function: a fixed template with
+ * the port, map fd and the three key words patched in. Returns
+ * XDPBPF_PROG_LEN. */
+usz xdpbpf_prog_build(
+    u64 out[XDPBPF_PROG_LEN], i32 map_fd, u16 port, const ncid_route_key* key);
 
 /** Create an XSKMAP (key u32 queue index -> value u32 XSK socket fd) with
  * max_entries slots. Returns the map fd, or a negative errno. */

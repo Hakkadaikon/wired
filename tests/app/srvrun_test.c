@@ -1222,6 +1222,11 @@ static usz sr_build_client_initial(
   return ob.len;
 }
 
+/* A fixed AF_XDP CID routing key for the core-id tests (any key with odd
+ * multipliers; wired_srvxdpbpf_open draws a random one). */
+static const ncid_route_key g_sr_route_key = {
+    {0x0123456789abcdefULL, 0x9e3779b97f4a7c15ULL, 0xbf58476d1ce4e5b9ULL}};
+
 static const u8 g_sr_odcid[8] = {0x11, 0x22, 0x33, 0x44,
                                  0x55, 0x66, 0x77, 0x88};
 
@@ -1776,6 +1781,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
                                 * an uninitialized txpool.nfree is read as a
                                 * garbage free-list index, not just its
                                 * non-0-ness */
+  fake_xdp.route_key = g_sr_route_key;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1792,7 +1798,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  CHECK(st.conns[0].scid[0] == 15);
+  CHECK(ncid_route_decode(st.conns[0].scid, &g_sr_route_key) == 15);
 }
 
 /* MIN/MAX core ids both land in the leading byte (bits=8 boundary). */
@@ -1806,6 +1812,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
   wired_srvxdp fake_xdp = {0}; /* zeroed, same reason as the sibling test
                                 * above -- this path also reaches
                                 * wired_srvxdp_send */
+  fake_xdp.route_key = g_sr_route_key;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -1822,7 +1829,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  CHECK(st.conns[0].scid[0] == 0);
+  CHECK(ncid_route_decode(st.conns[0].scid, &g_sr_route_key) == 0);
 }
 
 /* NON-XDP MODE (xdp == 0, the SO_REUSEPORT/plain-UDP default): core_id is
@@ -1884,14 +1891,15 @@ static void test_srvrun_issue_cid_xdp_negative_core_id_no_embed(void) {
 }
 
 /* CORE_ID embedding via the shared seam directly (xdp on, core_id in
- * range): the leading byte is exactly the core id, regardless of whatever
- * cid_generate randomly produced there first. */
+ * range): the CID carries the core id masked under the BPF program's key
+ * (RFC 9312 2.6), recoverable only with that key. */
 static void test_srvrun_issue_cid_xdp_embeds_core_id(void) {
-  u8           cid[8] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
-  wired_srvxdp fake_xdp;
-  srvrun_cfg   cfg = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
+  u8           cid[8]   = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+  wired_srvxdp fake_xdp = {0};
+  srvrun_cfg   cfg      = {.xdp = &fake_xdp, .core_id = 15, 0, 0, 0, 0};
+  fake_xdp.route_key    = g_sr_route_key;
   CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
-  CHECK(cid[0] == 15);
+  CHECK(ncid_route_decode(cid, &g_sr_route_key) == 15);
 }
 
 /* BOOT RETRANSMIT (RFC 9000 13.3): before the handshake is confirmed, the
