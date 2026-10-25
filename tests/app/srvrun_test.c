@@ -2035,6 +2035,37 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
 
+/* RFC 9001 4.9.1 / RFC 9000 17.2.2.1: once a client Handshake packet was
+ * processed (hs_rx_seen) the Initial keys are gone -- a retransmitted
+ * client Initial no longer resends the cached flight and is dropped
+ * unopened, and the boot PTO sends no Initial. */
+static void test_srvrun_initial_dropped_after_handshake_rx(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(st.conns[0].up == 1);
+  CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+  CHECK(srvrun_initial_live(&st.conns[0]) == 1);
+  st.conns[0].l.hs_rx_seen = 1; /* a client Handshake packet was opened */
+  CHECK(srvrun_initial_live(&st.conns[0]) == 0);
+  srvrun_test_reset_send_count();
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(st.conns[0].up == 1);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(srvrun_boot_send_initial(&cfg, &st.conns[0], "t\n") == 0);
+  CHECK(srvrun_test_send_count() == 0);
+}
+
 /* @file
  * RFC 9000 8.1 anti-amplification limit on the boot flight send path
  * (srvrun_boot_send_hs_gated/srvrun_boot_send/srvrun_boot_budget). Drives
@@ -25200,6 +25231,7 @@ void test_srvrun(void) {
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
+  test_srvrun_initial_dropped_after_handshake_rx();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
   test_srvrun_odcid_retransmit_resends_serverhello_first();

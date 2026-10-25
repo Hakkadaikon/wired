@@ -56,6 +56,12 @@ static int srvrun_dgram_all_initial(wired_mspan dg) {
   return n != 0 && srvrun_pkts_all_initial(dg, offs, n);
 }
 
+/* Not yet confirmed and the Initial keys still live: RFC 9001 4.9.1 drops
+ * them once a client Handshake packet was processed (hs_rx_seen). */
+int srvrun_initial_live(const srvrun_conn* c) {
+  return srvrun_awaiting_confirm(c) && !c->l.hs_rx_seen;
+}
+
 /* RFC 9000 13.3: an all-Initial datagram on a slot already up, not yet
  * confirmed, and not eligible to (re)cold-start (srvrun_is_new said no) is
  * the client retransmitting its first flight because the server's reply
@@ -63,7 +69,7 @@ static int srvrun_dgram_all_initial(wired_mspan dg) {
  * coalesces anything beyond Initials (srvrun_dgram_all_initial says no)
  * carries handshake progress and takes the step path instead. */
 int srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg) {
-  if (!srvrun_awaiting_confirm(c)) {
+  if (!srvrun_initial_live(c)) {
     return 0;
   }
   if (c->boot_ini_len == 0) {

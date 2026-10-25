@@ -48,6 +48,10 @@ int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want) {
 int srvrun_boot_send_initial(
     const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
   int confirmed = wired_server_is_confirmed(&c->s);
+  /* RFC 9001 4.9.1: no Initial goes out once its keys are discarded */
+  if (c->l.hs_rx_seen) {
+    return 0;
+  }
   if (srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len)) {
     return 0;
   }

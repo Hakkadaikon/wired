@@ -234,6 +234,7 @@ void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
 void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln);
 u64  srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count);
 u64  srvrun_idle_ms(const srvrun_conn* c);
+int  srvrun_initial_live(const srvrun_conn* c);
 void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_grant_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c, usz n);
 wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx);
