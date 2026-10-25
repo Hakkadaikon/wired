@@ -134,6 +134,7 @@ static void sdrv_reset_hs(sdrv* s) {
   for (usz i = 0; i < sizeof s->ch1_hash; i++) {
     s->ch1_hash[i] = 0;
   }
+  bytes_memset(s->sni_digest, 0, sizeof s->sni_digest);
 }
 
 void sdrv_init(sdrv* s, const sdrv_init_in* in) {

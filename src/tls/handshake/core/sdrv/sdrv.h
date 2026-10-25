@@ -115,6 +115,10 @@ typedef struct {
    * sdrv_recv_client_hello itself continues in every case; the caller
    * (server.c) closes via sdrv_enforce_sni. */
   salpn_sni_outcome sni_outcome;
+  /** RFC 6066 3: salpn_sni_digest of the server_name when sni_outcome is
+   * SALPN_SNI_MATCH, all zero otherwise. Sealed into every ticket this
+   * connection issues; a ticket whose digest differs is not resumed. */
+  u8 sni_digest[SALPN_SNI_DIGEST];
   /** RFC 9368 2.2: the QUIC version the client's Initial actually arrived
    * in, recorded via sdrv_set_client_version before
    * sdrv_recv_client_hello. 0 (never set) is treated as VERSION_1

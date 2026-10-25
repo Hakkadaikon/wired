@@ -1,16 +1,16 @@
 #include "tls/handshake/core/sdrv/sdrv_flight_impl.h"
 
-static int emit_ee_tp(sdrv* s, wired_obuf* tob);
-static int sdrv_alpn_settled(sdrv* s);
-static int emit_ee_ready(sdrv* s, wired_obuf* tob);
+static int      emit_ee_tp(sdrv* s, wired_obuf* tob);
+static int      sdrv_alpn_settled(sdrv* s);
+static int      emit_ee_ready(sdrv* s, wired_obuf* tob);
 static unsigned sdrv_ee_sni_flag(const sdrv* s);
 static unsigned sdrv_ee_flags(const sdrv* s);
 static int      emit_ee(sdrv* s, wired_obuf* flight);
-static int emit_cert(sdrv* s, wired_obuf* flight);
-static int emit_certverify(sdrv* s, wired_obuf* flight);
-static int emit_finished(sdrv* s, wired_obuf* flight);
-static int emit_cert_cv_fin(sdrv* s, wired_obuf* flight);
-static int emit_hs_flight(sdrv* s, wired_obuf* flight);
+static int      emit_cert(sdrv* s, wired_obuf* flight);
+static int      emit_certverify(sdrv* s, wired_obuf* flight);
+static int      emit_finished(sdrv* s, wired_obuf* flight);
+static int      emit_cert_cv_fin(sdrv* s, wired_obuf* flight);
+static int      emit_hs_flight(sdrv* s, wired_obuf* flight);
 static int sdrv_build_server_hello(sdrv* s, const u8* random, wired_obuf* out);
 
 /* The EncryptedExtensions' transport parameter TLV sequence: the RFC 9000

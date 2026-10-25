@@ -151,11 +151,15 @@ static void sdrv_psk_accept_opened(
 
 /* RFC 8446 4.2.11: the ticket opens AND its hash is the negotiated suite's
  * -- a PSK of another hash is unusable here, so it is ignored like an
- * unknown identity (full handshake), never keyed under the wrong hash. */
+ * unknown identity (full handshake), never keyed under the wrong hash.
+ * RFC 6066 3: likewise a ticket bound to another server_name (or to one
+ * when none is offered now, or none when one is) -- the server "proceeds
+ * with a full handshake". */
 static int sdrv_psk_open_usable(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
   return sdrv_psk_open_ticket(s, off, t) &&
-         tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len;
+         tls_hash_of(t->suite)->len == tls_hash_of(s->cipher_suite)->len &&
+         ct_diffn(t->sni, s->sni_digest, TICKET_SNI_LEN) == 0;
 }
 
 /* A parsed pre_shared_key offer: open its ticket and verify the binder.
@@ -170,7 +174,7 @@ static int sdrv_psk_try_offer(
     usz                     ch_len,
     wired_span              psk_ext,
     const tlsext_psk_offer* off) {
-  ticket t      = {{0}, 0, 0, 0, 0, 0, 0};
+  ticket t      = {{0}, 0, 0, 0, 0, 0, 0, {0}};
   int    opened = sdrv_psk_open_usable(s, off, &t);
   int    bound  = sdrv_psk_binder_ok(s, &t, ch_msg, psk_ext, off);
   if (!opened) {

@@ -29,31 +29,34 @@ static usz sni_check_build_ch(wired_span sni, u8* buf, usz cap) {
 
 /* RFC 6066 3: no server_name extension at all -> ABSENT, never a mismatch. */
 static void test_sni_check_absent(void) {
-  u8  buf[512];
-  usz w = sni_check_build_ch(wired_span_of(0, 0), buf, sizeof(buf));
+  u8         buf[512];
+  wired_span got;
+  usz        w = sni_check_build_ch(wired_span_of(0, 0), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_ABSENT);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs(), &got) == SALPN_SNI_ABSENT);
 }
 
 /* Offered name matches a SAN dNSName. */
 static void test_sni_check_match(void) {
-  u8       buf[512];
-  const u8 host[] = "example.com";
-  usz      w      = sni_check_build_ch(
+  u8         buf[512];
+  wired_span got;
+  const u8   host[] = "example.com";
+  usz        w      = sni_check_build_ch(
       wired_span_of(host, sizeof(host) - 1), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MATCH);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs(), &got) == SALPN_SNI_MATCH);
 }
 
 /* Offered name matches neither the SAN entries nor (since SAN is present,
  * RFC 6125 6.4.4) the CN. */
 static void test_sni_check_mismatch(void) {
-  u8       buf[512];
-  const u8 host[] = "unrelated.example";
-  usz      w      = sni_check_build_ch(
+  u8         buf[512];
+  wired_span got;
+  const u8   host[] = "unrelated.example";
+  usz        w      = sni_check_build_ch(
       wired_span_of(host, sizeof(host) - 1), buf, sizeof(buf));
   CHECK(w > 0);
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MISMATCH);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs(), &got) == SALPN_SNI_MISMATCH);
 }
 
 /* A ClientHello offering server_name "x" with byte `at` of its extension
@@ -70,11 +73,12 @@ static usz sni_check_patched_ch(u8* buf, usz cap, usz at, u8 v) {
  * empty HostName followed by a stray byte, or an unknown name_type) is
  * MALFORMED, not ABSENT -- the handshake must not go on as if no SNI. */
 static void test_sni_check_malformed(void) {
-  u8  buf[512];
+  u8         buf[512];
+  wired_span got;
   usz w = sni_check_patched_ch(buf, sizeof(buf), 4, 0x00); /* HostName len 0 */
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MALFORMED);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs(), &got) == SALPN_SNI_MALFORMED);
   w = sni_check_patched_ch(buf, sizeof(buf), 2, 0x01); /* name_type 1 */
-  CHECK(salpn_sni_check(buf, w, golden1_tbs()) == SALPN_SNI_MALFORMED);
+  CHECK(salpn_sni_check(buf, w, golden1_tbs(), &got) == SALPN_SNI_MALFORMED);
 }
 
 void test_sni_check(void) {
