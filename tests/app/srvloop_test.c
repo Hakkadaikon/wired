@@ -1477,6 +1477,35 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 1);
 }
 
+/* RFC 9000 12.2: "Receivers SHOULD ignore any subsequent packets with a
+ * different Destination Connection ID than the first packet in the
+ * datagram." The same coalesced Finished as above, but sealed under a
+ * different DCID, must be skipped -- the step stays unconfirmed. */
+static void test_srvloop_coalesced_other_dcid_ignored(void) {
+  struct lp_fix f;
+  u8            lead[256], rest[512], dg[1024], out[1024];
+  u8            padding[1] = {0x00}; /* RFC 9000 19.1 */
+  usz           lead_len, rest_len, i, off = 0;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  lead_len = client_seal_handshake(&f, padding, 1, lead, sizeof lead);
+  f.s.sdrv.iscid[0] ^= 0xff; /* the second packet names another DCID */
+  rest_len =
+      client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, rest, sizeof rest);
+  f.s.sdrv.iscid[0] ^= 0xff;
+  for (i = 0; i < lead_len; i++) {
+    dg[off++] = lead[i];
+  }
+  for (i = 0; i < rest_len; i++) {
+    dg[off++] = rest[i];
+  }
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+}
+
 /* Build a STREAM frame on `stream_id` whose data is one type byte `lead`
  * (RFC 9114 6.2: control 0x00 / QPACK encoder 0x02 / decoder 0x03). */
 static usz lp_uni_stream(u8* out, usz cap, u64 stream_id, u8 lead) {
@@ -5979,6 +6008,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_padding_before_crypto();
   test_srvloop_padding_before_stream();
   test_srvloop_coalesced_finished_behind_leading();
+  test_srvloop_coalesced_other_dcid_ignored();
   test_srvloop_onertt_get_is_acked();
   test_srvloop_handshake_ack_tracks_pn();
   test_srvloop_confirm_and_200_coalesce();
