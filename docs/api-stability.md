@@ -255,6 +255,24 @@ colon-separated. `wired_srvboot_cert_sha256` and
 `wired_srvboot_log_fingerprint` are not reentrant, because they share one
 process-wide scratch server.
 
+### Session resumption and 0-RTT
+
+| Name | Role |
+|---|---|
+| `wired_srvboot_id.ticket_key` | Session-ticket key seed; 0 = no resumption. |
+| `wired_srvboot_id.early_data` | 1 = accept 0-RTT on resumed connections; 0 (default) = resume as 1-RTT only. |
+
+- **0-RTT is opt-in.** RFC 8446 Appendix E.5 forbids enabling 0-RTT
+  unless the application asks for it, because an attacker can replay
+  0-RTT data. Setting `ticket_key` alone turns on resumption, not 0-RTT.
+  Set `early_data = 1` only when every request a client may send early is
+  safe to process twice.
+- **What still refuses 0-RTT.** With `early_data = 1`, the SDK still
+  declines it for a replayed ticket, a stale ticket age, a ticket issued
+  under another ALPN or cipher suite, a raw-QUIC ALPN, and a ClientHello
+  that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
+  Tickets advertise early data only when it is enabled.
+
 ## Low-level / internal API (use with care)
 
 These functions are reachable from the public headers because the
@@ -365,10 +383,11 @@ sequenceDiagram
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
   are views; keep them alive for the call. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
-  to off: the last one, `reset_seed`, is the stateless-reset secret (0 uses
+  to off: `reset_seed` is the stateless-reset secret (0 uses
   `cert_seed`; `wired_srvrun_serve_env` pins it to a copy of the start-time
   `cert_seed` so a certificate reload does not change tokens already
-  given out). `wired_srvloop_step` must see
+  given out), and the last one, `early_data`, is the 0-RTT opt-in (see
+  Session resumption and 0-RTT). `wired_srvloop_step` must see
   datagrams in arrival order, and the request it decodes into
   `wired_srvloop` is valid only until the next step.
 

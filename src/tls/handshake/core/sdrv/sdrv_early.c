@@ -121,7 +121,10 @@ static int sdrv_ticket_alpn_matches(const sdrv* s, const ticket* t) {
   return t->alpn == SALPN_NONE || t->alpn == s->alpn;
 }
 
-int sdrv_early_allowed(const sdrv* s) { return s->alpn != SALPN_RAW; }
+/* RFC 8446 Appendix E.5: only when the application enabled 0-RTT. */
+int sdrv_early_allowed(const sdrv* s) {
+  return s->early_data_enabled && s->alpn != SALPN_RAW;
+}
 
 /* 0-RTT may be accepted under this ALPN (sdrv_early_allowed), and only
  * with a ticket issued under the same ALPN (RFC 8446 4.2.10). */

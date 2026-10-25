@@ -1049,6 +1049,9 @@ static void test_srvloop_ticket_early_data_only_off_raw(void) {
   u32           got = 0;
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn = SALPN_H3;
+  /* RFC 8446 Appendix E.5: no early_data until the application opts in. */
+  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 2);
+  sdrv_set_early_data(&f.s.sdrv, 1);
   CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 10);
   CHECK(tlsext_early_data_nst_parse(msg + ext + 2, 8, &got) == 1);
   CHECK(got == 0xffffffff);

@@ -1949,6 +1949,7 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
+    sdrv_set_early_data(&s, 1);
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
@@ -2094,6 +2095,7 @@ static void test_sdrv_early_data_replay_rejected(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s1, &in);
+    sdrv_set_early_data(&s1, 1);
   }
   CHECK(sdrv_recv_client_hello(&s1, ch2, ch2_len));
   CHECK(s1.psk_accepted == 1);
@@ -2489,6 +2491,7 @@ static int sdrv_test_0rtt_alpn(u8 ticket_alpn, int raw) {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
     sdrv_set_raw_alpns(&s, "m9");
+    sdrv_set_early_data(&s, 1);
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
@@ -2647,6 +2650,7 @@ static void test_sdrv_no_early_data_after_hrr(void) {
   initial_keys     got;
   sdrv_psk_fixture_init(&f);
   sdrv_test_hrr_round1(&s, &f, ch1, hrr, &hrr_len);
+  sdrv_set_early_data(&s, 1); /* only the HRR forbids it here */
   ch2_len = sdrv_test_hrr_ch2(&f, ch1, hrr, hrr_len, 1, ch2, sizeof ch2);
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
   CHECK(s.psk_accepted == 1);
@@ -2839,6 +2843,26 @@ static void test_sdrv_ch_share_outside_groups_rejected(void) {
   CHECK(sdrv_test_ch_error(&s, ch, n) == err_crypto(47));
 }
 
+/* RFC 8446 Appendix E.5 (#77): 0-RTT stays off until the application
+ * enables it -- the same eligible early_data offer resumes as 1-RTT, with
+ * no 0-RTT keys, under the sdrv_init default. */
+static void test_sdrv_0rtt_needs_app_opt_in(void) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              ch2_len, off;
+  initial_keys     got;
+  sdrv_psk_fixture_init(&f);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof ch2, &off);
+  CHECK(ch2_len != 0);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_early_allowed(&s) == 0);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(sdrv_early_keys(&s, &got) == 0);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2897,6 +2921,7 @@ void test_sdrv(void) {
   test_sdrv_psk_binder_after_hrr_accepted();
   test_sdrv_psk_binder_after_hrr_needs_transcript();
   test_sdrv_no_early_data_after_hrr();
+  test_sdrv_0rtt_needs_app_opt_in();
   test_sdrv_ch_compression_not_null_rejected();
   test_sdrv_ch_malformed_is_decode_error();
   test_sdrv_ch_bad_ext_body_is_decode_error();

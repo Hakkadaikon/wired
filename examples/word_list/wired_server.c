@@ -129,6 +129,7 @@ static void server_identity(wired_srvboot_id* id, wired_srvboot_demo_keys* k) {
   /* RFC 8446 4.6.1: the seed append_ticket_frame (respond.c) derives its
    * rotating ticket keys from -- opening derives the same keys. */
   id->ticket_key = wired_srvloop_ticket_key();
+  id->early_data = 1; /* interop zerortt: this demo's GETs are replay-safe */
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
