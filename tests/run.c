@@ -783,6 +783,7 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule_utf8.c"
 #include "app/webtransport/wtwire/wtwire.c"
 #include "tls/ext/salpn/idna.c"
+#include "tls/ext/salpn/punycode.c"
 #include "tls/ext/salpn/sni_check.c"
 #include "tls/handshake/core/tls/chguard.c"
 #include "tls/handshake/core/tls/cryptolevel.c"
