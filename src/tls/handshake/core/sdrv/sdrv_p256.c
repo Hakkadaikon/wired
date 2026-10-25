@@ -227,7 +227,7 @@ int sdrv_ch_take_version_information(sdrv* s, const version_information* vi) {
     s->last_error = EC_VERSION_NEGOTIATION_ERROR;
     return 0;
   }
-  vers_init(&us);
+  vers_init_mask(&us, s->versions);
   if (verinfo_pick_compatible(vi, verlist_of(us.versions, us.n), &pick)) {
     s->negotiated_version = pick;
   }

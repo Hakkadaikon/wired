@@ -99,6 +99,7 @@ static void sdt_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }

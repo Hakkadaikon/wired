@@ -100,8 +100,9 @@ void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
  * to the sender — no connection slot is involved (RFC 9000 5.2.2). Returns 1
  * when the datagram was consumed this way. */
 int srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg) {
-  u8  vn[64];
-  usz n = wired_srvboot_vneg(wired_span_of(dg.p, dg.n), vn, sizeof vn);
+  u8  vn[WIRED_SRVBOOT_VN_MAX];
+  usz n = wired_srvboot_vneg(
+      wired_span_of(dg.p, dg.n), ctx->cfg->id->versions, vn, sizeof vn);
   if (!n) {
     return 0;
   }

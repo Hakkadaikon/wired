@@ -362,6 +362,11 @@ sequenceDiagram
   fits in one datagram. The run loop instead collects one split across
   several datagrams with the `wired_srvboot_acc_*` accumulator and calls
   `wired_srvboot_accept_acc`.
+- **Accepted QUIC versions.** `wired_srvboot_id.versions` holds
+  `WIRED_VERSIONS_V1` / `WIRED_VERSIONS_V2` bits; 0, the default, accepts
+  both (RFC 9308 13). An Initial in a version outside the set gets Version
+  Negotiation, and compatible version negotiation (RFC 9368) only picks
+  from the set. `wired_srvboot_vneg` takes the same bits.
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
   are views; keep them alive for the call. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
