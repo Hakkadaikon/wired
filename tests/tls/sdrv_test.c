@@ -2567,6 +2567,51 @@ static void test_sdrv_psk_bound_to_sni(void) {
   CHECK(ee == 0);
 }
 
+/* f's plain ClientHello with one extension (ext, header included) appended
+ * at the end, the extensions and handshake lengths patched. */
+static usz sdrv_test_append_ext(
+    const sdrv_psk_fixture* f, wired_span ext, u8* out, usz cap) {
+  usz off = SDRV_TEST_EXTS_LEN_OFF;
+  usz old = (usz)f->ch[off] << 8 | f->ch[off + 1];
+  CHECK(f->ch_len + ext.n <= cap);
+  bytes_memcpy(out, f->ch, f->ch_len);
+  bytes_memcpy(out + f->ch_len, ext.p, ext.n);
+  be_put_be16(out + off, (u16)(old + ext.n));
+  hs_finish(out, f->ch_len + ext.n);
+  return f->ch_len + ext.n;
+}
+
+/* The chain-signature verdict for f's ClientHello plus ext (n 0: none). */
+static int sdrv_test_cert_sigs(wired_span ext) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch[700];
+  usz              n;
+  sdrv_psk_fixture_init(&f);
+  n = sdrv_test_append_ext(&f, ext, ch, sizeof ch);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch, n)); /* sent anyway, 4.4.2.2 */
+  return s.cert_sigs_offered;
+}
+
+/* RFC 8446 4.2.3: signature_algorithms_cert (50), when present, judges the
+ * chain's signatures instead of signature_algorithms. The self-signed leaf
+ * is ecdsa_secp256r1_sha256 (0x0403): offered by signature_algorithms
+ * alone, not by a cert list of rsa_pss_rsae_sha256 (0x0804) only, and
+ * again once 0x0403 is in the cert list. */
+static void test_sdrv_signature_algorithms_cert(void) {
+  static const u8 pss[]  = {0x00, 0x32, 0x00, 0x04, 0x00, 0x02, 0x08, 0x04};
+  static const u8 both[] = {0x00, 0x32, 0x00, 0x06, 0x00,
+                            0x04, 0x08, 0x04, 0x04, 0x03};
+  CHECK(sdrv_test_cert_sigs(wired_span_of(0, 0)) == 1);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(pss, sizeof pss)) == 0);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(both, sizeof both)) == 1);
+}
+
 /* RFC 8446 8.1 across forked workers (srvworkers): once the replay tracker
  * is moved to shared memory before fork, a ticket a child accepted 0-RTT
  * for is a replay in the parent and every sibling too. */
@@ -2646,6 +2691,7 @@ void test_sdrv(void) {
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
   test_sdrv_psk_bound_to_sni();
+  test_sdrv_signature_algorithms_cert();
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
   test_sdrv_sni_mismatch();

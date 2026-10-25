@@ -124,6 +124,10 @@ typedef struct {
    * SALPN_SNI_MATCH, all zero otherwise. Sealed into every ticket this
    * connection issues; a ticket whose digest differs is not resumed. */
   u8 sni_digest[SALPN_SNI_DIGEST];
+  /** RFC 8446 4.2.3: 1 when every certificate in the chain is signed with
+   * a scheme the client's signature_algorithms_cert (or, absent that,
+   * signature_algorithms) lists. The chain is sent either way (4.4.2.2). */
+  int cert_sigs_offered;
   /** RFC 9368 2.2: the QUIC version the client's Initial actually arrived
    * in, recorded via sdrv_set_client_version before
    * sdrv_recv_client_hello. 0 (never set) is treated as VERSION_1

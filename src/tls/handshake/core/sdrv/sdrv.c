@@ -140,6 +140,7 @@ static void sdrv_reset_hs(sdrv* s) {
     s->ch1_hash[i] = 0;
   }
   bytes_memset(s->sni_digest, 0, sizeof s->sni_digest);
+  s->cert_sigs_offered = 0;
 }
 
 void sdrv_init(sdrv* s, const sdrv_init_in* in) {

@@ -493,6 +493,7 @@
 #include "transport/conn/loop/driver/driver.c"
 #include "tls/handshake/roles/client/client.c"
 #include "tls/handshake/core/sdrv/sdrv.c"
+#include "tls/handshake/core/sdrv/sdrv_certsig.c"
 #include "tls/handshake/core/sdrv/sdrv_ch.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_require.c"
 #include "tls/handshake/core/sdrv/sdrv_early.c"

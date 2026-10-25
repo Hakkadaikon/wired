@@ -153,6 +153,7 @@ void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_STREAMS_UNI,
       &s->peer_initial_max_streams_uni);
+  sdrv_ch_note_cert_sigs(s, ch_msg, ch_len);
   transcript_add(&s->tr, ch_msg, ch_len);
 }
 
