@@ -43,7 +43,7 @@ static void srvrun_cc_range(
   if (!srvrun_range_hits(sess, lo, hi)) {
     return;
   }
-  srvrun_cc_sample(c, sess, u64_max(lo, c->cc_from_pn), hi, now_ms);
+  srvrun_cc_sample(c, sess, u64_max(lo, c->mig.cc_from_pn), hi, now_ms);
   wired_sendsess_ack(sess, lo, hi);
 }
 

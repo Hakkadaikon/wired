@@ -21,7 +21,7 @@ void srvrun_path_cc_restart(
   cc_init_algo(&c->cc, srvrun_cc_algo(cfg));
   hystart_init(&c->hs);
   rtt_init(&c->rtt);
-  c->srtt_ms       = 0;
-  c->latest_rtt_ms = 0;
-  c->cc_from_pn    = c->l.tx_pn;
+  c->srtt_ms        = 0;
+  c->latest_rtt_ms  = 0;
+  c->mig.cc_from_pn = c->l.tx_pn;
 }

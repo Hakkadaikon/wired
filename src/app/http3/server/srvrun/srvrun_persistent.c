@@ -26,7 +26,7 @@ static void srvrun_persistent_check(
  * controller was reset for a new path do not shrink it. */
 static int srvrun_loss_counts(
     const srvrun_conn* c, usz lost, const srvrun_loss_span* s) {
-  return lost && s->hi_pn >= c->cc_from_pn;
+  return lost && s->hi_pn >= c->mig.cc_from_pn;
 }
 
 void srvrun_feed_acks(

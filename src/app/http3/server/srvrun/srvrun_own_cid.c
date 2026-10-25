@@ -31,17 +31,17 @@ static void srvrun_take_retire(
 
 /* RFC 9000 19.16: seq was never issued (MUST be a PROTOCOL_VIOLATION). */
 static int srvrun_retire_unissued(const srvrun_conn* c, u64 seq) {
-  return seq >= u64_max(c->cid_next_seq, 1);
+  return seq >= u64_max(c->mig.next, 1);
 }
 
 /* The live issued ID numbered seq into o; 0 if it was already retired. */
 static int srvrun_own_of(srvrun_conn* c, u64 seq, srvrun_own_id* o) {
-  if (seq == c->scid_seq) {
-    *o = (srvrun_own_id){c->scid, c->s.sdrv.iscid_len, &c->scid_seq, 1};
+  if (seq == c->mig.scid) {
+    *o = (srvrun_own_id){c->scid, c->s.sdrv.iscid_len, &c->mig.scid, 1};
     return 1;
   }
-  *o = (srvrun_own_id){c->l.spare_cid, c->l.spare_cid_len, &c->spare_seq, 0};
-  return seq == c->spare_seq && o->len;
+  *o = (srvrun_own_id){c->l.spare_cid, c->l.spare_cid_len, &c->mig.spare, 0};
+  return seq == c->mig.spare && o->len;
 }
 
 /* Route o's (new) bytes to c's slot in place of the retired ones. */
@@ -75,7 +75,7 @@ static void srvrun_own_reissue(
   if (!srvrun_issue_cid(ctx->cfg, o->cid, o->len)) {
     return; /* RNG failure: the peer keeps the IDs it has */
   }
-  *o->seq = c->cid_next_seq++;
+  *o->seq = c->mig.next++;
   srvrun_own_route(ctx, c, o);
   srvrun_own_announce(ctx->cfg, c, o);
 }

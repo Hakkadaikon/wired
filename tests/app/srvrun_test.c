@@ -4879,7 +4879,7 @@ static void test_srvrun_path_migration_resets_cc(void) {
   sr_migrate_validated(&f, &st, &c, &other);
   CHECK(c.cc.cwnd == CC_INIT_WINDOW);
   CHECK(c.srtt_ms == 0 && c.rtt.have_sample == 0);
-  CHECK(c.cc_from_pn != 0 && c.cc_from_pn <= c.l.tx_pn);
+  CHECK(c.mig.cc_from_pn != 0 && c.mig.cc_from_pn <= c.l.tx_pn);
 }
 
 /* RFC 9000 9.4: a change of the peer's port alone keeps them. */
@@ -4894,7 +4894,7 @@ static void test_srvrun_path_port_only_keeps_cc(void) {
   c.srtt_ms = 77;
   sr_migrate_validated(&f, &st, &c, &new_peer);
   CHECK(c.cc.cwnd == 999999 && c.srtt_ms == 77);
-  CHECK(c.cc_from_pn == 0);
+  CHECK(c.mig.cc_from_pn == 0);
 }
 
 /* RFC 9000 9.4: an ACK of packets sent before the reset (on the old path)
@@ -4922,12 +4922,12 @@ static void test_srvrun_path_old_path_ack_ignored(void) {
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4);
     rtt_init(&c.rtt);
-    c.cc_from_pn  = c.l.tx_pn; /* the reset came after these went out */
-    cwnd          = c.cc.cwnd;
-    c.l.ack_lo[0] = pn0;
-    c.l.ack_hi[0] = pn0 + 3;
-    c.l.ack_n     = 1;
-    ctx.now_ms    = 50;
+    c.mig.cc_from_pn = c.l.tx_pn; /* the reset came after these went out */
+    cwnd             = c.cc.cwnd;
+    c.l.ack_lo[0]    = pn0;
+    c.l.ack_hi[0]    = pn0 + 3;
+    c.l.ack_n        = 1;
+    ctx.now_ms       = 50;
     srvrun_feed_acks(&ctx, &cfg, &c);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
     CHECK(c.rtt.have_sample == 0);
