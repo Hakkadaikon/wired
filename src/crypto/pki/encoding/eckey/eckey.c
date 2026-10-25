@@ -171,24 +171,40 @@ static int eckey_curve25519_privkey(derseq* c, u8 out[32]) {
   return eckey_curve25519_scalar(inner, out);
 }
 
-/* RFC 5958 2 / RFC 8410 7. Open the OneAsymmetricKey SEQUENCE, requiring
- * version 0, and position c past privateKeyAlgorithm. */
-static int eckey_curve25519_open(wired_span key_der, derseq* c) {
+/* RFC 5958 2 / RFC 8410 7. Open the OneAsymmetricKey SEQUENCE, read its
+ * version, and position c past privateKeyAlgorithm. */
+static int eckey_curve25519_open(wired_span key_der, derseq* c, u64* v) {
   wired_span alg;
-  u64        v;
-  if (!eckey_open(key_der, c, &v)) {
-    return 0;
-  }
-  if (v != 0) {
+  if (!eckey_open(key_der, c, v)) {
     return 0;
   }
   return derseq_next_tagged(c, DER_SEQUENCE, &alg);
 }
 
+/* RFC 5958 2. publicKey is [1] IMPLICIT BIT STRING (primitive 0x81), the
+ * last field, after the optional attributes [0]. */
+#define ECKEY_PUBKEY_TAG 0x81
+
+/* 1 if the fields after privateKey end with publicKey [1]. */
+static int eckey_curve25519_has_pub(derseq* c) {
+  u8         tag, last = 0;
+  wired_span val;
+  while (derseq_next(c, &tag, &val)) {
+    last = tag;
+  }
+  return last == ECKEY_PUBKEY_TAG;
+}
+
+/* RFC 5958 2 / RFC 8410 Appendix A: version is 0 without publicKey and 1
+ * with it; anything else is rejected. */
 int wired_eckey_curve25519_priv(wired_span key_der, u8 out[32]) {
   derseq c;
-  if (!eckey_curve25519_open(key_der, &c)) {
+  u64    v;
+  if (!eckey_curve25519_open(key_der, &c, &v)) {
     return 0;
   }
-  return eckey_curve25519_privkey(&c, out);
+  if (!eckey_curve25519_privkey(&c, out)) {
+    return 0;
+  }
+  return v == (u64)eckey_curve25519_has_pub(&c);
 }

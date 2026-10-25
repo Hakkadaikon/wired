@@ -151,6 +151,24 @@ static void test_eckey_curve25519_bad_len(void) {
   CHECK(wired_eckey_curve25519_priv(wired_span_of(buf, sizeof(buf)), out) == 0);
 }
 
+/* RFC 8410 7 / RFC 5958 2: a version-1 key carrying publicKey [1] (the RFC's
+ * own example) decodes to its seed, whose public key is the one it carries;
+ * the same bytes relabelled version 0, or version 2, are rejected. */
+static void test_eckey_curve25519_v1_with_pubkey(void) {
+  u8         buf[sizeof(eckey_ed25519_v1_pkcs8_der)];
+  u8         out[32], pub[32];
+  wired_span s = wired_span_of(buf, sizeof(buf));
+  bytes_memcpy(buf, eckey_ed25519_v1_pkcs8_der, sizeof(buf));
+  CHECK(wired_eckey_curve25519_priv(s, out) == 1);
+  CHECK(ct_diff32(out, buf + 16) == 0);
+  CHECK(ed25519_keypair(out, pub) == 1);
+  CHECK(ct_diff32(pub, buf + sizeof(buf) - 32) == 0);
+  buf[4] = 0x00; /* version 0 must not carry publicKey */
+  CHECK(wired_eckey_curve25519_priv(s, out) == 0);
+  buf[4] = 0x02;
+  CHECK(wired_eckey_curve25519_priv(s, out) == 0);
+}
+
 void test_eckey(void) {
   test_eckey_sec1_golden();
   test_eckey_pkcs8_golden();
@@ -165,4 +183,5 @@ void test_eckey(void) {
   test_eckey_x25519_import_clamped_on_use();
   test_eckey_curve25519_wrong_version();
   test_eckey_curve25519_bad_len();
+  test_eckey_curve25519_v1_with_pubkey();
 }

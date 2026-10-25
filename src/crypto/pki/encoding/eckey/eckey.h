@@ -56,7 +56,8 @@ int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], wired_obuf* out);
  *
  * @param key_der DER-encoded OneAsymmetricKey (unencrypted PKCS#8 shape).
  * @param out     receives the 32-byte private key.
- * @return 1 on success; 0 on malformed DER or a key not exactly 32 bytes.
+ * @return 1 on success; 0 on malformed DER, a key not exactly 32 bytes, or
+ *         a version other than 0 (no publicKey) / 1 (publicKey present).
  */
 int wired_eckey_curve25519_priv(wired_span key_der, u8 out[32]);
 
