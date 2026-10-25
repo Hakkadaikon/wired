@@ -64,6 +64,8 @@ int x509_nc_unprocessed_critical(wired_span tbs);
  *     other family covers nothing (a permitted subtree then fails closed);
  *     a base of any length other than 8 or 32, in either half, is
  *     malformed and rejects the child outright (fail closed).
+ *   - directoryName [4]: matched against the directoryName subtrees by the
+ *     same RDN-prefix rule as the subject.
  *   - uniformResourceIdentifier [6]: URI matching is not implemented; a
  *     child presenting a URI SAN under an issuer whose nameConstraints
  *     carries any URI subtree (permitted or excluded) is rejected outright
