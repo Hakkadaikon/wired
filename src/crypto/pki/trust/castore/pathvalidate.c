@@ -140,6 +140,27 @@ static int x25519_family_ok(wired_span tbs, wired_span oid) {
   return x509_keyagreement_ok(tbs);
 }
 
+/* RFC 5480 2.1.2. oid is the restricted id-ecDH or id-ecMQV identifier. */
+static int is_ecdh_family(wired_span oid) {
+  return x509_is_ecdh(oid) || x509_is_ecmqv(oid);
+}
+
+/* RFC 5480 2.1.2/3. An id-ecDH/id-ecMQV SPKI must carry ECParameters, and
+ * keyUsage (if present) must assert keyAgreement and none of the signing
+ * bits. Any other algorithm is unconstrained by this check. */
+static int ecdh_family_ok(wired_span tbs, wired_span oid) {
+  if (!is_ecdh_family(oid)) {
+    return 1;
+  }
+  return x509_ec_restricted_params_ok(tbs) && x509_ecdh_keyusage_ok(tbs);
+}
+
+/* The key-agreement families' SPKI-specific checks (RFC 8410 5, RFC 5480 3).
+ */
+static int agreement_family_ok(wired_span tbs, wired_span oid) {
+  return x25519_family_ok(tbs, oid) && ecdh_family_ok(tbs, oid);
+}
+
 /* RFC 8410 5. If tbs's SPKI is id-Ed25519/id-Ed448, keyUsage (if present)
  * must admit the role-appropriate bits: leaf sign bits for an end-entity
  * cert, the wider CA bit set for an issuer. Any other algorithm is
@@ -154,15 +175,16 @@ static int ed_family_ok(wired_span tbs, wired_span oid, int is_ca) {
   return x509_ed_leaf_sig_ok(tbs);
 }
 
-/* RFC 8410 5. cert's SPKI-specific keyUsage constraint, if its algorithm is
- * id-X25519/X448/Ed25519/Ed448; unconstrained for any other algorithm
+/* RFC 8410 5 / RFC 5480 3. cert's SPKI-specific keyUsage constraint, if its
+ * algorithm is id-X25519/X448/Ed25519/Ed448 or id-ecDH/id-ecMQV (which also
+ * need ECParameters); unconstrained for any other algorithm
  * (RFC 5280's keyCertSign/EKU checks cover those separately). */
 int castore_cert_spki_ku_ok(wired_span cert, int is_ca) {
   wired_span tbs, oid;
   if (!cert_spki_oid(cert, &tbs, &oid)) {
     return 0;
   }
-  if (!x25519_family_ok(tbs, oid)) {
+  if (!agreement_family_ok(tbs, oid)) {
     return 0;
   }
   return ed_family_ok(tbs, oid, is_ca);

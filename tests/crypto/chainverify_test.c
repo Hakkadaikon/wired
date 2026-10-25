@@ -2,6 +2,7 @@
 
 #include "castore_golden.h"
 #include "chv_sha512_golden.h"
+#include "crypto/pki/trust/castore/pathvalidate_impl.h"
 #include "spkialg_golden.h"
 #include "test.h"
 
@@ -94,6 +95,20 @@ static void test_chainverify_hash_strength(void) {
   CHECK(CHV_SELF(spkialg_p256_sha224) == 0);
 }
 
+#define CHV_KU(c) castore_cert_spki_ku_ok(wired_span_of(c, sizeof(c)), 0)
+
+/* RFC 5480 2.1.2/3: an id-ecDH / id-ecMQV key needs ECParameters, and a
+ * keyUsage, when present, must assert keyAgreement and none of the signing
+ * bits. Absent keyUsage is unconstrained. */
+static void test_spki_ku_ecdh_family(void) {
+  CHECK(CHV_KU(spkialg_ecdh) == 1);
+  CHECK(CHV_KU(spkialg_ecmqv) == 1);
+  CHECK(CHV_KU(spkialg_ecdh_ku_agree) == 1);
+  CHECK(CHV_KU(spkialg_ecdh_ku_sign) == 0);
+  CHECK(CHV_KU(spkialg_ecdh_noparams) == 0);
+  CHECK(CHV_KU(spkialg_ecmqv_noparams) == 0);
+}
+
 void test_chainverify(void) {
   test_ecdsa_sha512_self_signed();
   test_leaf_signed_by_root();
@@ -103,4 +118,5 @@ void test_chainverify(void) {
   test_sigalg_mismatch_fails();
   test_chainverify_named_curve();
   test_chainverify_hash_strength();
+  test_spki_ku_ecdh_family();
 }
