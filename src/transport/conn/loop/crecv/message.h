@@ -27,4 +27,8 @@ int crecv_complete_message(const crecv* s);
 /* Same, but for the message starting at `off` (see crecv_message_at). */
 int crecv_complete_message_at(const crecv* s, usz off);
 
+/* The stream offset just past the message starting at `off`; only
+ * meaningful once crecv_complete_message_at(s, off) holds. */
+usz crecv_message_end_at(const crecv* s, usz off);
+
 #endif

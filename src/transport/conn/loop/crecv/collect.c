@@ -7,6 +7,7 @@
 
 void crecv_init(crecv* s) {
   s->received_to = 0;
+  s->overflow    = 0;
   for (usz i = 0; i < CRECV_BUF; i++) {
     s->filled[i] = 0;
   }
@@ -17,6 +18,7 @@ void crecv_init(crecv* s) {
 static int place(crecv* s, const crypto_frame* f) {
   usz end = (usz)f->offset + (usz)f->length;
   if (end > CRECV_BUF) {
+    s->overflow = 1;
     return 0;
   }
   for (usz i = 0; i < (usz)f->length; i++) {

@@ -119,7 +119,7 @@ void srvrun_reset_connect_stream_code(
   u64                id  = srvrun_wt_slot(c, sidx)->connect_stream_id;
   reset_stream_frame rs  = {id, code, c->wt_connect_sent_len[sidx]};
   usz                rn  = reset_stream_encode(pl, sizeof pl, &rs);
-  usz                sn  = srvrun_wt_abort_stop(id, code, &plb, rn);
+  usz                sn  = srvrun_wt_abort_stop(c, id, code, &plb, rn);
   srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");
 }
 

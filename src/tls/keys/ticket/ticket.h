@@ -20,7 +20,7 @@
  * (salpn_sni_digest: SHA-256, all zero = no server_name). */
 #define TICKET_SNI_LEN 32
 #define TICKET_PLAIN_LEN \
-  (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + TICKET_SNI_LEN)
+  (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + TICKET_SNI_LEN + 8)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -43,6 +43,11 @@ typedef struct {
   /** RFC 6066 3: the server_name the session was established under, as
    * salpn_sni_digest; a resumption offering another name is refused. */
   u8 sni[TICKET_SNI_LEN];
+  /** RFC 8446 4.6.1: when the full (non-PSK) handshake whose keying
+   * material this ticket carries forward took place (same clock as
+   * issued_at). A ticket re-issued on a resumed connection inherits it, so
+   * the server can cap the total lifetime of that material. */
+  u64 origin_at;
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

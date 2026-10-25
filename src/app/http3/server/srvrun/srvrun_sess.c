@@ -90,6 +90,14 @@ int srvrun_conn_credit_has_room(const srvrun_conn* c) {
   return c->acct_consumed + srvrun_mps(c) <= c->conn_credit;
 }
 
+/* RFC 9000 4.1: sess has unsent bytes and its stream credit has no room for
+ * the next chunk (srvrun_sess_credit_room's stream half). */
+int srvrun_stream_credit_blocked(
+    const srvrun_conn* c, const wired_sendsess* sess, u64 credit) {
+  return !wired_sendq_all_sent(&sess->q) &&
+         sess->stream_base_offset + sess->q.cur + srvrun_mps(c) > credit;
+}
+
 /* 1 when RFC 9000 4.1's two flow-control credits (connection-wide, and
  * sess's own stream-level ceiling `credit`, RFC 9000 18.2/19.10) both have
  * room for one more chunk. Consumed bytes for one stream are exactly its

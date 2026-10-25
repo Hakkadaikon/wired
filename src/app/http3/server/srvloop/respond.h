@@ -6,7 +6,7 @@
 #include "tls/keys/ticket/ticket.h"
 
 /** RFC 8446 4.6.1: the seed this process's session-ticket keys derive
- * from (append_ticket_frame seals under the current epoch's key,
+ * from (srvloop_append_tickets seals under the current epoch's key,
  * tls/keys/keyring/keyring.h) -- exposed so the caller can thread it to
  * wired_srvboot_id.ticket_key for OPENING a presented ticket under the
  * current or previous epoch's key. TICKET_KEY_LEN bytes drawn from the

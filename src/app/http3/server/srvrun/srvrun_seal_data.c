@@ -48,6 +48,20 @@ void srvrun_send_data_blocked(
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
 
+/* RFC 9000 19.13: STREAM_DATA_BLOCKED naming stream_id's credit, sealed as
+ * its own 1-RTT packet and sent. */
+void srvrun_send_stream_data_blocked(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 limit) {
+  u8                pl[24], out[128];
+  wired_obuf        ob = obuf_of(out, sizeof out);
+  stream_data_frame f  = {stream_id, limit};
+  usz               n  = stream_data_blocked_encode(pl, sizeof pl, &f);
+  if (!srvrun_seal_ctl(c, pl, n, &ob)) {
+    return;
+  }
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "STREAM_DATA_BLOCKED sent\n");
+}
+
 /* Seal one MAX_STREAMS frame (RFC 9000 19.11, uni selects 0x13) as its own
  * 1-RTT packet and send it. */
 int srvrun_seal_max_streams(

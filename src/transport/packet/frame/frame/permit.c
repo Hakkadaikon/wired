@@ -34,6 +34,7 @@ static const u8 allowed[] = {
     [FK_CONNECTION_CLOSE]     = I | H | Z | O,
     [FK_HANDSHAKE_DONE]       = O,
     [FK_DATAGRAM]             = Z | O,
+    [FK_RESET_STREAM_AT]      = Z | O,
 };
 
 int frame_permitted(frame_kind kind, packet_type pkt) {

@@ -9,10 +9,11 @@
  * contradict the highest offset already seen. Any violation is a
  * FINAL_SIZE_ERROR. */
 
+/** One stream direction's final-size state (RFC 9000 4.5). */
 typedef struct {
-  u64 highest;    /* highest offset+len seen so far */
-  u64 final_size; /* valid once known */
-  int known;
+  u64 highest;    /**< highest offset+len seen so far */
+  u64 final_size; /**< valid once known */
+  int known;      /**< 1 once a FIN or RESET_STREAM fixed final_size */
 } finalsize;
 
 void finalsize_init(finalsize* f);
@@ -30,9 +31,10 @@ int finalsize_set(finalsize* f, u64 size);
  * fixes only that direction's final size and never disturbs the other,
  * which keeps tracking its own flow control state until it separately
  * reaches a terminal state. */
+/** A bidirectional stream's two independent final sizes (RFC 9000 4.4). */
 typedef struct {
-  finalsize send;
-  finalsize recv;
+  finalsize send; /**< the send direction */
+  finalsize recv; /**< the receive direction */
 } dual_finalsize;
 
 void dual_finalsize_init(dual_finalsize* d);

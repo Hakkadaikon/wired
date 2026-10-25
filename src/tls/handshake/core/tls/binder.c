@@ -22,23 +22,35 @@ void tls_binder_key(const u8* psk, u8* out) {
   binder_key_suite(TLS_AES_128_GCM_SHA256, psk, out);
 }
 
-void tls_binder_compute_suite(
-    u16 suite, const u8* psk, wired_span truncated_ch, u8* out) {
+void tls_binder_compute_hash(
+    u16 suite, const u8* psk, const u8* thash, u8* out) {
   u8 binder_key[TLS_HASH_MAX];
-  u8 thash[TLS_HASH_MAX];
   binder_key_suite(suite, psk, binder_key);
-  tls_hash_of(suite)->digest(truncated_ch.p, truncated_ch.n, thash);
   /* finished_key = HKDF-Expand-Label(binder_key, "finished", "",
    * Hash.length); binder = HMAC(finished_key, thash) -- identical
    * construction to the Finished MAC (RFC 8446 4.4.4), reused verbatim. */
   tls_finished_verify_data_suite(suite, binder_key, thash, out);
 }
 
+void tls_binder_compute_suite(
+    u16 suite, const u8* psk, wired_span truncated_ch, u8* out) {
+  u8 thash[TLS_HASH_MAX];
+  tls_hash_of(suite)->digest(truncated_ch.p, truncated_ch.n, thash);
+  tls_binder_compute_hash(suite, psk, thash, out);
+}
+
+int tls_binder_verify_hash(
+    u16 suite, const u8* psk, const u8* thash, const u8* received) {
+  u8 want[TLS_HASH_MAX];
+  tls_binder_compute_hash(suite, psk, thash, want);
+  return ct_diffn(want, received, tls_hash_of(suite)->len) == 0;
+}
+
 int tls_binder_verify_suite(
     u16 suite, const u8* psk, wired_span truncated_ch, const u8* received) {
-  u8 want[TLS_HASH_MAX];
-  tls_binder_compute_suite(suite, psk, truncated_ch, want);
-  return ct_diffn(want, received, tls_hash_of(suite)->len) == 0;
+  u8 thash[TLS_HASH_MAX];
+  tls_hash_of(suite)->digest(truncated_ch.p, truncated_ch.n, thash);
+  return tls_binder_verify_hash(suite, psk, thash, received);
 }
 
 void tls_binder_compute(const u8* psk, wired_span truncated_ch, u8* out) {

@@ -124,6 +124,12 @@ wired_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i) {
   return wired_span_of(a->zerortt_dg[i], a->zerortt_len[i]);
 }
 
+int wired_srvboot_acc_trailing(const wired_srvboot_acc* a) {
+  return wired_srvboot_acc_complete(a) &&
+         cryptolevel_unconsumed_on_promote(
+             a->cr.received_to, crecv_message_end_at(&a->cr, a->hrr_off));
+}
+
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
   /* RFC 8446 4.1.4: after a HelloRetryRequest the message that must be
    * whole is ClientHello2, at the crypto-stream offset right past

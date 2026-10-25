@@ -40,24 +40,31 @@ static void test_seen_distinct_identities_independent(void) {
   CHECK(zerortt_seen_check(&s, zerortt_seen_span(b, sizeof b)) == 0);
 }
 
-/* Once the fixed-capacity ring wraps, the oldest entry is evicted and its
- * identity is treated as a fresh first use again on re-presentation
- * (ponytail: bounded memory over perfect long-window replay detection --
- * acceptable since a ticket also expires on its own lifetime). */
-static void test_seen_capacity_evicts_oldest(void) {
-  zerortt_seen s;
-  u8           id[ZERORTT_SEEN_CAP + 1][4];
+/* RFC 8446 8.2 (8446-094 gap): a full ring never forgets an entry that can
+ * still be replayed -- a new identity is refused (no 0-RTT) and the oldest
+ * stays a replay; once the oldest is ZERORTT_SEEN_LIVE_SECS old it is
+ * evicted to make room. */
+static void test_seen_full_refuses_until_expired(void) {
+  static zerortt_seen s;
+  static u8           id[ZERORTT_SEEN_CAP + 1][4];
+  u64                 live = 100 + ZERORTT_SEEN_LIVE_SECS;
   zerortt_seen_init(&s);
   for (usz i = 0; i < ZERORTT_SEEN_CAP + 1; i++) {
     id[i][0] = (u8)i;
     id[i][1] = (u8)(i >> 8);
     id[i][2] = 0xEE;
     id[i][3] = 0xEE;
-    CHECK(zerortt_seen_check(&s, zerortt_seen_span(id[i], 4)) == 1);
   }
-  /* The very first identity was evicted to make room -- it is seen as fresh
-   * again. */
-  CHECK(zerortt_seen_check(&s, zerortt_seen_span(id[0], 4)) == 1);
+  for (usz i = 0; i < ZERORTT_SEEN_CAP; i++) {
+    CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id[i], 4), 100) == 1);
+  }
+  CHECK(
+      zerortt_seen_check_at(
+          &s, zerortt_seen_span(id[ZERORTT_SEEN_CAP], 4), live - 1) == 0);
+  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id[0], 4), live - 1) == 0);
+  CHECK(
+      zerortt_seen_check_at(
+          &s, zerortt_seen_span(id[ZERORTT_SEEN_CAP], 4), live) == 1);
 }
 
 /* RFC 8446 8.1 across threads: srvthreads workers share one tracker, so two
@@ -109,5 +116,5 @@ void test_zerortt_seen(void) {
   test_seen_fresh_is_first_use();
   test_seen_replay_is_not_first_use();
   test_seen_distinct_identities_independent();
-  test_seen_capacity_evicts_oldest();
+  test_seen_full_refuses_until_expired();
 }

@@ -5,6 +5,7 @@
  * and the functions and tables more than one piece uses. Not public API. */
 
 #include "common/bytes/util/bytes.h"
+#include "common/diag/error/error.h"
 #include "common/platform/keylog/keylog.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/finished.h"
