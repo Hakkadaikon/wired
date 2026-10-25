@@ -83,4 +83,13 @@
 #include "transport/recovery/congestion/cc/persistent.h"
 #include "transport/recovery/detect/recovery/pto.h"
 
+/** RFC 9000 4.1: when a STREAM_DATA_BLOCKED / DATA_BLOCKED last went out --
+ * the ceiling it named (sent_at) and the time (sent_ms, srvrun's clock) --
+ * so the frame goes once per ceiling and repeats each PTO while still
+ * blocked with nothing in flight (srvrun_blocked_due). */
+typedef struct {
+  u64 sent_at;
+  u64 sent_ms;
+} srvrun_blocked_mark;
+
 #endif

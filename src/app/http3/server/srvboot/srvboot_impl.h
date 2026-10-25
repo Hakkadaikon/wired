@@ -10,6 +10,7 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/num.h"
 #include "common/platform/clock/clock.h"
+#include "tls/handshake/core/tls/cryptolevel.h"
 #include "tls/keys/keyring/keyring.h"
 #include "transport/conn/cid/sreset/sreset.h"
 #include "transport/conn/loop/crecv/collect.h"

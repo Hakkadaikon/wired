@@ -6,7 +6,10 @@ static u64 short_pn(
 static int step_newer_dropped(
     const wired_srvloop* l, const wired_server* s, const srvloop_opened* o);
 static int step_admit(
-    wired_srvloop* l, wired_server* s, const srvloop_opened* o);
+    wired_srvloop* l, wired_server* s, const srvloop_opened* o, wired_span pl);
+static u64 step_error(wired_srvloop* l, const srvloop_opened* o, wired_span pl);
+static int step_refused(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl);
 static int np_above(const wired_srvloop* l);
 static int step_np_raises(
     const wired_srvloop* l, const srvloop_opened* o, wired_span pl);
@@ -35,17 +38,36 @@ static int step_newer_dropped(
          short_pn(l, s, o->pkt) > srvloop_app_largest_pn(l);
 }
 
+/* RFC 9000 12.4: an opened packet whose header bits or frames are a
+ * connection error latches the code (the first one this step keeps it) and
+ * is not processed further. */
+static u64 step_error(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
+  u64 e = srvloop_payload_error(l, o->level, o->pkt.p[0], pl);
+  return e ? e : srvloop_rxacct_payload(l, pl);
+}
+
+static int step_refused(
+    wired_srvloop* l, const srvloop_opened* o, wired_span pl) {
+  u64 e = step_error(l, o, pl);
+  if (!l->transport_error) {
+    l->transport_error = e;
+  }
+  return e != 0;
+}
+
 /* 1 iff the opened packet is to be processed: its pn recorded unless it is
  * a discarded newer one, then rejected if a duplicate, which RFC 9000 12.3
- * says to discard after removing protection. */
+ * says to discard after removing protection, or if it is malformed
+ * (step_refused). */
 static int step_admit(
-    wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
+    wired_srvloop* l, wired_server* s, const srvloop_opened* o, wired_span pl) {
   if (step_newer_dropped(l, s, o)) {
     return 0;
   }
   srvloop_note_app_rx(l, s, o);
   srvloop_note_hs_rx(l, o);
-  return !srvloop_step_dup(l, o->level);
+  return !srvloop_step_dup(l, o->level) && !step_refused(l, o, pl);
 }
 
 /* The just-recorded application pn is above every earlier non-probing one
@@ -81,7 +103,7 @@ void srvloop_step_opened(
     wired_mspan                   pkt) {
   wired_srvloop* l = conn->l;
   srvloop_opened o = {ro->level, pkt};
-  if (!step_admit(l, conn->s, &o)) {
+  if (!step_admit(l, conn->s, &o, ro->payload)) {
     return;
   }
   step_note_np(l, &o, ro->payload);

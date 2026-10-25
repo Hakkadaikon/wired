@@ -110,7 +110,16 @@ srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id);
 void           srvrun_apply_one_stream_credit_update(srvrun_conn* c, usz i);
 void           srvrun_apply_stream_credit_update(srvrun_conn* c);
 int            srvrun_has_requeued(const wired_sendsess* sess);
-void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c);
+void srvrun_notify_conn_blocked(const srvrun_step_ctx* ctx, srvrun_conn* c);
+void srvrun_notify_stream_blocked(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    u64                    stream_id,
+    const wired_sendsess*  sess,
+    u64                    credit,
+    srvrun_blocked_mark*   m);
+int srvrun_stream_credit_blocked(
+    const srvrun_conn* c, const wired_sendsess* sess, u64 credit);
 void srvrun_notify_uni_blocked(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_pump_gate_ok(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit);

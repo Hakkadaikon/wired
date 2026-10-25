@@ -338,6 +338,14 @@ usz wired_srvboot_partial_ack(
  * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a);
 
+/** RFC 9001 4.1.3: a client sends only its ClientHello at the Initial
+ * level, so Initial CRYPTO bytes past it would stay unconsumed once the
+ * connection moves on to Handshake keys -- a PROTOCOL_VIOLATION.
+ * @param a the accumulator
+ * @return 1 if a is complete and its contiguous CRYPTO prefix runs past the
+ *   ClientHello. */
+int wired_srvboot_acc_trailing(const wired_srvboot_acc* a);
+
 /** wired_srvboot_accept_acc return: a HelloRetryRequest went out instead of
  * the accept flight (RFC 8446 4.1.4 -- the ClientHello offered no x25519
  * key_share). out->initial holds the sealed HRR Initial; the accumulator

@@ -4497,7 +4497,7 @@ static void test_srvloop_gather_max_streams_uni(void) {
   wired_obuf      ob;
   u8              out[1024], spkt[1024];
   usz             slen;
-  static const u8 fr[] = {0x13, 0x20, 0x12, 0x7f}; /* uni 32, bidi 127 */
+  static const u8 fr[] = {0x13, 0x20, 0x12, 0x40, 0x7f}; /* uni 32, bidi 127 */
   ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
@@ -5606,15 +5606,21 @@ static void test_srvloop_reset_stream_without_stop_sending_latches_close(void) {
   CHECK(f.l.peer_reset_count == 1);
 }
 
-/* Step one 1-RTT packet carrying a RESET_STREAM on stream id. */
-static void lp_step_reset(struct lp_fix* f, u64 pn, u64 id) {
+/* Step one 1-RTT packet carrying a RESET_STREAM on stream id whose Final
+ * Size is final (RFC 9000 4.5: at least every byte already sent). */
+static void lp_step_reset_sized(struct lp_fix* f, u64 pn, u64 id, u64 final) {
   u8                 payload[64], out[1024], spkt[1024];
   wired_obuf         ob  = {out, sizeof out, 0};
-  reset_stream_frame rs  = {id, 0x10c, 0};
+  reset_stream_frame rs  = {id, 0x10c, final};
   usz                off = reset_stream_encode(payload, sizeof payload, &rs);
   usz slen = client_seal_onertt_pn(f, pn, payload, off, spkt, sizeof spkt);
   wired_srvloop_step(
       &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* lp_step_reset_sized for a stream that carried no data. */
+static void lp_step_reset(struct lp_fix* f, u64 pn, u64 id) {
+  lp_step_reset_sized(f, pn, id, 0);
 }
 
 /* RFC 9000 4.6: a frame naming a client stream past the advertised limit of
@@ -5627,6 +5633,7 @@ static void test_srvloop_stream_past_limit_latches_violation(void) {
   lp_confirm(&f, &ob);
   f.l.peer_stream_limit[0] = 10;
   f.l.peer_stream_limit[1] = 3;
+  f.l.local_opened[0]      = 1;    /* server bidi 1 exists (RFC 9000 19.4) */
   lp_step_reset(&f, 3, 9 * 4);     /* bidi index 9 < 10 */
   lp_step_reset(&f, 4, 2 * 4 + 2); /* uni index 2 < 3 */
   lp_step_reset(&f, 5, 1);         /* server-initiated */
@@ -5666,6 +5673,9 @@ static void lp_headers_then_reset(
       method, wired_span_of((const u8*)"https", 5),
       wired_span_of((const u8*)"h", 1), path, wired_span_of((const u8*)"", 0)};
   usz off = lp_build_headers_stream(&pin, fin, payload, sizeof payload);
+  stream_frame sf;
+  CHECK(frame_get_stream(payload, off, &sf) != 0);
+  rs.final_size = sf.offset + sf.length; /* RFC 9000 4.5: the bytes sent */
   if (reset) {
     off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
   }
@@ -5685,7 +5695,7 @@ static void test_srvloop_reset_notes_only_receiving_slot(void) {
   wired_span    slash = wired_span_of((const u8*)"/", 1);
   lp_confirm(&f, &ob);
   lp_headers_then_reset(&f, get, slash, 0, 0);
-  lp_step_reset(&f, 4, 0);
+  lp_step_reset_sized(&f, 4, 0, f.l.streams[0].req_len);
   CHECK(f.l.reset_slots == 1);
   lp_confirm(&f, &ob);
   lp_headers_then_reset(&f, get, slash, 1, 1);
@@ -5838,6 +5848,41 @@ static void test_srvloop_ncid_malformed(void) {
   CHECK(f.l.ncid_rx_n == 0);
 }
 
+/* RFC 9001 8.3 / RFC 9000 12.4 / 17.2: a 0-RTT packet carrying CRYPTO, one
+ * with its Reserved Bits set (0x0c of a long header), and one with no frames
+ * at all are refused with PROTOCOL_VIOLATION; a 0-RTT PING is not. */
+static u64 srvloop_zrtt_error(u8 byte0, wired_span payload) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  srvloop_zrtt_fix(&f);
+  n = srvloop_zrtt_seal(&f, byte0, 3, payload, wired_mspan_of(pkt, 256));
+  CHECK(n != 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, n), &ob);
+  return f.l.transport_error;
+}
+
+static void test_srvloop_zerortt_refused_frames_latch_error(void) {
+  static const u8 crypto[] = {0x06, 0x00, 0x01, 0xaa};
+  static const u8 ping[]   = {0x01};
+  CHECK(
+      srvloop_zrtt_error(0xd3, wired_span_of(crypto, sizeof crypto)) ==
+      ERR_PROTOCOL_VIOLATION);
+  CHECK(
+      srvloop_zrtt_error(0xdf, wired_span_of(ping, sizeof ping)) ==
+      ERR_PROTOCOL_VIOLATION);
+  CHECK(srvloop_zrtt_error(0xd3, wired_span_of(ping, sizeof ping)) == 0);
+  /* no frames at all: the same check srvloop_step_opened runs */
+  {
+    static wired_srvloop zl;
+    CHECK(
+        srvloop_payload_error(&zl, LEVEL_ONERTT, 0x40, wired_span_of(0, 0)) ==
+        ERR_PROTOCOL_VIOLATION);
+  }
+}
+
 void test_srvloop(void) {
   test_srvloop_ticket_early_data_only_off_raw();
   test_srvloop_slotless_reset_closes_stream();
@@ -5848,6 +5893,7 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
+  test_srvloop_zerortt_refused_frames_latch_error();
   test_srvloop_pn_baseline_is_largest();
   test_srvloop_duplicate_packet_dropped();
   test_srvloop_classified_slot_not_reset();

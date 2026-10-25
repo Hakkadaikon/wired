@@ -144,6 +144,7 @@ srvrun_wtsend* srvrun_wtsend_take(srvrun_wtsend* w, u64 credit) {
   /* Start from no send state, as srvrun_resp_claim does: a slot freed
    * mid-send (reset, STOP_SENDING) keeps its old sess and offsets. */
   w->sess             = (wired_sendsess){0};
+  w->sdb              = (srvrun_blocked_mark){0, 0};
   w->stream_off       = 0;
   w->append_open      = 0;
   w->view_round       = 0;

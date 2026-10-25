@@ -538,6 +538,8 @@ void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id);
 /** 1 if stream_id's index is recorded in w (or below its window). */
 int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id);
 
+#include "app/http3/server/srvloop/srvloop_rxacct.h" /* needs the caps */
+
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. Field order follows
  * the doc grouping (related fields stay next to their shared comment)
@@ -964,6 +966,30 @@ typedef struct {
    * stream, which never exceeds the window. The caller (srvrun.c) closes
    * with FLOW_CONTROL_ERROR. */
   int flow_control_violation;
+  /** RFC 9000 12.4 / 17.2 / 19: the transport error code (PROTOCOL_
+   * VIOLATION, FRAME_ENCODING_ERROR, STREAM_STATE_ERROR, ...) of the first
+   * opened packet this loop refused (srvloop_payload_error), 0 when none.
+   * dispatch only latches it; the caller (srvrun.c) closes with it and
+   * clears it. */
+  u64 transport_error;
+  /** RFC 9000 3.2 / 19.8: how many server bidi ([0]) and uni ([1]) streams
+   * the caller has opened, set before each step -- a frame naming a server
+   * stream at or past that count is a STREAM_STATE_ERROR. */
+  u64 local_opened[2];
+  /** RFC 9000 4.1/4.5: per-stream receive accounting (srvloop_rxacct.c),
+   * walked over every admitted packet before dispatch. */
+  wired_srvloop_rxacct rxacct[WIRED_SRVLOOP_RXACCT_CAP];
+  /** Streams whose entry was retired with its final size known, one window
+   * per stream type (id & 3): their bytes are already counted, so a late
+   * frame for one is not accounted again. */
+  wired_srvloop_closed rxacct_done[4];
+  /** RFC 9000 4.1: the sum of every stream's highest received offset (its
+   * final size once known) -- the connection-level bytes received. */
+  u64 rx_conn_bytes;
+  /** RFC 9000 4.1: the connection receive limit in force (the larger of the
+   * initial_max_data sent and the last MAX_DATA sent), set by the caller
+   * before each step; 0 leaves it unchecked. */
+  u64 rx_max_data;
   /** RFC 9000 4.1: streamed request-body bytes consumed (window base) on
    * every request slot released so far -- with the live slots' bases, the
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
@@ -1007,6 +1033,14 @@ void wired_srvloop_set_handler(
  * @param cli_scid_len cli_scid length in octets
  * @return 1, or 0 if cli_scid_len exceeds 20. */
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
+
+/** RFC 9000 13.3: 1 once stream_id's receive part is in Size Known or Reset
+ * Recvd (a FIN or RESET_STREAM fixed its final size) -- no more
+ * MAX_STREAM_DATA for it.
+ * @param l the loop
+ * @param stream_id the stream to ask about
+ * @return 1 if the final size is known, else 0. */
+int wired_srvloop_rx_final_known(const wired_srvloop* l, u64 stream_id);
 
 /** RFC 9000 2.2: the streams[] slot reassembling request stream_id,
  * allocating a free one on first sight -- dispatch.c routes each request

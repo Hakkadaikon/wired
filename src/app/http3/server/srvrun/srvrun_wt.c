@@ -1,6 +1,9 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_boot_salvage(const srvrun_conn* c);
+static u64 srvrun_boot_crypto_error(const srvrun_conn* c);
+static int srvrun_boot_hold(const srvrun_conn* c);
+static int srvrun_boot_wait(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* Feed dg into c's boot accumulator, restarting it for a fresh attempt (a
  * just-claimed slot, or a confirmed connection re-cold-starting). The
@@ -27,13 +30,42 @@ static int srvrun_boot_salvage(const srvrun_conn* c) {
   return c->boot.opened ? SRVRUN_BOOT_PENDING : 0;
 }
 
+/* The boot reassembly's CRYPTO error, 0 when none: a CRYPTO frame fell past
+ * the buffer, which is never expanded (RFC 9000 7.5 "MUST close the
+ * connection with a CRYPTO_BUFFER_EXCEEDED error code"), or Initial CRYPTO
+ * runs past the ClientHello and would be left unconsumed at the Handshake
+ * level (RFC 9001 4.1.3, PROTOCOL_VIOLATION). */
+static u64 srvrun_boot_crypto_error(const srvrun_conn* c) {
+  if (c->boot.cr.overflow) {
+    return ERR_CRYPTO_BUFFER_EXCEEDED;
+  }
+  return wired_srvboot_acc_trailing(&c->boot) ? ERR_PROTOCOL_VIOLATION : 0;
+}
+
+/* The ClientHello is not whole yet, or the reassembly holds an error. */
+static int srvrun_boot_hold(const srvrun_conn* c) {
+  return !wired_srvboot_acc_complete(&c->boot) ||
+         srvrun_boot_crypto_error(c) != 0;
+}
+
+/* Keep the boot pending, or refuse it over a CRYPTO error with an Initial
+ * CONNECTION_CLOSE carrying that code (srvrun_refuse). */
+static int srvrun_boot_wait(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u64 e = srvrun_boot_crypto_error(c);
+  if (!e) {
+    return SRVRUN_BOOT_PENDING;
+  }
+  c->s.sdrv.last_error = e;
+  return srvrun_refuse(ctx, c);
+}
+
 int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_boot_feed(c, dg, ctx->ecn)) {
     return srvrun_boot_salvage(c);
   }
-  if (!wired_srvboot_acc_complete(&c->boot)) {
-    return SRVRUN_BOOT_PENDING;
+  if (srvrun_boot_hold(c)) {
+    return srvrun_boot_wait(ctx, c);
   }
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
@@ -53,9 +85,20 @@ usz srvrun_wt_abort_reset(
   return reset_stream_encode(plb->p + at, plb->cap - at, &rs);
 }
 
-/* One STOP_SENDING (RFC 9000 19.5) at plb->p + at. */
-usz srvrun_wt_abort_stop(u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
+/* One STOP_SENDING (RFC 9000 19.5) at plb->p + at -- nothing (0 bytes)
+ * for a stream the peer already reset: RFC 9000 3.5 "SHOULD NOT send a
+ * STOP_SENDING frame for a stream that has already been reset by the
+ * peer". */
+usz srvrun_wt_abort_stop(
+    const srvrun_conn* c,
+    u64                stream_id,
+    u64                err_code,
+    wired_obuf*        plb,
+    usz                at) {
   stop_sending_frame ss = {stream_id, err_code};
+  if (srvrun_peer_reset_seen(c, stream_id)) {
+    return 0;
+  }
   return stop_sending_encode(plb->p + at, plb->cap - at, &ss);
 }
 
@@ -68,11 +111,7 @@ usz srvrun_wt_abort_pair(
    * srvrun_send_wt_busy_reset) fits one RESET_STREAM (type + 3 varints,
    * at most 25 bytes), so it is never an encode failure. */
   usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
-  usz sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
-  if (!sn) {
-    return 0;
-  }
-  return rn + sn;
+  return rn + srvrun_wt_abort_stop(c, stream_id, err_code, plb, rn);
 }
 
 /* RFC 9114 4.1.1/8.1: a server aborts a stream with the frames RFC 9000
@@ -95,7 +134,7 @@ usz srvrun_wt_abort_pair(
 usz srvrun_wt_busy_reset_payload(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
   if (!stream_can_send(0, stream_id)) { /* client uni */
-    return srvrun_wt_abort_stop(stream_id, err_code, plb, 0);
+    return srvrun_wt_abort_stop(c, stream_id, err_code, plb, 0);
   }
   if (!stream_can_receive(0, stream_id)) { /* server uni */
     return srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);

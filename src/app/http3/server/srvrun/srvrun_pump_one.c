@@ -22,7 +22,9 @@ static int srvrun_pump_one_wt_slice(
   wired_sendq_slice sl;
   srvrun_wtsend_promote_fin_if_ready(c, w);
   if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) {
-    srvrun_notify_conn_blocked(ctx->cfg, c);
+    srvrun_notify_conn_blocked(ctx, c);
+    srvrun_notify_stream_blocked(
+        ctx, c, w->stream_id, &w->sess, w->stream_credit, &w->sdb);
     return 0;
   }
   if (wired_sendsess_take(&w->sess, &sl)) {
