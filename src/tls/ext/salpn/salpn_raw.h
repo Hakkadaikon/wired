@@ -46,4 +46,21 @@ int salpn_raw_list_has(const char* list, const u8* name, usz name_len);
 salpn_choice salpn_raw_pick(
     const u8* alpn_ext_data, usz len, const char* raw_list, wired_span* tok);
 
+/** RFC 7301 3.2: "the server SHOULD select the most highly preferred
+ * protocol that it supports and that is also advertised by the client".
+ * This server's preference order is raw_list's entries in their configured
+ * order, then "h3", then "hq-interop"; the first one the client's
+ * ProtocolNameList (alpn_ext_data, len bytes) offers wins, whatever its
+ * position there. On SALPN_RAW, *tok views the raw_list entry (as for
+ * salpn_raw_pick); otherwise *tok is untouched. SALPN_NONE when nothing
+ * matches or the list is malformed (list length overrun or short,
+ * zero-length entry, entry overrun).
+ * @param alpn_ext_data the ALPN extension_data (2-byte list length first)
+ * @param len bytes at alpn_ext_data
+ * @param raw_list space-separated raw protocol ids in preference order, or 0
+ * @param tok receives the chosen raw id on SALPN_RAW
+ * @return the negotiated choice */
+salpn_choice salpn_raw_pick_server(
+    const u8* alpn_ext_data, usz len, const char* raw_list, wired_span* tok);
+
 #endif

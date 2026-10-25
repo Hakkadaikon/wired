@@ -17,6 +17,7 @@ void srvrun_send(
     wired_span         pkt,
     const char*        what);
 void srvrun_log_close(const char* what, wired_span reason);
+void srvrun_log_close_alert(const char* what, u64 code);
 void srvrun_stage_flush(const srvrun_cfg* cfg);
 void srvrun_stage_put(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt);

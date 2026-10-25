@@ -11,6 +11,7 @@
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
+#include "ee_find.h"
 #include "realchain_golden.h"
 #include "test.h"
 #include "tls/ext/salpn/ch_ext.h"
@@ -1557,7 +1558,7 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256};
+  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1750,7 +1751,7 @@ static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv             s;
   u8               ch2[700], psk[48], sh[256], flight[2048];
   usz              ch2_len;
-  ticket           t        = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384};
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, {0}};
   static const u8  nonce[1] = {0};
   hkdf_label       l        = {"resumption", 10, {nonce, 1}};
   wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
@@ -2399,7 +2400,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, {0}};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = f->secret[i];
@@ -2508,6 +2509,109 @@ static void test_sdrv_0rtt_alpn_gate(void) {
   CHECK(sdrv_test_0rtt_alpn(SALPN_NONE, 0) == 1);
 }
 
+/* f's ticket sealed bound to ticket_sni (n 0: no server_name) and offered
+ * (PSK + early_data) by a ClientHello carrying sni. Returns psk_accepted;
+ * *ee_sni is whether EncryptedExtensions echoed server_name. */
+static int sdrv_test_psk_sni(
+    wired_span ticket_sni, wired_span sni, int* ee_sni) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch2[800];
+  u8               sh[256], flight[2048];
+  wired_obuf       sh_ob = obuf_of(sh, sizeof(sh));
+  wired_obuf       fl_ob = obuf_of(flight, sizeof(flight));
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  wired_span       d;
+  usz              ch2_len, off;
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs();
+  bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
+  salpn_sni_digest(ticket_sni, t.sni);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  f.ch_len = tls_client_hello(
+      &(clienthello_in){f.srv_random, f.cli_pub, sni, wired_span_of(0, 0)},
+      &(wired_obuf){f.ch, sizeof(f.ch), 0});
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &off);
+  CHECK(ch2_len != 0);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(sdrv_build_server_flight(&s, f.srv_random, &fo));
+  *ee_sni = ee_find(flight, 0x0000, &d);
+  return s.psk_accepted;
+}
+
+/* RFC 6066 3: a ticket resumes only under the server_name it was issued
+ * under (compared case-insensitively); another name, or a name on only one
+ * side, falls back to a full handshake -- which, its name matching the
+ * certificate, echoes server_name, while a resumption never does
+ * (6066-014). */
+static void test_sdrv_psk_bound_to_sni(void) {
+  wired_span lh    = wired_span_of((const u8*)"localhost", 9);
+  wired_span lh_uc = wired_span_of((const u8*)"LocalHost", 9);
+  wired_span other = wired_span_of((const u8*)"other.example", 13);
+  wired_span none  = wired_span_of(0, 0);
+  int        ee    = -1;
+  CHECK(sdrv_test_psk_sni(lh, lh, &ee) == 1);
+  CHECK(ee == 0);
+  CHECK(sdrv_test_psk_sni(lh_uc, lh, &ee) == 1);
+  CHECK(sdrv_test_psk_sni(none, none, &ee) == 1);
+  CHECK(sdrv_test_psk_sni(other, lh, &ee) == 0);
+  CHECK(ee == 1);
+  CHECK(sdrv_test_psk_sni(none, lh, &ee) == 0);
+  CHECK(sdrv_test_psk_sni(lh, none, &ee) == 0);
+  CHECK(ee == 0);
+}
+
+/* f's plain ClientHello with one extension (ext, header included) appended
+ * at the end, the extensions and handshake lengths patched. */
+static usz sdrv_test_append_ext(
+    const sdrv_psk_fixture* f, wired_span ext, u8* out, usz cap) {
+  usz off = SDRV_TEST_EXTS_LEN_OFF;
+  usz old = (usz)f->ch[off] << 8 | f->ch[off + 1];
+  CHECK(f->ch_len + ext.n <= cap);
+  bytes_memcpy(out, f->ch, f->ch_len);
+  bytes_memcpy(out + f->ch_len, ext.p, ext.n);
+  be_put_be16(out + off, (u16)(old + ext.n));
+  hs_finish(out, f->ch_len + ext.n);
+  return f->ch_len + ext.n;
+}
+
+/* The chain-signature verdict for f's ClientHello plus ext (n 0: none). */
+static int sdrv_test_cert_sigs(wired_span ext) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32], ch[700];
+  usz              n;
+  sdrv_psk_fixture_init(&f);
+  n = sdrv_test_append_ext(&f, ext, ch, sizeof ch);
+  sdrv_test_srv_keys(srv_priv, srv_pub, cert_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  CHECK(sdrv_recv_client_hello(&s, ch, n)); /* sent anyway, 4.4.2.2 */
+  return s.cert_sigs_offered;
+}
+
+/* RFC 8446 4.2.3: signature_algorithms_cert (50), when present, judges the
+ * chain's signatures instead of signature_algorithms. The self-signed leaf
+ * is ecdsa_secp256r1_sha256 (0x0403): offered by signature_algorithms
+ * alone, not by a cert list of rsa_pss_rsae_sha256 (0x0804) only, and
+ * again once 0x0403 is in the cert list. */
+static void test_sdrv_signature_algorithms_cert(void) {
+  static const u8 pss[]  = {0x00, 0x32, 0x00, 0x04, 0x00, 0x02, 0x08, 0x04};
+  static const u8 both[] = {0x00, 0x32, 0x00, 0x06, 0x00,
+                            0x04, 0x08, 0x04, 0x04, 0x03};
+  CHECK(sdrv_test_cert_sigs(wired_span_of(0, 0)) == 1);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(pss, sizeof pss)) == 0);
+  CHECK(sdrv_test_cert_sigs(wired_span_of(both, sizeof both)) == 1);
+}
+
 /* RFC 8446 8.1 across forked workers (srvworkers): once the replay tracker
  * is moved to shared memory before fork, a ticket a child accepted 0-RTT
  * for is a replay in the parent and every sibling too. */
@@ -2586,6 +2690,8 @@ void test_sdrv(void) {
   test_sdrv_raw_alpn_selected();
   test_sdrv_no_alpn_match_is_0x178();
   test_sdrv_0rtt_alpn_gate();
+  test_sdrv_psk_bound_to_sni();
+  test_sdrv_signature_algorithms_cert();
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
   test_sdrv_sni_mismatch();

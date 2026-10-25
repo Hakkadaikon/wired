@@ -3812,15 +3812,20 @@ static void test_srvloop_ticket_not_resent(void) {
 static void test_srvloop_close_frame_detected(void) {
   u8               cc[32];
   u8               ping[1] = {0x01};
-  conn_close_frame tpt     = {0, 0, 0, 0, 0};
+  conn_close_frame tpt     = {0, 0x132, 0, 0, 0}; /* TLS decode_error */
   conn_close_frame app     = {1, 0, 0, 0, 0};
+  u64              code    = 7;
   usz              n       = frame_put_conn_close(cc, sizeof cc, &tpt);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
+  CHECK(srvloop_has_close(wired_span_of(cc, n), &code) == 1);
+  CHECK(code == 0x132); /* RFC 8446 6.2: the peer's alert is kept to log */
   n = frame_put_conn_close(cc, sizeof cc, &app);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
-  CHECK(srvloop_has_close(wired_span_of(ping, 1)) == 0);
+  CHECK(srvloop_has_close(wired_span_of(cc, n), &code) == 1);
+  CHECK(code == 0);
+  code = 7;
+  CHECK(srvloop_has_close(wired_span_of(ping, 1), &code) == 0);
+  CHECK(code == 7);
 }
 
 /* An ack-eliciting 1-RTT packet (here, a PING frame) records its pn

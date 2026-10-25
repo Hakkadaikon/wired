@@ -180,6 +180,7 @@ static int sdrv_ch_require_scheme_offered(
  * sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_negotiate_alpn(s, ch_msg, ch_len); /* the 0-RTT gate reads it */
+  sdrv_check_sni(s, ch_msg, ch_len);      /* the ticket check reads it */
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) {
     return 0;
   }

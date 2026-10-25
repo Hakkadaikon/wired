@@ -1,7 +1,6 @@
 #include "tls/handshake/core/sdrv/sdrv_impl.h"
 
-static void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len);
-static int  cipher_vec_ok(usz p, usz n, usz body_len);
+static int cipher_vec_ok(usz p, usz n, usz body_len);
 static int sdrv_ch_cipher_suites(const u8* body, usz body_len, wired_span* out);
 static int sdrv_negotiate_cipher(sdrv* s, const u8* body, usz body_len);
 static wired_span sdrv_psk_truncate(
@@ -26,9 +25,16 @@ int sdrv_take_client_sid(sdrv* s, const u8* ch_msg, usz ch_len) {
   return 1;
 }
 
+/* The two ALPN selection orders, indexed by alpn_client_order. */
+typedef salpn_choice (*sdrv_alpn_pick_fn)(
+    const u8*, usz, const char*, wired_span*);
+static const sdrv_alpn_pick_fn SDRV_ALPN_PICK[2] = {
+    salpn_raw_pick_server, salpn_raw_pick};
+
 /* RFC 7301 3.1/3.2: negotiate ALPN from the ClientHello's ALPN extension
- * (0x0010) in the client's preference order across h3, hq-interop and the
- * configured raw ids (salpn_raw_pick). Absent or malformed ALPN extension
+ * (0x0010) across the configured raw ids, h3 and hq-interop -- in this
+ * server's preference order (salpn_raw_pick_server), or the client's when
+ * alpn_client_order is set (salpn_raw_pick). Absent or malformed ALPN extension
  * negotiates SALPN_NONE the same as an extension present but offering
  * nothing this server speaks -- not itself a ClientHello parse failure;
  * the flight build refuses it with no_application_protocol. */
@@ -40,25 +46,36 @@ void sdrv_negotiate_alpn(sdrv* s, const u8* ch_msg, usz ch_len) {
           wired_span_of(ch_msg, ch_len), SALPN_EXT_TYPE, &ext)) {
     return;
   }
-  s->alpn = salpn_raw_pick(ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
+  s->alpn = SDRV_ALPN_PICK[s->alpn_client_order](
+      ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
+}
+
+/* RFC 6066 3: record the digest of a server_name that matched (the name a
+ * ticket issued on this connection is bound to). */
+static void sdrv_take_sni_digest(sdrv* s, wired_span host) {
+  if (s->sni_outcome == SALPN_SNI_MATCH) {
+    salpn_sni_digest(host, s->sni_digest);
+  }
 }
 
 /* RFC 6066 3: check the ClientHello's server_name against this driver's own
  * leaf certificate (s->certs[0], present once sdrv_init has built or
  * taken a chain). Leaves s->sni_outcome at SALPN_SNI_ABSENT (its
  * sdrv_init default) when there is no certificate yet to check
- * against. Never itself rejects the ClientHello: RFC 6066 3 makes both
- * sending unrecognized_name and silently continuing valid server behavior
- * on a mismatch; the caller (server.c) decides using s->sni_outcome. */
-static void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len) {
-  x509 leaf;
+ * against. Never itself rejects the ClientHello: the caller (server.c)
+ * decides through sdrv_enforce_sni. Runs before the PSK is tried, which
+ * compares the ticket's server_name digest with this one. */
+void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len) {
+  x509       leaf;
+  wired_span host = {0, 0};
   if (s->cert_count == 0) {
     return;
   }
   if (!x509_parse(s->certs[0], &leaf)) {
     return;
   }
-  s->sni_outcome = salpn_sni_check(ch_msg, ch_len, leaf.tbs);
+  s->sni_outcome = salpn_sni_check(ch_msg, ch_len, leaf.tbs, &host);
+  sdrv_take_sni_digest(s, host);
 }
 
 /* The cipher_suites vector's declared byte length n at p (2-byte length
@@ -136,7 +153,7 @@ void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_STREAMS_UNI,
       &s->peer_initial_max_streams_uni);
-  sdrv_check_sni(s, ch_msg, ch_len);
+  sdrv_ch_note_cert_sigs(s, ch_msg, ch_len);
   transcript_add(&s->tr, ch_msg, ch_len);
 }
 

@@ -12,13 +12,18 @@ static int srvloop_close_type(u64 type) {
 }
 
 /* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
- * (either variant, any encryption level — the peer is closing or draining). */
-int srvloop_has_close(wired_span pl) {
-  framewalk      it;
-  framewalk_item fr;
+ * (either variant, any encryption level — the peer is closing or draining),
+ * with its error code in *code (0 if the frame does not decode) for the
+ * close log (RFC 8446 6.2: a CRYPTO_ERROR carries the peer's TLS alert). */
+int srvloop_has_close(wired_span pl, u64* code) {
+  framewalk        it;
+  framewalk_item   fr;
+  conn_close_frame cc = {0, 0, 0, 0, 0};
   framewalk_init(&it, pl.p, pl.n);
   while (framewalk_next(&it, &fr)) {
     if (srvloop_close_type(fr.type)) {
+      frame_get_conn_close(fr.start, fr.remaining, &cc);
+      *code = cc.error_code;
       return 1;
     }
   }

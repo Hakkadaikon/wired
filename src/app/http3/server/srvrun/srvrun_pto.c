@@ -82,8 +82,8 @@ void srvrun_step_and_reap(
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
-    srvrun_log_close(
-        "conn closed by peer (CONNECTION_CLOSE)", wired_span_of(0, 0));
+    srvrun_log_close_alert(
+        "conn closed by peer (CONNECTION_CLOSE)", c->l.peer_close_code);
     srvrun_note_ghost(ctx, c); /* swallow its closing-period stragglers */
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;

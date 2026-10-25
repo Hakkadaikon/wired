@@ -23,11 +23,22 @@ int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len) {
 
 salpn_sni_outcome sdrv_sni_outcome(const sdrv* s) { return s->sni_outcome; }
 
+/* The alert each salpn_sni_outcome closes with, 0 = continue: RFC 6066 3
+ * unrecognized_name on a mismatch, RFC 8446 6.2 decode_error (50) on an
+ * extension that does not parse. */
+static const u8 SDRV_SNI_ALERT[] = {
+    [SALPN_SNI_ABSENT]    = 0,
+    [SALPN_SNI_MATCH]     = 0,
+    [SALPN_SNI_MISMATCH]  = TLS_ALERT_UNRECOGNIZED_NAME,
+    [SALPN_SNI_MALFORMED] = 50,
+};
+
 int sdrv_enforce_sni(sdrv* s) {
-  if (s->sni_outcome != SALPN_SNI_MISMATCH) {
+  u8 alert = SDRV_SNI_ALERT[s->sni_outcome];
+  if (alert == 0) {
     return 1;
   }
-  s->last_error = err_crypto(TLS_ALERT_UNRECOGNIZED_NAME);
+  s->last_error = err_crypto(alert);
   return 0;
 }
 

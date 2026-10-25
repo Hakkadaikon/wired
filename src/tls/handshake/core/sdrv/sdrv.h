@@ -66,6 +66,10 @@ typedef struct {
   wired_span alpn_tok;
   /** Configured raw-QUIC ids (sdrv_set_raw_alpns), or 0 for none. */
   const char* raw_alpns;
+  /** 1: pick ALPN in the client's order (salpn_raw_pick) instead of this
+   * server's (salpn_raw_pick_server, the default) -- for clients that
+   * ignore the selected protocol (sdrv_set_alpn_client_order). */
+  int alpn_client_order;
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -95,8 +99,9 @@ typedef struct {
   int hs_ready; /**< hs_secret derived */
   /** RFC 7301 3.1/3.2: this server's negotiated ALPN protocol -- the
    * first entry of the client's list that is h3, hq-interop or one of
-   * raw_alpns (salpn_raw_pick). SALPN_NONE if nothing matched: the flight
-   * is then refused with no_application_protocol (0x178). */
+   * raw_alpns (salpn_raw_pick_server: this server's preference order, or
+   * salpn_raw_pick with alpn_client_order). SALPN_NONE if nothing matched: the
+   * flight is then refused with no_application_protocol (0x178). */
   salpn_choice alpn;
   /** RFC 8446 4.1.4: set by sdrv_recv_client_hello when the
    * ClientHello carried no x25519 key_share, meaning a HelloRetryRequest
@@ -111,12 +116,18 @@ typedef struct {
   /** RFC 6066 3: the ClientHello's server_name extension checked against
    * this driver's own certificate (salpn_sni_check), set by
    * sdrv_recv_client_hello. SALPN_SNI_ABSENT when the client sent
-   * no server_name (or it was malformed); this SDK's policy is to continue
-   * the handshake in every case (RFC 6066 3 leaves both a mismatch alert and
-   * silently continuing as valid server behavior) -- the field is exposed so
-   * a caller (server.c) MAY choose to send unrecognized_name
-   * (TLS_ALERT_UNRECOGNIZED_NAME) on SALPN_SNI_MISMATCH instead. */
+   * no server_name, SALPN_SNI_MALFORMED when it did not parse.
+   * sdrv_recv_client_hello itself continues in every case; the caller
+   * (server.c) closes via sdrv_enforce_sni. */
   salpn_sni_outcome sni_outcome;
+  /** RFC 6066 3: salpn_sni_digest of the server_name when sni_outcome is
+   * SALPN_SNI_MATCH, all zero otherwise. Sealed into every ticket this
+   * connection issues; a ticket whose digest differs is not resumed. */
+  u8 sni_digest[SALPN_SNI_DIGEST];
+  /** RFC 8446 4.2.3: 1 when every certificate in the chain is signed with
+   * a scheme the client's signature_algorithms_cert (or, absent that,
+   * signature_algorithms) lists. The chain is sent either way (4.4.2.2). */
+  int cert_sigs_offered;
   /** RFC 9368 2.2: the QUIC version the client's Initial actually arrived
    * in, recorded via sdrv_set_client_version before
    * sdrv_recv_client_hello. 0 (never set) is treated as VERSION_1
@@ -267,6 +278,14 @@ void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p);
  * @param raw_alpns space-separated protocol ids, or 0 */
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
 
+/** RFC 7301 3.2: select ALPN in the client's preference order instead of
+ * this server's (raw_alpns in order, then h3, then hq-interop). For an
+ * interop endpoint whose peers speak their first offer whatever the server
+ * selected (msquic offers [hq-interop, h3] and then talks hq-interop).
+ * @param s driver state
+ * @param on 1 client order, 0 server order (the sdrv_init default) */
+void sdrv_set_alpn_client_order(sdrv* s, int on);
+
 /** Inputs to sdrv_init.
  *
  * server_priv_x25519/server_pub_x25519 are the ECDHE key pair. sign_priv is
@@ -381,10 +400,10 @@ int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len);
 /** RFC 6066 3: the outcome of checking the last ClientHello's server_name
  * against this driver's own certificate (set by sdrv_recv_client_hello
  * via salpn_sni_check). SALPN_SNI_ABSENT if the client sent no
- * server_name (or it was malformed) or no certificate was available yet to
- * check against. A SALPN_SNI_MISMATCH never fails the handshake on its
- * own (RFC 6066 3 permits continuing); a caller that wants to enforce
- * unrecognized_name checks this and closes with
+ * server_name or no certificate was available yet to check against;
+ * SALPN_SNI_MALFORMED if the extension did not parse. A SALPN_SNI_MISMATCH
+ * never fails the handshake on its own (RFC 6066 3 permits continuing); a
+ * caller that wants to enforce unrecognized_name checks this and closes with
  * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) itself.
  * @param s driver state
  * @return the last checked SNI outcome. */
@@ -392,8 +411,9 @@ salpn_sni_outcome sdrv_sni_outcome(const sdrv* s);
 
 /** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
  * SALPN_SNI_MISMATCH sets s->last_error to
- * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
- * ABSENT are no-ops. Call right after a successful
+ * err_crypto(TLS_ALERT_UNRECOGNIZED_NAME) and fails, a
+ * SALPN_SNI_MALFORMED sets err_crypto(50) (decode_error, RFC 8446 6.2)
+ * and fails; MATCH and ABSENT are no-ops. Call right after a successful
  * sdrv_recv_client_hello when the caller wants unrecognized_name
  * enforced instead of RFC 6066 3's silent-continue default.
  * @param s driver state

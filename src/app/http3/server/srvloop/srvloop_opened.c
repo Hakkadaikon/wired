@@ -85,7 +85,7 @@ void srvloop_step_opened(
     return;
   }
   step_note_np(l, &o, ro->payload);
-  l->peer_closed |= srvloop_has_close(ro->payload);
+  l->peer_closed |= srvloop_has_close(ro->payload, &l->peer_close_code);
   /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
    * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
    * Handshake level could otherwise hit an unrelated 1-RTT pn by

@@ -2,6 +2,7 @@
 
 #include "common/platform/clock/clock.h"
 #include "common/platform/rng/rng.h"
+#include "tls/ext/salpn/idna.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hs_message.h"
 #include "tls/handshake/core/tls/hsdriver.h"
@@ -23,11 +24,22 @@ static int client_setup(client* c) {
 }
 
 /* RFC 9000 7: generate our X25519 key pair and seed the handshake drivers. */
+/* RFC 6125 6.4.2: the reference identity in A-label form; 0 when name is
+ * empty or does not convert, so no client runs without a hostname check. */
+static int client_take_host(client* c, wired_span name) {
+  c->host     = c->host_buf;
+  c->host_len = salpn_idna_to_ascii(name, c->host_buf, sizeof c->host_buf);
+  return c->host_len != 0;
+}
+
+/* The server name and the wall clock / key material, both fail-closed. */
+static int client_prepare(client* c, wired_span name) {
+  c->castore = 0;
+  return client_take_host(c, name) && client_setup(c);
+}
+
 int client_init(client* c, const client_init_in* in) {
-  c->host     = in->server_name.p;
-  c->host_len = in->server_name.n;
-  c->castore  = 0;
-  if (!client_setup(c)) {
+  if (!client_prepare(c, in->server_name)) {
     return 0;
   }
   wired_x25519_base(c->my_pub, c->my_priv);
@@ -37,7 +49,7 @@ int client_init(client* c, const client_init_in* in) {
   }
   wired_udp_addr(&c->peer, in->port, in->server_ip);
   tlsdriver_init(&c->tls, c->my_priv, c->my_pub, 0);
-  tlsdriver_set_sni(&c->tls, in->server_name.p, in->server_name.n);
+  tlsdriver_set_sni(&c->tls, c->host, c->host_len);
   c->phase  = CLIENT_HS_INITIAL;
   c->sh_len = 0;
   return 1;

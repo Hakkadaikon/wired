@@ -71,6 +71,10 @@ int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme) {
   return ext16_has(buf, n, EXT_SIGNATURE_ALGORITHMS, scheme);
 }
 
+int tls_ext_sig_algs_cert_has(const u8* buf, usz n, u16 scheme) {
+  return ext16_has(buf, n, EXT_SIGNATURE_ALGORITHMS_CERT, scheme);
+}
+
 int tls_ext_groups_has(const u8* buf, usz n, u16 group) {
   return ext16_has(buf, n, EXT_SUPPORTED_GROUPS, group);
 }

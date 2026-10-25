@@ -1,6 +1,7 @@
 #include "common/diag/error/error.h"
 #include "crypto/asymmetric/ecc/p256/p256_ecdhe.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+#include "ee_find.h"
 #include "test.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/hrr/hrr_detect.h"
@@ -247,6 +248,24 @@ static void test_sdrv_hrr_second_ch_still_no_share_rejected(void) {
   CHECK(sdrv_last_error(&s) == err_crypto(47));
 }
 
+/* RFC 8446 4.2.7: accepting a secp256r1-only share when this server prefers
+ * x25519 sends supported_groups in EncryptedExtensions, listing every group
+ * it supports in its order: 00 04 | 00 1d (x25519) | 00 17 (secp256r1). */
+static void sdrv_hrr_check_ee_groups(sdrv* s) {
+  static const u8 want[6] = {0x00, 0x04, 0x00, 0x1d, 0x00, 0x17};
+  u8              sh[512], fl[4096], rnd[32] = {0};
+  wired_obuf      sh_ob = obuf_of(sh, sizeof sh);
+  wired_obuf      fl_ob = obuf_of(fl, sizeof fl);
+  sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  wired_span      g;
+  CHECK(sdrv_build_server_flight(s, rnd, &fo));
+  CHECK(ee_find(fl, 0x000a, &g));
+  CHECK(g.n == sizeof want);
+  for (usz i = 0; i < g.n && i < sizeof want; i++) {
+    CHECK(g.p[i] == want[i]);
+  }
+}
+
 /* Pinned real-peer ClientHello (picoquic, captured 2026-08-21 from the
  * interop runner's handshake case): key_share carries only secp256r1 while
  * supported_groups offers [secp256r1, x25519] -- the exact shape that took
@@ -287,6 +306,7 @@ static void test_sdrv_hrr_picoquic_client_hello_arms_hrr(void) {
   CHECK(sdrv_hrr_pending(&s) == 0);
   CHECK(sdrv_last_error(&s) == 0);
   CHECK(s.group == GROUP_SECP256R1);
+  sdrv_hrr_check_ee_groups(&s);
 }
 
 /* (g) RFC 8446 4.1.4: the HRR carries the cipher_suite negotiated from
