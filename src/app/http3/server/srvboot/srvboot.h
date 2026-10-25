@@ -76,13 +76,18 @@ typedef struct {
   u16       pref_v4_port; /**< port of pref_v4 */
   u16       pref_v6_port; /**< port of pref_v6 */
   /** RFC 7301 3.2 / draft-ietf-moq-transport-22 6.1.2: raw-QUIC application
-   * ALPN ids this server also selects, space-separated in no particular
-   * order (e.g. "moqt-22 moqt-19 moqt-18"), or 0 to select only h3 and
-   * hq-interop (the default). The client's preference order decides
-   * between these and h3, so one port serves WebTransport and native QUIC.
+   * ALPN ids this server also selects, space-separated in this server's
+   * preference order (e.g. "moqt-22 moqt-19 moqt-18"), all preferred over
+   * h3 and hq-interop, or 0 to select only h3 and hq-interop (the
+   * default). One port serves WebTransport and native QUIC.
    * Must name neither h3 nor hq-interop. A static string: the negotiated
    * id is kept as a view into it for the connection's lifetime. */
   const char* raw_alpns;
+  /** RFC 7301 3.2: 1 selects ALPN in the client's preference order instead
+   * of this server's (raw_alpns in order, then h3, then hq-interop; 0, the
+   * default). For interop peers that speak their first offer whatever the
+   * server selected (sdrv_set_alpn_client_order). */
+  int alpn_client_order;
   /** RFC 9000 10.3: the 32-byte secret stateless-reset tokens derive from,
    * or 0 to use cert_seed. wired_srvrun_serve_env pins it to a copy of the
    * start-time cert_seed, so a certificate reload (which rewrites cert_seed

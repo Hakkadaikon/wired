@@ -107,6 +107,7 @@ int srvboot_init(
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   srvboot_init_server(conn, id, &in);
   sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
+  sdrv_set_alpn_client_order(&conn->s->sdrv, id->alpn_client_order);
   wired_server_set_limits(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
       wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);

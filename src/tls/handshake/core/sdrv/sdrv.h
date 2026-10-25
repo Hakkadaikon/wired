@@ -66,6 +66,10 @@ typedef struct {
   wired_span alpn_tok;
   /** Configured raw-QUIC ids (sdrv_set_raw_alpns), or 0 for none. */
   const char* raw_alpns;
+  /** 1: pick ALPN in the client's order (salpn_raw_pick) instead of this
+   * server's (salpn_raw_pick_server, the default) -- for clients that
+   * ignore the selected protocol (sdrv_set_alpn_client_order). */
+  int alpn_client_order;
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -95,8 +99,9 @@ typedef struct {
   int hs_ready; /**< hs_secret derived */
   /** RFC 7301 3.1/3.2: this server's negotiated ALPN protocol -- the
    * first entry of the client's list that is h3, hq-interop or one of
-   * raw_alpns (salpn_raw_pick). SALPN_NONE if nothing matched: the flight
-   * is then refused with no_application_protocol (0x178). */
+   * raw_alpns (salpn_raw_pick_server: this server's preference order, or
+   * salpn_raw_pick with alpn_client_order). SALPN_NONE if nothing matched: the
+   * flight is then refused with no_application_protocol (0x178). */
   salpn_choice alpn;
   /** RFC 8446 4.1.4: set by sdrv_recv_client_hello when the
    * ClientHello carried no x25519 key_share, meaning a HelloRetryRequest
@@ -268,6 +273,14 @@ void sdrv_set_preferred_address(sdrv* s, const sdrv_pref_addr* p);
  * @param s driver state
  * @param raw_alpns space-separated protocol ids, or 0 */
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
+
+/** RFC 7301 3.2: select ALPN in the client's preference order instead of
+ * this server's (raw_alpns in order, then h3, then hq-interop). For an
+ * interop endpoint whose peers speak their first offer whatever the server
+ * selected (msquic offers [hq-interop, h3] and then talks hq-interop).
+ * @param s driver state
+ * @param on 1 client order, 0 server order (the sdrv_init default) */
+void sdrv_set_alpn_client_order(sdrv* s, int on);
 
 /** Inputs to sdrv_init.
  *

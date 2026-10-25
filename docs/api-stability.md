@@ -602,7 +602,9 @@ WebTransport only.
 | `WIRED_MOQTRUN_CLOSE_MALFORMED_PATH`, `WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY` | Session close codes 0x9 and 0x1A. |
 
 - **`raw_alpns`.** A space-separated list such as
-  `"moqt-22 moqt-19 moqt-18"`, matched in the client's preference order.
+  `"moqt-22 moqt-19 moqt-18"` in the server's preference order, ahead of
+  h3 and hq-interop (RFC 7301 3.2). `alpn_client_order` 1 picks in the
+  client's order instead.
 - **`raw_on_session`.** It receives the connection's implicit session and
   the negotiated ALPN before any of its stream bytes. After that the
   session flows through the same `wt_on_*` callbacks as a WebTransport

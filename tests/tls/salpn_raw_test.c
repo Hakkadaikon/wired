@@ -1,6 +1,7 @@
 #include "tls/ext/salpn/salpn_raw.h"
 
 #include "app/http3/server/srvboot/srvboot.h"
+#include "common/bytes/util/bytes.h"
 #include "test.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
@@ -111,6 +112,48 @@ static void test_salpn_raw_pick_truncations(void) {
     }
     CHECK(
         (sraw_pick(buf, n, SRAW_LIST, &tok) == SALPN_RAW) ==
+        (n == sizeof sraw_moq00_18));
+  }
+}
+
+/* RFC 7301 3.2: server order -- the configured raw ids in their order, then
+ * h3, then hq-interop -- decides, whatever the client's order. */
+static void test_salpn_raw_pick_server_order(void) {
+  static const char list[]   = SRAW_LIST;
+  static const u8   hq_h3[]  = {0x00, 0x0e, 0x0a, 'h', 'q', '-',  'i', 'n',
+                                't',  'e',  'r',  'o', 'p', 0x02, 'h', '3'};
+  static const u8   m19_22[] = {0x00, 0x10, 0x07, 'm', 'o', 'q', 't', '-', '1',
+                                '9',  0x07, 'm',  'o', 'q', 't', '-', '2', '2'};
+  wired_span        tok      = {0, 0};
+  CHECK(
+      salpn_raw_pick_server(sraw_h3_22, sizeof sraw_h3_22, list, &tok) ==
+      SALPN_RAW);
+  CHECK(sraw_tok_is(tok, list, 0)); /* moqt-22, though offered after h3 */
+  CHECK(salpn_raw_pick_server(m19_22, sizeof m19_22, list, &tok) == SALPN_RAW);
+  CHECK(sraw_tok_is(tok, list, 0)); /* moqt-22 outranks the offered-first 19 */
+  CHECK(
+      salpn_raw_pick_server(sraw_18_h3, sizeof sraw_18_h3, 0, &tok) ==
+      SALPN_H3);
+  CHECK(salpn_raw_pick_server(hq_h3, sizeof hq_h3, 0, &tok) == SALPN_H3);
+  CHECK(salpn_raw_pick(hq_h3, sizeof hq_h3, 0, &tok) == SALPN_HQ);
+  CHECK(
+      salpn_raw_pick_server(sraw_16, sizeof sraw_16, list, &tok) == SALPN_NONE);
+}
+
+/* Malformed lists never select (server order), and only the full list of
+ * every truncation selects. */
+static void test_salpn_raw_pick_server_malformed(void) {
+  static const u8 zero_mid[] = {0x00, 0x04, 0x02, 'h', '3', 0x00};
+  static const u8 short_ln[] = {0x00, 0x02, 0x02, 'h', '3'};
+  u8              buf[sizeof sraw_moq00_18];
+  wired_span      tok = {0, 0};
+  CHECK(salpn_raw_pick_server(zero_mid, sizeof zero_mid, 0, &tok) == 0);
+  CHECK(salpn_raw_pick_server(short_ln, sizeof short_ln, 0, &tok) == 0);
+  CHECK(salpn_raw_pick_server(0, 0, SRAW_LIST, &tok) == 0);
+  for (usz n = 0; n <= sizeof sraw_moq00_18; n++) {
+    bytes_memcpy(buf, sraw_moq00_18, n);
+    CHECK(
+        (salpn_raw_pick_server(buf, n, SRAW_LIST, &tok) == SALPN_RAW) ==
         (n == sizeof sraw_moq00_18));
   }
 }
@@ -243,6 +286,8 @@ void test_salpn_raw(void) {
   test_salpn_raw_pick_off();
   test_salpn_raw_pick_malformed();
   test_salpn_raw_pick_truncations();
+  test_salpn_raw_pick_server_order();
+  test_salpn_raw_pick_server_malformed();
   test_salpn_raw_ee_bytes();
   test_salpn_raw_ee_message();
   test_salpn_raw_srvboot();

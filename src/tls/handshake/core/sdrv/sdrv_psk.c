@@ -25,9 +25,16 @@ int sdrv_take_client_sid(sdrv* s, const u8* ch_msg, usz ch_len) {
   return 1;
 }
 
+/* The two ALPN selection orders, indexed by alpn_client_order. */
+typedef salpn_choice (*sdrv_alpn_pick_fn)(
+    const u8*, usz, const char*, wired_span*);
+static const sdrv_alpn_pick_fn SDRV_ALPN_PICK[2] = {
+    salpn_raw_pick_server, salpn_raw_pick};
+
 /* RFC 7301 3.1/3.2: negotiate ALPN from the ClientHello's ALPN extension
- * (0x0010) in the client's preference order across h3, hq-interop and the
- * configured raw ids (salpn_raw_pick). Absent or malformed ALPN extension
+ * (0x0010) across the configured raw ids, h3 and hq-interop -- in this
+ * server's preference order (salpn_raw_pick_server), or the client's when
+ * alpn_client_order is set (salpn_raw_pick). Absent or malformed ALPN extension
  * negotiates SALPN_NONE the same as an extension present but offering
  * nothing this server speaks -- not itself a ClientHello parse failure;
  * the flight build refuses it with no_application_protocol. */
@@ -39,7 +46,8 @@ void sdrv_negotiate_alpn(sdrv* s, const u8* ch_msg, usz ch_len) {
           wired_span_of(ch_msg, ch_len), SALPN_EXT_TYPE, &ext)) {
     return;
   }
-  s->alpn = salpn_raw_pick(ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
+  s->alpn = SDRV_ALPN_PICK[s->alpn_client_order](
+      ext.p, ext.n, s->raw_alpns, &s->alpn_tok);
 }
 
 /* RFC 6066 3: record the digest of a server_name that matched (the name a
