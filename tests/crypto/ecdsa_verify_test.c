@@ -88,6 +88,37 @@ static void test_ecdsa_r_ge_n(void) {
   CHECK(ecdsa_p256_verify(qx, qy, r, s, h) == 0);
 }
 
+/* Q = (0, y) is on P-256 (0^3 - 3*0 + b = b is a square mod p). With
+ * u1 = u2 = 1 the forged-by-construction signature r = s = e = (G+Q).x mod n
+ * verifies (w = 1/r, u1 = e*w = 1, u2 = r*w = 1). Values computed with
+ * Python big integers from the FIPS 186-4 D.1.2.3 domain parameters. */
+static const char* QX0 =
+    "0000000000000000000000000000000000000000000000000000000000000000";
+/* x = p: the same field element as 0, but not less than p. */
+static const char* QXP =
+    "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff";
+static const char* QY0 =
+    "66485c780e2f83d72433bd5d84a06bb6541c2af31dae871728bf856a174f93f4";
+static const char* RSH0 =
+    "00486efab89170d45f6160cbc7d034a9309d479ae02982a3a0c135a210379e6f";
+
+static int ecdsa_x0_verify(const char* qxhex, u8 ybump) {
+  u8 qx[32], qy[32], rs[32];
+  ecdsa_hb32(qxhex, qx);
+  ecdsa_hb32(QY0, qy);
+  ecdsa_hb32(RSH0, rs);
+  qy[31] ^= ybump;
+  return ecdsa_p256_verify(qx, qy, rs, rs, rs);
+}
+
+/* RFC 6090 3: the canonical x = 0 key verifies; the alias x = p (not an
+ * element of Fp) must be rejected, as must the off-curve (0, y ^ 1). */
+static void test_ecdsa_coord_ge_p_and_off_curve(void) {
+  CHECK(ecdsa_x0_verify(QX0, 0) == 1);
+  CHECK(ecdsa_x0_verify(QXP, 0) == 0);
+  CHECK(ecdsa_x0_verify(QX0, 1) == 0);
+}
+
 void test_ecdsa_verify(void) {
   test_ecdsa_valid();
   test_ecdsa_bad_hash();
@@ -95,4 +126,5 @@ void test_ecdsa_verify(void) {
   test_ecdsa_zero_r();
   test_ecdsa_s_ge_n();
   test_ecdsa_r_ge_n();
+  test_ecdsa_coord_ge_p_and_off_curve();
 }

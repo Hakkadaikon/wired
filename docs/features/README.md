@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2001/2261 requirements demonstrated (88.5%) — 1548 directly tested,
-453 indirect, 260 untested.**
+**Total: 2002/2261 requirements demonstrated (88.5%) — 1550 directly tested,
+452 indirect, 259 untested.**
 
 ## QUIC core
 
@@ -116,7 +116,7 @@ page: **[Interop Results](../interop.md)**.
 | [RFC 8032 — Ed25519](rfc8032.md) | 20/20 | 18 | 2 | 0 |
 | [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 21/21 | 16 | 5 | 0 |
 | [RFC 5869 — HKDF](rfc5869.md) | 9/9 | 9 | 0 | 0 |
-| [RFC 6090 — EC arithmetic](rfc6090.md) | 27/28 | 24 | 3 | 1 |
+| [RFC 6090 — EC arithmetic](rfc6090.md) | 28/28 | 26 | 2 | 0 |
 | [FIPS 197 — AES](fips197.md) | 15/15 | 12 | 3 | 0 |
 | [SP 800-38D — GCM](sp800-38d.md) | 23/23 | 15 | 8 | 0 |
 | [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 23/25 | 20 | 3 | 2 |

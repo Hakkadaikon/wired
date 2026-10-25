@@ -31,11 +31,17 @@ static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point* p) {
   p256_fp_add(rhs, (fpab){rhs, p256_b}, p256_p);  /* + b */
 }
 
+/* RFC 6090 3: both coordinates must be elements of Fp (less than p); an
+ * unreduced x + p would otherwise alias the on-curve point x. */
+static int ec_in_field(const ec_point* p) {
+  return p256_fp_lt(p->x, p256_p) && p256_fp_lt(p->y, p256_p);
+}
+
 int ec_on_curve(const ec_point* p) {
   p256_fe lhs, rhs;
   if (p->inf) {
     return 1;
   }
   rhs_lhs(lhs, rhs, p);
-  return p256_fp_eq(lhs, rhs);
+  return ec_in_field(p) && p256_fp_eq(lhs, rhs);
 }

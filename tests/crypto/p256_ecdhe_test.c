@@ -131,6 +131,24 @@ static void test_p256_ecdh_rejects_bad_peer_key(void) {
   CHECK(p256_ecdh(secret, priv, pub_bad) == 0);
 }
 
+/* RFC 6090 3: a peer share whose x is p (congruent to the on-curve x = 0,
+ * but not an element of Fp) is rejected; the canonical (0, y) is accepted.
+ * y = sqrt(b) mod p, computed with Python big integers. */
+static void test_p256_ecdh_rejects_coord_ge_p(void) {
+  static const u8 y0[32] = {0x66, 0x48, 0x5c, 0x78, 0x0e, 0x2f, 0x83, 0xd7,
+                            0x24, 0x33, 0xbd, 0x5d, 0x84, 0xa0, 0x6b, 0xb6,
+                            0x54, 0x1c, 0x2a, 0xf3, 0x1d, 0xae, 0x87, 0x17,
+                            0x28, 0xbf, 0x85, 0x6a, 0x17, 0x4f, 0x93, 0xf4};
+  u8              priv[32], pub[P256_PUBKEY_LEN] = {0x04}, secret[32];
+  CHECK(p256_keygen(priv) == 1);
+  for (usz i = 0; i < 32; i++) {
+    pub[33 + i] = y0[i];
+  }
+  CHECK(p256_ecdh(secret, priv, pub) == 1);
+  p256_fp_to_be(pub + 1, p256_p); /* x = p */
+  CHECK(p256_ecdh(secret, priv, pub) == 0);
+}
+
 void test_p256_ecdhe(void) {
   test_p256_keygen_range();
   test_p256_keygen_boundary();
@@ -141,4 +159,5 @@ void test_p256_ecdhe(void) {
   test_p256_ecdh_scalar_one();
   test_p256_ecdh_scalar_max();
   test_p256_ecdh_rejects_bad_peer_key();
+  test_p256_ecdh_rejects_coord_ge_p();
 }

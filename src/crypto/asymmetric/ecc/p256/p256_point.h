@@ -16,7 +16,8 @@ extern const ec_point p256_g; /* base point G */
 
 void ec_set(ec_point* r, const ec_point* p);
 
-/* 1 if p satisfies the curve equation (or is infinity), else 0. */
+/* 1 if p has both coordinates in [0, p) and satisfies the curve equation
+ * (or is infinity), else 0. */
 int ec_on_curve(const ec_point* p);
 
 /* r = p + q, r = 2p (affine, all mod p). r may alias p or q. */
