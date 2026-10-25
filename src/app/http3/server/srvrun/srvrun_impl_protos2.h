@@ -17,10 +17,15 @@ int srvrun_seal_path_frames(
     const u8*    data,
     usz          n,
     wired_obuf*  out);
+usz srvrun_path_payload(u8* pl, u8 type, const u8* data, usz n, int ping);
+int srvrun_seal_path_payload(
+    srvrun_conn* c, wired_span dcid, u8* pl, usz pln, int pad, wired_obuf* out);
 int  srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out);
 void srvrun_send_max_data(const srvrun_cfg* cfg, srvrun_conn* c, u64 value);
 void srvrun_send_data_blocked(const srvrun_cfg* cfg, srvrun_conn* c, u64 limit);
-int  srvrun_seal_max_streams(
+void srvrun_send_stream_data_blocked(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 limit);
+int srvrun_seal_max_streams(
     srvrun_conn* c, int uni, u64 value, wired_obuf* out);
 void srvrun_send_streams_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 limit);

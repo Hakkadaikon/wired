@@ -8,6 +8,7 @@
 #include "common/bytes/util/ct.h"
 #include "common/diag/error/error.h"
 #include "transport/conn/cid/peercid/peercid.h"
+#include "transport/conn/cid/sresetdrive/detect.h"
 
 void peercid_drop(peercid* p, peercid_entry* e);
 

@@ -34,10 +34,17 @@ typedef struct {
   u8 data[PATH_DATA];
   /** The data of the challenge before it, valid once tries > 0. */
   u8 prev[PATH_DATA];
+  /** RFC 9000 8: bytes received from the path while it is unvalidated. */
+  u64 rx_bytes;
+  /** RFC 9000 8: bytes sent to the path while it is unvalidated. */
+  u64 tx_bytes;
   /** Retransmissions so far, doubling the retransmit interval. */
   u8 tries;
   /** 1 while the slot holds an outstanding challenge. */
   u8 in_use;
+  /** 1 when the latest challenge went out below 1200 bytes (RFC 9000
+   * 8.2.1: the anti-amplification limit allowed no more). */
+  u8 small;
 } pathsel_slot;
 
 /** Per-connection path state. */
@@ -51,8 +58,16 @@ typedef struct {
   /** 1 while the target is a preferred-address path not yet validated, so
    * the send path stays elsewhere (RFC 9000 9.6.2). */
   u8 gated;
+  /** The path the latest datagram came from, and its size when no slot
+   * held that path yet: a slot claimed for it this step starts its
+   * anti-amplification budget from that datagram (RFC 9000 8). */
+  pathsel_key fresh;
+  /** See fresh. */
+  u64 fresh_n;
   /** 1 once last_valid holds the handshake path. */
   u8 seeded;
+  /** 1 when the slot pathsel_match last freed had a small challenge. */
+  u8 matched_small;
 } pathsel;
 
 /* 1 if a and b are the same path. */
@@ -70,8 +85,19 @@ pathsel_slot* pathsel_claim(
 /* A free slot for k, or 0 when both are busy (no eviction). */
 pathsel_slot* pathsel_claim_free(pathsel* p, const pathsel_key* k);
 
+/* RFC 9000 8: n bytes arrived from k -- counted on k's slot, or kept as
+ * fresh for a slot claimed for k later in the step. */
+void pathsel_note_rx(pathsel* p, const pathsel_key* k, u64 n);
+/* RFC 9000 8: n bytes sent to k, counted on k's slot (none: not counted). */
+void pathsel_note_tx(pathsel* p, const pathsel_key* k, u64 n);
+/* RFC 9000 8: bytes k's slot may still be sent (3x received minus sent);
+ * PATHSEL_NO_LIMIT when no slot holds k. */
+u64 pathsel_budget(pathsel* p, const pathsel_key* k);
+/** pathsel_budget for a path no slot tracks. */
+#define PATHSEL_NO_LIMIT (~(u64)0)
 /* RFC 9000 8.2.3: the slot whose latest or previous data matches resp is freed
- * and its path copied to out. 1 on a match, 0 otherwise. */
+ * and its path copied to out (matched_small set from the slot). 1 on a
+ * match, 0 otherwise. */
 int pathsel_match(pathsel* p, const u8 resp[PATH_DATA], pathsel_key* out);
 
 /* RFC 9000 8.2.4: free one slot outstanding for at least timeout_ms,

@@ -5,6 +5,8 @@ static void srvrun_send_to(
     const srvrun_conn* c,
     const pathsel_key* k,
     wired_span         pkt);
+static int srvrun_path_np(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k, u8 t);
 
 /* The send path becomes k; every later packet carries k's peer ID (RFC
  * 9000 9.5), the connection's default from now on. */
@@ -37,9 +39,21 @@ static void srvrun_send_to(
   g_srvrun_send_count++;
 }
 
+/* RFC 9000 9.3.3: a PATH_RESPONSE on the send path (the active one) goes
+ * in a non-probing packet. */
+static int srvrun_path_np(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k, u8 t) {
+  pathsel_key s = srvrun_send_key(cfg, c);
+  return t == FRAME_PATH_RESPONSE && pathsel_key_eq(k, &s);
+}
+
 /* n PATH_CHALLENGE or PATH_RESPONSE frames (data[0..n)) to k under its
- * peer ID e. */
-void srvrun_path_send(
+ * peer ID e. RFC 9000 8.2.1/8.2.2: expanded to 1200 bytes when k's
+ * anti-amplification budget allows, else sent unexpanded, else not at all
+ * (8: an unvalidated path gets at most 3x what it sent). Returns 0 when
+ * nothing went out, SRVRUN_PATH_SMALL for an unexpanded datagram, 1 for a
+ * full one. */
+int srvrun_path_send(
     const srvrun_cfg*    cfg,
     srvrun_conn*         c,
     const pathsel_key*   k,
@@ -47,13 +61,20 @@ void srvrun_path_send(
     u8                   type,
     const u8*            data,
     usz                  n) {
-  u8         out[MIN_INITIAL_DATAGRAM];
+  u8         pl[MIN_INITIAL_DATAGRAM], out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob   = obuf_of(out, sizeof out);
   wired_span dcid = wired_span_of(e->cid, e->len);
-  if (!srvrun_seal_path_frames(c, dcid, type, data, n, &ob)) {
-    return;
+  int        full = srvrun_path_budget(c, k) >= MIN_INITIAL_DATAGRAM;
+  usz        pln =
+      srvrun_path_payload(pl, type, data, n, srvrun_path_np(cfg, c, k, type));
+  if (!srvrun_seal_path_payload(c, dcid, pl, pln, full, &ob)) {
+    return 0;
+  }
+  if (!srvrun_path_spend(c, k, ob.len)) {
+    return 0;
   }
   srvrun_send_to(cfg, c, k, wired_span_of(out, ob.len));
+  return SRVRUN_PATH_SMALL - full; /* 1 full, SRVRUN_PATH_SMALL not */
 }
 
 /* RFC 9000 8.2.1: send slot s's path a PATH_CHALLENGE with fresh data under
@@ -68,7 +89,9 @@ void srvrun_path_challenge(
     return;
   }
   s->last_ms = now;
-  srvrun_path_send(cfg, c, &s->key, e, FRAME_PATH_CHALLENGE, s->data, 1);
+  s->small =
+      srvrun_path_send(cfg, c, &s->key, e, FRAME_PATH_CHALLENGE, s->data, 1) ==
+      SRVRUN_PATH_SMALL;
 }
 
 /* Start a validation in slot s (0 = no slot: nothing to do).

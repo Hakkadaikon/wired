@@ -18,6 +18,11 @@ typedef struct {
 /* Initialise s to this endpoint's supported set (v2 then v1). */
 void vers_init(vers_set* s);
 
+/* RFC 9308 13: initialise s to the WIRED_VERSIONS_* bits in mask, still in
+ * the v2-then-v1 preference order; 0 means every supported version (the
+ * same set vers_init gives). */
+void vers_init_mask(vers_set* s, u32 mask);
+
 /* 1 if s supports version, else 0. */
 int vers_supports(const vers_set* s, u32 version);
 

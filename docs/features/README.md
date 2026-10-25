@@ -69,35 +69,35 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2034/2260 requirements demonstrated (90.0%) — 1596 directly tested,
-438 indirect, 226 untested.**
+**Total: 2064/2261 requirements demonstrated (91.3%) — 1650 directly tested,
+414 indirect, 197 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 229/278 | 138 | 91 | 49 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 72/78 | 48 | 24 | 6 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 243/279 | 169 | 74 | 36 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 72/78 | 51 | 21 | 6 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 66/75 | 42 | 24 | 9 |
-| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/16 | 13 | 2 | 1 |
+| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
 ## QUIC extensions
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/26 | 18 | 4 | 4 |
-| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 3/8 | 0 | 3 | 5 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 22/25 | 18 | 4 | 3 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 23/29 | 18 | 5 | 6 |
-| [RFC 9308 — Applicability (informational)](rfc9308.md) | 7/10 | 5 | 2 | 3 |
-| [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 1 | 4 | 0 |
+| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 26/29 | 22 | 4 | 3 |
+| [RFC 9308 — Applicability (informational)](rfc9308.md) | 8/10 | 6 | 2 | 2 |
+| [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 29/34 | 21 | 8 | 5 |
 
 ## TLS and PKI
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 127/131 | 102 | 25 | 4 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 130/131 | 105 | 25 | 1 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 57/57 | 47 | 10 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 21 | 0 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |

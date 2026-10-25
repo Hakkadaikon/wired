@@ -11,6 +11,8 @@ static int srvrun_path_strands(
     int                target);
 static void srvrun_path_failed(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
+static void srvrun_path_revalidate(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
 static u64 srvrun_path_pto_ms(const srvrun_conn* c);
 static u64 srvrun_path_abandon_ms(const srvrun_conn* c);
 
@@ -28,6 +30,7 @@ static void srvrun_path_valid(
     return;
   }
 
+  srvrun_path_cc_restart(cfg, c, k);
   c->path.last_valid = *k;
   if (!srvrun_path_is_gated_target(c, k)) {
     return;
@@ -45,9 +48,22 @@ void srvrun_apply_path_response(const srvrun_cfg* cfg, srvrun_conn* c) {
     return;
   }
   c->l.path_response_seen_flag = 0;
-  if (pathsel_match(&c->path, c->l.path_response_data, &k)) {
-    srvrun_path_valid(cfg, c, &k);
+  if (!pathsel_match(&c->path, c->l.path_response_data, &k)) {
+    return;
   }
+  srvrun_path_valid(cfg, c, &k);
+  srvrun_path_revalidate(cfg, c, &k);
+}
+
+/* RFC 9000 8.2.1/8.2.3: a path validated by a challenge sent below 1200
+ * bytes (the anti-amplification limit allowed no more) is challenged again,
+ * now validated and so expanded to full size, before its MTU is trusted. */
+static void srvrun_path_revalidate(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
+  if (!c->path.matched_small || !srvrun_path_is_valid(c, k)) {
+    return;
+  }
+  srvrun_path_arm(cfg, c, pathsel_claim(&c->path, k, k), c->l.now_ms);
 }
 
 /* A failure of k moves the send path back: k is the gated target or the

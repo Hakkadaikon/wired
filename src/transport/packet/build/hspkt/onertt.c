@@ -1,8 +1,10 @@
 #include "transport/packet/build/hspkt/onertt.h"
 
 #include "crypto/symmetric/aead/gcm/gcm.h"
+#include "tls/ext/grease/bitset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/keyphase.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/packet/build/hspkt/unprotect.h"
 #include "transport/packet/protect/hp/hp.h"
 #include "transport/packet/protect/protect_suite/aead_suite.h"
@@ -13,18 +15,24 @@
  * bit 0x04 (keyphase_set) then carries this packet's Key Phase. */
 #define ONERTT_BYTE0 0x43
 
-/* RFC 9000 17.3 / RFC 9001 6: byte0 (with its Key Phase bit set), dcid, then
- * a 4-byte packet number. */
-static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
+/* RFC 9000 17.3.1 / RFC 9001 6 / RFC 9287 3: byte0 with d's Key Phase,
+ * spin bit and (when greasing) a cleared QUIC Bit. */
+static u8 onertt_byte0(const hspkt_onertt_desc* d) {
+  u8 b = spin_set(keyphase_set(ONERTT_BYTE0, d->phase_bit), d->spin);
+  return greasebit_apply(b, d->clear_quic_bit);
+}
+
+/* RFC 9000 17.3 / RFC 9001 6: byte0, dcid, then a 4-byte packet number. */
+static usz build_short_header(u8* hdr, const hspkt_onertt_desc* d) {
   usz i;
-  hdr[0] = keyphase_set(ONERTT_BYTE0, phase_bit);
-  for (i = 0; i < dcid.n; i++) {
-    hdr[1 + i] = dcid.p[i];
+  hdr[0] = onertt_byte0(d);
+  for (i = 0; i < d->dcid.n; i++) {
+    hdr[1 + i] = d->dcid.p[i];
   }
   for (i = 0; i < 4; i++) {
-    hdr[1 + dcid.n + i] = (u8)(pn >> (8 * (3 - i)));
+    hdr[1 + d->dcid.n + i] = (u8)(d->pn >> (8 * (3 - i)));
   }
-  return 5u + dcid.n;
+  return 5u + d->dcid.n;
 }
 
 /* RFC 9001 5.3: AES-128-GCM seal d->payload after the hdr_len-byte header
@@ -45,7 +53,7 @@ int hspkt_onertt_build(
     const protect_keys* k, const hspkt_onertt_desc* d, wired_obuf* out) {
   u8        mask[5];
   u8*       o       = out->p;
-  usz       hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
+  usz       hdr_len = build_short_header(o, d);
   usz       pn_off  = 1u + d->dcid.n;
   usz       need    = hdr_len + d->payload.n + GCM_TAG;
   hp_fields hf      = {o, o + pn_off, 4, HP_SHORT_MASK};
@@ -99,7 +107,7 @@ int hspkt_onertt_build_suite(
     wired_obuf*              out) {
   u8        mask[5];
   u8*       o       = out->p;
-  usz       hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
+  usz       hdr_len = build_short_header(o, d);
   usz       pn_off  = 1u + d->dcid.n;
   usz       need    = hdr_len + d->payload.n + aead_tag_len(suite);
   hp_fields hf      = {o, o + pn_off, 4, HP_SHORT_MASK};

@@ -13,6 +13,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -38,20 +39,25 @@ typedef struct {
   wired_mspan pkt;
 } srvloop_opened;
 
-void srvloop_body_reset(wired_srvloop_stream_slot* slot);
-void srvloop_body_rearm(wired_srvloop_stream_slot* slot);
-void srvloop_streams_reset(wired_srvloop* l);
-void srvloop_wt_window_reset(wired_srvloop_wt_window* w);
-void srvloop_wt_streams_reset(wired_srvloop* l);
-void srvloop_wt_uni_streams_reset(wired_srvloop* l);
-void srvloop_pending_priority_reset(wired_srvloop* l);
-void srvloop_init_pn(wired_srvloop* l);
-void srvloop_init_req(wired_srvloop* l);
-void srvloop_init_ecn(wired_srvloop* l);
-void srvloop_init_seen(wired_srvloop* l);
-u64* srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn);
-u64  srvloop_app_largest_pn(const wired_srvloop* l);
-int  srvloop_app_pkt_is_long(u8 byte0);
+void                  srvloop_body_reset(wired_srvloop_stream_slot* slot);
+void                  srvloop_body_rearm(wired_srvloop_stream_slot* slot);
+void                  srvloop_streams_reset(wired_srvloop* l);
+void                  srvloop_wt_window_reset(wired_srvloop_wt_window* w);
+void                  srvloop_wt_streams_reset(wired_srvloop* l);
+void                  srvloop_wt_uni_streams_reset(wired_srvloop* l);
+void                  srvloop_pending_priority_reset(wired_srvloop* l);
+void                  srvloop_init_pn(wired_srvloop* l);
+void                  srvloop_init_req(wired_srvloop* l);
+void                  srvloop_init_ecn(wired_srvloop* l);
+void                  srvloop_init_seen(wired_srvloop* l);
+u64*                  srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn);
+u64                   srvloop_app_largest_pn(const wired_srvloop* l);
+int                   srvloop_app_pkt_is_long(u8 byte0);
+void                  srvloop_rxacct_reset(wired_srvloop* l);
+u64                   srvloop_rxacct_payload(wired_srvloop* l, wired_span pl);
+wired_srvloop_rxacct* srvloop_rxacct_entry(wired_srvloop* l, u64 id);
+u64                   srvloop_payload_error(
+    const wired_srvloop* l, int level, u8 byte0, wired_span pl);
 void srvloop_note_app_rx(
     wired_srvloop* l, wired_server* s, const srvloop_opened* o);
 u64  srvloop_hs_largest_pn(const wired_srvloop* l);

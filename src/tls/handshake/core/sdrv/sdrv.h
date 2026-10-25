@@ -35,6 +35,10 @@ typedef struct {
   /** peer's max_idle_timeout (0x01, RFC 9000 10.1) in ms from the
    * ClientHello transport parameters; 0 = absent (no limit). */
   u64 peer_max_idle_timeout;
+  /** RFC 9287 3: 1 when the ClientHello carried grease_quic_bit (empty
+   * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
+   * may grease the bit (wired_srvloop_send_onertt). */
+  int peer_grease_quic_bit;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit
@@ -73,6 +77,10 @@ typedef struct {
    * server's (salpn_raw_pick_server, the default) -- for clients that
    * ignore the selected protocol (sdrv_set_alpn_client_order). */
   int alpn_client_order;
+  /** RFC 9308 13: WIRED_VERSIONS_* bits this server accepts (0 = all),
+   * set by sdrv_set_versions; compatible version negotiation and the
+   * advertised Available Versions draw from this set. */
+  u32 versions;
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -90,6 +98,14 @@ typedef struct {
    * binder verified. psk_secret (the opened ticket's resumption secret) is
    * only meaningful when this is 1. */
   int psk_accepted;
+  /** RFC 8446 4.6.1: the accepted ticket's origin_at (the original full
+   * handshake's time), carried into tickets issued on this connection;
+   * meaningful when psk_accepted. */
+  u64 psk_origin_at;
+  /** RFC 8446 4.2.9: 1 when the ClientHello's psk_key_exchange_modes
+   * offered psk_dhe_ke, the only mode this server resumes with; a session
+   * ticket is issued only then. Set by sdrv_recv_client_hello. */
+  int psk_dhe_ke;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
@@ -300,6 +316,13 @@ void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
  * @param s driver state
  * @param on 1 client order, 0 server order (the sdrv_init default) */
 void sdrv_set_alpn_client_order(sdrv* s, int on);
+
+/** RFC 9308 13: restrict the versions compatible version negotiation may
+ * select and the version_information this server advertises.
+ * @param s driver state
+ * @param versions WIRED_VERSIONS_* bits, 0 = every supported version (the
+ *        sdrv_init default) */
+void sdrv_set_versions(sdrv* s, u32 versions);
 
 /** Inputs to sdrv_init.
  *

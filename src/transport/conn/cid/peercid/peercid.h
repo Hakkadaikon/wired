@@ -36,6 +36,11 @@ typedef struct {
   u8 bound;
   /** 1 when bound to every path on key.fd (the NAT-rebinding exception). */
   u8 shared;
+  /** 1 when token holds the ID's stateless reset token (every ID but the
+   * handshake's, RFC 9000 10.3). */
+  u8 has_token;
+  /** Its stateless reset token (RFC 9000 19.15). */
+  u8 token[NCID_TOKEN];
 } peercid_entry;
 
 /** The pool of peer-issued connection IDs. */
@@ -85,5 +90,9 @@ void peercid_sweep(peercid* p, const pathsel_key* tracked, usz n);
 
 /* Pop one sequence number owed a RETIRE_CONNECTION_ID. 1 if one was owed. */
 int peercid_take_retire(peercid* p, u64* seq);
+/* RFC 9000 10.3.1: 1 if the len-byte datagram dg ends in the stateless
+ * reset token of an ID the server has sent with (bound) and not retired;
+ * compared in constant time. */
+int peercid_reset_match(const peercid* p, const u8* dg, usz len);
 
 #endif

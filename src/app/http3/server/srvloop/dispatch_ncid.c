@@ -3,6 +3,7 @@
 static void gather_one_path_response(wired_srvloop* l, wired_span frame);
 static int  ncid_well_formed(usz n, const ncid_frame* f);
 static void gather_one_ncid(wired_srvloop* l, wired_span frame);
+static void gather_one_retire(wired_srvloop* l, wired_span frame);
 static int  max_stream_data_slot_for(const wired_srvloop* l, u64 stream_id);
 static int  max_stream_data_slot(wired_srvloop* l, u64 stream_id);
 static void gather_one_max_stream_data(wired_srvloop* l, wired_span frame);
@@ -66,6 +67,33 @@ int srvloop_gather_ncid(wired_srvloop* l, const u8* payload, usz len) {
     }
     seen = 1;
     gather_one_ncid(l, wired_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
+/* RFC 9000 19.16: keep one RETIRE_CONNECTION_ID's sequence number for the
+ * owner; a truncated frame is ignored. */
+static void gather_one_retire(wired_srvloop* l, wired_span frame) {
+  u64 seq;
+  if (!retire_cid_decode(frame.p, frame.n, &seq)) {
+    return;
+  }
+  if (l->retire_rx_n < WIRED_SRVLOOP_NCID_RX) {
+    l->retire_rx[l->retire_rx_n++] = seq;
+  }
+}
+
+int srvloop_gather_retire(wired_srvloop* l, const u8* payload, usz len) {
+  framewalk      it;
+  framewalk_item fr;
+  int            seen = 0;
+  framewalk_init(&it, payload, len);
+  while (framewalk_next(&it, &fr)) {
+    if (frame_classify(fr.type) != FK_RETIRE_CONNECTION_ID) {
+      continue;
+    }
+    seen = 1;
+    gather_one_retire(l, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }

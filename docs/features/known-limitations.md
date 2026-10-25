@@ -709,19 +709,18 @@ recently sent headers, updated over its own encoder and decoder streams.
   off-path copy of a genuine new packet still moves the send path until that
   path's validation times out
   and the server reverts (RFC 9000 9.3.3 calls this defense imperfect). The
-  server does not reset congestion control or RTT when the send path
-  changes, and does not apply the anti-amplification limit (send at most
-  three times what was received) to an unvalidated path. Source:
-  `srvrun_path_*`, `pathsel`.
+  anti-amplification limit (send at most three times what was received)
+  is counted on the path's challenge slot, so a path that holds none (its
+  validation abandoned, or the slot taken by a newer migration) is not
+  limited. Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
 - **Peer connection IDs** — Affects: clients that migrate more than once. A
   connection ID (CID) is the label that lets a QUIC connection survive an
   address change. The server keeps at most two of the client's CIDs (the
   default active_connection_id_limit; it advertises no higher one), so a
   probe answered from a new socket and a later migration compete for the one
   spare. With no spare ID left, the old one stays in use until the peer
-  issues more. Each RETIRE_CONNECTION_ID is sent once and not retransmitted,
-  and a full retire queue drops the frame, so the peer keeps that ID active.
-  Stateless reset tokens from NEW_CONNECTION_ID are not kept. A repeated
+  issues more. A full retire queue (four owed RETIRE_CONNECTION_IDs) drops
+  the frame, so the peer keeps that ID active. A repeated
   NEW_CONNECTION_ID for an ID the server retired more than 64 sequence
   numbers above Retire Prior To is held again. Source: `peercid_owe`,
   `peercid_bit` (ponytail).
@@ -822,11 +821,6 @@ those directly.
 
 ## TLS 1.3
 
-- **One ticket per connection** — Affects: clients that want several
-  resumption tickets. Every NewSessionTicket carries the one-byte
-  `ticket_nonce` 0x00, which is unique only because the server issues a
-  single ticket per connection. Issuing more needs a per-connection counter.
-  Source: `build_ticket_message`.
 - **Ticket replay guard is a ring** — Affects: replay resistance under heavy
   resumption. `TICKETGUARD_CAP` holds 64 fingerprints; an entry evicted by
   newer tickets could be replayed past the window. Source: `ticketguard.h`

@@ -12,6 +12,7 @@ int appdata_send(const protect_keys* k, const appdata_tx* tx, wired_obuf* out) {
   if (!appdata_stream_frame(&f, &fb)) {
     return 0;
   }
-  hspkt_onertt_desc d = {tx->dcid, tx->pn, wired_span_of(frame, fb.len), 0};
+  hspkt_onertt_desc d = {tx->dcid, tx->pn, wired_span_of(frame, fb.len),
+                         0,        0,      0};
   return hspkt_onertt_build(k, &d, out);
 }

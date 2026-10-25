@@ -167,8 +167,12 @@ static usz lb_seal_onertt(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      0,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -375,6 +379,7 @@ static void sb_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }
@@ -601,7 +606,7 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   for (usz i = 0; i < 5; i++) {
     dg[15 + i] = (u8)(0xa0 + i);
   }
-  n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn);
+  n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn);
   CHECK(n > 0);
   CHECK(vneg_parse(vn, n, &p) == n);
   CHECK(p.dcid_len == 5); /* response DCID = received SCID */
@@ -632,12 +637,13 @@ static void test_srvboot_vneg_not_owed_for_v2(void) {
     dg[15 + i] = (u8)(0xa0 + i);
   }
   u8 vn[64];
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(
+      wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn) == 0);
 }
 
 /* No Version Negotiation for: an under-1200 datagram (amplification guard),
  * version 0 (never answer VN with VN, RFC 9000 6.1), version 1 (supported),
- * a short header, or an unparseable header. */
+ * a short header, or a header whose connection ID runs past the datagram. */
 static void test_srvboot_vneg_guards(void) {
   u8 dg[1200] = {0};
   u8 vn[64];
@@ -645,18 +651,50 @@ static void test_srvboot_vneg_guards(void) {
   dg[4]  = 0xcf; /* alien version 0x000000cf */
   dg[5]  = 4;
   dg[10] = 4;
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, 1199), vn, sizeof vn) == 0);
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) > 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, 1199), 0, vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn) > 0);
   dg[4] = 0; /* version 0: a VN packet itself */
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(
+      wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn) == 0);
   dg[4] = 1; /* version 1: supported, normal path */
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(
+      wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn) == 0);
   dg[4] = 0xcf;
   dg[0] = 0x53; /* short header */
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(
+      wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn) == 0);
   dg[0] = 0xd3;
-  dg[5] = 21; /* DCID longer than any valid connection id */
-  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  dg[5] = 255; /* a 255-byte DCID that runs past a 200-byte datagram */
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, 200), 0, vn, sizeof vn) == 0);
+}
+
+/* RFC 8999 5.1 / RFC 9000 17.2: an unsupported version's long header may
+ * carry connection IDs of up to 255 bytes; the server still answers with
+ * Version Negotiation, echoing both IDs swapped and whole (the 20-byte cap
+ * is QUIC v1's, not the invariants'). */
+static void test_srvboot_vneg_echoes_255_byte_cids(void) {
+  u8  dg[1200] = {0};
+  u8  vn[WIRED_SRVBOOT_VN_MAX];
+  usz n;
+  dg[0] = 0xd3;
+  dg[4] = 0xcf; /* alien version 0x000000cf */
+  dg[5] = 255;  /* DCID: 255 bytes of 0x11.. */
+  for (usz i = 0; i < 255; i++) {
+    dg[6 + i] = (u8)(0x11 + i);
+  }
+  dg[261] = 200; /* SCID: 200 bytes of 0xa0.. */
+  for (usz i = 0; i < 200; i++) {
+    dg[262 + i] = (u8)(0xa0 + i);
+  }
+  n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn);
+  CHECK(n == 5 + 1 + 200 + 1 + 255 + 2 * 4);
+  CHECK(be_get_be32(vn + 1) == 0);
+  CHECK(vn[5] == 200); /* response DCID = received SCID */
+  CHECK(vn[6] == 0xa0 && vn[6 + 199] == (u8)(0xa0 + 199));
+  CHECK(vn[206] == 255); /* response SCID = received DCID */
+  CHECK(vn[207] == 0x11 && vn[207 + 254] == (u8)(0x11 + 254));
+  CHECK(be_get_be32(vn + 462) == VERSION_2);
+  CHECK(be_get_be32(vn + 466) == VERSION_1);
 }
 
 /* Build the fixed test client's raw ClientHello bytes (no CRYPTO framing). */
@@ -1480,6 +1518,7 @@ static void sb_make_chain_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }
@@ -1660,6 +1699,7 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_responds_to_alien_version();
   test_srvboot_vneg_not_owed_for_v2();
   test_srvboot_vneg_guards();
+  test_srvboot_vneg_echoes_255_byte_cids();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
   test_bootacc_zerortt_coalesced_with_initial_buffered();

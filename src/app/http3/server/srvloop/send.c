@@ -3,11 +3,14 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "common/bytes/util/bytes.h"
 #include "common/diag/error/error.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/ext/grease/bitset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/aeadlimit.h"
 #include "tls/keys/keyupdate/keyphase.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from
@@ -141,18 +144,67 @@ static int ku_limit_gate(wired_server* s) {
   return 1;
 }
 
+/* RFC 9000 10.3: the shortest payload that makes the packet 22 bytes longer
+ * than the connection ID the server asks the peer to use (its own iscid),
+ * so it cannot be told apart from a Stateless Reset. The short header
+ * always carries a 4-byte packet number. */
+#define SEND_PAD_MAX 40
+
+static usz send_onertt_min_payload(
+    const wired_server* s, const wired_srvloop_send_in* in) {
+  usz fixed = 5u + in->cli_scid.n + aead_tag_len(s->sdrv.cipher_suite);
+  usz want  = 22u + s->sdrv.iscid_len;
+  return want > fixed ? want - fixed : 0;
+}
+
+/* pl, or a copy into buf led by enough PADDING frames (0x00) to reach min:
+ * leading, so a trailing STREAM frame without a Length still ends the
+ * packet. */
+static wired_span send_onertt_padded(wired_span pl, usz min, u8* buf) {
+  usz pad;
+  if (pl.n >= min) {
+    return pl;
+  }
+  pad = min - pl.n;
+  bytes_memset(buf, 0, pad);
+  bytes_memcpy(buf + pad, pl.p, pl.n);
+  return wired_span_of(buf, min);
+}
+
 /* RFC 9001 5 / 5.1 / 6: 1-RTT payload sealed with the own-direction
  * SERVER_AP, its Key Phase bit set to this endpoint's current send-side
  * generation (hspkt_onertt_build's byte0 has no way to infer the
  * phase from the keys alone -- the wire bit is the only signal a peer
  * uses to detect an update, RFC 9001 6.3). */
+/* RFC 9287 3.1: toward a client that advertised grease_quic_bit, clear the
+ * QUIC Bit on about half the 1-RTT packets, the choice keyed by this
+ * connection's secret seed so an observer cannot predict it. shortcut: a
+ * multiply-mix of seed^pn, not a PRF; swap in a keyed hash if the bit must
+ * resist analysis. */
+static int send_onertt_clear_bit(const wired_server* s, u64 pn) {
+  u64 x = (s->grease_seed ^ pn) * 0x9e3779b97f4a7c15ull;
+  return greasebit_may_clear(s->sdrv.peer_grease_quic_bit) && (x >> 63);
+}
+
+/* RFC 9000 17.4: the server reflects the spin bit it last saw, unless this
+ * connection drew spin disablement (then 0 throughout). */
+static int send_onertt_spin(const wired_server* s) {
+  return spin_outgoing_ex(1, s->spin_rx, s->spin_off);
+}
+
 static int send_onertt_seal(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   aes128                hp;
   protect_keys          pk;
+  u8                    buf[SEND_PAD_MAX];
   hspkt_onertt_desc     d = {
-      in->cli_scid, in->pn, in->payload, send_onertt_phase(s)};
+      in->cli_scid,
+      in->pn,
+      send_onertt_padded(in->payload, send_onertt_min_payload(s, in), buf),
+      send_onertt_phase(s),
+      send_onertt_spin(s),
+      send_onertt_clear_bit(s, in->pn)};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) {
     return 0;
   }

@@ -2,6 +2,8 @@
 
 static void srvrun_persistent_check(
     srvrun_conn* c, const srvrun_loss_span* s, u64 largest_before);
+static int srvrun_loss_counts(
+    const srvrun_conn* c, usz lost, const srvrun_loss_span* s);
 static void srvrun_start_done_resp(
     const srvrun_step_ctx* ctx, int slot, u8 done_i);
 static void srvrun_start_held_resp(const srvrun_step_ctx* ctx, int slot, u8 i);
@@ -20,6 +22,13 @@ static void srvrun_persistent_check(
   rtt_on_persistent(&c->rtt, c->latest_rtt_ms * 1000);
 }
 
+/* RFC 9000 9.4: losses only among packets sent before the congestion
+ * controller was reset for a new path do not shrink it. */
+static int srvrun_loss_counts(
+    const srvrun_conn* c, usz lost, const srvrun_loss_span* s) {
+  return lost && s->hi_pn >= c->mig.cc_from_pn;
+}
+
 void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
   usz              lost;
@@ -36,7 +45,7 @@ void srvrun_feed_acks(
    * the lost packet's SEND time -- passing now here instead re-shrank the
    * window on every loss of a packet sent before the current period began,
    * pinning cwnd at CC_MIN_WINDOW under sustained light loss. */
-  if (!lost) {
+  if (!srvrun_loss_counts(c, lost, &span)) {
     return;
   }
   cc_on_loss(&c->cc, span.newest_ms, ctx->now_ms);

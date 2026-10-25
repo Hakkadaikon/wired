@@ -13,8 +13,10 @@
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/instruction.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
+#include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -29,10 +31,12 @@
 #include "tls/keys/keyupdate/keyphase.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "tls/keys/ticket/ticket.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
+#include "transport/packet/build/initpkt/initpkt.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
@@ -113,7 +117,7 @@ static u64 g_lp_cli_pn;
 /* The same for the client's Handshake packets (client_seal_handshake). */
 static u64 g_lp_cli_hs_pn;
 
-static void lp_make_client_hello(struct lp_fix* f) {
+static void lp_make_client_hello_no_modes(struct lp_fix* f) {
   g_lp_cli_pn    = 0;
   g_lp_cli_hs_pn = 0;
   u8  tp[32];
@@ -130,6 +134,26 @@ static void lp_make_client_hello(struct lp_fix* f) {
           f->srv_random, cli_pub, wired_span_of(0, 0),
           wired_span_of(tp, tp_len)},
       &(wired_obuf){f->ch, sizeof(f->ch), 0});
+}
+
+/* Offset of the ClientHello's extensions length: handshake header(4) +
+ * version+random(34) + session_id(1) + cipher_suites(2+2) +
+ * compression_methods(1+1), the same layout sdrv_test.c patches. */
+#define LP_CH_EXTS_LEN_OFF 45
+
+/* RFC 8446 4.2.9: lp_make_client_hello_no_modes plus psk_key_exchange_modes
+ * (psk_dhe_ke), as a resumption-capable client sends on every handshake --
+ * the server issues session tickets only to such a client. */
+static void lp_make_client_hello(struct lp_fix* f) {
+  u8  modes[8];
+  usz n, exts;
+  lp_make_client_hello_no_modes(f);
+  CHECK(tlsext_psk_modes(modes, sizeof modes, &n) == 1);
+  exts = (usz)f->ch[LP_CH_EXTS_LEN_OFF] << 8 | f->ch[LP_CH_EXTS_LEN_OFF + 1];
+  bytes_memcpy(f->ch + f->ch_len, modes, n);
+  be_put_be16(f->ch + LP_CH_EXTS_LEN_OFF, (u16)(exts + n));
+  f->ch_len += n;
+  hs_finish(f->ch, f->ch_len);
 }
 
 /* Message-level offset of the single cipher_suites entry tls_client_
@@ -270,8 +294,12 @@ static usz client_seal_onertt(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), g_lp_cli_pn++,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      g_lp_cli_pn++,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -480,8 +508,12 @@ static void test_srvloop_open_chacha(void) {
     {
       protect_keys      pk = {cap, 0};
       hspkt_onertt_desc d  = {
-          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
-          wired_span_of(reqb, rlen), 0};
+          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          1,
+          wired_span_of(reqb, rlen),
+          0,
+          0,
+          0};
       wired_obuf rb = {rpkt, sizeof rpkt, 0};
       CHECK(
           hspkt_onertt_build_suite(
@@ -592,7 +624,7 @@ static usz lp_seal_onertt_suite(
     usz                 cap) {
   protect_keys      pk = {k, 0};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase, 0, 0};
   wired_obuf rb = {pkt, cap, 0};
   CHECK(hspkt_onertt_build_suite(suite, &pk, &d, &rb) == 1);
   return rb.len;
@@ -966,8 +998,12 @@ static usz client_seal_onertt_pn(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      pn,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -1019,13 +1055,23 @@ static int find_ack_frame(const u8* pl, usz pll, ack_frame* out) {
  * fixture on a raw stack frame must match that contract or fields no test
  * flow writes (ack_defer, qlog_path, ...) carry stack garbage into the very
  * branches under test. */
-static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
+/* lp_confirm with the ClientHello from mk. A nonzero resumed_origin marks
+ * the handshake as a resumption whose ticket carried that original
+ * full-handshake time (sdrv.psk_origin_at, RFC 8446 4.6.1); it is set after
+ * the flight so the key schedule stays the fixture's full handshake. */
+static void lp_confirm_with(
+    struct lp_fix* f,
+    wired_obuf*    ob,
+    void (*mk)(struct lp_fix*),
+    u64 resumed_origin) {
   u8  cpkt[1024];
   usz clen;
   bytes_memset(&f->s, 0, sizeof f->s);
   bytes_memset(&f->l, 0, sizeof f->l);
-  lp_make_client_hello(f);
+  mk(f);
   lp_drive_to_flight(f);
+  f->s.sdrv.psk_accepted  = resumed_origin != 0;
+  f->s.sdrv.psk_origin_at = resumed_origin;
   lp_make_client_finished(f);
   clen =
       client_seal_handshake(f, f->cli_fin, f->cli_fin_len, cpkt, sizeof cpkt);
@@ -1037,6 +1083,10 @@ static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
   CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
 
+static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
+  lp_confirm_with(f, ob, lp_make_client_hello, 0);
+}
+
 /* RFC 8446 4.2.10 / RFC 9001 4.6.1: the NewSessionTicket's early_data
  * extension invites the client to try 0-RTT on resumption. An HTTP/3
  * connection's ticket carries it (0xffffffff); a raw-QUIC connection, which
@@ -1044,20 +1094,26 @@ static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
  * not send early data that would only be refused. */
 static void test_srvloop_ticket_early_data_only_off_raw(void) {
   struct lp_fix f;
-  u8            out[1024], msg[64 + TICKET_SEALED_LEN];
+  u8            out[1024], msg[SRVLOOP_TICKET_COUNT * SRVLOOP_TICKET_MSG_MAX];
   wired_obuf    ob  = {out, sizeof out, 0};
+  wired_obuf    mb  = obuf_of(msg, sizeof msg);
   usz           ext = 4 + 12 + TICKET_SEALED_LEN; /* extensions_len offset */
   u32           got = 0;
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn = SALPN_H3;
   /* RFC 8446 Appendix E.5: no early_data until the application opts in. */
-  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 2);
+  CHECK(build_tickets(&f.s, &mb) == 1);
+  CHECK(mb.len == SRVLOOP_TICKET_COUNT * (ext + 2));
   sdrv_set_early_data(&f.s.sdrv, 1);
-  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 10);
+  mb = obuf_of(msg, sizeof msg);
+  CHECK(build_tickets(&f.s, &mb) == 1);
+  CHECK(mb.len == SRVLOOP_TICKET_COUNT * (ext + 10));
   CHECK(tlsext_early_data_nst_parse(msg + ext + 2, 8, &got) == 1);
   CHECK(got == 0xffffffff);
   f.s.sdrv.alpn = SALPN_RAW;
-  CHECK(build_ticket_message(&f.s, msg, sizeof msg) == ext + 2);
+  mb            = obuf_of(msg, sizeof msg);
+  CHECK(build_tickets(&f.s, &mb) == 1);
+  CHECK(mb.len == SRVLOOP_TICKET_COUNT * (ext + 2));
   CHECK(msg[ext] == 0 && msg[ext + 1] == 0); /* extensions_len 0 */
 }
 
@@ -1479,6 +1535,35 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
           &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob) ==
       1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
+}
+
+/* RFC 9000 12.2: "Receivers SHOULD ignore any subsequent packets with a
+ * different Destination Connection ID than the first packet in the
+ * datagram." The same coalesced Finished as above, but sealed under a
+ * different DCID, must be skipped -- the step stays unconfirmed. */
+static void test_srvloop_coalesced_other_dcid_ignored(void) {
+  struct lp_fix f;
+  u8            lead[256], rest[512], dg[1024], out[1024];
+  u8            padding[1] = {0x00}; /* RFC 9000 19.1 */
+  usz           lead_len, rest_len, i, off = 0;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  lead_len = client_seal_handshake(&f, padding, 1, lead, sizeof lead);
+  f.s.sdrv.iscid[0] ^= 0xff; /* the second packet names another DCID */
+  rest_len =
+      client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, rest, sizeof rest);
+  f.s.sdrv.iscid[0] ^= 0xff;
+  for (i = 0; i < lead_len; i++) {
+    dg[off++] = lead[i];
+  }
+  for (i = 0; i < rest_len; i++) {
+    dg[off++] = rest[i];
+  }
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
 }
 
 /* Build a STREAM frame on `stream_id` whose data is one type byte `lead`
@@ -3810,6 +3895,129 @@ static void test_srvloop_ticket_not_resent(void) {
   }
 }
 
+/* Open one sealed ticket under this or the previous key epoch (a run that
+ * straddles a rotation boundary, keyring.h). */
+static int lp_open_ticket(wired_span sealed, ticket* t) {
+  u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
+  u64 now = wired_clock_epoch_secs();
+  keyring_key(srvkeys_ticket(), now, 0, cur);
+  keyring_key(srvkeys_ticket(), now, 1, prev);
+  return ticket_open(sealed, cur, t) || ticket_open(sealed, prev, t);
+}
+
+/* Open every NewSessionTicket in one CRYPTO frame's data (back-to-back
+ * handshake messages) into t[*n..max); each opened ticket_nonce must match
+ * the one the client sees on the wire (RFC 8446 4.6.1). */
+static void lp_open_nsts(wired_span d, ticket* t, usz max, usz* n) {
+  usz off = 0, mlen;
+  while (off + 4 <= d.n && *n < max) {
+    wired_span sealed;
+    mlen =
+        4 + ((usz)d.p[off + 1] << 16 | (usz)d.p[off + 2] << 8 | d.p[off + 3]);
+    CHECK(
+        tls_new_session_ticket_parse(wired_span_of(d.p + off, mlen), &sealed));
+    CHECK(lp_open_ticket(sealed, &t[*n]) == 1);
+    CHECK(t[*n].ticket_nonce == d.p[off + 4 + 9]);
+    *n += 1;
+    off += mlen;
+  }
+}
+
+/* The session tickets carried by the confirming datagram in out (Handshake
+ * ACK + 1-RTT packet, RFC 9000 12.2), opened into t[0..max); the count is
+ * returned. */
+static usz lp_confirm_tickets(
+    struct lp_fix* f, u8* out, usz len, ticket* t, usz max) {
+  const u8*      pkts[4];
+  usz            offs[4], lens[4], n = 0;
+  const u8*      pl;
+  usz            pll;
+  pktlist        plist = {pkts, offs, lens, 4};
+  framewalk      it;
+  framewalk_item fr;
+  CHECK(udploop_split(wired_span_of(out, len), &plist) == 2);
+  CHECK(client_open_onertt(f, out + offs[1], lens[1], &pl, &pll) == 1);
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr)) {
+    crypto_frame cf;
+    if (fr.type == FRAME_CRYPTO &&
+        frame_get_crypto(fr.start, fr.remaining, &cf) != 0) {
+      lp_open_nsts(wired_span_of(cf.data, cf.length), t, max, &n);
+    }
+  }
+  return n;
+}
+
+/* RFC 8446 Appendix C.4: the confirmation offers SRVLOOP_TICKET_COUNT (> 1)
+ * single-use tickets, so a client can resume that many connections; each
+ * has its own ticket_nonce and so its own PSK (RFC 8446 4.6.1). A full
+ * handshake's tickets carry this handshake's time as their origin. */
+static void test_srvloop_confirm_sends_several_tickets(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT + 1];
+  u64           before = wired_clock_epoch_secs();
+  lp_confirm(&f, &ob);
+  CHECK(SRVLOOP_TICKET_COUNT > 1);
+  CHECK(
+      lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT + 1) ==
+      SRVLOOP_TICKET_COUNT);
+  for (usz i = 0; i < SRVLOOP_TICKET_COUNT; i++) {
+    CHECK(t[i].ticket_nonce == (u8)i); /* distinct per connection */
+    CHECK(t[i].origin_at >= before && t[i].origin_at == t[i].issued_at);
+    CHECK(t[i].lifetime_secs == SRVLOOP_TICKET_LIFETIME_SECS);
+  }
+  CHECK(f.l.confirm_frames_len != 0); /* the replay cache still fits */
+}
+
+/* RFC 8446 4.2.9: a client that did not offer psk_dhe_ke (the only mode
+ * this server resumes with) cannot use a ticket, so none is sent -- the
+ * confirmation itself still goes out. */
+static void test_srvloop_no_ticket_without_psk_dhe_ke(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT];
+  lp_confirm_with(&f, &ob, lp_make_client_hello_no_modes, 0);
+  CHECK(f.s.sdrv.psk_dhe_ke == 0);
+  CHECK(lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT) == 0);
+}
+
+/* RFC 8446 4.6.1: a ticket re-issued on a resumed connection inherits the
+ * original full handshake's time, and its lifetime is cut to what is left
+ * of SRVLOOP_RESUMPTION_MAX_SECS, so chained resumptions cannot stretch the
+ * original keying material past the cap. */
+static void test_srvloop_resumed_ticket_keeps_origin(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT];
+  u64 origin = wired_clock_epoch_secs() - (SRVLOOP_RESUMPTION_MAX_SECS - 100);
+  lp_confirm_with(&f, &ob, lp_make_client_hello, origin);
+  CHECK(
+      lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT) ==
+      SRVLOOP_TICKET_COUNT);
+  for (usz i = 0; i < SRVLOOP_TICKET_COUNT; i++) {
+    CHECK(t[i].origin_at == origin);
+    CHECK(t[i].lifetime_secs <= 100 && t[i].lifetime_secs > 0);
+  }
+}
+
+/* RFC 8446 4.6.1: once the original handshake is SRVLOOP_RESUMPTION_MAX_SECS
+ * old, a resumed connection gets no new ticket (the client falls back to a
+ * full handshake next time). */
+static void test_srvloop_no_ticket_past_resumption_cap(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT];
+  lp_confirm_with(
+      &f, &ob, lp_make_client_hello,
+      wired_clock_epoch_secs() - SRVLOOP_RESUMPTION_MAX_SECS);
+  CHECK(lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT) == 0);
+}
+
 /* PEER CLOSE DETECTION (RFC 9000 19.19): the payload scanner recognizes both
  * CONNECTION_CLOSE variants (0x1c transport, 0x1d application) and nothing
  * else. */
@@ -4506,7 +4714,7 @@ static void test_srvloop_gather_max_streams_uni(void) {
   wired_obuf      ob;
   u8              out[1024], spkt[1024];
   usz             slen;
-  static const u8 fr[] = {0x13, 0x20, 0x12, 0x7f}; /* uni 32, bidi 127 */
+  static const u8 fr[] = {0x13, 0x20, 0x12, 0x40, 0x7f}; /* uni 32, bidi 127 */
   ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
@@ -4758,8 +4966,12 @@ static usz client_seal_onertt_pn_gen(
   {
     protect_keys      pk = {use, &hp};
     hspkt_onertt_desc d  = {
-        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
-        wired_span_of(pl, pln), phase};
+        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+        pn,
+        wired_span_of(pl, pln),
+        phase,
+        0,
+        0};
     wired_obuf o = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     total = o.len;
@@ -4955,6 +5167,124 @@ static usz lp_seal_ping(struct lp_fix* f, u64 pn, u8* pkt, usz cap) {
     return 0;
   }
   return ob.len;
+}
+
+/* RFC 9000 10.3: every packet the server sends is at least 22 bytes longer
+ * than the connection ID length it asks the peer to use (its own iscid),
+ * PADDING added as needed -- a lone PING to a client with a zero-length or
+ * short ID included -- and the padded payload still opens to the PING. */
+static void test_srvloop_send_pads_short_packet(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  n = lp_seal_ping(&f, 20, pkt, sizeof pkt); /* 6-byte client ID */
+  CHECK(n >= 22u + f.s.sdrv.iscid_len);
+  CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1);
+  CHECK(pll > 0 && pl[pll - 1] == 0x01); /* PADDING first, PING kept */
+  f.l.cli_scid_len = 0;
+  n                = lp_seal_ping(&f, 21, pkt, sizeof pkt);
+  CHECK(n >= 22u + f.s.sdrv.iscid_len);
+}
+
+/* Client role: one 1-RTT PING at pn with the given spin bit and QUIC Bit
+ * choice, under CLIENT_AP. */
+static usz lp_client_onertt_bits(
+    struct lp_fix* f, u64 pn, int spin, int clear, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          o = obuf_of(pkt, cap);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys      pk = {k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        pn,
+        wired_span_of(ping, 1),
+        0,
+        spin,
+        clear};
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+  }
+  return o.len;
+}
+
+static void lp_step(struct lp_fix* f, u8* pkt, usz n) {
+  u8         out[2048];
+  wired_obuf ob = {out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(pkt, n), &ob);
+}
+
+/* RFC 9287 3: while advertising grease_quic_bit the server accepts a 1-RTT
+ * packet whose QUIC Bit is 0. */
+static void test_srvloop_accepts_cleared_quic_bit(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  lp_confirm(&f, &ob);
+  n = lp_client_onertt_bits(&f, 30, 0, 1, pkt, sizeof pkt);
+  CHECK((pkt[0] & 0x40) == 0);
+  lp_step(&f, pkt, n);
+  CHECK(f.l.app_rx_seen == 1);
+  CHECK(f.l.app_rx_pn == 30);
+}
+
+/* RFC 9000 17.4: the server reflects the spin bit of the highest-numbered
+ * 1-RTT packet it received; a reordered older packet does not change it,
+ * and a connection that drew spin disablement sends 0. */
+static void test_srvloop_spin_reflects_highest_pn(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  lp_confirm(&f, &ob);
+  f.s.spin_off = 0;
+  n            = lp_client_onertt_bits(&f, 40, 1, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  n = lp_client_onertt_bits(&f, 39, 0, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  CHECK(f.s.spin_rx == 1);
+  n = lp_seal_ping(&f, 50, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 1);
+  n = lp_client_onertt_bits(&f, 41, 0, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  n = lp_seal_ping(&f, 51, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 0);
+  f.s.spin_rx  = 1;
+  f.s.spin_off = 1;
+  n            = lp_seal_ping(&f, 52, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 0);
+}
+
+/* RFC 9287 3.1: toward a client that advertised grease_quic_bit the server
+ * sets the QUIC Bit to an unpredictable value (both values occur over 64
+ * packets and each still opens); without the client's parameter it is
+ * always 1. */
+static void test_srvloop_send_greases_quic_bit(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n, cleared = 0;
+  lp_confirm(&f, &ob);
+  for (u64 pn = 100; pn < 164; pn++) {
+    n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
+    CHECK(n > 0 && (pkt[0] & 0x40) != 0);
+  }
+  f.s.sdrv.peer_grease_quic_bit = 1;
+  for (u64 pn = 200; pn < 264; pn++) {
+    n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
+    CHECK(n > 0);
+    cleared += (pkt[0] & 0x40) == 0;
+    CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1);
+  }
+  CHECK(cleared > 0 && cleared < 64);
 }
 
 /* RFC 9001 6.6: one packet BELOW the AES-GCM confidentiality limit is still
@@ -5210,8 +5540,12 @@ static usz lp_seal_ku(
   {
     protect_keys      pk = {k, &hp};
     hspkt_onertt_desc d  = {
-        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
-        wired_span_of(ping, 1), phase};
+        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+        pn,
+        wired_span_of(ping, 1),
+        phase,
+        0,
+        0};
     wired_obuf o = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     return o.len;
@@ -5458,6 +5792,154 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, slen), &ob);
   CHECK(f.l.app_rx_seen == 1);
   CHECK(f.l.app_rx_pn == 3);
+}
+
+/* The fixture after a compatible switch: the client's first flight was v1
+ * (RFC 9368 2.2 original version) and the server negotiated v2. */
+static void lp_switch_v1_to_v2(struct lp_fix* f) {
+  f->s.sdrv.client_version     = VERSION_1;
+  f->s.sdrv.negotiated_version = VERSION_2;
+}
+
+/* One client Initial of `version` carrying a PING-sized CRYPTO chunk,
+ * keyed from the fixture's ODCID (g_cli_scid, RFC 9001 5.2). */
+static usz lp_client_initial_ver(u32 version, u8* pkt, usz cap) {
+  static const u8 crypto[1] = {0};
+  initpkt_desc    d         = {
+      wired_span_of(g_cli_scid, 6), wired_span_of(g_cli_scid, 6),
+      wired_span_of(crypto, 1), 7, 0};
+  wired_obuf o = obuf_of(pkt, cap);
+  CHECK(initpkt_build_ver(version, &d, &o));
+  return o.len;
+}
+
+/* One client Handshake packet (CLIENT_HS keys) framed in `version`. */
+static usz lp_client_handshake_ver(
+    struct lp_fix* f, u32 version, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          ob = {pkt, cap, 0};
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys    pk = {k, &hp};
+    srvwire_seal_in in = {
+        wired_span_of((const u8*)0, 0),
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(ping, 1),
+        0,
+        0,
+        0,
+        0,
+        version};
+    CHECK(srvwire_seal_handshake(&pk, &in, &ob));
+  }
+  return ob.len;
+}
+
+static int lp_recv(struct lp_fix* f, u8* pkt, usz n) {
+  wired_srvloop_recv_in  ri = {wired_mspan_of(pkt, n), 0, 0};
+  wired_srvloop_recv_out ro;
+  return wired_srvloop_recv(&f->s, &ri, &ro);
+}
+
+/* RFC 9369 4.1: after switching v1 -> v2 the server keeps its original
+ * (v1) Initial receive keys until it processes a Handshake packet in the
+ * negotiated version: a v1 Initial the client sent before it saw the v2
+ * flight still opens, as does a v2 one; once a v2 Handshake packet opened,
+ * v1 Initials are dropped while v2 Initials keep opening. */
+static void test_srvloop_recv_v1_initial_until_v2_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 0);
+  n = lp_client_handshake_ver(&f, VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 1);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1: "Both endpoints MUST send Handshake and 1-RTT packets using
+ * the negotiated version. An endpoint MUST drop packets using any other
+ * version." -- a Handshake packet in the original v1 is dropped (and does
+ * not retire the v1 Initial keys). */
+static void test_srvloop_recv_drops_original_version_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_handshake_ver(&f, VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  CHECK(f.s.hs_rx_seen == 0);
+}
+
+/* RFC 9369 4.1: "Servers can accept 0-RTT and then process 0-RTT packets
+ * from the original version." After the v1 -> v2 switch a v1 0-RTT packet
+ * (v1 type bits 0b01 -- v2's Initial bits) still opens under the early
+ * keys, which carry the original version's labels. */
+static void test_srvloop_recv_v1_zerortt_after_v2_switch(void) {
+  struct lp_fix f;
+  u8            psk[32], pkt[256];
+  aes128        hp;
+  const u8      payload[1] = {0x01};
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
+  f.s.sdrv.early_data_accepted = 1;
+  lp_switch_v1_to_v2(&f);
+  aes128_init(&hp, f.s.sdrv.early_keys.hp);
+  {
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    tx_desc      d  = {
+        0xd3,
+        wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        wired_span_of(0, 0),
+        2,
+        wired_span_of(payload, sizeof(payload)),
+        VERSION_1};
+    n = tx_packet_suite(
+        f.s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
+    CHECK(n != 0);
+  }
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1 / 3.3.2: with a v2 original version the 0-RTT keys carry
+ * the "quicv2 " labels -- the server derives them from the client's
+ * original version, not v1's. */
+static void test_sdrv_early_keys_use_original_version_labels(void) {
+  u8           psk[32], ch[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  initial_keys v1, v2;
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_1, psk, ch, sizeof ch, &v1);
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_2, psk, ch, sizeof ch, &v2);
+  CHECK(ct_diff16(v1.key, v2.key) != 0);
 }
 
 /* One 0-RTT PING at pn, byte0 picking the truncated pn length, sealed for
@@ -5745,15 +6227,21 @@ static void test_srvloop_reset_stream_without_stop_sending_latches_close(void) {
   CHECK(f.l.peer_reset_count == 1);
 }
 
-/* Step one 1-RTT packet carrying a RESET_STREAM on stream id. */
-static void lp_step_reset(struct lp_fix* f, u64 pn, u64 id) {
+/* Step one 1-RTT packet carrying a RESET_STREAM on stream id whose Final
+ * Size is final (RFC 9000 4.5: at least every byte already sent). */
+static void lp_step_reset_sized(struct lp_fix* f, u64 pn, u64 id, u64 final) {
   u8                 payload[64], out[1024], spkt[1024];
   wired_obuf         ob  = {out, sizeof out, 0};
-  reset_stream_frame rs  = {id, 0x10c, 0};
+  reset_stream_frame rs  = {id, 0x10c, final};
   usz                off = reset_stream_encode(payload, sizeof payload, &rs);
   usz slen = client_seal_onertt_pn(f, pn, payload, off, spkt, sizeof spkt);
   wired_srvloop_step(
       &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* lp_step_reset_sized for a stream that carried no data. */
+static void lp_step_reset(struct lp_fix* f, u64 pn, u64 id) {
+  lp_step_reset_sized(f, pn, id, 0);
 }
 
 /* RFC 9000 4.6: a frame naming a client stream past the advertised limit of
@@ -5766,6 +6254,7 @@ static void test_srvloop_stream_past_limit_latches_violation(void) {
   lp_confirm(&f, &ob);
   f.l.peer_stream_limit[0] = 10;
   f.l.peer_stream_limit[1] = 3;
+  f.l.local_opened[0]      = 1;    /* server bidi 1 exists (RFC 9000 19.4) */
   lp_step_reset(&f, 3, 9 * 4);     /* bidi index 9 < 10 */
   lp_step_reset(&f, 4, 2 * 4 + 2); /* uni index 2 < 3 */
   lp_step_reset(&f, 5, 1);         /* server-initiated */
@@ -5805,6 +6294,9 @@ static void lp_headers_then_reset(
       method, wired_span_of((const u8*)"https", 5),
       wired_span_of((const u8*)"h", 1), path, wired_span_of((const u8*)"", 0)};
   usz off = lp_build_headers_stream(&pin, fin, payload, sizeof payload);
+  stream_frame sf;
+  CHECK(frame_get_stream(payload, off, &sf) != 0);
+  rs.final_size = sf.offset + sf.length; /* RFC 9000 4.5: the bytes sent */
   if (reset) {
     off += reset_stream_encode(payload + off, sizeof payload - off, &rs);
   }
@@ -5824,7 +6316,7 @@ static void test_srvloop_reset_notes_only_receiving_slot(void) {
   wired_span    slash = wired_span_of((const u8*)"/", 1);
   lp_confirm(&f, &ob);
   lp_headers_then_reset(&f, get, slash, 0, 0);
-  lp_step_reset(&f, 4, 0);
+  lp_step_reset_sized(&f, 4, 0, f.l.streams[0].req_len);
   CHECK(f.l.reset_slots == 1);
   lp_confirm(&f, &ob);
   lp_headers_then_reset(&f, get, slash, 1, 1);
@@ -5977,6 +6469,41 @@ static void test_srvloop_ncid_malformed(void) {
   CHECK(f.l.ncid_rx_n == 0);
 }
 
+/* RFC 9001 8.3 / RFC 9000 12.4 / 17.2: a 0-RTT packet carrying CRYPTO, one
+ * with its Reserved Bits set (0x0c of a long header), and one with no frames
+ * at all are refused with PROTOCOL_VIOLATION; a 0-RTT PING is not. */
+static u64 srvloop_zrtt_error(u8 byte0, wired_span payload) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  srvloop_zrtt_fix(&f);
+  n = srvloop_zrtt_seal(&f, byte0, 3, payload, wired_mspan_of(pkt, 256));
+  CHECK(n != 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, n), &ob);
+  return f.l.transport_error;
+}
+
+static void test_srvloop_zerortt_refused_frames_latch_error(void) {
+  static const u8 crypto[] = {0x06, 0x00, 0x01, 0xaa};
+  static const u8 ping[]   = {0x01};
+  CHECK(
+      srvloop_zrtt_error(0xd3, wired_span_of(crypto, sizeof crypto)) ==
+      ERR_PROTOCOL_VIOLATION);
+  CHECK(
+      srvloop_zrtt_error(0xdf, wired_span_of(ping, sizeof ping)) ==
+      ERR_PROTOCOL_VIOLATION);
+  CHECK(srvloop_zrtt_error(0xd3, wired_span_of(ping, sizeof ping)) == 0);
+  /* no frames at all: the same check srvloop_step_opened runs */
+  {
+    static wired_srvloop zl;
+    CHECK(
+        srvloop_payload_error(&zl, LEVEL_ONERTT, 0x40, wired_span_of(0, 0)) ==
+        ERR_PROTOCOL_VIOLATION);
+  }
+}
+
 /* RFC 8446 4 (#72) on the production step path: a Handshake packet whose
  * CRYPTO carries a message other than the client Finished latches
  * unexpected_message, and a forged Finished decrypt_error, for srvrun to
@@ -6025,6 +6552,14 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
+  test_srvloop_recv_v1_initial_until_v2_handshake();
+  test_srvloop_accepts_cleared_quic_bit();
+  test_srvloop_spin_reflects_highest_pn();
+  test_srvloop_send_greases_quic_bit();
+  test_srvloop_recv_drops_original_version_handshake();
+  test_srvloop_recv_v1_zerortt_after_v2_switch();
+  test_sdrv_early_keys_use_original_version_labels();
+  test_srvloop_zerortt_refused_frames_latch_error();
   test_srvloop_pn_baseline_is_largest();
   test_srvloop_duplicate_packet_dropped();
   test_srvloop_classified_slot_not_reset();
@@ -6151,6 +6686,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_padding_before_crypto();
   test_srvloop_padding_before_stream();
   test_srvloop_coalesced_finished_behind_leading();
+  test_srvloop_coalesced_other_dcid_ignored();
   test_srvloop_onertt_get_is_acked();
   test_srvloop_handshake_ack_tracks_pn();
   test_srvloop_confirm_and_200_coalesce();
@@ -6161,11 +6697,16 @@ void test_srvloop(void) {
   test_srvloop_ticket_sent_on_confirm();
   test_srvloop_no_ticket_before_confirm();
   test_srvloop_ticket_not_resent();
+  test_srvloop_confirm_sends_several_tickets();
+  test_srvloop_no_ticket_without_psk_dhe_ke();
+  test_srvloop_resumed_ticket_keeps_origin();
+  test_srvloop_no_ticket_past_resumption_cap();
   test_srvloop_recv_same_phase_uses_current_keys();
   test_srvloop_recv_new_phase_derives_next_keys();
   test_srvloop_send_keys_follow_peer_update_before_ack();
   test_srvloop_recv_failed_decrypt_does_not_advance_generation();
   test_srvloop_send_below_aead_limit_keeps_generation();
+  test_srvloop_send_pads_short_packet();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();

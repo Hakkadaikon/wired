@@ -17,9 +17,13 @@ static void test_onertt_roundtrip(void) {
 
   u8                pkt[64];
   protect_keys      pk = {&k, &hp};
-  hspkt_onertt_desc d  = {
-      wired_span_of(dcid, 5), 12, wired_span_of(frames, sizeof(frames)), 0};
-  wired_obuf o = obuf_of(pkt, sizeof(pkt));
+  hspkt_onertt_desc d  = {wired_span_of(dcid, 5),
+                          12,
+                          wired_span_of(frames, sizeof(frames)),
+                          0,
+                          0,
+                          0};
+  wired_obuf        o  = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   CHECK(o.len == 5u + 5u + sizeof(frames) + 16u); /* byte0+dcid+pn+ct+tag */
 
@@ -43,9 +47,13 @@ static void test_onertt_byte0(void) {
 
   u8                pkt[64];
   protect_keys      pk = {&k, &hp};
-  hspkt_onertt_desc d  = {
-      wired_span_of(dcid, 4), 1, wired_span_of(frames, sizeof(frames)), 0};
-  wired_obuf o = obuf_of(pkt, sizeof(pkt));
+  hspkt_onertt_desc d  = {wired_span_of(dcid, 4),
+                          1,
+                          wired_span_of(frames, sizeof(frames)),
+                          0,
+                          0,
+                          0};
+  wired_obuf        o  = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x00); /* short header form */
 }
@@ -60,9 +68,13 @@ static void test_onertt_tamper(void) {
 
   u8                pkt[64];
   protect_keys      pk = {&k, &hp};
-  hspkt_onertt_desc d  = {
-      wired_span_of(dcid, 4), 5, wired_span_of(frames, sizeof(frames)), 0};
-  wired_obuf o = obuf_of(pkt, sizeof(pkt));
+  hspkt_onertt_desc d  = {wired_span_of(dcid, 4),
+                          5,
+                          wired_span_of(frames, sizeof(frames)),
+                          0,
+                          0,
+                          0};
+  wired_obuf        o  = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
   wired_span             out;

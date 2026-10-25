@@ -40,4 +40,14 @@ int wired_srvloop_recv(
  * update), and restarts the per-key sealed-packet count. */
 void srvloop_ku_rotate_send(wired_server* s);
 
+/* RFC 8999 5.1: the Version field of dg's long header, or the connection's
+ * negotiated version for a short header (1-RTT carries none). */
+u32 srvloop_recv_pkt_version(const wired_server* s, wired_mspan dg);
+
+/* RFC 9369 4.1: 1 if a long header of `type` (PT_*) in version `ver` may be
+ * received on s now -- the negotiated version for Initial/Handshake/1-RTT,
+ * the original version for 0-RTT and for Initials until a Handshake packet
+ * was processed. Any other version is dropped. */
+int srvloop_recv_version_ok(const wired_server* s, u32 ver, int type);
+
 #endif

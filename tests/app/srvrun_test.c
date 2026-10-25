@@ -1204,6 +1204,7 @@ static void sr_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }
@@ -1750,6 +1751,29 @@ static void test_srvrun_stateless_reset_seal_token_and_size(void) {
   sreset_key_derive(seed, key);
   sreset_token(key, dcid, 8, want);
   CHECK(ct_diffn(out + ob.len - SRESET_TOKEN, want, 16) == 0);
+}
+
+/* RFC 9000 10.3 Figure 10: a Stateless Reset looks like a short header --
+ * Header Form 0, Fixed Bit 1 -- on every build, not just the half whose
+ * random first byte happens to match. */
+static void test_srvrun_stateless_reset_first_byte_short_form(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
+  int              bad     = 0;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  for (int i = 0; i < 16; i++) {
+    u8         out[128];
+    wired_obuf ob = obuf_of(out, sizeof out);
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), 64, &ob) ==
+        1);
+    bad += (out[0] & 0xc0) != 0x40;
+  }
+  CHECK(bad == 0);
 }
 
 /* The token must be reproducible across a server restart -- two independent
@@ -3451,18 +3475,24 @@ static void sr_send_path_response(
 }
 
 /* A PATH_RESPONSE matching the outstanding challenge validates the
- * path: it becomes the last validated path and its slot frees. */
+ * path: it becomes the last validated path and its challenge is done. The
+ * rebind datagram was small, so that challenge went out unexpanded and a
+ * fresh full-size one follows (RFC 9000 8.2.1). */
 static void test_srvrun_path_response_matching_validates(void) {
-  struct lp_fix f;
-  srvrun_conn   c;
-  conntable     table[WIRED_CONNTABLE_CAP];
-  sockaddr      new_peer;
-  srvrun_state  st = {table, &c};
+  struct lp_fix       f;
+  srvrun_conn         c;
+  conntable           table[WIRED_CONNTABLE_CAP];
+  sockaddr            new_peer;
+  srvrun_state        st = {table, &c};
+  u8                  old[PATH_DATA];
+  const pathsel_slot* s;
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   CHECK(!sr_valid(&c, -1, &new_peer));
-  sr_send_path_response(&f, &st, &new_peer, sr_chal(&c, -1, &new_peer)->data);
+  bytes_memcpy(old, sr_chal(&c, -1, &new_peer)->data, PATH_DATA);
+  sr_send_path_response(&f, &st, &new_peer, old);
   CHECK(sr_valid(&c, -1, &new_peer));
-  CHECK(sr_chal(&c, -1, &new_peer) == 0);
+  s = sr_chal(&c, -1, &new_peer);
+  CHECK(s == 0 || (ct_diff8(s->data, old) != 0 && s->small == 0));
 }
 
 /* A PATH_RESPONSE differing in even 1 of the 8 bytes from the
@@ -3887,7 +3917,7 @@ static usz sr_seal_dcid(
   aes128_init(&hp, k->hp);
   {
     protect_keys      pk = {k, &hp};
-    hspkt_onertt_desc d  = {dcid, pn, pl, 0};
+    hspkt_onertt_desc d  = {dcid, pn, pl, 0, 0, 0};
     wired_obuf        o  = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     return o.len;
@@ -4453,6 +4483,9 @@ static void sr_net_close(sr_net* n) {
 /* What one client socket received since the last drain. */
 typedef struct {
   int n, chal, resp, retire;
+  int resp_np;    /* datagrams carrying a PATH_RESPONSE and a PING */
+  int ncid;       /* NEW_CONNECTION_ID frames */
+  usz chal_len;   /* size of the last datagram carrying a PATH_CHALLENGE */
   int first_chal; /* PATH_CHALLENGEs in the first datagram received */
   u8  dcid0;
   u16 port_be;
@@ -4463,6 +4496,9 @@ static void sr_rx_note(sr_rx* r, const u8* pl, usz pll) {
   r->chal += sr_count_frames(pl, pll, FK_PATH_CHALLENGE);
   r->resp += sr_count_frames(pl, pll, FK_PATH_RESPONSE);
   r->retire += sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID);
+  r->ncid += sr_count_frames(pl, pll, FK_NEW_CONNECTION_ID);
+  r->resp_np += sr_count_frames(pl, pll, FK_PATH_RESPONSE) &&
+                sr_count_frames(pl, pll, FK_PING);
 }
 
 static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
@@ -4482,6 +4518,9 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     r.len     = (usz)n;
     if (client_open_onertt(f, pkt, (usz)n, &pl, &pll) != 1) {
       continue;
+    }
+    if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE)) {
+      r.chal_len = (usz)n;
     }
     sr_rx_note(&r, pl, pll);
     if (r.n == 1) {
@@ -4721,6 +4760,434 @@ static void test_srvrun_path_wire_retire_unused(void) {
   }
   CHECK(sr_drain(&f, n.bfd).retire == 1);
   sr_net_close(&n);
+}
+
+/* RFC 9000 9.3.3: a PATH_CHALLENGE on the active path is answered with a
+ * non-probing packet -- the PATH_RESPONSE rides with a PING. */
+static void test_srvrun_path_wire_active_answer_non_probing(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0}; /* the send path itself */
+    sr_rx      r;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+    r = sr_drain(&f, n.afd);
+    CHECK(r.resp == 1 && r.resp_np == 1);
+  }
+  sr_net_close(&n);
+}
+
+/* 1 if c keeps a packet whose frames lead with frame type t for resending
+ * until ACKed (RFC 9000 13.3). */
+static int sr_kept(const srvrun_conn* c, u8 t) {
+  int hit = 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    hit |= c->rst[i].pln && c->rst[i].pl[0] == t;
+  }
+  return hit;
+}
+
+/* RFC 9000 5.1.2/13.3: a RETIRE_CONNECTION_ID is retransmitted until
+ * acknowledged -- the packet carrying it is kept for resending. */
+static void test_srvrun_path_retire_kept(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 1, 0xc1));
+  CHECK(sr_kept(&c, 0x19) == 1);
+}
+
+/* A confirmed slot 0 routed by its handshake ID (seq 0) and its spare
+ * (seq 1), issued the production way (srvrun_issue_spare_cid). */
+static void sr_spare_setup(
+    srvrun_conn* c, struct lp_fix* f, conntable* table, const srvrun_cfg* cfg) {
+  sockaddr old_peer, new_peer;
+  sr_path_setup(c, f, table, &old_peer, &new_peer);
+  srvrun_issue_spare_cid(cfg, c);
+  CHECK(c->l.spare_cid_len == cfg->id->scid_len);
+  CHECK(
+      conntable_insert(
+          table, WIRED_CONNTABLE_CAP, f->s.sdrv.iscid, f->s.sdrv.iscid_len) ==
+      0);
+  CHECK(
+      conntable_set_alt2(
+          table, WIRED_CONNTABLE_CAP, 0, c->l.spare_cid, c->l.spare_cid_len) ==
+      1);
+}
+
+/* RFC 9000 5.1.1/19.16: the peer retiring the spare ID gets a fresh one
+ * (sequence 2) in a NEW_CONNECTION_ID kept until ACKed; the new ID routes
+ * to the connection and the retired one no longer does. */
+static void test_srvrun_retired_cid_replenished(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, &c};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], old[6];
+  u8               retire[2] = {0x19, 1};
+  sr_net           n;
+  sr_rx            r;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sr_spare_setup(&c, &f, table, &cfg);
+  }
+  bytes_memcpy(old, c.l.spare_cid, 6);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(retire, sizeof retire));
+  }
+  r = sr_drain(&f, n.afd);
+  CHECK(r.ncid == 1);
+  CHECK(sr_kept(&c, 0x18) == 1);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, old, 6) == -1);
+  CHECK(ct_diffn(c.l.spare_cid, old, 6) != 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, c.l.spare_cid, 6) == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 19.16: retiring a sequence number never issued is a
+ * PROTOCOL_VIOLATION. */
+static void test_srvrun_retire_unissued_closes(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, &c};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               retire[2] = {0x19, 2};
+  sockaddr         old_peer  = {0};
+  int              is_app;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    sr_spare_setup(&c, &f, table, &cfg);
+  }
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  {
+    sr_arrival a = {&old_peer, -1, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(retire, sizeof retire));
+  }
+  CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 5.1.2: with every resend entry busy, an owed
+ * RETIRE_CONNECTION_ID stays queued (bounded, PEERCID_RETIRE) instead of
+ * going out untracked; a freed entry lets it out, kept. */
+static void test_srvrun_retire_bound(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    c.rst[i].pln   = 1;
+    c.rst[i].pl[0] = 0x01;
+  }
+  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 1, 0xc1));
+  CHECK(c.pcid.retire_n == 1);
+  CHECK(sr_kept(&c, 0x19) == 0);
+  c.rst[0].pln = 0;
+  sr_tick(&st, 1);
+  CHECK(c.pcid.retire_n == 0);
+  CHECK(sr_kept(&c, 0x19) == 1);
+}
+
+/* RFC 9000 8.2.1/8.2.2/8: a probe from a new path in a small datagram
+ * allows 3x its size there -- below 1200 bytes, so the challenge and the
+ * response go out unexpanded, within the budget, and the challenge is
+ * marked small. */
+static void test_srvrun_path_amp_unpadded_probe(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival    a = {&n.b, n.sfd, 0, 0, 0};
+    sr_rx         r;
+    pathsel_slot* s;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+    r = sr_drain(&f, n.bfd);
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(r.resp == 1 && r.chal == 1);
+    CHECK(r.len < 1200);
+    CHECK(s != 0 && s->small == 1);
+    CHECK(s->tx_bytes <= 3 * s->rx_bytes);
+  }
+  sr_net_close(&n);
+}
+
+/* RFC 9000 9.3/8: after a migration to an unvalidated path, the send path
+ * itself is capped at 3x what arrived from it: a datagram past the budget
+ * is not sent; nor is a CONNECTION_CLOSE (10.2.1). */
+static void test_srvrun_path_amp_limits_send_path(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  static u8     big[1200];
+  srvrun_cfg    cfg = {0};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.b, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+  }
+  (void)sr_drain(&f, n.bfd);
+  CHECK(sr_peer_is(&c, &n.b));
+  cfg.fd  = n.sfd;
+  cfg.env = &g_srvrun_env;
+  srvrun_send(&cfg, &c, wired_span_of(big, sizeof big), "big\n");
+  CHECK(sr_drain(&f, n.bfd).n == 0);
+  {
+    pathsel_slot* s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0);
+    s->tx_bytes = 3 * s->rx_bytes;
+  }
+  srvrun_send_transport_close(&cfg, &c, 0, wired_span_of(0, 0));
+  CHECK(sr_drain(&f, n.bfd).n == 0);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 8.2.1: a migration validated by a small (budget-limited)
+ * challenge is challenged again at full size once validated. */
+static void test_srvrun_path_small_revalidated(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival    a = {&n.b, n.sfd, 0, 0, 0};
+    u8            fr[16];
+    usz           fl;
+    sr_rx         r;
+    pathsel_slot* s;
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(g_sr_ping, 1));
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0 && s->small == 1);
+    (void)sr_drain(&f, n.bfd);
+    fl = path_encode(fr, sizeof fr, FRAME_PATH_RESPONSE, s->data);
+    sr_serve_at(&f, &st, &a, 6, wired_span_of(fr, fl));
+    CHECK(sr_valid(&c, n.sfd, &n.b));
+    r = sr_drain(&f, n.bfd);
+    CHECK(r.chal == 1 && r.chal_len >= 1200);
+    s = sr_chal(&c, n.sfd, &n.b);
+    CHECK(s != 0 && s->small == 0);
+  }
+  sr_net_close(&n);
+}
+
+/* Migrate c to p (fd -1) and answer the challenge: p validates. */
+static void sr_migrate_validated(
+    struct lp_fix* f, srvrun_state* st, srvrun_conn* c, const sockaddr* p) {
+  pathsel_slot* s;
+  sr_np(f, st, p, 5);
+  s = sr_chal(c, -1, p);
+  CHECK(s != 0);
+  sr_resp(f, st, p, 6, s->data);
+  CHECK(sr_valid(c, -1, p));
+}
+
+/* RFC 9000 9.4: validating a new peer address resets the congestion
+ * controller and RTT estimator to initial values and starts the
+ * old-path cut-off at the next packet number. */
+static void test_srvrun_path_migration_resets_cc(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer, other;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  wired_udp_addr(&other, 4433, (const u8[4]){127, 0, 0, 2});
+  c.cc.cwnd = 999999;
+  c.srtt_ms = 77;
+  sr_migrate_validated(&f, &st, &c, &other);
+  CHECK(c.cc.cwnd == CC_INIT_WINDOW);
+  CHECK(c.srtt_ms == 0 && c.rtt.have_sample == 0);
+  CHECK(c.mig.cc_from_pn != 0 && c.mig.cc_from_pn <= c.l.tx_pn);
+}
+
+/* RFC 9000 9.4: a change of the peer's port alone keeps them. */
+static void test_srvrun_path_port_only_keeps_cc(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  c.cc.cwnd = 999999;
+  c.srtt_ms = 77;
+  sr_migrate_validated(&f, &st, &c, &new_peer);
+  CHECK(c.cc.cwnd == 999999 && c.srtt_ms == 77);
+  CHECK(c.mig.cc_from_pn == 0);
+}
+
+/* RFC 9000 9.4: an ACK of packets sent before the reset (on the old path)
+ * clears them but feeds neither the RTT estimator nor the window. */
+static void test_srvrun_path_old_path_ack_ignored(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           pn0;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  pn0                 = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    u64             cwnd;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4);
+    rtt_init(&c.rtt);
+    c.mig.cc_from_pn = c.l.tx_pn; /* the reset came after these went out */
+    cwnd             = c.cc.cwnd;
+    c.l.ack_lo[0]    = pn0;
+    c.l.ack_hi[0]    = pn0 + 3;
+    c.l.ack_n        = 1;
+    ctx.now_ms       = 50;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+    CHECK(c.rtt.have_sample == 0);
+    CHECK(c.cc.cwnd == cwnd);
+  }
+}
+
+/* A datagram that looks like a short header and ends in tok. */
+static void sr_reset_dg(u8* dg, usz n, const u8* dcid, const u8 tok[16]) {
+  for (usz i = 0; i < n; i++) {
+    dg[i] = (u8)(0x77 + 13 * i);
+  }
+  dg[0] = 0x41;
+  bytes_memcpy(dg + 1, dcid, 8);
+  bytes_memcpy(dg + n - 16, tok, 16);
+}
+
+/* A confirmed slot 0 whose send path uses the peer's seq-1 ID (seq 0
+ * retired by Retire Prior To 1), which carries reset token tok. */
+static void sr_reset_setup(
+    srvrun_conn*   c,
+    struct lp_fix* f,
+    conntable*     table,
+    srvrun_state*  st,
+    const u8       tok[16]) {
+  sockaddr   old_peer, new_peer;
+  ncid_frame nf = sr_cid(1, 1, 0xc1);
+  bytes_memcpy(nf.token, tok, 16);
+  sr_path_setup(c, f, table, &old_peer, &new_peer);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, c->scid, 8) == 0);
+  sr_ncid(f, st, &old_peer, 4, nf);
+  CHECK(c->l.cli_scid[0] == 0xc1);
+}
+
+/* RFC 9000 10.3.1: a datagram no connection claims whose last 16 bytes are
+ * the token of a peer ID in use puts that connection into draining: the
+ * slot is dropped and nothing more is sent to it. */
+static void test_srvrun_peer_stateless_reset_unroutable(void) {
+  struct lp_fix    f;
+  srvrun_conn*     cp = &g_srvrun_state.conns[0]; /* routing walks 64 */
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, g_srvrun_state.conns};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], tok[16], dg[40];
+  u8               other[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+  sockaddr         peer     = {0};
+  bytes_memset(tok, 0x5e, sizeof tok);
+  sr_reset_setup(cp, &f, table, &st, tok);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_reset_dg(dg, sizeof dg, other, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    dg[sizeof dg - 1] ^= 1; /* another token: not a reset */
+    srvrun_serve(&ctx, wired_mspan_of(dg, sizeof dg));
+    CHECK(cp->up == 1);
+    dg[sizeof dg - 1] ^= 1;
+    srvrun_serve(&ctx, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(cp->up == 0);
+}
+
+/* RFC 9000 10.3.1: the same check on a datagram that routes to the slot but
+ * cannot be decrypted. */
+static void test_srvrun_peer_stateless_reset_undecryptable(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  u8            tok[16], dg[40];
+  sockaddr      peer = {0};
+  bytes_memset(tok, 0x6f, sizeof tok);
+  sr_reset_setup(&c, &f, table, &st, tok);
+  sr_reset_dg(dg, sizeof dg, f.s.sdrv.iscid, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve_slot(&ctx, 0, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(c.up == 0);
+}
+
+/* RFC 9000 10.3.1: a token of an ID the server never sent on is not
+ * checked (seq 1 held, seq 0 still in use). */
+static void test_srvrun_peer_stateless_reset_unused_id_ignored(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  srvrun_state  st = {table, &c};
+  sockaddr      old_peer, new_peer, peer = {0};
+  u8            tok[16], dg[40];
+  ncid_frame    nf = sr_cid(1, 0, 0xc1);
+  bytes_memset(tok, 0x7a, sizeof tok);
+  bytes_memcpy(nf.token, tok, 16);
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_ncid(&f, &st, &old_peer, 4, nf);
+  sr_reset_dg(dg, sizeof dg, f.s.sdrv.iscid, tok);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve_slot(&ctx, 0, wired_mspan_of(dg, sizeof dg));
+  }
+  CHECK(c.up == 1);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -14010,7 +14477,7 @@ static void test_srvrun_conn_credit_exhausted_sends_data_blocked(void) {
     srvrun_test_reset_send_count();
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_test_send_count() == 1);
-    CHECK(c.data_blocked_sent_at == c.conn_credit);
+    CHECK(c.data_blocked.sent_at == c.conn_credit);
   }
 }
 
@@ -14047,7 +14514,7 @@ static void test_srvrun_conn_credit_exhausted_data_blocked_sent_once(void) {
 
 /* A later MAX_DATA raise past the ceiling DATA_BLOCKED was last sent for
  * makes the next block (once the new, higher ceiling is also exhausted)
- * send again -- data_blocked_sent_at tracks the CEILING, not "ever sent". */
+ * send again -- data_blocked.sent_at tracks the CEILING, not "ever sent". */
 static void test_srvrun_conn_credit_raised_then_blocked_resends(void) {
   static u8     body[8 * SRVRUN_CHUNK];
   struct lp_fix f;
@@ -14076,7 +14543,7 @@ static void test_srvrun_conn_credit_raised_then_blocked_resends(void) {
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_test_send_count() >= 1); /* the raised chunk's send, */
     /* plus a fresh DATA_BLOCKED for the new (also-exhausted) ceiling. */
-    CHECK(c.data_blocked_sent_at == c.conn_credit);
+    CHECK(c.data_blocked.sent_at == c.conn_credit);
   }
 }
 
@@ -19548,6 +20015,7 @@ static void test_srvrun_wt_open_bidi_reply_received(void) {
     usz          fl = frame_put_stream(frm, sizeof frm, &sf);
     wired_obuf   sob;
     CHECK(fl != 0);
+    c->l.local_opened[0] = c->wt_bidi_opened; /* srvrun_live_prepare's */
     slen = client_seal_onertt_pn(&f, 3, frm, fl, spkt, sizeof spkt);
     sob  = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
@@ -23204,7 +23672,7 @@ static int srvrun_seal_stop_sending(
   u8         pl[32];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   return srvrun_seal_ctl(
-      c, pl, srvrun_wt_abort_stop(stream_id, err_code, &plb, 0), out);
+      c, pl, srvrun_wt_abort_stop(c, stream_id, err_code, &plb, 0), out);
 }
 
 /* RFC 9114 4.1.2: an early answer asks the client to stop sending the
@@ -24727,10 +25195,11 @@ static void sr_abort_free_slot(void) {
   srvrun_free_slot(&g_sl_cfg, &st, 0);
 }
 
-/* One frame (RESET_STREAM or STOP_SENDING) on stream 0 from the client. */
-static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code) {
+/* One frame (RESET_STREAM or STOP_SENDING) on stream 0 from the client; a
+ * RESET_STREAM's Final Size is the bytes the client sent (RFC 9000 4.5). */
+static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code, u64 sent) {
   u8                 pl[32];
-  reset_stream_frame rs = {0, code, 0};
+  reset_stream_frame rs = {0, code, sent};
   stop_sending_frame ss = {0, code};
   usz                n  = stop ? stop_sending_encode(pl, sizeof pl, &ss)
                                : reset_stream_encode(pl, sizeof pl, &rs);
@@ -24746,7 +25215,7 @@ static void test_srvrun_on_body_reset_mid_body_aborts(void) {
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
   CHECK(g_sr_body.calls >= 1 && g_sr_body.fins == 0);
-  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED, n / 2);
   CHECK(g_sr_abort.calls == 1);
   CHECK(g_sr_abort.stream_id == 0);
   CHECK(g_sr_abort.code == H3_REQUEST_CANCELLED);
@@ -24787,7 +25256,7 @@ static void test_srvrun_stop_before_response_resets_and_aborts(void) {
   srvrun_conn* c = sr_abort_fixture();
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
-  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
   CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_final(c, 0) == 0);
   CHECK(g_sr_abort.calls == 1 && g_sr_abort.code == H3_REQUEST_CANCELLED);
@@ -24802,7 +25271,7 @@ static void test_srvrun_stop_before_response_resets_and_aborts(void) {
 static void test_srvrun_stop_before_response_buffered(void) {
   srvrun_conn* c = sr_sl_fixture();
   sr_sl_send_headers(c, 0, "GET", 0); /* HEADERS, no FIN yet */
-  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
   CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_final(c, 0) == 0);
   sr_sl_send_headers(c, 0, "GET", 1);
@@ -25179,6 +25648,288 @@ static void test_srvrun_ghost_remembers_spare_cid(void) {
   *c = (srvrun_conn){0};
 }
 
+/* ===== RFC 9000 12.4 / 17.2 / 19: frame validation on the server receive
+ * path -- a client packet srvloop refuses (transport_error) closes the
+ * connection with the matching transport error code. */
+static u64 sr_fv_close(const u8* pl, usz n) {
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  u64          code;
+  sr_sl_step(c, pl, n);
+  code = sr_close_code(c, &is_app);
+  return is_app ? ~1ULL : code; /* an H3 close is not what these test */
+}
+
+/* RFC 9000 19.7: NEW_TOKEN is server-to-client only. */
+static void test_srvrun_client_new_token_closes(void) {
+  static const u8 pl[] = {0x07, 0x01, 0xaa};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 19.20: HANDSHAKE_DONE is server-to-client only. */
+static void test_srvrun_client_handshake_done_closes(void) {
+  static const u8 pl[] = {0x01, 0x1e};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9000 12.4: an unknown frame type after a valid PING. */
+static void test_srvrun_unknown_frame_type_closes(void) {
+  static const u8 pl[] = {0x01, 0x21, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.3.1: Largest 1, First Range 0, then Gap 5 -- a range below
+ * packet number 0. */
+static void test_srvrun_negative_ack_range_closes(void) {
+  static const u8 pl[] = {0x02, 0x01, 0x00, 0x01, 0x00, 0x05, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.14: STREAMS_BLOCKED at 2^60 is legal, 2^60 + 1 is not;
+ * nor is a MAX_STREAMS above 2^60 (4.6). */
+static void test_srvrun_streams_blocked_over_2_60_closes(void) {
+  u8 pl[] = {0x16, 0xd0, 0, 0, 0, 0, 0, 0, 0x00};
+  CHECK(sr_fv_close(pl, sizeof pl) == ~0ULL);
+  pl[8] = 0x01;
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+  pl[0] = 0x12; /* MAX_STREAMS (bidi), RFC 9000 4.6 / 19.11 */
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_FRAME_ENCODING_ERROR);
+}
+
+/* RFC 9000 19.8: STREAM data on the server's own uni control stream (3),
+ * or on server bidi stream 1 the server never opened. */
+static void test_srvrun_stream_on_server_stream_closes(void) {
+  u8 pl[] = {0x0a, 0x03, 0x01, 'x'};
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_STREAM_STATE_ERROR);
+  pl[1] = 0x01;
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_STREAM_STATE_ERROR);
+}
+
+/* RFC 9000 19.5/19.10: STOP_SENDING or MAX_STREAM_DATA for client uni
+ * stream 2 (the server only receives on it); MAX_STREAM_DATA for server
+ * uni stream 15, not opened yet (3, 7, 11 are the H3 plumbing streams). */
+static void test_srvrun_receive_only_stream_frames_close(void) {
+  static const u8 stop[] = {0x05, 0x02, 0x00};
+  u8              msd[]  = {0x11, 0x02, 0x40, 0x64};
+  CHECK(sr_fv_close(stop, sizeof stop) == ERR_STREAM_STATE_ERROR);
+  CHECK(sr_fv_close(msd, sizeof msd) == ERR_STREAM_STATE_ERROR);
+  msd[1] = 15;
+  CHECK(sr_fv_close(msd, sizeof msd) == ERR_STREAM_STATE_ERROR);
+  msd[1] = 3; /* the open control stream: fine */
+  CHECK(sr_fv_close(msd, sizeof msd) == ~0ULL);
+}
+
+/* RFC 9000 7.5: a ClientHello CRYPTO chunk reaching past the boot
+ * reassembly buffer (never expanded) refuses the boot with
+ * CRYPTO_BUFFER_EXCEEDED, the code srvrun_refuse's Initial close carries. */
+static void test_srvrun_boot_crypto_overflow_refused(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               chunk[60] = {1};
+  srvrun_conn*     c         = sr_test_conns();
+  srvrun_cfg       cfg       = {0};
+  srvrun_step_ctx  ctx       = {&cfg, 0, 0, 0, 0};
+  wired_obuf       o         = obuf_of(dg, sizeof dg);
+  initpkt_desc     d         = {
+      wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
+      wired_span_of(chunk, sizeof chunk), 0, CRECV_BUF - 10};
+  CHECK(initpkt_build(&d, &o) == 1);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  cfg.fd  = -1;
+  cfg.id  = &id;
+  cfg.env = &g_srvrun_env;
+  CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
+  CHECK(sdrv_last_error(&c->s.sdrv) == ERR_CRYPTO_BUFFER_EXCEEDED);
+  d.crypto_off = CRECV_BUF - sizeof chunk; /* ends exactly at the edge */
+  o            = obuf_of(dg, sizeof dg);
+  c            = sr_test_conns();
+  CHECK(initpkt_build(&d, &o) == 1);
+  CHECK(
+      srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) ==
+      SRVRUN_BOOT_PENDING);
+}
+
+/* RFC 9000 3.5: once the peer reset a stream (this step's RESET_STREAM
+ * queue, as srvloop fills it), the app's stream_stop latches nothing and an
+ * abort sends no STOP_SENDING for it -- a client bidi abort keeps only its
+ * RESET_STREAM half. A stream the peer did not reset still gets one. */
+static void test_srvrun_no_stop_sending_after_peer_reset(void) {
+  struct lp_fix      f;
+  u8                 obuf[1024], pl[48];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  wired_obuf         plb = obuf_of(pl, sizeof pl);
+  srvrun_conn*       c   = sr_wtsend_fixture(&f, &ob);
+  srvrun_cfg         cfg = {0};
+  reset_stream_frame rs;
+  usz                n;
+  cfg.fd              = -1;
+  cfg.env             = &g_srvrun_env;
+  c->l.peer_resets[0] = (wired_srvloop_reset){2, 7, 0};
+  c->l.peer_resets[1] = (wired_srvloop_reset){4, 7, 0};
+  c->l.peer_resets[2] = (wired_srvloop_reset){8, 7, 1}; /* a STOP_SENDING */
+  c->l.peer_reset_n   = 3;
+  srvrun_deliver_wt_reset_if_owned(&cfg, c);
+  CHECK(wired_server_wt_stream_stop(&c->wt, 2, 0x44) == 0);
+  CHECK(c->wt_stream_reset_n == 0);
+  CHECK(srvrun_wt_busy_reset_payload(c, 2, 9, &plb) == 0);
+  n = srvrun_wt_busy_reset_payload(c, 4, 9, &plb);
+  CHECK(n != 0 && reset_stream_decode(pl, n, &rs) == n); /* RESET alone */
+  CHECK(wired_server_wt_stream_stop(&c->wt, 6, 0x44) == 1);
+  n = srvrun_wt_busy_reset_payload(c, 8, 9, &plb);
+  CHECK(n != 0 && reset_stream_decode(pl, n, &rs) < n); /* + STOP_SENDING */
+  bytes_memset(c->peer_reset_seen, 0, sizeof c->peer_reset_seen);
+}
+
+/* RFC 9001 4.1.3: Initial CRYPTO running one byte past the ClientHello
+ * would be left unconsumed once the server moves to Handshake keys -- the
+ * boot is refused with PROTOCOL_VIOLATION instead of accepted. */
+static void test_srvrun_boot_trailing_initial_crypto_refused(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               ch[1400], cpriv[32], cpub[32];
+  client           cl;
+  srvrun_conn*     c   = sr_test_conns();
+  srvrun_cfg       cfg = {0};
+  srvrun_step_ctx  ctx = {&cfg, 0, 0, 0, 0};
+  wired_obuf       o   = obuf_of(dg, sizeof dg);
+  usz              n;
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(11 + i);
+  }
+  wired_x25519_base(cpub, cpriv);
+  tlsdriver_init(&cl.tls, cpriv, cpub, 0);
+  n     = tlsdriver_raw_client_hello(&cl.tls, ch, sizeof ch - 1);
+  ch[n] = 0x01; /* one Initial CRYPTO byte past the ClientHello */
+  {
+    initpkt_desc d = {
+        wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
+        wired_span_of(ch, n + 1), 0, 0};
+    CHECK(n > 100 && initpkt_build(&d, &o) == 1);
+  }
+  sr_make_id(&id, priv, pub, seed, rnd);
+  cfg.fd  = -1;
+  cfg.id  = &id;
+  cfg.env = &g_srvrun_env;
+  CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
+  CHECK(sdrv_last_error(&c->s.sdrv) == ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9001 6: a client KeyUpdate (handshake type 24) in 1-RTT CRYPTO
+ * closes with 0x010a (CRYPTO_ERROR + unexpected_message). */
+static void test_srvrun_client_tls_key_update_closes(void) {
+  static const u8 pl[] = {0x06, 0x00, 0x05, 24, 0, 0, 1, 0};
+  CHECK(sr_fv_close(pl, sizeof pl) == 0x010a);
+}
+
+/* RFC 9000 4.5: on client uni stream 2 (grease type 0x21, ignored by
+ * HTTP/3), data past a FIN's final size, a second FIN moving it, and a
+ * RESET_STREAM below the bytes received are each a FINAL_SIZE_ERROR; a
+ * RESET_STREAM matching them is not. */
+static void test_srvrun_final_size_violations_close(void) {
+  static const u8 past[]  = {0x0b, 2, 1, 0x21, 0x0e, 2, 1, 1, 0x21};
+  static const u8 moved[] = {0x0b, 2, 1, 0x21, 0x0b, 2, 2, 0x21, 0x21};
+  static const u8 below[] = {0x0a, 2, 3, 0x21, 0, 0, 0x04, 2, 0, 1};
+  static const u8 match[] = {0x0a, 2, 3, 0x21, 0, 0, 0x04, 2, 0, 3};
+  CHECK(sr_fv_close(past, sizeof past) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(moved, sizeof moved) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(below, sizeof below) == ERR_FINAL_SIZE_ERROR);
+  CHECK(sr_fv_close(match, sizeof match) == ~0ULL);
+}
+
+/* RFC 9000 4.1 / 4.5: two streams' final sizes summing past the connection
+ * limit (STP_DEFAULT_MAX_DATA, nothing raised) close with
+ * FLOW_CONTROL_ERROR; summing exactly to it does not. Each reset counts
+ * every byte up to its final size, sent or not. */
+static void test_srvrun_conn_receive_limit_closes(void) {
+  u8  pl[32];
+  u64 half = STP_DEFAULT_MAX_DATA / 2;
+  usz n    = 0;
+  for (u64 id = 2; id <= 6; id += 4) {
+    reset_stream_frame rs = {id, 0, half};
+    n += reset_stream_encode(pl + n, sizeof pl - n, &rs);
+  }
+  CHECK(sr_fv_close(pl, n) == ~0ULL);
+  n = 0;
+  for (u64 id = 2; id <= 6; id += 4) {
+    reset_stream_frame rs = {id, 0, half + (id == 6)};
+    n += reset_stream_encode(pl + n, sizeof pl - n, &rs);
+  }
+  CHECK(sr_fv_close(pl, n) == ERR_FLOW_CONTROL_ERROR);
+}
+
+/* RFC 9000 13.3: once client uni stream 2's FIN fixed its final size no
+ * MAX_STREAM_DATA goes out for it; stream 6 (no FIN) still gets one. */
+static void test_srvrun_no_max_stream_data_after_final_size(void) {
+  static const u8 pl[] = {0x0b, 2, 1, 0x21, 0x0a, 6, 1, 0x21};
+  srvrun_conn*    c    = sr_sl_fixture();
+  u64             pn;
+  sr_sl_step(c, pl, sizeof pl);
+  CHECK(c->closing == 0);
+  pn = c->l.tx_pn;
+  srvrun_send_max_stream_data(&g_sl_cfg, c, 2, 1u << 20);
+  CHECK(c->l.tx_pn == pn);
+  srvrun_send_max_stream_data(&g_sl_cfg, c, 6, 1u << 20);
+  CHECK(c->l.tx_pn == pn + 1);
+}
+
+/* RFC 9000 4.1: still blocked on the same MAX_DATA with nothing in flight,
+ * DATA_BLOCKED goes out again once a PTO has passed -- not before. */
+static void test_srvrun_data_blocked_repeats_after_pto(void) {
+  static u8          body[4 * SRVRUN_CHUNK];
+  struct lp_fix      f;
+  static srvrun_conn c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_state       st  = {0, &c};
+  srvrun_step_ctx    ctx = {&cfg, 0, &st, 1, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  cfg.fd                  = -1;
+  cfg.env                 = &g_srvrun_env;
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  srvrun_pump_sess(&ctx, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 1);
+  ctx.now_ms = 1 + srvrun_pto_deadline_ms(&c, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 2);
+}
+
+/* RFC 9000 4.1 / 19.13: a response blocked on its own stream credit (the
+ * connection credit wide open) sends one STREAM_DATA_BLOCKED naming that
+ * credit; a second pass at the same ceiling sends nothing more. */
+static void test_srvrun_stream_credit_blocked_sends_sdb(void) {
+  static u8          body[4 * SRVRUN_CHUNK];
+  struct lp_fix      f;
+  static srvrun_conn c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_state       st  = {0, &c};
+  srvrun_step_ctx    ctx = {&cfg, 0, &st, 1, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  cfg.fd                  = -1;
+  cfg.env                 = &g_srvrun_env;
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = 1u << 24;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = SRVRUN_CHUNK / 2;
+  c.resp[0].sdb           = (srvrun_blocked_mark){0, 0};
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  srvrun_test_reset_send_count();
+  srvrun_pump_sess(&ctx, 0);
+  srvrun_pump_sess(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c.resp[0].sdb.sent_at == SRVRUN_CHUNK / 2);
+}
+
 void test_srvrun(void) {
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
@@ -25332,6 +26083,7 @@ void test_srvrun(void) {
   test_srvrun_reaped_slot_bytes_stay_in_max_data_base();
   test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
+  test_srvrun_stateless_reset_first_byte_short_form();
   test_srvrun_stateless_reset_token_survives_restart();
   test_srvrun_stateless_reset_gates();
   test_srvrun_unknown_dcid_short_header_sends_reset();
@@ -25451,6 +26203,20 @@ void test_srvrun(void) {
   test_srvrun_path_wire_probe_challenged_first();
   test_srvrun_path_wire_retire();
   test_srvrun_path_wire_retire_unused();
+  test_srvrun_path_wire_active_answer_non_probing();
+  test_srvrun_path_retire_kept();
+  test_srvrun_retired_cid_replenished();
+  test_srvrun_retire_unissued_closes();
+  test_srvrun_retire_bound();
+  test_srvrun_path_amp_unpadded_probe();
+  test_srvrun_path_amp_limits_send_path();
+  test_srvrun_path_small_revalidated();
+  test_srvrun_path_migration_resets_cc();
+  test_srvrun_path_port_only_keeps_cc();
+  test_srvrun_path_old_path_ack_ignored();
+  test_srvrun_peer_stateless_reset_unroutable();
+  test_srvrun_peer_stateless_reset_undecryptable();
+  test_srvrun_peer_stateless_reset_unused_id_ignored();
 
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
@@ -25871,4 +26637,20 @@ void test_srvrun(void) {
   test_srvrun_bcast_concurrent_register();
   test_srvrun_free_slot_wipes_keys();
   test_srvrun_ghost_remembers_spare_cid();
+  test_srvrun_client_new_token_closes();
+  test_srvrun_client_handshake_done_closes();
+  test_srvrun_unknown_frame_type_closes();
+  test_srvrun_negative_ack_range_closes();
+  test_srvrun_streams_blocked_over_2_60_closes();
+  test_srvrun_stream_on_server_stream_closes();
+  test_srvrun_receive_only_stream_frames_close();
+  test_srvrun_boot_crypto_overflow_refused();
+  test_srvrun_no_stop_sending_after_peer_reset();
+  test_srvrun_boot_trailing_initial_crypto_refused();
+  test_srvrun_client_tls_key_update_closes();
+  test_srvrun_final_size_violations_close();
+  test_srvrun_conn_receive_limit_closes();
+  test_srvrun_no_max_stream_data_after_final_size();
+  test_srvrun_data_blocked_repeats_after_pto();
+  test_srvrun_stream_credit_blocked_sends_sdb();
 }

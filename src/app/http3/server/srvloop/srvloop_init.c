@@ -19,6 +19,7 @@ void srvloop_init_pn(wired_srvloop* l) {
   l->step_np_new    = 0;
   l->drop_newer     = 0;
   l->ncid_rx_n      = 0;
+  l->retire_rx_n    = 0;
   l->ncid_malformed = 0;
   l->hs_rx_pn       = 0;
   l->hs_rx_hi       = 0;

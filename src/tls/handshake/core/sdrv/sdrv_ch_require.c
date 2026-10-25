@@ -13,17 +13,27 @@ static int sdrv_ch_require_scheme_offered(
     sdrv* s, const u8* ch_msg, usz ch_len);
 static int sdrv_ch_after_required(sdrv* s, const u8* ch_msg, usz ch_len);
 
+/* RFC 9368 4: the value bytes parse (length, no zero entry) AND, from a
+ * client, the Chosen Version is listed in Available Versions. */
+static int sdrv_vi_parses(wired_span bytes, version_information* vi) {
+  return verinfo_decode(bytes.p, bytes.n, vi) == bytes.n &&
+         verinfo_chosen_listed(vi);
+}
+
 /* RFC 9368 4: an endpoint that receives a version_information transport
  * parameter it cannot parse MUST close the connection with a
  * TRANSPORT_PARAMETER_ERROR. Absent is fine (compatible version negotiation
- * is optional); present-but-malformed value bytes are not. */
+ * is optional); present-but-malformed value bytes are not, and neither is a
+ * zero version or a Chosen Version missing from Available Versions -- both
+ * checked here, before the Chosen-vs-first-flight check that maps to
+ * VERSION_NEGOTIATION_ERROR. */
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len) {
   wired_span          bytes;
   version_information vi;
   if (!sdrv_find_version_information(ch_msg, ch_len, &bytes)) {
     return 1;
   }
-  if (verinfo_decode(bytes.p, bytes.n, &vi) != bytes.n) {
+  if (!sdrv_vi_parses(bytes, &vi)) {
     s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
     return 0;
   }
@@ -210,6 +220,7 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_check_client_tp,
     sdrv_ch_check_iscid,
     sdrv_ch_check_version_information,
+    sdrv_ch_check_grease_quic_bit,
     sdrv_ch_reject_dup_ext,
     sdrv_ch_reject_illegal_ext,
     sdrv_ch_require_version,

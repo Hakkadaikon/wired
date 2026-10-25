@@ -1,7 +1,9 @@
 #ifndef APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_SRVRUN_H
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_SRVRUN_H
 
+#include "app/http3/server/srvrun/srvrun_impl_cid.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
+#include "app/http3/server/srvrun/srvrun_impl_rst.h"
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/stats/stats.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -196,6 +198,8 @@ typedef struct {
    * accounting; srvrun_can_send_new gates new sends on it so that never
    * happens. */
   u64 stream_credit;
+  /** RFC 9000 4.1: this stream's last STREAM_DATA_BLOCKED (its doc). */
+  srvrun_blocked_mark sdb;
   /* 1 while the app handler has more response body to produce
    * (wired_srvloop_handler's *more): srvrun_resp_refill keeps feeding the
    * ring below and the slot must not be released even if its sendsess
@@ -266,6 +270,8 @@ typedef struct {
   u64            stream_id;
   wired_sendsess sess;
   u64            stream_credit;
+  /** RFC 9000 4.1: this stream's last STREAM_DATA_BLOCKED (its doc). */
+  srvrun_blocked_mark sdb;
   /** 1 while the stream is held open for more app-driven rounds
    * (wired_server_wt_open_uni_stream/open_bidi_stream/stream_reply_open, or
    * wired_server_wt_stream_send with fin=0): the pump suppresses the wire
@@ -351,30 +357,6 @@ typedef struct {
  * (RFC 9221 1), but one already queued is never overwritten. */
 #define SRVRUN_DG_PENDING_Q 4
 
-/* RFC 9000 13.3: one-shot control packets (stream aborts, GOAWAY) one
- * connection keeps until ACKed. Sized so every stream this connection can
- * track -- request slots, WT bidi/uni receive slots, WT send slots, both
- * CONNECT streams -- can be aborted at once, plus the GOAWAY: 93 entries,
- * about 6.7 KB per connection. An entry lives about one RTT (until ACKed);
- * one that exhausts SRVRUN_PTO_MAX resends tears the connection down. */
-#define SRVRUN_RST_RETX                                       \
-  (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
-   WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +  \
-   SRVRUN_MAX_WT_SESSIONS + 1)
-
-/* One control packet awaiting its ACK: the exact frames sent (at most 42
- * bytes -- RESET_STREAM + STOP_SENDING is 1 + three 8-byte varints, then
- * 1 + two; a GOAWAY STREAM frame is smaller), resent verbatim so a final
- * size or stream offset never changes (RFC 9000 4.5/2.2). pln 0 marks a
- * free entry; tries is the resends left. */
-typedef struct {
-  u8  pl[48];
-  u8  pln;
-  u8  tries;
-  u64 pn;
-  u64 due_ms;
-} srvrun_rst;
-
 /* Per-connection server state. Members are grouped by alignment (8-byte,
  * then 4-byte, then byte arrays) so the struct carries no padding. */
 typedef struct {
@@ -433,12 +415,13 @@ typedef struct {
    * is monotonic, in-flight drops on ACK), but the same fan-out shape. */
   u64 conn_credit;
   /** RFC 9000 4.1/19.12: the conn_credit value DATA_BLOCKED was last sent
-   * for (0 meaning "never sent yet") -- so a sustained block resends at
-   * most once per distinct ceiling, not once per pump opportunity (the
-   * gate below is checked every slice attempt). A later MAX_DATA raising
-   * conn_credit makes this stale, so the next block at the new ceiling
-   * sends again. */
-  u64 data_blocked_sent_at;
+   * for (sent_at, 0 meaning "never sent yet") and when -- so a sustained
+   * block resends once per distinct ceiling, then once per PTO while
+   * nothing is in flight, not once per pump opportunity (the gate below is
+   * checked every slice attempt). A later MAX_DATA raising conn_credit
+   * makes sent_at stale, so the next block at the new ceiling sends
+   * again. */
+  srvrun_blocked_mark data_blocked;
   /** RFC 9002 5/6.2: RTT estimator (smoothed_rtt/rttvar in us) feeding this
    * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
@@ -450,6 +433,8 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9000 5.1.1/9.4: migration bookkeeping. */
+  srvrun_mig mig;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
    * advanced (s->ku.generation), used to floor how long the retained old
    * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless
@@ -541,6 +526,13 @@ typedef struct {
    * ids in this /4-indexed window, the same reason wt_closed_mark skips
    * them). */
   wired_srvloop_closed wt_send_done;
+  /** RFC 9000 3.5: stream ids the peer sent RESET_STREAM for, one window
+   * per stream type (id & 3, so the /4 indexes do not alias) -- this server
+   * then never sends STOP_SENDING for them (srvrun_wt_abort_stop,
+   * srvrun_wt_stop_refused). shortcut: the window's ceiling slide counts
+   * ids left behind as reset too, which only drops a SHOULD-level
+   * STOP_SENDING for a stream 1024+ indexes old. */
+  wired_srvloop_closed peer_reset_seen[4];
   /** Bytes used in each dg_pending_buf entry. */
   usz dg_pending_len[SRVRUN_DG_PENDING_Q];
   /** Index of the oldest queued dg_pending_buf entry. */
@@ -667,7 +659,7 @@ typedef struct {
   u64 peer_uni_stream_limit;
   /** RFC 9000 4.6/19.14: the peer_uni_stream_limit value a UNI
    * STREAMS_BLOCKED was last sent for (0 meaning "never sent yet") -- once
-   * per distinct ceiling, mirroring data_blocked_sent_at's own doc. A later
+   * per distinct ceiling, mirroring data_blocked.sent_at's own doc. A later
    * MAX_STREAMS(uni) raise makes this stale, so blocking again at the new
    * ceiling sends again. Without this signal, a peer whose own uni-stream
    * accounting undercounts (or simply never re-grants after the initial

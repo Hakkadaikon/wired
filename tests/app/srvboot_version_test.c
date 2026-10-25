@@ -175,7 +175,8 @@ static void test_vneg_lists_v1_and_v2(void) {
   u8  out[64];
   int saw_v1 = 0, saw_v2 = 0;
   vneg_dg_init(0x0a0a0a0au); /* a GREASE-shaped unsupported version */
-  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n =
+      wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), 0, out, 64);
   CHECK(n > 0);
   /* supported-version list starts right after the swapped-CID header
    * (byte0, 4-byte version=0, DCIDlen+DCID, SCIDlen+SCID); DCID/SCID here
@@ -197,7 +198,8 @@ static void test_vneg_lists_v1_and_v2(void) {
 static void test_vneg_not_owed_for_v2(void) {
   vneg_dg_init(VERSION_2);
   u8  out[64];
-  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n =
+      wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), 0, out, 64);
   CHECK(n == 0);
 }
 
@@ -206,8 +208,31 @@ static void test_vneg_not_owed_for_v2(void) {
 static void test_vneg_owed_for_alien_version(void) {
   vneg_dg_init(0x0a0a0a0au);
   u8  out[64];
-  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n =
+      wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), 0, out, 64);
   CHECK(n > 0);
+}
+
+/* RFC 9308 13: the application's WIRED_VERSIONS_* mask narrows what the
+ * server accepts -- with only v1 accepted a v2 Initial draws Version
+ * Negotiation listing v1 alone, and with only v2 accepted so does a v1
+ * Initial (listing v2 alone). */
+static void test_vneg_honors_version_mask(void) {
+  u8  out[64];
+  usz n;
+  vneg_dg_init(VERSION_2);
+  n = wired_srvboot_vneg(
+      wired_span_of(vneg_dg, sizeof(vneg_dg)), WIRED_VERSIONS_V1, out, 64);
+  CHECK(n == 7 + 4);
+  CHECK(be_get_be32(out + 7) == VERSION_1);
+  vneg_dg_init(VERSION_1);
+  n = wired_srvboot_vneg(
+      wired_span_of(vneg_dg, sizeof(vneg_dg)), WIRED_VERSIONS_V2, out, 64);
+  CHECK(n == 7 + 4);
+  CHECK(be_get_be32(out + 7) == VERSION_2);
+  n = wired_srvboot_vneg(
+      wired_span_of(vneg_dg, sizeof(vneg_dg)), WIRED_VERSIONS_V1, out, 64);
+  CHECK(n == 0); /* v1 accepted: no Version Negotiation owed */
 }
 
 /* ---- full accept path: a v2 Initial is accepted and replied to in v2 ---- */
@@ -457,6 +482,21 @@ static void test_srvboot_v1_initial_with_vi_switches_to_v2(void) {
   /* the whole flight switched: the server Initial's Version field is v2 */
   CHECK(be_get_be32(init_buf + 1) == VERSION_2);
   CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
+
+  /* RFC 9308 13: the same Initial to a server the application restricted
+   * to v1 is answered in v1 -- compatible negotiation never picks a
+   * version outside the accepted set. */
+  f           = (struct sbv_fix){0};
+  init_ob     = obuf_of(init_buf, sizeof(init_buf));
+  flight_ob   = obuf_of(flight_buf, sizeof(flight_buf));
+  out         = (wired_srvboot_out){&init_ob, &flight_ob, {0}, 0, 0};
+  id.versions = WIRED_VERSIONS_V1;
+  o           = obuf_of(pkt, sizeof(pkt));
+  CHECK(initpkt_build(&d, &o));
+  in = (wired_srvboot_in){&id, wired_mspan_of(pkt, o.len)};
+  CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
+  CHECK(be_get_be32(init_buf + 1) == VERSION_1);
+  CHECK(sdrv_wire_version(&f.s.sdrv) == VERSION_1);
 }
 
 /* Pinned to a captured neqo v2 interop run (compatible upgrade, split
@@ -495,6 +535,7 @@ void test_srvboot_version(void) {
   test_vneg_lists_v1_and_v2();
   test_vneg_not_owed_for_v2();
   test_vneg_owed_for_alien_version();
+  test_vneg_honors_version_mask();
   test_srvboot_accept_v2_initial();
   test_srvboot_v1_initial_with_vi_switches_to_v2();
   test_srvboot_iscid_validated();

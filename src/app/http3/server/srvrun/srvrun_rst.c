@@ -27,7 +27,7 @@ void srvrun_send_stop_sending(
   u8         pl[32];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   srvrun_send_kept(
-      cfg, c, pl, srvrun_wt_abort_stop(stream_id, H3_NO_ERROR, &plb, 0),
+      cfg, c, pl, srvrun_wt_abort_stop(c, stream_id, H3_NO_ERROR, &plb, 0),
       "STOP_SENDING sent\n");
 }
 
@@ -56,6 +56,8 @@ static srvrun_rst* srvrun_rst_free(srvrun_conn* c) {
   }
   return 0;
 }
+
+int srvrun_rst_room(srvrun_conn* c) { return srvrun_rst_free(c) != 0; }
 
 /* 1 iff a payload of pln bytes can be kept (nonempty, fits pl[]). */
 static int srvrun_rst_fits(usz pln) {

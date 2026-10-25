@@ -14,6 +14,7 @@
 #include "ee_find.h"
 #include "realchain_golden.h"
 #include "test.h"
+#include "tls/ext/grease/grease.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/earlydata.h"
@@ -829,6 +830,75 @@ static void test_sdrv_recv_client_hello_version_information_malformed_rejected(
   CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
 }
 
+/* Feed a ClientHello whose version_information value is vi (n bytes) and
+ * return the error sdrv_recv_client_hello left (0 when it accepted). */
+static u64 sdrv_test_vi_error(const u8* vi, usz n) {
+  u8         cli_pub[32], srv_random[32];
+  u8         tpbuf[64], ch[512];
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
+  usz        tp_len, ch_len;
+  sdrv       s;
+  tp_len = tparam_put_blob(&tob, TP_VERSION_INFORMATION, wired_span_of(vi, n));
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  if (sdrv_recv_client_hello(&s, ch, ch_len)) {
+    return 0;
+  }
+  return sdrv_last_error(&s);
+}
+
+/* RFC 9287 3: a client's grease_quic_bit with an empty value is recorded
+ * (its packets may then carry a cleared QUIC Bit); a non-empty value is a
+ * TRANSPORT_PARAMETER_ERROR; absence leaves greasing off. */
+static void test_sdrv_recv_client_hello_grease_quic_bit(void) {
+  u8   cli_pub[32], srv_random[32], tpbuf[32], ch[512];
+  u8   one = 1;
+  usz  i;
+  sdrv s;
+  for (i = 0; i < 3; i++) {
+    wired_obuf tob    = obuf_of(tpbuf, sizeof(tpbuf));
+    usz        tp_len = 0, ch_len;
+    if (i < 2) {
+      tp_len =
+          tparam_put_blob(&tob, TP_GREASE_QUIC_BIT, wired_span_of(&one, i));
+      CHECK(tp_len != 0);
+    } else {
+      tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_DATA, 1000);
+    }
+    sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+    ch_len = sdrv_test_client_hello_tp(
+        ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
+    CHECK(ch_len != 0);
+    if (i == 1) {
+      CHECK(!sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
+    } else {
+      CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(s.peer_grease_quic_bit == (i == 0));
+    }
+  }
+}
+
+/* RFC 9368 4: a zero Chosen Version, a zero Available Version, or a Chosen
+ * Version missing from Available Versions is a parsing failure --
+ * TRANSPORT_PARAMETER_ERROR in QUIC v1, never VERSION_NEGOTIATION_ERROR. */
+static void test_sdrv_recv_client_hello_version_information_invalid_entries(
+    void) {
+  static const u8 zero_chosen[8] = {0, 0, 0, 0, 0, 0, 0, 1};
+  static const u8 zero_avail[12] = {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0};
+  static const u8 not_listed[8]  = {0, 0, 0, 1, 0x6b, 0x33, 0x43, 0xcf};
+  static const u8 chosen_only[4] = {0, 0, 0, 1};
+  static const u8 well_formed[8] = {0, 0, 0, 1, 0, 0, 0, 1};
+  CHECK(sdrv_test_vi_error(zero_chosen, 8) == ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_test_vi_error(zero_avail, 12) == ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_test_vi_error(not_listed, 8) == ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_test_vi_error(chosen_only, 4) == ERR_TRANSPORT_PARAMETER_ERROR);
+  CHECK(sdrv_test_vi_error(well_formed, 8) == 0);
+}
+
 /* A driver initialized with an arbitrary-but-fixed key set, enough to drive
  * sdrv_recv_client_hello in the malformed-input tests below (they never
  * reach build_server_flight, so the exact key values don't matter). */
@@ -1556,9 +1626,14 @@ typedef struct {
   u8  cli_pub[32], srv_random[32];
 } sdrv_psk_fixture;
 
+/* RFC 8446 4.6.1: the fixture ticket's original full-handshake time, which
+ * an accepted resumption must carry forward (sdrv.psk_origin_at). */
+#define SDRV_TEST_ORIGIN_AT 1700000000ULL
+
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8     cli_priv[32];
-  ticket t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
+  ticket t = {
+      {0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, SDRV_TEST_ORIGIN_AT};
   /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
    * elapsed (set where the offer is built) -- freshness holds trivially so
    * these fixtures exercise 0-RTT accept/reject on their own axis, not on
@@ -1605,6 +1680,7 @@ static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
   }
   CHECK(sdrv_recv_client_hello(&s, f.ch, f.ch_len));
   CHECK(s.psk_accepted == 0);
+  CHECK(s.psk_dhe_ke == 0); /* RFC 8446 4.2.9: no psk_key_exchange_modes */
   sh_ob = obuf_of(sh, sizeof(sh));
   fl_ob = obuf_of(flight, sizeof(flight));
   fo    = (sdrv_flight_out){&sh_ob, &fl_ob};
@@ -1679,6 +1755,8 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
+  CHECK(s.psk_dhe_ke == 1);                      /* RFC 8446 4.2.9 */
+  CHECK(s.psk_origin_at == SDRV_TEST_ORIGIN_AT); /* RFC 8446 4.6.1 */
   for (usz i = 0; i < 32; i++) {
     CHECK(s.psk_secret[i] == f.psk[i]);
   }
@@ -1742,6 +1820,36 @@ static void test_sdrv_psk_hash_mismatch_falls_back(void) {
   CHECK(s.psk_accepted == 0);
 }
 
+/* f's ticket re-sealed as issued age_secs ago (lifetime 7200 s) and
+ * offered with f's PSK binder; returns whether the PSK was accepted. */
+static int sdrv_test_psk_aged(u64 age_secs) {
+  sdrv_psk_fixture f;
+  sdrv             s;
+  u8               ch2[700];
+  usz              ch2_len;
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  sdrv_psk_fixture_init(&f);
+  t.issued_at = wired_clock_epoch_secs() - age_secs;
+  bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
+  ticket_seal(&t, f.ticket_key, f.sealed);
+  ch2_len = sdrv_test_psk_ch_suite(
+      &f, TLS_AES_128_GCM_SHA256, TLS_AES_128_GCM_SHA256, f.psk, ch2,
+      sizeof ch2);
+  sdrv_test_psk_init_srv(&s, &f);
+  CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len) == 1);
+  return s.psk_accepted;
+}
+
+/* RFC 8446 4.6.1: a ticket is usable only within its ticket_lifetime. An
+ * expired one is ignored like an unknown identity (full handshake, RFC 8446
+ * 4.2.11), even for plain 1-RTT resumption without early data. Boundary:
+ * age lifetime - 1 resumes, age == lifetime does not. */
+static void test_sdrv_psk_expired_ticket_falls_back(void) {
+  CHECK(sdrv_test_psk_aged(7200 - 60) == 1);
+  CHECK(sdrv_test_psk_aged(7200) == 0);
+  CHECK(sdrv_test_psk_aged(7200 * 10) == 0);
+}
+
 /* A ticket issued under TLS_AES_256_GCM_SHA384 resumes under it: PSK =
  * HKDF-Expand-Label(resumption_master_secret, "resumption", 0x00, 48) over
  * SHA-384 (RFC 8446 4.6.1, raw hkdf_expand_label_384 here), its 48-byte
@@ -1751,7 +1859,7 @@ static void test_sdrv_psk_sha384_ticket_accepted(void) {
   sdrv             s;
   u8               ch2[700], psk[48], sh[256], flight[2048];
   usz              ch2_len;
-  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, {0}};
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_256_GCM_SHA384, {0}, 0};
   static const u8  nonce[1] = {0};
   hkdf_label       l        = {"resumption", 10, {nonce, 1}};
   wired_obuf       sh_ob    = obuf_of(sh, sizeof sh);
@@ -2402,7 +2510,7 @@ static void sdrv_test_alpn_to_m9(u8* ch, usz ch_len) {
 /* Re-seal f's ticket recording alpn (a salpn_choice) as its issuing
  * connection's ALPN (RFC 8446 4.2.10). */
 static void sdrv_psk_fixture_reseal(sdrv_psk_fixture* f, u8 alpn) {
-  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, {0}};
+  ticket t    = {{0}, 0, 7200, 0, alpn, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
   t.issued_at = wired_clock_epoch_secs();
   for (usz i = 0; i < TICKET_SECRET_LEN; i++) {
     t.secret[i] = f->secret[i];
@@ -2526,7 +2634,7 @@ static int sdrv_test_psk_sni(
   sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
   wired_span       d;
   usz              ch2_len, off;
-  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}};
+  ticket           t = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
   sdrv_psk_fixture_init(&f);
   t.issued_at = wired_clock_epoch_secs();
   bytes_memcpy(t.secret, f.secret, TICKET_SECRET_LEN);
@@ -2980,6 +3088,8 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_dup_tp_rejected();
   test_sdrv_recv_client_hello_version_information_ok();
   test_sdrv_recv_client_hello_version_information_malformed_rejected();
+  test_sdrv_recv_client_hello_version_information_invalid_entries();
+  test_sdrv_recv_client_hello_grease_quic_bit();
   test_sdrv_recv_client_hello_no_supported_versions_rejected();
   test_sdrv_recv_client_hello_non_tls13_version_rejected();
   test_sdrv_recv_client_hello_no_sig_algs_rejected();
@@ -3011,6 +3121,7 @@ void test_sdrv(void) {
   test_sdrv_psk_fixture_pinned();
   test_sdrv_psk_hash_mismatch_falls_back();
   test_sdrv_psk_sha384_ticket_accepted();
+  test_sdrv_psk_expired_ticket_falls_back();
   test_sdrv_psk_valid_ticket_and_binder_accepted();
   test_sdrv_psk_without_modes_rejected();
   test_sdrv_psk_not_last_rejected();

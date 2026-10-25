@@ -7,7 +7,9 @@ const peercid_entry* srvrun_path_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept);
 void srvrun_path_move(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
-void srvrun_path_send(
+/** srvrun_path_send's result for a datagram sent below 1200 bytes. */
+#define SRVRUN_PATH_SMALL 2
+int srvrun_path_send(
     const srvrun_cfg*    cfg,
     srvrun_conn*         c,
     const pathsel_key*   k,
@@ -15,6 +17,17 @@ void srvrun_path_send(
     u8                   type,
     const u8*            data,
     usz                  n);
+void srvrun_path_note_rx(const srvrun_step_ctx* ctx, srvrun_conn* c, usz n);
+int  srvrun_rst_room(srvrun_conn* c);
+void srvrun_path_note_err(srvrun_conn* c, int err);
+void srvrun_path_take_retires(const srvrun_step_ctx* ctx, srvrun_conn* c);
+int  srvrun_peer_reset_hit(const srvrun_conn* c, wired_mspan dg);
+void srvrun_peer_reset_drain(const srvrun_step_ctx* ctx, int slot);
+int  srvrun_peer_reset_any(const srvrun_step_ctx* ctx, wired_mspan dg);
+void srvrun_path_cc_restart(
+    const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
+u64  srvrun_path_budget(srvrun_conn* c, const pathsel_key* k);
+int  srvrun_path_spend(srvrun_conn* c, const pathsel_key* k, usz n);
 void srvrun_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, pathsel_slot* s, u64 now);
 void srvrun_path_arm(
@@ -67,7 +80,12 @@ void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
 usz srvrun_retry_pkt_build(
-    const lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap);
+    const lhdr* h,
+    u32         version,
+    const u8    scid[8],
+    wired_span  token,
+    u8*         pkt,
+    usz         cap);
 void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
@@ -75,7 +93,7 @@ void srvrun_retry_prep(
     u8                     token[RETRYTOKEN_WIRE_MAX],
     usz*                   tn);
 void srvrun_retry_finish(
-    const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n);
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version, u8* pkt, usz n);
 int srvrun_retry_gate(
     const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid);
 void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid);

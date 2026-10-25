@@ -114,14 +114,14 @@ static int srvrun_stage_bypass(
 }
 
 void srvrun_send_staged(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what) {
   (void)what;
   if (srvrun_stage_bypass(cfg, c, pkt)) {
     srvrun_send(cfg, c, pkt, what);
     return;
+  }
+  if (!srvrun_send_spend(cfg, c, pkt.n)) {
+    return; /* RFC 9000 8: over the unvalidated path's budget */
   }
   srvrun_stage_put(cfg, c, pkt);
   srvrun_qlog_sent(cfg, c, pkt.n);

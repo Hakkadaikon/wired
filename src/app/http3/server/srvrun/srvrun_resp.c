@@ -37,6 +37,7 @@ srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
     c->resp[i].streaming  = 0;
     c->resp[i].ring_cap   = 0;
     c->resp[i].arm_failed = 0;
+    c->resp[i].sdb        = (srvrun_blocked_mark){0, 0};
     /* RFC 9000 18.2/19.10: seed this stream's send credit from the peer's
      * ClientHello TP (initial_max_stream_data_bidi_local, RFC 9000 18.2:
      * the TP sender's own locally-initiated streams' credit -- this

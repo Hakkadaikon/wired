@@ -42,6 +42,24 @@ static void srvrun_note_stream_limits(
                                   : wired_srvloop_uni_stream_limit();
 }
 
+/* RFC 9000 3.2 / 19.8: hand srvloop how many server streams exist, so a
+ * frame naming one not opened yet is a STREAM_STATE_ERROR. The uni count
+ * starts past the three H3 plumbing streams (none on raw QUIC). */
+static void srvrun_note_local_streams(srvrun_conn* c) {
+  c->l.local_opened[0] = c->wt_bidi_opened;
+  c->l.local_opened[1] =
+      (rawq_uni_first_id(srvrun_conn_is_raw(c)) >> 2) + c->wt_uni_opened;
+}
+
+/* RFC 9000 4.1 / 18.2: the connection receive limit in force -- the
+ * initial_max_data this server sent (srvboot's id, STP_DEFAULT_MAX_DATA
+ * when unset) or the last larger MAX_DATA (rx_max_data_advertised). */
+static void srvrun_note_rx_limit(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u64 initial      = ctx->cfg->id ? ctx->cfg->id->max_data : 0;
+  c->l.rx_max_data = u64_max(
+      initial ? initial : STP_DEFAULT_MAX_DATA, c->rx_max_data_advertised);
+}
+
 /* Ready c's loop for this step: the shared clock, this step's own queues,
  * the deferred ACK, the stream limits and the path-revert decision. */
 static void srvrun_live_prepare(const srvrun_step_ctx* ctx, srvrun_conn* c) {
@@ -55,6 +73,8 @@ static void srvrun_live_prepare(const srvrun_step_ctx* ctx, srvrun_conn* c) {
                           * onto a slice, or srvrun_flush_deferred_ack
                           * sends it at step end. */
   srvrun_note_stream_limits(ctx, c);
+  srvrun_note_local_streams(c);
+  srvrun_note_rx_limit(ctx, c);
   c->l.drop_newer = srvrun_path_reverts(ctx, c);
 }
 

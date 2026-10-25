@@ -127,6 +127,7 @@ int srvloop_gather_streams_blocked(
 int srvloop_gather_path_challenge(wired_srvloop* l, const u8* payload, usz len);
 int srvloop_gather_path_response(wired_srvloop* l, const u8* payload, usz len);
 int srvloop_gather_ncid(wired_srvloop* l, const u8* payload, usz len);
+int srvloop_gather_retire(wired_srvloop* l, const u8* payload, usz len);
 int srvloop_gather_max_data(wired_srvloop* l, const u8* payload, usz len);
 int srvloop_gather_max_stream_data(
     wired_srvloop* l, const u8* payload, usz len);

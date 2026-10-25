@@ -7,25 +7,17 @@ void srvrun_tx(
     const srvrun_cfg* cfg, i64 fd, const sockaddr* sa, wired_span pkt);
 int  srvrun_ecn_unmarked(const srvrun_cfg* cfg, const srvrun_conn* c);
 void srvrun_send_now(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what);
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what);
 void srvrun_send(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what);
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what);
 void srvrun_log_close(const char* what, wired_span reason);
 void srvrun_log_close_alert(const char* what, u64 code);
 void srvrun_stage_flush(const srvrun_cfg* cfg);
 void srvrun_stage_put(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt);
 void srvrun_send_staged(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    wired_span         pkt,
-    const char*        what);
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what);
+int  srvrun_send_spend(const srvrun_cfg* cfg, srvrun_conn* c, usz n);
 void srvrun_boot_send(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what);
 int srvrun_boot_gate_blocks(const srvrun_conn* c, int confirmed, usz want);
@@ -35,7 +27,7 @@ usz srvrun_boot_send_hs_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int confirmed);
 wired_srvboot_id srvrun_slot_id(
     const wired_srvboot_id* base, const srvrun_conn* c);
-int  srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c);
+int  srvrun_refuse(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_boot_flush_zerortt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot);
 int srvrun_boot_finish(
@@ -45,7 +37,9 @@ int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg);
 usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
-usz srvrun_wt_abort_stop(u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
+usz srvrun_wt_abort_stop(
+    const srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
+int srvrun_peer_reset_seen(const srvrun_conn* c, u64 stream_id);
 usz srvrun_wt_abort_pair(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb);
 usz srvrun_wt_busy_reset_payload(

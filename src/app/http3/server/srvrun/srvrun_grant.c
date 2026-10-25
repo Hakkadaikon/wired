@@ -74,7 +74,9 @@ void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
   u8         out[128];
   wired_obuf ob = obuf_of(out, sizeof out);
-  if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) {
+  /* RFC 9000 13.3: none once the receive part is in Size Known/Reset Recvd */
+  if (wired_srvloop_rx_final_known(&c->l, stream_id) ||
+      !srvrun_seal_max_stream_data(c, stream_id, value, &ob)) {
     return;
   }
   srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");

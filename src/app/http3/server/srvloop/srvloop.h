@@ -11,6 +11,14 @@
  * the conversation has reached. An example program wraps this in a UDP
  * recv/send. */
 
+/** RFC 9000 13.3: 1 once stream_id's receive part is in Size Known or Reset
+ * Recvd (a FIN or RESET_STREAM fixed its final size) -- no more
+ * MAX_STREAM_DATA for it.
+ * @param l the loop
+ * @param stream_id the stream to ask about
+ * @return 1 if the final size is known, else 0. */
+int wired_srvloop_rx_final_known(const wired_srvloop* l, u64 stream_id);
+
 /** draft-ietf-webtrans-http3-15 4.3: free the wt_streams[] slot reassembling
  * stream_id once its FIN has been fully delivered to the app, mirroring
  * wired_srvloop_slot_release for the WT bidi table. Also raises the table's
