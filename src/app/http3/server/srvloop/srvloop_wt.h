@@ -621,13 +621,16 @@ typedef struct {
                      * emitted */
   int ticket_sent;  /**< 1 once the post-confirmation session ticket
                      * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
-  /** The confirmation packet's frame payload (SETTINGS + session ticket +
+  /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,
    * RFC 9000 19.20). Replaying from this cache, not rebuilding, keeps the
    * ticket's random sealing nonce -- and so the CRYPTO bytes at offset 0 --
-   * identical across copies (RFC 9000 2.2). */
-  u8 confirm_frames[320];
+   * identical across copies (RFC 9000 2.2). Sized for the largest
+   * confirmation: SETTINGS (<= 96 + 4-byte STREAM header), one CRYPTO frame
+   * of SRVLOOP_TICKET_COUNT (2) NewSessionTickets (<= 4 + 2 * 176),
+   * NEW_CONNECTION_ID (<= 54) and HANDSHAKE_DONE (1). */
+  u8 confirm_frames[512];
   /** Bytes cached in confirm_frames; 0 until the confirmation was emitted
    * (or when it did not fit, leaving no replay available). */
   u16 confirm_frames_len;

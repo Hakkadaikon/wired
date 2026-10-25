@@ -816,11 +816,12 @@ those directly.
 
 ## TLS 1.3
 
-- **One ticket per connection** — Affects: clients that want several
-  resumption tickets. Every NewSessionTicket carries the one-byte
-  `ticket_nonce` 0x00, which is unique only because the server issues a
-  single ticket per connection. Issuing more needs a per-connection counter.
-  Source: `build_ticket_message`.
+- **An expired ticket still resumes** — Affects: the ticket lifetime and
+  the resumption cap (`SRVLOOP_RESUMPTION_MAX_SECS`). The server checks a
+  ticket's issued_at + lifetime only before accepting 0-RTT; a plain 1-RTT
+  resumption accepts any ticket that opens, however old. Tickets re-issued
+  on such a connection stop once the cap is spent, but the presented ticket
+  itself can be reused. Source: `sdrv_psk_open_usable`.
 - **Ticket replay guard is a ring** — Affects: replay resistance under heavy
   resumption. `TICKETGUARD_CAP` holds 64 fingerprints; an entry evicted by
   newer tickets could be replayed past the window. Source: `ticketguard.h`

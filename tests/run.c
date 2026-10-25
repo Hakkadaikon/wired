@@ -638,6 +638,7 @@
 #include "app/http3/server/srvloop/respond_app.c"
 #include "app/http3/server/srvloop/respond_confirm.c"
 #include "app/http3/server/srvloop/respond_emit.c"
+#include "app/http3/server/srvloop/respond_ticket.c"
 #include "app/http3/server/sendq/sendq.c"
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/sendsess/sendsess_lost.c"

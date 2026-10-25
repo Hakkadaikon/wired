@@ -29,13 +29,18 @@
   3 /* RFC 9114 6.2.1: first server uni stream \
      */
 
-/* RFC 8446 4.6.1: encode a fresh NewSessionTicket message (fixed 2h
- * lifetime; issued_at is the server's wall clock at issuance, recorded so a
- * later 0-RTT attempt can be checked for freshness -- RFC 8446 4.2.11.1 /
- * 8.3, ticket_freshness_ok) carrying s's real resumption_master_secret
- * (RFC 8446 7.1). wired_server_resumption_secret only succeeds once
- * confirmed, which every caller here always is. Returns the encoded
- * message length in msg, or 0 on failure. */
+/* RFC 8446 Appendix C.4: tickets offered per connection. They are
+ * single-use for 0-RTT (zerortt_seen_check), so this many later connections
+ * can each resume. */
+#define SRVLOOP_TICKET_COUNT 2
+#define SRVLOOP_TICKET_LIFETIME_SECS 7200
+/* RFC 8446 4.6.1: the cap on how long re-issued tickets may carry the
+ * original full handshake's keying material forward -- the 7-day
+ * ticket_lifetime ceiling, so a resumption chain lives no longer than one
+ * maximal ticket would. */
+#define SRVLOOP_RESUMPTION_MAX_SECS 604800
+#define SRVLOOP_TICKET_MSG_MAX (64 + TICKET_SEALED_LEN)
+
 /* RFC 9001 4.6.1: a QUIC server that supports 0-RTT always advertises
  * 0xffffffff here -- QUIC bounds 0-RTT via transport parameters, not this
  * TLS field (RFC 8446 4.2.10). A raw-QUIC connection is never admitted in
@@ -51,6 +56,14 @@ int srvloop_emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out);
 int srvloop_build_settings_frame(
     const wired_server* s, wired_srvloop* l, wired_obuf* out);
 int srvloop_confirm_payload(const wired_srvloop_conn* c, wired_obuf* out);
+/* RFC 8446 4.6.1: seal this connection's SRVLOOP_TICKET_COUNT session
+ * tickets (issued_at the server's wall clock, kept for the RFC 8446 4.2.11.1
+ * freshness check; s's resumption_master_secret, RFC 8446 7.1, which
+ * wired_server_resumption_secret yields once confirmed) and append them as
+ * one CRYPTO frame to a 1-RTT payload. Appends nothing when no ticket is
+ * owed (no psk_dhe_ke, or the resumption cap is spent). Returns 0 only when
+ * the tickets cannot be built or do not fit. */
+int srvloop_append_tickets(const wired_server* s, wired_obuf* out);
 usz srvloop_app_ack_append(wired_srvloop* l, u8* buf, usz cap);
 usz srvloop_app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap);
 int srvloop_response_frame(wired_srvloop* l, int got_request, wired_obuf* out);

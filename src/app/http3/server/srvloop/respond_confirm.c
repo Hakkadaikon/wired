@@ -1,8 +1,5 @@
 #include "app/http3/server/srvloop/respond_impl.h"
 
-static u32 ticket_max_early_data(const wired_server* s);
-static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap);
-static int append_ticket_frame(const wired_server* s, wired_obuf* out);
 static int ncid_frame_owed(const wired_srvloop* l);
 static int append_ncid_frame(const wired_srvloop* l, wired_obuf* out);
 static int confirm_head(
@@ -42,47 +39,6 @@ const u8* wired_srvloop_ticket_key(void) {
   return srvkeys_ready() ? srvkeys_ticket() : 0;
 }
 
-static u32 ticket_max_early_data(const wired_server* s) {
-  return sdrv_early_allowed(&s->sdrv) ? WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE : 0;
-}
-
-static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
-  /* RFC 8446 4.2.10 alpn; ticket_nonce 0: one ticket per connection, so
-   * it is unique across this connection's tickets (RFC 8446 4.6.1). */
-  ticket t = {{0}, 0, 7200, 0, (u8)s->sdrv.alpn, 0, s->sdrv.cipher_suite, 0};
-  u8     key[KEYRING_KEY];
-  t.issued_at = wired_clock_epoch_secs();
-  t.origin_at = t.issued_at; /* RFC 8446 4.6.1: a full handshake */
-  if (!srvkeys_ready()) {
-    return 0;
-  }
-  if (!wired_server_resumption_secret(s, t.secret)) {
-    return 0;
-  }
-  keyring_key(srvkeys_ticket(), t.issued_at, 0, key);
-  return tls_new_session_ticket_encode(
-      msg, msg_cap, &t, key, ticket_max_early_data(s));
-}
-
-/* Seal a fresh session ticket and append it as a CRYPTO frame
- * (RFC 9000 19.6) to a 1-RTT payload. */
-static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
-  u8           msg[64 + TICKET_SEALED_LEN];
-  crypto_frame cf;
-  usz          written;
-  usz          mlen = build_ticket_message(s, msg, sizeof msg);
-  if (mlen == 0) {
-    return 0;
-  }
-  cf      = (crypto_frame){0, mlen, msg};
-  written = frame_put_crypto(out->p + out->len, out->cap - out->len, &cf);
-  if (written == 0) {
-    return 0;
-  }
-  out->len += written;
-  return 1;
-}
-
 /* RFC 9000 5.1.1/19.15: hand the client its one spare connection ID at
  * confirmation -- a client holding no unused CID must not initiate
  * migration (RFC 9000 9), which left the interop connectionmigration case
@@ -112,7 +68,7 @@ static int append_ncid_frame(const wired_srvloop* l, wired_obuf* out) {
   return 1;
 }
 
-/* SETTINGS (RFC 9114 6.2.1), a session ticket (RFC 8446 4.6.1), then the
+/* SETTINGS (RFC 9114 6.2.1), session tickets (RFC 8446 4.6.1), then the
  * spare connection ID (RFC 9000 19.15) -- the head of the confirmation
  * payload. */
 static int confirm_head(
@@ -120,7 +76,7 @@ static int confirm_head(
   if (!srvloop_build_settings_frame(s, l, out)) {
     return 0;
   }
-  if (!append_ticket_frame(s, out)) {
+  if (!srvloop_append_tickets(s, out)) {
     return 0;
   }
   return append_ncid_frame(l, out);

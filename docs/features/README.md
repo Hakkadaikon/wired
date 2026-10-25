@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2011/2261 requirements demonstrated (88.9%) — 1563 directly tested,
-448 indirect, 250 untested.**
+**Total: 2014/2261 requirements demonstrated (89.1%) — 1566 directly tested,
+448 indirect, 247 untested.**
 
 ## QUIC core
 
@@ -97,7 +97,7 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 118/131 | 89 | 29 | 13 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 121/131 | 92 | 29 | 10 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 54/57 | 41 | 13 | 3 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 21 | 0 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |
