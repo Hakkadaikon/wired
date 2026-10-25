@@ -27,8 +27,9 @@ void castore_init(castore* s, castore_entry* roots, usz cap);
 int castore_add(castore* s, wired_span cert_der);
 
 /* RFC 5280 6.1. Find a registered root whose subject Name equals issuer_dn
- * (a Name SEQUENCE view, header included). On a match views the root DER in
- * *root and returns 1; returns 0 if none matches. */
+ * (a Name SEQUENCE view, header included) under the RFC 5280 7.1
+ * caseIgnoreMatch rules (x509_dn_equal_ci). On a match views the root DER
+ * in *root and returns 1; returns 0 if none matches. */
 int castore_find_by_subject(
     const castore* s, wired_span issuer_dn, wired_span* root);
 

@@ -102,6 +102,7 @@
 #include "crypto/pki/encoding/x509/spki.c"
 #include "crypto/pki/encoding/x509/x509.c"
 #include "crypto/pki/encoding/x509/x509_ext.c"
+#include "crypto/pki/encoding/x509/x509_ext_crit.c"
 #include "crypto/pki/encoding/x509/keyid.c"
 #include "crypto/pki/encoding/x509/keyusage.c"
 #include "crypto/pki/encoding/x509/eku.c"
@@ -483,6 +484,7 @@
 #include "crypto/pki/encoding/x509/nameconstraints.c"
 #include "crypto/pki/encoding/x509/nameconstraints_nc.c"
 #include "crypto/pki/encoding/x509/nameconstraints_typed.c"
+#include "crypto/pki/encoding/x509/nameconstraints_bounds.c"
 #include "crypto/pki/encoding/x509/policyconstraints.c"
 #include "crypto/pki/encoding/x509/policytree.c"
 #include "crypto/pki/trust/castore/castore.c"
@@ -1298,6 +1300,7 @@
 #include "crypto/castore_test.c"
 #include "crypto/chainverify_test.c"
 #include "crypto/pathvalidate_test.c"
+#include "crypto/pathvalidate_path_test.c"
 #include "transport/driver_test.c"
 #include "transport/crypto_stream_test.c"
 #include "tls/tlsdriver_test.c"
@@ -1886,6 +1889,7 @@ int main(void) {
   test_castore();
   test_chainverify();
   test_pathvalidate();
+  test_pathvalidate_path();
   test_driver();
   test_crypto_stream();
   test_tlsdriver();

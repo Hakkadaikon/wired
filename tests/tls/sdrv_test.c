@@ -289,7 +289,7 @@ static void test_sdrv_external_chain(void) {
               &store,
               wired_span_of(realchain_root_der, sizeof(realchain_root_der))) ==
           1);
-      CHECK(castore_validate_chain(&store, path, 3) == 1);
+      CHECK(castore_validate_chain(&store, path, 3, 0) == 1);
     }
   }
 }

@@ -2,6 +2,8 @@
 
 static int cert_subject(wired_span cert, wired_span* dn);
 static int names_chain(wired_span child, wired_span parent);
+static int has_unprocessed_critical(wired_span tbs);
+static int tbs_extensions_ok(wired_span tbs);
 static int cert_extensions_ok(wired_span cert);
 static int cert_can_issue(wired_span cert);
 static int cert_spki_oid(wired_span cert, wired_span* tbs, wired_span* oid);
@@ -42,7 +44,8 @@ static int cert_subject(wired_span cert, wired_span* dn) {
   return x509_subject(c.tbs, dn);
 }
 
-/* RFC 5280 6.1.3. certs[i]'s issuer equals certs[i+1]'s subject. */
+/* RFC 5280 6.1.3 (a)(4) with the 7.1 comparison: certs[i]'s issuer equals
+ * certs[i+1]'s subject under RFC 4518 caseIgnoreMatch. */
 static int names_chain(wired_span child, wired_span parent) {
   wired_span iss, subj;
   if (!castore_cert_issuer(child, &iss)) {
@@ -51,11 +54,12 @@ static int names_chain(wired_span child, wired_span parent) {
   if (!cert_subject(parent, &subj)) {
     return 0;
   }
-  return x509_dn_equal(iss, subj);
+  return x509_dn_equal_ci(iss, subj);
 }
 
 /* RFC 5280 6.1: "a certificate is self-issued if the DNs that appear in the
- * subject and issuer fields are identical". Malformed Name fields are not
+ * subject and issuer fields are identical" -- compared by the 7.1 rules
+ * (caseIgnoreMatch), the same as name chaining. Malformed Name fields are not
  * self-issued (fails open into being counted, the strict side). */
 int castore_cert_self_issued(wired_span cert) {
   wired_span iss, subj;
@@ -65,22 +69,50 @@ int castore_cert_self_issued(wired_span cert) {
   if (!cert_subject(cert, &subj)) {
     return 0;
   }
-  return x509_dn_equal(iss, subj);
+  return x509_dn_equal_ci(iss, subj);
 }
 
-/* RFC 5280 4.2. cert carries no unrecognized critical extension and no
- * extnID more than once ("MUST NOT include more than one instance of a
- * particular extension" -- a second nameConstraints/basicConstraints/...
- * instance would otherwise be silently ignored by x509_find_ext). */
+/* RFC 5280 4.2.1.4/4.2.1.10/4.2.1.11: a known critical extension carrying
+ * a field this SDK does not process (policy qualifiers, subtree
+ * minimum/maximum, inhibitPolicyMapping) must reject the certificate. */
+static int (*const unprocessed_critical[])(wired_span) = {
+    x509_cp_unprocessed_critical,
+    x509_nc_unprocessed_critical,
+    x509_pc_unprocessed_critical,
+};
+#define PV_UNPROCESSED_COUNT \
+  (sizeof(unprocessed_critical) / sizeof(unprocessed_critical[0]))
+
+static int has_unprocessed_critical(wired_span tbs) {
+  for (usz i = 0; i < PV_UNPROCESSED_COUNT; i++) {
+    if (unprocessed_critical[i](tbs)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* RFC 5280 4.2. tbs carries no unrecognized critical extension, no known
+ * critical one with unprocessed fields, and no extnID more than once ("MUST
+ * NOT include more than one instance of a particular extension" -- a second
+ * nameConstraints/basicConstraints/... instance would otherwise be silently
+ * ignored by x509_find_ext). */
+static int tbs_extensions_ok(wired_span tbs) {
+  if (x509_has_unknown_critical(tbs)) {
+    return 0;
+  }
+  if (has_unprocessed_critical(tbs)) {
+    return 0;
+  }
+  return !x509_has_duplicate_ext(tbs);
+}
+
 static int cert_extensions_ok(wired_span cert) {
   x509 c;
   if (!x509_parse(cert, &c)) {
     return 0;
   }
-  if (x509_has_unknown_critical(c.tbs)) {
-    return 0;
-  }
-  return !x509_has_duplicate_ext(c.tbs);
+  return tbs_extensions_ok(c.tbs);
 }
 
 /* Every certificate in the path (leaf through tail) passes the RFC 5280 4.2
@@ -188,6 +220,22 @@ int castore_cert_spki_ku_ok(wired_span cert, int is_ca) {
     return 0;
   }
   return ed_family_ok(tbs, oid, is_ca);
+}
+
+/* RFC 5280 4.2.1.12 / RFC 8446 4.4.2.2: the leaf's key signs the TLS
+ * CertificateVerify, so a keyUsage it carries must assert digitalSignature
+ * -- a purpose consistent with both keyUsage and serverAuth. An
+ * id-X25519/X448 key cannot sign; its keyAgreement rule is
+ * castore_cert_spki_ku_ok's. */
+int castore_leaf_ku_signs(wired_span leaf) {
+  wired_span tbs, oid;
+  if (!cert_spki_oid(leaf, &tbs, &oid)) {
+    return 0;
+  }
+  if (is_x25519_family(oid)) {
+    return 1;
+  }
+  return x509_digital_signature_ok(tbs);
 }
 
 /* RFC 5280 6.1.4/RFC 8410 5. parent is a CA permitted to sign certificates

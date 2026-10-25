@@ -27,6 +27,14 @@ extern const u8 x509_oid_any_policy[4];
  * duplicate" tolerance of 4.2.1.4). *out is untouched on return 0. */
 int x509_cert_policies(wired_span tbs, x509_policy_set* out);
 
+/* RFC 5280 4.2.1.4: for a critical certificatePolicies the validator "MUST
+ * be able to interpret this extension (including the optional qualifier),
+ * or MUST reject the certificate". Qualifiers are not interpreted, so
+ * returns 1 if tbs's certificatePolicies is critical and some
+ * PolicyInformation carries policyQualifiers, or is critical and
+ * malformed; 0 otherwise. */
+int x509_cp_unprocessed_critical(wired_span tbs);
+
 /* 1 if set contains the anyPolicy OID. */
 int x509_policy_set_has_any(const x509_policy_set* set);
 

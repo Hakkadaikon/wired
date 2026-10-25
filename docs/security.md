@@ -258,9 +258,9 @@ pair from the leaf up to the tail.
 flowchart TD
   A["Peer's chain: leaf, intermediates, tail"] --> L{"1 to 10 certificates?<br/>(CASTORE_PATH_MAX_CERTS)"}
   L -->|no| X["Reject"]
-  L -->|yes| P{"Leaf allows serverAuth?<br/>(Ed/X25519-family keys:<br/>keyUsage fits too)"}
+  L -->|yes| P{"Leaf allows serverAuth,<br/>and its keyUsage allows signing?<br/>(Ed/X25519-family keys:<br/>RFC 8410 bits too)"}
   P -->|no| X
-  P -->|yes| H{"Every certificate: no unknown<br/>critical or duplicate extension,<br/>none repeated?"}
+  P -->|yes| H{"Every certificate: no unknown<br/>critical or duplicate extension,<br/>no critical one with fields left<br/>unprocessed, none repeated?"}
   H -->|no| X
   H -->|"yes, 2+ certificates"| N{"Next link: child's issuer<br/>equals parent's subject?"}
   H -->|"yes, leaf only"| NC
@@ -274,14 +274,17 @@ flowchart TD
   PL -->|"yes, more links"| N
   PL -->|"yes, last link"| NC{"Every issuer's name constraints<br/>admit every certificate below it?"}
   NC -->|no| X
-  NC -->|yes| PO{"Certificate policy<br/>checks pass?"}
-  PO -->|no| X
-  PO -->|yes| T{"A trust anchor whose subject is<br/>the tail's issuer, is a CA,<br/>and signs the tail?"}
+  NC -->|yes| T{"A trust anchor whose subject is<br/>the tail's issuer, is a CA,<br/>and signs the tail?"}
   T -->|no| X
-  T -->|yes| OK["Chain accepted"]
+  T -->|yes| V{"Clock set: every certificate<br/>and the anchor inside<br/>its validity period?"}
+  V -->|no| X
+  V -->|yes| PO{"Certificate policy checks pass<br/>for every certificate below<br/>the anchor?"}
+  PO -->|no| X
+  PO -->|yes| OK["Chain accepted"]
 ```
 
-- Each link is verified: the child's issuer equals the parent's subject,
+- Each link is verified: the child's issuer equals the parent's subject
+  (compared with RFC 4518 caseIgnoreMatch, as is the anchor lookup),
   the parent's key signs the child, and the tail is anchored to a trust
   root (`castore_validate_chain`, `castore_verify_signed_by`).
 - Every issuer must assert `basicConstraints cA = TRUE` (RFC 5280 6.1.4),
@@ -299,7 +302,10 @@ flowchart TD
   `test_ncx_permitted_in_b_after_excluded_only_a_rejects`.
 - The subject CN is used only as a fallback when no dNSName SAN exists —
   `test_ncsan_cn_fallback_outside_rejects`,
-  `test_ncsan_san_present_cn_ignored`.
+  `test_ncsan_san_present_cn_ignored`. Host-name matching also skips the
+  CN when the SAN carries a URI-ID or SRV-ID, and a `*` inside an `xn--`
+  A-label is not a wildcard — `test_san_uri_srv_suppress_cn_fallback`,
+  `test_san_alabel_wildcard_no_match`.
 - Chain length and the name-constraint subtree count are capped, so a
   hostile chain cannot exhaust CPU (CVE-2018-16875 / CVE-2024-34702 class)
   — `test_chain_over_cap_rejects`,
@@ -314,8 +320,9 @@ flowchart TD
 - `fuzz/fuzz_x509.c` fuzzes certificate and DER decoding on every push and
   nightly.
 
-Validity-time (`x509_validity_ok`) and hostname/SAN matching
-(`x509_san_matches`) need the application's clock and the hostname it
+Validity-time (`x509_validity_ok`, on the leaf and, inside
+`castore_validate_chain`, on every certificate and the anchor) and
+hostname/SAN matching (`x509_san_matches`) need the application's clock and the hostname it
 meant to reach, so who runs them depends on the role:
 
 - **Client role:** enforced by default, with no opt-out. The client calls
@@ -324,9 +331,7 @@ meant to reach, so who runs them depends on the role:
   skipped; the caller supplies them.
 
 **Known limits:** revocation checking is not implemented (see
-[Audit ledger](#audit-ledger)). The RFC 5280 6.1.3(b) self-issued exemption
-is not implemented; this over-rejects and never bypasses. URI SAN name
-constraints fail closed instead of pattern-matching the URI —
+[Audit ledger](#audit-ledger)). URI SAN name constraints fail closed instead of pattern-matching the URI —
 `test_ncsan_uri_excluded_with_uri_san_rejects`.
 
 ## QUIC

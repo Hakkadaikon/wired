@@ -4,6 +4,8 @@ static int  cert_pathlen_ok(wired_span cert, usz below);
 static usz  non_self_issued_below(const wired_span* certs, usz i);
 static int  step_ok(const wired_span* certs, usz i);
 static int  subject_admitted(wired_span issuer, wired_span child);
+static int  nc_skipped(const wired_span* certs, usz k);
+static int  below_admitted(const wired_span* certs, usz j, usz k);
 static int  issuer_constrains_below(const wired_span* certs, usz j);
 static void skipcerts_lower(u64* counter, u64 v);
 static int  apply_require_explicit(wired_span tbs, u64* explicit_policy);
@@ -15,16 +17,17 @@ static int policy_step_constraints(
     wired_span tbs, u64* explicit_policy, u64* inhibit_any);
 
 /* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
- * whose subject equals the tail's issuer, and which signs the tail. */
-int castore_tail_anchored(const castore* s, wired_span tail) {
-  wired_span iss, root;
+ * whose subject equals the tail's issuer, and which signs the tail. Views
+ * the matched root in *root. */
+int castore_tail_anchor(const castore* s, wired_span tail, wired_span* root) {
+  wired_span iss;
   if (!castore_cert_issuer(tail, &iss)) {
     return 0;
   }
-  if (!castore_find_ca_anchor(s, iss, &root)) {
+  if (!castore_find_ca_anchor(s, iss, root)) {
     return 0;
   }
-  return castore_verify_signed_by(tail, root);
+  return castore_verify_signed_by(tail, *root);
 }
 
 /* RFC 5280 6.1.4 (m). The issuer's pathLenConstraint must admit the number of
@@ -87,6 +90,18 @@ static int subject_admitted(wired_span issuer, wired_span child) {
   return x509_name_constraints_admit(ci.tbs, cc.tbs);
 }
 
+/* RFC 5280 6.1.3 (b)/(c): "If certificate i is self-issued and it is not
+ * the final certificate in the path, skip this step for certificate i."
+ * certs[0] is the final certificate and is always checked. */
+static int nc_skipped(const wired_span* certs, usz k) {
+  return k > 0 && castore_cert_self_issued(certs[k]);
+}
+
+/* certs[k] is skipped or admitted by issuer certs[j]'s nameConstraints. */
+static int below_admitted(const wired_span* certs, usz j, usz k) {
+  return nc_skipped(certs, k) || subject_admitted(certs[j], certs[k]);
+}
+
 /* RFC 5280 6.1.4 (g): issuer certs[j]'s nameConstraints applies to every
  * certificate below it in the path (nearer the leaf): certs[0..j). Checking
  * each issuer independently against every certificate below it realizes
@@ -96,7 +111,7 @@ static int subject_admitted(wired_span issuer, wired_span child) {
  * issuer's own excluded set covers it. */
 static int issuer_constrains_below(const wired_span* certs, usz j) {
   for (usz k = 0; k < j; k++) {
-    if (!subject_admitted(certs[j], certs[k])) {
+    if (!below_admitted(certs, j, k)) {
       return 0;
     }
   }
@@ -105,8 +120,8 @@ static int issuer_constrains_below(const wired_span* certs, usz j) {
 
 /* Every issuer certificate's nameConstraints (if any) admits every
  * certificate below it in the path. certs[0] (the leaf) issues nothing, so
- * j starts at 1; certs[n_certs-1] (the trust anchor) DOES participate up to
- * and including n_certs-1, unlike castore_policy_processing_ok's walk -- a
+ * j starts at 1; the tail certs[n_certs-1] DOES participate, even when it
+ * is the trust anchor itself sent on the wire -- a
  * trust anchor's own nameConstraints are conventionally enforced against every
  * certificate it (directly or transitively) issued, matching common
  * implementations (verified against OpenSSL 3.0.13 `verify`, which reports

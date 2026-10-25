@@ -81,3 +81,39 @@ int x509_policy_set_has_any(const x509_policy_set* set) {
   }
   return 0;
 }
+
+/* PolicyInformation ::= SEQUENCE { policyIdentifier, policyQualifiers
+ * OPTIONAL }: an element after the identifier is a qualifier list. */
+static int cp_info_qualified(wired_span info) {
+  derseq     c;
+  u8         tag;
+  wired_span v;
+  derseq_init(&c, info);
+  return derseq_skip(&c, 1) && derseq_next(&c, &tag, &v);
+}
+
+/* Some PolicyInformation of the SEQUENCE carries qualifiers. */
+static int cp_any_qualified(wired_span seq) {
+  derseq     c;
+  u8         tag;
+  wired_span info;
+  derseq_init(&c, seq);
+  while (derseq_next(&c, &tag, &info)) {
+    if (cp_info_qualified(info)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int x509_cp_unprocessed_critical(wired_span tbs) {
+  wired_span seq;
+  if (!x509_ext_critical(
+          tbs, wired_span_of(oid_cert_policies, sizeof(oid_cert_policies)))) {
+    return 0;
+  }
+  if (!cp_locate(tbs, &seq)) {
+    return 1;
+  }
+  return cp_any_qualified(seq);
+}

@@ -15,6 +15,7 @@
 #include "crypto/pki/encoding/asn1/derval.c"
 #include "crypto/pki/encoding/x509/x509.c"
 #include "crypto/pki/encoding/x509/x509_ext.c"
+#include "crypto/pki/encoding/x509/x509_ext_crit.c"
 
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   wired_span cert = wired_span_of((const u8*)data, (usz)size);

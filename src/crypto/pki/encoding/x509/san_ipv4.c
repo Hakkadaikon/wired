@@ -11,7 +11,7 @@ static usz  skip_dot(wired_span s, usz end);
 static int  ipv4_octet(wired_span s, usz* off, u8* out);
 static int  ipv4_entry_matches(wired_span e, const u8 want[SAN_IPV4_LEN]);
 static void names_match_one(
-    u8 tag, wired_span e, wired_span host, int* found_dnsname, int* match);
+    u8 tag, wired_span e, wired_span host, int* found_id, int* match);
 
 /* d.n is a valid octet digit-run length: 1 to 3 octets. */
 static int octet_len_ok(wired_span d) { return d.n >= 1 && d.n <= 3; }
@@ -117,31 +117,32 @@ int san_names(wired_span tbs, wired_span* names) {
   return der_seq(san, names);
 }
 
-/* One GeneralNames element: if it is a dNSName, records that (*found_dnsname
- * = 1) and folds its match outcome into *match. */
+/* One GeneralNames element: if it is a DNS-ID, URI-ID or SRV-ID, records
+ * that (*found_id = 1); a dNSName also folds its match outcome into
+ * *match. */
 static void names_match_one(
-    u8 tag, wired_span e, wired_span host, int* found_dnsname, int* match) {
+    u8 tag, wired_span e, wired_span host, int* found_id, int* match) {
+  *found_id |= san_presented_id(tag, e);
   if (tag != SAN_DNSNAME_TAG) {
     return;
   }
-  *found_dnsname = 1;
   if (x509_entry_matches(e, host)) {
     *match = 1;
   }
 }
 
-/* RFC 5280 4.2.1.6 / RFC 6125 6.4.4: scan the GeneralNames. found_dnsname is
- * set to 1 if any dNSName entry is present at all (regardless of match) --
- * that alone rules out the RFC 6125 6.4.4 CN-ID fallback, matched entries or
- * not. Returns 1 on a matching dNSName. */
-int x509_names_match(wired_span gn, wired_span host, int* found_dnsname) {
+/* RFC 5280 4.2.1.6 / RFC 6125 6.4.4: scan the GeneralNames. found_id is
+ * set to 1 if any DNS-ID, URI-ID or SRV-ID is present at all (regardless of
+ * match) -- that alone rules out the RFC 6125 6.4.4 CN-ID fallback, matched
+ * entries or not. Returns 1 on a matching dNSName. */
+int x509_names_match(wired_span gn, wired_span host, int* found_id) {
   derseq     names;
   u8         tag;
   wired_span e;
   int        match = 0;
   derseq_init(&names, gn);
   while (derseq_next(&names, &tag, &e)) {
-    names_match_one(tag, e, host, found_dnsname, &match);
+    names_match_one(tag, e, host, found_id, &match);
   }
   return match;
 }
