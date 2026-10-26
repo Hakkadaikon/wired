@@ -143,9 +143,9 @@ int wired_server_wt_stream_reset(
     return srvrun_wt_send_ended(c, stream_id);
   }
   i                              = c->wt_stream_reset_n++;
-  c->wt_stream_reset_id[i]       = stream_id;
+  c->wtx.reset_id[i]             = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;
-  c->wt_stream_reset_final[i]    = srvrun_wtsend_final_size(c, stream_id);
+  c->wtx.reset_final[i]          = srvrun_wtsend_final_size(c, stream_id);
   c->wt_stream_reset_stop[i]     = 0;
   c->wtx.reset_sid[i]            = s->connect_stream_id;
   srvrun_wtsend_release(c, stream_id);

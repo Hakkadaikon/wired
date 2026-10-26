@@ -3,6 +3,31 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_protos3.h"
 
+/* A response's field lines: the application's (or one extra) plus the
+ * SDK's own Content-Length / Date / Allow, with the value bytes those
+ * need. WIRED_HTTP_MAX_FIELDS + 3 holds every app field plus all three. */
+typedef struct {
+  qpack_field f[WIRED_HTTP_MAX_FIELDS + 3];
+  usz         n;
+  u8          date[CLOCK_IMF_FIXDATE_LEN];
+  u8          len[21]; /* u64 in decimal plus snprintf's NUL */
+  u8          allow[H3_METHOD_ALLOW_MAX];
+} srvrun_hdrs;
+
+h3resp_fields srvrun_hdrs_app(
+    srvrun_hdrs* h, const wired_http_exchange* x, u64 total_len);
+int srvrun_status_build(
+    const wired_h3reqdrive_req* req,
+    u16                         status,
+    const qpack_field*          extra,
+    wired_obuf*                 out);
+int         srvrun_http_fields_unique(const wired_http_exchange* x);
+int         srvrun_hdr_name_is(const qpack_field* f, wired_span name);
+int         srvrun_hdr_name_is_cstr(wired_span name, const char* want);
+int         srvrun_req_is_head(const wired_h3reqdrive_req* r);
+const char* srvrun_status_text(u16 status);
+wired_span  srvrun_status_body(const wired_h3reqdrive_req* r, u16 status);
+
 void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_pace_charge(srvrun_conn* c, usz bytes);
 int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
@@ -113,15 +138,5 @@ int  srvrun_path_is_gated_target(const srvrun_conn* c, const pathsel_key* k);
 void srvrun_path_seed(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_path_tracked(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
-
-/* WebTransport flow, teardown and reset (srvrun_open.c, srvrun_wt_shut.c,
- * srvrun_wt.c). */
-void srvrun_wt_notify_data_blocked(
-    srvrun_conn* c, int sidx, wired_wt_session* s, usz len);
-void srvrun_wt_close_all_live(const srvrun_cfg* cfg, srvrun_state* st);
-void srvrun_wt_close_wait_note(srvrun_conn* c);
-int  srvrun_wt_close_waiting(const srvrun_state* st);
-usz  srvrun_wt_reset_frames(
-    const srvrun_conn* c, const srvrun_wt_reset_in* in, u8* p, usz cap);
 
 #endif

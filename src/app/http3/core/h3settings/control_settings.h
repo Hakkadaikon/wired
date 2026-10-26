@@ -14,7 +14,10 @@
  * can never diverge: Chrome's ~0.9 KiB of decoded request headers
  * overflowed the old separate 512-byte scratch while the SETTINGS
  * advertised 16 KiB, and every request was aborted as incomplete. */
-#define WIRED_H3_MAX_FIELD_SECTION 2048
+/* Sizing: RFC 9110 4.1 recommends accepting URIs of at least 8000 octets;
+ * an 8000-octet :path line accounts 8000 + 5 + 32, leaving ~2 KiB for the
+ * other pseudo-headers and a browser's regular fields. */
+#define WIRED_H3_MAX_FIELD_SECTION 10240
 
 /** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the dynamic table
  * capacity this server advertises to peers, bounding the peer's encoder:

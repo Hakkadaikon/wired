@@ -123,9 +123,8 @@ int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
   u64 code = rawq_reset_code_out(
       srvrun_conn_is_raw(c), c->wt_stream_reset_app_code[i]);
   srvrun_wt_reset_in in = {
-      c->wt_stream_reset_id[i], code, c->wt_stream_reset_final[i],
-      c->wtx.reset_sid[i]};
-  stop_sending_frame ss = {c->wt_stream_reset_id[i], code};
+      c->wtx.reset_id[i], code, c->wtx.reset_final[i], c->wtx.reset_sid[i]};
+  stop_sending_frame ss = {c->wtx.reset_id[i], code};
   n                     = c->wt_stream_reset_stop[i]
                               ? stop_sending_encode(pl, sizeof pl, &ss)
                               : srvrun_wt_reset_frames(c, &in, pl, sizeof pl);

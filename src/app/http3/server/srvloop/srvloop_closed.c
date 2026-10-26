@@ -42,6 +42,22 @@ int srvloop_req_closed_has(const wired_srvloop* l, u64 stream_id) {
   return wired_srvloop_closed_has(&l->req_closed, stream_id);
 }
 
+/* Reset slot s for a fresh request on stream_id. */
+static void srvloop_stream_slot_init(
+    wired_srvloop_stream_slot* s, u64 stream_id) {
+  s->in_use         = 1;
+  s->stream_id      = stream_id;
+  s->abort_code     = H3_REQUEST_CANCELLED;
+  s->req_len        = 0;
+  s->req_fin        = 0;
+  s->req_done       = 0;
+  s->req_incomplete = 0;
+  s->req_over       = 0;
+  s->qpack_settled  = 0;
+  s->continue_len   = 0;
+  srvloop_body_reset(s);
+}
+
 /* Claim and reset a free slot for stream_id.
  * @return the slot index, or -1 if the table is full. */
 int srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id) {
@@ -49,16 +65,7 @@ int srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     if (l->streams[i].in_use) {
       continue;
     }
-    l->streams[i].in_use         = 1;
-    l->streams[i].stream_id      = stream_id;
-    l->streams[i].abort_code     = H3_REQUEST_CANCELLED;
-    l->streams[i].req_len        = 0;
-    l->streams[i].req_fin        = 0;
-    l->streams[i].req_done       = 0;
-    l->streams[i].req_incomplete = 0;
-    l->streams[i].req_over       = 0;
-    l->streams[i].qpack_settled  = 0;
-    srvloop_body_reset(&l->streams[i]);
+    srvloop_stream_slot_init(&l->streams[i], stream_id);
     l->req_next_id = u64_max(l->req_next_id, stream_id + 4);
     h3_priority_init(&l->streams[i].priority);
     srvloop_pending_priority_consume(l, i);
