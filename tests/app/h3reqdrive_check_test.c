@@ -263,6 +263,44 @@ static void test_h3reqcheck_frame_sequence(void) {
   }
 }
 
+/* A GET with content-length cl (0: none) and DATA frames of the given
+ * lengths; fin 0 decodes the stream as not yet ended. 1 if accepted. */
+static int rc_cl_req(const char* cl, const usz* lens, usz count, int fin) {
+  static u8            h3[1024], req[1200], scratch[1024], body[64];
+  u8                   fs[256];
+  usz                  fs_len = rc_get(fs), n = 0, req_len = 0;
+  wired_h3reqdrive_req r;
+  if (cl) {
+    rc_lit(fs, &fs_len, "content-length", cl);
+  }
+  rc_frame(h3, &n, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  for (usz i = 0; i < count; i++) {
+    rc_frame(h3, &n, H3_FRAME_DATA, wired_span_of(body, lens[i]));
+  }
+  CHECK(appdata_frame_flat(0, 0, h3, n, fin, req, sizeof req, &req_len));
+  return wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), &r);
+}
+
+/* RFC 9114 4.1.2 / RFC 9110 8.6 (9114-014, 9110-010, 9110-012): the DATA
+ * total of a whole request equals its Content-Length, summed over every
+ * DATA frame; a value that is not 1*DIGIT or overflows 64 bits is
+ * malformed; a stream not yet ended is not judged on length. */
+static void test_h3reqcheck_content_length(void) {
+  static const usz five[] = {5}, two_three[] = {2, 3}, four[] = {4};
+  CHECK(rc_cl_req("5", five, 1, 1));
+  CHECK(rc_cl_req("5", two_three, 2, 1));
+  CHECK(rc_cl_req(0, four, 1, 1));
+  CHECK(rc_cl_req("0", 0, 0, 1));
+  CHECK(!rc_cl_req("5", four, 1, 1));
+  CHECK(!rc_cl_req("3", two_three, 2, 1));
+  CHECK(!rc_cl_req("4", 0, 0, 1));
+  CHECK(rc_cl_req("5", four, 1, 0));
+  CHECK(!rc_cl_req("5x", five, 1, 1));
+  CHECK(!rc_cl_req("", 0, 0, 1));
+  CHECK(!rc_cl_req("18446744073709551616", 0, 0, 1));
+}
+
 void test_h3reqcheck(void) {
   test_h3reqcheck_uppercase_name_rejected();
   test_h3reqcheck_non_token_name_rejected();
@@ -273,4 +311,5 @@ void test_h3reqcheck(void) {
   test_h3reqcheck_asterisk_only_options();
   test_h3reqcheck_connect_shape();
   test_h3reqcheck_frame_sequence();
+  test_h3reqcheck_content_length();
 }

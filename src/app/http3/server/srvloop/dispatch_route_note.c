@@ -64,6 +64,14 @@ static void route_note_incomplete_append(wired_srvloop* l, int i) {
   }
 }
 
+/* RFC 9114 4.1.2: slot i's request turned out malformed after its HEADERS
+ * left the window (a streamed body breaking its Content-Length) -- abort
+ * it as such (H3_MESSAGE_ERROR) through the incomplete list. */
+void srvloop_route_note_malformed(wired_srvloop* l, int i) {
+  l->malformed_slots |= (u64)1 << i;
+  route_note_incomplete_append(l, i);
+}
+
 /* RFC 9114 4.1: slot i's request stream completed (FIN, or a HEADERS frame
  * with no FIN to wait for, see srvloop_connect_headers_complete) without
  * decoding into a request -- append it to incomplete_slots (the

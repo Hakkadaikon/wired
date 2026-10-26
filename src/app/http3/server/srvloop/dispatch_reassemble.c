@@ -2,6 +2,8 @@
 
 static int route_body_start(
     const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot);
+static int  route_body_length_ok(wired_h3reqdrive_req* r, usz n, int fin);
+static int  route_body_cl_ok(wired_h3reqdrive_req* r, usz n, int fin);
 static int  route_body_sink(void* ctx, wired_span chunk, int fin);
 static void route_body_open(wired_srvloop* l, int i);
 static void route_body_done(wired_srvloop* l, int i);
@@ -36,8 +38,22 @@ static int route_body_start(
   return 1;
 }
 
+/* RFC 9114 4.1.2 / RFC 9110 8.6 (9110-011): the streamed DATA never runs
+ * past a declared Content-Length and meets it exactly at the end. */
+static int route_body_length_ok(wired_h3reqdrive_req* r, usz n, int fin) {
+  r->data_len += n;
+  return !h3_content_length_exceeded(r->content_length, r->data_len) &&
+         (!fin || h3_content_length_ok(r->content_length, r->data_len));
+}
+
+/* A body breaking its Content-Length is malformed (H3_MESSAGE_ERROR): the
+ * chunk is not delivered and the stream is aborted (route_body_reject). */
 static int route_body_sink(void* ctx, wired_span chunk, int fin) {
   route_body_call* c = ctx;
+  if (!route_body_cl_ok(&c->slot->req, chunk.n, fin)) {
+    c->slot->req.reject_code = H3_MESSAGE_ERROR;
+    return 0;
+  }
   return c->l->on_body(
       c->l->req_ctx, &c->slot->req, c->slot->stream_id, chunk, fin);
 }
@@ -53,8 +69,20 @@ static void route_body_done(wired_srvloop* l, int i) {
   srvloop_route_note_done(l, i);
 }
 
-/* on_body declined: answer 413 (RFC 9110 15.5.14), like an overflow. */
+/* 1 unless r declares a Content-Length the streamed body broke. */
+static int route_body_cl_ok(wired_h3reqdrive_req* r, usz n, int fin) {
+  return !r->has_content_length || route_body_length_ok(r, n, fin);
+}
+
+/* on_body declined: answer 413 (RFC 9110 15.5.14), like an overflow -- or,
+ * for a Content-Length mismatch (route_body_sink), abort it as malformed. */
 static void route_body_reject(wired_srvloop* l, int i) {
+  if (l->streams[i].req.reject_code) {
+    l->streams[i].req_done = 1;
+    srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
+    srvloop_route_note_malformed(l, i);
+    return;
+  }
   l->streams[i].req.too_large_status = 413;
   route_body_done(l, i);
 }

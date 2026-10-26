@@ -6,6 +6,7 @@
 
 #include "app/datagram/datagram/dgcheck.h"
 #include "app/datagram/dgdeliver/dg_recv.h"
+#include "app/http3/core/h3/contentlen.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/stream_type.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
@@ -148,6 +149,7 @@ void srvloop_qdec_cancel_slot(wired_srvloop* l, int i);
 void srvloop_route_qpack_ack(wired_srvloop* l, int i);
 void srvloop_route_note_done(wired_srvloop* l, int i);
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i);
+void srvloop_route_note_malformed(wired_srvloop* l, int i);
 void srvloop_route_dispatch_complete(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_reqacc*             acc,

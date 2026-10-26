@@ -23790,6 +23790,49 @@ static void test_srvrun_connect_stream_headers_closes(void) {
   CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
 }
 
+/* sr_big_req(/, 10-byte body) with a content-length field of cl. */
+static usz sr_cl_req(u8* out, usz cap, const char* cl) {
+  static const u8 body[10] = {0};
+  u8              fields[128];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      ob  = obuf_of(out, cap);
+  wired_obuf      db;
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"", 0)};
+  qpack_field f = {
+      wired_span_of((const u8*)"content-length", 14),
+      wired_span_of((const u8*)cl, wired_cstr_len(cl))};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  fob.len += qpack_literal_name_encode(
+      wired_mspan_of(fields + fob.len, sizeof fields - fob.len), 0, &f);
+  CHECK(h3_frame_put(&ob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  db = obuf_of(out + ob.len, cap - ob.len);
+  CHECK(h3_frame_put(&db, H3_FRAME_DATA, wired_span_of(body, sizeof body)));
+  return ob.len + db.len;
+}
+
+/* RFC 9114 4.1.2 / RFC 9110 8.6 (9114-014, 9110-010/011): on the
+ * streaming path a body past its Content-Length, or short of it at FIN,
+ * is malformed -- the stream is aborted, the handler never runs, and the
+ * connection stays up; an exact one reaches fin. */
+static void test_srvrun_on_body_content_length(void) {
+  static const char* const bad[] = {"9", "11"};
+  static u8                req[256];
+  for (usz i = 0; i < 2; i++) {
+    srvrun_conn* c = sr_body_fixture(0);
+    sr_body_send(c, req, sr_cl_req(req, sizeof req, bad[i]), 1);
+    CHECK(g_sr_body.fins == 0 && g_sr_wt_handler_calls == 0);
+    CHECK(!c->closing && c->l.streams[0].in_use == 0);
+  }
+  {
+    srvrun_conn* c = sr_body_fixture(0);
+    sr_body_send(c, req, sr_cl_req(req, sizeof req, "10"), 1);
+    CHECK(g_sr_body.fins == 1 && g_sr_body.got_n == 10);
+  }
+}
+
 /* The latched frame error closes the connection (and is consumed). */
 static void test_srvrun_req_frame_error_closes(void) {
   srvrun_conn* c       = sr_sl_fixture();
@@ -26742,6 +26785,7 @@ void test_srvrun(void) {
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_on_body_data_after_trailer_closes();
   test_srvrun_connect_stream_headers_closes();
+  test_srvrun_on_body_content_length();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
   test_srvrun_early_413_also_stops_sending();

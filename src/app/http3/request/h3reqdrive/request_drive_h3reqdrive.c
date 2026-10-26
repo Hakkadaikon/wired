@@ -25,7 +25,7 @@ int wired_h3reqdrive_recv_get_dyn(
   if (!h3reqdrive_decode_sections(stream_data, fs, scratch, dyn, r)) {
     return 0;
   }
-  return h3reqdrive_target_ok(r);
+  return h3reqdrive_request_ok(stream_data, r);
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5: static-table-only convenience wrapper (no

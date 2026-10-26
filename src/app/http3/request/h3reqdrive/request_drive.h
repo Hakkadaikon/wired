@@ -145,6 +145,13 @@ typedef struct {
    * field line this decoder could not interpret (too large for its limits,
    * or not a valid encoding); 0 otherwise. */
   u16 reject_code;
+  /** RFC 9110 8.6 / RFC 9114 4.1.2: the received Content-Length value, valid
+   * when has_content_length is 1. */
+  u64 content_length;
+  u8  has_content_length; /**< 1 if a Content-Length field was received */
+  /** RFC 9114 4.1.2: DATA payload octets seen so far -- every DATA frame of
+   * a buffered request, or the chunks streamed to on_body. */
+  u64 data_len;
 } wired_h3reqdrive_req;
 
 /**

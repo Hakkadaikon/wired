@@ -41,24 +41,27 @@ static int after_headers_ok(h3req_order_state* s, u64 t) {
  * out of order or not allowed here; a truncated tail ends the walk (the
  * body walk below judges it). */
 static int frames_step(
-    wired_span h3, usz* off, h3req_order_state* s, int* unexpected) {
+    wired_span h3, usz* off, h3req_order_state* s, wired_h3reqdrive_req* r) {
   h3_frame f    = {0};
   usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) {
     *off = h3.n;
     return 1;
   }
-  *unexpected = !after_headers_ok(s, f.type);
+  r->frame_unexpected = !after_headers_ok(s, f.type);
+  r->data_len += f.type == H3_FRAME_DATA ? f.payload_len : 0; /* 4.1.2 */
   *off += used;
-  return !*unexpected;
+  return !r->frame_unexpected;
 }
 
 /* RFC 9114 4.1: H3_FRAME_UNEXPECTED (a connection error) for any frame
- * sequence past the leading HEADERS a request must not carry. */
-static int frames_after_headers(wired_span h3, usz off, int* unexpected) {
+ * sequence past the leading HEADERS a request must not carry; the DATA
+ * payload total lands in r->data_len. */
+static int frames_after_headers(
+    wired_span h3, usz off, wired_h3reqdrive_req* r) {
   h3req_order_state s = H3REQ_ORDER_HEADERS;
   while (off < h3.n) {
-    if (!frames_step(h3, &off, &s, unexpected)) {
+    if (!frames_step(h3, &off, &s, r)) {
       return 0;
     }
   }
@@ -160,8 +163,7 @@ static int find_body_view(wired_span h3, usz off, wired_h3reqdrive_req* r) {
 
 /* The frame-sequence check, then the body view. */
 static int find_body(wired_span h3, usz off, wired_h3reqdrive_req* r) {
-  return frames_after_headers(h3, off, &r->frame_unexpected) &&
-         find_body_view(h3, off, r);
+  return frames_after_headers(h3, off, r) && find_body_view(h3, off, r);
 }
 
 int wired_h3reqdrive_request_sections(
