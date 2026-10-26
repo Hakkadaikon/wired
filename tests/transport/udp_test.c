@@ -98,6 +98,19 @@ static void test_udp_pmtu_probe_enable_sets_pmtudisc_probe(void) {
   wired_udp_close(fd);
 }
 
+/* RFC 8899 3.5: the largest UDP payload the local link toward a peer
+ * carries -- on loopback (MTU 65536 on Linux) far above the base, and the
+ * IPv4 IP+UDP headers (28 bytes) already taken off. */
+static void test_udp_path_mtu_loopback(void) {
+  sockaddr peer;
+  const u8 lo[4] = {127, 0, 0, 1};
+  usz      mtu;
+  wired_udp_addr(&peer, 4433, lo);
+  mtu = wired_udp_path_mtu(&peer);
+  CHECK(mtu > 1200);
+  CHECK(mtu <= 65536 - 28);
+}
+
 /* cmsg_len 0 must not be treated as a valid entry (would otherwise
  * infinite-loop or read past the header) -- falls back to Not-ECT (0). */
 static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
@@ -200,6 +213,7 @@ void test_udp(void) {
   test_udp_hton();
   test_udp_socket_dualstack();
   test_udp_pmtu_probe_enable_sets_pmtudisc_probe();
+  test_udp_path_mtu_loopback();
   test_udp_cmsg_ecn_ipv6_tclass();
   test_udp_recvmmsg_malformed_cmsg_len_no_oob_read();
   test_udp_recvmmsg_cmsg_len_overflow_no_oob_read();

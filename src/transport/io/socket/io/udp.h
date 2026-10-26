@@ -213,6 +213,14 @@ i64 wired_udp_ect0_enable(i64 fd);
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_pmtu_probe_enable(i64 fd);
 
+/** RFC 8899 3.5: the largest UDP payload the local link toward peer can
+ * carry -- the kernel's path MTU for that destination (its route's MTU,
+ * read through a throwaway connected socket: IP_MTU needs one) minus the
+ * IP and UDP headers. The listening socket is never connected.
+ * @param peer the destination (v4-mapped or IPv6)
+ * @return the payload size, or 0 if the kernel could not tell. */
+usz wired_udp_path_mtu(const sockaddr* peer);
+
 /** Enable IP_RECVTOS on fd (Linux uapi in.h) so wired_udp_recvmmsg/
  * wired_udp_recvmmsg_nowait attach each received datagram's ECN codepoint
  * into mmsg_buf.ecn via an IP_TOS cmsg. Independent of

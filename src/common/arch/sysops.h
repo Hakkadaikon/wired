@@ -59,6 +59,11 @@ static inline i64 wired_arch_bind(i64 fd, const void* addr, i64 len) {
   return syscall3(SYS_bind, fd, addr, len);
 }
 
+/** connect(2): @p addr is a kernel sockaddr of @p len bytes. */
+static inline i64 wired_arch_connect(i64 fd, const void* addr, i64 len) {
+  return syscall3(SYS_connect, fd, addr, len);
+}
+
 /** setsockopt(2). */
 static inline i64 wired_arch_setsockopt(
     i64 fd, i64 level, i64 opt, const void* val, i64 len) {
