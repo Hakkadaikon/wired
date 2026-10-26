@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 65/81 tested, 12 indirect, 4 untested.**
+**Coverage: 66/81 tested, 12 indirect, 3 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -709,11 +709,17 @@ Legend:
     `test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_truncates_at_utf8_boundary`
-- [ ] WTH3-081 (§6) When the server sends a WT_CLOSE_SESSION and intends to
+- [x] WTH3-081 (§6) When the server sends a WT_CLOSE_SESSION and intends to
   close the QUIC connection, the server should wait until all CONNECT
   streams have been closed by the peer before sending CONNECTION_CLOSE.
-  - gap: no ordering between WT_CLOSE_SESSION delivery and
-    CONNECTION_CLOSE is implemented.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_shutdown_waits_for_connect_close`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing`
+  - evidence: graceful shutdown (srvrun_loop) sends WT_CLOSE_SESSION on
+    every live session after the GOAWAY drain, then serves until the peer
+    closed those CONNECT streams (bounded, SRVRUN_WT_CLOSE_TICKS) before
+    the H3_NO_ERROR CONNECTION_CLOSE. Error closes stay immediate.
 
 ## §8 Security Considerations
 

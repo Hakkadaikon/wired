@@ -233,6 +233,12 @@ typedef struct {
 #define SRVRUN_DRAIN_TICKS 25
 #define SRVRUN_DRAIN_TICK_MS 200
 
+/* draft-ietf-webtrans-http3-16 6: how many SRVRUN_DRAIN_TICK_MS ticks
+ * (~2s) shutdown waits for peers to close their CONNECT streams after
+ * WT_CLOSE_SESSION before sending CONNECTION_CLOSE anyway -- several RTTs
+ * on any real path, short enough not to stall a stop. */
+#define SRVRUN_WT_CLOSE_TICKS 10
+
 void srvrun_on_step(const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
 void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 void srvrun_open_qpack_streams(srvrun_conn* c);

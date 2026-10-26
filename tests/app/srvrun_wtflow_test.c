@@ -19,7 +19,11 @@
  *   (Reliable Size = header length) on the kept (resent) packet, both on
  *   the app-latched path and the session-teardown path; without the TP, or
  *   on a client-opened stream (no header on our half), plain RESET_STREAM;
- *   Reliable Size never exceeds the bytes sent. */
+ *   Reliable Size never exceeds the bytes sent.
+ * - shutdown close: a live WT session gets WT_CLOSE_SESSION + FIN on its
+ *   CONNECT stream and no CONNECTION_CLOSE yet; the wait holds until the
+ *   peer FINs (or resets) that CONNECT stream; raw / closing / sessionless
+ *   connections wait for nothing. */
 
 static srvrun_cfg g_wtf_cfg;
 
@@ -255,7 +259,44 @@ static void test_srvrun_wt_reset_stream_at_fallbacks(void) {
   CHECK(p[0] != 0x04);
 }
 
+static void test_srvrun_wt_shutdown_waits_for_connect_close(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  CHECK(g_sl_closes == 1);
+  CHECK(src_connect_fin_sent(c)); /* WT_CLOSE_SESSION, then FIN */
+  CHECK(c->closing == 0);         /* no CONNECTION_CLOSE yet */
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 1);
+  src_connect_send(c, hlen, 0, 0, 1); /* the peer closes its side */
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+}
+
+/* A peer RESET_STREAM of the CONNECT stream also ends the wait; a closing
+ * connection waits for nothing. */
+static void test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing(void) {
+  srvrun_conn*       c = sr_sl_fixture();
+  u8                 pl[32];
+  reset_stream_frame rs = {0, 0, 0};
+  usz                n;
+  rs.final_size = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 1);
+  n = reset_stream_encode(pl, sizeof pl, &rs);
+  CHECK(n != 0);
+  sr_sl_step(c, pl, n);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+  c             = sr_sl_fixture();
+  rs.final_size = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  c->closing = 1;
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_wt_shutdown_waits_for_connect_close();
+  test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing();
   g_wtf_cfg = sr_wt_send_cfg();
   test_srvrun_wt_reset_stream_at_covers_header();
   test_srvrun_wt_reset_stream_at_fallbacks();

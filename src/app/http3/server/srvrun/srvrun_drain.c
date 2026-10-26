@@ -31,6 +31,7 @@ void srvrun_wt_rx_capsules(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 void srvrun_close_wt_on_stream_close(const srvrun_cfg* cfg, srvrun_conn* c) {
   int sidx = srvrun_wt_connect_stream_slot(c);
+  srvrun_wt_close_wait_note(c);
   if (sidx >= 0) {
     srvrun_log_close(
         "wt session closed by peer (CONNECT stream)", wired_span_of(0, 0));

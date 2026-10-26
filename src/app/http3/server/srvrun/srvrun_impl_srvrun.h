@@ -511,6 +511,10 @@ typedef struct {
    * the RESET_STREAM_AT's header (srvrun_wt_reset_frames). */
   u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
   u64 wt_stream_reset_sid[SRVRUN_WT_RESET_LATCH];
+  /** draft-ietf-webtrans-http3-16 6: per session slot, 1 + the CONNECT
+   * stream id shutdown sent WT_CLOSE_SESSION on and still waits for the
+   * peer to close (srvrun_wt_close_all_live), 0 when none. */
+  u64 wt_close_wait[SRVRUN_MAX_WT_SESSIONS];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
   /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;
