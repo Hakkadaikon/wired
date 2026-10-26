@@ -47,6 +47,27 @@ static void test_moqtrun_fill_subscribe_opens(void) {
   CHECK(mf_fin);
 }
 
+/* draft-22 3.4: "The fill fetch stream inherits the subscription's
+ * parameters, including ... range filters": a subscription filtered to
+ * Object 1 is filled with Object 1 of each cached group only. */
+static void test_moqtrun_fill_inherits_range_filter(void) {
+  moqfetch_fill      fill = {0};
+  moqctl_rangefilter rf   = mtst_rngf1(0, 1, 1, 1);
+  moqctl_params      p    = mfill_params(&fill, 0);
+  moqctl_ftn         f    = mf_track();
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &rf); /* 0x26 > 0x23 */
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_obj(1, 1, 1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, mtst_rid += 4, &p);
+  CHECK(mf_read());
+  CHECK(mf_n == 2 && mf_is_obj(0, 0, 1, 1) && mf_is_obj(1, 1, 1, 1));
+  CHECK(mf_fin);
+}
+
 /* Fetch streams opened toward B (FETCH_HEADER type byte). */
 static usz mfill_opens(void) {
   usz n = 0;
@@ -859,6 +880,7 @@ static void test_moqtrun_fill_inbound_fetch_unknown_rid(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_fill(void) {
   test_moqtrun_fill_subscribe_opens();
+  test_moqtrun_fill_inherits_range_filter();
   test_moqtrun_fill_end_clipped_to_largest();
   test_moqtrun_fill_empty_or_future_range();
   test_moqtrun_fill_open_end_is_largest();

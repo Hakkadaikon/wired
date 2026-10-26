@@ -92,6 +92,12 @@ static moqtrun_rngf_scan moqtrun_rngf_scan_msg(const moqctl_params* params) {
   return s;
 }
 
+/* Ranges params' Range Filters carry in all (draft-22 9.1.6: what
+ * MAX_FILTER_RANGES bounds). */
+usz moqtrun_rngf_count(const moqctl_params* params) {
+  return moqtrun_rngf_scan_msg(params).count;
+}
+
 /* INVALID_FILTER (10.2.10/10.4) for a malformed Range Filter value, a
  * repeated (Type, SetID, Property Type) identity, or more Ranges than
  * the hub's advertised MAX_FILTER_RANGES; ACCEPT otherwise. */

@@ -1395,17 +1395,18 @@ Legend:
 
 ## SS7.6/11.4.1.2 Relay FETCH gap handling (draft-22)
 
-- [ ] MQ22-137 Where a Range Filter restricts a FETCH or fill, an unmarked
+- [x] MQ22-137 Where a Range Filter restricts a FETCH or fill, an unmarked
   gap in the response shall be treated as unknown rather than non-existent,
   and the relay shall issue upstream FETCHes to at least one matching
   publisher rather than pausing delivery until confirmed, as draft-19 does.
-  - gap: the upstream FETCH half is done (MQ22-213 to MQ22-219): the
-    FETCH's Range Filters go upstream byte for byte and a gap the publisher
-    leaves unmarked is relayed unmarked
-    (`tests/app/moqtrun_upfetch_test.c` —
-    `test_moqtrun_upfetch_range_filter`). Open: the cache side applies no
-    Range Filter, so a filtered FETCH's cache-served part neither filters
-    nor reports its unmarked gaps as unknown.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_range_filter`,
+    `test_moqtrun_upfetch_range_filter_cached`
+  - test: `tests/app/moqtrun_fill_test.c` —
+    `test_moqtrun_fill_inherits_range_filter`
+  - note: the cache keeps Object IDs only, so a set naming Subgroup,
+    priority or a Property passes no cached Object (left as an unmarked,
+    i.e. unknown, gap). A Joining Fetch (draft-18/19) applies none.
 - [x] MQ22-137a Reaching a Location Filter's end on a FETCH shall not emit
   SUBSCRIPTION_ENDED (see MQ22-108b; duplicate cross-reference kept here
   because this is also a FETCH/relay-section rule in the diff catalog).
@@ -1493,12 +1494,14 @@ Legend:
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_budget`, `test_moqtrun_upfetch_fill_timeout_zero`,
     `test_moqtrun_upfetch_marker_relay`
-- [ ] MQ22-250 (SS9.1.6) The hub shall not send Range Filter parameters in
+- [x] MQ22-250 (SS9.1.6) The hub shall not send Range Filter parameters in
   an upstream FETCH beyond the MAX_FILTER_RANGES the upstream peer
   advertised (none when it advertised 0 or nothing).
-  - gap: `moqtrun_upf_params` copies the downstream Range Filters when the
-    upstream draft has Range Filters at all; the peer's advertised limit is
-    not consulted.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_range_filter_peer_limit`,
+    `test_moqtrun_upfetch_range_filter`
+  - note: Ranges past the limit send no filter at all (dropping some could
+    narrow an OR'd set); the hub filters the wider answer itself.
 - [x] MQ22-217 When the requester cancels, stops its data stream or closes,
   the hub shall cancel the upstream FETCH (RESET_STREAM and STOP_SENDING on
   the request stream, STOP_SENDING on the data stream) before freeing the

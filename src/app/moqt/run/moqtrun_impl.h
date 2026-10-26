@@ -1,7 +1,7 @@
 #ifndef APP_MOQT_RUN_MOQTRUN_IMPL_H
 #define APP_MOQT_RUN_MOQTRUN_IMPL_H
 
-#include "app/moqt/run/moqtrun_impl_protos8.h"
+#include "app/moqt/run/moqtrun_impl_protos9.h"
 
 int moqtrun_upf_chunk(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c);

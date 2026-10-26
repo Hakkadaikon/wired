@@ -112,7 +112,22 @@ typedef struct {
   moqctl_loc ok_end;
   /* The track's Track Properties for FETCH_OK (draft-18 9.6 / 10.14). */
   wired_span props;
+  /* The Range Filter rows the response applies (draft-22 3.3.2; a fill
+   * inherits its subscription's, 3.4), rngf_n of them; 0 = none. */
+  const wired_moqtrun_rngrow* rngf;
+  usz                         rngf_n;
 } moqtrun_frange;
+
+/* One Object as a Range Filter judges it (draft-22 3.3.2): v[] the
+ * Subgroup ID, Object ID and Publisher Priority (filter Types 0x25-0x27
+ * in order), bit i of have set when v[i] is known; props its Object
+ * Properties when has_props. A field it lacks never matches. */
+typedef struct {
+  u64        v[3];
+  wired_span props;
+  u8         have;
+  u8         has_props;
+} moqtrun_fsel_obj;
 
 /* io moqtrun_upf_drop does toward the upstream session. */
 #define MOQTRUN_UPF_IO_NONE 0

@@ -65,8 +65,7 @@ int moqtrun_upf_open(
   moqctl_ns_take(k.ns, &off, &m.track.ns);
   m.range = *rl;
   moqtrun_upf_params(
-      params, (moqver_caps(pp->ver) & MOQVER_CAP_RANGE_FILTERS) != 0,
-      f->descending, &m.params);
+      params, moqtrun_peer_max_rngf(pp), f->descending, &m.params);
   i64 sid = moqtrun_upf_send(hub, pp, &m);
   if (sid < 0) {
     return 0;

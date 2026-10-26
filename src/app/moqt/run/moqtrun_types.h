@@ -1006,6 +1006,14 @@ typedef struct {
   int no_track;
   /** no_track: 1 once the downstream FETCH was answered. */
   int answered;
+  /** 1 while the upstream Object under way failed the Range Filters: its
+   * payload is read past, never relayed (moqtrun_upf_chunk). */
+  int up_skip;
+  /** The FETCH's Range Filter rows (a fill: its subscription's), applied
+   * to every Object served, cached or upstream (draft-22 3.3.3). */
+  wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
+  /** Rows of rngf in use; 0 = unfiltered. */
+  u8 rngf_n;
 } wired_moqtrun_fetch;
 
 #endif

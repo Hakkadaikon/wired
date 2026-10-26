@@ -181,6 +181,9 @@ typedef struct {
   /** Bit i set: the peer's Request ID peer_rid_base + 2i was used (bit 0
    * is always clear). */
   u64 peer_rid_seen;
+  /** MAX_FILTER_RANGES the client's SETUP advertised (draft-22 9.1.6;
+   * 0 when absent): the most Ranges an upstream FETCH to it may carry. */
+  u64 peer_max_rngf;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */

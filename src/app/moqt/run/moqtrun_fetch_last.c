@@ -11,9 +11,11 @@ static moqctl_loc moqtrun_fetch_ok_end(
 moqctl_loc moqtrun_fetch_last(moqcache* c, const moqtrun_frange* r) {
   moqctl_loc    last = r->ok_end;
   moqcache_item it;
-  for (moqctl_loc cur = moqcache_skip(c, r->tag, r->start, r->end);
+  for (moqctl_loc cur =
+           moqtrun_fsel_skip(c, r->tag, r->rngf, r->rngf_n, r->start, r->end);
        moqctl_loc_less(cur, r->end);
-       cur = moqcache_skip(c, r->tag, it.next, r->end)) {
+       cur =
+           moqtrun_fsel_skip(c, r->tag, r->rngf, r->rngf_n, it.next, r->end)) {
     moqcache_item_at(c, r->tag, cur, r->end, &it);
     last = it.loc;
   }
@@ -53,7 +55,8 @@ wired_moqtrun_fetch* moqtrun_fetch_begin(
   f->request_id = request_id;
   f->cache_tag  = r->tag;
   f->end        = r->end;
-  f->cursor     = moqcache_skip(&hub->cache, r->tag, r->start, r->end);
+  moqtrun_fsel_keep(f, r->rngf, r->rngf_n);
+  f->cursor     = moqtrun_fsel_fskip(&hub->cache, f, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
   return f;
 }

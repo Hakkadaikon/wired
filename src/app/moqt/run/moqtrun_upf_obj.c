@@ -17,6 +17,13 @@ static int moqtrun_upf_write(
     const moqfetch_obj*  o,
     wired_span           pre);
 static int moqtrun_upf_same_at(wired_span c, u64 len, u64 at, wired_span part);
+static int moqtrun_upf_skip(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    const moqfetch_obj*  o,
+    wired_span           pre);
+static int moqtrun_upf_shown(
+    const wired_moqtrun_fetch* f, const moqfetch_obj* o);
 
 /* o as the downstream stream s's next item (draft-22 7.8: no field
  * changes, only how the flags reference the prior item). */
@@ -77,6 +84,7 @@ static int moqtrun_upf_write(
     return 0;
   }
   f->seq         = seq;
+  f->up_skip     = 0;
   f->up_last     = moqtrun_upf_loc(o);
   f->has_up_last = 1;
   f->up_pl_at    = pre.n;
@@ -85,13 +93,40 @@ static int moqtrun_upf_write(
   return 1;
 }
 
+/* o read past, not relayed: its Location still moves the leg on, and
+ * its payload's rest is skipped as it arrives (moqtrun_upf_chunk). */
+static int moqtrun_upf_skip(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_fetch* f,
+    const moqfetch_obj*  o,
+    wired_span           pre) {
+  f->up_skip     = 1;
+  f->up_last     = moqtrun_upf_loc(o);
+  f->has_up_last = 1;
+  f->up_pl_at    = pre.n;
+  f->up_pl_left  = o->payload.n - pre.n;
+  f->last_ok_ms  = hub->live.last_now_ms;
+  return 1;
+}
+
+/* An End of Range marker, or an Object passing f's Range Filters: an
+ * upstream peer that was not sent them (moqtrun_upf_params) answers
+ * wider, and only what passes goes on (draft-22 3.3.3). */
+static int moqtrun_upf_shown(
+    const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+  return o->flags >= 0x80 || moqtrun_fsel_up_pass(f, o);
+}
+
 int moqtrun_upf_relay(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_obj*  o,
     wired_span           pre) {
-  return moqtrun_upf_valid(f, moqtrun_upf_loc(o)) &&
-         moqtrun_upf_write(hub, f, o, pre);
+  if (!moqtrun_upf_valid(f, moqtrun_upf_loc(o))) {
+    return 0;
+  }
+  return moqtrun_upf_shown(f, o) ? moqtrun_upf_write(hub, f, o, pre)
+                                 : moqtrun_upf_skip(hub, f, o, pre);
 }
 
 /* ----- Malformed Track (draft-22 12.1) ----- */
