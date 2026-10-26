@@ -10,6 +10,7 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"

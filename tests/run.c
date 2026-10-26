@@ -643,6 +643,7 @@
 #include "app/http3/server/srvloop/dispatch_route_note.c"
 #include "app/http3/server/srvloop/dispatch_wt.c"
 #include "app/http3/server/srvloop/send.c"
+#include "app/http3/server/srvloop/srvloop_sent.c"
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/respond_app.c"
 #include "app/http3/server/srvloop/respond_confirm.c"

@@ -14,6 +14,7 @@
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/ncid.h"
 #include "transport/recovery/detect/recovery/ackpolicy.h"
+#include "transport/recovery/rtx/sentmeta/record.h"
 
 /** RFC 9000 18.2's default max_ack_delay when the peer's own transport
  * parameter isn't tracked (this SDK does not parse the client's
@@ -619,10 +620,17 @@ typedef struct {
    * wired_srvloop_conn keeps wired_srvloop_step's existing signature and
    * every current struct-literal call site unchanged. */
   u64 now_ms;
-  int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
-                     * emitted */
-  int ticket_sent;  /**< 1 once the post-confirmation session ticket
-                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
+  /** RFC 9002 A.1: every 1-RTT packet sealed through
+   * srvloop_send_onertt_rec (pn, now_ms, ack-eliciting, size), until the
+   * peer acknowledges it or it is declared lost. total_in_flight counts the
+   * in-flight ones (RFC 9002 2) except STREAM-slice packets, which the
+   * driving loop's send sessions count by slice bytes instead
+   * (sentmeta_uncount). */
+  sentmeta sent;
+  int      hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
+                          * emitted */
+  int ticket_sent;       /**< 1 once the post-confirmation session ticket
+                          * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,
@@ -728,6 +736,12 @@ typedef struct {
   u64 ack_lo[32]; /**< range lows, parallel with ack_hi */
   u64 ack_hi[32]; /**< range highs, ack_hi[0] from the frame's largest */
   usz ack_n;      /**< ranges recorded this step */
+  /** RFC 9002 5.1/5.3: the Largest Acknowledged and raw ACK Delay field of
+   * the step's ACK frame with the largest Largest Acknowledged -- the one
+   * frame an RTT sample may come from (its largest is also the highest
+   * ack_hi). Valid while ack_n > 0. */
+  u64 ack_largest;
+  u64 ack_delay_raw; /**< its ACK Delay, in units of 2^ack_delay_exponent us */
   /** RFC 9000 19.3.2: the ECN counts of the type-0x03 ACK with the largest
    * acknowledged packet number opened this step (13.4.2.1: a reordered
    * older ACK must not overwrite them), reset with ack_n. ecn_ack_seen == 0

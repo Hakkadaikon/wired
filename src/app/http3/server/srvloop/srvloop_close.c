@@ -6,6 +6,7 @@ static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi);
 static int  srvloop_ecn_newer(const wired_srvloop* l, const ack_frame* f);
 static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f);
 static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n);
+static void srvloop_note_largest(wired_srvloop* l, const ack_frame* f);
 
 /* RFC 9000 19.19: 1 if type is either CONNECTION_CLOSE variant. */
 static int srvloop_close_type(u64 type) {
@@ -70,12 +71,23 @@ static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f) {
   l->ecn_ack_ce      = f->ce;
 }
 
+/* RFC 9002 5.1: latch f as the step's RTT-sample frame when it is the
+ * first ACK this step or acknowledges a larger packet than the latched. */
+static void srvloop_note_largest(wired_srvloop* l, const ack_frame* f) {
+  if (l->ack_n != 0 && f->ranges[0].hi <= l->ack_largest) {
+    return;
+  }
+  l->ack_largest   = f->ranges[0].hi;
+  l->ack_delay_raw = f->ack_delay;
+}
+
 /* Decode one ACK frame and record its ranges (RFC 9000 19.3). */
 static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
   ack_frame f;
   if (ack_decode(buf, n, &f) == 0) {
     return;
   }
+  srvloop_note_largest(l, &f);
   for (usz i = 0; i < f.n_ranges; i++) {
     srvloop_push_ack(l, f.ranges[i].lo, f.ranges[i].hi);
   }

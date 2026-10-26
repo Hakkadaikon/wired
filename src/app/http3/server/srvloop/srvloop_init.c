@@ -50,6 +50,8 @@ void srvloop_init_req(wired_srvloop* l) {
 /* ACK/ECN feedback and the received-codepoint counters. */
 void srvloop_init_ecn(wired_srvloop* l) {
   l->ack_n           = 0;
+  l->ack_largest     = 0;
+  l->ack_delay_raw   = 0;
   l->ecn_ack_seen    = 0;
   l->ecn_ack_largest = 0;
   l->ecn_ack_ect0    = 0;

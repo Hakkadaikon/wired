@@ -26,7 +26,7 @@ static int srvrun_seal_data_blocked(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* RFC 9000 4.1/19.12: "A sender SHOULD send a DATA_BLOCKED... This can be
@@ -81,7 +81,7 @@ int srvrun_seal_max_streams(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* Seal one STREAMS_BLOCKED frame (RFC 9000 19.14, uni selects 0x17) as its
@@ -104,7 +104,7 @@ static int srvrun_seal_streams_blocked(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* RFC 9000 4.6 19.14: "A sender SHOULD send a STREAMS_BLOCKED frame... This

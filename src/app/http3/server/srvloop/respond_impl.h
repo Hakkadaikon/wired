@@ -10,6 +10,7 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/clock/clock.h"
 #include "tls/handshake/core/tls/newsessionticket.h"

@@ -51,6 +51,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   ackpolicy_init(&l->app_ack_policy);
   ackpolicy_init(&l->hs_ack_policy);
   l->now_ms = 0;
+  sentmeta_init(&l->sent);
   srvloop_streams_reset(l);
   srvloop_wt_streams_reset(l);
   /* also zeroes wt_uni_closed/uni_typed */

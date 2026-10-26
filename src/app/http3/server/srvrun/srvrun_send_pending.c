@@ -51,7 +51,7 @@ int srvrun_send_datagram_now(
       0,
       0,
       0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, out)) {
+  if (!srvloop_send_onertt_rec(&c->l, &c->s, &sin, out)) {
     return 0;
   }
   srvrun_send(cfg, c, wired_span_of(out->p, out->len), "DATAGRAM sent\n");

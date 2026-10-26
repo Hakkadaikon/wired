@@ -62,7 +62,7 @@ static int srvrun_seal_continue(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* Send RFC 9110 10.1.1's "100 Continue" interim response for stream_id, an

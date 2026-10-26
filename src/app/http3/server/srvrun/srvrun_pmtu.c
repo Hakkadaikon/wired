@@ -112,7 +112,7 @@ static int srvrun_seal_pmtu_probe(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* Clear c's outstanding-probe tracking, letting the next opportunity

@@ -67,7 +67,7 @@ int srvrun_seal_max_stream_data(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 void srvrun_send_max_stream_data(

@@ -106,7 +106,7 @@ int srvrun_seal_close_pl(srvrun_conn* c, wired_span pl, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* RFC 9000 10.2.1: send the kept close frame (close_pl) again as a fresh
