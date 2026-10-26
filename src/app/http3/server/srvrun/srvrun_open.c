@@ -149,6 +149,37 @@ void srvrun_wt_notify_streams_blocked(
   srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0);
 }
 
+/* 1 iff a WT_DATA_BLOCKED is owed: sidx names a real slot, the session
+ * data limit refuses len more bytes, and no capsule named this limit yet. */
+static int srvrun_wt_data_blocked_owed(
+    int sidx, const wired_wt_session* s, usz len) {
+  return sidx >= 0 && !wired_wt_session_data_send_allowed(s, len) &&
+         s->data_blocked_at != s->max_data + 1;
+}
+
+/* The owed WT_DATA_BLOCKED capsule encoded into bob; 0 when none is owed. */
+static int srvrun_wt_data_blocked_build(
+    int sidx, const wired_wt_session* s, usz len, wired_obuf* bob) {
+  return srvrun_wt_data_blocked_owed(sidx, s, len) &&
+         wtcapsule_encode_data_blocked(bob, s->max_data);
+}
+
+/* draft-ietf-webtrans-http3-16 SS5.6.5 (WTH3-062): a send held back by the
+ * session-level data limit sends WT_DATA_BLOCKED (Maximum Data = the limit
+ * at which blocking occurred) on the CONNECT stream, once per limit value
+ * -- the data twin of srvrun_wt_notify_streams_blocked. */
+void srvrun_wt_notify_data_blocked(
+    srvrun_conn* c, int sidx, wired_wt_session* s, usz len) {
+  u8         body[16];
+  wired_obuf bob = obuf_of(body, sizeof body);
+  if (!srvrun_wt_data_blocked_build(sidx, s, len, &bob)) {
+    return;
+  }
+  if (srvrun_send_wt_capsule(c, sidx, wired_span_of(body, bob.len), 0)) {
+    s->data_blocked_at = s->max_data + 1;
+  }
+}
+
 /* 1 iff c's own server-initiated uni-stream grant (peer_uni_stream_limit)
  * admits one more open; latches uni_blocked_seen on refusal so the next
  * srvrun_pump_sess pass sends a STREAMS_BLOCKED(uni) (srvrun_notify_uni_

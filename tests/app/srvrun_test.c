@@ -21759,9 +21759,9 @@ static void test_srvrun_control_packets_kept_until_acked(void) {
   CHECK(srvrun_test_send_count() == 1); /* GOAWAY resent */
   srvrun_feed_ack_range(c, 0, c->l.tx_pn, ctx.now_ms);
   CHECK(!srvrun_slot_waiting(c));
-  c->wt_stream_reset_id[0]       = 11;
+  c->wtx.reset_id[0]             = 11;
   c->wt_stream_reset_app_code[0] = 3;
-  c->wt_stream_reset_final[0]    = 5;
+  c->wtx.reset_final[0]          = 5;
   c->wt_stream_reset_n           = 1;
   srvrun_drain_wt_stream_reset(&cfg, c);
   CHECK(srvrun_slot_waiting(c)); /* app RESET_STREAM kept */
@@ -21925,7 +21925,7 @@ static void test_srvrun_wt_reset_after_deferred_reply_mid_send(void) {
   CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 of 4 sent */
   CHECK(wired_server_wt_stream_reset(&c->wt, 0, 0x42) == 1);
   CHECK(c->wt_stream_reset_n == 1);
-  CHECK(c->wt_stream_reset_final[0] == 2);
+  CHECK(c->wtx.reset_final[0] == 2);
 }
 
 /* draft-ietf-webtrans-http3-15 4.4/8.2: a session teardown also resets the
@@ -24967,17 +24967,21 @@ static void test_srvrun_wt_open_bidi_blocked_sends_streams_blocked(void) {
   sr_check_streams_blocked_sent(w, 1, 0);
 }
 
-/* NEGATIVE: a server-initiated open refused by the DATA limit alone (the
- * stream-count limit is already open) does NOT send WT_STREAMS_BLOCKED --
- * that capsule names a stream-count ceiling, not a data one, and there is
- * no WT_DATA_BLOCKED send path to confuse it with (out of scope, 6-10's own
- * brief: the brief only covers WT_STREAMS_BLOCKED). */
-static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing(void) {
+/* A server-initiated open refused by the DATA limit alone (the stream-count
+ * limit is already open) does NOT send WT_STREAMS_BLOCKED -- that capsule
+ * names a stream-count ceiling -- only WT_DATA_BLOCKED(1), the limit the
+ * open hit (draft-ietf-webtrans-http3-16 SS5.6.5). */
+static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked(
+    void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
   u8              obuf[1024];
   static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
   srvrun_conn*    c;
+  srvrun_wtsend*  w;
+  h3_frame        fr;
+  usz             at = 0;
+  u64             lim;
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   c                  = sr_wtsend_fixture(&f, &ob);
   c->wt.flow_control = 1;
@@ -24986,7 +24990,17 @@ static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing(void) {
   CHECK(
       wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
       -1);
-  CHECK(srvrun_wtsend_find(c, 4) == 0); /* nothing staged on the CONNECT id */
+  w = srvrun_wtsend_find(c, 4);
+  CHECK(w != 0);
+  CHECK(h3_frame_get(wired_span_of(w->roundbuf, w->sess.q.len), &fr) != 0);
+  CHECK(
+      wtcapsule_decode_streams_blocked(
+          wired_span_of(fr.payload, fr.payload_len), &at, 0, &lim) != 1);
+  at = 0;
+  CHECK(
+      wtcapsule_decode_data_blocked(
+          wired_span_of(fr.payload, fr.payload_len), &at, &lim) == 1);
+  CHECK(lim == 1);
 }
 
 /* NEGATIVE: a server-initiated uni open refused by the peer's QUIC-level
@@ -27308,7 +27322,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens();
   test_srvrun_wt_open_uni_blocked_sends_streams_blocked();
   test_srvrun_wt_open_bidi_blocked_sends_streams_blocked();
-  test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing();
+  test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked();
   test_srvrun_wt_open_uni_blocked_by_quic_grant_sends_no_wt_capsule();
   test_srvrun_wt_initial_max_streams_clamped();
   test_srvrun_wt_two_held_connects_each_processed_once();

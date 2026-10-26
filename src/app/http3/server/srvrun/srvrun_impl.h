@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_protos4.h"
 #include "app/http3/server/srvrun/srvrun_impl_token.h"
+#include "app/http3/server/srvrun/srvrun_impl_wtflow.h"
 
 const peercid_entry* srvrun_path_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept);

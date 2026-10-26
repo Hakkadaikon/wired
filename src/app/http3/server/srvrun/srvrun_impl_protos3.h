@@ -135,6 +135,8 @@ int  srvrun_pump_one_wt(
 u8   srvrun_wtsend_urgency(const srvrun_wtsend* w);
 u32  srvrun_wtsend_key(const srvrun_wtsend* w);
 u32  srvrun_wt_pass_key(const srvrun_conn* c);
+u32  srvrun_wt_fair_mask(srvrun_conn* c, u32 mask);
+int  srvrun_wt_open_share_ok(const srvrun_conn* c, int sidx);
 int  srvrun_wt_flow_ok(const srvrun_conn* c, const srvrun_wtsend* w);
 void srvrun_prio_refresh(srvrun_conn* c);
 int  srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c);

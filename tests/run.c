@@ -783,6 +783,9 @@
 #include "app/http3/server/srvrun/srvrun_send_pending.c"
 #include "app/http3/server/srvrun/srvrun_server.c"
 #include "app/http3/server/srvrun/srvrun_server_wt.c"
+#include "app/http3/server/srvrun/srvrun_wt_export.c"
+#include "app/http3/server/srvrun/srvrun_wt_shut.c"
+#include "app/http3/server/srvrun/srvrun_wt_fair.c"
 #include "app/http3/server/srvrun/srvrun_sess.c"
 #include "app/http3/server/srvrun/srvrun_slice.c"
 #include "app/http3/server/srvrun/srvrun_stage.c"
@@ -1508,6 +1511,7 @@
 #include "app/srvrun_token_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
+#include "app/srvrun_wtflow_test.c"
 #include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
@@ -2152,6 +2156,7 @@ int main(void) {
   test_srvrun_token();
   test_srvrun_close();
   test_srvrun_raw();
+  test_srvrun_wtflow();
   test_srvrun_rec();
   test_sigmask();
   test_certreload();

@@ -49,11 +49,12 @@ usz wt_exporter_ctx_encode(
  * (RFC 8446 7.5) for the given session, application label, and
  * application context. exporter_secret is the connection's
  * exporter_master_secret (tls/keys/schedule_drive/keyschedule.h's
- * keysched_exporter_secret).
+ * keysched_exporter_secret), Hash.length bytes of suite's hash.
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
  *   length does not fit hkdf_expand_label */
 int wt_exporter(
-    const u8    exporter_secret[HKDF_PRK],
+    u16         suite,
+    const u8*   exporter_secret,
     u64         session_id,
     wired_span  label,
     wired_span  app_context,

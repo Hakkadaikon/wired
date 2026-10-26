@@ -49,4 +49,13 @@ int tls_exporter(
     wired_span  context,
     wired_mspan okm);
 
+/* Same as tls_exporter over suite's hash (RFC 8446 7.1/7.5): secret is
+ * Hash.length bytes (keysched_exporter_secret's), suite 0 = SHA-256. */
+int tls_exporter_suite(
+    u16         suite,
+    const u8*   secret,
+    wired_span  label,
+    wired_span  context,
+    wired_mspan okm);
+
 #endif

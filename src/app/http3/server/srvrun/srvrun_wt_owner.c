@@ -74,6 +74,7 @@ static int srvrun_wt_stream_reply_common(
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   if (!srvrun_wt_reply_allowed(c, sidx, s, stream_id, payload.n)) {
+    srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
     return 0;
   }
   /* RFC 9000 18.2: the peer's bidi_local TP governs what we may send on a

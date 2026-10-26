@@ -226,20 +226,35 @@ int sdrv_find_version_information(
   return sdrv_find_tp(ch_msg, ch_len, TP_VERSION_INFORMATION, bytes);
 }
 
-/* RFC 9287 3: this server understands grease_quic_bit -- a non-empty value
- * is a TRANSPORT_PARAMETER_ERROR; an empty one records that the client
- * accepts packets with the QUIC Bit cleared. Absent is fine. */
-int sdrv_ch_check_grease_quic_bit(sdrv* s, const u8* ch_msg, usz ch_len) {
+/* An empty-valued flag TP `id` this server understands: a non-empty value
+ * is a TRANSPORT_PARAMETER_ERROR; an empty one sets *flag. Absent is fine. */
+static int sdrv_ch_empty_tp_flag(
+    sdrv* s, const u8* ch_msg, usz ch_len, u64 id, int* flag) {
   wired_span bytes;
-  if (!sdrv_find_tp(ch_msg, ch_len, TP_GREASE_QUIC_BIT, &bytes)) {
+  if (!sdrv_find_tp(ch_msg, ch_len, id, &bytes)) {
     return 1;
   }
   if (bytes.n != 0) {
     s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
     return 0;
   }
-  s->peer_grease_quic_bit = 1;
+  *flag = 1;
   return 1;
+}
+
+/* RFC 9287 3: this server understands grease_quic_bit -- an empty one
+ * records that the client accepts packets with the QUIC Bit cleared. */
+int sdrv_ch_check_grease_quic_bit(sdrv* s, const u8* ch_msg, usz ch_len) {
+  return sdrv_ch_empty_tp_flag(
+      s, ch_msg, ch_len, TP_GREASE_QUIC_BIT, &s->peer_grease_quic_bit);
+}
+
+/* draft-ietf-quic-reliable-stream-reset-09 3: reset_stream_at (0x1d) is
+ * empty-valued; this server understands it (an empty one lets it send
+ * RESET_STREAM_AT to the client, srvrun_wt_reset_frames). */
+int sdrv_ch_check_reset_stream_at(sdrv* s, const u8* ch_msg, usz ch_len) {
+  return sdrv_ch_empty_tp_flag(
+      s, ch_msg, ch_len, TP_RESET_STREAM_AT, &s->peer_reset_stream_at);
 }
 
 /* RFC 9368 4 x RFC 8446 4.1.2: Chosen is validated against the version the

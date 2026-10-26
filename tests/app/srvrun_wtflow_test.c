@@ -1,0 +1,393 @@
+/* @file
+ * WebTransport flow control, teardown, per-session resources of srvrun
+ * (draft-ietf-webtrans-http3-16 4.4/4.8/5.6.5/6/8). Reuses srvrun_test.c's
+ * fixtures (sr_wtsend_fixture, sr_wt_send_cfg), included earlier in the
+ * same unity TU.
+ *
+ * Test list:
+ * - exporter: equals RFC 8446 7.5 TLS-Exporter("EXPORTER-WebTransport",
+ *   hand-serialized Exporter Context) over the live connection's secret;
+ *   two sessions differ; SHA-384 suite uses SHA-384; no secret / no
+ *   connection -> 0; label over 255 -> 0.
+ * - WT_DATA_BLOCKED: an open or a stream send refused by the session data
+ *   limit puts WT_DATA_BLOCKED(limit) on the CONNECT stream; a second
+ *   refusal at the same limit sends nothing more; a raised limit that
+ *   blocks again sends one naming the new limit; a send within the limit
+ *   sends none.
+ * - RESET_STREAM_AT: a peer that advertised reset_stream_at gets a
+ *   server-opened WT stream reset as STREAM[0, header) + RESET_STREAM_AT
+ *   (Reliable Size = header length) on the kept (resent) packet, both on
+ *   the app-latched path and the session-teardown path; without the TP, or
+ *   on a client-opened stream (no header on our half), plain RESET_STREAM;
+ *   Reliable Size never exceeds the bytes sent.
+ * - shutdown close: a live WT session gets WT_CLOSE_SESSION + FIN on its
+ *   CONNECT stream and no CONNECTION_CLOSE yet; the wait holds until the
+ *   peer FINs (or resets) that CONNECT stream; raw / closing / sessionless
+ *   connections wait for nothing.
+ * - fairness (decision table over ready streams per session, one pump pass
+ *   each): {3, 1} -> each session sends 1 per pass, session 0 rotating its
+ *   three streams; {2, 2} -> 2 each; {3, 0} (one session) -> all 3.
+ *   Opening: with two sessions each may hold at most half the send table;
+ *   with one session the whole table. */
+
+static srvrun_cfg g_wtf_cfg;
+
+/* RFC 8446 7.5 composed by hand over suite's hash: Derive-Secret(secret,
+ * label, "") then HKDF-Expand-Label(.., "exporter", Hash(ctx), out.n). */
+static void wtf_ref_exporter(
+    u16 suite, const u8* secret, wired_span ctx, wired_mspan out) {
+  const tls_hash* h = tls_hash_of(suite);
+  u8              empty[TLS_HASH_MAX], derived[TLS_HASH_MAX], ch[TLS_HASH_MAX];
+  hkdf_label      dl = {"EXPORTER-WebTransport", 21, {0, 0}};
+  hkdf_label      el = {"exporter", 8, {0, 0}};
+  h->digest((const u8*)"", 0, empty);
+  dl.ctx = wired_span_of(empty, h->len);
+  CHECK(h->expand_label(secret, &dl, wired_mspan_of(derived, h->len)));
+  h->digest(ctx.p, ctx.n, ch);
+  el.ctx = wired_span_of(ch, h->len);
+  CHECK(h->expand_label(derived, &el, out));
+}
+
+/* The Exporter Context for session 4, label "lbl", context "ctx", written
+ * out byte by byte (draft-ietf-webtrans-http3-16 4.8 Figure 6). */
+static const u8 wtf_ctx4[] = {0, 0,   0,   0,   0, 0,   0,   4,
+                              3, 'l', 'b', 'l', 3, 'c', 't', 'x'};
+
+static void test_srvrun_wt_exporter_matches_tls_exporter(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], got[40], want[40], other[40];
+  srvrun_conn*  c;
+  const u8*     secret;
+  wired_span    lbl = wired_span_of((const u8*)"lbl", 3);
+  wired_span    ctx = wired_span_of((const u8*)"ctx", 3);
+  ob                = (wired_obuf){obuf, sizeof obuf, 0};
+  c                 = sr_wtsend_fixture(&f, &ob);
+  CHECK(keysched_exporter_secret(&c->s.sched, &secret));
+  CHECK(
+      wired_server_wt_exporter(
+          &c->wt, lbl, ctx, wired_mspan_of(got, sizeof got)) == 1);
+  wtf_ref_exporter(
+      c->s.sched.suite, secret, wired_span_of(wtf_ctx4, sizeof wtf_ctx4),
+      wired_mspan_of(want, sizeof want));
+  CHECK(ct_diffn(got, want, sizeof got) == 0);
+  /* a second session on the same connection gets its own material */
+  wired_wt_session_init(&c->wt1, 8);
+  c->wt1_active = 1;
+  CHECK(
+      wired_server_wt_exporter(
+          &c->wt1, lbl, ctx, wired_mspan_of(other, sizeof other)) == 1);
+  CHECK(ct_diffn(got, other, sizeof got) != 0);
+}
+
+/* TLS_AES_256_GCM_SHA384 runs the exporter over SHA-384 (RFC 8446 7.1). */
+static void test_srvrun_wt_exporter_sha384_suite(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], got[48], want[48];
+  srvrun_conn*  c;
+  u8            secret[48];
+  wired_span    lbl = wired_span_of((const u8*)"lbl", 3);
+  wired_span    ctx = wired_span_of((const u8*)"ctx", 3);
+  ob                = (wired_obuf){obuf, sizeof obuf, 0};
+  c                 = sr_wtsend_fixture(&f, &ob);
+  c->s.sched.suite  = 0x1302;
+  for (usz i = 0; i < sizeof secret; i++) {
+    c->s.sched.exporter_secret[i] = secret[i] = (u8)(i * 7 + 1);
+  }
+  CHECK(
+      wired_server_wt_exporter(
+          &c->wt, lbl, ctx, wired_mspan_of(got, sizeof got)) == 1);
+  wtf_ref_exporter(
+      0x1302, secret, wired_span_of(wtf_ctx4, sizeof wtf_ctx4),
+      wired_mspan_of(want, sizeof want));
+  CHECK(ct_diffn(got, want, sizeof got) == 0);
+}
+
+/* No live connection, no exporter secret yet, or an over-long label. */
+static void test_srvrun_wt_exporter_refusals(void) {
+  struct lp_fix    f;
+  wired_obuf       ob = {0};
+  u8               obuf[1024], out[32], big[256] = {0};
+  srvrun_conn*     c;
+  wired_wt_session stray = {0};
+  wired_span       e     = wired_span_of(0, 0);
+  wired_mspan      o     = wired_mspan_of(out, sizeof out);
+  ob                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                      = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_server_wt_exporter(&stray, e, e, o) == 0);
+  CHECK(wired_server_wt_exporter(&c->wt, wired_span_of(big, 256), e, o) == 0);
+  CHECK(wired_server_wt_exporter(&c->wt, wired_span_of(big, 255), e, o) == 1);
+  c->s.sched.stage = 1;
+  CHECK(wired_server_wt_exporter(&c->wt, e, e, o) == 0);
+}
+
+/* Every WT_DATA_BLOCKED value DATA-framed on w's CONNECT-stream bytes, in
+ * order, into lim[]; returns how many (other capsules are skipped). */
+static usz wtf_data_blocked_sent(const srvrun_wtsend* w, u64* lim, usz cap) {
+  wired_span all = wired_span_of(w->roundbuf, w->sess.q.len);
+  usz        off = 0, k = 0;
+  while (off < all.n && k < cap) {
+    h3_frame fr;
+    usz      n  = h3_frame_get(wired_span_of(all.p + off, all.n - off), &fr);
+    usz      at = 0;
+    CHECK(n != 0);
+    if (n == 0) {
+      return k;
+    }
+    k += wtcapsule_decode_data_blocked(
+             wired_span_of(fr.payload, fr.payload_len), &at, &lim[k]) == 1;
+    off += n;
+  }
+  return k;
+}
+
+static void test_srvrun_wt_data_limited_send_emits_data_blocked_once(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  wired_span      p     = wired_span_of(pay, sizeof pay);
+  srvrun_conn*    c;
+  u64             lim[4];
+  i64             id;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 10) == 1);
+  CHECK(wired_wt_session_set_max_data(&c->wt, 6) == 1);
+  id = wired_server_wt_open_uni_stream(&c->wt, p); /* 4 of 6 bytes */
+  CHECK(id == 15);
+  CHECK(srvrun_wtsend_find(c, 4) == 0); /* within the limit: nothing */
+  CHECK(wired_server_wt_stream_send(&c->wt, (u64)id, p, 0) <= 0);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, p) == -1);
+  CHECK(srvrun_wtsend_find(c, 4) != 0);
+  CHECK(wtf_data_blocked_sent(srvrun_wtsend_find(c, 4), lim, 4) == 1);
+  CHECK(lim[0] == 6);
+  CHECK(wired_wt_session_set_max_data(&c->wt, 7) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, (u64)id, p, 0) <= 0);
+  CHECK(wtf_data_blocked_sent(srvrun_wtsend_find(c, 4), lim, 4) == 2);
+  CHECK(lim[1] == 7);
+}
+
+/* The newest kept packet's frames (srvrun_rst_keep), 0 when none. */
+static const srvrun_rst* wtf_kept_last(const srvrun_conn* c) {
+  const srvrun_rst* best = 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    const srvrun_rst* e = &c->rst[i];
+    if (e->pln && (!best || e->pn > best->pn)) {
+      best = e;
+    }
+  }
+  return best;
+}
+
+/* uni stream 15 of session 4: header 0x54 (2-byte varint) + 4, then "hi" */
+static const u8 wtf_uni_pay[] = {0x40, 0x54, 0x04, 'h', 'i'};
+
+/* A fixture with stream 15 opened and its 5 bytes sent. */
+static srvrun_conn* wtf_sent_uni(struct lp_fix* f, wired_obuf* ob, int rsa) {
+  srvrun_conn* c                 = sr_wtsend_fixture(f, ob);
+  c->s.sdrv.peer_reset_stream_at = rsa;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, wired_span_of(wtf_uni_pay, sizeof wtf_uni_pay)) == 15);
+  sr_prio_pump();
+  CHECK(srvrun_wtsend_final_size(c, 15) == sizeof wtf_uni_pay);
+  return c;
+}
+
+/* e holds STREAM(15, off 0, the 3 header bytes) + RESET_STREAM_AT(15,
+ * code, final 5, reliable 3). */
+static void wtf_check_reset_at(const srvrun_rst* e, u64 code) {
+  stream_frame          sf;
+  reset_stream_at_frame ra;
+  usz                   sn;
+  CHECK(e != 0);
+  if (!e) {
+    return;
+  }
+  sn = frame_get_stream(e->pl, e->pln, &sf);
+  CHECK(sn != 0);
+  CHECK(sf.stream_id == 15 && sf.offset == 0 && sf.length == 3);
+  CHECK(ct_diffn(sf.data, wtf_uni_pay, 3) == 0);
+  CHECK(reset_stream_at_decode(e->pl + sn, e->pln - sn, &ra) == e->pln - sn);
+  CHECK(ra.stream_id == 15 && ra.error_code == code);
+  CHECK(ra.final_size == 5 && ra.reliable_size == 3);
+}
+
+static void test_srvrun_wt_reset_stream_at_covers_header(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], o[1500];
+  wired_obuf    out = obuf_of(o, sizeof o);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = wtf_sent_uni(&f, &ob, 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 7) == 1);
+  CHECK(srvrun_seal_wt_stream_reset(c, 0, &out) == 1);
+  wtf_check_reset_at(wtf_kept_last(c), wired_wterrmap_to_http3(7));
+  /* teardown path: the session-close sweep resets its own streams */
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = wtf_sent_uni(&f, &ob, 1);
+  srvrun_send_wt_busy_reset(&g_wtf_cfg, c, 15, WTERR_SESSION_GONE);
+  wtf_check_reset_at(wtf_kept_last(c), WTERR_SESSION_GONE);
+}
+
+/* Without the peer's reset_stream_at TP: RESET_STREAM (0x04), never 0x24;
+ * a client-initiated bidi carries no header on our half: RESET_STREAM. */
+static void test_srvrun_wt_reset_stream_at_fallbacks(void) {
+  struct lp_fix      f;
+  wired_obuf         ob = {0};
+  u8                 obuf[1024], o[1500], p[SRVRUN_RST_PL];
+  wired_obuf         out = obuf_of(o, sizeof o);
+  srvrun_conn*       c;
+  const srvrun_rst*  e;
+  reset_stream_frame rs;
+  srvrun_wt_reset_in in = {8, 1, 0, 4};
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  c                     = wtf_sent_uni(&f, &ob, 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 7) == 1);
+  CHECK(srvrun_seal_wt_stream_reset(c, 0, &out) == 1);
+  e = wtf_kept_last(c);
+  CHECK(e != 0 && e->pl[0] == 0x04);
+  CHECK(e && reset_stream_decode(e->pl, e->pln, &rs) == e->pln);
+  CHECK(rs.final_size == 5);
+  c->s.sdrv.peer_reset_stream_at = 1;
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] == 0x04);
+  in.stream_id = 15; /* server uni, but nothing sent yet: Reliable Size 0 */
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] == 0x04);
+  in.final = 2; /* fewer bytes sent than the header: capped at 2 */
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] != 0x04);
+}
+
+static void test_srvrun_wt_shutdown_waits_for_connect_close(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(c->wt_active == 1);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  CHECK(g_sl_closes == 1);
+  CHECK(src_connect_fin_sent(c)); /* WT_CLOSE_SESSION, then FIN */
+  CHECK(c->closing == 0);         /* no CONNECTION_CLOSE yet */
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 1);
+  src_connect_send(c, hlen, 0, 0, 1); /* the peer closes its side */
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+}
+
+/* A peer RESET_STREAM of the CONNECT stream also ends the wait; a closing
+ * connection waits for nothing. */
+static void test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing(void) {
+  srvrun_conn*       c = sr_sl_fixture();
+  u8                 pl[32];
+  reset_stream_frame rs = {0, 0, 0};
+  usz                n;
+  rs.final_size = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 1);
+  n = reset_stream_encode(pl, sizeof pl, &rs);
+  CHECK(n != 0);
+  sr_sl_step(c, pl, n);
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+  c             = sr_sl_fixture();
+  rs.final_size = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  srvrun_wt_close_all_live(&g_sl_cfg, &g_sl_st);
+  c->closing = 1;
+  CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
+}
+
+static u8 wtf_body[8 * SRVRUN_CHUNK];
+
+/* Session slot 1 (CONNECT stream 8) next to the fixture's slot 0. */
+static void wtf_second_session(srvrun_conn* c) {
+  wired_wt_session_init(&c->wt1, 8);
+  wired_wt_session_establish(&c->wt1);
+  c->wt1_active                          = 1;
+  c->s.sdrv.peer_initial_max_streams_uni = 1000;
+}
+
+/* Open n0 uni streams on session 0, then n1 on session 1 (slots in that
+ * order) and run `passes` WT pump passes. */
+static srvrun_conn* wtf_fair_run(
+    struct lp_fix* f, wired_obuf* ob, int n0, int n1, int passes) {
+  srvrun_conn*    c   = sr_wtsend_fixture(f, ob);
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  wired_span      b   = wired_span_of(wtf_body, sizeof wtf_body);
+  wtf_second_session(c);
+  c->conn_credit = 1u << 24; /* room for every pass's slices */
+  for (int i = 0; i < n0; i++) {
+    CHECK(wired_server_wt_open_uni_stream(&c->wt, b) > 0);
+  }
+  for (int i = 0; i < n1; i++) {
+    CHECK(wired_server_wt_open_uni_stream(&c->wt1, b) > 0);
+  }
+  for (int p = 0; p < passes; p++) {
+    srvrun_pump_wt_round(&ctx, c);
+  }
+  return c;
+}
+
+static void test_srvrun_wt_fair_pass_equal_per_session(void) {
+  static const struct {
+    int n0, n1, passes;
+    u64 want[4]; /* slices in flight on send slots 0..3 */
+  } rows[] = {
+      {3, 1, 1, {1, 0, 0, 1}}, {3, 1, 2, {1, 1, 0, 2}}, {3, 1, 3, {1, 1, 1, 3}},
+      {3, 1, 4, {2, 1, 1, 4}}, {2, 2, 1, {1, 1, 1, 1}}, {2, 2, 2, {2, 2, 2, 2}},
+      {3, 0, 1, {1, 1, 1, 0}}, {2, 0, 2, {2, 2, 0, 0}}, {0, 2, 2, {2, 2, 0, 0}},
+  };
+  for (usz r = 0; r < sizeof rows / sizeof rows[0]; r++) {
+    struct lp_fix f;
+    u8            obuf[1024];
+    wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+    srvrun_conn*  c =
+        wtf_fair_run(&f, &ob, rows[r].n0, rows[r].n1, rows[r].passes);
+    for (usz k = 0; k < 4; k++) {
+      CHECK(sr_inflight(c, k) == rows[r].want[k]);
+    }
+  }
+}
+
+/* Opens session s gets before a refusal. */
+static int wtf_opens_until_refused(wired_wt_session* s) {
+  wired_span b = wired_span_of(wtf_body, 8);
+  int        n = 0;
+  while (n <= SRVRUN_WT_SEND_SLOTS &&
+         wired_server_wt_open_uni_stream(s, b) > 0) {
+    n++;
+  }
+  return n;
+}
+
+static void test_srvrun_wt_open_capped_per_session(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c  = sr_wtsend_fixture(&f, &ob);
+  wtf_second_session(c);
+  CHECK(wtf_opens_until_refused(&c->wt) == SRVRUN_WT_SEND_SLOTS / 2);
+  CHECK(wtf_opens_until_refused(&c->wt1) == SRVRUN_WT_SEND_SLOTS / 2);
+  ob = obuf_of(obuf, sizeof obuf);
+  c  = sr_wtsend_fixture(&f, &ob); /* one session: the whole table */
+  c->s.sdrv.peer_initial_max_streams_uni = 1000;
+  CHECK(wtf_opens_until_refused(&c->wt) == SRVRUN_WT_SEND_SLOTS);
+}
+
+void test_srvrun_wtflow(void) {
+  test_srvrun_wt_fair_pass_equal_per_session();
+  test_srvrun_wt_open_capped_per_session();
+  test_srvrun_wt_shutdown_waits_for_connect_close();
+  test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing();
+  g_wtf_cfg = sr_wt_send_cfg();
+  test_srvrun_wt_reset_stream_at_covers_header();
+  test_srvrun_wt_reset_stream_at_fallbacks();
+  test_srvrun_wt_data_limited_send_emits_data_blocked_once();
+  test_srvrun_wt_exporter_matches_tls_exporter();
+  test_srvrun_wt_exporter_sha384_suite();
+  test_srvrun_wt_exporter_refusals();
+}

@@ -221,6 +221,7 @@ const sdrv_ch_gate SDRV_CH_GATES[] = {
     sdrv_ch_check_iscid,
     sdrv_ch_check_version_information,
     sdrv_ch_check_grease_quic_bit,
+    sdrv_ch_check_reset_stream_at,
     sdrv_ch_reject_dup_ext,
     sdrv_ch_reject_illegal_ext,
     sdrv_ch_require_version,

@@ -39,6 +39,10 @@ typedef struct {
    * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
    * may grease the bit (wired_srvloop_send_onertt). */
   int peer_grease_quic_bit;
+  /** draft-ietf-quic-reliable-stream-reset-09 3: 1 when the ClientHello
+   * carried reset_stream_at (empty value) -- the client accepts
+   * RESET_STREAM_AT (0x24) frames. */
+  int peer_reset_stream_at;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit
