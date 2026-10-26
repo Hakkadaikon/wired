@@ -73,10 +73,13 @@ static wired_moqtrun_track* moqtrun_dg_track(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return 0;
   }
-  wired_moqtrun_track* t = moqtrun_obj_mand_gate(
-      moqtrun_track_by_alias(p, obj.track_alias), obj.props);
+  *loc                   = moqctl_loc_of(obj.group_id, obj.object_id);
+  wired_moqtrun_track* t = moqtrun_gone_gate(
+      hub,
+      moqtrun_obj_mand_gate(
+          moqtrun_track_by_alias(p, obj.track_alias), obj.props),
+      *loc); /* draft-18/19 9.1 */
   moqtrun_track_note(t, obj.group_id, obj.object_id);
-  *loc = moqctl_loc_of(obj.group_id, obj.object_id);
   return t;
 }
 

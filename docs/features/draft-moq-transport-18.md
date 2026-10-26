@@ -1719,9 +1719,13 @@ Legend:
     `test_moqtrun_upfetch_fill_timeout_zero`
   - note: draft-18 has no End of Timed-Out Range marker; toward such a
     draft the gap is End of Unknown Range (the budget test's draft-19 leg).
-- [ ] MQ18-222 (§9.1) Where the hub has recorded an Object as not existing,
+- [~] MQ18-222 (§9.1) Where the hub has recorded an Object as not existing,
   it should neither cache nor forward that Object if it arrives later.
-  - gap: not tested.
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_late_nonexistent_not_cached`
+  - gap: the record is the cache (a closed Group's Location it serves as
+    nonexistent); caching and datagram Objects are gated, but a Subgroup
+    stream's late Object is still forwarded with the stream's bytes.
 - [x] MQ18-238 (§12.3) Where a track carries MAX_CACHE_DURATION, the hub shall
   not start forwarding an Object later than that many milliseconds after
   its first byte was received.

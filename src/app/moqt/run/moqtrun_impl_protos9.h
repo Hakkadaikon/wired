@@ -3,6 +3,10 @@
 
 #include "app/moqt/run/moqtrun_impl_protos8.h"
 
+int moqtrun_obj_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+wired_moqtrun_track* moqtrun_gone_gate(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l);
 int moqtrun_fsel_pass(
     const wired_moqtrun_rngrow* rows, usz n, const moqtrun_fsel_obj* o);
 moqctl_loc moqtrun_fsel_skip(

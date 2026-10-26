@@ -459,10 +459,13 @@ Legend:
   relay it.
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_conflict`
-- [ ] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
+- [~] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
   exist, it should neither cache nor forward that Object if it arrives later.
-  - gap: no test drives an Object after its End of Group / gap marker was
-    cached.
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_late_nonexistent_not_cached`
+  - gap: the record is the cache (a closed Group's Location it serves as
+    nonexistent); caching and datagram Objects are gated, but a Subgroup
+    stream's late Object is still forwarded with the stream's bytes.
 - [x] MOQT-228 (SS9.2, SS9.5) When the hub subscribes upstream for a downstream
   SUBSCRIBE, it shall use Forward 1 (FORWARD omitted).
   - test: `tests/app/moqtrun_upsub_test.c` —
