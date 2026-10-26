@@ -164,8 +164,9 @@ typedef struct {
  * lower first, 128 when absent -- draft-ietf-moq-transport-19 7.1,
  * 10.2.7). 7.2 orders by subscriber priority, then publisher priority, so
  * the subscriber's half picks the pair and the publisher's half the one
- * within it: 4..7. Control and request streams keep the transport default
- * 3 and so go first (7.2: they SHOULD be prioritized highest). The
+ * within it: 4..7. Request streams keep the transport default 3 and the
+ * control stream takes 2 (MOQTRUN_CTL_URGENCY), so both go first (7.2:
+ * control, then requests, then Objects). The
  * fallback when wired_moqt_io.stream_sched is 0: Group Order and the
  * full 8-bit priorities need that hook's class; equal urgencies share the
  * send pass in turn. */
@@ -308,9 +309,8 @@ typedef struct {
   /** Effective SUBGROUP_DELIVERY_TIMEOUT (10.2.6) in ms: min of the
    * publisher's Track Property and the subscriber's parameter over
    * their non-zero values, 0 when neither set. Applied as a second age
-   * bound beside delivery_timeout (draft 8; the hub's io cannot see
-   * "all data committed", so the age model stands in for the
-   * post-FIN timer). */
+   * bound beside delivery_timeout, and as the post-FIN timer of each relay
+   * stream (draft 8, moqtrun_sgt.c). */
   u64 subgroup_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
