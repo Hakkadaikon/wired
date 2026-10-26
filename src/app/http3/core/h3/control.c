@@ -1,5 +1,7 @@
 #include "app/http3/core/h3/control.h"
 
+#include "app/http3/core/h3/frame.h"
+
 void h3_control_init(h3_control* c) {
   c->control_open  = 0;
   c->settings_seen = 0;
@@ -65,3 +67,14 @@ int h3_control_accept_request(const h3_control* c, u64 id) {
   }
   return id < c->goaway_limit; /* at or above the limit is refused */
 }
+
+/* RFC 9114 8.1, indexed by h3_error. */
+static const u16 control_wire_codes[] = {
+    0,
+    H3_STREAM_CREATION_ERROR,
+    H3_CLOSED_CRITICAL_STREAM,
+    H3_MISSING_SETTINGS,
+    H3_FRAME_UNEXPECTED,
+    H3_ID_ERROR};
+
+u16 h3_control_wire_error(h3_error e) { return control_wire_codes[e]; }

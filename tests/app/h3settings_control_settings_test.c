@@ -235,8 +235,7 @@ void test_h3settings_zerortt_compatible_lowered_core_limit_rejected(void) {
  * four already participate in h3settings_zerortt_compatible's
  * general never-regress rule, so lowering any one of them alone is
  * rejected the same way the core/extension fields are above. */
-void test_h3settings_zerortt_compatible_wt_session_limit_lowered_rejected(
-    void) {
+void test_h3settings_zerortt_compatible_wt_sessions_lowered(void) {
   h3settings_in prior = {
       .max_field_section_size = 0x4000,
       .qpack_blocked_streams  = 100,
@@ -260,4 +259,40 @@ void test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected(void) {
   h3settings_in data_lowered       = prior;
   data_lowered.wt_initial_max_data = 1;
   CHECK(h3settings_zerortt_compatible(&prior, &data_lowered) == 0);
+}
+
+/* RFC 9114 7.2.4.2 (9114-066): the remembered SETTINGS, rebuilt from the
+ * ticket's max_datagram_frame_size, gate 0-RTT -- withdrawing the
+ * datagram/WebTransport settings a client may have relied on refuses it;
+ * keeping or adding them accepts. */
+void test_h3settings_zerortt_remembered_ok(void) {
+  CHECK(h3settings_zerortt_remembered_ok(0, 0) == 1);
+  CHECK(h3settings_zerortt_remembered_ok(1200, 1200) == 1);
+  CHECK(h3settings_zerortt_remembered_ok(0, 1200) == 1);
+  CHECK(h3settings_zerortt_remembered_ok(1200, 0) == 0);
+}
+
+/* 1 iff the control stream in buf[0..n) carries a reserved setting id. */
+static int h3settings_test_has_grease(const u8* buf, usz n) {
+  h3_settings out;
+  usz         consumed = 0;
+  int         found    = 0;
+  CHECK(h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed));
+  CHECK(h3_settings_get(buf + consumed, n - consumed, &out) != 0);
+  for (usz i = 0; i < out.n; i++) {
+    found |= h3_is_reserved(out.pairs[i].id);
+  }
+  return found;
+}
+
+/* RFC 9114 7.2.4.1 (9114-064): "Endpoints SHOULD include at least one such
+ * setting in their SETTINGS frame" -- on every connection, not a random
+ * half of them (the old coin flip passed 64 draws with p = 2^-64). */
+void test_h3settings_control_stream_always_greased(void) {
+  for (int i = 0; i < 64; i++) {
+    u8  buf[H3SETTINGS_CONTROL_STREAM_MAX];
+    usz n = 0;
+    CHECK(h3settings_control_stream(i & 1, buf, sizeof buf, &n) == 1);
+    CHECK(h3settings_test_has_grease(buf, n));
+  }
 }

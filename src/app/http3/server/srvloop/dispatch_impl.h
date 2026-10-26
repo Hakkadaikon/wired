@@ -16,6 +16,7 @@
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/priority_ctrl.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/http3/server/srvloop/srvloop_crit.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpackdyn/enc_stream.h"
 #include "app/rawquic/rawq.h"
@@ -95,7 +96,8 @@ int srvloop_gather_server_bidi_frame(
 int  srvloop_gather_wt_stream(wired_srvloop* l, const u8* payload, usz len);
 int  srvloop_is_uni_stream(u64 stream_id);
 int  srvloop_uni_stream_type_accepted(wired_span data);
-void srvloop_uni_stream_type_note_qpack(wired_srvloop* l, wired_span data);
+void srvloop_uni_stream_type_note_qpack(
+    wired_srvloop* l, const stream_frame* sf);
 void srvloop_uni_type_mark(wired_srvloop* l, const stream_frame* sf);
 int  srvloop_qenc_takes(const wired_srvloop* l, const stream_frame* sf);
 void srvloop_gather_qpack_enc(wired_srvloop* l, const stream_frame* sf);

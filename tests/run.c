@@ -634,6 +634,7 @@
 #include "app/http3/server/srvloop/recv_onertt.c"
 #include "app/http3/server/srvloop/priority_ctrl.c"
 #include "app/http3/server/srvloop/priority_ctrl_ctrl.c"
+#include "app/http3/server/srvloop/priority_ctrl_frames.c"
 #include "app/http3/server/srvloop/dispatch.c"
 #include "app/http3/server/srvloop/dispatch_gather.c"
 #include "app/http3/server/srvloop/dispatch_max.c"
@@ -660,6 +661,7 @@
 #include "app/http3/server/srvloop/srvloop_close.c"
 #include "app/http3/server/srvloop/srvloop_closed.c"
 #include "app/http3/server/srvloop/srvloop_ecn.c"
+#include "app/http3/server/srvloop/srvloop_crit.c"
 #include "app/http3/server/srvloop/srvloop_init.c"
 #include "app/http3/server/srvloop/srvloop_note.c"
 #include "app/http3/server/srvloop/srvloop_opened.c"
@@ -1984,6 +1986,19 @@ int main(void) {
   test_h3settings_control_settings();
   test_h3settings_control_settings_advertises_connect_protocol();
   test_h3settings_control_settings_advertises_wt();
+  test_h3settings_build_grease_zero_omits_pair();
+  test_h3settings_build_grease_nonzero_appends_pair();
+  test_h3settings_build_wt_flow_control_initial_limits();
+  test_h3settings_build_wt_flow_control_zero_omits_pairs();
+  test_h3settings_h3_datagram_monotonic_ok();
+  test_h3settings_zerortt_compatible_identical_ok();
+  test_h3settings_zerortt_compatible_raised_fields_ok();
+  test_h3settings_zerortt_compatible_extension_withdrawn_rejected();
+  test_h3settings_zerortt_compatible_lowered_core_limit_rejected();
+  test_h3settings_zerortt_compatible_wt_sessions_lowered();
+  test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected();
+  test_h3settings_zerortt_remembered_ok();
+  test_h3settings_control_stream_always_greased();
   test_capsule();
   test_sfield();
   test_lhdr_build();

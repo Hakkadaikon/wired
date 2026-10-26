@@ -1,3 +1,4 @@
+#include "app/http3/core/h3settings/control_settings.h"
 #include "tls/handshake/core/sdrv/sdrv_impl.h"
 
 /* RFC 9000 7.4.1 / RFC 9001 4.6.3: a 0-RTT client applies the limits the
@@ -11,7 +12,10 @@ int sdrv_early_limits_ok(const sdrv* s, const ticket* t) {
   for (usz i = 0; i < STP_REMEMBERED_DGRAM; i++) {
     ok &= zerortt_param_ok(t->tp[i], cur[i]);
   }
-  return ok & datagram_0rtt_accept_ok(
+  ok &= datagram_0rtt_accept_ok(
+      t->tp[STP_REMEMBERED_DGRAM], cur[STP_REMEMBERED_DGRAM]);
+  /* RFC 9114 7.2.4.2: and the HTTP/3 SETTINGS remembered with them */
+  return ok & h3settings_zerortt_remembered_ok(
                   t->tp[STP_REMEMBERED_DGRAM], cur[STP_REMEMBERED_DGRAM]);
 }
 

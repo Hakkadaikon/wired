@@ -176,6 +176,6 @@ void srvloop_gather_wt_uni_land(wired_srvloop* l, const stream_frame* sf) {
 void srvloop_gather_wt_uni_classify(wired_srvloop* l, const stream_frame* sf) {
   wired_span data = wired_span_of(sf->data, (usz)sf->length);
   srvloop_uni_stream_type_accepted(data);
-  srvloop_uni_stream_type_note_qpack(l, data);
+  srvloop_uni_stream_type_note_qpack(l, sf);
   srvloop_uni_type_mark(l, sf);
 }

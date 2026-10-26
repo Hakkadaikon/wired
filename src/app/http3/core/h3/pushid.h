@@ -9,7 +9,8 @@
 
 /** RFC 9114 4.6: the client's granted Push ID range for this connection. */
 typedef struct {
-  u64 max; /* one past the greatest Push ID the client permits */
+  /** one past the greatest Push ID the client permits */
+  u64 max;
 } h3_push_state;
 
 void h3_push_init(h3_push_state* s);
