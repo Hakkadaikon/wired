@@ -4577,6 +4577,7 @@ typedef struct {
   int ncid;       /* NEW_CONNECTION_ID frames */
   usz chal_len;   /* size of the last datagram carrying a PATH_CHALLENGE */
   int first_chal; /* PATH_CHALLENGEs in the first datagram received */
+  int chal_max;   /* most PATH_CHALLENGEs seen in one packet */
   u8  dcid0;
   u8  retire_dcid0; /* DCID byte 0 of the packet carrying a RETIRE */
   u16 port_be;
@@ -4612,6 +4613,9 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     }
     if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE)) {
       r.chal_len = (usz)n;
+    }
+    if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE) > r.chal_max) {
+      r.chal_max = sr_count_frames(pl, pll, FK_PATH_CHALLENGE);
     }
     if (sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID)) {
       r.retire_dcid0 = pkt[1];
@@ -4792,6 +4796,7 @@ static void test_srvrun_path_wire_probe_challenged_first(void) {
     r = sr_drain(&f, n.bfd);
     CHECK(r.resp == 1 && r.chal == 1);
     CHECK(r.first_chal == 1);
+    CHECK(r.chal_max == 1); /* RFC 9000 8.2.1: one per packet */
   }
   sr_net_close(&n);
 }
@@ -4953,6 +4958,8 @@ static void test_srvrun_retired_cid_replenished(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, old, 6) == -1);
   CHECK(ct_diffn(c.l.spare_cid, old, 6) != 0);
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, c.l.spare_cid, 6) == 0);
+  /* RFC 9000 10.3.2: the replacement keeps the one SCID length */
+  CHECK(c.l.spare_cid_len == id.scid_len);
   sr_net_close(&n);
 }
 
@@ -8391,12 +8398,16 @@ static void test_srvrun_reset_during_response_keeps_slot(void) {
   srvrun_state    st  = {table, conns};
   srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
   sr_reset_after_request(table, conns, &f);
-  conns[0].l.reset_slots     = 1; /* re-armed, so srvloop notes it */
-  conns[0].resp[0].in_use    = 1;
-  conns[0].resp[0].stream_id = 4;
+  conns[0].l.reset_slots         = 1; /* re-armed, so srvloop notes it */
+  conns[0].resp[0].in_use        = 1;
+  conns[0].resp[0].stream_id     = 4;
+  conns[0].resp[0].stream_credit = 1234;
   srvrun_free_reset_reqs(&ctx, &conns[0]);
   CHECK(conns[0].l.streams[0].in_use == 1);
   CHECK(conns[0].stream_limit_advertised == 0);
+  /* RFC 9000 4.4: the live send half keeps its flow control state */
+  CHECK(conns[0].resp[0].in_use == 1);
+  CHECK(conns[0].resp[0].stream_credit == 1234);
 }
 
 /* RFC 9000 2.2: STREAM(FIN) and RESET_STREAM in one datagram -- the request
@@ -26830,6 +26841,71 @@ static void test_srvrun_close_reasons_are_utf8(void) {
   CHECK(sr_close_reason_ascii(c));
 }
 
+/* RFC 9000 10.3: answering a packet of 43 bytes or fewer, the Stateless
+ * Reset is exactly one byte shorter than it. */
+static void test_srvrun_stateless_reset_one_byte_shorter(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], out[128];
+  u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  for (usz t = SRESET_MIN + 1; t <= 43; t++) {
+    srvrun_cfg cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    wired_obuf ob  = obuf_of(out, sizeof out);
+    CHECK(srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), t, &ob));
+    CHECK(ob.len == t - 1);
+  }
+}
+
+/* RFC 9000 11 / 10.3: a short-header packet for a connection the server
+ * still holds is that connection's (here undecryptable) traffic, never
+ * answered with a Stateless Reset. */
+static void test_srvrun_live_slot_never_reset(void) {
+  wired_srvboot_id id;
+  struct lp_fix    f;
+  u8               priv[32], pub[32], seed[32], rnd[32], short_hdr[64];
+  u8               obuf[1024];
+  wired_obuf       ob = {obuf, sizeof obuf, 0};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer  = {0};
+  srvrun_conn*     conns = sr_test_conns();
+  srvrun_state     st    = {table, conns};
+  usz              tx_before;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0x30 + i);
+  }
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  CHECK(
+      conntable_insert(
+          table, WIRED_CONNTABLE_CAP, short_hdr + 1, id.scid_len) == 0);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    tx_before           = g_srvrun_env.tx_flush_count;
+    srvrun_serve(&ctx, wired_mspan_of(short_hdr, sizeof short_hdr));
+  }
+  CHECK(g_srvrun_env.tx_flush_count == tx_before);
+  CHECK(conns[0].up == 1);
+  conns[0] = (srvrun_conn){0};
+}
+
+/* RFC 9000 14.4: a lost PMTU probe is not a congestion signal -- the
+ * window and recovery state are untouched while the probe is retried. */
+static void test_srvrun_pmtu_lost_probe_no_cc_reaction(void) {
+  srvrun_conn c;
+  usz         size = PMTU_BASE + PMTU_STEP;
+  u64         cwnd;
+  sr_pmtu_outstanding(&c, size);
+  c.cc.cwnd       = 50000;
+  cwnd            = c.cc.cwnd;
+  c.largest_acked = c.pmtu_probe_pn + 3; /* the probe is now lost */
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == size);
+  CHECK(c.cc.cwnd == cwnd);
+  CHECK(c.cc.in_recovery == 0);
+}
+
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
@@ -27269,6 +27345,9 @@ void test_srvrun(void) {
   test_srvrun_bad_initial_closes_and_reverts();
   test_srvrun_one_ack_only_per_eliciting_packet();
   test_srvrun_close_reasons_are_utf8();
+  test_srvrun_stateless_reset_one_byte_shorter();
+  test_srvrun_live_slot_never_reset();
+  test_srvrun_pmtu_lost_probe_no_cc_reaction();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();
