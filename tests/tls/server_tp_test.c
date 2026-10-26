@@ -51,6 +51,11 @@ static void test_server_tp_ids_and_values(void) {
       tparam_cid_match(b, wired_span_of(scid, sizeof(scid))));
 
   CHECK(parse_int(tp, TP_MAX_IDLE_TIMEOUT, &v) && v == 30000);
+  /* RFC 9000 18.2: max_ack_delay covers the delayed-ACK window plus the
+   * poll tick that checks it (server_tp.h; the sum is pinned in
+   * srvrun_rec_test.c). */
+  CHECK(
+      parse_int(tp, TP_MAX_ACK_DELAY, &v) && v == STP_DEFAULT_MAX_ACK_DELAY_MS);
   /* 10,000,000 matches the connection-wide default the mainstream stacks
    * benchmark with (quiche's CLI default), so untuned cross-implementation
    * runs start from equal preconditions. Safe above the fixed receive

@@ -77,6 +77,7 @@ u64* srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn) {
 
 void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn) {
   u64* counter = srvloop_ecn_counter_for(l, ecn);
+  l->rx_ce     = ecn == 3; /* RFC 3168 CE */
   if (counter) {
     (*counter)++;
   }

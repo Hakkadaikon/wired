@@ -89,7 +89,9 @@ void srvloop_note_ack_owed(
     ackpolicy*     policy,
     wired_span     pl,
     u64            pn,
-    u64            now_ms);
+    u64            now_ms,
+    int            urgent);
+int  srvloop_app_ack_urgent(const wired_srvloop* l);
 void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload);
 void srvloop_step_note_ack_owed(
     wired_srvloop* l, wired_span payload, int level);

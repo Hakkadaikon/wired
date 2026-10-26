@@ -152,6 +152,7 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms);
 usz  srvrun_bytes_in_flight(const srvrun_conn* c);
 int  srvrun_loss_timer_due(const srvrun_conn* c, u64 now_ms);
 void srvrun_loss_timer_slot(const srvrun_step_ctx* ctx, int slot);
+void srvrun_ack_tick_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_loss_pass(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64 largest_before);
 

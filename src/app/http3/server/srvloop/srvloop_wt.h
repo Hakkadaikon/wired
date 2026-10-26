@@ -16,12 +16,14 @@
 #include "transport/recovery/detect/recovery/ackpolicy.h"
 #include "transport/recovery/rtx/sentmeta/record.h"
 
-/** RFC 9000 18.2's default max_ack_delay when the peer's own transport
- * parameter isn't tracked (this SDK does not parse the client's
- * max_ack_delay yet -- YAGNI until a deployment needs a non-default value).
- * Matches srvrun.c's own SRVRUN_MAX_ACK_DELAY_US (25000us = 25ms); kept as
- * a separate constant here since srvloop must not depend on srvrun. */
+/** RFC 9000 13.2.1: how long this server holds back an ACK for a single
+ * ack-eliciting 1-RTT packet. The advertised max_ack_delay
+ * (STP_DEFAULT_MAX_ACK_DELAY_MS) adds the poll tick that checks it. */
 #define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
+
+/** Sent packets carrying an ACK frame remembered for RFC 9000 13.2.3's
+ * range pruning (wired_srvloop.ackd_pn1); the oldest is overwritten. */
+#define WIRED_SRVLOOP_ACKD 8
 
 /** NEW_CONNECTION_ID frames kept per step (wired_srvloop.ncid_rx); more are
  * dropped -- the peer may issue at most active_connection_id_limit. */
@@ -574,6 +576,12 @@ typedef struct {
   /** Largest 1-RTT packet number received, valid with app_rx_seen: the
    * baseline for recovering a truncated pn (RFC 9000 A.3). */
   u64 app_rx_hi;
+  /** RFC 9000 13.2.1: 1 when the packet just numbered (app_rx_pn) skipped
+   * at least one packet number past the largest received before it. */
+  u8 app_rx_gap;
+  /** RFC 9000 13.2.1: 1 while the datagram being stepped was ECN-CE marked
+   * (wired_srvloop_ecn_note). */
+  u8  rx_ce;
   int app_rx_seen; /**< 1 once a 1-RTT packet has been received (app_rx_pn
                     * valid) */
   /** RFC 9000 9.3: largest application packet number (0-RTT or 1-RTT) that
@@ -627,10 +635,20 @@ typedef struct {
    * driving loop's send sessions count by slice bytes instead
    * (sentmeta_uncount). */
   sentmeta sent;
-  int      hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
-                          * emitted */
-  int ticket_sent;       /**< 1 once the post-confirmation session ticket
-                          * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
+  /** RFC 9000 13.2.3: 1 + the pn of a recent packet that carried an ACK
+   * frame (0 = free), with that frame's Largest Acknowledged in
+   * ackd_largest; ackd_next is the slot the next one overwrites. */
+  u64 ackd_pn1[WIRED_SRVLOOP_ACKD];
+  u64 ackd_largest[WIRED_SRVLOOP_ACKD];
+  u8  ackd_next;
+  /** RFC 9000 13.2.3: 1 + the largest Largest Acknowledged of our ACK
+   * frames the peer has acknowledged (0 = none) -- packets below it no
+   * longer need reporting. */
+  u64 ack_floor1;
+  int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
+                     * emitted */
+  int ticket_sent;  /**< 1 once the post-confirmation session ticket
+                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,

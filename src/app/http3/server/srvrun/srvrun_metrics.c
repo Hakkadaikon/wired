@@ -93,6 +93,15 @@ static int srvrun_deferred_ack_due(srvrun_conn* c) {
       &c->l.app_ack_policy, c->l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
 }
 
+/* RFC 9000 13.2.1: an ACK still owed when no packet arrives (a lone
+ * ack-eliciting packet waiting out the delay window) goes out from the
+ * poll tick once due, through the same bare-ACK flush. */
+void srvrun_ack_tick_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  c->l.ack_defer = 1;
+  srvrun_flush_deferred_ack(ctx, c);
+}
+
 /* RFC 9000 13.2.1/13.2.2: a step whose deferred ACK found no slice to ride
  * flushes it as the traditional bare-ACK datagram, so deferral never delays
  * an ACK past the pre-existing upper bound (the delay window still gates

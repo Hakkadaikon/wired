@@ -14,6 +14,7 @@
 typedef struct {
   u64 pending;    /**< unacked ack-eliciting packets received */
   u64 since_tick; /**< tick of the oldest currently-pending packet */
+  u8  immediate;  /**< RFC 9000 13.2.1: a pending packet must be acked now */
 } ackpolicy;
 
 void ackpolicy_init(ackpolicy* p);
@@ -21,8 +22,13 @@ void ackpolicy_init(ackpolicy* p);
 /* Record receipt of an ack-eliciting packet at the given tick. */
 void ackpolicy_on_eliciting(ackpolicy* p, u64 tick);
 
+/* RFC 9000 13.2.1: the ack-eliciting packet just recorded arrived out of
+ * order, after a gap, or marked ECN-CE -- acknowledge without delay. */
+void ackpolicy_on_urgent(ackpolicy* p);
+
 /* Whether an ACK should be sent now: true once two or more ack-eliciting
- * packets are pending, or once max_ack_delay has elapsed since the oldest. */
+ * packets are pending, one urgent packet is, or once max_ack_delay has
+ * elapsed since the oldest. */
 int ackpolicy_should_ack(const ackpolicy* p, u64 now, u64 max_ack_delay);
 
 /* Clear pending state after an ACK has been sent. */

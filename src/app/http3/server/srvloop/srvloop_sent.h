@@ -15,4 +15,9 @@ int srvloop_send_onertt_rec(
     const wired_srvloop_send_in* in,
     wired_obuf*                  out);
 
+/** RFC 9000 13.2.3: the peer acknowledged [lo, hi]; every remembered
+ * ACK-carrying packet in it raises l->ack_floor1 past that ACK's Largest
+ * Acknowledged. */
+void srvloop_ackd_on_acked(wired_srvloop* l, u64 lo, u64 hi);
+
 #endif

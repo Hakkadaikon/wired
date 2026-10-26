@@ -41,6 +41,7 @@ int srvloop_has_close(wired_span pl, u64* code) {
 
 /* Record one ACK range on l's per-step list; overflow is dropped. */
 static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi) {
+  srvloop_ackd_on_acked(l, lo, hi); /* RFC 9000 13.2.3 */
   if (l->ack_n >= sizeof l->ack_lo / sizeof l->ack_lo[0]) {
     return;
   }
@@ -119,10 +120,14 @@ void srvloop_note_ack_owed(
     ackpolicy*     policy,
     wired_span     pl,
     u64            pn,
-    u64            now_ms) {
+    u64            now_ms,
+    int            urgent) {
   if (!framewalk_ack_eliciting(pl)) {
     return;
   }
   pnspaces_on_recv(recv, space, pn);
   ackpolicy_on_eliciting(policy, now_ms);
+  if (urgent) {
+    ackpolicy_on_urgent(policy);
+  }
 }

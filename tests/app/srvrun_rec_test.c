@@ -398,6 +398,142 @@ static void test_srvrun_rec_loss_timer_suppresses_pto(void) {
   }
 }
 
+/* One client 1-RTT PING packet pn stepped through the loop (datagram ECN
+ * codepoint ecn); 1 if the step answered it with a packet right away. */
+static int srvrec_ping(struct lp_fix* f, u64 pn, u8 ecn) {
+  u8         ping[1] = {0x01}, spkt[256], out[1024];
+  wired_obuf ob      = {out, sizeof out, 0};
+  usz        n       = client_seal_onertt_pn(f, pn, ping, 1, spkt, sizeof spkt);
+  wired_srvloop_ecn_note(&f->l, ecn);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, n), &ob);
+  return ob.len != 0;
+}
+
+/* RFC 9000 13.2.1: a lone in-order ack-eliciting packet waits out the
+ * delay window (the clock never moves here); one after a gap, one below
+ * the largest received (reordered) and one in an ECN-CE datagram are each
+ * acknowledged at once. */
+static void test_srvrun_rec_ack_immediate_on_gap_reorder_ce(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  u8            buf[288];
+  lp_confirm(&f, &ob);
+  srvrec_ping(&f, 20, 0);
+  srvloop_app_ack_append(&f.l, buf, sizeof buf); /* start from nothing owed */
+  CHECK(srvrec_ping(&f, 21, 0) == 0);            /* in order: delayed */
+  CHECK(f.l.app_ack_policy.pending == 1);
+  srvloop_app_ack_append(&f.l, buf, sizeof buf);
+  CHECK(srvrec_ping(&f, 23, 0) == 1); /* pn 22 missing */
+  CHECK(f.l.app_ack_policy.pending == 0);
+  CHECK(srvrec_ping(&f, 22, 0) == 1); /* below 23: reordered */
+  CHECK(srvrec_ping(&f, 24, 3) == 1); /* ECN-CE */
+  CHECK(srvrec_ping(&f, 25, 2) == 0); /* ECT(0), in order: delayed */
+}
+
+/* Decode the ACK the loop would send now (marking one owed first: the
+ * gapped pings below were each already acknowledged on arrival). */
+static void srvrec_peek_ack(wired_srvloop* l, ack_frame* f) {
+  u8  buf[300];
+  usz n;
+  ackpolicy_on_eliciting(&l->app_ack_policy, 0);
+  n = wired_srvloop_ack_peek(l, buf, sizeof buf);
+  CHECK(n != 0 && ack_decode(buf, n, f) == n);
+}
+
+/* RFC 9000 13.2.3: once the peer acknowledges a packet of ours that carried
+ * an ACK with Largest Acknowledged 25, later ACKs stop reporting packets at
+ * or below 25: after pn 27 arrives only [27, 27] is left. */
+static void test_srvrun_rec_ack_prunes_acked_ranges(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a;
+  u64           ours;
+  lp_confirm(&f, &ob);
+  srvrec_ping(&f, 21, 0);
+  srvrec_ping(&f, 23, 0);
+  srvrec_ping(&f, 25, 0);
+  {
+    u8         pl[300];
+    u8         sealed[1500];
+    wired_obuf sob = obuf_of(sealed, sizeof sealed);
+    usz        al;
+    ackpolicy_on_eliciting(&f.l.app_ack_policy, 0);
+    al                        = wired_srvloop_ack_peek(&f.l, pl, sizeof pl);
+    wired_srvloop_send_in sin = {
+        wired_span_of(f.l.cli_scid, f.l.cli_scid_len),
+        f.l.tx_pn++,
+        -1,
+        wired_span_of(pl, al),
+        0,
+        0,
+        0,
+        0};
+    ours = sin.pn;
+    CHECK(al != 0);
+    CHECK(srvloop_send_onertt_rec(&f.l, &f.s, &sin, &sob) == 1);
+  }
+  {
+    u8        pa[32];
+    ack_frame peer = {0, 1, {{ours, ours}}, 0, 0, 0, 0};
+    usz       n    = ack_encode(pa, sizeof pa, &peer);
+    srvloop_collect_acks(&f.l, wired_span_of(pa, n));
+  }
+  CHECK(f.l.ack_floor1 == 26);
+  srvrec_ping(&f, 27, 0);
+  srvrec_peek_ack(&f.l, &a);
+  CHECK(a.n_ranges == 1);
+  CHECK(a.ranges[0].hi == 27 && a.ranges[0].lo == 27);
+}
+
+/* RFC 9000 13.2.4: 33 separate ranges in the receive window (every other
+ * pn, 100..164) exceed ACK_MAX_RANGES; the ACK still goes out with the 32
+ * newest instead of not at all. */
+static void test_srvrun_rec_ack_truncates_ranges(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a;
+  lp_confirm(&f, &ob);
+  for (u64 pn = 100; pn <= 164; pn += 2) {
+    srvrec_ping(&f, pn, 0);
+  }
+  srvrec_peek_ack(&f.l, &a);
+  CHECK(a.n_ranges == ACK_MAX_RANGES);
+  CHECK(a.ranges[0].hi == 164 && a.ranges[31].lo == 102);
+}
+
+/* RFC 9000 13.2.1 / 18.2: an ACK owed with no further packet arriving is
+ * sent from the poll tick once the delay window passes, and the advertised
+ * max_ack_delay covers that window plus the tick. */
+static void test_srvrun_rec_tick_flushes_ack(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  u8              obuf[1024];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, &c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 10, 0};
+  u64             tx;
+  CHECK(
+      STP_DEFAULT_MAX_ACK_DELAY_MS >=
+      WIRED_SRVLOOP_MAX_ACK_DELAY_MS + SRVRUN_PTO_MS);
+  srvrec_bare(&c, &f, &ob);
+  ackpolicy_on_ack_sent(&c.l.app_ack_policy);
+  pnspaces_on_recv(&c.l.ack_recv, PNS_APP, 40);
+  ackpolicy_on_eliciting(&c.l.app_ack_policy, 0);
+  CHECK(srvrun_slot_waiting(&c));
+  tx         = c.l.tx_pn;
+  c.l.now_ms = 10;
+  srvrun_ack_tick_slot(&ctx, 0);
+  CHECK(c.l.tx_pn == tx && c.l.app_ack_policy.pending == 1);
+  c.l.now_ms = ctx.now_ms = WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  srvrun_ack_tick_slot(&ctx, 0);
+  CHECK(c.l.tx_pn == tx + 1 && c.l.app_ack_policy.pending == 0);
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -410,4 +546,8 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_peer_max_ack_delay();
   test_srvrun_rec_loss_timer_fires();
   test_srvrun_rec_loss_timer_suppresses_pto();
+  test_srvrun_rec_ack_immediate_on_gap_reorder_ce();
+  test_srvrun_rec_ack_prunes_acked_ranges();
+  test_srvrun_rec_ack_truncates_ranges();
+  test_srvrun_rec_tick_flushes_ack();
 }

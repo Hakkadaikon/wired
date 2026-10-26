@@ -9,10 +9,17 @@ void srvloop_pending_priority_reset(wired_srvloop* l) {
 
 /* Packet-number spaces and handshake progress. */
 void srvloop_init_pn(wired_srvloop* l) {
-  l->tx_pn          = 0;
-  l->hs_tx_pn       = 0;
-  l->app_rx_pn      = 0;
-  l->app_rx_hi      = 0;
+  l->tx_pn      = 0;
+  l->hs_tx_pn   = 0;
+  l->app_rx_pn  = 0;
+  l->app_rx_hi  = 0;
+  l->app_rx_gap = 0;
+  l->ackd_next  = 0;
+  l->ack_floor1 = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_ACKD; i++) {
+    l->ackd_pn1[i] = 0;
+  }
+  l->rx_ce          = 0;
   l->app_rx_seen    = 0;
   l->np_hi          = 0;
   l->np_seen        = 0;
