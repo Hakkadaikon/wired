@@ -1102,7 +1102,7 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
   usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   initpkt_desc d = {
-      wired_span_of(alt, 6), wired_span_of(alt, 6),
+      wired_span_of(alt, 6), wired_span_of(g_scid, 6),
       wired_span_of(ch + 60, n - 60), 1, 60};
   wired_obuf o = obuf_of(dga, sizeof dga);
   CHECK(initpkt_build(&d, &o) == 1);
@@ -1111,6 +1111,27 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 0);
   wired_srvboot_acc_allow(&a, wired_span_of(alt, 6));
   CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 1);
+}
+
+/* RFC 9000 7.2: "if subsequent Initial packets include a different Source
+ * Connection ID, they MUST be discarded" -- the rest of the ClientHello
+ * under another SCID does not feed the bound accumulator. */
+static void test_srvboot_acc_rejects_other_scid(void) {
+  client            c;
+  u8                ch[2048], dg1[1400], dgb[1400];
+  u8                other[6] = {7, 7, 7, 7, 7, 7};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
+  initpkt_desc d = {
+      wired_span_of(g_scid, 6), wired_span_of(other, 6),
+      wired_span_of(ch + 60, n - 60), 1, 60};
+  wired_obuf o = obuf_of(dgb, sizeof dgb);
+  CHECK(initpkt_build(&d, &o) == 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  CHECK(srvboot_acc_admit(&a, wired_mspan_of(dgb, o.len)) == 0);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
 }
 
 /* An authenticated ClientHello the server cannot serve (its key_share
@@ -1726,6 +1747,7 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_guards();
   test_srvboot_vneg_echoes_255_byte_cids();
   test_srvboot_pref_addr_needs_nonzero_cid();
+  test_srvboot_acc_rejects_other_scid();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
   test_bootacc_zerortt_coalesced_with_initial_buffered();
