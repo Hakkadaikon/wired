@@ -24,10 +24,6 @@ void h3_control_open(h3_control* c) {
   c->control_open = 1;
 }
 
-void h3_control_closed(h3_control* c) {
-  fail(c, H3_ERR_CLOSED_CRITICAL); /* the control stream must not close */
-}
-
 /* The first control frame: SETTINGS is required, anything else is missing. */
 static void first_frame(h3_control* c, int is_settings) {
   if (!is_settings) {
@@ -59,13 +55,6 @@ void h3_control_goaway(h3_control* c, u64 id) {
   }
   c->goaway_seen  = 1;
   c->goaway_limit = id;
-}
-
-int h3_control_accept_request(const h3_control* c, u64 id) {
-  if (!c->goaway_seen) {
-    return 1; /* no shutdown in progress */
-  }
-  return id < c->goaway_limit; /* at or above the limit is refused */
 }
 
 /* RFC 9114 8.1, indexed by h3_error. */
