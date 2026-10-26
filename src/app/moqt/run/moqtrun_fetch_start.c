@@ -55,6 +55,7 @@ int moqtrun_fetch_resolve(
     return 0;
   }
   r->tag   = t->cache_tag;
+  r->props = moqtrun_track_props(t);
   r->start = start;
   moqtrun_fetch_clamp(r, t, end);
   return 1;

@@ -491,6 +491,46 @@ static void test_moqtrun_setup_advertises_limits(void) {
   CHECK(s.max_request_updates == WIRED_MOQTRUN_MAX_REQ_UPDATES);
 }
 
+/* The hub's SETUP: Setup Options of its last control-stream open. */
+static moqctl_setup moqtrun_test_hub_setup(wired_moqt_hub* hub) {
+  const moqtrun_test_call* c;
+  usz                      off = 0, boff = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_setup             s = {0};
+  moqtrun_test_session(hub, SESS_A);
+  c = moqtrun_test_last_kind(1);
+  CHECK(
+      moqctl_peek_type(
+          wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      MOQCTL_OK);
+  CHECK(moqctl_setup_take(body, &boff, &s) == MOQCTL_OK);
+  return s;
+}
+
+/* draft-19 10.3.1.5 (draft-18 10.3.1.5, draft-22 9.1.5): "An endpoint
+ * SHOULD send a MOQT_IMPLEMENTATION option unless specifically configured
+ * not to do so", limited to "the implementation name and version" (13.8);
+ * no_implementation is that configuration. */
+static void test_moqtrun_setup_sends_implementation(void) {
+  static const u8 want[] = "wired/0";
+  wired_moqt_hub  hub;
+  moqctl_setup    s;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  s = moqtrun_test_hub_setup(&hub);
+  CHECK(s.has_implementation == 1);
+  CHECK(s.implementation.n == sizeof(want) - 1);
+  for (usz i = 0; i < s.implementation.n; i++) {
+    CHECK(s.implementation.p[i] == want[i]);
+  }
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  hub.no_implementation = 1;
+  s                     = moqtrun_test_hub_setup(&hub);
+  CHECK(s.has_implementation == 0);
+}
+
 /* A second control stream for an already-tracked WT session is a no-op
  * here, not a second SETUP. srvrun's wt_on_session doc says "fires once",
  * but nothing upstream stops a duplicate/retried Extended CONNECT from
@@ -6284,6 +6324,7 @@ static void mtall_main(void) {
   test_moqtrun_payload_hash_detects_tail_past_truncation();
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_setup_advertises_limits();
+  test_moqtrun_setup_sends_implementation();
   test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_setup_on_hub_bidi_accepted();
   test_moqtrun_client_uni_ctl_accepted();

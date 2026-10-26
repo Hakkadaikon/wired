@@ -42,7 +42,7 @@ static void moqtrun_fill_wait_put(
  * waited -- continues from there. */
 static void moqtrun_fill_wait_convert(
     wired_moqt_hub* hub, wired_moqtrun_fetch* w) {
-  moqtrun_frange       r = {w->cache_tag, w->cursor, w->end, {0, 0}};
+  moqtrun_frange       r = {w->cache_tag, w->cursor, w->end, {0, 0}, {0, 0}};
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, w->wt, w->request_id, &r);
   if (!f) {
     return;

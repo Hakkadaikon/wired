@@ -21,10 +21,10 @@ static int srvrun_is_broadcast_target(const srvrun_conn* c) {
  * connection still drains through its own srvrun_send_pending_datagram on
  * its own next step, same as any other queued datagram; this only makes
  * every eligible connection's slot hold the same payload at once. */
-void srvrun_broadcast_to_all(srvrun_state* st, wired_span data) {
+void srvrun_broadcast_to_all(srvrun_state* st, wired_span data, u8 urgency) {
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     if (srvrun_is_broadcast_target(&st->conns[i])) {
-      srvrun_queue_datagram(&st->conns[i], data);
+      srvrun_queue_datagram_prio(&st->conns[i], data, urgency);
     }
   }
 }
@@ -133,9 +133,9 @@ static void srvrun_bcast_mesh_push(int my_slot, int my_index, wired_span data) {
  * srvthreads worker ever called wired_srvrun_broadcast_register), so this is
  * either wired_server_run(_opt) or the one-and-only wired_srvrun_serve_env
  * instance -- both drive the single process-wide g_srvrun_env. */
-int srvrun_broadcast_direct(wired_span data) {
+int srvrun_broadcast_direct(wired_span data, u8 urgency) {
   srvrun_broadcast_to_all(
-      &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
+      &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data, urgency);
   return 1;
 }
 
@@ -145,9 +145,12 @@ int srvrun_broadcast_direct(wired_span data) {
  * gives every worker its own mmap'd env instead of the single global one.
  * With 2+ workers also push into every OTHER registered worker's inbox row
  * so their own next step delivers it to their own sessions. */
-int srvrun_broadcast_registered(int slot, wired_span data) {
+int srvrun_broadcast_registered(int slot, wired_span data, u8 urgency) {
   srvrun_bcast_entry* e = &g_srvrun_bcast[slot];
-  srvrun_broadcast_to_all(&(srvrun_state){e->env->table, e->env->conns}, data);
+  srvrun_broadcast_to_all(
+      &(srvrun_state){e->env->table, e->env->conns}, data, urgency);
+  /* shortcut: the inbox rows carry no urgency, so other workers queue their
+   * copy at DGPRIORITY_DEFAULT; widen wired_srvinbox_slot if that matters. */
   if (e->n_total > 1) {
     srvrun_bcast_mesh_push(slot, e->index, data);
   }

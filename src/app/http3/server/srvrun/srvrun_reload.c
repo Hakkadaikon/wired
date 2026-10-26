@@ -1,6 +1,6 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static usz  srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms);
+static usz  srvrun_dgring_slice(wired_srvrun_env* env, u64 now_ms);
 static void srvrun_goaway_one(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* ob);
 static int srvrun_reload_requested(const wired_srvrun_env* env);
@@ -10,29 +10,27 @@ static void                         srvrun_reload_cert(
 static int srvrun_reinit_ok(const srvrun_conn* c);
 
 /* Entries this drain may send now: 0 while the pacing interval since the
- * last slice has not yet elapsed; otherwise capped by both the per-slice
- * entry count and byte budget above. */
-static usz srvrun_dgring_slice(const wired_srvrun_env* env, u64 now_ms) {
-  usz max = (usz)u64_min(env->dgring_n, SRVRUN_DGRING_DRAIN_MAX);
+ * last slice has not yet elapsed, else up to the per-slice entry count
+ * (the byte budget is applied per entry, srvrun_dgring_send_best); a
+ * non-empty slice starts the next pacing interval. */
+static usz srvrun_dgring_slice(wired_srvrun_env* env, u64 now_ms) {
+  usz n = (usz)u64_min(env->dgring_n, SRVRUN_DGRING_DRAIN_MAX);
   if (now_ms < env->dgring_next_drain_ms) {
     return 0;
   }
-  return srvrun_dgring_budget_count(env, max);
-}
-
-/* Drain up to one paced slice of ring entries, oldest first -- run once per
- * loop step (srvrun_step); what this slice cannot send stays queued for a
- * later step, never dropped. */
-void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
-  wired_srvrun_env* env = cfg->env;
-  usz               n   = srvrun_dgring_slice(env, now_ms);
   if (n) {
     env->dgring_next_drain_ms = now_ms + SRVRUN_DGRING_DRAIN_MS;
   }
-  while (n--) {
-    srvrun_dgring_send_one(cfg, st, &env->dgring[env->dgring_head]);
-    env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
-    env->dgring_n--;
+  return n;
+}
+
+/* Drain up to one paced slice of ring entries, most urgent first (RFC 9221
+ * 5.1) -- run once per loop step (srvrun_step); what this slice cannot send
+ * stays queued for a later step, never dropped. */
+void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
+  usz n     = srvrun_dgring_slice(cfg->env, now_ms);
+  usz bytes = 0;
+  while (n-- && srvrun_dgring_send_best(cfg, st, &bytes)) {
   }
 }
 

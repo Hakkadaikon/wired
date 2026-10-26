@@ -83,6 +83,6 @@ wired_moqtrun_fetch* moqtrun_fetch_accept(
   if (descending) {
     moqtrun_fetch_descend(hub, f, r);
   }
-  moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r));
+  moqtrun_queue_fetch_ok(p, moqtrun_fetch_ok_end(hub, p, r), r->props);
   return f;
 }

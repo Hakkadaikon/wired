@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2174/2274 requirements demonstrated (95.6%) — 1811 directly tested,
-363 indirect, 100 untested.**
+**Total: 2191/2274 requirements demonstrated (96.4%) — 1828 directly tested,
+363 indirect, 83 untested.**
 
 ## QUIC core
 
@@ -85,7 +85,7 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 25/26 | 22 | 3 | 1 |
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 26/26 | 23 | 3 | 0 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 24 | 5 | 0 |
@@ -145,9 +145,9 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 225/248 | 195 | 30 | 23 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 229/248 | 194 | 35 | 19 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 252/273 | 209 | 43 | 21 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 231/248 | 201 | 30 | 17 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 234/248 | 199 | 35 | 14 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 257/273 | 214 | 43 | 16 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,
