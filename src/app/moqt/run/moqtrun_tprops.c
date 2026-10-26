@@ -98,3 +98,21 @@ int moqtrun_tprops_refused(wired_span props, u64* code) {
   *code = moqtrun_tprops_code(f);
   return f != 0;
 }
+
+/* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): "An Object received with
+ * a Mandatory Track Property as an Object Property is malformed". */
+int moqtrun_obj_mand(const wired_moqtrun_track* t, wired_span props) {
+  return t && (moqtrun_tprops_check(props) & MOQTRUN_TP_MAND);
+}
+
+/* t, or 0 once an Object of t with Object Properties props made it a
+ * Malformed Track (moqtrun_obj_mand): flagged, the Object dropped; the
+ * PUBLISH_DONE sweep ends the track (12.1). */
+wired_moqtrun_track* moqtrun_obj_mand_gate(
+    wired_moqtrun_track* t, wired_span props) {
+  if (moqtrun_obj_mand(t, props)) {
+    t->malformed = 1;
+    return 0;
+  }
+  return t;
+}

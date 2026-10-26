@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 202/259 tested, 35 indirect, 22 untested.**
+**Coverage: 203/259 tested, 35 indirect, 21 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -258,10 +258,10 @@ Legend:
   Property, then the hub shall cancel that subscription and answer each
   pending downstream SUBSCRIBE with REQUEST_ERROR UNSUPPORTED_EXTENSION.
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
-- [ ] MQ22-224 (SS3.7) If an Object carries a Mandatory Track Property as an
+- [x] MQ22-224 (SS3.7) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as malformed
   (SS12.1).
-  - gap: Object Properties are relayed without inspection.
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
 
 ## SS6.2 Session Establishment
 

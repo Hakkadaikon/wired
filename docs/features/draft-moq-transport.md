@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 191/248 tested, 37 indirect, 20 untested.**
+**Coverage: 192/248 tested, 37 indirect, 19 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -217,9 +217,9 @@ Legend:
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_no_track_waits_ok`
   - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_reencode`
-- [ ] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
+- [x] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as Malformed.
-  - gap: Object Properties are relayed opaque; no Mandatory-range check.
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
 - [x] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
   hub does not understand, then the hub shall answer REQUEST_ERROR
   UNSUPPORTED_EXTENSION and not forward the track.
@@ -1812,7 +1812,6 @@ MOQT-200 through MOQT-208).
 The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
-- Mandatory Track Properties as an Object Property (MOQT-212).
 - INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
