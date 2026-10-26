@@ -7,7 +7,6 @@
 #include "test.h"
 #include "transport/recovery/detect/ackrange/ackrange_process.c"
 #include "app/datagram/dgdeliver/dg_send.c"
-#include "app/datagram/dgdeliver/dg_loss.c"
 #include "app/datagram/dgdeliver/dg_recv.c"
 #include "transport/recovery/detect/losstime/losstime.c"
 #include "transport/conn/pnspace/pnspaces/spaces.c"
@@ -70,9 +69,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.c"
 #include "transport/conn/pnspace/crypto_stream/crypto_rx.c"
 #include "transport/conn/pnspace/crypto_stream/ecdhe.c"
-#include "app/http3/core/h3run/control.c"
 #include "app/http3/core/h3run/settings_seq.c"
-#include "app/http3/core/h3run/goaway.c"
 #include "tls/handshake/core/handshake_drive/retry_drive.c"
 #include "tls/handshake/core/handshake_drive/vn_drive.c"
 #include "transport/packet/protect/protect_suite/aead_suite.c"
@@ -80,7 +77,6 @@
 #include "tls/keys/schedule_drive/keyschedule.c"
 #include "transport/recovery/rtx/sentpkt/sentpkt.c"
 #include "transport/recovery/rtx/sentpkt/ack_process.c"
-#include "transport/recovery/rtx/sentpkt/loss_detect.c"
 #include "crypto/kdf/keys/discard_driver.c"
 #include "crypto/kdf/keys/promote.c"
 #include "crypto/kdf/keys/keyset.c"
@@ -186,12 +182,10 @@
 #include "transport/conn/lifecycle/session/session_open.c"
 #include "app/datagram/datagram/zerortt_dgram.c"
 #include "tls/handshake/core/tls/ticketversion.c"
-#include "transport/version/version/switchrule.c"
 #include "tls/handshake/core/tls/alpn_match.c"
 #include "tls/handshake/core/tls/alpn.c"
 #include "tls/handshake/core/tls/sni.c"
 #include "app/http3/core/h3/reuse.c"
-#include "transport/conn/lifecycle/closelife/keepalive.c"
 #include "app/http3/core/h3/priority.c"
 #include "app/http3/core/h3/priupdate.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
@@ -220,12 +214,7 @@
 #include "crypto/symmetric/aead/chacha/poly1305.c"
 #include "crypto/symmetric/aead/chacha/poly1305_full.c"
 #include "crypto/symmetric/aead/chacha/poly1305_poly.c"
-#include "transport/conn/cid/cid/cidpool.c"
-#include "transport/conn/lifecycle/closelife/closelife.c"
-#include "transport/conn/lifecycle/closelife/draining.c"
 #include "transport/conn/lifecycle/closelife/idlefloor.c"
-#include "transport/conn/lifecycle/closelife/idletimeout.c"
-#include "transport/conn/lifecycle/closelife/termgate.c"
 #include "transport/conn/lifecycle/conn/cidnego.c"
 #include "transport/conn/cid/cidxchg/cidxchg.c"
 #include "transport/conn/lifecycle/conn/conn.c"
@@ -233,7 +222,6 @@
 #include "transport/conn/lifecycle/conn/pnspace.c"
 #include "transport/conn/lifecycle/conntable/conntable.c"
 #include "app/datagram/datagram/datagram.c"
-#include "app/datagram/datagram/dgcc.c"
 #include "app/datagram/datagram/dgcheck.c"
 #include "app/datagram/datagram/dgsize.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field.c"
@@ -248,7 +236,6 @@
 #include "common/diag/error/error.c"
 #include "transport/stream/flow/flow/dual_flow.c"
 #include "transport/stream/flow/flow/finalsize.c"
-#include "transport/stream/flow/flow/flow.c"
 #include "transport/stream/flow/flow/reassemble.c"
 #include "transport/stream/flow/flow/stream_flow.c"
 #include "transport/stream/flow/flow/streams.c"
@@ -278,9 +265,7 @@
 #include "crypto/symmetric/aead/gcmx86/gcmx86_load.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_seal.c"
 #include "tls/ext/grease/bitset.c"
-#include "tls/ext/grease/early.c"
 #include "tls/ext/grease/grease.c"
-#include "tls/ext/grease/sreset_bit.c"
 #include "app/http3/core/h3/connect.c"
 #include "app/http3/core/h3/contentlen.c"
 #include "app/http3/core/h3/control.c"
@@ -299,7 +284,6 @@
 #include "app/http3/core/h3/pseudoheader.c"
 #include "app/http3/core/h3/pushid.c"
 #include "app/http3/core/h3/qpack_settings.c"
-#include "app/http3/core/h3/reqstream.c"
 #include "app/http3/core/h3/settings_check.c"
 #include "app/http3/core/h3/settings_dup.c"
 #include "app/http3/core/h3/shutdown.c"
@@ -324,14 +308,11 @@
 #include "tls/keys/keyupdate/kuderive.c"
 #include "tls/keys/keyupdate/oldkey.c"
 #include "tls/keys/ticket/ticket.c"
-#include "tls/keys/ticketguard/ticketguard.c"
 #include "tls/keys/keyring/keyring.c"
 #include "transport/conn/loop/manage/dosmitigate.c"
 #include "transport/conn/loop/manage/flowobs.c"
 #include "transport/conn/loop/manage/linkability.c"
 #include "transport/conn/loop/manage/middlebox.c"
-#include "transport/conn/loop/manage/observable.c"
-#include "transport/conn/loop/manage/rttobs.c"
 #include "transport/conn/loop/manage/zerortt_policy.c"
 #include "transport/conn/loop/manage/zerortt_seen.c"
 #include "transport/conn/cid/migrate/migrate.c"
@@ -403,8 +384,6 @@
 #include "transport/conn/cid/retrytoken/newtoken.c"
 #include "transport/conn/cid/spin/spin.c"
 #include "transport/conn/cid/sreset/sreset.c"
-#include "transport/stream/data/stream/bidi.c"
-#include "transport/stream/data/stream/stream.c"
 #include "transport/stream/data/stream/stream_id.c"
 #include "transport/stream/data/stream/stream_limit.c"
 #include "transport/stream/data/stream/stream_role.c"
@@ -447,7 +426,6 @@
 #include "transport/version/version/verinfo.c"
 #include "transport/version/version/verselect.c"
 #include "transport/version/version/version.c"
-#include "transport/version/version/vneg.c"
 #include "crypto/pki/encoding/x509/chain.c"
 #include "crypto/pki/encoding/x509/basicconstraints.c"
 #include "crypto/pki/encoding/x509/san.c"
@@ -470,9 +448,7 @@
 #include "transport/conn/loop/connloop/connloop.c"
 #include "transport/conn/loop/connio/connio.c"
 #include "transport/conn/loop/connio/connio_recv.c"
-#include "transport/recovery/detect/lossdrive/lossdrive.c"
 #include "transport/recovery/detect/lossdrive/lossdelay.c"
-#include "transport/recovery/detect/lossdrive/ptobackoff.c"
 #include "transport/packet/build/pktbuild/initpad.c"
 #include "transport/packet/build/pktbuild/framepack.c"
 #include "transport/packet/build/pktbuild/eliciting.c"
@@ -549,14 +525,7 @@
 #include "app/http3/request/h3resp/resp_build.c"
 #include "app/http3/request/h3resp/resp_size.c"
 #include "app/http3/request/h3resp/hello.c"
-#include "transport/conn/loop/evloop/evloop.c"
 #include "transport/conn/loop/connrunner/level.c"
-#include "transport/conn/loop/connrunner/recv.c"
-#include "transport/conn/loop/connrunner/send.c"
-#include "transport/conn/loop/connrunner/keyupdate.c"
-#include "transport/conn/loop/connrunner/reconnect.c"
-#include "transport/conn/loop/connrunner/pmtudrive.c"
-#include "transport/conn/loop/connrunner/connrunner.c"
 #include "app/http3/core/h3conn/establish.c"
 #include "app/http3/core/h3conn/request.c"
 #include "app/http3/core/h3conn/response.c"
@@ -571,24 +540,15 @@
 #include "app/http3/request/h3reqdrive/request_drive_take.c"
 #include "app/http3/request/h3reqdrive/request_drive_trailer.c"
 #include "app/http3/request/h3cancel/cancel.c"
-#include "transport/recovery/rtx/rtxbytes/rtxstore.c"
-#include "transport/recovery/rtx/rtxbytes/rebuild.c"
-#include "transport/recovery/rtx/rtxbytes/collect.c"
 #include "tls/keys/kuswitch/derive.c"
 #include "tls/keys/kuswitch/phasebit.c"
 #include "tls/keys/kuswitch/twogen.c"
-#include "transport/recovery/detect/hspto/hspto.c"
-#include "transport/recovery/detect/hspto/arm.c"
-#include "transport/recovery/detect/hspto/probe_space.c"
 #include "app/http3/request/h3reqenc/pseudo_encode.c"
 #include "app/http3/request/h3reqenc/header_encode.c"
 #include "app/http3/request/h3reqenc/request_headers.c"
 #include "crypto/pki/cert/tbscert/fields.c"
 #include "crypto/pki/cert/tbscert/version_serial.c"
 #include "crypto/pki/cert/tbscert/sigalg.c"
-#include "transport/recovery/rtx/rtxdrive/select.c"
-#include "transport/recovery/rtx/rtxdrive/build.c"
-#include "transport/recovery/rtx/rtxdrive/batch.c"
 #include "tls/keys/kudrive/trigger.c"
 #include "tls/keys/kudrive/recv_phase.c"
 #include "tls/keys/kudrive/discard_timing.c"
@@ -599,11 +559,7 @@
 #include "transport/version/vndrive/select.c"
 #include "transport/version/vndrive/reconnect.c"
 #include "transport/recovery/rtx/sentmeta/record.c"
-#include "transport/recovery/rtx/sentmeta/on_ack.c"
-#include "transport/recovery/rtx/sentmeta/detect_loss.c"
 #include "transport/io/udp/udpsess/udpsess.c"
-#include "tls/ext/alpnver/alpnver.c"
-#include "tls/handshake/flight/resume/resume.c"
 #include "tls/handshake/flight/earlydrive/earlydata.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed_table.c"
@@ -1022,7 +978,6 @@
 #include "transport/pnum_test.c"
 #include "tls/tparam_test.c"
 #include "transport/frame_test.c"
-#include "transport/stream_test.c"
 #include "transport/conn_test.c"
 #include "crypto/sha256_test.c"
 #include "crypto/hmac_test.c"
@@ -1074,7 +1029,6 @@
 #include "tls/appkeys_test.c"
 #include "transport/availfilter_test.c"
 #include "app/base_test.c"
-#include "app/bidi_test.c"
 #include "tls/binder_test.c"
 #include "tls/bitset_test.c"
 #include "transport/ccloss_test.c"
@@ -1082,9 +1036,7 @@
 #include "tls/cert_test.c"
 #include "transport/cidnego_test.c"
 #include "transport/cidxchg_test.c"
-#include "transport/cidpool_test.c"
 #include "transport/close_convert_test.c"
-#include "transport/closelife_test.c"
 #include "transport/coalesce_test.c"
 #include "transport/coalorder_test.c"
 #include "common/codes_test.c"
@@ -1101,14 +1053,11 @@
 #include "transport/bbr_test.c"
 #include "transport/cubic_test.c"
 #include "transport/hystart_test.c"
-#include "app/dgcc_test.c"
 #include "app/dgcheck_test.c"
 #include "app/dgsize_test.c"
 #include "transport/dosmitigate_test.c"
 #include "transport/downgrade_test.c"
-#include "transport/draining_test.c"
 #include "transport/dual_flow_test.c"
-#include "tls/early_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
 #include "crypto/bssl_ed25519_test.c"
@@ -1137,7 +1086,6 @@
 #include "transport/hpsample_test.c"
 #include "tls/hsdone_test.c"
 #include "transport/idlefloor_test.c"
-#include "transport/idletimeout_test.c"
 #include "transport/inflight_test.c"
 #include "tls/initiate_test.c"
 #include "transport/inittoken_test.c"
@@ -1156,7 +1104,6 @@
 #include "transport/migrate_test.c"
 #include "tls/msgassembly_test.c"
 #include "transport/ncid_check_test.c"
-#include "transport/observable_test.c"
 #include "tls/oldkey_test.c"
 #include "transport/pacing_test.c"
 #include "transport/pad_test.c"
@@ -1182,21 +1129,18 @@
 #include "app/qpack_test.c"
 #include "transport/recvpn_test.c"
 #include "app/relindex_test.c"
-#include "app/reqstream_test.c"
 #include "transport/resbits_test.c"
 #include "tls/retry_tag_test.c"
 #include "tls/retry_tag_v2_test.c"
 #include "transport/retrytoken_test.c"
 #include "transport/newtoken_test.c"
 #include "transport/rttinit_test.c"
-#include "transport/rttobs_test.c"
 #include "transport/rttsample_test.c"
 #include "transport/rttvalid_test.c"
 #include "app/settings_check_test.c"
 #include "app/settings_dup_test.c"
 #include "app/shutdown_test.c"
 #include "transport/spin_test.c"
-#include "tls/sreset_bit_test.c"
 #include "transport/sreset_test.c"
 #include "transport/stream_bounds_test.c"
 #include "transport/stream_flow_test.c"
@@ -1214,18 +1158,15 @@
 #include "transport/verinfo_test.c"
 #include "transport/verselect_test.c"
 #include "transport/version_test.c"
-#include "transport/vneg_test.c"
 #include "tls/zerortt_params_test.c"
 #include "transport/zerortt_policy_test.c"
 #include "transport/zerortt_seen_test.c"
 #include "tls/zerortt_reject_test.c"
 #include "app/priority_test.c"
-#include "transport/keepalive_test.c"
 #include "app/reuse_test.c"
 #include "tls/sni_test.c"
 #include "tls/alpn_test.c"
 #include "tls/alpn_match_test.c"
-#include "transport/switchrule_test.c"
 #include "tls/ticketversion_test.c"
 #include "tls/ticket_test.c"
 #include "tls/newsessionticket_test.c"
@@ -1317,9 +1258,7 @@
 #include "transport/stream_read_test.c"
 #include "transport/credit_test.c"
 #include "transport/stream_credit_test.c"
-#include "app/h3run_control_test.c"
 #include "app/h3run_settings_seq_test.c"
-#include "app/h3run_goaway_test.c"
 #include "tls/retry_drive_test.c"
 #include "tls/vn_drive_test.c"
 #include "transport/aead_suite_test.c"
@@ -1327,16 +1266,13 @@
 #include "tls/keyschedule_test.c"
 #include "transport/sentpkt_test.c"
 #include "transport/ack_process_test.c"
-#include "transport/loss_detect_test.c"
 #include "transport/dispatch_state_test.c"
 #include "transport/rxloop_test.c"
 #include "transport/txloop_test.c"
 #include "transport/antiamp_gate_test.c"
 #include "transport/connloop_test.c"
 #include "transport/connio_test.c"
-#include "transport/lossdrive_test.c"
 #include "transport/lossdelay_test.c"
-#include "transport/ptobackoff_test.c"
 #include "transport/initpad_test.c"
 #include "transport/framepack_test.c"
 #include "transport/eliciting_test.c"
@@ -1428,7 +1364,6 @@
 #include "tls/earlydata_test.c"
 #include "transport/ackrange_process_test.c"
 #include "app/dg_send_test.c"
-#include "app/dg_loss_test.c"
 #include "app/dg_recv_test.c"
 #include "transport/losstime_test.c"
 #include "transport/pnspaces_spaces_test.c"
@@ -1439,42 +1374,26 @@
 #include "transport/avail_test.c"
 #include "transport/v2switch_test.c"
 #include "transport/versdowngrade_test.c"
-#include "transport/evloop_test.c"
-#include "transport/pmtudrive_test.c"
-#include "transport/connrunner_test.c"
 #include "app/h3conn_establish_test.c"
 #include "app/h3conn_roundtrip_test.c"
 #include "app/h3reqdrive_test.c"
 #include "app/h3reqdrive_check_test.c"
 #include "app/h3cancel_test.c"
-#include "transport/rtxstore_test.c"
-#include "transport/rebuild_test.c"
-#include "transport/collect_test.c"
 #include "tls/kuswitch_derive_test.c"
 #include "tls/kuswitch_phasebit_test.c"
-#include "transport/hspto_test.c"
-#include "transport/hspto_arm_test.c"
-#include "transport/hspto_probe_space_test.c"
 #include "app/pseudo_encode_test.c"
 #include "app/header_encode_test.c"
 #include "app/request_headers_test.c"
 #include "crypto/fields_test.c"
 #include "crypto/version_serial_test.c"
 #include "crypto/sigalg_test.c"
-#include "transport/rtxdrive_select_test.c"
-#include "transport/rtxdrive_build_test.c"
-#include "transport/rtxdrive_batch_test.c"
 #include "tls/kudrive_trigger_test.c"
 #include "tls/kudrive_recv_phase_test.c"
 #include "tls/kudrive_discard_timing_test.c"
 #include "transport/retrydrive_test.c"
 #include "transport/vndrive_test.c"
 #include "transport/sentmeta_test.c"
-#include "transport/termgate_test.c"
 #include "transport/udpsess_test.c"
-#include "tls/alpnver_test.c"
-#include "tls/resume_test.c"
-#include "tls/ticketguard_test.c"
 #include "tls/keyring_test.c"
 #include "tls/earlydrive_test.c"
 #include "crypto/rfc6979_test.c"
@@ -1618,7 +1537,6 @@ int main(void) {
   test_pnum();
   test_tparam();
   test_frame();
-  test_stream();
   test_conn();
   test_sha256();
   test_hmac();
@@ -1669,7 +1587,6 @@ int main(void) {
   test_appkeys();
   test_availfilter();
   test_base();
-  test_bidi();
   test_binder();
   test_bitset();
   test_ccloss();
@@ -1677,9 +1594,7 @@ int main(void) {
   test_cert();
   test_cidnego();
   test_cidxchg();
-  test_cidpool();
   test_close_convert();
-  test_closelife();
   test_coalesce();
   test_coalorder();
   test_codes();
@@ -1696,14 +1611,11 @@ int main(void) {
   test_bbr();
   test_cubic();
   test_hystart();
-  test_dgcc();
   test_dgcheck();
   test_dgsize();
   test_dosmitigate();
   test_downgrade();
-  test_draining();
   test_dual_flow();
-  test_early();
   test_ecn();
   test_ed25519();
   test_bssl_ed25519();
@@ -1732,7 +1644,6 @@ int main(void) {
   test_hpsample();
   test_hsdone();
   test_idlefloor();
-  test_idletimeout();
   test_inflight();
   test_initiate();
   test_inittoken();
@@ -1751,7 +1662,6 @@ int main(void) {
   test_migrate();
   test_msgassembly();
   test_ncid_check();
-  test_observable();
   test_oldkey();
   test_pacing();
   test_pad();
@@ -1778,21 +1688,18 @@ int main(void) {
   test_qpack();
   test_recvpn();
   test_relindex();
-  test_reqstream();
   test_resbits();
   test_retry_tag();
   test_retry_tag_v2();
   test_retrytoken();
   test_newtoken();
   test_rttinit();
-  test_rttobs();
   test_rttsample();
   test_rttvalid();
   test_settings_check();
   test_settings_dup();
   test_shutdown();
   test_spin();
-  test_sreset_bit();
   test_sreset();
   test_stream_bounds();
   test_stream_flow();
@@ -1812,18 +1719,15 @@ int main(void) {
   test_verinfo();
   test_verselect();
   test_version();
-  test_vneg();
   test_zerortt_params();
   test_zerortt_policy();
   test_zerortt_seen();
   test_zerortt_reject();
   test_priority();
-  test_keepalive();
   test_reuse();
   test_sni();
   test_alpn();
   test_alpn_match();
-  test_switchrule();
   test_ticketversion();
   test_ticket();
   test_newsessionticket();
@@ -1915,9 +1819,7 @@ int main(void) {
   test_stream_read();
   test_credit();
   test_stream_credit();
-  test_h3run_control();
   test_h3run_settings_seq();
-  test_h3run_goaway();
   test_retry_drive();
   test_vn_drive();
   test_aead_suite();
@@ -1925,16 +1827,13 @@ int main(void) {
   test_keyschedule();
   test_sentpkt();
   test_ack_process();
-  test_loss_detect();
   test_dispatch_state();
   test_rxloop();
   test_txloop();
   test_antiamp_gate();
   test_connloop();
   test_connio();
-  test_lossdrive();
   test_lossdelay();
-  test_ptobackoff();
   test_initpad();
   test_framepack();
   test_eliciting();
@@ -2061,9 +1960,6 @@ int main(void) {
   test_dg_send_over_max();
   test_dg_send_unsupported();
   test_dg_send_no_room();
-  test_dg_loss_notifies();
-  test_dg_loss_ignores_other();
-  test_dg_loss_never_retransmit();
   test_dg_recv_with_length();
   test_dg_recv_no_length();
   test_dg_recv_truncated();
@@ -2076,46 +1972,30 @@ int main(void) {
   test_avail();
   test_v2switch();
   test_versdowngrade();
-  test_evloop();
-  test_pmtudrive();
-  test_connrunner();
   test_h3conn_establish();
   test_h3conn_roundtrip();
   test_h3reqdrive();
   test_h3reqcheck();
   test_h3cancel();
-  test_rtxstore();
-  test_rebuild();
-  test_collect();
   test_kuswitch_derive();
   test_kuswitch_derive_suite_chacha20_full_key();
   test_kuswitch_derive_suite_aes_matches_plain();
   test_kuswitch_derive_suite_v2_labels();
   test_kuswitch_phasebit();
   test_kuswitch_twogen();
-  test_hspto();
-  test_hspto_arm();
-  test_hspto_probe_space();
   test_pseudo_encode();
   test_header_encode();
   test_request_headers();
   test_fields();
   test_version_serial();
   test_sigalg();
-  test_rtxdrive_select();
-  test_rtxdrive_build();
-  test_rtxdrive_batch();
   test_kudrive_trigger();
   test_kudrive_recv_phase();
   test_kudrive_discard_timing();
   test_retrydrive();
   test_vndrive();
   test_sentmeta();
-  test_termgate();
   test_udpsess();
-  test_alpnver();
-  test_resume();
-  test_ticketguard();
   test_keyring();
   test_earlydrive();
   test_rfc6979();

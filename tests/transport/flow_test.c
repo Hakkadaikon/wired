@@ -1,26 +1,5 @@
 #include "test.h"
 
-static void test_flow_send(void) {
-  flow_send f;
-  flow_send_init(&f, 1000);
-  CHECK(flow_send_avail(&f) == 1000);
-  CHECK(flow_send_record(&f, 600) == 1);
-  CHECK(flow_send_avail(&f) == 400);
-  CHECK(flow_send_record(&f, 500) == 0); /* exceeds limit, rejected */
-  CHECK(f.sent == 600);
-  flow_send_update_max(&f, 2000);
-  CHECK(flow_send_avail(&f) == 1400);
-  flow_send_update_max(&f, 100); /* never lowers */
-  CHECK(f.max_data == 2000);
-}
-
-static void test_flow_recv(void) {
-  flow_recv f;
-  flow_recv_init(&f, 1000);
-  CHECK(f.max_data == 1000);
-  CHECK(flow_recv_consume(&f, 400) == 1400); /* credit slides forward */
-}
-
 /* Only the contiguous prefix from 0 is delivered; data past a gap waits. */
 static void test_reasm_contiguous_only(void) {
   reasm r;
@@ -43,19 +22,6 @@ static void test_reasm_idempotent(void) {
   CHECK(reasm_deliver(&r) == 5);                           /* unchanged */
 }
 
-/* The sender is blocked when it wants more than the limit allows. */
-static void test_flow_blocked(void) {
-  flow_send f;
-  flow_send_init(&f, 100);
-  CHECK(flow_send_blocked(&f, 0) == 0);   /* nothing to send */
-  CHECK(flow_send_blocked(&f, 100) == 0); /* exactly fits */
-  CHECK(flow_send_blocked(&f, 101) == 1); /* over the limit: blocked */
-  flow_send_record(&f, 100);              /* limit reached */
-  CHECK(flow_send_blocked(&f, 1) == 1);   /* no room left: blocked */
-  flow_send_update_max(&f, 150);
-  CHECK(flow_send_blocked(&f, 50) == 0); /* room again */
-}
-
 /* Resource-exhaustion pinning (quiche/quinn-proto/s2n-quic/quicly CVE class):
  * reasm is a fixed REASM_CAP=4096 byte/have array, not a growable per-range
  * allocation; an insert whose [offset, offset+len) spills past the fixed
@@ -75,9 +41,6 @@ static void test_reasm_insert_rejects_over_cap(void) {
 }
 
 void test_flow(void) {
-  test_flow_send();
-  test_flow_recv();
-  test_flow_blocked();
   test_reasm_contiguous_only();
   test_reasm_idempotent();
   test_reasm_insert_rejects_over_cap();

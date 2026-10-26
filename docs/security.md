@@ -165,8 +165,7 @@ The update is allowed only when the handshake is confirmed and the send
 generation equals the receive generation (`ku_can_initiate`). Each Key
 Update resets the packet count to 0, because the limit applies per key.
 
-**Known limits:** the older `connrunner_maybe_initiate_ku` helper is not
-used by the server loop. When the limit is hit while an update is still
+**Known limits:** when the limit is hit while an update is still
 unconfirmed, sealing stops (RFC 9001 6.2 / 6.6), and the idle timeout, not
 a dedicated close, ends the connection.
 

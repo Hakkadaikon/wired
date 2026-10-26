@@ -26,27 +26,4 @@ int finalsize_data(finalsize* f, u64 offset, u64 len);
  * differs from a previously known value or is below the highest offset seen. */
 int finalsize_set(finalsize* f, u64 size);
 
-/* RFC 9000 4.4: a bidirectional stream's two directions are independent --
- * RESET_STREAM (send direction) or a peer's RESET_STREAM (recv direction)
- * fixes only that direction's final size and never disturbs the other,
- * which keeps tracking its own flow control state until it separately
- * reaches a terminal state. */
-/** A bidirectional stream's two independent final sizes (RFC 9000 4.4). */
-typedef struct {
-  finalsize send; /**< the send direction */
-  finalsize recv; /**< the receive direction */
-} dual_finalsize;
-
-void dual_finalsize_init(dual_finalsize* d);
-
-/* Fix the send direction's final size (e.g. on sending/receiving the
- * RESET_STREAM that terminates it). Returns 1 if consistent, 0
- * (FINAL_SIZE_ERROR) on conflict; the recv direction is untouched either
- * way. */
-int dual_finalsize_reset_send(dual_finalsize* d, u64 size);
-
-/* Same as dual_finalsize_reset_send, but for the recv direction; the
- * send direction is untouched either way. */
-int dual_finalsize_reset_recv(dual_finalsize* d, u64 size);
-
 #endif
