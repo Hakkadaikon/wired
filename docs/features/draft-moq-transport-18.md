@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 189/248 tested, 30 indirect, 29 untested.**
+**Coverage: 192/248 tested, 30 indirect, 26 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -365,12 +365,11 @@ Legend:
   leading variable-length integer as one of SETUP (0x2F00), FETCH_HEADER
   (0x05), SUBGROUP_HEADER (0b0XX1XXXX), or PADDING (0x132B3E28).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_classify_golden`
-- [ ] MQ18-039 (§3.4) If an endpoint receives an unknown unidirectional stream
+- [x] MQ18-039 (§3.4) If an endpoint receives an unknown unidirectional stream
   type, then the implementation shall close the session with a protocol
   violation.
-  - gap: only the session model closes
-    (`test_moqsess_unknown_uni_stream_type`); the hub's stream path does not
-    feed it, and no hub test sends an unknown stream type.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_padding_stream_kept`
 - [x] MQ18-040 The implementation shall classify a unidirectional stream
   without consuming bytes past a truncated leading type field, reporting the
   classification as insufficient instead.
@@ -1082,22 +1081,18 @@ Legend:
   Object Forwarding Preference = Subgroup, belonging to the Track Alias, Group
   ID, and Subgroup ID the header declares.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
-- [ ] MQ18-120 (§11.4.2) The SUBGROUP_HEADER Type field shall take the form
+- [x] MQ18-120 (§11.4.2) The SUBGROUP_HEADER Type field shall take the form
   0b0XX1XXXX (bit 4 always set); if received with any other form, the
   implementation shall close the session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_type_valid_golden`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
 - [x] MQ18-121 The implementation shall decode the SUBGROUP_ID_MODE field (bits
   1-2) as: 0b00 Subgroup ID absent and 0, 0b01 Subgroup ID absent and equal to
   the first Object's Object ID, 0b10 Subgroup ID present in the header.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
-- [ ] MQ18-122 (§11.4.2) If SUBGROUP_ID_MODE is 0b11, then the implementation
+- [x] MQ18-122 (§11.4.2) If SUBGROUP_ID_MODE is 0b11, then the implementation
   shall close the session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_subhdr_take_bad_type`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
 - [x] MQ18-123 The implementation shall decode the PROPERTIES bit (0x01),
   END_OF_GROUP bit (0x08), DEFAULT_PRIORITY bit (0x20), and FIRST_OBJECT bit
   (0x40) of the SUBGROUP_HEADER Type field.

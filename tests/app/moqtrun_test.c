@@ -2558,7 +2558,12 @@ static void test_moqtrun_unbound_stream_id_relays_nowhere(void) {
       &hub, SESS_A, 999 /* never seen before */, wired_span_of(bare, bare_off),
       0);
 
-  CHECK(g_n_calls == 0);
+  /* Its first varint (Object ID delta 0) is no Stream Type: nothing is
+   * relayed and the session closes (draft-19 3.4). */
+  CHECK(g_n_calls == 1);
+  CHECK(
+      moqtrun_test_last_kind(11) && moqtrun_test_last_kind(11)->stream_id ==
+                                        WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* ===================== 8. audio long-lived relay stream

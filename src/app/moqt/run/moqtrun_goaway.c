@@ -105,8 +105,7 @@ void moqtrun_dispatch_goaway(
 /* draft-19 3.3: one control stream per peer -- a 2nd one (or a 2nd
  * SETUP) closes the session with PROTOCOL_VIOLATION. */
 void moqtrun_second_ctl(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  moqsess_step(&p->sess, MOQSESS_EV_SECOND_CTRL);
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_SECOND_CTRL);
 }
 
 /* A SETUP after one was already accepted, or on a stream other than the

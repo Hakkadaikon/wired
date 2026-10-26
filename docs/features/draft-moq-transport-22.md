@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 198/259 tested, 35 indirect, 26 untested.**
+**Coverage: 206/273 tested, 43 indirect, 24 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -356,11 +356,10 @@ Legend:
   leading variable-length integer as one of SETUP (0x2F00), FETCH_HEADER
   (0x05), SUBGROUP_HEADER (0b0XX1XXXX), or PADDING (0x132B3E28).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_classify_golden`
-- [ ] MQ22-039 If an endpoint receives an unknown unidirectional stream type,
+- [x] MQ22-039 If an endpoint receives an unknown unidirectional stream type,
   then the implementation shall close the session with a protocol violation.
-  - gap: only the session model closes
-    (`test_moqsess_unknown_uni_stream_type`); the hub's stream path does not
-    feed it, and no hub test sends an unknown stream type.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_padding_stream_kept`
 - [x] MQ22-040 The implementation shall classify a unidirectional stream
   without consuming bytes past a truncated leading type field, reporting the
   classification as insufficient instead.
@@ -1217,14 +1216,10 @@ Legend:
   belonging to the Track Alias, Group ID, and Subgroup ID the header
   declares.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
-- [ ] MQ22-119 The SUBGROUP_HEADER Type Flags field shall take the form
+- [x] MQ22-119 The SUBGROUP_HEADER Type Flags field shall take the form
   0b0XX1XXXX (bit 4 always set); if received with any other form, the
   implementation shall close the session with a protocol violation.
-  - gap: the codec rejects it (`test_moqdata_type_valid_golden`),
-    but the hub does not close the session: a data stream that fails to
-    decode is just not relayed past that point
-    (`moqtrun_decode_object_loop`,
-    `test_moqtrun_decode_loop_stops_at_violation`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
   - note: the valid value set is byte-identical to draft-19 (48 values);
     draft-22 only renames the field "Type Flags" and generalizes the
     reserved-bit rule — see `draft19-vs-22-diff.md` §10.
@@ -1233,13 +1228,9 @@ Legend:
   the first Object's Object ID, 0b10 Subgroup ID present in the header.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
-- [ ] MQ22-121 If SUBGROUP_ID_MODE is 0b11, then the implementation shall close
+- [x] MQ22-121 If SUBGROUP_ID_MODE is 0b11, then the implementation shall close
   the session with a protocol violation.
-  - gap: the codec rejects it (`test_moqdata_subhdr_take_bad_type`),
-    but the hub does not close the session: a data stream that fails to
-    decode is just not relayed past that point
-    (`moqtrun_decode_object_loop`,
-    `test_moqtrun_decode_loop_stops_at_violation`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
 - [x] MQ22-122 The implementation shall decode the PROPERTIES bit (0x01),
   END_OF_GROUP bit (0x08), DEFAULT_PRIORITY bit (0x20), and FIRST_OBJECT bit
   (0x40) of the SUBGROUP_HEADER Type Flags field.
