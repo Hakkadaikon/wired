@@ -725,6 +725,7 @@
 #include "app/http3/server/srvrun/srvrun_grant.c"
 #include "app/http3/server/srvrun/srvrun_sess_pto.c"
 #include "app/http3/server/srvrun/srvrun_held.c"
+#include "app/http3/server/srvrun/srvrun_hdr.c"
 #include "app/http3/server/srvrun/srvrun_http.c"
 #include "app/http3/server/srvrun/srvrun_wt_protocol.c"
 #include "app/http3/server/srvrun/srvrun_live.c"

@@ -144,7 +144,8 @@ int srvrun_h3_resp_prefix(
     const wired_http_exchange* x,
     u64                        total_len,
     wired_obuf*                pob) {
-  h3resp_fields          f = {x->fields, x->field_count};
+  srvrun_hdrs            h;
+  h3resp_fields          f = srvrun_hdrs_app(&h, x, total_len);
   qpackenc_status_result ins;
   if (!h3resp_prefix_fields_qenc(
           srvrun_http_status(x), x->content_type, total_len, f,

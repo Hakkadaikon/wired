@@ -3,6 +3,28 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_protos3.h"
 
+/* A response's field lines: the application's (or one extra) plus the
+ * SDK's own Content-Length / Date / Allow, with the value bytes those
+ * need. WIRED_HTTP_MAX_FIELDS + 3 holds every app field plus all three. */
+typedef struct {
+  qpack_field f[WIRED_HTTP_MAX_FIELDS + 3];
+  usz         n;
+  u8          date[CLOCK_IMF_FIXDATE_LEN];
+  u8          len[21]; /* u64 in decimal plus snprintf's NUL */
+  u8          allow[H3_METHOD_ALLOW_MAX];
+} srvrun_hdrs;
+
+h3resp_fields srvrun_hdrs_app(
+    srvrun_hdrs* h, const wired_http_exchange* x, u64 total_len);
+int srvrun_status_build(
+    const wired_h3reqdrive_req* req,
+    u16                         status,
+    const qpack_field*          extra,
+    wired_obuf*                 out);
+int         srvrun_req_is_head(const wired_h3reqdrive_req* r);
+const char* srvrun_status_text(u16 status);
+wired_span  srvrun_status_body(const wired_h3reqdrive_req* r, u16 status);
+
 void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_pace_charge(srvrun_conn* c, usz bytes);
 int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);

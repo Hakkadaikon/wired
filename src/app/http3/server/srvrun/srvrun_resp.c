@@ -56,15 +56,17 @@ usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
   return (usz)(r - c->resp);
 }
 
-/* Seal a bare status-only response (no body, no content-type, plus one
- * optional extra field line) into r's own storage row and arm r's session
+/* Seal an SDK-built status response (srvrun_status_build: one optional
+ * extra field line, the SDK's own fields, and a short explanation for a
+ * 4xx/5xx) into r's own storage row and arm r's session
  * over it — the same low-level prefix+arm mechanism srvrun_start_app_resp
  * uses for a normal 200, minus the app handler: this is protocol-level
  * WebTransport response building (draft-ietf-webtrans-http3-15 SS3.2), not
  * an application response. Used for both the 2xx that establishes a session
  * (extra = the wt-protocol header when a subprotocol was negotiated, SS3.4)
- * and the 403 that rejects one (extra = 0). The
- * response is bodyless, so it is written at the row's start rather than
+ * and the 403 that rejects one (extra = 0), and for the SDK's own
+ * 405/413/431/501 (srvrun_start_method_status). The response is built
+ * whole, so it is written at the row's start rather than
  * right-aligned into the body path's SRVRUN_RESP_HDR_ROOM prefix area. */
 void srvrun_start_wt_status(
     wired_srvrun_env*  env,
@@ -75,7 +77,7 @@ void srvrun_start_wt_status(
     const qpack_field* extra) {
   u8*        st  = env->respstore[slot][srvrun_resp_index(c, r)];
   wired_obuf pob = obuf_of(st, WIRED_SRVRUN_RESP_MAX);
-  if (!h3resp_prefix_field(status, 0, 0, extra, &pob)) {
+  if (!srvrun_status_build(&c->l.req, status, extra, &pob)) {
     r->arm_failed = 1; /* e.g. an app redirect's Location too long */
     return;
   }

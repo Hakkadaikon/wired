@@ -5552,6 +5552,23 @@ static void sr_collect_stream_multi(
   }
 }
 
+/* The prefix srvrun frames ahead of a field-less 7-argument-handler
+ * response of len body bytes to a GET: HEADERS with its Content-Length and
+ * the suite's pinned Date, then the DATA header. */
+static int sr_srv_prefix(u16 status, u64 len, wired_obuf* out) {
+  static const u8        get[] = {'G', 'E', 'T'};
+  wired_h3reqdrive_req   req   = {0};
+  wired_http_exchange    x     = {0};
+  srvrun_hdrs            h;
+  qpackenc_status_result ins;
+  req.method     = get;
+  req.method_len = sizeof get;
+  x.req          = &req;
+  x.status       = status;
+  return h3resp_prefix_fields_qenc(
+      status, 0, len, srvrun_hdrs_app(&h, &x, len), 0, &ins, out);
+}
+
 /* PARALLEL RESPONSES: three GETs on distinct streams (0, 4, 8), coalesced
  * into ONE datagram (the exact quic-go interop shape: HEADERS for all three
  * packed into one 1-RTT packet), each answered with its own small body from
@@ -5693,11 +5710,11 @@ static void test_srvrun_parallel_responses_three_streams(void) {
   /* each stream's reassembled body is its OWN prefix + single byte, never a
    * sibling's -- proves the streams did not cross-contaminate. */
   for (usz i = 0; i < 3; i++) {
-    u8         pre[64];
+    u8         pre[SRVRUN_RESP_HDR_ROOM];
     wired_obuf preb = {pre, sizeof pre, 0};
     CHECK(buckets[i].used == 1);
     CHECK(buckets[i].fin == 1);
-    CHECK(h3resp_prefix(200, 0, 1, &preb) == 1);
+    CHECK(sr_srv_prefix(200, 1, &preb) == 1);
     CHECK(buckets[i].high == preb.len + 1);
     for (usz j = 0; j < preb.len; j++) {
       CHECK(buckets[i].buf[j] == pre[j]);
@@ -5716,7 +5733,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], get[512], spkt[1024];
   static u8        asm_buf[4096];
-  u8               pre[64];
+  u8               pre[SRVRUN_RESP_HDR_ROOM];
   wired_obuf       preb = {pre, sizeof pre, 0};
   conntable        table[WIRED_CONNTABLE_CAP];
   srvrun_state     st = {table, g_srvrun_state.conns};
@@ -5802,7 +5819,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   wired_udp_close(cfd);
   wired_udp_close(sfd);
   /* the reassembled stream is exactly prefix + body, fin on the tail */
-  CHECK(h3resp_prefix(200, 0, 2500, &preb) == 1);
+  CHECK(sr_srv_prefix(200, 2500, &preb) == 1);
   CHECK(fin == 1);
   CHECK(high == preb.len + 2500);
   for (usz i = 0; i < preb.len; i++) {
@@ -11775,7 +11792,7 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
   srvrun_conn   c  = {0};
   wired_obuf    ob = {0};
   u8            obuf[1024];
-  u8            pre[64];
+  u8            pre[SRVRUN_RESP_HDR_ROOM];
   wired_obuf    preb = {pre, sizeof pre, 0};
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
@@ -11835,8 +11852,8 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
   /* the handler filled the whole pool-row cap (past HDR_ROOM); the armed
    * session covers prefix + that many body bytes, well past 16KB */
   CHECK(
-      h3resp_prefix(
-          200, 0, WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM, &preb) == 1);
+      sr_srv_prefix(
+          200, WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM, &preb) == 1);
   CHECK(
       c.resp[0].sess.q.len ==
       preb.len + (WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM));
@@ -12918,7 +12935,7 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
   srvrun_conn   c  = {0};
   wired_obuf    ob = {0};
   u8            obuf[2048];
-  u8            pre[64];
+  u8            pre[SRVRUN_RESP_HDR_ROOM];
   wired_obuf    preb  = {pre, sizeof pre, 0};
   ob                  = (wired_obuf){obuf, sizeof obuf, 0};
   sr_stream_total_len = 300;
@@ -12966,7 +12983,7 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
-  CHECK(h3resp_prefix(200, 0, 300, &preb) == 1);
+  CHECK(sr_srv_prefix(200, 300, &preb) == 1);
   CHECK(c.resp[0].sess.q.len == preb.len + 100); /* prefix + round 0's body */
 }
 
@@ -23127,11 +23144,13 @@ static void sr_sl_send_stream(srvrun_conn* c, const u8* d, usz n, int fin) {
   }
 }
 
-/* 1 iff r is armed with exactly the bare status-only HEADERS frame. */
+/* 1 iff r is armed with exactly the SDK's status response (to a non-HEAD
+ * request, under the suite's pinned Date). */
 static int sr_resp_is_status(const srvrun_resp* r, u16 status) {
-  u8         want[64];
-  wired_obuf ob = obuf_of(want, sizeof want);
-  if (!h3resp_prefix_field(status, 0, 0, 0, &ob)) {
+  static const wired_h3reqdrive_req req = {0};
+  u8                                want[256];
+  wired_obuf                        ob = obuf_of(want, sizeof want);
+  if (!srvrun_status_build(&req, status, 0, &ob)) {
     return 0;
   }
   return r->in_use && r->sess.q.len == ob.len &&
@@ -24496,12 +24515,19 @@ static int sr_golden_legacy_handler(
 /* Arm one response on a confirmed fixture conn through the real
  * srvrun_start_resp path with cfg (fd/env filled in here) and return the
  * armed stream bytes. */
+/* :method sr_arm_with_cfg's request carries instead of GET (0 keeps GET). */
+static const char* g_sr_arm_method;
+
 static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   struct lp_fix f;
   u8            obuf[1024];
   wired_obuf    ob = {obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(c, &f, &ob);
   sr_set_req(c, 0, 0, 0);
+  if (g_sr_arm_method) {
+    c->l.req.method     = (const u8*)g_sr_arm_method;
+    c->l.req.method_len = wired_cstr_len(g_sr_arm_method);
+  }
   cfg->fd  = -1;
   cfg->env = &g_srvrun_env;
   {
@@ -24514,15 +24540,22 @@ static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
 
 /* RFC 9114 4.1 / RFC 9204 4.5: the exact response bytes a 7-argument
  * handler produces -- :status 200 (static index 25) plus a content-type
- * literal referencing static name 44, then DATA. Pinned so changes to the
- * response path provably leave the classic handler's output alone. */
+ * literal referencing static name 44, then the SDK's content-length and
+ * date (RFC 9110 8.6 / 6.6.1) as Literal Field Lines With Literal Name
+ * (4.5.6: 0x20 | name length, 3-bit prefix; 14 = 7 + 0x07), then DATA.
+ * Hand-encoded, so changes to the response path provably keep the classic
+ * handler's output. HEADERS length 72 = 19 + 18 + 35, varint 0x40 0x48. */
 static void test_srvrun_legacy_handler_headers_golden(void) {
-  static const u8 want[] = {0x01, 0x13, 0x00, 0x00, 0xd9, 0x5f, 0x1d,
-                            0x0d, 't',  'e',  'x',  't',  '/',  'x',
-                            '-',  'g',  'o',  'l',  'd',  'e',  'n',
-                            0x00, 0x05, 'h',  'e',  'l',  'l',  'o'};
-  srvrun_cfg      cfg    = {0};
-  wired_span      got;
+  static const u8 want[] = {
+      0x01, 0x40, 0x48, 0x00, 0x00, 0xd9, 0x5f, 0x1d, 0x0d, 't',  'e',  'x',
+      't',  '/',  'x',  '-',  'g',  'o',  'l',  'd',  'e',  'n',  0x27, 0x07,
+      'c',  'o',  'n',  't',  'e',  'n',  't',  '-',  'l',  'e',  'n',  'g',
+      't',  'h',  0x01, '5',  0x24, 'd',  'a',  't',  'e',  0x1d, 'S',  'u',
+      'n',  ',',  ' ',  '0',  '6',  ' ',  'N',  'o',  'v',  ' ',  '1',  '9',
+      '9',  '4',  ' ',  '0',  '8',  ':',  '4',  '9',  ':',  '3',  '7',  ' ',
+      'G',  'M',  'T',  0x00, 0x05, 'h',  'e',  'l',  'l',  'o'};
+  srvrun_cfg cfg = {0};
+  wired_span got;
   cfg.handler = sr_golden_legacy_handler;
   got         = sr_arm_with_cfg(sr_test_conns(), &cfg);
   CHECK(got.n == sizeof want);
@@ -24622,13 +24655,105 @@ static const u8 sr_hx_ck_n[] = "set-cookie", sr_hx_ck_a[] = "a=1",
                 sr_hx_ck_b[] = "b=2";
 #define SR_HX_FIELD(n, v) {{n, sizeof n - 1}, {v, sizeof v - 1}}
 
-/* Answer g_sr_hx and expect exactly a lone :status 500, no DATA. */
+/* The suite's pinned Date (test_srvrun), as IMF-fixdate. */
+static const char sr_hx_date[] = "Sun, 06 Nov 1994 08:49:37 GMT";
+
+/* Lines i and i+1 of d are the SDK's content-length (len) and date. */
+static int sr_hx_sdk_lines(const sr_hx_dec* d, usz i, const char* len) {
+  return sr_hx_line_is(d, i, "content-length", len) &&
+         sr_hx_line_is(d, i + 1, "date", sr_hx_date);
+}
+
+/* Answer g_sr_hx and expect exactly the SDK's 500 (RFC 9110 15.6): no
+ * application field, a text/plain explanation instead of the app's body. */
 static void sr_hx_expect_500(void) {
   sr_hx_dec d;
   sr_hx_run(&d);
-  CHECK(d.n == 1);
+  CHECK(d.n == 4);
   CHECK(sr_hx_line_is(&d, 0, ":status", "500"));
+  CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
+  CHECK(sr_hx_sdk_lines(&d, 2, "22"));
+  CHECK(
+      d.body.n == 22 &&
+      ct_diffn(d.body.p, (const u8*)"Internal Server Error\n", 22) == 0);
+}
+
+/* sr_hx_run with the request's :method set to m. */
+static void sr_hx_run_method(sr_hx_dec* d, const char* m) {
+  g_sr_arm_method = m;
+  sr_hx_run(d);
+  g_sr_arm_method = 0;
+}
+
+/* d's body is exactly the text t. */
+static int sr_hx_body_is(const sr_hx_dec* d, const char* t) {
+  usz n = wired_cstr_len(t);
+  return d->body.n == n && ct_diffn(d->body.p, (const u8*)t, n) == 0;
+}
+
+/* RFC 9110 6.6.1 / 5.6.7: with the live clock, Date is the IMF-fixdate of
+ * the wall-clock second the response was built in. */
+static void test_srvrun_http_date_live_clock(void) {
+  u64       t0  = wired_clock_epoch_secs(), t1;
+  int       hit = 0;
+  sr_hx_dec d;
+  srvrun_test_pin_date(0);
+  g_sr_hx = (sr_hx_case){0, 0, 0, 0, "ok", 0, 0};
+  sr_hx_run(&d);
+  t1 = wired_clock_epoch_secs();
+  srvrun_test_pin_date(784111777ULL);
+  CHECK(d.n == 3 && d.l[2].value_len == CLOCK_IMF_FIXDATE_LEN);
+  for (u64 t = t0; t <= t1; t++) {
+    u8 want[CLOCK_IMF_FIXDATE_LEN];
+    clock_imf_fixdate(t, want);
+    hit |= ct_diffn(d.l[2].value, want, sizeof want) == 0;
+  }
+  CHECK(hit);
+}
+
+/* RFC 9110 8.6 / 9.3.2 (9110-013): no Content-Length for HEAD -- its
+ * value would have to be the GET body's length -- but Date stays; the
+ * SDK's 500 for HEAD carries no explanation body (15.6). */
+static void test_srvrun_http_head_no_content_length(void) {
+  sr_hx_dec d;
+  g_sr_hx = (sr_hx_case){0, 0, 0, 0, 0, 0, 0};
+  sr_hx_run_method(&d, "HEAD");
+  CHECK(d.n == 2 && sr_hx_line_is(&d, 0, ":status", "200"));
+  CHECK(sr_hx_line_is(&d, 1, "date", sr_hx_date));
+  g_sr_hx = (sr_hx_case){1, 0, 0, 0, 0, 0, 0}; /* bad status -> 500 */
+  sr_hx_run_method(&d, "HEAD");
+  CHECK(d.n == 2 && sr_hx_line_is(&d, 0, ":status", "500"));
+  CHECK(sr_hx_line_is(&d, 1, "date", sr_hx_date));
   CHECK(d.body.n == 0);
+}
+
+/* RFC 9110 9.1 / 15.5.6 / 10.2.1 / 15.5: TRACE (recognized, not allowed)
+ * gets the SDK's 405 with Allow naming the allow set and a text/plain
+ * explanation, without reaching the handler. */
+static void test_srvrun_http_405_allow_and_body(void) {
+  sr_hx_dec d;
+  g_sr_hx = (sr_hx_case){200, 0, 0, 0, "handler ran", 0, 0};
+  sr_hx_run_method(&d, "TRACE");
+  CHECK(d.n == 5);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "405"));
+  CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
+  CHECK(sr_hx_line_is(
+      &d, 2, "allow", "GET, HEAD, POST, PUT, DELETE, OPTIONS, PATCH, CONNECT"));
+  CHECK(sr_hx_sdk_lines(&d, 3, "19"));
+  CHECK(sr_hx_body_is(&d, "Method Not Allowed\n"));
+}
+
+/* RFC 9110 9.1 / 15.6.2: an unrecognized method gets the SDK's 501 with an
+ * explanation (no Allow: that is the 405's). */
+static void test_srvrun_http_501_body(void) {
+  sr_hx_dec d;
+  g_sr_hx = (sr_hx_case){200, 0, 0, 0, "handler ran", 0, 0};
+  sr_hx_run_method(&d, "BREW");
+  CHECK(d.n == 4);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "501"));
+  CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
+  CHECK(sr_hx_sdk_lines(&d, 2, "16"));
+  CHECK(sr_hx_body_is(&d, "Not Implemented\n"));
 }
 
 /* RFC 9110 15.4: a 3xx with its location field. */
@@ -24637,9 +24762,10 @@ static void test_srvrun_http_redirect_with_location(void) {
   sr_hx_dec                     d;
   g_sr_hx = (sr_hx_case){302, 0, 1, f, 0, 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 2);
+  CHECK(d.n == 4);
   CHECK(sr_hx_line_is(&d, 0, ":status", "302"));
   CHECK(sr_hx_line_is(&d, 1, "location", "/new"));
+  CHECK(sr_hx_sdk_lines(&d, 2, "0"));
   CHECK(d.body.n == 0);
 }
 
@@ -24650,10 +24776,11 @@ static void test_srvrun_http_two_set_cookie_fields(void) {
   sr_hx_dec d;
   g_sr_hx = (sr_hx_case){0, 0, 2, f, "ok", 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 3);
+  CHECK(d.n == 5);
   CHECK(sr_hx_line_is(&d, 0, ":status", "200")); /* 0 means 200 */
   CHECK(sr_hx_line_is(&d, 1, "set-cookie", "a=1"));
   CHECK(sr_hx_line_is(&d, 2, "set-cookie", "b=2"));
+  CHECK(sr_hx_sdk_lines(&d, 3, "2"));
   CHECK(d.body.n == 2 && d.body.p[0] == 'o');
 }
 
@@ -24662,9 +24789,10 @@ static void test_srvrun_http_404_with_body(void) {
   sr_hx_dec d;
   g_sr_hx = (sr_hx_case){404, "text/plain", 0, 0, "nope", 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 2);
+  CHECK(d.n == 4);
   CHECK(sr_hx_line_is(&d, 0, ":status", "404"));
   CHECK(sr_hx_line_is(&d, 1, "content-type", "text/plain"));
+  CHECK(sr_hx_sdk_lines(&d, 2, "4"));
   CHECK(d.body.n == 4 && d.body.p[3] == 'e');
 }
 
@@ -24680,7 +24808,9 @@ static void test_srvrun_http_204_304_send_no_data(void) {
     g_sr_hx = (sr_hx_case){st[i], "text/plain", 0, 0, "body", 1, 99};
     sr_hx_run(&d);
     CHECK(sr_hx_line_is(&d, 0, ":status", txt[i]));
-    CHECK(d.n == 1); /* content-type dropped with the content */
+    /* content-type dropped with the content; RFC 9110 8.6: no
+     * Content-Length on 204/304 either, only the Date */
+    CHECK(d.n == 2 && sr_hx_line_is(&d, 1, "date", sr_hx_date));
     CHECK(d.body.p == 0 && d.body.n == 0); /* no DATA frame at all */
     CHECK(g_test_conns[0].resp[0].streaming == 0);
     /* the single slice carrying the HEADERS frame ends the stream */
@@ -24700,10 +24830,10 @@ static void test_srvrun_http_status_range(void) {
   }
   g_sr_hx = (sr_hx_case){599, 0, 0, 0, 0, 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 1 && sr_hx_line_is(&d, 0, ":status", "599"));
+  CHECK(d.n == 3 && sr_hx_line_is(&d, 0, ":status", "599"));
   g_sr_hx = (sr_hx_case){200, 0, 0, 0, 0, 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 1 && sr_hx_line_is(&d, 0, ":status", "200"));
+  CHECK(d.n == 3 && sr_hx_line_is(&d, 0, ":status", "200"));
 }
 
 /* RFC 9110 5.5 / RFC 9114 4.2 / 4.3: a malformed field turns the whole
@@ -24740,7 +24870,7 @@ static void test_srvrun_http_field_count_limit(void) {
   }
   g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, 0, 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS);
+  CHECK(d.n == 3 + WIRED_HTTP_MAX_FIELDS);
   g_sr_hx.n = WIRED_HTTP_MAX_FIELDS + 1;
   sr_hx_expect_500();
 }
@@ -24759,7 +24889,7 @@ static void test_srvrun_http_field_bytes_limit(void) {
   }
   g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, "x", 0, 0};
   sr_hx_run(&d);
-  CHECK(d.n == 1 + WIRED_HTTP_MAX_FIELDS && d.body.n == 1);
+  CHECK(d.n == 3 + WIRED_HTTP_MAX_FIELDS && d.body.n == 1);
   g_sr_hx.ct = "t"; /* one byte over */
   sr_hx_expect_500();
 }
@@ -24774,7 +24904,7 @@ static void test_srvrun_http_streaming_round0(void) {
   g_sr_hx  = (sr_hx_case){0, 0, 0, 0, "abc", 1, 300};
   cfg.http = sr_hx_handler;
   got      = sr_arm_with_cfg(sr_test_conns(), &cfg);
-  CHECK(h3resp_prefix(200, 0, 300, &preb) == 1);
+  CHECK(sr_srv_prefix(200, 300, &preb) == 1);
   CHECK(got.n == preb.len + 3);
   CHECK(ct_diffn(got.p, pre, preb.len) == 0);
   CHECK(g_test_conns[0].resp[0].streaming == 1);
@@ -25754,6 +25884,7 @@ static void test_srvrun_stream_credit_blocked_sends_sdb(void) {
 }
 
 void test_srvrun(void) {
+  srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
   test_srvrun_http_redirect_with_location();
   test_srvrun_http_two_set_cookie_fields();
@@ -25761,6 +25892,10 @@ void test_srvrun(void) {
   test_srvrun_http_204_304_send_no_data();
   test_srvrun_http_status_range();
   test_srvrun_http_bad_field_is_500();
+  test_srvrun_http_date_live_clock();
+  test_srvrun_http_head_no_content_length();
+  test_srvrun_http_405_allow_and_body();
+  test_srvrun_http_501_body();
   test_srvrun_http_field_count_limit();
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
@@ -26472,4 +26607,5 @@ void test_srvrun(void) {
   test_srvrun_no_max_stream_data_after_final_size();
   test_srvrun_data_blocked_repeats_after_pto();
   test_srvrun_stream_credit_blocked_sends_sdb();
+  srvrun_test_pin_date(0);
 }
