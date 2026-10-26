@@ -74,6 +74,14 @@ int srvrun_wt_rx_walk(
     srvrun_wt_caprx*           out);
 void srvrun_reset_connect_stream_code(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code);
+void srvrun_reset_stream_final(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 id, u64 final, u64 code);
+u64 srvrun_wt_rx_fail_code(
+    srvrun_conn*                     c,
+    int                              sidx,
+    const wired_srvloop_stream_slot* slot,
+    const srvrun_wt_caprx*           x);
+void srvrun_wt_watch_drain(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_wt_rx_fail(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code);
 void srvrun_wt_rx_capsules_one(const srvrun_cfg* cfg, srvrun_conn* c, int sidx);

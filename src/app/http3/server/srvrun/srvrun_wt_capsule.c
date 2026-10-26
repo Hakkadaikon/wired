@@ -148,10 +148,18 @@ int srvrun_wt_rx_walk(
  * wt_connect_sent_len), kept until ACKed. The session itself is untouched. */
 void srvrun_reset_connect_stream_code(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
+  srvrun_reset_stream_final(
+      cfg, c, srvrun_wt_slot(c, sidx)->connect_stream_id,
+      c->wt_connect_sent_len[sidx], code);
+}
+
+/* RESET_STREAM (final size final) + STOP_SENDING carrying code on CONNECT
+ * stream id, kept until ACKed. */
+void srvrun_reset_stream_final(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 id, u64 final, u64 code) {
   u8                 pl[48];
   wired_obuf         plb = obuf_of(pl, sizeof pl);
-  u64                id  = srvrun_wt_slot(c, sidx)->connect_stream_id;
-  reset_stream_frame rs  = {id, code, c->wt_connect_sent_len[sidx]};
+  reset_stream_frame rs  = {id, code, final};
   usz                rn  = reset_stream_encode(pl, sizeof pl, &rs);
   usz                sn  = srvrun_wt_abort_stop(c, id, code, &plb, rn);
   srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");

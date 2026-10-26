@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 72/81 tested, 8 indirect, 1 untested.**
+**Coverage: 73/81 tested, 8 indirect, 0 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -681,12 +681,18 @@ Legend:
     at the stream's current end, once (an invalid close body resets the
     stream instead, WTH3-072). Loopback-tested only; the moq-playa interop
     case (`transport.closed`) has not been re-run.
-- [ ] WTH3-080 (§6) If additional stream data is received on the CONNECT
+- [x] WTH3-080 (§6) If additional stream data is received on the CONNECT
   stream after a WT_CLOSE_SESSION capsule, then the server shall reset the
   stream with code H3_MESSAGE_ERROR.
-  - gap: a received WT_CLOSE_SESSION terminates the session at once, so
-    trailing data is never read; resetting with H3_MESSAGE_ERROR on it is
-    not implemented.
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_data_after_close_same_frame_resets`
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_data_after_close_later_frame_resets`
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_fin_after_close_no_reset`
+  - evidence: one CONNECT stream is watched per connection after its
+    close (`wired_srvloop_wt_watch`); a second session closing meanwhile
+    replaces the watch.
 - [x] WTH3-068 (§6) Cleanly terminating a CONNECT stream without a
   WT_CLOSE_SESSION capsule shall be semantically equivalent to
   terminating it with a WT_CLOSE_SESSION capsule carrying error code 0

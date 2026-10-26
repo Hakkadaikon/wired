@@ -73,13 +73,17 @@ typedef void (*srvrun_rx_dg_fn)(
     const srvrun_cfg*, srvrun_conn*, const wired_srvloop_rx_datagram*);
 
 /* One CONNECT stream capsule pass: the app env, the session, its
- * wt_drain_rcvd latch, and the code a rejected pass closes the session with
- * (WT_SESSION_GONE unless a capsule handler latched a more specific one). */
+ * wt_drain_rcvd latch, the code a rejected pass closes the session with
+ * (WT_SESSION_GONE unless a capsule handler latched a more specific one),
+ * and whether the peer's WT_CLOSE_SESSION ended it. */
 typedef struct {
   const wired_srvrun_env* env;
   wired_wt_session*       s;
   int*                    drain_rcvd;
   u64                     violation_code;
+  /** 1 once a well-formed WT_CLOSE_SESSION ended the pass (draft-ietf-
+   * webtrans-http3-16 6: srvrun_wt_rx_fail_code checks what follows it) */
+  int peer_closed;
 } srvrun_wt_caprx;
 
 /* Reason-phrase room in a SRVRUN_CLOSE_PL_MAX close frame (RFC 9000 19.19):

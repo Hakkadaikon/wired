@@ -20,7 +20,10 @@
  * - session id (4): a WT uni or bidi stream naming a non-client-bidi session
  *   id closes the connection with H3_ID_ERROR; one naming a client-bidi id
  *   with no live session (a closed one, 4/WTH3-031) does not.
- * - WT_MAX_STREAM_DATA / WT_STREAM_DATA_BLOCKED (5.4): close the session. */
+ * - WT_MAX_STREAM_DATA / WT_STREAM_DATA_BLOCKED (5.4): close the session.
+ * - after the peer's WT_CLOSE_SESSION (6): more bytes in the same frame, or
+ *   in a later one, reset the CONNECT stream with H3_MESSAGE_ERROR; a bare
+ *   FIN at the capsule's end does not. */
 
 #define WTS_NONE (~(u64)0)
 
@@ -259,6 +262,55 @@ static void test_srvrun_wt_stream_level_flow_capsule_session_error(void) {
   }
 }
 
+/* WT_CLOSE_SESSION (code 7, "bye") in one DATA frame, then `extra` more
+ * capsule bytes (another WT_CLOSE_SESSION) in the same frame when set. */
+static usz wts_close_then(u8* out, usz cap, int extra) {
+  usz n = src_close_capsule(out, cap);
+  if (extra) {
+    n += src_close_capsule(out + n, cap - n);
+  }
+  return n;
+}
+
+static void test_srvrun_wt_data_after_close_same_frame_resets(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = wts_connect(c, 0, "https", "webtransport", 0, 0);
+  u8           cap[128];
+  usz          n = wts_close_then(cap, sizeof cap, 1);
+  src_connect_send(c, hlen, cap, n, 0);
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+  CHECK(wts_reset_code(c, 0) == H3_MESSAGE_ERROR);
+}
+
+static void test_srvrun_wt_data_after_close_later_frame_resets(void) {
+  srvrun_conn*    c    = sr_sl_fixture();
+  usz             hlen = wts_connect(c, 0, "https", "webtransport", 0, 0);
+  u8              cap[64];
+  static const u8 more[] = {0x00, 0x00}; /* an empty DATA frame */
+  usz             n      = wts_close_then(cap, sizeof cap, 0);
+  src_connect_send(c, hlen, cap, n, 0);
+  CHECK(g_sl_closes == 1);
+  CHECK(src_connect_fin_sent(c));
+  CHECK(wts_reset_code(c, 0) == WTS_NONE);
+  src_connect_send(c, hlen, cap, n, 0); /* a retransmission: no new data */
+  CHECK(wts_reset_code(c, 0) == WTS_NONE);
+  src_connect_send(c, hlen + n, more, sizeof more, 0);
+  CHECK(wts_reset_code(c, 0) == H3_MESSAGE_ERROR);
+}
+
+static void test_srvrun_wt_fin_after_close_no_reset(void) {
+  srvrun_conn* c    = sr_sl_fixture();
+  usz          hlen = wts_connect(c, 0, "https", "webtransport", 0, 0);
+  u8           cap[64];
+  usz          n = wts_close_then(cap, sizeof cap, 0);
+  src_connect_send(c, hlen, cap, n, 0);
+  src_connect_send(c, hlen + n, 0, 0, 1);
+  CHECK(wts_reset_code(c, 0) == WTS_NONE);
+  CHECK(c->l.wt_watch.id == 0);
+  CHECK(c->closing == 0);
+}
+
 void test_srvrun_wtsess(void) {
   test_srvrun_wt_connect_http_scheme_malformed();
   test_srvrun_wt_connect_capsule_forbidden_fields_malformed();
@@ -271,4 +323,7 @@ void test_srvrun_wtsess(void) {
   test_srvrun_wt_non_client_bidi_session_id_closes();
   test_srvrun_wt_closed_session_id_not_an_id_error();
   test_srvrun_wt_stream_level_flow_capsule_session_error();
+  test_srvrun_wt_data_after_close_same_frame_resets();
+  test_srvrun_wt_data_after_close_later_frame_resets();
+  test_srvrun_wt_fin_after_close_no_reset();
 }

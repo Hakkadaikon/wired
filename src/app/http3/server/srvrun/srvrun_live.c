@@ -105,6 +105,7 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_grant_req_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   srvrun_wt_rx_capsules(ctx->cfg, c);
+  srvrun_wt_watch_drain(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
   srvrun_answer_peer_stops(ctx, c);
   srvrun_drop_held_resets(ctx, c);

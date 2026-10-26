@@ -786,6 +786,7 @@
 #include "app/http3/server/srvrun/srvrun_server_wt.c"
 #include "app/http3/server/srvrun/srvrun_wt_export.c"
 #include "app/http3/server/srvrun/srvrun_wt_shut.c"
+#include "app/http3/server/srvrun/srvrun_wt_watch.c"
 #include "app/http3/server/srvrun/srvrun_wt_fair.c"
 #include "app/http3/server/srvrun/srvrun_sess.c"
 #include "app/http3/server/srvrun/srvrun_slice.c"
