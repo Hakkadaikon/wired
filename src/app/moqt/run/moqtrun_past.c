@@ -96,12 +96,17 @@ void moqtrun_relay_start(
     return;
   }
   moqtrun_relay_claim_init(relay, track, pub_stream_id);
+  if (whole_end == 0) { /* starts at a nonexistent Object (moqtrun_gone.c) */
+    relay->frag_idx = MOQTRUN_FRAG_POISONED;
+    return;
+  }
   moqtrun_rel_start(
       hub, track, relay, pub_wt, pub_stream_id,
       wired_span_of(wire.p, whole_end));
   moqtrun_relay_head_init(hub, relay, wire, whole_end);
   moqtrun_subgroup_scan(
       wired_span_of(wire.p, whole_end), 0, &relay->seq, &relay->group_id);
+  relay->dseq = relay->seq;
   moqtss_prime(hub, track, relay->group_id); /* SSTS (moqtssts_run.c) */
   moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
   moqtrun_rel_attach_subs(hub, track, relay);
@@ -165,9 +170,7 @@ static int moqtrun_gone_on(
   return moqtrun_group_closed(t, l) && moqtrun_cache_says_gone(hub, t, l);
 }
 
-/* shortcut: a Subgroup stream's Objects are forwarded as the stream's
- * bytes, so only caching and datagram Objects are gated; cutting one out
- * of a stream needs its successor's Object ID Delta rewritten. */
+/* Gates caching, datagrams and Subgroup-stream Objects (moqtrun_gone.c). */
 int moqtrun_obj_gone(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
   return hub && t && moqtrun_gone_on(hub, t, l);

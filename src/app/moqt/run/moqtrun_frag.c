@@ -119,11 +119,12 @@ static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
  * fragment, and returns the whole-Objects prefix -- the only bytes safe to
  * forward as a round, because a forwarded round can be dropped per
  * subscriber and a dropped round must never end mid-Object (the tail
- * itself goes out through moqtrun_cut_push). Decoding continues the
+ * itself goes out through moqtrun_cut_push); Objects recorded
+ * nonexistent are cut out of it (moqtrun_gone_round). Decoding continues the
  * stream's own Object sequence (relay->seq, set from its SUBGROUP_HEADER
  * by moqtrun_relay_start), so each Object's ID counts toward the track's
- * Largest. *seq0_out receives the chaining state as it was BEFORE this
- * round's decode (relay->seq is advanced in place past it) -- a caller
+ * Largest. *seq0_out receives the downstream chaining state as it was
+ * BEFORE this round (relay->seq / dseq are advanced past it) -- a caller
  * cutting the returned span to one subscriber's End Object re-decodes
  * from this same starting point (moqtrun_wire_cutoff). */
 wired_span moqtrun_relay_normalize(
@@ -149,5 +150,6 @@ wired_span moqtrun_relay_normalize(
   moqtrun_relay_save_frag(
       hub, relay, hub->relay_scratch + off, total - off,
       moqtrun_tail_born(off, now, *born_ms));
-  return wired_span_of(hub->relay_scratch, off);
+  return moqtrun_gone_round(
+      hub, track, relay, wired_span_of(hub->relay_scratch, off), seq0_out);
 }

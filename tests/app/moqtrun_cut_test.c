@@ -1,5 +1,6 @@
 /* Relay cut-through (draft-18 5.1: "A publisher SHOULD begin sending
- * incomplete objects when available"). Each framing case is a
+ * incomplete objects when available") and nonexistent Objects on a
+ * Subgroup stream (draft-18/19 9.1). Each framing case is a
  * counterexample of tasks/loopeng/MoqtCutThrough.tla's mutants: drop the
  * reset (MutNoReset) or the skip (MutNoSkip) and one of these fails.
  * Shares the recording io stubs and the mtst/mf fixtures of
@@ -133,10 +134,37 @@ static void test_moqtrun_cut_torn_fin_resets(void) {
   CHECK(moqtrun_test_last_kind(7)->stream_id == sid);
 }
 
+/* draft-18/19 9.1 on a stream: Group 1 closed with Objects 0, 1, 5
+ * cached, A's stream then brings 2 (recorded nonexistent: not
+ * forwarded) and 5 (kept): 5 goes out re-chained onto 1 (delta 3). */
+static void test_moqtrun_stream_skips_gone_object(void) {
+  static const u64 ids[4] = {0, 1, 2, 5}, five[1] = {5};
+  u8               buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz              ends[4], e1[1];
+  mcut_init(buf, ends, 0);
+  mcut_stream(buf, 1, 0, ids, 4, ends);
+  mcut_send(buf, 0, ends[1], 0);
+  u64 sid = mcut_sub_sid();
+  usz h   = mcut_stream(one, 1, 1, five, 1, e1); /* Subgroup 1: Object 5 */
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, e1[0]), 1);
+  mf_obj(2, 0, 1); /* Group 1 is closed */
+  moqtrun_test_reset();
+  mcut_send(buf, ends[1], ends[3], 0);
+  u8  want[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = 0;
+  moqdata_obj_put(
+      wired_mspan_of(want, sizeof want), &n, 3, wired_span_of(one + h + 2, 4));
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == sid);
+  CHECK(moqtrun_test_sends_are(want, n));
+}
+
 static void test_moqtrun_cut(void) {
   test_moqtrun_cut_lossy_refusal_mid_object_resets();
   test_moqtrun_cut_refused_head_resent_whole();
   test_moqtrun_cut_waits_for_header();
   test_moqtrun_cut_reliable_resumes_at_byte();
   test_moqtrun_cut_torn_fin_resets();
+  test_moqtrun_stream_skips_gone_object();
 }

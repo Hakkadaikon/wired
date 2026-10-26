@@ -41,6 +41,18 @@ void moqtrun_fsel_keep(
     wired_moqtrun_fetch* f, const wired_moqtrun_rngrow* rows, usz n);
 usz moqtrun_fsel_rows(const moqctl_params* params, wired_moqtrun_rngrow* rows);
 int moqtrun_fsel_up_pass(const wired_moqtrun_fetch* f, const moqfetch_obj* o);
+int moqtrun_cut_aligned(moqdata_objseq a, moqdata_objseq b);
+wired_span moqtrun_gone_round(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* t,
+    wired_moqtrun_relay*       relay,
+    wired_span                 whole,
+    moqdata_objseq*            seq0);
+usz moqtrun_gone_head_cut(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* t,
+    wired_span                 wire,
+    usz                        end);
 int moqtrun_cut_any(const wired_moqtrun_relay* relay);
 int moqtrun_cut_refused(
     wired_moqt_hub*      hub,
@@ -55,6 +67,8 @@ wired_span moqtrun_cut_skip(
     const wired_moqtrun_relay* relay, usz i, wired_span wire);
 void moqtrun_cut_ring_take(
     wired_moqtrun_relay* relay, moqtrel_buf* rb, usz whole_n, u64 now_ms);
+void moqtrun_relay_object_cut(
+    wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire);
 void moqtrun_cut_settle(wired_moqtrun_relay* relay, usz whole_n);
 int  moqtrun_cut_fin(wired_moqt_hub* hub, wired_moqtrun_relay* relay, int fin);
 int moqtrun_cut_torn(wired_moqt_hub* hub, wired_moqtrun_relay* relay, int torn);

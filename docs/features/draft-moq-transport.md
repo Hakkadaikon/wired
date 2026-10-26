@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 212/248 tested, 34 indirect, 2 untested.**
+**Coverage: 213/248 tested, 33 indirect, 2 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -460,13 +460,16 @@ Legend:
   relay it.
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_conflict`
-- [~] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
+- [x] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
   exist, it should neither cache nor forward that Object if it arrives later.
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_late_nonexistent_not_cached`
-  - gap: the record is the cache (a closed Group's Location it serves as
-    nonexistent); caching and datagram Objects are gated, but a Subgroup
-    stream's late Object is still forwarded with the stream's bytes.
+  - test: `tests/app/moqtrun_cut_test.c` —
+    `test_moqtrun_stream_skips_gone_object`
+  - note: the record is the cache (a closed Group's Location it serves as
+    nonexistent). On a Subgroup stream such an Object is cut out and the
+    next one's Object ID Delta re-chained; a stream starting at one is not
+    relayed, and a one-shot stream is cut at its first one.
 - [x] MOQT-228 (SS9.2, SS9.5) When the hub subscribes upstream for a downstream
   SUBSCRIBE, it shall use Forward 1 (FORWARD omitted).
   - test: `tests/app/moqtrun_upsub_test.c` —
@@ -1815,7 +1818,6 @@ The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
 - Control streams scheduled ahead of data (MOQT-223).
-- Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
 

@@ -58,6 +58,12 @@ static void moqtrun_cut_push_all(
     wired_moqtrun_relay*       relay,
     moqctl_loc                 l);
 
+/* Two chaining states at the same Object: the downstream chain (dseq)
+ * still mirrors the publisher's. */
+int moqtrun_cut_aligned(moqdata_objseq a, moqdata_objseq b) {
+  return a.have_prev == b.have_prev && a.prev_id == b.prev_id;
+}
+
 /* 1 iff some sub slot was sent part of the held fragment's Object. */
 int moqtrun_cut_any(const wired_moqtrun_relay* relay) {
   usz any = 0;
@@ -91,15 +97,17 @@ static int moqtrun_cut_valid(
 }
 
 /* The fragment's Object (at *l) can go out before it completes: its
- * header is in, it is valid and not recorded nonexistent (draft-18
- * 9.1). */
+ * header is in, the downstream chain still mirrors the publisher's (no
+ * re-chained ID Delta pending), it is valid and not recorded
+ * nonexistent (draft-18 9.1). */
 static int moqtrun_cut_ready(
     wired_moqt_hub*            hub,
     const wired_moqtrun_track* t,
     const wired_moqtrun_relay* relay,
     moqctl_loc*                l) {
   moqdata_obj o = {0};
-  if (!moqtrun_cut_head(hub, relay, &o)) {
+  if (!moqtrun_cut_head(hub, relay, &o) ||
+      !moqtrun_cut_aligned(relay->dseq, relay->seq)) {
     return 0;
   }
   *l = moqctl_loc_of(relay->group_id, o.object_id);

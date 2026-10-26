@@ -530,6 +530,10 @@ typedef struct {
    * on sub slot i's stream before the Object completed (draft-18 5.1,
    * moqtrun_cut.c); 0 when none. */
   usz sub_part[WIRED_MOQTRUN_MAX_SUBS];
+  /** Object-ID chaining state of the bytes sent downstream: seq, except
+   * after an Object dropped as nonexistent (moqtrun_gone.c), whose
+   * successor's ID Delta is re-chained from here. */
+  moqdata_objseq dseq;
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after

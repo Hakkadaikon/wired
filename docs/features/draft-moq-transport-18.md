@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 217/248 tested, 28 indirect, 3 untested.**
+**Coverage: 218/248 tested, 27 indirect, 3 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -1739,13 +1739,16 @@ Legend:
     `test_moqtrun_upfetch_fill_timeout_zero`
   - note: draft-18 has no End of Timed-Out Range marker; toward such a
     draft the gap is End of Unknown Range (the budget test's draft-19 leg).
-- [~] MQ18-222 (§9.1) Where the hub has recorded an Object as not existing,
+- [x] MQ18-222 (§9.1) Where the hub has recorded an Object as not existing,
   it should neither cache nor forward that Object if it arrives later.
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_late_nonexistent_not_cached`
-  - gap: the record is the cache (a closed Group's Location it serves as
-    nonexistent); caching and datagram Objects are gated, but a Subgroup
-    stream's late Object is still forwarded with the stream's bytes.
+  - test: `tests/app/moqtrun_cut_test.c` —
+    `test_moqtrun_stream_skips_gone_object`
+  - note: the record is the cache (a closed Group's Location it serves as
+    nonexistent). On a Subgroup stream such an Object is cut out and the
+    next one's Object ID Delta re-chained; a stream starting at one is not
+    relayed, and a one-shot stream is cut at its first one.
 - [x] MQ18-238 (§12.3) Where a track carries MAX_CACHE_DURATION, the hub shall
   not start forwarding an Object later than that many milliseconds after
   its first byte was received.

@@ -100,9 +100,10 @@ static void moqtrun_fresh_subgroup_relay(
   }
   track->up_streams++; /* checked against PUBLISH_DONE's Stream Count */
   if (fin) {
-    moqtrun_relay_object(hub, track, data);
+    moqtrun_relay_object_cut(hub, track, data);
     return;
   }
+  whole_end = moqtrun_gone_head_cut(hub, track, data, whole_end);
   moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
 }
 
