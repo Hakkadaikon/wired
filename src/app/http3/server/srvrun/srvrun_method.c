@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvrun/srvrun_origin.h"
 
 static void srvrun_start_method_status(
     wired_srvrun_env* env,
@@ -125,7 +126,7 @@ static void srvrun_dispatch_resp(
     srvrun_dispatch_wt_gated(ctx->cfg, c, slot, r);
     return;
   }
-  status = srvrun_non_wt_status(&c->l.req);
+  status = srvrun_origin_status(c, srvrun_non_wt_status(&c->l.req));
   if (status) {
     srvrun_start_method_status(ctx->cfg->env, slot, c, r, status);
     srvrun_stop_unread(ctx->cfg, c);

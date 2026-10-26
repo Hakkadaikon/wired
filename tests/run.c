@@ -746,6 +746,7 @@
 #include "app/http3/server/srvrun/srvrun_live.c"
 #include "app/http3/server/srvrun/srvrun_busy_poll.c"
 #include "app/http3/server/srvrun/srvrun_method.c"
+#include "app/http3/server/srvrun/srvrun_origin.c"
 #include "app/http3/server/srvrun/srvrun_metrics.c"
 #include "app/http3/server/srvrun/srvrun_note.c"
 #include "app/http3/server/srvrun/srvrun_notify.c"

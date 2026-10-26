@@ -29,6 +29,10 @@
 /* Minimal cfg for the teardown helpers (srvrun_free_slot/srvrun_sweep_idle
  * read cfg->env and the optional close callback; these callers register
  * none). Returned as a pointer to a static so call sites stay one-liners. */
+
+/* The :authority test requests carry: the generated test certificate's
+ * SAN dNSName (p256cert), so RFC 9110 7.4's origin check (421) passes. */
+#define SR_AUTH wired_span_of((const u8*)"localhost", 9)
 static srvrun_cfg        g_srvrun_test_env_cfg;
 static const srvrun_cfg* srvrun_test_envcfg(void) {
   g_srvrun_test_env_cfg     = (srvrun_cfg){0};
@@ -5797,8 +5801,7 @@ static void test_srvrun_parallel_responses_three_streams(void) {
     CHECK(wired_h3reqdrive_send_get(
         stream_ids[i],
         &(wired_h3reqdrive_get_in){
-            wired_span_of((const u8*)paths[i], 2),
-            wired_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)paths[i], 2), SR_AUTH},
         &gob));
     plen = gob.len;
     for (usz j = 0; j < plen; j++) {
@@ -5917,8 +5920,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
     wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){
-            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){wired_span_of((const u8*)"/", 1), SR_AUTH},
         &gob));
     glen = gob.len;
   }
@@ -7022,7 +7024,7 @@ static int sr_wt_handler(
   return 1;
 }
 
-static const u8 sr_wt_authority[]      = "host";
+static const u8 sr_wt_authority[]      = "localhost"; /* the cert SAN */
 static const u8 sr_wt_scheme[]         = "https";
 static const u8 sr_wt_path[]           = "/wt";
 static const u8 sr_wt_method_get[]     = "GET";
@@ -13614,8 +13616,7 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
     wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){
-            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){wired_span_of((const u8*)"/", 1), SR_AUTH},
         &gob));
     glen = gob.len;
   }
@@ -13670,8 +13671,7 @@ static void test_srvrun_closes_with_aead_limit_reached_on_step(void) {
     wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){
-            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){wired_span_of((const u8*)"/", 1), SR_AUTH},
         &gob));
     glen = gob.len;
   }
@@ -14221,8 +14221,7 @@ static u64 sr_rotate_ku(srvrun_step_ctx* ctx, srvrun_conn* c, u64 now_ms) {
     wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){
-            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){wired_span_of((const u8*)"/", 1), SR_AUTH},
         &gob));
     glen = gob.len;
   }
@@ -17896,13 +17895,13 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying
  * (name,value), appended at *off in fs. Local twin of h3reqdrive_test.c's
  * put_litname (that one is another test file's static). */
-/* RFC 9114 4.3.1: :scheme https (static 23), :authority "h" (name ref to
+/* RFC 9114 4.3.1: :scheme https (static 23), :authority SR_AUTH (name ref to
  * static 0) and :path "/" (static 1) after a leading :method. */
 static void srn_pseudo(u8* fs, usz* off) {
   qpack_nameref auth = {0, 1, 0};
   *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 23, 1);
   *off += qpack_literal_namref_encode(
-      wired_mspan_of(fs + *off, 64), &auth, wired_span_of((const u8*)"h", 1));
+      wired_mspan_of(fs + *off, 64), &auth, SR_AUTH);
   *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 1, 1);
 }
 
@@ -23512,7 +23511,7 @@ static usz sr_sl_headers(
   wired_obuf      sob = obuf_of(out, cap);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)method, connect ? 7 : 3),
-      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"https", 5), SR_AUTH,
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", connect ? 12 : 0)};
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
@@ -23599,8 +23598,7 @@ static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
   wired_obuf      ob  = obuf_of(out, cap);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
-      wired_span_of((const u8*)"h", 1), wired_span_of(path, plen),
-      wired_span_of((const u8*)"", 0)};
+      SR_AUTH, wired_span_of(path, plen), wired_span_of((const u8*)"", 0)};
   bytes_memset(path, 'a', plen);
   path[0] = '/';
   bytes_memset(body, 'b', blen);
@@ -23686,7 +23684,7 @@ static void sr_og_send_connect(srvrun_conn* c, const char* origin, usz olen) {
   wired_obuf      sob = obuf_of(pl, sizeof pl);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"CONNECT", 7),
-      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"https", 5), SR_AUTH,
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", 12)};
   qpack_field of = {
@@ -23714,7 +23712,7 @@ static void test_srvrun_wt_origin_check_allowed_establishes(void) {
   CHECK(
       g_og_origin.n == 17 &&
       srvrun_wt_bytes_eq(g_og_origin.p, (const u8*)"https://a.example", 17));
-  CHECK(g_og_authority.n == 1 && g_og_authority.p[0] == 'h');
+  CHECK(g_og_authority.n == 9 && g_og_authority.p[0] == 'l');
   CHECK(c->wt_active == 1);
   CHECK(sr_resp_is_status(&c->resp[0], 200));
 }
@@ -23787,8 +23785,7 @@ static void test_srvrun_8000_octet_target_served(void) {
   path[0] = '/';
   pin     = (h3req_pseudo_in){
       wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"https", 5),
-      wired_span_of((const u8*)"h", 1), wired_span_of(path, sizeof path),
-      wired_span_of(0, 0)};
+      SR_AUTH, wired_span_of(path, sizeof path), wired_span_of(0, 0)};
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
   CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
   sr_sl_send_stream(c, h3buf, hob.len, 1);
@@ -23807,8 +23804,7 @@ static usz sr_sl_expect_headers(u8* out, usz cap, usz* hlen) {
   wired_obuf      sob = obuf_of(out, cap);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
-      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
-      wired_span_of(0, 0)};
+      SR_AUTH, wired_span_of((const u8*)"/", 1), wired_span_of(0, 0)};
   stream_frame sf;
   wired_obuf   xob;
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
@@ -24114,7 +24110,7 @@ static usz sr_cl_req(u8* out, usz cap, const char* cl) {
   wired_obuf      db;
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
-      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      SR_AUTH, wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"", 0)};
   qpack_field f = {
       wired_span_of((const u8*)"content-length", 14),
@@ -24270,7 +24266,7 @@ static void test_srvrun_on_body_past_initial_max_data(void) {
   wired_obuf      hob = obuf_of(head, sizeof head);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
-      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      SR_AUTH, wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"", 0)};
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
   CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
@@ -25185,7 +25181,14 @@ static int sr_golden_legacy_handler(
  * srvrun_start_resp path with cfg (fd/env filled in here) and return the
  * armed stream bytes. */
 /* :method sr_arm_with_cfg's request carries instead of GET (0 keeps GET). */
+/* Point slot 0's request :authority at the C string a. */
+static void sr_origin_auth(srvrun_conn* c, const char* a) {
+  c->l.req.authority     = (const u8*)a;
+  c->l.req.authority_len = wired_cstr_len(a);
+}
+
 static const char* g_sr_arm_method;
+static const char* g_sr_arm_authority; /* non-0: the request :authority */
 
 static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   struct lp_fix f;
@@ -25196,6 +25199,9 @@ static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   if (g_sr_arm_method) {
     c->l.req.method     = (const u8*)g_sr_arm_method;
     c->l.req.method_len = wired_cstr_len(g_sr_arm_method);
+  }
+  if (g_sr_arm_authority) {
+    sr_origin_auth(c, g_sr_arm_authority);
   }
   cfg->fd  = -1;
   cfg->env = &g_srvrun_env;
@@ -25601,6 +25607,47 @@ static void test_srvrun_http_peer_field_section_limit(void) {
   CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 197) == 1);
   CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 198) == 0);
   CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 0) == 0);
+}
+
+/* RFC 9110 7.4 / 15.5.20 (9110-037): an https request for an origin the
+ * connection's certificate (SAN dNSName "localhost", no iPAddress) does
+ * not cover is answered 421; a covered one, with or without a port, an
+ * "http" request and an already-chosen status pass through. */
+static void test_srvrun_origin_misdirected_421(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrun_conn*  c  = sr_test_conns();
+  sr_make_confirmed_conn(c, &f, &ob);
+  sr_set_req(c, 0, 0, 0);
+  CHECK(c->s.sdrv.cert_count >= 1);
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "LocalHost:4433");
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "evil.example");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  CHECK(srvrun_origin_status(c, 404) == 404);
+  sr_origin_auth(c, "127.0.0.1:443");
+  CHECK(srvrun_origin_status(c, 0) == 421);
+  sr_origin_auth(c, "[::1]:443"); /* shortcut: IPv6 literals not checked */
+  CHECK(srvrun_origin_status(c, 0) == 0);
+  sr_origin_auth(c, "evil.example");
+  c->l.req.scheme     = (const u8*)"http";
+  c->l.req.scheme_len = 4;
+  CHECK(srvrun_origin_status(c, 0) == 0);
+}
+
+/* 9110-037 end to end: the handler never runs and the armed response is
+ * the 421 itself. */
+static void test_srvrun_origin_421_armed(void) {
+  sr_hx_dec d;
+  g_sr_hx            = (sr_hx_case){200, 0, 0, 0, 0, 0, 0};
+  g_sr_hx_calls      = 0;
+  g_sr_arm_authority = "evil.example";
+  sr_hx_run(&d);
+  g_sr_arm_authority = 0;
+  CHECK(sr_hx_line_is(&d, 0, ":status", "421"));
+  CHECK(g_sr_hx_calls == 0);
 }
 
 /* Fields past WIRED_HTTP_FIELD_BYTES_MAX in total answer 500 rather than
@@ -26629,6 +26676,8 @@ void test_srvrun(void) {
   test_srvrun_http_501_body();
   test_srvrun_http_field_count_limit();
   test_srvrun_http_peer_field_section_limit();
+  test_srvrun_origin_misdirected_421();
+  test_srvrun_origin_421_armed();
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();
