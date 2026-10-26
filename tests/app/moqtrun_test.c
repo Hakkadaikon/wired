@@ -3855,7 +3855,8 @@ static void test_moqtrun_fresh_torn_first_object_accepted(void) {
 
 /* A one-shot delivery (FIN with the data) whose Objects are ALL torn has
  * no continuation coming: header + zero complete Objects relays nothing --
- * no one-shot send, no stream opened. */
+ * no one-shot send, no stream opened -- and the FIN mid-Object closes the
+ * session PROTOCOL_VIOLATION (draft-19 11.4). */
 static void test_moqtrun_fresh_oneshot_no_object_discarded(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -3873,7 +3874,8 @@ static void test_moqtrun_fresh_oneshot_no_object_discarded(void) {
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(wire, hdr_end + 1), 1 /* fin */);
-  CHECK(g_n_calls == 0); /* nothing complete, nothing sent */
+  CHECK(g_n_calls == 1); /* nothing complete, nothing sent: only the close */
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* An undeliverable tail larger than one whole relayable Object is dropped
@@ -5170,9 +5172,8 @@ static void test_moqtrun_dg_unknown_alias_counts_bad(void) {
 }
 
 /* A datagram moqdg_take refuses (Type 0x18: reserved bit 4 set, a
- * VIOLATION per 11.3.1) is dropped whole on stat_dg_bad -- the draft says
- * MUST close the session, but this hub's io table has no close operation
- * (see wired_moqt_on_datagram's doc). */
+ * VIOLATION per 11.3.1) is dropped whole on stat_dg_bad and closes the
+ * sending session PROTOCOL_VIOLATION (11.3.1: MUST close). */
 static void test_moqtrun_dg_malformed_counts_bad(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -5184,7 +5185,8 @@ static void test_moqtrun_dg_malformed_counts_bad(void) {
   static const u8 dg[] = {0x18, 0x01, 0x00, 0x05, 'h', 'i'};
   wired_moqt_on_datagram(&hub, SESS_A, wired_span_of(dg, sizeof dg));
 
-  CHECK(g_n_calls == 0);
+  CHECK(g_n_calls == 1);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   CHECK(hub.stat_dg_bad == 1);
   CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
 }

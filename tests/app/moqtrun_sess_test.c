@@ -181,6 +181,94 @@ static void test_mtss_publish_dup_alias_closes(void) {
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
 }
 
+/* SUBGROUP_HEADER of Type type for A's alice (Track Alias 1), Group 0,
+ * then the Object bytes obj; the stream bytes' length. */
+static usz mtss_sg(u8* b, u64 type, const u8* obj, usz n) {
+  moqdata_subhdr h   = {0};
+  usz            off = 0;
+  h.type             = type;
+  h.track_alias      = 1;
+  CHECK(moqdata_subhdr_put(wired_mspan_of(b, 64), &off, &h) == MOQDATA_OK);
+  bytes_memcpy(b + off, obj, n);
+  return off + n;
+}
+
+/* 1 iff A's uni stream 14 carrying Type type + obj (fin as given) closes
+ * the session PROTOCOL_VIOLATION. */
+static int mtss_sg_closes(u64 type, const u8* obj, usz n, int fin) {
+  u8 b[64];
+  mtrq_setup();
+  mtss_uni(14, b, mtss_sg(b, type, obj, n), fin);
+  return moqtrun_test_count_kind(11) == 1 &&
+         mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-19 11.2.1.1 / 11.2.1.2 / 11.4.2 (draft-18 alike, draft-22
+ * 11.1/11.3.1): an unregistered Object Status (0x7F), Object Properties
+ * on a non-Normal Object (End of Group), and a cumulative Object ID past
+ * 2^64-1 each close the session PROTOCOL_VIOLATION; a well-formed Object
+ * does not. */
+static void test_mtss_subgroup_object_violations(void) {
+  static const u8 status[] = {0x00, 0x00, 0x7F};
+  static const u8 props[]  = {0x00, 0x02, 0x02, 0x05, 0x00, 0x03};
+  static const u8 wrap[]   = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                              0xFF, 0xFF, 0x01, 'a',  0x00, 0x01, 'b'};
+  static const u8 good[]   = {0x00, 0x02, 'h', 'i'};
+  CHECK(mtss_sg_closes(0x10, status, sizeof status, 0));
+  CHECK(mtss_sg_closes(0x11, props, sizeof props, 0));
+  CHECK(mtss_sg_closes(0x10, wrap, sizeof wrap, 0));
+  CHECK(!mtss_sg_closes(0x10, good, sizeof good, 1));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
+/* draft-19 11.4 (draft-18 11.4, draft-22 11.3): a Subgroup stream ending
+ * with a FIN in the middle of a serialized Object closes the session
+ * PROTOCOL_VIOLATION -- in its first delivery, or as a bare FIN after a
+ * torn tail the relay held back. */
+static void test_mtss_subgroup_fin_mid_object(void) {
+  static const u8 torn[] = {0x00, 0x05, 'h', 'i'};
+  u8              b[64];
+  CHECK(mtss_sg_closes(0x10, torn, sizeof torn, 1));
+  mtrq_setup();
+  mtss_uni(14, b, mtss_sg(b, 0x10, torn, sizeof torn), 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mtss_uni(14, b, 0, 1);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+}
+
+/* A (alice, alias 1) sends datagram b; 1 iff the hub then closed A's
+ * session PROTOCOL_VIOLATION. */
+static int mtss_dg_closes(const u8* b, usz n) {
+  mtrq_setup();
+  wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(b, n));
+  return moqtrun_test_count_kind(11) == 1 &&
+         mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* draft-19 11 / 11.3.1 (draft-18 11.3.1, draft-22 11.2.1): an
+ * OBJECT_DATAGRAM of an invalid Type (0x40: outside 0b00X0XXXX; 0x22:
+ * STATUS with END_OF_GROUP), PROPERTIES with a Properties Length of 0, or
+ * Properties on a non-Normal Status closes the session PROTOCOL_VIOLATION;
+ * a padding datagram (Type 0x132B3E29, 11.5.2) and a well-formed one do
+ * not. */
+static void test_mtss_datagram_invalid_closes(void) {
+  static const u8 bad_type[] = {0x40, 0x01, 0x00, 0x00, 0x00, 'x'};
+  static const u8 st_eog[]   = {0x22, 0x01, 0x00, 0x00, 0x00, 0x03};
+  static const u8 props0[]   = {0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 'x'};
+  static const u8 st_props[] = {0x21, 0x01, 0x00, 0x00, 0x00,
+                                0x02, 0x04, 0x01, 0x03};
+  static const u8 good[]     = {0x00, 0x01, 0x00, 0x00, 0x00, 'x'};
+  u8              pad[16];
+  usz             n = moqvi_encode(pad, 0x132B3E29ULL);
+  pad[n++]          = 0x00;
+  CHECK(mtss_dg_closes(bad_type, sizeof bad_type));
+  CHECK(mtss_dg_closes(st_eog, sizeof st_eog));
+  CHECK(mtss_dg_closes(props0, sizeof props0));
+  CHECK(mtss_dg_closes(st_props, sizeof st_props));
+  CHECK(!mtss_dg_closes(pad, n));
+  CHECK(!mtss_dg_closes(good, sizeof good));
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -192,4 +280,7 @@ void test_moqtrun_sess(void) {
   test_mtss_request_token_kvfmt();
   test_mtss_setup_token_alias();
   test_mtss_publish_dup_alias_closes();
+  test_mtss_subgroup_object_violations();
+  test_mtss_subgroup_fin_mid_object();
+  test_mtss_datagram_invalid_closes();
 }

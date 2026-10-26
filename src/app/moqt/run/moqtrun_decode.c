@@ -12,6 +12,7 @@ static void moqtrun_track_obj(
 static int moqtrun_track_has_alias(
     const wired_moqtrun_track* t, u64 track_alias);
 static int moqtrun_fresh_nothing_due(usz whole_objects, int fin);
+static int moqtrun_fin_torn(int fin, usz off, usz n);
 static wired_moqtrun_track* moqtrun_fresh_count_only(wired_moqtrun_track* t);
 
 /* 1 iff an Object at l on t (0: no track) is past the final Object of
@@ -59,6 +60,23 @@ static void moqtrun_track_obj(
   moqtrun_track_note_end(t, l, o->status);
 }
 
+/* 1 iff a stream ends (fin) with bytes past its last whole Object. */
+static int moqtrun_fin_torn(int fin, usz off, usz n) { return fin && off < n; }
+
+/* Notes a received Subgroup stream fault on hub (0: a scan of the hub's
+ * own bytes, nothing to note): wired_moqt_on_stream_data then closes the
+ * sending session PROTOCOL_VIOLATION (moqtrun_rx_violation_close). */
+void moqtrun_rx_flag(wired_moqt_hub* hub, int bad) {
+  if (hub && bad) {
+    hub->rx_violation = 1;
+  }
+}
+
+/* Every whole Object of data from *off; one the codec refuses -- an
+ * unregistered Object Status, Properties on a non-Normal Object, a
+ * cumulative Object ID past 2^64-1 (draft-19 11.2.1.1, 11.2.1.2, 11.4.2;
+ * draft-18 alike; draft-22 11.1, 11.3.1) -- ends the loop and flags the
+ * session for a PROTOCOL_VIOLATION close (moqtrun_rx_flag). */
 usz moqtrun_decode_object_loop(
     wired_moqt_hub*      hub,
     wired_span           data,
@@ -69,7 +87,9 @@ usz moqtrun_decode_object_loop(
   usz n = 0;
   while (*off < data.n) {
     moqdata_obj obj;
-    if (moqdata_obj_take(data, off, seq, &obj) != MOQDATA_OK) {
+    int         r = moqdata_obj_take(data, off, seq, &obj);
+    if (r != MOQDATA_OK) {
+      moqtrun_rx_flag(hub, r == MOQDATA_VIOLATION);
       break;
     }
     moqtrun_track_obj(hub, t, group, &obj);
@@ -151,9 +171,12 @@ wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   }
   wired_moqtrun_track* t   = moqtrun_track_by_alias(p, hdr.track_alias);
   moqdata_objseq       seq = moqdata_objseq_of(hdr.type);
-  if (moqtrun_fresh_nothing_due(
-          moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t),
-          fin)) {
+  usz                  whole =
+      moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t);
+  /* draft-19 11.4 (draft-18 11.4, draft-22 11.3): a FIN in the middle of
+   * a serialized Object SHOULD close the session PROTOCOL_VIOLATION. */
+  moqtrun_rx_flag(hub, moqtrun_fin_torn(fin, off, data.n));
+  if (moqtrun_fresh_nothing_due(whole, fin)) {
     return moqtrun_fresh_count_only(t);
   }
   *whole_end = off;

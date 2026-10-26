@@ -447,6 +447,10 @@ typedef struct {
    * forbid a relay to drop Objects of a multi-object stream, so only an
    * app that trades completeness for latency (live voice) turns it on. */
   u8 newest_group_only;
+  /** 1 while the delivery being handled broke a Subgroup stream rule
+   * (moqtrun_rx_flag); wired_moqt_on_stream_data closes the sending
+   * session PROTOCOL_VIOLATION and clears it. */
+  u8 rx_violation;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */
@@ -669,10 +673,10 @@ void wired_moqt_on_stream_data(
  * gone; live audio wants the next frame, not a replay). app_ctx must be
  * the wired_moqt_hub*. Each subscriber copy goes through io.send_datagram
  * (accepted -> stat_dg_sent, refused -> stat_dg_drop); a datagram
- * moqdg_take refuses or whose alias matches no track is dropped whole on
- * stat_dg_bad -- draft 11.3.1 says an invalid Type MUST close the session
- * with PROTOCOL_VIOLATION, but this hub's io table has no close operation,
- * so counting-and-dropping is the closest it can do. A session never
+ * moqdg_take refuses closes the sending session PROTOCOL_VIOLATION (draft
+ * 11.3.1: an invalid Type MUST close the session) unless it is padding
+ * (Type 0x132B3E29); it, padding and one whose alias matches no track are
+ * dropped whole on stat_dg_bad. A session never
  * registered, or an io table whose send_datagram is 0, is a no-op. */
 void wired_moqt_on_datagram(
     void* app_ctx, wired_wt_session* s, wired_span data);

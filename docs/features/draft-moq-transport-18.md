@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 202/248 tested, 30 indirect, 16 untested.**
+**Coverage: 206/248 tested, 30 indirect, 12 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -1038,12 +1038,10 @@ Legend:
 - [x] MQ18-114 The implementation shall recognize Object Status values 0x0
   (Normal), 0x3 (End of Group), and 0x4 (End of Track).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
-- [ ] MQ18-115 (§11.2.1.1) If an Object carries an unregistered Status value,
+- [x] MQ18-115 (§11.2.1.1) If an Object carries an unregistered Status value,
   then the implementation should close the session with a protocol
   violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_status_values`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-116 An Object shall have an empty payload unless its Object Status
   is Normal (0x0); the Object Status field shall be present only when Payload
   Length is 0.
@@ -1053,12 +1051,10 @@ Legend:
 
 ## SS11.2.1.2 Object Properties
 
-- [ ] MQ18-117 (§11.2.1.2) If an endpoint receives Object Properties on an
+- [x] MQ18-117 (§11.2.1.2) If an endpoint receives Object Properties on an
   Object whose Status is not Normal, then the implementation shall close the
   session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_properties`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-118 Object Properties shall be serialized as a Properties Length
   (varint) followed by a Key-Value-Pair list.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
@@ -1141,12 +1137,10 @@ Legend:
   in a Subgroup, and the previous Object ID plus the Delta plus 1 for each
   subsequent Object.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_delta_chain`
-- [ ] MQ18-132 (§11.4.2) If the resulting cumulative Object ID would exceed
+- [x] MQ18-132 (§11.4.2) If the resulting cumulative Object ID would exceed
   2^64-1, then the implementation shall close the session with a protocol
   violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_id_overflow`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-133 If a Subgroup Object stream terminates with a FIN in the middle
   of a serialized Object, then the implementation shall not treat the partial
   Object as complete.
@@ -1789,13 +1783,11 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
-- [ ] MQ18-234 (§11, §11.3.1) If a datagram has an unknown or invalid Type
+- [x] MQ18-234 (§11, §11.3.1) If a datagram has an unknown or invalid Type
   (outside 0b00X0XXXX, or STATUS with END_OF_GROUP), the PROPERTIES bit with a
   Properties Length of 0, or Properties on a non-Normal Object Status, then
   the server shall close the session with PROTOCOL_VIOLATION.
-  - gap: the codec rejects these (`test_moqdg_type_valid_rejects`,
-    `test_moqdg_take_reject_golden`), but the hub only counts and drops the
-    datagram (`test_moqtrun_dg_malformed_counts_bad`) instead of closing.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_datagram_invalid_closes`
 - [~] MQ18-240 (§11.5.2) The server shall discard all data received in a
   padding datagram (type 0x132B3E29).
   - evidence: the datagram codec has no padding type, so the hub drops it as

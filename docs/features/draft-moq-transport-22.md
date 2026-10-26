@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 215/273 tested, 43 indirect, 15 untested.**
+**Coverage: 220/273 tested, 43 indirect, 10 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -1178,13 +1178,9 @@ Legend:
 - [x] MQ22-113 The implementation shall recognize Object Status values 0x0
   (Normal), 0x3 (End of Group), and 0x4 (End of Track).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
-- [ ] MQ22-114 If an Object carries an unregistered Status value, then the
+- [x] MQ22-114 If an Object carries an unregistered Status value, then the
   implementation shall close the session with a protocol violation.
-  - gap: the codec rejects it (`test_moqdata_obj_take_status_values`),
-    but the hub does not close the session: a data stream that fails to
-    decode is just not relayed past that point
-    (`moqtrun_decode_object_loop`,
-    `test_moqtrun_decode_loop_stops_at_violation`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ22-115 An Object shall have an empty payload unless its Object Status
   is Normal (0x0); the Object Status field shall be present only when Payload
   Length is 0.
@@ -1194,14 +1190,10 @@ Legend:
 
 ## SS11.1.2 Object Properties
 
-- [ ] MQ22-116 If an endpoint receives Object Properties on an Object whose
+- [x] MQ22-116 If an endpoint receives Object Properties on an Object whose
   Status is not Normal, then the implementation shall close the session with a
   protocol violation.
-  - gap: the codec rejects it (`test_moqdata_obj_take_properties`),
-    but the hub does not close the session: a data stream that fails to
-    decode is just not relayed past that point
-    (`moqtrun_decode_object_loop`,
-    `test_moqtrun_decode_loop_stops_at_violation`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ22-117 Object Properties shall be serialized as a Properties Length
   (varint) followed by a Key-Value-Pair list.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
@@ -1283,20 +1275,15 @@ Legend:
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_open_sgid_mode1_explicit`
-- [ ] MQ22-130a If the resulting cumulative Object ID would exceed 2^64-1,
+- [x] MQ22-130a If the resulting cumulative Object ID would exceed 2^64-1,
   then the implementation shall close the session with a protocol
   violation.
-  - gap: the codec rejects it (`test_moqdata_obj_take_id_overflow`),
-    but the hub does not close the session: a data stream that fails to
-    decode is just not relayed past that point
-    (`moqtrun_decode_object_loop`,
-    `test_moqtrun_decode_loop_stops_at_violation`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 
-- [ ] MQ22-246 (SS11.3) If a Subgroup stream ends with a FIN in the middle
+- [x] MQ22-246 (SS11.3) If a Subgroup stream ends with a FIN in the middle
   of a serialized Object, then the hub should close the session with
   PROTOCOL_VIOLATION.
-  - gap: a torn tail is held or dropped (MQ22-179); no path closes the
-    session on it.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_fin_mid_object`
 
 ## SS9.11 FETCH (draft-22: Track Namespace/Name + LOCATION_FILTER, no Fetch Type)
 
@@ -2068,12 +2055,10 @@ draft-18 and draft-19.
   - test: `tests/app/moqdg_test.c` — `test_moqdg_take_props`
   - test: `tests/app/moqdg_test.c` — `test_moqdg_put_golden`
   - test: `tests/app/moqdg_test.c` — `test_moqdg_take_reject_golden`
-- [ ] MQ22-234 (SS11, SS11.2.1) If a datagram has an unknown type or invalid
+- [x] MQ22-234 (SS11, SS11.2.1) If a datagram has an unknown type or invalid
   Type Flags, then the hub shall close the session with
   PROTOCOL_VIOLATION.
-  - gap: the hub counts such a datagram (`stat_dg_bad`) and drops it
-    without closing; `test_moqtrun_dg_malformed_counts_bad` asserts that
-    no close happens.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_datagram_invalid_closes`
 
 ## Hub features completed in the multi-draft round (ledger ch. 10)
 
