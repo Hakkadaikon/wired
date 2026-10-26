@@ -142,13 +142,3 @@ int salpn_build_response_tok(wired_span name, wired_obuf* out) {
   out->len += n;
   return 1;
 }
-
-int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len) {
-  wired_obuf ob = obuf_of(out, cap);
-  if (!salpn_build_response_tok(
-          salpn_choice_name(choice, wired_span_of(0, 0)), &ob)) {
-    return 0;
-  }
-  *out_len = ob.len;
-  return 1;
-}

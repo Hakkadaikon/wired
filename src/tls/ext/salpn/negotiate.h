@@ -38,13 +38,6 @@ typedef enum {
  * than falling back to a protocol the peer never offered. */
 salpn_choice salpn_negotiate(const u8* alpn_ext_data, usz len);
 
-/* Build the EncryptedExtensions ALPN extension selecting the outcome of
- * salpn_negotiate: ext_type(2)=0x0010 ext_data_len(2) list_len(2)
- * name_len(1) name. Writes into out (cap total), sets *out_len, returns 1;
- * 0 if cap is too small or choice is SALPN_NONE (nothing to build --
- * the caller must not have reached here with an unresolved negotiation). */
-int salpn_build_response(salpn_choice choice, u8* out, usz cap, usz* out_len);
-
 /** The protocol id bytes a negotiation outcome names: "h3", "hq-interop",
  * tok for SALPN_RAW (the salpn_raw_pick token), or an empty span for
  * SALPN_NONE (nothing negotiated).
