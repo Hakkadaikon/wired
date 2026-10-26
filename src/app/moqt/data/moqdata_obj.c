@@ -3,7 +3,7 @@
 static int moqdata_id_overflow(int have_prev, u64 prev_id, u64 delta);
 static u64 moqdata_next_id(int have_prev, u64 prev_id, u64 delta);
 static int moqdata_obj_take_id(
-    wired_span buf, usz* at, moqdata_objseq* seq, moqdata_obj* o);
+    wired_span buf, usz* at, const moqdata_objseq* seq, moqdata_obj* o);
 static int moqdata_obj_skip(wired_span buf, usz* at, u64 n);
 static int moqdata_obj_take_props_field(
     wired_span buf, usz* at, u64* props_len);
@@ -16,15 +16,16 @@ static int moqdata_obj_take_empty(
     wired_span buf, usz* at, u64 props_len, moqdata_obj* o);
 static int moqdata_obj_take_payload(
     wired_span buf, usz* at, u64 len, moqdata_obj* o);
-static int moqdata_obj_take_body(
-    wired_span buf, usz* at, u64 props_len, moqdata_obj* o);
-static int moqdata_obj_take_finish(
-    wired_span      buf,
-    usz*            at,
-    u64             props_len,
-    moqdata_objseq* seq,
-    moqdata_obj*    out,
-    usz*            off);
+static int moqdata_obj_take_len(
+    wired_span buf, usz* at, u64 props_len, moqdata_obj* o, u64* len);
+static int moqdata_obj_head(
+    wired_span            buf,
+    usz*                  at,
+    const moqdata_objseq* seq,
+    moqdata_obj*          out,
+    u64*                  len);
+static int moqdata_obj_take_rest(
+    wired_span buf, usz* at, u64 len, moqdata_obj* o);
 
 static int moqdata_id_overflow(int have_prev, u64 prev_id, u64 delta) {
   if (!have_prev) {
@@ -41,7 +42,7 @@ static u64 moqdata_next_id(int have_prev, u64 prev_id, u64 delta) {
 }
 
 static int moqdata_obj_take_id(
-    wired_span buf, usz* at, moqdata_objseq* seq, moqdata_obj* o) {
+    wired_span buf, usz* at, const moqdata_objseq* seq, moqdata_obj* o) {
   u64 delta;
   if (!moqvi_take(buf, at, &delta)) {
     return MOQDATA_INSUFFICIENT;
@@ -124,46 +125,67 @@ static int moqdata_obj_take_payload(
   return MOQDATA_OK;
 }
 
-static int moqdata_obj_take_body(
-    wired_span buf, usz* at, u64 props_len, moqdata_obj* o) {
-  u64 len;
-  if (!moqvi_take(buf, at, &len)) {
+/* Payload Length, and the Status a length-0 Object carries instead of a
+ * payload: the header's last fields. A Normal Object's payload is left to
+ * moqdata_obj_take_rest. */
+static int moqdata_obj_take_len(
+    wired_span buf, usz* at, u64 props_len, moqdata_obj* o, u64* len) {
+  if (!moqvi_take(buf, at, len)) {
     return MOQDATA_INSUFFICIENT;
   }
-  if (len == 0) {
+  if (*len == 0) {
     return moqdata_obj_take_empty(buf, at, props_len, o);
   }
-  return moqdata_obj_take_payload(buf, at, len, o);
+  o->status = MOQDATA_STATUS_NORMAL;
+  return MOQDATA_OK;
 }
 
-static int moqdata_obj_take_finish(
-    wired_span      buf,
-    usz*            at,
-    u64             props_len,
-    moqdata_objseq* seq,
-    moqdata_obj*    out,
-    usz*            off) {
-  int r = moqdata_obj_take_body(buf, at, props_len, out);
+/* Every field of the Object at *at but its payload bytes; *len its
+ * Payload Length. seq is read, not advanced. */
+static int moqdata_obj_head(
+    wired_span            buf,
+    usz*                  at,
+    const moqdata_objseq* seq,
+    moqdata_obj*          out,
+    u64*                  len) {
+  u64 props_len;
+  int r = moqdata_obj_take_id(buf, at, seq, out);
   if (r != MOQDATA_OK) {
     return r;
   }
-  seq->have_prev = 1;
-  seq->prev_id   = out->object_id;
-  *off           = *at;
-  return MOQDATA_OK;
+  if (!moqdata_obj_take_props(buf, at, seq->has_props, &props_len)) {
+    return MOQDATA_INSUFFICIENT;
+  }
+  out->props = wired_span_of(buf.p + *at - props_len, (usz)props_len);
+  return moqdata_obj_take_len(buf, at, props_len, out, len);
+}
+
+/* The payload a non-zero Payload Length announced. */
+static int moqdata_obj_take_rest(
+    wired_span buf, usz* at, u64 len, moqdata_obj* o) {
+  return len ? moqdata_obj_take_payload(buf, at, len, o) : MOQDATA_OK;
 }
 
 int moqdata_obj_take(
     wired_span buf, usz* off, moqdata_objseq* seq, moqdata_obj* out) {
   usz at = *off;
-  u64 props_len;
-  int r = moqdata_obj_take_id(buf, &at, seq, out);
+  u64 len;
+  int r = moqdata_obj_head(buf, &at, seq, out, &len);
+  if (r == MOQDATA_OK) {
+    r = moqdata_obj_take_rest(buf, &at, len, out);
+  }
   if (r != MOQDATA_OK) {
     return r;
   }
-  if (!moqdata_obj_take_props(buf, &at, seq->has_props, &props_len)) {
-    return MOQDATA_INSUFFICIENT;
-  }
-  out->props = wired_span_of(buf.p + at - props_len, (usz)props_len);
-  return moqdata_obj_take_finish(buf, &at, props_len, seq, out, off);
+  seq->have_prev = 1;
+  seq->prev_id   = out->object_id;
+  *off           = at;
+  return MOQDATA_OK;
+}
+
+int moqdata_obj_head_take(
+    wired_span buf, usz off, moqdata_objseq seq, moqdata_obj* out) {
+  u64 len;
+  out->payload = wired_span_of(0, 0);
+  return moqdata_obj_head(buf, &off, &seq, out, &len);
 }

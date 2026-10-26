@@ -150,6 +150,13 @@ typedef struct {
 int moqdata_obj_take(
     wired_span buf, usz* off, moqdata_objseq* seq, moqdata_obj* out);
 
+/** moqdata_obj_take's header half: the Object at off decoded up to its
+ * payload, which need not have arrived yet (out->payload stays empty);
+ * seq is not advanced. MOQDATA_OK once every header field is in buf --
+ * the moment a relay can forward the Object's bytes (draft-18 5.1). */
+int moqdata_obj_head_take(
+    wired_span buf, usz off, moqdata_objseq seq, moqdata_obj* out);
+
 /** Encodes an Object ID Delta of id_delta followed by payload. Non-empty
  * payload: Payload Length + bytes (Status omitted, implicit Normal).
  * Empty payload: Payload Length 0 followed by an explicit Normal Status
