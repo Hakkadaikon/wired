@@ -551,6 +551,15 @@ int* wired_srvrun_shutdown_word(void);
  * g_srvrun_env. */
 int wired_server_broadcast_datagram(wired_span data);
 
+/** wired_server_broadcast_datagram with a priority (RFC 9221 5.1): each
+ * connection's queue sends its most urgent DATAGRAM first, in call order
+ * within one urgency. wired_server_broadcast_datagram uses urgency 3.
+ * Copies pushed to other srvthreads workers are queued at urgency 3.
+ * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
+ * @param urgency 0 (most urgent) to 7, the RFC 9218 urgency scale
+ * @return 1 if queued, 0 if data exceeds the cap or urgency is above 7 */
+int wired_server_broadcast_datagram_prio(wired_span data, u8 urgency);
+
 /** Queue one HTTP Datagram (RFC 9297) to EVERY active WebTransport session
  * in the caller's server loop -- the burst-safe sibling of
  * wired_server_broadcast_datagram. Where that API holds one pending payload
@@ -845,6 +854,17 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
  *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
  *   full, or the prefixed payload exceeds a ring slot */
 int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
+
+/** wired_server_wt_send_datagram_to with a priority (RFC 9221 5.1): the
+ * ring sends its most urgent datagram first, in call order within one
+ * urgency. wired_server_wt_send_datagram_to uses urgency 3.
+ * @param s the session the datagram is addressed to
+ * @param payload the HTTP Datagram payload (qsid prefix NOT included)
+ * @param urgency 0 (most urgent) to 7, the RFC 9218 urgency scale
+ * @return 1 queued, 0 on any wired_server_wt_send_datagram_to failure or
+ *   when urgency is above 7 */
+int wired_server_wt_send_datagram_prio(
+    wired_wt_session* s, wired_span payload, u8 urgency);
 
 /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): close s's
  * WebTransport session: send a WT_CLOSE_SESSION capsule (app_error_code,

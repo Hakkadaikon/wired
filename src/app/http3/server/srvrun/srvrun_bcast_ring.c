@@ -4,8 +4,12 @@ static int srvrun_bcast_ring_conn(
     wired_srvrun_env* env, int cslot, wired_span data);
 static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message);
-static usz srvrun_wt_streams_open(const srvrun_conn* c);
-static usz dgring_len_at(const wired_srvrun_env* env, usz i);
+static usz                  srvrun_wt_streams_open(const srvrun_conn* c);
+static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
+static int  srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best);
+static usz  srvrun_dgring_best(wired_srvrun_env* env);
+static int  srvrun_dgring_over_budget(usz bytes, usz len);
+static void srvrun_dgring_pop_sent(wired_srvrun_env* env);
 
 /* All of one connection's session slots, ANDing per-target success -- split
  * out of wired_server_broadcast_datagram_ring so each loop stays at the CCN
@@ -108,21 +112,62 @@ void srvrun_dgring_send_one(
   }
 }
 
-/* Queued entry i's (0 = the ring head) payload length. */
-static usz dgring_len_at(const wired_srvrun_env* env, usz i) {
-  return env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP].len;
+/* Queued entry i (0 = the ring head). */
+static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i) {
+  return &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP];
 }
 
-/* Entries from the ring head that fit this slice's byte budget -- the first
- * entry always counts, so a datagram larger than the whole budget still
- * drains instead of wedging the ring. */
-usz srvrun_dgring_budget_count(const wired_srvrun_env* env, usz max) {
-  usz n     = max != 0;
-  usz bytes = dgring_len_at(env, 0);
-  while (n < max &&
-         bytes + dgring_len_at(env, n) <= SRVRUN_DGRING_DRAIN_BYTES) {
-    bytes += dgring_len_at(env, n);
-    n++;
+/* RFC 9221 5.1: unsent entry i outranks the best so far (dgring_n = none
+ * yet); an equal urgency keeps the older one. */
+static int srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best) {
+  const srvrun_dgring_entry* e = srvrun_dgring_at(env, i);
+  return !e->sent &&
+         (best == env->dgring_n ||
+          dgpriority_higher(e->urgency, srvrun_dgring_at(env, best)->urgency));
+}
+
+/* The most urgent unsent entry, oldest within its urgency; dgring_n when
+ * every queued entry was sent. */
+static usz srvrun_dgring_best(wired_srvrun_env* env) {
+  usz best = env->dgring_n;
+  for (usz i = 0; i < env->dgring_n; i++) {
+    if (srvrun_dgring_beats(env, i, best)) {
+      best = i;
+    }
   }
-  return n;
+  return best;
+}
+
+/* An entry of len past this slice's byte budget -- never the slice's first,
+ * so a datagram larger than the whole budget still drains instead of
+ * wedging the ring. */
+static int srvrun_dgring_over_budget(usz bytes, usz len) {
+  return bytes && bytes + len > SRVRUN_DGRING_DRAIN_BYTES;
+}
+
+/* Free the sent entries at the ring head. */
+static void srvrun_dgring_pop_sent(wired_srvrun_env* env) {
+  while (env->dgring_n && srvrun_dgring_at(env, 0)->sent) {
+    env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
+    env->dgring_n--;
+  }
+}
+
+int srvrun_dgring_send_best(
+    const srvrun_cfg* cfg, srvrun_state* st, usz* bytes) {
+  wired_srvrun_env*    env = cfg->env;
+  usz                  i   = srvrun_dgring_best(env);
+  srvrun_dgring_entry* e;
+  if (i == env->dgring_n) {
+    return 0;
+  }
+  e = srvrun_dgring_at(env, i);
+  if (srvrun_dgring_over_budget(*bytes, e->len)) {
+    return 0;
+  }
+  srvrun_dgring_send_one(cfg, st, e);
+  e->sent = 1;
+  *bytes += e->len;
+  srvrun_dgring_pop_sent(env);
+  return 1;
 }

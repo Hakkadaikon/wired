@@ -843,6 +843,36 @@ static void test_srvrun_dg_priority_vs_stream(void) {
   CHECK(c.resp[0].sess.q.cur == 0);
 }
 
+/* RFC 9221 5.1 (9221-019): the pending queue sends its most urgent DATAGRAM
+ * first, arrival order within one urgency. A send pass with window room for
+ * one DATAGRAM sends the urgent one; the other two wait in arrival order. */
+static void test_srvrun_dg_pending_by_urgency(void) {
+  static u8       a[100] = {'a'}, b[100] = {'b'}, d[100] = {'d'};
+  struct lp_fix   f;
+  srvrun_conn     c;
+  u8              obuf[1024];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, &c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrec_bare(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 65535;
+  c.wt_active                           = 1;
+  c.wt.state                            = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id                = 4;
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(a, sizeof a), 3) == 1);
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(b, sizeof b), 0) == 1);
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(d, sizeof d), 3) == 1);
+  c.cc.cwnd  = 1 + 2 + 1 + sizeof a; /* one frame: type, length, qsid, a */
+  c.l.now_ms = 0;
+  srvrun_sess_on_step(&ctx, 0);
+  CHECK(c.dg_pending == 2);
+  CHECK(c.dg_pending_buf[c.dg_pending_head][0] == 'a');
+  CHECK(
+      c.dg_pending_buf[(c.dg_pending_head + 1) % SRVRUN_DG_PENDING_Q][0] ==
+      'd');
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -871,4 +901,5 @@ void test_srvrun_rec(void) {
   test_srvrun_cc_no_growth_app_limited();
   test_srvrun_cc_paced_not_app_limited();
   test_srvrun_dg_priority_vs_stream();
+  test_srvrun_dg_pending_by_urgency();
 }

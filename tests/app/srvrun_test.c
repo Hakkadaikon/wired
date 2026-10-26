@@ -20926,6 +20926,47 @@ static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* RFC 9221 5.1 (9221-019): the ring drains its most urgent datagram first,
+ * call order within one urgency. Two ~1000-byte entries fill one slice's
+ * byte budget, so the first slice sends the urgent y and the older x1;
+ * x2 waits for the next slice. */
+static void test_srvrun_wt_datagram_ring_by_urgency(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  for (u8 i = 1; i <= 3; i++) {
+    pay[0] = i; /* x1, x2 at urgency 3, then y at 0 */
+    CHECK(
+        wired_server_wt_send_datagram_prio(
+            &c->wt, wired_span_of(pay, sizeof pay), i == 3 ? 0 : 3) == 1);
+  }
+  CHECK(
+      wired_server_wt_send_datagram_prio(
+          &c->wt, wired_span_of(pay, sizeof pay), DGPRIORITY_MAX + 1) == 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state               st = {g_srvrun_table, g_srvrun_state.conns};
+    const srvrun_dgring_entry* e;
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st, 0);
+    CHECK(srvrun_test_send_count() == 2);
+    CHECK(g_srvrun_env.dgring_n == 2); /* x2, then y (sent, not yet freed) */
+    e = &g_srvrun_env.dgring[g_srvrun_env.dgring_head];
+    CHECK(e[0].buf[1] == 2 && !e[0].sent);
+    CHECK(e[1].buf[1] == 3 && e[1].sent);
+    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS);
+    CHECK(srvrun_test_send_count() == 3);
+    CHECK(g_srvrun_env.dgring_n == 0);
+  }
+}
+
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
  * and ALL of them eventually go out -- none dropped, none overwritten (the
  * ring exists exactly so a burst is not last-writer-wins). One drain sends
@@ -27197,6 +27238,7 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_established();
   test_srvrun_wt_send_datagram_to_requires_send_side_open();
   test_srvrun_wt_datagram_ring_paces_by_bytes();
+  test_srvrun_wt_datagram_ring_by_urgency();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
   test_srvrun_broadcast_datagram_ring_queues_burst_per_session();
