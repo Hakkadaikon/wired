@@ -29,11 +29,14 @@ void srvloop_route_note_done(wired_srvloop* l, int i) {
   }
 }
 
-/* Append slot i to frame_unexpected_slots (RFC 9114 7.2.5/7.2.8, 9114-067/
- * 9114-073) -- split out of route_note_incomplete so its own reject-vs-
- * incomplete branch stays a single extra check there. */
+/* RFC 9114 4.1 / 7.2 (9114-007/067/073): a frame a request stream must not
+ * carry is a connection error of type H3_FRAME_UNEXPECTED -- latched for
+ * srvrun to close over. Also append slot i to frame_unexpected_slots -- split
+ * out of route_note_incomplete so its own reject-vs- incomplete branch stays a
+ * single extra check there. */
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i) {
   route_unreset(l, i);
+  srvloop_h3_fail(l, H3_FRAME_UNEXPECTED); /* RFC 9114 4.1 / 7.2: connection */
   if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
   }
@@ -59,6 +62,14 @@ static void route_note_incomplete_append(wired_srvloop* l, int i) {
   if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->incomplete_slots[l->incomplete_n++] = (u8)i;
   }
+}
+
+/* RFC 9114 4.1.2: slot i's request turned out malformed after its HEADERS
+ * left the window (a streamed body breaking its Content-Length) -- abort
+ * it as such (H3_MESSAGE_ERROR) through the incomplete list. */
+void srvloop_route_note_malformed(wired_srvloop* l, int i) {
+  l->malformed_slots |= (u64)1 << i;
+  route_note_incomplete_append(l, i);
 }
 
 /* RFC 9114 4.1: slot i's request stream completed (FIN, or a HEADERS frame

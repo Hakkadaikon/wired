@@ -102,6 +102,9 @@ typedef struct {
                      received yet (SS5.4) */
   u64 sent_data; /**< cumulative Stream Body bytes sent on the session so far
                      (SS5.4) */
+  /** SS5.6.5: 1 + the WT_MAX_DATA limit the last WT_DATA_BLOCKED named, 0
+   * before any -- one capsule per limit value. */
+  u64 data_blocked_at;
   /** draft-ietf-webtrans-http3-16 SS5.1: 1 when flow control is enabled
    * (both endpoints sent a non-zero SETTINGS_WT_INITIAL_*). Then a limit of
    * 0 means 0 (blocked until a capsule raises it); while 0, a zero limit

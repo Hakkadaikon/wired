@@ -17,6 +17,10 @@ typedef struct {
  * Returns 1 if the presence flags satisfy this, 0 otherwise. */
 int h3_connect_ok(const h3_connect_flags* f);
 
+/* RFC 9110 9.3.6: 1 if r's :method is exactly "CONNECT" (methods are
+ * case-sensitive, RFC 9110 9.1), 0 otherwise. */
+int h3_connect_is_method(const wired_h3reqdrive_req* r);
+
 /* RFC 9114 4.4. Validate a decoded request as a well-formed CONNECT: :method is
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the
  * presence flags from r and applies h3_connect_ok. Returns 1 if valid

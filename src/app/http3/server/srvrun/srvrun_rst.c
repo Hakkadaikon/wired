@@ -87,7 +87,7 @@ void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln) {
  * streams are open). With the table full the abort still goes out once. */
 void srvrun_send_wt_busy_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
-  u8         pl[48];
+  u8         pl[SRVRUN_RST_PL];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   srvrun_send_kept(
       cfg, c, pl, srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb),

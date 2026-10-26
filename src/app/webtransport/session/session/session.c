@@ -41,6 +41,7 @@ void wired_wt_session_init(wired_wt_session* s, u64 connect_stream_id) {
   s->max_data            = 0;
   s->flow_control        = 0;
   s->sent_data           = 0;
+  s->data_blocked_at     = 0;
 }
 
 int wired_wt_session_establish(wired_wt_session* s) {

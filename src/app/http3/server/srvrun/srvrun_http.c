@@ -1,8 +1,6 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_call_cb(const srvrun_cfg* cfg, wired_http_exchange* x);
-static int srvrun_http_tchar(u8 c);
-static int srvrun_http_token_ok(wired_span n);
 static int srvrun_http_name_ok(wired_span n);
 static int srvrun_http_field_ok(const wired_http_field* f);
 static usz srvrun_http_ct_len(const char* ct);
@@ -77,30 +75,10 @@ int srvrun_http_status_bodiless(u16 status) {
   return status == 204 || status == 304;
 }
 
-/* RFC 9110 5.6.2 tchar as a 128-bit set ("!#$%&'*+-.^_`|~", DIGIT, ALPHA):
- * bit (c & 31) of word c >> 5. Excludes SP, ':', CTLs and every non-ASCII
- * octet. */
-static const u32 srvrun_http_tchar_set[4] = {
-    0x00000000u, 0x03ff6cfau, 0xc7fffffeu, 0x57ffffffu};
-
-static int srvrun_http_tchar(u8 c) {
-  return c < 128 && (srvrun_http_tchar_set[c >> 5] >> (c & 31)) & 1u;
-}
-
-/* RFC 9110 5.1: field-name = token = 1*tchar. */
-static int srvrun_http_token_ok(wired_span n) {
-  for (usz i = 0; i < n.n; i++) {
-    if (!srvrun_http_tchar(n.p[i])) {
-      return 0;
-    }
-  }
-  return n.n != 0;
-}
-
 /* RFC 9110 5.1 / RFC 9114 4.2: a token (so never pseudo, never CR/LF/NUL),
  * lowercase, and not connection-specific. */
 static int srvrun_http_name_ok(wired_span n) {
-  return srvrun_http_token_ok(n) && h3_header_name_ok(n.p, n.n) &&
+  return h3_header_token_ok(n.p, n.n) && h3_header_name_ok(n.p, n.n) &&
          !h3_header_name_forbidden(n.p, n.n);
 }
 

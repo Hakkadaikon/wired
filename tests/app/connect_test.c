@@ -144,15 +144,24 @@ static usz build_connect_stream(
     int want_protocol, wired_span protocol, u8* out, usz cap) {
   u8              fs[128];
   wired_obuf      fsb         = obuf_of(fs, sizeof fs);
-  static const u8 authority[] = {'h', 'o', 's', 't'};
+  static const u8 authority[] = {'h', 'o', 's', 't', ':', '4', '4', '3'};
   CHECK(
       h3req_enc_connect(wired_span_of(authority, sizeof authority), &fsb) == 1);
   if (want_protocol) {
-    qpack_field f = {wired_span_of((const u8*)":protocol", 9), protocol};
-    usz         w = qpack_literal_name_encode(
-        wired_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &f);
-    CHECK(w > 0);
-    fsb.len += w;
+    /* RFC 9220 3 / RFC 8441 4: an Extended CONNECT also carries :scheme
+     * and :path */
+    qpack_field fl[3] = {
+        {wired_span_of((const u8*)":protocol", 9), protocol},
+        {wired_span_of((const u8*)":scheme", 7),
+         wired_span_of((const u8*)"https", 5)},
+        {wired_span_of((const u8*)":path", 5),
+         wired_span_of((const u8*)"/", 1)}};
+    for (usz i = 0; i < 3; i++) {
+      usz w = qpack_literal_name_encode(
+          wired_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &fl[i]);
+      CHECK(w > 0);
+      fsb.len += w;
+    }
   }
 
   u8         h3[160];

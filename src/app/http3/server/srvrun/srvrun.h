@@ -434,6 +434,12 @@ typedef struct {
   wired_rawq_on_session raw_on_session;
   /** opaque ctx passed to raw_on_session */
   void* raw_session_ctx;
+  /** RFC 9221 5.1: DATAGRAM priority relative to streams. 0 (the default)
+   * = each send pass sends stream data first and queued DATAGRAMs after it;
+   * 1 = queued DATAGRAMs first. When the congestion window cannot hold
+   * both, the one sent second waits for a later pass (a ring DATAGRAM that
+   * does not fit is dropped, RFC 9221 5.4). */
+  int datagram_first;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
@@ -544,6 +550,15 @@ int* wired_srvrun_shutdown_word(void);
  * wired_srvrun_serve_env instance) fans out directly to the single
  * g_srvrun_env. */
 int wired_server_broadcast_datagram(wired_span data);
+
+/** wired_server_broadcast_datagram with a priority (RFC 9221 5.1): each
+ * connection's queue sends its most urgent DATAGRAM first, in call order
+ * within one urgency. wired_server_broadcast_datagram uses urgency 3.
+ * Copies pushed to other srvthreads workers are queued at urgency 3.
+ * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
+ * @param urgency 0 (most urgent) to 7, the RFC 9218 urgency scale
+ * @return 1 if queued, 0 if data exceeds the cap or urgency is above 7 */
+int wired_server_broadcast_datagram_prio(wired_span data, u8 urgency);
 
 /** Queue one HTTP Datagram (RFC 9297) to EVERY active WebTransport session
  * in the caller's server loop -- the burst-safe sibling of
@@ -719,6 +734,23 @@ int wired_server_wt_stream_schedule(
  *   live connection) */
 u64 wired_server_wt_est_kbps(wired_wt_session* s);
 
+/** draft-ietf-webtrans-http3-16 4.8: a keying material exporter for session
+ * s -- the TLS exporter of RFC 8446 7.5 over the connection's
+ * exporter_master_secret, with the label "EXPORTER-WebTransport" and the
+ * serialized WebTransport Exporter Context (s's session ID, then label and
+ * context, each with an 8-bit length) as its context. Sessions sharing a
+ * connection get independent keying material.
+ * @param s the session the exporter is derived for
+ * @param label the application's exporter label (at most 255 bytes)
+ * @param context the application's exporter context (at most 255 bytes;
+ *   empty when the application supplies none)
+ * @param out receives exactly out.n bytes of keying material
+ * @return 1 on success, 0 when s resolves to no live connection, the
+ *   handshake has not derived the exporter secret yet, or a length does
+ *   not fit */
+int wired_server_wt_exporter(
+    wired_wt_session* s, wired_span label, wired_span context, wired_mspan out);
+
 /** Ends a stream opened for appending with NO further bytes: a bare FIN on
  * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
  * STREAM frame carrying only FIN). Use this instead of
@@ -822,6 +854,17 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
  *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
  *   full, or the prefixed payload exceeds a ring slot */
 int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
+
+/** wired_server_wt_send_datagram_to with a priority (RFC 9221 5.1): the
+ * ring sends its most urgent datagram first, in call order within one
+ * urgency. wired_server_wt_send_datagram_to uses urgency 3.
+ * @param s the session the datagram is addressed to
+ * @param payload the HTTP Datagram payload (qsid prefix NOT included)
+ * @param urgency 0 (most urgent) to 7, the RFC 9218 urgency scale
+ * @return 1 queued, 0 on any wired_server_wt_send_datagram_to failure or
+ *   when urgency is above 7 */
+int wired_server_wt_send_datagram_prio(
+    wired_wt_session* s, wired_span payload, u8 urgency);
 
 /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): close s's
  * WebTransport session: send a WT_CLOSE_SESSION capsule (app_error_code,

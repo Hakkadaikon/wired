@@ -66,7 +66,11 @@ int            srvrun_bcast_ring_sess(
     wired_srvrun_env* env, int cslot, int i, wired_span data);
 void srvrun_dgring_send_one(
     const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e);
-usz  srvrun_dgring_budget_count(const wired_srvrun_env* env, usz max);
+/* RFC 9221 5.1: send the most urgent unsent ring entry if it fits the
+ * slice's byte budget (*bytes, the slice's total so far); 0 when none was
+ * sent. */
+int srvrun_dgring_send_best(
+    const srvrun_cfg* cfg, srvrun_state* st, usz* bytes);
 void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms);
 void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_all_drained(const srvrun_state* st);

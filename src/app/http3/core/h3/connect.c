@@ -39,10 +39,13 @@ static int method_is_connect(const u8* m, usz len) {
   return cn_bytes_eq(m, want, sizeof want);
 }
 
+int h3_connect_is_method(const wired_h3reqdrive_req* r) {
+  return method_is_connect(r->method, r->method_len);
+}
+
 int h3_connect_req_ok(const wired_h3reqdrive_req* r) {
   h3_connect_flags f = {
-      method_is_connect(r->method, r->method_len), r->authority != 0,
-      r->scheme != 0, r->path != 0};
+      h3_connect_is_method(r), r->authority != 0, r->scheme != 0, r->path != 0};
   return h3_connect_ok(&f);
 }
 

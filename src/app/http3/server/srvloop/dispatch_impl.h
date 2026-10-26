@@ -6,6 +6,7 @@
 
 #include "app/datagram/datagram/dgcheck.h"
 #include "app/datagram/dgdeliver/dg_recv.h"
+#include "app/http3/core/h3/contentlen.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/stream_type.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"

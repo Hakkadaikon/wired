@@ -39,6 +39,7 @@ void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pace_refill(ctx, c);
   while (srvrun_pump_opportunity(ctx, c)) {
   }
+  srvrun_note_app_limited(ctx, c);
   srvrun_notify_uni_blocked(ctx->cfg, c);
   srvrun_stage_flush(ctx->cfg); /* the pass's staged slices leave as one
                                  * GSO batch (srvrun_send_staged) */

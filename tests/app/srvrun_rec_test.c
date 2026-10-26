@@ -193,12 +193,41 @@ static void test_srvrun_rec_control_packet_counts_inflight(void) {
     srvrun_state    st     = {0, &c};
     srvrun_step_ctx ctx    = {&cfg, 0, &st, 10, 0};
     usz             before = c.l.ackst.sent.total_in_flight;
+    usz             i;
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
-    CHECK(c.l.ackst.sent.total_in_flight == before); /* the session counts it */
+    /* RFC 9002 2: the whole STREAM packet is in flight -- the session
+     * counts the slice, the record the rest: short header (1 + DCID + 4)
+     * and AEAD tag (16) at least. */
+    i = sentmeta_find(&c.l.ackst.sent, c.l.tx_pn - 1);
+    CHECK(i < SENTMETA_CAP);
+    CHECK(c.l.ackst.sent.pkts[i].sent_bytes >= 21u + c.l.cli_scid_len);
+    CHECK(
+        c.l.ackst.sent.total_in_flight ==
+        before + c.l.ackst.sent.pkts[i].sent_bytes);
+    CHECK(
+        srvrun_bytes_in_flight(&c) ==
+        SRVRUN_CHUNK + c.l.ackst.sent.total_in_flight);
   }
-  srvrec_ack(&c, pn, pn, 20);
+  srvrec_ack(&c, pn, c.l.tx_pn - 1, 20);
   CHECK(c.l.ackst.sent.total_in_flight == 0);
+}
+
+/* RFC 9002 2 (9002-002): the boot flight counts in bytes in flight -- the
+ * Initial (100) and the Handshake datagrams sent so far (300 of 300+200)
+ * -- until each half's keys are discarded (RFC 9002 6.2.2). */
+static void test_srvrun_rec_boot_flight_counts_inflight(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 0);
+  c.boot_dgram_count  = 2;
+  c.boot_dgram_len[0] = 300;
+  c.boot_dgram_len[1] = 200;
+  c.boot_dgram_sent   = 1;
+  CHECK(srvrun_bytes_in_flight(&c) == 400);
+  c.l.hs_rx_seen = 1; /* Initial keys discarded */
+  CHECK(srvrun_bytes_in_flight(&c) == 300);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED; /* Handshake keys discarded */
+  CHECK(srvrun_bytes_in_flight(&c) == 0);
 }
 
 /* RFC 9002 5.1: one RTT sample per ACK frame, from its largest
@@ -372,13 +401,16 @@ static void test_srvrun_rec_loss_timer_fires(void) {
   CHECK(c.loss_time_us == 0);
 }
 
-/* RFC 9002 6.2.1 / A.8 / 9002-034: the PTO is not set while the loss
- * timer is. Exhaustive over {loss timer armed, PTO deadline passed}: a
- * probe (pto_count 1) only when the timer is unarmed and the PTO due. */
+/* RFC 9002 6.2.1 / A.8 (9002-030, 9002-034): the 1-RTT PTO is set only
+ * once the handshake is confirmed and never while the loss timer is.
+ * Exhaustive over {confirmed, loss timer armed, PTO deadline passed} with
+ * an ack-eliciting packet in flight: a probe (pto_count 1) only on the row
+ * confirmed, unarmed, due. */
 static void test_srvrun_rec_loss_timer_suppresses_pto(void) {
   static const struct {
-    int armed, pto_due, probed;
-  } rows[] = {{0, 0, 0}, {0, 1, 1}, {1, 0, 0}, {1, 1, 0}};
+    int confirmed, armed, pto_due, probed;
+  } rows[] = {{0, 0, 0, 0}, {0, 0, 1, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
+              {1, 0, 0, 0}, {1, 0, 1, 1}, {1, 1, 0, 0}, {1, 1, 1, 0}};
   for (usz i = 0; i < sizeof rows / sizeof rows[0]; i++) {
     static u8       body[2 * SRVRUN_CHUNK];
     struct lp_fix   f;
@@ -393,9 +425,12 @@ static void test_srvrun_rec_loss_timer_suppresses_pto(void) {
     pn0 = srvrec_pump_two(&c);
     srvrec_ack(&c, pn0 + 1, pn0 + 1, 8);
     c.loss_time_us = rows[i].armed ? 9000 : 0;
-    ctx.now_ms     = rows[i].pto_due ? 10000 : 1;
+    if (!rows[i].confirmed) {
+      c.s.phase = WIRED_SERVER_HS_INITIAL;
+    }
+    ctx.now_ms = rows[i].pto_due ? 10000 : 1;
     srvrun_pto_slot(&ctx, 0);
-    CHECK(c.resp[0].sess.pto_count == rows[i].probed);
+    CHECK(c.l.ackst.pto_count == rows[i].probed);
   }
 }
 
@@ -535,11 +570,315 @@ static void test_srvrun_rec_tick_flushes_ack(void) {
   CHECK(c.l.tx_pn == tx + 1 && c.l.app_ack_policy.pending == 0);
 }
 
+/* RFC 9002 6.2.1: the Initial/Handshake PTO leaves max_ack_delay out.
+ * srtt 10ms, rttvar 5ms: PTO = 10 + max(4*5, 1) = 30ms, not 30 + 25. */
+static void test_srvrun_boot_pto_no_max_ack_delay(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000 + 29, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 1000);
+  st.conns[0].rtt.smoothed_rtt = 10000;
+  st.conns[0].rtt.rttvar       = 5000;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+  ctx.now_ms = 1000 + 30;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].boot_pto_count == 1);
+}
+
+/* RFC 9002 6.2.2 / A.11: discarding the Initial keys resets the boot PTO
+ * backoff (pto_count = 0); a step that leaves them alone does not. */
+static void test_srvrun_boot_pto_resets_on_initial_discard(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 0);
+  c.boot_pto_count = 3;
+  srvrun_boot_on_initial_discard(&c, 0);
+  CHECK(c.boot_pto_count == 3); /* hs_rx_seen still 0 */
+  c.l.hs_rx_seen = 1;
+  srvrun_boot_on_initial_discard(&c, 1);
+  CHECK(c.boot_pto_count == 3); /* already discarded before this step */
+  srvrun_boot_on_initial_discard(&c, 0);
+  CHECK(c.boot_pto_count == 0);
+}
+
+/* One srvrun_pto_slot tick of c at now_ms. */
+static void srvrec_pto_tick(srvrun_conn* c, u64 now_ms) {
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  srvrun_pto_slot(&ctx, 0);
+}
+
+/* RFC 9002 6.2.1 / A.8 (9002-031): the 1-RTT PTO runs from the LAST
+ * ack-eliciting send. Two MAX_DATA packets at t=0 and t=D-1 (D the PTO):
+ * not due at D, due at 2D-1. */
+static void test_srvrun_pto_restarts_on_send(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           d;
+  srvrec_bare(&c, &f, &ob);
+  d = srvrun_pto_deadline_ms(&c, 0);
+  (void)srvrec_ctrl(&c, 0);
+  (void)srvrec_ctrl(&c, d - 1);
+  srvrec_pto_tick(&c, d);
+  CHECK(c.l.ackst.pto_count == 0);
+  srvrec_pto_tick(&c, 2 * d - 2);
+  CHECK(c.l.ackst.pto_count == 0);
+  srvrec_pto_tick(&c, 2 * d - 1);
+  CHECK(c.l.ackst.pto_count == 1);
+}
+
+/* RFC 9002 A.7: a newly acknowledged packet resets pto_count (a server
+ * always completed address validation); a duplicate ACK does not. */
+static void test_srvrun_pto_count_resets_on_ack(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           pn;
+  srvrec_bare(&c, &f, &ob);
+  pn = srvrec_ctrl(&c, 0);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  srvrec_ack(&c, pn + 1, pn + 1, 2000); /* the PING probe */
+  CHECK(c.l.ackst.pto_count == 0);
+  c.l.ackst.pto_count = 2;
+  srvrec_ack(&c, pn + 1, pn + 1, 2001); /* duplicate: nothing new */
+  CHECK(c.l.ackst.pto_count == 2);
+}
+
+/* RFC 9002 6.2.4 (9002-069) / 7.5: with the window full, a PTO probe
+ * carries NEW data past cwnd (two packets), and the slice already in flight
+ * is neither requeued nor taken out of flight (6.2, 9002-024). */
+static void test_srvrun_pto_probe_sends_new_data(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg    cfg = srvrec_cfg();
+  srvrun_state  st  = {0, &c};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.cwnd               = SRVRUN_CHUNK; /* room for one slice */
+  {
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    c.l.now_ms          = 0;
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.resp[0].sess.q.cur == 3 * SRVRUN_CHUNK); /* two new slices */
+  CHECK(c.resp[0].sess.requeue_n == 0);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 3);
+  CHECK(c.l.ackst.probe_n == 0); /* the cwnd waiver ends with the probe */
+}
+
+/* RFC 9002 6.2.4 with no new data: copies of the oldest slices go, the
+ * originals stay in flight (9002-024). */
+static void test_srvrun_pto_probe_retransmits_when_no_new_data(void) {
+  static u8     body[2 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  (void)srvrec_pump_two(&c);
+  c.cc.cwnd = 1;
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.resp[0].sess.requeue_n == 0);                 /* both resent */
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4); /* + originals */
+}
+
+/* RFC 9221 5.2 (9221-028) / RFC 9002 6.2.4: an unacknowledged DATAGRAM-only
+ * packet arms the PTO (the poll tick stays on for it), and with no stream
+ * data to send the probe is a single PING. */
+static void test_srvrun_pto_pings_datagram_only(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], dg[1500];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  wired_obuf    dob = obuf_of(dg, sizeof dg);
+  srvrun_cfg    cfg = srvrec_cfg();
+  u64           tx;
+  srvrec_bare(&c, &f, &ob);
+  c.l.now_ms = 0;
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob));
+  CHECK(srvrun_slot_waiting(&c));
+  tx = c.l.tx_pn;
+  srvrun_test_reset_send_count();
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0) - 1);
+  CHECK(c.l.ackst.pto_count == 0 && c.l.tx_pn == tx);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.l.tx_pn == tx + 1); /* one PING packet */
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c.l.ackst.last_elicit_ms == srvrun_pto_deadline_ms(&c, 0));
+}
+
+/* RFC 9221 5.4 (9221-026/027): a DATAGRAM is congestion controlled -- with
+ * the window full nothing is sent (the caller delays or drops it); with
+ * room it goes and its packet counts in bytes in flight. */
+static void test_srvrun_dg_blocked_by_cwnd(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], dg[1500];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  wired_obuf    dob = obuf_of(dg, sizeof dg);
+  srvrun_cfg    cfg = srvrec_cfg();
+  u64           tx;
+  srvrec_bare(&c, &f, &ob);
+  tx        = c.l.tx_pn;
+  c.cc.cwnd = 10; /* below the 13-byte frame (type, length, 10 bytes) */
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob) == 0);
+  CHECK(c.l.tx_pn == tx);
+  CHECK(srvrun_bytes_in_flight(&c) == 0);
+  c.cc.cwnd = 1u << 20;
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob) == 1);
+  CHECK(c.l.tx_pn == tx + 1);
+  CHECK(srvrun_bytes_in_flight(&c) == dob.len); /* the whole packet */
+}
+
+/* One pump pass of c at now_ms. */
+static void srvrec_pump(srvrun_conn* c, u64 now_ms) {
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  c->l.now_ms         = now_ms;
+  srvrun_pump_sess(&ctx, 0);
+}
+
+/* RFC 9002 7.8 (9002-067): a pass that sent everything with the window
+ * still open leaves it underutilized, and the ACK does not grow cwnd; a
+ * pass the window cut short is not, and the ACK does. */
+static void test_srvrun_cc_no_growth_app_limited(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           w, pn;
+  srvrec_conn(&c, &f, body, SRVRUN_CHUNK, &ob);
+  pn = c.l.tx_pn;
+  srvrec_pump(&c, 0);
+  CHECK(c.cc.app_limited == 1);
+  w = c.cc.cwnd;
+  srvrec_ack(&c, pn, pn, 10);
+  CHECK(c.cc.cwnd == w);
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.cwnd               = 2 * SRVRUN_CHUNK + 100; /* two packets */
+  pn                      = c.l.tx_pn;
+  srvrec_pump(&c, 0);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 2);
+  CHECK(c.cc.app_limited == 0);
+  w = c.cc.cwnd;
+  srvrec_ack(&c, pn, pn, 10);
+  CHECK(c.cc.cwnd == w + SRVRUN_CHUNK); /* slow start: + acked bytes */
+}
+
+/* RFC 9002 7.8 (9002-071): a pass ended by pacing, with data left and the
+ * window open, is not application limited. */
+static void test_srvrun_cc_paced_not_app_limited(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.app_limited        = 1;
+  c.srtt_ms               = 30;
+  c.pace_tokens           = 0;
+  c.pace_refill_ms        = 5; /* refilled at now: no tokens accrue */
+  srvrec_pump(&c, 5);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* paced */
+  CHECK(c.cc.app_limited == 0);
+}
+
+/* One live send pass of c (srvrun_sess_on_step) with resp[0] holding four
+ * slices and one broadcast DATAGRAM queued for its WT session, under a
+ * window with room for one slice; datagram_first picks the order. */
+static void srvrec_dg_vs_stream(srvrun_conn* c, int datagram_first) {
+  static u8       body[4 * SRVRUN_CHUNK];
+  static const u8 dg[10] = {0};
+  struct lp_fix   f;
+  u8              obuf[1024];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrec_conn(c, &f, body, sizeof body, &ob);
+  c->resp[0].stream_credit               = sizeof body;
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  c->wt_active                           = 1;
+  c->wt.state                            = WIRED_WT_ESTABLISHED;
+  c->wt.connect_stream_id                = 4;
+  CHECK(srvrun_queue_datagram(c, wired_span_of(dg, sizeof dg)) == 1);
+  c->cc.cwnd                  = SRVRUN_CHUNK;
+  c->l.now_ms                 = 0;
+  g_srvrun_env.datagram_first = datagram_first;
+  srvrun_sess_on_step(&ctx, 0);
+  g_srvrun_env.datagram_first = 0;
+}
+
+/* RFC 9221 5.1 (9221-019): wired_srvrun_opt.datagram_first orders the send
+ * pass when the window cannot hold both -- by default the stream slice
+ * goes and the DATAGRAM waits; with it set the DATAGRAM goes first. */
+static void test_srvrun_dg_priority_vs_stream(void) {
+  srvrun_conn c;
+  srvrec_dg_vs_stream(&c, 0);
+  CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+  CHECK(c.dg_pending == 1);
+  srvrec_dg_vs_stream(&c, 1);
+  CHECK(c.dg_pending == 0);
+  CHECK(c.resp[0].sess.q.cur == 0);
+}
+
+/* RFC 9221 5.1 (9221-019): the pending queue sends its most urgent DATAGRAM
+ * first, arrival order within one urgency. A send pass with window room for
+ * one DATAGRAM sends the urgent one; the other two wait in arrival order. */
+static void test_srvrun_dg_pending_by_urgency(void) {
+  static u8       a[100] = {'a'}, b[100] = {'b'}, d[100] = {'d'};
+  struct lp_fix   f;
+  srvrun_conn     c;
+  u8              obuf[1024];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, &c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrec_bare(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 65535;
+  c.wt_active                           = 1;
+  c.wt.state                            = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id                = 4;
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(a, sizeof a), 3) == 1);
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(b, sizeof b), 0) == 1);
+  CHECK(srvrun_queue_datagram_prio(&c, wired_span_of(d, sizeof d), 3) == 1);
+  c.cc.cwnd  = 1 + 2 + 1 + sizeof a; /* one frame: type, length, qsid, a */
+  c.l.now_ms = 0;
+  srvrun_sess_on_step(&ctx, 0);
+  CHECK(c.dg_pending == 2);
+  CHECK(c.dg_pending_buf[c.dg_pending_head][0] == 'a');
+  CHECK(
+      c.dg_pending_buf[(c.dg_pending_head + 1) % SRVRUN_DG_PENDING_Q][0] ==
+      'd');
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
   test_srvrun_rec_spurious_loss_not_resent();
   test_srvrun_rec_control_packet_counts_inflight();
+  test_srvrun_rec_boot_flight_counts_inflight();
   test_srvrun_rec_one_sample_per_frame();
   test_srvrun_rec_no_sample_when_largest_old();
   test_srvrun_rec_no_sample_ack_only();
@@ -551,4 +890,16 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_ack_prunes_acked_ranges();
   test_srvrun_rec_ack_truncates_ranges();
   test_srvrun_rec_tick_flushes_ack();
+  test_srvrun_boot_pto_no_max_ack_delay();
+  test_srvrun_boot_pto_resets_on_initial_discard();
+  test_srvrun_pto_restarts_on_send();
+  test_srvrun_pto_count_resets_on_ack();
+  test_srvrun_pto_probe_sends_new_data();
+  test_srvrun_pto_probe_retransmits_when_no_new_data();
+  test_srvrun_pto_pings_datagram_only();
+  test_srvrun_dg_blocked_by_cwnd();
+  test_srvrun_cc_no_growth_app_limited();
+  test_srvrun_cc_paced_not_app_limited();
+  test_srvrun_dg_priority_vs_stream();
+  test_srvrun_dg_pending_by_urgency();
 }

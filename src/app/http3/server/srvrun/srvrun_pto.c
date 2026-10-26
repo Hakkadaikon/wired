@@ -1,48 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms);
-static int srvrun_pto_all(srvrun_conn* c, u64 now_ms);
-static int srvrun_pto_unless_loss_timer(srvrun_conn* c, u64 now_ms);
 static int srvrun_reset_after(
     const srvrun_conn* c, const srvrun_rxmark* mark, wired_mspan dg);
-
-/* The wtsend half of the probe pass, same budget policy. */
-static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms) {
-  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    if (!srvrun_sess_pto_ok(
-            c, &c->wtsend[i].sess, c->wtsend[i].in_use, now_ms)) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-/* 1 while every in-flight send session (resp[] and wtsend) still has probe
- * budget; 0 tears the connection slot down (the peer went silent on the
- * whole connection, not one stream -- see srvrun_pto_resps' doc above). */
-static int srvrun_pto_all(srvrun_conn* c, u64 now_ms) {
-  return srvrun_pto_resps(c, now_ms) && srvrun_pto_wtsends(c, now_ms);
-}
-
-/* RFC 9002 6.2.1 / A.8: while the loss timer is armed the PTO is not set,
- * so nothing probes (and no budget is spent) until it disarms. */
-static int srvrun_pto_unless_loss_timer(srvrun_conn* c, u64 now_ms) {
-  return c->loss_time_us || srvrun_pto_all(c, now_ms);
-}
-
-void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  if (!srvrun_sess_waiting(c)) {
-    return;
-  }
-  if (!srvrun_pto_unless_loss_timer(c, ctx->now_ms)) {
-    srvrun_log_close(
-        "conn dropped: probe budget exhausted", wired_span_of(0, 0));
-    srvrun_free_slot(ctx->cfg, ctx->st, slot);
-    return;
-  }
-  srvrun_pump_sess(ctx, slot);
-}
 
 /* srvrun_rst_retry for a live slot. A kept control packet still unACKed
  * after its whole resend budget gets the same answer as unACKed stream data

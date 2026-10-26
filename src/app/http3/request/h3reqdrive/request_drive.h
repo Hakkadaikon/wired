@@ -140,6 +140,18 @@ typedef struct {
    * received while no stream may block): a connection error of type
    * QPACK_DECOMPRESSION_FAILED rather than a malformed request. */
   int qpack_failed;
+  /** RFC 9204 7.4 / 6: the stream error a rejected request is reset with
+   * when it is not H3_MESSAGE_ERROR -- QPACK_DECOMPRESSION_FAILED for a
+   * field line this decoder could not interpret (too large for its limits,
+   * or not a valid encoding); 0 otherwise. */
+  u16 reject_code;
+  /** RFC 9110 8.6 / RFC 9114 4.1.2: the received Content-Length value, valid
+   * when has_content_length is 1. */
+  u64 content_length;
+  u8  has_content_length; /**< 1 if a Content-Length field was received */
+  /** RFC 9114 4.1.2: DATA payload octets seen so far -- every DATA frame of
+   * a buffered request, or the chunks streamed to on_body. */
+  u64 data_len;
 } wired_h3reqdrive_req;
 
 /**

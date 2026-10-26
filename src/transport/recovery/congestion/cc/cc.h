@@ -30,6 +30,9 @@ typedef struct {
   bbr bbr;            /* BBR: phase machine and estimators */
   u64 round_bytes;    /* BBR: bytes acked in the current sample round */
   u64 round_start_ms; /* BBR: when the current sample round began */
+  /** RFC 9002 7.8: 1 while the sender left the window underutilized (set by
+   * the caller after each send pass); Reno/Cubic do not grow then. */
+  int app_limited;
 } cc;
 
 void cc_init(cc* c); /* NewReno */
@@ -38,7 +41,7 @@ void cc_init(cc* c); /* NewReno */
 void cc_init_algo(cc* c, int algo);
 
 /* On ACK of `acked` bytes for a packet sent at time `sent_time`, observed at
- * `now`. Grows the window unless we are in recovery; an ack of a
+ * `now`. Grows the window unless we are in recovery or app_limited; an ack of a
  * post-recovery packet exits recovery. CUBIC lifts cwnd onto the cubic curve
  * evaluated at `now` once a loss has anchored an epoch. */
 void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now);

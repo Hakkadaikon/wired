@@ -66,6 +66,11 @@ static srvrun_conn* sr_test_conns(void) {
 
 /* A confirmed srvrun_conn built from a freshly-confirmed lp_fix, up and ready
  * to receive GOAWAY. */
+/* A congestion window with room for exactly k one-slice packets: RFC 9002
+ * 2 counts each whole packet (slice + header, frames and AEAD tag) in
+ * flight, so a window of k bare slices fits only k-1 of them. */
+#define SR_WIN(k) ((k) * (SRVRUN_CHUNK + 64))
+
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, wired_obuf* ob) {
   lp_confirm(f, ob);
@@ -6721,15 +6726,10 @@ static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
   CHECK(c.resp[1].sess.q.cur == sizeof new_body); /* sibling's new data too */
 }
 
-/* A probe still goes through the log gate (srvrun_sess_log_room)
- * even though it bypasses pacing -- wired_sendsess_pto_fire always frees
- * the log entry it moves to requeue (sendsess_requeue clears that entry's
- * inflight flag), so a queued probe's own log gate can never actually fail
- * (documented as a deliberate invariant, not dead code, at srvrun_pump_
- * gate_ok's definition). This confirms the probe-pacing bypass added here
- * doesn't skip that gate: even with the log otherwise completely full
- * (every other entry still in flight), the probe -- and only the probe --
- * still sends. */
+/* A probe still goes through the log gate (srvrun_sess_log_room) even
+ * though it bypasses pacing. RFC 9002 6.2: the probed slices stay in flight,
+ * so with the log full the probe copies wait; one ACK frees an entry and
+ * one copy goes. */
 static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
   static u8     body[WIRED_SENDSESS_LOG * SRVRUN_CHUNK];
   struct lp_fix f;
@@ -6760,14 +6760,12 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
-    /* one probe slice per round-robin pass; the second pass's pacing gate
-     * is bypassed again by the still-pending probe. */
-    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 0); /* log full */
+    CHECK(c.resp[0].sess.requeue_n == 2);
+    wired_sendsess_ack(&c.resp[0].sess, 5, 5);
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1); /* pacing bypassed */
     CHECK(c.resp[0].sess.requeue_n == 1);
-    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
-  CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slots always have
-                                         * room -- pto_fire freed them */
 }
 
 /* Boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
@@ -6972,7 +6970,7 @@ static void test_srvrun_polling_pto_tick(void) {
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
@@ -6991,7 +6989,7 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * covers so_prefer_busy_poll/so_busy_poll_budget/incoming_cpu at their
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0,
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
                           0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
@@ -8317,6 +8315,9 @@ static void test_srvrun_rejected_request_code(void) {
   c->l.malformed_slots = 2;
   CHECK(srvrun_incomplete_code(c, 1) == H3_MESSAGE_ERROR);
   CHECK(srvrun_incomplete_code(c, 0) == H3_REQUEST_INCOMPLETE);
+  /* RFC 9204 7.4 (9204-063): a line too large to decode */
+  c->l.streams[1].req.reject_code = QPACK_DECOMPRESSION_FAILED;
+  CHECK(srvrun_incomplete_code(c, 1) == QPACK_DECOMPRESSION_FAILED);
 }
 
 /* RFC 9000 3.2 / 4.6: a peer RESET_STREAM on a request still being received
@@ -14119,14 +14120,14 @@ static void test_srvrun_pto_not_due_within_rtt_window(void) {
     {
       srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms / 2, 0};
       srvrun_pto_slot(&tick, 0);
-      CHECK(st.conns[0].resp[0].sess.pto_count == 0);
+      CHECK(st.conns[0].l.ackst.pto_count == 0);
       CHECK(st.conns[0].up == 1);
     }
     /* past the deadline: now it fires */
     {
       srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms + 1, 0};
       srvrun_pto_slot(&tick, 0);
-      CHECK(st.conns[0].resp[0].sess.pto_count == 1);
+      CHECK(st.conns[0].l.ackst.pto_count == 1);
     }
   }
 }
@@ -14200,7 +14201,7 @@ static void test_srvrun_pto_probes_lost_hq09_response(void) {
       srvrun_step_ctx tick = {&cfg, 0, &st, deadline_ms + 1, 0};
       srvrun_test_reset_send_count();
       srvrun_pto_slot(&tick, 0);
-      CHECK(st.conns[0].resp[0].sess.pto_count == 1);
+      CHECK(st.conns[0].l.ackst.pto_count == 1);
       CHECK(srvrun_test_send_count() > 0);
       CHECK(st.conns[0].up == 1);
     }
@@ -15868,7 +15869,7 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   /* room for exactly 3 chunks per pump pass -- one per slot, not enough for
    * any slot to take a second turn within the same round. */
-  c.cc.cwnd           = 3 * SRVRUN_CHUNK;
+  c.cc.cwnd           = SR_WIN(3);
   c.resp[0].in_use    = 1;
   c.resp[0].stream_id = 0;
   c.resp[1].in_use    = 1;
@@ -15976,13 +15977,13 @@ static void test_srvrun_pto_probe_bypasses_cwnd(void) {
     /* drive each slot to exactly one in-flight slice, one round at a time,
      * before cwnd gets tightened below (a wide-open cwnd here would drain
      * each slot's whole log via srvrun_pump_sess's inner loop instead). */
-    c.cc.cwnd = 2 * SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(2);
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
     /* now shrink cwnd to exactly slot 1's one chunk -- no room for even a
      * sliver more, so a cwnd-gated resend of slot 0's probe would fail. */
-    c.cc.cwnd = SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(1);
     /* PTO fires on slot 0 only: its slice moves to requeue. Slot 1's slice
      * is still in flight and alone accounts for cwnd's one chunk of room,
      * so a cwnd-gated pump would find no room for slot 0's probe. */
@@ -15990,10 +15991,11 @@ static void test_srvrun_pto_probe_bypasses_cwnd(void) {
     CHECK(c.resp[0].sess.requeue_n == 1);
     srvrun_pump_sess(&ctx, 0);
     /* the probe went out despite cwnd offering no room: requeue drained,
-     * still exactly one slice in flight on slot 0 (the resend, not new
-     * data); slot 1 untouched. */
+     * the original and its resend in flight on slot 0 (RFC 9002 6.2: a
+     * probe does not take the original out of flight), no new data; slot
+     * 1 untouched. */
     CHECK(c.resp[0].sess.requeue_n == 0);
-    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 2);
     CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
     CHECK(c.resp[1].sess.q.cur == SRVRUN_CHUNK);
@@ -16150,19 +16152,17 @@ static void test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends(void) {
     c.cc.cwnd = 0;
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.requeue_n == 0); /* slot 0's probe bypassed cwnd */
-    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 2); /* orig + probe */
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 0); /* slot 1 blocked */
     CHECK(c.resp[1].sess.q.cur == 0);
   }
 }
 
-/* Between a PTO firing (sendsess_requeue clears the log entry's inflight
- * flag) and the actual resend, inflight bytes must already reflect the
- * drop -- this is what lets cwnd stop looking artificially full even
- * before the resend happens (srvrun_inflight_bytes_all reads the log's
- * inflight flags directly, so this is really a sendsess.c invariant
- * exercised through srvrun's own accounting helper). */
-static void test_srvrun_pto_requeue_frees_inflight_bytes_before_resend(void) {
+/* RFC 9002 6.2: "A PTO timer expiration event does not indicate packet loss
+ * and MUST NOT cause prior unacknowledged packets to be marked as lost" --
+ * the probed slice keeps its bytes in flight until acknowledged or declared
+ * lost by the thresholds. */
+static void test_srvrun_pto_keeps_probed_inflight(void) {
   static u8     body[SRVRUN_CHUNK];
   struct lp_fix f;
   srvrun_conn   c;
@@ -16183,9 +16183,8 @@ static void test_srvrun_pto_requeue_frees_inflight_bytes_before_resend(void) {
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_inflight_bytes_all(&c) == SRVRUN_CHUNK);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
-    /* before any resend happens, the byte accounting already dropped --
-     * the requeued slice is no longer counted as in flight. */
-    CHECK(srvrun_inflight_bytes_all(&c) == 0);
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    CHECK(srvrun_inflight_bytes_all(&c) == SRVRUN_CHUNK);
   }
 }
 
@@ -17392,13 +17391,13 @@ static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    c.cc.cwnd           = 2 * SRVRUN_CHUNK; /* exactly enough for one each */
+    c.cc.cwnd           = SR_WIN(2); /* exactly enough for one each */
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
     /* pin cwnd to exactly slot 1's chunk -- slot 0's probe has no cwnd
      * room, matching the real stall's inf==cwnd-ish stuck state. */
-    c.cc.cwnd = SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(1);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
     CHECK(c.resp[0].sess.requeue_n == 1);
     srvrun_pump_sess(&ctx, 0);
@@ -17893,6 +17892,16 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying
  * (name,value), appended at *off in fs. Local twin of h3reqdrive_test.c's
  * put_litname (that one is another test file's static). */
+/* RFC 9114 4.3.1: :scheme https (static 23), :authority "h" (name ref to
+ * static 0) and :path "/" (static 1) after a leading :method. */
+static void srn_pseudo(u8* fs, usz* off) {
+  qpack_nameref auth = {0, 1, 0};
+  *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 23, 1);
+  *off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + *off, 64), &auth, wired_span_of((const u8*)"h", 1));
+  *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 1, 1);
+}
+
 static void srn_put_litname(
     u8* fs, usz* off, const char* name, const char* value) {
   qpack_field fl = {
@@ -17915,6 +17924,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
   off                      = qpack_prefix_encode(fs, 64, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  srn_pseudo(fs, &off);
   srn_put_litname(fs, &off, "wt-available-protocols", "\"foo\", \"bar\"");
   {
     h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
@@ -17931,6 +17941,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
     wired_obuf ob2 = {req2, sizeof req2, 0};
     usz        n2  = qpack_prefix_encode(fs2, 64, &pfx);
     n2 += qpack_indexed_encode(wired_mspan_of(fs2 + n2, 64), 17, 1);
+    srn_pseudo(fs2, &n2);
     {
       h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
       CHECK(h3conn_send_request(0, &in2, &ob2));
@@ -17955,6 +17966,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
         wired_span_of(big, sizeof big)};
     off = qpack_prefix_encode(fs, 64, &pfx);
     off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+    srn_pseudo(fs, &off);
     off += qpack_literal_name_encode(
         wired_mspan_of(fs + off, sizeof fs - off), 0, &fl);
     {
@@ -18233,7 +18245,7 @@ static srvrun_conn* sr_prio_fixture(struct lp_fix* f, wired_obuf* ob) {
   wired_span   b = wired_span_of(sr_prio_body, sizeof sr_prio_body);
   CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 15);
   CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 19);
-  c->cc.cwnd = 2 * SRVRUN_CHUNK;
+  c->cc.cwnd = SR_WIN(2);
   return c;
 }
 
@@ -20214,7 +20226,7 @@ static void test_srvrun_wt_close_capsule_retransmitted_after_loss(void) {
     srvrun_send_wt_close(&cfg, c, 0);
     srvrun_pump_sess(&ctx, 0);
     CHECK(sr_recv_stream(&f, sfd, 4, &sf)); /* sent once -- and lost */
-    CHECK(srvrun_pto_all(c, 10 * 1000) == 1);
+    srvrun_pto_requeue_all(c);              /* the PTO probe pass */
     c->srtt_ms      = 0;
     c->next_send_ms = 0;
     srvrun_pump_sess(&ctx, 0);
@@ -20603,7 +20615,7 @@ static void test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice(
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
   /* Never ACKed: PTO fires and requeues the slice (RFC 9002 6.2), the same
    * loss-recovery path a real dropped packet drives. */
-  CHECK(srvrun_pto_all(c, 1 + 10 * 1000) == 1);
+  srvrun_pto_requeue_all(c);
   CHECK(c->wtsend[0].sess.requeue_n == 1);
   {
     srvrun_step_ctx ctx = {&cfg, &srv, &st, 1 + 10 * 1000, 0};
@@ -20656,7 +20668,7 @@ static void test_srvrun_wt_send_pto_requeues_unacked_slice(void) {
     srvrun_pump_sess(&ctx, 0);
   }
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
-  CHECK(srvrun_pto_all(c, 1 + 10 * 1000) == 1); /* budget intact */
+  srvrun_pto_requeue_all(c); /* budget intact */
   CHECK(c->wtsend[0].sess.requeue_n == 1);
 }
 
@@ -20912,6 +20924,47 @@ static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
     CHECK(srvrun_test_send_count() == 20); /* nothing lost, only paced */
   }
   CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* RFC 9221 5.1 (9221-019): the ring drains its most urgent datagram first,
+ * call order within one urgency. Two ~1000-byte entries fill one slice's
+ * byte budget, so the first slice sends the urgent y and the older x1;
+ * x2 waits for the next slice. */
+static void test_srvrun_wt_datagram_ring_by_urgency(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  for (u8 i = 1; i <= 3; i++) {
+    pay[0] = i; /* x1, x2 at urgency 3, then y at 0 */
+    CHECK(
+        wired_server_wt_send_datagram_prio(
+            &c->wt, wired_span_of(pay, sizeof pay), i == 3 ? 0 : 3) == 1);
+  }
+  CHECK(
+      wired_server_wt_send_datagram_prio(
+          &c->wt, wired_span_of(pay, sizeof pay), DGPRIORITY_MAX + 1) == 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state               st = {g_srvrun_table, g_srvrun_state.conns};
+    const srvrun_dgring_entry* e;
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st, 0);
+    CHECK(srvrun_test_send_count() == 2);
+    CHECK(g_srvrun_env.dgring_n == 2); /* x2, then y (sent, not yet freed) */
+    e = &g_srvrun_env.dgring[g_srvrun_env.dgring_head];
+    CHECK(e[0].buf[1] == 2 && !e[0].sent);
+    CHECK(e[1].buf[1] == 3 && e[1].sent);
+    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS);
+    CHECK(srvrun_test_send_count() == 3);
+    CHECK(g_srvrun_env.dgring_n == 0);
+  }
 }
 
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
@@ -21697,6 +21750,18 @@ static void test_srvrun_rst_table_holds_every_tracked_stream(void) {
   CHECK(kept == n);
 }
 
+/* One step whose ACK frame acknowledges [lo, hi] (srvrun_feed_acks: the
+ * resend table, the send sessions and the sent-packet record alike). */
+static void sr_feed_ack(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, u64 lo, u64 hi) {
+  c->l.ack_lo[0]     = lo;
+  c->l.ack_hi[0]     = hi;
+  c->l.ack_n         = 1;
+  c->l.ackst.largest = hi;
+  srvrun_feed_acks(ctx, ctx->cfg, c);
+  c->l.ack_n = 0;
+}
+
 /* RFC 9000 13.3: RESET_STREAM / STOP_SENDING are retransmitted until
  * acknowledged (draft-ietf-webtrans-http3-15 5.3 relies on resets arriving
  * to keep both ends' stream counts in step). The refusal goes out once,
@@ -21715,7 +21780,7 @@ static void test_srvrun_wt_busy_reset_retransmitted_until_acked(void) {
   ctx.now_ms = 100 * 1000;
   srvrun_rst_retry_slot(&ctx, 0);
   CHECK(srvrun_test_send_count() == 2); /* unacked: sent again */
-  srvrun_feed_ack_range(c, c->l.tx_pn - 1, c->l.tx_pn - 1, ctx.now_ms);
+  sr_feed_ack(&ctx, c, c->l.tx_pn - 2, c->l.tx_pn - 1);
   ctx.now_ms = 200 * 1000;
   srvrun_rst_retry_slot(&ctx, 0);
   CHECK(srvrun_test_send_count() == 2); /* acked: done */
@@ -21741,11 +21806,11 @@ static void test_srvrun_control_packets_kept_until_acked(void) {
   ctx.now_ms = 100 * 1000;
   srvrun_rst_retry_slot(&ctx, 0);
   CHECK(srvrun_test_send_count() == 1); /* GOAWAY resent */
-  srvrun_feed_ack_range(c, 0, c->l.tx_pn, ctx.now_ms);
+  sr_feed_ack(&ctx, c, 0, c->l.tx_pn);
   CHECK(!srvrun_slot_waiting(c));
-  c->wt_stream_reset_id[0]       = 11;
+  c->wtx.reset_id[0]             = 11;
   c->wt_stream_reset_app_code[0] = 3;
-  c->wt_stream_reset_final[0]    = 5;
+  c->wtx.reset_final[0]          = 5;
   c->wt_stream_reset_n           = 1;
   srvrun_drain_wt_stream_reset(&cfg, c);
   CHECK(srvrun_slot_waiting(c)); /* app RESET_STREAM kept */
@@ -21909,7 +21974,7 @@ static void test_srvrun_wt_reset_after_deferred_reply_mid_send(void) {
   CHECK(wired_sendsess_take(&c->wtsend[0].sess, &sl)); /* 2 of 4 sent */
   CHECK(wired_server_wt_stream_reset(&c->wt, 0, 0x42) == 1);
   CHECK(c->wt_stream_reset_n == 1);
-  CHECK(c->wt_stream_reset_final[0] == 2);
+  CHECK(c->wtx.reset_final[0] == 2);
 }
 
 /* draft-ietf-webtrans-http3-15 4.4/8.2: a session teardown also resets the
@@ -24036,18 +24101,100 @@ static void test_srvrun_on_body_skips_connect(void) {
   CHECK(g_sr_body.calls == 0);
 }
 
-/* RFC 9114 7.2.4: SETTINGS on a request stream is H3_FRAME_UNEXPECTED on
- * the streaming path too -- no fin, no handler. */
+/* RFC 9114 7.2.4: SETTINGS on a request stream is a connection error of
+ * type H3_FRAME_UNEXPECTED on the streaming path too -- no fin, no
+ * handler, an application CONNECTION_CLOSE. */
 static void test_srvrun_on_body_frame_unexpected(void) {
   static u8    req[2 * SR_REQ_BUF_CAP];
-  srvrun_conn* c = sr_body_fixture(0);
-  usz          n = sr_big_req(req, sizeof req, 1, 10);
-  req[n++]       = 0x04; /* SETTINGS, empty */
-  req[n++]       = 0x00;
+  srvrun_conn* c      = sr_body_fixture(0);
+  usz          n      = sr_big_req(req, sizeof req, 1, 10);
+  int          is_app = 0;
+  req[n++]            = 0x04; /* SETTINGS, empty */
+  req[n++]            = 0x00;
   sr_body_send(c, req, n, 1);
   CHECK(g_sr_body.got_n == 10 && g_sr_body.fins == 0);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(c->l.streams[0].in_use == 0); /* aborted, slot freed */
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* RFC 9114 4.1 (9114-005/007): a DATA frame after the trailer section on
+ * the streaming path is a connection error of type H3_FRAME_UNEXPECTED. */
+static void test_srvrun_on_body_data_after_trailer_closes(void) {
+  static u8    req[4096];
+  srvrun_conn* c      = sr_body_fixture(0);
+  usz          n      = sr_big_req(req, sizeof req, 1, 10);
+  int          is_app = 0;
+  req[n++]            = 0x01; /* trailer HEADERS: an empty section prefix */
+  req[n++]            = 0x02;
+  req[n++]            = 0x00;
+  req[n++]            = 0x00;
+  req[n++]            = 0x00; /* DATA, empty */
+  req[n++]            = 0x00;
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.fins == 0 && g_sr_wt_handler_calls == 0);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* RFC 9114 4.4 (9114-088): a HEADERS frame on an established CONNECT
+ * stream is a connection error of type H3_FRAME_UNEXPECTED. */
+static void test_srvrun_connect_stream_headers_closes(void) {
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  usz          hlen   = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u8           hdr[]  = {0x01, 0x02, 0x00, 0x00};
+  u8           pl[64];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf  = {0, hlen, sizeof hdr, hdr, 0};
+  CHECK(c->wt_active == 1);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* sr_big_req(/, 10-byte body) with a content-length field of cl. */
+static usz sr_cl_req(u8* out, usz cap, const char* cl) {
+  static const u8 body[10] = {0};
+  u8              fields[128];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      ob  = obuf_of(out, cap);
+  wired_obuf      db;
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"", 0)};
+  qpack_field f = {
+      wired_span_of((const u8*)"content-length", 14),
+      wired_span_of((const u8*)cl, wired_cstr_len(cl))};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  fob.len += qpack_literal_name_encode(
+      wired_mspan_of(fields + fob.len, sizeof fields - fob.len), 0, &f);
+  CHECK(h3_frame_put(&ob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  db = obuf_of(out + ob.len, cap - ob.len);
+  CHECK(h3_frame_put(&db, H3_FRAME_DATA, wired_span_of(body, sizeof body)));
+  return ob.len + db.len;
+}
+
+/* RFC 9114 4.1.2 / RFC 9110 8.6 (9114-014, 9110-010/011): on the
+ * streaming path a body past its Content-Length, or short of it at FIN,
+ * is malformed -- the stream is aborted, the handler never runs, and the
+ * connection stays up; an exact one reaches fin. */
+static void test_srvrun_on_body_content_length(void) {
+  static const char* const bad[] = {"9", "11"};
+  static u8                req[256];
+  for (usz i = 0; i < 2; i++) {
+    srvrun_conn* c = sr_body_fixture(0);
+    sr_body_send(c, req, sr_cl_req(req, sizeof req, bad[i]), 1);
+    CHECK(g_sr_body.fins == 0 && g_sr_wt_handler_calls == 0);
+    CHECK(!c->closing && c->l.streams[0].in_use == 0);
+  }
+  {
+    srvrun_conn* c = sr_body_fixture(0);
+    sr_body_send(c, req, sr_cl_req(req, sizeof req, "10"), 1);
+    CHECK(g_sr_body.fins == 1 && g_sr_body.got_n == 10);
+  }
 }
 
 /* The latched frame error closes the connection (and is consumed). */
@@ -24869,17 +25016,21 @@ static void test_srvrun_wt_open_bidi_blocked_sends_streams_blocked(void) {
   sr_check_streams_blocked_sent(w, 1, 0);
 }
 
-/* NEGATIVE: a server-initiated open refused by the DATA limit alone (the
- * stream-count limit is already open) does NOT send WT_STREAMS_BLOCKED --
- * that capsule names a stream-count ceiling, not a data one, and there is
- * no WT_DATA_BLOCKED send path to confuse it with (out of scope, 6-10's own
- * brief: the brief only covers WT_STREAMS_BLOCKED). */
-static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing(void) {
+/* A server-initiated open refused by the DATA limit alone (the stream-count
+ * limit is already open) does NOT send WT_STREAMS_BLOCKED -- that capsule
+ * names a stream-count ceiling -- only WT_DATA_BLOCKED(1), the limit the
+ * open hit (draft-ietf-webtrans-http3-16 SS5.6.5). */
+static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked(
+    void) {
   struct lp_fix   f;
   wired_obuf      ob = {0};
   u8              obuf[1024];
   static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
   srvrun_conn*    c;
+  srvrun_wtsend*  w;
+  h3_frame        fr;
+  usz             at = 0;
+  u64             lim;
   ob                 = (wired_obuf){obuf, sizeof obuf, 0};
   c                  = sr_wtsend_fixture(&f, &ob);
   c->wt.flow_control = 1;
@@ -24888,7 +25039,17 @@ static void test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing(void) {
   CHECK(
       wired_server_wt_open_uni_stream(&c->wt, wired_span_of(pay, sizeof pay)) ==
       -1);
-  CHECK(srvrun_wtsend_find(c, 4) == 0); /* nothing staged on the CONNECT id */
+  w = srvrun_wtsend_find(c, 4);
+  CHECK(w != 0);
+  CHECK(h3_frame_get(wired_span_of(w->roundbuf, w->sess.q.len), &fr) != 0);
+  CHECK(
+      wtcapsule_decode_streams_blocked(
+          wired_span_of(fr.payload, fr.payload_len), &at, 0, &lim) != 1);
+  at = 0;
+  CHECK(
+      wtcapsule_decode_data_blocked(
+          wired_span_of(fr.payload, fr.payload_len), &at, &lim) == 1);
+  CHECK(lim == 1);
 }
 
 /* NEGATIVE: a server-initiated uni open refused by the peer's QUIC-level
@@ -25490,16 +25651,18 @@ static int sr_arm_with_field_limit(srvrun_conn* c, srvrun_cfg* cfg, u64 limit) {
 }
 
 /* RFC 9114 4.2.2 (9114-086): a response whose field section (:status 42 +
- * location:/new 44 = 86) exceeds the client's advertised
- * SETTINGS_MAX_FIELD_SECTION_SIZE is never sent (the stream is reset with
- * H3_INTERNAL_ERROR, srvrun_reap_one); one exactly at the limit is. */
+ * location:/new 44 + the SDK's content-length: 0 47 + date 4+29+32 = 65,
+ * RFC 9114 4.2.2 name + value + 32 each, = 198) exceeds the client's
+ * advertised SETTINGS_MAX_FIELD_SECTION_SIZE is never sent (the stream is
+ * reset with H3_INTERNAL_ERROR, srvrun_reap_one); one exactly at the limit
+ * is. */
 static void test_srvrun_http_peer_field_section_limit(void) {
   static const wired_http_field f[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
   srvrun_cfg                    cfg = {0};
   g_sr_hx                           = (sr_hx_case){302, 0, 1, f, 0, 0, 0};
   cfg.http                          = sr_hx_handler;
-  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 85) == 1);
-  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 86) == 0);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 197) == 1);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 198) == 0);
   CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 0) == 0);
 }
 
@@ -26630,7 +26793,7 @@ void test_srvrun(void) {
   test_srvrun_pto_probe_drains_multiple_requeued_slices();
   test_srvrun_pto_probe_still_respects_log_capacity();
   test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends();
-  test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
+  test_srvrun_pto_keeps_probed_inflight();
   test_srvrun_pto_noop_when_nothing_inflight();
   test_srvrun_boot_pto_resends_after_deadline();
   test_srvrun_boot_pto_blocked_probe_keeps_budget();
@@ -27075,6 +27238,7 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_established();
   test_srvrun_wt_send_datagram_to_requires_send_side_open();
   test_srvrun_wt_datagram_ring_paces_by_bytes();
+  test_srvrun_wt_datagram_ring_by_urgency();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
   test_srvrun_broadcast_datagram_ring_queues_burst_per_session();
@@ -27190,6 +27354,9 @@ void test_srvrun(void) {
   test_srvrun_wt_occupancy_counts_open();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
+  test_srvrun_on_body_data_after_trailer_closes();
+  test_srvrun_connect_stream_headers_closes();
+  test_srvrun_on_body_content_length();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
   test_srvrun_early_413_also_stops_sending();
@@ -27205,7 +27372,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_blocked_by_zero_limit_then_opens();
   test_srvrun_wt_open_uni_blocked_sends_streams_blocked();
   test_srvrun_wt_open_bidi_blocked_sends_streams_blocked();
-  test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing();
+  test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked();
   test_srvrun_wt_open_uni_blocked_by_quic_grant_sends_no_wt_capsule();
   test_srvrun_wt_initial_max_streams_clamped();
   test_srvrun_wt_two_held_connects_each_processed_once();

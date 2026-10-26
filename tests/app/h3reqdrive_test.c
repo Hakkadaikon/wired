@@ -6,6 +6,7 @@
 #include "app/qpack/qpack/base.h"
 #include "app/qpack/qpack/dynfind.h"
 #include "app/qpack/qpack/dyntable.h"
+#include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/insertcount.h"
 #include "app/qpack/qpack/literal.h"
@@ -117,6 +118,20 @@ static void put_litname(u8* fs, usz* off, const char* name, const char* value) {
   *off += qpack_literal_name_encode(wired_mspan_of(fs + *off, 64), 0, &f);
 }
 
+/* RFC 9114 4.3.1: the rest of a valid request's pseudo-headers after a
+ * leading :method -- :scheme https (static 23), :authority "h" (a name
+ * reference to static 0, one scratch octet) and, with path, :path "/"
+ * (static 1) -- so a test about one regular field decodes. */
+static void rd_pseudo(u8* fs, usz* off, int path) {
+  qpack_nameref auth = {0, 1, 0};
+  *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 23, 1);
+  *off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + *off, 64), &auth, wired_span_of((const u8*)"h", 1));
+  if (path) {
+    *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 1, 1);
+  }
+}
+
 /* RFC 9114 4.3.1: an empty :path for an "http"/"https" request is malformed,
  * even though the same field-line forms decode a non-empty :path fine. */
 static void test_reqdrive_empty_path_rejected(void) {
@@ -198,6 +213,7 @@ static void test_reqdrive_priority_header(void) {
     off              = qpack_prefix_encode(fs, 64, &pfx);
     off += qpack_indexed_encode(
         wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+    rd_pseudo(fs, &off, 1);
     put_litname(fs, &off, "priority", "u=1, i");
   }
   {
@@ -234,6 +250,7 @@ static void test_reqdrive_origin_header(void) {
   off                      = qpack_prefix_encode(fs, 64, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  rd_pseudo(fs, &off, 1);
   put_litname(fs, &off, "origin", "https://example.test");
   {
     h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
@@ -282,6 +299,7 @@ static void test_reqdrive_long_value_header(void) {
   off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  rd_pseudo(fs, &off, 1);
   off += qpack_literal_name_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 0, &f);
   {
@@ -412,6 +430,7 @@ static void test_reqdrive_te_value(void) {
     wired_obuf ob2  = {req2, sizeof req2, 0};
     off2 += qpack_indexed_encode(
         wired_mspan_of(fs2 + off2, sizeof fs2 - off2), 17, 1); /* :method GET */
+    rd_pseudo(fs2, &off2, 1);
     put_litname(fs2, &off2, "te", "trailers");
     {
       h3conn_req_in req_in = {wired_span_of(fs2, off2), wired_span_of(0, 0)};
@@ -433,6 +452,7 @@ static void test_reqdrive_single_cookie(void) {
   off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  rd_pseudo(fs, &off, 1);
   put_litname(fs, &off, "cookie", "a=1");
   {
     h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
@@ -456,6 +476,7 @@ static void test_reqdrive_multi_cookie_joined(void) {
   off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  rd_pseudo(fs, &off, 1);
   put_litname(fs, &off, "cookie", "a=1");
   put_litname(fs, &off, "cookie", "b=2");
   put_litname(fs, &off, "cookie", "c=3");
@@ -1072,7 +1093,9 @@ static int rd_headers_value_len_accepted(usz value_len) {
   wired_h3reqdrive_req r;
   fs_len += qpack_indexed_encode(
       wired_mspan_of(fs + fs_len, sizeof fs - fs_len), 17, 1); /* GET */
-  fs_len = rd_ua_line(fs, fs_len, sizeof fs, value_len);
+  rd_pseudo(fs, &fs_len, 1);
+  /* :authority's one scratch octet comes out of the value's share */
+  fs_len = rd_ua_line(fs, fs_len, sizeof fs, value_len - 1);
   h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(h3_len != 0);
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
@@ -1241,6 +1264,7 @@ static void test_reqdrive_req_header_lookup(void) {
   wired_h3reqdrive_req r;
   wired_span           v = {0, 0};
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 0);
   put_litname(fs, &off, ":path", "/x");
   off += qpack_literal_namref_encode(
       wired_mspan_of(fs + off, 64), &auth,
@@ -1269,6 +1293,7 @@ static void test_reqdrive_req_header_cap(void) {
   usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   wired_h3reqdrive_req r;
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
   put_litname(fs, &off, "xa", "xa");
   for (usz i = 1; i < WIRED_H3REQDRIVE_MAX_HDRS; i++) {
     off += qpack_literal_namref_encode(
@@ -1315,6 +1340,7 @@ static void test_reqdrive_req_header_chrome(void) {
   usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   wired_h3reqdrive_req r;
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 0);
   put_litname(fs, &off, ":path", "/api");
   for (usz i = 0; i < sizeof lines / sizeof lines[0]; i++) {
     put_litname(fs, &off, lines[i][0], lines[i][1]);
@@ -1345,6 +1371,7 @@ static void test_reqdrive_req_header_dynamic_copied(void) {
   pfx = (qpack_prefix){qpack_ric_encode(1, 4096 / 32), 0, 0};
   off = qpack_prefix_encode(fs, sizeof fs, &pfx);
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
   off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 0, 0);
   CHECK(rd_hdr_decode(fs, off, scratch, &t, &r));
   CHECK(wired_http_req_header(&r, wired_span_of((const u8*)"x-dyn", 5), &v));
@@ -1474,7 +1501,8 @@ static void test_reqdrive_trailer_dynamic_ref(void) {
  * section still resolves the newest entry. */
 static void test_reqdrive_ric_wraps(void) {
   static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
-  static const u8 fs[] = {0x07, 0x00, 0xd1, 0xd7, 0xc1, 0x80};
+  static const u8 fs[] = {0x07, 0x00, 0xd1, 0xd7, 0xc1, 0x80, 0x24,
+                          'h',  'o',  's',  't',  0x01, 'h'};
   qpack_field     f    = {
       wired_span_of((const u8*)"x", 1), wired_span_of((const u8*)"y", 1)};
   qpack_field last = {
@@ -1547,6 +1575,17 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
   CHECK(n > 4 + sizeof name);
   CHECK(!rd_hdr_decode(fs, n, scratch, 0, &r));
   CHECK(r.qpack_failed == 0);
+  /* RFC 9204 7.4 (9204-063): a stream error of its own type */
+  CHECK(r.reject_code == QPACK_DECOMPRESSION_FAILED);
+  /* a well-encoded malformed request keeps H3_MESSAGE_ERROR (code 0) */
+  {
+    static const u8 conn[] = {0x00, 0x00, 0xd1, 0xd7, 0xc1, 0x24, 'h',
+                              'o',  's',  't',  0x01, 'h',  0x27, 0x03,
+                              'c',  'o',  'n',  'n',  'e',  'c',  't',
+                              'i',  'o',  'n',  0x01, 'x'};
+    CHECK(!rd_hdr_decode(conn, sizeof conn, scratch, 0, &r));
+    CHECK(r.reject_code == 0);
+  }
 }
 
 /* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,
@@ -1554,7 +1593,8 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
  * entries) still decode an EncodedInsertCount of 14 (RIC 13 mod 128 + 1). */
 static void test_reqdrive_ric_uses_max_capacity(void) {
   static u8       scratch[WIRED_H3_MAX_FIELD_SECTION];
-  static const u8 fs[] = {0x0e, 0x00, 0xd1, 0xd7, 0xc1, 0x80};
+  static const u8 fs[] = {0x0e, 0x00, 0xd1, 0xd7, 0xc1, 0x80, 0x24,
+                          'h',  'o',  's',  't',  0x01, 'h'};
   qpack_field     f    = {
       wired_span_of((const u8*)"x", 1), wired_span_of((const u8*)"y", 1)};
   qpack_dyn            t;
@@ -1571,11 +1611,14 @@ static void test_reqdrive_ric_uses_max_capacity(void) {
 /* RFC 9204 4.5.4 / 4.5.5: a literal whose name references the dynamic table
  * -- relative to the Base (T=0) or past it -- takes that entry's name, not
  * the static entry with the same index. Against B.2's table: RIC 2, Base 2,
- * name = relative 0 (:path); then RIC 2, Base 0, name = post-Base 1. */
+ * name = relative 0 (:path); then RIC 2, Base 0, name = post-Base 1. A
+ * `host` line supplies the authority (RFC 9114 4.3.1). */
 static void test_reqdrive_literal_dynamic_names(void) {
   static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
-  static const u8      rel[] = {0x03, 0x00, 0xd1, 0xd7, 0x40, 0x02, '/', 'x'};
-  static const u8      pb[]  = {0x03, 0x81, 0xd1, 0xd7, 0x01, 0x02, '/', 'y'};
+  static const u8      rel[] = {0x03, 0x00, 0xd1, 0xd7, 0x40, 0x02, '/', 'x',
+                                0x24, 'h',  'o',  's',  't',  0x01, 'h'};
+  static const u8      pb[]  = {0x03, 0x81, 0xd1, 0xd7, 0x01, 0x02, '/', 'y',
+                                0x24, 'h',  'o',  's',  't',  0x01, 'h'};
   qpack_dyn            t;
   wired_h3reqdrive_req r;
   rd_b2_table(&t);

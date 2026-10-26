@@ -56,17 +56,20 @@ void srvloop_init_req(wired_srvloop* l) {
 
 /* ACK/ECN feedback and the received-codepoint counters. */
 void srvloop_init_ecn(wired_srvloop* l) {
-  l->ack_n           = 0;
-  l->ackst.largest   = 0;
-  l->ackst.delay_raw = 0;
-  l->ecn_ack_seen    = 0;
-  l->ecn_ack_largest = 0;
-  l->ecn_ack_ect0    = 0;
-  l->ecn_ack_ect1    = 0;
-  l->ecn_ack_ce      = 0;
-  l->ecn_ect0        = 0;
-  l->ecn_ect1        = 0;
-  l->ecn_ce          = 0;
+  l->ack_n                = 0;
+  l->ackst.largest        = 0;
+  l->ackst.delay_raw      = 0;
+  l->ackst.last_elicit_ms = 0;
+  l->ackst.probe_n        = 0;
+  l->ackst.pto_count      = 0;
+  l->ecn_ack_seen         = 0;
+  l->ecn_ack_largest      = 0;
+  l->ecn_ack_ect0         = 0;
+  l->ecn_ack_ect1         = 0;
+  l->ecn_ack_ce           = 0;
+  l->ecn_ect0             = 0;
+  l->ecn_ect1             = 0;
+  l->ecn_ce               = 0;
 }
 
 /* Peer frames seen. max_data_seen_flag/streams_blocked_seen_flag/

@@ -1,6 +1,6 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static int  srvrun_broadcast_fits(wired_span data);
+static int  srvrun_broadcast_fits(wired_span data, u8 urgency);
 static void srvrun_bcast_drain_one(
     srvrun_state* st, wired_srvinbox_ring* row, int j);
 static int srvrun_bcast_drain_slot(void);
@@ -12,20 +12,25 @@ static int srvrun_session_conn_slot(wired_srvrun_env* env, wired_wt_session* s);
 /* data.n fits every fan-out target's payload capacity (dg_pending_buf and
  * every wired_srvinbox_ring slot share the same 1200-byte cap by
  * construction, WIRED_SRVINBOX_SLOT_MAX). */
-static int srvrun_broadcast_fits(wired_span data) {
-  return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf[0];
+static int srvrun_broadcast_fits(wired_span data, u8 urgency) {
+  return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf[0] &&
+         dgpriority_valid(urgency);
 }
 
 int wired_server_broadcast_datagram(wired_span data) {
+  return wired_server_broadcast_datagram_prio(data, DGPRIORITY_DEFAULT);
+}
+
+int wired_server_broadcast_datagram_prio(wired_span data, u8 urgency) {
   int slot;
-  if (!srvrun_broadcast_fits(data)) {
+  if (!srvrun_broadcast_fits(data, urgency)) {
     return 0;
   }
   slot = srvrun_bcast_find(wired_thread_tid());
   if (slot < 0) {
-    return srvrun_broadcast_direct(data);
+    return srvrun_broadcast_direct(data, urgency);
   }
-  return srvrun_broadcast_registered(slot, data);
+  return srvrun_broadcast_registered(slot, data, urgency);
 }
 
 /* Pop at most one message from row[j] and, if there was one, fan it out to
@@ -36,7 +41,7 @@ static void srvrun_bcast_drain_one(
   u8  buf[WIRED_SRVINBOX_SLOT_MAX];
   usz n = wired_srvinbox_pop(&row[j], buf, sizeof buf);
   if (n) {
-    srvrun_broadcast_to_all(st, wired_span_of(buf, n));
+    srvrun_broadcast_to_all(st, wired_span_of(buf, n), DGPRIORITY_DEFAULT);
   }
 }
 

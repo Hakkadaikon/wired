@@ -1,3 +1,4 @@
+#include "app/http3/server/srvloop/srvloop_crit.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_wt_capsule_flow_or_skip(
@@ -9,6 +10,7 @@ static int  srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value);
 static int  srvrun_wt_capsule_ignored(const srvrun_wt_caprx* x, u64 type);
 static int  srvrun_wt_capsule_apply(void* ctx, u64 type, wired_span value);
 static int  srvrun_wt_rx_ok(int st);
+static int  srvrun_wt_rx_state(srvrun_conn* c, int st);
 
 /* The non-CLOSE half of srvrun_wt_capsule_flow: a flow-control setter type,
  * a WT_STREAMS_BLOCKED ceiling check, or skip (RFC 9297 SS3.2). */
@@ -84,6 +86,16 @@ static int srvrun_wt_rx_ok(int st) {
   return st == BODYWIN_OPEN || st == BODYWIN_DONE;
 }
 
+/* RFC 9114 4.4 (9114-088): a frame other than DATA (or one an extension
+ * permits) on the CONNECT stream is a connection error of type
+ * H3_FRAME_UNEXPECTED. Returns st. */
+static int srvrun_wt_rx_state(srvrun_conn* c, int st) {
+  if (st == BODYWIN_FRAME_UNEXPECTED) {
+    srvloop_h3_fail(&c->l, H3_FRAME_UNEXPECTED);
+  }
+  return st;
+}
+
 /* One session slot's receive pass over its CONNECT stream window: slide out
  * the request HEADERS still in front (wt_capsule_rx_at), then apply every
  * whole capsule (bodywin_capsules). Returns 1 while the session stays
@@ -103,10 +115,12 @@ int srvrun_wt_rx_walk(
   out->env                  = cfg->env;
   out->s                    = srvrun_wt_slot(c, sidx);
   out->drain_rcvd           = &c->wt_drain_rcvd[sidx];
+  slot->body.deny           = BODYWIN_DENY_CONNECT;
   /* A clean FIN (BODYWIN_DONE) is left to srvrun_close_wt_on_stream_close. */
-  return srvrun_wt_rx_ok(bodywin_capsules(
-      &slot->body, slot->req_buf, &c->wt_capq[sidx], srvrun_wt_capsule_apply,
-      out));
+  return srvrun_wt_rx_ok(srvrun_wt_rx_state(
+      c, bodywin_capsules(
+             &slot->body, slot->req_buf, &c->wt_capq[sidx],
+             srvrun_wt_capsule_apply, out)));
 }
 
 /* RESET_STREAM + STOP_SENDING carrying code on session slot sidx's own

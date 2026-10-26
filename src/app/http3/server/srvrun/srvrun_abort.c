@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static usz srvrun_abort_release(srvrun_conn* c, u8 i);
+static u64 srvrun_malformed_code(const srvrun_conn* c, u8 i);
 static u64 srvrun_incomplete_code(const srvrun_conn* c, u8 i);
 static usz srvrun_abort_req(
     const srvrun_step_ctx* ctx, srvrun_conn* c, u8 i, u64 code);
@@ -16,10 +17,18 @@ static usz srvrun_abort_release(srvrun_conn* c, u8 i) {
   return 1;
 }
 
+/* RFC 9114 4.1.2 / RFC 9204 7.4: a malformed request's stream error --
+ * the decoder's own code (QPACK_DECOMPRESSION_FAILED) or H3_MESSAGE_ERROR. */
+static u64 srvrun_malformed_code(const srvrun_conn* c, u8 i) {
+  u16 code = c->l.streams[i].req.reject_code;
+  return code ? code : H3_MESSAGE_ERROR;
+}
+
 /* RFC 9114 4.1.2 / 4.1.1: the code aborting incomplete-list slot i --
- * H3_MESSAGE_ERROR for a malformed request, else H3_REQUEST_INCOMPLETE. */
+ * srvrun_malformed_code for a malformed request, else
+ * H3_REQUEST_INCOMPLETE. */
 static u64 srvrun_incomplete_code(const srvrun_conn* c, u8 i) {
-  return (c->l.malformed_slots >> i) & 1 ? H3_MESSAGE_ERROR
+  return (c->l.malformed_slots >> i) & 1 ? srvrun_malformed_code(c, i)
                                          : H3_REQUEST_INCOMPLETE;
 }
 

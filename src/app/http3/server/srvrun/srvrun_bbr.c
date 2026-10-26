@@ -10,6 +10,7 @@ int wired_server_wt_stream_send(
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   if (!srvrun_wt_reply_flow_ok(sidx, s, payload.n)) {
+    srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
     return srvrun_wtsend_flow_refuse(c);
   }
   w = srvrun_wtsend_owned(c, sidx, stream_id);

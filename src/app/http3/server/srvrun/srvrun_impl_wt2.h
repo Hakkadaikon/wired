@@ -183,6 +183,15 @@ typedef struct {
   usz sfv_len;
 } srvrun_wt_proto;
 
+/* One WT stream reset to build (srvrun_wt_reset_frames): the stream, its
+ * wire error code, its Final Size, and the owning session's CONNECT stream
+ * id (SRVRUN_WT_NO_SID when no session header rides the stream). */
+typedef struct {
+  u64 stream_id, code, final, sid;
+} srvrun_wt_reset_in;
+
+#define SRVRUN_WT_NO_SID (~(u64)0)
+
 /* Above every real key (urgency <= 7): a slot that cannot send. */
 #define SRVRUN_WT_KEY_IDLE 0xffffffffu
 
@@ -223,6 +232,12 @@ typedef struct {
  * wrong for a real workload. */
 #define SRVRUN_DRAIN_TICKS 25
 #define SRVRUN_DRAIN_TICK_MS 200
+
+/* draft-ietf-webtrans-http3-16 6: how many SRVRUN_DRAIN_TICK_MS ticks
+ * (~2s) shutdown waits for peers to close their CONNECT streams after
+ * WT_CLOSE_SESSION before sending CONNECTION_CLOSE anyway -- several RTTs
+ * on any real path, short enough not to stall a stop. */
+#define SRVRUN_WT_CLOSE_TICKS 10
 
 void srvrun_on_step(const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
 void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);

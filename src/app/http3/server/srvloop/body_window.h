@@ -52,7 +52,15 @@ typedef struct {
   u8  on;                    /**< HEADERS consumed, body streaming */
   u8  is_data;               /**< the frame being parsed is DATA */
   u8  state;                 /**< BODYWIN_* */
+  /** RFC 9114 4.1 / 4.4: bit t set refuses frame type t (DATA 0, HEADERS
+   * 1) on top of the always-refused ones: both once a trailer section has
+   * arrived, HEADERS on a CONNECT stream (BODYWIN_DENY_CONNECT). */
+  u8 deny;
 } bodywin;
+
+/** bodywin.deny for a CONNECT stream: only DATA follows the request
+ * (RFC 9114 4.4). */
+#define BODYWIN_DENY_CONNECT 0x2
 
 /** Store the in-window part of data (stream offset off) into buf; fin
  * records the final size off + data.n. */
@@ -70,7 +78,8 @@ void bodywin_consume(bodywin* w, u8* buf, usz n);
  * last DATA frame at the final size; when nothing is left to deliver at a
  * frame boundary at the final size, fn gets an empty chunk with fin=1. A
  * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1; a frame
- * type a request stream must not carry is BODYWIN_FRAME_UNEXPECTED. The
+ * type a request stream must not carry, or HEADERS/DATA after the trailer
+ * section (RFC 9114 4.1), is BODYWIN_FRAME_UNEXPECTED. The
  * window slides once per call, past everything parsed.
  * @return the new state */
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx);

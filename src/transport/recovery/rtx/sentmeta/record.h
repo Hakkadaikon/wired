@@ -46,9 +46,10 @@ int sentmeta_on_sent(sentmeta* m, const sentmeta_out* pkt);
  * accounting lives in one place (RFC 9002 7.4). */
 void sentmeta_reclaim(sentmeta* m, usz i);
 
-/* Keep pn tracked but stop counting its bytes in total_in_flight -- its
- * owner accounts for them some other way. No-op if pn is not tracked. */
-void sentmeta_uncount(sentmeta* m, u64 pn);
+/* Keep pn tracked but stop counting n of its bytes (at most all of them) in
+ * total_in_flight -- their owner accounts for them some other way. No-op if
+ * pn is not tracked or not in flight. */
+void sentmeta_uncount(sentmeta* m, u64 pn, usz n);
 
 /* Index of the slot holding pn, or SENTMETA_CAP if not tracked. */
 usz sentmeta_find(const sentmeta* m, u64 pn);
