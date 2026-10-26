@@ -58,7 +58,7 @@
  * a client bidi stream classified as WebTransport is raised to
  * WIRED_SRVLOOP_WT_BUF_CAP the same way. */
 #ifndef STP_DEFAULT_STREAM_DATA_REMOTE
-#define STP_DEFAULT_STREAM_DATA_REMOTE 2048
+#define STP_DEFAULT_STREAM_DATA_REMOTE 10240
 #endif
 /** Built-in initial_max_streams_uni default (RFC 9000 18.2, 0x09). */
 #ifndef STP_DEFAULT_MAX_STREAMS_UNI

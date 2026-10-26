@@ -8,6 +8,7 @@
 #include "app/http3/server/srvloop/body_window.h"
 #include "app/http3/server/srvloop/srvloop_ackst.h"
 #include "app/http3/server/srvloop/srvloop_h3peer.h"
+#include "app/http3/server/srvloop/srvloop_pending_priority.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
@@ -166,8 +167,9 @@ typedef struct {
   int req_incomplete;
   /** backing store for req's path/body views once decoded (see
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
-   * here rather than a stack local that dies on return */
-  u8 req_wrap[2080];
+   * here rather than a stack local that dies on return; it re-wraps the
+   * whole req_buf window as one STREAM frame (<= 32 bytes of header) */
+  u8 req_wrap[BODYWIN_WRAP_CAP];
   /** RFC 9218 4.1/7.1: this stream's current response priority, applied by a
    * PRIORITY_UPDATE frame on the peer's control stream (see
    * wired_srvloop_priority_apply) and defaulted (u=3, i=0) whenever the slot
@@ -190,22 +192,13 @@ typedef struct {
    * without fin: the peer's RESET_STREAM code once one arrived, else
    * H3_REQUEST_CANCELLED (set at claim). */
   u64 abort_code;
+  /** RFC 9110 10.1.1: 0 until srvrun sends (or tries to send) this
+   * request's 100 (Continue), then SRVLOOP_CONTINUE_TRIED | the interim
+   * HEADERS frame's stream bytes (0 if it was not sealed) -- where the
+   * final response's stream offset starts. Kept across a re-arm, which
+   * comes before the final response is armed. */
+  u16 continue_len;
 } wired_srvloop_stream_slot;
-
-/** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open
- * request stream one connection buffers (9218-010) until that stream is
- * claimed. Small and fixed: a client reprioritizing a stream ahead of
- * opening it is a corner case, not a bulk pattern, so this need not track
- * WIRED_SRVLOOP_MAX_STREAMS' own sizing. */
-#define WIRED_SRVLOOP_MAX_PENDING_PRIORITY 8
-
-/** One buffered PRIORITY_UPDATE naming a request stream this connection has
- * not opened yet (RFC 9218 10 / 9218-010). in_use == 0 marks a free slot. */
-typedef struct {
-  int         in_use;    /**< 0 marks a free slot */
-  u64         stream_id; /**< the not-yet-open request stream id */
-  h3_priority priority;  /**< the priority to apply once it opens */
-} wired_srvloop_pending_priority;
 
 /** Byte capacity of the peer control stream's reassembly buffer (RFC 9114
  * 6.2.1, RFC 9218 7.1). Holds the stream's bytes AFTER the leading 0x00 type
@@ -895,16 +888,14 @@ typedef struct {
    * DATA, in that order (0 = absent, the draft's default), latched as the
    * SETTINGS frame is walked (priority_ctrl.c). */
   u64 peer_wt_initial[3];
-  /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
-   * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
-   * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's
-   * shape: dispatch.c only latches it, the caller driving the loop decides
-   * how to close the connection over it. */
-  u16 priupdate_violation;
+  /** RFC 9114 4.2.2 / 7.2.4.1: the client's SETTINGS_MAX_FIELD_SECTION_SIZE
+   * (0 = not advertised, unlimited; an advertised 0 is kept as 1, which no
+   * field section fits either), latched as SETTINGS is walked. */
+  u64 peer_max_field_section;
   /** RFC 9204 4.2 (9204-028): the H3 connection error code of a second QPACK
    * encoder or decoder unidirectional stream seen this step
    * (H3_STREAM_CREATION_ERROR), 0 when none was rejected. Mirrors
-   * priupdate_violation's shape: dispatch.c only latches it via
+   * datagram_violation's shape: dispatch.c only latches it via
    * wired_h3srv_on_peer_qpack, the caller driving the loop decides how to
    * close the connection over it. */
   u16 qpack_stream_violation;

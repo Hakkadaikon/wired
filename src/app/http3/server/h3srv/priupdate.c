@@ -9,12 +9,12 @@ static int priupdate_wrong_stream(int on_control_stream, int push, u64 id) {
 }
 
 /* RFC 9000 2.1: a client-initiated bidirectional stream id has low bits 00 --
- * the id space RFC 9218 7.1's request-variant Prioritized Element ID must
- * name. The push variant names a Push ID instead, which carries no such
- * restriction here (push is not otherwise supported by this SDK, so no push
- * id is ever valid to apply -- callers simply have nothing to update). */
+ * the id space RFC 9218 7.2's request-variant Prioritized Element ID must
+ * name. RFC 9218 7.2: a push-variant Push ID "that has not yet been
+ * promised" is H3_ID_ERROR, and this server never promises a push, so
+ * every push-variant ID is one. */
 static int priupdate_bad_id(int on_control_stream, int push, u64 id) {
-  return on_control_stream && !push && (id & 0x03) != 0;
+  return on_control_stream && (push || (id & 0x03) != 0);
 }
 
 /* Violation classifiers scanned in priority order; first match wins, mirrors

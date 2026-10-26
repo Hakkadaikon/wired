@@ -1,5 +1,7 @@
 #include "app/http3/server/srvloop/priority_ctrl_impl.h"
+#include "app/http3/server/srvloop/srvloop_impl.h"
 
+static u16  ctrl_priupdate_err(const wired_srvloop* l, const h3_priupdate* f);
 static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f);
 static void ctrl_note_frame(wired_srvloop* l, int is_settings);
 static void ctrl_note_generic(wired_srvloop* l, const h3_frame* f);
@@ -12,19 +14,25 @@ static int  req_stream_of(u64 type, wired_span frame, stream_frame* sf);
 static int  req_carries_priupdate(const stream_frame* sf);
 static void req_latch_priupdate_violation(wired_srvloop* l);
 
-/* RFC 9218 7.1: apply f (already type-matched to PRIORITY_UPDATE) to its
- * named stream -- 9218-014's id-range check first, 9218-010's buffered
- * apply/pending on success. push is not otherwise supported by this SDK, so
- * a push-variant update is validated (for 9218-014 symmetry) but never
- * applied to anything. */
-static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
-  u16         err;
-  h3_priority p;
+/* RFC 9218 7.2: the H3_ID_ERROR / H3_FRAME_UNEXPECTED f raises, 0 if none:
+ * wired_h3srv_priupdate_check's id rules, then 9218-022 -- a request
+ * stream ID at or past the advertised client bidi limit. */
+static u16 ctrl_priupdate_err(const wired_srvloop* l, const h3_priupdate* f) {
+  u16 err;
   if (!wired_h3srv_priupdate_check(1, f->push, f->element_id, &err)) {
-    l->priupdate_violation = err;
-    return;
+    return err;
   }
-  if (f->push) {
+  return srvloop_id_past_limit(l, f->element_id) ? H3_ID_ERROR : 0;
+}
+
+/* RFC 9218 7.2: apply f (already type-matched to PRIORITY_UPDATE) to its
+ * named stream -- 9218-010's buffered apply/pending -- or latch its
+ * connection error (ctrl_priupdate_err) for srvrun to close over. */
+static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
+  h3_priority p;
+  u16         err = ctrl_priupdate_err(l, f);
+  if (err) {
+    srvloop_h3_fail(l, err);
     return;
   }
   h3_priority_sfv(f->value, &p);
@@ -172,7 +180,7 @@ static int req_carries_priupdate(const stream_frame* sf) {
 static void req_latch_priupdate_violation(wired_srvloop* l) {
   u16 err;
   if (!wired_h3srv_priupdate_check(0, 0, 0, &err)) {
-    l->priupdate_violation = err;
+    srvloop_h3_fail(l, err);
   }
 }
 

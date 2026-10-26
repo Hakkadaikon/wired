@@ -4,7 +4,10 @@ static void gather_wt_land(wired_srvloop* l, const stream_frame* sf);
 static int  is_wt_signal_mid_stream(const stream_frame* sf);
 static int  gather_one_wt_signal_violation(
     wired_srvloop* l, u64 type, wired_span frame);
-static int uni_type_new(wired_srvloop* l, const stream_frame* sf, u64* v);
+static int uni_type_new(
+    wired_srvloop* l, const stream_frame* sf, u64* v, usz* n);
+static void uni_type_note_decoder(
+    wired_srvloop* l, const stream_frame* sf, u64 v, usz n);
 static int qenc_type_is_encoder(const stream_frame* sf);
 static int qenc_leads_encoder(const wired_srvloop* l, const stream_frame* sf);
 static int qenc_frame_untyped(const stream_frame* sf);
@@ -150,26 +153,40 @@ int srvloop_uni_stream_type_accepted(wired_span data) {
  * first (srvloop_crit_note_type: critical-stream closure, a client push
  * stream), and a retransmitted offset-0 frame of an already-recorded stream
  * is not a second stream. Any other (or undecodable) type is a no-op. */
-/* 1 with *v set iff sf's leading type varint decodes and sf is not a
- * retransmitted offset-0 frame of an already-recorded critical stream. */
-static int uni_type_new(wired_srvloop* l, const stream_frame* sf, u64* v) {
-  usz off = 0;
-  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, v)) {
+/* 1 with *v (and its length *n) set iff sf's leading type varint decodes
+ * and sf is not a retransmitted offset-0 frame of an already-recorded
+ * critical stream. */
+static int uni_type_new(
+    wired_srvloop* l, const stream_frame* sf, u64* v, usz* n) {
+  *n = 0;
+  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), n, v)) {
     return 0;
   }
   return !srvloop_crit_note_type(l, *v, sf->stream_id);
 }
 
+/* RFC 9204 4.4: the first decoder stream is read from here on
+ * (srvloop_gather_qpack_dec). */
+static void uni_type_note_decoder(
+    wired_srvloop* l, const stream_frame* sf, u64 v, usz n) {
+  if (v == H3_STREAM_QPACK_DECODER) {
+    qpackenc_decrx_take(&l->h3.qdec_rx, sf->stream_id, n);
+  }
+}
+
 void srvloop_uni_stream_type_note_qpack(
     wired_srvloop* l, const stream_frame* sf) {
   u64 v;
+  usz n;
   u16 err;
-  if (!uni_type_new(l, sf, &v)) {
+  if (!uni_type_new(l, sf, &v, &n)) {
     return;
   }
   if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err)) {
     l->qpack_stream_violation = err;
+    return;
   }
+  uni_type_note_decoder(l, sf, v, n);
 }
 
 /* RFC 9204 4.2: 1 if sf is the offset-0 frame of a stream whose leading type

@@ -1,6 +1,5 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
-static int srvloop_id_past_limit(const wired_srvloop* l, u64 id);
 static int srvloop_frame_past_limit(
     const wired_srvloop* l, const framewalk_item* fr);
 static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl);
@@ -17,7 +16,7 @@ static const u8 SRVLOOP_NAMES_STREAM[FK_RESET_STREAM_AT + 1] = {
 
 /* RFC 9000 4.6: 1 if id is a client stream at or past l's advertised limit
  * for its type (bidi or uni). */
-static int srvloop_id_past_limit(const wired_srvloop* l, u64 id) {
+int srvloop_id_past_limit(const wired_srvloop* l, u64 id) {
   u64 lim = l->peer_stream_limit[(id >> 1) & 1];
   return !(id & 1) && lim && id / 4 >= lim;
 }

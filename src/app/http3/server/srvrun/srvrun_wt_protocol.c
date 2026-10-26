@@ -15,7 +15,8 @@ static int wt_origin_app_ok(
 
 static int srvrun_http_head_ok(const wired_http_exchange* x) {
   return srvrun_http_status_final(x->status) &&
-         x->field_count <= WIRED_HTTP_MAX_FIELDS;
+         x->field_count <= WIRED_HTTP_MAX_FIELDS &&
+         srvrun_http_fields_unique(x);
 }
 
 static int srvrun_http_ok(const wired_http_exchange* x) {
@@ -31,12 +32,21 @@ static void srvrun_http_drop_content(wired_http_exchange* x) {
   x->content_type = 0;
 }
 
-/* RFC 9110 15.6.1: the application produced an unsendable response --
- * answer a bare 500 instead. */
+/* RFC 9110 15.6 / 15.6.1: the application produced an unsendable
+ * response -- answer a 500 instead, explained in a short text/plain body
+ * (none for HEAD, srvrun_status_body). */
 static void srvrun_http_reject(wired_http_exchange* x) {
+  wired_span text;
+  usz        off = 0;
   x->status      = 500;
   x->field_count = 0;
   srvrun_http_drop_content(x);
+  text = srvrun_status_body(x->req, x->status);
+  if (!bytes_put(wired_mspan_of(x->body->p, x->body->cap), &off, text)) {
+    return;
+  }
+  x->body->len    = off;
+  x->content_type = text.n ? "text/plain" : 0;
 }
 
 /* x's status: 0 (every 7-argument handler's) means 200. */

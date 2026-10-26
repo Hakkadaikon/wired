@@ -6,7 +6,6 @@ static void srvloop_init_ctrl(wired_srvloop* l);
 /* Protocol violation latches and peer limits. */
 static void srvloop_init_violation(wired_srvloop* l) {
   l->datagram_violation             = 0;
-  l->priupdate_violation            = 0;
   l->qpack_stream_violation         = 0;
   l->wt_signal_mid_stream_violation = 0;
   l->flow_control_violation         = 0;
@@ -18,6 +17,7 @@ static void srvloop_init_violation(wired_srvloop* l) {
   l->peer_wt_initial[0]             = 0;
   l->peer_wt_initial[1]             = 0;
   l->peer_wt_initial[2]             = 0;
+  l->peer_max_field_section         = 0;
 }
 
 /* Our own control stream plus the peer's. */

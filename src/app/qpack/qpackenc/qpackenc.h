@@ -86,4 +86,34 @@ int qpackenc_on_increment(qpackenc_state* st, u64 increment);
  *   (QPACK_DECODER_STREAM_ERROR territory on the caller's side) */
 int qpackenc_on_section_ack(qpackenc_state* st);
 
+/** Longest decoder instruction held whole: a prefix byte plus the ten
+ * continuation bytes a 62-bit integer can need (RFC 9204 4.1.1). */
+#define QPACKENC_DECRX_PART 11
+
+/** RFC 9204 4.2 / 4.4: the peer's decoder stream, read in stream order.
+ * Zero-initialise. */
+typedef struct {
+  u64 stream_id; /**< the peer's decoder stream (0: none seen yet) */
+  u64 off;       /**< next stream offset to read */
+  u8  part[QPACKENC_DECRX_PART]; /**< an instruction's bytes so far */
+  usz part_len;                  /**< bytes used in part */
+} qpackenc_decrx;
+
+/** Start reading stream_id as the peer's decoder stream, past its type
+ * varint of type_len bytes. */
+void qpackenc_decrx_take(qpackenc_decrx* rx, u64 stream_id, u64 type_len);
+
+/** RFC 9204 4.4: apply the decoder instructions in d (at stream offset
+ * off of rx's stream) to st: Section Acknowledgment (4.4.1), Stream
+ * Cancellation (4.4.2), Insert Count Increment (4.4.3). Bytes already read
+ * are skipped. shortcut: a frame past a gap (reordered ahead of an earlier
+ * one) is dropped, and since the transport acknowledged it, reading stops at
+ * that gap for good -- never a false error; a reassembly window like
+ * qdyn_encrx's once a reordering peer's acknowledgments must be checked.
+ * @return 1 ok, 0 on an invalid instruction (an acknowledgment of nothing
+ *   pending, an increment of 0 or past the inserts sent, an overlong
+ *   integer): QPACK_DECODER_STREAM_ERROR */
+int qpackenc_decrx_feed(
+    qpackenc_decrx* rx, qpackenc_state* st, u64 off, wired_span d);
+
 #endif

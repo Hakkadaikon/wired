@@ -76,7 +76,27 @@ static void test_srvloop_priupdate_applies_to_open_stream(void) {
     CHECK(i >= 0);
     CHECK(l.streams[i].priority.urgency == 1);
   }
-  CHECK(l.priupdate_violation == 0);
+  CHECK(l.h3peer.error == 0);
+}
+
+/* 9218-009: a PRIORITY_UPDATE whose Priority Field Value fails to parse
+ * (a trailing comma) resets the stream to the default parameters, not to
+ * the u=1 it carries nor the u=5 it had. */
+static void test_srvloop_priupdate_bad_value_defaults(void) {
+  static wired_srvloop l;
+  u8                   payload[64], frame[96];
+  usz                  plen, flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  wired_srvloop_priority_apply(&l, 4, &(h3_priority){5, 1});
+  plen = priupdate_ctrl_payload(payload, sizeof payload, 4, 0, "u=1,", 4);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.h3peer.error == 0); /* no H3_GENERAL_PROTOCOL_ERROR */
+  CHECK(l.streams[wired_srvloop_slot_for(&l, 4)].priority.urgency == 3);
+  CHECK(l.streams[wired_srvloop_slot_for(&l, 4)].priority.incremental == 0);
 }
 
 /* 9218-010: a PRIORITY_UPDATE naming a stream not yet open is buffered and
@@ -97,7 +117,7 @@ static void test_srvloop_priupdate_buffers_for_unopened_stream(void) {
   priupdate_dispatch(&l, frame, flen);
 
   /* stream 8 does not exist yet: default priority still applies nowhere */
-  CHECK(l.priupdate_violation == 0);
+  CHECK(l.h3peer.error == 0);
 
   {
     int i = wired_srvloop_slot_for(&l, 8); /* stream opens now */
@@ -125,7 +145,7 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == H3_FRAME_UNEXPECTED);
+  CHECK(l.h3peer.error == H3_FRAME_UNEXPECTED);
 }
 
 /* 9218-014: a request-variant PRIORITY_UPDATE naming an element id outside
@@ -148,11 +168,43 @@ static void test_srvloop_priupdate_bad_id_error(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == H3_ID_ERROR);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
   {
     int i = wired_srvloop_slot_for(&l, 4);
     CHECK(l.streams[i].priority.urgency == H3_URGENCY_DEFAULT);
   }
+}
+
+/* Send one PRIORITY_UPDATE (variant push, element id) as the control
+ * stream's first bytes on a fresh loop whose bidi limit is 2 streams. */
+static void priupdate_send_one(wired_srvloop* l, u64 id, int push) {
+  u8  payload[64], frame[96];
+  usz plen, flen;
+  CHECK(
+      wired_srvloop_init(l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  l->peer_stream_limit[0] = 2; /* client bidi ids 0 and 4 */
+  plen = priupdate_ctrl_payload(payload, sizeof payload, id, push, "u=2", 3);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  priupdate_dispatch(l, frame, flen);
+}
+
+/* 9218-022: a request-variant element id at or past the advertised client
+ * bidi stream limit is H3_ID_ERROR; the last id below it is accepted. */
+static void test_srvloop_priupdate_past_stream_limit(void) {
+  static wired_srvloop l;
+  priupdate_send_one(&l, 4, 0);
+  CHECK(l.h3peer.error == 0);
+  priupdate_send_one(&l, 8, 0);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
+}
+
+/* 9218-023: the server never promises a push, so every push-variant
+ * PRIORITY_UPDATE names an unpromised Push ID: H3_ID_ERROR. */
+static void test_srvloop_priupdate_push_unpromised(void) {
+  static wired_srvloop l;
+  priupdate_send_one(&l, 0, 1);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
 }
 
 /* Encode {0x00 control-type varint}{SETTINGS frame} into out; returns the
@@ -201,6 +253,29 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
 
   CHECK(l.h3peer.ctrl.settings_seen == 1);
   CHECK(l.h3peer.ctrl.error == H3_ERR_NONE);
+}
+
+/* RFC 9114 4.2.2 / 7.2.4.1: the client's SETTINGS_MAX_FIELD_SECTION_SIZE
+ * is latched for the response path; an advertised 0 is kept as 1. */
+static void test_srvloop_ctrl_settings_latch_field_section(void) {
+  static wired_srvloop l;
+  static const u8      v300[] = {0x00, 0x04, 0x03, 0x06, 0x41, 0x2c};
+  static const u8      v0[]   = {0x00, 0x04, 0x02, 0x06, 0x00};
+  u8                   frame[32];
+  usz                  flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(l.peer_max_field_section == 0);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, v300, sizeof v300, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_max_field_section == 300);
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, v0, sizeof v0, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_max_field_section == 1);
 }
 
 /* RFC 9114 6.2.1: a client that opens its control stream with the leading
@@ -393,10 +468,14 @@ static void test_srvloop_ctrl_stream_overflow_latched(void) {
 
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
+  test_srvloop_priupdate_bad_value_defaults();
   test_srvloop_priupdate_buffers_for_unopened_stream();
   test_srvloop_priupdate_on_request_stream_unexpected();
   test_srvloop_priupdate_bad_id_error();
+  test_srvloop_priupdate_past_stream_limit();
+  test_srvloop_priupdate_push_unpromised();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
+  test_srvloop_ctrl_settings_latch_field_section();
   test_srvloop_ctrl_settings_split_after_type_byte();
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();

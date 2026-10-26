@@ -12,8 +12,9 @@
  * via wired_srvloop_priority_apply) and skipping every other frame type
  * (SETTINGS/GOAWAY/... are not this file's concern). A validation failure
  * (9218-013's wrong-stream case cannot occur here by construction -- this is
- * only ever called with a control-stream frame -- but 9218-014's bad element
- * id can) latches l->priupdate_violation instead of applying anything. */
+ * only ever called with a control-stream frame -- but 9218-014/022/023's bad
+ * element id can) latches it as l->h3peer.error (srvloop_h3_fail) instead
+ * of applying anything; srvrun closes the connection over it. */
 
 /** RFC 9000 2.1/2.2: if the walked frame at `frame` (of `type`) is a STREAM
  * frame on the peer's client uni control stream (RFC 9114 6.2.1: leading
@@ -29,11 +30,11 @@ int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame);
 
 /** RFC 9218 7.1 / 9218-013: if the walked frame at `frame` (of `type`) is a
  * client bidi (request) STREAM frame whose data begins with a PRIORITY_UPDATE
- * frame, latch l->priupdate_violation = H3_FRAME_UNEXPECTED -- the frame MUST
+ * frame, latch H3_FRAME_UNEXPECTED into l->h3peer.error -- the frame MUST
  * only be sent on the client's control stream. Returns 1 iff this frame
  * belonged to a request stream at all (whether or not it carried a
  * violation).
- * @param l the loop whose priupdate_violation to latch
+ * @param l the loop whose h3peer.error to latch
  * @param type the walked frame's type
  * @param frame the walked frame's own bytes (header + body) */
 int wired_srvloop_req_priupdate_gather(

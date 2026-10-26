@@ -12,13 +12,15 @@ static void test_h3srv_priupdate_control_ok(void) {
   CHECK(err == 0);
 }
 
-/* RFC 9218 7.1 (push variant): the push element id space carries no bidi-id
- * restriction here (this SDK does not otherwise support push, so it is
- * accepted at the check layer -- nothing is ever applied for it). */
-static void test_h3srv_priupdate_control_push_ok(void) {
-  u16 err = 0xffff;
-  CHECK(wired_h3srv_priupdate_check(1, 1, 2, &err));
-  CHECK(err == 0);
+/* 9218-023 (push variant): this server never promises a push, so every
+ * Push ID is unpromised -- H3_ID_ERROR, whatever its value. */
+static void test_h3srv_priupdate_control_push_rejected(void) {
+  u16 err = 0;
+  CHECK(!wired_h3srv_priupdate_check(1, 1, 0, &err));
+  CHECK(err == H3_ID_ERROR);
+  err = 0;
+  CHECK(!wired_h3srv_priupdate_check(1, 1, 2, &err));
+  CHECK(err == H3_ID_ERROR);
 }
 
 /* 9218-013: PRIORITY_UPDATE received anywhere but the client control stream
@@ -65,7 +67,7 @@ static void test_h3srv_priupdate_wrong_stream_outranks_id(void) {
 
 void test_h3srv_priupdate(void) {
   test_h3srv_priupdate_control_ok();
-  test_h3srv_priupdate_control_push_ok();
+  test_h3srv_priupdate_control_push_rejected();
   test_h3srv_priupdate_wrong_stream_unexpected();
   test_h3srv_priupdate_bad_id_error();
   test_h3srv_priupdate_id_boundaries();

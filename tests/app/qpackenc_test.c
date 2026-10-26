@@ -129,9 +129,8 @@ static void test_qpackenc_on_increment(void) {
 
 /* RFC 9204 4.4.1: qpack_section_ack_valid wired through
  * qpackenc_on_section_ack -- an ack is only valid while a sent section with
- * RIC > 0 is still pending; decoder-stream receive doesn't exist yet
- * (grepped: no call site), so this proves the wiring directly rather than
- * through a not-yet-built parser. */
+ * RIC > 0 is still pending (the decoder-stream reader, qpackenc_decrx_feed,
+ * calls it per Section Acknowledgment). */
 static void test_qpackenc_on_section_ack(void) {
   qpackenc_state st;
   qpackenc_init(&st, 4096);
@@ -144,7 +143,69 @@ static void test_qpackenc_on_section_ack(void) {
   CHECK(qpackenc_on_section_ack(&st) == 0); /* nothing left to acknowledge */
 }
 
+/* Feed the NUL-free bytes b[0..n) at stream offset off to a fresh decoder
+ * stream reader (type varint 1 byte long) over st. */
+static int decrx_feed1(
+    qpackenc_decrx* rx, qpackenc_state* st, u64 off, const u8* b, usz n) {
+  return qpackenc_decrx_feed(rx, st, off, wired_span_of(b, n));
+}
+
+/* RFC 9204 4.4.1 / 4.4.3 (9204-038/-041): with nothing sent that needs one,
+ * a Section Acknowledgment, an Increment of 0 and an Increment past the
+ * inserts sent are each QPACK_DECODER_STREAM_ERROR territory (feed 0). */
+static void test_qpackenc_decrx_invalid_rejected(void) {
+  static const u8 ack[]  = {0x03, 0x84}; /* type, Section Ack stream 4 */
+  static const u8 zero[] = {0x03, 0x00}; /* Insert Count Increment 0 */
+  static const u8 over[] = {0x03, 0x01}; /* Increment 1, nothing inserted */
+  qpackenc_state  st;
+  qpackenc_decrx  rx = {0};
+  qpackenc_init(&st, 0);
+  qpackenc_decrx_take(&rx, 11, 1);
+  CHECK(decrx_feed1(&rx, &st, 0, ack, sizeof ack) == 0);
+  qpackenc_decrx_take(&rx, 11, 1);
+  CHECK(decrx_feed1(&rx, &st, 0, zero, sizeof zero) == 0);
+  qpackenc_decrx_take(&rx, 11, 1);
+  CHECK(decrx_feed1(&rx, &st, 0, over, sizeof over) == 0);
+}
+
+/* RFC 9204 4.4: valid instructions apply -- a Stream Cancellation (4.4.2)
+ * always, an acknowledgment of a pending section and an increment within
+ * the inserts sent -- across a split multi-byte instruction, a
+ * retransmission (applied once) and a frame past a gap (left unread). */
+static void test_qpackenc_decrx_valid_applied(void) {
+  static const u8 head[] = {0x03, 0x7f};       /* type, Cancel 63+... */
+  static const u8 tail[] = {0x01, 0x81, 0x02}; /* ...1 = 64, Ack 1, +2 */
+  qpackenc_state  st;
+  qpackenc_decrx  rx = {0};
+  qpackenc_init(&st, 4096);
+  st.total_inserts = 2;
+  qpackenc_note_sent(&st, 1);
+  qpackenc_decrx_take(&rx, 11, 1);
+  CHECK(decrx_feed1(&rx, &st, 0, head, sizeof head) == 1);
+  CHECK(decrx_feed1(&rx, &st, 2, tail, sizeof tail) == 1);
+  CHECK(st.pending_acks == 0 && st.known_received == 2);
+  CHECK(decrx_feed1(&rx, &st, 2, tail, sizeof tail) == 1); /* retransmit */
+  CHECK(st.known_received == 2);
+  CHECK(decrx_feed1(&rx, &st, 9, tail, sizeof tail) == 1); /* past a gap */
+  CHECK(rx.off == 5);
+}
+
+/* RFC 9204 4.1.1: an integer longer than any 62-bit value needs is not an
+ * instruction that ever completes -- rejected, not held forever. */
+static void test_qpackenc_decrx_overlong_rejected(void) {
+  static const u8 b[] = {0x03, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff,
+                         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+  qpackenc_state  st;
+  qpackenc_decrx  rx = {0};
+  qpackenc_init(&st, 0);
+  qpackenc_decrx_take(&rx, 11, 1);
+  CHECK(decrx_feed1(&rx, &st, 0, b, sizeof b) == 0);
+}
+
 void test_qpackenc(void) {
+  test_qpackenc_decrx_invalid_rejected();
+  test_qpackenc_decrx_valid_applied();
+  test_qpackenc_decrx_overlong_rejected();
   test_qpackenc_capacity_zero_never_uses_dynamic();
   test_qpackenc_first_insert_matches_golden();
   test_qpackenc_repeat_value_no_reinsert();

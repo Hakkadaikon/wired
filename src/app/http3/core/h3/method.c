@@ -1,5 +1,7 @@
 #include "app/http3/core/h3/method.h"
 
+#include "common/bytes/util/bytes.h"
+
 /* One registered method name plus whether this server allows it through to
  * the application handler -- a flat table keeps both h3_method_is_known
  * and h3_method_is_allowed at a single scan with no nested branching. */
@@ -52,4 +54,23 @@ int h3_method_is_known(wired_span method) { return h3method_find(method) != 0; }
 int h3_method_is_allowed(wired_span method) {
   const h3method_entry* e = h3method_find(method);
   return e != 0 && e->allowed;
+}
+
+/* Append ", NAME" for an allowed entry (the caller drops the first ", "). */
+static void h3method_allow_put(
+    const h3method_entry* e, wired_mspan buf, usz* off) {
+  static const u8 sep[] = {',', ' '};
+  if (!e->allowed) {
+    return;
+  }
+  bytes_put(buf, off, wired_span_of(sep, sizeof sep));
+  bytes_put(buf, off, wired_span_of((const u8*)e->name, e->len));
+}
+
+wired_span h3_method_allow_list(u8* buf, usz cap) {
+  usz off = 0;
+  for (usz i = 0; i < H3METHOD_TABLE_N; i++) {
+    h3method_allow_put(&H3METHOD_TABLE[i], wired_mspan_of(buf, cap), &off);
+  }
+  return wired_span_of(buf + 2, off - 2);
 }
