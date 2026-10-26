@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 194/248 tested, 30 indirect, 24 untested.**
+**Coverage: 195/248 tested, 30 indirect, 23 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -774,13 +774,12 @@ Legend:
   major version, unless configured not to.
   - gap: the hub's SETUP never sets `has_implementation`; it only records
     the peer's value.
-- [ ] MQ18-226 (§10.2.2, §10.3.1.4) If a client SETUP carries an AUTHORIZATION
+- [x] MQ18-226 (§10.2.2, §10.3.1.4) If a client SETUP carries an AUTHORIZATION
   TOKEN Setup Option with Alias Type DELETE or USE_ALIAS, then the server
   shall close the session with PROTOCOL_VIOLATION; a REGISTER that exceeds
   its MAX_AUTH_TOKEN_CACHE_SIZE shall be treated as USE_VALUE, not a session
   failure.
-  - gap: `moqctl_setup_take` has no case for option 0x03; it is dropped as
-    unknown.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_setup_token_alias`
 
 ## SS10.4 GOAWAY (wire format, draft-18 shape)
 

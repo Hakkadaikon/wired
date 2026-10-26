@@ -118,6 +118,53 @@ static void test_mtss_rid_window_slides(void) {
   CHECK(mtss_rid_ok(b, 142));
 }
 
+/* draft-19 1.4.3 / 10.2.2: an AUTHORIZATION TOKEN parameter of a SUBSCRIBE
+ * whose Token cannot be decoded (USE_VALUE without its Token Type) closes
+ * the session KEY_VALUE_FORMATTING_ERROR, not PROTOCOL_VIOLATION -- on a
+ * draft-19 session (the decode path is shared by every draft). */
+static void test_mtss_request_token_kvfmt(void) {
+  static const u8 bad[] = {0x03};
+  moqctl_ftn      f     = mtcf_setup(MOQVER_D19);
+  moqctl_params   p     = mtcf_param(MOQCTL_PARAM_AUTHORIZATION_TOKEN);
+  p.items[0].bytes      = wired_span_of(bad, sizeof bad);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  CHECK(mtss_closed_with(MOQCTL_CLOSE_KVFMT_ERROR));
+  CHECK(moqtrun_test_count_kind(12) == 0);
+}
+
+/* A token session on SESS_A whose client SETUP (uni stream 2) carries the
+ * Setup Option bytes opt; returns the close code, ~0 for none. */
+static u64 mtss_setup_with(const u8* opt, usz n) {
+  wired_moqt_hub hub;
+  u8             msg[32];
+  usz            len = mtctl_uni_ctl(msg, opt, n);
+  mtcf_token_session(&hub);
+  mtcf_part(&hub, 2, msg, 0, len);
+  return moqtrun_test_close_code();
+}
+
+/* draft-18 10.3.1.4 / draft-22 9.1.4: a client SETUP AUTHORIZATION TOKEN
+ * (option 0x03) with Alias Type DELETE or USE_ALIAS closes the session
+ * PROTOCOL_VIOLATION; a REGISTER past the (empty) token cache is used as
+ * USE_VALUE -- the session establishes, no AUTH_TOKEN_CACHE_OVERFLOW; an
+ * undecodable Token is KEY_VALUE_FORMATTING_ERROR (10.2.2). */
+static void test_mtss_setup_token_alias(void) {
+  static const u8 del[] = {0x03, 0x02, 0x00, 0x07};
+  static const u8 use[] = {0x03, 0x02, 0x02, 0x07};
+  static const u8 reg[] = {0x03, 0x04, 0x01, 0x07, 0x01, 'x'};
+  static const u8 val[] = {0x03, 0x03, 0x03, 0x01, 'x'};
+  static const u8 bad[] = {0x03, 0x01, 0x04};
+  CHECK(
+      mtss_setup_with(del, sizeof del) ==
+      WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(
+      mtss_setup_with(use, sizeof use) ==
+      WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(mtss_setup_with(reg, sizeof reg) == ~(u64)0);
+  CHECK(mtss_setup_with(val, sizeof val) == ~(u64)0);
+  CHECK(mtss_setup_with(bad, sizeof bad) == MOQCTL_CLOSE_KVFMT_ERROR);
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -126,4 +173,6 @@ void test_moqtrun_sess(void) {
   test_mtss_rid_duplicate_closes();
   test_mtss_rid_out_of_order_ok();
   test_mtss_rid_window_slides();
+  test_mtss_request_token_kvfmt();
+  test_mtss_setup_token_alias();
 }

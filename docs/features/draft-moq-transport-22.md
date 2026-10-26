@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 208/273 tested, 43 indirect, 22 untested.**
+**Coverage: 209/273 tested, 43 indirect, 21 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -833,12 +833,11 @@ Legend:
 
 ## SS9.1.4 AUTHORIZATION TOKEN Setup Option
 
-- [ ] MQ22-232 (SS9.1.4) If a client's SETUP carries an AUTHORIZATION TOKEN
+- [x] MQ22-232 (SS9.1.4) If a client's SETUP carries an AUTHORIZATION TOKEN
   option with Alias Type DELETE or USE_ALIAS, then the server shall close
   the session with PROTOCOL_VIOLATION; a REGISTER past the cache limit is
   treated as USE_VALUE, never AUTH_TOKEN_CACHE_OVERFLOW.
-  - gap: `moqctl_setup_take` ignores option 0x03 as unknown, so the REGISTER
-    half holds trivially and the DELETE/USE_ALIAS close does not happen.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_setup_token_alias`
 
 ## SS9.2 GOAWAY (wire format)
 

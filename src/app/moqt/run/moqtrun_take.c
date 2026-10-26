@@ -92,12 +92,18 @@ void moqtrun_publish_checked(
 /* draft-19 10.2 (draft-18 10.2, draft-22 9.20): a request body that fails
  * to decode -- a Message Parameter the session's draft does not define
  * among the causes -- closes the session PROTOCOL_VIOLATION, as FETCH and
- * REQUEST_UPDATE do (ledger 12-13). 1 when r is MOQCTL_OK. */
+ * REQUEST_UPDATE do (ledger 12-13); a known parameter whose Value does not
+ * match its encoding (an undecodable AUTHORIZATION TOKEN, say) closes it
+ * KEY_VALUE_FORMATTING_ERROR instead (draft-19 1.4.3, 10.2.2), as SETUP
+ * does (moqtrun_setup_take_code). 1 when r is MOQCTL_OK. */
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
   if (r == MOQCTL_OK) {
     return 1;
   }
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_with(
+      hub, p,
+      r == MOQCTL_PARAMS_KVFMT ? (u32)MOQCTL_CLOSE_KVFMT_ERROR
+                               : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   return 0;
 }
 

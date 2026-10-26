@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 192/248 tested, 37 indirect, 19 untested.**
+**Coverage: 194/248 tested, 35 indirect, 19 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -99,14 +99,11 @@ Legend:
   protocol violation.
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65535_accepted`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65536_violation`
-- [~] MOQT-014 (SS1.4.3) If a Key-Value-Pair of a Type the implementation
+- [x] MOQT-014 (SS1.4.3) If a Key-Value-Pair of a Type the implementation
   understands has a Value that does not match that Type's serialization, then
   the server shall close the session with KEY_VALUE_FORMATTING_ERROR.
-  - evidence: the codec reports the distinct formatting result for a malformed
-    AUTHORIZATION TOKEN (`test_moqctl_params_auth_token_malformed_kvfmt`) and a
-    client SETUP whose known option is malformed closes
-    KEY_VALUE_FORMATTING_ERROR (`test_moqtrun_ssts_setup_malformed_closes`, run
-    on a draft-22 session); no draft-19 session test drives the close.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_request_token_kvfmt`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_setup_token_alias`
 - [x] MOQT-015 The implementation shall not use the minimum encoding length for
   a Key-Value-Pair's Delta Type or even-Type Value as a decode requirement
   (non-minimal encodings are valid).
@@ -593,13 +590,10 @@ Legend:
   session with a protocol violation.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_scope_violation`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_bad_and_control`
-- [~] MOQT-233 (SS10.2.2) If an AUTHORIZATION TOKEN's Token structure cannot be
+- [x] MOQT-233 (SS10.2.2) If an AUTHORIZATION TOKEN's Token structure cannot be
   decoded, then the hub shall close the session with
   KEY_VALUE_FORMATTING_ERROR.
-  - evidence: the codec returns the distinct formatting result
-    (`test_moqctl_params_auth_token_malformed_kvfmt`); only a malformed Setup
-    Option is mapped to the session close (`moqtrun_setup_take_code`), and no
-    run-layer test sends a malformed token.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_request_token_kvfmt`
 - [~] MOQT-067 (SS10.2) Message Parameters in SUBSCRIBE, PUBLISH_OK, and FETCH
   shall not cause the publisher to alter the payload of the Objects it sends.
   - evidence: no parameter value is consulted when relaying a payload;
