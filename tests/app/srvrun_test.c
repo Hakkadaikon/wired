@@ -8281,6 +8281,9 @@ static void test_srvrun_rejected_request_code(void) {
   c->l.malformed_slots = 2;
   CHECK(srvrun_incomplete_code(c, 1) == H3_MESSAGE_ERROR);
   CHECK(srvrun_incomplete_code(c, 0) == H3_REQUEST_INCOMPLETE);
+  /* RFC 9204 7.4 (9204-063): a line too large to decode */
+  c->l.streams[1].req.reject_code = QPACK_DECOMPRESSION_FAILED;
+  CHECK(srvrun_incomplete_code(c, 1) == QPACK_DECOMPRESSION_FAILED);
 }
 
 /* RFC 9000 3.2 / 4.6: a peer RESET_STREAM on a request still being received

@@ -166,10 +166,11 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       &cur->dyn, &L);
   /* RFC 9204 2.2.3: a reference to no live entry (unresolvable or
    * evicted) fails the connection. Any other line this decoder cannot
-   * decode -- one too large for its scratch or name cap (RFC 9204 7.4) --
-   * only rejects the request, like a well-encoded line HTTP/3 rejects. */
+   * decode -- one too large for its scratch or name cap -- is a stream
+   * error of type QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4 / 6). */
   r->qpack_failed = L.ref_bad;
   if (!c) {
+    r->reject_code = QPACK_DECOMPRESSION_FAILED;
     return 0;
   }
   h3reqdrive_line_trim(&L);

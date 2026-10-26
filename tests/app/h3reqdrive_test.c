@@ -6,6 +6,7 @@
 #include "app/qpack/qpack/base.h"
 #include "app/qpack/qpack/dynfind.h"
 #include "app/qpack/qpack/dyntable.h"
+#include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/insertcount.h"
 #include "app/qpack/qpack/literal.h"
@@ -1574,6 +1575,17 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
   CHECK(n > 4 + sizeof name);
   CHECK(!rd_hdr_decode(fs, n, scratch, 0, &r));
   CHECK(r.qpack_failed == 0);
+  /* RFC 9204 7.4 (9204-063): a stream error of its own type */
+  CHECK(r.reject_code == QPACK_DECOMPRESSION_FAILED);
+  /* a well-encoded malformed request keeps H3_MESSAGE_ERROR (code 0) */
+  {
+    static const u8 conn[] = {0x00, 0x00, 0xd1, 0xd7, 0xc1, 0x24, 'h',
+                              'o',  's',  't',  0x01, 'h',  0x27, 0x03,
+                              'c',  'o',  'n',  'n',  'e',  'c',  't',
+                              'i',  'o',  'n',  0x01, 'x'};
+    CHECK(!rd_hdr_decode(conn, sizeof conn, scratch, 0, &r));
+    CHECK(r.reject_code == 0);
+  }
 }
 
 /* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,

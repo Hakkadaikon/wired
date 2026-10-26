@@ -140,6 +140,11 @@ typedef struct {
    * received while no stream may block): a connection error of type
    * QPACK_DECOMPRESSION_FAILED rather than a malformed request. */
   int qpack_failed;
+  /** RFC 9204 7.4 / 6: the stream error a rejected request is reset with
+   * when it is not H3_MESSAGE_ERROR -- QPACK_DECOMPRESSION_FAILED for a
+   * field line this decoder could not interpret (too large for its limits,
+   * or not a valid encoding); 0 otherwise. */
+  u16 reject_code;
 } wired_h3reqdrive_req;
 
 /**

@@ -109,6 +109,7 @@ static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       &L);
   r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in h3reqdrive_step_line */
   if (!c) {
+    r->reject_code = QPACK_DECOMPRESSION_FAILED; /* RFC 9204 7.4 */
     return 0;
   }
   if (!trailer_line_ok(&L)) {
