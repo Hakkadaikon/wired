@@ -59,7 +59,8 @@ static usz wts_connect(
   wired_obuf      hob = obuf_of(h3buf, sizeof h3buf);
   wired_obuf      sob = obuf_of(pl, sizeof pl);
   h3req_pseudo_in pin = {
-      wts_s("CONNECT"), wts_s(scheme), wts_s("h"), wts_s("/"), wts_s(proto)};
+      wts_s("CONNECT"), wts_s(scheme), wts_s("localhost"), wts_s("/"),
+      wts_s(proto)};
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
   if (hname) { /* h3req_enc_header writes from its buffer's start */
     wired_obuf lob = obuf_of(fields + fob.len, sizeof fields - fob.len);

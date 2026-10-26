@@ -1,6 +1,7 @@
 #include "app/http3/core/h3/fieldsize.h"
 #include "app/http3/request/h3resp/resp_size.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "app/http3/server/srvrun/srvrun_origin.h"
 
 static int srvrun_resp_matches(const srvrun_resp* r, u64 stream_id);
 static int srvrun_wt_status_build(
@@ -138,8 +139,10 @@ void srvrun_wt_resource_decide(
     const srvrun_cfg*           cfg,
     const srvrun_conn*          c,
     wired_wt_resource_decision* out) {
-  *out = (wired_wt_resource_decision){0, 0, 0};
-  if (!cfg->wt_resource_check) {
+  /* RFC 9110 7.4 (9110-037): an origin the certificate does not cover is
+   * 421 before the app's resource check runs (srvrun_origin_status). */
+  *out = (wired_wt_resource_decision){srvrun_origin_status(c, 0), 0, 0};
+  if (out->status || !cfg->wt_resource_check) {
     return;
   }
   cfg->wt_resource_check(

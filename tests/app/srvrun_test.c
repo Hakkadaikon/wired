@@ -25265,7 +25265,10 @@ static void test_srvrun_wt_held_connect_outlives_table(void) {
   stream_frame    e                = {6, 0, sizeof enc, enc, 0};
   stream_frame    h                = {4, 0, sizeof hdr, hdr, 0};
   c->l.h3.qpack_max_table_capacity = 4096;
-  n                                = frame_put_stream(pl, sizeof pl, &e);
+  /* the vector's www.example.com is no SAN of the fixture certificate:
+   * skip the 9110-037 origin check (srvrun_origin_skip) */
+  c->s.sdrv.cert_count = 0;
+  n                    = frame_put_stream(pl, sizeof pl, &e);
   n += frame_put_stream(pl + n, sizeof pl - n, &h);
   sr_sl_step(c, pl, n);
   CHECK(c->l.h3.qdyn.count == 2 && c->wt_held_mask != 0);
@@ -25371,13 +25374,14 @@ static void sr_origin_auth(srvrun_conn* c, const char* a) {
 
 static const char* g_sr_arm_method;
 static const char* g_sr_arm_authority; /* non-0: the request :authority */
+static int         g_sr_arm_wt;        /* 1: a WebTransport Extended CONNECT */
 
 static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   struct lp_fix f;
   u8            obuf[1024];
   wired_obuf    ob = {obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(c, &f, &ob);
-  sr_set_req(c, 0, 0, 0);
+  sr_set_req(c, g_sr_arm_wt, g_sr_arm_wt, 0);
   if (g_sr_arm_method) {
     c->l.req.method     = (const u8*)g_sr_arm_method;
     c->l.req.method_len = wired_cstr_len(g_sr_arm_method);
@@ -25830,6 +25834,21 @@ static void test_srvrun_origin_421_armed(void) {
   g_sr_arm_authority = 0;
   CHECK(sr_hx_line_is(&d, 0, ":status", "421"));
   CHECK(g_sr_hx_calls == 0);
+}
+
+/* 9110-037 for a WebTransport Extended CONNECT (RFC 9220 3): a session
+ * for an origin the certificate does not cover is refused with 421 and
+ * never opened. */
+static void test_srvrun_origin_421_wt_connect(void) {
+  sr_hx_dec d;
+  g_sr_hx            = (sr_hx_case){200, 0, 0, 0, 0, 0, 0};
+  g_sr_arm_wt        = 1;
+  g_sr_arm_authority = "evil.example";
+  sr_hx_run(&d);
+  g_sr_arm_authority = 0;
+  g_sr_arm_wt        = 0;
+  CHECK(sr_hx_line_is(&d, 0, ":status", "421"));
+  CHECK(sr_test_conns()->wt_active == 0);
 }
 
 /* Fields past WIRED_HTTP_FIELD_BYTES_MAX in total answer 500 rather than
@@ -27132,6 +27151,7 @@ void test_srvrun(void) {
   test_srvrun_http_field_count_limit();
   test_srvrun_http_peer_field_section_limit();
   test_srvrun_origin_misdirected_421();
+  test_srvrun_origin_421_wt_connect();
   test_srvrun_origin_421_armed();
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();

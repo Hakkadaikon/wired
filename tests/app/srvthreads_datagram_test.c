@@ -871,7 +871,8 @@ static usz sdt_build_connect(u8* out, usz cap) {
   wired_obuf      hob = obuf_of(out, cap);
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"CONNECT", 7),
-      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"localhost", 9),
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", 12)};
   if (!h3req_enc_pseudo(&pin, &fob)) {
