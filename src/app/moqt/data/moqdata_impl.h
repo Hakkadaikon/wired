@@ -7,6 +7,15 @@
 #include "app/moqt/data/moqdata.h"
 #include "app/moqt/vi/moqvi.h"
 
+/* Every field of the Object at *at but its payload bytes; *len its
+ * Payload Length. seq is read, not advanced (moqdata_obj_head.c). */
+int moqdata_obj_head(
+    wired_span            buf,
+    usz*                  at,
+    const moqdata_objseq* seq,
+    moqdata_obj*          out,
+    u64*                  len);
+
 #define MOQDATA_FIXED_TYPES_N \
   (sizeof MOQDATA_FIXED_TYPES / sizeof MOQDATA_FIXED_TYPES[0])
 

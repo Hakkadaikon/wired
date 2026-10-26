@@ -47,6 +47,7 @@
 #include "app/moqt/data/moqdata.c"
 #include "app/moqt/data/moqdata_blob.c"
 #include "app/moqt/data/moqdata_obj.c"
+#include "app/moqt/data/moqdata_obj_head.c"
 #include "app/moqt/data/moqdata_subhdr.c"
 #include "app/moqt/dgram/moqdg.c"
 #include "app/moqt/dgram/moqdg_put.c"

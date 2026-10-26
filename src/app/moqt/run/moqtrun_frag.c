@@ -6,6 +6,8 @@ static i32 moqtrun_frag_slot_for(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n);
 static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now);
 static u64 moqtrun_tail_born(usz off, u64 now, u64 born);
+static usz moqtrun_frag_join(
+    wired_moqt_hub* hub, const wired_moqtrun_relay* relay, wired_span data);
 
 static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i) {
   const wired_moqtrun_relay* o = hub->frag_owner[i];
@@ -113,6 +115,17 @@ static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
   return off ? now : born;
 }
 
+/* relay's held fragment, then data, in hub->relay_scratch; their length. */
+static usz moqtrun_frag_join(
+    wired_moqt_hub* hub, const wired_moqtrun_relay* relay, wired_span data) {
+  if (relay->frag_len) {
+    bytes_memcpy(
+        hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
+  }
+  bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
+  return relay->frag_len + data.n;
+}
+
 /* Object-boundary normalization (wired_moqtrun_relay's frag doc): prepends
  * the relay's held fragment to this delivery in hub->relay_scratch, finds
  * the last complete Object boundary, keeps the tail past it as the next
@@ -135,14 +148,9 @@ wired_span moqtrun_relay_normalize(
     u64*                 born_ms,
     moqdata_objseq*      seq0_out) {
   u64 now   = hub->live.last_now_ms;
-  usz total = relay->frag_len + data.n;
+  usz total = moqtrun_frag_join(hub, relay, data);
   usz off   = 0;
   *born_ms  = moqtrun_relay_born(relay, now);
-  if (relay->frag_len) {
-    bytes_memcpy(
-        hub->relay_scratch, hub->frag_pool[relay->frag_idx], relay->frag_len);
-  }
-  bytes_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   *seq0_out = relay->seq;
   moqtrun_decode_object_loop(
       hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,
