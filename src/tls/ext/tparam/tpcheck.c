@@ -50,6 +50,10 @@ static const tp_range_row tp_range[] = {
     {TP_ACK_DELAY_EXPONENT, 0, 20},
     {TP_MAX_ACK_DELAY, 0, 16383},
     {TP_ACTIVE_CONNECTION_ID_LIMIT, 2, 0xffffffffffffffffull},
+    /* RFC 9000 4.6: above 2^60 "MUST be treated as a connection error of
+     * type TRANSPORT_PARAMETER_ERROR" */
+    {TP_INITIAL_MAX_STREAMS_BIDI, 0, 1ull << 60},
+    {TP_INITIAL_MAX_STREAMS_UNI, 0, 1ull << 60},
 };
 
 /* The range row for id, or 0 if id carries no range constraint. */
