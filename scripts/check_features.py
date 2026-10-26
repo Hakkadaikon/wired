@@ -9,6 +9,7 @@ the Total line must match the ledgers. --fix rewrites the Coverage, row and
 Total lines from the boxes instead of reporting them.
 """
 
+import collections
 import pathlib
 import re
 import sys
@@ -18,14 +19,18 @@ FEAT = ROOT / "docs" / "features"
 TEST_RE = re.compile(r"- test: `([^`]+)`\s+—\s+`([^`]+)`")
 TEST_HEAD = re.compile(r"^\s*- test:.*$", re.M)
 # boxes under these headings are tracked but not counted (README)
-CUT = re.compile(r"^## (?:Not implemented|Out of scope|Experimental|Informational)", re.M)
+CUT = re.compile(
+    r"^## (?:Not implemented|Out of scope|Experimental|Informational)", re.M
+)
 BOX = re.compile(r"^- \[([x~ ])\] (\S+)", re.M)
 X_BLOCK = re.compile(r"^- \[x\] (\S+).*\n((?:  .*\n)*)", re.M)
 COV = re.compile(r"\*\*Coverage: \d+/\d+ tested, \d+ indirect, \d+ untested\.\*\*")
 ROW = re.compile(
     r"^(\| \[[^\]]+\]\(([\w.-]+\.md)\) \| )\d+/\d+ \| \d+ \| \d+ \| \d+ \|", re.M
 )
-TOTAL = re.compile(r"\*\*Total: \d+/\d+ requirements demonstrated .*?untested\.\*\*", re.S)
+TOTAL = re.compile(
+    r"\*\*Total: \d+/\d+ requirements demonstrated .*?untested\.\*\*", re.S
+)
 PLACEHOLDER = re.compile(r"-X+$")
 
 
@@ -45,25 +50,33 @@ def ref_error(ref_file, func):
 
 
 def ref_errors(joined):
-    errs = [ref_error(f, fn) for f, fn in TEST_RE.findall(joined)]
-    return [e for e in errs if e]
+    return list(filter(None, (ref_error(f, fn) for f, fn in TEST_RE.findall(joined))))
 
 
 def malformed(joined):
     heads = TEST_HEAD.findall(joined)
-    return [f"MALFORMED test line: {h.strip()[:80]}" for h in heads if not TEST_RE.search(h)]
+    return [
+        f"MALFORMED test line: {h.strip()[:80]}" for h in heads if not TEST_RE.search(h)
+    ]
 
 
 def untested_x(joined):
     blocks = X_BLOCK.finditer(joined)
-    return [f"[x] {m.group(1)} has no test line" for m in blocks if "- test:" not in m.group(2)]
+    return [
+        f"[x] {m.group(1)} has no test line"
+        for m in blocks
+        if "- test:" not in m.group(2)
+    ]
+
+
+def is_dup(item):
+    ident, n = item
+    return n > 1 and PLACEHOLDER.search(ident) is None
 
 
 def dup_ids(text):
-    ids = [i for _, i in BOX.findall(text) if not PLACEHOLDER.search(i)]
-    seen = set()
-    dups = sorted({i for i in ids if i in seen or seen.add(i)})
-    return [f"ID used twice: {i}" for i in dups]
+    ids = collections.Counter(i for _, i in BOX.findall(text))
+    return [f"ID used twice: {i}" for i, _ in sorted(filter(is_dup, ids.items()))]
 
 
 def counts(text):
@@ -76,6 +89,15 @@ def cov_line(n):
     return f"**Coverage: {x}/{x + t + u} tested, {t} indirect, {u} untested.**"
 
 
+def resolve(path, old, new, fix):
+    """Rewrite old -> new in path when fixing; else report the mismatch."""
+    if not fix:
+        return [f"{old.strip()[:80]} != {new.strip()[:80]} (run --fix)"]
+    path.write_text(path.read_text().replace(old, new, 1))
+    print(f"{path.name}: fixed")
+    return []
+
+
 def sync_cov(path, text, n, fix):
     want = cov_line(n)
     m = COV.search(text)
@@ -83,11 +105,7 @@ def sync_cov(path, text, n, fix):
         return ["Coverage line missing"]
     if m.group(0) == want:
         return []
-    if fix:
-        path.write_text(text.replace(m.group(0), want, 1))
-        print(f"{path.name}: fixed -> {want}")
-        return []
-    return [f"{m.group(0)} != {want}"]
+    return resolve(path, m.group(0), want, fix)
 
 
 def check_ledger(path, fix):
@@ -124,31 +142,39 @@ def readme_text(readme, ledgers):
     return TOTAL.sub(total_line(tot), out)
 
 
+def unknown_rows(readme, ledgers):
+    missing = {n for _, n in ROW.findall(readme)} - set(ledgers)
+    return [f"README.md: row for unknown ledger {m}" for m in sorted(missing)]
+
+
 def sync_readme(ledgers, fix):
     path = FEAT / "README.md"
     readme = path.read_text()
-    missing = [n for n in ROW.findall(readme) if n[1] not in ledgers]
-    if missing:
-        return [f"README.md: row for unknown ledger {m[1]}" for m in missing]
-    want = readme_text(readme, ledgers)
+    errs = unknown_rows(readme, ledgers)
+    if errs:
+        return errs
+    return readme_drift(path, readme, readme_text(readme, ledgers), fix)
+
+
+def readme_drift(path, readme, want, fix):
     if want == readme:
         return []
-    if fix:
-        path.write_text(want)
-        print("README.md: rows/total fixed")
-        return []
-    return ["README.md: rows or Total line do not match the ledgers (run --fix)"]
+    return ["README.md: " + e for e in resolve(path, readme, want, fix)]
+
+
+def ledger_paths():
+    return sorted(filter(is_ledger, FEAT.glob("*.md")))
 
 
 def main(argv):
     fix = "--fix" in argv
     errs, ledgers = [], {}
-    for path in sorted(p for p in FEAT.glob("*.md") if is_ledger(p)):
+    for path in ledger_paths():
         e, ledgers[path.name] = check_ledger(path, fix)
         errs += e
     errs += sync_readme(ledgers, fix)
-    print("\n".join(errs + [f"{'FAIL' if errs else 'OK'} {len(errs)}"]))
-    return 1 if errs else 0
+    print("\n".join(errs + [f"{('OK', 'FAIL')[bool(errs)]} {len(errs)}"]))
+    return int(bool(errs))
 
 
 if __name__ == "__main__":

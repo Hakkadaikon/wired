@@ -33,7 +33,9 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(cf.dup_ids(LEDGER), [])
 
     def test_reused_id_fails(self):
-        self.assertEqual(cf.dup_ids(LEDGER + "- [x] T-001 again\n"), ["ID used twice: T-001"])
+        self.assertEqual(
+            cf.dup_ids(LEDGER + "- [x] T-001 again\n"), ["ID used twice: T-001"]
+        )
 
     def test_placeholder_ids_skip_uniqueness(self):
         self.assertEqual(cf.dup_ids("- [x] 9000-XXX a\n- [ ] 9000-XXX b\n"), [])
@@ -46,7 +48,10 @@ class LedgerTest(unittest.TestCase):
     def test_missing_function_and_untested_x_fail(self):
         bad = "- [x] T-004 a.\n  - test: `scripts/check_features.py` — `nope_fn`\n"
         self.assertEqual(len(cf.ref_errors(bad)), 1)
-        self.assertEqual(cf.untested_x("- [x] T-005 a.\n  - evidence: x\n"), ["[x] T-005 has no test line"])
+        self.assertEqual(
+            cf.untested_x("- [x] T-005 a.\n  - evidence: x\n"),
+            ["[x] T-005 has no test line"],
+        )
 
     def test_readme_rows_and_total(self):
         readme = "| [A](a.md) | 0/0 | 0 | 0 | 0 |\n**Total: 0/1 requirements demonstrated (0.0%) — 0 directly tested,\n0 indirect, 1 untested.**"
