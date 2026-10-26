@@ -906,6 +906,7 @@
 #include "app/moqt/run/moqtrun_malformed.c"
 #include "app/moqt/run/moqtrun_moqt.c"
 #include "app/moqt/run/moqtrun_newer.c"
+#include "app/moqt/run/moqtrun_ngr.c"
 #include "app/moqt/run/moqtrun_own.c"
 #include "app/moqt/run/moqtrun_param.c"
 #include "app/moqt/run/moqtrun_params.c"

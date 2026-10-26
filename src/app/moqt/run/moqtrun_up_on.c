@@ -28,6 +28,7 @@ static void moqtrun_up_route(
     wired_span          body);
 static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
+static void moqtrun_up_on_fin(wired_moqt_hub* hub, wired_moqtrun_up* u);
 
 /* draft-19 5.1 (draft-18 5.1, draft-22 3.1): "A publisher MUST send
  * exactly one SUBSCRIBE_OK or REQUEST_ERROR in response to a SUBSCRIBE.
@@ -160,20 +161,35 @@ static void moqtrun_up_drain(
   }
 }
 
+/* draft-19 3.3.2: the publisher FINned its side with no response -- the
+ * request failed, its waiters answered as for a REQUEST_ERROR. */
+static void moqtrun_up_on_fin(wired_moqt_hub* hub, wired_moqtrun_up* u) {
+  if (!u->in_use || u->track_tag) {
+    return;
+  }
+  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), MOQCTL_ERR_INTERNAL_ERROR);
+  hub->io.stream_fin(u->wt, u->stream_id);
+  u->in_use = 0;
+}
+
 /* The waiters' answers go out, and their streams settle, in the same
- * dispatch (moqtrun_reqs_tick). A FIN from the publisher ends nothing
+ * dispatch (moqtrun_reqs_tick). A FIN after SUBSCRIBE_OK ends nothing
  * (draft-19 3.3.2). */
 int moqtrun_up_rx(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
-    wired_span          data) {
+    wired_span          data,
+    int                 fin) {
   wired_moqtrun_up* u = moqtrun_up_of_stream(hub, p->wt, stream_id);
   if (!u) {
     return 0;
   }
   moqtrun_asm_push(&u->in, &data);
   moqtrun_up_drain(hub, p, u);
+  if (fin) {
+    moqtrun_up_on_fin(hub, u);
+  }
   moqtrun_reqs_tick(hub);
   return 1;
 }

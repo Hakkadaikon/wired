@@ -388,6 +388,25 @@ static void test_subtracks_publish_error_frees_slot(void) {
   CHECK(mtrq_used() < before);
 }
 
+/* draft-18 5.1: B's SUBSCRIBE for a Track whose hub-sent PUBLISH B has
+ * not answered yet (Pending, publisher) is refused DUPLICATE_SUBSCRIPTION
+ * (MUST); later drafts have no such rule and subscribe B. */
+static void test_subtracks_subscribe_crosses_publish(void) {
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[4];
+  int            dup =
+      (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_DUP_SUBSCRIPTION) != 0;
+  mtst_subtracks_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  CHECK(mtst_pub_opens(SESS_B, got, 4) == 1);
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &f, mtst_rid += 2, 0);
+  CHECK((mtrq_err_on(MTRQ_S2) == MOQCTL_ERR_DUPLICATE_SUBSCRIPTION) == dup);
+  CHECK((mtst_sub(SESS_A, SESS_B) == 0) == dup);
+}
+
 /* T-12: FORWARD 0 on SUBSCRIBE_TRACKS is reflected as FORWARD 0 on the
  * generated PUBLISH. */
 static void test_subtracks_forward_zero_reflected(void) {
@@ -416,6 +435,7 @@ static void mtall_subtracks(void) {
   test_subtracks_liveness_eventually_attempted();
   test_subtracks_publish_error_frees_slot();
   test_subtracks_forward_zero_reflected();
+  test_subtracks_subscribe_crosses_publish();
 }
 
 void test_moqtrun_subtracks(void) { moqtrun_test_allver(mtall_subtracks); }

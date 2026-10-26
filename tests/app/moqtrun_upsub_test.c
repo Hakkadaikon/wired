@@ -295,6 +295,58 @@ static void test_moqtrun_upsub_error_relayed(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* draft-19 3.3.2: A FINs its side with no SUBSCRIBE_OK -- the request
+ * failed: B is refused as for a REQUEST_ERROR and the hub FINs and
+ * forgets the entry. A FIN after SUBSCRIBE_OK ends nothing. */
+static void test_moqtrun_upsub_fin_unanswered_fails(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mups_up_is(sid, "FIN|"));
+  CHECK(mups_used() == 0);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  CHECK(mups_up_is(sid, ""));
+  CHECK(mups_used() == 1);
+}
+
+/* First call of kind k1 or k2 on (s, sid); ~0 if none. */
+static usz mups_first(wired_wt_session* s, u64 sid, int k1, int k2) {
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->s == s && c->stream_id == sid && (c->kind == k1 || c->kind == k2)) {
+      return i;
+    }
+  }
+  return ~(usz)0;
+}
+
+/* draft-18 5.1: A PUBLISHes the Track the hub's SUBSCRIBE to A still
+ * waits on (Pending, subscriber): that SUBSCRIBE is cancelled before A's
+ * PUBLISH_OK goes out (MUST), and B rides A's PUBLISH. */
+static void test_moqtrun_upsub_publish_crosses(void) {
+  moqctl_ftn f   = mrdv_f();
+  u64        pub = MTRQ_ID(5);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mtst_publish(SESS_A, pub, &f, 1);
+  usz rst = mups_first(SESS_A, sid, 7, 7);
+  usz ok  = mups_first(SESS_A, pub, 3, 12);
+  CHECK(ok != ~(usz)0);
+  if (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_DUP_SUBSCRIPTION) {
+    CHECK(rst < ok);
+  }
+  CHECK(mups_used() == 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
 /* U5 NoLeak: the upstream outlives one downstream cancel, and is
  * cancelled (RESET_STREAM + STOP_SENDING CANCELLED, 19 3.3.3) with the
  * last; A's track goes with it. */
@@ -456,6 +508,109 @@ static void mups_ok_prop(u64 sid, u64 type, u64 num) {
   mtst_send(SESS_A, sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
 }
 
+/* ===== NEW_GROUP_REQUEST relayed upstream (draft-18 10.2.13) ===== */
+
+static moqctl_params mups_ngr(u64 v) {
+  moqctl_params p = {0};
+  moqtrun_ngr_add(&p, v);
+  return p;
+}
+
+/* s SUBSCRIBEs the awaited track on sid with NEW_GROUP_REQUEST v. */
+static void mups_sub_ngr(wired_wt_session* s, u64 sid, u64 v) {
+  moqctl_ftn    f = mrdv_f();
+  moqctl_params p = mups_ngr(v);
+  mtst_subscribe_p(s, sid, &f, mtst_rid += 2, &p);
+}
+
+/* REQUEST_UPDATEs the hub sent A on sid; the last one's
+ * NEW_GROUP_REQUEST in *v (~0 when it has none). */
+static usz mups_ngr_sent(u64 sid, u64* v) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    moqtstat_update          m;
+    if (c->s != SESS_A || c->stream_id != sid || c->kind != 3) {
+      continue;
+    }
+    moqctl_peek_type(
+        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    if (type != MOQTSTAT_T_REQUEST_UPDATE) {
+      continue;
+    }
+    CHECK(
+        moqtstat_update_take(
+            mtst_ver(SESS_A), body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) ==
+        MOQCTL_OK);
+    CHECK((m.request_id & 1) == 1);
+    const moqctl_param* g =
+        moqctl_params_find(&m.params, MOQCTL_PARAM_NEW_GROUP_REQUEST);
+    *v = g ? g->vi : ~(u64)0;
+    n++;
+  }
+  return n;
+}
+
+/* No Established subscription yet: B's NEW_GROUP_REQUEST rides the
+ * hub's upstream SUBSCRIBE (MUST). */
+static void test_moqtrun_upsub_ngr_in_subscribe(void) {
+  moqctl_subscribe m;
+  mups_init();
+  mups_sub_ngr(SESS_B, MRDV_S1, 5);
+  CHECK(mups_up(SESS_A, 0, &m) >= 0);
+  const moqctl_param* g =
+      moqctl_params_find(&m.params, MOQCTL_PARAM_NEW_GROUP_REQUEST);
+  CHECK(g != 0 && g->vi == 5);
+}
+
+/* Established through the hub's SUBSCRIBE, Largest Group 0 (one Object):
+ * C's NEW_GROUP_REQUEST v goes to A in a REQUEST_UPDATE when dyn and v is
+ * 0 or above the Largest Group; want is how many went out. */
+static void mups_ngr_established(int dyn, u64 v, usz want) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64 got = 0;
+  mups_init();
+  mtst_join(SESS_C);
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mups_ok_prop(sid, MOQTRUN_PROP_DYNAMIC_GROUPS, (u64)dyn);
+  usz n = mups_stream(MUPS_ALIAS, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mups_sub_ngr(SESS_C, MRDV_S1, v);
+  CHECK(mups_ngr_sent(sid, &got) == want);
+  CHECK(!want || got == v);
+}
+
+/* A second request of no greater value is held back while the first is
+ * outstanding; once the Largest Group moves, a REQUEST_UPDATE's request
+ * goes out again. */
+static void test_moqtrun_upsub_ngr_update(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           got = 0;
+  moqctl_params p0  = mups_ngr(0);
+  mups_ngr_established(1, 0, 1);
+  mups_ngr_established(1, 1, 1); /* above Largest Group 0 */
+  mups_ngr_established(0, 0, 0); /* no dynamic Groups */
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mups_ok_prop(sid, MOQTRUN_PROP_DYNAMIC_GROUPS, 1);
+  mups_sub_ngr(SESS_C, MRDV_S1, 3);
+  mups_sub_ngr(SESS_D, MRDV_S1, 2);
+  CHECK(mups_ngr_sent(sid, &got) == 1 && got == 3);
+  usz n = mups_stream(MUPS_ALIAS, buf);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mtup_update(SESS_D, MRDV_S1, &p0);
+  CHECK(mups_ngr_sent(sid, &got) == 2 && got == 0);
+}
+
 /* draft-18 12.5 / 12.6: an upstream SUBSCRIBE_OK's out-of-range
  * DEFAULT_PUBLISHER_GROUP_ORDER closes A's session PROTOCOL_VIOLATION;
  * no track is claimed. */
@@ -497,6 +652,10 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_open_stream_before_ok();
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
+  test_moqtrun_upsub_fin_unanswered_fails();
+  test_moqtrun_upsub_publish_crosses();
+  test_moqtrun_upsub_ngr_in_subscribe();
+  test_moqtrun_upsub_ngr_update();
   test_moqtrun_upsub_last_cancel_cancels_upstream();
   test_moqtrun_upsub_pending_cancel_and_stale_ok();
   test_moqtrun_upsub_publish_done_relayed();

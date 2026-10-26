@@ -71,6 +71,7 @@ static void moqtrun_rp_store(
   r->ns_len      = u->ns_len;
   r->name_len    = u->name_len;
   r->body_len    = 0;
+  r->has_ngr     = 0;
   bytes_memcpy(r->ns, u->ns, u->ns_len);
   bytes_memcpy(r->name, u->name, u->name_len);
 }

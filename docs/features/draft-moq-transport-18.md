@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 208/248 tested, 30 indirect, 10 untested.**
+**Coverage: 213/248 tested, 29 indirect, 6 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -499,13 +499,19 @@ Legend:
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s4_resolve`
-- [ ] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
+- [~] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
   carries NEW_GROUP_REQUEST, the hub shall include it in its upstream
   SUBSCRIBE, or send it upstream in a REQUEST_UPDATE for an Established
   subscription (value 0 or above the Largest Group, the track supporting
   dynamic Groups, none outstanding).
-  - gap: decoded by the registry, not acted on; the upstream SUBSCRIBE
-    carries no parameters.
+  - evidence: `moqtrun_ngr_upstream` copies a waiter's value into the
+    upstream SUBSCRIBE (`test_moqtrun_upsub_ngr_in_subscribe`);
+    `moqtrun_ngr_relay` sends REQUEST_UPDATE on the hub's own upstream
+    SUBSCRIBE stream under the three conditions, outstanding until the
+    Largest Group moves (`test_moqtrun_upsub_ngr_update`).
+  - gap: a track Established by the publisher's own PUBLISH gets no
+    REQUEST_UPDATE (its reply would arrive on the PUBLISH stream, which has
+    no parser for it).
 - [x] MQ18-053 (§9.4, §9.5) A relay may aggregate authorized subscriptions for
   a given Track when multiple subscribers request it, answering a SUBSCRIBE
   for a Track with an Established upstream subscription with SUBSCRIBE_OK and
@@ -1001,12 +1007,12 @@ Legend:
     subscriber over the reliable relay, and Objects of the start Group below
     the start Object are cut on every relay path.
 
-- [ ] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
+- [x] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
   the filter's entire End Group has already been published, then it should
   reply REQUEST_ERROR INVALID_RANGE.
-  - gap: a draft-18 AbsoluteRange whose End Group is wholly published is
-    not refused (no test); INVALID_RANGE is asserted for the draft-22
-    filter only.
+  - evidence: `moqtrun_filter_past` refuses an AbsoluteRange whose End Group
+    precedes the track's Largest Group; `test_moqtrun_sub_range_past_invalid`
+    (one ending at the Largest Group is accepted).
 
 ## SS14 Grease
 
@@ -1288,11 +1294,13 @@ Legend:
     (`test_moqsub_cancel_after_fin`); the hub, cancelling its upstream
     SUBSCRIBE, sends RESET_STREAM and STOP_SENDING
     (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
-- [~] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
+- [x] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
   sending a response, then the requester shall treat the request as failed.
-  - evidence: only the unwired `moqsub` model shows it
-    (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
-    request stream before its answer.
+  - evidence: `moqtrun_up_rx` / `moqtrun_upf_rx` take the FIN and fail an
+    unanswered upstream SUBSCRIBE / FETCH as a REQUEST_ERROR would;
+    `test_moqtrun_upsub_fin_unanswered_fails` and
+    `test_moqtrun_upfetch_fin_unanswered` FIN before the response and see the
+    downstream requester refused, the hub's side FINned, the slot freed.
 - [x] MQ18-212 (§5.1) The publisher shall save as the subscription's Joining
   Location the Largest Location it communicates in SUBSCRIBE_OK, PUBLISH,
   or the REQUEST_OK of a REQUEST_UPDATE that changes the Forward State from
@@ -1300,20 +1308,27 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_forward_toggles`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_rejoin_reresolves_start`
-- [ ] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
+- [x] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
   has a subscription to that peer in Pending (publisher) state (a
   hub-initiated PUBLISH not yet answered), then it shall refuse it with
   REQUEST_ERROR DUPLICATE_SUBSCRIPTION.
-  - gap: not tested.
-- [ ] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
+  - evidence: `moqtrun_fresh_refusal` (`moqtrun_pub_crossing`);
+    `test_subtracks_subscribe_crosses_publish` subscribes while the hub's
+    SUBSCRIBE_TRACKS PUBLISH is unanswered and sees DUPLICATE_SUBSCRIPTION on
+    draft-18, a subscription on later drafts.
+- [x] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
   own upstream SUBSCRIBE to that peer is still Pending (subscriber), then it
   shall terminate its own subscription before sending PUBLISH_OK.
-  - gap: not tested.
-- [~] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
+  - evidence: `moqtrun_up_crossed` cancels the Pending upstream SUBSCRIBE in
+    `moqtrun_publish_checked` before PUBLISH_OK is queued;
+    `test_moqtrun_upsub_publish_crosses` asserts the reset precedes the
+    PUBLISH_OK and the waiter rides the PUBLISH.
+- [x] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
   shall reset every open data stream of that subscription.
-  - evidence: `moqtrun_req_cancel` drops the subscription
-    (`moqtrun_drop_peer_subs`) and `test_moqtrun_req_reset_unsubscribes`
-    asserts it is gone; no test asserts its open relay streams are reset.
+  - evidence: `moqtrun_req_cancel` resets the subscription's relay streams
+    (`moqtrun_cancel_peer_subs`) before dropping it;
+    `test_moqtrun_req_reset_resets_data_streams` asserts the open Subgroup
+    stream toward the subscriber is reset.
 - [ ] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
   they become available.
   - gap: the hub holds an Object split across deliveries until it is

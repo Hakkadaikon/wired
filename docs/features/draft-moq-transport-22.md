@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 223/273 tested, 42 indirect, 8 untested.**
+**Coverage: 218/259 tested, 34 indirect, 7 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -2445,8 +2445,9 @@ from the coverage denominator above:
   implemented.
 - (SS9.20.5, SS9.20.6, SS9.20.16, SS9.20.19) FILL_TIMEOUT's own
   acted-on budget (only its presence gates the Timed-Out marker, see
-  MQ22-142), EXPIRES and NEW_GROUP_REQUEST — decoded by the registry,
-  not otherwise acted on. (SS9.20.6)
+  MQ22-142) and EXPIRES — decoded by the registry, not otherwise acted
+  on; NEW_GROUP_REQUEST is relayed upstream as on draft-18 (MQ18-229,
+  shared code). (SS9.20.6)
   RENDEZVOUS_TIMEOUT is acted on since 12-1 (ff1c0df): a SUBSCRIBE for a
   track with no publisher is held until one arrives or the timeout
   (capped at 1.5 s) answers TIMEOUT, see tests/app/moqtrun_rdv_test.c.

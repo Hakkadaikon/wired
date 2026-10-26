@@ -331,15 +331,15 @@ static int mupf_log_is(wired_wt_session* s, u64 sid, const char* want) {
 /* ===================== GOAWAY'd peers are not asked ===================== */
 
 /* draft-22 9.2: a peer that sent the hub a GOAWAY is sent no new request
- * -- not even the hub's upstream SUBSCRIBE. The hub's own GOAWAY does not
- * stop it from asking (the sender only SHOULD avoid it). */
+ * -- not even the hub's upstream SUBSCRIBE; draft-19 10.4: nor is one the
+ * hub sent GOAWAY (the sender SHOULD avoid new requests). */
 static void mupf_upsub_goaway(int recv) {
   mups_init();
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   a->sess.goaway_recv   = recv;
   a->sess.goaway_sent   = !recv;
   mups_sub(SESS_B, MRDV_S1);
-  CHECK(mups_n_up(SESS_A) == (usz)!recv);
+  CHECK(mups_n_up(SESS_A) == 0);
 }
 
 static void test_moqtrun_upfetch_upsub_skips_goaway(void) {
@@ -574,6 +574,7 @@ static void mupf_owner_excluded(int how) {
   mupf_init();
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
+  a->sess.goaway_sent = how == 4; /* draft-19 10.4 */
   a->closing          = how == 1;
   if (how == 3) {
     wired_moqt_on_session_draining(&mtst_hub, SESS_A);
@@ -583,7 +584,7 @@ static void mupf_owner_excluded(int how) {
 }
 
 static void test_moqtrun_upfetch_owner_excluded(void) {
-  for (int how = 0; how < 4; how++) {
+  for (int how = 0; how < 5; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
     if (wired_test_fails != fails) {
@@ -1227,6 +1228,22 @@ static void mupf_unanswered_gone(int cancel) {
   CHECK(
       cancel ? mupf_reply(&ok, &e) == 0
              : mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_used() == 0);
+}
+
+/* draft-19 3.3.2: C FINs the upstream FETCH's request stream with no
+ * FETCH_OK -- the request failed: B is refused as for a REQUEST_ERROR,
+ * the hub FINs its side and the slot frees. */
+static void test_moqtrun_upfetch_fin_unanswered(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  CHECK(sid >= 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_C, (u64)sid, wired_span_of(0, 0), 1);
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "FIN|"));
   CHECK(mupf_used() == 0);
 }
 
@@ -1939,6 +1956,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_marker_relay();
   test_moqtrun_upfetch_requester_gone();
   test_moqtrun_upfetch_unanswered_stop();
+  test_moqtrun_upfetch_fin_unanswered();
   test_moqtrun_upfetch_late_data_stream();
   test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();

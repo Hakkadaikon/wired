@@ -119,6 +119,7 @@ void moqtrun_publish_checked(
       m->request_id);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_rdv_resolve(hub, t, k);
+  moqtrun_up_crossed(hub, p, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }

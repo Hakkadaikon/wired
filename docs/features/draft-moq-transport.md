@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 206/248 tested, 35 indirect, 7 untested.**
+**Coverage: 210/248 tested, 34 indirect, 4 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -393,10 +393,14 @@ Legend:
   - evidence: `wired_moqt_goaway` sends GOAWAY to every session at once
     (`test_moqtrun_goaway_once_per_session`) and cancels upstream subscriptions
     only at the timeout; no test orders the two.
-- [ ] MOQT-235 (SS10.4) After sending GOAWAY, the hub should avoid initiating
+- [x] MOQT-235 (SS10.4) After sending GOAWAY, the hub should avoid initiating
   new requests unless migration requires them.
-  - gap: the hub still sends upstream SUBSCRIBE/FETCH to a peer it sent GOAWAY
-    (`test_moqtrun_upfetch_upsub_skips_goaway` pins that).
+  - evidence: `moqtrun_up_ga_skip` / `moqtrun_upf_owner_free` leave a peer the
+    hub sent GOAWAY out of upstream SUBSCRIBE / FETCH, except to re-path a
+    subscription that lost its upstream (migration);
+    `test_moqtrun_upfetch_upsub_skips_goaway`,
+    `test_moqtrun_upfetch_owner_excluded` (case 4) and
+    `test_moqtrun_upfetch_drain_failover` pin both sides.
 
 ## SS9 Relays (SS9.4/9.6/9.7 forwarding discipline)
 
@@ -924,11 +928,12 @@ Legend:
     `test_moqtrun_sub_filter_from_largest`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
-- [ ] MOQT-222 (SS5.1.2) If a SUBSCRIBE's Location Filter cannot be satisfied
+- [x] MOQT-222 (SS5.1.2) If a SUBSCRIBE's Location Filter cannot be satisfied
   (e.g. its End Group is already fully published), then the hub should answer
   REQUEST_ERROR INVALID_RANGE.
-  - gap: only the draft-22 typed LOCATION_FILTER is refused INVALID_RANGE
-    (`test_moqtrun_sub_filter22_inverted`).
+  - evidence: `moqtrun_filter_past` (End Group before the Largest Group) and
+    `test_moqtrun_sub_range_past_invalid`; the draft-22 inverted filter keeps
+    `test_moqtrun_sub_filter22_inverted`.
 
 ## SS14 Grease
 
@@ -1183,16 +1188,18 @@ Legend:
   - evidence: `test_moqtrun_upsub_last_cancel_cancels_upstream` asserts
     RESET_STREAM + STOP_SENDING on the upstream stream; the already-FIN'd case
     is pinned only on the subscription model (`test_moqsub_cancel_after_fin`).
-- [ ] MOQT-150 (SS3.3.2) If the responder FINs its own direction without ever
+- [x] MOQT-150 (SS3.3.2) If the responder FINs its own direction without ever
   sending a response, then the requester shall treat the request as failed.
-  - gap: pinned only on the subscription model
-    (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
-    request stream before its response.
-- [~] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
+  - evidence: `test_moqtrun_upsub_fin_unanswered_fails` and
+    `test_moqtrun_upfetch_fin_unanswered`: an upstream SUBSCRIBE / FETCH FINned
+    before its response fails as a REQUEST_ERROR would (`moqtrun_up_rx`,
+    `moqtrun_upf_rx`).
+- [x] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
   FETCH, the hub shall reset the data streams it holds open for it.
   - evidence: `test_moqtrun_fetch_cancelled_by_request_reset` asserts the FETCH
-    data stream reset; `test_moqtrun_req_reset_unsubscribes` asserts only that
-    the subscription is gone.
+    data stream reset; `test_moqtrun_req_reset_resets_data_streams` asserts
+    the subscription's open Subgroup stream is reset
+    (`moqtrun_cancel_peer_subs`).
 
 ## SS10 Control Messages: session-machine unwanted behavior (additional coverage)
 
@@ -1794,14 +1801,10 @@ MOQT-200 through MOQT-208).
 The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
-- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
-- No new upstream requests after the hub's own GOAWAY (MOQT-235).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
-- Failing an upstream request whose responder FINs without answering
-  (MOQT-150).
 
 ## Out of scope
 
@@ -1851,9 +1854,9 @@ from the coverage denominator above:
   namespace (MOQT-194), but each Track still has one publisher;
   aggregation/deduplication across publishers of a Track is not
   implemented.
-- (SS10.2.15, SS10.2.18) EXPIRES and NEW_GROUP_REQUEST — decoded by the
-  registry, not acted on; the hub never sends NEW_GROUP_REQUEST or
-  REQUEST_UPDATE upstream. (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
+- (SS10.2.15) EXPIRES — decoded by the registry, not acted on.
+  NEW_GROUP_REQUEST (SS10.2.18) is relayed upstream as on draft-18
+  (MQ18-229, shared code). (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
   on, MOQT-231 and MOQT-232.)
 - (SS5.1) Sending incomplete Objects as they arrive (SHOULD) — on an
   existing Subgroup stream the hub forwards whole Objects only (MOQT-137).
