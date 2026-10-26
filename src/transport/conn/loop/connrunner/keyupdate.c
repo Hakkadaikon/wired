@@ -1,6 +1,7 @@
 #include "transport/conn/loop/connrunner/keyupdate.h"
 
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/handshake/core/tls/cipher.h"
 #include "tls/keys/keyupdate/keyphase.h"
 #include "tls/keys/kudrive/discard_timing.h"
 #include "tls/keys/kudrive/recv_phase.h"
@@ -88,7 +89,9 @@ static void do_initiate(connrunner* r) {
   /* RFC 9369 3.3.2: the negotiated version (client's sent_version, absent a
    * Version Negotiation reconnect) picks "quic ku" (v1) vs "quicv2 ku" (v2).
    */
-  kuswitch_next_keys_v(r->sent_version, r->ku_secret, &next, next_secret);
+  kuswitch_next_keys_suite(
+      TLS_AES_128_GCM_SHA256, r->sent_version, r->ku_secret, &next,
+      next_secret);
   kuswitch_rotate(&r->ku, &next); /* derive/rotate ... */
   for (usz i = 0; i < HKDF_PRK; i++) {
     r->ku_secret[i] = next_secret[i];

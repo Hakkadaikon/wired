@@ -700,7 +700,7 @@ static void test_srvloop_aes256_only_roundtrip(void) {
     initial_keys next;
     u8           next_secret[48];
     kuswitch_next_keys_suite(
-        TLS_AES_256_GCM_SHA384, f.s.ku_secret, &next, next_secret);
+        TLS_AES_256_GCM_SHA384, VERSION_1, f.s.ku_secret, &next, next_secret);
     bytes_memcpy(next.hp, cap->hp, AEAD_KEY_MAX);
     clen = lp_seal_onertt_suite(
         &f, TLS_AES_256_GCM_SHA384, &next, 2, 1, wired_span_of(reqb, rob.len),

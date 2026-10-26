@@ -537,7 +537,8 @@ static void test_ku_initiate_v1_label_after_init(void) {
   initial_keys expect = {0};
   u8           want[HKDF_PRK];
   mk_ku(&r, 1);
-  kuswitch_next_keys_v(VERSION_1, r.ku_secret, &expect, want);
+  kuswitch_next_keys_suite(
+      TLS_AES_128_GCM_SHA256, VERSION_1, r.ku_secret, &expect, want);
   r.ku_sent_in_phase = 100;
   CHECK(connrunner_maybe_initiate_ku(&r, &(connrunner_ku_in){100, 10, 1}) == 1);
   CHECK(ku_secret_match(r.ku_secret, want));

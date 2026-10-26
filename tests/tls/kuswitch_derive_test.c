@@ -65,7 +65,7 @@ void test_kuswitch_derive_suite_chacha20_full_key(void) {
     next.key[i] = 0;
   }
   u8 next_secret[32];
-  kuswitch_next_keys_suite(0x1303, cur, &next, next_secret);
+  kuswitch_next_keys_suite(0x1303, VERSION_1, cur, &next, next_secret);
 
   u8         ek[32];
   hkdf_label lk = {"quic key", 8, {0, 0}};
@@ -87,13 +87,49 @@ void test_kuswitch_derive_suite_aes_matches_plain(void) {
   initial_keys plain, suite;
   u8           plain_secret[32], suite_secret[32];
   kuswitch_next_keys(cur, &plain, plain_secret);
-  kuswitch_next_keys_suite(0x1301, cur, &suite, suite_secret);
+  kuswitch_next_keys_suite(0x1301, VERSION_1, cur, &suite, suite_secret);
 
   for (usz i = 0; i < INITIAL_KEY; i++) {
     CHECK(suite.key[i] == plain.key[i]);
   }
   for (usz i = 0; i < INITIAL_IV; i++) {
     CHECK(suite.iv[i] == plain.iv[i]);
+  }
+}
+
+/* RFC 9369 3.3.2: a v2 Key Update uses "quicv2 ku"/"quicv2 key"/"quicv2 iv".
+ * From RFC 9369 A.5's ChaCha20 write secret the next secret must be A.5's
+ * "ku" value; key/iv were computed independently (Python HKDF-Expand-Label
+ * over that "ku" value with the "quicv2 " labels) -- the v1 "quic key" label
+ * would give 4bd9cdca... instead. hp stays untouched. */
+void test_kuswitch_derive_suite_v2_labels(void) {
+  static const u8 secret[32] = {0x9a, 0xc3, 0x12, 0xa7, 0xf8, 0x77, 0x46, 0x8e,
+                                0xbe, 0x69, 0x42, 0x27, 0x48, 0xad, 0x00, 0xa1,
+                                0x54, 0x43, 0xf1, 0x82, 0x03, 0xa0, 0x7d, 0x60,
+                                0x60, 0xf6, 0x88, 0xf3, 0x0f, 0x21, 0x63, 0x2b};
+  static const u8 want_ku[32] = {
+      0xc6, 0x93, 0x74, 0xc4, 0x9e, 0x3d, 0x2a, 0x94, 0x66, 0xfa, 0x68,
+      0x9e, 0x49, 0xd4, 0x76, 0xdb, 0x5d, 0x0d, 0xfb, 0xc8, 0x7d, 0x32,
+      0xce, 0xea, 0xa6, 0x34, 0x3f, 0xd0, 0xae, 0x4c, 0x7d, 0x88};
+  static const u8 want_key[32] = {
+      0x6e, 0x52, 0xfc, 0xe7, 0x8e, 0x1e, 0x3b, 0x19, 0xbe, 0x65, 0x7e,
+      0x40, 0x7b, 0xe4, 0x5a, 0x7c, 0x6c, 0x02, 0x4c, 0x87, 0x73, 0x0b,
+      0x30, 0x9e, 0x20, 0xc9, 0x68, 0x22, 0x32, 0xe9, 0x88, 0x23};
+  static const u8 want_iv[12] = {0x57, 0xd1, 0x02, 0x98, 0x56, 0x82,
+                                 0x0c, 0x70, 0x3b, 0xfe, 0x66, 0x03};
+  initial_keys    next;
+  u8              next_secret[32];
+  for (usz i = 0; i < AEAD_KEY_MAX; i++) {
+    next.hp[i] = 0xAB; /* sentinel */
+  }
+  kuswitch_next_keys_suite(0x1303, VERSION_2, secret, &next, next_secret);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(next_secret[i] == want_ku[i]);
+    CHECK(next.key[i] == want_key[i]);
+    CHECK(next.hp[i] == 0xAB);
+  }
+  for (usz i = 0; i < 12; i++) {
+    CHECK(next.iv[i] == want_iv[i]);
   }
 }
 
