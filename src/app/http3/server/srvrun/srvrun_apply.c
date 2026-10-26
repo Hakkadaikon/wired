@@ -100,7 +100,7 @@ static u64 srvrun_path_pto_ms(const srvrun_conn* c) {
   init = (pto_rtt){r.smoothed_rtt, r.rttvar};
   return u64_max(
       srvrun_pto_deadline_ms(c, 0),
-      pto_duration(init, SRVRUN_MAX_ACK_DELAY_US, 0) / 1000);
+      pto_duration(init, srvrun_peer_max_ack_delay_us(c), 0) / 1000);
 }
 
 /* RFC 9000 8.2.4: three times srvrun_path_pto_ms. */

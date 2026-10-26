@@ -144,6 +144,15 @@ extern srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
 extern int g_srvrun_bcast_n; /* registered entry count (atomic) */
 ;
 
-u64 srvrun_loss_delay_us(const srvrun_conn* c);
+u64  srvrun_loss_delay_us(const srvrun_conn* c);
+u64  srvrun_peer_max_ack_delay_us(const srvrun_conn* c);
+void srvrun_rtt_update(srvrun_conn* c, u64 sample_ms, u64 ack_delay_us);
+void srvrun_rec_on_acks(srvrun_conn* c, u64 now_ms);
+void srvrun_rec_detect(srvrun_conn* c, u64 now_ms);
+usz  srvrun_bytes_in_flight(const srvrun_conn* c);
+int  srvrun_loss_timer_due(const srvrun_conn* c, u64 now_ms);
+void srvrun_loss_timer_slot(const srvrun_step_ctx* ctx, int slot);
+void srvrun_loss_pass(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64 largest_before);
 
 #endif

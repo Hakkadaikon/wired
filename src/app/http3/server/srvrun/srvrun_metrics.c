@@ -39,7 +39,7 @@ static void srvrun_metrics_fill(
   stats_cc_get(&c->cc, &cc);
   m->smoothed_rtt    = rtt.smoothed_rtt;
   m->cwnd            = cc.cwnd;
-  m->bytes_in_flight = srvrun_inflight_bytes_all(c);
+  m->bytes_in_flight = srvrun_inflight_bytes_all(c) + c->l.sent.total_in_flight;
   m->wtsend_ok       = c->stat_wtsend_ok;
   m->wtsend_busy     = c->stat_wtsend_busy;
   m->wtsend_flow     = c->stat_wtsend_flow;

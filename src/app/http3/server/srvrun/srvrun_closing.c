@@ -33,6 +33,8 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   if (srvrun_closing_tick(ctx, slot)) {
     return;
   }
+  ctx->st->conns[slot].l.now_ms = ctx->now_ms; /* sends below record it */
+  srvrun_loss_timer_slot(ctx, slot);
   srvrun_pto_slot(ctx, slot);
   srvrun_boot_pto_slot(ctx, slot);
   srvrun_grant_retry_slot(ctx, slot);

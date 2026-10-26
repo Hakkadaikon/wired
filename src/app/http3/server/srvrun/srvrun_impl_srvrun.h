@@ -430,6 +430,10 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9002 A.10 loss_time, us: when the earliest packet below the
+   * largest acknowledged that is not yet lost would pass the time
+   * threshold (srvrun_rec_detect); 0 = the loss timer is not armed. */
+  u64 loss_time_us;
   /** RFC 9000 5.1.1/9.4: migration bookkeeping. */
   srvrun_mig mig;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
@@ -985,10 +989,6 @@ _Static_assert(
  * into the qlog (recovery:metrics_updated): frequent enough to plot a
  * voice run's RTT/cwnd/drop counters, rare enough not to bloat the file. */
 #define SRVRUN_METRICS_INTERVAL_MS 1000
-/* RFC 9000 18.2's default when the peer's own transport parameter isn't
- * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
- * until a deployment needs a non-default value). */
-#define SRVRUN_MAX_ACK_DELAY_US 25000
 /* Consecutive PTO probes (RFC 9002 6.2's exponential backoff) with no
  * intervening ACK before this SDK gives up on the connection. 5 proved too
  * short against a real network outage: quic-interop-runner's blackhole case

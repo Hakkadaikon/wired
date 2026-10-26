@@ -18,7 +18,8 @@ static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
   }
 }
 
-/* The RTT, ECN and congestion inputs of the packets [lo, hi] acked. */
+/* The ECN and congestion inputs of the packets [lo, hi] acked (the RTT
+ * sample is per ACK frame, srvrun_rec_on_acks). */
 static void srvrun_cc_sample(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
@@ -29,7 +30,6 @@ static void srvrun_cc_sample(
   bytes = wired_sendsess_peek_ack(sess, lo, hi, &newest);
   srvrun_ecn_note_acked(c, srvrun_range_hits(sess, lo, hi), newest);
   if (bytes) {
-    srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
     cc_on_ack(&c->cc, srvrun_css_acked(c, bytes), newest, now_ms);
   }

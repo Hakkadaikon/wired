@@ -2,6 +2,7 @@
 
 static int srvrun_pto_wtsends(srvrun_conn* c, u64 now_ms);
 static int srvrun_pto_all(srvrun_conn* c, u64 now_ms);
+static int srvrun_pto_unless_loss_timer(srvrun_conn* c, u64 now_ms);
 static int srvrun_reset_after(
     const srvrun_conn* c, const srvrun_rxmark* mark, wired_mspan dg);
 
@@ -23,12 +24,18 @@ static int srvrun_pto_all(srvrun_conn* c, u64 now_ms) {
   return srvrun_pto_resps(c, now_ms) && srvrun_pto_wtsends(c, now_ms);
 }
 
+/* RFC 9002 6.2.1 / A.8: while the loss timer is armed the PTO is not set,
+ * so nothing probes (and no budget is spent) until it disarms. */
+static int srvrun_pto_unless_loss_timer(srvrun_conn* c, u64 now_ms) {
+  return c->loss_time_us || srvrun_pto_all(c, now_ms);
+}
+
 void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) {
     return;
   }
-  if (!srvrun_pto_all(c, ctx->now_ms)) {
+  if (!srvrun_pto_unless_loss_timer(c, ctx->now_ms)) {
     srvrun_log_close(
         "conn dropped: probe budget exhausted", wired_span_of(0, 0));
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
