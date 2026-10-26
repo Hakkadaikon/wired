@@ -8,8 +8,18 @@
  * req_buf), shared by the advertised initial request-stream credit
  * (STP_DEFAULT_STREAM_DATA_REMOTE) and the tests. Must hold the largest
  * HTTP/3 frame header, two 8-byte varints (RFC 9114 7.1), or a header at
- * the window's end could never complete. */
-#define BODYWIN_CAP 2048
+ * the window's end could never complete. Sizing: it also holds a buffered
+ * request's whole HEADERS frame, so it matches the field-section limit
+ * (WIRED_H3_MAX_FIELD_SECTION) and an 8000-octet :path fits (RFC 9110
+ * 4.1). Per request slot, so x WIRED_SRVLOOP_MAX_STREAMS x connections. */
+#define BODYWIN_CAP 10240
+
+/** wired_srvloop_stream_slot.continue_len's "100 already tried" bit. */
+#define SRVLOOP_CONTINUE_TRIED 0x8000
+
+/** A slot's req_wrap: the whole window re-wrapped as one STREAM frame,
+ * whose header takes at most 32 more bytes. */
+#define BODYWIN_WRAP_CAP (BODYWIN_CAP + 32)
 
 /** Lifecycle of a streamed request body. */
 enum {

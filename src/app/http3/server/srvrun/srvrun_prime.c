@@ -118,7 +118,7 @@ void srvrun_call_round0(
 
 /* 1 iff request slot s asked for 100-continue and has not had it yet. */
 static int srvrun_continue_due(const wired_srvloop_stream_slot* s) {
-  return s->in_use && s->req.expect_continue && !s->continue_sent;
+  return s->in_use && s->req.expect_continue && !s->continue_len;
 }
 
 /* RFC 9110 10.1.1: "The origin server MUST NOT wait for the content
@@ -132,8 +132,8 @@ static void srvrun_continue_slot(
   if (!srvrun_continue_due(s)) {
     return;
   }
-  s->continue_sent = 1;
-  s->continue_len  = (u16)srvrun_send_continue(cfg, c, s->stream_id);
+  s->continue_len = (u16)(SRVLOOP_CONTINUE_TRIED |
+                          srvrun_send_continue(cfg, c, s->stream_id));
 }
 
 /* Send every 100 (Continue) this step's HEADERS frames asked for, ahead of
@@ -149,7 +149,7 @@ void srvrun_send_continues(const srvrun_step_ctx* ctx, int slot) {
  * offset its final response starts at (0 if none was sent). */
 u64 srvrun_continue_shift(const srvrun_conn* c, u64 stream_id) {
   const wired_srvloop_stream_slot* s = srvrun_req_slot_of(c, stream_id);
-  return s ? s->continue_len : 0;
+  return s ? s->continue_len & ~SRVLOOP_CONTINUE_TRIED : 0;
 }
 
 /* RFC 9110 10.1.1: the base offset shift srvrun_arm_round0 must apply so
@@ -161,7 +161,7 @@ u64 srvrun_maybe_send_continue(const srvrun_cfg* cfg, srvrun_conn* c) {
   const wired_srvloop_stream_slot* s =
       srvrun_req_slot_of(c, c->l.req_stream_id);
   if (s) {
-    return s->continue_len;
+    return s->continue_len & ~SRVLOOP_CONTINUE_TRIED;
   }
   if (!c->l.req.expect_continue) {
     return 0;

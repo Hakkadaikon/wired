@@ -452,7 +452,7 @@ both the output size and the decode work.
 - varint and frame parsers bound every read against the remaining buffer.
 - A request body that the app does not stream through its own
   `wired_srvrun_handler.on_body` is buffered in one fixed window
-  (`BODYWIN_CAP`, 2048 bytes). An overflow answers `413` (RFC 9110
+  (`BODYWIN_CAP`, 10240 bytes, sized so an 8000-octet request target fits, RFC 9110 4.1). An overflow answers `413` (RFC 9110
   15.5.14), the same answer as when an app's `on_body` returns 0 to stop a
   body it judged too large. An oversized leading HEADERS frame (the
   request's headers, not its body) answers `431` instead (RFC 6585 5) —

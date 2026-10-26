@@ -23098,7 +23098,8 @@ static void test_srvrun_wt_close_on_established_connect_stream(void) {
 /* A request stream's bytes: one HEADERS frame (POST, :path of plen bytes)
  * then, when blen > 0, one DATA frame of blen bytes. Returns the length. */
 static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
-  static u8       path[4096], body[4096], fields[4200];
+  static u8 path[2 * SR_REQ_BUF_CAP], body[2 * SR_REQ_BUF_CAP],
+      fields[2 * SR_REQ_BUF_CAP + 128];
   wired_obuf      fob = obuf_of(fields, sizeof fields);
   wired_obuf      ob  = obuf_of(out, cap);
   h3req_pseudo_in pin = {
@@ -23122,7 +23123,7 @@ static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
  * == 0, so the HEADERS frame alone is target bytes) or through the body
  * (:path "/"). Returns the grown length (path or body), 0 if unreachable. */
 static usz sr_big_req_fit(u8* out, usz cap, usz target, int body) {
-  for (usz n = 1; n < 4000; n++) {
+  for (usz n = 1; n < 2 * SR_REQ_BUF_CAP; n++) {
     usz len = body ? sr_big_req(out, cap, 1, n) : sr_big_req(out, cap, n, 0);
     if (len == target) {
       return n;
@@ -23256,7 +23257,7 @@ static void test_srvrun_wt_origin_check_unset_unchanged(void) {
 
 /* A HEADERS frame exactly filling req_buf is still decoded and served. */
 static void test_srvrun_headers_at_req_buf_limit_served(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_sl_fixture();
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP, 0) != 0);
   sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 1);
@@ -23267,7 +23268,7 @@ static void test_srvrun_headers_at_req_buf_limit_served(void) {
  * req_buf window) is a FLOW_CONTROL_ERROR, and the app handler never sees
  * the truncated request. */
 static void test_srvrun_headers_past_stream_credit_closes(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c      = sr_sl_fixture();
   int          is_app = 1;
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 0) != 0);
@@ -23275,6 +23276,31 @@ static void test_srvrun_headers_past_stream_credit_closes(void) {
   CHECK(g_sr_wt_handler_calls == 0);
   CHECK(sr_close_code(c, &is_app) == ERR_FLOW_CONTROL_ERROR);
   CHECK(is_app == 0);
+}
+
+/* RFC 9110 4.1 (9110-030): a GET whose :path is 8000 octets -- the
+ * RECOMMENDED minimum URI length -- streamed in 1000-byte STREAM frames,
+ * decodes whole and reaches the handler rather than earning a 431. */
+static void test_srvrun_8000_octet_target_served(void) {
+  static u8       path[8000], fields[8192], h3buf[8256];
+  srvrun_conn*    c   = sr_sl_fixture();
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      hob = obuf_of(h3buf, sizeof h3buf);
+  h3req_pseudo_in pin;
+  srvrun_resp*    r;
+  bytes_memset(path, 'a', sizeof path);
+  path[0] = '/';
+  pin     = (h3req_pseudo_in){
+      wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of(path, sizeof path),
+      wired_span_of(0, 0)};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  sr_sl_send_stream(c, h3buf, hob.len, 1);
+  r = srvrun_resp_find(c, 0);
+  CHECK(r != 0 && !sr_resp_is_status(r, 431));
+  CHECK(c->l.req.too_large_status == 0);
+  CHECK(c->l.req.path_len == sizeof path);
 }
 
 /* One STREAM frame on request stream 0: a GET HEADERS frame carrying
@@ -23324,9 +23350,10 @@ static void test_srvrun_continue_before_content(void) {
   if (!s) {
     return;
   }
-  CHECK(s->continue_sent == 1 && s->continue_len > 0);
+  CHECK((s->continue_len & SRVLOOP_CONTINUE_TRIED) != 0);
+  CHECK((s->continue_len & ~SRVLOOP_CONTINUE_TRIED) != 0); /* sealed */
   CHECK(srvrun_resp_find(c, 0) == 0); /* the final response waits */
-  sent = s->continue_len;
+  sent = (u16)(s->continue_len & ~SRVLOOP_CONTINUE_TRIED);
   {
     stream_frame sf  = {0, hlen, sizeof body, body, 1};
     wired_obuf   sob = obuf_of(pl, sizeof pl);
@@ -23339,7 +23366,7 @@ static void test_srvrun_continue_before_content(void) {
 
 /* HEADERS + DATA exactly filling req_buf: the whole body reaches the app. */
 static void test_srvrun_body_at_req_buf_limit_served(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c    = sr_sl_fixture();
   usz          blen = sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP, 1);
   CHECK(blen != 0);
@@ -23351,7 +23378,7 @@ static void test_srvrun_body_at_req_buf_limit_served(void) {
 /* RFC 9000 4.1: a body byte past the request stream's credit is a
  * FLOW_CONTROL_ERROR too, not a 413. */
 static void test_srvrun_body_past_stream_credit_closes(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c      = sr_sl_fixture();
   int          is_app = 1;
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
@@ -23364,7 +23391,7 @@ static void test_srvrun_body_past_stream_credit_closes(void) {
  * window's end and never sends FIN: a full window holding the whole
  * HEADERS frame but not the body earns 413 right away. */
 static void test_srvrun_full_window_body_gets_413(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_sl_fixture();
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
   sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 0);
@@ -23374,7 +23401,7 @@ static void test_srvrun_full_window_body_gets_413(void) {
 
 /* Same stall with a HEADERS frame larger than the window: 431. */
 static void test_srvrun_full_window_headers_get_431(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_sl_fixture();
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 0) != 0);
   sr_sl_send_stream(c, req, SR_REQ_BUF_CAP, 0);
@@ -23474,7 +23501,7 @@ static void sr_body_send(srvrun_conn* c, const u8* d, usz n, int fin) {
  * fin=1 on the last call, the credit growing past the first window; the
  * handler answers after fin. */
 static void test_srvrun_on_body_streams_body_then_handler(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_body_fixture(0);
   usz          n = sr_big_req(req, sizeof req, 1, 4000);
   sr_body_send(c, req, n, 1);
@@ -23488,7 +23515,7 @@ static void test_srvrun_on_body_streams_body_then_handler(void) {
 /* on_body declining stops the body: 413, and no further call -- not even
  * fin -- however much more of the stream arrives. */
 static void test_srvrun_on_body_reject_answers_413(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_body_fixture(1);
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n, 1);
@@ -23500,7 +23527,7 @@ static void test_srvrun_on_body_reject_answers_413(void) {
 /* RFC 9114 7.1: a stream ending inside its last frame closes the
  * connection with H3_FRAME_ERROR; on_body never sees fin. */
 static void test_srvrun_on_body_truncated_frame_is_frame_error(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_body_fixture(0);
   usz          n = sr_big_req(req, sizeof req, 1, 100);
   sr_body_send(c, req, n - 10, 1);
@@ -23533,7 +23560,7 @@ static void test_srvrun_on_body_skips_connect(void) {
 /* RFC 9114 7.2.4: SETTINGS on a request stream is H3_FRAME_UNEXPECTED on
  * the streaming path too -- no fin, no handler. */
 static void test_srvrun_on_body_frame_unexpected(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_body_fixture(0);
   usz          n = sr_big_req(req, sizeof req, 1, 10);
   req[n++]       = 0x04; /* SETTINGS, empty */
@@ -23614,7 +23641,7 @@ static int sr_is_stop_sending(const u8* pkt, usz n, u64 id) {
 /* The early 413 goes out with one more packet than its bare response: a
  * STOP_SENDING(H3_NO_ERROR) naming the request stream. */
 static void test_srvrun_early_413_also_stops_sending(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_sl_fixture();
   i64          sfd, cfd;
   sockaddr     srv, from;
@@ -23624,13 +23651,15 @@ static void test_srvrun_early_413_also_stops_sending(void) {
     return; /* sandbox: skip */
   }
   CHECK(sr_big_req_fit(req, sizeof req, SR_REQ_BUF_CAP + 1, 1) != 0);
-  sr_sl_send_stream(c, req, 2000, 0);
+  /* all but the window's last 48 bytes, then those in one packet */
+  sr_sl_send_stream(c, req, SR_REQ_BUF_CAP - 48, 0);
   g_sl_cfg.fd = cfd;
   c->peer     = srv;
   {
     u8           pl[200];
     wired_obuf   sob = obuf_of(pl, sizeof pl);
-    stream_frame sf  = {0, 2000, SR_REQ_BUF_CAP - 2000, req + 2000, 0};
+    stream_frame sf  = {
+        0, SR_REQ_BUF_CAP - 48, 48, req + SR_REQ_BUF_CAP - 48, 0};
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     srvrun_test_reset_send_count();
     sr_sl_step(c, pl, sob.len);
@@ -23748,7 +23777,10 @@ static usz sr_cap_send(srvrun_conn* c, u64 from, const u8* d, usz n) {
 static u64 sr_cap_run(wired_obuf* ob, usz n) {
   u64 v = 0;
   while (ob->len < n) {
-    CHECK(wtcapsule_encode_max_data(ob, ++v) == 1);
+    if (!wtcapsule_encode_max_data(ob, ++v)) {
+      CHECK(0); /* ob too small for n: stop, never spin */
+      break;
+    }
   }
   return v;
 }
@@ -23756,11 +23788,11 @@ static u64 sr_cap_run(wired_obuf* ob, usz n) {
 /* A WT_CLOSE_SESSION after more than one window of capsules still closes
  * the session and releases the CONNECT stream's slot. */
 static void test_srvrun_wt_close_after_long_capsule_run(void) {
-  static u8    caps[4096];
+  static u8    caps[2 * SR_REQ_BUF_CAP + 1024];
   wired_obuf   cb   = obuf_of(caps, sizeof caps);
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  sr_cap_run(&cb, 3000);
+  sr_cap_run(&cb, SR_REQ_BUF_CAP + 1000);
   CHECK(
       wired_wtcapsule_encode_close(
           &cb, 7, wired_span_of((const u8*)"bye", 3)) == 1);
@@ -23851,7 +23883,7 @@ static void test_srvrun_wt_close_message_at_max_len_closes_session(void) {
 /* Capsules several windows long are applied in order (the last WT_MAX_DATA
  * wins) and the stream credit grows past the first windows. */
 static void test_srvrun_wt_capsules_applied_in_order_across_windows(void) {
-  static u8    caps[8192];
+  static u8    caps[4 * SR_REQ_BUF_CAP];
   wired_obuf   cb = obuf_of(caps, sizeof caps);
   srvrun_conn* c  = sr_sl_fixture();
   usz          hlen;
@@ -23871,7 +23903,7 @@ static void test_srvrun_wt_capsules_applied_in_order_across_windows(void) {
 /* RFC 9297 3.2: an unknown capsule larger than the window is skipped by
  * its length across windows; the WT_CLOSE_SESSION after it still closes. */
 static void test_srvrun_wt_unknown_capsule_past_window_skipped(void) {
-  static u8    caps[6000], junk[5000];
+  static u8    caps[SR_REQ_BUF_CAP + 3000], junk[SR_REQ_BUF_CAP + 2000];
   wired_obuf   cb   = obuf_of(caps, sizeof caps);
   srvrun_conn* c    = sr_sl_fixture();
   usz          hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
@@ -23908,7 +23940,7 @@ static void test_srvrun_wt_capsule_split_per_byte(void) {
 /* A WT_DRAIN_SESSION after more than one window of capsules is parsed and
  * the capsule after it still applies. */
 static void test_srvrun_wt_drain_after_long_capsule_run(void) {
-  static u8    caps[4096];
+  static u8    caps[2 * SR_REQ_BUF_CAP + 1024];
   wired_obuf   cb = obuf_of(caps, sizeof caps);
   srvrun_conn* c  = sr_sl_fixture();
   usz          hlen;
@@ -23916,7 +23948,7 @@ static void test_srvrun_wt_drain_after_long_capsule_run(void) {
    * apply; uni is chosen so the data baseline stays 0. */
   c->l.peer_wt_initial[0] = 1;
   hlen                    = sr_sl_send_headers(c, 0, "CONNECT", 0);
-  u64 v                   = sr_cap_run(&cb, 3000);
+  u64 v                   = sr_cap_run(&cb, SR_REQ_BUF_CAP + 1000);
   CHECK(wtcapsule_encode_drain(&cb) == 1);
   CHECK(wtcapsule_encode_max_data(&cb, v + 1000) == 1);
   sr_h3data(&cb, 0);
@@ -25249,7 +25281,7 @@ static void sr_abort_send_ctl(srvrun_conn* c, int stop, u64 code, u64 sent) {
  * the app hears on_body_abort with the peer's code, never fin, never the
  * handler. */
 static void test_srvrun_on_body_reset_mid_body_aborts(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_abort_fixture();
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
@@ -25275,7 +25307,7 @@ static void test_srvrun_on_body_done_body_not_aborted(void) {
 
 /* The connection ending with a body mid-stream aborts it too. */
 static void test_srvrun_on_body_conn_free_aborts(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_abort_fixture();
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
@@ -25291,7 +25323,7 @@ static void test_srvrun_on_body_conn_free_aborts(void) {
  * response starts for the request afterward. A body still streaming is
  * aborted with that code. */
 static void test_srvrun_stop_before_response_resets_and_aborts(void) {
-  static u8    req[4096];
+  static u8    req[2 * SR_REQ_BUF_CAP];
   srvrun_conn* c = sr_abort_fixture();
   usz          n = sr_big_req(req, sizeof req, 1, 1500);
   sr_body_send(c, req, n / 2, 0);
@@ -26606,6 +26638,7 @@ void test_srvrun(void) {
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
   test_srvrun_continue_before_content();
+  test_srvrun_8000_octet_target_served();
   test_srvrun_wt_bidi_credit_raised_from_request_window();
   test_srvrun_on_body_streams_body_then_handler();
   test_srvrun_on_body_reject_answers_413();
