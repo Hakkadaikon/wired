@@ -530,6 +530,7 @@ void wired_srvloop_closed_mark(wired_srvloop_closed* w, u64 stream_id);
 int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id);
 
 #include "app/http3/server/srvloop/srvloop_rxacct.h" /* needs the caps */
+#include "app/http3/server/srvloop/srvloop_wt_watch.h"
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. Field order follows
@@ -892,6 +893,9 @@ typedef struct {
    * (0 = not advertised, unlimited; an advertised 0 is kept as 1, which no
    * field section fits either), latched as SETTINGS is walked. */
   u64 peer_max_field_section;
+  /** draft-ietf-webtrans-http3-16 6: the CONNECT stream watched after
+   * the peer's WT_CLOSE_SESSION (wired_srvloop_wt_watch). */
+  wired_srvloop_wt_watch wt_watch;
   /** RFC 9204 4.2 (9204-028): the H3 connection error code of a second QPACK
    * encoder or decoder unidirectional stream seen this step
    * (H3_STREAM_CREATION_ERROR), 0 when none was rejected. Mirrors

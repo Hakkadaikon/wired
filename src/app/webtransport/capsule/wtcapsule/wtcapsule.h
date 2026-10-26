@@ -24,15 +24,12 @@
  *   WT_MAX_DATA         (0x190B4D3D):                      Maximum Data
  *   WT_DATA_BLOCKED     (0x190B4D41):                      Maximum Data
  *
- * Per-stream flow-control capsules (e.g. a hypothetical WT_MAX_STREAM_DATA /
- * WT_STREAM_DATA_BLOCKED) are intentionally NOT declared here and never will
- * be: the HTTP/3 WebTransport mapping (this draft) does not define them at
- * all -- they exist only in the sibling HTTP/2-based WebTransport mapping,
- * which this SDK does not implement. Per-stream flow control on HTTP/3 is
- * instead covered natively by QUIC's own MAX_STREAM_DATA frame at the
- * transport layer (already implemented outside this file). Do not confuse
- * this with the SESSION-level WT_MAX_DATA/WT_MAX_STREAMS family declared
- * above, which the draft does define and this file implements.
+ * Per-stream flow-control capsules WT_MAX_STREAM_DATA (0x190B4D3E) and
+ * WT_STREAM_DATA_BLOCKED (0x190B4D42) come from the HTTP/2 mapping
+ * (draft-ietf-webtrans-http2 6.6/6.9). Over HTTP/3, QUIC's own
+ * MAX_STREAM_DATA covers per-stream limits, so draft-ietf-webtrans-http3-16
+ * SS5.4 prohibits them: only their type codes are declared, for the
+ * receiver to treat one as a session error.
  */
 
 /** Maximum WT_CLOSE_SESSION application error message length, in bytes
@@ -62,6 +59,14 @@
 
 /** WT_MAX_DATA capsule type (draft-ietf-webtrans-http3-15 SS5.6.4). */
 #define WTCAPSULE_TYPE_MAX_DATA 0x190B4D3DULL
+
+/** WT_MAX_STREAM_DATA capsule type (draft-ietf-webtrans-http2 6.6),
+ * prohibited over HTTP/3 (draft-ietf-webtrans-http3-16 SS5.4). */
+#define WTCAPSULE_TYPE_MAX_STREAM_DATA 0x190B4D3EULL
+
+/** WT_STREAM_DATA_BLOCKED capsule type (draft-ietf-webtrans-http2 6.9),
+ * prohibited over HTTP/3 (draft-ietf-webtrans-http3-16 SS5.4). */
+#define WTCAPSULE_TYPE_STREAM_DATA_BLOCKED 0x190B4D42ULL
 
 /** WT_CLOSE_SESSION capsule type (draft-ietf-webtrans-http3-15 SS6). */
 #define WTCAPSULE_TYPE_CLOSE 0x2843ULL

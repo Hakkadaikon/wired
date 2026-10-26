@@ -1,3 +1,4 @@
+#include "app/http3/server/srvloop/srvloop_crit.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int wt_slot_is_connect_id(const srvrun_conn* c, int i, u64 stream_id);
@@ -5,6 +6,7 @@ static int srvrun_wt_conn_flow_control(const srvrun_conn* c);
 static int srvrun_wt_free_slot_any(const srvrun_conn* c);
 static int srvrun_wt_single_session_full(const srvrun_conn* c);
 static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid);
+static int srvrun_wt_slot_by_session_id(srvrun_conn* c, u64 sid);
 static int srvrun_wt_owner_live(const srvrun_conn* c, int offered, int owner);
 
 /* Index-based view over the two physical slots (wt/wt_active, wt1/wt1_active)
@@ -136,15 +138,29 @@ static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid) {
   return varint_take(s, &off, sid);
 }
 
+/* draft-ietf-webtrans-http3-16 4: "If an endpoint receives a session ID on
+ * a unidirectional stream, bidirectional stream, or datagram that does not
+ * correspond to a client-initiated bidirectional stream ID, the endpoint
+ * MUST close the connection with an H3_ID_ERROR error code" (latched for
+ * srvrun_close_on_h3). An id of a closed session is still valid; it just
+ * misses the slot table (WTH3-031). */
+static int srvrun_wt_slot_by_session_id(srvrun_conn* c, u64 sid) {
+  if (sid & 3) {
+    srvloop_h3_fail(&c->l, H3_ID_ERROR);
+    return -1;
+  }
+  return srvrun_wt_slot_by_connect_id(c, sid);
+}
+
 /* The session slot a new WT stream belongs to: the live session whose
  * CONNECT stream its signal names (a stream naming no live session goes
  * to none, -1), or -- no signal at all (raw QUIC) -- the first active one. */
-int srvrun_wt_slot_for_signal(const srvrun_conn* c, const u8* sig, u8 have) {
+int srvrun_wt_slot_for_signal(srvrun_conn* c, const u8* sig, u8 have) {
   u64 sid;
   if (!srvrun_wt_signal_session(sig, have, &sid)) {
     return srvrun_wt_slot_for_new_stream(c);
   }
-  return srvrun_wt_slot_by_connect_id(c, sid);
+  return srvrun_wt_slot_by_session_id(c, sid);
 }
 
 /* 1 iff a stream offered (offered) to session slot owner may still deliver

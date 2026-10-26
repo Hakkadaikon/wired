@@ -10,14 +10,14 @@ static void srvrun_drain_wt_close_one(
 void srvrun_wt_rx_capsules_one(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   wired_srvloop_stream_slot* slot = srvrun_wt_rx_slot(c, sidx);
-  srvrun_wt_caprx            x    = {0, 0, 0, WTERR_SESSION_GONE};
+  srvrun_wt_caprx            x    = {0, 0, 0, WTERR_SESSION_GONE, 0};
   if (!slot) {
     return;
   }
   if (srvrun_wt_rx_walk(cfg, c, sidx, slot, &x)) {
     srvrun_grant_body_credit(cfg, c, slot);
   } else {
-    srvrun_wt_rx_fail(cfg, c, sidx, x.violation_code);
+    srvrun_wt_rx_fail(cfg, c, sidx, srvrun_wt_rx_fail_code(c, sidx, slot, &x));
   }
 }
 

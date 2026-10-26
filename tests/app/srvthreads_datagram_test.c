@@ -920,14 +920,16 @@ static usz sdt_seal_stream(
  * process an incoming WebTransport CONNECT until our own SETTINGS has
  * arrived, so a real client's control stream must open and send it first.
  * Client uni stream id 2 (RFC 9000 2.1 low bits 10), leading 0x00 control
- * type varint (RFC 9114 6.2.1) then an (empty) SETTINGS frame -- this test
- * only needs the ordering signal, not any particular SETTINGS value. Sent at
- * packet number 0, ahead of the CONNECT's own pn 1. */
+ * type varint (RFC 9114 6.2.1) then a SETTINGS frame carrying
+ * SETTINGS_H3_DATAGRAM=1 (RFC 9297 2.1.1, required of a WebTransport client
+ * by draft-ietf-webtrans-http3-16 3.1). Sent at packet number 0, ahead of
+ * the CONNECT's own pn 1. */
 static int sdt_send_client_settings(struct sdt_client* cx) {
-  u8         stream_bytes[9], settings_frame[8], pkt[256];
-  wired_obuf fob = obuf_of(settings_frame, sizeof settings_frame);
-  usz        plen, flen;
-  if (!h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0))) {
+  static const u8 dgram[] = {H3_SETTING_H3_DATAGRAM, 1};
+  u8              stream_bytes[9], settings_frame[8], pkt[256];
+  wired_obuf      fob = obuf_of(settings_frame, sizeof settings_frame);
+  usz             plen, flen;
+  if (!h3_frame_put(&fob, H3_FRAME_SETTINGS, wired_span_of(dgram, 2))) {
     return 0;
   }
   stream_bytes[0] = 0x00; /* control stream type varint */
@@ -1367,10 +1369,11 @@ static u8 g_sdt_env_storage[128u * 1024u * 1024u];
  * already sent (srvrun_queue_datagram's own gate, RFC 9297 2.1) -- the state
  * a real confirmed WT connection reaches, without running any handshake. */
 static void sdt_mark_wt_active(srvrun_conn* c) {
-  *c                    = (srvrun_conn){0};
-  c->up                 = 1;
-  c->wt_active          = 1;
-  c->l.h3.settings_sent = 1;
+  *c                      = (srvrun_conn){0};
+  c->up                   = 1;
+  c->wt_active            = 1;
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   wired_wt_session_init(&c->wt, 0);
   wired_wt_session_establish(&c->wt);
 }

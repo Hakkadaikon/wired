@@ -14,22 +14,27 @@ static void         srvrun_dispatch_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r);
 static int  srvrun_past_goaway(const srvrun_conn* c, u64 id);
 static void srvrun_reject_past_goaway(const srvrun_cfg* cfg, srvrun_conn* c);
+static int  srvrun_wt_connect_ok(const srvrun_conn* c);
+
+/* 1 iff the client met every WebTransport requirement (WTH3-007) and the
+ * CONNECT itself is well formed (WTH3-011, RFC 9297 3.2). */
+static int srvrun_wt_connect_ok(const srvrun_conn* c) {
+  return srvrun_wt_peer_ok(c) && srvrun_wt_request_ok(&c->l.req);
+}
 
 /* srvrun_dispatch_wt gated on the client's own SETTINGS having arrived first
- * (WTH3-009/042: held until they do) and its transport parameters carrying
- * every value WebTransport requires (WTH3-007) -- split out so
- * srvrun_dispatch_resp's own dispatch decision stays a single branch (CCN).
- * A CONNECT failing the transport-parameter gate is rejected the same way a
- * malformed Origin is (403), since draft-ietf-webtrans-http3-15 does not
- * name a specific status for it. */
+ * (WTH3-009/042: held until they do), then on srvrun_wt_connect_ok -- a
+ * CONNECT failing it is malformed (srvrun_reject_wt_malformed) -- split out
+ * so srvrun_dispatch_resp's own dispatch decision stays a single branch
+ * (CCN). */
 void srvrun_dispatch_wt_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (!srvrun_wt_settings_ready(c)) {
     srvrun_wt_hold(c, r);
     return;
   }
-  if (!srvrun_wt_tp_ok(c)) {
-    srvrun_reject_wt(cfg->env, slot, c, r);
+  if (!srvrun_wt_connect_ok(c)) {
+    srvrun_reject_wt_malformed(cfg, c, r);
     return;
   }
   srvrun_dispatch_wt_resource(cfg, c, slot, r);

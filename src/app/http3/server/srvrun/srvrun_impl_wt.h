@@ -84,7 +84,7 @@ int  srvrun_wt_free_slot(const srvrun_conn* c);
 usz  srvrun_wt_active_total(const wired_srvrun_env* env);
 int  srvrun_wt_no_room(const srvrun_cfg* cfg, const srvrun_conn* c);
 int  srvrun_wt_slot_for_new_stream(const srvrun_conn* c);
-int  srvrun_wt_slot_for_signal(const srvrun_conn* c, const u8* sig, u8 have);
+int  srvrun_wt_slot_for_signal(srvrun_conn* c, const u8* sig, u8 have);
 int  srvrun_wt_stream_owner(const srvrun_conn* c, int offered, int owner);
 void srvrun_wt_bidi_slot_free(
     srvrun_conn* c, wired_srvloop_wt_stream_slot* slot);
