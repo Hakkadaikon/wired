@@ -1,4 +1,5 @@
 #include "app/http3/server/srvboot/srvboot_impl.h"
+#include "common/platform/rng/rng.h"
 
 static usz srvboot_chunk_len(usz remaining);
 static int srvboot_seal_next(
@@ -14,7 +15,6 @@ static int srvboot_seal_flight(
     wired_srvboot_out*          out);
 static int srvboot_build_flight_bytes(
     const wired_srvboot_conn* conn,
-    const wired_srvboot_id*   id,
     u32                       client_version,
     u32                       reply_version,
     u8*                       sh,
@@ -105,6 +105,16 @@ static int srvboot_seal_flight(
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
 
+/* RFC 8446 4.1.3 / C.1: ServerHello.random is 32 fresh bytes from the
+ * CSPRNG for every connection, never the id's long-lived constant (the
+ * examples set a public one); no random, no flight (V-0321/V-0323). */
+static int srvboot_emit_flight(
+    const wired_srvboot_conn* conn, const sdrv_flight_out* fo) {
+  u8 rnd[32];
+  return rng_bytes(rnd, sizeof rnd) &&
+         wired_server_build_flight(conn->s, rnd, fo);
+}
+
 /* Build the TLS server flight (ServerHello + Handshake messages) into fb's
  * backing buffers, to be sealed in reply_version -- gated on RFC 9368 2.3
  * compatibility with client_version, the version the client's own Initial
@@ -113,7 +123,6 @@ static int srvboot_seal_flight(
  * versions are incompatible, the driver fails, or a buffer is too small. */
 static int srvboot_build_flight_bytes(
     const wired_srvboot_conn* conn,
-    const wired_srvboot_id*   id,
     u32                       client_version,
     u32                       reply_version,
     u8*                       sh,
@@ -125,7 +134,7 @@ static int srvboot_build_flight_bytes(
   if (!version_compatible(client_version, reply_version)) {
     return 0;
   }
-  if (!wired_server_build_flight(conn->s, id->random, &fo)) {
+  if (!srvboot_emit_flight(conn, &fo)) {
     return 0;
   }
   *fb = (srvboot_flight_bytes){
@@ -166,7 +175,7 @@ int srvboot_flight(
       a->ini_tx_off, a->ecn_ect0,
       a->ecn_ect1,   a->ecn_ce};
   if (!srvboot_build_flight_bytes(
-          conn, id, a->hdr.version, reply_version, sh, flight, &fb)) {
+          conn, a->hdr.version, reply_version, sh, flight, &fb)) {
     return 0;
   }
   if (!srvboot_seal_flight(&sv, &fb, out)) {

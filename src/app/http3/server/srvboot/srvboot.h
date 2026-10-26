@@ -19,7 +19,9 @@
  * from, the server's source connection id (written in every reply), and the
  * ServerHello random. chain/chain_count, when non-empty, are an externally
  * issued certificate chain (leaf first) to send instead of a self-signed
- * certificate. All views; the caller keeps them alive for the call. */
+ * certificate. All views; the caller keeps them alive for the call. The
+ * connection's ECDHE key share and ServerHello.random are drawn fresh from
+ * the CSPRNG per connection; priv/pub/random never key a handshake. */
 typedef struct {
   const u8*         priv;        /**< X25519 private, 32 bytes */
   const u8*         pub;         /**< X25519 public, 32 bytes */
