@@ -7093,6 +7093,24 @@ static void test_srvloop_ack_of_unsent_pn_violation(void) {
   CHECK(lp_ack_error(100) == ERR_PROTOCOL_VIOLATION);
 }
 
+/* RFC 9001 5.3: the AEAD's associated data is the header through the
+ * packet number -- one changed header byte (a DCID byte, outside header
+ * protection) and the packet no longer opens. */
+static void test_srvloop_header_is_aead_aad(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256], copy[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  n = lp_seal_ping(&f, 40, pkt, sizeof pkt);
+  CHECK(n > 0);
+  bytes_memcpy(copy, pkt, n);
+  CHECK(client_open_onertt(&f, copy, n, &pl, &pll) == 1);
+  pkt[1] ^= 0x01;
+  CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 0);
+}
+
 void test_srvloop(void) {
   test_srvloop_h3ctrl_control_frames();
   test_srvloop_h3ctrl_stream_creation();
@@ -7276,6 +7294,7 @@ void test_srvloop(void) {
   test_srvloop_key_update_keeps_hp_never_reverts();
   test_srvloop_zerortt_keys_dropped_after_finished();
   test_srvloop_ack_of_unsent_pn_violation();
+  test_srvloop_header_is_aead_aad();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();

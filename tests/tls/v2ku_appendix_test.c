@@ -3,6 +3,7 @@
 #include "test.h"
 #include "tls/keys/keyupdate/kuderive.h"
 #include "transport/packet/protect/hp/hp_chacha.h"
+#include "transport/packet/protect/protect/protect.h"
 #include "transport/version/version/version.h"
 
 /* RFC 9369 Appendix A.5: "ChaCha20-Poly1305 Short Header Packet" -- the
@@ -143,7 +144,40 @@ static void test_v1ku_appendix_ku(void) {
   }
 }
 
+/* RFC 9001 Appendix A.5 (v1): protect_nonce forms the nonce as the IV XOR
+ * the left-padded packet number, and sealing PING under it with the
+ * unprotected header 4200bff4 as associated data gives the appendix's
+ * payload ciphertext (iv/key/ciphertext copied from the RFC text). */
+static void test_v1_appendix_nonce_and_aad(void) {
+  static const u8 iv[12]   = {0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd,
+                              0xd0, 0xe4, 0x4a, 0x41, 0xc1, 0x44};
+  static const u8 want[12] = {0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd,
+                              0xd0, 0xe4, 0x6d, 0x41, 0x7e, 0xb0};
+  static const u8 key[32]  = {0xc6, 0xd9, 0x8f, 0xf3, 0x44, 0x1c, 0x3f, 0xe1,
+                              0xb2, 0x18, 0x20, 0x94, 0xf6, 0x9c, 0xaa, 0x2e,
+                              0xd4, 0xb7, 0x16, 0xb6, 0x54, 0x88, 0x96, 0x0a,
+                              0x7a, 0x98, 0x49, 0x79, 0xfb, 0x23, 0xe1, 0xc8};
+  static const u8 want_ct[17] = {0x65, 0x5e, 0x5c, 0xd5, 0x5c, 0x41,
+                                 0xf6, 0x90, 0x80, 0x57, 0x5d, 0x79,
+                                 0x99, 0xc2, 0x5a, 0x5b, 0xfb};
+  const u8        aad[4]      = {0x42, 0x00, 0xbf, 0xf4};
+  const u8        pt[1]       = {0x01};
+  u8              nonce[12], ct[17];
+  protect_nonce(iv, 654360564u, nonce);
+  for (usz i = 0; i < 12; i++) {
+    CHECK(nonce[i] == want[i]);
+  }
+  {
+    chapoly_ctx c = {key, nonce, wired_span_of(aad, 4)};
+    chapoly_seal(&c, wired_span_of(pt, 1), ct);
+  }
+  for (usz i = 0; i < 17; i++) {
+    CHECK(ct[i] == want_ct[i]);
+  }
+}
+
 void test_v2ku_appendix(void) {
+  test_v1_appendix_nonce_and_aad();
   test_v1ku_appendix_ku();
   test_v2ku_appendix_key_iv_hp();
   test_v2ku_appendix_ku();
