@@ -15,6 +15,8 @@ static int  udp_octets_zero(const u8 octets[4]);
 static void udp_addr_map4(u8 addr[16], const u8 octets[4]);
 static void udp_kaddr_pack4(sockaddr* k);
 static i64  udp_socket_v6(void);
+static usz  udp_mtu_payload(const sockaddr* peer, int mtu);
+static i64  udp_mtu_read(i64 fd, int* mtu);
 
 /* Host-to-network for 16-bit values (x86_64 is little-endian). */
 static u16 hton16(u16 v) { return (u16)((v >> 8) | (v << 8)); }
@@ -157,9 +159,47 @@ i64 wired_udp_ect0_enable(i64 fd) {
 }
 
 i64 wired_udp_pmtu_probe_enable(i64 fd) {
-  int val = WIRED_IP_PMTUDISC_DO;
+  int val = WIRED_IP_PMTUDISC_PROBE;
+  /* same dual-stack pairing as wired_udp_ect0_enable: the v6 option covers
+   * native v6 peers and is best-effort. */
+  wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_MTU_DISCOVER, &val, sizeof(val));
   return wired_arch_setsockopt(
       fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER, &val, sizeof(val));
+}
+
+/* mtu (an IP packet size) less the headers for peer's family, or 0 when it
+ * does not even cover them. A v4-mapped address (::ffff:a.b.c.d) is IPv4 on
+ * the wire. */
+static usz udp_mtu_payload(const sockaddr* peer, int mtu) {
+  int v4  = (peer->addr[10] & peer->addr[11]) == 0xff;
+  int hdr = v4 ? WIRED_UDP_V4_OVERHEAD : WIRED_UDP_V6_OVERHEAD;
+  return mtu > hdr ? (usz)(mtu - hdr) : 0;
+}
+
+/* IP_MTU or IPV6_MTU, matching the socket family udp_family opened. */
+static i64 udp_mtu_read(i64 fd, int* mtu) {
+  i32 len = sizeof(*mtu);
+  if (udp_family == WIRED_AF_INET) {
+    return wired_arch_getsockopt(fd, WIRED_IPPROTO_IP, WIRED_IP_MTU, mtu, &len);
+  }
+  return wired_arch_getsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_MTU, mtu, &len);
+}
+
+usz wired_udp_path_mtu(const sockaddr* peer) {
+  sockaddr k;
+  int      mtu = 0;
+  u32      n   = udp_kaddr_out(peer, udp_family, &k);
+  i64      fd  = wired_arch_socket(udp_family, WIRED_SOCK_DGRAM, 0);
+  if (fd < 0) {
+    return 0;
+  }
+  if (wired_arch_connect(fd, &k, n) == 0) {
+    udp_mtu_read(fd, &mtu);
+  }
+  wired_arch_close(fd);
+  return udp_mtu_payload(peer, mtu);
 }
 
 i64 wired_udp_recvtos_enable(i64 fd) {

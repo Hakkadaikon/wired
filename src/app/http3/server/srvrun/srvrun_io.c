@@ -5,6 +5,7 @@ __attribute__((unused)) static usz srvrun_test_flush_count(
     const srvrun_cfg* cfg);
 static void srvrun_tx_conn(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt);
+static int srvrun_may_send(const srvrun_conn* c);
 
 /* Send a sealed buffer to c's recorded peer, with a trace line (skip an empty
  * buffer). Always targets the slot's own peer (RFC 9000 5.1), not whichever
@@ -105,11 +106,18 @@ void srvrun_send_now(
   }
 }
 
-/* srvrun_send_now, except on a closing connection: RFC 9000 10.2.1 lets it
- * send nothing but its CONNECTION_CLOSE again (srvrun_close_resend). */
+/* Neither closing (RFC 9000 10.2.1 lets it send nothing but its
+ * CONNECTION_CLOSE again, srvrun_close_resend) nor on a path that cannot
+ * carry 1200-byte datagrams (RFC 9000 14: nothing but PMTU probes and
+ * CONNECTION_CLOSE, both of which go through srvrun_send_now directly). */
+static int srvrun_may_send(const srvrun_conn* c) {
+  return !c->closing && !pmtu_halted(&c->pmtu);
+}
+
+/* srvrun_send_now, unless srvrun_may_send forbids it. */
 void srvrun_send(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what) {
-  if (!c->closing) {
+  if (srvrun_may_send(c)) {
     srvrun_send_now(cfg, c, pkt, what);
   }
 }

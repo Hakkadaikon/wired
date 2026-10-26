@@ -12,11 +12,13 @@ static int srvrun_path_np(
  * 9000 9.5), the connection's default from now on. */
 void srvrun_path_move(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k) {
-  pathsel_key          to = *k;
+  pathsel_key          to   = *k;
+  pathsel_key          from = srvrun_send_key(cfg, c);
   const peercid_entry* e;
   c->peer  = to.peer;
   c->tx_fd = to.fd;
-  e        = srvrun_path_cid(cfg, c, &to, 0);
+  srvrun_pmtu_path_reset(c, &from, &to);
+  e = srvrun_path_cid(cfg, c, &to, 0);
   /* ponytail: with no ID left the old one stays; the peer must issue more */
   if (!e) {
     return;

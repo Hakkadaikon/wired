@@ -200,17 +200,26 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, mmsg_buf* bufs, usz count);
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_ect0_enable(i64 fd);
 
-/** Enable IP_MTU_DISCOVER=IP_PMTUDISC_DO on fd (Linux uapi in.h): the kernel
- * always sets the IPv4 DF (Don't Fragment) bit and never fragments outgoing
- * datagrams on this socket, and suppresses its own PMTU enforcement/caching
- * from ICMP Fragmentation Needed messages (RFC 8899 4.5) -- the flow's PLPMTU
- * search (pmtu) owns path MTU discovery instead of the kernel.
+/** Enable IP_MTU_DISCOVER=IP_PMTUDISC_PROBE (and IPV6_MTU_DISCOVER, best
+ * effort) on fd (Linux ip(7)/ipv6(7)): the kernel sets the IPv4 DF bit,
+ * never fragments outgoing datagrams on this socket, and does not apply its
+ * own cached path MTU to them (RFC 8899 4.5) -- the flow's PLPMTU search
+ * (pmtu) owns path MTU discovery instead of the kernel, so a probe above a
+ * stale kernel PMTU still reaches the wire.
  * ponytail: no fallback path on setsockopt failure, same scope note as
  * wired_udp_ect0_enable -- the quic-interop-runner's Linux container has this
  * option unconditionally.
  * @param fd the socket fd
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_pmtu_probe_enable(i64 fd);
+
+/** RFC 8899 3.5: the largest UDP payload the local link toward peer can
+ * carry -- the kernel's path MTU for that destination (its route's MTU,
+ * read through a throwaway connected socket: IP_MTU needs one) minus the
+ * IP and UDP headers. The listening socket is never connected.
+ * @param peer the destination (v4-mapped or IPv6)
+ * @return the payload size, or 0 if the kernel could not tell. */
+usz wired_udp_path_mtu(const sockaddr* peer);
 
 /** Enable IP_RECVTOS on fd (Linux uapi in.h) so wired_udp_recvmmsg/
  * wired_udp_recvmmsg_nowait attach each received datagram's ECN codepoint

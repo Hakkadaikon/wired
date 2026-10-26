@@ -95,7 +95,7 @@ static void test_pmtudrive_on_loss_matches_pn(void) {
   u64 pn = r.pmtu_probe_pn;
 
   connrunner_pmtu_on_loss(&r, pn);
-  CHECK(r.pmtu.ceiling == PMTU_BASE + PMTU_STEP);
+  CHECK(r.pmtu.probe_count == 1); /* counted toward MAX_PROBES */
   CHECK(r.pmtu_probe_held == 0);
 }
 
@@ -139,7 +139,7 @@ static void test_pmtudrive_reconcile_acks(void) {
 }
 
 /* RFC 8899 3.4: reconcile recognizes the outstanding probe's pn inside the
- * lost set as lost, bounding the ceiling. */
+ * lost set as lost, counting it toward MAX_PROBES. */
 static void test_pmtudrive_reconcile_losses(void) {
   connrunner r;
   pd_mk_runner(&r);
@@ -149,7 +149,7 @@ static void test_pmtudrive_reconcile_losses(void) {
   u64 lost[1] = {r.pmtu_probe_pn};
 
   connrunner_pmtu_reconcile(&r, lost, 1, 0);
-  CHECK(r.pmtu.ceiling == PMTU_BASE + PMTU_STEP);
+  CHECK(r.pmtu.probe_count == 1); /* counted toward MAX_PROBES */
   CHECK(r.pmtu_probe_held == 0);
 }
 
@@ -176,7 +176,7 @@ static void test_pmtudrive_reconcile_probe_timer_expiry(void) {
   CHECK(connrunner_pmtu_build_probe(&r, &ob, 1000) != 0);
 
   connrunner_pmtu_reconcile(&r, (const u64*)0, 0, 1000 + PMTU_PROBE_TIMER_US);
-  CHECK(r.pmtu.ceiling == PMTU_BASE + PMTU_STEP);
+  CHECK(r.pmtu.probe_count == 1); /* counted toward MAX_PROBES */
   CHECK(r.pmtu_probe_held == 0);
 }
 
@@ -227,25 +227,29 @@ static void test_pmtudrive_advance_no_probe_before_confirm(void) {
 static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
   connrunner r;
   pd_mk_runner(&r);
-  u8         pkt[PMTU_MAX + 64];
-  wired_obuf ob1   = obuf_of(pkt, sizeof(pkt));
-  usz        first = connrunner_pmtu_build_probe(&r, &ob1, 0);
-  CHECK(first != 0);
-  connrunner_pmtu_on_loss(&r, r.pmtu_probe_pn); /* caps the ceiling */
-  CHECK(r.pmtu.searching == 1); /* not concluded yet -- next_probe not rerun */
+  u8  pkt[PMTU_MAX + 64];
+  u64 t = 0;
+  /* RFC 8899 5.2: the size is concluded unsupported only once its probe was
+   * lost MAX_PROBES times (one RTT apart, the min probe interval). */
+  for (int i = 0; i < PMTU_MAX_PROBES; i++, t += RTT_INITIAL_US) {
+    wired_obuf ob = obuf_of(pkt, sizeof(pkt));
+    CHECK(connrunner_pmtu_build_probe(&r, &ob, t) != 0);
+    connrunner_pmtu_on_loss(&r, r.pmtu_probe_pn);
+  }
+  CHECK(r.pmtu.phase == PMTU_PHASE_SEARCHING); /* next_probe not rerun yet */
 
-  /* The candidate is now above the just-capped ceiling, so this build_probe
-   * call's own pmtu_next_probe concludes the search (searching -> 0)
-   * before the PMTU_RAISE_TIMER has had any chance to fire (now=0 still). */
+  /* The candidate is now the just-capped ceiling, so this build_probe
+   * call's own pmtu_next_probe concludes the search before the
+   * PMTU_RAISE_TIMER has had any chance to fire. */
   wired_obuf ob2 = obuf_of(pkt, sizeof(pkt));
-  CHECK(connrunner_pmtu_build_probe(&r, &ob2, 0) == 0);
-  CHECK(r.pmtu.searching == 0);
+  CHECK(connrunner_pmtu_build_probe(&r, &ob2, t) == 0);
+  CHECK(r.pmtu.phase == PMTU_PHASE_COMPLETE);
 
   /* Once PMTU_RAISE_TIMER_US has elapsed since that conclusion, the
    * next build_probe call resumes the search and finds a new candidate. */
   wired_obuf ob3 = obuf_of(pkt, sizeof(pkt));
-  CHECK(connrunner_pmtu_build_probe(&r, &ob3, PMTU_RAISE_TIMER_US) != 0);
-  CHECK(r.pmtu.searching == 1);
+  CHECK(connrunner_pmtu_build_probe(&r, &ob3, t + PMTU_RAISE_TIMER_US) != 0);
+  CHECK(r.pmtu.phase == PMTU_PHASE_SEARCHING);
 }
 
 /* RFC 8899 3.7: a fresh probe must not follow the previous one by less than
