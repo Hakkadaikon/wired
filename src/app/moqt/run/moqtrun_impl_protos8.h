@@ -82,8 +82,9 @@ wired_moqtrun_peer* moqtrun_upf_target(
     wired_moqtrun_peer*     op,
     const wired_wt_session* s,
     moqtrun_key             k);
+u64  moqtrun_peer_max_rngf(const wired_moqtrun_peer* p);
 void moqtrun_upf_params(
-    const moqctl_params* in, int rngf, int desc, moqctl_params* out);
+    const moqctl_params* in, u64 max_ranges, int desc, moqctl_params* out);
 void moqtrun_upf_rl_end(moqctl_rangeloc* rl, moqctl_loc e);
 i64  moqtrun_upf_send(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, moqfetch_req* m);

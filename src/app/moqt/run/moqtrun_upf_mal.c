@@ -24,6 +24,8 @@ static void moqtrun_upf_mal_peers(
 static int moqtrun_peer_owns(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t);
 static void moqtrun_upf_mal(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
+static int  moqtrun_upf_chunk_out(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c);
 
 /* #4/#5 against what the held track saw, #5 against the upstream
  * FETCH_OK, #6 against the cache (pre: the payload's first bytes). */
@@ -127,17 +129,24 @@ void moqtrun_upf_item(
   }
 }
 
-/* The next bytes c of the Object being passed through: Malformed when
- * they differ from the cached copy (12.1), else written out as they are.
- * 1 when written; a refusal leaves them to retry (moqtrun_upf_retry). */
-int moqtrun_upf_chunk(
+/* c written out, unless Malformed: it differs from the cached copy
+ * (12.1). 0 when Malformed or refused. */
+static int moqtrun_upf_chunk_out(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c) {
   if (moqtrun_upf_conflicts(
           hub, f, f->up_last, f->up_pl_at + f->up_pl_left, f->up_pl_at, c)) {
     moqtrun_upf_mal(hub, f);
     return 0;
   }
-  if (hub->io.stream_send(f->wt, f->stream_id, c, 0) <= 0) {
+  return hub->io.stream_send(f->wt, f->stream_id, c, 0) > 0;
+}
+
+/* The next bytes c of the Object being passed through, written out as
+ * they are (read past when the Object failed the Range Filters). 1 when
+ * taken; a refusal leaves them to retry (moqtrun_upf_retry). */
+int moqtrun_upf_chunk(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, wired_span c) {
+  if (!f->up_skip && !moqtrun_upf_chunk_out(hub, f, c)) {
     return 0;
   }
   f->up_pl_at += c.n;

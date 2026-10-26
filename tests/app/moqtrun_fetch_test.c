@@ -55,6 +55,22 @@ static void mf_obj(u64 g, u64 o, usz n) { mf_obj_on(g, o, n, 1); }
 
 /* ===================== cache attach ===================== */
 
+/* draft-18/19 9.1: once Group 2 began, the cache serves Group 1's
+ * uncached Object 1 as nonexistent; arriving late it is not cached
+ * ("SHOULD NOT cache or forward"), while a new Object is. */
+static void test_moqtrun_fetch_late_nonexistent_not_cached(void) {
+  usz used;
+  mf_init(sizeof mf_arena);
+  mf_obj(1, 0, 1);
+  mf_obj(1, 2, 1);
+  mf_obj(2, 0, 1);
+  used = mtst_hub.cache.used;
+  mf_obj(1, 1, 1);
+  CHECK(mtst_hub.cache.used == used);
+  mf_obj(2, 1, 1);
+  CHECK(mtst_hub.cache.used == used + MOQCACHE_HDR + 1);
+}
+
 /* Whole Objects a publisher sends land in the attached arena. */
 static void test_moqtrun_fetch_cache_attach(void) {
   mf_init(sizeof mf_arena);
@@ -994,6 +1010,7 @@ static void test_moqtrun_fetch_no_replay_before_start(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_fetch(void) {
   test_moqtrun_fetch_cache_attach();
+  test_moqtrun_fetch_late_nonexistent_not_cached();
   test_moqtrun_fetch_cache_default_off();
   test_moqtrun_fetch_cache_released_on_leave();
   test_moqtrun_fetch_cache_released_on_republish();

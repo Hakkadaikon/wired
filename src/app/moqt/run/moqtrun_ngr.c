@@ -7,10 +7,9 @@
  * Largest Group, a Track with DYNAMIC_GROUPS 1, and no request of a
  * greater or equal value still outstanding (until the Largest Group
  * increases).
- * shortcut: only a Track the hub holds through its own upstream SUBSCRIBE
- * gets the REQUEST_UPDATE; a PUBLISH-initiated one does not (the reply
- * would land on the publisher's PUBLISH stream, which has no parser for
- * it) -- add one there when a dynamic-Groups publisher PUBLISHes. */
+ * A Track the hub holds through its own upstream SUBSCRIBE gets it on
+ * that stream, a PUBLISH-initiated one on the PUBLISH stream
+ * (moqtrun_pubupd.c parses the publisher's answer there). */
 
 static int moqtrun_ngr_waiter(const wired_moqtrun_rdv* r, moqtrun_key k);
 static int moqtrun_ngr_enc_upd(wired_mspan buf, usz* off, const void* m);
@@ -18,9 +17,11 @@ static u64 moqtrun_ngr_group(const wired_moqtrun_track* t);
 static int moqtrun_ngr_ahead(const wired_moqtrun_track* t, u64 v);
 static int moqtrun_ngr_wanted(const wired_moqtrun_track* t, u64 v);
 static int moqtrun_ngr_outstanding(
-    const wired_moqtrun_up* u, const wired_moqtrun_track* t, u64 v);
+    const wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v);
 static int moqtrun_ngr_due(
-    const wired_moqtrun_up* u, const wired_moqtrun_track* t, u64 v);
+    const wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v);
+static void moqtrun_ngr_mark(
+    wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v);
 static void moqtrun_ngr_send(
     wired_moqt_hub*            hub,
     wired_moqtrun_up*          u,
@@ -31,7 +32,11 @@ static void moqtrun_ngr_try(
     wired_moqtrun_up*          u,
     const wired_moqtrun_track* t,
     u64                        v);
-
+static wired_moqtrun_ngr* moqtrun_ngr_st(wired_moqtrun_req* q);
+static void               moqtrun_ngr_pub(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 v);
+static void moqtrun_ngr_route(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 v);
 /* Appends NEW_GROUP_REQUEST v to out. */
 void moqtrun_ngr_add(moqctl_params* out, u64 v) {
   out->items[out->n].type = MOQCTL_PARAM_NEW_GROUP_REQUEST;
@@ -86,13 +91,34 @@ static int moqtrun_ngr_wanted(const wired_moqtrun_track* t, u64 v) {
 }
 
 static int moqtrun_ngr_outstanding(
-    const wired_moqtrun_up* u, const wired_moqtrun_track* t, u64 v) {
-  return u->ngr_out && u->ngr_val >= v && u->ngr_group == moqtrun_ngr_group(t);
+    const wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v) {
+  return s->out && s->val >= v && s->group == moqtrun_ngr_group(t);
 }
 
+/* s (0: no stream to send on) owes t a REQUEST_UPDATE for v. */
 static int moqtrun_ngr_due(
-    const wired_moqtrun_up* u, const wired_moqtrun_track* t, u64 v) {
-  return u && moqtrun_ngr_wanted(t, v) && !moqtrun_ngr_outstanding(u, t, v);
+    const wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v) {
+  return s && moqtrun_ngr_wanted(t, v) && !moqtrun_ngr_outstanding(s, t, v);
+}
+
+/* v went out for t: outstanding until t's Largest Group moves. */
+static void moqtrun_ngr_mark(
+    wired_moqtrun_ngr* s, const wired_moqtrun_track* t, u64 v) {
+  s->out   = 1;
+  s->val   = v;
+  s->group = moqtrun_ngr_group(t);
+}
+
+/* REQUEST_UPDATE {params} under pp's next Request ID (consumes one,
+ * 10.1) into msg; its length, 0 when it does not encode. */
+usz moqtrun_upd_msg(
+    wired_moqtrun_peer* pp, const moqctl_params* params, u8* msg, usz cap) {
+  moqtstat_update m = {0};
+  m.request_id      = pp->request_id_next;
+  m.params          = *params;
+  return moqtrun_envelope_put(
+      wired_mspan_of(msg, cap), MOQTSTAT_T_REQUEST_UPDATE, moqtrun_ngr_enc_upd,
+      &m);
 }
 
 /* REQUEST_UPDATE {NEW_GROUP_REQUEST v} on the hub's SUBSCRIBE stream; a
@@ -103,20 +129,16 @@ static void moqtrun_ngr_send(
     const wired_moqtrun_track* t,
     u64                        v) {
   u8                  msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
-  moqtstat_update     m  = {0};
-  wired_moqtrun_peer* pp = moqtrun_find_by_wt(hub, u->wt);
-  m.request_id           = pp->request_id_next; /* consumes one (10.1) */
-  moqtrun_ngr_add(&m.params, v);
-  usz n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQTSTAT_T_REQUEST_UPDATE,
-      moqtrun_ngr_enc_upd, &m);
+  moqctl_params       params = {0};
+  wired_moqtrun_peer* pp     = moqtrun_find_by_wt(hub, u->wt);
+  moqtrun_ngr_add(&params, v);
+  usz n = moqtrun_upd_msg(pp, &params, msg, sizeof msg);
   if (hub->io.stream_send(u->wt, u->stream_id, wired_span_of(msg, n), 0) != 1) {
     return;
   }
   pp->request_id_next += 2;
-  u->ngr_out   = 1;
-  u->ngr_val   = v;
-  u->ngr_group = moqtrun_ngr_group(t);
+  u->upd_out++;
+  moqtrun_ngr_mark(&u->ngr, t, v);
 }
 
 static void moqtrun_ngr_try(
@@ -124,9 +146,42 @@ static void moqtrun_ngr_try(
     wired_moqtrun_up*          u,
     const wired_moqtrun_track* t,
     u64                        v) {
-  if (moqtrun_ngr_due(u, t, v)) {
+  if (moqtrun_ngr_due(u ? &u->ngr : 0, t, v)) {
     moqtrun_ngr_send(hub, u, t, v);
   }
+}
+
+/* q's NEW_GROUP_REQUEST state, 0 without a PUBLISH stream. */
+static wired_moqtrun_ngr* moqtrun_ngr_st(wired_moqtrun_req* q) {
+  return q ? &q->ngr : 0;
+}
+
+/* A PUBLISH-initiated t: the REQUEST_UPDATE rides the publisher's own
+ * PUBLISH stream (draft-18 10.9: "A subscriber can also send
+ * REQUEST_UPDATE to modify parameters of a subscription established
+ * with PUBLISH"). */
+static void moqtrun_ngr_pub(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 v) {
+  moqctl_params      params = {0};
+  wired_moqtrun_req* q      = moqtrun_pub_req(hub, t);
+  if (!moqtrun_ngr_due(moqtrun_ngr_st(q), t, v)) {
+    return;
+  }
+  moqtrun_ngr_add(&params, v);
+  if (moqtrun_pubupd_send(hub, q, &params)) {
+    moqtrun_ngr_mark(&q->ngr, t, v);
+  }
+}
+
+/* v to t's upstream: the hub's SUBSCRIBE stream, else the PUBLISH's. */
+static void moqtrun_ngr_route(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 v) {
+  wired_moqtrun_up* u = moqtrun_up_of_track(hub, t);
+  if (u) {
+    moqtrun_ngr_try(hub, u, t, v);
+    return;
+  }
+  moqtrun_ngr_pub(hub, t, v);
 }
 
 /* A downstream SUBSCRIBE or REQUEST_UPDATE (params) for Established t:
@@ -139,5 +194,5 @@ void moqtrun_ngr_relay(
   if (!t || !moqtrun_ngr_of(params, &v)) {
     return;
   }
-  moqtrun_ngr_try(hub, moqtrun_up_of_track(hub, t), t, v);
+  moqtrun_ngr_route(hub, t, v);
 }

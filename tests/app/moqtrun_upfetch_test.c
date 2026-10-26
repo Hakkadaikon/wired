@@ -1859,8 +1859,14 @@ static void test_moqtrun_upfetch_evicted_during_leg(void) {
 
 /* ===================== Range Filters ===================== */
 
-/* d22 3.3.2: the FETCH's Range Filter goes upstream byte for byte, and a
- * gap the publisher leaves unmarked is relayed unmarked. */
+/* A's SETUP as if it advertised MAX_FILTER_RANGES max (d22 9.1.6). */
+static void mupf_max_ranges(u64 max) {
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->peer_max_rngf = max;
+}
+
+/* d22 3.3.2: the FETCH's Range Filter goes upstream byte for byte when A
+ * allows its Ranges (9.1.6), and a gap the publisher leaves unmarked is
+ * relayed unmarked. */
 static void test_moqtrun_upfetch_range_filter(void) {
   moqctl_rangefilter  rf = mtst_rngf1(0, 0, 4, 1);
   moqctl_params       p  = {0};
@@ -1868,6 +1874,7 @@ static void test_moqtrun_upfetch_range_filter(void) {
   const moqctl_param* up;
   mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &rf);
   mupf_init();
+  mupf_max_ranges(1);
   mupf_cache_group(3, 1);
   mupf_fetch(mupf_rl(1, 0, 3, 0), &p);
   CHECK(mupf_up(SESS_A, 0, &m) >= 0);
@@ -1880,6 +1887,61 @@ static void test_moqtrun_upfetch_range_filter(void) {
   mupf_send(0);
   CHECK(mupf_read(0) && mf_n == 2);
   CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 1, 3, 1));
+}
+
+/* d22 9.1.6: MAX_FILTER_RANGES max (0: absent) "limits the peer's total
+ * number of Ranges"; a FETCH whose Ranges do not fit sends none upstream,
+ * and the hub filters A's wider answer itself (3.3.3: "MUST forward only
+ * objects that pass all filters"). */
+static void mupf_rngf_widened(u64 max, u64 ranges) {
+  moqctl_rangefilter rf = mtst_rngf1(0, 0, 4, 1);
+  moqctl_params      p  = {0};
+  moqfetch_req       m  = {0};
+  rf.n                  = (u8)ranges;
+  rf.r[1].start         = 9;
+  rf.r[1].end           = 9;
+  rf.r[1].has_end       = 1;
+  mtst_rngf_param(&p, MOQCTL_PARAM_OBJECTID_FILTER, &rf);
+  mupf_init();
+  mupf_max_ranges(max);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), &p);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  CHECK(!moqctl_params_find(&m.params, MOQCTL_PARAM_OBJECTID_FILTER));
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(1, 7, 1);
+  mupf_obj(2, 1, 1);
+  mupf_send(0);
+  CHECK(mupf_read(0) && mf_n == 2);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 1, 1));
+}
+
+static void test_moqtrun_upfetch_range_filter_peer_limit(void) {
+  mupf_rngf_widened(0, 1); /* advertised none */
+  mupf_rngf_widened(1, 2); /* two Ranges past a limit of one */
+}
+
+/* d22 3.3.3 / 3.2.2: the cache-served part applies the FETCH's Range
+ * Filters too; a left-out Object is an unmarked gap (unknown under a
+ * filter). The cache keeps Object IDs only, so a SUBGROUP_FILTER passes
+ * no cached Object (its state stays unknown, never mis-forwarded). */
+static void mupf_rngf_cached(u64 type, usz want) {
+  moqctl_rangefilter rf = mtst_rngf1(0, 1, 2, 1);
+  moqctl_params      p  = {0};
+  mtst_rngf_param(&p, type, &rf);
+  mupf_init();
+  mupf_cache_group(1, 4);
+  mupf_cache_group(2, 1);
+  mupf_fetch(mupf_rl(1, 0, 2, 0), &p);
+  CHECK(mupf_n_up(SESS_A) == 0 && mupf_n_up(SESS_C) == 0);
+  CHECK(mupf_read(0) && mf_n == want && mf_fin);
+}
+
+static void test_moqtrun_upfetch_range_filter_cached(void) {
+  mupf_rngf_cached(MOQCTL_PARAM_OBJECTID_FILTER, 2);
+  CHECK(mf_is_obj(0, 1, 1, 1) && mf_is_obj(1, 1, 2, 1));
+  mupf_rngf_cached(MOQCTL_PARAM_SUBGROUP_FILTER, 0);
 }
 
 /* ===================== malformed upstream bytes ===================== */
@@ -1981,6 +2043,8 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_owner_gone_fetch();
   test_moqtrun_upfetch_evicted_during_leg();
   test_moqtrun_upfetch_range_filter();
+  test_moqtrun_upfetch_range_filter_peer_limit();
+  test_moqtrun_upfetch_range_filter_cached();
   test_moqtrun_upfetch_bad_reply_bytes();
   test_moqtrun_upfetch_delta_underflow();
 }

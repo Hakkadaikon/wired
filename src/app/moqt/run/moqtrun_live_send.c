@@ -54,6 +54,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
   hub->cache.now        = now_ms; /* MAX_CACHE_DURATION clock (12.3) */
   moqtrun_fetches_tick(hub, 0);   /* ascending backlog before live rounds */
   moqtrun_rel_tick_all(hub, now_ms);
+  moqtrun_sgt_tick(hub, now_ms);
   moqtrun_drain_tick(hub, now_ms);
   moqtrun_pubdone_sweep(hub);
   moqtrun_rdv_tick(hub, now_ms);

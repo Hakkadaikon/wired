@@ -231,10 +231,14 @@ Legend:
 
 ## SS3.1.3.1 Unknown Track Alias
 
-- [ ] MQ22-226 (SS3.1.3.1) The implementation shall allocate connection flow
+- [x] MQ22-226 (SS3.1.3.1) The implementation shall allocate connection flow
   control to control streams before allocating it to any data stream.
-  - gap: the MOQT layer has no say in connection-level flow-control
-    allocation; nothing in the hub or its transport orders it.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+    (the hub's control stream gets urgency 2, above request streams' 3 and
+    Object streams' 4..7)
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_priority_conn_credit_to_urgent` (the WT send pass gives
+    the last connection credit to the more urgent class)
 
 ## SS3.6 Subscribing to Tracks by Prefix
 
@@ -558,11 +562,14 @@ Legend:
   - gap: the hub keeps one upstream SUBSCRIBE per Full Track Name, to the
     first matching announcer (MQ22-051 note); other announcers are asked
     only while a subscription waits for a new path (MQ22-208).
-- [ ] MQ22-227 (SS7.2, SS7.6) If a publisher's PUBLISH pauses the
+- [x] MQ22-227 (SS7.2, SS7.6) If a publisher's PUBLISH pauses the
   subscription (FORWARD 0) and a downstream subscriber is not paused, then
   the relay shall resume it with REQUEST_UPDATE FORWARD 1.
-  - gap: the hub never sends REQUEST_UPDATE, and reads only
-    LARGEST_OBJECT from an incoming PUBLISH (MQ22-094a).
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_publish_resumed`
+  - note: checked on the PUBLISH and on each downstream SUBSCRIBE /
+    REQUEST_UPDATE; a PUBLISH on a legacy single-bidi control stream is
+    not resumed.
 - [x] MQ22-230 (SS9.20.6, SS7.6) Where a SUBSCRIBE carries a non-zero
   RENDEZVOUS_TIMEOUT for a Track with no publisher, the hub shall hold it
   (at most `WIRED_MOQTRUN_RDV_MAX_MS`) and answer SUBSCRIBE_OK when a
@@ -736,14 +743,15 @@ Legend:
     `moqtrun_rel_take` — this fix is version-independent and not specific
     to draft-22's wording.
 
-- [ ] MQ22-245 (SS5.2) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub
+- [x] MQ22-245 (SS5.2) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub
   shall start a timer when the upstream Subgroup stream FINs and reset the
   downstream stream if it has not reached "all data committed" when the
   timer expires.
-  - gap: the hub folds the effective subgroup timeout into its
-    object-age gate (`test_moqtrun_sub_subgroup_timeout_gates_delivery`,
-    `test_moqtrun_sub_subgroup_timeout_min`); there is no post-FIN timer
-    or committed-state check.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_subgroup_timeout_after_fin`
+  - note: armed at a relayed stream's upstream FIN (a one-shot stream sent
+    whole on its first delivery arms none); "committed" is the transport's
+    all-acknowledged signal (`wired_moqt_io.stream_inflight`).
 
 ## SS9.20.18 FORWARD Parameter
 
@@ -1394,17 +1402,18 @@ Legend:
 
 ## SS7.6/11.4.1.2 Relay FETCH gap handling (draft-22)
 
-- [ ] MQ22-137 Where a Range Filter restricts a FETCH or fill, an unmarked
+- [x] MQ22-137 Where a Range Filter restricts a FETCH or fill, an unmarked
   gap in the response shall be treated as unknown rather than non-existent,
   and the relay shall issue upstream FETCHes to at least one matching
   publisher rather than pausing delivery until confirmed, as draft-19 does.
-  - gap: the upstream FETCH half is done (MQ22-213 to MQ22-219): the
-    FETCH's Range Filters go upstream byte for byte and a gap the publisher
-    leaves unmarked is relayed unmarked
-    (`tests/app/moqtrun_upfetch_test.c` —
-    `test_moqtrun_upfetch_range_filter`). Open: the cache side applies no
-    Range Filter, so a filtered FETCH's cache-served part neither filters
-    nor reports its unmarked gaps as unknown.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_range_filter`,
+    `test_moqtrun_upfetch_range_filter_cached`
+  - test: `tests/app/moqtrun_fill_test.c` —
+    `test_moqtrun_fill_inherits_range_filter`
+  - note: the cache keeps Object IDs only, so a set naming Subgroup,
+    priority or a Property passes no cached Object (left as an unmarked,
+    i.e. unknown, gap). A Joining Fetch (draft-18/19) applies none.
 - [x] MQ22-137a Reaching a Location Filter's end on a FETCH shall not emit
   SUBSCRIPTION_ENDED (see MQ22-108b; duplicate cross-reference kept here
   because this is also a FETCH/relay-section rule in the diff catalog).
@@ -1492,12 +1501,14 @@ Legend:
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_budget`, `test_moqtrun_upfetch_fill_timeout_zero`,
     `test_moqtrun_upfetch_marker_relay`
-- [ ] MQ22-250 (SS9.1.6) The hub shall not send Range Filter parameters in
+- [x] MQ22-250 (SS9.1.6) The hub shall not send Range Filter parameters in
   an upstream FETCH beyond the MAX_FILTER_RANGES the upstream peer
   advertised (none when it advertised 0 or nothing).
-  - gap: `moqtrun_upf_params` copies the downstream Range Filters when the
-    upstream draft has Range Filters at all; the peer's advertised limit is
-    not consulted.
+  - test: `tests/app/moqtrun_upfetch_test.c` —
+    `test_moqtrun_upfetch_range_filter_peer_limit`,
+    `test_moqtrun_upfetch_range_filter`
+  - note: Ranges past the limit send no filter at all (dropping some could
+    narrow an OR'd set); the hub filters the wider answer itself.
 - [x] MQ22-217 When the requester cancels, stops its data stream or closes,
   the hub shall cancel the upstream FETCH (RESET_STREAM and STOP_SENDING on
   the request stream, STOP_SENDING on the data stream) before freeing the

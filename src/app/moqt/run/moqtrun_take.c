@@ -47,6 +47,8 @@ void moqtrun_track_open(
   t->max_cache_ms     = moqtrun_tprop(props, MOQTRUN_PROP_MAX_CACHE, ~(u64)0);
   t->up_streams       = 0;
   t->pubdone_pending  = 0;
+  t->pub_paused       = moqtrun_forward_off(
+      moqctl_params_find(params, MOQCTL_PARAM_FORWARD)); /* draft-22 7.6 */
   moqtrun_track_keep_props(t, props);
 }
 
@@ -122,6 +124,7 @@ void moqtrun_publish_checked(
   moqtrun_up_crossed(hub, p, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
+  moqtrun_pub_resume(hub, t);
 }
 
 /* draft-19 10.2 (draft-18 10.2, draft-22 9.20): a request body that fails

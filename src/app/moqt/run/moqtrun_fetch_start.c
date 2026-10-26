@@ -54,9 +54,11 @@ int moqtrun_fetch_resolve(
   if (moqtrun_fetch_range_bad(t, start, moqtrun_end_excl(end))) {
     return 0;
   }
-  r->tag   = t->cache_tag;
-  r->props = moqtrun_track_props(t);
-  r->start = start;
+  r->tag    = t->cache_tag;
+  r->props  = moqtrun_track_props(t);
+  r->start  = start;
+  r->rngf   = 0;
+  r->rngf_n = 0;
   moqtrun_fetch_clamp(r, t, end);
   return 1;
 }
@@ -69,11 +71,14 @@ static void moqtrun_fetch_held(
     const moqfetch_req*        m,
     const wired_moqtrun_track* t,
     moqtrun_key                k) {
-  moqtrun_frange r;
+  moqtrun_frange       r;
+  wired_moqtrun_rngrow rows[WIRED_MOQTRUN_MAX_FILTER_RANGES];
   if (!moqtrun_fetch_resolve(t, &m->range, &r)) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
     return;
   }
+  r.rngf   = rows;
+  r.rngf_n = moqtrun_fsel_rows(&m->params, rows);
   moqtrun_upf_go(
       hub,
       moqtrun_fetch_accept(

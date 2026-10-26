@@ -12,6 +12,11 @@ static void moqtrun_relay_head_init(
     usz                  whole_end);
 static int moqtrun_cacheable(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t, u64 status);
+static int moqtrun_group_closed(const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_gone_on(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_cache_says_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 
 /* The stream's Subgroup ID and Publisher Priority kept for late opens and
  * the Range Filter gate (moqtrun_stream_keys). ponytail: a mode-0b01
@@ -133,12 +138,52 @@ static u64 moqtrun_cache_exp(u64 now, u64 dur) {
   return dur > ~(u64)0 - now ? ~(u64)0 : now + dur;
 }
 
+/* ----- Objects recorded as nonexistent (draft-18/19 9.1) ----- */
+
+/* t moved past l's Group: the cache treats the Group as complete. */
+static int moqtrun_group_closed(const wired_moqtrun_track* t, moqctl_loc l) {
+  return t->has_largest && l.group < t->largest.group;
+}
+
+/* The cache reports l nonexistent: its skip moves past l (the rest of a
+ * cached Group, or a Group between cached ones). */
+static int moqtrun_cache_says_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  return moqctl_loc_less(
+      l, moqcache_skip(&hub->cache, t->cache_tag, l, moqtrun_after(l)));
+}
+
+/* draft-18/19 9.1: "an endpoint can receive an Object after it has
+ * already recorded that the Object does not exist. A caching relay
+ * SHOULD NOT cache or forward the Object in this case." The hub's record
+ * is its cache: a closed Group's Location the cache would serve (a FETCH)
+ * as nonexistent. hub 0 (a scan of the hub's own bytes): never. */
+static int moqtrun_gone_on(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  return moqtrun_group_closed(t, l) && moqtrun_cache_says_gone(hub, t, l);
+}
+
+/* shortcut: a Subgroup stream's Objects are forwarded as the stream's
+ * bytes, so only caching and datagram Objects are gated; cutting one out
+ * of a stream needs its successor's Object ID Delta rewritten. */
+int moqtrun_obj_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  return hub && t && moqtrun_gone_on(hub, t, l);
+}
+
+/* t, or 0 when the Object at l is recorded nonexistent (not forwarded). */
+wired_moqtrun_track* moqtrun_gone_gate(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l) {
+  return moqtrun_obj_gone(hub, t, l) ? 0 : t;
+}
+
 void moqtrun_cache_obj(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
     u64                  group,
     const moqdata_obj*   o) {
-  if (!moqtrun_cacheable(hub, t, o->status)) {
+  if (!moqtrun_cacheable(hub, t, o->status) ||
+      moqtrun_obj_gone(hub, t, moqctl_loc_of(group, o->object_id))) {
     return;
   }
   moqcache_append_exp(

@@ -151,6 +151,12 @@ typedef struct {
    * stream_priority. */
   int (*stream_sched)(
       wired_wt_session* s, u64 stream_id, const wired_wt_sched* k);
+  /** wired_server_wt_stream_inflight-shaped: 1 while stream_id's bytes
+   * are not all acknowledged ("all data committed", draft-19 8), 0 once
+   * they are. Kept last so older positional initializers stay valid; a
+   * table built without it (0) never resets a stream for
+   * SUBGROUP_DELIVERY_TIMEOUT. */
+  int (*stream_inflight)(wired_wt_session* s, u64 stream_id);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's
@@ -158,8 +164,9 @@ typedef struct {
  * lower first, 128 when absent -- draft-ietf-moq-transport-19 7.1,
  * 10.2.7). 7.2 orders by subscriber priority, then publisher priority, so
  * the subscriber's half picks the pair and the publisher's half the one
- * within it: 4..7. Control and request streams keep the transport default
- * 3 and so go first (7.2: they SHOULD be prioritized highest). The
+ * within it: 4..7. Request streams keep the transport default 3 and the
+ * control stream takes 2 (MOQTRUN_CTL_URGENCY), so both go first (7.2:
+ * control, then requests, then Objects). The
  * fallback when wired_moqt_io.stream_sched is 0: Group Order and the
  * full 8-bit priorities need that hook's class; equal urgencies share the
  * send pass in turn. */
@@ -302,9 +309,8 @@ typedef struct {
   /** Effective SUBGROUP_DELIVERY_TIMEOUT (10.2.6) in ms: min of the
    * publisher's Track Property and the subscriber's parameter over
    * their non-zero values, 0 when neither set. Applied as a second age
-   * bound beside delivery_timeout (draft 8; the hub's io cannot see
-   * "all data committed", so the age model stands in for the
-   * post-FIN timer). */
+   * bound beside delivery_timeout, and as the post-FIN timer of each relay
+   * stream (draft 8, moqtrun_sgt.c). */
   u64 subgroup_timeout;
   /** Location Filter Start (9.3.1), resolved at SUBSCRIBE time; {0, 0}
    * when unfiltered. */
@@ -531,6 +537,26 @@ typedef struct {
  * discarding the ~0.5s of backlog the send slot's staging can hold. */
 #define WIRED_MOQTRUN_RESET_AFTER_BUSY 8
 
+/** Fixed capacity: SUBGROUP_DELIVERY_TIMEOUT timers running hub-wide,
+ * one per downstream Subgroup stream whose upstream already FINed.
+ * shortcut: a FIN finding the table full arms none (the stream is then
+ * never reset for it); raise if many subgroups linger unacknowledged. */
+#define WIRED_MOQTRUN_MAX_SGT 32
+
+/** One SUBGROUP_DELIVERY_TIMEOUT timer (draft-19 8, draft-22 5.2): the
+ * downstream stream sid on wt is reset at deadline_ms unless all its
+ * data was committed (acknowledged) by then. */
+typedef struct {
+  /** The subscriber's session (owned by the transport). */
+  wired_wt_session* wt;
+  /** The downstream Subgroup stream on wt. */
+  u64 sid;
+  /** wired_moqt_tick clock at which the timer expires. */
+  u64 deadline_ms;
+  /** 1 while the timer runs. */
+  u8 in_use;
+} wired_moqtrun_sgt;
+
 /** Fixed capacity: publisher streams relayed concurrently per track. The
  * audio track holds ONE for its whole call; chat holds one per in-flight
  * message (open -> data rounds -> FIN, ~2 RTT) -- 4 covers a burst without
@@ -587,6 +613,18 @@ typedef struct {
   usz at;   /**< next unread byte */
   usz skip; /**< bytes still to discard */
 } wired_moqtrun_ctl_asm;
+
+/** A NEW_GROUP_REQUEST the hub sent upstream in a REQUEST_UPDATE
+ * (draft-18 10.2.13): outstanding while out and the track's Largest
+ * Group is still group. */
+typedef struct {
+  /** That NEW_GROUP_REQUEST's value. */
+  u64 val;
+  /** The track's Largest Group when it went out (~0: none). */
+  u64 group;
+  /** 1 once one went out (val/group valid). */
+  u8 out;
+} wired_moqtrun_ngr;
 
 /** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
  * 3.3) tracked at once, hub-wide. A request stream past it is reset with
@@ -738,6 +776,12 @@ typedef struct {
   /** A hub-opened PUBLISH slot only: 1 once its one REQUEST_OK arrived
    * (18/19 5.1, 22 3.1: a second response closes the session). */
   u8 pub_answered;
+  /** A client PUBLISH only: REQUEST_UPDATEs the hub, its subscriber,
+   * sent on the stream and not yet answered (draft-22 9.5: each gets
+   * one REQUEST_OK or REQUEST_ERROR there). */
+  u8 upd_out;
+  /** A client PUBLISH only: the NEW_GROUP_REQUEST relayed on it. */
+  wired_moqtrun_ngr ngr;
 } wired_moqtrun_req;
 
 /** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
@@ -860,13 +904,11 @@ typedef struct {
   usz name_len;
   /** Reassembly of the publisher's replies on stream_id. */
   wired_moqtrun_ctl_asm in;
-  /** 1 once a NEW_GROUP_REQUEST went out in a REQUEST_UPDATE. */
-  u8 ngr_out;
-  /** That NEW_GROUP_REQUEST's value. */
-  u64 ngr_val;
-  /** The track's Largest Group when it went out (~0: none); it stays
-   * outstanding until the Largest Group moves (draft-18 10.2.13). */
-  u64 ngr_group;
+  /** The NEW_GROUP_REQUEST the hub sent upstream on stream_id. */
+  wired_moqtrun_ngr ngr;
+  /** REQUEST_UPDATEs the hub sent on stream_id still unanswered: a
+   * REQUEST_ERROR then answers one, not the SUBSCRIBE. */
+  u8 upd_out;
 } wired_moqtrun_up;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
@@ -1006,6 +1048,14 @@ typedef struct {
   int no_track;
   /** no_track: 1 once the downstream FETCH was answered. */
   int answered;
+  /** 1 while the upstream Object under way failed the Range Filters: its
+   * payload is read past, never relayed (moqtrun_upf_chunk). */
+  int up_skip;
+  /** The FETCH's Range Filter rows (a fill: its subscription's), applied
+   * to every Object served, cached or upstream (draft-22 3.3.3). */
+  wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
+  /** Rows of rngf in use; 0 = unfiltered. */
+  u8 rngf_n;
 } wired_moqtrun_fetch;
 
 #endif

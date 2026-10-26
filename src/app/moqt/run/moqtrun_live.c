@@ -92,6 +92,8 @@ static void moqtrun_fetch_joining(
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
   r.ok_end = s->jl;
+  r.rngf   = 0; /* ponytail: a Joining Fetch's own filters are not applied */
+  r.rngf_n = 0;
   moqtrun_fetch_start(
       hub,
       moqtrun_fetch_accept(

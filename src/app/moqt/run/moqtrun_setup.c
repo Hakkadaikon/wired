@@ -27,8 +27,16 @@ static void moqtrun_setup_accept(wired_moqtrun_peer* p, const moqctl_setup* m) {
   p->peer_ctl_set       = 1;
   p->peer_ctl_stream_id = p->rx_sid;
   p->setup_recv         = 1;
+  p->peer_max_rngf      = m->max_filter_ranges;
   moqtrun_impl_copy(p, m);
   moqsess_step(&p->sess, MOQSESS_EV_RECV_SETUP);
+}
+
+/* Ranges an upstream FETCH to p may carry: its MAX_FILTER_RANGES, on a
+ * draft with Range Filters at all (draft-22 9.1.6, draft-19 10.4). */
+u64 moqtrun_peer_max_rngf(const wired_moqtrun_peer* p) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_RANGE_FILTERS) ? p->peer_max_rngf
+                                                          : 0;
 }
 
 /* draft-19 3.3/10.4: the client's SETUP, on whichever stream 3.3's
@@ -106,6 +114,9 @@ static const struct {
     {MOQCTL_T_PUBLISH_SKIPPED, moqtrun_dispatch_skip},
     {MOQFETCH_T_FETCH_OK, moqtrun_dispatch_skip},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_pub_done},
+    /* answers to the hub's REQUEST_UPDATE on a PUBLISH (moqtrun_pubupd.c) */
+    {MOQCTL_T_REQUEST_OK, moqtrun_dispatch_upd_ok},
+    {MOQCTL_T_REQUEST_ERROR, moqtrun_dispatch_upd_err},
 };
 
 moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {

@@ -96,6 +96,7 @@ static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
   moqcache_init(&hub->cache, 0, 0);
   hub->cache_tag_next = 0;
   moqtrun_fetches_clear(hub);
+  bytes_memset(hub->sgt, 0, sizeof hub->sgt);
 }
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {

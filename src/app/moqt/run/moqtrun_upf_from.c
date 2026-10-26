@@ -65,7 +65,7 @@ static void moqtrun_upf_from_asc(
   if (done) {
     from = moqctl_loc_max(from, moqtrun_upf_covered(f));
   }
-  f->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, f->end);
+  f->cursor = moqtrun_fsel_fskip(&hub->cache, f, from, f->end);
 }
 
 /* Descending: the window of the last relayed item's group, past it. */

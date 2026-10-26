@@ -96,6 +96,12 @@ typedef struct {
 /* Every Object stream's urgency: below the transport default 3 the
  * control and request streams keep (7.2: they SHOULD go first). */
 #define MOQTRUN_OBJ_URGENCY 4
+/* The hub's control stream: above the request streams' transport default
+ * 3, so control, then requests, then Objects (draft-19/22 7.2 SHOULD); the
+ * WT send pass only lets a worse class send once the better has nothing
+ * to, so connection credit goes to control bytes first (draft-22 3.1.3.1,
+ * draft-18/19 11.4.2 MUST). */
+#define MOQTRUN_CTL_URGENCY 2
 /* A subscription-delivered stream's tie bit: its fill goes first in the
  * same group (7.2 rule 4). */
 #define MOQTRUN_TIE_LIVE (1ULL << 63)
@@ -112,7 +118,22 @@ typedef struct {
   moqctl_loc ok_end;
   /* The track's Track Properties for FETCH_OK (draft-18 9.6 / 10.14). */
   wired_span props;
+  /* The Range Filter rows the response applies (draft-22 3.3.2; a fill
+   * inherits its subscription's, 3.4), rngf_n of them; 0 = none. */
+  const wired_moqtrun_rngrow* rngf;
+  usz                         rngf_n;
 } moqtrun_frange;
+
+/* One Object as a Range Filter judges it (draft-22 3.3.2): v[] the
+ * Subgroup ID, Object ID and Publisher Priority (filter Types 0x25-0x27
+ * in order), bit i of have set when v[i] is known; props its Object
+ * Properties when has_props. A field it lacks never matches. */
+typedef struct {
+  u64        v[3];
+  wired_span props;
+  u8         have;
+  u8         has_props;
+} moqtrun_fsel_obj;
 
 /* io moqtrun_upf_drop does toward the upstream session. */
 #define MOQTRUN_UPF_IO_NONE 0

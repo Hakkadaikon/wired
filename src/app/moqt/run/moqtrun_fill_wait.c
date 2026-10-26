@@ -32,6 +32,7 @@ static void moqtrun_fill_wait_put(
   w->cursor     = r->start;
   w->end        = r->end;
   w->descending = fill->descending;
+  moqtrun_fsel_keep(w, sub->rngf, sub->rngf_n); /* inherited (22 3.4) */
   moqtrun_upf_budget(w, fill->has_timeout, fill->timeout_ms);
   sub->stream_count++;
 }
@@ -42,7 +43,8 @@ static void moqtrun_fill_wait_put(
  * waited -- continues from there. */
 static void moqtrun_fill_wait_convert(
     wired_moqt_hub* hub, wired_moqtrun_fetch* w) {
-  moqtrun_frange       r = {w->cache_tag, w->cursor, w->end, {0, 0}, {0, 0}};
+  moqtrun_frange       r = {w->cache_tag, w->cursor, w->end,   {0, 0},
+                            {0, 0},       w->rngf,   w->rngf_n};
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, w->wt, w->request_id, &r);
   if (!f) {
     return;
@@ -92,8 +94,13 @@ void moqtrun_fill_open(
     wired_moqtrun_sub*    sub,
     u64                   rid,
     const moqfetch_fill*  fill,
-    const moqtrun_frange* r) {
-  wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, rid, r);
+    const moqtrun_frange* fr) {
+  moqtrun_frange        r0 = *fr;
+  const moqtrun_frange* r  = &r0;
+  wired_moqtrun_fetch*  f;
+  r0.rngf   = sub->rngf; /* the fill inherits its range filters (22 3.4) */
+  r0.rngf_n = sub->rngf_n;
+  f         = moqtrun_fetch_begin(hub, p->wt, rid, r);
   if (!f) {
     moqtrun_fill_wait_put(hub, p->wt, rid, sub, r, fill);
     return;

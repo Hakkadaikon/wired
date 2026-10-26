@@ -460,10 +460,13 @@ Legend:
   relay it.
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_conflict`
-- [ ] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
+- [~] MOQT-227 (SS9.1) Where the hub has recorded that an Object does not
   exist, it should neither cache nor forward that Object if it arrives later.
-  - gap: no test drives an Object after its End of Group / gap marker was
-    cached.
+  - test: `tests/app/moqtrun_fetch_test.c` —
+    `test_moqtrun_fetch_late_nonexistent_not_cached`
+  - gap: the record is the cache (a closed Group's Location it serves as
+    nonexistent); caching and datagram Objects are gated, but a Subgroup
+    stream's late Object is still forwarded with the stream's bytes.
 - [x] MOQT-228 (SS9.2, SS9.5) When the hub subscribes upstream for a downstream
   SUBSCRIBE, it shall use Forward 1 (FORWARD omitted).
   - test: `tests/app/moqtrun_upsub_test.c` —
@@ -656,8 +659,10 @@ Legend:
   upstream FIN, and drop such datagrams.
   - evidence: the hub applies the effective subgroup timeout as an age bound
     like OBJECT_DELIVERY_TIMEOUT
-    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); no FIN-armed timer is
-    tested.
+    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); the upstream FIN
+    arms a timer that resets a still-unacknowledged downstream stream
+    (`test_moqtrun_sub_subgroup_timeout_after_fin`). Datagrams have only the
+    age bound.
 
 ## SS10.2.17 FORWARD Parameter
 
@@ -1141,13 +1146,16 @@ Legend:
 
 ## SS11.4.2 Subgroup Header: flow control priority
 
-- [~] MOQT-142 Endpoints shall allocate connection flow control to the control
+- [x] MOQT-142 Endpoints shall allocate connection flow control to the control
   streams before allocating it to any data streams, so a receiver does not
   deadlock waiting for a control message that itself needs flow control to
   arrive.
-  - evidence: This subset relies on the underlying WT/QUIC transport's own
-    stream and connection flow control (app/http3/server/srvrun); no MOQT-layer
-    test independently verifies control-before-data flow-control priority.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+    (the hub's control stream gets urgency 2, above request streams' 3 and
+    Object streams' 4..7)
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_priority_conn_credit_to_urgent` (the WT send pass gives
+    the last connection credit to the more urgent class)
 
 ## SS11.4.2 Subgroup Object Fields (encoder byte-exactness)
 
@@ -1452,9 +1460,11 @@ Legend:
     `test_moqtrun_misc_pub_update_failed_fins`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_failed_changes_nothing`
-- [ ] MOQT-223 (SS7.2) The hub should schedule its control streams first, then
+- [x] MOQT-223 (SS7.2) The hub should schedule its control streams first, then
   request streams, then Object data.
-  - gap: only Object streams get an explicit class (MOQT-185).
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+  - note: request streams keep the transport default urgency 3, between
+    the control stream's 2 and the Object streams' 4..7.
 - [x] MOQT-187 A TRACK_STATUS shall be answered with REQUEST_OK carrying the
   track's largest location (or none when empty), or REQUEST_ERROR when the
   track is unknown or the authorizer refuses.

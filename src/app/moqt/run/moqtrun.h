@@ -111,6 +111,9 @@ typedef struct {
   /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
+  /** 1 while the publisher's PUBLISH left the hub's subscription paused
+   * (FORWARD 0) and no REQUEST_UPDATE resumed it (draft-22 7.6). */
+  u8 pub_paused;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
    * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
    * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */
@@ -181,6 +184,9 @@ typedef struct {
   /** Bit i set: the peer's Request ID peer_rid_base + 2i was used (bit 0
    * is always clear). */
   u64 peer_rid_seen;
+  /** MAX_FILTER_RANGES the client's SETUP advertised (draft-22 9.1.6;
+   * 0 when absent): the most Ranges an upstream FETCH to it may carry. */
+  u64 peer_max_rngf;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */
@@ -455,6 +461,9 @@ typedef struct {
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */
   moqtrel_buf rel_pool[WIRED_MOQTREL_POOL];
+  /** SUBGROUP_DELIVERY_TIMEOUT timers armed at an upstream Subgroup FIN
+   * (moqtrun_sgt.c). */
+  wired_moqtrun_sgt sgt[WIRED_MOQTRUN_MAX_SGT];
   /** Reliable-relay subscribers given up on after WIRED_MOQTREL_STALL_MS
    * without an accepted send (their stream is reset and their cursor
    * stops pinning the ring). Diagnostic only. */

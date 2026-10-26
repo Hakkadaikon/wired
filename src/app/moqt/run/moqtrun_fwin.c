@@ -3,7 +3,7 @@
 static int  moqtrun_fetch_timed_out(const wired_moqtrun_fetch* f);
 static u64  moqtrun_fetch_eor(const wired_moqtrun_fetch* f);
 static void moqtrun_fwin_down(
-    wired_moqt_hub* hub, u64 tag, moqctl_loc lo, moqtrun_fwin* w);
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, moqtrun_fwin* w);
 static int moqtrun_fwin_more(
     const wired_moqtrun_fetch* f, const moqtrun_fwin* w);
 
@@ -53,13 +53,13 @@ u64 moqtrun_fwin_group(const moqtrun_fwin* w) {
   return w->end.object ? w->end.group : w->end.group - 1;
 }
 
-/* w moved one group down (11.4.4.1 Descending), clipped to lo. */
+/* w moved one group down (11.4.4.1 Descending), clipped to f's lo. */
 static void moqtrun_fwin_down(
-    wired_moqt_hub* hub, u64 tag, moqctl_loc lo, moqtrun_fwin* w) {
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, moqtrun_fwin* w) {
   u64        g    = moqtrun_fwin_group(w) - 1;
-  moqctl_loc from = g == lo.group ? lo : moqctl_loc_of(g, 0);
+  moqctl_loc from = g == f->lo.group ? f->lo : moqctl_loc_of(g, 0);
   w->end          = moqctl_loc_of(g + 1, 0);
-  w->cursor       = moqcache_skip(&hub->cache, tag, from, w->end);
+  w->cursor       = moqtrun_fsel_fskip(&hub->cache, f, from, w->end);
 }
 
 /* 1 while a drained descending window still has lower groups to serve. */
@@ -78,9 +78,9 @@ void moqtrun_fetch_after(
     moqctl_loc                 from,
     moqtrun_fwin*              w) {
   w->end    = f->end;
-  w->cursor = moqcache_skip(&hub->cache, f->cache_tag, from, w->end);
+  w->cursor = moqtrun_fsel_fskip(&hub->cache, f, from, w->end);
   while (moqtrun_fwin_more(f, w)) {
-    moqtrun_fwin_down(hub, f->cache_tag, f->lo, w);
+    moqtrun_fwin_down(hub, f, w);
   }
 }
 

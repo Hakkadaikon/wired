@@ -93,10 +93,14 @@ static void moqtrun_upf_filters(const moqctl_params* in, moqctl_params* out) {
 }
 
 /* The upstream FETCH's parameters: the same Group Order, and the
- * downstream FETCH's Range Filters, byte for byte, where the upstream
- * draft has them (the publisher filters what it sends). */
+ * downstream FETCH's Range Filters, byte for byte, when their Ranges fit
+ * max_ranges, the upstream peer's MAX_FILTER_RANGES (draft-22 9.1.6: 0,
+ * also when absent, allows none). Past it none go up -- dropping some
+ * could narrow an OR'd set (3.3.2) -- and the wider answer is filtered
+ * by the hub itself (moqtrun_fsel_pass). */
 void moqtrun_upf_params(
-    const moqctl_params* in, int rngf, int desc, moqctl_params* out) {
+    const moqctl_params* in, u64 max_ranges, int desc, moqctl_params* out) {
+  int          rngf  = moqtrun_rngf_count(in) <= max_ranges;
   moqctl_param order = {0};
   order.type         = MOQCTL_PARAM_GROUP_ORDER;
   order.enc          = MOQCTL_PENC_UINT8;

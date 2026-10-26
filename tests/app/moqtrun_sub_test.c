@@ -2126,6 +2126,53 @@ static void test_moqtrun_sub_subgroup_timeout_gates_delivery(void) {
   CHECK(moqtrun_test_count_kind(8) == 0); /* 500 > 400: held */
 }
 
+/* io.stream_inflight stub: every stream still unacknowledged when
+ * mtst_inflight is 1. */
+static int mtst_inflight;
+static int mtst_stream_inflight(wired_wt_session* s, u64 sid) {
+  (void)s;
+  (void)sid;
+  return mtst_inflight;
+}
+
+/* draft-19 8 (draft-18 8, draft-22 5.2): the upstream Subgroup FIN starts
+ * B's SUBGROUP_DELIVERY_TIMEOUT (300 ms) timer on its relay stream; at
+ * expiry a stream not yet all acknowledged is reset DELIVERY_TIMEOUT, an
+ * acknowledged one is left alone, and nothing fires before. */
+static void mtst_sgt_case(int inflight, usz want) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtst_params_vi(MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 300);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  const moqtrun_test_call* o;
+  mtst_init();
+  mtst_hub.io.stream_inflight = mtst_stream_inflight;
+  mtst_inflight               = inflight;
+  u64 ca                      = mtst_join(SESS_A);
+  u64 cb                      = mtst_join(SESS_B);
+  wired_moqt_tick(&mtst_hub, 1000);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  usz n = mtst_stream(0, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 0);
+  o = moqtrun_test_last_kind(5);
+  CHECK(o && o->s == SESS_B);
+  n = mtst_stream(0, 1, 0, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 1);
+  wired_moqt_tick(&mtst_hub, 1299);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  wired_moqt_tick(&mtst_hub, 1300);
+  CHECK(moqtrun_test_count_kind(7) == want);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  CHECK(
+      !want || (r->s == SESS_B && r->stream_id == o->stream_id &&
+                r->fin == MOQTRUN_RESET_DELIVERY_TIMEOUT));
+}
+
+static void test_moqtrun_sub_subgroup_timeout_after_fin(void) {
+  mtst_sgt_case(1, 1);
+  mtst_sgt_case(0, 0);
+}
+
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_sub(void) {
   test_moqtrun_sub_filter22_starts();
@@ -2156,6 +2203,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_publish_mandatory_refused();
   test_moqtrun_sub_subgroup_timeout_update();
   test_moqtrun_sub_subgroup_timeout_gates_delivery();
+  test_moqtrun_sub_subgroup_timeout_after_fin();
   test_moqtrun_sub_ns_max_fields();
   test_moqtrun_sub_same_name_other_ns_coexist();
   test_moqtrun_sub_ns_over_cap_refused();
