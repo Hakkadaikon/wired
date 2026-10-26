@@ -1,6 +1,7 @@
 #include "app/http3/server/srvloop/body_window_impl.h"
 
-static int  bodywin_forbidden(u64 type);
+static int  bodywin_forbidden(const bodywin* w, u64 type);
+static void bodywin_note_type(bodywin* w, u64 type);
 static usz  bodywin_header_take(const bodywin_run* r, u64* type, u64* len);
 static int  bodywin_header(bodywin_run* r);
 static int  bodywin_chunk_fin(const bodywin_run* r, usz n);
@@ -16,8 +17,15 @@ static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx);
 /* RFC 9114 7.2.3-7.2.7 / 11.2.1: CANCEL_PUSH, SETTINGS, PUSH_PROMISE (from a
  * client), GOAWAY, MAX_PUSH_ID and the reserved HTTP/2 types 0x2, 0x6, 0x8,
  * 0x9 are H3_FRAME_UNEXPECTED on a request stream. */
-static int bodywin_forbidden(u64 type) {
-  return type < 14 && ((0x23fcu >> type) & 1u);
+static int bodywin_forbidden(const bodywin* w, u64 type) {
+  return type < 14 && (((0x23fcu | w->deny) >> type) & 1u);
+}
+
+/* RFC 9114 4.1: a HEADERS past the leading one is the trailer section;
+ * nothing of the message may follow it. */
+static void bodywin_note_type(bodywin* w, u64 type) {
+  static const u8 after[2] = {0, 0x3};
+  w->deny |= after[type == H3_FRAME_HEADERS];
 }
 
 /* RFC 9114 7.1 / RFC 9297 3.2: a frame or capsule header counts only once
@@ -39,10 +47,11 @@ static int bodywin_header(bodywin_run* r) {
   if (!n) {
     return 0;
   }
-  if (bodywin_forbidden(type)) {
+  if (bodywin_forbidden(r->w, type)) {
     r->w->state = BODYWIN_FRAME_UNEXPECTED;
     return 0;
   }
+  bodywin_note_type(r->w, type);
   r->w->left    = len;
   r->w->is_data = type == H3_FRAME_DATA;
   r->pos += n;

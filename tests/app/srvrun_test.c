@@ -23737,18 +23737,57 @@ static void test_srvrun_on_body_skips_connect(void) {
   CHECK(g_sr_body.calls == 0);
 }
 
-/* RFC 9114 7.2.4: SETTINGS on a request stream is H3_FRAME_UNEXPECTED on
- * the streaming path too -- no fin, no handler. */
+/* RFC 9114 7.2.4: SETTINGS on a request stream is a connection error of
+ * type H3_FRAME_UNEXPECTED on the streaming path too -- no fin, no
+ * handler, an application CONNECTION_CLOSE. */
 static void test_srvrun_on_body_frame_unexpected(void) {
   static u8    req[4096];
-  srvrun_conn* c = sr_body_fixture(0);
-  usz          n = sr_big_req(req, sizeof req, 1, 10);
-  req[n++]       = 0x04; /* SETTINGS, empty */
-  req[n++]       = 0x00;
+  srvrun_conn* c      = sr_body_fixture(0);
+  usz          n      = sr_big_req(req, sizeof req, 1, 10);
+  int          is_app = 0;
+  req[n++]            = 0x04; /* SETTINGS, empty */
+  req[n++]            = 0x00;
   sr_body_send(c, req, n, 1);
   CHECK(g_sr_body.got_n == 10 && g_sr_body.fins == 0);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(c->l.streams[0].in_use == 0); /* aborted, slot freed */
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* RFC 9114 4.1 (9114-005/007): a DATA frame after the trailer section on
+ * the streaming path is a connection error of type H3_FRAME_UNEXPECTED. */
+static void test_srvrun_on_body_data_after_trailer_closes(void) {
+  static u8    req[4096];
+  srvrun_conn* c      = sr_body_fixture(0);
+  usz          n      = sr_big_req(req, sizeof req, 1, 10);
+  int          is_app = 0;
+  req[n++]            = 0x01; /* trailer HEADERS: an empty section prefix */
+  req[n++]            = 0x02;
+  req[n++]            = 0x00;
+  req[n++]            = 0x00;
+  req[n++]            = 0x00; /* DATA, empty */
+  req[n++]            = 0x00;
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.fins == 0 && g_sr_wt_handler_calls == 0);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* RFC 9114 4.4 (9114-088): a HEADERS frame on an established CONNECT
+ * stream is a connection error of type H3_FRAME_UNEXPECTED. */
+static void test_srvrun_connect_stream_headers_closes(void) {
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  usz          hlen   = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u8           hdr[]  = {0x01, 0x02, 0x00, 0x00};
+  u8           pl[64];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf  = {0, hlen, sizeof hdr, hdr, 0};
+  CHECK(c->wt_active == 1);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
 }
 
 /* The latched frame error closes the connection (and is consumed). */
@@ -26701,6 +26740,8 @@ void test_srvrun(void) {
   test_srvrun_wt_occupancy_counts_open();
   test_srvrun_wt_bidi_held_before_first_grant_gets_wt_window();
   test_srvrun_on_body_frame_unexpected();
+  test_srvrun_on_body_data_after_trailer_closes();
+  test_srvrun_connect_stream_headers_closes();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
   test_srvrun_early_413_also_stops_sending();

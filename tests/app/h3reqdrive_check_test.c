@@ -1,9 +1,11 @@
+#include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/qpack/qpack/fieldline.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "test.h"
+#include "transport/stream/data/appdata/app_send.h"
 
 /* RFC 9114 4.2 / 4.3 / 10.3, RFC 9110 5.5: request field-section validation
  * on receipt, driven through wired_h3reqdrive_recv_get -- the decoder the
@@ -201,6 +203,66 @@ static void test_h3reqcheck_connect_shape(void) {
   CHECK(RC_LINES(":method", "CONNECT", ":authority", "[::1]:65535"));
 }
 
+/* Append one HTTP/3 frame (type, payload) at h3[*n]. */
+static void rc_frame(u8* h3, usz* n, u64 type, wired_span payload) {
+  wired_obuf ob = {h3 + *n, 1024 - *n, 0};
+  CHECK(h3_frame_put(&ob, type, payload));
+  *n += ob.len;
+}
+
+/* Decode the request stream made of the frames in h3[0..n) (FIN set). */
+static int rc_stream(const u8* h3, usz n, wired_h3reqdrive_req* r) {
+  static u8 req[1200], scratch[1024];
+  usz       req_len = 0;
+  CHECK(appdata_frame_flat(0, 0, h3, n, 1, req, sizeof req, &req_len));
+  return wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), r);
+}
+
+/* A request stream of the given frame types (0x21: a reserved grease
+ * type): the first HEADERS carries a valid GET, a later one an empty
+ * trailer section, every other frame is empty. 1 if it decodes, with
+ * *unexpected from the decode. */
+static int rc_seq(const u64* types, usz count, int* unexpected) {
+  static const u8      trailer[] = {0x00, 0x00};
+  static u8            h3[1024];
+  u8                   fs[128];
+  usz                  fs_len = rc_get(fs), n = 0;
+  wired_h3reqdrive_req r;
+  int                  ok;
+  for (usz i = 0; i < count; i++) {
+    wired_span pl = wired_span_of(0, 0);
+    if (types[i] == H3_FRAME_HEADERS) {
+      pl = i ? wired_span_of(trailer, 2) : wired_span_of(fs, fs_len);
+    }
+    rc_frame(h3, &n, types[i], pl);
+  }
+  ok          = rc_stream(h3, n, &r);
+  *unexpected = r.frame_unexpected;
+  return ok;
+}
+
+#define RC_SEQ(u, ...)            \
+  rc_seq(                         \
+      (const u64[]){__VA_ARGS__}, \
+      sizeof((const u64[]){__VA_ARGS__}) / sizeof(u64), (u))
+
+/* RFC 9114 4.1 / 7.2.3-7.2.8 (9114-005/007/057/060/069): HEADERS, DATA*,
+ * an optional trailer HEADERS, unknown types anywhere; nothing of the
+ * message after the trailer, and no control-stream frame anywhere. Each
+ * violation is flagged H3_FRAME_UNEXPECTED (a connection error). */
+static void test_h3reqcheck_frame_sequence(void) {
+  int u = 0;
+  CHECK(RC_SEQ(&u, 1, 0, 0x21, 0, 1, 0x21) && !u);
+  CHECK(!RC_SEQ(&u, 1, 0, 1, 0) && u);
+  CHECK(!RC_SEQ(&u, 1, 1, 1) && u);
+  CHECK(!RC_SEQ(&u, 0, 1) && u);
+  for (u64 t = 3; t <= 0xd; t += (t == 4 ? 3 : t == 7 ? 6 : 1)) {
+    CHECK(!RC_SEQ(&u, t, 1) && u); /* CANCEL_PUSH, SETTINGS, GOAWAY, */
+    CHECK(!RC_SEQ(&u, 1, t) && u); /* MAX_PUSH_ID: before or after */
+  }
+}
+
 void test_h3reqcheck(void) {
   test_h3reqcheck_uppercase_name_rejected();
   test_h3reqcheck_non_token_name_rejected();
@@ -210,4 +272,5 @@ void test_h3reqcheck(void) {
   test_h3reqcheck_authority();
   test_h3reqcheck_asterisk_only_options();
   test_h3reqcheck_connect_shape();
+  test_h3reqcheck_frame_sequence();
 }
