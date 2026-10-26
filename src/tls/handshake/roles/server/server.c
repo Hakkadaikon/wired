@@ -56,6 +56,7 @@ static void srv_reset_counters(wired_server* s) {
   s->ku_seeded     = 0;
   s->ku_send_count = 0;
   s->ku_auth_fail  = 0;
+  s->ku_error      = 0;
   s->hs_error      = 0;
   s->hs_rx_used    = 0;
   s->ini_rx_end    = 0;
@@ -99,6 +100,19 @@ void wired_server_set_limits(
   s->sdrv.limits.max_streams_bidi        = max_streams_bidi;
   s->sdrv.limits.max_streams_uni         = max_streams_uni;
   s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;
+}
+
+void server_ku_derive_next(wired_server* s) {
+  kuswitch_next_keys_suite(
+      s->sdrv.cipher_suite, s->ku_secret, &s->ku_next, s->ku_next_secret);
+  bytes_memcpy(s->ku_next.hp, s->ku.cur.hp, AEAD_KEY_MAX); /* RFC 9001 6.1 */
+  s->ku_cur_lo = ~0ull;
+  s->ku_cur_hi = 0;
+}
+
+u64 wired_server_idle_timeout_ms(const wired_server* s) {
+  return idledrive_effective(
+      stp_idle_timeout_ms(&s->sdrv.limits), s->sdrv.peer_max_idle_timeout);
 }
 
 void wired_server_set_reset_token(wired_server* s, const u8 token[16]) {

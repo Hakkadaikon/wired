@@ -91,6 +91,7 @@ static void sdt_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535; /* DATAGRAM delivery, RFC 9221 3 */
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;
@@ -186,6 +187,12 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
     wired_obuf tob3 = obuf_of(tp + tn, sizeof tp - tn);
     tn +=
         tparam_put_int(&tob3, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+  }
+  { /* RFC 9000 7.3: name our Initial's SCID */
+    wired_obuf tob4 = obuf_of(tp + tn, sizeof tp - tn);
+    tn += tparam_put_blob(
+        &tob4, TP_INITIAL_SOURCE_CONNECTION_ID,
+        wired_span_of(g_sdt_cli_scid, 6));
   }
   static const u8 random[32] = {0};
   clienthello_in  in         = {

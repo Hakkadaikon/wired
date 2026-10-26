@@ -40,6 +40,15 @@ int wired_srvloop_recv(
  * update), and restarts the per-key sealed-packet count. */
 void srvloop_ku_rotate_send(wired_server* s);
 
+/* RFC 9001 5 / 6: open a 1-RTT packet (recv_onertt.c) under the one key
+ * generation its Key Phase bit and packet number select. Returns 1 with
+ * out->payload set, 0 if it does not open (counted toward the integrity
+ * limit) or opened under old keys in violation of RFC 9001 6.4. */
+int srvloop_recv_onertt(
+    wired_server*                s,
+    const wired_srvloop_recv_in* in,
+    wired_srvloop_recv_out*      out);
+
 /* RFC 8999 5.1: the Version field of dg's long header, or the connection's
  * negotiated version for a short header (1-RTT carries none). */
 u32 srvloop_recv_pkt_version(const wired_server* s, wired_mspan dg);

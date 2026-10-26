@@ -194,10 +194,11 @@ static void test_server_tp_tunable_limits(void) {
   u8         od[4] = {1, 2, 3, 4}, sc[4] = {5, 6, 7, 8};
   u8         tp[256];
   wired_obuf ob  = {tp, sizeof tp, 0};
-  stp_limits lim = {2000000, 5, 9, 0};
+  stp_limits lim = {2000000, 5, 9, 0, 7000};
   u64        v   = 0;
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &lim, &ob));
+  CHECK(tp_int_value(tp, ob.len, 0x01, &v) && v == 7000); /* RFC 9308 10 */
   CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 2000000);
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 5);
   CHECK(tp_int_value(tp, ob.len, 0x09, &v) && v == 9);
@@ -214,7 +215,7 @@ static void test_server_tp_datagram_frame_size(void) {
   u8         od[4] = {1, 2, 3, 4}, sc[4] = {5, 6, 7, 8};
   u8         tp[256];
   wired_obuf ob   = {tp, sizeof tp, 0};
-  stp_limits none = {0, 0, 0, 0};
+  stp_limits none = {0, 0, 0, 0, 0};
   u64        v    = 7;
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &none, &ob));
@@ -222,7 +223,7 @@ static void test_server_tp_datagram_frame_size(void) {
   CHECK(v == 7);
 
   ob.len              = 0;
-  stp_limits opted_in = {0, 0, 0, 65535};
+  stp_limits opted_in = {0, 0, 0, 65535, 0};
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &opted_in, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) && v == 65535);

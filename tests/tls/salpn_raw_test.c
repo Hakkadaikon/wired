@@ -210,6 +210,9 @@ struct sraw_fix {
   wired_srvloop l;
 };
 
+/* RFC 9000 7.3: initial_source_connection_id = sraw_boot's Initial SCID. */
+static const u8 g_sraw_tp[6] = {TP_INITIAL_SOURCE_CONNECTION_ID, 4, 1, 2, 3, 4};
+
 /* A real ClientHello whose only ALPN entry, "h3", is rewritten in place to
  * the same-length raw id "m9". */
 static usz sraw_client_hello_m9(u8* ch, usz cap) {
@@ -223,7 +226,8 @@ static usz sraw_client_hello_m9(u8* ch, usz cap) {
   }
   wired_x25519_base(cli_pub, cli_priv);
   n = tls_client_hello(
-      &(clienthello_in){rnd, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
+      &(clienthello_in){
+          rnd, cli_pub, wired_span_of(0, 0), wired_span_of(g_sraw_tp, 6)},
       &ob);
   CHECK(salpn_find_extension(wired_span_of(ch, n), SALPN_EXT_TYPE, &ext));
   ch[(usz)(ext.p - ch) + 3] = 'm';

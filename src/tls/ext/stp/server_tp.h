@@ -73,7 +73,14 @@ typedef struct {
                                 * 0 = not advertised (no built-in default: the
                                 * caller opts in once DATAGRAM delivery is
                                 * wired end-to-end) */
+  /** max_idle_timeout (0x01, RFC 9000 10.1) in ms; 0 = default
+   * STP_DEFAULT_IDLE_TIMEOUT_MS. */
+  u64 max_idle_timeout;
 } stp_limits;
+
+/** The max_idle_timeout (ms) lim advertises: its field, or the built-in
+ * default when 0 (lim = 0 also means the default). */
+u64 stp_idle_timeout_ms(const stp_limits* lim);
 
 /** RFC 9000 7.4.1 / RFC 9221 3: how many advertised limits a client
  * remembers for 0-RTT and the server must not reduce when accepting it. */

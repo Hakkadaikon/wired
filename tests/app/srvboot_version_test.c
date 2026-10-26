@@ -242,12 +242,26 @@ struct sbv_fix {
   wired_srvloop l;
 };
 
+/* Too big for the stack of a test that boots several times. */
+static struct sbv_fix g_sbv_fix;
+/* wired_srvboot_id.idle_timeout_ms for sbv_boot_ch (0 = default). */
+static u64 g_sbv_idle_ms;
+
 /* A minimal but real ClientHello (x25519 key_share only) whose transport
  * parameter list is exactly `tp` -- enough for wired_server_recv_initial
  * to accept it and build a flight, mirroring h3_loopback_test.c's
  * lb_make_client_hello. */
 static usz sbv_make_client_hello_tp(u8* ch, usz cap, wired_span tp) {
-  u8 cli_priv[32], cli_pub[32], srv_random[32];
+  /* RFC 9000 7.3: every fixture Initial's SCID (cli_scid below). */
+  static const u8 cli_scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  u8              cli_priv[32], cli_pub[32], srv_random[32], all[96];
+  wired_obuf      tob = obuf_of(all + tp.n, sizeof all - tp.n);
+  CHECK(tp.n <= 64);
+  bytes_memcpy(all, tp.p, tp.n);
+  tp = wired_span_of(
+      all, tp.n + tparam_put_blob(
+                      &tob, TP_INITIAL_SOURCE_CONNECTION_ID,
+                      wired_span_of(cli_scid, 4)));
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
     srv_random[i] = (u8)(0xa0 + i);
@@ -306,6 +320,118 @@ static void test_srvboot_accept_v2_initial(void) {
    * not the old hardcoded v1 (bytes 1..4 after byte0). */
   CHECK(be_get_be32(init_buf + 1) == VERSION_2);
   CHECK(packet_long_type(init_buf[0], VERSION_2) == PT_INITIAL);
+}
+
+/* Boot the server from a v1 Initial sealed with header SCID hdr_scid around
+ * the ClientHello ch; returns wired_srvboot_accept's verdict. */
+static int sbv_boot_ch(struct sbv_fix* f, wired_span ch, wired_span hdr_scid) {
+  static const u8 dcid[8] = {0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38};
+  u8              srv_priv[32], srv_pub[32], cert_seed[32], pkt[1300];
+  u8              init_buf[1500], flight_buf[4096];
+  initpkt_desc    d = {wired_span_of(dcid, 8), hdr_scid, ch, 0, 0};
+  wired_obuf      o = obuf_of(pkt, sizeof(pkt));
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  CHECK(initpkt_build(&d, &o));
+  wired_srvboot_id id          = {0};
+  id.priv                      = srv_priv;
+  id.pub                       = srv_pub;
+  id.cert_seed                 = cert_seed;
+  id.scid                      = (const u8*)"SRVI";
+  id.scid_len                  = 4;
+  id.random                    = srv_priv;
+  id.idle_timeout_ms           = g_sbv_idle_ms;
+  wired_obuf         init_ob   = obuf_of(init_buf, sizeof(init_buf));
+  wired_obuf         flight_ob = obuf_of(flight_buf, sizeof(flight_buf));
+  wired_srvboot_out  out       = {&init_ob, &flight_ob, {0}, 0, 0};
+  wired_srvboot_conn conn      = {&f->s, &f->l};
+  wired_srvboot_in   in        = {&id, wired_mspan_of(pkt, o.len)};
+  return wired_srvboot_accept(&conn, &in, &out);
+}
+
+/* RFC 9000 7.3: initial_source_connection_id must be present and equal the
+ * Initial's Source CID; either failure is a TRANSPORT_PARAMETER_ERROR. */
+static void test_srvboot_iscid_validated(void) {
+  static const u8 good[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  static const u8 bad[4]  = {0xaa, 0xbb, 0xcc, 0xde};
+  u8              ch[512], cli_pub[32], rnd[32] = {0};
+  usz             n = sbv_make_client_hello(ch, sizeof(ch));
+  struct sbv_fix* f = &g_sbv_fix;
+  bytes_memset(f, 0, sizeof *f);
+  CHECK(sbv_boot_ch(f, wired_span_of(ch, n), wired_span_of(good, 4)) == 1);
+  bytes_memset(f, 0, sizeof *f);
+  CHECK(sbv_boot_ch(f, wired_span_of(ch, n), wired_span_of(bad, 4)) == 0);
+  CHECK(sdrv_last_error(&f->s.sdrv) == ERR_TRANSPORT_PARAMETER_ERROR);
+  /* absent: a ClientHello with no transport parameters at all inside */
+  wired_x25519_base(cli_pub, rnd);
+  n = tls_client_hello(
+      &(clienthello_in){rnd, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
+      &(wired_obuf){ch, sizeof ch, 0});
+  bytes_memset(f, 0, sizeof *f);
+  CHECK(sbv_boot_ch(f, wired_span_of(ch, n), wired_span_of(good, 4)) == 0);
+  CHECK(sdrv_last_error(&f->s.sdrv) == ERR_TRANSPORT_PARAMETER_ERROR);
+}
+
+/* RFC 9000 18.2: an out-of-range (or server-only) client transport
+ * parameter refuses the connection with TRANSPORT_PARAMETER_ERROR; the
+ * boundary value boots. */
+static void sbv_check_range(u64 id, u64 value, int want) {
+  static const u8 scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  u8              tp[16], ch[512];
+  wired_obuf      tob = obuf_of(tp, sizeof tp);
+  usz             tn  = tparam_put_int(&tob, id, value);
+  usz n = sbv_make_client_hello_tp(ch, sizeof(ch), wired_span_of(tp, tn));
+  bytes_memset(&g_sbv_fix, 0, sizeof g_sbv_fix);
+  CHECK(
+      sbv_boot_ch(&g_sbv_fix, wired_span_of(ch, n), wired_span_of(scid, 4)) ==
+      want);
+  if (!want) {
+    CHECK(sdrv_last_error(&g_sbv_fix.s.sdrv) == ERR_TRANSPORT_PARAMETER_ERROR);
+  }
+}
+
+/* Boot with the server's idle_timeout_ms = ours and a ClientHello whose
+ * max_idle_timeout is peer (0 = absent); return the negotiated value. */
+static u64 sbv_idle_negotiated(u64 ours, u64 peer) {
+  static const u8 scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+  u8              tp[16], ch[512];
+  wired_obuf      tob = obuf_of(tp, sizeof tp);
+  usz tn = peer ? tparam_put_int(&tob, TP_MAX_IDLE_TIMEOUT, peer) : 0;
+  usz n  = sbv_make_client_hello_tp(ch, sizeof(ch), wired_span_of(tp, tn));
+  bytes_memset(&g_sbv_fix, 0, sizeof g_sbv_fix);
+  g_sbv_idle_ms = ours;
+  CHECK(
+      sbv_boot_ch(&g_sbv_fix, wired_span_of(ch, n), wired_span_of(scid, 4)) ==
+      1);
+  g_sbv_idle_ms = 0;
+  return wired_server_idle_timeout_ms(&g_sbv_fix.s);
+}
+
+/* RFC 9000 10.1 / RFC 9308 10: the app-set idle timeout and the client's
+ * max_idle_timeout negotiate to their minimum; an absent one imposes no
+ * limit, and an unset server value is the 30 s default. */
+static void test_srvboot_idle_timeout_negotiated(void) {
+  CHECK(sbv_idle_negotiated(7000, 9000) == 7000);
+  CHECK(sbv_idle_negotiated(7000, 4000) == 4000);
+  CHECK(sbv_idle_negotiated(7000, 0) == 7000);
+  CHECK(sbv_idle_negotiated(0, 0) == 30000);
+  CHECK(sbv_idle_negotiated(0, 60000) == 30000);
+}
+
+static void test_srvboot_tp_ranges_validated(void) {
+  sbv_check_range(TP_MAX_UDP_PAYLOAD_SIZE, 1199, 0);
+  sbv_check_range(TP_MAX_UDP_PAYLOAD_SIZE, 1200, 1);
+  sbv_check_range(TP_ACK_DELAY_EXPONENT, 21, 0);
+  sbv_check_range(TP_ACK_DELAY_EXPONENT, 20, 1);
+  sbv_check_range(TP_MAX_ACK_DELAY, 16384, 0);
+  sbv_check_range(TP_MAX_ACK_DELAY, 16383, 1);
+  sbv_check_range(TP_ACTIVE_CONNECTION_ID_LIMIT, 1, 0);
+  sbv_check_range(TP_ACTIVE_CONNECTION_ID_LIMIT, 2, 1);
+  /* RFC 9000 18.2: a server-only parameter from the client */
+  sbv_check_range(TP_ORIGINAL_DESTINATION_CONNECTION_ID, 5, 0);
 }
 
 /* RFC 9368 2.3: a v1 Initial whose ClientHello carries a
@@ -412,5 +538,8 @@ void test_srvboot_version(void) {
   test_vneg_honors_version_mask();
   test_srvboot_accept_v2_initial();
   test_srvboot_v1_initial_with_vi_switches_to_v2();
+  test_srvboot_iscid_validated();
+  test_srvboot_tp_ranges_validated();
+  test_srvboot_idle_timeout_negotiated();
   test_srvboot_flight_pn_continues_past_partial_ack();
 }

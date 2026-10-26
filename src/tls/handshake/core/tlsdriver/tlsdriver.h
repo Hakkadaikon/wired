@@ -53,6 +53,11 @@ typedef struct {
    * empty and its ClientHello-only transcript is already correct. */
   u8  transcript_ch[512];
   usz transcript_ch_len;
+  /** RFC 9000 7.3: our ClientHello's transport parameters -- just
+   * initial_source_connection_id once tlsdriver_set_iscid ran (an id and a
+   * length byte plus at most 20 CID bytes), empty otherwise. */
+  u8  tp[22];
+  usz tp_len;
   /** RFC 9000 7.5: the transport error code from the most recent
    * tlsdriver_recv_crypto failure (e.g. CRYPTO_BUFFER_EXCEEDED), 0 if
    * the last call succeeded or none has been made. */
@@ -71,6 +76,11 @@ void tlsdriver_init(
  * the caller keeps it alive until the ClientHello is built. Never calling
  * this (or sni_len 0) omits the extension. */
 void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len);
+
+/* RFC 9000 7.3: advertise scid (the Source CID of our Initial, at most 20
+ * bytes) as initial_source_connection_id in our ClientHello. Returns 1, or
+ * 0 if scid is longer than 20 bytes. */
+int tlsdriver_set_iscid(tlsdriver* d, wired_span scid);
 
 /* RFC 8446 4.2.7: select the NamedGroup for this handshake's key_share
  * (GROUP_X25519 or GROUP_SECP256R1). tlsdriver_init defaults
