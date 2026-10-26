@@ -15,32 +15,6 @@ static void test_dgpriority_higher(void) {
   CHECK(dgpriority_higher(3, 3) == 0);
 }
 
-/* RFC 9221 5.1: among several DATAGRAM candidates, pick selects the most
- * urgent (lowest urgency) one. */
-static void test_dgpriority_pick_selects_most_urgent(void) {
-  dgpriority_candidate c[3] = {
-      {wired_span_of((const u8*)"low", 3), 5},
-      {wired_span_of((const u8*)"high", 4), 1},
-      {wired_span_of((const u8*)"mid", 3), 3},
-  };
-  CHECK(dgpriority_pick(c, 3) == 1);
-}
-
-/* A tie in urgency keeps the earliest candidate (deterministic, stable
- * priority-then-arrival order). */
-static void test_dgpriority_pick_tie_keeps_earliest(void) {
-  dgpriority_candidate c[2] = {
-      {wired_span_of((const u8*)"first", 5), 3},
-      {wired_span_of((const u8*)"second", 6), 3},
-  };
-  CHECK(dgpriority_pick(c, 2) == 0);
-}
-
-/* An empty candidate list has nothing to pick. */
-static void test_dgpriority_pick_empty(void) {
-  CHECK(dgpriority_pick(0, 0) == -1);
-}
-
 /* RFC 9221 5.1: a DATAGRAM's urgency compares directly against a stream's
  * urgency (e.g. h3_priority.urgency) on the same 0..7 scale -- a
  * DATAGRAM with urgency 1 outranks a default-priority (3) stream. */
@@ -53,8 +27,5 @@ static void test_dgpriority_compares_against_stream_urgency(void) {
 void test_dgpriority(void) {
   test_dgpriority_valid();
   test_dgpriority_higher();
-  test_dgpriority_pick_selects_most_urgent();
-  test_dgpriority_pick_tie_keeps_earliest();
-  test_dgpriority_pick_empty();
   test_dgpriority_compares_against_stream_urgency();
 }

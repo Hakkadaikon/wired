@@ -7,28 +7,3 @@ int dgpriority_valid(u8 u) { return u <= DGPRIORITY_MAX; }
  * more urgent) so a DATAGRAM's urgency and a stream's urgency compare
  * directly. */
 int dgpriority_higher(u8 urg_a, u8 urg_b) { return urg_a < urg_b; }
-
-/* 1 if candidate i outranks the current best (strictly more urgent; ties
- * keep the earlier index, so pick_step never overwrites on equal urgency). */
-static int outranks_best(
-    const dgpriority_candidate* candidates, usz best, usz i) {
-  return dgpriority_higher(candidates[i].urgency, candidates[best].urgency);
-}
-
-/* candidates[0..n) is non-empty: scan for the most urgent index. */
-static usz pick_best(const dgpriority_candidate* candidates, usz n) {
-  usz best = 0;
-  for (usz i = 1; i < n; i++) {
-    if (outranks_best(candidates, best, i)) {
-      best = i;
-    }
-  }
-  return best;
-}
-
-i64 dgpriority_pick(const dgpriority_candidate* candidates, usz n) {
-  if (n == 0) {
-    return -1;
-  }
-  return (i64)pick_best(candidates, n);
-}

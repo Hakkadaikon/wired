@@ -30,16 +30,4 @@ int dgpriority_valid(u8 u);
  * "higher" either way -- the caller picks its own tie-break (e.g. FIFO). */
 int dgpriority_higher(u8 urg_a, u8 urg_b);
 
-/** One DATAGRAM send candidate: the payload to send and its urgency. */
-typedef struct {
-  wired_span data;
-  u8         urgency;
-} dgpriority_candidate;
-
-/* Scan candidates[0..n) and return the index of the one with the highest
- * priority (lowest urgency); ties keep the earliest (lowest index), so
- * calling this repeatedly over a stable list drains it in a deterministic,
- * priority-then-arrival order. Returns -1 if n == 0. */
-i64 dgpriority_pick(const dgpriority_candidate* candidates, usz n);
-
 #endif
