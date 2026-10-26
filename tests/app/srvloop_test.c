@@ -6837,6 +6837,156 @@ static void test_srvloop_h3ctrl_critical_close(void) {
   CHECK(h3c_err(&f) == 0);
 }
 
+/* RFC 9000 12.2: a coalesced packet that fails to decrypt is dropped on its
+ * own -- the Finished behind an undecryptable lead still confirms. */
+static void test_srvloop_coalesced_undecryptable_lead_skipped(void) {
+  struct lp_fix f;
+  u8            lead[256], rest[512], dg[1024], out[1024];
+  u8            padding[1] = {0x00};
+  usz           lead_len, rest_len, off = 0;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  lead_len = client_seal_handshake(&f, padding, 1, lead, sizeof lead);
+  lead[lead_len - 1] ^= 0x01; /* break the lead's AEAD tag */
+  rest_len =
+      client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, rest, sizeof rest);
+  bytes_memcpy(dg, lead, lead_len);
+  off = lead_len;
+  bytes_memcpy(dg + off, rest, rest_len);
+  off += rest_len;
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+}
+
+/* RFC 9000 10.3: a short-header packet under 21 bytes cannot be a valid
+ * QUIC packet and is discarded: the same 1-RTT PING cut to 20 bytes is
+ * neither recorded nor answered nor an error. */
+static void test_srvloop_too_small_packet_discarded(void) {
+  struct lp_fix f;
+  u8            out[1024], ping[1] = {0x01}, spkt[256];
+  usz           slen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
+  CHECK(slen > 20);
+  ob = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, 20), &ob);
+  CHECK(recvpn_seen(&f.l.ack_recv.r[PNS_APP], 9) == 0);
+  CHECK(f.l.transport_error == 0);
+  CHECK(ob.len == 0);
+}
+
+/* RFC 9000 17.1 / RFC 9001 5.4.2 / 9.5: every packet number is sent on 4
+ * bytes whatever its value -- the full number while no acknowledgment has
+ * arrived, an encoded size that reveals nothing about it, and with the
+ * 16-byte tag at least 4 bytes beyond the header protection sample. */
+static void test_srvloop_send_pn_fixed_four_bytes(void) {
+  static const u64 pns[4] = {0, 0xff, 0x10000, 0x7fffffff};
+  struct lp_fix    f;
+  u8               out[1024], pkt[256];
+  wired_obuf       ob = {out, sizeof out, 0};
+  const u8*        pl;
+  usz              pll, n;
+  lp_confirm(&f, &ob);
+  for (usz i = 0; i < 4; i++) {
+    n = lp_seal_ping(&f, pns[i], pkt, sizeof pkt);
+    CHECK(n >= 1 + f.l.cli_scid_len + 4 + 16); /* pn + sample-sized ct */
+    CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1);
+    CHECK((pkt[0] & 0x03) == 0x03); /* unmasked: pn_len - 1 == 3 */
+    CHECK(be_get_be32(pkt + 1 + f.l.cli_scid_len) == (u32)pns[i]);
+  }
+}
+
+/* RFC 9000 12.4: a packet always carries a frame -- asked to seal an empty
+ * payload, the server pads it rather than sending a frameless packet. */
+static void test_srvloop_send_empty_payload_has_frame(void) {
+  struct lp_fix         f;
+  u8                    out[1024], pkt[256];
+  wired_obuf            ob = {out, sizeof out, 0};
+  const u8*             pl;
+  usz                   pll;
+  wired_srvloop_send_in sin;
+  lp_confirm(&f, &ob);
+  sin = (wired_srvloop_send_in){
+      wired_span_of(f.l.cli_scid, f.l.cli_scid_len),
+      30,
+      -1,
+      wired_span_of(0, 0),
+      0,
+      0,
+      0,
+      0};
+  ob = obuf_of(pkt, sizeof pkt);
+  if (!wired_srvloop_send_onertt(&f.s, &sin, &ob)) {
+    return; /* refusing is as good as never sending it */
+  }
+  CHECK(client_open_onertt(&f, pkt, ob.len, &pl, &pll) == 1);
+  CHECK(pll > 0);
+}
+
+/* RFC 9000 13.2.1: the bare ACK owed for a received PING carries no
+ * ack-eliciting frame (no PING tacked on), and it is the only one: once
+ * taken, nothing more is owed for that packet. */
+static void test_srvloop_ack_only_stays_non_eliciting(void) {
+  struct lp_fix f;
+  u8            out[1024], ping[1] = {0x01}, spkt[256], ack[128];
+  usz           slen, al;
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  al = wired_srvloop_ack_peek(&f.l, ack, sizeof ack);
+  CHECK(al > 0);
+  CHECK(framewalk_ack_eliciting(wired_span_of(ack, al)) == 0);
+}
+
+/* RFC 9001 4.1.4: Handshake and 0-RTT keys are both readable at once -- a
+ * 0-RTT PING coalesced ahead of the client Finished opens (App pn 3
+ * recorded) and the Finished still confirms. */
+static void test_srvloop_zerortt_and_handshake_read_together(void) {
+  struct lp_fix f;
+  u8            zp[256], hp[512], dg[1024], out[1024];
+  usz           zn, hn;
+  wired_obuf    ob = {out, sizeof out, 0};
+  srvloop_zrtt_fix(&f);
+  lp_make_client_finished(&f);
+  zn = srvloop_zrtt_ping(&f, 0xd3, 3, zp);
+  hn = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, hp, sizeof hp);
+  CHECK(zn != 0 && hn != 0);
+  bytes_memcpy(dg, zp, zn);
+  bytes_memcpy(dg + zn, hp, hn);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, zn + hn), &ob);
+  CHECK(f.l.app_rx_seen == 1 && f.l.app_rx_pn == 3);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+}
+
+/* RFC 9000 7.4.1 / 17.2.2.1: 0-RTT data past the limits the client
+ * remembered (never above the current ones, sdrv_early_limits_ok) is held
+ * to them like 1-RTT data: past MAX_DATA it latches FLOW_CONTROL_ERROR. */
+static void test_srvloop_zerortt_over_limit_flow_control_error(void) {
+  static const u8 data[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  struct lp_fix   f;
+  u8              out[1024], pkt[256], fr[64];
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {0, 0, sizeof data, data, 0};
+  usz             fl = frame_put_stream(fr, sizeof fr, &sf), n;
+  srvloop_zrtt_fix(&f);
+  f.l.rx_max_data = 4; /* the remembered initial_max_data */
+  n               = srvloop_zrtt_seal(
+      &f, 0xd3, 3, wired_span_of(fr, fl), wired_mspan_of(pkt, sizeof pkt));
+  CHECK(n != 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, n), &ob);
+  CHECK(f.l.transport_error == ERR_FLOW_CONTROL_ERROR);
+}
+
 void test_srvloop(void) {
   test_srvloop_h3ctrl_control_frames();
   test_srvloop_h3ctrl_stream_creation();
@@ -7010,6 +7160,13 @@ void test_srvloop(void) {
   test_srvloop_recv_failed_decrypt_does_not_advance_generation();
   test_srvloop_send_below_aead_limit_keeps_generation();
   test_srvloop_send_pads_short_packet();
+  test_srvloop_coalesced_undecryptable_lead_skipped();
+  test_srvloop_too_small_packet_discarded();
+  test_srvloop_send_pn_fixed_four_bytes();
+  test_srvloop_send_empty_payload_has_frame();
+  test_srvloop_ack_only_stays_non_eliciting();
+  test_srvloop_zerortt_and_handshake_read_together();
+  test_srvloop_zerortt_over_limit_flow_control_error();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();
