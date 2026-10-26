@@ -16,6 +16,7 @@ import apply_triage  # noqa: E402
 import ledger_check  # noqa: E402
 import ledger_table  # noqa: E402
 import merge  # noqa: E402
+import reach  # noqa: E402
 
 
 def row(**kw):
@@ -93,6 +94,7 @@ class LedgerCheckTest(InTmp):
 
     def test_main_counts_and_errors(self):
         self.write("tests/x/a.c", "void test_ok(void) {}\n")
+        self.write("tests/run.c", "int main(void) { test_ok(); }\n")
         self.write(
             "l.md",
             "\n".join(
@@ -127,6 +129,66 @@ class LedgerCheckTest(InTmp):
         self.write("l.md", line() + "\n")
         with redirect_stdout(io.StringIO()):
             self.assertEqual(ledger_check.main("l.md"), 0)
+
+
+class ReachTest(InTmp):
+    def setUp(self):
+        super().setUp()
+        self.write(
+            "src/m/m.c",
+            "/* dead_fn() in a comment is no call */\n"
+            "static int helper(int x) { return x; }\n"
+            "int live_fn(int x) { return helper(x); }\n"
+            "int dead_fn(void) { return 0; }\n"
+            "#define VIA_MACRO(x) tabled_fn(x)\n"
+            "int tabled_fn(int x) { return x; }\n"
+            "static int (*const tbl[])(int) = {live_fn};\n",
+        )
+        self.write(
+            "examples/e/main.c",
+            "__attribute__((noreturn)) void entry(void) { tbl[0](1); VIA_MACRO(2); }\n",
+        )
+        self.write("tests/m_test.c", "void test_live(void) { live_fn(1); }\n")
+        self.write("tests/u_test.c", "void test_unwired(void) { live_fn(1); }\n")
+        self.write("tests/d_test.c", "void test_dead(void) { dead_fn(); }\n")
+        self.write("tests/run.c", "int main(void) { test_live(); test_dead(); }\n")
+
+    def errors(self, ours, test):
+        r = row(status="done", verdict="already-safe", ours=ours, test=test)
+        return reach.check([r])
+
+    def test_live_code_and_reaching_test_pass(self):
+        self.assertEqual(self.errors("src/m/m.c:live_fn (helper)", "test_live"), [])
+        self.assertEqual(self.errors("m.c:tabled_fn", ""), [])
+
+    def test_dead_code_flagged(self):
+        self.assertEqual(
+            self.errors("src/m/m.c:dead_fn", "test_dead"),
+            ["V-0001: not on production path: dead_fn"],
+        )
+
+    def test_dead_pointers_flagged(self):
+        self.assertEqual(
+            self.errors("src/m/gone.c:gone_fn", ""),
+            [
+                "V-0001: cited file missing: src/m/gone.c",
+                "V-0001: unknown symbol: gone_fn",
+            ],
+        )
+
+    def test_test_wiring_and_reach(self):
+        self.assertEqual(
+            self.errors("live_fn", "test_unwired"),
+            ["V-0001: test not wired into tests/run.c: test_unwired"],
+        )
+        self.assertEqual(
+            self.errors("tabled_fn", "test_live"),
+            ["V-0001: test does not reach cited code: test_live"],
+        )
+
+    def test_open_and_na_rows_skipped(self):
+        r = row(status="done", verdict="n/a", ours="dead_fn")
+        self.assertEqual(reach.check([r, row(ours="dead_fn")]), [])
 
 
 class ApplyTriageTest(InTmp):

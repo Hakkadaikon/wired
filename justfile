@@ -110,6 +110,11 @@ features-check:
 py-check:
     sh scripts/just/py_check.sh
 
+# Vulnerability ledger: row rules plus reachability of every closed row's
+# cited code (from examples/) and test (from tests/run.c).
+vuln-check:
+    python3 scripts/vulnaudit/ledger_check.py docs/security/vuln-ledger.md
+
 # Shell: shellcheck every tracked .sh; justfile in `just --fmt` form.
 sh-check:
     sh scripts/just/sh_check.sh

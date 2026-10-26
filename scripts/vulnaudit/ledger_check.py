@@ -2,8 +2,10 @@
 """Check docs/security/vuln-ledger.md rows and print per-section counts.
 
 Rules: a `done` row needs Verdict `fixed|already-safe` with Test and Commit
-filled, or Verdict `n/a` with a Rationale (rows: ledger_table.py). Exits 1 on
-any violation or duplicate id. Usage: ledger_check.py <ledger.md>
+filled, or Verdict `n/a` with a Rationale (rows: ledger_table.py), and a
+closed `fixed`/`already-safe` row must cite production-path code and a wired
+test that reaches it (reach.py). Exits 1 on any violation or duplicate id.
+Usage: ledger_check.py <ledger.md>
 """
 
 import re
@@ -11,6 +13,7 @@ import sys
 from collections import defaultdict
 from operator import itemgetter
 
+import reach
 from ledger_table import parse
 
 
@@ -104,6 +107,7 @@ def print_counts(counts):
 def main(path):
     rows = parse(open(path, encoding="utf-8").read().splitlines())
     bad, counts = check_rows(rows, known_tests())
+    bad += reach.check(rows)
     print_counts(counts)
     for b in bad:
         print("ERROR", b)
