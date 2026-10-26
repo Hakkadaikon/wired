@@ -120,7 +120,7 @@ int srvrun_owes_goaway(const srvrun_conn* c) {
 /* 1 iff data can join c's pending queue: our SETTINGS went out (RFC 9297
  * 2.1), it fits one entry, and the queue has room. */
 static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
-  if (!c->l.h3.settings_sent) {
+  if (!srvrun_h3_datagram_ok(c)) {
     return 0;
   }
   return data.n <= sizeof c->dg_pending_buf[0] &&
@@ -147,17 +147,17 @@ static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
  * advertised max_datagram_frame_size (RFC 9221 3) is enforced later, at send
  * time, by srvrun_send_pending_datagram.
  *
- * RFC 9297 2.1: an endpoint MUST NOT send a QUIC DATAGRAM frame before it has
- * sent its own SETTINGS_H3_DATAGRAM=1 (SETTINGS are never acked in HTTP/3, so
- * "sent" -- not "peer-observed" -- is the enforceable half of the ordering).
- * c->l.h3.settings_sent is that exact flag (set by wired_h3srv_open_control,
- * called at handshake confirmation before any response); silently drop the
- * queue request rather than invent a new error path, matching this being a
- * self-imposed ordering constraint, not a peer-facing fault.
+ * RFC 9297 2.1.1: an endpoint MUST NOT send a QUIC DATAGRAM frame until
+ * SETTINGS_H3_DATAGRAM=1 has been both sent (c->l.h3.settings_sent, set by
+ * wired_h3srv_open_control at handshake confirmation) and received from the
+ * client (srvrun_h3_datagram_ok); silently drop the queue request rather
+ * than invent a new error path, matching this being an ordering constraint
+ * on our own sends, not a peer-facing fault.
  * ponytail: unused in the freestanding build (only tests/run.c calls this),
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
  * @return 1 if queued, 0 if data.n exceeds one entry's capacity, the queue
- * is full, or our own SETTINGS have not been sent yet (RFC 9297 2.1) */
+ * is full, or SETTINGS_H3_DATAGRAM=1 is not both sent and received yet
+ * (RFC 9297 2.1.1) */
 int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
   usz i = (c->dg_pending_head + (usz)c->dg_pending) % SRVRUN_DG_PENDING_Q;
   if (!srvrun_dg_queueable(c, data)) {

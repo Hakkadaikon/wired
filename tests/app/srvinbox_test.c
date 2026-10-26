@@ -158,10 +158,11 @@ static void test_srvinbox_thread_stress(void) {
  * a real confirmed WT connection reaches, without running any handshake.
  * Mirrors srvthreads_datagram_test.c's sdt_mark_wt_active (same unity TU). */
 static void sib_mark_wt_active(srvrun_conn* c) {
-  *c                    = (srvrun_conn){0};
-  c->up                 = 1;
-  c->wt_active          = 1;
-  c->l.h3.settings_sent = 1;
+  *c                      = (srvrun_conn){0};
+  c->up                   = 1;
+  c->wt_active            = 1;
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   wired_wt_session_init(&c->wt, 0);
   wired_wt_session_establish(&c->wt);
 }

@@ -3,6 +3,7 @@
 static int  srvrun_stream_id_is_client_bidi(u64 stream_id);
 static void srvrun_reject_wt_bad_id(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r);
+static int srvrun_wt_peer_reset_at_ok(const srvrun_conn* c);
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
  * handler's first round, then frame+arm the response -- H3-framed or
@@ -119,18 +120,36 @@ int srvrun_wt_settings_ready(const srvrun_conn* c) {
   return c->l.h3peer.ctrl.settings_seen != 0;
 }
 
-/* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-007): "If the server receives ...
- * transport parameters that do not have correct values for every required
- * WebTransport ... parameter, then the server shall treat ... newly incoming
- * WebTransport sessions as malformed." RFC 9297 2.1.1 requires a peer that
- * wants HTTP Datagrams (which every WebTransport session rides on, SS4.5) to
- * advertise a non-zero max_datagram_frame_size transport parameter (0 is
- * this repo's existing "not advertised" sentinel, c->s.sdrv's own doc) -- a
- * WT CONNECT from a peer that never advertised it is exactly this "incorrect
- * value for a required parameter" case, so newly incoming sessions are
- * rejected rather than established malformed. */
-int srvrun_wt_tp_ok(const srvrun_conn* c) {
-  return c->s.sdrv.peer_max_datagram_frame_size != 0;
+/* draft-ietf-webtrans-http3-16 3.1 (WTH3-007): a WebTransport client sends
+ * SETTINGS_H3_DATAGRAM=1, a non-zero max_datagram_frame_size TP (0 is
+ * c->s.sdrv's "not advertised" sentinel) and an empty reset_stream_at TP;
+ * "If the server receives SETTINGS that do not have correct values for every
+ * required setting, or transport parameters that do not have correct values
+ * for every required transport parameter, the server MUST treat all
+ * established and newly incoming WebTransport sessions as malformed".
+ * reset_stream_at is required only of a client using the -15+
+ * "webtransport-h3" token: the draft-07 "webtransport" token every deployed
+ * browser sends predates that requirement. No session can be established
+ * before the client's SETTINGS (WTH3-009 hold) and a second SETTINGS frame
+ * is a connection error (RFC 9114 7.2.4), so checking each CONNECT here
+ * covers the established sessions too. */
+static int srvrun_wt_peer_reset_at_ok(const srvrun_conn* c) {
+  return c->s.sdrv.peer_reset_stream_at || !srvrun_wt_protocol_is_h3(&c->l.req);
+}
+
+int srvrun_wt_peer_ok(const srvrun_conn* c) {
+  return c->s.sdrv.peer_max_datagram_frame_size != 0 &&
+         c->l.h3peer.h3_datagram && srvrun_wt_peer_reset_at_ok(c);
+}
+
+/* RFC 9114 4.1.2: a malformed request is a stream error of type
+ * H3_MESSAGE_ERROR -- RESET_STREAM + STOP_SENDING, no response (r is handed
+ * back unused) and no session, its request slot freed. */
+void srvrun_reject_wt_malformed(
+    const srvrun_cfg* cfg, srvrun_conn* c, srvrun_resp* r) {
+  r->in_use = 0;
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, H3_MESSAGE_ERROR);
+  wired_srvloop_slot_release(&c->l, c->l.req_stream_id);
 }
 
 /* WTH3-009/042: hold this CONNECT until the client's SETTINGS arrive --

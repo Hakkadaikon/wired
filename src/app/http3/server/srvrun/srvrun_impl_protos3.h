@@ -67,7 +67,6 @@ void srvrun_dispatch_wt(
 void srvrun_dispatch_wt_resource(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r);
 int  srvrun_wt_settings_ready(const srvrun_conn* c);
-int  srvrun_wt_tp_ok(const srvrun_conn* c);
 void srvrun_wt_hold(srvrun_conn* c, srvrun_resp* r);
 void srvrun_dispatch_wt_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r);

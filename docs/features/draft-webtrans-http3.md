@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 67/81 tested, 11 indirect, 3 untested.**
+**Coverage: 69/81 tested, 9 indirect, 3 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -49,16 +49,26 @@ Legend:
 - [x] WTH3-006 (§3.1) The server shall send an empty reset_stream_at
   transport parameter to enable the RESET_STREAM_AT extension.
   - test: `tests/tls/server_tp_test.c` — `test_server_tp_reset_stream_at_empty`
-- [~] WTH3-007 (§3.1) If the server receives SETTINGS or transport
+- [x] WTH3-007 (§3.1) If the server receives SETTINGS or transport
   parameters that do not have correct values for every required
   WebTransport setting/parameter, then the server shall treat all
   established and newly incoming WebTransport sessions as malformed.
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_settings_h3_datagram_required`
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_no_datagram_tp_malformed`
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_h3_token_requires_reset_stream_at`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_held_connect_rejected_after_settings`
-  - evidence: `srvrun_wt_tp_ok` rejects a newly incoming CONNECT when the
-    peer never advertised `max_datagram_frame_size`; the client's
-    SETTINGS_H3_DATAGRAM and reset_stream_at are not checked, and only newly
-    incoming sessions are gated, not already-established ones.
+  - evidence: a CONNECT is reset with H3_MESSAGE_ERROR (RFC 9114 4.1.2)
+    unless the client sent SETTINGS_H3_DATAGRAM=1, a non-zero
+    max_datagram_frame_size and -- for the `webtransport-h3` token; the
+    draft-07 `webtransport` token predates it -- reset_stream_at
+    (`srvrun_wt_peer_ok`). No session can be established before the
+    client's SETTINGS (WTH3-009) and a second SETTINGS frame is a
+    connection error, so the per-CONNECT check also covers established
+    sessions.
 - [x] WTH3-008 (§3.1, §7.1) For draft versions of WebTransport, the server
   shall send SETTINGS_WT_ENABLED with the codepoint of each draft version
   it supports, so the peer can identify the supported version(s).
@@ -89,13 +99,12 @@ Legend:
     `test_srvrun_wt_connect_webtransport_token`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_plain_connect_no_protocol_no_wt_session`
-- [~] WTH3-011 (§3.2) The `:scheme` field of a WebTransport CONNECT request
+- [x] WTH3-011 (§3.2) The `:scheme` field of a WebTransport CONNECT request
   shall be https.
-  - evidence: `wt_ext_fields_present` (srvrun_wt_protocol.c) requires
-    `:scheme` to be present (`tests/app/srvrun_test.c` —
-    `test_srvrun_wt_connect_missing_scheme_no_session`) but does not check
-    that its value equals "https"; no test asserts rejection of a
-    non-https `:scheme`.
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_connect_http_scheme_malformed`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_missing_scheme_no_session`
 - [x] WTH3-012 (§3.2) Both the `:authority` and `:path` values shall be set
   on a WebTransport CONNECT request; these fields identify the desired
   WebTransport server resource.
