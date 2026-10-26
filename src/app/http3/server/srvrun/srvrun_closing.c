@@ -24,7 +24,8 @@ int srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot) {
   return 1;
 }
 
-/* One slot's tick work on a poll timeout: post-confirm PTO probe/teardown,
+/* One slot's tick work on a poll timeout: post-confirm PTO probe/teardown
+ * and a send pass for queued stream data,
  * boot-stage PTO probe/teardown (mutually exclusive -- srvrun_pto_armed
  * requires confirmation, and
  * srvrun_boot_pto_waiting requires !confirmed), then flush any queued
@@ -37,6 +38,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_loss_timer_slot(ctx, slot);
   srvrun_ack_tick_slot(ctx, slot);
   srvrun_pto_slot(ctx, slot);
+  srvrun_send_tick_slot(ctx, slot);
   srvrun_boot_pto_slot(ctx, slot);
   srvrun_grant_retry_slot(ctx, slot);
   srvrun_rst_retry_slot(ctx, slot);

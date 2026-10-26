@@ -20137,6 +20137,31 @@ static void test_srvrun_wt_close_flushes_on_poll_tick_alone(void) {
   CHECK(c->wt.state == WIRED_WT_CLOSED);
 }
 
+/* SEND FLUSHES ON A POLL TICK ALONE: stream data the app queues from
+ * another connection's callback (a MoQT hub's NAMESPACE_DONE push when a
+ * publisher leaves) goes out on the next poll tick with no packet from
+ * this peer and no PTO due -- the tick pumps every slot with a send
+ * session active, not only one whose probe timer fired. */
+static void test_srvrun_wt_send_flushes_on_poll_tick_alone(void) {
+  static const u8 body[] = "push";
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  srvrun_conn*    c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) > 0);
+  CHECK(srvrun_rec_eliciting(c) == 0); /* nothing sent: no PTO armed */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    CHECK(srvrun_any_waiting(&st) == 1);
+    srvrun_fire_ptos(&cfg, &st);
+  }
+  CHECK(c->wtsend[0].in_use == 1);
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
+}
+
 /* CLOSE UNKNOWN SESSION: a session pointer this env does not own resolves to
  * no connection, so nothing is latched. */
 static void test_srvrun_wt_close_session_unknown_session_refused(void) {
@@ -27241,6 +27266,7 @@ void test_srvrun(void) {
   test_srvrun_wt_close_session_truncates_at_utf8_boundary();
   test_srvrun_wt_close_session_truncates_at_invalid_byte();
   test_srvrun_wt_close_flushes_on_poll_tick_alone();
+  test_srvrun_wt_send_flushes_on_poll_tick_alone();
   test_srvrun_wt_close_session_unknown_session_refused();
   test_srvrun_send_wt_close_seals_capsule_with_fin();
   test_srvrun_wt_close_capsule_retransmitted_after_loss();
