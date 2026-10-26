@@ -161,9 +161,14 @@ classified in either tier: `wired_server_wt_stream_reply_open`,
 `wired_server_wt_stream_hold`, `wired_server_wt_stream_reset`,
 `wired_server_wt_stream_stop`, `wired_server_wt_send_datagram_to`,
 `wired_server_wt_close_session`, `wired_server_wt_est_kbps`,
-`wired_server_wt_exporter` and
-`wired_server_broadcast_datagram_ring`. They follow the same loop-only
-rule; read each header comment before using one.
+`wired_server_wt_exporter`,
+`wired_server_broadcast_datagram_ring`,
+`wired_server_wt_send_datagram_prio` and
+`wired_server_broadcast_datagram_prio`. They follow the same loop-only
+rule; read each header comment before using one. The two `_prio` calls
+take an urgency from 0 (most urgent) to 7 (RFC 9221 §5.1). Queued
+datagrams go out most urgent first, in call order within one urgency;
+the calls without `_prio` use 3.
 
 ### Requests and responses
 
