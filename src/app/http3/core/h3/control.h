@@ -37,9 +37,6 @@ void h3_control_init(h3_control* c);
  */
 void h3_control_open(h3_control* c);
 
-/* The control stream closed: a CLOSED_CRITICAL_STREAM error. */
-void h3_control_closed(h3_control* c);
-
 /* A control-stream frame arrived; is_settings marks the SETTINGS type. The
  * first frame must be SETTINGS (else MISSING_SETTINGS); a later SETTINGS is
  * FRAME_UNEXPECTED. */
@@ -48,10 +45,6 @@ void h3_control_frame(h3_control* c, int is_settings);
 /* A GOAWAY with `id` arrived. Accepted if not greater than a prior GOAWAY id;
  * an increase is an ID error. */
 void h3_control_goaway(h3_control* c, u64 id);
-
-/* Whether a new request with `id` may be accepted: not after a GOAWAY whose
- * limit it reaches (RFC 9114 5.2). Existing requests are unaffected. */
-int h3_control_accept_request(const h3_control* c, u64 id);
 
 /* RFC 9114 8.1: the wire error code for a latched h3_error (0 for
  * H3_ERR_NONE). */

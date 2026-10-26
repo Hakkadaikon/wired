@@ -20,12 +20,13 @@ lists the capacities an application meets first and the MoQT parts that are
 not implemented. This page adds what the guide does not cover: the effect of
 each overflow, the less visible limits, and the reason for each deviation.
 Where the two pages disagree, the values on this page are taken from the
-current code (checked on 2026-10-15) and win.
+current code (checked on 2026-10-27) and win.
 
 The entries come from three places:
 
-- `ponytail:` comments in `src/`. This is the repo's marker for a limitation
-  that was accepted on purpose, with a note on how to lift it.
+- `ponytail:` and `shortcut:` comments in `src/`. These are the repo's
+  markers for a limitation that was accepted on purpose, with a note on how
+  to lift it.
 - The "Not implemented" and "Out of scope" sections and the untested items of
   the per-spec ledgers in this directory (one Markdown file per RFC or
   draft).
@@ -50,6 +51,7 @@ Contents: [MoQT relay (hub)](#moqt-relay-hub) |
 [TLS 1.3](#tls-13) | [Cryptography](#cryptography) |
 [Platform / I/O](#platform--io) | [Capacity limits](#capacity-limits) |
 [Testing and verification gaps](#testing-and-verification-gaps) |
+[Library code not reached by the shipped server](#library-code-not-reached-by-the-shipped-server) |
 [Out of scope by design](#out-of-scope-by-design)
 
 ---
@@ -263,7 +265,7 @@ The limits:
   Affects: subscribers that read Track Properties. The publisher's Track
   Properties reach a subscriber's SUBSCRIBE_OK unless it sent
   INCLUDE_PROPERTIES (0x35, d22 9.20.21) = 0. A block longer than
-  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (32) is forwarded empty. TRACK_STATUS_OK,
+  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (96) is forwarded empty. TRACK_STATUS_OK,
   FETCH_OK and the PUBLISH of a SUBSCRIBE_TRACKS carry none. Source:
   `moqtrun_queue_subscribe_ok`.
 - **Padding Datagrams are not sent** — Affects: deployments that need
@@ -545,6 +547,13 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   `SRVRUN_DGRING_DRAIN_MAX` (16) datagrams or `SRVRUN_DGRING_DRAIN_BYTES`
   (3000) bytes every `SRVRUN_DGRING_DRAIN_MS` (5 ms), about 4.8 Mbps. Source:
   `SRVRUN_DGRING_DRAIN_MAX` (ponytail).
+- **Datagram ring slots and broadcast urgency** — Affects: apps that send
+  HTTP Datagrams at mixed urgencies. An entry drained ahead of the ring head
+  keeps its slot until the head passes it, so a long stall of low-urgency
+  entries shrinks the free space of the 256-entry ring. A broadcast copied
+  to another worker thread loses its urgency and is queued there at the
+  default (3). Source: `srvrun_dgring_send_best`,
+  `srvrun_broadcast_registered` (shortcut).
 - **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
   sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
   counts WT streams, streamed request bodies, CONNECT-stream capsules and the
@@ -615,7 +624,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   (`on_body`) is skipped unacknowledged, which keeps its references pinned
   for the connection's life. The acknowledgment queue holds one step's
   worth; it drops entries only if the peer grants the decoder stream no
-  credit. The server's own encoder table stays at capacity 0, and response
+  credit. Decoder instructions that arrive past a gap (reordered ahead of
+  earlier bytes) are dropped, and reading that stream stops at the gap for
+  good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
+  own encoder table stays at capacity 0, and response
   strings are never Huffman-coded. Source: [rfc9204.md](rfc9204.md),
   [rfc7541.md](rfc7541.md) Out of scope.
 - **HTTP semantics are the application's** — Affects: every HTTP app. The
@@ -656,7 +668,7 @@ recently sent headers, updated over its own encoder and decoder streams.
   Source: `body_window.h`, `control_settings.h`.
 - **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
   stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
-  one abort per stream the connection can track (93). If more than that many
+  one abort per stream the connection can track (99). If more than that many
   aborts are unacknowledged within one RTT, the excess ones are sent once and
   never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
 - **A request that cannot be decoded is aborted, not answered** — Affects:
@@ -697,6 +709,16 @@ recently sent headers, updated over its own encoder and decoder streams.
 
 ## QUIC transport
 
+- **Handshake bytes in flight are approximate** — Affects: congestion
+  control while the handshake runs. Initial and Handshake packets keep no
+  per-packet ACK record, so their bytes stay in flight until the keys are
+  discarded (an over-count), and a replayed datagram that the
+  anti-amplification budget held back can be under-counted. Source:
+  `srvrun_boot_inflight` (shortcut).
+- **Very old stream IDs count as retired** — Affects: nobody in practice.
+  Receive accounting remembers retired stream IDs in a window; an ID below
+  the window's ceiling is treated as already fully counted. Source:
+  `srvloop_rxacct_entry` (shortcut).
 - **NEW_TOKEN tokens are sent once and checked per process** — Affects:
   clients that reconnect with a NEW_TOKEN token, and `srvworkers`
   deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
@@ -784,11 +806,12 @@ The next two entries concern lower-level entry points. The server that
   64 connections. `WIRED_CONNTABLE_CAP` is 64 slots, searched by linear
   scan. Source: `conntable.h` header comment (ponytail).
 - **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
-  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints, and the
-  oldest is evicted, so a ticket seen 4096 resumptions ago could be replayed
-  once more. Forked workers share the ring; separate server processes and
-  restarts do not (no persistence). Replay of an evicted entry is bounded by
-  the ticket lifetime. Source: `zerortt_seen.h`
+  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints. An entry is
+  evicted only once a replay of it can no longer pass the freshness check
+  (`ZERORTT_SEEN_LIVE_SECS`, 21 s); while the ring is full of live entries,
+  new 0-RTT attempts are refused and those clients fall back to 1-RTT
+  (RFC 8446 8.2). Forked workers share the ring; separate server processes
+  and restarts do not (no persistence). Source: `zerortt_seen.h`
   (ponytail).
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
@@ -1044,7 +1067,7 @@ the value here is the current one.
 | `WIRED_MOQTRUN_MAX_FETCHES` (+ fetch_waits) | 8 (+8) | FETCHes and fills served | REQUEST_ERROR INTERNAL_ERROR |
 | `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` | 2000 | upstream FETCH leg time | leg ends |
 | `WIRED_MOQTRUN_RELAY_FRAG_MAX` | 16384 | torn Object held whole | larger payload passes through |
-| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 32 | Track Properties forwarded | forwarded empty |
+| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 96 | Track Properties forwarded | forwarded empty |
 | `WIRED_MOQTRUN_RESET_AFTER_BUSY` | 8 | refused rounds on the lossy path | subscriber stream reset |
 | `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | drain grace | session closed after 1 s, acked or not |
 | `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | wait after PUBLISH_DONE | remaining streams reset |
@@ -1076,7 +1099,7 @@ the value here is the current one.
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | received datagram queue | datagram dropped |
 | `BODYWIN_CAP` | 10240 | request body window | 413/431 or FLOW_CONTROL_ERROR |
 | `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | control stream backlog | H3_EXCESSIVE_LOAD |
-| `SRVRUN_RST_RETX` | 93 | aborts awaiting ACK | excess sent once |
+| `SRVRUN_RST_RETX` | 99 | aborts awaiting ACK | excess sent once |
 | `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |
 | `WIRED_CONNTABLE_CAP` | 64 | QUIC connections | no new connection |
 | `ZERORTT_SEEN_CAP` | 4096 | 0-RTT fingerprints | oldest evicted |
@@ -1135,6 +1158,89 @@ Notes on the two send-side buffers:
   no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
   AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
   case. Source: [BoringSSL vectors](../security/boringssl-vectors.md).
+
+## Library code not reached by the shipped server
+
+Issue #24 decided to delete code that nothing calls, keeping only what the
+fuzz harnesses, the guide snippets, the examples or a behavior test of a
+shipped path use. The function-level deletions are done. The 102 source
+files below are still compiled into the library and unit-tested, but no
+`examples/` server reaches them: their only callers are their own tests in
+`tests/` (plus, for `tls/handshake/roles/client/client.c`, the TLS client
+that the test suite uses as a peer). No guide snippet or example includes
+any of them; the three marked "fuzzed" are also built into a fuzz harness.
+They are kept for now because deleting about 100 files at once is outside
+#24's list; each is a candidate for a later deletion pass, and a ledger row
+that cites only one of them is not evidence for the shipped server.
+
+- **Unreached files** — Affects: readers who take a passing unit test as
+  proof that the server does it. Source: `tests/run.c` includes, compared
+  against the includes reachable from `examples/`.
+  - `app/datagram/datagram/`: `dgsize.c`
+  - `app/http3/core/h3/`: `firstframe.c`, `goaway_check.c`, `h3dgram.c`,
+    `qpack_settings.c`, `reuse.c`, `shutdown.c`
+  - `app/http3/request/h3cancel/`: `cancel.c`
+  - `app/http3/request/h3resp/`: `hello.c`
+  - `common/diag/error/`: `codes.c`
+  - `crypto/pki/cert/certreq/`: `certreq.c`
+  - `crypto/pki/cert/tbscert/`: `version_serial.c`
+  - `crypto/pki/encoding/x509/`: `keyid.c`
+  - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
+  - `tls/handshake/core/handshake_drive/`: `retry_drive.c`, `vn_drive.c`
+  - `tls/handshake/core/hrr/`: `hrr_group.c`
+  - `tls/handshake/core/tls/`: `hsdone.c`, `keydiscard.c`,
+    `keyupdate_reject.c`, `transcript_stage.c`, `zerortt_reject.c`
+  - `tls/handshake/flight/earlydrive/`: `earlydata.c`
+  - `tls/handshake/roles/client/`: `client.c`
+  - `tls/handshake/roles/server/`: `serverio.c`
+  - `tls/handshake/roles/sflight/`: `encext.c`
+  - `tls/keys/keyupdate/`: `initiate.c`, `keyupdate.c`, `oldkey.c`
+  - `tls/keys/kudrive/`: `discard_timing.c`, `recv_phase.c`, `trigger.c`
+  - `tls/keys/kuswitch/`: `phasebit.c`
+  - `transport/conn/cid/cidxchg/`: `cidxchg.c`
+  - `transport/conn/cid/migrate/`: `migrate.c`
+  - `transport/conn/cid/path/`: `path.c`, `prefaddr.c`
+  - `transport/conn/cid/retrydrive/`: `accept.c`, `reconnect.c`, `token.c`
+  - `transport/conn/cid/sresetdrive/`: `onreset.c`, `tokenmap.c`
+  - `transport/conn/lifecycle/conn/`: `cidnego.c`, `conn.c`
+  - `transport/conn/lifecycle/connection/`: `connection.c`
+  - `transport/conn/lifecycle/endpoint/`: `endpoint.c`
+  - `transport/conn/lifecycle/fsm/`: `fsm.c`
+  - `transport/conn/lifecycle/idledrive/`: `closesend.c`, `idledrive.c`
+  - `transport/conn/lifecycle/session/`: `session.c`, `session_env.c`,
+    `session_open.c`
+  - `transport/conn/loop/driver/`: `driver.c`
+  - `transport/conn/loop/manage/`: `dosmitigate.c`, `flowobs.c`,
+    `linkability.c`
+  - `transport/conn/loop/pending1rtt/`: `pending1rtt.c`
+  - `transport/io/socket/io/`: `retransmit.c`, `udptransport.c`
+  - `transport/io/socket/net/`: `memlink.c`
+  - `transport/io/socket/poll/`: `deadline.c`
+  - `transport/io/udp/udploop/`: `txloop.c`
+  - `transport/io/udp/udpsess/`: `udpsess.c`
+  - `transport/packet/build/pktbuild/`: `eliciting.c`, `framepack.c`,
+    `initpad.c`, `paddingelicit.c`
+  - `transport/packet/frame/frame/`: `ack_range.c` (fuzzed: `fuzz_frames`,
+    `fuzz_onertt`), `close_convert.c`, `crypto_offset.c` (fuzzed:
+    `fuzz_frames`)
+  - `transport/packet/header/packet/`: `coalorder.c`, `pad.c`, `pnlen.c`
+    (fuzzed: `fuzz_onertt`)
+  - `transport/packet/header/shorthdr/`: `shorthdr.c`
+  - `transport/packet/protect/protectcs/`: `protectcs.c`
+  - `transport/recovery/congestion/cc/`: `ccphase.c`, `cwndcheck.c`
+  - `transport/recovery/congestion/cwndctl/`: `cwndctl.c`
+  - `transport/recovery/detect/ackgen/`: `ackfreq.c`, `ackgen.c`
+  - `transport/recovery/detect/ackrange/`: `ackrange_process.c`
+  - `transport/recovery/detect/losstime/`: `losstime.c`
+  - `transport/recovery/detect/recovery/`: `losstimer.c`, `ptoreset.c`,
+    `rttinit.c`, `rttsample.c`, `rttvalid.c`
+  - `transport/stream/data/stream/`: `stream_limit.c`
+  - `transport/stream/flow/flow/`: `dual_flow.c`, `stream_credit.c`,
+    `stream_flow.c`
+  - `transport/stream/flow/flowviol/`: `closeframe.c`, `flowviol.c`
+  - `transport/version/version/`: `abandon.c`, `compatnego.c`, `downgrade.c`
+  - `transport/version/versmgr/`: `v2switch.c`
+  - `transport/version/vndrive/`: `accept.c`, `reconnect.c`, `select.c`
 
 ## Out of scope by design
 

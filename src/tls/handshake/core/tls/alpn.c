@@ -25,25 +25,3 @@ usz tls_alpn_encode(wired_obuf* out, wired_span proto) {
   out->len = off;
   return off;
 }
-
-/* Validate the list framing and read the first name length into *name_len. */
-static int alpn_head(wired_span buf, usz list_len, usz* name_len) {
-  if (list_len < 1 || 2 + list_len > buf.n) {
-    return 0;
-  }
-  *name_len = buf.p[2];
-  return 1 + *name_len <= list_len;
-}
-
-usz tls_alpn_decode_first(wired_span buf, wired_span* proto) {
-  usz list_len, name_len;
-  if (buf.n < 3) {
-    return 0;
-  }
-  list_len = (usz)buf.p[0] << 8 | buf.p[1];
-  if (!alpn_head(buf, list_len, &name_len)) {
-    return 0;
-  }
-  *proto = wired_span_of(buf.p + 3, name_len);
-  return 2 + list_len;
-}

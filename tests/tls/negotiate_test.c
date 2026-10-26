@@ -41,29 +41,37 @@ void test_negotiate_truncated(void) {
   CHECK(salpn_select_h3(list, 1) == 0);
 }
 
+/* EncryptedExtensions ALPN bytes for choice via the production builder;
+ * returns the length written, 0 on refusal. */
+static usz negotiate_build(salpn_choice choice, u8* out, usz cap) {
+  wired_obuf ob = obuf_of(out, cap);
+  if (!salpn_build_response_tok(
+          salpn_choice_name(choice, wired_span_of(0, 0)), &ob)) {
+    return 0;
+  }
+  return ob.len;
+}
+
 void test_negotiate_build_response(void) {
   u8              out[24];
-  usz             n;
   static const u8 want_h3[9]  = {0x00, 0x10, 0x00, 0x05, 0x00,
                                  0x03, 0x02, 0x68, 0x33};
   static const u8 want_hq[17] = {0x00, 0x10, 0x00, 0x0d, 0x00, 0x0b,
                                  0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
                                  0x74, 0x65, 0x72, 0x6f, 0x70};
-  CHECK(salpn_build_response(SALPN_H3, out, sizeof(out), &n) == 1);
-  CHECK(n == 9);
+  CHECK(negotiate_build(SALPN_H3, out, sizeof(out)) == 9);
   for (usz i = 0; i < 9; i++) {
     CHECK(out[i] == want_h3[i]);
   }
-  CHECK(salpn_build_response(SALPN_H3, out, 8, &n) == 0); /* too small */
+  CHECK(negotiate_build(SALPN_H3, out, 8) == 0); /* too small */
 
-  CHECK(salpn_build_response(SALPN_HQ, out, sizeof(out), &n) == 1);
-  CHECK(n == 17);
+  CHECK(negotiate_build(SALPN_HQ, out, sizeof(out)) == 17);
   for (usz i = 0; i < 17; i++) {
     CHECK(out[i] == want_hq[i]);
   }
-  CHECK(salpn_build_response(SALPN_HQ, out, 16, &n) == 0); /* too small */
+  CHECK(negotiate_build(SALPN_HQ, out, 16) == 0); /* too small */
 
-  CHECK(salpn_build_response(SALPN_NONE, out, sizeof(out), &n) == 0);
+  CHECK(negotiate_build(SALPN_NONE, out, sizeof(out)) == 0);
 }
 
 void test_negotiate_selects_hq(void) {

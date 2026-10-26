@@ -10,15 +10,6 @@ static void test_h3control_single(void) {
   CHECK(c.error == H3_ERR_STREAM_CREATION);
 }
 
-/* Closing the control stream is a critical-stream error. */
-static void test_h3control_closed_critical(void) {
-  h3_control c;
-  h3_control_init(&c);
-  h3_control_open(&c);
-  h3_control_closed(&c);
-  CHECK(c.error == H3_ERR_CLOSED_CRITICAL);
-}
-
 /* The first control frame must be SETTINGS; a second SETTINGS is unexpected. */
 static void test_h3control_settings(void) {
   h3_control c;
@@ -48,21 +39,8 @@ static void test_h3control_goaway_monotone(void) {
   CHECK(c.error == H3_ERR_ID);
 }
 
-/* After GOAWAY, requests at or above the limit are refused; below pass. */
-static void test_h3control_accept_request(void) {
-  h3_control c;
-  h3_control_init(&c);
-  CHECK(h3_control_accept_request(&c, 100) == 1); /* no shutdown yet */
-  h3_control_goaway(&c, 10);
-  CHECK(h3_control_accept_request(&c, 9) == 1);  /* below limit */
-  CHECK(h3_control_accept_request(&c, 10) == 0); /* at limit refused */
-  CHECK(h3_control_accept_request(&c, 11) == 0); /* above limit refused */
-}
-
 void test_h3control(void) {
   test_h3control_single();
-  test_h3control_closed_critical();
   test_h3control_settings();
   test_h3control_goaway_monotone();
-  test_h3control_accept_request();
 }
