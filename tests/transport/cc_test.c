@@ -36,6 +36,20 @@ static void test_cc_loss_halves_floor(void) {
   CHECK(c.cwnd >= CC_MIN_WINDOW);
 }
 
+/* RFC 9002 B.5: a packet sent at the instant the recovery period began is
+ * inside it, so its loss starts no new period even after recovery ended. */
+static void test_cc_loss_at_recovery_start_ignored(void) {
+  cc c;
+  cc_init(&c);
+  cc_on_loss(&c, 5, 100);        /* period starts at t=100 */
+  cc_on_ack(&c, 1200, 101, 101); /* exits recovery */
+  u64 w = c.cwnd;
+  cc_on_loss(&c, 100, 120);
+  CHECK(c.in_recovery == 0 && c.cwnd == w);
+  cc_on_loss(&c, 101, 120); /* sent after: a new period */
+  CHECK(c.in_recovery == 1 && c.cwnd < w);
+}
+
 /* No window growth while in recovery. */
 static void test_cc_no_grow_in_recovery(void) {
   cc c;
@@ -224,6 +238,7 @@ static void test_cc_on_ack_grow_bounded_no_overflow(void) {
 }
 
 void test_cc(void) {
+  test_cc_loss_at_recovery_start_ignored();
   test_cc_no_grow_app_limited();
   test_cc_bbr_mode();
   test_cc_bbr_starved_round_cannot_lower_btl_bw();

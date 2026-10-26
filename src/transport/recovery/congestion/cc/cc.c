@@ -1,6 +1,7 @@
 #include "transport/recovery/congestion/cc/cc.h"
 
 #include "common/bytes/util/num.h"
+#include "transport/recovery/congestion/cc/ccloss.h"
 #include "transport/recovery/congestion/cc/cubic.h"
 #include "transport/recovery/congestion/cc/pacing.h"
 
@@ -98,8 +99,14 @@ static u64 loss_window(cc* c, u64 now) {
   return u64_max(c->cwnd / 2, CC_MIN_WINDOW);
 }
 
+/* RFC 9002 B.5 InCongestionRecovery: sent at or before the current period
+ * began (recovery_start 0: no period, B.8). */
+static int cc_in_period(const cc* c, u64 sent_time) {
+  return c->recovery_start && cc_in_recovery(sent_time, c->recovery_start);
+}
+
 void cc_on_loss(cc* c, u64 sent_time, u64 now) {
-  if (c->in_recovery || sent_time < c->recovery_start) {
+  if (c->in_recovery || cc_in_period(c, sent_time)) {
     return; /* once/window */
   }
   c->ssthresh       = loss_window(c, now);
