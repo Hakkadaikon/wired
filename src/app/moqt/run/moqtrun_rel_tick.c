@@ -150,6 +150,8 @@ void moqtrun_relay_continue(
   moqdata_objseq seq0;
   wired_span     whole =
       moqtrun_relay_normalize(hub, track, relay, wire, &born_ms, &seq0);
+  /* A FIN while a torn Object is held (draft-19 11.4: FIN mid-Object). */
+  moqtrun_rx_flag(hub, fin && relay->frag_len != 0);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */
   moqtrun_relay_forward(hub, track, relay, whole, seq0, fin, born_ms);

@@ -256,6 +256,68 @@ static void test_moqtrun_pubdone_malformed_after_end_of_group(void) {
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
 }
 
+/* A's Object 0 of Group 1 carrying Object Properties props, on subgroup
+ * stream 2002 (FINed) or, when dg, as an OBJECT_DATAGRAM. */
+static void mtdn_obj_props(wired_span props, int dg) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_mspan    out = wired_mspan_of(buf, sizeof buf);
+  usz            off = 0;
+  u8             b   = 0x5a;
+  moqdata_subhdr h   = {0};
+  moqdg_obj      o   = {0};
+  if (dg) {
+    o.type        = 0x01; /* PROPERTIES */
+    o.track_alias = 1;
+    o.group_id    = 1;
+    o.props       = props;
+    o.payload     = wired_span_of(&b, 1);
+    CHECK(moqdg_put(out, &off, &o));
+    wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(buf, off));
+    return;
+  }
+  h.type        = 0x31; /* 0x30 with PROPERTIES */
+  h.track_alias = 1;
+  h.group_id    = 1;
+  moqdata_subhdr_put(out, &off, &h);
+  moqvi_put(out, &off, 0);       /* Object ID Delta */
+  moqvi_put(out, &off, props.n); /* Properties Length */
+  bytes_put(out, &off, props);
+  moqvi_put(out, &off, 1); /* Payload Length */
+  bytes_put(out, &off, wired_span_of(&b, 1));
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_A, 2002, wired_span_of(buf, off), 1);
+}
+
+/* One even-Type Object Property list: type = num. */
+static wired_span mtdn_prop1(u8* buf, usz cap, u64 type) {
+  usz    n    = 0;
+  u64    prev = 0;
+  moqkvp kv   = {0};
+  kv.type     = type;
+  kv.num      = 1;
+  CHECK(moqkvp_put(wired_mspan_of(buf, cap), &n, &prev, &kv));
+  return wired_span_of(buf, n);
+}
+
+/* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): "An Object received with
+ * a Mandatory Track Property as an Object Property is malformed" -- on a
+ * subgroup stream or a datagram, B's subscription ends PUBLISH_DONE
+ * MALFORMED_TRACK (12.1); an ordinary Object Property does not. */
+static void test_moqtrun_pubdone_malformed_mandatory_obj_prop(void) {
+  u8 mand[16], app[16];
+  for (int dg = 0; dg < 2; dg++) {
+    u64 count = 0;
+    mtdn_setup();
+    mtdn_obj_props(mtdn_prop1(app, sizeof app, 0x3800), dg);
+    wired_moqt_tick(&mtst_hub, 0);
+    CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+    mtdn_setup();
+    mtdn_obj_props(mtdn_prop1(mand, sizeof mand, 0x4000), dg);
+    wired_moqt_tick(&mtst_hub, 0);
+    CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+  }
+}
+
 /* d22 12.1: a relay that detects a Malformed Track resets its fetch
  * streams of the track MALFORMED_TRACK. */
 static void test_moqtrun_pubdone_malformed_resets_fetch(void) {
@@ -336,6 +398,7 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_status_passthrough();
   test_moqtrun_pubdone_malformed_after_end_of_track();
   test_moqtrun_pubdone_malformed_after_end_of_group();
+  test_moqtrun_pubdone_malformed_mandatory_obj_prop();
   test_moqtrun_pubdone_session_close_pending();
   test_moqtrun_pubdone_reset_pending();
   test_moqtrun_pubdone_fin_after();

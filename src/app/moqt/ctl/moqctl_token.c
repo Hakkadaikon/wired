@@ -4,7 +4,6 @@ static int  moqctl_token_take_alias(wired_span v, usz* at, moqctl_token* t);
 static int  moqctl_token_at_end(wired_span v, usz at);
 static int  moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t);
 static int  moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t);
-static int  moqctl_token_take(wired_span v, moqctl_token* t);
 static int  moqctl_locfilter_exact(wired_span v, moqctl_locfilter* f);
 static int  moqctl_locfilter_is_quirk(wired_span v);
 static void moqctl_locfilter_set_largest(moqctl_param* p);
@@ -65,13 +64,19 @@ static int moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t) {
 /* v is exactly the parameter's Length bytes. "If the Token structure
  * cannot be decoded, the receiver MUST close the Session with
  * KEY_VALUE_FORMATTING_ERROR" -- surfaced as MOQCTL_PARAMS_KVFMT. */
-static int moqctl_token_take(wired_span v, moqctl_token* t) {
+int moqctl_token_take(wired_span v, moqctl_token* t) {
   usz at = 0;
   int r  = moqctl_token_take_head(v, &at, t);
   if (r != MOQCTL_OK) {
     return r;
   }
   return moqctl_token_take_value(v, &at, t);
+}
+
+/* 1 iff t's Alias Type refers to an Alias (DELETE / USE_ALIAS). */
+int moqctl_token_names_alias(const moqctl_token* t) {
+  return t->alias_type == MOQCTL_TOKEN_DELETE ||
+         t->alias_type == MOQCTL_TOKEN_USE_ALIAS;
 }
 
 int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p) {

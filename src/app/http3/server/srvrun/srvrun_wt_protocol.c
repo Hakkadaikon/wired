@@ -12,6 +12,9 @@ static int wt_ext_fields_present(const wired_h3reqdrive_req* r);
 static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r);
 static int wt_origin_app_ok(
     const srvrun_cfg* cfg, const wired_h3reqdrive_req* r);
+static int wt_scheme_https(const wired_h3reqdrive_req* r);
+static int wt_has_field(const wired_h3reqdrive_req* r, const char* name);
+static int wt_capsule_fields_absent(const wired_h3reqdrive_req* r);
 
 static int srvrun_http_head_ok(const wired_http_exchange* x) {
   return srvrun_http_status_final(x->status) &&
@@ -88,20 +91,24 @@ static int wt_protocol_token_eq(
   return srvrun_wt_bytes_eq(r->protocol, want, n);
 }
 
+/* r's :protocol is draft-ietf-webtrans-http3-15+'s "webtransport-h3" --
+ * the generation that also requires the client's reset_stream_at (-16 3.1,
+ * srvrun_wt_peer_ok). */
+int srvrun_wt_protocol_is_h3(const wired_h3reqdrive_req* r) {
+  static const u8 d15[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
+                           'p', 'o', 'r', 't', '-', 'h', '3'};
+  return wt_protocol_token_eq(r, d15, sizeof d15);
+}
+
 /* r's :protocol is a WebTransport token: "webtransport" (what every deployed
  * browser generation -- Chrome 149 included, a draft-07 implementation --
  * actually sends) or "webtransport-h3" (draft-ietf-webtrans-http3-15 SS3's
  * renamed token). Accepting only the draft-15 spelling turned away every
  * real browser. */
 static int wt_protocol_is_webtransport(const wired_h3reqdrive_req* r) {
-  static const u8 d7[]  = {'w', 'e', 'b', 't', 'r', 'a',
-                           'n', 's', 'p', 'o', 'r', 't'};
-  static const u8 d15[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
-                           'p', 'o', 'r', 't', '-', 'h', '3'};
-  if (wt_protocol_token_eq(r, d7, sizeof d7)) {
-    return 1;
-  }
-  return wt_protocol_token_eq(r, d15, sizeof d15);
+  static const u8 d7[] = {'w', 'e', 'b', 't', 'r', 'a',
+                          'n', 's', 'p', 'o', 'r', 't'};
+  return wt_protocol_token_eq(r, d7, sizeof d7) || srvrun_wt_protocol_is_h3(r);
 }
 
 /* :method value equals the 7 octets "CONNECT" (same idiom as connect.c's own
@@ -194,4 +201,35 @@ int srvrun_wt_origin_ok(const srvrun_cfg* cfg, const wired_h3reqdrive_req* r) {
     return 0; /* present but empty */
   }
   return wt_origin_app_ok(cfg, r);
+}
+
+/* draft-ietf-webtrans-http3-16 3.2: "The :scheme field MUST be https." */
+static int wt_scheme_https(const wired_h3reqdrive_req* r) {
+  static const u8 https[] = {'h', 't', 't', 'p', 's'};
+  return r->scheme_len == sizeof https &&
+         srvrun_wt_bytes_eq(r->scheme, https, sizeof https);
+}
+
+static int wt_has_field(const wired_h3reqdrive_req* r, const char* name) {
+  wired_span v;
+  return wired_http_req_header(
+      r, wired_span_of((const u8*)name, wired_cstr_len(name)), &v);
+}
+
+/* RFC 9297 3.2: "The Capsule Protocol MUST NOT be used with messages that
+ * contain Content-Length, Content-Type, or Transfer-Encoding header fields"
+ * (Transfer-Encoding is already malformed at decode, RFC 9114 4.2).
+ * shortcut: only the first WIRED_H3REQDRIVE_MAX_HDRS regular lines are
+ * kept, so one past them goes unseen; widen hdrs if a client ever pads. */
+static int wt_capsule_fields_absent(const wired_h3reqdrive_req* r) {
+  return !wt_has_field(r, "content-length") &&
+         !wt_has_field(r, "content-type") &&
+         !wt_has_field(r, "transfer-encoding");
+}
+
+/* A WebTransport CONNECT the server may act on: :scheme https and no field
+ * the Capsule Protocol forbids; anything else is malformed (RFC 9114
+ * 4.1.2, srvrun_reject_wt_malformed). */
+int srvrun_wt_request_ok(const wired_h3reqdrive_req* r) {
+  return wt_scheme_https(r) && wt_capsule_fields_absent(r);
 }

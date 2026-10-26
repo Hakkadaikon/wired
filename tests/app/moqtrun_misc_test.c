@@ -63,7 +63,7 @@ static void mtmi_subtracks_p(const moqctl_params* sp) {
   mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
   moqtrun_test_reset();
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.ns         = mtns_ns("chat");
   m.params     = *sp;
   mtst_send(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
@@ -136,7 +136,7 @@ static void test_moqtrun_misc_subtracks_track_prop_filter(void) {
     u64 ca = mtst_join(SESS_A);
     mtst_join(SESS_B);
     mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
-    m.request_id = mtst_rid += 2;
+    m.request_id = mtst_rid += 4;
     m.ns         = mtns_ns("chat");
     m.params     = k ? pout : pin;
     mtst_send(
@@ -452,7 +452,7 @@ static void mtmi_subtracks_fwd1_go2(void) {
   mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
   moqtrun_test_reset();
-  m.request_id           = mtst_rid += 2;
+  m.request_id           = mtst_rid += 4;
   m.ns                   = mtns_ns("chat");
   m.params               = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   m.params.items[1].type = MOQCTL_PARAM_GROUP_ORDER;

@@ -17,6 +17,14 @@ static void moqtrun_up_settle(
 static void moqtrun_up_settle_open(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u);
+static void moqtrun_up_props_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u, u64 code);
+static int moqtrun_up_slot_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t,
+    u64                  alias);
 
 /* Nobody downstream left: the request is cancelled and its track (if
  * Established) retired, so no Object is relayed to no one (NoLeak). */
@@ -116,8 +124,46 @@ void moqtrun_up_sync(wired_moqt_hub* hub) {
 
 /* ----- the publisher's replies on the hub's stream ----- */
 
+/* Track Properties the hub must not take (moqtrun_tprops_refused): a
+ * bad value closes pp's session PROTOCOL_VIOLATION (draft-18 12.5/12.6);
+ * a Mandatory Track Property cancels the subscription and refuses every
+ * waiter UNSUPPORTED_EXTENSION (draft-19 2.5.1, draft-22 3.7). */
+static void moqtrun_up_props_refuse(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    u64                 code) {
+  if (code == MOQTRUN_REQ_CLOSE) {
+    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), code);
+  moqtrun_up_cancel(hub, pp, u, 0);
+}
+
+/* 1 when slot t may take a SUBSCRIBE_OK for u. No slot (the publisher's
+ * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER are taken) refuses the waiters
+ * EXCESSIVE_LOAD and cancels the request; a Track Alias naming another
+ * live track of pp closes its session DUPLICATE_TRACK_ALIAS
+ * (moqtrun_alias_dup_close). */
+static int moqtrun_up_slot_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t,
+    u64                  alias) {
+  if (!t) {
+    moqtrun_up_refuse_waiters(
+        hub, moqtrun_up_key(u), MOQCTL_ERR_EXCESSIVE_LOAD);
+    moqtrun_up_cancel(hub, pp, u, 0);
+    return 0;
+  }
+  return !moqtrun_alias_dup_close(hub, pp, t, alias);
+}
+
 /* SUBSCRIBE_OK: the track is claimed on pp under the publisher's Track
- * Alias, as a PUBLISH would claim it, then every waiter proceeds. No
+ * Alias, as a PUBLISH would claim it, then every waiter proceeds -- unless
+ * its Track Properties are refused (moqtrun_up_props_refuse). No
  * slot (the publisher's WIRED_MOQTRUN_MAX_TRACKS_PER_PEER are taken):
  * the waiters are refused EXCESSIVE_LOAD and the request cancelled. */
 void moqtrun_up_claim(
@@ -127,10 +173,14 @@ void moqtrun_up_claim(
     const moqctl_subscribe_ok* m) {
   usz                  pi = (usz)(pp - hub->peers);
   moqtrun_key          k  = moqtrun_up_key(u);
-  wired_moqtrun_track* t  = moqtrun_publish_slot(hub, pp, pi, k);
-  if (!t) {
-    moqtrun_up_refuse_waiters(hub, k, MOQCTL_ERR_EXCESSIVE_LOAD);
-    moqtrun_up_cancel(hub, pp, u, 0);
+  wired_moqtrun_track* t;
+  u64                  code;
+  if (moqtrun_tprops_refused(m->track_properties, &code)) {
+    moqtrun_up_props_refuse(hub, pp, u, code);
+    return;
+  }
+  t = moqtrun_publish_slot(hub, pp, pi, k);
+  if (!moqtrun_up_slot_ok(hub, pp, u, t, m->track_alias)) {
     return;
   }
   moqtrun_track_open(

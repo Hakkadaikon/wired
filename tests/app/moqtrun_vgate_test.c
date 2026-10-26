@@ -164,7 +164,7 @@ static void mtvg_subtracks_then_publish(u8 go) {
   mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
   moqtrun_test_reset();
-  m.request_id           = mtst_rid += 2;
+  m.request_id           = mtst_rid += 4;
   m.ns                   = mtns_ns("chat");
   m.params               = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
   m.params.items[1].type = MOQCTL_PARAM_GROUP_ORDER;

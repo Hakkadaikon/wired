@@ -789,6 +789,7 @@
 #include "app/http3/server/srvrun/srvrun_server_wt.c"
 #include "app/http3/server/srvrun/srvrun_wt_export.c"
 #include "app/http3/server/srvrun/srvrun_wt_shut.c"
+#include "app/http3/server/srvrun/srvrun_wt_watch.c"
 #include "app/http3/server/srvrun/srvrun_wt_fair.c"
 #include "app/http3/server/srvrun/srvrun_sess.c"
 #include "app/http3/server/srvrun/srvrun_slice.c"
@@ -906,6 +907,7 @@
 #include "app/moqt/run/moqtrun_malformed.c"
 #include "app/moqt/run/moqtrun_moqt.c"
 #include "app/moqt/run/moqtrun_newer.c"
+#include "app/moqt/run/moqtrun_ngr.c"
 #include "app/moqt/run/moqtrun_own.c"
 #include "app/moqt/run/moqtrun_param.c"
 #include "app/moqt/run/moqtrun_params.c"
@@ -933,6 +935,7 @@
 #include "app/moqt/run/moqtrun_reset.c"
 #include "app/moqt/run/moqtrun_resolve.c"
 #include "app/moqt/run/moqtrun_rid.c"
+#include "app/moqt/run/moqtrun_rid_win.c"
 #include "app/moqt/run/moqtrun_rngf.c"
 #include "app/moqt/run/moqtrun_route.c"
 #include "app/moqt/run/moqtrun_row.c"
@@ -949,6 +952,7 @@
 #include "app/moqt/run/moqtrun_subtracks_encode.c"
 #include "app/moqt/run/moqtrun_subtracks_sync.c"
 #include "app/moqt/run/moqtrun_take.c"
+#include "app/moqt/run/moqtrun_tprops.c"
 #include "app/moqt/run/moqtrun_track.c"
 #include "app/moqt/run/moqtrun_tstat.c"
 #include "app/moqt/run/moqtrun_up.c"
@@ -1003,6 +1007,7 @@
 #include "app/moqt/fetch/moqfetch_take.c"
 #include "app/moqt/cache/moqcache.c"
 #include "app/moqt/cache/moqcache_evict.c"
+#include "app/moqt/cache/moqcache_expire.c"
 #include "app/moqt/cache/moqcache_item.c"
 #include "app/moqt/cache/moqcache_rec.c"
 #include "app/moqt/ver/moqver.c"
@@ -1516,6 +1521,7 @@
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
 #include "app/srvrun_wtflow_test.c"
+#include "app/srvrun_wtsess_test.c"
 #include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
@@ -1582,6 +1588,7 @@
 #include "app/moqtrun_vgate_test.c"
 #include "app/moqtrun_misc_test.c"
 #include "app/moqtrun_ctlfix_test.c"
+#include "app/moqtrun_sess_test.c"
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
 #include "app/moqraw_test.c"
@@ -2161,6 +2168,7 @@ int main(void) {
   test_srvrun_close();
   test_srvrun_raw();
   test_srvrun_wtflow();
+  test_srvrun_wtsess();
   test_srvrun_rec();
   test_sigmask();
   test_certreload();
@@ -2227,6 +2235,7 @@ int main(void) {
   test_moqtrun_raw();
   test_moqtrun_rawpeer();
   test_moqtrun_ctlfix();
+  test_moqtrun_sess();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();

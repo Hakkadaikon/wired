@@ -1,5 +1,7 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
+static usz moqtrun_up_sub_put(
+    const wired_moqt_hub* hub, wired_mspan buf, u64 rid, moqtrun_key k);
 static int moqtrun_up_send(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -12,8 +14,23 @@ static void moqtrun_up_unserved(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, const wired_moqtrun_req* a);
 static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r);
 
+/* The SUBSCRIBE for k under Request ID rid, enveloped into buf; its
+ * length. */
+static usz moqtrun_up_sub_put(
+    const wired_moqt_hub* hub, wired_mspan buf, u64 rid, moqtrun_key k) {
+  moqctl_subscribe m   = {0};
+  usz              off = 0;
+  m.request_id         = rid;
+  m.name.name          = k.name;
+  moqctl_ns_take(k.ns, &off, &m.name.ns);
+  moqtrun_ngr_upstream(hub, k, &m.params);
+  return moqtrun_envelope_put(
+      buf, MOQCTL_T_SUBSCRIBE, moqtrun_up_encode_sub, &m);
+}
+
 /* SUBSCRIBE for k on a fresh request stream to pp (the hub's next odd
- * Request ID, draft-18 10.1). No parameters: FORWARD defaults to 1 (9.5
+ * Request ID, draft-18 10.1). A waiter's NEW_GROUP_REQUEST rides along
+ * (moqtrun_ngr_upstream); nothing else: FORWARD defaults to 1 (9.5
  * "MUST use Forward=1 when subscribing upstream" for a Forward=1
  * subscriber) and no filter is unfiltered; each downstream filter is
  * applied by the relay gates. The QUIC stream limit is the only request
@@ -24,24 +41,16 @@ static int moqtrun_up_send(
     wired_moqtrun_up*   u,
     moqtrun_key         k) {
   u8
-                   msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
-                       WIRED_MOQTRUN_MAX_NAME + 16];
-  moqctl_subscribe m   = {0};
-  usz              off = 0;
-  usz              n;
-  i64              sid;
-  m.request_id = pp->request_id_next;
-  m.name.name  = k.name;
-  moqctl_ns_take(k.ns, &off, &m.name.ns);
-  n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE,
-      moqtrun_up_encode_sub, &m);
-  sid = hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n));
+      msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
+          WIRED_MOQTRUN_MAX_NAME + 32];
+  u64 rid = pp->request_id_next;
+  usz n   = moqtrun_up_sub_put(hub, wired_mspan_of(msg, sizeof msg), rid, k);
+  i64 sid = hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n));
   if (sid < 0) {
     return 0;
   }
   pp->request_id_next += 2;
-  moqtrun_up_store(u, pp->wt, (u64)sid, m.request_id, k);
+  moqtrun_up_store(u, pp->wt, (u64)sid, rid, k);
   moqtrun_rp_mark(hub, k, pp->wt);
   return 1;
 }

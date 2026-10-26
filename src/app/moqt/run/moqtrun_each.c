@@ -63,6 +63,22 @@ void moqtrun_each_track(
   moqtrun_hub_each_track(hub, fn, idx, arg);
 }
 
+/* draft-19 5.1.1: a cancelled subscription's open data streams are reset
+ * (MUST) before it goes. */
+static void moqtrun_track_cancel_sub(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 rid) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (moqtrun_sub_is_req(&t->subs[si], idx, rid)) {
+      moqtrun_sub_reset_streams(hub, t, si, MOQTRUN_RESET_CANCELLED);
+    }
+  }
+  moqtrun_track_drop_sub(hub, t, idx, rid);
+}
+
+void moqtrun_cancel_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {
+  moqtrun_each_track(hub, moqtrun_track_cancel_sub, idx, rid);
+}
+
 /* Deactivate every subscription held for peer index idx under Request ID
  * rid. */
 void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid) {

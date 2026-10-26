@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2146/2260 requirements demonstrated (95.0%) — 1788 directly tested,
-358 indirect, 114 untested.**
+**Total: 2212/2260 requirements demonstrated (97.9%) — 1864 directly tested,
+348 indirect, 48 untested.**
 
 ## QUIC core
 
@@ -137,17 +137,17 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 78/81 | 67 | 11 | 3 |
+| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 81/81 | 73 | 8 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/10 | 9 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 25/26 | 18 | 7 | 1 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 26/26 | 21 | 5 | 0 |
 
 ## MOQT
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 219/248 | 189 | 30 | 29 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 224/248 | 187 | 37 | 24 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 233/259 | 198 | 35 | 26 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 242/248 | 213 | 29 | 6 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 244/248 | 210 | 34 | 4 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 252/259 | 218 | 34 | 7 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,

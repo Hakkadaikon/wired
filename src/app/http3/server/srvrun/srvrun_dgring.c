@@ -54,11 +54,18 @@ static int srvrun_wt_datagram_request_type_ok(const wired_wt_session* s) {
   return srvrun_wt_session_send_side_open(s);
 }
 
-/* RFC 9297 2.1: an HTTP/3 connection sends no DATAGRAM before its own
- * SETTINGS; a raw-QUIC one has no SETTINGS (RFC 9221 alone applies, the
- * peer's max_datagram_frame_size is checked at send time). */
+/* RFC 9297 2.1.1: "QUIC DATAGRAM frames MUST NOT be sent until the
+ * SETTINGS_H3_DATAGRAM setting has been both sent and received with a value
+ * of 1" -- our own SETTINGS sent, the client's latched as 1. */
+int srvrun_h3_datagram_ok(const srvrun_conn* c) {
+  return c->l.h3.settings_sent && c->l.h3peer.h3_datagram;
+}
+
+/* RFC 9297 2.1.1 (srvrun_h3_datagram_ok); a raw-QUIC connection has no
+ * SETTINGS (RFC 9221 alone applies, the peer's max_datagram_frame_size is
+ * checked at send time). */
 static int srvrun_dg_send_ready(const srvrun_conn* c) {
-  return c->l.h3.settings_sent || srvrun_conn_is_raw(c);
+  return srvrun_h3_datagram_ok(c) || srvrun_conn_is_raw(c);
 }
 
 /* slot names a live connection whose own SETTINGS have been sent (RFC 9297

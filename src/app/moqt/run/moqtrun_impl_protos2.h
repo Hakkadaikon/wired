@@ -52,12 +52,22 @@ void moqtrun_track_open(
     const moqctl_params* params,
     wired_span           props,
     u64                  rid);
+int moqtrun_alias_dup_close(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    u64                  alias);
 void moqtrun_publish_checked(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
     usz                   peer_idx,
     const moqctl_publish* m);
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r);
+int moqtrun_reqerr_take(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_span            body,
+    moqctl_request_error* e);
 const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params);
 int                 moqtrun_take_tok_or_close(
     wired_moqt_hub*      hub,
@@ -94,6 +104,10 @@ u8                  moqtrun_forward_off(const moqctl_param* p);
 const moqctl_loc*   moqtrun_track_top(const wired_moqtrun_track* t);
 void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 int  moqtrun_param_has_filter(const moqctl_param* f);
+int  moqtrun_filter_past(
+    const wired_moqtrun_peer*  p,
+    const wired_moqtrun_track* t,
+    const moqctl_subscribe*    m);
 void moqtrun_sub_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f);
 void moqtrun_sub_scalars(wired_moqtrun_sub* s, const moqctl_subscribe* m);

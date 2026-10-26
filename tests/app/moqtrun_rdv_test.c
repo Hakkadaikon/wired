@@ -172,7 +172,7 @@ static void mrdv_init(void) {
 static void mrdv_hold_f(
     wired_wt_session* s, u64 sid, const moqctl_ftn* f, u64 rt) {
   moqctl_params p = mtst_params_vi(MOQCTL_PARAM_RENDEZVOUS_TIMEOUT, rt);
-  mtst_subscribe_p(s, sid, f, mtst_rid += 2, &p);
+  mtst_subscribe_p(s, sid, f, mtst_rid += 4, &p);
 }
 
 static void mrdv_hold(wired_wt_session* s, u64 sid, u64 rt) {
@@ -388,7 +388,7 @@ static void test_moqtrun_rdv_s13_update_on_hold(void) {
   usz n = 0;
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 500);
-  CHECK(moqvi_put(wired_mspan_of(upd, sizeof upd), &n, mtst_rid));
+  CHECK(moqvi_put(wired_mspan_of(upd, sizeof upd), &n, mtst_rid += 4));
   upd[n++] = 0x00; /* no parameters */
   mtrq_raw(SESS_B, MRDV_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, n);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|E10|FIN|"));

@@ -7,6 +7,7 @@ static int  moqctl_ssts_known(u64 alg);
 static void moqctl_ssts_keep(moqctl_setup* out, u64 alg, int known);
 static int  moqctl_ssts_take_list(wired_span v, moqctl_setup* out, int known);
 static int  moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv);
+static int  moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv);
 static int  moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv);
 static int  moqctl_setup_take_one(
     wired_span buf, usz* at, u64* prev, moqctl_setup* out);
@@ -84,16 +85,35 @@ static int moqctl_setup_apply_ssts(moqctl_setup* out, const moqkvp* kv) {
   return MOQCTL_OK;
 }
 
-/* Any option type not one of the six tracked here (including
+/* AUTHORIZATION TOKEN (draft-18/19 10.3.1.4, draft-22 9.1.4): its Token
+ * must decode (else KEY_VALUE_FORMATTING_ERROR, SS10.2.2); an Alias Type
+ * naming an Alias (DELETE / USE_ALIAS) is noted for the server's close.
+ * REGISTER and USE_VALUE need nothing: this SDK registers no SETUP token,
+ * so a REGISTER is used as USE_VALUE, never AUTH_TOKEN_CACHE_OVERFLOW. */
+static int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv) {
+  moqctl_token t = {0};
+  if (kv->type != MOQCTL_OPT_AUTHORIZATION_TOKEN) {
+    return MOQCTL_OK;
+  }
+  if (moqctl_token_take(kv->raw, &t) != MOQCTL_OK) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
+  out->token_alias_ref |= (u8)moqctl_token_names_alias(&t);
+  return MOQCTL_OK;
+}
+
+/* Any option type not one of the seven tracked here (including
  * greased/reserved ones) is ignored per SS10.4. */
 static int moqctl_setup_apply_kvp(moqctl_setup* out, const moqkvp* kv) {
+  int r;
   moqctl_setup_apply_path_authority(out, kv);
   moqctl_setup_apply_limits(out, kv);
   if (kv->type == MOQCTL_OPT_MOQT_IMPLEMENTATION) {
     out->has_implementation = 1;
     out->implementation     = kv->raw;
   }
-  return moqctl_setup_apply_ssts(out, kv);
+  r = moqctl_setup_apply_ssts(out, kv);
+  return r != MOQCTL_OK ? r : moqctl_setup_apply_token(out, kv);
 }
 
 static int moqctl_setup_take_one(

@@ -164,7 +164,8 @@ static int srvrun_wt_close_body_ok(wired_span value) {
  * session (0); an invalid body (too long or not UTF-8) additionally latches
  * H3_MESSAGE_ERROR so the caller resets the CONNECT stream with it. */
 int srvrun_wt_capsule_close(srvrun_wt_caprx* x, wired_span value) {
-  if (!srvrun_wt_close_body_ok(value)) {
+  x->peer_closed = srvrun_wt_close_body_ok(value);
+  if (!x->peer_closed) {
     x->violation_code = H3_MESSAGE_ERROR;
   }
   return 0;

@@ -35,6 +35,8 @@ static void moqtrun_subtracks_pub_fill(
   m->params      = moqtrun_subtracks_publish_params(st);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
   m->name.name = wired_span_of(t->name, t->name_len);
+  /* draft-18 9.6 / 2.5: the relayed track's Track Properties, unchanged */
+  m->track_properties = moqtrun_track_props(t);
 }
 
 /* q once its PUBLISH for t went out on stream sid with alias. */
@@ -68,8 +70,8 @@ int moqtrun_subtracks_open_pub(
     const wired_moqtrun_track* t,
     const wired_moqtrun_req*   st) {
   u8
-                 msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
-                     WIRED_MOQTRUN_MAX_NAME + 32];
+      msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
+          WIRED_MOQTRUN_MAX_NAME + 32 + WIRED_MOQTRUN_TRACK_PROPS_MAX];
   moqctl_publish m = {0};
   moqtrun_subtracks_pub_fill(&m, hub, st_peer, q, t, st);
   usz n = moqtrun_envelope_put(

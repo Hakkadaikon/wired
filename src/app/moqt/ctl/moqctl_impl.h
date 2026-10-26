@@ -121,6 +121,10 @@ int moqctl_pv_varint(wired_span buf, usz* at, moqctl_param* p);
 int moqctl_pv_location(wired_span buf, usz* at, moqctl_param* p);
 int moqctl_pv_bytes(wired_span buf, usz* at, moqctl_param* p);
 int moqctl_pv_token(wired_span buf, usz* at, moqctl_param* p);
+/* Decodes a Token structure (SS10.2.2) filling exactly v; an undecodable
+ * one is MOQCTL_PARAMS_KVFMT. */
+int moqctl_token_take(wired_span v, moqctl_token* t);
+int moqctl_token_names_alias(const moqctl_token* t);
 int moqctl_pv_locfilter(wired_span buf, usz* at, moqctl_param* p);
 int moqctl_ssa_weight_ok(u64 w);
 int moqctl_param_take_one(

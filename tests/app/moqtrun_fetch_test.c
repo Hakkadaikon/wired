@@ -90,6 +90,7 @@ static void test_moqtrun_fetch_cache_released_on_republish(void) {
 /* ===================== FETCH plumbing ===================== */
 
 static u64 mf_req_sid; /* last request stream used */
+static u64 mf_req_rid; /* its FETCH's Request ID (mtst_rid) */
 
 static int mf_enc_fetch(wired_mspan buf, usz* off, const void* m) {
   return moqfetch_fetch_encode(buf, off, m);
@@ -100,8 +101,8 @@ static void mf_send_fetch(moqfetch_fetch* m) {
   u8  buf[MTST_MSG_MAX];
   usz n;
   mf_req_sid    = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
-  m->request_id = mf_req_sid; /* any even id; unique per request */
-  n             = moqtrun_envelope_put(
+  m->request_id = mf_req_rid = mtst_rid += 4;
+  n                          = moqtrun_envelope_put(
       wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH, mf_enc_fetch, m);
   CHECK(n != 0);
   wired_moqt_on_stream_data(
@@ -144,6 +145,46 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     return type;
   }
   return 0;
+}
+
+/* The Track Properties of the FETCH_OK on the last request stream. */
+static wired_span mf_ok_props(void) {
+  for (usz i = g_n_calls; i-- > 0;) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    static moqfetch_ok       ok;
+    if (c->kind != 12 || c->stream_id != mf_req_sid) {
+      continue;
+    }
+    moqctl_peek_type(
+        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    if (type == MOQFETCH_T_FETCH_OK &&
+        moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK) {
+      return ok.track_properties;
+    }
+  }
+  return wired_span_of(0, 0);
+}
+
+/* draft-18 9.6 / 10.14 (MQ18-220): a FETCH_OK the hub answers from its
+ * cache carries the track's Track Properties (driven with the draft-18/19
+ * FETCH body; the FETCH_OK encoder is shared by every draft). */
+static void test_moqtrun_fetch_ok_props(void) {
+  u8         buf[256];
+  moqctl_ftn f = mf_track();
+  wired_span p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mf_pub_sid = 2;
+  mf_ctrl_a  = mtst_join(SESS_A);
+  mf_ctrl_b  = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, mf_ctrl_a, &f, MF_ALIAS, p);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_standalone(moqctl_loc_of(0, 0), moqctl_loc_of(2, 0));
+  CHECK(mtst_props_eq(mf_ok_props(), p));
 }
 
 static u64 mf_error(void) {
@@ -449,10 +490,43 @@ static void test_moqtrun_fetch_serves_cached(void) {
   mf_standalone(mf_loc(0, 0), mf_loc(0, 2));
   CHECK(mf_loc_eq(mf_ok_end(), 0, 2));
   CHECK(mf_read());
-  CHECK(mf_hdr_rid == mf_req_sid);
+  CHECK(mf_hdr_rid == mf_req_rid);
   CHECK(mf_n == 2);
   CHECK(mf_is_obj(0, 0, 0, 3) && mf_is_obj(1, 0, 1, 2));
   CHECK(mf_fin);
+}
+
+/* draft-18 12.3: with MAX_CACHE_DURATION the relay "MUST NOT start
+ * forwarding any individual Object ... after the specified number of
+ * milliseconds has elapsed"; "Once Objects have expired from cache,
+ * their state becomes unknown". A 100 ms track's cached Object is served
+ * 99 ms after it came, and is an unknown range from 100 ms on. */
+static void test_moqtrun_fetch_max_cache_duration(void) {
+  u8         buf[16];
+  usz        n    = 0;
+  u64        prev = 0;
+  moqkvp     kv   = {0};
+  moqctl_ftn f    = mf_track();
+  kv.type         = 0x04; /* MAX_CACHE_DURATION */
+  kv.num          = 100;
+  CHECK(moqkvp_put(wired_mspan_of(buf, sizeof buf), &n, &prev, &kv));
+  mtst_init();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mf_pub_sid = 2;
+  mf_ctrl_a  = mtst_join(SESS_A);
+  mf_ctrl_b  = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, mf_ctrl_a, &f, MF_ALIAS, wired_span_of(buf, n));
+  wired_moqt_tick(&mtst_hub, 1000);
+  mf_obj(0, 0, 3);
+  wired_moqt_tick(&mtst_hub, 1099);
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 3));
+  wired_moqt_tick(&mtst_hub, 1100);
+  g_open_bidi_fail_n = 1;
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 1 && mf_is_unknown(0, 0, 0));
 }
 
 /* No arena and no way upstream (no request stream opens): the whole
@@ -755,9 +829,9 @@ static void mf_fetch22(const moqctl_rangeloc* rl) {
   usz                 n;
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
-  m.request_id = mf_req_sid;
-  m.track      = mf_track();
-  m.params.n   = 0;
+  m.request_id = mf_req_rid = mtst_rid += 4;
+  m.track                   = mf_track();
+  m.params.n                = 0;
   if (rl) {
     m.range = *rl;
   }
@@ -929,6 +1003,8 @@ static void mtall_fetch(void) {
 /* Scenarios that send the draft-18/19 FETCH body (mf_send_fetch) and
  * expect its exclusive End: every draft without the draft-22 layout. */
 static void mtall_fetch19(void) {
+  test_moqtrun_fetch_ok_props();
+  test_moqtrun_fetch_max_cache_duration();
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_descending_unknown_groups();
   test_moqtrun_fetch_descending_skips_missing_group();

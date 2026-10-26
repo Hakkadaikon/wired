@@ -44,7 +44,7 @@ static void moqtrun_peer_unpublish(
 void moqtrun_req_cancel(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
   moqtrun_pubdone_flush(hub, p, q->request_id);
-  moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
+  moqtrun_cancel_peer_subs(hub, (usz)(p - hub->peers), q->request_id);
   moqtrun_sub_names_forget(p, q->request_id);
   moqtrun_peer_unpublish(hub, p, q->request_id);
   moqtrun_fetches_cancel(hub, p->wt, q->request_id);

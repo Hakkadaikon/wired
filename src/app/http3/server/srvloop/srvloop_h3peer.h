@@ -27,6 +27,9 @@ typedef struct {
    * critical stream type (index = type: 0 control, 2 QPACK encoder, 3
    * decoder), 0 = none yet (a client uni id is never 0). */
   u64 crit_id[4];
+  /** RFC 9297 2.1.1: the client SETTINGS' SETTINGS_H3_DATAGRAM (0 until
+   * received or when absent; a value over 1 is an H3_SETTINGS_ERROR). */
+  u8 h3_datagram;
 } srvloop_h3peer;
 
 #endif

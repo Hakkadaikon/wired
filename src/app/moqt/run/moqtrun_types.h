@@ -178,6 +178,11 @@ typedef struct {
 /** draft-ietf-moq-transport-18/19 3.5 INVALID_REQUEST_ID session code. */
 #define WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID 0x4
 
+/** draft-ietf-moq-transport-18/19 3.5 / -22 12.2 DUPLICATE_TRACK_ALIAS
+ * session code (a PUBLISH or SUBSCRIBE_OK reused another track's Track
+ * Alias, 11.1). */
+#define WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS 0x5
+
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 
@@ -391,12 +396,15 @@ typedef struct {
   u64 sw_deadline;
 } wired_moqtrun_sub;
 
-/** Largest Track Properties block a track keeps to forward in SUBSCRIBE_OK:
- * what still fits a WIRED_MOQTRUN_CTL_REPLY_MAX (64) envelope beside the
- * Type/Length (3), the Track Alias (8) and a LARGEST_OBJECT parameter (19).
- * ponytail: a larger block is forwarded empty; widen together with
- * WIRED_MOQTRUN_CTL_REPLY_MAX if publishers send long properties. */
-#define WIRED_MOQTRUN_TRACK_PROPS_MAX 32
+/** Largest Track Properties block a track keeps to forward in SUBSCRIBE_OK,
+ * TRACK_STATUS_OK, FETCH_OK and the hub's own PUBLISH: what still fits a
+ * WIRED_MOQTRUN_CTL_REPLY_MAX (128) envelope beside the Type/Length (3),
+ * the Track Alias (8) and a LARGEST_OBJECT parameter (19) -- room for a
+ * few delivery/priority/group-order varints plus a ~60-byte application
+ * Property. A PUBLISH / upstream SUBSCRIBE_OK with a longer block is
+ * refused INTERNAL_ERROR (moqtrun_tprops_refused), never forwarded
+ * emptied; widen together with WIRED_MOQTRUN_CTL_REPLY_MAX. */
+#define WIRED_MOQTRUN_TRACK_PROPS_MAX 96
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
  * Track Alias + Group ID + optional Subgroup ID varints + optional 1-byte
@@ -558,7 +566,7 @@ typedef struct {
  * Type+Length+Body), except GOAWAY, whose New Session URI may take up to
  * WIRED_MOQTRUN_GOAWAY_URI_MAX bytes (wired_moqt_goaway sizes its own
  * buffer). */
-#define WIRED_MOQTRUN_CTL_REPLY_MAX 64
+#define WIRED_MOQTRUN_CTL_REPLY_MAX 128
 
 /** Largest received control-message Length (body bytes) this hub handles.
  * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message
@@ -615,8 +623,10 @@ typedef struct {
        : WIRED_MOQTRUN_GOAWAY_MSG_MAX)
 
 /** Replies one request-stream delivery can queue: the request's own
- * answer plus a few REQUEST_UPDATE answers arriving with it. */
-#define WIRED_MOQTRUN_REQ_SEND_BUF ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * 4)
+ * answer plus a few REQUEST_UPDATE answers arriving with it (256 bytes:
+ * two worst-case WIRED_MOQTRUN_CTL_REPLY_MAX replies, or four of the
+ * usual short ones). */
+#define WIRED_MOQTRUN_REQ_SEND_BUF ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * 2)
 
 /** One peer-opened request stream (draft-ietf-moq-transport-19 3.3): its
  * own reassembly and reply queue (the same ARMED/PENDING pair as
@@ -802,6 +812,11 @@ typedef struct {
    * this wait or the one that ended it; its next PUBLISH_NAMESPACE clears
    * it. */
   u64 tried;
+  /** 1 when the held SUBSCRIBE carried NEW_GROUP_REQUEST (ngr). */
+  u8 has_ngr;
+  /** The held SUBSCRIBE's NEW_GROUP_REQUEST, for the upstream SUBSCRIBE
+   * (draft-18 10.2.13). */
+  u64 ngr;
 } wired_moqtrun_rdv;
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace
@@ -828,6 +843,9 @@ typedef struct {
   u64 request_id;
   /** cache_tag of the track SUBSCRIBE_OK claimed; 0 while pending. */
   u64 track_tag;
+  /** The SUBSCRIBE's lifecycle as its subscriber sees it (moqsub,
+   * draft-19 5.1): a second response is a session fault. */
+  moqsub sub;
   /** 1 once the publisher's PUBLISH_DONE arrived: the hub's side ends
    * with a FIN, not a cancel, when the track retires. */
   u8 done;
@@ -842,6 +860,13 @@ typedef struct {
   usz name_len;
   /** Reassembly of the publisher's replies on stream_id. */
   wired_moqtrun_ctl_asm in;
+  /** 1 once a NEW_GROUP_REQUEST went out in a REQUEST_UPDATE. */
+  u8 ngr_out;
+  /** That NEW_GROUP_REQUEST's value. */
+  u64 ngr_val;
+  /** The track's Largest Group when it went out (~0: none); it stays
+   * outstanding until the Largest Group moves (draft-18 10.2.13). */
+  u64 ngr_group;
 } wired_moqtrun_up;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)

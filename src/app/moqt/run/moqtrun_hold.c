@@ -100,7 +100,7 @@ int moqtrun_fresh_uni_ctl(
  * SETUP went out (its browser clients never send one back, and their
  * requests must flow regardless). */
 int moqtrun_hold_gate(const wired_moqtrun_peer* p) {
-  return p->legacy ? !p->ctl_opened : !moqsess_established(&p->sess);
+  return p->legacy ? !p->ctl_opened : moqsess_should_buffer(&p->sess);
 }
 
 usz moqtrun_hold_rec_len(const wired_moqtrun_peer* p, usz at) {

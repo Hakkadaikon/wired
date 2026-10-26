@@ -119,6 +119,16 @@ void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pto_probe(ctx, slot);
 }
 
+/* A poll tick pumps every slot with a send session active, PTO due or not:
+ * stream data the app queued from another connection's callback (a MoQT
+ * hub's push when a publisher leaves) has no packet of this peer's own to
+ * carry it out. */
+void srvrun_send_tick_slot(const srvrun_step_ctx* ctx, int slot) {
+  if (srvrun_has_outbound(&ctx->st->conns[slot])) {
+    srvrun_pump_sess(ctx, slot);
+  }
+}
+
 /* 1 while the loss timer is armed and has come due at now_ms. */
 int srvrun_loss_timer_due(const srvrun_conn* c, u64 now_ms) {
   return c->loss_time_us && now_ms * 1000 >= c->loss_time_us;

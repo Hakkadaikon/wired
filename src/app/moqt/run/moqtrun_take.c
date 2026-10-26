@@ -1,26 +1,20 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static u64  moqtrun_track_prop(wired_span props, u64 type, u64 dflt);
 static u8   moqtrun_track_prop_prio(wired_span props);
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props);
-static int  moqtrun_token_by_value(const moqctl_token* t);
-static u32  moqtrun_token_close_code(const moqctl_token* t);
-
-/* The varint Track Property type of a PUBLISH's Track Properties (KVPs
- * to the end of the body, SS1.6); dflt when absent, unknown properties
- * skipped, a malformed pair ends the scan with what was read. */
-static u64 moqtrun_track_prop(wired_span props, u64 type, u64 dflt) {
-  usz    off  = 0;
-  u64    prev = 0, out = dflt;
-  moqkvp kv;
-  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK) {
-    out = moqtrun_prop_num_of(&kv, type, out);
-  }
-  return out;
-}
+static void moqtrun_refuse_or_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
+static int moqtrun_token_by_value(const moqctl_token* t);
+static u32 moqtrun_token_close_code(const moqctl_token* t);
+static int moqtrun_redirect_bad(const moqctl_request_error* e);
+static int moqtrun_publish_slot_ok(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_moqtrun_track*  t,
+    const moqctl_publish* m);
 
 static u8 moqtrun_track_prop_prio(wired_span props) {
-  u64 v = moqtrun_track_prop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
+  u64 v = moqtrun_tprop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
   return v > 255 ? 128 : (u8)v;
 }
 
@@ -29,12 +23,9 @@ static u8 moqtrun_track_prop_prio(wired_span props) {
  * SUBGROUP_DELIVERY_TIMEOUT (12.6) and DEFAULT_PUBLISHER_PRIORITY (12.4)
  * from props, rid the request (a
  * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
-/* Keeps props for SUBSCRIBE_OK (WIRED_MOQTRUN_TRACK_PROPS_MAX's own doc:
- * a larger block is kept as none). */
+/* Keeps props to forward (moqtrun_tprops_refused already refused a block
+ * past WIRED_MOQTRUN_TRACK_PROPS_MAX). */
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props) {
-  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) {
-    return;
-  }
   bytes_memcpy(t->props, props.p, props.n);
   t->props_len = (u8)props.n;
 }
@@ -51,11 +42,55 @@ void moqtrun_track_open(
   moqtrun_track_seed_largest(t, params);
   t->request_id = rid;
   t->subgroup_timeout_ms =
-      moqtrun_track_prop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
+      moqtrun_tprop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
   t->default_pub_prio = moqtrun_track_prop_prio(props);
+  t->max_cache_ms     = moqtrun_tprop(props, MOQTRUN_PROP_MAX_CACHE, ~(u64)0);
   t->up_streams       = 0;
   t->pubdone_pending  = 0;
   moqtrun_track_keep_props(t, props);
+}
+
+/* REQUEST_ERROR code, or for MOQTRUN_REQ_CLOSE (draft-18 12.5/12.6) a
+ * PROTOCOL_VIOLATION close. */
+static void moqtrun_refuse_or_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
+  if (code == MOQTRUN_REQ_CLOSE) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_send_request_error(p, code);
+}
+
+/* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): alias, carried by a
+ * PUBLISH or SUBSCRIBE_OK for slot t, already names a different live
+ * track of p -- "it MUST close the session with error
+ * DUPLICATE_TRACK_ALIAS"; 1 when it closed. t itself (a re-PUBLISH of
+ * the same name) is the same track. */
+int moqtrun_alias_dup_close(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    u64                  alias) {
+  wired_moqtrun_track* o = moqtrun_track_by_alias(p, alias);
+  if (!o || o == t) {
+    return 0;
+  }
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS);
+  return 1;
+}
+
+/* 1 when slot t may take m: a slot exists (else REQUEST_ERROR) and m's
+ * Track Alias is no other track's (else the session closed). */
+static int moqtrun_publish_slot_ok(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_moqtrun_track*  t,
+    const moqctl_publish* m) {
+  if (!t) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return 0;
+  }
+  return !moqtrun_alias_dup_close(hub, p, t, m->track_alias);
 }
 
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
@@ -70,13 +105,12 @@ void moqtrun_publish_checked(
   u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
   u64 code;
   if (moqtrun_publish_refused(hub, m, &code)) {
-    moqtrun_send_request_error(p, code);
+    moqtrun_refuse_or_close(hub, p, code);
     return;
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
-  if (!t) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+  if (!moqtrun_publish_slot_ok(hub, p, t, m)) {
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);
@@ -85,6 +119,7 @@ void moqtrun_publish_checked(
       m->request_id);
   moqtrun_reattach_subs(hub, t, peer_idx, k);
   moqtrun_rdv_resolve(hub, t, k);
+  moqtrun_up_crossed(hub, p, k);
   moqtrun_queue_request_ok(p, 0);
   moqtrun_req_mark_live(p);
 }
@@ -92,13 +127,48 @@ void moqtrun_publish_checked(
 /* draft-19 10.2 (draft-18 10.2, draft-22 9.20): a request body that fails
  * to decode -- a Message Parameter the session's draft does not define
  * among the causes -- closes the session PROTOCOL_VIOLATION, as FETCH and
- * REQUEST_UPDATE do (ledger 12-13). 1 when r is MOQCTL_OK. */
+ * REQUEST_UPDATE do (ledger 12-13); a known parameter whose Value does not
+ * match its encoding (an undecodable AUTHORIZATION TOKEN, say) closes it
+ * KEY_VALUE_FORMATTING_ERROR instead (draft-19 1.4.3, 10.2.2), as SETUP
+ * does (moqtrun_setup_take_code). 1 when r is MOQCTL_OK. */
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
   if (r == MOQCTL_OK) {
     return 1;
   }
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_with(
+      hub, p,
+      r == MOQCTL_PARAMS_KVFMT ? (u32)MOQCTL_CLOSE_KVFMT_ERROR
+                               : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   return 0;
+}
+
+/* A Redirect the hub, the server, must not accept: a non-zero Connect URI
+ * Length. */
+static int moqtrun_redirect_bad(const moqctl_request_error* e) {
+  return e->has_redirect && e->redirect.connect_uri.n != 0;
+}
+
+/* A REQUEST_ERROR the hub received for one of its own requests, decoded
+ * into *e; 1 when it may be used. One that does not decode closes the
+ * session PROTOCOL_VIOLATION (moqtrun_take_or_close), and so does a
+ * Redirect with a non-zero Connect URI Length: "If a server receives a
+ * Redirect with a non-zero Connect URI Length it MUST close the session
+ * with a PROTOCOL_VIOLATION" (draft-19 10.6.1, draft-18 10.6.1, draft-22
+ * 9.4). The draft-18/19 rule on a namespace-scoped request's Track Name
+ * has nothing to check: the hub sends no SUBSCRIBE_NAMESPACE,
+ * PUBLISH_NAMESPACE or SUBSCRIBE_TRACKS of its own. */
+int moqtrun_reqerr_take(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_span            body,
+    moqctl_request_error* e) {
+  usz off = 0;
+  if (!moqtrun_take_or_close(
+          hub, p, moqctl_request_error_take(body, &off, e))) {
+    return 0;
+  }
+  return moqtrun_take_or_close(
+      hub, p, moqtrun_redirect_bad(e) ? MOQCTL_VIOLATION : MOQCTL_OK);
 }
 
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or

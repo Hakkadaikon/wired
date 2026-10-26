@@ -15,7 +15,7 @@ static int mtup_enc_update(wired_mspan buf, usz* off, const void* m) {
 /* TRACK_STATUS for f on request stream sid. */
 static void mtup_tstat(wired_wt_session* s, u64 sid, const moqctl_ftn* f) {
   static moqctl_subscribe m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.name       = *f;
   m.params.n   = 0;
   mtst_send(s, sid, MOQTSTAT_T_TRACK_STATUS, mtup_enc_tstat, &m);
@@ -26,7 +26,7 @@ static void mtup_tstat(wired_wt_session* s, u64 sid, const moqctl_ftn* f) {
 static void mtup_update(
     wired_wt_session* s, u64 sid, const moqctl_params* params) {
   static moqtstat_update m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.params     = *params;
   mtst_params_for(s, &m.params);
   mtst_send(s, sid, MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m);
@@ -117,6 +117,26 @@ static void test_moqtrun_tstat_ok_largest(void) {
   usz n = mtst_stream(4, 1, 1, buf);
   wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(4) == 0);
+}
+
+/* draft-18 10.14: TRACK_STATUS_OK carries "the same parameters and Track
+ * Properties it would have set in a SUBSCRIBE_OK" (10.5: "populated in
+ * TRACK_STATUS_OK"). */
+static void test_moqtrun_tstat_ok_props(void) {
+  u8                buf[256];
+  usz               off = 0;
+  wired_span        body;
+  moqctl_request_ok ok;
+  moqctl_ftn        f = mtst_ftn("chat", "room1", "alice");
+  wired_span        p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  mtup_tstat(SESS_B, MTRQ_S1, &f);
+  CHECK(mtup_reply(MTRQ_S1, &body) == MOQCTL_T_REQUEST_OK);
+  CHECK(moqctl_request_ok_take(mtst_ver(SESS_B), body, &off, &ok) == MOQCTL_OK);
+  CHECK(mtst_props_eq(ok.track_properties, p));
 }
 
 /* Nothing published yet: REQUEST_OK without LARGEST_OBJECT. */
@@ -649,14 +669,15 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
  * the hub refuses on subscriptions is refused here too. Every draft
  * allows it (moqtrun_vgate_test.c). */
 static void test_moqtrun_upd_on_publish_stream(void) {
-  static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
-  moqctl_params   t     = mt22_filter(
+  u8            upd[] = {0x04, 0x00}; /* Request ID (set below), no params */
+  moqctl_params t     = mt22_filter(
       1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
   moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
   mtst_init();
   mtst_join(SESS_A);
   moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
   mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  upd[0] = (u8)(mtst_rid += 4);
   mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
@@ -847,6 +868,7 @@ static void mtall_upd(void) {
   test_moqtrun_upd_ns_prefix_overlap_refused();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_tstat_ok_largest();
+  test_moqtrun_tstat_ok_props();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
   test_moqtrun_tstat_authorized();

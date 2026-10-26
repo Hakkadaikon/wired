@@ -4,6 +4,8 @@ static usz  moqfetch_req22_filter_slot(const moqctl_params* params);
 static void moqfetch_req22_put_filter(moqfetch_req* m);
 static int  moqfetch_req22_put_head(
     wired_mspan buf, usz* off, const moqfetch_req* m);
+static int  moqfetch_fill_type_ok(u64 type);
+static int  moqfetch_fill_listed(const moqctl_params* p);
 static int  moqfetch_fill_params(wired_span v, moqctl_params* p);
 static void moqfetch_fill_filter_of(const moqctl_params* p, moqfetch_fill* o);
 static int  moqfetch_fill_desc_of(const moqctl_params* p);
@@ -69,15 +71,47 @@ int moqfetch_req22_encode(wired_mspan buf, usz* off, const moqfetch_req* m) {
 
 /* ===== FILL_PARAMETERS value (draft-22 SS9.20.15) ===== */
 
+/* draft-22 SS9.20.15 Table 7: the only Parameters FILL_PARAMETERS may
+ * carry. */
+static const u64 moqfetch_fill_types[] = {
+    MOQCTL_PARAM_FILL_TIMEOUT,    MOQCTL_PARAM_SUBSCRIBER_PRIORITY,
+    MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PARAM_GROUP_ORDER,
+    MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PARAM_OBJECTID_FILTER,
+    MOQCTL_PARAM_PRIORITY_FILTER, MOQCTL_PARAM_OBJECT_PROPERTY_FILTER,
+};
+
+static int moqfetch_fill_type_ok(u64 type) {
+  for (usz i = 0;
+       i < sizeof moqfetch_fill_types / sizeof moqfetch_fill_types[0]; i++) {
+    if (moqfetch_fill_types[i] == type) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* MOQCTL_OK when every Parameter of p is in Table 7; a parameter "that is
+ * not listed above MUST close the session with PROTOCOL_VIOLATION"
+ * (SS9.20.15), so any other -- one the FETCH scope admits, like
+ * AUTHORIZATION TOKEN -- is MOQCTL_VIOLATION. */
+static int moqfetch_fill_listed(const moqctl_params* p) {
+  for (usz i = 0; i < p->n; i++) {
+    if (!moqfetch_fill_type_ok(p->items[i].type)) {
+      return MOQCTL_VIOLATION;
+    }
+  }
+  return MOQCTL_OK;
+}
+
 /* The Parameters must fill the value exactly (its Length already framed
- * it). */
+ * it) and be listed in Table 7 (moqfetch_fill_listed). */
 static int moqfetch_fill_params(wired_span v, moqctl_params* p) {
   usz at = 0;
   int r  = moqctl_params_take(MOQVER_D22, v, &at, MOQCTL_PCTX_FETCH, p);
   if (r != MOQCTL_OK) {
     return r;
   }
-  return at == v.n ? MOQCTL_OK : MOQCTL_VIOLATION;
+  return at == v.n ? moqfetch_fill_listed(p) : MOQCTL_VIOLATION;
 }
 
 /* LOCATION_FILTER type 0x00 decodes as has_filter 0 (SS9.20.9 None); an

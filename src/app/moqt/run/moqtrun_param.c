@@ -7,6 +7,7 @@ static moqctl_loc moqtrun_start_next(
 static moqctl_loc moqtrun_start_abs(
     const moqctl_loc* top, const moqctl_rangeloc* f);
 static int moqtrun_ptype_is_rngf(u64 t);
+static int moqtrun_filter_before(const moqctl_param* f, const moqctl_loc* top);
 
 /* ===== subscription state (draft 10.6 SUBSCRIBE parameters) ===== */
 
@@ -76,6 +77,25 @@ void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t) {
 
 int moqtrun_param_has_filter(const moqctl_param* f) {
   return f && f->has_filter;
+}
+
+/* f ends at a Group whose last Group lies before top's Group. */
+static int moqtrun_filter_before(const moqctl_param* f, const moqctl_loc* top) {
+  return top && f->rl.ek != MOQCTL_REK_UNBOUNDED &&
+         f->rl.end_group < top->group;
+}
+
+/* draft-18/19 5.1.2: SUBSCRIBE m's filter End Group was already wholly
+ * published on t (a later Group exists) -- INVALID_RANGE (SHOULD).
+ * draft-22 keeps such a filter valid (MQ22-108a). */
+int moqtrun_filter_past(
+    const wired_moqtrun_peer*  p,
+    const wired_moqtrun_track* t,
+    const moqctl_subscribe*    m) {
+  const moqctl_param* f = moqtrun_sub_param(m, MOQCTL_PARAM_LOCATION_FILTER);
+  return !(moqver_caps(p->ver) & MOQVER_CAP_LOCFILTER_TYPED) &&
+         moqtrun_param_has_filter(f) &&
+         moqtrun_filter_before(f, moqtrun_track_top(t));
 }
 
 /* LOCATION_FILTER f (0, or draft-22 type 0x00: unfiltered) onto s. */

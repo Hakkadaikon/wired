@@ -5,6 +5,8 @@ static int srvrun_wt_capsule_flow_or_skip(
     srvrun_wt_caprx* x, u64 type, wired_span value);
 static int srvrun_wt_capsule_flow(
     srvrun_wt_caprx* x, u64 type, wired_span value);
+static int  srvrun_wt_capsule_prohibited(u64 type);
+static int  srvrun_wt_capsule_session_error(srvrun_wt_caprx* x);
 static void srvrun_wt_drain_notify(const srvrun_wt_caprx* x);
 static int  srvrun_wt_capsule_drain(const srvrun_wt_caprx* x, wired_span value);
 static int  srvrun_wt_capsule_ignored(const srvrun_wt_caprx* x, u64 type);
@@ -25,6 +27,21 @@ static int srvrun_wt_capsule_flow_or_skip(
   return srvrun_wt_capsule_flow_raise(x, type, value);
 }
 
+/* draft-ietf-webtrans-http3-16 SS5.4: "Endpoints MUST treat receipt of a
+ * WT_MAX_STREAM_DATA or a WT_STREAM_DATA_BLOCKED capsule as a session
+ * error" -- 1 iff type is one of them. */
+static int srvrun_wt_capsule_prohibited(u64 type) {
+  return type == WTCAPSULE_TYPE_MAX_STREAM_DATA ||
+         type == WTCAPSULE_TYPE_STREAM_DATA_BLOCKED;
+}
+
+/* The session error a prohibited capsule raises: the session closes with
+ * WT_FLOW_CONTROL_ERROR, the code of its flow-control family. */
+static int srvrun_wt_capsule_session_error(srvrun_wt_caprx* x) {
+  x->violation_code = WTERR_FLOW_CONTROL_ERROR;
+  return 0;
+}
+
 /* One received capsule. draft-ietf-webtrans-http3-16 SS6: a
  * WT_CLOSE_SESSION ends the session on the spot (srvrun_wt_capsule_close),
  * so a peer withholding the CONNECT stream's FIN cannot keep it alive. */
@@ -32,6 +49,9 @@ static int srvrun_wt_capsule_flow(
     srvrun_wt_caprx* x, u64 type, wired_span value) {
   if (type == WTCAPSULE_TYPE_CLOSE) {
     return srvrun_wt_capsule_close(x, value);
+  }
+  if (srvrun_wt_capsule_prohibited(type)) {
+    return srvrun_wt_capsule_session_error(x);
   }
   return srvrun_wt_capsule_flow_or_skip(x, type, value);
 }
@@ -128,10 +148,18 @@ int srvrun_wt_rx_walk(
  * wt_connect_sent_len), kept until ACKed. The session itself is untouched. */
 void srvrun_reset_connect_stream_code(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 code) {
+  srvrun_reset_stream_final(
+      cfg, c, srvrun_wt_slot(c, sidx)->connect_stream_id,
+      c->wt_connect_sent_len[sidx], code);
+}
+
+/* RESET_STREAM (final size final) + STOP_SENDING carrying code on CONNECT
+ * stream id, kept until ACKed. */
+void srvrun_reset_stream_final(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 id, u64 final, u64 code) {
   u8                 pl[48];
   wired_obuf         plb = obuf_of(pl, sizeof pl);
-  u64                id  = srvrun_wt_slot(c, sidx)->connect_stream_id;
-  reset_stream_frame rs  = {id, code, c->wt_connect_sent_len[sidx]};
+  reset_stream_frame rs  = {id, code, final};
   usz                rn  = reset_stream_encode(pl, sizeof pl, &rs);
   usz                sn  = srvrun_wt_abort_stop(c, id, code, &plb, rn);
   srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");

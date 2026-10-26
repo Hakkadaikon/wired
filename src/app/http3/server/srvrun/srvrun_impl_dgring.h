@@ -104,6 +104,12 @@ int  srvrun_wt_bytes_eq(const u8* m, const u8* want, usz len);
 int  srvrun_is_wt_connect(const wired_h3reqdrive_req* r);
 int  srvrun_is_wt_connect_unsupported_protocol(const wired_h3reqdrive_req* r);
 int  srvrun_wt_origin_ok(const srvrun_cfg* cfg, const wired_h3reqdrive_req* r);
+int  srvrun_wt_request_ok(const wired_h3reqdrive_req* r);
+int  srvrun_wt_protocol_is_h3(const wired_h3reqdrive_req* r);
+int  srvrun_h3_datagram_ok(const srvrun_conn* c);
+int  srvrun_wt_peer_ok(const srvrun_conn* c);
+void srvrun_reject_wt_malformed(
+    const srvrun_cfg* cfg, srvrun_conn* c, srvrun_resp* r);
 srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id);
 srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id);
 usz          srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r);

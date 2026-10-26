@@ -6,7 +6,6 @@ static int moqtrun_upf_awaits_stream(
     const wired_moqtrun_fetch* f, const wired_wt_session* s);
 static int moqtrun_upf_data_is(
     const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid);
-static int moqtrun_upf_is_mand(u64 type);
 static int moqtrun_upf_data_out(const wired_moqtrun_fetch* f);
 
 static wired_moqtrun_fetch* moqtrun_upf_by_rid(
@@ -103,24 +102,6 @@ moqctl_loc moqtrun_upf_ok_end(
   return (moqver_caps(pp->ver) & MOQVER_CAP_FETCH_END_INCLUSIVE)
              ? ok->end
              : moqfetch_end19_incl(ok->end);
-}
-
-/* draft-22 3.7: a Mandatory Track Property (type 0x4000-0x7FFF); this hub
- * understands none. */
-static int moqtrun_upf_is_mand(u64 type) {
-  return type >= 0x4000 && type <= 0x7FFF;
-}
-
-int moqtrun_upf_mandatory(wired_span props) {
-  usz    off  = 0;
-  u64    prev = 0;
-  moqkvp kv;
-  while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
-    if (moqtrun_upf_is_mand(kv.type)) {
-      return 1;
-    }
-  }
-  return 0;
 }
 
 static int moqtrun_upf_data_out(const wired_moqtrun_fetch* f) {

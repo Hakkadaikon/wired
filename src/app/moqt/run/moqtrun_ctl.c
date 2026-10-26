@@ -67,10 +67,21 @@ void moqtrun_setup_limits(moqctl_setup* s, int ver) {
   }
 }
 
+/* draft-19 10.3.1.5 (draft-18 10.3.1.5, draft-22 9.1.5): "An endpoint
+ * SHOULD send a MOQT_IMPLEMENTATION option unless specifically configured
+ * not to do so", the value only "the implementation name and version"
+ * (13.8) -- the major version, nothing instance-identifying. */
+static void moqtrun_setup_impl(const wired_moqt_hub* hub, moqctl_setup* s) {
+  static const u8 name[] = "wired/0";
+  s->has_implementation  = !hub->no_implementation;
+  s->implementation      = wired_span_of(name, sizeof(name) - 1);
+}
+
 void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
   moqctl_setup setup = {0};
   moqtrun_setup_limits(&setup, p->ver);
+  moqtrun_setup_impl(hub, &setup);
   moqtss_setup_opt(hub, p, &setup); /* SSTS (moqtssts_run.c) */
   usz off =
       moqtrun_envelope_put(buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
@@ -88,6 +99,8 @@ void moqtrun_peer_ctl_reset(wired_moqtrun_peer* p) {
   p->ctl_opened        = 0;
   p->request_id_next   = 1; /* hub is the server: odd, 1-origin (SS10.2) */
   p->peer_rid_next     = 0; /* client Request IDs: even, 0-origin */
+  p->peer_rid_base     = 0;
+  p->peer_rid_seen     = 0;
   p->sub_names_n       = 0;
   p->sub_names_at      = 0;
   p->send_lens[0]      = 0;

@@ -78,6 +78,9 @@ typedef struct {
    * ms, 0 when absent: min()ed into each subscription's effective
    * timeout (wired_moqtrun_sub.subgroup_timeout). */
   u64 subgroup_timeout_ms;
+  /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
+   * absent: a cached Object is served at most this long after it came. */
+  u64 max_cache_ms;
   /** The PUBLISH's DEFAULT_PUBLISHER_PRIORITY Track Property (12.4), 128
    * when absent: the Publisher Priority of a header that omits it. */
   u8 default_pub_prio;
@@ -109,11 +112,11 @@ typedef struct {
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
-   * SUBSCRIBE_OK's) Track Properties, 0 when none or when they exceed
-   * WIRED_MOQTRUN_TRACK_PROPS_MAX. */
+   * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
+   * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */
   u8 props_len;
   /** The Track Properties forwarded in SUBSCRIBE_OK (INCLUDE_PROPERTIES,
-   * draft-22 9.20.21). */
+   * draft-22 9.20.21), TRACK_STATUS_OK, FETCH_OK and the hub's PUBLISH. */
   u8 props[WIRED_MOQTRUN_TRACK_PROPS_MAX];
 } wired_moqtrun_track;
 
@@ -171,6 +174,13 @@ typedef struct {
   /** One past the largest Request ID the peer has sent (+2, 0 for none):
    * a draft-18 GOAWAY's Request ID (SS10.4). */
   u64 peer_rid_next;
+  /** Lowest even Request ID the peer may still use (draft-19 10.1
+   * duplicate check, moqtrun_rid_repeat): every ID below it counts as
+   * used. */
+  u64 peer_rid_base;
+  /** Bit i set: the peer's Request ID peer_rid_base + 2i was used (bit 0
+   * is always clear). */
+  u64 peer_rid_seen;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */
@@ -437,6 +447,10 @@ typedef struct {
    * forbid a relay to drop Objects of a multi-object stream, so only an
    * app that trades completeness for latency (live voice) turns it on. */
   u8 newest_group_only;
+  /** 1 while the delivery being handled broke a Subgroup stream rule
+   * (moqtrun_rx_flag); wired_moqt_on_stream_data closes the sending
+   * session PROTOCOL_VIOLATION and clears it. */
+  u8 rx_violation;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */
@@ -565,6 +579,10 @@ typedef struct {
   /** Switches whose old subscription may still be waiting to end (a hint
    * moqtsw_step recounts; 0 skips its walk). */
   u32 sw_live;
+  /** 1 keeps the MOQT_IMPLEMENTATION Setup Option off the hub's SETUP
+   * (draft-19 10.3.1.5, 13.8: privacy-conscious deployments); 0 (the
+   * wired_moqt_init default) sends the name and major version. */
+  u8 no_implementation;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
@@ -655,10 +673,10 @@ void wired_moqt_on_stream_data(
  * gone; live audio wants the next frame, not a replay). app_ctx must be
  * the wired_moqt_hub*. Each subscriber copy goes through io.send_datagram
  * (accepted -> stat_dg_sent, refused -> stat_dg_drop); a datagram
- * moqdg_take refuses or whose alias matches no track is dropped whole on
- * stat_dg_bad -- draft 11.3.1 says an invalid Type MUST close the session
- * with PROTOCOL_VIOLATION, but this hub's io table has no close operation,
- * so counting-and-dropping is the closest it can do. A session never
+ * moqdg_take refuses closes the sending session PROTOCOL_VIOLATION (draft
+ * 11.3.1: an invalid Type MUST close the session) unless it is padding
+ * (Type 0x132B3E29); it, padding and one whose alias matches no track are
+ * dropped whole on stat_dg_bad. A session never
  * registered, or an io table whose send_datagram is 0, is a no-op. */
 void wired_moqt_on_datagram(
     void* app_ctx, wired_wt_session* s, wired_span data);

@@ -728,7 +728,7 @@ static void mrp_sub_ok(
   static moqctl_subscribe_ok ok;
   moqctl_ftn                 f = mtst_ftn("chat", ns2, name);
   usz                        n = mups_n_up(s);
-  mtst_subscribe_p(SESS_C, sid, &f, mtst_rid += 2, 0);
+  mtst_subscribe_p(SESS_C, sid, &f, mtst_rid += 4, 0);
   ok.track_alias = alias;
   mtst_send(s, (u64)mrp_up(s, n), MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
 }
@@ -855,7 +855,7 @@ static void test_moqtrun_repath_names_wrapped(void) {
   mrp_announce(SESS_B);
   mrp_end(MRP_GA);
   for (usz i = 0; i < WIRED_MOQTRUN_SUB_NAMES; i++) {
-    mtst_subscribe_p(SESS_C, MTRQ_ID(10 + i), &x, mtst_rid += 2, 0);
+    mtst_subscribe_p(SESS_C, MTRQ_ID(10 + i), &x, mtst_rid += 4, 0);
     wired_moqt_on_stream_reset(&mtst_hub, SESS_C, MTRQ_ID(10 + i), 0, 0);
   }
   mrp_ok(SESS_B, mrp_up(SESS_B, 0));

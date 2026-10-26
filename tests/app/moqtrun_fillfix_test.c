@@ -243,7 +243,7 @@ static void test_moqtrun_fillfix_live_republish_resets(void) {
   mf_init(sizeof mf_arena);
   CHECK(wired_moqt_publish_live(&mtst_hub, f.name, 9, &fr, 1, 1000, 0));
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
-  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mfill_rid += 2, 0);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mtst_rid += 4, 0);
   g_stream_send_ok_n = 0; /* the fill parks mid-range, opened */
   mfill_update(&fill, 0);
   CHECK(!mf_no_fetch());
