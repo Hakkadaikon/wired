@@ -558,6 +558,7 @@
 #include "app/http3/core/h3conn/response.c"
 #include "app/http3/request/h3reqdrive/request_parse.c"
 #include "app/http3/request/h3reqdrive/request_drive.c"
+#include "app/http3/request/h3reqdrive/request_drive_check.c"
 #include "app/http3/request/h3reqdrive/request_drive_h3reqdrive.c"
 #include "app/http3/request/h3reqdrive/request_drive_line.c"
 #include "app/http3/request/h3reqdrive/request_drive_rd.c"

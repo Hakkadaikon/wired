@@ -17667,6 +17667,16 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying
  * (name,value), appended at *off in fs. Local twin of h3reqdrive_test.c's
  * put_litname (that one is another test file's static). */
+/* RFC 9114 4.3.1: :scheme https (static 23), :authority "h" (name ref to
+ * static 0) and :path "/" (static 1) after a leading :method. */
+static void srn_pseudo(u8* fs, usz* off) {
+  qpack_nameref auth = {0, 1, 0};
+  *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 23, 1);
+  *off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + *off, 64), &auth, wired_span_of((const u8*)"h", 1));
+  *off += qpack_indexed_encode(wired_mspan_of(fs + *off, 64), 1, 1);
+}
+
 static void srn_put_litname(
     u8* fs, usz* off, const char* name, const char* value) {
   qpack_field fl = {
@@ -17689,6 +17699,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
   off                      = qpack_prefix_encode(fs, 64, &pfx);
   off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  srn_pseudo(fs, &off);
   srn_put_litname(fs, &off, "wt-available-protocols", "\"foo\", \"bar\"");
   {
     h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
@@ -17705,6 +17716,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
     wired_obuf ob2 = {req2, sizeof req2, 0};
     usz        n2  = qpack_prefix_encode(fs2, 64, &pfx);
     n2 += qpack_indexed_encode(wired_mspan_of(fs2 + n2, 64), 17, 1);
+    srn_pseudo(fs2, &n2);
     {
       h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
       CHECK(h3conn_send_request(0, &in2, &ob2));
@@ -17729,6 +17741,7 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
         wired_span_of(big, sizeof big)};
     off = qpack_prefix_encode(fs, 64, &pfx);
     off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+    srn_pseudo(fs, &off);
     off += qpack_literal_name_encode(
         wired_mspan_of(fs + off, sizeof fs - off), 0, &fl);
     {

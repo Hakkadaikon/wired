@@ -11,7 +11,6 @@ static usz rd_pos(rd_cursor* cur, const u8* p, usz n);
 static int rd_place(rd_cursor* cur, const u8* p, usz n, u16* pos);
 static int rd_place_line(
     rd_cursor* cur, const rline* L, wired_h3reqdrive_hdr* h);
-static int  rd_name_eq(wired_span a, const char* s);
 static int  rd_keeps(const rline* L, const wired_h3reqdrive_req* r);
 static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r);
 
@@ -121,7 +120,8 @@ static int rd_place_line(
 const char* const rd_dedicated[] = {
     "cookie", "origin", "wt-available-protocols"};
 
-static int rd_name_eq(wired_span a, const char* s) {
+/* 1 if a is exactly the NUL-terminated s. */
+int h3reqdrive_span_is(wired_span a, const char* s) {
   usz n = wired_cstr_len(s);
   return a.n == n && ct_diffn(a.p, (const u8*)s, n) == 0;
 }
@@ -129,7 +129,7 @@ static int rd_name_eq(wired_span a, const char* s) {
 /* Index of name in rd_dedicated, RD_DEDICATED_N if it is not one. */
 usz h3reqdrive_rd_dedicated_idx(wired_span name) {
   usz i = 0;
-  while (i < RD_DEDICATED_N && !rd_name_eq(name, rd_dedicated[i])) {
+  while (i < RD_DEDICATED_N && !h3reqdrive_span_is(name, rd_dedicated[i])) {
     i++;
   }
   return i;
@@ -176,6 +176,7 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   if (!h3reqdrive_line_ok(&L)) {
     return 0;
   }
+  h3_ph_field(&cur->ph, L.name, L.name_len);
   h3reqdrive_classify_line(&L, r);
   cur->off += c;
   cur->used += L.scratch_used;

@@ -46,6 +46,8 @@ typedef struct {
  * run much longer (e.g. a multi-entry subprotocol offer list). */
 #define LITNAME_NAME_CAP 64
 
+#include "app/http3/core/h3/connect.h"
+
 /* Cursor state shared by the field-line walkers below: the field section and
  * scratch buffer being walked, an offset into the section and how much
  * scratch has been consumed so far, plus the dynamic-table context (RFC 9204
@@ -59,6 +61,7 @@ typedef struct {
   usz         off;
   usz         used;
   qdyn_src    dyn;
+  h3_ph_set   ph; /* RFC 9114 4.3: the section's pseudo-headers so far */
 } rd_cursor;
 
 #define RD_DEDICATED_N (sizeof rd_dedicated / sizeof rd_dedicated[0])
@@ -88,6 +91,10 @@ usz h3reqdrive_decode_line(
 int  h3reqdrive_line_name_is(const rline* L, const char* s);
 void h3reqdrive_classify_line(const rline* L, wired_h3reqdrive_req* r);
 int  h3reqdrive_line_ok(const rline* L);
+int  h3reqdrive_span_is(wired_span a, const char* s);
+int  h3reqdrive_digits(wired_span s, u64* v);
+int  h3reqdrive_ph_ok(const h3_ph_set* p, const wired_h3reqdrive_req* r);
+int  h3reqdrive_target_ok(const wired_h3reqdrive_req* r);
 void h3reqdrive_line_trim(rline* L);
 usz  h3reqdrive_rd_dedicated_idx(wired_span name);
 int  h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r);

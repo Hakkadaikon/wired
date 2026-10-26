@@ -106,9 +106,108 @@ static void test_h3reqcheck_value_ows_trimmed(void) {
   CHECK(v.n == 3 && v.p[0] == 'v' && v.p[2] == 'w');
 }
 
+/* Field section of (name, value) pairs, all literal-name lines; 1 if the
+ * request decodes. */
+static int rc_lines(const char* const* nv, usz pairs) {
+  u8                   fs[512];
+  qpack_prefix         pfx = {0, 0, 0};
+  usz                  off = qpack_prefix_encode(fs, 64, &pfx);
+  wired_h3reqdrive_req r;
+  for (usz i = 0; i < pairs; i++) {
+    rc_lit(fs, &off, nv[2 * i], nv[2 * i + 1]);
+  }
+  return rc_decode(fs, off, &r);
+}
+
+#define RC_LINES(...)                     \
+  rc_lines(                               \
+      (const char* const[]){__VA_ARGS__}, \
+      sizeof((const char* const[]){__VA_ARGS__}) / sizeof(char*) / 2)
+
+/* RFC 9114 4.3 / 4.3.1 (9114-022/023/025): exactly one each of :method,
+ * :scheme and :path, every pseudo-header ahead of the regular fields, and
+ * none unknown or response-only. */
+static void test_h3reqcheck_pseudo_set(void) {
+  CHECK(RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/"));
+  CHECK(!RC_LINES(":scheme", "https", ":authority", "h", ":path", "/"));
+  CHECK(!RC_LINES(":method", "GET", ":authority", "h", ":path", "/"));
+  CHECK(!RC_LINES(":method", "GET", ":scheme", "https", ":authority", "h"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":method", "GET", ":scheme", "https", ":authority", "h",
+      ":path", "/"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/",
+      ":path", "/"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/",
+      ":foo", "x"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/",
+      ":status", "200"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", "x-a", "1", ":authority", "h",
+      ":path", "/"));
+}
+
+/* RFC 9114 4.3.1 / RFC 9110 4.2 (9114-087, 9110-031): :authority carries
+ * no userinfo and names a host; an https request has :authority or Host,
+ * neither empty, the same value when both are present. */
+static void test_h3reqcheck_authority(void) {
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "u@h", ":path", "/"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "", ":path", "/"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", ":443", ":path",
+      "/"));
+  CHECK(!RC_LINES(":method", "GET", ":scheme", "https", ":path", "/"));
+  CHECK(RC_LINES(
+      ":method", "GET", ":scheme", "https", ":path", "/", "host", "h"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":path", "/", "host", ""));
+  CHECK(RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/",
+      "host", "h"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "/",
+      "host", "g"));
+  CHECK(RC_LINES(":method", "GET", ":scheme", "x-other", ":path", "/"));
+}
+
+/* RFC 9114 4.3.1 / RFC 9110 7.1 (9110-038): "*" is OPTIONS' alone. */
+static void test_h3reqcheck_asterisk_only_options(void) {
+  CHECK(RC_LINES(
+      ":method", "OPTIONS", ":scheme", "https", ":authority", "h", ":path",
+      "*"));
+  CHECK(!RC_LINES(
+      ":method", "GET", ":scheme", "https", ":authority", "h", ":path", "*"));
+}
+
+/* RFC 9114 4.4 / RFC 9110 9.3.6 (9114-029, 9110-022, 9110-043): a plain
+ * CONNECT carries :authority host:port and neither :scheme nor :path. */
+static void test_h3reqcheck_connect_shape(void) {
+  CHECK(RC_LINES(":method", "CONNECT", ":authority", "h:443"));
+  CHECK(!RC_LINES(":method", "CONNECT"));
+  CHECK(!RC_LINES(
+      ":method", "CONNECT", ":authority", "h:443", ":scheme", "https"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h:443", ":path", "/"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h:"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", ":443"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h:0"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h:65536"));
+  CHECK(!RC_LINES(":method", "CONNECT", ":authority", "h:4x3"));
+  CHECK(RC_LINES(":method", "CONNECT", ":authority", "[::1]:65535"));
+}
+
 void test_h3reqcheck(void) {
   test_h3reqcheck_uppercase_name_rejected();
   test_h3reqcheck_non_token_name_rejected();
   test_h3reqcheck_value_octets();
   test_h3reqcheck_value_ows_trimmed();
+  test_h3reqcheck_pseudo_set();
+  test_h3reqcheck_authority();
+  test_h3reqcheck_asterisk_only_options();
+  test_h3reqcheck_connect_shape();
 }

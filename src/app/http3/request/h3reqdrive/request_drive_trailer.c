@@ -66,9 +66,10 @@ usz h3reqdrive_prefix_base(
   return prefix_resolve_base(&p, dyn, base, ric) ? off : 0;
 }
 
-/* RFC 9114 4.3.1: walk every field line after the section prefix in any order
- * or count, recovering the request pseudo-headers into r by name. dyn is the
- * connection's dynamic table (0 if none has been observed yet -- every
+/* RFC 9114 4.3 / 4.3.1: walk every field line after the section prefix,
+ * recovering the request pseudo-headers into r by name, then require the
+ * pseudo-header set and order a request must carry (h3reqdrive_ph_ok). dyn is
+ * the connection's dynamic table (0 if none has been observed yet -- every
  * dynamic-table field-line reference then simply fails to resolve, see
  * h3reqdrive_line_indexed's own doc). */
 static int decode_lines(
@@ -77,13 +78,14 @@ static int decode_lines(
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r,
     usz*                  used) {
-  rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs, 0}};
+  rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs, 0}, {0, 0, 0}};
   int       ok  = 0;
-  cur.off       = h3reqdrive_prefix_base(fs, dyn, &cur.dyn.base, &cur.dyn.ric);
-  r->qpack_ric  = cur.dyn.ric;
+  h3_ph_init(&cur.ph);
+  cur.off      = h3reqdrive_prefix_base(fs, dyn, &cur.dyn.base, &cur.dyn.ric);
+  r->qpack_ric = cur.dyn.ric;
   r->qpack_failed = cur.off == 0;
   if (cur.off) {
-    ok = h3reqdrive_scan_lines(&cur, r);
+    ok = h3reqdrive_scan_lines(&cur, r) && h3reqdrive_ph_ok(&cur.ph, r);
   }
   *used = cur.used;
   return ok;
@@ -141,7 +143,7 @@ static int trailer_decode(
   if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) {
     return 1;
   }
-  cur     = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}};
+  cur     = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}, {0, 0, 0}};
   cur.off = h3reqdrive_prefix_base(tfs, dyn, &cur.dyn.base, &cur.dyn.ric);
   r->qpack_trailer_ric = cur.dyn.ric;
   r->qpack_failed      = cur.off == 0;

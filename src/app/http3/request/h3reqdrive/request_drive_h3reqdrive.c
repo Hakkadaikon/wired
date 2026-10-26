@@ -1,6 +1,5 @@
 #include "app/http3/request/h3reqdrive/request_drive_impl.h"
 
-static int path_present_and_empty(const wired_h3reqdrive_req* r);
 static int rd_hdr_name_is(
     const wired_h3reqdrive_req* req,
     const wired_h3reqdrive_hdr* h,
@@ -9,14 +8,6 @@ static int rd_hdrs_find(
     const wired_h3reqdrive_req* req, wired_span name, wired_span* out);
 static int rd_dedicated_found(
     const wired_h3reqdrive_req* req, usz i, wired_span* out);
-
-/* RFC 9114 4.3.1: a :path pseudo-header that was present (r->path != 0, so
- * CONNECT's legitimate omission is unaffected) but empty is malformed --
- * "*" (OPTIONS' asterisk-form, RFC 9114 4.3.1/9114-027) is one octet and
- * never trips this. */
-static int path_present_and_empty(const wired_h3reqdrive_req* r) {
-  return r->path != 0 && r->path_len == 0;
-}
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
 int wired_h3reqdrive_recv_get_dyn(
@@ -34,7 +25,7 @@ int wired_h3reqdrive_recv_get_dyn(
   if (!h3reqdrive_decode_sections(stream_data, fs, scratch, dyn, r)) {
     return 0;
   }
-  return !path_present_and_empty(r);
+  return h3reqdrive_target_ok(r);
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5: static-table-only convenience wrapper (no
