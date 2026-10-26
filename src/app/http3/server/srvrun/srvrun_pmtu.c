@@ -204,7 +204,9 @@ static int srvrun_pmtu_send_probe(
   c->pmtu_probe_pn      = pn;
   c->pmtu_probe_size    = size;
   c->pmtu_probe_sent_ms = ctx->now_ms;
-  srvrun_send(ctx->cfg, c, wired_span_of(buf, out.len), "PMTU probe sent\n");
+  /* RFC 9000 14: a probe still goes out on a halted path (pmtu_halted). */
+  srvrun_send_now(
+      ctx->cfg, c, wired_span_of(buf, out.len), "PMTU probe sent\n");
   return 1;
 }
 
@@ -214,7 +216,7 @@ static int srvrun_pmtu_send_probe(
  * 0 if there was nothing to send. */
 static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u64 now_us = ctx->now_ms * 1000;
-  usz size   = srvrun_pmtu_probe_candidate(c, now_us);
+  usz size   = c->closing ? 0 : srvrun_pmtu_probe_candidate(c, now_us);
   if (!size) {
     return 0;
   }
@@ -245,6 +247,9 @@ static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_pmtu_try_probe(ctx, c)) {
     return 1;
+  }
+  if (pmtu_halted(&c->pmtu)) {
+    return 0; /* RFC 9000 14: the path carries no 1200-byte datagram */
   }
   return srvrun_pump_round_gated(ctx, c);
 }

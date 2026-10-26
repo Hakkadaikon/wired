@@ -15212,6 +15212,40 @@ static void test_srvrun_pmtu_full_size_ack_not_black_hole(void) {
   CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
 }
 
+/* RFC 9000 14 / RFC 8899 5.2 ERROR: once BASE_PLPMTU failed MAX_PROBES
+ * times the path cannot carry 1200-byte datagrams, so the server "MUST
+ * immediately cease sending" on it except PMTU probes and CONNECTION_CLOSE:
+ * an ordinary send and the data pump are refused, the BASE_PLPMTU probe
+ * still goes out. */
+static void test_srvrun_pmtu_error_halts_sends(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[2048];
+  u8            pkt[64] = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  usz             before;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  pmtu_init(&c.pmtu);
+  c.pmtu.phase    = PMTU_PHASE_ERROR;
+  c.pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
+  before          = g_srvrun_send_count;
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "x\n");
+  CHECK(g_srvrun_send_count == before);          /* refused */
+  CHECK(srvrun_pump_opportunity(&ctx, &c) == 1); /* the probe */
+  CHECK(g_srvrun_send_count == before + 1);
+  CHECK(c.pmtu_probe_size == PMTU_BASE);
+  CHECK(srvrun_pump_opportunity(&ctx, &c) == 0); /* nothing else */
+  c.pmtu.phase = PMTU_PHASE_SEARCHING;
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "x\n");
+  CHECK(g_srvrun_send_count == before + 2);
+}
+
 /* RFC 8899 4.4: PMTU_MAX is the target WIRE size (datagram bytes on the
  * path), not a plaintext payload length -- srvrun_pmtu_send_probe must leave
  * room in its size-`size` buffer for the short header (1 + dcid.n + 4) and
@@ -25902,6 +25936,7 @@ void test_srvrun(void) {
   test_srvrun_pmtu_raise_timer_resumes_search();
   test_srvrun_pmtu_full_size_losses_black_hole();
   test_srvrun_pmtu_full_size_ack_not_black_hole();
+  test_srvrun_pmtu_error_halts_sends();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_data_datagrams_fit_validated_probe();
