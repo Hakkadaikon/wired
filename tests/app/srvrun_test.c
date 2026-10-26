@@ -25490,16 +25490,18 @@ static int sr_arm_with_field_limit(srvrun_conn* c, srvrun_cfg* cfg, u64 limit) {
 }
 
 /* RFC 9114 4.2.2 (9114-086): a response whose field section (:status 42 +
- * location:/new 44 = 86) exceeds the client's advertised
- * SETTINGS_MAX_FIELD_SECTION_SIZE is never sent (the stream is reset with
- * H3_INTERNAL_ERROR, srvrun_reap_one); one exactly at the limit is. */
+ * location:/new 44 + the SDK's content-length: 0 47 + date 4+29+32 = 65,
+ * RFC 9114 4.2.2 name + value + 32 each, = 198) exceeds the client's
+ * advertised SETTINGS_MAX_FIELD_SECTION_SIZE is never sent (the stream is
+ * reset with H3_INTERNAL_ERROR, srvrun_reap_one); one exactly at the limit
+ * is. */
 static void test_srvrun_http_peer_field_section_limit(void) {
   static const wired_http_field f[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
   srvrun_cfg                    cfg = {0};
   g_sr_hx                           = (sr_hx_case){302, 0, 1, f, 0, 0, 0};
   cfg.http                          = sr_hx_handler;
-  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 85) == 1);
-  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 86) == 0);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 197) == 1);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 198) == 0);
   CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 0) == 0);
 }
 
