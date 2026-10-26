@@ -24860,6 +24860,30 @@ static void test_srvrun_http_bad_field_is_500(void) {
   sr_hx_expect_500();
 }
 
+/* RFC 9110 5.3 (9110-033): a repeated field name answers 500 unless the
+ * field is list-based or set-cookie; content_type plus a content-type
+ * field is a repeat too. */
+static void test_srvrun_http_duplicate_field_is_500(void) {
+  static const u8 vary_n[] = "vary", vary_a[] = "accept", vary_b[] = "origin",
+                  ct_n[] = "content-type", ct_v[] = "text/html";
+  static const wired_http_field loc2[] = {
+      SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v),
+      SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
+  static const wired_http_field vary2[] = {
+      SR_HX_FIELD(vary_n, vary_a), SR_HX_FIELD(vary_n, vary_b)};
+  static const wired_http_field ct1[] = {SR_HX_FIELD(ct_n, ct_v)};
+  sr_hx_dec                     d;
+  g_sr_hx = (sr_hx_case){302, 0, 2, loc2, 0, 0, 0};
+  sr_hx_expect_500();
+  g_sr_hx = (sr_hx_case){200, "text/plain", 1, ct1, "x", 0, 0};
+  sr_hx_expect_500();
+  g_sr_hx = (sr_hx_case){200, 0, 2, vary2, "x", 0, 0};
+  sr_hx_run(&d);
+  CHECK(sr_hx_line_is(&d, 0, ":status", "200"));
+  CHECK(sr_hx_line_is(&d, 1, "vary", "accept"));
+  CHECK(sr_hx_line_is(&d, 2, "vary", "origin"));
+}
+
 /* WIRED_HTTP_MAX_FIELDS fields pass; a 9th is rejected with 500, never
  * silently dropped. */
 static void test_srvrun_http_field_count_limit(void) {
@@ -24884,8 +24908,10 @@ static void test_srvrun_http_field_bytes_limit(void) {
   sr_hx_dec        d;
   bytes_memset(big, 'v', sizeof big);
   for (usz i = 0; i < WIRED_HTTP_MAX_FIELDS; i++) {
+    /* set-cookie: the only repeat RFC 9110 5.3 lets every line share */
     f[i] = (wired_http_field){
-        wired_span_of(sr_hx_ck_n, 1), wired_span_of(big, each - 1)};
+        wired_span_of(sr_hx_ck_n, sizeof sr_hx_ck_n - 1),
+        wired_span_of(big, each - (sizeof sr_hx_ck_n - 1))};
   }
   g_sr_hx = (sr_hx_case){0, 0, WIRED_HTTP_MAX_FIELDS, f, "x", 0, 0};
   sr_hx_run(&d);
@@ -25892,6 +25918,7 @@ void test_srvrun(void) {
   test_srvrun_http_204_304_send_no_data();
   test_srvrun_http_status_range();
   test_srvrun_http_bad_field_is_500();
+  test_srvrun_http_duplicate_field_is_500();
   test_srvrun_http_date_live_clock();
   test_srvrun_http_head_no_content_length();
   test_srvrun_http_405_allow_and_body();

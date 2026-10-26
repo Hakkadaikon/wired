@@ -15,7 +15,8 @@ static int wt_origin_app_ok(
 
 static int srvrun_http_head_ok(const wired_http_exchange* x) {
   return srvrun_http_status_final(x->status) &&
-         x->field_count <= WIRED_HTTP_MAX_FIELDS;
+         x->field_count <= WIRED_HTTP_MAX_FIELDS &&
+         srvrun_http_fields_unique(x);
 }
 
 static int srvrun_http_ok(const wired_http_exchange* x) {

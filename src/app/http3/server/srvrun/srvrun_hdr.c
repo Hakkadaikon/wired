@@ -5,6 +5,11 @@
 static void srvrun_hdrs_add(srvrun_hdrs* h, wired_span name, wired_span value);
 static int  srvrun_hdr_name_is(const qpack_field* f, wired_span name);
 static int  srvrun_hdrs_has(const srvrun_hdrs* h, wired_span name);
+static int  srvrun_hdr_name_is_cstr(wired_span name, const char* want);
+static int  srvrun_field_repeatable(wired_span name);
+static int  srvrun_field_repeats(const wired_http_exchange* x, usz i);
+static int  srvrun_field_ct_repeat(const wired_http_exchange* x, wired_span n);
+static int  srvrun_field_bad_repeat(const wired_http_exchange* x, usz i);
 static u64  srvrun_date_secs(void);
 static void srvrun_hdrs_date(srvrun_hdrs* h);
 static void srvrun_hdrs_sdk(srvrun_hdrs* h, int with_len, u64 len);
@@ -42,6 +47,11 @@ static void srvrun_hdrs_add(srvrun_hdrs* h, wired_span name, wired_span value) {
 
 static int srvrun_hdr_name_is(const qpack_field* f, wired_span name) {
   return f->name.n == name.n && srvrun_wt_bytes_eq(f->name.p, name.p, name.n);
+}
+
+static int srvrun_hdr_name_is_cstr(wired_span name, const char* want) {
+  qpack_field f = {name, {0, 0}};
+  return srvrun_hdr_name_is(&f, wired_span_cstr(want));
 }
 
 /* Field names are lowercase tokens by now (srvrun_http_fields_ok), so an
@@ -199,5 +209,69 @@ int srvrun_status_build(
     return 0;
   }
   out->len = off;
+  return 1;
+}
+
+/* RFC 9110 5.3: response fields whose definition makes them a
+ * comma-separated list (RFC 9110 / 9111 / 8288), plus Set-Cookie (RFC 6265
+ * 3) -- the only names a response may repeat. Any other repeat, an unknown
+ * extension field included, is refused: the application can always join
+ * a list-based field's values into one line itself. */
+static const char* const srvrun_list_fields[] = {
+    "accept-ranges",
+    "allow",
+    "authentication-info",
+    "cache-control",
+    "content-encoding",
+    "content-language",
+    "link",
+    "proxy-authenticate",
+    "set-cookie",
+    "trailer",
+    "vary",
+    "via",
+    "www-authenticate",
+};
+
+static int srvrun_field_repeatable(wired_span name) {
+  for (usz i = 0; i < sizeof srvrun_list_fields / sizeof *srvrun_list_fields;
+       i++) {
+    if (srvrun_hdr_name_is_cstr(name, srvrun_list_fields[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* n names content-type while x->content_type already supplies one. */
+static int srvrun_field_ct_repeat(const wired_http_exchange* x, wired_span n) {
+  return x->content_type && srvrun_hdr_name_is_cstr(n, "content-type");
+}
+
+/* Field i of x repeats an earlier field's name or the content_type. */
+static int srvrun_field_repeats(const wired_http_exchange* x, usz i) {
+  wired_span n = x->fields[i].name;
+  for (usz j = 0; j < i; j++) {
+    if (srvrun_hdr_name_is(&x->fields[j], n)) {
+      return 1;
+    }
+  }
+  return srvrun_field_ct_repeat(x, n);
+}
+
+/* Field i of x repeats a name that may not repeat. */
+static int srvrun_field_bad_repeat(const wired_http_exchange* x, usz i) {
+  return srvrun_field_repeats(x, i) &&
+         !srvrun_field_repeatable(x->fields[i].name);
+}
+
+/* RFC 9110 5.3 (9110-033): no name appears twice unless it is list-based
+ * or set-cookie. x->field_count is already within the array. */
+int srvrun_http_fields_unique(const wired_http_exchange* x) {
+  for (usz i = 0; i < x->field_count; i++) {
+    if (srvrun_field_bad_repeat(x, i)) {
+      return 0;
+    }
+  }
   return 1;
 }

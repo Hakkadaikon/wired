@@ -21,6 +21,7 @@ int srvrun_status_build(
     u16                         status,
     const qpack_field*          extra,
     wired_obuf*                 out);
+int         srvrun_http_fields_unique(const wired_http_exchange* x);
 int         srvrun_req_is_head(const wired_h3reqdrive_req* r);
 const char* srvrun_status_text(u16 status);
 wired_span  srvrun_status_body(const wired_h3reqdrive_req* r, u16 status);
