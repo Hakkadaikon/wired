@@ -429,7 +429,7 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_two_subscribers_two_objects`
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_normalize_forwards_only_whole_objects`
+    `test_moqtrun_relay_forwards_bytes_as_they_arrive`
 - [x] MQ22-049 A relay shall not modify Object header fields or payload when
   forwarding an Object.
   - test: `tests/app/moqtrun_test.c` —

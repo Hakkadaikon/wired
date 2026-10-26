@@ -117,8 +117,9 @@ static u64 moqtrun_tail_born(usz off, u64 now, u64 born) {
  * the relay's held fragment to this delivery in hub->relay_scratch, finds
  * the last complete Object boundary, keeps the tail past it as the next
  * fragment, and returns the whole-Objects prefix -- the only bytes safe to
- * forward, because a forwarded round can be dropped per subscriber and a
- * dropped round must never end mid-Object. Decoding continues the
+ * forward as a round, because a forwarded round can be dropped per
+ * subscriber and a dropped round must never end mid-Object (the tail
+ * itself goes out through moqtrun_cut_push). Decoding continues the
  * stream's own Object sequence (relay->seq, set from its SUBGROUP_HEADER
  * by moqtrun_relay_start), so each Object's ID counts toward the track's
  * Largest. *seq0_out receives the chaining state as it was BEFORE this

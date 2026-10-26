@@ -39,6 +39,7 @@ static void moqtrun_rel_tick_relay(
   }
   moqtrun_rel_drain_one(
       hub, track, relay, &hub->rel_pool[relay->rel_idx], now_ms);
+  moqtrun_cut_push(hub, track, relay); /* a refused one retries */
 }
 
 static void moqtrun_rel_tick_track(
@@ -107,9 +108,13 @@ static void moqtrun_relay_forward(
   moqtrun_sgt_arm(hub, track, relay, fin);
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, seq0, fin, born_ms);
-    return;
+  } else {
+    moqtrun_relay_continue_lossy(hub, track, relay, whole, seq0, fin, born_ms);
   }
-  moqtrun_relay_continue_lossy(hub, track, relay, whole, seq0, fin, born_ms);
+  moqtrun_cut_settle(relay, whole.n);
+  if (!fin) { /* draft-18 5.1: the next Object's bytes so far */
+    moqtrun_cut_push(hub, track, relay);
+  }
 }
 
 /* A poisoned relay only absorbs its publisher's bytes, so they never get
@@ -151,11 +156,11 @@ void moqtrun_relay_continue(
   moqdata_objseq seq0;
   wired_span     whole =
       moqtrun_relay_normalize(hub, track, relay, wire, &born_ms, &seq0);
-  /* A FIN while a torn Object is held (draft-19 11.4: FIN mid-Object). */
-  moqtrun_rx_flag(hub, fin && relay->frag_len != 0);
   /* Objects completed before the dropped tail are sound: deliver them,
    * then end the subscriber streams (moqtrun_relay_end_poisoned). */
-  moqtrun_relay_forward(hub, track, relay, whole, seq0, fin, born_ms);
+  moqtrun_relay_forward(
+      hub, track, relay, whole, seq0, moqtrun_cut_fin(hub, relay, fin),
+      born_ms);
   moqtrun_relay_end_poisoned(hub, track, relay, fin);
 }
 

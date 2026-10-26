@@ -61,6 +61,7 @@ static void moqtrun_relay_claim_init(
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
     relay->sub_stream_set[i]  = 0;
     relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
+    relay->sub_part[i]        = 0;
   }
   moqtrun_frag_release(relay);
 }
@@ -104,6 +105,7 @@ void moqtrun_relay_start(
   moqtss_prime(hub, track, relay->group_id); /* SSTS (moqtssts_run.c) */
   moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
   moqtrun_rel_attach_subs(hub, track, relay);
+  moqtrun_cut_push(hub, track, relay); /* draft-18 5.1 */
   moqtrun_relay_end_poisoned(hub, track, relay, 0);
 }
 

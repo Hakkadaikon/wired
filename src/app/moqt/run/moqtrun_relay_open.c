@@ -81,6 +81,7 @@ static void moqtrun_relay_opened(
   relay->sub_stream_id[i]   = (u64)sid;
   relay->sub_stream_set[i]  = 1;
   relay->sub_busy_streak[i] = 0;
+  relay->sub_part[i]        = 0;
 }
 
 void moqtrun_relay_open_one(

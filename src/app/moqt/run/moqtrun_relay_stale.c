@@ -114,6 +114,7 @@ static void moqtrun_relay_append_one(
   usz cut = moqtrun_startobj_cut(sub, r.wire, 0, &r.seq0, relay->group_id);
   r.wire  = wired_span_of(r.wire.p + cut, r.wire.n - cut);
   r.wire  = moqtrun_relay_end_cut(relay, i, r.wire, r.seq0, sub, &r.fin);
+  r.wire  = moqtrun_cut_skip(relay, i, r.wire);
   moqtrun_relay_deliver_one(hub, sub, dst, relay, i, r);
 }
 

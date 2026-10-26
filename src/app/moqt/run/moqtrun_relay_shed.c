@@ -7,6 +7,12 @@ static void moqtrun_relay_shed_one(
     const wired_moqtrun_sub* sub,
     wired_moqtrun_relay*     relay,
     usz                      i);
+static void moqtrun_relay_refused(
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_relay*     relay,
+    usz                      i);
 static void moqtrun_relay_note_busy(
     wired_moqt_hub*          hub,
     wired_wt_session*        wt,
@@ -96,6 +102,19 @@ static void moqtrun_relay_note_busy(
   moqtrun_relay_shed_one(hub, wt, sub, relay, i);
 }
 
+/* A refused round: the stream reset if it was partway into an Object
+ * (moqtrun_cut_refused), else counted toward a shed. */
+static void moqtrun_relay_refused(
+    wired_moqt_hub*          hub,
+    wired_wt_session*        wt,
+    const wired_moqtrun_sub* sub,
+    wired_moqtrun_relay*     relay,
+    usz                      i) {
+  if (!moqtrun_cut_refused(hub, wt, relay, i)) {
+    moqtrun_relay_note_busy(hub, wt, sub, relay, i);
+  }
+}
+
 /* wire for sub slot i: as is, unless i's stream was late-opened and has
  * not been sent an Object yet (sub_reframe) -- then its first Object's
  * Object ID Delta (chained from seq0 on the publisher's stream) becomes
@@ -140,7 +159,8 @@ void moqtrun_relay_forward_one(
     hub->stat_relay_sent++;
     relay->sub_busy_streak[i] = 0;
     relay->sub_reframe &= ~((u32)1 << i);
+    relay->sub_part[i] = 0; /* the round ends at an Object boundary */
     return;
   }
-  moqtrun_relay_note_busy(hub, wt, sub, relay, i);
+  moqtrun_relay_refused(hub, wt, sub, relay, i);
 }

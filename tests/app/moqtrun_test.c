@@ -30,6 +30,7 @@ typedef struct {
   usz               payload_len;  /* TRUE length, even if truncated above */
   u64               payload_hash; /* FNV-1a 64 over the untruncated bytes */
   int               refused;      /* stream_send only: returned 0 */
+  usz               wire_len;     /* the untruncated length */
 } moqtrun_test_call;
 
 static moqtrun_test_call g_calls[MOQTRUN_TEST_MAX_CALLS];
@@ -229,6 +230,7 @@ static void moqtrun_test_record(
     c->payload[i] = p.p[i];
   }
   c->payload_hash = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, p.p, p.n);
+  c->wire_len     = p.n;
 }
 
 static i64 moqtrun_test_open_bidi_stream(
@@ -432,6 +434,27 @@ static const moqtrun_test_call* moqtrun_test_last_kind(int kind) {
     }
   }
   return 0;
+}
+
+/* 1 iff the stream_send payloads accepted since the last reset are, in
+ * order, exactly want[0..n): a relayed stream's bytes went out as they
+ * arrived (draft-18 5.1), none twice, none skipped. */
+static int moqtrun_test_sends_are(const u8* want, usz n) {
+  usz off = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->kind != 3 || c->refused) {
+      continue;
+    }
+    if (c->wire_len > n - off ||
+        c->payload_hash !=
+            moqtrun_test_fnv1a64(
+                MOQTRUN_TEST_FNV1A64_SEED, want + off, c->wire_len)) {
+      return 0;
+    }
+    off += c->wire_len;
+  }
+  return off == n;
 }
 
 /* Fixture sessions: opaque wired_wt_session*, never dereferenced by this
@@ -3677,14 +3700,11 @@ static void test_moqtrun_late_open_sgid_mode1_explicit(void) {
   CHECK(!got.subgroup_id_pending && got.subgroup_id == 5);
 }
 
-/* Deliveries slice the publisher's stream at arbitrary byte positions, but
- * every relayed round must end on an Object boundary: a round dropped for
- * one subscriber (stream_send refusal) vanishes whole from that
- * subscriber's stream, and a round torn mid-Object turns every later byte
- * into mis-framed garbage (observed live as voice going permanently silent
- * while bytes kept arriving). An Object split across two deliveries is
- * therefore held back and forwarded ONLY once complete. */
-static void test_moqtrun_torn_object_held_until_complete(void) {
+/* draft-18 5.1 ("A publisher SHOULD begin sending incomplete objects when
+ * available"): an Object split across two deliveries goes out as it
+ * arrives once its header is in -- its head now, the rest on completion,
+ * never a byte twice (moqtrun_cut.c). */
+static void test_moqtrun_torn_object_cut_through(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -3705,23 +3725,18 @@ static void test_moqtrun_torn_object_held_until_complete(void) {
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(obj, cut), 0);
-  CHECK(moqtrun_test_count_kind(3) == 0); /* torn: nothing forwarded */
+  CHECK(moqtrun_test_sends_are(obj, cut)); /* header in: its head goes out */
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(obj + cut, obj_n - cut), 0);
-  CHECK(moqtrun_test_count_kind(3) == 1); /* completed: forwarded whole */
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
-  CHECK(sent->payload_len == obj_n);
-  for (usz i = 0; i < obj_n; i++) {
-    CHECK(sent->payload[i] == obj[i]);
-  }
+  CHECK(moqtrun_test_sends_are(obj + cut, obj_n - cut)); /* only the rest */
 }
 
-/* A delivery carrying [tail of Object A][all of Object B][head of Object
- * C] forwards exactly A+B (fragment A completed by this delivery, C's head
- * held back for the next). */
-static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
+/* Deliveries [head of A] / [rest of A][B][head of C] / [rest of C] go out
+ * exactly as they arrive (draft-18 5.1): every round's bytes continue the
+ * subscriber stream where the previous one stopped. */
+static void test_moqtrun_relay_forwards_bytes_as_they_arrive(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -3747,33 +3762,25 @@ static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(abc, cut1), 0);
-  CHECK(moqtrun_test_count_kind(3) == 0);
+  CHECK(moqtrun_test_sends_are(abc, cut1));
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(abc + cut1, cut2 - cut1), 0);
-  CHECK(moqtrun_test_count_kind(3) == 1);
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
-  CHECK(sent->payload_len == b_end); /* A+B whole, C's head held back */
-  for (usz i = 0; i < b_end; i++) {
-    CHECK(sent->payload[i] == abc[i]);
-  }
+  CHECK(moqtrun_test_count_kind(3) == 2); /* rest of A + B, then C's head */
+  CHECK(moqtrun_test_sends_are(abc + cut1, cut2 - cut1));
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(abc + cut2, n - cut2), 0);
-  CHECK(moqtrun_test_count_kind(3) == 1); /* C completes */
-  sent = moqtrun_test_last_kind(3);
-  CHECK(sent->payload_len == n - b_end);
-  for (usz i = 0; i < n - b_end; i++) {
-    CHECK(sent->payload[i] == abc[b_end + i]);
-  }
+  CHECK(moqtrun_test_sends_are(abc + cut2, n - cut2)); /* C completes */
 }
 
 /* The OPENING delivery can be torn too: header + one whole Object + the
- * head of a second. The relay stream opens carrying only the whole-Object
- * prefix; the torn head completes on the next delivery. */
-static void test_moqtrun_fresh_delivery_tail_held_back(void) {
+ * head of a second. The relay stream opens carrying the whole-Object
+ * prefix, the torn head follows it at once (draft-18 5.1), and the next
+ * delivery sends only the rest. */
+static void test_moqtrun_fresh_delivery_tail_cut_through(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -3796,15 +3803,12 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
     CHECK(opened->payload[i] == wire[i]);
   }
 
+  CHECK(moqtrun_test_sends_are(wire + whole_end, cut - whole_end));
+
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(wire + cut, n - cut), 0);
-  CHECK(moqtrun_test_count_kind(3) == 1);
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
-  CHECK(sent->payload_len == n - whole_end); /* the completed 2nd Object */
-  for (usz i = 0; i < n - whole_end; i++) {
-    CHECK(sent->payload[i] == wire[whole_end + i]);
-  }
+  CHECK(moqtrun_test_sends_are(wire + cut, n - cut));
 }
 
 /* The OPENING delivery can even be torn before its FIRST Object completes
@@ -3842,16 +3846,13 @@ static void test_moqtrun_fresh_torn_first_object_accepted(void) {
     CHECK(opened->payload[i] == wire[i]);
   }
 
+  CHECK(moqtrun_test_sends_are(wire + hdr_end, cut - hdr_end)); /* 5.1 */
+
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, wired_span_of(wire + cut, n - cut), 0);
   CHECK(moqtrun_test_count_kind(5) == 0); /* same stream, no reopen */
-  CHECK(moqtrun_test_count_kind(3) == 1);
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
-  CHECK(sent->payload_len == n - hdr_end); /* Object 0 + Object 1, in order */
-  for (usz i = 0; i < n - hdr_end; i++) {
-    CHECK(sent->payload[i] == wire[hdr_end + i]);
-  }
+  CHECK(moqtrun_test_sends_are(wire + cut, n - cut)); /* in order */
 }
 
 /* A one-shot delivery (FIN with the data) whose Objects are ALL torn has
@@ -3974,8 +3975,8 @@ static void test_moqtrun_frag_pool_exhaustion_drops_extra(void) {
     wired_moqt_on_stream_data(
         &hub, SESS_A, 999 + 4 * i, wired_span_of(obj + n - 1, 1), 0);
   }
-  CHECK(moqtrun_test_count_kind(3) == 4);
-  u64 want = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj, n);
+  CHECK(moqtrun_test_count_kind(3) == 4); /* the head went out (5.1) */
+  u64 want = moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj + n - 1, 1);
   for (usz i = 0; i < g_n_calls; i++) {
     CHECK(g_calls[i].kind != 3 || g_calls[i].payload_hash == want);
   }
@@ -4019,7 +4020,7 @@ static void moqtrun_test_deliver_to_last_byte(
 }
 
 /* An Object of exactly WIRED_MOQTRUN_RELAY_FRAG_MAX framed bytes, torn
- * across many deliveries, is relayed whole and byte-identical, and its
+ * across many deliveries, is relayed as it arrives and byte-identical, and its
  * pool buffer is free again once it completes. */
 static void test_moqtrun_relay_max_object_intact(void) {
   static u8 obj[WIRED_MOQTRUN_RELAY_FRAG_MAX + 8];
@@ -4036,10 +4037,7 @@ static void test_moqtrun_relay_max_object_intact(void) {
 
   moqtrun_test_reset();
   moqtrun_test_deliver_to_last_byte(&hub, obj, n, 1000);
-  CHECK(moqtrun_test_count_kind(3) == 1);
-  CHECK(
-      moqtrun_test_last_kind(3)->payload_hash ==
-      moqtrun_test_fnv1a64(MOQTRUN_TEST_FNV1A64_SEED, obj, n));
+  CHECK(moqtrun_test_sends_are(obj, n)); /* slice by slice (5.1) */
   CHECK(hub.stat_frag_drop == 0);
   CHECK(moqtrun_test_frag_free(&hub) == WIRED_MOQTRUN_FRAG_POOL);
 }
@@ -4064,8 +4062,8 @@ static void test_moqtrun_relay_object_over_max_dropped(void) {
 
   moqtrun_test_reset();
   moqtrun_test_deliver_to_last_byte(&hub, obj, n - 1, 1000); /* tail = cap */
-  CHECK(moqtrun_test_count_kind(3) == 0);
-  CHECK(hub.stat_frag_drop == 1);
+  CHECK(moqtrun_test_count_kind(3) != 0); /* its head went out (5.1)... */
+  CHECK(hub.stat_frag_drop == 1);         /* ...so the stream is reset */
   CHECK(moqtrun_test_count_kind(7) == 1);
 
   moqtrun_test_reset();
@@ -6421,9 +6419,9 @@ static void mtall_main(void) {
   test_moqtrun_interleaved_chat_messages_close_independently();
   test_moqtrun_late_subscriber_gets_late_opened_stream();
   test_moqtrun_late_open_sgid_mode1_explicit();
-  test_moqtrun_torn_object_held_until_complete();
-  test_moqtrun_normalize_forwards_only_whole_objects();
-  test_moqtrun_fresh_delivery_tail_held_back();
+  test_moqtrun_torn_object_cut_through();
+  test_moqtrun_relay_forwards_bytes_as_they_arrive();
+  test_moqtrun_fresh_delivery_tail_cut_through();
   test_moqtrun_fresh_torn_first_object_accepted();
   test_moqtrun_fresh_oneshot_no_object_discarded();
   test_moqtrun_frag_overflow_counted();

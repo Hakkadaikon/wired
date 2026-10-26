@@ -412,7 +412,7 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_two_subscribers_two_objects`
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_normalize_forwards_only_whole_objects`
+    `test_moqtrun_relay_forwards_bytes_as_they_arrive`
 - [x] MOQT-049 (SS9.7, SS2.1) A relay shall not modify Object fields (Location,
   status, Properties) or the payload when forwarding; only the stream header of
   a late-opened stream is re-encoded (FIRST_OBJECT cleared, a mode-0b01
@@ -1109,12 +1109,12 @@ Legend:
 - [x] MOQT-136 An implementation that observes a stream FIN is assured it has
   received all Objects in that Subgroup from the start of the subscription.
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_torn_object_held_until_complete`
+    `test_moqtrun_torn_object_cut_through`
 - [x] MOQT-137 A relay shall not forward an Object on an existing Subgroup
   stream unless it is the next Object in that Subgroup (an Object split across
-  two deliveries is held back until complete).
+  two deliveries continues exactly where its sent part ended).
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_fresh_delivery_tail_held_back`
+    `test_moqtrun_fresh_delivery_tail_cut_through`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_frag_overflow_counted`
 - [x] MOQT-138 A publisher stream's FIN with no accompanying new Object bytes
   shall close the corresponding relay stream via a bare FIN, not a rejected
@@ -1871,8 +1871,6 @@ from the coverage denominator above:
   NEW_GROUP_REQUEST (SS10.2.18) is relayed upstream as on draft-18
   (MQ18-229, shared code). (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
   on, MOQT-231 and MOQT-232.)
-- (SS5.1) Sending incomplete Objects as they arrive (SHOULD) — on an
-  existing Subgroup stream the hub forwards whole Objects only (MOQT-137).
 - (SS6.3.1) Aggregating and propagating filters upstream — the hub makes
   one upstream SUBSCRIBE per track with no parameters (MOQT-224).
 - (SS8, SS11.4.3) Delivery-timeout checks before retransmission and

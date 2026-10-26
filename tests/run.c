@@ -849,6 +849,7 @@
 #include "app/moqt/run/moqtrun_fill_on.c"
 #include "app/moqt/run/moqtrun_fill_wait.c"
 #include "app/moqt/run/moqtrun_frag.c"
+#include "app/moqt/run/moqtrun_cut.c"
 #include "app/moqt/run/moqtrun_fsel.c"
 #include "app/moqt/run/moqtrun_fsel_fetch.c"
 #include "app/moqt/run/moqtrun_fwin.c"
@@ -1507,6 +1508,7 @@
 #include "app/moqtrun_drain_test.c"
 #include "app/moqtrun_xver_test.c"
 #include "app/moqtrun_alias_test.c"
+#include "app/moqtrun_cut_test.c"
 #include "app/moqtrun_done_test.c"
 #include "app/moqtrun_vgate_test.c"
 #include "app/moqtrun_misc_test.c"
@@ -2112,6 +2114,7 @@ int main(void) {
   test_moqtrun_drain();
   test_moqtrun_xver();
   test_moqtrun_alias();
+  test_moqtrun_cut();
   test_moqtrun_done();
   test_moqraw();
   test_moqtrun_vgate();

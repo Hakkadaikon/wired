@@ -468,8 +468,10 @@ typedef struct {
  * mid-Object, the subscriber's decoder read the next round's bytes as the
  * torn Object's continuation and mis-framed everything after it, forever
  * (observed live: voice went permanently silent minutes into every call
- * while rx bytes kept arriving). Forwarding only whole Objects makes every
- * droppable round self-delimiting. */
+ * while rx bytes kept arriving). Rounds are therefore cut at Object
+ * boundaries; the held Object's own bytes go out ahead of it under
+ * sub_part's per-stream accounting (moqtrun_cut.c), which resets a stream
+ * rather than let a refusal tear it. */
 typedef struct {
   /** 1 while this relay follows a publisher stream. */
   int in_use;
@@ -524,6 +526,10 @@ typedef struct {
   /** The stream's Publisher Priority (the header's, else the track's
    * default): PRIORITY_FILTER's input. */
   u8 pub_prio;
+  /** Per sub slot i: bytes of the held fragment's Object already sent
+   * on sub slot i's stream before the Object completed (draft-18 5.1,
+   * moqtrun_cut.c); 0 when none. */
+  usz sub_part[WIRED_MOQTRUN_MAX_SUBS];
 } wired_moqtrun_relay;
 
 /** Consecutive refused relay rounds (io.stream_send returning busy) after

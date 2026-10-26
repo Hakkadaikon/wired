@@ -131,6 +131,7 @@ void moqtrun_rel_continue(
   moqtrel_buf* rb   = &hub->rel_pool[relay->rel_idx];
   u64          base = rb->tail;
   moqtrun_rel_take(hub, rb, whole, born_ms);
+  moqtrun_cut_ring_take(relay, rb, whole.n, hub->live.last_now_ms);
   moqtrun_rel_cut_all(track, relay, rb, whole, seq0, base);
   if (fin) {
     rb->fin_seen = 1;

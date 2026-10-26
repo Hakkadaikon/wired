@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 216/248 tested, 28 indirect, 4 untested.**
+**Coverage: 217/248 tested, 28 indirect, 3 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -453,7 +453,7 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_two_subscribers_two_objects`
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_normalize_forwards_only_whole_objects`
+    `test_moqtrun_relay_forwards_bytes_as_they_arrive`
   - note: draft-18's text permits an application-specific reorder/drop
     exception that draft-19 removes; the implementation never exercises
     that exception (always strict), so this item holds under both drafts.
@@ -1184,13 +1184,13 @@ Legend:
   assured it has received all Objects in that Subgroup from the start of the
   subscription.
   - evidence: the hub forwards a FIN only after the Objects before it
-    (`test_moqtrun_torn_object_held_until_complete` shows the reassembly);
+    (`test_moqtrun_torn_object_cut_through` shows the reassembly);
     no test asserts the guarantee itself.
 - [x] MQ18-138 A relay shall not forward an Object on an existing Subgroup
   stream unless it is the next Object in that Subgroup (an Object split across
-  two deliveries is held back until complete).
+  two deliveries continues exactly where its sent part ended).
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_fresh_delivery_tail_held_back`
+    `test_moqtrun_fresh_delivery_tail_cut_through`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_frag_overflow_counted`
 - [x] MQ18-139 A publisher stream's FIN with no accompanying new Object bytes
   shall close the corresponding relay stream via a bare FIN, not a rejected
@@ -1339,10 +1339,18 @@ Legend:
     `test_moqtrun_req_reset_resets_data_streams` asserts the open Subgroup
     stream toward the subscriber is reset.
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_reset_resets_data_streams`
-- [ ] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
+- [x] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
   they become available.
-  - gap: the hub holds an Object split across deliveries until it is
-    complete (MQ18-138, `test_moqtrun_fresh_delivery_tail_held_back`).
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_relay_forwards_bytes_as_they_arrive`
+  - test: `tests/app/moqtrun_cut_test.c` —
+    `test_moqtrun_cut_lossy_refusal_mid_object_resets`,
+    `test_moqtrun_cut_reliable_resumes_at_byte`
+  - note: once an Object's header is in, its bytes go out on every open
+    Subgroup stream that takes it; a lossy stream refused partway into an
+    Object is reset (it cannot drop the rest and stay framed), a
+    ring-backed one retries from the exact byte. Model:
+    `tasks/loopeng/MoqtCutThrough.tla`.
 - [ ] MQ18-218 (§5.1) Where a peer SUBSCRIBEs to a Track it publishes itself,
   the hub shall serve it like any other subscription, forwarding the
   published Objects back.
