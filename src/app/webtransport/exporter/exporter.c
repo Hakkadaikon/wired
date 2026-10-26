@@ -51,9 +51,10 @@ usz wt_exporter_ctx_encode(
   return put_ctx_fields(out, cap, label, app_context);
 }
 
-/* draft-ietf-webtrans-http3-15 4.8 */
+/* draft-ietf-webtrans-http3-16 4.8 */
 int wt_exporter(
-    const u8    exporter_secret[HKDF_PRK],
+    u16         suite,
+    const u8*   exporter_secret,
     u64         session_id,
     wired_span  label,
     wired_span  app_context,
@@ -65,7 +66,8 @@ int wt_exporter(
   if (!ctx_len) {
     return 0;
   }
-  return tls_exporter(
-      exporter_secret, wired_span_of(exporter_label, sizeof exporter_label - 1),
+  return tls_exporter_suite(
+      suite, exporter_secret,
+      wired_span_of(exporter_label, sizeof exporter_label - 1),
       wired_span_of(ctx, ctx_len), okm);
 }

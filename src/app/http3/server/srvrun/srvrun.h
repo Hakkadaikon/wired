@@ -711,6 +711,23 @@ int wired_server_wt_stream_schedule(
  *   live connection) */
 u64 wired_server_wt_est_kbps(wired_wt_session* s);
 
+/** draft-ietf-webtrans-http3-16 4.8: a keying material exporter for session
+ * s -- the TLS exporter of RFC 8446 7.5 over the connection's
+ * exporter_master_secret, with the label "EXPORTER-WebTransport" and the
+ * serialized WebTransport Exporter Context (s's session ID, then label and
+ * context, each with an 8-bit length) as its context. Sessions sharing a
+ * connection get independent keying material.
+ * @param s the session the exporter is derived for
+ * @param label the application's exporter label (at most 255 bytes)
+ * @param context the application's exporter context (at most 255 bytes;
+ *   empty when the application supplies none)
+ * @param out receives exactly out.n bytes of keying material
+ * @return 1 on success, 0 when s resolves to no live connection, the
+ *   handshake has not derived the exporter secret yet, or a length does
+ *   not fit */
+int wired_server_wt_exporter(
+    wired_wt_session* s, wired_span label, wired_span context, wired_mspan out);
+
 /** Ends a stream opened for appending with NO further bytes: a bare FIN on
  * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
  * STREAM frame carrying only FIN). Use this instead of

@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 62/81 tested, 14 indirect, 5 untested.**
+**Coverage: 63/81 tested, 13 indirect, 5 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -416,23 +416,18 @@ Legend:
 
 ## §4.8 Use of Keying Material Exporters
 
-- [~] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
+- [x] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
   a given WebTransport session with the label "EXPORTER-WebTransport" and
   a context set to the serialization of the WebTransport Exporter Context
   struct.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_matches_tls_exporter`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_sha384_suite`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_refusals`
   - test: `tests/tls/keyschedule_test.c` —
     `test_keyschedule_exporter_secret_matches_oneshot`
-  - evidence: `tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
-    `tls/handshake/core/tls/exporter.c`) and `wt_exporter_ctx_encode`
-    plus `wt_exporter` (the WebTransport Exporter Context
-    serialization and the "EXPORTER-WebTransport" wrapper, new
-    `app/webtransport/exporter/exporter.c`) are implemented and reachable
-    from a live `keysched` (exporter_master_secret is derived
-    automatically at the same stage as the application traffic secrets,
-    `keysched_exporter_secret`).
-  - gap: no application-facing WebTransport session API exposes this yet
-    (draft-ietf-webtrans-http3-16 leaves the exporter-request API's shape
-    to the implementation).
 
 ## §5.1 Negotiating the Use of Flow Control
 
