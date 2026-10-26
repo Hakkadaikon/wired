@@ -60,7 +60,11 @@ void moqtrun_upf_on_ok(
 wired_moqtrun_fetch* moqtrun_upf_by_req(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid);
 int moqtrun_upf_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* pp, u64 sid, wired_span data);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    u64                 sid,
+    wired_span          data,
+    int                 fin);
 wired_moqtrun_fetch* moqtrun_upf_by_live_data(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid);
 void moqtrun_upf_on_reset(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid);

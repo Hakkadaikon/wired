@@ -1207,6 +1207,22 @@ static void mupf_unanswered_gone(int cancel) {
   CHECK(mupf_used() == 0);
 }
 
+/* draft-19 3.3.2: C FINs the upstream FETCH's request stream with no
+ * FETCH_OK -- the request failed: B is refused as for a REQUEST_ERROR,
+ * the hub FINs its side and the slot frees. */
+static void test_moqtrun_upfetch_fin_unanswered(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  CHECK(sid >= 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_C, (u64)sid, wired_span_of(0, 0), 1);
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "FIN|"));
+  CHECK(mupf_used() == 0);
+}
+
 static void test_moqtrun_upfetch_unanswered_stop(void) {
   mupf_unanswered_gone(0);
   mupf_unanswered_gone(1);
@@ -1915,6 +1931,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_marker_relay();
   test_moqtrun_upfetch_requester_gone();
   test_moqtrun_upfetch_unanswered_stop();
+  test_moqtrun_upfetch_fin_unanswered();
   test_moqtrun_upfetch_late_data_stream();
   test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();

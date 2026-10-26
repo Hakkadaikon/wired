@@ -1201,11 +1201,12 @@ Legend:
   - evidence: `test_moqtrun_upsub_last_cancel_cancels_upstream` asserts
     RESET_STREAM + STOP_SENDING on the upstream stream; the already-FIN'd case
     is pinned only on the subscription model (`test_moqsub_cancel_after_fin`).
-- [ ] MOQT-150 (SS3.3.2) If the responder FINs its own direction without ever
+- [x] MOQT-150 (SS3.3.2) If the responder FINs its own direction without ever
   sending a response, then the requester shall treat the request as failed.
-  - gap: pinned only on the subscription model
-    (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
-    request stream before its response.
+  - evidence: `test_moqtrun_upsub_fin_unanswered_fails` and
+    `test_moqtrun_upfetch_fin_unanswered`: an upstream SUBSCRIBE / FETCH FINned
+    before its response fails as a REQUEST_ERROR would (`moqtrun_up_rx`,
+    `moqtrun_upf_rx`).
 - [x] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
   FETCH, the hub shall reset the data streams it holds open for it.
   - evidence: `test_moqtrun_fetch_cancelled_by_request_reset` asserts the FETCH
@@ -1827,8 +1828,7 @@ is an open `[ ]` item above:
   ID overflow: MOQT-114, MOQT-116, MOQT-119, MOQT-121, MOQT-131) or on an
   unknown unidirectional stream type (MOQT-039).
 - Request ID parity and duplicate checks on draft-19 requests (MOQT-060,
-  MOQT-061), and failing an upstream request whose responder FINs without
-  answering (MOQT-150).
+  MOQT-061).
 
 ## Out of scope
 

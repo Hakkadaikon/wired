@@ -295,6 +295,27 @@ static void test_moqtrun_upsub_error_relayed(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* draft-19 3.3.2: A FINs its side with no SUBSCRIBE_OK -- the request
+ * failed: B is refused as for a REQUEST_ERROR and the hub FINs and
+ * forgets the entry. A FIN after SUBSCRIBE_OK ends nothing. */
+static void test_moqtrun_upsub_fin_unanswered_fails(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mups_up_is(sid, "FIN|"));
+  CHECK(mups_used() == 0);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  CHECK(mups_up_is(sid, ""));
+  CHECK(mups_used() == 1);
+}
+
 /* U5 NoLeak: the upstream outlives one downstream cancel, and is
  * cancelled (RESET_STREAM + STOP_SENDING CANCELLED, 19 3.3.3) with the
  * last; A's track goes with it. */
@@ -497,6 +518,7 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_open_stream_before_ok();
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
+  test_moqtrun_upsub_fin_unanswered_fails();
   test_moqtrun_upsub_last_cancel_cancels_upstream();
   test_moqtrun_upsub_pending_cancel_and_stale_ok();
   test_moqtrun_upsub_publish_done_relayed();

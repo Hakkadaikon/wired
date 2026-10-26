@@ -63,7 +63,11 @@ void moqtrun_up_claim(
 void moqtrun_up_on_reset(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id);
 int moqtrun_up_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id, wired_span data);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
 wired_moqtrun_peer* moqtrun_upf_owner(wired_moqt_hub* hub, moqtrun_key k);
 wired_moqtrun_peer* moqtrun_upf_target(
     wired_moqt_hub*         hub,

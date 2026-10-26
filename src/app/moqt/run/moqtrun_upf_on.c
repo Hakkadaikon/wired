@@ -28,6 +28,7 @@ static void moqtrun_upf_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_fetch* f);
 static int moqtrun_upf_on_req(
     const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid);
+static int moqtrun_upf_fin_unanswered(const wired_moqtrun_fetch* f, int fin);
 
 /* REQUEST_ERROR: the request is complete (the hub FINs its side); a FETCH
  * still unanswered gets it as is -- code, Retry Interval, and for
@@ -138,16 +139,29 @@ wired_moqtrun_fetch* moqtrun_upf_by_req(
   return 0;
 }
 
+static int moqtrun_upf_fin_unanswered(const wired_moqtrun_fetch* f, int fin) {
+  return fin && f->up_state == WIRED_MOQTRUN_UPF_SENT;
+}
+
 /* Replies on one of the hub's upstream FETCH request streams; the
- * answers they cause go out in the same dispatch. 1 when sid is one. */
+ * answers they cause go out in the same dispatch. 1 when sid is one. A
+ * FIN with no FETCH_OK yet fails the request (draft-19 3.3.2) as a
+ * REQUEST_ERROR would. */
 int moqtrun_upf_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* pp, u64 sid, wired_span data) {
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
   wired_moqtrun_fetch* f = moqtrun_upf_by_req(hub, pp->wt, sid);
   if (!f) {
     return 0;
   }
   moqtrun_asm_push(&moqtrun_upf_leg_of(hub, f)->in, &data);
   moqtrun_upf_drain(hub, pp, f);
+  if (moqtrun_upf_fin_unanswered(f, fin)) {
+    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_FIN, MOQCTL_ERR_INTERNAL_ERROR);
+  }
   moqtrun_reqs_tick(hub);
   return 1;
 }

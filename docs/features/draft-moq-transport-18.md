@@ -1301,11 +1301,13 @@ Legend:
     (`test_moqsub_cancel_after_fin`); the hub, cancelling its upstream
     SUBSCRIBE, sends RESET_STREAM and STOP_SENDING
     (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
-- [~] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
+- [x] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
   sending a response, then the requester shall treat the request as failed.
-  - evidence: only the unwired `moqsub` model shows it
-    (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
-    request stream before its answer.
+  - evidence: `moqtrun_up_rx` / `moqtrun_upf_rx` take the FIN and fail an
+    unanswered upstream SUBSCRIBE / FETCH as a REQUEST_ERROR would;
+    `test_moqtrun_upsub_fin_unanswered_fails` and
+    `test_moqtrun_upfetch_fin_unanswered` FIN before the response and see the
+    downstream requester refused, the hub's side FINned, the slot freed.
 - [x] MQ18-212 (§5.1) The publisher shall save as the subscription's Joining
   Location the Largest Location it communicates in SUBSCRIBE_OK, PUBLISH,
   or the REQUEST_OK of a REQUEST_UPDATE that changes the Forward State from
