@@ -106,15 +106,17 @@ int srvrun_seal_close_pl(srvrun_conn* c, wired_span pl, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* RFC 9000 10.2.1: send the kept close frame (close_pl) again as a fresh
- * 1-RTT packet -- the one send the closing state still allows, so it goes
- * around srvrun_send's closing gate. */
+ * 1-RTT packet (plus Handshake/Initial copies while unconfirmed) -- the one
+ * send the closing state still allows, so it goes around srvrun_send's closing
+ * gate. */
 void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c) {
   u8         out[MIN_INITIAL_DATAGRAM];
   wired_obuf ob = obuf_of(out, sizeof out);
+  srvrun_close_send_long(cfg, c); /* RFC 9000 10.2.3, before confirmation */
   if (!srvrun_seal_close_pl(c, wired_span_of(c->close_pl, c->close_pln), &ob)) {
     return;
   }

@@ -13,7 +13,7 @@
  * carrying packet went out. Returns the ACK bytes written at pl[0]. */
 usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
   usz al;
-  if (!c->l.ack_defer) {
+  if (!c->l.ackst.ack_defer) {
     return 0;
   }
   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
@@ -24,20 +24,46 @@ usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
  * wire -- consume the piggybacked pending ACK when the payload carried one
  * (al != 0). Returns 1 on success, 0 if sealing failed (nothing sent, the
  * pending ACK untouched). */
+/* RFC 9000 10.1: the first ack-eliciting send since the last receive
+ * restarts the idle timer (a bare ACK, eliciting 0, does not). shortcut:
+ * only slice sends count, not control-frame-only packets; widen if those
+ * ever carry a connection. */
+static void srvrun_idle_note_tx(srvrun_conn* c, u64 now_ms, int eliciting) {
+  if (eliciting && !c->idle_tx_ms) {
+    c->idle_tx_ms = now_ms;
+  }
+}
+
 int srvrun_seal_send_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_span pl, u64 pn, usz al) {
   u8                    out[1500];
   wired_obuf            ob  = obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0, 0, 0, 0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) {
+  if (!srvloop_send_onertt_rec(&c->l, &c->s, &sin, &ob)) {
     return 0;
   }
   srvrun_send_staged(
       ctx->cfg, c, wired_span_of(out, ob.len), "1-RTT payload sent\n");
+  srvrun_idle_note_tx(c, ctx->now_ms, pl.n > al);
   if (al) {
     wired_srvloop_ack_mark_sent(&c->l);
   }
+  return 1;
+}
+
+/* Log the sent slice in sess; its bytes in flight are then sess's to count
+ * (by slice bytes), so the sent-packet record stops counting the packet. */
+static int srvrun_slice_logged(
+    srvrun_conn*             c,
+    wired_sendsess*          sess,
+    const wired_sendq_slice* sl,
+    u64                      pn,
+    u64                      now_ms) {
+  if (!wired_sendsess_sent(sess, sl, pn, now_ms)) {
+    return 0;
+  }
+  sentmeta_uncount(&c->l.ackst.sent, pn);
   return 1;
 }
 
@@ -64,7 +90,7 @@ int srvrun_send_stream_slice(
           ctx, c, wired_span_of(pl, al + plb.len), pn, al)) {
     return 0;
   }
-  return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
+  return srvrun_slice_logged(c, sess, sl, pn, ctx->now_ms);
 }
 
 /* Send a just-taken slice; on failure return it to sess via

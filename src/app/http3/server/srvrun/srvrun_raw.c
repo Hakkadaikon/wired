@@ -1,5 +1,6 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_step_violation_rest(
     const srvrun_cfg* cfg, srvrun_conn* c);
@@ -15,11 +16,27 @@ static int srvrun_close_on_hs_or_datagram(
 /* RFC 9204 2.1.2 / 4.2 / 6: a latched QPACK violation (a second QPACK
  * stream, a bad encoder instruction, an undecodable section) closes the
  * connection with its own code. */
+/* RFC 9114 6.2 / 7.2 / 8.1: a latched control- or critical-stream error
+ * (srvloop's h3peer.error, or the h3_control state's own latch) closes the
+ * connection with its HTTP/3 code. */
+static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "http/3 control stream error";
+  u16 code = c->l.h3peer.error ? c->l.h3peer.error
+                               : h3_control_wire_error(c->l.h3peer.ctrl.error);
+  if (!code) {
+    return 0;
+  }
+  c->l.h3peer.error      = 0;
+  c->l.h3peer.ctrl.error = H3_ERR_NONE;
+  srvrun_send_app_close(cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  return 1;
+}
+
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "qpack error";
   u16             code     = c->l.qpack_stream_violation;
   if (!code) {
-    return 0;
+    return srvrun_close_on_h3(cfg, c);
   }
   c->l.qpack_stream_violation = 0;
   srvrun_send_app_close(cfg, c, code, wired_span_of(reason, sizeof reason - 1));

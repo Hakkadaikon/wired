@@ -6,6 +6,8 @@
 
 #include "common/bytes/util/bytes.h"
 #include "common/diag/error/error.h"
+#include "tls/ext/tparam/tparam.h"
+#include "tls/ext/tparam/tpblob.h"
 #include "tls/handshake/core/hrr/hrr_detect.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"

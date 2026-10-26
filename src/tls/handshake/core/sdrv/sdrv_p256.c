@@ -13,8 +13,7 @@ static int  sdrv_ch_share_listed(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_negotiate_and_keyshare(
     sdrv* s, const u8* ch_msg, usz ch_len);
-static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len);
-static u32        sdrv_first_flight_version(const sdrv* s);
+static u32 sdrv_first_flight_version(const sdrv* s);
 
 /* RFC 8446 4.1.4: no share for a group this driver speaks (x25519 directly,
  * secp256r1 via sdrv_ch_take_p256) means the client held its share back --
@@ -184,7 +183,7 @@ int sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
  * or an empty span if the extension is absent or its own framing is
  * malformed -- either case is "nothing to check here", left to the
  * individual takers elsewhere to degrade gracefully. */
-static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
+wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
   wired_span ext, tp = wired_span_of(0, 0);
   if (!sdrv_find_client_tp_ext(ch_msg, ch_len, &ext)) {
     return tp;

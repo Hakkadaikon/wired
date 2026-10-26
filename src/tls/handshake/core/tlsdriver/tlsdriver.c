@@ -31,6 +31,7 @@ void tlsdriver_init(
   d->sni               = 0;
   d->sni_len           = 0;
   d->transcript_ch_len = 0;
+  d->tp_len            = 0;
   d->last_error        = 0;
 }
 
@@ -41,16 +42,24 @@ void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len) {
 
 void tlsdriver_set_group(tlsdriver* d, u16 group) { d->group = group; }
 
+int tlsdriver_set_iscid(tlsdriver* d, wired_span scid) {
+  wired_obuf ob = obuf_of(d->tp, sizeof d->tp);
+  if (scid.n > 20) {
+    return 0;
+  }
+  d->tp_len = tparam_put_blob(&ob, TP_INITIAL_SOURCE_CONNECTION_ID, scid);
+  return 1;
+}
+
 usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
-  /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes) is a
-   * well-formed "no parameters advertised" -- unlike a stray 1-byte payload,
-   * which reads as a malformed single-byte id varint to any TLV-sequence
-   * walk (e.g. the RFC 9000 7.4 duplicate-id scan a real server runs). */
+  /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes, until
+   * tlsdriver_set_iscid) is a well-formed "no parameters advertised". */
   return tls_client_hello_group(
       &(clienthello_group_in){
           random, d->my_pub, wired_span_of(d->sni, d->sni_len),
-          wired_span_of(0, 0), d->group, tls_ext_key_share_len(d->group)},
+          wired_span_of(d->tp, d->tp_len), d->group,
+          tls_ext_key_share_len(d->group)},
       &(wired_obuf){out, cap, 0});
 }
 

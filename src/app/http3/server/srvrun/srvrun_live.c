@@ -67,11 +67,11 @@ static void srvrun_live_prepare(const srvrun_step_ctx* ctx, srvrun_conn* c) {
                               * ackpolicy's delayed-ACK timer, not a
                               * second one. */
   srvrun_roll_reset_window(c, ctx->now_ms);
-  c->l.peer_reset_n = 0; /* this step's own queue (wired_srvloop doc) */
-  c->l.ack_defer    = 1; /* RFC 9000 13.2.1: suppress the bare-ACK packet
-                          * this step; the pump piggybacks the pending ACK
-                          * onto a slice, or srvrun_flush_deferred_ack
-                          * sends it at step end. */
+  c->l.peer_reset_n    = 0; /* this step's own queue (wired_srvloop doc) */
+  c->l.ackst.ack_defer = 1; /* RFC 9000 13.2.1: suppress the bare-ACK packet
+                             * this step; the pump piggybacks the pending ACK
+                             * onto a slice, or srvrun_flush_deferred_ack
+                             * sends it at step end. */
   srvrun_note_stream_limits(ctx, c);
   srvrun_note_local_streams(c);
   srvrun_note_rx_limit(ctx, c);

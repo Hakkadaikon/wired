@@ -30,6 +30,7 @@ void srvloop_gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   stop_sending_frame ss;
   if (srvloop_wt_reset_frame(type, frame, &rs)) {
     push_peer_reset(l, rs.stream_id, rs.error_code, 0);
+    srvloop_crit_note_close(l, rs.stream_id); /* RFC 9114 6.2.1 */
   }
   if (srvloop_wt_stop_frame(type, frame, &ss)) {
     push_peer_reset(l, ss.stream_id, ss.error_code, 1);

@@ -1,10 +1,31 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
+/* pkt wears a long header of the Initial type (read before header
+ * protection removal: only the form/type bits, RFC 9000 17.2). */
+static int srvloop_is_initial(const wired_server* s, wired_mspan pkt) {
+  int level = -1;
+  return pkt.n &&
+         connrunner_packet_level(
+             pkt.p[0], sdrv_wire_version(&s->sdrv), &level) &&
+         level == LEVEL_INITIAL;
+}
+
+/* RFC 9001 4.9.1 / RFC 9000 17.2.2.1: a server discards its Initial keys
+ * once it first successfully processes a Handshake packet, and stops
+ * processing Initial packets from then on. */
+static int srvloop_initial_dropped(
+    const wired_srvloop_conn* conn, wired_mspan pkt) {
+  return conn->l->hs_rx_seen && srvloop_is_initial(conn->s, pkt);
+}
+
 void srvloop_step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
   wired_srvloop*         l = conn->l;
   wired_srvloop_recv_out ro;
   wired_srvloop_recv_in  ri = {
       pkt, srvloop_app_largest_pn(l), srvloop_hs_largest_pn(l)};
+  if (srvloop_initial_dropped(conn, pkt)) {
+    return;
+  }
   if (wired_srvloop_recv(conn->s, &ri, &ro)) {
     srvloop_step_opened(conn, &ro, pkt);
   }

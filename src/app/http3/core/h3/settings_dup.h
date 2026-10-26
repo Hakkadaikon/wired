@@ -20,7 +20,8 @@ typedef struct {
 void h3_settings_seen_init(h3_settings_seen* s);
 
 /* Record identifier id. Returns 0 if id was already seen (duplicate ->
- * H3_SETTINGS_ERROR) or the set is full, 1 if it is newly recorded. */
+ * H3_SETTINGS_ERROR), 1 if it is newly recorded or the set is full (an id
+ * past H3_SETTINGS_SEEN_MAX is accepted unchecked). */
 int h3_settings_mark(h3_settings_seen* s, u64 id);
 
 #endif

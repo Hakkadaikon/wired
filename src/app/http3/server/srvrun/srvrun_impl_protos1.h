@@ -22,6 +22,7 @@
 #include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvrun/srvrun.h"
 #include "app/http3/server/srvwire/wire.h"
@@ -84,6 +85,7 @@
 #include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/recovery/congestion/cc/pacing.h"
 #include "transport/recovery/congestion/cc/persistent.h"
+#include "transport/recovery/detect/recovery/lossdetect.h"
 #include "transport/recovery/detect/recovery/pto.h"
 
 /** RFC 9000 4.1: when a STREAM_DATA_BLOCKED / DATA_BLOCKED last went out --

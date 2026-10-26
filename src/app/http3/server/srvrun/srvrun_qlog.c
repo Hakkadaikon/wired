@@ -113,17 +113,24 @@ void srvrun_qlog_lost(
  * lost packet to the qlog when one is configured. */
 /* RFC 9002 5.3 (shape): seed on the first sample, then 7/8 old + 1/8 new.
  * Also feeds the full RFC 9002 5 estimator (rtt, us) that
- * srvrun_pto_deadline_ms needs for rttvar -- srtt_ms above stays the simpler
- * ms-only EWMA pacing already relies on, unchanged. */
-void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
+ * srvrun_pto_deadline_ms needs for rttvar, with the peer's ACK Delay and
+ * max_ack_delay (5.3) -- srtt_ms above stays the simpler ms-only EWMA
+ * pacing already relies on, unchanged. */
+void srvrun_rtt_update(srvrun_conn* c, u64 sample_ms, u64 ack_delay_us) {
   if (!c->rtt.have_sample) {
     c->rtt_from_pn = c->l.tx_pn;
   }
   c->latest_rtt_ms = sample_ms;
   c->srtt_ms       = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
   rtt_sample(
-      &c->rtt, sample_ms * 1000, 0, SRVRUN_MAX_ACK_DELAY_US,
+      &c->rtt, sample_ms * 1000, ack_delay_us, srvrun_peer_max_ack_delay_us(c),
       wired_server_is_confirmed(&c->s));
+}
+
+/* srvrun_rtt_update for a sample no peer ACK Delay applies to (the
+ * handshake-measured boot sample). */
+void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
+  srvrun_rtt_update(c, sample_ms, 0);
 }
 
 /* 1 if confirmation landed on the datagram just processed: c was still

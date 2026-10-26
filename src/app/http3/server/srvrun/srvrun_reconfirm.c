@@ -124,7 +124,7 @@ static usz srvrun_seal_boot_probe(srvrun_conn* c, u8* out, usz cap) {
   if (!wired_server_early_send_keys(&c->s)) {
     return 0;
   }
-  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) {
+  if (!srvloop_send_onertt_rec(&c->l, &c->s, &sin, &ob)) {
     return 0;
   }
   return ob.len;

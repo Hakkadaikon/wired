@@ -32,6 +32,9 @@ typedef struct {
    * ClientHello transport parameters; 0 = not advertised (peer does not
    * support DATAGRAM) */
   u64 peer_max_datagram_frame_size;
+  /** peer's max_idle_timeout (0x01, RFC 9000 10.1) in ms from the
+   * ClientHello transport parameters; 0 = absent (no limit). */
+  u64 peer_max_idle_timeout;
   /** RFC 9287 3: 1 when the ClientHello carried grease_quic_bit (empty
    * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
    * may grease the bit (wired_srvloop_send_onertt). */
@@ -64,6 +67,13 @@ typedef struct {
    * raise; 0 = absent (the RFC's default: open none until the peer grants).
    */
   u64 peer_initial_max_streams_uni;
+  /** 1 + the peer's ack_delay_exponent (0x0a, RFC 9000 18.2), 0 = not
+   * advertised (or no ClientHello taken): the reader applies the default 3.
+   * The +1 keeps an explicit 0 apart from absence. */
+  u64 peer_ack_delay_exponent_p1;
+  /** 1 + the peer's max_ack_delay in ms (0x0b, RFC 9000 18.2), 0 = not
+   * advertised: the reader applies the default 25. */
+  u64 peer_max_ack_delay_p1;
   /** The raw protocol id when alpn is SALPN_RAW (e.g. "moqt-19"): a view
    * into raw_alpns, so it lives as long as that configuration. Empty
    * otherwise. The server layer reads it to tell raw from h3. */
@@ -235,6 +245,14 @@ typedef struct {
                     * the Retry packet's SCID, advertised only when
                     * a Retry preceded this handshake */
   u8 rscid_len;    /**< bytes used in rscid; 0 = no Retry */
+  /** RFC 9000 7.3: the Source CID of the client's Initial as seen on the
+   * wire; initial_source_connection_id must equal it. */
+  u8 peer_scid[20];
+  /** Bytes used in peer_scid (0..20). */
+  u8 peer_scid_len;
+  /** 1 once sdrv_set_peer_scid ran: only a driver that saw the Initial
+   * header can check initial_source_connection_id against it. */
+  u8 peer_scid_set;
   /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
    * the EncryptedExtensions transport parameters when sreset_token_set is 1.
    * The caller derives it from a restart-stable secret (sreset_key_
@@ -388,6 +406,14 @@ int sdrv_set_cids_retried(
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
 int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
+
+/** Record the Source CID of the client's Initial (RFC 9000 7.3): the
+ * ClientHello must then carry an initial_source_connection_id equal to it,
+ * or it is rejected with TRANSPORT_PARAMETER_ERROR.
+ * @param s the server driver
+ * @param scid the client's Initial Source CID (at most 20 bytes)
+ * @return 1 on success, 0 when scid exceeds 20 bytes */
+int sdrv_set_peer_scid(sdrv* s, wired_span scid);
 
 /** Key rotation: also open presented tickets under prev (TICKET_KEY_LEN
  * bytes, copied), the previous generation of the ticket key. Call after

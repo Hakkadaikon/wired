@@ -98,6 +98,7 @@ static int srvrun_boot_up(
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   srvrun_boot_flush_zerortt(ctx, c, slot);
+  c->ini_next_pn = c->boot.ack_pn;   /* the Initial space continues here */
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   /* RFC 9002 6.2: the accept flight just went out -- start this slot's boot
    * PTO clock fresh (any real send, not just the timer's own probe,

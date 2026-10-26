@@ -36,10 +36,16 @@ typedef struct {
   int               active; /**< 1 while a response is being delivered */
   wired_sent_slice  log[WIRED_SENDSESS_LOG];     /**< sent, not yet acked */
   wired_sendq_slice requeue[WIRED_SENDSESS_LOG]; /**< to retransmit */
-  usz               requeue_n;     /**< entries pending in requeue */
-  u64               largest_acked; /**< highest pn the peer acked (monotone) */
-  int               has_acked;     /**< 1 once any ACK arrived */
-  int               pto_count;     /**< probes fired since the last ACK */
+  usz               requeue_n; /**< entries pending in requeue */
+  /** RFC 9000 13.3: 1 + the packet number each requeue entry was declared
+   * lost (or probed) on, 0 when unknown -- a late ACK of that packet
+   * drops the entry instead of resending acknowledged data
+   * (wired_sendsess_ack_requeued). */
+  u64 requeue_pn[WIRED_SENDSESS_LOG];
+  u64 taken_pn;      /**< requeue_pn of the slice the last take returned */
+  u64 largest_acked; /**< highest pn the peer acked (monotone) */
+  int has_acked;     /**< 1 once any ACK arrived */
+  int pto_count;     /**< probes fired since the last ACK */
   /** RFC 9000 19.8: bytes already sent on this QUIC stream before the
    * current arm's round-local offsets. 0 for a single-round response;
    * a streaming response advances this via wired_sendsess_set_base_offset
@@ -137,6 +143,14 @@ usz wired_sendsess_peek_ack(
  * range becomes acknowledged. Unknown packet numbers are ignored. */
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
 
+/** RFC 9000 13.3: drop every requeued slice whose lost packet [lo, hi]
+ * now acknowledges -- the data arrived after all (a spurious loss), so it
+ * is not retransmitted. In-flight log entries are wired_sendsess_ack's.
+ * @param s the session
+ * @param lo lowest packet number in the range
+ * @param hi highest packet number in the range */
+void wired_sendsess_ack_requeued(wired_sendsess* s, u64 lo, u64 hi);
+
 /** One packet declared lost: its packet number plus the slice's own
  * (absolute-offset) identity, everything a stream-frame-grained qlog record
  * needs without the caller re-deriving it from the log entry. */
@@ -158,8 +172,9 @@ typedef struct {
  * @param s the session
  * @param largest_acked highest packet number the peer has acknowledged
  * @param now_ms current monotonic time
- * @param srtt_us smoothed RTT, microseconds (0 before any sample: time
- *   threshold is skipped, packet threshold alone still applies)
+ * @param loss_delay_us RFC 9002 6.1.2's time threshold, microseconds
+ *   (lossdrive_loss_delay; 0 before any RTT sample: the time threshold is
+ *   skipped, the packet threshold alone still applies)
  * @param lost receives the lost slices (0 to skip reporting)
  * @param cap slots at lost
  * @return slices newly declared lost. */
@@ -167,7 +182,7 @@ usz wired_sendsess_detect_lost(
     wired_sendsess*            s,
     u64                        largest_acked,
     u64                        now_ms,
-    u64                        srtt_us,
+    u64                        loss_delay_us,
     wired_sendsess_lost_slice* lost,
     usz                        cap);
 

@@ -154,6 +154,30 @@ void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
   stp_parse(tp, param_id, &out_v);
 }
 
+/* The ClientHello's decoded transport-parameter sequence in *tp; 0 if the
+ * extension is missing or malformed. */
+static int sdrv_client_tp(const u8* ch, usz ch_len, wired_span* tp) {
+  wired_span ext;
+  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) {
+    return 0;
+  }
+  return tpext_decode(ext, tp) != 0;
+}
+
+/* RFC 9000 18.2: 1 + the integer transport parameter param_id from the
+ * ClientHello, or 0 when it is absent -- for parameters whose absence means
+ * a non-zero default (ack_delay_exponent, max_ack_delay), so an explicit 0
+ * stays distinguishable. */
+u64 sdrv_peer_tp_plus1(const u8* ch, usz ch_len, u64 param_id) {
+  wired_span tp;
+  u64        v     = 0;
+  stp_out    out_v = {&v, 0};
+  if (!sdrv_client_tp(ch, ch_len, &tp)) {
+    return 0;
+  }
+  return stp_parse(tp, param_id, &out_v) ? v + 1 : 0;
+}
+
 /* The legacy_session_id at body offset 34 is fully framed in ch_msg: the length
  * byte is present, is <=32, and its bytes all lie within ch_msg. */
 int sdrv_sid_fits(const u8* ch_msg, usz ch_len) {

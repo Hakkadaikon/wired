@@ -158,10 +158,9 @@ typedef struct {
 #define SRVRUN_DGRING_DRAIN_MS 5
 #define SRVRUN_DGRING_DRAIN_BYTES 3000
 
-/* Advertised max_idle_timeout in ms — keep in sync with the value
- * TP_MAX_IDLE_TIMEOUT carries in tls/ext/stp/server_tp.c. Evicting at
- * (or after) the advertised value is always legitimate: the effective idle
- * timeout is the min of both endpoints' advertisements (RFC 9000 10.1). */
+/* The default advertised max_idle_timeout in ms (STP_DEFAULT_IDLE_TIMEOUT_MS
+ * in tls/ext/stp/server_tp.h). The idle sweep itself uses each
+ * connection's negotiated period (srvrun_idle_ms, RFC 9000 10.1). */
 #define WIRED_SRVRUN_IDLE_MS 30000
 
 /* SRVRUN_BOOT_DEADLINE_MS's own comment (its definition, above) relies on
@@ -193,9 +192,10 @@ typedef struct {
  * so lo_pn is the oldest_ms packet and hi_pn the newest_ms one. */
 typedef struct {
   u64 newest_ms, oldest_ms, lo_pn, hi_pn;
+  usz big; /* RFC 8899 4.3 black hole evidence (srvrun_pmtu_big_lost) */
 } srvrun_loss_span;
 
-#define SRVRUN_LOSS_SPAN0 ((srvrun_loss_span){0, ~(u64)0, ~(u64)0, 0})
+#define SRVRUN_LOSS_SPAN0 ((srvrun_loss_span){0, ~(u64)0, ~(u64)0, 0, 0})
 
 /* The congestion controller a fresh connection starts with (RFC 9002 7):
  * cfg->cc_algo == 0 means the build's default; a non-zero runtime choice
@@ -234,6 +234,8 @@ int  srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id);
 void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
 void srvrun_rst_keep(srvrun_conn* c, const u8* pl, usz pln);
 u64  srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count);
+u64  srvrun_idle_ms(const srvrun_conn* c);
+int  srvrun_initial_live(const srvrun_conn* c);
 void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_grant_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c, usz n);
 wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx);

@@ -3221,6 +3221,32 @@ static void test_sdrv_0rtt_needs_app_opt_in(void) {
   CHECK(sdrv_early_keys(&s, &got) == 0);
 }
 
+/* RFC 9000 18.2: ack_delay_exponent and max_ack_delay are stored as 1 +
+ * value (explicit 0 kept apart from absence); absent stays 0 so the reader
+ * applies the defaults (3, 25ms). */
+static void test_sdrv_recv_client_hello_stores_peer_ack_delay_params(void) {
+  u8         cli_pub[32], srv_random[32];
+  u8         tpbuf[16], ch[512];
+  wired_obuf tob = obuf_of(tpbuf, sizeof(tpbuf));
+  usz        tp_len, ch_len;
+  sdrv       s;
+  tp_len = tparam_put_int(&tob, TP_ACK_DELAY_EXPONENT, 0);
+  tob    = obuf_of(tpbuf + tp_len, sizeof(tpbuf) - tp_len);
+  tp_len += tparam_put_int(&tob, TP_MAX_ACK_DELAY, 10);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_ack_delay_exponent_p1 == 1);
+  CHECK(s.peer_max_ack_delay_p1 == 11);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_ack_delay_exponent_p1 == 0);
+  CHECK(s.peer_max_ack_delay_p1 == 0);
+}
+
 void test_sdrv(void) {
   /* the 0-RTT tests below run as a server started long ago (RFC 8446 8.2
    * start-up refusal is test_sdrv_0rtt_refused_during_startup's) */
@@ -3232,6 +3258,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size();
   test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero();
   test_sdrv_recv_client_hello_no_tp_ext_stays_zero();
+  test_sdrv_recv_client_hello_stores_peer_ack_delay_params();
   test_sdrv_recv_client_hello_tp_ext_present_ok();
   test_sdrv_recv_client_hello_missing_tp_ext_rejected();
   test_sdrv_recv_client_hello_dup_tp_rejected();

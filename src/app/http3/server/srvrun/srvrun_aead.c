@@ -125,8 +125,26 @@ static int srvrun_close_on_flow_violation(
   return 1;
 }
 
-/* The AEAD integrity limit (RFC 9001 6.6). */
+/* RFC 9001 6.4 / 6.6: the KEY_UPDATE_ERROR or AEAD_LIMIT_REACHED the 1-RTT
+ * receive/seal path latched (ku_error), sent once and cleared. */
+static void srvrun_close_on_ku_error(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 ku[]  = "key update error";
+  static const u8 lim[] = "AEAD confidentiality limit reached";
+  u64             code  = c->s.ku_error;
+  wired_span      why   = code == ERR_KEY_UPDATE_ERROR
+                              ? wired_span_of(ku, sizeof ku - 1)
+                              : wired_span_of(lim, sizeof lim - 1);
+  c->s.ku_error         = 0;
+  srvrun_send_transport_close(cfg, c, code, why);
+}
+
+/* A latched key-update/confidentiality close, else the AEAD integrity
+ * limit (RFC 9001 6.6). */
 static int srvrun_close_on_aead_reached(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (c->s.ku_error) {
+    srvrun_close_on_ku_error(cfg, c);
+    return 1;
+  }
   if (!srvrun_aead_limit_reached(c)) {
     return 0;
   }

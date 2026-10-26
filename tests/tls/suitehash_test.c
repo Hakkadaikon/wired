@@ -153,7 +153,7 @@ static void test_suitehash_early_exporter_ku(void) {
   for (usz i = 0; i < 32; i++) {
     k.hp[i] = 0x5a;
   }
-  kuswitch_next_keys_suite(TLS_AES_256_GCM_SHA384, cap, &k, out);
+  kuswitch_next_keys_suite(TLS_AES_256_GCM_SHA384, VERSION_1, cap, &k, out);
   CHECK(sh_eq(
       out,
       "29adfb19d56cba4300692775cb0efb2280b406dc657cf11a65fd0c080ef89949c3abcf"

@@ -181,7 +181,7 @@ static usz settings_ctrl_payload(u8* out, usz cap) {
 
 /* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): the client's SETTINGS
  * frame, walked off its own control stream, latches
- * l.peer_ctrl.settings_seen -- the signal srvrun.c's WebTransport dispatch
+ * l.h3peer.ctrl.settings_seen -- the signal srvrun.c's WebTransport dispatch
  * gates newly incoming CONNECTs on. */
 static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
   wired_srvloop l;
@@ -190,7 +190,7 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
 
   CHECK(wired_srvloop_init(
       &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
-  CHECK(l.peer_ctrl.settings_seen == 0);
+  CHECK(l.h3peer.ctrl.settings_seen == 0);
 
   plen = settings_ctrl_payload(payload, sizeof payload);
   CHECK(plen > 0);
@@ -199,8 +199,8 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.peer_ctrl.settings_seen == 1);
-  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
+  CHECK(l.h3peer.ctrl.settings_seen == 1);
+  CHECK(l.h3peer.ctrl.error == H3_ERR_NONE);
 }
 
 /* RFC 9114 6.2.1: a client that opens its control stream with the leading
@@ -221,7 +221,7 @@ static void test_srvloop_ctrl_settings_split_after_type_byte(void) {
       frame, sizeof frame, CTRL_STREAM_ID, 0, type_byte, 1, 0);
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
-  CHECK(l.peer_ctrl.settings_seen == 0);
+  CHECK(l.h3peer.ctrl.settings_seen == 0);
 
   plen = settings_ctrl_payload(payload, sizeof payload);
   CHECK(plen > 1);
@@ -230,8 +230,8 @@ static void test_srvloop_ctrl_settings_split_after_type_byte(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.peer_ctrl.settings_seen == 1);
-  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
+  CHECK(l.h3peer.ctrl.settings_seen == 1);
+  CHECK(l.h3peer.ctrl.error == H3_ERR_NONE);
 }
 
 /* RFC 9114 6.2.1: once the control stream is recognized, a later-offset
@@ -252,14 +252,14 @@ static void test_srvloop_ctrl_ignores_other_uni_stream_chunks(void) {
       frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
-  CHECK(l.peer_ctrl.settings_seen == 1);
+  CHECK(l.h3peer.ctrl.settings_seen == 1);
 
   flen = priupdate_stream_frame(
       frame, sizeof frame, 6, plen, payload + 1, plen - 1, 0);
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.peer_ctrl.error == H3_ERR_NONE);
+  CHECK(l.h3peer.ctrl.error == H3_ERR_NONE);
 }
 
 /* RFC 9114 7.2.4: a control stream whose first frame is something other than
@@ -281,8 +281,8 @@ static void test_srvloop_ctrl_first_frame_not_settings_missing(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.peer_ctrl.settings_seen == 0);
-  CHECK(l.peer_ctrl.error == H3_ERR_MISSING_SETTINGS);
+  CHECK(l.h3peer.ctrl.settings_seen == 0);
+  CHECK(l.h3peer.ctrl.error == H3_ERR_MISSING_SETTINGS);
 }
 
 /* RFC 9218 10: wired_srvloop_priority_of reads back an open stream's current

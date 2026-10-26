@@ -162,7 +162,7 @@ i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   wired_udp_ect0_enable(fd);
   wired_udp_recvtos_enable(fd);
   /* RFC 8899 4.5: this connection runs its own DPLPMTUD search (pmtu via
-   * connrunner's probe drive), so the kernel's own PMTU enforcement/caching
+   * srvrun_pmtu.c's probe drive), so the kernel's own PMTU enforcement
    * must be suspended for this socket's flows -- best-effort like the ECN
    * options above, never a bind blocker. */
   wired_udp_pmtu_probe_enable(fd);

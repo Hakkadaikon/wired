@@ -95,6 +95,7 @@ static int srv_seed_kuswitch_recv(wired_server* s) {
   }
   kuswitch_init(&s->ku, client_ap);
   bytes_memcpy(s->ku_secret, secret, server_srv_hash(s)->len);
+  server_ku_derive_next(s);
   return 1;
 }
 

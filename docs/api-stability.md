@@ -273,6 +273,20 @@ process-wide scratch server.
   that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
   Tickets advertise early data only when it is enabled.
 
+### Idle timeout
+
+| Name | Role |
+|---|---|
+| `wired_srvboot_id.idle_timeout_ms` | The max_idle_timeout the server advertises, in ms; 0 = 30 s. |
+| `wired_server_idle_timeout_ms` | A connection's negotiated idle timeout in ms. |
+
+- A connection idles out after the smaller of `idle_timeout_ms` and the
+  client's max_idle_timeout (RFC 9000 10.1). A client value of 0 or no
+  value sets no limit, so only the server's value applies. The SDK never
+  idles a connection out in less than three PTOs.
+- `wired_server_idle_timeout_ms` returns the server's own value until the
+  ClientHello has been processed.
+
 ## Low-level / internal API (use with care)
 
 These functions are reachable from the public headers because the

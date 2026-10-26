@@ -110,13 +110,13 @@ void srvrun_dispatch_wt_resource(
 
 /* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): "for draft versions of
  * WebTransport, the server shall not process any incoming WebTransport
- * requests until the client's SETTINGS have been received." c->l.peer_ctrl
+ * requests until the client's SETTINGS have been received." c->l.h3peer.ctrl
  * (priority_ctrl.c's ctrl_note_generic) latches settings_seen the moment the
  * client's control-stream SETTINGS frame is actually walked -- 0 here means
  * either no control stream has been reassembled yet, or one has but its
  * SETTINGS has not yet arrived. */
 int srvrun_wt_settings_ready(const srvrun_conn* c) {
-  return c->l.peer_ctrl.settings_seen != 0;
+  return c->l.h3peer.ctrl.settings_seen != 0;
 }
 
 /* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-007): "If the server receives ...

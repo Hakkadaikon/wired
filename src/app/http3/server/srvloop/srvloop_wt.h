@@ -1,12 +1,13 @@
 #ifndef APP_HTTP3_SERVER_SRVLOOP_SRVLOOP_WT_H
 #define APP_HTTP3_SERVER_SRVLOOP_SRVLOOP_WT_H
 
-#include "app/http3/core/h3/control.h"
 #include "app/http3/core/h3/priority.h"
 #include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "app/http3/server/srvloop/body_window.h"
+#include "app/http3/server/srvloop/srvloop_ackst.h"
+#include "app/http3/server/srvloop/srvloop_h3peer.h"
 #include "app/http3/server/srvloop/srvloop_pending_priority.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
@@ -14,13 +15,10 @@
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/ncid.h"
-#include "transport/recovery/detect/recovery/ackpolicy.h"
 
-/** RFC 9000 18.2's default max_ack_delay when the peer's own transport
- * parameter isn't tracked (this SDK does not parse the client's
- * max_ack_delay yet -- YAGNI until a deployment needs a non-default value).
- * Matches srvrun.c's own SRVRUN_MAX_ACK_DELAY_US (25000us = 25ms); kept as
- * a separate constant here since srvloop must not depend on srvrun. */
+/** RFC 9000 13.2.1: how long this server holds back an ACK for a single
+ * ack-eliciting 1-RTT packet. The advertised max_ack_delay
+ * (STP_DEFAULT_MAX_ACK_DELAY_MS) adds the poll tick that checks it. */
 #define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
 
 /** NEW_CONNECTION_ID frames kept per step (wired_srvloop.ncid_rx); more are
@@ -595,13 +593,6 @@ typedef struct {
    * (transport/conn/lifecycle/conn/pnspace.h). */
   pnspaces_recv ack_recv;
   ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
-  ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
-  /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for
-   * the current step: the driving loop (srvrun.c) piggybacks the pending
-   * App-space ACK onto the response slice it is about to send, or flushes
-   * it itself at step end if no slice went out. A caller that never sets
-   * it (0, every plain srvloop user) keeps the original behavior. */
-  u8 ack_defer;
   /** Monotonic ms this step is being driven at -- the time source
    * ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
@@ -611,11 +602,12 @@ typedef struct {
    * path still fires). Living on wired_srvloop rather than
    * wired_srvloop_conn keeps wired_srvloop_step's existing signature and
    * every current struct-literal call site unchanged. */
-  u64 now_ms;
-  int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
-                     * emitted */
-  int ticket_sent;  /**< 1 once the post-confirmation session ticket
-                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
+  u64           now_ms;
+  srvloop_ackst ackst; /**< loss-recovery and ACK state */
+  int hs_done_sent;    /**< 1 once the confirmation (HANDSHAKE_DONE) has been
+                        * emitted */
+  int ticket_sent;     /**< 1 once the post-confirmation session ticket
+                        * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,
@@ -891,12 +883,6 @@ typedef struct {
    * see wired_srvloop_ctrl_stream's own doc. Not reset across steps by this
    * loop itself (mirrors the streams[] reassembly convention). */
   wired_srvloop_ctrl_stream ctrl;
-  /** RFC 9114 7.2.4 / draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): the
-   * client control stream's own SETTINGS-ordering state, latched as each
-   * control-stream frame is walked (priority_ctrl.c's ctrl_note_generic) --
-   * peer_ctrl.settings_seen is 1 once the client's SETTINGS has actually
-   * arrived, gating WebTransport CONNECT dispatch (srvrun.c) until it has. */
-  h3_control peer_ctrl;
   /** draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: the client SETTINGS'
    * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI, _BIDI and SETTINGS_WT_INITIAL_MAX_
    * DATA, in that order (0 = absent, the draft's default), latched as the
@@ -915,6 +901,9 @@ typedef struct {
    * wired_h3srv_on_peer_qpack, the caller driving the loop decides how to
    * close the connection over it. */
   u16 qpack_stream_violation;
+  /** RFC 9114 6.2 / 7.2 / 8.1: the peer's control/critical stream state
+   * and the connection error it latched (srvloop_h3peer's doc). */
+  srvloop_h3peer h3peer;
   /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
    * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
    * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a

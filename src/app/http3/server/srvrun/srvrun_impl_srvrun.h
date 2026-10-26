@@ -363,6 +363,9 @@ typedef struct {
   wired_server  s;
   wired_srvloop l;
   u64           last_ms; /**< monotonic ms of the last routed datagram */
+  /** RFC 9000 10.1: monotonic ms of the first ack-eliciting (STREAM) send
+   * since last_ms's receive, 0 = none yet; the idle timer restarts here. */
+  u64 idle_tx_ms;
   /** RFC 9000 10.2: when the closing state (closing) ends -- three times
    * the PTO after the close went out. */
   u64 closing_until_ms;
@@ -430,6 +433,10 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9002 A.10 loss_time, us: when the earliest packet below the
+   * largest acknowledged that is not yet lost would pass the time
+   * threshold (srvrun_rec_detect); 0 = the loss timer is not armed. */
+  u64 loss_time_us;
   /** RFC 9000 5.1.1/9.4: migration bookkeeping. */
   srvrun_mig mig;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
@@ -822,6 +829,9 @@ typedef struct {
   u8  scid[WIRED_MAX_CID_LEN];
   /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. */
   u8 close_pl[SRVRUN_CLOSE_PL_MAX];
+  /** RFC 9000 12.3: the next unused server Initial packet number, carried
+   * over from the boot accumulator (its ack_pn) when the slot came up. */
+  u64 ini_next_pn;
   /** Each active slot's own Extended CONNECT :path value, copied rather than
    * viewed since the decoded request's own storage does not outlive the step
    * that established the session. Meaningless while the corresponding slot is
@@ -994,10 +1004,6 @@ _Static_assert(
  * into the qlog (recovery:metrics_updated): frequent enough to plot a
  * voice run's RTT/cwnd/drop counters, rare enough not to bloat the file. */
 #define SRVRUN_METRICS_INTERVAL_MS 1000
-/* RFC 9000 18.2's default when the peer's own transport parameter isn't
- * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
- * until a deployment needs a non-default value). */
-#define SRVRUN_MAX_ACK_DELAY_US 25000
 /* Consecutive PTO probes (RFC 9002 6.2's exponential backoff) with no
  * intervening ACK before this SDK gives up on the connection. 5 proved too
  * short against a real network outage: quic-interop-runner's blackhole case

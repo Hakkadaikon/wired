@@ -80,4 +80,17 @@ int h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value);
 int h3settings_zerortt_compatible(
     const h3settings_in* prior, const h3settings_in* current);
 
+/* RFC 9114 7.2.4.2 (9114-066): the SETTINGS this server sends are a pure
+ * function of whether it advertised max_datagram_frame_size
+ * (h3settings_control_stream's advertise_wt), a value the session ticket
+ * remembers (ticket.tp[STP_REMEMBERED_DGRAM]) -- so the settings the client
+ * remembers are rebuilt from the ticket's value and checked against the
+ * ones this connection will send (h3settings_zerortt_compatible).
+ * @param prior_max_datagram the ticket's remembered max_datagram_frame_size
+ * @param current_max_datagram the one this connection advertises
+ * @return 1 if 0-RTT may be accepted under the remembered SETTINGS, 0 if
+ *   not */
+int h3settings_zerortt_remembered_ok(
+    u64 prior_max_datagram, u64 current_max_datagram);
+
 #endif

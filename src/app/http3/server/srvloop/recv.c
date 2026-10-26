@@ -3,10 +3,8 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "common/bytes/util/bytes.h"
 #include "crypto/kdf/keys/keyset.h"
-#include "tls/keys/kuswitch/derive.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
-#include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/build/initpkt/initopen.h"
 #include "transport/packet/header/packet/ptype.h"
 #include "transport/version/version/version.h"
@@ -48,148 +46,6 @@ static int recv_handshake(
   return 1;
 }
 
-/* hspkt_onertt_open mutates byte0 and the pn bytes in place (header
- * protection removal, RFC 9001 5.4.1) even on an AEAD failure -- a failed
- * attempt against one key generation must not corrupt the bytes a retry
- * against another generation needs. Cap: pn_off + a 4-byte pn (the longest
- * possible), the same bound hspkt_unprotect itself uses. */
-#define RECV_ONERTT_HDR_MAX 24
-
-static usz onertt_hdr_len(u8 dcid_len) { return 1u + (usz)dcid_len + 4u; }
-
-static void onertt_backup(
-    wired_mspan pkt, u8 dcid_len, u8 save[RECV_ONERTT_HDR_MAX]) {
-  usz n = onertt_hdr_len(dcid_len);
-  for (usz i = 0; i < n && i < pkt.n; i++) {
-    save[i] = pkt.p[i];
-  }
-}
-
-static void onertt_restore(
-    wired_mspan pkt, u8 dcid_len, const u8 save[RECV_ONERTT_HDR_MAX]) {
-  usz n = onertt_hdr_len(dcid_len);
-  for (usz i = 0; i < n && i < pkt.n; i++) {
-    pkt.p[i] = save[i];
-  }
-}
-
-/* Try opening with one key candidate; restores the header bytes first so a
- * prior failed attempt against a different generation left no residue
- * (hspkt_onertt_open mutates the datagram's own bytes in place through
- * its pkt view, regardless of how many wired_mspan copies wrap it). */
-static int onertt_try(
-    wired_server*                s,
-    const wired_srvloop_recv_in* in,
-    const initial_keys*          keys,
-    const u8                     save[RECV_ONERTT_HDR_MAX],
-    wired_srvloop_recv_out*      out) {
-  aes128 hp;
-  aes128_init(&hp, keys->hp);
-  {
-    protect_keys           pk = {keys, &hp};
-    hspkt_onertt_open_desc d  = {in->dgram, s->sdrv.iscid_len, in->largest_pn};
-    onertt_restore(in->dgram, s->sdrv.iscid_len, save);
-    return hspkt_onertt_open_suite(
-        s->sdrv.cipher_suite, &pk, &d, &out->payload);
-  }
-}
-
-void srvloop_ku_rotate_send(wired_server* s) {
-  initial_keys send_next;
-  u8           send_next_secret[TLS_HASH_MAX];
-  kuswitch_next_keys_suite(
-      s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
-  bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
-  kuswitch_rotate(&s->ku_send, &send_next);
-  bytes_memcpy(s->ku_send_secret, send_next_secret, TLS_HASH_MAX);
-  s->ku_send_count = 0; /* RFC 9001 6.6: the limit is per key */
-}
-
-/* RFC 9001 6.3: a next-generation candidate that actually decrypts confirms
- * the peer's update -- rotate so current becomes old (retained) and the
- * derived generation becomes current, and adopt its secret for the update
- * after this one. Only called once a probe has already succeeded. RFC 9001
- * 6.2 requires the send side to follow in the same step (before this
- * packet's ACK goes out, which srvloop's caller does right after opening)
- * -- unless the send side already went ahead (a self-initiated update the
- * peer is now following, RFC 9001 6.1), in which case it stays put. */
-static void onertt_rotate_to(
-    wired_server* s, const initial_keys* next, const u8* next_secret) {
-  kuswitch_rotate(&s->ku, next);
-  bytes_memcpy(s->ku_secret, next_secret, TLS_HASH_MAX);
-  if (s->ku_send.generation < s->ku.generation) {
-    srvloop_ku_rotate_send(s);
-  }
-}
-
-/* RFC 9001 6.3: current generation first (the common case, every packet
- * until the peer's next update), else retry with old (retained prior
- * generation) so a reordered pre-update packet still decrypts. */
-static int onertt_try_known(
-    wired_server*                s,
-    const wired_srvloop_recv_in* in,
-    const u8                     save[RECV_ONERTT_HDR_MAX],
-    wired_srvloop_recv_out*      out) {
-  if (onertt_try(s, in, &s->ku.cur, save, out)) {
-    return 1;
-  }
-  return s->ku.have_old && onertt_try(s, in, &s->ku.old, save, out);
-}
-
-/* Neither retained generation decrypted it -- the peer's phase bit may name
- * a generation this endpoint has not adopted yet. Derive it once and retry
- * as a probe, rotating only if that probe actually decrypts (RFC 9001:
- * confirm on a successful unprotect, not on the bit alone). */
-static int onertt_try_next_gen(
-    wired_server*                s,
-    const wired_srvloop_recv_in* in,
-    const u8                     save[RECV_ONERTT_HDR_MAX],
-    wired_srvloop_recv_out*      out) {
-  initial_keys next;
-  u8           next_secret[TLS_HASH_MAX];
-  kuswitch_next_keys_suite(
-      s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
-  /* RFC 9001 6.1: hp is unchanged across an update. */
-  bytes_memcpy(next.hp, s->ku.cur.hp, AEAD_KEY_MAX);
-  if (!onertt_try(s, in, &next, save, out)) {
-    return 0;
-  }
-  onertt_rotate_to(s, &next, next_secret);
-  return 1;
-}
-
-/* RFC 9001 6.3: every generation this endpoint holds or can derive one step
- * ahead -- current, retained old, then the next-generation probe. */
-static int onertt_try_any(
-    wired_server*                s,
-    const wired_srvloop_recv_in* in,
-    const u8                     save[RECV_ONERTT_HDR_MAX],
-    wired_srvloop_recv_out*      out) {
-  return onertt_try_known(s, in, save, out) ||
-         onertt_try_next_gen(s, in, save, out);
-}
-
-/* RFC 9001 6 depends on generation-0 keys already being seeded (srvfin's
- * confirm, server.c srv_seed_kuswitch) -- before that, s->ku.cur is not real
- * key material, so failing closed here is a structural guarantee, not an
- * incidental AEAD-failure side effect. A seeded packet that opens under no
- * generation counts toward the AEAD integrity limit (RFC 9001 6.6). */
-static int recv_onertt(
-    wired_server*                s,
-    const wired_srvloop_recv_in* in,
-    wired_srvloop_recv_out*      out) {
-  u8 save[RECV_ONERTT_HDR_MAX];
-  if (!s->ku_seeded) {
-    return 0;
-  }
-  onertt_backup(in->dgram, s->sdrv.iscid_len, save);
-  if (onertt_try_any(s, in, save, out)) {
-    return 1;
-  }
-  s->ku_auth_fail++;
-  return 0;
-}
-
 /* RFC 9000 17.2: dispatch the open by level (table keeps CCN low). */
 static int recv_at_level(
     wired_server*                s,
@@ -199,7 +55,7 @@ static int recv_at_level(
       wired_server*, const wired_srvloop_recv_in*, wired_srvloop_recv_out*) = {
       recv_initial,
       recv_handshake,
-      recv_onertt,
+      srvloop_recv_onertt,
   };
   return open_at[out->level](s, in, out);
 }

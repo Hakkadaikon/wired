@@ -1,10 +1,8 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static int srvrun_path_port_only(const pathsel_key* a, const pathsel_key* b);
-
 /* a and b differ at most in the peer's port (same local socket and peer
  * address) -- k equal to the last validated path included. */
-static int srvrun_path_port_only(const pathsel_key* a, const pathsel_key* b) {
+int srvrun_path_port_only(const pathsel_key* a, const pathsel_key* b) {
   return a->fd == b->fd && ct_diffn(a->peer.addr, b->peer.addr, 16) == 0;
 }
 

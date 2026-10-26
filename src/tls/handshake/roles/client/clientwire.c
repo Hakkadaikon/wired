@@ -29,9 +29,9 @@ static int cw_dir_key(client* c, int which, cw_dirkey* dk) {
 }
 
 /* RFC 8446 4.1.2: build the raw ClientHello (the exact bytes the tlsdriver
- * emits: zero random, ALPN h3, empty transport parameters), so the Initial
- * carries it in a single CRYPTO frame rather than a CRYPTO-in-CRYPTO wrap.
- * Delegates to the tlsdriver's raw-CH accessor so driver state (SNI) is
+ * emits: zero random, ALPN h3, initial_source_connection_id only), so the
+ * Initial carries it in a single CRYPTO frame rather than a CRYPTO-in-CRYPTO
+ * wrap. Delegates to the tlsdriver's raw-CH accessor so driver state (SNI) is
  * honored here too. */
 static usz cw_client_hello(client* c, u8* ch, usz cap) {
   return tlsdriver_raw_client_hello(&c->tls, ch, cap);
@@ -41,7 +41,11 @@ static usz cw_client_hello(client* c, u8* ch, usz cap) {
 int client_build_initial_wire(
     client* c, const clientwire_hdr_in* hdr, wired_obuf* out) {
   u8  ch[CLIENTWIRE_CH_MAX];
-  usz ch_len = cw_client_hello(c, ch, sizeof(ch));
+  usz ch_len = 0;
+  /* RFC 9000 7.3: our ClientHello names this Initial's SCID. */
+  if (tlsdriver_set_iscid(&c->tls, hdr->scid)) {
+    ch_len = cw_client_hello(c, ch, sizeof(ch));
+  }
   if (ch_len == 0) {
     return 0;
   }
