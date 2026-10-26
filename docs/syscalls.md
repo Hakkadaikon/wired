@@ -195,8 +195,7 @@ price is an extra fd plus `epoll_create`/`epoll_ctl` calls to set it up.
 
 A `wired` wire loop watches very few fds. QUIC carries every connection
 over one UDP socket and tells them apart by connection ID, so the server
-loop (`srvrun.c`) and the client loop (`connrunner.c`) each wait on one
-socket. The server adds a second socket only when it advertises a
+loop (`srvrun.c`) waits on one socket. The server adds a second socket only when it advertises a
 preferred address (RFC 9000 9.6, a second server address the client may
 move to), and `poll_wait_readable2` then watches both in the same call.
 

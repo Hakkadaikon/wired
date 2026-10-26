@@ -739,16 +739,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   `wired_udp_ect0_enable` and its siblings in `udp.h` (ponytail),
   `srvrun_listen`.
 
-The next three entries concern lower-level entry points. The server that
-`wired_server_run` builds (the one the guide uses) does not run the
-connrunner loop, connio or `appdata_recv`, so they matter only if you call
-those directly.
+The next two entries concern lower-level entry points. The server that
+`wired_server_run` builds (the one the guide uses) does not run connio or
+`appdata_recv`, so they matter only if you call those directly.
 
-- **Time-threshold loss detection is off in the connrunner loop** — Affects:
-  users of the connrunner loop only. `CONNRUNNER_NO_RTT_DELAY` makes loss
-  detection purely packet-threshold there (RFC 9002 6.1.1). The server path
-  (srvrun) uses its own recovery. Source: `CONNRUNNER_NO_RTT_DELAY`
-  (ponytail).
 - **`connio` always marks its sends as ack-eliciting** — Affects: users of
   connio only. The flag is hard-set to 1, so a send of non-ack-eliciting
   frames only is not classified as such. Source: `connio.c`.

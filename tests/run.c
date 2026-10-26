@@ -549,14 +549,7 @@
 #include "app/http3/request/h3resp/resp_build.c"
 #include "app/http3/request/h3resp/resp_size.c"
 #include "app/http3/request/h3resp/hello.c"
-#include "transport/conn/loop/evloop/evloop.c"
 #include "transport/conn/loop/connrunner/level.c"
-#include "transport/conn/loop/connrunner/recv.c"
-#include "transport/conn/loop/connrunner/send.c"
-#include "transport/conn/loop/connrunner/keyupdate.c"
-#include "transport/conn/loop/connrunner/reconnect.c"
-#include "transport/conn/loop/connrunner/pmtudrive.c"
-#include "transport/conn/loop/connrunner/connrunner.c"
 #include "app/http3/core/h3conn/establish.c"
 #include "app/http3/core/h3conn/request.c"
 #include "app/http3/core/h3conn/response.c"
@@ -1438,9 +1431,6 @@
 #include "transport/avail_test.c"
 #include "transport/v2switch_test.c"
 #include "transport/versdowngrade_test.c"
-#include "transport/evloop_test.c"
-#include "transport/pmtudrive_test.c"
-#include "transport/connrunner_test.c"
 #include "app/h3conn_establish_test.c"
 #include "app/h3conn_roundtrip_test.c"
 #include "app/h3reqdrive_test.c"
@@ -2075,9 +2065,6 @@ int main(void) {
   test_avail();
   test_v2switch();
   test_versdowngrade();
-  test_evloop();
-  test_pmtudrive();
-  test_connrunner();
   test_h3conn_establish();
   test_h3conn_roundtrip();
   test_h3reqdrive();
