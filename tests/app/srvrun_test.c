@@ -3993,6 +3993,9 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
 
 static u64 sr_close_code(const srvrun_conn* c, int* is_app);
 
+/* The spin bit sr_seal_dcid's packets carry (RFC 9000 17.4). */
+static int g_sr_spin;
+
 /* Client role: seal pl at pn with the explicit DCID dcid. */
 static usz sr_seal_dcid(
     struct lp_fix* f,
@@ -4007,7 +4010,7 @@ static usz sr_seal_dcid(
   aes128_init(&hp, k->hp);
   {
     protect_keys      pk = {k, &hp};
-    hspkt_onertt_desc d  = {dcid, pn, pl, 0, 0, 0};
+    hspkt_onertt_desc d  = {dcid, pn, pl, 0, g_sr_spin, 0};
     wired_obuf        o  = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     return o.len;
@@ -6989,7 +6992,7 @@ static void test_srvrun_polling_pto_tick(void) {
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
   wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
   CHECK(opt.so_prefer_busy_poll == 0);
@@ -7008,7 +7011,7 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
   wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0};
+                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);
@@ -26906,6 +26909,75 @@ static void test_srvrun_pmtu_lost_probe_no_cc_reaction(void) {
   CHECK(c.cc.in_recovery == 0);
 }
 
+/* RFC 9000 17.4: when the send path moves to a new peer connection ID the
+ * spin value restarts at 0; staying on the same ID keeps it. */
+static void test_srvrun_path_move_resets_spin(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  g_sr_spin = 1;
+  {
+    sr_arrival a  = {&n.a, n.sfd, 0, 0, 0};
+    ncid_frame n1 = sr_cid(1, 0, 0xc1), n2 = sr_cid(2, 1, 0xc2);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &n1);
+    sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, fl));
+    CHECK(c.s.spin_rx == 1); /* same ID: the received 1 is kept */
+    fl = ncid_encode(fr, sizeof fr, &n2);
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(fr, fl));
+  }
+  g_sr_spin = 0;
+  CHECK(c.l.cli_scid[0] == 0xc1); /* moved off the retired ID ... */
+  CHECK(c.s.spin_rx == 0);        /* ... and the spin value restarted */
+  (void)sr_drain(&f, n.afd);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 17.4: wired_srvrun_opt.spin_off (held in the env) turns the
+ * spin bit off on every connection the server accepts. */
+static void test_srvrun_spin_off_opt_applies_on_accept(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_srvrun_env.spin_off = 1;
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0] = (srvrun_conn){0};
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  }
+  g_srvrun_env.spin_off = 0;
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].s.spin_off == 1);
+}
+
+/* RFC 9308 9 / RFC 9000 17.2: the server refuses to run with a zero-length
+ * (or over-long) connection ID. */
+static void test_srvrun_refuses_bad_scid_len(void) {
+  wired_srvboot_id id = {0};
+  id.scid_len         = 0;
+  CHECK(srvrun_can_serve(&id) == 0);
+  id.scid_len = WIRED_MAX_CID_LEN + 1;
+  CHECK(srvrun_can_serve(&id) == 0);
+  id.scid_len = 8;
+  CHECK(srvrun_can_serve(&id) == srvkeys_ready());
+  id.scid_len = 0;
+  CHECK(
+      wired_srvrun_serve_env(
+          &g_srvrun_env, 0, &id, (wired_srvrun_handler){0},
+          (wired_srvrun_obs){0}, 0) == 0);
+}
+
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
@@ -27348,6 +27420,9 @@ void test_srvrun(void) {
   test_srvrun_stateless_reset_one_byte_shorter();
   test_srvrun_live_slot_never_reset();
   test_srvrun_pmtu_lost_probe_no_cc_reaction();
+  test_srvrun_path_move_resets_spin();
+  test_srvrun_spin_off_opt_applies_on_accept();
+  test_srvrun_refuses_bad_scid_len();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();

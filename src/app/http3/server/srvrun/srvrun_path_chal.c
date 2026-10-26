@@ -5,8 +5,15 @@ static void srvrun_send_to(
     const srvrun_conn* c,
     const pathsel_key* k,
     wired_span         pkt);
+static int srvrun_cid_is(const srvrun_conn* c, const peercid_entry* e);
 static int srvrun_path_np(
     const srvrun_cfg* cfg, const srvrun_conn* c, const pathsel_key* k, u8 t);
+
+/* 1 if e is the peer ID the send path already uses. */
+static int srvrun_cid_is(const srvrun_conn* c, const peercid_entry* e) {
+  return e->len == c->l.cli_scid_len &&
+         ct_diffn(e->cid, c->l.cli_scid, e->len) == 0;
+}
 
 /* The send path becomes k; every later packet carries k's peer ID (RFC
  * 9000 9.5), the connection's default from now on. */
@@ -23,6 +30,8 @@ void srvrun_path_move(
   if (!e) {
     return;
   }
+  /* RFC 9000 17.4: the spin value restarts at 0 with a new peer ID */
+  c->s.spin_rx &= srvrun_cid_is(c, e);
   bytes_memcpy(c->l.cli_scid, e->cid, e->len);
   c->l.cli_scid_len = e->len;
 }

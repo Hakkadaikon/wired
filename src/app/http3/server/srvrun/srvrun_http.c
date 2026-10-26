@@ -31,6 +31,7 @@ void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
   conntable_rekey(
       ctx->st->table, WIRED_CONNTABLE_CAP, slot, c->scid,
       ctx->cfg->id->scid_len);
+  c->s.spin_off |= ctx->cfg->env->spin_off; /* RFC 9000 17.4 admin switch */
   /* RFC 9000 5.1.1: the spare CID this accept advertises (the
    * preferred_address parameter or the NEW_CONNECTION_ID frame) is usable
    * by the peer from the moment it learns it -- quic-go switches its DCID
