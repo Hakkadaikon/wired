@@ -94,6 +94,8 @@ int  h3reqdrive_line_ok(const rline* L);
 int  h3reqdrive_span_is(wired_span a, const char* s);
 int  h3reqdrive_digits(wired_span s, u64* v);
 int  h3reqdrive_ph_ok(const h3_ph_set* p, const wired_h3reqdrive_req* r);
+int  h3reqdrive_plain_connect(const wired_h3reqdrive_req* r);
+int  h3reqdrive_authority_ok(const wired_h3reqdrive_req* r);
 int  h3reqdrive_request_ok(wired_span stream_data, wired_h3reqdrive_req* r);
 void h3reqdrive_line_trim(rline* L);
 usz  h3reqdrive_rd_dedicated_idx(wired_span name);
