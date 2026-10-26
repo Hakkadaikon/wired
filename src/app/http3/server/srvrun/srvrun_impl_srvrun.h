@@ -515,6 +515,9 @@ typedef struct {
    * stream id shutdown sent WT_CLOSE_SESSION on and still waits for the
    * peer to close (srvrun_wt_close_all_live), 0 when none. */
   u64 wt_close_wait[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-16 8: per session slot, the send slot its
+   * next fair pass starts from (srvrun_wt_fair_keep). */
+  u8  wt_fair_next[SRVRUN_MAX_WT_SESSIONS];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
   /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;

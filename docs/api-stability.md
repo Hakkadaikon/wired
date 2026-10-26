@@ -143,7 +143,10 @@ and
   nonzero, puts the streams that share it in a fixed sequence: only the
   stream with the lowest (`order`, `tie`) among that flow's ready streams
   sends. Flow 0 imposes no order. On each send pass, every stream that
-  takes part gets one slice. Errors are the same as for
+  takes part gets one slice, except that when two sessions share the
+  connection each session sends the same number of slices per pass
+  (draft-ietf-webtrans-http3-16 §8), and each session may hold at most
+  half of the send slots. Errors are the same as for
   `wired_server_wt_stream_priority`.
 - **Occupancy.** `wired_server_wt_occupancy` reports the calling loop's
   open sessions and client-opened streams with their compile-time

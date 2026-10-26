@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 66/81 tested, 12 indirect, 3 untested.**
+**Coverage: 67/81 tested, 11 indirect, 3 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -729,14 +729,19 @@ Legend:
   - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_usage_counters_exposed`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_churn_bounded_by_slot_table`
-- [~] WTH3-083 (§8) The server should implement a fairness scheme that
+- [x] WTH3-083 (§8) The server should implement a fairness scheme that
   gives each session sharing a connection a reasonable share of sending
   and stream-opening resources.
-  - evidence: the WT send pump serves one slice per stream per pass, so
-    equal flows share the link (`tests/app/srvrun_test.c` —
-    `test_srvrun_wt_sched_equal_flows_share`,
-    `test_srvrun_wt_sched_one_slice_per_pass`); the share is per stream,
-    not per session, and stream opening has no per-session fairness.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_fair_pass_equal_per_session`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_open_capped_per_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_sched_equal_flows_share`
+  - evidence: in each send pass every session with ready streams sends the
+    same number of slices (the smallest ready count among them), rotating
+    among its own streams; a session may hold at most its even share of
+    the send-slot table the connection plumbing leaves free.
 
 ## §9.5 HTTP/3 Error Code Registration
 

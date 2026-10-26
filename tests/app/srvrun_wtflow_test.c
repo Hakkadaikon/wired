@@ -23,7 +23,12 @@
  * - shutdown close: a live WT session gets WT_CLOSE_SESSION + FIN on its
  *   CONNECT stream and no CONNECTION_CLOSE yet; the wait holds until the
  *   peer FINs (or resets) that CONNECT stream; raw / closing / sessionless
- *   connections wait for nothing. */
+ *   connections wait for nothing.
+ * - fairness (decision table over ready streams per session, one pump pass
+ *   each): {3, 1} -> each session sends 1 per pass, session 0 rotating its
+ *   three streams; {2, 2} -> 2 each; {3, 0} (one session) -> all 3.
+ *   Opening: with two sessions each may hold at most half the send table;
+ *   with one session the whole table. */
 
 static srvrun_cfg g_wtf_cfg;
 
@@ -294,7 +299,88 @@ static void test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing(void) {
   CHECK(srvrun_wt_close_waiting(&g_sl_st) == 0);
 }
 
+static u8 wtf_body[8 * SRVRUN_CHUNK];
+
+/* Session slot 1 (CONNECT stream 8) next to the fixture's slot 0. */
+static void wtf_second_session(srvrun_conn* c) {
+  wired_wt_session_init(&c->wt1, 8);
+  wired_wt_session_establish(&c->wt1);
+  c->wt1_active                          = 1;
+  c->s.sdrv.peer_initial_max_streams_uni = 1000;
+}
+
+/* Open n0 uni streams on session 0, then n1 on session 1 (slots in that
+ * order) and run `passes` WT pump passes. */
+static srvrun_conn* wtf_fair_run(
+    struct lp_fix* f, wired_obuf* ob, int n0, int n1, int passes) {
+  srvrun_conn*    c   = sr_wtsend_fixture(f, ob);
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  wired_span      b   = wired_span_of(wtf_body, sizeof wtf_body);
+  wtf_second_session(c);
+  c->conn_credit = 1u << 24; /* room for every pass's slices */
+  for (int i = 0; i < n0; i++) {
+    CHECK(wired_server_wt_open_uni_stream(&c->wt, b) > 0);
+  }
+  for (int i = 0; i < n1; i++) {
+    CHECK(wired_server_wt_open_uni_stream(&c->wt1, b) > 0);
+  }
+  for (int p = 0; p < passes; p++) {
+    srvrun_pump_wt_round(&ctx, c);
+  }
+  return c;
+}
+
+static void test_srvrun_wt_fair_pass_equal_per_session(void) {
+  static const struct {
+    int n0, n1, passes;
+    u64 want[4]; /* slices in flight on send slots 0..3 */
+  } rows[] = {
+      {3, 1, 1, {1, 0, 0, 1}}, {3, 1, 2, {1, 1, 0, 2}}, {3, 1, 3, {1, 1, 1, 3}},
+      {3, 1, 4, {2, 1, 1, 4}}, {2, 2, 1, {1, 1, 1, 1}}, {2, 2, 2, {2, 2, 2, 2}},
+      {3, 0, 1, {1, 1, 1, 0}}, {2, 0, 2, {2, 2, 0, 0}}, {0, 2, 2, {2, 2, 0, 0}},
+  };
+  for (usz r = 0; r < sizeof rows / sizeof rows[0]; r++) {
+    struct lp_fix f;
+    u8            obuf[1024];
+    wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+    srvrun_conn*  c =
+        wtf_fair_run(&f, &ob, rows[r].n0, rows[r].n1, rows[r].passes);
+    for (usz k = 0; k < 4; k++) {
+      CHECK(sr_inflight(c, k) == rows[r].want[k]);
+    }
+  }
+}
+
+/* Opens session s gets before a refusal. */
+static int wtf_opens_until_refused(wired_wt_session* s) {
+  wired_span b = wired_span_of(wtf_body, 8);
+  int        n = 0;
+  while (n <= SRVRUN_WT_SEND_SLOTS &&
+         wired_server_wt_open_uni_stream(s, b) > 0) {
+    n++;
+  }
+  return n;
+}
+
+static void test_srvrun_wt_open_capped_per_session(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c  = sr_wtsend_fixture(&f, &ob);
+  wtf_second_session(c);
+  CHECK(wtf_opens_until_refused(&c->wt) == SRVRUN_WT_SEND_SLOTS / 2);
+  CHECK(wtf_opens_until_refused(&c->wt1) == SRVRUN_WT_SEND_SLOTS / 2);
+  ob = obuf_of(obuf, sizeof obuf);
+  c  = sr_wtsend_fixture(&f, &ob); /* one session: the whole table */
+  c->s.sdrv.peer_initial_max_streams_uni = 1000;
+  CHECK(wtf_opens_until_refused(&c->wt) == SRVRUN_WT_SEND_SLOTS);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_wt_fair_pass_equal_per_session();
+  test_srvrun_wt_open_capped_per_session();
   test_srvrun_wt_shutdown_waits_for_connect_close();
   test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing();
   g_wtf_cfg = sr_wt_send_cfg();
