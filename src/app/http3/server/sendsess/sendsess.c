@@ -52,7 +52,7 @@ static void sendsess_split(wired_sendsess* s, wired_sendq_slice* sl) {
     return;
   }
   s->requeue_pn[s->requeue_n] = s->taken_pn; /* same lost packet */
-  s->requeue[s->requeue_n++]  =
+  s->requeue[s->requeue_n++] =
       (wired_sendq_slice){sl->offset + c, sl->len - c, sl->fin};
   sl->len = c;
   sl->fin = 0;
