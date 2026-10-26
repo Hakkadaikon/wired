@@ -1001,6 +1001,7 @@
 #include "app/moqt/fetch/moqfetch_take.c"
 #include "app/moqt/cache/moqcache.c"
 #include "app/moqt/cache/moqcache_evict.c"
+#include "app/moqt/cache/moqcache_expire.c"
 #include "app/moqt/cache/moqcache_item.c"
 #include "app/moqt/cache/moqcache_rec.c"
 #include "app/moqt/ver/moqver.c"

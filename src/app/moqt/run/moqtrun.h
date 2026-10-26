@@ -78,6 +78,9 @@ typedef struct {
    * ms, 0 when absent: min()ed into each subscription's effective
    * timeout (wired_moqtrun_sub.subgroup_timeout). */
   u64 subgroup_timeout_ms;
+  /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
+   * absent: a cached Object is served at most this long after it came. */
+  u64 max_cache_ms;
   /** The PUBLISH's DEFAULT_PUBLISHER_PRIORITY Track Property (12.4), 128
    * when absent: the Publisher Priority of a header that omits it. */
   u8 default_pub_prio;
@@ -108,9 +111,6 @@ typedef struct {
   /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
-  /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
-   * absent: a cached Object is served at most this long after it came. */
-  u64 max_cache_ms;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
    * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
    * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */
