@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2161/2260 requirements demonstrated (95.6%) — 1804 directly tested,
-357 indirect, 99 untested.**
+**Total: 2168/2260 requirements demonstrated (95.9%) — 1813 directly tested,
+355 indirect, 92 untested.**
 
 ## QUIC core
 
@@ -145,8 +145,8 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 225/248 | 195 | 30 | 23 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 229/248 | 192 | 37 | 19 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 229/248 | 200 | 29 | 19 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 232/248 | 196 | 36 | 16 |
 | [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 238/259 | 203 | 35 | 21 |
 
 Experimental, not counted above:
