@@ -23,7 +23,8 @@ static void test_srvboot_demo_pattern(void) {
   CHECK(id.scid_len == 8 && memcmp(id.scid, "guide-h3", 8) == 0);
 }
 
-/* Every other field is reset: self-signed, defaults, no DATAGRAM. */
+/* Every other field is reset: self-signed, defaults, no DATAGRAM; the
+ * certificate also names 127.0.0.1 (RFC 9110 7.4). */
 static void test_srvboot_demo_zeroes_rest(void) {
   static wired_srvboot_demo_keys k;
   wired_srvboot_id               id;
@@ -31,7 +32,8 @@ static void test_srvboot_demo_zeroes_rest(void) {
   wired_srvboot_demo(&id, &k, 0x40, "CLISCI");
   CHECK(k.priv[0] == 0x40 && k.seed[0] == 0x80 && k.rnd[0] == 0xa0);
   CHECK(id.chain == 0 && id.chain_count == 0 && id.max_data == 0);
-  CHECK(id.max_datagram_frame_size == 0 && id.san_ipv4 == 0);
+  CHECK(id.max_datagram_frame_size == 0);
+  CHECK(id.san_ipv4 && id.san_ipv4[0] == 127 && id.san_ipv4[3] == 1);
   CHECK(id.now_secs == 0 && id.scid_len == 6);
 }
 

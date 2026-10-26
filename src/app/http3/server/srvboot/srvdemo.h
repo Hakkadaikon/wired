@@ -21,7 +21,8 @@ typedef struct {
 /**
  * Reset id and fill it with the demo identity: priv[i] = base + i,
  * seed[i] = base + 0x40 + i, rnd[i] = base + 0x60 + i, pub = X25519(priv),
- * scid = the bytes of scid (at most 20). Every other field is 0, so the
+ * scid = the bytes of scid (at most 20), san_ipv4 = 127.0.0.1 (RFC 9110
+ * 7.4: a loopback-IP client is covered). Every other field is 0, so the
  * certificate is self-signed; set max_datagram_frame_size etc. afterwards.
  * @param id   identity to fill
  * @param k    key storage; must outlive every use of id
