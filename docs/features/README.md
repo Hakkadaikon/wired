@@ -69,15 +69,15 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2065/2260 requirements demonstrated (91.4%) — 1651 directly tested,
-414 indirect, 195 untested.**
+**Total: 2094/2260 requirements demonstrated (92.7%) — 1707 directly tested,
+387 indirect, 166 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 243/279 | 169 | 74 | 36 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 72/78 | 51 | 21 | 6 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 249/279 | 191 | 58 | 30 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 58 | 16 | 4 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 66/75 | 42 | 24 | 9 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
@@ -85,13 +85,13 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/26 | 18 | 4 | 4 |
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/26 | 19 | 3 | 4 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 26/29 | 22 | 4 | 3 |
-| [RFC 9308 — Applicability (informational)](rfc9308.md) | 8/10 | 6 | 2 | 2 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 24 | 5 | 0 |
+| [RFC 9308 — Applicability (informational)](rfc9308.md) | 10/10 | 8 | 2 | 0 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 29/34 | 21 | 8 | 5 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 34/34 | 27 | 7 | 0 |
 
 ## TLS and PKI
 
@@ -127,9 +127,9 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 75/97 | 49 | 26 | 22 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 85/97 | 64 | 21 | 12 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 28/43 | 21 | 7 | 15 |
-| [RFC 9204 — QPACK](rfc9204.md) | 60/65 | 50 | 10 | 5 |
+| [RFC 9204 — QPACK](rfc9204.md) | 61/65 | 51 | 10 | 4 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 16 | 1 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 19/22 | 13 | 6 | 3 |
 
