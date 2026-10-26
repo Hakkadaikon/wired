@@ -1166,6 +1166,9 @@ struct wired_srvrun_env {
    * reason (srvrun_raw_notify). */
   wired_rawq_on_session raw_on_session;
   void*                 raw_session_ctx;
+  /* wired_srvrun_opt.datagram_first, held here for the same reason
+   * (srvrun_send_pass). */
+  int datagram_first;
 };
 
 #endif

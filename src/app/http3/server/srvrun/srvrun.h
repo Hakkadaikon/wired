@@ -434,6 +434,12 @@ typedef struct {
   wired_rawq_on_session raw_on_session;
   /** opaque ctx passed to raw_on_session */
   void* raw_session_ctx;
+  /** RFC 9221 5.1: DATAGRAM priority relative to streams. 0 (the default)
+   * = each send pass sends stream data first and queued DATAGRAMs after it;
+   * 1 = queued DATAGRAMs first. When the congestion window cannot hold
+   * both, the one sent second waits for a later pass (a ring DATAGRAM that
+   * does not fit is dropped, RFC 9221 5.4). */
+  int datagram_first;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must

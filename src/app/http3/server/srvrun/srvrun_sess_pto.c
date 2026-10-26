@@ -1,8 +1,23 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static int srvrun_any_resp_active(const srvrun_conn* c);
-static int srvrun_any_wtsend_active(const srvrun_conn* c);
-static int srvrun_any_send_active(const srvrun_conn* c);
+static int  srvrun_any_resp_active(const srvrun_conn* c);
+static int  srvrun_any_wtsend_active(const srvrun_conn* c);
+static int  srvrun_any_send_active(const srvrun_conn* c);
+static void srvrun_send_pass(const srvrun_step_ctx* ctx, int slot);
+
+/* RFC 9221 5.1: the app's DATAGRAM-vs-stream priority
+ * (wired_srvrun_opt.datagram_first) orders the pass; whichever goes second
+ * finds only the window the first left. The trailing pump is a no-op once
+ * the queue drained ahead of the streams. */
+static void srvrun_send_pass(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (ctx->cfg->env->datagram_first) {
+    srvrun_dgring_drain(ctx->cfg, ctx->st, ctx->now_ms);
+    srvrun_pump_datagram(ctx, c);
+  }
+  srvrun_pump_sess(ctx, slot);
+  srvrun_pump_datagram(ctx, c);
+}
 
 void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
@@ -24,8 +39,7 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_send_continues(ctx, slot);
   srvrun_start_held_resps(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
-  srvrun_pump_sess(ctx, slot);
-  srvrun_pump_datagram(ctx, c);
+  srvrun_send_pass(ctx, slot);
   srvrun_flush_deferred_ack(ctx, c);
   srvrun_ku_discard_stale(c, ctx->now_ms);
   srvrun_qlog_metrics(ctx, c);
