@@ -162,6 +162,10 @@ void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len) {
   sdrv_take_peer_tp_int(
       ch_msg, ch_len, TP_INITIAL_MAX_STREAMS_UNI,
       &s->peer_initial_max_streams_uni);
+  s->peer_ack_delay_exponent_p1 =
+      sdrv_peer_tp_plus1(ch_msg, ch_len, TP_ACK_DELAY_EXPONENT);
+  s->peer_max_ack_delay_p1 =
+      sdrv_peer_tp_plus1(ch_msg, ch_len, TP_MAX_ACK_DELAY);
   sdrv_ch_note_cert_sigs(s, ch_msg, ch_len);
   s->psk_dhe_ke = sdrv_ch_offers_psk_dhe_ke(ch_msg, ch_len);
   transcript_add(&s->tr, ch_msg, ch_len);
