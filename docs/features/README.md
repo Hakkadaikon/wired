@@ -17,19 +17,26 @@ each one checkable on its own. A requirement that is not the server's job
 (client-only behavior, operator guidance) goes into the ledger's
 "Out of scope" section with a reason and is not counted.
 
-Every ledger uses the same format: each item has an ID (most ledgers number
-them in spec order; the RFC 9000 ledger still uses the placeholder `9000-XXX`),
-the spec section, and one marker. Each `test:` line names a test file under
-`tests/` and a test function in it. A maintainer script checks that every cited
-file and function name exists and that each ledger's coverage line matches its
-boxes; it is run by hand, not in CI.
+Every ledger uses the same format, written down in
+[Ledger format](FORMAT.md): each item has an ID, the spec section, and one
+marker. IDs are permanent, because other pages and issues cite them: a
+deleted item leaves a gap and a new item takes the next free number, even
+out of spec order. The RFC 9000 ledger still uses the placeholder
+`9000-XXX`. Each `test:` line names a test file under `tests/` and a test
+function in it. `scripts/check_features.py` (`just features-check`, run in
+CI) checks that every cited file and function exists, that no ID is used
+twice, and that each coverage line and the table below match the boxes.
 
 ## What the markers mean
 
 - `[x]` tested: a named test function proves this requirement. The test
-  has to drive the code the shipping server runs. A test of a helper that
-  no production path calls shows only that the helper works, so it counts
-  as indirect at most.
+  has to drive the code the shipping server runs: the code that `examples/`
+  reach through the server loop. A test of a helper that no production
+  path calls shows only that the helper works, so it counts as indirect at
+  most. This reachability rule applies to every item, including library
+  and codec items phrased "the implementation shall": a primitive that only
+  a test, a fuzz harness or an unshipped client calls is `[~]`, or `[ ]`
+  when the server path does not exercise it at all.
 - `[~]` indirect: no test targets it alone, but other tests exercise it. An
   evidence line, or `test:` lines for the tests that cover part of it, says
   which ones.
@@ -69,15 +76,15 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2208/2257 requirements demonstrated (97.8%) — 1860 directly tested,
-348 indirect, 49 untested.**
+**Total: 2202/2257 requirements demonstrated (97.6%) — 1847 directly tested,
+355 indirect, 55 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 251/276 | 193 | 58 | 25 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 58 | 16 | 4 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 245/276 | 188 | 57 | 31 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 52 | 22 | 4 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 75/75 | 62 | 13 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
@@ -87,8 +94,8 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 26/26 | 23 | 3 | 0 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 24 | 5 | 0 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 19 | 6 | 0 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 23 | 6 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 10/10 | 8 | 2 | 0 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 34/34 | 26 | 8 | 0 |
