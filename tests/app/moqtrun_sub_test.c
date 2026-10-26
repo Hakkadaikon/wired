@@ -1817,6 +1817,28 @@ static void mtst_prop_num(u8* buf, usz* n, u64* prev, u64 type, u64 num) {
   CHECK(moqkvp_put(wired_mspan_of(buf, 64), n, prev, &kv));
 }
 
+/* One odd-Type Property (0x3801, application range, 2.5) whose value is
+ * raw_n bytes, in buf. */
+static wired_span mtst_props_raw(u8* buf, usz cap, usz raw_n) {
+  static u8 raw[256];
+  usz       n    = 0;
+  u64       prev = 0;
+  moqkvp    kv   = {0};
+  for (usz i = 0; i < raw_n; i++) {
+    raw[i] = (u8)(0xA0 + i);
+  }
+  kv.type   = 0x3801;
+  kv.is_raw = 1;
+  kv.raw    = wired_span_of(raw, raw_n);
+  CHECK(moqkvp_put(wired_mspan_of(buf, cap), &n, &prev, &kv));
+  return wired_span_of(buf, n);
+}
+
+/* 1 iff got holds exactly want's bytes. */
+static int mtst_props_eq(wired_span got, wired_span want) {
+  return got.n == want.n && ct_diffn(got.p, want.p, want.n) == 0;
+}
+
 /* One Immutable Properties (0xB) Property wrapping inner. */
 static void mtst_prop_imm(u8* buf, usz* n, u64* prev, wired_span inner) {
   moqkvp kv = {0};
@@ -1854,6 +1876,29 @@ static void test_moqtrun_sub_props_immutable(void) {
   mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(out, no));
   mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
   CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 5);
+}
+
+/* draft-18 2.5 / 9.6 (MQ18-208): the publisher's Track Properties reach
+ * SUBSCRIBE_OK unchanged, a block longer than the old 32-byte cap
+ * included; one longer than WIRED_MOQTRUN_TRACK_PROPS_MAX is refused
+ * INTERNAL_ERROR (the hub's own limit) instead of being forwarded empty. */
+static void test_moqtrun_sub_props_long_forwarded(void) {
+  u8         buf[256];
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  wired_span p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
+  CHECK(mtst_last_ok() && mtst_props_eq(mtst_last_ok()->track_properties, p));
+  p = mtst_props_raw(buf, sizeof buf, WIRED_MOQTRUN_TRACK_PROPS_MAX);
+  mtst_init();
+  ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  CHECK(
+      mtrq_err_on(ca) ==
+      moqctl_request_error_for(mtst_ver(SESS_A), MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
 }
 
 /* PUBLISH of one Property (type, num), mutable or inside Immutable
@@ -2047,6 +2092,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_include_properties_0_empty_tail();
   test_moqtrun_sub_include_properties_1_forwards();
   test_moqtrun_sub_props_immutable();
+  test_moqtrun_sub_props_long_forwarded();
   test_moqtrun_sub_props_bad_values_close();
   test_moqtrun_sub_publish_mandatory_refused();
   test_moqtrun_sub_subgroup_timeout_update();

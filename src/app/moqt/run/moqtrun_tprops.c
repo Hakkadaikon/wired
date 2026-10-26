@@ -85,18 +85,26 @@ u32 moqtrun_tprops_check(wired_span props) {
 }
 
 static u64 moqtrun_tprops_code(u32 f) {
-  return (f & MOQTRUN_TP_BAD) ? MOQTRUN_REQ_CLOSE
-                              : MOQCTL_ERR_UNSUPPORTED_EXTENSION;
+  return (f & MOQTRUN_TP_BAD)    ? MOQTRUN_REQ_CLOSE
+         : (f & MOQTRUN_TP_MAND) ? MOQCTL_ERR_UNSUPPORTED_EXTENSION
+                                 : MOQCTL_ERR_INTERNAL_ERROR;
 }
 
 /* A track's Track Properties the hub must not take (PUBLISH, upstream
  * SUBSCRIBE_OK): 1 with *code MOQTRUN_REQ_CLOSE for a bad value (close
- * PROTOCOL_VIOLATION), else UNSUPPORTED_EXTENSION for a Mandatory Track
- * Property (2.5.1: "MUST NOT process or forward that track"). */
+ * PROTOCOL_VIOLATION), UNSUPPORTED_EXTENSION for a Mandatory Track
+ * Property (2.5.1: "MUST NOT process or forward that track"), else
+ * INTERNAL_ERROR for a block longer than the hub keeps
+ * (WIRED_MOQTRUN_TRACK_PROPS_MAX: refused, never forwarded emptied). */
 int moqtrun_tprops_refused(wired_span props, u64* code) {
   u32 f = moqtrun_tprops_check(props);
   *code = moqtrun_tprops_code(f);
-  return f != 0;
+  return f != 0 || props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX;
+}
+
+/* t's kept Track Properties, empty for no track. */
+wired_span moqtrun_track_props(const wired_moqtrun_track* t) {
+  return t ? wired_span_of(t->props, t->props_len) : wired_span_of(0, 0);
 }
 
 /* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): "An Object received with

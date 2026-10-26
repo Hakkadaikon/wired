@@ -17,12 +17,9 @@ static u8 moqtrun_track_prop_prio(wired_span props) {
  * SUBGROUP_DELIVERY_TIMEOUT (12.6) and DEFAULT_PUBLISHER_PRIORITY (12.4)
  * from props, rid the request (a
  * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
-/* Keeps props for SUBSCRIBE_OK (WIRED_MOQTRUN_TRACK_PROPS_MAX's own doc:
- * a larger block is kept as none). */
+/* Keeps props to forward (moqtrun_tprops_refused already refused a block
+ * past WIRED_MOQTRUN_TRACK_PROPS_MAX). */
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props) {
-  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) {
-    return;
-  }
   bytes_memcpy(t->props, props.p, props.n);
   t->props_len = (u8)props.n;
 }

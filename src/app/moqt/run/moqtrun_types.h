@@ -391,12 +391,15 @@ typedef struct {
   u64 sw_deadline;
 } wired_moqtrun_sub;
 
-/** Largest Track Properties block a track keeps to forward in SUBSCRIBE_OK:
- * what still fits a WIRED_MOQTRUN_CTL_REPLY_MAX (64) envelope beside the
- * Type/Length (3), the Track Alias (8) and a LARGEST_OBJECT parameter (19).
- * ponytail: a larger block is forwarded empty; widen together with
- * WIRED_MOQTRUN_CTL_REPLY_MAX if publishers send long properties. */
-#define WIRED_MOQTRUN_TRACK_PROPS_MAX 32
+/** Largest Track Properties block a track keeps to forward in SUBSCRIBE_OK,
+ * TRACK_STATUS_OK, FETCH_OK and the hub's own PUBLISH: what still fits a
+ * WIRED_MOQTRUN_CTL_REPLY_MAX (128) envelope beside the Type/Length (3),
+ * the Track Alias (8) and a LARGEST_OBJECT parameter (19) -- room for a
+ * few delivery/priority/group-order varints plus a ~60-byte application
+ * Property. A PUBLISH / upstream SUBSCRIBE_OK with a longer block is
+ * refused INTERNAL_ERROR (moqtrun_tprops_refused), never forwarded
+ * emptied; widen together with WIRED_MOQTRUN_CTL_REPLY_MAX. */
+#define WIRED_MOQTRUN_TRACK_PROPS_MAX 96
 
 /** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
  * Track Alias + Group ID + optional Subgroup ID varints + optional 1-byte
@@ -558,7 +561,7 @@ typedef struct {
  * Type+Length+Body), except GOAWAY, whose New Session URI may take up to
  * WIRED_MOQTRUN_GOAWAY_URI_MAX bytes (wired_moqt_goaway sizes its own
  * buffer). */
-#define WIRED_MOQTRUN_CTL_REPLY_MAX 64
+#define WIRED_MOQTRUN_CTL_REPLY_MAX 128
 
 /** Largest received control-message Length (body bytes) this hub handles.
  * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message
@@ -615,8 +618,10 @@ typedef struct {
        : WIRED_MOQTRUN_GOAWAY_MSG_MAX)
 
 /** Replies one request-stream delivery can queue: the request's own
- * answer plus a few REQUEST_UPDATE answers arriving with it. */
-#define WIRED_MOQTRUN_REQ_SEND_BUF ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * 4)
+ * answer plus a few REQUEST_UPDATE answers arriving with it (256 bytes:
+ * two worst-case WIRED_MOQTRUN_CTL_REPLY_MAX replies, or four of the
+ * usual short ones). */
+#define WIRED_MOQTRUN_REQ_SEND_BUF ((usz)WIRED_MOQTRUN_CTL_REPLY_MAX * 2)
 
 /** One peer-opened request stream (draft-ietf-moq-transport-19 3.3): its
  * own reassembly and reply queue (the same ARMED/PENDING pair as

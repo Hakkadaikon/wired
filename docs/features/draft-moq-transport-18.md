@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 193/248 tested, 30 indirect, 25 untested.**
+**Coverage: 194/248 tested, 30 indirect, 24 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -224,14 +224,15 @@ Legend:
     PUBLISH's properties in a later SUBSCRIBE_OK (its parameterless
     subscriber runs on every draft); replacement is by construction
     (`moqtrun_track_keep_props`), untested.
-  - gap: a block longer than `WIRED_MOQTRUN_TRACK_PROPS_MAX` (32 bytes) is
-    forwarded empty.
-- [ ] MQ18-220 (§9.6, §10.14) The hub shall include the track's Track
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_props_long_forwarded`
+  - note: a block longer than `WIRED_MOQTRUN_TRACK_PROPS_MAX` (96 bytes)
+    refuses the track INTERNAL_ERROR instead of being forwarded empty.
+- [x] MQ18-220 (§9.6, §10.14) The hub shall include the track's Track
   Properties in every hub-initiated PUBLISH, TRACK_STATUS REQUEST_OK and
   FETCH_OK it sends for a relayed track.
-  - gap: none of these carries the kept properties; only a FETCH_OK for a
-    track the hub does not hold copies the upstream FETCH_OK's
-    (`test_moqtrun_upfetch_no_track_waits_ok`).
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_publish_carries_props`
+  - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_props`
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_ok_props`
 - [x] MQ18-209 (§2.5.1) If an upstream FETCH_OK carries a Mandatory Track
   Property the hub does not understand, then the hub shall cancel that
   upstream FETCH and answer the downstream FETCH with REQUEST_ERROR

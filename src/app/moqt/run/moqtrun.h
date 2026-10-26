@@ -109,11 +109,11 @@ typedef struct {
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
-   * SUBSCRIBE_OK's) Track Properties, 0 when none or when they exceed
-   * WIRED_MOQTRUN_TRACK_PROPS_MAX. */
+   * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
+   * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */
   u8 props_len;
   /** The Track Properties forwarded in SUBSCRIBE_OK (INCLUDE_PROPERTIES,
-   * draft-22 9.20.21). */
+   * draft-22 9.20.21), TRACK_STATUS_OK, FETCH_OK and the hub's PUBLISH. */
   u8 props[WIRED_MOQTRUN_TRACK_PROPS_MAX];
 } wired_moqtrun_track;
 

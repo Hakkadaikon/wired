@@ -146,6 +146,46 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
   return 0;
 }
 
+/* The Track Properties of the FETCH_OK on the last request stream. */
+static wired_span mf_ok_props(void) {
+  for (usz i = g_n_calls; i-- > 0;) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    static moqfetch_ok       ok;
+    if (c->kind != 12 || c->stream_id != mf_req_sid) {
+      continue;
+    }
+    moqctl_peek_type(
+        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    if (type == MOQFETCH_T_FETCH_OK &&
+        moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK) {
+      return ok.track_properties;
+    }
+  }
+  return wired_span_of(0, 0);
+}
+
+/* draft-18 9.6 / 10.14 (MQ18-220): a FETCH_OK the hub answers from its
+ * cache carries the track's Track Properties (driven with the draft-18/19
+ * FETCH body; the FETCH_OK encoder is shared by every draft). */
+static void test_moqtrun_fetch_ok_props(void) {
+  u8         buf[256];
+  moqctl_ftn f = mf_track();
+  wired_span p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mf_pub_sid = 2;
+  mf_ctrl_a  = mtst_join(SESS_A);
+  mf_ctrl_b  = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, mf_ctrl_a, &f, MF_ALIAS, p);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_standalone(moqctl_loc_of(0, 0), moqctl_loc_of(2, 0));
+  CHECK(mtst_props_eq(mf_ok_props(), p));
+}
+
 static u64 mf_error(void) {
   u64        code = ~(u64)0;
   moqctl_loc end;
@@ -929,6 +969,7 @@ static void mtall_fetch(void) {
 /* Scenarios that send the draft-18/19 FETCH body (mf_send_fetch) and
  * expect its exclusive End: every draft without the draft-22 layout. */
 static void mtall_fetch19(void) {
+  test_moqtrun_fetch_ok_props();
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_descending_unknown_groups();
   test_moqtrun_fetch_descending_skips_missing_group();

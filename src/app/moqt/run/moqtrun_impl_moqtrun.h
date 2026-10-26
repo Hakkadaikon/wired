@@ -107,6 +107,8 @@ typedef struct {
   moqctl_loc start;
   moqctl_loc end;
   moqctl_loc ok_end;
+  /* The track's Track Properties for FETCH_OK (draft-18 9.6 / 10.14). */
+  wired_span props;
 } moqtrun_frange;
 
 /* io moqtrun_upf_drop does toward the upstream session. */
