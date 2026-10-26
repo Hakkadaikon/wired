@@ -903,16 +903,10 @@ typedef struct {
    * DATA, in that order (0 = absent, the draft's default), latched as the
    * SETTINGS frame is walked (priority_ctrl.c). */
   u64 peer_wt_initial[3];
-  /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
-   * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
-   * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's
-   * shape: dispatch.c only latches it, the caller driving the loop decides
-   * how to close the connection over it. */
-  u16 priupdate_violation;
   /** RFC 9204 4.2 (9204-028): the H3 connection error code of a second QPACK
    * encoder or decoder unidirectional stream seen this step
    * (H3_STREAM_CREATION_ERROR), 0 when none was rejected. Mirrors
-   * priupdate_violation's shape: dispatch.c only latches it via
+   * datagram_violation's shape: dispatch.c only latches it via
    * wired_h3srv_on_peer_qpack, the caller driving the loop decides how to
    * close the connection over it. */
   u16 qpack_stream_violation;

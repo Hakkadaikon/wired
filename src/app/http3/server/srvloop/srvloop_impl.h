@@ -63,6 +63,9 @@ void srvloop_note_app_rx(
 u64  srvloop_hs_largest_pn(const wired_srvloop* l);
 void srvloop_note_hs_rx(wired_srvloop* l, const srvloop_opened* o);
 int  srvloop_stream_slot_find(const wired_srvloop* l, u64 stream_id);
+/* RFC 9000 4.6: 1 if id is a client stream at or past l->peer_stream_limit
+ * for its type (bidi or uni); a 0 limit leaves the type unchecked. */
+int  srvloop_id_past_limit(const wired_srvloop* l, u64 id);
 int  srvloop_pending_priority_find(const wired_srvloop* l, u64 stream_id);
 void srvloop_pending_priority_consume(wired_srvloop* l, usz i);
 void srvloop_closed_shift64(wired_srvloop_closed* w, u64 k);

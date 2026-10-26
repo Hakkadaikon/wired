@@ -117,7 +117,7 @@ static void test_srvloop_priupdate_buffers_for_unopened_stream(void) {
   priupdate_dispatch(&l, frame, flen);
 
   /* stream 8 does not exist yet: default priority still applies nowhere */
-  CHECK(l.priupdate_violation == 0);
+  CHECK(l.h3peer.error == 0);
 
   {
     int i = wired_srvloop_slot_for(&l, 8); /* stream opens now */
@@ -145,7 +145,7 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == H3_FRAME_UNEXPECTED);
+  CHECK(l.h3peer.error == H3_FRAME_UNEXPECTED);
 }
 
 /* 9218-014: a request-variant PRIORITY_UPDATE naming an element id outside
@@ -168,11 +168,43 @@ static void test_srvloop_priupdate_bad_id_error(void) {
   CHECK(flen > 0);
   priupdate_dispatch(&l, frame, flen);
 
-  CHECK(l.priupdate_violation == H3_ID_ERROR);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
   {
     int i = wired_srvloop_slot_for(&l, 4);
     CHECK(l.streams[i].priority.urgency == H3_URGENCY_DEFAULT);
   }
+}
+
+/* Send one PRIORITY_UPDATE (variant push, element id) as the control
+ * stream's first bytes on a fresh loop whose bidi limit is 2 streams. */
+static void priupdate_send_one(wired_srvloop* l, u64 id, int push) {
+  u8  payload[64], frame[96];
+  usz plen, flen;
+  CHECK(
+      wired_srvloop_init(l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  l->peer_stream_limit[0] = 2; /* client bidi ids 0 and 4 */
+  plen = priupdate_ctrl_payload(payload, sizeof payload, id, push, "u=2", 3);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  priupdate_dispatch(l, frame, flen);
+}
+
+/* 9218-022: a request-variant element id at or past the advertised client
+ * bidi stream limit is H3_ID_ERROR; the last id below it is accepted. */
+static void test_srvloop_priupdate_past_stream_limit(void) {
+  static wired_srvloop l;
+  priupdate_send_one(&l, 4, 0);
+  CHECK(l.h3peer.error == 0);
+  priupdate_send_one(&l, 8, 0);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
+}
+
+/* 9218-023: the server never promises a push, so every push-variant
+ * PRIORITY_UPDATE names an unpromised Push ID: H3_ID_ERROR. */
+static void test_srvloop_priupdate_push_unpromised(void) {
+  static wired_srvloop l;
+  priupdate_send_one(&l, 0, 1);
+  CHECK(l.h3peer.error == H3_ID_ERROR);
 }
 
 /* Encode {0x00 control-type varint}{SETTINGS frame} into out; returns the
@@ -417,6 +449,8 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_buffers_for_unopened_stream();
   test_srvloop_priupdate_on_request_stream_unexpected();
   test_srvloop_priupdate_bad_id_error();
+  test_srvloop_priupdate_past_stream_limit();
+  test_srvloop_priupdate_push_unpromised();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
   test_srvloop_ctrl_settings_split_after_type_byte();
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
