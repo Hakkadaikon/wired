@@ -41,6 +41,7 @@ void srvrun_feed_acks(
   }
   srvrun_feed_ecn(c, largest_before, ctx->now_ms);
   lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms, &span);
+  srvrun_pmtu_feed_losses(c, span.big);
   /* RFC 9002 7.3.1/7.3.2: cwnd shrinks once per recovery period, gated on
    * the lost packet's SEND time -- passing now here instead re-shrank the
    * window on every loss of a packet sent before the current period began,

@@ -1,9 +1,10 @@
 #include "app/http3/server/sendsess/sendsess_impl.h"
 
-static int sendsess_free_slot(const wired_sendsess* s);
-static int sent_slice_below(const wired_sent_slice* e, usz floor);
-static usz sendsess_log_floor(const wired_sendsess* s, usz floor);
-static usz sendsess_requeue_floor(const wired_sendsess* s, usz floor);
+static void sendsess_split(wired_sendsess* s, wired_sendq_slice* sl);
+static int  sendsess_free_slot(const wired_sendsess* s);
+static int  sent_slice_below(const wired_sent_slice* e, usz floor);
+static usz  sendsess_log_floor(const wired_sendsess* s, usz floor);
+static usz  sendsess_requeue_floor(const wired_sendsess* s, usz floor);
 
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk) {
@@ -41,9 +42,25 @@ usz wired_sendsess_inflight(const wired_sendsess* s) {
   return n;
 }
 
+/* A requeued slice cut at a larger size than the current chunk (the
+ * caller lowered it -- RFC 8899 4.3: a black hole dropped the MPS) goes out
+ * one chunk at a time, the rest back on the requeue's top so offsets keep
+ * their order; resent whole, it would be lost on the same path again. */
+static void sendsess_split(wired_sendsess* s, wired_sendq_slice* sl) {
+  usz c = s->q.chunk;
+  if (!c || sl->len <= c) {
+    return;
+  }
+  s->requeue[s->requeue_n++] =
+      (wired_sendq_slice){sl->offset + c, sl->len - c, sl->fin};
+  sl->len = c;
+  sl->fin = 0;
+}
+
 int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out) {
   if (s->requeue_n) {
     *out = s->requeue[--s->requeue_n];
+    sendsess_split(s, out);
     return 1;
   }
   return wired_sendq_next(&s->q, out);

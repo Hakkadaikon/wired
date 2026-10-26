@@ -11,7 +11,14 @@ static void srvrun_pmtu_reap_lost(srvrun_conn* c, u64 now_us);
 static usz  srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us);
 static int  srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size);
-static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static int  srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps);
+static void srvrun_pmtu_shrink(srvrun_conn* c);
+
+/* Stream bytes per packet at BASE_PLPMTU (srvrun_mps's formula at the base):
+ * a slice longer than this needed a packet above the base. */
+#define SRVRUN_PMTU_BASE_SLICE \
+  (PMTU_BASE - PMTU_OVERHEAD - SRVRUN_STREAM_HDR_MAX)
 
 /* 1 if any resp[]/wtsend slot has a PTO probe queued (srvrun_has_requeued)
  * -- the round-level trigger for bypassing the pacing gate below. */
@@ -240,4 +247,50 @@ int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
     return 1;
   }
   return srvrun_pump_round_gated(ctx, c);
+}
+
+/* RFC 8899 4.3 black hole input: the range [.., hi] the peer acked carried
+ * more stream bytes than `hits` BASE_PLPMTU packets could, so an above-base
+ * packet at or below hi was delivered. */
+void srvrun_pmtu_note_ack(srvrun_conn* c, usz bytes, u64 hits, u64 hi) {
+  if (bytes > hits * SRVRUN_PMTU_BASE_SLICE) {
+    pmtu_on_big_ack(&c->pmtu, hi);
+  }
+}
+
+/* 1 if lost packet l was above the base and sent after the newest such
+ * packet acked -- evidence the path stopped carrying the PLPMTU. */
+int srvrun_pmtu_big_lost(
+    const srvrun_conn* c, const wired_sendsess_lost_slice* l) {
+  return l->length > SRVRUN_PMTU_BASE_SLICE &&
+         pmtu_big_suspect(&c->pmtu, l->pn);
+}
+
+static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps) {
+  s->q.chunk = (usz)u64_min(s->q.chunk, mps);
+}
+
+/* The MPS dropped: every armed send session slices at the new size from
+ * now on, retransmissions included (wired_sendsess_take splits). */
+static void srvrun_pmtu_shrink(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    srvrun_pmtu_chunk_cap(&c->resp[i].sess, srvrun_mps(c));
+  }
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    srvrun_pmtu_chunk_cap(&c->wtsend[i].sess, srvrun_mps(c));
+  }
+}
+
+/* Feed one loss pass's `big` black hole evidence to the search. On a black
+ * hole (RFC 8899 4.3: PLPMTU back to BASE) the slices shrink and any search
+ * probe still tracked is dropped, so its loss cannot count against the
+ * BASE_PLPMTU probe that BASE sends next (RFC 8899 5.2). */
+void srvrun_pmtu_feed_losses(srvrun_conn* c, usz big) {
+  usz before = c->pmtu.validated;
+  pmtu_on_big_losses(&c->pmtu, big);
+  if (c->pmtu.validated == before) {
+    return;
+  }
+  srvrun_pmtu_shrink(c);
+  srvrun_pmtu_probe_clear(c);
 }

@@ -193,9 +193,10 @@ typedef struct {
  * so lo_pn is the oldest_ms packet and hi_pn the newest_ms one. */
 typedef struct {
   u64 newest_ms, oldest_ms, lo_pn, hi_pn;
+  usz big; /* RFC 8899 4.3 black hole evidence (srvrun_pmtu_big_lost) */
 } srvrun_loss_span;
 
-#define SRVRUN_LOSS_SPAN0 ((srvrun_loss_span){0, ~(u64)0, ~(u64)0, 0})
+#define SRVRUN_LOSS_SPAN0 ((srvrun_loss_span){0, ~(u64)0, ~(u64)0, 0, 0})
 
 /* The congestion controller a fresh connection starts with (RFC 9002 7):
  * cfg->cc_algo == 0 means the build's default; a non-zero runtime choice
