@@ -15,9 +15,8 @@ typedef struct {
   /** RFC 9002 A.1: every 1-RTT packet sealed through
    * srvloop_send_onertt_rec (pn, now_ms, ack-eliciting, size), until the
    * peer acknowledges it or it is declared lost. total_in_flight counts the
-   * in-flight ones (RFC 9002 2) except STREAM-slice packets, which the
-   * driving loop's send sessions count by slice bytes instead
-   * (sentmeta_uncount). */
+   * in-flight ones (RFC 9002 2), less a STREAM slice's own bytes, which the
+   * driving loop's send sessions count instead (sentmeta_uncount). */
   sentmeta  sent;
   ackpolicy hs_ack_policy; /**< Handshake space's delayed-ACK timer */
   /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for

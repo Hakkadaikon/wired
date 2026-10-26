@@ -164,8 +164,10 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
   }
 }
 
-/* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices plus
- * every other in-flight packet the record counts. */
+/* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices, the
+ * rest of every in-flight 1-RTT packet the record counts, and the boot
+ * flight until its keys are discarded. */
 usz srvrun_bytes_in_flight(const srvrun_conn* c) {
-  return c->acct_inflight + c->l.ackst.sent.total_in_flight;
+  return c->acct_inflight + c->l.ackst.sent.total_in_flight +
+         srvrun_boot_inflight(c);
 }

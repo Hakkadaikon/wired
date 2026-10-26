@@ -66,6 +66,11 @@ static srvrun_conn* sr_test_conns(void) {
 
 /* A confirmed srvrun_conn built from a freshly-confirmed lp_fix, up and ready
  * to receive GOAWAY. */
+/* A congestion window with room for exactly k one-slice packets: RFC 9002
+ * 2 counts each whole packet (slice + header, frames and AEAD tag) in
+ * flight, so a window of k bare slices fits only k-1 of them. */
+#define SR_WIN(k) ((k) * (SRVRUN_CHUNK + 64))
+
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, wired_obuf* ob) {
   lp_confirm(f, ob);
@@ -15844,7 +15849,7 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   /* room for exactly 3 chunks per pump pass -- one per slot, not enough for
    * any slot to take a second turn within the same round. */
-  c.cc.cwnd           = 3 * SRVRUN_CHUNK;
+  c.cc.cwnd           = SR_WIN(3);
   c.resp[0].in_use    = 1;
   c.resp[0].stream_id = 0;
   c.resp[1].in_use    = 1;
@@ -15952,13 +15957,13 @@ static void test_srvrun_pto_probe_bypasses_cwnd(void) {
     /* drive each slot to exactly one in-flight slice, one round at a time,
      * before cwnd gets tightened below (a wide-open cwnd here would drain
      * each slot's whole log via srvrun_pump_sess's inner loop instead). */
-    c.cc.cwnd = 2 * SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(2);
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
     /* now shrink cwnd to exactly slot 1's one chunk -- no room for even a
      * sliver more, so a cwnd-gated resend of slot 0's probe would fail. */
-    c.cc.cwnd = SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(1);
     /* PTO fires on slot 0 only: its slice moves to requeue. Slot 1's slice
      * is still in flight and alone accounts for cwnd's one chunk of room,
      * so a cwnd-gated pump would find no room for slot 0's probe. */
@@ -17366,13 +17371,13 @@ static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    c.cc.cwnd           = 2 * SRVRUN_CHUNK; /* exactly enough for one each */
+    c.cc.cwnd           = SR_WIN(2); /* exactly enough for one each */
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
     /* pin cwnd to exactly slot 1's chunk -- slot 0's probe has no cwnd
      * room, matching the real stall's inf==cwnd-ish stuck state. */
-    c.cc.cwnd = SRVRUN_CHUNK;
+    c.cc.cwnd = SR_WIN(1);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
     CHECK(c.resp[0].sess.requeue_n == 1);
     srvrun_pump_sess(&ctx, 0);
@@ -18207,7 +18212,7 @@ static srvrun_conn* sr_prio_fixture(struct lp_fix* f, wired_obuf* ob) {
   wired_span   b = wired_span_of(sr_prio_body, sizeof sr_prio_body);
   CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 15);
   CHECK(wired_server_wt_open_uni_stream(&c->wt, b) == 19);
-  c->cc.cwnd = 2 * SRVRUN_CHUNK;
+  c->cc.cwnd = SR_WIN(2);
   return c;
 }
 

@@ -193,12 +193,41 @@ static void test_srvrun_rec_control_packet_counts_inflight(void) {
     srvrun_state    st     = {0, &c};
     srvrun_step_ctx ctx    = {&cfg, 0, &st, 10, 0};
     usz             before = c.l.ackst.sent.total_in_flight;
+    usz             i;
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
-    CHECK(c.l.ackst.sent.total_in_flight == before); /* the session counts it */
+    /* RFC 9002 2: the whole STREAM packet is in flight -- the session
+     * counts the slice, the record the rest: short header (1 + DCID + 4)
+     * and AEAD tag (16) at least. */
+    i = sentmeta_find(&c.l.ackst.sent, c.l.tx_pn - 1);
+    CHECK(i < SENTMETA_CAP);
+    CHECK(c.l.ackst.sent.pkts[i].sent_bytes >= 21u + c.l.cli_scid_len);
+    CHECK(
+        c.l.ackst.sent.total_in_flight ==
+        before + c.l.ackst.sent.pkts[i].sent_bytes);
+    CHECK(
+        srvrun_bytes_in_flight(&c) ==
+        SRVRUN_CHUNK + c.l.ackst.sent.total_in_flight);
   }
-  srvrec_ack(&c, pn, pn, 20);
+  srvrec_ack(&c, pn, c.l.tx_pn - 1, 20);
   CHECK(c.l.ackst.sent.total_in_flight == 0);
+}
+
+/* RFC 9002 2 (9002-002): the boot flight counts in bytes in flight -- the
+ * Initial (100) and the Handshake datagrams sent so far (300 of 300+200)
+ * -- until each half's keys are discarded (RFC 9002 6.2.2). */
+static void test_srvrun_rec_boot_flight_counts_inflight(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 0);
+  c.boot_dgram_count  = 2;
+  c.boot_dgram_len[0] = 300;
+  c.boot_dgram_len[1] = 200;
+  c.boot_dgram_sent   = 1;
+  CHECK(srvrun_bytes_in_flight(&c) == 400);
+  c.l.hs_rx_seen = 1; /* Initial keys discarded */
+  CHECK(srvrun_bytes_in_flight(&c) == 300);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED; /* Handshake keys discarded */
+  CHECK(srvrun_bytes_in_flight(&c) == 0);
 }
 
 /* RFC 9002 5.1: one RTT sample per ACK frame, from its largest
@@ -700,6 +729,7 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_granularity_floor();
   test_srvrun_rec_spurious_loss_not_resent();
   test_srvrun_rec_control_packet_counts_inflight();
+  test_srvrun_rec_boot_flight_counts_inflight();
   test_srvrun_rec_one_sample_per_frame();
   test_srvrun_rec_no_sample_when_largest_old();
   test_srvrun_rec_no_sample_ack_only();
