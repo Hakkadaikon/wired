@@ -24,12 +24,4 @@ int h3_priority_higher(u8 urg_a, u8 urg_b);
 
 int h3_urgency_valid(u8 u);
 
-/* RFC 9218 4.1: take an ASCII digit '0'..'7' as the urgency; anything else
- * leaves p untouched. */
-void h3_priority_set_urgency(h3_priority* p, u8 digit);
-
-/* RFC 9218 4.2: at an `i` member starting at v[i], a bare `i` (or `i=?1`)
- * sets incremental, `i=?0` clears it; malformed forms leave p untouched. */
-void h3_priority_set_incremental(h3_priority* p, wired_span v, usz i);
-
 #endif

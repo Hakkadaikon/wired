@@ -8,7 +8,8 @@
  * RFC 8941 Structured Fields, minimal subset: parsing an sf-list whose
  * members are sf-strings, and serializing one sf-string. This is what
  * WebTransport subprotocol negotiation needs for the
- * wt-available-protocols / wt-protocol header fields.
+ * wt-available-protocols / wt-protocol header fields. Plus an sf-dictionary
+ * walk (sfield_dict_next) for RFC 9218's Priority field value.
  *
  * Wire format (RFC 8941):
  *   sf-list   (SS3.1)   -- members separated by OWS "," OWS
@@ -42,6 +43,31 @@ void sfield_iter_init(sfield_iter* it, wired_span list);
  * @return 1 = member produced, 0 = end of list, -1 = syntax error
  */
 int sfield_next_string(sfield_iter* it, wired_obuf* out);
+
+/** RFC 8941 3.3: the kind of a Dictionary member's value. */
+#define SFIELD_OTHER 0   /**< decimal, string, token, bytes or inner list */
+#define SFIELD_INTEGER 1 /**< an Integer (num, neg) */
+#define SFIELD_BOOLEAN 2 /**< a Boolean (num 0 or 1) */
+
+/** A Dictionary member's value, as far as callers read one. */
+typedef struct {
+  u8  kind; /**< SFIELD_OTHER / SFIELD_INTEGER / SFIELD_BOOLEAN */
+  u8  neg;  /**< SFIELD_INTEGER: 1 if negative */
+  u64 num;  /**< SFIELD_INTEGER magnitude, or SFIELD_BOOLEAN 0/1 */
+} sfield_item;
+
+/** RFC 8941 4.2.2: decode the next member of the sf-dictionary at it
+ * (started with sfield_iter_init over the field value). The whole
+ * Dictionary is validated as it is walked -- item syntax, inner lists,
+ * parameters (skipped), separators, and no trailing comma -- so a -1 at any
+ * member means the caller must discard every member it already took.
+ *
+ * @param it  iterator (advanced past the member and its separator)
+ * @param key receives the member key (a view into the list)
+ * @param v   receives the member value; a bare key is Boolean true
+ * @return 1 = member produced, 0 = end of dictionary, -1 = syntax error
+ */
+int sfield_dict_next(sfield_iter* it, wired_span* key, sfield_item* v);
 
 /** Serialize s as one sf-string (RFC 8941 SS4.1.6): wrap in DQUOTEs and
  * backslash-escape DQUOTE and backslash.

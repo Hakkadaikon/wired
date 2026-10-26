@@ -76,7 +76,27 @@ static void test_srvloop_priupdate_applies_to_open_stream(void) {
     CHECK(i >= 0);
     CHECK(l.streams[i].priority.urgency == 1);
   }
-  CHECK(l.priupdate_violation == 0);
+  CHECK(l.h3peer.error == 0);
+}
+
+/* 9218-009: a PRIORITY_UPDATE whose Priority Field Value fails to parse
+ * (a trailing comma) resets the stream to the default parameters, not to
+ * the u=1 it carries nor the u=5 it had. */
+static void test_srvloop_priupdate_bad_value_defaults(void) {
+  static wired_srvloop l;
+  u8                   payload[64], frame[96];
+  usz                  plen, flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  wired_srvloop_priority_apply(&l, 4, &(h3_priority){5, 1});
+  plen = priupdate_ctrl_payload(payload, sizeof payload, 4, 0, "u=1,", 4);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.h3peer.error == 0); /* no H3_GENERAL_PROTOCOL_ERROR */
+  CHECK(l.streams[wired_srvloop_slot_for(&l, 4)].priority.urgency == 3);
+  CHECK(l.streams[wired_srvloop_slot_for(&l, 4)].priority.incremental == 0);
 }
 
 /* 9218-010: a PRIORITY_UPDATE naming a stream not yet open is buffered and
@@ -393,6 +413,7 @@ static void test_srvloop_ctrl_stream_overflow_latched(void) {
 
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
+  test_srvloop_priupdate_bad_value_defaults();
   test_srvloop_priupdate_buffers_for_unopened_stream();
   test_srvloop_priupdate_on_request_stream_unexpected();
   test_srvloop_priupdate_bad_id_error();

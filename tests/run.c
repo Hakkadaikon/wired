@@ -535,6 +535,7 @@
 #include "app/http3/core/h3settings/control_settings.c"
 #include "app/http3/core/capsule/capsule.c"
 #include "app/http3/core/sfield/sfield.c"
+#include "app/http3/core/sfield/sfield_dict.c"
 #include "transport/packet/header/lhdr/lhdr_build.c"
 #include "transport/packet/header/lhdr/lhdr_parse.c"
 #include "transport/packet/build/vpn/vpn_open.c"
