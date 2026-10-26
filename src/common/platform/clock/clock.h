@@ -32,4 +32,13 @@ u64 clock_ymdhms(void);
  * @return UNIX epoch seconds, or 0 on syscall failure */
 u64 wired_clock_epoch_secs(void);
 
+/** Octets of an IMF-fixdate ("Sun, 06 Nov 1994 08:49:37 GMT"). */
+#define CLOCK_IMF_FIXDATE_LEN 29
+
+/** RFC 9110 5.6.7: UNIX epoch seconds as an IMF-fixdate, the HTTP Date
+ * format (no NUL terminator).
+ * @param secs UNIX epoch seconds
+ * @param out receives CLOCK_IMF_FIXDATE_LEN octets */
+void clock_imf_fixdate(u64 secs, u8* out);
+
 #endif

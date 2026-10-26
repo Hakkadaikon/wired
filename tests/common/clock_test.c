@@ -1,5 +1,6 @@
 #include "common/platform/clock/clock.h"
 
+#include "common/bytes/util/ct.h"
 #include "test.h"
 
 /* Golden pairs generated independently with Python
@@ -42,7 +43,29 @@ static void test_clock_epoch_secs(void) {
   CHECK(clock_epoch_to_ymdhms(secs) == clock_ymdhms());
 }
 
+/* RFC 9110 5.6.7: IMF-fixdate, the RFC's own example plus Python
+ * email.utils.formatdate(usegmt=True) goldens for epoch 0 and the
+ * leap-day / year-end / /100-rule edges above. */
+static void test_clock_imf_fixdate(void) {
+  static const struct {
+    u64         secs;
+    const char* want;
+  } v[] = {
+      {784111777ULL, "Sun, 06 Nov 1994 08:49:37 GMT"},
+      {0ULL, "Thu, 01 Jan 1970 00:00:00 GMT"},
+      {951782400ULL, "Tue, 29 Feb 2000 00:00:00 GMT"},
+      {1798761599ULL, "Thu, 31 Dec 2026 23:59:59 GMT"},
+      {4107542400ULL, "Mon, 01 Mar 2100 00:00:00 GMT"},
+  };
+  for (usz i = 0; i < sizeof(v) / sizeof(v[0]); i++) {
+    u8 out[CLOCK_IMF_FIXDATE_LEN];
+    clock_imf_fixdate(v[i].secs, out);
+    CHECK(ct_diffn(out, (const u8*)v[i].want, CLOCK_IMF_FIXDATE_LEN) == 0);
+  }
+}
+
 void test_clock(void) {
+  test_clock_imf_fixdate();
   test_clock_vectors();
   test_clock_live();
   test_clock_mono();

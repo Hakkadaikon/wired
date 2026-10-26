@@ -1,5 +1,7 @@
 #include "common/platform/clock/clock.h"
 
+#include "common/bytes/util/bytes.h"
+
 /* The civil year/month/day clock_civil writes. */
 typedef struct {
   u64 y, m, d;
@@ -40,4 +42,40 @@ u64 wired_clock_epoch_secs(void) {
     return 0;
   }
   return (u64)ts.sec;
+}
+
+/* Two decimal digits of v % 100 at p. */
+static void clock_put2(u8* p, u64 v) {
+  p[0] = (u8)('0' + v / 10 % 10);
+  p[1] = (u8)('0' + v % 10);
+}
+
+/* "hh:mm:ss GMT" for rem seconds into the day, at p. */
+static void clock_put_time(u8* p, u64 rem) {
+  clock_put2(p, rem / 3600);
+  p[2] = ':';
+  clock_put2(p + 3, rem / 60 % 60);
+  p[5] = ':';
+  clock_put2(p + 6, rem % 60);
+  bytes_memcpy(p + 8, " GMT", 4);
+}
+
+/* RFC 9110 5.6.7: day-name "," SP date1 SP time-of-day SP "GMT", with
+ * day 0 (1970-01-01) a Thursday. */
+void clock_imf_fixdate(u64 secs, u8* out) {
+  static const char wday[] = "ThuFriSatSunMonTueWed";
+  static const char mon[]  = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  u64               days   = secs / 86400;
+  clock_ymd         ymd;
+  clock_civil(days, &ymd);
+  bytes_memcpy(out, wday + days % 7 * 3, 3);
+  bytes_memcpy(out + 3, ", ", 2);
+  clock_put2(out + 5, ymd.d);
+  out[7] = ' ';
+  bytes_memcpy(out + 8, mon + (ymd.m - 1) * 3, 3);
+  out[11] = ' ';
+  clock_put2(out + 12, ymd.y / 100);
+  clock_put2(out + 14, ymd.y);
+  out[16] = ' ';
+  clock_put_time(out + 17, secs % 86400);
 }
