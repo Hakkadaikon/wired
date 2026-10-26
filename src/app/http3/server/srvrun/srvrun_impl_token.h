@@ -37,5 +37,7 @@ void               srvrun_send_new_token(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const srvrun_newtok_mark* m);
 int srvrun_send_initial_close(
     const srvrun_step_ctx* ctx, wired_mspan dg, u64 code);
+void srvrun_retry_scid_distinct(u8 scid[8], wired_span dcid);
+int  srvrun_can_serve(const wired_srvboot_id* id);
 
 #endif

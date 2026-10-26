@@ -1162,6 +1162,9 @@ struct wired_srvrun_env {
   /* wired_srvrun_opt.datagram_first, held here for the same reason
    * (srvrun_send_pass). */
   int datagram_first;
+  /* wired_srvrun_opt.spin_off, applied to each accepted connection
+   * (srvrun_open_done). */
+  int spin_off;
 };
 
 #endif

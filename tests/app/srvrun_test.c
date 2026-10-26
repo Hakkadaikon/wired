@@ -3997,6 +3997,9 @@ static void test_srvrun_path_ack_goes_to_new_path(void) {
 
 static u64 sr_close_code(const srvrun_conn* c, int* is_app);
 
+/* The spin bit sr_seal_dcid's packets carry (RFC 9000 17.4). */
+static int g_sr_spin;
+
 /* Client role: seal pl at pn with the explicit DCID dcid. */
 static usz sr_seal_dcid(
     struct lp_fix* f,
@@ -4011,7 +4014,7 @@ static usz sr_seal_dcid(
   aes128_init(&hp, k->hp);
   {
     protect_keys      pk = {k, &hp};
-    hspkt_onertt_desc d  = {dcid, pn, pl, 0, 0, 0};
+    hspkt_onertt_desc d  = {dcid, pn, pl, 0, g_sr_spin, 0};
     wired_obuf        o  = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     return o.len;
@@ -4581,7 +4584,9 @@ typedef struct {
   int ncid;       /* NEW_CONNECTION_ID frames */
   usz chal_len;   /* size of the last datagram carrying a PATH_CHALLENGE */
   int first_chal; /* PATH_CHALLENGEs in the first datagram received */
+  int chal_max;   /* most PATH_CHALLENGEs seen in one packet */
   u8  dcid0;
+  u8  retire_dcid0; /* DCID byte 0 of the packet carrying a RETIRE */
   u16 port_be;
   usz len;
 } sr_rx;
@@ -4615,6 +4620,12 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     }
     if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE)) {
       r.chal_len = (usz)n;
+    }
+    if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE) > r.chal_max) {
+      r.chal_max = sr_count_frames(pl, pll, FK_PATH_CHALLENGE);
+    }
+    if (sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID)) {
+      r.retire_dcid0 = pkt[1];
     }
     sr_rx_note(&r, pl, pll);
     if (r.n == 1) {
@@ -4792,6 +4803,7 @@ static void test_srvrun_path_wire_probe_challenged_first(void) {
     r = sr_drain(&f, n.bfd);
     CHECK(r.resp == 1 && r.chal == 1);
     CHECK(r.first_chal == 1);
+    CHECK(r.chal_max == 1); /* RFC 9000 8.2.1: one per packet */
   }
   sr_net_close(&n);
 }
@@ -4821,6 +4833,9 @@ static void test_srvrun_path_wire_retire(void) {
   r = sr_drain(&f, n.afd);
   CHECK(r.retire == 1);
   CHECK(c.l.cli_scid[0] == 0xc1);
+  /* RFC 9000 19.16: the RETIRE of seq 0 rides a packet sent to seq 1, never
+   * to the ID it retires */
+  CHECK(r.retire_dcid0 == 0xc1);
   sr_net_close(&n);
 }
 
@@ -4950,6 +4965,8 @@ static void test_srvrun_retired_cid_replenished(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, old, 6) == -1);
   CHECK(ct_diffn(c.l.spare_cid, old, 6) != 0);
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, c.l.spare_cid, 6) == 0);
+  /* RFC 9000 10.3.2: the replacement keeps the one SCID length */
+  CHECK(c.l.spare_cid_len == id.scid_len);
   sr_net_close(&n);
 }
 
@@ -6977,7 +6994,7 @@ static void test_srvrun_polling_pto_tick(void) {
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
   wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
   CHECK(opt.so_prefer_busy_poll == 0);
@@ -6996,7 +7013,7 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
   wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0};
+                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);
@@ -8386,12 +8403,16 @@ static void test_srvrun_reset_during_response_keeps_slot(void) {
   srvrun_state    st  = {table, conns};
   srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
   sr_reset_after_request(table, conns, &f);
-  conns[0].l.reset_slots     = 1; /* re-armed, so srvloop notes it */
-  conns[0].resp[0].in_use    = 1;
-  conns[0].resp[0].stream_id = 4;
+  conns[0].l.reset_slots         = 1; /* re-armed, so srvloop notes it */
+  conns[0].resp[0].in_use        = 1;
+  conns[0].resp[0].stream_id     = 4;
+  conns[0].resp[0].stream_credit = 1234;
   srvrun_free_reset_reqs(&ctx, &conns[0]);
   CHECK(conns[0].l.streams[0].in_use == 1);
   CHECK(conns[0].stream_limit_advertised == 0);
+  /* RFC 9000 4.4: the live send half keeps its flow control state */
+  CHECK(conns[0].resp[0].in_use == 1);
+  CHECK(conns[0].resp[0].stream_credit == 1234);
 }
 
 /* RFC 9000 2.2: STREAM(FIN) and RESET_STREAM in one datagram -- the request
@@ -26772,6 +26793,275 @@ static void test_srvrun_stream_credit_blocked_sends_sdb(void) {
   CHECK(c.resp[0].sdb.sent_at == SRVRUN_CHUNK / 2);
 }
 
+/* RFC 9000 3.5: data of a response the peer sent STOP_SENDING for is not
+ * retransmitted when declared lost -- the RESET_STREAM replaces it. A
+ * sibling response with the same lost packet shows the loss pass would
+ * otherwise requeue it. */
+static void test_srvrun_stopped_lost_data_not_retransmitted(void) {
+  static u8         body[8000];
+  struct lp_fix     f;
+  srvrun_cfg        cfg;
+  srvrun_state      st;
+  srvrun_step_ctx   ctx;
+  srvrun_conn*      c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_resp*      r    = srvrun_resp_claim(c, 0);
+  srvrun_resp*      live = srvrun_resp_claim(c, 4);
+  srvrun_loss_span  span = {0, ~0ULL, ~0ULL, 0, 0};
+  wired_sendq_slice sl;
+  c->cc.cwnd = 1u << 20;
+  wired_sendsess_arm(&r->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&r->sess, &sl));
+  CHECK(wired_sendsess_sent(&r->sess, &sl, 1, 0));
+  wired_sendsess_arm(&live->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&live->sess, &sl));
+  CHECK(wired_sendsess_sent(&live->sess, &sl, 2, 0));
+  c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
+  c->l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  c->largest_acked = 10; /* both pn 1 and 2 are now past the threshold */
+  CHECK(srvrun_reap_losses_all(&cfg, c, 100000, &span) == 1); /* live only */
+  CHECK(srvrun_resp_find(c, 0) == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 5.2 / 10.2: a client Initial whose ClientHello the server cannot
+ * serve (every offered cipher suite unknown) ends in a connection error --
+ * an Initial CONNECTION_CLOSE goes out -- and nothing it set up survives:
+ * no slot is up and its DCID no longer routes. */
+static void test_srvrun_bad_initial_closes_and_reverts(void) {
+  wired_srvboot_id id;
+  client           c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg[1400];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              n    = sr_raw_ch(&c, ch, sizeof ch);
+  usz              cs   = 4 + 2 + 32 + 1 + ch[38]; /* cipher_suites length */
+  usz              nd;
+  CHECK(n > cs + 2);
+  for (usz i = 0; i < be_get_be16(ch + cs); i++) {
+    ch[cs + 2 + i] = 0xfe; /* every suite 0xfefe: none this server has */
+  }
+  nd = sr_seal_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 0);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0] = (srvrun_conn){0};
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dg, nd));
+  }
+  CHECK(srvrun_test_send_count() == 1); /* the Initial CONNECTION_CLOSE */
+  CHECK(st.conns[0].up == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
+/* RFC 9000 13.2.1: one ack-eliciting packet draws at most one ACK-only
+ * packet -- later steps with nothing new received send none. */
+static void test_srvrun_one_ack_only_per_eliciting_packet(void) {
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
+  c->l.app_ack_policy.pending = 2;
+  c->l.ackst.ack_defer        = 1;
+  {
+    srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_sess_on_step(&ctx, 0);
+    ctx.now_ms = 2000;
+    srvrun_sess_on_step(&ctx, 0);
+    ctx.now_ms = 3000;
+    srvrun_sess_on_step(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() == 1);
+}
+
+/* RFC 9000 19.19: every CONNECTION_CLOSE reason phrase the server writes is
+ * one of its own ASCII strings, so it is valid UTF-8. */
+static int sr_close_reason_ascii(const srvrun_conn* c) {
+  conn_close_frame ccf;
+  if (!frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) {
+    return 0;
+  }
+  for (usz i = 0; i < ccf.reason_len; i++) {
+    if (ccf.reason[i] >= 0x80) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static void test_srvrun_close_reasons_are_utf8(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c        = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_refused_overflow = 1; /* STREAM_LIMIT_ERROR close */
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_reason_ascii(c));
+  c                             = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_uni_streams[0].in_use = 1;
+  c->l.wt_uni_streams[0].win.dropped_bytes = 1; /* FLOW_CONTROL_ERROR */
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_reason_ascii(c));
+}
+
+/* RFC 9000 10.3: answering a packet of 43 bytes or fewer, the Stateless
+ * Reset is exactly one byte shorter than it. */
+static void test_srvrun_stateless_reset_one_byte_shorter(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], out[128];
+  u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  for (usz t = SRESET_MIN + 1; t <= 43; t++) {
+    srvrun_cfg cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    wired_obuf ob  = obuf_of(out, sizeof out);
+    CHECK(srvrun_seal_stateless_reset(&cfg, wired_span_of(dcid, 8), t, &ob));
+    CHECK(ob.len == t - 1);
+  }
+}
+
+/* RFC 9000 11 / 10.3: a short-header packet for a connection the server
+ * still holds is that connection's (here undecryptable) traffic, never
+ * answered with a Stateless Reset. */
+static void test_srvrun_live_slot_never_reset(void) {
+  wired_srvboot_id id;
+  struct lp_fix    f;
+  u8               priv[32], pub[32], seed[32], rnd[32], short_hdr[64];
+  u8               obuf[1024];
+  wired_obuf       ob = {obuf, sizeof obuf, 0};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer  = {0};
+  srvrun_conn*     conns = sr_test_conns();
+  srvrun_state     st    = {table, conns};
+  usz              tx_before;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) {
+    short_hdr[i] = (u8)(0x30 + i);
+  }
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  CHECK(
+      conntable_insert(
+          table, WIRED_CONNTABLE_CAP, short_hdr + 1, id.scid_len) == 0);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    tx_before           = g_srvrun_env.tx_flush_count;
+    srvrun_serve(&ctx, wired_mspan_of(short_hdr, sizeof short_hdr));
+  }
+  CHECK(g_srvrun_env.tx_flush_count == tx_before);
+  CHECK(conns[0].up == 1);
+  conns[0] = (srvrun_conn){0};
+}
+
+/* RFC 9000 14.4: a lost PMTU probe is not a congestion signal -- the
+ * window and recovery state are untouched while the probe is retried. */
+static void test_srvrun_pmtu_lost_probe_no_cc_reaction(void) {
+  srvrun_conn c;
+  usz         size = PMTU_BASE + PMTU_STEP;
+  u64         cwnd;
+  sr_pmtu_outstanding(&c, size);
+  c.cc.cwnd       = 50000;
+  cwnd            = c.cc.cwnd;
+  c.largest_acked = c.pmtu_probe_pn + 3; /* the probe is now lost */
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == size);
+  CHECK(c.cc.cwnd == cwnd);
+  CHECK(c.cc.in_recovery == 0);
+}
+
+/* RFC 9000 17.4: when the send path moves to a new peer connection ID the
+ * spin value restarts at 0; staying on the same ID keeps it. */
+static void test_srvrun_path_move_resets_spin(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  g_sr_spin = 1;
+  {
+    sr_arrival a  = {&n.a, n.sfd, 0, 0, 0};
+    ncid_frame n1 = sr_cid(1, 0, 0xc1), n2 = sr_cid(2, 1, 0xc2);
+    u8         fr[64];
+    usz        fl = ncid_encode(fr, sizeof fr, &n1);
+    sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, fl));
+    CHECK(c.s.spin_rx == 1); /* same ID: the received 1 is kept */
+    fl = ncid_encode(fr, sizeof fr, &n2);
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(fr, fl));
+  }
+  g_sr_spin = 0;
+  CHECK(c.l.cli_scid[0] == 0xc1); /* moved off the retired ID ... */
+  CHECK(c.s.spin_rx == 0);        /* ... and the spin value restarted */
+  (void)sr_drain(&f, n.afd);
+  sr_net_close(&n);
+}
+
+/* RFC 9000 17.4: wired_srvrun_opt.spin_off (held in the env) turns the
+ * spin bit off on every connection the server accepts. */
+static void test_srvrun_spin_off_opt_applies_on_accept(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  g_srvrun_env.spin_off = 1;
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0] = (srvrun_conn){0};
+    srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  }
+  g_srvrun_env.spin_off = 0;
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].s.spin_off == 1);
+}
+
+/* RFC 9308 9 / RFC 9000 17.2: the server refuses to run with a zero-length
+ * (or over-long) connection ID. */
+static void test_srvrun_refuses_bad_scid_len(void) {
+  wired_srvboot_id id = {0};
+  id.scid_len         = 0;
+  CHECK(srvrun_can_serve(&id) == 0);
+  id.scid_len = WIRED_MAX_CID_LEN + 1;
+  CHECK(srvrun_can_serve(&id) == 0);
+  id.scid_len = 8;
+  CHECK(srvrun_can_serve(&id) == srvkeys_ready());
+  id.scid_len = 0;
+  CHECK(
+      wired_srvrun_serve_env(
+          &g_srvrun_env, 0, &id, (wired_srvrun_handler){0},
+          (wired_srvrun_obs){0}, 0) == 0);
+}
+
+/* RFC 9000 12.3: once the sending packet number reaches 2^62-1 the
+ * connection is dropped silently by the next sweep (no CONNECTION_CLOSE). */
+static void test_srvrun_pn_exhausted_reaped(void) {
+  srvrun_conn c = {0};
+  c.up          = 1;
+  c.last_ms     = 1000;
+  c.l.tx_pn     = (1ull << 62) - 2;
+  CHECK(srvrun_reap_due(&c, 1000) == 0);
+  c.l.tx_pn = (1ull << 62) - 1;
+  CHECK(srvrun_reap_due(&c, 1000) == 1);
+}
+
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
@@ -27209,6 +27499,17 @@ void test_srvrun(void) {
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
   test_srvrun_stopped_response_sends_nothing();
+  test_srvrun_stopped_lost_data_not_retransmitted();
+  test_srvrun_bad_initial_closes_and_reverts();
+  test_srvrun_one_ack_only_per_eliciting_packet();
+  test_srvrun_close_reasons_are_utf8();
+  test_srvrun_stateless_reset_one_byte_shorter();
+  test_srvrun_live_slot_never_reset();
+  test_srvrun_pmtu_lost_probe_no_cc_reaction();
+  test_srvrun_path_move_resets_spin();
+  test_srvrun_spin_off_opt_applies_on_accept();
+  test_srvrun_refuses_bad_scid_len();
+  test_srvrun_pn_exhausted_reaped();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();

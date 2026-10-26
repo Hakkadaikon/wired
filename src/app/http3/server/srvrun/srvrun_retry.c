@@ -91,6 +91,15 @@ usz srvrun_retry_pkt_build(
   return retry_build(pkt, cap, &d);
 }
 
+/* RFC 9000 17.2.5.1: the Retry's Source Connection ID "MUST NOT be equal
+ * to the Destination Connection ID field of the packet sent by the client"
+ * -- a random draw equal to it (2^-64) is flipped to differ. */
+void srvrun_retry_scid_distinct(u8 scid[8], wired_span dcid) {
+  if (dcid.n == 8 && ct_diffn(scid, dcid.p, 8) == 0) {
+    scid[0] ^= 0xff;
+  }
+}
+
 /* scid + tagged wire token for the Retry answering h, or 0 tn on
  * RNG/overflow failure. RFC 9000 8.1.1: the TOKEN_TAG_RETRY first byte
  * tells it apart from a NEW_TOKEN token when it comes back. */
@@ -105,6 +114,7 @@ void srvrun_retry_prep(
   if (!cid_generate(scid, 8)) {
     return;
   }
+  srvrun_retry_scid_distinct(scid, h->dcid);
   u8 key[KEYRING_KEY];
   keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
   token[0] = TOKEN_TAG_RETRY;

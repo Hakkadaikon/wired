@@ -430,6 +430,13 @@ static void test_srvboot_tp_ranges_validated(void) {
   sbv_check_range(TP_MAX_ACK_DELAY, 16383, 1);
   sbv_check_range(TP_ACTIVE_CONNECTION_ID_LIMIT, 1, 0);
   sbv_check_range(TP_ACTIVE_CONNECTION_ID_LIMIT, 2, 1);
+  /* RFC 9000 4.6: max_streams above 2^60 is TRANSPORT_PARAMETER_ERROR */
+  sbv_check_range(TP_INITIAL_MAX_STREAMS_BIDI, (1ull << 60) + 1, 0);
+  sbv_check_range(TP_INITIAL_MAX_STREAMS_BIDI, 1ull << 60, 1);
+  sbv_check_range(TP_INITIAL_MAX_STREAMS_UNI, (1ull << 60) + 1, 0);
+  sbv_check_range(TP_INITIAL_MAX_STREAMS_UNI, 1ull << 60, 1);
+  /* RFC 9000 7.4.2 / 18.1: an unknown, reserved (31*N+27) id is ignored */
+  sbv_check_range(31 * 5 + 27, 7, 1);
   /* RFC 9000 18.2: a server-only parameter from the client */
   sbv_check_range(TP_ORIGINAL_DESTINATION_CONNECTION_ID, 5, 0);
 }

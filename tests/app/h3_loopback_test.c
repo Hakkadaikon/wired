@@ -689,7 +689,8 @@ static void test_srvboot_vneg_echoes_255_byte_cids(void) {
   n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn);
   CHECK(n == 5 + 1 + 200 + 1 + 255 + 2 * 4);
   CHECK(be_get_be32(vn + 1) == 0);
-  CHECK(vn[5] == 200); /* response DCID = received SCID */
+  CHECK((vn[0] & 0xc0) == 0xc0); /* RFC 9000 17.2.1: 0x40 set too */
+  CHECK(vn[5] == 200);           /* response DCID = received SCID */
   CHECK(vn[6] == 0xa0 && vn[6 + 199] == (u8)(0xa0 + 199));
   CHECK(vn[206] == 255); /* response SCID = received DCID */
   CHECK(vn[207] == 0x11 && vn[207 + 254] == (u8)(0x11 + 254));
@@ -1101,7 +1102,7 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
   usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   initpkt_desc d = {
-      wired_span_of(alt, 6), wired_span_of(alt, 6),
+      wired_span_of(alt, 6), wired_span_of(g_scid, 6),
       wired_span_of(ch + 60, n - 60), 1, 60};
   wired_obuf o = obuf_of(dga, sizeof dga);
   CHECK(initpkt_build(&d, &o) == 1);
@@ -1110,6 +1111,27 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 0);
   wired_srvboot_acc_allow(&a, wired_span_of(alt, 6));
   CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 1);
+}
+
+/* RFC 9000 7.2: "if subsequent Initial packets include a different Source
+ * Connection ID, they MUST be discarded" -- the rest of the ClientHello
+ * under another SCID does not feed the bound accumulator. */
+static void test_srvboot_acc_rejects_other_scid(void) {
+  client            c;
+  u8                ch[2048], dg1[1400], dgb[1400];
+  u8                other[6] = {7, 7, 7, 7, 7, 7};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
+  initpkt_desc d = {
+      wired_span_of(g_scid, 6), wired_span_of(other, 6),
+      wired_span_of(ch + 60, n - 60), 1, 60};
+  wired_obuf o = obuf_of(dgb, sizeof dgb);
+  CHECK(initpkt_build(&d, &o) == 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  CHECK(srvboot_acc_admit(&a, wired_mspan_of(dgb, o.len)) == 0);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
 }
 
 /* An authenticated ClientHello the server cannot serve (its key_share
@@ -1688,6 +1710,30 @@ static void test_srvboot_split_flight_out_of_order(void) {
   sb_split_client_handshake(1);
 }
 
+/* RFC 9000 18.2 / 9.6: a preferred_address is offered only with a non-zero
+ * connection ID inside it -- the connection's spare, issued at the same
+ * non-zero length as its own SCID -- never with an empty one. */
+static void test_srvboot_pref_addr_needs_nonzero_cid(void) {
+  static wired_server  s;
+  static wired_srvloop l;
+  wired_srvboot_id     id;
+  u8                   priv[32], pub[32], seed[32], rnd[32];
+  u8                   v4[4] = {10, 0, 0, 1}, v6[16] = {0};
+  wired_srvboot_conn   conn = {&s, &l};
+  sb_make_id(&id, priv, pub, seed, rnd);
+  id.pref_v4          = v4;
+  id.pref_v6          = v6;
+  s.sdrv.pref_cid_len = 0;
+  l.spare_cid_len     = 0; /* no spare drawn: nothing to put in the TP */
+  srvboot_arm_pref_addr(&conn, &id);
+  CHECK(s.sdrv.pref_cid_len == 0);
+  l.spare_cid_len = id.scid_len;
+  srvboot_arm_pref_addr(&conn, &id);
+  CHECK(id.scid_len != 0);
+  CHECK(s.sdrv.pref_cid_len == id.scid_len);
+  s.sdrv.pref_cid_len = 0;
+}
+
 void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
@@ -1700,6 +1746,8 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_not_owed_for_v2();
   test_srvboot_vneg_guards();
   test_srvboot_vneg_echoes_255_byte_cids();
+  test_srvboot_pref_addr_needs_nonzero_cid();
+  test_srvboot_acc_rejects_other_scid();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
   test_bootacc_zerortt_coalesced_with_initial_buffered();

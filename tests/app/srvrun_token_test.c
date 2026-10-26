@@ -191,6 +191,39 @@ static void test_srvrun_token_lifts_antiamp(void) {
   CHECK(srvrun_boot_gate_blocks(c, 0, 100) == 0);
 }
 
+/* RFC 9000 8.1.4: a Retry token is bound to the client's IP address AND
+ * port -- presented from another port it is invalid (INVALID_TOKEN). */
+static void test_srvrun_token_retry_bound_to_port(void) {
+  srvrun_step_ctx ctx = srvtok_ctx(1);
+  u8              tok[SRVRUN_RETRY_TOKEN_MAX];
+  usz             tn = srvtok_retry_token(&ctx, tok);
+  lhdr            h  = {0};
+  wired_span      od;
+  int             v = 0;
+  h.token           = wired_span_of(tok, tn);
+  wired_udp_addr(&g_srvtok_peer, 50001, (const u8[4]){192, 0, 2, 7});
+  CHECK(srvrun_token_verdict(&ctx, &h, VERSION_1, &od, &v) == SRVRUN_TOK_CLOSE);
+  wired_udp_addr(&g_srvtok_peer, 50000, (const u8[4]){192, 0, 2, 7});
+  CHECK(srvrun_token_verdict(&ctx, &h, VERSION_1, &od, &v) == SRVRUN_TOK_SERVE);
+}
+
+/* RFC 9000 8.1.3: NEW_TOKEN tokens are unlinkable -- two minted for the same
+ * client at the same moment differ, and neither carries the client address
+ * in the clear. */
+static void test_srvrun_newtok_unlinkable(void) {
+  static const u8 ip[4] = {192, 0, 2, 7};
+  sockaddr        a;
+  u64             now = wired_clock_epoch_secs();
+  u8              t0[SRVRUN_NEWTOK_LEN], t1[SRVRUN_NEWTOK_LEN];
+  wired_udp_addr(&a, 50000, ip);
+  CHECK(srvrun_newtok_make(&a, VERSION_1, now, t0) == SRVRUN_NEWTOK_LEN);
+  CHECK(srvrun_newtok_make(&a, VERSION_1, now, t1) == SRVRUN_NEWTOK_LEN);
+  CHECK(ct_diffn(t0, t1, SRVRUN_NEWTOK_LEN) != 0);
+  for (usz i = 0; i + 4 <= SRVRUN_NEWTOK_LEN; i++) {
+    CHECK(ct_diffn(t0 + i, ip, 4) != 0);
+  }
+}
+
 void test_srvrun_token(void) {
   CHECK(SRVRUN_NEWTOK_LEN == 57);
   test_srvrun_token_retry_valid_served();
@@ -199,4 +232,6 @@ void test_srvrun_token(void) {
   test_srvrun_token_newtoken_validates_once();
   test_srvrun_newtok_binding();
   test_srvrun_token_lifts_antiamp();
+  test_srvrun_token_retry_bound_to_port();
+  test_srvrun_newtok_unlinkable();
 }

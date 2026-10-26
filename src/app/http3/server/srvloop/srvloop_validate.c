@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 #include "common/diag/error/error.h"
+#include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/permit.h"
 #include "transport/packet/header/packet/resbits.h"
@@ -90,11 +91,31 @@ static u64 srvloop_frame_value_error(
   return srvloop_frame_stream_bad(l, fr, k) ? ERR_STREAM_STATE_ERROR : 0;
 }
 
+/* 1 if the ACK frame fr acknowledges a 1-RTT packet number at or past
+ * l->tx_pn, the next one to send -- a packet never sent. */
+static int srvloop_ack_past_sent(
+    const wired_srvloop* l, const framewalk_item* fr) {
+  ack_frame f;
+  return ack_decode(fr->start, fr->remaining, &f) && f.ranges[0].hi >= l->tx_pn;
+}
+
+/* RFC 9000 13.1: "An endpoint SHOULD treat receipt of an acknowledgment
+ * for a packet it did not send as a connection error of type
+ * PROTOCOL_VIOLATION". Only 1-RTT: l->tx_pn numbers that space. */
+static int srvloop_ack_unsent(
+    const wired_srvloop*  l,
+    const framewalk_item* fr,
+    frame_kind            k,
+    packet_type           pt) {
+  return k == FK_ACK && pt == PKT_1RTT && srvloop_ack_past_sent(l, fr);
+}
+
 static u64 srvloop_frame_error(
     const wired_srvloop* l, const framewalk_item* fr, packet_type pt) {
   frame_kind k = frame_classify(fr->type);
-  return srvloop_frame_forbidden(k, pt) ? ERR_PROTOCOL_VIOLATION
-                                        : srvloop_frame_value_error(l, fr, k);
+  return srvloop_frame_forbidden(k, pt) || srvloop_ack_unsent(l, fr, k, pt)
+             ? ERR_PROTOCOL_VIOLATION
+             : srvloop_frame_value_error(l, fr, k);
 }
 
 /* RFC 9000 12.4 / 19.3.1: the walk stops at an unknown frame type or at a

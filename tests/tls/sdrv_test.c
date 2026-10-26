@@ -2580,6 +2580,30 @@ static void test_sdrv_pref_addr_tp(void) {
   }
 }
 
+/* RFC 9000 7.4: with every optional parameter armed at once (ODCID, Retry
+ * SCID, stateless reset token, DATAGRAM, version_information, preferred
+ * address), the EncryptedExtensions transport parameters still name each
+ * parameter at most once. */
+static void test_sdrv_ee_tp_no_duplicates(void) {
+  static sdrv    s;
+  u8             v4[4] = {10, 0, 0, 1}, v6[16] = {0}, cid[6] = {1, 2, 3, 4};
+  u8             tok[16]           = {0}, tpbuf[512];
+  wired_obuf     tob               = obuf_of(tpbuf, sizeof tpbuf);
+  sdrv_pref_addr p                 = {v4, 443, v6, 443, cid, 6, tok};
+  s.tp_odcid_len                   = 8;
+  s.iscid_len                      = 8;
+  s.rscid_len                      = 8;
+  s.sreset_token_set               = 1;
+  s.limits.max_datagram_frame_size = 1200;
+  sdrv_set_preferred_address(&s, &p);
+  CHECK(emit_ee_tp(&s, &tob) == 1);
+  CHECK(stp_parse(
+      wired_span_of(tpbuf, tob.len), TP_PREFERRED_ADDRESS,
+      &(stp_out){0, &(wired_span){0, 0}}));
+  CHECK(tparam_no_duplicates(wired_span_of(tpbuf, tob.len)) == 1);
+  s.pref_cid_len = 0;
+}
+
 /* Raw-QUIC MoQT ALPN through the driver (plan S6, RFC 7301 3.1/3.2):
  * rewrite the ClientHello's only ALPN entry, "h3", to the same-length raw
  * id "m9" in place (the length fields stay valid). */
@@ -3555,5 +3579,6 @@ void test_sdrv(void) {
     CHECK(tls_finished_check(s_traffic, fin_th, fin + 4));
   }
   test_sdrv_pref_addr_tp();
+  test_sdrv_ee_tp_no_duplicates();
   test_sdrv_zerortt_shared_across_fork();
 }
