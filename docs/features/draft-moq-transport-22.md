@@ -100,6 +100,7 @@ Legend:
   protocol violation.
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65535_accepted`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65536_violation`
+  - vuln: V-0799
 - [x] MQ22-014 Where a Key-Value-Pair's Value does not match the serialization
   defined by a Type the implementation understands, the implementation shall
   report a formatting error distinct from a protocol violation.
@@ -147,6 +148,7 @@ Legend:
 - [x] MQ22-018 The implementation shall decode a Reason Phrase as a
   variable-length integer Length followed by that many UTF-8 bytes.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
+  - vuln: V-0800
 - [~] MQ22-019 If a Reason Phrase Length exceeds 1024 bytes, then the
   implementation shall close the session with a protocol violation.
   - evidence: the codec returns VIOLATION
@@ -1014,6 +1016,7 @@ Legend:
     `moqtrun_subscribe_refused`; closes the V-0839 gap noted in
     `docs/security/vuln-ledger.md`; see ledger 4-14a, commit `041b9ef4`
     family.
+  - vuln: V-0793, V-0839
 
 ## SS9.9 PUBLISH_DONE
 
@@ -1076,6 +1079,7 @@ Legend:
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_location_roundtrip_and_order`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
+  - vuln: V-0800
 
 ## SS9.20.9 LOCATION_FILTER (draft-22: typed, not length-prefixed)
 
@@ -1955,6 +1959,7 @@ draft-18 and draft-19.
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_authorization`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_publish_requires_authorization`
+  - vuln: V-0786, V-0792, V-0793, V-0839
 
 ## Hub relay: delivery timeouts
 
