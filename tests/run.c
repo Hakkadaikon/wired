@@ -1981,6 +1981,12 @@ int main(void) {
   test_h3settings_control_settings();
   test_h3settings_control_settings_advertises_connect_protocol();
   test_h3settings_control_settings_advertises_wt();
+  test_h3settings_build_grease_zero_omits_pair();
+  test_h3settings_build_grease_nonzero_appends_pair();
+  test_h3settings_build_wt_flow_control_initial_limits();
+  test_h3settings_build_wt_flow_control_zero_omits_pairs();
+  test_h3settings_h3_datagram_monotonic_ok();
+  test_h3settings_control_stream_always_greased();
   test_capsule();
   test_sfield();
   test_lhdr_build();

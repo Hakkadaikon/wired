@@ -41,29 +41,19 @@
 #define DEFAULT_WT_INITIAL_MAX_STREAMS_BIDI (1ULL << 60)
 #define DEFAULT_WT_INITIAL_MAX_DATA ((1ULL << 62) - 1)
 
-/* RFC 9114 7.2.4.1 / 9114-064: a receiver must ignore any SETTINGS identifier
- * it does not recognize (7.2.8), so a real HTTP/3 server sending one from
- * time to time (not on every connection) is what actually exercises a peer's
- * ignore-unknown handling rather than merely tolerating one byte-identical
- * frame forever. One random byte decides both whether to grease this
- * connection's SETTINGS (low bit) and, if so, which reserved identifier
- * (h3_grease_value of the whole byte) to send. A failed RNG read skips
- * greasing -- it is a robustness exercise, never a reason to fail SETTINGS.
- */
+/* RFC 9114 7.2.4.1 / 9114-064: "Endpoints SHOULD include at least one such
+ * setting in their SETTINGS frame" -- every connection carries one reserved
+ * identifier; one random byte picks which (h3_grease_value). A failed RNG
+ * read still greases, with byte 0 (0x21): it only loses the variety. */
 static u64 control_settings_grease_id(void) {
-  u8 b;
-  if (!rng_bytes(&b, 1)) {
-    return 0;
-  }
-  if (b & 1) {
-    return 0;
-  }
+  u8 b = 0;
+  (void)rng_bytes(&b, 1);
   return h3_grease_value(b);
 }
 
 /* The control-stream SETTINGS values: the defaults, plus the H3-datagram +
- * WebTransport pair when advertise_wt is set, plus an occasional grease
- * identifier (see control_settings_grease_id). */
+ * WebTransport pair when advertise_wt is set, plus a grease identifier
+ * (see control_settings_grease_id). */
 static h3settings_in control_settings_in(int advertise_wt) {
   h3settings_in in = {
       DEFAULT_MAX_FIELD_SECTION_SIZE,
