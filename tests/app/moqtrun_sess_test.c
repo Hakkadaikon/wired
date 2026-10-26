@@ -269,6 +269,23 @@ static void test_mtss_datagram_invalid_closes(void) {
   CHECK(!mtss_dg_closes(good, sizeof good));
 }
 
+/* draft-22 9.20.15: a parameter outside Table 7 inside FILL_PARAMETERS
+ * (AUTHORIZATION TOKEN, which the FETCH scope would admit) closes the
+ * session PROTOCOL_VIOLATION before the SUBSCRIBE is answered; the codec
+ * reports it as a violation. */
+static void test_mtss_fill_unlisted_param_closes(void) {
+  static const u8 inner[] = {0x01, 0x03, 0x04, 0x03, 0x01, 'o', 'k'};
+  moqfetch_fill   fill;
+  moqctl_ftn      f = mtcf_setup(MOQVER_D22);
+  moqctl_params   p = mtcf_param(MOQCTL_PARAM_FILL_PARAMETERS);
+  p.items[0].bytes  = wired_span_of(inner, sizeof inner);
+  CHECK(
+      moqfetch_fill_take(wired_span_of(inner, sizeof inner), &fill) ==
+      MOQCTL_VIOLATION);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+  mtcf_check_violation();
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -283,4 +300,5 @@ void test_moqtrun_sess(void) {
   test_mtss_subgroup_object_violations();
   test_mtss_subgroup_fin_mid_object();
   test_mtss_datagram_invalid_closes();
+  test_mtss_fill_unlisted_param_closes();
 }

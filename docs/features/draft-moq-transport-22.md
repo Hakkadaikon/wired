@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 220/273 tested, 43 indirect, 10 untested.**
+**Coverage: 221/273 tested, 42 indirect, 10 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -773,14 +773,12 @@ Legend:
   TRACK_PROPERTY_FILTER names an odd Property Type, then the hub shall
   reject the request with REQUEST_ERROR INVALID_FILTER.
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
-- [~] MQ22-243 (SS9.20.15) If FILL_PARAMETERS carries a parameter outside
+- [x] MQ22-243 (SS9.20.15) If FILL_PARAMETERS carries a parameter outside
   its table (FILL_TIMEOUT, SUBSCRIBER_PRIORITY, LOCATION_FILTER,
   GROUP_ORDER and the four object Range Filters), then the hub shall close
   the session with PROTOCOL_VIOLATION.
-  - evidence: an unknown type inside FILL_PARAMETERS closes the session
-    (`test_moqtrun_fillfix_malformed_subscribe`), but `moqfetch_fill_take`
-    decodes the inner list under the FETCH scope, which also admits
-    AUTHORIZATION_TOKEN and INCLUDE_PROPERTIES; no test drives those.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_fill_unlisted_param_closes`
+  - test: `tests/app/moqtrun_fillfix_test.c` — `test_moqtrun_fillfix_malformed_subscribe`
 - [~] MQ22-244 (SS9.20.17, SS7.4) The relay shall report as LARGEST_OBJECT
   the larger of the upstream publisher's LARGEST_OBJECT and the largest
   Location it has received on the upstream subscription.
