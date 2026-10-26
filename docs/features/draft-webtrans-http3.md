@@ -180,6 +180,7 @@ Legend:
     `test_srvrun_wt_connect_establishes_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_capsule_received`
+  - vuln: V-0496
 - [~] WTH3-075 (§3.2) The server shall not process bytes received on the
   CONNECT stream as capsules until it sends a 2xx response accepting the
   session, and shall discard them if the session is rejected.
@@ -457,6 +458,7 @@ Legend:
   H3_REQUEST_REJECTED.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_second_wt_connect_rejected_when_flow_control_disabled`
+  - vuln: V-0503, V-0509
 - [x] WTH3-053 (§5.1) If flow control is not enabled, then the server
   shall ignore receipt of any flow control capsules.
   - test: `tests/app/srvrun_test.c` —
@@ -465,6 +467,7 @@ Legend:
     `test_srvrun_wt_max_streams_capsule_ignored_when_flow_control_disabled`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_streams_blocked_ignored_when_flow_control_disabled`
+  - vuln: V-0505
 
 ## §5.2 Limiting the Number of Simultaneous Sessions
 
@@ -480,10 +483,12 @@ Legend:
   - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_occupancy_counts_open`
   - evidence: `wired_server_wt_occupancy` reports the open sessions and
     the cap, so an application can shed load before the limit is hit.
+  - vuln: V-0506
 - [x] WTH3-055 (§5.2) While flow control is not enabled, the server shall
   not accept more than one incoming WebTransport session at a time.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_second_wt_connect_rejected_when_flow_control_disabled`
+  - vuln: V-0503, V-0509
 
 ## §5.3 Limiting the Number of Streams Within a Session
 
@@ -744,6 +749,7 @@ Legend:
   - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_usage_counters_exposed`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_churn_bounded_by_slot_table`
+  - vuln: V-0494, V-0512
 - [x] WTH3-083 (§8) The server should implement a fairness scheme that
   gives each session sharing a connection a reasonable share of sending
   and stream-opening resources.

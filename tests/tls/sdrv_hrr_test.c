@@ -360,6 +360,46 @@ static void test_sdrv_hrr_p256_only_ch_accepted(void) {
   CHECK(s.group == GROUP_SECP256R1);
 }
 
+/* RFC 8446 4.2.8.2 / SEC1 3.2.2.1 (V-0700): a secp256r1-only ClientHello
+ * whose share is off the curve (y's low bit flipped) is never taken: the
+ * group stays x25519 and, with no x25519 to steer to, the ClientHello is
+ * refused, so the point never reaches ec_mul. */
+static void test_sdrv_hrr_p256_off_curve_share_refused(void) {
+  u8         cli_priv[32], cli_pub[65], srv_random[32] = {0};
+  u8         ch[512];
+  sdrv       s;
+  wired_obuf ob = obuf_of(ch, sizeof(ch));
+  CHECK(p256_keygen(cli_priv));
+  CHECK(p256_pubkey_encode(cli_pub, cli_priv));
+  cli_pub[64] ^= 1;
+  CHECK(tls_client_hello_group(
+      &(clienthello_group_in){
+          srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0),
+          GROUP_SECP256R1, 65},
+      &ob));
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, ob.len) == 0);
+  CHECK(s.group != GROUP_SECP256R1);
+}
+
+/* RFC 7748 6.1 / RFC 8446 7.4.2 (V-0662, V-0719): an x25519 share of
+ * u = 0 (a low-order point) yields an all-zero shared secret, so the server
+ * flight -- and with it the handshake -- fails instead of keying on it. */
+static void test_sdrv_hrr_x25519_low_order_share_fails_flight(void) {
+  u8              zero_pub[32] = {0}, rnd[32] = {0}, ch[512];
+  u8              sh[512], fl[4096];
+  usz             ch_len;
+  sdrv            s;
+  wired_obuf      sh_ob = obuf_of(sh, sizeof sh);
+  wired_obuf      fl_ob = obuf_of(fl, sizeof fl);
+  sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  ch_len                = sdrv_hrr_build_ch(ch, sizeof(ch), zero_pub, rnd);
+  CHECK(ch_len != 0);
+  sdrv_hrr_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, ch_len) == 1);
+  CHECK(sdrv_build_server_flight(&s, rnd, &fo) == 0);
+}
+
 void test_sdrv_hrr(void) {
   test_sdrv_hrr_normal_ch_no_hrr_pending();
   test_sdrv_hrr_no_x25519_triggers_hrr();
@@ -371,4 +411,6 @@ void test_sdrv_hrr(void) {
   test_sdrv_hrr_picoquic_client_hello_arms_hrr();
   test_sdrv_hrr_echoes_negotiated_cipher();
   test_sdrv_hrr_p256_only_ch_accepted();
+  test_sdrv_hrr_p256_off_curve_share_refused();
+  test_sdrv_hrr_x25519_low_order_share_fails_flight();
 }

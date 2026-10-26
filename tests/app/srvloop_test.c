@@ -1528,6 +1528,29 @@ static void test_srvloop_padding_before_stream(void) {
  * one datagram. A leading Handshake carrying only PADDING does not confirm;
  * the step must walk past it to the second slice's genuine Finished and
  * reach confirmed, not drop non-first slices. */
+/* quic-go GHSA-3q6m-v84f-6p9h (V-0009): an ACK behind the completing
+ * CRYPTO (Finished) in one Handshake packet is processed after the
+ * handshake confirms; it must neither crash nor undo confirmation. */
+static void test_srvloop_finished_then_ack_same_handshake_packet(void) {
+  struct lp_fix f;
+  u8            pl[600], cpkt[1024], out[1024];
+  usz           n, clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  bytes_memcpy(pl, f.cli_fin, f.cli_fin_len);
+  a.n_ranges = 1; /* the server's first Handshake packet, pn 0 */
+  n          = f.cli_fin_len + ack_encode(pl + f.cli_fin_len, 64, &a);
+  clen       = client_seal_handshake(&f, pl, n, cpkt, sizeof cpkt);
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
+      1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+}
+
 static void test_srvloop_coalesced_finished_behind_leading(void) {
   struct lp_fix f;
   u8            lead[256], rest[512], dg[1024], out[1024];
@@ -3218,6 +3241,60 @@ static void test_srvloop_qpack_nonminimal_type(void) {
  * reference B.2's two inserts (:authority relative 1, :path relative 0;
  * RIC 2, Base 2) is detected as complete and decoded -- the session opens
  * without waiting for a FIN that never comes. */
+/* GET whose field section repeats one 40-byte dynamic entry (static name
+ * 95) refs times: 300 refs (~0.3 KiB encoded, ~15 KiB decoded) pass
+ * WIRED_H3_MAX_FIELD_SECTION, 8 fit. Returns f.l.done_n. */
+static usz lp_qpack_amplified_get(usz refs) {
+  u8            enc[3 + 3 + 40] = {0x3f, 0xbd, 0x01, 0xff, 0x20, 40};
+  u8            hdr[11 + 300]   = {0x01, 0,    0,    0x02, 0x00, 0xd1,
+                                   0xd7, 0xc1, 0x50, 0x01, 'h'};
+  struct lp_fix f;
+  u8            payload[1024], out[1024];
+  usz           off;
+  wired_obuf    ob = {out, sizeof out, 0};
+  stream_frame  sf = {4, 0, 11 + refs, hdr, 1};
+  hdr[1]           = (u8)(0x40 | ((8 + refs) >> 8)); /* HEADERS length */
+  hdr[2]           = (u8)(8 + refs);
+  bytes_memset(enc + 6, 'x', 40);
+  bytes_memset(hdr + 11, 0x80, refs); /* indexed, dynamic, relative 0 */
+  lp_confirm(&f, &ob);
+  off = lp_qenc_frame(payload, sizeof payload, 0, enc, sizeof enc);
+  off += frame_put_stream(payload + off, sizeof payload - off, &sf);
+  lp_step_payload(&f, 3, payload, off);
+  return f.l.done_n;
+}
+
+/* CVE-2024-31079 class (V-0431): frame parsing is iterative -- 300
+ * reserved (RFC 9114 7.2.8) empty frames ahead of a static-only GET
+ * HEADERS are walked flat and skipped, and the request is served. */
+static void test_srvloop_many_reserved_frames_before_headers_served(void) {
+  static const u8 hdrs[] = {0x01, 8,    0x00, 0x00, 0xd1,
+                            0xd7, 0xc1, 0x50, 0x01, 'h'};
+  u8              req[600 + sizeof hdrs];
+  struct lp_fix   f;
+  u8              payload[1024], out[1024];
+  wired_obuf      ob = {out, sizeof out, 0};
+  stream_frame    sf = {4, 0, sizeof req, req, 1};
+  for (usz i = 0; i < 600; i += 2) {
+    req[i]     = 0x21; /* reserved type 0x1f * 0 + 0x21 */
+    req[i + 1] = 0;
+  }
+  bytes_memcpy(req + 600, hdrs, sizeof hdrs);
+  lp_confirm(&f, &ob);
+  lp_step_payload(
+      &f, 3, payload, frame_put_stream(payload, sizeof payload, &sf));
+  CHECK(f.l.done_n == 1);
+}
+
+/* GHSA-g754-hx8w-x2g6 / GHSA-vvgj-x9jq-8cj9 (V-0422, V-0421, V-0450): a
+ * small QPACK section that decodes into a field section larger than the
+ * fixed scratch fails closed -- it is never dispatched, never grows. */
+static void test_srvloop_qpack_amplified_field_section_rejected(void) {
+  CHECK(lp_qpack_amplified_get(8) == 1);
+  CHECK(lp_qpack_amplified_get(150) == 1); /* ~7.5 KiB still fits */
+  CHECK(lp_qpack_amplified_get(300) == 0);
+}
+
 static void test_srvloop_qpack_connect_dynamic_refs(void) {
   static const u8 hdr[] = {0x01, 0x1e, 0x03, 0x00, 0xcf, 0xd7, 0x81, 0x80,
                            0x27, 0x02, ':',  'p',  'r',  'o',  't',  'o',
@@ -7224,6 +7301,8 @@ void test_srvloop(void) {
   test_srvloop_qpack_split_inserts_section_ack();
   test_srvloop_qpack_blocked_section_fails();
   test_srvloop_qpack_connect_dynamic_refs();
+  test_srvloop_qpack_amplified_field_section_rejected();
+  test_srvloop_many_reserved_frames_before_headers_served();
   test_srvloop_qpack_type_after_later_bytes();
   test_srvloop_qpack_nonminimal_type();
   test_srvloop_qpack_rejected_request_cancelled();
@@ -7262,6 +7341,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_padding_before_crypto();
   test_srvloop_padding_before_stream();
   test_srvloop_coalesced_finished_behind_leading();
+  test_srvloop_finished_then_ack_same_handshake_packet();
   test_srvloop_coalesced_other_dcid_ignored();
   test_srvloop_onertt_get_is_acked();
   test_srvloop_handshake_ack_tracks_pn();

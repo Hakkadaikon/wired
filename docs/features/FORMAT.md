@@ -104,6 +104,11 @@ implement, excluded from the coverage denominator:
    - An interop-only demonstration is `[~]` with an evidence line naming the
      testcase, e.g. `- evidence: interop testcase `keyupdate` (see
      [Interop](../interop.md)); no dedicated unit test.`
+   - A `- vuln: V-nnnn, ...` line names the
+     [vulnerability ledger](../security/vuln-ledger.md) rows whose pinning
+     test is one of the item's `- test:` lines (the threat this requirement
+     answers). It is the last sub-line and is regenerated from the shared
+     test names, not hand-picked.
 6. **Where to look for tests**: `tests/{transport,crypto,tls,app,common}/
    <domain>_test.c`, functions `static void test_*`. Hint maps:
    `docs/test-coverage.md` (vector locations). Verify with grep; the hint

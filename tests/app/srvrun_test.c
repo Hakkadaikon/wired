@@ -2671,6 +2671,47 @@ static void test_srvrun_finished_wait_probes_small(void) {
   CHECK(st.conns[0].up == 1);
 }
 
+/* Boot one connection from a fresh client Initial and copy the x25519
+ * key_share its ServerHello carries (sdrv.server_pub) and the
+ * ServerHello.random (the transcript's second message, RFC 8446 4.1.3). */
+static void sr_boot_server_share(wired_srvboot_id* id, u8 out[32], u8 rnd[32]) {
+  usz          ch;
+  u8           dg[1500];
+  conntable    table[WIRED_CONNTABLE_CAP];
+  sockaddr     peer  = {0};
+  srvrun_state st    = {table, g_srvrun_state.conns};
+  usz          total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  srvrun_cfg   cfg   = {
+      -1, id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  st.conns[0] = (srvrun_conn){0};
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(st.conns[0].up == 1);
+  bytes_memcpy(out, st.conns[0].s.sdrv.server_pub, 32);
+  ch = 4 + (be_get_be32(st.conns[0].s.tr) & 0xffffff); /* ClientHello */
+  bytes_memcpy(rnd, st.conns[0].s.tr + ch + 6, 32);    /* type, len, version */
+  st.conns[0] = (srvrun_conn){0};
+}
+
+/* RFC 8446 4.2.8 / Appendix E.1: the server's x25519 share is ephemeral.
+ * The configured identity key (a public demo constant in every example)
+ * must never be the ECDHE share -- with it a passive observer derives the
+ * handshake secret -- and two connections never share one. */
+static void test_srvrun_boot_x25519_share_fresh_per_connection(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], a[32], b[32];
+  u8               ra[32], rb[32];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_boot_server_share(&id, a, ra);
+  sr_boot_server_share(&id, b, rb);
+  CHECK(ct_diffn(a, pub, 32) != 0);
+  CHECK(ct_diffn(a, b, 32) != 0);
+  CHECK(ct_diffn(ra, rnd, 32) != 0); /* not the id's constant random */
+  CHECK(ct_diffn(ra, rb, 32) != 0);
+}
+
 /* SERVERHELLO FIRST FOR A KEYLESS PEER: a client still retransmitting its
  * Initial under the ORIGINAL DCID has never processed any server packet
  * (RFC 9000 7.2: it switches to our SCID the moment it does) -- without
@@ -4577,6 +4618,28 @@ static void test_srvrun_path_ncid_over_limit_closes(void) {
 
 /* RFC 9000 19.15: Retire Prior To above the Sequence Number closes the
  * connection with FRAME_ENCODING_ERROR. */
+/* RFC 9000 19.15: a CID length over 20 closes with FRAME_ENCODING_ERROR;
+ * the decoder stops at the length byte, so no CID byte is copied past
+ * ncid_frame.cid (V-0051). */
+static void test_srvrun_path_ncid_cid_len_over_20_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_arrival    a  = {&old_peer, -1, 0, 0, 0};
+  u8            fr[4 + NCID_MAX_LEN + 1 + NCID_TOKEN];
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  bytes_memset(fr, 1, sizeof fr);
+  fr[0] = 0x18;
+  fr[1] = 1; /* seq */
+  fr[2] = 0; /* Retire Prior To */
+  fr[3] = NCID_MAX_LEN + 1;
+  sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, sizeof fr));
+  CHECK(sr_close_code(&c, &is_app) == ERR_FRAME_ENCODING_ERROR);
+}
+
 static void test_srvrun_path_ncid_malformed_closes(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -27374,6 +27437,7 @@ void test_srvrun(void) {
   test_srvrun_unconfirmed_close_all_levels();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
+  test_srvrun_boot_x25519_share_fresh_per_connection();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
   test_srvrun_boot_give_up_closes_finished_peer();
   test_srvrun_split_ch_boots_across_datagrams();
@@ -27436,6 +27500,7 @@ void test_srvrun(void) {
   test_srvrun_path_empty_cid_not_retired();
   test_srvrun_path_ncid_over_limit_closes();
   test_srvrun_path_ncid_malformed_closes();
+  test_srvrun_path_ncid_cid_len_over_20_closes();
   test_srvrun_path_wire_both_challenged();
   test_srvrun_path_wire_fresh_cid();
   test_srvrun_path_wire_no_cid_stalls();

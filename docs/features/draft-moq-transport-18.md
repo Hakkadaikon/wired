@@ -98,6 +98,7 @@ Legend:
   protocol violation.
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65535_accepted`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_len_65536_violation`
+  - vuln: V-0799
 - [x] MQ18-014 (§1.4.3) If a Key-Value-Pair's Value does not match the
   serialization defined by a Type the implementation understands, then the
   implementation shall close the session with KEY_VALUE_FORMATTING_ERROR,
@@ -123,6 +124,7 @@ Legend:
 - [x] MQ18-018 The implementation shall decode a Reason Phrase as a
   variable-length integer Length followed by that many UTF-8 bytes.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
+  - vuln: V-0800
 - [~] MQ18-019 (§1.4.4) If a Reason Phrase Length exceeds 1024 bytes, then the
   implementation shall close the session with a protocol violation.
   - evidence: the codec reports the violation
@@ -899,6 +901,7 @@ Legend:
   then no Object shall be sent for that subscription.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_requires_authorization`
+  - vuln: V-0786, V-0792, V-0793
 - [x] MQ18-094a If a peer sends a second concurrent subscription to the same
   Track from the same role, then a draft-18 session shall reject it with
   REQUEST_ERROR DUPLICATE_SUBSCRIPTION, unlike draft-19 (and later) which
@@ -975,6 +978,7 @@ Legend:
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_location_roundtrip_and_order`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
+  - vuln: V-0800
 
 ## SS5.1.2 / SS10.2.9 Subscription Filter
 
@@ -1641,6 +1645,7 @@ Legend:
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_authorization`
   - note: SUBSCRIBE_TRACKS goes through the same namespace check
     (`moqtrun_disc_verdict`) but has no test of its own.
+  - vuln: V-0786, V-0792, V-0793, V-0839
 
 ## Hub relay: delivery timeouts
 

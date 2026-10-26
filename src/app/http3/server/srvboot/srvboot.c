@@ -1,4 +1,6 @@
 #include "app/http3/server/srvboot/srvboot_impl.h"
+#include "common/platform/rng/rng.h"
+#include "tls/handshake/core/tls/x25519.h"
 
 static int srvboot_set_cids(
     const wired_srvboot_conn* conn,
@@ -119,6 +121,16 @@ static void srvboot_init_server(
   sdrv_set_ticket_key_prev(&conn->s->sdrv, prev);
 }
 
+/* RFC 8446 4.2.8 / E.1: the x25519 key_share is a fresh ephemeral pair
+ * per connection. id->priv is long-lived (a public constant in every
+ * example); keying ECDHE on it would hand the handshake secrets to anyone
+ * holding it and drop forward secrecy (V-0374/V-0379). */
+static int srvboot_fresh_share(const wired_srvboot_conn* conn) {
+  sdrv* d = &conn->s->sdrv;
+  return rng_bytes(d->server_priv, 32) &&
+         wired_x25519_base(d->server_pub, d->server_priv);
+}
+
 int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
@@ -127,6 +139,9 @@ int srvboot_init(
       id->priv,        id->pub,      id->cert_seed, id->chain,
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   srvboot_init_server(conn, id, &in);
+  if (!srvboot_fresh_share(conn)) {
+    return 0;
+  }
   sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
   sdrv_set_alpn_client_order(&conn->s->sdrv, id->alpn_client_order);
   sdrv_set_versions(&conn->s->sdrv, id->versions);     /* RFC 9308 13 */
