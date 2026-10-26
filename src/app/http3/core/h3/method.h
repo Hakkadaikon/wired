@@ -25,4 +25,13 @@ int h3_method_is_known(wired_span method);
  * the only recognized-but-not-allowed method. */
 int h3_method_is_allowed(wired_span method);
 
+/* Room for h3_method_allow_list's value ("GET, HEAD, ..." over the whole
+ * allow set, 51 octets) plus its leading separator. */
+#define H3_METHOD_ALLOW_MAX 64
+
+/* RFC 9110 10.2.1: the h3_method_is_allowed set as an Allow field value,
+ * written into buf (H3_METHOD_ALLOW_MAX octets); the returned span views
+ * buf. */
+wired_span h3_method_allow_list(u8* buf, usz cap);
+
 #endif

@@ -35,9 +35,9 @@ static usz put_headers_qenc(
     qpackenc_state*         qenc,
     qpackenc_status_result* insert_out,
     wired_obuf*             out) {
-  /* sized for the largest prefix a caller frames: srvrun's 512-byte
-   * response header room */
-  u8         field[512];
+  /* sized for the largest prefix a caller frames: srvrun's response
+   * header room */
+  u8         field[H3RESP_FIELD_SECTION_MAX];
   wired_obuf fob = obuf_of(field, sizeof field);
   if (!h3resp_encode_headers_fields_qenc(
           status, content_type, extra, n_extra, qenc, insert_out, &fob)) {

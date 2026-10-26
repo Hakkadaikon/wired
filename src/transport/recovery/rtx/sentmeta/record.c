@@ -58,3 +58,12 @@ usz sentmeta_find(const sentmeta* m, u64 pn) {
   }
   return i;
 }
+
+void sentmeta_uncount(sentmeta* m, u64 pn) {
+  usz i = sentmeta_find(m, pn);
+  if (i == SENTMETA_CAP || !m->pkts[i].in_flight) {
+    return;
+  }
+  m->total_in_flight -= m->pkts[i].sent_bytes;
+  m->pkts[i].in_flight = 0;
+}

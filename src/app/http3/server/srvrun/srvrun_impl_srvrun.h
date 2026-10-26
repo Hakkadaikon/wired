@@ -433,6 +433,10 @@ typedef struct {
    * cannot start a persistent congestion period. */
   u64 latest_rtt_ms;
   u64 rtt_from_pn;
+  /** RFC 9002 A.10 loss_time, us: when the earliest packet below the
+   * largest acknowledged that is not yet lost would pass the time
+   * threshold (srvrun_rec_detect); 0 = the loss timer is not armed. */
+  u64 loss_time_us;
   /** RFC 9000 5.1.1/9.4: migration bookkeeping. */
   srvrun_mig mig;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
@@ -913,22 +917,23 @@ _Static_assert(
     QDYN_ENCRX_CAP == STP_DEFAULT_STREAM_DATA_LOCAL,
     "the encoder window holds exactly the peer uni stream credit");
 
-/* Response storage, one row per (connection slot, response slot): 512-byte
+/* Response storage, one row per (connection slot, response slot): 640-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
- * followed by the handler's body. 512 fits the largest HEADERS a
+ * followed by the handler's body. 640 fits the largest HEADERS a
  * wired_http_handler can produce: WIRED_HTTP_FIELD_BYTES_MAX (384) field
- * bytes plus per-line QPACK overhead (<= 6 x 8 fields), :status, the
- * section prefix and both frame headers (< 80). Taken out of the row, so
- * the body cap shrinks by 448 bytes instead of BSS growing: one fixed-row
- * round holds at most WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM =
- * 15872 body bytes (a larger body takes a bigbuf row or streams).
+ * bytes plus per-line QPACK overhead (<= 6 x 8 fields), the SDK's own
+ * content-length (<= 37) and date (35) lines, :status, the section prefix
+ * and both frame headers (< 80) -- 584 in all. Taken out of the row, so
+ * the body cap shrinks instead of BSS growing: one fixed-row round holds
+ * at most WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM = 15744 body bytes
+ * (a larger body takes a bigbuf row or streams).
  * ponytail: 16KB per response, 64 conns x 4 response slots = 4MB BSS; raise
  * WIRED_SRVRUN_RESP_MAX when a deployment needs bigger bodies (srvbigbuf.h
  * covers the >16KB case without growing this fixed grid). A srvthreads
  * deployment (--cores N) holds one wired_srvrun_env per worker, so this
  * multiplies by N there too. */
 #define WIRED_SRVRUN_RESP_MAX 16384
-#define SRVRUN_RESP_HDR_ROOM 512
+#define SRVRUN_RESP_HDR_ROOM H3RESP_FIELD_SECTION_MAX
 /* Fallback stream bytes per packet (fits a 1500 MTU) -- no longer used to
  * size an actual send (srvrun_mps below drives that from c->pmtu instead);
  * kept only as the value srvrun_mps itself falls back to for a not-yet-
@@ -999,10 +1004,6 @@ _Static_assert(
  * into the qlog (recovery:metrics_updated): frequent enough to plot a
  * voice run's RTT/cwnd/drop counters, rare enough not to bloat the file. */
 #define SRVRUN_METRICS_INTERVAL_MS 1000
-/* RFC 9000 18.2's default when the peer's own transport parameter isn't
- * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
- * until a deployment needs a non-default value). */
-#define SRVRUN_MAX_ACK_DELAY_US 25000
 /* Consecutive PTO probes (RFC 9002 6.2's exponential backoff) with no
  * intervening ACK before this SDK gives up on the connection. 5 proved too
  * short against a real network outage: quic-interop-runner's blackhole case

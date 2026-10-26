@@ -131,5 +131,5 @@ int srvrun_loss_long(const srvrun_conn* c, const srvrun_loss_span* s) {
   return c->rtt.have_sample && s->lo_pn >= c->rtt_from_pn &&
          cc_persistent(
              (s->newest_ms - s->oldest_ms) * 1000,
-             rtt_pto(&c->rtt, SRVRUN_MAX_ACK_DELAY_US));
+             rtt_pto(&c->rtt, srvrun_peer_max_ack_delay_us(c)));
 }

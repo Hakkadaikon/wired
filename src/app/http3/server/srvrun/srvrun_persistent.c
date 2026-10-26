@@ -31,16 +31,26 @@ static int srvrun_loss_counts(
 
 void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
-  usz              lost;
-  srvrun_loss_span span           = SRVRUN_LOSS_SPAN0;
-  u64              largest_before = c->largest_acked;
-  c->ecn_newly                    = 0;
-  c->ecn_sent_ms                  = 0;
+  u64 largest_before = c->largest_acked;
+  c->ecn_newly       = 0;
+  c->ecn_sent_ms     = 0;
   for (usz i = 0; i < c->l.ack_n; i++) {
     srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
   }
+  srvrun_rec_on_acks(c, ctx->now_ms);
   srvrun_feed_ecn(c, largest_before, ctx->now_ms);
-  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms, &span);
+  srvrun_loss_pass(cfg, c, ctx->now_ms, largest_before);
+}
+
+/* RFC 9002 A.10 + OnPacketsLost: the loss pass after an ACK step or a loss
+ * timer expiry (largest_before = the largest acknowledged before the step,
+ * or the current one when no ACK arrived). */
+void srvrun_loss_pass(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64 largest_before) {
+  srvrun_loss_span span = SRVRUN_LOSS_SPAN0;
+  usz              lost = srvrun_reap_losses_all(cfg, c, now_ms, &span);
+  srvrun_pmtu_feed_losses(c, span.big);
+  srvrun_rec_detect(c, now_ms);
   /* RFC 9002 7.3.1/7.3.2: cwnd shrinks once per recovery period, gated on
    * the lost packet's SEND time -- passing now here instead re-shrank the
    * window on every loss of a packet sent before the current period began,
@@ -48,7 +58,7 @@ void srvrun_feed_acks(
   if (!srvrun_loss_counts(c, lost, &span)) {
     return;
   }
-  cc_on_loss(&c->cc, span.newest_ms, ctx->now_ms);
+  cc_on_loss(&c->cc, span.newest_ms, now_ms);
   srvrun_persistent_check(c, &span, largest_before);
 }
 

@@ -1,9 +1,12 @@
 #include "app/http3/server/srvloop/respond_impl.h"
+#include "common/bytes/util/num.h"
 
 static int       app_ack_due(const wired_srvloop* l);
 static int       app_ack_ecn_any_seen(const wired_srvloop* l);
 static void      app_ack_set_ecn(const wired_srvloop* l, ack_frame* f);
 static usz       app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap);
+static usz       app_ack_kept(const ack_frame* f, u64 floor1);
+static void      app_ack_prune(ack_frame* f, u64 floor1);
 static const u8* build_body(
     wired_srvloop* l, u8* body, usz* body_len, const char** content_type);
 
@@ -36,6 +39,27 @@ static void app_ack_set_ecn(const wired_srvloop* l, ack_frame* f) {
   f->ce      = l->ecn_ce;
 }
 
+/* Ranges descend, so the ones still worth reporting -- any part at or
+ * above floor1 -- are a prefix; range 0 (the largest) always stays. */
+static usz app_ack_kept(const ack_frame* f, u64 floor1) {
+  usz n = 1;
+  while (n < f->n_ranges && f->ranges[n].hi >= floor1) {
+    n++;
+  }
+  return n;
+}
+
+/* RFC 9000 13.2.3: drop what the peer already knows we received -- packets
+ * below floor1 (1 + the Largest Acknowledged of our acknowledged ACKs). */
+static void app_ack_prune(ack_frame* f, u64 floor1) {
+  ack_range* last;
+  f->n_ranges = app_ack_kept(f, floor1);
+  last        = &f->ranges[f->n_ranges - 1];
+  if (last->lo < floor1 && last->hi >= floor1) {
+    last->lo = floor1;
+  }
+}
+
 /* RFC 9000 19.3: encode a full multi-range ACK frame from the App pn
  * space's received-pn window (pnspaces_recv, RFC 9000 12.3/13.2.1),
  * with an ack_delay reflecting how long the oldest unacked eliciting packet
@@ -53,9 +77,13 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
           &l->ack_recv, PNS_APP, &(pnspaces_ack_out){&largest, &ranges})) {
     return 0;
   }
-  if (!ackrangeconv_to_frame(largest, raw, ranges.len, &f)) {
+  /* RFC 9000 13.2.4: past ACK_MAX_RANGES ranges, send the newest ones
+   * rather than no ACK at all (2k-1 raw entries = k ranges) */
+  if (!ackrangeconv_to_frame(
+          largest, raw, u64_min(ranges.len, 2 * ACK_MAX_RANGES - 1), &f)) {
     return 0;
   }
+  app_ack_prune(&f, l->ackst.floor1);
   f.ack_delay = ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
       ACK_DELAY_EXPONENT_DEFAULT);
@@ -86,7 +114,7 @@ usz srvloop_app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
  * Suppressed while ack_defer is set: the driving loop (srvrun.c) piggybacks
  * or flushes the pending ACK itself this step. */
 usz srvloop_app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap) {
-  if (l->ack_defer) {
+  if (l->ackst.ack_defer) {
     return 0;
   }
   if (!app_ack_due(l)) {

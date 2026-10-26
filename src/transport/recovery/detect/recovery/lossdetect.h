@@ -4,7 +4,7 @@
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9002 6.1: a packet is lost by the packet threshold or the time
- * threshold. Times are in microseconds. */
+ * threshold (the latter's loss_delay is lossdrive_loss_delay). */
 
 #define LOSS_PACKET_THRESHOLD 3 /* kPacketThreshold */
 #define LOSS_TIME_NUM 9         /* kTimeThreshold = 9/8 */
@@ -12,14 +12,5 @@
 
 /* True when pn is kPacketThreshold or more below largest_acked. */
 int loss_by_packet(u64 largest_acked, u64 pn);
-
-/** The elapsed-time inputs: the current clock and when the packet was sent. */
-typedef struct {
-  u64 now;
-  u64 sent_time;
-} loss_when;
-
-/* True when now - sent_time >= 9/8 * max(srtt, latest_rtt). */
-int loss_by_time(loss_when when, u64 srtt, u64 latest_rtt);
 
 #endif

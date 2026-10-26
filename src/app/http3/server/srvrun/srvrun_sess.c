@@ -31,9 +31,10 @@ int srvrun_sess_log_room(const wired_sendsess* sess) {
  * more chunk across every slot combined. Pacing (RFC 9002 7.7) is NOT
  * checked here -- it gates whole round-robin passes
  * (srvrun_pump_round_gated), not individual slots. Reads the cached total
- * (srvrun_conn.acct_inflight) rather than re-walking every slot per slice. */
+ * (srvrun_conn.acct_inflight) rather than re-walking every slot per slice,
+ * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
-  return c->acct_inflight + srvrun_mps(c) <= c->cc.cwnd;
+  return srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send

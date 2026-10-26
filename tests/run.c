@@ -458,6 +458,7 @@
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dynfind.c"
 #include "app/qpack/qpackenc/qpackenc.c"
+#include "app/qpack/qpackenc/qpackenc_decrx.c"
 #include "app/qpack/qpackenc/status_line.c"
 #include "transport/stream/flow/flow/stream_read.c"
 #include "transport/stream/flow/flow/credit.c"
@@ -535,6 +536,8 @@
 #include "app/http3/core/h3settings/control_settings.c"
 #include "app/http3/core/capsule/capsule.c"
 #include "app/http3/core/sfield/sfield.c"
+#include "app/http3/core/sfield/sfield_dict.c"
+#include "app/http3/core/sfield/sfield_dict_bare.c"
 #include "transport/packet/header/lhdr/lhdr_build.c"
 #include "transport/packet/header/lhdr/lhdr_parse.c"
 #include "transport/packet/build/vpn/vpn_open.c"
@@ -544,6 +547,7 @@
 #include "app/http3/request/h3recv/req_frames.c"
 #include "app/http3/request/h3resp/field_encode.c"
 #include "app/http3/request/h3resp/resp_build.c"
+#include "app/http3/request/h3resp/resp_size.c"
 #include "app/http3/request/h3resp/hello.c"
 #include "transport/conn/loop/evloop/evloop.c"
 #include "transport/conn/loop/connrunner/level.c"
@@ -649,6 +653,7 @@
 #include "app/http3/server/srvloop/dispatch_route_note.c"
 #include "app/http3/server/srvloop/dispatch_wt.c"
 #include "app/http3/server/srvloop/send.c"
+#include "app/http3/server/srvloop/srvloop_sent.c"
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/respond_app.c"
 #include "app/http3/server/srvloop/respond_confirm.c"
@@ -657,6 +662,7 @@
 #include "app/http3/server/sendq/sendq.c"
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/sendsess/sendsess_lost.c"
+#include "app/http3/server/sendsess/sendsess_ring.c"
 #include "app/http3/server/sendsess/sendsess_peek.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvloop/srvloop_close.c"
@@ -731,6 +737,8 @@
 #include "app/http3/server/srvrun/srvrun_grant.c"
 #include "app/http3/server/srvrun/srvrun_sess_pto.c"
 #include "app/http3/server/srvrun/srvrun_held.c"
+#include "app/http3/server/srvrun/srvrun_hdr.c"
+#include "app/http3/server/srvrun/srvrun_hdr_dup.c"
 #include "app/http3/server/srvrun/srvrun_http.c"
 #include "app/http3/server/srvrun/srvrun_wt_protocol.c"
 #include "app/http3/server/srvrun/srvrun_live.c"
@@ -757,6 +765,7 @@
 #include "app/http3/server/srvrun/srvrun_raw.c"
 #include "app/http3/server/srvrun/srvrun_reannounce.c"
 #include "app/http3/server/srvrun/srvrun_reap.c"
+#include "app/http3/server/srvrun/srvrun_recover.c"
 #include "app/http3/server/srvrun/srvrun_rebind.c"
 #include "app/http3/server/srvrun/srvrun_reconfirm.c"
 #include "app/http3/server/srvrun/srvrun_recv.c"
@@ -1499,6 +1508,7 @@
 #include "app/srvrun_token_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
+#include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "app/srvkeys_test.c"
@@ -2065,6 +2075,7 @@ int main(void) {
   test_kuswitch_derive();
   test_kuswitch_derive_suite_chacha20_full_key();
   test_kuswitch_derive_suite_aes_matches_plain();
+  test_kuswitch_derive_suite_v2_labels();
   test_kuswitch_phasebit();
   test_kuswitch_twogen();
   test_hspto();
@@ -2141,6 +2152,7 @@ int main(void) {
   test_srvrun_token();
   test_srvrun_close();
   test_srvrun_raw();
+  test_srvrun_rec();
   test_sigmask();
   test_certreload();
   test_srvkeys();

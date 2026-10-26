@@ -7,6 +7,10 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
+/* Largest field section a response prefix encodes: srvrun's header room
+ * (SRVRUN_RESP_HDR_ROOM, sized from the same budget). */
+#define H3RESP_FIELD_SECTION_MAX 640
+
 /* RFC 9114 4.1. Assemble a response stream byte sequence: a HEADERS frame
  * carrying the QPACK-encoded :status (plus a content-type field line when
  * content_type is non-null) field section, followed by a DATA frame carrying

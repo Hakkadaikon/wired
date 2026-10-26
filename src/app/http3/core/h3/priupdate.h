@@ -28,9 +28,11 @@ usz h3_priupdate_put(u8* buf, usz cap, const h3_priupdate* f);
  * @return bytes consumed, 0 on a different type or truncated input. */
 usz h3_priupdate_get(wired_span buf, h3_priupdate* f);
 
-/** Parse a Priority Field Value dictionary into p (RFC 9218 4/5): `u=0..7`
- * sets the urgency, `i`/`i=?1` the incremental flag; anything malformed or
- * unknown leaves the RFC defaults (u=3, i=0) in place. */
+/** Parse a Priority Field Value, an RFC 8941 Dictionary, into p (RFC 9218
+ * 4/5/7): an Integer `u=0..7` sets the urgency, a Boolean `i` the
+ * incremental flag; an unknown key, or a value out of range or of another
+ * type, is ignored, and a value that is not a valid Dictionary leaves the
+ * RFC defaults (u=3, i=0) as a whole. */
 void h3_priority_sfv(wired_span v, h3_priority* p);
 
 #endif

@@ -11,7 +11,7 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   }
   srvrun_feed_acks(ctx, ctx->cfg, c);
   srvrun_acct_resync(c);
-  cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
+  cc_bbr_tick(&c->cc, srvrun_bytes_in_flight(c), ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
   srvrun_apply_uni_limit_update(c);
@@ -21,6 +21,7 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reannounce_uni_stream_limit(ctx->cfg, c);
   srvrun_abort_incomplete_reqs(ctx, slot);
   srvrun_abort_frame_unexpected_reqs(ctx, slot);
+  srvrun_send_continues(ctx, slot);
   srvrun_start_held_resps(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
@@ -94,7 +95,7 @@ int srvrun_has_boot_outbound(const srvrun_conn* c) {
  * deadline. */
 u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count) {
   pto_rtt rtt = {c->rtt.smoothed_rtt, c->rtt.rttvar};
-  u64     us  = pto_duration(rtt, SRVRUN_MAX_ACK_DELAY_US, (u32)pto_count);
+  u64 us = pto_duration(rtt, srvrun_peer_max_ack_delay_us(c), (u32)pto_count);
   return us / 1000;
 }
 

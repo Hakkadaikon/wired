@@ -46,6 +46,20 @@ void srvloop_gather_qpack_enc(wired_srvloop* l, const stream_frame* sf) {
   qenc_note_released(l, sf->stream_id);
 }
 
+/* RFC 9204 4.4.1 / 4.4.3: feed sf, if it is on the peer's decoder stream,
+ * to the encoder's acknowledgment state; an invalid instruction latches
+ * QPACK_DECODER_STREAM_ERROR into l->qpack_stream_violation. */
+void srvloop_gather_qpack_dec(wired_srvloop* l, const stream_frame* sf) {
+  if (sf->stream_id != l->h3.qdec_rx.stream_id) {
+    return;
+  }
+  if (!qpackenc_decrx_feed(
+          &l->h3.qdec_rx, &l->h3.qenc, sf->offset,
+          wired_span_of(sf->data, (usz)sf->length))) {
+    l->qpack_stream_violation = QPACK_DECODER_STREAM_ERROR;
+  }
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
  * (an offset-0 STREAM frame's data) decode as the WT uni stream type varint
  * (0x54, RFC 9114 6.2/RFC 9220). Unlike a WT bidi stream's signal byte, a uni

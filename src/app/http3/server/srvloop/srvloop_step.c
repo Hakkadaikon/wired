@@ -1,6 +1,5 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
-static int srvloop_id_past_limit(const wired_srvloop* l, u64 id);
 static int srvloop_frame_past_limit(
     const wired_srvloop* l, const framewalk_item* fr);
 static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl);
@@ -17,7 +16,7 @@ static const u8 SRVLOOP_NAMES_STREAM[FK_RESET_STREAM_AT + 1] = {
 
 /* RFC 9000 4.6: 1 if id is a client stream at or past l's advertised limit
  * for its type (bidi or uni). */
-static int srvloop_id_past_limit(const wired_srvloop* l, u64 id) {
+int srvloop_id_past_limit(const wired_srvloop* l, u64 id) {
   u64 lim = l->peer_stream_limit[(id >> 1) & 1];
   return !(id & 1) && lim && id / 4 >= lim;
 }
@@ -78,13 +77,26 @@ void srvloop_step_note_ack_owed(
   if (level == LEVEL_ONERTT) {
     srvloop_note_ack_owed(
         &l->ack_recv, PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
-        l->now_ms);
+        l->now_ms, srvloop_app_ack_urgent(l));
   }
   if (level == LEVEL_HANDSHAKE) {
     srvloop_note_ack_owed(
-        &l->ack_recv, PNS_HANDSHAKE, &l->hs_ack_policy, payload, l->hs_rx_pn,
-        l->now_ms);
+        &l->ack_recv, PNS_HANDSHAKE, &l->ackst.hs_ack_policy, payload,
+        l->hs_rx_pn, l->now_ms, 0);
   }
+}
+
+/* RFC 9000 13.2.1: the 1-RTT packet just numbered is below an ack-eliciting
+ * packet already received (recorded before this one). */
+static int srvloop_app_reordered(const wired_srvloop* l) {
+  const recvpn* r = &l->ack_recv.r[PNS_APP];
+  return r->any && l->app_rx_pn < r->largest;
+}
+
+/* RFC 9000 13.2.1: acknowledge the 1-RTT packet just numbered without delay
+ * -- it arrived out of order or after a gap, or its datagram was ECN-CE. */
+int srvloop_app_ack_urgent(const wired_srvloop* l) {
+  return l->ackst.rx_gap || l->ackst.rx_ce || srvloop_app_reordered(l);
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A

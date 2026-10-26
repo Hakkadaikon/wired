@@ -190,10 +190,10 @@ static void test_sendsess_time_threshold_declares_lost_alone(void) {
   wired_sendsess_ack(&s, 5, 5); /* largest_acked=5: pn 4 is only 1 below */
   {
     wired_sendsess_lost_slice lost[1] = {0};
-    /* srtt=1000us -> time threshold = 9/8*1000 = 1125us. at now_ms=2
-     * (2000us elapsed), well past it; packet threshold alone (5-4=1 < 3)
-     * would not have caught this. */
-    CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1000, lost, 1) == 1);
+    /* loss_delay=1125us (9/8 * srtt 1000us). at now_ms=2 (2000us
+     * elapsed), well past it; packet threshold alone (5-4=1 < 3) would not
+     * have caught this. */
+    CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1125, lost, 1) == 1);
     CHECK(lost[0].pn == 4);
   }
   CHECK(s.requeue_n == 1);
@@ -238,10 +238,9 @@ static void test_sendsess_packet_threshold_requires_later_ack(void) {
   CHECK(wired_sendsess_inflight(&s) == 1);
 }
 
-/* srtt_us == 0 (no RTT sample yet) must not spuriously satisfy the time
- * threshold -- loss_by_time's elapsed>=threshold could otherwise fire
- * on any elapsed time with threshold computed from a zero RTT. Same setup
- * as above but srtt_us=0: pn 4 must stay in flight. */
+/* loss_delay_us == 0 (no RTT sample yet) must not spuriously satisfy the
+ * time threshold -- elapsed >= 0 would otherwise fire on any elapsed time.
+ * Same setup as above but loss_delay_us=0: pn 4 must stay in flight. */
 static void test_sendsess_time_threshold_skipped_without_rtt_sample(void) {
   u8                bytes[20];
   wired_sendsess    s;
@@ -562,6 +561,30 @@ static void test_sendsess_reclaim_base_and_ring_room(void) {
   CHECK(wired_sendsess_reclaim_base(&s) == 40); /* requeued slice pins it */
 }
 
+/* RFC 9000 13.3: a slice requeued as lost whose packet is then
+ * acknowledged is dropped, not resent; a requeued slice whose packet stays
+ * unacknowledged keeps its place, and an untaken slice keeps its pn. */
+static void test_sendsess_requeue_dropped_on_late_ack(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 30, 10);
+  for (u64 pn = 0; pn < 3; pn++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 0) == 1);
+  }
+  wired_sendsess_ack(&s, 2, 2);
+  CHECK(wired_sendsess_detect_lost(&s, 2, 10, 1000, 0, 0) == 2);
+  CHECK(s.requeue_n == 2);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  wired_sendsess_untake(&s, &sl); /* the taken slice keeps its lost pn */
+  wired_sendsess_ack_requeued(&s, 0, 0);
+  CHECK(s.requeue_n == 1);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(sl.offset == 10); /* pn 1's slice, the one still unacknowledged */
+  CHECK(wired_sendsess_take(&s, &sl) == 0); /* pn 0's slice is not resent */
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -591,4 +614,5 @@ void test_sendsess(void) {
   test_sendsess_untake_reoffers_sendq_slice();
   test_sendsess_untake_reoffers_requeued_slice();
   test_sendsess_reclaim_base_and_ring_room();
+  test_sendsess_requeue_dropped_on_late_ack();
 }

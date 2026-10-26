@@ -104,7 +104,8 @@ void wired_server_set_limits(
 
 void server_ku_derive_next(wired_server* s) {
   kuswitch_next_keys_suite(
-      s->sdrv.cipher_suite, s->ku_secret, &s->ku_next, s->ku_next_secret);
+      s->sdrv.cipher_suite, sdrv_wire_version(&s->sdrv), s->ku_secret,
+      &s->ku_next, s->ku_next_secret);
   bytes_memcpy(s->ku_next.hp, s->ku.cur.hp, AEAD_KEY_MAX); /* RFC 9001 6.1 */
   s->ku_cur_lo = ~0ull;
   s->ku_cur_hi = 0;

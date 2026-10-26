@@ -170,16 +170,24 @@ typedef qpack_field wired_http_field;
  * nothing answers a body-less 200, exactly like a 7-argument handler.
  *
  * Validated after the first round (offset == 0); any violation answers
- * 500 with no fields and no body instead: status in 100-199 (101
+ * 500 instead, with none of the handler's fields and a short text/plain
+ * explanation for its body (none for HEAD): status in 100-199 (101
  * included), below 100 or above 599; field_count above
  * WIRED_HTTP_MAX_FIELDS (a 9th field is rejected, never silently dropped);
  * a field name that is not a token (RFC 9110 5.1: empty, SP, ':', CTL or
  * non-ASCII), carries an uppercase letter, or names a connection-specific
- * field (RFC 9114 4.2); CR, LF or NUL in a value or CR/LF in content_type
+ * field (RFC 9114 4.2); a name used twice (or content-type alongside
+ * content_type) unless the field is list-based or set-cookie (RFC 9110
+ * 5.3); CR, LF or NUL in a value or CR/LF in content_type
  * (RFC 9110 5.5); more than
  * WIRED_HTTP_FIELD_BYTES_MAX name+value+content_type bytes in total.
  * 204 and 304 never carry content (RFC 9110 15.3.5 / 15.4.5): the body is
- * dropped and HEADERS ends the stream. */
+ * dropped and HEADERS ends the stream.
+ *
+ * The SDK appends its own content-length (the DATA length; not for
+ * 204/304, HEAD or a 2xx to CONNECT, RFC 9110 8.6) and date (IMF-fixdate,
+ * RFC 9110 6.6.1) after the handler's fields, unless the handler set
+ * that field itself. */
 typedef struct {
   /** the decoded request; its views are not valid past the call */
   const wired_h3reqdrive_req* req;
