@@ -4954,7 +4954,8 @@ static void test_srvloop_collects_ack_ranges(void) {
         &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
     CHECK(f.l.ack_n == 0);
   }
-  af.n_ranges     = 2;
+  f.l.tx_pn   = u64_max(f.l.tx_pn, 10); /* pns 4..9 went out (RFC 9000 13.1) */
+  af.n_ranges = 2;
   af.ranges[0].hi = 9;
   af.ranges[0].lo = 7;
   af.ranges[1].hi = 4;
@@ -7066,6 +7067,32 @@ static void test_srvloop_key_update_keeps_hp_never_reverts(void) {
   CHECK(f.s.ku_send.generation == 1);
 }
 
+/* RFC 9000 13.1: an ACK naming a packet number the server never sent is a
+ * PROTOCOL_VIOLATION; one up to the last number sent is fine. */
+static u64 lp_ack_error(u64 largest_from_tx) {
+  struct lp_fix f;
+  u8            out[1024], fr[32], spkt[256];
+  usz           fl, slen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  lp_confirm(&f, &ob);
+  a.n_ranges     = 1;
+  a.ranges[0].hi = f.l.tx_pn - 1 + largest_from_tx;
+  a.ranges[0].lo = a.ranges[0].hi;
+  fl             = ack_encode(fr, sizeof fr, &a);
+  slen           = client_seal_onertt_pn(&f, 7, fr, fl, spkt, sizeof spkt);
+  ob             = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
+  return f.l.transport_error;
+}
+
+static void test_srvloop_ack_of_unsent_pn_violation(void) {
+  CHECK(lp_ack_error(0) == 0);                      /* the last pn sent */
+  CHECK(lp_ack_error(1) == ERR_PROTOCOL_VIOLATION); /* the next, unsent */
+  CHECK(lp_ack_error(100) == ERR_PROTOCOL_VIOLATION);
+}
+
 void test_srvloop(void) {
   test_srvloop_h3ctrl_control_frames();
   test_srvloop_h3ctrl_stream_creation();
@@ -7248,6 +7275,7 @@ void test_srvloop(void) {
   test_srvloop_zerortt_over_limit_flow_control_error();
   test_srvloop_key_update_keeps_hp_never_reverts();
   test_srvloop_zerortt_keys_dropped_after_finished();
+  test_srvloop_ack_of_unsent_pn_violation();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();
