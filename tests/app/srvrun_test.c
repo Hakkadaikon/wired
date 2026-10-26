@@ -18315,6 +18315,26 @@ static void test_srvrun_wt_priority_blocked_urgent_does_not_starve(void) {
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 2);
 }
 
+/* draft-22 3.1.3.1 (draft-18/19 11.4.2): "endpoints MUST allocate
+ * connection flow control to control streams before allocating it to
+ * any data streams" -- with connection credit for one slice, the MOQT
+ * control stream's urgency (2, moqtrun's MOQTRUN_CTL_URGENCY) takes it
+ * and an Object stream's (4) gets none. */
+static void test_srvrun_wt_priority_conn_credit_to_urgent(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_prio_fixture(&f, &ob);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 15, 4) == 1);
+  CHECK(wired_server_wt_stream_priority(&c->wt, 19, 2) == 1);
+  c->conn_credit = srvrun_conn_consumed_bytes(c) + srvrun_mps(c);
+  sr_prio_pump();
+  CHECK(wired_sendsess_inflight(&c->wtsend[1].sess) == 1);
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 0);
+}
+
 static void test_srvrun_wt_priority_rejects_bad_args(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -27209,6 +27229,7 @@ void test_srvrun(void) {
   test_srvrun_wt_priority_lower_urgency_first();
   test_srvrun_wt_priority_equal_keeps_order();
   test_srvrun_wt_priority_blocked_urgent_does_not_starve();
+  test_srvrun_wt_priority_conn_credit_to_urgent();
   test_srvrun_wt_priority_rejects_bad_args();
   test_srvrun_wt_sched_better_class_first();
   test_srvrun_wt_sched_control_before_data();

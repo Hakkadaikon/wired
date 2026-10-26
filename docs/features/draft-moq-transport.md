@@ -1145,13 +1145,16 @@ Legend:
 
 ## SS11.4.2 Subgroup Header: flow control priority
 
-- [~] MOQT-142 Endpoints shall allocate connection flow control to the control
+- [x] MOQT-142 Endpoints shall allocate connection flow control to the control
   streams before allocating it to any data streams, so a receiver does not
   deadlock waiting for a control message that itself needs flow control to
   arrive.
-  - evidence: This subset relies on the underlying WT/QUIC transport's own
-    stream and connection flow control (app/http3/server/srvrun); no MOQT-layer
-    test independently verifies control-before-data flow-control priority.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+    (the hub's control stream gets urgency 2, above request streams' 3 and
+    Object streams' 4..7)
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_priority_conn_credit_to_urgent` (the WT send pass gives
+    the last connection credit to the more urgent class)
 
 ## SS11.4.2 Subgroup Object Fields (encoder byte-exactness)
 
@@ -1454,9 +1457,11 @@ Legend:
     `test_moqtrun_misc_pub_update_failed_fins`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_failed_changes_nothing`
-- [ ] MOQT-223 (SS7.2) The hub should schedule its control streams first, then
+- [x] MOQT-223 (SS7.2) The hub should schedule its control streams first, then
   request streams, then Object data.
-  - gap: only Object streams get an explicit class (MOQT-185).
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+  - note: request streams keep the transport default urgency 3, between
+    the control stream's 2 and the Object streams' 4..7.
 - [x] MOQT-187 A TRACK_STATUS shall be answered with REQUEST_OK carrying the
   track's largest location (or none when empty), or REQUEST_ERROR when the
   track is unknown or the authorizer refuses.

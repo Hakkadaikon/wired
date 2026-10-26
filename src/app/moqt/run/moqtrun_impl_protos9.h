@@ -3,6 +3,7 @@
 
 #include "app/moqt/run/moqtrun_impl_protos8.h"
 
+void moqtrun_ctl_urgency(wired_moqt_io* io, wired_wt_session* s, u64 sid);
 void moqtrun_sgt_arm(
     wired_moqt_hub*            hub,
     const wired_moqtrun_track* track,

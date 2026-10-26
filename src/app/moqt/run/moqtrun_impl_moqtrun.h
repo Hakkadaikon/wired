@@ -96,6 +96,12 @@ typedef struct {
 /* Every Object stream's urgency: below the transport default 3 the
  * control and request streams keep (7.2: they SHOULD go first). */
 #define MOQTRUN_OBJ_URGENCY 4
+/* The hub's control stream: above the request streams' transport default
+ * 3, so control, then requests, then Objects (draft-19/22 7.2 SHOULD); the
+ * WT send pass only lets a worse class send once the better has nothing
+ * to, so connection credit goes to control bytes first (draft-22 3.1.3.1,
+ * draft-18/19 11.4.2 MUST). */
+#define MOQTRUN_CTL_URGENCY 2
 /* A subscription-delivered stream's tie bit: its fill goes first in the
  * same group (7.2 rule 4). */
 #define MOQTRUN_TIE_LIVE (1ULL << 63)

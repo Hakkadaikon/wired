@@ -45,6 +45,19 @@ static moqctl_ftn mtdr_prio_setup(void) {
   return f;
 }
 
+/* draft-19/22 7.2: "the control streams SHOULD be prioritized highest,
+ * followed by the bidi request streams and then all subscribed
+ * Objects": the hub's control stream gets an urgency above the request
+ * streams' default 3 and every Object stream's. */
+static void test_moqtrun_prio_control_first(void) {
+  mtst_init();
+  mtst_hub.io.stream_priority  = mtdr_prio;
+  u64                      ctl = mtst_join(SESS_A);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(13);
+  CHECK(c && c->s == SESS_A && c->stream_id == ctl);
+  CHECK(c && c->fin < 3 && c->fin < MOQTRUN_OBJ_URGENCY);
+}
+
 /* Subscriber priority decides first (7.2): B (10) is sent ahead of C
  * (200) on the keep-open relay streams; the header's default priority
  * (Type 0x30) counts as 128. */
@@ -833,6 +846,7 @@ static void mtall_drain(void) {
   test_moqtrun_peer_goaway_twice();
   test_moqtrun_peer_goaway_uri();
   test_moqtrun_prio_per_subscriber();
+  test_moqtrun_prio_control_first();
   test_moqtrun_prio_one_shot();
   test_moqtrun_prio_track_default();
   test_moqtrun_prio_update_applies();

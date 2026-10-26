@@ -1248,13 +1248,16 @@ Legend:
 
 ## SS11.4.2 Flow control for the control streams
 
-- [~] MQ18-143 (§11.4.2) Endpoints shall allocate connection flow control to the control
+- [x] MQ18-143 (§11.4.2) Endpoints shall allocate connection flow control to the control
   streams before allocating it to any data streams, so a receiver does not
   deadlock waiting for a control message that itself needs flow control to
   arrive.
-  - evidence: This subset relies on the underlying WT/QUIC transport's own
-    stream and connection flow control (app/http3/server/srvrun); no MOQT-layer
-    test independently verifies control-before-data flow-control priority.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+    (the hub's control stream gets urgency 2, above request streams' 3 and
+    Object streams' 4..7)
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_priority_conn_credit_to_urgent` (the WT send pass gives
+    the last connection credit to the more urgent class)
 
 ## SS11.4.2 Subgroup Object Fields (encoder byte-exactness)
 

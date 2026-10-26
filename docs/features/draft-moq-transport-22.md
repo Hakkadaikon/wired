@@ -231,10 +231,14 @@ Legend:
 
 ## SS3.1.3.1 Unknown Track Alias
 
-- [ ] MQ22-226 (SS3.1.3.1) The implementation shall allocate connection flow
+- [x] MQ22-226 (SS3.1.3.1) The implementation shall allocate connection flow
   control to control streams before allocating it to any data stream.
-  - gap: the MOQT layer has no say in connection-level flow-control
-    allocation; nothing in the hub or its transport orders it.
+  - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
+    (the hub's control stream gets urgency 2, above request streams' 3 and
+    Object streams' 4..7)
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_priority_conn_credit_to_urgent` (the WT send pass gives
+    the last connection credit to the more urgent class)
 
 ## SS3.6 Subscribing to Tracks by Prefix
 

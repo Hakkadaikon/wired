@@ -77,6 +77,14 @@ static void moqtrun_setup_impl(const wired_moqt_hub* hub, moqctl_setup* s) {
   s->implementation      = wired_span_of(name, sizeof(name) - 1);
 }
 
+/* The control stream's urgency (MOQTRUN_CTL_URGENCY); an io table
+ * without stream_priority leaves it at the transport default. */
+void moqtrun_ctl_urgency(wired_moqt_io* io, wired_wt_session* s, u64 sid) {
+  if (io->stream_priority) {
+    io->stream_priority(s, sid, MOQTRUN_CTL_URGENCY);
+  }
+}
+
 void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   wired_mspan buf = wired_mspan_of(p->send_bufs[0], WIRED_MOQTRUN_CTL_SEND_BUF);
   moqctl_setup setup = {0};
@@ -92,6 +100,7 @@ void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   }
   p->control_stream_id = (u64)sid;
   p->ctl_opened        = 1;
+  moqtrun_ctl_urgency(&hub->io, p->wt, (u64)sid);
   moqsess_step(&p->sess, MOQSESS_EV_SENT_SETUP);
 }
 
