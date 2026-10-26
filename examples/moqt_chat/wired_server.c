@@ -80,8 +80,12 @@ static void server_identity(
     wired_srvboot_id* id, server_keys* k, int have_san_ipv4, u64 now_secs) {
   wired_srvboot_demo(id, &k->demo, 0x50, "MOQCHT");
   id->max_datagram_frame_size = 65535;
-  id->san_ipv4                = have_san_ipv4 ? k->san_ipv4 : 0;
   id->now_secs                = now_secs;
+  /* --san-ipv4 replaces the demo's 127.0.0.1 SAN; without it a WT CONNECT
+   * to 127.0.0.1 stays covered (RFC 9110 7.4, else answered 421). */
+  if (have_san_ipv4) {
+    id->san_ipv4 = k->san_ipv4;
+  }
 }
 
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
