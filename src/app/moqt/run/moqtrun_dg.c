@@ -2,6 +2,9 @@
 
 static int moqtrun_dg_prop_violates(
     const wired_moqtrun_peer* p, const moqdg_obj* o);
+static int  moqtrun_dg_padding(wired_span data);
+static void moqtrun_dg_refused(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data);
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -26,13 +29,35 @@ static int moqtrun_dg_prop_violates(
          moqtrun_props_have_timeout(o->props);
 }
 
+/* draft-18/19/22 11.5.2: a datagram of Type 0x132B3E29 is padding,
+ * dropped without effect. */
+#define MOQTRUN_DG_PADDING_TYPE 0x132B3E29ULL
+
+static int moqtrun_dg_padding(wired_span data) {
+  usz at = 0;
+  u64 t  = 0;
+  return moqvi_take(data, &at, &t) && t == MOQTRUN_DG_PADDING_TYPE;
+}
+
+/* A datagram moqdg_take refused closes p's session PROTOCOL_VIOLATION,
+ * unless it is padding: an unknown or invalid Type, PROPERTIES with a
+ * Properties Length of 0, Properties on a non-Normal Status or a cut
+ * header (draft-19 11 / 11.3.1, draft-18 11.3.1, draft-22 11.2.1: "MUST
+ * close the session with a PROTOCOL_VIOLATION"). */
+static void moqtrun_dg_refused(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data) {
+  if (!moqtrun_dg_padding(data)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  }
+}
+
 /* Resolves one received OBJECT_DATAGRAM to the sending peer's track:
  * decode via moqdg_take (11.3.1), then the header's Track Alias via
- * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
- * matches none of p's tracks -- the caller drops it whole -- when a
+ * moqtrun_track_by_alias. 0 when the alias matches none of p's tracks or
+ * the datagram is padding -- the caller drops it whole -- when a
  * Mandatory Object Property made the track malformed
  * (moqtrun_obj_mand_gate), or when it closed the session
- * (moqtrun_dg_prop_violates). */
+ * (moqtrun_dg_refused, moqtrun_dg_prop_violates). */
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -41,6 +66,7 @@ static wired_moqtrun_track* moqtrun_dg_track(
   usz       off = 0;
   moqdg_obj obj;
   if (moqdg_take(data, &off, &obj) != MOQDATA_OK) {
+    moqtrun_dg_refused(hub, p, data);
     return 0;
   }
   if (moqtrun_dg_prop_violates(p, &obj)) {
@@ -107,9 +133,8 @@ void wired_moqt_on_datagram(
   }
   moqctl_loc           loc   = {0, 0};
   wired_moqtrun_track* track = moqtrun_dg_track(hub, p, data, &loc);
-  /* Malformed or unknown-alias: dropped whole. Draft 11.3.1 says an
-   * invalid Type MUST close the session (PROTOCOL_VIOLATION), but this
-   * hub's io table has no close operation -- counting is the closest. */
+  /* Unknown alias, padding, or a malformed datagram (whose session
+   * moqtrun_dg_track closed): dropped whole. */
   if (!track) {
     hub->stat_dg_bad++;
     return;

@@ -95,8 +95,7 @@ void moqtrun_rp_untry(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
 /* p may be sent a new request: connected, not being closed by the hub
  * (nothing more goes to it, moqtrun_rdv_target), and p sent no GOAWAY
  * nor drained its session (draft-22 9.2: the receiver SHOULD NOT
- * initiate new requests; the hub's own GOAWAY does not stop it, the
- * re-paths of a drain need it). */
+ * initiate new requests; the hub's own GOAWAY is moqtrun_up_ga_skip's). */
 int moqtrun_up_peer_usable(const wired_moqtrun_peer* p) {
   return moqtrun_rdv_peer_open(p) && !p->sess.goaway_recv && !p->wt_drained;
 }
@@ -122,12 +121,28 @@ static wired_moqtrun_req* moqtrun_up_announcer_skip(
   return 0;
 }
 
+/* The peers the hub sent GOAWAY. */
+static u64 moqtrun_up_ga_sent(const wired_moqt_hub* hub) {
+  u64 m = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    m |= (u64)(hub->peers[i].in_use && hub->peers[i].sess.goaway_sent) << i;
+  }
+  return m;
+}
+
+/* draft-19 10.4: after its own GOAWAY the hub SHOULD avoid initiating
+ * requests unless migration requires them -- so a peer it sent GOAWAY is
+ * asked only to re-path a subscription that lost its upstream. */
+static u64 moqtrun_up_ga_skip(wired_moqt_hub* hub, moqtrun_key k) {
+  return moqtrun_rp_waiters(hub, k) ? 0 : moqtrun_up_ga_sent(hub);
+}
+
 /* Skips the sessions a wait for a new path must not ask
  * (moqtrun_rp_skip), and prefers one no wait for k belongs to: a waiting
  * session's own path cannot re-attach that waiter (moqtrun_rp_waiters). */
 wired_moqtrun_req* moqtrun_up_announcer(
     wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k) {
-  u64                skip = moqtrun_rp_skip(hub, k);
+  u64 skip = moqtrun_rp_skip(hub, k) | moqtrun_up_ga_skip(hub, k);
   wired_moqtrun_req* a =
       moqtrun_up_announcer_skip(hub, s, k, skip | moqtrun_rp_waiters(hub, k));
   return a ? a : moqtrun_up_announcer_skip(hub, s, k, skip);

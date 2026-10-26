@@ -10,6 +10,7 @@ static void moqtrun_early_stash(
     wired_span          data,
     int                 fin);
 static int  moqtrun_early_is(const wired_moqtrun_peer* p, u64 sid);
+static int  moqtrun_fresh_unknown(u64 sid, wired_span data);
 static void moqtrun_fresh_subgroup_relay(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -105,17 +106,31 @@ static void moqtrun_fresh_subgroup_relay(
   moqtrun_relay_start(hub, track, p->wt, stream_id, data, whole_end);
 }
 
-/* A publisher stream seen for the first time: an inbound fetch stream
+/* 1 iff sid is unidirectional (RFC 9000 2.1: bit 0x2) and data opens
+ * with a Stream Type none of FETCH_HEADER, SUBGROUP_HEADER, SETUP or
+ * PADDING (draft-19 3.4 Table 3). A bidi stream is a request stream,
+ * never typed this way. */
+static int moqtrun_fresh_unknown(u64 sid, wired_span data) {
+  usz at = 0;
+  return (sid & 2) && moqdata_classify(data, &at) == MOQDATA_STREAM_UNKNOWN;
+}
+
+/* A publisher stream seen for the first time: an unknown Stream Type
+ * closes the session (draft-18/19 3.4, draft-22 6.4.1: "MUST close the
+ * session", PROTOCOL_VIOLATION via moqsess), an inbound fetch stream
  * routes by its Request ID, a SUBGROUP stream resolves its track from
- * the header and relays. Padding streams, other classifications, and
- * unknown Track Aliases are discarded: classification-level session
- * closes are the sess layer's job. */
+ * the header and relays. Padding streams and unknown Track Aliases are
+ * discarded. */
 void moqtrun_dispatch_fresh_stream(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
+  if (moqtrun_fresh_unknown(stream_id, data)) {
+    moqtrun_sess_fault(hub, p, MOQSESS_EV_UNKNOWN_UNI);
+    return;
+  }
   if (moqtrun_fresh_fetch_stream(hub, p, stream_id, data, fin)) {
     return;
   }
@@ -155,6 +170,22 @@ int moqtrun_rx_is_own_ctl(const wired_moqtrun_peer* p, u64 sid) {
  * transport-level end (FIN, RESET_STREAM, STOP_SENDING) of either one
  * closes the session with PROTOCOL_VIOLATION. */
 void moqtrun_ctl_gone(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  moqsess_step(&p->sess, MOQSESS_EV_CTRL_CLOSED);
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_CTRL_CLOSED);
+}
+
+/* Session close code of each moqsess close reason (MOQSESS_CLOSE_*,
+ * draft-19 3.5). */
+static const u32 moqtrun_sess_codes[] = {
+    WIRED_MOQTRUN_CLOSE_NO_ERROR,           /* NONE */
+    WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION, /* PROTOCOL_VIOLATION */
+    WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID, /* INVALID_REQUEST_ID */
+    WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT,     /* GOAWAY_TIMEOUT */
+    WIRED_MOQTRUN_CLOSE_NO_ERROR,           /* NO_ERROR */
+};
+
+/* Feeds ev to p's session machine (moqsess) and closes the session with
+ * the code its close reason maps to. */
+void moqtrun_sess_fault(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqsess_event ev) {
+  moqtrun_close_with(hub, p, moqtrun_sess_codes[moqsess_step(&p->sess, ev)]);
 }

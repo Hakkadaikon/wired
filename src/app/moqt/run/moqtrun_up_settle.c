@@ -19,6 +19,12 @@ static void moqtrun_up_settle_open(
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_props_refuse(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u, u64 code);
+static int moqtrun_up_slot_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t,
+    u64                  alias);
 
 /* Nobody downstream left: the request is cancelled and its track (if
  * Established) retired, so no Object is relayed to no one (NoLeak). */
@@ -135,6 +141,26 @@ static void moqtrun_up_props_refuse(
   moqtrun_up_cancel(hub, pp, u, 0);
 }
 
+/* 1 when slot t may take a SUBSCRIBE_OK for u. No slot (the publisher's
+ * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER are taken) refuses the waiters
+ * EXCESSIVE_LOAD and cancels the request; a Track Alias naming another
+ * live track of pp closes its session DUPLICATE_TRACK_ALIAS
+ * (moqtrun_alias_dup_close). */
+static int moqtrun_up_slot_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t,
+    u64                  alias) {
+  if (!t) {
+    moqtrun_up_refuse_waiters(
+        hub, moqtrun_up_key(u), MOQCTL_ERR_EXCESSIVE_LOAD);
+    moqtrun_up_cancel(hub, pp, u, 0);
+    return 0;
+  }
+  return !moqtrun_alias_dup_close(hub, pp, t, alias);
+}
+
 /* SUBSCRIBE_OK: the track is claimed on pp under the publisher's Track
  * Alias, as a PUBLISH would claim it, then every waiter proceeds -- unless
  * its Track Properties are refused (moqtrun_up_props_refuse). No
@@ -154,9 +180,7 @@ void moqtrun_up_claim(
     return;
   }
   t = moqtrun_publish_slot(hub, pp, pi, k);
-  if (!t) {
-    moqtrun_up_refuse_waiters(hub, k, MOQCTL_ERR_EXCESSIVE_LOAD);
-    moqtrun_up_cancel(hub, pp, u, 0);
+  if (!moqtrun_up_slot_ok(hub, pp, u, t, m->track_alias)) {
     return;
   }
   moqtrun_track_open(

@@ -63,7 +63,8 @@ void moqtrun_reqs_tick(wired_moqt_hub* hub);
 void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms);
 void moqtrun_subgroup_scan(
     wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
-usz moqtrun_decode_object_loop(
+void moqtrun_rx_flag(wired_moqt_hub* hub, int bad);
+usz  moqtrun_decode_object_loop(
     wired_moqt_hub*      hub,
     wired_span           data,
     usz*                 off,
@@ -88,6 +89,8 @@ void moqtrun_early_put(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin);
 int moqtrun_up_pending_for(
     const wired_moqt_hub* hub, const wired_wt_session* s);
+void moqtrun_up_crossed(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_key k);
 void moqtrun_early_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,
@@ -111,9 +114,17 @@ void moqtrun_up_sync(wired_moqt_hub* hub);
 void moqtrun_req_cancel(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q);
 int moqtrun_up_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id, wired_span data);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
 int moqtrun_upf_rx(
-    wired_moqt_hub* hub, wired_moqtrun_peer* pp, u64 sid, wired_span data);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    u64                 sid,
+    wired_span          data,
+    int                 fin);
 void moqtrun_peer_tracks_ended(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_upf_detach(wired_moqt_hub* hub, const wired_wt_session* s);
 void moqtrun_up_on_reset(

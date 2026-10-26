@@ -107,6 +107,7 @@ int  moqtrun_sub_is_req(const wired_moqtrun_sub* sub, usz idx, u64 rid);
 void moqtrun_each_track(
     wired_moqt_hub* hub, moqtrun_track_fn fn, usz idx, u64 arg);
 void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid);
+void moqtrun_cancel_peer_subs(wired_moqt_hub* hub, usz idx, u64 rid);
 void moqtrun_sub_names_forget(wired_moqtrun_peer* p, u64 rid);
 int  moqtrun_track_is_req(const wired_moqtrun_track* t, u64 rid);
 void moqtrun_req_cancel(

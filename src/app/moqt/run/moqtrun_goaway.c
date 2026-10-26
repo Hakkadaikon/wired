@@ -105,8 +105,7 @@ void moqtrun_dispatch_goaway(
 /* draft-19 3.3: one control stream per peer -- a 2nd one (or a 2nd
  * SETUP) closes the session with PROTOCOL_VIOLATION. */
 void moqtrun_second_ctl(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  moqsess_step(&p->sess, MOQSESS_EV_SECOND_CTRL);
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_SECOND_CTRL);
 }
 
 /* A SETUP after one was already accepted, or on a stream other than the
@@ -116,15 +115,19 @@ int moqtrun_setup_second(const wired_moqtrun_peer* p) {
          (p->peer_ctl_set && p->peer_ctl_stream_id != p->rx_sid);
 }
 
-/* PATH/AUTHORITY (-18/-19 10.3.1.1-2, -22 9.1.1-2): over WebTransport
- * either one is a close (INVALID_PATH / INVALID_AUTHORITY); on raw QUIC a
- * well-formed value is accepted unless hub->raw_policy refuses it, a
- * malformed one closes MALFORMED_PATH / MALFORMED_AUTHORITY. */
+/* An AUTHORIZATION TOKEN naming an Alias (DELETE / USE_ALIAS) closes
+ * PROTOCOL_VIOLATION (draft-18 10.3.1.4, draft-22 9.1.4: "If a server
+ * receives Alias Type DELETE (0x0) or USE_ALIAS (0x2) in a SETUP
+ * message"). PATH/AUTHORITY (-18/-19 10.3.1.1-2, -22 9.1.1-2): over
+ * WebTransport either one is a close (INVALID_PATH / INVALID_AUTHORITY); on
+ * raw QUIC a well-formed value is accepted unless hub->raw_policy refuses
+ * it, a malformed one closes MALFORMED_PATH / MALFORMED_AUTHORITY. */
 static u32 moqtrun_setup_opt_bad(
     const wired_moqt_hub*     hub,
     const wired_moqtrun_peer* p,
     const moqctl_setup*       m) {
-  return moqraw_setup_verdict(p->raw, m, &hub->raw_policy);
+  return m->token_alias_ref ? WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION
+                            : moqraw_setup_verdict(p->raw, m, &hub->raw_policy);
 }
 
 /* Close code a client SETUP body calls for; 0 = accept (*m decoded). */

@@ -44,6 +44,12 @@ wired_moqtrun_peer* moqtrun_upf_owner(wired_moqt_hub* hub, moqtrun_key k) {
   return 0;
 }
 
+/* op is usable and was not sent the hub's GOAWAY (draft-19 10.4: the
+ * sender SHOULD avoid initiating requests). */
+static int moqtrun_upf_owner_free(const wired_moqtrun_peer* op) {
+  return moqtrun_up_peer_usable(op) && !op->sess.goaway_sent;
+}
+
 /* op may be asked for k on behalf of s: usable (no GOAWAY, not being
  * closed), not s itself, not already tried by a wait for a new path. */
 static int moqtrun_upf_owner_ok(
@@ -51,7 +57,7 @@ static int moqtrun_upf_owner_ok(
     const wired_moqtrun_peer* op,
     const wired_wt_session*   s,
     moqtrun_key               k) {
-  return moqtrun_up_peer_usable(op) && op->wt != s &&
+  return moqtrun_upf_owner_free(op) && op->wt != s &&
          !(moqtrun_rp_skip(hub, k) & moqtrun_rp_bit(hub, op->wt));
 }
 

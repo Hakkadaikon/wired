@@ -108,6 +108,7 @@ void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms);
 int  srvrun_pto_armed(const srvrun_conn* c);
 int  srvrun_pto_fire_due(const srvrun_conn* c, u64 now_ms);
 void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot);
+void srvrun_send_tick_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot);

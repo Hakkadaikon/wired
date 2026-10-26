@@ -142,12 +142,21 @@ void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
 }
 
 /* draft SS10: an unknown message type MUST close the session; SS3.5
- * PROTOCOL_VIOLATION is the code. */
+ * PROTOCOL_VIOLATION is the code (moqsess EV_MALFORMED_CTRL). */
 void moqtrun_dispatch_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   (void)body;
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_MALFORMED_CTRL);
+}
+
+/* draft-19 3.3: a request stream whose first message is no request type
+ * closes the session PROTOCOL_VIOLATION (moqsess EV_BAD_FIRST). */
+void moqtrun_dispatch_bad_first(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_BAD_FIRST);
 }
 
 /* A message longer than WIRED_MOQTRUN_CTL_MSG_MAX: the peer broke no

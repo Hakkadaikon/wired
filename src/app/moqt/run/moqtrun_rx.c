@@ -109,8 +109,8 @@ static int moqtrun_dispatch_own_req(
     wired_span          data,
     int                 fin) {
   return moqtrun_dispatch_pubst(hub, p, stream_id, data, fin) ||
-         moqtrun_up_rx(hub, p, stream_id, data) ||
-         moqtrun_upf_rx(hub, p, stream_id, data);
+         moqtrun_up_rx(hub, p, stream_id, data, fin) ||
+         moqtrun_upf_rx(hub, p, stream_id, data, fin);
 }
 
 /* A hub-opened PUBLISH, SUBSCRIBE or FETCH stream is routed to its own

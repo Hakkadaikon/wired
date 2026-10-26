@@ -3,7 +3,12 @@
  * recording io stubs and fixtures of moqtrun_test.c (same unity TU). */
 
 static wired_moqt_hub mtst_hub;
-static u64            mtst_rid;
+/* Request IDs the mtst fixtures send: even (draft-19 10.1), 2 mod 4 and
+ * restarting at 106 with every mtst_init, so within a test they never
+ * repeat one another or the test's own small explicit IDs, and stay close
+ * enough to those for the hub's duplicate window (moqtrun_rid_repeat). */
+#define MTST_RID_BASE 102
+static u64 mtst_rid = MTST_RID_BASE;
 
 #define MTST_MSG_MAX (WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX)
 
@@ -83,7 +88,7 @@ static void mtst_publish_p(
     u64                  alias,
     const moqctl_params* params) {
   static moqctl_publish m;
-  m.request_id  = mtst_rid += 2;
+  m.request_id  = mtst_rid += 4;
   m.name        = *f;
   m.track_alias = alias;
   m.params.n    = 0;
@@ -117,7 +122,7 @@ static void mtst_subscribe_p(
 }
 
 static void mtst_subscribe(wired_wt_session* s, u64 ctrl, const moqctl_ftn* f) {
-  mtst_subscribe_p(s, ctrl, f, mtst_rid += 2, 0);
+  mtst_subscribe_p(s, ctrl, f, mtst_rid += 4, 0);
 }
 
 static u64 mtst_join(wired_wt_session* s) {
@@ -127,6 +132,7 @@ static u64 mtst_join(wired_wt_session* s) {
 static void mtst_init(void) {
   moqtrun_test_reset();
   wired_moqt_init(&mtst_hub, moqtrun_test_io());
+  mtst_rid = MTST_RID_BASE;
 }
 
 /* The last reply decoded as SUBSCRIBE_OK; 0 if it is anything else. */
@@ -294,10 +300,10 @@ static void test_moqtrun_sub_params_absent(void) {
   u64 ca = mtst_join(SESS_A);
   u64 cb = mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
-  mtst_subscribe_p(SESS_B, cb, &f, 9, 0);
+  mtst_subscribe_p(SESS_B, cb, &f, 10, 0);
   wired_moqtrun_sub* s = mtst_sub(SESS_A, SESS_B);
   CHECK(s != 0);
-  CHECK(s->request_id == 9);
+  CHECK(s->request_id == 10);
   CHECK(s->has_priority == 0 && s->group_order == 0);
   CHECK(s->has_delivery_timeout == 0 && s->forward_off == 0);
   CHECK(s->start.group == 0 && s->start.object == 0);
@@ -666,6 +672,14 @@ static void mtrq_raw(
   wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off + n), 0);
 }
 
+/* TRACK_STATUS MTRQ_TSTAT on sid under a fresh Request ID (mtst_rid). */
+static void mtrq_tstat_on(wired_wt_session* s, u64 sid) {
+  u8  b[16];
+  usz n = moqvi_encode(b, mtst_rid += 4);
+  bytes_memcpy(b + n, MTRQ_TSTAT + 1, sizeof MTRQ_TSTAT - 1);
+  mtrq_raw(s, sid, MOQTSTAT_T_TRACK_STATUS, b, n + sizeof MTRQ_TSTAT - 1);
+}
+
 /* SUBSCRIBE f (Request ID rid) encoded into buf; returns its length. */
 static usz mtrq_sub_bytes(const moqctl_ftn* f, u64 rid, u8* buf) {
   static moqctl_subscribe m;
@@ -723,7 +737,7 @@ static void test_moqtrun_req_two_streams_answered_apart(void) {
 /* A later reply on an already-answered stream appends to it (draft 10.9:
  * REQUEST_UPDATE is answered on the request's stream). */
 static void test_moqtrun_req_update_answered_on_same_stream(void) {
-  static const u8 upd[] = {0x02, 0x00}; /* Request ID 2, no parameters */
+  static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
   moqctl_ftn      f     = mtrq_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
@@ -746,6 +760,30 @@ static void test_moqtrun_req_reset_unsubscribes(void) {
   u64 ca = mtst_join(SESS_A);
   mtst_publish(SESS_A, ca, &f, 1);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+}
+
+/* Resets the hub sent toward s on any stream but sid. */
+static usz mtrq_resets_besides(wired_wt_session* s, u64 sid) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += g_calls[i].kind == 7 && g_calls[i].s == s &&
+         g_calls[i].stream_id != sid;
+  }
+  return n;
+}
+
+/* draft-19 5.1.1: a cancelled subscription's open data streams are reset
+ * (MUST), not merely forgotten. */
+static void test_moqtrun_req_reset_resets_data_streams(void) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  usz n = mtst_stream(4, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  CHECK(moqtrun_test_count_kind(5) >= 1);
+  CHECK(mtrq_resets_besides(SESS_B, MTRQ_S1) == 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
+  CHECK(mtrq_resets_besides(SESS_B, MTRQ_S1) == 1);
 }
 
 /* Resetting a PUBLISH's request stream withdraws the track. */
@@ -794,8 +832,7 @@ static void test_moqtrun_req_second_message_checked(void) {
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   CHECK(mtrq_closes() == 1);
   mtrq_setup();
-  mtrq_raw(
-      SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
+  mtrq_tstat_on(SESS_B, MTRQ_S1);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtrq_closes() == 1);
@@ -827,8 +864,7 @@ static void test_moqtrun_req_refusal_fins_and_frees(void) {
   moqctl_ftn g = mtst_ftn("chat", "room1", "nobody");
   u8         buf[MTST_MSG_MAX];
   mtrq_setup();
-  mtrq_raw(
-      SESS_B, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
+  mtrq_tstat_on(SESS_B, MTRQ_S1);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtrq_used() == 1);
@@ -848,9 +884,7 @@ static void test_moqtrun_req_finished_do_not_exhaust(void) {
   mtst_init();
   mtst_join(SESS_B);
   for (usz i = 0; i < 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
-    mtrq_raw(
-        SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
-        sizeof MTRQ_TSTAT);
+    mtrq_tstat_on(SESS_B, MTRQ_ID(i));
     wired_moqt_on_stream_data(
         &mtst_hub, SESS_B, MTRQ_ID(i), wired_span_of(0, 0), 1);
   }
@@ -868,15 +902,12 @@ static void test_moqtrun_req_per_session_cap(void) {
   mtst_join(SESS_B);
   mtst_join(SESS_C);
   for (usz i = 0; i <= WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
-    mtrq_raw(
-        SESS_B, MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
-        sizeof MTRQ_TSTAT);
+    mtrq_tstat_on(SESS_B, MTRQ_ID(i));
   }
   CHECK(moqtrun_test_count_kind(12) == WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_reset_code(over) == 0x9);
   CHECK(mtrq_closes() == 0);
-  mtrq_raw(
-      SESS_C, MTRQ_S1, MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT, sizeof MTRQ_TSTAT);
+  mtrq_tstat_on(SESS_C, MTRQ_S1);
   CHECK(moqtrun_test_last_kind(12)->s == SESS_C);
   wired_moqt_on_session_close(&mtst_hub, SESS_B);
   CHECK(mtrq_used() == 1);
@@ -893,9 +924,7 @@ static void test_moqtrun_req_pool_full_resets(void) {
   for (usz s = 0; s < 4; s++) {
     mtst_join(sess[s]);
     for (usz i = 0; i < per; i++) {
-      mtrq_raw(
-          sess[s], MTRQ_ID(i), MOQTSTAT_T_TRACK_STATUS, MTRQ_TSTAT,
-          sizeof MTRQ_TSTAT);
+      mtrq_tstat_on(sess[s], MTRQ_ID(i));
     }
   }
   CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
@@ -1161,6 +1190,35 @@ static u64 mt22_last_error(void) {
     return ~(u64)0;
   }
   return e.error_code;
+}
+
+/* B subscribes AbsoluteRange {1,0}..end_group after A published Group 6;
+ * refused says whether INVALID_RANGE (and no subscription) must follow. */
+static void mtst_range_past(u64 end_group, int refused) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  usz n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  p.items[0].lf.start.group     = 1;
+  p.items[0].lf.end_group_delta = end_group - 1;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK((mtrq_err_on(cb) == MOQCTL_ERR_INVALID_RANGE) == refused);
+  CHECK((mtst_sub(SESS_A, SESS_B) == 0) == refused);
+}
+
+/* draft-18/19 5.1.2: a filter whose End Group was already wholly
+ * published (a later Group exists) is refused INVALID_RANGE (SHOULD);
+ * one ending at the Largest Group is not, and draft-22 keeps both
+ * (MQ22-108a). */
+static void test_moqtrun_sub_range_past_invalid(void) {
+  int d22 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_LOCFILTER_TYPED) != 0;
+  mtst_range_past(5, !d22);
+  mtst_range_past(6, 0);
 }
 
 /* 0x04 with End Group Delta 0 and End Object before Start Object can
@@ -1714,7 +1772,7 @@ static void test_moqtrun_sub_rngf_dup_identity(void) {
   mtst_publish(SESS_A, ca, &f, 1);
   mtst_subscribe_p(SESS_B, cb, &f, 2, &dup);
   CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
-  mtst_subscribe_p(SESS_B, cb, &f, 2, &ok);
+  mtst_subscribe_p(SESS_B, cb, &f, 4, &ok);
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
@@ -1751,7 +1809,7 @@ static void test_moqtrun_sub_rngf_value_checks(void) {
   mtst_publish(SESS_A, ca, &f, 1);
   mtst_subscribe_p(SESS_B, cb, &f, 2, &p[1]);
   CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
-  mtst_subscribe_p(SESS_B, cb, &f, 2, &p[0]);
+  mtst_subscribe_p(SESS_B, cb, &f, 4, &p[0]); /* a refused ID stays used */
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
@@ -1777,7 +1835,7 @@ static void test_moqtrun_sub_rngf_limit(void) {
   mtst_publish(SESS_A, ca, &f, 1);
   mtst_subscribe_p(SESS_B, cb, &f, 2, &over); /* 4 + 1 > 4 */
   CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
-  mtst_subscribe_p(SESS_B, cb, &f, 2, &fit);
+  mtst_subscribe_p(SESS_B, cb, &f, 4, &fit);
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
@@ -1800,7 +1858,7 @@ static void mtst_publish_props(
     u64               alias,
     wired_span        props) {
   static moqctl_publish m;
-  m.request_id       = mtst_rid += 2;
+  m.request_id       = mtst_rid += 4;
   m.name             = *f;
   m.track_alias      = alias;
   m.params           = (moqctl_params){0};
@@ -2036,7 +2094,7 @@ static void test_moqtrun_sub_include_properties_1_forwards(void) {
  * publisher's Track Property (draft-19 10.2.6). */
 static void test_moqtrun_sub_subgroup_timeout_update(void) {
   static const u8 props[] = {0x06, 0x03};
-  static const u8 upd2[]  = {0x02, 0x01, 0x06, 0x02}; /* rid 2: timeout 2 */
+  static const u8 upd2[]  = {0x04, 0x01, 0x06, 0x02}; /* rid 4: timeout 2 */
   static const u8 upd9[]  = {0x06, 0x01, 0x06, 0x09}; /* rid 6: timeout 9 */
   moqctl_ftn      f       = mtst_ftn("chat", "room1", "alice");
   mtst_init();
@@ -2073,6 +2131,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
   test_moqtrun_sub_filter22_inverted();
+  test_moqtrun_sub_range_past_invalid();
   test_moqtrun_sub_filter22_end_gates();
   test_moqtrun_sub_filter22_end_object_mid_round_oneshot();
   test_moqtrun_sub_filter22_end_object_mid_round_keepopen();
@@ -2115,6 +2174,7 @@ static void mtall_sub(void) {
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();
   test_moqtrun_req_reset_unsubscribes();
+  test_moqtrun_req_reset_resets_data_streams();
   test_moqtrun_req_reset_unpublishes();
   test_moqtrun_req_bad_first_message_closes();
   test_moqtrun_req_second_message_checked();

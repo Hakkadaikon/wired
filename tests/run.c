@@ -906,6 +906,7 @@
 #include "app/moqt/run/moqtrun_malformed.c"
 #include "app/moqt/run/moqtrun_moqt.c"
 #include "app/moqt/run/moqtrun_newer.c"
+#include "app/moqt/run/moqtrun_ngr.c"
 #include "app/moqt/run/moqtrun_own.c"
 #include "app/moqt/run/moqtrun_param.c"
 #include "app/moqt/run/moqtrun_params.c"
@@ -933,6 +934,7 @@
 #include "app/moqt/run/moqtrun_reset.c"
 #include "app/moqt/run/moqtrun_resolve.c"
 #include "app/moqt/run/moqtrun_rid.c"
+#include "app/moqt/run/moqtrun_rid_win.c"
 #include "app/moqt/run/moqtrun_rngf.c"
 #include "app/moqt/run/moqtrun_route.c"
 #include "app/moqt/run/moqtrun_row.c"
@@ -1585,6 +1587,7 @@
 #include "app/moqtrun_vgate_test.c"
 #include "app/moqtrun_misc_test.c"
 #include "app/moqtrun_ctlfix_test.c"
+#include "app/moqtrun_sess_test.c"
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
 #include "app/moqraw_test.c"
@@ -2231,6 +2234,7 @@ int main(void) {
   test_moqtrun_raw();
   test_moqtrun_rawpeer();
   test_moqtrun_ctlfix();
+  test_moqtrun_sess();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();

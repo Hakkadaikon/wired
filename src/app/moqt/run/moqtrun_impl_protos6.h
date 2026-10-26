@@ -229,6 +229,8 @@ void moqtrun_early_refetch(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_early_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 int  moqtrun_rx_is_own_ctl(const wired_moqtrun_peer* p, u64 sid);
 void moqtrun_ctl_gone(wired_moqt_hub* hub, wired_moqtrun_peer* p);
+void moqtrun_sess_fault(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqsess_event ev);
 void moqtrun_ctl_rx(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,

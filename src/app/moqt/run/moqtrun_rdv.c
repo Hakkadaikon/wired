@@ -59,8 +59,48 @@ void moqtrun_subscribe_blob(
   moqtrun_blob_send_first(hub, p, peer_idx, m);
 }
 
-/* A fresh slot for the SUBSCRIBE, or DOES_NOT_EXIST once the table is
- * full. */
+/* q is a hub-sent PUBLISH of track tag to s still awaiting its answer. */
+static int moqtrun_pub_unanswered(
+    const wired_moqtrun_req* q, const wired_wt_session* s, u64 tag) {
+  return moqtrun_subtracks_pub_of_tag(q, tag) && q->wt == s && !q->pub_answered;
+}
+
+static int moqtrun_pub_pending_to(
+    const wired_moqt_hub* hub, const wired_wt_session* s, u64 tag) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    if (moqtrun_pub_unanswered(&hub->reqs[i], s, tag)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* draft-18 5.1: p's SUBSCRIBE crosses the hub's PUBLISH of t to p, a
+ * subscription Pending (publisher) for the same Track. */
+static int moqtrun_pub_crossing(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_peer*  p,
+    const wired_moqtrun_track* t) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION) &&
+         moqtrun_pub_pending_to(hub, p->wt, t->cache_tag);
+}
+
+/* DUPLICATE_SUBSCRIPTION for a crossing PUBLISH (MUST), INVALID_RANGE
+ * for a filter that ended in the past (moqtrun_filter_past). */
+static u64 moqtrun_fresh_refusal(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_peer*  p,
+    const wired_moqtrun_track* t,
+    const moqctl_subscribe*    m) {
+  if (moqtrun_pub_crossing(hub, p, t)) {
+    return MOQCTL_ERR_DUPLICATE_SUBSCRIPTION;
+  }
+  return moqtrun_filter_past(p, t, m) ? MOQCTL_ERR_INVALID_RANGE
+                                      : MOQTRUN_REQ_ACCEPT;
+}
+
+/* A fresh slot for the SUBSCRIBE unless moqtrun_fresh_refusal refuses it;
+ * DOES_NOT_EXIST once the table is full. */
 static void moqtrun_subscribe_fresh(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -69,11 +109,14 @@ static void moqtrun_subscribe_fresh(
     moqtrun_key             k,
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
-  if (!slot) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
+  u64                code = slot ? moqtrun_fresh_refusal(hub, p, track, m)
+                                 : MOQCTL_ERR_DOES_NOT_EXIST;
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    moqtrun_send_request_error(p, code);
     return;
   }
   moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m, k);
+  moqtrun_ngr_relay(hub, track, &m->params);
 }
 
 /* SWITCH_FROM (moqtswitch.c): an invalid switch is refused before

@@ -78,10 +78,10 @@ static void mupf_fetch_on(
   u8                  buf[MTST_MSG_MAX];
   mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
   m            = (moqfetch_req){0};
-  m.request_id = mf_req_sid;
-  m.fetch_type = MOQFETCH_STANDALONE;
-  m.track      = f;
-  m.range      = rl;
+  m.request_id = mf_req_rid = mtst_rid += 4;
+  m.fetch_type              = MOQFETCH_STANDALONE;
+  m.track                   = f;
+  m.range                   = rl;
   if (params) {
     m.params = *params;
   }
@@ -331,15 +331,15 @@ static int mupf_log_is(wired_wt_session* s, u64 sid, const char* want) {
 /* ===================== GOAWAY'd peers are not asked ===================== */
 
 /* draft-22 9.2: a peer that sent the hub a GOAWAY is sent no new request
- * -- not even the hub's upstream SUBSCRIBE. The hub's own GOAWAY does not
- * stop it from asking (the sender only SHOULD avoid it). */
+ * -- not even the hub's upstream SUBSCRIBE; draft-19 10.4: nor is one the
+ * hub sent GOAWAY (the sender SHOULD avoid new requests). */
 static void mupf_upsub_goaway(int recv) {
   mups_init();
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   a->sess.goaway_recv   = recv;
   a->sess.goaway_sent   = !recv;
   mups_sub(SESS_B, MRDV_S1);
-  CHECK(mups_n_up(SESS_A) == (usz)!recv);
+  CHECK(mups_n_up(SESS_A) == 0);
 }
 
 static void test_moqtrun_upfetch_upsub_skips_goaway(void) {
@@ -391,7 +391,7 @@ static void test_moqtrun_upfetch_gap_to_owner(void) {
   CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
   CHECK(mf_is_obj(2, 3, 0, 1) && mf_is_obj(3, 3, 1, 1));
   CHECK(mf_is_obj(4, 4, 0, 1) && mf_is_obj(5, 4, 1, 1));
-  CHECK(mf_hdr_rid == mf_req_sid);
+  CHECK(mf_hdr_rid == mf_req_rid);
   CHECK(mupf_log_is(SESS_A, (u64)sid, "FIN|"));
   CHECK(mupf_used() == 0);
 }
@@ -477,7 +477,7 @@ static void test_moqtrun_upfetch_reencode(void) {
   wired_span all    = wired_span_of(buf, len);
   seq.eor_timed_out = 1;
   CHECK(moqfetch_hdr_take(all, &off, &rid) == MOQCTL_OK);
-  CHECK(rid == mf_req_sid);
+  CHECK(rid == mf_req_rid);
   CHECK(moqfetch_obj_take(all, &off, &seq, &o) == MOQCTL_OK);
   CHECK(o.group == 1 && o.object == 5 && o.subgroup == 7 && o.priority == 9);
   CHECK(o.has_props && o.props.n == 2 && o.payload.n == 2);
@@ -574,6 +574,7 @@ static void mupf_owner_excluded(int how) {
   mupf_init();
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
+  a->sess.goaway_sent = how == 4; /* draft-19 10.4 */
   a->closing          = how == 1;
   if (how == 3) {
     wired_moqt_on_session_draining(&mtst_hub, SESS_A);
@@ -583,7 +584,7 @@ static void mupf_owner_excluded(int how) {
 }
 
 static void test_moqtrun_upfetch_owner_excluded(void) {
-  for (int how = 0; how < 4; how++) {
+  for (int how = 0; how < 5; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
     if (wired_test_fails != fails) {
@@ -939,19 +940,42 @@ static void test_moqtrun_upfetch_error_passthrough(void) {
   e.error_code               = MOQCTL_ERR_REDIRECT;
   e.retry_interval           = 7;
   e.has_redirect             = 1;
-  e.redirect.connect_uri     = mtst_z("https://r.example/moq");
+  e.redirect.connect_uri     = wired_span_of(0, 0); /* 10.6.1: server */
   e.redirect.track_namespace = mtns_ns("x/y");
   e.redirect.track_name      = mtst_z("z");
   mupf_up_err(SESS_C, sid, &e);
   CHECK(mupf_reply(&ok, &got) == MOQCTL_T_REQUEST_ERROR);
   CHECK(got.error_code == MOQCTL_ERR_REDIRECT && got.retry_interval == 7);
-  CHECK(got.has_redirect && got.redirect.connect_uri.n == 21);
+  CHECK(got.has_redirect && got.redirect.connect_uri.n == 0);
   CHECK(got.redirect.track_namespace.n == 2 && got.redirect.track_name.n == 1);
   const moqtrun_test_call* r = moqtrun_test_last_kind(7);
   CHECK(r && r->s == SESS_B);
   CHECK(mupf_log_is(SESS_C, (u64)sid, "FIN|"));
   CHECK(mupf_log_is(SESS_C, MUPF_DATA_SID, "STOP1|"));
   CHECK(mupf_used() == 0);
+}
+
+/* draft-19 10.6.1 (draft-22 9.4): an upstream REQUEST_ERROR whose Redirect
+ * has a non-zero Connect URI Length closes the upstream session
+ * PROTOCOL_VIOLATION; the requester's FETCH is not handed that Redirect. */
+static void test_moqtrun_upfetch_error_redirect_uri_closes(void) {
+  static moqctl_request_error e;
+  moqctl_request_error        got = {0};
+  moqfetch_ok                 ok  = {0};
+  moqfetch_req                m   = {0};
+  mupf_init();
+  mupf_vers(MOQVER_D22);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid                = mupf_up(SESS_C, 0, &m);
+  e                      = (moqctl_request_error){0};
+  e.error_code           = MOQCTL_ERR_REDIRECT;
+  e.has_redirect         = 1;
+  e.redirect.connect_uri = mtst_z("https://r.example/moq");
+  mupf_up_err(SESS_C, sid, &e);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(
+      mupf_reply(&ok, &got) != MOQCTL_T_REQUEST_ERROR ||
+      got.error_code != MOQCTL_ERR_REDIRECT);
 }
 
 /* A held track's FETCH was answered already: an upstream REQUEST_ERROR
@@ -1207,6 +1231,22 @@ static void mupf_unanswered_gone(int cancel) {
   CHECK(mupf_used() == 0);
 }
 
+/* draft-19 3.3.2: C FINs the upstream FETCH's request stream with no
+ * FETCH_OK -- the request failed: B is refused as for a REQUEST_ERROR,
+ * the hub FINs its side and the slot frees. */
+static void test_moqtrun_upfetch_fin_unanswered(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  CHECK(sid >= 0);
+  wired_moqt_on_stream_data(
+      &mtst_hub, SESS_C, (u64)sid, wired_span_of(0, 0), 1);
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "FIN|"));
+  CHECK(mupf_used() == 0);
+}
+
 static void test_moqtrun_upfetch_unanswered_stop(void) {
   mupf_unanswered_gone(0);
   mupf_unanswered_gone(1);
@@ -1353,7 +1393,7 @@ static void test_moqtrun_upfetch_malformed_past_end(void) {
   moqfetch_req m = {0};
   mupf_init();
   mtst_join(SESS_D);
-  mtst_subscribe_p(SESS_D, MTRQ_S1, &f, mtst_rid += 2, 0);
+  mtst_subscribe_p(SESS_D, MTRQ_S1, &f, mtst_rid += 4, 0);
   mupf_cache_group(3, 1);
   mupf_cache_group(4, 1);
   mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
@@ -1903,6 +1943,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_tick_leaves_leg();
   test_moqtrun_upfetch_bad_end();
   test_moqtrun_upfetch_error_passthrough();
+  test_moqtrun_upfetch_error_redirect_uri_closes();
   test_moqtrun_upfetch_error_held();
   test_moqtrun_upfetch_leg_ends();
   test_moqtrun_upfetch_two_goaways();
@@ -1915,6 +1956,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_marker_relay();
   test_moqtrun_upfetch_requester_gone();
   test_moqtrun_upfetch_unanswered_stop();
+  test_moqtrun_upfetch_fin_unanswered();
   test_moqtrun_upfetch_late_data_stream();
   test_moqtrun_upfetch_rejoin_unbinds();
   test_moqtrun_upfetch_torn_header();

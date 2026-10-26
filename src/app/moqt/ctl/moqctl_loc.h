@@ -154,6 +154,9 @@
 
 /** Setup Option types (SS10.1.1). */
 #define MOQCTL_OPT_PATH 0x1ULL
+/** AUTHORIZATION TOKEN option (draft-18/19 10.3.1.4, draft-22 9.1.4; odd
+ * type: Length + a Token structure, SS10.2.2). */
+#define MOQCTL_OPT_AUTHORIZATION_TOKEN 0x3ULL
 /** AUTHORITY option: the server authority on a raw-QUIC session (odd
  * type: Length-prefixed bytes). */
 #define MOQCTL_OPT_AUTHORITY 0x5ULL

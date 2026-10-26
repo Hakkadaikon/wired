@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2165/2260 requirements demonstrated (95.8%) — 1813 directly tested,
-352 indirect, 95 untested.**
+**Total: 2211/2260 requirements demonstrated (97.8%) — 1864 directly tested,
+347 indirect, 49 untested.**
 
 ## QUIC core
 
@@ -145,9 +145,9 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 225/248 | 195 | 30 | 23 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 229/248 | 192 | 37 | 19 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 238/259 | 203 | 35 | 21 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 242/248 | 213 | 29 | 6 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 244/248 | 210 | 34 | 4 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 252/259 | 218 | 34 | 7 |
 
 Experimental, not counted above:
 [MoQT track switching](moqt-track-switching.md) is an opt-in,

@@ -10,7 +10,9 @@ static void moqtrun_pre_rest(
     int                 fin);
 static wired_moqtrun_peer* moqtrun_peer_of_ctx(
     wired_moqt_hub* hub, wired_wt_session* s);
-static int moqtrun_prop_is_timeout(u64 type);
+static int  moqtrun_prop_is_timeout(u64 type);
+static void moqtrun_rx_violation_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p);
 
 static int moqtrun_pre_is(const wired_moqtrun_peer* p, u64 sid) {
   return p->pre_n != 0 && p->pre_sid == sid;
@@ -97,7 +99,19 @@ void wired_moqt_on_stream_data(
     moqtrun_rx_route(hub, p, stream_id, data, fin);
   }
   moqtrun_hold_replay(hub, p);
+  moqtrun_rx_violation_close(hub, p);
   moqtrun_pubdone_sweep(hub);
+}
+
+/* A Subgroup stream fault this delivery flagged (moqtrun_rx_flag) closes
+ * p's session PROTOCOL_VIOLATION. */
+static void moqtrun_rx_violation_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (!hub->rx_violation) {
+    return;
+  }
+  hub->rx_violation = 0;
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
 /* ===================== OBJECT_DATAGRAM relay (draft 11.3) ============= */

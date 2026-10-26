@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 195/248 tested, 30 indirect, 23 untested.**
+**Coverage: 213/248 tested, 29 indirect, 6 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -356,7 +356,7 @@ Legend:
     (moqctl.h/moqsess.h/moqraw.h/moqtrun_types.h) rather than round-tripped
     through a codec; no test enumerates the table, but each code is
     asserted at its own violation site (the unwanted-behavior items of this
-    file). DUPLICATE_TRACK_ALIAS is never raised (MQ18-113). draft-18 does
+    file). DUPLICATE_TRACK_ALIAS is raised at MQ18-113. draft-18 does
     not define session code 0x1B (TOO_MANY_REQUEST_UPDATES, draft-19 only)
     -- see Out of scope.
 
@@ -366,12 +366,11 @@ Legend:
   leading variable-length integer as one of SETUP (0x2F00), FETCH_HEADER
   (0x05), SUBGROUP_HEADER (0b0XX1XXXX), or PADDING (0x132B3E28).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_classify_golden`
-- [ ] MQ18-039 (§3.4) If an endpoint receives an unknown unidirectional stream
+- [x] MQ18-039 (§3.4) If an endpoint receives an unknown unidirectional stream
   type, then the implementation shall close the session with a protocol
   violation.
-  - gap: only the session model closes
-    (`test_moqsess_unknown_uni_stream_type`); the hub's stream path does not
-    feed it, and no hub test sends an unknown stream type.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_padding_stream_kept`
 - [x] MQ18-040 The implementation shall classify a unidirectional stream
   without consuming bytes past a truncated leading type field, reporting the
   classification as insufficient instead.
@@ -500,13 +499,19 @@ Legend:
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s4_resolve`
-- [ ] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
+- [~] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
   carries NEW_GROUP_REQUEST, the hub shall include it in its upstream
   SUBSCRIBE, or send it upstream in a REQUEST_UPDATE for an Established
   subscription (value 0 or above the Largest Group, the track supporting
   dynamic Groups, none outstanding).
-  - gap: decoded by the registry, not acted on; the upstream SUBSCRIBE
-    carries no parameters.
+  - evidence: `moqtrun_ngr_upstream` copies a waiter's value into the
+    upstream SUBSCRIBE (`test_moqtrun_upsub_ngr_in_subscribe`);
+    `moqtrun_ngr_relay` sends REQUEST_UPDATE on the hub's own upstream
+    SUBSCRIBE stream under the three conditions, outstanding until the
+    Largest Group moves (`test_moqtrun_upsub_ngr_update`).
+  - gap: a track Established by the publisher's own PUBLISH gets no
+    REQUEST_UPDATE (its reply would arrive on the PUBLISH stream, which has
+    no parser for it).
 - [x] MQ18-053 (§9.4, §9.5) A relay may aggregate authorized subscriptions for
   a given Track when multiple subscribers request it, answering a SUBSCRIBE
   for a Track with an Established upstream subscription with SUBSCRIBE_OK and
@@ -599,18 +604,15 @@ Legend:
     `test_moqtrun_upfetch_two_not_shared`); the start at 1 and the step of 2
     (`request_id_next`) are not pinned by a test. The client's even half is
     client behavior.
-- [ ] MQ18-061 (§10.1) If an endpoint receives a Request ID whose least
+- [x] MQ18-061 (§10.1) If an endpoint receives a Request ID whose least
   significant bit is incorrect for the sender, then the implementation shall
   close the session with INVALID_REQUEST_ID.
-  - gap: `moqsess` maps the event to INVALID_REQUEST_ID
-    (`test_moqsess_bad_request_id_parity`), but the hub raises it for no
-    request message; only a draft-18 GOAWAY's Request ID parity is checked
-    (MQ18-048a, `test_moqtrun_peer_goaway_d18_parity`).
-- [ ] MQ18-062 (§10.1) If an endpoint receives a duplicate Request ID, then the
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_parity_closes`
+- [x] MQ18-062 (§10.1) If an endpoint receives a duplicate Request ID, then the
   implementation shall close the session with INVALID_REQUEST_ID.
-  - gap: only the `moqsess` event mapping exists
-    (`test_moqsess_duplicate_request_id`); the hub does not detect a reused
-    Request ID.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_duplicate_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_out_of_order_ok`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_window_slides`
 
 ## SS10.2 Message Parameters
 
@@ -778,13 +780,12 @@ Legend:
   MOQT_IMPLEMENTATION Setup Option, limited to the implementation name and
   major version, unless configured not to.
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_sends_implementation`
-- [ ] MQ18-226 (§10.2.2, §10.3.1.4) If a client SETUP carries an AUTHORIZATION
+- [x] MQ18-226 (§10.2.2, §10.3.1.4) If a client SETUP carries an AUTHORIZATION
   TOKEN Setup Option with Alias Type DELETE or USE_ALIAS, then the server
   shall close the session with PROTOCOL_VIOLATION; a REGISTER that exceeds
   its MAX_AUTH_TOKEN_CACHE_SIZE shall be treated as USE_VALUE, not a session
   failure.
-  - gap: `moqctl_setup_take` has no case for option 0x03; it is dropped as
-    unknown.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_setup_token_alias`
 
 ## SS10.4 GOAWAY (wire format, draft-18 shape)
 
@@ -808,13 +809,13 @@ Legend:
   + Length + Number of Parameters + Parameters + Track Properties (the
   remaining message bytes).
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-- [ ] MQ18-084 (§10.5) If a PUBLISH_OK, REQUEST_UPDATE_OK,
+- [x] MQ18-084 (§10.5) If a PUBLISH_OK, REQUEST_UPDATE_OK,
   SUBSCRIBE_NAMESPACE_OK or PUBLISH_NAMESPACE_OK carries non-empty Track
   Properties, then the implementation shall close the session with a protocol
   violation.
-  - gap: `moqctl_request_ok_take` decodes the residual span and leaves the
-    per-variant check to the caller; no hub path (e.g. a PUBLISH_OK answering
-    a hub-initiated PUBLISH) checks it.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_ok_props_closes`
+  - evidence: PUBLISH_OK is the only one of these the hub can receive: it
+    sends no REQUEST_UPDATE, SUBSCRIBE_NAMESPACE or PUBLISH_NAMESPACE.
 
 ## SS10.6 REQUEST_ERROR
 
@@ -829,13 +830,15 @@ Legend:
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_request_error_redirect_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_error_roundtrip`
-- [ ] MQ18-087 (§10.6.1) If the server receives a Redirect with a non-zero
+- [x] MQ18-087 (§10.6.1) If the server receives a Redirect with a non-zero
   Connect URI Length, or a Redirect with a non-empty Track Name for a
   namespace-scoped request, then the implementation shall close the session
   with a protocol violation.
-  - gap: `moqctl_request_error_take` decodes the Redirect for either role
-    and nothing checks it: an upstream REQUEST_ERROR's Redirect is relayed
-    as is (`test_moqtrun_upfetch_error_passthrough`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_error_redirect_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_redirect_uri_closes`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_error_redirect_uri_closes`
+  - evidence: the hub sends no namespace-scoped request, so the Track Name
+    rule has no REQUEST_ERROR to apply to.
 - [x] MQ18-088 (§10.6.2, §15.10.2) The implementation shall use the draft-18
   REQUEST_ERROR codes: INTERNAL_ERROR, UNAUTHORIZED, TIMEOUT, NOT_SUPPORTED,
   GOING_AWAY, EXCESSIVE_LOAD, UNSUPPORTED_EXTENSION, DUPLICATE_SUBSCRIPTION,
@@ -1004,12 +1007,12 @@ Legend:
     subscriber over the reliable relay, and Objects of the start Group below
     the start Object are cut on every relay path.
 
-- [ ] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
+- [x] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
   the filter's entire End Group has already been published, then it should
   reply REQUEST_ERROR INVALID_RANGE.
-  - gap: a draft-18 AbsoluteRange whose End Group is wholly published is
-    not refused (no test); INVALID_RANGE is asserted for the draft-22
-    filter only.
+  - evidence: `moqtrun_filter_past` refuses an AbsoluteRange whose End Group
+    precedes the track's Largest Group; `test_moqtrun_sub_range_past_invalid`
+    (one ending at the Largest Group is accepted).
 
 ## SS14 Grease
 
@@ -1031,24 +1034,22 @@ Legend:
   to two different Tracks simultaneously in the same session.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [ ] MQ18-113 (§11.1) If a subscriber receives a PUBLISH or SUBSCRIBE_OK
+- [x] MQ18-113 (§11.1) If a subscriber receives a PUBLISH or SUBSCRIBE_OK
   reusing a Track Alias already bound to a different Established
   subscription, then the implementation shall close the session with
   DUPLICATE_TRACK_ALIAS.
-  - gap: no DUPLICATE_TRACK_ALIAS close exists, though client PUBLISHes and
-    upstream SUBSCRIBE_OKs carry peer-chosen aliases.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_dup_alias_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_dup_alias_closes`
 
 ## SS11.2.1.1 Object Status
 
 - [x] MQ18-114 The implementation shall recognize Object Status values 0x0
   (Normal), 0x3 (End of Group), and 0x4 (End of Track).
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
-- [ ] MQ18-115 (§11.2.1.1) If an Object carries an unregistered Status value,
+- [x] MQ18-115 (§11.2.1.1) If an Object carries an unregistered Status value,
   then the implementation should close the session with a protocol
   violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_status_values`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-116 An Object shall have an empty payload unless its Object Status
   is Normal (0x0); the Object Status field shall be present only when Payload
   Length is 0.
@@ -1058,12 +1059,10 @@ Legend:
 
 ## SS11.2.1.2 Object Properties
 
-- [ ] MQ18-117 (§11.2.1.2) If an endpoint receives Object Properties on an
+- [x] MQ18-117 (§11.2.1.2) If an endpoint receives Object Properties on an
   Object whose Status is not Normal, then the implementation shall close the
   session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_properties`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-118 Object Properties shall be serialized as a Properties Length
   (varint) followed by a Key-Value-Pair list.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_properties`
@@ -1082,22 +1081,18 @@ Legend:
   Object Forwarding Preference = Subgroup, belonging to the Track Alias, Group
   ID, and Subgroup ID the header declares.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
-- [ ] MQ18-120 (§11.4.2) The SUBGROUP_HEADER Type field shall take the form
+- [x] MQ18-120 (§11.4.2) The SUBGROUP_HEADER Type field shall take the form
   0b0XX1XXXX (bit 4 always set); if received with any other form, the
   implementation shall close the session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_type_valid_golden`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
 - [x] MQ18-121 The implementation shall decode the SUBGROUP_ID_MODE field (bits
   1-2) as: 0b00 Subgroup ID absent and 0, 0b01 Subgroup ID absent and equal to
   the first Object's Object ID, 0b10 Subgroup ID present in the header.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
-- [ ] MQ18-122 (§11.4.2) If SUBGROUP_ID_MODE is 0b11, then the implementation
+- [x] MQ18-122 (§11.4.2) If SUBGROUP_ID_MODE is 0b11, then the implementation
   shall close the session with a protocol violation.
-  - gap: the codec reports the violation (`test_moqdata_subhdr_take_bad_type`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
 - [x] MQ18-123 The implementation shall decode the PROPERTIES bit (0x01),
   END_OF_GROUP bit (0x08), DEFAULT_PRIORITY bit (0x20), and FIRST_OBJECT bit
   (0x40) of the SUBGROUP_HEADER Type field.
@@ -1150,12 +1145,10 @@ Legend:
   in a Subgroup, and the previous Object ID plus the Delta plus 1 for each
   subsequent Object.
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_delta_chain`
-- [ ] MQ18-132 (§11.4.2) If the resulting cumulative Object ID would exceed
+- [x] MQ18-132 (§11.4.2) If the resulting cumulative Object ID would exceed
   2^64-1, then the implementation shall close the session with a protocol
   violation.
-  - gap: the codec reports the violation (`test_moqdata_obj_take_id_overflow`); the hub stops
-    relaying that stream (`test_moqtrun_decode_loop_stops_at_violation`)
-    instead of closing the session.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
 - [x] MQ18-133 If a Subgroup Object stream terminates with a FIN in the middle
   of a serialized Object, then the implementation shall not treat the partial
   Object as complete.
@@ -1301,11 +1294,13 @@ Legend:
     (`test_moqsub_cancel_after_fin`); the hub, cancelling its upstream
     SUBSCRIBE, sends RESET_STREAM and STOP_SENDING
     (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
-- [~] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
+- [x] MQ18-151 (§3.3.2) If the responder FINs its own direction without ever
   sending a response, then the requester shall treat the request as failed.
-  - evidence: only the unwired `moqsub` model shows it
-    (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
-    request stream before its answer.
+  - evidence: `moqtrun_up_rx` / `moqtrun_upf_rx` take the FIN and fail an
+    unanswered upstream SUBSCRIBE / FETCH as a REQUEST_ERROR would;
+    `test_moqtrun_upsub_fin_unanswered_fails` and
+    `test_moqtrun_upfetch_fin_unanswered` FIN before the response and see the
+    downstream requester refused, the hub's side FINned, the slot freed.
 - [x] MQ18-212 (§5.1) The publisher shall save as the subscription's Joining
   Location the Largest Location it communicates in SUBSCRIBE_OK, PUBLISH,
   or the REQUEST_OK of a REQUEST_UPDATE that changes the Forward State from
@@ -1313,20 +1308,27 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_forward_toggles`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_rejoin_reresolves_start`
-- [ ] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
+- [x] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
   has a subscription to that peer in Pending (publisher) state (a
   hub-initiated PUBLISH not yet answered), then it shall refuse it with
   REQUEST_ERROR DUPLICATE_SUBSCRIPTION.
-  - gap: not tested.
-- [ ] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
+  - evidence: `moqtrun_fresh_refusal` (`moqtrun_pub_crossing`);
+    `test_subtracks_subscribe_crosses_publish` subscribes while the hub's
+    SUBSCRIBE_TRACKS PUBLISH is unanswered and sees DUPLICATE_SUBSCRIPTION on
+    draft-18, a subscription on later drafts.
+- [x] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
   own upstream SUBSCRIBE to that peer is still Pending (subscriber), then it
   shall terminate its own subscription before sending PUBLISH_OK.
-  - gap: not tested.
-- [~] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
+  - evidence: `moqtrun_up_crossed` cancels the Pending upstream SUBSCRIBE in
+    `moqtrun_publish_checked` before PUBLISH_OK is queued;
+    `test_moqtrun_upsub_publish_crosses` asserts the reset precedes the
+    PUBLISH_OK and the waiter rides the PUBLISH.
+- [x] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
   shall reset every open data stream of that subscription.
-  - evidence: `moqtrun_req_cancel` drops the subscription
-    (`moqtrun_drop_peer_subs`) and `test_moqtrun_req_reset_unsubscribes`
-    asserts it is gone; no test asserts its open relay streams are reset.
+  - evidence: `moqtrun_req_cancel` resets the subscription's relay streams
+    (`moqtrun_cancel_peer_subs`) before dropping it;
+    `test_moqtrun_req_reset_resets_data_streams` asserts the open Subgroup
+    stream toward the subscriber is reset.
 - [ ] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
   they become available.
   - gap: the hub holds an Object split across deliveries until it is
@@ -1798,13 +1800,11 @@ Legend:
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_dg_unknown_alias_counts_bad`
-- [ ] MQ18-234 (§11, §11.3.1) If a datagram has an unknown or invalid Type
+- [x] MQ18-234 (§11, §11.3.1) If a datagram has an unknown or invalid Type
   (outside 0b00X0XXXX, or STATUS with END_OF_GROUP), the PROPERTIES bit with a
   Properties Length of 0, or Properties on a non-Normal Object Status, then
   the server shall close the session with PROTOCOL_VIOLATION.
-  - gap: the codec rejects these (`test_moqdg_type_valid_rejects`,
-    `test_moqdg_take_reject_golden`), but the hub only counts and drops the
-    datagram (`test_moqtrun_dg_malformed_counts_bad`) instead of closing.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_datagram_invalid_closes`
 - [~] MQ18-240 (§11.5.2) The server shall discard all data received in a
   padding datagram (type 0x132B3E29).
   - evidence: the datagram codec has no padding type, so the hub drops it as
