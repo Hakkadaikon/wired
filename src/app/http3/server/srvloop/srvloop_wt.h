@@ -903,6 +903,10 @@ typedef struct {
    * DATA, in that order (0 = absent, the draft's default), latched as the
    * SETTINGS frame is walked (priority_ctrl.c). */
   u64 peer_wt_initial[3];
+  /** RFC 9114 4.2.2 / 7.2.4.1: the client's SETTINGS_MAX_FIELD_SECTION_SIZE
+   * (0 = not advertised, unlimited; an advertised 0 is kept as 1, which no
+   * field section fits either), latched as SETTINGS is walked. */
+  u64 peer_max_field_section;
   /** RFC 9204 4.2 (9204-028): the H3 connection error code of a second QPACK
    * encoder or decoder unidirectional stream seen this step
    * (H3_STREAM_CREATION_ERROR), 0 when none was rejected. Mirrors

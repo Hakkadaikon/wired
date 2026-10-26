@@ -546,6 +546,7 @@
 #include "app/http3/request/h3recv/req_frames.c"
 #include "app/http3/request/h3resp/field_encode.c"
 #include "app/http3/request/h3resp/resp_build.c"
+#include "app/http3/request/h3resp/resp_size.c"
 #include "app/http3/request/h3resp/hello.c"
 #include "transport/conn/loop/evloop/evloop.c"
 #include "transport/conn/loop/connrunner/level.c"

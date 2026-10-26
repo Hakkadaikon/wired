@@ -25204,6 +25204,39 @@ static void test_srvrun_http_field_count_limit(void) {
   sr_hx_expect_500();
 }
 
+/* sr_arm_with_cfg with the client's SETTINGS_MAX_FIELD_SECTION_SIZE set to
+ * limit; returns whether the response failed to arm. */
+static int sr_arm_with_field_limit(srvrun_conn* c, srvrun_cfg* cfg, u64 limit) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  sr_set_req(c, 0, 0, 0);
+  c->l.peer_max_field_section = limit;
+  cfg->fd                     = -1;
+  cfg->env                    = &g_srvrun_env;
+  {
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  return c->resp[0].arm_failed;
+}
+
+/* RFC 9114 4.2.2 (9114-086): a response whose field section (:status 42 +
+ * location:/new 44 = 86) exceeds the client's advertised
+ * SETTINGS_MAX_FIELD_SECTION_SIZE is never sent (the stream is reset with
+ * H3_INTERNAL_ERROR, srvrun_reap_one); one exactly at the limit is. */
+static void test_srvrun_http_peer_field_section_limit(void) {
+  static const wired_http_field f[] = {SR_HX_FIELD(sr_hx_loc_n, sr_hx_loc_v)};
+  srvrun_cfg                    cfg = {0};
+  g_sr_hx                           = (sr_hx_case){302, 0, 1, f, 0, 0, 0};
+  cfg.http                          = sr_hx_handler;
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 85) == 1);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 86) == 0);
+  CHECK(sr_arm_with_field_limit(sr_test_conns(), &cfg, 0) == 0);
+}
+
 /* Fields past WIRED_HTTP_FIELD_BYTES_MAX in total answer 500 rather than
  * overflowing the response's header room; the limit itself still fits. */
 static void test_srvrun_http_field_bytes_limit(void) {
@@ -26221,6 +26254,7 @@ void test_srvrun(void) {
   test_srvrun_http_status_range();
   test_srvrun_http_bad_field_is_500();
   test_srvrun_http_field_count_limit();
+  test_srvrun_http_peer_field_section_limit();
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();

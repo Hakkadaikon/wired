@@ -1,3 +1,4 @@
+#include "app/http3/request/h3resp/resp_size.h"
 #include "test.h"
 
 /* RFC 9114 4.1: HEADERS(:status field section) followed by DATA(body), and the
@@ -132,7 +133,18 @@ static void test_resp_build_prefix_fields(void) {
   CHECK(pb.len == 2 + 4); /* HEADERS type + length + 4-byte section */
 }
 
+/* RFC 9114 4.2.2: name + value + 32 per line -- :status alone is 42, a
+ * content-type adds 12 + len + 32, each extra field its own lengths + 32. */
+static void test_resp_section_size(void) {
+  static const u8   n[] = "location", v[] = "/new";
+  const qpack_field f[] = {{{n, 8}, {v, 4}}, {{n, 8}, {v, 0}}};
+  CHECK(h3resp_section_size(0, (h3resp_fields){0, 0}) == 42);
+  CHECK(h3resp_section_size("text/plain", (h3resp_fields){0, 0}) == 96);
+  CHECK(h3resp_section_size(0, (h3resp_fields){f, 2}) == 42 + 44 + 40);
+}
+
 void test_resp_build(void) {
+  test_resp_section_size();
   test_resp_build_prefix_fields();
   test_resp_build_prefix_matches_full();
   test_resp_build_roundtrip();

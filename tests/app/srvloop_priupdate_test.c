@@ -255,6 +255,29 @@ static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
   CHECK(l.h3peer.ctrl.error == H3_ERR_NONE);
 }
 
+/* RFC 9114 4.2.2 / 7.2.4.1: the client's SETTINGS_MAX_FIELD_SECTION_SIZE
+ * is latched for the response path; an advertised 0 is kept as 1. */
+static void test_srvloop_ctrl_settings_latch_field_section(void) {
+  static wired_srvloop l;
+  static const u8      v300[] = {0x00, 0x04, 0x03, 0x06, 0x41, 0x2c};
+  static const u8      v0[]   = {0x00, 0x04, 0x02, 0x06, 0x00};
+  u8                   frame[32];
+  usz                  flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(l.peer_max_field_section == 0);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, v300, sizeof v300, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_max_field_section == 300);
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, v0, sizeof v0, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.peer_max_field_section == 1);
+}
+
 /* RFC 9114 6.2.1: a client that opens its control stream with the leading
  * 0x00 type varint ALONE (a 1-byte STREAM frame) and sends SETTINGS in a
  * second frame at offset 1 still latches settings_seen -- recognition must
@@ -452,6 +475,7 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_past_stream_limit();
   test_srvloop_priupdate_push_unpromised();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
+  test_srvloop_ctrl_settings_latch_field_section();
   test_srvloop_ctrl_settings_split_after_type_byte();
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();
