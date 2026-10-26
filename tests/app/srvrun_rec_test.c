@@ -372,13 +372,16 @@ static void test_srvrun_rec_loss_timer_fires(void) {
   CHECK(c.loss_time_us == 0);
 }
 
-/* RFC 9002 6.2.1 / A.8 / 9002-034: the PTO is not set while the loss
- * timer is. Exhaustive over {loss timer armed, PTO deadline passed}: a
- * probe (pto_count 1) only when the timer is unarmed and the PTO due. */
+/* RFC 9002 6.2.1 / A.8 (9002-030, 9002-034): the 1-RTT PTO is set only
+ * once the handshake is confirmed and never while the loss timer is.
+ * Exhaustive over {confirmed, loss timer armed, PTO deadline passed} with
+ * an ack-eliciting packet in flight: a probe (pto_count 1) only on the row
+ * confirmed, unarmed, due. */
 static void test_srvrun_rec_loss_timer_suppresses_pto(void) {
   static const struct {
-    int armed, pto_due, probed;
-  } rows[] = {{0, 0, 0}, {0, 1, 1}, {1, 0, 0}, {1, 1, 0}};
+    int confirmed, armed, pto_due, probed;
+  } rows[] = {{0, 0, 0, 0}, {0, 0, 1, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
+              {1, 0, 0, 0}, {1, 0, 1, 1}, {1, 1, 0, 0}, {1, 1, 1, 0}};
   for (usz i = 0; i < sizeof rows / sizeof rows[0]; i++) {
     static u8       body[2 * SRVRUN_CHUNK];
     struct lp_fix   f;
@@ -393,9 +396,12 @@ static void test_srvrun_rec_loss_timer_suppresses_pto(void) {
     pn0 = srvrec_pump_two(&c);
     srvrec_ack(&c, pn0 + 1, pn0 + 1, 8);
     c.loss_time_us = rows[i].armed ? 9000 : 0;
-    ctx.now_ms     = rows[i].pto_due ? 10000 : 1;
+    if (!rows[i].confirmed) {
+      c.s.phase = WIRED_SERVER_HS_INITIAL;
+    }
+    ctx.now_ms = rows[i].pto_due ? 10000 : 1;
     srvrun_pto_slot(&ctx, 0);
-    CHECK(c.resp[0].sess.pto_count == rows[i].probed);
+    CHECK(c.l.ackst.pto_count == rows[i].probed);
   }
 }
 
@@ -570,6 +576,125 @@ static void test_srvrun_boot_pto_resets_on_initial_discard(void) {
   CHECK(c.boot_pto_count == 0);
 }
 
+/* One srvrun_pto_slot tick of c at now_ms. */
+static void srvrec_pto_tick(srvrun_conn* c, u64 now_ms) {
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  srvrun_pto_slot(&ctx, 0);
+}
+
+/* RFC 9002 6.2.1 / A.8 (9002-031): the 1-RTT PTO runs from the LAST
+ * ack-eliciting send. Two MAX_DATA packets at t=0 and t=D-1 (D the PTO):
+ * not due at D, due at 2D-1. */
+static void test_srvrun_pto_restarts_on_send(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           d;
+  srvrec_bare(&c, &f, &ob);
+  d = srvrun_pto_deadline_ms(&c, 0);
+  (void)srvrec_ctrl(&c, 0);
+  (void)srvrec_ctrl(&c, d - 1);
+  srvrec_pto_tick(&c, d);
+  CHECK(c.l.ackst.pto_count == 0);
+  srvrec_pto_tick(&c, 2 * d - 2);
+  CHECK(c.l.ackst.pto_count == 0);
+  srvrec_pto_tick(&c, 2 * d - 1);
+  CHECK(c.l.ackst.pto_count == 1);
+}
+
+/* RFC 9002 A.7: a newly acknowledged packet resets pto_count (a server
+ * always completed address validation); a duplicate ACK does not. */
+static void test_srvrun_pto_count_resets_on_ack(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           pn;
+  srvrec_bare(&c, &f, &ob);
+  pn = srvrec_ctrl(&c, 0);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  srvrec_ack(&c, pn + 1, pn + 1, 2000); /* the PING probe */
+  CHECK(c.l.ackst.pto_count == 0);
+  c.l.ackst.pto_count = 2;
+  srvrec_ack(&c, pn + 1, pn + 1, 2001); /* duplicate: nothing new */
+  CHECK(c.l.ackst.pto_count == 2);
+}
+
+/* RFC 9002 6.2.4 (9002-069) / 7.5: with the window full, a PTO probe
+ * carries NEW data past cwnd (two packets), and the slice already in flight
+ * is neither requeued nor taken out of flight (6.2, 9002-024). */
+static void test_srvrun_pto_probe_sends_new_data(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg    cfg = srvrec_cfg();
+  srvrun_state  st  = {0, &c};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.cwnd               = SRVRUN_CHUNK; /* room for one slice */
+  {
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    c.l.now_ms          = 0;
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.resp[0].sess.q.cur == 3 * SRVRUN_CHUNK); /* two new slices */
+  CHECK(c.resp[0].sess.requeue_n == 0);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 3);
+  CHECK(c.l.ackst.probe_n == 0); /* the cwnd waiver ends with the probe */
+}
+
+/* RFC 9002 6.2.4 with no new data: copies of the oldest slices go, the
+ * originals stay in flight (9002-024). */
+static void test_srvrun_pto_probe_retransmits_when_no_new_data(void) {
+  static u8     body[2 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  (void)srvrec_pump_two(&c);
+  c.cc.cwnd = 1;
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.resp[0].sess.requeue_n == 0);                 /* both resent */
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 4); /* + originals */
+}
+
+/* RFC 9221 5.2 (9221-028) / RFC 9002 6.2.4: an unacknowledged DATAGRAM-only
+ * packet arms the PTO (the poll tick stays on for it), and with no stream
+ * data to send the probe is a single PING. */
+static void test_srvrun_pto_pings_datagram_only(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], dg[1500];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  wired_obuf    dob = obuf_of(dg, sizeof dg);
+  srvrun_cfg    cfg = srvrec_cfg();
+  u64           tx;
+  srvrec_bare(&c, &f, &ob);
+  c.l.now_ms = 0;
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob));
+  CHECK(srvrun_slot_waiting(&c));
+  tx = c.l.tx_pn;
+  srvrun_test_reset_send_count();
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0) - 1);
+  CHECK(c.l.ackst.pto_count == 0 && c.l.tx_pn == tx);
+  srvrec_pto_tick(&c, srvrun_pto_deadline_ms(&c, 0));
+  CHECK(c.l.ackst.pto_count == 1);
+  CHECK(c.l.tx_pn == tx + 1); /* one PING packet */
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c.l.ackst.last_elicit_ms == srvrun_pto_deadline_ms(&c, 0));
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -588,4 +713,9 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_tick_flushes_ack();
   test_srvrun_boot_pto_no_max_ack_delay();
   test_srvrun_boot_pto_resets_on_initial_discard();
+  test_srvrun_pto_restarts_on_send();
+  test_srvrun_pto_count_resets_on_ack();
+  test_srvrun_pto_probe_sends_new_data();
+  test_srvrun_pto_probe_retransmits_when_no_new_data();
+  test_srvrun_pto_pings_datagram_only();
 }

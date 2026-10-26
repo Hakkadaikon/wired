@@ -32,9 +32,11 @@ int srvrun_sess_log_room(const wired_sendsess* sess) {
  * checked here -- it gates whole round-robin passes
  * (srvrun_pump_round_gated), not individual slots. Reads the cached total
  * (srvrun_conn.acct_inflight) rather than re-walking every slot per slice,
- * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). */
+ * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). RFC 9002
+ * 7.5: a PTO probe (probe_n) is not blocked by it. */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
-  return srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
+  return c->l.ackst.probe_n ||
+         srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send
@@ -110,6 +112,13 @@ static int srvrun_sess_credit_room(
    * every streaming re-arm / epoch recycle and would under-count. */
   return srvrun_conn_credit_has_room(c) &&
          sess->stream_base_offset + sess->q.cur + srvrun_mps(c) <= credit;
+}
+
+/* The log gate and both flow-control credits -- srvrun_can_send_new short
+ * of the congestion window, which a PTO probe bypasses (RFC 9002 7.5). */
+int srvrun_sess_flow_room(
+    const srvrun_conn* c, const wired_sendsess* sess, u64 credit) {
+  return srvrun_sess_log_room(sess) && srvrun_sess_credit_room(c, sess, credit);
 }
 
 /* 1 when a brand-new slice (from sess's sendq, not its requeue) may go out:

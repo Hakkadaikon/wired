@@ -278,10 +278,10 @@ static void test_sendsess_oldest_sent_ms(void) {
   CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 0);
 }
 
-/* A PTO probe requeues the two oldest in-flight slices (smallest pns, RFC
- * 9002 6.2.4: a sender may send up to two probe datagrams) so a lost tail
- * recovers in parallel; younger packets stay in flight and the probe budget
- * is spent once per fire, not once per slice. */
+/* A PTO probe queues copies of the two oldest in-flight slices (smallest
+ * pns, RFC 9002 6.2.4: a sender may send up to two probe datagrams) so a
+ * lost tail recovers in parallel; RFC 9002 6.2: every probed packet stays
+ * in flight, and the probe budget is spent once per fire. */
 static void test_sendsess_pto_probes_two_oldest(void) {
   u8                bytes[30];
   wired_sendsess    s;
@@ -295,7 +295,7 @@ static void test_sendsess_pto_probes_two_oldest(void) {
   CHECK(s.requeue_n == 2);
   CHECK(s.requeue[0].offset == 0);  /* pn 7 carried offset 0: the oldest */
   CHECK(s.requeue[1].offset == 10); /* pn 8: the second-oldest */
-  CHECK(wired_sendsess_inflight(&s) == 1);
+  CHECK(wired_sendsess_inflight(&s) == 3);
   CHECK(s.pto_count == 1);
 }
 
@@ -310,13 +310,12 @@ static void test_sendsess_pto_single_inflight_probes_one(void) {
   wired_sendsess_sent(&s, &sl, 0, 0);
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
   CHECK(s.requeue_n == 1);
-  CHECK(wired_sendsess_inflight(&s) == 0);
+  CHECK(wired_sendsess_inflight(&s) == 1);
   CHECK(s.pto_count == 1);
 }
 
-/* A requeue array with one free entry takes the oldest slice only; the
- * second-oldest is dropped by the full array and simply stays in flight
- * (no corruption, a later fire or loss pass picks it up again). */
+/* While a resend is already queued (a loss or an earlier probe) a fire
+ * queues nothing more -- the queued resend is the probe. */
 static void test_sendsess_pto_requeue_full_drops_second(void) {
   u8                bytes[20];
   wired_sendsess    s;
@@ -326,10 +325,10 @@ static void test_sendsess_pto_requeue_full_drops_second(void) {
   wired_sendsess_sent(&s, &sl, 0, 0);
   wired_sendsess_take(&s, &sl);
   wired_sendsess_sent(&s, &sl, 1, 0);
-  s.requeue_n = WIRED_SENDSESS_LOG - 1; /* one slot left */
+  s.requeue_n = 1;
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
-  CHECK(s.requeue_n == WIRED_SENDSESS_LOG);
-  CHECK(wired_sendsess_inflight(&s) == 1); /* the second stayed in flight */
+  CHECK(s.requeue_n == 1);
+  CHECK(wired_sendsess_inflight(&s) == 2); /* both still in flight */
 }
 
 /* An arriving ACK resets the PTO backoff counter. */

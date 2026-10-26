@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2103/2260 requirements demonstrated (93.1%) — 1722 directly tested,
-381 indirect, 157 untested.**
+**Total: 2107/2260 requirements demonstrated (93.2%) — 1730 directly tested,
+377 indirect, 153 untested.**
 
 ## QUIC core
 
@@ -78,14 +78,14 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 9000 — QUIC Transport](rfc9000.md) | 254/279 | 196 | 58 | 25 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 58 | 16 | 4 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 70/75 | 52 | 18 | 5 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 73/75 | 59 | 14 | 2 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
 ## QUIC extensions
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/26 | 19 | 3 | 4 |
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 23/26 | 20 | 3 | 3 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 24 | 5 | 0 |

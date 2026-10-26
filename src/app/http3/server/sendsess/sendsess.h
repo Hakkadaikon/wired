@@ -186,10 +186,16 @@ usz wired_sendsess_detect_lost(
     wired_sendsess_lost_slice* lost,
     usz                        cap);
 
-/** Fire one probe timeout (RFC 9002 6.2): requeue the two oldest in-flight
- * slices (6.2.4 allows up to two probe datagrams) so they retransmit with
- * fresh packet numbers, and count the probe once.
- * Any ACK resets the count (wired_sendsess_ack).
+/** RFC 9002 6.2 / 6.2.4: queue copies of the two oldest in-flight slices
+ * for a probe retransmit (up to two probe datagrams). The originals stay in
+ * flight -- a PTO is not a loss -- until acknowledged or declared lost.
+ * A no-op while a resend is already queued.
+ * @param s the session
+ * @return 1 if a copy was queued, 0 otherwise. */
+int wired_sendsess_pto_probe(wired_sendsess* s);
+
+/** Fire one probe timeout (RFC 9002 6.2): wired_sendsess_pto_probe, and
+ * count the probe once. Any ACK resets the count (wired_sendsess_ack).
  * @param s the session
  * @param max probes allowed since the last ACK
  * @return 1 (probed, or nothing was in flight), 0 once the budget is spent —

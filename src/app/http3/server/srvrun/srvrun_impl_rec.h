@@ -6,12 +6,16 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_protos4.h"
 
+/** RFC 9002 6.2.4: ack-eliciting packets one PTO may send (up to two). */
+#define SRVRUN_PTO_PROBES 2
+
 u64  srvrun_loss_delay_us(const srvrun_conn* c);
 u64  srvrun_peer_max_ack_delay_us(const srvrun_conn* c);
 void srvrun_rtt_update(srvrun_conn* c, u64 sample_ms, u64 ack_delay_us);
 void srvrun_rec_on_acks(srvrun_conn* c, u64 now_ms);
 void srvrun_rec_detect(srvrun_conn* c, u64 now_ms);
 usz  srvrun_bytes_in_flight(const srvrun_conn* c);
+int  srvrun_rec_eliciting(const srvrun_conn* c);
 int  srvrun_loss_timer_due(const srvrun_conn* c, u64 now_ms);
 void srvrun_loss_timer_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_ack_tick_slot(const srvrun_step_ctx* ctx, int slot);

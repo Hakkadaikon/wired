@@ -50,6 +50,15 @@ typedef struct {
    * frames the peer has acknowledged (0 = none) -- packets below it no
    * longer need reporting. */
   u64 floor1;
+  /** RFC 9002 A.8 time_of_last_ack_eliciting_packet for the 1-RTT space:
+   * now_ms of the latest ack-eliciting srvloop_send_onertt_rec. */
+  u64 last_elicit_ms;
+  /** RFC 9002 7.5: PTO probe packets still allowed past the congestion
+   * window and pacing; each ack-eliciting send uses one. 0 outside a PTO. */
+  u8 probe_n;
+  /** RFC 9002 A.8/A.9 pto_count of the 1-RTT space: probes fired since the
+   * last newly acknowledged packet; scales the PTO backoff. */
+  int pto_count;
 } srvloop_ackst;
 
 #endif

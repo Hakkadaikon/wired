@@ -102,7 +102,9 @@ usz  srvrun_conn_consumed_bytes(const srvrun_conn* c);
 usz  srvrun_sess_consumed(const wired_sendsess* sess);
 void srvrun_acct_resync(srvrun_conn* c);
 int  srvrun_conn_credit_has_room(const srvrun_conn* c);
-int  srvrun_can_send_new(
+int  srvrun_sess_flow_room(
+    const srvrun_conn* c, const wired_sendsess* sess, u64 credit);
+int srvrun_can_send_new(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit);
 void           srvrun_apply_conn_credit_update(srvrun_conn* c);
 int            srvrun_wtsend_matches(const srvrun_wtsend* w, u64 stream_id);
