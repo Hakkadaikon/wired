@@ -50,6 +50,7 @@ Contents: [MoQT relay (hub)](#moqt-relay-hub) |
 [TLS 1.3](#tls-13) | [Cryptography](#cryptography) |
 [Platform / I/O](#platform--io) | [Capacity limits](#capacity-limits) |
 [Testing and verification gaps](#testing-and-verification-gaps) |
+[Library code not reached by the shipped server](#library-code-not-reached-by-the-shipped-server) |
 [Out of scope by design](#out-of-scope-by-design)
 
 ---
@@ -1135,6 +1136,89 @@ Notes on the two send-side buffers:
   no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
   AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
   case. Source: [BoringSSL vectors](../security/boringssl-vectors.md).
+
+## Library code not reached by the shipped server
+
+Issue #24 decided to delete code that nothing calls, keeping only what the
+fuzz harnesses, the guide snippets, the examples or a behavior test of a
+shipped path use. The function-level deletions are done. The 102 source
+files below are still compiled into the library and unit-tested, but no
+`examples/` server reaches them: their only callers are their own tests in
+`tests/` (plus, for `tls/handshake/roles/client/client.c`, the TLS client
+that the test suite uses as a peer). No guide snippet or example includes
+any of them; the three marked "fuzzed" are also built into a fuzz harness.
+They are kept for now because deleting about 100 files at once is outside
+#24's list; each is a candidate for a later deletion pass, and a ledger row
+that cites only one of them is not evidence for the shipped server.
+
+- **Unreached files** — Affects: readers who take a passing unit test as
+  proof that the server does it. Source: `tests/run.c` includes, compared
+  against the includes reachable from `examples/`.
+  - `app/datagram/datagram/`: `dgsize.c`
+  - `app/http3/core/h3/`: `firstframe.c`, `goaway_check.c`, `h3dgram.c`,
+    `qpack_settings.c`, `reuse.c`, `shutdown.c`
+  - `app/http3/request/h3cancel/`: `cancel.c`
+  - `app/http3/request/h3resp/`: `hello.c`
+  - `common/diag/error/`: `codes.c`
+  - `crypto/pki/cert/certreq/`: `certreq.c`
+  - `crypto/pki/cert/tbscert/`: `version_serial.c`
+  - `crypto/pki/encoding/x509/`: `keyid.c`
+  - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
+  - `tls/handshake/core/handshake_drive/`: `retry_drive.c`, `vn_drive.c`
+  - `tls/handshake/core/hrr/`: `hrr_group.c`
+  - `tls/handshake/core/tls/`: `hsdone.c`, `keydiscard.c`,
+    `keyupdate_reject.c`, `transcript_stage.c`, `zerortt_reject.c`
+  - `tls/handshake/flight/earlydrive/`: `earlydata.c`
+  - `tls/handshake/roles/client/`: `client.c`
+  - `tls/handshake/roles/server/`: `serverio.c`
+  - `tls/handshake/roles/sflight/`: `encext.c`
+  - `tls/keys/keyupdate/`: `initiate.c`, `keyupdate.c`, `oldkey.c`
+  - `tls/keys/kudrive/`: `discard_timing.c`, `recv_phase.c`, `trigger.c`
+  - `tls/keys/kuswitch/`: `phasebit.c`
+  - `transport/conn/cid/cidxchg/`: `cidxchg.c`
+  - `transport/conn/cid/migrate/`: `migrate.c`
+  - `transport/conn/cid/path/`: `path.c`, `prefaddr.c`
+  - `transport/conn/cid/retrydrive/`: `accept.c`, `reconnect.c`, `token.c`
+  - `transport/conn/cid/sresetdrive/`: `onreset.c`, `tokenmap.c`
+  - `transport/conn/lifecycle/conn/`: `cidnego.c`, `conn.c`
+  - `transport/conn/lifecycle/connection/`: `connection.c`
+  - `transport/conn/lifecycle/endpoint/`: `endpoint.c`
+  - `transport/conn/lifecycle/fsm/`: `fsm.c`
+  - `transport/conn/lifecycle/idledrive/`: `closesend.c`, `idledrive.c`
+  - `transport/conn/lifecycle/session/`: `session.c`, `session_env.c`,
+    `session_open.c`
+  - `transport/conn/loop/driver/`: `driver.c`
+  - `transport/conn/loop/manage/`: `dosmitigate.c`, `flowobs.c`,
+    `linkability.c`
+  - `transport/conn/loop/pending1rtt/`: `pending1rtt.c`
+  - `transport/io/socket/io/`: `retransmit.c`, `udptransport.c`
+  - `transport/io/socket/net/`: `memlink.c`
+  - `transport/io/socket/poll/`: `deadline.c`
+  - `transport/io/udp/udploop/`: `txloop.c`
+  - `transport/io/udp/udpsess/`: `udpsess.c`
+  - `transport/packet/build/pktbuild/`: `eliciting.c`, `framepack.c`,
+    `initpad.c`, `paddingelicit.c`
+  - `transport/packet/frame/frame/`: `ack_range.c` (fuzzed: `fuzz_frames`,
+    `fuzz_onertt`), `close_convert.c`, `crypto_offset.c` (fuzzed:
+    `fuzz_frames`)
+  - `transport/packet/header/packet/`: `coalorder.c`, `pad.c`, `pnlen.c`
+    (fuzzed: `fuzz_onertt`)
+  - `transport/packet/header/shorthdr/`: `shorthdr.c`
+  - `transport/packet/protect/protectcs/`: `protectcs.c`
+  - `transport/recovery/congestion/cc/`: `ccphase.c`, `cwndcheck.c`
+  - `transport/recovery/congestion/cwndctl/`: `cwndctl.c`
+  - `transport/recovery/detect/ackgen/`: `ackfreq.c`, `ackgen.c`
+  - `transport/recovery/detect/ackrange/`: `ackrange_process.c`
+  - `transport/recovery/detect/losstime/`: `losstime.c`
+  - `transport/recovery/detect/recovery/`: `losstimer.c`, `ptoreset.c`,
+    `rttinit.c`, `rttsample.c`, `rttvalid.c`
+  - `transport/stream/data/stream/`: `stream_limit.c`
+  - `transport/stream/flow/flow/`: `dual_flow.c`, `stream_credit.c`,
+    `stream_flow.c`
+  - `transport/stream/flow/flowviol/`: `closeframe.c`, `flowviol.c`
+  - `transport/version/version/`: `abandon.c`, `compatnego.c`, `downgrade.c`
+  - `transport/version/versmgr/`: `v2switch.c`
+  - `transport/version/vndrive/`: `accept.c`, `reconnect.c`, `select.c`
 
 ## Out of scope by design
 
