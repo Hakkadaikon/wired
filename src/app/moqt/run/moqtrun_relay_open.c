@@ -18,6 +18,11 @@ static void moqtrun_relay_opened(
     usz                  i,
     i64                  sid,
     wired_span           out);
+static int moqtrun_relay_dst_ok(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_peer*  dst,
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_relay* relay);
 static void moqtrun_relay_open_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -83,6 +88,17 @@ static void moqtrun_relay_opened(
   relay->sub_busy_streak[i] = 0;
 }
 
+/* dst is connected and sub not fed relay's Subgroup by a sibling mirror
+ * (moqtrun_dd_dup). */
+static int moqtrun_relay_dst_ok(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_peer*  dst,
+    const wired_moqtrun_sub*   sub,
+    const wired_moqtrun_relay* relay) {
+  return dst->in_use &&
+         !moqtrun_dd_dup(hub, sub, 0, relay->group_id, relay->subgroup_id);
+}
+
 void moqtrun_relay_open_one(
     wired_moqt_hub*      hub,
     wired_moqtrun_sub*   sub,
@@ -90,7 +106,7 @@ void moqtrun_relay_open_one(
     usz                  i,
     wired_span           wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
-  if (!dst->in_use) {
+  if (!moqtrun_relay_dst_ok(hub, dst, sub, relay)) {
     return;
   }
   wired_span cut_wire = moqtrun_hdr_cutoff(sub, wire, relay->group_id);

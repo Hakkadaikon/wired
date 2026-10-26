@@ -87,6 +87,8 @@ static void moqtrun_update_sub_apply(
     moqtrun_send_request_error(p, code);
     if (s) {
       moqtrun_sub_done(hub, p, p->req, t, s, MOQCTL_DONE_UPDATE_FAILED);
+      moqtrun_cancel_peer_subs(
+          hub, s->session_idx, s->request_id); /* mirrors */
     }
     return;
   }
@@ -94,6 +96,7 @@ static void moqtrun_update_sub_apply(
   moqtsw_begin(hub, moqtrun_sw_ops(), t, s, params);
   moqtsw_rebound(s);
   moqtrun_upd_remember(p, s);
+  moqtrun_mirror_update(hub, p, s, params);
   moqtrun_queue_request_ok(p, t);
   moqtrun_ngr_relay(hub, t, params);
   moqtrun_pub_resume(hub, t);

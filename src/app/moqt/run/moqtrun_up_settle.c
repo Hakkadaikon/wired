@@ -12,6 +12,14 @@ static int moqtrun_up_wanted(
     const wired_moqtrun_track* t);
 static int moqtrun_up_gone(
     const wired_moqtrun_up* u, const wired_moqtrun_track* t);
+static int moqtrun_up_track_wanted(const wired_moqtrun_track* t);
+static int moqtrun_up_key_wanted(
+    wired_moqt_hub* hub, const wired_moqtrun_up* u);
+static void moqtrun_up_drop(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t);
 static void moqtrun_up_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_settle_open(
@@ -61,14 +69,38 @@ static int moqtrun_up_any_sub(const wired_moqtrun_track* t) {
   return 0;
 }
 
+static int moqtrun_up_track_wanted(const wired_moqtrun_track* t) {
+  return t && moqtrun_up_any_sub(t);
+}
+
+/* multi_publisher: a subscription on another publisher's track of u's
+ * Track wants u too (its Objects merge in, moqtrun_up_fan.c). */
+static int moqtrun_up_key_wanted(
+    wired_moqt_hub* hub, const wired_moqtrun_up* u) {
+  return hub->multi_publisher && moqtrun_up_key_subs(hub, moqtrun_up_key(u));
+}
+
 /* Someone downstream still wants u: a waiter, or a subscription on its
- * track. */
+ * track (or, merged, on any track of the name). */
 static int moqtrun_up_wanted(
     wired_moqt_hub*            hub,
     const wired_moqtrun_up*    u,
     const wired_moqtrun_track* t) {
   return moqtrun_up_waiters(hub, moqtrun_up_key(u)) ||
-         (t && moqtrun_up_any_sub(t));
+         moqtrun_up_track_wanted(t) || moqtrun_up_key_wanted(hub, u);
+}
+
+/* Nobody wants u: cancelled, or -- a refusal record -- just forgotten. */
+static void moqtrun_up_drop(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t) {
+  if (u->failed) {
+    u->in_use = 0;
+    return;
+  }
+  moqtrun_up_cancel(hub, pp, u, t);
 }
 
 static int moqtrun_up_gone(
@@ -84,7 +116,7 @@ static void moqtrun_up_settle(
     return;
   }
   if (!moqtrun_up_wanted(hub, u, t)) {
-    moqtrun_up_cancel(hub, pp, u, t);
+    moqtrun_up_drop(hub, pp, u, t);
   }
 }
 
@@ -120,6 +152,7 @@ void moqtrun_up_sync(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     moqtrun_up_wait_one(hub, &hub->rdv[i]);
   }
+  moqtrun_up_fan_subs(hub);
 }
 
 /* ----- the publisher's replies on the hub's stream ----- */
@@ -137,8 +170,8 @@ static void moqtrun_up_props_refuse(
     moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return;
   }
-  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), code);
   moqtrun_up_cancel(hub, pp, u, 0);
+  moqtrun_up_refused(hub, u, code);
 }
 
 /* 1 when slot t may take a SUBSCRIBE_OK for u. No slot (the publisher's
@@ -153,9 +186,8 @@ static int moqtrun_up_slot_ok(
     wired_moqtrun_track* t,
     u64                  alias) {
   if (!t) {
-    moqtrun_up_refuse_waiters(
-        hub, moqtrun_up_key(u), MOQCTL_ERR_EXCESSIVE_LOAD);
     moqtrun_up_cancel(hub, pp, u, 0);
+    moqtrun_up_refused(hub, u, MOQCTL_ERR_EXCESSIVE_LOAD);
     return 0;
   }
   return !moqtrun_alias_dup_close(hub, pp, t, alias);

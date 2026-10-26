@@ -1,11 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static int moqtrun_up_candidate(
-    wired_moqt_hub*          hub,
-    const wired_moqtrun_req* q,
-    const wired_wt_session*  s,
-    moqtrun_key              k,
-    u64                      skip);
 static wired_moqtrun_req* moqtrun_up_announcer_skip(
     wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k, u64 skip);
 
@@ -52,9 +46,9 @@ void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
  * of every dispatch and tick, is the one decision point (UpstreamSub.tla
  * Sweep): it cancels an upstream nobody wants any more and sends one for
  * a waiter that has none.
- * ponytail: one announcer per name (9.5 says "each publisher"; the hub
- * keys one track per name); a publisher's RESET of the hub's stream is
- * left to the session's end. */
+ * ponytail: one announcer per name unless hub->multi_publisher (then
+ * every one, moqtrun_up_fan.c); a publisher's RESET of the hub's stream
+ * is left to the session's end. */
 
 moqtrun_key moqtrun_up_key(const wired_moqtrun_up* u) {
   moqtrun_key k;
@@ -101,7 +95,7 @@ int moqtrun_up_peer_usable(const wired_moqtrun_peer* p) {
 }
 
 /* q may be asked: it covers k, its session not skipped and usable. */
-static int moqtrun_up_candidate(
+int moqtrun_up_candidate(
     wired_moqt_hub*          hub,
     const wired_moqtrun_req* q,
     const wired_wt_session*  s,
@@ -137,12 +131,17 @@ static u64 moqtrun_up_ga_skip(wired_moqt_hub* hub, moqtrun_key k) {
   return moqtrun_rp_waiters(hub, k) ? 0 : moqtrun_up_ga_sent(hub);
 }
 
+/* The sessions no SUBSCRIBE for k may go to now. */
+u64 moqtrun_up_skip(wired_moqt_hub* hub, moqtrun_key k) {
+  return moqtrun_rp_skip(hub, k) | moqtrun_up_ga_skip(hub, k);
+}
+
 /* Skips the sessions a wait for a new path must not ask
  * (moqtrun_rp_skip), and prefers one no wait for k belongs to: a waiting
  * session's own path cannot re-attach that waiter (moqtrun_rp_waiters). */
 wired_moqtrun_req* moqtrun_up_announcer(
     wired_moqt_hub* hub, const wired_wt_session* s, moqtrun_key k) {
-  u64 skip = moqtrun_rp_skip(hub, k) | moqtrun_up_ga_skip(hub, k);
+  u64                skip = moqtrun_up_skip(hub, k);
   wired_moqtrun_req* a =
       moqtrun_up_announcer_skip(hub, s, k, skip | moqtrun_rp_waiters(hub, k));
   return a ? a : moqtrun_up_announcer_skip(hub, s, k, skip);
