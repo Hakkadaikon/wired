@@ -1689,6 +1689,30 @@ static void test_srvboot_split_flight_out_of_order(void) {
   sb_split_client_handshake(1);
 }
 
+/* RFC 9000 18.2 / 9.6: a preferred_address is offered only with a non-zero
+ * connection ID inside it -- the connection's spare, issued at the same
+ * non-zero length as its own SCID -- never with an empty one. */
+static void test_srvboot_pref_addr_needs_nonzero_cid(void) {
+  static wired_server  s;
+  static wired_srvloop l;
+  wired_srvboot_id     id;
+  u8                   priv[32], pub[32], seed[32], rnd[32];
+  u8                   v4[4] = {10, 0, 0, 1}, v6[16] = {0};
+  wired_srvboot_conn   conn = {&s, &l};
+  sb_make_id(&id, priv, pub, seed, rnd);
+  id.pref_v4          = v4;
+  id.pref_v6          = v6;
+  s.sdrv.pref_cid_len = 0;
+  l.spare_cid_len     = 0; /* no spare drawn: nothing to put in the TP */
+  srvboot_arm_pref_addr(&conn, &id);
+  CHECK(s.sdrv.pref_cid_len == 0);
+  l.spare_cid_len = id.scid_len;
+  srvboot_arm_pref_addr(&conn, &id);
+  CHECK(id.scid_len != 0);
+  CHECK(s.sdrv.pref_cid_len == id.scid_len);
+  s.sdrv.pref_cid_len = 0;
+}
+
 void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
@@ -1701,6 +1725,7 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_not_owed_for_v2();
   test_srvboot_vneg_guards();
   test_srvboot_vneg_echoes_255_byte_cids();
+  test_srvboot_pref_addr_needs_nonzero_cid();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
   test_bootacc_zerortt_coalesced_with_initial_buffered();
