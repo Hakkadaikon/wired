@@ -35,22 +35,30 @@ X.690 not directly fetchable (covered via RFC 5280 §8 / RFC 7468), ~35
 Bouncy Castle 2026 advisories without fetched detail, NVD bulk queries
 rate-limited (vendor pages and GitHub Advisory used instead).
 
+Re-audit (2026-10-27, issue #173): `scripts/vulnaudit/reach.py` checks that
+every closed `fixed` / `already-safe` row cites code reachable from
+`examples/` and a test wired into `tests/run.c` that reaches it. Rows whose
+evidence failed are `triaged` with the failure in their Rationale; rows
+whose cited code no production path calls are `n/a` when the server never
+performs the operation (peer certificate validation, RSA, Ed25519, P-384,
+MP4, client-side checks).
+
 Counts: `python3 scripts/vulnaudit/ledger_check.py docs/security/vuln-ledger.md`.
 
 | Section | Rows | fixed | already-safe | n/a | not done |
 |---|---|---|---|---|---|
-| QUIC transport (RFC 9000/9001/9002/9368/9369/9287) | 237 | 12 | 137 | 88 | 0 |
-| TLS 1.3 (RFC 8446 and key exchange RFCs) | 188 | 12 | 87 | 89 | 0 |
-| Symmetric crypto and hashing | 32 | 3 | 12 | 17 | 0 |
-| Public-key signatures and key agreement | 108 | 5 | 60 | 43 | 0 |
-| X.509 / DER / PKI | 132 | 18 | 64 | 50 | 0 |
-| HTTP/3, QPACK, HTTP Datagrams (RFC 9114/9204/9297/9220/9218) | 74 | 9 | 35 | 30 | 0 |
-| WebTransport (draft-ietf-webtrans-http3) | 24 | 9 | 6 | 9 | 0 |
-| MoQT (draft-ietf-moq-transport) | 23 | 6 | 5 | 12 | 0 |
-| IP / UDP / AF_XDP I/O | 3 | 0 | 3 | 0 | 0 |
-| Media (mp4frag) | 25 | 0 | 6 | 19 | 0 |
+| QUIC transport (RFC 9000/9001/9002/9368/9369/9287) | 237 | 11 | 70 | 131 | 25 |
+| TLS 1.3 (RFC 8446 and key exchange RFCs) | 188 | 10 | 51 | 99 | 28 |
+| Symmetric crypto and hashing | 32 | 1 | 10 | 17 | 4 |
+| Public-key signatures and key agreement | 108 | 0 | 34 | 67 | 7 |
+| X.509 / DER / PKI | 132 | 5 | 24 | 103 | 0 |
+| HTTP/3, QPACK, HTTP Datagrams (RFC 9114/9204/9297/9220/9218) | 74 | 6 | 24 | 30 | 14 |
+| WebTransport (draft-ietf-webtrans-http3) | 24 | 7 | 2 | 9 | 6 |
+| MoQT (draft-ietf-moq-transport) | 23 | 3 | 5 | 12 | 3 |
+| IP / UDP / AF_XDP I/O | 3 | 0 | 2 | 0 | 1 |
+| Media (mp4frag) | 25 | 0 | 1 | 24 | 0 |
 | Samples and dependencies (examples, frontend npm, e2e npm) | 10 | 4 | 0 | 6 | 0 |
-| **Total** | **856** | **78** | **415** | **363** | **0** |
+| **Total** | **856** | **47** | **223** | **498** | **88** |
 
 ## QUIC transport (RFC 9000/9001/9002/9368/9369/9287)
 
