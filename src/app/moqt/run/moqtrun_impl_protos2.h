@@ -63,6 +63,11 @@ void moqtrun_publish_checked(
     usz                   peer_idx,
     const moqctl_publish* m);
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r);
+int moqtrun_reqerr_take(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_span            body,
+    moqctl_request_error* e);
 const moqctl_token* moqtrun_auth_token_of(const moqctl_params* params);
 int                 moqtrun_take_tok_or_close(
     wired_moqt_hub*      hub,

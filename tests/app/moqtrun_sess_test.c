@@ -286,6 +286,57 @@ static void test_mtss_fill_unlisted_param_closes(void) {
   mtcf_check_violation();
 }
 
+/* A publishes alice; B's SUBSCRIBE_TRACKS "chat" makes the hub PUBLISH it
+ * to B; that PUBLISH's stream id. */
+static u64 mtss_hub_publish(void) {
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  return (u64)mtst_pub_stream_id(0);
+}
+
+/* draft-19 10.5 (draft-18 10.5, draft-22 9.3): a PUBLISH_OK carrying Track
+ * Properties closes the session PROTOCOL_VIOLATION and opens nothing; an
+ * empty one opens the subscription. */
+static void test_mtss_publish_ok_props_closes(void) {
+  static const u8          props[] = {0x04, 0x01};
+  static moqctl_request_ok ok;
+  u64                      sid = mtss_hub_publish();
+  ok.track_properties          = wired_span_of(props, sizeof props);
+  mtst_send(SESS_B, sid, MOQCTL_T_REQUEST_OK, mtsub_encode_request_ok, &ok);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  sid = mtss_hub_publish();
+  mtst_pub_ok(SESS_B, sid);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
+/* draft-19 10.6.1 (draft-18 10.6.1, draft-22 9.4): a REQUEST_ERROR
+ * answering the hub's PUBLISH with a Redirect whose Connect URI Length is
+ * non-zero closes the session PROTOCOL_VIOLATION; an empty Connect URI
+ * (retry on this session) does not. */
+static void test_mtss_publish_error_redirect_closes(void) {
+  static moqctl_request_error e;
+  u64                         sid = mtss_hub_publish();
+  e.error_code                    = MOQCTL_ERR_REDIRECT;
+  e.has_redirect                  = 1;
+  e.redirect.connect_uri          = mtst_z("https://r.example/moq");
+  mtst_send(
+      SESS_B, sid, MOQCTL_T_REQUEST_ERROR, mtsub_encode_request_error, &e);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+  sid                    = mtss_hub_publish();
+  e.redirect.connect_uri = wired_span_of(0, 0);
+  e.redirect.track_name  = mtst_z("z");
+  mtst_send(
+      SESS_B, sid, MOQCTL_T_REQUEST_ERROR, mtsub_encode_request_error, &e);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -301,4 +352,6 @@ void test_moqtrun_sess(void) {
   test_mtss_subgroup_fin_mid_object();
   test_mtss_datagram_invalid_closes();
   test_mtss_fill_unlisted_param_closes();
+  test_mtss_publish_ok_props_closes();
+  test_mtss_publish_error_redirect_closes();
 }

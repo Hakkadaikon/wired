@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 206/248 tested, 30 indirect, 12 untested.**
+**Coverage: 208/248 tested, 30 indirect, 10 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -803,13 +803,13 @@ Legend:
   + Length + Number of Parameters + Parameters + Track Properties (the
   remaining message bytes).
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-- [ ] MQ18-084 (§10.5) If a PUBLISH_OK, REQUEST_UPDATE_OK,
+- [x] MQ18-084 (§10.5) If a PUBLISH_OK, REQUEST_UPDATE_OK,
   SUBSCRIBE_NAMESPACE_OK or PUBLISH_NAMESPACE_OK carries non-empty Track
   Properties, then the implementation shall close the session with a protocol
   violation.
-  - gap: `moqctl_request_ok_take` decodes the residual span and leaves the
-    per-variant check to the caller; no hub path (e.g. a PUBLISH_OK answering
-    a hub-initiated PUBLISH) checks it.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_ok_props_closes`
+  - evidence: PUBLISH_OK is the only one of these the hub can receive: it
+    sends no REQUEST_UPDATE, SUBSCRIBE_NAMESPACE or PUBLISH_NAMESPACE.
 
 ## SS10.6 REQUEST_ERROR
 
@@ -824,13 +824,15 @@ Legend:
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_request_error_redirect_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_error_roundtrip`
-- [ ] MQ18-087 (§10.6.1) If the server receives a Redirect with a non-zero
+- [x] MQ18-087 (§10.6.1) If the server receives a Redirect with a non-zero
   Connect URI Length, or a Redirect with a non-empty Track Name for a
   namespace-scoped request, then the implementation shall close the session
   with a protocol violation.
-  - gap: `moqctl_request_error_take` decodes the Redirect for either role
-    and nothing checks it: an upstream REQUEST_ERROR's Redirect is relayed
-    as is (`test_moqtrun_upfetch_error_passthrough`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_error_redirect_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_redirect_uri_closes`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_error_redirect_uri_closes`
+  - evidence: the hub sends no namespace-scoped request, so the Track Name
+    rule has no REQUEST_ERROR to apply to.
 - [x] MQ18-088 (§10.6.2, §15.10.2) The implementation shall use the draft-18
   REQUEST_ERROR codes: INTERNAL_ERROR, UNAUTHORIZED, TIMEOUT, NOT_SUPPORTED,
   GOING_AWAY, EXCESSIVE_LOAD, UNSUPPORTED_EXTENSION, DUPLICATE_SUBSCRIPTION,

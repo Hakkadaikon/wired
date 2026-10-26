@@ -6,6 +6,7 @@ static void moqtrun_refuse_or_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
 static int moqtrun_token_by_value(const moqctl_token* t);
 static u32 moqtrun_token_close_code(const moqctl_token* t);
+static int moqtrun_redirect_bad(const moqctl_request_error* e);
 static int moqtrun_publish_slot_ok(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -138,6 +139,35 @@ int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
       r == MOQCTL_PARAMS_KVFMT ? (u32)MOQCTL_CLOSE_KVFMT_ERROR
                                : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
   return 0;
+}
+
+/* A Redirect the hub, the server, must not accept: a non-zero Connect URI
+ * Length. */
+static int moqtrun_redirect_bad(const moqctl_request_error* e) {
+  return e->has_redirect && e->redirect.connect_uri.n != 0;
+}
+
+/* A REQUEST_ERROR the hub received for one of its own requests, decoded
+ * into *e; 1 when it may be used. One that does not decode closes the
+ * session PROTOCOL_VIOLATION (moqtrun_take_or_close), and so does a
+ * Redirect with a non-zero Connect URI Length: "If a server receives a
+ * Redirect with a non-zero Connect URI Length it MUST close the session
+ * with a PROTOCOL_VIOLATION" (draft-19 10.6.1, draft-18 10.6.1, draft-22
+ * 9.4). The draft-18/19 rule on a namespace-scoped request's Track Name
+ * has nothing to check: the hub sends no SUBSCRIBE_NAMESPACE,
+ * PUBLISH_NAMESPACE or SUBSCRIBE_TRACKS of its own. */
+int moqtrun_reqerr_take(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_span            body,
+    moqctl_request_error* e) {
+  usz off = 0;
+  if (!moqtrun_take_or_close(
+          hub, p, moqctl_request_error_take(body, &off, e))) {
+    return 0;
+  }
+  return moqtrun_take_or_close(
+      hub, p, moqtrun_redirect_bad(e) ? MOQCTL_VIOLATION : MOQCTL_OK);
 }
 
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or

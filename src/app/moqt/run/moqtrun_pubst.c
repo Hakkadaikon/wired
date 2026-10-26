@@ -7,6 +7,11 @@ static void moqtrun_pubst_attach(
     wired_span          body);
 static int moqtrun_pubst_filters_ok(
     const wired_moqtrun_req* q, const moqctl_params* params);
+static int moqtrun_pubst_ok_take(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqctl_request_ok*  ok);
 static int moqtrun_pubst_ok_valid(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body);
 static void moqtrun_pubst_ok(
@@ -71,18 +76,38 @@ static int moqtrun_pubst_filters_ok(
   return moqtrun_rngf_refusal(params) == MOQTRUN_REQ_ACCEPT;
 }
 
+/* Decodes a PUBLISH_OK into *ok; 1 when it may be used. A body that does
+ * not decode for p's draft closes the session PROTOCOL_VIOLATION, as a
+ * malformed request does (12-13; d22 9.3 admits only EXPIRES in a
+ * PUBLISH_OK, "Subscription parameters appear in REQUEST_UPDATE, not
+ * PUBLISH_OK" #1790), and so do non-empty Track Properties: they "are
+ * empty in PUBLISH_OK ... If an endpoint receives Track Properties in one
+ * of these messages it MUST close the session with a PROTOCOL_VIOLATION"
+ * (draft-19 10.5, draft-18 10.5, draft-22 9.3). PUBLISH_OK is the only
+ * such REQUEST_OK the hub can receive: it sends no REQUEST_UPDATE,
+ * SUBSCRIBE_NAMESPACE or PUBLISH_NAMESPACE of its own. */
+static int moqtrun_pubst_ok_take(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqctl_request_ok*  ok) {
+  usz off = 0;
+  if (!moqtrun_take_or_close(
+          hub, p, moqctl_request_ok_take(p->ver, body, &off, ok))) {
+    return 0;
+  }
+  return moqtrun_take_or_close(
+      hub, p, ok->track_properties.n ? MOQCTL_VIOLATION : MOQCTL_OK);
+}
+
 /* 1 when the PUBLISH_OK body may open the subscription. Otherwise it was
- * answered on p->req (q): a body that does not decode for p's draft
- * closes the session PROTOCOL_VIOLATION, as a malformed request does
- * (12-13; d22 9.3 admits only EXPIRES in a PUBLISH_OK, "Subscription
- * parameters appear in REQUEST_UPDATE, not PUBLISH_OK" #1790), refused
- * filters get REQUEST_ERROR INVALID_FILTER (moqtrun_pubst_filters_ok). */
+ * answered on p->req (q): a body moqtrun_pubst_ok_take refuses closed the
+ * session, refused filters get REQUEST_ERROR INVALID_FILTER
+ * (moqtrun_pubst_filters_ok). */
 static int moqtrun_pubst_ok_valid(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
-  moqctl_request_ok ok  = {0};
-  usz               off = 0;
-  int               r   = moqctl_request_ok_take(p->ver, body, &off, &ok);
-  if (!moqtrun_take_or_close(hub, p, r)) {
+  moqctl_request_ok ok = {0};
+  if (!moqtrun_pubst_ok_take(hub, p, body, &ok)) {
     return 0;
   }
   if (moqtrun_pubst_filters_ok(p->req, &ok.params)) {
@@ -118,12 +143,14 @@ static void moqtrun_pubst_error(
     wired_moqtrun_peer* p,
     wired_moqtrun_req*  q,
     wired_span          body) {
-  usz                  off = 0;
+  wired_moqtrun_req*   saved = p->req;
   moqctl_request_error e;
   if (moqtrun_pubst_repeat(hub, p, q)) {
     return;
   }
-  q->pub_answered = moqctl_request_error_take(body, &off, &e) == MOQCTL_OK;
+  p->req          = q;
+  q->pub_answered = moqtrun_reqerr_take(hub, p, body, &e);
+  p->req          = saved;
 }
 
 /* 12-18: the subscriber's REQUEST_UPDATE is a subscription update

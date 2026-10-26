@@ -51,13 +51,11 @@ static void moqtrun_up_on_error(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     wired_span          body) {
-  usz                  off = 0;
   moqctl_request_error e;
   if (u->track_tag) {
     return;
   }
-  if (!moqtrun_take_or_close(
-          hub, pp, moqctl_request_error_take(body, &off, &e))) {
+  if (!moqtrun_reqerr_take(hub, pp, body, &e)) {
     return;
   }
   moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), e.error_code);

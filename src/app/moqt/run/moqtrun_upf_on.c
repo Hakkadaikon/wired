@@ -37,10 +37,8 @@ static void moqtrun_upf_on_err(
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
     wired_span           body) {
-  usz                  off = 0;
   moqctl_request_error e;
-  if (!moqtrun_take_or_close(
-          hub, pp, moqctl_request_error_take(body, &off, &e))) {
+  if (!moqtrun_reqerr_take(hub, pp, body, &e)) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }

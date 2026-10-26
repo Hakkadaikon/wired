@@ -939,19 +939,42 @@ static void test_moqtrun_upfetch_error_passthrough(void) {
   e.error_code               = MOQCTL_ERR_REDIRECT;
   e.retry_interval           = 7;
   e.has_redirect             = 1;
-  e.redirect.connect_uri     = mtst_z("https://r.example/moq");
+  e.redirect.connect_uri     = wired_span_of(0, 0); /* 10.6.1: server */
   e.redirect.track_namespace = mtns_ns("x/y");
   e.redirect.track_name      = mtst_z("z");
   mupf_up_err(SESS_C, sid, &e);
   CHECK(mupf_reply(&ok, &got) == MOQCTL_T_REQUEST_ERROR);
   CHECK(got.error_code == MOQCTL_ERR_REDIRECT && got.retry_interval == 7);
-  CHECK(got.has_redirect && got.redirect.connect_uri.n == 21);
+  CHECK(got.has_redirect && got.redirect.connect_uri.n == 0);
   CHECK(got.redirect.track_namespace.n == 2 && got.redirect.track_name.n == 1);
   const moqtrun_test_call* r = moqtrun_test_last_kind(7);
   CHECK(r && r->s == SESS_B);
   CHECK(mupf_log_is(SESS_C, (u64)sid, "FIN|"));
   CHECK(mupf_log_is(SESS_C, MUPF_DATA_SID, "STOP1|"));
   CHECK(mupf_used() == 0);
+}
+
+/* draft-19 10.6.1 (draft-22 9.4): an upstream REQUEST_ERROR whose Redirect
+ * has a non-zero Connect URI Length closes the upstream session
+ * PROTOCOL_VIOLATION; the requester's FETCH is not handed that Redirect. */
+static void test_moqtrun_upfetch_error_redirect_uri_closes(void) {
+  static moqctl_request_error e;
+  moqctl_request_error        got = {0};
+  moqfetch_ok                 ok  = {0};
+  moqfetch_req                m   = {0};
+  mupf_init();
+  mupf_vers(MOQVER_D22);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid                = mupf_up(SESS_C, 0, &m);
+  e                      = (moqctl_request_error){0};
+  e.error_code           = MOQCTL_ERR_REDIRECT;
+  e.has_redirect         = 1;
+  e.redirect.connect_uri = mtst_z("https://r.example/moq");
+  mupf_up_err(SESS_C, sid, &e);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(
+      mupf_reply(&ok, &got) != MOQCTL_T_REQUEST_ERROR ||
+      got.error_code != MOQCTL_ERR_REDIRECT);
 }
 
 /* A held track's FETCH was answered already: an upstream REQUEST_ERROR
@@ -1903,6 +1926,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_tick_leaves_leg();
   test_moqtrun_upfetch_bad_end();
   test_moqtrun_upfetch_error_passthrough();
+  test_moqtrun_upfetch_error_redirect_uri_closes();
   test_moqtrun_upfetch_error_held();
   test_moqtrun_upfetch_leg_ends();
   test_moqtrun_upfetch_two_goaways();

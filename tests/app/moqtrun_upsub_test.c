@@ -554,8 +554,26 @@ static void test_moqtrun_upsub_dup_alias_closes(void) {
   CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS);
 }
 
+/* draft-19 10.6.1 (draft-22 9.4): a REQUEST_ERROR answering the hub's
+ * upstream SUBSCRIBE with a non-zero Connect URI Length closes the
+ * publisher's session PROTOCOL_VIOLATION. */
+static void test_moqtrun_upsub_redirect_uri_closes(void) {
+  static moqctl_request_error e;
+  u64                         sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid                    = (u64)mups_up_sid();
+  e.error_code           = MOQCTL_ERR_REDIRECT;
+  e.has_redirect         = 1;
+  e.redirect.connect_uri = mtst_z("https://r.example/moq");
+  mtst_send(
+      SESS_A, sid, MOQCTL_T_REQUEST_ERROR, mtsub_encode_request_error, &e);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 void test_moqtrun_upsub(void) {
   test_moqtrun_upsub_dup_alias_closes();
+  test_moqtrun_upsub_redirect_uri_closes();
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();
 }

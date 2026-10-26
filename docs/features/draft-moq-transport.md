@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 204/248 tested, 35 indirect, 9 untested.**
+**Coverage: 206/248 tested, 35 indirect, 7 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -736,12 +736,13 @@ Legend:
   + Length + Number of Parameters + Parameters + Track Properties (the
   remaining message bytes).
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-- [ ] MOQT-083 (SS10.5) If a REQUEST_OK that must have empty Track Properties
+- [x] MOQT-083 (SS10.5) If a REQUEST_OK that must have empty Track Properties
   (PUBLISH_OK, REQUEST_UPDATE_OK, SUBSCRIBE_NAMESPACE_OK, PUBLISH_NAMESPACE_OK)
   carries Track Properties, then the implementation shall close the session
   with a protocol violation.
-  - gap: `moqctl_request_ok_take` decodes the tail and no caller rejects a
-    non-empty one; `test_moqctl_request_ok_roundtrip` covers the codec only.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_ok_props_closes`
+  - evidence: PUBLISH_OK is the only one of these the hub can receive: it
+    sends no REQUEST_UPDATE, SUBSCRIBE_NAMESPACE or PUBLISH_NAMESPACE.
 
 ## SS10.6 REQUEST_ERROR
 
@@ -755,12 +756,14 @@ Legend:
   REDIRECT.
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_request_error_redirect_roundtrip`
-- [ ] MOQT-086 (SS10.6.1) If the hub receives a Redirect with a non-zero
+- [x] MOQT-086 (SS10.6.1) If the hub receives a Redirect with a non-zero
   Connect URI Length, or with a non-empty Track Name for a namespace-scoped
   request, then it shall close the session with a protocol violation.
-  - gap: `moqctl_request_error_take` decodes the Redirect for either role and
-    no caller checks it; `test_moqctl_request_error_redirect_roundtrip` covers
-    the codec only.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_error_redirect_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_redirect_uri_closes`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_error_redirect_uri_closes`
+  - evidence: the hub sends no namespace-scoped request, so the Track Name
+    rule has no REQUEST_ERROR to apply to.
 - [x] MOQT-087 The implementation shall recognize the REQUEST_ERROR codes it
   uses: INTERNAL_ERROR, NOT_SUPPORTED, GOING_AWAY, INVALID_FILTER,
   UNINTERESTED, DOES_NOT_EXIST, UNAUTHORIZED, REDIRECT.

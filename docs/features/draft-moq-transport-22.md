@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 221/273 tested, 42 indirect, 10 untested.**
+**Coverage: 223/273 tested, 42 indirect, 8 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -855,13 +855,12 @@ Legend:
   + Length + Number of Parameters + Parameters + Track Properties (the
   remaining message bytes).
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
-- [ ] MQ22-083 If a REQUEST_OK variant that must have empty Track Properties
+- [x] MQ22-083 If a REQUEST_OK variant that must have empty Track Properties
   (e.g. PUBLISH_OK) carries non-empty Track Properties, then the implementation
   shall close the session with a protocol violation.
-  - gap: `moqctl_request_ok_take` decodes the residual span and leaves the
-    check to the caller, and the PUBLISH_OK receive path
-    (`moqtrun_pubst_ok_valid`) does not make it; the round-trip test only
-    decodes an empty tail.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_ok_props_closes`
+  - evidence: PUBLISH_OK is the only one of these the hub can receive: it
+    sends no REQUEST_UPDATE, SUBSCRIBE_NAMESPACE or PUBLISH_NAMESPACE.
 - [x] MQ22-083a Where INCLUDE_PROPERTIES=0 is sent on a request whose OK
   carries Track Properties, the implementation shall emit an empty Track
   Properties tail regardless of the track's actual properties.
@@ -890,13 +889,14 @@ Legend:
   - evidence: the test round-trips a REDIRECT with its Redirect; the
     absence for other codes is enforced by construction in
     `moqtrun_queue_request_error` and not asserted.
-- [ ] MQ22-086 If a server receives a Redirect with a non-zero Connect URI
+- [x] MQ22-086 If a server receives a Redirect with a non-zero Connect URI
   Length, then the implementation shall close the session with a protocol
   violation.
-  - gap: the hub receives REQUEST_ERROR from upstream announcers (MQ22-215
-    relays its Redirect), but neither `moqctl_request_error_take` nor the
-    upstream receive paths reject a non-zero Connect URI; the round-trip
-    test decodes a 3-byte URI successfully.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_error_redirect_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_redirect_uri_closes`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_error_redirect_uri_closes`
+  - evidence: the hub sends no namespace-scoped request, so the Track Name
+    rule has no REQUEST_ERROR to apply to.
 - [x] MQ22-087 The implementation shall recognize the REQUEST_ERROR codes it
   uses: INTERNAL_ERROR, NOT_SUPPORTED, GOING_AWAY, INVALID_FILTER,
   UNINTERESTED, DOES_NOT_EXIST, UNAUTHORIZED, REDIRECT.
