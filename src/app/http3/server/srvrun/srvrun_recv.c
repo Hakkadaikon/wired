@@ -10,6 +10,10 @@ static int  srvrun_drain_tick(
 static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs);
 static u64  srvrun_close_grease_id(void);
 static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st);
+static int  srvrun_wt_close_tick(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, int tick);
+static void srvrun_wt_close_and_wait(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs);
 
 /* RFC 9000 9.6.2 two-socket receive: with a preferred-address socket bound,
  * the wait covers both fds, so neither may block the other -- drain each
@@ -88,6 +92,32 @@ static int srvrun_drain_tick(
   return srvrun_all_drained(st) || tick >= SRVRUN_DRAIN_TICKS;
 }
 
+/* draft-ietf-webtrans-http3-16 6 (WTH3-081): after WT_CLOSE_SESSION went
+ * out, keep serving (receive, or tick the slots so the capsules and their
+ * resends go out) until the peer closed every CONNECT stream, bounded by
+ * SRVRUN_WT_CLOSE_TICKS. Returns 1 when the wait is over. */
+static int srvrun_wt_close_tick(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, int tick) {
+  if (poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0) {
+    srvrun_step(cfg, st, bufs, SRVRUN_RX_BATCH);
+  } else {
+    srvrun_fire_ptos(cfg, st);
+  }
+  return !srvrun_wt_close_waiting(st) || tick >= SRVRUN_WT_CLOSE_TICKS;
+}
+
+/* WT_CLOSE_SESSION on every live session, pushed out now, then the
+ * bounded wait for the peers' CONNECT-stream closes (srvrun_wt_close_tick). */
+static void srvrun_wt_close_and_wait(
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs) {
+  int tick = 0;
+  srvrun_wt_close_all_live(cfg, st);
+  srvrun_fire_ptos(cfg, st);
+  while (!srvrun_wt_close_tick(cfg, st, bufs, tick)) {
+    tick++;
+  }
+}
+
 /* Point each batch slot at env's own storage. */
 static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs) {
   for (usz i = 0; i < SRVRUN_RX_BATCH; i++) {
@@ -146,6 +176,7 @@ void srvrun_loop(const srvrun_cfg* cfg) {
   while (!srvrun_drain_tick(cfg, &st, bufs, tick)) {
     tick++;
   }
+  srvrun_wt_close_and_wait(cfg, &st, bufs);
   srvrun_close_drained(cfg, &st);
 }
 

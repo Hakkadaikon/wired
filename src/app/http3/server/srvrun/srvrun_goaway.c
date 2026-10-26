@@ -5,6 +5,9 @@ static void srvrun_send_wt_drain(srvrun_conn* c, int sidx);
 static void srvrun_flush_wt_drain_one(srvrun_conn* c, int i);
 static int  srvrun_goaway_applies(const srvrun_conn* c);
 static int  srvrun_dg_queueable(const srvrun_conn* c, wired_span data);
+static usz  srvrun_dg_at(const srvrun_conn* c, usz k);
+static int  srvrun_dg_yields(const srvrun_conn* c, usz k, u8 urgency);
+static void srvrun_dg_move(srvrun_conn* c, usz from, usz to);
 
 /* One received datagram on a live slot: the closing state answers it
  * (srvrun_closing_rx), every other connection steps (srvrun_on_step_live). */
@@ -159,12 +162,47 @@ static int srvrun_dg_queueable(const srvrun_conn* c, wired_span data) {
  * @return 1 if queued, 0 if data.n exceeds one entry's capacity, the queue
  * is full, or our own SETTINGS have not been sent yet (RFC 9297 2.1) */
 int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
-  usz i = (c->dg_pending_head + (usz)c->dg_pending) % SRVRUN_DG_PENDING_Q;
+  return srvrun_queue_datagram_prio(c, data, DGPRIORITY_DEFAULT);
+}
+
+/* Queue entry k's (0 = the head) index in dg_pending_buf. */
+static usz srvrun_dg_at(const srvrun_conn* c, usz k) {
+  return (c->dg_pending_head + k) % SRVRUN_DG_PENDING_Q;
+}
+
+/* RFC 9221 5.1: entry k-1 is less urgent than a new DATAGRAM of urgency,
+ * so the new one goes ahead of it (an equal urgency keeps arrival order). */
+static int srvrun_dg_yields(const srvrun_conn* c, usz k, u8 urgency) {
+  return k > 0 &&
+         dgpriority_higher(urgency, c->dg_pending_urg[srvrun_dg_at(c, k - 1)]);
+}
+
+/* Copy queue entry from to position to (both counted from the head). */
+static void srvrun_dg_move(srvrun_conn* c, usz from, usz to) {
+  usz f = srvrun_dg_at(c, from);
+  usz t = srvrun_dg_at(c, to);
+  bytes_memcpy(
+      c->dg_pending_buf[t], c->dg_pending_buf[f], c->dg_pending_len[f]);
+  c->dg_pending_len[t] = c->dg_pending_len[f];
+  c->dg_pending_urg[t] = c->dg_pending_urg[f];
+}
+
+/* srvrun_queue_datagram with an urgency (RFC 9221 5.1): inserted behind
+ * every queued entry at least as urgent, ahead of the rest. */
+int srvrun_queue_datagram_prio(srvrun_conn* c, wired_span data, u8 urgency) {
+  usz k = (usz)c->dg_pending;
+  usz i;
   if (!srvrun_dg_queueable(c, data)) {
     return 0;
   }
+  while (srvrun_dg_yields(c, k, urgency)) {
+    srvrun_dg_move(c, k - 1, k);
+    k--;
+  }
+  i = srvrun_dg_at(c, k);
   bytes_memcpy(c->dg_pending_buf[i], data.p, data.n);
   c->dg_pending_len[i] = data.n;
+  c->dg_pending_urg[i] = urgency;
   c->dg_pending++;
   return 1;
 }

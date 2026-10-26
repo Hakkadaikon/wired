@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 62/81 tested, 14 indirect, 5 untested.**
+**Coverage: 67/81 tested, 11 indirect, 3 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -313,22 +313,23 @@ Legend:
   corresponds to 0x52e4a40fa8db and 0xffffffff corresponds to
   0x52e5ac983162, skipping reserved codepoints of form 0x1f*N+0x21.
   - test: `tests/app/wterrmap_test.c` — `test_wterrmap`
-- [~] WTH3-038 (§4.4) WebTransport implementations shall use the
+- [x] WTH3-038 (§4.4) WebTransport implementations shall use the
   RESET_STREAM_AT frame with a Reliable Size set to at least the size of
   the WebTransport header when resetting a WebTransport data stream.
-  - evidence: deliberately unmet until peer negotiation is tracked.
-    draft-ietf-quic-reliable-stream-reset only permits sending
-    RESET_STREAM_AT to a peer that advertised the reset_stream_at
-    transport parameter; this SDK does not parse the peer's, and real
-    browsers (Chrome) do not send it — an unnegotiated 0x24 is an unknown
-    frame the peer kills the whole connection over
-    (FRAME_ENCODING_ERROR, reproduced live). srvrun therefore aborts WT
-    streams with the standard RESET_STREAM/STOP_SENDING pair picked by
-    stream type (`tests/app/srvrun_test.c` —
-    `test_srvrun_wt_abort_frames_match_stream_type`); the RESET_STREAM_AT
-    codec itself stays tested
-    (`tests/transport/stream_ctl_test.c`) for the day peer-TP tracking
-    lands.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_reset_stream_at_covers_header`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_reset_stream_at_fallbacks`
+  - test: `tests/tls/sdrv_test.c` —
+    `test_sdrv_recv_client_hello_reset_stream_at`
+  - evidence: sent only to a peer that advertised the reset_stream_at
+    transport parameter (draft-ietf-quic-reliable-stream-reset-09 3; an
+    unnegotiated 0x24 kills Chrome's connection), else RESET_STREAM
+    (`test_srvrun_wt_abort_frames_match_stream_type`). The header bytes
+    ride the same kept packet as a STREAM frame, so they are resent until
+    ACKed after the send slot is released. A client-initiated stream
+    carries no header on the server's half, so it is reset with
+    RESET_STREAM (Reliable Size 0 is equivalent, rsr-09 4).
 - [x] WTH3-039 (§4.4) The server shall deliver the error code of a stream
   reset associated with a known session unchanged to the application that
   owns that session.
@@ -416,23 +417,18 @@ Legend:
 
 ## §4.8 Use of Keying Material Exporters
 
-- [~] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
+- [x] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
   a given WebTransport session with the label "EXPORTER-WebTransport" and
   a context set to the serialization of the WebTransport Exporter Context
   struct.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_matches_tls_exporter`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_sha384_suite`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_exporter_refusals`
   - test: `tests/tls/keyschedule_test.c` —
     `test_keyschedule_exporter_secret_matches_oneshot`
-  - evidence: `tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
-    `tls/handshake/core/tls/exporter.c`) and `wt_exporter_ctx_encode`
-    plus `wt_exporter` (the WebTransport Exporter Context
-    serialization and the "EXPORTER-WebTransport" wrapper, new
-    `app/webtransport/exporter/exporter.c`) are implemented and reachable
-    from a live `keysched` (exporter_master_secret is derived
-    automatically at the same stage as the application traffic secrets,
-    `keysched_exporter_secret`).
-  - gap: no application-facing WebTransport session API exposes this yet
-    (draft-ietf-webtrans-http3-16 leaves the exporter-request API's shape
-    to the implementation).
 
 ## §5.1 Negotiating the Use of Flow Control
 
@@ -575,12 +571,13 @@ Legend:
     lowers it, so received data can never exceed the limit and the
     receiver-side close cannot trigger; QUIC stream and connection credit
     bound received data instead.
-- [ ] WTH3-062 (§5.4, §5.6.5) When the server wishes to send data but is
+- [x] WTH3-062 (§5.4, §5.6.5) When the server wishes to send data but is
   unable to due to session-level flow control, the server should send a
   WT_DATA_BLOCKED capsule.
-  - gap: the codec exists (`test_wtcapsule_data_blocked_roundtrip`) but no
-    send site emits it; a data-limited open stages nothing on the CONNECT
-    stream (`test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing`).
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_data_limited_send_emits_data_blocked_once`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked`
 - [ ] WTH3-063 (§5.4) If the server receives a WT_MAX_STREAM_DATA or a
   WT_STREAM_DATA_BLOCKED capsule, then the server shall treat it as a
   session error.
@@ -712,11 +709,17 @@ Legend:
     `test_wt_utf8_truncate_len_keeps_sequence_ending_at_cap`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_close_session_truncates_at_utf8_boundary`
-- [ ] WTH3-081 (§6) When the server sends a WT_CLOSE_SESSION and intends to
+- [x] WTH3-081 (§6) When the server sends a WT_CLOSE_SESSION and intends to
   close the QUIC connection, the server should wait until all CONNECT
   streams have been closed by the peer before sending CONNECTION_CLOSE.
-  - gap: no ordering between WT_CLOSE_SESSION delivery and
-    CONNECTION_CLOSE is implemented.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_shutdown_waits_for_connect_close`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_shutdown_wait_ends_on_reset_or_closing`
+  - evidence: graceful shutdown (srvrun_loop) sends WT_CLOSE_SESSION on
+    every live session after the GOAWAY drain, then serves until the peer
+    closed those CONNECT streams (bounded, SRVRUN_WT_CLOSE_TICKS) before
+    the H3_NO_ERROR CONNECTION_CLOSE. Error closes stay immediate.
 
 ## §8 Security Considerations
 
@@ -726,14 +729,19 @@ Legend:
   - test: `tests/app/srvrun_test.c` — `test_srvrun_wt_usage_counters_exposed`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_churn_bounded_by_slot_table`
-- [~] WTH3-083 (§8) The server should implement a fairness scheme that
+- [x] WTH3-083 (§8) The server should implement a fairness scheme that
   gives each session sharing a connection a reasonable share of sending
   and stream-opening resources.
-  - evidence: the WT send pump serves one slice per stream per pass, so
-    equal flows share the link (`tests/app/srvrun_test.c` —
-    `test_srvrun_wt_sched_equal_flows_share`,
-    `test_srvrun_wt_sched_one_slice_per_pass`); the share is per stream,
-    not per session, and stream opening has no per-session fairness.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_fair_pass_equal_per_session`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_open_capped_per_session`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_sched_equal_flows_share`
+  - evidence: in each send pass every session with ready streams sends the
+    same number of slices (the smallest ready count among them), rotating
+    among its own streams; a session may hold at most its even share of
+    the send-slot table the connection plumbing leaves free.
 
 ## §9.5 HTTP/3 Error Code Registration
 

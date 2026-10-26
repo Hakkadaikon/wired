@@ -76,6 +76,16 @@ static srvloop_sent_kind srvloop_sent_classify(
   return k;
 }
 
+/* RFC 9002 A.8: an ack-eliciting send restarts the 1-RTT PTO
+ * (last_elicit_ms) and uses up one probe allowance (probe_n). */
+static void srvloop_sent_elicit(wired_srvloop* l, int eliciting) {
+  if (!eliciting) {
+    return;
+  }
+  l->ackst.last_elicit_ms = l->now_ms;
+  l->ackst.probe_n        = (u8)(l->ackst.probe_n ? l->ackst.probe_n - 1 : 0);
+}
+
 int srvloop_send_onertt_rec(
     wired_srvloop*               l,
     wired_server*                s,
@@ -91,5 +101,6 @@ int srvloop_send_onertt_rec(
                           in->pn, l->now_ms, k.eliciting,
                           pkt_in_flight(k.eliciting, k.padded), out->len});
   srvloop_ackd_note(l, in->pn, k.ack_largest1);
+  srvloop_sent_elicit(l, k.eliciting);
   return 1;
 }

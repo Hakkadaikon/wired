@@ -16,7 +16,7 @@ static usz srvrun_answer_stream_stop(
  * peer's code at the bytes already sent, and stop sending. */
 static void srvrun_wtsend_stop(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
-  u8                   pl[32];
+  u8                   pl[SRVRUN_RST_PL];
   wired_obuf           plb = obuf_of(pl, sizeof pl);
   const srvrun_wtsend* w   = srvrun_wtsend_find(c, e->stream_id);
   if (!w) {

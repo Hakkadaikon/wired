@@ -4,6 +4,7 @@ static int srvrun_wt_waiting(const srvrun_conn* c);
 static int srvrun_path_waiting(const srvrun_conn* c);
 static int srvrun_timer_waiting(const srvrun_conn* c);
 static int srvrun_latch_waiting(const srvrun_conn* c);
+static int srvrun_ack_waiting(const srvrun_conn* c);
 static int srvrun_recovery_waiting(const srvrun_conn* c);
 static int srvrun_polling(const srvrun_cfg* cfg);
 static int srvrun_bounded_wait_forced(const srvrun_cfg* cfg);
@@ -59,10 +60,16 @@ static int srvrun_latch_waiting(const srvrun_conn* c) {
          srvrun_recovery_waiting(c);
 }
 
-/* An armed loss timer (RFC 9002 6.1.2) or an ACK still owed (RFC 9000
- * 13.2.1): both fire from the poll tick. */
+/* An ACK still owed (RFC 9000 13.2.1). */
+static int srvrun_ack_waiting(const srvrun_conn* c) {
+  return c->up && c->l.app_ack_policy.pending;
+}
+
+/* An armed loss timer (RFC 9002 6.1.2), an ACK still owed, or an armed
+ * 1-RTT PTO (A.8 -- a DATAGRAM-only flight included, RFC 9221 5.2): all
+ * fire from the poll tick. */
 static int srvrun_recovery_waiting(const srvrun_conn* c) {
-  return c->loss_time_us || (c->up && c->l.app_ack_policy.pending);
+  return c->loss_time_us || srvrun_ack_waiting(c) || srvrun_pto_armed(c);
 }
 
 int srvrun_slot_waiting(const srvrun_conn* c) {

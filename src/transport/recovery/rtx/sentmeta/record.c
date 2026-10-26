@@ -1,5 +1,7 @@
 #include "transport/recovery/rtx/sentmeta/record.h"
 
+#include "common/bytes/util/num.h"
+
 void sentmeta_init(sentmeta* m) {
   for (usz i = 0; i < SENTMETA_CAP; i++) {
     m->pkts[i].used = 0;
@@ -59,11 +61,12 @@ usz sentmeta_find(const sentmeta* m, u64 pn) {
   return i;
 }
 
-void sentmeta_uncount(sentmeta* m, u64 pn) {
+void sentmeta_uncount(sentmeta* m, u64 pn, usz n) {
   usz i = sentmeta_find(m, pn);
   if (i == SENTMETA_CAP || !m->pkts[i].in_flight) {
     return;
   }
-  m->total_in_flight -= m->pkts[i].sent_bytes;
-  m->pkts[i].in_flight = 0;
+  n = (usz)u64_min(n, m->pkts[i].sent_bytes);
+  m->pkts[i].sent_bytes -= n;
+  m->total_in_flight -= n;
 }

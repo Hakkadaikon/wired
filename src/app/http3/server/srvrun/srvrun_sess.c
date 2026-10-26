@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_cwnd_has_room(const srvrun_conn* c);
+static int srvrun_cwnd_fits(const srvrun_conn* c);
 static usz srvrun_wtsend_consumed_bytes(const srvrun_conn* c);
 static int srvrun_sess_credit_room(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit);
@@ -32,9 +33,22 @@ int srvrun_sess_log_room(const wired_sendsess* sess) {
  * checked here -- it gates whole round-robin passes
  * (srvrun_pump_round_gated), not individual slots. Reads the cached total
  * (srvrun_conn.acct_inflight) rather than re-walking every slot per slice,
- * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). */
+ * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). RFC 9002
+ * 7.5: a PTO probe (probe_n) is not blocked by it. */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
+  return c->l.ackst.probe_n || srvrun_cwnd_fits(c);
+}
+
+/* 1 when the window itself has room for one more chunk. */
+static int srvrun_cwnd_fits(const srvrun_conn* c) {
   return srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
+}
+
+/* RFC 9002 7.8: after a send pass the window is underutilized when it
+ * still has room and pacing did not end the pass -- a sender held back
+ * only by pacing is not application limited (9002-071). */
+void srvrun_note_app_limited(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  c->cc.app_limited = srvrun_pace_ok(ctx, c) && srvrun_cwnd_fits(c);
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send
@@ -110,6 +124,13 @@ static int srvrun_sess_credit_room(
    * every streaming re-arm / epoch recycle and would under-count. */
   return srvrun_conn_credit_has_room(c) &&
          sess->stream_base_offset + sess->q.cur + srvrun_mps(c) <= credit;
+}
+
+/* The log gate and both flow-control credits -- srvrun_can_send_new short
+ * of the congestion window, which a PTO probe bypasses (RFC 9002 7.5). */
+int srvrun_sess_flow_room(
+    const srvrun_conn* c, const wired_sendsess* sess, u64 credit) {
+  return srvrun_sess_log_room(sess) && srvrun_sess_credit_room(c, sess, credit);
 }
 
 /* 1 when a brand-new slice (from sess's sendq, not its requeue) may go out:

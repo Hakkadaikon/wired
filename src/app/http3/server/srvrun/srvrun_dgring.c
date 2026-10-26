@@ -13,7 +13,11 @@ static int srvrun_dgring_fill(
     u64                  connect_id,
     wired_span           payload);
 static int srvrun_dgring_push(
-    wired_srvrun_env* env, int slot, u64 connect_id, wired_span payload);
+    wired_srvrun_env* env,
+    int               slot,
+    u64               connect_id,
+    wired_span        payload,
+    u8                urgency);
 static int srvrun_bcast_ring_target(wired_srvrun_env* env, int cslot, int i);
 
 int wired_server_wt_stream_stop(
@@ -25,10 +29,11 @@ int wired_server_wt_stream_stop(
     return 0;
   }
   i                              = c->wt_stream_reset_n++;
-  c->wt_stream_reset_id[i]       = stream_id;
+  c->wtx.reset_id[i]             = stream_id;
   c->wt_stream_reset_app_code[i] = error_code;
-  c->wt_stream_reset_final[i]    = 0;
+  c->wtx.reset_final[i]          = 0;
   c->wt_stream_reset_stop[i]     = 1;
+  c->wtx.reset_sid[i]            = SRVRUN_WT_NO_SID;
   return 1;
 }
 
@@ -106,7 +111,11 @@ static int srvrun_dgring_fill(
 }
 
 static int srvrun_dgring_push(
-    wired_srvrun_env* env, int slot, u64 connect_id, wired_span payload) {
+    wired_srvrun_env* env,
+    int               slot,
+    u64               connect_id,
+    wired_span        payload,
+    u8                urgency) {
   srvrun_dgring_entry* e   = srvrun_dgring_tail(env);
   int                  raw = srvrun_conn_is_raw(&env->conns[slot]);
   if (!e) {
@@ -116,18 +125,28 @@ static int srvrun_dgring_push(
     return 0;
   }
   e->conn_gen = env->conns[slot].gen;
+  e->urgency  = urgency;
+  e->sent     = 0;
   env->dgring_n++;
   return 1;
 }
 
 int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload) {
+  return wired_server_wt_send_datagram_prio(s, payload, DGPRIORITY_DEFAULT);
+}
+
+int wired_server_wt_send_datagram_prio(
+    wired_wt_session* s, wired_span payload, u8 urgency) {
   wired_srvrun_env* env;
   int               slot;
+  if (!dgpriority_valid(urgency)) {
+    return 0;
+  }
   srvrun_session_conn_env(s, &env, &slot);
   if (!srvrun_dgring_target_ok(env, slot, s)) {
     return 0;
   }
-  return srvrun_dgring_push(env, slot, s->connect_stream_id, payload);
+  return srvrun_dgring_push(env, slot, s->connect_stream_id, payload, urgency);
 }
 
 /* Connection slot cslot's session slot i is an eligible ring-broadcast
@@ -152,5 +171,5 @@ int srvrun_bcast_ring_sess(
   }
   return srvrun_dgring_push(
       env, cslot, srvrun_wt_slot(&env->conns[cslot], i)->connect_stream_id,
-      data);
+      data, DGPRIORITY_DEFAULT);
 }

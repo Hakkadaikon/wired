@@ -2,6 +2,8 @@
 
 static void srvrun_wt_preclaim_bidi_recv(
     srvrun_conn* c, wired_wt_session* s, int sidx, u64 id);
+static int srvrun_wt_bidi_open_ok(
+    srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload);
 static i64 srvrun_wt_open_bidi_common(
     wired_wt_session* s, wired_span payload, int keep_open);
 
@@ -17,7 +19,7 @@ int srvrun_wt_uni_open_ok(
   if (!srvrun_wt_open_flow_ok(sidx, s, 0, payload)) {
     return 0;
   }
-  return srvrun_wt_uni_grant_ok(c);
+  return srvrun_wt_open_share_ok(c, sidx) && srvrun_wt_uni_grant_ok(c);
 }
 
 i64 srvrun_wt_open_uni_common(
@@ -27,6 +29,7 @@ i64 srvrun_wt_open_uni_common(
   srvrun_wtsend* w;
   if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) {
     srvrun_wt_notify_streams_blocked(c, sidx, s, 0);
+    srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
     return -1;
   }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
@@ -68,6 +71,14 @@ static void srvrun_wt_preclaim_bidi_recv(
   wired_wt_session_offer_stream(s, id);
 }
 
+/* The bidi twin of srvrun_wt_uni_open_ok: the session's flow gates and
+ * its share of the send table (srvrun_wt_open_share_ok). */
+static int srvrun_wt_bidi_open_ok(
+    srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload) {
+  return srvrun_wt_open_flow_ok(sidx, s, 1, payload) &&
+         srvrun_wt_open_share_ok(c, sidx);
+}
+
 /* Shared body of the one-shot and keep-open bidi opens -- the bidi twin of
  * srvrun_wt_open_uni_common, plus the receive-side preclaim. */
 static i64 srvrun_wt_open_bidi_common(
@@ -76,8 +87,9 @@ static i64 srvrun_wt_open_bidi_common(
   int            sidx = srvrun_wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   u64            id;
-  if (!srvrun_wt_open_flow_ok(sidx, s, 1, payload)) {
+  if (!srvrun_wt_bidi_open_ok(c, sidx, s, payload)) {
     srvrun_wt_notify_streams_blocked(c, sidx, s, 1);
+    srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
     return -1;
   }
   w = srvrun_wtsend_claim(

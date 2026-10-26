@@ -70,6 +70,25 @@ static usz srvrun_boot_sent_off(const srvrun_conn* c) {
   return off;
 }
 
+/* The Initial half's bytes in flight: until RFC 9001 4.9.1 discards the
+ * Initial keys (the first Handshake packet processed). */
+static usz srvrun_boot_ini_inflight(const srvrun_conn* c) {
+  return c->l.hs_rx_seen ? 0 : c->boot_ini_len;
+}
+
+/* RFC 9002 2 / 6.2.2: the boot flight's bytes in flight -- the Initial and
+ * the Handshake datagrams sent so far, each until its keys are discarded
+ * (the Handshake keys at confirmation). shortcut: these spaces keep no
+ * per-packet ACK record, so their bytes leave only at key discard (an
+ * over-count while the handshake runs); a replay's rewind can under-count
+ * a datagram held back by the antiamp budget. */
+usz srvrun_boot_inflight(const srvrun_conn* c) {
+  if (wired_server_is_confirmed(&c->s)) {
+    return 0;
+  }
+  return srvrun_boot_ini_inflight(c) + srvrun_boot_sent_off(c);
+}
+
 /* RFC 9000 8.1: send boot_dgram_len[boot_dgram_sent..dgram_count) in order,
  * stopping at the first one that would exceed the antiamp budget -- the
  * rest stays held for a later round once more client bytes arrive.
