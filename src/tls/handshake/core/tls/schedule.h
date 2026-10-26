@@ -93,9 +93,20 @@ void tls_early_keys(
     initial_keys* out);
 
 /* Same as tls_early_keys for the ticket's suite (RFC 8446 4.2.10: 0-RTT
- * runs under the suite the PSK was issued with). */
+ * runs under the suite the PSK was issued with), with QUIC v1 labels. */
 void tls_early_keys_suite(
     u16           suite,
+    const u8*     psk,
+    const u8*     client_hello,
+    usz           client_hello_len,
+    initial_keys* out);
+
+/* tls_early_keys_suite with the HKDF labels of `version` (RFC 9369 3.3.2:
+ * "quicv2 " for v2). RFC 9369 4.1: a client sends 0-RTT only in its
+ * original version, so the server keys it with that version's labels. */
+void tls_early_keys_suite_ver(
+    u16           suite,
+    u32           version,
     const u8*     psk,
     const u8*     client_hello,
     usz           client_hello_len,

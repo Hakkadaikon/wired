@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop.h" /* WIRED_SRVLOOP_WT_BUF_CAP */
 #include "test.h"
+#include "tls/ext/grease/grease.h"
 
 /* RFC 9000 18.2. The DCID/SCID the build is told to advertise. */
 static const u8 odcid[] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
@@ -198,10 +199,11 @@ static void test_server_tp_tunable_limits(void) {
   u8         od[4] = {1, 2, 3, 4}, sc[4] = {5, 6, 7, 8};
   u8         tp[256];
   wired_obuf ob  = {tp, sizeof tp, 0};
-  stp_limits lim = {2000000, 5, 9, 0};
+  stp_limits lim = {2000000, 5, 9, 0, 7000};
   u64        v   = 0;
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &lim, &ob));
+  CHECK(tp_int_value(tp, ob.len, 0x01, &v) && v == 7000); /* RFC 9308 10 */
   CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 2000000);
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 5);
   CHECK(tp_int_value(tp, ob.len, 0x09, &v) && v == 9);
@@ -218,7 +220,7 @@ static void test_server_tp_datagram_frame_size(void) {
   u8         od[4] = {1, 2, 3, 4}, sc[4] = {5, 6, 7, 8};
   u8         tp[256];
   wired_obuf ob   = {tp, sizeof tp, 0};
-  stp_limits none = {0, 0, 0, 0};
+  stp_limits none = {0, 0, 0, 0, 0};
   u64        v    = 7;
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &none, &ob));
@@ -226,7 +228,7 @@ static void test_server_tp_datagram_frame_size(void) {
   CHECK(v == 7);
 
   ob.len              = 0;
-  stp_limits opted_in = {0, 0, 0, 65535};
+  stp_limits opted_in = {0, 0, 0, 65535, 0};
   CHECK(stp_build_server_lim(
       wired_span_of(od, 4), wired_span_of(sc, 4), &opted_in, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) && v == 65535);
@@ -281,7 +283,23 @@ static void test_server_tp_reset_stream_at_does_not_disturb_others(void) {
   CHECK(tp_int_value(buf, n, 0x20, &v) == 0); /* max_datagram_frame_size */
 }
 
+/* RFC 9287 3: the server advertises grease_quic_bit (0x2ab2) with an empty
+ * value in every transport-parameter set it builds. */
+static void test_server_tp_grease_quic_bit(void) {
+  u8         buf[256];
+  wired_span b  = {(const u8*)1, 99};
+  stp_out    bo = {0, &b};
+  wired_obuf ob = obuf_of(buf, sizeof buf);
+  CHECK(
+      stp_build_server_ret(
+          wired_span_of(odcid, sizeof odcid), wired_span_of(scid, sizeof scid),
+          wired_span_of(0, 0), wired_span_of(0, 0), 0, &ob) == 1);
+  CHECK(stp_parse(wired_span_of(buf, ob.len), TP_GREASE_QUIC_BIT, &bo) == 1);
+  CHECK(b.n == 0);
+}
+
 void test_server_tp(void) {
+  test_server_tp_grease_quic_bit();
   test_server_tp_tunable_limits();
   test_server_tp_datagram_frame_size();
   test_server_tp_reset_stream_at_empty();

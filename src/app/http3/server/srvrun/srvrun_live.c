@@ -127,6 +127,7 @@ void srvrun_on_step_live(
   wired_obuf         ob   = obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
+  srvrun_newtok_mark tok  = srvrun_newtok_mark_of(c);
   int                produced;
   srvrun_live_prepare(ctx, c);
   produced = wired_srvloop_step(&conn, dg, &ob);
@@ -136,6 +137,7 @@ void srvrun_on_step_live(
     return;
   }
   srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
+  srvrun_send_new_token(ctx, c, &tok); /* RFC 9000 8.1.3 / 9.3 */
 }
 
 /* RFC 9000 10.2.1: a packet for a closing connection is not processed (no

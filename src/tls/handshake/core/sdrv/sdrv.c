@@ -108,15 +108,19 @@ void sdrv_set_alpn_client_order(sdrv* s, int on) {
   s->alpn_client_order = on != 0;
 }
 
+void sdrv_set_versions(sdrv* s, u32 versions) { s->versions = versions; }
+
 /* Negotiation defaults before any ClientHello is seen. */
 static void sdrv_reset_nego(sdrv* s) {
   s->limits                       = (stp_limits){0};
   s->sreset_token_set             = 0;
   s->peer_max_datagram_frame_size = 0;
+  s->peer_grease_quic_bit         = 0;
   s->alpn                         = SALPN_NONE;
   s->alpn_tok                     = wired_span_of(0, 0);
   s->raw_alpns                    = 0;
   s->alpn_client_order            = 0;
+  s->versions                     = 0;
   s->cipher_suite                 = TLS_AES_128_GCM_SHA256;
   s->group                        = GROUP_X25519;
 }
@@ -128,6 +132,7 @@ static void sdrv_reset_hs(sdrv* s) {
   s->iscid_len           = 0;
   s->tp_odcid_len        = 0;
   s->rscid_len           = 0;
+  s->peer_scid_set       = 0;
   s->psk_accepted        = 0;
   s->psk_origin_at       = 0;
   s->psk_dhe_ke          = 0;
@@ -162,6 +167,7 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in) {
   }
   sdrv_reset_hs(s);
   transcript_init(&s->tr);
+  sdrv_zerortt_open();
 }
 
 void sdrv_set_client_version(sdrv* s, u32 version) {

@@ -127,7 +127,26 @@ static void test_p256sign_single_mulg(void) {
   CHECK(ps_mulg_count == 1);
 }
 
+/* RFC 6979 3.4 / FIPS 186-4 6.3: a candidate k whose signature has s = 0
+ * is unsuitable (the RFC 6979 loop then draws another). With d = 1, k = 1
+ * (r = Gx < n) and e = n - Gx, s = k^-1 (e + r d) = n = 0 mod n; e = 0
+ * instead gives s = Gx, which is suitable. */
+static void test_p256sign_s_zero_candidate_unsuitable(void) {
+  static const u8 e_zero_s[32] = {
+      0x94, 0xe8, 0x2e, 0x0c, 0x1e, 0xd3, 0xbd, 0xb9, 0x07, 0x43, 0x19,
+      0x1a, 0x9c, 0x5b, 0xbf, 0x0d, 0x45, 0xe3, 0x7d, 0x2c, 0x79, 0x2c,
+      0x6a, 0xe3, 0xff, 0x18, 0x91, 0x7d, 0x23, 0xca, 0x62, 0xbb};
+  u8     one[32] = {0}, e0[32] = {0};
+  ps_ctx bad = {e_zero_s, one, {0}, {0}};
+  ps_ctx ok  = {e0, one, {0}, {0}};
+  one[31]    = 1;
+  CHECK(ps_k_suitable(one, &bad) == 0);
+  CHECK(ps_k_suitable(one, &ok) == 1);
+  CHECK(p256_fp_eq(ok.sv, p256_g.x));
+}
+
 void test_p256sign(void) {
+  test_p256sign_s_zero_candidate_unsuitable();
   test_p256sign_known_vector();
   test_p256sign_single_mulg();
   test_p256sign_ps_roundtrip();

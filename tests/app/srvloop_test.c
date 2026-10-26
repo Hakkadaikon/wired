@@ -13,6 +13,7 @@
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/instruction.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tlsext/pskmodes.h"
@@ -30,10 +31,12 @@
 #include "tls/keys/keyupdate/keyphase.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "tls/keys/ticket/ticket.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
+#include "transport/packet/build/initpkt/initpkt.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
@@ -291,8 +294,12 @@ static usz client_seal_onertt(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), g_lp_cli_pn++,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      g_lp_cli_pn++,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -501,8 +508,12 @@ static void test_srvloop_open_chacha(void) {
     {
       protect_keys      pk = {cap, 0};
       hspkt_onertt_desc d  = {
-          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
-          wired_span_of(reqb, rlen), 0};
+          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          1,
+          wired_span_of(reqb, rlen),
+          0,
+          0,
+          0};
       wired_obuf rb = {rpkt, sizeof rpkt, 0};
       CHECK(
           hspkt_onertt_build_suite(
@@ -613,7 +624,7 @@ static usz lp_seal_onertt_suite(
     usz                 cap) {
   protect_keys      pk = {k, 0};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn, pl, phase, 0, 0};
   wired_obuf rb = {pkt, cap, 0};
   CHECK(hspkt_onertt_build_suite(suite, &pk, &d, &rb) == 1);
   return rb.len;
@@ -987,8 +998,12 @@ static usz client_seal_onertt_pn(
   aes128_init(&hp, k->hp);
   protect_keys      pk = {k, &hp};
   hspkt_onertt_desc d  = {
-      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
-      wired_span_of(pl, pln), 0};
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      pn,
+      wired_span_of(pl, pln),
+      0,
+      0,
+      0};
   wired_obuf o = obuf_of(pkt, cap);
   CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -3933,6 +3948,26 @@ static usz lp_confirm_tickets(
   return n;
 }
 
+/* RFC 9369 5 / RFC 9000 7.4.1 / RFC 9221 3: every issued ticket records
+ * this connection's wire version and the limits it advertised, and the
+ * grown confirmation still fits the replay cache. */
+static void test_srvloop_ticket_seals_version_and_limits(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  ticket        t[SRVLOOP_TICKET_COUNT];
+  u64           want[STP_REMEMBERED_N];
+  lp_confirm(&f, &ob);
+  CHECK(
+      lp_confirm_tickets(&f, out, ob.len, t, SRVLOOP_TICKET_COUNT) ==
+      SRVLOOP_TICKET_COUNT);
+  stp_remembered(&f.s.sdrv.limits, want);
+  CHECK(t[0].version == sdrv_wire_version(&f.s.sdrv));
+  CHECK(t[0].version != 0);
+  CHECK(ct_diffn((const u8*)t[0].tp, (const u8*)want, sizeof want) == 0);
+  CHECK(f.l.confirm_frames_len != 0);
+}
+
 /* RFC 8446 Appendix C.4: the confirmation offers SRVLOOP_TICKET_COUNT (> 1)
  * single-use tickets, so a client can resume that many connections; each
  * has its own ticket_nonce and so its own PSK (RFC 8446 4.6.1). A full
@@ -4952,8 +4987,12 @@ static usz client_seal_onertt_pn_gen(
   {
     protect_keys      pk = {use, &hp};
     hspkt_onertt_desc d  = {
-        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
-        wired_span_of(pl, pln), phase};
+        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+        pn,
+        wired_span_of(pl, pln),
+        phase,
+        0,
+        0};
     wired_obuf o = obuf_of(pkt, cap);
     CHECK(hspkt_onertt_build(&pk, &d, &o));
     total = o.len;
@@ -5169,6 +5208,104 @@ static void test_srvloop_send_pads_short_packet(void) {
   f.l.cli_scid_len = 0;
   n                = lp_seal_ping(&f, 21, pkt, sizeof pkt);
   CHECK(n >= 22u + f.s.sdrv.iscid_len);
+}
+
+/* Client role: one 1-RTT PING at pn with the given spin bit and QUIC Bit
+ * choice, under CLIENT_AP. */
+static usz lp_client_onertt_bits(
+    struct lp_fix* f, u64 pn, int spin, int clear, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          o = obuf_of(pkt, cap);
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_AP, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys      pk = {k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        pn,
+        wired_span_of(ping, 1),
+        0,
+        spin,
+        clear};
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+  }
+  return o.len;
+}
+
+static void lp_step(struct lp_fix* f, u8* pkt, usz n) {
+  u8         out[2048];
+  wired_obuf ob = {out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(pkt, n), &ob);
+}
+
+/* RFC 9287 3: while advertising grease_quic_bit the server accepts a 1-RTT
+ * packet whose QUIC Bit is 0. */
+static void test_srvloop_accepts_cleared_quic_bit(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  lp_confirm(&f, &ob);
+  n = lp_client_onertt_bits(&f, 30, 0, 1, pkt, sizeof pkt);
+  CHECK((pkt[0] & 0x40) == 0);
+  lp_step(&f, pkt, n);
+  CHECK(f.l.app_rx_seen == 1);
+  CHECK(f.l.app_rx_pn == 30);
+}
+
+/* RFC 9000 17.4: the server reflects the spin bit of the highest-numbered
+ * 1-RTT packet it received; a reordered older packet does not change it,
+ * and a connection that drew spin disablement sends 0. */
+static void test_srvloop_spin_reflects_highest_pn(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           n;
+  lp_confirm(&f, &ob);
+  f.s.spin_off = 0;
+  n            = lp_client_onertt_bits(&f, 40, 1, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  n = lp_client_onertt_bits(&f, 39, 0, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  CHECK(f.s.spin_rx == 1);
+  n = lp_seal_ping(&f, 50, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 1);
+  n = lp_client_onertt_bits(&f, 41, 0, 0, pkt, sizeof pkt);
+  lp_step(&f, pkt, n);
+  n = lp_seal_ping(&f, 51, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 0);
+  f.s.spin_rx  = 1;
+  f.s.spin_off = 1;
+  n            = lp_seal_ping(&f, 52, pkt, sizeof pkt);
+  CHECK(n > 0 && spin_get(pkt[0]) == 0);
+}
+
+/* RFC 9287 3.1: toward a client that advertised grease_quic_bit the server
+ * sets the QUIC Bit to an unpredictable value (both values occur over 64
+ * packets and each still opens); without the client's parameter it is
+ * always 1. */
+static void test_srvloop_send_greases_quic_bit(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n, cleared = 0;
+  lp_confirm(&f, &ob);
+  for (u64 pn = 100; pn < 164; pn++) {
+    n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
+    CHECK(n > 0 && (pkt[0] & 0x40) != 0);
+  }
+  f.s.sdrv.peer_grease_quic_bit = 1;
+  for (u64 pn = 200; pn < 264; pn++) {
+    n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
+    CHECK(n > 0);
+    cleared += (pkt[0] & 0x40) == 0;
+    CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 1);
+  }
+  CHECK(cleared > 0 && cleared < 64);
 }
 
 /* RFC 9001 6.6: one packet BELOW the AES-GCM confidentiality limit is still
@@ -5409,6 +5546,140 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
   CHECK(f.s.ku.generation == 2);
 }
 
+/* Seal a 1-RTT PING as the client would, under explicit keys and Key Phase
+ * bit (AES-128-GCM, the fixture's suite). */
+static usz lp_seal_ku(
+    const wired_server* s,
+    const initial_keys* k,
+    int                 phase,
+    u64                 pn,
+    u8*                 pkt,
+    usz                 cap) {
+  static const u8 ping[1] = {0x01};
+  aes128          hp;
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys      pk = {k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+        pn,
+        wired_span_of(ping, 1),
+        phase,
+        0,
+        0};
+    wired_obuf o = obuf_of(pkt, cap);
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+    return o.len;
+  }
+}
+
+/* The keys one generation past k's (ku_secret-style secret given). */
+static void lp_ku_next(
+    const u8* secret, const initial_keys* k, initial_keys* n) {
+  u8 next_secret[HKDF_PRK];
+  kuswitch_next_keys(secret, n, next_secret);
+  bytes_memcpy(n->hp, k->hp, INITIAL_HP);
+}
+
+/* Feed one packet through wired_srvloop_recv (the srvloop_step open). */
+static int lp_ku_recv(struct lp_fix* f, u8* pkt, usz n) {
+  wired_srvloop_recv_out ro;
+  return wired_srvloop_recv(
+      &f->s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, n), 9, 0}, &ro);
+}
+
+/* One row of the receive key-selection table: a packet sealed under the
+ * given keys and phase at pn, and what the server must do with it. */
+typedef struct {
+  int key; /* 0 = old (gen 0), 1 = current (gen 1), 2 = next (gen 2) */
+  int phase;
+  u64 pn;
+  int opened;
+  u64 gen_after;
+  u64 err_after;
+} lp_ku_row;
+
+/* RFC 9001 6.3-6.5, every (Key Phase bit x packet-number region x key)
+ * case from the state "generation 1, generation 0 retained, pns 7..9
+ * opened under generation 1": the phase bit and pn pick ONE generation
+ * (current; old below the current range; next above it), a mismatched key
+ * fails that single attempt, and old keys opening a pn inside the current
+ * range is KEY_UPDATE_ERROR. */
+static void test_srvloop_recv_key_selection_table(void) {
+  static const lp_ku_row rows[] = {
+      {1, 1, 10, 1, 1, 0},                   /* current phase, current keys */
+      {0, 1, 10, 0, 1, 0},                   /* current phase, wrong keys */
+      {0, 0, 5, 1, 1, 0},                    /* old phase below: old keys */
+      {0, 0, 8, 0, 1, ERR_KEY_UPDATE_ERROR}, /* old keys above a new pn */
+      {0, 0, 12, 0, 1, 0},                   /* old keys where next is due */
+      {2, 0, 12, 1, 2, 0},                   /* old phase above: next keys */
+      {2, 0, 5, 0, 1, 0},                    /* next keys below the range */
+  };
+  for (usz i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+    struct lp_fix f;
+    u8            out[1024], pkt[256];
+    wired_obuf    ob = {out, sizeof out, 0};
+    initial_keys  k[3];
+    usz           n;
+    lp_confirm(&f, &ob);
+    k[0] = f.s.ku.cur;
+    lp_ku_next(f.s.ku_secret, &k[0], &k[1]);
+    /* generation 1 at pn 7 (the update) and 9 */
+    n = lp_seal_ku(&f.s, &k[1], 1, 7, pkt, sizeof pkt);
+    CHECK(lp_ku_recv(&f, pkt, n) == 1);
+    n = lp_seal_ku(&f.s, &k[1], 1, 9, pkt, sizeof pkt);
+    CHECK(lp_ku_recv(&f, pkt, n) == 1);
+    CHECK(f.s.ku.generation == 1 && f.s.ku.have_old == 1);
+    lp_ku_next(f.s.ku_secret, &k[1], &k[2]);
+    n = lp_seal_ku(
+        &f.s, &k[rows[i].key], rows[i].phase, rows[i].pn, pkt, sizeof pkt);
+    CHECK(lp_ku_recv(&f, pkt, n) == rows[i].opened);
+    CHECK(f.s.ku.generation == rows[i].gen_after);
+    CHECK(f.s.ku_error == rows[i].err_after);
+  }
+}
+
+/* RFC 9001 6.3: the next receive keys are ready before any update arrives
+ * (derived at confirmation) and again right after each rotation -- the
+ * packet that carries an update needs no HKDF of its own. */
+static void test_srvloop_ku_next_keys_precomputed(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  initial_keys  want;
+  usz           n;
+  lp_confirm(&f, &ob);
+  lp_ku_next(f.s.ku_secret, &f.s.ku.cur, &want);
+  CHECK(ct_diffn(f.s.ku_next.key, want.key, INITIAL_KEY) == 0);
+  CHECK(ct_diffn(f.s.ku_next.iv, want.iv, INITIAL_IV) == 0);
+  n = lp_seal_ku(&f.s, &want, 1, 7, pkt, sizeof pkt);
+  CHECK(lp_ku_recv(&f, pkt, n) == 1);
+  CHECK(f.s.ku.generation == 1);
+  lp_ku_next(f.s.ku_secret, &f.s.ku.cur, &want);
+  CHECK(ct_diffn(f.s.ku_next.key, want.key, INITIAL_KEY) == 0);
+}
+
+/* RFC 9001 6.6: with the previous self-initiated update still unconfirmed,
+ * nearing the confidentiality limit latches AEAD_LIMIT_REACHED while the
+ * margin can still seal the close; at the limit itself nothing seals. */
+static void test_srvloop_aead_limit_latches_close_when_no_update(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 20, pkt, sizeof pkt) > 0); /* update to gen 1 */
+  CHECK(f.s.ku_send.generation == 1 && f.s.ku.generation == 0);
+  CHECK(f.s.ku_error == 0);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN - 1;
+  CHECK(lp_seal_ping(&f, 21, pkt, sizeof pkt) > 0);
+  CHECK(f.s.ku_error == 0); /* one short of the margin */
+  CHECK(lp_seal_ping(&f, 22, pkt, sizeof pkt) > 0);
+  CHECK(f.s.ku_error == ERR_AEAD_LIMIT_REACHED);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 23, pkt, sizeof pkt) == 0);
+}
+
 /* A 0-RTT packet (long header, type bits 0x1 -- RFC 9000 17.2.3)
  * sealed under the driver's own derived early keys opens through
  * wired_srvloop_recv, reporting LEVEL_ONERTT (RFC 9000 12.3: 0-RTT and
@@ -5542,6 +5813,154 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, slen), &ob);
   CHECK(f.l.app_rx_seen == 1);
   CHECK(f.l.app_rx_pn == 3);
+}
+
+/* The fixture after a compatible switch: the client's first flight was v1
+ * (RFC 9368 2.2 original version) and the server negotiated v2. */
+static void lp_switch_v1_to_v2(struct lp_fix* f) {
+  f->s.sdrv.client_version     = VERSION_1;
+  f->s.sdrv.negotiated_version = VERSION_2;
+}
+
+/* One client Initial of `version` carrying a PING-sized CRYPTO chunk,
+ * keyed from the fixture's ODCID (g_cli_scid, RFC 9001 5.2). */
+static usz lp_client_initial_ver(u32 version, u8* pkt, usz cap) {
+  static const u8 crypto[1] = {0};
+  initpkt_desc    d         = {
+      wired_span_of(g_cli_scid, 6), wired_span_of(g_cli_scid, 6),
+      wired_span_of(crypto, 1), 7, 0};
+  wired_obuf o = obuf_of(pkt, cap);
+  CHECK(initpkt_build_ver(version, &d, &o));
+  return o.len;
+}
+
+/* One client Handshake packet (CLIENT_HS keys) framed in `version`. */
+static usz lp_client_handshake_ver(
+    struct lp_fix* f, u32 version, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          ob = {pkt, cap, 0};
+  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys    pk = {k, &hp};
+    srvwire_seal_in in = {
+        wired_span_of((const u8*)0, 0),
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        -1,
+        wired_span_of(ping, 1),
+        0,
+        0,
+        0,
+        0,
+        version};
+    CHECK(srvwire_seal_handshake(&pk, &in, &ob));
+  }
+  return ob.len;
+}
+
+static int lp_recv(struct lp_fix* f, u8* pkt, usz n) {
+  wired_srvloop_recv_in  ri = {wired_mspan_of(pkt, n), 0, 0};
+  wired_srvloop_recv_out ro;
+  return wired_srvloop_recv(&f->s, &ri, &ro);
+}
+
+/* RFC 9369 4.1: after switching v1 -> v2 the server keeps its original
+ * (v1) Initial receive keys until it processes a Handshake packet in the
+ * negotiated version: a v1 Initial the client sent before it saw the v2
+ * flight still opens, as does a v2 one; once a v2 Handshake packet opened,
+ * v1 Initials are dropped while v2 Initials keep opening. */
+static void test_srvloop_recv_v1_initial_until_v2_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 0);
+  n = lp_client_handshake_ver(&f, VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+  CHECK(f.s.hs_rx_seen == 1);
+  n = lp_client_initial_ver(VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  n = lp_client_initial_ver(VERSION_2, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1: "Both endpoints MUST send Handshake and 1-RTT packets using
+ * the negotiated version. An endpoint MUST drop packets using any other
+ * version." -- a Handshake packet in the original v1 is dropped (and does
+ * not retire the v1 Initial keys). */
+static void test_srvloop_recv_drops_original_version_handshake(void) {
+  struct lp_fix f;
+  u8            pkt[1500];
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_switch_v1_to_v2(&f);
+  n = lp_client_handshake_ver(&f, VERSION_1, pkt, sizeof pkt);
+  CHECK(lp_recv(&f, pkt, n) == 0);
+  CHECK(f.s.hs_rx_seen == 0);
+}
+
+/* RFC 9369 4.1: "Servers can accept 0-RTT and then process 0-RTT packets
+ * from the original version." After the v1 -> v2 switch a v1 0-RTT packet
+ * (v1 type bits 0b01 -- v2's Initial bits) still opens under the early
+ * keys, which carry the original version's labels. */
+static void test_srvloop_recv_v1_zerortt_after_v2_switch(void) {
+  struct lp_fix f;
+  u8            psk[32], pkt[256];
+  aes128        hp;
+  const u8      payload[1] = {0x01};
+  usz           n;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
+  f.s.sdrv.early_data_accepted = 1;
+  lp_switch_v1_to_v2(&f);
+  aes128_init(&hp, f.s.sdrv.early_keys.hp);
+  {
+    protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    tx_desc      d  = {
+        0xd3,
+        wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+        wired_span_of(g_cli_scid, 6),
+        0,
+        wired_span_of(0, 0),
+        2,
+        wired_span_of(payload, sizeof(payload)),
+        VERSION_1};
+    n = tx_packet_suite(
+        f.s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
+    CHECK(n != 0);
+  }
+  CHECK(lp_recv(&f, pkt, n) == 1);
+}
+
+/* RFC 9369 4.1 / 3.3.2: with a v2 original version the 0-RTT keys carry
+ * the "quicv2 " labels -- the server derives them from the client's
+ * original version, not v1's. */
+static void test_sdrv_early_keys_use_original_version_labels(void) {
+  u8           psk[32], ch[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  initial_keys v1, v2;
+  for (usz i = 0; i < 32; i++) {
+    psk[i] = (u8)(0xc0 + i);
+  }
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_1, psk, ch, sizeof ch, &v1);
+  tls_early_keys_suite_ver(
+      TLS_AES_128_GCM_SHA256, VERSION_2, psk, ch, sizeof ch, &v2);
+  CHECK(ct_diff16(v1.key, v2.key) != 0);
 }
 
 /* One 0-RTT PING at pn, byte0 picking the truncated pn length, sealed for
@@ -6154,6 +6573,13 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
+  test_srvloop_recv_v1_initial_until_v2_handshake();
+  test_srvloop_accepts_cleared_quic_bit();
+  test_srvloop_spin_reflects_highest_pn();
+  test_srvloop_send_greases_quic_bit();
+  test_srvloop_recv_drops_original_version_handshake();
+  test_srvloop_recv_v1_zerortt_after_v2_switch();
+  test_sdrv_early_keys_use_original_version_labels();
   test_srvloop_zerortt_refused_frames_latch_error();
   test_srvloop_pn_baseline_is_largest();
   test_srvloop_duplicate_packet_dropped();
@@ -6293,6 +6719,7 @@ void test_srvloop(void) {
   test_srvloop_no_ticket_before_confirm();
   test_srvloop_ticket_not_resent();
   test_srvloop_confirm_sends_several_tickets();
+  test_srvloop_ticket_seals_version_and_limits();
   test_srvloop_no_ticket_without_psk_dhe_ke();
   test_srvloop_resumed_ticket_keeps_origin();
   test_srvloop_no_ticket_past_resumption_cap();
@@ -6309,6 +6736,9 @@ void test_srvloop(void) {
   test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic();
   test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase();
   test_srvloop_recv_follows_repeated_key_updates_across_generations();
+  test_srvloop_recv_key_selection_table();
+  test_srvloop_ku_next_keys_precomputed();
+  test_srvloop_aead_limit_latches_close_when_no_update();
   test_srvloop_touched_mask_reaches_high_slots();
   test_srvloop_stream_limit_clamps_to_table();
   test_srvloop_released_stream_duplicate_is_ignored();

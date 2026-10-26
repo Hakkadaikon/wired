@@ -75,3 +75,36 @@ void test_tparam_range_ok(void) {
   CHECK(tparam_range_ok(TP_INITIAL_MAX_DATA, 0) == 1);
   CHECK(tparam_range_ok(TP_INITIAL_MAX_STREAMS_BIDI, 0xffffffffull) == 1);
 }
+
+/* RFC 9000 7.4 / 18.2: the whole-sequence walk rejects an out-of-range
+ * value, a non-varint value of a ranged id, a server-only id and broken
+ * framing; it passes an empty sequence and unranged ids. */
+void test_tparam_client_tp_ok(void) {
+  u8         tp[32];
+  wired_obuf ob = obuf_of(tp, sizeof tp);
+  usz        n  = tparam_put_int(&ob, TP_INITIAL_MAX_DATA, 7);
+  CHECK(tparam_client_tp_ok(wired_span_of(0, 0)) == 1);
+  ob = obuf_of(tp + n, sizeof tp - n);
+  n += tparam_put_int(&ob, TP_ACK_DELAY_EXPONENT, 20);
+  CHECK(tparam_client_tp_ok(wired_span_of(tp, n)) == 1);
+  ob = obuf_of(tp + n, sizeof tp - n);
+  n += tparam_put_int(&ob, TP_MAX_ACK_DELAY, 16384);
+  CHECK(tparam_client_tp_ok(wired_span_of(tp, n)) == 0);
+  /* max_ack_delay value bytes 0x40 0x01 0x00: a 2-byte varint plus junk */
+  {
+    const u8 junk[] = {TP_MAX_ACK_DELAY, 3, 0x40, 0x01, 0x00};
+    CHECK(tparam_client_tp_ok(wired_span_of(junk, sizeof junk)) == 0);
+  }
+  /* server-only ids from a client, even with a well-formed value */
+  {
+    const u8 odcid[] = {TP_ORIGINAL_DESTINATION_CONNECTION_ID, 1, 0x05};
+    const u8 rscid[] = {TP_RETRY_SOURCE_CONNECTION_ID, 0};
+    CHECK(tparam_client_tp_ok(wired_span_of(odcid, sizeof odcid)) == 0);
+    CHECK(tparam_client_tp_ok(wired_span_of(rscid, sizeof rscid)) == 0);
+  }
+  /* a TLV whose length runs past the sequence */
+  {
+    const u8 cut[] = {TP_INITIAL_MAX_DATA, 4, 0x01};
+    CHECK(tparam_client_tp_ok(wired_span_of(cut, sizeof cut)) == 0);
+  }
+}

@@ -504,8 +504,10 @@
 #include "tls/handshake/core/sdrv/sdrv_ch_shape.c"
 #include "tls/handshake/core/sdrv/sdrv_ch_psk.c"
 #include "tls/handshake/core/sdrv/sdrv_early.c"
+#include "tls/handshake/core/sdrv/sdrv_early_ticket.c"
 #include "tls/handshake/core/sdrv/sdrv_hrr.c"
 #include "tls/handshake/core/sdrv/sdrv_p256.c"
+#include "tls/handshake/core/sdrv/sdrv_ch_tp.c"
 #include "tls/handshake/core/sdrv/sdrv_psk.c"
 #include "tls/handshake/core/sdrv/sdrv_set.c"
 #include "tls/handshake/core/sdrv/sdrv_take.c"
@@ -628,6 +630,8 @@
 #include "app/http3/server/srvloop/body_window_bodywin_capq.c"
 #include "app/http3/server/srvloop/keys.c"
 #include "app/http3/server/srvloop/recv.c"
+#include "app/http3/server/srvloop/recv_version.c"
+#include "app/http3/server/srvloop/recv_onertt.c"
 #include "app/http3/server/srvloop/priority_ctrl.c"
 #include "app/http3/server/srvloop/priority_ctrl_ctrl.c"
 #include "app/http3/server/srvloop/dispatch.c"
@@ -706,6 +710,7 @@
 #include "app/http3/server/srvrun/srvrun_boot_hrr.c"
 #include "app/http3/server/srvrun/srvrun_claim.c"
 #include "app/http3/server/srvrun/srvrun_close.c"
+#include "app/http3/server/srvrun/srvrun_close_long.c"
 #include "app/http3/server/srvrun/srvrun_closing.c"
 #include "app/http3/server/srvrun/srvrun_conn.c"
 #include "app/http3/server/srvrun/srvrun_copy.c"
@@ -775,6 +780,7 @@
 #include "app/http3/server/srvrun/srvrun_stream.c"
 #include "app/http3/server/srvrun/srvrun_io.c"
 #include "app/http3/server/srvrun/srvrun_tok.c"
+#include "app/http3/server/srvrun/srvrun_token.c"
 #include "app/http3/server/srvrun/srvrun_wt.c"
 #include "app/http3/server/srvrun/srvrun_wt_capsule.c"
 #include "app/http3/server/srvrun/srvrun_wt_connect.c"
@@ -1488,6 +1494,7 @@
 #include "app/srvrun_test.c"
 #include "app/srvrun_httpx_test.c"
 #include "app/srvrun_pin_test.c"
+#include "app/srvrun_token_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
 #include "app/srvrun_rec_test.c"
@@ -1771,6 +1778,8 @@ int main(void) {
   test_tokentype();
   test_tpblob();
   test_tpcheck();
+  test_tparam_range_ok();
+  test_tparam_client_tp_ok();
   test_tpext();
   test_v2keys();
   test_v2types();
@@ -2114,6 +2123,7 @@ int main(void) {
   test_sendsess();
   test_srvrun();
   test_srvrun_pin();
+  test_srvrun_token();
   test_srvrun_close();
   test_srvrun_raw();
   test_srvrun_rec();

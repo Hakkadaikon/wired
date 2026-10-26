@@ -44,7 +44,7 @@ static void test_recv_offset(void) {
   u8                pkt[128];
   protect_keys      pk = {&k, &hp};
   hspkt_onertt_desc bd = {
-      wired_span_of(dcid, 4), 3, wired_span_of(frame, flen), 0};
+      wired_span_of(dcid, 4), 3, wired_span_of(frame, flen), 0, 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
@@ -73,7 +73,7 @@ static void test_recv_empty_payload(void) {
   u8                pkt[128];
   protect_keys      pk = {&k, &hp};
   hspkt_onertt_desc bd = {
-      wired_span_of(dcid, 4), 1, wired_span_of((const u8*)"", 0), 0};
+      wired_span_of(dcid, 4), 1, wired_span_of((const u8*)"", 0), 0, 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
@@ -99,7 +99,7 @@ static void test_recv_malformed(void) {
   u8                pkt[128];
   protect_keys      pk = {&k, &hp};
   hspkt_onertt_desc bd = {
-      wired_span_of(dcid, 4), 2, wired_span_of(bad, sizeof(bad)), 0};
+      wired_span_of(dcid, 4), 2, wired_span_of(bad, sizeof(bad)), 0, 0, 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
   CHECK(hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;

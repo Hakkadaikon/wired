@@ -32,6 +32,13 @@ typedef struct {
    * ClientHello transport parameters; 0 = not advertised (peer does not
    * support DATAGRAM) */
   u64 peer_max_datagram_frame_size;
+  /** peer's max_idle_timeout (0x01, RFC 9000 10.1) in ms from the
+   * ClientHello transport parameters; 0 = absent (no limit). */
+  u64 peer_max_idle_timeout;
+  /** RFC 9287 3: 1 when the ClientHello carried grease_quic_bit (empty
+   * value) -- the client accepts a cleared QUIC Bit, so 1-RTT packets to it
+   * may grease the bit (wired_srvloop_send_onertt). */
+  int peer_grease_quic_bit;
   u64 peer_initial_max_data; /**< peer's initial_max_data (0x04, RFC 9000
                               * 18.2) from the ClientHello transport
                               * parameters -- the connection-level credit
@@ -77,6 +84,10 @@ typedef struct {
    * server's (salpn_raw_pick_server, the default) -- for clients that
    * ignore the selected protocol (sdrv_set_alpn_client_order). */
   int alpn_client_order;
+  /** RFC 9308 13: WIRED_VERSIONS_* bits this server accepts (0 = all),
+   * set by sdrv_set_versions; compatible version negotiation and the
+   * advertised Available Versions draw from this set. */
+  u32 versions;
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
    * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
@@ -234,6 +245,14 @@ typedef struct {
                     * the Retry packet's SCID, advertised only when
                     * a Retry preceded this handshake */
   u8 rscid_len;    /**< bytes used in rscid; 0 = no Retry */
+  /** RFC 9000 7.3: the Source CID of the client's Initial as seen on the
+   * wire; initial_source_connection_id must equal it. */
+  u8 peer_scid[20];
+  /** Bytes used in peer_scid (0..20). */
+  u8 peer_scid_len;
+  /** 1 once sdrv_set_peer_scid ran: only a driver that saw the Initial
+   * header can check initial_source_connection_id against it. */
+  u8 peer_scid_set;
   /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
    * the EncryptedExtensions transport parameters when sreset_token_set is 1.
    * The caller derives it from a restart-stable secret (sreset_key_
@@ -304,6 +323,13 @@ void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns);
  * @param s driver state
  * @param on 1 client order, 0 server order (the sdrv_init default) */
 void sdrv_set_alpn_client_order(sdrv* s, int on);
+
+/** RFC 9308 13: restrict the versions compatible version negotiation may
+ * select and the version_information this server advertises.
+ * @param s driver state
+ * @param versions WIRED_VERSIONS_* bits, 0 = every supported version (the
+ *        sdrv_init default) */
+void sdrv_set_versions(sdrv* s, u32 versions);
 
 /** Inputs to sdrv_init.
  *
@@ -380,6 +406,14 @@ int sdrv_set_cids_retried(
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
 int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
+
+/** Record the Source CID of the client's Initial (RFC 9000 7.3): the
+ * ClientHello must then carry an initial_source_connection_id equal to it,
+ * or it is rejected with TRANSPORT_PARAMETER_ERROR.
+ * @param s the server driver
+ * @param scid the client's Initial Source CID (at most 20 bytes)
+ * @return 1 on success, 0 when scid exceeds 20 bytes */
+int sdrv_set_peer_scid(sdrv* s, wired_span scid);
 
 /** Key rotation: also open presented tickets under prev (TICKET_KEY_LEN
  * bytes, copied), the previous generation of the ticket key. Call after
@@ -491,6 +525,12 @@ int sdrv_early_allowed(const sdrv* s);
  * @return 1 once the tracker is shared, 0 if the mapping failed (the
  *   tracker then stays per-process). */
 int sdrv_zerortt_share(void);
+
+/** RFC 8446 8.2: open this process's 0-RTT recording window at secs (epoch
+ * seconds) instead of at the first sdrv_init; for ZERORTT_SEEN_LIVE_SECS
+ * after it opens, 0-RTT on a ticket issued before it is refused.
+ * @param secs epoch seconds the server started recording. */
+void sdrv_zerortt_set_started(u64 secs);
 
 /** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
  * this driver's only supported group) into out, fold it into the

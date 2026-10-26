@@ -35,6 +35,11 @@ typedef struct {
                                 * (RFC 9221 3); 0 = not advertised (no
                                 * default -- opt in once DATAGRAM delivery is
                                 * wired end-to-end) */
+  /** RFC 9000 10.1 / RFC 9308 10: the max_idle_timeout this server
+   * advertises, in ms; 0 = the 30 s default. A connection idles out after
+   * the smaller of this and the client's value (wired_server_idle_timeout_
+   * ms), but never before three PTOs. */
+  u64 idle_timeout_ms;
   /** RFC 5280 4.2.1.6: 4-byte IPv4 address (network byte order) added to the
    * self-signed certificate's Subject Alternative Name as an iPAddress
    * entry, alongside the fixed dNSName=localhost -- a browser validating a
@@ -99,6 +104,11 @@ typedef struct {
    * it only when the application's early requests are safe to replay.
    * Needs ticket_key. */
   int early_data;
+  /** RFC 9308 13: the QUIC versions this server accepts, as
+   * WIRED_VERSIONS_V1 / WIRED_VERSIONS_V2 bits; 0 (the default) accepts
+   * both. An Initial of any other version gets Version Negotiation, and
+   * compatible version negotiation (RFC 9368) only picks from this set. */
+  u32 versions;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
@@ -177,18 +187,26 @@ int wired_srvboot_accept(
     const wired_srvboot_in*   in,
     wired_srvboot_out*        out);
 
+/** Largest Version Negotiation packet wired_srvboot_vneg writes: byte0,
+ * Version, two 255-byte connection ids with their length bytes (RFC 8999
+ * 5.1) and up to 16 supported versions (VERS_MAX). */
+#define WIRED_SRVBOOT_VN_MAX (1 + 4 + 2 * (1 + 255) + 4 * 16)
+
 /** Answer a long-header datagram of an unsupported version with a Version
- * Negotiation packet offering this server's supported versions -- v2 then v1
- * (RFC 9368 5), connection ids swapped (RFC 9000 5.2.2 / RFC 8999 6). No
- * response for: a datagram under 1200 bytes (amplification guard, RFC 9000
- * 6), version 0 (never answer a Version Negotiation packet with another,
- * RFC 9000 6.1), a supported version (v1 or v2), a short header, or an
- * unparseable header.
+ * Negotiation packet offering the versions this server accepts -- v2 then
+ * v1 (RFC 9368 5), narrowed by `versions` -- with connection ids swapped
+ * (RFC 9000 5.2.2 / RFC 8999 6). The connection ids of an unsupported
+ * version may be up to 255 bytes long (RFC 8999 5.1) and are echoed as
+ * received. No response for: a datagram under 1200 bytes (amplification
+ * guard, RFC 9000 6), version 0 (never answer a Version Negotiation packet
+ * with another, RFC 9000 6.1), an accepted version, a short header, or a
+ * truncated header.
  * @param dg the received datagram
+ * @param versions WIRED_VERSIONS_* bits the server accepts (0 = all)
  * @param out receives the Version Negotiation packet
- * @param cap bytes available at out
+ * @param cap bytes available at out (WIRED_SRVBOOT_VN_MAX always fits)
  * @return bytes written, or 0 when no response is owed. */
-usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap);
+usz wired_srvboot_vneg(wired_span dg, u32 versions, u8* out, usz cap);
 
 /** Datagrams a boot's accumulator holds verbatim while waiting for 0-RTT keys
  * (wired_srvboot_acc.zerortt_dg): comfortably past a real quic-go 0-RTT

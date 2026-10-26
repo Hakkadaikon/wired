@@ -62,6 +62,27 @@ static int srvboot_set_cids(
   return sdrv_set_retry_scid(&conn->s->sdrv, dcid);
 }
 
+/* The connection ids, plus (RFC 9000 7.3) the Initial's SCID the
+ * ClientHello's initial_source_connection_id is checked against. */
+static int srvboot_bind_cids(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    const wired_header*       h) {
+  return srvboot_set_cids(conn, id, h) &&
+         sdrv_set_peer_scid(
+             &conn->s->sdrv, wired_span_of(h->scid, h->scid_len));
+}
+
+/* The advertised transport-parameter limits (RFC 9000 18.2), the idle
+ * timeout among them (RFC 9000 10.1 / RFC 9308 10). */
+static void srvboot_set_limits(
+    const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
+  wired_server_set_limits(
+      conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
+      wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);
+  conn->s->sdrv.limits.max_idle_timeout = id->idle_timeout_ms;
+}
+
 const u8* srvboot_reset_seed(const wired_srvboot_id* id) {
   return id->reset_seed ? id->reset_seed : id->cert_seed;
 }
@@ -108,12 +129,11 @@ int srvboot_init(
   srvboot_init_server(conn, id, &in);
   sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
   sdrv_set_alpn_client_order(&conn->s->sdrv, id->alpn_client_order);
+  sdrv_set_versions(&conn->s->sdrv, id->versions);     /* RFC 9308 13 */
   sdrv_set_early_data(&conn->s->sdrv, id->early_data); /* RFC 8446 E.5 */
-  wired_server_set_limits(
-      conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
-      wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);
+  srvboot_set_limits(conn, id);
   srvboot_set_reset_token(conn, id);
-  if (!srvboot_set_cids(conn, id, h)) {
+  if (!srvboot_bind_cids(conn, id, h)) {
     return 0;
   }
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);

@@ -4,6 +4,7 @@ static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len);
 static void note_app_rx_short(
     wired_srvloop* l, wired_server* s, wired_mspan pkt);
 static void note_app_rx_long(wired_srvloop* l, wired_mspan pkt);
+static void note_app_rx_spin(const wired_srvloop* l, wired_server* s, u8 byte0);
 
 /* The largest 1-RTT packet number received so far (0 before any), the baseline
  * for recovering a truncated PN (RFC 9000 A.3). */
@@ -33,6 +34,17 @@ static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len) {
 static void note_app_rx_short(
     wired_srvloop* l, wired_server* s, wired_mspan pkt) {
   app_rx_record(l, pkt.p + 1u + s->sdrv.iscid_len, (pkt.p[0] & 0x03u) + 1u);
+  note_app_rx_spin(l, s, pkt.p[0]);
+}
+
+/* RFC 9000 17.4: remember the spin bit of the highest-numbered 1-RTT packet
+ * received so far (byte0 is already header-unprotected here); a reordered
+ * older packet leaves it alone. */
+static void note_app_rx_spin(
+    const wired_srvloop* l, wired_server* s, u8 byte0) {
+  if (l->app_rx_pn == l->app_rx_hi) {
+    s->spin_rx = spin_get(byte0);
+  }
 }
 
 /* RFC 9000 17.2.3 / 13.2.1: a 0-RTT packet keeps the App pn space (RFC 9000

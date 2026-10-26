@@ -27,4 +27,10 @@ const u8* srvkeys_ticket(void);
  * @return SRVKEYS_LEN bytes, all zero only if srvkeys_ready failed */
 const u8* srvkeys_retry(void);
 
+/** The NEW_TOKEN token key (RFC 9000 8.1.3), drawn with the other seeds.
+ * Used as is, not rotated: a NEW_TOKEN token carries its own issue time and
+ * expires by it (NEWTOKEN_MAX_AGE_SECS), across key epochs.
+ * @return SRVKEYS_LEN bytes, all zero only if srvkeys_ready failed */
+const u8* srvkeys_newtoken(void);
+
 #endif

@@ -49,6 +49,8 @@ static void test_verinfo_decode_bad(void) {
   CHECK(verinfo_decode(buf, 0, (version_information[]){{0}}) == 0);
   CHECK(verinfo_decode(buf, 3, (version_information[]){{0}}) == 0);
   CHECK(verinfo_decode(buf, 6, (version_information[]){{0}}) == 0);
+  /* RFC 9368 4: a zero Chosen (or Available) Version is a parse failure */
+  CHECK(verinfo_decode(buf, 8, (version_information[]){{0}}) == 0);
 }
 
 void test_verinfo(void) {

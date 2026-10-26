@@ -40,6 +40,12 @@ typedef struct {
   u64 ce;
 } wired_srvloop_send_in;
 
+/** RFC 9001 6.6: packets kept in hand below the AEAD confidentiality limit
+ * for the CONNECTION_CLOSE (and its closing-state repeats) once no Key
+ * Update is possible -- wired_srvloop_send_onertt latches
+ * AEAD_LIMIT_REACHED (wired_server.ku_error) this far before the limit. */
+#define SRVLOOP_KU_CLOSE_MARGIN 64
+
 /** Seal a ServerHello TLS flight into a server Initial packet, addressed to
  * in->cli_scid (RFC 9000 7.2) and protected with the Initial keys derived
  * from the odcid recorded at boot (RFC 9001 5.2). When in->ack_pn >= 0 the

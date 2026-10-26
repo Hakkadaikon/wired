@@ -363,6 +363,9 @@ typedef struct {
   wired_server  s;
   wired_srvloop l;
   u64           last_ms; /**< monotonic ms of the last routed datagram */
+  /** RFC 9000 10.1: monotonic ms of the first ack-eliciting (STREAM) send
+   * since last_ms's receive, 0 = none yet; the idle timer restarts here. */
+  u64 idle_tx_ms;
   /** RFC 9000 10.2: when the closing state (closing) ends -- three times
    * the PTO after the close went out. */
   u64 closing_until_ms;
@@ -826,6 +829,9 @@ typedef struct {
   u8  scid[WIRED_MAX_CID_LEN];
   /** The CONNECTION_CLOSE frame sent, kept to resend it unchanged. */
   u8 close_pl[SRVRUN_CLOSE_PL_MAX];
+  /** RFC 9000 12.3: the next unused server Initial packet number, carried
+   * over from the boot accumulator (its ack_pn) when the slot came up. */
+  u64 ini_next_pn;
   /** Each active slot's own Extended CONNECT :path value, copied rather than
    * viewed since the decoded request's own storage does not outlive the step
    * that established the session. Meaningless while the corresponding slot is
@@ -886,6 +892,14 @@ typedef struct {
   u8 retry_odcid[WIRED_MAX_CID_LEN];
   /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
   u8 retry_odcid_len;
+  /** RFC 9000 8.1: 1 when the client's first Initial carried a valid Retry
+   * or NEW_TOKEN token -- its address is validated, so the
+   * anti-amplification limit does not apply. */
+  u8 addr_validated;
+  /** RFC 9000 8.1.3/9.3: 1 while a NEW_TOKEN token is owed (confirmation
+   * or a newly validated address) but not sent yet (srvrun_send_new_token).
+   */
+  u8 newtok_owed;
   /** Bidi MAX_STREAMS re-announces left (see grant_retry_ms). */
   u8 grant_retries;
   /** RFC 9000 9.5: the server connection ID the client's last opened 1-RTT

@@ -4,10 +4,13 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "common/bytes/util/bytes.h"
+#include "common/diag/error/error.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/ext/grease/bitset.h"
 #include "tls/handshake/core/tls/aead_params.h"
 #include "tls/keys/keyupdate/aeadlimit.h"
 #include "tls/keys/keyupdate/keyphase.h"
+#include "transport/conn/cid/spin/spin.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from
@@ -108,14 +111,29 @@ static int ku_can_initiate(const wired_server* s) {
   return s->ku_seeded && s->ku_send.generation == s->ku.generation;
 }
 
+/* RFC 9001 6.6: "RECOMMENDED that endpoints immediately close the
+ * connection with ... AEAD_LIMIT_REACHED before reaching a state where key
+ * updates are not possible" -- the limit is near and the peer has not yet
+ * followed the previous update, so latch the close while the remaining
+ * margin can still seal it. */
+static int ku_limit_near_stuck(const wired_server* s, int chacha) {
+  return aead_needs_update(
+             s->ku_send_count + SRVLOOP_KU_CLOSE_MARGIN, chacha) &&
+         !ku_can_initiate(s);
+}
+
+static void ku_note_limit_near(wired_server* s, int chacha) {
+  if (ku_limit_near_stuck(s, chacha) && !s->ku_error) {
+    s->ku_error = ERR_AEAD_LIMIT_REACHED;
+  }
+}
+
 /* RFC 9001 6.6: once the confidentiality limit for the negotiated AEAD is
  * reached, the current keys MUST NOT seal another packet -- initiate a Key
- * Update (6.1) if allowed, else refuse. Returns 1 if sealing may proceed.
- * ponytail: a limit hit while the previous update is still unconfirmed
- * stalls sends rather than closing the connection; 2^23 packets without one
- * peer packet in the new phase dies of idle timeout first. */
+ * Update (6.1) if allowed, else refuse. Returns 1 if sealing may proceed. */
 static int ku_limit_gate(wired_server* s) {
   int chacha = aead_is_chacha(s->sdrv.cipher_suite);
+  ku_note_limit_near(s, chacha);
   if (!aead_needs_update(s->ku_send_count, chacha)) {
     return 1;
   }
@@ -158,6 +176,22 @@ static wired_span send_onertt_padded(wired_span pl, usz min, u8* buf) {
  * generation (hspkt_onertt_build's byte0 has no way to infer the
  * phase from the keys alone -- the wire bit is the only signal a peer
  * uses to detect an update, RFC 9001 6.3). */
+/* RFC 9287 3.1: toward a client that advertised grease_quic_bit, clear the
+ * QUIC Bit on about half the 1-RTT packets, the choice keyed by this
+ * connection's secret seed so an observer cannot predict it. shortcut: a
+ * multiply-mix of seed^pn, not a PRF; swap in a keyed hash if the bit must
+ * resist analysis. */
+static int send_onertt_clear_bit(const wired_server* s, u64 pn) {
+  u64 x = (s->grease_seed ^ pn) * 0x9e3779b97f4a7c15ull;
+  return greasebit_may_clear(s->sdrv.peer_grease_quic_bit) && (x >> 63);
+}
+
+/* RFC 9000 17.4: the server reflects the spin bit it last saw, unless this
+ * connection drew spin disablement (then 0 throughout). */
+static int send_onertt_spin(const wired_server* s) {
+  return spin_outgoing_ex(1, s->spin_rx, s->spin_off);
+}
+
 static int send_onertt_seal(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
@@ -165,9 +199,12 @@ static int send_onertt_seal(
   protect_keys          pk;
   u8                    buf[SEND_PAD_MAX];
   hspkt_onertt_desc     d = {
-      in->cli_scid, in->pn,
+      in->cli_scid,
+      in->pn,
       send_onertt_padded(in->payload, send_onertt_min_payload(s, in), buf),
-      send_onertt_phase(s)};
+      send_onertt_phase(s),
+      send_onertt_spin(s),
+      send_onertt_clear_bit(s, in->pn)};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) {
     return 0;
   }

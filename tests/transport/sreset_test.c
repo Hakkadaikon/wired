@@ -1,3 +1,4 @@
+#include "common/bytes/util/bytes.h"
 #include "test.h"
 
 /* The token is deterministic for a key+CID, and distinct CIDs differ. */
@@ -111,7 +112,33 @@ static void test_sreset_size_strictly_below_trigger_len(void) {
   }
 }
 
+static int fill_ones(u8* buf, usz len) {
+  bytes_memset(buf, 0xff, len);
+  return 1;
+}
+
+static int fill_zeros(u8* buf, usz len) {
+  bytes_memset(buf, 0, len);
+  return 1;
+}
+
+/* RFC 9000 10.3: a Stateless Reset's first two bits are 0b01 (short form,
+ * QUIC Bit set) whatever the RNG drew -- RFC 9287 3.1: the bit is never 0
+ * toward a peer whose grease_quic_bit support is unknown. */
+static void test_sreset_build_fixed_bits(void) {
+  u8         key[SRESET_KEY] = {0}, out[64];
+  const u8   cid[8]          = {1, 2, 3, 4, 5, 6, 7, 8};
+  wired_obuf ob              = obuf_of(out, sizeof out);
+  CHECK(sreset_build(key, cid, 8, 40, fill_ones, &ob) == 1);
+  CHECK((out[0] & 0xc0) == 0x40);
+  CHECK((out[0] & 0x3f) == 0x3f); /* the rest stays random */
+  ob = obuf_of(out, sizeof out);
+  CHECK(sreset_build(key, cid, 8, 40, fill_zeros, &ob) == 1);
+  CHECK(out[0] == 0x40);
+}
+
 void test_sreset(void) {
+  test_sreset_build_fixed_bits();
   test_sreset_token();
   test_sreset_detect();
   test_sreset_size();

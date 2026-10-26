@@ -838,6 +838,17 @@ those directly.
   worker killed inside that scan (SIGKILL at that instant) would leave
   0-RTT acceptance blocked in every worker until restart. Source:
   `zerortt_seen.c` (ponytail), `sdrv_zerortt_share`.
+- **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
+  clients resuming with early data, on a ticket an earlier server instance
+  issued (a fixed `ticket_key` across restarts), right after the server
+  starts. The 0-RTT replay store opens its recording window at the first
+  `sdrv_init` and, for `ZERORTT_SEEN_LIVE_SECS` (21 s), refuses early data
+  on any ticket issued before that (RFC 8446 8.2: a ClientHello accepted
+  before a restart is in no record); those connections fall back to 1-RTT.
+  Tickets this instance issued keep 0-RTT. The check has one-second
+  granularity, so a ticket issued in the same second the window opened is
+  not caught. Source: `zerortt_seen_pre_start` (shortcut),
+  [rfc8446.md](rfc8446.md) 8446-123.
 - **Cipher suites: preference AES-128-GCM, ChaCha20-Poly1305, AES-256-GCM**
   — Affects: clients that insist on their own suite order. All three TLS 1.3
   AEAD suites are negotiated, in the server's order rather than the
@@ -921,6 +932,12 @@ those directly.
   `rsa_pss_rsae_sha256`). There is no RSA signing, encryption, key
   generation or private-key type, and no BoringSSL RSA vectors. Source:
   `rsa_verify.h`, `pss.c`, [rfc8017.md](rfc8017.md).
+- **ECDSA nonces are RFC 6979 deterministic, not FIPS 186-4 B.5** —
+  Affects: deployments that need FIPS 186-4 validation. P-256 signing
+  derives k by RFC 6979 (approved by FIPS 186-5 §6.3.2, not by FIPS 186-4),
+  so the signer does not depend on an RBG at signing time. The SDK makes no
+  FIPS 186-4 validation claim. Source: `p256sign_sign`,
+  [fips186-4.md](fips186-4.md) Out of scope (F186-029).
 - **ECDSA/ECC key generation not shipped** — Affects: apps that want to
   create keys at runtime. Keys are loaded from certificates or PEM. There is
   no DSA at all. Source: [fips186-4.md](fips186-4.md).

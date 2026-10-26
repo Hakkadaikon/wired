@@ -1,5 +1,8 @@
 #include "crypto/symmetric/aead/gcm/gcm.h"
 #include "test.h"
+#include "tls/handshake/core/tls/retry_tag.h"
+#include "transport/packet/header/packet/ptype.h"
+#include "transport/packet/header/packet/retry.h"
 
 /* RFC 9369 3.3.3 v2 key/nonce golden values, and they differ from the
  * RFC 9001 5.8 v1 key/nonce. */
@@ -95,7 +98,41 @@ static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   }
 }
 
+/* RFC 9369 A.4 end to end through the server's own builders: retry_build
+ * with Version 2 wears the v2 Retry type bits (0b00, byte0 0xc0 before the
+ * unused low nibble, which the sample sets to 0xf), and retry_tag_ver keyed
+ * for v2 then reproduces the appendix's whole 36-byte packet; the same
+ * packet does not verify under the v1 key. */
+static void test_retry_tag_v2_build_matches_a4(void) {
+  static const u8 want[36] = {
+      0xcf, 0x6b, 0x33, 0x43, 0xcf, 0x00, 0x08, 0xf0, 0x67, 0xa5, 0x50, 0x2a,
+      0x42, 0x62, 0xb5, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0xc8, 0x64, 0x6c, 0xe8,
+      0xbf, 0xe3, 0x39, 0x52, 0xd9, 0x55, 0x54, 0x36, 0x65, 0xdc, 0xc7, 0xb6};
+  const u8   odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8   scid[8]  = {0xf0, 0x67, 0xa5, 0x50, 0x2a, 0x42, 0x62, 0xb5};
+  u8         tag0[RETRY_TAG_LEN] = {0}, pkt[64];
+  retry_desc d                   = {
+      VERSION_2, wired_span_of(0, 0), wired_span_of(scid, 8),
+      wired_span_of((const u8*)"token", 5), tag0};
+  usz n = retry_build(pkt, sizeof pkt, &d);
+  CHECK(n == sizeof want);
+  CHECK(pkt[0] == 0xc0);
+  CHECK(packet_long_type(pkt[0], VERSION_2) == PT_RETRY);
+  pkt[0] |= 0x0f; /* RFC 9000 17.2.5: unused bits, the sample's value */
+  retry_tag_ver(
+      VERSION_2, wired_span_of(odcid, 8), wired_span_of(pkt, n - 16),
+      pkt + n - 16);
+  for (usz i = 0; i < sizeof want; i++) {
+    CHECK(pkt[i] == want[i]);
+  }
+  CHECK(retry_verify_ver(
+      VERSION_2, wired_span_of(odcid, 8), wired_span_of(pkt, n)));
+  CHECK(!retry_verify_ver(
+      VERSION_1, wired_span_of(odcid, 8), wired_span_of(pkt, n)));
+}
+
 void test_retry_tag_v2(void) {
   test_retry_tag_v2_constants();
   test_retry_tag_v2_rfc9369_a4_vector();
+  test_retry_tag_v2_build_matches_a4();
 }

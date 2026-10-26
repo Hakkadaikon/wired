@@ -1,6 +1,9 @@
+#include "common/platform/rng/rng.h"
 #include "tls/handshake/roles/server/server_impl.h"
+#include "transport/conn/cid/spin/spin.h"
 
 static void srv_copy32(u8* dst, const u8* src);
+static void srv_draw_wire_seeds(wired_server* s);
 static void srv_record_client_random(
     wired_server* s, const u8* ch_msg, usz ch_len);
 static int srv_accept_client_hello(
@@ -34,12 +37,26 @@ usz server_srv_tr_add(wired_server* s, const u8* msg, usz len) {
   return s->tr_len;
 }
 
+/* RFC 9000 17.4 / RFC 9287 3.1: this connection's random draws -- spin
+ * participation (1 in 16 disable) and the QUIC Bit grease seed. A failed
+ * RNG leaves zeros: spin disabled, a fixed (still legal) grease pattern. */
+static void srv_draw_wire_seeds(wired_server* s) {
+  u8 r[9] = {0};
+  rng_bytes(r, sizeof r);
+  s->spin_off    = spin_disabled(r[0]);
+  s->grease_seed = 0;
+  for (usz i = 1; i < sizeof r; i++) {
+    s->grease_seed = (s->grease_seed << 8) | r[i];
+  }
+}
+
 /* Key Update counters and handshake-message order state (wired_server_init,
  * split out to keep its own size flat). */
 static void srv_reset_counters(wired_server* s) {
   s->ku_seeded     = 0;
   s->ku_send_count = 0;
   s->ku_auth_fail  = 0;
+  s->ku_error      = 0;
   s->hs_error      = 0;
   s->hs_rx_used    = 0;
   s->ini_rx_end    = 0;
@@ -63,7 +80,10 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->tr_through_sh     = 0;
   s->tr_through_flight = 0;
   s->keylog_path       = 0;
+  s->hs_rx_seen        = 0;
+  s->spin_rx           = 0;
   srv_reset_counters(s);
+  srv_draw_wire_seeds(s);
 }
 
 int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {
@@ -80,6 +100,19 @@ void wired_server_set_limits(
   s->sdrv.limits.max_streams_bidi        = max_streams_bidi;
   s->sdrv.limits.max_streams_uni         = max_streams_uni;
   s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;
+}
+
+void server_ku_derive_next(wired_server* s) {
+  kuswitch_next_keys_suite(
+      s->sdrv.cipher_suite, s->ku_secret, &s->ku_next, s->ku_next_secret);
+  bytes_memcpy(s->ku_next.hp, s->ku.cur.hp, AEAD_KEY_MAX); /* RFC 9001 6.1 */
+  s->ku_cur_lo = ~0ull;
+  s->ku_cur_hi = 0;
+}
+
+u64 wired_server_idle_timeout_ms(const wired_server* s) {
+  return idledrive_effective(
+      stp_idle_timeout_ms(&s->sdrv.limits), s->sdrv.peer_max_idle_timeout);
 }
 
 void wired_server_set_reset_token(wired_server* s, const u8 token[16]) {

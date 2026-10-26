@@ -656,9 +656,10 @@ typedef struct {
    * ticket's random sealing nonce -- and so the CRYPTO bytes at offset 0 --
    * identical across copies (RFC 9000 2.2). Sized for the largest
    * confirmation: SETTINGS (<= 96 + 4-byte STREAM header), one CRYPTO frame
-   * of SRVLOOP_TICKET_COUNT (2) NewSessionTickets (<= 4 + 2 * 176),
-   * NEW_CONNECTION_ID (<= 54) and HANDSHAKE_DONE (1). */
-  u8 confirm_frames[512];
+   * of SRVLOOP_TICKET_COUNT (2) NewSessionTickets (<= 4 + 2 * 236: the
+   * sealed ticket carries the version and remembered limits),
+   * NEW_CONNECTION_ID (<= 54) and HANDSHAKE_DONE (1): <= 631. */
+  u8 confirm_frames[640];
   /** Bytes cached in confirm_frames; 0 until the confirmation was emitted
    * (or when it did not fit, leaving no replay available). */
   u16 confirm_frames_len;

@@ -2,6 +2,7 @@
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_H
 
 #include "app/http3/server/srvrun/srvrun_impl_protos4.h"
+#include "app/http3/server/srvrun/srvrun_impl_token.h"
 
 const peercid_entry* srvrun_path_cid(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k, int kept);
@@ -80,17 +81,27 @@ void srvrun_issue_spare_cid(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_open_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial);
 usz srvrun_retry_pkt_build(
-    const lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap);
+    const lhdr* h,
+    u32         version,
+    const u8    scid[8],
+    wired_span  token,
+    u8*         pkt,
+    usz         cap);
+/* A tagged Retry token: TOKEN_TAG_RETRY || the retrytoken wire token. */
+#define SRVRUN_RETRY_TOKEN_MAX (1 + RETRYTOKEN_WIRE_MAX)
 void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
     u8                     scid[8],
-    u8                     token[RETRYTOKEN_WIRE_MAX],
+    u8                     token[SRVRUN_RETRY_TOKEN_MAX],
     usz*                   tn);
 void srvrun_retry_finish(
-    const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n);
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version, u8* pkt, usz n);
 int srvrun_retry_gate(
-    const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid);
+    const srvrun_step_ctx* ctx,
+    wired_mspan            dg,
+    wired_span*            odcid,
+    int*                   validated);
 void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid);
 int  srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg);
 int  srvrun_find_boot_scid(const srvrun_step_ctx* ctx, wired_span dcid);
@@ -109,7 +120,8 @@ int srvrun_retry_consumed(
     const srvrun_step_ctx* ctx,
     wired_span             dcid,
     wired_mspan            dg,
-    wired_span*            odcid);
+    wired_span*            odcid,
+    int*                   validated);
 int  srvrun_ghost_match(const srvrun_step_ctx* ctx, wired_span dcid);
 void srvrun_note_ghost(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_serve(const srvrun_step_ctx* ctx, wired_mspan dg);

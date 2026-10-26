@@ -77,39 +77,51 @@ int srvrun_open_slot(
  * still verifies (keyring.h). */
 
 /* Seal DCID=h->scid/SCID=scid/token into pkt with a garbage tag; the caller
- * patches the real RFC 9001 5.8 tag in afterward. Returns bytes written, or
- * 0 on overflow. */
+ * patches the real RFC 9001 5.8 tag in afterward. RFC 9369 4.1: the Retry
+ * uses the original version -- the client Initial's own (`version`).
+ * Returns bytes written, or 0 on overflow. */
 usz srvrun_retry_pkt_build(
-    const lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap) {
-  retry_desc d = {1, h->scid, wired_span_of(scid, 8), token, pkt};
+    const lhdr* h,
+    u32         version,
+    const u8    scid[8],
+    wired_span  token,
+    u8*         pkt,
+    usz         cap) {
+  retry_desc d = {version, h->scid, wired_span_of(scid, 8), token, pkt};
   return retry_build(pkt, cap, &d);
 }
 
-/* scid + wire token for the Retry answering h, or 0 tn on RNG/overflow
- * failure. */
+/* scid + tagged wire token for the Retry answering h, or 0 tn on
+ * RNG/overflow failure. RFC 9000 8.1.1: the TOKEN_TAG_RETRY first byte
+ * tells it apart from a NEW_TOKEN token when it comes back. */
 void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
     const lhdr*            h,
     u8                     scid[8],
-    u8                     token[RETRYTOKEN_WIRE_MAX],
+    u8                     token[SRVRUN_RETRY_TOKEN_MAX],
     usz*                   tn) {
+  usz n;
   *tn = 0;
   if (!cid_generate(scid, 8)) {
     return;
   }
   u8 key[KEYRING_KEY];
   keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
-  *tn = retrytoken_wire_make(
+  token[0] = TOKEN_TAG_RETRY;
+  n        = retrytoken_wire_make(
       key, wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid,
-      token);
+      token + 1);
+  *tn = n ? 1 + n : 0;
 }
 
 /* Assemble the Retry with its real integrity tag and send it: pkt already
  * carries a garbage tag (srvrun_retry_pkt_build); patch in the RFC 9001 5.8
- * tag computed over everything before it. */
+ * tag computed over everything before it, keyed for `version` (RFC 9369
+ * 3.3.3). */
 void srvrun_retry_finish(
-    const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n) {
-  retry_tag(
-      h->dcid, wired_span_of(pkt, n - RETRY_TAG_LEN), pkt + n - RETRY_TAG_LEN);
+    const srvrun_step_ctx* ctx, const lhdr* h, u32 version, u8* pkt, usz n) {
+  retry_tag_ver(
+      version, h->dcid, wired_span_of(pkt, n - RETRY_TAG_LEN),
+      pkt + n - RETRY_TAG_LEN);
   srvrun_tx(ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(pkt, n));
 }

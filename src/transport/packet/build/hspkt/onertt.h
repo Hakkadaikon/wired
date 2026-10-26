@@ -20,6 +20,11 @@ typedef struct {
   u64        pn;
   wired_span payload;
   int        phase_bit;
+  /** RFC 9000 17.4: the latency spin bit (0x20) to send; 0 when omitted. */
+  int spin;
+  /** RFC 9287 3: 1 clears the QUIC Bit (0x40) -- only toward a peer that
+   * advertised grease_quic_bit; 0 (omitted) keeps it set. */
+  int clear_quic_bit;
 } hspkt_onertt_desc;
 
 /* Build one protected 1-RTT packet into out; length to out->len.

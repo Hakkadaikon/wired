@@ -539,7 +539,8 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  ticket t    = {{0}, 0, 7200, 0, 0, 0, TLS_AES_128_GCM_SHA256, {0}, 0};
+  ticket t    = {{0}, 0, 7200,      0,  0, 0, TLS_AES_128_GCM_SHA256,
+                 {0}, 0, VERSION_1, {0}};
   t.issued_at = wired_clock_epoch_secs(); /* within its lifetime */
   for (usz i = 0; i < TICKET_KEY_LEN; i++) {
     f->ticket_key[i] = (u8)(0xd0 + i);
@@ -568,7 +569,7 @@ static usz srvt_psk_append(
     usz*                 psk_ext_off) {
   usz        exts_len_off = 45; /* see sdrv_test.c's sdrv_test_append_psk */
   usz        old_exts_len;
-  u8         modes[8], scratch[256];
+  u8         modes[8], scratch[320];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
   if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) {
@@ -736,7 +737,7 @@ static void client_ap_keys_psk(
 static void test_server_psk_accepted_keys_match_client(void) {
   struct srv_fix   f;
   srvt_psk_fixture pf;
-  u8               ch2[700];
+  u8               ch2[800];
   usz              ch2_len;
   u8               payload[256];
   usz              plen;
@@ -817,7 +818,7 @@ static int srvt_keys_differ(const initial_keys* a, const initial_keys* b) {
 static void test_server_psk_keys_differ_from_plain(void) {
   struct srv_fix      f;
   srvt_psk_fixture    pf;
-  u8                  ch2[700];
+  u8                  ch2[800];
   usz                 ch2_len;
   const initial_keys* got;
   initial_keys        plain;

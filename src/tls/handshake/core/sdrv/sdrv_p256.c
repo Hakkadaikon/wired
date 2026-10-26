@@ -1,3 +1,4 @@
+#include "tls/ext/grease/grease.h"
 #include "tls/handshake/core/sdrv/sdrv_impl.h"
 
 static int sdrv_ch_retry_cipher_ok(sdrv* s);
@@ -12,8 +13,7 @@ static int  sdrv_ch_share_listed(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_keyshare_or_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
 static int  sdrv_ch_negotiate_and_keyshare(
     sdrv* s, const u8* ch_msg, usz ch_len);
-static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len);
-static u32        sdrv_first_flight_version(const sdrv* s);
+static u32 sdrv_first_flight_version(const sdrv* s);
 
 /* RFC 8446 4.1.4: no share for a group this driver speaks (x25519 directly,
  * secp256r1 via sdrv_ch_take_p256) means the client held its share back --
@@ -183,7 +183,7 @@ int sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len) {
  * or an empty span if the extension is absent or its own framing is
  * malformed -- either case is "nothing to check here", left to the
  * individual takers elsewhere to degrade gracefully. */
-static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
+wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
   wired_span ext, tp = wired_span_of(0, 0);
   if (!sdrv_find_client_tp_ext(ch_msg, ch_len, &ext)) {
     return tp;
@@ -209,14 +209,37 @@ int sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len) {
  * sequence, if present. Returns 1 and sets *bytes on a match, 0 if the TP
  * sequence is empty or carries no such parameter ("absent", not an error --
  * see sdrv_ch_check_version_information's doc). */
-int sdrv_find_version_information(
-    const u8* ch_msg, usz ch_len, wired_span* bytes) {
+/* The value bytes of transport parameter `id` in the ClientHello's TP
+ * sequence: 1 and *bytes set when present, 0 when absent or no sequence. */
+static int sdrv_find_tp(
+    const u8* ch_msg, usz ch_len, u64 id, wired_span* bytes) {
   wired_span tp    = sdrv_tp_seq(ch_msg, ch_len);
   stp_out    out_v = {0, bytes};
   if (tp.n == 0) {
     return 0;
   }
-  return stp_parse(tp, TP_VERSION_INFORMATION, &out_v);
+  return stp_parse(tp, id, &out_v);
+}
+
+int sdrv_find_version_information(
+    const u8* ch_msg, usz ch_len, wired_span* bytes) {
+  return sdrv_find_tp(ch_msg, ch_len, TP_VERSION_INFORMATION, bytes);
+}
+
+/* RFC 9287 3: this server understands grease_quic_bit -- a non-empty value
+ * is a TRANSPORT_PARAMETER_ERROR; an empty one records that the client
+ * accepts packets with the QUIC Bit cleared. Absent is fine. */
+int sdrv_ch_check_grease_quic_bit(sdrv* s, const u8* ch_msg, usz ch_len) {
+  wired_span bytes;
+  if (!sdrv_find_tp(ch_msg, ch_len, TP_GREASE_QUIC_BIT, &bytes)) {
+    return 1;
+  }
+  if (bytes.n != 0) {
+    s->last_error = ERR_TRANSPORT_PARAMETER_ERROR;
+    return 0;
+  }
+  s->peer_grease_quic_bit = 1;
+  return 1;
 }
 
 /* RFC 9368 4 x RFC 8446 4.1.2: Chosen is validated against the version the
@@ -242,7 +265,7 @@ int sdrv_ch_take_version_information(sdrv* s, const version_information* vi) {
     s->last_error = EC_VERSION_NEGOTIATION_ERROR;
     return 0;
   }
-  vers_init(&us);
+  vers_init_mask(&us, s->versions);
   if (verinfo_pick_compatible(vi, verlist_of(us.versions, us.n), &pick)) {
     s->negotiated_version = pick;
   }

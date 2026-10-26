@@ -91,6 +91,7 @@ static void sdt_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535; /* DATAGRAM delivery, RFC 9221 3 */
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;
@@ -99,6 +100,7 @@ static void sdt_make_id(
   id->pref_v4                 = 0;
   id->pref_v6                 = 0;
   id->reset_seed              = 0;
+  id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
 }
@@ -185,6 +187,12 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
     wired_obuf tob3 = obuf_of(tp + tn, sizeof tp - tn);
     tn +=
         tparam_put_int(&tob3, TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+  }
+  { /* RFC 9000 7.3: name our Initial's SCID */
+    wired_obuf tob4 = obuf_of(tp + tn, sizeof tp - tn);
+    tn += tparam_put_blob(
+        &tob4, TP_INITIAL_SOURCE_CONNECTION_ID,
+        wired_span_of(g_sdt_cli_scid, 6));
   }
   static const u8 random[32] = {0};
   clienthello_in  in         = {
@@ -1075,7 +1083,7 @@ static int sdt_build_datagram_pkt(
   datagram_frame    df   = {n, payload};
   usz               flen = datagram_encode(fb, &df, 0);
   protect_keys      pk;
-  hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0};
+  hspkt_onertt_desc d = {sdt_dcid(cx), pn, wired_span_of(frame, flen), 0, 0, 0};
   if (flen == 0) {
     return 0;
   }

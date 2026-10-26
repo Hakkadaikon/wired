@@ -1,4 +1,11 @@
+#include "common/bytes/util/be.h"
 #include "test.h"
+#include "tls/handshake/core/tls/retry_tag.h"
+#include "transport/io/socket/io/udp.h"
+#include "transport/io/socket/poll/wait.h"
+#include "transport/packet/build/initpkt/initpkt.h"
+#include "transport/packet/header/packet/ptype.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9000 21.1.1.2 / ACK-frequency draft 10-2: force_retry lets the server
  * demand a cheap Retry round-trip from every new client before it commits
@@ -60,7 +67,9 @@ static void test_srvrun_force_retry_applies_when_on(void) {
           &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 1);
 }
 
-/* force_retry=0: the gate never applies, regardless of the datagram. */
+/* force_retry=0: the token gate still applies to a fresh Initial (RFC 9000
+ * 8.1: Retry and NEW_TOKEN tokens are checked either way); only its Retry
+ * for an unvalidated address is force_retry's (srvrun_token_test.c). */
 static void test_srvrun_force_retry_off_never_applies(void) {
   wired_srvboot_id id  = sr_pin_id();
   srvrun_cfg       cfg = sr_pin_cfg(&id, 0);
@@ -75,7 +84,7 @@ static void test_srvrun_force_retry_off_never_applies(void) {
   usz n = sr_pin_build_initial(dg);
   CHECK(
       srvrun_retry_applies(
-          &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 0);
+          &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 1);
 }
 
 /* A DCID that already routes to a live slot is not gated again: the gate
@@ -97,6 +106,65 @@ static void test_srvrun_force_retry_skips_known_slot(void) {
   CHECK(
       srvrun_retry_applies(
           &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 0);
+}
+
+/* Serve one tokenless client Initial of `version` through srvrun_serve with
+ * force_retry on, and return the Retry the server sent to the client
+ * socket (bytes into pkt, 0 if none arrived). */
+static usz sr_pin_retry_for(u32 version, u8* pkt, usz cap) {
+  static const u8  odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  static const u8  cscid[4] = {0xc1, 0xc2, 0xc3, 0xc4};
+  static const u8  crypto[] = {1, 2, 3, 4};
+  wired_srvboot_id id       = sr_pin_id();
+  srvrun_cfg       cfg      = sr_pin_cfg(&id, 1);
+  conntable        table[WIRED_CONNTABLE_CAP];
+  srvrun_state     st = {table, g_srvrun_state.conns};
+  sockaddr         srv, cli, from;
+  u8               dg[1300];
+  wired_obuf       o = obuf_of(dg, sizeof dg);
+  initpkt_desc     d = {
+      wired_span_of(odcid, 8), wired_span_of(cscid, 4),
+      wired_span_of(crypto, 4), 0, 0};
+  i64 sfd = wired_udp_socket(), cfd = wired_udp_socket(), r = 0;
+  wired_udp_addr(&srv, 47613, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&cli, 47614, (const u8[4]){127, 0, 0, 1});
+  CHECK(wired_udp_bind(sfd, &srv) >= 0);
+  CHECK(wired_udp_bind(cfd, &cli) >= 0);
+  CHECK(initpkt_build_ver(version, &d, &o));
+  bytes_memset(st.conns, 0, sizeof g_srvrun_state.conns);
+  cfg.fd = sfd;
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  {
+    srvrun_step_ctx ctx = {&cfg, &cli, &st, 0, 0};
+    srvrun_serve(&ctx, wired_mspan_of(dg, o.len));
+  }
+  if (poll_wait_readable(cfd, 100) > 0) {
+    r = wired_udp_recvfrom(cfd, wired_mspan_of(pkt, cap), &from);
+  }
+  wired_udp_close(sfd);
+  wired_udp_close(cfd);
+  CHECK(st.conns[0].up == 0); /* stateless: no slot was claimed */
+  return r > 0 ? (usz)r : 0;
+}
+
+/* RFC 9369 4.1: a Retry answers in the original version -- the client
+ * Initial's own. A v2 Initial gets a v2 Retry (Version field, v2 Retry type
+ * bits, RFC 9369 3.3.3 integrity key); a v1 Initial still gets a v1 one.
+ * Both tags verify against the Initial's DCID (RFC 9001 5.8 ODCID). */
+static void test_srvrun_force_retry_uses_initial_version(void) {
+  static const u8 odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  u8              pkt[256];
+  usz             n = sr_pin_retry_for(VERSION_2, pkt, sizeof pkt);
+  CHECK(n > 5 + 16);
+  CHECK(be_get_be32(pkt + 1) == VERSION_2);
+  CHECK(packet_long_type(pkt[0], VERSION_2) == PT_RETRY);
+  CHECK(retry_verify_ver(
+      VERSION_2, wired_span_of(odcid, 8), wired_span_of(pkt, n)));
+  n = sr_pin_retry_for(VERSION_1, pkt, sizeof pkt);
+  CHECK(n > 5 + 16);
+  CHECK(be_get_be32(pkt + 1) == VERSION_1);
+  CHECK(packet_long_type(pkt[0], VERSION_1) == PT_RETRY);
+  CHECK(retry_verify(wired_span_of(odcid, 8), wired_span_of(pkt, n)));
 }
 
 /* Pinning: RFC 9114 10.5.2 -- unlike TCP's kernel TIME_WAIT, this SDK has no
@@ -172,5 +240,6 @@ void test_srvrun_pin(void) {
   test_srvrun_force_retry_applies_when_on();
   test_srvrun_force_retry_off_never_applies();
   test_srvrun_force_retry_skips_known_slot();
+  test_srvrun_force_retry_uses_initial_version();
   test_srvrun_connect_slot_freed_after_close();
 }

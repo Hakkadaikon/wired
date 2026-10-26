@@ -273,6 +273,20 @@ process-wide scratch server.
   that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
   Tickets advertise early data only when it is enabled.
 
+### Idle timeout
+
+| Name | Role |
+|---|---|
+| `wired_srvboot_id.idle_timeout_ms` | The max_idle_timeout the server advertises, in ms; 0 = 30 s. |
+| `wired_server_idle_timeout_ms` | A connection's negotiated idle timeout in ms. |
+
+- A connection idles out after the smaller of `idle_timeout_ms` and the
+  client's max_idle_timeout (RFC 9000 10.1). A client value of 0 or no
+  value sets no limit, so only the server's value applies. The SDK never
+  idles a connection out in less than three PTOs.
+- `wired_server_idle_timeout_ms` returns the server's own value until the
+  ClientHello has been processed.
+
 ## Low-level / internal API (use with care)
 
 These functions are reachable from the public headers because the
@@ -380,6 +394,11 @@ sequenceDiagram
   fits in one datagram. The run loop instead collects one split across
   several datagrams with the `wired_srvboot_acc_*` accumulator and calls
   `wired_srvboot_accept_acc`.
+- **Accepted QUIC versions.** `wired_srvboot_id.versions` holds
+  `WIRED_VERSIONS_V1` / `WIRED_VERSIONS_V2` bits; 0, the default, accepts
+  both (RFC 9308 13). An Initial in a version outside the set gets Version
+  Negotiation, and compatible version negotiation (RFC 9368) only picks
+  from the set. `wired_srvboot_vneg` takes the same bits.
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
   are views; keep them alive for the call. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
