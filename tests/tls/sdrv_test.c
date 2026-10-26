@@ -882,6 +882,38 @@ static void test_sdrv_recv_client_hello_grease_quic_bit(void) {
   }
 }
 
+/* draft-ietf-quic-reliable-stream-reset-09 3: an empty reset_stream_at is
+ * recorded (RESET_STREAM_AT may then be sent), a non-empty value is a
+ * TRANSPORT_PARAMETER_ERROR, absence leaves it off. */
+static void test_sdrv_recv_client_hello_reset_stream_at(void) {
+  u8   cli_pub[32], srv_random[32], tpbuf[32], ch[512];
+  u8   one = 1;
+  usz  i;
+  sdrv s;
+  for (i = 0; i < 3; i++) {
+    wired_obuf tob    = obuf_of(tpbuf, sizeof(tpbuf));
+    usz        tp_len = 0, ch_len;
+    if (i < 2) {
+      tp_len =
+          tparam_put_blob(&tob, TP_RESET_STREAM_AT, wired_span_of(&one, i));
+      CHECK(tp_len != 0);
+    } else {
+      tp_len = tparam_put_int(&tob, TP_INITIAL_MAX_DATA, 1000);
+    }
+    sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+    ch_len = sdrv_test_client_hello_tp(
+        ch, sizeof(ch), cli_pub, srv_random, wired_span_of(tpbuf, tp_len));
+    CHECK(ch_len != 0);
+    if (i == 1) {
+      CHECK(!sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(sdrv_last_error(&s) == ERR_TRANSPORT_PARAMETER_ERROR);
+    } else {
+      CHECK(sdrv_recv_client_hello(&s, ch, ch_len));
+      CHECK(s.peer_reset_stream_at == (i == 0));
+    }
+  }
+}
+
 /* RFC 9368 4: a zero Chosen Version, a zero Available Version, or a Chosen
  * Version missing from Available Versions is a parsing failure --
  * TRANSPORT_PARAMETER_ERROR in QUIC v1, never VERSION_NEGOTIATION_ERROR. */
@@ -3239,6 +3271,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_version_information_malformed_rejected();
   test_sdrv_recv_client_hello_version_information_invalid_entries();
   test_sdrv_recv_client_hello_grease_quic_bit();
+  test_sdrv_recv_client_hello_reset_stream_at();
   test_sdrv_recv_client_hello_no_supported_versions_rejected();
   test_sdrv_recv_client_hello_non_tls13_version_rejected();
   test_sdrv_recv_client_hello_no_sig_algs_rejected();

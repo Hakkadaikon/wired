@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 64/81 tested, 13 indirect, 4 untested.**
+**Coverage: 65/81 tested, 12 indirect, 4 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -313,22 +313,23 @@ Legend:
   corresponds to 0x52e4a40fa8db and 0xffffffff corresponds to
   0x52e5ac983162, skipping reserved codepoints of form 0x1f*N+0x21.
   - test: `tests/app/wterrmap_test.c` — `test_wterrmap`
-- [~] WTH3-038 (§4.4) WebTransport implementations shall use the
+- [x] WTH3-038 (§4.4) WebTransport implementations shall use the
   RESET_STREAM_AT frame with a Reliable Size set to at least the size of
   the WebTransport header when resetting a WebTransport data stream.
-  - evidence: deliberately unmet until peer negotiation is tracked.
-    draft-ietf-quic-reliable-stream-reset only permits sending
-    RESET_STREAM_AT to a peer that advertised the reset_stream_at
-    transport parameter; this SDK does not parse the peer's, and real
-    browsers (Chrome) do not send it — an unnegotiated 0x24 is an unknown
-    frame the peer kills the whole connection over
-    (FRAME_ENCODING_ERROR, reproduced live). srvrun therefore aborts WT
-    streams with the standard RESET_STREAM/STOP_SENDING pair picked by
-    stream type (`tests/app/srvrun_test.c` —
-    `test_srvrun_wt_abort_frames_match_stream_type`); the RESET_STREAM_AT
-    codec itself stays tested
-    (`tests/transport/stream_ctl_test.c`) for the day peer-TP tracking
-    lands.
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_reset_stream_at_covers_header`
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_reset_stream_at_fallbacks`
+  - test: `tests/tls/sdrv_test.c` —
+    `test_sdrv_recv_client_hello_reset_stream_at`
+  - evidence: sent only to a peer that advertised the reset_stream_at
+    transport parameter (draft-ietf-quic-reliable-stream-reset-09 3; an
+    unnegotiated 0x24 kills Chrome's connection), else RESET_STREAM
+    (`test_srvrun_wt_abort_frames_match_stream_type`). The header bytes
+    ride the same kept packet as a STREAM frame, so they are resent until
+    ACKed after the send slot is released. A client-initiated stream
+    carries no header on the server's half, so it is reset with
+    RESET_STREAM (Reliable Size 0 is equivalent, rsr-09 4).
 - [x] WTH3-039 (§4.4) The server shall deliver the error code of a stream
   reset associated with a known session unchanged to the application that
   owns that session.

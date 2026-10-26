@@ -506,12 +506,11 @@ typedef struct {
    * overwrite the first -- the peer would wait on the unnotified stream
    * forever. No STOP_SENDING rides along: every target is a
    * server-initiated uni stream, which has no peer-to-server half to stop
-   * (RFC 9000 19.5 makes STOP_SENDING on it a STREAM_STATE_ERROR). And no
-   * RESET_STREAM_AT (0x24): that is a draft-ietf-quic-reliable-stream-reset
-   * extension frame this SDK never negotiates, so a peer (Chrome included)
-   * treats it as an unknown frame and kills the whole connection with
-   * FRAME_ENCODING_ERROR. */
+   * (RFC 9000 19.5 makes STOP_SENDING on it a STREAM_STATE_ERROR). The
+   * owning session's CONNECT stream id (wt_stream_reset_sid) is kept for
+   * the RESET_STREAM_AT's header (srvrun_wt_reset_frames). */
   u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
+  u64 wt_stream_reset_sid[SRVRUN_WT_RESET_LATCH];
   u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
   /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;

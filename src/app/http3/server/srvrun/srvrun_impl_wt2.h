@@ -183,6 +183,15 @@ typedef struct {
   usz sfv_len;
 } srvrun_wt_proto;
 
+/* One WT stream reset to build (srvrun_wt_reset_frames): the stream, its
+ * wire error code, its Final Size, and the owning session's CONNECT stream
+ * id (SRVRUN_WT_NO_SID when no session header rides the stream). */
+typedef struct {
+  u64 stream_id, code, final, sid;
+} srvrun_wt_reset_in;
+
+#define SRVRUN_WT_NO_SID (~(u64)0)
+
 /* Above every real key (urgency <= 7): a slot that cannot send. */
 #define SRVRUN_WT_KEY_IDLE 0xffffffffu
 

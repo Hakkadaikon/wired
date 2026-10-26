@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2095/2260 requirements demonstrated (92.7%) — 1709 directly tested,
-386 indirect, 165 untested.**
+**Total: 2095/2260 requirements demonstrated (92.7%) — 1710 directly tested,
+385 indirect, 165 untested.**
 
 ## QUIC core
 
@@ -137,7 +137,7 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 77/81 | 64 | 13 | 4 |
+| [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 77/81 | 65 | 12 | 4 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/10 | 9 | 1 | 0 |
 | [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 25/26 | 18 | 7 | 1 |
 

@@ -37,6 +37,8 @@ int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg);
 usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
+usz srvrun_wt_reset_frames(
+    const srvrun_conn* c, const srvrun_wt_reset_in* in, u8* p, usz cap);
 usz srvrun_wt_abort_stop(
     const srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
 int srvrun_peer_reset_seen(const srvrun_conn* c, u64 stream_id);

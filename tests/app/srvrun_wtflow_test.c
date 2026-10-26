@@ -13,7 +13,15 @@
  *   limit puts WT_DATA_BLOCKED(limit) on the CONNECT stream; a second
  *   refusal at the same limit sends nothing more; a raised limit that
  *   blocks again sends one naming the new limit; a send within the limit
- *   sends none. */
+ *   sends none.
+ * - RESET_STREAM_AT: a peer that advertised reset_stream_at gets a
+ *   server-opened WT stream reset as STREAM[0, header) + RESET_STREAM_AT
+ *   (Reliable Size = header length) on the kept (resent) packet, both on
+ *   the app-latched path and the session-teardown path; without the TP, or
+ *   on a client-opened stream (no header on our half), plain RESET_STREAM;
+ *   Reliable Size never exceeds the bytes sent. */
+
+static srvrun_cfg g_wtf_cfg;
 
 /* RFC 8446 7.5 composed by hand over suite's hash: Derive-Secret(secret,
  * label, "") then HKDF-Expand-Label(.., "exporter", Hash(ctx), out.n). */
@@ -153,7 +161,104 @@ static void test_srvrun_wt_data_limited_send_emits_data_blocked_once(void) {
   CHECK(lim[1] == 7);
 }
 
+/* The newest kept packet's frames (srvrun_rst_keep), 0 when none. */
+static const srvrun_rst* wtf_kept_last(const srvrun_conn* c) {
+  const srvrun_rst* best = 0;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    const srvrun_rst* e = &c->rst[i];
+    if (e->pln && (!best || e->pn > best->pn)) {
+      best = e;
+    }
+  }
+  return best;
+}
+
+/* uni stream 15 of session 4: header 0x54 (2-byte varint) + 4, then "hi" */
+static const u8 wtf_uni_pay[] = {0x40, 0x54, 0x04, 'h', 'i'};
+
+/* A fixture with stream 15 opened and its 5 bytes sent. */
+static srvrun_conn* wtf_sent_uni(struct lp_fix* f, wired_obuf* ob, int rsa) {
+  srvrun_conn* c                 = sr_wtsend_fixture(f, ob);
+  c->s.sdrv.peer_reset_stream_at = rsa;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, wired_span_of(wtf_uni_pay, sizeof wtf_uni_pay)) == 15);
+  sr_prio_pump();
+  CHECK(srvrun_wtsend_final_size(c, 15) == sizeof wtf_uni_pay);
+  return c;
+}
+
+/* e holds STREAM(15, off 0, the 3 header bytes) + RESET_STREAM_AT(15,
+ * code, final 5, reliable 3). */
+static void wtf_check_reset_at(const srvrun_rst* e, u64 code) {
+  stream_frame          sf;
+  reset_stream_at_frame ra;
+  usz                   sn;
+  CHECK(e != 0);
+  if (!e) {
+    return;
+  }
+  sn = frame_get_stream(e->pl, e->pln, &sf);
+  CHECK(sn != 0);
+  CHECK(sf.stream_id == 15 && sf.offset == 0 && sf.length == 3);
+  CHECK(ct_diffn(sf.data, wtf_uni_pay, 3) == 0);
+  CHECK(reset_stream_at_decode(e->pl + sn, e->pln - sn, &ra) == e->pln - sn);
+  CHECK(ra.stream_id == 15 && ra.error_code == code);
+  CHECK(ra.final_size == 5 && ra.reliable_size == 3);
+}
+
+static void test_srvrun_wt_reset_stream_at_covers_header(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024], o[1500];
+  wired_obuf    out = obuf_of(o, sizeof o);
+  srvrun_conn*  c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = wtf_sent_uni(&f, &ob, 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 7) == 1);
+  CHECK(srvrun_seal_wt_stream_reset(c, 0, &out) == 1);
+  wtf_check_reset_at(wtf_kept_last(c), wired_wterrmap_to_http3(7));
+  /* teardown path: the session-close sweep resets its own streams */
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = wtf_sent_uni(&f, &ob, 1);
+  srvrun_send_wt_busy_reset(&g_wtf_cfg, c, 15, WTERR_SESSION_GONE);
+  wtf_check_reset_at(wtf_kept_last(c), WTERR_SESSION_GONE);
+}
+
+/* Without the peer's reset_stream_at TP: RESET_STREAM (0x04), never 0x24;
+ * a client-initiated bidi carries no header on our half: RESET_STREAM. */
+static void test_srvrun_wt_reset_stream_at_fallbacks(void) {
+  struct lp_fix      f;
+  wired_obuf         ob = {0};
+  u8                 obuf[1024], o[1500], p[SRVRUN_RST_PL];
+  wired_obuf         out = obuf_of(o, sizeof o);
+  srvrun_conn*       c;
+  const srvrun_rst*  e;
+  reset_stream_frame rs;
+  srvrun_wt_reset_in in = {8, 1, 0, 4};
+  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
+  c                     = wtf_sent_uni(&f, &ob, 0);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 15, 7) == 1);
+  CHECK(srvrun_seal_wt_stream_reset(c, 0, &out) == 1);
+  e = wtf_kept_last(c);
+  CHECK(e != 0 && e->pl[0] == 0x04);
+  CHECK(e && reset_stream_decode(e->pl, e->pln, &rs) == e->pln);
+  CHECK(rs.final_size == 5);
+  c->s.sdrv.peer_reset_stream_at = 1;
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] == 0x04);
+  in.stream_id = 15; /* server uni, but nothing sent yet: Reliable Size 0 */
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] == 0x04);
+  in.final = 2; /* fewer bytes sent than the header: capped at 2 */
+  CHECK(srvrun_wt_reset_frames(c, &in, p, sizeof p) != 0);
+  CHECK(p[0] != 0x04);
+}
+
 void test_srvrun_wtflow(void) {
+  g_wtf_cfg = sr_wt_send_cfg();
+  test_srvrun_wt_reset_stream_at_covers_header();
+  test_srvrun_wt_reset_stream_at_fallbacks();
   test_srvrun_wt_data_limited_send_emits_data_blocked_once();
   test_srvrun_wt_exporter_matches_tls_exporter();
   test_srvrun_wt_exporter_sha384_suite();
