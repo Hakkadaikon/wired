@@ -92,6 +92,7 @@ usz srvrun_retry_pkt_build(
     wired_span  token,
     u8*         pkt,
     usz         cap);
+void srvrun_retry_scid_distinct(u8 scid[8], wired_span dcid);
 /* A tagged Retry token: TOKEN_TAG_RETRY || the retrytoken wire token. */
 #define SRVRUN_RETRY_TOKEN_MAX (1 + RETRYTOKEN_WIRE_MAX)
 void srvrun_retry_prep(

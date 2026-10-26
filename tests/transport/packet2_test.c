@@ -92,7 +92,8 @@ static void test_vneg_roundtrip(void) {
   vneg_desc vd = {wired_span_of(dcid, 2), wired_span_of(scid, 3), vers, 2};
   usz       w  = vneg_build(buf, sizeof(buf), &vd);
   CHECK(w == 5 + 1 + 2 + 1 + 3 + 2 * 4);
-  CHECK(buf[0] == 0x80);
+  /* RFC 9000 17.2.1: the server SHOULD set 0x40 so VN looks like QUIC */
+  CHECK(buf[0] == 0xc0);
   CHECK(
       buf[1] == 0 && buf[2] == 0 && buf[3] == 0 && buf[4] == 0); /* Version 0 */
 

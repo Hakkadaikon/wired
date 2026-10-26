@@ -34,7 +34,9 @@ usz vneg_build(u8* buf, usz cap, const vneg_desc* d) {
   if (!vneg_fits(cap, d)) {
     return 0;
   }
-  buf[0] = 0x80; /* RFC 8999 6: high bit set; remaining bits unused here */
+  /* RFC 8999 6: high bit set; RFC 9000 17.2.1: 0x40 set too, so the packet
+   * looks like it carries the Fixed Bit; the other unused bits stay 0. */
+  buf[0] = 0xc0;
   be_put_be32(buf + 1, 0);     /* Version field 0 marks Version Negotiation */
   vneg_put_cid(&out, d->dcid); /* room checked above */
   vneg_put_cid(&out, d->scid);

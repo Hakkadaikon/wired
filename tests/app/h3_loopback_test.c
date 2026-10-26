@@ -689,7 +689,8 @@ static void test_srvboot_vneg_echoes_255_byte_cids(void) {
   n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), 0, vn, sizeof vn);
   CHECK(n == 5 + 1 + 200 + 1 + 255 + 2 * 4);
   CHECK(be_get_be32(vn + 1) == 0);
-  CHECK(vn[5] == 200); /* response DCID = received SCID */
+  CHECK((vn[0] & 0xc0) == 0xc0); /* RFC 9000 17.2.1: 0x40 set too */
+  CHECK(vn[5] == 200);           /* response DCID = received SCID */
   CHECK(vn[6] == 0xa0 && vn[6 + 199] == (u8)(0xa0 + 199));
   CHECK(vn[206] == 255); /* response SCID = received DCID */
   CHECK(vn[207] == 0x11 && vn[207 + 254] == (u8)(0x11 + 254));
