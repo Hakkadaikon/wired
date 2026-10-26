@@ -23,12 +23,15 @@ static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
 static void srvrun_cc_sample(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
+  u64 hits;
   usz bytes;
   if (lo > hi) {
     return;
   }
   bytes = wired_sendsess_peek_ack(sess, lo, hi, &newest);
-  srvrun_ecn_note_acked(c, srvrun_range_hits(sess, lo, hi), newest);
+  hits  = srvrun_range_hits(sess, lo, hi);
+  srvrun_ecn_note_acked(c, hits, newest);
+  srvrun_pmtu_note_ack(c, bytes, hits, hi);
   if (bytes) {
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
     cc_on_ack(&c->cc, srvrun_css_acked(c, bytes), newest, now_ms);
@@ -76,6 +79,7 @@ usz srvrun_reap_losses(
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
   for (usz i = 0; i < n; i++) {
     srvrun_loss_span_add(span, &lost[i]);
+    span->big += (usz)srvrun_pmtu_big_lost(c, &lost[i]);
   }
   return n;
 }

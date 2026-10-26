@@ -59,12 +59,22 @@ typedef struct {
 
 /* IP_MTU_DISCOVER setsockopt name (Linux uapi in.h). */
 #define WIRED_IP_MTU_DISCOVER 10
-/* IP_PMTUDISC_DO (Linux uapi in.h): always set the IPv4 DF bit and never let
- * the kernel fragment or hide path MTU changes -- required so a DPLPMTUD
- * probe's fate (delivered vs. dropped) reflects the real path, and RFC 8899
- * 4.5's suspension of network-layer PMTU enforcement for flows running their
- * own PLPMTUD. */
-#define WIRED_IP_PMTUDISC_DO 2
+/* IP_PMTUDISC_PROBE (Linux uapi in.h, ip(7)): set the DF bit but ignore the
+ * kernel's own path MTU -- RFC 8899 4.5: network-layer PMTU enforcement is
+ * suspended for a flow running DPLPMTUD, so a probe above a stale kernel
+ * PMTU still leaves instead of failing locally with EMSGSIZE. The IPv6
+ * option (IPV6_PMTUDISC_PROBE) shares the value. */
+#define WIRED_IP_PMTUDISC_PROBE 3
+/* IP_MTU / IPV6_MTU getsockopt names (Linux ip(7)/ipv6(7)): the path MTU
+ * the kernel knows toward a connected socket's peer -- its route's (the
+ * egress link's) MTU unless a smaller one was learned. */
+#define WIRED_IP_MTU 14
+#define WIRED_IPV6_MTU 24
+/* IPv4 (20) / IPv6 (40) header plus the 8-byte UDP header. */
+#define WIRED_UDP_V4_OVERHEAD 28
+#define WIRED_UDP_V6_OVERHEAD 48
+/* IPV6_MTU_DISCOVER setsockopt name (Linux uapi in6.h). */
+#define WIRED_IPV6_MTU_DISCOVER 23
 
 /* One int-valued cmsg (CMSG_SPACE(sizeof(int)) = 24 bytes: u64 cmsg_len =
  * CMSG_LEN(4) = 20, i32 level, i32 type, the int, 4 pad) at out. */

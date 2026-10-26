@@ -15077,7 +15077,7 @@ static u64 sr_pc_check(u64 span_ms, u64 before, usz ack_n) {
   struct lp_fix    f;
   srvrun_conn      c;
   u64              base = sr_pc_setup(&c, &f, body, sizeof body, 1);
-  srvrun_loss_span s    = {1000 + span_ms, 1000, base, base + 5};
+  srvrun_loss_span s    = {1000 + span_ms, 1000, base, base + 5, 0};
   for (usz i = 0; i < ack_n; i++) {
     c.l.ack_lo[i] = c.l.ack_hi[i] = base + 10;
   }
@@ -15421,6 +15421,195 @@ static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
 
   CHECK(c.pmtu.probe_count == 1);
   CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
+}
+
+/* A connection with one DPLPMTUD probe of `size` outstanding under pn 7,
+ * sent at time 0 (the state srvrun_pmtu_send_probe leaves behind). */
+static void sr_pmtu_outstanding(srvrun_conn* c, usz size) {
+  *c = (srvrun_conn){0};
+  pmtu_init(&c->pmtu);
+  c->pmtu_probe_pn   = 7;
+  c->pmtu_probe_size = size;
+  c->pmtu.probe      = size;
+}
+
+/* RFC 8899 5.2/5.3.3 on the server loop: a probe the packet threshold
+ * declares lost (RFC 9000 14.4 / RFC 9002 6.1.1: three later packets acked)
+ * is re-offered at the same size until MAX_PROBES -- one loss no longer caps
+ * the search for the connection's lifetime. Fewer than three later packets
+ * acked leaves it outstanding. */
+static void test_srvrun_pmtu_lost_probe_retried(void) {
+  srvrun_conn c;
+  usz         size = PMTU_BASE + PMTU_STEP;
+  sr_pmtu_outstanding(&c, size);
+  c.largest_acked = 9;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == 0); /* still outstanding */
+  CHECK(c.pmtu.probe_count == 0);
+  for (int i = 1; i < PMTU_MAX_PROBES; i++) {
+    c.largest_acked = c.pmtu_probe_pn + 3;
+    CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == size); /* retried */
+    CHECK(c.pmtu.probe_count == i);
+    CHECK(c.pmtu.ceiling == PMTU_MAX);
+    /* the retry goes out under a later pn (srvrun_pmtu_send_probe) */
+    c.pmtu_probe_pn   = 7 + 10 * (u64)i;
+    c.pmtu_probe_size = size;
+  }
+  c.largest_acked = c.pmtu_probe_pn + 3;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 1000) == 0); /* MAX_PROBES: done */
+  CHECK(c.pmtu.ceiling == size);
+  CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
+}
+
+/* RFC 8899 5.2: in SEARCH_COMPLETE the server loop resumes the search once
+ * the PMTU_RAISE_TIMER expires, so a size ruled out earlier is probed
+ * again instead of capping the PMTU for the connection's lifetime. */
+static void test_srvrun_pmtu_raise_timer_resumes_search(void) {
+  srvrun_conn c  = {0};
+  usz         v2 = PMTU_BASE + 2 * PMTU_STEP;
+  pmtu_init(&c.pmtu);
+  c.pmtu_probe_pn  = SRVRUN_PMTU_NO_PROBE;
+  c.pmtu.validated = PMTU_BASE + PMTU_STEP;
+  c.pmtu.ceiling   = v2; /* v2 was lost MAX_PROBES times */
+  c.pmtu.lost      = v2;
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5) == 0);
+  CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5 + PMTU_RAISE_TIMER_US - 1) == 0);
+  CHECK(srvrun_pmtu_probe_candidate(&c, 5 + PMTU_RAISE_TIMER_US) == v2);
+  CHECK(c.pmtu.phase == PMTU_PHASE_SEARCHING);
+}
+
+/* resp[0] carries six full-size slices (pn 0..5, MPS at PMTU_MAX) and
+ * resp[1] one 10-byte slice (pn 6); the peer acks [ack_lo, 6]. */
+static void sr_pmtu_big_flight(srvrun_conn* c, u64 ack_lo) {
+  static u8         big[6 * 1500];
+  static u8         small[10];
+  wired_sendq_slice sl;
+  *c = (srvrun_conn){0};
+  cc_init(&c->cc);
+  hystart_init(&c->hs);
+  rtt_init(&c->rtt);
+  ecn_track_init(&c->ecn);
+  pmtu_init(&c->pmtu);
+  c->pmtu.validated = PMTU_MAX;
+  c->pmtu.phase     = PMTU_PHASE_COMPLETE;
+  c->pmtu_probe_pn  = SRVRUN_PMTU_NO_PROBE;
+  c->resp[0].in_use = 1;
+  c->resp[1].in_use = 1;
+  wired_sendsess_arm(&c->resp[0].sess, big, 6 * srvrun_mps(c), srvrun_mps(c));
+  wired_sendsess_arm(&c->resp[1].sess, small, sizeof small, 1000);
+  for (u64 pn = 0; pn < 6; pn++) {
+    CHECK(wired_sendsess_take(&c->resp[0].sess, &sl));
+    CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 0));
+  }
+  CHECK(wired_sendsess_take(&c->resp[1].sess, &sl));
+  CHECK(wired_sendsess_sent(&c->resp[1].sess, &sl, 6, 0));
+  c->l.ack_lo[0] = ack_lo;
+  c->l.ack_hi[0] = 6;
+  c->l.ack_n     = 1;
+}
+
+/* RFC 8899 4.3 on the server loop: full-size data packets lost while only a
+ * smaller later one is acknowledged (excessive loss of data of the PLPMTU
+ * size) is a black hole -- the PLPMTU drops to BASE, the in-flight
+ * responses' slice size follows it, and a retransmission of a lost
+ * full-size slice is cut down to the new size instead of being lost again
+ * forever. */
+static void test_srvrun_pmtu_full_size_losses_black_hole(void) {
+  srvrun_conn c;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state      st  = {0, &c};
+  srvrun_step_ctx   ctx = {&cfg, 0, &st, 1, 0};
+  wired_sendq_slice sl;
+  sr_pmtu_big_flight(&c, 6);
+  srvrun_feed_acks(&ctx, &cfg, &c);
+  CHECK(c.pmtu.validated == PMTU_BASE);
+  CHECK(c.pmtu.phase == PMTU_PHASE_BASE);
+  CHECK(c.resp[0].sess.q.chunk == srvrun_mps(&c));
+  CHECK(wired_sendsess_take(&c.resp[0].sess, &sl));
+  CHECK(sl.len == srvrun_mps(&c)); /* a requeued full-size slice, cut */
+}
+
+/* The same losses with a LATER full-size packet acknowledged are not a black
+ * hole: the path still carries the PLPMTU (congestion loss, RFC 8899 8). */
+static void test_srvrun_pmtu_full_size_ack_not_black_hole(void) {
+  srvrun_conn c;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {0, &c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+  sr_pmtu_big_flight(&c, 5);
+  srvrun_feed_acks(&ctx, &cfg, &c);
+  CHECK(c.pmtu.validated == PMTU_MAX);
+  CHECK(c.pmtu.phase == PMTU_PHASE_COMPLETE);
+}
+
+/* RFC 9000 14 / RFC 8899 5.2 ERROR: once BASE_PLPMTU failed MAX_PROBES
+ * times the path cannot carry 1200-byte datagrams, so the server "MUST
+ * immediately cease sending" on it except PMTU probes and CONNECTION_CLOSE:
+ * an ordinary send and the data pump are refused, the BASE_PLPMTU probe
+ * still goes out. */
+static void test_srvrun_pmtu_error_halts_sends(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[2048];
+  u8            pkt[64] = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  usz             before;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  pmtu_init(&c.pmtu);
+  c.pmtu.phase    = PMTU_PHASE_ERROR;
+  c.pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
+  before          = g_srvrun_send_count;
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "x\n");
+  CHECK(g_srvrun_send_count == before);          /* refused */
+  CHECK(srvrun_pump_opportunity(&ctx, &c) == 1); /* the probe */
+  CHECK(g_srvrun_send_count == before + 1);
+  CHECK(c.pmtu_probe_size == PMTU_BASE);
+  CHECK(srvrun_pump_opportunity(&ctx, &c) == 0); /* nothing else */
+  c.pmtu.phase = PMTU_PHASE_SEARCHING;
+  srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "x\n");
+  CHECK(g_srvrun_send_count == before + 2);
+}
+
+/* RFC 8899 3 / RFC 9000 14.2: the send path moving to another local/remote
+ * address pair restarts the PMTU search at the base (the old path's size is
+ * not carried over) and re-slices armed responses at the base MPS; a peer
+ * port change alone (same address pair) keeps it. */
+static void test_srvrun_path_move_resets_pmtu(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  static u8     body[4000];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  pathsel_key to;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  pmtu_init(&c.pmtu);
+  c.pmtu.validated = PMTU_MAX;
+  c.pmtu.phase     = PMTU_PHASE_COMPLETE;
+  c.resp[0].in_use = 1;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, srvrun_mps(&c));
+  to = srvrun_send_key(&cfg, &c);
+  to.peer.port_be ^= 1;
+  srvrun_path_move(&cfg, &c, &to);
+  CHECK(c.pmtu.validated == PMTU_MAX); /* port only: same pair */
+  to.peer.addr[15] ^= 1;
+  srvrun_path_move(&cfg, &c, &to);
+  CHECK(c.pmtu.validated == PMTU_BASE);
+  CHECK(c.pmtu.phase == PMTU_PHASE_SEARCHING);
+  CHECK(c.resp[0].sess.q.chunk == srvrun_mps(&c));
 }
 
 /* RFC 8899 4.4: PMTU_MAX is the target WIRE size (datagram bytes on the
@@ -26110,6 +26299,12 @@ void test_srvrun(void) {
   test_srvrun_pmtu_ack_raises_validated();
   test_srvrun_pmtu_ack_outside_range_no_effect();
   test_srvrun_pmtu_timeout_reaped_as_loss();
+  test_srvrun_pmtu_lost_probe_retried();
+  test_srvrun_pmtu_raise_timer_resumes_search();
+  test_srvrun_pmtu_full_size_losses_black_hole();
+  test_srvrun_pmtu_full_size_ack_not_black_hole();
+  test_srvrun_pmtu_error_halts_sends();
+  test_srvrun_path_move_resets_pmtu();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_data_datagrams_fit_validated_probe();

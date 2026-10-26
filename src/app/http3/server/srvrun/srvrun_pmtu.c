@@ -6,11 +6,19 @@ static int srvrun_pace_or_probe_ok(
 static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len);
 static int srvrun_seal_pmtu_probe(
     srvrun_conn* c, usz size, wired_obuf* out, u64* pn);
-static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us);
+static int  srvrun_pmtu_probe_lost(const srvrun_conn* c, u64 now_us);
+static void srvrun_pmtu_reap_lost(srvrun_conn* c, u64 now_us);
 static usz  srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us);
 static int  srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size);
-static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static int  srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps);
+static void srvrun_pmtu_shrink(srvrun_conn* c);
+
+/* Stream bytes per packet at BASE_PLPMTU (srvrun_mps's formula at the base):
+ * a slice longer than this needed a packet above the base. */
+#define SRVRUN_PMTU_BASE_SLICE \
+  (PMTU_BASE - PMTU_OVERHEAD - SRVRUN_STREAM_HDR_MAX)
 
 /* 1 if any resp[]/wtsend slot has a PTO probe queued (srvrun_has_requeued)
  * -- the round-level trigger for bypassing the pacing gate below. */
@@ -117,7 +125,7 @@ static int srvrun_seal_pmtu_probe(
 
 /* Clear c's outstanding-probe tracking, letting the next opportunity
  * (srvrun_pmtu_probe_candidate) start a fresh probe -- shared by the ACK
- * (srvrun_pmtu_reap_ack) and PROBE_TIMER (srvrun_pmtu_reap_timeout)
+ * (srvrun_pmtu_reap_ack) and loss (srvrun_pmtu_reap_lost)
  * resolution paths, both of which must leave at most one probe outstanding
  * (RFC 8899 5.1.3 PROBED_SIZE is a single value). */
 void srvrun_pmtu_probe_clear(srvrun_conn* c) {
@@ -126,17 +134,27 @@ void srvrun_pmtu_probe_clear(srvrun_conn* c) {
   c->pmtu_probe_sent_ms = 0;
 }
 
-/* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that has not been
- * acked/lost within PMTU_PROBE_TIMER_US is itself treated as a loss --
- * without this, an unanswered probe leaves pmtu_probe_pn outstanding
- * forever and srvrun_pmtu_probe_candidate never starts another -- the ACK
- * path alone never resolves a probe the peer never acknowledges at all.
- * Polled once per send opportunity
- * (srvrun_pmtu_try_probe), matching how this connection has no dedicated
- * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
- * doc on the same style of poll-driven deadline). */
-static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
-  if (!pmtu_probe_timer_due(&c->pmtu, now_us)) {
+/* The outstanding probe is lost: RFC 9000 14.4 detects a probe's loss like
+ * any other packet's, so three later packets acknowledged (RFC 9002 6.1.1
+ * kPacketThreshold) declare it, and the RFC 8899 5.1.1 PROBE_TIMER covers a
+ * probe nothing after it was acknowledged for. */
+static int srvrun_pmtu_probe_lost(const srvrun_conn* c, u64 now_us) {
+  if (!srvrun_pmtu_probe_outstanding(c)) {
+    return 0;
+  }
+  return pmtu_probe_timer_due(&c->pmtu, now_us) ||
+         loss_by_packet(c->largest_acked, c->pmtu_probe_pn);
+}
+
+/* Resolve a lost probe (srvrun_pmtu_probe_lost) into pmtu_on_loss, which
+ * re-offers the same size until PROBE_COUNT reaches MAX_PROBES (RFC 8899
+ * 5.2). Without this an unanswered probe leaves pmtu_probe_pn outstanding
+ * forever and srvrun_pmtu_probe_candidate never starts another. Polled once
+ * per send opportunity (srvrun_pmtu_try_probe): this connection has no
+ * dedicated timer thread, only per-step polling (see srvrun_pto_deadline_ms's
+ * own doc on the same style of poll-driven deadline). */
+static void srvrun_pmtu_reap_lost(srvrun_conn* c, u64 now_us) {
+  if (!srvrun_pmtu_probe_lost(c, now_us)) {
     return;
   }
   pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
@@ -145,13 +163,18 @@ static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
 
 /* The next candidate size to probe on c, or 0 if none: a probe already
  * outstanding or a concluded search (pmtu_next_probe's own gate) both
- * read as "nothing to do this opportunity". now_us converts srvrun's ms
- * clock into pmtu.c's us unit (matching RTT_INITIAL_US and the other
- * RFC 9002 RTT state already on this us clock). */
+ * read as "nothing to do this opportunity". RFC 8899 5.2: once the
+ * PMTU_RAISE_TIMER fires in SEARCH_COMPLETE the search resumes first.
+ * now_us converts srvrun's ms clock into pmtu.c's us unit (matching
+ * RTT_INITIAL_US and the other RFC 9002 RTT state already on this us
+ * clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
-  srvrun_pmtu_reap_timeout(c, now_us);
+  srvrun_pmtu_reap_lost(c, now_us);
   if (srvrun_pmtu_probe_outstanding(c)) {
     return 0;
+  }
+  if (pmtu_raise_timer_due(&c->pmtu, now_us)) {
+    pmtu_resume_search(&c->pmtu);
   }
   return pmtu_next_probe(&c->pmtu, now_us);
 }
@@ -181,7 +204,9 @@ static int srvrun_pmtu_send_probe(
   c->pmtu_probe_pn      = pn;
   c->pmtu_probe_size    = size;
   c->pmtu_probe_sent_ms = ctx->now_ms;
-  srvrun_send(ctx->cfg, c, wired_span_of(buf, out.len), "PMTU probe sent\n");
+  /* RFC 9000 14: a probe still goes out on a halted path (pmtu_halted). */
+  srvrun_send_now(
+      ctx->cfg, c, wired_span_of(buf, out.len), "PMTU probe sent\n");
   return 1;
 }
 
@@ -191,7 +216,7 @@ static int srvrun_pmtu_send_probe(
  * 0 if there was nothing to send. */
 static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u64 now_us = ctx->now_ms * 1000;
-  usz size   = srvrun_pmtu_probe_candidate(c, now_us);
+  usz size   = c->closing ? 0 : srvrun_pmtu_probe_candidate(c, now_us);
   if (!size) {
     return 0;
   }
@@ -223,5 +248,79 @@ int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_pmtu_try_probe(ctx, c)) {
     return 1;
   }
+  if (pmtu_halted(&c->pmtu)) {
+    return 0; /* RFC 9000 14: the path carries no 1200-byte datagram */
+  }
   return srvrun_pump_round_gated(ctx, c);
+}
+
+/* RFC 8899 4.3 black hole input: the range [.., hi] the peer acked carried
+ * more stream bytes than `hits` BASE_PLPMTU packets could, so an above-base
+ * packet at or below hi was delivered. */
+void srvrun_pmtu_note_ack(srvrun_conn* c, usz bytes, u64 hits, u64 hi) {
+  if (bytes > hits * SRVRUN_PMTU_BASE_SLICE) {
+    pmtu_on_big_ack(&c->pmtu, hi);
+  }
+}
+
+/* 1 if lost packet l was above the base and sent after the newest such
+ * packet acked -- evidence the path stopped carrying the PLPMTU. */
+int srvrun_pmtu_big_lost(
+    const srvrun_conn* c, const wired_sendsess_lost_slice* l) {
+  return l->length > SRVRUN_PMTU_BASE_SLICE &&
+         pmtu_big_suspect(&c->pmtu, l->pn);
+}
+
+static void srvrun_pmtu_chunk_cap(wired_sendsess* s, usz mps) {
+  s->q.chunk = (usz)u64_min(s->q.chunk, mps);
+}
+
+/* The MPS dropped: every armed send session slices at the new size from
+ * now on, retransmissions included (wired_sendsess_take splits). */
+static void srvrun_pmtu_shrink(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    srvrun_pmtu_chunk_cap(&c->resp[i].sess, srvrun_mps(c));
+  }
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    srvrun_pmtu_chunk_cap(&c->wtsend[i].sess, srvrun_mps(c));
+  }
+}
+
+/* Feed one loss pass's `big` black hole evidence to the search. On a black
+ * hole (RFC 8899 4.3: PLPMTU back to BASE) the slices shrink and any search
+ * probe still tracked is dropped, so its loss cannot count against the
+ * BASE_PLPMTU probe that BASE sends next (RFC 8899 5.2). */
+void srvrun_pmtu_feed_losses(srvrun_conn* c, usz big) {
+  usz before = c->pmtu.validated;
+  pmtu_on_big_losses(&c->pmtu, big);
+  if (c->pmtu.validated == before) {
+    return;
+  }
+  srvrun_pmtu_shrink(c);
+  srvrun_pmtu_probe_clear(c);
+}
+
+/* RFC 8899 3.5/5.1.2: c's search starts over for its current peer -- the
+ * handshake (or the new path's validation) confirmed BASE_PLPMTU, and
+ * MAX_PLPMTU is what the local link toward that peer carries (PMTU_MAX
+ * when the kernel cannot tell). */
+void srvrun_pmtu_start(srvrun_conn* c) {
+  usz link = wired_udp_path_mtu(&c->peer);
+  pmtu_init(&c->pmtu);
+  pmtu_set_max(&c->pmtu, link ? link : PMTU_MAX);
+  srvrun_pmtu_probe_clear(c);
+}
+
+/* RFC 8899 3 / RFC 9000 14.2: the PLPMTU belongs to one local/remote
+ * address pair. The send path moving from `from` to another pair (a peer
+ * port change alone keeps it, as for the congestion controller, RFC 9000
+ * 9.4) restarts the search at BASE_PLPMTU and re-slices at the base MPS
+ * until the new path validates a larger size. */
+void srvrun_pmtu_path_reset(
+    srvrun_conn* c, const pathsel_key* from, const pathsel_key* to) {
+  if (srvrun_path_port_only(from, to)) {
+    return;
+  }
+  srvrun_pmtu_start(c);
+  srvrun_pmtu_shrink(c);
 }

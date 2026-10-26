@@ -7,7 +7,7 @@
 # ran first.
 #
 # network_mode: host, not a `ports:` mapping: this SDK's socket enables
-# IP_MTU_DISCOVER=IP_PMTUDISC_DO (Path MTU Discovery, DF-bit set sends --
+# IP_MTU_DISCOVER=IP_PMTUDISC_PROBE (DPLPMTUD, DF-bit set sends --
 # src/transport/io/socket/io/udp.c), and it was confirmed by hand (a headless
 # browser join, bridge+ports vs. host networking) that the QUIC handshake
 # never completes through Docker's default bridge + iptables DNAT port

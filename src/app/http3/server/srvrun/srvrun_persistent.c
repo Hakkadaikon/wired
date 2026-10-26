@@ -49,6 +49,7 @@ void srvrun_loss_pass(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms, u64 largest_before) {
   srvrun_loss_span span = SRVRUN_LOSS_SPAN0;
   usz              lost = srvrun_reap_losses_all(cfg, c, now_ms, &span);
+  srvrun_pmtu_feed_losses(c, span.big);
   srvrun_rec_detect(c, now_ms);
   /* RFC 9002 7.3.1/7.3.2: cwnd shrinks once per recovery period, gated on
    * the lost packet's SEND time -- passing now here instead re-shrank the
