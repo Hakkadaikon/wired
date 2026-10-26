@@ -850,6 +850,7 @@
 #include "app/moqt/run/moqtrun_fill_wait.c"
 #include "app/moqt/run/moqtrun_frag.c"
 #include "app/moqt/run/moqtrun_fsel.c"
+#include "app/moqt/run/moqtrun_fsel_fetch.c"
 #include "app/moqt/run/moqtrun_fwin.c"
 #include "app/moqt/run/moqtrun_goaway.c"
 #include "app/moqt/run/moqtrun_hold.c"

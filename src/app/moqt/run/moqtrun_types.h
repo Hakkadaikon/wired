@@ -547,9 +547,12 @@ typedef struct {
  * downstream stream sid on wt is reset at deadline_ms unless all its
  * data was committed (acknowledged) by then. */
 typedef struct {
+  /** The subscriber's session (owned by the transport). */
   wired_wt_session* wt;
-  u64               sid;
-  u64               deadline_ms;
+  /** The downstream Subgroup stream on wt. */
+  u64 sid;
+  /** wired_moqt_tick clock at which the timer expires. */
+  u64 deadline_ms;
   /** 1 while the timer runs. */
   u8 in_use;
 } wired_moqtrun_sgt;
