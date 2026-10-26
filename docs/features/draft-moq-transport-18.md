@@ -1013,6 +1013,7 @@ Legend:
   - evidence: `moqtrun_filter_past` refuses an AbsoluteRange whose End Group
     precedes the track's Largest Group; `test_moqtrun_sub_range_past_invalid`
     (one ending at the Largest Group is accepted).
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_range_past_invalid`
 
 ## SS14 Grease
 
@@ -1301,6 +1302,7 @@ Legend:
     `test_moqtrun_upsub_fin_unanswered_fails` and
     `test_moqtrun_upfetch_fin_unanswered` FIN before the response and see the
     downstream requester refused, the hub's side FINned, the slot freed.
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_fin_unanswered_fails`
 - [x] MQ18-212 (§5.1) The publisher shall save as the subscription's Joining
   Location the Largest Location it communicates in SUBSCRIBE_OK, PUBLISH,
   or the REQUEST_OK of a REQUEST_UPDATE that changes the Forward State from
@@ -1316,6 +1318,7 @@ Legend:
     `test_subtracks_subscribe_crosses_publish` subscribes while the hub's
     SUBSCRIBE_TRACKS PUBLISH is unanswered and sees DUPLICATE_SUBSCRIPTION on
     draft-18, a subscription on later drafts.
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_subscribe_crosses_publish`
 - [x] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
   own upstream SUBSCRIBE to that peer is still Pending (subscriber), then it
   shall terminate its own subscription before sending PUBLISH_OK.
@@ -1323,12 +1326,14 @@ Legend:
     `moqtrun_publish_checked` before PUBLISH_OK is queued;
     `test_moqtrun_upsub_publish_crosses` asserts the reset precedes the
     PUBLISH_OK and the waiter rides the PUBLISH.
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_publish_crosses`
 - [x] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
   shall reset every open data stream of that subscription.
   - evidence: `moqtrun_req_cancel` resets the subscription's relay streams
     (`moqtrun_cancel_peer_subs`) before dropping it;
     `test_moqtrun_req_reset_resets_data_streams` asserts the open Subgroup
     stream toward the subscriber is reset.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_reset_resets_data_streams`
 - [ ] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
   they become available.
   - gap: the hub holds an Object split across deliveries until it is
