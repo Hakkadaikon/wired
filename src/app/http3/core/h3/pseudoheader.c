@@ -87,7 +87,3 @@ int h3_ph_request_ok(const h3_ph_set* p) {
   return p->ok &&
          has_all(p, req); /* :authority is conditional (RFC 9114 4.3.1) */
 }
-
-int h3_ph_response_ok(const h3_ph_set* p) {
-  return p->ok && has_all(p, BIT(H3_PH_STATUS));
-}

@@ -20,16 +20,4 @@ void h3_push_init(h3_push_state* s);
  */
 int h3_push_set_max(h3_push_state* s, u64 max);
 
-/* Whether a server push with this Push ID is permitted: id < max. */
-int h3_push_allowed(const h3_push_state* s, u64 id);
-
-/* RFC 9114 7.2.3: a received CANCEL_PUSH is valid only if its Push ID is one
- * the client has actually granted room for (id < s->max, the same bound
- * h3_push_allowed enforces for an outgoing PUSH_PROMISE) -- a Push ID
- * at or past the client's MAX_PUSH_ID was never a Push ID this connection
- * could have used, so referencing it is a connection error of type
- * H3_ID_ERROR. Returns 1 if the Push ID is in range, 0 if the receiver must
- * close with H3_ID_ERROR. */
-int h3_push_cancel_ok(const h3_push_state* s, u64 id);
-
 #endif

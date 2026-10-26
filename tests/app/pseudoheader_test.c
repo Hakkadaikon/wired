@@ -23,7 +23,6 @@ static void test_ph_request_ok(void) {
   h3_ph_field(&p, NAME(":path"));
   h3_ph_field(&p, NAME("user-agent"));
   CHECK(h3_ph_request_ok(&p) == 1);
-  CHECK(h3_ph_response_ok(&p) == 0); /* no :status */
 }
 
 /* Missing a required pseudo-header makes the request malformed. */
@@ -69,16 +68,6 @@ static void test_ph_classify_protocol(void) {
   CHECK(h3_ph_classify(NAME(":protocol")) == H3_PH_PROTOCOL);
 }
 
-/* A response needs only :status. */
-static void test_ph_response_ok(void) {
-  h3_ph_set p;
-  h3_ph_init(&p);
-  h3_ph_field(&p, NAME(":status"));
-  h3_ph_field(&p, NAME("content-length"));
-  CHECK(h3_ph_response_ok(&p) == 1);
-  CHECK(h3_ph_request_ok(&p) == 0);
-}
-
 void test_pseudoheader(void) {
   test_ph_classify();
   test_ph_request_ok();
@@ -86,6 +75,5 @@ void test_pseudoheader(void) {
   test_ph_order();
   test_ph_duplicate();
   test_ph_unknown();
-  test_ph_response_ok();
   test_ph_classify_protocol();
 }

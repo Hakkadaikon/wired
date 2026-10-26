@@ -9,9 +9,3 @@ int h3_push_set_max(h3_push_state* s, u64 max) {
   s->max = max;
   return 1;
 }
-
-int h3_push_allowed(const h3_push_state* s, u64 id) { return id < s->max; }
-
-int h3_push_cancel_ok(const h3_push_state* s, u64 id) {
-  return h3_push_allowed(s, id);
-}

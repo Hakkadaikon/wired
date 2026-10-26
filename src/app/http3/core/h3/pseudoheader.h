@@ -40,10 +40,8 @@ void h3_ph_init(h3_ph_set* p);
  * field, a duplicate pseudo-header, or an unknown pseudo-header clears it. */
 void h3_ph_field(h3_ph_set* p, const u8* name, usz len);
 
-/* Whether the accumulated pseudo-headers form a valid request / response:
- * p->ok held and the required set is present (request: :method :scheme :path;
- * response: :status). Returns 1 valid, 0 malformed. */
+/* Whether the accumulated pseudo-headers form a valid request: p->ok held
+ * and :method :scheme :path are present. Returns 1 valid, 0 malformed. */
 int h3_ph_request_ok(const h3_ph_set* p);
-int h3_ph_response_ok(const h3_ph_set* p);
 
 #endif
