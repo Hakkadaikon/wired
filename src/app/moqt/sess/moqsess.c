@@ -127,8 +127,6 @@ int moqsess_may_reject_request(const moqsess* s) {
   return s->goaway_sent || s->goaway_recv;
 }
 
-int moqsess_suppress_own_requests(const moqsess* s) { return s->goaway_recv; }
-
 /* ===================== B. Subscribe lifecycle ===================== */
 
 void moqsub_init(moqsub* s, moqsub_role role) {
@@ -262,21 +260,4 @@ int moqsub_step(moqsub* s, moqsub_event ev) {
     return 0;
   }
   return MOQSESS_SUB_HANDLERS[idx](s);
-}
-
-int moqsub_established(const moqsub* s) {
-  return s->state == MOQSUB_ESTABLISHED;
-}
-
-int moqsub_terminated(const moqsub* s) { return s->state == MOQSUB_TERMINATED; }
-
-int moqsub_may_forward(const moqsub* s, int forward) {
-  if (!forward) {
-    return 0;
-  }
-  return s->state == MOQSUB_PENDING || s->state == MOQSUB_ESTABLISHED;
-}
-
-int moqsub_may_send_publish_done(usz open_stream_count) {
-  return open_stream_count == 0;
 }

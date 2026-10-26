@@ -87,10 +87,6 @@ int moqsess_established(const moqsess* s);
  * (either side sent or received GOAWAY: draft 5.1 GOAWAY discipline). */
 int moqsess_may_reject_request(const moqsess* s);
 
-/** True if this endpoint SHOULD NOT initiate new requests of its own
- * (GOAWAY received on the control stream: draft 5.1, SHOULD NOT). */
-int moqsess_suppress_own_requests(const moqsess* s);
-
 /* ===================== B. Subscribe lifecycle ===================== */
 
 /** One subscription's state (draft 5.1: SUBSCRIBE/PUBLISH -> response ->
@@ -166,24 +162,5 @@ void moqsub_init(moqsub* s, moqsub_role role);
  * duplicate response) -- callers read s->session_fault to distinguish a
  * subscription-local termination from a session-level protocol error. */
 int moqsub_step(moqsub* s, moqsub_event ev);
-
-/** True once the subscription is Established (SS10.6/10.9 semantics apply:
- * REQUEST_UPDATE legal, Object forwarding gated by moqsub_may_forward). */
-int moqsub_established(const moqsub* s);
-
-/** True once Terminated (state machine done; s->term_reason explains why). */
-int moqsub_terminated(const moqsub* s);
-
-/** Forward State gate (5.1 / SS10.2 FORWARD parameter, subscribe notes
- * decision 9): Object sending toward this subscription is permitted only
- * while pending or established AND not yet errored. `forward` is the
- * negotiated FORWARD value (0 = never send Objects, 1 = normal gate). */
-int moqsub_may_forward(const moqsub* s, int forward);
-
-/** PUBLISH_DONE precondition (draft 8.9): a publisher may only send
- * PUBLISH_DONE once every data stream it opened for this subscription has
- * been closed. Callers pass their own open-stream count; this only encodes
- * the gate, not the count itself. */
-int moqsub_may_send_publish_done(usz open_stream_count);
 
 #endif

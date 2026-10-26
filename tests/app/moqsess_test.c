@@ -98,7 +98,7 @@ static void test_moqsess_goaway_clean_shutdown(void) {
   moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
   moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(moqsess_step(&s, MOQSESS_EV_RECV_GOAWAY) == MOQSESS_CLOSE_NONE);
-  CHECK(moqsess_suppress_own_requests(&s) == 1);
+  CHECK(s.goaway_recv == 1);
   CHECK(s.state == MOQSESS_ESTABLISHED);
 }
 
@@ -244,17 +244,7 @@ static void test_moqsub_subscribe_establish(void) {
   CHECK(moqsub_step(&s, MOQSUB_EV_OPEN) == 1);
   CHECK(s.state == MOQSUB_PENDING);
   CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
-  CHECK(moqsub_established(&s) == 1);
-}
-
-/* Established (SUBSCRIBE-initiated) subscription may forward Objects when
- * FORWARD == 1. */
-static void test_moqsub_object_delivery_after_subscribe(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_may_forward(&s, 1) == 1);
+  CHECK(s.state == MOQSUB_ESTABLISHED);
 }
 
 /* PUBLISH -> PUBLISH_OK (REQUEST_OK) establishes the subscription. */
@@ -263,29 +253,7 @@ static void test_moqsub_publish_establish(void) {
   moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
-  CHECK(moqsub_established(&s) == 1);
-}
-
-/* An Object sent before PUBLISH_OK is still deliverable (Pending(Publisher)
- * allows forwarding); the later PUBLISH_OK still establishes normally. */
-static void test_moqsub_object_before_publish_ok(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_may_forward(&s, 1) == 1); /* Object arrives here */
-  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
-  CHECK(moqsub_established(&s) == 1);
-}
-
-/* Forward State 0: no Object may be forwarded even once established;
- * control messages (OK/PUBLISH_DONE) are unaffected by the gate. */
-static void test_moqsub_forward_state_zero_blocks_objects(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_may_forward(&s, 0) == 0);
-  CHECK(moqsub_established(&s) == 1); /* OK/PUBLISH_DONE still legal */
+  CHECK(s.state == MOQSUB_ESTABLISHED);
 }
 
 /* REQUEST_UPDATE leaves an established subscription's state unchanged. */
@@ -295,21 +263,19 @@ static void test_moqsub_update_keeps_established(void) {
   moqsub_step(&s, MOQSUB_EV_OPEN);
   moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_step(&s, MOQSUB_EV_UPDATE) == 1);
-  CHECK(moqsub_established(&s) == 1);
+  CHECK(s.state == MOQSUB_ESTABLISHED);
 }
 
 /* PUBLISH_DONE (exact Stream Count, all data streams already closed) + FIN
  * terminates the subscription; the publisher may not open new data streams
- * afterward (that gate is moqsub_may_send_publish_done at the call
- * site, checked before this event fires). */
+ * afterward. */
 static void test_moqsub_publish_done_terminates_and_reclaims(void) {
   moqsub s;
   moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_may_send_publish_done(0) == 1); /* 0 open streams */
   CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
   CHECK(s.term_reason == MOQSUB_TERM_PUBLISH_DONE);
   CHECK(s.pending_ok == 0); /* already responded via OK, no late OK owed */
 }
@@ -322,7 +288,7 @@ static void test_moqsub_publish_done_before_response_defers_ok(void) {
   moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
   CHECK(s.pending_ok == 1);
   CHECK(s.responded == 1); /* exactly-one-response satisfied by late OK */
 }
@@ -334,7 +300,7 @@ static void test_moqsub_requester_early_fin_not_failed(void) {
   moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_FIN_REQ) == 1);
-  CHECK(moqsub_terminated(&s) == 0);
+  CHECK(s.state != MOQSUB_TERMINATED);
   CHECK(s.state == MOQSUB_PENDING);
 }
 
@@ -347,9 +313,8 @@ static void test_moqsub_cancel_established(void) {
   moqsub_step(&s, MOQSUB_EV_OPEN);
   moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
   CHECK(s.term_reason == MOQSUB_TERM_STOP_SENDING);
-  CHECK(moqsub_may_forward(&s, 1) == 0);
 }
 
 /* Cancel after the subscriber's own direction is already FIN'd: only
@@ -362,7 +327,7 @@ static void test_moqsub_cancel_after_fin(void) {
   moqsub_step(&s, MOQSUB_EV_FIN_REQ);
   CHECK(s.fin_req == 1);
   CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
 }
 
 /* SUBSCRIBE rejected: REQUEST_ERROR terminates the subscription; no Object
@@ -372,9 +337,8 @@ static void test_moqsub_subscribe_rejected(void) {
   moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
   CHECK(s.term_reason == MOQSUB_TERM_ERROR);
-  CHECK(moqsub_may_forward(&s, 1) == 0);
 }
 
 /* PUBLISH rejected (UNINTERESTED): REQUEST_ERROR + FIN + STOP_SENDING on
@@ -384,7 +348,7 @@ static void test_moqsub_publish_rejected(void) {
   moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
   CHECK(s.term_reason == MOQSUB_TERM_ERROR);
 }
 
@@ -412,7 +376,7 @@ static void test_moqsub_early_fin_before_response(void) {
   CHECK(s.fin_resp == 1);
   CHECK(s.responded == 0);
   CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(moqsub_terminated(&s) == 1);
+  CHECK(s.state == MOQSUB_TERMINATED);
 }
 
 void test_moqsess(void) {
@@ -436,10 +400,7 @@ void test_moqsess(void) {
   test_moqsess_closed_is_sticky();
 
   test_moqsub_subscribe_establish();
-  test_moqsub_object_delivery_after_subscribe();
   test_moqsub_publish_establish();
-  test_moqsub_object_before_publish_ok();
-  test_moqsub_forward_state_zero_blocks_objects();
   test_moqsub_update_keeps_established();
   test_moqsub_publish_done_terminates_and_reclaims();
   test_moqsub_publish_done_before_response_defers_ok();

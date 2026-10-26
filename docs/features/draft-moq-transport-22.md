@@ -987,9 +987,8 @@ Legend:
 - [~] MQ22-096 A publisher may start sending Objects on a PUBLISH-initiated
   subscription before receiving PUBLISH_OK.
   - evidence: the hub answers a PUBLISH at once and relays the Objects that
-    follow (`test_moqtrun_object_relay_to_subscriber`); Objects racing ahead
-    of its REQUEST_OK are pinned only on the subscription model
-    (`test_moqsub_object_before_publish_ok`), which the hub does not use.
+    follow (`test_moqtrun_object_relay_to_subscriber`); no test pins
+    Objects racing ahead of its REQUEST_OK.
 - [~] MQ22-097 If a subscriber rejects a PUBLISH with REQUEST_ERROR
   UNINTERESTED, then the subscription shall terminate without any Object being
   sent.
