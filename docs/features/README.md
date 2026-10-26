@@ -69,8 +69,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2237/2256 requirements demonstrated (99.2%) — 1941 directly tested,
-296 indirect, 19 untested.**
+**Total: 2237/2256 requirements demonstrated (99.2%) — 1942 directly tested,
+295 indirect, 19 untested.**
 
 ## QUIC core
 
@@ -87,7 +87,7 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 26/26 | 23 | 3 | 0 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 20 | 5 | 0 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 21 | 4 | 0 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 24 | 5 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 10/10 | 9 | 1 | 0 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |

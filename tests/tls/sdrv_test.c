@@ -931,6 +931,14 @@ static void test_sdrv_recv_client_hello_version_information_invalid_entries(
   CHECK(sdrv_test_vi_error(well_formed, 8) == 0);
 }
 
+/* RFC 9368 4: a well-formed Chosen Version (v2, listed) that differs from
+ * the first flight's version (v1) closes with VERSION_NEGOTIATION_ERROR. */
+static void test_sdrv_recv_client_hello_chosen_mismatch_vn_error(void) {
+  static const u8 v2_chosen[8] = {0x6b, 0x33, 0x43, 0xcf,
+                                  0x6b, 0x33, 0x43, 0xcf};
+  CHECK(sdrv_test_vi_error(v2_chosen, 8) == EC_VERSION_NEGOTIATION_ERROR);
+}
+
 /* A driver initialized with an arbitrary-but-fixed key set, enough to drive
  * sdrv_recv_client_hello in the malformed-input tests below (they never
  * reach build_server_flight, so the exact key values don't matter). */
@@ -3321,6 +3329,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_version_information_ok();
   test_sdrv_recv_client_hello_version_information_malformed_rejected();
   test_sdrv_recv_client_hello_version_information_invalid_entries();
+  test_sdrv_recv_client_hello_chosen_mismatch_vn_error();
   test_sdrv_recv_client_hello_grease_quic_bit();
   test_sdrv_recv_client_hello_reset_stream_at();
   test_sdrv_recv_client_hello_no_supported_versions_rejected();
