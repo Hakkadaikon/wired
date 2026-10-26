@@ -69,16 +69,16 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2096/2260 requirements demonstrated (92.7%) — 1712 directly tested,
-384 indirect, 164 untested.**
+**Total: 2111/2260 requirements demonstrated (93.4%) — 1737 directly tested,
+374 indirect, 149 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 249/279 | 191 | 58 | 30 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 254/279 | 196 | 58 | 25 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 58 | 16 | 4 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 66/75 | 42 | 24 | 9 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 70/75 | 52 | 18 | 5 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
 ## QUIC extensions
@@ -127,11 +127,11 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 85/97 | 64 | 21 | 12 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 86/97 | 65 | 21 | 11 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 28/43 | 21 | 7 | 15 |
-| [RFC 9204 — QPACK](rfc9204.md) | 61/65 | 51 | 10 | 4 |
-| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 16 | 1 | 0 |
-| [RFC 9218 — Extensible priorities](rfc9218.md) | 19/22 | 13 | 6 | 3 |
+| [RFC 9204 — QPACK](rfc9204.md) | 63/65 | 54 | 9 | 2 |
+| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 17 | 0 | 0 |
+| [RFC 9218 — Extensible priorities](rfc9218.md) | 22/22 | 18 | 4 | 0 |
 
 ## WebTransport
 

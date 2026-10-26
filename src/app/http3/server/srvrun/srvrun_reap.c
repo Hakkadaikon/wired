@@ -18,7 +18,8 @@ static void srvrun_ecn_note_acked(srvrun_conn* c, u64 hits, u64 newest_ms) {
   }
 }
 
-/* The RTT, ECN and congestion inputs of the packets [lo, hi] acked. */
+/* The ECN and congestion inputs of the packets [lo, hi] acked (the RTT
+ * sample is per ACK frame, srvrun_rec_on_acks). */
 static void srvrun_cc_sample(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
@@ -32,7 +33,6 @@ static void srvrun_cc_sample(
   srvrun_ecn_note_acked(c, hits, newest);
   srvrun_pmtu_note_ack(c, bytes, hits, hi);
   if (bytes) {
-    srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
     cc_on_ack(&c->cc, srvrun_css_acked(c, bytes), newest, now_ms);
   }
@@ -43,6 +43,7 @@ static void srvrun_cc_sample(
  * but feed neither. */
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
+  wired_sendsess_ack_requeued(sess, lo, hi); /* RFC 9000 13.3 */
   if (!srvrun_range_hits(sess, lo, hi)) {
     return;
   }
@@ -73,7 +74,7 @@ usz srvrun_reap_losses(
     srvrun_loss_span*  span) {
   wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
   usz                       n = wired_sendsess_detect_lost(
-      sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
+      sess, c->largest_acked, now_ms, srvrun_loss_delay_us(c), lost,
       WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
   for (usz i = 0; i < n; i++) {

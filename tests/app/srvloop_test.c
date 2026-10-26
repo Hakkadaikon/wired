@@ -2841,6 +2841,37 @@ static void test_srvloop_second_qpack_encoder_stream_violation(void) {
   CHECK(f.l.qpack_stream_violation == H3_STREAM_CREATION_ERROR);
 }
 
+/* Step one 1-RTT packet carrying the peer's QPACK decoder stream (id 10)
+ * with the bytes b after its type, through the live wired_srvloop_step. */
+static void lp_step_decoder_stream(struct lp_fix* f, const u8* b, usz n) {
+  u8         body[16], payload[64], out[1024], spkt[1024];
+  usz        off, slen;
+  wired_obuf ob = {out, sizeof out, 0};
+  body[0]       = H3_STREAM_QPACK_DECODER;
+  bytes_memcpy(body + 1, b, n);
+  off = lp_stream_frame_at(payload, sizeof payload, 10, 0, body, 1 + n, 0);
+  lp_confirm(f, &ob);
+  slen = client_seal_onertt_pn(f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* RFC 9204 4.4.1 / 4.4.3 (9204-038/-041): the server's encoder never
+ * references its table, so a Section Acknowledgment or any Insert Count
+ * Increment on the peer's decoder stream latches
+ * QPACK_DECODER_STREAM_ERROR; a Stream Cancellation (4.4.2) does not. */
+static void test_srvloop_qpack_decoder_stream_checked(void) {
+  static const u8      ack[] = {0x84}, incr[] = {0x01}, cancel[] = {0x44};
+  static struct lp_fix f;
+  lp_step_decoder_stream(&f, ack, 1);
+  CHECK(f.l.qpack_stream_violation == QPACK_DECODER_STREAM_ERROR);
+  lp_step_decoder_stream(&f, incr, 1);
+  CHECK(f.l.qpack_stream_violation == QPACK_DECODER_STREAM_ERROR);
+  lp_step_decoder_stream(&f, cancel, 1);
+  CHECK(f.l.qpack_stream_violation == 0);
+}
+
 /* RFC 9204 4.3.1 (9204-020/9204-033): a Set Dynamic Table Capacity
  * instruction received on the QPACK encoder stream, within the server's own
  * advertised limit, is applied to l->h3.qdyn -- driven through the live
@@ -3106,7 +3137,7 @@ static void test_srvloop_qpack_type_after_later_bytes(void) {
  * encoder stream's early bytes, arriving before its type, would be lost. */
 static void test_srvloop_qpack_known_uni_not_held(void) {
   static const u8 dtype[] = {H3_STREAM_QPACK_DECODER};
-  static const u8 dbody[] = {0x01};
+  static const u8 dbody[] = {0x44}; /* Stream Cancellation, stream 4 */
   struct lp_fix   f;
   u8              payload[256], out[1024];
   usz             off;
@@ -4323,11 +4354,9 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
 }
 
 /* One more single-packet range than ACK_MAX_RANGES (33, all within the
- * 64-pn recvpn window) must not corrupt srvloop -- app_ack_encode_ranges
- * (respond.c, called directly here as in the tests above) falls back to
- * appending nothing rather than a truncated/overflowing ACK frame; it is
- * srvloop_emit_ack_only's caller that then has nothing to send, not an encoder
- * crash or garbage frame. */
+ * 64-pn recvpn window): RFC 9000 13.2.4 lets an ACK carry fewer ranges, so
+ * app_ack_encode_ranges sends the 32 newest rather than no ACK at all (no
+ * overflowing or garbage frame either). */
 static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   struct lp_fix f;
   wired_obuf    ob;
@@ -4348,9 +4377,12 @@ static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
-    u8  buf[512];
-    usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
-    CHECK(n == 0); /* 33 ranges overflow ACK_MAX_RANGES: no ACK, no crash */
+    u8        buf[512];
+    ack_frame a;
+    usz       n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    CHECK(n != 0 && ack_decode(buf, n, &a) == n);
+    CHECK(a.n_ranges == ACK_MAX_RANGES);
+    CHECK(a.ranges[0].hi == 65 && a.ranges[ACK_MAX_RANGES - 1].lo == 3);
   }
 }
 
@@ -6913,6 +6945,7 @@ void test_srvloop(void) {
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();
   test_srvloop_qpack_encoder_set_capacity_applied();
+  test_srvloop_qpack_decoder_stream_checked();
   test_srvloop_qpack_encoder_set_capacity_over_limit();
   test_srvloop_qpack_split_inserts_section_ack();
   test_srvloop_qpack_blocked_section_fails();

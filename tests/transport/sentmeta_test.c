@@ -112,7 +112,25 @@ static void test_sentmeta_send_ack_roundtrip(void) {
   CHECK(m.total_in_flight == 0);
 }
 
+/* sentmeta_uncount: the packet stays tracked but its bytes leave
+ * total_in_flight once; untracked pns and repeats change nothing. */
+static void test_sentmeta_uncount(void) {
+  sentmeta       m;
+  sentmeta_acked out = {0, 0};
+  sentmeta_init(&m);
+  sentmeta_on_sent(&m, &(sentmeta_out){1, 10, 1, 1, 1200});
+  sentmeta_on_sent(&m, &(sentmeta_out){2, 20, 1, 1, 300});
+  sentmeta_uncount(&m, 1);
+  CHECK(m.total_in_flight == 300);
+  sentmeta_uncount(&m, 1);
+  sentmeta_uncount(&m, 9);
+  CHECK(m.total_in_flight == 300);
+  CHECK(sentmeta_on_ack(&m, 1, &out) == 1); /* still tracked */
+  CHECK(m.total_in_flight == 300);
+}
+
 void test_sentmeta(void) {
+  test_sentmeta_uncount();
   test_sentmeta_on_sent_adds_inflight();
   test_sentmeta_on_sent_non_inflight_no_bytes();
   test_sentmeta_on_ack_subtracts_and_returns_time();

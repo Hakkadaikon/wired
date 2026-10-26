@@ -1,3 +1,5 @@
+#include "app/http3/core/h3/fieldsize.h"
+#include "app/http3/request/h3resp/resp_size.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static qpackenc_state* srvrun_qenc_active(srvrun_conn* c);
@@ -138,7 +140,9 @@ static void srvrun_qenc_send_insert(
 
 /* Build x's response prefix (HEADERS + DATA header for total_len body
  * bytes) into pob and forward any QPACK Insert it generated. Returns 0 when
- * the app's fields overflow pob. */
+ * the app's fields overflow pob, or make a field section larger than the
+ * peer's SETTINGS_MAX_FIELD_SECTION_SIZE (RFC 9114 4.2.2 "SHOULD NOT
+ * send"): the caller then resets the stream. */
 int srvrun_h3_resp_prefix(
     srvrun_conn*               c,
     const wired_http_exchange* x,
@@ -146,6 +150,11 @@ int srvrun_h3_resp_prefix(
     wired_obuf*                pob) {
   h3resp_fields          f = {x->fields, x->field_count};
   qpackenc_status_result ins;
+  if (!h3_field_section_ok(
+          h3resp_section_size(x->content_type, f),
+          c->l.peer_max_field_section)) {
+    return 0;
+  }
   if (!h3resp_prefix_fields_qenc(
           srvrun_http_status(x), x->content_type, total_len, f,
           srvrun_qenc_active(c), &ins, pob)) {

@@ -233,7 +233,7 @@ int srvrun_seal_ctl(srvrun_conn* c, const u8* pl, usz pln, wired_obuf* out) {
     return 0;
   }
   sin.pn = c->l.tx_pn++;
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* Seal pl as its own 1-RTT packet into out, kept for resending until ACKed

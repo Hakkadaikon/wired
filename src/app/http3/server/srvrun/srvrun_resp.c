@@ -1,6 +1,13 @@
+#include "app/http3/core/h3/fieldsize.h"
+#include "app/http3/request/h3resp/resp_size.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_resp_matches(const srvrun_resp* r, u64 stream_id);
+static int srvrun_wt_status_build(
+    const srvrun_conn* c,
+    u16                status,
+    const qpack_field* extra,
+    wired_obuf*        pob);
 
 /* 1 if r is claimed and answering stream_id. */
 static int srvrun_resp_matches(const srvrun_resp* r, u64 stream_id) {
@@ -56,6 +63,19 @@ usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
   return (usz)(r - c->resp);
 }
 
+/* RFC 9114 4.2.2: build the status-only response unless its field section
+ * exceeds the peer's SETTINGS_MAX_FIELD_SECTION_SIZE. */
+static int srvrun_wt_status_build(
+    const srvrun_conn* c,
+    u16                status,
+    const qpack_field* extra,
+    wired_obuf*        pob) {
+  h3resp_fields f = {extra, extra ? 1u : 0u};
+  return h3_field_section_ok(
+             h3resp_section_size(0, f), c->l.peer_max_field_section) &&
+         h3resp_prefix_field(status, 0, 0, extra, pob);
+}
+
 /* Seal a bare status-only response (no body, no content-type, plus one
  * optional extra field line) into r's own storage row and arm r's session
  * over it — the same low-level prefix+arm mechanism srvrun_start_app_resp
@@ -75,7 +95,7 @@ void srvrun_start_wt_status(
     const qpack_field* extra) {
   u8*        st  = env->respstore[slot][srvrun_resp_index(c, r)];
   wired_obuf pob = obuf_of(st, WIRED_SRVRUN_RESP_MAX);
-  if (!h3resp_prefix_field(status, 0, 0, extra, &pob)) {
+  if (!srvrun_wt_status_build(c, status, extra, &pob)) {
     r->arm_failed = 1; /* e.g. an app redirect's Location too long */
     return;
   }

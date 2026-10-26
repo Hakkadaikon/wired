@@ -22,6 +22,7 @@
 #include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvrun/srvrun.h"
 #include "app/http3/server/srvwire/wire.h"

@@ -6,7 +6,6 @@ static void srvloop_init_ctrl(wired_srvloop* l);
 /* Protocol violation latches and peer limits. */
 static void srvloop_init_violation(wired_srvloop* l) {
   l->datagram_violation             = 0;
-  l->priupdate_violation            = 0;
   l->qpack_stream_violation         = 0;
   l->wt_signal_mid_stream_violation = 0;
   l->flow_control_violation         = 0;
@@ -18,6 +17,7 @@ static void srvloop_init_violation(wired_srvloop* l) {
   l->peer_wt_initial[0]             = 0;
   l->peer_wt_initial[1]             = 0;
   l->peer_wt_initial[2]             = 0;
+  l->peer_max_field_section         = 0;
 }
 
 /* Our own control stream plus the peer's. */
@@ -50,8 +50,9 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   srvloop_init_ctrl(l);
   pnspaces_recv_init(&l->ack_recv);
   ackpolicy_init(&l->app_ack_policy);
-  ackpolicy_init(&l->hs_ack_policy);
+  ackpolicy_init(&l->ackst.hs_ack_policy);
   l->now_ms = 0;
+  sentmeta_init(&l->ackst.sent);
   srvloop_streams_reset(l);
   srvloop_wt_streams_reset(l);
   /* also zeroes wt_uni_closed/uni_typed */
@@ -76,7 +77,8 @@ u64* srvloop_ecn_counter_for(wired_srvloop* l, u8 ecn) {
 }
 
 void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn) {
-  u64* counter = srvloop_ecn_counter_for(l, ecn);
+  u64* counter   = srvloop_ecn_counter_for(l, ecn);
+  l->ackst.rx_ce = ecn == 3; /* RFC 3168 CE */
   if (counter) {
     (*counter)++;
   }

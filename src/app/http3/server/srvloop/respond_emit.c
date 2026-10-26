@@ -32,7 +32,7 @@ static int seal_confirm_onertt(
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(c->s, &sin, out);
+  return srvloop_send_onertt_rec(c->l, c->s, &sin, out);
 }
 
 /* RFC 9000 12.2: at confirmation, coalesce a long-header Handshake ACK and the
@@ -77,7 +77,7 @@ static int emit_response(const wired_srvloop_conn* c, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(c->s, &sin, out);
+  return srvloop_send_onertt_rec(c->l, c->s, &sin, out);
 }
 
 /* RFC 9000 13.2.1: a 1-RTT packet carrying only an ACK of the received packet,
@@ -101,7 +101,7 @@ int srvloop_emit_ack_only(const wired_srvloop_conn* c, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(c->s, &sin, out);
+  return srvloop_send_onertt_rec(c->l, c->s, &sin, out);
 }
 
 /* Post-confirmation outbound: a decoded GET yields a 200 (+ACK), else a bare
@@ -158,5 +158,5 @@ int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(conn->s, &sin, out);
+  return srvloop_send_onertt_rec(conn->l, conn->s, &sin, out);
 }

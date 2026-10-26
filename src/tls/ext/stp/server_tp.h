@@ -29,6 +29,14 @@
 #ifndef STP_DEFAULT_IDLE_TIMEOUT_MS
 #define STP_DEFAULT_IDLE_TIMEOUT_MS 30000
 #endif
+/** Built-in max_ack_delay, milliseconds (RFC 9000 18.2, 0x0b). 18.2: it
+ * SHOULD include the receiver's timer-firing delay: srvloop's delayed-ACK
+ * window (WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 25) is only checked on srvrun's
+ * poll tick (SRVRUN_PTO_MS, 25), so an ACK can leave up to 50ms after the
+ * packet it answers. Pinned against both by server_tp_test.c. */
+#ifndef STP_DEFAULT_MAX_ACK_DELAY_MS
+#define STP_DEFAULT_MAX_ACK_DELAY_MS 50
+#endif
 /** Built-in initial_max_stream_data_bidi_local / _uni default (RFC 9000
  * 18.2, 0x05/0x07). This is a PROMISE to buffer that many bytes past
  * delivery, and both directions land in srvloop's fixed reassembly windows

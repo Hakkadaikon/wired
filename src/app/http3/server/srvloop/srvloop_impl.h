@@ -10,6 +10,7 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/http3/server/srvloop/srvloop_sent.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/num.h"
 #include "common/bytes/varint/varint.h"
@@ -63,6 +64,9 @@ void srvloop_note_app_rx(
 u64  srvloop_hs_largest_pn(const wired_srvloop* l);
 void srvloop_note_hs_rx(wired_srvloop* l, const srvloop_opened* o);
 int  srvloop_stream_slot_find(const wired_srvloop* l, u64 stream_id);
+/* RFC 9000 4.6: 1 if id is a client stream at or past l->peer_stream_limit
+ * for its type (bidi or uni); a 0 limit leaves the type unchecked. */
+int  srvloop_id_past_limit(const wired_srvloop* l, u64 id);
 int  srvloop_pending_priority_find(const wired_srvloop* l, u64 stream_id);
 void srvloop_pending_priority_consume(wired_srvloop* l, usz i);
 void srvloop_closed_shift64(wired_srvloop_closed* w, u64 k);
@@ -89,7 +93,9 @@ void srvloop_note_ack_owed(
     ackpolicy*     policy,
     wired_span     pl,
     u64            pn,
-    u64            now_ms);
+    u64            now_ms,
+    int            urgent);
+int  srvloop_app_ack_urgent(const wired_srvloop* l);
 void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload);
 void srvloop_step_note_ack_owed(
     wired_srvloop* l, wired_span payload, int level);

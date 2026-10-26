@@ -92,7 +92,7 @@ int srvrun_seal_path_payload(
   pln = srvrun_path_pad(pl, pln, dcid.n, pad);
   sin = (wired_srvloop_send_in){
       dcid, c->l.tx_pn++, -1, wired_span_of(pl, pln), 0, 0, 0, 0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 /* srvrun_seal_path_payload of n frames of type, padded to 1200 bytes. */
@@ -129,7 +129,7 @@ int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
       0,
       0,
       0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
+  return srvloop_send_onertt_rec(&c->l, &c->s, &sin, out);
 }
 
 void srvrun_send_max_data(const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {

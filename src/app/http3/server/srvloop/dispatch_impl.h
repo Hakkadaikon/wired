@@ -101,6 +101,7 @@ void srvloop_uni_stream_type_note_qpack(
 void srvloop_uni_type_mark(wired_srvloop* l, const stream_frame* sf);
 int  srvloop_qenc_takes(const wired_srvloop* l, const stream_frame* sf);
 void srvloop_gather_qpack_enc(wired_srvloop* l, const stream_frame* sf);
+void srvloop_gather_qpack_dec(wired_srvloop* l, const stream_frame* sf);
 int  srvloop_client_uni_stream_of(u64 type, wired_span frame, stream_frame* sf);
 int  srvloop_wt_uni_frame_relevant(
     const wired_srvloop* l, const stream_frame* sf);

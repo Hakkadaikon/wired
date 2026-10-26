@@ -1,5 +1,6 @@
 #include "app/http3/core/h3/priupdate.h"
 
+#include "app/http3/core/sfield/sfield.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
 
@@ -65,42 +66,50 @@ usz h3_priupdate_get(wired_span buf, h3_priupdate* f) {
   return body + (usz)len;
 }
 
-/* 1 when the member at v[i] is a `u=` pair with a value byte to read. */
-static int sfv_is_u(wired_span v, usz i) {
-  return i + 2 < v.n && v.p[i] == 'u' && v.p[i + 1] == '=';
+/* 1 iff the member key k is the one-byte key c. */
+static int prio_key(wired_span k, u8 c) { return k.n == 1 && k.p[0] == c; }
+
+/* RFC 9218 4.1: an Integer 0..7. */
+static int prio_urgency_ok(const sfield_item* v) {
+  return v->kind == SFIELD_INTEGER && !v->neg && v->num <= H3_URGENCY_MAX;
 }
 
-/* Apply the member starting at v[i]; unknown keys change nothing. */
-static void sfv_apply(wired_span v, usz i, h3_priority* p) {
-  if (sfv_is_u(v, i)) {
-    h3_priority_set_urgency(p, v.p[i + 2]);
+static u8 prio_urgency(const sfield_item* v) {
+  return prio_urgency_ok(v) ? (u8)v->num : H3_URGENCY_DEFAULT;
+}
+
+/* RFC 9218 4.2: a Boolean. */
+static u8 prio_incremental(const sfield_item* v) {
+  return (u8)(v->kind == SFIELD_BOOLEAN && v->num);
+}
+
+/* RFC 9218 4: a value of the wrong type or out of range is ignored, so the
+ * parameter keeps its default (a later duplicate key replaces an earlier
+ * one, RFC 8941 4.2.2, so an ignored last one leaves the default). */
+static void prio_member(h3_priority* p, wired_span k, const sfield_item* v) {
+  if (prio_key(k, 'u')) {
+    p->urgency = prio_urgency(v);
   }
-  if (v.p[i] == 'i') {
-    h3_priority_set_incremental(p, v, i);
+  if (prio_key(k, 'i')) {
+    p->incremental = prio_incremental(v);
   }
 }
 
-/* Skip to the byte after the next comma. */
-static usz sfv_skip(wired_span v, usz i) {
-  while (i < v.n && v.p[i] != ',') {
-    i++;
-  }
-  return i + 1;
-}
-
-/* Handle one position: spaces advance by one, a member is applied whole. */
-static usz sfv_step(wired_span v, usz i, h3_priority* p) {
-  if (v.p[i] == ' ') {
-    return i + 1;
-  }
-  sfv_apply(v, i, p);
-  return sfv_skip(v, i);
-}
-
+/* RFC 9218 4 / 7: parse v as an RFC 8941 Dictionary; one that fails to
+ * parse leaves the defaults (9218-009). */
 void h3_priority_sfv(wired_span v, h3_priority* p) {
-  usz i = 0;
+  sfield_iter it;
+  sfield_item item;
+  wired_span  k;
+  int         rc;
+  h3_priority t;
+  h3_priority_init(&t);
+  sfield_iter_init(&it, v);
+  while ((rc = sfield_dict_next(&it, &k, &item)) == 1) {
+    prio_member(&t, k, &item);
+  }
   h3_priority_init(p);
-  while (i < v.n) {
-    i = sfv_step(v, i, p);
+  if (rc == 0) {
+    *p = t;
   }
 }

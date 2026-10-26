@@ -4,6 +4,7 @@
 #include "app/http3/server/srvloop/priority_ctrl_impl.h"
 
 static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v);
+static void ctrl_field_section_set(wired_srvloop* l, u64 id, u64 v);
 static int  ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v);
 static usz  ctrl_settings_walk(wired_srvloop* l, wired_span p);
 static void ctrl_on_settings(wired_srvloop* l, const h3_frame* f);
@@ -28,6 +29,14 @@ static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v) {
   }
 }
 
+/* RFC 9114 4.2.2: keep the peer's field-section limit (see
+ * peer_max_field_section for why 0 becomes 1). */
+static void ctrl_field_section_set(wired_srvloop* l, u64 id, u64 v) {
+  if (id == H3_SETTINGS_MAX_FIELD_SECTION_SIZE) {
+    l->peer_max_field_section = v ? v : 1;
+  }
+}
+
 /* RFC 9114 7.2.4.1 (HTTP/2-reserved ids), 7.2.4 (a repeated id), RFC 9297
  * 2.1.1 (SETTINGS_H3_DATAGRAM > 1): 0 if the pair is an H3_SETTINGS_ERROR. */
 static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
@@ -36,7 +45,8 @@ static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
 }
 
 /* Walk p's (Identifier, Value) pairs, checking each and latching the
- * WebTransport initial limits; returns the bytes the complete pairs took. */
+ * WebTransport initial limits and the field-section limit; returns the bytes
+ * the complete pairs took. */
 static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
   h3_settings_seen seen;
   usz              off = 0, done = 0;
@@ -45,6 +55,7 @@ static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
   while (varint_take(p, &off, &id) && varint_take(p, &off, &v)) {
     srvloop_ctrl_check(l, ctrl_setting_ok(&seen, id, v), H3_SETTINGS_ERROR);
     ctrl_wt_initial_set(l, id, v);
+    ctrl_field_section_set(l, id, v);
     done = off;
   }
   return done;

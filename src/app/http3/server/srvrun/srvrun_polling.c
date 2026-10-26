@@ -4,6 +4,7 @@ static int srvrun_wt_waiting(const srvrun_conn* c);
 static int srvrun_path_waiting(const srvrun_conn* c);
 static int srvrun_timer_waiting(const srvrun_conn* c);
 static int srvrun_latch_waiting(const srvrun_conn* c);
+static int srvrun_recovery_waiting(const srvrun_conn* c);
 static int srvrun_polling(const srvrun_cfg* cfg);
 static int srvrun_bounded_wait_forced(const srvrun_cfg* cfg);
 static int srvrun_poll_sockets(const srvrun_cfg* cfg);
@@ -50,10 +51,18 @@ static int srvrun_timer_waiting(const srvrun_conn* c) {
   return srvrun_wt_waiting(c) || c->closing || srvrun_path_waiting(c);
 }
 
-/* srvrun_rst_pending or srvrun_timer_waiting: the latch-style waits,
+/* srvrun_rst_pending, srvrun_timer_waiting or an armed loss timer (RFC
+ * 9002 6.1.2, srvrun_loss_timer_slot): the latch-style waits,
  * grouped so srvrun_slot_waiting's own || count stays flat. */
 static int srvrun_latch_waiting(const srvrun_conn* c) {
-  return srvrun_rst_pending(c) || srvrun_timer_waiting(c);
+  return srvrun_rst_pending(c) || srvrun_timer_waiting(c) ||
+         srvrun_recovery_waiting(c);
+}
+
+/* An armed loss timer (RFC 9002 6.1.2) or an ACK still owed (RFC 9000
+ * 13.2.1): both fire from the poll tick. */
+static int srvrun_recovery_waiting(const srvrun_conn* c) {
+  return c->loss_time_us || (c->up && c->l.app_ack_policy.pending);
 }
 
 int srvrun_slot_waiting(const srvrun_conn* c) {

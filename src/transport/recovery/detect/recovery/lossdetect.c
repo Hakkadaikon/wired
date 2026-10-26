@@ -1,18 +1,5 @@
 #include "transport/recovery/detect/recovery/lossdetect.h"
 
-#include "common/bytes/util/num.h"
-
 int loss_by_packet(u64 largest_acked, u64 pn) {
   return largest_acked >= pn + LOSS_PACKET_THRESHOLD;
-}
-
-/* RFC 9002 6.1.2: 9/8 * max(srtt, latest_rtt). */
-static u64 time_threshold(u64 srtt, u64 latest_rtt) {
-  u64 rtt = u64_max(srtt, latest_rtt);
-  return rtt * LOSS_TIME_NUM / LOSS_TIME_DEN;
-}
-
-int loss_by_time(loss_when when, u64 srtt, u64 latest_rtt) {
-  u64 elapsed = (when.now > when.sent_time) ? when.now - when.sent_time : 0;
-  return elapsed >= time_threshold(srtt, latest_rtt);
 }
