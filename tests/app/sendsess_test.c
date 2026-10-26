@@ -584,7 +584,31 @@ static void test_sendsess_requeue_dropped_on_late_ack(void) {
   CHECK(wired_sendsess_take(&s, &sl) == 0); /* pn 0's slice is not resent */
 }
 
+/* RFC 9000 4.5: nothing is sent at or beyond the final size -- the last
+ * slice ends exactly at it with FIN, no further slice is offered, and a
+ * lost slice comes back at its own offset, still inside it. */
+static void test_sendsess_never_past_final_size(void) {
+  u8                bytes[25];
+  wired_sendsess    s;
+  wired_sendq_slice sl, lost;
+  usz               end = 0;
+  int               fin = 0;
+  wired_sendsess_arm(&s, bytes, 25, 10);
+  CHECK(wired_sendsess_take(&s, &lost) == 1);
+  while (wired_sendsess_take(&s, &sl)) {
+    CHECK(sl.offset + sl.len <= 25);
+    end = sl.offset + sl.len;
+    fin = sl.fin;
+  }
+  CHECK(end == 25 && fin == 1);
+  s.requeue[s.requeue_n++] = lost;
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(sl.offset == 0 && sl.len == 10);
+  CHECK(wired_sendsess_take(&s, &sl) == 0);
+}
+
 void test_sendsess(void) {
+  test_sendsess_never_past_final_size();
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
   test_sendsess_done_only_after_all_acked();

@@ -108,43 +108,57 @@ static void test_srvrun_force_retry_skips_known_slot(void) {
           &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 0);
 }
 
-/* Serve one tokenless client Initial of `version` through srvrun_serve with
- * force_retry on, and return the Retry the server sent to the client
- * socket (bytes into pkt, 0 if none arrived). */
-static usz sr_pin_retry_for(u32 version, u8* pkt, usz cap) {
-  static const u8  odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  static const u8  cscid[4] = {0xc1, 0xc2, 0xc3, 0xc4};
-  static const u8  crypto[] = {1, 2, 3, 4};
-  wired_srvboot_id id       = sr_pin_id();
-  srvrun_cfg       cfg      = sr_pin_cfg(&id, 1);
+/* Serve datagram dg through srvrun_serve over real loopback sockets
+ * (force_retry on) and drain what reached the client socket: the first
+ * datagram's bytes go into pkt and the return value counts them all. */
+static usz sr_pin_serve(wired_span dg, u8* pkt, usz cap, usz* first) {
+  wired_srvboot_id id  = sr_pin_id();
+  srvrun_cfg       cfg = sr_pin_cfg(&id, 1);
   conntable        table[WIRED_CONNTABLE_CAP];
   srvrun_state     st = {table, g_srvrun_state.conns};
   sockaddr         srv, cli, from;
-  u8               dg[1300];
-  wired_obuf       o = obuf_of(dg, sizeof dg);
-  initpkt_desc     d = {
-      wired_span_of(odcid, 8), wired_span_of(cscid, 4),
-      wired_span_of(crypto, 4), 0, 0};
-  i64 sfd = wired_udp_socket(), cfd = wired_udp_socket(), r = 0;
+  u8               tmp[1500];
+  usz              count = 0;
+  i64              sfd = wired_udp_socket(), cfd = wired_udp_socket(), r;
   wired_udp_addr(&srv, 47613, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&cli, 47614, (const u8[4]){127, 0, 0, 1});
   CHECK(wired_udp_bind(sfd, &srv) >= 0);
   CHECK(wired_udp_bind(cfd, &cli) >= 0);
-  CHECK(initpkt_build_ver(version, &d, &o));
   bytes_memset(st.conns, 0, sizeof g_srvrun_state.conns);
   cfg.fd = sfd;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   {
     srvrun_step_ctx ctx = {&cfg, &cli, &st, 0, 0};
-    srvrun_serve(&ctx, wired_mspan_of(dg, o.len));
+    srvrun_serve(&ctx, wired_mspan_of((u8*)dg.p, dg.n));
   }
-  if (poll_wait_readable(cfd, 100) > 0) {
-    r = wired_udp_recvfrom(cfd, wired_mspan_of(pkt, cap), &from);
+  *first = 0;
+  while (poll_wait_readable(cfd, 100) > 0) {
+    r = wired_udp_recvfrom(cfd, wired_mspan_of(count ? tmp : pkt, cap), &from);
+    *first = count ? *first : (usz)(r > 0 ? r : 0);
+    count++;
   }
   wired_udp_close(sfd);
   wired_udp_close(cfd);
   CHECK(st.conns[0].up == 0); /* stateless: no slot was claimed */
-  return r > 0 ? (usz)r : 0;
+  return count;
+}
+
+/* Serve one tokenless client Initial of `version` through srvrun_serve with
+ * force_retry on, and return the Retry the server sent to the client
+ * socket (bytes into pkt, 0 if none arrived). */
+static usz sr_pin_retry_for(u32 version, u8* pkt, usz cap) {
+  static const u8 odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  static const u8 cscid[4] = {0xc1, 0xc2, 0xc3, 0xc4};
+  static const u8 crypto[] = {1, 2, 3, 4};
+  u8              dg[1300];
+  usz             n;
+  wired_obuf      o = obuf_of(dg, sizeof dg);
+  initpkt_desc    d = {
+      wired_span_of(odcid, 8), wired_span_of(cscid, 4),
+      wired_span_of(crypto, 4), 0, 0};
+  CHECK(initpkt_build_ver(version, &d, &o));
+  CHECK(sr_pin_serve(wired_span_of(dg, o.len), pkt, cap, &n) == 1);
+  return n;
 }
 
 /* RFC 9369 4.1: a Retry answers in the original version -- the client
@@ -235,11 +249,71 @@ static void test_srvrun_retry_token_rotation(void) {
   CHECK(sr_pin_token_gen_ok(2) == 0);
 }
 
+/* RFC 9000 17.2.5.1: at most one Retry per received UDP datagram -- two
+ * tokenless Initials coalesced in one datagram draw a single Retry -- and
+ * its Source Connection ID is not the client's Destination Connection ID. */
+static void test_srvrun_force_retry_one_per_datagram(void) {
+  static const u8 odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  static const u8 cscid[4] = {0xc1, 0xc2, 0xc3, 0xc4};
+  static const u8 crypto[] = {1, 2, 3, 4};
+  u8              dg[2600], pkt[256];
+  usz             n, first;
+  wired_obuf      o = obuf_of(dg, sizeof dg);
+  initpkt_desc    d = {
+      wired_span_of(odcid, 8), wired_span_of(cscid, 4),
+      wired_span_of(crypto, 4), 0, 0};
+  CHECK(initpkt_build_ver(VERSION_1, &d, &o));
+  first = o.len;
+  d.pn  = 1;
+  o     = obuf_of(dg + first, sizeof dg - first);
+  CHECK(initpkt_build_ver(VERSION_1, &d, &o)); /* a second Initial behind */
+  CHECK(
+      sr_pin_serve(wired_span_of(dg, first + o.len), pkt, sizeof pkt, &n) == 1);
+  CHECK(n > 5 + 1 + 4 + 1 + 8);
+  CHECK(pkt[5] == 4 && pkt[10] == 8); /* DCID = client SCID, SCID 8 bytes */
+  CHECK(ct_diffn(pkt + 11, odcid, 8) != 0);
+}
+
+/* RFC 9000 17.2.5.1: the Retry SCID drawn equal to the client's DCID is
+ * changed before use. */
+static void test_srvrun_retry_scid_differs_from_dcid(void) {
+  u8 scid[8]  = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8 same[8]  = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8 other[8] = {9, 2, 3, 4, 5, 6, 7, 8};
+  srvrun_retry_scid_distinct(scid, wired_span_of(same, 8));
+  CHECK(ct_diffn(scid, same, 8) != 0);
+  bytes_memcpy(scid, same, 8);
+  srvrun_retry_scid_distinct(scid, wired_span_of(other, 8));
+  CHECK(ct_diffn(scid, same, 8) == 0); /* already distinct: kept */
+  srvrun_retry_scid_distinct(scid, wired_span_of(same, 4));
+  CHECK(ct_diffn(scid, same, 8) == 0); /* another length never collides */
+}
+
+/* RFC 9000 17.2.1: an unsupported-version datagram draws exactly one
+ * Version Negotiation packet (at most one per datagram, even with two long
+ * headers coalesced), first byte with 0x40 set. */
+static void test_srvrun_vneg_one_per_datagram(void) {
+  u8  dg[1200] = {0}, pkt[256];
+  usz n;
+  dg[0]   = 0xd3;
+  dg[4]   = 0xcf; /* alien version 0x000000cf */
+  dg[5]   = 4;
+  dg[10]  = 4;
+  dg[600] = 0xd3; /* a second alien long header coalesced behind */
+  dg[604] = 0xcf;
+  CHECK(sr_pin_serve(wired_span_of(dg, sizeof dg), pkt, sizeof pkt, &n) == 1);
+  CHECK(n > 5 && be_get_be32(pkt + 1) == 0);
+  CHECK((pkt[0] & 0xc0) == 0xc0);
+}
+
 void test_srvrun_pin(void) {
   test_srvrun_retry_token_rotation();
   test_srvrun_force_retry_applies_when_on();
   test_srvrun_force_retry_off_never_applies();
   test_srvrun_force_retry_skips_known_slot();
   test_srvrun_force_retry_uses_initial_version();
+  test_srvrun_force_retry_one_per_datagram();
+  test_srvrun_retry_scid_differs_from_dcid();
+  test_srvrun_vneg_one_per_datagram();
   test_srvrun_connect_slot_freed_after_close();
 }

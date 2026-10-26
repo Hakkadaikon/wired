@@ -334,11 +334,9 @@ the validated size minus 41 bytes of header and AEAD tag (`pmtu_mps`).
 
 The server tries a probe first at every send opportunity
 (`srvrun_pmtu_try_probe`), so steady traffic cannot starve it. A probe
-with no answer for 20 s counts as lost. Only the generic connection
-runner (`transport/conn/loop/connrunner/`) calls `pmtu_resume_search` to
-restart the search after 600 s. The server loop (`srvrun`), which the
-examples use, does not, so a server keeps its first result for the life of
-the connection.
+with no answer for 20 s counts as lost. Once the search is complete, the
+server restarts it after 600 s (`pmtu_resume_search`, RFC 8899 5.2), so a
+size that failed earlier is probed again.
 
 ### transport domains
 

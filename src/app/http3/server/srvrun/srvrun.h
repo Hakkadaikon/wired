@@ -440,6 +440,11 @@ typedef struct {
    * both, the one sent second waits for a later pass (a ring DATAGRAM that
    * does not fit is dropped, RFC 9221 5.4). */
   int datagram_first;
+  /** RFC 9000 17.4: 1 disables the latency spin bit on every connection
+   * (an administrator's global switch; each packet then carries 0). 0, the
+   * default, keeps it on except for the random 1 in 16 connections that
+   * opt out on their own. */
+  int spin_off;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must

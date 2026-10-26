@@ -675,8 +675,7 @@ typedef struct {
    * outside any slot, until the ACK/LOSS reconciliation step (a later
    * addition) consumes them. pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE means no
    * probe is outstanding -- at most one probe is ever outstanding at a time
-   * (RFC 8899 5.1.3 PROBED_SIZE is a single value), mirroring connrunner's
-   * own pmtu_probe_held/pmtu_probe_pn pair (pmtudrive.c). */
+   * (RFC 8899 5.1.3 PROBED_SIZE is a single value). */
   u64 pmtu_probe_pn;
   usz pmtu_probe_size;
   u64 pmtu_probe_sent_ms;
@@ -1162,6 +1161,9 @@ struct wired_srvrun_env {
   /* wired_srvrun_opt.datagram_first, held here for the same reason
    * (srvrun_send_pass). */
   int datagram_first;
+  /* wired_srvrun_opt.spin_off, applied to each accepted connection
+   * (srvrun_open_done). */
+  int spin_off;
 };
 
 #endif

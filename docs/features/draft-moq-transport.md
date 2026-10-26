@@ -401,6 +401,7 @@ Legend:
     `test_moqtrun_upfetch_upsub_skips_goaway`,
     `test_moqtrun_upfetch_owner_excluded` (case 4) and
     `test_moqtrun_upfetch_drain_failover` pin both sides.
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_upsub_skips_goaway`
 
 ## SS9 Relays (SS9.4/9.6/9.7 forwarding discipline)
 
@@ -939,6 +940,7 @@ Legend:
   - evidence: `moqtrun_filter_past` (End Group before the Largest Group) and
     `test_moqtrun_sub_range_past_invalid`; the draft-22 inverted filter keeps
     `test_moqtrun_sub_filter22_inverted`.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_range_past_invalid`
 
 ## SS14 Grease
 
@@ -1202,12 +1204,14 @@ Legend:
     `test_moqtrun_upfetch_fin_unanswered`: an upstream SUBSCRIBE / FETCH FINned
     before its response fails as a REQUEST_ERROR would (`moqtrun_up_rx`,
     `moqtrun_upf_rx`).
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_fin_unanswered_fails`
 - [x] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
   FETCH, the hub shall reset the data streams it holds open for it.
   - evidence: `test_moqtrun_fetch_cancelled_by_request_reset` asserts the FETCH
     data stream reset; `test_moqtrun_req_reset_resets_data_streams` asserts
     the subscription's open Subgroup stream is reset
     (`moqtrun_cancel_peer_subs`).
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_cancelled_by_request_reset`
 
 ## SS10 Control Messages: session-machine unwanted behavior (additional coverage)
 

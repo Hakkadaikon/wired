@@ -41,6 +41,9 @@ jobs:
       - name: golden-check (moqt_golden.h matches the testvectors JSON)
         run: nix develop -c just golden-check
 
+      - name: features-check (ledger test links, IDs and coverage counts)
+        run: nix develop -c just features-check
+
       - name: lint (clang-tidy, CERT C + bug finders)
         run: nix develop -c just lint
 
