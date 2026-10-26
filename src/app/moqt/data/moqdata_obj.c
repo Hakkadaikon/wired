@@ -164,5 +164,6 @@ int moqdata_obj_take(
   if (!moqdata_obj_take_props(buf, &at, seq->has_props, &props_len)) {
     return MOQDATA_INSUFFICIENT;
   }
+  out->props = wired_span_of(buf.p + at - props_len, (usz)props_len);
   return moqdata_obj_take_finish(buf, &at, props_len, seq, out, off);
 }

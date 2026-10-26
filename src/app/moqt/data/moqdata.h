@@ -130,6 +130,9 @@ typedef struct {
   u64 status;
   /** Object payload; view into the stream buffer. */
   wired_span payload;
+  /** Object Properties (11.2.1.2) after their Length; view into the
+   * stream buffer, empty when the header carries none. */
+  wired_span props;
 } moqdata_obj;
 
 /** Object Status: a normal Object. */

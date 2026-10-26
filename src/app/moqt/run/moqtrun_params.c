@@ -15,11 +15,15 @@ static u64               moqtrun_subscribe_refusal_tail(
     const wired_moqt_hub* hub, const moqctl_subscribe* m);
 
 /* Reserved namespaces first (2.4.2/2.4.3: never published under), then
- * authorization. */
+ * the Track Properties (moqtrun_tprops_refused: *code MOQTRUN_REQ_CLOSE
+ * for a session close), then authorization. */
 int moqtrun_publish_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code) {
   *code = MOQCTL_ERR_DOES_NOT_EXIST;
   if (moqtrun_ns_reserved(&m->name.ns)) {
+    return 1;
+  }
+  if (moqtrun_tprops_refused(m->track_properties, code)) {
     return 1;
   }
   return moqtrun_publish_auth_refused(hub, m, code);

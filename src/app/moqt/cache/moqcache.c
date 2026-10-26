@@ -12,6 +12,8 @@ void moqcache_init(moqcache* c, u8* arena, usz cap) {
   c->hint_off = 0;
   c->hint_tag = 0;
   c->hint_cur = moqctl_loc_of(0, 0);
+  c->now      = 0;
+  c->next_exp = ~(u64)0;
 }
 
 moqcache_rec moqcache_rec_at(const moqcache* c, usz off) {
@@ -100,7 +102,7 @@ usz moqcache_first_victim(const moqcache* c, u64 tag, u64 group) {
 /* Replaces a cached group by its tombstone, in place of its bytes (a
  * group holds at least one record, so the tombstone always fits). */
 void moqcache_entomb(moqcache* c, u64 tag, u64 group) {
-  moqcache_rec t = {tag, group, 0, MOQCACHE_DEAD};
+  moqcache_rec t = {tag, group, 0, MOQCACHE_DEAD, ~(u64)0};
   moqcache_drop(c, tag, group, 0);
   moqcache_write(c, t, 0, 0);
 }

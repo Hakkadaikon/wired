@@ -88,6 +88,7 @@ static void moqtrun_fetch_joining(
     return;
   }
   r.tag    = t->cache_tag;
+  r.props  = moqtrun_track_props(t);
   r.start  = moqctl_loc_of(group, 0);
   r.end    = moqtrun_after(s->jl);
   r.ok_end = s->jl;

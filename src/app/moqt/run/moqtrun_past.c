@@ -126,6 +126,13 @@ static int moqtrun_cacheable(
   return hub && t && status == MOQDATA_STATUS_NORMAL;
 }
 
+/* draft-18 12.3: the cached Object expires dur ms after it arrived (~0:
+ * no MAX_CACHE_DURATION). shortcut: "arrived" is the last tick's clock,
+ * not the Object's first byte -- never later, so it only expires early. */
+static u64 moqtrun_cache_exp(u64 now, u64 dur) {
+  return dur > ~(u64)0 - now ? ~(u64)0 : now + dur;
+}
+
 void moqtrun_cache_obj(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
@@ -134,7 +141,9 @@ void moqtrun_cache_obj(
   if (!moqtrun_cacheable(hub, t, o->status)) {
     return;
   }
-  moqcache_append(&hub->cache, t->cache_tag, group, o->object_id, o->payload);
+  moqcache_append_exp(
+      &hub->cache, t->cache_tag, group, o->object_id, o->payload,
+      moqtrun_cache_exp(hub->cache.now, t->max_cache_ms));
 }
 
 /* ----- Malformed Track (draft-22 12.1 #4/#5; same list in 18/19) ----- */

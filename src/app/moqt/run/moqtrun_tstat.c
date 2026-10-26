@@ -133,7 +133,9 @@ static void moqtrun_tstat_answer(
     moqtrun_send_request_error(p, code);
     return;
   }
-  moqtrun_queue_request_ok(p, t);
+  /* draft-18 10.14: "the same parameters and Track Properties it would
+   * have set in a SUBSCRIBE_OK". */
+  moqtrun_queue_request_ok_props(p, t, moqtrun_track_props(t));
 }
 
 /* TRACK_STATUS is the first and only message of a new request stream

@@ -78,6 +78,9 @@ typedef struct {
    * ms, 0 when absent: min()ed into each subscription's effective
    * timeout (wired_moqtrun_sub.subgroup_timeout). */
   u64 subgroup_timeout_ms;
+  /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
+   * absent: a cached Object is served at most this long after it came. */
+  u64 max_cache_ms;
   /** The PUBLISH's DEFAULT_PUBLISHER_PRIORITY Track Property (12.4), 128
    * when absent: the Publisher Priority of a header that omits it. */
   u8 default_pub_prio;
@@ -109,11 +112,11 @@ typedef struct {
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
-   * SUBSCRIBE_OK's) Track Properties, 0 when none or when they exceed
-   * WIRED_MOQTRUN_TRACK_PROPS_MAX. */
+   * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
+   * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */
   u8 props_len;
   /** The Track Properties forwarded in SUBSCRIBE_OK (INCLUDE_PROPERTIES,
-   * draft-22 9.20.21). */
+   * draft-22 9.20.21), TRACK_STATUS_OK, FETCH_OK and the hub's PUBLISH. */
   u8 props[WIRED_MOQTRUN_TRACK_PROPS_MAX];
 } wired_moqtrun_track;
 
@@ -565,6 +568,10 @@ typedef struct {
   /** Switches whose old subscription may still be waiting to end (a hint
    * moqtsw_step recounts; 0 skips its walk). */
   u32 sw_live;
+  /** 1 keeps the MOQT_IMPLEMENTATION Setup Option off the hub's SETUP
+   * (draft-19 10.3.1.5, 13.8: privacy-conscious deployments); 0 (the
+   * wired_moqt_init default) sends the name and major version. */
+  u8 no_implementation;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

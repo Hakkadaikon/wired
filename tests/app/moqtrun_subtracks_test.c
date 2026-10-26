@@ -266,6 +266,23 @@ static void test_subtracks_publish_match_excludes_self(void) {
   CHECK(got[0].track_alias == 1);
 }
 
+/* draft-18 9.6 / 10.14 (MQ18-220): the hub's own PUBLISH of a relayed
+ * track carries that track's Track Properties. */
+static void test_subtracks_publish_carries_props(void) {
+  u8             buf[256];
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[2];
+  wired_span     p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_subtracks_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
+  CHECK(mtst_props_eq(got[0].track_properties, p));
+}
+
 /* T-06: once a PUBLISH_SKIPPED has gone out for a (subscriber, track)
  * pair, no PUBLISH follows on a later sync for the SAME track
  * incarnation. */
@@ -392,6 +409,7 @@ static void mtall_subtracks(void) {
   test_subtracks_ok_once();
   test_subtracks_prefix_overlap();
   test_subtracks_publish_match_excludes_self();
+  test_subtracks_publish_carries_props();
   test_subtracks_skip_then_no_publish();
   test_subtracks_track_vanishes_resets_publish();
   test_subtracks_cancel_keeps_established();

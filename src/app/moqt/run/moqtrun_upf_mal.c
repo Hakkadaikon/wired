@@ -43,7 +43,9 @@ static int moqtrun_upf_malformed(
     const wired_moqtrun_fetch* f,
     const moqfetch_obj*        o,
     wired_span                 pre) {
-  return o->flags < 0x80 && moqtrun_upf_mal_at(hub, f, o, pre);
+  return o->flags < 0x80 &&
+         (moqtrun_upf_mal_at(hub, f, o, pre) ||
+          (moqtrun_tprops_check(o->props) & MOQTRUN_TP_MAND)); /* 2.5.1 */
 }
 
 /* f reset MALFORMED_TRACK, opened first if need be so its requester

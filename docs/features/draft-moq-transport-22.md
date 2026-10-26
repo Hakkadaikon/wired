@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 198/259 tested, 35 indirect, 26 untested.**
+**Coverage: 203/259 tested, 35 indirect, 21 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -249,20 +249,19 @@ Legend:
 
 ## SS3.7 Mandatory to Understand Track Properties
 
-- [ ] MQ22-222 (SS3.7) If a PUBLISH carries a Mandatory Track Property
+- [x] MQ22-222 (SS3.7) If a PUBLISH carries a Mandatory Track Property
   (type 0x4000-0x7FFF), which this hub never understands, then the hub
   shall answer REQUEST_ERROR UNSUPPORTED_EXTENSION and not forward the
   track.
-  - gap: `moqtrun_upf_mandatory` is applied to upstream FETCH_OK only; the
-    PUBLISH path accepts and relays such a track.
-- [ ] MQ22-223 (SS3.7) If an upstream SUBSCRIBE_OK carries a Mandatory Track
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
+- [x] MQ22-223 (SS3.7) If an upstream SUBSCRIBE_OK carries a Mandatory Track
   Property, then the hub shall cancel that subscription and answer each
   pending downstream SUBSCRIBE with REQUEST_ERROR UNSUPPORTED_EXTENSION.
-  - gap: `moqtrun_up_claim` does not check the Track Properties.
-- [ ] MQ22-224 (SS3.7) If an Object carries a Mandatory Track Property as an
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
+- [x] MQ22-224 (SS3.7) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as malformed
   (SS12.1).
-  - gap: Object Properties are relayed without inspection.
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
 
 ## SS6.2 Session Establishment
 
@@ -768,13 +767,13 @@ Legend:
 
 ## SS9.20.12-9.20.17 Range Filter, FILL_PARAMETERS and LARGEST_OBJECT rules
 
-- [ ] MQ22-241 (SS9.20.12) If a PRIORITY_FILTER decodes a value above 255,
+- [x] MQ22-241 (SS9.20.12) If a PRIORITY_FILTER decodes a value above 255,
   then the hub shall reject the request with REQUEST_ERROR INVALID_FILTER.
-  - gap: `moqctl_rangefilter_take` checks only delta overflow.
-- [ ] MQ22-242 (SS9.20.13, SS9.20.14) If an OBJECT_PROPERTY_FILTER or
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
+- [x] MQ22-242 (SS9.20.13, SS9.20.14) If an OBJECT_PROPERTY_FILTER or
   TRACK_PROPERTY_FILTER names an odd Property Type, then the hub shall
   reject the request with REQUEST_ERROR INVALID_FILTER.
-  - gap: the Property Type is decoded but its parity is never checked.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
 - [~] MQ22-243 (SS9.20.15) If FILL_PARAMETERS carries a parameter outside
   its table (FILL_TIMEOUT, SUBSCRIBER_PRIORITY, LOCATION_FILTER,
   GROUP_ORDER and the four object Range Filters), then the hub shall close
@@ -2490,9 +2489,12 @@ from the coverage denominator above:
   provisional properties — TIMESTAMP 0x10, VIDEO_FRAME_MARKING 0x09,
   AUDIO_CONFIG 0x0F, ENCRYPTED_LIST 0x0A, PADDING 0x32) as Track/Object
   Properties — the Properties wire slot is decoded generically and relayed
-  unchanged; no specific Property type is interpreted except
-  DEFAULT_PUBLISHER_PRIORITY (the stream urgency of a header omitting its
-  Publisher Priority).
+  unchanged; the hub reads DEFAULT_PUBLISHER_PRIORITY (the stream urgency
+  of a header omitting its Publisher Priority), SUBGROUP_DELIVERY_TIMEOUT
+  and MAX_CACHE_DURATION, inside Immutable Properties too, closes the
+  session on an out-of-range DEFAULT_PUBLISHER_GROUP_ORDER / DYNAMIC_GROUPS
+  and refuses Mandatory Track Properties (MQ22-222 to MQ22-224); the
+  group-order and dynamic-groups scheduling semantics are not applied.
 - (SS15) Security Considerations (subscription amplification,
   communication security, media security, resource exhaustion, timeouts,
   relay security, implementation fingerprinting, mTLS/RFC 9525 certificate

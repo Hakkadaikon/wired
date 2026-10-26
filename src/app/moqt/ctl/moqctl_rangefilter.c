@@ -14,6 +14,7 @@ static int moqctl_rngf_take_range(
 static int moqctl_rngf_more(wired_span v, usz at, const moqctl_rangefilter* f);
 static int moqctl_rngf_take_ranges(
     wired_span v, usz* at, moqctl_rangefilter* f);
+static int moqctl_rngf_prio_over(u64 ptype, const moqctl_rangefilter* f);
 
 static int moqctl_rngf_take_prop(
     u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
@@ -21,7 +22,13 @@ static int moqctl_rngf_take_prop(
     return MOQCTL_OK;
   }
   out->has_prop = 1;
-  return moqvi_take(v, at, &out->prop_type) ? MOQCTL_OK : MOQCTL_PARAMS_KVFMT;
+  if (!moqvi_take(v, at, &out->prop_type)) {
+    return MOQCTL_PARAMS_KVFMT;
+  }
+  /* d19 10.2.13-10.2.14: the Property Type "MUST be even ... otherwise
+   * ... INVALID_FILTER". */
+  out->invalid = (int)(out->prop_type & 1);
+  return MOQCTL_OK;
 }
 
 /* SetID is one byte (SS10.2.10), then the 0x28/0x29 Property Type. */
@@ -103,6 +110,16 @@ static int moqctl_rngf_take_ranges(
   return MOQCTL_OK;
 }
 
+/* d19 10.2.12: "If a decoded value exceeds 255, the endpoint MUST reject
+ * this with ... INVALID_FILTER" (an open-ended Range's end is 0). */
+static int moqctl_rngf_prio_over(u64 ptype, const moqctl_rangefilter* f) {
+  u64 bits = 0;
+  for (usz i = 0; i < f->n; i++) {
+    bits |= f->r[i].start | f->r[i].end;
+  }
+  return ptype == MOQCTL_PARAM_PRIORITY_FILTER && bits > 255;
+}
+
 int moqctl_rangefilter_take(
     u64 ptype, wired_span value, moqctl_rangefilter* out) {
   usz at = 0;
@@ -116,5 +133,7 @@ int moqctl_rangefilter_take(
   if (r != MOQCTL_OK) {
     return r;
   }
-  return moqctl_rngf_take_ranges(value, &at, out);
+  r = moqctl_rngf_take_ranges(value, &at, out);
+  out->invalid |= moqctl_rngf_prio_over(ptype, out);
+  return r;
 }

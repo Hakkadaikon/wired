@@ -119,6 +119,26 @@ static void test_moqtrun_tstat_ok_largest(void) {
   CHECK(moqtrun_test_count_kind(4) == 0);
 }
 
+/* draft-18 10.14: TRACK_STATUS_OK carries "the same parameters and Track
+ * Properties it would have set in a SUBSCRIBE_OK" (10.5: "populated in
+ * TRACK_STATUS_OK"). */
+static void test_moqtrun_tstat_ok_props(void) {
+  u8                buf[256];
+  usz               off = 0;
+  wired_span        body;
+  moqctl_request_ok ok;
+  moqctl_ftn        f = mtst_ftn("chat", "room1", "alice");
+  wired_span        p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  mtup_tstat(SESS_B, MTRQ_S1, &f);
+  CHECK(mtup_reply(MTRQ_S1, &body) == MOQCTL_T_REQUEST_OK);
+  CHECK(moqctl_request_ok_take(mtst_ver(SESS_B), body, &off, &ok) == MOQCTL_OK);
+  CHECK(mtst_props_eq(ok.track_properties, p));
+}
+
 /* Nothing published yet: REQUEST_OK without LARGEST_OBJECT. */
 static void test_moqtrun_tstat_ok_empty(void) {
   moqctl_ftn f = mtrq_setup();
@@ -847,6 +867,7 @@ static void mtall_upd(void) {
   test_moqtrun_upd_ns_prefix_overlap_refused();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_tstat_ok_largest();
+  test_moqtrun_tstat_ok_props();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
   test_moqtrun_tstat_authorized();
