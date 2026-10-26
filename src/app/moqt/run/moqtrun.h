@@ -461,6 +461,9 @@ typedef struct {
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */
   moqtrel_buf rel_pool[WIRED_MOQTREL_POOL];
+  /** SUBGROUP_DELIVERY_TIMEOUT timers armed at an upstream Subgroup FIN
+   * (moqtrun_sgt.c). */
+  wired_moqtrun_sgt sgt[WIRED_MOQTRUN_MAX_SGT];
   /** Reliable-relay subscribers given up on after WIRED_MOQTREL_STALL_MS
    * without an accepted send (their stream is reset and their cursor
    * stops pinning the ring). Diagnostic only. */

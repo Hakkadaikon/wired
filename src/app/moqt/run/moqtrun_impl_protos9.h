@@ -3,7 +3,13 @@
 
 #include "app/moqt/run/moqtrun_impl_protos8.h"
 
-usz moqtrun_upd_msg(
+void moqtrun_sgt_arm(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* track,
+    const wired_moqtrun_relay* relay,
+    int                        fin);
+void moqtrun_sgt_tick(wired_moqt_hub* hub, u64 now_ms);
+usz  moqtrun_upd_msg(
     wired_moqtrun_peer* pp, const moqctl_params* params, u8* msg, usz cap);
 wired_moqtrun_req* moqtrun_pub_req(
     wired_moqt_hub* hub, const wired_moqtrun_track* t);

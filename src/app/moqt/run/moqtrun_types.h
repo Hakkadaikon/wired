@@ -151,6 +151,12 @@ typedef struct {
    * stream_priority. */
   int (*stream_sched)(
       wired_wt_session* s, u64 stream_id, const wired_wt_sched* k);
+  /** wired_server_wt_stream_inflight-shaped: 1 while stream_id's bytes
+   * are not all acknowledged ("all data committed", draft-19 8), 0 once
+   * they are. Kept last so older positional initializers stay valid; a
+   * table built without it (0) never resets a stream for
+   * SUBGROUP_DELIVERY_TIMEOUT. */
+  int (*stream_inflight)(wired_wt_session* s, u64 stream_id);
 } wired_moqt_io;
 
 /** RFC 9218 urgency of a subscriber stream from its subscription's
@@ -530,6 +536,23 @@ typedef struct {
  * (server CPU-capped) converts to a fresh stream well under a second,
  * discarding the ~0.5s of backlog the send slot's staging can hold. */
 #define WIRED_MOQTRUN_RESET_AFTER_BUSY 8
+
+/** Fixed capacity: SUBGROUP_DELIVERY_TIMEOUT timers running hub-wide,
+ * one per downstream Subgroup stream whose upstream already FINed.
+ * shortcut: a FIN finding the table full arms none (the stream is then
+ * never reset for it); raise if many subgroups linger unacknowledged. */
+#define WIRED_MOQTRUN_MAX_SGT 32
+
+/** One SUBGROUP_DELIVERY_TIMEOUT timer (draft-19 8, draft-22 5.2): the
+ * downstream stream sid on wt is reset at deadline_ms unless all its
+ * data was committed (acknowledged) by then. */
+typedef struct {
+  wired_wt_session* wt;
+  u64               sid;
+  u64               deadline_ms;
+  /** 1 while the timer runs. */
+  u8 in_use;
+} wired_moqtrun_sgt;
 
 /** Fixed capacity: publisher streams relayed concurrently per track. The
  * audio track holds ONE for its whole call; chat holds one per in-flight

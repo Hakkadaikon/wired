@@ -658,8 +658,10 @@ Legend:
   upstream FIN, and drop such datagrams.
   - evidence: the hub applies the effective subgroup timeout as an age bound
     like OBJECT_DELIVERY_TIMEOUT
-    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); no FIN-armed timer is
-    tested.
+    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); the upstream FIN
+    arms a timer that resets a still-unacknowledged downstream stream
+    (`test_moqtrun_sub_subgroup_timeout_after_fin`). Datagrams have only the
+    age bound.
 
 ## SS10.2.17 FORWARD Parameter
 

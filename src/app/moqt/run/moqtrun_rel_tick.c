@@ -104,6 +104,7 @@ static void moqtrun_relay_forward(
     moqdata_objseq       seq0,
     int                  fin,
     u64                  born_ms) {
+  moqtrun_sgt_arm(hub, track, relay, fin);
   if (relay->rel_idx >= 0) {
     moqtrun_rel_continue(hub, track, relay, whole, seq0, fin, born_ms);
     return;

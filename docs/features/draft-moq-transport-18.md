@@ -1634,13 +1634,15 @@ Legend:
     timeout value is unaffected by this difference since it does not read
     either as an Object Property — see `draft18-vs-19-diff.md` §11.
 
-- [ ] MQ18-221 (§8) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub shall
+- [x] MQ18-221 (§8) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub shall
   start a timer when a Subgroup's FIN arrives from upstream and reset the
   relay stream if it has not reached "all data committed" when the timer
   expires.
-  - gap: the hub applies the min'ed subgroup timeout as a delivery-age bound
-    (`test_moqtrun_sub_subgroup_timeout_gates_delivery`); there is no
-    post-FIN timer.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_subgroup_timeout_after_fin`
+  - note: armed at a relayed stream's upstream FIN (a one-shot stream sent
+    whole on its first delivery arms none); "committed" is the transport's
+    all-acknowledged signal (`wired_moqt_io.stream_inflight`).
 
 ## Hub relay: caching and FETCH
 

@@ -944,6 +944,7 @@
 #include "app/moqt/run/moqtrun_rx.c"
 #include "app/moqt/run/moqtrun_sched.c"
 #include "app/moqt/run/moqtrun_set.c"
+#include "app/moqt/run/moqtrun_sgt.c"
 #include "app/moqt/run/moqtrun_ssts.c"
 #include "app/moqt/run/moqtrun_startobj.c"
 #include "app/moqt/run/moqtrun_stream.c"

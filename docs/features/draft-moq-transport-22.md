@@ -739,14 +739,15 @@ Legend:
     `moqtrun_rel_take` — this fix is version-independent and not specific
     to draft-22's wording.
 
-- [ ] MQ22-245 (SS5.2) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub
+- [x] MQ22-245 (SS5.2) With a non-zero SUBGROUP_DELIVERY_TIMEOUT, the hub
   shall start a timer when the upstream Subgroup stream FINs and reset the
   downstream stream if it has not reached "all data committed" when the
   timer expires.
-  - gap: the hub folds the effective subgroup timeout into its
-    object-age gate (`test_moqtrun_sub_subgroup_timeout_gates_delivery`,
-    `test_moqtrun_sub_subgroup_timeout_min`); there is no post-FIN timer
-    or committed-state check.
+  - test: `tests/app/moqtrun_sub_test.c` —
+    `test_moqtrun_sub_subgroup_timeout_after_fin`
+  - note: armed at a relayed stream's upstream FIN (a one-shot stream sent
+    whole on its first delivery arms none); "committed" is the transport's
+    all-acknowledged signal (`wired_moqt_io.stream_inflight`).
 
 ## SS9.20.18 FORWARD Parameter
 
