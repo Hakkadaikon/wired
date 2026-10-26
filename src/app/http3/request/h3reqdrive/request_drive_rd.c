@@ -1,6 +1,10 @@
 #include "app/http3/request/h3reqdrive/request_drive_impl.h"
 
-static int line_bytes_ok(const rline* L);
+static int line_name_ok(const rline* L);
+static int line_chars_ok(const rline* L);
+static int rd_ows(u8 c);
+static usz rd_ows_lead(const u8* p, usz n);
+static usz rd_ows_trail(const u8* p, usz n);
 static int line_smuggling_ok(const rline* L);
 static usz rd_copy(rd_cursor* cur, const u8* p, usz n);
 static usz rd_pos(rd_cursor* cur, const u8* p, usz n);
@@ -11,12 +15,20 @@ static int  rd_name_eq(wired_span a, const char* s);
 static int  rd_keeps(const rline* L, const wired_h3reqdrive_req* r);
 static void rd_record(rd_cursor* cur, const rline* L, wired_h3reqdrive_req* r);
 
-/* RFC 9114 10.3, RFC 9110 5.5: neither half of a recovered field line may
- * carry a CR, LF or NUL octet -- such a line is malformed regardless of how
- * it was encoded. */
-static int line_bytes_ok(const rline* L) {
-  return h3_header_bytes_ok(L->name, L->name_len) &&
-         h3_header_bytes_ok(L->value, L->value_len);
+/* RFC 9114 4.2 / 10.3, RFC 9110 5.1: a regular field name is a lowercase
+ * token; a pseudo-header name is left to the section's pseudo-header check
+ * (an unknown one is malformed there). */
+static int line_name_ok(const rline* L) {
+  return h3_ph_classify(L->name, L->name_len) != H3_PH_NONE ||
+         (h3_header_token_ok(L->name, L->name_len) &&
+          h3_header_name_ok(L->name, L->name_len));
+}
+
+/* RFC 9114 10.3, RFC 9110 5.5: the name is valid and the value holds only
+ * field-content octets (so never CR, LF or NUL) -- a line failing either is
+ * malformed regardless of how it was encoded. */
+static int line_chars_ok(const rline* L) {
+  return line_name_ok(L) && h3_header_value_ok(L->value, L->value_len);
 }
 
 /* RFC 9114 4.1 / 4.2: request-smuggling defenses that key off the field
@@ -35,7 +47,35 @@ static int line_smuggling_ok(const rline* L) {
 
 /* Decode failure or any malformed-line check on the recovered line. */
 int h3reqdrive_line_ok(const rline* L) {
-  return line_bytes_ok(L) && line_smuggling_ok(L);
+  return line_chars_ok(L) && line_smuggling_ok(L);
+}
+
+/* RFC 9110 5.6.3: OWS is SP or HTAB. */
+static int rd_ows(u8 c) { return c == ' ' || c == '\t'; }
+
+static usz rd_ows_lead(const u8* p, usz n) {
+  usz i = 0;
+  while (i < n && rd_ows(p[i])) {
+    i++;
+  }
+  return i;
+}
+
+static usz rd_ows_trail(const u8* p, usz n) {
+  usz i = 0;
+  while (i < n && rd_ows(p[n - 1 - i])) {
+    i++;
+  }
+  return i;
+}
+
+/* RFC 9110 5.5: a field value excludes its leading and trailing whitespace
+ * before it is evaluated. */
+void h3reqdrive_line_trim(rline* L) {
+  usz lead = rd_ows_lead(L->value, L->value_len);
+  L->value += lead;
+  L->value_len -= lead;
+  L->value_len -= rd_ows_trail(L->value, L->value_len);
 }
 
 /* Copy n octets to cur's unused scratch tail. Returns their position, or
@@ -129,7 +169,11 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
    * decode -- one too large for its scratch or name cap (RFC 9204 7.4) --
    * only rejects the request, like a well-encoded line HTTP/3 rejects. */
   r->qpack_failed = L.ref_bad;
-  if (!c || !h3reqdrive_line_ok(&L)) {
+  if (!c) {
+    return 0;
+  }
+  h3reqdrive_line_trim(&L);
+  if (!h3reqdrive_line_ok(&L)) {
     return 0;
   }
   h3reqdrive_classify_line(&L, r);

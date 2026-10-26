@@ -88,6 +88,7 @@ usz h3reqdrive_decode_line(
 int  h3reqdrive_line_name_is(const rline* L, const char* s);
 void h3reqdrive_classify_line(const rline* L, wired_h3reqdrive_req* r);
 int  h3reqdrive_line_ok(const rline* L);
+void h3reqdrive_line_trim(rline* L);
 usz  h3reqdrive_rd_dedicated_idx(wired_span name);
 int  h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r);
 int  h3reqdrive_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r);

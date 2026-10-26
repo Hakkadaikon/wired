@@ -1423,6 +1423,7 @@
 #include "app/h3conn_establish_test.c"
 #include "app/h3conn_roundtrip_test.c"
 #include "app/h3reqdrive_test.c"
+#include "app/h3reqdrive_check_test.c"
 #include "app/h3cancel_test.c"
 #include "transport/rtxstore_test.c"
 #include "transport/rebuild_test.c"
@@ -2055,6 +2056,7 @@ int main(void) {
   test_h3conn_establish();
   test_h3conn_roundtrip();
   test_h3reqdrive();
+  test_h3reqcheck();
   test_h3cancel();
   test_rtxstore();
   test_rebuild();
