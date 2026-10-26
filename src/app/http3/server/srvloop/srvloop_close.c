@@ -75,11 +75,11 @@ static void srvloop_note_ecn(wired_srvloop* l, const ack_frame* f) {
 /* RFC 9002 5.1: latch f as the step's RTT-sample frame when it is the
  * first ACK this step or acknowledges a larger packet than the latched. */
 static void srvloop_note_largest(wired_srvloop* l, const ack_frame* f) {
-  if (l->ack_n != 0 && f->ranges[0].hi <= l->ack_largest) {
+  if (l->ack_n != 0 && f->ranges[0].hi <= l->ackst.largest) {
     return;
   }
-  l->ack_largest   = f->ranges[0].hi;
-  l->ack_delay_raw = f->ack_delay;
+  l->ackst.largest   = f->ranges[0].hi;
+  l->ackst.delay_raw = f->ack_delay;
 }
 
 /* Decode one ACK frame and record its ranges (RFC 9000 19.3). */

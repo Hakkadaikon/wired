@@ -21,11 +21,11 @@ int srvloop_app_pkt_is_long(u8 byte0) { return (byte0 & 0x80u) != 0; }
 /* RFC 9000 A.3: recover the truncated PN at pn/pn_len against the largest
  * seen so far and record it as the number to ACK / the new baseline. */
 static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len) {
-  u64 prev       = srvloop_app_largest_pn(l);
-  l->app_rx_pn   = pnum_decode(pn, pn_len, prev);
-  l->app_rx_gap  = l->app_rx_seen && l->app_rx_pn > prev + 1;
-  l->app_rx_hi   = u64_max(prev, l->app_rx_pn);
-  l->app_rx_seen = 1;
+  u64 prev        = srvloop_app_largest_pn(l);
+  l->app_rx_pn    = pnum_decode(pn, pn_len, prev);
+  l->ackst.rx_gap = l->app_rx_seen && l->app_rx_pn > prev + 1;
+  l->app_rx_hi    = u64_max(prev, l->app_rx_pn);
+  l->app_rx_seen  = 1;
 }
 
 /* RFC 9000 13.2.1 / A.3: a short-header 1-RTT packet's truncated pn sits

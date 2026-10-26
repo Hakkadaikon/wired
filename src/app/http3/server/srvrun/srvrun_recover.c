@@ -47,7 +47,7 @@ u64 srvrun_peer_max_ack_delay_us(const srvrun_conn* c) {
  * ack_delay_exponent (default 3), in us. */
 static u64 srvrun_rec_ack_delay_us(const srvrun_conn* c) {
   u64 p1 = c->s.sdrv.peer_ack_delay_exponent_p1;
-  return c->l.ack_delay_raw << (p1 ? p1 - 1 : 3);
+  return c->l.ackst.delay_raw << (p1 ? p1 - 1 : 3);
 }
 
 static int srvrun_rec_in(const sentmeta_pkt* p, u64 lo, u64 hi) {
@@ -97,7 +97,7 @@ static u64 srvrun_rec_largest(const wired_srvloop* l) {
 void srvrun_rec_on_acks(srvrun_conn* c, u64 now_ms) {
   srvrun_rec_acked a = {srvrun_rec_largest(&c->l), 0, 0, 0};
   for (usz i = 0; i < c->l.ack_n; i++) {
-    srvrun_rec_ack_range(&c->l.sent, c->l.ack_lo[i], c->l.ack_hi[i], &a);
+    srvrun_rec_ack_range(&c->l.ackst.sent, c->l.ack_lo[i], c->l.ack_hi[i], &a);
   }
   if (srvrun_rec_samples(c, &a)) {
     srvrun_rtt_update(c, now_ms - a.largest_sent, srvrun_rec_ack_delay_us(c));
@@ -125,9 +125,9 @@ static void srvrun_rec_arm(srvrun_conn* c, u64 at_us) {
 }
 
 static void srvrun_rec_check(srvrun_conn* c, usz i, u64 now_us, u64 delay_us) {
-  const sentmeta_pkt* p = &c->l.sent.pkts[i];
+  const sentmeta_pkt* p = &c->l.ackst.sent.pkts[i];
   if (srvrun_rec_lost(p, c->largest_acked, now_us, delay_us)) {
-    sentmeta_reclaim(&c->l.sent, i);
+    sentmeta_reclaim(&c->l.ackst.sent, i);
     return;
   }
   srvrun_rec_arm(c, p->time_sent * 1000 + delay_us);
@@ -142,7 +142,7 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
   u64 delay_us    = srvrun_loss_delay_us(c);
   c->loss_time_us = 0;
   for (usz i = 0; i < SENTMETA_CAP; i++) {
-    if (srvrun_rec_eligible(&c->l.sent.pkts[i], c->largest_acked)) {
+    if (srvrun_rec_eligible(&c->l.ackst.sent.pkts[i], c->largest_acked)) {
       srvrun_rec_check(c, i, now_ms * 1000, delay_us);
     }
   }
@@ -151,7 +151,7 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
 /* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices plus
  * every other in-flight packet the record counts. */
 usz srvrun_bytes_in_flight(const srvrun_conn* c) {
-  return c->acct_inflight + c->l.sent.total_in_flight;
+  return c->acct_inflight + c->l.ackst.sent.total_in_flight;
 }
 
 /* 1 while the loss timer is armed and has come due at now_ms. */

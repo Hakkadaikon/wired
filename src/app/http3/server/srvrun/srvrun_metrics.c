@@ -37,9 +37,10 @@ static void srvrun_metrics_fill(
   stats_cc  cc;
   stats_rtt_get(&c->rtt, &rtt);
   stats_cc_get(&c->cc, &cc);
-  m->smoothed_rtt    = rtt.smoothed_rtt;
-  m->cwnd            = cc.cwnd;
-  m->bytes_in_flight = srvrun_inflight_bytes_all(c) + c->l.sent.total_in_flight;
+  m->smoothed_rtt = rtt.smoothed_rtt;
+  m->cwnd         = cc.cwnd;
+  m->bytes_in_flight =
+      srvrun_inflight_bytes_all(c) + c->l.ackst.sent.total_in_flight;
   m->wtsend_ok       = c->stat_wtsend_ok;
   m->wtsend_busy     = c->stat_wtsend_busy;
   m->wtsend_flow     = c->stat_wtsend_flow;
@@ -85,10 +86,10 @@ void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * defer window either way (it spans exactly one step). Down connections
  * flush nothing. */
 static int srvrun_deferred_ack_due(srvrun_conn* c) {
-  if (!c->up || !c->l.ack_defer) {
+  if (!c->up || !c->l.ackst.ack_defer) {
     return 0;
   }
-  c->l.ack_defer = 0;
+  c->l.ackst.ack_defer = 0;
   return ackpolicy_should_ack(
       &c->l.app_ack_policy, c->l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
 }
@@ -97,8 +98,8 @@ static int srvrun_deferred_ack_due(srvrun_conn* c) {
  * ack-eliciting packet waiting out the delay window) goes out from the
  * poll tick once due, through the same bare-ACK flush. */
 void srvrun_ack_tick_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  c->l.ack_defer = 1;
+  srvrun_conn* c       = &ctx->st->conns[slot];
+  c->l.ackst.ack_defer = 1;
   srvrun_flush_deferred_ack(ctx, c);
 }
 

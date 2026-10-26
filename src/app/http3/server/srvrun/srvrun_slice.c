@@ -13,7 +13,7 @@
  * carrying packet went out. Returns the ACK bytes written at pl[0]. */
 usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
   usz al;
-  if (!c->l.ack_defer) {
+  if (!c->l.ackst.ack_defer) {
     return 0;
   }
   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
@@ -63,7 +63,7 @@ static int srvrun_slice_logged(
   if (!wired_sendsess_sent(sess, sl, pn, now_ms)) {
     return 0;
   }
-  sentmeta_uncount(&c->l.sent, pn);
+  sentmeta_uncount(&c->l.ackst.sent, pn);
   return 1;
 }
 

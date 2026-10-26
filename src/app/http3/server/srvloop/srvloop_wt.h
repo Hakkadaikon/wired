@@ -7,23 +7,18 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "app/http3/server/srvloop/body_window.h"
+#include "app/http3/server/srvloop/srvloop_ackst.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/ncid.h"
-#include "transport/recovery/detect/recovery/ackpolicy.h"
-#include "transport/recovery/rtx/sentmeta/record.h"
 
 /** RFC 9000 13.2.1: how long this server holds back an ACK for a single
  * ack-eliciting 1-RTT packet. The advertised max_ack_delay
  * (STP_DEFAULT_MAX_ACK_DELAY_MS) adds the poll tick that checks it. */
 #define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
-
-/** Sent packets carrying an ACK frame remembered for RFC 9000 13.2.3's
- * range pruning (wired_srvloop.ackd_pn1); the oldest is overwritten. */
-#define WIRED_SRVLOOP_ACKD 8
 
 /** NEW_CONNECTION_ID frames kept per step (wired_srvloop.ncid_rx); more are
  * dropped -- the peer may issue at most active_connection_id_limit. */
@@ -576,12 +571,6 @@ typedef struct {
   /** Largest 1-RTT packet number received, valid with app_rx_seen: the
    * baseline for recovering a truncated pn (RFC 9000 A.3). */
   u64 app_rx_hi;
-  /** RFC 9000 13.2.1: 1 when the packet just numbered (app_rx_pn) skipped
-   * at least one packet number past the largest received before it. */
-  u8 app_rx_gap;
-  /** RFC 9000 13.2.1: 1 while the datagram being stepped was ECN-CE marked
-   * (wired_srvloop_ecn_note). */
-  u8  rx_ce;
   int app_rx_seen; /**< 1 once a 1-RTT packet has been received (app_rx_pn
                     * valid) */
   /** RFC 9000 9.3: largest application packet number (0-RTT or 1-RTT) that
@@ -611,13 +600,6 @@ typedef struct {
    * (transport/conn/lifecycle/conn/pnspace.h). */
   pnspaces_recv ack_recv;
   ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
-  ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
-  /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for
-   * the current step: the driving loop (srvrun.c) piggybacks the pending
-   * App-space ACK onto the response slice it is about to send, or flushes
-   * it itself at step end if no slice went out. A caller that never sets
-   * it (0, every plain srvloop user) keeps the original behavior. */
-  u8 ack_defer;
   /** Monotonic ms this step is being driven at -- the time source
    * ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
@@ -627,28 +609,12 @@ typedef struct {
    * path still fires). Living on wired_srvloop rather than
    * wired_srvloop_conn keeps wired_srvloop_step's existing signature and
    * every current struct-literal call site unchanged. */
-  u64 now_ms;
-  /** RFC 9002 A.1: every 1-RTT packet sealed through
-   * srvloop_send_onertt_rec (pn, now_ms, ack-eliciting, size), until the
-   * peer acknowledges it or it is declared lost. total_in_flight counts the
-   * in-flight ones (RFC 9002 2) except STREAM-slice packets, which the
-   * driving loop's send sessions count by slice bytes instead
-   * (sentmeta_uncount). */
-  sentmeta sent;
-  /** RFC 9000 13.2.3: 1 + the pn of a recent packet that carried an ACK
-   * frame (0 = free), with that frame's Largest Acknowledged in
-   * ackd_largest; ackd_next is the slot the next one overwrites. */
-  u64 ackd_pn1[WIRED_SRVLOOP_ACKD];
-  u64 ackd_largest[WIRED_SRVLOOP_ACKD];
-  u8  ackd_next;
-  /** RFC 9000 13.2.3: 1 + the largest Largest Acknowledged of our ACK
-   * frames the peer has acknowledged (0 = none) -- packets below it no
-   * longer need reporting. */
-  u64 ack_floor1;
-  int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
-                     * emitted */
-  int ticket_sent;  /**< 1 once the post-confirmation session ticket
-                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
+  u64           now_ms;
+  srvloop_ackst ackst; /**< loss-recovery and ACK state */
+  int hs_done_sent;    /**< 1 once the confirmation (HANDSHAKE_DONE) has been
+                        * emitted */
+  int ticket_sent;     /**< 1 once the post-confirmation session ticket
+                        * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,
@@ -755,12 +721,6 @@ typedef struct {
   u64 ack_lo[32]; /**< range lows, parallel with ack_hi */
   u64 ack_hi[32]; /**< range highs, ack_hi[0] from the frame's largest */
   usz ack_n;      /**< ranges recorded this step */
-  /** RFC 9002 5.1/5.3: the Largest Acknowledged and raw ACK Delay field of
-   * the step's ACK frame with the largest Largest Acknowledged -- the one
-   * frame an RTT sample may come from (its largest is also the highest
-   * ack_hi). Valid while ack_n > 0. */
-  u64 ack_largest;
-  u64 ack_delay_raw; /**< its ACK Delay, in units of 2^ack_delay_exponent us */
   /** RFC 9000 19.3.2: the ECN counts of the type-0x03 ACK with the largest
    * acknowledged packet number opened this step (13.4.2.1: a reordered
    * older ACK must not overwrite them), reset with ack_n. ecn_ack_seen == 0

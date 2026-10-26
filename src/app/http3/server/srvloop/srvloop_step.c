@@ -82,8 +82,8 @@ void srvloop_step_note_ack_owed(
   }
   if (level == LEVEL_HANDSHAKE) {
     srvloop_note_ack_owed(
-        &l->ack_recv, PNS_HANDSHAKE, &l->hs_ack_policy, payload, l->hs_rx_pn,
-        l->now_ms, 0);
+        &l->ack_recv, PNS_HANDSHAKE, &l->ackst.hs_ack_policy, payload,
+        l->hs_rx_pn, l->now_ms, 0);
   }
 }
 
@@ -97,7 +97,7 @@ static int srvloop_app_reordered(const wired_srvloop* l) {
 /* RFC 9000 13.2.1: acknowledge the 1-RTT packet just numbered without delay
  * -- it arrived out of order or after a gap, or its datagram was ECN-CE. */
 int srvloop_app_ack_urgent(const wired_srvloop* l) {
-  return l->app_rx_gap || l->rx_ce || srvloop_app_reordered(l);
+  return l->ackst.rx_gap || l->ackst.rx_ce || srvloop_app_reordered(l);
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A

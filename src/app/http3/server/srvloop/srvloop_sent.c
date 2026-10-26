@@ -37,21 +37,21 @@ static void srvloop_ackd_note(wired_srvloop* l, u64 pn, u64 ack_largest1) {
   if (!ack_largest1) {
     return;
   }
-  l->ackd_pn1[l->ackd_next]     = pn + 1;
-  l->ackd_largest[l->ackd_next] = ack_largest1 - 1;
-  l->ackd_next                  = (u8)((l->ackd_next + 1) % WIRED_SRVLOOP_ACKD);
+  l->ackst.ackd_pn1[l->ackst.ackd_next]     = pn + 1;
+  l->ackst.ackd_largest[l->ackst.ackd_next] = ack_largest1 - 1;
+  l->ackst.ackd_next = (u8)((l->ackst.ackd_next + 1) % WIRED_SRVLOOP_ACKD);
 }
 
 /* 1 if remembered slot i's packet lies in [lo, hi]. */
 static int srvloop_ackd_hit(const wired_srvloop* l, usz i, u64 lo, u64 hi) {
-  return l->ackd_pn1[i] > lo && l->ackd_pn1[i] - 1 <= hi;
+  return l->ackst.ackd_pn1[i] > lo && l->ackst.ackd_pn1[i] - 1 <= hi;
 }
 
 void srvloop_ackd_on_acked(wired_srvloop* l, u64 lo, u64 hi) {
   for (usz i = 0; i < WIRED_SRVLOOP_ACKD; i++) {
     if (srvloop_ackd_hit(l, i, lo, hi)) {
-      l->ack_floor1  = u64_max(l->ack_floor1, l->ackd_largest[i] + 1);
-      l->ackd_pn1[i] = 0;
+      l->ackst.floor1 = u64_max(l->ackst.floor1, l->ackst.ackd_largest[i] + 1);
+      l->ackst.ackd_pn1[i] = 0;
     }
   }
 }
@@ -87,9 +87,9 @@ int srvloop_send_onertt_rec(
   }
   k = srvloop_sent_classify(in, out->len);
   sentmeta_on_sent(
-      &l->sent, &(sentmeta_out){
-                    in->pn, l->now_ms, k.eliciting,
-                    pkt_in_flight(k.eliciting, k.padded), out->len});
+      &l->ackst.sent, &(sentmeta_out){
+                          in->pn, l->now_ms, k.eliciting,
+                          pkt_in_flight(k.eliciting, k.padded), out->len});
   srvloop_ackd_note(l, in->pn, k.ack_largest1);
   return 1;
 }

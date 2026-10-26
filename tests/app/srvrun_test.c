@@ -94,7 +94,7 @@ static void sr_make_confirmed_conn(
   /* RFC 9002 A.1: the handshake's own 1-RTT confirmation packet sits in the
    * sent-packet record; every test here starts with nothing in flight, as
    * if it had been acknowledged. */
-  sentmeta_init(&c->l.sent);
+  sentmeta_init(&c->l.ackst.sent);
   c->up = 1;
   cc_init(&c->cc);
   rtt_init(&c->rtt);
@@ -122,7 +122,7 @@ static void sr_make_confirmed_conn(
  * counted by the send session, not the record). */
 static void sr_rec_sent(srvrun_conn* c, u64 pn, u64 sent_ms) {
   sentmeta_out o = {pn, sent_ms, 1, 0, SRVRUN_CHUNK};
-  CHECK(sentmeta_on_sent(&c->l.sent, &o) == 1);
+  CHECK(sentmeta_on_sent(&c->l.ackst.sent, &o) == 1);
 }
 
 /* The packet srvrun_send_app_close puts on the wire: the RFC 9000 10.2.3
@@ -6461,7 +6461,7 @@ static void test_srvrun_slice_piggybacks_deferred_ack(void) {
   /* a received 1-RTT packet to acknowledge, already past the delay window */
   pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2;
-  c->l.ack_defer              = 1;
+  c->l.ackst.ack_defer        = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -6487,7 +6487,7 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   sr_make_confirmed_conn(c, &f, &ob);
   pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2; /* due right now, no delay needed */
-  c->l.ack_defer              = 1;
+  c->l.ackst.ack_defer        = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -6499,7 +6499,7 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   }
   CHECK(srvrun_test_send_count() == 1);
   CHECK(c->l.app_ack_policy.pending == 0);
-  CHECK(c->l.ack_defer == 0);
+  CHECK(c->l.ackst.ack_defer == 0);
 }
 
 /* BBR rides the same token bucket: the refill rate is pacing_gain% x
@@ -15590,7 +15590,7 @@ static void test_srvrun_data_datagrams_fit_validated_probe(void) {
     wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, srvrun_mps(c));
     pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
     c->l.app_ack_policy.pending = 2;
-    c->l.ack_defer              = 1;
+    c->l.ackst.ack_defer        = 1;
     sr_pmtu_bound_pump(c);
     CHECK(c->resp[0].sess.q.cur > 0); /* data did go out */
     CHECK(g_srvrun_tx_max_len <= bound);

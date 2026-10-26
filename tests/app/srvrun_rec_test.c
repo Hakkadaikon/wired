@@ -39,14 +39,14 @@ static void srvrec_preacked(srvrun_conn* c, u64 pn) {
 
 /* One step whose ACK frame acknowledges [lo, hi], fed at now_ms. */
 static void srvrec_ack(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  srvrun_cfg      cfg = srvrec_cfg();
-  srvrun_state    st  = {0, c};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
-  c->l.ack_lo[0]      = lo;
-  c->l.ack_hi[0]      = hi;
-  c->l.ack_n          = 1;
-  c->l.ack_largest    = hi;
-  c->l.ack_delay_raw  = 0;
+  srvrun_cfg      cfg  = srvrec_cfg();
+  srvrun_state    st   = {0, c};
+  srvrun_step_ctx ctx  = {&cfg, 0, &st, now_ms, 0};
+  c->l.ack_lo[0]       = lo;
+  c->l.ack_hi[0]       = hi;
+  c->l.ack_n           = 1;
+  c->l.ackst.largest   = hi;
+  c->l.ackst.delay_raw = 0;
   srvrun_feed_acks(&ctx, &cfg, c);
 }
 
@@ -78,9 +78,9 @@ static void srvrec_ack_n(
     c->l.ack_lo[i] = r[i][0];
     c->l.ack_hi[i] = r[i][1];
   }
-  c->l.ack_n         = n;
-  c->l.ack_largest   = r[0][1];
-  c->l.ack_delay_raw = delay_raw;
+  c->l.ack_n           = n;
+  c->l.ackst.largest   = r[0][1];
+  c->l.ackst.delay_raw = delay_raw;
   srvrun_feed_acks(&ctx, &cfg, c);
 }
 
@@ -171,8 +171,8 @@ static void test_srvrun_rec_control_packet_counts_inflight(void) {
   srvrec_conn(&c, &f, body, sizeof body, &ob);
   CHECK(srvrun_bytes_in_flight(&c) == 0);
   pn = srvrec_ctrl(&c, 10);
-  CHECK(c.l.sent.total_in_flight > 0);
-  CHECK(srvrun_bytes_in_flight(&c) == c.l.sent.total_in_flight);
+  CHECK(c.l.ackst.sent.total_in_flight > 0);
+  CHECK(srvrun_bytes_in_flight(&c) == c.l.ackst.sent.total_in_flight);
   {
     wired_srvloop_send_in sin = {
         wired_span_of(c.l.cli_scid, c.l.cli_scid_len),
@@ -183,21 +183,22 @@ static void test_srvrun_rec_control_packet_counts_inflight(void) {
         0,
         0,
         0};
-    usz before = c.l.sent.total_in_flight;
+    usz before = c.l.ackst.sent.total_in_flight;
     CHECK(srvloop_send_onertt_rec(&c.l, &c.s, &sin, &sob) == 1);
-    CHECK(c.l.sent.total_in_flight == before); /* ACK-only: not in flight */
+    CHECK(
+        c.l.ackst.sent.total_in_flight == before); /* ACK-only: not in flight */
   }
   {
     srvrun_cfg      cfg    = srvrec_cfg();
     srvrun_state    st     = {0, &c};
     srvrun_step_ctx ctx    = {&cfg, 0, &st, 10, 0};
-    usz             before = c.l.sent.total_in_flight;
+    usz             before = c.l.ackst.sent.total_in_flight;
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
-    CHECK(c.l.sent.total_in_flight == before); /* the session counts it */
+    CHECK(c.l.ackst.sent.total_in_flight == before); /* the session counts it */
   }
   srvrec_ack(&c, pn, pn, 20);
-  CHECK(c.l.sent.total_in_flight == 0);
+  CHECK(c.l.ackst.sent.total_in_flight == 0);
 }
 
 /* RFC 9002 5.1: one RTT sample per ACK frame, from its largest
@@ -243,7 +244,7 @@ static void test_srvrun_rec_no_sample_when_largest_old(void) {
   }
   CHECK(c.latest_rtt_ms == 10);
   CHECK(c.rtt.smoothed_rtt == 10000);
-  CHECK(c.l.sent.total_in_flight == 0); /* pn0 still left flight */
+  CHECK(c.l.ackst.sent.total_in_flight == 0); /* pn0 still left flight */
 }
 
 /* RFC 9002 5.1 / A.7 / 9002-007: newly acking only non-ack-eliciting
@@ -275,7 +276,7 @@ static void test_srvrun_rec_no_sample_ack_only(void) {
   }
   srvrec_ack(&c, pn, pn, 30);
   CHECK(c.rtt.have_sample == 0);
-  CHECK(sentmeta_find(&c.l.sent, pn) == SENTMETA_CAP); /* still dropped */
+  CHECK(sentmeta_find(&c.l.ackst.sent, pn) == SENTMETA_CAP); /* still dropped */
 }
 
 /* Two samples on a confirmed connection: 50ms, then latest_ms with the
@@ -481,7 +482,7 @@ static void test_srvrun_rec_ack_prunes_acked_ranges(void) {
     usz       n    = ack_encode(pa, sizeof pa, &peer);
     srvloop_collect_acks(&f.l, wired_span_of(pa, n));
   }
-  CHECK(f.l.ack_floor1 == 26);
+  CHECK(f.l.ackst.floor1 == 26);
   srvrec_ping(&f, 27, 0);
   srvrec_peek_ack(&f.l, &a);
   CHECK(a.n_ranges == 1);

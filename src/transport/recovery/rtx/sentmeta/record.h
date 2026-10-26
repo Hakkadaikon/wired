@@ -9,30 +9,32 @@
 
 #define SENTMETA_CAP 256
 
+/** One tracked sent packet (RFC 9002 A.1.1). */
 typedef struct {
-  u64 pn;
-  u64 time_sent;
-  usz sent_bytes;
-  int ack_eliciting;
-  int in_flight;
-  int used;
+  u64 pn;            /**< packet number */
+  u64 time_sent;     /**< send time, in the caller's clock unit */
+  usz sent_bytes;    /**< packet size */
+  int ack_eliciting; /**< 1 if it carried an ack-eliciting frame */
+  int in_flight;     /**< 1 if its bytes count in total_in_flight */
+  int used;          /**< 1 while the slot holds a packet */
 } sentmeta_pkt;
 
+/** The sent-packet ring and its running bytes-in-flight total. */
 typedef struct {
-  sentmeta_pkt pkts[SENTMETA_CAP];
-  usz          count;
-  usz          total_in_flight;
+  sentmeta_pkt pkts[SENTMETA_CAP]; /**< the ring; used marks a live slot */
+  usz          count;              /**< live slots */
+  usz          total_in_flight;    /**< bytes of in-flight live slots */
 } sentmeta;
 
 void sentmeta_init(sentmeta* m);
 
 /** A packet to record as sent. */
 typedef struct {
-  u64 pn;
-  u64 time_sent;
-  int ack_eliciting;
-  int in_flight;
-  usz sent_bytes;
+  u64 pn;            /**< packet number */
+  u64 time_sent;     /**< send time */
+  int ack_eliciting; /**< 1 if it carries an ack-eliciting frame */
+  int in_flight;     /**< 1 if its bytes count in total_in_flight */
+  usz sent_bytes;    /**< packet size */
 } sentmeta_out;
 
 /* RFC 9002 A.1 OnPacketSent: record one sent packet. Adds sent_bytes to

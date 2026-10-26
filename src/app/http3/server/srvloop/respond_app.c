@@ -83,7 +83,7 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
           largest, raw, u64_min(ranges.len, 2 * ACK_MAX_RANGES - 1), &f)) {
     return 0;
   }
-  app_ack_prune(&f, l->ack_floor1);
+  app_ack_prune(&f, l->ackst.floor1);
   f.ack_delay = ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
       ACK_DELAY_EXPONENT_DEFAULT);
@@ -114,7 +114,7 @@ usz srvloop_app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
  * Suppressed while ack_defer is set: the driving loop (srvrun.c) piggybacks
  * or flushes the pending ACK itself this step. */
 usz srvloop_app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap) {
-  if (l->ack_defer) {
+  if (l->ackst.ack_defer) {
     return 0;
   }
   if (!app_ack_due(l)) {

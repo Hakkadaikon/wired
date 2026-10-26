@@ -9,17 +9,17 @@ void srvloop_pending_priority_reset(wired_srvloop* l) {
 
 /* Packet-number spaces and handshake progress. */
 void srvloop_init_pn(wired_srvloop* l) {
-  l->tx_pn      = 0;
-  l->hs_tx_pn   = 0;
-  l->app_rx_pn  = 0;
-  l->app_rx_hi  = 0;
-  l->app_rx_gap = 0;
-  l->ackd_next  = 0;
-  l->ack_floor1 = 0;
+  l->tx_pn           = 0;
+  l->hs_tx_pn        = 0;
+  l->app_rx_pn       = 0;
+  l->app_rx_hi       = 0;
+  l->ackst.rx_gap    = 0;
+  l->ackst.ackd_next = 0;
+  l->ackst.floor1    = 0;
   for (usz i = 0; i < WIRED_SRVLOOP_ACKD; i++) {
-    l->ackd_pn1[i] = 0;
+    l->ackst.ackd_pn1[i] = 0;
   }
-  l->rx_ce          = 0;
+  l->ackst.rx_ce    = 0;
   l->app_rx_seen    = 0;
   l->np_hi          = 0;
   l->np_seen        = 0;
@@ -57,8 +57,8 @@ void srvloop_init_req(wired_srvloop* l) {
 /* ACK/ECN feedback and the received-codepoint counters. */
 void srvloop_init_ecn(wired_srvloop* l) {
   l->ack_n           = 0;
-  l->ack_largest     = 0;
-  l->ack_delay_raw   = 0;
+  l->ackst.largest   = 0;
+  l->ackst.delay_raw = 0;
   l->ecn_ack_seen    = 0;
   l->ecn_ack_largest = 0;
   l->ecn_ack_ect0    = 0;
