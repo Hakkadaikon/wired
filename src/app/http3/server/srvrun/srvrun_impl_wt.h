@@ -119,7 +119,9 @@ void srvrun_grant_wt_uni(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c);
 u64  srvrun_wt_slot_credit_ceiling(u64 delivered_len);
 int  srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised);
-int  srvrun_seal_max_stream_data(
+void srvrun_wt_notify_data_blocked(
+    srvrun_conn* c, int sidx, wired_wt_session* s, usz len);
+int srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out);
 void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value);

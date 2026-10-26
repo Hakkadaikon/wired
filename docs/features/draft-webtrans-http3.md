@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 63/81 tested, 13 indirect, 5 untested.**
+**Coverage: 64/81 tested, 13 indirect, 4 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -570,12 +570,13 @@ Legend:
     lowers it, so received data can never exceed the limit and the
     receiver-side close cannot trigger; QUIC stream and connection credit
     bound received data instead.
-- [ ] WTH3-062 (§5.4, §5.6.5) When the server wishes to send data but is
+- [x] WTH3-062 (§5.4, §5.6.5) When the server wishes to send data but is
   unable to due to session-level flow control, the server should send a
   WT_DATA_BLOCKED capsule.
-  - gap: the codec exists (`test_wtcapsule_data_blocked_roundtrip`) but no
-    send site emits it; a data-limited open stages nothing on the CONNECT
-    stream (`test_srvrun_wt_open_uni_blocked_by_data_limit_sends_nothing`).
+  - test: `tests/app/srvrun_wtflow_test.c` —
+    `test_srvrun_wt_data_limited_send_emits_data_blocked_once`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked`
 - [ ] WTH3-063 (§5.4) If the server receives a WT_MAX_STREAM_DATA or a
   WT_STREAM_DATA_BLOCKED capsule, then the server shall treat it as a
   session error.

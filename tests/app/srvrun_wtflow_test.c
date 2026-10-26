@@ -8,7 +8,12 @@
  * - exporter: equals RFC 8446 7.5 TLS-Exporter("EXPORTER-WebTransport",
  *   hand-serialized Exporter Context) over the live connection's secret;
  *   two sessions differ; SHA-384 suite uses SHA-384; no secret / no
- *   connection -> 0; label over 255 -> 0. */
+ *   connection -> 0; label over 255 -> 0.
+ * - WT_DATA_BLOCKED: an open or a stream send refused by the session data
+ *   limit puts WT_DATA_BLOCKED(limit) on the CONNECT stream; a second
+ *   refusal at the same limit sends nothing more; a raised limit that
+ *   blocks again sends one naming the new limit; a send within the limit
+ *   sends none. */
 
 /* RFC 8446 7.5 composed by hand over suite's hash: Derive-Secret(secret,
  * label, "") then HKDF-Expand-Label(.., "exporter", Hash(ctx), out.n). */
@@ -100,7 +105,56 @@ static void test_srvrun_wt_exporter_refusals(void) {
   CHECK(wired_server_wt_exporter(&c->wt, e, e, o) == 0);
 }
 
+/* Every WT_DATA_BLOCKED value DATA-framed on w's CONNECT-stream bytes, in
+ * order, into lim[]; returns how many (other capsules are skipped). */
+static usz wtf_data_blocked_sent(const srvrun_wtsend* w, u64* lim, usz cap) {
+  wired_span all = wired_span_of(w->roundbuf, w->sess.q.len);
+  usz        off = 0, k = 0;
+  while (off < all.n && k < cap) {
+    h3_frame fr;
+    usz      n  = h3_frame_get(wired_span_of(all.p + off, all.n - off), &fr);
+    usz      at = 0;
+    CHECK(n != 0);
+    if (n == 0) {
+      return k;
+    }
+    k += wtcapsule_decode_data_blocked(
+             wired_span_of(fr.payload, fr.payload_len), &at, &lim[k]) == 1;
+    off += n;
+  }
+  return k;
+}
+
+static void test_srvrun_wt_data_limited_send_emits_data_blocked_once(void) {
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x54, 0x04, 'h', 'i'};
+  wired_span      p     = wired_span_of(pay, sizeof pay);
+  srvrun_conn*    c;
+  u64             lim[4];
+  i64             id;
+  ob                 = (wired_obuf){obuf, sizeof obuf, 0};
+  c                  = sr_wtsend_fixture(&f, &ob);
+  c->wt.flow_control = 1;
+  CHECK(wired_wt_session_set_max_streams(&c->wt, 0, 10) == 1);
+  CHECK(wired_wt_session_set_max_data(&c->wt, 6) == 1);
+  id = wired_server_wt_open_uni_stream(&c->wt, p); /* 4 of 6 bytes */
+  CHECK(id == 15);
+  CHECK(srvrun_wtsend_find(c, 4) == 0); /* within the limit: nothing */
+  CHECK(wired_server_wt_stream_send(&c->wt, (u64)id, p, 0) <= 0);
+  CHECK(wired_server_wt_open_uni_stream(&c->wt, p) == -1);
+  CHECK(srvrun_wtsend_find(c, 4) != 0);
+  CHECK(wtf_data_blocked_sent(srvrun_wtsend_find(c, 4), lim, 4) == 1);
+  CHECK(lim[0] == 6);
+  CHECK(wired_wt_session_set_max_data(&c->wt, 7) == 1);
+  CHECK(wired_server_wt_stream_send(&c->wt, (u64)id, p, 0) <= 0);
+  CHECK(wtf_data_blocked_sent(srvrun_wtsend_find(c, 4), lim, 4) == 2);
+  CHECK(lim[1] == 7);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_wt_data_limited_send_emits_data_blocked_once();
   test_srvrun_wt_exporter_matches_tls_exporter();
   test_srvrun_wt_exporter_sha384_suite();
   test_srvrun_wt_exporter_refusals();
