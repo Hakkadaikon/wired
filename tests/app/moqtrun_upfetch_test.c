@@ -331,15 +331,15 @@ static int mupf_log_is(wired_wt_session* s, u64 sid, const char* want) {
 /* ===================== GOAWAY'd peers are not asked ===================== */
 
 /* draft-22 9.2: a peer that sent the hub a GOAWAY is sent no new request
- * -- not even the hub's upstream SUBSCRIBE. The hub's own GOAWAY does not
- * stop it from asking (the sender only SHOULD avoid it). */
+ * -- not even the hub's upstream SUBSCRIBE; draft-19 10.4: nor is one the
+ * hub sent GOAWAY (the sender SHOULD avoid new requests). */
 static void mupf_upsub_goaway(int recv) {
   mups_init();
   wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
   a->sess.goaway_recv   = recv;
   a->sess.goaway_sent   = !recv;
   mups_sub(SESS_B, MRDV_S1);
-  CHECK(mups_n_up(SESS_A) == (usz)!recv);
+  CHECK(mups_n_up(SESS_A) == 0);
 }
 
 static void test_moqtrun_upfetch_upsub_skips_goaway(void) {
@@ -574,6 +574,7 @@ static void mupf_owner_excluded(int how) {
   mupf_init();
   mupf_cache_group(3, 1);
   a->sess.goaway_recv = how == 0;
+  a->sess.goaway_sent = how == 4; /* draft-19 10.4 */
   a->closing          = how == 1;
   if (how == 3) {
     wired_moqt_on_session_draining(&mtst_hub, SESS_A);
@@ -583,7 +584,7 @@ static void mupf_owner_excluded(int how) {
 }
 
 static void test_moqtrun_upfetch_owner_excluded(void) {
-  for (int how = 0; how < 4; how++) {
+  for (int how = 0; how < 5; how++) {
     int fails = wired_test_fails;
     mupf_owner_excluded(how);
     if (wired_test_fails != fails) {

@@ -397,10 +397,14 @@ Legend:
   - evidence: `wired_moqt_goaway` sends GOAWAY to every session at once
     (`test_moqtrun_goaway_once_per_session`) and cancels upstream subscriptions
     only at the timeout; no test orders the two.
-- [ ] MOQT-235 (SS10.4) After sending GOAWAY, the hub should avoid initiating
+- [x] MOQT-235 (SS10.4) After sending GOAWAY, the hub should avoid initiating
   new requests unless migration requires them.
-  - gap: the hub still sends upstream SUBSCRIBE/FETCH to a peer it sent GOAWAY
-    (`test_moqtrun_upfetch_upsub_skips_goaway` pins that).
+  - evidence: `moqtrun_up_ga_skip` / `moqtrun_upf_owner_free` leave a peer the
+    hub sent GOAWAY out of upstream SUBSCRIBE / FETCH, except to re-path a
+    subscription that lost its upstream (migration);
+    `test_moqtrun_upfetch_upsub_skips_goaway`,
+    `test_moqtrun_upfetch_owner_excluded` (case 4) and
+    `test_moqtrun_upfetch_drain_failover` pin both sides.
 
 ## SS9 Relays (SS9.4/9.6/9.7 forwarding discipline)
 
@@ -1818,7 +1822,6 @@ is an open `[ ]` item above:
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
-- No new upstream requests after the hub's own GOAWAY (MOQT-235).
 - Closing the session on an invalid datagram Type (MOQT-243).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
 - Enforcing empty Track Properties in REQUEST_OK, the Redirect checks and
