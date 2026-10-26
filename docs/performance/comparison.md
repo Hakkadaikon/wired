@@ -480,7 +480,7 @@ build-time tunable (`#ifndef`-guarded macros, overridden with plain `-D` flags:
 `WIRED_SRVLOOP_WT_BUF_CAP` in `srvloop.h`), and the out-of-the-box values for
 congestion control and the connection-wide window match quiche's defaults. The
 per-stream windows deliberately stay at their buffer-backed values (the remote
-per-stream default has since dropped from 256 KiB to 2 KiB, the size of a
+per-stream default has since dropped from 256 KiB to 10 KiB, the size of a
 request slot's receive window): they advertise exactly the fixed reassembly
 capacity behind them, and a build that raises them must raise the buffer with
 them (a unit test pins the pair; the freestanding static-allocation design

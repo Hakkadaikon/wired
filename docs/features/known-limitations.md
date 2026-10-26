@@ -634,7 +634,7 @@ recently sent headers, updated over its own encoder and decoder streams.
   worker count under `--cores N`. The low-level handler body cap is
   `WIRED_SRVLOOP_BODY_MAX` (1024). Source: `WIRED_SRVRUN_RESP_MAX`,
   `WIRED_SRVLOOP_BODY_MAX` (ponytail).
-- **Request buffer limited to `BODYWIN_CAP` (2048)** — Affects: clients that
+- **Request buffer limited to `BODYWIN_CAP` (10240)** — Affects: clients that
   send request bodies to a handler without `on_body`. A buffered request that
   fills the window without FIN is answered with 413 or 431, including one whose
   FIN comes in a later empty frame ("window stuck"). A byte past the window is
@@ -1046,7 +1046,7 @@ the value here is the current one.
 | `WIRED_SRVLOOP_MAX_WT_STREAMS` / `_UNI_STREAMS` | 24 / 9 | WT bidi / uni slots | a peer opening more breaks the stream limit (STREAM_LIMIT_ERROR) |
 | `WIRED_SRVLOOP_WT_BUF_CAP` | 49152 | per-slot receive window | flow control holds the peer |
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | received datagram queue | datagram dropped |
-| `BODYWIN_CAP` | 2048 | request body window | 413/431 or FLOW_CONTROL_ERROR |
+| `BODYWIN_CAP` | 10240 | request body window | 413/431 or FLOW_CONTROL_ERROR |
 | `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | control stream backlog | H3_EXCESSIVE_LOAD |
 | `SRVRUN_RST_RETX` | 93 | aborts awaiting ACK | excess sent once |
 | `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |

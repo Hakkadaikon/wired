@@ -3,6 +3,8 @@
 /* An empty receive window at stream offset 0. */
 void srvloop_body_reset(wired_srvloop_stream_slot* slot) {
   bytes_memset(&slot->body, 0, sizeof slot->body);
+  /* a fresh window owes no 100 (Continue) for an earlier request */
+  slot->req.expect_continue = 0;
 }
 
 /* A re-armed slot starts its window over -- unless its body streamed: base

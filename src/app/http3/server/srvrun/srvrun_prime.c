@@ -8,7 +8,10 @@ static void srvrun_prime_streaming(
     int                         more,
     usz                         round_len,
     u64                         base_shift);
-static u64 srvrun_round0_total_len(int more, u64 total_size, usz body_len);
+static u64  srvrun_round0_total_len(int more, u64 total_size, usz body_len);
+static int  srvrun_continue_due(const wired_srvloop_stream_slot* s);
+static void srvrun_continue_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* s);
 
 /* Copy req into r->stream_req with every view re-pointed at r's own scratch
  * (see stream_req's doc): later rounds must call the handler with THIS copy,
@@ -113,14 +116,53 @@ void srvrun_call_round0(
   }
 }
 
-/* RFC 9110 10.1.1: send the 100-continue interim ahead of round 0 when the
- * request asked for it (c->l.req.expect_continue), returning the base offset
- * shift srvrun_arm_round0 must apply so the final response's STREAM frame
- * continues the same QUIC stream right after it. 0 (no interim, no shift)
- * when the request did not ask, or c has no confirmed 1-RTT key yet to seal
- * one with (srvrun_send_continue's underlying seal simply fails and this
- * still returns 0 -- the final response then starts at offset 0 as usual). */
+/* 1 iff request slot s asked for 100-continue and has not had it yet. */
+static int srvrun_continue_due(const wired_srvloop_stream_slot* s) {
+  return s->in_use && s->req.expect_continue && !s->continue_len;
+}
+
+/* RFC 9110 10.1.1: "The origin server MUST NOT wait for the content
+ * before sending the 100 (Continue) response." Slot s's HEADERS frame was
+ * decoded the moment it was whole (srvloop's CONNECT peek on the buffered
+ * path, route_body_start when bodies stream), so the 100 goes out on that
+ * same step; continue_len records where the final response's stream
+ * offset starts (0 when no 1-RTT key could seal it yet). Tried once. */
+static void srvrun_continue_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_stream_slot* s) {
+  if (!srvrun_continue_due(s)) {
+    return;
+  }
+  s->continue_len = (u16)(SRVLOOP_CONTINUE_TRIED |
+                          srvrun_send_continue(cfg, c, s->stream_id));
+}
+
+/* Send every 100 (Continue) this step's HEADERS frames asked for, ahead of
+ * the final responses srvrun_start_done_resps starts next. */
+void srvrun_send_continues(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    srvrun_continue_slot(ctx->cfg, c, &c->l.streams[i]);
+  }
+}
+
+/* The stream bytes stream_id's 100 (Continue) already took: the base
+ * offset its final response starts at (0 if none was sent). */
+u64 srvrun_continue_shift(const srvrun_conn* c, u64 stream_id) {
+  const wired_srvloop_stream_slot* s = srvrun_req_slot_of(c, stream_id);
+  return s ? s->continue_len & ~SRVLOOP_CONTINUE_TRIED : 0;
+}
+
+/* RFC 9110 10.1.1: the base offset shift srvrun_arm_round0 must apply so
+ * the final response continues the stream right after its 100-continue
+ * interim: the one srvrun_send_continues already sent, else -- a request
+ * that never went through it (no request slot) -- sent now. 0 when the
+ * request did not ask, or no confirmed 1-RTT key could seal one. */
 u64 srvrun_maybe_send_continue(const srvrun_cfg* cfg, srvrun_conn* c) {
+  const wired_srvloop_stream_slot* s =
+      srvrun_req_slot_of(c, c->l.req_stream_id);
+  if (s) {
+    return s->continue_len & ~SRVLOOP_CONTINUE_TRIED;
+  }
   if (!c->l.req.expect_continue) {
     return 0;
   }

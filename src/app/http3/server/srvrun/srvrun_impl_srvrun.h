@@ -917,22 +917,23 @@ _Static_assert(
     QDYN_ENCRX_CAP == STP_DEFAULT_STREAM_DATA_LOCAL,
     "the encoder window holds exactly the peer uni stream credit");
 
-/* Response storage, one row per (connection slot, response slot): 512-byte
+/* Response storage, one row per (connection slot, response slot): 640-byte
  * prefix room (HEADERS + DATA header framed in place, h3resp_prefix)
- * followed by the handler's body. 512 fits the largest HEADERS a
+ * followed by the handler's body. 640 fits the largest HEADERS a
  * wired_http_handler can produce: WIRED_HTTP_FIELD_BYTES_MAX (384) field
- * bytes plus per-line QPACK overhead (<= 6 x 8 fields), :status, the
- * section prefix and both frame headers (< 80). Taken out of the row, so
- * the body cap shrinks by 448 bytes instead of BSS growing: one fixed-row
- * round holds at most WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM =
- * 15872 body bytes (a larger body takes a bigbuf row or streams).
+ * bytes plus per-line QPACK overhead (<= 6 x 8 fields), the SDK's own
+ * content-length (<= 37) and date (35) lines, :status, the section prefix
+ * and both frame headers (< 80) -- 584 in all. Taken out of the row, so
+ * the body cap shrinks instead of BSS growing: one fixed-row round holds
+ * at most WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM = 15744 body bytes
+ * (a larger body takes a bigbuf row or streams).
  * ponytail: 16KB per response, 64 conns x 4 response slots = 4MB BSS; raise
  * WIRED_SRVRUN_RESP_MAX when a deployment needs bigger bodies (srvbigbuf.h
  * covers the >16KB case without growing this fixed grid). A srvthreads
  * deployment (--cores N) holds one wired_srvrun_env per worker, so this
  * multiplies by N there too. */
 #define WIRED_SRVRUN_RESP_MAX 16384
-#define SRVRUN_RESP_HDR_ROOM 512
+#define SRVRUN_RESP_HDR_ROOM H3RESP_FIELD_SECTION_MAX
 /* Fallback stream bytes per packet (fits a 1500 MTU) -- no longer used to
  * size an actual send (srvrun_mps below drives that from c->pmtu instead);
  * kept only as the value srvrun_mps itself falls back to for a not-yet-
