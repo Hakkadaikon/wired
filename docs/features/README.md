@@ -69,16 +69,16 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2100/2260 requirements demonstrated (92.9%) — 1717 directly tested,
-383 indirect, 160 untested.**
+**Total: 2109/2260 requirements demonstrated (93.3%) — 1732 directly tested,
+377 indirect, 151 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 249/279 | 191 | 58 | 30 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 254/279 | 196 | 58 | 25 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 58 | 16 | 4 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 66/75 | 42 | 24 | 9 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 70/75 | 52 | 18 | 5 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
 ## QUIC extensions

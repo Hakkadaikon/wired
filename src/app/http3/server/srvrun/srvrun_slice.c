@@ -13,7 +13,7 @@
  * carrying packet went out. Returns the ACK bytes written at pl[0]. */
 usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
   usz al;
-  if (!c->l.ack_defer) {
+  if (!c->l.ackst.ack_defer) {
     return 0;
   }
   al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
@@ -40,7 +40,7 @@ int srvrun_seal_send_slice(
   wired_obuf            ob  = obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0, 0, 0, 0};
-  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) {
+  if (!srvloop_send_onertt_rec(&c->l, &c->s, &sin, &ob)) {
     return 0;
   }
   srvrun_send_staged(
@@ -49,6 +49,21 @@ int srvrun_seal_send_slice(
   if (al) {
     wired_srvloop_ack_mark_sent(&c->l);
   }
+  return 1;
+}
+
+/* Log the sent slice in sess; its bytes in flight are then sess's to count
+ * (by slice bytes), so the sent-packet record stops counting the packet. */
+static int srvrun_slice_logged(
+    srvrun_conn*             c,
+    wired_sendsess*          sess,
+    const wired_sendq_slice* sl,
+    u64                      pn,
+    u64                      now_ms) {
+  if (!wired_sendsess_sent(sess, sl, pn, now_ms)) {
+    return 0;
+  }
+  sentmeta_uncount(&c->l.ackst.sent, pn);
   return 1;
 }
 
@@ -75,7 +90,7 @@ int srvrun_send_stream_slice(
           ctx, c, wired_span_of(pl, al + plb.len), pn, al)) {
     return 0;
   }
-  return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
+  return srvrun_slice_logged(c, sess, sl, pn, ctx->now_ms);
 }
 
 /* Send a just-taken slice; on failure return it to sess via

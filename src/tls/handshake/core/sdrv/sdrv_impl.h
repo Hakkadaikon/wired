@@ -107,6 +107,7 @@ int sdrv_find_client_ext(
     const u8* ch, usz ch_len, unsigned want_type, wired_span* ext);
 void sdrv_take_peer_max_datagram_frame_size(const u8* ch, usz ch_len, u64* out);
 void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out);
+u64  sdrv_peer_tp_plus1(const u8* ch, usz ch_len, u64 param_id);
 int  sdrv_sid_fits(const u8* ch_msg, usz ch_len);
 int  sdrv_reject_nonempty_sid(sdrv* s, u8 len);
 int  sdrv_take_client_sid(sdrv* s, const u8* ch_msg, usz ch_len);

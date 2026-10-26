@@ -67,6 +67,13 @@ typedef struct {
    * raise; 0 = absent (the RFC's default: open none until the peer grants).
    */
   u64 peer_initial_max_streams_uni;
+  /** 1 + the peer's ack_delay_exponent (0x0a, RFC 9000 18.2), 0 = not
+   * advertised (or no ClientHello taken): the reader applies the default 3.
+   * The +1 keeps an explicit 0 apart from absence. */
+  u64 peer_ack_delay_exponent_p1;
+  /** 1 + the peer's max_ack_delay in ms (0x0b, RFC 9000 18.2), 0 = not
+   * advertised: the reader applies the default 25. */
+  u64 peer_max_ack_delay_p1;
   /** The raw protocol id when alpn is SALPN_RAW (e.g. "moqt-19"): a view
    * into raw_alpns, so it lives as long as that configuration. Empty
    * otherwise. The server layer reads it to tell raw from h3. */

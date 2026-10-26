@@ -160,4 +160,6 @@ extern srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
 extern int g_srvrun_bcast_n; /* registered entry count (atomic) */
 ;
 
+#include "app/http3/server/srvrun/srvrun_impl_rec.h"
+
 #endif

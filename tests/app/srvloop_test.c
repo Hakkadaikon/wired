@@ -4354,11 +4354,9 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
 }
 
 /* One more single-packet range than ACK_MAX_RANGES (33, all within the
- * 64-pn recvpn window) must not corrupt srvloop -- app_ack_encode_ranges
- * (respond.c, called directly here as in the tests above) falls back to
- * appending nothing rather than a truncated/overflowing ACK frame; it is
- * srvloop_emit_ack_only's caller that then has nothing to send, not an encoder
- * crash or garbage frame. */
+ * 64-pn recvpn window): RFC 9000 13.2.4 lets an ACK carry fewer ranges, so
+ * app_ack_encode_ranges sends the 32 newest rather than no ACK at all (no
+ * overflowing or garbage frame either). */
 static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   struct lp_fix f;
   wired_obuf    ob;
@@ -4379,9 +4377,12 @@ static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
-    u8  buf[512];
-    usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
-    CHECK(n == 0); /* 33 ranges overflow ACK_MAX_RANGES: no ACK, no crash */
+    u8        buf[512];
+    ack_frame a;
+    usz       n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    CHECK(n != 0 && ack_decode(buf, n, &a) == n);
+    CHECK(a.n_ranges == ACK_MAX_RANGES);
+    CHECK(a.ranges[0].hi == 65 && a.ranges[ACK_MAX_RANGES - 1].lo == 3);
   }
 }
 

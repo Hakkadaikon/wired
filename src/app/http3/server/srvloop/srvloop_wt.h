@@ -6,6 +6,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "app/http3/server/srvloop/body_window.h"
+#include "app/http3/server/srvloop/srvloop_ackst.h"
 #include "app/http3/server/srvloop/srvloop_h3peer.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
@@ -13,13 +14,10 @@
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/ncid.h"
-#include "transport/recovery/detect/recovery/ackpolicy.h"
 
-/** RFC 9000 18.2's default max_ack_delay when the peer's own transport
- * parameter isn't tracked (this SDK does not parse the client's
- * max_ack_delay yet -- YAGNI until a deployment needs a non-default value).
- * Matches srvrun.c's own SRVRUN_MAX_ACK_DELAY_US (25000us = 25ms); kept as
- * a separate constant here since srvloop must not depend on srvrun. */
+/** RFC 9000 13.2.1: how long this server holds back an ACK for a single
+ * ack-eliciting 1-RTT packet. The advertised max_ack_delay
+ * (STP_DEFAULT_MAX_ACK_DELAY_MS) adds the poll tick that checks it. */
 #define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
 
 /** NEW_CONNECTION_ID frames kept per step (wired_srvloop.ncid_rx); more are
@@ -602,13 +600,6 @@ typedef struct {
    * (transport/conn/lifecycle/conn/pnspace.h). */
   pnspaces_recv ack_recv;
   ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
-  ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
-  /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for
-   * the current step: the driving loop (srvrun.c) piggybacks the pending
-   * App-space ACK onto the response slice it is about to send, or flushes
-   * it itself at step end if no slice went out. A caller that never sets
-   * it (0, every plain srvloop user) keeps the original behavior. */
-  u8 ack_defer;
   /** Monotonic ms this step is being driven at -- the time source
    * ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
@@ -618,11 +609,12 @@ typedef struct {
    * path still fires). Living on wired_srvloop rather than
    * wired_srvloop_conn keeps wired_srvloop_step's existing signature and
    * every current struct-literal call site unchanged. */
-  u64 now_ms;
-  int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
-                     * emitted */
-  int ticket_sent;  /**< 1 once the post-confirmation session ticket
-                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
+  u64           now_ms;
+  srvloop_ackst ackst; /**< loss-recovery and ACK state */
+  int hs_done_sent;    /**< 1 once the confirmation (HANDSHAKE_DONE) has been
+                        * emitted */
+  int ticket_sent;     /**< 1 once the post-confirmation session ticket
+                        * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   /** The confirmation packet's frame payload (SETTINGS + session tickets +
    * HANDSHAKE_DONE), captured at its one-time emit so a lost confirmation
    * can be replayed verbatim under a fresh pn (wired_srvloop_reconfirm,

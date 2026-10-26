@@ -91,7 +91,11 @@ static void sr_make_confirmed_conn(
    * WT-legal nonzero value here -- a test that specifically wants to
    * exercise the gate overrides this back to 0. */
   c->s.sdrv.peer_max_datagram_frame_size = 1500;
-  c->up                                  = 1;
+  /* RFC 9002 A.1: the handshake's own 1-RTT confirmation packet sits in the
+   * sent-packet record; every test here starts with nothing in flight, as
+   * if it had been acknowledged. */
+  sentmeta_init(&c->l.ackst.sent);
+  c->up = 1;
   cc_init(&c->cc);
   rtt_init(&c->rtt);
   /* RFC 9000 18.2/19.9: this test drives srvrun_conn directly (not through
@@ -111,6 +115,14 @@ static void sr_make_confirmed_conn(
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     c->resp[i].stream_credit = c->s.sdrv.peer_initial_max_data;
   }
+}
+
+/* Record pn in the sent-packet record as an ack-eliciting STREAM packet
+ * sent at sent_ms -- what srvrun_send_stream_slice leaves there (its bytes
+ * counted by the send session, not the record). */
+static void sr_rec_sent(srvrun_conn* c, u64 pn, u64 sent_ms) {
+  sentmeta_out o = {pn, sent_ms, 1, 0, SRVRUN_CHUNK};
+  CHECK(sentmeta_on_sent(&c->l.ackst.sent, &o) == 1);
 }
 
 /* The packet srvrun_send_app_close puts on the wire: the RFC 9000 10.2.3
@@ -6218,16 +6230,23 @@ static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
      * otherwise-idle slot's own queue. */
     srvrun_resp*      r = &c.resp[0];
     wired_sendq_slice sl;
-    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
-    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0, 0) == 1);
-    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
-    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0 + 1, 100) == 1);
-    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
-    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0 + 2, 200) == 1);
-    /* one ACK range at t=215 covers all three: newest send time is 200,
-     * so the sample must be 215-200=15, not an average pulled toward the
-     * pn0 slice's 215-0=215. */
-    srvrun_feed_ack_range(&c, pn0, pn0 + 2, 215);
+    srvrun_cfg        cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 215, 0};
+    for (u64 i = 0; i < 3; i++) {
+      CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&r->sess, &sl, pn0 + i, 100 * i) == 1);
+      sr_rec_sent(&c, pn0 + i, 100 * i);
+    }
+    /* one ACK range at t=215 covers all three: the largest acknowledged
+     * (pn0+2) was sent at 200, so the sample must be 215-200=15, not an
+     * average pulled toward the pn0 slice's 215-0=215. */
+    c.l.ack_lo[0] = pn0;
+    c.l.ack_hi[0] = pn0 + 2;
+    c.l.ack_n     = 1;
+    srvrun_feed_acks(&ctx, &cfg, &c);
     CHECK(c.srtt_ms == 15);
   }
 }
@@ -6442,7 +6461,7 @@ static void test_srvrun_slice_piggybacks_deferred_ack(void) {
   /* a received 1-RTT packet to acknowledge, already past the delay window */
   pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2;
-  c->l.ack_defer              = 1;
+  c->l.ackst.ack_defer        = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -6468,7 +6487,7 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   sr_make_confirmed_conn(c, &f, &ob);
   pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
   c->l.app_ack_policy.pending = 2; /* due right now, no delay needed */
-  c->l.ack_defer              = 1;
+  c->l.ackst.ack_defer        = 1;
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -6480,7 +6499,7 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   }
   CHECK(srvrun_test_send_count() == 1);
   CHECK(c->l.app_ack_policy.pending == 0);
-  CHECK(c->l.ack_defer == 0);
+  CHECK(c->l.ackst.ack_defer == 0);
 }
 
 /* BBR rides the same token bucket: the refill rate is pacing_gain% x
@@ -14955,6 +14974,7 @@ static void sr_pc_send(srvrun_conn* c, u64 pn, u64 sent_ms) {
   wired_sendq_slice sl;
   CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
   CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, sent_ms) == 1);
+  sr_rec_sent(c, pn, sent_ms);
 }
 
 /* A confirmed connection with resp[0] armed and a 1MB window; optionally
@@ -15759,7 +15779,7 @@ static void test_srvrun_data_datagrams_fit_validated_probe(void) {
     wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, srvrun_mps(c));
     pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
     c->l.app_ack_policy.pending = 2;
-    c->l.ack_defer              = 1;
+    c->l.ackst.ack_defer        = 1;
     sr_pmtu_bound_pump(c);
     CHECK(c->resp[0].sess.q.cur > 0); /* data did go out */
     CHECK(g_srvrun_tx_max_len <= bound);

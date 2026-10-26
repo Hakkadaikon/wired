@@ -29,4 +29,14 @@ void test_ackpolicy(void) {
   ackpolicy_on_eliciting(&p, 60);               /* oldest is now tick 60 */
   CHECK(ackpolicy_should_ack(&p, 84, 25) == 0); /* 24 < 25 */
   CHECK(ackpolicy_should_ack(&p, 85, 25) == 1); /* 25 >= 25 */
+
+  /* RFC 9000 13.2.1: one urgent packet is acked without waiting; the flag
+   * clears with the ACK */
+  ackpolicy_on_ack_sent(&p);
+  ackpolicy_on_eliciting(&p, 100);
+  ackpolicy_on_urgent(&p);
+  CHECK(ackpolicy_should_ack(&p, 100, 25) == 1);
+  ackpolicy_on_ack_sent(&p);
+  ackpolicy_on_eliciting(&p, 200);
+  CHECK(ackpolicy_should_ack(&p, 200, 25) == 0);
 }

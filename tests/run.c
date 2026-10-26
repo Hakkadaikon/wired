@@ -651,6 +651,7 @@
 #include "app/http3/server/srvloop/dispatch_route_note.c"
 #include "app/http3/server/srvloop/dispatch_wt.c"
 #include "app/http3/server/srvloop/send.c"
+#include "app/http3/server/srvloop/srvloop_sent.c"
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/respond_app.c"
 #include "app/http3/server/srvloop/respond_confirm.c"
@@ -659,6 +660,7 @@
 #include "app/http3/server/sendq/sendq.c"
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/sendsess/sendsess_lost.c"
+#include "app/http3/server/sendsess/sendsess_ring.c"
 #include "app/http3/server/sendsess/sendsess_peek.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvloop/srvloop_close.c"
@@ -759,6 +761,7 @@
 #include "app/http3/server/srvrun/srvrun_raw.c"
 #include "app/http3/server/srvrun/srvrun_reannounce.c"
 #include "app/http3/server/srvrun/srvrun_reap.c"
+#include "app/http3/server/srvrun/srvrun_recover.c"
 #include "app/http3/server/srvrun/srvrun_rebind.c"
 #include "app/http3/server/srvrun/srvrun_reconfirm.c"
 #include "app/http3/server/srvrun/srvrun_recv.c"
@@ -1500,6 +1503,7 @@
 #include "app/srvrun_token_test.c"
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
+#include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "app/srvkeys_test.c"
@@ -2142,6 +2146,7 @@ int main(void) {
   test_srvrun_token();
   test_srvrun_close();
   test_srvrun_raw();
+  test_srvrun_rec();
   test_sigmask();
   test_certreload();
   test_srvkeys();
