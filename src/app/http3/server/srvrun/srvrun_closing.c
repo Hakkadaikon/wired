@@ -25,8 +25,8 @@ int srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot) {
 }
 
 /* One slot's tick work on a poll timeout: post-confirm PTO probe/teardown,
- * boot-stage PTO probe/teardown (mutually exclusive -- srvrun_sess_waiting
- * requires c->up with no in-flight send session possible before confirm, and
+ * boot-stage PTO probe/teardown (mutually exclusive -- srvrun_pto_armed
+ * requires confirmation, and
  * srvrun_boot_pto_waiting requires !confirmed), then flush any queued
  * broadcast DATAGRAM -- split out so the loop below stays flat. */
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {

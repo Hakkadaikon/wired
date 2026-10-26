@@ -761,11 +761,12 @@ typedef struct {
   u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
   int dg_pending; /**< datagrams queued in dg_pending_buf, undrained */
   /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
-   * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
-   * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
-   * srvrun_pto_slot's budget exhaustion does. Reset to 0 whenever the boot
-   * flight is (re)sent for a reason other than this timer (a fresh accept or
-   * a client-triggered retransmit both prove the peer is still reachable). */
+   * counterpart to wired_srvloop.ackst.pto_count -- scales
+   * srvrun_pto_deadline_ms' backoff and, at SRVRUN_PTO_MAX, tears the slot down
+   * the same way srvrun_pto_slot's budget exhaustion does. Reset to 0 whenever
+   * the boot flight is (re)sent for a reason other than this timer (a fresh
+   * accept or a client-triggered retransmit both prove the peer is still
+   * reachable). */
   int boot_pto_count;
   /** RFC 9204 4.2: 1 once this connection's own QPACK encoder stream (id 7)
    * has been opened (srvrun_open_qenc_stream) -- opened exactly once, right

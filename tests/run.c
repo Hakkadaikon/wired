@@ -758,6 +758,7 @@
 #include "app/http3/server/srvrun/srvrun_polling.c"
 #include "app/http3/server/srvrun/srvrun_prime.c"
 #include "app/http3/server/srvrun/srvrun_pto.c"
+#include "app/http3/server/srvrun/srvrun_pto_probe.c"
 #include "app/http3/server/srvrun/srvrun_pump.c"
 #include "app/http3/server/srvrun/srvrun_pump_one.c"
 #include "app/http3/server/srvrun/srvrun_qenc.c"

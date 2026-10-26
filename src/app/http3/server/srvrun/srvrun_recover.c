@@ -9,14 +9,17 @@ typedef struct {
   int largest_hit;  /**< 1 once largest was newly acknowledged */
   u64 largest_sent; /**< its send time, ms */
   int eliciting;    /**< 1 once a newly acked packet was ack-eliciting */
+  int any;          /**< 1 once any packet was newly acknowledged */
 } srvrun_rec_acked;
 
 static int  srvrun_rec_in(const sentmeta_pkt* p, u64 lo, u64 hi);
 static void srvrun_rec_take(sentmeta* m, usz i, srvrun_rec_acked* a);
 static void srvrun_rec_ack_range(
     sentmeta* m, u64 lo, u64 hi, srvrun_rec_acked* a);
-static int srvrun_rec_samples(const srvrun_conn* c, const srvrun_rec_acked* a);
-static u64 srvrun_rec_ack_delay_us(const srvrun_conn* c);
+static int  srvrun_rec_samples(const srvrun_conn* c, const srvrun_rec_acked* a);
+static u64  srvrun_rec_ack_delay_us(const srvrun_conn* c);
+static void srvrun_rec_note(
+    srvrun_conn* c, const srvrun_rec_acked* a, u64 now_ms);
 static u64 srvrun_rec_largest(const wired_srvloop* l);
 static int srvrun_rec_eligible(const sentmeta_pkt* p, u64 largest_acked);
 static int srvrun_rec_lost(
@@ -57,6 +60,7 @@ static int srvrun_rec_in(const sentmeta_pkt* p, u64 lo, u64 hi) {
 /* A.7 DetectAndRemoveAckedPackets for record slot i. */
 static void srvrun_rec_take(sentmeta* m, usz i, srvrun_rec_acked* a) {
   a->eliciting |= m->pkts[i].ack_eliciting;
+  a->any = 1;
   if (m->pkts[i].pn == a->largest) {
     a->largest_hit  = 1;
     a->largest_sent = m->pkts[i].time_sent;
@@ -91,17 +95,29 @@ static u64 srvrun_rec_largest(const wired_srvloop* l) {
   return largest;
 }
 
+/* The step's A.7 outcome: any newly acked packet resets pto_count (a
+ * server always does, PeerCompletedAddressValidation), and a qualifying
+ * frame yields the one RTT sample. */
+static void srvrun_rec_note(
+    srvrun_conn* c, const srvrun_rec_acked* a, u64 now_ms) {
+  if (a->any) {
+    c->l.ackst.pto_count = 0;
+  }
+  if (srvrun_rec_samples(c, a)) {
+    srvrun_rtt_update(c, now_ms - a->largest_sent, srvrun_rec_ack_delay_us(c));
+  }
+}
+
 /* RFC 9002 A.7 OnAckReceived over the sent-packet record: drop every newly
- * acknowledged packet (bytes in flight shrink with it) and take this
- * step's one RTT sample, adjusted by the peer's ACK Delay (5.3). */
+ * acknowledged packet (bytes in flight shrink with it), reset pto_count,
+ * and take this step's one RTT sample, adjusted by the peer's ACK Delay
+ * (5.3). */
 void srvrun_rec_on_acks(srvrun_conn* c, u64 now_ms) {
-  srvrun_rec_acked a = {srvrun_rec_largest(&c->l), 0, 0, 0};
+  srvrun_rec_acked a = {srvrun_rec_largest(&c->l), 0, 0, 0, 0};
   for (usz i = 0; i < c->l.ack_n; i++) {
     srvrun_rec_ack_range(&c->l.ackst.sent, c->l.ack_lo[i], c->l.ack_hi[i], &a);
   }
-  if (srvrun_rec_samples(c, &a)) {
-    srvrun_rtt_update(c, now_ms - a.largest_sent, srvrun_rec_ack_delay_us(c));
-  }
+  srvrun_rec_note(c, &a, now_ms);
 }
 
 /* A.10: only packets below the largest acknowledged are candidates. */
@@ -148,26 +164,10 @@ void srvrun_rec_detect(srvrun_conn* c, u64 now_ms) {
   }
 }
 
-/* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices plus
- * every other in-flight packet the record counts. */
+/* RFC 9002 2 / 7: bytes in flight -- the send sessions' STREAM slices, the
+ * rest of every in-flight 1-RTT packet the record counts, and the boot
+ * flight until its keys are discarded. */
 usz srvrun_bytes_in_flight(const srvrun_conn* c) {
-  return c->acct_inflight + c->l.ackst.sent.total_in_flight;
-}
-
-/* 1 while the loss timer is armed and has come due at now_ms. */
-int srvrun_loss_timer_due(const srvrun_conn* c, u64 now_ms) {
-  return c->loss_time_us && now_ms * 1000 >= c->loss_time_us;
-}
-
-/* RFC 9002 A.9 OnLossDetectionTimeout, time-threshold mode: the timer
- * fired, so run the loss pass (requeue, window, timer re-arm) without an
- * ACK, then let the pump resend what it requeued. */
-void srvrun_loss_timer_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  if (!c->up || !srvrun_loss_timer_due(c, ctx->now_ms)) {
-    return;
-  }
-  c->l.now_ms = ctx->now_ms;
-  srvrun_loss_pass(ctx->cfg, c, ctx->now_ms, c->largest_acked);
-  srvrun_pump_sess(ctx, slot);
+  return c->acct_inflight + c->l.ackst.sent.total_in_flight +
+         srvrun_boot_inflight(c);
 }

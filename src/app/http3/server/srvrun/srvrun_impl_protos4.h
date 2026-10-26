@@ -101,16 +101,12 @@ u64  srvrun_wtwin_dropped(const srvrun_conn* c);
 void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_flush_deferred_ack(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
-int  srvrun_sess_waiting(const srvrun_conn* c);
 int  srvrun_has_outbound(const srvrun_conn* c);
 int  srvrun_has_boot_outbound(const srvrun_conn* c);
 u64  srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count);
 void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms);
-int  srvrun_sess_pto_due(
-    const srvrun_conn* c, const wired_sendsess* sess, u64 now_ms);
-int srvrun_sess_pto_ok(
-    const srvrun_conn* c, wired_sendsess* sess, int in_use, u64 now_ms);
-int  srvrun_pto_resps(srvrun_conn* c, u64 now_ms);
+int  srvrun_pto_armed(const srvrun_conn* c);
+int  srvrun_pto_fire_due(const srvrun_conn* c, u64 now_ms);
 void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_rst_retry_slot(const srvrun_step_ctx* ctx, int slot);
 void srvrun_wt_app_pending_slot(const srvrun_step_ctx* ctx, int slot);
@@ -123,6 +119,7 @@ void srvrun_cold_start(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);
 int  srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_boot_pto_waiting(const srvrun_conn* c);
 void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot);
+void srvrun_boot_on_initial_discard(srvrun_conn* c, int hs_was_seen);
 int  srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot);
 void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_short_header(wired_mspan dg);

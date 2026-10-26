@@ -52,8 +52,9 @@ int srvrun_seal_send_slice(
   return 1;
 }
 
-/* Log the sent slice in sess; its bytes in flight are then sess's to count
- * (by slice bytes), so the sent-packet record stops counting the packet. */
+/* Log the sent slice in sess; its stream bytes in flight are then sess's to
+ * count, so the sent-packet record keeps only the rest of the packet (RFC
+ * 9002 2: the whole packet is in flight -- headers, frames, AEAD tag). */
 static int srvrun_slice_logged(
     srvrun_conn*             c,
     wired_sendsess*          sess,
@@ -63,7 +64,7 @@ static int srvrun_slice_logged(
   if (!wired_sendsess_sent(sess, sl, pn, now_ms)) {
     return 0;
   }
-  sentmeta_uncount(&c->l.ackst.sent, pn);
+  sentmeta_uncount(&c->l.ackst.sent, pn, sl->len);
   return 1;
 }
 

@@ -17,9 +17,10 @@ static void sendsess_report_lost(
     wired_sendsess_lost_slice* lost,
     usz                        cap,
     usz                        i);
-static int sendsess_older(const wired_sendsess* s, int best, usz i);
-static int sendsess_oldest(const wired_sendsess* s);
-static int sendsess_requeue_oldest(wired_sendsess* s);
+static int sendsess_live_above(const wired_sent_slice* e, u64 above1);
+static int sendsess_older(const wired_sendsess* s, int best, usz i, u64 above1);
+static int sendsess_oldest_above(const wired_sendsess* s, u64 above1);
+static void sendsess_copy(wired_sendsess* s, int i);
 
 /* RFC 9002 6.1.1: 1 if in-flight entry e is past the packet threshold. */
 static int sendsess_lost_by_packet(
@@ -110,17 +111,23 @@ usz wired_sendsess_detect_lost(
   return n;
 }
 
-/* 1 if log[i] is in flight and older (smaller pn) than log[best]. */
-static int sendsess_older(const wired_sendsess* s, int best, usz i) {
-  return s->log[i].inflight &&
+/* 1 if log entry e is in flight with pn + 1 > above1 (0: any pn). */
+static int sendsess_live_above(const wired_sent_slice* e, u64 above1) {
+  return e->inflight && e->pn + 1 > above1;
+}
+
+/* 1 if log[i] is live above above1 and older (smaller pn) than log[best]. */
+static int sendsess_older(
+    const wired_sendsess* s, int best, usz i, u64 above1) {
+  return sendsess_live_above(&s->log[i], above1) &&
          (best < 0 || s->log[i].pn < s->log[(usz)best].pn);
 }
 
-/* Index of the oldest in-flight entry, -1 when none is. */
-static int sendsess_oldest(const wired_sendsess* s) {
+/* Index of the oldest in-flight entry with pn + 1 > above1, -1 if none. */
+static int sendsess_oldest_above(const wired_sendsess* s, u64 above1) {
   int best = -1;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
-    if (sendsess_older(s, best, i)) {
+    if (sendsess_older(s, best, i, above1)) {
       best = (int)i;
     }
   }
@@ -128,7 +135,7 @@ static int sendsess_oldest(const wired_sendsess* s) {
 }
 
 int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
-  int i = sendsess_oldest(s);
+  int i = sendsess_oldest_above(s, 0);
   if (i < 0) {
     return 0;
   }
@@ -136,30 +143,36 @@ int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
   return 1;
 }
 
-/* Requeue the oldest in-flight slice; 1 if one existed. A full requeue
- * array drops the slice (sendsess_requeue's own cap) and it simply stays
- * in flight for a later pass. */
-static int sendsess_requeue_oldest(wired_sendsess* s) {
-  int i = sendsess_oldest(s);
-  if (i < 0) {
+/* Queue a copy of log entry i for a probe resend; the entry itself stays
+ * in flight. Nothing is queued for i < 0 or a full requeue. */
+static void sendsess_copy(wired_sendsess* s, int i) {
+  if (i < 0 || s->requeue_n >= WIRED_SENDSESS_LOG) {
+    return;
+  }
+  s->requeue_pn[s->requeue_n] = s->log[(usz)i].pn + 1;
+  s->requeue[s->requeue_n++]  = s->log[(usz)i].sl;
+}
+
+/* RFC 9002 6.2: a PTO is not a loss, so the probed packets stay in flight;
+ * 6.2.4: up to two probe datagrams, the two oldest in-flight slices. */
+int wired_sendsess_pto_probe(wired_sendsess* s) {
+  int a = sendsess_oldest_above(s, 0);
+  if (a < 0 || s->requeue_n) {
     return 0;
   }
-  sendsess_requeue(s, (usz)i);
+  sendsess_copy(s, a);
+  sendsess_copy(s, sendsess_oldest_above(s, s->log[(usz)a].pn + 1));
   return 1;
 }
 
 int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
-  if (sendsess_oldest(s) < 0) {
+  if (sendsess_oldest_above(s, 0) < 0) {
     return 1;
   }
   if (s->pto_count >= max) {
     return 0;
   }
   s->pto_count++;
-  /* RFC 9002 6.2.4: a PTO probe may carry up to two datagrams -- requeue
-   * the two oldest slices so a fully lost tail recovers in parallel
-   * instead of one slice per backoff round. */
-  sendsess_requeue_oldest(s);
-  sendsess_requeue_oldest(s);
+  (void)wired_sendsess_pto_probe(s);
   return 1;
 }

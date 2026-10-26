@@ -57,22 +57,15 @@ static int srvrun_any_send_active(const srvrun_conn* c) {
   return srvrun_any_resp_active(c) || srvrun_any_wtsend_active(c);
 }
 
-/* 1 while this slot still owes stream bytes (in flight, paced, or window
- * blocked) — the loop must keep ticking for it. */
-int srvrun_sess_waiting(const srvrun_conn* c) {
-  return c->up && srvrun_any_send_active(c);
-}
-
 /* 1 while this slot has anything outbound that only a poll-loop tick (not
  * this connection's own next receive) will flush: an in-flight HTTP
- * response (srvrun_sess_waiting) or a broadcast DATAGRAM (dg_pending, RFC
+ * response or a broadcast DATAGRAM (dg_pending, RFC
  * 9221 5 -- queued by srvrun_broadcast_to_all/srvrun_bcast_drain_self but
  * only ever flushed from srvrun_pump_datagram, which srvrun_sess_on_step
  * reaches only when THIS connection itself next receives something). Used
  * only to decide whether the loop must keep ticking (srvrun_any_waiting);
- * NOT for the PTO probe/teardown decision below, which is specifically
- * about wired_sendsess retransmission and must not fire for a connection
- * that merely has a queued DATAGRAM and no HTTP response in flight. */
+ * NOT for the PTO probe/teardown decision (srvrun_pto_armed), which reads
+ * the sent-packet record, not what is still queued. */
 int srvrun_has_outbound(const srvrun_conn* c) {
   return c->up && (srvrun_any_send_active(c) || c->dg_pending);
 }
@@ -113,49 +106,4 @@ void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
   if (now_ms >= c->ku_rotated_at_ms + floor_ms) {
     kuswitch_discard_old(&c->s.ku);
   }
-}
-
-/* 1 if sess's oldest in-flight slice is still within its PTO window (RFC
- * 9002 6.2: probe only once send_time + PTO has elapsed) -- nothing in
- * flight counts as "not due" too, since wired_sendsess_pto_fire's own
- * nothing-in-flight case is a no-op anyway. */
-int srvrun_sess_pto_due(
-    const srvrun_conn* c, const wired_sendsess* sess, u64 now_ms) {
-  u64 sent_ms;
-  if (!wired_sendsess_oldest_sent_ms(sess, &sent_ms)) {
-    return 0;
-  }
-  return now_ms >= sent_ms + srvrun_pto_deadline_ms(c, sess->pto_count);
-}
-
-/* Fire sess's probe if its slot is claimed and the deadline elapsed; 1 while
- * the probe budget survives, 0 once it is spent (the caller tears the whole
- * connection slot down -- shared by resp[] and wtsend slots alike). */
-int srvrun_sess_pto_ok(
-    const srvrun_conn* c, wired_sendsess* sess, int in_use, u64 now_ms) {
-  if (!in_use || !srvrun_sess_pto_due(c, sess, now_ms)) {
-    return 1;
-  }
-  return wired_sendsess_pto_fire(sess, SRVRUN_PTO_MAX);
-}
-
-/* Probe every in-flight response on this connection slot whose own
- * RTT-derived PTO deadline has actually elapsed (RFC 9002 6.2) -- not on
- * every poll tick regardless of RTT, which fired probes against packets
- * that were merely slow rather than lost on any link faster than the old
- * fixed SRVRUN_PTO_MS. The probe budget (SRVRUN_PTO_MAX) is a
- * connection-wide policy, not per-stream: the peer going silent means it
- * likely stopped acknowledging the whole connection, not just one stream,
- * so the first resp[] slot to exhaust its budget tears down the entire
- * connection slot rather than leaving the others to probe alone against a
- * dead peer.
- * @return 1 if every in-flight response still has probe budget, 0 if any
- *   slot's budget is spent (caller tears the connection slot down). */
-int srvrun_pto_resps(srvrun_conn* c, u64 now_ms) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    if (!srvrun_sess_pto_ok(c, &c->resp[i].sess, c->resp[i].in_use, now_ms)) {
-      return 0;
-    }
-  }
-  return 1;
 }

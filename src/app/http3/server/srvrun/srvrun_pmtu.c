@@ -26,6 +26,12 @@ static int srvrun_any_requeued(const srvrun_conn* c) {
   return srvrun_any_resp_requeued(c) || srvrun_any_wtsend_requeued(c);
 }
 
+/* A probe is owed: a queued retransmit, or a PTO allowance (probe_n) that
+ * new data may use. */
+static int srvrun_probe_owed(const srvrun_conn* c) {
+  return c->l.ackst.probe_n || srvrun_any_requeued(c);
+}
+
 /* RFC 9002 7.5: a PTO probe must not be blocked by the congestion
  * controller, and that includes pacing (RFC 9002 7.7) -- not just cwnd. A
  * probe was already exempted from cwnd (srvrun_pump_gate_ok), but the
@@ -37,7 +43,7 @@ static int srvrun_any_requeued(const srvrun_conn* c) {
  * the link comes back. */
 static int srvrun_pace_or_probe_ok(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return srvrun_pace_ok(ctx, c) || srvrun_any_requeued(c);
+  return srvrun_pace_ok(ctx, c) || srvrun_probe_owed(c);
 }
 
 /* One pacing-gated round-robin pass: the whole pass (up to SRVRUN_RESP_SLOTS

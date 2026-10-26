@@ -1,6 +1,7 @@
 #include "transport/recovery/congestion/cc/cc.h"
 
 #include "common/bytes/util/num.h"
+#include "transport/recovery/congestion/cc/ccloss.h"
 #include "transport/recovery/congestion/cc/cubic.h"
 #include "transport/recovery/congestion/cc/pacing.h"
 
@@ -17,6 +18,7 @@ void cc_init_algo(cc* c, int algo) {
   c->epoch_ms       = 0;
   c->round_bytes    = 0;
   c->round_start_ms = 0;
+  c->app_limited    = 0;
   bbr_init(&c->bbr);
 }
 
@@ -63,13 +65,19 @@ static void grow_algo(cc* c, u64 acked, u64 now) {
   grow(c, acked);
 }
 
+/* RFC 9002 7.3.2 / 7.8: no growth during recovery, nor while the window
+ * is underutilized. */
+static int cc_may_grow(const cc* c) {
+  return !c->in_recovery && !c->app_limited;
+}
+
 void cc_on_ack(cc* c, u64 acked, u64 sent_time, u64 now) {
   if (c->algo == CC_ALGO_BBR) {
     feed_bbr(c, acked, sent_time, now);
     return;
   }
   maybe_exit_recovery(c, sent_time);
-  if (!c->in_recovery) {
+  if (cc_may_grow(c)) {
     grow_algo(c, acked, now);
   }
 }
@@ -91,26 +99,20 @@ static u64 loss_window(cc* c, u64 now) {
   return u64_max(c->cwnd / 2, CC_MIN_WINDOW);
 }
 
+/* RFC 9002 B.5 InCongestionRecovery: sent at or before the current period
+ * began (recovery_start 0: no period, B.8). */
+static int cc_in_period(const cc* c, u64 sent_time) {
+  return c->recovery_start && cc_in_recovery(sent_time, c->recovery_start);
+}
+
 void cc_on_loss(cc* c, u64 sent_time, u64 now) {
-  if (c->in_recovery || sent_time < c->recovery_start) {
+  if (c->in_recovery || cc_in_period(c, sent_time)) {
     return; /* once/window */
   }
   c->ssthresh       = loss_window(c, now);
   c->cwnd           = c->ssthresh;
   c->in_recovery    = 1;
   c->recovery_start = now;
-}
-
-/* RFC 9002 B.8: collapse to kMinimumWindow and clear the recovery period
- * (congestion_recovery_start_time = 0). BBR sizes cwnd from its own model
- * (bbr_set_cwnd), so it is left alone. */
-void cc_on_persistent(cc* c) {
-  if (c->algo == CC_ALGO_BBR) {
-    return;
-  }
-  c->cwnd           = CC_MIN_WINDOW;
-  c->in_recovery    = 0;
-  c->recovery_start = 0;
 }
 
 /* The bandwidth-delay product in bytes (btl_bw B/ms x rtprop ms). */
