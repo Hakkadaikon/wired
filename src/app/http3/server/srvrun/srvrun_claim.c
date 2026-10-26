@@ -42,13 +42,13 @@ void srvrun_serve_slot(const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse. */
   c->boot_rx_bytes += dg.n;
-  /* RFC 9000 13.4 / 19.3.2: every datagram's ECN codepoint counts toward
-   * this connection's cumulative total, whether or not it parses -- same
-   * "every physically received byte counts" rule as boot_rx_bytes above.
-   * (Initial datagrams also feed the boot accumulator's own counts, inside
-   * srvrun_boot_feed -- after its reset, or the first datagram's count is
-   * erased with the stale accumulator.) */
-  wired_srvloop_ecn_note(&c->l, ctx->ecn);
+  /* RFC 9000 13.4.1 / 21.10: the codepoint is counted per processed
+   * packet inside the step (srvloop step_note_ecn), never here before
+   * decryption. Held early datagrams replayed in this call
+   * (srvrun_flush_held_on_confirm) carry this datagram's codepoint.
+   * shortcut: held datagrams do not keep their own mark; store it beside
+   * zerortt_dg if a path ever remarks mid-handshake. */
+  c->l.rx_ecn  = ctx->ecn;
   int consumed = srvrun_serve_boot(ctx, slot, dg);
   /* confirm may have landed inside serve_boot: seed the RTT estimators
    * from the boot flight's round trip either way (no-op off the edge). */

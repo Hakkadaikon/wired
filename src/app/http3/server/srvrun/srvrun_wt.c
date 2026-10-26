@@ -4,18 +4,29 @@ static int srvrun_boot_salvage(const srvrun_conn* c);
 static u64 srvrun_boot_crypto_error(const srvrun_conn* c);
 static int srvrun_boot_hold(const srvrun_conn* c);
 static int srvrun_boot_wait(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static u8  srvrun_boot_ecn(int fed, int zerortt, u8 ecn);
+
+/* The codepoint a boot feeding counts: Not-ECT (0, counts nothing) unless
+ * an Initial packet in the datagram was absorbed. */
+static u8 srvrun_boot_ecn(int fed, int zerortt, u8 ecn) {
+  return fed && !zerortt ? ecn : 0;
+}
 
 /* Feed dg into c's boot accumulator, restarting it for a fresh attempt (a
  * just-claimed slot, or a confirmed connection re-cold-starting). The
  * datagram's ECN codepoint is counted after any reset -- the accept
  * flight's Initial ACK must carry the ClientHello datagram's own mark
- * (RFC 9000 13.4.1: the peer validates against its FIRST acknowledgment). */
+ * (RFC 9000 13.4.1: the peer validates against its FIRST acknowledgment)
+ * -- and only once an Initial packet in it authenticated (RFC 9000 13.4.1 /
+ * 21.10: an unprocessed or held 0-RTT datagram counts nothing). */
 int srvrun_boot_feed(srvrun_conn* c, wired_mspan dg, u8 ecn) {
   if (c->up || !c->boot.any) {
     wired_srvboot_acc_reset(&c->boot);
   }
-  wired_srvboot_acc_ecn_note(&c->boot, ecn);
-  return wired_srvboot_acc_feed(&c->boot, dg);
+  int zerortt = wired_srvboot_is_zerortt(dg.p, dg.n);
+  int fed     = wired_srvboot_acc_feed(&c->boot, dg);
+  wired_srvboot_acc_ecn_note(&c->boot, srvrun_boot_ecn(fed, zerortt, ecn));
+  return fed;
 }
 
 /* First datagram(s) on this slot: reassemble the ClientHello across Initial

@@ -3096,24 +3096,6 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   CHECK(st.conns[2].idle_tx_ms == 0);
 }
 
-/* RFC 9000 13.4 / RFC 9002 19.3.2: a datagram's ECN codepoint (carried on
- * srvrun_step_ctx.ecn, RFC 3168 codepoint 2 = ECT(0)) reaches the routed
- * slot's wired_srvloop cumulative counter via wired_srvloop_ecn_note. */
-static void test_srvrun_serve_slot_notes_ecn(void) {
-  conntable    table[WIRED_CONNTABLE_CAP];
-  srvrun_state st    = {table, g_srvrun_state.conns};
-  sockaddr     peer  = {0};
-  u8           sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
-  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0,  0};
-  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 2}; /* ecn=2: ECT(0) */
-  conntable_init(table, WIRED_CONNTABLE_CAP);
-  st.conns[2] = (srvrun_conn){0};
-  srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
-  CHECK(st.conns[2].l.ecn_ect0 == 1);
-}
-
 /* One sealed 1-RTT PING from f's client at its next packet number -- a
  * non-probing packet with a new largest number (RFC 9000 9.3). The buffer
  * is reused by every call. */
@@ -3121,6 +3103,39 @@ static wired_mspan sr_ping_dg(struct lp_fix* f) {
   static u8       pkt[256];
   static const u8 ping[1] = {0x01};
   return wired_mspan_of(pkt, client_seal_onertt(f, ping, 1, pkt, sizeof pkt));
+}
+
+/* RFC 9000 13.4.1 / 21.10: only a successfully processed packet's ECN
+ * codepoint (srvrun_step_ctx.ecn, 2 = ECT(0)) counts -- not an
+ * undecryptable datagram, and not a duplicate of an already processed one. */
+static void sr_ecn_serve(srvrun_conn* c, const u8* dg, usz n) {
+  u8           buf[256];
+  conntable    table[WIRED_CONNTABLE_CAP];
+  sockaddr     peer = c->peer;
+  srvrun_state st   = {table, c};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 2}; /* ecn=2: ECT(0) */
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  bytes_memcpy(buf, dg, n);
+  srvrun_serve_slot(&ctx, 0, wired_mspan_of(buf, n));
+}
+
+static void test_srvrun_serve_slot_ecn_counts_processed_only(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}, ping[256];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  sr_ecn_serve(&c, sh, sizeof sh); /* undecryptable */
+  CHECK(c.l.ecn_ect0 == 0);
+  wired_mspan dg = sr_ping_dg(&f);
+  bytes_memcpy(ping, dg.p, dg.n);
+  sr_ecn_serve(&c, ping, dg.n);
+  CHECK(c.l.ecn_ect0 == 1);
+  sr_ecn_serve(&c, ping, dg.n); /* duplicate pn */
+  CHECK(c.l.ecn_ect0 == 1);
 }
 
 /* PEER COMPARISON (RFC 9000 9): a rebind is detected on any differing byte
@@ -27291,7 +27306,7 @@ void test_srvrun(void) {
   test_srvrun_idle_uses_negotiated_timeout();
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
-  test_srvrun_serve_slot_notes_ecn();
+  test_srvrun_serve_slot_ecn_counts_processed_only();
   test_srvrun_peer_changed_compares_full_v6();
   test_srvrun_rebind_updates_peer_port();
   test_srvrun_rebind_updates_peer_addr();

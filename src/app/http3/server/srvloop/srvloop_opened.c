@@ -116,6 +116,14 @@ static void step_frames(
   }
 }
 
+/* RFC 9000 13.4.1: an admitted (opened, non-duplicate) application-space
+ * packet's ECN codepoint counts toward the cumulative ACK_ECN totals. */
+static void step_note_ecn(wired_srvloop* l, int level) {
+  if (level == LEVEL_ONERTT) {
+    wired_srvloop_ecn_note(l, l->rx_ecn);
+  }
+}
+
 /* An opened packet: admitted (step_admit), then its frames processed. */
 void srvloop_step_opened(
     const wired_srvloop_conn*     conn,
@@ -126,6 +134,7 @@ void srvloop_step_opened(
   if (!step_admit(l, conn->s, &o, ro->payload)) {
     return;
   }
+  step_note_ecn(l, o.level);
   step_note_np(l, &o, ro->payload);
   l->peer_closed |= srvloop_has_close(ro->payload, &l->peer_close_code);
   step_frames(conn, ro);

@@ -863,15 +863,19 @@ typedef struct {
    * received datagrams marked ECT(0)/ECT(1)/CE (RFC 3168), monotonically
    * increasing across the connection's whole lifetime -- an ACK frame reports
    * this running total, not one step's delta (see app_ack_encode_ranges in
-   * respond.c). Advanced by wired_srvloop_ecn_note, called once per received
-   * datagram with the ECN codepoint the UDP layer read from its IP_TOS cmsg
-   * (mmsg_buf.ecn in udp.h). 0 for all three until any ECN-marked
-   * datagram arrives. */
+   * respond.c). Advanced by wired_srvloop_ecn_note with rx_ecn, once per
+   * successfully processed (opened, non-duplicate) application-space packet
+   * (RFC 9000 13.4.1 / 21.10). 0 for all three until any ECN-marked
+   * packet is processed. */
   u64 ecn_ect0;
   /** ECT(1) running total (same lifecycle as ecn_ect0's doc above). */
   u64 ecn_ect1;
   /** CE running total (same lifecycle as ecn_ect0's doc above). */
   u64 ecn_ce;
+  /** The ECN codepoint the UDP layer read off the datagram being stepped
+   * (mmsg_buf.ecn in udp.h), set by the caller before each step; counted
+   * only for the packets in it that are processed. 0 = Not-ECT. */
+  u8 rx_ecn;
   /** RFC 9218 10 / 9218-010: PRIORITY_UPDATE frames naming a request stream
    * not yet open, buffered until wired_srvloop_slot_for claims that stream id
    * (see wired_srvloop_priority_apply). Not reset across steps by this loop

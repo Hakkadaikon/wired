@@ -70,6 +70,7 @@ void srvloop_init_ecn(wired_srvloop* l) {
   l->ecn_ect0             = 0;
   l->ecn_ect1             = 0;
   l->ecn_ce               = 0;
+  l->rx_ecn               = 0;
 }
 
 /* Peer frames seen. max_data_seen_flag/streams_blocked_seen_flag/

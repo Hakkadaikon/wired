@@ -440,7 +440,7 @@ static int srvrec_ping(struct lp_fix* f, u64 pn, u8 ecn) {
   u8         ping[1] = {0x01}, spkt[256], out[1024];
   wired_obuf ob      = {out, sizeof out, 0};
   usz        n       = client_seal_onertt_pn(f, pn, ping, 1, spkt, sizeof spkt);
-  wired_srvloop_ecn_note(&f->l, ecn);
+  f->l.rx_ecn        = ecn; /* counted inside the step once the packet opens */
   wired_srvloop_step(
       &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, n), &ob);
   return ob.len != 0;
