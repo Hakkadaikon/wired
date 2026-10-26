@@ -26,5 +26,8 @@ no retransmission. This server echoes each one back to the client that sent it.
   as a chat does, use `wired_server_broadcast_datagram` (one pending payload,
   a later call replaces it) or `wired_server_broadcast_datagram_ring`
   (queued, single process only).
+- Stream data goes out before queued datagrams in each send pass. Set
+  `opt.datagram_first = 1` to send datagrams first; when the congestion
+  window has room for only one, the other waits.
 - The client keeps the QUIC connection and closes it before exiting, so the
   server logs `conn closed by peer` right away.

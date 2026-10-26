@@ -78,7 +78,9 @@ driver functions) or a pure function with no rules that span several calls
   `on_step`. `wt_origin_check` decides whether to accept a WebTransport
   session by its Origin; it gets an empty `origin` view when the request
   has no origin header. `wt_on_session_draining` is called when the peer
-  sends WT_DRAIN_SESSION on a session's CONNECT stream. `opt` must not be
+  sends WT_DRAIN_SESSION on a session's CONNECT stream. `datagram_first`
+  set to 1 sends queued DATAGRAMs before stream data in each send pass;
+  the default 0 sends stream data first (RFC 9221 §5.1). `opt` must not be
   0. With every setting at its default it behaves exactly like
   `wired_server_run`.
 - `wired_srvrun_handler` has three optional members at its end; leave any
