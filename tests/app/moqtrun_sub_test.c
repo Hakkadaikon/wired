@@ -1718,6 +1718,43 @@ static void test_moqtrun_sub_rngf_dup_identity(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* d19 10.2.12 / d22 9.20.12: a PRIORITY_FILTER value above 255 "MUST
+ * reject this with REQUEST_ERROR with error code INVALID_FILTER"; d19
+ * 10.2.13-10.2.14 / d22 9.20.13-9.20.14: an OBJECT_/TRACK_PROPERTY_FILTER
+ * Property Type "MUST be even ... otherwise ... INVALID_FILTER". */
+static void test_moqtrun_sub_rngf_value_checks(void) {
+  moqctl_rangefilter ok   = mtst_rngf1(0, 0, 255, 1);
+  moqctl_rangefilter hi   = mtst_rngf1(0, 0, 256, 1);
+  moqctl_rangefilter top  = mtst_rngf1(0, 256, 0, 0); /* open-ended */
+  moqctl_rangefilter odd  = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter evn  = mtst_rngf1(0, 0, 4, 1);
+  moqctl_params      p[7] = {{0}};
+  u64                want[7];
+  moqctl_ftn         f = mtst_ftn("chat", "room1", "alice");
+  odd.prop_type        = 3;
+  evn.prop_type        = 2;
+  mtst_rngf_param(&p[0], MOQCTL_PARAM_PRIORITY_FILTER, &ok);
+  mtst_rngf_param(&p[1], MOQCTL_PARAM_PRIORITY_FILTER, &hi);
+  mtst_rngf_param(&p[2], MOQCTL_PARAM_PRIORITY_FILTER, &top);
+  mtst_rngf_param(&p[3], MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, &odd);
+  mtst_rngf_param(&p[4], MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, &evn);
+  mtst_rngf_param(&p[5], MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &odd);
+  mtst_rngf_param(&p[6], MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &evn);
+  for (usz i = 0; i < 7; i++) {
+    want[i] = (i == 1 || i == 2 || i == 3 || i == 5) ? MOQCTL_ERR_INVALID_FILTER
+                                                     : MOQTRUN_REQ_ACCEPT;
+    CHECK(moqtrun_rngf_refusal(&p[i]) == want[i]);
+  }
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p[1]);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p[0]);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
 /* The advertised MAX_FILTER_RANGES caps the total Ranges across all
  * Range Filter parameters of one request (10.4). */
 static void test_moqtrun_sub_rngf_limit(void) {
@@ -1769,6 +1806,163 @@ static void mtst_publish_props(
   m.params           = (moqctl_params){0};
   m.track_properties = props;
   mtst_send(s, ctrl, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
+}
+
+/* One even-Type Property (type, varint num) appended to the list at
+ * buf[*n], types ascending through *prev. */
+static void mtst_prop_num(u8* buf, usz* n, u64* prev, u64 type, u64 num) {
+  moqkvp kv = {0};
+  kv.type   = type;
+  kv.num    = num;
+  CHECK(moqkvp_put(wired_mspan_of(buf, 64), n, prev, &kv));
+}
+
+/* One odd-Type Property (0x3801, application range, 2.5) whose value is
+ * raw_n bytes, in buf. */
+static wired_span mtst_props_raw(u8* buf, usz cap, usz raw_n) {
+  static u8 raw[256];
+  usz       n    = 0;
+  u64       prev = 0;
+  moqkvp    kv   = {0};
+  for (usz i = 0; i < raw_n; i++) {
+    raw[i] = (u8)(0xA0 + i);
+  }
+  kv.type   = 0x3801;
+  kv.is_raw = 1;
+  kv.raw    = wired_span_of(raw, raw_n);
+  CHECK(moqkvp_put(wired_mspan_of(buf, cap), &n, &prev, &kv));
+  return wired_span_of(buf, n);
+}
+
+/* 1 iff got holds exactly want's bytes. */
+static int mtst_props_eq(wired_span got, wired_span want) {
+  return got.n == want.n && ct_diffn(got.p, want.p, want.n) == 0;
+}
+
+/* One Immutable Properties (0xB) Property wrapping inner. */
+static void mtst_prop_imm(u8* buf, usz* n, u64* prev, wired_span inner) {
+  moqkvp kv = {0};
+  kv.type   = 0x0B;
+  kv.is_raw = 1;
+  kv.raw    = inner;
+  CHECK(moqkvp_put(wired_mspan_of(buf, 64), n, prev, &kv));
+}
+
+/* draft-18 12.7: "When looking for the value of a property, processors
+ * MUST search both the mutable properties and the contents of Immutable
+ * Properties" -- a SUBGROUP_DELIVERY_TIMEOUT (12.1) and DEFAULT PUBLISHER
+ * PRIORITY (12.4) inside Immutable Properties are read; a mutable value
+ * of the same type is read first. */
+static void test_moqtrun_sub_props_immutable(void) {
+  u8         in[16], out[32];
+  usz        ni = 0, no = 0;
+  u64        pi = 0, po = 0;
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_prop_num(in, &ni, &pi, 0x06, 3);
+  mtst_prop_num(in, &ni, &pi, 0x0E, 9);
+  mtst_prop_imm(out, &no, &po, wired_span_of(in, ni));
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(out, no));
+  mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 3);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].default_pub_prio == 9);
+  no = 0;
+  po = 0;
+  mtst_prop_num(out, &no, &po, 0x06, 5);
+  mtst_prop_imm(out, &no, &po, wired_span_of(in, ni));
+  mtst_init();
+  ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(out, no));
+  mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
+  CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 5);
+}
+
+/* draft-18 2.5 / 9.6 (MQ18-208): the publisher's Track Properties reach
+ * SUBSCRIBE_OK unchanged, a block longer than the old 32-byte cap
+ * included; one longer than WIRED_MOQTRUN_TRACK_PROPS_MAX is refused
+ * INTERNAL_ERROR (the hub's own limit) instead of being forwarded empty. */
+static void test_moqtrun_sub_props_long_forwarded(void) {
+  u8         buf[256];
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  wired_span p = mtst_props_raw(buf, sizeof buf, 60);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
+  CHECK(mtst_last_ok() && mtst_props_eq(mtst_last_ok()->track_properties, p));
+  p = mtst_props_raw(buf, sizeof buf, WIRED_MOQTRUN_TRACK_PROPS_MAX);
+  mtst_init();
+  ca = mtst_join(SESS_A);
+  mtst_publish_props(SESS_A, ca, &f, 1, p);
+  CHECK(
+      mtrq_err_on(ca) ==
+      moqctl_request_error_for(mtst_ver(SESS_A), MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
+}
+
+/* PUBLISH of one Property (type, num), mutable or inside Immutable
+ * Properties; the number of PROTOCOL_VIOLATION closes it caused. */
+static usz mtst_publish_prop_closes(u64 type, u64 num, int imm) {
+  u8         in[16], out[32];
+  usz        ni = 0, no = 0;
+  u64        pi = 0, po = 0;
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_prop_num(in, &ni, &pi, type, num);
+  if (imm) {
+    mtst_prop_imm(out, &no, &po, wired_span_of(in, ni));
+  } else {
+    mtst_prop_num(out, &no, &po, type, num);
+  }
+  mtst_init();
+  mtst_publish_props(SESS_A, mtst_join(SESS_A), &f, 1, wired_span_of(out, no));
+  return mtrq_closes();
+}
+
+/* draft-18 12.5: DEFAULT_PUBLISHER_GROUP_ORDER (0x22) other than 0x1/0x2,
+ * "it MUST close the session with PROTOCOL_VIOLATION"; 12.6:
+ * DYNAMIC_GROUPS (0x30) "larger than 1, it MUST close the session with
+ * PROTOCOL_VIOLATION" -- inside Immutable Properties too (12.7). */
+static void test_moqtrun_sub_props_bad_values_close(void) {
+  CHECK(mtst_publish_prop_closes(0x22, 1, 0) == 0);
+  CHECK(mtst_publish_prop_closes(0x22, 2, 0) == 0);
+  CHECK(mtst_publish_prop_closes(0x22, 0, 0) == 1);
+  CHECK(mtst_publish_prop_closes(0x22, 3, 0) == 1);
+  CHECK(mtst_publish_prop_closes(0x30, 0, 0) == 0);
+  CHECK(mtst_publish_prop_closes(0x30, 1, 0) == 0);
+  CHECK(mtst_publish_prop_closes(0x30, 2, 0) == 1);
+  CHECK(mtst_publish_prop_closes(0x30, 2, 1) == 1);
+  CHECK(mtst_publish_prop_closes(0x22, 3, 1) == 1);
+}
+
+/* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): a PUBLISH whose Track
+ * Properties hold a Mandatory Track Property (0x4000-0x7FFF) the hub does
+ * not understand -- "the subscriber MUST respond with REQUEST_ERROR with
+ * error code UNSUPPORTED_EXTENSION"; the track is not taken. */
+static void test_moqtrun_sub_publish_mandatory_refused(void) {
+  u8         in[16], out[32];
+  usz        ni = 0, no = 0;
+  u64        pi = 0, po = 0;
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_prop_num(in, &ni, &pi, 0x4000, 1);
+  for (int imm = 0; imm < 2; imm++) {
+    no = 0;
+    po = 0;
+    if (imm) {
+      mtst_prop_imm(out, &no, &po, wired_span_of(in, ni));
+    } else {
+      mtst_prop_num(out, &no, &po, 0x7FFF, 1);
+    }
+    mtst_init();
+    u64 ca = mtst_join(SESS_A);
+    mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(out, no));
+    CHECK(
+        mtrq_err_on(ca) ==
+        moqctl_request_error_for(
+            mtst_ver(SESS_A), MOQCTL_ERR_UNSUPPORTED_EXTENSION));
+    CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
+    CHECK(mtrq_closes() == 0);
+  }
 }
 
 /* The effective subgroup timeout is min(publisher Track Property,
@@ -1897,6 +2091,10 @@ static void mtall_sub(void) {
   test_moqtrun_sub_subgroup_timeout_min();
   test_moqtrun_sub_include_properties_0_empty_tail();
   test_moqtrun_sub_include_properties_1_forwards();
+  test_moqtrun_sub_props_immutable();
+  test_moqtrun_sub_props_long_forwarded();
+  test_moqtrun_sub_props_bad_values_close();
+  test_moqtrun_sub_publish_mandatory_refused();
   test_moqtrun_sub_subgroup_timeout_update();
   test_moqtrun_sub_subgroup_timeout_gates_delivery();
   test_moqtrun_sub_ns_max_fields();
@@ -1937,6 +2135,7 @@ static void mtall_sub_rngf(void) {
   test_moqtrun_sub_rngf_gates_stream();
   test_moqtrun_sub_rngf_dup_identity();
   test_moqtrun_sub_rngf_limit();
+  test_moqtrun_sub_rngf_value_checks();
 }
 
 void test_moqtrun_sub(void) {

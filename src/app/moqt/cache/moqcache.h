@@ -5,9 +5,13 @@
 
 /** @file
  * Object cache for FETCH (draft-ietf-moq-transport-19 10.12.3) in a
- * caller-provided arena. Records {tag, group, object, len} + payload are
+ * caller-provided arena. Records {tag, group, object, len, exp} + payload are
  * packed back to back in arrival order; tag names the track incarnation,
  * so several tracks share one arena and one oldest-first eviction order.
+ *
+ * A record may carry an expiry clock (moqcache_append_exp, draft-18 12.3
+ * MAX_CACHE_DURATION): once moqcache.now reaches it, the record's whole
+ * group becomes a tombstone (its state unknown) at the next lookup.
  *
  * Rules: a group is cached whole or not at all. An arriving Object evicts
  * the minimum number of whole OLDEST other groups it needs room for. A
@@ -29,8 +33,8 @@
  * track (an Object of an older group is cached as if it were new).
  */
 
-/** Bytes of one record header (tag, group, object, len as 4 u64). */
-#define MOQCACHE_HDR 32
+/** Bytes of one record header (tag, group, object, len, exp as 5 u64). */
+#define MOQCACHE_HDR 40
 
 /** Largest cached payload: one fetch Object (payload + framing of at most
  * 64 bytes) must fit a single 64 KiB stream round. */
@@ -53,6 +57,10 @@ typedef struct {
   u64 hint_tag;
   /** The Location that lookup was for. */
   moqctl_loc hint_cur;
+  /** The caller's clock (ms), set before appends and lookups. */
+  u64 now;
+  /** Earliest expiry of a held record, ~0 when none expires. */
+  u64 next_exp;
 } moqcache;
 
 /** One FETCH response item at a cursor: an Object (unknown 0, payload a
@@ -77,6 +85,11 @@ void moqcache_init(moqcache* c, u8* arena, usz cap);
 /** Caches Object {group, object} of tag (rules above). */
 void moqcache_append(
     moqcache* c, u64 tag, u64 group, u64 object, wired_span payload);
+
+/** moqcache_append, the Object no longer served once now reaches exp
+ * (~0: never). */
+void moqcache_append_exp(
+    moqcache* c, u64 tag, u64 group, u64 object, wired_span payload, u64 exp);
 
 /** Drops every record of tag (its publisher left). */
 void moqcache_release(moqcache* c, u64 tag);

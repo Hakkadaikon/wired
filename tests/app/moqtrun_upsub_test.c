@@ -441,6 +441,55 @@ static void test_moqtrun_upsub_prefix(void) {
   CHECK(mups_n_up(SESS_A) == 1);
 }
 
+/* A answers SUBSCRIBE_OK on sid with one Track Property (type, num). */
+static void mups_ok_prop(u64 sid, u64 type, u64 num) {
+  static moqctl_subscribe_ok ok;
+  static u8                  props[16];
+  usz                        n    = 0;
+  u64                        prev = 0;
+  moqkvp                     kv   = {0};
+  kv.type                         = type;
+  kv.num                          = num;
+  CHECK(moqkvp_put(wired_mspan_of(props, sizeof props), &n, &prev, &kv));
+  ok.track_alias      = MUPS_ALIAS;
+  ok.track_properties = wired_span_of(props, n);
+  mtst_send(SESS_A, sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+}
+
+/* draft-18 12.5 / 12.6: an upstream SUBSCRIBE_OK's out-of-range
+ * DEFAULT_PUBLISHER_GROUP_ORDER closes A's session PROTOCOL_VIOLATION;
+ * no track is claimed. */
+static void test_moqtrun_upsub_ok_bad_prop_closes(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mups_ok_prop((u64)mups_up_sid(), 0x22, 3);
+  CHECK(mtrq_closes() == 1);
+  CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
+}
+
+/* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): an upstream SUBSCRIBE_OK
+ * with a Mandatory Track Property (0x4000-0x7FFF) the hub does not
+ * understand: "the subscriber MUST cancel the subscription ... it MUST
+ * send REQUEST_ERROR with error code UNSUPPORTED_EXTENSION to the
+ * downstream subscribers". */
+static void test_moqtrun_upsub_ok_mandatory_refused(void) {
+  u64 sid;
+  mups_init();
+  mtst_join(SESS_C);
+  mups_sub(SESS_B, MRDV_S1);
+  mups_sub(SESS_C, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok_prop(sid, 0x4000, 1);
+  CHECK(
+      mtrq_err_on(MRDV_S1) ==
+      moqctl_request_error_for(
+          g_moqtrun_test_ver, MOQCTL_ERR_UNSUPPORTED_EXTENSION));
+  CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
+  CHECK(mups_up_is(sid, "RST1|STOP1|"));
+  CHECK(mups_used() == 0);
+  CHECK(mtrq_closes() == 0);
+}
+
 static void mtall_upsub(void) {
   test_moqtrun_upsub_ok_after_upstream();
   test_moqtrun_upsub_objects_relayed();
@@ -457,6 +506,8 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_open_fails();
   test_moqtrun_upsub_own_namespace();
   test_moqtrun_upsub_prefix();
+  test_moqtrun_upsub_ok_bad_prop_closes();
+  test_moqtrun_upsub_ok_mandatory_refused();
 }
 
 /* Cross-draft: A's reply decoded in A's draft, B's answer spelled in B's

@@ -71,7 +71,7 @@ static void moqtrun_upf_ok_checked(
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok,
     moqctl_loc           e) {
-  if (moqtrun_upf_mandatory(ok->track_properties)) {
+  if (moqtrun_tprops_check(ok->track_properties) & MOQTRUN_TP_MAND) {
     moqtrun_upf_mand(hub, f);
     return;
   }

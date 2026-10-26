@@ -1,26 +1,14 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static u64  moqtrun_track_prop(wired_span props, u64 type, u64 dflt);
 static u8   moqtrun_track_prop_prio(wired_span props);
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props);
-static int  moqtrun_token_by_value(const moqctl_token* t);
-static u32  moqtrun_token_close_code(const moqctl_token* t);
-
-/* The varint Track Property type of a PUBLISH's Track Properties (KVPs
- * to the end of the body, SS1.6); dflt when absent, unknown properties
- * skipped, a malformed pair ends the scan with what was read. */
-static u64 moqtrun_track_prop(wired_span props, u64 type, u64 dflt) {
-  usz    off  = 0;
-  u64    prev = 0, out = dflt;
-  moqkvp kv;
-  while (off < props.n && moqkvp_take(props, &off, &prev, &kv) == MOQKVP_OK) {
-    out = moqtrun_prop_num_of(&kv, type, out);
-  }
-  return out;
-}
+static void moqtrun_refuse_or_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
+static int moqtrun_token_by_value(const moqctl_token* t);
+static u32 moqtrun_token_close_code(const moqctl_token* t);
 
 static u8 moqtrun_track_prop_prio(wired_span props) {
-  u64 v = moqtrun_track_prop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
+  u64 v = moqtrun_tprop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
   return v > 255 ? 128 : (u8)v;
 }
 
@@ -29,12 +17,9 @@ static u8 moqtrun_track_prop_prio(wired_span props) {
  * SUBGROUP_DELIVERY_TIMEOUT (12.6) and DEFAULT_PUBLISHER_PRIORITY (12.4)
  * from props, rid the request (a
  * PUBLISH's, or the hub's own upstream SUBSCRIBE's) that claims it. */
-/* Keeps props for SUBSCRIBE_OK (WIRED_MOQTRUN_TRACK_PROPS_MAX's own doc:
- * a larger block is kept as none). */
+/* Keeps props to forward (moqtrun_tprops_refused already refused a block
+ * past WIRED_MOQTRUN_TRACK_PROPS_MAX). */
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props) {
-  if (props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX) {
-    return;
-  }
   bytes_memcpy(t->props, props.p, props.n);
   t->props_len = (u8)props.n;
 }
@@ -51,11 +36,23 @@ void moqtrun_track_open(
   moqtrun_track_seed_largest(t, params);
   t->request_id = rid;
   t->subgroup_timeout_ms =
-      moqtrun_track_prop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
+      moqtrun_tprop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
   t->default_pub_prio = moqtrun_track_prop_prio(props);
+  t->max_cache_ms     = moqtrun_tprop(props, MOQTRUN_PROP_MAX_CACHE, ~(u64)0);
   t->up_streams       = 0;
   t->pubdone_pending  = 0;
   moqtrun_track_keep_props(t, props);
+}
+
+/* REQUEST_ERROR code, or for MOQTRUN_REQ_CLOSE (draft-18 12.5/12.6) a
+ * PROTOCOL_VIOLATION close. */
+static void moqtrun_refuse_or_close(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
+  if (code == MOQTRUN_REQ_CLOSE) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    return;
+  }
+  moqtrun_send_request_error(p, code);
 }
 
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
@@ -70,7 +67,7 @@ void moqtrun_publish_checked(
   u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
   u64 code;
   if (moqtrun_publish_refused(hub, m, &code)) {
-    moqtrun_send_request_error(p, code);
+    moqtrun_refuse_or_close(hub, p, code);
     return;
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);

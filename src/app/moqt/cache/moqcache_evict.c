@@ -68,7 +68,7 @@ static usz moqcache_group_bytes(
  * when not even that fits -- the arena is below the ceiling in
  * moqcache.h). */
 static void moqcache_kill(moqcache* c, u64 tag, u64 group) {
-  moqcache_rec t = {tag, group, 0, MOQCACHE_DEAD};
+  moqcache_rec t = {tag, group, 0, MOQCACHE_DEAD, ~(u64)0};
   moqcache_drop(c, tag, group, 0);
   moqcache_put(c, t, 0, 0);
 }
@@ -84,15 +84,22 @@ static int moqcache_store(
          moqcache_put(c, r, payload.p, payload.n);
 }
 
-void moqcache_append(
-    moqcache* c, u64 tag, u64 group, u64 object, wired_span payload) {
+void moqcache_append_exp(
+    moqcache* c, u64 tag, u64 group, u64 object, wired_span payload, u64 exp) {
   int          dead = 0;
   usz          held = moqcache_group_bytes(c, tag, group, &dead);
-  moqcache_rec r    = {tag, group, object, payload.n};
+  moqcache_rec r    = {tag, group, object, payload.n, exp};
   if (dead) {
     return;
   }
   if (!moqcache_store(c, r, payload, held)) {
     moqcache_kill(c, tag, group);
+    return;
   }
+  c->next_exp = u64_min(c->next_exp, exp);
+}
+
+void moqcache_append(
+    moqcache* c, u64 tag, u64 group, u64 object, wired_span payload) {
+  moqcache_append_exp(c, tag, group, object, payload, ~(u64)0);
 }

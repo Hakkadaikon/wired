@@ -147,9 +147,11 @@ void moqtrun_queue_fetch_ok_m(wired_moqtrun_peer* p, const moqfetch_ok* ok) {
 }
 
 /* FETCH_OK (10.13): not End Of Track, End Location end (inclusive), no
- * parameters or Track Properties. */
-void moqtrun_queue_fetch_ok(wired_moqtrun_peer* p, moqctl_loc end) {
-  moqfetch_ok ok = {0};
-  ok.end         = end;
+ * parameters; the track's Track Properties props (draft-18 9.6). */
+void moqtrun_queue_fetch_ok(
+    wired_moqtrun_peer* p, moqctl_loc end, wired_span props) {
+  moqfetch_ok ok      = {0};
+  ok.end              = end;
+  ok.track_properties = props;
   moqtrun_queue_fetch_ok_m(p, &ok);
 }

@@ -72,8 +72,7 @@ static int moqtrun_tp_set_pass(
 
 /* draft-22 3.3.2 / 9.20.14: t is offered to SUBSCRIBE_TRACKS st only when
  * some SetID's Track Property filters all admit its Track Properties (a
- * set without any passes here). ponytail: properties longer than
- * WIRED_MOQTRUN_TRACK_PROPS_MAX are not kept, so they read as absent. */
+ * set without any passes here). */
 int moqtrun_subtracks_tp_pass(
     const wired_moqtrun_req* st, const wired_moqtrun_track* t) {
   wired_span props = wired_span_of(t->props, t->props_len);

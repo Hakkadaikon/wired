@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 187/248 tested, 37 indirect, 24 untested.**
+**Coverage: 192/248 tested, 37 indirect, 19 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -204,9 +204,10 @@ Legend:
     code point in these ranges.
 - [~] MOQT-027 (SS2.5.1) The implementation shall classify Property types
   0x4000-0x7FFF as Mandatory Track Properties.
-  - evidence: `moqtrun_upf_mandatory` classifies the range;
-    `test_moqtrun_upfetch_mandatory` uses type 0x4000 only, so the upper edge
-    is untested.
+  - evidence: `moqtrun_tprops_check` classifies the range;
+    `test_moqtrun_upfetch_mandatory` uses type 0x4000 and
+    `test_moqtrun_sub_publish_mandatory_refused` 0x7FFF; the outside edges
+    (0x3FFF, 0x8000) are untested.
 - [x] MOQT-211 (SS2.5, SS9.6) The hub shall forward Track and Object Properties
   it does not interpret unchanged, keeping them with a cached Track or Object,
   and shall include a Track's Properties in the SUBSCRIBE_OK and FETCH_OK it
@@ -216,18 +217,18 @@ Legend:
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_no_track_waits_ok`
   - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_reencode`
-- [ ] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
+- [x] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as Malformed.
-  - gap: Object Properties are relayed opaque; no Mandatory-range check.
-- [ ] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
+  - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
+- [x] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
   hub does not understand, then the hub shall answer REQUEST_ERROR
   UNSUPPORTED_EXTENSION and not forward the track.
-  - gap: only the upstream FETCH_OK path checks the Mandatory range.
-- [ ] MOQT-214 (SS2.5.1) If an upstream SUBSCRIBE_OK carries a Mandatory Track
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
+- [x] MOQT-214 (SS2.5.1) If an upstream SUBSCRIBE_OK carries a Mandatory Track
   Property the hub does not understand, then the hub shall cancel the upstream
   subscription and answer its pending downstream subscribers REQUEST_ERROR
   UNSUPPORTED_EXTENSION.
-  - gap: only the upstream FETCH_OK path checks the Mandatory range.
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [x] MOQT-215 (SS2.5.1) If an upstream FETCH_OK carries a Mandatory Track
   Property the hub does not understand, then the hub shall cancel the upstream
   FETCH, answering an unanswered downstream FETCH REQUEST_ERROR
@@ -711,9 +712,9 @@ Legend:
   - test: `tests/app/moqraw_test.c` — `test_moqraw_path`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_authority`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_hook`
-- [ ] MOQT-237 (SS10.3.1.5) The hub should send a MOQT_IMPLEMENTATION Setup
+- [x] MOQT-237 (SS10.3.1.5) The hub should send a MOQT_IMPLEMENTATION Setup
   Option carrying only its name and version.
-  - gap: the hub's SETUP carries only MAX_FILTER_RANGES / MAX_REQUEST_UPDATES.
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_sends_implementation`
 - [x] MOQT-078 The implementation shall decode the MOQT_IMPLEMENTATION (0x07)
   Setup Option as a UTF-8 byte-string value.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
@@ -1793,10 +1794,10 @@ Legend:
   - note: ledger 10-9. Only OBJECTID_FILTER gates delivery, and only at the
     per-Object (datagram) gate; the other filter types are validated and stored
     but pass (see Out of scope).
-- [ ] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) If a PRIORITY_FILTER value
+- [x] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) If a PRIORITY_FILTER value
   exceeds 255, or an OBJECT_PROPERTY_FILTER / TRACK_PROPERTY_FILTER names an
   odd Property Type, then the hub shall answer REQUEST_ERROR INVALID_FILTER.
-  - gap: the Range Filter validation does not check either.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
 
 ## Not implemented
 
@@ -1811,15 +1812,11 @@ MOQT-200 through MOQT-208).
 The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
-- Mandatory Track Properties on PUBLISH, upstream SUBSCRIBE_OK and as an
-  Object Property (MOQT-212 to MOQT-214).
-- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222),
-  and the PRIORITY_FILTER / Property Type value checks (MOQT-236).
+- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
 - No new upstream requests after the hub's own GOAWAY (MOQT-235).
-- A MOQT_IMPLEMENTATION Setup Option in the hub's SETUP (MOQT-237).
 - Closing the session on an invalid datagram Type (MOQT-243).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
 - Enforcing empty Track Properties in REQUEST_OK, the Redirect checks and
@@ -1902,9 +1899,12 @@ from the coverage denominator above:
   DEFAULT_PUBLISHER_GROUP_ORDER, DYNAMIC_GROUPS,
   Immutable Properties, Prior Group/Object ID Gap) as Track/Object
   Properties — the Properties wire slot is decoded generically and relayed
-  unchanged; no specific Property type is interpreted except
-  DEFAULT_PUBLISHER_PRIORITY (the stream urgency of a header omitting its
-  Publisher Priority).
+  unchanged; the hub reads DEFAULT_PUBLISHER_PRIORITY (the stream urgency
+  of a header omitting its Publisher Priority), SUBGROUP_DELIVERY_TIMEOUT
+  and MAX_CACHE_DURATION, inside Immutable Properties too, closes the
+  session on an out-of-range DEFAULT_PUBLISHER_GROUP_ORDER / DYNAMIC_GROUPS
+  and refuses Mandatory Track Properties (MOQT-212 to MOQT-214); the
+  group-order and dynamic-groups scheduling semantics are not applied.
 - (SS13) Security Considerations (subscription amplification,
   communication security, authorization, media security, resource
   exhaustion, timeouts, relay security, implementation fingerprinting) —
