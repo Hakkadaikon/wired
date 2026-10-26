@@ -1319,6 +1319,44 @@ static void test_srvrun_size_violation_discards_no_slot(void) {
   CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
+/* A zero- or one-byte datagram (s2n-quic GHSA-hxq4-mx37-fqvg class)
+ * through srvrun_serve claims no slot and sends nothing -- not even a
+ * stateless reset (RFC 9000 10.3: too short to carry one). */
+static int sr_table_empty(const conntable* t) {
+  int live = 0;
+  for (int i = 0; i < WIRED_CONNTABLE_CAP; i++) {
+    live |= t[i].live;
+  }
+  return !live;
+}
+
+static void test_srvrun_serve_zero_length_datagram_ignored(void) {
+  static const u8  lo[4] = {127, 0, 0, 1};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1] = {0x40};
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         srv, peer;
+  srvrun_state     st  = {table, sr_test_conns()};
+  i64              sfd = wired_udp_socket(), cfd = wired_udp_socket();
+  wired_udp_addr(&srv, 4497, lo);
+  wired_udp_addr(&peer, 4498, lo);
+  CHECK(wired_udp_bind(sfd, &srv) >= 0);
+  CHECK(wired_udp_bind(cfd, &peer) >= 0);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  for (usz n = 0; n < 2; n++) {
+    srvrun_cfg cfg = {
+        sfd, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,   0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_serve(&ctx, wired_mspan_of(dg, n));
+    CHECK(sr_table_empty(table));
+    CHECK(poll_wait_readable(cfd, 0) == 0);
+  }
+  wired_udp_close(sfd);
+  wired_udp_close(cfd);
+}
+
 /* RFC 9000 5.2.2: a refused new connection gets an unpadded server Initial
  * carrying CONNECTION_CLOSE(CONNECTION_REFUSED), openable with Initial keys
  * derived from the client's own DCID -- no live connection state needed.
@@ -27270,6 +27308,7 @@ void test_srvrun(void) {
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_size_violation_discards_no_slot();
+  test_srvrun_serve_zero_length_datagram_ignored();
   test_srvrun_open_slot_xdp_embeds_core_id();
   test_srvrun_open_slot_xdp_embeds_core_id_zero();
   test_srvrun_open_slot_non_xdp_no_core_id_embedding();
