@@ -58,6 +58,10 @@ int srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_incomplete = 0;
     l->streams[i].req_over       = 0;
     l->streams[i].qpack_settled  = 0;
+    l->streams[i].continue_sent  = 0;
+    l->streams[i].continue_len   = 0;
+    /* a reused slot's last request must not ask for a 100 again */
+    l->streams[i].req.expect_continue = 0;
     srvloop_body_reset(&l->streams[i]);
     l->req_next_id = u64_max(l->req_next_id, stream_id + 4);
     h3_priority_init(&l->streams[i].priority);

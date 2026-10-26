@@ -192,6 +192,12 @@ typedef struct {
    * without fin: the peer's RESET_STREAM code once one arrived, else
    * H3_REQUEST_CANCELLED (set at claim). */
   u64 abort_code;
+  /** RFC 9110 10.1.1: 1 once srvrun sent (or tried to send) this
+   * request's 100 (Continue), so it goes out at most once */
+  u8 continue_sent;
+  /** the 100 (Continue) HEADERS frame's stream bytes (0 if it was not
+   * sealed): where the final response's stream offset starts */
+  u16 continue_len;
 } wired_srvloop_stream_slot;
 
 /** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open

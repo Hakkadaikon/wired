@@ -82,6 +82,9 @@ void srvrun_start_wt_status(
     return;
   }
   wired_sendsess_arm(&r->sess, st, pob.len, srvrun_mps(c));
+  /* RFC 9110 10.1.1: after an early 100 (Continue), if one went out */
+  wired_sendsess_set_base_offset(
+      &r->sess, srvrun_continue_shift(c, r->stream_id));
 }
 
 /* draft-ietf-webtrans-http3-15 SS3.2 (WTH3-018): "The server may reply with

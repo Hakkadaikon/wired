@@ -23277,6 +23277,66 @@ static void test_srvrun_headers_past_stream_credit_closes(void) {
   CHECK(is_app == 0);
 }
 
+/* One STREAM frame on request stream 0: a GET HEADERS frame carrying
+ * expect: 100-continue, no FIN. *hlen gets the frame's length. */
+static usz sr_sl_expect_headers(u8* out, usz cap, usz* hlen) {
+  u8              fields[256], h3buf[300];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      hob = obuf_of(h3buf, sizeof h3buf);
+  wired_obuf      sob = obuf_of(out, cap);
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of(0, 0)};
+  stream_frame sf;
+  wired_obuf   xob;
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  /* h3req_enc_header writes one line at its buffer's start */
+  xob = obuf_of(fields + fob.len, sizeof fields - fob.len);
+  CHECK(
+      h3req_enc_header(
+          wired_span_cstr("expect"), wired_span_cstr("100-continue"), &xob) ==
+      1);
+  fob.len += xob.len;
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  *hlen = hob.len;
+  sf    = (stream_frame){0, 0, hob.len, h3buf, 0};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  return sob.len;
+}
+
+/* RFC 9110 10.1.1 (9110-040 / 9110-025): the 100 (Continue) leaves on the
+ * step that completes the HEADERS frame, with no content received yet and
+ * no final response; once the body and FIN arrive, the final response
+ * continues the stream right after the interim HEADERS frame. */
+static void test_srvrun_continue_before_content(void) {
+  static const u8 body[] = {0x00, 0x02, 'h', 'i'}; /* DATA "hi" */
+  srvrun_conn*    c      = sr_sl_fixture();
+  u8              pl[512];
+  usz             hlen;
+  usz             n = sr_sl_expect_headers(pl, sizeof pl, &hlen);
+  const wired_srvloop_stream_slot* s;
+  srvrun_resp*                     r;
+  u16                              sent;
+  sr_sl_step(c, pl, n);
+  s = srvrun_req_slot_of(c, 0);
+  CHECK(s != 0);
+  if (!s) {
+    return;
+  }
+  CHECK(s->continue_sent == 1 && s->continue_len > 0);
+  CHECK(srvrun_resp_find(c, 0) == 0); /* the final response waits */
+  sent = s->continue_len;
+  {
+    stream_frame sf  = {0, hlen, sizeof body, body, 1};
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    sr_sl_step(c, pl, sob.len);
+  }
+  r = srvrun_resp_find(c, 0);
+  CHECK(r != 0 && r->sess.stream_base_offset == sent);
+}
+
 /* HEADERS + DATA exactly filling req_buf: the whole body reaches the app. */
 static void test_srvrun_body_at_req_buf_limit_served(void) {
   static u8    req[4096];
@@ -26545,6 +26605,7 @@ void test_srvrun(void) {
   test_srvrun_body_past_stream_credit_closes();
   test_srvrun_full_window_body_gets_413();
   test_srvrun_full_window_headers_get_431();
+  test_srvrun_continue_before_content();
   test_srvrun_wt_bidi_credit_raised_from_request_window();
   test_srvrun_on_body_streams_body_then_handler();
   test_srvrun_on_body_reject_answers_413();
