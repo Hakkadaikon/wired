@@ -19,4 +19,5 @@ void wired_h3srv_state_init(wired_h3srv_state* st, u64 max_table_capacity) {
    * grow via Set Dynamic Table Capacity within the PEER's advertised
    * SETTINGS_QPACK_MAX_TABLE_CAPACITY -- never this server's own limit. */
   qpackenc_init(&st->qenc, 0);
+  st->qdec_rx = (qpackenc_decrx){0};
 }

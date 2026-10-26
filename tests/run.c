@@ -458,6 +458,7 @@
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dynfind.c"
 #include "app/qpack/qpackenc/qpackenc.c"
+#include "app/qpack/qpackenc/qpackenc_decrx.c"
 #include "app/qpack/qpackenc/status_line.c"
 #include "transport/stream/flow/flow/stream_read.c"
 #include "transport/stream/flow/flow/credit.c"

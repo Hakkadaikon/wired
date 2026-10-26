@@ -47,6 +47,9 @@ typedef struct {
    * Table Capacity is ever sent, so every field line stays static or
    * literal with Required Insert Count 0. */
   qpackenc_state qenc;
+  /** RFC 9204 4.4: the peer's decoder stream, read into qenc's
+   * acknowledgment state. */
+  qpackenc_decrx qdec_rx;
 } wired_h3srv_state;
 
 /** RFC 9204 3.2: initialise st's dynamic table empty and its own advertised

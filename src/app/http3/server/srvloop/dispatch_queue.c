@@ -19,6 +19,7 @@ void srvloop_gather_wt_uni_frame(wired_srvloop* l, const stream_frame* sf) {
     srvloop_gather_wt_uni_classify(l, sf);
   }
   srvloop_gather_qpack_enc(l, sf);
+  srvloop_gather_qpack_dec(l, sf);
   if (!srvloop_wt_uni_frame_relevant(l, sf)) {
     return;
   }
