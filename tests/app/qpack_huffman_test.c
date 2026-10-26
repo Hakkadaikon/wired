@@ -56,6 +56,22 @@ static void test_huffman_bad_padding(void) {
   CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
 }
 
+/* RFC 7541 5.2 (7541-017): "A padding strictly longer than 7 bits MUST be
+ * treated as a decoding error" -- all-ones runs too short to be the 30-bit
+ * EOS reach that check: 'a' (00011) + 3 ones decodes, 'a' + 11 ones and 8
+ * lone ones do not. */
+static void test_huffman_padding_over_7_bits(void) {
+  const u8   a3[] = {0x1f}, a11[] = {0x1f, 0xff}, ones8[] = {0xff};
+  u8         out[8];
+  wired_obuf ob = obuf_of(out, sizeof(out));
+  CHECK(qpack_huffman_decode(wired_span_of(a3, sizeof(a3)), &ob) == 1);
+  CHECK(ob.len == 1 && out[0] == 'a');
+  ob = obuf_of(out, sizeof(out));
+  CHECK(qpack_huffman_decode(wired_span_of(a11, sizeof(a11)), &ob) == 0);
+  ob = obuf_of(out, sizeof(out));
+  CHECK(qpack_huffman_decode(wired_span_of(ones8, sizeof(ones8)), &ob) == 0);
+}
+
 /* RFC 7541 5.2: padding of 8 or more bits, or an explicit EOS symbol, is an
  * error. 0xff*4 carries a 30-bit EOS code, never a valid string. */
 static void test_huffman_eos_rejected(void) {
@@ -132,6 +148,7 @@ void test_qpack_huffman(void) {
   test_huffman_curl_headers();
   test_huffman_padding();
   test_huffman_bad_padding();
+  test_huffman_padding_over_7_bits();
   test_huffman_eos_rejected();
   test_huffman_overflow();
   test_huffman_string_h1();
