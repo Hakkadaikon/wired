@@ -2,8 +2,6 @@
 
 static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f);
 static void ctrl_note_frame(wired_srvloop* l, int is_settings);
-static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v);
-static void ctrl_latch_settings(wired_srvloop* l, const h3_frame* f);
 static void ctrl_note_generic(wired_srvloop* l, const h3_frame* f);
 static usz  ctrl_walk_one(wired_srvloop* l, wired_span avail);
 static void ctrl_walk(wired_srvloop* l);
@@ -34,7 +32,7 @@ static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
 }
 
 /* RFC 9114 7.2.4: latch one control-stream frame's SETTINGS-ordering state
- * into l->peer_ctrl -- whether the client's SETTINGS has been seen yet
+ * into l->h3peer.ctrl -- whether the client's SETTINGS has been seen yet
  * (WTH3-009/042: WebTransport dispatch gates newly incoming requests on
  * this). Every control-stream frame updates this, not just SETTINGS, since a
  * MISSING_SETTINGS violation requires seeing that the FIRST frame was
@@ -42,42 +40,15 @@ static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
  * below calls this from both branches, not only its generic-frame
  * fallback. */
 static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
-  h3_control_frame(&l->peer_ctrl, is_settings);
+  h3_control_frame(&l->h3peer.ctrl, is_settings);
 }
 
-/* draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: the SETTINGS identifiers
- * latched into l->peer_wt_initial[], index for index. */
-static const u64 ctrl_wt_initial_ids[3] = {
-    H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI,
-    H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI, H3_SETTINGS_WT_INITIAL_MAX_DATA};
-
-static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v) {
-  for (usz i = 0; i < 3; i++) {
-    if (ctrl_wt_initial_ids[i] == id) {
-      l->peer_wt_initial[i] = v;
-    }
-  }
-}
-
-/* RFC 9114 7.2.4: walk a SETTINGS payload's (Identifier, Value) pairs and
- * latch the WebTransport initial limits; other identifiers are ignored. */
-static void ctrl_latch_settings(wired_srvloop* l, const h3_frame* f) {
-  wired_span p   = wired_span_of(f->payload, (usz)f->payload_len);
-  usz        off = 0;
-  u64        id, v;
-  while (varint_take(p, &off, &id) && varint_take(p, &off, &v)) {
-    ctrl_wt_initial_set(l, id, v);
-  }
-}
-
-/* One generic control-stream frame: SETTINGS-ordering state, plus the
- * SETTINGS values themselves when it is the SETTINGS frame. */
+/* One generic control-stream frame: SETTINGS-ordering state, then the
+ * frame itself (srvloop_ctrl_frame: SETTINGS values, GOAWAY, push ids, and
+ * the frame types a control stream must not carry). */
 static void ctrl_note_generic(wired_srvloop* l, const h3_frame* f) {
-  int is_settings = f->type == H3_FRAME_SETTINGS;
-  ctrl_note_frame(l, is_settings);
-  if (is_settings) {
-    ctrl_latch_settings(l, f);
-  }
+  ctrl_note_frame(l, f->type == H3_FRAME_SETTINGS);
+  srvloop_ctrl_frame(l, f);
 }
 
 /* Decode the H3 frame at l->ctrl.buf[l->ctrl.parsed..len) and act on it if it
@@ -117,16 +88,24 @@ static void ctrl_walk(wired_srvloop* l) {
 
 /* Record sf's stream as THE control stream (first claimant wins -- a later
  * 0x00-typed uni stream is never remixed into the same buffer). Returns 1
- * iff sf's stream is the claimed one. Claiming keys off the offset-0 frame
- * itself, NOT off bytes having landed in l->ctrl: the offset-0 frame may
- * carry the type varint alone (flupke does), leaving ctrl.len at 0 while
- * the stream is nonetheless recognized. */
+ * iff sf's stream is the claimed one; another one is RFC 9114 6.2.1's
+ * second control stream (h3_control_open latches STREAM_CREATION). Claiming
+ * keys off the offset-0 frame itself, NOT off bytes having landed in
+ * l->ctrl: the offset-0 frame may carry the type varint alone (flupke
+ * does), leaving ctrl.len at 0 while the stream is nonetheless recognized.
+ * A retransmitted offset-0 frame of the claimed stream is not a second
+ * stream. */
 int srvloop_ctrl_claim(wired_srvloop* l, const stream_frame* sf) {
   if (!l->ctrl.open) {
     l->ctrl.open      = 1;
     l->ctrl.stream_id = sf->stream_id;
+    h3_control_open(&l->h3peer.ctrl);
   }
-  return sf->stream_id == l->ctrl.stream_id;
+  if (sf->stream_id != l->ctrl.stream_id) {
+    h3_control_open(&l->h3peer.ctrl);
+    return 0;
+  }
+  return 1;
 }
 
 /* A mid-stream (offset>0) frame is control traffic iff it belongs to the
