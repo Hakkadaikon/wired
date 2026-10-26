@@ -2,8 +2,8 @@
 
 #include "common/platform/rng/rng.h"
 
-/* [0] ticket seed, [1] Retry-token seed. */
-static u8  g_srvkeys[2][SRVKEYS_LEN];
+/* [0] ticket seed, [1] Retry-token seed, [2] NEW_TOKEN key. */
+static u8  g_srvkeys[3][SRVKEYS_LEN];
 static int g_srvkeys_drawn;
 
 /* The draw happens once, on the starting thread, before any worker exists
@@ -28,4 +28,9 @@ const u8* srvkeys_ticket(void) {
 const u8* srvkeys_retry(void) {
   srvkeys_ready();
   return g_srvkeys[1];
+}
+
+const u8* srvkeys_newtoken(void) {
+  srvkeys_ready();
+  return g_srvkeys[2];
 }

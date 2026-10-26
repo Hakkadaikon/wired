@@ -888,6 +888,14 @@ typedef struct {
   u8 retry_odcid[WIRED_MAX_CID_LEN];
   /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
   u8 retry_odcid_len;
+  /** RFC 9000 8.1: 1 when the client's first Initial carried a valid Retry
+   * or NEW_TOKEN token -- its address is validated, so the
+   * anti-amplification limit does not apply. */
+  u8 addr_validated;
+  /** RFC 9000 8.1.3/9.3: 1 while a NEW_TOKEN token is owed (confirmation
+   * or a newly validated address) but not sent yet (srvrun_send_new_token).
+   */
+  u8 newtok_owed;
   /** Bidi MAX_STREAMS re-announces left (see grant_retry_ms). */
   u8 grant_retries;
   /** RFC 9000 9.5: the server connection ID the client's last opened 1-RTT

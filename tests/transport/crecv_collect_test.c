@@ -87,11 +87,11 @@ static void test_crecv_overflow_rejected(void) {
   crecv s;
   u8    f[8];
   usz   n = 0;
-  /* offset 2047 as a 2-byte varint (0x4000 | value), length 2 ends at 2049,
-   * one past CRECV_BUF=2048 -> rejected (RFC 9000 19.6). */
+  /* offset 4095 as a 2-byte varint (0x4000 | value), length 2 ends at 4097,
+   * one past CRECV_BUF=4096 -> rejected (RFC 9000 19.6). */
   f[n++] = 0x06;
-  f[n++] = 0x47;
-  f[n++] = 0xff; /* offset 0x07ff = 2047 */
+  f[n++] = 0x4f;
+  f[n++] = 0xff; /* offset 0x0fff = 4095 */
   f[n++] = 0x02; /* length 2 */
   f[n++] = 1;
   f[n++] = 2;
@@ -100,7 +100,28 @@ static void test_crecv_overflow_rejected(void) {
   CHECK(crecv_collect(&s, f, n) == 0);
 }
 
+/* RFC 9000 7.5: at least 4096 bytes of out-of-order CRYPTO data buffer --
+ * a lone frame ending exactly at offset 4096 is held (not yet deliverable,
+ * the prefix from 0 is missing). */
+static void test_crecv_buffers_4096_out_of_order(void) {
+  crecv s;
+  u8    f[8];
+  usz   n = 0;
+  f[n++]  = 0x06;
+  f[n++]  = 0x4f;
+  f[n++]  = 0xfe; /* offset 0x0ffe = 4094 */
+  f[n++]  = 0x02; /* length 2: ends at 4096 */
+  f[n++]  = 1;
+  f[n++]  = 2;
+
+  crecv_init(&s);
+  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(s.received_to == 0);
+  CHECK(s.filled[4095] == 1);
+}
+
 void test_crecv_collect(void) {
+  test_crecv_buffers_4096_out_of_order();
   test_crecv_single_offset0();
   test_crecv_out_of_order();
   test_crecv_two_frames_one_payload();

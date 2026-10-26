@@ -1302,11 +1302,11 @@ static void test_srvrun_size_violation_discards_no_slot(void) {
  * same convention test_srvboot_refusal_reports_missing_tp_ext in
  * h3_loopback_test.c uses for wired_srvboot_refusal's own transport-close
  * payload). */
-static void test_srvrun_new_conn_refusal_wire_content(void) {
+static void sr_initial_close_wire_content(u64 code) {
   u8         dg[1500], out[128], scid[8] = {0};
   usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   wired_obuf ob    = obuf_of(out, sizeof out);
-  CHECK(srvrun_seal_new_conn_refusal(wired_span_of(dg, total), scid, &ob));
+  CHECK(srvrun_seal_initial_close(wired_span_of(dg, total), scid, code, &ob));
 
   initial_keys ck, sk;
   aes128       hp;
@@ -1322,7 +1322,13 @@ static void test_srvrun_new_conn_refusal_wire_content(void) {
   usz              rn = frame_get_conn_close(frames.p, frames.n, &cc);
   CHECK(rn != 0 && rn == frames.n);
   CHECK(cc.is_app == 0);
-  CHECK(cc.error_code == ERR_CONNECTION_REFUSED);
+  CHECK(cc.error_code == code);
+}
+
+/* ... and RFC 9000 8.1.2's INVALID_TOKEN close takes the same shape. */
+static void test_srvrun_new_conn_refusal_wire_content(void) {
+  sr_initial_close_wire_content(ERR_CONNECTION_REFUSED);
+  sr_initial_close_wire_content(ERR_INVALID_TOKEN);
 }
 
 /* A non-Initial or malformed-DCID datagram is never eligible to open a new
@@ -3418,6 +3424,69 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   CHECK(sr_find_path_challenge(pl, pll, wire_data) == 1);
   CHECK(ct_diff8(wire_data, sr_chal(&c, -1, &new_peer)->data) == 0);
   CHECK(sr_count_frames(pl, pll, FK_PATH_CHALLENGE) == 1);
+}
+
+/* The NEW_TOKEN token in c's freshly sealed 1-RTT packet, opened as the
+ * client: 1 when srvrun's own gate accepts it from peer. */
+static int sr_newtok_accepted(
+    srvrun_conn* c, struct lp_fix* f, const sockaddr* peer) {
+  u8              out[128];
+  const u8*       pl;
+  usz             pll;
+  new_token_frame nt;
+  u64             now = wired_clock_epoch_secs();
+  usz             n   = srvrun_newtok_seal(c, now, out, sizeof out);
+  CHECK(n != 0);
+  CHECK(client_open_onertt(f, out, n, &pl, &pll) == 1);
+  CHECK(new_token_decode(pl, pll, &nt) != 0);
+  return srvrun_newtok_ok(
+      peer, sdrv_wire_version(&c->s.sdrv), wired_span_of(nt.token, nt.length),
+      now);
+}
+
+/* RFC 9000 8.1.3: once confirmed the server sends a NEW_TOKEN token bound
+ * to the client's address, which its own Initial gate accepts; RFC 9000
+ * 9.3: again once a new client address is validated -- never twice for one
+ * path, never before confirmation. */
+static void test_srvrun_new_token_after_confirm_and_migration(void) {
+  struct lp_fix      f;
+  srvrun_conn        c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_step_ctx    ctx = {0};
+  sockaddr           a, b;
+  usz                sent;
+  srvrun_newtok_mark m;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&a, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&b, 9999, (const u8[4]){127, 0, 0, 2});
+  cfg.fd            = -1;
+  cfg.env           = &g_srvrun_env;
+  ctx.cfg           = &cfg;
+  c.peer            = a;
+  c.path.seeded     = 1;
+  c.path.last_valid = srvrun_send_key(&cfg, &c);
+  sent              = g_srvrun_send_count;
+  m                 = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m); /* a step with no event: none */
+  CHECK(g_srvrun_send_count == sent);
+  m.confirmed = 0; /* the step that sent HANDSHAKE_DONE */
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 1);
+  m = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m); /* once */
+  CHECK(g_srvrun_send_count == sent + 1);
+  CHECK(sr_newtok_accepted(&c, &f, &a) == 1);
+  c.peer = b; /* migrated, not yet validated: nothing owed */
+  m      = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 1);
+  c.path.last_valid = srvrun_send_key(&cfg, &c); /* this step validated b */
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 2);
+  CHECK(sr_newtok_accepted(&c, &f, &b) == 1);
+  CHECK(sr_newtok_accepted(&c, &f, &a) == 0); /* bound to the new IP */
 }
 
 /* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
@@ -26155,6 +26224,7 @@ void test_srvrun(void) {
   test_srvrun_rebind_subsequent_send_targets_new_peer();
   test_srvrun_path_challenge_generated_on_rebind();
   test_srvrun_path_challenge_sent_to_new_peer();
+  test_srvrun_new_token_after_confirm_and_migration();
   test_srvrun_path_response_matching_validates();
   test_srvrun_path_response_mismatch_does_not_validate();
   test_srvrun_path_response_without_challenge_is_noop();

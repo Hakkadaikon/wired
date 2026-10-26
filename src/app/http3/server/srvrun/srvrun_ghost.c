@@ -1,9 +1,8 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_is_refusable_new_conn(wired_span dcid, wired_mspan dg);
-static int srvrun_seal_new_conn_refusal(
-    wired_span dg, const u8 scid[8], wired_obuf* out);
-static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, wired_mspan dg);
+static int srvrun_seal_initial_close(
+    wired_span dg, const u8 scid[8], u64 code, wired_obuf* out);
 static int srvrun_ghost_hit(const srvrun_ghost* g, wired_span dcid, u64 now_ms);
 
 /* srvrun_route plus the full-table eviction fallback (srvrun_evict_for_
@@ -28,17 +27,18 @@ static int srvrun_is_refusable_new_conn(wired_span dcid, wired_mspan dg) {
   return dcid.p != 0 && wired_srvboot_is_initial(dg.p, dg.n);
 }
 
-/* RFC 9000 5.2.2/19.19: build a transport CONNECTION_CLOSE(CONNECTION_REFUSED)
- * as an unpadded server Initial addressed to the client's own DCID/SCID, using
- * Initial keys derived from dcid (no live connection or session state is
- * needed -- Initial keys come from the DCID alone, RFC 9001 5.2). Returns 1
- * with out->len set, 0 on a malformed header or overflow. */
-static int srvrun_seal_new_conn_refusal(
-    wired_span dg, const u8 scid[8], wired_obuf* out) {
+/* RFC 9000 5.2.2/19.19: build a transport CONNECTION_CLOSE(code) -- e.g.
+ * CONNECTION_REFUSED, or INVALID_TOKEN (8.1.2) -- as an unpadded server
+ * Initial addressed to the client's own DCID/SCID, using Initial keys
+ * derived from dcid (no live connection or session state is needed --
+ * Initial keys come from the DCID alone, RFC 9001 5.2). Returns 1 with
+ * out->len set, 0 on a malformed header or overflow. */
+static int srvrun_seal_initial_close(
+    wired_span dg, const u8 scid[8], u64 code, wired_obuf* out) {
   lhdr             h;
-  u8               fr[8];
+  u8               fr[16];
   usz              fn;
-  conn_close_frame cc = {0, ERR_CONNECTION_REFUSED, 0, 0, 0};
+  conn_close_frame cc = {0, code, 0, 0, 0};
   srvwire_seal_in  wi;
   if (!lhdr_parse(dg, 1, &h)) {
     return 0;
@@ -63,38 +63,38 @@ static int srvrun_seal_new_conn_refusal(
   return srvwire_seal_initial_frames_lean(&wi, out);
 }
 
-/* Seal and send the refusal above, addressed to ctx->peer. A server-chosen
- * SCID of zero length is fine (RFC 9000 7.2 allows an empty CID); this
- * connection ends immediately after, so no routing table entry is needed
- * for it. */
-void srvrun_send_new_conn_refusal(
-    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+/* Seal and send the close above, addressed to ctx->peer. A server-chosen
+ * SCID of all zeros is fine; this connection ends immediately after, so no
+ * routing table entry is needed for it. Returns 1 once sent. */
+int srvrun_send_initial_close(
+    const srvrun_step_ctx* ctx, wired_mspan dg, u64 code) {
   u8         out[128];
   u8         scid[8] = {0};
   wired_obuf ob      = obuf_of(out, sizeof out);
-  if (!srvrun_is_refusable_new_conn(dcid, dg)) {
-    return;
-  }
-  if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob)) {
-    return;
+  if (!srvrun_seal_initial_close(wired_span_of(dg.p, dg.n), scid, code, &ob)) {
+    return 0;
   }
   srvrun_tx(
       ctx->cfg, srvrun_rx_fd(ctx->cfg), ctx->peer, wired_span_of(out, ob.len));
-  wired_log_str("conn refused: table full\n");
+  return 1;
 }
 
-/* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
- * before any slot lookup). */
-static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, wired_mspan dg) {
-  return ctx->cfg->force_retry && wired_srvboot_is_initial(dg.p, dg.n);
+void srvrun_send_new_conn_refusal(
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+  if (!srvrun_is_refusable_new_conn(dcid, dg)) {
+    return;
+  }
+  if (srvrun_send_initial_close(ctx, dg, ERR_CONNECTION_REFUSED)) {
+    wired_log_str("conn refused: table full\n");
+  }
 }
 
-/* The retry gate applies only to an Initial whose DCID matches no live
- * slot: a claimed slot's own retransmits already passed validation once,
- * and a post-Retry Initial routes by the token path instead. */
+/* The token gate (RFC 9000 8.1: Retry and NEW_TOKEN tokens, and
+ * force_retry's Retry) applies only to an Initial whose DCID matches no
+ * live slot: a claimed slot's own retransmits already passed it once. */
 int srvrun_retry_applies(
     const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
-  if (!srvrun_retry_wanted(ctx, dg)) {
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) {
     return 0;
   }
   if (srvrun_find_slot(ctx, dcid) >= 0) {
@@ -103,17 +103,18 @@ int srvrun_retry_applies(
   return srvrun_find_boot_scid(ctx, dcid) < 0;
 }
 
-/* 1 if the force_retry gate consumed dg (a Retry went out, or an invalid
- * token was dropped) -- the caller stops here either way. */
+/* 1 if the token gate consumed dg (a Retry or an INVALID_TOKEN close went
+ * out) -- the caller stops here either way. */
 int srvrun_retry_consumed(
     const srvrun_step_ctx* ctx,
     wired_span             dcid,
     wired_mspan            dg,
-    wired_span*            odcid) {
+    wired_span*            odcid,
+    int*                   validated) {
   if (!srvrun_retry_applies(ctx, dcid, dg)) {
     return 0;
   }
-  return srvrun_retry_gate(ctx, dg, odcid);
+  return srvrun_retry_gate(ctx, dg, odcid, validated);
 }
 
 /* 1 if dcid names a freshly closed connection still inside its remembered

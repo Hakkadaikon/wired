@@ -3,16 +3,14 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9369 5 / RFC 9001: a session ticket records the QUIC version of the
- * connection it was issued on. On resumption the recorded version must match
- * or be compatible with the version now in use. */
+/* RFC 9369 5: "Servers MUST validate the originating version of any session
+ * ticket or token and not accept one issued from a different version." A
+ * ticket records the version of the connection it was issued on (the
+ * negotiated one after compatible version negotiation); a rejected one falls
+ * back to a full handshake without 0-RTT. */
 
 /* Returns 1 when a ticket from `ticket_version` may be used to resume on
- * `current_version`: identical, or compatible versions. */
+ * `current_version`: only the very same version. */
 int ticket_version_ok(u32 ticket_version, u32 current_version);
-
-/* Returns 1 when 0-RTT may be attempted on resumption: only when the ticket
- * and current versions are compatible (RFC 9369 5). */
-int ticket_0rtt_ok(u32 ticket_version, u32 current_version);
 
 #endif
