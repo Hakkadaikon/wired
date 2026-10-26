@@ -838,6 +838,9 @@ typedef struct {
   u64 request_id;
   /** cache_tag of the track SUBSCRIBE_OK claimed; 0 while pending. */
   u64 track_tag;
+  /** The SUBSCRIBE's lifecycle as its subscriber sees it (moqsub,
+   * draft-19 5.1): a second response is a session fault. */
+  moqsub sub;
   /** 1 once the publisher's PUBLISH_DONE arrived: the hub's side ends
    * with a FIN, not a cancel, when the track retires. */
   u8 done;

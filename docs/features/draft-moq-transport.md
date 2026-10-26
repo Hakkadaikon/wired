@@ -798,6 +798,8 @@ Legend:
     `test_moqsub_duplicate_response_is_session_fault`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_second_ok_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_second_ok_closes`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_error_after_ok_closes`
 - [~] MOQT-093 (SS5.1.1) If a publisher rejects a SUBSCRIBE with REQUEST_ERROR,
@@ -1797,17 +1799,9 @@ is an open `[ ]` item above:
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
 - No new upstream requests after the hub's own GOAWAY (MOQT-235).
-- Closing the session on an invalid datagram Type (MOQT-243).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
-- Enforcing empty Track Properties in REQUEST_OK, the Redirect checks and
-  DUPLICATE_TRACK_ALIAS (MOQT-083, MOQT-086, MOQT-112).
-- Closing the session on a malformed data stream (unknown Object Status,
-  Properties on a non-Normal Object, invalid SUBGROUP_HEADER Type, Object
-  ID overflow: MOQT-114, MOQT-116, MOQT-119, MOQT-121, MOQT-131) or on an
-  unknown unidirectional stream type (MOQT-039).
-- Request ID parity and duplicate checks on draft-19 requests (MOQT-060,
-  MOQT-061), and failing an upstream request whose responder FINs without
-  answering (MOQT-150).
+- Failing an upstream request whose responder FINs without answering
+  (MOQT-150).
 
 ## Out of scope
 

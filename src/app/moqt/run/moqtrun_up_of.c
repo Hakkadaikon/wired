@@ -89,11 +89,13 @@ void moqtrun_up_store(
   u->request_id = rid;
   u->track_tag  = 0;
   u->done       = 0;
-  u->ns_len     = k.ns.n;
-  u->name_len   = k.name.n;
-  u->in.n       = 0;
-  u->in.at      = 0;
-  u->in.skip    = 0;
+  moqsub_init(&u->sub, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&u->sub, MOQSUB_EV_OPEN);
+  u->ns_len   = k.ns.n;
+  u->name_len = k.name.n;
+  u->in.n     = 0;
+  u->in.at    = 0;
+  u->in.skip  = 0;
   bytes_memcpy(u->ns, k.ns.p, k.ns.n);
   bytes_memcpy(u->name, k.name.p, k.name.n);
 }

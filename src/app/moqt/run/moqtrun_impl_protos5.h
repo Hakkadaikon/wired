@@ -31,6 +31,8 @@ int  moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
 void moqtrun_dispatch_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+void moqtrun_dispatch_bad_first(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 void moqtrun_dispatch_over_cap(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type);

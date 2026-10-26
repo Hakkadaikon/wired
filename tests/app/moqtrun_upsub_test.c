@@ -571,8 +571,24 @@ static void test_moqtrun_upsub_redirect_uri_closes(void) {
   CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
+/* draft-19 5.1 (draft-18 5.1, draft-22 3.1): a publisher answers a
+ * SUBSCRIBE exactly once; a second SUBSCRIBE_OK on the hub's upstream
+ * SUBSCRIBE closes its session PROTOCOL_VIOLATION (the moqsub model's
+ * session fault). */
+static void test_moqtrun_upsub_second_ok_closes(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mups_ok(sid);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
 void test_moqtrun_upsub(void) {
   test_moqtrun_upsub_dup_alias_closes();
+  test_moqtrun_upsub_second_ok_closes();
   test_moqtrun_upsub_redirect_uri_closes();
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();

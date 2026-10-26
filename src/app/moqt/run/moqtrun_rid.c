@@ -98,7 +98,7 @@ static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
 static moqtrun_ctl_fn moqtrun_req_route(
     wired_moqtrun_req* q, u64 type, wired_span body) {
   if (!moqtrun_req_allowed(q, type)) {
-    return moqtrun_dispatch_close;
+    return q->kind ? moqtrun_dispatch_close : moqtrun_dispatch_bad_first;
   }
   moqtrun_req_note(q, type, body);
   return moqtrun_ctl_lookup(type);

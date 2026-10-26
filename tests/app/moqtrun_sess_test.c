@@ -337,6 +337,24 @@ static void test_mtss_publish_error_redirect_closes(void) {
   CHECK(moqtrun_test_count_kind(11) == 0);
 }
 
+/* draft-19 3.3 / 10: a request stream opening with a response type, and an
+ * unknown message type, close the session through the moqsess model
+ * (EV_BAD_FIRST, EV_MALFORMED_CTRL): its state is Closed with
+ * PROTOCOL_VIOLATION. */
+static void test_mtss_sess_model_closes(void) {
+  static const u8 body[] = {0x00, 0x00};
+  mtrq_setup();
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_OK, body, sizeof body);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_B)->sess.state == MOQSESS_CLOSED);
+  mtrq_setup();
+  mtrq_raw(SESS_B, MTRQ_S1, 0x3F, body, sizeof body);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+  CHECK(
+      moqtrun_find_by_wt(&mtst_hub, SESS_B)->sess.close_reason ==
+      MOQSESS_CLOSE_PROTOCOL_VIOLATION);
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -354,4 +372,5 @@ void test_moqtrun_sess(void) {
   test_mtss_fill_unlisted_param_closes();
   test_mtss_publish_ok_props_closes();
   test_mtss_publish_error_redirect_closes();
+  test_mtss_sess_model_closes();
 }

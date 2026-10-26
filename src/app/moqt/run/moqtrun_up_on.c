@@ -1,5 +1,10 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
+static int moqtrun_up_first_answer(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    moqsub_event        ev);
 static void moqtrun_up_on_ok(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -24,8 +29,29 @@ static void moqtrun_up_route(
 static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 
+/* draft-19 5.1 (draft-18 5.1, draft-22 3.1): "A publisher MUST send
+ * exactly one SUBSCRIBE_OK or REQUEST_ERROR in response to a SUBSCRIBE.
+ * ... The peer SHOULD close the session with a protocol error if it
+ * receives more than one." ev steps u's moqsub; 1 when it is the first
+ * answer; a second one (moqsub's session_fault) closes the session
+ * PROTOCOL_VIOLATION. */
+static int moqtrun_up_first_answer(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    moqsub_event        ev) {
+  if (moqsub_step(&u->sub, ev)) {
+    return 1;
+  }
+  if (u->sub.session_fault) {
+    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  }
+  return 0;
+}
+
 /* A reply that fails to decode closes the session PROTOCOL_VIOLATION
- * (moqtrun_take_or_close); a second SUBSCRIBE_OK is ignored. */
+ * (moqtrun_take_or_close), as does a second answer
+ * (moqtrun_up_first_answer). */
 static void moqtrun_up_on_ok(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -33,7 +59,7 @@ static void moqtrun_up_on_ok(
     wired_span          body) {
   usz                 off = 0;
   moqctl_subscribe_ok m;
-  if (u->track_tag) {
+  if (!moqtrun_up_first_answer(hub, pp, u, MOQSUB_EV_OK)) {
     return;
   }
   if (!moqtrun_take_or_close(
@@ -52,7 +78,7 @@ static void moqtrun_up_on_error(
     wired_moqtrun_up*   u,
     wired_span          body) {
   moqctl_request_error e;
-  if (u->track_tag) {
+  if (!moqtrun_up_first_answer(hub, pp, u, MOQSUB_EV_ERROR)) {
     return;
   }
   if (!moqtrun_reqerr_take(hub, pp, body, &e)) {
