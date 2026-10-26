@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 199/248 tested, 35 indirect, 14 untested.**
+**Coverage: 200/248 tested, 35 indirect, 13 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -944,12 +944,12 @@ Legend:
   to two different Tracks simultaneously in the same session.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [ ] MOQT-112 (SS11.1) If the hub receives a PUBLISH or an upstream
+- [x] MOQT-112 (SS11.1) If the hub receives a PUBLISH or an upstream
   SUBSCRIBE_OK reusing a Track Alias already bound to a different Established
   subscription of that session, then it shall close the session with
   DUPLICATE_TRACK_ALIAS.
-  - gap: publishers and upstream publishers choose these aliases, but no test
-    drives a reused one.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_dup_alias_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_dup_alias_closes`
 
 ## SS11.3.1 Object Datagram / SS11.5.2 Padding Datagrams
 

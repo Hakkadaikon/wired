@@ -52,6 +52,11 @@ void moqtrun_track_open(
     const moqctl_params* params,
     wired_span           props,
     u64                  rid);
+int moqtrun_alias_dup_close(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    u64                  alias);
 void moqtrun_publish_checked(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,

@@ -165,6 +165,22 @@ static void test_mtss_setup_token_alias(void) {
   CHECK(mtss_setup_with(bad, sizeof bad) == MOQCTL_CLOSE_KVFMT_ERROR);
 }
 
+/* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): a PUBLISH reusing the
+ * Track Alias of another live track of the same session closes it
+ * DUPLICATE_TRACK_ALIAS; a re-PUBLISH of the same name under its own
+ * alias is the same track and is accepted. */
+static void test_mtss_publish_dup_alias_closes(void) {
+  moqctl_ftn g = mtst_ftn("chat", "room1", "bob");
+  moqctl_ftn f = mtrq_setup(); /* alice, alias 1 */
+  mtst_publish(SESS_A, MTRQ_S1, &g, 1);
+  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS));
+  CHECK(mtrq_type_on(12, MTRQ_S1) == 0);
+  f = mtrq_setup();
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_OK);
+}
+
 void test_moqtrun_sess(void) {
   test_mtss_unknown_uni_closes();
   test_mtss_subgroup_mode3_closes();
@@ -175,4 +191,5 @@ void test_moqtrun_sess(void) {
   test_mtss_rid_window_slides();
   test_mtss_request_token_kvfmt();
   test_mtss_setup_token_alias();
+  test_mtss_publish_dup_alias_closes();
 }

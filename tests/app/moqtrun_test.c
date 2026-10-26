@@ -2056,15 +2056,17 @@ static void test_moqtrun_peer_publishes_three_tracks(void) {
  * PUBLISH re-encoded with that name) from SESS_A on ctrl; 0 if none. */
 static u64 moqtrun_test_publish_reply(
     wired_moqt_hub* hub, u64 ctrl, const char* z) {
-  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
-  usz len = 0, off = 0;
-  u64 type = 0;
+  static u8 k = 0;
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       len = 0, off = 0;
+  u64       type = 0;
   while (z[len]) {
     len++;
   }
   usz n = moqtrun_test_rename_track(
       g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, (const u8*)z, len,
       buf);
+  buf[n - 2] = (u8)(10 + k++ % 100); /* own Track Alias per track (11.1) */
   moqtrun_test_reset();
   wired_moqt_on_stream_data(hub, SESS_A, ctrl, wired_span_of(buf, n), 0);
   CHECK(moqtrun_test_count_kind(3) == 1);

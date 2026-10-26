@@ -6,6 +6,11 @@ static void moqtrun_refuse_or_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
 static int moqtrun_token_by_value(const moqctl_token* t);
 static u32 moqtrun_token_close_code(const moqctl_token* t);
+static int moqtrun_publish_slot_ok(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_moqtrun_track*  t,
+    const moqctl_publish* m);
 
 static u8 moqtrun_track_prop_prio(wired_span props) {
   u64 v = moqtrun_tprop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
@@ -55,6 +60,38 @@ static void moqtrun_refuse_or_close(
   moqtrun_send_request_error(p, code);
 }
 
+/* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): alias, carried by a
+ * PUBLISH or SUBSCRIBE_OK for slot t, already names a different live
+ * track of p -- "it MUST close the session with error
+ * DUPLICATE_TRACK_ALIAS"; 1 when it closed. t itself (a re-PUBLISH of
+ * the same name) is the same track. */
+int moqtrun_alias_dup_close(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    u64                  alias) {
+  wired_moqtrun_track* o = moqtrun_track_by_alias(p, alias);
+  if (!o || o == t) {
+    return 0;
+  }
+  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS);
+  return 1;
+}
+
+/* 1 when slot t may take m: a slot exists (else REQUEST_ERROR) and m's
+ * Track Alias is no other track's (else the session closed). */
+static int moqtrun_publish_slot_ok(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    wired_moqtrun_track*  t,
+    const moqctl_publish* m) {
+  if (!t) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+    return 0;
+  }
+  return !moqtrun_alias_dup_close(hub, p, t, m->track_alias);
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -72,8 +109,7 @@ void moqtrun_publish_checked(
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* t = moqtrun_publish_slot(hub, p, peer_idx, k);
-  if (!t) {
-    moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);
+  if (!moqtrun_publish_slot_ok(hub, p, t, m)) {
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);

@@ -540,7 +540,22 @@ static void test_moqtrun_upsub_cross_draft(void) {
   }
 }
 
+/* draft-19 11.1 (draft-22 3.1.3): an upstream SUBSCRIBE_OK naming the
+ * Track Alias of another live track of the publisher's session closes it
+ * DUPLICATE_TRACK_ALIAS and claims nothing. */
+static void test_moqtrun_upsub_dup_alias_closes(void) {
+  moqctl_ftn g = mtst_ftn("chat", "room1", "carol");
+  u64        sid;
+  mups_init();
+  mtst_publish(SESS_A, 44, &g, MUPS_ALIAS);
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS);
+}
+
 void test_moqtrun_upsub(void) {
+  test_moqtrun_upsub_dup_alias_closes();
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();
 }

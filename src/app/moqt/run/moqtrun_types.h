@@ -178,6 +178,11 @@ typedef struct {
 /** draft-ietf-moq-transport-18/19 3.5 INVALID_REQUEST_ID session code. */
 #define WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID 0x4
 
+/** draft-ietf-moq-transport-18/19 3.5 / -22 12.2 DUPLICATE_TRACK_ALIAS
+ * session code (a PUBLISH or SUBSCRIBE_OK reused another track's Track
+ * Alias, 11.1). */
+#define WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS 0x5
+
 /** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
 #define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
 

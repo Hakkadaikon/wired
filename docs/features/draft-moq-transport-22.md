@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 214/273 tested, 43 indirect, 16 untested.**
+**Coverage: 215/273 tested, 43 indirect, 15 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -1167,12 +1167,11 @@ Legend:
   to two different Tracks simultaneously in the same session.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [ ] MQ22-112 If a subscriber receives a PUBLISH or SUBSCRIBE_OK reusing a
+- [x] MQ22-112 If a subscriber receives a PUBLISH or SUBSCRIBE_OK reusing a
   Track Alias already bound to a different Established subscription, then the
   implementation shall close the session with DUPLICATE_TRACK_ALIAS.
-  - gap: the hub is the subscriber of every client PUBLISH and of each
-    upstream SUBSCRIBE_OK, and takes the publisher's alias as given; no
-    path closes DUPLICATE_TRACK_ALIAS (the code is not used in `src/`).
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_dup_alias_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_dup_alias_closes`
 
 ## SS11.1.1 Object Status
 

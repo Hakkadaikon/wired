@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 201/248 tested, 30 indirect, 17 untested.**
+**Coverage: 202/248 tested, 30 indirect, 16 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -356,7 +356,7 @@ Legend:
     (moqctl.h/moqsess.h/moqraw.h/moqtrun_types.h) rather than round-tripped
     through a codec; no test enumerates the table, but each code is
     asserted at its own violation site (the unwanted-behavior items of this
-    file). DUPLICATE_TRACK_ALIAS is never raised (MQ18-113). draft-18 does
+    file). DUPLICATE_TRACK_ALIAS is raised at MQ18-113. draft-18 does
     not define session code 0x1B (TOO_MANY_REQUEST_UPDATES, draft-19 only)
     -- see Out of scope.
 
@@ -1026,12 +1026,12 @@ Legend:
   to two different Tracks simultaneously in the same session.
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [ ] MQ18-113 (§11.1) If a subscriber receives a PUBLISH or SUBSCRIBE_OK
+- [x] MQ18-113 (§11.1) If a subscriber receives a PUBLISH or SUBSCRIBE_OK
   reusing a Track Alias already bound to a different Established
   subscription, then the implementation shall close the session with
   DUPLICATE_TRACK_ALIAS.
-  - gap: no DUPLICATE_TRACK_ALIAS close exists, though client PUBLISHes and
-    upstream SUBSCRIBE_OKs carry peer-chosen aliases.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_dup_alias_closes`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_dup_alias_closes`
 
 ## SS11.2.1.1 Object Status
 
