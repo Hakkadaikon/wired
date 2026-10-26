@@ -42,6 +42,8 @@
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
+#include "transport/packet/header/lhdr/lhdr_parse.h"
+#include "transport/recovery/detect/recovery/ackdelay.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2: the server real-wire loop. The server
@@ -338,6 +340,11 @@ static void test_srvloop_send_initial_roundtrip(void) {
     CHECK(srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
   }
   CHECK(tls.n == f.sh_len); /* PADDING after CRYPTO is ignored on open */
+  {
+    lhdr h; /* RFC 9000 17.2.2: a server Initial's Token Length is 0 */
+    CHECK(lhdr_parse(wired_span_of(pkt, ob.len), 1, &h) == 1);
+    CHECK(h.token.n == 0);
+  }
 }
 
 /* A chacha20-only ClientHello negotiates CHACHA20_POLY1305_SHA256 (RFC 8446
@@ -1400,6 +1407,10 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   np            = udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
+  /* RFC 9000 12.2: both coalesced packets name the same DCID */
+  CHECK(out[offs[0] + 5] == f.l.cli_scid_len);
+  CHECK(ct_diffn(out + offs[0] + 6, f.l.cli_scid, f.l.cli_scid_len) == 0);
+  CHECK(ct_diffn(out + offs[1] + 1, f.l.cli_scid, f.l.cli_scid_len) == 0);
   {
     const u8* pl;
     usz       pll;
@@ -4454,6 +4465,17 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
     CHECK(ack_decode(buf, n, &a) > 0);
     CHECK(a.ack_delay > 0);
   }
+  /* RFC 9000 13.2.5: the measured delay is reported even past
+   * max_ack_delay, not capped to it */
+  f.l.now_ms += 4 * WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  {
+    u8  buf[288];
+    usz n  = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    u64 us = (f.l.now_ms - f.l.app_ack_policy.since_tick) * 1000;
+    CHECK(ack_decode(buf, n, &a) > 0);
+    CHECK(a.ack_delay == ack_delay_encode(us, ACK_DELAY_EXPONENT_DEFAULT));
+    CHECK(us > WIRED_SRVLOOP_MAX_ACK_DELAY_MS * 1000);
+  }
 }
 
 /* An ACK carries no ECN counts (has_ecn stays 0, type 0x02)
@@ -6965,6 +6987,39 @@ static void test_srvloop_zerortt_and_handshake_read_together(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, zn + hn), &ob);
   CHECK(f.l.app_rx_seen == 1 && f.l.app_rx_pn == 3);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
+  {
+    /* RFC 9001 5.6: the 0-RTT packet's ACK rides a 1-RTT packet -- the
+     * server has no 0-RTT keys to send with */
+    const u8 *pkts[4], *pl;
+    usz       offs[4], lens[4], pll;
+    pktlist   plist = {pkts, offs, lens, 4};
+    CHECK(udploop_split(wired_span_of(out, ob.len), &plist) == 2);
+    CHECK((out[offs[1]] & 0x80) == 0);
+    CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+    check_acks_pn(pl, pll, 3);
+  }
+}
+
+/* RFC 9001 4.9.3: once the client Finished is in, 0-RTT keys are gone -- a
+ * later 0-RTT packet no longer opens. */
+static void test_srvloop_zerortt_keys_dropped_after_finished(void) {
+  struct lp_fix f;
+  u8            pkt[256], hp[512], out[1024];
+  usz           n;
+  wired_obuf    ob = {out, sizeof out, 0};
+  srvloop_zrtt_fix(&f);
+  srvloop_zrtt_send(&f, 0xd3, 3);
+  CHECK(f.l.app_rx_pn == 3);
+  lp_make_client_finished(&f);
+  n = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, hp, sizeof hp);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(hp, n), &ob);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  n  = srvloop_zrtt_ping(&f, 0xd3, 9, pkt);
+  ob = (wired_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, n), &ob);
+  CHECK(f.l.app_rx_pn == 3); /* pn 9 never opened */
 }
 
 /* RFC 9000 7.4.1 / 17.2.2.1: 0-RTT data past the limits the client
@@ -6985,6 +7040,30 @@ static void test_srvloop_zerortt_over_limit_flow_control_error(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, n), &ob);
   CHECK(f.l.transport_error == ERR_FLOW_CONTROL_ERROR);
+}
+
+/* RFC 9001 5.4 / 6.4: a key update keeps the header protection key, and
+ * every later (higher-numbered) packet stays under the new generation --
+ * never back on the old keys. */
+static void test_srvloop_key_update_keeps_hp_never_reverts(void) {
+  struct lp_fix f;
+  u8            out[1024], pkt[256], hp0[INITIAL_HP];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll, n;
+  lp_confirm(&f, &ob);
+  CHECK(lp_seal_ping(&f, 19, pkt, sizeof pkt) > 0); /* generation 0 */
+  bytes_memcpy(hp0, f.s.ku_send.cur.hp, INITIAL_HP);
+  f.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  CHECK(lp_seal_ping(&f, 20, pkt, sizeof pkt) > 0); /* updates to gen 1 */
+  CHECK(f.s.ku_send.generation == 1);
+  CHECK(ct_diffn(f.s.ku_send.cur.hp, hp0, INITIAL_HP) == 0);
+  for (u64 pn = 21; pn < 24; pn++) {
+    n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
+    CHECK(n > 0 && keyphase_get(pkt[0]) == 1);
+    CHECK(client_open_onertt_gen1(&f, pkt, n, &pl, &pll) == 1);
+  }
+  CHECK(f.s.ku_send.generation == 1);
 }
 
 void test_srvloop(void) {
@@ -7167,6 +7246,8 @@ void test_srvloop(void) {
   test_srvloop_ack_only_stays_non_eliciting();
   test_srvloop_zerortt_and_handshake_read_together();
   test_srvloop_zerortt_over_limit_flow_control_error();
+  test_srvloop_key_update_keeps_hp_never_reverts();
+  test_srvloop_zerortt_keys_dropped_after_finished();
   test_srvloop_send_at_aead_limit_initiates_key_update();
   test_srvloop_no_second_update_before_peer_follows();
   test_srvloop_recv_auth_failure_counts_toward_integrity_limit();
