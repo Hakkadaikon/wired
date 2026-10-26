@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 187/248 tested, 37 indirect, 24 untested.**
+**Coverage: 188/248 tested, 37 indirect, 23 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -1793,10 +1793,10 @@ Legend:
   - note: ledger 10-9. Only OBJECTID_FILTER gates delivery, and only at the
     per-Object (datagram) gate; the other filter types are validated and stored
     but pass (see Out of scope).
-- [ ] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) If a PRIORITY_FILTER value
+- [x] MOQT-236 (SS10.2.12, SS10.2.13, SS10.2.14) If a PRIORITY_FILTER value
   exceeds 255, or an OBJECT_PROPERTY_FILTER / TRACK_PROPERTY_FILTER names an
   odd Property Type, then the hub shall answer REQUEST_ERROR INVALID_FILTER.
-  - gap: the Range Filter validation does not check either.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
 
 ## Not implemented
 
@@ -1813,8 +1813,7 @@ is an open `[ ]` item above:
 
 - Mandatory Track Properties on PUBLISH, upstream SUBSCRIBE_OK and as an
   Object Property (MOQT-212 to MOQT-214).
-- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222),
-  and the PRIORITY_FILTER / Property Type value checks (MOQT-236).
+- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).

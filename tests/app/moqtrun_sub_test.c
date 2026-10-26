@@ -1718,6 +1718,43 @@ static void test_moqtrun_sub_rngf_dup_identity(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* d19 10.2.12 / d22 9.20.12: a PRIORITY_FILTER value above 255 "MUST
+ * reject this with REQUEST_ERROR with error code INVALID_FILTER"; d19
+ * 10.2.13-10.2.14 / d22 9.20.13-9.20.14: an OBJECT_/TRACK_PROPERTY_FILTER
+ * Property Type "MUST be even ... otherwise ... INVALID_FILTER". */
+static void test_moqtrun_sub_rngf_value_checks(void) {
+  moqctl_rangefilter ok   = mtst_rngf1(0, 0, 255, 1);
+  moqctl_rangefilter hi   = mtst_rngf1(0, 0, 256, 1);
+  moqctl_rangefilter top  = mtst_rngf1(0, 256, 0, 0); /* open-ended */
+  moqctl_rangefilter odd  = mtst_rngf1(0, 0, 4, 1);
+  moqctl_rangefilter evn  = mtst_rngf1(0, 0, 4, 1);
+  moqctl_params      p[7] = {{0}};
+  u64                want[7];
+  moqctl_ftn         f = mtst_ftn("chat", "room1", "alice");
+  odd.prop_type        = 3;
+  evn.prop_type        = 2;
+  mtst_rngf_param(&p[0], MOQCTL_PARAM_PRIORITY_FILTER, &ok);
+  mtst_rngf_param(&p[1], MOQCTL_PARAM_PRIORITY_FILTER, &hi);
+  mtst_rngf_param(&p[2], MOQCTL_PARAM_PRIORITY_FILTER, &top);
+  mtst_rngf_param(&p[3], MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, &odd);
+  mtst_rngf_param(&p[4], MOQCTL_PARAM_OBJECT_PROPERTY_FILTER, &evn);
+  mtst_rngf_param(&p[5], MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &odd);
+  mtst_rngf_param(&p[6], MOQCTL_PARAM_TRACK_PROPERTY_FILTER, &evn);
+  for (usz i = 0; i < 7; i++) {
+    want[i] = (i == 1 || i == 2 || i == 3 || i == 5) ? MOQCTL_ERR_INVALID_FILTER
+                                                     : MOQTRUN_REQ_ACCEPT;
+    CHECK(moqtrun_rngf_refusal(&p[i]) == want[i]);
+  }
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p[1]);
+  CHECK(mtrq_err_on(cb) == MOQCTL_ERR_INVALID_FILTER);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p[0]);
+  CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
+}
+
 /* The advertised MAX_FILTER_RANGES caps the total Ranges across all
  * Range Filter parameters of one request (10.4). */
 static void test_moqtrun_sub_rngf_limit(void) {
@@ -1937,6 +1974,7 @@ static void mtall_sub_rngf(void) {
   test_moqtrun_sub_rngf_gates_stream();
   test_moqtrun_sub_rngf_dup_identity();
   test_moqtrun_sub_rngf_limit();
+  test_moqtrun_sub_rngf_value_checks();
 }
 
 void test_moqtrun_sub(void) {

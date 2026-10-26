@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 198/259 tested, 35 indirect, 26 untested.**
+**Coverage: 200/259 tested, 35 indirect, 24 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -768,13 +768,13 @@ Legend:
 
 ## SS9.20.12-9.20.17 Range Filter, FILL_PARAMETERS and LARGEST_OBJECT rules
 
-- [ ] MQ22-241 (SS9.20.12) If a PRIORITY_FILTER decodes a value above 255,
+- [x] MQ22-241 (SS9.20.12) If a PRIORITY_FILTER decodes a value above 255,
   then the hub shall reject the request with REQUEST_ERROR INVALID_FILTER.
-  - gap: `moqctl_rangefilter_take` checks only delta overflow.
-- [ ] MQ22-242 (SS9.20.13, SS9.20.14) If an OBJECT_PROPERTY_FILTER or
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
+- [x] MQ22-242 (SS9.20.13, SS9.20.14) If an OBJECT_PROPERTY_FILTER or
   TRACK_PROPERTY_FILTER names an odd Property Type, then the hub shall
   reject the request with REQUEST_ERROR INVALID_FILTER.
-  - gap: the Property Type is decoded but its parity is never checked.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_rngf_value_checks`
 - [~] MQ22-243 (SS9.20.15) If FILL_PARAMETERS carries a parameter outside
   its table (FILL_TIMEOUT, SUBSCRIBER_PRIORITY, LOCATION_FILTER,
   GROUP_ORDER and the four object Range Filters), then the hub shall close
