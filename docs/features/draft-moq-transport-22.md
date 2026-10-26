@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 223/259 tested, 34 indirect, 2 untested.**
+**Coverage: 224/259 tested, 34 indirect, 1 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -457,8 +457,8 @@ Legend:
     `test_moqtrun_upsub_own_namespace`, `test_moqtrun_upsub_prefix`,
     `test_moqtrun_upsub_cross_draft`
   - note: one upstream SUBSCRIBE per Full Track Name, to the first matching
-    announcer (SS7.6 says each matching publisher; the hub keys one track
-    per name). An upstream subscription nobody downstream wants any more
+    announcer, unless `multi_publisher` is on: then one to each matching
+    publisher, a later announcer included (MQ22-229). An upstream subscription nobody downstream wants any more
     is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`). When
     the upstream ends on the publisher's side, the downstream subscriptions
     wait for another announcer instead of ending (MQ22-208 to MQ22-212).
@@ -496,10 +496,10 @@ Legend:
   - test: `tests/app/moqtrun_ssts_test.c` —
     `test_moqtrun_ssts_repath_member`,
     `test_moqtrun_ssts_repath_rejoin_refused`
-  - note: one upstream per Track at a time; SS7.6 says every matching
-    publisher MUST be subscribed, and a newly announcing one for each
-    matching subscription -- the hub does so only while subscriptions wait
-    (see known-limitations.md).
+  - note: one upstream per Track at a time unless `multi_publisher` is on
+    (MQ22-229): then every matching publisher is subscribed, and a
+    subscription whose publisher leaves folds into another one's with no
+    wait.
 - [x] MQ22-209 A subscription waiting for a new path shall get no second
   SUBSCRIBE_OK and no REQUEST_ERROR (SS3.1: one response per request), while
   a new SUBSCRIBE for the same Track is still answered from the pending
@@ -556,12 +556,22 @@ Legend:
   timeout copied from a downstream subscription.
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_ok_after_upstream`
-- [ ] MQ22-229 (SS7.6) The relay shall send a SUBSCRIBE to every matching
+- [x] MQ22-229 (SS7.6) The relay shall send a SUBSCRIBE to every matching
   publisher of a Track (Established upstream subscriptions and every
   covering PUBLISH_NAMESPACE).
-  - gap: the hub keeps one upstream SUBSCRIBE per Full Track Name, to the
-    first matching announcer (MQ22-051 note); other announcers are asked
-    only while a subscription waits for a new path (MQ22-208).
+  - test: `tests/app/moqtrun_mpub_test.c` —
+    `test_moqtrun_mpub_subscribes_every_announcer`,
+    `test_moqtrun_mpub_dedup_streams`, `test_moqtrun_mpub_dedup_datagrams`,
+    `test_moqtrun_mpub_publisher_leaves`,
+    `test_moqtrun_mpub_subscriber_cancel`, `test_moqtrun_mpub_one_refuses`,
+    `test_moqtrun_mpub_late_announcer`, `test_moqtrun_mpub_two_publish`
+  - note: under `wired_moqt_hub.multi_publisher` (set by
+    examples/moqt_interop; the default 0 keeps one publisher per name, the
+    newest session owning it, as moqt_chat wants). Dedup is by Subgroup
+    stream (Group, Subgroup) and datagram (Group, Object) over a 64-entry
+    hub-wide window; a Subgroup the first publisher left unfinished is not
+    completed from the other's dropped copy. Model:
+    tasks/loopeng/MoqtMultiPub (#149).
 - [x] MQ22-227 (SS7.2, SS7.6) If a publisher's PUBLISH pauses the
   subscription (FORWARD 0) and a downstream subscriber is not paused, then
   the relay shall resume it with REQUEST_UPDATE FORWARD 1.

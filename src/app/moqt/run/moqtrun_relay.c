@@ -68,7 +68,7 @@ static void moqtrun_relay_object_one(
     u64                  sg) {
   int        bare;
   wired_span w = moqtrun_head_startobj_cut(hub, s, wire, group, sg, &bare);
-  if (bare) {
+  if (bare || moqtrun_dd_dup(hub, s, 0, group, sg)) {
     return;
   }
   moqtrun_relay_to_one(

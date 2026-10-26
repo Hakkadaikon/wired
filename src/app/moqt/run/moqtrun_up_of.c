@@ -1,6 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k);
 static int moqtrun_up_on_stream(
     const wired_moqtrun_up* u, const wired_wt_session* s, u64 sid);
 static int moqtrun_up_unanswered(
@@ -9,7 +8,7 @@ static int moqtrun_up_is_track(const wired_moqtrun_track* t, u64 tag);
 static int moqtrun_up_crossing(
     const wired_moqtrun_peer* p, const wired_moqtrun_up* u);
 
-static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {
+int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {
   return u->in_use && moqtrun_ns_eq(u->ns, u->ns_len, k.ns) &&
          moqtrun_ns_eq(u->name, u->name_len, k.name);
 }
@@ -47,9 +46,33 @@ wired_moqtrun_up* moqtrun_up_of_stream(
   return 0;
 }
 
+/* u is in use toward s. */
+static int moqtrun_up_on_wt(
+    const wired_moqtrun_up* u, const wired_wt_session* s) {
+  return u->in_use && u->wt == s;
+}
+
+/* Pending: not answered yet (a refusal record is answered). */
 static int moqtrun_up_unanswered(
     const wired_moqtrun_up* u, const wired_wt_session* s) {
-  return u->in_use && u->wt == s && !u->track_tag;
+  return moqtrun_up_on_wt(u, s) && !u->track_tag && !u->failed;
+}
+
+/* u is s's entry for k. */
+int moqtrun_up_matches_wt(
+    const wired_moqtrun_up* u, moqtrun_key k, const wired_wt_session* s) {
+  return u->wt == s && moqtrun_up_matches(u, k);
+}
+
+/* The entry for k toward s (one per publisher, moqtrun_up_fan.c), else 0. */
+wired_moqtrun_up* moqtrun_up_of_key_wt(
+    wired_moqt_hub* hub, moqtrun_key k, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_matches_wt(&hub->ups[i], k, s)) {
+      return &hub->ups[i];
+    }
+  }
+  return 0;
 }
 
 /* draft-18 5.1: p's PUBLISH crosses u, the hub's own SUBSCRIBE to p for
@@ -64,7 +87,7 @@ static int moqtrun_up_crossing(
  * PUBLISH_OK goes out (MUST); its waiters already took p's track. */
 void moqtrun_up_crossed(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_key k) {
-  wired_moqtrun_up* u = moqtrun_up_of_key(hub, k);
+  wired_moqtrun_up* u = moqtrun_up_of_key_wt(hub, k, p->wt);
   if (!moqtrun_up_crossing(p, u)) {
     return;
   }
@@ -113,6 +136,7 @@ void moqtrun_up_store(
   u->done       = 0;
   u->ngr.out    = 0;
   u->upd_out    = 0;
+  u->failed     = 0;
   moqsub_init(&u->sub, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&u->sub, MOQSUB_EV_OPEN);
   u->ns_len   = k.ns.n;

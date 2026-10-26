@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 218/248 tested, 27 indirect, 3 untested.**
+**Coverage: 219/248 tested, 27 indirect, 2 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -488,9 +488,9 @@ Legend:
     forwarded (§7.3, §9.2, §10.2.3/10.2.4). An upstream subscription nobody
     downstream wants any more is cancelled
     (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
-  - gap: one upstream SUBSCRIBE per Full Track Name, to the first matching
-    announcer; §9.5 requires one to each matching publisher (the hub keys
-    one track per name, see MQ18-223).
+  - note: one upstream SUBSCRIBE per Full Track Name, to the first matching
+    announcer, unless `multi_publisher` is on: then one to each matching
+    publisher (§9.5, MQ18-223).
 - [x] MQ18-228 (§10.2.6) Where a SUBSCRIBE for a track with no publisher
   carries a non-zero RENDEZVOUS_TIMEOUT, the hub shall hold it, answer
   SUBSCRIBE_OK once a publisher appears, and REQUEST_ERROR TIMEOUT at the
@@ -523,12 +523,22 @@ Legend:
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_two_share_one`
-- [ ] MQ18-223 (§9.3) The relay shall handle Objects for the same Track from
+- [x] MQ18-223 (§9.3) The relay shall handle Objects for the same Track from
   multiple publishers, forwarding them to matching Established
   subscriptions, and should deduplicate them.
-  - gap: several publishers may share a namespace (MQ18-195), but each
-    Track has one publisher; a second PUBLISH of a held name is refused
-    (MQ18-156).
+  - test: `tests/app/moqtrun_mpub_test.c` —
+    `test_moqtrun_mpub_subscribes_every_announcer`,
+    `test_moqtrun_mpub_dedup_streams`, `test_moqtrun_mpub_dedup_datagrams`,
+    `test_moqtrun_mpub_publisher_leaves`,
+    `test_moqtrun_mpub_subscriber_cancel`, `test_moqtrun_mpub_one_refuses`,
+    `test_moqtrun_mpub_late_announcer`, `test_moqtrun_mpub_two_publish`
+  - note: under `wired_moqt_hub.multi_publisher` (set by
+    examples/moqt_interop; the default 0 keeps one publisher per name, the
+    newest session owning it, as moqt_chat wants). Dedup is by Subgroup
+    stream (Group, Subgroup) and datagram (Group, Object) over a 64-entry
+    hub-wide window; a Subgroup the first publisher left unfinished is not
+    completed from the other's dropped copy. Model:
+    tasks/loopeng/MoqtMultiPub (#149).
 
 ## SS10 Control Messages: common envelope
 

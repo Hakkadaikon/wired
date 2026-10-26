@@ -446,8 +446,8 @@ Legend:
     `test_moqtrun_upsub_own_namespace`, `test_moqtrun_upsub_prefix`,
     `test_moqtrun_upsub_cross_draft`
   - note: one upstream SUBSCRIBE per Full Track Name, to the first matching
-    announcer (SS9.5 says each matching publisher; the hub keys one track
-    per name). An upstream subscription nobody downstream wants any more
+    announcer, unless `wired_moqt_hub.multi_publisher` is on: then one to
+    each matching publisher (SS9.5; `tests/app/moqtrun_mpub_test.c`). An upstream subscription nobody downstream wants any more
     is cancelled (`test_moqtrun_upsub_last_cancel_cancels_upstream`).
 - [x] MOQT-052 (SS9.4) A relay may aggregate authorized subscriptions for a
   given Track when multiple subscribers request it, forwarding a single
@@ -1865,10 +1865,9 @@ from the coverage denominator above:
   REQUEST_UPDATE, datagrams bypass the stream classes, a FETCH's own
   SUBSCRIBER_PRIORITY is not kept (it ranks as 128), and equal classes
   across subscriptions share each pump pass round-robin.
-- (SS9.3) Multiple Publishers of one Track — several publishers may share a
-  namespace (MOQT-194), but each Track still has one publisher;
-  aggregation/deduplication across publishers of a Track is not
-  implemented.
+- (SS9.3) Multiple Publishers of one Track — implemented on draft-18/22
+  (MQ18-223, MQ22-229, shared code) under `wired_moqt_hub.multi_publisher`;
+  off by default, where each Track still has one publisher.
 - (SS10.2.15) EXPIRES — decoded by the registry, not acted on.
   NEW_GROUP_REQUEST (SS10.2.18) is relayed upstream as on draft-18
   (MQ18-229, shared code). (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted

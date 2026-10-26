@@ -363,6 +363,9 @@ typedef struct {
   /** 1 when the SUBSCRIBE sent INCLUDE_PROPERTIES=0: its SUBSCRIBE_OK
    * carries empty Track Properties (draft-22 9.20.21). */
   u8 no_props;
+  /** 1 once another publisher's track carries this subscription too
+   * (hub->multi_publisher): its Locations go through hub->dd. */
+  u8 mirrored;
   /** Streams the hub opened for this subscription (relay, blob, live and
    * fetch streams alike): PUBLISH_DONE's Stream Count (draft 10.10). */
   u64 stream_count;
@@ -875,9 +878,9 @@ typedef struct {
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace
  * publishers (draft-18/19 9.5, draft-22 7.6), hub-wide, one per Full Track
- * Name (aggregation, 9.4). Every pending one has a waiter in hub->rdv, so
- * WIRED_MOQTRUN_MAX_RDV of them covers every hold going upstream at once;
- * an Established one lives as long as its track, at most one of each
+ * Name and publisher (aggregation, 9.4). Every pending one has a waiter in
+ * hub->rdv, so WIRED_MOQTRUN_MAX_RDV of them covers every hold going upstream
+ * at once; an Established one lives as long as its track, at most one of each
  * publisher's WIRED_MOQTRUN_MAX_TRACKS_PER_PEER slots. Past it a waiter
  * with no deadline is refused EXCESSIVE_LOAD. ~1.3 KB of BSS each.
  * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_RDV. */
@@ -919,7 +922,40 @@ typedef struct {
   /** REQUEST_UPDATEs the hub sent on stream_id still unanswered: a
    * REQUEST_ERROR then answers one, not the SUBSCRIBE. */
   u8 upd_out;
+  /** 1 once the publisher refused it (hub->multi_publisher): kept, with
+   * no io, so the publisher is not asked again while the Track is
+   * wanted (moqtrun_up_fan). */
+  u8 failed;
 } wired_moqtrun_up;
+
+/** Fixed capacity of the hub's dedup window (draft-18 9.3 "should
+ * deduplicate"): the Locations its merged subscriptions were fed -- a
+ * (Group, Subgroup) stream or a datagram's (Group, Object) -- oldest
+ * overwritten. Sized for the Subgroup streams and datagrams in flight
+ * across a room's merged subscriptions; a duplicate that arrives after
+ * its record was overwritten is forwarded again.
+ * shortcut: hub-wide FIFO, not per subscription; raise it (or key it per
+ * subscription) if duplicates leak with many merged subscriptions. */
+#define WIRED_MOQTRUN_DD_MAX 64
+
+/** One dedup record: subscription (session_idx, request_id) got Location
+ * (group, id) of kind through the mirror owner (MoqtMultiPub.tla claim). */
+typedef struct {
+  /** The mirror slot that forwarded it: the same mirror may resend. */
+  const wired_moqtrun_sub* owner;
+  /** The subscription's Request ID. */
+  u64 request_id;
+  /** The Location's Group. */
+  u64 group;
+  /** Subgroup ID (kind 0, a stream) or Object ID (kind 1, a datagram). */
+  u64 id;
+  /** The subscriber's peers[] index. */
+  u16 session_idx;
+  /** 0 stream, 1 datagram. */
+  u8 kind;
+  /** 1 while the record is live. */
+  u8 in_use;
+} wired_moqtrun_dd;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)
  * being served at once, hub-wide. A FETCH past it is answered

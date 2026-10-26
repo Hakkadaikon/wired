@@ -923,6 +923,9 @@
 #include "app/moqt/run/moqtrun_up_on.c"
 #include "app/moqt/run/moqtrun_up_send.c"
 #include "app/moqt/run/moqtrun_up_settle.c"
+#include "app/moqt/run/moqtrun_up_fan.c"
+#include "app/moqt/run/moqtrun_mpub.c"
+#include "app/moqt/run/moqtrun_mpub_dd.c"
 #include "app/moqt/run/moqtrun_upd.c"
 #include "app/moqt/run/moqtrun_upd_is.c"
 #include "app/moqt/run/moqtrun_upd_ns.c"
@@ -1522,6 +1525,7 @@
 #include "app/moqtrun_rawpeer_test.c"
 #include "app/moqssts_test.c"
 #include "app/moqtrun_upsub_test.c"
+#include "app/moqtrun_mpub_test.c"
 #include "app/moqtrun_repath_test.c"
 #include "app/moqtrun_upfetch_test.c"
 #include "app/moqctl_switch_test.c"
@@ -2127,6 +2131,7 @@ int main(void) {
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();
+  test_moqtrun_mpub();
   test_moqtrun_repath();
   test_moqtrun_upfetch();
   test_moqctl_switch();

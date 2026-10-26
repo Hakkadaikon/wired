@@ -95,9 +95,7 @@ static void moqtrun_up_on_error(
   if (!moqtrun_reqerr_take(hub, pp, body, &e)) {
     return;
   }
-  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), e.error_code);
-  hub->io.stream_fin(u->wt, u->stream_id);
-  u->in_use = 0;
+  moqtrun_up_failed(hub, u, e.error_code);
 }
 
 /* PUBLISH_DONE: relayed like a PUBLISHer's (moqtrun_pubdone_arm, each
@@ -128,13 +126,12 @@ void moqtrun_up_on_reset(
     return;
   }
   t = moqtrun_up_track(p, u);
-  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), MOQCTL_ERR_INTERNAL_ERROR);
   if (t) {
     moqtrun_track_ended(hub, t);
     moqtrun_track_retire(hub, t);
   }
   hub->io.stream_reset(u->wt, u->stream_id, MOQTRUN_RESET_CANCELLED);
-  u->in_use = 0;
+  moqtrun_up_refused(hub, u, MOQCTL_ERR_INTERNAL_ERROR);
 }
 
 /* REQUEST_OK answering one of the hub's REQUEST_UPDATEs (moqtrun_ngr.c). */
@@ -206,9 +203,7 @@ static void moqtrun_up_on_fin(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   if (!u->in_use || u->track_tag) {
     return;
   }
-  moqtrun_up_refuse_waiters(hub, moqtrun_up_key(u), MOQCTL_ERR_INTERNAL_ERROR);
-  hub->io.stream_fin(u->wt, u->stream_id);
-  u->in_use = 0;
+  moqtrun_up_failed(hub, u, MOQCTL_ERR_INTERNAL_ERROR);
 }
 
 /* The waiters' answers go out, and their streams settle, in the same

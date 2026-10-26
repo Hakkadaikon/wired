@@ -72,5 +72,49 @@ void moqtrun_relay_object_cut(
 void moqtrun_cut_settle(wired_moqtrun_relay* relay, usz whole_n);
 int  moqtrun_cut_fin(wired_moqt_hub* hub, wired_moqtrun_relay* relay, int fin);
 int moqtrun_cut_torn(wired_moqt_hub* hub, wired_moqtrun_relay* relay, int torn);
+/* moqtrun_mpub.c / moqtrun_mpub_dd.c: several publishers of one Track */
+wired_moqtrun_sub* moqtrun_mirror_of(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* s);
+void moqtrun_mirror_mark(wired_moqt_hub* hub, wired_moqtrun_sub* slot);
+void moqtrun_mirror_all(wired_moqt_hub* hub, moqtrun_key k);
+int  moqtrun_mirror_fold(wired_moqt_hub* hub, wired_moqtrun_track* t, usz si);
+void moqtrun_mirror_done_slot(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, usz si, u64 status);
+void moqtrun_mirror_update(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      p,
+    const wired_moqtrun_sub* s,
+    const moqctl_params*     params);
+int moqtrun_dd_dup(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_sub* s,
+    u8                       kind,
+    u64                      group,
+    u64                      id);
+void moqtrun_dd_release(wired_moqt_hub* hub, wired_moqtrun_track* t, usz si);
+int  moqtrun_relay_feeds(const wired_moqtrun_relay* r, usz si);
+/* moqtrun_up_fan.c: upstream SUBSCRIBE to every matching publisher */
+int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k);
+int moqtrun_up_matches_wt(
+    const wired_moqtrun_up* u, moqtrun_key k, const wired_wt_session* s);
+wired_moqtrun_up* moqtrun_up_of_key_wt(
+    wired_moqt_hub* hub, moqtrun_key k, const wired_wt_session* s);
+int moqtrun_up_candidate(
+    wired_moqt_hub*          hub,
+    const wired_moqtrun_req* q,
+    const wired_wt_session*  s,
+    moqtrun_key              k,
+    u64                      skip);
+u64 moqtrun_up_skip(wired_moqt_hub* hub, moqtrun_key k);
+int moqtrun_up_open(
+    wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k);
+void moqtrun_up_unserved(
+    wired_moqt_hub* hub, wired_moqtrun_rdv* r, int refused);
+int  moqtrun_up_live_of_key(wired_moqt_hub* hub, moqtrun_key k);
+void moqtrun_up_fan(wired_moqt_hub* hub, wired_moqtrun_rdv* r);
+void moqtrun_up_fan_subs(wired_moqt_hub* hub);
+int  moqtrun_up_key_subs(wired_moqt_hub* hub, moqtrun_key k);
+void moqtrun_up_failed(wired_moqt_hub* hub, wired_moqtrun_up* u, u64 code);
+void moqtrun_up_refused(wired_moqt_hub* hub, wired_moqtrun_up* u, u64 code);
 
 #endif

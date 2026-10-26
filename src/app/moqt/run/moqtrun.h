@@ -453,6 +453,14 @@ typedef struct {
    * forbid a relay to drop Objects of a multi-object stream, so only an
    * app that trades completeness for latency (live voice) turns it on. */
   u8 newest_group_only;
+  /** 1: several publishers may feed one Track (draft-18 9.3, draft-22
+   * 7.6 "MUST send SUBSCRIBE messages to all matching publishers"): a
+   * second PUBLISH of a held name joins it instead of superseding, a
+   * SUBSCRIBE goes upstream to every matching announcer, and their
+   * Objects are merged into each subscription, deduplicated by Location
+   * (moqtrun_mpub.c). The wired_moqt_init default 0 keeps one publisher
+   * per name, the newest session owning it (moqtrun_supersede_name). */
+  u8 multi_publisher;
   /** 1 while the delivery being handled broke a Subgroup stream rule
    * (moqtrun_rx_flag); wired_moqt_on_stream_data closes the sending
    * session PROTOCOL_VIOLATION and clears it. */
@@ -547,6 +555,10 @@ typedef struct {
   /** SUBSCRIBEs the hub sent upstream to namespace publishers (draft-19
    * 9.5), all sessions. */
   wired_moqtrun_up ups[WIRED_MOQTRUN_MAX_UP];
+  /** Dedup window of the merged subscriptions (moqtrun_dd_dup). */
+  wired_moqtrun_dd dd[WIRED_MOQTRUN_DD_MAX];
+  /** Next dd slot to overwrite. */
+  u32 dd_at;
   /** Namespace authorizer (draft-ietf-moq-transport-19 10.15, 10.18); 0
    * (the wired_moqt_init default) grants every PUBLISH_NAMESPACE and
    * SUBSCRIBE_NAMESPACE, like authorize_subscribe. */

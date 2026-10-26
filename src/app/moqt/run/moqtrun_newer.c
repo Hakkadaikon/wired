@@ -10,6 +10,10 @@ static int moqtrun_newer_owner(
     wired_moqt_hub* hub, usz i, usz pub_idx, moqtrun_key k);
 static int moqtrun_newer_holds_name(
     wired_moqt_hub* hub, usz pub_idx, moqtrun_key k);
+static int moqtrun_newer_refuses(
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k);
+static void moqtrun_supersede_all(
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k);
 
 void moqtrun_track_claim(
     wired_moqt_hub*      hub,
@@ -119,13 +123,27 @@ static int moqtrun_newer_holds_name(
  * old track's subscribers follow via moqtrun_reattach_subs. Callers first
  * refuse a PUBLISH a newer peer already owns (moqtrun_publish_slot), so
  * arrival order never lets a stale session take the name back. */
-void moqtrun_supersede_name(wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
+static void moqtrun_supersede_all(
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     wired_moqtrun_track* t = moqtrun_other_track_for_name(hub, i, pub_idx, k);
     if (t) {
       moqtrun_track_retire(hub, t);
     }
   }
+}
+
+/* hub->multi_publisher: no name ownership -- every publisher of a Track
+ * keeps its own track, merged downstream (moqtrun_mpub.c). */
+void moqtrun_supersede_name(wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
+  if (!hub->multi_publisher) {
+    moqtrun_supersede_all(hub, pub_idx, k);
+  }
+}
+
+static int moqtrun_newer_refuses(
+    wired_moqt_hub* hub, usz pub_idx, moqtrun_key k) {
+  return !hub->multi_publisher && moqtrun_newer_holds_name(hub, pub_idx, k);
 }
 
 /* p's slot for a PUBLISH of name (moqtrun_track_alloc_slot), or 0 when
@@ -139,7 +157,7 @@ wired_moqtrun_track* moqtrun_publish_slot(
   if (moqtrun_key_oversized(k)) {
     return 0;
   }
-  if (moqtrun_newer_holds_name(hub, peer_idx, k)) {
+  if (moqtrun_newer_refuses(hub, peer_idx, k)) {
     return 0;
   }
   return moqtrun_track_alloc_slot(p, k);

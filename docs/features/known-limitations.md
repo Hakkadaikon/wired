@@ -74,20 +74,18 @@ terms recur below:
 
 The limits:
 
-- **One publisher per Track, one upstream at a time** — Affects: deployments
-  where several publishers announce the same Track, or where a Track should
-  fail over to another publisher. The hub keys one Track per Full Track
-  Name, so a second publisher of the same name is not tracked separately,
-  although d22 9.5 says "each publisher". Several publishers may share a
-  namespace, but each Track has one; there is no aggregation or
-  deduplication across publishers (d19 9.3, d22 7.4). The hub also never
-  subscribes to several publishers of one Track at once. d22 7.6 says a
-  relay MUST SUBSCRIBE to every matching publisher, and to each newly
-  announcing one for every matching subscription. Here a later announce is
-  used only while subscriptions wait for a new path (failover, below), and
-  is ignored while an upstream subscription is active. Source:
-  `moqtrun_up_key`, `moqtrun_track_ended` (ponytail); the MoQT ledgers' Out
-  of scope sections.
+- **One publisher per Track unless `multi_publisher`** — Affects: hubs
+  left at the `wired_moqt_init` default (moqt_chat), where several
+  publishers announce the same Track. The default keys one Track per Full
+  Track Name (the newest session owns it), so d22 7.6's "MUST send
+  SUBSCRIBE messages to all matching publishers" holds only with
+  `wired_moqt_hub.multi_publisher = 1` (examples/moqt_interop sets it):
+  then every matching publisher is subscribed, a later announcer
+  included, and their Objects merge into each subscription. Its dedup is
+  by whole Subgroup stream and datagram over a 64-entry window, and a
+  Subgroup the first publisher left unfinished is not completed from the
+  other's copy. Source: `moqtrun_supersede_name`, `moqtrun_mpub.c`,
+  `moqtrun_mpub_dd.c`, `moqtrun_up_fan.c`.
 - **Failover waits at most 1.5 s** — Affects: subscribers of a Track whose
   publisher drops while another publisher of the namespace is announced.
   The steps are:
