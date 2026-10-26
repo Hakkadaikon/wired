@@ -116,6 +116,7 @@ static void moqtrun_subscribe_fresh(
     return;
   }
   moqtrun_accept_subscribe(hub, p, track, slot, peer_idx, m, k);
+  moqtrun_ngr_relay(hub, track, &m->params);
 }
 
 /* SWITCH_FROM (moqtswitch.c): an invalid switch is refused before

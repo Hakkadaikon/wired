@@ -62,6 +62,14 @@ void moqtrun_up_claim(
     const moqctl_subscribe_ok* m);
 void moqtrun_up_on_reset(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id);
+void moqtrun_ngr_add(moqctl_params* out, u64 v);
+u8   moqtrun_ngr_of(const moqctl_params* params, u64* v);
+void moqtrun_ngr_upstream(
+    const wired_moqt_hub* hub, moqtrun_key k, moqctl_params* out);
+void moqtrun_ngr_relay(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_track* t,
+    const moqctl_params*       params);
 int moqtrun_up_rx(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,

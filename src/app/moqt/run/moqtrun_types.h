@@ -807,6 +807,11 @@ typedef struct {
    * this wait or the one that ended it; its next PUBLISH_NAMESPACE clears
    * it. */
   u64 tried;
+  /** 1 when the held SUBSCRIBE carried NEW_GROUP_REQUEST (ngr). */
+  u8 has_ngr;
+  /** The held SUBSCRIBE's NEW_GROUP_REQUEST, for the upstream SUBSCRIBE
+   * (draft-18 10.2.13). */
+  u64 ngr;
 } wired_moqtrun_rdv;
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace
@@ -847,6 +852,13 @@ typedef struct {
   usz name_len;
   /** Reassembly of the publisher's replies on stream_id. */
   wired_moqtrun_ctl_asm in;
+  /** 1 once a NEW_GROUP_REQUEST went out in a REQUEST_UPDATE. */
+  u8 ngr_out;
+  /** That NEW_GROUP_REQUEST's value. */
+  u64 ngr_val;
+  /** The track's Largest Group when it went out (~0: none); it stays
+   * outstanding until the Largest Group moves (draft-18 10.2.13). */
+  u64 ngr_group;
 } wired_moqtrun_up;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)

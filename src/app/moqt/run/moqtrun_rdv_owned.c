@@ -84,6 +84,7 @@ static void moqtrun_rdv_hold(
     return;
   }
   moqtrun_rdv_store(hub, r, p, k, body, moqtrun_rdv_rt(m));
+  r->has_ngr       = moqtrun_ngr_of(&m->params, &r->ngr);
   p->req->rdv_held = 1;
 }
 

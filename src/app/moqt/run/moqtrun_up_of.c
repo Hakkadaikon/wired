@@ -111,6 +111,7 @@ void moqtrun_up_store(
   u->request_id = rid;
   u->track_tag  = 0;
   u->done       = 0;
+  u->ngr_out    = 0;
   u->ns_len     = k.ns.n;
   u->name_len   = k.name.n;
   u->in.n       = 0;

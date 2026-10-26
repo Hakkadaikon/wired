@@ -13,7 +13,8 @@ static void moqtrun_up_unserved(
 static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r);
 
 /* SUBSCRIBE for k on a fresh request stream to pp (the hub's next odd
- * Request ID, draft-18 10.1). No parameters: FORWARD defaults to 1 (9.5
+ * Request ID, draft-18 10.1). A waiter's NEW_GROUP_REQUEST rides along
+ * (moqtrun_ngr_upstream); nothing else: FORWARD defaults to 1 (9.5
  * "MUST use Forward=1 when subscribing upstream" for a Forward=1
  * subscriber) and no filter is unfiltered; each downstream filter is
  * applied by the relay gates. The QUIC stream limit is the only request
@@ -25,7 +26,7 @@ static int moqtrun_up_send(
     moqtrun_key         k) {
   u8
                    msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
-                       WIRED_MOQTRUN_MAX_NAME + 16];
+                       WIRED_MOQTRUN_MAX_NAME + 32];
   moqctl_subscribe m   = {0};
   usz              off = 0;
   usz              n;
@@ -33,6 +34,7 @@ static int moqtrun_up_send(
   m.request_id = pp->request_id_next;
   m.name.name  = k.name;
   moqctl_ns_take(k.ns, &off, &m.name.ns);
+  moqtrun_ngr_upstream(hub, k, &m.params);
   n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE,
       moqtrun_up_encode_sub, &m);

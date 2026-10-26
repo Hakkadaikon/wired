@@ -1881,9 +1881,9 @@ from the coverage denominator above:
   namespace (MOQT-194), but each Track still has one publisher;
   aggregation/deduplication across publishers of a Track is not
   implemented.
-- (SS10.2.15, SS10.2.18) EXPIRES and NEW_GROUP_REQUEST — decoded by the
-  registry, not acted on; the hub never sends NEW_GROUP_REQUEST or
-  REQUEST_UPDATE upstream. (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
+- (SS10.2.15) EXPIRES — decoded by the registry, not acted on.
+  NEW_GROUP_REQUEST (SS10.2.18) is relayed upstream as on draft-18
+  (MQ18-229, shared code). (FILL_TIMEOUT and RENDEZVOUS_TIMEOUT are acted
   on, MOQT-231 and MOQT-232.)
 - (SS5.1) Sending incomplete Objects as they arrive (SHOULD) — on an
   existing Subgroup stream the hub forwards whole Objects only (MOQT-137).
