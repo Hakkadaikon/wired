@@ -66,8 +66,7 @@ int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 /* 1 if c already has a DPLPMTUD probe outstanding (srvrun_pmtu_try_probe
  * below has not yet been reconciled by an ACK/LOSS/timer for it) -- RFC 8899
  * 5.1.3 PROBED_SIZE is a single value, so at most one probe is ever
- * outstanding at a time (mirrors connrunner's own pmtu_probe_held, see
- * pmtudrive.c). */
+ * outstanding at a time. */
 int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
   return c->pmtu_probe_pn != SRVRUN_PMTU_NO_PROBE;
 }

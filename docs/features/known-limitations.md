@@ -6,7 +6,7 @@ peer behaves in a way the spec allows but wired does not support. Each entry
 starts with who is affected, then says what is limited and where in the code
 (or in which per-spec ledger) it is recorded.
 
-Last reviewed: 2026-10-15
+Last reviewed: 2026-10-27
 
 ## How to read this page
 
@@ -642,6 +642,18 @@ recently sent headers, updated over its own encoder and decoder streams.
   `on_body` for larger bodies
   ([guide](https://hakkadaikon.github.io/wired/guide/en/h3/post-body/)). Source:
   `route_window_stuck` (ponytail).
+- **Request slots are sized for 8000-octet request targets** — Affects:
+  memory budgets. RFC 9110 4.1 recommends accepting URIs of at least 8000
+  octets, so the field-section limit (`WIRED_H3_MAX_FIELD_SECTION`), the
+  request window (`BODYWIN_CAP`) and the request-stream credit
+  (`STP_DEFAULT_STREAM_DATA_REMOTE`) are 10240 bytes each. A request slot
+  holds the decode scratch, the window, its wrap buffer and the window's
+  receive bitmap, about 25 KB more than at the earlier 2048-byte size. With
+  64 connections (`WIRED_CONNTABLE_CAP`) of 40 request slots
+  (`WIRED_SRVLOOP_MAX_STREAMS`) that is about 65 MB more per server
+  environment (static memory for one server loop), and `srvthreads` maps
+  one environment per worker, so the cost multiplies by the worker count.
+  Source: `body_window.h`, `control_settings.h`.
 - **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
   stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
   one abort per stream the connection can track (93). If more than that many
@@ -685,13 +697,27 @@ recently sent headers, updated over its own encoder and decoder streams.
 
 ## QUIC transport
 
-- **Retry token and ticket keys derive from compiled-in seeds** — Affects:
-  deployments that need unforgeable Retry tokens or resumption tickets. Both
-  keys rotate every `KEYRING_PERIOD_SECS` (2 h), and the previous key still
-  opens. But the seeds (`g_srvrun_retry_key`, `g_ticket_key`) are constants
-  in the source, so anyone holding the source can derive the keys. Replace
-  the seeds before such a deployment. Source: `keyring.h` header comment
-  (ponytail).
+- **NEW_TOKEN tokens are sent once and checked per process** — Affects:
+  clients that reconnect with a NEW_TOKEN token, and `srvworkers`
+  deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
+  token only saves a later round trip). Each forked worker keeps its own
+  record of used tokens, so a token can be replayed once per worker.
+  Source: `srvrun_send_new_token`, `g_srvrun_newtok_seen` (shortcut).
+- **Idle timer restarts only on stream sends** — Affects: connections that
+  send nothing but control frames. RFC 9000 10.1 restarts the idle timer on
+  every ack-eliciting send; the server counts only packets that carry
+  response or WebTransport stream data. Source: `srvrun_idle_note_tx`
+  (shortcut).
+- **Anti-amplification is not applied to a path without a slot** —
+  Affects: clients that migrate while many paths are in flight. A path whose
+  validation was given up or evicted from the path table is not limited to
+  three times what it sent. Source: `srvrun_amp.c` header comment
+  (shortcut).
+- **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
+  When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
+  based on a multiply-mix of a per-connection secret and the packet number,
+  which an observer could in principle analyse. Source:
+  `send_onertt_clear_bit` (shortcut).
 - **Path validation limits** — Affects: clients that change address (for
   example from Wi-Fi to mobile), and resistance to address spoofing. A QUIC
   server checks a new client address by sending a PATH_CHALLENGE and waiting
@@ -739,16 +765,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   `wired_udp_ect0_enable` and its siblings in `udp.h` (ponytail),
   `srvrun_listen`.
 
-The next three entries concern lower-level entry points. The server that
-`wired_server_run` builds (the one the guide uses) does not run the
-connrunner loop, connio or `appdata_recv`, so they matter only if you call
-those directly.
+The next two entries concern lower-level entry points. The server that
+`wired_server_run` builds (the one the guide uses) does not run connio or
+`appdata_recv`, so they matter only if you call those directly.
 
-- **Time-threshold loss detection is off in the connrunner loop** — Affects:
-  users of the connrunner loop only. `CONNRUNNER_NO_RTT_DELAY` makes loss
-  detection purely packet-threshold there (RFC 9002 6.1.1). The server path
-  (srvrun) uses its own recovery. Source: `CONNRUNNER_NO_RTT_DELAY`
-  (ponytail).
 - **`connio` always marks its sends as ack-eliciting** — Affects: users of
   connio only. The flag is hard-set to 1, so a send of non-ack-eliciting
   frames only is not classified as such. Source: `connio.c`.
@@ -763,10 +783,12 @@ those directly.
 - **Linear connection table** — Affects: servers that would need more than
   64 connections. `WIRED_CONNTABLE_CAP` is 64 slots, searched by linear
   scan. Source: `conntable.h` header comment (ponytail).
-- **0-RTT replay ring** — Affects: multi-process deployments that accept
-  0-RTT. `ZERORTT_SEEN_CAP` holds 4096 fingerprints, and the oldest is
-  evicted. There is no persistence or cross-process sharing. Replay of an
-  evicted entry is bounded by the ticket lifetime. Source: `zerortt_seen.h`
+- **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
+  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints, and the
+  oldest is evicted, so a ticket seen 4096 resumptions ago could be replayed
+  once more. Forked workers share the ring; separate server processes and
+  restarts do not (no persistence). Replay of an evicted entry is bounded by
+  the ticket lifetime. Source: `zerortt_seen.h`
   (ponytail).
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
@@ -821,10 +843,16 @@ those directly.
 
 ## TLS 1.3
 
-- **Ticket replay guard is a ring** — Affects: replay resistance under heavy
-  resumption. `TICKETGUARD_CAP` holds 64 fingerprints; an entry evicted by
-  newer tickets could be replayed past the window. Source: `ticketguard.h`
-  header comment (ponytail).
+- **ALPN follows the server's order, except in the interop image** —
+  Affects: clients that offer several protocols. The server picks its own
+  most preferred protocol among those offered (RFC 7301 3.2): the configured
+  raw ids, then h3, then hq-interop. The interop image passes
+  `--alpn-client-order` (`alpn_client_order`) to follow the client's order,
+  which msquic's interop runs expect. Source: `sdrv_negotiate_alpn`.
+- **0-RTT start-up check has one-second granularity** — Affects: servers
+  restarted within the same second. A ticket issued by an earlier instance
+  in the very second this one opened its recording window is not recognised
+  as pre-start. Source: `zerortt_seen_pre_start` (shortcut).
 - **Ticket and Retry-token keys live for one process** — Affects:
   resumption and address validation across a restart, and across servers
   started separately behind one address. Both seeds are drawn from the
@@ -1052,7 +1080,6 @@ the value here is the current one.
 | `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |
 | `WIRED_CONNTABLE_CAP` | 64 | QUIC connections | no new connection |
 | `ZERORTT_SEEN_CAP` | 4096 | 0-RTT fingerprints | oldest evicted |
-| `TICKETGUARD_CAP` | 64 | ticket fingerprints | oldest evicted |
 | `WIRED_RECVMMSG_MAX` | 64 | UDP batch size | batch capped |
 
 Notes on the two send-side buffers:

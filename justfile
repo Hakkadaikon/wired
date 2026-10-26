@@ -102,6 +102,10 @@ valgrind: gen-ninja
 golden-check:
     sh scripts/just/golden_check.sh
 
+# Requirement ledgers: test links resolve, IDs unique, coverage counts match.
+features-check:
+    python3 scripts/check_features.py
+
 # Python: ruff, unittests, CCN <= 3.
 py-check:
     sh scripts/just/py_check.sh

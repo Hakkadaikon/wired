@@ -40,16 +40,3 @@ int finalsize_set(finalsize* f, u64 size) {
   f->known      = 1;
   return 1;
 }
-
-void dual_finalsize_init(dual_finalsize* d) {
-  finalsize_init(&d->send);
-  finalsize_init(&d->recv);
-}
-
-int dual_finalsize_reset_send(dual_finalsize* d, u64 size) {
-  return finalsize_set(&d->send, size);
-}
-
-int dual_finalsize_reset_recv(dual_finalsize* d, u64 size) {
-  return finalsize_set(&d->recv, size);
-}
