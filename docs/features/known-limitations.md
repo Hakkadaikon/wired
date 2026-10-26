@@ -20,12 +20,13 @@ lists the capacities an application meets first and the MoQT parts that are
 not implemented. This page adds what the guide does not cover: the effect of
 each overflow, the less visible limits, and the reason for each deviation.
 Where the two pages disagree, the values on this page are taken from the
-current code (checked on 2026-10-15) and win.
+current code (checked on 2026-10-27) and win.
 
 The entries come from three places:
 
-- `ponytail:` comments in `src/`. This is the repo's marker for a limitation
-  that was accepted on purpose, with a note on how to lift it.
+- `ponytail:` and `shortcut:` comments in `src/`. These are the repo's
+  markers for a limitation that was accepted on purpose, with a note on how
+  to lift it.
 - The "Not implemented" and "Out of scope" sections and the untested items of
   the per-spec ledgers in this directory (one Markdown file per RFC or
   draft).
@@ -264,7 +265,7 @@ The limits:
   Affects: subscribers that read Track Properties. The publisher's Track
   Properties reach a subscriber's SUBSCRIBE_OK unless it sent
   INCLUDE_PROPERTIES (0x35, d22 9.20.21) = 0. A block longer than
-  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (32) is forwarded empty. TRACK_STATUS_OK,
+  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (96) is forwarded empty. TRACK_STATUS_OK,
   FETCH_OK and the PUBLISH of a SUBSCRIBE_TRACKS carry none. Source:
   `moqtrun_queue_subscribe_ok`.
 - **Padding Datagrams are not sent** — Affects: deployments that need
@@ -546,6 +547,13 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   `SRVRUN_DGRING_DRAIN_MAX` (16) datagrams or `SRVRUN_DGRING_DRAIN_BYTES`
   (3000) bytes every `SRVRUN_DGRING_DRAIN_MS` (5 ms), about 4.8 Mbps. Source:
   `SRVRUN_DGRING_DRAIN_MAX` (ponytail).
+- **Datagram ring slots and broadcast urgency** — Affects: apps that send
+  HTTP Datagrams at mixed urgencies. An entry drained ahead of the ring head
+  keeps its slot until the head passes it, so a long stall of low-urgency
+  entries shrinks the free space of the 256-entry ring. A broadcast copied
+  to another worker thread loses its urgency and is queued there at the
+  default (3). Source: `srvrun_dgring_send_best`,
+  `srvrun_broadcast_registered` (shortcut).
 - **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
   sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
   counts WT streams, streamed request bodies, CONNECT-stream capsules and the
@@ -616,7 +624,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   (`on_body`) is skipped unacknowledged, which keeps its references pinned
   for the connection's life. The acknowledgment queue holds one step's
   worth; it drops entries only if the peer grants the decoder stream no
-  credit. The server's own encoder table stays at capacity 0, and response
+  credit. Decoder instructions that arrive past a gap (reordered ahead of
+  earlier bytes) are dropped, and reading that stream stops at the gap for
+  good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
+  own encoder table stays at capacity 0, and response
   strings are never Huffman-coded. Source: [rfc9204.md](rfc9204.md),
   [rfc7541.md](rfc7541.md) Out of scope.
 - **HTTP semantics are the application's** — Affects: every HTTP app. The
@@ -657,7 +668,7 @@ recently sent headers, updated over its own encoder and decoder streams.
   Source: `body_window.h`, `control_settings.h`.
 - **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
   stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
-  one abort per stream the connection can track (93). If more than that many
+  one abort per stream the connection can track (99). If more than that many
   aborts are unacknowledged within one RTT, the excess ones are sent once and
   never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
 - **A request that cannot be decoded is aborted, not answered** — Affects:
@@ -698,6 +709,16 @@ recently sent headers, updated over its own encoder and decoder streams.
 
 ## QUIC transport
 
+- **Handshake bytes in flight are approximate** — Affects: congestion
+  control while the handshake runs. Initial and Handshake packets keep no
+  per-packet ACK record, so their bytes stay in flight until the keys are
+  discarded (an over-count), and a replayed datagram that the
+  anti-amplification budget held back can be under-counted. Source:
+  `srvrun_boot_inflight` (shortcut).
+- **Very old stream IDs count as retired** — Affects: nobody in practice.
+  Receive accounting remembers retired stream IDs in a window; an ID below
+  the window's ceiling is treated as already fully counted. Source:
+  `srvloop_rxacct_entry` (shortcut).
 - **NEW_TOKEN tokens are sent once and checked per process** — Affects:
   clients that reconnect with a NEW_TOKEN token, and `srvworkers`
   deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
@@ -1045,7 +1066,7 @@ the value here is the current one.
 | `WIRED_MOQTRUN_MAX_FETCHES` (+ fetch_waits) | 8 (+8) | FETCHes and fills served | REQUEST_ERROR INTERNAL_ERROR |
 | `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` | 2000 | upstream FETCH leg time | leg ends |
 | `WIRED_MOQTRUN_RELAY_FRAG_MAX` | 16384 | torn Object held whole | larger payload passes through |
-| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 32 | Track Properties forwarded | forwarded empty |
+| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 96 | Track Properties forwarded | forwarded empty |
 | `WIRED_MOQTRUN_RESET_AFTER_BUSY` | 8 | refused rounds on the lossy path | subscriber stream reset |
 | `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | drain grace | session closed after 1 s, acked or not |
 | `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | wait after PUBLISH_DONE | remaining streams reset |
@@ -1077,7 +1098,7 @@ the value here is the current one.
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | received datagram queue | datagram dropped |
 | `BODYWIN_CAP` | 10240 | request body window | 413/431 or FLOW_CONTROL_ERROR |
 | `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | control stream backlog | H3_EXCESSIVE_LOAD |
-| `SRVRUN_RST_RETX` | 93 | aborts awaiting ACK | excess sent once |
+| `SRVRUN_RST_RETX` | 99 | aborts awaiting ACK | excess sent once |
 | `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |
 | `WIRED_CONNTABLE_CAP` | 64 | QUIC connections | no new connection |
 | `ZERORTT_SEEN_CAP` | 4096 | 0-RTT fingerprints | oldest evicted |
