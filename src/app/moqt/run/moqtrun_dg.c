@@ -29,8 +29,10 @@ static int moqtrun_dg_prop_violates(
 /* Resolves one received OBJECT_DATAGRAM to the sending peer's track:
  * decode via moqdg_take (11.3.1), then the header's Track Alias via
  * moqtrun_track_by_alias. 0 when the datagram is malformed or the alias
- * matches none of p's tracks -- the caller drops it whole -- or when it
- * closed the session (moqtrun_dg_prop_violates). */
+ * matches none of p's tracks -- the caller drops it whole -- when a
+ * Mandatory Object Property made the track malformed
+ * (moqtrun_obj_mand_gate), or when it closed the session
+ * (moqtrun_dg_prop_violates). */
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -45,7 +47,8 @@ static wired_moqtrun_track* moqtrun_dg_track(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
     return 0;
   }
-  wired_moqtrun_track* t = moqtrun_track_by_alias(p, obj.track_alias);
+  wired_moqtrun_track* t = moqtrun_obj_mand_gate(
+      moqtrun_track_by_alias(p, obj.track_alias), obj.props);
   moqtrun_track_note(t, obj.group_id, obj.object_id);
   *loc = moqctl_loc_of(obj.group_id, obj.object_id);
   return t;

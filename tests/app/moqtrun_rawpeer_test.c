@@ -43,7 +43,12 @@ static int mtrp_sent_is(const moqtrun_test_call* c, const u8* w, usz n) {
 
 /* The captured SETUP on uni stream 2 of a fresh moqt-18 raw session. */
 static void mtrp_session(void) {
-  mtraw_join("moqt-18");
+  /* The capture predates the hub's MOQT_IMPLEMENTATION option: off, so
+   * the hub's SETUP stays the captured bytes. */
+  moqtrun_test_reset();
+  wired_moqt_init(&mtraw_hub, moqtrun_test_io());
+  mtraw_hub.no_implementation = 1;
+  wired_moqt_on_session_raw(&mtraw_hub, SESS_A, moqtrun_test_proto("moqt-18"));
   wired_moqt_on_stream_data(
       &mtraw_hub, SESS_A, 2,
       wired_span_of(mtrp_client_setup, sizeof mtrp_client_setup), 0);

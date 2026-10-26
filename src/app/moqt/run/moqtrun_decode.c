@@ -41,7 +41,8 @@ static void moqtrun_track_note_end(
 
 /* One decoded Object of t (0: no track) in group: counted toward the
  * Largest, cached and its end status noted -- unless it makes the track
- * malformed, which is only flagged (the Object is not cached, 12.1); the
+ * malformed (12.1, or a Mandatory Object Property, 2.5.1), which is only
+ * flagged (the Object is not cached, 12.1); the
  * PUBLISH_DONE sweep ends the track (moqtrun_pubdone_ready). */
 static void moqtrun_track_obj(
     wired_moqt_hub*      hub,
@@ -49,7 +50,7 @@ static void moqtrun_track_obj(
     u64                  group,
     const moqdata_obj*   o) {
   moqctl_loc l = moqctl_loc_of(group, o->object_id);
-  if (moqtrun_obj_malformed(t, l)) {
+  if (moqtrun_obj_malformed(t, l) || moqtrun_obj_mand(t, o->props)) {
     t->malformed = 1;
     return;
   }

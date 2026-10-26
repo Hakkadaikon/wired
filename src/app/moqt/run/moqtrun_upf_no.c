@@ -30,7 +30,7 @@ static void moqtrun_upf_nt_go(
     wired_moqtrun_peer* p,
     const moqfetch_req* m,
     moqtrun_key         k) {
-  moqtrun_frange       r = {0, {0, 0}, {~(u64)0, ~(u64)0}, {0, 0}};
+  moqtrun_frange       r = {0, {0, 0}, {~(u64)0, ~(u64)0}, {0, 0}, {0, 0}};
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, m->request_id, &r);
   if (!f) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);

@@ -106,14 +106,23 @@ static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
 }
 
 /* REQUEST_OK; answering a request about track t (0: none), it carries the
- * Largest Location. */
-void moqtrun_queue_request_ok(
-    wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+ * Largest Location -- and props as its Track Properties, which only
+ * TRACK_STATUS_OK populates (draft-18 10.5). */
+void moqtrun_queue_request_ok_props(
+    wired_moqtrun_peer* p, const wired_moqtrun_track* t, wired_span props) {
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
   moqctl_request_ok ok = {0};
+  ok.track_properties  = props;
   moqtrun_largest_param(&ok.params, t);
   usz n = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
+}
+
+/* REQUEST_OK with empty Track Properties (PUBLISH_OK, REQUEST_UPDATE_OK,
+ * the namespace OKs: draft-18 10.5 "they are empty"). */
+void moqtrun_queue_request_ok(
+    wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  moqtrun_queue_request_ok_props(p, t, wired_span_of(0, 0));
 }
