@@ -656,6 +656,7 @@
 #include "app/http3/server/sendq/sendq.c"
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/sendsess/sendsess_lost.c"
+#include "app/http3/server/sendsess/sendsess_ring.c"
 #include "app/http3/server/sendsess/sendsess_peek.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvloop/srvloop_close.c"

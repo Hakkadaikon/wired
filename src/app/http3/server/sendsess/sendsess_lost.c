@@ -20,10 +20,6 @@ static void sendsess_report_lost(
 static int sendsess_older(const wired_sendsess* s, int best, usz i);
 static int sendsess_oldest(const wired_sendsess* s);
 static int sendsess_requeue_oldest(wired_sendsess* s);
-static usz sendsess_live_min(usz off, int live, usz base);
-static usz sendsess_log_min_off(const wired_sendsess* s, usz base);
-static usz sendsess_requeue_min_off(const wired_sendsess* s, usz base);
-static int sendsess_pending(const wired_sendsess* s);
 
 /* RFC 9002 6.1.1: 1 if in-flight entry e is past the packet threshold. */
 static int sendsess_lost_by_packet(
@@ -165,52 +161,5 @@ int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
    * instead of one slice per backoff round. */
   sendsess_requeue_oldest(s);
   sendsess_requeue_oldest(s);
-  return 1;
-}
-
-/* off if it is live (a candidate the retransmit path may still read) and
- * lower than the running minimum, else the minimum unchanged. */
-static usz sendsess_live_min(usz off, int live, usz base) {
-  return live && off < base ? off : base;
-}
-
-/* Fold the in-flight log's offsets into the running minimum. */
-static usz sendsess_log_min_off(const wired_sendsess* s, usz base) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
-    base = sendsess_live_min(s->log[i].sl.offset, s->log[i].inflight, base);
-  }
-  return base;
-}
-
-/* Fold the requeue's offsets into the running minimum. */
-static usz sendsess_requeue_min_off(const wired_sendsess* s, usz base) {
-  for (usz i = 0; i < s->requeue_n; i++) {
-    base = sendsess_live_min(s->requeue[i].offset, 1, base);
-  }
-  return base;
-}
-
-usz wired_sendsess_reclaim_base(const wired_sendsess* s) {
-  return sendsess_requeue_min_off(s, sendsess_log_min_off(s, s->q.cur));
-}
-
-usz wired_sendsess_ring_room(const wired_sendsess* s, usz cap) {
-  return cap - (s->q.len - wired_sendsess_reclaim_base(s));
-}
-
-/* 1 while anything is still unsent, requeued, or unacknowledged. */
-static int sendsess_pending(const wired_sendsess* s) {
-  return !wired_sendq_all_sent(&s->q) || s->requeue_n != 0 ||
-         wired_sendsess_inflight(s) != 0;
-}
-
-int wired_sendsess_done(wired_sendsess* s) {
-  if (!s->active) {
-    return 0;
-  }
-  if (sendsess_pending(s)) {
-    return 0;
-  }
-  s->active = 0;
   return 1;
 }
