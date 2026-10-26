@@ -10,14 +10,14 @@ static int  srvrun_conn_wt_waits(const srvrun_conn* c);
 /* draft-ietf-webtrans-http3-16 6 (WTH3-081): close session slot i with
  * WT_CLOSE_SESSION (code 0, no message) and FIN on its CONNECT stream
  * (srvrun_send_wt_close), remembering that stream until the peer closes
- * it (wt_close_wait). */
+ * it (wtx.close_wait). */
 static void srvrun_wt_shut_one(const srvrun_cfg* cfg, srvrun_conn* c, int i) {
   if (!srvrun_wt_is_active(c, i)) {
     return;
   }
   c->wt_close_code[i]    = 0;
   c->wt_close_msg_len[i] = 0;
-  c->wt_close_wait[i]    = srvrun_wt_slot(c, i)->connect_stream_id + 1;
+  c->wtx.close_wait[i]   = srvrun_wt_slot(c, i)->connect_stream_id + 1;
   srvrun_send_wt_close(cfg, c, i);
 }
 
@@ -47,8 +47,8 @@ void srvrun_wt_close_all_live(const srvrun_cfg* cfg, srvrun_state* st) {
 
 /* Slot i no longer waits once the peer closed CONNECT stream id. */
 static void srvrun_wt_close_wait_drop(srvrun_conn* c, int i, u64 id) {
-  if (c->wt_close_wait[i] == id + 1) {
-    c->wt_close_wait[i] = 0;
+  if (c->wtx.close_wait[i] == id + 1) {
+    c->wtx.close_wait[i] = 0;
   }
 }
 
@@ -66,7 +66,7 @@ void srvrun_wt_close_wait_note(srvrun_conn* c) {
 static int srvrun_wt_waits_any(const srvrun_conn* c) {
   int any = 0;
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
-    any |= c->wt_close_wait[i] != 0;
+    any |= c->wtx.close_wait[i] != 0;
   }
   return any;
 }

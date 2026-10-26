@@ -29,7 +29,7 @@ int wired_server_wt_stream_stop(
   c->wt_stream_reset_app_code[i] = error_code;
   c->wt_stream_reset_final[i]    = 0;
   c->wt_stream_reset_stop[i]     = 1;
-  c->wt_stream_reset_sid[i]      = SRVRUN_WT_NO_SID;
+  c->wtx.reset_sid[i]            = SRVRUN_WT_NO_SID;
   return 1;
 }
 

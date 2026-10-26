@@ -182,6 +182,8 @@ _Static_assert(
  * burst, not the whole SRVRUN_WT_SEND_SLOTS table. */
 #define SRVRUN_WT_RESET_LATCH 8
 
+#include "app/http3/server/srvrun/srvrun_impl_wtx.h"
+
 typedef struct {
   int            in_use;
   u64            stream_id;
@@ -510,19 +512,10 @@ typedef struct {
    * overwrite the first -- the peer would wait on the unnotified stream
    * forever. No STOP_SENDING rides along: every target is a
    * server-initiated uni stream, which has no peer-to-server half to stop
-   * (RFC 9000 19.5 makes STOP_SENDING on it a STREAM_STATE_ERROR). The
-   * owning session's CONNECT stream id (wt_stream_reset_sid) is kept for
-   * the RESET_STREAM_AT's header (srvrun_wt_reset_frames). */
-  u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
-  u64 wt_stream_reset_sid[SRVRUN_WT_RESET_LATCH];
-  /** draft-ietf-webtrans-http3-16 6: per session slot, 1 + the CONNECT
-   * stream id shutdown sent WT_CLOSE_SESSION on and still waits for the
-   * peer to close (srvrun_wt_close_all_live), 0 when none. */
-  u64 wt_close_wait[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-16 8: per session slot, the send slot its
-   * next fair pass starts from (srvrun_wt_fair_keep). */
-  u8  wt_fair_next[SRVRUN_MAX_WT_SESSIONS];
-  u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
+   * (RFC 9000 19.5 makes STOP_SENDING on it a STREAM_STATE_ERROR). */
+  u64        wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
+  srvrun_wtx wtx; /**< teardown/fairness state (srvrun_impl_wtx.h) */
+  u64        wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
   /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;
   /** Client-bidi stream ids whose server send part already ran to its end

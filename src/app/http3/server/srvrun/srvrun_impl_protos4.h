@@ -114,4 +114,14 @@ void srvrun_path_seed(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_path_tracked(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
 
+/* WebTransport flow, teardown and reset (srvrun_open.c, srvrun_wt_shut.c,
+ * srvrun_wt.c). */
+void srvrun_wt_notify_data_blocked(
+    srvrun_conn* c, int sidx, wired_wt_session* s, usz len);
+void srvrun_wt_close_all_live(const srvrun_cfg* cfg, srvrun_state* st);
+void srvrun_wt_close_wait_note(srvrun_conn* c);
+int  srvrun_wt_close_waiting(const srvrun_state* st);
+usz  srvrun_wt_reset_frames(
+    const srvrun_conn* c, const srvrun_wt_reset_in* in, u8* p, usz cap);
+
 #endif

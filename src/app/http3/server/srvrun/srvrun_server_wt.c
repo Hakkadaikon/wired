@@ -147,7 +147,7 @@ int wired_server_wt_stream_reset(
   c->wt_stream_reset_app_code[i] = error_code;
   c->wt_stream_reset_final[i]    = srvrun_wtsend_final_size(c, stream_id);
   c->wt_stream_reset_stop[i]     = 0;
-  c->wt_stream_reset_sid[i]      = s->connect_stream_id;
+  c->wtx.reset_sid[i]            = s->connect_stream_id;
   srvrun_wtsend_release(c, stream_id);
   /* Recorded even with no send slot (a client bidi never replied on): this
    * RESET_STREAM ends the send part, so the session-close sweep and any

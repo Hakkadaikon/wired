@@ -124,7 +124,7 @@ int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
       srvrun_conn_is_raw(c), c->wt_stream_reset_app_code[i]);
   srvrun_wt_reset_in in = {
       c->wt_stream_reset_id[i], code, c->wt_stream_reset_final[i],
-      c->wt_stream_reset_sid[i]};
+      c->wtx.reset_sid[i]};
   stop_sending_frame ss = {c->wt_stream_reset_id[i], code};
   n                     = c->wt_stream_reset_stop[i]
                               ? stop_sending_encode(pl, sizeof pl, &ss)

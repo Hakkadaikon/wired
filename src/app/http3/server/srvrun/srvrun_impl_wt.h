@@ -37,11 +37,6 @@ int srvrun_on_initial(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg);
 usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
-void srvrun_wt_close_all_live(const srvrun_cfg* cfg, srvrun_state* st);
-void srvrun_wt_close_wait_note(srvrun_conn* c);
-int  srvrun_wt_close_waiting(const srvrun_state* st);
-usz  srvrun_wt_reset_frames(
-    const srvrun_conn* c, const srvrun_wt_reset_in* in, u8* p, usz cap);
 usz srvrun_wt_abort_stop(
     const srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at);
 int srvrun_peer_reset_seen(const srvrun_conn* c, u64 stream_id);
@@ -124,9 +119,7 @@ void srvrun_grant_wt_uni(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c);
 u64  srvrun_wt_slot_credit_ceiling(u64 delivered_len);
 int  srvrun_wt_credit_stream_due(u64 ceiling, u64 credit_advertised);
-void srvrun_wt_notify_data_blocked(
-    srvrun_conn* c, int sidx, wired_wt_session* s, usz len);
-int srvrun_seal_max_stream_data(
+int  srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out);
 void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value);

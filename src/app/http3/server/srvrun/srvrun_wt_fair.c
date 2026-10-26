@@ -72,7 +72,7 @@ static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i) {
 /* Keep `quota` of session s's pass slots, scanning from its cursor; the
  * cursor moves past the last one kept so the rest go first next pass. */
 static u32 srvrun_wt_fair_keep(srvrun_conn* c, u32 mask, int s, u32 quota) {
-  usz                 start = c->wt_fair_next[s];
+  usz                 start = c->wtx.fair_next[s];
   srvrun_wt_fair_scan f = {mask, 0, quota, start + SRVRUN_WT_SEND_SLOTS - 1};
   for (usz k = 0; k < SRVRUN_WT_SEND_SLOTS; k++) {
     usz i = (start + k) % SRVRUN_WT_SEND_SLOTS;
@@ -80,7 +80,7 @@ static u32 srvrun_wt_fair_keep(srvrun_conn* c, u32 mask, int s, u32 quota) {
       srvrun_wt_fair_visit(&f, i);
     }
   }
-  c->wt_fair_next[s] = (u8)((f.last + 1) % SRVRUN_WT_SEND_SLOTS);
+  c->wtx.fair_next[s] = (u8)((f.last + 1) % SRVRUN_WT_SEND_SLOTS);
   return f.mask;
 }
 
