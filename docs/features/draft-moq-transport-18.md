@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 189/248 tested, 30 indirect, 29 untested.**
+**Coverage: 190/248 tested, 30 indirect, 28 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -773,11 +773,10 @@ Legend:
 - [x] MQ18-079 (§10.3.1.5) The implementation shall decode the
   MOQT_IMPLEMENTATION (0x07) Setup Option as a UTF-8 byte-string value.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
-- [ ] MQ18-232 (§10.3.1.5, §13.8) The server should send a
+- [x] MQ18-232 (§10.3.1.5, §13.8) The server should send a
   MOQT_IMPLEMENTATION Setup Option, limited to the implementation name and
   major version, unless configured not to.
-  - gap: the hub's SETUP never sets `has_implementation`; it only records
-    the peer's value.
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_sends_implementation`
 - [ ] MQ18-226 (§10.2.2, §10.3.1.4) If a client SETUP carries an AUTHORIZATION
   TOKEN Setup Option with Alias Type DELETE or USE_ALIAS, then the server
   shall close the session with PROTOCOL_VIOLATION; a REGISTER that exceeds

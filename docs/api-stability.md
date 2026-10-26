@@ -566,6 +566,7 @@ Each of these is optional; the default (0 or unset) is given in the notes.
 | `wired_moqt_on_stream_reset` | Tell the hub a peer reset one of its streams. |
 | `wired_moqt_hub.authorize_namespace`, `authorize_ns_ctx`, `wired_moqt_authorize_ns_fn` | Optional authorizer for namespace requests; 0 grants all. |
 | `wired_moqt_hub.authorize_publish`, `authorize_pub_ctx` | Optional authorizer for PUBLISH; 0 grants all. |
+| `wired_moqt_hub.no_implementation` | 1 leaves the MOQT_IMPLEMENTATION option out of the hub's SETUP; 0 sends `wired/0`. |
 | `wired_moqt_io.close_session`, `stream_reply_open`, `stream_priority`, `stream_stop` | Ops appended to the end of `wired_moqt_io`. |
 | `wired_moqt_io.stream_sched` | Op that sets a full send class for Object streams. |
 | `wired_moqt_io.est_kbps` | Op that reports the connection's delivery-rate estimate. |

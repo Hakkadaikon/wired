@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 188/248 tested, 37 indirect, 23 untested.**
+**Coverage: 189/248 tested, 37 indirect, 22 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -711,9 +711,9 @@ Legend:
   - test: `tests/app/moqraw_test.c` — `test_moqraw_path`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_authority`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_hook`
-- [ ] MOQT-237 (SS10.3.1.5) The hub should send a MOQT_IMPLEMENTATION Setup
+- [x] MOQT-237 (SS10.3.1.5) The hub should send a MOQT_IMPLEMENTATION Setup
   Option carrying only its name and version.
-  - gap: the hub's SETUP carries only MAX_FILTER_RANGES / MAX_REQUEST_UPDATES.
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_sends_implementation`
 - [x] MOQT-078 The implementation shall decode the MOQT_IMPLEMENTATION (0x07)
   Setup Option as a UTF-8 byte-string value.
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
@@ -1818,7 +1818,6 @@ is an open `[ ]` item above:
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).
 - No new upstream requests after the hub's own GOAWAY (MOQT-235).
-- A MOQT_IMPLEMENTATION Setup Option in the hub's SETUP (MOQT-237).
 - Closing the session on an invalid datagram Type (MOQT-243).
 - Reacting to STOP_SENDING on a Subgroup relay stream (MOQT-247).
 - Enforcing empty Track Properties in REQUEST_OK, the Redirect checks and

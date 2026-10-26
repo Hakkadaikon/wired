@@ -565,6 +565,10 @@ typedef struct {
   /** Switches whose old subscription may still be waiting to end (a hint
    * moqtsw_step recounts; 0 skips its walk). */
   u32 sw_live;
+  /** 1 keeps the MOQT_IMPLEMENTATION Setup Option off the hub's SETUP
+   * (draft-19 10.3.1.5, 13.8: privacy-conscious deployments); 0 (the
+   * wired_moqt_init default) sends the name and major version. */
+  u8 no_implementation;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
