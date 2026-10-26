@@ -8,10 +8,10 @@ static int mtst_enc_subtracks(wired_mspan buf, usz* off, const void* m) {
 }
 
 /* SUBSCRIBE_TRACKS for prefix z ("" = zero fields) on sid, Request ID
- * mtst_rid += 2. */
+ * mtst_rid += 4. */
 static void mtst_subtracks(wired_wt_session* s, u64 sid, const char* z) {
   static moqns_req m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.ns         = mtns_ns(z);
   m.params.n   = 0;
   mtst_send(s, sid, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
@@ -27,7 +27,7 @@ static void mtst_subtracks_fwd0(wired_wt_session* s, u64 sid, const char* z) {
   items[0].u8v  = 0;
   p.items[0]    = items[0];
   p.n           = 1;
-  m.request_id  = mtst_rid += 2;
+  m.request_id  = mtst_rid += 4;
   m.ns          = mtns_ns(z);
   m.params      = p;
   mtst_send(s, sid, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);

@@ -7,8 +7,7 @@
 /* B SUBSCRIBEs to alice on draft-22 with FILL_PARAMETERS fill attached
  * (params list: the fill value, plus any extra in base); returns the
  * SUBSCRIBE's Request ID. */
-static u8  mfill_val[64];
-static u64 mfill_rid = 600;
+static u8 mfill_val[64];
 
 static moqctl_params mfill_params(
     const moqfetch_fill* fill, const moqctl_params* base) {
@@ -28,9 +27,8 @@ static u64 mfill_subscribe(
   moqctl_ftn    f                            = mf_track();
   moqctl_params p                            = mfill_params(fill, base);
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
-  mfill_rid += 2;
-  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, mfill_rid, &p);
-  return mfill_rid;
+  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, mtst_rid += 4, &p);
+  return mtst_rid;
 }
 
 /* An open-ended fill on a fresh FORWARD-1 subscription: one uni stream,
@@ -118,9 +116,8 @@ static void test_moqtrun_fill_open_end_is_largest(void) {
 static u64 mfill_subscribe_req(const moqctl_params* params) {
   moqctl_ftn f                               = mf_track();
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
-  mfill_rid += 2;
-  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mfill_rid, params);
-  return mfill_rid;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mtst_rid += 4, params);
+  return mtst_rid;
 }
 
 /* REQUEST_UPDATE carrying FILL_PARAMETERS on MTRQ_S1; returns its own

@@ -33,7 +33,8 @@ static void test_mtcf_uni_split_in_type(void) {
   mtcf_part(&hub, 2, msg, 0, 1);
   wired_moqt_on_stream_data(
       &hub, SESS_A, 0,
-      wired_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      moqtrun_test_stamped(
+          g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   CHECK(moqtrun_test_count_kind(12) == 0); /* held until established */
   mtcf_part(&hub, 2, msg, 1, n);

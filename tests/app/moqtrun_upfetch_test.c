@@ -78,10 +78,10 @@ static void mupf_fetch_on(
   u8                  buf[MTST_MSG_MAX];
   mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
   m            = (moqfetch_req){0};
-  m.request_id = mf_req_sid;
-  m.fetch_type = MOQFETCH_STANDALONE;
-  m.track      = f;
-  m.range      = rl;
+  m.request_id = mf_req_rid = mtst_rid += 4;
+  m.fetch_type              = MOQFETCH_STANDALONE;
+  m.track                   = f;
+  m.range                   = rl;
   if (params) {
     m.params = *params;
   }
@@ -391,7 +391,7 @@ static void test_moqtrun_upfetch_gap_to_owner(void) {
   CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
   CHECK(mf_is_obj(2, 3, 0, 1) && mf_is_obj(3, 3, 1, 1));
   CHECK(mf_is_obj(4, 4, 0, 1) && mf_is_obj(5, 4, 1, 1));
-  CHECK(mf_hdr_rid == mf_req_sid);
+  CHECK(mf_hdr_rid == mf_req_rid);
   CHECK(mupf_log_is(SESS_A, (u64)sid, "FIN|"));
   CHECK(mupf_used() == 0);
 }
@@ -477,7 +477,7 @@ static void test_moqtrun_upfetch_reencode(void) {
   wired_span all    = wired_span_of(buf, len);
   seq.eor_timed_out = 1;
   CHECK(moqfetch_hdr_take(all, &off, &rid) == MOQCTL_OK);
-  CHECK(rid == mf_req_sid);
+  CHECK(rid == mf_req_rid);
   CHECK(moqfetch_obj_take(all, &off, &seq, &o) == MOQCTL_OK);
   CHECK(o.group == 1 && o.object == 5 && o.subgroup == 7 && o.priority == 9);
   CHECK(o.has_props && o.props.n == 2 && o.payload.n == 2);
@@ -1353,7 +1353,7 @@ static void test_moqtrun_upfetch_malformed_past_end(void) {
   moqfetch_req m = {0};
   mupf_init();
   mtst_join(SESS_D);
-  mtst_subscribe_p(SESS_D, MTRQ_S1, &f, mtst_rid += 2, 0);
+  mtst_subscribe_p(SESS_D, MTRQ_S1, &f, mtst_rid += 4, 0);
   mupf_cache_group(3, 1);
   mupf_cache_group(4, 1);
   mupf_fetch(mupf_rl(1, 0, 4, 0), 0);

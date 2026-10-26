@@ -930,6 +930,7 @@
 #include "app/moqt/run/moqtrun_reset.c"
 #include "app/moqt/run/moqtrun_resolve.c"
 #include "app/moqt/run/moqtrun_rid.c"
+#include "app/moqt/run/moqtrun_rid_win.c"
 #include "app/moqt/run/moqtrun_rngf.c"
 #include "app/moqt/run/moqtrun_route.c"
 #include "app/moqt/run/moqtrun_row.c"

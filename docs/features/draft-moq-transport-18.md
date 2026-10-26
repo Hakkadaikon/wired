@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 192/248 tested, 30 indirect, 26 untested.**
+**Coverage: 194/248 tested, 30 indirect, 24 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -597,18 +597,15 @@ Legend:
     `test_moqtrun_upfetch_two_not_shared`); the start at 1 and the step of 2
     (`request_id_next`) are not pinned by a test. The client's even half is
     client behavior.
-- [ ] MQ18-061 (§10.1) If an endpoint receives a Request ID whose least
+- [x] MQ18-061 (§10.1) If an endpoint receives a Request ID whose least
   significant bit is incorrect for the sender, then the implementation shall
   close the session with INVALID_REQUEST_ID.
-  - gap: `moqsess` maps the event to INVALID_REQUEST_ID
-    (`test_moqsess_bad_request_id_parity`), but the hub raises it for no
-    request message; only a draft-18 GOAWAY's Request ID parity is checked
-    (MQ18-048a, `test_moqtrun_peer_goaway_d18_parity`).
-- [ ] MQ18-062 (§10.1) If an endpoint receives a duplicate Request ID, then the
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_parity_closes`
+- [x] MQ18-062 (§10.1) If an endpoint receives a duplicate Request ID, then the
   implementation shall close the session with INVALID_REQUEST_ID.
-  - gap: only the `moqsess` event mapping exists
-    (`test_moqsess_duplicate_request_id`); the hub does not detect a reused
-    Request ID.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_duplicate_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_out_of_order_ok`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_window_slides`
 
 ## SS10.2 Message Parameters
 

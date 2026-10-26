@@ -90,6 +90,7 @@ static void test_moqtrun_fetch_cache_released_on_republish(void) {
 /* ===================== FETCH plumbing ===================== */
 
 static u64 mf_req_sid; /* last request stream used */
+static u64 mf_req_rid; /* its FETCH's Request ID (mtst_rid) */
 
 static int mf_enc_fetch(wired_mspan buf, usz* off, const void* m) {
   return moqfetch_fetch_encode(buf, off, m);
@@ -100,8 +101,8 @@ static void mf_send_fetch(moqfetch_fetch* m) {
   u8  buf[MTST_MSG_MAX];
   usz n;
   mf_req_sid    = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
-  m->request_id = mf_req_sid; /* any even id; unique per request */
-  n             = moqtrun_envelope_put(
+  m->request_id = mf_req_rid = mtst_rid += 4;
+  n                          = moqtrun_envelope_put(
       wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH, mf_enc_fetch, m);
   CHECK(n != 0);
   wired_moqt_on_stream_data(
@@ -449,7 +450,7 @@ static void test_moqtrun_fetch_serves_cached(void) {
   mf_standalone(mf_loc(0, 0), mf_loc(0, 2));
   CHECK(mf_loc_eq(mf_ok_end(), 0, 2));
   CHECK(mf_read());
-  CHECK(mf_hdr_rid == mf_req_sid);
+  CHECK(mf_hdr_rid == mf_req_rid);
   CHECK(mf_n == 2);
   CHECK(mf_is_obj(0, 0, 0, 3) && mf_is_obj(1, 0, 1, 2));
   CHECK(mf_fin);
@@ -755,9 +756,9 @@ static void mf_fetch22(const moqctl_rangeloc* rl) {
   usz                 n;
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
-  m.request_id = mf_req_sid;
-  m.track      = mf_track();
-  m.params.n   = 0;
+  m.request_id = mf_req_rid = mtst_rid += 4;
+  m.track                   = mf_track();
+  m.params.n                = 0;
   if (rl) {
     m.range = *rl;
   }

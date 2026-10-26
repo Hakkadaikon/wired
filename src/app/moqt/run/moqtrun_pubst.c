@@ -136,7 +136,9 @@ void moqtrun_pubst_update(
     wired_span          body) {
   wired_moqtrun_req* saved = p->req;
   p->req                   = q;
-  moqtrun_handle_update(hub, p, (usz)(p - hub->peers), body);
+  moqtrun_rid_gate(
+      p, MOQCTL_OK, MOQTSTAT_T_REQUEST_UPDATE, body, moqtrun_handle_update)(
+      hub, p, (usz)(p - hub->peers), body);
   p->req = saved;
 }
 

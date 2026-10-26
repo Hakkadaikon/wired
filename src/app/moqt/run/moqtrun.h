@@ -171,6 +171,13 @@ typedef struct {
   /** One past the largest Request ID the peer has sent (+2, 0 for none):
    * a draft-18 GOAWAY's Request ID (SS10.4). */
   u64 peer_rid_next;
+  /** Lowest even Request ID the peer may still use (draft-19 10.1
+   * duplicate check, moqtrun_rid_repeat): every ID below it counts as
+   * used. */
+  u64 peer_rid_base;
+  /** Bit i set: the peer's Request ID peer_rid_base + 2i was used (bit 0
+   * is always clear). */
+  u64 peer_rid_seen;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */

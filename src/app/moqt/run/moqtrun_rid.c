@@ -12,8 +12,13 @@ static void moqtrun_dispatch_going_away(
 static int            moqtrun_is_late(const wired_moqtrun_peer* p, u64 type);
 static moqtrun_ctl_fn moqtrun_late_route(
     const wired_moqtrun_peer* p, u64 type, moqtrun_ctl_fn fn);
-static int  moqtrun_rid_counts(int peek, u64 type);
-static void moqtrun_rid_note(
+static int moqtrun_rid_counts(int peek, u64 type);
+static int moqtrun_rid_of(int peek, u64 type, wired_span body, u64* rid);
+static int moqtrun_rid_fresh(
+    wired_moqtrun_peer* p, int peek, u64 type, wired_span body);
+static void moqtrun_dispatch_bad_rid(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+static moqtrun_ctl_fn moqtrun_msg_route_known(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body);
 
 /* ===================== request streams ===================== */
@@ -134,31 +139,67 @@ static int moqtrun_rid_counts(int peek, u64 type) {
          (moqtrun_req_is_first(type) || type == MOQTSTAT_T_REQUEST_UPDATE);
 }
 
-/* Keeps p->peer_rid_next past every Request ID p has sent (draft-18
- * SS10.4 GOAWAY Request ID). */
-static void moqtrun_rid_note(
+/* 1 when a request message's body yields its Request ID into *rid. */
+static int moqtrun_rid_of(int peek, u64 type, wired_span body, u64* rid) {
+  usz off = 0;
+  return moqtrun_rid_counts(peek, type) && moqvi_take(body, &off, rid);
+}
+
+/* Checks a request message's Request ID against the sender's (the client
+ * sends even IDs, draft-19 10.1) and the IDs already used; 0 when it is
+ * wrong-parity or a repeat (INVALID_REQUEST_ID). Otherwise 1, with
+ * p->peer_rid_next kept past every Request ID p has sent (draft-18 SS10.4
+ * GOAWAY Request ID). A message whose ID does not decode passes: its
+ * handler closes it. */
+static int moqtrun_rid_fresh(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
-  usz off  = 0;
   u64 rid  = 0;
   u64 next = ~(u64)0; /* rid + 2 saturates: u64_add_ok keeps it on overflow */
-  if (!moqtrun_rid_counts(peek, type)) {
-    return;
+  if (!moqtrun_rid_of(peek, type, body, &rid)) {
+    return 1;
   }
-  if (!moqvi_take(body, &off, &rid)) {
-    return; /* no ID read: nothing moves */
+  if (moqtrun_rid_bad(p, rid)) {
+    return 0;
   }
   u64_add_ok(rid, 2, &next);
   p->peer_rid_next = u64_max(p->peer_rid_next, next);
+  return 1;
+}
+
+/* draft-19 10.1: a wrong-parity or reused Request ID closes the session
+ * INVALID_REQUEST_ID (moqsess EV_BAD_REQUEST_ID). */
+static void moqtrun_dispatch_bad_rid(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  moqtrun_sess_fault(hub, p, MOQSESS_EV_BAD_REQUEST_ID);
+}
+
+/* fn, or the INVALID_REQUEST_ID close when body's Request ID is bad. */
+moqtrun_ctl_fn moqtrun_rid_gate(
+    wired_moqtrun_peer* p,
+    int                 peek,
+    u64                 type,
+    wired_span          body,
+    moqtrun_ctl_fn      fn) {
+  return moqtrun_rid_fresh(p, peek, type, body) ? fn : moqtrun_dispatch_bad_rid;
+}
+
+static moqtrun_ctl_fn moqtrun_msg_route_known(
+    wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
+  if (p->req && moqtrun_peek_known(peek)) {
+    return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
+  }
+  return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
 }
 
 moqtrun_ctl_fn moqtrun_msg_route(
     wired_moqtrun_peer* p, int peek, u64 type, wired_span body) {
   peek = moqctl_type_ver(p->ver, peek, &type);
-  moqtrun_rid_note(p, peek, type, body);
-  if (p->req && moqtrun_peek_known(peek)) {
-    return moqtrun_late_route(p, type, moqtrun_req_route(p->req, type, body));
+  if (!moqtrun_rid_fresh(p, peek, type, body)) {
+    return moqtrun_dispatch_bad_rid;
   }
-  return moqtrun_late_route(p, type, moqtrun_ctl_route(peek, type));
+  return moqtrun_msg_route_known(p, peek, type, body);
 }
 
 /* ===================== control-stream reassembly ===================== */

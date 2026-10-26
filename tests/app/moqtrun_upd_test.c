@@ -15,7 +15,7 @@ static int mtup_enc_update(wired_mspan buf, usz* off, const void* m) {
 /* TRACK_STATUS for f on request stream sid. */
 static void mtup_tstat(wired_wt_session* s, u64 sid, const moqctl_ftn* f) {
   static moqctl_subscribe m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.name       = *f;
   m.params.n   = 0;
   mtst_send(s, sid, MOQTSTAT_T_TRACK_STATUS, mtup_enc_tstat, &m);
@@ -26,7 +26,7 @@ static void mtup_tstat(wired_wt_session* s, u64 sid, const moqctl_ftn* f) {
 static void mtup_update(
     wired_wt_session* s, u64 sid, const moqctl_params* params) {
   static moqtstat_update m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.params     = *params;
   mtst_params_for(s, &m.params);
   mtst_send(s, sid, MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m);
@@ -649,14 +649,15 @@ static void test_moqtrun_publish_alias_token_rejected(void) {
  * the hub refuses on subscriptions is refused here too. Every draft
  * allows it (moqtrun_vgate_test.c). */
 static void test_moqtrun_upd_on_publish_stream(void) {
-  static const u8 upd[] = {0x04, 0x00}; /* Request ID 4, no parameters */
-  moqctl_params   t     = mt22_filter(
+  u8            upd[] = {0x04, 0x00}; /* Request ID (set below), no params */
+  moqctl_params t     = mt22_filter(
       1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1)); /* inverted */
   moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
   mtst_init();
   mtst_join(SESS_A);
   moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
   mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  upd[0] = (u8)(mtst_rid += 4);
   mtrq_raw(SESS_A, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);

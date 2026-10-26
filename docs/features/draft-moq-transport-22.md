@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 206/273 tested, 43 indirect, 24 untested.**
+**Coverage: 208/273 tested, 43 indirect, 22 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -645,15 +645,15 @@ Legend:
   - evidence: the test asserts the upstream SUBSCRIBE's Request ID is odd;
     the start value 1 and the +2 step (`request_id_next`, moqtrun.h) are
     not asserted. The client's even-ID rule is client-only.
-- [ ] MQ22-060 If an endpoint receives a Request ID whose least significant bit
+- [x] MQ22-060 If an endpoint receives a Request ID whose least significant bit
   is incorrect for the sender, then the implementation shall close the session
   with INVALID_REQUEST_ID.
-  - gap: only the session model closes (`test_moqsess_bad_request_id_parity`);
-    the hub checks parity only for a draft-18 GOAWAY Request ID.
-- [ ] MQ22-061 If an endpoint receives a duplicate Request ID, then the
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_parity_closes`
+- [x] MQ22-061 If an endpoint receives a duplicate Request ID, then the
   implementation shall close the session with INVALID_REQUEST_ID.
-  - gap: only the session model closes (`test_moqsess_duplicate_request_id`);
-    the hub does not track the peer's Request IDs.
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_duplicate_closes`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_out_of_order_ok`
+  - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_rid_window_slides`
 
 ## SS9.20 Message Parameters
 

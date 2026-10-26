@@ -35,7 +35,7 @@ static void mups_init(void) {
 /* s SUBSCRIBEs the awaited track, no RENDEZVOUS_TIMEOUT. */
 static void mups_sub(wired_wt_session* s, u64 sid) {
   moqctl_ftn f = mrdv_f();
-  mtst_subscribe_p(s, sid, &f, mtst_rid += 2, 0);
+  mtst_subscribe_p(s, sid, &f, mtst_rid += 4, 0);
 }
 
 /* The which-th SUBSCRIBE the hub opened toward s (decoded in s's draft

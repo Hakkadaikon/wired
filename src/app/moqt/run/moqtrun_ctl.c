@@ -88,6 +88,8 @@ void moqtrun_peer_ctl_reset(wired_moqtrun_peer* p) {
   p->ctl_opened        = 0;
   p->request_id_next   = 1; /* hub is the server: odd, 1-origin (SS10.2) */
   p->peer_rid_next     = 0; /* client Request IDs: even, 0-origin */
+  p->peer_rid_base     = 0;
+  p->peer_rid_seen     = 0;
   p->sub_names_n       = 0;
   p->sub_names_at      = 0;
   p->send_lens[0]      = 0;

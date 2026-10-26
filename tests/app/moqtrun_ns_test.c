@@ -25,7 +25,7 @@ static int mtns_enc(wired_mspan buf, usz* off, const void* m) {
 
 static void mtns_req(wired_wt_session* s, u64 sid, u64 type, const char* z) {
   static moqns_req m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.ns         = mtns_ns(z);
   m.params.n   = 0;
   mtst_send(s, sid, type, mtns_enc, &m);
@@ -312,8 +312,12 @@ static int mtns_authorize(
 /* Request ID 2, namespace ("chat"), one AUTHORIZATION TOKEN (10.2.2). */
 static void mtns_req_with_token(
     wired_wt_session* s, u64 sid, u64 type, const u8* tok, usz n) {
-  u8  body[32] = {0x02, 0x01, 0x04, 'c', 'h', 'a', 't', 0x01, 0x03, (u8)n};
-  usz at       = 10;
+  static const u8 head[] = {0x01, 0x04, 'c', 'h', 'a', 't', 0x01, 0x03};
+  u8              body[40];
+  usz             at = moqvi_encode(body, mtst_rid += 4);
+  bytes_memcpy(body + at, head, sizeof head);
+  at += sizeof head;
+  body[at++] = (u8)n;
   for (usz i = 0; i < n; i++) {
     body[at++] = tok[i];
   }
@@ -433,7 +437,7 @@ static void test_moqtrun_ns_backpressure(void) {
 /* SUBSCRIBE_NAMESPACE for z encoded whole into buf. */
 static usz mtns_sub_bytes(const char* z, u8* buf) {
   static moqns_req m;
-  m.request_id = mtst_rid += 2;
+  m.request_id = mtst_rid += 4;
   m.ns         = mtns_ns(z);
   m.params.n   = 0;
   return moqtrun_envelope_put(

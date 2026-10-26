@@ -91,7 +91,7 @@ static u64 mtss_ok_alias(u64 sid) {
 
 /* B SUBSCRIBEs f on request stream sid, carrying params when given. */
 static void mtss_sub(u64 sid, moqctl_ftn f, const moqctl_params* params) {
-  mtst_subscribe_p(SESS_B, sid, &f, mtst_rid += 2, params);
+  mtst_subscribe_p(SESS_B, sid, &f, mtst_rid += 4, params);
 }
 
 /* Hub runs algs[0..n) (n 0: off); A and B join under draft ver; A
@@ -1246,7 +1246,7 @@ static void mtss_repath_run(int rejoin) {
   mtss_client_setup(SESS_B, mtss_algs_both, 2);
   mtns_pub(SESS_A, MRDV_S1, "chat/room1");
   mups_sids();
-  mtst_subscribe_p(SESS_B, MTSS_SID_HI, &hi, mtst_rid += 2, &ph);
+  mtst_subscribe_p(SESS_B, MTSS_SID_HI, &hi, mtst_rid += 4, &ph);
   up = mups_up(SESS_A, 0, &m);
   mups_ok((u64)up);
   mtss_ah = mtss_ok_alias(MTSS_SID_HI);
