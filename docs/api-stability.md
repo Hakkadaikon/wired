@@ -78,7 +78,9 @@ driver functions) or a pure function with no rules that span several calls
   `on_step`. `wt_origin_check` decides whether to accept a WebTransport
   session by its Origin; it gets an empty `origin` view when the request
   has no origin header. `wt_on_session_draining` is called when the peer
-  sends WT_DRAIN_SESSION on a session's CONNECT stream. `opt` must not be
+  sends WT_DRAIN_SESSION on a session's CONNECT stream. `datagram_first`
+  set to 1 sends queued DATAGRAMs before stream data in each send pass;
+  the default 0 sends stream data first (RFC 9221 §5.1). `opt` must not be
   0. With every setting at its default it behaves exactly like
   `wired_server_run`.
 - `wired_srvrun_handler` has three optional members at its end; leave any
@@ -159,9 +161,14 @@ classified in either tier: `wired_server_wt_stream_reply_open`,
 `wired_server_wt_stream_hold`, `wired_server_wt_stream_reset`,
 `wired_server_wt_stream_stop`, `wired_server_wt_send_datagram_to`,
 `wired_server_wt_close_session`, `wired_server_wt_est_kbps`,
-`wired_server_wt_exporter` and
-`wired_server_broadcast_datagram_ring`. They follow the same loop-only
-rule; read each header comment before using one.
+`wired_server_wt_exporter`,
+`wired_server_broadcast_datagram_ring`,
+`wired_server_wt_send_datagram_prio` and
+`wired_server_broadcast_datagram_prio`. They follow the same loop-only
+rule; read each header comment before using one. The two `_prio` calls
+take an urgency from 0 (most urgent) to 7 (RFC 9221 §5.1). Queued
+datagrams go out most urgent first, in call order within one urgency;
+the calls without `_prio` use 3.
 
 ### Requests and responses
 

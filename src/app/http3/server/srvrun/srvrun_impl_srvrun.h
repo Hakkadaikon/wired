@@ -2,6 +2,7 @@
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_SRVRUN_H
 
 #include "app/http3/server/srvrun/srvrun_impl_cid.h"
+#include "app/http3/server/srvrun/srvrun_impl_dgent.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
 #include "app/http3/server/srvrun/srvrun_impl_rst.h"
 #include "transport/recovery/detect/recovery/rtt.h"
@@ -513,6 +514,9 @@ typedef struct {
   wired_srvloop_closed peer_reset_seen[4];
   /** Bytes used in each dg_pending_buf entry. */
   usz dg_pending_len[SRVRUN_DG_PENDING_Q];
+  /** RFC 9221 5.1: each entry's urgency (dgpriority scale); the queue is
+   * kept most urgent first, arrival order within one urgency. */
+  u8 dg_pending_urg[SRVRUN_DG_PENDING_Q];
   /** Index of the oldest queued dg_pending_buf entry. */
   usz dg_pending_head;
   /** Bytes used in boot_ini; 0 until an accept flight is cached. */
@@ -1023,21 +1027,6 @@ _Static_assert(
  * size its rxstorage member. */
 #define SRVRUN_RX_BATCH 16
 
-/* RFC 9297 5 / RFC 9221 5: one queued session-addressed HTTP Datagram
- * (wired_server_wt_send_datagram_to) -- the qsid prefix is already applied
- * at queue time, so buf is the complete DATAGRAM payload, addressed to the
- * connection slot it targets. The slot size leaves the qsid varint room on
- * top of the 1200-byte payload cap the single-slot broadcast queue uses. */
-#define SRVRUN_DGRING_CAP 256
-#define SRVRUN_DGRING_SLOT 1224
-
-typedef struct {
-  int conn_slot; /**< target connection's slot index in env->conns */
-  u32 conn_gen;  /**< that slot's srvrun_conn.gen at queue time */
-  usz len;       /**< bytes used at buf (qsid prefix included) */
-  u8  buf[SRVRUN_DGRING_SLOT];
-} srvrun_dgring_entry;
-
 /* One server loop instance's whole mutable state, formerly a set of separate
  * file-scope globals (a single-threaded server needed exactly one instance of
  * each). Bundled into one struct, still with exactly one process-wide
@@ -1123,8 +1112,12 @@ struct wired_srvrun_env {
    * at accept (kept here, not in srvrun_cfg, which the run builds once). */
   wired_srvloop_on_body_abort on_body_abort;
   /* Session-addressed HTTP Datagram send ring (wired_server_wt_send_
-   * datagram_to): FIFO of dgring_n entries starting at dgring_head, drained
-   * once per loop step (srvrun_dgring_drain). Env-level, not per-connection,
+   * datagram_to): dgring_n entries starting at dgring_head, drained once per
+   * loop step most urgent first, oldest first within one urgency
+   * (srvrun_dgring_send_best; RFC 9221 5.1). shortcut: an entry drained
+   * ahead of the head holds its slot until the head passes it, so a long
+   * stall of low-urgency entries shrinks the free space; fine at the ring's
+   * 256 entries. Env-level, not per-connection,
    * so one step's burst across many sessions shares one bounded pool. */
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;
@@ -1166,6 +1159,9 @@ struct wired_srvrun_env {
    * reason (srvrun_raw_notify). */
   wired_rawq_on_session raw_on_session;
   void*                 raw_session_ctx;
+  /* wired_srvrun_opt.datagram_first, held here for the same reason
+   * (srvrun_send_pass). */
+  int datagram_first;
 };
 
 #endif

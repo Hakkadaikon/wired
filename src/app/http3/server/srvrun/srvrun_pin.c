@@ -32,6 +32,7 @@ int wired_srvrun_serve_env(
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
   env->raw_on_session          = opt->raw_on_session;
   env->raw_session_ctx         = opt->raw_session_ctx;
+  env->datagram_first          = opt->datagram_first;
   srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);
@@ -60,8 +61,8 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0,  0, 0, 0, 0, 0, 0, -1, 0,
-                                               0, -1, 0, 0, 0, 0, 0, 0, 0,  0,
-                                               0, 0,  0, 0, 0, 0, 0, 0, 0,  0};
+  static const wired_srvrun_opt default_opt = {
+      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

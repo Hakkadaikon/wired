@@ -1418,7 +1418,8 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
    * target/srvrun_queue_datagram themselves work correctly. The bug is
    * specifically in wired_server_broadcast_datagram's env selection, not in
    * the broadcast/queue logic it calls. */
-  srvrun_broadcast_to_all(&st, wired_span_of(msg, sizeof msg - 1));
+  srvrun_broadcast_to_all(
+      &st, wired_span_of(msg, sizeof msg - 1), DGPRIORITY_DEFAULT);
   CHECK(c->dg_pending == 1);
   CHECK(c->dg_pending_len[0] == sizeof msg - 1);
   for (usz i = 0; i < sizeof msg - 1; i++) {

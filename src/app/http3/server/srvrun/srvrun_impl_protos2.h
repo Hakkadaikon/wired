@@ -125,16 +125,17 @@ void srvrun_send_wt_drain_all(srvrun_conn* c);
 void srvrun_flush_wt_drain(srvrun_conn* c);
 int  srvrun_owes_goaway(const srvrun_conn* c);
 int  srvrun_queue_datagram(srvrun_conn* c, wired_span data);
+int  srvrun_queue_datagram_prio(srvrun_conn* c, wired_span data, u8 urgency);
 int  srvrun_send_datagram_now(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out);
 int srvrun_send_pending_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out);
-int               srvrun_wt_any_active(const srvrun_conn* c);
-void              srvrun_broadcast_to_all(srvrun_state* st, wired_span data);
-int               srvrun_bcast_find(i64 tid);
-int               srvrun_broadcast_direct(wired_span data);
-int               srvrun_broadcast_registered(int slot, wired_span data);
-void              srvrun_bcast_drain_self(srvrun_state* st);
+int  srvrun_wt_any_active(const srvrun_conn* c);
+void srvrun_broadcast_to_all(srvrun_state* st, wired_span data, u8 urgency);
+int  srvrun_bcast_find(i64 tid);
+int  srvrun_broadcast_direct(wired_span data, u8 urgency);
+int  srvrun_broadcast_registered(int slot, wired_span data, u8 urgency);
+void srvrun_bcast_drain_self(srvrun_state* st);
 wired_srvrun_env* srvrun_caller_env(void);
 int               srvrun_conn_session_slot(srvrun_conn* c, wired_wt_session* s);
 
