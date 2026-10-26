@@ -9,6 +9,10 @@
 /* RFC 9000 17.2: a connection id is at most 20 bytes. */
 #define SRVDEMO_SCID_MAX 20
 
+/* RFC 9110 7.4: the demo certificate also names 127.0.0.1 (iPAddress SAN),
+ * so a client reaching the demo by loopback IP is not answered 421. */
+static const u8 srvdemo_loopback[4] = {127, 0, 0, 1};
+
 void wired_srvboot_demo(
     wired_srvboot_id*        id,
     wired_srvboot_demo_keys* k,
@@ -28,6 +32,7 @@ void wired_srvboot_demo(
   id->random    = k->rnd;
   id->scid      = (const u8*)scid;
   id->scid_len  = (u8)(n < SRVDEMO_SCID_MAX ? n : SRVDEMO_SCID_MAX);
+  id->san_ipv4  = srvdemo_loopback;
 }
 
 int wired_srvboot_cert_sha256(const wired_srvboot_id* id, u8 out[32]) {

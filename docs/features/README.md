@@ -76,15 +76,15 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2202/2257 requirements demonstrated (97.6%) — 1847 directly tested,
-355 indirect, 55 untested.**
+**Total: 2234/2253 requirements demonstrated (99.2%) — 1927 directly tested,
+307 indirect, 19 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 245/276 | 188 | 57 | 31 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 74/78 | 52 | 22 | 4 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 272/272 | 248 | 24 | 0 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 78/78 | 71 | 7 | 0 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 75/75 | 62 | 13 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
@@ -96,7 +96,7 @@ page: **[Interop Results](../interop.md)**.
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 8/8 | 7 | 1 | 0 |
 | [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 25/25 | 19 | 6 | 0 |
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 29/29 | 23 | 6 | 0 |
-| [RFC 9308 — Applicability (informational)](rfc9308.md) | 10/10 | 8 | 2 | 0 |
+| [RFC 9308 — Applicability (informational)](rfc9308.md) | 10/10 | 9 | 1 | 0 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 34/34 | 26 | 8 | 0 |
 
@@ -135,7 +135,7 @@ page: **[Interop Results](../interop.md)**.
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 9114 — HTTP/3](rfc9114.md) | 96/97 | 81 | 15 | 1 |
-| [RFC 9110 — HTTP semantics](rfc9110.md) | 42/43 | 41 | 1 | 1 |
+| [RFC 9110 — HTTP semantics](rfc9110.md) | 43/43 | 41 | 2 | 0 |
 | [RFC 9204 — QPACK](rfc9204.md) | 64/65 | 55 | 9 | 1 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 17 | 0 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 22/22 | 18 | 4 | 0 |

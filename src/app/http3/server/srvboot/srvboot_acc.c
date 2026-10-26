@@ -62,16 +62,26 @@ static int srvboot_acc_alt_match(
          srvboot_cid_match(h->dcid, h->dcid_len, a->alt_dcid, a->alt_dcid_len);
 }
 
-/* 1 if dg's DCID equals the accumulator's bound one (its Initial keys) or
+/* 1 if h's DCID equals the accumulator's bound one (its Initial keys) or
  * the allowed alternate (the server's own scid the client switched to,
  * wired_srvboot_acc_allow). */
+static int srvboot_acc_dcid_ok(
+    const wired_srvboot_acc* a, const wired_header* h) {
+  return srvboot_cid_match(
+             h->dcid, h->dcid_len, a->hdr.dcid, a->hdr.dcid_len) ||
+         srvboot_acc_alt_match(a, h);
+}
+
+/* 1 if dg names an accepted DCID and the first Initial's SCID -- RFC 9000
+ * 7.2: "if subsequent Initial packets include a different Source
+ * Connection ID, they MUST be discarded". */
 static int srvboot_acc_same_dcid(const wired_srvboot_acc* a, wired_mspan dg) {
   wired_header h;
   if (!wired_header_parse(dg.p, dg.n, &h)) {
     return 0;
   }
-  return srvboot_cid_match(h.dcid, h.dcid_len, a->hdr.dcid, a->hdr.dcid_len) ||
-         srvboot_acc_alt_match(a, &h);
+  return srvboot_acc_dcid_ok(a, &h) &&
+         srvboot_cid_match(h.scid, h.scid_len, a->hdr.scid, a->hdr.scid_len);
 }
 
 /* Bind the accumulator to its first datagram's header. */
