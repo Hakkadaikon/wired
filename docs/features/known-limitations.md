@@ -806,11 +806,12 @@ The next two entries concern lower-level entry points. The server that
   64 connections. `WIRED_CONNTABLE_CAP` is 64 slots, searched by linear
   scan. Source: `conntable.h` header comment (ponytail).
 - **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
-  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints, and the
-  oldest is evicted, so a ticket seen 4096 resumptions ago could be replayed
-  once more. Forked workers share the ring; separate server processes and
-  restarts do not (no persistence). Replay of an evicted entry is bounded by
-  the ticket lifetime. Source: `zerortt_seen.h`
+  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints. An entry is
+  evicted only once a replay of it can no longer pass the freshness check
+  (`ZERORTT_SEEN_LIVE_SECS`, 21 s); while the ring is full of live entries,
+  new 0-RTT attempts are refused and those clients fall back to 1-RTT
+  (RFC 8446 8.2). Forked workers share the ring; separate server processes
+  and restarts do not (no persistence). Source: `zerortt_seen.h`
   (ponytail).
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
