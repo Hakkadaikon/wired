@@ -1986,6 +1986,13 @@ int main(void) {
   test_h3settings_build_wt_flow_control_initial_limits();
   test_h3settings_build_wt_flow_control_zero_omits_pairs();
   test_h3settings_h3_datagram_monotonic_ok();
+  test_h3settings_zerortt_compatible_identical_ok();
+  test_h3settings_zerortt_compatible_raised_fields_ok();
+  test_h3settings_zerortt_compatible_extension_withdrawn_rejected();
+  test_h3settings_zerortt_compatible_lowered_core_limit_rejected();
+  test_h3settings_zerortt_compatible_wt_sessions_lowered();
+  test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected();
+  test_h3settings_zerortt_remembered_ok();
   test_h3settings_control_stream_always_greased();
   test_capsule();
   test_sfield();

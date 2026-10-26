@@ -136,3 +136,10 @@ int h3settings_zerortt_compatible(
          extension_limits_compatible(prior, current) &&
          wt_flow_limits_compatible(prior, current);
 }
+
+int h3settings_zerortt_remembered_ok(
+    u64 prior_max_datagram, u64 current_max_datagram) {
+  h3settings_in prior   = control_settings_in(prior_max_datagram > 0);
+  h3settings_in current = control_settings_in(current_max_datagram > 0);
+  return h3settings_zerortt_compatible(&prior, &current);
+}
