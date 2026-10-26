@@ -316,6 +316,37 @@ static void test_moqtrun_upsub_fin_unanswered_fails(void) {
   CHECK(mups_used() == 1);
 }
 
+/* First call of kind k1 or k2 on (s, sid); ~0 if none. */
+static usz mups_first(wired_wt_session* s, u64 sid, int k1, int k2) {
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c = &g_calls[i];
+    if (c->s == s && c->stream_id == sid && (c->kind == k1 || c->kind == k2)) {
+      return i;
+    }
+  }
+  return ~(usz)0;
+}
+
+/* draft-18 5.1: A PUBLISHes the Track the hub's SUBSCRIBE to A still
+ * waits on (Pending, subscriber): that SUBSCRIBE is cancelled before A's
+ * PUBLISH_OK goes out (MUST), and B rides A's PUBLISH. */
+static void test_moqtrun_upsub_publish_crosses(void) {
+  moqctl_ftn f   = mrdv_f();
+  u64        pub = MTRQ_ID(5);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mtst_publish(SESS_A, pub, &f, 1);
+  usz rst = mups_first(SESS_A, sid, 7, 7);
+  usz ok  = mups_first(SESS_A, pub, 3, 12);
+  CHECK(ok != ~(usz)0);
+  if (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_DUP_SUBSCRIPTION) {
+    CHECK(rst < ok);
+  }
+  CHECK(mups_used() == 0);
+  CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
 /* U5 NoLeak: the upstream outlives one downstream cancel, and is
  * cancelled (RESET_STREAM + STOP_SENDING CANCELLED, 19 3.3.3) with the
  * last; A's track goes with it. */
@@ -519,6 +550,7 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
   test_moqtrun_upsub_fin_unanswered_fails();
+  test_moqtrun_upsub_publish_crosses();
   test_moqtrun_upsub_last_cancel_cancels_upstream();
   test_moqtrun_upsub_pending_cancel_and_stale_ok();
   test_moqtrun_upsub_publish_done_relayed();

@@ -88,6 +88,8 @@ void moqtrun_early_put(
     wired_moqtrun_peer* p, u64 sid, wired_span data, int fin);
 int moqtrun_up_pending_for(
     const wired_moqt_hub* hub, const wired_wt_session* s);
+void moqtrun_up_crossed(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_key k);
 void moqtrun_early_replay(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,

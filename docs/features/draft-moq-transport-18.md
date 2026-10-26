@@ -1315,15 +1315,21 @@ Legend:
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_forward_toggles`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_rejoin_reresolves_start`
-- [ ] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
+- [x] MQ18-213 (§5.1) If the hub receives a SUBSCRIBE for a Track for which it
   has a subscription to that peer in Pending (publisher) state (a
   hub-initiated PUBLISH not yet answered), then it shall refuse it with
   REQUEST_ERROR DUPLICATE_SUBSCRIPTION.
-  - gap: not tested.
-- [ ] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
+  - evidence: `moqtrun_fresh_refusal` (`moqtrun_pub_crossing`);
+    `test_subtracks_subscribe_crosses_publish` subscribes while the hub's
+    SUBSCRIBE_TRACKS PUBLISH is unanswered and sees DUPLICATE_SUBSCRIPTION on
+    draft-18, a subscription on later drafts.
+- [x] MQ18-214 (§5.1) If the hub receives a PUBLISH for a Track for which its
   own upstream SUBSCRIBE to that peer is still Pending (subscriber), then it
   shall terminate its own subscription before sending PUBLISH_OK.
-  - gap: not tested.
+  - evidence: `moqtrun_up_crossed` cancels the Pending upstream SUBSCRIBE in
+    `moqtrun_publish_checked` before PUBLISH_OK is queued;
+    `test_moqtrun_upsub_publish_crosses` asserts the reset precedes the
+    PUBLISH_OK and the waiter rides the PUBLISH.
 - [x] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
   shall reset every open data stream of that subscription.
   - evidence: `moqtrun_req_cancel` resets the subscription's relay streams

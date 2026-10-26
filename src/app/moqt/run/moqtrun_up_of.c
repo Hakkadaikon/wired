@@ -6,6 +6,8 @@ static int moqtrun_up_on_stream(
 static int moqtrun_up_unanswered(
     const wired_moqtrun_up* u, const wired_wt_session* s);
 static int moqtrun_up_is_track(const wired_moqtrun_track* t, u64 tag);
+static int moqtrun_up_crossing(
+    const wired_moqtrun_peer* p, const wired_moqtrun_up* u);
 
 static int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k) {
   return u->in_use && moqtrun_ns_eq(u->ns, u->ns_len, k.ns) &&
@@ -48,6 +50,26 @@ wired_moqtrun_up* moqtrun_up_of_stream(
 static int moqtrun_up_unanswered(
     const wired_moqtrun_up* u, const wired_wt_session* s) {
   return u->in_use && u->wt == s && !u->track_tag;
+}
+
+/* draft-18 5.1: p's PUBLISH crosses u, the hub's own SUBSCRIBE to p for
+ * the same Track still Pending (subscriber). */
+static int moqtrun_up_crossing(
+    const wired_moqtrun_peer* p, const wired_moqtrun_up* u) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_DUP_SUBSCRIPTION) && u &&
+         moqtrun_up_unanswered(u, p->wt);
+}
+
+/* The crossed SUBSCRIBE is cancelled -- Terminated -- before the
+ * PUBLISH_OK goes out (MUST); its waiters already took p's track. */
+void moqtrun_up_crossed(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_key k) {
+  wired_moqtrun_up* u = moqtrun_up_of_key(hub, k);
+  if (!moqtrun_up_crossing(p, u)) {
+    return;
+  }
+  moqtrun_up_reset(hub, p, u);
+  u->in_use = 0;
 }
 
 int moqtrun_up_pending_for(
