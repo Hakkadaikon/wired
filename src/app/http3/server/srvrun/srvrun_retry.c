@@ -19,7 +19,7 @@ static void srvrun_conn_cc_init(const srvrun_cfg* cfg, srvrun_conn* c) {
   ecn_track_init(&c->ecn);
   hystart_init(&c->hs);
   rtt_init(&c->rtt);
-  pmtu_init(&c->pmtu);
+  srvrun_pmtu_start(c);
 }
 
 /* Wipe the just-claimed slot c (index slot) for a new connection from

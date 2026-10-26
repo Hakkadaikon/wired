@@ -15246,6 +15246,38 @@ static void test_srvrun_pmtu_error_halts_sends(void) {
   CHECK(g_srvrun_send_count == before + 2);
 }
 
+/* RFC 8899 3 / RFC 9000 14.2: the send path moving to another local/remote
+ * address pair restarts the PMTU search at the base (the old path's size is
+ * not carried over) and re-slices armed responses at the base MPS; a peer
+ * port change alone (same address pair) keeps it. */
+static void test_srvrun_path_move_resets_pmtu(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  static u8     body[4000];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  pathsel_key to;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  pmtu_init(&c.pmtu);
+  c.pmtu.validated = PMTU_MAX;
+  c.pmtu.phase     = PMTU_PHASE_COMPLETE;
+  c.resp[0].in_use = 1;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, srvrun_mps(&c));
+  to = srvrun_send_key(&cfg, &c);
+  to.peer.port_be ^= 1;
+  srvrun_path_move(&cfg, &c, &to);
+  CHECK(c.pmtu.validated == PMTU_MAX); /* port only: same pair */
+  to.peer.addr[15] ^= 1;
+  srvrun_path_move(&cfg, &c, &to);
+  CHECK(c.pmtu.validated == PMTU_BASE);
+  CHECK(c.pmtu.phase == PMTU_PHASE_SEARCHING);
+  CHECK(c.resp[0].sess.q.chunk == srvrun_mps(&c));
+}
+
 /* RFC 8899 4.4: PMTU_MAX is the target WIRE size (datagram bytes on the
  * path), not a plaintext payload length -- srvrun_pmtu_send_probe must leave
  * room in its size-`size` buffer for the short header (1 + dcid.n + 4) and
@@ -25937,6 +25969,7 @@ void test_srvrun(void) {
   test_srvrun_pmtu_full_size_losses_black_hole();
   test_srvrun_pmtu_full_size_ack_not_black_hole();
   test_srvrun_pmtu_error_halts_sends();
+  test_srvrun_path_move_resets_pmtu();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_data_datagrams_fit_validated_probe();

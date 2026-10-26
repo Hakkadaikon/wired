@@ -299,3 +299,28 @@ void srvrun_pmtu_feed_losses(srvrun_conn* c, usz big) {
   srvrun_pmtu_shrink(c);
   srvrun_pmtu_probe_clear(c);
 }
+
+/* RFC 8899 3.5/5.1.2: c's search starts over for its current peer -- the
+ * handshake (or the new path's validation) confirmed BASE_PLPMTU, and
+ * MAX_PLPMTU is what the local link toward that peer carries (PMTU_MAX
+ * when the kernel cannot tell). */
+void srvrun_pmtu_start(srvrun_conn* c) {
+  usz link = wired_udp_path_mtu(&c->peer);
+  pmtu_init(&c->pmtu);
+  pmtu_set_max(&c->pmtu, link ? link : PMTU_MAX);
+  srvrun_pmtu_probe_clear(c);
+}
+
+/* RFC 8899 3 / RFC 9000 14.2: the PLPMTU belongs to one local/remote
+ * address pair. The send path moving from `from` to another pair (a peer
+ * port change alone keeps it, as for the congestion controller, RFC 9000
+ * 9.4) restarts the search at BASE_PLPMTU and re-slices at the base MPS
+ * until the new path validates a larger size. */
+void srvrun_pmtu_path_reset(
+    srvrun_conn* c, const pathsel_key* from, const pathsel_key* to) {
+  if (srvrun_path_port_only(from, to)) {
+    return;
+  }
+  srvrun_pmtu_start(c);
+  srvrun_pmtu_shrink(c);
+}

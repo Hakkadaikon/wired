@@ -26,6 +26,10 @@ void srvrun_peer_reset_drain(const srvrun_step_ctx* ctx, int slot);
 int  srvrun_peer_reset_any(const srvrun_step_ctx* ctx, wired_mspan dg);
 void srvrun_path_cc_restart(
     const srvrun_cfg* cfg, srvrun_conn* c, const pathsel_key* k);
+int  srvrun_path_port_only(const pathsel_key* a, const pathsel_key* b);
+void srvrun_pmtu_start(srvrun_conn* c);
+void srvrun_pmtu_path_reset(
+    srvrun_conn* c, const pathsel_key* from, const pathsel_key* to);
 u64  srvrun_path_budget(srvrun_conn* c, const pathsel_key* k);
 int  srvrun_path_spend(srvrun_conn* c, const pathsel_key* k, usz n);
 void srvrun_path_challenge(
