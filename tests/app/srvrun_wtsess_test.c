@@ -2,8 +2,8 @@
  * WebTransport session establishment and session errors on srvrun's shipping
  * path (draft-ietf-webtrans-http3-16 3.1/3.2/4/5.4/6, RFC 9297 2.1.1/3.2).
  * Every case seals real client packets through sr_sl_step (srvrun_test.c),
- * included earlier in the same unity TU, as is srvrun_close_test.c's
- * src_kept_close.
+ * included earlier in the same unity TU, as do srvrun_close_test.c's
+ * src_connect_send / src_kept_close / src_connect_fin_sent.
  *
  * Test list:
  * - malformed CONNECT (RFC 9114 4.1.2, reset H3_MESSAGE_ERROR, no session,
@@ -16,7 +16,11 @@
  *   H3_SETTINGS_ERROR (RFC 9297 2.1.1); a webtransport-h3 CONNECT needs the
  *   client's reset_stream_at TP, the draft-07 "webtransport" token does not.
  * - DATAGRAM send (RFC 9297 2.1.1): refused until the peer's
- *   SETTINGS_H3_DATAGRAM=1 has been received. */
+ *   SETTINGS_H3_DATAGRAM=1 has been received.
+ * - session id (4): a WT uni or bidi stream naming a non-client-bidi session
+ *   id closes the connection with H3_ID_ERROR; one naming a client-bidi id
+ *   with no live session (a closed one, 4/WTH3-031) does not.
+ * - WT_MAX_STREAM_DATA / WT_STREAM_DATA_BLOCKED (5.4): close the session. */
 
 #define WTS_NONE (~(u64)0)
 
@@ -189,6 +193,72 @@ static void test_srvrun_wt_datagram_needs_peer_h3_datagram(void) {
   CHECK(srvrun_queue_datagram(c, d) == 1);
 }
 
+/* One STREAM frame on stream id carrying d at offset 0, no FIN. */
+static void wts_stream(srvrun_conn* c, u64 id, const u8* d, usz n) {
+  u8           pl[64];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf  = {id, 0, n, d, 0};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+}
+
+/* An established session on CONNECT stream 0, then stream id opening with
+ * the 2-byte signal varint sig naming session sid. */
+static srvrun_conn* wts_signal(u64 id, u8 sig, u8 sid) {
+  srvrun_conn* c   = sr_sl_fixture();
+  u8           d[] = {0x40, sig, sid, 'x'};
+  wts_connect(c, 0, "https", "webtransport", 0, 0);
+  CHECK(c->wt_active == 1);
+  wts_stream(c, id, d, sizeof d);
+  return c;
+}
+
+static void test_srvrun_wt_non_client_bidi_session_id_closes(void) {
+  static const struct {
+    u64 id;
+    u8  sig, sid;
+  } rows[] = {{14, 0x54, 1}, {14, 0x54, 2}, {4, 0x41, 3}, {4, 0x41, 6}};
+  for (usz i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+    srvrun_conn* c = wts_signal(rows[i].id, rows[i].sig, rows[i].sid);
+    CHECK(c->closing == 1);
+    CHECK(src_kept_close(c).error_code == H3_ID_ERROR);
+  }
+}
+
+/* 4 / WTH3-031: a client-bidi id with no live session is not invalid. */
+static void test_srvrun_wt_closed_session_id_not_an_id_error(void) {
+  srvrun_conn* c = wts_signal(14, 0x54, 8);
+  CHECK(c->closing == 0);
+  c = wts_signal(4, 0x41, 8);
+  CHECK(c->closing == 0);
+  CHECK(c->wt_active == 1);
+}
+
+/* DATA-framed capsule (type, one-varint value 5) on CONNECT stream 0 at
+ * offset at. */
+static void wts_capsule(srvrun_conn* c, u64 at, u64 type) {
+  u8         cap[32];
+  u8         v[] = {5};
+  wired_obuf b   = obuf_of(cap, sizeof cap);
+  CHECK(capsule_encode(&b, type, wired_span_of(v, 1)) == 1);
+  sr_h3data(&b, 0);
+  src_connect_send(c, at, cap, b.len, 0);
+}
+
+static void test_srvrun_wt_stream_level_flow_capsule_session_error(void) {
+  static const u64 types[] = {
+      WTCAPSULE_TYPE_MAX_STREAM_DATA, WTCAPSULE_TYPE_STREAM_DATA_BLOCKED};
+  for (usz i = 0; i < 2; i++) {
+    srvrun_conn* c    = sr_sl_fixture();
+    usz          hlen = wts_connect(c, 0, "https", "webtransport", 0, 0);
+    wts_capsule(c, hlen, types[i]);
+    CHECK(g_sl_closes == 1);
+    CHECK(c->wt_active == 0);
+    CHECK(src_connect_fin_sent(c));
+    CHECK(c->closing == 0);
+  }
+}
+
 void test_srvrun_wtsess(void) {
   test_srvrun_wt_connect_http_scheme_malformed();
   test_srvrun_wt_connect_capsule_forbidden_fields_malformed();
@@ -198,4 +268,7 @@ void test_srvrun_wtsess(void) {
   test_srvrun_wt_no_datagram_tp_malformed();
   test_srvrun_wt_h3_token_requires_reset_stream_at();
   test_srvrun_wt_datagram_needs_peer_h3_datagram();
+  test_srvrun_wt_non_client_bidi_session_id_closes();
+  test_srvrun_wt_closed_session_id_not_an_id_error();
+  test_srvrun_wt_stream_level_flow_capsule_session_error();
 }

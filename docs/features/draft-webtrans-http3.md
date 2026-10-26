@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 69/81 tested, 9 indirect, 3 untested.**
+**Coverage: 72/81 tested, 8 indirect, 1 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -252,24 +252,24 @@ Legend:
   client-initiated bidirectional stream.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_client_bidi_id_establishes_session`
-- [ ] WTH3-030 (§4) If the server receives a session ID on a
+- [x] WTH3-030 (§4) If the server receives a session ID on a
   unidirectional stream, bidirectional stream, or datagram that does not
   correspond to a client-initiated bidirectional stream ID, then the
   server shall close the connection with an H3_ID_ERROR error code.
-  - gap: only a CONNECT on a non-client-bidi id is checked
-    (`test_srvrun_wt_connect_non_client_bidi_id_rejected`), and it resets
-    that stream with H3_ID_ERROR rather than closing the connection; the
-    session ID in a WT data stream header is not checked (such a stream is
-    buffered and later rejected), and a datagram's Quarter Stream ID always
-    maps to a multiple of 4.
-- [~] WTH3-031 (§4) Session IDs corresponding to closed sessions shall not
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_non_client_bidi_session_id_closes`
+  - evidence: a datagram's Quarter Stream ID always maps to a multiple of
+    4, so only the WT stream headers can carry such an id; a CONNECT on a
+    non-client-bidi id cannot be opened by a client at all (it still gets
+    H3_ID_ERROR, `test_srvrun_wt_connect_non_client_bidi_id_rejected`).
+- [x] WTH3-031 (§4) Session IDs corresponding to closed sessions shall not
   themselves be considered invalid for the client-initiated-bidi-stream
   check; endpoints handle data for closed sessions per session
   termination rules.
-  - evidence: no session-ID validity check exists that could reject them
-    (WTH3-030); an id with no live session simply misses the slot table
-    (`tests/app/srvrun_test.c` — `test_srvrun_wt_foreign_stream_id_rejected`,
-    `test_srvrun_wt_close_frees_slot_for_new_accept`).
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_closed_session_id_not_an_id_error`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_foreign_stream_id_rejected`
 
 ## §4.2 Unidirectional Streams
 
@@ -587,13 +587,13 @@ Legend:
     `test_srvrun_wt_data_limited_send_emits_data_blocked_once`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_open_uni_blocked_by_data_limit_sends_data_blocked`
-- [ ] WTH3-063 (§5.4) If the server receives a WT_MAX_STREAM_DATA or a
+- [x] WTH3-063 (§5.4) If the server receives a WT_MAX_STREAM_DATA or a
   WT_STREAM_DATA_BLOCKED capsule, then the server shall treat it as a
   session error.
-  - gap: the two capsule types are not defined in the SDK
-    (wtcapsule.h), so they are skipped like any unknown capsule
-    (`test_srvrun_wt_rx_unknown_capsule_skipped`) instead of closing the
-    session.
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_stream_level_flow_capsule_session_error`
+  - evidence: the session closes with WT_FLOW_CONTROL_ERROR (the draft
+    names no code for this session error) and a FIN on the CONNECT stream.
 - [x] WTH3-071 (§5.6.4) If a received WT_MAX_DATA value does not increase
   the session's current data limit (the same value or a decrease), then
   the server shall close the WebTransport session with a
