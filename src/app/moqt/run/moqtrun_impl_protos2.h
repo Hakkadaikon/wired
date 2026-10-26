@@ -94,6 +94,10 @@ u8                  moqtrun_forward_off(const moqctl_param* p);
 const moqctl_loc*   moqtrun_track_top(const wired_moqtrun_track* t);
 void moqtrun_sub_resolve(wired_moqtrun_sub* s, const wired_moqtrun_track* t);
 int  moqtrun_param_has_filter(const moqctl_param* f);
+int  moqtrun_filter_past(
+    const wired_moqtrun_peer*  p,
+    const wired_moqtrun_track* t,
+    const moqctl_subscribe*    m);
 void moqtrun_sub_filter(
     wired_moqtrun_sub* s, const wired_moqtrun_track* t, const moqctl_param* f);
 void moqtrun_sub_scalars(wired_moqtrun_sub* s, const moqctl_subscribe* m);

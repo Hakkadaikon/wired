@@ -1004,12 +1004,12 @@ Legend:
     subscriber over the reliable relay, and Objects of the start Group below
     the start Object are cut on every relay path.
 
-- [ ] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
+- [x] MQ18-217 (§5.1.2) If the hub cannot satisfy a Subscription Filter, or
   the filter's entire End Group has already been published, then it should
   reply REQUEST_ERROR INVALID_RANGE.
-  - gap: a draft-18 AbsoluteRange whose End Group is wholly published is
-    not refused (no test); INVALID_RANGE is asserted for the draft-22
-    filter only.
+  - evidence: `moqtrun_filter_past` refuses an AbsoluteRange whose End Group
+    precedes the track's Largest Group; `test_moqtrun_sub_range_past_invalid`
+    (one ending at the Largest Group is accepted).
 
 ## SS14 Grease
 

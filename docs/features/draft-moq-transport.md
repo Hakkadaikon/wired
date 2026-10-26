@@ -930,11 +930,12 @@ Legend:
     `test_moqtrun_sub_filter_from_largest`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
-- [ ] MOQT-222 (SS5.1.2) If a SUBSCRIBE's Location Filter cannot be satisfied
+- [x] MOQT-222 (SS5.1.2) If a SUBSCRIBE's Location Filter cannot be satisfied
   (e.g. its End Group is already fully published), then the hub should answer
   REQUEST_ERROR INVALID_RANGE.
-  - gap: only the draft-22 typed LOCATION_FILTER is refused INVALID_RANGE
-    (`test_moqtrun_sub_filter22_inverted`).
+  - evidence: `moqtrun_filter_past` (End Group before the Largest Group) and
+    `test_moqtrun_sub_range_past_invalid`; the draft-22 inverted filter keeps
+    `test_moqtrun_sub_filter22_inverted`.
 
 ## SS14 Grease
 
@@ -1818,7 +1819,6 @@ MOQT-200 through MOQT-208).
 The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
-- INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).
 - Authorizing SUBSCRIBE_TRACKS (MOQT-230).

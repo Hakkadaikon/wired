@@ -59,7 +59,8 @@ void moqtrun_subscribe_blob(
   moqtrun_blob_send_first(hub, p, peer_idx, m);
 }
 
-/* A fresh slot for the SUBSCRIBE, or DOES_NOT_EXIST once the table is
+/* A fresh slot for the SUBSCRIBE; INVALID_RANGE for a filter that ended
+ * in the past (moqtrun_filter_past), DOES_NOT_EXIST once the table is
  * full. */
 static void moqtrun_subscribe_fresh(
     wired_moqt_hub*         hub,
@@ -69,6 +70,10 @@ static void moqtrun_subscribe_fresh(
     moqtrun_key             k,
     const moqctl_subscribe* m) {
   wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
+  if (moqtrun_filter_past(p, track, m)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
+    return;
+  }
   if (!slot) {
     moqtrun_send_request_error(p, MOQCTL_ERR_DOES_NOT_EXIST);
     return;

@@ -1187,6 +1187,35 @@ static u64 mt22_last_error(void) {
   return e.error_code;
 }
 
+/* B subscribes AbsoluteRange {1,0}..end_group after A published Group 6;
+ * refused says whether INVALID_RANGE (and no subscription) must follow. */
+static void mtst_range_past(u64 end_group, int refused) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtst_params_filter(MOQCTL_FILTER_ABS_RANGE);
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  usz n = mtst_stream(6, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  p.items[0].lf.start.group     = 1;
+  p.items[0].lf.end_group_delta = end_group - 1;
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
+  CHECK((mtrq_err_on(cb) == MOQCTL_ERR_INVALID_RANGE) == refused);
+  CHECK((mtst_sub(SESS_A, SESS_B) == 0) == refused);
+}
+
+/* draft-18/19 5.1.2: a filter whose End Group was already wholly
+ * published (a later Group exists) is refused INVALID_RANGE (SHOULD);
+ * one ending at the Largest Group is not, and draft-22 keeps both
+ * (MQ22-108a). */
+static void test_moqtrun_sub_range_past_invalid(void) {
+  int d22 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_LOCFILTER_TYPED) != 0;
+  mtst_range_past(5, !d22);
+  mtst_range_past(6, 0);
+}
+
 /* 0x04 with End Group Delta 0 and End Object before Start Object can
  * never be satisfied: REQUEST_ERROR INVALID_RANGE, no subscription. */
 static void test_moqtrun_sub_filter22_inverted(void) {
@@ -2097,6 +2126,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_filter22_starts();
   test_moqtrun_sub_filter22_ends();
   test_moqtrun_sub_filter22_inverted();
+  test_moqtrun_sub_range_past_invalid();
   test_moqtrun_sub_filter22_end_gates();
   test_moqtrun_sub_filter22_end_object_mid_round_oneshot();
   test_moqtrun_sub_filter22_end_object_mid_round_keepopen();
