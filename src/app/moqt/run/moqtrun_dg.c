@@ -17,6 +17,8 @@ static void moqtrun_dg_fanout(
     const wired_moqtrun_track* track,
     wired_span                 data,
     moqctl_loc                 loc);
+static int moqtrun_dg_wants(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, moqctl_loc loc);
 static void moqtrun_sw_sweep(wired_moqt_hub* hub);
 static void moqtrun_rel_clear_sub(
     wired_moqt_hub* hub, const wired_moqtrun_relay* r, usz si);
@@ -102,6 +104,14 @@ static void moqtrun_dg_to_one(
   }
 }
 
+/* sub takes the Object at loc, and no sibling mirror sent it (draft-18
+ * 9.3 dedup, moqtrun_dd_dup). */
+static int moqtrun_dg_wants(
+    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, moqctl_loc loc) {
+  return moqtrun_sub_gets_loc(sub, loc) &&
+         !moqtrun_dd_dup(hub, sub, 1, loc.group, loc.object);
+}
+
 /* Stateless fan-out to every active subscriber of the track whose
  * Location Filter takes the Object at loc -- the datagram twin of
  * moqtrun_relay_object. A deactivated (closed) subscription is skipped;
@@ -113,7 +123,7 @@ static void moqtrun_dg_fanout(
     wired_span                 data,
     moqctl_loc                 loc) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
-    if (moqtrun_sub_gets_loc(&track->subs[i], loc)) {
+    if (moqtrun_dg_wants(hub, &track->subs[i], loc)) {
       moqtrun_dg_to_one(hub, &track->subs[i], data);
     }
   }

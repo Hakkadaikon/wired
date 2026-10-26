@@ -97,6 +97,8 @@ static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
   hub->cache_tag_next = 0;
   moqtrun_fetches_clear(hub);
   bytes_memset(hub->sgt, 0, sizeof hub->sgt);
+  bytes_memset(hub->dd, 0, sizeof hub->dd);
+  hub->dd_at = 0;
 }
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
@@ -109,6 +111,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->join_seq_next        = 0;
   hub->reliable_alias_limit = 0;
   hub->newest_group_only    = 0;
+  hub->multi_publisher      = 0;
   hub->rx_violation         = 0;
   hub->switch_track         = 0; /* SWITCH_FROM (moqtswitch.c): off */
   hub->sw_live              = 0;

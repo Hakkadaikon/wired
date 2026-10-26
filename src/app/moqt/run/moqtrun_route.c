@@ -68,6 +68,7 @@ static void moqtrun_route_peer_subscribe(
     return;
   }
   moqtrun_subscribe_peer_track(hub, p, track, peer_idx, k, m);
+  moqtrun_mirror_all(hub, k);
 }
 
 /* draft SS10.6 SUBSCRIBE: the hub's own tracks answer first (they win

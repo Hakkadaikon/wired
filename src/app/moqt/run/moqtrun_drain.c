@@ -19,7 +19,7 @@ static void moqtrun_track_done_peer(
     wired_moqt_hub* hub, wired_moqtrun_track* t, usz idx, u64 status) {
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
     if (moqtrun_sub_is_peer(&t->subs[si], idx)) {
-      moqtrun_sub_done_slot(hub, t, si, status);
+      moqtrun_mirror_done_slot(hub, t, si, status);
     }
   }
 }

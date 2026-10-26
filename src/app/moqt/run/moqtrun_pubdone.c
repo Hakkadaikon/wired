@@ -8,6 +8,12 @@ static void moqtrun_track_end_slot(
     usz                     si,
     const wired_moqtrun_up* u,
     u64                     status);
+static void moqtrun_track_end_or_fold(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_track*    t,
+    usz                     si,
+    const wired_moqtrun_up* u,
+    u64                     status);
 static u64 moqtrun_pubdone_status(const wired_moqtrun_track* t);
 static int moqtrun_pubdone_relaying(const wired_moqtrun_track* t);
 static int moqtrun_pubdone_caught_up(const wired_moqtrun_track* t);
@@ -68,11 +74,24 @@ static void moqtrun_track_end_slot(
   }
 }
 
+/* A slot another publisher's track still carries folds into it
+ * (moqtrun_mirror_fold); any other slot ends. */
+static void moqtrun_track_end_or_fold(
+    wired_moqt_hub*         hub,
+    wired_moqtrun_track*    t,
+    usz                     si,
+    const wired_moqtrun_up* u,
+    u64                     status) {
+  if (!moqtrun_mirror_fold(hub, t, si)) {
+    moqtrun_track_end_slot(hub, t, si, u, status);
+  }
+}
+
 void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   wired_moqtrun_up* u      = moqtrun_up_of_track(hub, t);
   u64               status = u ? moqtrun_rp_status(t) : MOQTRUN_RP_NONE;
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
-    moqtrun_track_end_slot(hub, t, si, u, status);
+    moqtrun_track_end_or_fold(hub, t, si, u, status);
   }
 }
 

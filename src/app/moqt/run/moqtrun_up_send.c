@@ -7,12 +7,9 @@ static int moqtrun_up_send(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     moqtrun_key         k);
-static int moqtrun_up_open(
-    wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k);
 static int  moqtrun_rdv_fresh(const wired_moqtrun_rdv* r, moqtrun_key k);
-static void moqtrun_up_unserved(
-    wired_moqt_hub* hub, wired_moqtrun_rdv* r, const wired_moqtrun_req* a);
-static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r);
+static void moqtrun_up_wait_single(wired_moqt_hub* hub, wired_moqtrun_rdv* r);
+static int  moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r);
 
 /* The SUBSCRIBE for k under Request ID rid, enveloped into buf; its
  * length. */
@@ -56,7 +53,7 @@ static int moqtrun_up_send(
 }
 
 /* 1 when an upstream SUBSCRIBE for k went to a's session. */
-static int moqtrun_up_open(
+int moqtrun_up_open(
     wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k) {
   wired_moqtrun_up* u = a ? moqtrun_up_free_slot(hub) : 0;
   if (!u) {
@@ -93,16 +90,17 @@ int moqtrun_up_waiters(wired_moqt_hub* hub, moqtrun_key k) {
 }
 
 /* A waiter no upstream can serve: with no announcer left DOES_NOT_EXIST
- * (10.2.6's answer for no publisher), with no stream to open toward it
- * EXCESSIVE_LOAD. A rendezvous hold keeps waiting for its deadline. */
-static void moqtrun_up_unserved(
-    wired_moqt_hub* hub, wired_moqtrun_rdv* r, const wired_moqtrun_req* a) {
+ * (10.2.6's answer for no publisher), with no stream to open toward one
+ * (refused) EXCESSIVE_LOAD. A rendezvous hold keeps waiting for its
+ * deadline. */
+void moqtrun_up_unserved(
+    wired_moqt_hub* hub, wired_moqtrun_rdv* r, int refused) {
   if (!r->up_only) {
     return;
   }
   moqtrun_rdv_answer(
       hub, r, moqtrun_rdv_do_refuse, 0,
-      a ? MOQCTL_ERR_EXCESSIVE_LOAD : MOQCTL_ERR_DOES_NOT_EXIST);
+      refused ? MOQCTL_ERR_EXCESSIVE_LOAD : MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
 /* 1 iff r waits with no upstream SUBSCRIBE for its track. */
@@ -110,7 +108,8 @@ static int moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r) {
   return r->in_use && !moqtrun_up_of_key(hub, moqtrun_up_rdv_key(r));
 }
 
-void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
+/* One upstream per Full Track Name: the first matching announcer. */
+static void moqtrun_up_wait_single(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
   moqtrun_key        k = moqtrun_up_rdv_key(r);
   wired_moqtrun_req* a;
   if (!moqtrun_up_needs(hub, r)) {
@@ -118,8 +117,16 @@ void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
   }
   a = moqtrun_up_announcer(hub, r->wt, k);
   if (!moqtrun_up_open(hub, a, k)) {
-    moqtrun_up_unserved(hub, r, a);
+    moqtrun_up_unserved(hub, r, a != 0);
   }
+}
+
+void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
+  if (hub->multi_publisher) {
+    moqtrun_up_fan(hub, r);
+    return;
+  }
+  moqtrun_up_wait_single(hub, r);
 }
 
 /* ----- ending an upstream subscription ----- */

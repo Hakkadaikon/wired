@@ -119,6 +119,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   wired_certreload_load_or_selfsigned(
       obs.cert_path, obs.key_path, &cert_store, &id);
   wired_moqt_init(&g_hub, wired_moqraw_io());
+  g_hub.multi_publisher = 1; /* a relay: merge every publisher (d22 7.6) */
   wired_moqt_cache_attach(&g_hub, g_cache_arena, sizeof g_cache_arena);
   run_setup(&opt, &id, argc, argv);
 

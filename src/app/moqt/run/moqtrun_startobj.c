@@ -145,6 +145,7 @@ void moqtrun_reattach_one_sub(
   moqtss_sub_leave(hub, slot);
   /* SWITCH_FROM (moqtswitch.c): bounds, a pending end swept again */
   moqtsw_reattached(hub, moqtrun_sw_ops(), slot);
+  moqtrun_mirror_mark(hub, slot);
 }
 
 /* A (re)PUBLISHed name re-attaches every still-connected peer that had
