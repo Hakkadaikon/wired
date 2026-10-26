@@ -724,6 +724,29 @@ static void test_srvrun_pto_pings_datagram_only(void) {
   CHECK(c.l.ackst.last_elicit_ms == srvrun_pto_deadline_ms(&c, 0));
 }
 
+/* RFC 9221 5.4 (9221-026/027): a DATAGRAM is congestion controlled -- with
+ * the window full nothing is sent (the caller delays or drops it); with
+ * room it goes and its packet counts in bytes in flight. */
+static void test_srvrun_dg_blocked_by_cwnd(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], dg[1500];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  wired_obuf    dob = obuf_of(dg, sizeof dg);
+  srvrun_cfg    cfg = srvrec_cfg();
+  u64           tx;
+  srvrec_bare(&c, &f, &ob);
+  tx        = c.l.tx_pn;
+  c.cc.cwnd = 10; /* below the 13-byte frame (type, length, 10 bytes) */
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob) == 0);
+  CHECK(c.l.tx_pn == tx);
+  CHECK(srvrun_bytes_in_flight(&c) == 0);
+  c.cc.cwnd = 1u << 20;
+  CHECK(srvrun_send_datagram_now(&cfg, &c, wired_span_of(dg, 10), &dob) == 1);
+  CHECK(c.l.tx_pn == tx + 1);
+  CHECK(srvrun_bytes_in_flight(&c) == dob.len); /* the whole packet */
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -748,4 +771,5 @@ void test_srvrun_rec(void) {
   test_srvrun_pto_probe_sends_new_data();
   test_srvrun_pto_probe_retransmits_when_no_new_data();
   test_srvrun_pto_pings_datagram_only();
+  test_srvrun_dg_blocked_by_cwnd();
 }

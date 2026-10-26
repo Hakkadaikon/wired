@@ -1,6 +1,11 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static usz srvrun_dg_room(const srvrun_conn* c, usz cap);
+static int srvrun_dg_build(
+    const srvrun_conn*    c,
+    wired_span            data,
+    const dgdeliver_opts* o,
+    wired_obuf*           plb);
 static int srvrun_send_dg_prefixed(
     const srvrun_cfg*       cfg,
     srvrun_conn*            c,
@@ -20,6 +25,18 @@ static usz srvrun_dg_room(const srvrun_conn* c, usz cap) {
   return (usz)u64_min(cap, srvrun_mps(c) + SRVRUN_STREAM_HDR_MAX);
 }
 
+/* Build the DATAGRAM frame into plb when the congestion window has room
+ * for it (RFC 9221 5.4: DATAGRAM frames are congestion controlled; a
+ * refused one is delayed by the pending queue, dropped by the ring). */
+static int srvrun_dg_build(
+    const srvrun_conn*    c,
+    wired_span            data,
+    const dgdeliver_opts* o,
+    wired_obuf*           plb) {
+  return dgdeliver_frame(data, o, plb) &&
+         srvrun_bytes_in_flight(c) + plb->len <= c->cc.cwnd;
+}
+
 /* Seal one QUIC DATAGRAM (RFC 9221 5) carrying data into a 1-RTT packet and
  * send it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
  * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
@@ -31,7 +48,8 @@ static usz srvrun_dg_room(const srvrun_conn* c, usz cap) {
  * exceed the peer's advertised limit. Shared by the single-slot pending
  * queue below and the session-addressed ring (srvrun_dgring_drain).
  * Returns 1 if sent, 0 if the frame could not be built (too large for the
- * peer's limit, or past the validated PMTU's room, srvrun_dg_room). */
+ * peer's limit, or past the validated PMTU's room, srvrun_dg_room) or the
+ * congestion window has no room for it (srvrun_dg_build). */
 int srvrun_send_datagram_now(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
   u8                    pl[1400];
@@ -39,7 +57,7 @@ int srvrun_send_datagram_now(
   u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
   dgdeliver_opts        o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
-  if (!dgdeliver_frame(data, &o, &plb)) {
+  if (!srvrun_dg_build(c, data, &o, &plb)) {
     return 0;
   }
   sin = (wired_srvloop_send_in){
