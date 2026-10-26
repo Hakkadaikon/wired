@@ -4578,6 +4578,7 @@ typedef struct {
   usz chal_len;   /* size of the last datagram carrying a PATH_CHALLENGE */
   int first_chal; /* PATH_CHALLENGEs in the first datagram received */
   u8  dcid0;
+  u8  retire_dcid0; /* DCID byte 0 of the packet carrying a RETIRE */
   u16 port_be;
   usz len;
 } sr_rx;
@@ -4611,6 +4612,9 @@ static sr_rx sr_drain(struct lp_fix* f, i64 fd) {
     }
     if (sr_count_frames(pl, pll, FK_PATH_CHALLENGE)) {
       r.chal_len = (usz)n;
+    }
+    if (sr_count_frames(pl, pll, FK_RETIRE_CONNECTION_ID)) {
+      r.retire_dcid0 = pkt[1];
     }
     sr_rx_note(&r, pl, pll);
     if (r.n == 1) {
@@ -4817,6 +4821,9 @@ static void test_srvrun_path_wire_retire(void) {
   r = sr_drain(&f, n.afd);
   CHECK(r.retire == 1);
   CHECK(c.l.cli_scid[0] == 0xc1);
+  /* RFC 9000 19.16: the RETIRE of seq 0 rides a packet sent to seq 1, never
+   * to the ID it retires */
+  CHECK(r.retire_dcid0 == 0xc1);
   sr_net_close(&n);
 }
 
@@ -26700,6 +26707,129 @@ static void test_srvrun_stream_credit_blocked_sends_sdb(void) {
   CHECK(c.resp[0].sdb.sent_at == SRVRUN_CHUNK / 2);
 }
 
+/* RFC 9000 3.5: data of a response the peer sent STOP_SENDING for is not
+ * retransmitted when declared lost -- the RESET_STREAM replaces it. A
+ * sibling response with the same lost packet shows the loss pass would
+ * otherwise requeue it. */
+static void test_srvrun_stopped_lost_data_not_retransmitted(void) {
+  static u8         body[8000];
+  struct lp_fix     f;
+  srvrun_cfg        cfg;
+  srvrun_state      st;
+  srvrun_step_ctx   ctx;
+  srvrun_conn*      c    = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  srvrun_resp*      r    = srvrun_resp_claim(c, 0);
+  srvrun_resp*      live = srvrun_resp_claim(c, 4);
+  srvrun_loss_span  span = {0, ~0ULL, ~0ULL, 0, 0};
+  wired_sendq_slice sl;
+  c->cc.cwnd = 1u << 20;
+  wired_sendsess_arm(&r->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&r->sess, &sl));
+  CHECK(wired_sendsess_sent(&r->sess, &sl, 1, 0));
+  wired_sendsess_arm(&live->sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&live->sess, &sl));
+  CHECK(wired_sendsess_sent(&live->sess, &sl, 2, 0));
+  c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
+  c->l.peer_reset_n   = 1;
+  srvrun_answer_peer_stops(&ctx, c);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  c->largest_acked = 10; /* both pn 1 and 2 are now past the threshold */
+  CHECK(srvrun_reap_losses_all(&cfg, c, 100000, &span) == 1); /* live only */
+  CHECK(srvrun_resp_find(c, 0) == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 5.2 / 10.2: a client Initial whose ClientHello the server cannot
+ * serve (every offered cipher suite unknown) ends in a connection error --
+ * an Initial CONNECTION_CLOSE goes out -- and nothing it set up survives:
+ * no slot is up and its DCID no longer routes. */
+static void test_srvrun_bad_initial_closes_and_reverts(void) {
+  wired_srvboot_id id;
+  client           c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg[1400];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              n    = sr_raw_ch(&c, ch, sizeof ch);
+  usz              cs   = 4 + 2 + 32 + 1 + ch[38]; /* cipher_suites length */
+  usz              nd;
+  CHECK(n > cs + 2);
+  for (usz i = 0; i < be_get_be16(ch + cs); i++) {
+    ch[cs + 2 + i] = 0xfe; /* every suite 0xfefe: none this server has */
+  }
+  nd = sr_seal_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 0);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {.fd = -1, .id = &id, .env = &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    conntable_init(table, WIRED_CONNTABLE_CAP);
+    st.conns[0] = (srvrun_conn){0};
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, wired_mspan_of(dg, nd));
+  }
+  CHECK(srvrun_test_send_count() == 1); /* the Initial CONNECTION_CLOSE */
+  CHECK(st.conns[0].up == 0);
+  CHECK(conntable_find(table, WIRED_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
+/* RFC 9000 13.2.1: one ack-eliciting packet draws at most one ACK-only
+ * packet -- later steps with nothing new received send none. */
+static void test_srvrun_one_ack_only_per_eliciting_packet(void) {
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  pnspaces_on_recv(&c->l.ack_recv, PNS_APP, 0);
+  c->l.app_ack_policy.pending = 2;
+  c->l.ackst.ack_defer        = 1;
+  {
+    srvrun_cfg      cfg = {.fd = -1, .env = &g_srvrun_env, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_sess_on_step(&ctx, 0);
+    ctx.now_ms = 2000;
+    srvrun_sess_on_step(&ctx, 0);
+    ctx.now_ms = 3000;
+    srvrun_sess_on_step(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() == 1);
+}
+
+/* RFC 9000 19.19: every CONNECTION_CLOSE reason phrase the server writes is
+ * one of its own ASCII strings, so it is valid UTF-8. */
+static int sr_close_reason_ascii(const srvrun_conn* c) {
+  conn_close_frame ccf;
+  if (!frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) {
+    return 0;
+  }
+  for (usz i = 0; i < ccf.reason_len; i++) {
+    if (ccf.reason[i] >= 0x80) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+static void test_srvrun_close_reasons_are_utf8(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c        = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_refused_overflow = 1; /* STREAM_LIMIT_ERROR close */
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_reason_ascii(c));
+  c                             = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  c->l.wt_uni_streams[0].in_use = 1;
+  c->l.wt_uni_streams[0].win.dropped_bytes = 1; /* FLOW_CONTROL_ERROR */
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_reason_ascii(c));
+}
+
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
@@ -27135,6 +27265,10 @@ void test_srvrun(void) {
   test_srvrun_wt_refuse_overflow_closes();
   test_srvrun_peer_stop_resets_response();
   test_srvrun_stopped_response_sends_nothing();
+  test_srvrun_stopped_lost_data_not_retransmitted();
+  test_srvrun_bad_initial_closes_and_reverts();
+  test_srvrun_one_ack_only_per_eliciting_packet();
+  test_srvrun_close_reasons_are_utf8();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();
