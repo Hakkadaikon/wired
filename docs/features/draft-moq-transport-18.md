@@ -1322,11 +1322,12 @@ Legend:
   own upstream SUBSCRIBE to that peer is still Pending (subscriber), then it
   shall terminate its own subscription before sending PUBLISH_OK.
   - gap: not tested.
-- [~] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
+- [x] MQ18-215 (§5.1.1) When a subscriber cancels a subscription, the hub
   shall reset every open data stream of that subscription.
-  - evidence: `moqtrun_req_cancel` drops the subscription
-    (`moqtrun_drop_peer_subs`) and `test_moqtrun_req_reset_unsubscribes`
-    asserts it is gone; no test asserts its open relay streams are reset.
+  - evidence: `moqtrun_req_cancel` resets the subscription's relay streams
+    (`moqtrun_cancel_peer_subs`) before dropping it;
+    `test_moqtrun_req_reset_resets_data_streams` asserts the open Subgroup
+    stream toward the subscriber is reset.
 - [ ] MQ18-216 (§5.1) A publisher should begin sending incomplete Objects as
   they become available.
   - gap: the hub holds an Object split across deliveries until it is

@@ -1206,11 +1206,12 @@ Legend:
   - gap: pinned only on the subscription model
     (`test_moqsub_early_fin_before_response`); no hub test FINs an upstream
     request stream before its response.
-- [~] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
+- [x] MOQT-220 (SS5.1.1, SS5.2) When the requester cancels a subscription or a
   FETCH, the hub shall reset the data streams it holds open for it.
   - evidence: `test_moqtrun_fetch_cancelled_by_request_reset` asserts the FETCH
-    data stream reset; `test_moqtrun_req_reset_unsubscribes` asserts only that
-    the subscription is gone.
+    data stream reset; `test_moqtrun_req_reset_resets_data_streams` asserts
+    the subscription's open Subgroup stream is reset
+    (`moqtrun_cancel_peer_subs`).
 
 ## SS10 Control Messages: session-machine unwanted behavior (additional coverage)
 

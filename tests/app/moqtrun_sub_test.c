@@ -748,6 +748,30 @@ static void test_moqtrun_req_reset_unsubscribes(void) {
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
 }
 
+/* Resets the hub sent toward s on any stream but sid. */
+static usz mtrq_resets_besides(wired_wt_session* s, u64 sid) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += g_calls[i].kind == 7 && g_calls[i].s == s &&
+         g_calls[i].stream_id != sid;
+  }
+  return n;
+}
+
+/* draft-19 5.1.1: a cancelled subscription's open data streams are reset
+ * (MUST), not merely forgotten. */
+static void test_moqtrun_req_reset_resets_data_streams(void) {
+  u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_ftn f = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  usz n = mtst_stream(4, 1, 1, buf);
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  CHECK(moqtrun_test_count_kind(5) >= 1);
+  CHECK(mtrq_resets_besides(SESS_B, MTRQ_S1) == 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
+  CHECK(mtrq_resets_besides(SESS_B, MTRQ_S1) == 1);
+}
+
 /* Resetting a PUBLISH's request stream withdraws the track. */
 static void test_moqtrun_req_reset_unpublishes(void) {
   moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
@@ -2115,6 +2139,7 @@ static void mtall_sub(void) {
   test_moqtrun_req_two_streams_answered_apart();
   test_moqtrun_req_update_answered_on_same_stream();
   test_moqtrun_req_reset_unsubscribes();
+  test_moqtrun_req_reset_resets_data_streams();
   test_moqtrun_req_reset_unpublishes();
   test_moqtrun_req_bad_first_message_closes();
   test_moqtrun_req_second_message_checked();
