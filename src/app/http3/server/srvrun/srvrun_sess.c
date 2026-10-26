@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_cwnd_has_room(const srvrun_conn* c);
+static int srvrun_cwnd_fits(const srvrun_conn* c);
 static usz srvrun_wtsend_consumed_bytes(const srvrun_conn* c);
 static int srvrun_sess_credit_room(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit);
@@ -35,8 +36,19 @@ int srvrun_sess_log_room(const wired_sendsess* sess) {
  * plus the non-STREAM packets in flight (srvrun_bytes_in_flight). RFC 9002
  * 7.5: a PTO probe (probe_n) is not blocked by it. */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
-  return c->l.ackst.probe_n ||
-         srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
+  return c->l.ackst.probe_n || srvrun_cwnd_fits(c);
+}
+
+/* 1 when the window itself has room for one more chunk. */
+static int srvrun_cwnd_fits(const srvrun_conn* c) {
+  return srvrun_bytes_in_flight(c) + srvrun_mps(c) <= c->cc.cwnd;
+}
+
+/* RFC 9002 7.8: after a send pass the window is underutilized when it
+ * still has room and pacing did not end the pass -- a sender held back
+ * only by pacing is not application limited (9002-071). */
+void srvrun_note_app_limited(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  c->cc.app_limited = srvrun_pace_ok(ctx, c) && srvrun_cwnd_fits(c);
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send

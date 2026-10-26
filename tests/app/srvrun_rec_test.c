@@ -747,6 +747,63 @@ static void test_srvrun_dg_blocked_by_cwnd(void) {
   CHECK(srvrun_bytes_in_flight(&c) == dob.len); /* the whole packet */
 }
 
+/* One pump pass of c at now_ms. */
+static void srvrec_pump(srvrun_conn* c, u64 now_ms) {
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_state    st  = {0, c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  c->l.now_ms         = now_ms;
+  srvrun_pump_sess(&ctx, 0);
+}
+
+/* RFC 9002 7.8 (9002-067): a pass that sent everything with the window
+ * still open leaves it underutilized, and the ACK does not grow cwnd; a
+ * pass the window cut short is not, and the ACK does. */
+static void test_srvrun_cc_no_growth_app_limited(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  u64           w, pn;
+  srvrec_conn(&c, &f, body, SRVRUN_CHUNK, &ob);
+  pn = c.l.tx_pn;
+  srvrec_pump(&c, 0);
+  CHECK(c.cc.app_limited == 1);
+  w = c.cc.cwnd;
+  srvrec_ack(&c, pn, pn, 10);
+  CHECK(c.cc.cwnd == w);
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.cwnd               = 2 * SRVRUN_CHUNK + 100; /* two packets */
+  pn                      = c.l.tx_pn;
+  srvrec_pump(&c, 0);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 2);
+  CHECK(c.cc.app_limited == 0);
+  w = c.cc.cwnd;
+  srvrec_ack(&c, pn, pn, 10);
+  CHECK(c.cc.cwnd == w + SRVRUN_CHUNK); /* slow start: + acked bytes */
+}
+
+/* RFC 9002 7.8 (9002-071): a pass ended by pacing, with data left and the
+ * window open, is not application limited. */
+static void test_srvrun_cc_paced_not_app_limited(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  srvrec_conn(&c, &f, body, sizeof body, &ob);
+  c.resp[0].stream_credit = sizeof body;
+  c.cc.app_limited        = 1;
+  c.srtt_ms               = 30;
+  c.pace_tokens           = 0;
+  c.pace_refill_ms        = 5; /* refilled at now: no tokens accrue */
+  srvrec_pump(&c, 5);
+  CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* paced */
+  CHECK(c.cc.app_limited == 0);
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -772,4 +829,6 @@ void test_srvrun_rec(void) {
   test_srvrun_pto_probe_retransmits_when_no_new_data();
   test_srvrun_pto_pings_datagram_only();
   test_srvrun_dg_blocked_by_cwnd();
+  test_srvrun_cc_no_growth_app_limited();
+  test_srvrun_cc_paced_not_app_limited();
 }

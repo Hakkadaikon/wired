@@ -8,6 +8,19 @@ static void test_cc_slow_start(void) {
   CHECK(c.cwnd == start + 1200);
 }
 
+/* RFC 9002 7.8: no growth while the window is underutilized. */
+static void test_cc_no_grow_app_limited(void) {
+  cc c;
+  cc_init(&c);
+  u64 start     = c.cwnd;
+  c.app_limited = 1;
+  cc_on_ack(&c, 1200, 10, 10);
+  CHECK(c.cwnd == start);
+  c.app_limited = 0;
+  cc_on_ack(&c, 1200, 11, 11);
+  CHECK(c.cwnd == start + 1200);
+}
+
 /* Loss halves cwnd but never below the minimum window (most important). */
 static void test_cc_loss_halves_floor(void) {
   cc c;
@@ -211,6 +224,7 @@ static void test_cc_on_ack_grow_bounded_no_overflow(void) {
 }
 
 void test_cc(void) {
+  test_cc_no_grow_app_limited();
   test_cc_bbr_mode();
   test_cc_bbr_starved_round_cannot_lower_btl_bw();
   test_cc_bbr_cwnd_floor_four_packets();
