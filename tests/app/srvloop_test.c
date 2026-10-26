@@ -233,8 +233,8 @@ static void lp_make_client_finished(struct lp_fix* f) {
 
 /* Client role: seal a Handshake CRYPTO flight toward the server with the
  * peer-direction CLIENT_HS key (which the server opens with). */
-static usz client_seal_handshake(
-    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+static usz client_seal_handshake_ver(
+    struct lp_fix* f, u32 version, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
@@ -251,10 +251,15 @@ static usz client_seal_handshake(
       0,
       0,
       0,
-      0};
+      version};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
+}
+
+static usz client_seal_handshake(
+    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  return client_seal_handshake_ver(f, 0, msg, mlen, pkt, cap);
 }
 
 /* Client role: seal a Handshake packet at an explicit packet number. curl does
@@ -5893,6 +5898,106 @@ static void test_srvloop_recv_v1_initial_until_v2_handshake(void) {
   CHECK(lp_recv(&f, pkt, n) == 1);
 }
 
+/* RFC 9369 3.3.2: generation-1 1-RTT keys under the "quicv2 ku"/"quicv2 key"/
+ * "quicv2 iv" labels, expanded here straight from HKDF-Expand-Label (not
+ * kuswitch) so the server is checked against an independent peer; hp is
+ * kept (RFC 9001 6.1). */
+static void lp_v2_next_keys(const u8* secret, const u8* hp, initial_keys* k) {
+  u8         ns[HKDF_PRK];
+  hkdf_label lku = {"quicv2 ku", 9, {0, 0}};
+  hkdf_label lk  = {"quicv2 key", 10, {0, 0}};
+  hkdf_label li  = {"quicv2 iv", 9, {0, 0}};
+  bytes_memset(k, 0, sizeof *k);
+  hkdf_expand_label(secret, &lku, wired_mspan_of(ns, HKDF_PRK));
+  hkdf_expand_label(ns, &lk, wired_mspan_of(k->key, INITIAL_KEY));
+  hkdf_expand_label(ns, &li, wired_mspan_of(k->iv, INITIAL_IV));
+  bytes_memcpy(k->hp, hp, INITIAL_HP);
+}
+
+/* Confirm a connection the server switched v1 -> v2: the client Finished
+ * rides a v2 Handshake packet (RFC 9369 4.1). */
+static void lp_confirm_v2(struct lp_fix* f, wired_obuf* ob) {
+  u8  cpkt[1024];
+  usz clen;
+  bytes_memset(&f->s, 0, sizeof f->s);
+  bytes_memset(&f->l, 0, sizeof f->l);
+  lp_make_client_hello(f);
+  lp_drive_to_flight(f);
+  lp_switch_v1_to_v2(f);
+  lp_make_client_finished(f);
+  clen = client_seal_handshake_ver(
+      f, VERSION_2, f->cli_fin, f->cli_fin_len, cpkt, sizeof cpkt);
+  ob->len = 0;
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(cpkt, clen),
+          ob) == 1);
+  CHECK(wired_server_is_confirmed(&f->s) == 1);
+}
+
+/* Seal `pl` at pn 7 under the client's v2 generation-1 keys (phase 1). */
+static usz lp_seal_v2_gen1(struct lp_fix* f, wired_span pl, u8* pkt, usz cap) {
+  initial_keys k;
+  aes128       hp;
+  wired_obuf   o = obuf_of(pkt, cap);
+  lp_v2_next_keys(f->s.ku_secret, f->s.ku.cur.hp, &k);
+  aes128_init(&hp, k.hp);
+  {
+    protect_keys      pk = {&k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 7, pl, 1, 0, 0};
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+  }
+  return o.len;
+}
+
+/* Open a server 1-RTT packet under the server's v2 generation-1 keys. */
+static int lp_open_v2_gen1(struct lp_fix* f, u8* pkt, usz len, wired_span* v) {
+  const u8*           secret;
+  const initial_keys* gen0;
+  initial_keys        k;
+  aes128              hp;
+  CHECK(keysched_server_ap_secret(&f->s.sched, &secret) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &gen0) == 1);
+  lp_v2_next_keys(secret, gen0->hp, &k);
+  aes128_init(&hp, k.hp);
+  {
+    protect_keys           pk = {&k, &hp};
+    hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+    return hspkt_onertt_open(&pk, &d, v);
+  }
+}
+
+/* RFC 9369 3.3.2: on a v2 connection the server's Key Update derives the next
+ * generation with the "quicv2 " labels on BOTH sides: a client packet sealed
+ * under v2-derived generation-1 keys is accepted (recv, server_ku_derive_
+ * next) and the server's reply opens under v2-derived generation-1 send
+ * keys (srvloop_ku_rotate_send). Under the v1 labels neither would. */
+static void test_srvloop_v2_key_update_uses_quicv2_labels(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           slen;
+  wired_obuf    ob  = {out, sizeof out, 0};
+  wired_obuf    gob = {get, sizeof get, 0};
+  wired_span    v;
+  lp_confirm_v2(&f, &ob);
+  CHECK(sdrv_wire_version(&f.s.sdrv) == VERSION_2);
+  CHECK(wired_h3reqdrive_send_get(
+      0,
+      &(wired_h3reqdrive_get_in){
+          wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+      &gob));
+  slen = lp_seal_v2_gen1(&f, wired_span_of(get, gob.len), spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1);
+  CHECK(lp_open_v2_gen1(&f, out, ob.len, &v) == 1);
+  check_acks_pn(v.p, v.n, 7);
+}
+
 /* RFC 9369 4.1: "Both endpoints MUST send Handshake and 1-RTT packets using
  * the negotiated version. An endpoint MUST drop packets using any other
  * version." -- a Handshake packet in the original v1 is dropped (and does
@@ -6573,6 +6678,7 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_recv_v1_initial_until_v2_handshake();
+  test_srvloop_v2_key_update_uses_quicv2_labels();
   test_srvloop_accepts_cleared_quic_bit();
   test_srvloop_spin_reflects_highest_pn();
   test_srvloop_send_greases_quic_bit();
