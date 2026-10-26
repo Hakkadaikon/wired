@@ -111,6 +111,9 @@ typedef struct {
   /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
    * Malformed Track); the track then ends MALFORMED_TRACK. */
   u8 malformed;
+  /** 1 while the publisher's PUBLISH left the hub's subscription paused
+   * (FORWARD 0) and no REQUEST_UPDATE resumed it (draft-22 7.6). */
+  u8 pub_paused;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
    * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
    * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */

@@ -745,10 +745,114 @@ static void test_moqtrun_upsub_second_ok_closes(void) {
   CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
 }
 
+/* ===== the hub's REQUEST_UPDATE on a PUBLISH stream ===== */
+
+#define MUPS_PUB_SID 12
+
+/* A PUBLISHes the awaited track on its request stream MUPS_PUB_SID with
+ * Track Property DYNAMIC_GROUPS 1, FORWARD fwd (2: absent). */
+static void mups_pub_stream(int fwd) {
+  static u8             props[16];
+  static moqctl_publish m;
+  usz                   n    = 0;
+  u64                   prev = 0;
+  mtst_prop_num(props, &n, &prev, MOQTRUN_PROP_DYNAMIC_GROUPS, 1);
+  m                  = (moqctl_publish){0};
+  m.request_id       = mtst_rid += 4;
+  m.name             = mrdv_f();
+  m.track_alias      = MUPS_ALIAS;
+  m.track_properties = wired_span_of(props, n);
+  if (fwd < 2) {
+    m.params.items[0].type = MOQCTL_PARAM_FORWARD;
+    m.params.items[0].enc  = MOQCTL_PENC_UINT8;
+    m.params.items[0].u8v  = (u8)fwd;
+    m.params.n             = 1;
+  }
+  mtst_send(SESS_A, MUPS_PUB_SID, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
+}
+
+/* REQUEST_UPDATEs the hub sent A on sid carrying ptype; the last one's
+ * value in *v. */
+static usz mups_upd_sent(u64 sid, u64 ptype, u64* v) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    moqtstat_update          m;
+    if (c->s != SESS_A || c->stream_id != sid || c->kind != 3) {
+      continue;
+    }
+    moqctl_peek_type(
+        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    if (type != MOQTSTAT_T_REQUEST_UPDATE) {
+      continue;
+    }
+    CHECK(
+        moqtstat_update_take(
+            mtst_ver(SESS_A), body, MOQCTL_PCTX_UPDATE_SUBSCRIPTION, &m) ==
+        MOQCTL_OK);
+    const moqctl_param* g = moqctl_params_find(&m.params, ptype);
+    if (g) {
+      *v = ptype == MOQCTL_PARAM_FORWARD ? g->u8v : g->vi;
+      n++;
+    }
+  }
+  return n;
+}
+
+static void mups_pub_init(int ver) {
+  mrdv_init();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = ver;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = ver;
+}
+
+/* draft-22 7.6: "If at least one downstream subscriber for the Track is
+ * not paused, the Relay MUST resume the upstream subscription with
+ * REQUEST_UPDATE, if paused": a PUBLISH with FORWARD 0 gets FORWARD 1
+ * once B subscribes unpaused, once only; A's REQUEST_OK is accepted on
+ * the PUBLISH stream. An unpaused PUBLISH gets none. */
+static void test_moqtrun_upsub_publish_resumed(void) {
+  u64 v = 9;
+  mups_pub_init(MOQVER_D22);
+  mups_pub_stream(0);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 0);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 1 && v == 1);
+  mtst_pub_ok(SESS_A, MUPS_PUB_SID);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqtrun_req_find(&mtst_hub, SESS_A, MUPS_PUB_SID)->upd_out == 0);
+  mups_sub(SESS_B, MRDV_S2);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 1);
+  mups_pub_init(MOQVER_D22);
+  mups_pub_stream(2);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 0);
+}
+
+/* draft-18 10.2.13 on a PUBLISH-initiated track: B's NEW_GROUP_REQUEST
+ * goes to A in a REQUEST_UPDATE on A's PUBLISH stream; A's REQUEST_ERROR
+ * answers it there (no session close) and it is outstanding no more. */
+static void test_moqtrun_upsub_ngr_on_publish(void) {
+  u64 v = 9;
+  mups_pub_init(MOQVER_D18);
+  mups_pub_stream(2);
+  mups_sub_ngr(SESS_B, MRDV_S1, 0);
+  CHECK(
+      mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_NEW_GROUP_REQUEST, &v) == 1 &&
+      v == 0);
+  mtst_pub_err(SESS_A, MUPS_PUB_SID, MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(!moqtrun_req_find(&mtst_hub, SESS_A, MUPS_PUB_SID)->ngr.out);
+}
+
 void test_moqtrun_upsub(void) {
   test_moqtrun_upsub_dup_alias_closes();
   test_moqtrun_upsub_second_ok_closes();
   test_moqtrun_upsub_redirect_uri_closes();
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();
+  test_moqtrun_upsub_publish_resumed();
+  test_moqtrun_upsub_ngr_on_publish();
 }

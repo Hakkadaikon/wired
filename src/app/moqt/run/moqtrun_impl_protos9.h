@@ -3,6 +3,18 @@
 
 #include "app/moqt/run/moqtrun_impl_protos8.h"
 
+usz moqtrun_upd_msg(
+    wired_moqtrun_peer* pp, const moqctl_params* params, u8* msg, usz cap);
+wired_moqtrun_req* moqtrun_pub_req(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t);
+int moqtrun_pubupd_send(
+    wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_params* params);
+void moqtrun_pub_resume(wired_moqt_hub* hub, wired_moqtrun_track* t);
+int  moqtrun_req_upd_answer(const wired_moqtrun_req* q, u64 type);
+void moqtrun_dispatch_upd_ok(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+void moqtrun_dispatch_upd_err(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 int moqtrun_obj_gone(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 wired_moqtrun_track* moqtrun_gone_gate(

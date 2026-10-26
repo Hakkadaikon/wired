@@ -588,6 +588,18 @@ typedef struct {
   usz skip; /**< bytes still to discard */
 } wired_moqtrun_ctl_asm;
 
+/** A NEW_GROUP_REQUEST the hub sent upstream in a REQUEST_UPDATE
+ * (draft-18 10.2.13): outstanding while out and the track's Largest
+ * Group is still group. */
+typedef struct {
+  /** That NEW_GROUP_REQUEST's value. */
+  u64 val;
+  /** The track's Largest Group when it went out (~0: none). */
+  u64 group;
+  /** 1 once one went out (val/group valid). */
+  u8 out;
+} wired_moqtrun_ngr;
+
 /** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
  * 3.3) tracked at once, hub-wide. A request stream past it is reset with
  * EXCESSIVE_LOAD; a completed request frees its slot once both sides have
@@ -738,6 +750,12 @@ typedef struct {
   /** A hub-opened PUBLISH slot only: 1 once its one REQUEST_OK arrived
    * (18/19 5.1, 22 3.1: a second response closes the session). */
   u8 pub_answered;
+  /** A client PUBLISH only: REQUEST_UPDATEs the hub, its subscriber,
+   * sent on the stream and not yet answered (draft-22 9.5: each gets
+   * one REQUEST_OK or REQUEST_ERROR there). */
+  u8 upd_out;
+  /** A client PUBLISH only: the NEW_GROUP_REQUEST relayed on it. */
+  wired_moqtrun_ngr ngr;
 } wired_moqtrun_req;
 
 /** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
@@ -860,13 +878,11 @@ typedef struct {
   usz name_len;
   /** Reassembly of the publisher's replies on stream_id. */
   wired_moqtrun_ctl_asm in;
-  /** 1 once a NEW_GROUP_REQUEST went out in a REQUEST_UPDATE. */
-  u8 ngr_out;
-  /** That NEW_GROUP_REQUEST's value. */
-  u64 ngr_val;
-  /** The track's Largest Group when it went out (~0: none); it stays
-   * outstanding until the Largest Group moves (draft-18 10.2.13). */
-  u64 ngr_group;
+  /** The NEW_GROUP_REQUEST the hub sent upstream on stream_id. */
+  wired_moqtrun_ngr ngr;
+  /** REQUEST_UPDATEs the hub sent on stream_id still unanswered: a
+   * REQUEST_ERROR then answers one, not the SUBSCRIBE. */
+  u8 upd_out;
 } wired_moqtrun_up;
 
 /** Fixed capacity: FETCH responses (draft-ietf-moq-transport-19 10.12.3)

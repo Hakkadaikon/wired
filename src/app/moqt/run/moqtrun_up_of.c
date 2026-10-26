@@ -111,7 +111,8 @@ void moqtrun_up_store(
   u->request_id = rid;
   u->track_tag  = 0;
   u->done       = 0;
-  u->ngr_out    = 0;
+  u->ngr.out    = 0;
+  u->upd_out    = 0;
   moqsub_init(&u->sub, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&u->sub, MOQSUB_EV_OPEN);
   u->ns_len   = k.ns.n;

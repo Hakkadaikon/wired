@@ -1,6 +1,6 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static int  moqtrun_req_done_ok(u64 kind, u64 type);
+static int  moqtrun_req_done_ok(const wired_moqtrun_req* q, u64 type);
 static int  moqtrun_req_goaway_ok(const wired_moqtrun_req* q, u64 type);
 static int  moqtrun_req_follow_ok(const wired_moqtrun_req* q, u64 type);
 static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body);
@@ -55,8 +55,10 @@ int moqtrun_req_pub_follow(u64 type) {
          type == MOQCTL_T_PUBLISH_STATE_NOTIFY;
 }
 
-static int moqtrun_req_done_ok(u64 kind, u64 type) {
-  return kind == MOQCTL_T_PUBLISH && moqtrun_req_pub_follow(type);
+/* A PUBLISH's sender may also answer the hub's REQUEST_UPDATEs there. */
+static int moqtrun_req_done_ok(const wired_moqtrun_req* q, u64 type) {
+  return q->kind == MOQCTL_T_PUBLISH &&
+         (moqtrun_req_pub_follow(type) || moqtrun_req_upd_answer(q, type));
 }
 
 /* draft 10.4: GOAWAY may appear on a request stream, but only once. */
@@ -67,8 +69,7 @@ static int moqtrun_req_goaway_ok(const wired_moqtrun_req* q, u64 type) {
 /* What the requester may send after its request. */
 static int moqtrun_req_follow_ok(const wired_moqtrun_req* q, u64 type) {
   return moqtrun_req_goaway_ok(q, type) ||
-         moqtrun_req_update_ok(q->kind, type) ||
-         moqtrun_req_done_ok(q->kind, type);
+         moqtrun_req_update_ok(q->kind, type) || moqtrun_req_done_ok(q, type);
 }
 
 /* kind 0: nothing read yet, so type must open the stream. */

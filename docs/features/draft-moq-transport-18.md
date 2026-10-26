@@ -499,7 +499,7 @@ Legend:
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s4_resolve`
-- [~] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
+- [x] MQ18-229 (§10.2.13) Where a downstream SUBSCRIBE or REQUEST_UPDATE
   carries NEW_GROUP_REQUEST, the hub shall include it in its upstream
   SUBSCRIBE, or send it upstream in a REQUEST_UPDATE for an Established
   subscription (value 0 or above the Largest Group, the track supporting
@@ -509,9 +509,11 @@ Legend:
     `moqtrun_ngr_relay` sends REQUEST_UPDATE on the hub's own upstream
     SUBSCRIBE stream under the three conditions, outstanding until the
     Largest Group moves (`test_moqtrun_upsub_ngr_update`).
-  - gap: a track Established by the publisher's own PUBLISH gets no
-    REQUEST_UPDATE (its reply would arrive on the PUBLISH stream, which has
-    no parser for it).
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_ngr_on_publish` (a PUBLISH-initiated track: the
+    REQUEST_UPDATE rides the PUBLISH stream, whose REQUEST_OK /
+    REQUEST_ERROR answer is parsed there)
+  - note: a PUBLISH on a legacy single-bidi control stream gets none.
 - [x] MQ18-053 (§9.4, §9.5) A relay may aggregate authorized subscriptions for
   a given Track when multiple subscribers request it, answering a SUBSCRIBE
   for a Track with an Established upstream subscription with SUBSCRIBE_OK and

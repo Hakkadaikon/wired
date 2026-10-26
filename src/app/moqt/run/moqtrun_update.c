@@ -96,6 +96,7 @@ static void moqtrun_update_sub_apply(
   moqtrun_upd_remember(p, s);
   moqtrun_queue_request_ok(p, t);
   moqtrun_ngr_relay(hub, t, params);
+  moqtrun_pub_resume(hub, t);
   moqtrun_fill_on_update(hub, p, t, s, params, rid);
 }
 

@@ -114,6 +114,9 @@ static const struct {
     {MOQCTL_T_PUBLISH_SKIPPED, moqtrun_dispatch_skip},
     {MOQFETCH_T_FETCH_OK, moqtrun_dispatch_skip},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_dispatch_pub_done},
+    /* answers to the hub's REQUEST_UPDATE on a PUBLISH (moqtrun_pubupd.c) */
+    {MOQCTL_T_REQUEST_OK, moqtrun_dispatch_upd_ok},
+    {MOQCTL_T_REQUEST_ERROR, moqtrun_dispatch_upd_err},
 };
 
 moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {

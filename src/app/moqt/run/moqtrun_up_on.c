@@ -20,6 +20,16 @@ static void moqtrun_up_on_done(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     wired_span          body);
+static void moqtrun_up_on_upd_ok(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body);
+static void moqtrun_up_on_reqerr(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body);
 static void moqtrun_up_route(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -127,14 +137,43 @@ void moqtrun_up_on_reset(
   u->in_use = 0;
 }
 
+/* REQUEST_OK answering one of the hub's REQUEST_UPDATEs (moqtrun_ngr.c). */
+static void moqtrun_up_on_upd_ok(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  (void)hub;
+  (void)pp;
+  (void)body;
+  u->upd_out -= (u8)(u->upd_out != 0);
+}
+
+/* REQUEST_ERROR: an outstanding REQUEST_UPDATE's answer (its
+ * NEW_GROUP_REQUEST no longer outstanding, draft-18 10.2.13), else the
+ * SUBSCRIBE's. */
+static void moqtrun_up_on_reqerr(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  if (!u->upd_out) {
+    moqtrun_up_on_error(hub, pp, u, body);
+    return;
+  }
+  u->upd_out--;
+  u->ngr.out = 0;
+}
+
 /* What a publisher sends on a SUBSCRIBE's stream (draft-19 10.7, 10.8,
- * 10.11); anything else is ignored. */
+ * 10.9, 10.11); anything else is ignored. */
 static const struct {
   u64           type;
   moqtrun_up_fn fn;
 } MOQTRUN_UP_ROUTES[] = {
     {MOQCTL_T_SUBSCRIBE_OK, moqtrun_up_on_ok},
-    {MOQCTL_T_REQUEST_ERROR, moqtrun_up_on_error},
+    {MOQCTL_T_REQUEST_ERROR, moqtrun_up_on_reqerr},
+    {MOQCTL_T_REQUEST_OK, moqtrun_up_on_upd_ok},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_up_on_done},
 };
 

@@ -558,11 +558,14 @@ Legend:
   - gap: the hub keeps one upstream SUBSCRIBE per Full Track Name, to the
     first matching announcer (MQ22-051 note); other announcers are asked
     only while a subscription waits for a new path (MQ22-208).
-- [ ] MQ22-227 (SS7.2, SS7.6) If a publisher's PUBLISH pauses the
+- [x] MQ22-227 (SS7.2, SS7.6) If a publisher's PUBLISH pauses the
   subscription (FORWARD 0) and a downstream subscriber is not paused, then
   the relay shall resume it with REQUEST_UPDATE FORWARD 1.
-  - gap: the hub never sends REQUEST_UPDATE, and reads only
-    LARGEST_OBJECT from an incoming PUBLISH (MQ22-094a).
+  - test: `tests/app/moqtrun_upsub_test.c` —
+    `test_moqtrun_upsub_publish_resumed`
+  - note: checked on the PUBLISH and on each downstream SUBSCRIBE /
+    REQUEST_UPDATE; a PUBLISH on a legacy single-bidi control stream is
+    not resumed.
 - [x] MQ22-230 (SS9.20.6, SS7.6) Where a SUBSCRIBE carries a non-zero
   RENDEZVOUS_TIMEOUT for a Track with no publisher, the hub shall hold it
   (at most `WIRED_MOQTRUN_RDV_MAX_MS`) and answer SUBSCRIBE_OK when a
