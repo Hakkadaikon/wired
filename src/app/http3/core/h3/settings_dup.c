@@ -14,7 +14,8 @@ static int seen(const h3_settings_seen* s, u64 id) {
 
 int h3_settings_mark(h3_settings_seen* s, u64 id) {
   if (s->n >= H3_SETTINGS_SEEN_MAX) {
-    return 0;
+    return 1; /* untracked: 7.2.4 makes rejecting a duplicate a MAY, while
+                 an unknown setting MUST be ignored, never refused */
   }
   if (seen(s, id)) {
     return 0;

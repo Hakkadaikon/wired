@@ -4,6 +4,7 @@ static void gather_wt_land(wired_srvloop* l, const stream_frame* sf);
 static int  is_wt_signal_mid_stream(const stream_frame* sf);
 static int  gather_one_wt_signal_violation(
     wired_srvloop* l, u64 type, wired_span frame);
+static int uni_type_new(wired_srvloop* l, const stream_frame* sf, u64* v);
 static int qenc_type_is_encoder(const stream_frame* sf);
 static int qenc_leads_encoder(const wired_srvloop* l, const stream_frame* sf);
 static int qenc_frame_untyped(const stream_frame* sf);
@@ -145,14 +146,25 @@ int srvloop_uni_stream_type_accepted(wired_span data) {
  * encoder or decoder stream type, record it on l's peer_qpack_* flags
  * (wired_h3srv_on_peer_qpack) -- a second instance of either type latches
  * l->qpack_stream_violation for the caller driving the loop to close the
- * connection over (H3_STREAM_CREATION_ERROR). Any other (or undecodable)
- * type is a no-op, matching srvloop_uni_stream_type_accepted's own read-only
- * peek. */
-void srvloop_uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
-  u64 v;
+ * connection over (H3_STREAM_CREATION_ERROR). The stream's id is recorded
+ * first (srvloop_crit_note_type: critical-stream closure, a client push
+ * stream), and a retransmitted offset-0 frame of an already-recorded stream
+ * is not a second stream. Any other (or undecodable) type is a no-op. */
+/* 1 with *v set iff sf's leading type varint decodes and sf is not a
+ * retransmitted offset-0 frame of an already-recorded critical stream. */
+static int uni_type_new(wired_srvloop* l, const stream_frame* sf, u64* v) {
   usz off = 0;
+  if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, v)) {
+    return 0;
+  }
+  return !srvloop_crit_note_type(l, *v, sf->stream_id);
+}
+
+void srvloop_uni_stream_type_note_qpack(
+    wired_srvloop* l, const stream_frame* sf) {
+  u64 v;
   u16 err;
-  if (!varint_take(data, &off, &v)) {
+  if (!uni_type_new(l, sf, &v)) {
     return;
   }
   if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err)) {

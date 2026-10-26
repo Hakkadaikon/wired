@@ -53,4 +53,8 @@ void h3_control_goaway(h3_control* c, u64 id);
  * limit it reaches (RFC 9114 5.2). Existing requests are unaffected. */
 int h3_control_accept_request(const h3_control* c, u64 id);
 
+/* RFC 9114 8.1: the wire error code for a latched h3_error (0 for
+ * H3_ERR_NONE). */
+u16 h3_control_wire_error(h3_error e);
+
 #endif

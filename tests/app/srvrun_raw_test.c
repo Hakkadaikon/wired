@@ -123,7 +123,7 @@ static srvrun_conn* srr_fixture(salpn_choice alpn) {
   c->s.sdrv.alpn_tok = alpn == SALPN_RAW
                            ? wired_span_of((const u8*)g_srr_alpns + 8, 7)
                            : wired_span_of(0, 0);
-  c->l.peer_ctrl.settings_seen = 0;
+  c->l.h3peer.ctrl.settings_seen = 0;
   /* the fixture confirmed as h3; a raw confirm sends no SETTINGS (T-E1) */
   c->l.h3.settings_sent                              = alpn == SALPN_H3;
   c->l.we_advertised_max_datagram                    = 100;

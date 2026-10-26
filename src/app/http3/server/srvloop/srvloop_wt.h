@@ -1,13 +1,13 @@
 #ifndef APP_HTTP3_SERVER_SRVLOOP_SRVLOOP_WT_H
 #define APP_HTTP3_SERVER_SRVLOOP_SRVLOOP_WT_H
 
-#include "app/http3/core/h3/control.h"
 #include "app/http3/core/h3/priority.h"
 #include "app/http3/core/h3settings/control_settings.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "app/http3/server/srvloop/body_window.h"
 #include "app/http3/server/srvloop/srvloop_ackst.h"
+#include "app/http3/server/srvloop/srvloop_h3peer.h"
 #include "common/bytes/span/span.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
@@ -890,12 +890,6 @@ typedef struct {
    * see wired_srvloop_ctrl_stream's own doc. Not reset across steps by this
    * loop itself (mirrors the streams[] reassembly convention). */
   wired_srvloop_ctrl_stream ctrl;
-  /** RFC 9114 7.2.4 / draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): the
-   * client control stream's own SETTINGS-ordering state, latched as each
-   * control-stream frame is walked (priority_ctrl.c's ctrl_note_generic) --
-   * peer_ctrl.settings_seen is 1 once the client's SETTINGS has actually
-   * arrived, gating WebTransport CONNECT dispatch (srvrun.c) until it has. */
-  h3_control peer_ctrl;
   /** draft-ietf-webtrans-http3-16 SS5.5.1-5.5.3: the client SETTINGS'
    * SETTINGS_WT_INITIAL_MAX_STREAMS_UNI, _BIDI and SETTINGS_WT_INITIAL_MAX_
    * DATA, in that order (0 = absent, the draft's default), latched as the
@@ -914,6 +908,9 @@ typedef struct {
    * wired_h3srv_on_peer_qpack, the caller driving the loop decides how to
    * close the connection over it. */
   u16 qpack_stream_violation;
+  /** RFC 9114 6.2 / 7.2 / 8.1: the peer's control/critical stream state
+   * and the connection error it latched (srvloop_h3peer's doc). */
+  srvloop_h3peer h3peer;
   /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
    * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
    * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a

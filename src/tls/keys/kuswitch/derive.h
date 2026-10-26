@@ -14,24 +14,18 @@ void kuswitch_next_keys(
     initial_keys* next_keys,
     u8            next_secret[HKDF_PRK]);
 
-/* Same as kuswitch_next_keys, but the "ku" label used to derive
- * next_secret is chosen by `version` (RFC 9001 6.1 "quic ku" for v1, RFC
- * 9369 3.3.2 "quicv2 ku" for v2). */
-void kuswitch_next_keys_v(
-    u32           version,
-    const u8      current_secret[HKDF_PRK],
-    initial_keys* next_keys,
-    u8            next_secret[HKDF_PRK]);
-
 /* Same as kuswitch_next_keys, but derives next_keys->key at the given
  * suite's own AEAD key length (RFC 8446 5.3: 16 for AES-128-GCM, 32 for
  * AES-256-GCM and ChaCha20-Poly1305) over the suite's hash (secrets are
  * Hash.length bytes: 48 for TLS_AES_256_GCM_SHA384) instead of the fixed
  * AES-only INITIAL_KEY -- without this, a ChaCha20-negotiated connection's Key
  * Update only fills the first 16 of the 32 key bytes it actually needs, leaving
- * the tail stale and every post-update packet fails to open. */
+ * the tail stale and every post-update packet fails to open. The "ku"/"key"/
+ * "iv" labels carry `version`'s prefix (RFC 9001 6.1 "quic " for v1, RFC 9369
+ * 3.3.2 "quicv2 " for v2; 0/unknown falls back to v1). */
 void kuswitch_next_keys_suite(
     u16           suite,
+    u32           version,
     const u8*     current_secret,
     initial_keys* next_keys,
     u8*           next_secret);

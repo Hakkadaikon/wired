@@ -233,8 +233,8 @@ static void lp_make_client_finished(struct lp_fix* f) {
 
 /* Client role: seal a Handshake CRYPTO flight toward the server with the
  * peer-direction CLIENT_HS key (which the server opens with). */
-static usz client_seal_handshake(
-    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+static usz client_seal_handshake_ver(
+    struct lp_fix* f, u32 version, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
@@ -251,10 +251,15 @@ static usz client_seal_handshake(
       0,
       0,
       0,
-      0};
+      version};
   protect_keys pk = {k, &hp};
   CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
+}
+
+static usz client_seal_handshake(
+    struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  return client_seal_handshake_ver(f, 0, msg, mlen, pkt, cap);
 }
 
 /* Client role: seal a Handshake packet at an explicit packet number. curl does
@@ -700,7 +705,7 @@ static void test_srvloop_aes256_only_roundtrip(void) {
     initial_keys next;
     u8           next_secret[48];
     kuswitch_next_keys_suite(
-        TLS_AES_256_GCM_SHA384, f.s.ku_secret, &next, next_secret);
+        TLS_AES_256_GCM_SHA384, VERSION_1, f.s.ku_secret, &next, next_secret);
     bytes_memcpy(next.hp, cap->hp, AEAD_KEY_MAX);
     clen = lp_seal_onertt_suite(
         &f, TLS_AES_256_GCM_SHA384, &next, 2, 1, wired_span_of(reqb, rob.len),
@@ -5894,6 +5899,106 @@ static void test_srvloop_recv_v1_initial_until_v2_handshake(void) {
   CHECK(lp_recv(&f, pkt, n) == 1);
 }
 
+/* RFC 9369 3.3.2: generation-1 1-RTT keys under the "quicv2 ku"/"quicv2 key"/
+ * "quicv2 iv" labels, expanded here straight from HKDF-Expand-Label (not
+ * kuswitch) so the server is checked against an independent peer; hp is
+ * kept (RFC 9001 6.1). */
+static void lp_v2_next_keys(const u8* secret, const u8* hp, initial_keys* k) {
+  u8         ns[HKDF_PRK];
+  hkdf_label lku = {"quicv2 ku", 9, {0, 0}};
+  hkdf_label lk  = {"quicv2 key", 10, {0, 0}};
+  hkdf_label li  = {"quicv2 iv", 9, {0, 0}};
+  bytes_memset(k, 0, sizeof *k);
+  hkdf_expand_label(secret, &lku, wired_mspan_of(ns, HKDF_PRK));
+  hkdf_expand_label(ns, &lk, wired_mspan_of(k->key, INITIAL_KEY));
+  hkdf_expand_label(ns, &li, wired_mspan_of(k->iv, INITIAL_IV));
+  bytes_memcpy(k->hp, hp, INITIAL_HP);
+}
+
+/* Confirm a connection the server switched v1 -> v2: the client Finished
+ * rides a v2 Handshake packet (RFC 9369 4.1). */
+static void lp_confirm_v2(struct lp_fix* f, wired_obuf* ob) {
+  u8  cpkt[1024];
+  usz clen;
+  bytes_memset(&f->s, 0, sizeof f->s);
+  bytes_memset(&f->l, 0, sizeof f->l);
+  lp_make_client_hello(f);
+  lp_drive_to_flight(f);
+  lp_switch_v1_to_v2(f);
+  lp_make_client_finished(f);
+  clen = client_seal_handshake_ver(
+      f, VERSION_2, f->cli_fin, f->cli_fin_len, cpkt, sizeof cpkt);
+  ob->len = 0;
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(cpkt, clen),
+          ob) == 1);
+  CHECK(wired_server_is_confirmed(&f->s) == 1);
+}
+
+/* Seal `pl` at pn 7 under the client's v2 generation-1 keys (phase 1). */
+static usz lp_seal_v2_gen1(struct lp_fix* f, wired_span pl, u8* pkt, usz cap) {
+  initial_keys k;
+  aes128       hp;
+  wired_obuf   o = obuf_of(pkt, cap);
+  lp_v2_next_keys(f->s.ku_secret, f->s.ku.cur.hp, &k);
+  aes128_init(&hp, k.hp);
+  {
+    protect_keys      pk = {&k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 7, pl, 1, 0, 0};
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+  }
+  return o.len;
+}
+
+/* Open a server 1-RTT packet under the server's v2 generation-1 keys. */
+static int lp_open_v2_gen1(struct lp_fix* f, u8* pkt, usz len, wired_span* v) {
+  const u8*           secret;
+  const initial_keys* gen0;
+  initial_keys        k;
+  aes128              hp;
+  CHECK(keysched_server_ap_secret(&f->s.sched, &secret) == 1);
+  CHECK(keysched_get(&f->s.sched, KS_SERVER_AP, &gen0) == 1);
+  lp_v2_next_keys(secret, gen0->hp, &k);
+  aes128_init(&hp, k.hp);
+  {
+    protect_keys           pk = {&k, &hp};
+    hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+    return hspkt_onertt_open(&pk, &d, v);
+  }
+}
+
+/* RFC 9369 3.3.2: on a v2 connection the server's Key Update derives the next
+ * generation with the "quicv2 " labels on BOTH sides: a client packet sealed
+ * under v2-derived generation-1 keys is accepted (recv, server_ku_derive_
+ * next) and the server's reply opens under v2-derived generation-1 send
+ * keys (srvloop_ku_rotate_send). Under the v1 labels neither would. */
+static void test_srvloop_v2_key_update_uses_quicv2_labels(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           slen;
+  wired_obuf    ob  = {out, sizeof out, 0};
+  wired_obuf    gob = {get, sizeof get, 0};
+  wired_span    v;
+  lp_confirm_v2(&f, &ob);
+  CHECK(sdrv_wire_version(&f.s.sdrv) == VERSION_2);
+  CHECK(wired_h3reqdrive_send_get(
+      0,
+      &(wired_h3reqdrive_get_in){
+          wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
+      &gob));
+  slen = lp_seal_v2_gen1(&f, wired_span_of(get, gob.len), spkt, sizeof spkt);
+  ob   = (wired_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1);
+  CHECK(lp_open_v2_gen1(&f, out, ob.len, &v) == 1);
+  check_acks_pn(v.p, v.n, 7);
+}
+
 /* RFC 9369 4.1: "Both endpoints MUST send Handshake and 1-RTT packets using
  * the negotiated version. An endpoint MUST drop packets using any other
  * version." -- a Handshake packet in the original v1 is dropped (and does
@@ -6561,7 +6666,150 @@ static void test_srvloop_onertt_crypto_latches(void) {
   CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
 }
 
+/* --- RFC 9114 6.2 / 7.2 / RFC 9204 4.2: the peer's control and critical
+ * streams on the live wired_srvloop_step path. Each case reads the error
+ * srvrun closes over (srvrun_close_on_h3): h3peer.error, else the
+ * h3_control latch. */
+
+/* The H3 connection error code latched by f's loop (0 = none). */
+static u16 h3c_err(const struct lp_fix* f) {
+  return f->l.h3peer.error ? f->l.h3peer.error
+                           : h3_control_wire_error(f->l.h3peer.ctrl.error);
+}
+
+/* One 1-RTT packet (number pn) carrying payload, through one step. */
+static void h3c_step(struct lp_fix* f, u64 pn, const u8* pl, usz n) {
+  u8         out[1024], spkt[1024];
+  wired_obuf ob   = {out, sizeof out, 0};
+  usz        slen = client_seal_onertt_pn(f, pn, pl, n, spkt, sizeof spkt);
+  CHECK(slen > 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
+}
+
+/* A STREAM frame at offset 0 of stream id carrying d[0..n). */
+static usz h3c_stream(u8* out, usz cap, u64 id, const u8* d, usz n, u8 fin) {
+  stream_frame sf = {id, 0, n, d, fin};
+  return frame_put_stream(out, cap, &sf);
+}
+
+/* A confirmed connection that receives client control stream 2 carrying
+ * d[0..n) (its type byte included) in one packet; returns the error. */
+static u16 h3c_ctrl(const u8* d, usz n) {
+  struct lp_fix f;
+  u8            out[1024], pl[256];
+  wired_obuf    ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  h3c_step(&f, 3, pl, h3c_stream(pl, sizeof pl, 2, d, n, 0));
+  return h3c_err(&f);
+}
+
+/* 9114-049/059/056/055/039/058/071/062/063: frames on the control stream. */
+static void test_srvloop_h3ctrl_control_frames(void) {
+  static const u8 ok[]       = {0x00, 0x04, 0x02, 0x06, 0x10, 0x21, 0x00};
+  static const u8 first[]    = {0x00, 0x07, 0x01, 0x00};
+  static const u8 second[]   = {0x00, 0x04, 0x00, 0x04, 0x00};
+  static const u8 data[]     = {0x00, 0x04, 0x00, 0x00, 0x00};
+  static const u8 headers[]  = {0x00, 0x04, 0x00, 0x01, 0x00};
+  static const u8 h2type[]   = {0x00, 0x04, 0x00, 0x06, 0x00};
+  static const u8 reserved[] = {0x00, 0x04, 0x02, 0x02, 0x00};
+  static const u8 dup[]      = {0x00, 0x04, 0x04, 0x06, 0x10, 0x06, 0x10};
+  static const u8 trunc[]    = {0x00, 0x04, 0x01, 0x06};
+  static const u8 dgram[]    = {0x00, 0x04, 0x02, 0x33, 0x02};
+  static const u8 gup[]      = {0x00, 0x04, 0x00, 0x07, 0x01,
+                                0x04, 0x07, 0x01, 0x08};
+  static const u8 gdown[]    = {0x00, 0x04, 0x00, 0x07, 0x01,
+                                0x08, 0x07, 0x01, 0x04};
+  static const u8 glong[]    = {0x00, 0x04, 0x00, 0x07, 0x02, 0x00, 0x00};
+  static const u8 cancel[]   = {0x00, 0x04, 0x00, 0x03, 0x01, 0x00};
+  static const u8 mdown[]    = {0x00, 0x04, 0x00, 0x0d, 0x01,
+                                0x05, 0x0d, 0x01, 0x04};
+  static const u8 mup[]      = {0x00, 0x04, 0x00, 0x0d, 0x01,
+                                0x04, 0x0d, 0x01, 0x05};
+  CHECK(h3c_ctrl(ok, sizeof ok) == 0); /* SETTINGS + a grease frame */
+  CHECK(h3c_ctrl(first, sizeof first) == H3_MISSING_SETTINGS);
+  CHECK(h3c_ctrl(second, sizeof second) == H3_FRAME_UNEXPECTED);
+  CHECK(h3c_ctrl(data, sizeof data) == H3_FRAME_UNEXPECTED);
+  CHECK(h3c_ctrl(headers, sizeof headers) == H3_FRAME_UNEXPECTED);
+  CHECK(h3c_ctrl(h2type, sizeof h2type) == H3_FRAME_UNEXPECTED);
+  CHECK(h3c_ctrl(reserved, sizeof reserved) == H3_SETTINGS_ERROR);
+  CHECK(h3c_ctrl(dup, sizeof dup) == H3_SETTINGS_ERROR);
+  CHECK(h3c_ctrl(trunc, sizeof trunc) == H3_FRAME_ERROR);
+  CHECK(h3c_ctrl(dgram, sizeof dgram) == H3_SETTINGS_ERROR);
+  CHECK(h3c_ctrl(gup, sizeof gup) == H3_ID_ERROR);
+  CHECK(h3c_ctrl(gdown, sizeof gdown) == 0);
+  CHECK(h3c_ctrl(glong, sizeof glong) == H3_FRAME_ERROR);
+  CHECK(h3c_ctrl(cancel, sizeof cancel) == H3_ID_ERROR);
+  CHECK(h3c_ctrl(mdown, sizeof mdown) == H3_ID_ERROR);
+  CHECK(h3c_ctrl(mup, sizeof mup) == 0);
+}
+
+/* 9114-050 / 9114-052: a second control stream and a client push stream
+ * are H3_STREAM_CREATION_ERROR; a retransmitted offset-0 frame of the
+ * control or QPACK encoder stream is not a second stream. */
+static void test_srvloop_h3ctrl_stream_creation(void) {
+  static const u8 ctl[] = {0x00, 0x04, 0x00};
+  struct lp_fix   f;
+  u8              out[1024], pl[256];
+  usz             off = 0;
+  wired_obuf      ob  = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  off += h3c_stream(pl + off, sizeof pl - off, 2, ctl, sizeof ctl, 0);
+  off += lp_uni_stream(pl + off, sizeof pl - off, 6, 0x02);
+  h3c_step(&f, 3, pl, off);
+  h3c_step(&f, 4, pl, off); /* the same frames again */
+  CHECK(h3c_err(&f) == 0 && f.l.qpack_stream_violation == 0);
+  off = lp_uni_stream(pl, sizeof pl, 10, 0x00);
+  h3c_step(&f, 5, pl, off);
+  CHECK(h3c_err(&f) == H3_STREAM_CREATION_ERROR);
+  /* a client push stream (type 0x01 on stream 2) */
+  CHECK(
+      h3c_ctrl((const u8[]){H3_STREAM_PUSH, 0x00}, 2) ==
+      H3_STREAM_CREATION_ERROR);
+}
+
+/* A confirmed connection with client uni stream id typed `type`, which a
+ * second packet then closes (FIN, or RESET_STREAM when reset); returns the
+ * error. */
+static u16 h3c_close(u64 id, u8 type, int reset) {
+  struct lp_fix      f;
+  u8                 out[1024], pl[64];
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame rs = {id, 0x100, 1};
+  stream_frame       sf = {id, 1, 0, pl, 1};
+  lp_confirm(&f, &ob);
+  h3c_step(&f, 3, pl, lp_uni_stream(pl, sizeof pl, id, type));
+  if (reset) {
+    h3c_step(&f, 4, pl, reset_stream_encode(pl, sizeof pl, &rs));
+  } else {
+    u8 fin[32];
+    h3c_step(&f, 4, fin, frame_put_stream(fin, sizeof fin, &sf));
+  }
+  return h3c_err(&f);
+}
+
+/* 9114-051 / 9204-029: FIN or RESET_STREAM on the peer's control, QPACK
+ * encoder or decoder stream is H3_CLOSED_CRITICAL_STREAM; on a
+ * non-critical (unknown-typed) uni stream, or a request stream, it is not. */
+static void test_srvloop_h3ctrl_critical_close(void) {
+  struct lp_fix      f;
+  u8                 out[1024], pl[64];
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame rs = {0, 0x10c, 0};
+  CHECK(h3c_close(2, 0x00, 0) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(h3c_close(2, 0x00, 1) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(h3c_close(6, 0x02, 1) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(h3c_close(10, 0x03, 0) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(h3c_close(14, 0x21, 1) == 0); /* a grease stream type */
+  lp_confirm(&f, &ob);
+  h3c_step(&f, 3, pl, reset_stream_encode(pl, sizeof pl, &rs));
+  CHECK(h3c_err(&f) == 0);
+}
+
 void test_srvloop(void) {
+  test_srvloop_h3ctrl_control_frames();
+  test_srvloop_h3ctrl_stream_creation();
+  test_srvloop_h3ctrl_critical_close();
   test_srvloop_unexpected_hs_message_latches();
   test_srvloop_onertt_crypto_latches();
   test_srvloop_ticket_early_data_only_off_raw();
@@ -6574,6 +6822,7 @@ void test_srvloop(void) {
   test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_recv_v1_initial_until_v2_handshake();
+  test_srvloop_v2_key_update_uses_quicv2_labels();
   test_srvloop_accepts_cleared_quic_bit();
   test_srvloop_spin_reflects_highest_pn();
   test_srvloop_send_greases_quic_bit();

@@ -29,7 +29,8 @@ static void srvloop_init_ctrl(wired_srvloop* l) {
   l->ctrl.parsed       = 0;
   l->ctrl.open         = 0;
   l->ctrl.stream_id    = 0;
-  h3_control_init(&l->peer_ctrl);
+  l->h3peer            = (srvloop_h3peer){0}; /* push max 0 = h3_push_init */
+  h3_control_init(&l->h3peer.ctrl);
 }
 
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {

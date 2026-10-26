@@ -84,7 +84,7 @@ static void sr_make_confirmed_conn(
    * the client-SETTINGS-ordering gate and never simulates the client's
    * control stream at all, so default it to "already seen" -- a test that
    * specifically wants to exercise the gate overrides this back to 0. */
-  c->l.peer_ctrl.settings_seen = 1;
+  c->l.h3peer.ctrl.settings_seen = 1;
   /* WTH3-007: every existing test built through this fixture predates the
    * WT-required-transport-parameter cross-check and never advertises
    * max_datagram_frame_size in its ClientHello TP, so default it to a
@@ -7430,7 +7430,7 @@ static void test_srvrun_wt_connect_after_client_settings_establishes(void) {
   g_sr_wt_handler_calls = 0;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
-  conns[0].l.peer_ctrl.settings_seen = 1; /* client SETTINGS already seen */
+  conns[0].l.h3peer.ctrl.settings_seen = 1; /* client SETTINGS already seen */
   sr_set_req(&conns[0], 1, 1, 4);
   {
     srvrun_cfg cfg = {
@@ -9507,7 +9507,7 @@ static void sr_establish_wt(srvrun_conn* conns, conntable* table, u64 sid) {
    * (some callers skip sr_make_confirmed_conn's own defaults), so satisfy
    * both the client-SETTINGS-seen gate and the required-transport-parameter
    * cross-check here too. */
-  conns[0].l.peer_ctrl.settings_seen           = 1;
+  conns[0].l.h3peer.ctrl.settings_seen         = 1;
   conns[0].s.sdrv.peer_max_datagram_frame_size = 1500;
   sr_set_req(&conns[0], 1, 1, sid);
   {
@@ -22301,6 +22301,30 @@ static void test_srvrun_wt_window_overflow_closes_flow_control(void) {
   CHECK(is_app == 0);
 }
 
+/* RFC 9114 6.2 / 7.2 / 8.1: a latched control/critical-stream error --
+ * srvloop's h3peer.error, or the h3_control latch (here
+ * H3_MISSING_SETTINGS) -- closes with an application CONNECTION_CLOSE
+ * (0x1d) carrying its HTTP/3 code. */
+static void test_srvrun_h3_conn_error_closes(void) {
+  struct lp_fix   f;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app = 0;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 0);
+  c->l.h3peer.error = H3_CLOSED_CRITICAL_STREAM;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_code(c, &is_app) == H3_CLOSED_CRITICAL_STREAM);
+  CHECK(is_app == 1);
+  c                      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  is_app                 = 0;
+  c->l.h3peer.ctrl.error = H3_ERR_MISSING_SETTINGS;
+  CHECK(srvrun_close_on_step_violation(&cfg, c) == 1);
+  CHECK(sr_close_code(c, &is_app) == H3_MISSING_SETTINGS);
+  CHECK(is_app == 1);
+}
+
 /* A latched control-stream overflow closes with H3_EXCESSIVE_LOAD. */
 static void test_srvrun_ctrl_overflow_closes(void) {
   struct lp_fix   f;
@@ -24573,7 +24597,7 @@ static void sr_sl_send_wt_initial_settings(
  * initial limits; returns the CONNECT HEADERS length (capsules start there). */
 static usz sr_sl_wt_with_initial(srvrun_conn* c, u64 uni, u64 bidi, u64 data) {
   usz hlen;
-  c->l.peer_ctrl.settings_seen = 0;
+  c->l.h3peer.ctrl.settings_seen = 0;
   sr_sl_send_wt_initial_settings(c, uni, bidi, data);
   hlen = sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(c->wt_active == 1);
@@ -24804,8 +24828,8 @@ static void test_srvrun_wt_initial_limits_absent_stay_zero(void) {
 
 /* The fixture with the client's SETTINGS not yet seen. */
 static srvrun_conn* sr_sl_fixture_no_settings(void) {
-  srvrun_conn* c               = sr_sl_fixture();
-  c->l.peer_ctrl.settings_seen = 0;
+  srvrun_conn* c                 = sr_sl_fixture();
+  c->l.h3peer.ctrl.settings_seen = 0;
   return c;
 }
 
@@ -25768,8 +25792,8 @@ static void test_srvrun_wtsend_claim_starts_empty(void) {
 static void test_srvrun_held_connect_skips_reused_slot(void) {
   srvrun_conn* c = sr_sl_fixture();
   usz          i;
-  c->l.h3.settings_sent        = 1;
-  c->l.peer_ctrl.settings_seen = 0; /* SETTINGS not seen: CONNECT is held */
+  c->l.h3.settings_sent          = 1;
+  c->l.h3peer.ctrl.settings_seen = 0; /* SETTINGS not seen: CONNECT is held */
   sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(c->wt_active == 0 && c->wt_held_mask != 0);
   i = (usz)srvrun_held_slot_of(c, 0);
@@ -26622,6 +26646,7 @@ void test_srvrun(void) {
   test_srvrun_reset_queue_overflow_closes();
   test_srvrun_ecn_failed_conn_sends_not_ect();
   test_srvrun_ctrl_overflow_closes();
+  test_srvrun_h3_conn_error_closes();
   test_srvrun_qpack_violation_closes();
   test_srvrun_hs_error_closes();
   test_srvrun_qdec_stream_opens_with_qpack_streams();

@@ -38,6 +38,7 @@ static int gather_uni_frame(wired_srvloop* l, u64 type, wired_span frame) {
     return 0;
   }
   srvloop_gather_wt_uni_frame(l, &sf);
+  srvloop_crit_note_fin(l, &sf);
   return 1;
 }
 

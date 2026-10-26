@@ -88,7 +88,8 @@ void srvloop_ku_rotate_send(wired_server* s) {
   initial_keys send_next;
   u8           send_next_secret[TLS_HASH_MAX];
   kuswitch_next_keys_suite(
-      s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
+      s->sdrv.cipher_suite, sdrv_wire_version(&s->sdrv), s->ku_send_secret,
+      &send_next, send_next_secret);
   bytes_memcpy(send_next.hp, s->ku_send.cur.hp, AEAD_KEY_MAX);
   kuswitch_rotate(&s->ku_send, &send_next);
   bytes_memcpy(s->ku_send_secret, send_next_secret, TLS_HASH_MAX);
