@@ -5,6 +5,7 @@
 
 static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v);
 static void ctrl_field_section_set(wired_srvloop* l, u64 id, u64 v);
+static void ctrl_h3_datagram_set(wired_srvloop* l, u64 id, u64 v);
 static int  ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v);
 static usz  ctrl_settings_walk(wired_srvloop* l, wired_span p);
 static void ctrl_on_settings(wired_srvloop* l, const h3_frame* f);
@@ -37,6 +38,14 @@ static void ctrl_field_section_set(wired_srvloop* l, u64 id, u64 v) {
   }
 }
 
+/* RFC 9297 2.1.1: keep the peer's SETTINGS_H3_DATAGRAM -- DATAGRAM sending
+ * and WebTransport (draft-ietf-webtrans-http3-16 3.1) need it to be 1. */
+static void ctrl_h3_datagram_set(wired_srvloop* l, u64 id, u64 v) {
+  if (id == H3_SETTING_H3_DATAGRAM) {
+    l->h3peer.h3_datagram = (u8)(v == 1);
+  }
+}
+
 /* RFC 9114 7.2.4.1 (HTTP/2-reserved ids), 7.2.4 (a repeated id), RFC 9297
  * 2.1.1 (SETTINGS_H3_DATAGRAM > 1): 0 if the pair is an H3_SETTINGS_ERROR. */
 static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
@@ -45,7 +54,8 @@ static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
 }
 
 /* Walk p's (Identifier, Value) pairs, checking each and latching the
- * WebTransport initial limits and the field-section limit; returns the bytes
+ * WebTransport initial limits, the field-section limit and
+ * SETTINGS_H3_DATAGRAM; returns the bytes
  * the complete pairs took. */
 static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
   h3_settings_seen seen;
@@ -56,6 +66,7 @@ static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
     srvloop_ctrl_check(l, ctrl_setting_ok(&seen, id, v), H3_SETTINGS_ERROR);
     ctrl_wt_initial_set(l, id, v);
     ctrl_field_section_set(l, id, v);
+    ctrl_h3_datagram_set(l, id, v);
     done = off;
   }
   return done;

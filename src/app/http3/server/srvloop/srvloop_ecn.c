@@ -18,6 +18,7 @@ static void srvloop_init_violation(wired_srvloop* l) {
   l->peer_wt_initial[1]             = 0;
   l->peer_wt_initial[2]             = 0;
   l->peer_max_field_section         = 0;
+  l->wt_watch                       = (wired_srvloop_wt_watch){0};
 }
 
 /* Our own control stream plus the peer's. */

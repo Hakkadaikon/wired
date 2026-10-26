@@ -90,6 +90,10 @@ static void sr_make_confirmed_conn(
    * control stream at all, so default it to "already seen" -- a test that
    * specifically wants to exercise the gate overrides this back to 0. */
   c->l.h3peer.ctrl.settings_seen = 1;
+  /* RFC 9297 2.1.1 / WTH3-007: likewise default the client's
+   * SETTINGS_H3_DATAGRAM to the required 1; a test of that gate overrides it
+   * back to 0. */
+  c->l.h3peer.h3_datagram = 1;
   /* WTH3-007: every existing test built through this fixture predates the
    * WT-required-transport-parameter cross-check and never advertises
    * max_datagram_frame_size in its ClientHello TP, so default it to a
@@ -7053,6 +7057,8 @@ static void sr_set_req(
   if (with_protocol) {
     c->l.req.protocol     = sr_wt_protocol;
     c->l.req.protocol_len = sizeof sr_wt_protocol - 1;
+    /* WTH3-007: a webtransport-h3 client also sends reset_stream_at */
+    c->s.sdrv.peer_reset_stream_at = 1;
   } else {
     c->l.req.protocol     = 0;
     c->l.req.protocol_len = 0;
@@ -9442,8 +9448,9 @@ static const u8 sr_dg_first[]  = {1, 2, 3};
 static const u8 sr_dg_second[] = {9, 9};
 
 static void test_srvrun_datagram_second_queue_kept_behind_first(void) {
-  srvrun_conn c        = {0};
-  c.l.h3.settings_sent = 1; /* RFC 9297 2.1: queuing requires SETTINGS sent */
+  srvrun_conn c          = {0};
+  c.l.h3.settings_sent   = 1; /* RFC 9297 2.1: queuing requires SETTINGS sent */
+  c.l.h3peer.h3_datagram = 1;
   CHECK(
       srvrun_queue_datagram(
           &c, wired_span_of(sr_dg_first, sizeof sr_dg_first)) == 1);
@@ -9527,6 +9534,8 @@ static void sr_establish_wt(srvrun_conn* conns, conntable* table, u64 sid) {
    * cross-check here too. */
   conns[0].l.h3peer.ctrl.settings_seen         = 1;
   conns[0].s.sdrv.peer_max_datagram_frame_size = 1500;
+  conns[0].l.h3peer.h3_datagram                = 1;
+  conns[0].s.sdrv.peer_reset_stream_at         = 1;
   sr_set_req(&conns[0], 1, 1, sid);
   {
     srvrun_cfg cfg = {
@@ -11690,12 +11699,14 @@ static void sr_reset_global_table(void) {
  * queued -- the two-recipient baseline case. */
 static void test_srvrun_broadcast_datagram_queues_active_wt_sessions(void) {
   sr_reset_global_table();
-  g_srvrun_state.conns[0].up                 = 1;
-  g_srvrun_state.conns[0].wt_active          = 1;
-  g_srvrun_state.conns[0].l.h3.settings_sent = 1;
-  g_srvrun_state.conns[1].up                 = 1;
-  g_srvrun_state.conns[1].wt_active          = 1;
-  g_srvrun_state.conns[1].l.h3.settings_sent = 1;
+  g_srvrun_state.conns[0].up                   = 1;
+  g_srvrun_state.conns[0].wt_active            = 1;
+  g_srvrun_state.conns[0].l.h3.settings_sent   = 1;
+  g_srvrun_state.conns[0].l.h3peer.h3_datagram = 1;
+  g_srvrun_state.conns[1].up                   = 1;
+  g_srvrun_state.conns[1].wt_active            = 1;
+  g_srvrun_state.conns[1].l.h3.settings_sent   = 1;
+  g_srvrun_state.conns[1].l.h3peer.h3_datagram = 1;
   CHECK(
       wired_server_broadcast_datagram(
           wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
@@ -20126,6 +20137,31 @@ static void test_srvrun_wt_close_flushes_on_poll_tick_alone(void) {
   CHECK(c->wt.state == WIRED_WT_CLOSED);
 }
 
+/* SEND FLUSHES ON A POLL TICK ALONE: stream data the app queues from
+ * another connection's callback (a MoQT hub's NAMESPACE_DONE push when a
+ * publisher leaves) goes out on the next poll tick with no packet from
+ * this peer and no PTO due -- the tick pumps every slot with a send
+ * session active, not only one whose probe timer fired. */
+static void test_srvrun_wt_send_flushes_on_poll_tick_alone(void) {
+  static const u8 body[] = "push";
+  struct lp_fix   f;
+  wired_obuf      ob = {0};
+  u8              obuf[1024];
+  srvrun_conn*    c;
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_server_wt_open_uni(&c->wt, wired_span_of(body, sizeof body)) > 0);
+  CHECK(srvrun_rec_eliciting(c) == 0); /* nothing sent: no PTO armed */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    CHECK(srvrun_any_waiting(&st) == 1);
+    srvrun_fire_ptos(&cfg, &st);
+  }
+  CHECK(c->wtsend[0].in_use == 1);
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
+}
+
 /* CLOSE UNKNOWN SESSION: a session pointer this env does not own resolves to
  * no connection, so nothing is latched. */
 static void test_srvrun_wt_close_session_unknown_session_refused(void) {
@@ -20468,10 +20504,11 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
 static void test_srvrun_wt_send_slots_beside_qpack_streams(void) {
   struct lp_fix   f;
   u8              obuf[1024];
-  wired_obuf      ob     = {obuf, sizeof obuf, 0};
-  static const u8 pay[4] = {1, 2, 3, 4};
-  srvrun_conn*    c      = sr_wtsend_fixture(&f, &ob);
-  c->l.h3.settings_sent  = 1;
+  wired_obuf      ob      = {obuf, sizeof obuf, 0};
+  static const u8 pay[4]  = {1, 2, 3, 4};
+  srvrun_conn*    c       = sr_wtsend_fixture(&f, &ob);
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   srvrun_open_qpack_streams(c);
   CHECK(c->qenc_stream_opened && c->qdec_stream_opened);
   for (int i = 0; i < 3 + 4 * 3; i++) {
@@ -21060,9 +21097,10 @@ static void test_srvrun_broadcast_datagram_ring_queues_burst_per_session(void) {
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(c->wt.connect_stream_id == 4);
-  c1                     = &g_srvrun_state.conns[1];
-  c1->up                 = 1;
-  c1->l.h3.settings_sent = 1;
+  c1                       = &g_srvrun_state.conns[1];
+  c1->up                   = 1;
+  c1->l.h3.settings_sent   = 1;
+  c1->l.h3peer.h3_datagram = 1;
   wired_wt_session_init(&c1->wt, 8);
   wired_wt_session_establish(&c1->wt);
   c1->wt_active = 1;
@@ -21130,15 +21168,17 @@ static void test_srvrun_broadcast_datagram_ring_drains_both_next_step(void) {
 static void test_srvrun_broadcast_datagram_ring_skips_ineligible(void) {
   u8 pay[1] = {0x5a};
   sr_reset_global_table();
-  g_srvrun_env.dgring_head                   = 0;
-  g_srvrun_env.dgring_n                      = 0;
-  g_srvrun_state.conns[0].up                 = 1;
-  g_srvrun_state.conns[0].l.h3.settings_sent = 1;
+  g_srvrun_env.dgring_head                     = 0;
+  g_srvrun_env.dgring_n                        = 0;
+  g_srvrun_state.conns[0].up                   = 1;
+  g_srvrun_state.conns[0].l.h3.settings_sent   = 1;
+  g_srvrun_state.conns[0].l.h3peer.h3_datagram = 1;
   wired_wt_session_init(&g_srvrun_state.conns[0].wt, 4); /* UNESTABLISHED */
-  g_srvrun_state.conns[0].wt_active          = 1;
-  g_srvrun_state.conns[1].up                 = 1;
-  g_srvrun_state.conns[1].l.h3.settings_sent = 1; /* no active WT slot */
-  g_srvrun_state.conns[2].up                 = 1;
+  g_srvrun_state.conns[0].wt_active            = 1;
+  g_srvrun_state.conns[1].up                   = 1;
+  g_srvrun_state.conns[1].l.h3.settings_sent   = 1; /* no active WT slot */
+  g_srvrun_state.conns[1].l.h3peer.h3_datagram = 1;
+  g_srvrun_state.conns[2].up                   = 1;
   wired_wt_session_init(&g_srvrun_state.conns[2].wt, 4);
   wired_wt_session_establish(&g_srvrun_state.conns[2].wt);
   g_srvrun_state.conns[2].wt_active = 1; /* SETTINGS not sent */
@@ -21230,10 +21270,11 @@ static void test_srvrun_broadcast_ring_no_silent_loss_on_same_step_double_queue(
 
   /* Broadcast queue: the second is kept behind the first, not overwritten. */
   {
-    srvrun_conn c        = {0};
-    c.l.h3.settings_sent = 1;
-    c.up                 = 1;
-    c.wt_active          = 1;
+    srvrun_conn c          = {0};
+    c.l.h3.settings_sent   = 1;
+    c.l.h3peer.h3_datagram = 1;
+    c.up                   = 1;
+    c.wt_active            = 1;
     wired_wt_session_init(&c.wt, 4);
     wired_wt_session_establish(&c.wt);
     CHECK(srvrun_queue_datagram(&c, wired_span_of(msg_a, sizeof msg_a)) == 1);
@@ -22466,7 +22507,8 @@ static void test_srvrun_qdec_stream_opens_with_qpack_streams(void) {
   c.s.sdrv.peer_initial_max_streams_uni = 3;
   srvrun_open_qpack_streams(&c);
   CHECK(c.qenc_stream_opened == 0 && c.qdec_stream_opened == 0);
-  c.l.h3.settings_sent = 1;
+  c.l.h3.settings_sent   = 1;
+  c.l.h3peer.h3_datagram = 1;
   srvrun_open_qpack_streams(&c);
   CHECK(c.qenc_stream_opened == 1 && c.qdec_stream_opened == 1);
   w = &c.wtsend[c.qdec_wtsend_slot];
@@ -22490,6 +22532,7 @@ static void test_srvrun_qdec_stream_waits_for_uni_credit(void) {
   static srvrun_conn c;
   c                                     = (srvrun_conn){0};
   c.l.h3.settings_sent                  = 1;
+  c.l.h3peer.h3_datagram                = 1;
   c.s.sdrv.peer_initial_max_streams_uni = 2;
   srvrun_open_qpack_streams(&c);
   CHECK(c.qenc_stream_opened == 1 && c.qdec_stream_opened == 0);
@@ -22553,6 +22596,7 @@ static void test_srvrun_qdec_waits_for_stream_open(void) {
   CHECK(c.l.h3.qdec.acked == 0);
   CHECK(srvrun_next_uni_id(&c) == 15);
   c.l.h3.settings_sent                  = 1;
+  c.l.h3peer.h3_datagram                = 1;
   c.s.sdrv.peer_initial_max_streams_uni = 3;
   srvrun_open_qpack_streams(&c);
   CHECK(c.wtsend[c.qdec_wtsend_slot].stream_id == 11);
@@ -25209,8 +25253,9 @@ static void test_srvrun_wt_held_connect_retransmitted_one_session(void) {
 }
 
 /* WTH3-007: a held CONNECT from a peer whose transport parameters lack a
- * WebTransport requirement is rejected (403, no session) once the SETTINGS
- * arrive, exactly as it would be without the hold. */
+ * WebTransport requirement is rejected as malformed (no response, no
+ * session; srvrun_wtsess_test.c checks the H3_MESSAGE_ERROR reset) once the
+ * SETTINGS arrive, exactly as it would be without the hold. */
 static void test_srvrun_wt_held_connect_rejected_after_settings(void) {
   srvrun_conn* c                         = sr_sl_fixture_no_settings();
   c->s.sdrv.peer_max_datagram_frame_size = 0;
@@ -25218,7 +25263,7 @@ static void test_srvrun_wt_held_connect_rejected_after_settings(void) {
   CHECK(c->resp[0].in_use == 0);
   sr_sl_send_settings(c);
   CHECK(c->wt_active == 0);
-  CHECK(c->resp[0].in_use == 1); /* the rejection */
+  CHECK(c->resp[0].in_use == 0);
   CHECK(c->wt_held_mask == 0);
 }
 
@@ -25820,9 +25865,10 @@ static void sr_check_critical_stop(u64 id) {
   srvrun_cfg      cfg;
   srvrun_state    st;
   srvrun_step_ctx ctx;
-  srvrun_conn*    c      = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
-  int             is_app = 0;
-  c->l.h3.settings_sent  = 1;
+  srvrun_conn*    c       = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  int             is_app  = 0;
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   srvrun_open_qpack_streams(c);
   CHECK(c->qenc_stream_opened && c->qdec_stream_opened);
   c->l.peer_resets[0] = (wired_srvloop_reset){id, H3_NO_ERROR, 1};
@@ -25865,9 +25911,10 @@ static void test_srvrun_qdec_send_checks_slot_owner(void) {
   srvrun_cfg      cfg;
   srvrun_state    st;
   srvrun_step_ctx ctx;
-  srvrun_conn*    c     = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
-  u8              b     = 0x01;
-  c->l.h3.settings_sent = 1;
+  srvrun_conn*    c       = sr_wt_credit_fixture(&f, &cfg, &st, &ctx);
+  u8              b       = 0x01;
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   srvrun_open_qpack_streams(c);
   c->wtsend[c->qdec_wtsend_slot].stream_id = 15; /* slot reused elsewhere */
   CHECK(srvrun_qdec_send(c, wired_span_of(&b, 1)) == 0);
@@ -26036,9 +26083,10 @@ static void test_srvrun_wt_stream_api_rejects_plumbing(void) {
   u8            b = 0x41;
   srvrun_conn*  c;
   usz           q;
-  ob                    = (wired_obuf){obuf, sizeof obuf, 0};
-  c                     = sr_wtsend_fixture(&f, &ob);
-  c->l.h3.settings_sent = 1;
+  ob                      = (wired_obuf){obuf, sizeof obuf, 0};
+  c                       = sr_wtsend_fixture(&f, &ob);
+  c->l.h3.settings_sent   = 1;
+  c->l.h3peer.h3_datagram = 1;
   srvrun_open_qpack_streams(c);
   q = (usz)c->qenc_wtsend_slot;
   CHECK(wired_server_wt_stream_send(&c->wt, 7, wired_span_of(&b, 1), 0) < 0);
@@ -26237,6 +26285,7 @@ static void test_srvrun_held_connect_skips_reused_slot(void) {
   srvrun_conn* c = sr_sl_fixture();
   usz          i;
   c->l.h3.settings_sent          = 1;
+  c->l.h3peer.h3_datagram        = 1;
   c->l.h3peer.ctrl.settings_seen = 0; /* SETTINGS not seen: CONNECT is held */
   sr_sl_send_headers(c, 0, "CONNECT", 0);
   CHECK(c->wt_active == 0 && c->wt_held_mask != 0);
@@ -27217,6 +27266,7 @@ void test_srvrun(void) {
   test_srvrun_wt_close_session_truncates_at_utf8_boundary();
   test_srvrun_wt_close_session_truncates_at_invalid_byte();
   test_srvrun_wt_close_flushes_on_poll_tick_alone();
+  test_srvrun_wt_send_flushes_on_poll_tick_alone();
   test_srvrun_wt_close_session_unknown_session_refused();
   test_srvrun_send_wt_close_seals_capsule_with_fin();
   test_srvrun_wt_close_capsule_retransmitted_after_loss();
