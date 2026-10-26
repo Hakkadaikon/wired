@@ -55,6 +55,18 @@ typedef struct {
 /* DEFAULT_PUBLISHER_PRIORITY Track Property (draft-22 10.4, draft-19
  * 12.4): 128 when omitted or past 255 (invalid). */
 #define MOQTRUN_PROP_DEFAULT_PUB_PRIO 0x0EULL
+/* Immutable Properties (draft-18 12.7): a Property list in one value. */
+#define MOQTRUN_PROP_IMMUTABLE 0x0BULL
+/* DEFAULT_PUBLISHER_GROUP_ORDER (draft-18 12.5): 0x1 or 0x2. */
+#define MOQTRUN_PROP_GROUP_ORDER 0x22ULL
+/* DYNAMIC_GROUPS (draft-18 12.6): 0 or 1. */
+#define MOQTRUN_PROP_DYNAMIC_GROUPS 0x30ULL
+/* moqtrun_tprops_check bits: a Mandatory Track Property (2.5.1), and a
+ * value 12.5/12.6 close the session on. */
+#define MOQTRUN_TP_MAND 1u
+#define MOQTRUN_TP_BAD 2u
+/* Not a REQUEST_ERROR code: the session closes PROTOCOL_VIOLATION. */
+#define MOQTRUN_REQ_CLOSE (~(u64)1)
 
 /* A filter's Start Location (19 SS5.1.2, 22 SS9.20.9) against top, the
  * Largest Object (0: nothing published), indexed by moqctl_rsk. */

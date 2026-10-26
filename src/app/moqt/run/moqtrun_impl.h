@@ -41,7 +41,9 @@ int moqtrun_upf_data(
     int                 fin);
 moqctl_loc moqtrun_upf_ok_end(
     const wired_moqtrun_peer* pp, const moqfetch_ok* ok);
-int  moqtrun_upf_mandatory(wired_span props);
+u64  moqtrun_tprop(wired_span props, u64 type, u64 dflt);
+u32  moqtrun_tprops_check(wired_span props);
+int  moqtrun_tprops_refused(wired_span props, u64* code);
 void moqtrun_upf_mand(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 void moqtrun_upf_on_ok(

@@ -30,7 +30,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 189/248 tested, 37 indirect, 22 untested.**
+**Coverage: 191/248 tested, 37 indirect, 20 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -204,9 +204,10 @@ Legend:
     code point in these ranges.
 - [~] MOQT-027 (SS2.5.1) The implementation shall classify Property types
   0x4000-0x7FFF as Mandatory Track Properties.
-  - evidence: `moqtrun_upf_mandatory` classifies the range;
-    `test_moqtrun_upfetch_mandatory` uses type 0x4000 only, so the upper edge
-    is untested.
+  - evidence: `moqtrun_tprops_check` classifies the range;
+    `test_moqtrun_upfetch_mandatory` uses type 0x4000 and
+    `test_moqtrun_sub_publish_mandatory_refused` 0x7FFF; the outside edges
+    (0x3FFF, 0x8000) are untested.
 - [x] MOQT-211 (SS2.5, SS9.6) The hub shall forward Track and Object Properties
   it does not interpret unchanged, keeping them with a cached Track or Object,
   and shall include a Track's Properties in the SUBSCRIBE_OK and FETCH_OK it
@@ -219,15 +220,15 @@ Legend:
 - [ ] MOQT-212 (SS2.5.1) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as Malformed.
   - gap: Object Properties are relayed opaque; no Mandatory-range check.
-- [ ] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
+- [x] MOQT-213 (SS2.5.1) If a PUBLISH carries a Mandatory Track Property the
   hub does not understand, then the hub shall answer REQUEST_ERROR
   UNSUPPORTED_EXTENSION and not forward the track.
-  - gap: only the upstream FETCH_OK path checks the Mandatory range.
-- [ ] MOQT-214 (SS2.5.1) If an upstream SUBSCRIBE_OK carries a Mandatory Track
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
+- [x] MOQT-214 (SS2.5.1) If an upstream SUBSCRIBE_OK carries a Mandatory Track
   Property the hub does not understand, then the hub shall cancel the upstream
   subscription and answer its pending downstream subscribers REQUEST_ERROR
   UNSUPPORTED_EXTENSION.
-  - gap: only the upstream FETCH_OK path checks the Mandatory range.
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [x] MOQT-215 (SS2.5.1) If an upstream FETCH_OK carries a Mandatory Track
   Property the hub does not understand, then the hub shall cancel the upstream
   FETCH, answering an unanswered downstream FETCH REQUEST_ERROR
@@ -1811,8 +1812,7 @@ MOQT-200 through MOQT-208).
 The 2026-10 re-audit against the draft text found these rules unmet; each
 is an open `[ ]` item above:
 
-- Mandatory Track Properties on PUBLISH, upstream SUBSCRIBE_OK and as an
-  Object Property (MOQT-212 to MOQT-214).
+- Mandatory Track Properties as an Object Property (MOQT-212).
 - INVALID_RANGE for an unsatisfiable draft-19 Location Filter (MOQT-222).
 - Control streams scheduled ahead of data (MOQT-223).
 - Dropping an Object already recorded as not existing (MOQT-227).

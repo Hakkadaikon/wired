@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 200/259 tested, 35 indirect, 24 untested.**
+**Coverage: 202/259 tested, 35 indirect, 22 untested.**
 
 ## SS8.1 Variable-Length Integers
 
@@ -249,16 +249,15 @@ Legend:
 
 ## SS3.7 Mandatory to Understand Track Properties
 
-- [ ] MQ22-222 (SS3.7) If a PUBLISH carries a Mandatory Track Property
+- [x] MQ22-222 (SS3.7) If a PUBLISH carries a Mandatory Track Property
   (type 0x4000-0x7FFF), which this hub never understands, then the hub
   shall answer REQUEST_ERROR UNSUPPORTED_EXTENSION and not forward the
   track.
-  - gap: `moqtrun_upf_mandatory` is applied to upstream FETCH_OK only; the
-    PUBLISH path accepts and relays such a track.
-- [ ] MQ22-223 (SS3.7) If an upstream SUBSCRIBE_OK carries a Mandatory Track
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
+- [x] MQ22-223 (SS3.7) If an upstream SUBSCRIBE_OK carries a Mandatory Track
   Property, then the hub shall cancel that subscription and answer each
   pending downstream SUBSCRIBE with REQUEST_ERROR UNSUPPORTED_EXTENSION.
-  - gap: `moqtrun_up_claim` does not check the Track Properties.
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [ ] MQ22-224 (SS3.7) If an Object carries a Mandatory Track Property as an
   Object Property, then the hub shall treat the track as malformed
   (SS12.1).

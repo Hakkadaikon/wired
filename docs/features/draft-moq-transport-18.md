@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 190/248 tested, 30 indirect, 28 untested.**
+**Coverage: 193/248 tested, 30 indirect, 25 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -201,22 +201,21 @@ Legend:
   the application-specific ranges 0x38-0x3F and 0x3800-0x3FFF unchanged,
   without interpreting them.
   - evidence: no Property type in these ranges is read by the hub
-    (`moqtrun_track_prop` skips unknown types), Track Properties are
+    (`moqtrun_tprop` skips unknown types), Track Properties are
     forwarded as received (MQ18-208) and Object Properties ride the relayed
     Object bytes (`test_moqtrun_object_relay_preserves_bytes`); no test
     sends a property of these ranges.
   - note: draft-18 §15.8 lists 0x78-0x7F as the one-byte application range,
     contradicting §2.5's 0x38-0x3F; draft-19 settles on 0x78-0x7F (see
     `draft18-vs-19-diff.md` SS11).
-- [ ] MQ18-027 (§2.5.1) If a PUBLISH or an upstream SUBSCRIBE_OK carries a
+- [x] MQ18-027 (§2.5.1) If a PUBLISH or an upstream SUBSCRIBE_OK carries a
   Mandatory Track Property (type 0x4000-0x7FFF) the hub does not understand,
   then the hub shall not process or forward that track: it shall refuse the
   PUBLISH with REQUEST_ERROR UNSUPPORTED_EXTENSION, or cancel the upstream
   subscription and send REQUEST_ERROR UNSUPPORTED_EXTENSION to its pending
   downstream subscribers.
-  - gap: `moqtrun_upf_mandatory` classifies 0x4000-0x7FFF for an upstream
-    FETCH_OK only (MQ18-209); PUBLISH and SUBSCRIBE_OK Track Properties are
-    not checked.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [~] MQ18-208 (§2.5, §9.6) When relaying a track, the hub shall forward the
   publisher's Track Properties, unknown ones included, unchanged in
   SUBSCRIBE_OK, a later PUBLISH of the track replacing (never merging with)
@@ -240,14 +239,15 @@ Legend:
   stream if data already went out.
   - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_mandatory`
   - note: run on draft-22 sessions; the check is version-independent.
-- [ ] MQ18-239 (§12.5, §12.6) If a Track Property DEFAULT_PUBLISHER_GROUP_ORDER
+- [x] MQ18-239 (§12.5, §12.6) If a Track Property DEFAULT_PUBLISHER_GROUP_ORDER
   outside 1-2 or DYNAMIC_GROUPS above 1 is received, then the implementation
   shall close the session with PROTOCOL_VIOLATION.
-  - gap: neither property is interpreted (Out of scope SS12).
-- [ ] MQ18-224 (§12.7) When the hub reads a Property's value (e.g.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_props_bad_values_close`
+  - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_bad_prop_closes`
+- [x] MQ18-224 (§12.7) When the hub reads a Property's value (e.g.
   DEFAULT_PUBLISHER_PRIORITY, SUBGROUP_DELIVERY_TIMEOUT), it shall search
   both the mutable properties and the contents of Immutable Properties.
-  - gap: `moqtrun_track_prop` reads the mutable list only.
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_props_immutable`
 
 ## SS3.2.1 Reserved Namespaces / SS3.2.2 Session-Level Tracks
 
