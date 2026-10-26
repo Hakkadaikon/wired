@@ -2,6 +2,7 @@
 #define TICKET_TICKET_H
 
 #include "common/bytes/span/span.h"
+#include "tls/ext/stp/server_tp.h"
 
 /* TLS 1.3 NewSessionTicket payload (RFC 8446 4.6.1), the part this SDK
  * persists for session resumption: the resumption secret plus the fields
@@ -19,8 +20,9 @@
 /* RFC 6066 3: the issuing connection's server_name digest
  * (salpn_sni_digest: SHA-256, all zero = no server_name). */
 #define TICKET_SNI_LEN 32
-#define TICKET_PLAIN_LEN \
-  (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + TICKET_SNI_LEN + 8)
+#define TICKET_PLAIN_LEN                                                \
+  (TICKET_SECRET_LEN + 8 + 4 + 4 + 1 + 1 + 2 + TICKET_SNI_LEN + 8 + 4 + \
+   8 * STP_REMEMBERED_N)
 #define TICKET_SEALED_LEN (TICKET_NONCE_LEN + TICKET_PLAIN_LEN + TICKET_TAG_LEN)
 
 /** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
@@ -48,6 +50,14 @@ typedef struct {
    * issued_at). A ticket re-issued on a resumed connection inherits it, so
    * the server can cap the total lifetime of that material. */
   u64 origin_at;
+  /** RFC 9369 5: the QUIC version of the issuing connection (the
+   * negotiated one after compatible version negotiation); a ticket from
+   * another version is never accepted. */
+  u32 version;
+  /** RFC 9000 7.4.1 / RFC 9221 3: the limits the issuing connection
+   * advertised (stp_remembered order), so 0-RTT is refused once any of
+   * them is lower. */
+  u64 tp[STP_REMEMBERED_N];
 } ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

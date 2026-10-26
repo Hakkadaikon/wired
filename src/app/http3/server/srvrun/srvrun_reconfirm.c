@@ -57,8 +57,8 @@ static int srvrun_leads_handshake(wired_mspan dg) {
  * until its own idle timeout (observed live under the interop runner's 30%
  * loss profile). */
 static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u8                 out[512];
-  wired_obuf         ob   = obuf_of(out, sizeof out);
+  u8         out[sizeof c->l.confirm_frames + 64]; /* + short header and tag */
+  wired_obuf ob           = obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   if (!wired_srvloop_reconfirm(&conn, &ob)) {
     return;

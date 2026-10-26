@@ -67,7 +67,9 @@ static void test_srvrun_force_retry_applies_when_on(void) {
           &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 1);
 }
 
-/* force_retry=0: the gate never applies, regardless of the datagram. */
+/* force_retry=0: the token gate still applies to a fresh Initial (RFC 9000
+ * 8.1: Retry and NEW_TOKEN tokens are checked either way); only its Retry
+ * for an unvalidated address is force_retry's (srvrun_token_test.c). */
 static void test_srvrun_force_retry_off_never_applies(void) {
   wired_srvboot_id id  = sr_pin_id();
   srvrun_cfg       cfg = sr_pin_cfg(&id, 0);
@@ -82,7 +84,7 @@ static void test_srvrun_force_retry_off_never_applies(void) {
   usz n = sr_pin_build_initial(dg);
   CHECK(
       srvrun_retry_applies(
-          &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 0);
+          &ctx, wired_span_of(dg + 6, 4), wired_mspan_of(dg, n)) == 1);
 }
 
 /* A DCID that already routes to a live slot is not gated again: the gate

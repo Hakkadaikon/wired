@@ -17,6 +17,8 @@
 #include "tls/handshake/roles/server/server.h"
 #include "tls/handshake/roles/srvfin/hsdone.h"
 #include "tls/handshake/roles/srvfin/verify.h"
+#include "tls/keys/kuswitch/derive.h"
+#include "transport/conn/lifecycle/idledrive/idlenego.h"
 #include "transport/conn/loop/crecv/message.h"
 
 /* RFC 8446 4.1.2: legacy_version(2) precedes ClientHello.random, both after

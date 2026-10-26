@@ -670,8 +670,11 @@ static void test_srvrun_send_stream_slice_writes_stream_frame_sent(void) {
   {
     wired_sendq_slice sl;
     CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    c.idle_tx_ms = 0;
     CHECK(srvrun_send_stream_slice(&ctx, &c, &c.resp[0].sess, 11, &sl, 1));
   }
+  /* RFC 9000 10.1: the first ack-eliciting send restarts the idle timer */
+  CHECK(c.idle_tx_ms == 7000);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_sent\",\"stream_id\":11,\"offset\":0,"
@@ -1192,6 +1195,7 @@ static void sr_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->idle_timeout_ms         = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
   id->retry_odcid             = 0;
@@ -1298,11 +1302,11 @@ static void test_srvrun_size_violation_discards_no_slot(void) {
  * same convention test_srvboot_refusal_reports_missing_tp_ext in
  * h3_loopback_test.c uses for wired_srvboot_refusal's own transport-close
  * payload). */
-static void test_srvrun_new_conn_refusal_wire_content(void) {
+static void sr_initial_close_wire_content(u64 code) {
   u8         dg[1500], out[128], scid[8] = {0};
   usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   wired_obuf ob    = obuf_of(out, sizeof out);
-  CHECK(srvrun_seal_new_conn_refusal(wired_span_of(dg, total), scid, &ob));
+  CHECK(srvrun_seal_initial_close(wired_span_of(dg, total), scid, code, &ob));
 
   initial_keys ck, sk;
   aes128       hp;
@@ -1318,7 +1322,13 @@ static void test_srvrun_new_conn_refusal_wire_content(void) {
   usz              rn = frame_get_conn_close(frames.p, frames.n, &cc);
   CHECK(rn != 0 && rn == frames.n);
   CHECK(cc.is_app == 0);
-  CHECK(cc.error_code == ERR_CONNECTION_REFUSED);
+  CHECK(cc.error_code == code);
+}
+
+/* ... and RFC 9000 8.1.2's INVALID_TOKEN close takes the same shape. */
+static void test_srvrun_new_conn_refusal_wire_content(void) {
+  sr_initial_close_wire_content(ERR_CONNECTION_REFUSED);
+  sr_initial_close_wire_content(ERR_INVALID_TOKEN);
 }
 
 /* A non-Initial or malformed-DCID datagram is never eligible to open a new
@@ -2055,6 +2065,88 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
 
+/* RFC 9001 4.9.1 / RFC 9000 17.2.2.1: once a client Handshake packet was
+ * processed (hs_rx_seen) the Initial keys are gone -- a retransmitted
+ * client Initial no longer resends the cached flight and is dropped
+ * unopened, and the boot PTO sends no Initial. */
+static void test_srvrun_initial_dropped_after_handshake_rx(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(st.conns[0].up == 1);
+  CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+  CHECK(srvrun_initial_live(&st.conns[0]) == 1);
+  st.conns[0].l.hs_rx_seen = 1; /* a client Handshake packet was opened */
+  CHECK(srvrun_initial_live(&st.conns[0]) == 0);
+  srvrun_test_reset_send_count();
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(st.conns[0].up == 1);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(srvrun_boot_send_initial(&cfg, &st.conns[0], "t\n") == 0);
+  CHECK(srvrun_test_send_count() == 0);
+}
+
+/* RFC 9000 10.2.3: a close raised before the handshake is confirmed also
+ * goes out in a Handshake packet, and in an Initial packet while the
+ * Initial keys are live; the application close is carried there as a
+ * transport close with APPLICATION_ERROR and no reason. */
+static void test_srvrun_unconfirmed_close_all_levels(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               fr[SRVRUN_CLOSE_PL_MAX];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  srvrun_conn*     c    = &st.conns[0];
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 hs_pn, ini_pn;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrun_cfg cfg = {
+      -1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+      0,  0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(&ctx, wired_mspan_of(dg, total));
+  CHECK(c->up == 1);
+  CHECK(wired_server_is_confirmed(&c->s) == 0);
+  CHECK(c->ini_next_pn >= 2); /* past the accept flight's Initial (pn 1) */
+  hs_pn  = c->l.hs_tx_pn;
+  ini_pn = c->ini_next_pn;
+  srvrun_test_reset_send_count();
+  srvrun_send_app_close(&cfg, c, 0x101, wired_span_of(0, 0));
+  CHECK(c->closing == 1);
+  CHECK(srvrun_test_send_count() == 3); /* Initial + Handshake + 1-RTT */
+  CHECK(c->ini_next_pn == ini_pn + 1);
+  CHECK(c->l.hs_tx_pn == hs_pn + 1);
+  /* the Handshake/Initial copy: 0x1c, APPLICATION_ERROR, frame type 0,
+   * empty reason -- never the 0x1d with its application code */
+  CHECK(srvrun_close_long_frame(c, fr) == 4);
+  CHECK(fr[0] == FRAME_CONN_CLOSE_TPT && fr[1] == ERR_APPLICATION_ERROR);
+  CHECK(fr[2] == 0 && fr[3] == 0);
+  /* a client Handshake packet was processed: no Initial any more */
+  c->l.hs_rx_seen = 1;
+  srvrun_test_reset_send_count();
+  srvrun_close_resend(&cfg, c);
+  CHECK(srvrun_test_send_count() == 2);
+  CHECK(c->ini_next_pn == ini_pn + 1);
+  /* confirmed: 1-RTT only */
+  c->s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_test_reset_send_count();
+  srvrun_close_resend(&cfg, c);
+  CHECK(srvrun_test_send_count() == 1);
+  *c = (srvrun_conn){0};
+}
+
 /* @file
  * RFC 9000 8.1 anti-amplification limit on the boot flight send path
  * (srvrun_boot_send_hs_gated/srvrun_boot_send/srvrun_boot_budget). Drives
@@ -2613,6 +2705,7 @@ static usz sr_raw_ch(client* c, u8* ch, usz cap) {
   }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&c->tls, wired_span_of(g_cli_scid, 6)) == 1);
   return tlsdriver_raw_client_hello(&c->tls, ch, cap);
 }
 
@@ -2861,6 +2954,66 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k1, 4) == 0);
 }
 
+/* One confirmed, idle slot at last_ms 1000 for the idle-period tests. */
+static srvrun_conn* sr_idle_slot(srvrun_state* st, conntable* table) {
+  static const u8 k[4] = {7, 7, 7, 7};
+  srvrun_conn*    c    = &st->conns[0];
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  *c         = (srvrun_conn){0};
+  c->up      = 1;
+  c->last_ms = 1000;
+  c->s.phase = WIRED_SERVER_HS_CONFIRMED;
+  rtt_init(&c->rtt);
+  CHECK(conntable_insert(table, WIRED_CONNTABLE_CAP, k, 4) == 0);
+  return c;
+}
+
+/* 1 if slot 0 survives an idle sweep at now_ms. */
+static int sr_idle_survives(srvrun_state* st, u64 now_ms) {
+  srvrun_sweep_idle(srvrun_test_envcfg(), st, now_ms);
+  return st->conns[0].up;
+}
+
+/* RFC 9000 10.1: the idle period is the minimum of both endpoints'
+ * max_idle_timeout (the client's from its ClientHello, this server's from
+ * the app-set limit or the 30 s default), never below three PTOs, and is
+ * measured from the later of the last receive and the first ack-eliciting
+ * send after it. */
+static void test_srvrun_idle_uses_negotiated_timeout(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, g_srvrun_state.conns};
+  srvrun_conn* c  = sr_idle_slot(&st, table);
+  u64          floor;
+  /* client 10 s < server default 30 s */
+  c->s.sdrv.peer_max_idle_timeout = 10000;
+  CHECK(sr_idle_survives(&st, 1000 + 9999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 10000) == 0);
+  /* server (app) 8 s < client 10 s */
+  c                                 = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout   = 10000;
+  c->s.sdrv.limits.max_idle_timeout = 8000;
+  CHECK(sr_idle_survives(&st, 1000 + 7999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 8000) == 0);
+  /* client 0 = no limit: the server's own value alone */
+  c = sr_idle_slot(&st, table);
+  CHECK(sr_idle_survives(&st, 1000 + 29999) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + 30000) == 0);
+  /* a send after the receive restarts the timer */
+  c                               = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout = 10000;
+  c->idle_tx_ms                   = 4000;
+  CHECK(sr_idle_survives(&st, 4000 + 9999) == 1);
+  CHECK(sr_idle_survives(&st, 4000 + 10000) == 0);
+  /* 3*PTO above a tiny negotiated value wins */
+  c                               = sr_idle_slot(&st, table);
+  c->s.sdrv.peer_max_idle_timeout = 1;
+  floor                           = 3 * srvrun_pto_deadline_ms(c, 0);
+  CHECK(floor > 1);
+  CHECK(srvrun_idle_ms(c) == floor);
+  CHECK(sr_idle_survives(&st, 1000 + floor - 1) == 1);
+  CHECK(sr_idle_survives(&st, 1000 + floor) == 0);
+}
+
 /* A connection torn down (here, idle sweep) mid-streaming-response
  * releases its resp[] slots' claimed bigbuf pool rows -- otherwise
  * wired_srvbigbuf's own in_use[] bookkeeping never learns the row is free
@@ -2909,10 +3062,13 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
                     0,  0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
-  st.conns[2].up      = 0;
-  st.conns[2].last_ms = 0;
+  st.conns[2].up         = 0;
+  st.conns[2].last_ms    = 0;
+  st.conns[2].idle_tx_ms = 99;
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
   CHECK(st.conns[2].last_ms == 12345);
+  /* RFC 9000 10.1: the next ack-eliciting send restarts the timer anew */
+  CHECK(st.conns[2].idle_tx_ms == 0);
 }
 
 /* RFC 9000 13.4 / RFC 9002 19.3.2: a datagram's ECN codepoint (carried on
@@ -3268,6 +3424,69 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
   CHECK(sr_find_path_challenge(pl, pll, wire_data) == 1);
   CHECK(ct_diff8(wire_data, sr_chal(&c, -1, &new_peer)->data) == 0);
   CHECK(sr_count_frames(pl, pll, FK_PATH_CHALLENGE) == 1);
+}
+
+/* The NEW_TOKEN token in c's freshly sealed 1-RTT packet, opened as the
+ * client: 1 when srvrun's own gate accepts it from peer. */
+static int sr_newtok_accepted(
+    srvrun_conn* c, struct lp_fix* f, const sockaddr* peer) {
+  u8              out[128];
+  const u8*       pl;
+  usz             pll;
+  new_token_frame nt;
+  u64             now = wired_clock_epoch_secs();
+  usz             n   = srvrun_newtok_seal(c, now, out, sizeof out);
+  CHECK(n != 0);
+  CHECK(client_open_onertt(f, out, n, &pl, &pll) == 1);
+  CHECK(new_token_decode(pl, pll, &nt) != 0);
+  return srvrun_newtok_ok(
+      peer, sdrv_wire_version(&c->s.sdrv), wired_span_of(nt.token, nt.length),
+      now);
+}
+
+/* RFC 9000 8.1.3: once confirmed the server sends a NEW_TOKEN token bound
+ * to the client's address, which its own Initial gate accepts; RFC 9000
+ * 9.3: again once a new client address is validated -- never twice for one
+ * path, never before confirmation. */
+static void test_srvrun_new_token_after_confirm_and_migration(void) {
+  struct lp_fix      f;
+  srvrun_conn        c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_step_ctx    ctx = {0};
+  sockaddr           a, b;
+  usz                sent;
+  srvrun_newtok_mark m;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&a, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&b, 9999, (const u8[4]){127, 0, 0, 2});
+  cfg.fd            = -1;
+  cfg.env           = &g_srvrun_env;
+  ctx.cfg           = &cfg;
+  c.peer            = a;
+  c.path.seeded     = 1;
+  c.path.last_valid = srvrun_send_key(&cfg, &c);
+  sent              = g_srvrun_send_count;
+  m                 = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m); /* a step with no event: none */
+  CHECK(g_srvrun_send_count == sent);
+  m.confirmed = 0; /* the step that sent HANDSHAKE_DONE */
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 1);
+  m = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m); /* once */
+  CHECK(g_srvrun_send_count == sent + 1);
+  CHECK(sr_newtok_accepted(&c, &f, &a) == 1);
+  c.peer = b; /* migrated, not yet validated: nothing owed */
+  m      = srvrun_newtok_mark_of(&c);
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 1);
+  c.path.last_valid = srvrun_send_key(&cfg, &c); /* this step validated b */
+  srvrun_send_new_token(&ctx, &c, &m);
+  CHECK(g_srvrun_send_count == sent + 2);
+  CHECK(sr_newtok_accepted(&c, &f, &b) == 1);
+  CHECK(sr_newtok_accepted(&c, &f, &a) == 0); /* bound to the new IP */
 }
 
 /* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
@@ -13456,6 +13675,101 @@ static void test_srvrun_closes_with_aead_limit_reached_on_step(void) {
   wired_udp_close(sfd);
 }
 
+/* Seal one 1-RTT PING under c's own send keys (wired_srvloop_send_onertt,
+ * every srvrun reply's path). */
+static usz sr_seal_ping_server(srvrun_conn* c, u8* pkt, usz cap) {
+  static const u8       ping[1] = {0x01};
+  wired_obuf            ob      = obuf_of(pkt, cap);
+  wired_srvloop_send_in sin     = {
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
+      c->l.tx_pn++,
+      -1,
+      wired_span_of(ping, 1),
+      0,
+      0,
+      0,
+      0};
+  return wired_srvloop_send_onertt(&c->s, &sin, &ob) ? ob.len : 0;
+}
+
+/* A confirmed connection on a socket-free cfg, for the latched-close tests
+ * below; returns the step context over c. */
+static srvrun_step_ctx sr_ku_ctx(
+    srvrun_conn* c, struct lp_fix* f, srvrun_cfg* cfg, srvrun_state* st) {
+  static u8  obuf[1024];
+  wired_obuf ob = {obuf, sizeof obuf, 0};
+  *c            = (srvrun_conn){0};
+  sr_make_confirmed_conn(c, f, &ob);
+  *cfg     = (srvrun_cfg){0};
+  cfg->fd  = -1;
+  cfg->env = &g_srvrun_env;
+  *st      = (srvrun_state){0, c};
+  return (srvrun_step_ctx){cfg, &c->peer, st, 0, 0};
+}
+
+/* 1 if c sent (and keeps) a transport CONNECTION_CLOSE carrying code. */
+static int sr_closed_with(const srvrun_conn* c, u64 code) {
+  conn_close_frame ccf;
+  if (!c->closing || !frame_get_conn_close(c->close_pl, c->close_pln, &ccf)) {
+    return 0;
+  }
+  return ccf.is_app == 0 && ccf.error_code == code;
+}
+
+/* RFC 9001 6.4: old keys opening a packet numbered above one the new keys
+ * protected closes the connection with KEY_UPDATE_ERROR. */
+static void test_srvrun_closes_on_key_update_error(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx = sr_ku_ctx(&c, &f, &cfg, &st);
+  initial_keys    k0  = c.s.ku.cur, k1;
+  u8              pkt[256];
+  usz             n;
+  lp_ku_next(c.s.ku_secret, &k0, &k1);
+  n = lp_seal_ku(&c.s, &k1, 1, 7, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  n = lp_seal_ku(&c.s, &k1, 1, 9, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(c.closing == 0);
+  n = lp_seal_ku(&c.s, &k0, 0, 8, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(ERR_KEY_UPDATE_ERROR == 0x0e); /* RFC 9001 6.7 */
+  CHECK(sr_closed_with(&c, ERR_KEY_UPDATE_ERROR));
+  CHECK(c.s.ku_error == 0); /* sent once, cleared */
+}
+
+/* RFC 9001 6.6: the confidentiality limit is near while this server's own
+ * update is still unconfirmed by the peer -- no further update is possible,
+ * so the connection closes with AEAD_LIMIT_REACHED, sealed under the keys'
+ * remaining margin. */
+static void test_srvrun_closes_with_aead_limit_when_no_update(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  srvrun_cfg      cfg;
+  srvrun_state    st;
+  srvrun_step_ctx ctx = sr_ku_ctx(&c, &f, &cfg, &st);
+  initial_keys    k0  = c.s.ku.cur;
+  u8              pkt[256];
+  usz             n;
+  u64             tx;
+  c.s.ku_send_count = AEAD_LIMIT_AESGCM;
+  n                 = sr_seal_ping_server(&c, pkt, sizeof pkt);
+  CHECK(n > 0);
+  CHECK(c.s.ku_send.generation == 1 && c.s.ku.generation == 0);
+  c.s.ku_send_count = AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN;
+  CHECK(sr_seal_ping_server(&c, pkt, sizeof pkt) > 0); /* latches */
+  CHECK(c.s.ku_error == ERR_AEAD_LIMIT_REACHED);
+  n = lp_seal_ku(&c.s, &k0, 0, 7, pkt, sizeof pkt);
+  srvrun_on_step(&ctx, &c, wired_mspan_of(pkt, n));
+  CHECK(sr_closed_with(&c, ERR_AEAD_LIMIT_REACHED));
+  tx = c.s.ku_send_count;
+  /* the close itself was sealed, inside the margin */
+  CHECK(tx > AEAD_LIMIT_AESGCM - SRVLOOP_KU_CLOSE_MARGIN + 1);
+  CHECK(tx < AEAD_LIMIT_AESGCM);
+}
+
 /* Multi-range: srvrun_on_step's shared ACK state is not merely a
  * single-pn passthrough -- two datagrams with a gap between their pns (7,
  * then 9, skipping 8) drive the exact same two-range gap-encoding through
@@ -16386,6 +16700,7 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   }
   wired_x25519_base(cpub, cpriv);
   tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  CHECK(tlsdriver_set_iscid(&c.tls, wired_span_of(g_cli_scid, 6)) == 1);
   n = tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
   CHECK(n > 100);
   nd = sr_seal_ch_half(dg, sizeof dg, g_sr_odcid, 8, wired_span_of(ch, 60), 0);
@@ -26078,6 +26393,8 @@ void test_srvrun(void) {
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
+  test_srvrun_initial_dropped_after_handshake_rx();
+  test_srvrun_unconfirmed_close_all_levels();
   test_srvrun_hs_probe_replays_boot_flight();
   test_srvrun_finished_wait_probes_small();
   test_srvrun_odcid_retransmit_resends_serverhello_first();
@@ -26088,6 +26405,7 @@ void test_srvrun(void) {
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
   test_srvrun_idle_sweep_evicts_expired();
+  test_srvrun_idle_uses_negotiated_timeout();
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_serve_slot_notes_ecn();
@@ -26101,6 +26419,7 @@ void test_srvrun(void) {
   test_srvrun_rebind_subsequent_send_targets_new_peer();
   test_srvrun_path_challenge_generated_on_rebind();
   test_srvrun_path_challenge_sent_to_new_peer();
+  test_srvrun_new_token_after_confirm_and_migration();
   test_srvrun_path_response_matching_validates();
   test_srvrun_path_response_mismatch_does_not_validate();
   test_srvrun_path_response_without_challenge_is_noop();
@@ -26481,6 +26800,8 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_inflight_zero_after_reap();
   test_srvrun_wt_stream_inflight_append_open_survives_reap();
   test_srvrun_closes_with_aead_limit_reached_on_step();
+  test_srvrun_closes_on_key_update_error();
+  test_srvrun_closes_with_aead_limit_when_no_update();
   test_srvrun_reset_flood_under_threshold_keeps_connection();
   test_srvrun_reset_flood_over_threshold_closes_excessive_load();
   test_srvrun_reset_flood_threshold_configurable();

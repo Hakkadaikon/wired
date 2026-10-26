@@ -29,6 +29,8 @@ static void test_srvkeys_random_and_distinct(void) {
   CHECK(!srvkeys_test_all_zero(srvkeys_retry()));
   CHECK(ct_diffn(srvkeys_ticket(), g_srvkeys_old_ticket, SRVKEYS_LEN) != 0);
   CHECK(ct_diffn(srvkeys_ticket(), srvkeys_retry(), SRVKEYS_LEN) != 0);
+  CHECK(ct_diffn(srvkeys_newtoken(), srvkeys_retry(), SRVKEYS_LEN) != 0);
+  CHECK(ct_diffn(srvkeys_newtoken(), srvkeys_ticket(), SRVKEYS_LEN) != 0);
 }
 
 /* Drawn once: later reads see the same bytes (a ticket sealed early opens

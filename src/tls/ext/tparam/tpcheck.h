@@ -49,4 +49,12 @@ int tparam_check_retry_scid(const tparam_retry_scid_in* in);
  *   - active_connection_id_limit (0x0e): must be at least 2. */
 int tparam_range_ok(u64 id, u64 value);
 
+/* RFC 9000 7.4 / 18.2: walk a client's whole transport-parameter sequence
+ * tp and return 1 only if every TLV is well-framed, none is server-only
+ * (original_destination_connection_id, stateless_reset_token,
+ * preferred_address, retry_source_connection_id) and every
+ * range-constrained parameter (tparam_range_ok) holds one in-range varint;
+ * 0 is a TRANSPORT_PARAMETER_ERROR. */
+int tparam_client_tp_ok(wired_span tp);
+
 #endif

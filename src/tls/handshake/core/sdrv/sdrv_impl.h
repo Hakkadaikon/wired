@@ -5,6 +5,7 @@
  * and the functions and tables more than one piece uses. Not public API. */
 
 #include "app/datagram/datagram/datagram.h"
+#include "app/datagram/datagram/zerortt_dgram.h"
 #include "common/arch/arch.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
@@ -25,6 +26,7 @@
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/ext/tparam/tpcheck.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/core/tls/binder.h"
@@ -37,7 +39,9 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/ticketfreshness.h"
+#include "tls/handshake/core/tls/ticketversion.h"
 #include "tls/handshake/core/tls/tpext.h"
+#include "tls/handshake/core/tls/zerortt_params.h"
 #include "transport/conn/loop/manage/zerortt_policy.h"
 #include "transport/conn/loop/manage/zerortt_seen.h"
 #include "transport/version/version/verinfo.h"
@@ -111,6 +115,9 @@ int  sdrv_ch_negotiate(sdrv* s, const u8* ch_msg, usz ch_len, usz* body);
 void sdrv_ch_take_optional(sdrv* s, const u8* ch_msg, usz ch_len);
 void sdrv_check_sni(sdrv* s, const u8* ch_msg, usz ch_len);
 void sdrv_ch_note_cert_sigs(sdrv* s, const u8* ch_msg, usz ch_len);
+/* RFC 8446 8.2: open the process-wide 0-RTT recording window (no-op once
+ * open), before this connection can issue a ticket (sdrv_early.c). */
+void sdrv_zerortt_open(void);
 int sdrv_psk_open_ticket(const sdrv* s, const tlsext_psk_offer* off, ticket* t);
 void sdrv_psk_from_ticket_secret(const ticket* t, u8* psk_out);
 int  sdrv_psk_binder_ok(
@@ -119,12 +126,15 @@ int  sdrv_psk_binder_ok(
     const u8*               ch_msg,
     wired_span              psk_ext,
     const tlsext_psk_offer* off);
-int  sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len);
-void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_find_version_information(
+int        sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len);
+void       sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_check_client_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_check_iscid(sdrv* s, const u8* ch_msg, usz ch_len);
+wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len);
+int        sdrv_find_version_information(
     const u8* ch_msg, usz ch_len, wired_span* bytes);
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len);
@@ -176,6 +186,11 @@ static inline int sdrv_vec_ok(
   return sdrv_count_ok(sdrv_vec_count(d.p + w, d.n - w, step), min);
 }
 
-extern const sdrv_ch_gate SDRV_CH_GATES[15];
+extern const sdrv_ch_gate SDRV_CH_GATES[17];
+
+/* sdrv_early_ticket.c: the resumed ticket's own checks. */
+int sdrv_early_limits_ok(const sdrv* s, const ticket* t);
+int sdrv_ticket_live(const ticket* t);
+int sdrv_ticket_bound(const sdrv* s, const ticket* t);
 
 #endif
