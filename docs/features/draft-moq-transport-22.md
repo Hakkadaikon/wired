@@ -2489,9 +2489,12 @@ from the coverage denominator above:
   provisional properties — TIMESTAMP 0x10, VIDEO_FRAME_MARKING 0x09,
   AUDIO_CONFIG 0x0F, ENCRYPTED_LIST 0x0A, PADDING 0x32) as Track/Object
   Properties — the Properties wire slot is decoded generically and relayed
-  unchanged; no specific Property type is interpreted except
-  DEFAULT_PUBLISHER_PRIORITY (the stream urgency of a header omitting its
-  Publisher Priority).
+  unchanged; the hub reads DEFAULT_PUBLISHER_PRIORITY (the stream urgency
+  of a header omitting its Publisher Priority), SUBGROUP_DELIVERY_TIMEOUT
+  and MAX_CACHE_DURATION, inside Immutable Properties too, closes the
+  session on an out-of-range DEFAULT_PUBLISHER_GROUP_ORDER / DYNAMIC_GROUPS
+  and refuses Mandatory Track Properties (MQ22-222 to MQ22-224); the
+  group-order and dynamic-groups scheduling semantics are not applied.
 - (SS15) Security Considerations (subscription amplification,
   communication security, media security, resource exhaustion, timeouts,
   relay security, implementation fingerprinting, mTLS/RFC 9525 certificate

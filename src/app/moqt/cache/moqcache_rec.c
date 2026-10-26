@@ -43,7 +43,9 @@ static int moqcache_resumes(const moqcache* c, u64 tag, moqctl_loc cur) {
 /* Offset of tag's first record reaching cur, else c->used: scanned from
  * the resume point when it applies, which then moves here. */
 usz moqcache_find(moqcache* c, u64 tag, moqctl_loc cur) {
-  usz from    = moqcache_resumes(c, tag, cur) ? c->hint_off : 0;
+  usz from;
+  moqcache_expire(c);
+  from        = moqcache_resumes(c, tag, cur) ? c->hint_off : 0;
   c->hint_off = moqcache_scan(c, from, tag, cur);
   c->hint_tag = tag;
   c->hint_cur = cur;

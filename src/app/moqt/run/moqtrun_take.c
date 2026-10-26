@@ -38,6 +38,7 @@ void moqtrun_track_open(
   t->subgroup_timeout_ms =
       moqtrun_tprop(props, MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, 0);
   t->default_pub_prio = moqtrun_track_prop_prio(props);
+  t->max_cache_ms     = moqtrun_tprop(props, MOQTRUN_PROP_MAX_CACHE, ~(u64)0);
   t->up_streams       = 0;
   t->pubdone_pending  = 0;
   moqtrun_track_keep_props(t, props);

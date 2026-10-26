@@ -55,6 +55,9 @@ typedef struct {
 /* DEFAULT_PUBLISHER_PRIORITY Track Property (draft-22 10.4, draft-19
  * 12.4): 128 when omitted or past 255 (invalid). */
 #define MOQTRUN_PROP_DEFAULT_PUB_PRIO 0x0EULL
+/* MAX_CACHE_DURATION (draft-18 12.3): ms an Object may be served from a
+ * cache. */
+#define MOQTRUN_PROP_MAX_CACHE 0x04ULL
 /* Immutable Properties (draft-18 12.7): a Property list in one value. */
 #define MOQTRUN_PROP_IMMUTABLE 0x0BULL
 /* DEFAULT_PUBLISHER_GROUP_ORDER (draft-18 12.5): 0x1 or 0x2. */

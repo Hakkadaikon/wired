@@ -31,7 +31,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 194/248 tested, 30 indirect, 24 untested.**
+**Coverage: 195/248 tested, 30 indirect, 23 untested.**
 
 ## SS1.4.1 Variable-Length Integers
 
@@ -1720,10 +1720,14 @@ Legend:
 - [ ] MQ18-222 (§9.1) Where the hub has recorded an Object as not existing,
   it should neither cache nor forward that Object if it arrives later.
   - gap: not tested.
-- [ ] MQ18-238 (§12.3) Where a track carries MAX_CACHE_DURATION, the hub shall
+- [x] MQ18-238 (§12.3) Where a track carries MAX_CACHE_DURATION, the hub shall
   not start forwarding an Object later than that many milliseconds after
   its first byte was received.
-  - gap: the property is not interpreted (Out of scope SS12).
+  - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_max_cache_duration`
+  - note: "received" is the last `wired_moqt_tick` clock before the Object
+    arrived, never later than its first byte, so Objects only expire early;
+    a cached group with one expired Object becomes unknown whole (the cache
+    never holds a partial group). Driven with the draft-18/19 FETCH body.
 - [x] MQ18-194 A FETCH shall release its slot when the requester cancels,
   the data stream is stopped, the publisher or requester leaves, or the
   delivery stalls.
@@ -1986,11 +1990,12 @@ from the coverage denominator above:
   cache, so Alias-based tokens close the session (MQ18-189). Receiving the
   AUTHORIZATION TOKEN option is MQ18-226.
 - (SS11.5.2) Padding Datagrams — not sent.
-- (SS12.5-12.9) The semantics of DEFAULT_PUBLISHER_GROUP_ORDER,
-  DYNAMIC_GROUPS, Immutable Properties and Prior Group/Object ID Gap — the
-  Properties wire slot is relayed unchanged and only
-  DEFAULT_PUBLISHER_PRIORITY and SUBGROUP_DELIVERY_TIMEOUT are read; the
-  MUSTs a relay owes these properties are items MQ18-224, MQ18-238 and
+- (SS12.5-12.9) The scheduling semantics of DEFAULT_PUBLISHER_GROUP_ORDER
+  and DYNAMIC_GROUPS, and Prior Group/Object ID Gap — the Properties wire
+  slot is relayed unchanged; the hub reads DEFAULT_PUBLISHER_PRIORITY,
+  SUBGROUP_DELIVERY_TIMEOUT and MAX_CACHE_DURATION (inside Immutable
+  Properties too) and validates the group-order / dynamic-groups ranges.
+  The MUSTs a relay owes these properties are items MQ18-224, MQ18-238 and
   MQ18-239.
 - (SS5.1.3.1, SS10.2.13) Dynamically starting new Groups on the hub's own
   tracks — they do not declare DYNAMIC_GROUPS.

@@ -495,6 +495,39 @@ static void test_moqtrun_fetch_serves_cached(void) {
   CHECK(mf_fin);
 }
 
+/* draft-18 12.3: with MAX_CACHE_DURATION the relay "MUST NOT start
+ * forwarding any individual Object ... after the specified number of
+ * milliseconds has elapsed"; "Once Objects have expired from cache,
+ * their state becomes unknown". A 100 ms track's cached Object is served
+ * 99 ms after it came, and is an unknown range from 100 ms on. */
+static void test_moqtrun_fetch_max_cache_duration(void) {
+  u8         buf[16];
+  usz        n    = 0;
+  u64        prev = 0;
+  moqkvp     kv   = {0};
+  moqctl_ftn f    = mf_track();
+  kv.type         = 0x04; /* MAX_CACHE_DURATION */
+  kv.num          = 100;
+  CHECK(moqkvp_put(wired_mspan_of(buf, sizeof buf), &n, &prev, &kv));
+  mtst_init();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mf_pub_sid = 2;
+  mf_ctrl_a  = mtst_join(SESS_A);
+  mf_ctrl_b  = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, mf_ctrl_a, &f, MF_ALIAS, wired_span_of(buf, n));
+  wired_moqt_tick(&mtst_hub, 1000);
+  mf_obj(0, 0, 3);
+  wired_moqt_tick(&mtst_hub, 1099);
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 1 && mf_is_obj(0, 0, 0, 3));
+  wired_moqt_tick(&mtst_hub, 1100);
+  g_open_bidi_fail_n = 1;
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_read());
+  CHECK(mf_n == 1 && mf_is_unknown(0, 0, 0));
+}
+
 /* No arena and no way upstream (no request stream opens): the whole
  * range is one unknown range, then FIN. */
 static void test_moqtrun_fetch_no_cache_unknown(void) {
@@ -970,6 +1003,7 @@ static void mtall_fetch(void) {
  * expect its exclusive End: every draft without the draft-22 layout. */
 static void mtall_fetch19(void) {
   test_moqtrun_fetch_ok_props();
+  test_moqtrun_fetch_max_cache_duration();
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_descending_unknown_groups();
   test_moqtrun_fetch_descending_skips_missing_group();

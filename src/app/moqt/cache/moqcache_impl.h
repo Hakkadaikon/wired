@@ -6,6 +6,7 @@
 
 #include "app/moqt/cache/moqcache.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
 /* Record layout (moqcache.h): this header, then len payload bytes. A
  * tombstone (a dropped group) has len MOQCACHE_DEAD and no payload. */
@@ -14,6 +15,7 @@ typedef struct {
   u64 group;
   u64 object;
   u64 len;
+  u64 exp; /* clock at which the record expires, ~0 for never */
 } moqcache_rec;
 
 #define MOQCACHE_DEAD (~(u64)0)
@@ -29,6 +31,7 @@ usz  moqcache_first_victim(const moqcache* c, u64 tag, u64 group);
 void moqcache_entomb(moqcache* c, u64 tag, u64 group);
 usz  moqcache_find(moqcache* c, u64 tag, moqctl_loc cur);
 int  moqcache_is_obj(moqcache_rec r, moqctl_loc cur);
+void moqcache_expire(moqcache* c);
 moqctl_loc moqcache_unknown_stop(
     const moqcache* c, usz off, moqctl_loc cur, moqctl_loc end);
 
