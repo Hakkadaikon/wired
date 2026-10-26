@@ -24,6 +24,16 @@ usz srvrun_slice_ack_peek(srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
  * wire -- consume the piggybacked pending ACK when the payload carried one
  * (al != 0). Returns 1 on success, 0 if sealing failed (nothing sent, the
  * pending ACK untouched). */
+/* RFC 9000 10.1: the first ack-eliciting send since the last receive
+ * restarts the idle timer (a bare ACK, eliciting 0, does not). shortcut:
+ * only slice sends count, not control-frame-only packets; widen if those
+ * ever carry a connection. */
+static void srvrun_idle_note_tx(srvrun_conn* c, u64 now_ms, int eliciting) {
+  if (eliciting && !c->idle_tx_ms) {
+    c->idle_tx_ms = now_ms;
+  }
+}
+
 int srvrun_seal_send_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, wired_span pl, u64 pn, usz al) {
   u8                    out[1500];
@@ -35,19 +45,11 @@ int srvrun_seal_send_slice(
   }
   srvrun_send_staged(
       ctx->cfg, c, wired_span_of(out, ob.len), "1-RTT payload sent\n");
+  srvrun_idle_note_tx(c, ctx->now_ms, pl.n > al);
   if (al) {
     wired_srvloop_ack_mark_sent(&c->l);
   }
   return 1;
-}
-
-/* RFC 9000 10.1: the first ack-eliciting send since the last receive
- * restarts the idle timer. shortcut: only STREAM sends count, not
- * control-frame-only packets; widen if those ever carry a connection. */
-static void srvrun_idle_note_tx(srvrun_conn* c, u64 now_ms) {
-  if (!c->idle_tx_ms) {
-    c->idle_tx_ms = now_ms;
-  }
 }
 
 int srvrun_send_stream_slice(
@@ -68,7 +70,6 @@ int srvrun_send_stream_slice(
     return 0;
   }
   pn = c->l.tx_pn++;
-  srvrun_idle_note_tx(c, ctx->now_ms);
   srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
   if (!srvrun_seal_send_slice(
           ctx, c, wired_span_of(pl, al + plb.len), pn, al)) {

@@ -120,14 +120,15 @@ int  sdrv_psk_binder_ok(
     const u8*               ch_msg,
     wired_span              psk_ext,
     const tlsext_psk_offer* off);
-int  sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len);
-void sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_check_client_tp(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_ch_check_iscid(sdrv* s, const u8* ch_msg, usz ch_len);
-int  sdrv_find_version_information(
+int        sdrv_ch_take_psk(sdrv* s, const u8* ch_msg, usz ch_len);
+void       sdrv_ch_arm_hrr(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_required_fields(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_require_tp_ext(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_reject_dup_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_check_client_tp(sdrv* s, const u8* ch_msg, usz ch_len);
+int        sdrv_ch_check_iscid(sdrv* s, const u8* ch_msg, usz ch_len);
+wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len);
+int        sdrv_find_version_information(
     const u8* ch_msg, usz ch_len, wired_span* bytes);
 int sdrv_ch_take_version_information(sdrv* s, const version_information* vi);
 int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len);
