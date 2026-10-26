@@ -26978,6 +26978,18 @@ static void test_srvrun_refuses_bad_scid_len(void) {
           (wired_srvrun_obs){0}, 0) == 0);
 }
 
+/* RFC 9000 12.3: once the sending packet number reaches 2^62-1 the
+ * connection is dropped silently by the next sweep (no CONNECTION_CLOSE). */
+static void test_srvrun_pn_exhausted_reaped(void) {
+  srvrun_conn c = {0};
+  c.up          = 1;
+  c.last_ms     = 1000;
+  c.l.tx_pn     = (1ull << 62) - 2;
+  CHECK(srvrun_reap_due(&c, 1000) == 0);
+  c.l.tx_pn = (1ull << 62) - 1;
+  CHECK(srvrun_reap_due(&c, 1000) == 1);
+}
+
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
@@ -27423,6 +27435,7 @@ void test_srvrun(void) {
   test_srvrun_path_move_resets_spin();
   test_srvrun_spin_off_opt_applies_on_accept();
   test_srvrun_refuses_bad_scid_len();
+  test_srvrun_pn_exhausted_reaped();
   test_srvrun_resp_claim_starts_with_empty_send_state();
   test_srvrun_peer_reset_leaves_response();
   test_srvrun_peer_stop_on_connect_stream_resets();

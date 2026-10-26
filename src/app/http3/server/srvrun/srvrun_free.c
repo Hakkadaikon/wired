@@ -174,7 +174,15 @@ int srvrun_close_reap_due(const srvrun_conn* c, u64 now_ms) {
   return c->closing && now_ms >= c->closing_until_ms;
 }
 
+/* RFC 9000 12.3: "If the packet number for sending reaches 2^62-1, the
+ * sender MUST close the connection without sending a CONNECTION_CLOSE
+ * frame" -- reaped silently like an idle one, or once its closing period
+ * is over. */
+static int srvrun_silent_due(const srvrun_conn* c, u64 now_ms) {
+  return srvrun_close_reap_due(c, now_ms) || c->l.tx_pn >= (1ull << 62) - 1;
+}
+
 int srvrun_reap_due(const srvrun_conn* c, u64 now_ms) {
   return srvrun_idle_due(c, now_ms) || srvrun_boot_overdue(c, now_ms) ||
-         srvrun_close_reap_due(c, now_ms);
+         srvrun_silent_due(c, now_ms);
 }
