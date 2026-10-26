@@ -535,6 +535,41 @@ static void test_srvrun_rec_tick_flushes_ack(void) {
   CHECK(c.l.tx_pn == tx + 1 && c.l.app_ack_policy.pending == 0);
 }
 
+/* RFC 9002 6.2.1: the Initial/Handshake PTO leaves max_ack_delay out.
+ * srtt 10ms, rttvar 5ms: PTO = 10 + max(4*5, 1) = 30ms, not 30 + 25. */
+static void test_srvrun_boot_pto_no_max_ack_delay(void) {
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = srvrec_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000 + 29, 0};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 1000);
+  st.conns[0].rtt.smoothed_rtt = 10000;
+  st.conns[0].rtt.rttvar       = 5000;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+  ctx.now_ms = 1000 + 30;
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].boot_pto_count == 1);
+}
+
+/* RFC 9002 6.2.2 / A.11: discarding the Initial keys resets the boot PTO
+ * backoff (pto_count = 0); a step that leaves them alone does not. */
+static void test_srvrun_boot_pto_resets_on_initial_discard(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 0);
+  c.boot_pto_count = 3;
+  srvrun_boot_on_initial_discard(&c, 0);
+  CHECK(c.boot_pto_count == 3); /* hs_rx_seen still 0 */
+  c.l.hs_rx_seen = 1;
+  srvrun_boot_on_initial_discard(&c, 1);
+  CHECK(c.boot_pto_count == 3); /* already discarded before this step */
+  srvrun_boot_on_initial_discard(&c, 0);
+  CHECK(c.boot_pto_count == 0);
+}
+
 void test_srvrun_rec(void) {
   test_srvrun_rec_time_threshold_latest_rtt();
   test_srvrun_rec_granularity_floor();
@@ -551,4 +586,6 @@ void test_srvrun_rec(void) {
   test_srvrun_rec_ack_prunes_acked_ranges();
   test_srvrun_rec_ack_truncates_ranges();
   test_srvrun_rec_tick_flushes_ack();
+  test_srvrun_boot_pto_no_max_ack_delay();
+  test_srvrun_boot_pto_resets_on_initial_discard();
 }

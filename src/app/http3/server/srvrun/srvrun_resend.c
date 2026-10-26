@@ -108,12 +108,14 @@ int srvrun_boot_pto_waiting(const srvrun_conn* c) {
 }
 
 /* RFC 9002 6.2: 1 once c is in the boot PTO's window AND now_ms has crossed
- * its deadline (scaled by boot_pto_count's backoff, same formula
- * srvrun_sess_pto_due uses for an in-flight response, applied to the boot
- * flight's own single sent timestamp instead of a wired_sendsess log). */
+ * its deadline (scaled by boot_pto_count's backoff, measured from the boot
+ * flight's own single sent timestamp). RFC 9002 6.2.1: max_ack_delay is 0
+ * for the Initial and Handshake spaces -- the peer does not delay them. */
 static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
-  u64 wait = u64_min(
-      srvrun_pto_deadline_ms(c, c->boot_pto_count), SRVRUN_BOOT_RESEND_CAP_MS);
+  pto_rtt rtt  = {c->rtt.smoothed_rtt, c->rtt.rttvar};
+  u64     wait = u64_min(
+      pto_duration(rtt, 0, (u32)c->boot_pto_count) / 1000,
+      SRVRUN_BOOT_RESEND_CAP_MS);
   if (!srvrun_boot_pto_waiting(c)) {
     return 0;
   }
@@ -171,4 +173,14 @@ void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
     return;
   }
   srvrun_boot_pto_resend(ctx, c, fired);
+}
+
+/* RFC 9002 6.2.2 / A.11: the Initial keys went this step (RFC 9001 4.9.1:
+ * the first Handshake packet was processed, hs_rx_seen rose), so the boot
+ * PTO backoff restarts; the timer keeps its flight's send time and from
+ * now on probes the Handshake half only (srvrun_boot_send_initial). */
+void srvrun_boot_on_initial_discard(srvrun_conn* c, int hs_was_seen) {
+  if (!hs_was_seen && c->l.hs_rx_seen) {
+    c->boot_pto_count = 0;
+  }
 }

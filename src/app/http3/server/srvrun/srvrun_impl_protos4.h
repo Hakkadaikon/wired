@@ -98,6 +98,7 @@ void srvrun_cold_start(const srvrun_step_ctx* ctx, int slot, wired_mspan dg);
 int  srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c);
 int  srvrun_boot_pto_waiting(const srvrun_conn* c);
 void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot);
+void srvrun_boot_on_initial_discard(srvrun_conn* c, int hs_was_seen);
 int  srvrun_closing_tick(const srvrun_step_ctx* ctx, int slot);
 void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_short_header(wired_mspan dg);
