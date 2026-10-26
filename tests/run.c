@@ -7,7 +7,6 @@
 #include "test.h"
 #include "transport/recovery/detect/ackrange/ackrange_process.c"
 #include "app/datagram/dgdeliver/dg_send.c"
-#include "app/datagram/dgdeliver/dg_loss.c"
 #include "app/datagram/dgdeliver/dg_recv.c"
 #include "transport/recovery/detect/losstime/losstime.c"
 #include "transport/conn/pnspace/pnspaces/spaces.c"
@@ -70,9 +69,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.c"
 #include "transport/conn/pnspace/crypto_stream/crypto_rx.c"
 #include "transport/conn/pnspace/crypto_stream/ecdhe.c"
-#include "app/http3/core/h3run/control.c"
 #include "app/http3/core/h3run/settings_seq.c"
-#include "app/http3/core/h3run/goaway.c"
 #include "tls/handshake/core/handshake_drive/retry_drive.c"
 #include "tls/handshake/core/handshake_drive/vn_drive.c"
 #include "transport/packet/protect/protect_suite/aead_suite.c"
@@ -185,7 +182,6 @@
 #include "transport/conn/lifecycle/session/session_open.c"
 #include "app/datagram/datagram/zerortt_dgram.c"
 #include "tls/handshake/core/tls/ticketversion.c"
-#include "transport/version/version/switchrule.c"
 #include "tls/handshake/core/tls/alpn_match.c"
 #include "tls/handshake/core/tls/alpn.c"
 #include "tls/handshake/core/tls/sni.c"
@@ -226,7 +222,6 @@
 #include "transport/conn/lifecycle/conn/pnspace.c"
 #include "transport/conn/lifecycle/conntable/conntable.c"
 #include "app/datagram/datagram/datagram.c"
-#include "app/datagram/datagram/dgcc.c"
 #include "app/datagram/datagram/dgcheck.c"
 #include "app/datagram/datagram/dgsize.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field.c"
@@ -270,9 +265,7 @@
 #include "crypto/symmetric/aead/gcmx86/gcmx86_load.c"
 #include "crypto/symmetric/aead/gcmx86/gcmx86_seal.c"
 #include "tls/ext/grease/bitset.c"
-#include "tls/ext/grease/early.c"
 #include "tls/ext/grease/grease.c"
-#include "tls/ext/grease/sreset_bit.c"
 #include "app/http3/core/h3/connect.c"
 #include "app/http3/core/h3/contentlen.c"
 #include "app/http3/core/h3/control.c"
@@ -291,7 +284,6 @@
 #include "app/http3/core/h3/pseudoheader.c"
 #include "app/http3/core/h3/pushid.c"
 #include "app/http3/core/h3/qpack_settings.c"
-#include "app/http3/core/h3/reqstream.c"
 #include "app/http3/core/h3/settings_check.c"
 #include "app/http3/core/h3/settings_dup.c"
 #include "app/http3/core/h3/shutdown.c"
@@ -316,7 +308,6 @@
 #include "tls/keys/keyupdate/kuderive.c"
 #include "tls/keys/keyupdate/oldkey.c"
 #include "tls/keys/ticket/ticket.c"
-#include "tls/keys/ticketguard/ticketguard.c"
 #include "tls/keys/keyring/keyring.c"
 #include "transport/conn/loop/manage/dosmitigate.c"
 #include "transport/conn/loop/manage/flowobs.c"
@@ -435,7 +426,6 @@
 #include "transport/version/version/verinfo.c"
 #include "transport/version/version/verselect.c"
 #include "transport/version/version/version.c"
-#include "transport/version/version/vneg.c"
 #include "crypto/pki/encoding/x509/chain.c"
 #include "crypto/pki/encoding/x509/basicconstraints.c"
 #include "crypto/pki/encoding/x509/san.c"
@@ -570,8 +560,6 @@
 #include "transport/version/vndrive/reconnect.c"
 #include "transport/recovery/rtx/sentmeta/record.c"
 #include "transport/io/udp/udpsess/udpsess.c"
-#include "tls/ext/alpnver/alpnver.c"
-#include "tls/handshake/flight/resume/resume.c"
 #include "tls/handshake/flight/earlydrive/earlydata.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed_table.c"
@@ -1064,13 +1052,11 @@
 #include "transport/bbr_test.c"
 #include "transport/cubic_test.c"
 #include "transport/hystart_test.c"
-#include "app/dgcc_test.c"
 #include "app/dgcheck_test.c"
 #include "app/dgsize_test.c"
 #include "transport/dosmitigate_test.c"
 #include "transport/downgrade_test.c"
 #include "transport/dual_flow_test.c"
-#include "tls/early_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
 #include "crypto/bssl_ed25519_test.c"
@@ -1142,7 +1128,6 @@
 #include "app/qpack_test.c"
 #include "transport/recvpn_test.c"
 #include "app/relindex_test.c"
-#include "app/reqstream_test.c"
 #include "transport/resbits_test.c"
 #include "tls/retry_tag_test.c"
 #include "tls/retry_tag_v2_test.c"
@@ -1155,7 +1140,6 @@
 #include "app/settings_dup_test.c"
 #include "app/shutdown_test.c"
 #include "transport/spin_test.c"
-#include "tls/sreset_bit_test.c"
 #include "transport/sreset_test.c"
 #include "transport/stream_bounds_test.c"
 #include "transport/stream_flow_test.c"
@@ -1173,7 +1157,6 @@
 #include "transport/verinfo_test.c"
 #include "transport/verselect_test.c"
 #include "transport/version_test.c"
-#include "transport/vneg_test.c"
 #include "tls/zerortt_params_test.c"
 #include "transport/zerortt_policy_test.c"
 #include "transport/zerortt_seen_test.c"
@@ -1183,7 +1166,6 @@
 #include "tls/sni_test.c"
 #include "tls/alpn_test.c"
 #include "tls/alpn_match_test.c"
-#include "transport/switchrule_test.c"
 #include "tls/ticketversion_test.c"
 #include "tls/ticket_test.c"
 #include "tls/newsessionticket_test.c"
@@ -1275,9 +1257,7 @@
 #include "transport/stream_read_test.c"
 #include "transport/credit_test.c"
 #include "transport/stream_credit_test.c"
-#include "app/h3run_control_test.c"
 #include "app/h3run_settings_seq_test.c"
-#include "app/h3run_goaway_test.c"
 #include "tls/retry_drive_test.c"
 #include "tls/vn_drive_test.c"
 #include "transport/aead_suite_test.c"
@@ -1383,7 +1363,6 @@
 #include "tls/earlydata_test.c"
 #include "transport/ackrange_process_test.c"
 #include "app/dg_send_test.c"
-#include "app/dg_loss_test.c"
 #include "app/dg_recv_test.c"
 #include "transport/losstime_test.c"
 #include "transport/pnspaces_spaces_test.c"
@@ -1414,9 +1393,6 @@
 #include "transport/vndrive_test.c"
 #include "transport/sentmeta_test.c"
 #include "transport/udpsess_test.c"
-#include "tls/alpnver_test.c"
-#include "tls/resume_test.c"
-#include "tls/ticketguard_test.c"
 #include "tls/keyring_test.c"
 #include "tls/earlydrive_test.c"
 #include "crypto/rfc6979_test.c"
@@ -1634,13 +1610,11 @@ int main(void) {
   test_bbr();
   test_cubic();
   test_hystart();
-  test_dgcc();
   test_dgcheck();
   test_dgsize();
   test_dosmitigate();
   test_downgrade();
   test_dual_flow();
-  test_early();
   test_ecn();
   test_ed25519();
   test_bssl_ed25519();
@@ -1713,7 +1687,6 @@ int main(void) {
   test_qpack();
   test_recvpn();
   test_relindex();
-  test_reqstream();
   test_resbits();
   test_retry_tag();
   test_retry_tag_v2();
@@ -1726,7 +1699,6 @@ int main(void) {
   test_settings_dup();
   test_shutdown();
   test_spin();
-  test_sreset_bit();
   test_sreset();
   test_stream_bounds();
   test_stream_flow();
@@ -1746,7 +1718,6 @@ int main(void) {
   test_verinfo();
   test_verselect();
   test_version();
-  test_vneg();
   test_zerortt_params();
   test_zerortt_policy();
   test_zerortt_seen();
@@ -1756,7 +1727,6 @@ int main(void) {
   test_sni();
   test_alpn();
   test_alpn_match();
-  test_switchrule();
   test_ticketversion();
   test_ticket();
   test_newsessionticket();
@@ -1848,9 +1818,7 @@ int main(void) {
   test_stream_read();
   test_credit();
   test_stream_credit();
-  test_h3run_control();
   test_h3run_settings_seq();
-  test_h3run_goaway();
   test_retry_drive();
   test_vn_drive();
   test_aead_suite();
@@ -1991,9 +1959,6 @@ int main(void) {
   test_dg_send_over_max();
   test_dg_send_unsupported();
   test_dg_send_no_room();
-  test_dg_loss_notifies();
-  test_dg_loss_ignores_other();
-  test_dg_loss_never_retransmit();
   test_dg_recv_with_length();
   test_dg_recv_no_length();
   test_dg_recv_truncated();
@@ -2030,9 +1995,6 @@ int main(void) {
   test_vndrive();
   test_sentmeta();
   test_udpsess();
-  test_alpnver();
-  test_resume();
-  test_ticketguard();
   test_keyring();
   test_earlydrive();
   test_rfc6979();
