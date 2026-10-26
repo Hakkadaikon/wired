@@ -12,6 +12,40 @@ int h3_header_name_ok(const u8* name, usz len) {
   return 1;
 }
 
+/* RFC 9110 5.6.2 tchar as a 128-bit set ("!#$%&'*+-.^_`|~", DIGIT, ALPHA):
+ * bit (c & 31) of word c >> 5. Excludes SP, ':', CTLs and every non-ASCII
+ * octet. */
+static const u32 hc_tchar_set[4] = {
+    0x00000000u, 0x03ff6cfau, 0xc7fffffeu, 0x57ffffffu};
+
+static int hc_tchar(u8 c) {
+  return c < 128 && (hc_tchar_set[c >> 5] >> (c & 31)) & 1u;
+}
+
+int h3_header_token_ok(const u8* name, usz len) {
+  for (usz i = 0; i < len; i++) {
+    if (!hc_tchar(name[i])) {
+      return 0;
+    }
+  }
+  return len != 0;
+}
+
+/* RFC 9110 5.5: field-vchar (VCHAR / obs-text), SP or HTAB -- every octet
+ * but the controls other than HTAB, and DEL. */
+static int hc_value_octet(u8 c) {
+  return (c >= 0x20 && c != 0x7f) || c == 0x09;
+}
+
+int h3_header_value_ok(const u8* value, usz len) {
+  for (usz i = 0; i < len; i++) {
+    if (!hc_value_octet(value[i])) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 /* RFC 9114 10.3 / RFC 9110 5.5. 1 if c is CR, LF or NUL. */
 static int forbidden(u8 c) { return c == 0x0d || c == 0x0a || c == 0x00; }
 
