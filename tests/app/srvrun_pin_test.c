@@ -243,6 +243,33 @@ static int sr_pin_token_gen_ok(u64 back) {
   return srvrun_retry_token_ok(&ctx, wired_span_of(tok, n), &got);
 }
 
+/* A current-epoch token whose bytes are cut to n (and whose ODCID length
+ * byte is set to odl) must not verify: the length checks run before any
+ * subtraction (V-0065, RFC 9000 8.1.4). */
+static int sr_pin_token_cut_ok(usz cut, u8 odl) {
+  sockaddr        peer = {0};
+  srvrun_step_ctx ctx  = {0};
+  u8              key[KEYRING_KEY], odcid[4] = {1, 2, 3, 4};
+  u8              tok[RETRYTOKEN_WIRE_MAX];
+  wired_span      got;
+  usz             n;
+  ctx.peer = &peer;
+  keyring_key(srvkeys_retry(), wired_clock_epoch_secs(), 0, key);
+  n = retrytoken_wire_make(
+      key, wired_span_of((const u8*)&peer, sizeof peer),
+      wired_span_of(odcid, 4), tok);
+  tok[0] = odl;
+  return srvrun_retry_token_ok(&ctx, wired_span_of(tok, n - cut), &got);
+}
+
+static void test_srvrun_retry_token_truncated_rejected(void) {
+  CHECK(sr_pin_token_cut_ok(0, 4) == 1);
+  CHECK(sr_pin_token_cut_ok(1, 4) == 0);   /* one tag byte short */
+  CHECK(sr_pin_token_cut_ok(0, 255) == 0); /* ODCID length past the end */
+  CHECK(sr_pin_token_cut_ok(0, 21) == 0);  /* ODCID length over 20 */
+  CHECK(sr_pin_token_cut_ok(20, 4) == 0);  /* shorter than the tag */
+}
+
 static void test_srvrun_retry_token_rotation(void) {
   CHECK(sr_pin_token_gen_ok(0) == 1);
   CHECK(sr_pin_token_gen_ok(1) == 1);
@@ -308,6 +335,7 @@ static void test_srvrun_vneg_one_per_datagram(void) {
 
 void test_srvrun_pin(void) {
   test_srvrun_retry_token_rotation();
+  test_srvrun_retry_token_truncated_rejected();
   test_srvrun_force_retry_applies_when_on();
   test_srvrun_force_retry_off_never_applies();
   test_srvrun_force_retry_skips_known_slot();

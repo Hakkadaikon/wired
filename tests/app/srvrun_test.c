@@ -4618,6 +4618,28 @@ static void test_srvrun_path_ncid_over_limit_closes(void) {
 
 /* RFC 9000 19.15: Retire Prior To above the Sequence Number closes the
  * connection with FRAME_ENCODING_ERROR. */
+/* RFC 9000 19.15: a CID length over 20 closes with FRAME_ENCODING_ERROR;
+ * the decoder stops at the length byte, so no CID byte is copied past
+ * ncid_frame.cid (V-0051). */
+static void test_srvrun_path_ncid_cid_len_over_20_closes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_arrival    a  = {&old_peer, -1, 0, 0, 0};
+  u8            fr[4 + NCID_MAX_LEN + 1 + NCID_TOKEN];
+  int           is_app;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  bytes_memset(fr, 1, sizeof fr);
+  fr[0] = 0x18;
+  fr[1] = 1; /* seq */
+  fr[2] = 0; /* Retire Prior To */
+  fr[3] = NCID_MAX_LEN + 1;
+  sr_serve_at(&f, &st, &a, 4, wired_span_of(fr, sizeof fr));
+  CHECK(sr_close_code(&c, &is_app) == ERR_FRAME_ENCODING_ERROR);
+}
+
 static void test_srvrun_path_ncid_malformed_closes(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -27478,6 +27500,7 @@ void test_srvrun(void) {
   test_srvrun_path_empty_cid_not_retired();
   test_srvrun_path_ncid_over_limit_closes();
   test_srvrun_path_ncid_malformed_closes();
+  test_srvrun_path_ncid_cid_len_over_20_closes();
   test_srvrun_path_wire_both_challenged();
   test_srvrun_path_wire_fresh_cid();
   test_srvrun_path_wire_no_cid_stalls();

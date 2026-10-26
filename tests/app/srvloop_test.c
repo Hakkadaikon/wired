@@ -1528,6 +1528,29 @@ static void test_srvloop_padding_before_stream(void) {
  * one datagram. A leading Handshake carrying only PADDING does not confirm;
  * the step must walk past it to the second slice's genuine Finished and
  * reach confirmed, not drop non-first slices. */
+/* quic-go GHSA-3q6m-v84f-6p9h (V-0009): an ACK behind the completing
+ * CRYPTO (Finished) in one Handshake packet is processed after the
+ * handshake confirms; it must neither crash nor undo confirmation. */
+static void test_srvloop_finished_then_ack_same_handshake_packet(void) {
+  struct lp_fix f;
+  u8            pl[600], cpkt[1024], out[1024];
+  usz           n, clen;
+  wired_obuf    ob = {out, sizeof out, 0};
+  ack_frame     a  = {0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  bytes_memcpy(pl, f.cli_fin, f.cli_fin_len);
+  a.n_ranges = 1; /* the server's first Handshake packet, pn 0 */
+  n          = f.cli_fin_len + ack_encode(pl + f.cli_fin_len, 64, &a);
+  clen       = client_seal_handshake(&f, pl, n, cpkt, sizeof cpkt);
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
+      1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+}
+
 static void test_srvloop_coalesced_finished_behind_leading(void) {
   struct lp_fix f;
   u8            lead[256], rest[512], dg[1024], out[1024];
@@ -7262,6 +7285,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_padding_before_crypto();
   test_srvloop_padding_before_stream();
   test_srvloop_coalesced_finished_behind_leading();
+  test_srvloop_finished_then_ack_same_handshake_packet();
   test_srvloop_coalesced_other_dcid_ignored();
   test_srvloop_onertt_get_is_acked();
   test_srvloop_handshake_ack_tracks_pn();
