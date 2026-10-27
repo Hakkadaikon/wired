@@ -36,10 +36,18 @@ about a later `HEAD`. To get fresh numbers, run the scripts described in
 [Reproduction](#reproduction) and [Bench client and server
 source](#bench-client-and-server-source).
 
-**What changed since the previous snapshot.** wired at `110c020` is slower
-and larger on loopback than wired at `9d21db9` was: 17,572 vs 26,079 load
+**What changed since the previous snapshot.** wired at `110c020` was slower
+and larger on loopback than wired at `9d21db9`: 17,572 vs 26,079 load
 req/s, 55.0 vs 35.8 µs of server CPU per request, 6,980 vs 1,928 KiB peak
-RSS, and a 512,752 B vs 369,312 B stripped binary. quic-go and quiche
+RSS, and a 512,752 B vs 369,312 B stripped binary. The CPU regression was
+bisected to `eb049403f`, which doubled the per-slot send log
+(`WIRED_SENDSESS_LOG` 64 -> 128) that every step and every ACK range
+scanned in full. Commit `426127f` keeps the in-flight count and bytes as
+running totals and stops each scan at the highest slot filled; measured the
+same day under the same conditions, wired is back to 25,731 req/s and 35.0
+µs/req (rows marked `426127f` below). The peak-RSS growth is unrelated (it
+comes from larger buffers, such as the 8000-octet request targets) and
+remains. quic-go and quiche
 measured within a few percent of their previous numbers on the same
 machine, so the machine is not the cause. wired now pins its single server
 core (93.9% busy vs 76.5% before), so the loopback lane is server-bound for
@@ -231,6 +239,7 @@ the worker moves on.
 
 | Server (native) | TTFB p50 (ms) | load req/s | load p50 (ms) | load p99 (ms) | failures |
 |---|---|---|---|---|---|
+| wired `426127f` (after the send-log fix) | 2.46 ± 0.05 | 25,731 ± 562 | 0.67 ± 0.03 | 2.68 ± 0.44 | 0 / 50,500 |
 | wired `110c020` | 2.76 ± 0.08 | 17,572 ± 248 | 1.04 ± 0.02 | 2.83 ± 0.29 | 0 / 50,500 |
 | quic-go v0.61.0 | 2.35 ± 0.05 | 12,544 ± 318 | 1.40 ± 0.03 | 3.33 ± 0.13 | 0 / 50,500 |
 | quiche 0.29.3 (`55886df`) | 1.90 ± 0.04 | 20,023 ± 1,522 | 0.90 ± 0.03 | 2.87 ± 0.63 | 0 / 50,500 |
@@ -249,8 +258,8 @@ Previous snapshot (2026-08-16, same machine, same client binary spec):
 xychart-beta
     title "Loopback load throughput (req/s, higher is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "req/s" 0 --> 22000
-    bar [17572, 12544, 20023]
+    y-axis "req/s" 0 --> 28000
+    bar [25731, 12544, 20023]
 ```
 
 ```mermaid
@@ -258,7 +267,7 @@ xychart-beta
     title "TTFB p50 -- fresh connection incl. handshake (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 5
-    bar [2.76, 2.35, 1.90]
+    bar [2.46, 2.35, 1.90]
 ```
 
 ```mermaid
@@ -379,6 +388,7 @@ resident, which is why the resident numbers below stay far under it.
 
 | Server | idle RSS (KiB) | peak RSS under load (KiB) | server CPU (µs/req) | server CPU (%) | rounds |
 |---|---|---|---|---|---|
+| wired `426127f` (after the send-log fix) | 504 | 6,984 | 35.0 ± 0.7 | 86.6 ± 1.1 | 5 |
 | wired `110c020` | 500 | 6,980 | 55.0 ± 1.6 | 93.9 ± 1.6 | 5 |
 | quic-go v0.61.0 | 8,416 | 15,540 | 77.0 ± 1.9 | 94.6 ± 1.7 | 5 |
 | quiche 0.29.3 | 7,708 | 8,392 | 37.8 ± 0.8 | 73.1 ± 4.1 | 5 |
@@ -391,7 +401,7 @@ xychart-beta
     title "Peak RSS under load (KiB, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "KiB" 0 --> 16000
-    bar [6980, 15540, 8392]
+    bar [6984, 15540, 8392]
 ```
 
 ```mermaid
@@ -399,14 +409,15 @@ xychart-beta
     title "Server CPU per request (µs, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "us" 0 --> 90
-    bar [55.0, 77.0, 37.8]
+    bar [35.0, 77.0, 37.8]
 ```
 
 wired still idles smallest (500 KiB) and peaks lowest under load (6.8 MiB,
 about 45% of quic-go's and 83% of quiche's), but its peak resident set grew
-3.6x since `9d21db9` and is now close to quiche's. Its per-request CPU
-(55.0 µs) is now about 1.5x quiche's (37.8 µs) instead of level with it,
-and still below quic-go's (77.0 µs). CPU% is the share of the server's
+3.6x since `9d21db9` and is now close to quiche's. After the send-log fix
+its per-request CPU (35.0 µs) is level with quiche's (37.8 µs) again and
+well below quic-go's (77.0 µs); at `110c020`, before the fix, it was 55.0
+µs. CPU% is the share of the server's
 single pinned core busy during the load rounds.
 
 ## Interop test cases (previous snapshot, not re-run)
@@ -595,6 +606,27 @@ machine; log directory names are in the runner checkout):
 | quiche | 9447 (± 10) kbps | `logs_2026-10-27T02:08:53` | `cloudflare/quiche-qns@sha256:b67c084e…` |
 | ngtcp2 | 9379 (± 79) kbps | `logs_2026-10-27T02:13:06` | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb46899…` |
 | picoquic | 9103 (± 22) kbps | `logs_2026-10-27T02:16:32` | `privateoctopus/picoquic@sha256:4d1da8e8…` |
+
+Loopback lane after the send-log fix (wired `426127f`, 2026-10-27, same conditions; raw lane output):
+
+```text
+wired r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=504 vmrss_kb=504
+wired r1 mode=ttfb n=100 fails=0 reqps=374.1 p50=2.46 p99=5.02 cpu%=65
+wired r1 mode=load n=10000 fails=0 reqps=25792.3 p50=0.67 p99=2.92 cpu%=122
+wired r1 usage kind=load reqs=10000 dticks=35 wall_ms=403 hz=100 vmhwm_kb=6976 vmrss_kb=6976
+wired r2 mode=ttfb n=100 fails=0 reqps=371.8 p50=2.52 p99=3.74 cpu%=67
+wired r2 mode=load n=10000 fails=0 reqps=25390.8 p50=0.71 p99=2.09 cpu%=128
+wired r2 usage kind=load reqs=10000 dticks=36 wall_ms=410 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+wired r3 mode=ttfb n=100 fails=0 reqps=380.1 p50=2.50 p99=3.73 cpu%=65
+wired r3 mode=load n=10000 fails=0 reqps=25390.9 p50=0.67 p99=2.65 cpu%=125
+wired r3 usage kind=load reqs=10000 dticks=35 wall_ms=409 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+wired r4 mode=ttfb n=100 fails=0 reqps=393.3 p50=2.39 p99=3.92 cpu%=67
+wired r4 mode=load n=10000 fails=0 reqps=26687.0 p50=0.64 p99=2.48 cpu%=124
+wired r4 usage kind=load reqs=10000 dticks=34 wall_ms=390 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+wired r5 mode=ttfb n=100 fails=0 reqps=393.4 p50=2.42 p99=3.53 cpu%=67
+wired r5 mode=load n=10000 fails=0 reqps=25393.7 p50=0.68 p99=3.24 cpu%=123
+wired r5 usage kind=load reqs=10000 dticks=35 wall_ms=410 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+```
 
 Loopback lane, 2026-10-27, all 30 runs (no runs excluded, no failures in any run):
 

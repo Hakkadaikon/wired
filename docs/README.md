@@ -43,6 +43,9 @@ design reasons, guarantees, and how the SDK is verified.
 - [The Layers](arch/layers.md) — the five layers (common, crypto, transport,
   tls, app; the last one covers HTTP/3, WebTransport, and MoQT), one section
   at a time.
+- [Memory Layout and Sizing](arch/memory.md) — where the server's memory
+  comes from, and how binary size and memory grow with code and with each
+  capacity constant.
 - [Specifications](arch/rfcs.md) — every specification the SDK implements
   (RFCs, drafts, and the FIPS / NIST SP crypto standards), and why a server
   needs each one.
