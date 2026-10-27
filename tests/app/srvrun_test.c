@@ -21201,6 +21201,37 @@ static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* RFC 9221 5.4: a ring entry the congestion window has no room for waits
+ * for a later drain instead of being dropped (flupke's 200-datagram
+ * transfer-datagram-receive lost a reply once DATAGRAMs became congestion
+ * controlled). */
+static void test_srvrun_wt_datagram_ring_waits_for_cwnd(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[2] = {1, 2};
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  CHECK(wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, 2)) == 1);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    c->cc.cwnd = 1; /* no room for any frame */
+    srvrun_dgring_drain(&cfg, &st, 0);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(g_srvrun_env.dgring_n == 1); /* kept, not dropped */
+    c->cc.cwnd = 1u << 20;
+    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS);
+    CHECK(srvrun_test_send_count() == 1);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
 /* BOUNDARY: the ring holds exactly SRVRUN_DGRING_CAP entries; one more is
  * refused (not overwritten), and after a drain the wrapped indices still
  * accept a fresh queue. */
@@ -27800,6 +27831,7 @@ void test_srvrun(void) {
   test_srvrun_wt_datagram_ring_paces_by_bytes();
   test_srvrun_wt_datagram_ring_by_urgency();
   test_srvrun_wt_datagram_ring_drains_200_queued();
+  test_srvrun_wt_datagram_ring_waits_for_cwnd();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
   test_srvrun_broadcast_datagram_ring_queues_burst_per_session();
   test_srvrun_broadcast_datagram_ring_drains_both_next_step();

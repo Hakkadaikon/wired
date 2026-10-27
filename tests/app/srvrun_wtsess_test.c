@@ -45,18 +45,20 @@ static wired_span wts_s(const char* s) {
 }
 
 /* A CONNECT on stream id (:scheme scheme, :protocol proto) plus one regular
- * field line hname: hval when hname is non-null, as one client packet with
- * no FIN. Returns the HEADERS frame's length. */
-static usz wts_connect(
+ * field line hname: hval when hname is non-null, behind the frame bytes pre,
+ * as one client packet with no FIN. Returns the bytes up to the HEADERS
+ * frame's end. */
+static usz wts_connect_pre(
     srvrun_conn* c,
     u64          id,
+    wired_span   pre,
     const char*  scheme,
     const char*  proto,
     const char*  hname,
     const char*  hval) {
   u8              fields[256], h3buf[300], pl[512];
   wired_obuf      fob = obuf_of(fields, sizeof fields);
-  wired_obuf      hob = obuf_of(h3buf, sizeof h3buf);
+  wired_obuf      hob = obuf_of(h3buf + pre.n, sizeof h3buf - pre.n);
   wired_obuf      sob = obuf_of(pl, sizeof pl);
   h3req_pseudo_in pin = {
       wts_s("CONNECT"), wts_s(scheme), wts_s("localhost"), wts_s("/"),
@@ -68,12 +70,24 @@ static usz wts_connect(
     fob.len += lob.len;
   }
   CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)));
+  bytes_memcpy(h3buf, pre.p, pre.n);
   {
-    stream_frame sf = {id, 0, hob.len, h3buf, 0};
+    stream_frame sf = {id, 0, pre.n + hob.len, h3buf, 0};
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
   }
   sr_sl_step(c, pl, sob.len);
-  return hob.len;
+  return pre.n + hob.len;
+}
+
+static usz wts_connect(
+    srvrun_conn* c,
+    u64          id,
+    const char*  scheme,
+    const char*  proto,
+    const char*  hname,
+    const char*  hval) {
+  return wts_connect_pre(
+      c, id, wired_span_of(0, 0), scheme, proto, hname, hval);
 }
 
 /* The CONNECT on stream 0 was refused as malformed: no session, no
@@ -312,7 +326,63 @@ static void test_srvrun_wt_fin_after_close_no_reset(void) {
   CHECK(c->closing == 0);
 }
 
+/* RFC 9114 7.2.8 / 9: a reserved (GREASE) frame ahead of the CONNECT's
+ * HEADERS is skipped, and capsules start after the HEADERS, not after the
+ * first frame. The 3 bytes are moxygen's (proxygen) actual stream-0 prefix
+ * from a captured run: type 0x176 (0x1f * 11 + 0x21), length 0. */
+static void test_srvrun_wt_connect_after_grease_frame(void) {
+  static const u8 grease[] = {0x41, 0x76, 0x00};
+  srvrun_conn*    c        = sr_sl_fixture();
+  u8              cap[64];
+  usz             hlen = wts_connect_pre(
+      c, 0, wired_span_of(grease, sizeof grease), "https", "webtransport", 0,
+      0);
+  usz n = wts_close_then(cap, sizeof cap, 0);
+  CHECK(c->wt_active == 1);
+  src_connect_send(c, hlen, cap, n, 0);
+  CHECK(c->closing == 0); /* no H3_FRAME_UNEXPECTED over the HEADERS */
+  CHECK(g_sl_closes == 1);
+  CHECK(c->wt_active == 0);
+}
+
+static int g_wts_resets;
+static u64 g_wts_reset_id;
+static int g_wts_reset_mapped;
+static u32 g_wts_reset_code;
+
+static void wts_on_reset(
+    void* ctx, wired_wt_session* s, u64 id, int mapped, u32 code) {
+  (void)ctx;
+  (void)s;
+  g_wts_resets++;
+  g_wts_reset_id     = id;
+  g_wts_reset_mapped = mapped;
+  g_wts_reset_code   = code;
+}
+
+/* 4.4: a WT stream is reset with RESET_STREAM_AT (reliable size = the
+ * stream header), and that is still the peer's reset. The frame is
+ * aiomoqt's actual withdrawal of its announce stream 4 in session 0:
+ * code 0x52e4a40fa8dc (WT code 1), final size 94, reliable size 3. */
+static void test_srvrun_wt_reset_stream_at_delivers_reset(void) {
+  static const u8 hdr[]       = {0x40, 0x41, 0x00, 'x'};
+  static const u8 rsa[]       = {0x24, 0x04, 0xc0, 0x00, 0x52, 0xe4, 0xa4,
+                                 0x0f, 0xa8, 0xdc, 0x40, 0x5e, 0x03};
+  srvrun_conn*    c           = sr_sl_fixture();
+  g_sl_cfg.wt_on_stream_reset = wts_on_reset;
+  g_wts_resets                = 0;
+  wts_connect(c, 0, "https", "webtransport", 0, 0);
+  wts_stream(c, 4, hdr, sizeof hdr);
+  sr_sl_step(c, rsa, sizeof rsa);
+  CHECK(g_wts_resets == 1);
+  CHECK(g_wts_reset_id == 4);
+  CHECK(g_wts_reset_mapped == 1 && g_wts_reset_code == 1);
+  CHECK(c->closing == 0);
+}
+
 void test_srvrun_wtsess(void) {
+  test_srvrun_wt_reset_stream_at_delivers_reset();
+  test_srvrun_wt_connect_after_grease_frame();
   test_srvrun_wt_connect_http_scheme_malformed();
   test_srvrun_wt_connect_capsule_forbidden_fields_malformed();
   test_srvrun_wt_connect_other_field_establishes();

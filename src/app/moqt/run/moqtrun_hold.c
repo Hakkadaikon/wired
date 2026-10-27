@@ -41,10 +41,30 @@ void moqtrun_ctl_adopt_rx(
   moqtrun_ctl_rx(hub, p, sid, data, fin);
 }
 
-/* 1 iff data is non-empty and ends inside its first varint. */
+/* A SUBGROUP stream's head: its whole SUBGROUP_HEADER (draft-22 11.4.2),
+ * 0 while data ends inside it; a malformed one is left to the stream's
+ * normal path (its Type varint, at). */
+static usz moqtrun_subgroup_head_len(wired_span data, usz at) {
+  moqdata_subhdr h;
+  usz            off = 0;
+  int            r   = moqdata_subhdr_take(data, &off, &h);
+  return r == MOQDATA_INSUFFICIENT ? 0 : (off ? off : at);
+}
+
+/* The bytes of data's stream head that must be whole before the stream is
+ * classified: its first varint, or for a SUBGROUP stream the whole header
+ * (its Track Alias picks the track). 0 while data ends inside it. */
+usz moqtrun_head_len(wired_span data) {
+  usz at = 0;
+  if (moqdata_classify(data, &at) != MOQDATA_STREAM_SUBGROUP) {
+    return at;
+  }
+  return moqtrun_subgroup_head_len(data, at);
+}
+
+/* 1 iff data is non-empty and ends inside its stream head. */
 static int moqtrun_vi_cut(wired_span data) {
-  u64 v;
-  return data.n != 0 && moqvi_decode(data.p, data.n, &v) == 0;
+  return data.n != 0 && moqtrun_head_len(data) == 0;
 }
 
 static int moqtrun_pre_short(
