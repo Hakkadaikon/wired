@@ -35,10 +35,10 @@ static void moqtrun_pre_rest(
 }
 
 /* The next delivery of the stream moqtrun_pre_stash kept: the kept bytes
- * plus data's head complete the first varint, which then dispatches as
- * the stream's first delivery (classified whole), and data's rest
- * follows. Still short: kept again (or, with FIN, dropped -- a stream
- * cut inside its Type is no stream at all). */
+ * plus data's head complete the stream head (moqtrun_head_len), which
+ * then dispatches as the stream's first delivery (classified whole), and
+ * data's rest follows. Still short: kept again (or, with FIN, dropped --
+ * a stream cut inside its head is no stream at all). */
 void moqtrun_pre_feed(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -46,12 +46,11 @@ void moqtrun_pre_feed(
     wired_span          data,
     int                 fin) {
   u8  v[sizeof p->pre];
-  u64 t;
   usz had = p->pre_n;
   usz k   = (usz)u64_min(sizeof v - had, data.n);
   bytes_memcpy(v, p->pre, had);
   bytes_memcpy(v + had, data.p, k);
-  usz used = moqvi_decode(v, had + k, &t);
+  usz used = moqtrun_head_len(wired_span_of(v, had + k));
   p->pre_n = 0;
   if (!used) {
     moqtrun_pre_stash(p, sid, wired_span_of(v, had + k), fin);

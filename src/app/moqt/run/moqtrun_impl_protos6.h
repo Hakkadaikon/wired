@@ -244,5 +244,6 @@ void moqtrun_ctl_adopt_rx(
     wired_span          data,
     int                 fin);
 int moqtrun_pre_stash(wired_moqtrun_peer* p, u64 sid, wired_span data, int fin);
+usz moqtrun_head_len(wired_span data);
 
 #endif

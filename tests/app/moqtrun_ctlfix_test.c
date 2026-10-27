@@ -220,7 +220,39 @@ static void mtcf_split_all(void) {
   test_mtcf_uni_byte_at_a_time();
 }
 
+/* RFC 9000 2.2: a publisher's SUBGROUP stream whose first delivery is its
+ * Type byte alone (moq-dev-js over WebTransport sends 0x59, then 0x01...)
+ * is one stream, not two: the header waits until whole, every byte is
+ * relayed and the session stays open (no UNKNOWN_UNI close on the second
+ * piece). */
+static void test_mtcf_subgroup_split_after_type(void) {
+  static const u8* d = g_moqt_data_subgroup_stream_basic;
+  static const usz n = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
+  wired_moqt_hub   hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_session(&hub, SESS_B);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
+      moqtrun_test_stamped(
+          g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(d + 1, n - 1), 1);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  /* the whole header opens the relayed stream, the Object follows */
+  CHECK(moqtrun_test_count_kind(5) == 1 && moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+  CHECK(
+      moqtrun_test_last_kind(5)->payload_len +
+          moqtrun_test_last_kind(3)->payload_len ==
+      n);
+}
+
 void test_moqtrun_ctlfix(void) {
+  test_mtcf_subgroup_split_after_type();
   moqtrun_test_allver(mtcf_split_all);
   test_mtcf_d19_subscribe_fill();
   test_mtcf_d18_subscribe_range_filter();

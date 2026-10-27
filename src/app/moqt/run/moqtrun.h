@@ -166,9 +166,9 @@ typedef struct {
   /** 1 once early_sid's FIN is kept too. */
   int early_fin;
   /** A fresh stream whose first delivery ended inside its first varint
-   * (RFC 9000 2.2): its bytes so far wait in pre (pre_n of them) until the
-   * varint is whole, so the stream is classified once (ledger 12-12).
-   * Valid while pre_n is non-zero. */
+   * or SUBGROUP_HEADER (RFC 9000 2.2): its bytes so far wait in pre (pre_n
+   * of them) until that head is whole, so the stream is classified once
+   * (ledger 12-12). Valid while pre_n is non-zero. */
   u64 pre_sid;
   /* --- 8-byte aligned: Request IDs and session clocks --- */
   /** Next Request ID this hub sends on the session: odd, 1-origin, +2
@@ -264,9 +264,10 @@ typedef struct {
    * like its GOAWAY, the hub sends it no new request. */
   u8 wt_drained;
   /* --- byte arrays --- */
-  /** The kept head of stream pre_sid: at most one MOQT varint (9 bytes),
-   * pre_n of them valid. */
-  u8 pre[9];
+  /** The kept head of stream pre_sid: its first MOQT varint, or a whole
+   * SUBGROUP_HEADER (Type + three varints + Priority, 1 + 3 * 9 + 1
+   * bytes), pre_n of them valid. */
+  u8 pre[29];
   /** The client SETUP's MOQT_IMPLEMENTATION (10.4), copied -- the
    * decoded view dangles after the dispatch. */
   u8 peer_impl[WIRED_MOQTRUN_IMPL_MAX];
