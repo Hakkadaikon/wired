@@ -86,19 +86,21 @@ HTTP/3 responses over loopback:
 
 | | wired | quiche 0.29.3 | quic-go v0.61.0 |
 |---|---|---|---|
-| Requests per second | **26,079** | 20,453 | 12,788 |
-| Latency under load, p50 | **0.64 ms** | 0.90 ms | 1.35 ms |
-| Memory when idle (RSS) | **380 KiB** | 7,712 KiB | 8,508 KiB |
-| Peak memory under load | **1,928 KiB** | 8,484 KiB | 15,496 KiB |
-| Server binary | **369 KB** (static) | 6.1 MB | 7.3 MB |
+| Requests per second | 17,572 | **20,023** | 12,544 |
+| Latency under load, p50 | 1.04 ms | **0.90 ms** | 1.40 ms |
+| Memory when idle (RSS) | **500 KiB** | 7,708 KiB | 8,416 KiB |
+| Peak memory under load | **6,980 KiB** | 8,392 KiB | 15,540 KiB |
+| Server binary | **513 KB** (static) | 6.1 MB | 7.3 MB |
 
 On a lossy simulated link, all five servers tested (with ngtcp2 and picoquic)
-reach the same goodput within the spread of their runs.
+reach nearly the same goodput (9,103 to 9,540 kbps; wired 9,419).
 
-These numbers are a dated snapshot. They were measured on 2026-08-16 at
-commit `9d21db9` and have not been re-measured since. Later changes have
-added work per packet and enlarged some buffers (for example, request
-targets up to 8000 octets), and the current binary is about 640 KB. [Implementation
+These numbers are a dated snapshot. They were measured on 2026-10-27 at
+commit `110c020`. Compared with the previous snapshot (2026-08-16 at
+`9d21db9`: 26,079 req/s, 0.64 ms, 1,928 KiB peak, 369 KB), wired got
+slower and larger, and quiche now leads on throughput and latency; quic-go
+and quiche themselves did not move. The stripped server binary is 512,752
+bytes. [Implementation
 Comparison](docs/performance/comparison.md) has every lane, the full feature
 matrix, the environment, and the scripts to reproduce the numbers.
 
