@@ -29,7 +29,11 @@ Local loopback run, condensed:
 just ninja examples/word_list/wired_server
 (cd bench/client && go build -o benchclient .)
 mkdir -p /tmp/docroot && head -c 1024 /dev/urandom > /tmp/docroot/1k.bin
-# cert.pem/key.pem: any ECDSA P-256 pair; the client skips verification
+# cert.pem/key.pem: an ECDSA P-256 pair whose SAN names IP:127.0.0.1 (the
+# client skips verification, but wired answers 421 to an https request its
+# certificate does not cover):
+#   openssl req -new -x509 -key key.pem -out cert.pem -subj /CN=localhost \
+#     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 BENCH_CLIENT=$PWD/bench/client/benchclient \
   bench/run-lane.sh wired 14433 5 examples/word_list/wired_server \
   --port 14433 --root /tmp/docroot --cert cert.pem --key key.pem \
