@@ -1,8 +1,7 @@
 # wired
 
-**An HTTP/3 + WebTransport server SDK in C that runs the entire protocol
-stack in user space — with zero dependencies. No OpenSSL, no libevent, not
-even libc.**
+**A QUIC, HTTP/3, WebTransport and Media over QUIC server SDK in C, with no
+dependencies at all — no OpenSSL, no libevent, not even libc.**
 
 [![CI](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml)
 [![Fuzz](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml)
@@ -10,105 +9,138 @@ even libc.**
 [![codecov](https://codecov.io/gh/Hakkadaikon/wired/branch/main/graph/badge.svg)](https://codecov.io/gh/Hakkadaikon/wired)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This page tells you what wired is, why it is built the way it is, and where
-to go next. It is written for someone who knows HTTP and TLS at a high level
-but has not looked inside QUIC or freestanding C yet.
-
-## Quick start
-
-Two commands to a built SDK. You need `just` first: it is a command runner
-(think `make` without the Makefile quirks), installed with
-`apt install just` or as described in
-[Getting Started](docs/getting-started.md#install-the-toolchain).
-
-```sh
-just setup           # one-time: installs Nix
-just build           # fetches the pinned toolchain, then format + compile + lint
-```
-
-Next, follow the [interactive guide](https://hakkadaikon.github.io/wired/guide/en/)
-from here to a running HTTP/3 server; [Getting Started](docs/getting-started.md)
-is the same path as plain text. Once a server is up, test it from any
-machine that can reach UDP port 4433 — the Docker image saves you from
-needing an HTTP/3-capable curl locally:
-
-```sh
-docker run --rm ymuski/curl-http3 \
-    curl --http3-only --insecure -v https://<host>:4433/
-```
-
-## What it is for
-
-- **Embedding an HTTP/3 / WebTransport server** in a project where you don't
-  want a dependency chain — the whole SDK is one static library.
-- **Learning how QUIC actually works.** Every layer, from the TLS handshake
-  to congestion control to the bytes on the wire, is readable C in this one
-  repository, each file annotated with the RFC section it implements.
-- **Running interop and network experiments** — four interchangeable I/O
-  drivers (from a simple `poll` loop up to kernel-bypass AF_XDP) behind one
-  command-line flag.
-
-You don't need to be a protocol expert to start: the quick start above and
-the [examples](examples/) run as-is. The internals documentation is there
-for when (and if) you want to go deeper.
+wired implements the whole stack itself, in user space: TLS 1.3 and its
+cryptography, QUIC, HTTP/3 and QPACK, WebTransport, and MoQT (Media over QUIC
+Transport). The result is one static server binary of about 640 KB, with
+nothing else to install next to it.
 
 ## Why wired
 
-**Zero dependencies, zero libc.** A normal C program links against libc, the C
-standard library that provides `printf`, `malloc`, and the thin wrappers around
-system calls. wired does not use it. Every file compiles *freestanding*
-(`-ffreestanding -nostdlib`): the compiler is told there is no standard library
-at all, so a libc call that leaked in would fail to link. A clean build of the
-examples is therefore the proof that nothing calls into libc. For you this
-means the server is one static binary with nothing to install next to it, and
-every byte it runs is code you can read in this repository.
+### Nothing to trust but this repository
 
-**The full stack in user space.** User space is where ordinary programs
-run; the kernel is the operating system core that owns the network card.
-With TCP-based HTTPS the kernel runs TCP for you. QUIC runs over UDP
-instead, so the transport (reliability, ordering, congestion control) has
-to live in the program. wired implements QUIC, TLS 1.3, HTTP/3, QPACK (the
-HTTP/3 header compression format), and WebTransport itself. The kernel only
-ever carries already-encrypted UDP bytes.
-(Specs: [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000) /
-[9001](https://www.rfc-editor.org/rfc/rfc9001) /
-[9002](https://www.rfc-editor.org/rfc/rfc9002) /
-[8446](https://www.rfc-editor.org/rfc/rfc8446) /
-[9114](https://www.rfc-editor.org/rfc/rfc9114) /
-[9204](https://www.rfc-editor.org/rfc/rfc9204) /
-[draft-ietf-webtrans-http3](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/)
-— the [full list](docs/arch/rfcs.md) covers 40+ specifications.)
+A typical QUIC server pulls in a TLS library, an event loop, an allocator and
+libc, and every one of them is code you inherit. wired pulls in none of them.
 
-**Four I/O drivers behind one flag.** The same callback runs under any of
-four drivers: a single-process `poll` loop, forked worker processes, raw
-threads, or AF_XDP. AF_XDP is a Linux feature
-that hands packets from the network card straight to the program through a
-shared memory ring, bypassing the kernel's own UDP/IP processing. Switching
-drivers is a command-line flag, not a code change; the
-[server flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/)
-guide page shows how.
+- **No third-party code.** The SDK contains no vendored or downloaded
+  libraries. Cryptography, TLS, QUIC, HTTP/3 and MoQT are all written here.
+- **No libc.** Every file compiles with `-ffreestanding -nostdlib`, so a
+  stray libc call fails to link. The server talks to the kernel through a
+  small set of typed system-call wrappers in `src/common/arch`, listed in
+  [docs/syscalls.md](docs/syscalls.md).
+- **No dynamic loading.** The server is a static binary. There is no shared
+  library to swap or preload.
+- **A pinned toolchain.** The compiler, formatter and linters come from a
+  Nix flake with a lock file, so CI and your machine build with the same
+  versions.
 
-**Its own verified cryptography.** AES-GCM, ChaCha20-Poly1305, X25519,
-Ed25519, ECDSA P-256/P-384, RSA, SHA-2, HKDF — each checked against the
-official RFC/FIPS test vectors.
+For a supply-chain attack, this leaves very little to aim at. There is no
+upstream package to poison and no transitive dependency to hijack. Every byte
+the server runs can be read and reviewed in this repository.
 
-**Auditable by construction.** Every function has a cyclomatic complexity of
-at most 3 (at most three independent paths, checked in CI), so each one can
-be read and verified on its own. CI also runs clang-tidy with the CERT C
-secure-coding checks on every push and fuzzing every night, and an on-demand
-interop workflow tests against real QUIC clients.
+### No heap, so no use-after-free from the allocator
+
+Use-after-free and double-free bugs are among the most common causes of
+memory-safety CVEs in C network code, and nearly all of them start with
+`malloc` and `free`. wired has neither.
+
+- Memory is either static or reserved once at startup with `mmap`: the
+  per-worker tables, thread stacks and the AF_XDP ring. None of it is
+  released while the server runs.
+- Connections, streams and sessions live in fixed-size tables whose slots
+  are reused in place. Every capacity is a compile-time constant with its
+  sizing rationale next to it.
+- Parsers read peer bytes through bounded views (`wired_span`) and write
+  through bounded output buffers (`wired_obuf`), never through raw lengths
+  taken from the wire.
+
+This rules out allocator-related use-after-free and double-free entirely. It
+does not make the code memory-safe by itself: a slot reused too early is
+still a bug, and the checks below exist to catch exactly that kind of
+mistake.
+
+### Hardened and checked on every push
+
+| Check | What it catches |
+|---|---|
+| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of freed or uninitialized memory, undefined behavior |
+| clang-tidy with the CERT C secure-coding rules, as errors | unsafe idioms, integer conversions, null dereferences |
+| Fuzzing: 9 harnesses (QUIC frames and headers, 1-RTT packets, TLS messages, X.509, QPACK, capsules, MoQT, MP4 fragments), smoke-tested on every push and run nightly | crashes and hangs on hostile input |
+| RFC / FIPS test vectors for every primitive, plus the BoringSSL and Wycheproof suites | wrong cryptography |
+| Cyclomatic complexity ≤ 3 for every function | functions too tangled to review |
+| [Requirement ledgers](docs/features/README.md): every normative statement of 40+ specs, each backed by a test on the shipping server path | silently unimplemented spec rules |
+| [Vulnerability ledger](docs/security/vuln-ledger.md): 856 known CVEs and advisories from other QUIC/TLS/HTTP stacks, each re-checked against this code; a reachability check in CI keeps the cited defenses on the production path | repeating someone else's CVE |
+
+The [security overview](docs/security.md) describes the threat model and the
+order in which each incoming packet is checked.
+
+### Fast and small
+
+The SDK owns the event loop, and no hot path allocates memory. The same
+server code runs under four I/O drivers, selected with a
+command-line flag: a `poll` loop, forked workers, raw threads, and AF_XDP,
+which moves packets between the network card and the server without going
+through the kernel's UDP stack.
+
+Measured against quic-go and quiche on the same 4-vCPU VM, serving small
+HTTP/3 responses over loopback:
+
+| | wired | quiche 0.29.3 | quic-go v0.61.0 |
+|---|---|---|---|
+| Requests per second | **26,079** | 20,453 | 12,788 |
+| Latency under load, p50 | **0.64 ms** | 0.90 ms | 1.35 ms |
+| Memory when idle (RSS) | **380 KiB** | 7,712 KiB | 8,508 KiB |
+| Peak memory under load | **1,928 KiB** | 8,484 KiB | 15,496 KiB |
+| Server binary | **369 KB** (static) | 6.1 MB | 7.3 MB |
+
+On a lossy simulated link, all five servers tested (with ngtcp2 and picoquic)
+reach the same goodput within the spread of their runs.
+
+These numbers are a dated snapshot. They were measured on 2026-08-16 at
+commit `9d21db9` and have not been re-measured since. Later changes have
+added work per packet and enlarged some buffers (for example, request
+targets up to 8000 octets), and the current binary is about 640 KB. [Implementation
+Comparison](docs/performance/comparison.md) has every lane, the full feature
+matrix, the environment, and the scripts to reproduce the numbers.
+
+### Media over QUIC, not only HTTP
+
+wired ships a MoQT relay on the same stack, not a separate product.
+
+- **Three draft versions, negotiated per session**:
+  [draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/),
+  [-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/) and
+  [-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/).
+- **Two transports**: over a WebTransport session, so browsers can join, or
+  directly on a raw QUIC connection (ALPN `moqt-NN`).
+- **A full relay**, covering:
+  - PUBLISH / SUBSCRIBE and FETCH with a cache;
+  - namespace discovery, Track Properties, filters and priorities;
+  - several publishers merged into one track, with deduplication;
+  - Objects forwarded byte by byte as they arrive;
+  - delivery timeouts and GOAWAY.
+- **Tested against other implementations** in the
+  [moq-interop-runner](https://github.com/englishm/moq-interop-runner). The
+  [moqt_chat live demo](https://hakkadaikon.github.io/wired/moqt_chat) runs a
+  browser chat and voice room on it.
+
+### Readable down to the bytes
+
+Every layer is plain C in this one repository, and each file names the RFC
+section it implements. It is a working server, and also a place to learn how
+QUIC, TLS 1.3 and HTTP/3 actually fit together.
 
 ## How the layers fit
 
-Each protocol is built on the one below it, and each lives in its own
-directory under `src/`. Your code can plug in at any of three levels: plain
-HTTP/3; WebTransport (browser-friendly streams opened with an HTTP/3
-*Extended CONNECT* request); or MoQT (Media over QUIC Transport, a
-publish/subscribe media layer that runs over WebTransport or directly over
-QUIC). Read the chart top to bottom: your code sits at the top, the kernel
-at the bottom, and only the syscall-wrapper box (`src/common/arch`) just
-above it talks to the kernel. The four drivers are chosen and run in
-`src/app/http3/server`; `--ifindex` is the flag that selects AF_XDP.
+Each protocol builds on the one below it and lives in its own directory
+under `src/`. Your code plugs in at one of three levels:
+
+- plain HTTP/3;
+- WebTransport: browser-friendly streams opened with an HTTP/3 *Extended
+  CONNECT* request;
+- MoQT, over WebTransport or directly over QUIC.
+
+Read the chart from top to bottom. Only the syscall wrappers in
+`src/common/arch` talk to the kernel. `--ifindex` selects the AF_XDP driver.
 
 ```mermaid
 flowchart TD
@@ -136,17 +168,16 @@ flowchart TD
   sys -->|"UMEM ring + BPF attach"| xdp
 ```
 
-[Architecture](docs/arch/overview.md) explains each layer in detail.
+The specifications behind each box are listed in [RFCs and
+drafts](docs/arch/rfcs.md), and [Architecture](docs/arch/overview.md)
+explains each layer in detail.
 
 ## What the code looks like
 
-Your side of a server is **one callback**. The SDK owns the event loop: it
-binds the port, waits for packets, runs the handshake, encryption, loss
-recovery, and HTTP/3, and calls your function once a request is complete.
-You never write the loop yourself.
-
-The callback from [examples/word_list](examples/word_list/wired_server.c)
-looks like this:
+Your side of a server is one callback. The SDK binds the port, runs the
+handshake, encryption, loss recovery and HTTP/3, and calls your function when
+a request is complete. This one is from
+[examples/word_list](examples/word_list/wired_server.c):
 
 ```c
 static int app_on_request(
@@ -162,16 +193,13 @@ static int app_on_request(
 }
 ```
 
-`ctx` is your own pointer, passed back unchanged. `req` holds the method,
-path, and body; write the response body into `body_out`, point
-`*content_type` at a MIME type, and return 1. The other parameters exist for
-bodies too large for one call; see
-[Streaming responses](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/).
+`req` holds the method, path and body. Write the body into `body_out`, point
+`*content_type` at a MIME type, and return 1. The remaining parameters are
+for bodies too large for one call
+([Streaming responses](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/)).
 
-`wired_main` replaces `main` (there is no libc to call `main`). It parses the
-flags, sets up the server identity (the TLS keys, plus a certificate loaded
-from `--cert`/`--key` or self-signed), and hands the callback to the driver
-(declarations and optional settings trimmed):
+There is no libc to call `main`, so `wired_main` takes its place. It parses
+the flags, sets up the TLS identity, and hands the callback to the driver:
 
 ```c
 int wired_main(int argc, char** argv) {
@@ -185,12 +213,8 @@ int wired_main(int argc, char** argv) {
 }
 ```
 
-`load_config` calls `wired_srvdriver_parse`, which reads the driver flags.
-The guide walks through this step by step:
-[Hello, wired](https://hakkadaikon.github.io/wired/guide/en/getting-started/hello/)
-covers `wired_main` and the libc-free entry point, and
-[Hello, HTTP/3](https://hakkadaikon.github.io/wired/guide/en/h3/hello/) covers
-the request handler.
+The [interactive guide](https://hakkadaikon.github.io/wired/guide/en/) goes
+from here to a running server step by step.
 
 ## Examples
 
@@ -215,21 +239,22 @@ upstream runner's public results.
 
 ## Documentation
 
-Everything lives under [docs/](docs/README.md) — one index page ordering
-every doc by task. Read [Getting Started](docs/getting-started.md) first,
-then [Architecture](docs/arch/overview.md). The
-[API reference](https://hakkadaikon.github.io/wired/) covers the full public
-surface, and the
-[moqt_chat live demo](https://hakkadaikon.github.io/wired/moqt_chat) shows
-the SDK driven from a browser.
+- [docs/](docs/README.md): every document, ordered by task.
+- [Getting Started](docs/getting-started.md): toolchain setup and a first
+  build.
+- [Architecture](docs/arch/overview.md): how the layers are built.
+- [API reference](https://hakkadaikon.github.io/wired/): the full public
+  interface.
+- [Known limitations](docs/features/known-limitations.md): every deliberate
+  deviation and capacity limit.
 
 ## Supported platform
 
-x86_64-linux only. The optional AF_XDP driver also needs root and kernel 5.9 or
-later (for `BPF_LINK_CREATE` on XDP). If your network card (NIC) has no native
-XDP support, `--skb-mode` selects the slower generic XDP mode. Some virtual
-NICs (e.g. `virtio_net`) may fail to send AF_XDP packets in generic mode; if
-that happens, use the plain UDP driver. The [server
+x86_64 Linux only. The optional AF_XDP driver also needs root and kernel 5.9
+or later (for `BPF_LINK_CREATE` on XDP). If your network card (NIC) has no
+native XDP support, `--skb-mode` selects the slower generic XDP mode. Some
+virtual NICs (e.g. `virtio_net`) may fail to send AF_XDP packets in generic
+mode; if that happens, use the plain UDP driver. The [server
 flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/) page
 lists the driver flags.
 
