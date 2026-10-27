@@ -37,11 +37,11 @@ For a supply-chain attack, this leaves very little to aim at. There is no
 upstream package to poison and no transitive dependency to hijack. Every byte
 the server runs can be read and reviewed in this repository.
 
-### No heap, so no use-after-free from the allocator
+### No heap: no `malloc` / `free` to get wrong
 
 Use-after-free and double-free bugs are among the most common causes of
-memory-safety CVEs in C network code, and nearly all of them start with
-`malloc` and `free`. wired has neither.
+memory-safety CVEs in C network code, and most of them start with `malloc`
+and `free`. wired has neither.
 
 - Memory is either static or reserved once at startup with `mmap`: the
   per-worker tables, thread stacks and the AF_XDP ring. None of it is
@@ -53,16 +53,27 @@ memory-safety CVEs in C network code, and nearly all of them start with
   through bounded output buffers (`wired_obuf`), never through raw lengths
   taken from the wire.
 
-This rules out allocator-related use-after-free and double-free entirely. It
-does not make the code memory-safe by itself: a slot reused too early is
-still a bug, and the checks below exist to catch exactly that kind of
-mistake.
+This removes the heap's bug classes entirely: use-after-free and double free
+of heap memory, leaks, and corrupted allocator metadata. It does not make the
+code memory-safe, and two kinds of dangling reference are still possible:
+
+- **A view that outlives the stack frame it points into.** A `wired_span`
+  taken over a local buffer becomes invalid when the function returns
+  (use-after-return / use-after-scope). Buffers a view must outlive are
+  declared in the caller's scope for this reason.
+- **A stale reference into a reused slot.** A pointer kept to a connection or
+  stream slot after that slot has been freed and handed to a new peer.
+
+The checks below exist to catch exactly these. One limit is worth knowing:
+the CI sanitizer run checks use-after-scope, but not use-after-return. The
+SDK's raw threads share one thread-local area, which breaks ASan's
+use-after-return mode.
 
 ### Hardened and checked on every push
 
 | Check | What it catches |
 |---|---|
-| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of freed or uninitialized memory, undefined behavior |
+| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of a stack buffer after its scope ends, undefined behavior |
 | clang-tidy with the CERT C secure-coding rules, as errors | unsafe idioms, integer conversions, null dereferences |
 | Fuzzing: 9 harnesses (QUIC frames and headers, 1-RTT packets, TLS messages, X.509, QPACK, capsules, MoQT, MP4 fragments), smoke-tested on every push and run nightly | crashes and hangs on hostile input |
 | RFC / FIPS test vectors for every primitive, plus the BoringSSL and Wycheproof suites | wrong cryptography |
