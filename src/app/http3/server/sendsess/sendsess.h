@@ -52,6 +52,12 @@ typedef struct {
    * before each re-arm so the STREAM frame's absolute offset keeps
    * counting up instead of restarting at 0 every round. */
   u64 stream_base_offset;
+  /** Running count of log entries with inflight set, kept in step with
+   * every inflight transition so the per-step occupancy queries are O(1)
+   * instead of a WIRED_SENDSESS_LOG scan per slot per call. */
+  usz inflight_n;
+  /** Running sum of sl.len over the in-flight log entries. */
+  usz inflight_len;
 } wired_sendsess;
 
 /** Arm the session over a full response byte stream (borrowed; must stay

@@ -7,4 +7,8 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "transport/recovery/detect/recovery/lossdetect.h"
 
+/* Clear log entry i's inflight flag and take it out of the running
+ * inflight_n / inflight_len totals (i must be in flight). */
+void sendsess_clear_inflight(wired_sendsess* s, usz i);
+
 #endif

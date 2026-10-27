@@ -52,7 +52,7 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
   s->pto_count = 0; /* the peer is alive: probe budget starts over */
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     if (sendsess_hit(&s->log[i], lo, hi)) {
-      s->log[i].inflight = 0;
+      sendsess_clear_inflight(s, i);
     }
   }
 }

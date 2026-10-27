@@ -607,7 +607,61 @@ static void test_sendsess_never_past_final_size(void) {
   CHECK(wired_sendsess_take(&s, &sl) == 0);
 }
 
+/* Reference full-log scans the running totals must always equal. */
+static usz sendsess_scan_n(const wired_sendsess* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    n += (usz)(s->log[i].inflight != 0);
+  }
+  return n;
+}
+
+static usz sendsess_scan_len(const wired_sendsess* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    n += s->log[i].inflight ? s->log[i].sl.len : 0;
+  }
+  return n;
+}
+
+static int sendsess_totals_match(const wired_sendsess* s) {
+  return wired_sendsess_inflight(s) == sendsess_scan_n(s) &&
+         wired_sendsess_inflight_bytes(s) == sendsess_scan_len(s);
+}
+
+/* The O(1) in-flight count/bytes track every transition a full scan of the
+ * log sees: send, ACK, loss requeue, slot reuse below the high-water mark
+ * (an entry left above a reused slot still acks and is still declared
+ * lost), and re-arm. */
+static void test_sendsess_inflight_totals_track_log(void) {
+  u8                        bytes[100];
+  wired_sendsess            s = {0};
+  wired_sendq_slice         sl;
+  wired_sendsess_lost_slice lost[8];
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight(&s) == 0);
+  for (u64 pn = 0; pn < 6; pn++) { /* slots 0..5 */
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 0) == 1);
+  }
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight_bytes(&s) == 60);
+  wired_sendsess_ack(&s, 0, 1); /* frees slots 0,1 */
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight(&s) == 4);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 9, 0) == 1); /* reuses slot 0 */
+  CHECK(s.log[0].inflight && s.log[0].pn == 9);
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight(&s) == 5);
+  wired_sendsess_ack(&s, 5, 5); /* the top slot, above the reused one */
+  CHECK(sendsess_totals_match(&s) && !s.log[5].inflight);
+  wired_sendsess_ack(&s, 9, 9); /* largest 9: pns 2,3,4 are lost */
+  CHECK(wired_sendsess_detect_lost(&s, 9, 0, 0, lost, 8) == 3);
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight(&s) == 0);
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight_bytes(&s) == 0);
+}
+
 void test_sendsess(void) {
+  test_sendsess_inflight_totals_track_log();
   test_sendsess_never_past_final_size();
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();

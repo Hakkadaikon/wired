@@ -15,6 +15,8 @@ void wired_sendsess_arm(
   s->has_acked          = 0;
   s->pto_count          = 0;
   s->stream_base_offset = 0;
+  s->inflight_n         = 0;
+  s->inflight_len       = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     s->log[i].inflight = 0;
   }
@@ -34,13 +36,7 @@ u64 wired_sendsess_stream_offset(
   return s->stream_base_offset + sl->offset;
 }
 
-usz wired_sendsess_inflight(const wired_sendsess* s) {
-  usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
-    n += (usz)(s->log[i].inflight != 0);
-  }
-  return n;
-}
+usz wired_sendsess_inflight(const wired_sendsess* s) { return s->inflight_n; }
 
 /* A requeued slice cut at a larger size than the current chunk (the
  * caller lowered it -- RFC 8899 4.3: a black hole dropped the MPS) goes out
@@ -90,6 +86,8 @@ int wired_sendsess_sent(
   s->log[i].sl       = *sl;
   s->log[i].inflight = 1;
   s->log[i].sent_ms  = now_ms;
+  s->inflight_n++;
+  s->inflight_len += sl->len;
   return 1;
 }
 
@@ -105,13 +103,13 @@ void wired_sendsess_untake(wired_sendsess* s, const wired_sendq_slice* sl) {
 }
 
 usz wired_sendsess_inflight_bytes(const wired_sendsess* s) {
-  usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
-    if (s->log[i].inflight) {
-      n += s->log[i].sl.len;
-    }
-  }
-  return n;
+  return s->inflight_len;
+}
+
+void sendsess_clear_inflight(wired_sendsess* s, usz i) {
+  s->log[i].inflight = 0;
+  s->inflight_n--;
+  s->inflight_len -= s->log[i].sl.len;
 }
 
 /* 1 if in-flight log entry e pins a lower offset than floor. */
