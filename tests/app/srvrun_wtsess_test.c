@@ -345,7 +345,43 @@ static void test_srvrun_wt_connect_after_grease_frame(void) {
   CHECK(c->wt_active == 0);
 }
 
+static int g_wts_resets;
+static u64 g_wts_reset_id;
+static int g_wts_reset_mapped;
+static u32 g_wts_reset_code;
+
+static void wts_on_reset(
+    void* ctx, wired_wt_session* s, u64 id, int mapped, u32 code) {
+  (void)ctx;
+  (void)s;
+  g_wts_resets++;
+  g_wts_reset_id     = id;
+  g_wts_reset_mapped = mapped;
+  g_wts_reset_code   = code;
+}
+
+/* 4.4: a WT stream is reset with RESET_STREAM_AT (reliable size = the
+ * stream header), and that is still the peer's reset. The frame is
+ * aiomoqt's actual withdrawal of its announce stream 4 in session 0:
+ * code 0x52e4a40fa8dc (WT code 1), final size 94, reliable size 3. */
+static void test_srvrun_wt_reset_stream_at_delivers_reset(void) {
+  static const u8 hdr[]       = {0x40, 0x41, 0x00, 'x'};
+  static const u8 rsa[]       = {0x24, 0x04, 0xc0, 0x00, 0x52, 0xe4, 0xa4,
+                                 0x0f, 0xa8, 0xdc, 0x40, 0x5e, 0x03};
+  srvrun_conn*    c           = sr_sl_fixture();
+  g_sl_cfg.wt_on_stream_reset = wts_on_reset;
+  g_wts_resets                = 0;
+  wts_connect(c, 0, "https", "webtransport", 0, 0);
+  wts_stream(c, 4, hdr, sizeof hdr);
+  sr_sl_step(c, rsa, sizeof rsa);
+  CHECK(g_wts_resets == 1);
+  CHECK(g_wts_reset_id == 4);
+  CHECK(g_wts_reset_mapped == 1 && g_wts_reset_code == 1);
+  CHECK(c->closing == 0);
+}
+
 void test_srvrun_wtsess(void) {
+  test_srvrun_wt_reset_stream_at_delivers_reset();
   test_srvrun_wt_connect_after_grease_frame();
   test_srvrun_wt_connect_http_scheme_malformed();
   test_srvrun_wt_connect_capsule_forbidden_fields_malformed();

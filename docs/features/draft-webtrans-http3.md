@@ -345,6 +345,9 @@ Legend:
   owns that session.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_reset_mapped_delivers_app_error_code`
+  - test: `tests/app/srvrun_wtsess_test.c` —
+    `test_srvrun_wt_reset_stream_at_delivers_reset` (a peer's
+    RESET_STREAM_AT, aiomoqt's captured frame, is a reset too)
 - [x] WTH3-040 (§4.4) If a RESET_STREAM or STOP_SENDING frame is received
   with an error code outside the WT_APPLICATION_ERROR range, then the
   implementation should deliver this to the application as a stream reset

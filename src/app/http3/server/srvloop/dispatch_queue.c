@@ -5,6 +5,7 @@ static void queue_rx_datagram(wired_srvloop* l, wired_span payload);
 static int  datagram_size_ok(const wired_srvloop* l, usz payload_len);
 static void queue_decoded_datagram(wired_srvloop* l, wired_span frame);
 static void gather_one_datagram(wired_srvloop* l, u64 type, wired_span frame);
+static int  srvloop_reset_at_frame(wired_span frame, reset_stream_frame* out);
 
 /* draft-ietf-webtrans-http3-15 4.3 / RFC 9114 6.2: classify a client uni
  * stream's leading type and gather it if (and only if) it is 0x54
@@ -173,30 +174,44 @@ int srvloop_gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
   return seen;
 }
 
-/* RFC 9000 19.4: extract the stream id RESET_STREAM (0x04) closed, 0 if frame
- * is not a RESET_STREAM or fails to decode. draft-ietf-quic-reliable-stream-
- * reset's RESET_STREAM_AT (0x24) is deliberately excluded here: it declares a
- * RELIABLE size and is not itself the close signal this loop tracks
- * (srvrun.c does not yet emit it so there is no live peer path to test
- * against). */
+/* RFC 9000 19.4: extract the stream id a RESET_STREAM (or RESET_STREAM_AT,
+ * srvloop_wt_reset_frame) closed, 0 if frame is neither or fails to
+ * decode. */
 int srvloop_reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
   reset_stream_frame f;
-  if (frame_classify(type) != FK_RESET_STREAM) {
-    return 0;
-  }
-  if (reset_stream_decode(frame.p, frame.n, &f) == 0) {
+  if (!srvloop_wt_reset_frame(type, frame, &f)) {
     return 0;
   }
   *stream_id_out = f.stream_id;
   return 1;
 }
 
-/* RFC 9000 19.4: 1 if frame is a RESET_STREAM, its stream_id/error_code
- * decoded into *out. Split out of srvloop_gather_one_wt_reset to keep its own
+/* draft-ietf-quic-reliable-stream-reset 4: RESET_STREAM_AT's leading
+ * fields as a reset_stream_frame. shortcut: the reset is acted on at once,
+ * so bytes below Reliable Size still in flight are dropped; WT peers set it
+ * to the stream header (draft-ietf-webtrans-http3-16 4.4), which a slot only
+ * exists after. Hold the reset until Reliable Size arrives if a peer ever
+ * reliably resets application data. */
+static int srvloop_reset_at_frame(wired_span frame, reset_stream_frame* out) {
+  reset_stream_at_frame f;
+  if (reset_stream_at_decode(frame.p, frame.n, &f) == 0) {
+    return 0;
+  }
+  *out = (reset_stream_frame){f.stream_id, f.error_code, f.final_size};
+  return 1;
+}
+
+/* RFC 9000 19.4: 1 if frame is a RESET_STREAM (or a RESET_STREAM_AT, the
+ * form a WebTransport peer resets with), its stream_id/error_code decoded
+ * into *out. Split out of srvloop_gather_one_wt_reset to keep its own
  * branch count at the CCN gate. */
 int srvloop_wt_reset_frame(
     u64 type, wired_span frame, reset_stream_frame* out) {
-  if (frame_classify(type) != FK_RESET_STREAM) {
+  int k = frame_classify(type);
+  if (k == FK_RESET_STREAM_AT) {
+    return srvloop_reset_at_frame(frame, out);
+  }
+  if (k != FK_RESET_STREAM) {
     return 0;
   }
   return reset_stream_decode(frame.p, frame.n, out) != 0;
