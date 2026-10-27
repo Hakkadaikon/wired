@@ -58,6 +58,10 @@ typedef struct {
   usz inflight_n;
   /** Running sum of sl.len over the in-flight log entries. */
   usz inflight_len;
+  /** One past the highest log index wired_sendsess_sent filled since the
+   * last arm: no entry at or above it is in flight, so log scans stop
+   * here (first-free allocation keeps it near the live count). */
+  usz log_hi;
 } wired_sendsess;
 
 /** Arm the session over a full response byte stream (borrowed; must stay

@@ -101,7 +101,7 @@ usz wired_sendsess_detect_lost(
     wired_sendsess_lost_slice* lost,
     usz                        cap) {
   usz n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     if (sendsess_lost(&s->log[i], largest_acked, now_ms, loss_delay_us)) {
       sendsess_report_lost(s, &s->log[i], lost, cap, n);
       sendsess_requeue(s, i);
@@ -126,7 +126,7 @@ static int sendsess_older(
 /* Index of the oldest in-flight entry with pn + 1 > above1, -1 if none. */
 static int sendsess_oldest_above(const wired_sendsess* s, u64 above1) {
   int best = -1;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     if (sendsess_older(s, best, i, above1)) {
       best = (int)i;
     }

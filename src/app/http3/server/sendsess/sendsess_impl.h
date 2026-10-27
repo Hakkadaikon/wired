@@ -5,6 +5,7 @@
  * and the functions and tables more than one piece uses. Not public API. */
 
 #include "app/http3/server/sendsess/sendsess.h"
+#include "common/bytes/util/num.h"
 #include "transport/recovery/detect/recovery/lossdetect.h"
 
 /* Clear log entry i's inflight flag and take it out of the running

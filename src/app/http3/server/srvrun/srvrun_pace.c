@@ -145,7 +145,7 @@ static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
  * simulated RTT never changed. */
 void srvrun_hystart_range(
     srvrun_conn* c, const wired_sendsess* sess, u64 lo, u64 hi, u64 now) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < sess->log_hi; i++) {
     const wired_sent_slice* e = &sess->log[i];
     if (wired_sendsess_covered(e, lo, hi)) {
       srvrun_hystart_ack(c, e->pn, e->sent_ms, now);
@@ -174,7 +174,7 @@ void srvrun_hystart_range(
  * forever). The count also feeds RFC 9000 13.4.2.1's ECN bound. */
 u64 srvrun_range_hits(const wired_sendsess* sess, u64 lo, u64 hi) {
   u64 n = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < sess->log_hi; i++) {
     n += (u64)wired_sendsess_covered(&sess->log[i], lo, hi);
   }
   return n;

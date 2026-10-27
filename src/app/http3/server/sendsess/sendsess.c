@@ -17,6 +17,7 @@ void wired_sendsess_arm(
   s->stream_base_offset = 0;
   s->inflight_n         = 0;
   s->inflight_len       = 0;
+  s->log_hi             = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
     s->log[i].inflight = 0;
   }
@@ -88,6 +89,7 @@ int wired_sendsess_sent(
   s->log[i].sent_ms  = now_ms;
   s->inflight_n++;
   s->inflight_len += sl->len;
+  s->log_hi = (usz)u64_max(s->log_hi, (u64)i + 1);
   return 1;
 }
 
@@ -118,7 +120,7 @@ static int sent_slice_below(const wired_sent_slice* e, usz floor) {
 }
 
 static usz sendsess_log_floor(const wired_sendsess* s, usz floor) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     if (sent_slice_below(&s->log[i], floor)) {
       floor = s->log[i].sl.offset;
     }

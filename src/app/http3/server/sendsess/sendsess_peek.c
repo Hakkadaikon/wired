@@ -21,7 +21,7 @@ usz wired_sendsess_peek_ack(
     const wired_sendsess* s, u64 lo, u64 hi, u64* newest_sent_ms) {
   usz n      = 0;
   u64 newest = 0;
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     n += peek_one(&s->log[i], lo, hi, &newest);
   }
   if (n) {
@@ -50,7 +50,7 @@ static void sendsess_note_largest(wired_sendsess* s, u64 hi) {
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
   sendsess_note_largest(s, hi);
   s->pto_count = 0; /* the peer is alive: probe budget starts over */
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     if (sendsess_hit(&s->log[i], lo, hi)) {
       sendsess_clear_inflight(s, i);
     }

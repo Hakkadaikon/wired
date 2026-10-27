@@ -16,7 +16,7 @@ static usz sendsess_live_min(usz off, int live, usz base) {
 
 /* Fold the in-flight log's offsets into the running minimum. */
 static usz sendsess_log_min_off(const wired_sendsess* s, usz base) {
-  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+  for (usz i = 0; i < s->log_hi; i++) {
     base = sendsess_live_min(s->log[i].sl.offset, s->log[i].inflight, base);
   }
   return base;
