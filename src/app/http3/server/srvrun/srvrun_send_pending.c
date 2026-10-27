@@ -37,6 +37,12 @@ static int srvrun_dg_build(
          srvrun_bytes_in_flight(c) + plb->len <= c->cc.cwnd;
 }
 
+/* RFC 9221 5.4: 1 iff a DATAGRAM of len payload bytes cannot fit the
+ * congestion window now (frame type + an 8-byte Length bound included). */
+int srvrun_dg_cwnd_blocked(const srvrun_conn* c, usz len) {
+  return srvrun_bytes_in_flight(c) + len + 9 > c->cc.cwnd;
+}
+
 /* Seal one QUIC DATAGRAM (RFC 9221 5) carrying data into a 1-RTT packet and
  * send it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
  * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
