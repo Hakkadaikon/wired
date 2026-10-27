@@ -1,3 +1,4 @@
+#include "app/http3/request/h3reqdrive/request_parse.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_req_slot_matches(const wired_srvloop_stream_slot* s, u64 id);
@@ -86,19 +87,20 @@ wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx) {
 }
 
 /* RFC 9297 SS3.2 / RFC 9220 3: on the CONNECT stream, everything after the
- * request's own single HEADERS frame is capsule bytes -- the byte length of
- * that frame (type + length varints + payload, h3_frame_get) within the
- * just-established request's reassembly slot is where the capsule cursor
- * starts. 0 when the slot is gone or the frame does not parse (nothing is
- * consumed until real capsule bytes decode there anyway). */
+ * request's own HEADERS frame is capsule bytes -- the end of that frame,
+ * past any reserved (GREASE) frame ahead of it (RFC 9114 7.2.8 / 9:
+ * proxygen sends one), within the just-established request's reassembly
+ * slot is where the capsule cursor starts. 0 when the slot is gone or no
+ * whole HEADERS is there (nothing is consumed until real capsule bytes
+ * decode there anyway). */
 usz srvrun_wt_capsule_start(const srvrun_conn* c) {
   const wired_srvloop_stream_slot* slot =
       srvrun_req_slot_of(c, c->l.req_stream_id);
-  h3_frame f;
   if (!slot) {
     return 0;
   }
-  return h3_frame_get(wired_span_of(slot->req_buf, slot->req_len), &f);
+  return wired_h3reqdrive_headers_end(
+      wired_span_of(slot->req_buf, slot->req_len));
 }
 
 /* 1 iff type is a session flow-control capsule this server applies on
