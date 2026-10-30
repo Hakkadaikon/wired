@@ -198,6 +198,7 @@ recipes.
 | `san-check [ids]` | CI only: production build with UBSan traps, driven by the guide snippets. |
 | `golden-check` | Check that `tests/app/moqt_golden.h` matches its test vectors. |
 | `fuzz-smoke` | Build each fuzz harness and run it once. |
+| `view-check` | Stored views name their storage class and none is set from a local array (`scripts/viewcheck.py`; also run by `py-check`). |
 | `fuzz-ci [secs]` | Run each fuzz harness for `secs` seconds (default 120). |
 | `fmt` | Format C sources in place with the pinned clang-format. |
 | `fmt-check` | Verify formatting without writing. |
