@@ -21,7 +21,11 @@
  * issued certificate chain (leaf first) to send instead of a self-signed
  * certificate. All views; the caller keeps them alive for the call. The
  * connection's ECDHE key share and ServerHello.random are drawn fresh from
- * the CSPRNG per connection; priv/pub/random never key a handshake. */
+ * the CSPRNG per connection; priv/pub/random never key a handshake.
+ * views: priv=own|caller, pub=own|caller, cert_seed=own|caller,
+ * scid=own|caller, random=own|caller, chain=own|caller, san_ipv4=own|caller,
+ * retry_odcid=own|caller, ticket_key=own|caller, pref_v4=own|caller,
+ * pref_v6=own|caller, raw_alpns=own|caller, reset_seed=own|caller */
 typedef struct {
   const u8*         priv;        /**< X25519 private, 32 bytes */
   const u8*         pub;         /**< X25519 public, 32 bytes */

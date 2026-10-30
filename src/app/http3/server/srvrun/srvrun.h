@@ -329,7 +329,8 @@ int wired_server_run(
 const wired_srvboot_id* wired_server_run_id(void);
 
 /** Opt-in polling-driver knobs, both off (0) by default so
- * wired_server_run's behavior is unchanged. */
+ * wired_server_run's behavior is unchanged.
+ * views: wt_protocols=caller */
 typedef struct {
   int busy_poll; /**< 1: MSG_DONTWAIT spin loop instead of blocking poll(2) */
   int so_busy_poll_us; /**< >0: also enable SO_BUSY_POLL (microseconds).

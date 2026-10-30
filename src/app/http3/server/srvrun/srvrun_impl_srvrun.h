@@ -22,7 +22,9 @@
  * derived, so a reload never disturbs them (RFC 9001 4). cert_path/key_path
  * are 0 unless --cert/--key were given, disabling reload entirely. Passed by
  * pointer so no per-datagram copy (a Parameter Object folds what were 4
- * separate args threaded through every step). */
+ * separate args threaded through every step).
+ * views: qlog_path=own, keylog_path=own, cert_path=own, key_path=own,
+ * wt_protocols=own */
 typedef struct {
   i64                   fd;
   wired_srvboot_id*     id;

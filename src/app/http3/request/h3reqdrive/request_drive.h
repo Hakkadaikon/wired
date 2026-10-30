@@ -65,7 +65,10 @@ typedef struct {
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: recovered request pseudo-headers.
  * Each value is either a static-table view or a copy in the caller-supplied
- * scratch buffer, depending on how the peer encoded the field line. */
+ * scratch buffer, depending on how the peer encoded the field line.
+ * views: method=slot|static, scheme=slot|static, authority=slot|static,
+ * path=slot|static, protocol=slot|static, origin=slot|static, body=slot,
+ * hdr_base=slot */
 typedef struct {
   const u8* method;     /**< :method value (static-table view or scratch) */
   usz       method_len; /**< method length in octets */

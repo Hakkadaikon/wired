@@ -19,7 +19,9 @@
  * orchestration over the existing build/sign/key-schedule parts. */
 
 /** Server-side handshake driver state. Members are grouped by alignment
- * (8-byte, 4, 2, then byte arrays) to keep the struct free of padding. */
+ * (8-byte, 4, 2, then byte arrays) to keep the struct free of padding.
+ * views: certs=own|env|slot|caller, alpn_tok=own|caller,
+ * raw_alpns=own|caller */
 typedef struct {
   wired_span certs[TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
                                          * certificate_list, leaf first

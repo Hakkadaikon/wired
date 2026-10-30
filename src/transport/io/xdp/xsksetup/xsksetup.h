@@ -50,7 +50,8 @@ typedef struct {
 } xsk_cfg;
 
 /** One open AF_XDP socket: the fd, its UMEM, the four rings, and the mmap
- * regions backing them (kept so xsksetup_close can munmap them). */
+ * regions backing them (kept so xsksetup_close can munmap them).
+ * views: umem=own */
 typedef struct {
   /** the AF_XDP socket fd, -1 once closed */
   i64 fd;

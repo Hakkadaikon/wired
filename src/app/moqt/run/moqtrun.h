@@ -315,7 +315,8 @@ typedef struct {
  * every group_ms from t0_ms. sent_group[i]/sent_any[i] record, per sub
  * slot of track.subs[], the last Group actually accepted for that
  * subscriber -- a refused send leaves them untouched so the next tick
- * retries while the clock is still in that Group. */
+ * retries while the clock is still in that Group.
+ * views: frags=caller */
 typedef struct {
   wired_moqtrun_track track;    /**< name, own_alias, subs[] */
   const wired_span*   frags;    /**< caller-owned fragment views */
@@ -350,7 +351,8 @@ typedef int (*wired_moqt_authorize_ns_fn)(
     void* ctx, u64 msg_type, const moqctl_ns* ns, const moqctl_token* token);
 
 /** The hub's whole state: fixed peer table plus the io table it sends
- * through. Zero-initialize with wired_moqt_init before first use. */
+ * through. Zero-initialize with wired_moqt_init before first use.
+ * views: blob_wire=caller */
 typedef struct {
   /** One slot per connected session (wired_moqtrun_peer.in_use). */
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];

@@ -29,7 +29,8 @@
  * WebTransport subprotocol list). Each boot reads its id long after
  * wired_srvrun_serve_env was called, so a view into the caller's memory
  * would dangle the moment that memory went out of scope; the copy is made
- * once at start (srvrun_own_config), never per connection or packet. */
+ * once at start (srvrun_own_config), never per connection or packet.
+ * views: chain=slot */
 typedef struct {
   wired_srvboot_id id;
   u8               priv[32];

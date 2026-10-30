@@ -531,7 +531,8 @@ int wired_srvloop_closed_has(const wired_srvloop_closed* w, u64 stream_id);
  * rather than the padding-optimal order clang-tidy's Padding check would
  * prefer -- reordering ~60 densely-commented fields purely to shave
  * padding risks silently misattributing a comment to the wrong field, for
- * a struct that is never allocated in bulk. */
+ * a struct that is never allocated in bulk.
+ * views: qlog_path=own|caller */
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 typedef struct {
   wired_h3srv_state h3; /**< HTTP/3 server response-layer state */

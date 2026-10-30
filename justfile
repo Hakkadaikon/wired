@@ -110,6 +110,11 @@ features-check:
 py-check:
     sh scripts/just/py_check.sh
 
+# Stored views: every struct reachable from the SDK's long-lived state names
+# the storage its views point into, and none is set from a local array.
+view-check:
+    python3 scripts/viewcheck.py
+
 # Vulnerability ledger: row rules plus reachability of every closed row's
 # cited code (from examples/) and test (from tests/run.c).
 vuln-check:
