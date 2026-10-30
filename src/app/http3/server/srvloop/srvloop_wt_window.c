@@ -1,13 +1,29 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
+#include "common/bytes/util/bits.h"
 
+static usz wt_window_skip_stale(
+    const wired_srvloop_wt_window* win, u64 abs_off, usz n);
 static u64 wt_window_kept_start(
     const wired_srvloop_wt_window* win, u64 abs_off);
 static usz  wt_window_avail_at(u64 lo, usz cap);
 static void wt_buf_shift_left(u8* buf, usz cap, usz shift);
-static void wt_range_rebase_one(wired_srvloop_wt_window* win, usz i, usz shift);
-static void wt_ranges_rebase(wired_srvloop_wt_window* win, usz shift);
+static void wt_window_mark(wired_srvloop_wt_window* win, u64 lo, usz n);
+static void wt_window_advance(wired_srvloop_wt_window* win);
 static int  wt_window_slide_not_due(
     const wired_srvloop_wt_window* win, u64 delivered_to);
+
+/* draft-ietf-webtrans-http3-15 4.3: byte count of [abs_off, abs_off+n) that
+ * falls at or past win.base (the stale, already-delivered prefix is
+ * excluded) -- 0 if the whole frame is stale. Split out of
+ * wired_srvloop_wt_window_accept to keep its own branch count at the gate. */
+static usz wt_window_skip_stale(
+    const wired_srvloop_wt_window* win, u64 abs_off, usz n) {
+  u64 end = abs_off + n;
+  if (end <= win->base) {
+    return 0;
+  }
+  return abs_off >= win->base ? n : (usz)(end - win->base);
+}
 
 /* The absolute offset the kept (non-stale) portion of [abs_off, abs_off+n)
  * starts at -- abs_off itself once it is already at/past win->base, else
@@ -32,14 +48,29 @@ void wired_srvloop_wt_window_accept(
     usz                      n,
     usz*                     rel_off,
     usz*                     accepted_n) {
-  usz kept    = srvloop_wt_window_skip_stale(win, abs_off, n);
+  usz kept    = wt_window_skip_stale(win, abs_off, n);
   u64 lo      = wt_window_kept_start(win, abs_off) - win->base;
   usz avail   = wt_window_avail_at(lo, WIRED_SRVLOOP_WT_BUF_CAP);
   *accepted_n = kept < avail ? kept : avail;
   *rel_off    = (usz)lo;
   win->dropped_bytes += kept - *accepted_n;
-  if (*accepted_n) {
-    srvloop_wt_window_insert(win, lo, lo + *accepted_n);
+  wt_window_mark(win, lo, *accepted_n);
+}
+
+/* Mark buf[lo, lo + n) received, then move the frontier over every
+ * received byte now contiguous with it. */
+static void wt_window_mark(wired_srvloop_wt_window* win, u64 lo, usz n) {
+  /* a frame past the window (n == 0) must not form a pointer past have[] */
+  bits_fill(win->have, (usz)u64_min(lo, WIRED_SRVLOOP_WT_BUF_CAP), n);
+  wt_window_advance(win);
+}
+
+/* Grow the frontier while the next byte has arrived. Each byte is passed
+ * once per window position, so the walk costs nothing per frame. */
+static void wt_window_advance(wired_srvloop_wt_window* win) {
+  while (win->frontier < WIRED_SRVLOOP_WT_BUF_CAP &&
+         bits_get(win->have, win->frontier)) {
+    win->frontier++;
   }
 }
 
@@ -50,36 +81,6 @@ static void wt_buf_shift_left(u8* buf, usz cap, usz shift) {
   for (usz i = 0; i + shift < cap; i++) {
     buf[i] = buf[i + shift];
   }
-}
-
-/* Rebase one range by shift, clipping its lo to 0 rather than underflowing
- * when the range started before shift (only ranges[0], the frontier's own
- * range, can start below shift -- ranges are sorted and shift is exactly
- * ranges[0].hi, so ranges[0].lo is always 0). Ranges entirely below shift
- * were already dropped by the caller before this runs. */
-static void wt_range_rebase_one(
-    wired_srvloop_wt_window* win, usz i, usz shift) {
-  win->range_lo[i] = win->range_lo[i] > shift ? win->range_lo[i] - shift : 0;
-  win->range_hi[i] -= shift;
-}
-
-/* Rebase win's range set by shift (win->base is moving forward by the same
- * amount): drop every range entirely consumed by the slide (range_hi <=
- * shift -- this is always at least ranges[0], the frontier's own range) and
- * rebase every surviving one, keeping only what is still ahead of the new
- * base. */
-static void wt_ranges_rebase(wired_srvloop_wt_window* win, usz shift) {
-  usz out = 0;
-  for (usz i = 0; i < win->range_n; i++) {
-    if (win->range_hi[i] <= shift) {
-      continue;
-    }
-    wt_range_rebase_one(win, i, shift);
-    win->range_lo[out] = win->range_lo[i];
-    win->range_hi[out] = win->range_hi[i];
-    out++;
-  }
-  win->range_n = out;
 }
 
 /* 1 if delivered_to has not yet consumed the whole current frontier -- slide
@@ -96,7 +97,8 @@ void wired_srvloop_wt_window_slide(
     return;
   }
   wt_buf_shift_left(buf, cap, shift);
+  bits_shift_down(win->have, WIRED_SRVLOOP_WT_BUF_CAP, shift);
   win->base += shift;
-  wt_ranges_rebase(win, shift);
-  srvloop_wt_window_recompute_frontier(win);
+  win->frontier = 0;
+  wt_window_advance(win);
 }

@@ -2143,10 +2143,29 @@ static void test_srvloop_request_reverse_chunks_to_window_edge(void) {
  * proves the receive-window's out-of-order/frontier/slide invariants without
  * needing a full wire-encoded STREAM frame for every case. */
 
-/* Fresh window: base 0, no ranges, frontier 0. */
+/* Fresh window: base 0, nothing received, frontier 0. */
 static void test_srvloop_wt_window_starts_empty(void) {
   wired_srvloop_wt_window w = {0};
-  CHECK(w.base == 0 && w.range_n == 0 && w.frontier == 0);
+  CHECK(w.base == 0 && w.frontier == 0 && !bits_get(w.have, 0));
+}
+
+/* Issue #180: loss leaves many disjoint received pieces past the frontier
+ * (here 40 one-in-two gaps across the whole window, far past any small
+ * fixed range table). Every piece was acknowledged, so none is sent again:
+ * once the gaps fill, the frontier must reach the end of the window. */
+static void test_srvloop_wt_window_many_gaps_then_fill(void) {
+  static wired_srvloop_wt_window w;
+  usz                            rel_off, accepted;
+  usz                            piece = WIRED_SRVLOOP_WT_BUF_CAP / 80;
+  w                                    = (wired_srvloop_wt_window){0};
+  for (usz i = 1; i < 80; i += 2) {
+    wired_srvloop_wt_window_accept(&w, i * piece, piece, &rel_off, &accepted);
+  }
+  CHECK(w.frontier == 0);
+  for (usz i = 0; i < 80; i += 2) {
+    wired_srvloop_wt_window_accept(&w, i * piece, piece, &rel_off, &accepted);
+  }
+  CHECK(w.frontier == 80 * piece);
 }
 
 /* IN-ORDER: two adjacent in-order writes each land at their own offset and
@@ -2227,7 +2246,7 @@ static void test_srvloop_wt_window_slide_frees_room(void) {
   /* Delivered up to the frontier -- slide advances base and resets frontier
    * bookkeeping to the new (empty) window. */
   wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 100);
-  CHECK(w.base == 100 && w.frontier == 0 && w.range_n == 0);
+  CHECK(w.base == 100 && w.frontier == 0 && !bits_get(w.have, 0));
   /* A byte that would have been past the old window's cap is now inside the
    * freed room, at the new base-relative offset. */
   wired_srvloop_wt_window_accept(
@@ -7329,6 +7348,7 @@ void test_srvloop(void) {
   test_srvloop_fin_truncated_headers_marks_incomplete();
   test_srvloop_complete_get_not_marked_incomplete();
   test_srvloop_wt_window_starts_empty();
+  test_srvloop_wt_window_many_gaps_then_fill();
   test_srvloop_wt_window_in_order_advances_frontier();
   test_srvloop_wt_window_gap_then_fill_advances_frontier();
   test_srvloop_wt_window_boundary_at_cap();

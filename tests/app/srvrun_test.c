@@ -10552,27 +10552,27 @@ static void sr_stream_data_handler(
   }
 }
 
-/* Set a WT bidi slot's receive window as if n contiguous bytes had been
- * written from offset 0 -- the hand-constructed-state tests below poke a
- * slot directly rather than driving real wire frames through it, so the
- * window's range-set fields (win.range_lo/hi/n, win.frontier) must be kept
- * consistent by hand too (frontier alone is not enough: srvrun_offer_wt_
- * streams also calls wired_srvloop_wt_window_slide, which recomputes
- * frontier from the range set on every call). */
+/* Set a receive window as if exactly n contiguous bytes had been written
+ * from offset 0 -- the hand-constructed-state tests below poke a slot
+ * directly rather than driving real wire frames through it, so the window's
+ * received-byte bitmap (win.have) must be kept consistent by hand too
+ * (frontier alone is not enough: srvrun_offer_wt_streams also calls
+ * wired_srvloop_wt_window_slide, which recomputes frontier from it). */
+static void sr_wt_win_set_frontier(wired_srvloop_wt_window* win, u64 n) {
+  for (usz i = 0; i < WIRED_SRVLOOP_WT_BUF_CAP; i++) {
+    bits_set(win->have, i, i < n);
+  }
+  win->frontier = n;
+}
+
 static void sr_wt_slot_set_frontier(wired_srvloop_wt_stream_slot* slot, u64 n) {
-  slot->win.range_n     = n > 0 ? 1 : 0;
-  slot->win.range_lo[0] = 0;
-  slot->win.range_hi[0] = n;
-  slot->win.frontier    = n;
+  sr_wt_win_set_frontier(&slot->win, n);
 }
 
 /* Same as sr_wt_slot_set_frontier, for the separate wt_uni_streams table. */
 static void sr_wt_uni_slot_set_frontier(
     wired_srvloop_wt_uni_stream_slot* slot, u64 n) {
-  slot->win.range_n     = n > 0 ? 1 : 0;
-  slot->win.range_lo[0] = 0;
-  slot->win.range_hi[0] = n;
-  slot->win.frontier    = n;
+  sr_wt_win_set_frontier(&slot->win, n);
 }
 
 /* A freshly-claimed WT bidi slot with bytes already reassembled (offered==0,

@@ -526,10 +526,6 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   frames. The unparsed backlog of the peer's control stream must fit
   `WIRED_SRVLOOP_CTRL_BUF_CAP` (512 bytes); a larger frame or gap closes the
   connection with H3_EXCESSIVE_LOAD. Source: `priority_ctrl.c`.
-- **Out-of-order gap ranges** — Affects: nobody at the targeted sizes. A WT
-  stream tracks at most `WIRED_SRVLOOP_WT_MAX_RANGES` (8) disjoint gaps in
-  one window; more are coalesced or dropped. Source: `wt_range_overlaps`
-  (ponytail).
 - **Pending broadcast datagrams per connection** — Affects: apps that
   broadcast datagrams in bursts. A connection queues `SRVRUN_DG_PENDING_Q`
   (4) datagrams of up to 1200 bytes; a full queue refuses the newest. Source:

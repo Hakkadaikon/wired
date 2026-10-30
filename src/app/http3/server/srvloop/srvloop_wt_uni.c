@@ -76,3 +76,12 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
   int i = wt_uni_slot_is_stale(l, stream_id) ? -1 : wt_uni_slot_free_index(l);
   return i < 0 ? -1 : wt_uni_slot_claim_at(l, (usz)i, stream_id);
 }
+
+void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
+  int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
+  if (i < 0) {
+    return;
+  }
+  l->wt_uni_streams[i].in_use = 0;
+  wired_srvloop_closed_mark(&l->wt_uni_closed, stream_id);
+}

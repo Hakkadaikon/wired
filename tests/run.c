@@ -640,8 +640,6 @@
 #include "app/http3/server/srvloop/srvloop_rxacct.c"
 #include "app/http3/server/srvloop/srvloop_rxacct_frame.c"
 #include "app/http3/server/srvloop/srvloop_wt.c"
-#include "app/http3/server/srvloop/srvloop_wt_range.c"
-#include "app/http3/server/srvloop/srvloop_wt_ranges.c"
 #include "app/http3/server/srvloop/srvloop_wt_slot.c"
 #include "app/http3/server/srvloop/srvloop_wt_uni.c"
 #include "app/http3/server/srvloop/srvloop_wt_window.c"
