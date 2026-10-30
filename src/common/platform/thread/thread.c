@@ -25,6 +25,29 @@
 /* FUTEX_WAIT, Linux <linux/futex.h>. */
 #define THREAD_FUTEX_WAIT 0
 
+#ifdef WIRED_THREAD_PTHREAD
+/* glibc's, declared here rather than included: src/ includes no libc
+ * header, and this path exists only in the hosted ASan build. */
+int pthread_create(u64* t, const void* attr, void* (*fn)(void*), void* arg);
+int pthread_join(u64 t, void** ret);
+
+static void* thread_pthread_entry(void* p) {
+  wired_thread* t = p;
+  t->fn(t->arg);
+  return 0;
+}
+
+i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
+  t->fn  = fn;
+  t->arg = arg;
+  return -(i64)pthread_create(&t->handle, 0, thread_pthread_entry, t);
+}
+
+i64 wired_thread_join(wired_thread* t) {
+  pthread_join(t->handle, 0);
+  return 0;
+}
+#else
 /* Map guard+stack and turn the low page into the guard. mmap failures are
  * -errno in -4095..-1 (kernel guarantee), and x86_64 user addresses are
  * never negative, so `< 0` is the error test. */
@@ -88,5 +111,6 @@ i64 wired_thread_join(wired_thread* t) {
   t->stack_len = 0;
   return 0;
 }
+#endif
 
 i64 wired_thread_tid(void) { return wired_arch_gettid(); }

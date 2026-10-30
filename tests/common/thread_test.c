@@ -15,12 +15,14 @@ static void thread_one_fn(void* arg) {
 /* Single thread: start, join, side effect visible, handle scrubbed. Join
  * returning at all is the live-system bridge for the join protocol. */
 static void test_thread_single(void) {
-  wired_thread t = {0, 0, 0};
+  wired_thread t = {0};
   CHECK(wired_thread_start(&t, thread_one_fn, 0) == 0);
   CHECK(wired_thread_join(&t) == 0);
   CHECK(__atomic_load_n(&thread_one_val, __ATOMIC_ACQUIRE) == 42u);
+#ifndef WIRED_THREAD_PTHREAD /* the ASan build's pthread keeps no tid/stack */
   CHECK(t.tid == 0);
   CHECK(t.stack == 0);
+#endif
 }
 
 static volatile u32 thread_slot[2];
@@ -37,8 +39,8 @@ static void thread_slot1_fn(void* arg) {
 
 /* Two threads alive at once, each writing its own slot; both join. */
 static void test_thread_pair(void) {
-  wired_thread a = {0, 0, 0};
-  wired_thread b = {0, 0, 0};
+  wired_thread a = {0};
+  wired_thread b = {0};
   CHECK(wired_thread_start(&a, thread_slot0_fn, 0) == 0);
   CHECK(wired_thread_start(&b, thread_slot1_fn, 0) == 0);
   CHECK(wired_thread_join(&a) == 0);
@@ -63,7 +65,7 @@ static void thread_arg_fn(void* arg) {
 
 static void test_thread_arg(void) {
   thread_arg_box box = {21, 0, 0};
-  wired_thread   t   = {0, 0, 0};
+  wired_thread   t   = {0};
   CHECK(wired_thread_start(&t, thread_arg_fn, &box) == 0);
   CHECK(wired_thread_join(&t) == 0);
   CHECK(box.out == 42);

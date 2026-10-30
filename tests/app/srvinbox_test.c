@@ -141,8 +141,8 @@ static void test_srvinbox_thread_stress(void) {
   volatile u32            stop = 0;
   sib_stress_producer_arg pa   = {&r, 0, 0};
   sib_stress_consumer_arg ca   = {&r, &stop, 0};
-  wired_thread            pt   = {0, 0, 0};
-  wired_thread            ct   = {0, 0, 0};
+  wired_thread            pt   = {0};
+  wired_thread            ct   = {0};
   wired_srvinbox_ring_init(&r);
   CHECK(wired_thread_start(&ct, sib_stress_consumer_fn, &ca) == 0);
   CHECK(wired_thread_start(&pt, sib_stress_producer_fn, &pa) == 0);
@@ -260,8 +260,8 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   srvrun_conn*        conn_b;
   sib_mesh_worker_arg aarg;
   sib_mesh_worker_arg barg;
-  wired_thread        ta = {0, 0, 0};
-  wired_thread        tb = {0, 0, 0};
+  wired_thread        ta = {0};
+  wired_thread        tb = {0};
   u8                  out[WIRED_SRVINBOX_SLOT_MAX];
 
   CHECK(sizeof g_sib_mesh_env_a >= wired_srvrun_env_size());
