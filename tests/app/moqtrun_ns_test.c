@@ -480,6 +480,24 @@ static void test_moqtrun_ns_fin_half_closes_d19_d22(void) {
   }
 }
 
+/* Issue #179, draft-22 6.4.2.2 / 6.4.2.3: a FIN on a PUBLISH_NAMESPACE
+ * stream "is not a request cancellation" -- the namespace stays published
+ * and no NAMESPACE_DONE goes out (moq-dev-js @moq/net 0.4.4 withdrew with a
+ * FIN alone and timed out waiting). The withdrawal is the cancel: a
+ * publisher that already sent its FIN sends STOP_SENDING, and only then do
+ * subscribers get NAMESPACE_DONE. */
+static void test_moqtrun_ns_pub_fin_is_not_withdrawal_d22(void) {
+  mtns_init();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, MTRQ_S1, wired_span_of(0, 0), 1);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
+}
+
 /* draft-18 6.1 names only SUBSCRIBE_NAMESPACE and SUBSCRIBE_TRACKS: a
  * FIN on a plain SUBSCRIBE's stream stays a half-close even there. */
 static void test_moqtrun_req_fin_keeps_subscribe_d18(void) {
@@ -512,6 +530,7 @@ static void mtall_ns(void) {
 void test_moqtrun_ns(void) {
   test_moqtrun_ns_fin_cancels_d18();
   test_moqtrun_ns_fin_half_closes_d19_d22();
+  test_moqtrun_ns_pub_fin_is_not_withdrawal_d22();
   test_moqtrun_req_fin_keeps_subscribe_d18();
   moqtrun_test_allver(mtall_ns);
 }
