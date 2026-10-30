@@ -204,6 +204,15 @@ memory grows with what connections actually touch: a connection that sends
 a large WebTransport round fills its 128 KiB staging buffer, and a request
 with a long target fills its 10 KiB request window.
 
+When a connection closes, the server hands its slot's big tables (request
+and WT stream slots, received DATAGRAMs, WT send staging, its `respstore`
+row) back to the kernel with `madvise(MADV_DONTNEED)`, once per close. So
+resident memory falls back after load instead of staying at its peak: on
+the same lane, 1,380 KiB after the load rounds against 6,984 KiB before
+this change. The pages read as zero afterwards, which is what a fresh slot
+holds, so the next claim skips rewriting them and touches only the pages
+the new connection uses (peak 1,892 KiB).
+
 ## Choosing a constant
 
 - **Size it from a requirement.** Write the reason next to the constant: an

@@ -4,6 +4,7 @@ static void srvrun_resp_rows_clear(srvrun_conn* c);
 static void srvrun_conn_cc_init(const srvrun_cfg* cfg, srvrun_conn* c);
 static void srvrun_conn_fresh(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot);
+static void srvrun_conn_wipe(srvrun_conn* c);
 
 /* Mark every resp[] slot as holding no wired_srvbigbuf row (-1; 0 is a real
  * row index -- see the caller's note). */
@@ -22,12 +23,57 @@ static void srvrun_conn_cc_init(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_pmtu_start(c);
 }
 
+/* The tables srvrun_release_tables zeroes, in member order. */
+static const struct {
+  usz off;
+  usz len;
+} srvrun_tables[] = {
+    {__builtin_offsetof(srvrun_conn, l.streams),
+     sizeof(((srvrun_conn*)0)->l.streams)},
+    {__builtin_offsetof(srvrun_conn, l.wt_streams),
+     sizeof(((srvrun_conn*)0)->l.wt_streams)},
+    {__builtin_offsetof(srvrun_conn, l.wt_uni_streams),
+     sizeof(((srvrun_conn*)0)->l.wt_uni_streams)},
+    {__builtin_offsetof(srvrun_conn, l.rx_datagrams),
+     sizeof(((srvrun_conn*)0)->l.rx_datagrams)},
+    {__builtin_offsetof(srvrun_conn, wtsend),
+     sizeof(((srvrun_conn*)0)->wtsend)},
+};
+
+_Static_assert(
+    __builtin_offsetof(srvrun_conn, l.streams) <
+            __builtin_offsetof(srvrun_conn, l.wt_streams) &&
+        __builtin_offsetof(srvrun_conn, l.wt_streams) <
+            __builtin_offsetof(srvrun_conn, l.wt_uni_streams) &&
+        __builtin_offsetof(srvrun_conn, l.wt_uni_streams) <
+            __builtin_offsetof(srvrun_conn, l.rx_datagrams) &&
+        __builtin_offsetof(srvrun_conn, l.rx_datagrams) <
+            __builtin_offsetof(srvrun_conn, wtsend),
+    "srvrun_tables[] must list the tables in member order");
+
+/* Zero c for a claim. Tables still zero since their release are skipped:
+ * rewriting them would fault megabytes of released pages back in. */
+static void srvrun_conn_wipe(srvrun_conn* c) {
+  u8* b  = (u8*)c;
+  usz at = 0;
+  if (c->tables_dirty) {
+    *c = (srvrun_conn){0};
+    return;
+  }
+  for (usz i = 0; i < sizeof srvrun_tables / sizeof srvrun_tables[0]; i++) {
+    bytes_memset(b + at, 0, srvrun_tables[i].off - at);
+    at = srvrun_tables[i].off + srvrun_tables[i].len;
+  }
+  bytes_memset(b + at, 0, sizeof *c - at);
+}
+
 /* Wipe the just-claimed slot c (index slot) for a new connection from
  * ctx->peer, bumping its generation. */
 static void srvrun_conn_fresh(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u32 gen          = c->gen + 1;
-  *c               = (srvrun_conn){0};
+  u32 gen = c->gen + 1;
+  srvrun_conn_wipe(c);
+  c->tables_dirty  = 1;
   c->gen           = gen;
   c->peer          = *ctx->peer;
   c->boot_claim_ms = ctx->now_ms;

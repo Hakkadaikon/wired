@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
-#include <string.h> /* strstr: hosted test build only */
+#include <string.h>   /* strstr: hosted test build only */
+#include <sys/mman.h> /* mlock: hosted test build only */
 #include <unistd.h>
 
 #include "app/http3/core/h3/errclass.h"
@@ -2523,6 +2524,92 @@ static void test_srvrun_free_slot_resets_antiamp_state(void) {
   CHECK(st.conns[0].boot_rx_bytes == 0);
   CHECK(st.conns[0].boot_tx_bytes == 0);
   CHECK(st.conns[0].boot_dgram_sent == 0);
+}
+
+/* 1 if all n bytes at p are v. */
+static int sr_all_bytes(const void* p, usz n, u8 v) {
+  const u8* b  = p;
+  int       ok = 1;
+  for (usz i = 0; i < n; i++) {
+    ok &= b[i] == v;
+  }
+  return ok;
+}
+
+/* Fill every table srvrun_release_tables hands back (and slot 0's
+ * respstore row) with v. */
+static void sr_fill_tables(srvrun_conn* c, u8 v) {
+  bytes_memset(c->l.streams, v, sizeof c->l.streams);
+  bytes_memset(c->l.wt_streams, v, sizeof c->l.wt_streams);
+  bytes_memset(c->l.wt_uni_streams, v, sizeof c->l.wt_uni_streams);
+  bytes_memset(c->l.rx_datagrams, v, sizeof c->l.rx_datagrams);
+  bytes_memset(c->wtsend, v, sizeof c->wtsend);
+  bytes_memset(g_srvrun_env.respstore[0], v, sizeof g_srvrun_env.respstore[0]);
+}
+
+/* 1 if every table (and slot 0's respstore row) is all v. */
+static int sr_tables_are(const srvrun_conn* c, u8 v) {
+  return sr_all_bytes(c->l.streams, sizeof c->l.streams, v) &&
+         sr_all_bytes(c->l.wt_streams, sizeof c->l.wt_streams, v) &&
+         sr_all_bytes(c->l.wt_uni_streams, sizeof c->l.wt_uni_streams, v) &&
+         sr_all_bytes(c->l.rx_datagrams, sizeof c->l.rx_datagrams, v) &&
+         sr_all_bytes(c->wtsend, sizeof c->wtsend, v) &&
+         sr_all_bytes(
+             g_srvrun_env.respstore[0], sizeof g_srvrun_env.respstore[0], v);
+}
+
+/* Issue #174: srvrun_free_slot zeroes the slot's big per-connection tables
+ * (request / WT stream slots, received DATAGRAMs, WT send staging, its
+ * respstore row), handing their whole pages back to the kernel, and marks
+ * them clean; the generation the reuse path depends on survives. */
+static void test_srvrun_free_slot_releases_pages(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, sr_test_conns()};
+  srvrun_conn* c  = &st.conns[0];
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_fill_tables(c, 0x5a);
+  c->gen          = 7;
+  c->tables_dirty = 1;
+  srvrun_free_slot(srvrun_test_envcfg(), &st, 0);
+  CHECK(sr_tables_are(c, 0));
+  CHECK(c->tables_dirty == 0);
+  CHECK(c->gen == 7);
+}
+
+/* Issue #174: when madvise refuses (here: the pages are mlocked, EINVAL per
+ * madvise(2)), srvrun_zero_release still zeroes every byte, so a clean
+ * tables_dirty flag never hides the previous connection's data. */
+static void test_srvrun_zero_release_survives_madvise_failure(void) {
+  static u8 buf[4 * 4096] __attribute__((aligned(4096)));
+  u8*       p = buf + 100;
+  usz       n = 3 * 4096;
+  bytes_memset(buf, 0x5a, sizeof buf);
+  /* a tight RLIMIT_MEMLOCK skips the failure path; zeroing still holds */
+  (void)mlock(buf, sizeof buf);
+  srvrun_zero_release(p, n);
+  munlock(buf, sizeof buf);
+  CHECK(sr_all_bytes(p, n, 0));
+  CHECK(buf[99] == 0x5a && p[n] == 0x5a);
+}
+
+/* Issue #174: a claim wipes everything outside the tables, and the tables
+ * too only while a previous claim may have dirtied them -- a released
+ * slot's zero tables are not rewritten (that would fault them back in). */
+static void test_srvrun_conn_wipe_skips_clean_tables(void) {
+  srvrun_conn* c = &sr_test_conns()[0];
+  sr_fill_tables(c, 0x5a);
+  c->last_ms      = 9;
+  c->cid_err      = 9;
+  c->tables_dirty = 0;
+  srvrun_conn_wipe(c);
+  CHECK(c->last_ms == 0 && c->cid_err == 0);
+  CHECK(sr_tables_are(c, 0x5a));
+  c->last_ms      = 9;
+  c->tables_dirty = 1;
+  srvrun_conn_wipe(c);
+  CHECK(c->last_ms == 0 && c->tables_dirty == 0);
+  bytes_memset(g_srvrun_env.respstore[0], 0, sizeof g_srvrun_env.respstore[0]);
+  CHECK(sr_tables_are(c, 0));
 }
 
 /* Append a minimal well-formed (undecryptable) Handshake long-header packet
@@ -23495,7 +23582,9 @@ static void test_srvrun_slot_reuse_clears_prior_connection_buffer(void) {
   srvrun_conn*     c    = &st.conns[0];
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
-  /* leftovers of a prior connection in the physical slot */
+  /* leftovers of a prior connection in the physical slot (whose claim
+   * marked its tables dirty) */
+  c->tables_dirty            = 1;
   c->up                      = 0;
   c->boot.any                = 0;
   c->wt_active               = 1;
@@ -27462,6 +27551,9 @@ void test_srvrun(void) {
   test_srvrun_conn_rx_bytes_counts_malformed_datagram();
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
+  test_srvrun_free_slot_releases_pages();
+  test_srvrun_conn_wipe_skips_clean_tables();
+  test_srvrun_zero_release_survives_madvise_failure();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();
   test_srvrun_unconfirmed_close_all_levels();

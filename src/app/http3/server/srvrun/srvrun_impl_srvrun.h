@@ -886,6 +886,11 @@ typedef struct {
   /** RFC 9000 5.1.1/19.15: the transport error a NEW_CONNECTION_ID caused,
    * closed on at the step's end (srvrun_close_on_cid); 0 = none. */
   u8 cid_err;
+  /** 1 once a claim may have written the big tables srvrun_release_tables
+   * returns to the kernel; 0 while they are all zero (a never-claimed bss
+   * slot, or one released since), so the next claim need not rewrite --
+   * and fault back in -- megabytes of zeros. */
+  u8 tables_dirty;
 } srvrun_conn;
 
 _Static_assert(
