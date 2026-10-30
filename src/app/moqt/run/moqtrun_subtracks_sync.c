@@ -41,8 +41,9 @@ static void moqtrun_subtracks_send_skipped(
   u8
       msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
           WIRED_MOQTRUN_MAX_NAME];
+  u8  ns[WIRED_MOQTRUN_NS_SUFFIX_CAP]; /* m.ns views into it */
   usz n;
-  moqtrun_subtracks_ns_suffix(st, t, &m.ns);
+  moqtrun_subtracks_ns_suffix(st, t, wired_mspan_of(ns, sizeof ns), &m.ns);
   m.name = wired_span_of(t->name, t->name_len);
   n      = moqtrun_envelope_put(
       wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_SKIPPED,

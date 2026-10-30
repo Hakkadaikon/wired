@@ -60,7 +60,8 @@ typedef struct {
 
 /* Run the production gate over an Initial carrying token. */
 static srvtok_out srvtok_gate(const srvrun_step_ctx* ctx, wired_span token) {
-  u8         dg[256];
+  /* static: o.odcid views into the datagram and is read after return */
+  static u8  dg[256];
   usz        n    = srvtok_initial(dg, token);
   usz        sent = g_srvrun_env.tx_flush_count;
   srvtok_out o    = {0, 0, {0, 0}, 0};

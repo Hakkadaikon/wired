@@ -3,8 +3,15 @@
 
 #include "app/moqt/run/moqtrun_impl_protos4.h"
 
+/* Bytes moqtrun_subtracks_ns_suffix needs: the suffix's fields plus its
+ * re-encoded field count (one varint, at most 8 bytes, and slack). */
+#define WIRED_MOQTRUN_NS_SUFFIX_CAP (WIRED_MOQTRUN_MAX_NS + 9)
+
 void moqtrun_subtracks_ns_suffix(
-    const wired_moqtrun_req* st, const wired_moqtrun_track* t, moqctl_ns* out);
+    const wired_moqtrun_req*   st,
+    const wired_moqtrun_track* t,
+    wired_mspan                buf,
+    moqctl_ns*                 out);
 void moqtrun_subtracks_sync(wired_moqt_hub* hub);
 int  moqtrun_subtracks_pub_of_tag(const wired_moqtrun_req* q, u64 tag);
 void moqtrun_subtracks_pub_reset(wired_moqt_hub* hub, wired_moqtrun_req* q);
