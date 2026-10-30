@@ -1,6 +1,5 @@
 #include "app/http3/core/h3/contentlen.h"
 #include "app/http3/request/h3reqdrive/request_drive_impl.h"
-#include "transport/packet/frame/frame/frame.h"
 
 static int rc_digit_step(u64* v, u8 c);
 static int rc_ph_shape_ok(const h3_ph_set* p, const wired_h3reqdrive_req* r);
@@ -8,9 +7,8 @@ static int rc_asterisk_ok(const wired_h3reqdrive_req* r);
 static int rc_path_ok(const wired_h3reqdrive_req* r);
 static int rc_target_ok(const wired_h3reqdrive_req* r);
 static int rc_cl_take(wired_h3reqdrive_req* r);
-static int rc_whole(wired_span stream_data);
-static int rc_cl_applies(wired_span stream_data, const wired_h3reqdrive_req* r);
-static int rc_cl_ok(wired_span stream_data, const wired_h3reqdrive_req* r);
+static int rc_cl_applies(int fin, const wired_h3reqdrive_req* r);
+static int rc_cl_ok(int fin, const wired_h3reqdrive_req* r);
 
 /* One more decimal digit c onto *v; 0 for a non-digit or an overflow. */
 static int rc_digit_step(u64* v, u8 c) {
@@ -85,28 +83,21 @@ static int rc_cl_take(wired_h3reqdrive_req* r) {
   return h3reqdrive_digits(v, &r->content_length);
 }
 
-/* The STREAM frame carries the stream's end: every DATA frame is here. */
-static int rc_whole(wired_span stream_data) {
-  stream_frame f;
-  return frame_get_stream(stream_data.p, stream_data.n, &f) && f.fin;
+/* RFC 9114 4.1.2: compare the declared length with the whole body (fin: the
+ * bytes reach the stream's end, so every DATA frame is here) -- a CONNECT
+ * stream's DATA is tunnel payload, not content (RFC 9110 9.3.6). */
+static int rc_cl_applies(int fin, const wired_h3reqdrive_req* r) {
+  return r->has_content_length && fin && !h3_connect_is_method(r);
 }
 
-/* RFC 9114 4.1.2: compare the declared length with the whole body -- a
- * CONNECT stream's DATA is tunnel payload, not content (RFC 9110 9.3.6). */
-static int rc_cl_applies(
-    wired_span stream_data, const wired_h3reqdrive_req* r) {
-  return r->has_content_length && rc_whole(stream_data) &&
-         !h3_connect_is_method(r);
-}
-
-static int rc_cl_ok(wired_span stream_data, const wired_h3reqdrive_req* r) {
-  return !rc_cl_applies(stream_data, r) ||
+static int rc_cl_ok(int fin, const wired_h3reqdrive_req* r) {
+  return !rc_cl_applies(fin, r) ||
          h3_content_length_ok(r->content_length, r->data_len);
 }
 
 /* RFC 9114 4.1.2 / 4.3, RFC 9110 8.6: the request's control data and
  * Content-Length are acceptable; a mismatch with the DATA received is
  * malformed (9114-014, 9110-010). */
-int h3reqdrive_request_ok(wired_span stream_data, wired_h3reqdrive_req* r) {
-  return rc_target_ok(r) && rc_cl_take(r) && rc_cl_ok(stream_data, r);
+int h3reqdrive_request_ok(int fin, wired_h3reqdrive_req* r) {
+  return rc_target_ok(r) && rc_cl_take(r) && rc_cl_ok(fin, r);
 }

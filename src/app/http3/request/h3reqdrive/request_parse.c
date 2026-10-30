@@ -3,7 +3,6 @@
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/frame_permit.h"
 #include "app/http3/request/h3reqdrive/request_parse_impl.h"
-#include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9114 4.1: 1 if a frame of type t is acceptable while walking to the
  * leading HEADERS. DATA there is an invalid frame sequence. */
@@ -111,14 +110,8 @@ static int find_body(wired_span h3, usz off, wired_h3reqdrive_req* r) {
 }
 
 int wired_h3reqdrive_request_sections(
-    wired_span stream_data, wired_span* fs, wired_h3reqdrive_req* r) {
-  stream_frame f;
-  usz          end = 0;
-  wired_span   h3;
-  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) {
-    return 0;
-  }
-  h3 = wired_span_of(f.data, (usz)f.length);
+    wired_span h3, wired_span* fs, wired_h3reqdrive_req* r) {
+  usz end = 0;
   if (!find_headers(h3, fs, &end, &r->frame_unexpected)) {
     return 0;
   }
@@ -187,17 +180,9 @@ static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
   return 1;
 }
 
-int wired_h3reqdrive_request_trailer(
-    wired_span stream_data, wired_span* trailer_fs) {
-  stream_frame f;
-  wired_span   h3;
-  usz          end;
-  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) {
-    return 0;
-  }
-  h3  = wired_span_of(f.data, (usz)f.length);
-  end = wired_h3reqdrive_headers_end(h3); /* the caller already latched any
-                                           * reject via request_sections */
+int wired_h3reqdrive_request_trailer(wired_span h3, wired_span* trailer_fs) {
+  usz end = wired_h3reqdrive_headers_end(h3); /* the caller already latched any
+                                               * reject via request_sections */
   if (!end) {
     return 0;
   }

@@ -15,7 +15,7 @@ static int trailer_line_ok(const rline* L);
 static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r);
 static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r);
 static int trailer_decode(
-    wired_span            stream_data,
+    wired_span            h3,
     wired_mspan           scr,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r);
@@ -135,13 +135,13 @@ static int trailer_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
  * against dyn into r's qpack_trailer_ric/qpack_failed, its values only in
  * scr. 1 if there is none or it is well-formed with no pseudo-header. */
 static int trailer_decode(
-    wired_span            stream_data,
+    wired_span            h3,
     wired_mspan           scr,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
   wired_span tfs = wired_span_of(0, 0);
   rd_cursor  cur;
-  if (!wired_h3reqdrive_request_trailer(stream_data, &tfs)) {
+  if (!wired_h3reqdrive_request_trailer(h3, &tfs)) {
     return 1;
   }
   cur     = (rd_cursor){tfs, scr, 0, 0, {dyn, 0, tfs, 0}, {0, 0, 0}};
@@ -157,7 +157,7 @@ static int trailer_decode(
 /* The leading field section, then the trailer section (if any) in the
  * scratch the leading one left free. */
 int h3reqdrive_decode_sections(
-    wired_span            stream_data,
+    wired_span            h3,
     wired_span            fs,
     wired_mspan           scr,
     const qpack_dyn*      dyn,
@@ -166,6 +166,5 @@ int h3reqdrive_decode_sections(
   if (!decode_lines(fs, scr, dyn, r, &used)) {
     return 0;
   }
-  return trailer_decode(
-      stream_data, wired_mspan_of(scr.p + used, scr.n - used), dyn, r);
+  return trailer_decode(h3, wired_mspan_of(scr.p + used, scr.n - used), dyn, r);
 }
