@@ -160,3 +160,11 @@ void moqtrun_mirror_update(
     moqtrun_mirror_update_peer(hub, p, &hub->peers[i], s, params);
   }
 }
+
+/* A closing subscriber's dedup records go with it: a peer later admitted
+ * at the same peers[] index would otherwise find its Locations claimed. */
+void moqtrun_dd_drop_session(wired_moqt_hub* hub, usz session_idx) {
+  for (usz i = 0; i < WIRED_MOQTRUN_DD_MAX; i++) {
+    hub->dd[i].in_use &= (u8)(hub->dd[i].session_idx != session_idx);
+  }
+}

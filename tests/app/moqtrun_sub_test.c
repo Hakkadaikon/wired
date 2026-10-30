@@ -2023,6 +2023,26 @@ static void test_moqtrun_sub_publish_mandatory_refused(void) {
   }
 }
 
+/* Issue #185: a session's close drops its SUBGROUP_DELIVERY_TIMEOUT timers
+ * and its Location dedup records: neither may outlive it into a new
+ * session that reuses its storage or peers[] index (a stale timer would
+ * reset the newcomer's same-numbered stream). */
+static void test_moqtrun_sub_close_drops_timers_and_dedup(void) {
+  wired_moqtrun_peer* pb;
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  pb = moqtrun_find_by_wt(&mtst_hub, SESS_B);
+  moqtrun_sgt_put(&mtst_hub, SESS_B, 15, 100);
+  moqtrun_sgt_put(&mtst_hub, SESS_A, 19, 100);
+  mtst_hub.dd[0] = (wired_moqtrun_dd){
+      .request_id = 2, .session_idx = (u16)(pb - mtst_hub.peers), .in_use = 1};
+  wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  CHECK(mtst_hub.sgt[0].in_use == 0);
+  CHECK(mtst_hub.sgt[1].in_use == 1 && mtst_hub.sgt[1].wt == SESS_A);
+  CHECK(mtst_hub.dd[0].in_use == 0);
+}
+
 /* The effective subgroup timeout is min(publisher Track Property,
  * subscriber parameter) when both are non-zero, the non-zero one when
  * only one is set, and 0 (none) otherwise (draft-19 8). */
@@ -2194,6 +2214,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();
   test_moqtrun_other_dot_ns_served();
+  test_moqtrun_sub_close_drops_timers_and_dedup();
   test_moqtrun_sub_subgroup_timeout_min();
   test_moqtrun_sub_include_properties_0_empty_tail();
   test_moqtrun_sub_include_properties_1_forwards();

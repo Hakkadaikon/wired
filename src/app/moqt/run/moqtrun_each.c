@@ -114,6 +114,8 @@ void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
   moqtrun_peer_tracks_ended(hub, p);
   moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers), MOQTRUN_RID_ANY);
   moqtrun_reqs_drop(hub, s);
+  moqtrun_sgt_drop_wt(hub, s);
+  moqtrun_dd_drop_session(hub, (usz)(p - hub->peers));
   moqtrun_rdv_drop_wt(hub, s);
   moqtrun_fetches_drop(hub, s);
   /* The leaver's own rings return now (moqtrun_rel_drop_ring's doc); its

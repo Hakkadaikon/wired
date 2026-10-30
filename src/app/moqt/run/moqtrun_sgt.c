@@ -87,3 +87,11 @@ void moqtrun_sgt_tick(wired_moqt_hub* hub, u64 now_ms) {
     }
   }
 }
+
+/* A closing session's timers go with it: a stale one would reset the
+ * same-numbered stream of whichever session later reuses its storage. */
+void moqtrun_sgt_drop_wt(wired_moqt_hub* hub, const wired_wt_session* s) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SGT; i++) {
+    hub->sgt[i].in_use &= (u8)(hub->sgt[i].wt != s);
+  }
+}
