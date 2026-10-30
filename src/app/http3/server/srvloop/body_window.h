@@ -13,6 +13,7 @@
  * (WIRED_H3_MAX_FIELD_SECTION) and an 8000-octet :path fits (RFC 9110
  * 4.1). Per request slot, so x WIRED_SRVLOOP_MAX_STREAMS x connections. */
 #define BODYWIN_CAP 10240
+_Static_assert(BODYWIN_CAP % 8 == 0, "bits_shift_down slides whole bytes");
 
 /** wired_srvloop_stream_slot.continue_len's "100 already tried" bit. */
 #define SRVLOOP_CONTINUE_TRIED 0x8000

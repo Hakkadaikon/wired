@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/body_window.h"
 
+#include "common/bytes/util/bits.h"
 #include "common/bytes/varint/varint.h"
 #include "test.h"
 
@@ -93,6 +94,38 @@ static void test_bodywin_fin_gap(void) {
   CHECK(bodywin_fin_gap(&w));
   bodywin_land(&w, buf, 1, wired_span_of(d + 1, 1), 0);
   CHECK(!bodywin_fin_gap(&w));
+}
+
+/* bits_shift_down (util/bits.h, shared by the request and WT windows)
+ * matches a bit-at-a-time shift for every shift amount, including whole
+ * bytes and past the end. */
+static void test_bits_shift_down_matches_bitwise(void) {
+  for (usz n = 0; n < 70; n++) {
+    u8 a[8], b[8], ok = 1;
+    for (usz i = 0; i < 8; i++) {
+      a[i] = b[i] = (u8)(i * 37 + 11);
+    }
+    bits_shift_down(b, 64, n);
+    for (usz i = 0; i < 64; i++) {
+      ok &= bits_get(b, i) == (i + n < 64 && bits_get(a, i + n));
+    }
+    CHECK(ok);
+  }
+}
+
+/* bits_fill sets exactly [lo, lo + n), whole bytes and partial edges
+ * alike, for every start and length across a few bytes. */
+static void test_bits_fill_exact(void) {
+  for (usz lo = 0; lo < 20; lo++) {
+    for (usz n = 0; n < 30; n++) {
+      u8 m[8] = {0}, ok = 1;
+      bits_fill(m, lo, n);
+      for (usz i = 0; i < 64; i++) {
+        ok &= bits_get(m, i) == (i >= lo && i < lo + n);
+      }
+      CHECK(ok);
+    }
+  }
 }
 
 /* S2: a header split one byte per packet is consumed only once whole. */
@@ -496,6 +529,8 @@ void test_body_window(void) {
   test_bodywin_gap_not_parsed();
   test_bodywin_retransmit_keeps_first_bytes();
   test_bodywin_fin_gap();
+  test_bits_shift_down_matches_bitwise();
+  test_bits_fill_exact();
   test_bodywin_split_header();
   test_bodywin_slides_to_partial_header();
   test_bodywin_fin_inside_frame_is_error();
