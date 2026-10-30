@@ -110,6 +110,11 @@ typedef struct {
    * 0 means 0 (blocked until a capsule raises it); while 0, a zero limit
    * means "none received", i.e. unlimited. */
   int flow_control;
+  /** Which opening of this storage the session is: set by the server loop
+   * when it opens the session (unique within its env), 0 once it is
+   * released. A wired_wt_ref compares it to tell a stale reference from the
+   * session that later reuses the same storage. */
+  u32 gen;
 } wired_wt_session;
 
 /** Reset s to WIRED_WT_UNESTABLISHED, empty of any buffered stream/datagram,

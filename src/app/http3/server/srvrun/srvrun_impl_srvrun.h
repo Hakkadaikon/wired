@@ -1118,6 +1118,9 @@ struct wired_srvrun_env {
   /* Issue #182: the run's own copy of the id, obs paths and WebTransport
    * subprotocol list it was started with (srvrun_own_config). */
   srvrun_own own;
+  /* The last wired_wt_session.gen handed out (srvrun_wt_stamp): each
+   * opened session takes the next non-zero value. */
+  u32 wt_gen_last;
   /* wired_srvrun_handler.on_body_abort, copied onto each connection's loop
    * at accept (kept here, not in srvrun_cfg, which the run builds once). */
   wired_srvloop_on_body_abort on_body_abort;

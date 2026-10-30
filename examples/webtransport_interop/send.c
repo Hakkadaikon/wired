@@ -52,18 +52,22 @@ static void send_gets_bidi(wired_wt_session* s) {
  * ever queues more than DG_WINDOW packets. */
 #define DG_WINDOW 8
 
-static wired_wt_session* g_dg_sess;     /* the one DG_SEND session per run */
-static usz               g_dg_req_next; /* next file index not yet requested */
-static u8                g_dg_done[FILES_MAX];
+static wired_wt_ref g_dg_ref;      /* the one DG_SEND session per run */
+static usz          g_dg_req_next; /* next file index not yet requested */
+static u8           g_dg_done[FILES_MAX];
 
 static void dg_request_one(usz i) {
+  wired_wt_session* s = wired_wt_ref_get(g_dg_ref); /* 0 once it closed */
+  if (!s) {
+    return;
+  }
   wired_server_wt_send_datagram_to(
-      g_dg_sess, wired_span_of(wti_get[i], wti_get_len[i]));
+      s, wired_span_of(wti_get[i], wti_get_len[i]));
 }
 
 static void send_gets_dg(wired_wt_session* s) {
-  usz w     = wti_nfiles < DG_WINDOW ? wti_nfiles : DG_WINDOW;
-  g_dg_sess = s;
+  usz w    = wti_nfiles < DG_WINDOW ? wti_nfiles : DG_WINDOW;
+  g_dg_ref = wired_wt_ref_of(s);
   for (g_dg_req_next = 0; g_dg_req_next < w; g_dg_req_next++) {
     dg_request_one(g_dg_req_next);
   }

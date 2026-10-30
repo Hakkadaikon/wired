@@ -82,6 +82,31 @@ typedef void (*wired_wt_on_stream_reset)(
 typedef void (*wired_wt_on_session)(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
+/** A WebTransport session reference an application can keep across steps
+ * (in a timer, a queue, its own per-session table): the session plus which
+ * opening of its storage it was. A session's storage is reused once it
+ * closes, so a bare wired_wt_session* kept past its close would act on
+ * whichever session opened there next; resolve a kept reference with
+ * wired_wt_ref_get each time it is used instead. */
+typedef struct {
+  wired_wt_session* s;   /**< the session as handed to the app */
+  u32               gen; /**< its opening (wired_wt_session.gen) */
+} wired_wt_ref;
+
+/** A reference to s, a session the run handed to the app (a callback's
+ * argument, or a wired_wt_ref_get result), to keep across steps.
+ * @param s an open session
+ * @return the reference */
+wired_wt_ref wired_wt_ref_of(wired_wt_session* s);
+
+/** Resolve r: its session while it is still open on a live connection of
+ * the calling worker's run, else 0 -- after it closed, and also after a
+ * new session reused its storage, so a stale reference is refused instead
+ * of acting on another peer. Resolve once per step, not per packet.
+ * @param r a reference from wired_wt_ref_of, or zeroed (resolves to 0)
+ * @return the session, or 0 when r is stale */
+wired_wt_session* wired_wt_ref_get(wired_wt_ref r);
+
 /** App-facing notification that a WebTransport session ended server-side:
  * its own CONNECT stream closed, it violated a WT flow-control limit, the
  * server sent WT_CLOSE_SESSION, or its whole connection tore down (peer

@@ -107,6 +107,7 @@ void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c) {
     srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, i));
     wired_wt_session_close(srvrun_wt_slot(c, i));
     (*srvrun_wt_active_slot(c, i)) = 0;
+    srvrun_wt_slot(c, i)->gen      = 0;
   }
 }
 

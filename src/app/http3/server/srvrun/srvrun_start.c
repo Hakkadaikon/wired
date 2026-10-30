@@ -65,6 +65,7 @@ static void srvrun_wt_session_open(
   wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
   srvrun_wt_seed_limits(c, srvrun_wt_slot(c, sidx));
   wired_wt_session_establish(srvrun_wt_slot(c, sidx));
+  srvrun_wt_stamp(cfg->env, srvrun_wt_slot(c, sidx));
   (*srvrun_wt_active_slot(c, sidx)) = 1;
   c->wt_sess_window_count++;
   cfg->env->wt_usage.sessions++;

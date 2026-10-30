@@ -75,8 +75,9 @@ void srvrun_send_app_close(
 usz  srvrun_send_continue(const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id);
 void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason);
-wired_wt_session*       srvrun_wt_slot(srvrun_conn* c, int i);
-int*                    srvrun_wt_active_slot(srvrun_conn* c, int i);
+wired_wt_session* srvrun_wt_slot(srvrun_conn* c, int i);
+void              srvrun_wt_stamp(wired_srvrun_env* env, wired_wt_session* s);
+int*              srvrun_wt_active_slot(srvrun_conn* c, int i);
 const wired_wt_session* srvrun_wt_slot_c(const srvrun_conn* c, int i);
 int                     srvrun_wt_is_active(const srvrun_conn* c, int i);
 int  srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id);

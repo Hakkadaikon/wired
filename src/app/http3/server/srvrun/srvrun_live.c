@@ -24,6 +24,7 @@ static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
   }
   wired_wt_session_init(&c->wt, RAWQ_NO_CONNECT_ID);
   wired_wt_session_establish(&c->wt);
+  srvrun_wt_stamp(cfg->env, &c->wt);
   c->wt_active = 1;
   cfg->env->wt_usage.sessions++;
   srvrun_raw_notify(cfg, c);
