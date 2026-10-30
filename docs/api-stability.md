@@ -63,6 +63,7 @@ driver functions) or a pure function with no rules that span several calls
 | `wired_srvdriver_parse`, `wired_srvdriver_run` | Recommended entry point: parse driver flags, run one of four drivers. |
 | `wired_server_run` | Run a complete single-process server until killed. |
 | `wired_server_run_opt` | `wired_server_run` plus opt-in settings in `wired_srvrun_opt`. |
+| `wired_server_run_id` | The identity the calling worker's run serves (its start-time copy, updated by a certificate reload). |
 | `wired_srvrun_handler` (struct) | Your callback and its context, passed to the run functions. |
 
 - `wired_srvdriver_parse` reads the driver flags (`--port`, `--workers`,
@@ -411,7 +412,10 @@ sequenceDiagram
   Negotiation, and compatible version negotiation (RFC 9368) only picks
   from the set. `wired_srvboot_vneg` takes the same bits.
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
-  are views; keep them alive for the call. Start from a zeroed struct
+  are views; keep them alive for the call. `wired_server_run` and its
+  variants copy the id, its chain and `raw_alpns`, the obs paths and
+  `wt_protocols` at start and never read them again, so they may live on
+  the caller's stack. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
   to off: `reset_seed` is the stateless-reset secret (0 uses
   `cert_seed`; `wired_srvrun_serve_env` pins it to a copy of the start-time

@@ -168,7 +168,11 @@ xychart-beta
 
 The connection count multiplies everything above. Each extra connection
 costs **6,826,764 B (6.51 MiB)**: the 5.89 MiB connection slot plus its
-response storage and table entry. About 1.6 MiB is fixed per worker.
+response storage and table entry. About 1.6 MiB is fixed per worker. That
+includes the run's own copy of the identity and paths it was started with
+(`srvrun_own`, about 34 KiB: a 16 KiB certificate chain, four 4 KiB paths,
+two 512-byte id lists and the keys), so nothing the run reads lives in the
+caller's memory.
 
 ```text
 bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.51 MiB

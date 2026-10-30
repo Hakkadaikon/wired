@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_cid.h"
 #include "app/http3/server/srvrun/srvrun_impl_dgent.h"
+#include "app/http3/server/srvrun/srvrun_impl_own.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
 #include "app/http3/server/srvrun/srvrun_impl_rst.h"
 #include "transport/recovery/detect/recovery/rtt.h"
@@ -1112,6 +1113,9 @@ struct wired_srvrun_env {
    * tokens derive from (srvrun_pin_reset_seed), kept apart from the
    * id->cert_seed a SIGHUP reload rewrites. */
   u8 reset_seed[SRESET_KEY];
+  /* Issue #182: the run's own copy of the id, obs paths and WebTransport
+   * subprotocol list it was started with (srvrun_own_config). */
+  srvrun_own own;
   /* wired_srvrun_handler.on_body_abort, copied onto each connection's loop
    * at accept (kept here, not in srvrun_cfg, which the run builds once). */
   wired_srvloop_on_body_abort on_body_abort;

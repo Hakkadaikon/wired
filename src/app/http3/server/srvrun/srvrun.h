@@ -292,26 +292,41 @@ typedef struct {
  *
  * Certificate hot reload (SIGHUP): when obs.cert_path/key_path are both set,
  * installs a SIGHUP handler; on receipt, re-reads and re-decodes the PEM pair
- * and updates *id in place (chain/chain_count/cert_seed only) so every
+ * and updates the run's identity (chain/chain_count/cert_seed only) so every
  * connection cold-started afterward uses the new material. A connection
- * already past its handshake never re-reads id, so a reload never disturbs
- * it. `id` is therefore NOT const: the caller must keep it (and its backing
- * PEM-derived buffers) alive and mutable for the whole run. A reload that
- * fails to read or decode the new PEM pair leaves the previous identity in
- * place.
+ * already past its handshake never re-reads it, so a reload never disturbs
+ * it. A reload that fails to read or decode the new PEM pair leaves the
+ * previous identity in place.
+ *
+ * The run copies *id (its keys, ids, certificate chain and raw_alpns) and
+ * obs's paths into its own storage at start and never reads the caller's
+ * memory again, so they may live on the caller's stack. Larger than that
+ * storage refuses the run: a chain of more than TLS_CERT_CHAIN_MAX entries
+ * or 16384 DER bytes, a raw_alpns list of 512 bytes or more, a path of
+ * 4096 bytes or more.
  * @param port UDP port to bind
- * @param id the fixed server identity; updated in place on a SIGHUP reload
+ * @param id the fixed server identity, copied at start
  * @param h the application's request responder
  * @param obs optional qlog/keylog file paths and cert reload paths, each 0
  *   to disable
- * @return 0 if the ticket/Retry seed draw fails (srvkeys) or the socket
- *   cannot be opened or bound; otherwise runs until
- *   shutdown completes (SIGTERM) or the process is killed. */
+ * @return 0 if the ticket/Retry seed draw fails (srvkeys), id or obs does
+ *   not fit the run's own storage, or the socket cannot be opened or bound;
+ *   otherwise runs until shutdown completes (SIGTERM) or the process is
+ *   killed. */
 int wired_server_run(
     u16                  port,
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs);
+
+/** The identity the calling worker's run is serving: its own copy of the id
+ * it was started with, updated by a SIGHUP certificate reload. Valid from a
+ * hook the run calls (on_step, a handler) until the run returns, under
+ * wired_server_run(_opt) and the threads driver's workers; a run on an env
+ * of the caller's own (wired_srvrun_serve_env) must have called
+ * wired_srvrun_broadcast_register first, or this names g_srvrun_env's.
+ * @return the run's identity; never 0 */
+const wired_srvboot_id* wired_server_run_id(void);
 
 /** Opt-in polling-driver knobs, both off (0) by default so
  * wired_server_run's behavior is unchanged. */
@@ -366,7 +381,8 @@ typedef struct {
    * SS3.4): the server's own supported subprotocols as a space-separated
    * string, 0 to disable (the default) -- with 0, an Extended CONNECT's
    * wt-available-protocols offer is ignored and the 2xx carries no
-   * wt-protocol header, exactly the pre-negotiation behavior. */
+   * wt-protocol header, exactly the pre-negotiation behavior. Copied at
+   * start (under 512 bytes, or the run is refused). */
   const char* wt_protocols;
   /** Session-established notification, 0 to disable (the default) -- called
    * once per accepted Extended CONNECT, after its 2xx response is built,

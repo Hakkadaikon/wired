@@ -28,7 +28,8 @@ srvrun_cfg srvrun_build_cfg(
     wired_srvboot_id*       id,
     wired_srvrun_handler    h,
     wired_srvrun_obs        obs,
-    const wired_srvrun_opt* opt) {
+    const wired_srvrun_opt* opt,
+    const char*             wt_protocols) {
   return (srvrun_cfg){
       srvrun_listen(port, opt),
       id,
@@ -48,7 +49,7 @@ srvrun_cfg srvrun_build_cfg(
       env,
       opt->no_signal_handlers,
       opt->core_id,
-      opt->wt_protocols,
+      wt_protocols,
       opt->wt_on_session,
       opt->wt_session_ctx,
       opt->force_retry,

@@ -2612,6 +2612,92 @@ static void test_srvrun_conn_wipe_skips_clean_tables(void) {
   CHECK(sr_tables_are(c, 0));
 }
 
+/* Issue #182: srvrun_own_config leaves nothing of the run pointing into
+ * the caller's memory -- the id, its keys and chain, the ALPN and
+ * WebTransport lists and the obs paths are copied into env->own, so the
+ * caller's buffers going out of scope (here: overwritten) changes nothing
+ * the run reads. */
+static void test_srvrun_own_config_copies(void) {
+  u8                key[32], scid[8] = {1, 2, 3, 4, 5, 6, 7, 8}, der[300];
+  char              alpns[] = "moqt-22 moqt-19", wtp[] = "moqt-22";
+  char              qlog[] = "/tmp/q.sqlog";
+  wired_span        chain[2];
+  wired_srvboot_id  id  = {0};
+  wired_srvboot_id* idp = &id;
+  wired_srvrun_obs  obs = {0};
+  const char*       wt  = wtp;
+  for (usz i = 0; i < sizeof der; i++) {
+    der[i] = (u8)i;
+  }
+  bytes_memset(key, 0x42, sizeof key);
+  chain[0]       = wired_span_of(der, 100);
+  chain[1]       = wired_span_of(der + 100, 200);
+  id.priv        = key;
+  id.ticket_key  = key;
+  id.scid        = scid;
+  id.scid_len    = sizeof scid;
+  id.chain       = chain;
+  id.chain_count = 2;
+  id.raw_alpns   = alpns;
+  obs.qlog_path  = qlog;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
+  bytes_memset(der, 0, sizeof der);
+  bytes_memset(key, 0, sizeof key);
+  bytes_memset(scid, 0, sizeof scid);
+  bytes_memset(alpns, 0, sizeof alpns);
+  bytes_memset(wtp, 0, sizeof wtp);
+  bytes_memset(qlog, 0, sizeof qlog);
+  chain[1] = wired_span_of(0, 0);
+  CHECK(idp == &g_srvrun_env.own.id && idp->chain_count == 2);
+  CHECK(idp->chain[1].n == 200 && idp->chain[1].p[0] == 100);
+  CHECK(idp->chain[0].p == g_srvrun_env.own.chain_der);
+  CHECK(idp->priv[31] == 0x42 && idp->ticket_key[0] == 0x42);
+  CHECK(idp->scid[7] == 8 && idp->pub == 0);
+  CHECK(strcmp(idp->raw_alpns, "moqt-22 moqt-19") == 0);
+  CHECK(
+      strcmp(wt, "moqt-22") == 0 && strcmp(obs.qlog_path, "/tmp/q.sqlog") == 0);
+  CHECK(obs.keylog_path == 0);
+  CHECK(wired_server_run_id() == &g_srvrun_env.own.id);
+}
+
+/* Issue #182: what does not fit the owned storage refuses the run rather
+ * than silently keeping a view: an over-long chain (entries or bytes), ALPN
+ * list, path or retry ODCID. */
+static void test_srvrun_own_config_refuses_oversize(void) {
+  static u8         big[SRVRUN_OWN_CHAIN_CAP + 1];
+  static char       path[SRVRUN_OWN_PATH_CAP + 1];
+  wired_span        one = wired_span_of(big, sizeof big);
+  wired_span        many[TLS_CERT_CHAIN_MAX + 1];
+  wired_srvboot_id  id;
+  wired_srvboot_id* idp;
+  wired_srvrun_obs  obs = {0};
+  const char*       wt  = 0;
+  for (usz i = 0; i < TLS_CERT_CHAIN_MAX + 1; i++) {
+    many[i] = wired_span_of(big, 1);
+  }
+  bytes_memset(path, 'a', SRVRUN_OWN_PATH_CAP);
+  id  = (wired_srvboot_id){.chain = &one, .chain_count = 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id = (wired_srvboot_id){.chain = many, .chain_count = TLS_CERT_CHAIN_MAX + 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id  = (wired_srvboot_id){.retry_odcid_len = WIRED_MAX_CID_LEN + 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id            = (wired_srvboot_id){0};
+  idp           = &id;
+  obs.cert_path = path;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  obs          = (wired_srvrun_obs){0};
+  id.raw_alpns = path + SRVRUN_OWN_PATH_CAP - SRVRUN_OWN_LIST_CAP;
+  idp          = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id.raw_alpns = path + SRVRUN_OWN_PATH_CAP - (SRVRUN_OWN_LIST_CAP - 1);
+  idp          = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
+}
+
 /* Append a minimal well-formed (undecryptable) Handshake long-header packet
  * at off: byte0 0xE0, version 1, the given DCID, no SCID, a 5-byte body.
  * Returns the new datagram length. */
@@ -24528,7 +24614,8 @@ static void test_srvrun_handler_on_body_reaches_cfg(void) {
   srvrun_cfg           cfg;
   opt.incoming_cpu = -1;
   opt.core_id      = -1;
-  cfg = srvrun_build_cfg(&g_srvrun_env, 0, 0, h, (wired_srvrun_obs){0}, &opt);
+  cfg              = srvrun_build_cfg(
+      &g_srvrun_env, 0, 0, h, (wired_srvrun_obs){0}, &opt, opt.wt_protocols);
   CHECK(cfg.on_body == sr_on_body);
   if (cfg.fd >= 0) {
     wired_udp_close(cfg.fd);
@@ -27554,6 +27641,8 @@ void test_srvrun(void) {
   test_srvrun_free_slot_releases_pages();
   test_srvrun_conn_wipe_skips_clean_tables();
   test_srvrun_zero_release_survives_madvise_failure();
+  test_srvrun_own_config_copies();
+  test_srvrun_own_config_refuses_oversize();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();
   test_srvrun_unconfirmed_close_all_levels();

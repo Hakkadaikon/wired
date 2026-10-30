@@ -147,6 +147,22 @@ static inline usz wired_cstr_len(const char* s) {
 }
 
 /**
+ * Bounded NUL-terminated string length: stops at cap when no NUL comes
+ * first, so a caller can tell an over-long string (result == cap).
+ *
+ * @param s NUL-terminated string
+ * @param cap most bytes to look at
+ * @return bytes before the NUL, or cap
+ */
+static inline usz wired_cstr_nlen(const char* s, usz cap) {
+  usz n = 0;
+  while (n < cap && s[n]) {
+    n++;
+  }
+  return n;
+}
+
+/**
  * ASCII lowercase of one octet (A-Z -> a-z, everything else unchanged).
  *
  * @param c input octet

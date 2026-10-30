@@ -710,6 +710,8 @@
 #include "app/http3/server/srvrun/srvrun_path_chal.c"
 #include "app/http3/server/srvrun/srvrun_peer.c"
 #include "app/http3/server/srvrun/srvrun_persistent.c"
+#include "app/http3/server/srvrun/srvrun_own.c"
+#include "app/http3/server/srvrun/srvrun_own_str.c"
 #include "app/http3/server/srvrun/srvrun_pin.c"
 #include "app/http3/server/srvrun/srvrun_pmtu.c"
 #include "app/http3/server/srvrun/srvrun_polling.c"
