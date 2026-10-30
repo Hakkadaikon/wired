@@ -47,8 +47,7 @@ static void priupdate_dispatch(wired_srvloop* l, const u8* frame, usz len) {
   int                       got = 0;
   wired_h3reqdrive_req      req = {0};
   wired_srvloop_dispatch_in in  = {
-      wired_span_of(frame, len), wired_mspan_of(0, 0), wired_mspan_of(0, 0),
-      &got, &req};
+      wired_span_of(frame, len), wired_mspan_of(0, 0), &got, &req};
   wired_srvloop_dispatch(&(wired_srvloop_dispatch_ctx){0, 0, 0, l}, &in);
 }
 

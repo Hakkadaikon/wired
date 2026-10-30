@@ -17,10 +17,6 @@
 /** wired_srvloop_stream_slot.continue_len's "100 already tried" bit. */
 #define SRVLOOP_CONTINUE_TRIED 0x8000
 
-/** A slot's req_wrap: the whole window re-wrapped as one STREAM frame,
- * whose header takes at most 32 more bytes. */
-#define BODYWIN_WRAP_CAP (BODYWIN_CAP + 32)
-
 /** Lifecycle of a streamed request body. */
 enum {
   BODYWIN_OPEN = 0,    /**< still receiving */

@@ -22,6 +22,14 @@ int wired_h3srv_on_request(
     const wired_h3srv_req_in* in,
     wired_h3reqdrive_req*     req);
 
+/* RFC 9114 4.1. wired_h3srv_on_request over the request stream's bytes
+ * themselves (no STREAM framing), decoded in place against st's dynamic
+ * table (in->dyn is ignored). req's body views into in->h3. */
+int wired_h3srv_on_request_raw(
+    wired_h3srv_state*            st,
+    const wired_h3reqdrive_h3_in* in,
+    wired_h3reqdrive_req*         req);
+
 /** The request stream to reply on and the response to build. */
 typedef struct {
   u64         stream_id;

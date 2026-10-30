@@ -19524,8 +19524,7 @@ static void sr_wtcap_dispatch(srvrun_conn* c, u64 from, wired_span bytes) {
   int                       got = 0;
   wired_h3reqdrive_req      req = {0};
   wired_srvloop_dispatch_in in  = {
-      wired_span_of(frame, n), wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got,
-      &req};
+      wired_span_of(frame, n), wired_mspan_of(0, 0), &got, &req};
   wired_srvloop_dispatch_ctx ctx = {0, 0, 0, &c->l};
   CHECK(n != 0);
   wired_srvloop_dispatch(&ctx, &in);

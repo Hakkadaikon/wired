@@ -301,7 +301,7 @@ The order of the crypto steps cannot change, on either side:
 The main symbols on this path are `hspkt_onertt_open_suite` (receive) and
 `hspkt_onertt_build_suite` (send) in `src/transport/packet/build/hspkt/`,
 with the cipher dispatch in `src/transport/packet/protect/`. The HTTP/3
-side starts at `wired_h3srv_on_request`, and the handler is called from
+side starts at `wired_h3srv_on_request_raw`, and the handler is called from
 `srvrun_call_handler`.
 
 ## How a packet reaches the application: I/O drivers

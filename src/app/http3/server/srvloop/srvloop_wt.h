@@ -142,10 +142,15 @@ static inline u64 wired_srvloop_stream_limit(u64 configured) {
  * again once its request has been answered (mirroring the old single-slot
  * re-arm in wired_srvloop_step). */
 typedef struct {
-  int in_use;               /**< 0 = free slot */
-  u64 stream_id;            /**< the client bidi stream id this slot
-                               reassembles */
-  wired_h3reqdrive_req req; /**< the decoded request, valid once req_done */
+  int in_use;    /**< 0 = free slot */
+  u64 stream_id; /**< the client bidi stream id this slot
+                    reassembles */
+  /** the decoded request, valid once req_done. Its literal values view into
+   * req_scratch; its body views into req_buf, decoded in place. req_buf's
+   * received bytes are never rewritten (body_window.c keeps the first copy),
+   * so the view holds until the step's end re-arms the slot and a later
+   * step lands the stream's next bytes. */
+  wired_h3reqdrive_req req;
   /** backing store for req's path/body views; sized to the advertised
    * SETTINGS_MAX_FIELD_SECTION_SIZE (one shared constant) so any field
    * section the peer kept within our limit decodes without truncation */
@@ -165,11 +170,6 @@ typedef struct {
    * produced. Distinguishes "answered" from "must be aborted with
    * H3_REQUEST_INCOMPLETE" for whichever layer reaps this slot. */
   int req_incomplete;
-  /** backing store for req's path/body views once decoded (see
-   * drive_complete in dispatch.c); must outlive the decode call, so it lives
-   * here rather than a stack local that dies on return; it re-wraps the
-   * whole req_buf window as one STREAM frame (<= 32 bytes of header) */
-  u8 req_wrap[BODYWIN_WRAP_CAP];
   /** RFC 9218 4.1/7.1: this stream's current response priority, applied by a
    * PRIORITY_UPDATE frame on the peer's control stream (see
    * wired_srvloop_priority_apply) and defaulted (u=3, i=0) whenever the slot
@@ -228,7 +228,7 @@ typedef struct {
  * webtrans-http3-15 4.3) one connection can reassemble. Separate from
  * WIRED_SRVLOOP_MAX_STREAMS/wired_srvloop_stream_slot: a WT bidi stream's
  * bytes past the leading 0x41 signal are raw application data with no HTTP/3
- * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields.
+ * HEADERS/DATA framing, so they need no req_scratch/req_buf-shaped fields.
  * 24: a MoQT session (draft-ietf-moq-transport-19) keeps one request stream
  * open per live PUBLISH / SUBSCRIBE / PUBLISH_NAMESPACE /
  * SUBSCRIBE_NAMESPACE -- a 4-person moqt_chat room needs ~16 per browser

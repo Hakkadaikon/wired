@@ -7,20 +7,21 @@ static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched);
 static int  qdec_table_used(const wired_srvloop* l);
 static int  qdec_settle(wired_srvloop* l, int i);
 
-/* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
- * (offset 0) into in->wrap and drive the HTTP/3 request decoder once. req's
- * path/body views end up pointing into in->wrap, so it must be caller-owned
- * storage that outlives this call (a stack local here would dangle by the
- * time the handler reads req). */
+/* RFC 9114 4.1: drive the HTTP/3 request decoder once over the reassembled
+ * stream bytes in place. req's body view points into acc->buf, which the
+ * caller owns and leaves unchanged while req is in use (a request is decoded
+ * only from stream offset 0, before any of its window slides). */
 void srvloop_drive_complete(
     wired_h3srv_state*               h3,
     wired_srvloop_reqacc*            acc,
     const wired_srvloop_dispatch_in* in) {
-  stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
-  wired_obuf   ob = obuf_of(in->wrap.p, in->wrap.n);
-  *acc->done      = 1;
-  if (appdata_stream_frame(&f, &ob)) {
-    dispatch_stream(h3, wired_span_of(in->wrap.p, ob.len), in);
+  *acc->done = 1;
+  if (dispatch_stream(h3, wired_span_of(acc->buf, *acc->len), *acc->fin, in) &&
+      srvloop_req_method_is_connect(in->req)) {
+    /* RFC 9110 9.3.6: a CONNECT has no content; its DATA is tunnel payload
+     * whose window slides as capsules are read, so no view may stay. */
+    in->req->body     = 0;
+    in->req->body_len = 0;
   }
 }
 
@@ -28,10 +29,10 @@ void srvloop_drive_complete(
  * parse acc's reassembled bytes as a single "GET <path>\r\n" request line
  * (no QPACK/HEADERS framing at all -- the accumulated bytes ARE the
  * request line). On a valid line, sets *in->req's path (a view into acc's
- * own storage, which outlives this call the same way in->wrap does for the
- * H3 path) and marks the request complete; an invalid line marks acc done
- * without producing a request (the stream is spent either way, matching
- * srvloop_drive_complete's "decode at most once" contract). */
+ * own storage, which outlives this call as it does for the H3 path) and marks
+ * the request complete; an invalid line marks acc done without producing a
+ * request (the stream is spent either way, matching srvloop_drive_complete's
+ * "decode at most once" contract). */
 void srvloop_drive_complete_hq09(
     wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
   wired_span path;

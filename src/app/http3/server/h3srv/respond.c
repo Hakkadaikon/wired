@@ -1,18 +1,35 @@
 #include "app/http3/server/h3srv/respond.h"
 
 #include "app/http3/core/h3conn/response.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9114 4.1 */
-int wired_h3srv_on_request(
-    wired_h3srv_state*        st,
-    const wired_h3srv_req_in* in,
-    wired_h3reqdrive_req*     req) {
-  if (!wired_h3reqdrive_recv_get_dyn(
-          in->stream_data, in->scratch, &st->qdyn, req)) {
+int wired_h3srv_on_request_raw(
+    wired_h3srv_state*            st,
+    const wired_h3reqdrive_h3_in* in,
+    wired_h3reqdrive_req*         req) {
+  wired_h3reqdrive_h3_in d = *in;
+  d.dyn                    = &st->qdyn;
+  if (!wired_h3reqdrive_recv_h3(&d, req)) {
     return 0;
   }
   st->request_seen = 1;
   return 1;
+}
+
+/* RFC 9114 4.1: unwrap the request STREAM frame, then decode its bytes. */
+int wired_h3srv_on_request(
+    wired_h3srv_state*        st,
+    const wired_h3srv_req_in* in,
+    wired_h3reqdrive_req*     req) {
+  stream_frame           f;
+  wired_h3reqdrive_h3_in d;
+  if (!frame_get_stream(in->stream_data.p, in->stream_data.n, &f)) {
+    return 0;
+  }
+  d = (wired_h3reqdrive_h3_in){
+      wired_span_of(f.data, (usz)f.length), f.fin, in->scratch, 0};
+  return wired_h3srv_on_request_raw(st, &d, req);
 }
 
 /* RFC 9114 4.1 / 6.2.1: own SETTINGS-first and a received request are both

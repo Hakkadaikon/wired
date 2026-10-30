@@ -104,7 +104,7 @@ static int rawq_test_dispatch(u8 alpn, int* got) {
   stream_frame         su  = {2, 0, sizeof uni, uni, 0};
   stream_frame         sb  = {0, 0, sizeof bidi, bidi, 1};
   wired_h3reqdrive_req req = {0};
-  u8                   scratch[256], wrap[256];
+  u8                   scratch[256];
   usz                  acc_len  = 0;
   u8                   acc_fin  = 0;
   int                  acc_done = 0;
@@ -117,8 +117,7 @@ static int rawq_test_dispatch(u8 alpn, int* got) {
   n                       = frame_put_stream(pl, sizeof pl, &su);
   n += frame_put_stream(pl + n, sizeof pl - n, &sb);
   in = (wired_srvloop_dispatch_in){
-      wired_span_of(pl, n), wired_mspan_of(scratch, sizeof scratch),
-      wired_mspan_of(wrap, sizeof wrap), got, &req};
+      wired_span_of(pl, n), wired_mspan_of(scratch, sizeof scratch), got, &req};
   *got = 0;
   return wired_srvloop_dispatch(
       &(wired_srvloop_dispatch_ctx){

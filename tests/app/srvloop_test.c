@@ -71,12 +71,6 @@ static wired_srvloop_reqacc lp_reqacc(wired_srvloop* l) {
   return acc;
 }
 
-/* View slot 0's re-wrap buffer (RFC 9000 2.2), the caller-owned storage a
- * direct wired_srvloop_dispatch call needs for in->wrap. */
-static wired_mspan lp_wrap0(wired_srvloop* l) {
-  return wired_mspan_of(l->streams[0].req_wrap, sizeof l->streams[0].req_wrap);
-}
-
 struct lp_fix {
   wired_server  s;
   wired_srvloop l;
@@ -1261,7 +1255,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f->l);
     wired_srvloop_dispatch_in in  = {
         wired_span_of(payload, plen), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f->l), &got, &req};
+        &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc, 0}, &in) == 1);
@@ -1310,8 +1304,8 @@ static void test_srvloop_connect_drives_without_fin(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch), &got,
+        &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -1362,8 +1356,8 @@ static void test_srvloop_get_still_waits_for_fin(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch), &got,
+        &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -1480,7 +1474,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         wired_span_of(payload, plen), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -1645,7 +1639,7 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         wired_span_of(payload, off), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -1683,7 +1677,7 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         wired_span_of(payload, off), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -2065,6 +2059,83 @@ static usz lp_stream_frame_at(
     u8        fin) {
   stream_frame sf = {stream_id, offset, data_len, data, fin};
   return frame_put_stream(out, cap, &sf);
+}
+
+/* One request stream's bytes exactly filling the request window
+ * (BODYWIN_CAP, the production constant): a POST's HEADERS frame, then one
+ * DATA frame whose body takes every byte left. Body byte i is (u8)(i * 7).
+ * Returns the body length; *body_at is its stream offset. */
+static usz lp_window_edge_post(u8* out, usz* body_at) {
+  u8                       reqb[256];
+  stream_frame             sf;
+  h3_frame                 hf = {0};
+  usz                      n  = 0, blen;
+  wired_h3reqdrive_send_in in = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"h", 1), wired_span_of(0, 0)};
+  wired_obuf rob = {reqb, sizeof reqb, 0};
+  CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
+  CHECK(frame_get_stream(reqb, rob.len, &sf) > 0);
+  n = h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
+  CHECK(n > 0 && hf.type == H3_FRAME_HEADERS);
+  for (usz i = 0; i < n; i++) {
+    out[i] = sf.data[i];
+  }
+  blen = BODYWIN_CAP - n - 1 - 2; /* DATA type, 2-byte length varint */
+  n += varint_encode(out + n, H3_FRAME_DATA);
+  n += varint_encode(out + n, blen);
+  CHECK(n + blen == BODYWIN_CAP);
+  *body_at = n;
+  for (usz i = 0; i < blen; i++) {
+    out[n + i] = (u8)(i * 7);
+  }
+  return blen;
+}
+
+/* Seal and step one 1-RTT packet carrying payload pl. */
+static void lp_step_payload(struct lp_fix* f, u64 pn, const u8* pl, usz n) {
+  static u8  spkt[1400], out[1024];
+  usz        sl = client_seal_onertt_pn(f, pn, pl, n, spkt, sizeof spkt);
+  wired_obuf ob = {out, sizeof out, 0};
+  CHECK(sl != 0);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, sl), &ob);
+}
+
+/* RFC 9000 2.2 / RFC 9114 4.1: a request filling the window to its last byte
+ * arrives as many STREAM frames in reverse offset order (FIN first). It
+ * decodes only once the gap closes, and the body is byte-identical to what
+ * was sent -- even though the datagram that closes the gap also carries a
+ * retransmission with different bytes at offsets already received (RFC 9000
+ * 2.2 "MUST NOT change": the first copy is kept, so the decoded body view
+ * into the window is not rewritten before the server reads it). */
+static void test_srvloop_request_reverse_chunks_to_window_edge(void) {
+  static u8     s[BODYWIN_CAP], bogus[100], pl[1200];
+  struct lp_fix f;
+  u8            out[1024];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           at, blen = lp_window_edge_post(s, &at), chunk = 1000, n;
+  u64           pn  = 3;
+  usz           off = (BODYWIN_CAP - 1) / chunk * chunk;
+  lp_confirm(&f, &ob);
+  for (usz i = 0; i < sizeof bogus; i++) {
+    bogus[i] = (u8)~s[at + i];
+  }
+  for (; off > 0; off -= chunk) {
+    usz len = off + chunk > BODYWIN_CAP ? BODYWIN_CAP - off : chunk;
+    n       = lp_stream_frame_at(
+        pl, sizeof pl, 0, off, s + off, len, off + len == BODYWIN_CAP);
+    lp_step_payload(&f, pn++, pl, n);
+    CHECK(f.l.got_request == 0);
+  }
+  n = lp_stream_frame_at(pl, sizeof pl, 0, 0, s, chunk, 0);
+  n += lp_stream_frame_at(pl + n, sizeof pl - n, 0, at, bogus, sizeof bogus, 0);
+  lp_step_payload(&f, pn, pl, n);
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req.body_len == blen && f.l.req.body != 0);
+  for (usz i = 0; f.l.req.body && i < f.l.req.body_len; i++) {
+    CHECK(f.l.req.body[i] == (u8)(i * 7));
+  }
 }
 
 /* WINDOW UNIT TESTS (draft-ietf-webtrans-http3-15 4.3 / RFC 9000 2.2): direct
@@ -2976,14 +3047,6 @@ static usz lp_b2_request(u8* out, usz cap) {
   return frame_put_stream(out, cap, &sf);
 }
 
-static void lp_step_payload(struct lp_fix* f, u64 pn, const u8* p, usz n) {
-  u8         out[1024], spkt[1024];
-  wired_obuf ob   = {out, sizeof out, 0};
-  usz        slen = client_seal_onertt_pn(f, pn, p, n, spkt, sizeof spkt);
-  wired_srvloop_step(
-      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen), &ob);
-}
-
 /* RFC 9204 4.2 / 4.4.1: encoder-stream bytes split over three packets, the
  * last two arriving in reverse order, still apply; the section referencing
  * the two inserts then decodes and owes a Section Acknowledgment for
@@ -3723,7 +3786,7 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in2 = {
         wired_span_of(payload, rlen), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in2) == 1);
@@ -3802,7 +3865,7 @@ static void test_srvloop_dispatch_split_request_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         wired_span_of(payload, hl + dl),
-        wired_mspan_of(scratch, sizeof scratch), lp_wrap0(&f.l), &got, &req};
+        wired_mspan_of(scratch, sizeof scratch), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -3830,16 +3893,16 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     wired_srvloop_reqacc acc = lp_reqacc(&f.l);
     /* datagram 1: HEADERS only, no FIN -> accumulated, no request yet. */
     wired_srvloop_dispatch_in in1 = {
-        wired_span_of(hp, hl), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        wired_span_of(hp, hl), wired_mspan_of(scratch, sizeof scratch), &got,
+        &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in1) == 1);
     CHECK(got == 0);
     /* datagram 2: DATA at offset hb, FIN -> request completes with body. */
     wired_srvloop_dispatch_in in2 = {
-        wired_span_of(dp, dl), wired_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        wired_span_of(dp, dl), wired_mspan_of(scratch, sizeof scratch), &got,
+        &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in2) == 1);
@@ -7274,6 +7337,7 @@ void test_srvloop(void) {
   test_srvloop_wt_window_stale_write_dropped();
   test_srvloop_wt_window_spans_several_windows_in_order();
   test_srvloop_wt_bidi_stream_not_request();
+  test_srvloop_request_reverse_chunks_to_window_edge();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
   test_srvloop_wt_stream_concurrent_with_request();

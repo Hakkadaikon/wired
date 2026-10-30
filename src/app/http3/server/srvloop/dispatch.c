@@ -90,14 +90,16 @@ static int is_request_frame(
   return srvloop_is_stream(type) && stream_is_request(l, frame, rem);
 }
 
-/* RFC 9114 4.1: hand the (reassembled) request STREAM frame to the HTTP/3
- * request decoder. */
+/* RFC 9114 4.1: hand the reassembled request-stream bytes to the HTTP/3
+ * request decoder; fin: they reach the stream's end (0 for a CONNECT,
+ * complete at its HEADERS). */
 int dispatch_stream(
     wired_h3srv_state*               h3,
-    wired_span                       frame,
+    wired_span                       bytes,
+    int                              fin,
     const wired_srvloop_dispatch_in* in) {
-  wired_h3srv_req_in rin = {frame, in->scratch};
-  if (!wired_h3srv_on_request(h3, &rin, in->req)) {
+  wired_h3reqdrive_h3_in rin = {bytes, fin, in->scratch, 0};
+  if (!wired_h3srv_on_request_raw(h3, &rin, in->req)) {
     return 0;
   }
   *in->got_request = 1;
@@ -195,22 +197,17 @@ static const qpack_dyn* dispatch_qdyn(const wired_h3srv_state* h3) {
   return h3 ? &h3->qdyn : 0;
 }
 
-/* Wrap acc's first n bytes as a STREAM frame in in->wrap (the same caller-
- * owned buffer srvloop_drive_complete reuses right after) and decode the
- * request into *r against the connection's dynamic table (RFC 9204 2.2: the
- * peer's encoder may reference it in any section, the CONNECT included).
- * Returns 1 on a successful decode. */
+/* Decode acc's first n bytes (not yet the stream's end) in place into *r
+ * against the connection's dynamic table (RFC 9204 2.2: the peer's encoder
+ * may reference it in any section, the CONNECT included). Returns 1 on a
+ * successful decode. */
 int srvloop_peek_decode_request(
     const wired_h3srv_state*         h3,
     const wired_srvloop_reqacc*      acc,
     const wired_srvloop_dispatch_in* in,
     usz                              n,
     wired_h3reqdrive_req*            r) {
-  stream_frame f  = {0, 0, n, acc->buf, 0};
-  wired_obuf   ob = obuf_of(in->wrap.p, in->wrap.n);
-  if (!appdata_stream_frame(&f, &ob)) {
-    return 0;
-  }
-  return wired_h3reqdrive_recv_get_dyn(
-      wired_span_of(in->wrap.p, ob.len), in->scratch, dispatch_qdyn(h3), r);
+  wired_h3reqdrive_h3_in rin = {
+      wired_span_of(acc->buf, n), 0, in->scratch, dispatch_qdyn(h3)};
+  return wired_h3reqdrive_recv_h3(&rin, r);
 }
