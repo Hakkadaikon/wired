@@ -121,9 +121,9 @@ untagged) [^pq-img].
 | QUIC DATAGRAM (RFC 9221) | ✅ [^w-dgram] | ✅ [^qg-readme] | ✅ [^qc-dgram] | ✅ [^ng-readme] | ✅ [^pq-readme] |
 | 0-RTT | ✅ interop-proven (`zerortt` PASS vs quic-go) [^w-interop] | ✅ [^qg-0rtt] | ✅ (`enable_early_data`) [^qc-0rtt] | ✅ [^ng-0rtt] | ✅ [^pq-0rtt] |
 | Key Update (RFC 9001 §6) | ✅ interop-proven both directions [^w-interop] | ✅ initiates + responds [^qg-ku] | Partial — responds to peer-initiated only, no local-initiate API [^qc-ku] | ✅ (`ngtcp2_conn_initiate_key_update`) [^ng-ku] | ✅ (`picoquic_start_key_rotation`) [^pq-ku] |
-| ECN | Partial — ECT(0) sent, ACK ECN counts validated per RFC 9000 13.4.2 and fed to congestion control (unit-tested); no third-party E2E verdict (peer limitation) [^w-interop] | ✅ on by default [^qg-ecn] | — (sending ECN not supported) [^qc-ecn] | ✅ (validation state machine) [^ng-ecn] | ✅ (ACK_ECN + counters) [^pq-ecn] |
-| Connection migration (server-side path validation) | Partial — implemented; E2E unverdictable (tooling/peer limitations) [^w-interop] | ✅ [^qg-mig] | ✅ [^qc-mig] | ✅ [^ng-mig] | ✅ [^pq-mig] |
-| QUIC v2 (RFC 9369) | Partial — implemented + unit-proven; no third-party E2E (peer limitation) [^w-interop] | ✅ [^qg-readme] | — (v1 only) [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
+| ECN | ✅ interop-proven — ECT(0) sent, ACK ECN counts validated per RFC 9000 13.4.2 and fed to congestion control; `ecn` passes against ngtcp2, picoquic, neqo, lsquic, quinn and s2n-quic (2026-10-27) [^w-interop] | ✅ on by default [^qg-ecn] | — (sending ECN not supported) [^qc-ecn] | ✅ (validation state machine) [^ng-ecn] | ✅ (ACK_ECN + counters) [^pq-ecn] |
+| Connection migration (server-side path validation) | ✅ interop-proven — `rebind-port`/`rebind-addr` pass against 14 clients; `connectionmigration` passes against 5 and fails against 9 (2026-10-27) [^w-interop] | ✅ [^qg-mig] | ✅ [^qc-mig] | ✅ [^ng-mig] | ✅ [^pq-mig] |
+| QUIC v2 (RFC 9369) | ✅ interop-proven — `v2` passes against ngtcp2, kwik, picoquic, aioquic, neqo and lsquic (2026-10-27) [^w-interop] | ✅ [^qg-readme] | — (v1 only) [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
 | MOQT | ✅ draft-ietf-moq-transport-18/19/22, server/relay role over WebTransport; the draft is chosen per session from the WT subprotocol (`moqt-18`/`moqt-19`/`moqt-22`, offered via `wired_moqt_wt_protocols`), draft-19 when none is negotiated [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
 
 What the row names mean:
@@ -420,7 +420,7 @@ well below quic-go's (77.0 µs); at `110c020`, before the fix, it was 55.0
 µs. CPU% is the share of the server's
 single pinned core busy during the load rounds.
 
-## Interop test cases (previous snapshot, not re-run)
+## Interop test cases
 
 A benchmark only counts if the server also behaves correctly toward a
 client it did not write. These are the interop test cases the speed lanes
@@ -429,25 +429,20 @@ above rely on: the connection setup (`handshake`), HTTP/3 requests
 (`transfer`), and recovery after the link drops every packet for a while
 (`blackhole`).
 
-These results are from commit `9d21db9` (client: quic-go, runner commit
-`1d6f655`). At `110c020` only `handshake` was re-run (`✓(H)`, log
-`logs_2026-10-27T02:01:06` in the runner checkout) and the `goodput`
-measurement completed for every server above. The full re-run of the matrix
-on 2026-10-27 was stopped during its first testcase because the machine
-ran low on memory, so the table below is the old one:
+These results are from the CI run of 2026-10-27 at wired `d32fccff5`
+([run](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893)), client quic-go:
 
 | Test case | Result | Note |
 |---|---|---|
-| `handshake` | ✅ | |
-| `http3` | ✅ | |
-| `multiplexing` | ✅ | |
-| `transfer` | ✅ | |
-| `blackhole` | ✅ | |
+| `handshake` | ✅ | passes against all 14 clients that run it |
+| `http3` | ✅ | passes against all 13 clients that run it |
+| `multiplexing` | ✅ | fails against xquic only |
+| `transfer` | ✅ | passes against all 14 clients that run it |
+| `blackhole` | ✅ | passes against all 14 clients that run it |
 
-Full per-testcase status (broader set, including WebTransport) is
-maintained separately in [Interop Results](../interop.md); the five rows above
-are the ones this comparison's benchmarks depend on and were independently
-re-verified for the 2026-08-16 snapshot.
+Full per-testcase status across all 15 clients (249 passed, 28 failed, 53
+unsupported, testcase cells only), plus WebTransport and the MoQT relay, is maintained in
+[Interop Results](../interop.md).
 
 ## WebTransport and MOQT
 
@@ -471,12 +466,16 @@ reports 11 objects sent) and clean close — a first control-plane interop
 against an independent implementation. Object delivery through the relay to
 an imquic subscriber (data plane) did **not** complete and is unverified; 2
 of 7 sessions also ended in a `Protocol Violation` close. No speed comparison
-is published for MOQT. This section is carried forward unchanged from the
-2026-08-04 survey; it was not re-run for this update. (At that time wired
+is published for MOQT. The survey above is carried forward unchanged from
+2026-08-04; the relay's current interop results follow at the end of this
+section. (At that time wired
 spoke draft-19 only; it now also negotiates draft-18 and draft-22 per
 session, and `examples/moqt_interop` is run as a relay against the
 [moq-interop-runner](https://github.com/englishm/moq-interop-runner)
 clients — see [`interop/README.md`](../../interop/README.md).)
+In the 2026-10-27 run the relay passed 11 of 14 moq-interop-runner clients
+over WebTransport and 13 of 14 over raw QUIC; see
+[Interop Results](../interop.md#moqt-relay-server-wired--14-clients).
 
 ## Environment
 
@@ -784,9 +783,9 @@ cert.pem --key key.pem` (single-process) or `--ifindex <n> --ip <server-ip>
     [RFC 9297](../features/rfc9297.md); `transfer-datagram-receive`
     interop PASS.
 [^w-interop]: [Interop Results](../interop.md) — `zerortt`, `keyupdate`,
-    `chacha20` PASS vs quic-go; `ecn`, `v2`, `connectionmigration` are
-    implemented but carry no third-party verdict (peer/tooling limitations,
-    detailed there).
+    `chacha20` PASS vs quic-go; `ecn` and `v2` pass against six other
+    clients each, `rebind-*` against 14 and `connectionmigration` against
+    5 (2026-10-27 CI run, detailed there).
 [^w-moqt]: `src/app/moqt/` (fourteen modules at `HEAD`: `cache`, `ctl`,
     `data`, `dgram`, `fetch`, `kvp`, `ns`, `qraw`, `run`, `sess`, `ssts`,
     `tstat`, `ver`, `vi`) +
