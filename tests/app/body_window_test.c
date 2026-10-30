@@ -66,6 +66,35 @@ static void test_bodywin_gap_not_parsed(void) {
   CHECK(r.got[0] == 'a' && r.got[1] == 'b' && r.fins[0] == 0);
 }
 
+/* RFC 9000 2.2: a retransmission carrying different bytes at an offset
+ * already received does not rewrite them (data "MUST NOT change"), so a
+ * view decoded from the window stays what was first received. */
+static void test_bodywin_retransmit_keeps_first_bytes(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w        = {0};
+  u8        first[2] = {'a', 'b'}, again[3] = {'x', 'y', 'z'};
+  bodywin_land(&w, buf, 0, wired_span_of(first, 2), 0);
+  bodywin_land(&w, buf, 0, wired_span_of(again, 3), 0);
+  CHECK(buf[0] == 'a' && buf[1] == 'b' && buf[2] == 'z');
+  CHECK(bodywin_frontier(&w) == 3);
+}
+
+/* RFC 9000 2.2: a known final size with a byte still missing before it is a
+ * gap; no FIN, or every byte up to the final size, is not. */
+static void test_bodywin_fin_gap(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w    = {0};
+  u8        d[4] = {1, 2, 3, 4};
+  bodywin_land(&w, buf, 2, wired_span_of(d + 2, 2), 0);
+  CHECK(!bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 2, wired_span_of(d + 2, 2), 1);
+  CHECK(bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 0, wired_span_of(d, 1), 0);
+  CHECK(bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 1, wired_span_of(d + 1, 1), 0);
+  CHECK(!bodywin_fin_gap(&w));
+}
+
 /* S2: a header split one byte per packet is consumed only once whole. */
 static void test_bodywin_split_header(void) {
   static u8 buf[BODYWIN_CAP];
@@ -465,6 +494,8 @@ static void test_bodywin_capsule_reject(void) {
 void test_body_window(void) {
   test_bodywin_cap_holds_largest_header();
   test_bodywin_gap_not_parsed();
+  test_bodywin_retransmit_keeps_first_bytes();
+  test_bodywin_fin_gap();
   test_bodywin_split_header();
   test_bodywin_slides_to_partial_header();
   test_bodywin_fin_inside_frame_is_error();

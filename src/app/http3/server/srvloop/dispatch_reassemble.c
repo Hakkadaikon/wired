@@ -135,9 +135,11 @@ static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
   return 1;
 }
 
-/* Slot i is on the streaming-body path, or was answered for overflowing. */
+/* Slot i is on the streaming-body path, was answered for overflowing, or
+ * still waits for bytes before its FIN (decoding now would read the gap). */
 static int route_answered_early(const wired_srvloop_dispatch_ctx* ctx, int i) {
-  return route_body(ctx, i) || srvloop_route_complete_over(ctx, i);
+  return route_body(ctx, i) || srvloop_route_complete_over(ctx, i) ||
+         bodywin_fin_gap(&ctx->l->streams[i].body);
 }
 
 /* Decode slot i's request if it just completed, using the slot's OWN

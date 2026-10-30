@@ -69,6 +69,10 @@ void bodywin_land(bodywin* w, u8* buf, u64 off, wired_span data, int fin);
 /** Contiguous received bytes from buf[0]. */
 usz bodywin_frontier(const bodywin* w);
 
+/** RFC 9000 2.2: 1 if the final size is known but a byte before it has not
+ * arrived yet (the FIN-carrying frame overtook a lost one). */
+int bodywin_fin_gap(const bodywin* w);
+
 /** Slide n consumed bytes out of the window: base += n. */
 void bodywin_consume(bodywin* w, u8* buf, usz n);
 

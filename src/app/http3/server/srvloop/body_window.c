@@ -3,6 +3,7 @@
 static int  bodywin_bit(const bodywin* w, usz i);
 static void bodywin_set(bodywin* w, usz i, int v);
 static int  bodywin_in(const bodywin* w, u64 off);
+static int  bodywin_fresh(const bodywin* w, u64 off);
 static void bodywin_put(bodywin* w, u8* buf, u64 off, u8 v);
 static int  bodywin_bit_at(const bodywin* w, usz i);
 
@@ -20,8 +21,15 @@ static int bodywin_in(const bodywin* w, u64 off) {
   return off >= w->base && off - w->base < BODYWIN_CAP;
 }
 
+/* RFC 9000 2.2: data at an offset "MUST NOT change if it is sent multiple
+ * times", so the first copy of a byte is kept: a decoded request's body
+ * views into buf, and a retransmission must not rewrite it underneath. */
+static int bodywin_fresh(const bodywin* w, u64 off) {
+  return bodywin_in(w, off) && !bodywin_bit(w, (usz)(off - w->base));
+}
+
 static void bodywin_put(bodywin* w, u8* buf, u64 off, u8 v) {
-  if (!bodywin_in(w, off)) {
+  if (!bodywin_fresh(w, off)) {
     return;
   }
   buf[off - w->base] = v;
@@ -44,6 +52,10 @@ usz bodywin_frontier(const bodywin* w) {
     n++;
   }
   return n;
+}
+
+int bodywin_fin_gap(const bodywin* w) {
+  return w->fin && w->base + bodywin_frontier(w) < w->fin_off;
 }
 
 /* have[] bit i, 0 past the window. */
