@@ -127,6 +127,16 @@ static inline i64 wired_arch_munmap(i64 addr, usz len) {
   return syscall2(SYS_munmap, addr, (i64)len);
 }
 
+/** x86_64 base page size (the granule madvise(2) works in). */
+#define WIRED_ARCH_PAGE 4096
+/** madvise(2) advice MADV_DONTNEED (asm-generic/mman-common.h). */
+#define WIRED_ARCH_MADV_DONTNEED 4
+
+/** madvise(2). */
+static inline i64 wired_arch_madvise(i64 addr, usz len, i64 advice) {
+  return syscall3(SYS_madvise, addr, (i64)len, advice);
+}
+
 /** exit(2): ends the calling thread (last thread ends the process). */
 static inline i64 wired_arch_exit(i64 code) { return syscall1(SYS_exit, code); }
 
