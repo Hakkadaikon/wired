@@ -113,6 +113,14 @@ class AssignTest(unittest.TestCase):
         errs = vc.check([("a.h", left)], [])
         self.assertTrue(any("naming no view member: gone" in e for e in errs))
 
+    def test_multi_line_signature_parameter(self):
+        src = (
+            "int g(int q) { return q; }\n\nvoid f(\n    wired_srvrun_env* q,\n"
+            "    usz n) {\n  u8 buf[8];\n  q->key = buf;\n}\n"
+        )
+        errs = vc.check([("a.h", HEADER)], [("c.c", src)])
+        self.assertIn("c.c:7: stored view `key` set from local array `buf`", errs)
+
     def test_local_scope_wins_over_file_scope(self):
         src = "int g(int q) { return q; }\nvoid f(wired_srvrun_env* q) {\n  u8 buf[8];\n  q->key = buf;\n}\n"
         errs = vc.check([("a.h", HEADER)], [("b.c", src)])

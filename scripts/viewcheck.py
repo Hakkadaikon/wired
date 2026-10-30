@@ -44,6 +44,7 @@ LOCAL = re.compile(
 )
 NAMES = re.compile(r"\b(\w+)\s*\[[^\]]+\]")
 LITERAL = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'')
+END = re.compile(r"^\s*$|^\}|.*[;}]\s*$")
 ASSIGN = re.compile(r"(\w+)(?:\[[^\]]*\])*(?:\.|->)(\w+)\s*=(?!=)\s*([^;]*);")
 
 
@@ -77,13 +78,28 @@ def locals_in(body):
 def assign_errors(ctx, body, first):
     """Rule 2 over one function body starting at line number first."""
     errs, local = [], locals_in(body)
-    fctx = dict(ctx, body="\n".join(body))
+    fctx = dict(ctx, body="\n".join(signature(ctx["lines"], first) + body))
     for k, line in enumerate(body):
         errs += [
             f"{ctx['path']}:{first + k}: stored view `{m}` set from local array `{a}`"
             for m, a in hits(fctx, line, local)
         ]
     return errs
+
+
+def signature(lines, first):
+    """The lines of a multi-line parameter list above the body's `{` line
+    (first is 1-based), back to a blank or a closing line."""
+    i = first - 1
+    while i > 0 and head_line(lines[i - 1]):
+        i -= 1
+    return lines[i : first - 1]
+
+
+def head_line(line):
+    """A line that can still belong to a parameter list: not blank, not a
+    closing brace, not the end of a statement or of a previous body."""
+    return END.match(line) is None
 
 
 def hits(ctx, line, local):
@@ -145,7 +161,7 @@ def source_errors(base, sources):
     return [
         e
         for path, text in sources
-        for e in file_errors(dict(base, path=path, text=text))
+        for e in file_errors(dict(base, path=path, text=text, lines=text.split("\n")))
     ]
 
 
