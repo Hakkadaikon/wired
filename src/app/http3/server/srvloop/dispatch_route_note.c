@@ -190,8 +190,8 @@ usz srvloop_route_body_head_len(const wired_srvloop_stream_slot* slot) {
   if (slot->req_done) {
     return 0;
   }
-  return wired_h3reqdrive_headers_end(
-      wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)));
+  return wired_h3reqdrive_headers_end(wired_span_of(
+      slot->req_buf, bodywin_clip(&slot->body, bodywin_frontier(&slot->body))));
 }
 
 /* RFC 9114 4.1: decode slot's leading n-byte HEADERS frame alone into

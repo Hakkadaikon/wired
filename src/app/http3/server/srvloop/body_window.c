@@ -46,10 +46,15 @@ static void bodywin_set_fin(bodywin* w, u64 end) {
   w->fin = 1;
 }
 
+/* Bytes from base up to the final size, 0 once base has passed it. */
+static u64 bodywin_fin_room(const bodywin* w) {
+  return w->fin_off > w->base ? w->fin_off - w->base : 0;
+}
+
 /* RFC 9000 4.5: n buffered bytes cut to the final size once it is known --
  * bytes past it were never part of the stream. */
 usz bodywin_clip(const bodywin* w, usz n) {
-  return w->fin ? (usz)u64_min(n, w->fin_off - w->base) : n;
+  return w->fin ? (usz)u64_min(n, bodywin_fin_room(w)) : n;
 }
 
 usz bodywin_frontier(const bodywin* w) {

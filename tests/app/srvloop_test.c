@@ -2190,7 +2190,9 @@ static int lp_done_body_is_aa(const struct lp_fix* f) {
 
 /* RFC 9114 4.1.2 / 7.1: the final size fell inside the DATA frame after a
  * whole HEADERS, so stream 0 ended mid-frame: never answered, but listed
- * incomplete with its malformed bit (aborted with H3_MESSAGE_ERROR). */
+ * incomplete with its malformed bit (aborted with H3_MESSAGE_ERROR). This
+ * pins current behavior: 7.1 calls a truncated frame H3_FRAME_ERROR, which
+ * the streaming path raises; the buffered path's stream error differs. */
 static void lp_check_cut_short(const struct lp_fix* f) {
   CHECK(f->l.incomplete_n == 1);
   CHECK(f->l.streams[f->l.incomplete_slots[0]].stream_id == 0);
@@ -2297,6 +2299,28 @@ static void test_srvloop_body_stream_second_fin_keeps_final_size(void) {
   CHECK(g_lp_body.fins == 0);
   CHECK(f.l.req_frame_error == 1);
   CHECK(f.l.done_n == 0);
+}
+
+/* RFC 9000 4.5 / RFC 9114 7.1, streaming: a FIN inside the HEADERS frame
+ * ends the stream mid-frame; bytes past it never complete the HEADERS, so
+ * nothing is decoded, on_body sees nothing, and the stream is listed
+ * incomplete rather than left waiting. */
+static void test_srvloop_body_stream_fin_inside_headers(void) {
+  struct lp_fix   f;
+  u8              out[1024], raw[256];
+  wired_obuf      ob  = {out, sizeof out, 0};
+  h3req_pseudo_in pin = lp_pin(0);
+  usz             n   = lp_raw_request(&pin, raw, sizeof raw);
+  usz             cut = n - 4 - 3;
+  lp_confirm_streaming(&f, &ob);
+  lp_route_at(&f, cut, raw, 0, 1);
+  lp_route_at(&f, cut, raw + cut, n - cut, 0);
+  lp_route_at(&f, 0, raw, cut, 0);
+  CHECK(g_lp_body.bytes == 0);
+  CHECK(g_lp_body.fins == 0);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.streams[f.l.incomplete_slots[0]].stream_id == 0);
 }
 
 /* RFC 9110 9.3.6: a CONNECT has no content, so its DATA (tunnel payload) is
@@ -7563,6 +7587,7 @@ void test_srvloop(void) {
   test_srvloop_request_second_fin_keeps_final_size();
   test_srvloop_body_stream_stops_at_final_size();
   test_srvloop_body_stream_second_fin_keeps_final_size();
+  test_srvloop_body_stream_fin_inside_headers();
   test_srvloop_connect_drops_body_view();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
