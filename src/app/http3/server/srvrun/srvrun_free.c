@@ -163,11 +163,7 @@ static void srvrun_zero_release(void* p, usz n) {
  * next claim skips them (tables_dirty); nothing reads them while the slot
  * is down. */
 void srvrun_release_tables(wired_srvrun_env* env, srvrun_conn* c, int i) {
-  srvrun_zero_release(c->l.streams, sizeof c->l.streams);
-  srvrun_zero_release(c->l.wt_streams, sizeof c->l.wt_streams);
-  srvrun_zero_release(c->l.wt_uni_streams, sizeof c->l.wt_uni_streams);
-  srvrun_zero_release(c->l.rx_datagrams, sizeof c->l.rx_datagrams);
-  srvrun_zero_release(c->wtsend, sizeof c->wtsend);
+  srvrun_tables_each(c, srvrun_zero_release);
   srvrun_zero_release(env->respstore[i], sizeof env->respstore[i]);
   c->tables_dirty = 0;
 }

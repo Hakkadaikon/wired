@@ -52,6 +52,14 @@ _Static_assert(
             __builtin_offsetof(srvrun_conn, wtsend),
     "srvrun_tables[] must list the tables in member order");
 
+/* Apply fn to each of c's big tables (srvrun_tables[]): the one list both
+ * the release and the claim-time skip walk. */
+void srvrun_tables_each(srvrun_conn* c, void (*fn)(void* p, usz n)) {
+  for (usz i = 0; i < sizeof srvrun_tables / sizeof srvrun_tables[0]; i++) {
+    fn((u8*)c + srvrun_tables[i].off, srvrun_tables[i].len);
+  }
+}
+
 /* Zero c for a claim. Tables still zero since their release are skipped:
  * rewriting them would fault megabytes of released pages back in. */
 static void srvrun_conn_wipe(srvrun_conn* c) {

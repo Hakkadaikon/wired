@@ -1,6 +1,9 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot);
+static void srvrun_path_tick_slot(const srvrun_step_ctx* ctx, int slot);
+static void srvrun_tick_tasks(const srvrun_step_ctx* ctx, int slot);
+static int  srvrun_tick_freed(const srvrun_conn* c, u8 dirty);
 static int  srvrun_boot_zerortt(srvrun_conn* c, wired_mspan dg);
 static int  srvrun_unconfirmed_up(const srvrun_conn* c);
 static int  srvrun_boot_hold_early(srvrun_conn* c, wired_mspan dg);
@@ -35,16 +38,33 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
     return;
   }
   ctx->st->conns[slot].l.now_ms = ctx->now_ms; /* sends below record it */
-  srvrun_loss_timer_slot(ctx, slot);
-  srvrun_ack_tick_slot(ctx, slot);
-  srvrun_pto_slot(ctx, slot);
-  srvrun_send_tick_slot(ctx, slot);
-  srvrun_boot_pto_slot(ctx, slot);
-  srvrun_grant_retry_slot(ctx, slot);
-  srvrun_rst_retry_slot(ctx, slot);
-  srvrun_dg_slot(ctx, slot);
-  srvrun_wt_app_pending_slot(ctx, slot);
+  srvrun_tick_tasks(ctx, slot);
+}
+
+static void srvrun_path_tick_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_path_tick(ctx, &ctx->st->conns[slot]);
+}
+
+/* c was claimed (dirty) when the tick began and has been freed since. */
+static int srvrun_tick_freed(const srvrun_conn* c, u8 dirty) {
+  return dirty && !c->tables_dirty;
+}
+
+/* Run slot's tick tasks in order, stopping once one of them freed the slot
+ * (its released tables then stay zero until the next claim, Issue #174). */
+static void srvrun_tick_tasks(const srvrun_step_ctx* ctx, int slot) {
+  static void (*const task[])(const srvrun_step_ctx*, int) = {
+      srvrun_loss_timer_slot, srvrun_ack_tick_slot, srvrun_pto_slot,
+      srvrun_send_tick_slot,  srvrun_boot_pto_slot, srvrun_grant_retry_slot,
+      srvrun_rst_retry_slot,  srvrun_dg_slot,       srvrun_wt_app_pending_slot,
+      srvrun_path_tick_slot};
+  u8 dirty = ctx->st->conns[slot].tables_dirty;
+  for (usz k = 0; k < sizeof task / sizeof task[0]; k++) {
+    if (srvrun_tick_freed(&ctx->st->conns[slot], dirty)) {
+      return;
+    }
+    task[k](ctx, slot);
+  }
 }
 
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the

@@ -2521,6 +2521,37 @@ static void test_srvrun_boot_blocked_replay_sends_hs_probe(void) {
   }
 }
 
+/* RFC 9000 8.1: with budget to spare the replay itself goes out -- the
+ * Initial and every cached Handshake datagram -- and no extra Handshake
+ * probe follows it (no new packet number is spent). */
+static void test_srvrun_boot_replay_ample_budget_no_probe(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 3 * 1220);
+    u64             pn  = c->l.hs_tx_pn;
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 1);
+    CHECK(srvrun_test_send_count() == 1 + c->boot_dgram_count);
+    CHECK(c->l.hs_tx_pn == pn);
+  }
+}
+
+/* A WebTransport session generation is never 0 (a released reference),
+ * so the step after the largest wraps to 1. */
+static void test_srvrun_wt_gen_next_skips_zero(void) {
+  u32 last = (u32)-1;
+  CHECK(srvrun_wt_gen_next(&last) == 1 && last == 1);
+  last = 0;
+  CHECK(srvrun_wt_gen_next(&last) == 1);
+}
+
 /* Boundary: a budget too small for even the probe sends nothing at all. */
 static void test_srvrun_boot_blocked_replay_tiny_budget_silent(void) {
   wired_srvboot_id id;
@@ -14425,9 +14456,17 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
       now += 1024u << (i + 1); /* each probe doubles the backoff (2^count) */
     }
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
-      srvrun_pto_slot(&tick, 0); /* budget spent: tears the connection down */
+      /* Issue #174: the whole tick stops once its PTO task freed the slot,
+       * so no later task touches the released tables (the grant resend
+       * below is one that would otherwise still be due). */
+      srvrun_step_ctx tick       = {&cfg, 0, &st, now, 0};
+      st.conns[0].tables_dirty   = 1;
+      st.conns[0].grant_retries  = 1;
+      st.conns[0].grant_retry_ms = 0;
+      srvrun_tick_slot(&tick, 0); /* budget spent: tears the connection down */
       CHECK(st.conns[0].up == 0);
+      CHECK(st.conns[0].tables_dirty == 0);
+      CHECK(st.conns[0].grant_retries == 1);
     }
   }
 }
@@ -23750,6 +23789,7 @@ static void test_srvrun_slot_reuse_clears_prior_connection_buffer(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(c->up == 1);
+  CHECK(c->tables_dirty == 1); /* the new claim may dirty its tables */
   CHECK(c->wt_active == 0);
   CHECK(c->resp[0].in_use == 0);
   CHECK(c->l.streams[0].in_use == 0);
@@ -28145,6 +28185,8 @@ void test_srvrun(void) {
   test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address();
   test_srvrun_slow_trickle_preauth_evicted();
   test_srvrun_slot_reuse_clears_prior_connection_buffer();
+  test_srvrun_boot_replay_ample_budget_no_probe();
+  test_srvrun_wt_gen_next_skips_zero();
   test_srvrun_conn_state_growth_bounded_under_worst_case_peer();
   test_srvrun_wt_stream_churn_bounded_by_slot_table();
   test_srvrun_wt_close_session_capsule_received();
