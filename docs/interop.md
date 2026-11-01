@@ -99,7 +99,7 @@ table.
 | `handshakecorruption` | ✅ | same scenario under corruption; passes with the same fixes |
 | `retry` | ✅ | RFC 9000 §8.1.2 forced address validation via `--force-retry` (see notes) |
 | `resumption` | ✅ | PSK-based session resumption over a real second handshake (see notes) |
-| `zerortt` | ✅ | 0-RTT data received and acted on, wired end to end (see notes); fails with mvfst, quiche and msquic ([#177](https://github.com/Hakkadaikon/wired/issues/177)) |
+| `zerortt` | ✅ | 0-RTT data received and acted on, wired end to end (see notes); fails with msquic ([#177](https://github.com/Hakkadaikon/wired/issues/177)); mvfst and quiche not yet triaged |
 | `ecn` | 🟡 | quic-go client declares `unsupported test case: ecn`; passes against ngtcp2, picoquic, neqo, lsquic, quinn and s2n-quic (2026-10-27) |
 | `ipv6` | ✅ | transfer over native IPv6 (see notes) |
 | `v2` | 🟡 | quic-go client declares `unsupported test case: v2`; passes against ngtcp2, kwik, picoquic, aioquic, neqo and lsquic, fails with msquic and quinn (2026-10-27) |
