@@ -96,6 +96,29 @@ static void test_bodywin_fin_gap(void) {
   CHECK(!bodywin_fin_gap(&w));
 }
 
+/* RFC 9000 4.5: with no FIN, n passes unchanged; once the final size is
+ * known, n is cut to fin_off - base (below / at / above it). */
+static void test_bodywin_clip_boundaries(void) {
+  bodywin w = {0};
+  w.base    = 5;
+  CHECK(bodywin_clip(&w, 7) == 7);
+  bodywin_set_fin(&w, 8);
+  CHECK(bodywin_clip(&w, 2) == 2);
+  CHECK(bodywin_clip(&w, 3) == 3);
+  CHECK(bodywin_clip(&w, 4) == 3);
+}
+
+/* RFC 9000 4.5: "Once a final size for a stream is known, it cannot
+ * change" -- a later FIN, larger or smaller, leaves fin_off as set. */
+static void test_bodywin_set_fin_keeps_first(void) {
+  bodywin w = {0};
+  bodywin_set_fin(&w, 10);
+  bodywin_set_fin(&w, 20);
+  CHECK(w.fin == 1 && w.fin_off == 10);
+  bodywin_set_fin(&w, 4);
+  CHECK(w.fin == 1 && w.fin_off == 10);
+}
+
 /* bits_shift_down (util/bits.h, shared by the request and WT windows)
  * matches a bit-at-a-time shift for every shift amount, including whole
  * bytes and past the end. */
@@ -529,6 +552,8 @@ void test_body_window(void) {
   test_bodywin_gap_not_parsed();
   test_bodywin_retransmit_keeps_first_bytes();
   test_bodywin_fin_gap();
+  test_bodywin_clip_boundaries();
+  test_bodywin_set_fin_keeps_first();
   test_bits_shift_down_matches_bitwise();
   test_bits_fill_exact();
   test_bodywin_split_header();
