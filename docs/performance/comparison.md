@@ -19,9 +19,10 @@ is in [Benchmark runs](comparison-runs.md).
 | Server binary (stripped) | **525 KB** (static, no libc) | 6.2 MB | 7.3 MB |
 | Goodput, simulated 10 Mbps link | 9,434 kbps | 9,434 kbps | **9,535 kbps** |
 
-Where wired is behind: a fresh connection's first response (TTFB p50
-2.73 ms against quiche's 1.97 ms) and the p99 latency under load (3.05 ms
-against 2.57 ms).
+Where wired is behind: a fresh connection's first response is the slowest
+of the three (TTFB p50 2.73 ms; quiche 1.97 ms, quic-go 2.64 ms), its p99
+latency under load trails quiche's (3.05 ms against 2.57 ms), and quic-go
+leads on goodput. WebTransport and MOQT speed are not measured.
 
 ## Feature matrix
 
@@ -49,7 +50,8 @@ clients, not only by wired's own tests; see [Interop Results](../interop.md).
 A 10 MB download over the
 [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)'s
 simulated 10 Mbps link, 5 repetitions, quic-go as the client for every
-server. All five are Docker images run the same way.
+server. All five run as the runner's Docker images (wired's built with a
+64-connection table).
 
 | Server | Goodput (kbps) |
 |---|---|
@@ -74,8 +76,10 @@ The link is the bottleneck here, so all five fill it about equally.
 Client and server on one machine (`127.0.0.1`), so what is measured is the
 server's own cost. Each round: 100 requests on fresh connections (TTFB), then
 10,000 small requests over 20 parallel streams (load). 5 rounds per server,
-server pinned to one core, each server at its defaults. ngtcp2 and picoquic
-were not built natively and appear only in the goodput lane.
+server pinned to one core, each server at its defaults (wired advertises
+smaller per-stream windows than the others, sized to its fixed buffers).
+ngtcp2 and picoquic were not built natively and appear only in the goodput
+lane.
 
 | Server | load req/s | load p50 (ms) | load p99 (ms) | TTFB p50 (ms) |
 |---|---|---|---|---|
@@ -116,20 +120,6 @@ xychart-beta
 wired reserves its tables up front (about 29 MB of `bss`), but only pages
 it writes become resident, and a closed connection's pages are handed back
 to the kernel. See [Memory layout](../arch/memory.md).
-
-## Speed: AF_XDP driver over a real NIC (informational)
-
-wired's own AF_XDP driver against its default UDP path, one VM serving a
-1 MiB file to a client across the internet (generic-mode XDP, no
-zero-copy). No other server here has an AF_XDP driver, and this lane needs
-a second machine, so it is not part of the same-day snapshot.
-
-| Driver | req/s | p50 (ms) |
-|---|---|---|
-| UDP (default) | 4.0–4.3 | 787–827 |
-| AF_XDP | 6.6–6.9 | 332–359 |
-
-The AF_XDP driver is not yet recommended for production.
 
 ## Environment and reproduction
 

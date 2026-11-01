@@ -10,7 +10,8 @@ recompute it. Snapshot of 2026-11-02, wired at `efd61452e`.
 Output of `bench/run-lane.sh` for each server, run back-to-back; summarize
 with `node bench/report.mjs speed|usage <file>`. RSS in KiB, `dticks` at
 `hz=100`. The client's UDP-buffer warning (`rmem_max` was 208 KiB) is
-removed from these lines.
+removed from these lines. This is the second of two passes: the first ran
+while the machine was still busy from building quiche and is not used.
 
 ```text
 wired-p2 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=512 vmrss_kb=512
@@ -85,23 +86,3 @@ Berkeley `size(1)`; the stripped size is the file after `strip`.
 | wired_server `efd61452e` | 510,144 | 7,994 | 29,427,736 | 525,040 |
 | qgserver (quic-go v0.61.0) | 6,944,189 | 353,891 | 267,888 | 7,311,104 |
 | quiche-server 0.29.3 | 5,857,037 | 375,456 | 7,648 | 6,237,840 |
-
-## AF_XDP lane
-
-`bench/client/benchclient -mode load -n 50 -c 4` against a 1 MiB file from a
-separate machine, in run order:
-
-```text
-# single-process UDP (default driver)
-mode=load n=50 fails=0 reqps=4.8 p50=673.32 p99=1125.54 cpu%=64
-mode=load n=50 fails=0 reqps=4.3 p50=786.94 p99=1404.71 cpu%=37
-mode=load n=50 fails=0 reqps=4.0 p50=827.48 p99=1492.71 cpu%=34
-
-# AF_XDP driver (--ifindex, --skb-mode)
-warmup failed: Get "https://<host>:4433/1m.bin": timeout: no recent network activity
-mode=load n=50 fails=0 reqps=6.6 p50=358.66 p99=1941.58 cpu%=47
-mode=load n=50 fails=0 reqps=6.9 p50=331.88 p99=1654.54 cpu%=60
-```
-
-The first UDP run ran against older server code and the first AF_XDP attempt
-failed its warmup; the comparison page uses the other two of each.
