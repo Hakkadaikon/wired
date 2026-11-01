@@ -39,7 +39,9 @@ typedef void (*wired_wt_on_datagram)(
  * @param app_ctx opaque context registered alongside this callback
  * @param s the session the stream is associated with
  * @param stream_id the WT bidi/uni stream id
- * @param data the stream's reassembled bytes so far past the signal/type byte
+ * @param data the bytes newly in order since the previous call, past the
+ *   signal/type byte; the FIN can arrive on a later call with no bytes, so
+ *   collect a message until fin=1 before matching it
  * @param fin 1 once the stream's FIN has been seen */
 typedef void (*wired_wt_on_stream_data)(
     void*             app_ctx,
