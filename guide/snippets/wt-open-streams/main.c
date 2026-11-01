@@ -19,15 +19,27 @@ static void on_session(
   g_uni = wired_server_wt_open_uni_stream(s, wired_span_of(buf, n + 7));
 }
 
+/* Each call carries only the bytes newly arrived on the stream, and the FIN
+ * can come on its own call after them, so the word is collected until fin.
+ * The client sends one word at a time, so one buffer is enough. */
+static u8  g_word[8];
+static usz g_word_n;
+
 /* The client drives the open stream over its own bidi requests: "more"
  * appends a round (fin=0, stays open), "bye" appends the closing round
  * (fin=1). Each request gets a short reply once applied. */
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
   (void)ctx;
+  usz room = sizeof g_word - g_word_n;
+  usz n    = data.n < room ? data.n : room;
+  memcpy(g_word + g_word_n, data.p, n);
+  g_word_n += n;
   if (!fin) {
     return;
   }
+  data     = wired_span_of(g_word, g_word_n);
+  g_word_n = 0;
   if (wired_span_eq_cstr(data, "more")) {
     wired_server_wt_stream_send(s, (u64)g_uni, wired_span_cstr("chunk2 "), 0);
   } else if (wired_span_eq_cstr(data, "bye")) {
