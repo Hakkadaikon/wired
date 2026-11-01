@@ -27,4 +27,8 @@ is still in flight.
   `0` right after.
 - The client sends each upload as two separate writes before closing, so
   the server sees two reassembly deltas instead of one -- the `hold` only
-  fires when there is a chunk before the final one.
+  fires when there is a chunk before the final one, and only on the first
+  upload.
+- Each call carries only the bytes new since the previous one, and `fin`
+  can arrive on a call of its own with no bytes, so the example collects a
+  round until `fin` before comparing it with `"abort"`.

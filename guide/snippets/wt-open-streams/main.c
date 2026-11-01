@@ -21,7 +21,8 @@ static void on_session(
 
 /* Each call carries only the bytes newly arrived on the stream, and the FIN
  * can come on its own call after them, so the word is collected until fin.
- * The client sends one word at a time, so one buffer is enough. */
+ * The client sends one word at a time, so one buffer is enough; a longer
+ * word is cut at the buffer and matches neither. */
 static u8  g_word[8];
 static usz g_word_n;
 

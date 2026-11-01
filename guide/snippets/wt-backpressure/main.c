@@ -5,6 +5,7 @@
  * second round below resets. */
 static i64 g_uni  = -1;
 static int g_held = 0;
+static int g_rounds; /* rounds finished so far; only the first is held */
 
 static void on_session(
     void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
@@ -21,8 +22,10 @@ static void on_session(
  * (pausing the peer's send window -- bytes it already has credit for
  * still arrive, nothing new is granted), release once it ends with FIN.
  * The final round's word then exercises reset + inflight on g_uni. */
-static u8  g_word[8]; /* first bytes of the round, enough to spot "abort" */
-static usz g_word_n;  /* the round's total length so far */
+/* The round's first bytes: a round of 8 bytes or more cannot be "abort",
+ * so it is matched as empty. */
+static u8  g_word[8];
+static usz g_word_n; /* the round's total length so far */
 
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
@@ -34,7 +37,7 @@ static void on_stream_data(
   memcpy(g_word + have, data.p, n);
   g_word_n += data.n;
   if (!fin) {
-    if (!g_held) {
+    if (!g_held && g_rounds == 0) {
       wired_server_wt_stream_hold(s, stream_id, 1);
       wired_log_str("held\n");
       g_held = 1;
@@ -48,6 +51,7 @@ static void on_stream_data(
   }
   data     = wired_span_of(g_word, g_word_n < sizeof g_word ? g_word_n : 0);
   g_word_n = 0;
+  g_rounds++;
   if (wired_span_eq_cstr(data, "abort")) {
     wired_server_wt_stream_reset(s, (u64)g_uni, 1);
     wired_log_str("reset\n");
