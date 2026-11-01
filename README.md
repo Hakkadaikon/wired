@@ -106,26 +106,19 @@ HTTP/3 responses over loopback:
 
 | | wired | quiche 0.29.3 | quic-go v0.61.0 |
 |---|---|---|---|
-| Requests per second | **25,731** | 20,023 | 12,544 |
-| Latency under load, p50 | **0.67 ms** | 0.90 ms | 1.40 ms |
-| Server CPU per request | **35.0 µs** | 37.8 µs | 77.0 µs |
-| Memory when idle (RSS) | **516 KiB** | 7,708 KiB | 8,416 KiB |
-| Peak memory under load | **1,936 KiB** | 8,392 KiB | 15,540 KiB |
-| Server binary | **513 KB** (static) | 6.1 MB | 7.3 MB |
+| Requests per second | **23,825** | 22,175 | 12,042 |
+| Latency under load, p50 | **0.71 ms** | 0.81 ms | 1.45 ms |
+| Server CPU per request | **35.4 µs** | 37.2 µs | 79.6 µs |
+| Memory when idle (RSS) | **512 KiB** | 7,804 KiB | 8,424 KiB |
+| Peak memory under load | **1,932 KiB** | 8,468 KiB | 15,340 KiB |
+| Server binary | **525 KB** (static) | 6.2 MB | 7.3 MB |
 
-On a lossy simulated link, all five servers tested (with ngtcp2 and picoquic)
-reach nearly the same goodput (9,103 to 9,540 kbps; wired 9,419).
+On a simulated 10 Mbps link, all five servers tested (with ngtcp2 and
+picoquic) reach nearly the same goodput (9,118 to 9,535 kbps; wired 9,434).
 
-These numbers are a dated snapshot from 2026-10-27, with quic-go and
-quiche measured the same day on the same machine. The loopback rows are
-wired at commit `426127f`; the binary size and goodput were measured at
-`110c020`, two commits earlier. The two memory rows were re-measured on
-2026-11-02 at `efd61452e`, which returns a closed connection's pages to the
-kernel. `426127f` re-measured the same day gives 500 / 6,984 KiB against
-its 504 / 6,984 KiB of 2026-10-27, so the other columns stay comparable.
-[Implementation Comparison](docs/performance/comparison.md) has every lane,
-the full feature matrix, the environment, and the scripts to reproduce the
-numbers.
+Measured 2026-11-02 at `efd61452e`, all servers the same day on the same
+machine. [Implementation Comparison](docs/performance/comparison.md) has
+the feature matrix, every lane and how to reproduce them.
 
 ### Media over QUIC, not only HTTP
 
