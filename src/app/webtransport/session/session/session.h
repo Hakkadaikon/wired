@@ -110,7 +110,23 @@ typedef struct {
    * 0 means 0 (blocked until a capsule raises it); while 0, a zero limit
    * means "none received", i.e. unlimited. */
   int flow_control;
+  /** Which opening of this storage the session is: set by the server loop
+   * when it opens the session (unique within its env), 0 once it is
+   * released. A wired_wt_ref compares it to tell a stale reference from the
+   * session that later reuses the same storage. */
+  u32 gen;
 } wired_wt_session;
+
+/** A WebTransport session reference an application can keep across steps
+ * (in a timer, a queue, its own per-session table): the session plus which
+ * opening of its storage it was. A session's storage is reused once it
+ * closes, so a bare wired_wt_session* kept past its close would act on
+ * whichever session opened there next; resolve a kept reference with
+ * wired_wt_ref_get (srvrun.h) each time it is used instead. */
+typedef struct {
+  wired_wt_session* s;   /**< the session as handed to the app */
+  u32               gen; /**< its opening (wired_wt_session.gen) */
+} wired_wt_ref;
 
 /** Reset s to WIRED_WT_UNESTABLISHED, empty of any buffered stream/datagram,
  * identified by connect_stream_id.

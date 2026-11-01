@@ -16,10 +16,10 @@ import Example from '../../../../components/Example.astro';
 - `wired_server_wt_open_uni(s, payload)` は、サーバーからクライアントへのストリームを開き、`payload` を送って閉じます。
   ペイロードの先頭には、セッションを示す WebTransport のストリームシグナルが必要です。
   `wired_wtwire_signal_put` が、`s->connect_stream_id` からこれを書きます。
-- `wt_on_stream_data` は、クライアントのストリームに届いたバイト列を渡します。
+- `wt_on_stream_data` は、クライアントのストリームのうち、前回の呼び出しから新しく届いたバイト列を渡します。
   クライアントが書き込みを終えると、`fin` が 1 になります。
-  この例は `fin` を待ち、メッセージ全体が 1 つのチャンクで届いたと仮定します。
-  小さなメッセージなら、この仮定は成り立ちます。
+  `data` が空で `fin` だけが 1 の呼び出しが来ることもあります。
+  この例は `fin` までメッセージをためてから、まとめて書き戻します。
 - `wired_server_wt_stream_reply(s, stream_id, data)` は、同じ双方向ストリームに書き戻して閉じます。
   プレフィックスは付きません。
 - データグラムと同じく、WebTransport のストリームにも `id.max_datagram_frame_size` の設定が必要です。

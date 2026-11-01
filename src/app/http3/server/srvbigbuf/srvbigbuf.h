@@ -20,7 +20,8 @@
 #define WIRED_SRVBIGBUF_ROW_CAP ((usz)640 * 1024)
 
 /** Pool over caller-owned storage: rows points at
- * WIRED_SRVBIGBUF_ROWS * row_cap contiguous bytes. */
+ * WIRED_SRVBIGBUF_ROWS * row_cap contiguous bytes.
+ * views: rows=env|caller */
 typedef struct {
   u8* rows;    /**< caller-owned contiguous storage, ROWS * row_cap bytes */
   usz row_cap; /**< bytes per row */

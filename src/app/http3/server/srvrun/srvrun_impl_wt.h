@@ -69,14 +69,16 @@ int  srvrun_seal_close_pl(srvrun_conn* c, wired_span pl, wired_obuf* out);
 void srvrun_close_resend(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_close_send_long(const srvrun_cfg* cfg, srvrun_conn* c);
 usz  srvrun_close_long_frame(const srvrun_conn* c, u8* fr);
+int  srvrun_seal_hs_frames(srvrun_conn* c, wired_span fr, wired_obuf* out);
 int  srvrun_close_send(const srvrun_cfg* cfg, srvrun_conn* c, wired_span pl);
 void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason);
 usz  srvrun_send_continue(const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id);
 void srvrun_send_transport_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason);
-wired_wt_session*       srvrun_wt_slot(srvrun_conn* c, int i);
-int*                    srvrun_wt_active_slot(srvrun_conn* c, int i);
+wired_wt_session* srvrun_wt_slot(srvrun_conn* c, int i);
+void              srvrun_wt_stamp(wired_srvrun_env* env, wired_wt_session* s);
+int*              srvrun_wt_active_slot(srvrun_conn* c, int i);
 const wired_wt_session* srvrun_wt_slot_c(const srvrun_conn* c, int i);
 int                     srvrun_wt_is_active(const srvrun_conn* c, int i);
 int  srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id);

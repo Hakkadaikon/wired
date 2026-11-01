@@ -135,13 +135,15 @@ static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
   return 1;
 }
 
-/* Slot i is on the streaming-body path, or was answered for overflowing. */
+/* Slot i is on the streaming-body path, was answered for overflowing, or
+ * still waits for bytes before its FIN (decoding now would read the gap). */
 static int route_answered_early(const wired_srvloop_dispatch_ctx* ctx, int i) {
-  return route_body(ctx, i) || srvloop_route_complete_over(ctx, i);
+  return route_body(ctx, i) || srvloop_route_complete_over(ctx, i) ||
+         bodywin_fin_gap(&ctx->l->streams[i].body);
 }
 
 /* Decode slot i's request if it just completed, using the slot's OWN
- * scratch/wrap/req storage (each stream's decoded views must stay alive
+ * scratch/req storage (each stream's decoded views must stay alive
  * independently of the others'). */
 void srvloop_route_complete_slot(
     const wired_srvloop_dispatch_ctx* ctx,
@@ -152,10 +154,11 @@ void srvloop_route_complete_slot(
   int                        got  = 0;
   wired_srvloop_dispatch_in  sin  = {
       in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
-      wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
+      &got, &slot->req};
   if (route_answered_early(ctx, i)) {
     return;
   }
+  slot->req_len = bodywin_clip(&slot->body, slot->req_len); /* RFC 9000 4.5 */
   if (!srvloop_request_complete(ctx->h3, &acc, &sin)) {
     srvloop_route_note_qpack(
         ctx->l, i); /* RFC 9204 2.2.3: no FIN may ever come */
@@ -191,7 +194,7 @@ static int reassemble_routed(
 }
 
 /* The single-accumulator (ctx->l == 0) path: the caller owns the acc and the
- * scratch/wrap/req in `in` -- the direct-dispatch test surface. */
+ * scratch/req in `in` -- the direct-dispatch test surface. */
 static int reassemble_single(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {

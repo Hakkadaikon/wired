@@ -10,6 +10,8 @@ void moqtrun_sgt_arm(
     const wired_moqtrun_relay* relay,
     int                        fin);
 void moqtrun_sgt_tick(wired_moqt_hub* hub, u64 now_ms);
+void moqtrun_sgt_drop_wt(wired_moqt_hub* hub, const wired_wt_session* s);
+void moqtrun_dd_drop_session(wired_moqt_hub* hub, usz session_idx);
 usz  moqtrun_upd_msg(
     wired_moqtrun_peer* pp, const moqctl_params* params, u8* msg, usz cap);
 wired_moqtrun_req* moqtrun_pub_req(

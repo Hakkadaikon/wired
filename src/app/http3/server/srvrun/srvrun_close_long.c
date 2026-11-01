@@ -16,8 +16,7 @@ usz srvrun_close_long_frame(const srvrun_conn* c, u8* fr) {
 }
 
 /* Seal fr as its own Handshake packet under the next Handshake pn. */
-static int srvrun_seal_close_hs(
-    srvrun_conn* c, wired_span fr, wired_obuf* out) {
+int srvrun_seal_hs_frames(srvrun_conn* c, wired_span fr, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   protect_keys          pk;
   hspkt_desc            d = {
@@ -84,5 +83,5 @@ void srvrun_close_send_long(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (srvrun_initial_live(c)) {
     srvrun_close_long_send(cfg, c, f, srvrun_seal_close_ini);
   }
-  srvrun_close_long_send(cfg, c, f, srvrun_seal_close_hs);
+  srvrun_close_long_send(cfg, c, f, srvrun_seal_hs_frames);
 }

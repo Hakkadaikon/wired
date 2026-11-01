@@ -20,14 +20,13 @@ typedef struct {
 } wired_srvloop_reqacc;
 
 /** Remaining arguments of wired_srvloop_dispatch beyond s/h3/acc: the opened
- * payload, the request-decode scratch buffer, the re-wrap buffer req's
- * path/body views end up pointing into (must outlive the dispatch call, so
- * it is caller-owned rather than a dispatch-local), and the completed-request
- * outputs. */
+ * payload, the request-decode scratch buffer, and the completed-request
+ * outputs. req's literal values view into scratch and its body into the
+ * accumulator's own buffer, so both are caller-owned and outlive the
+ * dispatch call. */
 typedef struct {
   wired_span            payload;
   wired_mspan           scratch;
-  wired_mspan           wrap;
   int*                  got_request;
   wired_h3reqdrive_req* req;
 } wired_srvloop_dispatch_in;

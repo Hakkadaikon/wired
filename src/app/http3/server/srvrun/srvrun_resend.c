@@ -4,6 +4,7 @@ static int srvrun_resend_hs(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int srvrun_resend_flight_parts(
     const srvrun_step_ctx* ctx, srvrun_conn* c);
 static int  srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms);
+static int  srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static void srvrun_boot_pto_resend(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int fired);
 static void srvrun_boot_give_up_close(
@@ -77,9 +78,31 @@ static int srvrun_resend_flight_parts(
          srvrun_resend_hs(ctx, c);
 }
 
+/* RFC 9002 6.2.4 / RFC 9000 8.1: every cached datagram exceeds the
+ * remaining antiamp budget, but a fresh Handshake PING still fits -- send it
+ * so the client answers with a Handshake packet, which validates its
+ * address (hs_rx_seen). Without it the server fell silent with budget left
+ * and msquic idled out while the amplificationlimit testcase dropped its
+ * own probes. */
+static int srvrun_boot_hs_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  static const u8 ping = 0x01; /* RFC 9000 19.2 */
+  u8              out[128];
+  wired_obuf      ob = obuf_of(out, sizeof out);
+  if (!srvrun_seal_hs_frames(c, wired_span_of(&ping, 1), &ob)) {
+    return 0;
+  }
+  if (srvrun_boot_gate_blocks(c, wired_server_is_confirmed(&c->s), ob.len)) {
+    c->l.hs_tx_pn--; /* never sent, so the number stays unused */
+    return 0;
+  }
+  srvrun_boot_send(
+      ctx->cfg, c, wired_span_of(out, ob.len), "boot Handshake probe sent\n");
+  return 1;
+}
+
 int srvrun_resend_boot_flight(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent;
-  sent = srvrun_resend_flight_parts(ctx, c);
+  sent = srvrun_resend_flight_parts(ctx, c) || srvrun_boot_hs_probe(ctx, c);
   c->boot_resend_flip ^= 1; /* alternate the priority for the NEXT replay */
   /* RFC 9000 8.1: nothing went out at all -- the whole flight is withheld
    * by the antiamp budget. Leave the PTO exactly as it was: a fully

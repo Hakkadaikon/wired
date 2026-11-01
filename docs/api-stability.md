@@ -63,6 +63,7 @@ driver functions) or a pure function with no rules that span several calls
 | `wired_srvdriver_parse`, `wired_srvdriver_run` | Recommended entry point: parse driver flags, run one of four drivers. |
 | `wired_server_run` | Run a complete single-process server until killed. |
 | `wired_server_run_opt` | `wired_server_run` plus opt-in settings in `wired_srvrun_opt`. |
+| `wired_server_run_id` | The identity the calling worker's run serves (its start-time copy, updated by a certificate reload). |
 | `wired_srvrun_handler` (struct) | Your callback and its context, passed to the run functions. |
 
 - `wired_srvdriver_parse` reads the driver flags (`--port`, `--workers`,
@@ -110,6 +111,7 @@ driver functions) or a pure function with no rules that span several calls
 | `wired_server_wt_stream_priority` | Set a sent stream's urgency. |
 | `wired_server_wt_stream_schedule`, `wired_wt_sched` (struct) | Set a sent stream's full send class. |
 | `wired_server_wt_occupancy`, `wired_wt_occupancy` (struct) | Snapshot of open sessions and streams. |
+| `wired_wt_ref` (struct), `wired_wt_ref_of`, `wired_wt_ref_get` | Keep a session across steps; resolve to it while it is open, to 0 once stale. |
 
 All of these share one rule: call them only from inside the server's own
 loop, that is, from one of your callbacks. They are neither thread-safe nor
@@ -118,6 +120,18 @@ signal-safe. The guide covers how to use them in
 and
 [server-opened streams](https://hakkadaikon.github.io/wired/guide/en/wt/open-streams/).
 
+- **Stale sessions.** A `wired_wt_session*` is valid from its session
+  callback until its close callback. After the close the server reuses its
+  storage for a later session, possibly another peer's, so a pointer kept
+  past that would address the newcomer. To hold a session across steps,
+  keep `wired_wt_ref_of(s)` and resolve it with `wired_wt_ref_get` when you
+  use it: it returns 0 once the session closed, and still 0 after a new
+  session took its storage. The session-taking calls above do the same
+  for a pointer whose session is no longer open (they refuse it), but
+  cannot tell a reused session from the one you meant; only the ref can.
+  A stream id kept across steps belongs with its session's ref: resolve
+  the ref first and pass the stream id only with the session it returns
+  (stream ids restart on every connection).
 - **Payload lifetime.** The open and reply calls copy a payload of up to
   128 KiB (131072 bytes, the send slot's staging buffer), so your buffer is
   free as soon as the call returns. A larger payload is kept as a view into
@@ -411,7 +425,10 @@ sequenceDiagram
   Negotiation, and compatible version negotiation (RFC 9368) only picks
   from the set. `wired_srvboot_vneg` takes the same bits.
 - **Lifetimes and order.** The fields of the `wired_srvboot_id` you pass
-  are views; keep them alive for the call. Start from a zeroed struct
+  are views; keep them alive for the call. `wired_server_run` and its
+  variants copy the id, its chain and `raw_alpns`, the obs paths and
+  `wt_protocols` at start and never read them again, so they may live on
+  the caller's stack. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
   to off: `reset_seed` is the stateless-reset secret (0 uses
   `cert_seed`; `wired_srvrun_serve_env` pins it to a copy of the start-time

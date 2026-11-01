@@ -53,13 +53,12 @@ static int srvloop_past_stream_limit(const wired_srvloop* l, wired_span pl) {
  * to their own stream's slot inside wired_srvloop_dispatch (ctx->l != 0
  * selects the routed path); a slot whose request completes is appended to
  * l->done_slots and mirrored into l->req/req_stream_id there. The in
- * scratch/wrap/req fields are unused on the routed path (each completion
- * uses its own slot's buffers), passed empty. */
+ * scratch/req fields are unused on the routed path (each completion uses
+ * its own slot's buffers), passed empty. */
 void srvloop_step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
   wired_srvloop*            l   = conn->l;
   int                       got = 0;
-  wired_srvloop_dispatch_in in  = {
-      payload, wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got, &l->req};
+  wired_srvloop_dispatch_in in = {payload, wired_mspan_of(0, 0), &got, &l->req};
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, 0, l};
   if (srvloop_past_stream_limit(l, payload)) {
     l->wt_refused_overflow = 1;

@@ -822,7 +822,9 @@ static usz build_request_with_trailer(
 static int rd_trailer_ok(
     wired_span stream_data, wired_mspan scratch, const qpack_dyn* dyn) {
   wired_h3reqdrive_req r;
-  return trailer_decode(stream_data, scratch, dyn, &r);
+  stream_frame         f;
+  CHECK(frame_get_stream(stream_data.p, stream_data.n, &f));
+  return trailer_decode(wired_span_of(f.data, (usz)f.length), scratch, dyn, &r);
 }
 
 /* RFC 9114 4.3: a pseudo-header field in the trailer section is malformed,

@@ -18,7 +18,7 @@ WARN_AS_ERROR          = YES
 ENABLE_PREPROCESSING   = YES
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = YES
-PREDEFINED             = "__attribute__(x)="
+PREDEFINED             = "__attribute__(x)=" "WIRED_LIFETIMEBOUND="
 HAVE_DOT               = NO
 STRIP_FROM_PATH        = src
 FULL_PATH_NAMES        = YES

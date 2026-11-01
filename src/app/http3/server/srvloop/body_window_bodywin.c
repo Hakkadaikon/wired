@@ -10,6 +10,7 @@ static void bodywin_call(
 static void bodywin_deliver(const bodywin_run* r, usz n, int fin);
 static int  bodywin_payload(bodywin_run* r);
 static int  bodywin_step(bodywin_run* r);
+static usz  bodywin_avail(const bodywin* w);
 static int  bodywin_all_in(const bodywin* w);
 static int  bodywin_at_end(const bodywin* w);
 static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx);
@@ -99,9 +100,15 @@ static int bodywin_step(bodywin_run* r) {
   return bodywin_header(r);
 }
 
+/* RFC 9000 4.5: the contiguous window, cut at the final size once known --
+ * bytes past it were never part of the stream. */
+static usz bodywin_avail(const bodywin* w) {
+  return bodywin_clip(w, bodywin_frontier(w));
+}
+
 /* 1 once every byte up to the final size is in the window. */
 static int bodywin_all_in(const bodywin* w) {
-  return w->fin && w->base + bodywin_frontier(w) == w->fin_off;
+  return w->fin && w->base + bodywin_avail(w) == w->fin_off;
 }
 
 /* RFC 9114 7.1: at the final size either the parser sits on a frame
@@ -115,7 +122,7 @@ static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx) {
   if (!bodywin_at_end(w)) {
     return;
   }
-  if (w->left + bodywin_frontier(w)) {
+  if (w->left + bodywin_avail(w)) {
     w->state = BODYWIN_FRAME_ERROR;
     return;
   }
@@ -123,7 +130,7 @@ static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx) {
 }
 
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx) {
-  bodywin_run r = {w, buf, 0, bodywin_frontier(w), fn, ctx};
+  bodywin_run r = {w, buf, 0, bodywin_avail(w), fn, ctx};
   while (w->state == BODYWIN_OPEN && bodywin_step(&r)) {
   }
   bodywin_consume(w, buf, r.pos);

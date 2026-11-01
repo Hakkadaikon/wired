@@ -5,6 +5,7 @@
  * (srvrun_recover.c) and the RTT / ACK tick pieces around it. */
 
 #include "app/http3/server/srvrun/srvrun_impl_protos4.h"
+#include "app/http3/server/srvrun/srvrun_impl_tables.h"
 
 /** RFC 9002 6.2.4: ack-eliciting packets one PTO may send (up to two). */
 #define SRVRUN_PTO_PROBES 2

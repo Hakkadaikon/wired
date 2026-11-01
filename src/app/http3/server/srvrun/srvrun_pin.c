@@ -19,22 +19,27 @@ int srvrun_can_serve(const wired_srvboot_id* id) {
          id->scid_len <= WIRED_MAX_CID_LEN;
 }
 
-int wired_srvrun_serve_env(
+/* The id is servable (srvrun_can_serve), and the run's own copy of it, of
+ * obs's paths and of opt's WebTransport list is taken (srvrun_own_config);
+ * opt is read only past the first check. */
+static int srvrun_start_config(
     wired_srvrun_env*       env,
-    u16                     port,
-    wired_srvboot_id*       id,
-    wired_srvrun_handler    h,
-    wired_srvrun_obs        obs,
+    wired_srvboot_id**      id,
+    wired_srvrun_obs*       obs,
+    const char**            wt,
     const wired_srvrun_opt* opt) {
-  srvrun_cfg cfg;
-  if (!srvrun_can_serve(id)) {
+  if (!srvrun_can_serve(*id)) {
     return 0;
   }
-  cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
-  if (cfg.fd < 0) {
-    return 0;
-  }
-  srvrun_pin_reset_seed(env, id);
+  *wt = opt->wt_protocols;
+  return srvrun_own_config(env, id, obs, wt);
+}
+
+/* The handler and opt settings env keeps for every accept. */
+static void srvrun_env_take(
+    wired_srvrun_env*       env,
+    wired_srvrun_handler    h,
+    const wired_srvrun_opt* opt) {
   env->on_body_abort           = h.on_body_abort;
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
@@ -42,6 +47,26 @@ int wired_srvrun_serve_env(
   env->raw_session_ctx         = opt->raw_session_ctx;
   env->datagram_first          = opt->datagram_first;
   env->spin_off                = opt->spin_off;
+}
+
+int wired_srvrun_serve_env(
+    wired_srvrun_env*       env,
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt) {
+  srvrun_cfg  cfg;
+  const char* wt;
+  if (!srvrun_start_config(env, &id, &obs, &wt, opt)) {
+    return 0;
+  }
+  cfg = srvrun_build_cfg(env, port, id, h, obs, opt, wt);
+  if (cfg.fd < 0) {
+    return 0;
+  }
+  srvrun_pin_reset_seed(env, id);
+  srvrun_env_take(env, h, opt);
   srvrun_pref_listen(&cfg, id, opt);
   wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);

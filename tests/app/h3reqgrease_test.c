@@ -9,7 +9,7 @@
 struct h3g_fix {
   wired_server         s;
   wired_h3srv_state    h3;
-  u8                   buf[1024], wrap[1200], scratch[512];
+  u8                   buf[1024], scratch[512];
   usz                  len;
   u8                   fin;
   int                  done, got;
@@ -54,7 +54,7 @@ static void h3g_deliver(
       f->buf, sizeof f->buf, &f->len, &f->fin, &f->done};
   wired_srvloop_dispatch_in in = {
       wired_span_of(pl, 0), wired_mspan_of(f->scratch, sizeof f->scratch),
-      wired_mspan_of(f->wrap, sizeof f->wrap), &f->got, &f->req};
+      &f->got, &f->req};
   CHECK(appdata_stream_frame(&sf, &ob) == 1);
   in.payload = wired_span_of(pl, ob.len);
   CHECK(

@@ -76,15 +76,6 @@ int  srvloop_req_closed_has(const wired_srvloop* l, u64 stream_id);
 int  srvloop_stream_slot_claim(wired_srvloop* l, u64 stream_id);
 int  srvloop_wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id);
 void srvloop_wt_closed_mark(wired_srvloop* l, u64 stream_id);
-usz  srvloop_wt_window_skip_stale(
-    const wired_srvloop_wt_window* win, u64 abs_off, usz n);
-void srvloop_wt_range_merge_into(
-    wired_srvloop_wt_window* win, usz i, u64 lo, u64 hi);
-int srvloop_wt_range_find_mergeable(
-    const wired_srvloop_wt_window* win, u64 lo, u64 hi);
-void srvloop_wt_ranges_sort(wired_srvloop_wt_window* win);
-void srvloop_wt_window_recompute_frontier(wired_srvloop_wt_window* win);
-void srvloop_wt_window_insert(wired_srvloop_wt_window* win, u64 lo, u64 hi);
 int  srvloop_has_close(wired_span pl, u64* code);
 void srvloop_collect_acks(wired_srvloop* l, wired_span pl);
 void srvloop_note_ack_owed(

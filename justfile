@@ -110,6 +110,22 @@ features-check:
 py-check:
     sh scripts/just/py_check.sh
 
+# Bounded model check of the WebTransport session reference lifecycle
+# (verify/cbmc, CBMC from the flake's verify shell); verification only.
+cbmc:
+    nix develop .#verify -c sh scripts/just/cbmc.sh
+
+# Mutation-tests the cbmc harnesses against five hand-written bugs in
+# srvrun_gen.h (verification only; not part of `cbmc` itself -- this is
+# slower and its point is to re-check the harnesses, not the SDK).
+cbmc-mutate:
+    nix develop .#verify -c sh scripts/just/cbmc_mutate.sh
+
+# Stored views: every struct reachable from the SDK's long-lived state names
+# the storage its views point into, and none is set from a local array.
+view-check:
+    python3 scripts/viewcheck.py
+
 # Vulnerability ledger: row rules plus reachability of every closed row's
 # cited code (from examples/) and test (from tests/run.c).
 vuln-check:

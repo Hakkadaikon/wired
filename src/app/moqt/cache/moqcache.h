@@ -44,7 +44,8 @@
  * an unknown range ending at a whole group names this Object. */
 #define MOQCACHE_OBJ_ID_MAX 0x3FFFFFFFFFFFFFFFULL
 
-/** A FETCH object cache over one caller-owned arena. */
+/** A FETCH object cache over one caller-owned arena.
+ * views: arena=caller */
 typedef struct {
   /** Caller-provided storage; must outlive the cache. Not owned. */
   u8* arena;

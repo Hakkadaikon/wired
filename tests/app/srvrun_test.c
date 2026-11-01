@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
-#include <string.h> /* strstr: hosted test build only */
+#include <string.h>   /* strstr: hosted test build only */
+#include <sys/mman.h> /* mlock: hosted test build only */
 #include <unistd.h>
 
 #include "app/http3/core/h3/errclass.h"
@@ -2478,6 +2479,100 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   CHECK(st.conns[0].boot_rx_bytes == rx_after_boot + sizeof garbage);
 }
 
+/* Boot a real connection, then leave it `budget` antiamp bytes: the live
+ * msquic amplificationlimit trace's state after the first round (one
+ * 1220-byte client Initial, 3479 bytes sent, 181 left). */
+static srvrun_conn* sr_boot_with_budget(
+    srvrun_step_ctx* ctx, u8* dg, usz cap, u64 budget) {
+  usz          total = sr_build_client_initial(dg, cap, g_sr_odcid, 8);
+  srvrun_conn* c     = &ctx->st->conns[0];
+  conntable_init(ctx->st->table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(ctx, wired_mspan_of(dg, total));
+  c->boot_rx_bytes = 1220;
+  c->boot_tx_bytes = 3 * 1220 - budget;
+  return c;
+}
+
+/* RFC 9002 6.2.4 / RFC 9000 8.1: a boot PTO whose cached datagrams all
+ * exceed the remaining antiamp budget still sends one small ack-eliciting
+ * Handshake probe within it, so the client answers with a Handshake packet
+ * (which validates the address). Replaying only whole datagrams sent
+ * nothing, and msquic idled out behind the testcase's dropped probes. */
+static void test_srvrun_boot_blocked_replay_sends_hs_probe(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 181);
+    u64             pn  = c->l.hs_tx_pn;
+    CHECK(c->up == 1);
+    CHECK(c->boot_dgram_len[0] > 181);
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 1);
+    CHECK(srvrun_test_send_count() == 1);
+    CHECK(c->l.hs_tx_pn == pn + 1);
+    CHECK(c->boot_tx_bytes > 3 * 1220 - 181);
+    CHECK(c->boot_tx_bytes <= 3 * 1220);
+  }
+}
+
+/* RFC 9000 8.1: with budget to spare the replay itself goes out -- the
+ * Initial and every cached Handshake datagram -- and no extra Handshake
+ * probe follows it (no new packet number is spent). */
+static void test_srvrun_boot_replay_ample_budget_no_probe(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 3 * 1220);
+    u64             pn  = c->l.hs_tx_pn;
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 1);
+    CHECK(srvrun_test_send_count() == 1 + c->boot_dgram_count);
+    CHECK(c->l.hs_tx_pn == pn);
+  }
+}
+
+/* A WebTransport session generation is never 0 (a released reference),
+ * so the step after the largest wraps to 1. */
+static void test_srvrun_wt_gen_next_skips_zero(void) {
+  u32 last = (u32)-1;
+  CHECK(srvrun_wt_gen_next(&last) == 1 && last == 1);
+  last = 0;
+  CHECK(srvrun_wt_gen_next(&last) == 1);
+}
+
+/* Boundary: a budget too small for even the probe sends nothing at all. */
+static void test_srvrun_boot_blocked_replay_tiny_budget_silent(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 10);
+    u64             pn  = c->l.hs_tx_pn;
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 0);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(c->l.hs_tx_pn == pn);
+    CHECK(c->boot_tx_bytes == 3 * 1220 - 10);
+  }
+}
+
 /* srvrun_resend_boot_flight (the client-Initial-retransmit path)
  * respects the same antiamp budget as the first round -- a flight too big
  * for one round still only sends what the accumulated boot_rx_bytes
@@ -2523,6 +2618,178 @@ static void test_srvrun_free_slot_resets_antiamp_state(void) {
   CHECK(st.conns[0].boot_rx_bytes == 0);
   CHECK(st.conns[0].boot_tx_bytes == 0);
   CHECK(st.conns[0].boot_dgram_sent == 0);
+}
+
+/* 1 if all n bytes at p are v. */
+static int sr_all_bytes(const void* p, usz n, u8 v) {
+  const u8* b  = p;
+  int       ok = 1;
+  for (usz i = 0; i < n; i++) {
+    ok &= b[i] == v;
+  }
+  return ok;
+}
+
+/* Fill every table srvrun_release_tables hands back (and slot 0's
+ * respstore row) with v. */
+static void sr_fill_tables(srvrun_conn* c, u8 v) {
+  bytes_memset(c->l.streams, v, sizeof c->l.streams);
+  bytes_memset(c->l.wt_streams, v, sizeof c->l.wt_streams);
+  bytes_memset(c->l.wt_uni_streams, v, sizeof c->l.wt_uni_streams);
+  bytes_memset(c->l.rx_datagrams, v, sizeof c->l.rx_datagrams);
+  bytes_memset(c->wtsend, v, sizeof c->wtsend);
+  bytes_memset(g_srvrun_env.respstore[0], v, sizeof g_srvrun_env.respstore[0]);
+}
+
+/* 1 if every table (and slot 0's respstore row) is all v. */
+static int sr_tables_are(const srvrun_conn* c, u8 v) {
+  return sr_all_bytes(c->l.streams, sizeof c->l.streams, v) &&
+         sr_all_bytes(c->l.wt_streams, sizeof c->l.wt_streams, v) &&
+         sr_all_bytes(c->l.wt_uni_streams, sizeof c->l.wt_uni_streams, v) &&
+         sr_all_bytes(c->l.rx_datagrams, sizeof c->l.rx_datagrams, v) &&
+         sr_all_bytes(c->wtsend, sizeof c->wtsend, v) &&
+         sr_all_bytes(
+             g_srvrun_env.respstore[0], sizeof g_srvrun_env.respstore[0], v);
+}
+
+/* Issue #174: srvrun_free_slot zeroes the slot's big per-connection tables
+ * (request / WT stream slots, received DATAGRAMs, WT send staging, its
+ * respstore row), handing their whole pages back to the kernel, and marks
+ * them clean; the generation the reuse path depends on survives. */
+static void test_srvrun_free_slot_releases_pages(void) {
+  conntable    table[WIRED_CONNTABLE_CAP];
+  srvrun_state st = {table, sr_test_conns()};
+  srvrun_conn* c  = &st.conns[0];
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  sr_fill_tables(c, 0x5a);
+  c->gen          = 7;
+  c->tables_dirty = 1;
+  srvrun_free_slot(srvrun_test_envcfg(), &st, 0);
+  CHECK(sr_tables_are(c, 0));
+  CHECK(c->tables_dirty == 0);
+  CHECK(c->gen == 7);
+}
+
+/* Issue #174: when madvise refuses (here: the pages are mlocked, EINVAL per
+ * madvise(2)), srvrun_zero_release still zeroes every byte, so a clean
+ * tables_dirty flag never hides the previous connection's data. */
+static void test_srvrun_zero_release_survives_madvise_failure(void) {
+  static u8 buf[4 * 4096] __attribute__((aligned(4096)));
+  u8*       p = buf + 100;
+  usz       n = 3 * 4096;
+  bytes_memset(buf, 0x5a, sizeof buf);
+  /* a tight RLIMIT_MEMLOCK skips the failure path; zeroing still holds */
+  (void)mlock(buf, sizeof buf);
+  srvrun_zero_release(p, n);
+  munlock(buf, sizeof buf);
+  CHECK(sr_all_bytes(p, n, 0));
+  CHECK(buf[99] == 0x5a && p[n] == 0x5a);
+}
+
+/* Issue #174: a claim wipes everything outside the tables, and the tables
+ * too only while a previous claim may have dirtied them -- a released
+ * slot's zero tables are not rewritten (that would fault them back in). */
+static void test_srvrun_conn_wipe_skips_clean_tables(void) {
+  srvrun_conn* c = &sr_test_conns()[0];
+  sr_fill_tables(c, 0x5a);
+  c->last_ms      = 9;
+  c->cid_err      = 9;
+  c->tables_dirty = 0;
+  srvrun_conn_wipe(c);
+  CHECK(c->last_ms == 0 && c->cid_err == 0);
+  CHECK(sr_tables_are(c, 0x5a));
+  c->last_ms      = 9;
+  c->tables_dirty = 1;
+  srvrun_conn_wipe(c);
+  CHECK(c->last_ms == 0 && c->tables_dirty == 0);
+  bytes_memset(g_srvrun_env.respstore[0], 0, sizeof g_srvrun_env.respstore[0]);
+  CHECK(sr_tables_are(c, 0));
+}
+
+/* Issue #182: srvrun_own_config leaves nothing of the run pointing into
+ * the caller's memory -- the id, its keys and chain, the ALPN and
+ * WebTransport lists and the obs paths are copied into env->own, so the
+ * caller's buffers going out of scope (here: overwritten) changes nothing
+ * the run reads. */
+static void test_srvrun_own_config_copies(void) {
+  u8                key[32], scid[8] = {1, 2, 3, 4, 5, 6, 7, 8}, der[300];
+  char              alpns[] = "moqt-22 moqt-19", wtp[] = "moqt-22";
+  char              qlog[] = "/tmp/q.sqlog";
+  wired_span        chain[2];
+  wired_srvboot_id  id  = {0};
+  wired_srvboot_id* idp = &id;
+  wired_srvrun_obs  obs = {0};
+  const char*       wt  = wtp;
+  for (usz i = 0; i < sizeof der; i++) {
+    der[i] = (u8)i;
+  }
+  bytes_memset(key, 0x42, sizeof key);
+  chain[0]       = wired_span_of(der, 100);
+  chain[1]       = wired_span_of(der + 100, 200);
+  id.priv        = key;
+  id.ticket_key  = key;
+  id.scid        = scid;
+  id.scid_len    = sizeof scid;
+  id.chain       = chain;
+  id.chain_count = 2;
+  id.raw_alpns   = alpns;
+  obs.qlog_path  = qlog;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
+  bytes_memset(der, 0, sizeof der);
+  bytes_memset(key, 0, sizeof key);
+  bytes_memset(scid, 0, sizeof scid);
+  bytes_memset(alpns, 0, sizeof alpns);
+  bytes_memset(wtp, 0, sizeof wtp);
+  bytes_memset(qlog, 0, sizeof qlog);
+  chain[1] = wired_span_of(0, 0);
+  CHECK(idp == &g_srvrun_env.own.id && idp->chain_count == 2);
+  CHECK(idp->chain[1].n == 200 && idp->chain[1].p[0] == 100);
+  CHECK(idp->chain[0].p == g_srvrun_env.own.chain_der);
+  CHECK(idp->priv[31] == 0x42 && idp->ticket_key[0] == 0x42);
+  CHECK(idp->scid[7] == 8 && idp->pub == 0);
+  CHECK(strcmp(idp->raw_alpns, "moqt-22 moqt-19") == 0);
+  CHECK(
+      strcmp(wt, "moqt-22") == 0 && strcmp(obs.qlog_path, "/tmp/q.sqlog") == 0);
+  CHECK(obs.keylog_path == 0);
+  CHECK(wired_server_run_id() == &g_srvrun_env.own.id);
+}
+
+/* Issue #182: what does not fit the owned storage refuses the run rather
+ * than silently keeping a view: an over-long chain (entries or bytes), ALPN
+ * list, path or retry ODCID. */
+static void test_srvrun_own_config_refuses_oversize(void) {
+  static u8         big[SRVRUN_OWN_CHAIN_CAP + 1];
+  static char       path[SRVRUN_OWN_PATH_CAP + 1];
+  wired_span        one = wired_span_of(big, sizeof big);
+  wired_span        many[TLS_CERT_CHAIN_MAX + 1];
+  wired_srvboot_id  id;
+  wired_srvboot_id* idp;
+  wired_srvrun_obs  obs = {0};
+  const char*       wt  = 0;
+  for (usz i = 0; i < TLS_CERT_CHAIN_MAX + 1; i++) {
+    many[i] = wired_span_of(big, 1);
+  }
+  bytes_memset(path, 'a', SRVRUN_OWN_PATH_CAP);
+  id  = (wired_srvboot_id){.chain = &one, .chain_count = 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id = (wired_srvboot_id){.chain = many, .chain_count = TLS_CERT_CHAIN_MAX + 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id  = (wired_srvboot_id){.retry_odcid_len = WIRED_MAX_CID_LEN + 1};
+  idp = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id            = (wired_srvboot_id){0};
+  idp           = &id;
+  obs.cert_path = path;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  obs          = (wired_srvrun_obs){0};
+  id.raw_alpns = path + SRVRUN_OWN_PATH_CAP - SRVRUN_OWN_LIST_CAP;
+  idp          = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 0);
+  id.raw_alpns = path + SRVRUN_OWN_PATH_CAP - (SRVRUN_OWN_LIST_CAP - 1);
+  idp          = &id;
+  CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
 }
 
 /* Append a minimal well-formed (undecryptable) Handshake long-header packet
@@ -10465,27 +10732,27 @@ static void sr_stream_data_handler(
   }
 }
 
-/* Set a WT bidi slot's receive window as if n contiguous bytes had been
- * written from offset 0 -- the hand-constructed-state tests below poke a
- * slot directly rather than driving real wire frames through it, so the
- * window's range-set fields (win.range_lo/hi/n, win.frontier) must be kept
- * consistent by hand too (frontier alone is not enough: srvrun_offer_wt_
- * streams also calls wired_srvloop_wt_window_slide, which recomputes
- * frontier from the range set on every call). */
+/* Set a receive window as if exactly n contiguous bytes had been written
+ * from offset 0 -- the hand-constructed-state tests below poke a slot
+ * directly rather than driving real wire frames through it, so the window's
+ * received-byte bitmap (win.have) must be kept consistent by hand too
+ * (frontier alone is not enough: srvrun_offer_wt_streams also calls
+ * wired_srvloop_wt_window_slide, which recomputes frontier from it). */
+static void sr_wt_win_set_frontier(wired_srvloop_wt_window* win, u64 n) {
+  for (usz i = 0; i < WIRED_SRVLOOP_WT_BUF_CAP; i++) {
+    bits_set(win->have, i, i < n);
+  }
+  win->frontier = n;
+}
+
 static void sr_wt_slot_set_frontier(wired_srvloop_wt_stream_slot* slot, u64 n) {
-  slot->win.range_n     = n > 0 ? 1 : 0;
-  slot->win.range_lo[0] = 0;
-  slot->win.range_hi[0] = n;
-  slot->win.frontier    = n;
+  sr_wt_win_set_frontier(&slot->win, n);
 }
 
 /* Same as sr_wt_slot_set_frontier, for the separate wt_uni_streams table. */
 static void sr_wt_uni_slot_set_frontier(
     wired_srvloop_wt_uni_stream_slot* slot, u64 n) {
-  slot->win.range_n     = n > 0 ? 1 : 0;
-  slot->win.range_lo[0] = 0;
-  slot->win.range_hi[0] = n;
-  slot->win.frontier    = n;
+  sr_wt_win_set_frontier(&slot->win, n);
 }
 
 /* A freshly-claimed WT bidi slot with bytes already reassembled (offered==0,
@@ -14112,6 +14379,17 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
   }
 }
 
+/* Issue #174: a tick stops only when the slot was claimed (tables_dirty)
+ * as it began and is no longer: dirty at start x dirty now. */
+static void test_srvrun_tick_freed_decision(void) {
+  srvrun_conn c = {0};
+  CHECK(!srvrun_tick_freed(&c, 0));
+  CHECK(srvrun_tick_freed(&c, 1));
+  c.tables_dirty = 1;
+  CHECK(!srvrun_tick_freed(&c, 0));
+  CHECK(!srvrun_tick_freed(&c, 1));
+}
+
 /* PTO BUDGET: the probe-timeout budget (SRVRUN_PTO_MAX) is a
  * connection-wide policy, not per-slot (srvrun_pto_resps) -- a silent peer
  * likely stopped acknowledging the whole connection, not just one stream.
@@ -14189,9 +14467,16 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
       now += 1024u << (i + 1); /* each probe doubles the backoff (2^count) */
     }
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
-      srvrun_pto_slot(&tick, 0); /* budget spent: tears the connection down */
+      /* Issue #174: the PTO task frees the slot mid-tick and releases its
+       * tables (tables_dirty drops to 0) -- the edge srvrun_tick_freed
+       * (decision table: test_srvrun_tick_freed_decision) stops the
+       * remaining tasks on. */
+      srvrun_step_ctx tick     = {&cfg, 0, &st, now, 0};
+      st.conns[0].tables_dirty = 1;
+      srvrun_tick_slot(&tick, 0); /* budget spent: tears the connection down */
       CHECK(st.conns[0].up == 0);
+      CHECK(st.conns[0].tables_dirty == 0);
+      CHECK(sr_tables_are(&st.conns[0], 0)); /* free's zeroing, via tick */
     }
   }
 }
@@ -19524,8 +19809,7 @@ static void sr_wtcap_dispatch(srvrun_conn* c, u64 from, wired_span bytes) {
   int                       got = 0;
   wired_h3reqdrive_req      req = {0};
   wired_srvloop_dispatch_in in  = {
-      wired_span_of(frame, n), wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got,
-      &req};
+      wired_span_of(frame, n), wired_mspan_of(0, 0), &got, &req};
   wired_srvloop_dispatch_ctx ctx = {0, 0, 0, &c->l};
   CHECK(n != 0);
   wired_srvloop_dispatch(&ctx, &in);
@@ -23496,7 +23780,9 @@ static void test_srvrun_slot_reuse_clears_prior_connection_buffer(void) {
   srvrun_conn*     c    = &st.conns[0];
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
-  /* leftovers of a prior connection in the physical slot */
+  /* leftovers of a prior connection in the physical slot (whose claim
+   * marked its tables dirty) */
+  c->tables_dirty            = 1;
   c->up                      = 0;
   c->boot.any                = 0;
   c->wt_active               = 1;
@@ -23513,6 +23799,7 @@ static void test_srvrun_slot_reuse_clears_prior_connection_buffer(void) {
     srvrun_serve(&ctx, wired_mspan_of(dg, total));
   }
   CHECK(c->up == 1);
+  CHECK(c->tables_dirty == 1); /* the new claim may dirty its tables */
   CHECK(c->wt_active == 0);
   CHECK(c->resp[0].in_use == 0);
   CHECK(c->l.streams[0].in_use == 0);
@@ -24440,7 +24727,8 @@ static void test_srvrun_handler_on_body_reaches_cfg(void) {
   srvrun_cfg           cfg;
   opt.incoming_cpu = -1;
   opt.core_id      = -1;
-  cfg = srvrun_build_cfg(&g_srvrun_env, 0, 0, h, (wired_srvrun_obs){0}, &opt);
+  cfg              = srvrun_build_cfg(
+      &g_srvrun_env, 0, 0, h, (wired_srvrun_obs){0}, &opt, opt.wt_protocols);
   CHECK(cfg.on_body == sr_on_body);
   if (cfg.fd >= 0) {
     wired_udp_close(cfg.fd);
@@ -27326,6 +27614,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_file_shrinks_completes_with_actual_bytes();
   test_srvrun_streaming_round_fin_suppressed_until_final();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
+  test_srvrun_tick_freed_decision();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
   test_srvrun_pto_probes_lost_hq09_response();
@@ -27461,8 +27750,15 @@ void test_srvrun(void) {
   test_srvrun_boot_antiamp_sent_includes_initial_and_handshake();
   test_srvrun_boot_antiamp_client_silent_no_crash();
   test_srvrun_conn_rx_bytes_counts_malformed_datagram();
+  test_srvrun_boot_blocked_replay_sends_hs_probe();
+  test_srvrun_boot_blocked_replay_tiny_budget_silent();
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
+  test_srvrun_free_slot_releases_pages();
+  test_srvrun_conn_wipe_skips_clean_tables();
+  test_srvrun_zero_release_survives_madvise_failure();
+  test_srvrun_own_config_copies();
+  test_srvrun_own_config_refuses_oversize();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();
   test_srvrun_unconfirmed_close_all_levels();
@@ -27900,6 +28196,8 @@ void test_srvrun(void) {
   test_srvrun_0rtt_accept_requires_or_limits_unvalidated_address();
   test_srvrun_slow_trickle_preauth_evicted();
   test_srvrun_slot_reuse_clears_prior_connection_buffer();
+  test_srvrun_boot_replay_ample_budget_no_probe();
+  test_srvrun_wt_gen_next_skips_zero();
   test_srvrun_conn_state_growth_bounded_under_worst_case_peer();
   test_srvrun_wt_stream_churn_bounded_by_slot_table();
   test_srvrun_wt_close_session_capsule_received();

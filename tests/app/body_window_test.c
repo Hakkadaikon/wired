@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/body_window.h"
 
+#include "common/bytes/util/bits.h"
 #include "common/bytes/varint/varint.h"
 #include "test.h"
 
@@ -64,6 +65,94 @@ static void test_bodywin_gap_not_parsed(void) {
   bodywin_pump(&w, buf, bw_sink, &r);
   CHECK(r.calls == 1 && r.got_n == 2);
   CHECK(r.got[0] == 'a' && r.got[1] == 'b' && r.fins[0] == 0);
+}
+
+/* RFC 9000 2.2: a retransmission carrying different bytes at an offset
+ * already received does not rewrite them (data "MUST NOT change"), so a
+ * view decoded from the window stays what was first received. */
+static void test_bodywin_retransmit_keeps_first_bytes(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w        = {0};
+  u8        first[2] = {'a', 'b'}, again[3] = {'x', 'y', 'z'};
+  bodywin_land(&w, buf, 0, wired_span_of(first, 2), 0);
+  bodywin_land(&w, buf, 0, wired_span_of(again, 3), 0);
+  CHECK(buf[0] == 'a' && buf[1] == 'b' && buf[2] == 'z');
+  CHECK(bodywin_frontier(&w) == 3);
+}
+
+/* RFC 9000 2.2: a known final size with a byte still missing before it is a
+ * gap; no FIN, or every byte up to the final size, is not. */
+static void test_bodywin_fin_gap(void) {
+  static u8 buf[BODYWIN_CAP];
+  bodywin   w    = {0};
+  u8        d[4] = {1, 2, 3, 4};
+  bodywin_land(&w, buf, 2, wired_span_of(d + 2, 2), 0);
+  CHECK(!bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 2, wired_span_of(d + 2, 2), 1);
+  CHECK(bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 0, wired_span_of(d, 1), 0);
+  CHECK(bodywin_fin_gap(&w));
+  bodywin_land(&w, buf, 1, wired_span_of(d + 1, 1), 0);
+  CHECK(!bodywin_fin_gap(&w));
+}
+
+/* RFC 9000 4.5: with no FIN, n passes unchanged; once the final size is
+ * known, n is cut to fin_off - base (below / at / above it). */
+static void test_bodywin_clip_boundaries(void) {
+  bodywin w = {0};
+  w.base    = 5;
+  CHECK(bodywin_clip(&w, 7) == 7);
+  bodywin_set_fin(&w, 8);
+  CHECK(bodywin_clip(&w, 2) == 2);
+  CHECK(bodywin_clip(&w, 3) == 3);
+  CHECK(bodywin_clip(&w, 4) == 3);
+  w.base = 8; /* at the final size: nothing left */
+  CHECK(bodywin_clip(&w, 4) == 0);
+  w.base = 9; /* past it (never by the route path): saturates, no wrap */
+  CHECK(bodywin_clip(&w, 4) == 0);
+}
+
+/* RFC 9000 4.5: "Once a final size for a stream is known, it cannot
+ * change" -- a later FIN, larger or smaller, leaves fin_off as set. */
+static void test_bodywin_set_fin_keeps_first(void) {
+  bodywin w = {0};
+  bodywin_set_fin(&w, 10);
+  bodywin_set_fin(&w, 20);
+  CHECK(w.fin == 1 && w.fin_off == 10);
+  bodywin_set_fin(&w, 4);
+  CHECK(w.fin == 1 && w.fin_off == 10);
+}
+
+/* bits_shift_down (util/bits.h, shared by the request and WT windows)
+ * matches a bit-at-a-time shift for every shift amount, including whole
+ * bytes and past the end. */
+static void test_bits_shift_down_matches_bitwise(void) {
+  for (usz n = 0; n < 70; n++) {
+    u8 a[8], b[8], ok = 1;
+    for (usz i = 0; i < 8; i++) {
+      a[i] = b[i] = (u8)(i * 37 + 11);
+    }
+    bits_shift_down(b, 64, n);
+    for (usz i = 0; i < 64; i++) {
+      ok &= bits_get(b, i) == (i + n < 64 && bits_get(a, i + n));
+    }
+    CHECK(ok);
+  }
+}
+
+/* bits_fill sets exactly [lo, lo + n), whole bytes and partial edges
+ * alike, for every start and length across a few bytes. */
+static void test_bits_fill_exact(void) {
+  for (usz lo = 0; lo < 20; lo++) {
+    for (usz n = 0; n < 30; n++) {
+      u8 m[8] = {0}, ok = 1;
+      bits_fill(m, lo, n);
+      for (usz i = 0; i < 64; i++) {
+        ok &= bits_get(m, i) == (i >= lo && i < lo + n);
+      }
+      CHECK(ok);
+    }
+  }
 }
 
 /* S2: a header split one byte per packet is consumed only once whole. */
@@ -465,6 +554,12 @@ static void test_bodywin_capsule_reject(void) {
 void test_body_window(void) {
   test_bodywin_cap_holds_largest_header();
   test_bodywin_gap_not_parsed();
+  test_bodywin_retransmit_keeps_first_bytes();
+  test_bodywin_fin_gap();
+  test_bodywin_clip_boundaries();
+  test_bodywin_set_fin_keeps_first();
+  test_bits_shift_down_matches_bitwise();
+  test_bits_fill_exact();
   test_bodywin_split_header();
   test_bodywin_slides_to_partial_header();
   test_bodywin_fin_inside_frame_is_error();

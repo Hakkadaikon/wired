@@ -8,10 +8,11 @@ what the SDK asks of the kernel (for a sandbox or a seccomp policy, the
 Linux filter that limits which syscalls a process may make), or
 when you add or remove a syscall yourself.
 
-> **At a glance** — 41 syscalls total, in six groups: UDP sockets (the wire
+> **At a glance** — 42 syscalls total, in seven groups: UDP sockets (the wire
 > loop), file I/O (certs, logs, static files), AF_XDP setup (rings and BPF),
 > threads and processes (the multi-core drivers), signals (graceful
-> shutdown), and utilities (clock, randomness). The table below is a lookup
+> shutdown), memory (returning a closed connection's pages), and utilities
+> (clock, randomness). The table below is a lookup
 > reference — you don't need to read it top to bottom.
 
 ## What a syscall is, and why `wired` issues its own
@@ -106,6 +107,7 @@ instead, use this index (a syscall that serves two groups is listed once):
   `sched_getaffinity`, `exit_group`
 - **Signals**: `rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `kill`,
   `rt_sigtimedwait`
+- **Memory**: `madvise`
 - **Utilities**: `clock_gettime`, `getrandom`
 
 The Defined column reads `syscall.h` in every row. It names the shared
@@ -126,6 +128,7 @@ file appears.
 | `rt_sigprocmask` | 14 | `syscall.h` | Block/unblock signal delivery for the calling thread. | Blocks `SIGTERM`/`SIGHUP` (and `SIGCHLD`) at three points so no signal is lost or misdelivered: in the threads driver around worker creation (`sigterm.c`'s `wired_sigmask_block_shutdown`/`wired_sigmask_unblock_shutdown`), and in the forked-workers driver around each `fork` and before each `wait4`. See [Ordering that avoids races](#ordering-that-avoids-races). |
 | `rt_sigreturn` | 15 | `syscall.h` | Return from a signal handler back to interrupted context. | `wired_arch_sigreturn_restorer` (`common/arch/x8664/sigret.c`): a hand-written naked-asm trampoline passed as the `SA_RESTORER` target by `sigterm.c`, standing in for libc's `restore_rt` (freestanding has no libc to provide one). |
 | `pread64` | 17 | `syscall.h` | Read from a file descriptor at a given offset, without moving the file position. | `fio.c`: `wired_fio_pread` reads one chunk of a file at an explicit offset — how `examples/word_list` streams a large static file into per-response body buffers without loading the whole file. |
+| `madvise` | 28 | `syscall.h` | Advise the kernel about a memory range; `MADV_DONTNEED` drops its pages, which read as zero on the next touch. | `wired_arch_madvise` (`common/arch/sysops.h`), called once per connection close from `srvrun_release_tables` (`srvrun_free.c`), returns the closed slot's request / WT stream tables, received DATAGRAMs, WT send staging and respstore row, so an idle server's resident memory falls back instead of staying at its peak. |
 | `getpid` | 39 | `syscall.h` | Return the calling process id. | `srvworkers.c` saves the supervisor's pid before each `fork` so the worker can compare it against `getppid`. |
 | `socket` | 41 | `syscall.h` | Create a socket. | `wired_udp_socket` (`transport/io/socket/io/udp.c`) creates a dual-stack `AF_INET6` UDP socket (IPv4 peers arrive v4-mapped), falling back to `AF_INET` when IPv6 is unavailable (`EAFNOSUPPORT`); used by both client and server (`wired_server_listen`) setup. `xsksetup_open` creates the `AF_XDP` socket. `wired_udp_path_mtu` (`udp.c`) opens a throwaway UDP socket to read the kernel path MTU toward a peer (closed right after). |
 | `connect` | 42 | `syscall.h` | Set a socket's default peer. | `wired_udp_path_mtu` (`transport/io/socket/io/udp.c`) connects its throwaway UDP socket to the peer so `IP_MTU`/`IPV6_MTU` can be read (they need a connected socket); the server calls it per connection and per new path (`srvrun_pmtu_start`) to bound the DPLPMTUD search ceiling by the local link (RFC 8899 3.5). No datagram is sent. |

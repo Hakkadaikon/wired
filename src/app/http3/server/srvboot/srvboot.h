@@ -21,7 +21,11 @@
  * issued certificate chain (leaf first) to send instead of a self-signed
  * certificate. All views; the caller keeps them alive for the call. The
  * connection's ECDHE key share and ServerHello.random are drawn fresh from
- * the CSPRNG per connection; priv/pub/random never key a handshake. */
+ * the CSPRNG per connection; priv/pub/random never key a handshake.
+ * views: priv=own|caller, pub=own|caller, cert_seed=own|caller,
+ * scid=own|caller, random=own|caller, chain=own|caller, san_ipv4=own|caller,
+ * retry_odcid=own|caller, ticket_key=own|caller, pref_v4=own|caller,
+ * pref_v6=own|caller, raw_alpns=own|caller, reset_seed=own|caller */
 typedef struct {
   const u8*         priv;        /**< X25519 private, 32 bytes */
   const u8*         pub;         /**< X25519 public, 32 bytes */
@@ -87,8 +91,10 @@ typedef struct {
    * preference order (e.g. "moqt-22 moqt-19 moqt-18"), all preferred over
    * h3 and hq-interop, or 0 to select only h3 and hq-interop (the
    * default). One port serves WebTransport and native QUIC.
-   * Must name neither h3 nor hq-interop. A static string: the negotiated
-   * id is kept as a view into it for the connection's lifetime. */
+   * Must name neither h3 nor hq-interop. The negotiated id is kept as a
+   * view into it for the connection's lifetime, so a caller that boots
+   * connections itself keeps it alive; wired_server_run copies it at start
+   * (srvrun_own_config). */
   const char* raw_alpns;
   /** RFC 7301 3.2: 1 selects ALPN in the client's preference order instead
    * of this server's (raw_alpns in order, then h3, then hq-interop; 0, the

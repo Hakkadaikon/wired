@@ -190,26 +190,22 @@ usz srvloop_route_body_head_len(const wired_srvloop_stream_slot* slot) {
   if (slot->req_done) {
     return 0;
   }
-  return wired_h3reqdrive_headers_end(
-      wired_span_of(slot->req_buf, bodywin_frontier(&slot->body)));
+  return wired_h3reqdrive_headers_end(wired_span_of(
+      slot->req_buf, bodywin_clip(&slot->body, bodywin_frontier(&slot->body))));
 }
 
 /* RFC 9114 4.1: decode slot's leading n-byte HEADERS frame alone into
- * slot->req (views into req_wrap/req_scratch, which the window never
- * touches). 1 for a decoded non-CONNECT request. */
+ * slot->req. Its values view only into req_scratch, which the window never
+ * touches: the n bytes end at the HEADERS frame, so no body view points
+ * into req_buf when the body later slides through it. 1 for a decoded
+ * non-CONNECT request. */
 int srvloop_route_body_decode(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_stream_slot*        slot,
     usz                               n) {
-  stream_frame       f  = {0, 0, n, slot->req_buf, 0};
-  wired_obuf         ob = obuf_of(slot->req_wrap, sizeof slot->req_wrap);
-  wired_h3srv_req_in rin;
-  if (!appdata_stream_frame(&f, &ob)) {
-    return 0;
-  }
-  rin = (wired_h3srv_req_in){
-      wired_span_of(slot->req_wrap, ob.len),
-      wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch)};
-  return wired_h3srv_on_request(ctx->h3, &rin, &slot->req) &&
+  wired_h3reqdrive_h3_in rin = {
+      wired_span_of(slot->req_buf, n), 0,
+      wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch), 0};
+  return wired_h3srv_on_request_raw(ctx->h3, &rin, &slot->req) &&
          !srvloop_req_method_is_connect(&slot->req);
 }

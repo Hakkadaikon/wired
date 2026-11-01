@@ -65,7 +65,10 @@ typedef struct {
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: recovered request pseudo-headers.
  * Each value is either a static-table view or a copy in the caller-supplied
- * scratch buffer, depending on how the peer encoded the field line. */
+ * scratch buffer, depending on how the peer encoded the field line.
+ * views: method=slot|static, scheme=slot|static, authority=slot|static,
+ * path=slot|static, protocol=slot|static, origin=slot|static, body=slot,
+ * hdr_base=slot */
 typedef struct {
   const u8* method;     /**< :method value (static-table view or scratch) */
   usz       method_len; /**< method length in octets */
@@ -205,5 +208,24 @@ int wired_h3reqdrive_recv_get_dyn(
     wired_mspan           scratch,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r);
+
+/** The raw request-stream bytes to decode (no STREAM framing) and what the
+ * decode needs beside them. */
+typedef struct {
+  wired_span       h3;      /**< request-stream bytes from stream offset 0 */
+  int              fin;     /**< 1 if h3 reaches the stream's final size */
+  wired_mspan      scratch; /**< backs r's literal values, as in recv_get */
+  const qpack_dyn* dyn;     /**< the connection's dynamic table, or 0 */
+} wired_h3reqdrive_h3_in;
+
+/** wired_h3reqdrive_recv_get_dyn over the stream's bytes themselves, so a
+ * caller holding them in its own receive buffer decodes in place with no
+ * re-wrapped copy. r->body then views into in->h3, which the caller keeps
+ * unchanged while r is in use.
+ * @param in the bytes, their end-of-stream flag, scratch and dynamic table
+ * @param r receives the recovered pseudo-headers and body view
+ * @return 1 on success, 0 as wired_h3reqdrive_recv_get_dyn. */
+int wired_h3reqdrive_recv_h3(
+    const wired_h3reqdrive_h3_in* in, wired_h3reqdrive_req* r);
 
 #endif

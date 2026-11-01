@@ -7,11 +7,10 @@
 set -eu
 . scripts/just/lib.sh
 raise_stack
-# detect_stack_use_after_return=0: the SDK's threads are raw clone(2)
-# without CLONE_SETTLS, so they share the parent's TLS and with it ASan's
-# per-thread fake stack; with it on, two threads use one fake stack and the
-# threaded tests crash inside ASan itself.
-export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_stack_use_after_return=0}"
+# detect_stack_use_after_return=1: a view of a returned frame's local is
+# caught too. The ASan build runs SDK threads as pthreads (thread.h,
+# WIRED_THREAD_PTHREAD), so each has its own TLS and fake stack.
+export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_stack_use_after_return=1}"
 if [ "${1:-}" = "--san" ]; then
     ninja build/quic_test_san && build/quic_test_san
 elif [ "${1:-}" = "--fast" ]; then

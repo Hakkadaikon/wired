@@ -13,13 +13,10 @@
  * (WIRED_H3_MAX_FIELD_SECTION) and an 8000-octet :path fits (RFC 9110
  * 4.1). Per request slot, so x WIRED_SRVLOOP_MAX_STREAMS x connections. */
 #define BODYWIN_CAP 10240
+_Static_assert(BODYWIN_CAP % 8 == 0, "bits_shift_down slides whole bytes");
 
 /** wired_srvloop_stream_slot.continue_len's "100 already tried" bit. */
 #define SRVLOOP_CONTINUE_TRIED 0x8000
-
-/** A slot's req_wrap: the whole window re-wrapped as one STREAM frame,
- * whose header takes at most 32 more bytes. */
-#define BODYWIN_WRAP_CAP (BODYWIN_CAP + 32)
 
 /** Lifecycle of a streamed request body. */
 enum {
@@ -68,6 +65,14 @@ void bodywin_land(bodywin* w, u8* buf, u64 off, wired_span data, int fin);
 
 /** Contiguous received bytes from buf[0]. */
 usz bodywin_frontier(const bodywin* w);
+
+/** RFC 9000 2.2: 1 if the final size is known but a byte before it has not
+ * arrived yet (the FIN-carrying frame overtook a lost one). */
+int bodywin_fin_gap(const bodywin* w);
+
+/** RFC 9000 4.5: n buffered bytes (from buf[0]) cut to the final size once
+ * it is known; n itself before. */
+usz bodywin_clip(const bodywin* w, usz n);
 
 /** Slide n consumed bytes out of the window: base += n. */
 void bodywin_consume(bodywin* w, u8* buf, usz n);

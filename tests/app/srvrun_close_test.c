@@ -104,6 +104,43 @@ static void test_srvrun_close_bad_capsule_resets_no_fin(void) {
   CHECK(src_wtsend_count(c, 0) == 0);
 }
 
+/* Issue #185: a wired_wt_ref kept across steps resolves to its session
+ * only while that session is open: once it closes, and after a new
+ * session reuses the same storage, the old ref yields 0 instead of the
+ * new peer's session; the new session's own ref resolves. */
+static void test_srvrun_wt_ref_refuses_stale(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob  = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c   = &g_srvrun_env.conns[0]; /* where refs resolve */
+  srvrun_cfg    cfg = {0};
+  wired_wt_ref  old, cur;
+  cfg.fd  = -1;
+  cfg.env = &g_srvrun_env;
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->up              = 1;
+  c->l.req_stream_id = 4;
+  srvrun_wt_session_open(&cfg, c, 0);
+  old = wired_wt_ref_of(&c->wt);
+  CHECK(wired_wt_ref_get(old) == &c->wt);
+  srvrun_close_wt_session_slot(&cfg, c, 0, WTERR_SESSION_GONE);
+  CHECK(wired_wt_ref_get(old) == 0);
+  c->l.req_stream_id = 8;
+  srvrun_wt_session_open(&cfg, c, 0);
+  cur = wired_wt_ref_of(&c->wt);
+  CHECK(wired_wt_ref_get(old) == 0);
+  CHECK(wired_wt_ref_get(cur) == &c->wt);
+  CHECK(wired_wt_ref_get((wired_wt_ref){0}) == 0);
+  srvrun_close_all_wt(&cfg, c); /* connection teardown */
+  CHECK(wired_wt_ref_get(cur) == 0);
+  c->s.sdrv.alpn = SALPN_RAW; /* a raw-QUIC session is stamped too */
+  srvrun_raw_start(&cfg, c);
+  CHECK(wired_wt_ref_get(wired_wt_ref_of(&c->wt)) == &c->wt);
+  srvrun_close_all_wt(&cfg, c);
+  c->s.sdrv.alpn = SALPN_NONE;
+  c->up          = 0;
+}
+
 /* T-E13 (D1, wtroute DeliverToOwner): with WT flow control on, session A in
  * slot 0 and B in slot 1; A closes, stream 12 is offered to B, then C
  * reuses slot 0. The next chunk of stream 12 still goes to B. */
@@ -338,6 +375,7 @@ void test_srvrun_close(void) {
   test_srvrun_close_peer_fin_fins_connect();
   test_srvrun_close_peer_capsule_and_fin_one_fin();
   test_srvrun_close_bad_capsule_resets_no_fin();
+  test_srvrun_wt_ref_refuses_stale();
   test_srvrun_close_stream_stays_with_owner();
   test_srvrun_close_stream_offered_later();
   test_srvrun_close_violation_closes_sessions_now();

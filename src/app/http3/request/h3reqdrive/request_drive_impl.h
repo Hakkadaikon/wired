@@ -96,7 +96,7 @@ int  h3reqdrive_digits(wired_span s, u64* v);
 int  h3reqdrive_ph_ok(const h3_ph_set* p, const wired_h3reqdrive_req* r);
 int  h3reqdrive_plain_connect(const wired_h3reqdrive_req* r);
 int  h3reqdrive_authority_ok(const wired_h3reqdrive_req* r);
-int  h3reqdrive_request_ok(wired_span stream_data, wired_h3reqdrive_req* r);
+int  h3reqdrive_request_ok(int fin, wired_h3reqdrive_req* r);
 void h3reqdrive_line_trim(rline* L);
 usz  h3reqdrive_rd_dedicated_idx(wired_span name);
 int  h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r);
@@ -104,7 +104,7 @@ int  h3reqdrive_scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r);
 usz  h3reqdrive_prefix_base(
     wired_span fs, const qpack_dyn* dyn, u64* base, u64* ric);
 int h3reqdrive_decode_sections(
-    wired_span            stream_data,
+    wired_span            h3,
     wired_span            fs,
     wired_mspan           scr,
     const qpack_dyn*      dyn,

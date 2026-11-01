@@ -23,7 +23,8 @@
  * certificate (concatenated), spans into that buffer (leaf first), and the
  * decoded P-256 private scalar. All views wired_srvboot_id would hold must
  * outlive the id — keep this struct alive for as long as the identity built
- * from it is in use. */
+ * from it is in use.
+ * views: chain=slot */
 typedef struct {
   /** concatenated DER of every chain cert. Sized past a real 9-cert
    * amplificationlimit chain's cert.pem (13594 bytes of PEM/base64; DER is

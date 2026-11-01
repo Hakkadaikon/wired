@@ -8,27 +8,34 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
     in {
-      devShells.${system}.default = pkgs.mkShell {
-        # llvmPackages_latest: the newest stable LLVM nixpkgs ships; still
-        # pinned by flake.lock, so it only moves on an explicit
-        # `nix flake update`. clang-tools ships clang-format/clang-tidy (not
-        # part of clang); listed first so its wrapped binaries win on PATH.
-        packages = [
-          pkgs.llvmPackages_latest.clang-tools
-          pkgs.llvmPackages_latest.clang
-          # llvm ships llvm-profdata/llvm-cov (source-based coverage, `just cov`)
-          pkgs.llvmPackages_latest.llvm
-          pkgs.just
-          pkgs.python3Packages.lizard # a python tool; no top-level attr
-          # Halstead and maintainability index (`just halstead`)
-          pkgs.rust-code-analysis
-          # Python lint/format for scripts/ and shell lint for scripts/ and
-          # the examples' helper scripts
-          pkgs.ruff
-          pkgs.shellcheck
-          pkgs.doxygen
-          pkgs.ninja
-        ];
+      devShells.${system} = {
+        default = pkgs.mkShell {
+          # llvmPackages_latest: the newest stable LLVM nixpkgs ships; still
+          # pinned by flake.lock, so it only moves on an explicit
+          # `nix flake update`. clang-tools ships clang-format/clang-tidy (not
+          # part of clang); listed first so its wrapped binaries win on PATH.
+          packages = [
+            pkgs.llvmPackages_latest.clang-tools
+            pkgs.llvmPackages_latest.clang
+            # llvm ships llvm-profdata/llvm-cov (source-based coverage, `just cov`)
+            pkgs.llvmPackages_latest.llvm
+            pkgs.just
+            pkgs.python3Packages.lizard # a python tool; no top-level attr
+            # Halstead and maintainability index (`just halstead`)
+            pkgs.rust-code-analysis
+            # Python lint/format for scripts/ and shell lint for scripts/ and
+            # the examples' helper scripts
+            pkgs.ruff
+            pkgs.shellcheck
+            pkgs.doxygen
+            pkgs.ninja
+          ];
+        };
+        # Verification-time tools kept out of the build shell: CBMC for the
+        # bounded model checks under verify/cbmc (`just cbmc`).
+        verify = pkgs.mkShell {
+          packages = [ pkgs.cbmc ];
+        };
       };
     };
 }

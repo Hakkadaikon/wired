@@ -55,7 +55,8 @@ int srvloop_sf_is_wt_signalled(const stream_frame* sf);
 int srvloop_wt_frame_relevant(const wired_srvloop* l, const stream_frame* sf);
 int dispatch_stream(
     wired_h3srv_state*               h3,
-    wired_span                       frame,
+    wired_span                       bytes,
+    int                              fin,
     const wired_srvloop_dispatch_in* in);
 void srvloop_bump_len(wired_srvloop_reqacc* acc, usz end);
 int  srvloop_request_stream_of(

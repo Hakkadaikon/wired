@@ -68,9 +68,8 @@ static const char KEY_B[] =
 
 /* Logs the active leaf certificate's fingerprint once per change: the
  * baseline on the first tick, then again the moment a SIGHUP reload swaps
- * it. wired_main's `id` and this on_step's ctx are the SAME object the SDK
- * mutates in place on reload (srvrun.h), so reading id->chain[0] here always
- * reflects whichever PEM pair is currently loaded. */
+ * it. The run serves its own copy of wired_main's `id` and updates that
+ * copy on reload, so on_step reads it through wired_server_run_id(). */
 static u8  g_last_fp[SHA256_DIGEST];
 static int g_have_fp = 0;
 
@@ -105,9 +104,10 @@ static void deploy_cert_b(void) {
 }
 
 static void on_step(void* ctx, u64 now_ms) {
+  (void)ctx;
   (void)now_ms;
   deploy_cert_b();
-  report_cert((const wired_srvboot_id*)ctx);
+  report_cert(wired_server_run_id());
 }
 
 int wired_main(int argc, char** argv) {
@@ -126,7 +126,6 @@ int wired_main(int argc, char** argv) {
   wired_srvrun_opt opt = {0};
   opt.incoming_cpu     = -1;
   opt.on_step          = on_step;
-  opt.on_step_ctx      = &id;
 
   wired_srvrun_obs obs = {0};
   obs.cert_path        = "live-cert.pem";

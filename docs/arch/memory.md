@@ -36,7 +36,7 @@ flowchart LR
   dg["rx_datagrams[WIRED_SRVLOOP_MAX_RX_DATAGRAMS]"]
   rb["roundbuf[SRVRUN_WTSEND_BUF]"]
   ss["sendsess log[WIRED_SENDSESS_LOG]"]
-  rq["req_scratch[WIRED_H3_MAX_FIELD_SECTION]<br/>req_buf / req_wrap[BODYWIN_CAP]"]
+  rq["req_scratch[WIRED_H3_MAX_FIELD_SECTION]<br/>req_buf[BODYWIN_CAP]"]
   env --> conns
   conns --> l
   conns --> wtsend
@@ -51,27 +51,33 @@ flowchart LR
 
 ## One connection at the default settings
 
-One connection slot (`sizeof(srvrun_conn)`) is **6,383,952 bytes (6.09 MiB)**
+One connection slot (`sizeof(srvrun_conn)`) is **6,171,336 bytes (5.89 MiB)**
 at the defaults. It splits into these parts:
 
 | Part | Size per connection | Share |
 |---|---|---|
-| WT send staging, `wtsend[17]` | 2,405,976 B | 37.7% |
-| Request streams, `l.streams[40]` | 1,335,040 B | 20.9% |
-| WT bidi streams, `l.wt_streams[24]` | 1,185,984 B | 18.6% |
-| Responses, `resp[]` | 487,680 B | 7.6% |
-| WT uni streams, `l.wt_uni_streams[]` | 444,744 B | 7.0% |
-| Received DATAGRAMs, `l.rx_datagrams[256]` | 309,248 B | 4.8% |
-| Everything else (TLS state, boot flight, keys, counters) | 215,280 B | 3.4% |
+| WT send staging, `wtsend[17]` | 2,405,976 B | 39.0% |
+| WT bidi streams, `l.wt_streams[24]` | 1,330,176 B | 21.6% |
+| Request streams, `l.streams[40]` | 924,160 B | 15.0% |
+| WT uni streams, `l.wt_uni_streams[]` | 498,816 B | 8.1% |
+| Responses, `resp[]` | 487,680 B | 7.9% |
+| Received DATAGRAMs, `l.rx_datagrams[256]` | 309,248 B | 5.0% |
+| Everything else (TLS state, boot flight, keys, counters) | 215,280 B | 3.5% |
+
+A WT bidi stream slot (`wired_srvloop_wt_stream_slot`, 55,424 B) is its
+48 KiB receive window (`WIRED_SRVLOOP_WT_BUF_CAP`), the window's 6 KiB
+received-byte bitmap, and a little bookkeeping. It holds no HTTP/3 request buffers: those (`req_scratch`,
+`req_buf`) exist only in the request stream slots. A request is decoded in
+place from `req_buf`, so there is no second, linearized copy of the window.
 
 ```mermaid
 pie showData
     title "One connection slot at the defaults (KiB)"
     "WT send staging" : 2350
-    "Request streams" : 1304
-    "WT bidi streams" : 1158
+    "WT bidi streams" : 1299
+    "Request streams" : 903
+    "WT uni streams" : 487
     "Responses" : 476
-    "WT uni streams" : 434
     "Received DATAGRAMs" : 302
     "Everything else" : 210
 ```
@@ -88,10 +94,10 @@ their defaults. The relationship was exactly linear in every case, so the
 | `SRVRUN_WTSEND_BUF` (WT send staging per slot) | 131,072 B | +17 B per byte (once per send slot) | `ceil(SRVRUN_WTSEND_BUF / 1100) ≤ WIRED_SENDSESS_LOG` |
 | `WIRED_SENDSESS_LOG` (in-flight slices per send session) | 128 | +4,560 B per entry | at least the bound above |
 | `SRVRUN_WT_SEND_SLOTS` (concurrent WT send slots) | 17 | +141,616 B per slot | — |
-| `WIRED_SRVLOOP_MAX_STREAMS` (request streams) | 40 | +45,786 B per stream | ≤ 64 (`wt_held_mask` is one 64-bit mask) |
-| `BODYWIN_CAP` (request body window) | 10,240 B | +85 B per byte | — |
+| `WIRED_SRVLOOP_MAX_STREAMS` (request streams) | 40 | +35,514 B per stream | ≤ 64 (`wt_held_mask` is one 64-bit mask) |
+| `BODYWIN_CAP` (request body window) | 10,240 B | +45 B per byte | — |
 | `WIRED_H3_MAX_FIELD_SECTION` (request field section) | 10,240 B | +40 B per byte | ≥ 8000 for RFC 9110 §4.1 request targets |
-| `WIRED_SRVLOOP_MAX_WT_STREAMS` (WT bidi streams) | 24 | +49,552 B per stream | — |
+| `WIRED_SRVLOOP_MAX_WT_STREAMS` (WT bidi streams) | 24 | +55,560 B per stream | — |
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` (queued received DATAGRAMs) | 256 | +1,208 B per slot | — |
 
 Two constants are coupled. One staged WT send round is cut into 1,100-byte
@@ -104,14 +110,14 @@ assertion in `srvrun_impl_srvrun.h`).
 
 The charts below show the size of one connection slot (MiB) as each constant
 moves, with every other constant at its default. The point marked
-"default" reads 6.09 MiB on every chart.
+"default" reads 5.89 MiB on every chart.
 
 ```mermaid
 xychart-beta
     title "SRVRUN_WTSEND_BUF (KiB) vs. one connection (MiB)"
     x-axis ["16", "32", "64", "128 (default)"]
     y-axis "MiB" 0 --> 7
-    line [4.23, 4.49, 5.03, 6.09]
+    line [4.03, 4.29, 4.83, 5.89]
 ```
 
 ```mermaid
@@ -119,7 +125,7 @@ xychart-beta
     title "SRVRUN_WT_SEND_SLOTS vs. one connection (MiB)"
     x-axis ["9", "17 (default)", "33"]
     y-axis "MiB" 0 --> 9
-    line [5.01, 6.09, 8.25]
+    line [4.81, 5.89, 8.05]
 ```
 
 ```mermaid
@@ -127,7 +133,7 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_STREAMS vs. one connection (MiB)"
     x-axis ["10", "20", "40 (default)"]
     y-axis "MiB" 0 --> 7
-    line [4.78, 5.21, 6.09]
+    line [4.87, 5.21, 5.89]
 ```
 
 ```mermaid
@@ -135,7 +141,7 @@ xychart-beta
     title "BODYWIN_CAP (KiB) vs. one connection (MiB)"
     x-axis ["2", "4", "10 (default)", "16"]
     y-axis "MiB" 0 --> 7
-    line [5.42, 5.59, 6.09, 6.59]
+    line [5.53, 5.62, 5.89, 6.15]
 ```
 
 ```mermaid
@@ -143,7 +149,7 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_WT_STREAMS vs. one connection (MiB)"
     x-axis ["6", "12", "24 (default)", "48"]
     y-axis "MiB" 0 --> 8
-    line [5.24, 5.52, 6.09, 7.22]
+    line [4.93, 5.25, 5.89, 7.16]
 ```
 
 ```mermaid
@@ -151,36 +157,40 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_RX_DATAGRAMS vs. one connection (MiB)"
     x-axis ["16", "64", "256 (default)", "1024"]
     y-axis "MiB" 0 --> 8
-    line [5.81, 5.87, 6.09, 6.97]
+    line [5.61, 5.67, 5.89, 6.77]
 ```
 
 `WIRED_H3_MAX_FIELD_SECTION` behaves like `BODYWIN_CAP` at half the slope:
-5.78 MiB at 2 KiB, 6.09 MiB at 10 KiB (default), 6.32 MiB at 16 KiB.
-`WIRED_SENDSESS_LOG` at 256 gives 6.64 MiB.
+5.58 MiB at 2 KiB, 5.89 MiB at 10 KiB (default), 6.12 MiB at 16 KiB.
+`WIRED_SENDSESS_LOG` at 256 gives 6.44 MiB.
 
 ## The whole server: `WIRED_CONNTABLE_CAP`
 
 The connection count multiplies everything above. Each extra connection
-costs **7,039,380 B (6.71 MiB)**: the 6.09 MiB connection slot plus its
-response storage and table entry. About 1.6 MiB is fixed per worker.
+costs **6,826,764 B (6.51 MiB)**: the 5.89 MiB connection slot plus its
+response storage and table entry. About 1.6 MiB is fixed per worker. That
+includes the run's own copy of the identity and paths it was started with
+(`srvrun_own`, about 34 KiB: a 16 KiB certificate chain, four 4 KiB paths,
+two 512-byte id lists and the keys), so nothing the run reads lives in the
+caller's memory.
 
 ```text
-bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.71 MiB
+bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.51 MiB
 ```
 
 | `WIRED_CONNTABLE_CAP` | Reserved per worker |
 |---|---|
-| 4 | 28.5 MiB |
-| 16 | 109 MiB |
-| 64 (library default) | 431 MiB |
-| 128 | 861 MiB |
+| 4 | 27.7 MiB |
+| 16 | 106 MiB |
+| 64 (library default) | 418 MiB |
+| 128 | 835 MiB |
 
 ```mermaid
 xychart-beta
     title "WIRED_CONNTABLE_CAP vs. reserved memory per worker (MiB)"
     x-axis ["4", "16", "64 (default)", "128"]
     y-axis "MiB" 0 --> 900
-    line [28.5, 109, 431, 861]
+    line [27.7, 106, 418, 835]
 ```
 
 The threads driver multiplies again by the number of workers. The default
@@ -192,10 +202,20 @@ Because pages are mapped only on first write, a server reserves the full
 table but uses far less. On the loopback lane of
 [Implementation Comparison](../performance/comparison.md) (the 4-connection
 build, 20 concurrent streams on one connection), wired used 504 KiB of RAM
-when idle and 6,984 KiB at its peak, against 28.5 MiB reserved. Resident
+when idle and 6,984 KiB at its peak, against 28.5 MiB reserved at the
+time of that measurement (27.7 MiB now). Resident
 memory grows with what connections actually touch: a connection that sends
 a large WebTransport round fills its 128 KiB staging buffer, and a request
 with a long target fills its 10 KiB request window.
+
+When a connection closes, the server hands its slot's big tables (request
+and WT stream slots, received DATAGRAMs, WT send staging, its `respstore`
+row) back to the kernel with `madvise(MADV_DONTNEED)`, once per close. So
+resident memory falls back after load instead of staying at its peak: on
+the same lane, 1,388 KiB after the load rounds against 6,984 KiB before
+this change. The pages read as zero afterwards, which is what a fresh slot
+holds, so the next claim skips rewriting them and touches only the pages
+the new connection uses (peak 1,916 KiB).
 
 ## Choosing a constant
 

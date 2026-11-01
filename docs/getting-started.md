@@ -330,7 +330,7 @@ into it. Here is the call added to the Part 2 server, reading word_list's
 `--cert` / `--key` flags:
 
 ```c
-/* id points into it for the whole run, so it must outlive the server. */
+/* id points into it until wired_server_run copies it at start. */
 static wired_certreload_store cert_store;
 
 int wired_main(int argc, char** argv) {

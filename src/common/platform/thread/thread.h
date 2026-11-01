@@ -3,9 +3,22 @@
 
 #include "common/platform/sys/syscall.h"
 
+/* The hosted AddressSanitizer build (test-san, fuzz) runs SDK threads as
+ * pthreads, so each one gets its own TLS and with it ASan's per-thread
+ * state: a raw clone(2) shares the parent's TLS, two threads then share
+ * ASan's fake stack, and detect_stack_use_after_return crashes inside ASan.
+ * Every other build keeps the libc-free raw clone. */
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define WIRED_THREAD_PTHREAD 1
+#endif
+#endif
+
 /**
  * @file
- * Freestanding thread runtime over raw clone(2)/futex(2). No libc.
+ * Freestanding thread runtime over raw clone(2)/futex(2). No libc. (The
+ * hosted ASan build alone uses pthreads instead, see WIRED_THREAD_PTHREAD;
+ * there t->tid and t->stack stay unset.)
  *
  * Each thread runs on its own mmap'd stack with a PROT_NONE guard page at
  * the low end. The handle's tid word doubles as the join futex: the thread
@@ -29,6 +42,14 @@ typedef struct {
   u8* stack;
   /** total mapped length including the guard page */
   usz stack_len;
+#ifdef WIRED_THREAD_PTHREAD
+  /** the pthread_t (ASan build only) */
+  u64 handle;
+  /** the entry wired_thread_start was given (ASan build only) */
+  void (*fn)(void*);
+  /** fn's argument (ASan build only) */
+  void* arg;
+#endif
 } wired_thread;
 
 /**

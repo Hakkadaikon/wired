@@ -2,9 +2,9 @@
 
 [Docs](README.md) › Interop Results
 
-This page answers one question: which QUIC and WebTransport testcases does
-the wired server pass when an independent client implementation talks to
-it, and what is the evidence? Read it when you need to know how far wired
+This page answers one question: which QUIC, WebTransport and MoQT
+testcases does the wired server pass when an independent client
+implementation talks to it, and what is the evidence? Read it when you need to know how far wired
 is proven to work with other stacks, or before you claim wire
 compatibility for a feature.
 
@@ -42,24 +42,38 @@ run's log directory exists.
 
 ## How to read the tables
 
-At a glance: against quic-go, 17 of the 22 QUIC testcases pass and both
-measurement testcases pass. Of the other 5, `ecn`, `v2` and
-`connectionmigration` pass against ngtcp2 (and `v2` against picoquic too);
-`rebind-port` and `rebind-addr` still fail in the runner, because its
-tooling cannot decrypt the new path's first packet (see notes). All 7 WebTransport
-testcases pass.
+At a glance: the snapshot is the CI run of 2026-10-27 at wired `d32fccff5`
+([QUIC and WebTransport run](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893), [MoQT run](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)).
 
-The QUIC table shows results as of 2026-07 against quic-go. Where quic-go
-itself cannot give a verdict (`ecn`, `v2`, `connectionmigration`), the
-ngtcp2/picoquic results are noted inline.
+- QUIC, 15 clients: 249 passed, 28 failed, 53 unsupported (testcase
+  cells only; the two measurements are counted separately). Against
+  quic-go, 19 of the 22 testcases pass and both measurement testcases
+  pass; `ecn` and `v2` are unsupported by the quic-go client and
+  `connectionmigration` fails.
+- WebTransport, 5 clients: 26 passed, 9 failed.
+- MoQT relay, 14 clients: 11 pass over WebTransport, 13 over raw QUIC.
 
-The WebTransport table reflects the `transfer-unidirectional-send` fix that
-landed on 2026-08-23 (commit `ee13cc7`) and the local serial re-run on the
-same day against three WebTransport clients: webtransport-go, ngtcp2 and
-flupke-webtransport.
+Three of the loss and corruption testcases (`handshakeloss` L1,
+`transferloss` L2, `handshakecorruption` C1) fail for different clients
+from one run to the next: they are flaky under the simulator's
+random loss pattern, so a single run's `✕` there is weak evidence either
+way. The two CI runs of 2026-10-27 show it. `handshakeloss` failed with
+ngtcp2, mvfst, quiche, picoquic, msquic, xquic and quinn in the
+[earlier run](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712), and with ngtcp2, mvfst, quiche, kwik, msquic and
+quinn in the later one. `handshakecorruption` failed with ngtcp2, mvfst,
+quiche, xquic and quinn, then with ngtcp2, mvfst, quinn and s2n-quic.
+`transferloss` failed only in the later run, with xquic.
+`transfercorruption` is the exception: it failed with xquic in both runs,
+so it is listed as a reproducible failure below. The open failures and their issues are listed in
+[Open interop failures](#open-interop-failures).
 
-Legend: `✅` passed · `🟡` implemented but no verdict possible (peer/tooling
-limitation, or a non-protocol gap) · `—` not demonstrated yet.
+The tables below list each testcase against quic-go (QUIC) and
+webtransport-go (WebTransport), with the other clients noted inline where
+they differ.
+
+Legend: `✅` passed · `❌` failed in this snapshot · `🟡` implemented but no
+verdict possible (peer/tooling limitation, or a non-protocol gap) · `—` not
+demonstrated yet.
 
 Each Remark is one line. Where a testcase has a longer story (a root cause,
 a peer limitation), it is under the same name in the notes after the
@@ -77,21 +91,21 @@ table.
 | `keyupdate` | ✅ | RFC 9001 §6 key update, both directions |
 | `transferloss` | ✅ | file transfer under packet loss |
 | `transfercorruption` | ✅ | file transfer under packet corruption |
-| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight |
-| `goodput` (measurement) | ✅ | 10 MB at 9372±14 kbps over the runner's simulated 10 Mbps link (5-run pooled at `72914d2`; re-measured 9394±50 at `3d84412`) — on par with ngtcp2 (9381) and picoquic (9328) |
+| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight; failed with msquic on 2026-10-27 ([#178](https://github.com/Hakkadaikon/wired/issues/178)); fixed on the server side (a Handshake PING when the budget blocks every replay), 5 of 5 local runs pass, awaiting the next CI run |
+| `goodput` (measurement) | ✅ | 10 MB at 9418±14 kbps over the runner's simulated 10 Mbps link (2026-10-27); 9169–9418 kbps across the 14 clients that run it |
 | `blackhole` | ✅ | resumes correctly after a simulated 2 s link outage |
 | `multiplexing` | ✅ | passes fully as of 2026-08-05 (see notes) |
 | `handshakeloss` | ✅ | all 50 handshakes complete under a 30% bursty loss rate (see notes) |
 | `handshakecorruption` | ✅ | same scenario under corruption; passes with the same fixes |
 | `retry` | ✅ | RFC 9000 §8.1.2 forced address validation via `--force-retry` (see notes) |
 | `resumption` | ✅ | PSK-based session resumption over a real second handshake (see notes) |
-| `zerortt` | ✅ | 0-RTT data received and acted on, wired end to end (see notes) |
-| `ecn` | 🟡 | quic-go client declares `unsupported test case: ecn`; passes against ngtcp2 (`✓(E)`, 2026-08-21) |
+| `zerortt` | ✅ | 0-RTT data received and acted on, wired end to end (see notes); fails with msquic ([#177](https://github.com/Hakkadaikon/wired/issues/177)); mvfst and quiche not yet triaged |
+| `ecn` | 🟡 | quic-go client declares `unsupported test case: ecn`; passes against ngtcp2, picoquic, neqo, lsquic, quinn and s2n-quic (2026-10-27) |
 | `ipv6` | ✅ | transfer over native IPv6 (see notes) |
-| `v2` | 🟡 | quic-go client declares `unsupported test case: v2`; passes against ngtcp2 and picoquic (`✓(V2)`, 2026-08-21) |
-| `rebind-port` / `rebind-addr` | — | runner's tooling cannot decrypt the new path's first packet (see notes) |
-| `connectionmigration` | 🟡 | quic-go client never triggers a path change; passes against ngtcp2 (`✓(CM)`, 2026-08-21) |
-| `crosstraffic` (measurement) | ✅ | 25 MB alongside a competing TCP cubic flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion bar |
+| `v2` | 🟡 | quic-go client declares `unsupported test case: v2`; passes against ngtcp2, kwik, picoquic, aioquic, neqo and lsquic, fails with msquic and quinn (2026-10-27) |
+| `rebind-port` / `rebind-addr` | ✅ | pass against all 14 clients that run them (2026-10-27); see notes |
+| `connectionmigration` | ❌ | fails against quic-go and 8 other clients; passes against ngtcp2, picoquic, aioquic, neqo and lsquic (2026-10-27, see notes) |
+| `crosstraffic` (measurement) | ✅ | 25 MB alongside a competing TCP cubic flow: 1453 (± 111) kbps against quic-go (2026-10-27); fails with msquic and xquic |
 
 ### Notes on the QUIC testcases
 
@@ -333,14 +347,12 @@ PATH_RESPONSE (RFC 9000 §8.2/§9.3). A PATH_CHALLENGE is a frame carrying 8
 random bytes; the peer proves it is reachable on that path by echoing them
 in a PATH_RESPONSE.
 
-Manually decrypting the capture confirms that the new path's first packet
-is the PATH_CHALLENGE, as required. The runner's own analysis tooling
-(pyshark/tshark) cannot decrypt that same packet: short-header packets omit
-the DCID's length (see `zerortt`), so a decoder must already know it from
-an earlier long-header packet (Initial/Handshake) on the same UDP
-conversation, and a
-rebind's fresh source port never provides one. We believe this is a
-limitation of the tooling, not a protocol bug in this server.
+Both testcases pass against every client that runs them in the
+2026-10-27 CI run. Earlier runs failed only because the runner's analysis
+tooling (pyshark/tshark) could not decrypt the new path's first packet:
+short-header packets omit the DCID's length (see `zerortt`), so a decoder
+must already know it from an earlier long-header packet on the same UDP
+conversation, and a rebind's fresh source port never provides one.
 
 The sequence below is what the server does when a confirmed connection's
 packets start arriving from a new port. Look at two things: the server
@@ -369,13 +381,13 @@ sequenceDiagram
 
 #### `connectionmigration`
 
-This testcase runs but cannot get a verdict, while
-`rebind-port`/`rebind-addr` fail for a different reason. The server side
-works (the file transfer completes) and reuses the same
-PATH_CHALLENGE/PATH_RESPONSE machinery, but
-the quic-go client never actually triggers a path change for this testcase
-(runner log: "Server saw only a single path in use"). That is a client
-limitation, not the tooling decryption issue above. Against ngtcp2 as the
+The server side works (the file transfer completes) and reuses the same
+PATH_CHALLENGE/PATH_RESPONSE machinery as `rebind-*`. In the 2026-10-27
+run it failed against quic-go and 8 other clients and passed against
+ngtcp2, picoquic, aioquic, neqo and lsquic. Earlier runs traced the
+quic-go failure to the client never triggering a path change (runner
+log: "Server saw only a single path in use"); the other failures have
+not been triaged yet. Against ngtcp2 as the
 client it does pass end to end (`✓(CM)`, 2026-08-21), confirming a real
 migration (runner log: "DCID changed during active migration").
 
@@ -392,10 +404,30 @@ an Extended CONNECT request (see the guide's
 | `transfer-bidirectional-receive` | ✅ | server replies on bidi streams |
 | `transfer-datagram-receive` | ✅ | server pushes over DATAGRAMs |
 | `transfer-unidirectional-send` | ✅ | 2xx/stream ordering fixed 2026-08-23 (`ee13cc7`); passed against ngtcp2 and webtransport-go (see notes) |
-| `transfer-bidirectional-send` | ✅ | same fix; passed against webtransport-go in the 2026-08-23 local serial re-run |
+| `transfer-bidirectional-send` | ❌ | failed against webtransport-go on 2026-10-27 with a truncated file ([#180](https://github.com/Hakkadaikon/wired/issues/180)); root cause fixed (received bytes tracked with a bitmap), 5 of 5 local runs pass, awaiting the next CI run |
 | `transfer-datagram-send` | ✅ | same fix; passed against webtransport-go in the 2026-08-23 local serial re-run |
 
+The 2026-10-27 CI run covered 5 clients: flupke-webtransport and ngtcp2
+pass all 7 testcases, webtransport-go passes 6 (all but
+`transfer-bidirectional-send`), Firefox passes 6 (all but `handshake`)
+and Chrome fails all 7. The Chrome and Firefox failures have not been
+triaged yet.
+
 ### Notes on the WebTransport testcases
+
+#### `transfer-bidirectional-send`
+
+The 2026-10-27 failure was a stall, not data loss on the wire. Under the
+simulator's loss, quic-go's retransmissions split into many small pieces,
+and the server's WebTransport receive window tracked received bytes as at
+most 8 disjoint ranges. When a ninth arrived it forgot the farthest one.
+Those bytes were already acknowledged, so the client never sent them
+again: the window could not move past the hole and the stream's credit
+stopped. (The CI run kept no per-test logs; in a local reproduction the
+client's qlog showed every byte acknowledged and the client blocked at the
+stream's limit until it gave up with "no recent network activity".) The
+window now marks every received byte in a bitmap, like the request
+window, so no received byte can be forgotten.
 
 #### `transfer-unidirectional-send`
 
@@ -417,19 +449,72 @@ server: there the ngtcp2 client receives the 2xx and its streams in the
 same packet, 2xx first, while wired sent the streams before the 2xx. The
 QUIC root causes are in the notes above.
 
+## MoQT relay (server: wired · 14 clients)
+
+The [moq-interop-runner](https://github.com/englishm/moq-interop-runner)
+runs each client's test suite against `examples/moqt_interop` as a relay,
+once over WebTransport and once over raw QUIC ([2026-10-27 run](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)).
+
+| Transport | Passed | Failed clients |
+|---|---|---|
+| WebTransport | 11 of 14 | moq-dev-js; xquic-draft-18 and moqtopus run over raw QUIC only |
+| raw QUIC | 13 of 14 | moq-dev-js |
+
+moq-dev-js failed `subscribe-namespace-lifecycle` over WebTransport
+([#179](https://github.com/Hakkadaikon/wired/issues/179)). Its @moq/net
+0.4.4 withdrew a PUBLISH_NAMESPACE with a FIN alone, which
+draft-ietf-moq-transport-22 §6.4.2.2 says is not a cancellation, so the
+relay rightly kept the namespace and sent no NAMESPACE_DONE. @moq/net
+0.4.7 cancels the request instead and passes all 8 tests against the
+same relay in a local run. Over raw QUIC moq-dev-js fails every test,
+`setup-only` included: the client has no raw QUIC transport and always
+opens a WebTransport session, whatever the URL scheme. xquic-draft-18 and
+moqtopus fail over WebTransport because they support only raw QUIC relay
+URLs (their own logs say so); both pass over raw QUIC. Among the passing
+clients, moq-dev-rs and stitcher-moq skip 2 tests each (`ok # SKIP`).
+
+## Open interop failures
+
+From the 2026-10-27 runs, with the issue that tracks each one:
+
+- `zerortt` with msquic, "client sent too much data in 1-RTT":
+  [#177](https://github.com/Hakkadaikon/wired/issues/177). The rebuilt
+  msquic image sends only its first 0-RTT packet (about 600 bytes) and
+  the rest in 1-RTT, against quic-go's server as well, and the wired
+  commit that passed on 2026-10-04 (`4f38861a7`) now fails the same way
+  in a local run. wired accepts the PSK and the
+  early data.
+- `amplificationlimit` with msquic, missing files:
+  [#178](https://github.com/Hakkadaikon/wired/issues/178), a server-side
+  stall: on PTO wired only replayed whole cached datagrams, every one
+  larger than the anti-amplification budget left, so it went silent while
+  the testcase dropped msquic's retries. wired now sends a small
+  Handshake PING when it fits; 5 of 5 local runs pass, awaiting the next
+  CI run.
+- WebTransport `transfer-bidirectional-send` with webtransport-go:
+  [#180](https://github.com/Hakkadaikon/wired/issues/180), fixed
+  (received bytes tracked with a bitmap), awaiting the next CI run.
+- MoQT `subscribe-namespace-lifecycle` with moq-dev-js:
+  [#179](https://github.com/Hakkadaikon/wired/issues/179), a client
+  behavior fixed in @moq/net 0.4.7.
+- Not triaged yet, no issue: `zerortt` with mvfst and quiche,
+  `connectionmigration` with 9 clients, `multiplexing` and
+  `transfercorruption` with xquic (both runs), `v2`
+  with msquic and quinn, `crosstraffic` with msquic and xquic, and Chrome
+  (all 7) and Firefox (`handshake`) over WebTransport.
+- Flaky under the simulator's loss (see
+  [How to read the tables](#how-to-read-the-tables)): `handshakeloss`
+  with ngtcp2, mvfst, quiche, kwik, msquic and quinn, `handshakecorruption`
+  with ngtcp2, mvfst, quinn and s2n-quic, and `transferloss` with xquic.
+
 ## Honest summary of the gaps
 
-- Five of the 22 QUIC testcases have no pass against quic-go: `ecn`, `v2`,
-  `rebind-port`, `rebind-addr`, `connectionmigration`. Both measurement
-  testcases pass.
-- `ecn` and `v2`: the quic-go client refuses both; both pass against
-  ngtcp2, and `v2` against picoquic too (see notes).
-- `rebind-port` / `rebind-addr`: implemented; both fail in the runner because
-  of its decryption tooling (see notes).
-- `connectionmigration`: the quic-go client never changes path; passes
-  against ngtcp2 (see notes).
-- The three WebTransport `*-send` cases now pass against webtransport-go
-  (2026-08-23 local serial re-run, see notes).
+- Three of the 22 QUIC testcases have no pass against quic-go: `ecn` and
+  `v2` (the quic-go client refuses both; both pass against ngtcp2 and
+  several others) and `connectionmigration` (passes against 5 other
+  clients). Both measurement testcases pass.
+- The open failures with an issue, and the ones not triaged yet, are in
+  [Open interop failures](#open-interop-failures).
 - Ed25519 and RSA certificate paths, HTTP/3 request priorities
   ([RFC 9218](features/rfc9218.md)), and QUIC-bit greasing (randomly
   flipping a fixed header bit so middleboxes don't come to rely on it;

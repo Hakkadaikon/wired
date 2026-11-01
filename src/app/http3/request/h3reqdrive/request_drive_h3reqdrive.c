@@ -1,4 +1,5 @@
 #include "app/http3/request/h3reqdrive/request_drive_impl.h"
+#include "transport/packet/frame/frame/frame.h"
 
 static int rd_hdr_name_is(
     const wired_h3reqdrive_req* req,
@@ -10,22 +11,35 @@ static int rd_dedicated_found(
     const wired_h3reqdrive_req* req, usz i, wired_span* out);
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
+int wired_h3reqdrive_recv_h3(
+    const wired_h3reqdrive_h3_in* in, wired_h3reqdrive_req* r) {
+  wired_span fs = wired_span_of(0, 0);
+  *r            = (wired_h3reqdrive_req){0};
+  h3_priority_init(&r->priority);
+  r->hdr_base = in->scratch.p;
+  if (!wired_h3reqdrive_request_sections(in->h3, &fs, r)) {
+    return 0;
+  }
+  if (!h3reqdrive_decode_sections(in->h3, fs, in->scratch, in->dyn, r)) {
+    return 0;
+  }
+  return h3reqdrive_request_ok(in->fin, r);
+}
+
+/* RFC 9114 4.1: unwrap the request STREAM frame, then decode its bytes. */
 int wired_h3reqdrive_recv_get_dyn(
     wired_span            stream_data,
     wired_mspan           scratch,
     const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
-  wired_span fs = wired_span_of(0, 0);
-  *r            = (wired_h3reqdrive_req){0};
-  h3_priority_init(&r->priority);
-  r->hdr_base = scratch.p;
-  if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) {
+  stream_frame           f;
+  wired_h3reqdrive_h3_in in;
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) {
     return 0;
   }
-  if (!h3reqdrive_decode_sections(stream_data, fs, scratch, dyn, r)) {
-    return 0;
-  }
-  return h3reqdrive_request_ok(stream_data, r);
+  in = (wired_h3reqdrive_h3_in){
+      wired_span_of(f.data, (usz)f.length), f.fin, scratch, dyn};
+  return wired_h3reqdrive_recv_h3(&in, r);
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5: static-table-only convenience wrapper (no

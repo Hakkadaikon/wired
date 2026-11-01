@@ -58,6 +58,19 @@ typedef struct {
 } wired_obuf;
 
 /**
+ * Marks a parameter the returned view points into (clang's lifetimebound),
+ * so returning a view of a local array is rejected at compile time
+ * (-Wreturn-stack-address, an error under -Werror). The pinned clang (22)
+ * honors it in C; an older one ignores it with a warning, so it stays off
+ * there.
+ */
+#if defined(__clang__) && __clang_major__ >= 22
+#define WIRED_LIFETIMEBOUND __attribute__((lifetimebound))
+#else
+#define WIRED_LIFETIMEBOUND
+#endif
+
+/**
  * Make a read-only span over p[0..n).
  *
  * The span borrows p; the buffer must outlive every use of the returned
@@ -67,7 +80,7 @@ typedef struct {
  * @param n number of readable bytes
  * @return the view as a value type
  */
-static inline wired_span wired_span_of(const u8* p, usz n) {
+static inline wired_span wired_span_of(const u8* p WIRED_LIFETIMEBOUND, usz n) {
   wired_span s = {p, n};
   return s;
 }
@@ -82,7 +95,7 @@ static inline wired_span wired_span_of(const u8* p, usz n) {
  * @param n number of writable bytes
  * @return the view as a value type
  */
-static inline wired_mspan wired_mspan_of(u8* p, usz n) {
+static inline wired_mspan wired_mspan_of(u8* p WIRED_LIFETIMEBOUND, usz n) {
   wired_mspan s = {p, n};
   return s;
 }

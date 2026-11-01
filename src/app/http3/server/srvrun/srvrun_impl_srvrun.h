@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvrun/srvrun_impl_cid.h"
 #include "app/http3/server/srvrun/srvrun_impl_dgent.h"
+#include "app/http3/server/srvrun/srvrun_impl_own.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos1.h"
 #include "app/http3/server/srvrun/srvrun_impl_rst.h"
 #include "transport/recovery/detect/recovery/rtt.h"
@@ -21,7 +22,9 @@
  * derived, so a reload never disturbs them (RFC 9001 4). cert_path/key_path
  * are 0 unless --cert/--key were given, disabling reload entirely. Passed by
  * pointer so no per-datagram copy (a Parameter Object folds what were 4
- * separate args threaded through every step). */
+ * separate args threaded through every step).
+ * views: qlog_path=own, keylog_path=own, cert_path=own, key_path=own,
+ * wt_protocols=own */
 typedef struct {
   i64                   fd;
   wired_srvboot_id*     id;
@@ -886,6 +889,11 @@ typedef struct {
   /** RFC 9000 5.1.1/19.15: the transport error a NEW_CONNECTION_ID caused,
    * closed on at the step's end (srvrun_close_on_cid); 0 = none. */
   u8 cid_err;
+  /** 1 once a claim may have written the big tables srvrun_release_tables
+   * returns to the kernel; 0 while they are all zero (a never-claimed bss
+   * slot, or one released since), so the next claim need not rewrite --
+   * and fault back in -- megabytes of zeros. */
+  u8 tables_dirty;
 } srvrun_conn;
 
 _Static_assert(
@@ -1107,6 +1115,12 @@ struct wired_srvrun_env {
    * tokens derive from (srvrun_pin_reset_seed), kept apart from the
    * id->cert_seed a SIGHUP reload rewrites. */
   u8 reset_seed[SRESET_KEY];
+  /* Issue #182: the run's own copy of the id, obs paths and WebTransport
+   * subprotocol list it was started with (srvrun_own_config). */
+  srvrun_own own;
+  /* The last wired_wt_session.gen handed out (srvrun_wt_stamp): each
+   * opened session takes the next non-zero value. */
+  u32 wt_gen_last;
   /* wired_srvrun_handler.on_body_abort, copied onto each connection's loop
    * at accept (kept here, not in srvrun_cfg, which the run builds once). */
   wired_srvloop_on_body_abort on_body_abort;

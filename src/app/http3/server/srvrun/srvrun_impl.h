@@ -151,7 +151,8 @@ srvrun_cfg srvrun_build_cfg(
     wired_srvboot_id*       id,
     wired_srvrun_handler    h,
     wired_srvrun_obs        obs,
-    const wired_srvrun_opt* opt);
+    const wired_srvrun_opt* opt,
+    const char*             wt_protocols);
 void srvrun_pref_listen(
     srvrun_cfg* cfg, wired_srvboot_id* id, const wired_srvrun_opt* opt);
 void srvrun_pin_reset_seed(wired_srvrun_env* env, wired_srvboot_id* id);

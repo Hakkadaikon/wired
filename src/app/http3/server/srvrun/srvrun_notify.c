@@ -41,6 +41,7 @@ void srvrun_close_wt_session_slot(
    * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
    * "never initialized" by state alone). */
   *srvrun_wt_active_slot(c, sidx) = 0;
+  srvrun_wt_slot(c, sidx)->gen    = 0; /* every wired_wt_ref to it is stale */
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.6 / RFC 9297 SS3.2: the CONNECT stream's

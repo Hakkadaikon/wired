@@ -1,10 +1,11 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 #include "transport/conn/lifecycle/closelife/idlefloor.h"
 
-static int srvrun_pkt_is_initial(wired_mspan dg, usz off);
-static int srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n);
-static int srvrun_dgram_all_initial(wired_mspan dg);
-static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms);
+static int  srvrun_pkt_is_initial(wired_mspan dg, usz off);
+static void srvrun_zero_release(void* p, usz n);
+static int  srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n);
+static int  srvrun_dgram_all_initial(wired_mspan dg);
+static int  srvrun_idle_due(const srvrun_conn* c, u64 now_ms);
 
 /* RFC 8446 4.1.4: a HelloRetryRequest went out (its Initial is cached in
  * boot_ini) while the connection is not up yet. The flight-retransmission
@@ -106,6 +107,7 @@ void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c) {
     srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, i));
     wired_wt_session_close(srvrun_wt_slot(c, i));
     (*srvrun_wt_active_slot(c, i)) = 0;
+    srvrun_wt_slot(c, i)->gen      = 0;
   }
 }
 
@@ -133,6 +135,37 @@ void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   /* The closing state ends with the slot (srvrun_close_reap_due must not
    * fire again for a slot already reaped). */
   c->closing = 0;
+  srvrun_release_tables(cfg->env, c, i);
+}
+
+/* Zero [p, p + n): its whole pages go back to the kernel (MADV_DONTNEED:
+ * resident memory drops and the next touch maps a zero page), the partial
+ * pages at either edge are cleared by hand. A refused madvise (mlocked
+ * pages, a seccomp filter) keeps the bytes, so they are cleared by hand
+ * too: the caller relies on the range reading zero either way. */
+static void srvrun_zero_release(void* p, usz n) {
+  u8* b    = p;
+  usz head = (usz)u64_min(
+      (WIRED_ARCH_PAGE - (u64)b % WIRED_ARCH_PAGE) % WIRED_ARCH_PAGE, n);
+  usz tail = (usz)u64_min(((u64)b + n) % WIRED_ARCH_PAGE, n - head);
+  usz mid  = n - head - tail;
+  if (mid &&
+      wired_arch_madvise((i64)(b + head), mid, WIRED_ARCH_MADV_DONTNEED) < 0) {
+    bytes_memset(b + head, 0, mid);
+  }
+  bytes_memset(b, 0, head);
+  bytes_memset(b + n - tail, 0, tail);
+}
+
+/* Issue #174: once per close, return the slot's big tables' pages to the
+ * kernel so an idle server's RSS falls back instead of staying at its peak.
+ * They are all zero afterwards, what a never-claimed bss slot holds, so the
+ * next claim skips them (tables_dirty); nothing reads them while the slot
+ * is down. */
+void srvrun_release_tables(wired_srvrun_env* env, srvrun_conn* c, int i) {
+  srvrun_tables_each(c, srvrun_zero_release);
+  srvrun_zero_release(env->respstore[i], sizeof env->respstore[i]);
+  c->tables_dirty = 0;
 }
 
 /* 1 if the slot holds anything reclaimable: a live connection, or a boot

@@ -13,7 +13,8 @@
 
 /** The cached certificate: DER storage, the 1-entry chain view over it that
  * a wired_srvboot_id borrows, and whether it has been built. The holder must
- * outlive every connection using the chain (an env-lifetime member). */
+ * outlive every connection using the chain (an env-lifetime member).
+ * views: chain=slot */
 typedef struct {
   u8 der[512];         /**< certificate DER (owned; same sizing rationale as
                         * sdrv.cert_buf) */

@@ -98,17 +98,23 @@ int moqtrun_subtracks_encode_skip(wired_mspan buf, usz* off, const void* m) {
  * remainder -- the suffix byte layout (Length-prefixed fields, no count
  * of its own here) is identical to a bare Track Namespace's own fields,
  * so moqctl_ns_take's Length-prefixed-field reader applies unchanged once
- * fed just the suffix's field count. */
+ * fed just the suffix's field count. out's fields view into buf, which the
+ * caller keeps alive while it uses out (a local here would dangle on
+ * return); buf must hold WIRED_MOQTRUN_NS_SUFFIX_CAP bytes, enough for any
+ * suffix: it is a tail of t->ns (at most WIRED_MOQTRUN_MAX_NS) plus one
+ * count varint. */
 void moqtrun_subtracks_ns_suffix(
-    const wired_moqtrun_req* st, const wired_moqtrun_track* t, moqctl_ns* out) {
-  u8         buf[WIRED_MOQTRUN_MAX_NS + 9];
+    const wired_moqtrun_req*   st,
+    const wired_moqtrun_track* t,
+    wired_mspan                buf,
+    moqctl_ns*                 out) {
   u64        pre_n, all_n;
   usz        put = 0, take = 0;
   wired_span pre = moqtrun_disc_fields(st, &pre_n);
   wired_span all =
       moqtrun_disc_fields_of(wired_span_of(t->ns, t->ns_len), &all_n);
   wired_span suf = wired_span_of(all.p + pre.n, all.n - pre.n);
-  moqvi_put(wired_mspan_of(buf, sizeof buf), &put, all_n - pre_n);
-  bytes_memcpy(buf + put, suf.p, suf.n);
-  moqctl_ns_take(wired_span_of(buf, put + suf.n), &take, out);
+  moqvi_put(buf, &put, all_n - pre_n);
+  bytes_memcpy(buf.p + put, suf.p, suf.n);
+  moqctl_ns_take(wired_span_of(buf.p, put + suf.n), &take, out);
 }

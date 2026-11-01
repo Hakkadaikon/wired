@@ -43,7 +43,8 @@ enum {
 };
 
 /** Server-side handshake orchestrator state, initialized by
- * wired_server_init. */
+ * wired_server_init.
+ * views: keylog_path=own|caller */
 typedef struct {
   i64          fd;              /**< UDP socket; <0 until a socket is opened */
   sockaddr     peer;            /**< the client's UDP address (set by pump) */

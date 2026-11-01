@@ -14,13 +14,25 @@ static void on_session(
   wired_server_wt_open_uni(s, wired_span_of(buf, n + 7));
 }
 
+/* Each call carries only the bytes new since the previous one, and the FIN
+ * can come on a call of its own, so the message is collected until fin.
+ * The client sends one short message; longer ones are cut at the buffer. */
+static u8  g_msg[64];
+static usz g_msg_n;
+
 /* Echo a client-opened bidi stream once it has been fully received. */
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
   (void)ctx;
+  usz room = sizeof g_msg - g_msg_n;
+  usz n    = data.n < room ? data.n : room;
+  memcpy(g_msg + g_msg_n, data.p, n);
+  g_msg_n += n;
   if (!fin) {
     return;
   }
+  data    = wired_span_of(g_msg, g_msg_n);
+  g_msg_n = 0;
   wired_dprintf(2, "stream %.*s\n", WIRED_SPAN_ARG(data));
   wired_server_wt_stream_reply(s, stream_id, data);
 }

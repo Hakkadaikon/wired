@@ -40,7 +40,7 @@ As of writing, the jobs are:
 | `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
 | `ci.yml`  | sanitize (job): `just test-san`, `just ninja san` + guide runner | every push | `just test-san` (ASan+UBSan unity test, several times slower than `test`), `just san-check` (needs go + node 22); CI only, not part of the local gate |
 | `ci.yml`  | fuzz smoke (`just fuzz-smoke`)   | any `src/**/*.c`, `fuzz/**`        | `just fuzz-smoke` (clang + libFuzzer/ASan; a `src/` API signature change can break a `fuzz/*.c` harness the three-point gate never compiles — this shipped red to `main` on 2026-08-21) |
-| `ci.yml`  | halstead-check, py-check, sh-check | `src/**`, `examples/**`, `scripts/**`, `*.sh`, `justfile` | `just halstead-check`, `just py-check`, `just sh-check` (pinned ruff/shellcheck/just in the devShell; the host's `just` formats the justfile differently -- use `nix develop -c just --fmt --unstable`) |
+| `ci.yml`  | halstead-check, py-check, sh-check | `src/**`, `examples/**`, `scripts/**`, `*.sh`, `justfile` | `just halstead-check`, `just py-check` (also runs `just view-check`, below), `just sh-check` (pinned ruff/shellcheck/just in the devShell; the host's `just` formats the justfile differently -- use `nix develop -c just --fmt --unstable`) |
 | `ci.yml`  | js (job) | `examples/moqt_chat/frontend/**`, `examples/moqt_chat/e2e/**` | `just js-check` (needs both node_modules installed) |
 | `docs.yml`| build+deploy (`just docs` + guide `pnpm build`) | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`, anything under `guide/`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below); `cd guide && pnpm build` |
 | `guide.yml`| site (`pnpm lint/check/test/build/test:dist`) | any `guide/**` | `cd guide && pnpm lint && pnpm check && pnpm test && pnpm build && pnpm test:dist` |
@@ -222,3 +222,18 @@ When code provides its own `_start` (no crt):
   `sdrv_init` which holds it as a view — must outlive the call. Define it in the
   CALLER's scope, not a helper's local, or it dangles the moment the helper
   returns (#24b).
+
+## Stored views are checked, not reviewed
+
+`just view-check` (`scripts/viewcheck.py`, run by `just py-check` in CI)
+fails when a struct reachable from the SDK's long-lived state (the env, the
+run's cfg and opt, the MoQT hub, a connection's server and TLS driver)
+stores a view — `wired_span`, `wired_mspan`, `u8*`, `char*` — whose member
+is not named with a storage class in the `views:` part of the comment above
+it (`views: certs=own|env, raw_alpns=caller`; classes static, env, slot,
+own, caller), or when a function assigns a local array into such a member.
+A new view member on those structs therefore needs its own entry; a
+deliberate exception ends its line with `view-ok: <reason>`. Under the
+pinned clang, `wired_span_of` / `wired_mspan_of` carry `lifetimebound`, so
+returning a view of a local array is a compile error
+(`-Wreturn-stack-address`, on by default, fatal under `-Werror`).

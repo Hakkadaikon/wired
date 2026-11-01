@@ -9,6 +9,7 @@
  * FIN on the final slice). The queue borrows the bytes — the caller keeps
  * the storage alive until every slice has been sent and acknowledged. */
 
+/* views: p=caller */
 typedef struct {
   const u8* p;     /**< borrowed response bytes (caller-owned storage) */
   usz       len;   /**< total stream length */

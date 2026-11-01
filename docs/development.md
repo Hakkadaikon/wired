@@ -198,6 +198,9 @@ recipes.
 | `san-check [ids]` | CI only: production build with UBSan traps, driven by the guide snippets. |
 | `golden-check` | Check that `tests/app/moqt_golden.h` matches its test vectors. |
 | `fuzz-smoke` | Build each fuzz harness and run it once. |
+| `cbmc` | Bounded model check of the WebTransport session reference and connection generation lifecycles (`verify/cbmc`, CBMC from the flake's `verify` shell). Verification only. |
+| `cbmc-mutate` | Mutation-tests the two `cbmc` harnesses against five hand-written bugs in `srvrun_gen.h`. Verification only. |
+| `view-check` | Stored views name their storage class and none is set from a local array (`scripts/viewcheck.py`; also run by `py-check`). |
 | `fuzz-ci [secs]` | Run each fuzz harness for `secs` seconds (default 120). |
 | `fmt` | Format C sources in place with the pinned clang-format. |
 | `fmt-check` | Verify formatting without writing. |
