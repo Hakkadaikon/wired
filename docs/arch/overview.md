@@ -356,9 +356,8 @@ one of two answers:
   copy.
 - **XDP_PASS** for everything else, which goes through the normal stack.
 
-This path measured faster because it makes fewer copies and does less
-stack work per packet (see
-[`comparison.md`](../performance/comparison.md#speed-af_xdp-driver-over-a-real-nic-informational)).
+This path makes fewer copies and does less stack work per packet than the
+default UDP path.
 
 `--skb-mode` selects the software-emulated "generic" XDP mode, for a
 network card driver without native XDP support.

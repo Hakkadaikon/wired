@@ -91,6 +91,7 @@ on and what stays your job.
 ## Measure it
 
 - [Comparison](performance/comparison.md) — features and measured speed
+  ([raw runs](performance/comparison-runs.md))
   versus other HTTP/3, WebTransport, and MoQT implementations, under pinned
   conditions.
 - [Performance Monitoring](performance/monitoring.md) — a 4.5-hour resource
