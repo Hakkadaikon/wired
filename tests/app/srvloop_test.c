@@ -2138,6 +2138,110 @@ static void test_srvloop_request_reverse_chunks_to_window_edge(void) {
   }
 }
 
+/* Stream 0's raw request bytes (HEADERS for pin, then DATA "AA") into raw;
+ * returns their length (the request's final size). */
+static usz lp_raw_request(const h3req_pseudo_in* pin, u8* raw, usz cap) {
+  u8         fields[256];
+  wired_obuf fob = obuf_of(fields, sizeof fields);
+  wired_obuf rob = obuf_of(raw, cap);
+  wired_obuf dob;
+  CHECK(h3req_enc_pseudo(pin, &fob) == 1);
+  CHECK(
+      h3_frame_put(&rob, H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) !=
+      0);
+  dob = obuf_of(raw + rob.len, cap - rob.len);
+  CHECK(
+      h3_frame_put(&dob, H3_FRAME_DATA, wired_span_of((const u8*)"AA", 2)) !=
+      0);
+  return rob.len + dob.len;
+}
+
+/* A request line for lp_raw_request: POST, or an Extended CONNECT. */
+static h3req_pseudo_in lp_pin(int connect) {
+  h3req_pseudo_in pin = {
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of(0, 0)};
+  if (connect) {
+    pin.method   = wired_span_of((const u8*)"CONNECT", 7);
+    pin.protocol = wired_span_of((const u8*)"webtransport", 12);
+  }
+  return pin;
+}
+
+/* Route one stream-0 STREAM frame straight to the request path, below the
+ * receive accounting (srvloop_rxacct) that rejects a final-size violation
+ * for a stream it still tracks. */
+static void lp_route_at(struct lp_fix* f, u64 off, const u8* d, usz n, u8 fin) {
+  u8  pl[512];
+  usz pn = lp_stream_frame_at(pl, sizeof pl, 0, off, d, n, fin);
+  CHECK(pn != 0);
+  f->l.done_n = 0; /* a step's own outputs, as srvloop_step_reset clears */
+  srvloop_step_dispatch(
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_span_of(pl, pn));
+}
+
+/* Exactly one request completed, and its body is the "AA" sent. */
+static int lp_done_body_is_aa(const struct lp_fix* f) {
+  const wired_h3reqdrive_req* r = &f->l.streams[f->l.done_slots[0]].req;
+  return f->l.done_n == 1 && r->body_len == 2 && r->body[0] == 'A' &&
+         r->body[1] == 'A';
+}
+
+/* RFC 9000 4.5 / 2.2: a FIN fixes the final size inside the DATA frame
+ * (its header claims 2 body bytes, the final size holds none), then a body
+ * byte past the final size arrives with a hole before it. Decoding stops at
+ * the final size, so the unreceived hole never becomes a body byte: the
+ * request is cut short, not completed. */
+static void test_srvloop_request_ignores_data_past_final_size(void) {
+  struct lp_fix   f;
+  u8              out[1024], raw[256];
+  wired_obuf      ob  = {out, sizeof out, 0};
+  h3req_pseudo_in pin = lp_pin(0);
+  usz             fs  = lp_raw_request(&pin, raw, sizeof raw) - 2;
+  lp_confirm(&f, &ob);
+  lp_route_at(&f, fs, raw, 0, 1);
+  lp_route_at(&f, fs + 1, (const u8*)"Y", 1, 0);
+  lp_route_at(&f, 0, raw, fs, 0);
+  CHECK(f.l.done_n == 0);
+}
+
+/* RFC 9000 4.5: "Once a final size for a stream is known, it cannot
+ * change": a second FIN further on does not stretch what is decoded. */
+static void test_srvloop_request_second_fin_keeps_final_size(void) {
+  struct lp_fix   f;
+  u8              out[1024], raw[256];
+  wired_obuf      ob  = {out, sizeof out, 0};
+  h3req_pseudo_in pin = lp_pin(0);
+  usz             fs  = lp_raw_request(&pin, raw, sizeof raw) - 2;
+  lp_confirm(&f, &ob);
+  lp_route_at(&f, fs, raw, 0, 1);
+  lp_route_at(&f, fs, (const u8*)"XY", 2, 1);
+  lp_route_at(&f, 0, raw, fs, 0);
+  CHECK(f.l.done_n == 0);
+}
+
+/* RFC 9110 9.3.6: a CONNECT has no content, so its DATA (tunnel payload) is
+ * never left as a body view; the same bytes as a POST keep the body. */
+static void test_srvloop_connect_drops_body_view(void) {
+  struct lp_fix   f;
+  u8              out[1024], raw[256];
+  wired_obuf      ob  = {out, sizeof out, 0};
+  h3req_pseudo_in pin = lp_pin(1);
+  usz             fs  = lp_raw_request(&pin, raw, sizeof raw);
+  lp_confirm(&f, &ob);
+  lp_route_at(&f, 0, raw, fs, 1);
+  CHECK(f.l.done_n == 1);
+  CHECK(f.l.streams[f.l.done_slots[0]].req.method_len == 7);
+  CHECK(f.l.streams[f.l.done_slots[0]].req.body == 0);
+  CHECK(f.l.streams[f.l.done_slots[0]].req.body_len == 0);
+  pin = lp_pin(0);
+  fs  = lp_raw_request(&pin, raw, sizeof raw);
+  lp_confirm(&f, &ob);
+  lp_route_at(&f, 0, raw, fs, 1);
+  CHECK(lp_done_body_is_aa(&f));
+}
+
 /* WINDOW UNIT TESTS (draft-ietf-webtrans-http3-15 4.3 / RFC 9000 2.2): direct
  * calls into wired_srvloop_wt_window_accept/_slide, the smallest unit that
  * proves the receive-window's out-of-order/frontier/slide invariants without
@@ -2252,6 +2356,24 @@ static void test_srvloop_wt_window_slide_frees_room(void) {
   wired_srvloop_wt_window_accept(
       &w, 100 + WIRED_SRVLOOP_WT_BUF_CAP - 1, 1, &rel_off, &accepted);
   CHECK(accepted == 1 && rel_off == WIRED_SRVLOOP_WT_BUF_CAP - 1);
+}
+
+/* SLIDE WITH LOSS (#180): [0,100) and an island [150,200) arrive, [0,100)
+ * is delivered and slid out. The island stays marked received at its new
+ * base-relative offset (150 -> 50) while the frontier waits at the hole;
+ * filling the hole joins both into one run. */
+static void test_srvloop_wt_window_slide_keeps_island(void) {
+  wired_srvloop_wt_window w = {0};
+  u8                      buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(&w, 0, 100, &rel_off, &accepted);
+  wired_srvloop_wt_window_accept(&w, 150, 50, &rel_off, &accepted);
+  CHECK(w.frontier == 100);
+  wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 100);
+  CHECK(w.base == 100 && w.frontier == 0);
+  CHECK(bits_get(w.have, 50) && bits_get(w.have, 99) && !bits_get(w.have, 49));
+  wired_srvloop_wt_window_accept(&w, 100, 50, &rel_off, &accepted);
+  CHECK(w.frontier == 100);
 }
 
 /* A write entirely below win.base (already delivered and slid past) is
@@ -7354,10 +7476,14 @@ void test_srvloop(void) {
   test_srvloop_wt_window_boundary_at_cap();
   test_srvloop_wt_window_counts_overflow_drops();
   test_srvloop_wt_window_slide_frees_room();
+  test_srvloop_wt_window_slide_keeps_island();
   test_srvloop_wt_window_stale_write_dropped();
   test_srvloop_wt_window_spans_several_windows_in_order();
   test_srvloop_wt_bidi_stream_not_request();
   test_srvloop_request_reverse_chunks_to_window_edge();
+  test_srvloop_request_ignores_data_past_final_size();
+  test_srvloop_request_second_fin_keeps_final_size();
+  test_srvloop_connect_drops_body_view();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
   test_srvloop_wt_stream_concurrent_with_request();

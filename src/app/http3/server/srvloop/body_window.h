@@ -70,6 +70,10 @@ usz bodywin_frontier(const bodywin* w);
  * arrived yet (the FIN-carrying frame overtook a lost one). */
 int bodywin_fin_gap(const bodywin* w);
 
+/** RFC 9000 4.5: n buffered bytes (from buf[0]) cut to the final size once
+ * it is known; n itself before. */
+usz bodywin_clip(const bodywin* w, usz n);
+
 /** Slide n consumed bytes out of the window: base += n. */
 void bodywin_consume(bodywin* w, u8* buf, usz n);
 

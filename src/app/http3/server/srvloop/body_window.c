@@ -4,6 +4,7 @@
 static int  bodywin_in(const bodywin* w, u64 off);
 static int  bodywin_fresh(const bodywin* w, u64 off);
 static void bodywin_put(bodywin* w, u8* buf, u64 off, u8 v);
+static void bodywin_set_fin(bodywin* w, u64 end);
 
 /* RFC 9000 2.2: the received byte at stream offset off is kept only inside
  * [base, base + BODYWIN_CAP) -- the credit never reaches past it. */
@@ -31,9 +32,24 @@ void bodywin_land(bodywin* w, u8* buf, u64 off, wired_span data, int fin) {
     bodywin_put(w, buf, off + i, data.p[i]);
   }
   if (fin) {
-    w->fin_off = off + data.n;
+    bodywin_set_fin(w, off + data.n);
   }
-  w->fin |= (u8)(fin != 0);
+}
+
+/* RFC 9000 4.5: "Once a final size for a stream is known, it cannot
+ * change" -- the first FIN fixes it (a later, different one is the
+ * receive accounting's FINAL_SIZE_ERROR, srvloop_rxacct). */
+static void bodywin_set_fin(bodywin* w, u64 end) {
+  if (!w->fin) {
+    w->fin_off = end;
+  }
+  w->fin = 1;
+}
+
+/* RFC 9000 4.5: n buffered bytes cut to the final size once it is known --
+ * bytes past it were never part of the stream. */
+usz bodywin_clip(const bodywin* w, usz n) {
+  return w->fin ? (usz)u64_min(n, w->fin_off - w->base) : n;
 }
 
 usz bodywin_frontier(const bodywin* w) {

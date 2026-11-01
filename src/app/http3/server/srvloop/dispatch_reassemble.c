@@ -158,6 +158,7 @@ void srvloop_route_complete_slot(
   if (route_answered_early(ctx, i)) {
     return;
   }
+  slot->req_len = bodywin_clip(&slot->body, slot->req_len); /* RFC 9000 4.5 */
   if (!srvloop_request_complete(ctx->h3, &acc, &sin)) {
     srvloop_route_note_qpack(
         ctx->l, i); /* RFC 9204 2.2.3: no FIN may ever come */
