@@ -1,3 +1,4 @@
+#include "app/http3/server/srvrun/srvrun_gen.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static void srvrun_resp_rows_clear(srvrun_conn* c);
@@ -71,7 +72,7 @@ static void srvrun_conn_wipe(srvrun_conn* c) {
  * ctx->peer, bumping its generation. */
 static void srvrun_conn_fresh(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u32 gen = c->gen + 1;
+  u32 gen = srvrun_conn_gen_next(c->gen);
   srvrun_conn_wipe(c);
   c->tables_dirty  = 1;
   c->gen           = gen;

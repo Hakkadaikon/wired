@@ -117,6 +117,17 @@ typedef struct {
   u32 gen;
 } wired_wt_session;
 
+/** A WebTransport session reference an application can keep across steps
+ * (in a timer, a queue, its own per-session table): the session plus which
+ * opening of its storage it was. A session's storage is reused once it
+ * closes, so a bare wired_wt_session* kept past its close would act on
+ * whichever session opened there next; resolve a kept reference with
+ * wired_wt_ref_get (srvrun.h) each time it is used instead. */
+typedef struct {
+  wired_wt_session* s;   /**< the session as handed to the app */
+  u32               gen; /**< its opening (wired_wt_session.gen) */
+} wired_wt_ref;
+
 /** Reset s to WIRED_WT_UNESTABLISHED, empty of any buffered stream/datagram,
  * identified by connect_stream_id.
  * @param s the session to initialize

@@ -1,3 +1,4 @@
+#include "app/http3/server/srvrun/srvrun_gen.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static int srvrun_bcast_ring_conn(
@@ -107,7 +108,7 @@ int wired_server_wt_close_session(
 /* 1 iff e's target connection is still the one it was queued for. */
 static int srvrun_dgring_live(
     const srvrun_conn* c, const srvrun_dgring_entry* e) {
-  return c->up && c->gen == e->conn_gen;
+  return srvrun_conn_gen_live(c->up, c->gen, e->conn_gen);
 }
 
 /* Seal and send one ring entry to its target connection; a connection gone

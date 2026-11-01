@@ -1,24 +1,28 @@
+#include "app/http3/server/srvrun/srvrun_gen.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
-static int srvrun_wt_ref_current(wired_wt_ref r);
+static int srvrun_wt_owned(const void* s, u32* cur_gen);
 
 /* Issue #185: give s, just opened, the env's next non-zero generation. */
 void srvrun_wt_stamp(wired_srvrun_env* env, wired_wt_session* s) {
-  env->wt_gen_last += 1 + (env->wt_gen_last == (u32)-1); /* 0 stays "none" */
-  s->gen = env->wt_gen_last;
+  s->gen = srvrun_wt_gen_next(&env->wt_gen_last);
 }
 
 wired_wt_ref wired_wt_ref_of(wired_wt_session* s) {
   return (wired_wt_ref){s, s->gen};
 }
 
-/* r names a session open on a live connection of the caller's own env
- * (checked first, so another worker's session is never read) and is the
- * opening its storage holds now. */
-static int srvrun_wt_ref_current(wired_wt_ref r) {
-  return r.s && srvrun_session_conn(r.s) && r.s->gen == r.gen;
+/* s is open on a live connection of the caller's own env; *cur_gen is its
+ * generation then (srvrun_wt_ref_resolves reads it only when owned). */
+static int srvrun_wt_owned(const void* s, u32* cur_gen) {
+  const wired_wt_session* session = s;
+  if (!srvrun_session_conn((wired_wt_session*)session)) {
+    return 0;
+  }
+  *cur_gen = session->gen;
+  return 1;
 }
 
 wired_wt_session* wired_wt_ref_get(wired_wt_ref r) {
-  return r.gen && srvrun_wt_ref_current(r) ? r.s : 0;
+  return srvrun_wt_ref_resolves(r.s, r.gen, srvrun_wt_owned) ? r.s : 0;
 }

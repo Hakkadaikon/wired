@@ -82,17 +82,6 @@ typedef void (*wired_wt_on_stream_reset)(
 typedef void (*wired_wt_on_session)(
     void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
-/** A WebTransport session reference an application can keep across steps
- * (in a timer, a queue, its own per-session table): the session plus which
- * opening of its storage it was. A session's storage is reused once it
- * closes, so a bare wired_wt_session* kept past its close would act on
- * whichever session opened there next; resolve a kept reference with
- * wired_wt_ref_get each time it is used instead. */
-typedef struct {
-  wired_wt_session* s;   /**< the session as handed to the app */
-  u32               gen; /**< its opening (wired_wt_session.gen) */
-} wired_wt_ref;
-
 /** A reference to s, a session the run handed to the app (a callback's
  * argument, or a wired_wt_ref_get result), to keep across steps.
  * @param s an open session
