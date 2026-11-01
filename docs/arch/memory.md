@@ -212,7 +212,7 @@ When a connection closes, the server hands its slot's big tables (request
 and WT stream slots, received DATAGRAMs, WT send staging, its `respstore`
 row) back to the kernel with `madvise(MADV_DONTNEED)`, once per close. So
 resident memory falls back after load instead of staying at its peak: on
-the same lane, 1,414 KiB after the load rounds, where `426127f` (before
+the same lane, 1,412-1,416 KiB after the load rounds, where `426127f` (before
 this change, measured the same day) stays at its 6,984 KiB peak. The pages
 read as zero afterwards, which is what a fresh slot holds, so the next
 claim skips rewriting them and touches only the pages the new connection

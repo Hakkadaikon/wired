@@ -122,9 +122,10 @@ wired at commit `426127f`; the binary size and goodput were measured at
 `110c020`, two commits earlier. The two memory rows were re-measured on
 2026-11-02 at `efd61452e`, which returns a closed connection's pages to the
 kernel. `426127f` re-measured the same day gives 500 / 6,984 KiB against
-its 504 / 6,984 KiB of 2026-10-27, so the other columns stay comparable. [Implementation
-Comparison](docs/performance/comparison.md) has every lane, the full feature
-matrix, the environment, and the scripts to reproduce the numbers.
+its 504 / 6,984 KiB of 2026-10-27, so the other columns stay comparable.
+[Implementation Comparison](docs/performance/comparison.md) has every lane,
+the full feature matrix, the environment, and the scripts to reproduce the
+numbers.
 
 ### Media over QUIC, not only HTTP
 
