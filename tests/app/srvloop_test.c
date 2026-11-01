@@ -2304,7 +2304,8 @@ static void test_srvloop_body_stream_second_fin_keeps_final_size(void) {
 /* RFC 9000 4.5 / RFC 9114 7.1, streaming: a FIN inside the HEADERS frame
  * ends the stream mid-frame; bytes past it never complete the HEADERS, so
  * nothing is decoded, on_body sees nothing, and the stream is listed
- * incomplete rather than left waiting. */
+ * incomplete (not malformed, no frame error) rather than left waiting.
+ * This pins current behavior: 7.1 calls a truncated frame H3_FRAME_ERROR. */
 static void test_srvloop_body_stream_fin_inside_headers(void) {
   struct lp_fix   f;
   u8              out[1024], raw[256];
@@ -2321,6 +2322,8 @@ static void test_srvloop_body_stream_fin_inside_headers(void) {
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
   CHECK(f.l.streams[f.l.incomplete_slots[0]].stream_id == 0);
+  CHECK(!(f.l.malformed_slots >> f.l.incomplete_slots[0] & 1));
+  CHECK(f.l.req_frame_error == 0);
 }
 
 /* RFC 9110 9.3.6: a CONNECT has no content, so its DATA (tunnel payload) is

@@ -106,6 +106,10 @@ static void test_bodywin_clip_boundaries(void) {
   CHECK(bodywin_clip(&w, 2) == 2);
   CHECK(bodywin_clip(&w, 3) == 3);
   CHECK(bodywin_clip(&w, 4) == 3);
+  w.base = 8; /* at the final size: nothing left */
+  CHECK(bodywin_clip(&w, 4) == 0);
+  w.base = 9; /* past it (never by the route path): saturates, no wrap */
+  CHECK(bodywin_clip(&w, 4) == 0);
 }
 
 /* RFC 9000 4.5: "Once a final size for a stream is known, it cannot

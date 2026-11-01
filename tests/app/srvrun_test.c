@@ -14476,7 +14476,7 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
       srvrun_tick_slot(&tick, 0); /* budget spent: tears the connection down */
       CHECK(st.conns[0].up == 0);
       CHECK(st.conns[0].tables_dirty == 0);
-      CHECK(sr_tables_are(&st.conns[0], 0)); /* still zero after the tick */
+      CHECK(sr_tables_are(&st.conns[0], 0)); /* free's zeroing, via tick */
     }
   }
 }
