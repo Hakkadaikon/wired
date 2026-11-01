@@ -21,9 +21,18 @@ static void on_session(
  * (pausing the peer's send window -- bytes it already has credit for
  * still arrive, nothing new is granted), release once it ends with FIN.
  * The final round's word then exercises reset + inflight on g_uni. */
+static u8  g_word[8]; /* first bytes of the round, enough to spot "abort" */
+static usz g_word_n;  /* the round's total length so far */
+
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
   (void)ctx;
+  /* Each call carries only the new bytes, and the FIN can come on a call of
+   * its own, so the round's word is collected until fin. */
+  usz have = g_word_n < sizeof g_word ? g_word_n : sizeof g_word;
+  usz n    = data.n < sizeof g_word - have ? data.n : sizeof g_word - have;
+  memcpy(g_word + have, data.p, n);
+  g_word_n += data.n;
   if (!fin) {
     if (!g_held) {
       wired_server_wt_stream_hold(s, stream_id, 1);
@@ -37,6 +46,8 @@ static void on_stream_data(
     wired_log_str("released\n");
     g_held = 0;
   }
+  data     = wired_span_of(g_word, g_word_n < sizeof g_word ? g_word_n : 0);
+  g_word_n = 0;
   if (wired_span_eq_cstr(data, "abort")) {
     wired_server_wt_stream_reset(s, (u64)g_uni, 1);
     wired_log_str("reset\n");

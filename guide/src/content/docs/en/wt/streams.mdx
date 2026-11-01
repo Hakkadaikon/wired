@@ -17,9 +17,10 @@ stream it opens itself, and echoes any bidirectional stream the client opens.
   sends `payload`, and closes it. The payload must start with the WebTransport
   stream signal naming the session; `wired_wtwire_signal_put` writes it from
   `s->connect_stream_id`.
-- `wt_on_stream_data` delivers a client stream's bytes; `fin` is 1 once the
-  client has finished writing. This example waits for `fin` and assumes the
-  whole message arrived in one chunk, which holds for small messages.
+- `wt_on_stream_data` delivers the bytes of a client stream that are new
+  since its previous call; `fin` is 1 once the client has finished writing,
+  and may arrive on a call of its own with no bytes. This example collects
+  the message until `fin`, then echoes it.
 - `wired_server_wt_stream_reply(s, stream_id, data)` writes back on the same
   bidirectional stream and closes it. No prefix is added.
 - Like datagrams, WebTransport streams need `id.max_datagram_frame_size` set.
