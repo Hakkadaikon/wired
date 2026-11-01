@@ -60,15 +60,18 @@ code memory-safe, and two kinds of dangling reference are still possible:
 - **A view that outlives the stack frame it points into.** A `wired_span`
   taken over a local buffer becomes invalid when the function returns
   (use-after-return / use-after-scope). Buffers a view must outlive are
-  declared in the caller's scope for this reason. Under clang, returning a
-  view of a local is a compile error (`lifetimebound`), and a CI check
-  (`just view-check`) makes every view kept in long-lived state name the
-  storage it points into.
+  declared in the caller's scope for this reason. With the pinned clang,
+  returning a `wired_span_of` / `wired_mspan_of` view of a local is a
+  compile error (`lifetimebound`), and a CI check (`just view-check`) makes
+  each view stored in the SDK's long-lived state (its env, configuration,
+  connections, TLS driver and MoQT hub) name the storage it points into.
 - **A stale reference into a reused slot.** A pointer kept to a connection or
   stream slot after that slot has been freed and handed to a new peer. An
   application keeps a WebTransport session across steps as a
   generation-checked `wired_wt_ref`, which resolves to nothing once the slot
-  is reused; that lifecycle is bounded-model-checked (`just cbmc`).
+  is reused; that lifecycle is bounded-model-checked (`just cbmc`). A raw
+  `wired_wt_session*`, or a pointer to a connection or stream slot, kept
+  across steps is not checked.
 
 The checks below exist to catch exactly these. The CI sanitizer run checks
 both use-after-scope and use-after-return: under ASan the SDK's threads run
@@ -118,8 +121,8 @@ quiche measured the same day on the same machine. The loopback rows are
 wired at commit `426127f`; the binary size and goodput were measured at
 `110c020`, two commits earlier. The two memory rows were re-measured on
 2026-11-02 at `efd61452e`, which returns a closed connection's pages to the
-kernel; `426127f` re-measured the same day still gives 500 / 6,984 KiB -- the
-2026-10-27 values -- so the other columns stay comparable. [Implementation
+kernel. `426127f` re-measured the same day gives 500 / 6,984 KiB against
+its 504 / 6,984 KiB of 2026-10-27, so the other columns stay comparable. [Implementation
 Comparison](docs/performance/comparison.md) has every lane, the full feature
 matrix, the environment, and the scripts to reproduce the numbers.
 

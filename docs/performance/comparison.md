@@ -45,9 +45,10 @@ bisected to `eb049403f`, which doubled the per-slot send log
 scanned in full. Commit `426127f` keeps the in-flight count and bytes as
 running totals and stops each scan at the highest slot filled; measured the
 same day under the same conditions, wired is back to 25,731 req/s and 35.0
-µs/req (rows marked `426127f` below). The peak-RSS growth is unrelated (it
-comes from larger buffers, such as the 8000-octet request targets) and
-remains. quic-go and quiche
+µs/req (rows marked `426127f` below). The peak-RSS growth was unrelated (it
+came from larger buffers, such as the 8000-octet request targets); since
+`efd61452e` (2026-11-02) a closed connection's pages go back to the kernel
+and the peak is back at 1,936 KiB. quic-go and quiche
 measured within a few percent of their previous numbers on the same
 machine, so the machine is not the cause. wired now pins its single server
 core (93.9% busy vs 76.5% before), so the loopback lane is server-bound for
@@ -401,7 +402,7 @@ resident, which is why the resident numbers below stay far under it.
 ```mermaid
 xychart-beta
     title "Peak RSS under load (KiB, lower is better)"
-    x-axis ["wired", "quic-go", "quiche"]
+    x-axis ["wired efd61452e", "quic-go", "quiche"]
     y-axis "KiB" 0 --> 16000
     bar [1936, 15540, 8392]
 ```
@@ -409,18 +410,26 @@ xychart-beta
 ```mermaid
 xychart-beta
     title "Server CPU per request (µs, lower is better)"
-    x-axis ["wired", "quic-go", "quiche"]
+    x-axis ["wired 426127f", "quic-go", "quiche"]
     y-axis "us" 0 --> 90
     bar [35.0, 77.0, 37.8]
 ```
 
-wired still idles smallest (500 KiB) and peaks lowest under load (6.8 MiB,
-about 45% of quic-go's and 83% of quiche's), but its peak resident set grew
-3.6x since `9d21db9` and is now close to quiche's. After the send-log fix
-its per-request CPU (35.0 µs) is level with quiche's (37.8 µs) again and
-well below quic-go's (77.0 µs); at `110c020`, before the fix, it was 55.0
-µs. CPU% is the share of the server's
-single pinned core busy during the load rounds.
+The peak-RSS chart uses wired `efd61452e` (2026-11-02); the CPU chart and
+the other servers use the 2026-10-27 runs. wired still idles smallest
+(516 KiB) and now peaks lowest by far under load (1,936 KiB, about 12% of
+quic-go's and 23% of quiche's): since `efd61452e` a closed connection's
+pages go back to the kernel, so the next connection touches only the pages
+it uses. Its peak had grown 3.6x from `9d21db9` (1,928 KiB) to 6,984 KiB at
+`426127f`; it is back at that earlier level. Re-running `426127f` on
+2026-11-02 reproduced its 6,984 KiB peak (idle 500 KiB against 504), so the
+memory change is the code, not the day. Per-request CPU read about 4 µs
+higher for both commits that day (38.9 and 39.2 µs) -- day-to-day drift,
+with no difference between them. After the send-log fix wired's
+per-request CPU (35.0 µs on 2026-10-27) is level with quiche's (37.8 µs)
+and well below quic-go's (77.0 µs); at `110c020`, before the fix, it was
+55.0 µs. CPU% is the share of the server's single pinned core busy during
+the load rounds.
 
 ## Interop test cases
 
@@ -627,6 +636,37 @@ wired r4 usage kind=load reqs=10000 dticks=34 wall_ms=390 hz=100 vmhwm_kb=6984 v
 wired r5 mode=ttfb n=100 fails=0 reqps=393.4 p50=2.42 p99=3.53 cpu%=67
 wired r5 mode=load n=10000 fails=0 reqps=25393.7 p50=0.68 p99=3.24 cpu%=123
 wired r5 usage kind=load reqs=10000 dticks=35 wall_ms=410 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+```
+
+Loopback lane, 2026-11-02, two runs each of `efd61452e` and `426127f`,
+alternated (usage lines; the client's UDP-buffer warning split this day's
+speed lines, so only memory and CPU are taken from these runs):
+
+```text
+w-efd61452e-1 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=516 vmrss_kb=516
+w-efd61452e-1 r1 usage kind=load reqs=10000 dticks=35 wall_ms=433 hz=100 vmhwm_kb=1896 vmrss_kb=1412
+w-efd61452e-1 r2 usage kind=load reqs=10000 dticks=43 wall_ms=524 hz=100 vmhwm_kb=1932 vmrss_kb=1412
+w-efd61452e-1 r3 usage kind=load reqs=10000 dticks=38 wall_ms=467 hz=100 vmhwm_kb=1932 vmrss_kb=1412
+w-efd61452e-1 r4 usage kind=load reqs=10000 dticks=36 wall_ms=436 hz=100 vmhwm_kb=1932 vmrss_kb=1412
+w-efd61452e-1 r5 usage kind=load reqs=10000 dticks=36 wall_ms=420 hz=100 vmhwm_kb=1932 vmrss_kb=1412
+w-efd61452e-2 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=516 vmrss_kb=516
+w-efd61452e-2 r1 usage kind=load reqs=10000 dticks=39 wall_ms=469 hz=100 vmhwm_kb=1900 vmrss_kb=1416
+w-efd61452e-2 r2 usage kind=load reqs=10000 dticks=37 wall_ms=454 hz=100 vmhwm_kb=1936 vmrss_kb=1416
+w-efd61452e-2 r3 usage kind=load reqs=10000 dticks=35 wall_ms=467 hz=100 vmhwm_kb=1936 vmrss_kb=1416
+w-efd61452e-2 r4 usage kind=load reqs=10000 dticks=41 wall_ms=489 hz=100 vmhwm_kb=1936 vmrss_kb=1416
+w-efd61452e-2 r5 usage kind=load reqs=10000 dticks=52 wall_ms=586 hz=100 vmhwm_kb=1936 vmrss_kb=1416
+w-426127f-1 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=500 vmrss_kb=500
+w-426127f-1 r1 usage kind=load reqs=10000 dticks=36 wall_ms=464 hz=100 vmhwm_kb=6980 vmrss_kb=6980
+w-426127f-1 r2 usage kind=load reqs=10000 dticks=39 wall_ms=520 hz=100 vmhwm_kb=6980 vmrss_kb=6980
+w-426127f-1 r3 usage kind=load reqs=10000 dticks=36 wall_ms=438 hz=100 vmhwm_kb=6980 vmrss_kb=6980
+w-426127f-1 r4 usage kind=load reqs=10000 dticks=44 wall_ms=515 hz=100 vmhwm_kb=6980 vmrss_kb=6980
+w-426127f-1 r5 usage kind=load reqs=10000 dticks=36 wall_ms=445 hz=100 vmhwm_kb=6980 vmrss_kb=6980
+w-426127f-2 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=496 vmrss_kb=496
+w-426127f-2 r1 usage kind=load reqs=10000 dticks=35 wall_ms=435 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+w-426127f-2 r2 usage kind=load reqs=10000 dticks=41 wall_ms=485 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+w-426127f-2 r3 usage kind=load reqs=10000 dticks=44 wall_ms=533 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+w-426127f-2 r4 usage kind=load reqs=10000 dticks=41 wall_ms=503 hz=100 vmhwm_kb=6984 vmrss_kb=6984
+w-426127f-2 r5 usage kind=load reqs=10000 dticks=37 wall_ms=459 hz=100 vmhwm_kb=6984 vmrss_kb=6984
 ```
 
 Loopback lane, 2026-10-27, all 30 runs (no runs excluded, no failures in any run):
