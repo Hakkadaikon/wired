@@ -7,6 +7,13 @@
 # CBMC error when tried: https://github.com/diffblue/cbmc docs don't
 # recommend mixing them). A harness with dead code would otherwise pass
 # while checking less than it claims to.
+#
+# Verification-time only, like the fuzz harnesses: not wired into
+# ci.yml. Issue #186 that asked for this is marked low priority, and
+# `just cbmc` takes ~1 minute (SAT solving dominates) -- acceptable to
+# run by hand before touching src/app/http3/server/srvrun/srvrun_gen.h
+# or the session/connection open-close sites it models, not worth a
+# standing CI job for now.
 set -eu
 status=0
 for h in verify/cbmc/*.c; do

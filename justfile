@@ -115,6 +115,12 @@ py-check:
 cbmc:
     nix develop .#verify -c sh scripts/just/cbmc.sh
 
+# Mutation-tests the cbmc harnesses against five hand-written bugs in
+# srvrun_gen.h (verification only; not part of `cbmc` itself -- this is
+# slower and its point is to re-check the harnesses, not the SDK).
+cbmc-mutate:
+    nix develop .#verify -c sh scripts/just/cbmc_mutate.sh
+
 # Stored views: every struct reachable from the SDK's long-lived state names
 # the storage its views point into, and none is set from a local array.
 view-check:
