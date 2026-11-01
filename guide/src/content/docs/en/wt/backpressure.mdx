@@ -25,10 +25,11 @@ is still in flight.
 - Sending `"abort"` instead calls `wired_server_wt_stream_reset(s, g_uni,
   1)`, which frees that stream's send slot at once: `inflight` reads back
   `0` right after.
-- The client sends each upload as two separate writes before closing, so
-  the server sees two reassembly deltas instead of one -- the `hold` only
-  fires when there is a chunk before the final one, and only on the first
-  upload.
-- Each call carries only the bytes new since the previous one, and `fin`
-  can arrive on a call of its own with no bytes, so the example collects a
-  round until `fin` before comparing it with `"abort"`.
+- The client sends its first upload as two separate writes before closing,
+  so the server sees two reassembly deltas instead of one -- that chunk
+  before the final one is what the `hold` waits for.
+- `wt_on_stream_data` hands over only the bytes new since its previous
+  call, and `fin` can arrive on a call of its own with no bytes. So even
+  the single-write `"abort"` round can come as a `fin=0` delta first; the
+  example therefore holds only the first upload, and collects each round
+  until `fin` before comparing it with `"abort"`.

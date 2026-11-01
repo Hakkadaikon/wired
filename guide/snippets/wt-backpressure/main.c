@@ -18,15 +18,15 @@ static void on_session(
   g_uni = wired_server_wt_open_uni_stream(s, wired_span_of(buf, n + 5));
 }
 
-/* An upload split across two writes: hold receive credit on the first
- * (pausing the peer's send window -- bytes it already has credit for
- * still arrive, nothing new is granted), release once it ends with FIN.
- * The final round's word then exercises reset + inflight on g_uni. */
 /* The round's first bytes: a round of 8 bytes or more cannot be "abort",
  * so it is matched as empty. */
 static u8  g_word[8];
 static usz g_word_n; /* the round's total length so far */
 
+/* An upload split across two writes: hold receive credit on the first
+ * (pausing the peer's send window -- bytes it already has credit for
+ * still arrive, nothing new is granted), release once it ends with FIN.
+ * The final round's word then exercises reset + inflight on g_uni. */
 static void on_stream_data(
     void* ctx, wired_wt_session* s, u64 stream_id, wired_span data, int fin) {
   (void)ctx;
