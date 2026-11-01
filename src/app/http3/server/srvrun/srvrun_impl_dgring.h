@@ -88,8 +88,6 @@ int  srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg);
 void srvrun_free_bigbuf_rows(wired_srvrun_env* env, srvrun_conn* c);
 void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i);
-void srvrun_release_tables(wired_srvrun_env* env, srvrun_conn* c, int i);
-void srvrun_tables_each(srvrun_conn* c, void (*fn)(void* p, usz n));
 int  srvrun_slot_busy(const srvrun_conn* c);
 int  srvrun_boot_overdue(const srvrun_conn* c, u64 now_ms);
 int  srvrun_close_reap_due(const srvrun_conn* c, u64 now_ms);

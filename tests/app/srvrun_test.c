@@ -14379,6 +14379,17 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
   }
 }
 
+/* Issue #174: a tick stops only when the slot was claimed (tables_dirty)
+ * as it began and is no longer: dirty at start x dirty now. */
+static void test_srvrun_tick_freed_decision(void) {
+  srvrun_conn c = {0};
+  CHECK(!srvrun_tick_freed(&c, 0));
+  CHECK(srvrun_tick_freed(&c, 1));
+  c.tables_dirty = 1;
+  CHECK(!srvrun_tick_freed(&c, 0));
+  CHECK(!srvrun_tick_freed(&c, 1));
+}
+
 /* PTO BUDGET: the probe-timeout budget (SRVRUN_PTO_MAX) is a
  * connection-wide policy, not per-slot (srvrun_pto_resps) -- a silent peer
  * likely stopped acknowledging the whole connection, not just one stream.
@@ -14456,17 +14467,16 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
       now += 1024u << (i + 1); /* each probe doubles the backoff (2^count) */
     }
     {
-      /* Issue #174: the whole tick stops once its PTO task freed the slot,
-       * so no later task touches the released tables (the grant resend
-       * below is one that would otherwise still be due). */
-      srvrun_step_ctx tick       = {&cfg, 0, &st, now, 0};
-      st.conns[0].tables_dirty   = 1;
-      st.conns[0].grant_retries  = 1;
-      st.conns[0].grant_retry_ms = 0;
+      /* Issue #174: the PTO task frees the slot mid-tick and releases its
+       * tables (tables_dirty drops to 0) -- the edge srvrun_tick_freed
+       * (decision table: test_srvrun_tick_freed_decision) stops the
+       * remaining tasks on. */
+      srvrun_step_ctx tick     = {&cfg, 0, &st, now, 0};
+      st.conns[0].tables_dirty = 1;
       srvrun_tick_slot(&tick, 0); /* budget spent: tears the connection down */
       CHECK(st.conns[0].up == 0);
       CHECK(st.conns[0].tables_dirty == 0);
-      CHECK(st.conns[0].grant_retries == 1);
+      CHECK(srvrun_tick_freed(&st.conns[0], 1));
     }
   }
 }
@@ -27604,6 +27614,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_file_shrinks_completes_with_actual_bytes();
   test_srvrun_streaming_round_fin_suppressed_until_final();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
+  test_srvrun_tick_freed_decision();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
   test_srvrun_pto_probes_lost_hq09_response();
