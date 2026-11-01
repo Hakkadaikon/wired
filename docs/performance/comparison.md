@@ -388,6 +388,8 @@ resident, which is why the resident numbers below stay far under it.
 
 | Server | idle RSS (KiB) | peak RSS under load (KiB) | server CPU (µs/req) | server CPU (%) | rounds |
 |---|---|---|---|---|---|
+| wired `efd61452e` (2026-11-02, slot pages returned on close) | 516 | 1,936 | 39.2 ± 5.2 | 82.5 ± 3.6 | 10 |
+| wired `426127f` re-run 2026-11-02 (baseline check) | 500 | 6,984 | 38.9 ± 3.4 | 81.1 ± 3.1 | 10 |
 | wired `426127f` (after the send-log fix) | 504 | 6,984 | 35.0 ± 0.7 | 86.6 ± 1.1 | 5 |
 | wired `110c020` | 500 | 6,980 | 55.0 ± 1.6 | 93.9 ± 1.6 | 5 |
 | quic-go v0.61.0 | 8,416 | 15,540 | 77.0 ± 1.9 | 94.6 ± 1.7 | 5 |
@@ -401,7 +403,7 @@ xychart-beta
     title "Peak RSS under load (KiB, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "KiB" 0 --> 16000
-    bar [6984, 15540, 8392]
+    bar [1936, 15540, 8392]
 ```
 
 ```mermaid

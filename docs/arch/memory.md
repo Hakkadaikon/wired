@@ -201,9 +201,9 @@ ninja build sets `-DWIRED_CONNTABLE_CAP=4`; the interop image builds with 64.
 Because pages are mapped only on first write, a server reserves the full
 table but uses far less. On the loopback lane of
 [Implementation Comparison](../performance/comparison.md) (the 4-connection
-build, 20 concurrent streams on one connection), wired used 504 KiB of RAM
-when idle and 6,984 KiB at its peak, against 28.5 MiB reserved at the
-time of that measurement (27.7 MiB now). Resident
+build, 20 concurrent streams on one connection), wired used 516 KiB of RAM
+when idle and 1,936 KiB at its peak (2026-11-02, `efd61452e`), against
+27.7 MiB reserved. Resident
 memory grows with what connections actually touch: a connection that sends
 a large WebTransport round fills its 128 KiB staging buffer, and a request
 with a long target fills its 10 KiB request window.
@@ -212,10 +212,11 @@ When a connection closes, the server hands its slot's big tables (request
 and WT stream slots, received DATAGRAMs, WT send staging, its `respstore`
 row) back to the kernel with `madvise(MADV_DONTNEED)`, once per close. So
 resident memory falls back after load instead of staying at its peak: on
-the same lane, 1,388 KiB after the load rounds against 6,984 KiB before
-this change. The pages read as zero afterwards, which is what a fresh slot
-holds, so the next claim skips rewriting them and touches only the pages
-the new connection uses (peak 1,916 KiB).
+the same lane, 1,414 KiB after the load rounds, where `426127f` (before
+this change, measured the same day) stays at its 6,984 KiB peak. The pages
+read as zero afterwards, which is what a fresh slot holds, so the next
+claim skips rewriting them and touches only the pages the new connection
+uses -- which is also why the peak itself fell from 6,984 to 1,936 KiB.
 
 ## Choosing a constant
 

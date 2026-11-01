@@ -60,20 +60,26 @@ code memory-safe, and two kinds of dangling reference are still possible:
 - **A view that outlives the stack frame it points into.** A `wired_span`
   taken over a local buffer becomes invalid when the function returns
   (use-after-return / use-after-scope). Buffers a view must outlive are
-  declared in the caller's scope for this reason.
+  declared in the caller's scope for this reason. Under clang, returning a
+  view of a local is a compile error (`lifetimebound`), and a CI check
+  (`just view-check`) makes every view kept in long-lived state name the
+  storage it points into.
 - **A stale reference into a reused slot.** A pointer kept to a connection or
-  stream slot after that slot has been freed and handed to a new peer.
+  stream slot after that slot has been freed and handed to a new peer. An
+  application keeps a WebTransport session across steps as a
+  generation-checked `wired_wt_ref`, which resolves to nothing once the slot
+  is reused; that lifecycle is bounded-model-checked (`just cbmc`).
 
-The checks below exist to catch exactly these. One limit is worth knowing:
-the CI sanitizer run checks use-after-scope, but not use-after-return. The
-SDK's raw threads share one thread-local area, which breaks ASan's
-use-after-return mode.
+The checks below exist to catch exactly these. The CI sanitizer run checks
+both use-after-scope and use-after-return: under ASan the SDK's threads run
+as pthreads, so each has the thread-local area ASan's use-after-return mode
+needs.
 
 ### Hardened and checked on every push
 
 | Check | What it catches |
 |---|---|
-| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of a stack buffer after its scope ends, undefined behavior |
+| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of a stack buffer after its scope ends or its function returns, undefined behavior |
 | clang-tidy with the CERT C secure-coding rules, as errors | unsafe idioms, integer conversions, null dereferences |
 | Fuzzing: 9 harnesses (QUIC frames and headers, 1-RTT packets, TLS messages, X.509, QPACK, capsules, MoQT, MP4 fragments), smoke-tested on every push and run nightly | crashes and hangs on hostile input |
 | RFC / FIPS test vectors for every primitive, plus the BoringSSL and Wycheproof suites | wrong cryptography |
@@ -100,8 +106,8 @@ HTTP/3 responses over loopback:
 | Requests per second | **25,731** | 20,023 | 12,544 |
 | Latency under load, p50 | **0.67 ms** | 0.90 ms | 1.40 ms |
 | Server CPU per request | **35.0 µs** | 37.8 µs | 77.0 µs |
-| Memory when idle (RSS) | **504 KiB** | 7,708 KiB | 8,416 KiB |
-| Peak memory under load | **6,984 KiB** | 8,392 KiB | 15,540 KiB |
+| Memory when idle (RSS) | **516 KiB** | 7,708 KiB | 8,416 KiB |
+| Peak memory under load | **1,936 KiB** | 8,392 KiB | 15,540 KiB |
 | Server binary | **513 KB** (static) | 6.1 MB | 7.3 MB |
 
 On a lossy simulated link, all five servers tested (with ngtcp2 and picoquic)
@@ -110,7 +116,10 @@ reach nearly the same goodput (9,103 to 9,540 kbps; wired 9,419).
 These numbers are a dated snapshot from 2026-10-27, with quic-go and
 quiche measured the same day on the same machine. The loopback rows are
 wired at commit `426127f`; the binary size and goodput were measured at
-`110c020`, two commits earlier. [Implementation
+`110c020`, two commits earlier. The two memory rows were re-measured on
+2026-11-02 at `efd61452e`, which returns a closed connection's pages to the
+kernel; `426127f` re-measured the same day still gives 500 / 6,984 KiB -- the
+2026-10-27 values -- so the other columns stay comparable. [Implementation
 Comparison](docs/performance/comparison.md) has every lane, the full feature
 matrix, the environment, and the scripts to reproduce the numbers.
 
