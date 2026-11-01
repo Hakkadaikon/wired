@@ -110,6 +110,11 @@ features-check:
 py-check:
     sh scripts/just/py_check.sh
 
+# Bounded model check of the WebTransport session reference lifecycle
+# (verify/cbmc, CBMC from the flake's verify shell); verification only.
+cbmc:
+    nix develop .#verify -c sh scripts/just/cbmc.sh
+
 # Stored views: every struct reachable from the SDK's long-lived state names
 # the storage its views point into, and none is set from a local array.
 view-check:
