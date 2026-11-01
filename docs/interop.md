@@ -91,7 +91,7 @@ table.
 | `keyupdate` | ✅ | RFC 9001 §6 key update, both directions |
 | `transferloss` | ✅ | file transfer under packet loss |
 | `transfercorruption` | ✅ | file transfer under packet corruption |
-| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight; fails with msquic only ([#178](https://github.com/Hakkadaikon/wired/issues/178)) |
+| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight; failed with msquic on 2026-10-27 ([#178](https://github.com/Hakkadaikon/wired/issues/178)); fixed on the server side (a Handshake PING when the budget blocks every replay), 5 of 5 local runs pass, awaiting the next CI run |
 | `goodput` (measurement) | ✅ | 10 MB at 9418±14 kbps over the runner's simulated 10 Mbps link (2026-10-27); 9169–9418 kbps across the 14 clients that run it |
 | `blackhole` | ✅ | resumes correctly after a simulated 2 s link outage |
 | `multiplexing` | ✅ | passes fully as of 2026-08-05 (see notes) |
@@ -404,7 +404,7 @@ an Extended CONNECT request (see the guide's
 | `transfer-bidirectional-receive` | ✅ | server replies on bidi streams |
 | `transfer-datagram-receive` | ✅ | server pushes over DATAGRAMs |
 | `transfer-unidirectional-send` | ✅ | 2xx/stream ordering fixed 2026-08-23 (`ee13cc7`); passed against ngtcp2 and webtransport-go (see notes) |
-| `transfer-bidirectional-send` | ❌ | failed against webtransport-go on 2026-10-27 with a truncated file ([#180](https://github.com/Hakkadaikon/wired/issues/180)); root cause fixed in `76f7cdcbc`, 5 of 5 local runs pass, awaiting the next CI run |
+| `transfer-bidirectional-send` | ❌ | failed against webtransport-go on 2026-10-27 with a truncated file ([#180](https://github.com/Hakkadaikon/wired/issues/180)); root cause fixed (received bytes tracked with a bitmap), 5 of 5 local runs pass, awaiting the next CI run |
 | `transfer-datagram-send` | ✅ | same fix; passed against webtransport-go in the 2026-08-23 local serial re-run |
 
 The 2026-10-27 CI run covered 5 clients: flupke-webtransport and ngtcp2
@@ -427,7 +427,7 @@ stopped. (The CI run kept no per-test logs; in a local reproduction the
 client's qlog showed every byte acknowledged and the client blocked at the
 stream's limit until it gave up with "no recent network activity".) The
 window now marks every received byte in a bitmap, like the request
-window, so no received byte can be forgotten (`76f7cdcbc`).
+window, so no received byte can be forgotten.
 
 #### `transfer-unidirectional-send`
 
@@ -485,13 +485,15 @@ From the 2026-10-27 runs, with the issue that tracks each one:
   in a local run. wired accepts the PSK and the
   early data.
 - `amplificationlimit` with msquic, missing files:
-  [#178](https://github.com/Hakkadaikon/wired/issues/178). msquic gives
-  up during the handshake before its retransmissions get past the
-  testcase's six dropped packets; quic-go's server and the 2026-10-04
-  wired commit fail the same way in local runs.
+  [#178](https://github.com/Hakkadaikon/wired/issues/178), a server-side
+  stall: on PTO wired only replayed whole cached datagrams, every one
+  larger than the anti-amplification budget left, so it went silent while
+  the testcase dropped msquic's retries. wired now sends a small
+  Handshake PING when it fits; 5 of 5 local runs pass, awaiting the next
+  CI run.
 - WebTransport `transfer-bidirectional-send` with webtransport-go:
-  [#180](https://github.com/Hakkadaikon/wired/issues/180), fixed in
-  `76f7cdcbc`, awaiting the next CI run.
+  [#180](https://github.com/Hakkadaikon/wired/issues/180), fixed
+  (received bytes tracked with a bitmap), awaiting the next CI run.
 - MoQT `subscribe-namespace-lifecycle` with moq-dev-js:
   [#179](https://github.com/Hakkadaikon/wired/issues/179), a client
   behavior fixed in @moq/net 0.4.7.
