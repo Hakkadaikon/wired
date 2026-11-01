@@ -43,8 +43,13 @@ i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
   return -(i64)pthread_create(&t->handle, 0, thread_pthread_entry, t);
 }
 
+/* A never-started handle (0) returns at once, as the raw join does for
+ * tid 0: pthread_join on it is undefined. */
 i64 wired_thread_join(wired_thread* t) {
-  pthread_join(t->handle, 0);
+  if (t->handle) {
+    pthread_join(t->handle, 0);
+  }
+  t->handle = 0;
   return 0;
 }
 #else

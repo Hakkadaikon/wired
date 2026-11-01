@@ -76,8 +76,16 @@ static void test_thread_arg(void) {
 /* gettid on the calling thread is a positive kernel tid. */
 static void test_thread_tid(void) { CHECK(wired_thread_tid() > 0); }
 
+/* A handle never started (start failed, or never called) joins at once:
+ * srvthreads_spawn joins every worker slot, started or not. */
+static void test_thread_join_unstarted(void) {
+  wired_thread t = {0};
+  CHECK(wired_thread_join(&t) == 0);
+}
+
 void test_thread(void) {
   test_thread_tid();
+  test_thread_join_unstarted();
   test_thread_single();
   test_thread_pair();
   test_thread_arg();
