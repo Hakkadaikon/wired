@@ -2037,10 +2037,16 @@ static void test_moqtrun_sub_close_drops_timers_and_dedup(void) {
   moqtrun_sgt_put(&mtst_hub, SESS_A, 19, 100);
   mtst_hub.dd[0] = (wired_moqtrun_dd){
       .request_id = 2, .session_idx = (u16)(pb - mtst_hub.peers), .in_use = 1};
+  mtst_hub.dd[1] = (wired_moqtrun_dd){
+      .request_id = 3,
+      .session_idx =
+          (u16)(moqtrun_find_by_wt(&mtst_hub, SESS_A) - mtst_hub.peers),
+      .in_use = 1};
   wired_moqt_on_session_close(&mtst_hub, SESS_B);
   CHECK(mtst_hub.sgt[0].in_use == 0);
   CHECK(mtst_hub.sgt[1].in_use == 1 && mtst_hub.sgt[1].wt == SESS_A);
   CHECK(mtst_hub.dd[0].in_use == 0);
+  CHECK(mtst_hub.dd[1].in_use == 1); /* the other session's record stays */
 }
 
 /* The effective subgroup timeout is min(publisher Track Property,
