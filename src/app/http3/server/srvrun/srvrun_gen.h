@@ -22,8 +22,8 @@ static inline u32 srvrun_wt_gen_next(u32* last) {
  * `r_gen` half is defense in depth, not load-bearing: every open site
  * stamps a non-zero generation before marking the object active
  * (srvrun_start.c, srvrun_live.c), so owned() never reports an active
- * object with gen 0, and verify/cbmc/wt_ref.c's mutation check (a mutant
- * that drops this half) cannot distinguish it from the unmutated code
+ * object with gen 0, and `just cbmc-mutate`'s mut3 (a mutant that drops
+ * this half, run against verify/cbmc) cannot distinguish it from the code
  * for exactly that reason -- confirmed by reading both open sites, not
  * just by the model's silence on the mutant. */
 static inline int srvrun_wt_ref_shaped(const void* r_s, u32 r_gen) {

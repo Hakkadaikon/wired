@@ -499,7 +499,10 @@ int wired_server_run_opt(
 
 /** Byte size of one wired_srvrun_env instance, for a caller allocating one
  * (statically, or via an SDK-external allocator) to pass to
- * wired_srvrun_env_init / wired_srvrun_serve_env. */
+ * wired_srvrun_env_init / wired_srvrun_serve_env. The memory must be
+ * private anonymous (static storage or MAP_PRIVATE|MAP_ANONYMOUS): a
+ * released slot's pages are returned with MADV_DONTNEED and are assumed
+ * to read back as zero, which a shared or file-backed mapping breaks. */
 usz wired_srvrun_env_size(void);
 
 /** Zero-initialize env (its connection table, response/rx storage, and
