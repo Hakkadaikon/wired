@@ -2479,6 +2479,69 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   CHECK(st.conns[0].boot_rx_bytes == rx_after_boot + sizeof garbage);
 }
 
+/* Boot a real connection, then leave it `budget` antiamp bytes: the live
+ * msquic amplificationlimit trace's state after the first round (one
+ * 1220-byte client Initial, 3479 bytes sent, 181 left). */
+static srvrun_conn* sr_boot_with_budget(
+    srvrun_step_ctx* ctx, u8* dg, usz cap, u64 budget) {
+  usz          total = sr_build_client_initial(dg, cap, g_sr_odcid, 8);
+  srvrun_conn* c     = &ctx->st->conns[0];
+  conntable_init(ctx->st->table, WIRED_CONNTABLE_CAP);
+  srvrun_serve(ctx, wired_mspan_of(dg, total));
+  c->boot_rx_bytes = 1220;
+  c->boot_tx_bytes = 3 * 1220 - budget;
+  return c;
+}
+
+/* RFC 9002 6.2.4 / RFC 9000 8.1: a boot PTO whose cached datagrams all
+ * exceed the remaining antiamp budget still sends one small ack-eliciting
+ * Handshake probe within it, so the client answers with a Handshake packet
+ * (which validates the address). Replaying only whole datagrams sent
+ * nothing, and msquic idled out behind the testcase's dropped probes. */
+static void test_srvrun_boot_blocked_replay_sends_hs_probe(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 181);
+    u64             pn  = c->l.hs_tx_pn;
+    CHECK(c->up == 1);
+    CHECK(c->boot_dgram_len[0] > 181);
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 1);
+    CHECK(srvrun_test_send_count() == 1);
+    CHECK(c->l.hs_tx_pn == pn + 1);
+    CHECK(c->boot_tx_bytes > 3 * 1220 - 181);
+    CHECK(c->boot_tx_bytes <= 3 * 1220);
+  }
+}
+
+/* Boundary: a budget too small for even the probe sends nothing at all. */
+static void test_srvrun_boot_blocked_replay_tiny_budget_silent(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  conntable        table[WIRED_CONNTABLE_CAP];
+  sockaddr         peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    srvrun_conn*    c   = sr_boot_with_budget(&ctx, dg, sizeof dg, 10);
+    u64             pn  = c->l.hs_tx_pn;
+    srvrun_test_reset_send_count();
+    CHECK(srvrun_resend_boot_flight(&ctx, c) == 0);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(c->l.hs_tx_pn == pn);
+    CHECK(c->boot_tx_bytes == 3 * 1220 - 10);
+  }
+}
+
 /* srvrun_resend_boot_flight (the client-Initial-retransmit path)
  * respects the same antiamp budget as the first round -- a flight too big
  * for one round still only sends what the accumulated boot_rx_bytes
@@ -27636,6 +27699,8 @@ void test_srvrun(void) {
   test_srvrun_boot_antiamp_sent_includes_initial_and_handshake();
   test_srvrun_boot_antiamp_client_silent_no_crash();
   test_srvrun_conn_rx_bytes_counts_malformed_datagram();
+  test_srvrun_boot_blocked_replay_sends_hs_probe();
+  test_srvrun_boot_blocked_replay_tiny_budget_silent();
   test_srvrun_resend_boot_flight_respects_antiamp_budget();
   test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_free_slot_releases_pages();
