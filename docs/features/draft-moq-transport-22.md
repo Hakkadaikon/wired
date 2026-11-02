@@ -200,17 +200,27 @@ Legend:
   from that publisher.
   - evidence: Besides the decode-time violations (unknown Object Status,
     cumulative Object ID overflow -- see MQ22-114/MQ22-130a), the relay
-    detects #4 (an Object past the latest END_OF_GROUP Object of its Group)
-    and #5 (an Object past the END_OF_TRACK Object): every subscription ends
-    PUBLISH_DONE MALFORMED_TRACK, fetch streams of the track reset
-    MALFORMED_TRACK, the publisher's request is cancelled and the triggering
-    Object is not cached. The rest of the catalog is out of scope.
+    detects #4 (an Object past the latest END_OF_GROUP Object of its Group),
+    #5 (an Object past the END_OF_TRACK Object), #1 (a Subgroup
+    stream whose Publisher Priority differs from the latest Subgroup header
+    of the same Group and Subgroup ID) and #7 (a datagram for an Object the
+    cache holds from a Subgroup stream; a Track may mix both modes, so only
+    the same Object counts): every subscription ends PUBLISH_DONE
+    MALFORMED_TRACK, fetch streams of the track reset MALFORMED_TRACK, the
+    publisher's request is cancelled and the triggering Object is not
+    cached. Still open: #6 (a duplicate Object with a different payload)
+    on the subscription path, which would need a cache lookup per Object,
+    and #2/#3 (Subgroup finals across FINs).
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_after_end_of_track`
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_after_end_of_group`
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_resets_fetch`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_prio_mismatch`
+  - test: `tests/app/moqtrun_done_test.c` —
+    `test_moqtrun_pubdone_malformed_mode_change`
 
 ## SS2.4.3/6.5 Reserved Namespaces / Session-Level Tracks
 
@@ -2428,13 +2438,13 @@ from the coverage denominator above:
 - (SS8.8) Rendering/parsing namespace and track names as
   human-readable strings — an operator/logging concern; this SDK compares
   names as raw bytes only.
-- (SS12.1) The general receiver-side Malformed Track detection catalog
-  (Publisher Priority mismatch across a Subgroup ID, Object ID exceeding a
-  Subgroup/Group/Track final, differing finals across FIN'd streams,
-  duplicate Objects with a different payload, Delivery Mode change) —
-  beyond the decode-time violations (unknown Object Status, Object ID
-  overflow), only an Object past END_OF_GROUP / END_OF_TRACK is detected
-  (MQ22-025).
+- (SS12.1) The rest of the receiver-side Malformed Track detection
+  catalog (an Object ID past a Subgroup final, differing finals across
+  FIN'd streams, duplicate Objects with a different payload on the
+  subscription path) — beyond the decode-time violations (unknown Object
+  Status, Object ID overflow), only an Object past END_OF_GROUP /
+  END_OF_TRACK, a Publisher Priority mismatch within a Subgroup and a
+  stream-then-datagram Delivery Mode change are detected (MQ22-025).
 - (SS6.1, SS6.2) The `moqt` URI scheme, fragment identifiers, MOQT URI
   dereferencing and host resolution via SVCB/HTTPS RR — client-side
   concerns of a server-only hub. Native-QUIC sessions themselves (SS6.2.2:
