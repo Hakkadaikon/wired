@@ -713,17 +713,6 @@ recently sent headers, updated over its own encoder and decoder streams.
   Receive accounting remembers retired stream IDs in a window; an ID below
   the window's ceiling is treated as already fully counted. Source:
   `srvloop_rxacct_entry` (shortcut).
-- **NEW_TOKEN tokens are sent once and checked per process** — Affects:
-  clients that reconnect with a NEW_TOKEN token, and `srvworkers`
-  deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
-  token only saves a later round trip). Each forked worker keeps its own
-  record of used tokens, so a token can be replayed once per worker.
-  Source: `srvrun_send_new_token`, `g_srvrun_newtok_seen` (shortcut).
-- **Idle timer restarts only on stream sends** — Affects: connections that
-  send nothing but control frames. RFC 9000 10.1 restarts the idle timer on
-  every ack-eliciting send; the server counts only packets that carry
-  response or WebTransport stream data. Source: `srvrun_idle_note_tx`
-  (shortcut).
 - **Anti-amplification is not applied to a path without a slot** —
   Affects: clients that migrate while many paths are in flight. A path whose
   validation was given up or evicted from the path table is not limited to
@@ -755,16 +744,13 @@ recently sent headers, updated over its own encoder and decoder streams.
   is counted on the path's challenge slot, so a path that holds none (its
   validation abandoned, or the slot taken by a newer migration) is not
   limited. Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
-- **Peer connection IDs** — Affects: clients that migrate more than once. A
-  connection ID (CID) is the label that lets a QUIC connection survive an
-  address change. The server keeps at most two of the client's CIDs (the
-  default active_connection_id_limit; it advertises no higher one), so a
-  probe answered from a new socket and a later migration compete for the one
-  spare. With no spare ID left, the old one stays in use until the peer
-  issues more. A full retire queue (four owed RETIRE_CONNECTION_IDs) drops
-  the frame, so the peer keeps that ID active. A repeated
-  NEW_CONNECTION_ID for an ID the server retired more than 64 sequence
-  numbers above Retire Prior To is held again. Source: `peercid_owe`,
+- **Peer connection IDs** — Affects: clients that migrate more than three
+  times without the old IDs being retired. A connection ID (CID) is the
+  label that lets a QUIC connection survive an address change. The server
+  holds four of the client's CIDs (it advertises active_connection_id_limit
+  4). With no spare ID left, the old one stays in use until the peer issues
+  more. A repeated NEW_CONNECTION_ID for an ID the server retired more than
+  64 sequence numbers above Retire Prior To is held again. Source:
   `peercid_bit` (ponytail).
 - **ECN-failed connections lose GSO** — Affects: send throughput on networks
   that break ECN (Explicit Congestion Notification marks in the IP header).
@@ -839,16 +825,6 @@ The next two entries concern lower-level entry points. The server that
   passes against ngtcp2, and the quic-go client never triggers a path
   change. The quic-go client does not support the `ecn` and `v2` testcases;
   both pass against ngtcp2 (`v2` also against picoquic).
-- **Handshake keys are kept after the handshake is confirmed** — Affects:
-  anyone who relies on RFC 9001 key discard, for example to limit what a
-  later memory leak of the process exposes. RFC 9001 4.9.2 says an endpoint
-  MUST discard its Handshake keys once the handshake is confirmed. The
-  server keeps them, and still decrypts Handshake packets with them
-  (`wired_srvloop_open_keys` has no confirmation check). Only
-  `wired_server_close` wipes them (`keysched_wipe`), and the
-  `wired_server_run` loop does not call it, so the keys stay in the
-  connection slot until the slot is reused for a new connection. Source:
-  `wired_srvloop_open_keys`, `wired_server_close`.
 - **An Initial re-initializes a confirmed connection's slot** — Affects:
   every confirmed connection, because its CID is visible on the wire. An
   Initial packet whose destination CID matches a confirmed connection is
