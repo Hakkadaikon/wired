@@ -1,4 +1,5 @@
 #include "app/http3/server/srvloop/dispatch_impl.h"
+#include "common/diag/error/error.h"
 
 static void push_peer_reset(wired_srvloop* l, u64 id, u64 code, int is_stop);
 static int  stream_fin_id(u64 type, wired_span frame, u64* stream_id_out);
@@ -8,6 +9,7 @@ static int  max_streams_uni_is_new_high(
     const wired_srvloop* l, int uni, u64 max);
 static void gather_one_max_streams_uni(wired_srvloop* l, wired_span frame);
 static void note_streams_blocked(wired_srvloop* l, u64 type);
+static void path_challenge_excess(wired_srvloop* l);
 static void gather_one_path_challenge(wired_srvloop* l, wired_span frame);
 
 /* RFC 9000 19.4/19.5: queue one peer RESET_STREAM/STOP_SENDING at the tail
@@ -196,15 +198,25 @@ int srvloop_gather_streams_blocked(
   return seen;
 }
 
+/* RFC 9000 8.2.1 (a peer SHOULD NOT send several in one packet) / 21.9: a
+ * datagram with more PATH_CHALLENGEs than are latched is a connection
+ * error, so none goes unanswered (8.2.2); the first error wins. */
+static void path_challenge_excess(wired_srvloop* l) {
+  l->transport_error =
+      l->transport_error ? l->transport_error : ERR_PROTOCOL_VIOLATION;
+}
+
 /* Decode one PATH_RESPONSE frame into l's latch, mirroring
  * srvloop_gather_one_max_data's split (loop body pulled out to keep the
  * scanning loop's own CCN at the gate). A malformed/truncated frame is silently
  * skipped, same policy as srvloop_gather_one_max_data's decode failure. */
 /* RFC 9000 8.2.2/19.17: latch the peer's PATH_CHALLENGE data so the owning
- * runner can answer each one; past WIRED_SRVLOOP_PATH_RX they are dropped. */
+ * runner can answer each one; past WIRED_SRVLOOP_PATH_RX the connection
+ * closes (path_challenge_excess). */
 static void gather_one_path_challenge(wired_srvloop* l, wired_span frame) {
   usz n = l->path_challenge_rx_n;
   if (n >= WIRED_SRVLOOP_PATH_RX) {
+    path_challenge_excess(l);
     return;
   }
   if (path_decode(

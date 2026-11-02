@@ -26,7 +26,7 @@
 #define WIRED_SRVLOOP_NCID_RX 4
 
 /** PATH_CHALLENGE frames latched until answered
- * (wired_srvloop.path_challenge_rx_data); more are dropped. */
+ * (wired_srvloop.path_challenge_rx_data); more close the connection. */
 #define WIRED_SRVLOOP_PATH_RX 2
 
 /** Build (a round of) the response body for a decoded request. Copy from
