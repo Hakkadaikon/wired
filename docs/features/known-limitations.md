@@ -281,11 +281,17 @@ The limits:
   publisher that breaks the Track rules. Besides an unknown Object Status
   and an Object ID overflow at decode, the relay detects only an Object past
   the END_OF_TRACK Object or past its Group's latest END_OF_GROUP Object (by
-  Status, not by the FIN of an END_OF_GROUP stream). It does not check a
-  priority mismatch, differing finals, duplicate Objects with a different
-  payload (that would need a cache lookup per Object), or a Delivery Mode
-  change. The round that triggers the detection can still reach subscribers
-  before their PUBLISH_DONE. Source: `moqtrun_track_obj` (d22 12.1).
+  Status, not by the FIN of an END_OF_GROUP stream), a Subgroup stream
+  whose Publisher Priority differs from the latest Subgroup header of the
+  same Subgroup (an older interleaved Subgroup is not remembered), and a
+  datagram for an Object the cache still holds from a Subgroup stream (a
+  datagram is not recorded, so a datagram followed by the same Object on
+  a stream goes unseen). It does not check differing finals or duplicate
+  Objects with a different payload on the subscription path (that would
+  need a cache lookup per Object). The round that triggers the detection
+  can still reach subscribers before their PUBLISH_DONE. Source:
+  `moqtrun_track_obj`, `moqtrun_sgprio_gate`, `moqtrun_dg_mode_gate` (d22
+  12.1).
 - **Request IDs past 2^56 alias another** — Affects: a session that sends
   more than 2^56 requests (not reachable in practice). The hub keys each
   request's flow by session slot and the low 56 bits of its Request ID.
