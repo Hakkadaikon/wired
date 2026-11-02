@@ -555,8 +555,9 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   ride on the initial 10 MB (`STP_DEFAULT_MAX_DATA`). Source:
   `srvrun_grant_conn_credit` (ponytail).
 - **Concurrent WT sessions per connection** — Affects: clients that open
-  many sessions on one connection. The limit is `SRVRUN_MAX_WT_SESSIONS` (2)
-  per connection, `SRVRUN_MAX_WT_SESSIONS_GLOBAL` (64, equal to
+  many sessions on one connection. The limit is
+  `WIRED_SRVRUN_MAX_WT_SESSIONS` (2, a `-D` build knob, at least 2) per
+  connection, `SRVRUN_MAX_WT_SESSIONS_GLOBAL` (64, equal to
   `WIRED_CONNTABLE_CAP`) across all connections, and
   `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` (10) new sessions per connection per
   second. Source: those macros.
@@ -564,7 +565,9 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   that open server streams. When the peer's stream limit is reached, the open
   function (`wired_server_wt_open_uni` and its siblings) returns -1, and
   WT_STREAMS_BLOCKED is sent only for the stream-count cause. Retrying is the
-  caller's job. Source: `srvrun_wt_streams_blocked_owed`.
+  caller's job; `wired_srvrun_opt.wt_on_stream_credit` tells it when the
+  same open would succeed. Source: `srvrun_wt_streams_blocked_owed`,
+  `srvrun_credit.c`.
 - **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
   HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
   HTTP/2 are not implemented. There are also no rate-limit headers and no
@@ -803,9 +806,16 @@ The next two entries concern lower-level entry points. The server that
   may protect). A limit hit while the previous key update is still
   unconfirmed stalls sends; in practice the idle timeout fires first.
   Source: `ku_limit_gate` (ponytail).
-- **Linear connection table** — Affects: servers that would need more than
-  64 connections. `WIRED_CONNTABLE_CAP` is 64 slots, searched by linear
-  scan. Source: `conntable.h` header comment (ponytail).
+- **Fixed connection table** — Affects: servers that need more
+  connections than the build-time cap. `WIRED_CONNTABLE_CAP` defaults to 4
+  in the normal build (`scripts/just/flags.sh`; override with
+  `CONNTABLE_CAP=<n> just ninja`) and is built with 64 for the interop
+  image; the header's own fallback is 64. Lookup is an open-addressing
+  hash over every CID a slot owns. The index is rebuilt on each insert,
+  rekey and CID change (O(cap) per connection event, not per packet), and
+  its hash is unkeyed, so chosen Initial DCIDs can collide, which degrades
+  a lookup to at most a full-table scan. Source: `conntable.h` header
+  comment (ponytail).
 - **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
   heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints. An entry is
   evicted only once a replay of it can no longer pass the freshness check
@@ -1098,7 +1108,7 @@ the value here is the current one.
 | Constant | Value | Bounds | Effect when exceeded |
 |---|---|---|---|
 | `WIRED_WT_MAX_BUFFERED_DATAGRAMS` / `_CAP` | 4 / 256 | datagrams before session setup | longer datagram dropped |
-| `SRVRUN_MAX_WT_SESSIONS` | 2 | WT sessions per connection | session refused |
+| `WIRED_SRVRUN_MAX_WT_SESSIONS` | 2 | WT sessions per connection | session refused |
 | `SRVRUN_WTSEND_BUF` | 131072 | staging bytes per WT send slot | larger payload stays a caller-owned view |
 | `SRVRUN_DG_PENDING_Q` | 4 | broadcast datagrams queued per connection | newest refused |
 | `WIRED_SENDSESS_LOG` | 128 | unacknowledged slices per send session | sent packets go untracked and later look lost; cwnd growth stalls |
@@ -1113,7 +1123,7 @@ the value here is the current one.
 | `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | control stream backlog | H3_EXCESSIVE_LOAD |
 | `SRVRUN_RST_RETX` | 99 | aborts awaiting ACK | excess sent once |
 | `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |
-| `WIRED_CONNTABLE_CAP` | 64 | QUIC connections | no new connection |
+| `WIRED_CONNTABLE_CAP` | 4 (64 in the interop image) | QUIC connections | no new connection |
 | `ZERORTT_SEEN_CAP` | 4096 | 0-RTT fingerprints | oldest evicted |
 | `WIRED_RECVMMSG_MAX` | 64 | UDP batch size | batch capped |
 

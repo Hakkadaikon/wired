@@ -15,8 +15,8 @@ override with `-D` at build time).
 
 | Limit | Value | Constant |
 |---|---|---|
-| QUIC connections per server | 64 | `WIRED_CONNTABLE_CAP` |
-| WebTransport sessions per connection | 2 | `SRVRUN_MAX_WT_SESSIONS` |
+| QUIC connections per server | 4 by default, 64 in the interop image (`-D` overridable) | `WIRED_CONNTABLE_CAP` |
+| WebTransport sessions per connection | 2 (`-D` overridable, at least 2) | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
 | WebTransport sessions, all connections | 64 | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | New WebTransport sessions per connection per second | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | Client-opened WT bidi streams per connection | 24 (`-D` overridable) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
