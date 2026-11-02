@@ -26792,9 +26792,9 @@ static void sr_sl_stop(srvrun_conn* c, u64 id, u64 code) {
 
 /* RFC 9000 3.5 / 19.5: a STOP_SENDING that opens the request stream before
  * any request byte arrived is answered at once with RESET_STREAM at Final
- * Size 0 -- the send side only. The receive side waits for the first byte
- * to say what the stream is: a request is then refused (STOP_SENDING with
- * H3_REQUEST_REJECTED, never answered) and its stream credit returned
+ * Size 0 -- the send side only. The request that follows is read as usual
+ * but, its send side ended, refused unanswered (STOP_SENDING with
+ * H3_REQUEST_REJECTED), its slot freed and its stream credit returned
  * (issue #196). */
 static void test_srvrun_stop_before_request_bytes(void) {
   srvrun_conn* c = sr_sl_fixture();
@@ -26810,6 +26810,7 @@ static void test_srvrun_stop_before_request_bytes(void) {
   CHECK(srvrun_resp_find(c, 0) == 0);
   CHECK(sr_kept_stop_code(c, 0) == H3_REQUEST_REJECTED);
   CHECK(sr_kept_reset_count(c, 0) == 1);
+  CHECK(!sr_sl_has_slot(c, 0));
   CHECK(sr_sl_limit(c) == lim + 1);
   *c = (srvrun_conn){0};
 }
@@ -26847,14 +26848,6 @@ static void test_srvrun_stop_after_request_freed(void) {
   *c = (srvrun_conn){0};
 }
 
-/* Post-signal bytes of WT bidi stream id received without a gap from its
- * start (delivered or still in the window), 0 when it has no WT slot. */
-static u64 sr_wt_rx_end(const srvrun_conn* c, u64 id) {
-  int i = wired_srvloop_wt_slot_find(&c->l, id);
-  return i < 0 ? 0
-               : c->l.wt_streams[i].win.base + c->l.wt_streams[i].win.frontier;
-}
-
 /* A WebTransport bidi stream id opened by the client: its 0x41 signal,
  * session 0, one data byte. */
 static void sr_sl_wt_open(srvrun_conn* c, u64 id) {
@@ -26876,7 +26869,7 @@ static void test_srvrun_stop_before_wt_bidi_bytes(void) {
   sr_sl_stop(c, 4, H3_REQUEST_CANCELLED);
   CHECK(sr_kept_reset_code(c, 4) == H3_REQUEST_CANCELLED);
   sr_sl_wt_open(c, 4);
-  CHECK(wired_srvloop_wt_slot_find(&c->l, 4) >= 0);
+  CHECK(c->l.wt_streams[wired_srvloop_wt_slot_find(&c->l, 4)].offered);
   CHECK(sr_kept_stop_code(c, 4) == ~0ULL);
   CHECK(sr_kept_reset_count(c, 4) == 1);
   *c = (srvrun_conn){0};
@@ -26916,78 +26909,13 @@ static void test_srvrun_early_stop_raw_and_uni_untouched(void) {
   c->l.peer_reset_n   = 1;
   srvrun_answer_peer_stops(&ctx, c);
   CHECK(sr_kept_reset_code(c, 2) == ~0ULL);
-  CHECK(!wired_srvloop_closed_has(&c->l.req_stopped, 2));
   CHECK(!wired_srvloop_closed_has(&c->wt_send_done, 2));
   c->s.sdrv.alpn      = SALPN_RAW;
   c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
   srvrun_answer_peer_stops(&ctx, c);
   CHECK(sr_kept_reset_code(c, 0) == ~0ULL);
-  CHECK(!wired_srvloop_closed_has(&c->l.req_stopped, 0));
   CHECK(!wired_srvloop_closed_has(&c->wt_send_done, 0));
   CHECK(c->stream_limit_advertised == 0);
-  *c = (srvrun_conn){0};
-}
-
-/* draft-ietf-webtrans-http3-16 4.3: after an early STOP_SENDING, a WT
- * stream whose offset-0 signal frame is overtaken by a later fragment is
- * still classified by that signal frame -- the fragment decides nothing,
- * so the stream is neither refused nor stopped. */
-static void test_srvrun_stop_before_wt_bidi_reordered(void) {
-  static const u8 tail[] = {'y'};
-  srvrun_conn*    c      = sr_sl_fixture();
-  u8              pl[32];
-  wired_obuf      sob = obuf_of(pl, sizeof pl);
-  stream_frame    sf  = {4, 4, sizeof tail, tail, 0};
-  sr_sl_send_headers(c, 0, "CONNECT", 0);
-  sr_sl_stop(c, 4, H3_REQUEST_CANCELLED);
-  CHECK(appdata_stream_frame(&sf, &sob) == 1);
-  sr_sl_step(c, pl, sob.len);
-  CHECK(!wired_srvloop_closed_has(&c->l.req_closed, 4));
-  sr_sl_wt_open(c, 4);
-  CHECK(wired_srvloop_wt_slot_find(&c->l, 4) >= 0);
-  CHECK(sr_kept_stop_code(c, 4) == ~0ULL);
-  CHECK(sr_kept_reset_count(c, 4) == 1);
-  /* the overtaking 'y' (post-signal offset 1) was kept, not dropped */
-  CHECK(sr_wt_rx_end(c, 4) == 2);
-  CHECK(srvloop_stream_slot_find(&c->l, 4) < 0);
-  *c = (srvrun_conn){0};
-}
-
-/* The same without an early STOP_SENDING: a fragment that overtakes the
- * 0x41 signal sits in a request slot until the signal says WebTransport,
- * then moves into the WT window and the request slot is freed. */
-static void test_srvrun_wt_bidi_reordered_adopted(void) {
-  static const u8 tail[] = {'y'};
-  srvrun_conn*    c      = sr_sl_fixture();
-  u8              pl[32];
-  wired_obuf      sob = obuf_of(pl, sizeof pl);
-  stream_frame    sf  = {4, 4, sizeof tail, tail, 1};
-  sr_sl_send_headers(c, 0, "CONNECT", 0);
-  CHECK(appdata_stream_frame(&sf, &sob) == 1);
-  sr_sl_step(c, pl, sob.len);
-  sr_sl_wt_open(c, 4);
-  CHECK(sr_wt_rx_end(c, 4) == 2);
-  CHECK(c->l.wt_streams[wired_srvloop_wt_slot_find(&c->l, 4)].fin);
-  CHECK(srvloop_stream_slot_find(&c->l, 4) < 0);
-  *c = (srvrun_conn){0};
-}
-
-/* A request whose early STOP_SENDING was overtaken by a body fragment is
- * still refused at its offset-0 HEADERS, and the slot holding the fragment
- * is freed with it. */
-static void test_srvrun_stop_before_request_reordered(void) {
-  static const u8 tail[] = {'z'};
-  srvrun_conn*    c      = sr_sl_fixture();
-  u8              pl[32];
-  wired_obuf      sob = obuf_of(pl, sizeof pl);
-  stream_frame    sf  = {0, 200, sizeof tail, tail, 0};
-  sr_sl_stop(c, 0, H3_REQUEST_CANCELLED);
-  CHECK(appdata_stream_frame(&sf, &sob) == 1);
-  sr_sl_step(c, pl, sob.len);
-  sr_sl_send_headers(c, 0, "GET", 0);
-  CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(sr_kept_stop_code(c, 0) == H3_REQUEST_REJECTED);
-  CHECK(srvloop_stream_slot_find(&c->l, 0) < 0);
   *c = (srvrun_conn){0};
 }
 
@@ -28918,9 +28846,6 @@ void test_srvrun(void) {
   test_srvrun_stop_before_wt_bidi_bytes();
   test_srvrun_stop_before_wt_bidi_refuses_reply();
   test_srvrun_early_stop_raw_and_uni_untouched();
-  test_srvrun_stop_before_wt_bidi_reordered();
-  test_srvrun_wt_bidi_reordered_adopted();
-  test_srvrun_stop_before_request_reordered();
   test_srvrun_connect_reset_then_late_stop();
   test_srvrun_wt_send_ended_client_uni();
   test_srvrun_stop_then_reset_then_late_bytes();

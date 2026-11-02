@@ -575,6 +575,13 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   caller's job; `wired_srvrun_opt.wt_on_stream_credit` tells it when the
   same open would succeed. Source: `srvrun_wt_streams_blocked_owed`,
   `srvrun_credit.c`.
+- **A WT bidi stream must start in order** — Affects: clients whose
+  packets reorder. A client bidi stream is classified by its offset-0 bytes.
+  A fragment that arrives before them lands in a request slot. If the stream
+  then turns out to be WebTransport (the 0x41 signal), that fragment is not
+  moved into the WT stream. The peer does not resend ACKed bytes, so the WT
+  stream stalls at that gap. Source:
+  `srvloop_wt_slot_for`, `wired_srvloop_slot_for`.
 - **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
   HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
   HTTP/2 are not implemented. There are also no rate-limit headers and no

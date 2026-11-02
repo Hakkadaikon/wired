@@ -1,13 +1,6 @@
-#include "app/http3/server/srvloop/dispatch_impl.h"
 #include "app/http3/server/srvloop/srvloop_impl.h"
-#include "common/bytes/util/bits.h"
 
-static int  wt_slot_is_stale(const wired_srvloop* l, u64 stream_id);
-static usz  wt_adopt_run(const bodywin* w, usz k);
-static void wt_adopt_bytes(
-    const wired_srvloop_stream_slot* r, wired_srvloop_wt_stream_slot* s);
-static void wt_adopt_fin(
-    const wired_srvloop_stream_slot* r, wired_srvloop_wt_stream_slot* s);
+static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id);
 static int wt_slot_free_index(const wired_srvloop* l);
 
 /* Reset (claim) slot i for stream_id, sig_len as given -- shared body of
@@ -87,51 +80,4 @@ void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id) {
   } else {
     l->wt_refused_overflow = 1;
   }
-}
-
-/* Received bytes of window w from buf index k up to the first gap. */
-static usz wt_adopt_run(const bodywin* w, usz k) {
-  usz e = k;
-  while (e < BODYWIN_CAP && bits_get(w->have, e)) {
-    e++;
-  }
-  return e - k;
-}
-
-/* Replay every received run of request slot r's window into WT slot s, at
- * its own stream offset (srvloop_gather_wt_one excises the signal). */
-static void wt_adopt_bytes(
-    const wired_srvloop_stream_slot* r, wired_srvloop_wt_stream_slot* s) {
-  for (usz k = 0; k < BODYWIN_CAP; k++) {
-    usz          n = wt_adopt_run(&r->body, k);
-    stream_frame f = {r->stream_id, r->body.base + k, n, r->req_buf + k, 0};
-    if (n) {
-      srvloop_gather_wt_one(&f, s);
-    }
-    k += n; /* buf[k + n] is the gap (or the end): the loop steps past it */
-  }
-}
-
-/* r's FIN, if one arrived, as an empty frame at its final size. */
-static void wt_adopt_fin(
-    const wired_srvloop_stream_slot* r, wired_srvloop_wt_stream_slot* s) {
-  stream_frame f = {r->stream_id, r->body.fin_off, 0, r->req_buf, 1};
-  if (r->body.fin) {
-    srvloop_gather_wt_one(&f, s);
-  }
-}
-
-/* RFC 9000 2.2 / draft-ietf-webtrans-http3-16 4.3: fragments that overtook
- * the 0x41 signal landed in a request slot (or were held there for a
- * req_stopped stream, srvloop_slot_hold); once the signal resolved, move
- * them into WT slot s and free that slot -- their packets were ACKed and
- * are never sent again. */
-void srvloop_wt_adopt(wired_srvloop* l, wired_srvloop_wt_stream_slot* s) {
-  int j = srvloop_stream_slot_find(l, s->stream_id);
-  if (j < 0) {
-    return;
-  }
-  wt_adopt_bytes(&l->streams[j], s);
-  wt_adopt_fin(&l->streams[j], s);
-  wired_srvloop_slot_release(l, s->stream_id);
 }

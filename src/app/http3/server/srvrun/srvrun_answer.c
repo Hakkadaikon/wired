@@ -91,9 +91,8 @@ static int srvrun_req_unopened(srvrun_conn* c, u64 id) {
 /* RFC 9000 3.5: answer an early STOP_SENDING (srvrun_req_unopened) on the
  * send side alone -- RESET_STREAM with the peer's code at Final Size 0,
  * once (the send side is then recorded ended, so a repeat builds
- * nothing). The receive side is left to the first byte
- * (req_stopped): a request is then refused and credited, a WT stream reads
- * on. */
+ * nothing). Later bytes take the normal path: a request is refused
+ * unanswered (srvrun_start_resp), a WT stream reads on but takes no reply. */
 static void srvrun_req_stop_early(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
   u8         pl[SRVRUN_RST_PL];
@@ -103,7 +102,6 @@ static void srvrun_req_stop_early(
       srvrun_wt_abort_reset(c, e->stream_id, e->error_code, &plb, 0),
       "request RESET sent\n");
   srvrun_wt_send_done_mark(c, e->stream_id);
-  wired_srvloop_closed_mark(&c->l.req_stopped, e->stream_id);
 }
 
 /* RFC 9000 3.5: a STOP_SENDING for a request whose response has not
