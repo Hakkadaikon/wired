@@ -145,6 +145,30 @@ i64 wired_udp_send_gso(i64 fd, const sockaddr* sa, wired_span buf, u16 segsize);
 i64 wired_udp_send_batch(
     i64 fd, const sockaddr* sa, wired_span buf, u16 segsize);
 
+/** wired_udp_send_gso with the TOS / traffic-class byte of every segment
+ * set to tos (an IP_TOS + IPV6_TCLASS cmsg after the UDP_SEGMENT one),
+ * overriding the socket-wide mark -- RFC 9000 13.4.2.2: a connection whose
+ * ECN validation failed still batches, unmarked.
+ * @param fd the socket fd
+ * @param sa the destination address
+ * @param buf the concatenated segments to send
+ * @param segsize per-segment byte size (last segment may be shorter)
+ * @param tos the TOS byte (ECN codepoint in its low 2 bits)
+ * @return total bytes sent, or a negative errno (fall back to
+ *   wired_udp_send_batch_tos when fd has no UDP_SEGMENT support). */
+i64 wired_udp_send_gso_tos(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize, u8 tos);
+
+/** wired_udp_send_batch with each segment sent by wired_udp_send_tos.
+ * @param fd the socket fd
+ * @param sa the destination address
+ * @param buf the concatenated segments to send
+ * @param segsize per-segment byte size (last segment may be shorter)
+ * @param tos the TOS byte (ECN codepoint in its low 2 bits)
+ * @return total bytes sent, or a negative errno on the first failure. */
+i64 wired_udp_send_batch_tos(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize, u8 tos);
+
 /** One slot of a recvmmsg() batch: caller-owned receive buffer and source
  * address, filled in by wired_udp_recvmmsg on return. */
 typedef struct {

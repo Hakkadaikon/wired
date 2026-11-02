@@ -299,6 +299,7 @@
 #include "transport/io/socket/io/retransmit.c"
 #include "transport/io/socket/io/udp.c"
 #include "transport/io/socket/io/udp_cmsg.c"
+#include "transport/io/socket/io/udp_tos.c"
 #include "transport/io/socket/io/udp_recvmmsg.c"
 #include "tls/keys/keyupdate/aeadlimit.c"
 #include "tls/keys/keyupdate/aeadintegrity.c"

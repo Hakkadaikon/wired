@@ -1,54 +1,34 @@
 #include "transport/io/socket/io/udp_impl.h"
 
-static void udp_int_cmsg(u8* out, i32 level, i32 type, int val);
-static usz  gso_batch_seglen(usz remaining, u16 segsize);
-static u64  cmsg_align(u64 n);
-static int  cmsg_entry_in_bounds(const u8* control, u64 controllen, u64 off);
-static int  cmsg_is_ip_tos_pair(i32 level, i32 type);
-static int  cmsg_type_carries_ecn(i32 level, i32 type);
-static int  cmsg_entry_is_ip_tos(const u8* control, u64 off, u8* tos);
+static usz gso_batch_seglen(usz remaining, u16 segsize);
+static i64 udp_send_seg(i64 fd, const sockaddr* sa, wired_span seg, int tos);
+static i64 udp_batch(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize, int tos);
+static u64 cmsg_align(u64 n);
+static int cmsg_entry_in_bounds(const u8* control, u64 controllen, u64 off);
+static int cmsg_is_ip_tos_pair(i32 level, i32 type);
+static int cmsg_type_carries_ecn(i32 level, i32 type);
+static int cmsg_entry_is_ip_tos(const u8* control, u64 off, u8* tos);
+
+i64 udp_sendmsg_ctl(
+    i64 fd, const sockaddr* sa, wired_span buf, u8* cmsg, u64 len) {
+  iovec    iov = {buf.p, buf.n};
+  msghdr   msg = {0};
+  sockaddr k;
+  msg.msg_name       = &k;
+  msg.msg_namelen    = udp_kaddr_out(sa, udp_family, &k);
+  msg.msg_iov        = &iov;
+  msg.msg_iovlen     = 1;
+  msg.msg_control    = cmsg;
+  msg.msg_controllen = len;
+  return wired_arch_sendmsg(fd, &msg, 0);
+}
 
 i64 wired_udp_send_gso(
     i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
-  u8       cmsg[WIRED_GSO_CMSG_SPACE];
-  iovec    iov = {buf.p, buf.n};
-  msghdr   msg = {0};
-  sockaddr k;
+  u8 cmsg[WIRED_GSO_CMSG_SPACE];
   wired_udp_gso_cmsg_build(cmsg, segsize);
-  msg.msg_name       = &k;
-  msg.msg_namelen    = udp_kaddr_out(sa, udp_family, &k);
-  msg.msg_iov        = &iov;
-  msg.msg_iovlen     = 1;
-  msg.msg_control    = cmsg;
-  msg.msg_controllen = WIRED_GSO_CMSG_SPACE;
-  return wired_arch_sendmsg(fd, &msg, 0);
-}
-
-static void udp_int_cmsg(u8* out, i32 level, i32 type, int val) {
-  bytes_memset(out, 0, WIRED_INT_CMSG_SPACE);
-  *(u64*)(out + 0)  = 20;
-  *(i32*)(out + 8)  = level;
-  *(i32*)(out + 12) = type;
-  *(int*)(out + 16) = val;
-}
-
-i64 wired_udp_send_tos(i64 fd, const sockaddr* sa, wired_span buf, u8 tos) {
-  u8       cmsg[2 * WIRED_INT_CMSG_SPACE];
-  iovec    iov = {buf.p, buf.n};
-  msghdr   msg = {0};
-  sockaddr k;
-  /* both: a v4 (or v4-mapped) send reads IP_TOS, a native v6 send
-   * IPV6_TCLASS; each stack skips the other's level. */
-  udp_int_cmsg(cmsg, WIRED_IPPROTO_IP, WIRED_IP_TOS, tos);
-  udp_int_cmsg(
-      cmsg + WIRED_INT_CMSG_SPACE, WIRED_IPPROTO_IPV6, WIRED_IPV6_TCLASS, tos);
-  msg.msg_name       = &k;
-  msg.msg_namelen    = udp_kaddr_out(sa, udp_family, &k);
-  msg.msg_iov        = &iov;
-  msg.msg_iovlen     = 1;
-  msg.msg_control    = cmsg;
-  msg.msg_controllen = sizeof cmsg;
-  return wired_arch_sendmsg(fd, &msg, 0);
+  return udp_sendmsg_ctl(fd, sa, buf, cmsg, sizeof cmsg);
 }
 
 /* Length of the next segment starting at off: segsize, or the remainder if
@@ -57,13 +37,21 @@ static usz gso_batch_seglen(usz remaining, u16 segsize) {
   return remaining < segsize ? remaining : segsize;
 }
 
-i64 wired_udp_send_batch(
-    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
+/* One segment: the socket's own mark (tos < 0) or a per-send TOS. */
+static i64 udp_send_seg(i64 fd, const sockaddr* sa, wired_span seg, int tos) {
+  if (tos < 0) {
+    return wired_udp_send(fd, sa, seg);
+  }
+  return wired_udp_send_tos(fd, sa, seg, (u8)tos);
+}
+
+static i64 udp_batch(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize, int tos) {
   usz off  = 0;
   i64 sent = 0;
   while (off < buf.n) {
     usz n = gso_batch_seglen(buf.n - off, segsize);
-    i64 r = wired_udp_send(fd, sa, wired_span_of(buf.p + off, n));
+    i64 r = udp_send_seg(fd, sa, wired_span_of(buf.p + off, n), tos);
     if (r < 0) {
       return r;
     }
@@ -71,6 +59,16 @@ i64 wired_udp_send_batch(
     off += n;
   }
   return sent;
+}
+
+i64 wired_udp_send_batch(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
+  return udp_batch(fd, sa, buf, segsize, -1);
+}
+
+i64 wired_udp_send_batch_tos(
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize, u8 tos) {
+  return udp_batch(fd, sa, buf, segsize, tos);
 }
 
 static u64 cmsg_align(u64 n) { return (n + 7) & ~(u64)7; }
