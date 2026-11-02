@@ -318,6 +318,68 @@ static void test_moqtrun_pubdone_malformed_mandatory_obj_prop(void) {
   }
 }
 
+/* A's FINed stream sid of Group 1: Subgroup sg (explicit field) at
+ * Publisher Priority prio, carrying the one Normal Object obj. */
+static void mtdn_sg_prio(u64 sid, u64 sg, u8 prio, u64 obj) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_mspan    out = wired_mspan_of(buf, sizeof buf);
+  usz            off = 0;
+  u8             b   = 0x5a;
+  moqdata_subhdr h   = {0};
+  h.type             = 0x14; /* explicit Subgroup ID and priority */
+  h.track_alias      = 1;
+  h.group_id         = 1;
+  h.subgroup_id      = sg;
+  h.priority         = prio;
+  moqdata_subhdr_put(out, &off, &h);
+  moqdata_obj_put(out, &off, obj, wired_span_of(&b, 1));
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
+}
+
+/* d22 12.1 #1 (d18/d19 2.4.2 #1): an Object whose Publisher Priority
+ * differs from the previous Object of its Subgroup ID makes a Malformed
+ * Track; another Subgroup at another priority does not. */
+static void test_moqtrun_pubdone_malformed_prio_mismatch(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_prio(2002, 0, 5, 0);
+  mtdn_sg_prio(2006, 1, 9, 1);
+  mtdn_sg_prio(2010, 1, 9, 2);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_prio(2014, 1, 7, 3);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* A's OBJECT_DATAGRAM for Object obj of Group g. */
+static void mtdn_dg(u64 g, u64 obj) {
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       off = 0;
+  u8        b   = 0x5a;
+  moqdg_obj o   = {0};
+  o.track_alias = 1;
+  o.group_id    = g;
+  o.object_id   = obj;
+  o.payload     = wired_span_of(&b, 1);
+  CHECK(moqdg_put(wired_mspan_of(buf, sizeof buf), &off, &o));
+  wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(buf, off));
+  wired_moqt_tick(&mtst_hub, 0);
+}
+
+/* d22 12.1 #7 (d18/d19 2.4.2 #7, "Forwarding Preference"): an Object
+ * received as a datagram after it came on a Subgroup stream makes a
+ * Malformed Track; a datagram for another Object of that Group does not
+ * (a Track may mix both, d18+ "mixing datagrams with streams"). */
+static void test_moqtrun_pubdone_malformed_mode_change(void) {
+  u64 count = 0;
+  mtdn_setup();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mtdn_status_group(2002, 1, 1, MOQDATA_STATUS_NORMAL);
+  mtdn_dg(1, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_dg(1, 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
 /* d22 12.1: a relay that detects a Malformed Track resets its fetch
  * streams of the track MALFORMED_TRACK. */
 static void test_moqtrun_pubdone_malformed_resets_fetch(void) {
@@ -399,6 +461,8 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_malformed_after_end_of_track();
   test_moqtrun_pubdone_malformed_after_end_of_group();
   test_moqtrun_pubdone_malformed_mandatory_obj_prop();
+  test_moqtrun_pubdone_malformed_prio_mismatch();
+  test_moqtrun_pubdone_malformed_mode_change();
   test_moqtrun_pubdone_session_close_pending();
   test_moqtrun_pubdone_reset_pending();
   test_moqtrun_pubdone_fin_after();

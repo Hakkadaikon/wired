@@ -5,6 +5,12 @@ static int moqtrun_dg_prop_violates(
 static int  moqtrun_dg_padding(wired_span data);
 static void moqtrun_dg_refused(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data);
+static int moqtrun_dg_on_stream(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_dg_mode_differs(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static wired_moqtrun_track* moqtrun_dg_mode_gate(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l);
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -53,6 +59,37 @@ static void moqtrun_dg_refused(
   }
 }
 
+/* The hub cache holds t's Object at l: only Subgroup-stream Objects are
+ * cached (moqtrun_track_obj), so it came with Delivery Mode Subgroup. */
+static int moqtrun_dg_on_stream(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  moqcache_item it;
+  moqcache_item_at(&hub->cache, t->cache_tag, l, moqtrun_after(l), &it);
+  return !it.unknown;
+}
+
+static int moqtrun_dg_mode_differs(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  return t && moqtrun_dg_on_stream(hub, t, l);
+}
+
+/* t, or 0 once a datagram for an Object first seen on a Subgroup stream
+ * made it Malformed: a different Delivery Mode than previously observed
+ * (draft-22 12.1 #7; draft-18/19 2.4.2 #7 "Forwarding Preference").
+ * Flagged, the datagram dropped; the PUBLISH_DONE sweep ends the track.
+ * A Track may mix both modes (draft-16+), so only the same Object counts.
+ * shortcut: seen only while the cache holds the stream copy, and a
+ * datagram is not recorded (datagram then stream goes unseen); record
+ * datagram Locations if publishers are seen to do that. */
+static wired_moqtrun_track* moqtrun_dg_mode_gate(
+    wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l) {
+  if (moqtrun_dg_mode_differs(hub, t, l)) {
+    t->malformed = 1;
+    return 0;
+  }
+  return t;
+}
+
 /* Resolves one received OBJECT_DATAGRAM to the sending peer's track:
  * decode via moqdg_take (11.3.1), then the header's Track Alias via
  * moqtrun_track_by_alias. 0 when the alias matches none of p's tracks or
@@ -78,8 +115,11 @@ static wired_moqtrun_track* moqtrun_dg_track(
   *loc                   = moqctl_loc_of(obj.group_id, obj.object_id);
   wired_moqtrun_track* t = moqtrun_gone_gate(
       hub,
-      moqtrun_obj_mand_gate(
-          moqtrun_track_by_alias(p, obj.track_alias), obj.props),
+      moqtrun_dg_mode_gate(
+          hub,
+          moqtrun_obj_mand_gate(
+              moqtrun_track_by_alias(p, obj.track_alias), obj.props),
+          *loc),
       *loc); /* draft-18/19 9.1 */
   moqtrun_track_note(t, obj.group_id, obj.object_id);
   return t;

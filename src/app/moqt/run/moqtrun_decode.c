@@ -14,11 +14,58 @@ static int moqtrun_track_has_alias(
 static int moqtrun_fresh_nothing_due(usz whole_objects, int fin);
 static int moqtrun_fin_torn(int fin, usz off, usz n);
 static wired_moqtrun_track* moqtrun_fresh_count_only(wired_moqtrun_track* t);
+static int moqtrun_sgprio_same_sg(const wired_moqtrun_track* t, u64 g, u64 sg);
+static int moqtrun_sgprio_differs(
+    const wired_moqtrun_track* t, u64 g, u64 sg, u8 prio);
+static int moqtrun_sgprio_keys(
+    const wired_moqtrun_track* t, wired_span wire, u64* sg, u8* prio);
+static wired_moqtrun_track* moqtrun_sgprio_gate(
+    wired_moqtrun_track* t, wired_span wire, u64 g);
 
 /* 1 iff an Object at l on t (0: no track) is past the final Object of
  * the Track (#5) or of the latest ended Group (#4). */
 int moqtrun_obj_malformed(const wired_moqtrun_track* t, moqctl_loc l) {
   return t && (moqtrun_past_track_end(t, l) || moqtrun_past_group_end(t, l));
+}
+
+static int moqtrun_sgprio_same_sg(const wired_moqtrun_track* t, u64 g, u64 sg) {
+  return t->sg_group == g && t->sg_id == sg;
+}
+
+static int moqtrun_sgprio_differs(
+    const wired_moqtrun_track* t, u64 g, u64 sg, u8 prio) {
+  return (t->end_flags & 4) && moqtrun_sgprio_same_sg(t, g, sg) &&
+         t->sg_prio != prio;
+}
+
+static int moqtrun_sgprio_keys(
+    const wired_moqtrun_track* t, wired_span wire, u64* sg, u8* prio) {
+  return t && moqtrun_stream_keys(wire, t->default_pub_prio, sg, prio);
+}
+
+/* t, or 0 once the Subgroup stream wire of Group g made it Malformed:
+ * its Publisher Priority differs from the previous one of its Subgroup
+ * ID (draft-22 12.1 #1; draft-18/19 2.4.2 #1). Flagged, its Objects
+ * neither cached nor relayed; the PUBLISH_DONE sweep ends the track.
+ * shortcut: only the latest Subgroup header is kept, so a mismatch
+ * against an older interleaved Subgroup goes unseen; keep one per relay
+ * if publishers interleave Subgroups. */
+static wired_moqtrun_track* moqtrun_sgprio_gate(
+    wired_moqtrun_track* t, wired_span wire, u64 g) {
+  u64 sg   = 0;
+  u8  prio = 0;
+  if (!moqtrun_sgprio_keys(t, wire, &sg, &prio)) {
+    return t;
+  }
+  if (moqtrun_sgprio_differs(t, g, sg, prio)) {
+    t->malformed = 1;
+    return 0;
+  }
+  t->sg_group = g;
+  t->sg_id    = sg;
+  t->sg_prio  = prio;
+  t->end_flags |= 4;
+  return t;
 }
 
 static void moqtrun_track_note_end_on(
@@ -169,9 +216,10 @@ wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) {
     return 0;
   }
-  wired_moqtrun_track* t   = moqtrun_track_by_alias(p, hdr.track_alias);
-  moqdata_objseq       seq = moqdata_objseq_of(hdr.type);
-  usz                  whole =
+  wired_moqtrun_track* t = moqtrun_sgprio_gate(
+      moqtrun_track_by_alias(p, hdr.track_alias), data, hdr.group_id);
+  moqdata_objseq seq = moqdata_objseq_of(hdr.type);
+  usz            whole =
       moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t);
   /* draft-19 11.4 (draft-18 11.4, draft-22 11.3): a FIN in the middle of
    * a serialized Object SHOULD close the session PROTOCOL_VIOLATION. */
