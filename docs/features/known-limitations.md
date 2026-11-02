@@ -713,10 +713,6 @@ recently sent headers, updated over its own encoder and decoder streams.
   Receive accounting remembers retired stream IDs in a window; an ID below
   the window's ceiling is treated as already fully counted. Source:
   `srvloop_rxacct_entry` (shortcut).
-- **Anti-amplification is not applied to a path without a slot** —
-  Affects: clients that migrate while many paths are in flight. A path whose
-  validation was given up or evicted from the path table is not limited to
-  three times what it sent. Source: `srvrun_amp.c` header comment
   (shortcut).
 - **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
   When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
@@ -728,11 +724,20 @@ recently sent headers, updated over its own encoder and decoder streams.
   server checks a new client address by sending a PATH_CHALLENGE and waiting
   for the matching PATH_RESPONSE. Two PATH_CHALLENGEs are tracked at once
   (the new path and the path left), plus the last validated path. A probe
-  from a new path is answered and validated only when a slot is free, and
-  ignored otherwise. RFC 9000 8.2.2 says every PATH_CHALLENGE MUST be
-  answered, and an attacker relaying genuine packets from other addresses
-  can keep both slots busy. Only the first two PATH_CHALLENGEs of a packet
-  are answered.
+  from a new path is answered whenever an unused peer connection ID is
+  available (RFC 9000 8.2.2, 9.5), but its validation starts only when a
+  slot is free; otherwise the answer stays within three times the datagram
+  that carried the probe and the path is not used. Answering such a probe
+  binds a spare peer connection ID to that path, and when the path is not
+  tracked the same step retires it with RETIRE_CONNECTION_ID (when the
+  current path's 3x limit holds that frame back, it is resent until
+  acknowledged): RFC 9000 9.5
+  requires a fresh ID per path, so one spare ID per answered probe is the
+  accepted cost. A datagram with more than eight PATH_CHALLENGEs (this
+  implementation's capacity) closes the connection with PROTOCOL_VIOLATION
+  instead of leaving one unanswered: RFC 9000 21.9 allows treating excess
+  non-productive activity as a connection error, and 8.2.1 says a sender
+  SHOULD NOT bundle several in one packet.
 
   When a path's validation is re-armed (for example, because a second move
   left that path), a fresh challenge starts, so a late response to the
@@ -741,9 +746,9 @@ recently sent headers, updated over its own encoder and decoder streams.
   path's validation times out
   and the server reverts (RFC 9000 9.3.3 calls this defense imperfect). The
   anti-amplification limit (send at most three times what was received)
-  is counted on the path's challenge slot, so a path that holds none (its
-  validation abandoned, or the slot taken by a newer migration) is not
-  limited. Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
+  is counted on the path's challenge slot; a path that holds none gets
+  three times its latest datagram, so its earlier bytes are not credited.
+  Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
 - **Peer connection IDs** — Affects: clients that migrate more than three
   times without the old IDs being retired. A connection ID (CID) is the
   label that lets a QUIC connection survive an address change. The server
