@@ -750,8 +750,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   holds four of the client's CIDs (it advertises active_connection_id_limit
   4). With no spare ID left, the old one stays in use until the peer issues
   more. A repeated NEW_CONNECTION_ID for an ID the server retired more than
-  64 sequence numbers above Retire Prior To is held again. Source:
-  `peercid_bit` (ponytail).
+  64 sequence numbers above Retire Prior To is held again, and one more
+  than 64 below it (below Retire Prior To - 64) is retired again, owing a
+  second RETIRE_CONNECTION_ID. Source: `peercid_bit` (ponytail),
+  `peercid_past_bit` (shortcut).
 - **ECN-failed connections lose GSO** — Affects: send throughput on networks
   that break ECN (Explicit Congestion Notification marks in the IP header).
   A connection whose ECN validation failed sends Not-ECT through a
@@ -798,11 +800,12 @@ The next two entries concern lower-level entry points. The server that
 - **Used NEW_TOKEN record holds 4096 tokens** — Affects: servers whose
   clients present many NEW_TOKEN tokens within a token lifetime. The same
   4096-entry ring records each accepted token, and an entry is evicted only
-  once it is `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token it records
-  has expired. While the ring is full of live entries, further tokens are
-  refused and those clients proceed unvalidated: the anti-amplification
-  limit, or a Retry under `force_retry` (RFC 9000 8.1.3). Forked workers
-  share the one ring, so the 4096 is per server, not per worker. The record is not shared across separately started servers
+  once it is more than `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token
+  it records has expired. While the ring is full of live entries, further
+  tokens are refused and those clients proceed unvalidated: the
+  anti-amplification limit, or a Retry under `force_retry` (RFC 9000
+  8.1.3). Forked workers share the one ring, so the 4096 is per server, not
+  per worker. The record is not shared across separately started servers
   or kept across a restart, so with a token seed shared through
   `wired_srvkeys_set_token_key` a token can be reused once per server and
   per restart. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
@@ -879,11 +882,15 @@ The next two entries concern lower-level entry points. The server that
   Affects: `srvworkers` deployments. Each tracker is shared across forked
   workers through a `MAP_SHARED` mapping, guarded by one spinlock over a
   bounded scan. The spin is bounded (`ZERORTT_SEEN_SPIN` tries): a worker
-  killed inside that scan (SIGKILL at that instant) leaves the lock held,
-  and every later check spins that long and then refuses, so 0-RTT (or
-  NEW_TOKEN) is refused in every worker until restart, and clients fall
-  back to 1-RTT (or proceed unvalidated). Source: `zerortt_seen.c` (ponytail),
-  `sdrv_zerortt_share`, `srvkeys_newtoken_share`.
+  killed inside that scan (SIGKILL at that instant) leaves the lock held.
+  The first check to time out marks the tracker stuck, and every later
+  check refuses at once without spinning, so 0-RTT (or NEW_TOKEN) is
+  refused in every worker until restart, and clients fall back to 1-RTT
+  (or proceed unvalidated). The cost: one stall of `ZERORTT_SEEN_SPIN`
+  tries for the check that times out, and a timeout under mere contention
+  (not expected: the limit is far above one scan) disables the tracker
+  until restart all the same. Source: `zerortt_seen.c` (ponytail,
+  shortcut), `sdrv_zerortt_share`, `srvkeys_newtoken_share`.
 - **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
   clients resuming with early data, on a ticket an earlier server instance
   issued (a fixed `ticket_key` across restarts), right after the server
