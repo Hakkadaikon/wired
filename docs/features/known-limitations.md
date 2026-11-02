@@ -592,12 +592,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   [Out of scope by design](#out-of-scope-by-design). Source:
   [rfc9114.md](rfc9114.md), [rfc9218.md](rfc9218.md),
   [rfc9220.md](rfc9220.md).
-- **QPACK dynamic table on the receive side only** — Affects: bandwidth of
-  response headers, and peers whose encoder stream is lost early. In short:
-  responses never reference the dynamic table, so their headers are a little
-  larger. Request headers can use the client's dynamic table, up to 2016
-  bytes. A request that would have to wait for a table update fails instead
-  of waiting.
+- **QPACK dynamic table: requests fully, responses only for `:status`** —
+  Affects: bandwidth of response headers, and peers whose encoder stream is
+  lost early. In short: request headers can use the client's dynamic table,
+  up to 2016 bytes. Responses use the table only for a `:status` with no
+  static entry, and only once the client has acknowledged it. A request
+  that would have to wait for a table update fails instead of waiting.
 
   The details: the decoder advertises capacity 2016 (`QPACK_DYN_MAX_CAPACITY`)
   and `SETTINGS_QPACK_BLOCKED_STREAMS 0`. It applies the peer's encoder stream
@@ -621,9 +621,13 @@ recently sent headers, updated over its own encoder and decoder streams.
   credit. Decoder instructions that arrive past a gap (reordered ahead of
   earlier bytes) are dropped, and reading that stream stops at the gap for
   good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
-  own encoder table stays at capacity 0, and response
-  strings are never Huffman-coded. Source: [rfc9204.md](rfc9204.md),
-  [rfc7541.md](rfc7541.md) Out of scope.
+  own encoder table takes min(the peer's capacity, 2016)
+  (`QPACKENC_LOCAL_CAP`; build with `-DQPACKENC_LOCAL_CAP=0` to turn it
+  off). Other response fields stay static or literal; literal strings are
+  Huffman-coded when shorter. The encoder evicts only when every insert is
+  acknowledged and no section is pending, and a cancelled stream's section
+  stays pending, so after one the table stops evicting. Source:
+  [rfc9204.md](rfc9204.md), [rfc7541.md](rfc7541.md).
 - **HTTP semantics are the application's** — Affects: every HTTP app. The
   SDK does not handle trailers, `Date`, conditional or range requests,
   content negotiation or TRACE; field values are passed to the application
