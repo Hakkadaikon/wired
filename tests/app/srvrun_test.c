@@ -76,11 +76,20 @@ static srvrun_conn* sr_test_conns(void) {
  * flight, so a window of k bare slices fits only k-1 of them. */
 #define SR_WIN(k) ((k) * (SRVRUN_CHUNK + 64))
 
+/* wired_server keeps pointers into its own storage (srvfin_state_init's
+ * sched/keys); a by-value copy must point them at the copy, or its steps
+ * advance the original's key schedule. */
+static void sr_rebind_server(wired_server* s) {
+  s->fin.sched = &s->sched;
+  s->fin.keys  = &s->keys;
+}
+
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, wired_obuf* ob) {
   lp_confirm(f, ob);
   *c   = (srvrun_conn){0};
   c->s = f->s;
+  sr_rebind_server(&c->s);
   c->l = f->l;
   /* f->l.req is never written by lp_confirm's handshake-only flow (no
    * request has been decoded yet), so it carries struct lp_fix f's
@@ -27156,11 +27165,17 @@ static void test_srvrun_receive_only_stream_frames_close(void) {
 
 /* The handshake close's reason phrase names the error it carries:
  * CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) is not an unexpected message. */
+static int sr_hs_reason_is(u64 code, const char* want) {
+  return wired_span_eq_cstr(srvrun_hs_reason(code), want);
+}
+
 static void test_srvrun_hs_reason_matches_code(void) {
-  wired_span big = srvrun_hs_reason(ERR_CRYPTO_BUFFER_EXCEEDED);
-  wired_span alr = srvrun_hs_reason(0x10a);
-  CHECK(big.n == 22 && big.p[0] == 'c');
-  CHECK(alr.n == 28 && alr.p[0] == 'u');
+  CHECK(sr_hs_reason_is(ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"));
+  CHECK(sr_hs_reason_is(0x10a, "unexpected handshake message"));
+  CHECK(sr_hs_reason_is(0x100 + 42, "bad certificate"));
+  CHECK(sr_hs_reason_is(0x100 + 51, "decrypt error"));
+  CHECK(sr_hs_reason_is(0x100 + 116, "certificate required"));
+  CHECK(sr_hs_reason_is(0x100 + 40, "handshake alert"));
 }
 
 /* RFC 9000 7.5: a ClientHello CRYPTO chunk reaching past the boot

@@ -131,7 +131,7 @@ int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   if (!initpkt_open_ver(odcid, v, pkt, a->largest_pn, &payload)) {
     return 0;
   }
-  crecv_collect(&a->cr, payload.p, payload.n);
+  crecv_collect(&a->cr, a->cr_mem, payload.p, payload.n);
   a->largest_pn =
       u64_max(a->largest_pn, srvboot_initial_pn(pkt, a->largest_pn));
   a->opened++;

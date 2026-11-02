@@ -51,7 +51,7 @@ flowchart LR
 
 ## One connection at the default settings
 
-One connection slot (`sizeof(srvrun_conn)`) is **6,187,864 bytes (5.90 MiB)**
+One connection slot (`sizeof(srvrun_conn)`) is **6,187,832 bytes (5.90 MiB)**
 at the defaults. It splits into these parts:
 
 | Part | Size per connection | Share |
@@ -62,7 +62,7 @@ at the defaults. It splits into these parts:
 | WT uni streams, `l.wt_uni_streams[]` | 498,816 B | 8.1% |
 | Responses, `resp[]` | 487,680 B | 7.9% |
 | Received DATAGRAMs, `l.rx_datagrams[256]` | 309,248 B | 5.0% |
-| Everything else (TLS state, boot flight, keys, counters) | 231,808 B | 3.7% |
+| Everything else (TLS state, boot flight, keys, counters) | 231,776 B | 3.7% |
 
 A WT bidi stream slot (`wired_srvloop_wt_stream_slot`, 55,424 B) is its
 48 KiB receive window (`WIRED_SRVLOOP_WT_BUF_CAP`), the window's 6 KiB
@@ -167,7 +167,7 @@ xychart-beta
 ## The whole server: `WIRED_CONNTABLE_CAP`
 
 The connection count multiplies everything above. Each extra connection
-costs **6,843,292 B (6.53 MiB)**: the 5.90 MiB connection slot plus its
+costs **6,843,260 B (6.53 MiB)**: the 5.90 MiB connection slot plus its
 response storage and table entry. About 1.6 MiB is fixed per worker. That
 includes the run's own copy of the identity and paths it was started with
 (`srvrun_own`, about 34 KiB: a 16 KiB certificate chain, four 4 KiB paths,

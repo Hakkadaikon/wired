@@ -26,32 +26,31 @@
  * boot accumulator's 2 x 4,096 bytes. */
 #define CRECV_INITIAL_BUF 4096
 
-/** CRYPTO stream reassembly state over caller storage of 2 x cap bytes
- * (crecv_init), which must not move while the state is in use.
- * views: buf=own, filled=own */
+/** CRYPTO stream reassembly counters. The backing memory (2 x cap bytes:
+ * cap stream bytes, then a cap-byte filled map) lives in the owner and is
+ * passed to every crecv_* call, so copying the owner by value stays safe. */
 typedef struct {
-  u8* buf;         /**< reassembled CRYPTO stream bytes (cap) */
-  u8* filled;      /**< 1 where a byte has been written (cap) */
-  usz cap;         /**< bytes buf and filled hold */
+  usz cap;         /**< stream bytes the backing memory holds */
   usz received_to; /**< contiguous bytes available from offset 0 */
-  /** RFC 9000 7.5: 1 once a CRYPTO frame reached past buf -- the buffer is
+  /** RFC 9000 7.5: 1 once a CRYPTO frame reached past cap -- the buffer is
    * never expanded, so the owner closes with CRYPTO_BUFFER_EXCEEDED. */
   int overflow;
 } crecv;
 
 /** Start with an empty reassembly buffer.
  * @param s reassembly state to initialize
- * @param mem storage of 2 x cap bytes, owned by s's owner
+ * @param mem backing memory of 2 x cap bytes, owned by s's owner
  * @param cap capacity: CRECV_INITIAL_BUF or CRECV_BUF */
 void crecv_init(crecv* s, u8* mem, usz cap);
 
 /** Walk a payload, write every CRYPTO frame at its offset, ignore other
  * frames. Updates the contiguous prefix.
  * @param s reassembly state
+ * @param mem the backing memory given to crecv_init
  * @param frames the packet payload to walk
  * @param len length of frames in bytes
  * @return 1, or 0 if a CRYPTO frame falls outside the buffer
  * (RFC 9000 19.6). */
-int crecv_collect(crecv* s, const u8* frames, usz len);
+int crecv_collect(crecv* s, u8* mem, const u8* frames, usz len);
 
 #endif

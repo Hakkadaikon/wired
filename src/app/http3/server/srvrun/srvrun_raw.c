@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/text/text.h"
 
 static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c);
@@ -93,13 +94,29 @@ static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
+/* Reason phrases for latched handshake error codes: RFC 9000 7.5
+ * CRYPTO_BUFFER_EXCEEDED, else CRYPTO_ERROR 0x100 + TLS alert (RFC 9001 4.8,
+ * RFC 8446 6). */
+static const struct {
+  u64         code;
+  const char* reason;
+} srvrun_hs_reasons[] = {
+    {ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"},
+    {ERR_CRYPTO_BASE + 10, "unexpected handshake message"},
+    {ERR_CRYPTO_BASE + 42, "bad certificate"},
+    {ERR_CRYPTO_BASE + 51, "decrypt error"},
+    {ERR_CRYPTO_BASE + 116, "certificate required"},
+};
+
 /* The close reason phrase for a latched handshake error code. */
 static wired_span srvrun_hs_reason(u64 code) {
-  static const u8 big[] = "crypto buffer exceeded";
-  static const u8 alr[] = "unexpected handshake message";
-  return code == ERR_CRYPTO_BUFFER_EXCEEDED
-             ? wired_span_of(big, sizeof big - 1)
-             : wired_span_of(alr, sizeof alr - 1);
+  for (usz i = 0; i < sizeof srvrun_hs_reasons / sizeof *srvrun_hs_reasons;
+       i++) {
+    if (srvrun_hs_reasons[i].code == code) {
+      return wired_span_cstr(srvrun_hs_reasons[i].reason);
+    }
+  }
+  return wired_span_cstr("handshake alert");
 }
 
 /* RFC 8446 4 / 4.4.4: a handshake message latched an alert (an

@@ -1641,7 +1641,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
         hspkt_open(
             &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]), 0,
             &frames) == 1);
-    CHECK(crecv_collect(cr, frames.p, frames.n) == 1);
+    CHECK(crecv_collect(cr, g_sb_split_crecv_mem, frames.p, frames.n) == 1);
   }
 }
 
@@ -1653,7 +1653,7 @@ static void sb_split_check_finished(
   const u8* fl;
   usz       fln, p = 0;
   u8        th[32];
-  crecv_message(cr, &fl, &fln);
+  crecv_message(cr, g_sb_split_crecv_mem, &fl, &fln);
   CHECK(fln > 0);
   while (p + 4 <= fln && fl[p] != HS_FINISHED) {
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);

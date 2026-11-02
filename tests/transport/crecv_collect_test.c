@@ -22,10 +22,10 @@ static void test_crecv_single_offset0(void) {
   usz      n = mk_crypto(frame, 0, vd, sizeof vd);
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
-  CHECK(crecv_collect(&s, frame, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, frame, n) == 1);
   CHECK(s.received_to == sizeof vd);
   for (usz i = 0; i < sizeof vd; i++) {
-    CHECK(s.buf[i] == vd[i]);
+    CHECK(g_crecv_collect_mem[i] == vd[i]);
   }
 }
 
@@ -38,13 +38,13 @@ static void test_crecv_out_of_order(void) {
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   n = mk_crypto(f, 2, b, sizeof b); /* later chunk first */
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == 0);        /* gap at start */
   n = mk_crypto(f, 0, a, sizeof a); /* now the head */
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == 4);
-  CHECK(s.buf[0] == 0xaa);
-  CHECK(s.buf[3] == 0xdd);
+  CHECK(g_crecv_collect_mem[0] == 0xaa);
+  CHECK(g_crecv_collect_mem[3] == 0xdd);
 }
 
 static void test_crecv_two_frames_one_payload(void) {
@@ -56,7 +56,7 @@ static void test_crecv_two_frames_one_payload(void) {
   n += mk_crypto(f + n, 2, b, sizeof b);
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == 4);
 }
 
@@ -67,7 +67,7 @@ static void test_crecv_gap_stays_incomplete(void) {
   usz      n = mk_crypto(f, 5, b, sizeof b); /* offset 5, nothing at 0..4 */
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == 0);
 }
 
@@ -81,7 +81,7 @@ static void test_crecv_ignores_non_crypto(void) {
   n += mk_crypto(f + n, 0, cd, sizeof cd);
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == sizeof cd);
 }
 
@@ -99,7 +99,7 @@ static void test_crecv_overflow_rejected(void) {
   f[n++] = 2;
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
-  CHECK(crecv_collect(&s, f, n) == 0);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 0);
   CHECK(s.overflow == 1);
 }
 
@@ -119,11 +119,11 @@ static void test_crecv_buffers_4096_out_of_order(void) {
   f[n++]  = 2;
 
   crecv_init(&s, g_crecv_collect_mem, CRECV_INITIAL_BUF);
-  CHECK(crecv_collect(&s, f, n) == 1);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 1);
   CHECK(s.received_to == 0);
-  CHECK(s.filled[4095] == 1);
+  CHECK(g_crecv_collect_mem[CRECV_INITIAL_BUF + 4095] == 1);
   f[2] = 0xff; /* offset 4095, length 2: ends at 4097 */
-  CHECK(crecv_collect(&s, f, n) == 0);
+  CHECK(crecv_collect(&s, g_crecv_collect_mem, f, n) == 0);
   CHECK(s.overflow == 1);
 }
 

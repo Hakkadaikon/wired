@@ -46,7 +46,8 @@ enum {
 };
 
 /** Server-side handshake orchestrator state, initialized by
- * wired_server_init.
+ * wired_server_init. The CRYPTO reassembly's backing memory (crecv_mem)
+ * lives here and is passed to each crecv_* call; crecv holds no pointer.
  * views: keylog_path=own|caller */
 typedef struct {
   i64          fd;    /**< UDP socket; <0 until a socket is opened */
@@ -56,7 +57,7 @@ typedef struct {
   keyset       keys;  /**< per-protection-level QUIC key sets */
   srvfin_state fin;   /**< client-Finished verification state */
   crecv        crecv; /**< CRYPTO reassembly over crecv_mem */
-  u8           crecv_mem[2 * CRECV_BUF]; /**< storage of crecv */
+  u8           crecv_mem[2 * CRECV_BUF]; /**< crecv backing memory */
   int          phase;                    /**< WIRED_SERVER_HS_* */
   int          hs_done_sent;    /**< HANDSHAKE_DONE emitted (at most once) */
   u8           server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */

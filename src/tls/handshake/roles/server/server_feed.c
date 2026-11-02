@@ -196,8 +196,8 @@ static int srv_dispatch(wired_server* s, const u8* msg, usz len) {
 static int srv_take_one(wired_server* s) {
   const u8* msg;
   usz       avail;
-  usz       end = crecv_message_end_at(&s->crecv, s->hs_rx_used);
-  crecv_message_at(&s->crecv, s->hs_rx_used, &msg, &avail);
+  usz       end = crecv_message_end_at(s->crecv_mem, s->hs_rx_used);
+  crecv_message_at(&s->crecv, s->crecv_mem, s->hs_rx_used, &msg, &avail);
   if (!srv_dispatch(s, msg, end - s->hs_rx_used)) {
     return 0;
   }
@@ -209,7 +209,7 @@ static int srv_take_one(wired_server* s) {
  * Finished) can complete in one CRYPTO frame; take each in order. */
 static int srv_take_all(wired_server* s) {
   int took = 0;
-  while (crecv_complete_message_at(&s->crecv, s->hs_rx_used)) {
+  while (crecv_complete_message_at(&s->crecv, s->crecv_mem, s->hs_rx_used)) {
     if (!srv_take_one(s)) {
       return 0;
     }
