@@ -5,6 +5,7 @@ static u64  srvrun_pace_rate(const srvrun_conn* c);
 static u64  srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms);
 static int  srvrun_hystart_paces(const srvrun_conn* c);
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now);
+static void srvrun_pace_refill_at(srvrun_conn* c, u64 now_ms);
 
 /* Bytes per ms the pacer refills at: BBR paces at its own model's
  * pacing_gain% x btl_bw (falling back to the generic formula until the
@@ -38,14 +39,26 @@ static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
  * at the burst ceiling. Once per pump pass (srvrun_pump_sess) -- within a
  * pass now_ms is frozen, so the pass can never send more than one bucket.
  */
-void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+static void srvrun_pace_refill_at(srvrun_conn* c, u64 now_ms) {
   u64 t;
   if (!c->srtt_ms) {
     return; /* unpaced until the first RTT sample */
   }
-  t                 = srvrun_pace_new_tokens(c, ctx->now_ms);
+  t                 = srvrun_pace_new_tokens(c, now_ms);
   c->pace_tokens    = t > SRVRUN_PACE_BURST ? SRVRUN_PACE_BURST : t;
-  c->pace_refill_ms = ctx->now_ms;
+  c->pace_refill_ms = now_ms;
+}
+
+void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  srvrun_pace_refill_at(c, ctx->now_ms);
+}
+
+/* RFC 9221 5.4 / RFC 9002 7.7: 1 while a ring DATAGRAM of len payload
+ * bytes must wait -- c's window has no room, or its pacer bucket (refilled
+ * to now_ms first) is empty. Unpaced until the first RTT sample. */
+int srvrun_dg_held(srvrun_conn* c, usz len, u64 now_ms) {
+  srvrun_pace_refill_at(c, now_ms);
+  return srvrun_dg_cwnd_blocked(c, len) || (c->srtt_ms && !c->pace_tokens);
 }
 
 /* Spend bytes from the bucket (clamped at zero -- srvrun_pace_ok's > 0

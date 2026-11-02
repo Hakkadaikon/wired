@@ -6,6 +6,12 @@
 void srvrun_tx(
     const srvrun_cfg* cfg, i64 fd, const sockaddr* sa, wired_span pkt);
 int  srvrun_ecn_unmarked(const srvrun_cfg* cfg, const srvrun_conn* c);
+void srvrun_tx_ecn(
+    const srvrun_cfg* cfg,
+    i64               fd,
+    const sockaddr*   sa,
+    wired_span        pkt,
+    int               unmarked);
 void srvrun_send_now(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what);
 void srvrun_send(

@@ -1132,10 +1132,6 @@ struct wired_srvrun_env {
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;
   usz                 dgring_n;
-  /* Earliest monotonic time the next drain slice may go out (0 = at once);
-   * paces the ring so ack-clocked steps cannot amplify into a line-rate
-   * burst (srvrun_dgring_drain). */
-  u64 dgring_next_drain_ms;
   /* RFC 9000 9.6.2: the second UDP socket bound on the preferred address's
    * port, so replies on a migrated path leave FROM that port (a
    * single-socket NAT redirect left the reply source flapping between
@@ -1149,6 +1145,9 @@ struct wired_srvrun_env {
   /* The fd the staged GSO batch must flush through (srvrun_stage_put
    * records the owning connection's path fd; 0 = primary). */
   i64 gso_fd;
+  /* 1 when the staged batch is Not-ECT (srvrun_ecn_unmarked, RFC 9000
+   * 13.4.2.2): it flushes with a TOS cmsg, so a batch never mixes marks. */
+  int gso_unmarked;
   /* RFC 9114 10.5 rapid-reset limit: RESET_STREAM/STOP_SENDING frames one
    * connection may send per SRVRUN_RESET_WINDOW_MS before it is closed with
    * H3_EXCESSIVE_LOAD; 0 = SRVRUN_MAX_RESETS_PER_WINDOW. A plain env field

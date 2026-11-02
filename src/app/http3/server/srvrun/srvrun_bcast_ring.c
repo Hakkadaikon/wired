@@ -9,7 +9,6 @@ static usz                  srvrun_wt_streams_open(const srvrun_conn* c);
 static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
 static int  srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best);
 static usz  srvrun_dgring_best(wired_srvrun_env* env);
-static int  srvrun_dgring_over_budget(usz bytes, usz len);
 static void srvrun_dgring_pop_sent(wired_srvrun_env* env);
 static int  srvrun_dgring_live(
     const srvrun_conn* c, const srvrun_dgring_entry* e);
@@ -17,7 +16,7 @@ static int srvrun_dgring_take(
     const srvrun_cfg*    cfg,
     srvrun_state*        st,
     srvrun_dgring_entry* e,
-    usz*                 bytes);
+    u64                  now_ms);
 
 /* All of one connection's session slots, ANDing per-target success -- split
  * out of wired_server_broadcast_datagram_ring so each loop stays at the CCN
@@ -117,19 +116,25 @@ static int srvrun_dgring_live(
  * max_datagram_frame_size rejects is dropped (RFC 9221 1: DATAGRAM delivery
  * is best-effort by design, so no retry/retention). 0 (the entry stays
  * queued) while the congestion window has no room for it (RFC 9221 5.4):
- * a burst would otherwise lose every entry past the window. */
+ * a burst would otherwise lose every entry past the window -- or while
+ * the connection's pacer is empty (RFC 9002 7.7); the sent packet is
+ * charged to that pacer. */
 int srvrun_dgring_send_one(
-    const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e) {
+    const srvrun_cfg*          cfg,
+    srvrun_state*              st,
+    const srvrun_dgring_entry* e,
+    u64                        now_ms) {
   u8           out[1500];
   wired_obuf   ob = obuf_of(out, sizeof out);
   srvrun_conn* c  = &st->conns[e->conn_slot];
   if (!srvrun_dgring_live(c, e)) {
     return 1;
   }
-  if (srvrun_dg_cwnd_blocked(c, e->len)) {
+  if (srvrun_dg_held(c, e->len, now_ms)) {
     return 0;
   }
   srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
+  srvrun_pace_charge(c, ob.len);
   return 1;
 }
 
@@ -159,13 +164,6 @@ static usz srvrun_dgring_best(wired_srvrun_env* env) {
   return best;
 }
 
-/* An entry of len past this slice's byte budget -- never the slice's first,
- * so a datagram larger than the whole budget still drains instead of
- * wedging the ring. */
-static int srvrun_dgring_over_budget(usz bytes, usz len) {
-  return bytes && bytes + len > SRVRUN_DGRING_DRAIN_BYTES;
-}
-
 /* Free the sent entries at the ring head. */
 static void srvrun_dgring_pop_sent(wired_srvrun_env* env) {
   while (env->dgring_n && srvrun_dgring_at(env, 0)->sent) {
@@ -174,33 +172,28 @@ static void srvrun_dgring_pop_sent(wired_srvrun_env* env) {
   }
 }
 
-/* Send ring entry e unless it is past this slice's byte budget or its
- * connection's window has no room (shortcut: one window-blocked connection
- * holds the ring back until its window opens; skip per connection if many
- * ever share it under load). */
+/* Send ring entry e unless its connection's window or pacer holds it
+ * (shortcut: one held connection holds the ring back until it opens; skip
+ * per connection if many ever share it under load). */
 static int srvrun_dgring_take(
     const srvrun_cfg*    cfg,
     srvrun_state*        st,
     srvrun_dgring_entry* e,
-    usz*                 bytes) {
-  if (srvrun_dgring_over_budget(*bytes, e->len)) {
-    return 0;
-  }
-  if (!srvrun_dgring_send_one(cfg, st, e)) {
+    u64                  now_ms) {
+  if (!srvrun_dgring_send_one(cfg, st, e, now_ms)) {
     return 0;
   }
   e->sent = 1;
-  *bytes += e->len;
   srvrun_dgring_pop_sent(cfg->env);
   return 1;
 }
 
 int srvrun_dgring_send_best(
-    const srvrun_cfg* cfg, srvrun_state* st, usz* bytes) {
+    const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   wired_srvrun_env* env = cfg->env;
   usz               i   = srvrun_dgring_best(env);
   if (i == env->dgring_n) {
     return 0;
   }
-  return srvrun_dgring_take(cfg, st, srvrun_dgring_at(env, i), bytes);
+  return srvrun_dgring_take(cfg, st, srvrun_dgring_at(env, i), now_ms);
 }
