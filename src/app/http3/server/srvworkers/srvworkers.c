@@ -327,7 +327,8 @@ static int srvworkers_start(
   if (!srvkeys_ready()) {
     return -1;
   }
-  sdrv_zerortt_share(); /* on failure 0-RTT replay stays per worker */
+  sdrv_zerortt_share();     /* on failure 0-RTT replay stays per worker */
+  srvkeys_newtoken_share(); /* likewise NEW_TOKEN single use */
   wired_sigterm_install(srvworkers_on_term);
   return srvworkers_fork_all(t, port, id, h, obs, opt);
 }

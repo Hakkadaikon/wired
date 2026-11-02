@@ -85,7 +85,24 @@ struct lp_fix {
   u8            sh_pub[32];
   u8            cli_fin[64];
   usz           cli_fin_len;
+  initial_keys  hs_keys[2]; /* client-side copy of KS_CLIENT_HS/KS_SERVER_HS */
+  int           hs_copied;  /* 1 once hs_keys holds a copy */
 };
+
+/* The client's Handshake keys: copied from the server schedule while it
+ * still holds them, since the server discards its own at confirmation
+ * (RFC 9001 4.9.2) yet the client may still seal/open at that level. The
+ * copy of keys[0..2) relies on KS_CLIENT_HS == 0 and KS_SERVER_HS == 1. */
+static const initial_keys* lp_hs_key(struct lp_fix* f, int which) {
+  const initial_keys* k;
+  CHECK(KS_CLIENT_HS == 0 && KS_SERVER_HS == 1);
+  if (keysched_get(&f->s.sched, KS_CLIENT_HS, &k)) {
+    bytes_memcpy(f->hs_keys, f->s.sched.keys, sizeof f->hs_keys);
+    f->hs_copied = 1;
+  }
+  CHECK(f->hs_copied == 1); /* never hand out keys that were not derived */
+  return &f->hs_keys[which];
+}
 
 /* RFC 9000 18.2: initial_max_data + initial_max_stream_data_bidi_local, set
  * generously high (16MB) so every existing fixture-driven test's sends stay
@@ -116,6 +133,8 @@ static u64 g_lp_cli_hs_pn;
 static void lp_make_client_hello_no_modes(struct lp_fix* f) {
   g_lp_cli_pn    = 0;
   g_lp_cli_hs_pn = 0;
+  f->hs_copied   = 0;
+  bytes_memset(f->hs_keys, 0, sizeof f->hs_keys);
   u8  tp[32];
   usz tp_len;
   u8  cli_pub[32];
@@ -252,7 +271,7 @@ static usz client_seal_handshake_ver(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  k                      = lp_hs_key(f, KS_CLIENT_HS);
   aes128_init(&hp, k->hp);
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
@@ -284,7 +303,7 @@ static usz client_seal_handshake_pn(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  k                      = lp_hs_key(f, KS_CLIENT_HS);
   aes128_init(&hp, k->hp);
   srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
@@ -1111,6 +1130,42 @@ static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
   lp_confirm_with(f, ob, lp_make_client_hello, 0);
 }
 
+/* RFC 9001 4.9.2: once the confirmation went out the server discards its
+ * Handshake keys -- both directions are gone, and a Handshake packet the
+ * client sealed before (a PTO copy) is no longer opened. */
+static void test_srvloop_handshake_keys_discarded(void) {
+  struct lp_fix f;
+  u8            out[1500], late[256], cpkt[1024];
+  wired_obuf    ob   = {out, sizeof out, 0};
+  u8            ping = 0x01;
+  usz           llen, clen;
+  bytes_memset(&f.s, 0, sizeof f.s);
+  bytes_memset(&f.l, 0, sizeof f.l);
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  lp_make_client_finished(&f);
+  clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
+  llen = client_seal_handshake(&f, &ping, 1, late, sizeof late);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob);
+  CHECK(f.l.hs_done_sent == 1);
+  {
+    const initial_keys* k;
+    CHECK(keysched_get(&f.s.sched, KS_CLIENT_HS, &k) == 0);
+    CHECK(keysched_get(&f.s.sched, KS_SERVER_HS, &k) == 0);
+  }
+  for (int i = KS_CLIENT_HS; i <= KS_SERVER_HS; i++) {
+    static const initial_keys zero = {0}; /* key, iv and hp all wiped */
+    const u8*                 got  = (const u8*)&f.s.sched.keys[i];
+    CHECK(ct_diffn(got, (const u8*)&zero, sizeof zero) == 0);
+  }
+  ob.len = 0;
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(late, llen), &ob);
+  CHECK(f.l.hs_rx_pn != g_lp_cli_hs_pn - 1); /* the late packet never opened */
+  CHECK(ob.len == 0);                        /* nor answered */
+}
+
 /* RFC 8446 4.2.10 / RFC 9001 4.6.1: the NewSessionTicket's early_data
  * extension invites the client to try 0-RTT on resumption. An HTTP/3
  * connection's ticket carries it (0xffffffff); a raw-QUIC connection, which
@@ -1178,7 +1233,7 @@ static int client_open_handshake(
     struct lp_fix* f, const u8* pkt, usz len, const u8** pl, usz* pll) {
   const initial_keys* k;
   aes128              hp;
-  CHECK(keysched_get(&f->s.sched, KS_SERVER_HS, &k) == 1);
+  k = lp_hs_key(f, KS_SERVER_HS);
   aes128_init(&hp, k->hp);
   protect_keys pk = {k, &hp};
   wired_span   v;
@@ -6324,7 +6379,7 @@ static usz lp_client_handshake_ver(
   const initial_keys* k;
   aes128              hp;
   wired_obuf          ob = {pkt, cap, 0};
-  CHECK(keysched_get(&f->s.sched, KS_CLIENT_HS, &k) == 1);
+  k                      = lp_hs_key(f, KS_CLIENT_HS);
   aes128_init(&hp, k->hp);
   {
     protect_keys    pk = {k, &hp};
@@ -7485,8 +7540,10 @@ static void test_srvloop_key_update_keeps_hp_never_reverts(void) {
   CHECK(ct_diffn(f.s.ku_send.cur.hp, hp0, INITIAL_HP) == 0);
   for (u64 pn = 21; pn < 24; pn++) {
     n = lp_seal_ping(&f, pn, pkt, sizeof pkt);
-    CHECK(n > 0 && keyphase_get(pkt[0]) == 1);
+    CHECK(n > 0);
     CHECK(client_open_onertt_gen1(&f, pkt, n, &pl, &pll) == 1);
+    /* the open removed header protection in place: the real Key Phase */
+    CHECK(keyphase_get(pkt[0]) == 1);
   }
   CHECK(f.s.ku_send.generation == 1);
 }
@@ -7706,6 +7763,7 @@ void test_srvloop(void) {
   test_srvloop_undecodable_connect_rejected_without_fin();
   test_srvloop_get_still_waits_for_fin();
   test_srvloop_confirm_emitted_once();
+  test_srvloop_handshake_keys_discarded();
   test_srvloop_ticket_sent_on_confirm();
   test_srvloop_no_ticket_without_key();
   test_srvloop_no_ticket_before_confirm();

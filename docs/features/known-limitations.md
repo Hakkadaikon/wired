@@ -716,19 +716,6 @@ recently sent headers, updated over its own encoder and decoder streams.
   Receive accounting remembers retired stream IDs in a window; an ID below
   the window's ceiling is treated as already fully counted. Source:
   `srvloop_rxacct_entry` (shortcut).
-- **NEW_TOKEN tokens are sent once and checked per process** — Affects:
-  clients that reconnect with a NEW_TOKEN token, and `srvworkers`
-  deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
-  token only saves a later round trip). Each forked worker keeps its own
-  record of used tokens, and the record is not shared across server
-  instances or kept across a restart, so a token can be reused once per
-  worker, per server instance and per restart (once the seed is shared
-  with `wired_srvkeys_set_token_key`). Source: `srvrun_send_new_token`,
-  `g_srvrun_newtok_seen` (shortcut).
-- **Idle timer restarts only on stream sends** — Affects: connections that
-  send nothing but control frames. RFC 9000 10.1 restarts the idle timer on
-  every ack-eliciting send; the server counts only packets that carry
-  response or WebTransport stream data. Source: `srvrun_idle_note_tx`
   (shortcut).
 - **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
   When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
@@ -765,17 +752,16 @@ recently sent headers, updated over its own encoder and decoder streams.
   is counted on the path's challenge slot; a path that holds none gets
   three times its latest datagram, so its earlier bytes are not credited.
   Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
-- **Peer connection IDs** — Affects: clients that migrate more than once. A
-  connection ID (CID) is the label that lets a QUIC connection survive an
-  address change. The server keeps at most two of the client's CIDs (the
-  default active_connection_id_limit; it advertises no higher one), so a
-  probe answered from a new socket and a later migration compete for the one
-  spare. With no spare ID left, the old one stays in use until the peer
-  issues more. A full retire queue (four owed RETIRE_CONNECTION_IDs) drops
-  the frame, so the peer keeps that ID active. A repeated
-  NEW_CONNECTION_ID for an ID the server retired more than 64 sequence
-  numbers above Retire Prior To is held again. Source: `peercid_owe`,
-  `peercid_bit` (ponytail).
+- **Peer connection IDs** — Affects: clients that migrate more than three
+  times without the old IDs being retired. A connection ID (CID) is the
+  label that lets a QUIC connection survive an address change. The server
+  holds four of the client's CIDs (it advertises active_connection_id_limit
+  4). With no spare ID left, the old one stays in use until the peer issues
+  more. A repeated NEW_CONNECTION_ID for an ID the server retired more than
+  64 sequence numbers above Retire Prior To is held again, and one more
+  than 64 below it (below Retire Prior To - 64) is retired again, owing a
+  second RETIRE_CONNECTION_ID. Source: `peercid_bit` (ponytail),
+  `peercid_past_bit` (shortcut).
 - **ECN-failed connections lose GSO** — Affects: send throughput on networks
   that break ECN (Explicit Congestion Notification marks in the IP header).
   A connection whose ECN validation failed sends Not-ECT through a
@@ -826,6 +812,18 @@ The next two entries concern lower-level entry points. The server that
   across servers, a 0-RTT ticket can be replayed once per server: do not
   enable `early_data` on servers that share a seed. Source:
   `zerortt_seen.h` (ponytail).
+- **Used NEW_TOKEN record holds 4096 tokens** — Affects: servers whose
+  clients present many NEW_TOKEN tokens within a token lifetime. The same
+  4096-entry ring records each accepted token, and an entry is evicted only
+  once it is more than `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token
+  it records has expired. While the ring is full of live entries, further
+  tokens are refused and those clients proceed unvalidated: the
+  anti-amplification limit, or a Retry under `force_retry` (RFC 9000
+  8.1.3). Forked workers share the one ring, so the 4096 is per server, not
+  per worker. The record is not shared across separately started servers
+  or kept across a restart, so with a token seed shared through
+  `wired_srvkeys_set_token_key` a token can be reused once per server and
+  per restart. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
   probe-based only (the RFC 8899 4.6.1 option). The initial window uses a
@@ -858,16 +856,6 @@ The next two entries concern lower-level entry points. The server that
   passes against ngtcp2, and the quic-go client never triggers a path
   change. The quic-go client does not support the `ecn` and `v2` testcases;
   both pass against ngtcp2 (`v2` also against picoquic).
-- **Handshake keys are kept after the handshake is confirmed** — Affects:
-  anyone who relies on RFC 9001 key discard, for example to limit what a
-  later memory leak of the process exposes. RFC 9001 4.9.2 says an endpoint
-  MUST discard its Handshake keys once the handshake is confirmed. The
-  server keeps them, and still decrypts Handshake packets with them
-  (`wired_srvloop_open_keys` has no confirmation check). Only
-  `wired_server_close` wipes them (`keysched_wipe`), and the
-  `wired_server_run` loop does not call it, so the keys stay in the
-  connection slot until the slot is reused for a new connection. Source:
-  `wired_srvloop_open_keys`, `wired_server_close`.
 - **An Initial re-initializes a confirmed connection's slot** — Affects:
   every confirmed connection, because its CID is visible on the wire. An
   Initial packet whose destination CID matches a confirmed connection is
@@ -905,12 +893,19 @@ The next two entries concern lower-level entry points. The server that
   The 0-RTT replay record stays per process, so with a shared seed early
   data can be replayed once per server: do not enable `early_data` across
   servers that share a seed. Source: `srvkeys.h`.
-- **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
-  deployments. The tracker is shared across forked workers through a
-  `MAP_SHARED` mapping, guarded by one spinlock over a bounded scan; a
-  worker killed inside that scan (SIGKILL at that instant) would leave
-  0-RTT acceptance blocked in every worker until restart. Source:
-  `zerortt_seen.c` (ponytail), `sdrv_zerortt_share`.
+- **0-RTT replay and NEW_TOKEN trackers share one spinlock each** —
+  Affects: `srvworkers` deployments. Each tracker is shared across forked
+  workers through a `MAP_SHARED` mapping, guarded by one spinlock over a
+  bounded scan. The spin is bounded (`ZERORTT_SEEN_SPIN` tries): a worker
+  killed inside that scan (SIGKILL at that instant) leaves the lock held.
+  The first check to time out marks the tracker stuck, and every later
+  check refuses at once without spinning, so 0-RTT (or NEW_TOKEN) is
+  refused in every worker until restart, and clients fall back to 1-RTT
+  (or proceed unvalidated). The cost: one stall of `ZERORTT_SEEN_SPIN`
+  tries for the check that times out, and a timeout under mere contention
+  (not expected: the limit is far above one scan) disables the tracker
+  until restart all the same. Source: `zerortt_seen.c` (ponytail,
+  shortcut), `sdrv_zerortt_share`, `srvkeys_newtoken_share`.
 - **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
   clients resuming with early data, on a ticket an earlier server instance
   issued (a fixed `ticket_key` across restarts), right after the server
