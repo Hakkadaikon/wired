@@ -17,10 +17,14 @@ key log output.
 
 - `id.ticket_key = wired_srvloop_ticket_key()` enables session-ticket
   resumption (RFC 8446 4.6.1, 0-RTT's prerequisite). The ticket key is
-  derived from the SDK's per-process seed and rotates every two hours: the
-  current key seals new tickets, and the current or previous key opens
-  presented ones. A ticket older than that is ignored and the client gets
-  a full handshake.
+  derived from that seed (here the SDK's per-process draw) and rotates
+  every two hours: the current key seals new tickets, and the current or
+  previous key opens presented ones. A ticket older than that is ignored
+  and the client gets a full handshake. Any 32-byte secret works as the
+  seed; set the same one on every server behind an address, and across
+  restarts, to keep tickets valid there.
+  `wired_srvkeys_set_token_key(seed)`, called before the server starts, does
+  the same for Retry and NEW_TOKEN tokens.
 - Resumption alone does not accept 0-RTT: RFC 8446 Appendix E.5 requires
   the application to ask for it, since 0-RTT data can be replayed. Set
   `id.early_data = 1` as well only when every request a client may send

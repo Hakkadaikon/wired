@@ -870,13 +870,16 @@ The next two entries concern lower-level entry points. The server that
   restarted within the same second. A ticket issued by an earlier instance
   in the very second this one opened its recording window is not recognised
   as pre-start. Source: `zerortt_seen_pre_start` (shortcut).
-- **Ticket and Retry-token keys live for one process** — Affects:
-  resumption and address validation across a restart, and across servers
-  started separately behind one address. Both seeds are drawn from the
-  CSPRNG when the server starts (forked `srvworkers` and `srvthreads`
-  workers share one draw), so a ticket or Retry token issued before a
-  restart, or by another independently started server, no longer opens.
-  Source: `srvkeys.h`.
+- **Ticket and Retry-token keys live for one process by default** —
+  Affects: resumption and address validation across a restart, and across
+  servers started separately behind one address. Unless the application
+  supplies its own seeds, both are drawn from the CSPRNG when the server
+  starts (forked `srvworkers` and `srvthreads` workers share one draw), so
+  a ticket or Retry token issued before a restart, or by another
+  independently started server, no longer opens. To keep them valid, set
+  the same secret in `wired_srvboot_id.ticket_key` and pass the same seed
+  to `wired_srvkeys_set_token_key` before the server starts. Source:
+  `srvkeys.h`.
 - **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
   deployments. The tracker is shared across forked workers through a
   `MAP_SHARED` mapping, guarded by one spinlock over a bounded scan; a
