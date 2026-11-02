@@ -110,11 +110,12 @@ typedef struct {
   /** The latest Object with Status END_OF_GROUP, valid while end_flags
    * bit 1. */
   moqctl_loc group_end;
-  /** Bit 0: track_end set; bit 1: group_end set; bit 2: sg_group,
-   * sg_id and sg_prio set. */
+  /** Bit 0: track_end set; bit 1: group_end set. */
   u8 end_flags;
   /** Publisher Priority of the latest Subgroup stream header. */
   u8 sg_prio;
+  /** 1 once sg_group, sg_id and sg_prio are set. */
+  u8 sg_set;
   /** 1 once an Object made the track Malformed (draft-22 12.1); the
    * track then ends MALFORMED_TRACK. */
   u8 malformed;

@@ -34,8 +34,7 @@ static int moqtrun_sgprio_same_sg(const wired_moqtrun_track* t, u64 g, u64 sg) {
 
 static int moqtrun_sgprio_differs(
     const wired_moqtrun_track* t, u64 g, u64 sg, u8 prio) {
-  return (t->end_flags & 4) && moqtrun_sgprio_same_sg(t, g, sg) &&
-         t->sg_prio != prio;
+  return t->sg_set && moqtrun_sgprio_same_sg(t, g, sg) && t->sg_prio != prio;
 }
 
 static int moqtrun_sgprio_keys(
@@ -64,7 +63,7 @@ static wired_moqtrun_track* moqtrun_sgprio_gate(
   t->sg_group = g;
   t->sg_id    = sg;
   t->sg_prio  = prio;
-  t->end_flags |= 4;
+  t->sg_set   = 1;
   return t;
 }
 

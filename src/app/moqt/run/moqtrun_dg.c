@@ -7,10 +7,13 @@ static void moqtrun_dg_refused(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data);
 static int moqtrun_dg_on_stream(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_dg_stream_group(const wired_moqtrun_track* t, moqctl_loc l);
 static int moqtrun_dg_mode_differs(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 static wired_moqtrun_track* moqtrun_dg_mode_gate(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l);
+static void moqtrun_dg_malformed_end(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t);
 static wired_moqtrun_track* moqtrun_dg_track(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -68,19 +71,30 @@ static int moqtrun_dg_on_stream(
   return !it.unknown;
 }
 
+/* The latest Subgroup stream of t is in l's Group: the one Group whose
+ * Objects a cache lookup can find came on a stream, so a datagram of any
+ * other Group (and of a datagram-only track) skips the lookup. */
+static int moqtrun_dg_stream_group(const wired_moqtrun_track* t, moqctl_loc l) {
+  return t && t->sg_set && t->sg_group == l.group;
+}
+
+/* Cost: one moqcache_item_at (linear scan from the cache's resume point,
+ * which it moves) per datagram only of the Group a stream is open in. */
 static int moqtrun_dg_mode_differs(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
-  return t && moqtrun_dg_on_stream(hub, t, l);
+  return moqtrun_dg_stream_group(t, l) && moqtrun_dg_on_stream(hub, t, l);
 }
 
 /* t, or 0 once a datagram for an Object first seen on a Subgroup stream
  * made it Malformed: a different Delivery Mode than previously observed
  * (draft-22 12.1 #7; draft-18/19 2.4.2 #7 "Forwarding Preference").
  * Flagged, the datagram dropped; the PUBLISH_DONE sweep ends the track.
- * A Track may mix both modes (draft-16+), so only the same Object counts.
- * shortcut: seen only while the cache holds the stream copy, and a
- * datagram is not recorded (datagram then stream goes unseen); record
- * datagram Locations if publishers are seen to do that. */
+ * A Track may mix both modes (since draft-17, d22 A.6), so only the same
+ * Object counts.
+ * shortcut: seen only in the Group of the latest Subgroup stream while
+ * the cache holds the stream copy, and a datagram is not recorded
+ * (datagram then stream goes unseen); record datagram Locations if
+ * publishers are seen to do that. */
 static wired_moqtrun_track* moqtrun_dg_mode_gate(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqctl_loc l) {
   if (moqtrun_dg_mode_differs(hub, t, l)) {
@@ -113,16 +127,23 @@ static wired_moqtrun_track* moqtrun_dg_track(
     return 0;
   }
   *loc                   = moqctl_loc_of(obj.group_id, obj.object_id);
+  wired_moqtrun_track* a = moqtrun_track_by_alias(p, obj.track_alias);
   wired_moqtrun_track* t = moqtrun_gone_gate(
-      hub,
-      moqtrun_dg_mode_gate(
-          hub,
-          moqtrun_obj_mand_gate(
-              moqtrun_track_by_alias(p, obj.track_alias), obj.props),
-          *loc),
+      hub, moqtrun_dg_mode_gate(hub, moqtrun_obj_mand_gate(a, obj.props), *loc),
       *loc); /* draft-18/19 9.1 */
+  moqtrun_dg_malformed_end(hub, a);
   moqtrun_track_note(t, obj.group_id, obj.object_id);
   return t;
+}
+
+/* A track this datagram made Malformed ends now (draft-22 12.1
+ * "immediately terminate"), not at the next tick: retired, its later
+ * datagrams no longer resolve. */
+static void moqtrun_dg_malformed_end(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  if (t && t->malformed) {
+    moqtrun_pubdone_sweep(hub);
+  }
 }
 
 /* One subscriber's copy: the same bytes, only the Track Alias re-spelled
