@@ -36,9 +36,9 @@ static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
 }
 
 /* Advance the token bucket by the wall time since the last refill, capped
- * at the burst ceiling. Once per pump pass (srvrun_pump_sess) -- within a
- * pass now_ms is frozen, so the pass can never send more than one bucket.
- */
+ * at the burst ceiling. Run by every pump pass (srvrun_pump_sess) and every
+ * ring-datagram check (srvrun_dg_refill_held) -- repeated calls at one
+ * now_ms add nothing, so a frozen-time pass never sends past one bucket. */
 static void srvrun_pace_refill_at(srvrun_conn* c, u64 now_ms) {
   u64 t;
   if (!c->srtt_ms) {
@@ -53,16 +53,19 @@ void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_pace_refill_at(c, ctx->now_ms);
 }
 
-/* RFC 9221 5.4 / RFC 9002 7.7: 1 while a ring DATAGRAM of len payload
- * bytes must wait -- c's window has no room, or its pacer bucket (refilled
- * to now_ms first) is empty. Unpaced until the first RTT sample. */
-int srvrun_dg_held(srvrun_conn* c, usz len, u64 now_ms) {
+/* RFC 9221 5.4 / RFC 9002 7.7: refills c's pacer to now_ms (side effect),
+ * then 1 while a ring DATAGRAM of len payload bytes must wait -- c's window
+ * has no room, or the bucket holds fewer than len bytes. Unlike the stream
+ * pump's > 0 gate there is no overdraft: one datagram per refill would run
+ * at a packet per ms whatever the rate. Unpaced until the first RTT sample.
+ */
+int srvrun_dg_refill_held(srvrun_conn* c, usz len, u64 now_ms) {
   srvrun_pace_refill_at(c, now_ms);
-  return srvrun_dg_cwnd_blocked(c, len) || (c->srtt_ms && !c->pace_tokens);
+  return srvrun_dg_cwnd_blocked(c, len) || (c->srtt_ms && c->pace_tokens < len);
 }
 
 /* Spend bytes from the bucket (clamped at zero -- srvrun_pace_ok's > 0
- * gate deliberately allows a one-slice overdraft). */
+ * gate deliberately allows the stream pump a one-slice overdraft). */
 void srvrun_pace_charge(srvrun_conn* c, usz bytes) {
   c->pace_tokens = c->pace_tokens > bytes ? c->pace_tokens - bytes : 0;
 }

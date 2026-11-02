@@ -542,10 +542,11 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   entries shrinks the free space of the 256-entry ring. A broadcast copied
   to another worker thread loses its urgency and is queued there at the
   default (3). The ring drains at each connection's congestion window and
-  pacing rate; an entry whose connection is held waits at the front and
-  holds back entries for other connections behind it. Source:
-  `srvrun_dgring_send_best`, `srvrun_broadcast_registered`,
-  `srvrun_dgring_take` (shortcut).
+  pacing rate; an entry whose connection is held waits while other
+  connections' entries go. Without `datagram_first`, a connection whose
+  streams keep its pacer empty sends no ring datagrams until the streams
+  pause. Source: `srvrun_dgring_send_best`, `srvrun_broadcast_registered`
+  (shortcut).
 - **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
   sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
   counts WT streams, streamed request bodies, CONNECT-stream capsules and the
@@ -1137,6 +1138,11 @@ Notes on the two send-side buffers:
   <https://moq-interop-runner-wired.vercel.app>. They are not part of the
   runner's official public results. The QUIC and WebTransport interop status
   is on the [interop page](../interop.md).
+- **Paced datagram drain awaits an interop run** — Affects: apps that send
+  bursts of datagrams over lossy paths. The ring drain now follows the
+  connection's pacer instead of the fixed 16-datagram / 3000-byte slice that
+  was tuned from interop-simulator loss. Only unit tests cover it; no interop
+  datagram run has checked it yet. Source: `srvrun_dgring_drain`.
 - **Valgrind** — Affects: people reading valgrind output. 7 reports on BPF
   attr structs are expected false positives (the kernel zero-fills past the
   given size). 5 reports in `srvworkers_test` depend on timing under

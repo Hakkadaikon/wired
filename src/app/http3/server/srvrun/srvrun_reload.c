@@ -8,11 +8,11 @@ static void                         srvrun_reload_cert(
     const srvrun_cfg* cfg, wired_certreload_store* store);
 static int srvrun_reinit_ok(const srvrun_conn* c);
 
-/* Drain ring entries most urgent first (RFC 9221 5.1) until one is held
- * by its connection's window or pacer (srvrun_dg_held: RFC 9221 5.4, RFC
- * 9002 7.7) -- run once per loop step (srvrun_step); what is held stays
- * queued for a later step, never dropped. Each pass marks one entry sent,
- * so the loop is bounded by dgring_n. */
+/* Drain ring entries most urgent first (RFC 9221 5.1) until every one left
+ * is held by its connection's window or pacer (srvrun_dg_refill_held: RFC
+ * 9221 5.4, RFC 9002 7.7) -- run once per loop step (srvrun_step); what is
+ * held stays queued for a later step, never dropped. Each pass marks one
+ * entry sent, so the loop is bounded by dgring_n. */
 void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   while (srvrun_dgring_send_best(cfg, st, now_ms)) {
   }

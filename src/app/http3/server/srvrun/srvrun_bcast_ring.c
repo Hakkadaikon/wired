@@ -7,8 +7,12 @@ static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message);
 static usz                  srvrun_wt_streams_open(const srvrun_conn* c);
 static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
-static int  srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best);
-static usz  srvrun_dgring_best(wired_srvrun_env* env);
+static int                  srvrun_dgring_ready(
+    srvrun_state* st, const srvrun_dgring_entry* e, u64 now_ms);
+static int srvrun_dgring_beats(
+    wired_srvrun_env* env, srvrun_state* st, usz i, usz best, u64 now_ms);
+static usz srvrun_dgring_best(
+    wired_srvrun_env* env, srvrun_state* st, u64 now_ms);
 static void srvrun_dgring_pop_sent(wired_srvrun_env* env);
 static int  srvrun_dgring_live(
     const srvrun_conn* c, const srvrun_dgring_entry* e);
@@ -130,7 +134,7 @@ int srvrun_dgring_send_one(
   if (!srvrun_dgring_live(c, e)) {
     return 1;
   }
-  if (srvrun_dg_held(c, e->len, now_ms)) {
+  if (srvrun_dg_refill_held(c, e->len, now_ms)) {
     return 0;
   }
   srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
@@ -143,21 +147,34 @@ static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i) {
   return &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP];
 }
 
-/* RFC 9221 5.1: unsent entry i outranks the best so far (dgring_n = none
- * yet); an equal urgency keeps the older one. */
-static int srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best) {
+/* 1 when unsent e can leave now: its connection is gone
+ * (srvrun_dgring_send_one just drops it) or neither its window nor its
+ * pacer holds it. */
+static int srvrun_dgring_ready(
+    srvrun_state* st, const srvrun_dgring_entry* e, u64 now_ms) {
+  srvrun_conn* c = &st->conns[e->conn_slot];
+  return !e->sent && (!srvrun_dgring_live(c, e) ||
+                      !srvrun_dg_refill_held(c, e->len, now_ms));
+}
+
+/* RFC 9221 5.1: entry i, unsent and sendable now, outranks the best so far
+ * (dgring_n = none yet); an equal urgency keeps the older one. */
+static int srvrun_dgring_beats(
+    wired_srvrun_env* env, srvrun_state* st, usz i, usz best, u64 now_ms) {
   const srvrun_dgring_entry* e = srvrun_dgring_at(env, i);
-  return !e->sent &&
+  return srvrun_dgring_ready(st, e, now_ms) &&
          (best == env->dgring_n ||
           dgpriority_higher(e->urgency, srvrun_dgring_at(env, best)->urgency));
 }
 
-/* The most urgent unsent entry, oldest within its urgency; dgring_n when
- * every queued entry was sent. */
-static usz srvrun_dgring_best(wired_srvrun_env* env) {
+/* The most urgent sendable entry, oldest within its urgency -- a held
+ * connection's entries are passed over, so they never block another
+ * connection's; dgring_n when none can go now. */
+static usz srvrun_dgring_best(
+    wired_srvrun_env* env, srvrun_state* st, u64 now_ms) {
   usz best = env->dgring_n;
   for (usz i = 0; i < env->dgring_n; i++) {
-    if (srvrun_dgring_beats(env, i, best)) {
+    if (srvrun_dgring_beats(env, st, i, best, now_ms)) {
       best = i;
     }
   }
@@ -172,9 +189,7 @@ static void srvrun_dgring_pop_sent(wired_srvrun_env* env) {
   }
 }
 
-/* Send ring entry e unless its connection's window or pacer holds it
- * (shortcut: one held connection holds the ring back until it opens; skip
- * per connection if many ever share it under load). */
+/* Send ring entry e unless its connection's window or pacer holds it. */
 static int srvrun_dgring_take(
     const srvrun_cfg*    cfg,
     srvrun_state*        st,
@@ -191,7 +206,7 @@ static int srvrun_dgring_take(
 int srvrun_dgring_send_best(
     const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   wired_srvrun_env* env = cfg->env;
-  usz               i   = srvrun_dgring_best(env);
+  usz               i   = srvrun_dgring_best(env, st, now_ms);
   if (i == env->dgring_n) {
     return 0;
   }

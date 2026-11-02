@@ -697,8 +697,9 @@ typedef struct {
   usz prio_order[SRVRUN_RESP_SLOTS];
   /** RFC 9002 7.7 pacer token bucket for the sub-poll-tick regime
    * (srvrun_pace_within_poll_tick): bytes sendable right now, refilled at
-   * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill, once per pump
-   * pass) and capped at SRVRUN_PACE_BURST, charged per sent slice. Idle
+   * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill per pump pass,
+   * srvrun_dg_refill_held per ring datagram) and capped at
+   * SRVRUN_PACE_BURST, charged per sent slice and ring datagram. Idle
    * until the first RTT sample (srtt_ms == 0: unpaced, like next_send_ms).
    */
   u64 pace_tokens;
