@@ -107,7 +107,23 @@ static void test_pathsel_match_earlier(void) {
   CHECK(pathsel_key_eq(&out, &k1));
 }
 
+/* RFC 9000 8: a path no slot holds may be sent 3x the latest datagram it
+ * sent (less what already went back); any other one nothing. */
+static void test_pathsel_budget_slotless(void) {
+  pathsel     p  = {0};
+  pathsel_key k1 = ps_key(1), k2 = ps_key(2);
+  pathsel_note_rx(&p, &k1, 100);
+  CHECK(pathsel_budget(&p, &k1) == 300);
+  pathsel_note_tx(&p, &k1, 250);
+  CHECK(pathsel_budget(&p, &k1) == 50);
+  CHECK(pathsel_budget(&p, &k2) == 0);
+  pathsel_note_rx(&p, &k2, 10);
+  CHECK(pathsel_budget(&p, &k2) == 30);
+  CHECK(pathsel_budget(&p, &k1) == 0);
+}
+
 void test_pathsel(void) {
+  test_pathsel_budget_slotless();
   test_pathsel_match_earlier();
   test_pathsel_key_eq();
   test_pathsel_claim_order();
