@@ -79,8 +79,12 @@ The list below applies to all three unless a draft is named.
 - REQUEST_UPDATE of a SUBSCRIBE_TRACKS is answered NOT_SUPPORTED, and so is
   REQUEST_UPDATE of the sender's own PUBLISH except on a draft-22 session.
 - Range Filters (draft-19 and draft-22 only) are validated and counted
-  against MAX_FILTER_RANGES, but only OBJECTID_FILTER filters delivery, and
-  only for Objects sent as datagrams; the other filter types pass.
+  against MAX_FILTER_RANGES. On a subscription, SUBGROUP_FILTER and
+  PRIORITY_FILTER filter whole streams, OBJECTID_FILTER filters Objects
+  sent as datagrams, and OBJECT_PROPERTY_FILTER passes. On a FETCH, an
+  Object fetched upstream is filtered on every field; a cached Object is
+  judged by its Object ID alone, so it fails any filter set with a
+  SUBGROUP, PRIORITY or OBJECT_PROPERTY condition.
 - The DEFAULT_PUBLISHER_PRIORITY Track Property is not read; an Object
   without an explicit Publisher Priority counts as 128.
 - The hub's own tracks (`wired_moqt_publish_blob`, `wired_moqt_publish_live`)
