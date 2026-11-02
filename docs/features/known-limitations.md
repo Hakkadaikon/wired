@@ -717,17 +717,15 @@ recently sent headers, updated over its own encoder and decoder streams.
   clients that reconnect with a NEW_TOKEN token, and `srvworkers`
   deployments. A NEW_TOKEN frame lost in transit is not retransmitted (the
   token only saves a later round trip). Each forked worker keeps its own
-  record of used tokens, so a token can be replayed once per worker.
-  Source: `srvrun_send_new_token`, `g_srvrun_newtok_seen` (shortcut).
+  record of used tokens, and the record is not shared across server
+  instances or kept across a restart, so a token can be reused once per
+  worker, per server instance and per restart (once the seed is shared
+  with `wired_srvkeys_set_token_key`). Source: `srvrun_send_new_token`,
+  `g_srvrun_newtok_seen` (shortcut).
 - **Idle timer restarts only on stream sends** — Affects: connections that
   send nothing but control frames. RFC 9000 10.1 restarts the idle timer on
   every ack-eliciting send; the server counts only packets that carry
   response or WebTransport stream data. Source: `srvrun_idle_note_tx`
-  (shortcut).
-- **Anti-amplification is not applied to a path without a slot** —
-  Affects: clients that migrate while many paths are in flight. A path whose
-  validation was given up or evicted from the path table is not limited to
-  three times what it sent. Source: `srvrun_amp.c` header comment
   (shortcut).
 - **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
   When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
@@ -739,11 +737,20 @@ recently sent headers, updated over its own encoder and decoder streams.
   server checks a new client address by sending a PATH_CHALLENGE and waiting
   for the matching PATH_RESPONSE. Two PATH_CHALLENGEs are tracked at once
   (the new path and the path left), plus the last validated path. A probe
-  from a new path is answered and validated only when a slot is free, and
-  ignored otherwise. RFC 9000 8.2.2 says every PATH_CHALLENGE MUST be
-  answered, and an attacker relaying genuine packets from other addresses
-  can keep both slots busy. Only the first two PATH_CHALLENGEs of a packet
-  are answered.
+  from a new path is answered whenever an unused peer connection ID is
+  available (RFC 9000 8.2.2, 9.5), but its validation starts only when a
+  slot is free; otherwise the answer stays within three times the datagram
+  that carried the probe and the path is not used. Answering such a probe
+  binds a spare peer connection ID to that path, and when the path is not
+  tracked the same step retires it with RETIRE_CONNECTION_ID (when the
+  current path's 3x limit holds that frame back, it is resent until
+  acknowledged): RFC 9000 9.5
+  requires a fresh ID per path, so one spare ID per answered probe is the
+  accepted cost. A datagram with more than eight PATH_CHALLENGEs (this
+  implementation's capacity) closes the connection with PROTOCOL_VIOLATION
+  instead of leaving one unanswered: RFC 9000 21.9 allows treating excess
+  non-productive activity as a connection error, and 8.2.1 says a sender
+  SHOULD NOT bundle several in one packet.
 
   When a path's validation is re-armed (for example, because a second move
   left that path), a fresh challenge starts, so a late response to the
@@ -752,9 +759,9 @@ recently sent headers, updated over its own encoder and decoder streams.
   path's validation times out
   and the server reverts (RFC 9000 9.3.3 calls this defense imperfect). The
   anti-amplification limit (send at most three times what was received)
-  is counted on the path's challenge slot, so a path that holds none (its
-  validation abandoned, or the slot taken by a newer migration) is not
-  limited. Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
+  is counted on the path's challenge slot; a path that holds none gets
+  three times its latest datagram, so its earlier bytes are not credited.
+  Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
 - **Peer connection IDs** — Affects: clients that migrate more than once. A
   connection ID (CID) is the label that lets a QUIC connection survive an
   address change. The server keeps at most two of the client's CIDs (the
@@ -805,8 +812,10 @@ The next two entries concern lower-level entry points. The server that
   (`ZERORTT_SEEN_LIVE_SECS`, 21 s); while the ring is full of live entries,
   new 0-RTT attempts are refused and those clients fall back to 1-RTT
   (RFC 8446 8.2). Forked workers share the ring; separate server processes
-  and restarts do not (no persistence). Source: `zerortt_seen.h`
-  (ponytail).
+  and restarts do not (no persistence). So with a `ticket_key` seed shared
+  across servers, a 0-RTT ticket can be replayed once per server: do not
+  enable `early_data` on servers that share a seed. Source:
+  `zerortt_seen.h` (ponytail).
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
   probe-based only (the RFC 8899 4.6.1 option). The initial window uses a
@@ -870,13 +879,22 @@ The next two entries concern lower-level entry points. The server that
   restarted within the same second. A ticket issued by an earlier instance
   in the very second this one opened its recording window is not recognised
   as pre-start. Source: `zerortt_seen_pre_start` (shortcut).
-- **Ticket and Retry-token keys live for one process** — Affects:
-  resumption and address validation across a restart, and across servers
-  started separately behind one address. Both seeds are drawn from the
-  CSPRNG when the server starts (forked `srvworkers` and `srvthreads`
-  workers share one draw), so a ticket or Retry token issued before a
-  restart, or by another independently started server, no longer opens.
-  Source: `srvkeys.h`.
+- **Ticket and Retry-token keys live for one process by default** —
+  Affects: resumption and address validation across a restart, and across
+  servers started separately behind one address. Unless the application
+  supplies its own seeds, both are drawn from the CSPRNG when the server
+  starts (forked `srvworkers` and `srvthreads` workers share one draw), so
+  a ticket or Retry token issued before a restart, or by another
+  independently started server, no longer opens. To keep them valid, set
+  the same secret in `wired_srvboot_id.ticket_key` and pass the same seed
+  to `wired_srvkeys_set_token_key` before the server starts. Each seed is
+  a long-term root secret: generate 32 bytes from a CSPRNG and keep them
+  secret; changing a seed invalidates every outstanding ticket or token.
+  Use separate secrets for `ticket_key` and the token seed; reusing one is
+  not catastrophic, because purpose labels keep the derived keys apart.
+  The 0-RTT replay record stays per process, so with a shared seed early
+  data can be replayed once per server: do not enable `early_data` across
+  servers that share a seed. Source: `srvkeys.h`.
 - **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
   deployments. The tracker is shared across forked workers through a
   `MAP_SHARED` mapping, guarded by one spinlock over a bounded scan; a

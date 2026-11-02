@@ -3,6 +3,7 @@
 #include <stdlib.h> /* malloc/free: hosted test build only, see test.h */
 
 #include "app/datagram/datagram/datagram.h"
+#include "app/http3/server/srvboot/srvboot_impl.h"
 #include "common/bytes/util/be.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
@@ -2705,6 +2706,66 @@ static void sdrv_test_srv_keys(u8* srv_priv, u8* srv_pub, u8* cert_priv) {
   wired_x25519_base(srv_pub, srv_priv);
 }
 
+/* Boot a connection the way every accept does (srvboot_init) with seed as
+ * wired_srvboot_id.ticket_key; the returned sdrv has not seen a ClientHello
+ * yet. One static server: each call is a fresh connection. */
+static sdrv* sdrv_test_srvboot(const u8* seed) {
+  static wired_server  s;
+  static wired_srvloop l;
+  static const u8      scid[6] = {1, 2, 3, 4, 5, 6};
+  u8                   priv[32], pub[32], cert[32];
+  wired_srvboot_conn   conn = {&s, &l};
+  wired_srvboot_id     id   = {0};
+  wired_header         h    = {0};
+  sdrv_test_srv_keys(priv, pub, cert);
+  id.priv       = priv;
+  id.pub        = pub;
+  id.cert_seed  = cert;
+  id.scid       = scid;
+  id.scid_len   = sizeof scid;
+  id.ticket_key = seed;
+  h.dcid_len    = 8;
+  h.scid_len    = 6;
+  CHECK(srvboot_init(&conn, &id, &h) == 1);
+  s.sdrv.peer_scid_set = 0; /* the fixture ClientHello carries no QUIC TPs */
+  return &s.sdrv;
+}
+
+/* 1 if a srvboot connection under seed resumes f's ticket. */
+static int sdrv_test_srvboot_resumes(sdrv_psk_fixture* f, const u8* seed) {
+  u8  ch2[800];
+  usz len = sdrv_test_psk_ch_suite(
+      f, TLS_AES_128_GCM_SHA256, TLS_AES_128_GCM_SHA256, f->psk, ch2,
+      sizeof ch2);
+  sdrv* s = sdrv_test_srvboot(seed);
+  CHECK(sdrv_recv_client_hello(s, ch2, len));
+  return s->psk_accepted;
+}
+
+/* RFC 8446 4.6.1 through srvboot: connection 1 seals a ticket under the
+ * key its wired_srvboot_id.ticket_key seed gave it (the key srvloop's
+ * NewSessionTicket seals with, s->sdrv.ticket_key); connection 2, booted
+ * from the same seed (a restart, or a sibling server), resumes it -- also
+ * when the ticket was sealed one key epoch ago (keyring.h). A server with
+ * another seed falls back to a full handshake. */
+static void test_sdrv_psk_srvboot_seed_resumes(void) {
+  sdrv_psk_fixture f;
+  u8               seed[TICKET_KEY_LEN], other[TICKET_KEY_LEN];
+  for (usz i = 0; i < TICKET_KEY_LEN; i++) {
+    seed[i]  = (u8)(0x91 + i);
+    other[i] = (u8)(0x11 + i);
+  }
+  sdrv_psk_fixture_init(&f);
+  bytes_memcpy(
+      f.ticket_key, sdrv_test_srvboot(seed)->ticket_key, TICKET_KEY_LEN);
+  sdrv_psk_fixture_reseal(&f, 0);
+  CHECK(sdrv_test_srvboot_resumes(&f, seed) == 1);
+  CHECK(sdrv_test_srvboot_resumes(&f, other) == 0);
+  keyring_key(seed, wired_clock_epoch_secs(), 1, f.ticket_key);
+  sdrv_psk_fixture_reseal(&f, 0);
+  CHECK(sdrv_test_srvboot_resumes(&f, seed) == 1);
+}
+
 /* A configured raw id the client offers is selected, its token is a view
  * into the configured list, and the EncryptedExtensions echo it (RFC 7301
  * 3.1: ext 0x0010, ext len 5, list len 3, name len 2, "m9"). */
@@ -3432,6 +3493,7 @@ void test_sdrv(void) {
   test_sdrv_psk_not_last_rejected();
   test_sdrv_psk_unknown_identity_falls_back();
   test_sdrv_psk_previous_ticket_key_opens();
+  test_sdrv_psk_srvboot_seed_resumes();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();

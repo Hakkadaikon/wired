@@ -128,8 +128,9 @@ int srvrun_open_slot(
  * cannot claim or initialize a new one. */
 /* RFC 9000 8.1.2 forced address validation (the interop retry testcase):
  * Retry-token HMAC keys derive from srvkeys_retry, a per-process CSPRNG
- * seed; the key rotates every KEYRING_PERIOD_SECS and the previous one
- * still verifies (keyring.h). */
+ * seed unless the app set one (wired_srvkeys_set_token_key); the key
+ * rotates every KEYRING_PERIOD_SECS and the previous one still verifies
+ * (keyring.h). */
 
 /* Seal DCID=h->scid/SCID=scid/token into pkt with a garbage tag; the caller
  * patches the real RFC 9001 5.8 tag in afterward. RFC 9369 4.1: the Retry
