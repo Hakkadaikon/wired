@@ -285,7 +285,6 @@ process-wide scratch server.
 | Name | Role |
 |---|---|
 | `wired_srvboot_id.ticket_key` | Session-ticket key seed; 0 = no resumption. |
-| `wired_srvkeys_set_token_key` (`srvkeys/srvkeys.h`) | Retry / NEW_TOKEN token seed; call before the server starts. Not called = per-process random seed. |
 | `wired_srvboot_id.early_data` | 1 = accept 0-RTT on resumed connections; 0 (default) = resume as 1-RTT only. |
 
 - **0-RTT is opt-in.** RFC 8446 Appendix E.5 forbids enabling 0-RTT
@@ -298,6 +297,12 @@ process-wide scratch server.
   under another ALPN or cipher suite, a raw-QUIC ALPN, and a ClientHello
   that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
   Tickets advertise early data only when it is enabled.
+
+### Address validation tokens
+
+| Name | Role |
+|---|---|
+| `wired_srvkeys_set_token_key` (`srvkeys/srvkeys.h`) | Retry / NEW_TOKEN token seed; call before the server starts. Not called = per-process random seed. |
 
 ### Idle timeout
 
