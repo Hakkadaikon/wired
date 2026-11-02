@@ -18,10 +18,16 @@ static void test_qpackenc_capacity_zero_never_uses_dynamic(void) {
   CHECK(st.total_inserts == 0);
 }
 
-/* First time seeing a status value absent from the static table (RFC 9204
- * App. A has no 599 entry): capacity > 0 generates an Insert With Literal
- * Name instruction matching qdyn_insert_literal's own golden shape, and
- * references it at relative index 0 (RFC 9204 3.2.5: most recent insert). */
+/* 1 iff the :status field line is the literal fallback (RFC 9204 4.5.4:
+ * 01NT + static name index 24 -> 0x5f 0x09), not a table reference. */
+static int qe_is_literal(const qpackenc_status_result* r) {
+  return r->field_len > 2 && r->field[0] == 0x5f && r->field[1] == 0x09;
+}
+
+/* RFC 9204 2.1.2 (blocked streams treated as 0): the first section to need
+ * a value absent from the static table (App. A has no 599) sends the Insert
+ * With Literal Name but codes the field as a literal -- it never references
+ * an entry the decoder has not acknowledged. */
 static void test_qpackenc_first_insert_matches_golden(void) {
   qpackenc_state         st;
   qpackenc_status_result r;
@@ -33,25 +39,27 @@ static void test_qpackenc_first_insert_matches_golden(void) {
   CHECK(r.insert_instr[1] == ':');
   CHECK(st.total_inserts == 1);
   CHECK(st.dyn.count == 1);
-  /* RFC 9204 4.5.2: Indexed Field Line, T=0 (dynamic), relative index 0:
-   * pattern 1000000 -> 0x80. */
-  CHECK(r.field_len == 1 && r.field[0] == 0x80);
-  CHECK(r.required_insert_count != 0);
+  CHECK(qe_is_literal(&r));
+  CHECK(r.required_insert_count == 0);
 }
 
-/* A second field section for the SAME value must not insert again, but must
- * still reference the dynamic table. */
+/* Until the insert is acknowledged, the same value is neither referenced nor
+ * inserted again; once an Insert Count Increment covers it, it is referenced
+ * as Indexed Field Line T=0, relative index 0 (Base = RIC = abs + 1). */
 static void test_qpackenc_repeat_value_no_reinsert(void) {
   qpackenc_state         st;
-  qpackenc_status_result first, second;
+  qpackenc_status_result first, second, third;
   qpackenc_init(&st, 4096);
   CHECK(qpackenc_status_line(599, &st, &first) == 1);
   CHECK(qpackenc_status_line(599, &st, &second) == 1);
-  CHECK(second.insert_len == 0);
-  CHECK(st.total_inserts == 1);
-  /* one more insertion has happened since (none, in this case) -- the
-   * existing entry is still the most recent, so relative index 0 again. */
-  CHECK(second.field[0] == 0x80);
+  CHECK(second.insert_len == 0 && st.total_inserts == 1);
+  CHECK(qe_is_literal(&second));
+  CHECK(qpackenc_on_increment(&st, 1) == 1);
+  CHECK(qpackenc_status_line(599, &st, &third) == 1);
+  CHECK(third.insert_len == 0 && st.total_inserts == 1);
+  CHECK(third.field_len == 1 && third.field[0] == 0x80);
+  /* RFC 9204 4.5.1.1: RIC 1 encodes as (1 mod 2*63) + 1 = 2. */
+  CHECK(third.required_insert_count == 2);
 }
 
 /* Capacity too small for the entry: falls back to the literal-name-reference
@@ -66,9 +74,9 @@ static void test_qpackenc_capacity_too_small_falls_back(void) {
   CHECK(st.total_inserts == 0);
 }
 
-/* Boundary: past the table capacity, fresh :status values keep inserting
- * (the oldest are evicted) and the table never exceeds its byte budget or
- * QPACK_DYN_MAX_ENTRIES. */
+/* Boundary: past the table capacity, fresh acknowledged :status values keep
+ * inserting (the oldest are evicted) and the table never exceeds its byte
+ * budget or QPACK_DYN_MAX_ENTRIES. */
 static void test_qpackenc_max_entries_boundary(void) {
   qpackenc_state         st;
   qpackenc_status_result r;
@@ -79,13 +87,66 @@ static void test_qpackenc_max_entries_boundary(void) {
      * and entirely below 600), so every one of these is a fresh insert. */
     CHECK(qpackenc_status_line((u16)(700 + i), &st, &r) == 1);
     CHECK(r.insert_len > 0);
+    CHECK(qpackenc_on_increment(&st, 1) == 1);
     CHECK(st.dyn.size <= QPACK_DYN_MAX_CAPACITY);
   }
   CHECK(st.dyn.count < QPACK_DYN_MAX_ENTRIES && st.dyn.dropped > 0);
 }
 
-/* Round-trip: the field line + Prefix this module emits after one insert
- * decodes back to the inserted (":status", "599") pair via the existing
+/* RFC 9204 2.1.1: an entry is evictable only once its insert is
+ * acknowledged and no unacknowledged section references it. Room for two
+ * 42-byte entries: a third value is not inserted while the first two are
+ * unacknowledged, is once they are, and not while a section is pending. */
+static void test_qpackenc_eviction_waits_for_ack(void) {
+  qpackenc_state         st;
+  qpackenc_status_result r;
+  qpackenc_init(&st, 84);
+  CHECK(qpackenc_status_line(701, &st, &r) == 1 && r.insert_len > 0);
+  CHECK(qpackenc_status_line(702, &st, &r) == 1 && r.insert_len > 0);
+  CHECK(qpackenc_status_line(703, &st, &r) == 1);
+  CHECK(r.insert_len == 0 && st.total_inserts == 2 && qe_is_literal(&r));
+  CHECK(qpackenc_on_increment(&st, 2) == 1);
+  CHECK(qpackenc_status_line(703, &st, &r) == 1 && r.insert_len > 0);
+  CHECK(st.dyn.dropped == 1);
+  CHECK(qpackenc_on_increment(&st, 1) == 1);
+  CHECK(qpackenc_status_line(703, &st, &r) == 1);
+  qpackenc_note_sent(&st, r.required_insert_count); /* references 703 */
+  CHECK(qpackenc_status_line(704, &st, &r) == 1);
+  CHECK(r.insert_len == 0 && st.total_inserts == 3);
+}
+
+/* RFC 9204 3.2.3 / 4.3.1 / 5: the peer's SETTINGS_QPACK_MAX_TABLE_CAPACITY
+ * caps the table at min(peer, QPACKENC_LOCAL_CAP); the first insert is
+ * preceded by Set Dynamic Table Capacity (001 + 5-bit prefix: 2016 ->
+ * 0x3f, 2016-31=1985 -> 0xc1 0x0f), later ones are not. The peer's value,
+ * unclamped, is MaxTableCapacity for Required Insert Count (4.5.1.1). */
+static void test_qpackenc_peer_capacity(void) {
+  qpackenc_state         st;
+  qpackenc_status_result r;
+  qpackenc_init(&st, 0);
+  qpackenc_peer_capacity(&st, 4096);
+  CHECK(st.dyn.capacity == QPACKENC_LOCAL_CAP);
+  CHECK(st.dyn.max_capacity == 4096);
+  CHECK(qpackenc_status_line(599, &st, &r) == 1);
+  CHECK(r.insert_len > 3 && r.insert_instr[0] == 0x3f);
+  CHECK(r.insert_instr[1] == 0xc1 && r.insert_instr[2] == 0x0f);
+  CHECK(r.insert_instr[3] == 0x47);
+  CHECK(qpackenc_status_line(598, &st, &r) == 1);
+  CHECK(r.insert_len > 0 && r.insert_instr[0] == 0x47);
+  CHECK(qpackenc_on_increment(&st, 2) == 1);
+  CHECK(qpackenc_status_line(599, &st, &r) == 1);
+  /* MaxEntries 4096/32 = 128: RIC 1 encodes as (1 mod 256) + 1 = 2. */
+  CHECK(r.required_insert_count == 2);
+  qpackenc_init(&st, 0);
+  qpackenc_peer_capacity(&st, 100);
+  CHECK(st.dyn.capacity == 100);
+  qpackenc_init(&st, 0);
+  qpackenc_peer_capacity(&st, 0);
+  CHECK(qpackenc_status_line(599, &st, &r) == 1 && r.insert_len == 0);
+}
+
+/* Round-trip: once acknowledged, the field line + Prefix this module emits
+ * decode back to the inserted (":status", "599") pair via the existing
  * decoder-side primitives (qpack_prefix_decode / qdyn_decode_field). */
 static void test_qpackenc_roundtrip_decodes(void) {
   qpackenc_state         st;
@@ -97,8 +158,10 @@ static void test_qpackenc_roundtrip_decodes(void) {
   usz                    consumed;
   qpackenc_init(&st, 4096);
   CHECK(qpackenc_status_line(599, &st, &r) == 1);
+  CHECK(qpackenc_on_increment(&st, 1) == 1);
+  CHECK(qpackenc_status_line(599, &st, &r) == 1);
 
-  ctx.max_entries   = st.dyn.capacity / 32;
+  ctx.max_entries   = st.dyn.max_capacity / 32;
   ctx.total_inserts = st.total_inserts;
   CHECK(qpack_ric_decode(r.required_insert_count, &ctx, &ric) == 1);
   base = ric; /* Delta Base 0, Sign 0 (RFC 9204 4.5.1): Base == RIC. */
@@ -211,6 +274,8 @@ void test_qpackenc(void) {
   test_qpackenc_repeat_value_no_reinsert();
   test_qpackenc_capacity_too_small_falls_back();
   test_qpackenc_max_entries_boundary();
+  test_qpackenc_eviction_waits_for_ack();
+  test_qpackenc_peer_capacity();
   test_qpackenc_roundtrip_decodes();
   test_qpackenc_on_increment();
   test_qpackenc_on_section_ack();

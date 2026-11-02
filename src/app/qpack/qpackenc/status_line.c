@@ -23,7 +23,6 @@ static void status_digits(u16 status, u8* dst) {
 static void result_static(usz w, qpackenc_status_result* out) {
   out->field_len             = w;
   out->required_insert_count = 0;
-  out->insert_len            = 0;
 }
 
 static int try_static(const u8* digits, qpackenc_status_result* out) {
@@ -41,9 +40,10 @@ static int try_static(const u8* digits, qpackenc_status_result* out) {
   return 1;
 }
 
-/* RFC 9204 3.2.2: MaxEntries is the advertised capacity divided by 32. */
+/* RFC 9204 4.5.1.1: MaxEntries is the decoder's advertised maximum
+ * capacity divided by 32. */
 static u64 max_entries_of(const qpackenc_state* st) {
-  return (u64)st->dyn.capacity / 32;
+  return st->dyn.max_capacity / 32;
 }
 
 /* Copy the plan's pending insert instruction (if any) into out. Always
@@ -57,6 +57,9 @@ static void carry_insert(
       wired_span_of(plan->insert_instr, plan->insert_len));
 }
 
+/* RFC 9204 4.5.1 / 4.5.2: an insert, if planned, is carried whatever the
+ * field line becomes; a reference uses Base = Required Insert Count = the
+ * entry's absolute index + 1, so its relative index is 0. */
 static int try_dynamic(
     const u8* digits, qpackenc_state* st, qpackenc_status_result* out) {
   qpack_field f = {
@@ -64,16 +67,16 @@ static int try_dynamic(
   qpackenc_plan plan;
   wired_obuf    ob = obuf_of(out->field, sizeof out->field);
   qpackenc_plan_field(st, &f, &plan);
+  carry_insert(&plan, out);
   if (!plan.used_dynamic) {
     return 0;
   }
-  if (!qdyn_indexed_dynamic(plan.field_rel_index, &ob)) {
+  if (!qdyn_indexed_dynamic(0, &ob)) {
     return 0;
   }
   out->field_len = ob.len;
   out->required_insert_count =
-      qpack_ric_encode(st->total_inserts, max_entries_of(st));
-  carry_insert(&plan, out);
+      qpack_ric_encode(plan.abs_index + 1, max_entries_of(st));
   return 1;
 }
 
