@@ -49,14 +49,15 @@ enum {
  * wired_server_init.
  * views: keylog_path=own|caller */
 typedef struct {
-  i64          fd;              /**< UDP socket; <0 until a socket is opened */
-  sockaddr     peer;            /**< the client's UDP address (set by pump) */
-  sdrv         sdrv;            /**< server-side TLS handshake driver */
-  keysched     sched;           /**< RFC 8446 7.1 order-driven key schedule */
-  keyset       keys;            /**< per-protection-level QUIC key sets */
-  srvfin_state fin;             /**< client-Finished verification state */
-  crecv        crecv;           /**< CRYPTO stream reassembly buffer */
-  int          phase;           /**< WIRED_SERVER_HS_* */
+  i64          fd;    /**< UDP socket; <0 until a socket is opened */
+  sockaddr     peer;  /**< the client's UDP address (set by pump) */
+  sdrv         sdrv;  /**< server-side TLS handshake driver */
+  keysched     sched; /**< RFC 8446 7.1 order-driven key schedule */
+  keyset       keys;  /**< per-protection-level QUIC key sets */
+  srvfin_state fin;   /**< client-Finished verification state */
+  crecv        crecv; /**< CRYPTO reassembly over crecv_mem */
+  u8           crecv_mem[2 * CRECV_BUF]; /**< storage of crecv */
+  int          phase;                    /**< WIRED_SERVER_HS_* */
   int          hs_done_sent;    /**< HANDSHAKE_DONE emitted (at most once) */
   u8           server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
   u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */

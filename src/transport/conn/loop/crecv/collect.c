@@ -5,19 +5,20 @@
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 
-void crecv_init(crecv* s) {
+void crecv_init(crecv* s, u8* mem, usz cap) {
+  s->buf         = mem;
+  s->filled      = mem + cap;
+  s->cap         = cap;
   s->received_to = 0;
   s->overflow    = 0;
-  for (usz i = 0; i < CRECV_BUF; i++) {
-    s->filled[i] = 0;
-  }
+  bytes_memset(s->filled, 0, cap);
 }
 
 /* RFC 9000 19.6: write one CRYPTO frame's data at its offset. Returns 0 if it
  * does not fit the fixed buffer. */
 static int place(crecv* s, const crypto_frame* f) {
   usz end = (usz)f->offset + (usz)f->length;
-  if (end > CRECV_BUF) {
+  if (end > s->cap) {
     s->overflow = 1;
     return 0;
   }
@@ -30,7 +31,7 @@ static int place(crecv* s, const crypto_frame* f) {
 
 /* RFC 9000 7.5: advance the contiguous prefix over newly filled bytes. */
 static void advance_prefix(crecv* s) {
-  while (s->received_to < CRECV_BUF && s->filled[s->received_to]) {
+  while (s->received_to < s->cap && s->filled[s->received_to]) {
     s->received_to++;
   }
 }

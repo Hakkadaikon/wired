@@ -1,5 +1,7 @@
 #include "test.h"
 
+static u8 g_crecv_message_mem[2 * CRECV_BUF];
+
 static usz mk_crypto_msg(u8* out, u8 offset, const u8* data, u8 len) {
   usz i    = 0;
   out[i++] = 0x06;
@@ -27,7 +29,7 @@ static void test_crecv_message_finished(void) {
     fin[4 + i] = (u8)i;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, fin, sizeof fin);
   CHECK(crecv_collect(&s, f, fn) == 1);
   crecv_message(&s, &msg, &len);
@@ -50,7 +52,7 @@ static void test_crecv_message_split(void) {
     fin[4 + i] = 0xaa;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, fin, 20); /* first 20 bytes */
   CHECK(crecv_collect(&s, f, fn) == 1);
   CHECK(crecv_complete_message(&s) == 0);  /* body not all here */
@@ -68,7 +70,7 @@ static void test_crecv_message_gap_empty(void) {
   const u8* msg;
   usz       len;
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, fn) == 1);
   crecv_message(&s, &msg, &len);
   CHECK(len == 0);
@@ -82,7 +84,7 @@ static void test_crecv_message_header_only(void) {
   u8       f[64];
   usz      fn = mk_crypto_msg(f, 0, hdr, sizeof hdr);
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, fn) == 1);
   CHECK(crecv_complete_message(&s) == 0);
 }
@@ -113,7 +115,7 @@ static void test_crecv_message_at_offset(void) {
     m2[4 + i] = 0x22;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, m1, sizeof m1);
   CHECK(crecv_collect(&s, f, fn) == 1);
   CHECK(crecv_complete_message_at(&s, sizeof m1) == 0); /* CH2 not yet */

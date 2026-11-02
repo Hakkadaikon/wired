@@ -93,17 +93,25 @@ static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
+/* The close reason phrase for a latched handshake error code. */
+static wired_span srvrun_hs_reason(u64 code) {
+  static const u8 big[] = "crypto buffer exceeded";
+  static const u8 alr[] = "unexpected handshake message";
+  return code == ERR_CRYPTO_BUFFER_EXCEEDED
+             ? wired_span_of(big, sizeof big - 1)
+             : wired_span_of(alr, sizeof alr - 1);
+}
+
 /* RFC 8446 4 / 4.4.4: a handshake message latched an alert (an
  * out-of-order or wrong-level message, a forged client Finished) -- close
- * with that CRYPTO_ERROR (RFC 9001 4.8). */
+ * with that CRYPTO_ERROR (RFC 9001 4.8), or CRYPTO_BUFFER_EXCEEDED for a
+ * Handshake CRYPTO stream past the buffer (RFC 9000 7.5). */
 static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "unexpected handshake message";
-  u64             code     = wired_server_take_hs_error(&c->s);
+  u64 code = wired_server_take_hs_error(&c->s);
   if (!code) {
     return 0;
   }
-  srvrun_send_transport_close(
-      cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  srvrun_send_transport_close(cfg, c, code, srvrun_hs_reason(code));
   return 1;
 }
 

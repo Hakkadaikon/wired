@@ -311,7 +311,7 @@ process-wide scratch server.
 | `wired_srvboot_id.client_auth` | `WIRED_CLIENT_AUTH_OFF` (0, default), `_OPTIONAL` or `_REQUIRED`. |
 | `wired_srvboot_id.client_ca` | The trust store (`castore`) client certificates must chain to. |
 | `wired_http_exchange.peer_cert` | The client's verified leaf certificate DER; empty when none. |
-| `castore_init`, `castore_add` (`crypto/pki/trust/castore/castore.h`) | Build the `client_ca` store: bind it to your `castore_entry` array, then add each CA certificate DER. |
+| `wired_castore_init`, `wired_castore_add` (`crypto/pki/trust/castore/castore.h`) | Build the `client_ca` store: bind it to your `castore_entry` array, then add each CA certificate DER. |
 
 - **Fail closed.** `client_auth` other than off without `client_ca` makes
   every connection's init fail. The chain must reach the store link by
@@ -322,13 +322,12 @@ process-wide scratch server.
   ignored and no session ticket is issued, so every connection proves the
   client's key afresh.
 - **Lifetimes.** Nothing is copied: the `castore`, its `castore_entry`
-  array and every CA DER buffer passed to `castore_add` are views the
-  server reads on every handshake. Define all three where they live as
-  long as the server runs (in `main` or as statics), not in a helper
-  function that returns before `wired_server_run`. `castore_init` and
-  `castore_add` keep their module names, outside the `wired_` prefix,
-  but are covered by the same compatibility promise as this table. `peer_cert` is a view into the connection, valid for
-  the handler call, and is set on the first round only.
+  array and every CA DER buffer passed to `wired_castore_add` are views
+  the server reads on every handshake. Define all three where they live
+  as long as the server runs (in `main` or as statics), not in a helper
+  function that returns before `wired_server_run`. `peer_cert` is a view
+  into the connection, valid for the handler call, and is set on the
+  first round only.
 
 ### Idle timeout
 
@@ -460,7 +459,9 @@ sequenceDiagram
   are views; keep them alive for the call. `wired_server_run` and its
   variants copy the id, its chain and `raw_alpns`, the obs paths and
   `wt_protocols` at start and never read them again, so they may live on
-  the caller's stack. Start from a zeroed struct
+  the caller's stack. The one exception is `client_ca`: only the pointer
+  is copied, so the store, its roots array and the CA DERs stay in the
+  caller's memory and must outlive the run. Start from a zeroed struct
   (`= {0}` or `wired_srvboot_demo`), so members added at its end default
   to off: `reset_seed` is the stateless-reset secret (0 uses
   `cert_seed`; `wired_srvrun_serve_env` pins it to a copy of the start-time

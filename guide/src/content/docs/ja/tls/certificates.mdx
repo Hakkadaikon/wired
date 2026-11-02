@@ -29,8 +29,8 @@ import Example from '../../../../components/Example.astro';
 - `id.client_auth = WIRED_CLIENT_AUTH_REQUIRED` にすると、証明書を送らないクライアントを拒否します。
   `WIRED_CLIENT_AUTH_OPTIONAL` にすると、証明書がなくても接続を受け入れます。
 - `id.client_ca` には、クライアント証明書を発行した CA（認証局）の証明書を登録したトラストストアを指定します。
-  `castore_init` で初期化し、CA の DER を `castore_add` で登録します。
-  サーバーはハンドシェイクのたびに、トラストストア本体、その `castore_entry` 配列、`castore_add` に渡した CA の DER バッファの 3 つをコピーせずに読みます。
+  `wired_castore_init` で初期化し、CA の DER を `wired_castore_add` で登録します。
+  サーバーはハンドシェイクのたびに、トラストストア本体、その `castore_entry` 配列、`wired_castore_add` に渡した CA の DER バッファの 3 つをコピーせずに読みます。
   この 3 つは `main` の中か `static` 変数として定義し、サーバーより長く生きるようにします。
   `wired_server_run` の前に戻ってしまう設定用の関数のローカル変数にしてはいけません。
 - トラストストアを指定せずにクライアント認証を有効にすると、接続の初期化が失敗します。

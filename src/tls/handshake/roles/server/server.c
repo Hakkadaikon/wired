@@ -78,7 +78,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   keysched_init(&s->sched);
   keyset_init(&s->keys);
   srvfin_state_init(&s->fin, &s->sched, &s->keys);
-  crecv_init(&s->crecv);
+  crecv_init(&s->crecv, s->crecv_mem, CRECV_BUF);
   s->fd                = -1;
   s->phase             = WIRED_SERVER_HS_INITIAL;
   s->hs_done_sent      = 0;

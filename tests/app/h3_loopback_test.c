@@ -1620,6 +1620,8 @@ static void test_srvboot_split_flight_datagrams(void) {
 
 /* Open each flight datagram with SERVER_HS and collect its CRYPTO frames into
  * the reassembler, in forward or reverse datagram order. */
+static u8 g_sb_split_crecv_mem[2 * CRECV_BUF];
+
 static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
   const initial_keys* shs;
   aes128              hp;
@@ -1631,7 +1633,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
     offs[i] = off;
     off += f->out.dgram_len[i];
   }
-  crecv_init(cr);
+  crecv_init(cr, g_sb_split_crecv_mem, CRECV_BUF);
   for (usz k = 0; k < f->out.dgram_count; k++) {
     usz        i = reverse ? f->out.dgram_count - 1 - k : k;
     wired_span frames;

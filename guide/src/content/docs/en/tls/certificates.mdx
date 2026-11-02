@@ -30,8 +30,9 @@ identity too, set two fields of the server identity before serving:
 
 - `id.client_auth = WIRED_CLIENT_AUTH_REQUIRED` refuses a client that sends
   no certificate. `WIRED_CLIENT_AUTH_OPTIONAL` lets it in without one.
-- `id.client_ca` points at a trust store (`castore_init` + `castore_add`
-  with your client CA's DER). The server reads the store, its
+- `id.client_ca` points at a trust store (`wired_castore_init` +
+  `wired_castore_add` with your client CA's DER). The server reads the
+  store, its
   `castore_entry` array and every CA DER buffer on each handshake without
   copying them, so define all three where they outlive the server: in
   `main` or as `static` variables, not as locals of a setup helper that

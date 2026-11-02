@@ -2722,6 +2722,7 @@ static void test_srvrun_own_config_copies(void) {
   wired_srvboot_id* idp = &id;
   wired_srvrun_obs  obs = {0};
   const char*       wt  = wtp;
+  castore           cas = {0};
   for (usz i = 0; i < sizeof der; i++) {
     der[i] = (u8)i;
   }
@@ -2735,6 +2736,8 @@ static void test_srvrun_own_config_copies(void) {
   id.chain       = chain;
   id.chain_count = 2;
   id.raw_alpns   = alpns;
+  id.client_auth = WIRED_CLIENT_AUTH_REQUIRED;
+  id.client_ca   = &cas;
   obs.qlog_path  = qlog;
   CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
   bytes_memset(der, 0, sizeof der);
@@ -2749,6 +2752,9 @@ static void test_srvrun_own_config_copies(void) {
   CHECK(idp->chain[0].p == g_srvrun_env.own.chain_der);
   CHECK(idp->priv[31] == 0x42 && idp->ticket_key[0] == 0x42);
   CHECK(idp->scid[7] == 8 && idp->pub == 0);
+  /* mTLS must survive the copy; the store itself stays caller-owned. */
+  CHECK(idp->client_auth == WIRED_CLIENT_AUTH_REQUIRED);
+  CHECK(idp->client_ca == &cas);
   CHECK(strcmp(idp->raw_alpns, "moqt-22 moqt-19") == 0);
   CHECK(
       strcmp(wt, "moqt-22") == 0 && strcmp(obs.qlog_path, "/tmp/q.sqlog") == 0);
@@ -27148,6 +27154,15 @@ static void test_srvrun_receive_only_stream_frames_close(void) {
   CHECK(sr_fv_close(msd, sizeof msd) == ~0ULL);
 }
 
+/* The handshake close's reason phrase names the error it carries:
+ * CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) is not an unexpected message. */
+static void test_srvrun_hs_reason_matches_code(void) {
+  wired_span big = srvrun_hs_reason(ERR_CRYPTO_BUFFER_EXCEEDED);
+  wired_span alr = srvrun_hs_reason(0x10a);
+  CHECK(big.n == 22 && big.p[0] == 'c');
+  CHECK(alr.n == 28 && alr.p[0] == 'u');
+}
+
 /* RFC 9000 7.5: a ClientHello CRYPTO chunk reaching past the boot
  * reassembly buffer (never expanded) refuses the boot with
  * CRYPTO_BUFFER_EXCEEDED, the code srvrun_refuse's Initial close carries. */
@@ -27161,7 +27176,7 @@ static void test_srvrun_boot_crypto_overflow_refused(void) {
   wired_obuf       o         = obuf_of(dg, sizeof dg);
   initpkt_desc     d         = {
       wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
-      wired_span_of(chunk, sizeof chunk), 0, CRECV_BUF - 10};
+      wired_span_of(chunk, sizeof chunk), 0, CRECV_INITIAL_BUF - 10};
   CHECK(initpkt_build(&d, &o) == 1);
   sr_make_id(&id, priv, pub, seed, rnd);
   cfg.fd  = -1;
@@ -27169,7 +27184,7 @@ static void test_srvrun_boot_crypto_overflow_refused(void) {
   cfg.env = &g_srvrun_env;
   CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
   CHECK(sdrv_last_error(&c->s.sdrv) == ERR_CRYPTO_BUFFER_EXCEEDED);
-  d.crypto_off = CRECV_BUF - sizeof chunk; /* ends exactly at the edge */
+  d.crypto_off = CRECV_INITIAL_BUF - sizeof chunk; /* exactly at the edge */
   o            = obuf_of(dg, sizeof dg);
   c            = sr_test_conns();
   CHECK(initpkt_build(&d, &o) == 1);
@@ -27851,6 +27866,7 @@ void test_srvrun(void) {
   test_srvrun_conn_wipe_skips_clean_tables();
   test_srvrun_zero_release_survives_madvise_failure();
   test_srvrun_own_config_copies();
+  test_srvrun_hs_reason_matches_code();
   test_srvrun_own_config_refuses_oversize();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();

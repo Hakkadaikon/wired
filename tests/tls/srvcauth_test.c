@@ -93,8 +93,8 @@ static void mtlsf_start(mtls_fix* f, int mode, u16 suite) {
     seed[i]     = (u8)(0x80 + i);
   }
   wired_x25519_base(srv_pub, srv_priv);
-  castore_init(&f->ca, f->roots, 1);
-  CHECK(castore_add(&f->ca, MTLS_SPAN(mtlsg_ca)));
+  wired_castore_init(&f->ca, f->roots, 1);
+  CHECK(wired_castore_add(&f->ca, MTLS_SPAN(mtlsg_ca)));
   wired_server_init(
       &f->s,
       &(wired_server_init_in){srv_priv, srv_pub, seed, 0, 0, 0, 0, tkey});
@@ -668,16 +668,24 @@ static usz mtls_onertt_ping(const mtls_fix* f, u8* pkt, usz cap) {
   }
 }
 
-/* Offer that PING to the server: 1 if it opened at 1-RTT as the PING. */
-static int mtls_onertt_opened(mtls_fix* f) {
-  u8                     pkt[128];
+/* Offer a copy of pkt (opening works in place) to the server: 1 if it
+ * opened at 1-RTT as the PING. */
+static int mtls_onertt_offer(mtls_fix* f, const u8* pkt, usz n) {
+  u8                     cp[128];
   wired_srvloop_recv_out out;
-  usz                    n = mtls_onertt_ping(f, pkt, sizeof pkt);
+  bytes_memcpy(cp, pkt, n);
   return wired_srvloop_recv(
-             &f->s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, n), 0, 0},
+             &f->s, &(wired_srvloop_recv_in){wired_mspan_of(cp, n), 0, 0},
              &out) == 1 &&
          out.level == LEVEL_ONERTT && out.payload.n >= 1 &&
          out.payload.p[0] == 0x01;
+}
+
+/* Build that PING now and offer it. */
+static int mtls_onertt_opened(mtls_fix* f) {
+  u8  pkt[128];
+  usz n = mtls_onertt_ping(f, pkt, sizeof pkt);
+  return mtls_onertt_offer(f, pkt, n);
 }
 
 /* RFC 9001 5.7 / RFC 8446 4.4.4: a genuine client 1-RTT packet is not
@@ -691,12 +699,17 @@ static void test_srvcauth_onertt_gated(void) {
   }
 }
 
-/* The same packet opens once the client Finished verified. */
+/* The same packet bytes, refused before the client Finished, open once it
+ * verified. */
 static void test_srvcauth_onertt_after_confirm(void) {
   mtls_fix f;
+  u8       pkt[128];
+  usz      n;
   mtlsf_to_wait(&f, WIRED_CLIENT_AUTH_REQUIRED, 2);
+  n = mtls_onertt_ping(&f, pkt, sizeof pkt);
+  CHECK(mtls_onertt_offer(&f, pkt, n) == 0);
   CHECK(mtlsf_send_fin(&f) == 1);
-  CHECK(mtls_onertt_opened(&f) == 1);
+  CHECK(mtls_onertt_offer(&f, pkt, n) == 1);
 }
 
 /* RFC 8446 4.4.4: verified Certificate and CertificateVerify are not yet

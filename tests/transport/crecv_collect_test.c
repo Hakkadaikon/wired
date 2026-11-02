@@ -1,5 +1,7 @@
 #include "test.h"
 
+static u8 g_crecv_collect_mem[2 * CRECV_BUF];
+
 /* Build a CRYPTO frame (RFC 9000 19.6): type 0x06, varint offset, varint
  * length, data. Offsets/lengths here stay < 64 so each varint is one byte. */
 static usz mk_crypto(u8* out, u8 offset, const u8* data, u8 len) {
@@ -19,7 +21,7 @@ static void test_crecv_single_offset0(void) {
   u8       frame[64];
   usz      n = mk_crypto(frame, 0, vd, sizeof vd);
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, frame, n) == 1);
   CHECK(s.received_to == sizeof vd);
   for (usz i = 0; i < sizeof vd; i++) {
@@ -34,7 +36,7 @@ static void test_crecv_out_of_order(void) {
   u8       f[64];
   usz      n;
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   n = mk_crypto(f, 2, b, sizeof b); /* later chunk first */
   CHECK(crecv_collect(&s, f, n) == 1);
   CHECK(s.received_to == 0);        /* gap at start */
@@ -53,7 +55,7 @@ static void test_crecv_two_frames_one_payload(void) {
   usz      n = mk_crypto(f, 0, a, sizeof a);
   n += mk_crypto(f + n, 2, b, sizeof b);
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, n) == 1);
   CHECK(s.received_to == 4);
 }
@@ -64,7 +66,7 @@ static void test_crecv_gap_stays_incomplete(void) {
   u8       f[64];
   usz      n = mk_crypto(f, 5, b, sizeof b); /* offset 5, nothing at 0..4 */
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, n) == 1);
   CHECK(s.received_to == 0);
 }
@@ -78,7 +80,7 @@ static void test_crecv_ignores_non_crypto(void) {
   f[n++]     = 0x01; /* PING */
   n += mk_crypto(f + n, 0, cd, sizeof cd);
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, n) == 1);
   CHECK(s.received_to == sizeof cd);
 }
@@ -96,14 +98,15 @@ static void test_crecv_overflow_rejected(void) {
   f[n++] = 1;
   f[n++] = 2;
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, f, n) == 0);
   CHECK(s.overflow == 1);
 }
 
 /* RFC 9000 7.5: at least 4096 bytes of out-of-order CRYPTO data buffer --
  * a lone frame ending exactly at offset 4096 is held (not yet deliverable,
- * the prefix from 0 is missing). */
+ * the prefix from 0 is missing) even at the Initial capacity, and one byte
+ * further is past it. */
 static void test_crecv_buffers_4096_out_of_order(void) {
   crecv s;
   u8    f[8];
@@ -115,10 +118,13 @@ static void test_crecv_buffers_4096_out_of_order(void) {
   f[n++]  = 1;
   f[n++]  = 2;
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_collect_mem, CRECV_INITIAL_BUF);
   CHECK(crecv_collect(&s, f, n) == 1);
   CHECK(s.received_to == 0);
   CHECK(s.filled[4095] == 1);
+  f[2] = 0xff; /* offset 4095, length 2: ends at 4097 */
+  CHECK(crecv_collect(&s, f, n) == 0);
+  CHECK(s.overflow == 1);
 }
 
 void test_crecv_collect(void) {

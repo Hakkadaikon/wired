@@ -35,6 +35,23 @@ void castore_init(castore* s, castore_entry* roots, usz cap);
  * @return 1 on success, 0 if the store is full or the input is malformed. */
 int castore_add(castore* s, wired_span cert_der);
 
+/** Application-facing name of castore_init (wired_srvboot_id.client_ca).
+ * @param s the store
+ * @param roots caller-owned array of cap entries
+ * @param cap entries roots can hold */
+static inline void wired_castore_init(
+    castore* s, castore_entry* roots, usz cap) {
+  castore_init(s, roots, cap);
+}
+
+/** Application-facing name of castore_add.
+ * @param s the store
+ * @param cert_der the root certificate DER, kept alive by the caller
+ * @return 1 on success, 0 if the store is full or the input is malformed. */
+static inline int wired_castore_add(castore* s, wired_span cert_der) {
+  return castore_add(s, cert_der);
+}
+
 /** RFC 5280 6.1. Find a registered root whose subject Name equals issuer_dn
  * (a Name SEQUENCE view, header included) under the RFC 5280 7.1
  * caseIgnoreMatch rules (x509_dn_equal_ci).
