@@ -70,7 +70,7 @@ wired が内部に持つ表（コネクションやストリームの管理表�
   それぞれのリクエストストリームで行った購読には送られます。
 - SUBSCRIBE_TRACKS への REQUEST_UPDATE には NOT_SUPPORTED で答えます。
   送信者自身の PUBLISH への REQUEST_UPDATE も、draft-22 のセッション以外では NOT_SUPPORTED で答えます。
-- Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えますが、配信を絞るのは OBJECTID_FILTER だけで、それもデータグラムで送る Object に限ります。
+- Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えます。SUBGROUP_FILTER と PRIORITY_FILTER はストリーム単位で、OBJECTID_FILTER はデータグラムで送る Object とキャッシュから返す FETCH の Object を絞ります。OBJECT_PROPERTY_FILTER は通します。
   ほかの種類のフィルタは素通しです。
 - Track Property の DEFAULT_PUBLISHER_PRIORITY は読みません。
   Publisher Priority を明示していない Object は 128 として扱います。

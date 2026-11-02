@@ -6,7 +6,7 @@ peer behaves in a way the spec allows but wired does not support. Each entry
 starts with who is affected, then says what is limited and where in the code
 (or in which per-spec ledger) it is recorded.
 
-Last reviewed: 2026-10-27
+Last reviewed: 2026-11-03
 
 ## How to read this page
 
@@ -20,7 +20,7 @@ lists the capacities an application meets first and the MoQT parts that are
 not implemented. This page adds what the guide does not cover: the effect of
 each overflow, the less visible limits, and the reason for each deviation.
 Where the two pages disagree, the values on this page are taken from the
-current code (checked on 2026-10-27) and win.
+current code (checked on 2026-11-03) and win.
 
 The entries come from three places:
 
@@ -175,7 +175,11 @@ The limits:
   subscription) is still served from the cache only. A Descending FETCH
   (newest Group first) of a Track the hub does not hold is reset when its
   upstream FETCH fails, because the hub knows nothing of that range to mark.
-  The cache side applies no Range Filter, so MQ22-137 stays open.
+  The cache side applies a FETCH's Range Filters by Object ID only: the
+  cache keeps no Subgroup, priority or Properties, so a filter set that
+  names one of them passes no cached Object and leaves an unmarked
+  (unknown) gap. A Joining FETCH applies no Range Filter
+  (`moqtrun_fsel_skip`, MQ22-137).
 
   Buffering details: an Object under `WIRED_MOQTRUN_RELAY_FRAG_MAX` (16 KiB)
   is held whole while it is torn; a larger one's payload passes through as
@@ -251,12 +255,15 @@ The limits:
   d22's TIMESTAMP, VIDEO_FRAME_MARKING, AUDIO_CONFIG, ENCRYPTED_LIST and
   PADDING) are relayed unchanged and never interpreted. Source: the MoQT
   ledgers' Out of scope sections.
-- **FILL_TIMEOUT, EXPIRES and NEW_GROUP_REQUEST are decoded, not acted on**
-  — Affects: clients that rely on these parameters. FILL_TIMEOUT's presence
-  only decides whether a missing range is marked "End of Timed-Out Range"
-  (d22: the hub could not get it in time), and it can shorten the upstream
-  FETCH budget above. EXPIRES and NEW_GROUP_REQUEST are parsed and ignored.
-  RENDEZVOUS_TIMEOUT, in contrast, is acted on (see the rendezvous cap in
+- **FILL_TIMEOUT and EXPIRES are decoded, not acted on** — Affects:
+  clients that rely on these parameters. FILL_TIMEOUT's presence only
+  decides whether a missing range is marked "End of Timed-Out Range" (d22:
+  the hub could not get it in time), and it can shorten the upstream FETCH
+  budget above. EXPIRES is parsed and ignored. NEW_GROUP_REQUEST, in
+  contrast, is relayed upstream (d18/d19 10.2.13: in the hub's own
+  SUBSCRIBE, or a REQUEST_UPDATE once the Track is Established;
+  `moqtrun_ngr.c`), and RENDEZVOUS_TIMEOUT is acted on (see the rendezvous
+  cap in
   [MoQT versions and spec deviations](#moqt-versions-and-spec-deviations)).
   Source: the MoQT ledgers' Out of scope sections.
 - **Track Properties forwarded in SUBSCRIBE_OK only, up to 32 bytes** —
@@ -542,11 +549,15 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes are kept; longer ones are
   dropped whole, never truncated. Source: `WIRED_WT_BUFFERED_DATAGRAM_CAP`
   (ponytail).
-- **Datagram drain is a fixed slice, not congestion-controlled** — Affects:
-  apps that send many queued datagrams. Each drain sends at most
-  `SRVRUN_DGRING_DRAIN_MAX` (16) datagrams or `SRVRUN_DGRING_DRAIN_BYTES`
-  (3000) bytes every `SRVRUN_DGRING_DRAIN_MS` (5 ms), about 4.8 Mbps. Source:
-  `SRVRUN_DGRING_DRAIN_MAX` (ponytail).
+- **Datagram drain is paced by a fixed slice** — Affects: apps that send
+  many queued datagrams. A ring entry is sent only while its connection's
+  congestion window has room (RFC 9221 5.4), and on top of that each drain
+  sends at most `SRVRUN_DGRING_DRAIN_MAX` (16) datagrams or
+  `SRVRUN_DGRING_DRAIN_BYTES` (3000) bytes every `SRVRUN_DGRING_DRAIN_MS`
+  (5 ms), about 4.8 Mbps. The pacing interval is fixed, not derived from
+  the congestion controller, and one window-blocked connection holds the
+  ring back until its window opens. Source: `srvrun_dg_cwnd_blocked`,
+  `SRVRUN_DGRING_DRAIN_MAX` (ponytail), `srvrun_dgring_take` (shortcut).
 - **Datagram ring slots and broadcast urgency** — Affects: apps that send
   HTTP Datagrams at mixed urgencies. An entry drained ahead of the ring head
   keeps its slot until the head passes it, so a long stall of low-urgency
@@ -652,11 +663,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   round. Larger bodies use a `srvbigbuf` row (the large-response buffer
   pool) or streaming
   ([guide](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/)). The
-  grid is 64 connections x 40 response slots (`SRVRUN_RESP_SLOTS`) x 16 KiB,
-  about 40 MiB of BSS (zero-initialized static memory), multiplied by the
-  worker count under `--cores N`. The low-level handler body cap is
-  `WIRED_SRVLOOP_BODY_MAX` (1024). Source: `WIRED_SRVRUN_RESP_MAX`,
-  `WIRED_SRVLOOP_BODY_MAX` (ponytail).
+  grid is `WIRED_CONNTABLE_CAP` connections x 40 response slots
+  (`SRVRUN_RESP_SLOTS`) x 16 KiB of BSS (zero-initialized static memory):
+  about 2.5 MiB at the default 4 connections, 40 MiB at the interop
+  image's 64, multiplied by the worker count under `--cores N`. The
+  low-level handler body cap is `WIRED_SRVLOOP_BODY_MAX` (1024). Source:
+  `WIRED_SRVRUN_RESP_MAX`, `WIRED_SRVLOOP_BODY_MAX` (ponytail).
 - **Request buffer limited to `BODYWIN_CAP` (10240)** — Affects: clients that
   send request bodies to a handler without `on_body`. A buffered request that
   fills the window without FIN is answered with 413 or 431, including one whose
@@ -672,10 +684,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   (`STP_DEFAULT_STREAM_DATA_REMOTE`) are 10240 bytes each. A request slot
   holds the decode scratch, the window, its wrap buffer and the window's
   receive bitmap, about 25 KB more than at the earlier 2048-byte size. With
-  64 connections (`WIRED_CONNTABLE_CAP`) of 40 request slots
-  (`WIRED_SRVLOOP_MAX_STREAMS`) that is about 65 MB more per server
-  environment (static memory for one server loop), and `srvthreads` maps
-  one environment per worker, so the cost multiplies by the worker count.
+  40 request slots (`WIRED_SRVLOOP_MAX_STREAMS`) per connection that is
+  about 1 MB more per connection (`WIRED_CONNTABLE_CAP`): about 4 MB at
+  the default 4 connections and 65 MB at the interop image's 64, per
+  server environment (static memory for one server loop), and
+  `srvthreads` maps one environment per worker, so the cost multiplies by
+  the worker count.
   Source: `body_window.h`, `control_settings.h`.
 - **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
   stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
@@ -694,12 +708,6 @@ recently sent headers, updated over its own encoder and decoder streams.
   `connect_headers_complete`, `route_note_incomplete_append`,
   `reset_request_stream`, `srvrun_abort_incomplete_reqs`,
   `srvrun_free_reset_reqs`.
-- **STOP_SENDING before the response starts is not remembered** — Affects:
-  clients that cancel a request early. A peer's STOP_SENDING is answered
-  with RESET_STREAM (RFC 9000 3.5) only on a send part that already exists
-  (a response slot, a WT send slot, a CONNECT stream). One that arrives while
-  the request is still being read leaves the later response to run
-  normally. Source: `srvrun_answer_peer_stops`.
 - **Graceful shutdown is tick-bounded** — Affects: operators who stop the
   server with SIGTERM. The server sends GOAWAY, then waits at most
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before it closes. A SIGTERM
@@ -801,11 +809,6 @@ The next two entries concern lower-level entry points. The server that
 - **`appdata_recv` has no packet-number history** — Affects: users of this
   one-shot entry only. It passes largest_pn 0; full packet-number recovery
   is the job of the srvloop path. Source: `app_recv.c` (ponytail).
-- **Key Update limit stalls instead of closing** — Affects: very long
-  connections. AEAD keys have a confidentiality limit (how much data one key
-  may protect). A limit hit while the previous key update is still
-  unconfirmed stalls sends; in practice the idle timeout fires first.
-  Source: `ku_limit_gate` (ponytail).
 - **Fixed connection table** — Affects: servers that need more
   connections than the build-time cap. `WIRED_CONNTABLE_CAP` defaults to 4
   in the normal build (`scripts/just/flags.sh`; override with
@@ -873,14 +876,6 @@ The next two entries concern lower-level entry points. The server that
   passes against ngtcp2, and the quic-go client never triggers a path
   change. The quic-go client does not support the `ecn` and `v2` testcases;
   both pass against ngtcp2 (`v2` also against picoquic).
-- **An Initial re-initializes a confirmed connection's slot** — Affects:
-  every confirmed connection, because its CID is visible on the wire. An
-  Initial packet whose destination CID matches a confirmed connection is
-  treated as a fresh connection attempt: the slot is cold-started for a new
-  handshake, which replaces the confirmed connection's state. Anyone who can
-  see the CID can therefore send such an Initial. (Before confirmation the
-  same Initial is handled as a retransmit instead.) Source:
-  `srvrun_reinit_ok`, `srvrun_serve_boot`.
 
 ## TLS 1.3
 
@@ -972,10 +967,11 @@ The next two entries concern lower-level entry points. The server that
   [rfc6066.md](rfc6066.md).
 - **ClientHello and Retry scratch buffers are MTU-bounded** — Affects:
   memory footprint, and ClientHellos larger than two Initial packets. The
-  boot-stage accumulator is about 4 KB per connection slot (64 slots, in
-  BSS) and spans two Initials, enough for a post-quantum-sized ClientHello.
-  The `retry_tag` pseudo-packet scratch is 1521 bytes. Source:
-  `wired_srvboot_acc` (ponytail), `retry_tag.c` (ponytail).
+  boot-stage accumulator is about 4 KB per connection slot
+  (`WIRED_CONNTABLE_CAP` slots, in BSS) and spans two Initials, enough for
+  a post-quantum-sized ClientHello. The `retry_tag` pseudo-packet scratch
+  is 1521 bytes. Source: `wired_srvboot_acc` (ponytail), `retry_tag.c`
+  (ponytail).
 - **Client / server pump shortcuts** — Affects: users of these legacy entry
   points only; the `wired_server_run` server does not use them.
   `wired_server_pump` hands a raw datagram to `wired_server_feed`, and
@@ -1202,11 +1198,14 @@ Notes on the two send-side buffers:
 - **Fuzz coverage** — Affects: robustness of the hub loop. `fuzz_moqt`
   covers the codecs, `moqdg` and `moqcache`. The hub run loop (`moqtrun`) is
   not fuzzed, because it is not a codec.
-- **Ledger counts** — Affects: the coverage total. 2 requirements are
-  untested: MQ22-070a and MQ22-137 (both in
-  [draft-moq-transport-22.md](draft-moq-transport-22.md)). The experimental
-  track-switching section (MQ22-X13 among them) is not counted. Source:
-  [features README](README.md).
+- **Ledger counts** — Affects: the coverage total. 7 requirements are
+  untested: MQ18-218 and MQ18-235
+  ([draft-moq-transport-18.md](draft-moq-transport-18.md)), MOQT-230 and
+  MOQT-247 ([draft-moq-transport.md](draft-moq-transport.md)), MQ22-070a
+  ([draft-moq-transport-22.md](draft-moq-transport-22.md)), 9114-097
+  ([rfc9114.md](rfc9114.md)) and 9204-061 ([rfc9204.md](rfc9204.md)). The
+  experimental track-switching section (MQ22-X13 among them) is not
+  counted. Source: [features README](README.md).
 - **BoringSSL oracle** — Affects: nobody; listed for completeness. There are
   no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
   AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
@@ -1344,3 +1343,31 @@ concerns, not SDK code, and exclude them from the coverage count.
   drafts 14 to 17), a peer that demands raw-QUIC 0-RTT, a deployment that
   needs a per-transport GOAWAY URI, and a need for a wired-side raw MoQT
   client role.
+
+### Not planned
+
+These are decided: wired will not implement them unless the reason below
+stops holding. Each is described in its layer's section above and in the
+named ledger's Out of scope section.
+
+- **RFC 9002 MAY heuristics** — MAY items, not required.
+  [rfc9002.md](rfc9002.md).
+- **OCSP stapling** — browsers do not require stapling and must-staple
+  certificates are rare; it needs ClientHello extension parsing,
+  CertificateEntry extensions and a refresh mechanism, which cost more than
+  they return. [rfc8446.md](rfc8446.md), [rfc6066.md](rfc6066.md).
+- **`certificate_authorities` certificate selection** — it presumes several
+  certificate chains, and the server serves one. [rfc8446.md](rfc8446.md).
+- **HTTP/3 server push** — browsers have removed push.
+  [rfc9114.md](rfc9114.md).
+- **QPACK blocked streams on the decoder side** — they need a state machine
+  that parks request streams, for a gain of a few bytes of request headers;
+  failing the section is enough. [rfc9204.md](rfc9204.md).
+- **MoQT Alias token cache** — it needs a per-session memory cap and an
+  authorization story; deferred until a client uses it. The MoQT ledgers.
+- **MoQT Padding Datagrams** — sending them is the origin's role, not the
+  relay's (hub's). The MoQT ledgers.
+- **MoQT EXPIRES** — a relay gains little from acting on it. The MoQT
+  ledgers.
+- **Capsule-only HTTP Datagram fallback** — WebTransport assumes QUIC
+  DATAGRAM, so no path would use it. [rfc9297.md](rfc9297.md).
