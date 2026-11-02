@@ -52,6 +52,10 @@ typedef struct {
   /** RFC 9002 A.8 time_of_last_ack_eliciting_packet for the 1-RTT space:
    * now_ms of the latest ack-eliciting srvloop_send_onertt_rec. */
   u64 last_elicit_ms;
+  /** RFC 9000 10.1: now_ms of the first ack-eliciting 1-RTT send since the
+   * last receive (0 = none yet); the idle timer restarts here. The receive
+   * path (srvrun_serve_slot) clears it. */
+  u64 idle_tx_ms;
   /** RFC 9002 7.5: PTO probe packets still allowed past the congestion
    * window and pacing; each ack-eliciting send uses one. 0 outside a PTO. */
   u8 probe_n;
