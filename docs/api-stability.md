@@ -298,6 +298,12 @@ process-wide scratch server.
   that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
   Tickets advertise early data only when it is enabled.
 
+### Address validation tokens
+
+| Name | Role |
+|---|---|
+| `wired_srvkeys_set_token_key` (`srvkeys/srvkeys.h`) | Retry / NEW_TOKEN token seed; call before the server starts. Not called = per-process random seed. |
+
 ### Idle timeout
 
 | Name | Role |

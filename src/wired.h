@@ -14,6 +14,7 @@
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvboot/srvdemo.h"
 #include "app/http3/server/srvdriver/srvdriver.h"
+#include "app/http3/server/srvkeys/srvkeys.h"
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
