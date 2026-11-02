@@ -110,10 +110,12 @@ static void srvrun_path_start(
   srvrun_path_arm(ctx->cfg, c, s->in_use ? s : 0, ctx->now_ms);
 }
 
-/* RFC 9000 8.2.2: a probe from an untracked path is always answered there;
- * challenging it first makes the first datagram on a new path carry the
- * PATH_CHALLENGE. Without a slot the answer stays within 3x the datagram
- * that carried the probe (8, pathsel.fresh) and the path is not moved to. */
+/* RFC 9000 8.2.2: a probe from an untracked path is answered there
+ * whenever an unused peer connection ID is available (9.5); challenging it
+ * first makes the first datagram on a new path carry the PATH_CHALLENGE.
+ * Without a slot the answer stays within 3x the datagram that carried the
+ * probe (8, pathsel.fresh) and the path is not moved to; the peer ID bound
+ * for the answer is then retired in the same step (srvrun_dcid's sweep). */
 static void srvrun_path_probe_fresh(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,

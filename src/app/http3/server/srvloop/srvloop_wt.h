@@ -25,9 +25,12 @@
  * dropped -- the peer may issue at most active_connection_id_limit. */
 #define WIRED_SRVLOOP_NCID_RX 4
 
-/** PATH_CHALLENGE frames latched until answered
- * (wired_srvloop.path_challenge_rx_data); more close the connection. */
-#define WIRED_SRVLOOP_PATH_RX 2
+/** PATH_CHALLENGE frames latched per received datagram until answered
+ * (wired_srvloop.path_challenge_rx_data); more close the connection. This
+ * implementation's capacity, not an RFC number. Sizing: all of them are
+ * answered in one packet, a PING plus 8 x 9-byte PATH_RESPONSEs = 73
+ * bytes, well inside srvrun_path_send's MIN_INITIAL_DATAGRAM plaintext. */
+#define WIRED_SRVLOOP_PATH_RX 8
 
 /** Build (a round of) the response body for a decoded request. Copy from
  * `req` (its body is a view into per-step scratch, not valid past the call)

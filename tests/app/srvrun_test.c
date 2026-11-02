@@ -4392,6 +4392,16 @@ typedef struct {
   u64             now;
 } sr_arrival;
 
+/* Seal pl at pn as arrival a would carry it into spkt[256]; its length. */
+static usz sr_seal_at(
+    struct lp_fix* f, const sr_arrival* a, u64 pn, wired_span pl, u8* spkt) {
+  u8 dcid[WIRED_MAX_CID_LEN];
+  u8 dl = f->s.sdrv.iscid_len;
+  bytes_memcpy(dcid, f->s.sdrv.iscid, dl);
+  dcid[0] ^= (u8)(a->new_dcid ? 0x5a : 0);
+  return sr_seal_dcid(f, wired_span_of(dcid, dl), pn, pl, spkt, 256);
+}
+
 /* Serve slot 0 of st one 1-RTT packet carrying pl at pn as arrival a. */
 static void sr_serve_at(
     struct lp_fix*    f,
@@ -4399,18 +4409,14 @@ static void sr_serve_at(
     const sr_arrival* a,
     u64               pn,
     wired_span        pl) {
-  u8         dcid[WIRED_MAX_CID_LEN], spkt[256];
-  u8         dl = f->s.sdrv.iscid_len;
-  usz        n;
+  u8         spkt[256];
+  usz        n   = sr_seal_at(f, a, pn, pl, spkt);
   srvrun_cfg cfg = {
       a->cfg_fd, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
       0,         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0,         0};
   srvrun_step_ctx ctx = {&cfg, a->peer, st, a->now, 0};
-  bytes_memcpy(dcid, f->s.sdrv.iscid, dl);
-  dcid[0] ^= (u8)(a->new_dcid ? 0x5a : 0);
-  n = sr_seal_dcid(f, wired_span_of(dcid, dl), pn, pl, spkt, sizeof spkt);
-  g_srvrun_env.rx_fd = a->rx_fd;
+  g_srvrun_env.rx_fd  = a->rx_fd;
   srvrun_serve_slot(&ctx, 0, wired_mspan_of(spkt, n));
   g_srvrun_env.rx_fd = 0;
 }
@@ -5111,7 +5117,8 @@ static void test_srvrun_path_wire_no_cid_no_response(void) {
 
 /* RFC 9000 8.2.2/8/9.3: a probe from a new path while both challenge slots
  * are busy is still answered on its arrival path, within 3x the datagram
- * that carried it, but neither challenged nor moved to. */
+ * that carried it, but neither challenged nor moved to. The answer binds
+ * the spare peer ID (9.5), which the same step then retires (5.1.2). */
 static void test_srvrun_path_wire_busy_probe_answered(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -5120,6 +5127,8 @@ static void test_srvrun_path_wire_busy_probe_answered(void) {
   srvrun_state  st = {table, &c};
   sr_net        n;
   sr_rx         r;
+  u8            probe[256];
+  usz           probe_len;
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
   sr_net_open(&n, &c);
   {
@@ -5127,16 +5136,28 @@ static void test_srvrun_path_wire_busy_probe_answered(void) {
     sr_arrival a1 = {&n.b, n.sfd, 0, 0, 0};
     sr_arrival a2 = {&n.a, n.sfd, n.pfd, 1, 0};
     ncid_frame nf = sr_cid(1, 0, 0xc1);
+    wired_span pr = wired_span_of(g_sr_probe, sizeof g_sr_probe);
     u8         fr[64];
     usz        fl = ncid_encode(fr, sizeof fr, &nf);
     sr_serve_at(&f, &st, &a0, 4, wired_span_of(fr, fl));
     sr_serve_at(&f, &st, &a1, 5, wired_span_of(g_sr_ping, 1));
     (void)sr_drain(&f, n.afd);
-    sr_serve_at(&f, &st, &a2, 6, wired_span_of(g_sr_probe, sizeof g_sr_probe));
+    (void)sr_drain(&f, n.bfd);
+    probe_len = sr_seal_at(&f, &a2, 6, pr, probe);
+    sr_serve_at(&f, &st, &a2, 6, pr);
   }
   r = sr_drain(&f, n.afd);
   CHECK(r.n == 1 && r.resp == 1 && r.chal == 0);
-  CHECK(r.len <= 3 * c.path.fresh_n);
+  CHECK(r.len <= 3 * probe_len);
+  CHECK(r.dcid0 == 0xc1); /* answered under the spare, sequence 1 */
+  CHECK(c.pcid.e[1].in_use == 0);
+  {
+    int retire = 0; /* kept RETIRE_CONNECTION_ID (0x19) frames for seq 1 */
+    for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+      retire += c.rst[i].pln && c.rst[i].pl[0] == 0x19 && c.rst[i].pl[1] == 1;
+    }
+    CHECK(retire == 1);
+  }
   CHECK(sr_chal(&c, n.pfd, &n.a) == 0);
   CHECK(sr_peer_is(&c, &n.b));
   sr_net_close(&n);
@@ -27010,14 +27031,39 @@ static void test_srvrun_client_handshake_done_closes(void) {
   CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
 }
 
-/* RFC 9000 8.2.1/21.9: more PATH_CHALLENGEs in one packet than are latched
- * (WIRED_SRVLOOP_PATH_RX) close the connection rather than leave one
- * unanswered (8.2.2); that many do not. */
+/* n PATH_CHALLENGE frames (RFC 9000 19.17), frame i carrying data i+1;
+ * their length. */
+static usz sr_chal_frames(u8* pl, usz n) {
+  for (usz i = 0; i < n; i++) {
+    pl[i * (1 + PATH_DATA)] = 0x1a;
+    bytes_memset(pl + i * (1 + PATH_DATA) + 1, (u8)(i + 1), PATH_DATA);
+  }
+  return n * (1 + PATH_DATA);
+}
+
+/* RFC 9000 8.2.2/21.9: 8 PATH_CHALLENGEs in one packet (this
+ * implementation's WIRED_SRVLOOP_PATH_RX) are all answered without a close;
+ * a 9th closes the connection rather than leave one unanswered. */
 static void test_srvrun_client_path_challenge_flood_closes(void) {
-  static const u8 pl[] = {0x1a, 1, 1, 1, 1,    1, 1, 1, 1, 0x1a, 2, 2, 2, 2,
-                          2,    2, 2, 2, 0x1a, 3, 3, 3, 3, 3,    3, 3, 3};
-  CHECK(sr_fv_close(pl, 18) == ~0ULL);
-  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+  struct lp_fix f;
+  srvrun_conn   c;
+  conntable     table[WIRED_CONNTABLE_CAP];
+  sockaddr      old_peer, new_peer;
+  srvrun_state  st = {table, &c};
+  sr_net        n;
+  u8            pl[9 * (1 + PATH_DATA)];
+  int           is_app = 0;
+  sr_path_setup(&c, &f, table, &old_peer, &new_peer);
+  sr_net_open(&n, &c);
+  {
+    sr_arrival a = {&n.a, n.sfd, 0, 0, 0};
+    sr_serve_at(&f, &st, &a, 5, wired_span_of(pl, sr_chal_frames(pl, 8)));
+    CHECK(sr_drain(&f, n.afd).resp == 8);
+    CHECK(sr_close_code(&c, &is_app) == ~0ULL);
+    sr_serve_at(&f, &st, &a, 6, wired_span_of(pl, sr_chal_frames(pl, 9)));
+    CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
+  }
+  sr_net_close(&n);
 }
 
 /* RFC 9000 12.4: an unknown frame type after a valid PING. */

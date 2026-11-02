@@ -122,7 +122,19 @@ static void test_pathsel_budget_slotless(void) {
   CHECK(pathsel_budget(&p, &k1) == 0);
 }
 
+/* RFC 9000 8: a slot claimed for the slotless path keeps what was already
+ * sent to it, so claiming does not refill the budget. */
+static void test_pathsel_claim_carries_tx(void) {
+  pathsel     p  = {0};
+  pathsel_key k1 = ps_key(1);
+  pathsel_note_rx(&p, &k1, 100);
+  pathsel_note_tx(&p, &k1, 250);
+  CHECK(pathsel_claim_free(&p, &k1) != 0);
+  CHECK(pathsel_budget(&p, &k1) == 50);
+}
+
 void test_pathsel(void) {
+  test_pathsel_claim_carries_tx();
   test_pathsel_budget_slotless();
   test_pathsel_match_earlier();
   test_pathsel_key_eq();

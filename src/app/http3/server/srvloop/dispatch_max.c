@@ -198,9 +198,11 @@ int srvloop_gather_streams_blocked(
   return seen;
 }
 
-/* RFC 9000 8.2.1 (a peer SHOULD NOT send several in one packet) / 21.9: a
- * datagram with more PATH_CHALLENGEs than are latched is a connection
- * error, so none goes unanswered (8.2.2); the first error wins. */
+/* RFC 9000 21.9: excess non-productive activity MAY be treated as a
+ * connection error. A datagram with more PATH_CHALLENGEs than this
+ * implementation can latch (WIRED_SRVLOOP_PATH_RX) closes the connection,
+ * so none goes unanswered (8.2.2); 8.2.1 only says a sender SHOULD NOT
+ * bundle several in one packet. The first error wins. */
 static void path_challenge_excess(wired_srvloop* l) {
   l->transport_error =
       l->transport_error ? l->transport_error : ERR_PROTOCOL_VIOLATION;

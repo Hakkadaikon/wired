@@ -9,6 +9,8 @@
  * last validated path is exempt, and so is every path before the first
  * live step, where the handshake's own limit applies (8.1). */
 
+/* !seeded keeps the pre-existing behavior before the first live step: the
+ * handshake's own budget applies there. */
 static int srvrun_path_exempt(const srvrun_conn* c, const pathsel_key* k) {
   return !c->path.seeded || srvrun_path_is_valid(c, k);
 }
