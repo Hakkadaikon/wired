@@ -5,13 +5,12 @@
 #include "common/bytes/span/span.h"
 #include "tls/keys/ticket/ticket.h"
 
-/** RFC 8446 4.6.1: the seed this process's session-ticket keys derive
- * from (srvloop_append_tickets seals under the current epoch's key,
- * tls/keys/keyring/keyring.h) -- exposed so the caller can thread it to
- * wired_srvboot_id.ticket_key for OPENING a presented ticket under the
- * current or previous epoch's key. TICKET_KEY_LEN bytes drawn from the
- * CSPRNG once per process (a restart invalidates earlier tickets), valid
- * for the process lifetime.
+/** RFC 8446 4.6.1: a ready-made session-ticket seed for
+ * wired_srvboot_id.ticket_key, which both seals (srvloop_append_tickets)
+ * and opens tickets (tls/keys/keyring/keyring.h). TICKET_KEY_LEN bytes
+ * drawn from the CSPRNG once per process (a restart invalidates earlier
+ * tickets; pass a fixed secret of your own to avoid that), valid for the
+ * process lifetime.
  * @return the ticket key seed, or 0 if the CSPRNG draw failed (resumption
  * then stays disabled). */
 const u8* wired_srvloop_ticket_key(void);

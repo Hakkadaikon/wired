@@ -791,16 +791,21 @@ The next two entries concern lower-level entry points. The server that
   (`ZERORTT_SEEN_LIVE_SECS`, 21 s); while the ring is full of live entries,
   new 0-RTT attempts are refused and those clients fall back to 1-RTT
   (RFC 8446 8.2). Forked workers share the ring; separate server processes
-  and restarts do not (no persistence). Source: `zerortt_seen.h`
-  (ponytail).
+  and restarts do not (no persistence). So with a `ticket_key` seed shared
+  across servers, a 0-RTT ticket can be replayed once per server: do not
+  enable `early_data` on servers that share a seed. Source:
+  `zerortt_seen.h` (ponytail).
 - **Used NEW_TOKEN record holds 4096 tokens** — Affects: servers whose
   clients present many NEW_TOKEN tokens within a token lifetime. The same
   4096-entry ring records each accepted token, and an entry is evicted only
   once it is `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token it records
   has expired. While the ring is full of live entries, further tokens are
   refused and those clients proceed unvalidated: the anti-amplification
-  limit, or a Retry under `force_retry` (RFC 9000 8.1.3). Forked workers share the one ring, so the 4096 is per server, not
-  per worker. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
+  limit, or a Retry under `force_retry` (RFC 9000 8.1.3). Forked workers
+  share the one ring, so the 4096 is per server, not per worker. The record is not shared across separately started servers
+  or kept across a restart, so with a token seed shared through
+  `wired_srvkeys_set_token_key` a token can be reused once per server and
+  per restart. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
   probe-based only (the RFC 8899 4.6.1 option). The initial window uses a
@@ -854,13 +859,22 @@ The next two entries concern lower-level entry points. The server that
   restarted within the same second. A ticket issued by an earlier instance
   in the very second this one opened its recording window is not recognised
   as pre-start. Source: `zerortt_seen_pre_start` (shortcut).
-- **Ticket and Retry-token keys live for one process** — Affects:
-  resumption and address validation across a restart, and across servers
-  started separately behind one address. Both seeds are drawn from the
-  CSPRNG when the server starts (forked `srvworkers` and `srvthreads`
-  workers share one draw), so a ticket or Retry token issued before a
-  restart, or by another independently started server, no longer opens.
-  Source: `srvkeys.h`.
+- **Ticket and Retry-token keys live for one process by default** —
+  Affects: resumption and address validation across a restart, and across
+  servers started separately behind one address. Unless the application
+  supplies its own seeds, both are drawn from the CSPRNG when the server
+  starts (forked `srvworkers` and `srvthreads` workers share one draw), so
+  a ticket or Retry token issued before a restart, or by another
+  independently started server, no longer opens. To keep them valid, set
+  the same secret in `wired_srvboot_id.ticket_key` and pass the same seed
+  to `wired_srvkeys_set_token_key` before the server starts. Each seed is
+  a long-term root secret: generate 32 bytes from a CSPRNG and keep them
+  secret; changing a seed invalidates every outstanding ticket or token.
+  Use separate secrets for `ticket_key` and the token seed; reusing one is
+  not catastrophic, because purpose labels keep the derived keys apart.
+  The 0-RTT replay record stays per process, so with a shared seed early
+  data can be replayed once per server: do not enable `early_data` across
+  servers that share a seed. Source: `srvkeys.h`.
 - **0-RTT replay and NEW_TOKEN trackers share one spinlock each** —
   Affects: `srvworkers` deployments. Each tracker is shared across forked
   workers through a `MAP_SHARED` mapping, guarded by one spinlock over a
