@@ -878,7 +878,8 @@ The next two entries concern lower-level entry points. The server that
   a ticket or Retry token issued before a restart, or by another
   independently started server, no longer opens. To keep them valid, set
   the same secret in `wired_srvboot_id.ticket_key` and pass the same seed
-  to `wired_srvkeys_set_token_key` before the server starts. Source:
+  to `wired_srvkeys_set_token_key` before the server starts. Use two
+  different secrets for `ticket_key` and the token seed. Source:
   `srvkeys.h`.
 - **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
   deployments. The tracker is shared across forked workers through a
