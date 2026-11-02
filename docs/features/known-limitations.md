@@ -574,9 +574,6 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
 - **`h3_tunnel_relay` only flips state** — Affects: apps that use a CONNECT
   tunnel. The raw byte relay of the tunnel (over h3 DATA frames) is the
   application's job. Source: `h3_tunnel_relay` (ponytail).
-- **Capsule-Protocol header not generated or parsed** (RFC 9297 3.4) —
-  Affects: nobody for WebTransport, which does not require it. This is a
-  deliberate scope decision. Source: [rfc9297.md](rfc9297.md) Out of scope.
 - **Capsule-only HTTP Datagram fallback absent** — Affects: paths without
   QUIC DATAGRAM support. QUIC DATAGRAM is assumed. Source:
   [rfc9297.md](rfc9297.md).
@@ -665,24 +662,21 @@ recently sent headers, updated over its own encoder and decoder streams.
   one abort per stream the connection can track (99). If more than that many
   aborts are unacknowledged within one RTT, the excess ones are sent once and
   never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
-- **A request that cannot be decoded is aborted, not answered** — Affects:
-  clients that send malformed or oversized HEADERS. A request stream whose
-  whole HEADERS frame cannot become a request is reset with H3_MESSAGE_ERROR
-  plus STOP_SENDING, without waiting for a FIN. One that ends before its
-  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. No 4xx status is sent,
-  and a HEADERS frame past this decoder's local limits gets H3_MESSAGE_ERROR
-  like a malformed one. Its slot and bidi stream credit are returned. The
-  same happens for a request stream the peer resets while it is still being
-  received, or before any of its data claimed a slot. Source:
-  `connect_headers_complete`, `route_note_incomplete_append`,
-  `reset_request_stream`, `srvrun_abort_incomplete_reqs`,
-  `srvrun_free_reset_reqs`.
-- **STOP_SENDING before the response starts is not remembered** — Affects:
-  clients that cancel a request early. A peer's STOP_SENDING is answered
-  with RESET_STREAM (RFC 9000 3.5) only on a send part that already exists
-  (a response slot, a WT send slot, a CONNECT stream). One that arrives while
-  the request is still being read leaves the later response to run
-  normally. Source: `srvrun_answer_peer_stops`.
+- **A malformed request is aborted, not answered** — Affects: clients that
+  send malformed HEADERS. A request stream whose whole HEADERS frame cannot
+  become a request is reset with H3_MESSAGE_ERROR plus STOP_SENDING, without
+  waiting for a FIN; no 400 is sent first (RFC 9114 4.1.2 MAY), so
+  conformance checkers see the reset they expect. One that ends before its
+  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section that
+  decodes past the advertised limit is answered 431 instead (RFC 9114
+  4.2.2), but a single field line larger than the whole decode scratch, or
+  one this decoder cannot interpret, is reset with
+  QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4). Its slot and bidi stream credit
+  are returned. The same happens for a request stream the peer resets while
+  it is still being received, or before any of its data claimed a slot.
+  Source: `connect_headers_complete`, `route_note_incomplete_append`,
+  `h3reqdrive_line_fail`, `reset_request_stream`,
+  `srvrun_abort_incomplete_reqs`, `srvrun_free_reset_reqs`.
 - **Graceful shutdown is tick-bounded** — Affects: operators who stop the
   server with SIGTERM. The server sends GOAWAY, then waits at most
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before it closes. A SIGTERM

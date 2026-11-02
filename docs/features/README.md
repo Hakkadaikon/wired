@@ -76,8 +76,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2247/2254 requirements demonstrated (99.7%) — 1946 directly tested,
-301 indirect, 7 untested.**
+**Total: 2248/2255 requirements demonstrated (99.7%) — 1948 directly tested,
+300 indirect, 7 untested.**
 
 ## QUIC core
 
@@ -136,7 +136,7 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 9114 — HTTP/3](rfc9114.md) | 96/97 | 81 | 15 | 1 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 43/43 | 42 | 1 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 64/65 | 55 | 9 | 1 |
+| [RFC 9204 — QPACK](rfc9204.md) | 64/65 | 56 | 8 | 1 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 17/17 | 17 | 0 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 22/22 | 18 | 4 | 0 |
 
@@ -146,7 +146,7 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [draft-ietf-webtrans-http3-16](draft-webtrans-http3.md) | 81/81 | 73 | 8 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/10 | 9 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 26/26 | 21 | 5 | 0 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 27/27 | 22 | 5 | 0 |
 
 ## MOQT
 
