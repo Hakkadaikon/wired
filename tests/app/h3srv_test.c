@@ -397,10 +397,10 @@ static void h3srv_status_encodes_literal(u16 status, const char* digits) {
       h3resp_encode_headers_fields_qenc(status, 0, 0, 0, &st.qenc, &ins, &ob));
   CHECK(ins.required_insert_count == 0);
   CHECK(ins.insert_len == 0);
-  CHECK(ob.len == 8);
+  /* the value is Huffman-coded when shorter ("401": 0x82 0x68 0x01) */
+  CHECK(ob.len == 5 + (out[4] & 0x7f));
   CHECK(out[0] == 0x00 && out[1] == 0x00);
-  CHECK(out[2] == 0x5f && out[3] == 0x09 && out[4] == 0x03);
-  CHECK(srv_eq(out + 5, 3, digits, 3));
+  CHECK(out[2] == 0x5f && out[3] == 0x09);
   h3srv_status_decodes_without_table(out, ob.len, digits);
 }
 

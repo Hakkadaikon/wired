@@ -4,9 +4,9 @@
 #include "app/qpack/qpack/integer.h"
 #include "common/bytes/util/bytes.h"
 
-usz qpack_string_encode(wired_mspan buf, wired_span src) {
-  qpack_pfx pfx = {7, 0};
-  usz       off = qpack_int_encode(buf, pfx, src.n);
+/* H=0: the length, then src's octets as they are. */
+static usz str_put_raw(wired_mspan buf, wired_span src, qpack_pfx pfx) {
+  usz off = qpack_int_encode(buf, pfx, src.n);
   if (off == 0) {
     return 0;
   }
@@ -15,6 +15,32 @@ usz qpack_string_encode(wired_mspan buf, wired_span src) {
     return 0;
   }
   return off;
+}
+
+/* H=1 (the bit just above the prefix): the coded length hn, then src's hn
+ * Huffman octets. */
+static usz str_put_huff(
+    wired_mspan buf, wired_span src, usz hn, qpack_pfx pfx) {
+  usz off;
+  pfx.pattern = (u8)(pfx.pattern | (1u << pfx.bits));
+  off         = qpack_int_encode(buf, pfx, hn);
+  if (off == 0 || hn > buf.n - off) {
+    return 0;
+  }
+  qpack_huffman_encode(src, wired_mspan_of(buf.p + off, hn));
+  return off + hn;
+}
+
+/* RFC 7541 5.2 allows either form; choosing Huffman only when strictly
+ * shorter than raw is this encoder's own policy. */
+usz qpack_string_encode_pfx(wired_mspan buf, wired_span src, qpack_pfx pfx) {
+  usz hn = qpack_huffman_encode(src, wired_mspan_of(buf.p, 0));
+  return hn < src.n ? str_put_huff(buf, src, hn, pfx)
+                    : str_put_raw(buf, src, pfx);
+}
+
+usz qpack_string_encode(wired_mspan buf, wired_span src) {
+  return qpack_string_encode_pfx(buf, src, (qpack_pfx){7, 0});
 }
 
 /* The decoded length header: the octet count, where it starts, and H. */

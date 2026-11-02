@@ -36,7 +36,9 @@ int h3resp_encode_headers_field(
  * *insert_out (caller-owned scratch, never null) receives the qpackenc
  * result the :status line was built from -- insert_out->insert_len > 0
  * means a fresh Insert instruction must be sent on the QPACK encoder
- * stream (RFC 9204 4.3.3) and qpackenc_note_sent called once it is.
+ * stream (RFC 9204 4.3.3); once it is staged, call qpackenc_status_commit
+ * and then qpackenc_note_sent. If the field section or the staging fails,
+ * call neither: the encoder state stays as before the plan.
  * Returns 1 with out->len set, 0 if out lacks capacity. */
 int h3resp_encode_headers_field_qenc(
     u16                     status,

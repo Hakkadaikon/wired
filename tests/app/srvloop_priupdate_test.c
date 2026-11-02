@@ -277,6 +277,24 @@ static void test_srvloop_ctrl_settings_latch_field_section(void) {
   CHECK(l.peer_max_field_section == 1);
 }
 
+/* RFC 9204 5 / 3.2.3: the client's SETTINGS_QPACK_MAX_TABLE_CAPACITY (4096
+ * = 0x50 0x00) sizes the response encoder's table at min(4096, local cap)
+ * and owes a Set Dynamic Table Capacity; before it, the table stays 0. */
+static void test_srvloop_ctrl_settings_latch_qpack_capacity(void) {
+  static wired_srvloop l;
+  static const u8      v4096[] = {0x00, 0x04, 0x03, 0x01, 0x50, 0x00};
+  u8                   frame[32];
+  usz                  flen;
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(l.h3.qenc.dyn.capacity == 0 && l.h3.qenc.cap_pending == 0);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, v4096, sizeof v4096, 0);
+  priupdate_dispatch(&l, frame, flen);
+  CHECK(l.h3.qenc.dyn.capacity == QPACKENC_LOCAL_CAP);
+  CHECK(l.h3.qenc.dyn.max_capacity == 4096 && l.h3.qenc.cap_pending == 1);
+}
+
 /* RFC 9114 6.2.1: a client that opens its control stream with the leading
  * 0x00 type varint ALONE (a 1-byte STREAM frame) and sends SETTINGS in a
  * second frame at offset 1 still latches settings_seen -- recognition must
@@ -475,6 +493,7 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_push_unpromised();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
   test_srvloop_ctrl_settings_latch_field_section();
+  test_srvloop_ctrl_settings_latch_qpack_capacity();
   test_srvloop_ctrl_settings_split_after_type_byte();
   test_srvloop_ctrl_ignores_other_uni_stream_chunks();
   test_srvloop_ctrl_first_frame_not_settings_missing();
