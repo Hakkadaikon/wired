@@ -724,11 +724,6 @@ recently sent headers, updated over its own encoder and decoder streams.
   every ack-eliciting send; the server counts only packets that carry
   response or WebTransport stream data. Source: `srvrun_idle_note_tx`
   (shortcut).
-- **Anti-amplification is not applied to a path without a slot** —
-  Affects: clients that migrate while many paths are in flight. A path whose
-  validation was given up or evicted from the path table is not limited to
-  three times what it sent. Source: `srvrun_amp.c` header comment
-  (shortcut).
 - **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
   When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
   based on a multiply-mix of a per-connection secret and the packet number,
@@ -739,11 +734,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   server checks a new client address by sending a PATH_CHALLENGE and waiting
   for the matching PATH_RESPONSE. Two PATH_CHALLENGEs are tracked at once
   (the new path and the path left), plus the last validated path. A probe
-  from a new path is answered and validated only when a slot is free, and
-  ignored otherwise. RFC 9000 8.2.2 says every PATH_CHALLENGE MUST be
-  answered, and an attacker relaying genuine packets from other addresses
-  can keep both slots busy. Only the first two PATH_CHALLENGEs of a packet
-  are answered.
+  from a new path is always answered (RFC 9000 8.2.2), but its validation
+  starts only when a slot is free; otherwise the answer stays within three
+  times the datagram that carried the probe and the path is not used. A
+  packet with more than two PATH_CHALLENGEs closes the connection with
+  PROTOCOL_VIOLATION (RFC 9000 8.2.1, 21.9) instead of leaving one
+  unanswered.
 
   When a path's validation is re-armed (for example, because a second move
   left that path), a fresh challenge starts, so a late response to the
@@ -752,9 +748,9 @@ recently sent headers, updated over its own encoder and decoder streams.
   path's validation times out
   and the server reverts (RFC 9000 9.3.3 calls this defense imperfect). The
   anti-amplification limit (send at most three times what was received)
-  is counted on the path's challenge slot, so a path that holds none (its
-  validation abandoned, or the slot taken by a newer migration) is not
-  limited. Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
+  is counted on the path's challenge slot; a path that holds none gets
+  three times its latest datagram, so its earlier bytes are not credited.
+  Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
 - **Peer connection IDs** — Affects: clients that migrate more than once. A
   connection ID (CID) is the label that lets a QUIC connection survive an
   address change. The server keeps at most two of the client's CIDs (the
