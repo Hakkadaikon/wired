@@ -1,6 +1,5 @@
 #include "app/http3/server/srvkeys/srvkeys.h"
 
-#include "common/bytes/util/bytes.h"
 #include "common/platform/rng/rng.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 
@@ -37,16 +36,17 @@ const u8* srvkeys_newtoken(void) {
   return g_srvkeys[2];
 }
 
-/* The NEW_TOKEN key is HMAC(seed, label), not the seed itself: the seed
- * already keys the Retry keyring (HMAC(seed, be64(epoch))). */
+/* Both keys are HMAC(seed, purpose label), never the seed itself: a seed
+ * also reused as ticket_key then never yields the ticket key's bytes, and
+ * the Retry seed and NEW_TOKEN key differ from each other. */
 int wired_srvkeys_set_token_key(const u8 seed[SRVKEYS_LEN]) {
-  static const u8 label[] = "wired newtoken key";
+  static const u8 retry[]    = "wired retry key";
+  static const u8 newtoken[] = "wired newtoken key";
+  wired_span      key        = wired_span_of(seed, SRVKEYS_LEN);
   if (!srvkeys_ready()) {
     return 0;
   }
-  bytes_memcpy(g_srvkeys[1], seed, SRVKEYS_LEN);
-  hmac_sha256(
-      wired_span_of(seed, SRVKEYS_LEN), wired_span_of(label, sizeof label - 1),
-      g_srvkeys[2]);
+  hmac_sha256(key, wired_span_of(retry, sizeof retry - 1), g_srvkeys[1]);
+  hmac_sha256(key, wired_span_of(newtoken, sizeof newtoken - 1), g_srvkeys[2]);
   return 1;
 }
