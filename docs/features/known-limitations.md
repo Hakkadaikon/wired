@@ -536,18 +536,16 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes are kept; longer ones are
   dropped whole, never truncated. Source: `WIRED_WT_BUFFERED_DATAGRAM_CAP`
   (ponytail).
-- **Datagram drain is a fixed slice, not congestion-controlled** — Affects:
-  apps that send many queued datagrams. Each drain sends at most
-  `SRVRUN_DGRING_DRAIN_MAX` (16) datagrams or `SRVRUN_DGRING_DRAIN_BYTES`
-  (3000) bytes every `SRVRUN_DGRING_DRAIN_MS` (5 ms), about 4.8 Mbps. Source:
-  `SRVRUN_DGRING_DRAIN_MAX` (ponytail).
 - **Datagram ring slots and broadcast urgency** — Affects: apps that send
   HTTP Datagrams at mixed urgencies. An entry drained ahead of the ring head
   keeps its slot until the head passes it, so a long stall of low-urgency
   entries shrinks the free space of the 256-entry ring. A broadcast copied
   to another worker thread loses its urgency and is queued there at the
-  default (3). Source: `srvrun_dgring_send_best`,
-  `srvrun_broadcast_registered` (shortcut).
+  default (3). The ring drains at each connection's congestion window and
+  pacing rate; an entry whose connection is held waits at the front and
+  holds back entries for other connections behind it. Source:
+  `srvrun_dgring_send_best`, `srvrun_broadcast_registered`,
+  `srvrun_dgring_take` (shortcut).
 - **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
   sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
   counts WT streams, streamed request bodies, CONNECT-stream capsules and the
@@ -759,12 +757,11 @@ recently sent headers, updated over its own encoder and decoder streams.
   than 64 below it (below Retire Prior To - 64) is retired again, owing a
   second RETIRE_CONNECTION_ID. Source: `peercid_bit` (ponytail),
   `peercid_past_bit` (shortcut).
-- **ECN-failed connections lose GSO** — Affects: send throughput on networks
-  that break ECN (Explicit Congestion Notification marks in the IP header).
-  A connection whose ECN validation failed sends Not-ECT through a
-  per-datagram TOS cmsg, one `sendmsg` per packet, with no GSO (kernel
-  segmentation offload) batching. AF_XDP (the kernel-bypass driver) never
-  marks. ECT(1) is never sent. Source: `srvrun_ecn_unmarked` (ponytail).
+- **ECN marks are ECT(0) on the UDP socket only** — Affects: networks that
+  rely on ECN (Explicit Congestion Notification marks in the IP header).
+  AF_XDP (the kernel-bypass driver) never marks, and ECT(1) is never sent.
+  A connection whose ECN validation failed sends Not-ECT, still batched by
+  GSO. Source: `srvrun_ecn_unmarked`.
 - **No kernel-fallback paths for socket options** — Affects: apps that call
   the `udp.h` socket helpers directly. The helpers for `IP_TOS`/`IP_RECVTOS`
   and the `IP_MTU_DISCOVER`-style PMTU probe option return the setsockopt
