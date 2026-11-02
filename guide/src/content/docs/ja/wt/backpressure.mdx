@@ -33,3 +33,15 @@ import Example from '../../../../components/Example.astro';
   また、`data` が空で `fin` だけが 1 の呼び出しが来ることもあります。
   そのため、1 回しか書き込まない `"abort"` の回でも、先に `fin=0` のデルタが届くことがあります。
   この例が `hold` を最初のアップロードだけにし、`fin` までバイト列をためてから `"abort"` と比べるのはこのためです。
+
+## サーバーから開くストリームが拒否されたとき
+
+`wired_server_wt_open_uni`/`_bidi`（と `_stream` 付きの版）は、セッションにもう 1 本分のクレジットがないと -1 を返します。
+クレジットとは、ピアの `WT_MAX_STREAMS` や `WT_MAX_DATA`（draft-ietf-webtrans-http3 §5）、QUIC の `MAX_STREAMS`（RFC 9000 §4.6）、
+そしてコネクションの送信スロットのうちこのセッションに割り当てられた分です。
+`wired_srvrun_opt.wt_on_stream_credit`（と `wt_stream_credit_ctx`）を設定すると、開き直せる時点がわかります。
+同じ呼び出しが成功するようになった時点で、拒否 1 回につき 1 度だけ、コネクションのステップから呼ばれます。
+コールバックの中で開き直してかまいません。また拒否されれば、もう一度呼ばれるようになります。
+
+1 つのコネクションが持てるセッション数は、ビルド時の `WIRED_SRVRUN_MAX_WT_SESSIONS`（既定 2、最小 2）で決まります。
+コネクション上のセッションは WT ストリームのスロットを共有するので、増やすときは `WIRED_SRVLOOP_MAX_WT_STREAMS`/`_UNI_STREAMS` も一緒に増やしてください。

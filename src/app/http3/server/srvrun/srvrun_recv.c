@@ -160,6 +160,19 @@ static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
   }
 }
 
+/* The CID index hash key. getrandom fails only on EINTR in practice, so
+ * retry; after that use 0 (the unkeyed hash, still correct) rather than a
+ * partly written seed. */
+static u32 srvrun_table_seed(void) {
+  u32 seed;
+  for (int i = 0; i < 3; i++) {
+    if (rng_bytes((u8*)&seed, sizeof seed)) {
+      return seed;
+    }
+  }
+  return 0;
+}
+
 /* Receive datagrams until told to stop: normal service while no shutdown has
  * been requested; once requested, send GOAWAY to every live connection once
  * and drain for a bounded grace period (RFC 9114 5.2) before returning. */
@@ -168,6 +181,7 @@ void srvrun_loop(const srvrun_cfg* cfg) {
   mmsg_buf     bufs[SRVRUN_RX_BATCH];
   int          tick = 0;
   conntable_init(st.table, WIRED_CONNTABLE_CAP);
+  conntable_seed(st.table, WIRED_CONNTABLE_CAP, srvrun_table_seed());
   srvrun_rx_init(cfg->env, bufs);
   while (!srvrun_shutdown_requested()) {
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);

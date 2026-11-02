@@ -39,6 +39,7 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_send_continues(ctx, slot);
   srvrun_start_held_resps(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
+  srvrun_wt_credit_poll(ctx->cfg->env, c);
   srvrun_send_pass(ctx, slot);
   srvrun_flush_deferred_ack(ctx, c);
   srvrun_ku_discard_stale(c, ctx->now_ms);
