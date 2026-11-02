@@ -22,12 +22,27 @@ static int srvrun_wt_credit_quic_ok(const srvrun_conn* c, int bidi) {
   return bidi || srvrun_uni_open_allowed(c);
 }
 
+/* A free send slot: the share can pass while the table is full. */
+static int srvrun_wt_credit_slot_free(const srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    if (!c->wtsend[i].in_use) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* The QUIC grant and a claimable send slot. */
+static int srvrun_wt_credit_room_ok(const srvrun_conn* c, int bidi) {
+  return srvrun_wt_credit_quic_ok(c, bidi) && srvrun_wt_credit_slot_free(c);
+}
+
 /* The refused open of slot sidx would now pass the same gates. */
 static int srvrun_wt_credit_ok(srvrun_conn* c, int sidx) {
   int        bidi = c->wtx.credit_wait[sidx] - 1;
   wired_span want = {0, c->wtx.credit_len[sidx]};
   return srvrun_wt_open_flow_ok(sidx, srvrun_wt_slot(c, sidx), bidi, want) &&
-         srvrun_wt_open_share_ok(c, sidx) && srvrun_wt_credit_quic_ok(c, bidi);
+         srvrun_wt_open_share_ok(c, sidx) && srvrun_wt_credit_room_ok(c, bidi);
 }
 
 static int srvrun_wt_credit_due(srvrun_conn* c, int sidx) {

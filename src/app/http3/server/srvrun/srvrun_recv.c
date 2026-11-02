@@ -167,7 +167,10 @@ void srvrun_loop(const srvrun_cfg* cfg) {
   srvrun_state st = {cfg->env->table, cfg->env->conns};
   mmsg_buf     bufs[SRVRUN_RX_BATCH];
   int          tick = 0;
+  u32          seed = 0; /* rng failure leaves it 0: unkeyed, still correct */
   conntable_init(st.table, WIRED_CONNTABLE_CAP);
+  rng_bytes((u8*)&seed, sizeof seed);
+  conntable_seed(st.table, WIRED_CONNTABLE_CAP, seed);
   srvrun_rx_init(cfg->env, bufs);
   while (!srvrun_shutdown_requested()) {
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);

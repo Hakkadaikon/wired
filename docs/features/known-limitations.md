@@ -557,8 +557,9 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
 - **Concurrent WT sessions per connection** — Affects: clients that open
   many sessions on one connection. The limit is
   `WIRED_SRVRUN_MAX_WT_SESSIONS` (2, a `-D` build knob, at least 2) per
-  connection, `SRVRUN_MAX_WT_SESSIONS_GLOBAL` (64, equal to
-  `WIRED_CONNTABLE_CAP`) across all connections, and
+  connection, `SRVRUN_MAX_WT_SESSIONS_GLOBAL` (equal to
+  `WIRED_CONNTABLE_CAP`: 4 by default, 64 in the interop image) across all
+  connections, and
   `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` (10) new sessions per connection per
   second. Source: those macros.
 - **Server-initiated stream blocked: the caller retries** — Affects: apps
@@ -798,9 +799,12 @@ The next two entries concern lower-level entry points. The server that
   `CONNTABLE_CAP=<n> just ninja`) and is built with 64 for the interop
   image; the header's own fallback is 64. Lookup is an open-addressing
   hash over every CID a slot owns. The index is rebuilt on each insert,
-  rekey and CID change (O(cap) per connection event, not per packet), and
-  its hash is unkeyed, so chosen Initial DCIDs can collide, which degrades
-  a lookup to at most a full-table scan. Source: `conntable.h` header
+  rekey and CID change (per connection event, not per packet). The hash is
+  keyed with a random per-process seed, so a client cannot precompute
+  colliding Initial DCIDs; it is not a PRF, so one that learns collisions
+  (e.g. by timing) can still cluster them. Worst case: a lookup walks at
+  most 3 * cap buckets (up to 9 * cap CID compares, about 3x the former
+  linear scan) and a rebuild is O(cap^2). Source: `conntable.h` header
   comment (ponytail).
 - **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
   heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints. An entry is

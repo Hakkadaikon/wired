@@ -15,7 +15,7 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 |---|---|---|
 | サーバーあたりの QUIC コネクション | 既定 4、interop イメージは 64（`-D` で上書き可） | `WIRED_CONNTABLE_CAP` |
 | コネクションあたりの WebTransport セッション | 2（`-D` で上書き可、最小 2） | `WIRED_SRVRUN_MAX_WT_SESSIONS` |
-| 全コネクション合計の WebTransport セッション | 64 | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
+| 全コネクション合計の WebTransport セッション | `WIRED_CONNTABLE_CAP` と同じ（既定 4、interop イメージは 64） | `SRVRUN_MAX_WT_SESSIONS_GLOBAL` |
 | コネクションあたり 1 秒間に開ける WebTransport セッション | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
 | コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |

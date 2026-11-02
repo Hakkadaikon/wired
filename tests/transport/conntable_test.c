@@ -108,6 +108,8 @@ static int conntable_t_routes(const conntable* t, int s, int want) {
   return ok;
 }
 
+static void conntable_t_edges(void);
+
 /* #199: the hashed index routes all 3 CIDs of every slot at full capacity,
  * and stays consistent through remove (the CIDs further down a removed
  * entry's probe chain still route), CID retirement (set_cid) and alt2
@@ -153,4 +155,93 @@ void test_conntable_hash(void) {
   conntable_t_cid(c, CONNTABLE_T_CAP + 1, 0);
   CHECK(conntable_insert(t, CONNTABLE_T_CAP, c, 8) == 0);
   CHECK(conntable_find(t, CONNTABLE_T_CAP, c, 8) == 0);
+  conntable_t_edges();
+}
+
+/* Up to n CIDs (conntable_t_cid(.., 100 + j, 0)) whose home bucket in a
+ * cap-4 table is b, written to out; returns how many were found. */
+static int conntable_t_homed(const conntable* t, usz b, u8 out[][8], int n) {
+  int got = 0;
+  for (int j = 0; j < 4096 && got < n; j++) {
+    conntable_t_cid(out[got], 100 + j, 0);
+    got += conntable_home(t, wired_span_of(out[got], 8), 4 * CONNTABLE_HB) == b;
+  }
+  return got;
+}
+
+/* #199: CIDs sharing one home bucket all route, and removing the head of the
+ * probe chain keeps the rest routing. */
+static void conntable_t_collide(void) {
+  conntable t[4];
+  u8        c[3][8];
+  conntable_init(t, 4);
+  CHECK(conntable_t_homed(t, 5, c, 3) == 3);
+  for (int i = 0; i < 3; i++) {
+    CHECK(conntable_insert(t, 4, c[i], 8) == i);
+  }
+  CHECK(conntable_find(t, 4, c[2], 8) == 2);
+  conntable_remove(t, 4, 0);
+  CHECK(conntable_find(t, 4, c[0], 8) == -1);
+  CHECK(conntable_find(t, 4, c[1], 8) == 1);
+  CHECK(conntable_find(t, 4, c[2], 8) == 2);
+}
+
+/* A chain starting at the last bucket wraps to bucket 0. */
+static void conntable_t_wrap(void) {
+  conntable t[4];
+  u8        c[2][8];
+  usz       last = 4 * CONNTABLE_HB - 1;
+  conntable_init(t, 4);
+  CHECK(conntable_t_homed(t, last, c, 2) == 2);
+  CHECK(conntable_insert(t, 4, c[0], 8) == 0);
+  CHECK(conntable_insert(t, 4, c[1], 8) == 1);
+  CHECK(*conntable_bucket(t, last) == 1);
+  CHECK(*conntable_bucket(t, 0) == 2);
+  CHECK(conntable_find(t, 4, c[1], 8) == 1);
+}
+
+/* Reusing slot 0 drops all 3 CIDs of its previous connection. */
+static void conntable_t_reuse(void) {
+  static conntable t[CONNTABLE_T_CAP];
+  u8               c[8];
+  conntable_t_fill(t);
+  conntable_remove(t, CONNTABLE_T_CAP, 0);
+  conntable_t_cid(c, CONNTABLE_T_CAP + 2, 0);
+  CHECK(conntable_insert(t, CONNTABLE_T_CAP, c, 8) == 0);
+  CHECK(conntable_t_routes(t, 0, -1));
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, c, 8) == 0);
+}
+
+/* 1 if any of 16 CIDs gets a different home under seeds a and b. */
+static int conntable_t_seed_moves(conntable* t, u32 a, u32 b) {
+  u8  c[8];
+  int moved = 0;
+  for (int j = 0; j < 16; j++) {
+    conntable_t_cid(c, j, 0);
+    conntable_seed(t, CONNTABLE_T_CAP, a);
+    usz ha = conntable_home(t, wired_span_of(c, 8), CONNTABLE_T_CAP * 4);
+    conntable_seed(t, CONNTABLE_T_CAP, b);
+    moved |= ha != conntable_home(t, wired_span_of(c, 8), CONNTABLE_T_CAP * 4);
+  }
+  return moved;
+}
+
+/* #199 review: the per-table seed moves the buckets (a client cannot
+ * precompute collisions) and a reseed keeps every CID routing. */
+static void conntable_t_seeded(void) {
+  static conntable t[CONNTABLE_T_CAP];
+  conntable_t_fill(t);
+  CHECK(conntable_t_seed_moves(t, 1, 0x9E3779B9u));
+  int all = 1;
+  for (int s = 0; s < CONNTABLE_T_CAP; s++) {
+    all = all && conntable_t_routes(t, s, s);
+  }
+  CHECK(all);
+}
+
+static void conntable_t_edges(void) {
+  conntable_t_collide();
+  conntable_t_wrap();
+  conntable_t_reuse();
+  conntable_t_seeded();
 }

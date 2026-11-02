@@ -35,6 +35,7 @@ i64 srvrun_wt_open_uni_common(
   }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) {
+    srvrun_wt_credit_arm(c, sidx, 0, payload.n); /* send table full */
     return -1;
   }
   w->append_open     = keep_open;
@@ -97,6 +98,7 @@ static i64 srvrun_wt_open_bidi_common(
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) {
+    srvrun_wt_credit_arm(c, sidx, 1, payload.n); /* send table full */
     return -1;
   }
   w->append_open     = keep_open;

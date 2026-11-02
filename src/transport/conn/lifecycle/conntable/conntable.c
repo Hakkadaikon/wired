@@ -5,6 +5,7 @@ void conntable_init(conntable* t, usz cap) {
     t[i].live         = 0;
     t[i].alt_cid_len  = 0;
     t[i].alt2_cid_len = 0;
+    t[i].hseed        = 0;
   }
   conntable_reindex(t, cap);
 }

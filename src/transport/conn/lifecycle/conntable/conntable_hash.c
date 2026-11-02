@@ -39,30 +39,41 @@ static int conntable_slot_matches(const conntable* slot, wired_span want) {
   return conntable_any_alt_matches(slot, want);
 }
 
-/* FNV-1a over the CID, seeded with its length. A client-chosen Initial DCID
- * can force collisions, which degrades a lookup to the old linear scan. */
-static u32 conntable_hash(wired_span c) {
-  u32 h = 2166136261u ^ (u32)c.n;
+/* FNV-1a over the CID, keyed by the table's random seed (conntable_seed) and
+ * finished with the murmur3 fmix32 avalanche, so a client cannot precompute
+ * Initial DCIDs that share a bucket. Not a PRF: an attacker who learns the
+ * buckets (e.g. by timing) can still cluster them, bounded by the probe
+ * chain (<= 3 * cap buckets, see conntable.h). */
+static u32 conntable_hash(wired_span c, u32 seed) {
+  u32 h = (2166136261u ^ seed) ^ (u32)c.n;
   for (usz i = 0; i < c.n; i++) {
     h = (h ^ c.p[i]) * 16777619u;
   }
-  return h;
+  h ^= h >> 16;
+  h *= 0x85EBCA6Bu;
+  h ^= h >> 13;
+  h *= 0xC2B2AE35u;
+  return h ^ (h >> 16);
 }
 
-/* nb == 0 (a zero-capacity table) has no bucket: home 0, and the probe
- * loops below never run. */
-static usz conntable_home(wired_span c, usz nb) {
-  return nb ? conntable_hash(c) % nb : 0;
+/* nb == 0 (a zero-capacity table) has no bucket and no t[0] to hold the
+ * seed: home 0, and the probe loops below never run. */
+static usz conntable_home(const conntable* t, wired_span c, usz nb) {
+  return nb ? conntable_hash(c, t[0].hseed) % nb : 0;
+}
+
+static const u16* conntable_bucket_at(const conntable* t, usz b) {
+  return &t[b / CONNTABLE_HB].hix[b % CONNTABLE_HB];
 }
 
 static u16* conntable_bucket(conntable* t, usz b) {
-  return &t[b / CONNTABLE_HB].hix[b % CONNTABLE_HB];
+  return (u16*)conntable_bucket_at(t, b);
 }
 
 /* Linear probing; terminates because the load is <= 3/4 (CONNTABLE_HB). */
 static void conntable_index_put(conntable* t, usz cap, wired_span c, usz i) {
   usz nb = cap * CONNTABLE_HB;
-  usz b  = conntable_home(c, nb);
+  usz b  = conntable_home(t, c, nb);
   while (*conntable_bucket(t, b)) {
     b = b + 1 < nb ? b + 1 : 0;
   }
@@ -96,10 +107,17 @@ void conntable_reindex(conntable* t, usz cap) {
   }
 }
 
+void conntable_seed(conntable* t, usz cap, u32 seed) {
+  if (cap) {
+    t[0].hseed = seed;
+  }
+  conntable_reindex(t, cap);
+}
+
 /* One probe step: the matching slot, -1 at an empty bucket (end of chain),
  * -2 to keep probing. */
 static int conntable_probe(const conntable* t, usz b, wired_span want) {
-  u16 e = t[b / CONNTABLE_HB].hix[b % CONNTABLE_HB];
+  u16 e = *conntable_bucket_at(t, b);
   if (!e) {
     return -1;
   }
@@ -109,7 +127,7 @@ static int conntable_probe(const conntable* t, usz b, wired_span want) {
 int conntable_find(const conntable* t, usz cap, const u8* dcid, u8 dcid_len) {
   wired_span want = wired_span_of(dcid, dcid_len);
   usz        nb   = cap * CONNTABLE_HB;
-  usz        home = conntable_home(want, nb);
+  usz        home = conntable_home(t, want, nb);
   for (usz k = 0; k < nb; k++) {
     int r = conntable_probe(t, (home + k) % nb, want);
     if (r != -2) {

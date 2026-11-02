@@ -1,6 +1,16 @@
 #include "app/http3/server/srvloop/srvloop_crit.h"
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+/* The wt/wt1 and wt_active/wt1_active scalars alias slots 0 and 1. */
+_Static_assert(
+    __builtin_offsetof(srvrun_conn, wt1) ==
+        __builtin_offsetof(srvrun_conn, wt_slots[1]),
+    "wt1 aliases wt_slots[1]");
+_Static_assert(
+    __builtin_offsetof(srvrun_conn, wt1_active) ==
+        __builtin_offsetof(srvrun_conn, wt_slot_active[1]),
+    "wt1_active aliases wt_slot_active[1]");
+
 static int wt_slot_is_connect_id(const srvrun_conn* c, int i, u64 stream_id);
 static int srvrun_wt_conn_flow_control(const srvrun_conn* c);
 static int srvrun_wt_free_slot_any(const srvrun_conn* c);
