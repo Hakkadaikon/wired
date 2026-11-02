@@ -36,6 +36,16 @@ const u8* srvkeys_newtoken(void) {
   return g_srvkeys[2];
 }
 
+/* Zero static storage is an empty tracker (zerortt_seen_init's state). */
+static zerortt_seen  g_srvkeys_newtok_seen;
+static zerortt_seen* g_srvkeys_newtok_tab = &g_srvkeys_newtok_seen;
+
+zerortt_seen* srvkeys_newtoken_seen(void) { return g_srvkeys_newtok_tab; }
+
+int srvkeys_newtoken_share(void) {
+  return zerortt_seen_share(&g_srvkeys_newtok_tab, &g_srvkeys_newtok_seen);
+}
+
 /* Both keys are HMAC(seed, purpose label), never the seed itself, so the
  * Retry seed and NEW_TOKEN key differ from each other. Use a secret
  * separate from ticket_key; reusing it is not catastrophic, because the

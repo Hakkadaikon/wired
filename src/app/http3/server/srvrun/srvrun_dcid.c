@@ -32,7 +32,7 @@ static void srvrun_path_keys(
 
 /* RFC 9000 5.1.2: retire the peer IDs no tracked path uses and those the
  * peer asked to retire. Each RETIRE_CONNECTION_ID is resent until ACKed; one
- * is taken off the queue (at most PEERCID_RETIRE, twice the default
+ * is taken off the queue (at most PEERCID_RETIRE, twice the advertised
  * active_connection_id_limit) only while a resend entry is free, which
  * bounds the retirements awaiting acknowledgment. */
 void srvrun_path_retire(const srvrun_cfg* cfg, srvrun_conn* c) {

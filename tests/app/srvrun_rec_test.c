@@ -524,6 +524,46 @@ static void test_srvrun_rec_ack_prunes_acked_ranges(void) {
   CHECK(a.ranges[0].hi == 27 && a.ranges[0].lo == 27);
 }
 
+/* Seal one 1-RTT packet carrying pl through the recorded send path. */
+static void srvrec_send_rec(struct lp_fix* f, const u8* pl, usz n) {
+  u8                    sealed[1500];
+  wired_obuf            sob = obuf_of(sealed, sizeof sealed);
+  wired_srvloop_send_in sin = {
+      wired_span_of(f->l.cli_scid, f->l.cli_scid_len),
+      f->l.tx_pn++,
+      -1,
+      wired_span_of(pl, n),
+      0,
+      0,
+      0,
+      0};
+  CHECK(srvloop_send_onertt_rec(&f->l, &f->s, &sin, &sob) == 1);
+}
+
+/* RFC 9000 10.1: the idle timer restarts at the first ack-eliciting send
+ * since the last receive, whatever the packet carries (here a PING, no
+ * STREAM frame); a bare ACK does not, and a later send does not move it. */
+static void test_srvrun_rec_idle_restarts_on_any_eliciting(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob   = {out, sizeof out, 0};
+  u8            ping = 0x01;
+  u8            ack[16];
+  ack_frame     a  = {0, 1, {{0, 0}}, 0, 0, 0, 0};
+  usz           an = ack_encode(ack, sizeof ack, &a);
+  lp_confirm(&f, &ob);
+  f.l.ackst.idle_tx_ms = 0;
+  f.l.now_ms           = 4000;
+  srvrec_send_rec(&f, ack, an);
+  CHECK(f.l.ackst.idle_tx_ms == 0);
+  f.l.now_ms = 5000;
+  srvrec_send_rec(&f, &ping, 1);
+  CHECK(f.l.ackst.idle_tx_ms == 5000);
+  f.l.now_ms = 6000;
+  srvrec_send_rec(&f, &ping, 1);
+  CHECK(f.l.ackst.idle_tx_ms == 5000);
+}
+
 /* RFC 9000 13.2.4: 33 separate ranges in the receive window (every other
  * pn, 100..164) exceed ACK_MAX_RANGES; the ACK still goes out with the 32
  * newest instead of not at all. */
@@ -902,4 +942,5 @@ void test_srvrun_rec(void) {
   test_srvrun_cc_paced_not_app_limited();
   test_srvrun_dg_priority_vs_stream();
   test_srvrun_dg_pending_by_urgency();
+  test_srvrun_rec_idle_restarts_on_any_eliciting();
 }

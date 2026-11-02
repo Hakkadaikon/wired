@@ -696,11 +696,12 @@ static void test_srvrun_send_stream_slice_writes_stream_frame_sent(void) {
   {
     wired_sendq_slice sl;
     CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
-    c.idle_tx_ms = 0;
+    c.l.ackst.idle_tx_ms = 0;
+    c.l.now_ms           = 7000;
     CHECK(srvrun_send_stream_slice(&ctx, &c, &c.resp[0].sess, 11, &sl, 1));
   }
   /* RFC 9000 10.1: the first ack-eliciting send restarts the idle timer */
-  CHECK(c.idle_tx_ms == 7000);
+  CHECK(c.l.ackst.idle_tx_ms == 7000);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_sent\",\"stream_id\":11,\"offset\":0,"
@@ -3372,7 +3373,7 @@ static void test_srvrun_idle_uses_negotiated_timeout(void) {
   /* a send after the receive restarts the timer */
   c                               = sr_idle_slot(&st, table);
   c->s.sdrv.peer_max_idle_timeout = 10000;
-  c->idle_tx_ms                   = 4000;
+  c->l.ackst.idle_tx_ms           = 4000;
   CHECK(sr_idle_survives(&st, 4000 + 9999) == 1);
   CHECK(sr_idle_survives(&st, 4000 + 10000) == 0);
   /* 3*PTO above a tiny negotiated value wins */
@@ -3433,13 +3434,13 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
                     0,  0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
   conntable_init(table, WIRED_CONNTABLE_CAP);
-  st.conns[2].up         = 0;
-  st.conns[2].last_ms    = 0;
-  st.conns[2].idle_tx_ms = 99;
+  st.conns[2].up                 = 0;
+  st.conns[2].last_ms            = 0;
+  st.conns[2].l.ackst.idle_tx_ms = 99;
   srvrun_serve_slot(&ctx, 2, wired_mspan_of(sh, sizeof sh));
   CHECK(st.conns[2].last_ms == 12345);
   /* RFC 9000 10.1: the next ack-eliciting send restarts the timer anew */
-  CHECK(st.conns[2].idle_tx_ms == 0);
+  CHECK(st.conns[2].l.ackst.idle_tx_ms == 0);
 }
 
 /* One sealed 1-RTT PING from f's client at its next packet number -- a
@@ -3873,6 +3874,80 @@ static void test_srvrun_new_token_after_confirm_and_migration(void) {
   CHECK(g_srvrun_send_count == sent + 2);
   CHECK(sr_newtok_accepted(&c, &f, &b) == 1);
   CHECK(sr_newtok_accepted(&c, &f, &a) == 0); /* bound to the new IP */
+}
+
+/* RFC 9000 8.1.4 across forked workers (srvworkers): once the used-token
+ * record is shared before fork, a NEW_TOKEN token a child accepted is a
+ * reuse in the parent (and every sibling) too. Side effect: the
+ * process-wide record stays switched to the shared mapping for the rest of
+ * the suite. */
+static void test_srvrun_new_token_single_use_across_fork(void) {
+  u8       tok[SRVRUN_NEWTOK_LEN];
+  sockaddr a;
+  u64      now    = wired_clock_epoch_secs();
+  i64      status = 0, pid;
+  wired_udp_addr(&a, 4433, (const u8[4]){127, 0, 0, 9});
+  CHECK(srvrun_newtok_make(&a, VERSION_1, now, tok) == SRVRUN_NEWTOK_LEN);
+  CHECK(srvkeys_newtoken_share() == 1);
+  CHECK(srvkeys_newtoken_share() == 1); /* idempotent */
+  pid = wired_arch_fork();
+  if (pid == 0) {
+    wired_arch_exit_group(
+        srvrun_newtok_ok(&a, VERSION_1, wired_span_of(tok, sizeof tok), now));
+  }
+  CHECK(pid > 0);
+  CHECK(wired_arch_wait4(pid, &status, 0, 0) == pid);
+  CHECK((status & 0xffff) == 0x100); /* exited normally, code 1: accepted */
+  CHECK(
+      srvrun_newtok_ok(&a, VERSION_1, wired_span_of(tok, sizeof tok), now) ==
+      0);
+}
+
+/* c's kept resend entry carrying a NEW_TOKEN frame, or 0. */
+static srvrun_rst* sr_kept_new_token(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (c->rst[i].pln && c->rst[i].pl[0] == FRAME_NEW_TOKEN) {
+      return &c->rst[i];
+    }
+  }
+  return 0;
+}
+
+/* RFC 9000 13.3: a NEW_TOKEN frame goes out through the recorded send path
+ * and is kept until its packet is acknowledged -- resent when the packet
+ * is not (lost), dropped once it is. */
+static void test_srvrun_new_token_resent_until_acked(void) {
+  struct lp_fix      f;
+  srvrun_conn        c;
+  u8                 obuf[1024];
+  wired_obuf         ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg         cfg = {0};
+  srvrun_step_ctx    ctx = {0};
+  srvrun_newtok_mark m;
+  srvrun_rst*        e;
+  usz                sent;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&c.peer, 4433, (const u8[4]){127, 0, 0, 1});
+  cfg.fd            = -1;
+  cfg.env           = &g_srvrun_env;
+  ctx.cfg           = &cfg;
+  c.path.seeded     = 1;
+  c.path.last_valid = srvrun_send_key(&cfg, &c);
+  m                 = srvrun_newtok_mark_of(&c);
+  m.confirmed       = 0; /* the step that sent HANDSHAKE_DONE */
+  srvrun_send_new_token(&ctx, &c, &m);
+  e = sr_kept_new_token(&c);
+  CHECK(e != 0);
+  if (!e) {
+    return;
+  }
+  CHECK(sentmeta_find(&c.l.ackst.sent, e->pn) != SENTMETA_CAP);
+  sent = g_srvrun_send_count;
+  CHECK(srvrun_rst_retry(&cfg, &c, e->due_ms) == 1); /* unacked: resent */
+  CHECK(g_srvrun_send_count == sent + 1);
+  CHECK(sr_kept_new_token(&c) == e);
+  srvrun_rst_ack(&c, e->pn, e->pn);
+  CHECK(sr_kept_new_token(&c) == 0);
 }
 
 /* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
@@ -4873,8 +4948,8 @@ static void test_srvrun_path_ncid_seq_reuse_closes(void) {
   CHECK(sr_close_code(&c, &is_app) == ERR_PROTOCOL_VIOLATION);
 }
 
-/* RFC 9000 5.1.1: an ID past the active limit (2, never advertised
- * higher) closes the connection with CONNECTION_ID_LIMIT_ERROR. */
+/* RFC 9000 5.1.1: an ID past the advertised active limit (4) closes the
+ * connection with CONNECTION_ID_LIMIT_ERROR. */
 static void test_srvrun_path_ncid_over_limit_closes(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -4883,9 +4958,11 @@ static void test_srvrun_path_ncid_over_limit_closes(void) {
   srvrun_state  st = {table, &c};
   int           is_app;
   sr_path_setup(&c, &f, table, &old_peer, &new_peer);
-  sr_ncid(&f, &st, &old_peer, 4, sr_cid(1, 0, 0xc1));
+  for (u64 s = 1; s < PEERCID_CAP; s++) {
+    sr_ncid(&f, &st, &old_peer, 3 + s, sr_cid(s, 0, (u8)(0xc0 + s)));
+  }
   CHECK(!c.closing);
-  sr_ncid(&f, &st, &old_peer, 5, sr_cid(2, 0, 0xc2));
+  sr_ncid(&f, &st, &old_peer, 3 + PEERCID_CAP, sr_cid(PEERCID_CAP, 0, 0xcf));
   CHECK(sr_close_code(&c, &is_app) == ERR_CONNECTION_ID_LIMIT_ERROR);
 }
 
@@ -28134,6 +28211,8 @@ void test_srvrun(void) {
   test_srvrun_path_challenge_generated_on_rebind();
   test_srvrun_path_challenge_sent_to_new_peer();
   test_srvrun_new_token_after_confirm_and_migration();
+  test_srvrun_new_token_resent_until_acked();
+  test_srvrun_new_token_single_use_across_fork();
   test_srvrun_path_response_matching_validates();
   test_srvrun_path_response_mismatch_does_not_validate();
   test_srvrun_path_response_without_challenge_is_noop();

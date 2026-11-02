@@ -24,15 +24,28 @@
  * one-second clock up. */
 #define ZERORTT_SEEN_LIVE_SECS 21
 
+/* Lock attempts before a check gives up and refuses: far above one
+ * critical section (a 4096-entry scan), so only a lock left held by a
+ * killed worker reaches it. */
+#define ZERORTT_SEEN_SPIN (1U << 20)
+
 /** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
  * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
-  u8  digest[ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
-  usz next;                         /* ring write cursor */
-  u64 at[ZERORTT_SEEN_CAP];         /* epoch secs each digest was recorded */
-  usz count;                        /* entries filled so far (<= CAP) */
-  int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
-  /* epoch secs the recording window opened (0 = not yet): see
+  /** SHA-256 of each seen identity */
+  u8 digest[ZERORTT_SEEN_CAP][32];
+  /** ring write cursor */
+  usz next;
+  /** epoch secs each digest was recorded */
+  u64 at[ZERORTT_SEEN_CAP];
+  /** entries filled so far (<= CAP) */
+  usz count;
+  /** 1 while one thread runs zerortt_seen_check's find+record */
+  int lock;
+  /** 1 once a check timed out on lock: every later check refuses without
+   * spinning (the lock is presumed held by a dead worker for good) */
+  int stuck;
+  /** epoch secs the recording window opened (0 = not yet): see
    * zerortt_seen_pre_start */
   u64 started;
 } zerortt_seen;
@@ -49,6 +62,13 @@ int zerortt_seen_check(zerortt_seen* s, wired_span identity);
 /* zerortt_seen_check at now_secs (epoch seconds) instead of the clock; a
  * full ring whose oldest entry is still live refuses (returns 0). */
 int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs);
+/* zerortt_seen_check_at with entries live for life_secs instead of
+ * ZERORTT_SEEN_LIVE_SECS: a full ring evicts its oldest only once that
+ * entry is life_secs old (the NEW_TOKEN record passes the token lifetime).
+ * Also 0 when the lock stays held past ZERORTT_SEEN_SPIN tries (a worker
+ * died holding it): refusing is the safe side. */
+int zerortt_seen_check_live(
+    zerortt_seen* s, wired_span identity, u64 now_secs, u64 life_secs);
 
 /* RFC 8446 8.2: open s's recording window at now_secs unless it is
  * already open. The server opens it before it issues any ticket (sdrv_init),
@@ -67,5 +87,12 @@ int zerortt_seen_pre_start(zerortt_seen* s, u64 issued_at, u64 now_secs);
 /* Open s's recording window at secs, replacing any earlier start (e.g. a
  * server that knows its own start time). */
 void zerortt_seen_set_started(zerortt_seen* s, u64 secs);
+
+/* Across fork(2) (srvworkers): move the tracker *tab points at -- still
+ * the process-local `local` -- into an anonymous shared mapping and point
+ * *tab there, so the parent and every child keep one record. A second call
+ * is a no-op. Returns 1 once shared, 0 if the mapping failed (*tab then
+ * stays local). Call before forking. */
+int zerortt_seen_share(zerortt_seen** tab, const zerortt_seen* local);
 
 #endif

@@ -68,11 +68,6 @@ typedef struct {
  * SignatureSchemeList shape as signature_algorithms. */
 #define SDRV_SIG_ALGS_CERT_EXT_TYPE 0x0032
 
-/* mmap(2) flags for a region fork(2) children keep sharing with the parent
- * (Linux <sys/mman.h>). */
-#define SDRV_PROT_RW 0x3
-#define SDRV_MAP_SHARED_ANON 0x21
-
 /* RFC 8446 3.4 vector walking shared by the ClientHello shape gates
  * (sdrv_ch_shape.c, sdrv_ch_psk.c). */
 /* One entry of a vector at q (n bytes readable): the offset past it, or 0
