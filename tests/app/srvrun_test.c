@@ -24219,6 +24219,23 @@ static int sr_resp_is_status(const srvrun_resp* r, u16 status) {
          srvrun_wt_bytes_eq(r->sess.q.p, want, ob.len);
 }
 
+/* 1 iff r is armed with exactly the SDK's 200 to an Extended CONNECT --
+ * the WebTransport session's, capsule-protocol included (RFC 9297 3.4). */
+static int sr_resp_is_wt_200(const srvrun_resp* r) {
+  wired_h3reqdrive_req req = {0};
+  u8                   want[256];
+  wired_obuf           ob = obuf_of(want, sizeof want);
+  req.method              = (const u8*)"CONNECT";
+  req.method_len          = 7;
+  req.protocol            = (const u8*)"webtransport";
+  req.protocol_len        = 12;
+  if (!srvrun_status_build(&req, 200, 0, &ob)) {
+    return 0;
+  }
+  return r->in_use && r->sess.q.len == ob.len &&
+         srvrun_wt_bytes_eq(r->sess.q.p, want, ob.len);
+}
+
 /* ===== wired_srvrun_opt.wt_origin_check (draft-ietf-webtrans-http3-15
  * SS3.1, RFC 6454): the app's Origin verdict for a WebTransport Extended
  * CONNECT, driven by real request bytes through the server path. */
@@ -24282,7 +24299,7 @@ static void test_srvrun_wt_origin_check_allowed_establishes(void) {
       srvrun_wt_bytes_eq(g_og_origin.p, (const u8*)"https://a.example", 17));
   CHECK(g_og_authority.n == 9 && g_og_authority.p[0] == 'l');
   CHECK(c->wt_active == 1);
-  CHECK(sr_resp_is_status(&c->resp[0], 200));
+  CHECK(sr_resp_is_wt_200(&c->resp[0]));
 }
 
 /* A disallowed Origin is answered 403 with no session, and once the 403 is
@@ -24313,7 +24330,7 @@ static void test_srvrun_wt_origin_check_unset_unchanged(void) {
   srvrun_conn* c = sr_sl_fixture();
   sr_og_send_connect(c, "https://evil.example", 20);
   CHECK(c->wt_active == 1);
-  CHECK(sr_resp_is_status(&c->resp[0], 200));
+  CHECK(sr_resp_is_wt_200(&c->resp[0]));
 }
 
 /* A HEADERS frame exactly filling req_buf is still decoded and served. */
@@ -26614,6 +26631,121 @@ static void test_srvrun_stop_before_response_buffered(void) {
   *c = (srvrun_conn){0};
 }
 
+/* RFC 9000 3.5 / 19.5: a STOP_SENDING that opens the request stream before
+ * any request byte arrived is answered with RESET_STREAM at Final Size 0,
+ * and the request that follows is never answered (issue #196). */
+static void test_srvrun_stop_before_request_bytes(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_final(c, 0) == 0);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(srvrun_resp_find(c, 0) == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* A request field section's pseudo-headers (method, :protocol when given)
+ * into f; returns its length. */
+static usz sr_fs_pseudo(u8* f, usz cap, const char* method, const char* proto) {
+  wired_obuf      fob = obuf_of(f, cap);
+  h3req_pseudo_in pin = {
+      wired_span_cstr(method), wired_span_of((const u8*)"https", 5), SR_AUTH,
+      wired_span_of((const u8*)"/", 1), wired_span_cstr(proto)};
+  CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
+  return fob.len;
+}
+
+/* Send field section f[0..n) as stream 0's one HEADERS frame. */
+static void sr_fs_send(srvrun_conn* c, const u8* f, usz n, int fin) {
+  static u8  req[SR_REQ_BUF_CAP];
+  wired_obuf ob = obuf_of(req, sizeof req);
+  CHECK(h3_frame_put(&ob, H3_FRAME_HEADERS, wired_span_of(f, n)));
+  sr_sl_send_stream(c, req, ob.len, fin);
+}
+
+/* RFC 9204 3.1: an invalid static table index (99: the table ends at 98)
+ * in a request's field line closes the connection with
+ * QPACK_DECOMPRESSION_FAILED -- a connection error, not a stream reset
+ * (issue #197). */
+static void test_srvrun_bad_static_index_closes_conn(void) {
+  u8           f[128];
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  usz          n      = sr_fs_pseudo(f, sizeof f, "GET", "");
+  f[n++]              = 0xff; /* indexed, static, 6-bit prefix 63 ... */
+  f[n++]              = 0x24; /* ... + 36 = index 99 */
+  sr_fs_send(c, f, n, 1);
+  CHECK(sr_close_code(c, &is_app) == QPACK_DECOMPRESSION_FAILED);
+  CHECK(is_app == 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* Append a Literal Field Line With Literal Name "x-<id>" (RFC 9204 4.5.6)
+ * whose value is 6400 'a's Huffman-coded: 'a' is 00011 (RFC 7541 Appendix
+ * B), so eight pack into the five octets below, 800 times over. */
+static usz sr_fs_huff_line(u8* f, usz cap, usz n, char id) {
+  static const u8 a8[5] = {0x18, 0xc6, 0x31, 0x8c, 0x63};
+  qpack_pfx       pfx   = {7, 0x80};
+  f[n++]                = 0x23;
+  f[n++]                = 'x';
+  f[n++]                = '-';
+  f[n++]                = (u8)id;
+  n += qpack_int_encode(wired_mspan_of(f + n, cap - n), pfx, 4000);
+  for (usz i = 0; i < 800; i++) {
+    bytes_memcpy(f + n, a8, sizeof a8);
+    n += sizeof a8;
+  }
+  return n;
+}
+
+/* RFC 9114 4.2.2: a request whose field section decodes past this server's
+ * limit (the advertised SETTINGS_MAX_FIELD_SECTION_SIZE) though each line
+ * is valid QPACK -- two 6400-octet Huffman values in an ~8 KB HEADERS
+ * frame -- is answered 431, not reset as a QPACK failure (issue #198). */
+static void test_srvrun_oversized_field_section_gets_431(void) {
+  static u8    f[SR_REQ_BUF_CAP];
+  srvrun_conn* c = sr_sl_fixture();
+  usz          n = sr_fs_pseudo(f, sizeof f, "GET", "");
+  n              = sr_fs_huff_line(f, sizeof f, n, 'a');
+  n              = sr_fs_huff_line(f, sizeof f, n, 'b');
+  sr_fs_send(c, f, n, 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_resp_is_status(&c->resp[0], 431));
+  CHECK(sr_kept_reset_code(c, 0) == ~0ULL);
+  CHECK(!c->closing);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9297 3.4: the 2xx establishing a WebTransport session carries
+ * capsule-protocol: ?1, and the client's own capsule-protocol header is
+ * accepted (ignored) on its Extended CONNECT (issue #206). */
+static void test_srvrun_wt_200_capsule_protocol(void) {
+  static const u8 cp[] = {0x27, 0x09, 'c', 'a', 'p',  's', 'u',
+                          'l',  'e',  '-', 'p', 'r',  'o', 't',
+                          'o',  'c',  'o', 'l', 0x02, '?', '1'};
+  u8              f[256];
+  srvrun_conn*    c = sr_sl_fixture();
+  usz             n = sr_fs_pseudo(f, sizeof f, "CONNECT", "webtransport");
+  bytes_memcpy(f + n, cp, sizeof cp);
+  sr_fs_send(c, f, n + sizeof cp, 0);
+  CHECK(c->wt_active == 1);
+  CHECK(srn_wt_contains(
+      c->resp[0].sess.q.p, c->resp[0].sess.q.len, "capsule-protocol"));
+  CHECK(srn_wt_contains(c->resp[0].sess.q.p, c->resp[0].sess.q.len, "?1"));
+  *c = (srvrun_conn){0};
+}
+
+/* An SDK status response that establishes no tunnel (a 404) carries no
+ * capsule-protocol. */
+static void test_srvrun_status_no_capsule_protocol(void) {
+  u8         buf[256];
+  wired_obuf ob = obuf_of(buf, sizeof buf);
+  CHECK(srvrun_status_build(&(wired_h3reqdrive_req){0}, 404, 0, &ob));
+  CHECK(!srn_wt_contains(buf, ob.len, "capsule-protocol"));
+}
+
 /* draft-ietf-webtrans-http3-15 4: a session's stream API reaches only that
  * session's own streams. The HTTP/3 plumbing streams (QPACK encoder 7,
  * the CONNECT stream's capsule sender) belong to no session: the app can
@@ -28281,6 +28413,11 @@ void test_srvrun(void) {
   test_srvrun_on_body_conn_free_aborts();
   test_srvrun_stop_before_response_resets_and_aborts();
   test_srvrun_stop_before_response_buffered();
+  test_srvrun_stop_before_request_bytes();
+  test_srvrun_bad_static_index_closes_conn();
+  test_srvrun_oversized_field_section_gets_431();
+  test_srvrun_wt_200_capsule_protocol();
+  test_srvrun_status_no_capsule_protocol();
   test_srvrun_wt_stream_api_rejects_plumbing();
   test_srvrun_wt_stream_api_accepts_own_stream();
   test_srvrun_wt_stream_routed_by_session_id();

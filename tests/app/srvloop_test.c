@@ -3552,8 +3552,9 @@ static void test_srvloop_qpack_nonminimal_type(void) {
  * without waiting for a FIN that never comes. */
 /* GET whose field section repeats one 40-byte dynamic entry (static name
  * 95) refs times: 300 refs (~0.3 KiB encoded, ~15 KiB decoded) pass
- * WIRED_H3_MAX_FIELD_SECTION, 8 fit. Returns f.l.done_n. */
-static usz lp_qpack_amplified_get(usz refs) {
+ * WIRED_H3_MAX_FIELD_SECTION, 8 fit. Returns f.l.done_n, the handed-up
+ * request's too_large_status in *status. */
+static usz lp_qpack_amplified_get(usz refs, u16* status) {
   u8            enc[3 + 3 + 40] = {0x3f, 0xbd, 0x01, 0xff, 0x20, 40};
   u8            hdr[11 + 300]   = {0x01, 0,    0,    0x02, 0x00, 0xd1,
                                    0xd7, 0xc1, 0x50, 0x01, 'h'};
@@ -3570,6 +3571,7 @@ static usz lp_qpack_amplified_get(usz refs) {
   off = lp_qenc_frame(payload, sizeof payload, 0, enc, sizeof enc);
   off += frame_put_stream(payload + off, sizeof payload - off, &sf);
   lp_step_payload(&f, 3, payload, off);
+  *status = f.l.req.too_large_status;
   return f.l.done_n;
 }
 
@@ -3597,11 +3599,14 @@ static void test_srvloop_many_reserved_frames_before_headers_served(void) {
 
 /* GHSA-g754-hx8w-x2g6 / GHSA-vvgj-x9jq-8cj9 (V-0422, V-0421, V-0450): a
  * small QPACK section that decodes into a field section larger than the
- * fixed scratch fails closed -- it is never dispatched, never grows. */
+ * fixed scratch fails closed -- it never grows and no request reaches the
+ * app: it is handed up empty but for a 431 (RFC 9114 4.2.2). */
 static void test_srvloop_qpack_amplified_field_section_rejected(void) {
-  CHECK(lp_qpack_amplified_get(8) == 1);
-  CHECK(lp_qpack_amplified_get(150) == 1); /* ~7.5 KiB still fits */
-  CHECK(lp_qpack_amplified_get(300) == 0);
+  u16 status = 1;
+  CHECK(lp_qpack_amplified_get(8, &status) == 1 && status == 0);
+  /* ~7.5 KiB still fits */
+  CHECK(lp_qpack_amplified_get(150, &status) == 1 && status == 0);
+  CHECK(lp_qpack_amplified_get(300, &status) == 1 && status == 431);
 }
 
 static void test_srvloop_qpack_connect_dynamic_refs(void) {

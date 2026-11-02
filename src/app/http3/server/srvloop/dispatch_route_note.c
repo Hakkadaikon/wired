@@ -5,6 +5,7 @@ static int  route_headers_whole(const wired_srvloop_stream_slot* slot);
 static void route_note_incomplete_append(wired_srvloop* l, int i);
 static void route_note_incomplete(wired_srvloop* l, int i);
 static void route_note_rejected(wired_srvloop* l, int i);
+static int  route_note_too_large(wired_srvloop* l, int i);
 static u16  route_too_large_status(const wired_srvloop_stream_slot* slot);
 static int  route_window_stuck(const wired_srvloop_stream_slot* slot);
 static int  route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i);
@@ -121,13 +122,30 @@ static void route_note_rejected(wired_srvloop* l, int i) {
   route_note_incomplete(l, i);
 }
 
-/* Record slot i's decode outcome: a request to answer, or an incomplete /
- * rejected stream to abort. */
+/* RFC 9114 4.2.2 / 4.1.2: a field section past this server's limit
+ * (h3reqdrive's too_large_status) is answered with that status before
+ * the stream ends, like an overflow (srvloop_route_complete_over): the
+ * request is handed up empty but for it, its references cancelled
+ * (RFC 9204 2.2.2.2). 1 if slot i was handled so. */
+static int route_note_too_large(wired_srvloop* l, int i) {
+  u16 status = l->streams[i].req.too_large_status;
+  if (!status) {
+    return 0;
+  }
+  l->streams[i].req                  = (wired_h3reqdrive_req){0};
+  l->streams[i].req.too_large_status = status;
+  srvloop_qdec_cancel_slot(l, i);
+  srvloop_route_note_done(l, i);
+  return 1;
+}
+
+/* Record slot i's decode outcome: a request to answer (or a too-large one
+ * to refuse with a status), or an incomplete / rejected stream to abort. */
 void srvloop_route_note_result(wired_srvloop* l, int i, int got) {
   srvloop_route_note_qpack(l, i);
   if (got) {
     srvloop_route_note_done(l, i);
-  } else {
+  } else if (!route_note_too_large(l, i)) {
     route_note_rejected(l, i);
   }
 }

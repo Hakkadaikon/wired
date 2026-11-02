@@ -7,6 +7,7 @@ static void srvrun_connect_stop(
 static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id);
 static int srvrun_stop_on_critical(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id);
+static int srvrun_req_unopened(const srvrun_conn* c, u64 id);
 static usz srvrun_req_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e);
 static usz srvrun_answer_stream_stop(
@@ -68,18 +69,28 @@ static int srvrun_stop_on_critical(
   return 1;
 }
 
+/* RFC 9000 3.2 / 19.5: a request stream this STOP_SENDING opens -- no
+ * byte (so no slot) yet, not WebTransport, not already closed. */
+static int srvrun_req_unopened(const srvrun_conn* c, u64 id) {
+  return id % 4 == 0 && wired_srvloop_wt_slot_find(&c->l, id) < 0 &&
+         !wired_srvloop_closed_has(&c->l.req_closed, id);
+}
+
 /* RFC 9000 3.5: a STOP_SENDING for a request whose response has not
  * started still MUST be answered with RESET_STREAM -- Final Size 0, since
  * no byte was sent -- and the request is cancelled: the rest of its body
  * is refused (STOP_SENDING, the same pair srvrun_wt_abort_pair builds),
- * and its slot is released, so a late byte opens nothing (req_closed), no
- * response ever starts, and a body streaming to the app is aborted with
- * the peer's code. 1 when a slot was freed (its stream credit is owed). */
+ * and its slot is released -- or, before any request byte, its id marked
+ * closed (srvrun_req_unopened) -- so a late byte opens nothing
+ * (req_closed), no response ever starts, and a body streaming to the app
+ * is aborted with the peer's code. 1 when the stream ended (its stream
+ * credit is owed). */
 static usz srvrun_req_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
   u8         pl[48];
   wired_obuf plb = obuf_of(pl, sizeof pl);
-  if (!srvrun_req_slot_of(c, e->stream_id)) {
+  if (!srvrun_req_slot_of(c, e->stream_id) &&
+      !srvrun_req_unopened(c, e->stream_id)) {
     return 0;
   }
   srvrun_send_kept(
