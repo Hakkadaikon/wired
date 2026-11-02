@@ -734,12 +734,18 @@ recently sent headers, updated over its own encoder and decoder streams.
   server checks a new client address by sending a PATH_CHALLENGE and waiting
   for the matching PATH_RESPONSE. Two PATH_CHALLENGEs are tracked at once
   (the new path and the path left), plus the last validated path. A probe
-  from a new path is always answered (RFC 9000 8.2.2), but its validation
-  starts only when a slot is free; otherwise the answer stays within three
-  times the datagram that carried the probe and the path is not used. A
-  packet with more than two PATH_CHALLENGEs closes the connection with
-  PROTOCOL_VIOLATION (RFC 9000 8.2.1, 21.9) instead of leaving one
-  unanswered.
+  from a new path is answered whenever an unused peer connection ID is
+  available (RFC 9000 8.2.2, 9.5), but its validation starts only when a
+  slot is free; otherwise the answer stays within three times the datagram
+  that carried the probe and the path is not used. Answering such a probe
+  binds a spare peer connection ID to that path, and when the path is not
+  tracked the same step retires it with RETIRE_CONNECTION_ID: RFC 9000 9.5
+  requires a fresh ID per path, so one spare ID per answered probe is the
+  accepted cost. A datagram with more than eight PATH_CHALLENGEs (this
+  implementation's capacity) closes the connection with PROTOCOL_VIOLATION
+  instead of leaving one unanswered: RFC 9000 21.9 allows treating excess
+  non-productive activity as a connection error, and 8.2.1 says a sender
+  SHOULD NOT bundle several in one packet.
 
   When a path's validation is re-armed (for example, because a second move
   left that path), a fresh challenge starts, so a late response to the
