@@ -115,7 +115,8 @@ static void srvrun_path_start(
  * first makes the first datagram on a new path carry the PATH_CHALLENGE.
  * Without a slot the answer stays within 3x the datagram that carried the
  * probe (8, pathsel.fresh) and the path is not moved to; the peer ID bound
- * for the answer is then retired in the same step (srvrun_dcid's sweep). */
+ * for the answer is then retired in the same step (srvrun_dcid's sweep);
+ * a RETIRE_CONNECTION_ID the 3x limit holds back is resent until acked. */
 static void srvrun_path_probe_fresh(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,

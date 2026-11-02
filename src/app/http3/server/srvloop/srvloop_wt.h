@@ -28,8 +28,8 @@
 /** PATH_CHALLENGE frames latched per received datagram until answered
  * (wired_srvloop.path_challenge_rx_data); more close the connection. This
  * implementation's capacity, not an RFC number. Sizing: all of them are
- * answered in one packet, a PING plus 8 x 9-byte PATH_RESPONSEs = 73
- * bytes, well inside srvrun_path_send's MIN_INITIAL_DATAGRAM plaintext. */
+ * answered in one packet, 8 x 9-byte PATH_RESPONSEs = 72 bytes (73 with
+ * a PING), well inside srvrun_path_send's MIN_INITIAL_DATAGRAM plaintext. */
 #define WIRED_SRVLOOP_PATH_RX 8
 
 /** Build (a round of) the response body for a decoded request. Copy from

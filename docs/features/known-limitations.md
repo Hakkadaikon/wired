@@ -739,7 +739,9 @@ recently sent headers, updated over its own encoder and decoder streams.
   slot is free; otherwise the answer stays within three times the datagram
   that carried the probe and the path is not used. Answering such a probe
   binds a spare peer connection ID to that path, and when the path is not
-  tracked the same step retires it with RETIRE_CONNECTION_ID: RFC 9000 9.5
+  tracked the same step retires it with RETIRE_CONNECTION_ID (when the
+  current path's 3x limit holds that frame back, it is resent until
+  acknowledged): RFC 9000 9.5
   requires a fresh ID per path, so one spare ID per answered probe is the
   accepted cost. A datagram with more than eight PATH_CHALLENGEs (this
   implementation's capacity) closes the connection with PROTOCOL_VIOLATION
