@@ -106,25 +106,6 @@ typedef struct {
  * -- only the send session (unsent/in-flight/requeue bookkeeping) is
  * per-stream, so up to SRVRUN_RESP_SLOTS requests can be in flight
  * concurrently on one connection (RFC 9000 2.2). */
-/* draft-ietf-webtrans-http3-15 SS4 / RFC 9220 3: how many independent
- * WebTransport sessions one connection holds open (unest/est/draining, not
- * closed) at once. A small constant, not WIRED_SRVLOOP_MAX_WT_STREAMS/
- * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (24 and 6 by default) -- those bound one
- * connection's total reassembled WT stream slots, shared across however many
- * sessions are open, so SRVRUN_MAX_WT_SESSIONS must stay well under either
- * to leave every session room for more than one stream (checked below). */
-#define SRVRUN_MAX_WT_SESSIONS 2
-
-_Static_assert(SRVRUN_MAX_WT_SESSIONS >= 1, "at least one session slot");
-
-_Static_assert(
-    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_STREAMS,
-    "every session needs room for a bidi stream in the shared table");
-
-_Static_assert(
-    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_UNI_STREAMS,
-    "every session needs room for a uni stream in the shared table");
-
 /* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
  * (draft-ietf-webtrans-http3-15 SS3.2), enough for typical endpoint paths
  * (e.g. quic-interop-runner's "/<endpoint>") without growing per-slot storage
@@ -465,8 +446,14 @@ typedef struct {
    * slot's own connect_stream_id (wired_wt_session's identity field) is its
    * routing key -- distinct sessions never share a slot, and closing one slot
    * never touches the other. */
-  wired_wt_session wt;
-  wired_wt_session wt1;
+  union {
+    struct {
+      wired_wt_session wt;
+      wired_wt_session wt1;
+    };
+    /** Every session slot by index; wt/wt1 alias entries 0 and 1. */
+    wired_wt_session wt_slots[SRVRUN_MAX_WT_SESSIONS];
+  };
   /** Bytes used in each wt_path row. */
   usz wt_path_len[SRVRUN_MAX_WT_SESSIONS];
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048/WTH3-067): the
@@ -743,8 +730,14 @@ typedef struct {
    * closing state (srvrun_close_send). No app delivery and no send but the
    * same close frame again until the slot is reaped at closing_until_ms. */
   int closing;
-  int wt_active; /**< 1 once wired_wt_session_init has been called for slot 0 */
-  int wt1_active; /**< slot 1's own wt_active */
+  union {
+    struct {
+      int wt_active;  /**< 1 once wired_wt_session_init ran for slot 0 */
+      int wt1_active; /**< slot 1's own wt_active */
+    };
+    /** wt_active by slot index; wt_active/wt1_active alias 0 and 1. */
+    int wt_slot_active[SRVRUN_MAX_WT_SESSIONS];
+  };
   /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
    * wired_server_wt_close_session call for this slot is pending -- latched
    * rather than sent inline (that entry point runs in an app callback with
@@ -1168,6 +1161,10 @@ struct wired_srvrun_env {
    * max_resets_per_window above. */
   wired_wt_on_session_draining wt_on_session_draining;
   void*                        wt_session_draining_ctx;
+  /* wired_srvrun_opt.wt_on_stream_credit and its ctx, held here for the
+   * same reason (srvrun_wt_credit_poll). */
+  wired_wt_on_stream_credit wt_on_stream_credit;
+  void*                     wt_stream_credit_ctx;
   /* wired_srvrun_opt.raw_on_session and its ctx, held here for the same
    * reason (srvrun_raw_notify). */
   wired_rawq_on_session raw_on_session;

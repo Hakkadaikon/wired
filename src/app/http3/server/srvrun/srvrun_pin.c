@@ -43,6 +43,8 @@ static void srvrun_env_take(
   env->on_body_abort           = h.on_body_abort;
   env->wt_on_session_draining  = opt->wt_on_session_draining;
   env->wt_session_draining_ctx = opt->wt_session_draining_ctx;
+  env->wt_on_stream_credit     = opt->wt_on_stream_credit;
+  env->wt_stream_credit_ctx    = opt->wt_stream_credit_ctx;
   env->raw_on_session          = opt->raw_on_session;
   env->raw_session_ctx         = opt->raw_session_ctx;
   env->datagram_first          = opt->datagram_first;
@@ -96,7 +98,7 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
   static const wired_srvrun_opt default_opt = {
-      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
-      0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0};
+      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

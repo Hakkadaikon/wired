@@ -30,6 +30,7 @@ i64 srvrun_wt_open_uni_common(
   if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) {
     srvrun_wt_notify_streams_blocked(c, sidx, s, 0);
     srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
+    srvrun_wt_credit_arm(c, sidx, 0, payload.n);
     return -1;
   }
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
@@ -90,6 +91,7 @@ static i64 srvrun_wt_open_bidi_common(
   if (!srvrun_wt_bidi_open_ok(c, sidx, s, payload)) {
     srvrun_wt_notify_streams_blocked(c, sidx, s, 1);
     srvrun_wt_notify_data_blocked(c, sidx, s, payload.n);
+    srvrun_wt_credit_arm(c, sidx, 1, payload.n);
     return -1;
   }
   w = srvrun_wtsend_claim(

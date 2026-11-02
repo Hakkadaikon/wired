@@ -9,27 +9,26 @@ static int srvrun_wt_signal_session(const u8* sig, u8 have, u64* sid);
 static int srvrun_wt_slot_by_session_id(srvrun_conn* c, u64 sid);
 static int srvrun_wt_owner_live(const srvrun_conn* c, int offered, int owner);
 
-/* Index-based view over the two physical slots (wt/wt_active, wt1/wt1_active)
- * so every routing helper below can loop 0..SRVRUN_MAX_WT_SESSIONS uniformly
- * instead of hand-unrolling both cases. c is never NULL in this file's own
- * call sites (every caller already holds a live srvrun_conn*); i is always
- * either 0 or 1 in-bounds since every caller loops against
- * SRVRUN_MAX_WT_SESSIONS==2. */
+/* Index-based view over the session slots (wt_slots/wt_slot_active) so
+ * every routing helper below can loop 0..SRVRUN_MAX_WT_SESSIONS uniformly.
+ * c is never NULL in this file's own call sites (every caller already holds
+ * a live srvrun_conn*); i is always in [0, SRVRUN_MAX_WT_SESSIONS) since
+ * every caller loops against it. */
 wired_wt_session* srvrun_wt_slot(srvrun_conn* c, int i) {
-  return i == 0 ? &c->wt : &c->wt1;
+  return &c->wt_slots[i];
 }
 
 int* srvrun_wt_active_slot(srvrun_conn* c, int i) {
-  return i == 0 ? &c->wt_active : &c->wt1_active;
+  return &c->wt_slot_active[i];
 }
 
 /* const-correct sibling of srvrun_wt_slot for read-only callers. */
 const wired_wt_session* srvrun_wt_slot_c(const srvrun_conn* c, int i) {
-  return i == 0 ? &c->wt : &c->wt1;
+  return &c->wt_slots[i];
 }
 
 int srvrun_wt_is_active(const srvrun_conn* c, int i) {
-  return i == 0 ? c->wt_active : c->wt1_active;
+  return c->wt_slot_active[i];
 }
 
 /* The session slot index whose OWN connect_stream_id equals stream_id and is
@@ -98,11 +97,20 @@ int srvrun_wt_free_slot(const srvrun_conn* c) {
   return srvrun_wt_free_slot_any(c);
 }
 
-/* Active WT sessions (both slots) across every connection of env. */
+/* Active WT sessions (every slot) on one connection. */
+static usz srvrun_wt_active_on(const srvrun_conn* c) {
+  usz n = 0;
+  for (int s = 0; s < SRVRUN_MAX_WT_SESSIONS; s++) {
+    n += (usz)c->wt_slot_active[s];
+  }
+  return n;
+}
+
+/* Active WT sessions (every slot) across every connection of env. */
 usz srvrun_wt_active_total(const wired_srvrun_env* env) {
   usz n = 0;
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
-    n += (usz)env->conns[i].wt_active + (usz)env->conns[i].wt1_active;
+    n += srvrun_wt_active_on(&env->conns[i]);
   }
   return n;
 }
