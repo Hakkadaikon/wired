@@ -11,7 +11,9 @@
  * reader cannot forge either. A restart draws new seeds: tickets and Retry
  * tokens issued before it no longer open. Every server entry point calls
  * srvkeys_ready before forking workers or starting threads, so all of them
- * share one draw. */
+ * share one draw. The NEW_TOKEN used-token record lives here too, beside
+ * its key: srvworkers already calls srvkeys before it forks but sees
+ * srvrun only through its public API, so the record is shared from here. */
 
 /** Bytes per seed (TICKET_KEY_LEN == RETRYTOKEN_KEY == KEYRING_KEY). */
 #define SRVKEYS_LEN 32

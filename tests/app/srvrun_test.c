@@ -3878,7 +3878,9 @@ static void test_srvrun_new_token_after_confirm_and_migration(void) {
 
 /* RFC 9000 8.1.4 across forked workers (srvworkers): once the used-token
  * record is shared before fork, a NEW_TOKEN token a child accepted is a
- * reuse in the parent (and every sibling) too. */
+ * reuse in the parent (and every sibling) too. Side effect: the
+ * process-wide record stays switched to the shared mapping for the rest of
+ * the suite. */
 static void test_srvrun_new_token_single_use_across_fork(void) {
   u8       tok[SRVRUN_NEWTOK_LEN];
   sockaddr a;
@@ -3890,11 +3892,12 @@ static void test_srvrun_new_token_single_use_across_fork(void) {
   CHECK(srvkeys_newtoken_share() == 1); /* idempotent */
   pid = wired_arch_fork();
   if (pid == 0) {
-    srvrun_newtok_ok(&a, VERSION_1, wired_span_of(tok, sizeof tok), now);
-    wired_arch_exit_group(0);
+    wired_arch_exit_group(
+        srvrun_newtok_ok(&a, VERSION_1, wired_span_of(tok, sizeof tok), now));
   }
   CHECK(pid > 0);
-  wired_arch_wait4(pid, &status, 0, 0);
+  CHECK(wired_arch_wait4(pid, &status, 0, 0) == pid);
+  CHECK((status & 0xffff) == 0x100); /* exited normally, code 1: accepted */
   CHECK(
       srvrun_newtok_ok(&a, VERSION_1, wired_span_of(tok, sizeof tok), now) ==
       0);

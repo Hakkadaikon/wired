@@ -24,6 +24,11 @@
  * one-second clock up. */
 #define ZERORTT_SEEN_LIVE_SECS 21
 
+/* Lock attempts before a check gives up and refuses: far above one
+ * critical section (a 4096-entry scan), so only a lock left held by a
+ * killed worker reaches it. */
+#define ZERORTT_SEEN_SPIN (1U << 20)
+
 /** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
  * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
@@ -49,6 +54,13 @@ int zerortt_seen_check(zerortt_seen* s, wired_span identity);
 /* zerortt_seen_check at now_secs (epoch seconds) instead of the clock; a
  * full ring whose oldest entry is still live refuses (returns 0). */
 int zerortt_seen_check_at(zerortt_seen* s, wired_span identity, u64 now_secs);
+/* zerortt_seen_check_at with entries live for life_secs instead of
+ * ZERORTT_SEEN_LIVE_SECS: a full ring evicts its oldest only once that
+ * entry is life_secs old (the NEW_TOKEN record passes the token lifetime).
+ * Also 0 when the lock stays held past ZERORTT_SEEN_SPIN tries (a worker
+ * died holding it): refusing is the safe side. */
+int zerortt_seen_check_live(
+    zerortt_seen* s, wired_span identity, u64 now_secs, u64 life_secs);
 
 /* RFC 8446 8.2: open s's recording window at now_secs unless it is
  * already open. The server opens it before it issues any ticket (sdrv_init),

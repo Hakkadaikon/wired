@@ -105,6 +105,26 @@ static void test_peercid_late_below_rpt(void) {
   CHECK(peercid_bind(&p, &k2) == 0);
 }
 
+/* RFC 9000 19.15: a below-Retire-Prior-To frame retransmitted again and
+ * again is retired once ("unless it has already done so"), never filling
+ * the retire queue into CONNECTION_ID_LIMIT_ERROR. */
+static void test_peercid_late_repeat_retired_once(void) {
+  peercid    p;
+  ncid_frame f2 = pc_ncid(2, 2, 0xb2), late = pc_ncid(1, 0, 0xb1);
+  u64        seq, n                         = 0;
+  pc_pool(&p);
+  CHECK(peercid_add(&p, &f2) == 0);
+  for (int i = 0; i <= PEERCID_RETIRE; i++) {
+    CHECK(peercid_add(&p, &late) == 0);
+  }
+  while (peercid_take_retire(&p, &seq)) {
+    n++;
+  }
+  CHECK(n == 2); /* seq 0 (dropped by Retire Prior To) and seq 1 */
+  CHECK(peercid_add(&p, &late) == 0);
+  CHECK(peercid_take_retire(&p, &seq) == 0); /* already sent */
+}
+
 /* RFC 9000 5.1.1/18.2: the pool holds the advertised
  * active_connection_id_limit (4) IDs, one per path; one ID past it is a
  * CONNECTION_ID_LIMIT_ERROR; a repeat of a held one is not. */
@@ -277,6 +297,7 @@ void test_peercid(void) {
   test_peercid_own_beats_shared();
   test_peercid_retire_prior_to();
   test_peercid_late_below_rpt();
+  test_peercid_late_repeat_retired_once();
   test_peercid_over_limit();
   test_peercid_retire_full_is_error();
   test_peercid_sweep_carries_over();

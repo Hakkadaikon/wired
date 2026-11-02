@@ -85,19 +85,18 @@ static int peercid_raise_rpt(peercid* p, u64 rpt) {
   if (rpt <= p->rpt) {
     return 0;
   }
-  p->gone = rpt - p->rpt < 64 ? p->gone >> (rpt - p->rpt) : 0;
-  p->rpt  = rpt;
+  peercid_slide(p, rpt);
   return peercid_drop_below(p, rpt);
 }
 
-/* RFC 9000 5.1.2/19.15: an ID below Retire Prior To is retired at once; a
- * repeat of one already retired is ignored; any other is stored. */
+/* RFC 9000 5.1.2/19.15: a repeat of an ID already retired is ignored; one
+ * below Retire Prior To is retired at once; any other is stored. */
 static int peercid_take(peercid* p, const ncid_frame* f) {
+  if (peercid_retired(p, f->seq)) {
+    return 0;
+  }
   if (f->seq < p->rpt) {
     return peercid_owe_err(p, f->seq);
-  }
-  if (p->gone & peercid_bit(p, f->seq)) {
-    return 0;
   }
   return peercid_store(p, f);
 }

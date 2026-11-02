@@ -17,9 +17,11 @@
  * track -- request slots, WT bidi/uni receive slots, WT send slots, both
  * CONNECT streams -- can be aborted at once, plus the GOAWAY, the owed
  * RETIRE_CONNECTION_IDs (PEERCID_RETIRE), the two NEW_CONNECTION_IDs
- * replacing retired IDs and one NEW_TOKEN (RFC 9000 13.3). An entry lives about
- * one RTT (until ACKed); one that exhausts SRVRUN_PTO_MAX resends tears the
- * connection down. */
+ * replacing retired IDs and a NEW_TOKEN (RFC 9000 13.3). One NEW_TOKEN goes
+ * out per confirmation or validated migration, so more than one may be kept
+ * after a migration; with no entry free a token is skipped (it is only an
+ * optimisation). An entry lives about one RTT (until ACKed); one that exhausts
+ * SRVRUN_PTO_MAX resends tears the connection down. */
 #define SRVRUN_RST_RETX                                       \
   (WIRED_SRVLOOP_MAX_STREAMS + WIRED_SRVLOOP_MAX_WT_STREAMS + \
    WIRED_SRVLOOP_MAX_WT_UNI_STREAMS + SRVRUN_WT_SEND_SLOTS +  \

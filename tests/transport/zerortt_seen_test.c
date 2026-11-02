@@ -44,27 +44,59 @@ static void test_seen_distinct_identities_independent(void) {
  * still be replayed -- a new identity is refused (no 0-RTT) and the oldest
  * stays a replay; once the oldest is ZERORTT_SEEN_LIVE_SECS old it is
  * evicted to make room. */
-static void test_seen_full_refuses_until_expired(void) {
-  static zerortt_seen s;
-  static u8           id[ZERORTT_SEEN_CAP + 1][4];
-  u64                 live = 100 + ZERORTT_SEEN_LIVE_SECS;
-  zerortt_seen_init(&s);
+static zerortt_seen g_zrs_full;
+static u8           g_zrs_full_id[ZERORTT_SEEN_CAP + 1][4];
+
+/* Fill g_zrs_full at time 100 with entries live for life seconds. */
+static zerortt_seen* zrs_fill(u64 life) {
+  zerortt_seen_init(&g_zrs_full);
   for (usz i = 0; i < ZERORTT_SEEN_CAP + 1; i++) {
-    id[i][0] = (u8)i;
-    id[i][1] = (u8)(i >> 8);
-    id[i][2] = 0xEE;
-    id[i][3] = 0xEE;
+    g_zrs_full_id[i][0] = (u8)i;
+    g_zrs_full_id[i][1] = (u8)(i >> 8);
+    g_zrs_full_id[i][2] = 0xEE;
+    g_zrs_full_id[i][3] = 0xEE;
   }
   for (usz i = 0; i < ZERORTT_SEEN_CAP; i++) {
-    CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id[i], 4), 100) == 1);
+    wired_span id = zerortt_seen_span(g_zrs_full_id[i], 4);
+    CHECK(zerortt_seen_check_live(&g_zrs_full, id, 100, life) == 1);
   }
+  return &g_zrs_full;
+}
+
+static void test_seen_full_refuses_until_expired(void) {
+  zerortt_seen* s    = zrs_fill(ZERORTT_SEEN_LIVE_SECS);
+  u64           live = 100 + ZERORTT_SEEN_LIVE_SECS;
+  wired_span    nw   = zerortt_seen_span(g_zrs_full_id[ZERORTT_SEEN_CAP], 4);
+  CHECK(zerortt_seen_check_at(s, nw, live - 1) == 0);
   CHECK(
       zerortt_seen_check_at(
-          &s, zerortt_seen_span(id[ZERORTT_SEEN_CAP], 4), live - 1) == 0);
-  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id[0], 4), live - 1) == 0);
+          s, zerortt_seen_span(g_zrs_full_id[0], 4), live - 1) == 0);
+  CHECK(zerortt_seen_check_at(s, nw, live) == 1);
+}
+
+/* RFC 9000 8.1.4 (NEW_TOKEN record): entries live as long as the caller's
+ * token lifetime, far past ZERORTT_SEEN_LIVE_SECS; a ring full of live
+ * entries refuses a new token until the oldest has expired. */
+static void test_seen_full_refuses_long_life(void) {
+  u64           life = 1000;
+  zerortt_seen* s    = zrs_fill(life);
+  wired_span    nw   = zerortt_seen_span(g_zrs_full_id[ZERORTT_SEEN_CAP], 4);
   CHECK(
-      zerortt_seen_check_at(
-          &s, zerortt_seen_span(id[ZERORTT_SEEN_CAP], 4), live) == 1);
+      zerortt_seen_check_live(s, nw, 100 + ZERORTT_SEEN_LIVE_SECS, life) == 0);
+  CHECK(zerortt_seen_check_live(s, nw, 100 + life - 1, life) == 0);
+  CHECK(zerortt_seen_check_live(s, nw, 100 + life, life) == 1);
+}
+
+/* A lock left held (a worker killed inside the critical section) refuses
+ * after a bounded spin instead of wedging every worker. */
+static void test_seen_stuck_lock_refuses(void) {
+  zerortt_seen s;
+  const u8     id[4] = {9, 9, 9, 9};
+  zerortt_seen_init(&s);
+  s.lock = 1;
+  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id, 4), 100) == 0);
+  s.lock = 0;
+  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id, 4), 100) == 1);
 }
 
 /* RFC 8446 8.1 across threads: srvthreads workers share one tracker, so two
@@ -137,4 +169,6 @@ void test_zerortt_seen(void) {
   test_seen_replay_is_not_first_use();
   test_seen_distinct_identities_independent();
   test_seen_full_refuses_until_expired();
+  test_seen_full_refuses_long_life();
+  test_seen_stuck_lock_refuses();
 }

@@ -15,7 +15,9 @@
 int peercid_drop(peercid* p, peercid_entry* e);
 /* Queue seq for retirement: 0, or CONNECTION_ID_LIMIT_ERROR when full. */
 int peercid_owe_err(peercid* p, u64 seq);
-/* seq's bit in gone, or 0 outside [rpt, rpt + 64). */
-u64 peercid_bit(const peercid* p, u64 seq);
+/* 1 if seq was retired here (owed or sent) within 64 of rpt either side. */
+int peercid_retired(const peercid* p, u64 seq);
+/* Raise rpt to rpt (> p->rpt), shifting the retired record with it. */
+void peercid_slide(peercid* p, u64 rpt);
 
 #endif
