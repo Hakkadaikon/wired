@@ -12,8 +12,13 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 /* RFC 8446 4.4.3. The signed content: 64*0x20, the context string, a 0x00
- * separator, then the 32-byte transcript hash. */
-static const char cv_ctx_str[] = "TLS 1.3, server CertificateVerify";
+ * separator, then the transcript hash (Hash.length: 32 or 48). Indexed by
+ * the client flag; both strings are 33 octets. */
+static const char* const cv_ctx_str[2] = {
+    "TLS 1.3, server CertificateVerify", "TLS 1.3, client CertificateVerify"};
+
+/* 98 + the longest transcript hash (SHA-384). */
+#define CV_CONTENT_MAX (98 + 48)
 
 static void fill_pad(u8 out[64]) {
   for (usz i = 0; i < 64; i++) {
@@ -21,23 +26,25 @@ static void fill_pad(u8 out[64]) {
   }
 }
 
-static void put_ctx(u8* out) {
+static void put_ctx(u8* out, int client) {
   for (usz i = 0; i < 33; i++) {
-    out[i] = (u8)cv_ctx_str[i];
+    out[i] = (u8)cv_ctx_str[client][i];
   }
 }
 
-static void put_hash(u8* out, const u8 transcript_hash[32]) {
-  for (usz i = 0; i < 32; i++) {
+static void put_hash(u8* out, const u8* transcript_hash, usz n) {
+  for (usz i = 0; i < n; i++) {
     out[i] = transcript_hash[i];
   }
 }
 
-static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
+static usz cv_build_signed(
+    const u8* transcript_hash, usz hash_len, int client, u8* out) {
   fill_pad(out);
-  put_ctx(out + 64);
+  put_ctx(out + 64, client);
   out[97] = 0x00;
-  put_hash(out + 98, transcript_hash);
+  put_hash(out + 98, transcript_hash, hash_len);
+  return 98 + hash_len;
 }
 
 /* Accepts the SPKI (tbs for its parameters, algorithm OID) for a scheme. */
@@ -138,8 +145,7 @@ static int ed25519_key(wired_span cert, const u8** key) {
   return 1;
 }
 
-static int verify_ed25519(
-    wired_span cert, wired_span sig, const u8 content[130]) {
+static int verify_ed25519(wired_span cert, wired_span sig, wired_span content) {
   const u8* key;
   if (sig.n != ED25519_SIG) {
     return 0;
@@ -147,13 +153,13 @@ static int verify_ed25519(
   if (!ed25519_key(cert, &key)) {
     return 0;
   }
-  return ed25519_verify(sig.p, content, 130, key);
+  return ed25519_verify(sig.p, content.p, content.n, key);
 }
 
 /* RFC 8446 4.4.3. Hash branches (ecdsa/rsa over SHA-256 of the content). */
-static int verify_hashed(const certverify_in* in, const u8 content[130]) {
+static int verify_hashed(const certverify_in* in, wired_span content) {
   u8 hash[32];
-  wired_sha256(content, 130, hash);
+  wired_sha256(content.p, content.n, hash);
   if (in->scheme == TLS_SCHEME_ECDSA_P256) {
     return verify_ecdsa(in->cert, in->sig, hash);
   }
@@ -164,8 +170,18 @@ static int verify_hashed(const certverify_in* in, const u8 content[130]) {
 }
 
 int tls_verify_cert_signature(const certverify_in* in) {
-  u8 content[130];
-  cv_build_signed(in->transcript_hash, content);
+  return tls_verify_cert_signature_ctx(in, 0, 32);
+}
+
+int tls_verify_cert_signature_ctx(
+    const certverify_in* in, int client, usz hash_len) {
+  u8         buf[CV_CONTENT_MAX];
+  wired_span content;
+  if (hash_len > CV_CONTENT_MAX - 98) {
+    return 0;
+  }
+  content = wired_span_of(
+      buf, cv_build_signed(in->transcript_hash, hash_len, client != 0, buf));
   if (in->scheme == TLS_SCHEME_ED25519) {
     return verify_ed25519(in->cert, in->sig, content);
   }

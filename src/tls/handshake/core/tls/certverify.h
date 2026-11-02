@@ -27,4 +27,11 @@ typedef struct {
  * the signature verifies, 0 otherwise. */
 int tls_verify_cert_signature(const certverify_in* in);
 
+/* RFC 8446 4.4.3: tls_verify_cert_signature for either peer and any suite
+ * hash. client 1 selects the context string "TLS 1.3, client
+ * CertificateVerify" (0: server); in->transcript_hash is hash_len bytes
+ * (32 for SHA-256 suites, 48 for SHA-384). */
+int tls_verify_cert_signature_ctx(
+    const certverify_in* in, int client, usz hash_len);
+
 #endif
