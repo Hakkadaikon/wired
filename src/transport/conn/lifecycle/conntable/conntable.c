@@ -1,61 +1,13 @@
-#include "transport/conn/lifecycle/conntable/conntable.h"
-
-#include "transport/conn/lifecycle/conn/demux.h"
+#include "transport/conn/lifecycle/conntable/conntable_impl.h"
 
 void conntable_init(conntable* t, usz cap) {
   for (usz i = 0; i < cap; i++) {
     t[i].live         = 0;
     t[i].alt_cid_len  = 0;
     t[i].alt2_cid_len = 0;
+    t[i].hseed        = 0;
   }
-}
-
-static int conntable_cid_matches(wired_span want, const u8* cid, u8 cid_len) {
-  return demux_match(want, wired_span_of(cid, cid_len));
-}
-
-/* The alt CID (rekey's stashed prior primary) also routes here, if set. */
-static int conntable_alt_matches(const conntable* slot, wired_span want) {
-  if (!slot->alt_cid_len) {
-    return 0;
-  }
-  return conntable_cid_matches(want, slot->alt_cid, slot->alt_cid_len);
-}
-
-/* The second alternate (the spare advertised at accept) also routes here,
- * if set. */
-static int conntable_alt2_matches(const conntable* slot, wired_span want) {
-  if (!slot->alt2_cid_len) {
-    return 0;
-  }
-  return conntable_cid_matches(want, slot->alt2_cid, slot->alt2_cid_len);
-}
-
-/* Either alternate CID routes here. Split out so the caller's own branch
- * count stays at the gate. */
-static int conntable_any_alt_matches(const conntable* slot, wired_span want) {
-  return conntable_alt_matches(slot, want) ||
-         conntable_alt2_matches(slot, want);
-}
-
-static int conntable_slot_matches(const conntable* slot, wired_span want) {
-  if (!slot->live) {
-    return 0;
-  }
-  if (conntable_cid_matches(want, slot->cid, slot->cid_len)) {
-    return 1;
-  }
-  return conntable_any_alt_matches(slot, want);
-}
-
-int conntable_find(const conntable* t, usz cap, const u8* dcid, u8 dcid_len) {
-  wired_span want = wired_span_of(dcid, dcid_len);
-  for (usz i = 0; i < cap; i++) {
-    if (conntable_slot_matches(&t[i], want)) {
-      return (int)i;
-    }
-  }
-  return -1;
+  conntable_reindex(t, cap);
 }
 
 static int conntable_free_slot(const conntable* t, usz cap) {
@@ -86,6 +38,7 @@ int conntable_insert(conntable* t, usz cap, const u8* cid, u8 cid_len) {
     return -1;
   }
   conntable_fill_slot(&t[slot], cid, cid_len);
+  conntable_reindex(t, cap);
   return slot;
 }
 
@@ -93,6 +46,8 @@ void conntable_remove(conntable* t, usz cap, int i) {
   if (i < 0 || (usz)i >= cap) {
     return;
   }
+  /* No reindex: a dead slot's stale buckets never match (slot_matches checks
+   * live) and the next insert rebuilds the index. */
   t[i].live = 0;
 }
 
@@ -129,6 +84,7 @@ int conntable_rekey(conntable* t, usz cap, int i, const u8* cid, u8 cid_len) {
   }
   conntable_stash_alt(&t[i]);
   conntable_set_primary(&t[i], cid, cid_len);
+  conntable_reindex(t, cap);
   return 1;
 }
 
@@ -141,6 +97,7 @@ int conntable_set_alt2(
     t[i].alt2_cid[j] = cid[j];
   }
   t[i].alt2_cid_len = cid_len;
+  conntable_reindex(t, cap);
   return 1;
 }
 
@@ -149,5 +106,6 @@ int conntable_set_cid(conntable* t, usz cap, int i, const u8* cid, u8 cid_len) {
     return 0;
   }
   conntable_set_primary(&t[i], cid, cid_len);
+  conntable_reindex(t, cap);
   return 1;
 }

@@ -7475,8 +7475,8 @@ static void test_srvrun_polling_pto_tick(void) {
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
   CHECK(opt.so_prefer_busy_poll == 0);
@@ -7494,8 +7494,8 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * covers so_prefer_busy_poll/so_busy_poll_budget/incoming_cpu at their
  * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0,
-                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0,
+                          0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0, 0,  0, 0, 0, 0, 0};
   i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);
@@ -11550,6 +11550,51 @@ static void test_srvrun_wt_seed_limits_max_data_only_grants_streams(void) {
 /* MULTI-SESSION BOUNDARY: once SRVRUN_MAX_WT_SESSIONS sessions are open, a
  * further Extended CONNECT is rejected with 429 exactly as the single-
  * session path always was, and no new slot is created. */
+/* Run one srvrun_start_resp pass over conns[0]'s pending request. */
+static void sr_wt_start_once(conntable* table, srvrun_conn* conns) {
+  srvrun_cfg cfg = {
+      -1,
+      0,
+      sr_wt_handler,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      &g_srvrun_env,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  srvrun_start_resp(&ctx, 0);
+}
+
+/* #200: exactly SRVRUN_MAX_WT_SESSIONS (the WIRED_SRVRUN_MAX_WT_SESSIONS
+ * build knob) Extended CONNECTs open a session each; one more is refused
+ * with the 429 and leaves every open session untouched. */
 static void test_srvrun_wt_reject_at_session_limit(void) {
   struct lp_fix f;
   conntable     table[WIRED_CONNTABLE_CAP];
@@ -11560,138 +11605,24 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
   g_sr_wt_handler_calls = 0;
   conntable_init(table, WIRED_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
-  /* SS5.1: flow control enabled, so the second session below is allowed. */
+  /* SS5.1: flow control enabled, so sessions past the first are allowed. */
   conns[0].l.peer_wt_initial[0] = 1;
-  sr_set_req(&conns[0], 1, 1, 4);
-  {
-    srvrun_cfg cfg = {
-        -1,
-        0,
-        sr_wt_handler,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        &g_srvrun_env,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
+  for (int k = 0; k < SRVRUN_MAX_WT_SESSIONS; k++) {
+    sr_set_req(&conns[0], 1, 1, (u64)(4 * (k + 1)));
+    sr_wt_start_once(table, conns);
+    conns[0].resp[0].in_use = 0;
+    CHECK(srvrun_wt_is_active(&conns[0], k));
   }
-  conns[0].resp[0].in_use = 0;
-  sr_set_req(&conns[0], 1, 1, 8);
-  {
-    srvrun_cfg cfg = {
-        -1,
-        0,
-        sr_wt_handler,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        &g_srvrun_env,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  CHECK(conns[0].wt_active == 1 && conns[0].wt1_active == 1); /* both full */
-  conns[0].resp[0].in_use = 0;
-  sr_set_req(&conns[0], 1, 1, 12); /* third Extended CONNECT: over the limit */
-  {
-    srvrun_cfg cfg = {
-        -1,
-        0,
-        sr_wt_handler,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        &g_srvrun_env,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* all full */
+  /* one more Extended CONNECT: over the limit */
+  sr_set_req(&conns[0], 1, 1, (u64)(4 * (SRVRUN_MAX_WT_SESSIONS + 1)));
+  sr_wt_start_once(table, conns);
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(conns[0].resp[0].sess.active == 1);    /* the 429 was armed */
-  CHECK(conns[0].wt.connect_stream_id == 4);   /* first session untouched */
-  CHECK(conns[0].wt1.connect_stream_id == 8);  /* second session untouched */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 429 was armed */
+  for (int k = 0; k < SRVRUN_MAX_WT_SESSIONS; k++) {
+    CHECK(
+        srvrun_wt_slot(&conns[0], k)->connect_stream_id == (u64)(4 * (k + 1)));
+  }
   CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* no slot was created */
 }
 
@@ -11905,6 +11836,21 @@ static void test_srvrun_wt_drain_one_session_leaves_others_untouched(void) {
   CHECK(c.wt1.connect_stream_id == 8);        /* untouched */
 }
 
+/* Accept SRVRUN_MAX_WT_SESSIONS Extended CONNECTs on conns[0] (CONNECT
+ * stream ids 4, 8, ...), filling every session slot. */
+static void sr_wt_open_all(conntable* table, srvrun_conn* conns) {
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0,  0};
+  srvrun_state    st  = {table, conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  for (u64 k = 0; k < SRVRUN_MAX_WT_SESSIONS; k++) {
+    conns[0].resp[0].in_use = 0;
+    sr_set_req(&conns[0], 1, 1, 4 + 4 * k);
+    srvrun_start_resp(&ctx, 0);
+  }
+}
+
 /* SLOT REUSE: closing a session while the connection is at its session limit
  * frees its slot immediately, so a subsequent Extended CONNECT is accepted
  * rather than rejected. */
@@ -11919,26 +11865,8 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   /* SS5.1: flow control enabled, so the second session below is allowed. */
   conns[0].l.peer_wt_initial[0] = 1;
-  sr_set_req(&conns[0], 1, 1, 4);
-  {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  conns[0].resp[0].in_use = 0;
-  sr_set_req(&conns[0], 1, 1, 8);
-  {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* both slots occupied */
+  sr_wt_open_all(table, conns);
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* every slot occupied */
   /* close session 0 (CONNECT stream id 4) */
   conns[0].l.closed_stream_id   = 4;
   conns[0].l.closed_stream_seen = 1;
@@ -11950,7 +11878,8 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
   }
   CHECK(srvrun_wt_free_slot(&conns[0]) == 0); /* slot 0 is free again */
   conns[0].resp[0].in_use = 0;
-  sr_set_req(&conns[0], 1, 1, 12); /* a third Extended CONNECT now fits */
+  /* one more Extended CONNECT now fits */
+  sr_set_req(&conns[0], 1, 1, 4 * (SRVRUN_MAX_WT_SESSIONS + 1));
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
@@ -11960,7 +11889,7 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* reused slot 0 */
-  CHECK(conns[0].wt.connect_stream_id == 12);
+  CHECK(conns[0].wt.connect_stream_id == 4 * (SRVRUN_MAX_WT_SESSIONS + 1));
   CHECK(conns[0].resp[0].sess.active == 1); /* the new 2xx was armed */
 }
 
@@ -12070,25 +11999,7 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   /* SS5.1: flow control enabled, so the second session below is allowed. */
   conns[0].l.peer_wt_initial[0] = 1;
-  sr_set_req(&conns[0], 1, 1, 4);
-  {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
-  conns[0].resp[0].in_use = 0;
-  sr_set_req(&conns[0], 1, 1, 8);
-  {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
-    srvrun_start_resp(&ctx, 0);
-  }
+  sr_wt_open_all(table, conns);
   CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* at the limit */
   /* close slot 1's session (id 8) FIRST, out of open order */
   conns[0].l.closed_stream_id   = 8;

@@ -27,8 +27,10 @@ int  srvrun_wt_open_flow_ok(
     int sidx, wired_wt_session* s, int bidi, wired_span payload);
 void srvrun_wt_notify_streams_blocked(
     srvrun_conn* c, int sidx, const wired_wt_session* s, int bidi);
-int srvrun_wt_uni_grant_ok(srvrun_conn* c);
-int srvrun_wt_uni_open_ok(
+int  srvrun_wt_uni_grant_ok(srvrun_conn* c);
+void srvrun_wt_credit_arm(srvrun_conn* c, int sidx, int bidi, usz len);
+void srvrun_wt_credit_poll(const wired_srvrun_env* env, srvrun_conn* c);
+int  srvrun_wt_uni_open_ok(
     srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload);
 i64 srvrun_wt_open_uni_common(
     wired_wt_session* s, wired_span payload, int keep_open);

@@ -9,6 +9,11 @@ TARGET="-target x86_64-unknown-linux-gnu"
 # Shared warning/optimization base of the three compile flag sets.
 WARNFLAGS="-Wall -Wextra -Werror -O2"
 CONNFLAGS="-DWIRED_CONNTABLE_CAP=${CONNTABLE_CAP:-4}"
+# Concurrent WT sessions per connection (header default 2); CI also runs the
+# suite with WT_SESSIONS=3 so nothing hard-codes 2.
+if [ -n "${WT_SESSIONS:-}" ]; then
+  CONNFLAGS="$CONNFLAGS -DWIRED_SRVRUN_MAX_WT_SESSIONS=$WT_SESSIONS"
+fi
 # freestanding: every src file must compile with no libc at all (the product
 # constraint). Also the base of the example binaries (plus -DWIRED_DEBUG).
 CFLAGS="$TARGET -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static $WARNFLAGS $CONNFLAGS -Isrc"
