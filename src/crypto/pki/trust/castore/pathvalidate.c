@@ -13,17 +13,16 @@ static int x25519_family_ok(wired_span tbs, wired_span oid);
 static int ed_family_ok(wired_span tbs, wired_span oid, int is_ca);
 static int parent_may_issue(wired_span parent);
 
-/* RFC 5280 4.2.1.12. The leaf (certs[0], the end-entity server certificate)
- * must permit id-kp-serverAuth: extKeyUsage absent is unrestricted, present
- * without serverAuth rejects. The only caller of validate_chain in this SDK
- * is server-certificate verification (see pathvalidate.h). */
-int castore_leaf_allows_server_auth(wired_span leaf) {
+/* RFC 5280 4.2.1.12. The leaf (certs[0], the end-entity certificate) must
+ * permit purpose (id-kp-serverAuth for a server, id-kp-clientAuth for a
+ * client): extKeyUsage absent is unrestricted, present without purpose or
+ * malformed rejects. */
+int castore_leaf_allows(wired_span leaf, wired_span purpose) {
   x509 c;
   if (!x509_parse(leaf, &c)) {
     return 0;
   }
-  return x509_eku_allows(
-      c.tbs, wired_span_of(x509_oid_server_auth, sizeof(x509_oid_server_auth)));
+  return x509_eku_allows(c.tbs, purpose);
 }
 
 /* RFC 5280 4.1.2.4. View cert's issuer Name (header included). */

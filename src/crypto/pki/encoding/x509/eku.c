@@ -11,6 +11,9 @@ static const u8 oid_eku[] = {0x55, 0x1d, 0x25};
 const u8 x509_oid_server_auth[8] = {0x2b, 0x06, 0x01, 0x05,
                                     0x05, 0x07, 0x03, 0x01};
 
+const u8 x509_oid_client_auth[8] = {0x2b, 0x06, 0x01, 0x05,
+                                    0x05, 0x07, 0x03, 0x02};
+
 /* One KeyPurposeId element equals purpose_oid. */
 static int eku_id_matches(u8 tag, wired_span id, wired_span purpose_oid) {
   return tag == DER_OID && der_oid_equal(id, purpose_oid);
@@ -30,19 +33,13 @@ static int eku_list_has(wired_span list, wired_span purpose_oid) {
   return 0;
 }
 
-/* The extKeyUsage extnValue: a SEQUENCE OF KeyPurposeId. */
-static int eku_locate(wired_span tbs, wired_span* list) {
-  wired_span val;
-  if (!x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val)) {
-    return 0;
-  }
-  return der_seq(val, list);
-}
-
 int x509_eku_allows(wired_span tbs, wired_span purpose_oid) {
-  wired_span list;
-  if (!eku_locate(tbs, &list)) {
+  wired_span val, list;
+  if (!x509_find_ext(tbs, wired_span_of(oid_eku, sizeof(oid_eku)), &val)) {
     return 1;
+  }
+  if (!der_seq(val, &list)) {
+    return 0; /* present but malformed: restricts to nothing */
   }
   return eku_list_has(list, purpose_oid);
 }

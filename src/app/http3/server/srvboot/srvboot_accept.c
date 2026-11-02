@@ -50,7 +50,7 @@ static int srvboot_acc_start(
     const wired_srvboot_id*   id,
     wired_srvboot_acc*        a) {
   wired_span ch;
-  crecv_message_at(&a->cr, a->hrr_off, &ch.p, &ch.n);
+  crecv_message_at(&a->cr, a->cr_mem, a->hrr_off, &ch.p, &ch.n);
   if (a->hrr_off == 0 && !srvboot_init(conn, id, &a->hdr)) {
     return 0;
   }
@@ -68,7 +68,7 @@ static int srvboot_acc_start(
 static usz srvboot_ch1_total(const wired_srvboot_acc* a) {
   const u8* ch;
   usz       n;
-  crecv_message(&a->cr, &ch, &n);
+  crecv_message(&a->cr, a->cr_mem, &ch, &n);
   return 4 + ((usz)ch[1] << 16 | (usz)ch[2] << 8 | ch[3]);
 }
 

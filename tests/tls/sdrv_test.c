@@ -2087,6 +2087,69 @@ static usz sdrv_test_0rtt_ch(
   return ch2_len;
 }
 
+/* The handshake message types of a server Handshake flight, in order. */
+static usz sdrv_test_flight_types(const u8* fl, usz len, u8* types, usz cap) {
+  usz off = 0, n = 0;
+  while (off + 4 <= len && n < cap) {
+    types[n++] = fl[off];
+    off += 4 + ((usz)fl[off + 1] << 16 | (usz)fl[off + 2] << 8 | fl[off + 3]);
+  }
+  return n;
+}
+
+/* Run the 0-RTT ClientHello (valid ticket + early_data) against a server in
+ * the given client auth mode; flight message types into types. */
+static usz sdrv_test_psk_under_cauth(int mode, sdrv* s, u8* types) {
+  sdrv_psk_fixture f;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[800], sh[256], flight[2048];
+  usz              ch2_len, psk_ext_off;
+  castore          ca;
+  castore_entry    roots[1];
+  wired_obuf       sh_ob = obuf_of(sh, sizeof sh);
+  wired_obuf       fl_ob = obuf_of(flight, sizeof flight);
+  sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  wired_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  castore_init(&ca, roots, 1);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
+    sdrv_init(s, &in);
+    sdrv_set_early_data(s, 1);
+    CHECK(sdrv_set_client_auth(s, mode, &ca) == 1);
+  }
+  CHECK(sdrv_recv_client_hello(s, ch2, ch2_len));
+  CHECK(sdrv_build_server_flight(s, f.srv_random, &fo));
+  return sdrv_test_flight_types(flight, fl_ob.len, types, 8);
+}
+
+/* RFC 8446 4.3.2 / 4.4: off resumes with the PSK and 0-RTT (EE, Finished);
+ * optional and required ignore the PSK and 0-RTT and run a full handshake
+ * with a CertificateRequest. */
+static void test_sdrv_cauth_ignores_psk(void) {
+  static const u8 resumed[] = {8, 20};
+  static const u8 full[]    = {8, 13, 11, 15, 20};
+  sdrv            s;
+  u8              t[8];
+  usz             n = sdrv_test_psk_under_cauth(WIRED_CLIENT_AUTH_OFF, &s, t);
+  CHECK(s.psk_accepted == 1 && s.early_data_accepted == 1);
+  CHECK(n == sizeof resumed && t[0] == resumed[0] && t[1] == resumed[1]);
+  for (int mode = 1; mode <= 2; mode++) {
+    n = sdrv_test_psk_under_cauth(mode, &s, t);
+    CHECK(s.psk_accepted == 0);
+    CHECK(s.early_data_accepted == 0);
+    CHECK(n == sizeof full);
+    for (usz i = 0; i < n && i < sizeof full; i++) {
+      CHECK(t[i] == full[i]);
+    }
+  }
+}
+
 /* A ClientHello offering both pre_shared_key (accepted, first use) and
  * early_data derives 0-RTT keys matching an independent tls_early_keys
  * computation over the same PSK/ClientHello bytes -- the exact material a
@@ -2644,9 +2707,11 @@ static void sdrv_test_srv_keys(u8* srv_priv, u8* srv_pub, u8* cert_priv) {
 }
 
 /* Boot a connection the way every accept does (srvboot_init) with seed as
- * wired_srvboot_id.ticket_key; the returned sdrv has not seen a ClientHello
- * yet. One static server: each call is a fresh connection. */
-static sdrv* sdrv_test_srvboot(const u8* seed) {
+ * wired_srvboot_id.ticket_key and the given client auth settings; *d is
+ * its sdrv, which has not seen a ClientHello yet. One static server: each
+ * call is a fresh connection. Returns srvboot_init's result. */
+static int sdrv_test_boot(
+    const u8* seed, int auth, const castore* ca, sdrv** d) {
   static wired_server  s;
   static wired_srvloop l;
   static const u8      scid[6] = {1, 2, 3, 4, 5, 6};
@@ -2655,17 +2720,39 @@ static sdrv* sdrv_test_srvboot(const u8* seed) {
   wired_srvboot_id     id   = {0};
   wired_header         h    = {0};
   sdrv_test_srv_keys(priv, pub, cert);
-  id.priv       = priv;
-  id.pub        = pub;
-  id.cert_seed  = cert;
-  id.scid       = scid;
-  id.scid_len   = sizeof scid;
-  id.ticket_key = seed;
-  h.dcid_len    = 8;
-  h.scid_len    = 6;
-  CHECK(srvboot_init(&conn, &id, &h) == 1);
-  s.sdrv.peer_scid_set = 0; /* the fixture ClientHello carries no QUIC TPs */
-  return &s.sdrv;
+  id.priv        = priv;
+  id.pub         = pub;
+  id.cert_seed   = cert;
+  id.scid        = scid;
+  id.scid_len    = sizeof scid;
+  id.ticket_key  = seed;
+  id.client_auth = auth;
+  id.client_ca   = ca;
+  h.dcid_len     = 8;
+  h.scid_len     = 6;
+  *d             = &s.sdrv;
+  return srvboot_init(&conn, &id, &h);
+}
+
+static sdrv* sdrv_test_srvboot(const u8* seed) {
+  sdrv* d;
+  CHECK(sdrv_test_boot(seed, WIRED_CLIENT_AUTH_OFF, 0, &d) == 1);
+  d->peer_scid_set = 0; /* the fixture ClientHello carries no QUIC TPs */
+  return d;
+}
+
+/* RFC 8446 4.4.2.4 fail closed through srvboot: an id asking for client
+ * authentication without a trust store fails the connection's init; with
+ * one, the mode reaches the connection's sdrv. */
+static void test_sdrv_srvboot_client_auth(void) {
+  castore ca;
+  sdrv*   d;
+  castore_init(&ca, 0, 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_OPTIONAL, 0, &d) == 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_REQUIRED, 0, &d) == 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_REQUIRED, &ca, &d) == 1);
+  CHECK(d->client_auth == WIRED_CLIENT_AUTH_REQUIRED);
+  CHECK(d->client_ca == &ca);
 }
 
 /* 1 if a srvboot connection under seed resumes f's ticket. */
@@ -3431,9 +3518,11 @@ void test_sdrv(void) {
   test_sdrv_psk_unknown_identity_falls_back();
   test_sdrv_psk_previous_ticket_key_opens();
   test_sdrv_psk_srvboot_seed_resumes();
+  test_sdrv_srvboot_client_auth();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();
+  test_sdrv_cauth_ignores_psk();
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_no_ticket_key_disables_0rtt();
   test_sdrv_early_data_replay_rejected();

@@ -1,3 +1,4 @@
+#include "common/platform/clock/clock.h"
 #include "common/platform/rng/rng.h"
 #include "tls/handshake/roles/server/server_impl.h"
 #include "transport/conn/cid/spin/spin.h"
@@ -60,6 +61,11 @@ static void srv_reset_counters(wired_server* s) {
   s->hs_error      = 0;
   s->hs_rx_used    = 0;
   s->ini_rx_end    = 0;
+  s->peer_cert_off = 0;
+  s->peer_cert_len = 0;
+  s->hs_wait       = SRV_WAIT_FIN;
+  s->hs_aborted    = 0;
+  s->cauth_clock   = clock_ymdhms;
 }
 
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
@@ -72,7 +78,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   keysched_init(&s->sched);
   keyset_init(&s->keys);
   srvfin_state_init(&s->fin, &s->sched, &s->keys);
-  crecv_init(&s->crecv);
+  crecv_init(&s->crecv, s->crecv_mem, CRECV_BUF);
   s->fd                = -1;
   s->phase             = WIRED_SERVER_HS_INITIAL;
   s->hs_done_sent      = 0;

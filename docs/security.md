@@ -70,8 +70,8 @@ are closed:
 | **Total**                  |  840 |
 
 `docs/security/feature-gaps.md` lists the rows that are closed only because
-the feature does not exist here (revocation checking, client certificates,
-ECH, DSA, and so on). Adding such a feature re-opens its rows.
+the feature does not exist here (revocation checking, ECH, DSA, and so
+on). Adding such a feature re-opens its rows.
 
 Many rows close `n/a` because the attacked mechanism does not exist here.
 There is no heap allocator, so there is no use-after-free or double-free

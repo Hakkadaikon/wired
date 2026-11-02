@@ -235,6 +235,10 @@ typedef struct {
   /** full body length if known, first round only (see
    * wired_srvloop_handler) */
   u64 total_size;
+  /** RFC 8446 4.4.2: the client's verified end-entity certificate DER
+   * under client authentication (wired_srvboot_id.client_auth), empty
+   * when none was verified; first round only, valid for the call */
+  wired_span peer_cert;
 } wired_http_exchange;
 
 /** Upper bound on the summed name, value and content_type bytes of one

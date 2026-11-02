@@ -382,6 +382,8 @@ static void sb_make_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -1543,6 +1545,8 @@ static void sb_make_chain_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the
@@ -1616,6 +1620,8 @@ static void test_srvboot_split_flight_datagrams(void) {
 
 /* Open each flight datagram with SERVER_HS and collect its CRYPTO frames into
  * the reassembler, in forward or reverse datagram order. */
+static u8 g_sb_split_crecv_mem[2 * CRECV_BUF];
+
 static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
   const initial_keys* shs;
   aes128              hp;
@@ -1627,7 +1633,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
     offs[i] = off;
     off += f->out.dgram_len[i];
   }
-  crecv_init(cr);
+  crecv_init(cr, g_sb_split_crecv_mem, CRECV_BUF);
   for (usz k = 0; k < f->out.dgram_count; k++) {
     usz        i = reverse ? f->out.dgram_count - 1 - k : k;
     wired_span frames;
@@ -1635,7 +1641,7 @@ static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
         hspkt_open(
             &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]), 0,
             &frames) == 1);
-    CHECK(crecv_collect(cr, frames.p, frames.n) == 1);
+    CHECK(crecv_collect(cr, g_sb_split_crecv_mem, frames.p, frames.n) == 1);
   }
 }
 
@@ -1647,7 +1653,7 @@ static void sb_split_check_finished(
   const u8* fl;
   usz       fln, p = 0;
   u8        th[32];
-  crecv_message(cr, &fl, &fln);
+  crecv_message(cr, g_sb_split_crecv_mem, &fl, &fln);
   CHECK(fln > 0);
   while (p + 4 <= fln && fl[p] != HS_FINISHED) {
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);

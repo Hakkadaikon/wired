@@ -117,6 +117,17 @@ typedef struct {
    * both. An Initial of any other version gets Version Negotiation, and
    * compatible version negotiation (RFC 9368) only picks from this set. */
   u32 versions;
+  /** RFC 8446 4.3.2 / 4.4.2.4: WIRED_CLIENT_AUTH_OFF (0, the default),
+   * _OPTIONAL or _REQUIRED. Not off: every full handshake sends a
+   * CertificateRequest and verifies the client's chain against client_ca
+   * (clientAuth purpose, current clock); session resumption, 0-RTT and
+   * session tickets are refused. Required closes a client that sends no
+   * certificate with certificate_required. */
+  int client_auth;
+  /** The trust store client certificates must chain to; required when
+   * client_auth is not off (the connection's init fails without it). Not
+   * copied: keep it alive while connections are served. */
+  const castore* client_ca;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
@@ -229,9 +240,12 @@ usz wired_srvboot_vneg(wired_span dg, u32 versions, u8* out, usz cap);
  * a ClientHello too big for one Initial (a post-quantum hybrid key share
  * pushes it near 1.7KB) arrives as CRYPTO chunks spread over several packets
  * (RFC 9000 19.6), and the server may not build its flight until the whole
- * message is contiguous. */
+ * message is contiguous. The reassembly's backing memory (cr_mem) lives
+ * here and is passed to each crecv_* call; cr holds no pointer. */
 typedef struct {
-  crecv        cr;  /**< CRYPTO stream reassembly buffer */
+  crecv cr; /**< CRYPTO stream reassembly state over cr_mem */
+  /** cr's backing memory: the ClientHello stream (RFC 9000 7.5 minimum). */
+  u8           cr_mem[2 * CRECV_INITIAL_BUF];
   wired_header hdr; /**< the first datagram's header: its DCID is the ODCID
                        the Initial keys derive from (fixed for the whole
                        boot), its SCID the id the server replies to */
