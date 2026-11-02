@@ -19,6 +19,7 @@
 #include "app/qpack/qpack/dynget.c"
 #include "app/qpack/qpack/dyntable.c"
 #include "app/qpack/qpack/huffman.c"
+#include "app/qpack/qpack/huffman_enc.c"
 #include "app/qpack/qpack/huffman_step.c"
 #include "app/qpack/qpack/instruction.c"
 #include "app/qpack/qpack/integer.c"

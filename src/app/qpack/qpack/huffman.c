@@ -1,9 +1,10 @@
-/* RFC 7541 Appendix B static Huffman code, in canonical form. HSYM lists the
- * 257 symbols (0..255 plus EOS=256) ordered by (code length, code value).
- * For a code of length L: HFIRST[L] is the first canonical code of that
- * length, HIDX[L] the index of its first symbol in HSYM, HCNT[L] the number
- * of codes of that length. A code value c of length L decodes to
- * HSYM[HIDX[L] + (c - HFIRST[L])] when c - HFIRST[L] < HCNT[L]. */
+/* RFC 7541 Appendix B static Huffman code, in canonical form. qpack_hsym
+ * lists the 257 symbols (0..255 plus EOS=256) ordered by (code length, code
+ * value). For a code of length L: qpack_hfirst[L] is the first canonical
+ * code of that length, qpack_hidx[L] the index of its first symbol in
+ * qpack_hsym, qpack_hcnt[L] the number of codes of that length. A code value
+ * c of length L decodes to qpack_hsym[qpack_hidx[L] + (c - qpack_hfirst[L])]
+ * when c - qpack_hfirst[L] < qpack_hcnt[L]. huffman_enc.c encodes with them. */
 
 #include "app/qpack/qpack/huffman_impl.h"
 
@@ -11,7 +12,7 @@ static int  code_ready(u32 acc, u32 L);
 static void put_sym(hctx* c, u16 sym);
 static void emit_code(hctx* c);
 
-static const u16 HSYM[257] = {
+const u16 qpack_hsym[257] = {
     48,  49,  50,  97,  99,  101, 105, 111, 115, 116, 32,  37,  45,  46,  47,
     51,  52,  53,  54,  55,  56,  57,  61,  65,  95,  98,  100, 102, 103, 104,
     108, 109, 110, 112, 114, 117, 58,  66,  67,  68,  69,  70,  71,  72,  73,
@@ -32,24 +33,24 @@ static const u16 HSYM[257] = {
     22,  256,
 };
 
-static const u32 HFIRST[31] = {
+const u32 qpack_hfirst[31] = {
     0,         0,         0,         0,        0,        0,        20,
     92,        248,       508,       1016,     2042,     4090,     8184,
     16380,     32764,     65534,     131068,   262136,   524272,   1048550,
     2097116,   4194258,   8388568,   16777194, 33554412, 67108832, 134217694,
     268435426, 536870910, 1073741820};
 
-static const u16 HIDX[31] = {
-    0,  0,  0,  0,  0,  0,   10,  36,  68,  74,  74,  79,  82,  84,  90, 92,
-    95, 95, 95, 95, 98, 106, 119, 145, 174, 186, 190, 205, 224, 253, 253};
+const u16 qpack_hidx[31] = {0,   0,   0,   0,   0,   0,   10,  36,  68, 74, 74,
+                            79,  82,  84,  90,  92,  95,  95,  95,  95, 98, 106,
+                            119, 145, 174, 186, 190, 205, 224, 253, 253};
 
-static const u16 HCNT[31] = {0,  0,  0,  0, 0,  10, 26, 32, 6, 0, 5,
-                             3,  2,  6,  2, 3,  0,  0,  0,  3, 8, 13,
-                             26, 29, 12, 4, 15, 19, 29, 0,  4};
+const u16 qpack_hcnt[31] = {0,  0,  0,  0, 0,  10, 26, 32, 6, 0, 5,
+                            3,  2,  6,  2, 3,  0,  0,  0,  3, 8, 13,
+                            26, 29, 12, 4, 15, 19, 29, 0,  4};
 
 /* A complete code of length L sits in acc when its offset is within range. */
 static int code_ready(u32 acc, u32 L) {
-  return HCNT[L] != 0 && (acc - HFIRST[L]) < HCNT[L];
+  return qpack_hcnt[L] != 0 && (acc - qpack_hfirst[L]) < qpack_hcnt[L];
 }
 
 /* Write one decoded symbol; fail on EOS (sym > 255) or dst overflow. */
@@ -63,7 +64,8 @@ static void put_sym(hctx* c, u16 sym) {
 
 /* A code completed at length nbits: emit its symbol and reset the bit run. */
 static void emit_code(hctx* c) {
-  put_sym(c, HSYM[HIDX[c->nbits] + (c->acc - HFIRST[c->nbits])]);
+  put_sym(
+      c, qpack_hsym[qpack_hidx[c->nbits] + (c->acc - qpack_hfirst[c->nbits])]);
   c->acc   = 0;
   c->nbits = 0;
 }

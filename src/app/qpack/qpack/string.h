@@ -8,8 +8,8 @@
  * copied raw; H=1 octets are the static Huffman code and are decoded (RFC
  * 7541 Appendix B). The H flag is the high bit of the length's prefix byte. */
 
-/* Encode src as a raw (H=0) string literal into buf. Returns bytes written,
- * or 0 if it does not fit. */
+/* Encode src as a string literal into buf: Huffman-coded (H=1) when that is
+ * shorter, else raw (H=0). Returns bytes written, or 0 if it does not fit. */
 usz qpack_string_encode(wired_mspan buf, wired_span src);
 
 /* Decode a string literal at buf into dst, setting dst->len. H=1 values are

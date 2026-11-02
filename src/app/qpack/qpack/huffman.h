@@ -12,4 +12,10 @@
  * (RFC 7541 5.2). */
 int qpack_huffman_decode(wired_span src, wired_obuf* dst);
 
+/* RFC 7541 Appendix B / 5.2. Huffman-code src into dst, padding the last
+ * octet with the most significant bits of EOS (all ones). Returns the coded
+ * length in octets; only the first dst.n of them are written, so an empty
+ * dst just sizes the code. */
+usz qpack_huffman_encode(wired_span src, wired_mspan dst);
+
 #endif

@@ -34,6 +34,10 @@ static int over_capacity(const qpack_dyn* t, usz need) {
   return t->size + need > t->capacity;
 }
 
+int qpack_dyn_fits(const qpack_dyn* t, const qpack_field* f) {
+  return !over_capacity(t, entry_size(f->name.n, f->value.n));
+}
+
 /* RFC 9204 3.2.2: evict until the new entry fits or nothing remains. Once
  * it fits, the live bytes plus the new entry's stay below the ring's size
  * (each live entry also costs 32 it does not store), so writing at tail
