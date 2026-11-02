@@ -70,8 +70,11 @@ wired が内部に持つ表（コネクションやストリームの管理表�
   それぞれのリクエストストリームで行った購読には送られます。
 - SUBSCRIBE_TRACKS への REQUEST_UPDATE には NOT_SUPPORTED で答えます。
   送信者自身の PUBLISH への REQUEST_UPDATE も、draft-22 のセッション以外では NOT_SUPPORTED で答えます。
-- Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えます。SUBGROUP_FILTER と PRIORITY_FILTER はストリーム単位で、OBJECTID_FILTER はデータグラムで送る Object とキャッシュから返す FETCH の Object を絞ります。OBJECT_PROPERTY_FILTER は通します。
-  ほかの種類のフィルタは素通しです。
+- Range Filter（draft-19 と draft-22 のみ）は、検査して MAX_FILTER_RANGES に数えます。
+  購読では、SUBGROUP_FILTER と PRIORITY_FILTER はストリーム単位で絞り、OBJECTID_FILTER はデータグラムで送る Object を絞ります。
+  OBJECT_PROPERTY_FILTER は通します。
+  FETCH では、上流から取得した Object はすべてのフィールドで絞ります。
+  キャッシュから返す Object は Object ID だけで判定するので、SUBGROUP、PRIORITY、OBJECT_PROPERTY の条件を含むフィルタの組には通りません。
 - Track Property の DEFAULT_PUBLISHER_PRIORITY は読みません。
   Publisher Priority を明示していない Object は 128 として扱います。
 - ハブ自身の Track（`wired_moqt_publish_blob`、`wired_moqt_publish_live`）は名前空間を持たず、SUBSCRIBE とは Track Name だけで照合します。

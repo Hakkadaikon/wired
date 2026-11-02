@@ -52,7 +52,8 @@ Contents: [MoQT relay (hub)](#moqt-relay-hub) |
 [Platform / I/O](#platform--io) | [Capacity limits](#capacity-limits) |
 [Testing and verification gaps](#testing-and-verification-gaps) |
 [Library code not reached by the shipped server](#library-code-not-reached-by-the-shipped-server) |
-[Out of scope by design](#out-of-scope-by-design)
+[Out of scope by design](#out-of-scope-by-design) |
+[Not planned](#not-planned)
 
 ---
 
@@ -179,7 +180,8 @@ The limits:
   cache keeps no Subgroup, priority or Properties, so a filter set that
   names one of them passes no cached Object and leaves an unmarked
   (unknown) gap. A Joining FETCH applies no Range Filter
-  (`moqtrun_fsel_skip`, MQ22-137).
+  (`moqtrun_fsel_skip`, MQ22-137; `moqtrun_fetch_joining` in
+  `moqtrun_live.c` drops them).
 
   Buffering details: an Object under `WIRED_MOQTRUN_RELAY_FRAG_MAX` (16 KiB)
   is held whole while it is torn; a larger one's payload passes through as
@@ -260,10 +262,10 @@ The limits:
   decides whether a missing range is marked "End of Timed-Out Range" (d22:
   the hub could not get it in time), and it can shorten the upstream FETCH
   budget above. EXPIRES is parsed and ignored. NEW_GROUP_REQUEST, in
-  contrast, is relayed upstream (d18/d19 10.2.13: in the hub's own
+  contrast, is relayed upstream (d18 10.2.13, d19 10.2.18: in the hub's own
   SUBSCRIBE, or a REQUEST_UPDATE once the Track is Established;
-  `moqtrun_ngr.c`), and RENDEZVOUS_TIMEOUT is acted on (see the rendezvous
-  cap in
+  `moqtrun_ngr.c`), and RENDEZVOUS_TIMEOUT is acted on (see the
+  rendezvous cap in
   [MoQT versions and spec deviations](#moqt-versions-and-spec-deviations)).
   Source: the MoQT ledgers' Out of scope sections.
 - **Track Properties forwarded in SUBSCRIBE_OK only, up to 32 bytes** —
@@ -1198,14 +1200,11 @@ Notes on the two send-side buffers:
 - **Fuzz coverage** — Affects: robustness of the hub loop. `fuzz_moqt`
   covers the codecs, `moqdg` and `moqcache`. The hub run loop (`moqtrun`) is
   not fuzzed, because it is not a codec.
-- **Ledger counts** — Affects: the coverage total. 7 requirements are
-  untested: MQ18-218 and MQ18-235
-  ([draft-moq-transport-18.md](draft-moq-transport-18.md)), MOQT-230 and
-  MOQT-247 ([draft-moq-transport.md](draft-moq-transport.md)), MQ22-070a
-  ([draft-moq-transport-22.md](draft-moq-transport-22.md)), 9114-097
-  ([rfc9114.md](rfc9114.md)) and 9204-061 ([rfc9204.md](rfc9204.md)). The
-  experimental track-switching section (MQ22-X13 among them) is not
-  counted. Source: [features README](README.md).
+- **Ledger counts** — Affects: the coverage total. Some requirements are
+  still untested; the current count is in the
+  [features README](README.md), and the open items are the `[ ]` boxes in
+  each ledger. The experimental track-switching section (MQ22-X13 among
+  them) is not counted.
 - **BoringSSL oracle** — Affects: nobody; listed for completeness. There are
   no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
   AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
@@ -1344,9 +1343,10 @@ concerns, not SDK code, and exclude them from the coverage count.
   needs a per-transport GOAWAY URI, and a need for a wired-side raw MoQT
   client role.
 
-### Not planned
+## Not planned
 
-These are decided: wired will not implement them unless the reason below
+These are SDK protocol features, not operator or client concerns. They are
+decided: wired will not implement them unless the reason below
 stops holding. Each is described in its layer's section above and in the
 named ledger's Out of scope section.
 

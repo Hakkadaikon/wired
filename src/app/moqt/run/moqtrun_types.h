@@ -347,13 +347,11 @@ typedef struct {
   /** 1 when filter holds the subscription's LOCATION_FILTER. */
   u8 has_filter;
   /** Range Filter rows (10.2.10-10.2.14), one Range per row; capacity
-   * is the advertised MAX_FILTER_RANGES. OBJECTID_FILTER rows gate each
-   * Object at the per-Object (datagram) gate.
-   * ponytail: subgroup/priority/property filter rows are validated and
-   * stored but pass at delivery -- the group-granular stream gates
-   * never see those fields (the Location Filter's granularity note);
-   * evaluate them if the hub ever reads subgroup ids or properties at
-   * delivery. */
+   * is the advertised MAX_FILTER_RANGES. SUBGROUP/PRIORITY rows gate
+   * each stream as it opens (moqtrun_sub_rngf_stream); OBJECTID_FILTER
+   * rows gate each Object at the per-Object (datagram) gate.
+   * ponytail: property filter rows are validated and stored but pass at
+   * delivery; evaluate them if the hub ever reads properties there. */
   wired_moqtrun_rngrow rngf[WIRED_MOQTRUN_MAX_FILTER_RANGES];
   /** Rows of rngf in use; 0 = no Range Filter. */
   u8 rngf_n;

@@ -1,6 +1,6 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-/* ===== NEW_GROUP_REQUEST relay handling (draft-18/19 10.2.13) =====
+/* ===== NEW_GROUP_REQUEST relay handling (d18 10.2.13, d19 10.2.18) =====
  * A relay forwards a downstream NEW_GROUP_REQUEST upstream: in its own
  * SUBSCRIBE when the Track has no Established subscription, else in a
  * REQUEST_UPDATE to the publisher -- for a value of 0 or above the
