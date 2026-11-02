@@ -2,6 +2,7 @@
 #define WIRED_SRVKEYS_SRVKEYS_H
 
 #include "common/platform/sys/syscall.h"
+#include "transport/conn/loop/manage/zerortt_seen.h"
 
 /** @file
  * Process-wide secret seeds a server derives its rotating session-ticket
@@ -32,5 +33,16 @@ const u8* srvkeys_retry(void);
  * expires by it (NEWTOKEN_MAX_AGE_SECS), across key epochs.
  * @return SRVKEYS_LEN bytes, all zero only if srvkeys_ready failed */
 const u8* srvkeys_newtoken(void);
+
+/** RFC 9000 8.1.4: the record of NEW_TOKEN tokens already used, so each
+ * opens one connection only. Process-local until srvkeys_newtoken_share.
+ * @return the tracker every server thread checks tokens against */
+zerortt_seen* srvkeys_newtoken_seen(void);
+
+/** Move the used-token record into shared memory so fork(2) children
+ * (srvworkers) keep one record with the parent and each other, like
+ * sdrv_zerortt_share. Call before forking; a second call is a no-op.
+ * @return 1 once shared, 0 if the mapping failed (it stays per process) */
+int srvkeys_newtoken_share(void);
 
 #endif

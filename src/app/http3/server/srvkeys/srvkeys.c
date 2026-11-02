@@ -34,3 +34,13 @@ const u8* srvkeys_newtoken(void) {
   srvkeys_ready();
   return g_srvkeys[2];
 }
+
+/* Zero static storage is an empty tracker (zerortt_seen_init's state). */
+static zerortt_seen  g_srvkeys_newtok_seen;
+static zerortt_seen* g_srvkeys_newtok_tab = &g_srvkeys_newtok_seen;
+
+zerortt_seen* srvkeys_newtoken_seen(void) { return g_srvkeys_newtok_tab; }
+
+int srvkeys_newtoken_share(void) {
+  return zerortt_seen_share(&g_srvkeys_newtok_tab, &g_srvkeys_newtok_seen);
+}

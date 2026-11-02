@@ -1,9 +1,15 @@
 #include "transport/conn/loop/manage/zerortt_seen.h"
 
 #include "common/arch/arch.h"
+#include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
 #include "common/platform/clock/clock.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+
+/* mmap(2) flags for a region fork(2) children keep sharing with the parent
+ * (Linux <sys/mman.h>). */
+#define ZERORTT_SEEN_PROT_RW 0x3
+#define ZERORTT_SEEN_MAP_SHARED_ANON 0x21
 
 void zerortt_seen_init(zerortt_seen* s) {
   s->next    = 0;
@@ -96,4 +102,20 @@ int zerortt_seen_pre_start(zerortt_seen* s, u64 issued_at, u64 now_secs) {
 
 void zerortt_seen_set_started(zerortt_seen* s, u64 secs) {
   __atomic_store_n(&s->started, secs, __ATOMIC_RELEASE);
+}
+
+int zerortt_seen_share(zerortt_seen** tab, const zerortt_seen* local) {
+  i64 p;
+  if (*tab != local) {
+    return 1;
+  }
+  p = wired_arch_mmap(
+      0, sizeof(zerortt_seen), ZERORTT_SEEN_PROT_RW,
+      ZERORTT_SEEN_MAP_SHARED_ANON, -1, 0);
+  if (p < 0) {
+    return 0;
+  }
+  bytes_memcpy((void*)p, local, sizeof(zerortt_seen));
+  *tab = (zerortt_seen*)p;
+  return 1;
 }

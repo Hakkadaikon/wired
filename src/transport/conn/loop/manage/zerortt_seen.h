@@ -68,4 +68,11 @@ int zerortt_seen_pre_start(zerortt_seen* s, u64 issued_at, u64 now_secs);
  * server that knows its own start time). */
 void zerortt_seen_set_started(zerortt_seen* s, u64 secs);
 
+/* Across fork(2) (srvworkers): move the tracker *tab points at -- still
+ * the process-local `local` -- into an anonymous shared mapping and point
+ * *tab there, so the parent and every child keep one record. A second call
+ * is a no-op. Returns 1 once shared, 0 if the mapping failed (*tab then
+ * stays local). Call before forking. */
+int zerortt_seen_share(zerortt_seen** tab, const zerortt_seen* local);
+
 #endif
