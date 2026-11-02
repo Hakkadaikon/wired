@@ -65,18 +65,7 @@ static zerortt_seen* g_sdrv_zerortt_tab = &g_sdrv_zerortt_seen;
 static zerortt_seen* sdrv_zerortt_seen(void) { return g_sdrv_zerortt_tab; }
 
 int sdrv_zerortt_share(void) {
-  i64 p;
-  if (g_sdrv_zerortt_tab != &g_sdrv_zerortt_seen) {
-    return 1;
-  }
-  p = wired_arch_mmap(
-      0, sizeof(zerortt_seen), SDRV_PROT_RW, SDRV_MAP_SHARED_ANON, -1, 0);
-  if (p < 0) {
-    return 0;
-  }
-  bytes_memcpy((void*)p, &g_sdrv_zerortt_seen, sizeof(zerortt_seen));
-  g_sdrv_zerortt_tab = (zerortt_seen*)p;
-  return 1;
+  return zerortt_seen_share(&g_sdrv_zerortt_tab, &g_sdrv_zerortt_seen);
 }
 
 /* RFC 8446 4.2.11.1 / 8.3: the ticket is on its first use (RFC 8446 8.1) and

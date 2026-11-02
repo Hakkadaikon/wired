@@ -181,9 +181,9 @@ u64 srvrun_idle_ms(const srvrun_conn* c) {
 }
 
 /* RFC 9000 10.1: the idle timer restarts on every receive and on the first
- * ack-eliciting send after it. */
+ * ack-eliciting send after it (srvloop_send_onertt_rec notes that one). */
 static u64 srvrun_idle_since(const srvrun_conn* c) {
-  return u64_max(c->last_ms, c->idle_tx_ms);
+  return u64_max(c->last_ms, c->l.ackst.idle_tx_ms);
 }
 
 /* 1 if c has been idle at least its idle period. */

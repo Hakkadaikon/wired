@@ -126,19 +126,7 @@ static int peercid_stale(
 void peercid_sweep(peercid* p, const pathsel_key* tracked, usz n) {
   for (usz i = 0; i < PEERCID_CAP; i++) {
     if (peercid_stale(&p->e[i], tracked, n)) {
-      peercid_drop(p, &p->e[i]);
+      (void)peercid_drop(p, &p->e[i]); /* queue full: the next sweep */
     }
   }
-}
-
-int peercid_take_retire(peercid* p, u64* seq) {
-  if (!p->retire_n) {
-    return 0;
-  }
-  *seq = p->retire[0];
-  p->retire_n--;
-  for (usz i = 0; i < p->retire_n; i++) {
-    p->retire[i] = p->retire[i + 1];
-  }
-  return 1;
 }

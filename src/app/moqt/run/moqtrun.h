@@ -99,6 +99,10 @@ typedef struct {
   u64 pubdone_streams;
   /** Clock past which the held PUBLISH_DONE goes out anyway. */
   u64 pubdone_deadline;
+  /** Group ID of the latest Subgroup stream header. */
+  u64 sg_group;
+  /** Subgroup ID of the latest Subgroup stream header. */
+  u64 sg_id;
   /** 1 while a PUBLISH_DONE is held. */
   u8 pubdone_pending;
   /** The Object with Status END_OF_TRACK, valid while end_flags bit 0. */
@@ -108,8 +112,12 @@ typedef struct {
   moqctl_loc group_end;
   /** Bit 0: track_end set; bit 1: group_end set. */
   u8 end_flags;
-  /** 1 once an Object past track_end or group_end arrived (draft-22 12.1
-   * Malformed Track); the track then ends MALFORMED_TRACK. */
+  /** Publisher Priority of the latest Subgroup stream header. */
+  u8 sg_prio;
+  /** 1 once sg_group, sg_id and sg_prio are set. */
+  u8 sg_set;
+  /** 1 once an Object made the track Malformed (draft-22 12.1); the
+   * track then ends MALFORMED_TRACK. */
   u8 malformed;
   /** 1 while the publisher's PUBLISH left the hub's subscription paused
    * (FORWARD 0) and no REQUEST_UPDATE resumed it (draft-22 7.6). */

@@ -56,6 +56,7 @@ static void srvrun_wt_latches_clear(srvrun_conn* c, int sidx) {
   c->wt_close_code[sidx]    = 0;
   c->wt_close_msg_len[sidx] = 0;
   c->wt_drain_pending[sidx] = 0;
+  c->wtx.credit_wait[sidx]  = 0;
 }
 
 /* Bring session slot sidx up for the CONNECT on c->l.req_stream_id: init,

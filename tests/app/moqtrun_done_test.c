@@ -318,6 +318,133 @@ static void test_moqtrun_pubdone_malformed_mandatory_obj_prop(void) {
   }
 }
 
+/* A's FINed stream sid of Group g, header Type type (explicit Subgroup ID
+ * sg; Publisher Priority prio unless DEFAULT_PRIORITY), carrying the one
+ * Normal Object obj. */
+static void mtdn_sg_hdr(u64 sid, u64 type, u64 g, u64 sg, u8 prio, u64 obj) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  wired_mspan    out = wired_mspan_of(buf, sizeof buf);
+  usz            off = 0;
+  u8             b   = 0x5a;
+  moqdata_subhdr h   = {0};
+  h.type             = type;
+  h.track_alias      = 1;
+  h.group_id         = g;
+  h.subgroup_id      = sg;
+  h.priority         = prio;
+  moqdata_subhdr_put(out, &off, &h);
+  moqdata_obj_put(out, &off, obj, wired_span_of(&b, 1));
+  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
+}
+
+/* mtdn_sg_hdr with an explicit Subgroup ID and priority (Type 0x14). */
+static void mtdn_sg_prio(u64 sid, u64 g, u64 sg, u8 prio, u64 obj) {
+  mtdn_sg_hdr(sid, 0x14, g, sg, prio, obj);
+}
+
+static int mtdn_is_open_b(const moqtrun_test_call* c) {
+  return c->s == SESS_B && (c->kind == 4 || c->kind == 5);
+}
+
+/* Streams the hub opened toward B (send_uni / open_uni). */
+static usz mtdn_opens_b(void) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += (usz)mtdn_is_open_b(&g_calls[i]);
+  }
+  return n;
+}
+
+/* d22 12.1 #1 (d18/d19 2.4.2 #1): an Object whose Publisher Priority
+ * differs from the previous Object of its Subgroup ID makes a Malformed
+ * Track, and its stream is not relayed; another Subgroup at another
+ * priority does not. */
+static void test_moqtrun_pubdone_malformed_prio_mismatch(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_prio(2002, 1, 0, 5, 0);
+  mtdn_sg_prio(2006, 1, 1, 9, 1);
+  mtdn_sg_prio(2010, 1, 1, 9, 2);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  usz opens = mtdn_opens_b();
+  CHECK(opens == 3);
+  mtdn_sg_prio(2014, 1, 1, 7, 3);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+  CHECK(mtdn_opens_b() == opens);
+}
+
+/* The same Subgroup ID in another Group is another Subgroup: its own
+ * priority is no mismatch. */
+static void test_moqtrun_pubdone_prio_cross_group(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_prio(2002, 1, 1, 9, 0);
+  mtdn_sg_prio(2006, 2, 1, 7, 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* Subgroup 1 reopened after another Subgroup, at its old priority: no
+ * mismatch. */
+static void test_moqtrun_pubdone_prio_reopen(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_prio(2002, 1, 1, 9, 0);
+  mtdn_sg_prio(2006, 1, 0, 5, 1);
+  mtdn_sg_prio(2010, 1, 1, 9, 2);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+}
+
+/* A DEFAULT_PRIORITY header (Type 0x34) takes the track's default (128,
+ * no DEFAULT_PUBLISHER_PRIORITY property): the same value spelled out is
+ * no mismatch, another value is. */
+static void test_moqtrun_pubdone_prio_default(void) {
+  u64 count = 0;
+  mtdn_setup();
+  mtdn_sg_hdr(2002, 0x34, 1, 1, 0, 0);
+  mtdn_sg_prio(2006, 1, 1, 128, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  mtdn_sg_hdr(2010, 0x34, 1, 1, 0, 2);
+  mtdn_sg_prio(2014, 1, 1, 127, 3);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+}
+
+/* A's OBJECT_DATAGRAM for Object obj of Group g (no tick: the track ends
+ * within the call when it does). */
+static void mtdn_dg(u64 g, u64 obj) {
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       off = 0;
+  u8        b   = 0x5a;
+  moqdg_obj o   = {0};
+  o.track_alias = 1;
+  o.group_id    = g;
+  o.object_id   = obj;
+  o.payload     = wired_span_of(&b, 1);
+  CHECK(moqdg_put(wired_mspan_of(buf, sizeof buf), &off, &o));
+  wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(buf, off));
+}
+
+/* d22 12.1 #7 (d18/d19 2.4.2 #7, "Forwarding Preference"): an Object
+ * received as a datagram after it came on a Subgroup stream makes a
+ * Malformed Track at once, that datagram not relayed; a datagram for
+ * another Object of that Group does not (a Track may mix both since d17,
+ * d22 A.6). After detection, no datagram of the track is relayed. */
+static void test_moqtrun_pubdone_malformed_mode_change(void) {
+  u64 count = 0;
+  mtdn_setup();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mtdn_status_group(2002, 1, 1, MOQDATA_STATUS_NORMAL);
+  mtdn_dg(1, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  u64 bad = mtst_hub.stat_dg_bad;
+  mtdn_dg(1, 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_MALFORMED_TRACK);
+  CHECK(moqtrun_test_count_kind(9) == 1);
+  CHECK(mtst_hub.stat_dg_bad == bad + 1);
+  mtdn_dg(1, 2);
+  CHECK(moqtrun_test_count_kind(9) == 1);
+}
+
 /* d22 12.1: a relay that detects a Malformed Track resets its fetch
  * streams of the track MALFORMED_TRACK. */
 static void test_moqtrun_pubdone_malformed_resets_fetch(void) {
@@ -399,6 +526,11 @@ static void mtall_pubdone(void) {
   test_moqtrun_pubdone_malformed_after_end_of_track();
   test_moqtrun_pubdone_malformed_after_end_of_group();
   test_moqtrun_pubdone_malformed_mandatory_obj_prop();
+  test_moqtrun_pubdone_malformed_prio_mismatch();
+  test_moqtrun_pubdone_prio_cross_group();
+  test_moqtrun_pubdone_prio_reopen();
+  test_moqtrun_pubdone_prio_default();
+  test_moqtrun_pubdone_malformed_mode_change();
   test_moqtrun_pubdone_session_close_pending();
   test_moqtrun_pubdone_reset_pending();
   test_moqtrun_pubdone_fin_after();

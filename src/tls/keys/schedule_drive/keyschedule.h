@@ -58,6 +58,8 @@ typedef struct {
                 * "quicv2 " for v2 -- RFC 9369 3.3.1); set by
                 * keysched_init to VERSION_1 and overridable via
                 * keysched_set_version before advance_handshake. */
+  int hs_gone; /**< 1 once keysched_discard_handshake dropped the Handshake
+                * keys (RFC 9001 4.9.2); keysched_init clears it */
 } keysched;
 
 /**
@@ -191,5 +193,14 @@ int keysched_exporter_secret(const keysched* st, const u8** out);
  * @param st the schedule to wipe
  */
 void keysched_wipe(keysched* st);
+
+/**
+ * RFC 9001 4.9.2: discard the Handshake keys (both directions) once the
+ * handshake is confirmed. The key material is zeroed and keysched_get
+ * reports KS_CLIENT_HS / KS_SERVER_HS unavailable until keysched_init.
+ *
+ * @param st the schedule whose Handshake keys go
+ */
+void keysched_discard_handshake(keysched* st);
 
 #endif

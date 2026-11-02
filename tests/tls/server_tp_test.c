@@ -86,6 +86,12 @@ static void test_server_tp_ids_and_values(void) {
       v == WIRED_SRVLOOP_WT_BUF_CAP);
   CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
   CHECK(parse_int(tp, TP_INITIAL_MAX_STREAMS_UNI, &v) && v == 100);
+  /* RFC 9000 18.2: active_connection_id_limit promises the peer-ID pool
+   * (peercid) room for that many IDs; server_tp.c sits below transport's
+   * cid layer, so the two are pinned together here. */
+  CHECK(
+      parse_int(tp, TP_ACTIVE_CONNECTION_ID_LIMIT, &v) &&
+      v == STP_DEFAULT_ACTIVE_CID_LIMIT && v == PEERCID_CAP && v == 4);
 }
 
 /* RFC 9000 7.3: after a Retry, retry_source_connection_id carries the
