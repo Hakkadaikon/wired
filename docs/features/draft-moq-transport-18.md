@@ -2064,8 +2064,9 @@ from the coverage denominator above:
   RESET_STREAM only.
 - (SS10.2.13, SS10.6.2, SS10.10) Subscriber obligations of NEW_GROUP_REQUEST,
   Retry Interval pacing, and refusing an unwanted PUBLISH with UNINTERESTED
-  — the hub never sends NEW_GROUP_REQUEST, never retries a refused request,
-  and accepts every authorized PUBLISH it has room for (MQ18-156).
+  — the hub never originates a NEW_GROUP_REQUEST that no downstream
+  subscriber asked for (it relays them upstream, MQ18-229), never retries a
+  refused request, and accepts every authorized PUBLISH it has room for (MQ18-156).
 - (SS13) Security Considerations (subscription amplification,
   communication security, authorization, media security, resource
   exhaustion, timeouts, relay security, implementation fingerprinting) —

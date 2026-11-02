@@ -2420,10 +2420,8 @@ Range Filter validation were listed here until ledger ch. 10 implemented
 them (MQ22-028, MQ22-193 through MQ22-201). REQUEST_UPDATE of a
 SUBSCRIBE_TRACKS (prefix with per-type overlap, FORWARD; a failed one
 closes the bidi stream, 9.5.1) followed: `test_moqtrun_vgate_update_kinds`.
-
-- (SS3.3.2, SS7.6) Range Filters on the cache-served part of a FETCH
-  (MQ22-137): the upstream FETCH carries them (MQ22-214), the cache side
-  neither applies them nor reports its unmarked gaps as unknown.
+Range Filters on the cache-served part of a FETCH followed too (MQ22-137),
+so nothing is listed here now.
 
 ## Out of scope
 
