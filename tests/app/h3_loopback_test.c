@@ -382,6 +382,8 @@ static void sb_make_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -1543,6 +1545,8 @@ static void sb_make_chain_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the

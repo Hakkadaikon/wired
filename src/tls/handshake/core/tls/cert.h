@@ -15,6 +15,7 @@
 typedef struct {
   const u8* cert_data; /**< start of the entry's opaque cert_data (X.509) */
   u32       cert_len;  /**< length of cert_data in bytes */
+  u32       ext_len;   /**< length of the entry's extensions block */
 } tls_cert_entry;
 
 /** Parse a Certificate message body (after the handshake header). Sets the

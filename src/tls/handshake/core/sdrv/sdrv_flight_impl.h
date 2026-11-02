@@ -7,6 +7,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/diag/error/error.h"
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
+#include "crypto/pki/cert/certreq/certreq.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpblob.h"

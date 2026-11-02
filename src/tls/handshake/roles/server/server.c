@@ -60,6 +60,10 @@ static void srv_reset_counters(wired_server* s) {
   s->hs_error      = 0;
   s->hs_rx_used    = 0;
   s->ini_rx_end    = 0;
+  s->peer_cert_off = 0;
+  s->peer_cert_len = 0;
+  s->hs_wait       = SRV_WAIT_FIN;
+  s->hs_aborted    = 0;
 }
 
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {

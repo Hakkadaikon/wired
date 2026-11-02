@@ -11,6 +11,7 @@
 #include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hs_message.h"
+#include "tls/handshake/core/tls/hsdriver.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/handshake/core/tls/x25519.h"
@@ -25,7 +26,30 @@
  * the 4-byte handshake header (HS_HEADER) put_prefix wrote them at. */
 #define SRV_CH_RANDOM_OFF (HS_HEADER + 2)
 
+/* RFC 8446 4 / A.2: wired_server.hs_wait, the next client handshake
+ * message expected once the flight is out. */
+#define SRV_WAIT_FIN 0  /* client Finished */
+#define SRV_WAIT_CERT 1 /* client Certificate (CertificateRequest sent) */
+#define SRV_WAIT_CV 2   /* client CertificateVerify */
+
+/* RFC 8446 6.2 alerts the client authentication pieces close with. */
+#define CAUTH_BAD_CERTIFICATE 42
+#define CAUTH_ILLEGAL_PARAMETER 47
+#define CAUTH_DECODE_ERROR 50
+#define CAUTH_DECRYPT_ERROR 51
+#define CAUTH_UNSUPPORTED_EXTENSION 110
+#define CAUTH_CERTIFICATE_REQUIRED 116
+
+/* The handshake message body past its 4-byte header (len >= HS_HEADER: the
+ * feed hands on complete messages only). */
+static inline wired_span server_cauth_body(const u8* msg, usz len) {
+  return wired_span_of(msg + HS_HEADER, len - HS_HEADER);
+}
+
 const tls_hash* server_srv_hash(const wired_server* s);
+int             server_srv_latch(wired_server* s, u8 alert);
+int             server_cauth_on_cert(wired_server* s, const u8* msg, usz len);
+int             server_cauth_on_cv(wired_server* s, const u8* msg, usz len);
 usz             server_srv_tr_add(wired_server* s, const u8* msg, usz len);
 int             server_srv_verify_finished(
     wired_server* s, const u8* msg, usz len, u8* c_traffic);

@@ -30,10 +30,11 @@ static u64 resumption_left(u64 origin, u64 now) {
 }
 
 /* A ticket is owed only to a client that can resume with it (RFC 8446
- * 4.2.9: it offered psk_dhe_ke) while the resumption cap is not spent
- * (RFC 8446 4.6.1). */
+ * 4.2.9: it offered psk_dhe_ke, and no client authentication ignores
+ * every PSK) while the resumption cap is not spent (RFC 8446 4.6.1). */
 static int tickets_owed(const wired_server* s, u64 left) {
-  return s->sdrv.psk_dhe_ke && left > 0;
+  return s->sdrv.psk_dhe_ke && s->sdrv.client_auth == WIRED_CLIENT_AUTH_OFF &&
+         left > 0;
 }
 
 /* The fields this connection's tickets share: RFC 8446 4.2.10 alpn, the

@@ -32,3 +32,11 @@ int wired_server_resumption_secret(const wired_server* s, u8* out) {
   srv_resumption_master_secret(s, out);
   return 1;
 }
+
+int wired_server_early_data_used(const wired_server* s) {
+  return s->sdrv.early_data_accepted;
+}
+
+int wired_server_is_confirmed(const wired_server* s) {
+  return s->phase == WIRED_SERVER_HS_CONFIRMED;
+}

@@ -117,6 +117,17 @@ typedef struct {
    * both. An Initial of any other version gets Version Negotiation, and
    * compatible version negotiation (RFC 9368) only picks from this set. */
   u32 versions;
+  /** RFC 8446 4.3.2 / 4.4.2.4: WIRED_CLIENT_AUTH_OFF (0, the default),
+   * _OPTIONAL or _REQUIRED. Not off: every full handshake sends a
+   * CertificateRequest and verifies the client's chain against client_ca
+   * (clientAuth purpose, current clock); session resumption, 0-RTT and
+   * session tickets are refused. Required closes a client that sends no
+   * certificate with certificate_required. */
+  int client_auth;
+  /** The trust store client certificates must chain to; required when
+   * client_auth is not off (the connection's init fails without it). Not
+   * copied: keep it alive while connections are served. */
+  const castore* client_ca;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

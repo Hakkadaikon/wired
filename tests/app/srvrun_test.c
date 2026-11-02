@@ -1233,6 +1233,8 @@ static void sr_make_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:

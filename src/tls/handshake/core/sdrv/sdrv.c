@@ -100,6 +100,22 @@ void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev) {
 
 void sdrv_set_early_data(sdrv* s, int on) { s->early_data_enabled = on; }
 
+/* A known WIRED_CLIENT_AUTH_* mode that, unless off, comes with a trust
+ * store (fail closed: no store would accept any chain). */
+static int sdrv_client_auth_ok(int mode, const castore* ca) {
+  return (unsigned)mode <= WIRED_CLIENT_AUTH_REQUIRED &&
+         (mode == WIRED_CLIENT_AUTH_OFF || ca != 0);
+}
+
+int sdrv_set_client_auth(sdrv* s, int mode, const castore* ca) {
+  if (!sdrv_client_auth_ok(mode, ca)) {
+    return 0;
+  }
+  s->client_auth = mode;
+  s->client_ca   = ca;
+  return 1;
+}
+
 void sdrv_set_raw_alpns(sdrv* s, const char* raw_alpns) {
   s->raw_alpns = raw_alpns;
 }
@@ -122,6 +138,8 @@ static void sdrv_reset_nego(sdrv* s) {
   s->raw_alpns                    = 0;
   s->alpn_client_order            = 0;
   s->versions                     = 0;
+  s->client_auth                  = WIRED_CLIENT_AUTH_OFF;
+  s->client_ca                    = 0;
   s->cipher_suite                 = TLS_AES_128_GCM_SHA256;
   s->group                        = GROUP_X25519;
 }

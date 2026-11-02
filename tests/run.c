@@ -578,6 +578,8 @@
 #include "tls/handshake/roles/server/server.c"
 #include "tls/handshake/roles/server/server_early.c"
 #include "tls/handshake/roles/server/server_feed.c"
+#include "tls/handshake/roles/server/server_cauth.c"
+#include "tls/handshake/roles/server/server_cauth_cv.c"
 #include "tls/handshake/roles/server/server_order.c"
 #include "tls/handshake/roles/server/server_srv.c"
 #include "tls/handshake/roles/server/serverio.c"
@@ -1431,6 +1433,7 @@
 #include "transport/crecv_collect_test.c"
 #include "transport/crecv_message_test.c"
 #include "tls/server_test.c"
+#include "tls/srvcauth_test.c"
 #include "tls/keylog_test.c"
 #include "app/h3srv_test.c"
 #include "app/h3srv_priupdate_test.c"
@@ -2040,6 +2043,7 @@ int main(void) {
   test_crecv_collect();
   test_crecv_message();
   test_server();
+  test_srvcauth();
   test_tls_keylog();
   test_h3srv();
   test_h3srv_priupdate();

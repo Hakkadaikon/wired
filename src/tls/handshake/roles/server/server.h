@@ -125,6 +125,19 @@ typedef struct {
   /** Initial CRYPTO stream bytes the accepted ClientHello(s) spanned:
    * Initial CRYPTO data past this is a further handshake message. */
   usz ini_rx_end;
+  /** RFC 8446 4.4.2: offset in tr of the client's end-entity certificate
+   * DER (meaningful when peer_cert_len is non-zero). */
+  usz peer_cert_off;
+  /** Length of that certificate; 0 = the client sent none. */
+  usz peer_cert_len;
+  /** RFC 8446 4 / A.2: the next client handshake message the server waits
+   * for once its flight is out (SRV_WAIT_*): Certificate, then
+   * CertificateVerify, then Finished under client authentication, only
+   * Finished otherwise. */
+  int hs_wait;
+  /** RFC 8446 6.2: 1 once a handshake message latched an alert; no
+   * further handshake message is processed on this connection. */
+  int hs_aborted;
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
@@ -295,6 +308,16 @@ int wired_server_handshake_done(wired_server* s, wired_obuf* out);
  * @return 1 once the client Finished verified and the handshake is
  *   confirmed. */
 int wired_server_is_confirmed(const wired_server* s);
+
+/** RFC 8446 4.4.2 / RFC 9001 4.4: the client's end-entity certificate DER,
+ * once the handshake is confirmed under client authentication and the
+ * client proved possession of its key (CertificateVerify). A view into the
+ * connection's transcript, valid while s lives.
+ * @param s the orchestrator to inspect
+ * @param out receives the leaf certificate DER
+ * @return 1 with out set, 0 before confirmation or when no certificate was
+ *   verified (client authentication off, or optional and none sent). */
+int wired_server_peer_cert(const wired_server* s, wired_span* out);
 
 /** RFC 9001 4.6.1 / 9.2: whether the client's 0-RTT early data was accepted
  * on this connection (the ticket was on its first use and its binder

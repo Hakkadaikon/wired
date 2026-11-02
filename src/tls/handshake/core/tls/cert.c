@@ -55,10 +55,11 @@ static int take_entry(cur* c, tls_cert_entry* first) {
     return 0;
   }
   if (!take_vec(c, 2, &ext)) {
-    return 0; /* skip this entry's extensions */
+    return 0;
   }
   first->cert_data = cert.p;
   first->cert_len  = (u32)cert.n;
+  first->ext_len   = (u32)ext.n;
   return 1;
 }
 

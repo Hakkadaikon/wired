@@ -195,10 +195,13 @@ static int sdrv_ticket_usable(const sdrv* s, const ticket* t) {
 }
 
 /* The ticket opens and is usable (sdrv_ticket_usable); otherwise it is
- * ignored like an unknown identity (full handshake, RFC 8446 4.2.11). */
+ * ignored like an unknown identity (full handshake, RFC 8446 4.2.11).
+ * Under client authentication every PSK is ignored: RFC 8446 4.4 allows
+ * no certificate authentication on a PSK handshake (nor 0-RTT). */
 static int sdrv_psk_open_usable(
     const sdrv* s, const tlsext_psk_offer* off, ticket* t) {
-  return sdrv_psk_open_ticket(s, off, t) && sdrv_ticket_usable(s, t);
+  return s->client_auth == WIRED_CLIENT_AUTH_OFF &&
+         sdrv_psk_open_ticket(s, off, t) && sdrv_ticket_usable(s, t);
 }
 
 /* A parsed pre_shared_key offer: open its ticket and verify the binder.
