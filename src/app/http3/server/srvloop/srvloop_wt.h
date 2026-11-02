@@ -635,6 +635,11 @@ typedef struct {
    * "zombies" once filled the table until genuinely new streams were
    * dropped. */
   wired_srvloop_closed req_closed;
+  /** RFC 9000 3.5: client bidi streams whose send side was reset for a
+   * STOP_SENDING that came before any stream byte. Whether the stream is
+   * a request or WebTransport is unknown until its first byte: a request
+   * is then refused (wt_refused), a WT stream reads on. */
+  wired_srvloop_closed req_stopped;
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -993,7 +998,8 @@ typedef struct {
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
   u64 req_body_released;
   /** RFC 9114 8.1: client WT bidi streams whose signal frame found every
-   * wt_streams[] slot busy. dispatch.c only queues them; the caller
+   * wt_streams[] slot busy, and request streams found in req_stopped.
+   * dispatch.c only queues them; the caller
    * (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
    * credit back, and clears wt_refused_n. The bidi credit never has more
    * than WIRED_SRVLOOP_MAX_STREAMS new streams outstanding, so the queue
@@ -1139,7 +1145,8 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
 int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id);
 
 /** RFC 9114 8.1: queue client WT bidi stream_id for refusal (wt_refused)
- * because no slot was free -- unless it is a retransmission of a stream
+ * because no slot was free, or a request stream found in req_stopped --
+ * unless it is a retransmission of a stream
  * already released or refused. Marks it closed so its later frames are not
  * read as an HTTP/3 request. */
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id);

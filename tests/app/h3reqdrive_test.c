@@ -1590,6 +1590,68 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
   }
 }
 
+/* A GET (rd_pseudo: 1 scratch octet) plus two "age" lines (Literal With
+ * Name Reference to static 2, RFC 9204 Appendix A) of a and b raw value
+ * octets, decoded with the production WIRED_H3_MAX_FIELD_SECTION scratch.
+ * Each value is decoded into scratch, then the kept line copies its
+ * 3-octet static name after it: a line needs a + 3 octets. */
+static int rd_two_lines(usz a, usz b, wired_h3reqdrive_req* r) {
+  static u8     val[WIRED_H3_MAX_FIELD_SECTION + 1];
+  static u8     fs[2 * sizeof val + 64], h3[sizeof fs + 16];
+  static u8     scratch[WIRED_H3_MAX_FIELD_SECTION];
+  qpack_prefix  pfx = {0, 0, 0};
+  qpack_nameref age = {2, 1, 0};
+  wired_obuf    hob = obuf_of(h3, sizeof h3);
+  usz           off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  bytes_memset(val, 'v', sizeof val);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 8), 17, 1); /* GET */
+  rd_pseudo(fs, &off, 1);
+  off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), &age, wired_span_of(val, a));
+  off += qpack_literal_namref_encode(
+      wired_mspan_of(fs + off, sizeof fs - off), &age, wired_span_of(val, b));
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, off)));
+  {
+    wired_h3reqdrive_h3_in in = {
+        wired_span_of(h3, hob.len), 1, wired_mspan_of(scratch, sizeof scratch),
+        0};
+    return wired_h3reqdrive_recv_h3(&in, r);
+  }
+}
+
+/* RFC 9114 4.2.2: two lines that each fit but together overflow the
+ * scratch are a section past the advertised limit -- 431, not a QPACK
+ * error -- and the request is handed back empty but for that status. */
+static void test_reqdrive_two_lines_overflow_431(void) {
+  wired_h3reqdrive_req r;
+  CHECK(!rd_two_lines(6000, 6000, &r));
+  CHECK(r.too_large_status == 431);
+  CHECK(r.reject_code == 0 && r.qpack_failed == 0);
+  CHECK(r.method == 0 && r.authority == 0 && r.hdr_base == 0);
+  CHECK(r.hdr_count == 0);
+}
+
+/* RFC 9204 7.4: one line larger than the whole scratch is a stream error
+ * of type QPACK_DECOMPRESSION_FAILED, not a 431. */
+static void test_reqdrive_line_past_scratch_qpack_error(void) {
+  wired_h3reqdrive_req r;
+  CHECK(!rd_two_lines(WIRED_H3_MAX_FIELD_SECTION + 1, 0, &r));
+  CHECK(r.reject_code == QPACK_DECOMPRESSION_FAILED);
+  CHECK(r.too_large_status == 0 && r.qpack_failed == 0);
+}
+
+/* Boundary: decoded values exactly filling the scratch (1 + a + 3 + b ==
+ * WIRED_H3_MAX_FIELD_SECTION; the second line's name copy no longer fits,
+ * so that line alone is not kept) still decode; one octet more is a 431. */
+static void test_reqdrive_exact_fit_boundary(void) {
+  wired_h3reqdrive_req r;
+  usz                  a = 4000, b = WIRED_H3_MAX_FIELD_SECTION - 4 - a;
+  CHECK(rd_two_lines(a, b, &r));
+  CHECK(r.too_large_status == 0 && r.hdr_count == 1);
+  CHECK(!rd_two_lines(a, b + 1, &r));
+  CHECK(r.too_large_status == 431 && r.reject_code == 0);
+}
+
 /* RFC 9204 4.5.1.1: MaxEntries comes from the advertised maximum capacity,
  * not the capacity the encoder set -- 13 inserts under capacity 220 (6
  * entries) still decode an EncodedInsertCount of 14 (RIC 13 mod 128 + 1). */
@@ -1664,6 +1726,9 @@ void test_h3reqdrive(void) {
   test_reqdrive_bad_ref_is_qpack_failure();
   test_reqdrive_bad_name_ref_before_bad_value();
   test_reqdrive_local_capacity_not_qpack_failure();
+  test_reqdrive_two_lines_overflow_431();
+  test_reqdrive_line_past_scratch_qpack_error();
+  test_reqdrive_exact_fit_boundary();
   test_reqdrive_b4_section();
   test_reqdrive_trailer_dynamic_ref();
   test_reqdrive_ric_wraps();

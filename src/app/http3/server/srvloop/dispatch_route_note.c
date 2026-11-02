@@ -125,15 +125,13 @@ static void route_note_rejected(wired_srvloop* l, int i) {
 /* RFC 9114 4.2.2 / 4.1.2: a field section past this server's limit
  * (h3reqdrive's too_large_status) is answered with that status before
  * the stream ends, like an overflow (srvloop_route_complete_over): the
- * request is handed up empty but for it, its references cancelled
- * (RFC 9204 2.2.2.2). 1 if slot i was handled so. */
+ * request, already empty but for it (h3reqdrive_line_fail), is handed up
+ * with its references cancelled (RFC 9204 2.2.2.2). 1 if slot i was
+ * handled so. */
 static int route_note_too_large(wired_srvloop* l, int i) {
-  u16 status = l->streams[i].req.too_large_status;
-  if (!status) {
+  if (!l->streams[i].req.too_large_status) {
     return 0;
   }
-  l->streams[i].req                  = (wired_h3reqdrive_req){0};
-  l->streams[i].req.too_large_status = status;
   srvloop_qdec_cancel_slot(l, i);
   srvloop_route_note_done(l, i);
   return 1;

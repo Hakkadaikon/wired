@@ -24,14 +24,15 @@ usz h3reqdrive_decode_line(
  * One that fits the whole scratch (re-decoded there: the request is
  * dropped, so earlier lines' bytes may go) failed only for the room
  * earlier lines took -- the section is past the advertised
- * SETTINGS_MAX_FIELD_SECTION_SIZE, answered 431. Anything else (a line
- * larger than the scratch alone, a bad encoding) is the stream error
- * QPACK_DECOMPRESSION_FAILED. */
+ * SETTINGS_MAX_FIELD_SECTION_SIZE, answered 431 -- r is cleared, its views
+ * into the re-used scratch included, so only too_large_status remains.
+ * Anything else (a line larger than the scratch alone, a bad encoding) is
+ * the stream error QPACK_DECOMPRESSION_FAILED. */
 void h3reqdrive_line_fail(
     rd_cursor* cur, wired_span rest, wired_h3reqdrive_req* r) {
   rline L = {0};
   if (h3reqdrive_decode_line(rest, cur->scr, &cur->dyn, &L)) {
-    r->too_large_status = 431;
+    *r = (wired_h3reqdrive_req){.too_large_status = 431};
     return;
   }
   r->reject_code = QPACK_DECOMPRESSION_FAILED;

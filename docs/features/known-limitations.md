@@ -667,9 +667,10 @@ recently sent headers, updated over its own encoder and decoder streams.
   become a request is reset with H3_MESSAGE_ERROR plus STOP_SENDING, without
   waiting for a FIN; no 400 is sent first (RFC 9114 4.1.2 MAY), so
   conformance checkers see the reset they expect. One that ends before its
-  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section that
-  decodes past the advertised limit is answered 431 instead (RFC 9114
-  4.2.2), but a single field line larger than the whole decode scratch, or
+  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section whose
+  decoded lines overflow the decode scratch (which puts it past the
+  advertised SETTINGS_MAX_FIELD_SECTION_SIZE) is answered 431 instead (RFC
+  9114 4.2.2), but a single field line larger than the whole decode scratch, or
   one this decoder cannot interpret, is reset with
   QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4). Its slot and bidi stream credit
   are returned. The same happens for a request stream the peer resets while

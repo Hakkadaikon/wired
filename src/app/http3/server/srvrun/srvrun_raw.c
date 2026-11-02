@@ -156,8 +156,11 @@ void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
  * srvloop pass found no free slot for (wt_refused) -- RESET_STREAM +
  * STOP_SENDING carrying H3_REQUEST_REJECTED ("not processed in any way", so
  * the peer may retry), never a silent drop of data the transport already
- * ACKed. Not a WebTransport application code, so a browser surfaces it as
- * a reset with no application error (draft-ietf-webtrans-http3-15 4.4). */
+ * ACKed. A request stream queued there (req_stopped) already had its
+ * RESET_STREAM, so it gets the STOP_SENDING alone (srvrun_wt_abort_reset
+ * builds nothing for an ended send side). Not a WebTransport application code,
+ * so a browser surfaces it as a reset with no application error
+ * (draft-ietf-webtrans-http3-15 4.4). */
 void srvrun_refuse_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < c->l.wt_refused_n; i++) {
     srvrun_send_wt_busy_reset(

@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
+static int  srvloop_slot_gone(wired_srvloop* l, u64 stream_id);
 static int  srvloop_body_streaming(const wired_srvloop_stream_slot* slot);
 static void srvloop_body_abort(
     wired_srvloop* l, wired_srvloop_stream_slot* slot);
@@ -17,10 +18,21 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   if (i >= 0) {
     return i;
   }
-  if (srvloop_req_closed_has(l, stream_id)) {
+  if (srvloop_slot_gone(l, stream_id)) {
     return -2;
   }
   return srvloop_stream_slot_claim(l, stream_id);
+}
+
+/* 1 iff stream_id may not open a request slot: already closed, or its
+ * send side was reset before its first byte (req_stopped), which now
+ * shows it is a request -- refused once (wired_srvloop_wt_refuse marks it
+ * closed and queues the STOP_SENDING and its stream credit). */
+static int srvloop_slot_gone(wired_srvloop* l, u64 stream_id) {
+  if (wired_srvloop_closed_has(&l->req_stopped, stream_id)) {
+    wired_srvloop_wt_refuse(l, stream_id);
+  }
+  return srvloop_req_closed_has(l, stream_id);
 }
 
 /* RFC 9000 2.2: free the streams[] slot reassembling stream_id once its

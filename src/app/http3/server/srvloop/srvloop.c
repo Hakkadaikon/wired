@@ -23,6 +23,7 @@ void srvloop_body_rearm(wired_srvloop_stream_slot* slot) {
  * wired_srvloop_dispatch call, as the tests do) still starts from zero. */
 void srvloop_streams_reset(wired_srvloop* l) {
   bytes_memset(&l->req_closed, 0, sizeof l->req_closed);
+  bytes_memset(&l->req_stopped, 0, sizeof l->req_stopped);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     l->streams[i].in_use         = 0;
     l->streams[i].stream_id      = 0;

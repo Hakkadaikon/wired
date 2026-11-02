@@ -116,10 +116,13 @@ typedef struct {
    * H3_FRAME_UNEXPECTED instead of the H3_REQUEST_INCOMPLETE an ordinary
    * decode failure gets. */
   int frame_unexpected;
-  /** RFC 9110 15.5.14 / RFC 6585 5: 413 (body) or 431 (header section) when
-   * the request stream overflowed the server's per-request buffer -- every
-   * other field is then unset and the server answers with this status
-   * instead of calling the application. 0 otherwise. */
+  /** RFC 9110 15.5.14 / RFC 6585 5 / RFC 9114 4.2.2: 413 (body) or 431
+   * (header section) for a request too large for this server. The decoder
+   * sets 431 itself when the decoded field section overflows its scratch
+   * though each line fits alone, and then clears every other field (views
+   * included) and returns 0; the server sets 413/431 when the request
+   * stream overflows its per-request buffer. Either way the server answers
+   * with this status instead of calling the application. 0 otherwise. */
   u16 too_large_status;
   /** RFC 9114 4.2: the first WIRED_H3REQDRIVE_MAX_HDRS regular
    * (non-pseudo) header field lines in received order, except cookie,
@@ -145,8 +148,9 @@ typedef struct {
   int qpack_failed;
   /** RFC 9204 7.4 / 6: the stream error a rejected request is reset with
    * when it is not H3_MESSAGE_ERROR -- QPACK_DECOMPRESSION_FAILED for a
-   * field line this decoder could not interpret (too large for its limits,
-   * or not a valid encoding); 0 otherwise. */
+   * field line this decoder could not interpret (one larger than the whole
+   * scratch or the name cap, or not a valid encoding); 0 otherwise,
+   * including a 431 (too_large_status). */
   u16 reject_code;
   /** RFC 9110 8.6 / RFC 9114 4.1.2: the received Content-Length value, valid
    * when has_content_length is 1. */
@@ -187,7 +191,10 @@ int wired_http_req_header(
  * @param scratch caller-supplied buffer backing r's literal values; the
  *   caller keeps it alive while r is in use
  * @param r receives the recovered pseudo-headers and body view
- * @return 1 on success, 0 on a malformed frame or field section. */
+ * @return 1 on success; 0 on a malformed frame or field section
+ *   (reject_code / qpack_failed say how to abort it) or on a field section
+ *   too large for scratch (too_large_status 431, every other field
+ *   cleared). */
 int wired_h3reqdrive_recv_get(
     wired_span stream_data, wired_mspan scratch, wired_h3reqdrive_req* r);
 
@@ -201,7 +208,7 @@ int wired_h3reqdrive_recv_get(
  *   caller keeps it alive while r is in use
  * @param dyn the connection's dynamic table, or 0 if none is tracked
  * @param r receives the recovered pseudo-headers and body view
- * @return 1 on success, 0 on a malformed frame, field section, or an
+ * @return 1 on success; 0 as wired_h3reqdrive_recv_get, or on an
  *   unresolvable/invalid dynamic-table reference (RFC 9204 4.5.1.2). */
 int wired_h3reqdrive_recv_get_dyn(
     wired_span            stream_data,
