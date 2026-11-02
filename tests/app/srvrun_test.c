@@ -5109,10 +5109,10 @@ static void test_srvrun_path_wire_no_cid_no_response(void) {
   sr_net_close(&n);
 }
 
-/* RFC 9000 9.5: a probe from a new path while both challenge slots are
- * busy is neither answered nor challenged, so the spare peer ID is not
- * spent on a path that is dropped at once. */
-static void test_srvrun_path_wire_busy_probe_ignored(void) {
+/* RFC 9000 8.2.2/8/9.3: a probe from a new path while both challenge slots
+ * are busy is still answered on its arrival path, within 3x the datagram
+ * that carried it, but neither challenged nor moved to. */
+static void test_srvrun_path_wire_busy_probe_answered(void) {
   struct lp_fix f;
   srvrun_conn   c;
   conntable     table[WIRED_CONNTABLE_CAP];
@@ -5135,9 +5135,10 @@ static void test_srvrun_path_wire_busy_probe_ignored(void) {
     sr_serve_at(&f, &st, &a2, 6, wired_span_of(g_sr_probe, sizeof g_sr_probe));
   }
   r = sr_drain(&f, n.afd);
-  CHECK(r.n == 0);
-  CHECK(sr_drain(&f, n.bfd).retire == 0);
+  CHECK(r.n == 1 && r.resp == 1 && r.chal == 0);
+  CHECK(r.len <= 3 * c.path.fresh_n);
   CHECK(sr_chal(&c, n.pfd, &n.a) == 0);
+  CHECK(sr_peer_is(&c, &n.b));
   sr_net_close(&n);
 }
 
@@ -27009,6 +27010,16 @@ static void test_srvrun_client_handshake_done_closes(void) {
   CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
 }
 
+/* RFC 9000 8.2.1/21.9: more PATH_CHALLENGEs in one packet than are latched
+ * (WIRED_SRVLOOP_PATH_RX) close the connection rather than leave one
+ * unanswered (8.2.2); that many do not. */
+static void test_srvrun_client_path_challenge_flood_closes(void) {
+  static const u8 pl[] = {0x1a, 1, 1, 1, 1,    1, 1, 1, 1, 0x1a, 2, 2, 2, 2,
+                          2,    2, 2, 2, 0x1a, 3, 3, 3, 3, 3,    3, 3, 3};
+  CHECK(sr_fv_close(pl, 18) == ~0ULL);
+  CHECK(sr_fv_close(pl, sizeof pl) == ERR_PROTOCOL_VIOLATION);
+}
+
 /* RFC 9000 12.4: an unknown frame type after a valid PING. */
 static void test_srvrun_unknown_frame_type_closes(void) {
   static const u8 pl[] = {0x01, 0x21, 0x00};
@@ -27832,7 +27843,7 @@ void test_srvrun(void) {
   test_srvrun_path_wire_fresh_cid();
   test_srvrun_path_wire_no_cid_stalls();
   test_srvrun_path_wire_no_cid_no_response();
-  test_srvrun_path_wire_busy_probe_ignored();
+  test_srvrun_path_wire_busy_probe_answered();
   test_srvrun_path_wire_each_challenge_once();
   test_srvrun_path_wire_probe_challenged_first();
   test_srvrun_path_wire_retire();
@@ -28296,6 +28307,7 @@ void test_srvrun(void) {
   test_srvrun_ghost_remembers_spare_cid();
   test_srvrun_client_new_token_closes();
   test_srvrun_client_handshake_done_closes();
+  test_srvrun_client_path_challenge_flood_closes();
   test_srvrun_unknown_frame_type_closes();
   test_srvrun_negative_ack_range_closes();
   test_srvrun_streams_blocked_over_2_60_closes();

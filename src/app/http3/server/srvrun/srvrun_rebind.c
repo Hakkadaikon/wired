@@ -9,6 +9,8 @@ static int srvrun_path_answer(
     const pathsel_key*     a,
     usz                    n,
     int                    kept);
+static void srvrun_path_start(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const pathsel_key* a, int kept);
 static void srvrun_path_probe_fresh(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -92,27 +94,33 @@ static int srvrun_path_answer(
   return 1;
 }
 
-/* RFC 9000 9.6.3: a probe from an untracked path is answered and its
- * validation started only when a slot is free (never evicting); without
- * one it is ignored, so no peer ID is bound to a path dropped at once. */
+/* RFC 9000 9.6.3: validation of an untracked path starts only when a slot
+ * is free (never evicting), and only with a peer ID for it (9.5): the
+ * slot is freed again without one. */
+static void srvrun_path_start(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    const pathsel_key*     a,
+    int                    kept) {
+  pathsel_slot* s = pathsel_claim_free(&c->path, a);
+  if (!s) {
+    return;
+  }
+  s->in_use = srvrun_path_cid(ctx->cfg, c, a, kept) != 0;
+  srvrun_path_arm(ctx->cfg, c, s->in_use ? s : 0, ctx->now_ms);
+}
+
+/* RFC 9000 8.2.2: a probe from an untracked path is always answered there;
+ * challenging it first makes the first datagram on a new path carry the
+ * PATH_CHALLENGE. Without a slot the answer stays within 3x the datagram
+ * that carried the probe (8, pathsel.fresh) and the path is not moved to. */
 static void srvrun_path_probe_fresh(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
     const pathsel_key*     a,
     usz                    n,
     int                    kept) {
-  pathsel_slot* s = pathsel_claim_free(&c->path, a);
-  if (!s) {
-    return;
-  }
-  /* bind the path's peer ID (with the 9.5 exception), then challenge before
-   * answering: the first datagram on the new path carries the
-   * PATH_CHALLENGE; a path without a peer ID frees the slot, unanswered */
-  s->in_use = srvrun_path_cid(ctx->cfg, c, a, kept) != 0;
-  if (!s->in_use) {
-    return;
-  }
-  srvrun_path_arm(ctx->cfg, c, s, ctx->now_ms);
+  srvrun_path_start(ctx, c, a, kept);
   (void)srvrun_path_answer(ctx, c, a, n, kept);
 }
 
