@@ -88,7 +88,9 @@ typedef int (*wired_srvloop_handler)(
  * connection with H3_FRAME_ERROR (RFC 9114 7.1); fin=1 never arrives.
  * A body that ends any other way -- the client resets the stream, stops
  * the response before it starts, or the connection ends -- gets no fin:
- * wired_srvloop_on_body_abort reports it instead.
+ * wired_srvloop_on_body_abort reports it instead. One exception: a request
+ * on a stream opened past this server's GOAWAY is refused after its fin=1
+ * (RFC 9114 5.2), so neither the handler nor on_body_abort runs for it.
  * @param ctx the context registered with wired_srvloop_set_handler
  * @param req the decoded request; valid only during the call
  * @param stream_id the request stream

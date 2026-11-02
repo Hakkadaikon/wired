@@ -161,8 +161,10 @@ static u64 srvrun_refused_code(const srvrun_conn* c) {
 
 /* RFC 9114 5.2 / 8.1: refuse a request opened past the GOAWAY with
  * H3_REQUEST_REJECTED (RESET_STREAM + STOP_SENDING; srvrun_refused_code)
- * and free its slot, never dispatching it -- a body still streaming to
- * on_body is aborted with that code (wired_srvloop_slot_cancel), once. */
+ * and free its slot, never dispatching it. This runs after the body's fin
+ * reached on_body, so on_body_abort does not fire: the app saw a whole
+ * body whose handler never runs (it has to drop per-request state on fin
+ * itself; the slot_cancel abort only covers an unfinished body). */
 static void srvrun_reject_past_goaway(const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 code = srvrun_refused_code(c);
   srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, code);
