@@ -793,6 +793,14 @@ The next two entries concern lower-level entry points. The server that
   (RFC 8446 8.2). Forked workers share the ring; separate server processes
   and restarts do not (no persistence). Source: `zerortt_seen.h`
   (ponytail).
+- **Used NEW_TOKEN record holds 4096 tokens** — Affects: servers whose
+  clients present many NEW_TOKEN tokens within a token lifetime. The same
+  4096-entry ring records each accepted token, and an entry is evicted only
+  once it is `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token it records
+  has expired. While the ring is full of live entries, further tokens are
+  refused and those clients proceed unvalidated: the anti-amplification
+  limit, or a Retry under `force_retry` (RFC 9000 8.1.3). Forked workers share the one ring, so the 4096 is per server, not
+  per worker. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
 - **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
   DPLPMTUD (finding the largest packet size by sending probes) is
   probe-based only (the RFC 8899 4.6.1 option). The initial window uses a
@@ -853,12 +861,15 @@ The next two entries concern lower-level entry points. The server that
   workers share one draw), so a ticket or Retry token issued before a
   restart, or by another independently started server, no longer opens.
   Source: `srvkeys.h`.
-- **0-RTT replay tracker shares one spinlock** — Affects: `srvworkers`
-  deployments. The tracker is shared across forked workers through a
-  `MAP_SHARED` mapping, guarded by one spinlock over a bounded scan; a
-  worker killed inside that scan (SIGKILL at that instant) would leave
-  0-RTT acceptance blocked in every worker until restart. Source:
-  `zerortt_seen.c` (ponytail), `sdrv_zerortt_share`.
+- **0-RTT replay and NEW_TOKEN trackers share one spinlock each** —
+  Affects: `srvworkers` deployments. Each tracker is shared across forked
+  workers through a `MAP_SHARED` mapping, guarded by one spinlock over a
+  bounded scan. The spin is bounded (`ZERORTT_SEEN_SPIN` tries): a worker
+  killed inside that scan (SIGKILL at that instant) leaves the lock held,
+  and every later check spins that long and then refuses, so 0-RTT (or
+  NEW_TOKEN) is refused in every worker until restart, and clients fall
+  back to 1-RTT (or proceed unvalidated). Source: `zerortt_seen.c` (ponytail),
+  `sdrv_zerortt_share`, `srvkeys_newtoken_share`.
 - **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
   clients resuming with early data, on a ticket an earlier server instance
   issued (a fixed `ticket_key` across restarts), right after the server
