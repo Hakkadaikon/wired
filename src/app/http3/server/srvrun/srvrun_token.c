@@ -14,13 +14,6 @@ static int srvrun_newtok_moved(
     const srvrun_conn* c, const srvrun_newtok_mark* m);
 static int srvrun_newtok_due(const srvrun_cfg* cfg, const srvrun_conn* c);
 
-/* RFC 9000 8.1.4: single use per token nonce. Zero static storage is an
- * empty tracker (zerortt_seen_init's state).
- * shortcut: per process -- forked srvworkers each keep their own, so a token
- * can be replayed once per worker; share it like sdrv_zerortt_share if that
- * matters. */
-static zerortt_seen g_srvrun_newtok_seen;
-
 /* RFC 9000 8.1.4: bound to the client's IP address only (a later
  * connection arrives from a fresh ephemeral port, so the port is left out),
  * and RFC 9369 5 to the QUIC version it was issued on. */
@@ -63,29 +56,29 @@ int srvrun_newtok_ok(
           wired_span_of(token.p + 1, token.n - 1), now, &issued_at, &nonce)) {
     return 0;
   }
-  return zerortt_seen_check_at(&g_srvrun_newtok_seen, nonce, now);
+  /* RFC 9000 8.1.4: single use per token nonce, across srvworkers too. An
+   * entry is recorded at use (>= issue) and kept the token lifetime, so it
+   * outlives the token; a ring full of live ones refuses (unvalidated).
+   * +1: the token passes while now - issued_at <= MAX_AGE but an entry may
+   * be evicted at now >= at + life, so with life = MAX_AGE a token used in
+   * its issue second could be accepted again in its last valid second. */
+  return zerortt_seen_check_live(
+      srvkeys_newtoken_seen(), nonce, now, NEWTOKEN_MAX_AGE_SECS + 1);
 }
 
 /* One 1-RTT packet carrying a NEW_TOKEN frame (RFC 9000 19.7) bound to c's
- * send-path peer, or 0. */
+ * send-path peer, or 0. RFC 9000 13.3: kept and resent until its packet is
+ * acknowledged (srvrun_seal_kept), like the other control frames. */
 usz srvrun_newtok_seal(srvrun_conn* c, u64 now, u8* out, usz cap) {
-  u8                    tok[SRVRUN_NEWTOK_LEN], pl[SRVRUN_NEWTOK_LEN + 4];
-  new_token_frame       f  = {SRVRUN_NEWTOK_LEN, tok};
-  wired_obuf            ob = obuf_of(out, cap);
-  wired_srvloop_send_in sin;
+  u8              tok[SRVRUN_NEWTOK_LEN], pl[SRVRUN_NEWTOK_LEN + 4];
+  new_token_frame f  = {SRVRUN_NEWTOK_LEN, tok};
+  wired_obuf      ob = obuf_of(out, cap);
   if (!srvrun_newtok_make(&c->peer, sdrv_wire_version(&c->s.sdrv), now, tok)) {
     return 0;
   }
-  sin = (wired_srvloop_send_in){
-      wired_span_of(c->l.cli_scid, c->l.cli_scid_len),
-      c->l.tx_pn++,
-      -1,
-      wired_span_of(pl, new_token_encode(pl, sizeof pl, &f)),
-      0,
-      0,
-      0,
-      0};
-  return wired_srvloop_send_onertt(&c->s, &sin, &ob) ? ob.len : 0;
+  return srvrun_seal_kept(c, pl, new_token_encode(pl, sizeof pl, &f), &ob)
+             ? ob.len
+             : 0;
 }
 
 srvrun_newtok_mark srvrun_newtok_mark_of(const srvrun_conn* c) {
@@ -114,9 +107,8 @@ static int srvrun_newtok_due(const srvrun_cfg* cfg, const srvrun_conn* c) {
   return c->newtok_owed && srvrun_path_is_valid(c, &k);
 }
 
-/* shortcut: sent once per event, not retransmitted if lost (the token is
- * an optimisation for a later connection); queue it as a retransmittable
- * frame if loss of it shows up in practice. */
+/* RFC 9000 8.1.3 / 9.3: one NEW_TOKEN per confirmation or newly validated
+ * address; srvrun_newtok_seal keeps it for resending until acknowledged. */
 void srvrun_send_new_token(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const srvrun_newtok_mark* m) {
   u8  out[128];

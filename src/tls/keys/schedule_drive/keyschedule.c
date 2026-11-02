@@ -33,6 +33,7 @@ void keysched_init(keysched* st) {
   st->stage   = 0;
   st->suite   = TLS_AES_128_GCM_SHA256;
   st->version = VERSION_1;
+  st->hs_gone = 0;
 }
 
 void keysched_set_suite(keysched* st, u16 suite) { st->suite = suite; }
@@ -105,13 +106,15 @@ int keysched_advance_master(
   return 1;
 }
 
-/* A which-index is available once its stage has been reached. */
-static int have(int stage, int which) {
-  return which <= KS_SERVER_HS ? stage >= 1 : stage >= 2;
+/* A which-index is available once its stage has been reached; the Handshake
+ * pair no longer once discarded (RFC 9001 4.9.2). */
+static int have(const keysched* st, int which) {
+  return which <= KS_SERVER_HS ? st->stage >= 1 && !st->hs_gone
+                               : st->stage >= 2;
 }
 
 int keysched_get(const keysched* st, int which, const initial_keys** out) {
-  if (!have(st->stage, which)) {
+  if (!have(st, which)) {
     return 0;
   }
   *out = &st->keys[which];
@@ -148,4 +151,10 @@ void keysched_wipe(keysched* st) {
   bytes_memset(st, 0, sizeof *st);
   st->suite   = suite;
   st->version = version;
+}
+
+void keysched_discard_handshake(keysched* st) {
+  bytes_memset(&st->keys[KS_CLIENT_HS], 0, sizeof st->keys[KS_CLIENT_HS]);
+  bytes_memset(&st->keys[KS_SERVER_HS], 0, sizeof st->keys[KS_SERVER_HS]);
+  st->hs_gone = 1;
 }

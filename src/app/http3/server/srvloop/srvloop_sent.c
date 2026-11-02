@@ -76,12 +76,22 @@ static srvloop_sent_kind srvloop_sent_classify(
   return k;
 }
 
+/* RFC 9000 10.1: the first ack-eliciting send since the last receive
+ * restarts the idle timer (a later one does not). */
+static void srvloop_sent_idle(srvloop_ackst* a, u64 now_ms) {
+  if (!a->idle_tx_ms) {
+    a->idle_tx_ms = now_ms;
+  }
+}
+
 /* RFC 9002 A.8: an ack-eliciting send restarts the 1-RTT PTO
- * (last_elicit_ms) and uses up one probe allowance (probe_n). */
+ * (last_elicit_ms) and uses up one probe allowance (probe_n); RFC 9000
+ * 10.1: and maybe the idle timer. */
 static void srvloop_sent_elicit(wired_srvloop* l, int eliciting) {
   if (!eliciting) {
     return;
   }
+  srvloop_sent_idle(&l->ackst, l->now_ms);
   l->ackst.last_elicit_ms = l->now_ms;
   l->ackst.probe_n        = (u8)(l->ackst.probe_n ? l->ackst.probe_n - 1 : 0);
 }
