@@ -77,7 +77,7 @@ static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id) {
  * discounted: a server-initiated id (RFC 9000 2.1 low bit set) this server
  * already opened -- its send slot is claimed at open, so a missing slot
  * means reaped -- a client uni (no send part at all), or a client bidi
- * recorded in wt_send_done (its doc). */
+ * recorded in l.send_done (its doc). */
 static int srvrun_wt_send_over(srvrun_conn* c, u64 stream_id) {
   if ((stream_id & 3) == 2) {
     return 1;
@@ -85,7 +85,7 @@ static int srvrun_wt_send_over(srvrun_conn* c, u64 stream_id) {
   if (stream_id & 1) {
     return stream_id / 4 < srvrun_server_opened(c, stream_id);
   }
-  return wired_srvloop_closed_has(&c->wt_send_done, stream_id);
+  return wired_srvloop_closed_has(&c->l.send_done, stream_id);
 }
 
 /* 1 iff stream_id's send part already ended: its send slot is gone (reaped
@@ -95,13 +95,13 @@ int srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id) {
   return !srvrun_wtsend_find(c, stream_id) && srvrun_wt_send_over(c, stream_id);
 }
 
-/* Record a client-bidi reply's send part as over (wt_send_done's doc).
+/* Record a client-bidi reply's send part as over (l.send_done's doc).
  * Server-initiated ids are covered by the opened counters instead, and
  * they and client uni ids (no send part) would alias client bidi ids in
  * the /4-indexed window. */
 void srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id) {
   if ((stream_id & 3) == 0) {
-    wired_srvloop_closed_mark(&c->wt_send_done, stream_id);
+    wired_srvloop_closed_mark(&c->l.send_done, stream_id);
   }
 }
 

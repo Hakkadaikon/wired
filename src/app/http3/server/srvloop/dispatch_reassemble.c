@@ -12,6 +12,7 @@ static void route_body_frame_unexpected(wired_srvloop* l, int i);
 static void route_body_pump(wired_srvloop* l, int i);
 static int  route_body_ready(
     const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot);
+static int  route_body_go(const wired_srvloop_dispatch_ctx* ctx, int i);
 static int  route_body(const wired_srvloop_dispatch_ctx* ctx, int i);
 static int  route_answered_early(const wired_srvloop_dispatch_ctx* ctx, int i);
 static void route_complete_touched(
@@ -118,17 +119,23 @@ static int route_body_ready(
   return slot->body.on || route_body_start(ctx, slot);
 }
 
-/* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
- * streaming path (the buffered completion below then stays out of it). */
-static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
-  if (!srvloop_route_body_on(ctx)) {
-    return 0;
-  }
+/* Stream slot i's body to on_body once its HEADERS are whole. */
+static int route_body_go(const wired_srvloop_dispatch_ctx* ctx, int i) {
   if (!route_body_ready(ctx, &ctx->l->streams[i])) {
     return 0;
   }
   route_body_pump(ctx->l, i);
   return 1;
+}
+
+/* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
+ * streaming path or was refused (the buffered completion below then stays
+ * out of it). */
+static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  if (!srvloop_route_body_on(ctx)) {
+    return 0;
+  }
+  return srvloop_route_body_refused(ctx->l, i) || route_body_go(ctx, i);
 }
 
 /* Slot i is on the streaming-body path, was answered for overflowing, or

@@ -35,6 +35,7 @@ void srvloop_route_note_result(wired_srvloop* l, int i, int got);
 int  srvloop_route_complete_over(const wired_srvloop_dispatch_ctx* ctx, int i);
 int  srvloop_route_body_on(const wired_srvloop_dispatch_ctx* ctx);
 usz  srvloop_route_body_head_len(const wired_srvloop_stream_slot* slot);
+int  srvloop_route_body_refused(wired_srvloop* l, int i);
 int  srvloop_route_body_decode(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_stream_slot*        slot,

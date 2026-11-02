@@ -57,7 +57,7 @@ int  srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len);
 int  srvrun_wtsend_flow_refuse(srvrun_conn* c);
 void srvrun_wtsend_start_fin_now(const srvrun_conn* c, srvrun_wtsend* w);
 void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w);
-void srvrun_wt_connect_fin(srvrun_conn* c, int sidx);
+void srvrun_wt_connect_fin(const srvrun_cfg* cfg, srvrun_conn* c, int sidx);
 srvrun_wtsend* srvrun_wtsend_of(wired_wt_session* s, u64 stream_id);
 void           srvrun_wtsend_release(srvrun_conn* c, u64 stream_id);
 u64            srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);

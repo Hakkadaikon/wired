@@ -579,9 +579,10 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   packets reorder. A client bidi stream is classified by its offset-0 bytes.
   A fragment that arrives before them lands in a request slot. If the stream
   then turns out to be WebTransport (the 0x41 signal), that fragment is not
-  moved into the WT stream. The peer does not resend ACKed bytes, so the WT
-  stream stalls at that gap. Source:
-  `srvloop_wt_slot_for`, `wired_srvloop_slot_for`.
+  moved into the WT stream: the request slot is freed and the fragment is
+  dropped. The peer does not resend ACKed bytes, so the WT stream stalls at
+  that gap. Source: `srvloop_wt_slot_for`, `wt_drop_overtaken`,
+  `wired_srvloop_slot_for`.
 - **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
   HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
   HTTP/2 are not implemented. There are also no rate-limit headers and no

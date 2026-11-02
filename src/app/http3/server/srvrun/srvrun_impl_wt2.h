@@ -261,7 +261,7 @@ wired_srvloop_stream_slot* srvrun_wt_rx_slot(srvrun_conn* c, int sidx);
 int                        srvrun_send_wt_capsule(
     srvrun_conn* c, int sidx, wired_span capsule_bytes, u8 fin);
 void srvrun_wt_connect_sender_drop(srvrun_conn* c, int sidx);
-void srvrun_wt_connect_fin(srvrun_conn* c, int sidx);
+void srvrun_wt_connect_fin(const srvrun_cfg* cfg, srvrun_conn* c, int sidx);
 u64  srvrun_wtwin_dropped(const srvrun_conn* c);
 u64  srvrun_stream_limit_base(const srvrun_step_ctx* ctx);
 void srvrun_answer_peer_stops(const srvrun_step_ctx* ctx, srvrun_conn* c);

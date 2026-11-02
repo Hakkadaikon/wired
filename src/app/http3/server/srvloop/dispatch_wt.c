@@ -1,8 +1,10 @@
 #include "app/http3/server/srvloop/dispatch_impl.h"
+#include "app/http3/server/srvloop/srvloop_impl.h"
 
 static int  is_server_bidi_stream(u64 stream_id);
 static void wt_sig_absorb(u8* sig, u8* have, const stream_frame* sf);
 static usz  wt_sig_parse(const u8* sig, u8 have);
+static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id);
 static int  wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf);
 
 /* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
@@ -178,18 +180,30 @@ void srvloop_gather_wt_one(
   }
 }
 
+/* A fragment that overtook stream_id's 0x41 signal claimed a request slot
+ * (wired_srvloop_slot_for): free it now that the stream is WebTransport.
+ * shortcut: its bytes are dropped (known-limitations.md, "A WT bidi stream
+ * must start in order"); adopt them into the WT slot if reordering is seen. */
+static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id) {
+  if (srvloop_stream_slot_find(l, stream_id) >= 0) {
+    wired_srvloop_slot_release(l, stream_id);
+  }
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: claim the wt_streams slot for a
  * newly-signalled stream, marking its leading signal pending so
  * srvloop_wt_sig_resolve settles sig_len from the accumulated leading bytes
  * (which may span several frames). A full table queues the stream for an
- * explicit refusal (RFC 9114 8.1, wired_srvloop_wt_refuse) and returns -1. */
+ * explicit refusal (RFC 9114 8.1, wired_srvloop_wt_refuse) and returns -1.
+ * Either way no request slot stays held for it (wt_drop_overtaken). */
 static int wt_slot_for_signal(wired_srvloop* l, const stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
   if (i < 0) {
     wired_srvloop_wt_refuse(l, sf->stream_id);
-    return -1;
+  } else {
+    l->wt_streams[i].sig_pending = 1;
   }
-  l->wt_streams[i].sig_pending = 1;
+  wt_drop_overtaken(l, sf->stream_id);
   return i;
 }
 

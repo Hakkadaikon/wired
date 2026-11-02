@@ -14,6 +14,7 @@ static void         srvrun_stop_unread(const srvrun_cfg* cfg, srvrun_conn* c);
 static void         srvrun_dispatch_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r);
 static int  srvrun_past_goaway(const srvrun_conn* c, u64 id);
+static u64  srvrun_refused_code(const srvrun_conn* c);
 static void srvrun_reject_past_goaway(const srvrun_cfg* cfg, srvrun_conn* c);
 static int  srvrun_wt_connect_ok(const srvrun_conn* c);
 static void srvrun_refuse_unsendable(
@@ -149,12 +150,23 @@ static int srvrun_past_goaway(const srvrun_conn* c, u64 id) {
   return c->goaway_sent && id >= c->goaway_id;
 }
 
+/* RFC 9114 4.1.1: H3_REQUEST_REJECTED only for a request not processed in
+ * any way -- one whose body already reached on_body is H3_REQUEST_CANCELLED.
+ */
+static u64 srvrun_refused_code(const srvrun_conn* c) {
+  const wired_srvloop_stream_slot* s =
+      srvrun_req_slot_of(c, c->l.req_stream_id);
+  return s && s->body.on ? H3_REQUEST_CANCELLED : H3_REQUEST_REJECTED;
+}
+
 /* RFC 9114 5.2 / 8.1: refuse a request opened past the GOAWAY with
- * H3_REQUEST_REJECTED (RESET_STREAM + STOP_SENDING) and free its slot,
- * never dispatching it. */
+ * H3_REQUEST_REJECTED (RESET_STREAM + STOP_SENDING; srvrun_refused_code)
+ * and free its slot, never dispatching it -- a body still streaming to
+ * on_body is aborted with that code (wired_srvloop_slot_cancel), once. */
 static void srvrun_reject_past_goaway(const srvrun_cfg* cfg, srvrun_conn* c) {
-  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, H3_REQUEST_REJECTED);
-  wired_srvloop_slot_release(&c->l, c->l.req_stream_id);
+  u64 code = srvrun_refused_code(c);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, code);
+  wired_srvloop_slot_cancel(&c->l, c->l.req_stream_id, code);
 }
 
 /* RFC 9000 3.1: a request whose send side already ended (an early

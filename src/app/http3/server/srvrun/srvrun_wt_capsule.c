@@ -186,7 +186,7 @@ void srvrun_wt_rx_fail(
     srvrun_reset_connect_stream_code(cfg, c, sidx, code);
     code = WTERR_SESSION_GONE;
   } else {
-    srvrun_wt_connect_fin(c, sidx);
+    srvrun_wt_connect_fin(cfg, c, sidx);
   }
   srvrun_close_wt_session_slot(cfg, c, sidx, code);
 }

@@ -481,17 +481,6 @@ typedef struct {
   srvrun_wtx wtx; /**< WT reset latch, teardown, fairness (srvrun_impl_wtx.h) */
   /** Entries in use in the wt_stream_reset_* latch. */
   usz wt_stream_reset_n;
-  /** Client-bidi stream ids whose server send part already ran to its end
-   * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
-   * before building any further RESET_STREAM for the id. The record must
-   * outlive BOTH the receive slot (freed once the request's FIN is
-   * delivered; the reply usually comes on a later step) and the send slot
-   * (reaped on the FIN ACK), so it lives in neither: same exact-id sliding
-   * window as req_closed. Server-initiated ids are covered by the
-   * wt_uni_opened/wt_bidi_opened counters instead (and would alias client
-   * ids in this /4-indexed window, the same reason wt_closed_mark skips
-   * them). */
-  wired_srvloop_closed wt_send_done;
   /** RFC 9000 3.5: stream ids the peer sent RESET_STREAM for, one window
    * per stream type (id & 3, so the /4 indexes do not alias) -- this server
    * then never sends STOP_SENDING for them (srvrun_wt_abort_stop,

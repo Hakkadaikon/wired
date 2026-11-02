@@ -635,6 +635,18 @@ typedef struct {
    * "zombies" once filled the table until genuinely new streams were
    * dropped. */
   wired_srvloop_closed req_closed;
+  /** Client-bidi stream ids whose server send part already ran to its end
+   * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
+   * before building any further RESET_STREAM for the id. The record must
+   * outlive BOTH the receive slot (freed once the request's FIN is
+   * delivered; the reply usually comes on a later step) and the send slot
+   * (reaped on the FIN ACK), so it lives in neither: same exact-id sliding
+   * window as req_closed. Server-initiated ids are covered by the
+   * wt_uni_opened/wt_bidi_opened counters instead (and would alias client
+   * ids in this /4-indexed window, the same reason wt_closed_mark skips
+   * them). A request whose send side ended is refused once its HEADERS
+   * are whole, before any body reaches on_body (RFC 9114 4.1.1). */
+  wired_srvloop_closed send_done;
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -984,8 +996,8 @@ typedef struct {
   u64 req_body_released;
   /** RFC 9114 8.1: client WT bidi streams whose signal frame found every
    * wt_streams[] slot busy, and requests whose response can no longer be
-   * sent (srvrun_start_resp). dispatch.c only queues them; the caller
-   * (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
+   * sent (send_done, before its body streams). dispatch.c only queues them; the
+   * caller (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
    * credit back, and clears wt_refused_n. The bidi credit never has more
    * than WIRED_SRVLOOP_MAX_STREAMS new streams outstanding, so the queue
    * cannot overflow for a peer that honors MAX_STREAMS. */

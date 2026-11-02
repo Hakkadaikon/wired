@@ -8,7 +8,9 @@ static void route_note_rejected(wired_srvloop* l, int i);
 static int  route_note_too_large(wired_srvloop* l, int i);
 static u16  route_too_large_status(const wired_srvloop_stream_slot* slot);
 static int  route_window_stuck(const wired_srvloop_stream_slot* slot);
-static int  route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i);
+static int  route_body_unsendable(
+    const wired_srvloop* l, const wired_srvloop_stream_slot* s);
+static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i);
 
 /* Append slot i to this step's completion list and mirror its request into
  * l->req/req_stream_id (the pre-existing single-request API surface; the
@@ -236,4 +238,28 @@ int srvloop_route_body_decode(
       wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch), 0};
   return wired_h3srv_on_request_raw(ctx->h3, &rin, &slot->req) &&
          !srvloop_req_method_is_connect(&slot->req);
+}
+
+/* s's send side already ended (an early STOP_SENDING was answered with
+ * RESET_STREAM, send_done) and its HEADERS are whole, its body not yet
+ * streaming. */
+static int route_body_unsendable(
+    const wired_srvloop* l, const wired_srvloop_stream_slot* s) {
+  return wired_srvloop_closed_has(&l->send_done, s->stream_id) && !s->body.on &&
+         srvloop_route_body_head_len(s);
+}
+
+/* RFC 9114 4.1.1: no response can go out on slot i (route_body_unsendable),
+ * so refuse it with H3_REQUEST_REJECTED (wt_refused: STOP_SENDING, its
+ * stream credit returned) BEFORE any of its body reaches on_body -- the
+ * request then truly was "not processed in any way" -- and free its slot. */
+int srvloop_route_body_refused(wired_srvloop* l, int i) {
+  u64 id = l->streams[i].stream_id;
+  if (!route_body_unsendable(l, &l->streams[i])) {
+    return 0;
+  }
+  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
+  wired_srvloop_wt_refuse(l, id);
+  wired_srvloop_slot_release(l, id);
+  return 1;
 }
