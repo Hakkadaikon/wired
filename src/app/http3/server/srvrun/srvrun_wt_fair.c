@@ -1,5 +1,12 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
+/* srvrun_wt_open_share_ok splits the send slots plumbing leaves (2 QPACK
+ * streams + one CONNECT-stream capsule slot per session) among the
+ * sessions; each must get at least one, or a session can never open. */
+_Static_assert(
+    SRVRUN_WT_SEND_SLOTS - 2 - SRVRUN_MAX_WT_SESSIONS >= SRVRUN_MAX_WT_SESSIONS,
+    "every WT session's send-slot share is at least 1");
+
 /* draft-ietf-webtrans-http3-16 8 (WTH3-083): "each session that shares a
  * transport connection gets a reasonable share of controlled resources;
  * this applies both to sending data and to opening new streams".

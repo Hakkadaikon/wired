@@ -121,6 +121,16 @@ typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
 typedef void (*wired_wt_on_session_draining)(
     void* app_ctx, wired_wt_session* s);
 
+/** draft-ietf-webtrans-http3-16 5.3/5.6.2, RFC 9000 4.6: a server-initiated
+ * stream open on s (wired_server_wt_open_*) returned -1 for lack of credit
+ * -- the peer's WT_MAX_STREAMS / WT_MAX_DATA / QUIC MAX_STREAMS limit, or
+ * s's share of the WT send slots -- and the same open would now succeed.
+ * Fires once per refusal, from the connection's step; the open may be
+ * retried from inside the callback. s is only valid for the call.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session whose refused open can now proceed */
+typedef void (*wired_wt_on_stream_credit)(void* app_ctx, wired_wt_session* s);
+
 /** draft-ietf-moq-transport-19 3.1.5 / -22 6.2.2 (native QUIC): app-facing
  * notification that a raw-QUIC application connection (its ALPN one of
  * wired_srvboot_id.raw_alpns) got its implicit session. The session is
@@ -478,6 +488,10 @@ typedef struct {
    * default, keeps it on except for the random 1 in 16 connections that
    * opt out on their own. */
   int spin_off;
+  /** Credit-returned notification for a refused server-initiated WT open,
+   * 0 to disable (the default). See wired_wt_on_stream_credit. */
+  wired_wt_on_stream_credit wt_on_stream_credit;
+  void* wt_stream_credit_ctx; /**< opaque ctx passed to it */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must

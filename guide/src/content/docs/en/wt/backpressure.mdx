@@ -33,3 +33,20 @@ is still in flight.
   the single-write `"abort"` round can come as a `fin=0` delta first; the
   example therefore holds only the first upload, and collects each round
   until `fin` before comparing it with `"abort"`.
+
+## When a server-initiated open is refused
+
+`wired_server_wt_open_uni`/`_bidi` (and their `_stream` forms) return -1
+when the session has no credit for one more stream: the peer's
+`WT_MAX_STREAMS` or `WT_MAX_DATA` (draft-ietf-webtrans-http3 §5), its QUIC
+`MAX_STREAMS` (RFC 9000 §4.6), or this session's share of the connection's
+send slots. Set `wired_srvrun_opt.wt_on_stream_credit` (and
+`wt_stream_credit_ctx`) to learn when to retry: it is called once per
+refused open, from the connection's step, as soon as the same open would
+succeed. Opening again from inside the callback is allowed; a second
+refusal arms it again.
+
+How many sessions one connection may hold is the build-time
+`WIRED_SRVRUN_MAX_WT_SESSIONS` (default 2, at least 2). All sessions on a
+connection share its WT stream slots, so raise
+`WIRED_SRVLOOP_MAX_WT_STREAMS`/`_UNI_STREAMS` with it.

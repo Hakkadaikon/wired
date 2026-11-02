@@ -1,11 +1,40 @@
 #ifndef APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_WTX_H
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_WTX_H
 
-/* Internal to srvrun: per-connection WebTransport teardown and fairness
- * state (srvrun_conn.wtx), split out of srvrun_impl_srvrun.h. Included
- * there after SRVRUN_MAX_WT_SESSIONS. */
+/* Internal to srvrun: the per-connection WebTransport session limit and
+ * per-connection teardown and fairness state (srvrun_conn.wtx), split out
+ * of srvrun_impl_srvrun.h. */
 
 #include "common/platform/sys/syscall.h"
+
+/* draft-ietf-webtrans-http3-15 SS4 / RFC 9220 3: how many independent
+ * WebTransport sessions one connection holds open (unest/est/draining, not
+ * closed) at once. Build-time knob (`-DWIRED_SRVRUN_MAX_WT_SESSIONS=<n>`),
+ * not WIRED_SRVLOOP_MAX_WT_STREAMS/WIRED_SRVLOOP_MAX_WT_UNI_STREAMS -- those
+ * bound one connection's total reassembled WT stream slots, shared across
+ * however many sessions are open, so SRVRUN_MAX_WT_SESSIONS must stay at or
+ * under either (checked below); raise those with it, or n sessions split the
+ * same 24/9 stream slots and SRVRUN_WT_SEND_SLOTS send slots n ways
+ * (srvrun_wt_open_share_ok). Sizing: each +1 session adds one
+ * wired_wt_session plus the per-session rows below (path, close message,
+ * capsule queue) to every srvrun_conn -- 3600 B per connection slot on
+ * x86-64 (sizeof(srvrun_conn), 2 -> 3), times WIRED_CONNTABLE_CAP of BSS. */
+#ifndef WIRED_SRVRUN_MAX_WT_SESSIONS
+#define WIRED_SRVRUN_MAX_WT_SESSIONS 2
+#endif
+#define SRVRUN_MAX_WT_SESSIONS WIRED_SRVRUN_MAX_WT_SESSIONS
+
+/* >= 2: slots 0 and 1 keep their historical scalar names (srvrun_conn.wt/
+ * wt1, wt_active/wt1_active) as an alias of the first two array entries. */
+_Static_assert(SRVRUN_MAX_WT_SESSIONS >= 2, "wt/wt1 alias slots 0 and 1");
+
+_Static_assert(
+    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_STREAMS,
+    "every session needs room for a bidi stream in the shared table");
+
+_Static_assert(
+    SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_UNI_STREAMS,
+    "every session needs room for a uni stream in the shared table");
 
 /* Pending wired_server_wt_stream_reset entries one connection holds between
  * steps (srvrun_conn's wt_stream_reset_* latch). A full latch refuses further
@@ -44,6 +73,12 @@ typedef struct {
   /** draft-ietf-webtrans-http3-16 8: per session slot, the send slot its
    * next fair pass starts from (srvrun_wt_fair_keep). */
   u8 fair_next[SRVRUN_MAX_WT_SESSIONS];
+  /** #200: per session slot, the last server-initiated open refused for
+   * lack of credit -- 0 none, 1 uni, 2 bidi -- and its payload length, so
+   * srvrun_wt_credit_poll can tell when the same open would succeed;
+   * cleared when it fires and when a session starts. */
+  u8  credit_wait[SRVRUN_MAX_WT_SESSIONS];
+  usz credit_len[SRVRUN_MAX_WT_SESSIONS];
 } srvrun_wtx;
 
 #endif

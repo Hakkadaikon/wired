@@ -221,6 +221,7 @@
 #include "transport/conn/lifecycle/conn/demux.c"
 #include "transport/conn/lifecycle/conn/pnspace.c"
 #include "transport/conn/lifecycle/conntable/conntable.c"
+#include "transport/conn/lifecycle/conntable/conntable_hash.c"
 #include "app/datagram/datagram/datagram.c"
 #include "app/datagram/datagram/dgcheck.c"
 #include "app/datagram/datagram/dgsize.c"
@@ -745,6 +746,7 @@
 #include "app/http3/server/srvrun/srvrun_send.c"
 #include "app/http3/server/srvrun/srvrun_send_pending.c"
 #include "app/http3/server/srvrun/srvrun_server.c"
+#include "app/http3/server/srvrun/srvrun_credit.c"
 #include "app/http3/server/srvrun/srvrun_server_wt.c"
 #include "app/http3/server/srvrun/srvrun_wt_export.c"
 #include "app/http3/server/srvrun/srvrun_wt_shut.c"
@@ -1454,6 +1456,7 @@
 #include "app/srvrun_close_test.c"
 #include "app/srvrun_raw_test.c"
 #include "app/srvrun_wtflow_test.c"
+#include "app/srvrun_credit_test.c"
 #include "app/srvrun_wtsess_test.c"
 #include "app/srvrun_rec_test.c"
 #include "app/sigmask_test.c"
@@ -1624,6 +1627,7 @@ int main(void) {
   test_datagram();
   test_demux();
   test_conntable();
+  test_conntable_hash();
   test_bbr();
   test_cubic();
   test_hystart();
@@ -2064,6 +2068,7 @@ int main(void) {
   test_srvrun_close();
   test_srvrun_raw();
   test_srvrun_wtflow();
+  test_srvrun_credit();
   test_srvrun_wtsess();
   test_srvrun_rec();
   test_sigmask();

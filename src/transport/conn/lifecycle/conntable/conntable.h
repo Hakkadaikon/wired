@@ -10,13 +10,25 @@
  * serve several clients at once. A slot holds only a CID and a liveness flag;
  * the caller's own per-connection state (e.g. wired_srvloop + wired_server)
  * lives in a parallel array indexed the same way.
- * ponytail: linear scan over a fixed-size array. Fine at the tens-to-low-
- * hundreds of concurrent connections a single-threaded UDP server handles;
- * switch to a hash index if that scan ever shows up in a profile. */
+ * conntable_find is an open-addressing hash over every CID a slot owns
+ * (primary, alt, alt2); the buckets are spread across the slots themselves
+ * (CONNTABLE_HB each), so the (t, cap) API needs no separate index array.
+ * The hash is keyed per table (conntable_seed). Worst case, if every CID
+ * shares a probe chain: a lookup walks <= 3 * cap buckets (up to 9 * cap CID
+ * compares, ~3x the old 3 * cap linear scan) and a rebuild is O(cap^2).
+ * shortcut: every insert/rekey/set rebuilds the index (O(cap), per connection
+ * event, not per packet), so there are no tombstones; switch to in-place delete
+ * if connection churn shows up in a profile. */
 
 #ifndef WIRED_CONNTABLE_CAP
 #define WIRED_CONNTABLE_CAP 64
 #endif
+/* hix stores a slot index + 1 in a u16. */
+_Static_assert(WIRED_CONNTABLE_CAP < 65535, "conntable hix is u16");
+
+/** Hash buckets per slot: at most 3 CIDs per slot keeps the load <= 3/4, so
+ * a probe always reaches an empty bucket. */
+#define CONNTABLE_HB 4
 
 typedef struct {
   u8 cid[WIRED_MAX_CID_LEN];
@@ -38,10 +50,20 @@ typedef struct {
   u8  alt2_cid[WIRED_MAX_CID_LEN];
   u8  alt2_cid_len;
   int live; /**< 1 if this slot holds a connection, 0 if free */
+  /** This slot's share of the table-wide CID hash index: bucket b lives at
+   * t[b / CONNTABLE_HB].hix[b % CONNTABLE_HB] and holds a slot index + 1,
+   * 0 when empty (so a zeroed table is a valid empty index). */
+  u16 hix[CONNTABLE_HB];
+  /** The index's hash key; only t[0]'s is used (see conntable_seed). */
+  u32 hseed;
 } conntable;
 
-/** Mark every slot free. */
+/** Mark every slot free and reset the hash seed to 0 (deterministic). */
 void conntable_init(conntable* t, usz cap);
+
+/** Key the CID index with seed (a server draws it from the CSPRNG once, so a
+ * client cannot pick Initial DCIDs that collide) and rebuild it. */
+void conntable_seed(conntable* t, usz cap, u32 seed);
 
 /** Find the live slot whose CID exactly matches dcid.
  * @return the slot index, or -1 if none matches. */
