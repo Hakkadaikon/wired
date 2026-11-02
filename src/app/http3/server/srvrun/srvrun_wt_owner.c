@@ -3,6 +3,7 @@
 static int srvrun_wt_owner(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_owner_other(int owner, int sidx);
 static int srvrun_wt_h3_internal(const srvrun_conn* c, u64 stream_id);
+static int srvrun_wt_send_taken(srvrun_conn* c, u64 stream_id);
 static int srvrun_wt_reply_refused(srvrun_conn* c, int sidx, u64 stream_id);
 static int srvrun_wt_reply_allowed(
     srvrun_conn* c, int sidx, wired_wt_session* s, u64 stream_id, usz len);
@@ -48,13 +49,21 @@ srvrun_wtsend* srvrun_wtsend_owned(srvrun_conn* c, int sidx, u64 stream_id) {
   return w && w->wt_session_slot == sidx ? w : 0;
 }
 
+/* 1 iff stream_id's send side is taken: a send slot is open on it, or its
+ * send part already ended (srvrun_wt_send_ended) -- e.g. an early
+ * STOP_SENDING already drew RESET_STREAM, so RFC 9000 3.1 "Reset Sent"
+ * allows no STREAM frame. */
+static int srvrun_wt_send_taken(srvrun_conn* c, u64 stream_id) {
+  return srvrun_wtsend_find(c, stream_id) || srvrun_wt_send_ended(c, stream_id);
+}
+
 /* 1 iff stream_id can never carry a WT reply: not a client-initiated bidi
- * stream (RFC 9000 2.1), or already spoken for -- a send slot is open on
- * it, or it is foreign to sidx (srvrun_wt_foreign). A client bidi whose
- * receive slot was reaped at FIN is untracked: the reply-after-FIN echo
- * case stays allowed. */
+ * stream (RFC 9000 2.1), its send side taken (srvrun_wt_send_taken), or
+ * foreign to sidx (srvrun_wt_foreign). A client bidi whose receive slot
+ * was reaped at FIN is untracked: the reply-after-FIN echo case stays
+ * allowed. */
 static int srvrun_wt_reply_refused(srvrun_conn* c, int sidx, u64 stream_id) {
-  return (stream_id & 3) != 0 || srvrun_wtsend_find(c, stream_id) ||
+  return (stream_id & 3) != 0 || srvrun_wt_send_taken(c, stream_id) ||
          srvrun_wt_foreign(c, sidx, stream_id);
 }
 

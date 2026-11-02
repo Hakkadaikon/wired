@@ -26779,6 +26779,28 @@ static void test_srvrun_stop_before_wt_bidi_bytes(void) {
   *c = (srvrun_conn){0};
 }
 
+/* RFC 9000 3.1: after that early RESET_STREAM the send side is in Reset
+ * Sent, so no WT reply may put a STREAM frame on it; a WT stream never
+ * stopped (id 8) still takes one. */
+static void test_srvrun_stop_before_wt_bidi_refuses_reply(void) {
+  static const u8 pay[] = {'r'};
+  srvrun_conn*    s     = sr_sl_fixture();
+  srvrun_conn*    c     = &g_srvrun_env.conns[0];
+  sr_sl_send_headers(s, 0, "CONNECT", 0);
+  sr_sl_stop(s, 4, H3_REQUEST_CANCELLED);
+  sr_sl_wt_open(s, 4);
+  sr_sl_wt_open(s, 8);
+  /* the WT API finds a session's conn in the env table, not sr_sl's */
+  *c = *s;
+  CHECK(wired_server_wt_stream_reply(&c->wt, 8, wired_span_of(pay, 1)) == 1);
+  CHECK(wired_server_wt_stream_reply(&c->wt, 4, wired_span_of(pay, 1)) == 0);
+  CHECK(
+      wired_server_wt_stream_reply_open(&c->wt, 4, wired_span_of(pay, 1)) == 0);
+  CHECK(srvrun_wtsend_find(c, 4) == 0);
+  *s = (srvrun_conn){0};
+  sr_reset_global_table();
+}
+
 /* An early STOP_SENDING is left alone on raw QUIC (no HTTP/3 request
  * streams there) and on a client uni id (never a request). */
 static void test_srvrun_early_stop_raw_and_uni_untouched(void) {
@@ -28609,6 +28631,7 @@ void test_srvrun(void) {
   test_srvrun_stop_before_request_bytes_twice();
   test_srvrun_stop_after_request_freed();
   test_srvrun_stop_before_wt_bidi_bytes();
+  test_srvrun_stop_before_wt_bidi_refuses_reply();
   test_srvrun_early_stop_raw_and_uni_untouched();
   test_srvrun_bad_static_index_closes_conn();
   test_srvrun_oversized_field_section_gets_431();
