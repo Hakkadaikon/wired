@@ -97,10 +97,11 @@ static int srvrun_conn_owns_session(srvrun_conn* c, wired_wt_session* s) {
   return 0;
 }
 
-/* s's own slot index on c (0 or 1), or -1 if c does not own s -- the index
- * form of wt_slot_holds_session's search, needed wherever a caller must name
- * WHICH slot (wt_close_pending[sidx], srvrun_reset_wt_streams_for_session's
- * own session_slot param) rather than just whether c owns s at all. */
+/* s's own slot index on c (0..SRVRUN_MAX_WT_SESSIONS-1), or -1 if c does
+ * not own s -- the index form of wt_slot_holds_session's search, needed
+ * wherever a caller must name WHICH slot (wt_close_pending[sidx],
+ * srvrun_reset_wt_streams_for_session's own session_slot param) rather than
+ * just whether c owns s at all. */
 int srvrun_conn_session_slot(srvrun_conn* c, wired_wt_session* s) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     if (wt_slot_holds_session(c, i, s)) {

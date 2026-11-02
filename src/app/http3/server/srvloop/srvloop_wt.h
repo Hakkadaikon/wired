@@ -348,12 +348,12 @@ typedef struct {
    * here rather than re-derived so the association happens exactly once per
    * stream regardless of how many steps its data arrives across. */
   int offered;
-  /** The session slot index (srvrun.c's wt/wt1, see SRVRUN_MAX_WT_SESSIONS)
-   * this stream was offered to, valid only once offered is set; -1 while
-   * unoffered. Recorded so a session's own close (srvrun_close_wt_on_stream_
-   * close) can find exactly the streams it owns among possibly several open
-   * sessions on the same connection, rather than every wt_streams[] entry
-   * regardless of which session claimed it. */
+  /** The session slot index (srvrun_conn.wt_slots[], see
+   * SRVRUN_MAX_WT_SESSIONS) this stream was offered to, valid only once
+   * offered is set; -1 while unoffered. Recorded so a session's own close
+   * (srvrun_close_wt_on_stream_ close) can find exactly the streams it owns
+   * among possibly several open sessions on the same connection, rather than
+   * every wt_streams[] entry regardless of which session claimed it. */
   int wt_session_slot;
   /** how much of the stream (in win.base + win.frontier terms, i.e. an
    * absolute offset) the caller driving the loop (srvrun.c) has already
