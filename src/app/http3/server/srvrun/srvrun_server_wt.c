@@ -93,9 +93,10 @@ int srvrun_wt_send_ended(srvrun_conn* c, u64 stream_id) {
 
 /* Record a client-bidi reply's send part as over (wt_send_done's doc).
  * Server-initiated ids are covered by the opened counters instead, and
- * would alias client ids in the /4-indexed window. */
+ * they and client uni ids (no send part) would alias client bidi ids in
+ * the /4-indexed window. */
 void srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id) {
-  if (!(stream_id & 1)) {
+  if ((stream_id & 3) == 0) {
     wired_srvloop_closed_mark(&c->wt_send_done, stream_id);
   }
 }

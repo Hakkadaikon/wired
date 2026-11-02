@@ -578,6 +578,25 @@ static void test_reqdrive_push_promise_rejected(void) {
   CHECK(r.frame_unexpected == 1);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: a WT_STREAM (0x41) frame type after the
+ * HEADERS is rejected as H3_FRAME_ERROR (frame_unexpected == 2). */
+static void test_reqdrive_wt_signal_frame_after_headers(void) {
+  u8                   fs[64], h3[256], req[256], scratch[128];
+  usz                  fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+  wired_h3reqdrive_req r   = {0};
+  wired_obuf           hob = {h3, sizeof h3, 0};
+
+  h3_len = h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, 0x41, wired_span_of(0, 0));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(
+      wired_h3reqdrive_recv_get(
+          wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+          &r) == 0);
+  CHECK(r.frame_unexpected == 2);
+}
+
 /* RFC 9114 7.2.8 (9114-073): each HTTP/2-only reserved type on a request
  * stream before HEADERS must be rejected outright, same as PUSH_PROMISE. */
 static void test_reqdrive_http2_reserved_rejected(void) {
@@ -1772,6 +1791,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_no_cookie();
   test_reqdrive_push_promise_rejected();
   test_reqdrive_http2_reserved_rejected();
+  test_reqdrive_wt_signal_frame_after_headers();
   test_h3reqdrive_recv_get_oversized_headers_rejected();
   test_h3reqdrive_trailer_oversized_rejected();
   test_h3_field_section_over_2048_rejected();

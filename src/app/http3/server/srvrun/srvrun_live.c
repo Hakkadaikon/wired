@@ -120,8 +120,7 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own gathering found a connection-ending
- * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
- * mid-stream WT_STREAM signal), in which case the connection closes itself
+ * violation (RFC 9221 3 DATAGRAM), in which case the connection closes itself
  * instead (srvrun_close_on_step_violation), or the step observed a peer
  * CONNECTION_CLOSE (srvrun_send_step_reply's own gate). */
 void srvrun_on_step_live(

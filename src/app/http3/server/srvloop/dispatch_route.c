@@ -3,6 +3,8 @@
 static void route_land_bytes(
     wired_srvloop_stream_slot* slot, const stream_frame* sf);
 static void route_watch(wired_srvloop* l, const stream_frame* sf);
+static int  route_undecided(const wired_srvloop* l, const stream_frame* sf);
+static int  route_slot_for(wired_srvloop* l, const stream_frame* sf);
 static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched);
 static int  qdec_table_used(const wired_srvloop* l);
 static int  qdec_settle(wired_srvloop* l, int i);
@@ -89,8 +91,27 @@ static void route_watch(wired_srvloop* l, const stream_frame* sf) {
   w->fin = (u8)(w->fin | sf->fin);
 }
 
+/* draft-ietf-webtrans-http3-16 4.3: a stream whose send side was reset
+ * before its first byte (req_stopped) is told request from WebTransport by
+ * its offset-0 frame alone -- a fragment overtaking it decides nothing. */
+static int route_undecided(const wired_srvloop* l, const stream_frame* sf) {
+  return sf->offset != 0 &&
+         wired_srvloop_closed_has(&l->req_stopped, sf->stream_id);
+}
+
+/* The request slot for sf (wired_srvloop_slot_for), -1 to drop an
+ * undecided fragment: shortcut: its bytes are lost, as are those of any WT
+ * stream fragment that overtakes the signal; buffer them if a peer relies
+ * on it. */
+static int route_slot_for(wired_srvloop* l, const stream_frame* sf) {
+  if (route_undecided(l, sf)) {
+    return -1;
+  }
+  return wired_srvloop_slot_for(l, sf->stream_id);
+}
+
 static void route_land(wired_srvloop* l, const stream_frame* sf, u64* touched) {
-  int i = wired_srvloop_slot_for(l, sf->stream_id);
+  int i = route_slot_for(l, sf);
   /* RFC 9000 3.2: a late duplicate of an answered-and-released stream is
    * discarded outright -- it must not consume a slot or count as new. */
   if (i == -2) {

@@ -114,7 +114,9 @@ typedef struct {
    * (0x02/0x06/0x08/0x09). Set by find_headers (request_parse.c) via
    * h3_frame_recv_ok; the caller aborts the stream with
    * H3_FRAME_UNEXPECTED instead of the H3_REQUEST_INCOMPLETE an ordinary
-   * decode failure gets. */
+   * decode failure gets. 2 instead of 1 for a WT_STREAM (0x41) frame type
+   * past the stream's first bytes (draft-ietf-webtrans-http3-15 4.3), which
+   * closes the connection with H3_FRAME_ERROR. */
   int frame_unexpected;
   /** RFC 9110 15.5.14 / RFC 6585 5 / RFC 9114 4.2.2: 413 (body) or 431
    * (header section) for a request too large for this server. The decoder

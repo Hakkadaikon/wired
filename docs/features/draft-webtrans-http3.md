@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 73/81 tested, 8 indirect, 0 untested.**
+**Coverage: 74/81 tested, 7 indirect, 0 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -296,16 +296,24 @@ Legend:
   - test: `tests/app/srvloop_test.c` —
     `test_srvloop_wt_bidi_stream_not_request`
   - test: `tests/app/srvloop_test.c` — `test_srvloop_wt_bidi_stream_reassembled`
-- [~] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is received as a
+- [x] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is received as a
   frame type on an HTTP/3 stream other than the very first bytes of a
   request stream, then the server shall treat this as a connection error
   of type H3_FRAME_ERROR.
+  - note: checked on decoded request-stream frame types (buffered parser
+    and streamed body window), never on DATA payload bytes (issue #212).
+  - test: `tests/app/h3reqdrive_test.c` —
+    `test_reqdrive_wt_signal_frame_after_headers`
+  - test: `tests/app/body_window_test.c` —
+    `test_bodywin_wt_signal_frame_error`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_signal_frame_after_headers_closes`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_on_body_wt_signal_frame_error`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_body_bytes_like_wt_signal_served`
   - test: `tests/app/srvloop_test.c` —
-    `test_srvloop_wt_signal_mid_stream_latches_violation`
-  - evidence: the test asserts the detection latch
-    (`wt_signal_mid_stream_violation`); the close with H3_FRAME_ERROR that
-    `srvrun_close_on_step_violation` performs on the next step is not
-    asserted by any test.
+    `test_srvloop_wt_signal_offset_zero_opens_wt`
 
 ## §4.4 Resetting Data Streams
 

@@ -59,6 +59,7 @@ u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
  * session's lifetime so the peer's flow-control capsules keep landing in it
  * (srvrun_wt_rx_capsules); srvrun_close_wt_session_slot releases it then. */
 void srvrun_resp_release_stream(srvrun_conn* c, u64 stream_id) {
+  srvrun_wt_send_done_mark(c, stream_id); /* the response's send side ended */
   if (srvrun_wt_slot_by_connect_id(c, stream_id) < 0) {
     wired_srvloop_slot_release(&c->l, stream_id);
   }

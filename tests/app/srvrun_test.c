@@ -7713,15 +7713,35 @@ static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
   CHECK(c.l.tx_pn == tx_pn_before); /* no RESET_STREAM sealed */
 }
 
+/* c's kept entry (srvrun_rst) leading with a RESET_STREAM naming stream
+ * id, or 0. */
+static const srvrun_rst* sr_kept_reset_of(const srvrun_conn* c, u64 id) {
+  reset_stream_frame rs;
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    if (c->rst[i].pln &&
+        reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
+        rs.stream_id == id) {
+      return &c->rst[i];
+    }
+  }
+  return 0;
+}
+
 /* Seal the type-appropriate abort frames (srvrun_wt_busy_reset_payload)
  * into out as their own 1-RTT packet on stream_id -- the bytes
  * srvrun_send_wt_busy_reset puts on the wire, for tests that open them.
- * Returns 1 with out->len set, 0 if the payload or the seal failed. */
+ * Once that send recorded the send side ended, no reset is built again, so
+ * the kept copy of what was sent is sealed instead. Returns 1 with
+ * out->len set, 0 if the payload or the seal failed. */
 static int srvrun_seal_wt_busy_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
   u8         pl[64];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   usz        pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
+  const srvrun_rst* kept = sr_kept_reset_of(c, stream_id);
+  if (kept) {
+    return srvrun_seal_ctl(c, kept->pl, kept->pln, out);
+  }
   return srvrun_seal_ctl(c, pl, pln, out);
 }
 
@@ -7730,14 +7750,8 @@ static int srvrun_seal_wt_busy_reset(
  * wire, not a re-seal of a value the test chose. */
 static u64 sr_kept_reset_code(const srvrun_conn* c, u64 id) {
   reset_stream_frame rs;
-  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
-    if (c->rst[i].pln &&
-        reset_stream_decode(c->rst[i].pl, c->rst[i].pln, &rs) &&
-        rs.stream_id == id) {
-      return rs.error_code;
-    }
-  }
-  return ~0ULL;
+  const srvrun_rst*  e = sr_kept_reset_of(c, id);
+  return e && reset_stream_decode(e->pl, e->pln, &rs) ? rs.error_code : ~0ULL;
 }
 
 /* Buffer-full rejection: fill every WIRED_WT_MAX_BUFFERED_STREAMS
@@ -24741,6 +24755,23 @@ static void test_srvrun_on_body_frame_unexpected(void) {
   CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3 (WTH3-035): a WT_STREAM (0x41) frame
+ * type mid-body on the streaming path is H3_FRAME_ERROR. */
+static void test_srvrun_on_body_wt_signal_frame_error(void) {
+  static u8    req[2 * SR_REQ_BUF_CAP];
+  srvrun_conn* c      = sr_body_fixture(0);
+  usz          n      = sr_big_req(req, sizeof req, 1, 10);
+  int          is_app = 0;
+  req[n++]            = 0x40; /* type 0x41, empty */
+  req[n++]            = 0x41;
+  req[n++]            = 0x00;
+  sr_body_send(c, req, n, 1);
+  CHECK(g_sr_body.got_n == 10 && g_sr_body.fins == 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_ERROR && is_app == 1);
+}
+
 /* RFC 9114 4.1 (9114-005/007): a DATA frame after the trailer section on
  * the streaming path is a connection error of type H3_FRAME_UNEXPECTED. */
 static void test_srvrun_on_body_data_after_trailer_closes(void) {
@@ -26890,13 +26921,109 @@ static void test_srvrun_early_stop_raw_and_uni_untouched(void) {
   c->l.peer_reset_n   = 1;
   srvrun_answer_peer_stops(&ctx, c);
   CHECK(sr_kept_reset_code(c, 2) == ~0ULL);
-  CHECK(!wired_srvloop_closed_has(&c->l.req_closed, 0));
+  CHECK(!wired_srvloop_closed_has(&c->l.req_stopped, 2));
+  CHECK(!wired_srvloop_closed_has(&c->wt_send_done, 2));
   c->s.sdrv.alpn      = SALPN_RAW;
   c->l.peer_resets[0] = (wired_srvloop_reset){0, H3_REQUEST_CANCELLED, 1};
   srvrun_answer_peer_stops(&ctx, c);
   CHECK(sr_kept_reset_code(c, 0) == ~0ULL);
-  CHECK(!wired_srvloop_closed_has(&c->l.req_closed, 0));
+  CHECK(!wired_srvloop_closed_has(&c->l.req_stopped, 0));
+  CHECK(!wired_srvloop_closed_has(&c->wt_send_done, 0));
   CHECK(c->stream_limit_advertised == 0);
+  *c = (srvrun_conn){0};
+}
+
+/* draft-ietf-webtrans-http3-16 4.3: after an early STOP_SENDING, a WT
+ * stream whose offset-0 signal frame is overtaken by a later fragment is
+ * still classified by that signal frame -- the fragment decides nothing,
+ * so the stream is neither refused nor stopped. */
+static void test_srvrun_stop_before_wt_bidi_reordered(void) {
+  static const u8 tail[] = {'y'};
+  srvrun_conn*    c      = sr_sl_fixture();
+  u8              pl[32];
+  wired_obuf      sob = obuf_of(pl, sizeof pl);
+  stream_frame    sf  = {4, 4, sizeof tail, tail, 0};
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  sr_sl_stop(c, 4, H3_REQUEST_CANCELLED);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  CHECK(!wired_srvloop_closed_has(&c->l.req_closed, 4));
+  sr_sl_wt_open(c, 4);
+  CHECK(wired_srvloop_wt_slot_find(&c->l, 4) >= 0);
+  CHECK(sr_kept_stop_code(c, 4) == ~0ULL);
+  CHECK(sr_kept_reset_count(c, 4) == 1);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 3.2 / 3.5: early STOP_SENDING, then the peer's RESET_STREAM
+ * before any byte, then late request bytes: one RESET_STREAM of ours, no
+ * STOP_SENDING (the peer already reset), exactly one stream of credit. */
+static void test_srvrun_stop_then_reset_then_late_bytes(void) {
+  srvrun_conn* c   = sr_sl_fixture();
+  u64          lim = sr_sl_limit(c);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
+  sr_abort_send_ctl(c, 0, H3_REQUEST_CANCELLED, 0);
+  sr_sl_send_headers(c, 0, "GET", 1);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_kept_reset_count(c, 0) == 1);
+  CHECK(sr_kept_stop_code(c, 0) == ~0ULL);
+  CHECK(sr_sl_limit(c) == lim + 1);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 3.5: a STOP_SENDING arriving with the peer's RESET_STREAM in
+ * one packet, before any byte, is still answered with RESET_STREAM -- once,
+ * a repeat STOP_SENDING adds none. */
+static void test_srvrun_stop_and_reset_same_step(void) {
+  srvrun_conn*       c = sr_sl_fixture();
+  u8                 pl[64];
+  reset_stream_frame rs = {0, H3_REQUEST_CANCELLED, 0};
+  stop_sending_frame ss = {0, H3_REQUEST_CANCELLED};
+  usz                n  = reset_stream_encode(pl, sizeof pl, &rs);
+  n += stop_sending_encode(pl + n, sizeof pl - n, &ss);
+  sr_sl_step(c, pl, n);
+  CHECK(sr_kept_reset_code(c, 0) == H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_count(c, 0) == 1);
+  sr_abort_send_ctl(c, 1, H3_REQUEST_CANCELLED, 0);
+  CHECK(sr_kept_reset_count(c, 0) == 1);
+  *c = (srvrun_conn){0};
+}
+
+/* draft-ietf-webtrans-http3-16 4.3 (issue #212): request body bytes that
+ * happen to start a later STREAM frame with 0x40 0x41 are body, not the
+ * WT_STREAM signal -- the connection stays open and the request is served. */
+static void test_srvrun_body_bytes_like_wt_signal_served(void) {
+  static const u8 data[] = {H3_FRAME_DATA, 4, 0x40, 0x41, 'a', 'b'};
+  srvrun_conn*    c      = sr_sl_fixture();
+  usz             hlen   = sr_sl_send_headers(c, 0, "PUT", 0);
+  for (usz k = 0; k < 2; k++) {
+    u8           pl[32];
+    wired_obuf   sob = obuf_of(pl, sizeof pl);
+    stream_frame sf  = {0, hlen + 2 * k, 2 + 2 * k, data + 2 * k, (u8)k};
+    CHECK(appdata_stream_frame(&sf, &sob) == 1);
+    sr_sl_step(c, pl, sob.len);
+  }
+  CHECK(!c->closing);
+  CHECK(g_sr_wt_handler_calls == 1);
+  *c = (srvrun_conn){0};
+}
+
+/* draft-ietf-webtrans-http3-15 4.3 (WTH3-035): a frame of type WT_STREAM
+ * (0x41) after the request's HEADERS is a connection error of type
+ * H3_FRAME_ERROR; the request is never handed to the application. */
+static void test_srvrun_wt_signal_frame_after_headers_closes(void) {
+  static const u8 wt[]   = {0x40, 0x41, 0x00};
+  srvrun_conn*    c      = sr_sl_fixture();
+  int             is_app = 0;
+  usz             hlen   = sr_sl_send_headers(c, 0, "PUT", 0);
+  u8              pl[32];
+  wired_obuf      sob = obuf_of(pl, sizeof pl);
+  stream_frame    sf  = {0, hlen, sizeof wt, wt, 1};
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_ERROR && is_app == 1);
   *c = (srvrun_conn){0};
 }
 
@@ -28712,6 +28839,12 @@ void test_srvrun(void) {
   test_srvrun_stop_before_wt_bidi_bytes();
   test_srvrun_stop_before_wt_bidi_refuses_reply();
   test_srvrun_early_stop_raw_and_uni_untouched();
+  test_srvrun_stop_before_wt_bidi_reordered();
+  test_srvrun_stop_then_reset_then_late_bytes();
+  test_srvrun_stop_and_reset_same_step();
+  test_srvrun_body_bytes_like_wt_signal_served();
+  test_srvrun_wt_signal_frame_after_headers_closes();
+  test_srvrun_on_body_wt_signal_frame_error();
   test_srvrun_bad_static_index_closes_conn();
   test_srvrun_oversized_field_section_gets_431();
   test_srvrun_wt_200_capsule_protocol();

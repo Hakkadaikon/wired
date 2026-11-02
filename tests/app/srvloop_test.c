@@ -4119,42 +4119,10 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
   CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
 }
 
-/* draft-ietf-webtrans-http3-15 4.3 (WTH3-035): "Endpoints MUST NOT send
- * WT_STREAM as a frame type on HTTP/3 streams other than the very first
- * bytes of a request stream. Receiving this frame type in any other
- * circumstances MUST be treated as a connection error of type
- * H3_FRAME_ERROR." A STREAM frame at a NON-zero offset whose own leading
- * bytes decode as the WT_STREAM signal varint (0x41) on a client bidi
- * stream latches wt_signal_mid_stream_violation -- mirrors
- * test_srvloop_wt_bidi_stream_not_request's own offset-0 case but at
- * offset 3, past some already-buffered bytes of the same stream. */
-static void test_srvloop_wt_signal_mid_stream_latches_violation(void) {
-  struct lp_fix f;
-  u8            out[1024], spkt[1024];
-  u8            sig[3] = {0x40, 0x41, 'X'}; /* same 2-byte signal varint
-                                             * lp_wt_bidi_stream uses */
-  stream_frame sf = {4, 3, sizeof sig, sig, 0};
-  u8           payload[64];
-  usz          plen, slen;
-  wired_obuf   ob = {out, sizeof out, 0};
-  lp_confirm(&f, &ob);
-  plen = frame_put_stream(payload, sizeof payload, &sf);
-  CHECK(plen != 0);
-  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (wired_obuf){out, sizeof out, 0};
-  CHECK(f.l.wt_signal_mid_stream_violation == 0);
-  wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.wt_signal_mid_stream_violation == 1);
-}
-
-/* REGRESSION: the SAME signal varint at offset 0 (the legitimate leading-
- * bytes case draft-ietf-webtrans-http3-15 4.3 requires) must NOT latch the
- * violation -- mirrors test_srvloop_wt_bidi_stream_not_request's own setup,
- * checked here specifically against wt_signal_mid_stream_violation staying
- * 0 so a regression narrowing the offset!=0 check cannot silently start
- * flagging the valid case too. */
-static void test_srvloop_wt_signal_offset_zero_not_violation(void) {
+/* draft-ietf-webtrans-http3-16 4.3: the WT_STREAM signal at offset 0 (the
+ * stream's leading bytes, the only place it means anything -- issue #212)
+ * opens a WebTransport stream. */
+static void test_srvloop_wt_signal_offset_zero_opens_wt(void) {
   struct lp_fix f;
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
@@ -4165,7 +4133,7 @@ static void test_srvloop_wt_signal_offset_zero_not_violation(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.wt_signal_mid_stream_violation == 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) >= 0);
 }
 
 /* RFC 9000 2.2 / RFC 9114 4.1: a POST whose HEADERS and DATA arrive as two
@@ -7747,8 +7715,7 @@ void test_srvloop(void) {
   test_srvloop_datagram_without_advertising_rejected();
   test_srvloop_request_only_leaves_rx_datagrams_empty();
   test_srvloop_stream_leading_0x40_not_wt_signal();
-  test_srvloop_wt_signal_mid_stream_latches_violation();
-  test_srvloop_wt_signal_offset_zero_not_violation();
+  test_srvloop_wt_signal_offset_zero_opens_wt();
   test_srvloop_send_initial_roundtrip();
   test_srvloop_wrong_direction_open_fails();
   test_srvloop_no_onertt_seal_before_confirm();

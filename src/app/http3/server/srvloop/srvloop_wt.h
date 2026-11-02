@@ -912,17 +912,6 @@ typedef struct {
   /** RFC 9114 6.2 / 7.2 / 8.1: the peer's control/critical stream state
    * and the connection error it latched (srvloop_h3peer's doc). */
   srvloop_h3peer h3peer;
-  /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
-   * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
-   * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a
-   * frame type on HTTP/3 streams other than the very first bytes of a
-   * request stream. Receiving this frame type in any other circumstances
-   * MUST be treated as a connection error of type H3_FRAME_ERROR." Mirrors
-   * datagram_violation's shape: dispatch.c only latches it, the caller
-   * driving the loop (srvrun.c) closes the connection over it. Not reset
-   * across steps by this loop itself, same convention as max_data_seen_flag
-   * (the caller consumes and clears it every step). */
-  int wt_signal_mid_stream_violation;
   /** RFC 9000 19.4/19.5: every RESET_STREAM/STOP_SENDING this step carried,
    * in arrival order, with its wire error code. This loop has no notion of
    * which stream id is a WT data stream, a CONNECT stream or a plain request

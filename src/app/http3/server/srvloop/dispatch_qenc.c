@@ -1,10 +1,7 @@
 #include "app/http3/server/srvloop/dispatch_impl.h"
 
 static void gather_wt_land(wired_srvloop* l, const stream_frame* sf);
-static int  is_wt_signal_mid_stream(const stream_frame* sf);
-static int  gather_one_wt_signal_violation(
-    wired_srvloop* l, u64 type, wired_span frame);
-static int uni_type_new(
+static int  uni_type_new(
     wired_srvloop* l, const stream_frame* sf, u64* v, usz* n);
 static void uni_type_note_decoder(
     wired_srvloop* l, const stream_frame* sf, u64 v, usz n);
@@ -36,44 +33,6 @@ int srvloop_gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame) {
     return 0;
   }
   gather_wt_land(l, &sf);
-  return 1;
-}
-
-/* draft-ietf-webtrans-http3-15 4.3: "Endpoints MUST NOT send WT_STREAM as a
- * frame type on HTTP/3 streams other than the very first bytes of a request
- * stream. Receiving this frame type in any other circumstances MUST be
- * treated as a connection error of type H3_FRAME_ERROR." sf's own leading
- * bytes decoding as the WT_STREAM signal at offset 0 is legitimate
- * (srvloop_is_wt_stream_signal/srvloop_sf_is_wt_signalled, checked and consumed
- * elsewhere); this is the SAME decode applied to a frame that is NOT at offset
- * 0 -- the one shape the RFC forbids outright. */
-static int is_wt_signal_mid_stream(const stream_frame* sf) {
-  return sf->offset != 0 &&
-         srvloop_is_wt_stream_signal(wired_span_of(sf->data, (usz)sf->length));
-}
-
-/* 1 if the walked frame at `frame` is a client-bidi-id-shaped STREAM frame
- * (srvloop_client_bidi_stream_of, the id space request/WT streams share) whose
- * own data decodes as the WT_STREAM signal at a non-zero offset
- * (is_wt_signal_mid_stream) -- latches l->wt_signal_mid_stream_violation,
- * mirroring srvloop_gather_one_stream_close's latch-only shape. Scanned
- * independent of whether the same stream id was ALSO claimed as WT bidi traffic
- * earlier in this payload or an earlier step: draft-ietf-webtrans-http3-15 4.3
- * draws no exception for an already-classified stream, and a legitimate WT bidi
- * continuation frame never itself re-decodes as the signal varint (the
- * signal is stripped from the stream's data by srvloop_wt_frame_skip, never
- * repeated), so a real WT stream's own application bytes cannot spuriously
- * trigger this. */
-static int gather_one_wt_signal_violation(
-    wired_srvloop* l, u64 type, wired_span frame) {
-  stream_frame sf;
-  if (!srvloop_client_bidi_stream_of(type, frame, &sf)) {
-    return 0;
-  }
-  if (!is_wt_signal_mid_stream(&sf)) {
-    return 0;
-  }
-  l->wt_signal_mid_stream_violation = 1;
   return 1;
 }
 
@@ -119,8 +78,6 @@ int srvloop_gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
     seen |= srvloop_gather_server_bidi_frame(
         l, fr.type, wired_span_of(fr.start, fr.remaining));
     seen |= srvloop_gather_wt_frame(
-        l, fr.type, wired_span_of(fr.start, fr.remaining));
-    seen |= gather_one_wt_signal_violation(
         l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;

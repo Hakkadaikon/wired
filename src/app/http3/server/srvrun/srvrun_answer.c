@@ -7,8 +7,8 @@ static void srvrun_connect_stop(
 static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id);
 static int srvrun_stop_on_critical(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id);
-static int  srvrun_bidi_fresh(const srvrun_conn* c, u64 id);
-static int  srvrun_req_unopened(const srvrun_conn* c, u64 id);
+static int  srvrun_bidi_fresh(srvrun_conn* c, u64 id);
+static int  srvrun_req_unopened(srvrun_conn* c, u64 id);
 static void srvrun_req_stop_early(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e);
 static usz srvrun_req_stop(
@@ -72,24 +72,28 @@ static int srvrun_stop_on_critical(
   return 1;
 }
 
-/* No byte of client bidi id arrived yet: no WT slot, not closed. */
-static int srvrun_bidi_fresh(const srvrun_conn* c, u64 id) {
+/* Client bidi id with no WT slot whose send side is still Ready (RFC 9000
+ * 3.1): no response ended and no RESET_STREAM sent (srvrun_wt_send_ended)
+ * -- even when the peer's own RESET_STREAM already closed its receive side
+ * (req_closed), in this step or an earlier one. */
+static int srvrun_bidi_fresh(srvrun_conn* c, u64 id) {
   return wired_srvloop_wt_slot_find(&c->l, id) < 0 &&
-         !wired_srvloop_closed_has(&c->l.req_closed, id);
+         !srvrun_wt_send_ended(c, id);
 }
 
 /* RFC 9000 3.2 / 19.5: a client bidi stream this STOP_SENDING opens on an
- * HTTP/3 connection (raw QUIC has no request streams) -- no byte yet, so
- * it may still turn out a request or a WebTransport stream. */
-static int srvrun_req_unopened(const srvrun_conn* c, u64 id) {
+ * HTTP/3 connection (raw QUIC has no request streams) -- no request slot,
+ * so it may still turn out a request or a WebTransport stream. */
+static int srvrun_req_unopened(srvrun_conn* c, u64 id) {
   return id % 4 == 0 && !srvrun_conn_is_raw(c) && srvrun_bidi_fresh(c, id);
 }
 
 /* RFC 9000 3.5: answer an early STOP_SENDING (srvrun_req_unopened) on the
  * send side alone -- RESET_STREAM with the peer's code at Final Size 0,
  * once (the send side is then recorded ended, so a repeat builds
- * nothing). The receive side is left to the first byte (req_stopped): a
- * request is then refused and credited, a WT stream reads on. */
+ * nothing). The receive side is left to the first byte
+ * (req_stopped): a request is then refused and credited, a WT stream reads
+ * on. */
 static void srvrun_req_stop_early(
     const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
   u8         pl[SRVRUN_RST_PL];
@@ -124,6 +128,7 @@ static usz srvrun_req_stop(
       ctx->cfg, c, pl,
       srvrun_wt_abort_pair(c, e->stream_id, e->error_code, &plb),
       "request RESET sent\n");
+  srvrun_wt_send_done_mark(c, e->stream_id);
   wired_srvloop_slot_cancel(&c->l, e->stream_id, e->error_code);
   return 1;
 }

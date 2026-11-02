@@ -31,13 +31,15 @@ void srvloop_route_note_done(wired_srvloop* l, int i) {
 }
 
 /* RFC 9114 4.1 / 7.2 (9114-007/067/073): a frame a request stream must not
- * carry is a connection error of type H3_FRAME_UNEXPECTED -- latched for
- * srvrun to close over. Also append slot i to frame_unexpected_slots -- split
- * out of route_note_incomplete so its own reject-vs- incomplete branch stays a
- * single extra check there. */
+ * carry is a connection error of type H3_FRAME_UNEXPECTED -- or H3_FRAME_ERROR
+ * for a mid-stream WT_STREAM type (req.frame_unexpected == 2,
+ * draft-ietf-webtrans-http3-15 4.3) -- latched for srvrun to close over. Also
+ * append slot i to frame_unexpected_slots -- split out of route_note_incomplete
+ * so its own reject-vs- incomplete branch stays a single extra check there. */
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i) {
+  static const u16 code[2] = {H3_FRAME_UNEXPECTED, H3_FRAME_ERROR};
   route_unreset(l, i);
-  srvloop_h3_fail(l, H3_FRAME_UNEXPECTED); /* RFC 9114 4.1 / 7.2: connection */
+  srvloop_h3_fail(l, code[l->streams[i].req.frame_unexpected == 2]);
   if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
   }
