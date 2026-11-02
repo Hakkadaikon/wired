@@ -285,6 +285,7 @@ process-wide scratch server.
 | Name | Role |
 |---|---|
 | `wired_srvboot_id.ticket_key` | Session-ticket key seed; 0 = no resumption. |
+| `wired_srvkeys_set_token_key` (`srvkeys/srvkeys.h`) | Retry / NEW_TOKEN token seed; call before the server starts. Not called = per-process random seed. |
 | `wired_srvboot_id.early_data` | 1 = accept 0-RTT on resumed connections; 0 (default) = resume as 1-RTT only. |
 
 - **0-RTT is opt-in.** RFC 8446 Appendix E.5 forbids enabling 0-RTT

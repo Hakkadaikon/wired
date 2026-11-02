@@ -51,8 +51,33 @@ static void test_srvkeys_ticket_accessor(void) {
       ct_diffn(wired_srvloop_ticket_key(), srvkeys_ticket(), SRVKEYS_LEN) == 0);
 }
 
+static void srvkeys_test_seed(u8 seed[SRVKEYS_LEN], u8 base) {
+  for (usz i = 0; i < SRVKEYS_LEN; i++) {
+    seed[i] = (u8)(base + i);
+  }
+}
+
+/* RFC 9000 8.1.3: an app-supplied token seed makes the Retry seed and the
+ * NEW_TOKEN key a pure function of it, so a restarted server, or another
+ * one behind the same address, given the same seed validates the tokens
+ * this one issued. The two keys differ (one seed, two uses). */
+static void test_srvkeys_token_key_settable(void) {
+  u8 a[SRVKEYS_LEN], b[SRVKEYS_LEN], nt[SRVKEYS_LEN];
+  srvkeys_test_seed(a, 0x30);
+  srvkeys_test_seed(b, 0x60);
+  CHECK(wired_srvkeys_set_token_key(a) == 1);
+  CHECK(ct_diffn(srvkeys_retry(), a, SRVKEYS_LEN) == 0);
+  CHECK(ct_diffn(srvkeys_newtoken(), a, SRVKEYS_LEN) != 0);
+  bytes_memcpy(nt, srvkeys_newtoken(), SRVKEYS_LEN);
+  CHECK(wired_srvkeys_set_token_key(b) == 1);
+  CHECK(ct_diffn(srvkeys_newtoken(), nt, SRVKEYS_LEN) != 0);
+  CHECK(wired_srvkeys_set_token_key(a) == 1);
+  CHECK(ct_diffn(srvkeys_newtoken(), nt, SRVKEYS_LEN) == 0);
+}
+
 void test_srvkeys(void) {
   test_srvkeys_ticket_accessor();
   test_srvkeys_random_and_distinct();
   test_srvkeys_stable();
+  test_srvkeys_token_key_settable();
 }
