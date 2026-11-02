@@ -21,4 +21,10 @@ typedef struct {
 
 void qpack_step_bit(hctx* c, u32 bit);
 
+/* RFC 7541 Appendix B canonical code tables (see huffman.c). */
+extern const u16 qpack_hsym[257];
+extern const u32 qpack_hfirst[31];
+extern const u16 qpack_hidx[31];
+extern const u16 qpack_hcnt[31];
+
 #endif

@@ -1628,7 +1628,7 @@ static void test_reqdrive_local_capacity_not_qpack_failure(void) {
   qpack_field f = {wired_span_of(name, sizeof name), wired_span_of(0, 0)};
   wired_h3reqdrive_req r;
   for (usz i = 0; i < sizeof name; i++) {
-    name[i] = 'a';
+    name[i] = 'X'; /* 8-bit Huffman code: the name stays raw, 70 octets */
   }
   n += qpack_literal_name_encode(wired_mspan_of(fs + n, sizeof fs - n), 0, &f);
   CHECK(n > 4 + sizeof name);

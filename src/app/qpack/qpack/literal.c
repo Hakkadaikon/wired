@@ -75,18 +75,10 @@ usz qpack_literal_namref_decode(
   return decode_value(buf, qpack_literal_namref_head(buf, r), val);
 }
 
-/* Encode the 4.5.6 name: 3-bit prefixed length (H=0) then the name octets. */
+/* Encode the 4.5.6 name: a string with a 3-bit prefixed length, H at 0x08. */
 static usz litname_name_encode(wired_mspan buf, int never, wired_span name) {
   qpack_pfx pfx = {3, QPACK_LITNAME | bit(never, QPACK_LITNAME_N)};
-  usz       off = qpack_int_encode(buf, pfx, name.n);
-  if (off == 0) {
-    return 0;
-  }
-  if (!bytes_put(
-          wired_mspan_of(buf.p, buf.n), &off, wired_span_of(name.p, name.n))) {
-    return 0;
-  }
-  return off;
+  return qpack_string_encode_pfx(buf, name, pfx);
 }
 
 usz qpack_literal_name_encode(

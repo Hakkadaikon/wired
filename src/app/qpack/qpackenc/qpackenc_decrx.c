@@ -6,8 +6,9 @@ static int decrx_ack(qpackenc_state* st, u64 stream_id) {
   return qpackenc_on_section_ack(st);
 }
 
-/* RFC 9204 4.4.2: this encoder never references its table, so a cancelled
- * stream releases no entry; the instruction is always valid. */
+/* RFC 9204 4.4.2: always valid. shortcut: pending_acks is a count, not per
+ * stream, so a cancelled section stays pending and eviction stays blocked
+ * (safe, never unsafe); track sections per stream if tables fill up. */
 static int decrx_cancel(qpackenc_state* st, u64 stream_id) {
   (void)st;
   (void)stream_id;

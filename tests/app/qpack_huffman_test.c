@@ -143,7 +143,91 @@ static void test_qpack_huffman_decode_cost_bounded(void) {
   CHECK(qpack_huffman_decode(wired_span_of(src, sizeof src), &ob) == 0);
 }
 
+/* Huffman-encode the C string t and compare with the want octets. */
+static int hf_enc_is(const char* t, const u8* want, usz wn) {
+  u8  out[64];
+  usz n = qpack_huffman_encode(
+      wired_span_of((const u8*)t, wired_cstr_len(t)),
+      wired_mspan_of(out, sizeof out));
+  return hf_eq(out, n, (const char*)want, wn);
+}
+
+/* RFC 7541 C.4.1-C.4.3 / C.6.1 encoder vectors, re-derived from the
+ * Appendix B table (HSYM/HFIRST/HCNT) independently of the decoder. */
+static void test_huffman_encode_rfc_vectors(void) {
+  static const u8 www[]  = {0xf1, 0xe3, 0xc2, 0xe5, 0xf2, 0x3a,
+                            0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff};
+  static const u8 nc[]   = {0xa8, 0xeb, 0x10, 0x64, 0x9c, 0xbf};
+  static const u8 ckey[] = {0x25, 0xa8, 0x49, 0xe9, 0x5b, 0xa9, 0x7d, 0x7f};
+  static const u8 cval[] = {0x25, 0xa8, 0x49, 0xe9, 0x5b,
+                            0xb8, 0xe8, 0xb4, 0xbf};
+  static const u8 s302[] = {0x64, 0x02};
+  static const u8 priv[] = {0xae, 0xc3, 0x77, 0x1a, 0x4b};
+  CHECK(hf_enc_is("www.example.com", www, sizeof www));
+  CHECK(hf_enc_is("no-cache", nc, sizeof nc));
+  CHECK(hf_enc_is("custom-key", ckey, sizeof ckey));
+  CHECK(hf_enc_is("custom-value", cval, sizeof cval));
+  CHECK(hf_enc_is("302", s302, sizeof s302));
+  CHECK(hf_enc_is("private", priv, sizeof priv));
+}
+
+/* Encode src then decode it back; 1 iff the round trip is exact. */
+static int hf_roundtrip(const u8* src, usz n) {
+  u8         enc[1024], dec[256];
+  wired_obuf ob = obuf_of(dec, sizeof dec);
+  usz        e  = qpack_huffman_encode(
+      wired_span_of(src, n), wired_mspan_of(enc, sizeof enc));
+  return e <= sizeof enc && qpack_huffman_decode(wired_span_of(enc, e), &ob) &&
+         hf_eq(dec, ob.len, (const char*)src, n);
+}
+
+/* Property: every octet value 0..255 survives encode -> decode, alone (each
+ * pads differently) and all together in one string. */
+static void test_huffman_encode_roundtrip_all_bytes(void) {
+  u8 all[256];
+  for (usz i = 0; i < 256; i++) {
+    all[i] = (u8)i;
+    CHECK(hf_roundtrip(&all[i], 1));
+  }
+  CHECK(hf_roundtrip(all, sizeof all));
+}
+
+/* An empty dst only sizes the code; a short dst is never written past. */
+static void test_huffman_encode_sizing(void) {
+  u8         out[4] = {0xaa, 0xaa, 0xaa, 0xaa};
+  wired_span www    = wired_span_of((const u8*)"www.example.com", 15);
+  CHECK(qpack_huffman_encode(www, wired_mspan_of(out, 0)) == 12);
+  CHECK(qpack_huffman_encode(www, wired_mspan_of(out, 3)) == 12);
+  CHECK(out[2] == 0xc2 && out[3] == 0xaa);
+}
+
+/* RFC 7541 5.2: the string literal takes the Huffman form (H=1) only when
+ * it is shorter -- "www.example.com" 0x8c + 12 octets; "\0\0" (13-bit codes,
+ * 4 octets coded) stays raw (H=0). */
+static void test_huffman_string_picks_shorter(void) {
+  u8         b[32];
+  const u8   z[] = {0, 0};
+  u8         out[32];
+  wired_obuf ob = obuf_of(out, sizeof out);
+  usz        w  = qpack_string_encode(
+      wired_mspan_of(b, sizeof b),
+      wired_span_of((const u8*)"www.example.com", 15));
+  CHECK(w == 13 && b[0] == 0x8c && b[1] == 0xf1 && b[12] == 0xff);
+  CHECK(qpack_string_decode(wired_span_of(b, w), &ob) == w);
+  CHECK(hf_eq(out, ob.len, "www.example.com", 15));
+  w = qpack_string_encode(wired_mspan_of(b, sizeof b), wired_span_of(z, 2));
+  CHECK(w == 3 && b[0] == 0x02 && b[1] == 0 && b[2] == 0);
+  CHECK(
+      qpack_string_encode(
+          wired_mspan_of(b, 5),
+          wired_span_of((const u8*)"www.example.com", 15)) == 0);
+}
+
 void test_qpack_huffman(void) {
+  test_huffman_encode_rfc_vectors();
+  test_huffman_encode_roundtrip_all_bytes();
+  test_huffman_encode_sizing();
+  test_huffman_string_picks_shorter();
   test_huffman_rfc_vector();
   test_huffman_curl_headers();
   test_huffman_padding();

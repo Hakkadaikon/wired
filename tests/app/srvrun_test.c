@@ -10,10 +10,12 @@
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/request/h3reqdrive/request_drive_impl.h"
 #include "app/http3/request/h3resp/field_encode.h"
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
+#include "app/qpack/qpack/huffman.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
@@ -17904,14 +17906,39 @@ static int srn_wt_contains(const u8* hay, usz n, const char* needle) {
  * a 3xx response, indicating a redirection." A registered wt_resource_check
  * that returns a 3xx status with a Location value builds a bare redirect
  * response (no session established) carrying that status and a Location
- * field line -- verified two ways: the raw Location bytes appear on the
- * wire (srn_wt_contains, the same idiom the wt-protocol header tests above
- * use) and the numeric :status decodes to 302 via the public
- * h3conn_recv_response (RFC 9204 4.5), after re-wrapping the raw
- * HEADERS+DATA bytes srvrun_start_wt_status wrote (row start, no STREAM-
- * frame envelope) as a synthetic offset-0 STREAM frame -- mirroring
- * dispatch.c's own srvloop_peek_decode_request wrap-then-decode idiom. */
+ * field line -- verified two ways: the Location value's Huffman code (RFC
+ * 7541 5.2, shorter than raw) appears on the wire (srn_wt_contains_huff) and
+ * the numeric :status decodes to 302 via the public h3conn_recv_response (RFC
+ * 9204 4.5), after re-wrapping the raw HEADERS+DATA bytes
+ * srvrun_start_wt_status wrote (row start, no STREAM- frame envelope) as a
+ * synthetic offset-0 STREAM frame -- mirroring dispatch.c's own
+ * srvloop_peek_decode_request wrap-then-decode idiom. */
 static const u8 sr_wt_redirect_location[] = "https://new.example/wt";
+
+/* Walk the field section of the HEADERS frame at pre (t: the dynamic table
+ * it references, 0 for none) with the repo's own field-line decoder (RFC
+ * 9204 4.5, Huffman strings decoded) and copy field name's value into val
+ * (64 bytes). Returns its length, 0 when absent or undecodable. */
+static usz sr_section_value(
+    const qpack_dyn* t, const u8* pre, usz n, const char* name, u8* val) {
+  u64        flen, base, ric;
+  usz        vl  = varint_decode(pre + 1, n - 1, &flen);
+  wired_span fs  = wired_span_of(pre + 1 + vl, (usz)flen);
+  usz        off = h3reqdrive_prefix_base(fs, t, &base, &ric);
+  u8         scr[128];
+  while (off && off < fs.n) {
+    qdyn_src dyn = {t, base, wired_span_of(fs.p + off, fs.n - off), ric};
+    rline    L   = {0};
+    usz      k   = h3reqdrive_decode_line(
+        dyn.fs, wired_mspan_of(scr, sizeof scr), &dyn, &L);
+    if (k && h3reqdrive_line_name_is(&L, name) && L.value_len <= 64) {
+      bytes_memcpy(val, L.value, L.value_len);
+      return L.value_len;
+    }
+    off = k ? off + k : 0;
+  }
+  return 0;
+}
 
 static void sr_wt_resource_check_redirect(
     void*                       ctx,
@@ -17954,9 +17981,18 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
   CHECK(g_sr_wt_handler_calls == 0);
   CHECK(conns[0].wt_active == 0);
   CHECK(conns[0].resp[0].sess.active == 1); /* the 302 was armed */
-  CHECK(srn_wt_contains(
-      g_srvrun_respstore[0][0], conns[0].resp[0].sess.q.len,
-      (const char*)sr_wt_redirect_location));
+  {
+    u8  v[64];
+    usz vn = sr_section_value(
+        0, g_srvrun_respstore[0][0], conns[0].resp[0].sess.q.len, "location",
+        v);
+    CHECK(vn == sizeof sr_wt_redirect_location - 1);
+    CHECK(srvrun_wt_bytes_eq(v, sr_wt_redirect_location, vn));
+    /* Huffman-coded on the wire: the raw string never appears */
+    CHECK(!srn_wt_contains(
+        g_srvrun_respstore[0][0], conns[0].resp[0].sess.q.len,
+        (const char*)sr_wt_redirect_location));
+  }
   {
     stream_frame sf = {
         0, 0, conns[0].resp[0].sess.q.len, g_srvrun_respstore[0][0], 1};
@@ -18033,9 +18069,12 @@ static void test_srvrun_wt_status_excludes_capsule_forbidden_headers(void) {
   {
     const u8* wire = g_srvrun_respstore[0][0];
     usz       n    = conns[0].resp[0].sess.q.len;
-    CHECK(!srn_wt_contains(wire, n, "content-length"));
-    CHECK(!srn_wt_contains(wire, n, "content-type"));
-    CHECK(!srn_wt_contains(wire, n, "transfer-encoding"));
+    u8        v[64];
+    /* decoded, since literal names may be Huffman-coded on the wire */
+    CHECK(sr_section_value(0, wire, n, ":status", v) == 3);
+    CHECK(!sr_section_value(0, wire, n, "content-length", v));
+    CHECK(!sr_section_value(0, wire, n, "content-type", v));
+    CHECK(!sr_section_value(0, wire, n, "transfer-encoding", v));
   }
 }
 
@@ -18085,8 +18124,13 @@ static void test_srvrun_wt_negotiate_picks_first_client_choice(void) {
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].resp[0].sess.active == 1);
-  CHECK(srn_wt_contains(g_srvrun_respstore[0][0], 256, "wt-protocol"));
-  CHECK(srn_wt_contains(g_srvrun_respstore[0][0], 256, "\"foo\""));
+  {
+    u8 v[64];
+    CHECK(
+        sr_section_value(0, g_srvrun_respstore[0][0], 256, "wt-protocol", v) ==
+        5);
+    CHECK(srvrun_wt_bytes_eq(v, (const u8*)"\"foo\"", 5));
+  }
   CHECK(!srn_wt_contains(g_srvrun_respstore[0][0], 256, "\"bar\""));
 }
 
@@ -18107,7 +18151,11 @@ static void test_srvrun_wt_negotiate_no_common_no_header(void) {
   srn_wt_start(table, conns, "baz", 0);
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].resp[0].sess.active == 1);
-  CHECK(!srn_wt_contains(g_srvrun_respstore[0][0], 256, "wt-protocol"));
+  {
+    u8 v[64];
+    CHECK(
+        !sr_section_value(0, g_srvrun_respstore[0][0], 256, "wt-protocol", v));
+  }
 }
 
 /* No wt-available-protocols header at all: the session is accepted exactly
@@ -18127,7 +18175,11 @@ static void test_srvrun_wt_negotiate_absent_offer_no_header(void) {
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].resp[0].sess.active == 1);
-  CHECK(!srn_wt_contains(g_srvrun_respstore[0][0], 256, "wt-protocol"));
+  {
+    u8 v[64];
+    CHECK(
+        !sr_section_value(0, g_srvrun_respstore[0][0], 256, "wt-protocol", v));
+  }
 }
 
 /* An offer that is not a valid sf-list (a bare unquoted token, RFC 8941
@@ -18148,7 +18200,11 @@ static void test_srvrun_wt_negotiate_bad_syntax_no_header(void) {
   srn_wt_start(table, conns, "foo", 0);
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].resp[0].sess.active == 1);
-  CHECK(!srn_wt_contains(g_srvrun_respstore[0][0], 256, "wt-protocol"));
+  {
+    u8 v[64];
+    CHECK(
+        !sr_section_value(0, g_srvrun_respstore[0][0], 256, "wt-protocol", v));
+  }
 }
 
 /* REGRESSION: wt_protocols unset (0, the default) skips negotiation even
@@ -18169,7 +18225,11 @@ static void test_srvrun_wt_negotiate_disabled_unchanged(void) {
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].resp[0].sess.active == 1);
-  CHECK(!srn_wt_contains(g_srvrun_respstore[0][0], 256, "wt-protocol"));
+  {
+    u8 v[64];
+    CHECK(
+        !sr_section_value(0, g_srvrun_respstore[0][0], 256, "wt-protocol", v));
+  }
 }
 
 /* wt_on_session capture globals: call count, the last session pointer, and
@@ -23309,15 +23369,11 @@ static int sr_qenc_field_is_dynamic_indexed(const u8* fs, usz n) {
 
 /* WIRE: a :status value with no static-table match (201 is not one of RFC
  * 9204 Appendix A's five :status entries), built once the encoder stream is
- * open, both (a) generates an Insert instruction that actually reaches the
- * QPACK encoder stream's own wtsend slot, and (b) references it from the
- * response's field section as an Indexed Field Line with T=0 (dynamic) --
- * not the literal fallback the capacity==0 default used before this stream
- * existed.
- * NOTE: production never reaches this path today -- wired_h3srv_state_init
- * starts qenc at capacity 0 (RFC 9204 3.2.3) and no Set Dynamic Table
- * Capacity is sent -- so the test seeds a peer-allowed 4096 by hand to keep
- * the dynamic-insert mechanism covered. */
+ * open, generates an Insert instruction that actually reaches the QPACK
+ * encoder stream's own wtsend slot, while the field section itself stays a
+ * literal (RFC 9204 2.1.2: the unacknowledged entry is not referenced, so
+ * the section never blocks and nothing is left pending). The test seeds a
+ * 4096 capacity by hand; production takes it from the peer's SETTINGS. */
 static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
   srvrun_conn            c = {0};
   qpackenc_status_result ins;
@@ -23328,10 +23384,9 @@ static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
   srvrun_open_qenc_stream(&c);
   CHECK(h3resp_encode_headers_field_qenc(
       201, 0, 0, srvrun_qenc_active(&c), &ins, &fob));
-  CHECK(ins.insert_len > 0);            /* a fresh Insert was generated */
-  CHECK(c.l.h3.qenc.pending_acks == 0); /* not yet recorded */
+  CHECK(ins.insert_len > 0); /* a fresh Insert was generated */
   srvrun_qenc_send_insert(&c, &ins);
-  CHECK(c.l.h3.qenc.pending_acks == 1); /* qpackenc_note_sent ran */
+  CHECK(c.l.h3.qenc.pending_acks == 0); /* RIC 0: nothing to acknowledge */
   {
     srvrun_wtsend* w = &c.wtsend[c.qenc_wtsend_slot];
     /* byte 0 is the stream's one-time type prefix; the Insert instruction
@@ -23341,15 +23396,16 @@ static void test_srvrun_qenc_first_use_inserts_and_references_dynamic(void) {
       CHECK(w->roundbuf[1 + i] == ins.insert_instr[i]);
     }
   }
-  CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == 1);
+  CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == -1);
 }
 
-/* REGRESSION: the SAME :status value encoded again finds the entry already
- * live in the dynamic table -- no second Insert instruction, no growth of
- * the encoder stream's staged bytes, only a fresh Indexed reference (still
- * T=0). Matches qpackenc_plan_field's own existing-entry contract
- * (qpackenc_test.c); this pins that srvrun's wiring passes the SAME
- * qpackenc_state through on every call rather than re-initialising it. */
+/* REGRESSION: the SAME :status value encoded again, once the peer's Insert
+ * Count Increment acknowledged it, finds the entry live in the dynamic
+ * table -- no second Insert instruction, no growth of the encoder stream's
+ * staged bytes, only an Indexed reference (T=0) whose section is pending.
+ * Matches qpackenc_plan_field's own existing-entry contract (qpackenc_test.c);
+ * this pins that srvrun's wiring passes the SAME qpackenc_state through on
+ * every call rather than re-initialising it. */
 static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
   srvrun_conn            c = {0};
   qpackenc_status_result first, second;
@@ -23363,11 +23419,13 @@ static void test_srvrun_qenc_repeat_status_references_without_reinsert(void) {
       201, 0, 0, srvrun_qenc_active(&c), &first, &fob1));
   srvrun_qenc_send_insert(&c, &first);
   staged_after_first = c.wtsend[c.qenc_wtsend_slot].sess.q.len;
+  CHECK(qpackenc_on_increment(&c.l.h3.qenc, 1) == 1);
   CHECK(h3resp_encode_headers_field_qenc(
       201, 0, 0, srvrun_qenc_active(&c), &second, &fob2));
   CHECK(second.insert_len == 0); /* already live: no new Insert */
   srvrun_qenc_send_insert(&c, &second);
   CHECK(c.wtsend[c.qenc_wtsend_slot].sess.q.len == staged_after_first);
+  CHECK(c.l.h3.qenc.pending_acks == 1); /* qpackenc_note_sent ran */
   CHECK(sr_qenc_field_is_dynamic_indexed(f2, fob2.len) == 1);
 }
 
@@ -23389,6 +23447,126 @@ static void test_srvrun_qenc_inactive_falls_back_to_literal(void) {
    * Name Reference fallback (RFC 9204 4.5.4), not a static OR dynamic
    * index. */
   CHECK(sr_qenc_field_is_dynamic_indexed(field, fob.len) == -1);
+}
+
+/* The peer's QPACK decoder (RFC 9204 3.2 / 4.3): its own table, fed the
+ * server's staged encoder-stream bytes past the stream type byte. */
+typedef struct {
+  qpack_dyn t;
+  usz       fed; /* encoder-stream bytes applied so far */
+} sr_qpeer;
+
+/* Apply every instruction the server staged since the last call, then
+ * acknowledge all inserts (Insert Count Increment, RFC 9204 4.4.3). 1 ok,
+ * 0 on QPACK_ENCODER_STREAM_ERROR. */
+static int sr_qpeer_sync(sr_qpeer* p, srvrun_conn* c) {
+  srvrun_wtsend* w   = &c->wtsend[c->qenc_wtsend_slot];
+  u16            err = 0;
+  usz            k   = 1;
+  u64            inserts;
+  while (k && p->fed < w->sess.q.len) {
+    k = qdyn_enc_apply(
+        wired_span_of(w->roundbuf + p->fed, w->sess.q.len - p->fed), &p->t,
+        4096, &err);
+    p->fed += k;
+  }
+  inserts = p->t.dropped + p->t.count;
+  if (inserts > c->l.h3.qenc.known_received) {
+    CHECK(qpackenc_on_increment(
+        &c->l.h3.qenc, inserts - c->l.h3.qenc.known_received));
+  }
+  return err == 0 && p->fed == w->sess.q.len;
+}
+
+/* The :status the peer decodes from the HEADERS frame at pre (RFC 9204
+ * 4.5), through the repo's own field-line decoder; 0 when undecodable. */
+static u16 sr_qpeer_status(const sr_qpeer* p, const u8* pre, usz n) {
+  u8 v[64];
+  if (sr_section_value(&p->t, pre, n, ":status", v) != 3) {
+    return 0;
+  }
+  return (u16)((v[0] - '0') * 100 + (v[1] - '0') * 10 + (v[2] - '0'));
+}
+
+/* Build a GET's response prefix through srvrun_h3_resp_prefix: status,
+ * plus the one extra field big when given. */
+static int sr_qenc_respond(
+    srvrun_conn* c, u16 status, const qpack_field* big, u8* pre, usz* n) {
+  static const u8      get[] = {'G', 'E', 'T'};
+  wired_h3reqdrive_req req   = {0};
+  wired_http_exchange  x     = {0};
+  wired_obuf           pob   = obuf_of(pre, SRVRUN_RESP_HDR_ROOM);
+  int                  ok;
+  req.method     = get;
+  req.method_len = sizeof get;
+  x.req          = &req;
+  x.status       = status;
+  if (big) {
+    x.fields[0]   = *big;
+    x.field_count = 1;
+  }
+  ok = srvrun_h3_resp_prefix(c, &x, 0, &pob);
+  *n = pob.len;
+  return ok;
+}
+
+static void sr_qenc_peer_setup(srvrun_conn* c, sr_qpeer* p) {
+  qpack_dyn_init(&p->t, 0);
+  p->t.max_capacity = 4096; /* its advertised SETTINGS (RFC 9204 4.5.1.1) */
+  p->fed            = 1;    /* the stream type byte */
+  qpackenc_init(&c->l.h3.qenc, 0);
+  qpackenc_peer_capacity(&c->l.h3.qenc, 4096);
+  srvrun_open_qenc_stream(c);
+}
+
+/* REGRESSION (RFC 9204 2.1.4 / 4.3.1): a response whose field section
+ * overflows H3RESP_FIELD_SECTION_MAX is never sent (arm_failed), so the
+ * :status insert it planned must not be committed either -- otherwise the
+ * encoder's table runs ahead of the peer's and the owed Set Dynamic Table
+ * Capacity is lost. The peer, decoding with the repo's own decoder and
+ * applying every staged encoder instruction, reads each later :status
+ * right, literal and dynamic alike. */
+static void test_srvrun_qenc_failed_section_commits_nothing(void) {
+  static u8   big_v[700];
+  srvrun_conn c = {0};
+  sr_qpeer    p;
+  qpack_field big;
+  u8          pre[SRVRUN_RESP_HDR_ROOM];
+  usz         n;
+  bytes_memset(big_v, 'X', sizeof big_v); /* 8-bit Huffman code: raw */
+  big.name  = wired_span_of((const u8*)"x-big", 5);
+  big.value = wired_span_of(big_v, sizeof big_v);
+  sr_qenc_peer_setup(&c, &p);
+  CHECK(sr_qenc_respond(&c, 201, &big, pre, &n) == 0);
+  CHECK(sr_qenc_respond(&c, 401, 0, pre, &n) == 1);
+  CHECK(sr_qpeer_sync(&p, &c) == 1);
+  CHECK(sr_qpeer_status(&p, pre, n) == 401);
+  CHECK(sr_qenc_respond(&c, 201, 0, pre, &n) == 1);
+  CHECK(sr_qpeer_sync(&p, &c) == 1);
+  CHECK(sr_qpeer_status(&p, pre, n) == 201);
+  CHECK(sr_qenc_respond(&c, 201, 0, pre, &n) == 1); /* acked: dynamic */
+  CHECK(sr_qpeer_status(&p, pre, n) == 201);
+  CHECK(sr_qenc_respond(&c, 401, 0, pre, &n) == 1);
+  CHECK(sr_qpeer_status(&p, pre, n) == 401);
+  CHECK(c.l.h3.qenc.pending_acks == 2);
+}
+
+/* REGRESSION: when the encoder stream's ring is full the Insert cannot be
+ * staged, so the response goes out as a literal and the encoder state stays
+ * as it was (Set Dynamic Table Capacity still owed, nothing inserted). */
+static void test_srvrun_qenc_stage_full_commits_nothing(void) {
+  static u8   fill[SRVRUN_WTSEND_BUF - 1];
+  srvrun_conn c = {0};
+  sr_qpeer    p;
+  u8          pre[SRVRUN_RESP_HDR_ROOM];
+  usz         n;
+  sr_qenc_peer_setup(&c, &p);
+  CHECK(srvrun_wtsend_stage_round(
+      &c, &c.wtsend[c.qenc_wtsend_slot], wired_span_of(fill, sizeof fill), 0));
+  CHECK(sr_qenc_respond(&c, 201, 0, pre, &n) == 1);
+  CHECK(sr_qpeer_status(&p, pre, n) == 201);
+  CHECK(c.l.h3.qenc.total_inserts == 0 && c.l.h3.qenc.dyn.count == 0);
+  CHECK(c.l.h3.qenc.cap_pending == 1);
 }
 
 /* on_step fires once per srvrun_step with a non-decreasing monotonic
@@ -24215,7 +24393,7 @@ static usz sr_big_req(u8* out, usz cap, usz plen, usz blen) {
   h3req_pseudo_in pin = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"https", 5),
       SR_AUTH, wired_span_of(path, plen), wired_span_of((const u8*)"", 0)};
-  bytes_memset(path, 'a', plen);
+  bytes_memset(path, 'X', plen); /* 8-bit Huffman code: sent raw */
   path[0] = '/';
   bytes_memset(body, 'b', blen);
   CHECK(h3req_enc_pseudo(&pin, &fob) == 1);
@@ -24946,8 +25124,11 @@ static void test_srvrun_on_body_past_initial_max_data(void) {
     if (!k) {
       break;
     }
+    /* workaround for #212; remove when fixed. body bytes stay below 0x40:
+     * a STREAM frame starting 0x40 0x41 trips
+     * the WT_STREAM mid-stream check (dispatch_qenc.c), body or not */
     for (usz i = 0; i < k; i++) {
-      d[i] = sent + i < hn ? head[sent + i] : (u8)(sent + i - hn);
+      d[i] = sent + i < hn ? head[sent + i] : (u8)((sent + i - hn) & 0x3f);
     }
     CHECK(appdata_stream_frame(&sf, &sob) == 1);
     sr_sl_step(c, pl, sob.len);
@@ -25911,18 +26092,20 @@ static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
  * handler produces -- :status 200 (static index 25) plus a content-type
  * literal referencing static name 44, then the SDK's content-length and
  * date (RFC 9110 8.6 / 6.6.1) as Literal Field Lines With Literal Name
- * (4.5.6: 0x20 | name length, 3-bit prefix; 14 = 7 + 0x07), then DATA.
+ * (4.5.6: 0x20 | H 0x08 | name length, 3-bit prefix), then DATA.
  * Hand-encoded, so changes to the response path provably keep the classic
- * handler's output. HEADERS length 72 = 19 + 18 + 35, varint 0x40 0x48. */
+ * handler's output. The content-type and date values and both names are
+ * Huffman-coded (RFC 7541 5.2, H=1, shorter than raw; "5" stays raw):
+ * "content-length" is 10 octets (0x2f 0x03: 7 + 3), "date" 3 (0x2b).
+ * HEADERS length 58 = 16 + 14 + 28, varint 0x3a. */
 static void test_srvrun_legacy_handler_headers_golden(void) {
   static const u8 want[] = {
-      0x01, 0x40, 0x48, 0x00, 0x00, 0xd9, 0x5f, 0x1d, 0x0d, 't',  'e',  'x',
-      't',  '/',  'x',  '-',  'g',  'o',  'l',  'd',  'e',  'n',  0x27, 0x07,
-      'c',  'o',  'n',  't',  'e',  'n',  't',  '-',  'l',  'e',  'n',  'g',
-      't',  'h',  0x01, '5',  0x24, 'd',  'a',  't',  'e',  0x1d, 'S',  'u',
-      'n',  ',',  ' ',  '0',  '6',  ' ',  'N',  'o',  'v',  ' ',  '1',  '9',
-      '9',  '4',  ' ',  '0',  '8',  ':',  '4',  '9',  ':',  '3',  '7',  ' ',
-      'G',  'M',  'T',  0x00, 0x05, 'h',  'e',  'l',  'l',  'o'};
+      0x01, 0x3a, 0x00, 0x00, 0xd9, 0x5f, 0x1d, 0x8a, 0x49, 0x7c, 0xa5, 0x8f,
+      0x2b, 0x4c, 0x7a, 0x24, 0x2d, 0x5f, 0x2f, 0x03, 0x21, 0xea, 0x49, 0x6a,
+      0x4a, 0xd4, 0x16, 0xa9, 0x93, 0x3f, 0x01, '5',  0x2b, 0x90, 0x69, 0x2f,
+      0x97, 0xdd, 0x6d, 0x5f, 0x4a, 0x01, 0xc5, 0x34, 0x9f, 0xba, 0x81, 0x7d,
+      0xf6, 0x94, 0x03, 0xd7, 0x1a, 0x7e, 0xe3, 0x2e, 0xa9, 0x8b, 0x46, 0xff,
+      0x00, 0x05, 'h',  'e',  'l',  'l',  'o'};
   srvrun_cfg cfg = {0};
   wired_span got;
   cfg.handler = sr_golden_legacy_handler;
@@ -27251,7 +27434,7 @@ static int sr_long_ct_handler(
   (void)more;
   (void)total_size;
   for (usz i = 0; i + 1 < sizeof g_sr_long_ct; i++) {
-    g_sr_long_ct[i] = 'a';
+    g_sr_long_ct[i] = 'X'; /* 8-bit Huffman code: stays raw, full size */
   }
   *ct           = g_sr_long_ct;
   body_out->len = 0;
@@ -28736,6 +28919,8 @@ void test_srvrun(void) {
   test_srvrun_qenc_first_use_inserts_and_references_dynamic();
   test_srvrun_qenc_repeat_status_references_without_reinsert();
   test_srvrun_qenc_inactive_falls_back_to_literal();
+  test_srvrun_qenc_failed_section_commits_nothing();
+  test_srvrun_qenc_stage_full_commits_nothing();
   test_srvrun_on_step_fires_per_step();
   test_srvrun_on_step_disables_unbounded_block();
   test_srvrun_wt_stream_inflight_unknown_is_zero();

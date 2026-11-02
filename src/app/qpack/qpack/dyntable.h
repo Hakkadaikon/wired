@@ -56,6 +56,13 @@ void qpack_dyn_init(qpack_dyn* t, usz capacity);
  * referenced entry out first, since eviction may reuse them. */
 int qpack_dyn_insert(qpack_dyn* t, const qpack_field* f);
 
+/* RFC 9204 3.2.1. 1 iff f fits beside the live entries without evicting. */
+int qpack_dyn_fits(const qpack_dyn* t, const qpack_field* f);
+
+/* RFC 9204 3.2.1. 1 iff f fits in the table once emptied: the case where
+ * qpack_dyn_insert succeeds. */
+int qpack_dyn_storable(const qpack_dyn* t, const qpack_field* f);
+
 /* RFC 9204 3.2. Borrowed views of the live entry `off` places after the
  * oldest (off < t->count); valid until the next insert. */
 void qpack_dyn_entry_at(const qpack_dyn* t, usz off, qpack_field* out);

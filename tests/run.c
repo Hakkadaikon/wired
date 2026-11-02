@@ -359,6 +359,7 @@
 #include "transport/conn/cid/pmtu/pmtu.c"
 #include "transport/packet/protect/protect/protect.c"
 #include "app/qpack/qpack/huffman.c"
+#include "app/qpack/qpack/huffman_enc.c"
 #include "app/qpack/qpack/huffman_step.c"
 #include "app/qpack/qpack/instruction.c"
 #include "app/qpack/qpack/integer.c"
