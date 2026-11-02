@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
+#include "crypto/pki/trust/castore/castore.h"
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/salpn/sni_check.h"
 #include "tls/ext/stp/server_tp.h"
@@ -15,8 +16,19 @@
 /** @file
  * RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
  * ClientHello and emits the real TLS bytes of the server flight (ServerHello +
- * EncryptedExtensions + Certificate + CertificateVerify + Finished). Pure
- * orchestration over the existing build/sign/key-schedule parts. */
+ * EncryptedExtensions + CertificateRequest (under client authentication) +
+ * Certificate + CertificateVerify + Finished). Pure orchestration over the
+ * existing build/sign/key-schedule parts. */
+
+/** RFC 8446 4.3.2 / 4.4.2.4: client certificate authentication off (the
+ * default: no CertificateRequest is sent). */
+#define WIRED_CLIENT_AUTH_OFF 0
+/** Request a client certificate; a client that sends none continues
+ * unauthenticated (wired_server_peer_cert reports none). */
+#define WIRED_CLIENT_AUTH_OPTIONAL 1
+/** Request a client certificate; a client that sends none is refused with
+ * certificate_required (alert 116). */
+#define WIRED_CLIENT_AUTH_REQUIRED 2
 
 /** Server-side handshake driver state. Members are grouped by alignment
  * (8-byte, 4, 2, then byte arrays) to keep the struct free of padding.
@@ -102,6 +114,14 @@ typedef struct {
   u64 last_error;
   /** 1 when ticket_key is set; 0 disables resumption. */
   int has_ticket_key;
+  /** RFC 8446 4.3.2: WIRED_CLIENT_AUTH_* (sdrv_set_client_auth). Not off:
+   * a full handshake sends a CertificateRequest, and an offered PSK, 0-RTT
+   * and session tickets are all refused (RFC 8446 4.4: no certificate
+   * authentication on a PSK handshake). */
+  int client_auth;
+  /** The trust store client certificates must chain to; set whenever
+   * client_auth is not off. */
+  const castore* client_ca;
   /** RFC 8446 Appendix E.5: 1 once the application asked for 0-RTT
    * (sdrv_set_early_data); 0, the sdrv_init default, resumes as 1-RTT
    * only and issues tickets without early_data. */
@@ -437,6 +457,17 @@ void sdrv_set_ticket_key_prev(sdrv* s, const u8* prev);
  * @param on 1 to accept 0-RTT, 0 to refuse it */
 void sdrv_set_early_data(sdrv* s, int on);
 
+/** RFC 8446 4.3.2 / 4.4.2.4: request and verify a client certificate.
+ * Call after sdrv_init, before sdrv_recv_client_hello. A mode other than
+ * WIRED_CLIENT_AUTH_OFF needs a trust store (fail closed).
+ * @param s driver state
+ * @param mode WIRED_CLIENT_AUTH_OFF, _OPTIONAL or _REQUIRED
+ * @param ca the client CA trust store, kept alive by the caller for the
+ *   connection; may be 0 only when mode is off
+ * @return 1, or 0 (nothing changed) for an unknown mode or a mode that
+ *   needs ca without one. */
+int sdrv_set_client_auth(sdrv* s, int mode, const castore* ca);
+
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
  *
@@ -556,11 +587,13 @@ int sdrv_build_hrr(sdrv* s, wired_obuf* out);
 u64 sdrv_last_error(const sdrv* s);
 
 /** Destination for sdrv_build_server_flight: sh receives the
- * ServerHello, hs the EncryptedExtensions || Certificate ||
- * CertificateVerify || Finished flight. */
+ * ServerHello, hs the EncryptedExtensions || [CertificateRequest] ||
+ * Certificate || CertificateVerify || Finished flight (CertificateRequest
+ * only under client authentication, sdrv_set_client_auth). */
 typedef struct {
   wired_obuf* sh; /**< receives the ServerHello */
-  wired_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
+  wired_obuf* hs; /**< receives EncryptedExtensions ||
+                   * [CertificateRequest] || Certificate ||
                    * CertificateVerify || Finished */
 } sdrv_flight_out;
 

@@ -12,8 +12,10 @@ static void srv_seed_kuswitch(wired_server* s);
 static int  srv_complete(
     wired_server* s, const u8* msg, usz len, const u8* c_hs_traffic);
 static int srv_on_finished(wired_server* s, const u8* msg, usz len);
-static int srv_expects_finished(const wired_server* s, const u8* msg);
-static int srv_latch(wired_server* s, u8 alert);
+static int srv_expects(const wired_server* s, const u8* msg);
+static int srv_dispatch(wired_server* s, const u8* msg, usz len);
+static int srv_take_one(wired_server* s);
+static int srv_take_all(wired_server* s);
 
 /* NSS Key Log Format (SSLKEYLOGFILE, draft-ietf-tls-keylogfile 3/4): one
  * "<LABEL> <client_random> <secret>" line per secret. */
@@ -140,50 +142,87 @@ static int srv_complete(
   return 1;
 }
 
-/* RFC 8446 4 / A.2: in Handshake space the server waits for exactly one
- * message, the client Finished, and only once its own flight is out. */
-static int srv_expects_finished(const wired_server* s, const u8* msg) {
-  return s->phase == WIRED_SERVER_HS_FLIGHT_SENT && msg[0] == HS_FINISHED;
+/* RFC 8446 4 / A.2, indexed by hs_wait (SRV_WAIT_*): the one message type
+ * the server accepts next in Handshake space, and its handler. */
+static const struct {
+  u8 type;
+  int (*on)(wired_server* s, const u8* msg, usz len);
+} srv_wait_table[] = {
+    {HS_FINISHED, srv_on_finished},
+    {HSD_CERTIFICATE, server_cauth_on_cert},
+    {HSD_CERT_VERIFY, server_cauth_on_cv},
+};
+
+/* Only once the server's own flight is out, and only the message hs_wait
+ * names. */
+static int srv_expects(const wired_server* s, const u8* msg) {
+  return s->phase == WIRED_SERVER_HS_FLIGHT_SENT &&
+         msg[0] == srv_wait_table[s->hs_wait].type;
 }
 
-/* Record the alert the caller closes with; always 0 (nothing advanced). */
-static int srv_latch(wired_server* s, u8 alert) {
-  s->hs_error = err_crypto(alert);
+/* Record the alert the caller closes with and stop taking handshake
+ * messages (RFC 8446 6.2); always 0 (nothing advanced). */
+int server_srv_latch(wired_server* s, u8 alert) {
+  s->hs_error   = err_crypto(alert);
+  s->hs_aborted = 1;
   return 0;
 }
 
 /* Process the reassembled next handshake message: a client Finished in
- * FLIGHT_SENT is verified and completes only on a match; anything else is
- * unexpected_message (RFC 8446 4), a Finished that does not verify is
- * decrypt_error (4.4.4). Neither path promotes anything. */
+ * FLIGHT_SENT is verified and completes only on a match, a Finished that
+ * does not verify is decrypt_error (4.4.4). Neither path promotes
+ * anything. */
 static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
   u8 c_traffic[TLS_HASH_MAX];
-  if (!srv_expects_finished(s, msg)) {
-    return srv_latch(s, 10); /* unexpected_message */
-  }
   if (!server_srv_verify_finished(s, msg, len, c_traffic)) {
-    return srv_latch(s, 51); /* decrypt_error */
+    return server_srv_latch(s, 51); /* decrypt_error */
   }
-  s->hs_rx_used = HS_HEADER + server_srv_hash(s)->len;
-  /* RFC 8446 7.1: fold exactly the verified Finished, whose body the
-   * verify above pinned to Hash.length bytes -- the reassembled prefix
-   * may run past it (bytes another packet smeared into the stream), and
-   * folding the excess mints a resumption_master_secret no client can
-   * match: every ticket from such a connection then fails its binder. */
-  return srv_complete(s, msg, HS_HEADER + server_srv_hash(s)->len, c_traffic);
+  return srv_complete(s, msg, len, c_traffic);
+}
+
+/* One complete message of exactly its declared length: anything hs_wait
+ * does not name is unexpected_message (RFC 8446 4). */
+static int srv_dispatch(wired_server* s, const u8* msg, usz len) {
+  if (!srv_expects(s, msg)) {
+    return server_srv_latch(s, 10); /* unexpected_message */
+  }
+  return srv_wait_table[s->hs_wait].on(s, msg, len);
+}
+
+/* RFC 8446 7.1: hand on exactly the declared message -- the reassembled
+ * prefix may run past it (bytes another packet smeared into the stream),
+ * and folding the excess mints a resumption_master_secret no client can
+ * match: every ticket from such a connection then fails its binder. */
+static int srv_take_one(wired_server* s) {
+  const u8* msg;
+  usz       avail;
+  usz       end = crecv_message_end_at(s->crecv_mem, s->hs_rx_used);
+  crecv_message_at(&s->crecv, s->crecv_mem, s->hs_rx_used, &msg, &avail);
+  if (!srv_dispatch(s, msg, end - s->hs_rx_used)) {
+    return 0;
+  }
+  s->hs_rx_used = end;
+  return 1;
+}
+
+/* RFC 9001 4.1.3: several messages (Certificate, CertificateVerify,
+ * Finished) can complete in one CRYPTO frame; take each in order. */
+static int srv_take_all(wired_server* s) {
+  int took = 0;
+  while (crecv_complete_message_at(&s->crecv, s->crecv_mem, s->hs_rx_used)) {
+    if (!srv_take_one(s)) {
+      return 0;
+    }
+    took = 1;
+  }
+  return took;
 }
 
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
-  const u8* msg;
-  usz       mlen;
-  if (!crecv_collect(&s->crecv, crypto_payload, len)) {
+  if (s->hs_aborted || !server_srv_collect(s, crypto_payload, len)) {
     return 0;
   }
-  if (!crecv_complete_message_at(&s->crecv, s->hs_rx_used)) {
-    return 0;
-  }
-  crecv_message_at(&s->crecv, s->hs_rx_used, &msg, &mlen);
-  return srv_on_finished(s, msg, mlen);
+  return srv_take_all(s);
 }
 
 int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
@@ -195,12 +234,4 @@ int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
   }
   s->hs_done_sent = 1;
   return 1;
-}
-
-int wired_server_early_data_used(const wired_server* s) {
-  return s->sdrv.early_data_accepted;
-}
-
-int wired_server_is_confirmed(const wired_server* s) {
-  return s->phase == WIRED_SERVER_HS_CONFIRMED;
 }

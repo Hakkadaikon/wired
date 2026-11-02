@@ -39,6 +39,12 @@ static const u8 ekut_tbs_both[] = {
     0x2b, 0x06, 0x01,        0x05, 0x05, 0x07, 0x03, 0x02, 0x06, 0x08,
     0x2b, 0x06, 0x01,        0x05, 0x05, 0x07, 0x03, 0x01};
 
+/* extKeyUsage whose extnValue is a NULL instead of a SEQUENCE OF
+ * KeyPurposeId: present but malformed. */
+static const u8 ekut_tbs_malformed[] = {
+    0x30, 0x1b, EKUT_DUMMY6, 0xa3, 0x0d, 0x30, 0x0b, 0x30, 0x09,
+    0x06, 0x03, 0x55,        0x1d, 0x25, 0x04, 0x02, 0x05, 0x00};
+
 static wired_span server_auth(void) {
   return wired_span_of(x509_oid_server_auth, sizeof(x509_oid_server_auth));
 }
@@ -94,7 +100,16 @@ static void test_eku_client_auth_query_absent(void) {
       0);
 }
 
+/* A present but malformed extension restricts to nothing (fail closed). */
+static void test_eku_malformed_rejects(void) {
+  CHECK(
+      x509_eku_allows(
+          wired_span_of(ekut_tbs_malformed, sizeof(ekut_tbs_malformed)),
+          server_auth()) == 0);
+}
+
 void test_eku(void) {
+  test_eku_malformed_rejects();
   test_eku_no_extension_allows();
   test_eku_empty_rejects();
   test_eku_server_auth_present_allows();

@@ -103,6 +103,8 @@ static void sdt_make_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* draft-ietf-webtrans-http3-15 SS4: relay every received DATAGRAM to every

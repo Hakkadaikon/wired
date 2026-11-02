@@ -7,28 +7,30 @@
 /* RFC 9000 7.5: hand TLS only the in-order contiguous prefix of the crypto
  * stream. A TLS handshake message (RFC 8446 4) is a 1-byte msg_type plus a
  * 3-byte big-endian length; complete_message reports whether the leading one
- * is fully buffered. */
+ * is fully buffered. Every call takes the backing memory given to
+ * crecv_init. */
 
 /* Point *msg at the contiguous prefix from offset 0 and write its length.
  * Always succeeds (length may be 0). */
-void crecv_message(const crecv* s, const u8** msg, usz* len);
+void crecv_message(const crecv* s, const u8* mem, const u8** msg, usz* len);
 
 /* Same, but from `off`: the contiguous bytes available at and past off
  * (0-length when off is at or past the contiguous prefix). RFC 8446 4.1.4:
  * a post-HelloRetryRequest ClientHello2 continues the crypto stream at the
  * offset right past ClientHello1, so the second message must be addressable
  * on its own. */
-void crecv_message_at(const crecv* s, usz off, const u8** msg, usz* len);
+void crecv_message_at(
+    const crecv* s, const u8* mem, usz off, const u8** msg, usz* len);
 
 /* Returns 1 if the leading TLS handshake message is completely buffered in the
  * contiguous prefix (4-byte header + declared body), else 0. */
-int crecv_complete_message(const crecv* s);
+int crecv_complete_message(const crecv* s, const u8* mem);
 
 /* Same, but for the message starting at `off` (see crecv_message_at). */
-int crecv_complete_message_at(const crecv* s, usz off);
+int crecv_complete_message_at(const crecv* s, const u8* mem, usz off);
 
 /* The stream offset just past the message starting at `off`; only
- * meaningful once crecv_complete_message_at(s, off) holds. */
-usz crecv_message_end_at(const crecv* s, usz off);
+ * meaningful once crecv_complete_message_at(s, mem, off) holds. */
+usz crecv_message_end_at(const u8* mem, usz off);
 
 #endif

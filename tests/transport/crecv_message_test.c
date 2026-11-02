@@ -1,5 +1,7 @@
 #include "test.h"
 
+static u8 g_crecv_message_mem[2 * CRECV_BUF];
+
 static usz mk_crypto_msg(u8* out, u8 offset, const u8* data, u8 len) {
   usz i    = 0;
   out[i++] = 0x06;
@@ -27,13 +29,13 @@ static void test_crecv_message_finished(void) {
     fin[4 + i] = (u8)i;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, fin, sizeof fin);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  crecv_message(&s, &msg, &len);
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  crecv_message(&s, g_crecv_message_mem, &msg, &len);
   CHECK(len == sizeof fin);
   CHECK(msg[0] == 0x14);
-  CHECK(crecv_complete_message(&s) == 1);
+  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 1);
 }
 
 /* Two CRYPTO frames split a single message: incomplete until the tail lands. */
@@ -50,13 +52,15 @@ static void test_crecv_message_split(void) {
     fin[4 + i] = 0xaa;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, fin, 20); /* first 20 bytes */
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message(&s) == 0);  /* body not all here */
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(
+      crecv_complete_message(&s, g_crecv_message_mem) ==
+      0);                                  /* body not all here */
   fn = mk_crypto_msg(f, 20, fin + 20, 16); /* remaining 16 */
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message(&s) == 1);
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 1);
 }
 
 /* A gap before offset 0 region leaves nothing contiguous. */
@@ -68,11 +72,11 @@ static void test_crecv_message_gap_empty(void) {
   const u8* msg;
   usz       len;
 
-  crecv_init(&s);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  crecv_message(&s, &msg, &len);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  crecv_message(&s, g_crecv_message_mem, &msg, &len);
   CHECK(len == 0);
-  CHECK(crecv_complete_message(&s) == 0);
+  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 0);
 }
 
 /* Header present but body length exceeds what is buffered -> incomplete. */
@@ -82,9 +86,9 @@ static void test_crecv_message_header_only(void) {
   u8       f[64];
   usz      fn = mk_crypto_msg(f, 0, hdr, sizeof hdr);
 
-  crecv_init(&s);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message(&s) == 0);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 0);
 }
 
 /* RFC 8446 4.1.4: after a HelloRetryRequest the retried ClientHello arrives
@@ -113,24 +117,28 @@ static void test_crecv_message_at_offset(void) {
     m2[4 + i] = 0x22;
   }
 
-  crecv_init(&s);
+  crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, m1, sizeof m1);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message_at(&s, sizeof m1) == 0); /* CH2 not yet */
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(
+      crecv_complete_message_at(&s, g_crecv_message_mem, sizeof m1) ==
+      0); /* CH2 not yet */
   /* CH2 split across two frames at the continued offset. */
   fn = mk_crypto_msg(f, (u8)sizeof m1, m2, 10);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message_at(&s, sizeof m1) == 0); /* body short */
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(
+      crecv_complete_message_at(&s, g_crecv_message_mem, sizeof m1) ==
+      0); /* body short */
   fn = mk_crypto_msg(f, (u8)(sizeof m1 + 10), m2 + 10, 10);
-  CHECK(crecv_collect(&s, f, fn) == 1);
-  CHECK(crecv_complete_message_at(&s, sizeof m1) == 1);
-  crecv_message_at(&s, sizeof m1, &msg, &len);
+  CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, sizeof m1) == 1);
+  crecv_message_at(&s, g_crecv_message_mem, sizeof m1, &msg, &len);
   CHECK(len == sizeof m2);
   CHECK(msg[0] == 0x01 && msg[4] == 0x22);
   /* offset 0 still names ClientHello1 (unchanged semantics). */
-  CHECK(crecv_complete_message_at(&s, 0) == 1);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 1);
   /* an offset past everything buffered is simply incomplete. */
-  CHECK(crecv_complete_message_at(&s, 100) == 0);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 100) == 0);
 }
 
 void test_crecv_message(void) {

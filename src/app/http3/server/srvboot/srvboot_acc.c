@@ -10,7 +10,7 @@ static int srvboot_pkt_initial_version(wired_mspan pkt, u32* v);
 static int srvboot_cid_len_ok(usz n);
 
 void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
-  crecv_init(&a->cr);
+  crecv_init(&a->cr, a->cr_mem, CRECV_INITIAL_BUF);
   a->largest_pn = 0;
   a->any        = 0;
   a->opened     = 0;
@@ -131,7 +131,7 @@ int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   if (!initpkt_open_ver(odcid, v, pkt, a->largest_pn, &payload)) {
     return 0;
   }
-  crecv_collect(&a->cr, payload.p, payload.n);
+  crecv_collect(&a->cr, a->cr_mem, payload.p, payload.n);
   a->largest_pn =
       u64_max(a->largest_pn, srvboot_initial_pn(pkt, a->largest_pn));
   a->opened++;

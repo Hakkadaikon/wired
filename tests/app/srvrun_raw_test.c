@@ -551,14 +551,6 @@ static void srr_lp_raw_flight(struct lp_fix* f) {
   lp_make_client_finished(f);
 }
 
-/* wired_server keeps pointers into its own storage (srvfin_state_init's
- * sched/keys); a by-value copy must point them at the copy, or its steps
- * advance the original's key schedule. */
-static void srr_rebind(wired_server* s) {
-  s->fin.sched = &s->sched;
-  s->fin.keys  = &s->keys;
-}
-
 /* The client's 1-RTT keys exist only once the server has verified its
  * Finished: a twin of f confirms on a copy of the Handshake packet, and its
  * schedule seals the 1-RTT half (f itself is untouched). */
@@ -568,7 +560,7 @@ static void srr_twin_confirm(const struct lp_fix* f, const u8* hs, usz hn) {
   u8         pkt[512], out[1500];
   wired_obuf ob = obuf_of(out, sizeof out);
   g_srr_twin    = *f;
-  srr_rebind(&g_srr_twin.s);
+  sr_rebind_server(&g_srr_twin.s);
   bytes_memcpy(pkt, hs, hn);
   wired_srvloop_step(
       &(wired_srvloop_conn){&g_srr_twin.l, &g_srr_twin.s},
@@ -609,7 +601,7 @@ static void test_srvrun_raw_coalesced_finished_setup(void) {
   n    = srr_finished_plus_setup(&f, dg, sizeof dg);
   c->s = f.s;
   c->l = f.l;
-  srr_rebind(&c->s);
+  sr_rebind_server(&c->s);
   c->up = 1;
   cc_init(&c->cc);
   rtt_init(&c->rtt);

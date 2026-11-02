@@ -29,12 +29,18 @@ static u64 resumption_left(u64 origin, u64 now) {
          u64_min(age, SRVLOOP_RESUMPTION_MAX_SECS);
 }
 
-/* A ticket is owed only by a server configured with a ticket key (one it
- * can open, wired_srvboot_id.ticket_key) to a client that can resume with
- * it (RFC 8446 4.2.9: it offered psk_dhe_ke) while the resumption cap is
- * not spent (RFC 8446 4.6.1). */
+/* A ticket is issued only by a server configured with a ticket key (one it
+ * can open, wired_srvboot_id.ticket_key) and without client authentication,
+ * which ignores every PSK. */
+static int tickets_allowed(const wired_server* s) {
+  return s->sdrv.has_ticket_key && s->sdrv.client_auth == WIRED_CLIENT_AUTH_OFF;
+}
+
+/* ...and only to a client that can resume with it (RFC 8446 4.2.9: it
+ * offered psk_dhe_ke) while the resumption cap is not spent (RFC 8446
+ * 4.6.1). */
 static int tickets_owed(const wired_server* s, u64 left) {
-  return s->sdrv.has_ticket_key && s->sdrv.psk_dhe_ke && left > 0;
+  return tickets_allowed(s) && s->sdrv.psk_dhe_ke && left > 0;
 }
 
 /* The fields this connection's tickets share: RFC 8446 4.2.10 alpn, the

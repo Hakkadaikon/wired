@@ -18,6 +18,7 @@ void srvrun_start_app_resp(
   u64                 base_shift = srvrun_maybe_send_continue(ctx->cfg, c);
   r->stream_h3_framed            = 0;
   x.body                         = &body;
+  wired_server_peer_cert(&c->s, &x.peer_cert);
   srvrun_call_round0(ctx, c, &x);
   srvrun_arm_round0(ctx, c, slot, r, st, &x, base_shift);
 }

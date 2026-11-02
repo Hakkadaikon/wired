@@ -929,12 +929,31 @@ The next two entries concern lower-level entry points. The server that
   independent peer yet, and `tls_exporter` (RFC 8446 7.5) still hashes its
   context with SHA-256 under it (it has no production caller). CCM suites
   are refused. Source: `cipher.c`, [rfc8446.md](rfc8446.md) 8446-099.
-- **No client authentication or server-side CertificateRequest** — Affects:
-  apps that need mutual TLS. The server never requests client certificates
-  (the codec exists but is not wired). There is no post_handshake_auth, no
-  OCSP/SCT, no `certificate_authorities` selection and no FFDHE, and external
-  PSKs ("ext binder") are unsupported. Source: [rfc8446.md](rfc8446.md) Out
-  of scope.
+- **Client authentication turns resumption off and is chain-strict** —
+  Affects: apps that enable mutual TLS (`wired_srvboot_id.client_auth`).
+  With client authentication on, every connection runs a full certificate
+  handshake: offered PSKs and 0-RTT are ignored and no session ticket is
+  issued (RFC 8446 4.4 allows no certificate authentication on a PSK
+  handshake). The client chain must be sent leaf first and link by link to
+  the trust store; extraneous or reordered certificates are refused with
+  bad_certificate (RFC 8446 4.4.2 only says SHOULD accept them). Every chain
+  failure is bad_certificate, never unknown_ca or certificate_expired.
+  There is no revocation check, no post-handshake authentication (RFC 9001
+  4.4 forbids it), no `certificate_authorities` or `oid_filters` in the
+  CertificateRequest, and only HTTP handlers see the certificate
+  (`wired_http_exchange.peer_cert`, first round). The client role sends no
+  certificate. The client's Certificate, CertificateVerify and Finished
+  must fit the 12,288-byte Handshake receive buffer (`CRECV_BUF`, about
+  four 2 KB RSA certificates) and what the 16,384-byte transcript
+  (`WIRED_SERVER_TRANSCRIPT_MAX`) has left after the ClientHello and the
+  server flight. A larger client chain closes the connection with
+  CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) or bad_certificate. Source:
+  `server_cauth.c`, `server_feed.c`, [rfc8446.md](rfc8446.md)
+  8446-133..139.
+- **TLS gaps** — Affects: peers that need these. There is no OCSP/SCT, no
+  `certificate_authorities` selection for the server chain and no FFDHE,
+  and external PSKs ("ext binder") are unsupported. Source:
+  [rfc8446.md](rfc8446.md) Out of scope.
 - **TLS extensions not shipped** — Affects: clients that need these
   extensions. max_fragment_length, client_certificate_url, trusted_ca_keys,
   truncated_hmac and status_request are not implemented. Source:

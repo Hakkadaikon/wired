@@ -48,9 +48,9 @@ Notes on each row:
   which also prints the row totals. The verdict counts above are counted
   from the rows' Verdict column.
 - **feature-gaps.md**: the ledger rows that are safe only because a
-  feature is missing (most are not applicable, five are already safe for
+  feature is missing (most are not applicable, three are already safe for
   the part that exists), such as Encrypted
-  Client Hello, client certificates, CBC cipher suites, revocation checking
+  Client Hello, CBC cipher suites, revocation checking
   or TLS 1.2. Adding that feature re-opens those rows, so read this before
   you add one.
 - **boringssl-vectors.md**: results of BoringSSL's FileTest vectors (pinned

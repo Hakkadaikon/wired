@@ -6,9 +6,11 @@ static int      emit_ee_ready(sdrv* s, wired_obuf* tob);
 static unsigned sdrv_ee_sni_flag(const sdrv* s);
 static unsigned sdrv_ee_flags(const sdrv* s);
 static int      emit_ee(sdrv* s, wired_obuf* flight);
+static int      emit_certreq(sdrv* s, wired_obuf* flight);
 static int      emit_cert(sdrv* s, wired_obuf* flight);
 static int      emit_certverify(sdrv* s, wired_obuf* flight);
 static int      emit_finished(sdrv* s, wired_obuf* flight);
+static int      emit_cert_cv(sdrv* s, wired_obuf* flight);
 static int      emit_cert_cv_fin(sdrv* s, wired_obuf* flight);
 static int      emit_hs_flight(sdrv* s, wired_obuf* flight);
 static int sdrv_build_server_hello(sdrv* s, const u8* random, wired_obuf* out);
@@ -73,6 +75,26 @@ static int emit_ee(sdrv* s, wired_obuf* flight) {
   return sdrv_flight_emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 
+/* RFC 8446 4.3.2: the schemes tls_verify_cert_signature_ctx verifies. */
+static const u8 sdrv_certreq_algs[] = {0x04, 0x03, 0x08, 0x04, 0x08, 0x07};
+
+/* RFC 8446 4.3.2: under client authentication, a CertificateRequest right
+ * after EncryptedExtensions -- empty context, signature_algorithms only.
+ * Never on a PSK handshake (client_auth refuses every PSK), never after
+ * the handshake (RFC 9001 4.4). */
+static int emit_certreq(sdrv* s, wired_obuf* flight) {
+  u8         msg[32];
+  wired_obuf mob = obuf_of(msg, sizeof(msg));
+  if (s->client_auth == WIRED_CLIENT_AUTH_OFF) {
+    return 1;
+  }
+  if (!certreq_build(
+          wired_span_of(sdrv_certreq_algs, sizeof(sdrv_certreq_algs)), &mob)) {
+    return 0;
+  }
+  return sdrv_flight_emit_msg(s, wired_span_of(msg, mob.len), flight);
+}
+
 /* RFC 8446 4.4.2: build Certificate (carrying s->certs[0..cert_count), leaf
  * first) and fold it into the flight. */
 static int emit_cert(sdrv* s, wired_obuf* flight) {
@@ -114,10 +136,15 @@ static int emit_finished(sdrv* s, wired_obuf* flight) {
   return sdrv_flight_emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 
-/* RFC 8446 4.4.2 + 4.4.3 + 4.4.4: the full-handshake tail -- Certificate,
- * CertificateVerify, then Finished. */
+static int emit_cert_cv(sdrv* s, wired_obuf* flight) {
+  return emit_cert(s, flight) && emit_certverify(s, flight);
+}
+
+/* RFC 8446 4.3.2 + 4.4.2 + 4.4.3 + 4.4.4: the full-handshake tail --
+ * CertificateRequest (client auth only), Certificate, CertificateVerify,
+ * then Finished. */
 static int emit_cert_cv_fin(sdrv* s, wired_obuf* flight) {
-  return emit_cert(s, flight) && emit_certverify(s, flight) &&
+  return emit_certreq(s, flight) && emit_cert_cv(s, flight) &&
          emit_finished(s, flight);
 }
 

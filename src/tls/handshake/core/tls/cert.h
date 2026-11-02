@@ -15,6 +15,7 @@
 typedef struct {
   const u8* cert_data; /**< start of the entry's opaque cert_data (X.509) */
   u32       cert_len;  /**< length of cert_data in bytes */
+  u32       ext_len;   /**< length of the entry's extensions block */
 } tls_cert_entry;
 
 /** Parse a Certificate message body (after the handshake header). Sets the
@@ -24,7 +25,7 @@ typedef struct {
  * @param buf the Certificate message body
  * @param context receives the certificate_request_context view
  * @param first receives the first CertificateEntry's cert_data view
- * @return 1 on success, 0 on truncation. */
+ * @return 1 on success, 0 on truncation or bytes after the list. */
 int tls_cert_parse(wired_span buf, wired_span* context, tls_cert_entry* first);
 
 /** Longest certificate_list this SDK walks (leaf + up to 9 issuers — public
