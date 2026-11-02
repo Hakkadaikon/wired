@@ -31,4 +31,14 @@
 int castore_validate_chain(
     const castore* s, const wired_span* certs, usz n_certs, u64 now);
 
+/* castore_validate_chain with the leaf's required extKeyUsage purpose given
+ * (RFC 5280 4.2.1.12): x509_oid_client_auth to validate a TLS client's
+ * chain. purpose is an OID body view, e.g. of x509_oid_server_auth. */
+int castore_validate_chain_for(
+    const castore*    s,
+    const wired_span* certs,
+    usz               n_certs,
+    u64               now,
+    wired_span        purpose);
+
 #endif

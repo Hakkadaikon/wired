@@ -20,7 +20,7 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
 
-int castore_leaf_allows_server_auth(wired_span leaf);
+int castore_leaf_allows(wired_span leaf, wired_span purpose);
 int castore_cert_issuer(wired_span cert, wired_span* dn);
 int castore_cert_self_issued(wired_span cert);
 int castore_all_extensions_ok(const wired_span* certs, usz n_certs);

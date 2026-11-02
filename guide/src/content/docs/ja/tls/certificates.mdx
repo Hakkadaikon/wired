@@ -20,3 +20,27 @@ import Example from '../../../../components/Example.astro';
 - `wired_eckey_p256_priv(der, priv)` は SEC1 または PKCS#8 の DER から P-256 の秘密鍵を取り出します。
 - `wired_certreload_load(cert, key, &store, &id)` は上の処理をすべて行い、`id.chain`、`id.chain_count`、`id.cert_seed` が `store` を指すようにします。
   `id` を使っているあいだは `store` を有効なまま保持します。
+
+## クライアント証明書（相互 TLS）
+
+既定では、身元を証明するのはサーバーだけです。
+クライアントにも身元を証明させるには、サーバーを起動する前に識別情報のフィールドを 2 つ設定します。
+
+- `id.client_auth = WIRED_CLIENT_AUTH_REQUIRED` にすると、証明書を送らないクライアントを拒否します。
+  `WIRED_CLIENT_AUTH_OPTIONAL` にすると、証明書がなくても接続を受け入れます。
+- `id.client_ca` には、クライアント証明書を発行した CA（認証局）の証明書を登録したトラストストアを指定します。
+  `wired_castore_init` で初期化し、CA の DER を `wired_castore_add` で登録します。
+  サーバーはハンドシェイクのたびに、トラストストア本体、その `castore_entry` 配列、`wired_castore_add` に渡した CA の DER バッファの 3 つをコピーせずに読みます。
+  この 3 つは `main` の中か `static` 変数として定義し、サーバーより長く生きるようにします。
+  `wired_server_run` の前に戻ってしまう設定用の関数のローカル変数にしてはいけません。
+- トラストストアを指定せずにクライアント認証を有効にすると、接続の初期化が失敗します。
+  設定の書き漏れで誰でも接続できる状態になるのを防ぐためです。
+  このときはすべての接続が拒否されます。
+  クライアントには CRYPTO_ERROR 0x128（handshake_failure）付きの CONNECTION_CLOSE が届き、ハンドラは一度も呼ばれません。
+  `-DWIRED_DEBUG` でビルドしていれば、接続のたびに `srvboot accept failed` がログに出ます。
+
+クライアント証明書は、その CA までたどれること、現在時刻で有効期限内であること、証明書に用途の指定（EKU）があるなら `clientAuth` を含むことが条件です。
+条件を満たすと、HTTP ハンドラは `x->peer_cert` でクライアントの証明書を受け取れます。
+optional で証明書が送られなかったときは、`x->peer_cert` は空です。
+クライアント認証を有効にすると、セッション再開と 0-RTT は使えなくなります。
+再開した接続では、クライアントが秘密鍵を持っていることを確かめられないからです。

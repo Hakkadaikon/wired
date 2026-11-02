@@ -1,5 +1,6 @@
 #include "tls/handshake/core/tls/certverify.h"
 
+#include "mtls_golden.h"
 #include "rsacv_golden.h"
 #include "spkialg_golden.h"
 #include "test.h"
@@ -142,7 +143,36 @@ static void test_certverify_spki_rsa_alg(void) {
           n) == 0);
 }
 
+/* Verify an OpenSSL signature over the transcript hash 00 01 .. n-1 by the
+ * client leaf, under the client (1) or server (0) context string. */
+static int cv_client_vec(const u8* sig, usz sig_n, usz n, int client) {
+  u8            th[48];
+  certverify_in in;
+  for (usz i = 0; i < n; i++) {
+    th[i] = (u8)i;
+  }
+  in.scheme          = TLS_SCHEME_ECDSA_P256;
+  in.cert            = wired_span_of(mtlsg_leaf_ok, sizeof(mtlsg_leaf_ok));
+  in.sig             = wired_span_of(sig, sig_n);
+  in.transcript_hash = th;
+  return tls_verify_cert_signature_ctx(&in, client, n);
+}
+
+/* RFC 8446 4.4.3: a client signature is over "TLS 1.3, client
+ * CertificateVerify" and the transcript hash at the suite's length (32 for
+ * SHA-256, 48 for SHA-384); the same bytes under the server context, or at
+ * another length, do not verify. */
+static void test_certverify_client_context(void) {
+  const u8* s32 = mtlsg_client_cv_sig32;
+  const u8* s48 = mtlsg_client_cv_sig48;
+  CHECK(cv_client_vec(s32, sizeof(mtlsg_client_cv_sig32), 32, 1) == 1);
+  CHECK(cv_client_vec(s48, sizeof(mtlsg_client_cv_sig48), 48, 1) == 1);
+  CHECK(cv_client_vec(s32, sizeof(mtlsg_client_cv_sig32), 32, 0) == 0);
+  CHECK(cv_client_vec(s48, sizeof(mtlsg_client_cv_sig48), 32, 1) == 0);
+}
+
 void test_certverify(void) {
+  test_certverify_client_context();
   test_certverify_bad_scheme();
   test_certverify_ecdsa_bogus();
   test_certverify_ecdsa_malformed();

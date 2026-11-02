@@ -131,6 +131,22 @@ static int srvboot_fresh_share(const wired_srvboot_conn* conn) {
          wired_x25519_base(d->server_pub, d->server_priv);
 }
 
+/* The per-connection key share and the id's sdrv settings; 0 when the
+ * share cannot be drawn or client auth is misconfigured (RFC 8446 4.4.2.4:
+ * no trust store, fail closed). */
+static int srvboot_configure(
+    const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
+  sdrv* d = &conn->s->sdrv;
+  if (!srvboot_fresh_share(conn)) {
+    return 0;
+  }
+  sdrv_set_raw_alpns(d, id->raw_alpns); /* RFC 7301 3.2 */
+  sdrv_set_alpn_client_order(d, id->alpn_client_order);
+  sdrv_set_versions(d, id->versions);     /* RFC 9308 13 */
+  sdrv_set_early_data(d, id->early_data); /* RFC 8446 E.5 */
+  return sdrv_set_client_auth(d, id->client_auth, id->client_ca);
+}
+
 int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
@@ -139,13 +155,9 @@ int srvboot_init(
       id->priv,        id->pub,      id->cert_seed, id->chain,
       id->chain_count, id->san_ipv4, id->now_secs,  0};
   srvboot_init_server(conn, id, &in);
-  if (!srvboot_fresh_share(conn)) {
+  if (!srvboot_configure(conn, id)) {
     return 0;
   }
-  sdrv_set_raw_alpns(&conn->s->sdrv, id->raw_alpns); /* RFC 7301 3.2 */
-  sdrv_set_alpn_client_order(&conn->s->sdrv, id->alpn_client_order);
-  sdrv_set_versions(&conn->s->sdrv, id->versions);     /* RFC 9308 13 */
-  sdrv_set_early_data(&conn->s->sdrv, id->early_data); /* RFC 8446 E.5 */
   srvboot_set_limits(conn, id);
   srvboot_set_reset_token(conn, id);
   if (!srvboot_bind_cids(conn, id, h)) {

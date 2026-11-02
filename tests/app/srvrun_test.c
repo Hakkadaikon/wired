@@ -76,11 +76,20 @@ static srvrun_conn* sr_test_conns(void) {
  * flight, so a window of k bare slices fits only k-1 of them. */
 #define SR_WIN(k) ((k) * (SRVRUN_CHUNK + 64))
 
+/* wired_server keeps pointers into its own storage (srvfin_state_init's
+ * sched/keys); a by-value copy must point them at the copy, or its steps
+ * advance the original's key schedule. */
+static void sr_rebind_server(wired_server* s) {
+  s->fin.sched = &s->sched;
+  s->fin.keys  = &s->keys;
+}
+
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, wired_obuf* ob) {
   lp_confirm(f, ob);
   *c   = (srvrun_conn){0};
   c->s = f->s;
+  sr_rebind_server(&c->s);
   c->l = f->l;
   /* f->l.req is never written by lp_confirm's handshake-only flow (no
    * request has been decoded yet), so it carries struct lp_fix f's
@@ -1234,6 +1243,8 @@ static void sr_make_id(
   id->versions                = 0;
   id->raw_alpns               = 0;
   id->alpn_client_order       = 0;
+  id->client_auth             = 0;
+  id->client_ca               = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
@@ -2721,6 +2732,7 @@ static void test_srvrun_own_config_copies(void) {
   wired_srvboot_id* idp = &id;
   wired_srvrun_obs  obs = {0};
   const char*       wt  = wtp;
+  castore           cas = {0};
   for (usz i = 0; i < sizeof der; i++) {
     der[i] = (u8)i;
   }
@@ -2734,6 +2746,8 @@ static void test_srvrun_own_config_copies(void) {
   id.chain       = chain;
   id.chain_count = 2;
   id.raw_alpns   = alpns;
+  id.client_auth = WIRED_CLIENT_AUTH_REQUIRED;
+  id.client_ca   = &cas;
   obs.qlog_path  = qlog;
   CHECK(srvrun_own_config(&g_srvrun_env, &idp, &obs, &wt) == 1);
   bytes_memset(der, 0, sizeof der);
@@ -2748,6 +2762,9 @@ static void test_srvrun_own_config_copies(void) {
   CHECK(idp->chain[0].p == g_srvrun_env.own.chain_der);
   CHECK(idp->priv[31] == 0x42 && idp->ticket_key[0] == 0x42);
   CHECK(idp->scid[7] == 8 && idp->pub == 0);
+  /* mTLS must survive the copy; the store itself stays caller-owned. */
+  CHECK(idp->client_auth == WIRED_CLIENT_AUTH_REQUIRED);
+  CHECK(idp->client_ca == &cas);
   CHECK(strcmp(idp->raw_alpns, "moqt-22 moqt-19") == 0);
   CHECK(
       strcmp(wt, "moqt-22") == 0 && strcmp(obs.qlog_path, "/tmp/q.sqlog") == 0);
@@ -25785,6 +25802,18 @@ static void sr_origin_auth(srvrun_conn* c, const char* a) {
 }
 
 static const char* g_sr_arm_method;
+/* A verified client leaf to give the armed connection (RFC 8446 4.4.2);
+ * none while g_sr_arm_peer_len is 0. */
+static const u8* g_sr_arm_peer;
+static usz       g_sr_arm_peer_len;
+
+/* Place g_sr_arm_peer past c's transcript as wired_server_peer_cert's
+ * leaf (the confirmed connection then reports it). */
+static void sr_arm_peer(srvrun_conn* c) {
+  bytes_memcpy(c->s.tr + c->s.tr_len, g_sr_arm_peer, g_sr_arm_peer_len);
+  c->s.peer_cert_off = c->s.tr_len;
+  c->s.peer_cert_len = g_sr_arm_peer_len;
+}
 static const char* g_sr_arm_authority; /* non-0: the request :authority */
 static int         g_sr_arm_wt;        /* 1: a WebTransport Extended CONNECT */
 
@@ -25801,6 +25830,7 @@ static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   if (g_sr_arm_authority) {
     sr_origin_auth(c, g_sr_arm_authority);
   }
+  sr_arm_peer(c);
   cfg->fd  = -1;
   cfg->env = &g_srvrun_env;
   {
@@ -25849,12 +25879,14 @@ typedef struct {
 } sr_hx_case;
 static sr_hx_case g_sr_hx;
 static int        g_sr_hx_calls;
-static u64        g_sr_hx_off; /* x->offset of the latest call */
+static u64        g_sr_hx_off;  /* x->offset of the latest call */
+static wired_span g_sr_hx_peer; /* x->peer_cert of the latest call */
 
 static int sr_hx_handler(void* hctx, wired_http_exchange* x) {
   (void)hctx;
   g_sr_hx_calls++;
   g_sr_hx_off     = x->offset;
+  g_sr_hx_peer    = x->peer_cert;
   x->status       = g_sr_hx.status;
   x->content_type = g_sr_hx.ct;
   x->field_count  = g_sr_hx.n;
@@ -25949,6 +25981,24 @@ static void sr_hx_expect_500(void) {
   CHECK(
       d.body.n == 22 &&
       ct_diffn(d.body.p, (const u8*)"Internal Server Error\n", 22) == 0);
+}
+
+/* RFC 8446 4.4.2: the handler's exchange carries the connection's
+ * verified client leaf (wired_server_peer_cert), and an empty span when
+ * the connection has none. */
+static void test_srvrun_exchange_peer_cert(void) {
+  static const u8 leaf[] = {0x30, 0x03, 0x02, 0x01, 0x07};
+  sr_hx_dec       d;
+  g_sr_hx = (sr_hx_case){200, 0, 0, 0, "ok", 0, 0};
+  sr_hx_run(&d);
+  CHECK(g_sr_hx_peer.n == 0);
+  g_sr_arm_peer     = leaf;
+  g_sr_arm_peer_len = sizeof leaf;
+  sr_hx_run(&d);
+  g_sr_arm_peer_len = 0;
+  CHECK(
+      g_sr_hx_peer.n == sizeof leaf &&
+      ct_diffn(g_sr_hx_peer.p, leaf, sizeof leaf) == 0);
 }
 
 /* sr_hx_run with the request's :method set to m. */
@@ -27101,6 +27151,21 @@ static void test_srvrun_receive_only_stream_frames_close(void) {
   CHECK(sr_fv_close(msd, sizeof msd) == ~0ULL);
 }
 
+/* The handshake close's reason phrase names the error it carries:
+ * CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) is not an unexpected message. */
+static int sr_hs_reason_is(u64 code, const char* want) {
+  return wired_span_eq_cstr(srvrun_hs_reason(code), want);
+}
+
+static void test_srvrun_hs_reason_matches_code(void) {
+  CHECK(sr_hs_reason_is(ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"));
+  CHECK(sr_hs_reason_is(0x10a, "unexpected handshake message"));
+  CHECK(sr_hs_reason_is(0x100 + 42, "bad certificate"));
+  CHECK(sr_hs_reason_is(0x100 + 51, "decrypt error"));
+  CHECK(sr_hs_reason_is(0x100 + 116, "certificate required"));
+  CHECK(sr_hs_reason_is(0x100 + 40, "handshake alert"));
+}
+
 /* RFC 9000 7.5: a ClientHello CRYPTO chunk reaching past the boot
  * reassembly buffer (never expanded) refuses the boot with
  * CRYPTO_BUFFER_EXCEEDED, the code srvrun_refuse's Initial close carries. */
@@ -27114,7 +27179,7 @@ static void test_srvrun_boot_crypto_overflow_refused(void) {
   wired_obuf       o         = obuf_of(dg, sizeof dg);
   initpkt_desc     d         = {
       wired_span_of(g_sr_odcid, 8), wired_span_of(g_cli_scid, 6),
-      wired_span_of(chunk, sizeof chunk), 0, CRECV_BUF - 10};
+      wired_span_of(chunk, sizeof chunk), 0, CRECV_INITIAL_BUF - 10};
   CHECK(initpkt_build(&d, &o) == 1);
   sr_make_id(&id, priv, pub, seed, rnd);
   cfg.fd  = -1;
@@ -27122,7 +27187,7 @@ static void test_srvrun_boot_crypto_overflow_refused(void) {
   cfg.env = &g_srvrun_env;
   CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, o.len)) == 0);
   CHECK(sdrv_last_error(&c->s.sdrv) == ERR_CRYPTO_BUFFER_EXCEEDED);
-  d.crypto_off = CRECV_BUF - sizeof chunk; /* ends exactly at the edge */
+  d.crypto_off = CRECV_INITIAL_BUF - sizeof chunk; /* exactly at the edge */
   o            = obuf_of(dg, sizeof dg);
   c            = sr_test_conns();
   CHECK(initpkt_build(&d, &o) == 1);
@@ -27603,6 +27668,7 @@ void test_srvrun(void) {
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();
+  test_srvrun_exchange_peer_cert();
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
   test_srvrun_broadcast_datagram_skips_unused_slot();
@@ -27803,6 +27869,7 @@ void test_srvrun(void) {
   test_srvrun_conn_wipe_skips_clean_tables();
   test_srvrun_zero_release_survives_madvise_failure();
   test_srvrun_own_config_copies();
+  test_srvrun_hs_reason_matches_code();
   test_srvrun_own_config_refuses_oversize();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_initial_dropped_after_handshake_rx();
