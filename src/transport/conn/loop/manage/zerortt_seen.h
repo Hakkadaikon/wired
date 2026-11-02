@@ -42,6 +42,9 @@ typedef struct {
   usz count;
   /** 1 while one thread runs zerortt_seen_check's find+record */
   int lock;
+  /** 1 once a check timed out on lock: every later check refuses without
+   * spinning (the lock is presumed held by a dead worker for good) */
+  int stuck;
   /** epoch secs the recording window opened (0 = not yet): see
    * zerortt_seen_pre_start */
   u64 started;

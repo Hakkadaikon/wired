@@ -58,9 +58,12 @@ int srvrun_newtok_ok(
   }
   /* RFC 9000 8.1.4: single use per token nonce, across srvworkers too. An
    * entry is recorded at use (>= issue) and kept the token lifetime, so it
-   * outlives the token; a ring full of live ones refuses (unvalidated). */
+   * outlives the token; a ring full of live ones refuses (unvalidated).
+   * +1: the token passes while now - issued_at <= MAX_AGE but an entry may
+   * be evicted at now >= at + life, so with life = MAX_AGE a token used in
+   * its issue second could be accepted again in its last valid second. */
   return zerortt_seen_check_live(
-      srvkeys_newtoken_seen(), nonce, now, NEWTOKEN_MAX_AGE_SECS);
+      srvkeys_newtoken_seen(), nonce, now, NEWTOKEN_MAX_AGE_SECS + 1);
 }
 
 /* One 1-RTT packet carrying a NEW_TOKEN frame (RFC 9000 19.7) bound to c's

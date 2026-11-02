@@ -88,15 +88,22 @@ static void test_seen_full_refuses_long_life(void) {
 }
 
 /* A lock left held (a worker killed inside the critical section) refuses
- * after a bounded spin instead of wedging every worker. */
+ * after a bounded spin instead of wedging every worker. That timeout marks
+ * the tracker stuck: later checks refuse at once without taking the lock
+ * (even once it reads free), so repeated Initials do not each spin
+ * ZERORTT_SEEN_SPIN tries. */
 static void test_seen_stuck_lock_refuses(void) {
   zerortt_seen s;
-  const u8     id[4] = {9, 9, 9, 9};
+  const u8     id[4] = {8, 8, 8, 8};
   zerortt_seen_init(&s);
+  CHECK(s.stuck == 0);
   s.lock = 1;
   CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id, 4), 100) == 0);
+  CHECK(s.stuck == 1);
   s.lock = 0;
-  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id, 4), 100) == 1);
+  CHECK(zerortt_seen_check_at(&s, zerortt_seen_span(id, 4), 100) == 0);
+  CHECK(s.lock == 0); /* never acquired */
+  CHECK(s.count == 0);
 }
 
 /* RFC 8446 8.1 across threads: srvthreads workers share one tracker, so two

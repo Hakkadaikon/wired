@@ -15,6 +15,7 @@ void zerortt_seen_init(zerortt_seen* s) {
   s->next    = 0;
   s->count   = 0;
   s->lock    = 0;
+  s->stuck   = 0;
   s->started = 0;
 }
 
@@ -48,13 +49,28 @@ static void zerortt_seen_record(zerortt_seen* s, const u8 digest[32], u64 now) {
  * worker killed while holding the lock (shared across fork) leaves it set
  * forever, so after ZERORTT_SEEN_SPIN tries give up (0) and the caller
  * refuses. */
-static int zerortt_seen_lock(zerortt_seen* s) {
+static int zerortt_seen_spin(zerortt_seen* s) {
   for (u32 n = 0; n < ZERORTT_SEEN_SPIN; n++) {
     if (!__atomic_exchange_n(&s->lock, 1, __ATOMIC_ACQUIRE)) {
       return 1;
     }
     wired_arch_pause();
   }
+  return 0;
+}
+
+/* One timeout marks s stuck for good, so a client resending Initials does
+ * not stall the worker ZERORTT_SEEN_SPIN tries per check. shortcut: a
+ * timeout under mere contention also disables s until restart; clear stuck
+ * on a lease/owner check if that ever happens. */
+static int zerortt_seen_lock(zerortt_seen* s) {
+  if (__atomic_load_n(&s->stuck, __ATOMIC_ACQUIRE)) {
+    return 0;
+  }
+  if (zerortt_seen_spin(s)) {
+    return 1;
+  }
+  __atomic_store_n(&s->stuck, 1, __ATOMIC_RELEASE);
   return 0;
 }
 

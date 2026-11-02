@@ -287,7 +287,50 @@ static void test_peercid_retired_kept_past_rpt(void) {
   CHECK(peercid_bind(&p, &k3) == 0);
 }
 
+/* A pool with seq 0 and 63 retired here (gone bits 0 and 63), queue empty. */
+static void pc_gone_0_63(peercid* p) {
+  u64 seq;
+  pc_pool(p);
+  CHECK(peercid_owe_err(p, 0) == 0);
+  CHECK(peercid_owe_err(p, 63) == 0);
+  while (peercid_take_retire(p, &seq)) {
+  }
+}
+
+/* Retire Prior To jumping by 64 or more moves gone bits into past, and
+ * drops those that land below rpt - 64. */
+static void test_peercid_slide_far(void) {
+  peercid p;
+  pc_gone_0_63(&p);
+  peercid_slide(&p, 64);
+  CHECK(peercid_retired(&p, 0) && peercid_retired(&p, 63));
+  CHECK(!peercid_retired(&p, 64) && !peercid_retired(&p, 127));
+  pc_gone_0_63(&p);
+  peercid_slide(&p, 100);
+  CHECK(!peercid_retired(&p, 0) && peercid_retired(&p, 63));
+  peercid_slide(&p, 1000); /* >= 128: everything falls off */
+  CHECK(!peercid_retired(&p, 63) && p.gone == 0 && p.past == 0);
+}
+
+/* RFC 9000 19.15: a repeat of seq == rpt - 64 is still known and ignored;
+ * seq == rpt - 65 is past the record (shortcut) and is retired again. */
+static void test_peercid_slide_edge(void) {
+  peercid    p;
+  ncid_frame f0 = pc_ncid(0, 64, 0xc0), g0 = pc_ncid(0, 65, 0xc0);
+  u64        seq;
+  pc_gone_0_63(&p);
+  peercid_slide(&p, 64);
+  CHECK(peercid_add(&p, &f0) == 0);
+  CHECK(peercid_take_retire(&p, &seq) == 0);
+  peercid_slide(&p, 65);
+  CHECK(!peercid_retired(&p, 0));
+  CHECK(peercid_add(&p, &g0) == 0);
+  CHECK(peercid_take_retire(&p, &seq) == 1 && seq == 0);
+}
+
 void test_peercid(void) {
+  test_peercid_slide_far();
+  test_peercid_slide_edge();
   test_peercid_retired_repeat_ignored();
   test_peercid_retired_kept_past_rpt();
   test_peercid_empty_never_retired();
