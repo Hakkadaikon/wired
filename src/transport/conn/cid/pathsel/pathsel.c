@@ -52,6 +52,7 @@ static pathsel_slot* pathsel_take(pathsel_slot* s, const pathsel_key* k) {
 static pathsel_slot* pathsel_seed_rx(pathsel* p, pathsel_slot* s) {
   if (s && pathsel_key_eq(&s->key, &p->fresh)) {
     s->rx_bytes = p->fresh_n;
+    s->tx_bytes = p->fresh_tx;
     p->fresh_n  = 0;
   }
   return s;
@@ -75,6 +76,7 @@ void pathsel_note_rx(pathsel* p, const pathsel_key* k, u64 n) {
   pathsel_slot* s = pathsel_find(p, k);
   p->fresh        = *k;
   p->fresh_n      = s ? 0 : n;
+  p->fresh_tx     = 0;
   if (s) {
     s->rx_bytes += n;
   }
@@ -84,12 +86,21 @@ void pathsel_note_tx(pathsel* p, const pathsel_key* k, u64 n) {
   pathsel_slot* s = pathsel_find(p, k);
   if (s) {
     s->tx_bytes += n;
+    return;
   }
+  p->fresh_tx += pathsel_key_eq(k, &p->fresh) ? n : 0;
+}
+
+/* A path no slot holds: 3x the datagram it just sent, else nothing. */
+static u64 pathsel_fresh_budget(const pathsel* p, const pathsel_key* k) {
+  return pathsel_key_eq(k, &p->fresh) ? antiamp_budget(p->fresh_n, p->fresh_tx)
+                                      : 0;
 }
 
 u64 pathsel_budget(pathsel* p, const pathsel_key* k) {
   pathsel_slot* s = pathsel_find(p, k);
-  return s ? antiamp_budget(s->rx_bytes, s->tx_bytes) : PATHSEL_NO_LIMIT;
+  return s ? antiamp_budget(s->rx_bytes, s->tx_bytes)
+           : pathsel_fresh_budget(p, k);
 }
 
 /* Free s and report its path. */

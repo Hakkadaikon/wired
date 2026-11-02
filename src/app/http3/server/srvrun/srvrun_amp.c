@@ -4,11 +4,16 @@
  *
  * Until a path validates, the server sends it at most three times the
  * bytes it received from it. The counters live on the path's challenge
- * slot (pathsel_slot.rx_bytes/tx_bytes): a path under validation always
- * holds one, the last validated path is exempt.
- * shortcut: a path that holds no slot (its validation was given up or
- * evicted) is not limited; the send path is then the last validated one
- * (9.3.2 revert) or a target whose slot was taken by a newer migration. */
+ * slot (pathsel_slot.rx_bytes/tx_bytes); a path without one may be sent
+ * 3x the datagram it just sent (pathsel.fresh), any other nothing. The
+ * last validated path is exempt, and so is every path before the first
+ * live step, where the handshake's own limit applies (8.1). */
+
+/* !seeded keeps the pre-existing behavior before the first live step: the
+ * handshake's own budget applies there. */
+static int srvrun_path_exempt(const srvrun_conn* c, const pathsel_key* k) {
+  return !c->path.seeded || srvrun_path_is_valid(c, k);
+}
 
 /* The arrival path of this step's n-byte datagram. */
 void srvrun_path_note_rx(const srvrun_step_ctx* ctx, srvrun_conn* c, usz n) {
@@ -18,7 +23,7 @@ void srvrun_path_note_rx(const srvrun_step_ctx* ctx, srvrun_conn* c, usz n) {
 
 /* Bytes k may still be sent. */
 u64 srvrun_path_budget(srvrun_conn* c, const pathsel_key* k) {
-  if (srvrun_path_is_valid(c, k)) {
+  if (srvrun_path_exempt(c, k)) {
     return PATHSEL_NO_LIMIT;
   }
   return pathsel_budget(&c->path, k);

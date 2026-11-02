@@ -169,20 +169,38 @@ static void lp_make_client_hello_chacha(struct lp_fix* f) {
   f->ch[LP_CH_CIPHER_SUITE_OFF + 1] = (u8)TLS_CHACHA20_POLY1305_SHA256;
 }
 
+/* 1 = the next lp_drive_to_flight configures no ticket key (resumption
+ * off). */
+static int g_lp_no_ticket_key;
+
+/* The fixture's session-ticket key `back` epochs before now, derived from
+ * an app-chosen seed -- deliberately not the SDK's own draw
+ * (srvkeys_ticket), so a ticket opening under it proves the server seals
+ * under the key the caller configured (wired_srvboot_id.ticket_key). */
+static void lp_ticket_key(u64 now, u64 back, u8 out[KEYRING_KEY]) {
+  u8 seed[KEYRING_KEY];
+  for (usz i = 0; i < KEYRING_KEY; i++) {
+    seed[i] = (u8)(0xc0 + i);
+  }
+  keyring_key(seed, now, back, out);
+}
+
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
  */
 static void lp_drive_to_flight(struct lp_fix* f) {
-  u8 srv_priv[32], srv_pub[32], cert_seed[32];
+  u8 srv_priv[32], srv_pub[32], cert_seed[32], tk[KEYRING_KEY];
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
   wired_x25519_base(srv_pub, srv_priv);
+  lp_ticket_key(wired_clock_epoch_secs(), 0, tk);
 
-  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
-  wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
-  wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
-  sdrv_flight_out      fo    = {&sh_ob, &fl_ob};
+  wired_server_init_in sin = {
+      srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, g_lp_no_ticket_key ? 0 : tk};
+  wired_obuf      sh_ob = obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf      fl_ob = obuf_of(f->flight, sizeof(f->flight));
+  sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(
       wired_server_set_cids(
@@ -4290,12 +4308,32 @@ static void test_srvloop_ticket_sent_on_confirm(void) {
      * covers a run that straddles a rotation boundary */
     u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
     u64 now = wired_clock_epoch_secs();
-    keyring_key(srvkeys_ticket(), now, 0, cur);
-    keyring_key(srvkeys_ticket(), now, 1, prev);
+    lp_ticket_key(now, 0, cur);
+    lp_ticket_key(now, 1, prev);
     CHECK(
         ticket_open(sealed, cur, &opened) ||
         ticket_open(sealed, prev, &opened));
   }
+}
+
+/* RFC 8446 4.6.1: a server configured without a ticket key has resumption
+ * off, so it hands out no ticket (one it could never open). */
+static void test_srvloop_no_ticket_without_key(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  wired_obuf    ob = {out, sizeof out, 0};
+  const u8*     pkts[4];
+  usz           offs[4], lens[4];
+  const u8*     pl;
+  usz           pll;
+  wired_span    sealed;
+  g_lp_no_ticket_key = 1;
+  lp_confirm(&f, &ob);
+  g_lp_no_ticket_key = 0;
+  pktlist plist      = {pkts, offs, lens, 4};
+  CHECK(udploop_split(wired_span_of(out, ob.len), &plist) == 2);
+  CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+  CHECK(find_ticket_crypto(pl, pll, &sealed) == 0);
 }
 
 /* NOT BEFORE CONFIRM: a datagram that has not yet driven the handshake to
@@ -4338,8 +4376,8 @@ static void test_srvloop_ticket_not_resent(void) {
 static int lp_open_ticket(wired_span sealed, ticket* t) {
   u8  cur[KEYRING_KEY], prev[KEYRING_KEY];
   u64 now = wired_clock_epoch_secs();
-  keyring_key(srvkeys_ticket(), now, 0, cur);
-  keyring_key(srvkeys_ticket(), now, 1, prev);
+  lp_ticket_key(now, 0, cur);
+  lp_ticket_key(now, 1, prev);
   return ticket_open(sealed, cur, t) || ticket_open(sealed, prev, t);
 }
 
@@ -7674,6 +7712,7 @@ void test_srvloop(void) {
   test_srvloop_get_still_waits_for_fin();
   test_srvloop_confirm_emitted_once();
   test_srvloop_ticket_sent_on_confirm();
+  test_srvloop_no_ticket_without_key();
   test_srvloop_no_ticket_before_confirm();
   test_srvloop_ticket_not_resent();
   test_srvloop_confirm_sends_several_tickets();
