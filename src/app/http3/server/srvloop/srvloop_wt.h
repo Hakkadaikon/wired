@@ -945,9 +945,10 @@ typedef struct {
   /** Told when a body streaming to on_body ends without fin (see
    * wired_srvloop_on_body_abort), its ctx being req_ctx; 0 to ignore. */
   wired_srvloop_on_body_abort on_body_abort;
-  /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame --
-   * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
-   * the caller (srvrun.c) closes the connection and clears it. */
+  /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame, 2
+   * once it carried a mid-stream WT_STREAM type (draft-ietf-webtrans-http3-15
+   * 4.3) -- a connection error of type H3_FRAME_ERROR. dispatch.c only
+   * latches it; the caller (srvrun.c) closes the connection and clears it. */
   int req_frame_error;
   /** RFC 9114 6.2.1: 1 once the peer control stream's unparsed backlog no
    * longer fit WIRED_SRVLOOP_CTRL_BUF_CAP (ctrl's doc). The caller

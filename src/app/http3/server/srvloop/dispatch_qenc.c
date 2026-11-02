@@ -17,6 +17,7 @@ static void gather_wt_land(wired_srvloop* l, const stream_frame* sf) {
   int i = srvloop_wt_slot_for(l, sf);
   if (i >= 0 && srvloop_wt_sig_ready(&l->wt_streams[i], sf)) {
     srvloop_gather_wt_one(sf, &l->wt_streams[i]);
+    srvloop_wt_adopt(l, &l->wt_streams[i]);
   }
 }
 

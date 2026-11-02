@@ -22727,6 +22727,13 @@ static u64 sr_close_code(const srvrun_conn* c, int* is_app) {
   return ccf.error_code;
 }
 
+/* 1 iff c's kept CONNECTION_CLOSE carries exactly the reason phrase lit. */
+static int sr_close_reason_is(const srvrun_conn* c, const char* lit) {
+  conn_close_frame ccf;
+  return frame_get_conn_close(c->close_pl, c->close_pln, &ccf) &&
+         wired_span_eq_cstr(wired_span_of(ccf.reason, ccf.reason_len), lit);
+}
+
 /* The final size of the kept RESET_STREAM naming stream id, ~0 if none. */
 static u64 sr_kept_reset_final(const srvrun_conn* c, u64 id) {
   reset_stream_frame rs;
@@ -24681,6 +24688,7 @@ static void test_srvrun_on_body_wt_signal_frame_error(void) {
   CHECK(g_sr_wt_handler_calls == 0);
   CHECK(c->closing);
   CHECK(sr_close_code(c, &is_app) == H3_FRAME_ERROR && is_app == 1);
+  CHECK(sr_close_reason_is(c, "WT_STREAM signal after the first frame"));
 }
 
 /* RFC 9114 4.1 (9114-005/007): a DATA frame after the trailer section on
@@ -24717,6 +24725,24 @@ static void test_srvrun_connect_stream_headers_closes(void) {
   sr_sl_step(c, pl, sob.len);
   CHECK(c->closing);
   CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app == 1);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3 (WTH3-035): a WT_STREAM (0x41) frame
+ * type on an established CONNECT stream is a connection error of type
+ * H3_FRAME_ERROR, not a session close. */
+static void test_srvrun_connect_stream_wt_signal_closes(void) {
+  srvrun_conn* c      = sr_sl_fixture();
+  int          is_app = 0;
+  usz          hlen   = sr_sl_send_headers(c, 0, "CONNECT", 0);
+  u8           sig[]  = {0x40, 0x41, 0x00};
+  u8           pl[64];
+  wired_obuf   sob = obuf_of(pl, sizeof pl);
+  stream_frame sf  = {0, hlen, sizeof sig, sig, 0};
+  CHECK(c->wt_active == 1);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  CHECK(c->closing);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_ERROR && is_app == 1);
 }
 
 /* sr_big_req(/, 10-byte body) with a content-length field of cl. */
@@ -26771,6 +26797,14 @@ static void test_srvrun_stop_after_request_freed(void) {
   *c = (srvrun_conn){0};
 }
 
+/* Post-signal bytes of WT bidi stream id received without a gap from its
+ * start (delivered or still in the window), 0 when it has no WT slot. */
+static u64 sr_wt_rx_end(const srvrun_conn* c, u64 id) {
+  int i = wired_srvloop_wt_slot_find(&c->l, id);
+  return i < 0 ? 0
+               : c->l.wt_streams[i].win.base + c->l.wt_streams[i].win.frontier;
+}
+
 /* A WebTransport bidi stream id opened by the client: its 0x41 signal,
  * session 0, one data byte. */
 static void sr_sl_wt_open(srvrun_conn* c, u64 id) {
@@ -26863,6 +26897,72 @@ static void test_srvrun_stop_before_wt_bidi_reordered(void) {
   CHECK(wired_srvloop_wt_slot_find(&c->l, 4) >= 0);
   CHECK(sr_kept_stop_code(c, 4) == ~0ULL);
   CHECK(sr_kept_reset_count(c, 4) == 1);
+  /* the overtaking 'y' (post-signal offset 1) was kept, not dropped */
+  CHECK(sr_wt_rx_end(c, 4) == 2);
+  CHECK(srvloop_stream_slot_find(&c->l, 4) < 0);
+  *c = (srvrun_conn){0};
+}
+
+/* The same without an early STOP_SENDING: a fragment that overtakes the
+ * 0x41 signal sits in a request slot until the signal says WebTransport,
+ * then moves into the WT window and the request slot is freed. */
+static void test_srvrun_wt_bidi_reordered_adopted(void) {
+  static const u8 tail[] = {'y'};
+  srvrun_conn*    c      = sr_sl_fixture();
+  u8              pl[32];
+  wired_obuf      sob = obuf_of(pl, sizeof pl);
+  stream_frame    sf  = {4, 4, sizeof tail, tail, 1};
+  sr_sl_send_headers(c, 0, "CONNECT", 0);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  sr_sl_wt_open(c, 4);
+  CHECK(sr_wt_rx_end(c, 4) == 2);
+  CHECK(c->l.wt_streams[wired_srvloop_wt_slot_find(&c->l, 4)].fin);
+  CHECK(srvloop_stream_slot_find(&c->l, 4) < 0);
+  *c = (srvrun_conn){0};
+}
+
+/* A request whose early STOP_SENDING was overtaken by a body fragment is
+ * still refused at its offset-0 HEADERS, and the slot holding the fragment
+ * is freed with it. */
+static void test_srvrun_stop_before_request_reordered(void) {
+  static const u8 tail[] = {'z'};
+  srvrun_conn*    c      = sr_sl_fixture();
+  u8              pl[32];
+  wired_obuf      sob = obuf_of(pl, sizeof pl);
+  stream_frame    sf  = {0, 200, sizeof tail, tail, 0};
+  sr_sl_stop(c, 0, H3_REQUEST_CANCELLED);
+  CHECK(appdata_stream_frame(&sf, &sob) == 1);
+  sr_sl_step(c, pl, sob.len);
+  sr_sl_send_headers(c, 0, "GET", 0);
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(sr_kept_stop_code(c, 0) == H3_REQUEST_REJECTED);
+  CHECK(srvloop_stream_slot_find(&c->l, 0) < 0);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 4.5: srvrun_reset_stream_final ends the stream's send side by
+ * itself (whatever the response slot recorded), so a late STOP_SENDING
+ * draws no second RESET_STREAM at Final Size 0. */
+static void test_srvrun_connect_reset_then_late_stop(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  srvrun_reset_stream_final(&g_sl_cfg, c, 0, 40, H3_MESSAGE_ERROR);
+  CHECK(sr_kept_reset_count(c, 0) == 1);
+  CHECK(srvrun_wt_send_ended(c, 0));
+  sr_sl_stop(c, 0, H3_REQUEST_CANCELLED);
+  CHECK(sr_kept_reset_count(c, 0) == 1);
+  CHECK(sr_kept_reset_final(c, 0) == 40);
+  *c = (srvrun_conn){0};
+}
+
+/* RFC 9000 2.1: a client uni id has no send side -- always ended, never
+ * read through the /4-indexed record of the client bidi it aliases. */
+static void test_srvrun_wt_send_ended_client_uni(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  CHECK(srvrun_wt_send_ended(c, 2) == 1);
+  srvrun_wt_send_done_mark(c, 4);
+  CHECK(srvrun_wt_send_ended(c, 6) == 1);
+  CHECK(srvrun_wt_send_ended(c, 8) == 0);
   *c = (srvrun_conn){0};
 }
 
@@ -28709,6 +28809,7 @@ void test_srvrun(void) {
   test_srvrun_on_body_frame_unexpected();
   test_srvrun_on_body_data_after_trailer_closes();
   test_srvrun_connect_stream_headers_closes();
+  test_srvrun_connect_stream_wt_signal_closes();
   test_srvrun_on_body_content_length();
   test_srvrun_handler_on_body_reaches_cfg();
   test_srvrun_stop_sending_wire_shape();
@@ -28751,6 +28852,10 @@ void test_srvrun(void) {
   test_srvrun_stop_before_wt_bidi_refuses_reply();
   test_srvrun_early_stop_raw_and_uni_untouched();
   test_srvrun_stop_before_wt_bidi_reordered();
+  test_srvrun_wt_bidi_reordered_adopted();
+  test_srvrun_stop_before_request_reordered();
+  test_srvrun_connect_reset_then_late_stop();
+  test_srvrun_wt_send_ended_client_uni();
   test_srvrun_stop_then_reset_then_late_bytes();
   test_srvrun_stop_and_reset_same_step();
   test_srvrun_body_bytes_like_wt_signal_served();

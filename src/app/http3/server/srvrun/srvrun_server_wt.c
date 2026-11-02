@@ -76,8 +76,12 @@ static u64 srvrun_server_opened(const srvrun_conn* c, u64 stream_id) {
 /* 1 iff stream_id's send part ran to its end once its (live) send slot is
  * discounted: a server-initiated id (RFC 9000 2.1 low bit set) this server
  * already opened -- its send slot is claimed at open, so a missing slot
- * means reaped -- or a client bidi recorded in wt_send_done (its doc). */
+ * means reaped -- a client uni (no send part at all), or a client bidi
+ * recorded in wt_send_done (its doc). */
 static int srvrun_wt_send_over(srvrun_conn* c, u64 stream_id) {
+  if ((stream_id & 3) == 2) {
+    return 1;
+  }
   if (stream_id & 1) {
     return stream_id / 4 < srvrun_server_opened(c, stream_id);
   }

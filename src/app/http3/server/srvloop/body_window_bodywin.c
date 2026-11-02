@@ -29,7 +29,7 @@ static int bodywin_forbidden(const bodywin* w, u64 type) {
 static int bodywin_reject(const bodywin* w, u64 type) {
   static const u8 bad[2] = {BODYWIN_OPEN, BODYWIN_FRAME_UNEXPECTED};
   if (type == H3_STREAM_WEBTRANSPORT_BIDI) {
-    return BODYWIN_FRAME_ERROR;
+    return BODYWIN_WT_SIGNAL;
   }
   return bad[bodywin_forbidden(w, type)];
 }

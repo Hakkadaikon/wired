@@ -358,7 +358,8 @@ static void test_bodywin_forbidden_frame_unexpected(void) {
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: WT_STREAM (0x41) as a frame type past a
- * request stream's first bytes is H3_FRAME_ERROR, not a skipped unknown. */
+ * request stream's first bytes is BODYWIN_WT_SIGNAL (H3_FRAME_ERROR), not a
+ * skipped unknown. */
 static void test_bodywin_wt_signal_frame_error(void) {
   static u8 buf[BODYWIN_CAP];
   bodywin   w = {0};
@@ -368,8 +369,20 @@ static void test_bodywin_wt_signal_frame_error(void) {
   bw_frame(s, &n, 0x00, 2, 'a');
   bw_frame(s, &n, 0x41, 1, 0);
   bw_land(&w, buf, s, 0, n, 1);
-  CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_FRAME_ERROR);
+  CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_WT_SIGNAL);
   CHECK(r.calls == 1 && r.got_n == 2 && r.fins[0] == 0);
+}
+
+/* The same type in a non-minimal 8-byte varint (RFC 9000 16) is still
+ * WT_STREAM. */
+static void test_bodywin_wt_signal_long_varint(void) {
+  static u8       buf[BODYWIN_CAP];
+  static const u8 s[] = {0x00, 0x01, 'a',  0xc0, 0x00, 0x00,
+                         0x00, 0x00, 0x00, 0x00, 0x41, 0x00};
+  bodywin         w   = {0};
+  bw_rec          r   = {0};
+  bw_land(&w, buf, s, 0, sizeof s, 1);
+  CHECK(bodywin_pump(&w, buf, bw_sink, &r) == BODYWIN_WT_SIGNAL);
 }
 
 /* Trailer HEADERS (and unknown types) after the body stay skipped. */
@@ -585,6 +598,7 @@ void test_body_window(void) {
   test_bodywin_multi_window_reordered();
   test_bodywin_forbidden_frame_unexpected();
   test_bodywin_wt_signal_frame_error();
+  test_bodywin_wt_signal_long_varint();
   test_bodywin_trailers_skipped();
   test_bodywin_window_of_empty_frames();
   test_bodywin_capsule_in_data_frame();

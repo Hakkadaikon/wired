@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop_impl.h"
 
+static int  srvloop_slot_live(const wired_srvloop* l, int i, u64 stream_id);
 static int  srvloop_slot_gone(wired_srvloop* l, u64 stream_id);
 static int  srvloop_body_streaming(const wired_srvloop_stream_slot* slot);
 static void srvloop_body_abort(
@@ -15,7 +16,7 @@ static void srvloop_body_abort(
  * own stream's slot through this. */
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   int i = srvloop_stream_slot_find(l, stream_id);
-  if (i >= 0) {
+  if (srvloop_slot_live(l, i, stream_id)) {
     return i;
   }
   if (srvloop_slot_gone(l, stream_id)) {
@@ -24,13 +25,37 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   return srvloop_stream_slot_claim(l, stream_id);
 }
 
+/* Slot i is stream_id's request slot proper -- not one merely holding
+ * fragments of a req_stopped stream still waiting for its offset-0 frame
+ * (srvloop_slot_hold). */
+static int srvloop_slot_live(const wired_srvloop* l, int i, u64 stream_id) {
+  return i >= 0 && !wired_srvloop_closed_has(&l->req_stopped, stream_id);
+}
+
+/* draft-ietf-webtrans-http3-16 4.3: the slot that keeps a req_stopped
+ * stream's fragments until its offset-0 frame says request (refused with
+ * them, srvloop_slot_gone) or WebTransport (srvloop_wt_adopt moves them),
+ * -2 once the stream is closed. */
+int srvloop_slot_hold(wired_srvloop* l, u64 stream_id) {
+  int i = srvloop_stream_slot_find(l, stream_id);
+  if (i >= 0) {
+    return i;
+  }
+  if (srvloop_req_closed_has(l, stream_id)) {
+    return -2;
+  }
+  return srvloop_stream_slot_claim(l, stream_id);
+}
+
 /* 1 iff stream_id may not open a request slot: already closed, or its
  * send side was reset before its first byte (req_stopped), which now
  * shows it is a request -- refused once (wired_srvloop_wt_refuse marks it
- * closed and queues the STOP_SENDING and its stream credit). */
+ * closed and queues the STOP_SENDING and its stream credit), freeing any
+ * slot that held its fragments. */
 static int srvloop_slot_gone(wired_srvloop* l, u64 stream_id) {
   if (wired_srvloop_closed_has(&l->req_stopped, stream_id)) {
     wired_srvloop_wt_refuse(l, stream_id);
+    wired_srvloop_slot_release(l, stream_id);
   }
   return srvloop_req_closed_has(l, stream_id);
 }

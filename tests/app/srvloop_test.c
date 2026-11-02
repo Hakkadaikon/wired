@@ -7232,6 +7232,10 @@ static void test_srvloop_h3ctrl_control_frames(void) {
                                 0x05, 0x0d, 0x01, 0x04};
   static const u8 mup[]      = {0x00, 0x04, 0x00, 0x0d, 0x01,
                                 0x04, 0x0d, 0x01, 0x05};
+  /* draft-ietf-webtrans-http3-15 4.3: WT_STREAM (0x41) off a request
+   * stream's first bytes is H3_FRAME_ERROR, not a skipped unknown type */
+  static const u8 wtsig[] = {0x00, 0x04, 0x00, 0x40, 0x41, 0x00};
+  CHECK(h3c_ctrl(wtsig, sizeof wtsig) == H3_FRAME_ERROR);
   CHECK(h3c_ctrl(ok, sizeof ok) == 0); /* SETTINGS + a grease frame */
   CHECK(h3c_ctrl(first, sizeof first) == H3_MISSING_SETTINGS);
   CHECK(h3c_ctrl(second, sizeof second) == H3_FRAME_UNEXPECTED);

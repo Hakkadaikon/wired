@@ -597,6 +597,44 @@ static void test_reqdrive_wt_signal_frame_after_headers(void) {
   CHECK(r.frame_unexpected == 2);
 }
 
+/* recv_get over the raw frame bytes pre[0..n) then a curl HEADERS frame at
+ * stream offset 0; r gets the verdict. */
+static int rd_pre_headers(const u8* pre, usz n, wired_h3reqdrive_req* r) {
+  u8         fs[64], h3[256], req[256], scratch[128];
+  usz        fs_len = curl_field_section(fs), req_len = 0;
+  wired_obuf hob = {h3 + n, sizeof(h3) - n, 0};
+  for (usz i = 0; i < n; i++) {
+    h3[i] = pre[i];
+  }
+  CHECK(h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(fs, fs_len)));
+  CHECK(
+      appdata_frame_flat(0, 0, h3, n + hob.len, 1, req, sizeof(req), &req_len));
+  *r = (wired_h3reqdrive_req){0};
+  return wired_h3reqdrive_recv_get(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), r);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: type 0x41 is legal only as the stream's
+ * very first bytes (there the parser skips it like an unknown type); at any
+ * later offset -- even ahead of HEADERS, after a GREASE frame, and in a
+ * non-minimal 4- or 8-byte varint (RFC 9000 16) -- it is H3_FRAME_ERROR. */
+static void test_reqdrive_wt_signal_frame_offsets(void) {
+  static const u8      at0[]   = {0x40, 0x41, 0x00};
+  static const u8      late[]  = {0x21, 0x00, 0x40, 0x41, 0x00};
+  static const u8      four[]  = {0x21, 0x00, 0x80, 0x00, 0x00, 0x41, 0x00};
+  static const u8      eight[] = {0x21, 0x00, 0xc0, 0x00, 0x00, 0x00,
+                                  0x00, 0x00, 0x00, 0x41, 0x00};
+  wired_h3reqdrive_req r;
+  CHECK(rd_pre_headers(at0, sizeof at0, &r) == 1);
+  CHECK(r.frame_unexpected == 0);
+  CHECK(rd_pre_headers(late, sizeof late, &r) == 0);
+  CHECK(r.frame_unexpected == 2);
+  CHECK(rd_pre_headers(four, sizeof four, &r) == 0);
+  CHECK(r.frame_unexpected == 2);
+  CHECK(rd_pre_headers(eight, sizeof eight, &r) == 0);
+  CHECK(r.frame_unexpected == 2);
+}
+
 /* RFC 9114 7.2.8 (9114-073): each HTTP/2-only reserved type on a request
  * stream before HEADERS must be rejected outright, same as PUSH_PROMISE. */
 static void test_reqdrive_http2_reserved_rejected(void) {
@@ -1792,6 +1830,7 @@ void test_h3reqdrive(void) {
   test_reqdrive_push_promise_rejected();
   test_reqdrive_http2_reserved_rejected();
   test_reqdrive_wt_signal_frame_after_headers();
+  test_reqdrive_wt_signal_frame_offsets();
   test_h3reqdrive_recv_get_oversized_headers_rejected();
   test_h3reqdrive_trailer_oversized_rejected();
   test_h3_field_section_over_2048_rejected();

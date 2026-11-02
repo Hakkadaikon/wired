@@ -30,16 +30,21 @@ static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* RFC 9114 7.1: a request stream ended inside a frame -- "MUST be treated
  * as a connection error of type H3_FRAME_ERROR" (srvloop's body window
- * latched it). */
+ * latched it); latch 2 is a mid-stream WT_STREAM type
+ * (draft-ietf-webtrans-http3-15 4.3), same code, its own reason. */
 static int srvrun_close_on_req_frame_error(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "request stream ended inside a frame";
+  static const u8 cut[] = "request stream ended inside a frame";
+  static const u8 sig[] = "WT_STREAM signal after the first frame";
+  int             wt    = c->l.req_frame_error == 2;
   if (!c->l.req_frame_error) {
     return 0;
   }
   c->l.req_frame_error = 0;
   srvrun_send_app_close(
-      cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
+      cfg, c, H3_FRAME_ERROR,
+      wt ? wired_span_of(sig, sizeof sig - 1)
+         : wired_span_of(cut, sizeof cut - 1));
   return 1;
 }
 

@@ -52,6 +52,16 @@ static int route_headers_whole(const wired_srvloop_stream_slot* slot) {
              wired_span_of(slot->req_buf, slot->req_len)) != 0;
 }
 
+/* RFC 9114 7.1: slot i's streamed body ended inside a frame --
+ * H3_FRAME_ERROR, latched for srvrun to close over; latched as 2 for a
+ * mid-stream WT_STREAM type (draft-ietf-webtrans-http3-15 4.3) so the
+ * close names that cause. */
+void srvloop_route_note_frame_error(wired_srvloop* l, int i) {
+  l->streams[i].req_done = 1;
+  l->req_frame_error     = 1 + (l->streams[i].body.state == BODYWIN_WT_SIGNAL);
+  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
+}
+
 /* Mark slot i incomplete and append it to incomplete_slots -- the actual
  * H3_REQUEST_INCOMPLETE (or, malformed, H3_MESSAGE_ERROR) bookkeeping, split
  * out of route_note_incomplete so its own reject-vs-incomplete branch stays a

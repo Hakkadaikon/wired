@@ -25,6 +25,7 @@ void srvloop_route_qpack_ack(wired_srvloop* l, int i);
 void srvloop_route_note_done(wired_srvloop* l, int i);
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i);
 void srvloop_route_note_malformed(wired_srvloop* l, int i);
+void srvloop_route_note_frame_error(wired_srvloop* l, int i);
 void srvloop_route_dispatch_complete(
     const wired_srvloop_dispatch_ctx* ctx,
     wired_srvloop_reqacc*             acc,

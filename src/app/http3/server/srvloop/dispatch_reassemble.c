@@ -8,7 +8,6 @@ static int  route_body_sink(void* ctx, wired_span chunk, int fin);
 static void route_body_open(wired_srvloop* l, int i);
 static void route_body_done(wired_srvloop* l, int i);
 static void route_body_reject(wired_srvloop* l, int i);
-static void route_body_frame_error(wired_srvloop* l, int i);
 static void route_body_frame_unexpected(wired_srvloop* l, int i);
 static void route_body_pump(wired_srvloop* l, int i);
 static int  route_body_ready(
@@ -87,13 +86,6 @@ static void route_body_reject(wired_srvloop* l, int i) {
   route_body_done(l, i);
 }
 
-/* RFC 9114 7.1: the stream ended inside a frame -- H3_FRAME_ERROR. */
-static void route_body_frame_error(wired_srvloop* l, int i) {
-  l->streams[i].req_done = 1;
-  l->req_frame_error     = 1;
-  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
-}
-
 /* RFC 9114 7.2: a frame a request stream must not carry -- rejected the
  * same way the buffered path rejects it (H3_FRAME_UNEXPECTED). */
 static void route_body_frame_unexpected(wired_srvloop* l, int i) {
@@ -106,8 +98,12 @@ static void route_body_frame_unexpected(wired_srvloop* l, int i) {
  * body is never pumped again, so a re-armed slot cannot re-settle). */
 static void route_body_pump(wired_srvloop* l, int i) {
   static void (*const settle[])(wired_srvloop*, int) = {
-      route_body_open, route_body_done, route_body_reject,
-      route_body_frame_error, route_body_frame_unexpected};
+      route_body_open,
+      route_body_done,
+      route_body_reject,
+      srvloop_route_note_frame_error,
+      route_body_frame_unexpected,
+      srvloop_route_note_frame_error};
   wired_srvloop_stream_slot* slot = &l->streams[i];
   route_body_call            c    = {l, slot};
   if (slot->body.state != BODYWIN_OPEN) {

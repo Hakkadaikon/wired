@@ -121,11 +121,13 @@ static void ctrl_on_max_push_id(wired_srvloop* l, const h3_frame* f) {
 }
 
 /* RFC 9114 7.2.1/7.2.2/7.2.5/7.2.8: DATA, HEADERS, PUSH_PROMISE and the
- * HTTP/2-only types are H3_FRAME_UNEXPECTED on a control stream; an
- * unknown/grease type is ignored. */
+ * HTTP/2-only types are H3_FRAME_UNEXPECTED on a control stream; WT_STREAM
+ * (0x41) is H3_FRAME_ERROR anywhere but a request stream's first bytes
+ * (draft-ietf-webtrans-http3-15 4.3); an unknown/grease type is ignored. */
 static void ctrl_on_other(wired_srvloop* l, const h3_frame* f) {
   int ok = h3_frame_on_stream(f->type, H3_STREAM_KIND_CONTROL) &&
            h3_frame_recv_ok(f->type);
+  srvloop_ctrl_check(l, f->type != H3_STREAM_WEBTRANSPORT_BIDI, H3_FRAME_ERROR);
   srvloop_ctrl_check(l, ok, H3_FRAME_UNEXPECTED);
 }
 

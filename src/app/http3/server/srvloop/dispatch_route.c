@@ -99,13 +99,12 @@ static int route_undecided(const wired_srvloop* l, const stream_frame* sf) {
          wired_srvloop_closed_has(&l->req_stopped, sf->stream_id);
 }
 
-/* The request slot for sf (wired_srvloop_slot_for), -1 to drop an
- * undecided fragment: shortcut: its bytes are lost, as are those of any WT
- * stream fragment that overtakes the signal; buffer them if a peer relies
- * on it. */
+/* The request slot for sf (wired_srvloop_slot_for); an undecided fragment
+ * is only held (srvloop_slot_hold), its bytes kept for whichever the
+ * stream turns out to be -- the packet carrying it was already ACKed. */
 static int route_slot_for(wired_srvloop* l, const stream_frame* sf) {
   if (route_undecided(l, sf)) {
-    return -1;
+    return srvloop_slot_hold(l, sf->stream_id);
   }
   return wired_srvloop_slot_for(l, sf->stream_id);
 }

@@ -93,8 +93,10 @@ void srvloop_gather_wt_one(
 int srvloop_wt_slot_for(wired_srvloop* l, const stream_frame* sf);
 int srvloop_wt_sig_ready(
     wired_srvloop_wt_stream_slot* s, const stream_frame* sf);
-int srvloop_gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame);
-int srvloop_gather_server_bidi_frame(
+void srvloop_wt_adopt(wired_srvloop* l, wired_srvloop_wt_stream_slot* s);
+int  srvloop_slot_hold(wired_srvloop* l, u64 stream_id);
+int  srvloop_gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame);
+int  srvloop_gather_server_bidi_frame(
     wired_srvloop* l, u64 type, wired_span frame);
 int  srvloop_gather_wt_stream(wired_srvloop* l, const u8* payload, usz len);
 int  srvloop_is_uni_stream(u64 stream_id);

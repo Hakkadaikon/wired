@@ -108,10 +108,16 @@ static int srvrun_wt_rx_ok(int st) {
 
 /* RFC 9114 4.4 (9114-088): a frame other than DATA (or one an extension
  * permits) on the CONNECT stream is a connection error of type
- * H3_FRAME_UNEXPECTED. Returns st. */
+ * H3_FRAME_UNEXPECTED; a WT_STREAM type one of H3_FRAME_ERROR
+ * (draft-ietf-webtrans-http3-15 4.3). Every other st stays a session
+ * matter. Returns st. */
 static int srvrun_wt_rx_state(srvrun_conn* c, int st) {
-  if (st == BODYWIN_FRAME_UNEXPECTED) {
-    srvloop_h3_fail(&c->l, H3_FRAME_UNEXPECTED);
+  static const u16 code[] = {
+      [BODYWIN_FRAME_UNEXPECTED] = H3_FRAME_UNEXPECTED,
+      [BODYWIN_WT_SIGNAL]        = H3_FRAME_ERROR,
+      [BODYWIN_ABORTED]          = 0};
+  if (code[st]) {
+    srvloop_h3_fail(&c->l, code[st]);
   }
   return st;
 }
@@ -154,7 +160,8 @@ void srvrun_reset_connect_stream_code(
 }
 
 /* RESET_STREAM (final size final) + STOP_SENDING carrying code on CONNECT
- * stream id, kept until ACKed. */
+ * stream id, kept until ACKed. The send side is then over, so a late
+ * STOP_SENDING draws no second RESET_STREAM (RFC 9000 4.5). */
 void srvrun_reset_stream_final(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 id, u64 final, u64 code) {
   u8                 pl[48];
@@ -163,6 +170,7 @@ void srvrun_reset_stream_final(
   usz                rn  = reset_stream_encode(pl, sizeof pl, &rs);
   usz                sn  = srvrun_wt_abort_stop(c, id, code, &plb, rn);
   srvrun_send_kept(cfg, c, pl, rn + sn, "WT CONNECT stream reset\n");
+  srvrun_wt_send_done_mark(c, id);
 }
 
 /* draft-ietf-webtrans-http3-16 SS6: a rejected capsule pass ends the
