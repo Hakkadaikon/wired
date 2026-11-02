@@ -76,15 +76,15 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2254/2261 requirements demonstrated (99.7%) — 1955 directly tested,
-299 indirect, 7 untested.**
+**Total: 2254/2261 requirements demonstrated (99.7%) — 1950 directly tested,
+304 indirect, 7 untested.**
 
 ## QUIC core
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
 | [RFC 9000 — QUIC Transport](rfc9000.md) | 272/272 | 248 | 24 | 0 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 78/78 | 72 | 6 | 0 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 78/78 | 71 | 7 | 0 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 75/75 | 62 | 13 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
@@ -104,7 +104,7 @@ page: **[Interop Results](../interop.md)**.
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 139/139 | 116 | 23 | 0 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 139/139 | 112 | 27 | 0 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 57/57 | 47 | 10 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 21/21 | 21 | 0 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 9/9 | 8 | 1 | 0 |

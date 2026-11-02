@@ -932,7 +932,13 @@ The next two entries concern lower-level entry points. The server that
   4.4 forbids it), no `certificate_authorities` or `oid_filters` in the
   CertificateRequest, and only HTTP handlers see the certificate
   (`wired_http_exchange.peer_cert`, first round). The client role sends no
-  certificate. Source: `server_cauth.c`, [rfc8446.md](rfc8446.md)
+  certificate. The client's Certificate, CertificateVerify and Finished
+  must fit the 12,288-byte Handshake receive buffer (`CRECV_BUF`, about
+  four 2 KB RSA certificates) and what the 16,384-byte transcript
+  (`WIRED_SERVER_TRANSCRIPT_MAX`) has left after the ClientHello and the
+  server flight. A larger client chain closes the connection with
+  CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) or bad_certificate. Source:
+  `server_cauth.c`, `server_feed.c`, [rfc8446.md](rfc8446.md)
   8446-133..139.
 - **TLS gaps** — Affects: peers that need these. There is no OCSP/SCT, no
   `certificate_authorities` selection for the server chain and no FFDHE,

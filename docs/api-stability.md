@@ -311,7 +311,7 @@ process-wide scratch server.
 | `wired_srvboot_id.client_auth` | `WIRED_CLIENT_AUTH_OFF` (0, default), `_OPTIONAL` or `_REQUIRED`. |
 | `wired_srvboot_id.client_ca` | The trust store (`castore`) client certificates must chain to. |
 | `wired_http_exchange.peer_cert` | The client's verified leaf certificate DER; empty when none. |
-| `wired_server_peer_cert` | The same, read from a connection's `wired_server`. |
+| `castore_init`, `castore_add` (`crypto/pki/trust/castore/castore.h`) | Build the `client_ca` store: bind it to your `castore_entry` array, then add each CA certificate DER. |
 
 - **Fail closed.** `client_auth` other than off without `client_ca` makes
   every connection's init fail. The chain must reach the store link by
@@ -321,8 +321,13 @@ process-wide scratch server.
 - **No resumption.** With client auth on, offered PSKs and 0-RTT are
   ignored and no session ticket is issued, so every connection proves the
   client's key afresh.
-- **Lifetimes.** `client_ca` is not copied by `wired_server_run`; keep it
-  alive while serving. `peer_cert` is a view into the connection, valid for
+- **Lifetimes.** Nothing is copied: the `castore`, its `castore_entry`
+  array and every CA DER buffer passed to `castore_add` are views the
+  server reads on every handshake. Define all three where they live as
+  long as the server runs (in `main` or as statics), not in a helper
+  function that returns before `wired_server_run`. `castore_init` and
+  `castore_add` keep their module names, outside the `wired_` prefix,
+  but are covered by the same compatibility promise as this table. `peer_cert` is a view into the connection, valid for
   the handler call, and is set on the first round only.
 
 ### Idle timeout
@@ -473,6 +478,7 @@ sequenceDiagram
 | `wired_srvloop_init`, `wired_srvloop_set_handler`, `wired_srvloop_step`, `wired_srvloop_wt_refuse` | One connection's per-datagram loop; strict order. |
 | `wired_srvloop_send_initial`, `wired_srvloop_send_initial_ver`, `wired_srvloop_send_handshake`, `wired_srvloop_send_onertt` | Seal one packet type under one key level. |
 | `wired_server_init`, `wired_server_set_cids`, `wired_server_set_limits`, `wired_server_set_reset_token`, `wired_server_recv_initial`, `wired_server_build_hrr`, `wired_server_build_flight`, `wired_server_feed`, `wired_server_handshake_done`, `wired_server_is_confirmed` | Handshake phase steps; each valid only in some phases. |
+| `wired_server_peer_cert` | The verified client leaf of a hand-driven `wired_server`, once confirmed; a view into its transcript. |
 | `wired_server_listen`, `wired_server_pump`, `wired_server_run_handshake`, `wired_server_close` | Socket-owning handshake helpers on the same `wired_server`. |
 | `wired_srvrun_env_size`, `wired_srvrun_env_init`, `wired_srvrun_serve_env` | Extra loop instances you allocate yourself. |
 | `wired_srvrun_shutdown_word` | Pointer to the process-wide graceful-shutdown flag. |

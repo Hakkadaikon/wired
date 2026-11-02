@@ -51,18 +51,18 @@ flowchart LR
 
 ## One connection at the default settings
 
-One connection slot (`sizeof(srvrun_conn)`) is **6,171,336 bytes (5.89 MiB)**
+One connection slot (`sizeof(srvrun_conn)`) is **6,204,200 bytes (5.92 MiB)**
 at the defaults. It splits into these parts:
 
 | Part | Size per connection | Share |
 |---|---|---|
-| WT send staging, `wtsend[17]` | 2,405,976 B | 39.0% |
-| WT bidi streams, `l.wt_streams[24]` | 1,330,176 B | 21.6% |
-| Request streams, `l.streams[40]` | 924,160 B | 15.0% |
-| WT uni streams, `l.wt_uni_streams[]` | 498,816 B | 8.1% |
+| WT send staging, `wtsend[17]` | 2,405,976 B | 38.8% |
+| WT bidi streams, `l.wt_streams[24]` | 1,330,176 B | 21.4% |
+| Request streams, `l.streams[40]` | 924,160 B | 14.9% |
+| WT uni streams, `l.wt_uni_streams[]` | 498,816 B | 8.0% |
 | Responses, `resp[]` | 487,680 B | 7.9% |
 | Received DATAGRAMs, `l.rx_datagrams[256]` | 309,248 B | 5.0% |
-| Everything else (TLS state, boot flight, keys, counters) | 215,280 B | 3.5% |
+| Everything else (TLS state, boot flight, keys, counters) | 248,144 B | 4.0% |
 
 A WT bidi stream slot (`wired_srvloop_wt_stream_slot`, 55,424 B) is its
 48 KiB receive window (`WIRED_SRVLOOP_WT_BUF_CAP`), the window's 6 KiB
@@ -79,7 +79,7 @@ pie showData
     "WT uni streams" : 487
     "Responses" : 476
     "Received DATAGRAMs" : 302
-    "Everything else" : 210
+    "Everything else" : 242
 ```
 
 ## What each constant costs
@@ -110,14 +110,14 @@ assertion in `srvrun_impl_srvrun.h`).
 
 The charts below show the size of one connection slot (MiB) as each constant
 moves, with every other constant at its default. The point marked
-"default" reads 5.89 MiB on every chart.
+"default" reads 5.92 MiB on every chart.
 
 ```mermaid
 xychart-beta
     title "SRVRUN_WTSEND_BUF (KiB) vs. one connection (MiB)"
     x-axis ["16", "32", "64", "128 (default)"]
     y-axis "MiB" 0 --> 7
-    line [4.03, 4.29, 4.83, 5.89]
+    line [4.06, 4.32, 4.86, 5.92]
 ```
 
 ```mermaid
@@ -125,7 +125,7 @@ xychart-beta
     title "SRVRUN_WT_SEND_SLOTS vs. one connection (MiB)"
     x-axis ["9", "17 (default)", "33"]
     y-axis "MiB" 0 --> 9
-    line [4.81, 5.89, 8.05]
+    line [4.84, 5.92, 8.08]
 ```
 
 ```mermaid
@@ -133,7 +133,7 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_STREAMS vs. one connection (MiB)"
     x-axis ["10", "20", "40 (default)"]
     y-axis "MiB" 0 --> 7
-    line [4.87, 5.21, 5.89]
+    line [4.90, 5.24, 5.92]
 ```
 
 ```mermaid
@@ -141,7 +141,7 @@ xychart-beta
     title "BODYWIN_CAP (KiB) vs. one connection (MiB)"
     x-axis ["2", "4", "10 (default)", "16"]
     y-axis "MiB" 0 --> 7
-    line [5.53, 5.62, 5.89, 6.15]
+    line [5.56, 5.65, 5.92, 6.18]
 ```
 
 ```mermaid
@@ -149,7 +149,7 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_WT_STREAMS vs. one connection (MiB)"
     x-axis ["6", "12", "24 (default)", "48"]
     y-axis "MiB" 0 --> 8
-    line [4.93, 5.25, 5.89, 7.16]
+    line [4.96, 5.28, 5.92, 7.19]
 ```
 
 ```mermaid
@@ -157,17 +157,17 @@ xychart-beta
     title "WIRED_SRVLOOP_MAX_RX_DATAGRAMS vs. one connection (MiB)"
     x-axis ["16", "64", "256 (default)", "1024"]
     y-axis "MiB" 0 --> 8
-    line [5.61, 5.67, 5.89, 6.77]
+    line [5.64, 5.70, 5.92, 6.80]
 ```
 
 `WIRED_H3_MAX_FIELD_SECTION` behaves like `BODYWIN_CAP` at half the slope:
-5.58 MiB at 2 KiB, 5.89 MiB at 10 KiB (default), 6.12 MiB at 16 KiB.
-`WIRED_SENDSESS_LOG` at 256 gives 6.44 MiB.
+5.61 MiB at 2 KiB, 5.92 MiB at 10 KiB (default), 6.15 MiB at 16 KiB.
+`WIRED_SENDSESS_LOG` at 256 gives 6.47 MiB.
 
 ## The whole server: `WIRED_CONNTABLE_CAP`
 
 The connection count multiplies everything above. Each extra connection
-costs **6,826,764 B (6.51 MiB)**: the 5.89 MiB connection slot plus its
+costs **6,859,628 B (6.54 MiB)**: the 5.92 MiB connection slot plus its
 response storage and table entry. About 1.6 MiB is fixed per worker. That
 includes the run's own copy of the identity and paths it was started with
 (`srvrun_own`, about 34 KiB: a 16 KiB certificate chain, four 4 KiB paths,
@@ -175,22 +175,22 @@ two 512-byte id lists and the keys), so nothing the run reads lives in the
 caller's memory.
 
 ```text
-bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.51 MiB
+bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.54 MiB
 ```
 
 | `WIRED_CONNTABLE_CAP` | Reserved per worker |
 |---|---|
-| 4 | 27.7 MiB |
+| 4 | 27.8 MiB |
 | 16 | 106 MiB |
-| 64 (library default) | 418 MiB |
-| 128 | 835 MiB |
+| 64 (library default) | 420 MiB |
+| 128 | 839 MiB |
 
 ```mermaid
 xychart-beta
     title "WIRED_CONNTABLE_CAP vs. reserved memory per worker (MiB)"
     x-axis ["4", "16", "64 (default)", "128"]
     y-axis "MiB" 0 --> 900
-    line [27.7, 106, 418, 835]
+    line [27.8, 106, 420, 839]
 ```
 
 The threads driver multiplies again by the number of workers. The default

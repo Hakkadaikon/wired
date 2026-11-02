@@ -31,8 +31,16 @@ identity too, set two fields of the server identity before serving:
 - `id.client_auth = WIRED_CLIENT_AUTH_REQUIRED` refuses a client that sends
   no certificate. `WIRED_CLIENT_AUTH_OPTIONAL` lets it in without one.
 - `id.client_ca` points at a trust store (`castore_init` + `castore_add`
-  with your client CA's DER). Keep it alive while the server runs. Client
-  auth without a trust store fails, so a typo cannot let everyone in.
+  with your client CA's DER). The server reads the store, its
+  `castore_entry` array and every CA DER buffer on each handshake without
+  copying them, so define all three where they outlive the server: in
+  `main` or as `static` variables, not as locals of a setup helper that
+  returns before `wired_server_run`.
+- Client auth without a trust store fails, so a typo cannot let everyone
+  in. Every connection is then refused: each client gets an Initial
+  CONNECTION_CLOSE with CRYPTO_ERROR 0x128 (handshake_failure), no
+  handler ever runs, and a `-DWIRED_DEBUG` build logs
+  `srvboot accept failed` for each attempt.
 
 A client certificate must chain to that CA, be valid now, and allow
 `clientAuth` if it lists key purposes. The HTTP handler then finds the
