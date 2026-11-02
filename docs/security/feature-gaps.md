@@ -32,17 +32,13 @@ you add the feature, every row in its group becomes a real risk again. You
 then have to re-triage those rows: re-read each one, decide its new verdict,
 and write the test that defends it.
 
-Most of these rows are recorded as `n/a`. Five are recorded as `already-safe`
-instead, because the ledger ties them to code that wired does have (the ECN
-counter check, SAN name matching, the server's certificate flight, RSA
-signature verification):
+Most of these rows are recorded as `n/a`. Three are recorded as
+`already-safe` instead, because the ledger ties them to code that wired does
+have (the ECN counter check, SAN name matching, RSA signature verification):
 
 - V-0223 and V-0547: a test pins that part (the ECN count check, and
   case-insensitive name matching). The missing part (the self-marked CE
   probe, RFC 4518 string normalisation) has no test.
-- V-0378 and V-0386: structural, no test. The server's certificate is only
-  ever sent encrypted; with no client certificates, there is no client
-  identity to leak.
 - V-0711: structural, no test. wired never decrypts with RSA, so the timing
   attack on RSA decryption has no code path.
 
@@ -89,13 +85,12 @@ the [authorization guide](https://hakkadaikon.github.io/wired/guide/en/moqt/auth
 |---|---|---|
 | Encrypted Client Hello (ECH, draft-ietf-tls-esni) | V-0238, V-0240 | re-triage if added |
 | ECDSA P-521 for CertificateVerify (supported: P-256, RSA-PSS, Ed25519) | V-0247 | a peer cannot sign CertificateVerify with `ecdsa_secp521r1_sha512`; P-521-signed certificate chains do verify (since 2026-10-10) |
-| Client certificate authentication (CertificateRequest / mutual TLS) | V-0268, V-0330, V-0377, V-0383, V-0378, V-0386 | only the server is authenticated; the client's identity must come from the application layer |
 | Finite-field DHE groups (only X25519 / P-256 ECDHE) | V-0270 | re-triage if added |
 | RSA-PSK / RSA key transport (RSA is verify-only) | V-0271, V-0274, V-0660, V-0696, V-0711, V-0739, V-0741 | re-triage if added |
 | CBC-mode cipher suites (only AES-GCM and ChaCha20-Poly1305) | V-0285, V-0759 | re-triage if added |
 | certificate_compression extension (RFC 8879) | V-0299 | re-triage if added |
 | External PSK (only server-sealed resumption tickets) | V-0300 | only ticket resumption; Selfie-style reflection has no surface |
-| Revocation checking: CRL, OCSP, OCSP stapling, AIA / CRL-DP fetching | V-0324, V-0528, V-0531, V-0557, V-0560, V-0573, V-0620, V-0621 | revocation is an operator concern (short-lived certificates, out-of-band rotation) |
+| Revocation checking: CRL, OCSP, OCSP stapling, AIA / CRL-DP fetching | V-0324, V-0528, V-0531, V-0557, V-0560, V-0573, V-0620, V-0621 | revocation is an operator concern (short-lived certificates, out-of-band rotation); with client authentication on, a revoked client certificate is accepted until it expires, so issue short-lived client certificates or remove their CA from the trust store |
 | TLS 1.2 and earlier: extended_master_secret, middlebox compatibility mode, SSLv2 CLIENT-HELLO | V-0347, V-0360, V-0366 | wired speaks only TLS 1.3, and only inside QUIC |
 | Client-side retry-with-different-parameters loop | V-0351 | re-triage if added |
 | ECN self-marked CE probe (socket-wide IP_TOS only, no per-send cmsg) | V-0223 | suppressed CE reports are still caught by the RFC 9000 13.4.2.1 count floor |

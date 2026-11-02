@@ -22,3 +22,21 @@ The pair is a self-signed demo for `localhost`.
 - `wired_certreload_load(cert, key, &store, &id)` does all of the above and
   points `id.chain`/`id.chain_count`/`id.cert_seed` at `store`. Keep
   `store` alive as long as `id` is in use.
+
+## Client certificates (mutual TLS)
+
+By default only the server proves who it is. To make each client prove its
+identity too, set two fields of the server identity before serving:
+
+- `id.client_auth = WIRED_CLIENT_AUTH_REQUIRED` refuses a client that sends
+  no certificate. `WIRED_CLIENT_AUTH_OPTIONAL` lets it in without one.
+- `id.client_ca` points at a trust store (`castore_init` + `castore_add`
+  with your client CA's DER). Keep it alive while the server runs. Client
+  auth without a trust store fails, so a typo cannot let everyone in.
+
+A client certificate must chain to that CA, be valid now, and allow
+`clientAuth` if it lists key purposes. The HTTP handler then finds the
+client's leaf certificate in `x->peer_cert` (empty when the client sent
+none under the optional mode). With client auth on, session resumption and
+0-RTT are turned off, because a resumed connection would carry no proof of
+the client's key.

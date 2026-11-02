@@ -298,6 +298,27 @@ process-wide scratch server.
   that follows a HelloRetryRequest. The connection then resumes as 1-RTT.
   Tickets advertise early data only when it is enabled.
 
+### Client certificates (mutual TLS)
+
+| Name | Role |
+|---|---|
+| `wired_srvboot_id.client_auth` | `WIRED_CLIENT_AUTH_OFF` (0, default), `_OPTIONAL` or `_REQUIRED`. |
+| `wired_srvboot_id.client_ca` | The trust store (`castore`) client certificates must chain to. |
+| `wired_http_exchange.peer_cert` | The client's verified leaf certificate DER; empty when none. |
+| `wired_server_peer_cert` | The same, read from a connection's `wired_server`. |
+
+- **Fail closed.** `client_auth` other than off without `client_ca` makes
+  every connection's init fail. The chain must reach the store link by
+  link, be valid at the current clock, and the leaf must allow
+  `clientAuth` if it lists key purposes. Required mode closes a client that
+  sends no certificate with `certificate_required`.
+- **No resumption.** With client auth on, offered PSKs and 0-RTT are
+  ignored and no session ticket is issued, so every connection proves the
+  client's key afresh.
+- **Lifetimes.** `client_ca` is not copied by `wired_server_run`; keep it
+  alive while serving. `peer_cert` is a view into the connection, valid for
+  the handler call, and is set on the first round only.
+
 ### Idle timeout
 
 | Name | Role |
