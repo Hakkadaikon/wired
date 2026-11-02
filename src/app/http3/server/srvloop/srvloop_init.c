@@ -60,6 +60,7 @@ void srvloop_init_ecn(wired_srvloop* l) {
   l->ackst.largest        = 0;
   l->ackst.delay_raw      = 0;
   l->ackst.last_elicit_ms = 0;
+  l->ackst.idle_tx_ms     = 0;
   l->ackst.probe_n        = 0;
   l->ackst.pto_count      = 0;
   l->ecn_ack_seen         = 0;

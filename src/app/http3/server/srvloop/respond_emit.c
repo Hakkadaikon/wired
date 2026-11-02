@@ -127,6 +127,9 @@ static int emit_confirm_then_maybe_200(
   }
   c->l->hs_done_sent = 1;
   c->l->ticket_sent  = 1;
+  /* RFC 9001 4.9.2: confirmed, and the Handshake ACK just went out -- the
+   * Handshake keys go now, so no later Handshake packet is opened. */
+  keysched_discard_handshake(&c->s->sched);
   return 1;
 }
 

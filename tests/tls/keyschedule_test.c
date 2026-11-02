@@ -228,6 +228,32 @@ static void test_exporter_master_secret_zeroized_after_use(void) {
   CHECK(st.stage == 0);
 }
 
+/* RFC 9001 4.9.2: discarding the Handshake keys zeroes both directions and
+ * makes them unavailable, while the 1-RTT keys stay usable. */
+static void test_keyschedule_handshake_discarded(void) {
+  u8 ecdhe[32], tr[] = "tr";
+  fill(ecdhe, 32, 6);
+  keysched            st;
+  const initial_keys* k;
+  u8                  nz = 0;
+  keysched_init(&st);
+  keysched_advance_handshake(
+      &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
+  keysched_advance_master(&st, tr, sizeof(tr));
+  keysched_discard_handshake(&st);
+  CHECK(keysched_get(&st, KS_CLIENT_HS, &k) == 0);
+  CHECK(keysched_get(&st, KS_SERVER_HS, &k) == 0);
+  CHECK(keysched_get(&st, KS_SERVER_AP, &k) == 1);
+  for (usz i = 0; i < INITIAL_KEY; i++) {
+    nz |= st.keys[KS_CLIENT_HS].key[i] | st.keys[KS_SERVER_HS].key[i];
+  }
+  CHECK(nz == 0);
+  keysched_init(&st); /* a reused slot gets its Handshake level back */
+  keysched_advance_handshake(
+      &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
+  CHECK(keysched_get(&st, KS_CLIENT_HS, &k) == 1);
+}
+
 /* A wrong-length ECDHE secret is rejected on the PSK branch too. */
 static void test_keyschedule_psk_bad_ecdhe(void) {
   u8 psk[32], ecdhe[32], tr[] = "tr";
@@ -253,4 +279,5 @@ void test_keyschedule(void) {
   test_keyschedule_psk_matches_oneshot();
   test_keyschedule_psk_differs_from_plain();
   test_keyschedule_psk_bad_ecdhe();
+  test_keyschedule_handshake_discarded();
 }
