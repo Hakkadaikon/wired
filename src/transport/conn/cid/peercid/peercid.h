@@ -14,11 +14,14 @@
  * queued for RETIRE_CONNECTION_ID (5.1.2). A peer using a zero-length ID
  * has that one ID for every path: it is never bound, so never retired. */
 
-/** IDs held at once: RFC 9000 18.2's default active_connection_id_limit,
- * since this server advertises none. */
-#define PEERCID_CAP 2
-/** RETIRE_CONNECTION_ID frames owed at once. */
-#define PEERCID_RETIRE 4
+/** IDs held at once: the active_connection_id_limit this server
+ * advertises (RFC 9000 18.2, STP_DEFAULT_ACTIVE_CID_LIMIT), one per path
+ * the path table can hold. */
+#define PEERCID_CAP 4
+/** RETIRE_CONNECTION_ID frames owed at once: twice the limit (RFC 9000
+ * 5.1.2 SHOULD); one owed past it closes the connection rather than being
+ * forgotten. */
+#define PEERCID_RETIRE (2 * PEERCID_CAP)
 
 /** One peer-issued connection ID. */
 typedef struct {
@@ -69,7 +72,8 @@ void peercid_init(peercid* p, wired_span cid0);
  * it and retired here). Returns 0, or the transport error to
  * close with: PROTOCOL_VIOLATION when a held sequence number carries another
  * ID or the peer uses a zero-length ID, CONNECTION_ID_LIMIT_ERROR when the pool
- * is full (5.1.1). */
+ * is full (5.1.1) or a retirement it forces finds the retire queue full
+ * (5.1.2). */
 int peercid_add(peercid* p, const ncid_frame* f);
 
 /* The ID bound to k, else one shared on k's socket, else 0. */
@@ -85,7 +89,8 @@ const peercid_entry* peercid_bind(peercid* p, const pathsel_key* k);
 const peercid_entry* peercid_share(peercid* p, const pathsel_key* cur);
 
 /* RFC 9000 5.1.2: drop and queue for retirement every bound ID no path in
- * tracked[0..n) uses. */
+ * tracked[0..n) uses; with the retire queue full one stays held until a
+ * later sweep. */
 void peercid_sweep(peercid* p, const pathsel_key* tracked, usz n);
 
 /* Pop one sequence number owed a RETIRE_CONNECTION_ID. 1 if one was owed. */

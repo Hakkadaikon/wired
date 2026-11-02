@@ -37,6 +37,10 @@
 #ifndef STP_DEFAULT_MAX_ACK_DELAY_MS
 #define STP_DEFAULT_MAX_ACK_DELAY_MS 50
 #endif
+/** active_connection_id_limit (RFC 9000 18.2, 0x0e): peer-issued IDs the
+ * server holds at once. Not overridable: it must equal the peer-ID pool's
+ * PEERCID_CAP (pinned by server_tp_test.c). */
+#define STP_DEFAULT_ACTIVE_CID_LIMIT 4
 /** Built-in initial_max_stream_data_bidi_local / _uni default (RFC 9000
  * 18.2, 0x05/0x07). This is a PROMISE to buffer that many bytes past
  * delivery, and both directions land in srvloop's fixed reassembly windows

@@ -105,18 +105,73 @@ static void test_peercid_late_below_rpt(void) {
   CHECK(peercid_bind(&p, &k2) == 0);
 }
 
-/* RFC 9000 5.1.1: one ID past the active limit is a
+/* RFC 9000 5.1.1/18.2: the pool holds the advertised
+ * active_connection_id_limit (4) IDs, one per path; one ID past it is a
  * CONNECTION_ID_LIMIT_ERROR; a repeat of a held one is not. */
 static void test_peercid_over_limit(void) {
-  peercid     p;
-  ncid_frame  f1 = pc_ncid(1, 0, 0xb1), f2 = pc_ncid(2, 0, 0xb2);
-  pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2), k3 = pc_key(3, 3);
+  peercid    p;
+  ncid_frame f1 = pc_ncid(1, 0, 0xb1), over = pc_ncid(PEERCID_CAP, 0, 0xbf);
   pc_pool(&p);
+  CHECK(PEERCID_CAP == 4);
   CHECK(peercid_add(&p, &f1) == 0);
-  CHECK(peercid_add(&p, &f2) == ERR_CONNECTION_ID_LIMIT_ERROR);
-  peercid_bind(&p, &k1);
-  peercid_bind(&p, &k2);
-  CHECK(peercid_bind(&p, &k3) == 0);
+  for (u64 s = 2; s < PEERCID_CAP; s++) {
+    ncid_frame f = pc_ncid(s, 0, (u8)(0xb0 + s));
+    CHECK(peercid_add(&p, &f) == 0);
+  }
+  CHECK(peercid_add(&p, &over) == ERR_CONNECTION_ID_LIMIT_ERROR);
+  for (u16 i = 0; i < PEERCID_CAP; i++) {
+    pathsel_key k = pc_key(3, i);
+    CHECK(peercid_bind(&p, &k) != 0);
+  }
+  CHECK(peercid_bind(&p, &(pathsel_key){9, {0}}) == 0);
+}
+
+/* Owe PEERCID_RETIRE retirements: Retire Prior To 9 drops seq 0 and 1,
+ * then late IDs below it are each retired at once. */
+static void pc_fill_retire(peercid* p) {
+  ncid_frame f9 = pc_ncid(9, 9, 0xb9);
+  pc_pool(p);
+  CHECK(peercid_add(p, &f9) == 0);
+  for (u64 s = 2; s < PEERCID_RETIRE; s++) {
+    ncid_frame late = pc_ncid(s, 0, (u8)(0xb0 + s));
+    CHECK(peercid_add(p, &late) == 0);
+  }
+}
+
+/* RFC 9000 5.1.2: an ID is never forgotten without its
+ * RETIRE_CONNECTION_ID. The queue holds twice the limit; one owed past it
+ * is a CONNECTION_ID_LIMIT_ERROR rather than a silent drop. */
+static void test_peercid_retire_full_is_error(void) {
+  peercid    p;
+  ncid_frame late = pc_ncid(PEERCID_RETIRE, 0, 0xbe);
+  u64        seq, n = 0;
+  pc_fill_retire(&p);
+  CHECK(PEERCID_RETIRE >= 2 * PEERCID_CAP);
+  CHECK(peercid_add(&p, &late) == ERR_CONNECTION_ID_LIMIT_ERROR);
+  while (peercid_take_retire(&p, &seq)) {
+    CHECK(seq == n);
+    n++;
+  }
+  CHECK(n == PEERCID_RETIRE);
+}
+
+/* RFC 9000 5.1.2: with the queue full, an ID no path uses any more stays
+ * held -- its retirement is carried over to the sweep after the queue has
+ * room, never dropped. */
+static void test_peercid_sweep_carries_over(void) {
+  peercid     p;
+  pathsel_key k1 = pc_key(3, 1), k2 = pc_key(3, 2);
+  u64         seq;
+  pc_fill_retire(&p);
+  peercid_bind(&p, &k1); /* seq 9 */
+  peercid_sweep(&p, &k2, 1);
+  CHECK(peercid_of(&p, &k1) != 0); /* kept: no room to owe it */
+  CHECK(peercid_take_retire(&p, &seq) == 1 && seq == 0);
+  peercid_sweep(&p, &k2, 1);
+  CHECK(peercid_of(&p, &k1) == 0);
+  while (peercid_take_retire(&p, &seq)) {
+  }
+  CHECK(seq == 9);
 }
 
 /* RFC 9000 19.15: a held sequence number carrying another ID is a
@@ -223,6 +278,8 @@ void test_peercid(void) {
   test_peercid_retire_prior_to();
   test_peercid_late_below_rpt();
   test_peercid_over_limit();
+  test_peercid_retire_full_is_error();
+  test_peercid_sweep_carries_over();
   test_peercid_seq_reuse();
   test_peercid_sweep();
 }
