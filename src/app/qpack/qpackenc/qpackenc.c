@@ -52,7 +52,8 @@ static int evict_free(const qpackenc_state* st) {
 }
 
 static int insert_safe(const qpackenc_state* st, const qpack_field* f) {
-  return qpack_dyn_fits(&st->dyn, f) || evict_free(st);
+  return qpack_dyn_fits(&st->dyn, f) ||
+         (evict_free(st) && qpack_dyn_storable(&st->dyn, f));
 }
 
 /* RFC 9204 4.3.1: the owed Set Dynamic Table Capacity, at buf. Returns its
@@ -64,32 +65,26 @@ static usz put_capacity(const qpackenc_state* st, u8* buf) {
              : 0;
 }
 
-static int insert_both(
-    qpackenc_state* st, const qpack_field* f, wired_obuf* ob) {
-  return qdyn_insert_literal(f, ob) && qpack_dyn_insert(&st->dyn, f);
-}
-
-/* Insert f and generate its encoder-stream instruction(s). Returns 1 and
- * fills out on success, 0 if it may not go in (st unchanged). */
-static int plan_insert(
-    qpackenc_state* st, const qpack_field* f, qpackenc_plan* out) {
+/* Generate f's encoder-stream instruction(s) when it may go in; st is left
+ * untouched until qpackenc_commit_field. */
+static void plan_insert(
+    const qpackenc_state* st, const qpack_field* f, qpackenc_plan* out) {
   usz        cap = put_capacity(st, out->insert_instr);
   wired_obuf ob =
       obuf_of(out->insert_instr + cap, sizeof out->insert_instr - cap);
-  if (!insert_safe(st, f)) {
-    return 0;
+  if (insert_safe(st, f) && qdyn_insert_literal(f, &ob)) {
+    out->insert_len = cap + ob.len;
   }
-  if (!insert_both(st, f, &ob)) {
-    return 0;
-  }
+}
+
+void qpackenc_commit_field(qpackenc_state* st, const qpack_field* f) {
+  qpack_dyn_insert(&st->dyn, f);
   st->total_inserts++;
   st->cap_pending = 0;
-  out->insert_len = cap + ob.len;
-  return 1;
 }
 
 int qpackenc_plan_field(
-    qpackenc_state* st, const qpack_field* f, qpackenc_plan* out) {
+    const qpackenc_state* st, const qpack_field* f, qpackenc_plan* out) {
   int found;
   out->insert_len   = 0;
   out->used_dynamic = 0;

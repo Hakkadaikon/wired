@@ -60,10 +60,14 @@ static void carry_insert(
 /* RFC 9204 4.5.1 / 4.5.2: an insert, if planned, is carried whatever the
  * field line becomes; a reference uses Base = Required Insert Count = the
  * entry's absolute index + 1, so its relative index is 0. */
-static int try_dynamic(
-    const u8* digits, qpackenc_state* st, qpackenc_status_result* out) {
-  qpack_field f = {
+static qpack_field status_field(const u8* digits) {
+  return (qpack_field){
       wired_span_of((const u8*)":status", 7), wired_span_of(digits, 3)};
+}
+
+static int try_dynamic(
+    const u8* digits, const qpackenc_state* st, qpackenc_status_result* out) {
+  qpack_field   f = status_field(digits);
   qpackenc_plan plan;
   wired_obuf    ob = obuf_of(out->field, sizeof out->field);
   qpackenc_plan_field(st, &f, &plan);
@@ -93,9 +97,10 @@ static int fallback_literal(const u8* digits, qpackenc_status_result* out) {
 }
 
 int qpackenc_status_line(
-    u16 status, qpackenc_state* st, qpackenc_status_result* out) {
+    u16 status, const qpackenc_state* st, qpackenc_status_result* out) {
   u8 digits[4];
   status_digits(status, digits);
+  out->status     = status;
   out->insert_len = 0;
   if (try_static(digits, out)) {
     return 1;
@@ -104,4 +109,16 @@ int qpackenc_status_line(
     return 1;
   }
   return fallback_literal(digits, out);
+}
+
+void qpackenc_status_commit(
+    qpackenc_state* st, const qpackenc_status_result* r) {
+  u8          digits[4];
+  qpack_field f;
+  if (!r->insert_len) {
+    return;
+  }
+  status_digits(r->status, digits);
+  f = status_field(digits);
+  qpackenc_commit_field(st, &f);
 }

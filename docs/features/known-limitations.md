@@ -629,8 +629,11 @@ recently sent headers, updated over its own encoder and decoder streams.
   good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
   own encoder table takes min(the peer's capacity, 2016)
   (`QPACKENC_LOCAL_CAP`; build with `-DQPACKENC_LOCAL_CAP=0` to turn it
-  off). Other response fields stay static or literal; literal strings are
-  Huffman-coded when shorter. The encoder evicts only when every insert is
+  off). Other response fields stay static or literal; literal names and
+  values are Huffman-coded when shorter. An insert is made only once its
+  response's field section is built and its instruction fits the encoder
+  stream's send ring; otherwise the field goes out as a literal. The
+  encoder evicts only when every insert is
   acknowledged and no section is pending, and a cancelled stream's section
   stays pending, so after one the table stops evicting. Source:
   [rfc9204.md](rfc9204.md), [rfc7541.md](rfc7541.md).

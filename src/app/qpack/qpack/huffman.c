@@ -4,7 +4,8 @@
  * code of that length, qpack_hidx[L] the index of its first symbol in
  * qpack_hsym, qpack_hcnt[L] the number of codes of that length. A code value
  * c of length L decodes to qpack_hsym[qpack_hidx[L] + (c - qpack_hfirst[L])]
- * when c - qpack_hfirst[L] < qpack_hcnt[L]. huffman_enc.c encodes with them. */
+ * when c - qpack_hfirst[L] < qpack_hcnt[L]. huffman_enc.c lists its
+ * per-octet encode table from them. */
 
 #include "app/qpack/qpack/huffman_impl.h"
 

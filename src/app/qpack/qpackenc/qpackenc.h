@@ -72,18 +72,24 @@ typedef struct {
 /** RFC 9204 2.1 / 4.3.3. Plan how to encode field f against st's dynamic
  * table: if an entry with f's exact (name, value) is live, reference it once
  * the decoder has acknowledged its insert (never before: this encoder treats
- * SETTINGS_QPACK_BLOCKED_STREAMS as 0, RFC 9204 2.1.2); else insert it
- * when it fits without evicting an entry that is unacknowledged or
- * referenced by an unacknowledged section (2.1.1), generating its Insert
- * With Literal Name instruction and advancing total_inserts. Capacity 0
- * never inserts or references.
- * @param st the encoder-side state; dyn and total_inserts are updated on a
- *   fresh insert
+ * SETTINGS_QPACK_BLOCKED_STREAMS as 0, RFC 9204 2.1.2); else, when it fits
+ * without evicting an entry that is unacknowledged or referenced by an
+ * unacknowledged section (2.1.1), generate its Insert With Literal Name
+ * instruction. Capacity 0 never inserts or references.
+ * @param st the encoder-side state, unchanged: a planned insert takes effect
+ *   only through qpackenc_commit_field, once its instruction is sent
  * @param f the (name, value) pair to encode a reference for
  * @param out the plan, always fully written
  * @return 1 always (the plan itself carries the fallback outcome) */
 int qpackenc_plan_field(
-    qpackenc_state* st, const qpack_field* f, qpackenc_plan* out);
+    const qpackenc_state* st, const qpack_field* f, qpackenc_plan* out);
+
+/** RFC 9204 2.1.4 / 4.3.1: apply a planned insert of f (insert_len > 0) once
+ * its instruction is staged on the encoder stream: insert into dyn, count it
+ * in total_inserts, and clear the owed Set Dynamic Table Capacity. Keeping
+ * this apart from the plan means a field section that is never sent leaves
+ * the encoder's table in step with the peer's. */
+void qpackenc_commit_field(qpackenc_state* st, const qpack_field* f);
 
 /** RFC 9204 4.4.1: record that a field section referencing the dynamic
  * table (Required Insert Count ric > 0) was just sent -- a no-op when

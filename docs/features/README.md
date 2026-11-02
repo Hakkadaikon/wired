@@ -76,8 +76,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2251/2258 requirements demonstrated (99.7%) — 1953 directly tested,
-298 indirect, 7 untested.**
+**Total: 2251/2258 requirements demonstrated (99.7%) — 1951 directly tested,
+300 indirect, 7 untested.**
 
 ## QUIC core
 
@@ -136,7 +136,7 @@ page: **[Interop Results](../interop.md)**.
 |---|---|---|---|---|
 | [RFC 9114 — HTTP/3](rfc9114.md) | 96/97 | 81 | 15 | 1 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 43/43 | 42 | 1 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 66/67 | 58 | 8 | 1 |
+| [RFC 9204 — QPACK](rfc9204.md) | 66/67 | 56 | 10 | 1 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 18/18 | 18 | 0 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 22/22 | 18 | 4 | 0 |
 
