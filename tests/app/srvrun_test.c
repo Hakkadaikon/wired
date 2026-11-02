@@ -27286,9 +27286,12 @@ static void test_srvrun_wt_200_capsule_protocol(void) {
   bytes_memcpy(f + n, cp, sizeof cp);
   sr_fs_send(c, f, n + sizeof cp, 0);
   CHECK(c->wt_active == 1);
-  CHECK(srn_wt_contains(
-      c->resp[0].sess.q.p, c->resp[0].sess.q.len, "capsule-protocol"));
-  CHECK(srn_wt_contains(c->resp[0].sess.q.p, c->resp[0].sess.q.len, "?1"));
+  {
+    u8  v[64];
+    usz vn = sr_section_value(
+        0, c->resp[0].sess.q.p, c->resp[0].sess.q.len, "capsule-protocol", v);
+    CHECK(vn == 2 && v[0] == '?' && v[1] == '1');
+  }
   *c = (srvrun_conn){0};
 }
 
@@ -27298,7 +27301,11 @@ static void test_srvrun_status_no_capsule_protocol(void) {
   u8         buf[256];
   wired_obuf ob = obuf_of(buf, sizeof buf);
   CHECK(srvrun_status_build(&(wired_h3reqdrive_req){0}, 404, 0, &ob));
-  CHECK(!srn_wt_contains(buf, ob.len, "capsule-protocol"));
+  {
+    u8 v[64];
+    CHECK(sr_section_value(0, buf, ob.len, "capsule-protocol", v) == 0);
+    CHECK(sr_section_value(0, buf, ob.len, ":status", v) == 3);
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 4: a session's stream API reaches only that
