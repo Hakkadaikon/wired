@@ -64,6 +64,8 @@ typedef struct {
   pathsel_key fresh;
   /** See fresh. */
   u64 fresh_n;
+  /** Bytes sent to fresh since, while no slot held it (RFC 9000 8). */
+  u64 fresh_tx;
   /** 1 once last_valid holds the handshake path. */
   u8 seeded;
   /** 1 when the slot pathsel_match last freed had a small challenge. */
@@ -88,12 +90,12 @@ pathsel_slot* pathsel_claim_free(pathsel* p, const pathsel_key* k);
 /* RFC 9000 8: n bytes arrived from k -- counted on k's slot, or kept as
  * fresh for a slot claimed for k later in the step. */
 void pathsel_note_rx(pathsel* p, const pathsel_key* k, u64 n);
-/* RFC 9000 8: n bytes sent to k, counted on k's slot (none: not counted). */
+/* RFC 9000 8: n bytes sent to k, counted on k's slot, else on fresh. */
 void pathsel_note_tx(pathsel* p, const pathsel_key* k, u64 n);
-/* RFC 9000 8: bytes k's slot may still be sent (3x received minus sent);
- * PATHSEL_NO_LIMIT when no slot holds k. */
+/* RFC 9000 8: bytes k may still be sent (3x received minus sent), from
+ * k's slot; with none, from the fresh datagram when k sent it, else 0. */
 u64 pathsel_budget(pathsel* p, const pathsel_key* k);
-/** pathsel_budget for a path no slot tracks. */
+/** The budget of a validated path (the caller exempts it). */
 #define PATHSEL_NO_LIMIT (~(u64)0)
 /* RFC 9000 8.2.3: the slot whose latest or previous data matches resp is freed
  * and its path copied to out (matched_small set from the slot). 1 on a
