@@ -10,9 +10,8 @@
  * reader cannot forge either. A restart draws new seeds: tickets and Retry
  * tokens issued before it no longer open, unless the app supplies its own
  * (wired_srvboot_id.ticket_key, wired_srvkeys_set_token_key). Every server
- * entry point calls
- * srvkeys_ready before forking workers or starting threads, so all of them
- * share one draw. */
+ * entry point calls srvkeys_ready before forking workers or starting
+ * threads, so all of them share one draw. */
 
 /** Bytes per seed (TICKET_KEY_LEN == RETRYTOKEN_KEY == KEYRING_KEY). */
 #define SRVKEYS_LEN 32

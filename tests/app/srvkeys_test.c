@@ -86,9 +86,35 @@ static void test_srvkeys_token_key_settable(void) {
   bytes_memcpy(g_srvkeys[2], saved[1], SRVKEYS_LEN);
 }
 
+/* Known answer: for seed 0x30..0x4f the Retry seed is HMAC-SHA256(seed,
+ * "wired retry key") and the NEW_TOKEN key HMAC-SHA256(seed, "wired newtoken
+ * key"), both computed independently with Python's hmac/hashlib. Pins the
+ * derivation so a restarted or sibling server built from another release
+ * still derives the same keys from the same seed. */
+static void test_srvkeys_token_key_known_answer(void) {
+  static const u8 want_rt[SRVKEYS_LEN] = {
+      0x8a, 0xe9, 0x2d, 0x25, 0x13, 0x4a, 0xfb, 0x14, 0x41, 0xf4, 0x18,
+      0x6c, 0x5e, 0x9f, 0xa9, 0xe2, 0x4e, 0x7f, 0x8f, 0xce, 0xf9, 0xde,
+      0x34, 0x00, 0xa0, 0xcb, 0x43, 0xdd, 0x2f, 0xb8, 0x61, 0xaa};
+  static const u8 want_nt[SRVKEYS_LEN] = {
+      0x72, 0xac, 0x71, 0x1b, 0xeb, 0x3e, 0xef, 0x16, 0x49, 0x51, 0x3c,
+      0xe4, 0x1d, 0x3f, 0x25, 0x33, 0x67, 0x0f, 0xea, 0x19, 0x38, 0xfe,
+      0x8d, 0x75, 0x36, 0xf9, 0x72, 0x29, 0xcd, 0x76, 0x4e, 0x29};
+  u8 seed[SRVKEYS_LEN], saved[2][SRVKEYS_LEN];
+  bytes_memcpy(saved[0], g_srvkeys[1], SRVKEYS_LEN);
+  bytes_memcpy(saved[1], g_srvkeys[2], SRVKEYS_LEN);
+  srvkeys_test_seed(seed, 0x30);
+  CHECK(wired_srvkeys_set_token_key(seed) == 1);
+  CHECK(ct_diffn(srvkeys_retry(), want_rt, SRVKEYS_LEN) == 0);
+  CHECK(ct_diffn(srvkeys_newtoken(), want_nt, SRVKEYS_LEN) == 0);
+  bytes_memcpy(g_srvkeys[1], saved[0], SRVKEYS_LEN);
+  bytes_memcpy(g_srvkeys[2], saved[1], SRVKEYS_LEN);
+}
+
 void test_srvkeys(void) {
   test_srvkeys_ticket_accessor();
   test_srvkeys_random_and_distinct();
   test_srvkeys_stable();
   test_srvkeys_token_key_settable();
+  test_srvkeys_token_key_known_answer();
 }

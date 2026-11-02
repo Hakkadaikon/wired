@@ -36,13 +36,16 @@ const u8* srvkeys_newtoken(void) {
   return g_srvkeys[2];
 }
 
-/* Both keys are HMAC(seed, purpose label), never the seed itself: a seed
- * also reused as ticket_key then never yields the ticket key's bytes, and
- * the Retry seed and NEW_TOKEN key differ from each other. */
+/* Both keys are HMAC(seed, purpose label), never the seed itself, so the
+ * Retry seed and NEW_TOKEN key differ from each other. Use a secret
+ * separate from ticket_key; reusing it is not catastrophic, because the
+ * labels keep every derived key distinct from the ticket keys. */
 int wired_srvkeys_set_token_key(const u8 seed[SRVKEYS_LEN]) {
   static const u8 retry[]    = "wired retry key";
   static const u8 newtoken[] = "wired newtoken key";
   wired_span      key        = wired_span_of(seed, SRVKEYS_LEN);
+  /* the three keys are drawn together: draw first, or a later ready()
+   * would overwrite the keys set here */
   if (!srvkeys_ready()) {
     return 0;
   }
