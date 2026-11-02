@@ -72,3 +72,85 @@ void test_conntable(void) {
   CHECK(conntable_rekey(t, 4, -1, cid_f, 4) == 0);
   CHECK(conntable_rekey(t, 4, 4, cid_f, 4) == 0);
 }
+
+#define CONNTABLE_T_CAP 64
+
+/* CID number k of slot s: 3 per slot, 8 bytes, distinct by (s, k). */
+static void conntable_t_cid(u8 out[8], int s, int k) {
+  for (int j = 0; j < 8; j++) {
+    out[j] = (u8)(s * 3 + k + j * 0x11);
+  }
+}
+
+/* Fill every slot with a primary + alt (rekey) + alt2: 3 CIDs per slot, the
+ * index's worst-case load, so probe chains and collisions are certain. */
+static void conntable_t_fill(conntable* t) {
+  u8 c[8];
+  conntable_init(t, CONNTABLE_T_CAP);
+  for (int s = 0; s < CONNTABLE_T_CAP; s++) {
+    conntable_t_cid(c, s, 0);
+    CHECK(conntable_insert(t, CONNTABLE_T_CAP, c, 8) == s);
+    conntable_t_cid(c, s, 1);
+    CHECK(conntable_rekey(t, CONNTABLE_T_CAP, s, c, 8) == 1);
+    conntable_t_cid(c, s, 2);
+    CHECK(conntable_set_alt2(t, CONNTABLE_T_CAP, s, c, 8) == 1);
+  }
+}
+
+/* 1 if every CID of slot s routes to want (s itself, or -1 once removed). */
+static int conntable_t_routes(const conntable* t, int s, int want) {
+  u8  c[8];
+  int ok = 1;
+  for (int k = 0; k < 3; k++) {
+    conntable_t_cid(c, s, k);
+    ok = ok && conntable_find(t, CONNTABLE_T_CAP, c, 8) == want;
+  }
+  return ok;
+}
+
+/* #199: the hashed index routes all 3 CIDs of every slot at full capacity,
+ * and stays consistent through remove (the CIDs further down a removed
+ * entry's probe chain still route), CID retirement (set_cid) and alt2
+ * replacement. */
+void test_conntable_hash(void) {
+  static conntable t[CONNTABLE_T_CAP];
+  conntable_t_fill(t);
+  int all = 1;
+  for (int s = 0; s < CONNTABLE_T_CAP; s++) {
+    all = all && conntable_t_routes(t, s, s);
+  }
+  CHECK(all);
+  u8 c[8];
+  conntable_t_cid(c, CONNTABLE_T_CAP, 0); /* never inserted */
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, c, 8) == -1);
+  CHECK(conntable_insert(t, CONNTABLE_T_CAP, c, 8) == -1); /* full */
+
+  for (int s = 0; s < CONNTABLE_T_CAP; s += 2) {
+    conntable_remove(t, CONNTABLE_T_CAP, s);
+  }
+  all = 1;
+  for (int s = 0; s < CONNTABLE_T_CAP; s++) {
+    all = all && conntable_t_routes(t, s, (s & 1) ? s : -1);
+  }
+  CHECK(all);
+
+  /* RFC 9000 5.1.2: a retired primary stops routing, its replacement routes */
+  u8 old[8];
+  u8 nu[8] = {0xFE, 0xED, 0, 0, 0, 0, 0, 1};
+  conntable_t_cid(old, 1, 1); /* primary after rekey */
+  CHECK(conntable_set_cid(t, CONNTABLE_T_CAP, 1, nu, 8) == 1);
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, old, 8) == -1);
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, nu, 8) == 1);
+
+  /* a replaced alt2 stops routing */
+  conntable_t_cid(old, 3, 2);
+  nu[7] = 3;
+  CHECK(conntable_set_alt2(t, CONNTABLE_T_CAP, 3, nu, 8) == 1);
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, old, 8) == -1);
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, nu, 8) == 3);
+
+  /* a freed slot is reused and its new CID routes */
+  conntable_t_cid(c, CONNTABLE_T_CAP + 1, 0);
+  CHECK(conntable_insert(t, CONNTABLE_T_CAP, c, 8) == 0);
+  CHECK(conntable_find(t, CONNTABLE_T_CAP, c, 8) == 0);
+}
