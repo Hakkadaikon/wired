@@ -32,12 +32,17 @@
 /** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
  * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
-  u8  digest[ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
-  usz next;                         /* ring write cursor */
-  u64 at[ZERORTT_SEEN_CAP];         /* epoch secs each digest was recorded */
-  usz count;                        /* entries filled so far (<= CAP) */
-  int lock; /* 1 while one thread runs zerortt_seen_check's find+record */
-  /* epoch secs the recording window opened (0 = not yet): see
+  /** SHA-256 of each seen identity */
+  u8 digest[ZERORTT_SEEN_CAP][32];
+  /** ring write cursor */
+  usz next;
+  /** epoch secs each digest was recorded */
+  u64 at[ZERORTT_SEEN_CAP];
+  /** entries filled so far (<= CAP) */
+  usz count;
+  /** 1 while one thread runs zerortt_seen_check's find+record */
+  int lock;
+  /** epoch secs the recording window opened (0 = not yet): see
    * zerortt_seen_pre_start */
   u64 started;
 } zerortt_seen;
