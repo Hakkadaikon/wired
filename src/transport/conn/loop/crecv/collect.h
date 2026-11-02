@@ -11,10 +11,14 @@
 
 /** Reassembly buffer capacity in bytes. RFC 9000 7.5: an implementation
  * "MUST support buffering at least 4096 bytes" of out-of-order CRYPTO data;
- * the buffer spans offset 0..CRECV_BUF of one level's stream, so 4096 is
- * exactly that floor (a larger ClientHello is refused with
- * CRYPTO_BUFFER_EXCEEDED, never expanded). */
-#define CRECV_BUF 4096
+ * the buffer spans offset 0..CRECV_BUF of one level's stream and is never
+ * expanded (data past it closes with CRYPTO_BUFFER_EXCEEDED). Sized for the
+ * largest client Handshake stream of client authentication (RFC 8446 4.4.2):
+ * 4 certificates of ~2 KB RSA (8,192 + 4 x 5 entry framing + 8 header),
+ * an RSA-4096 CertificateVerify (520) and a SHA-384 Finished (52) is 8,792
+ * bytes; 12,288 leaves room for ~2.5 KB certificates. Two buffers per
+ * connection (Initial, Handshake) cost 2 x 2 x 12,288 bytes. */
+#define CRECV_BUF 12288
 
 /** CRYPTO stream reassembly state. */
 typedef struct {

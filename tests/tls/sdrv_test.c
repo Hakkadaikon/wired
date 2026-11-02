@@ -2707,9 +2707,11 @@ static void sdrv_test_srv_keys(u8* srv_priv, u8* srv_pub, u8* cert_priv) {
 }
 
 /* Boot a connection the way every accept does (srvboot_init) with seed as
- * wired_srvboot_id.ticket_key; the returned sdrv has not seen a ClientHello
- * yet. One static server: each call is a fresh connection. */
-static sdrv* sdrv_test_srvboot(const u8* seed) {
+ * wired_srvboot_id.ticket_key and the given client auth settings; *d is
+ * its sdrv, which has not seen a ClientHello yet. One static server: each
+ * call is a fresh connection. Returns srvboot_init's result. */
+static int sdrv_test_boot(
+    const u8* seed, int auth, const castore* ca, sdrv** d) {
   static wired_server  s;
   static wired_srvloop l;
   static const u8      scid[6] = {1, 2, 3, 4, 5, 6};
@@ -2718,17 +2720,39 @@ static sdrv* sdrv_test_srvboot(const u8* seed) {
   wired_srvboot_id     id   = {0};
   wired_header         h    = {0};
   sdrv_test_srv_keys(priv, pub, cert);
-  id.priv       = priv;
-  id.pub        = pub;
-  id.cert_seed  = cert;
-  id.scid       = scid;
-  id.scid_len   = sizeof scid;
-  id.ticket_key = seed;
-  h.dcid_len    = 8;
-  h.scid_len    = 6;
-  CHECK(srvboot_init(&conn, &id, &h) == 1);
-  s.sdrv.peer_scid_set = 0; /* the fixture ClientHello carries no QUIC TPs */
-  return &s.sdrv;
+  id.priv        = priv;
+  id.pub         = pub;
+  id.cert_seed   = cert;
+  id.scid        = scid;
+  id.scid_len    = sizeof scid;
+  id.ticket_key  = seed;
+  id.client_auth = auth;
+  id.client_ca   = ca;
+  h.dcid_len     = 8;
+  h.scid_len     = 6;
+  *d             = &s.sdrv;
+  return srvboot_init(&conn, &id, &h);
+}
+
+static sdrv* sdrv_test_srvboot(const u8* seed) {
+  sdrv* d;
+  CHECK(sdrv_test_boot(seed, WIRED_CLIENT_AUTH_OFF, 0, &d) == 1);
+  d->peer_scid_set = 0; /* the fixture ClientHello carries no QUIC TPs */
+  return d;
+}
+
+/* RFC 8446 4.4.2.4 fail closed through srvboot: an id asking for client
+ * authentication without a trust store fails the connection's init; with
+ * one, the mode reaches the connection's sdrv. */
+static void test_sdrv_srvboot_client_auth(void) {
+  castore ca;
+  sdrv*   d;
+  castore_init(&ca, 0, 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_OPTIONAL, 0, &d) == 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_REQUIRED, 0, &d) == 0);
+  CHECK(sdrv_test_boot(0, WIRED_CLIENT_AUTH_REQUIRED, &ca, &d) == 1);
+  CHECK(d->client_auth == WIRED_CLIENT_AUTH_REQUIRED);
+  CHECK(d->client_ca == &ca);
 }
 
 /* 1 if a srvboot connection under seed resumes f's ticket. */
@@ -3494,6 +3518,7 @@ void test_sdrv(void) {
   test_sdrv_psk_unknown_identity_falls_back();
   test_sdrv_psk_previous_ticket_key_opens();
   test_sdrv_psk_srvboot_seed_resumes();
+  test_sdrv_srvboot_client_auth();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();

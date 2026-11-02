@@ -79,3 +79,16 @@ u64 wired_server_take_hs_error(wired_server* s) {
   s->hs_error = 0;
   return e;
 }
+
+/* RFC 9000 7.5: CRYPTO data past the reassembly buffer is never buffered;
+ * latch CRYPTO_BUFFER_EXCEEDED so the caller closes instead of stalling. */
+int server_srv_collect(wired_server* s, const u8* frames, usz len) {
+  if (crecv_collect(&s->crecv, frames, len)) {
+    return 1;
+  }
+  if (s->crecv.overflow) {
+    s->hs_error   = ERR_CRYPTO_BUFFER_EXCEEDED;
+    s->hs_aborted = 1;
+  }
+  return 0;
+}

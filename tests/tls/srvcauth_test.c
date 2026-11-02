@@ -17,6 +17,7 @@
 #include "tls/handshake/roles/server/server_impl.h"
 #include "tls/handshake/roles/sflight/finished_build.h"
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
+#include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 8446 4.3.2 / 4.4.2 / 4.4.3 / 4.4.4, RFC 9001 4.4: server-side client
  * certificate authentication driven by buffer injection. The client side
@@ -70,8 +71,18 @@ static usz mtlsf_client_hello(u16 suite, u8* rnd, u8* ch, usz cap) {
   return n;
 }
 
+/* Fixed clocks (YYYYMMDDHHMMSS) for the client chain's validity check:
+ * inside the fixture leaves' 2026-11-02 .. 2036-10-30 window, past it, and
+ * an unreadable clock. */
+static u64 mtls_now_2030(void) { return 20300101000000ULL; }
+
+static u64 mtls_now_2037(void) { return 20370101000000ULL; }
+
+static u64 mtls_now_unreadable(void) { return 0; }
+
 /* Bring a server with the given client auth mode to FLIGHT_SENT. */
 static void mtlsf_start(mtls_fix* f, int mode, u16 suite) {
+  static const u8 tkey[32] = {0x5a}; /* a ticket key: tickets are possible */
   u8              srv_priv[32], srv_pub[32], seed[32], rnd[32], ch[512];
   usz             ch_len = mtlsf_client_hello(suite, rnd, ch, sizeof ch);
   wired_obuf      sh_ob  = obuf_of(f->sh, sizeof f->sh);
@@ -85,8 +96,10 @@ static void mtlsf_start(mtls_fix* f, int mode, u16 suite) {
   castore_init(&f->ca, f->roots, 1);
   CHECK(castore_add(&f->ca, MTLS_SPAN(mtlsg_ca)));
   wired_server_init(
-      &f->s, &(wired_server_init_in){srv_priv, srv_pub, seed, 0, 0, 0, 0, 0});
+      &f->s,
+      &(wired_server_init_in){srv_priv, srv_pub, seed, 0, 0, 0, 0, tkey});
   CHECK(sdrv_set_client_auth(&f->s.sdrv, mode, &f->ca) == 1);
+  f->s.cauth_clock = mtls_now_2030;
   CHECK(wired_server_recv_initial(&f->s, ch, ch_len) == 1);
   CHECK(wired_server_build_flight(&f->s, rnd, &fo) == 1);
   CHECK(f->s.sdrv.cipher_suite == suite);
@@ -173,14 +186,18 @@ static usz mtls_fin_msg(const mtls_fix* f, u8* out) {
 
 /* Send one or more client messages as Handshake CRYPTO data; they join the
  * client transcript. Returns wired_server_feed's result. */
-static int mtlsf_send(mtls_fix* f, const u8* m, usz n) {
-  u8                    pay[4800];
+static int mtlsf_feed(mtls_fix* f, const u8* m, usz n) {
+  static u8             pay[CRECV_BUF + 1024]; /* + CRYPTO frame headers */
   wired_obuf            ob  = obuf_of(pay, sizeof pay);
   crypto_stream_emit_in ein = {f->hs_off, 1200};
   CHECK(crypto_stream_emit(wired_span_of(m, n), &ein, &ob));
-  mtlsf_add(f, m, n);
   f->hs_off += n;
   return wired_server_feed(&f->s, pay, ob.len);
+}
+
+static int mtlsf_send(mtls_fix* f, const u8* m, usz n) {
+  mtlsf_add(f, m, n);
+  return mtlsf_feed(f, m, n);
 }
 
 static int mtlsf_send_cert(mtls_fix* f, const wired_span* certs, usz n) {
@@ -296,21 +313,30 @@ static void test_srvcauth_off_flight_unchanged(void) {
 
 /* RFC 8446 4.6.1 / 4.4: with client auth on, no NewSessionTicket is owed
  * even to a client that offered psk_dhe_ke (a resumption would carry no
- * client identity). */
+ * client identity); the OFF row is the control that the same server with a
+ * ticket key does issue one. */
 static void test_srvcauth_no_ticket(void) {
-  static const int modes[] = {
-      WIRED_CLIENT_AUTH_OPTIONAL, WIRED_CLIENT_AUTH_REQUIRED};
-  for (usz i = 0; i < 2; i++) {
+  static const struct {
+    int mode;
+    int issued;
+  } rows[] = {
+      {WIRED_CLIENT_AUTH_OFF, 1},
+      {WIRED_CLIENT_AUTH_OPTIONAL, 0},
+      {WIRED_CLIENT_AUTH_REQUIRED, 0},
+  };
+  for (usz i = 0; i < sizeof rows / sizeof *rows; i++) {
     mtls_fix   f;
     u8         out[1024];
     wired_obuf ob = obuf_of(out, sizeof out);
-    mtlsf_start(&f, modes[i], MTLS_SUITE_128);
-    CHECK(mtlsf_send_leaf(&f) == 1);
-    CHECK(mtlsf_send_cv(&f) == 1);
+    mtlsf_start(&f, rows[i].mode, MTLS_SUITE_128);
+    if (rows[i].mode != WIRED_CLIENT_AUTH_OFF) {
+      CHECK(mtlsf_send_leaf(&f) == 1);
+      CHECK(mtlsf_send_cv(&f) == 1);
+    }
     CHECK(mtlsf_send_fin(&f) == 1);
     f.s.sdrv.psk_dhe_ke = 1;
     CHECK(srvloop_append_tickets(&f.s, &ob) == 1);
-    CHECK(ob.len == 0);
+    CHECK((ob.len > 0) == rows[i].issued);
   }
 }
 
@@ -442,6 +468,11 @@ static void test_srvcauth_cert_rejects(void) {
   n = mtls_cert_msg(xtra, 1, m);
   mtls_put24(m + 5, n - 8 + 1);
   CHECK(mtls_cert_rejected(req, m, n, 50));
+  /* a byte after the certificate_list (RFC 8446 6.2) */
+  n    = mtls_cert_msg(xtra, 1, m);
+  m[n] = 0;
+  mtls_put24(m + 1, n + 1 - 4);
+  CHECK(mtls_cert_rejected(req, m, n + 1, 50));
   /* a one-byte certificate_request_context */
   n    = mtls_cert_msg(xtra, 1, m + 1) + 1;
   m[0] = 11;
@@ -457,6 +488,46 @@ static void test_srvcauth_cert_rejects(void) {
   mtls_put24(m + 1, n - 4);
   mtls_put24(m + 5, n - 8);
   CHECK(mtls_cert_rejected(req, m, n, 110));
+}
+
+/* The CRYPTO_ERROR / transport error a lone client Certificate of n bytes
+ * (one junk, untrusted entry) closes with. */
+static u64 mtls_big_cert_error(usz n) {
+  static const u8 junk[CRECV_BUF] = {0};
+  static u8       m[CRECV_BUF + 1];
+  wired_span      e = wired_span_of(junk, n - 13); /* 8 + 3 + der + 2 */
+  mtls_fix        f;
+  mtlsf_start(&f, WIRED_CLIENT_AUTH_REQUIRED, MTLS_SUITE_128);
+  CHECK(mtlsf_feed(&f, m, mtls_cert_msg(&e, 1, m)) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  return wired_server_take_hs_error(&f.s);
+}
+
+/* RFC 9000 7.5: client Handshake CRYPTO data past the reassembly buffer
+ * closes with CRYPTO_BUFFER_EXCEEDED instead of stalling until the idle
+ * timeout; a Certificate past the 4096-byte floor, up to the buffer's
+ * edge, is reassembled and judged (here bad_certificate). */
+static void test_srvcauth_handshake_crypto_limit(void) {
+  CHECK(mtls_big_cert_error(4096 + 512) == err_crypto(42));
+  CHECK(mtls_big_cert_error(CRECV_BUF) == err_crypto(42));
+  CHECK(mtls_big_cert_error(CRECV_BUF + 1) == ERR_CRYPTO_BUFFER_EXCEEDED);
+}
+
+/* 1 if the valid leaf, judged at clock, closes with bad_certificate. */
+static int mtls_leaf_rejected_at(u64 (*clock)(void)) {
+  mtls_fix f;
+  mtlsf_start(&f, WIRED_CLIENT_AUTH_REQUIRED, MTLS_SUITE_128);
+  f.s.cauth_clock = clock;
+  return mtlsf_send_leaf(&f) == 0 &&
+         wired_server_take_hs_error(&f.s) == err_crypto(42);
+}
+
+/* RFC 5280 6.1.3 (a)(2): the chain is judged at the server's clock -- a
+ * leaf past its notAfter is refused, and a clock that cannot be read fails
+ * closed rather than skipping the check. */
+static void test_srvcauth_validity_clock(void) {
+  CHECK(mtls_leaf_rejected_at(mtls_now_2037));
+  CHECK(mtls_leaf_rejected_at(mtls_now_unreadable));
 }
 
 static void mtls_keep(u8* cv, usz n) {
@@ -569,33 +640,63 @@ static void test_srvcauth_unexpected_matrix(void) {
   }
 }
 
-static int mtls_onertt_dropped(wired_server* s) {
-  u8                     pkt[64] = {0x40};
-  wired_srvloop_recv_out out;
-  return s->ku_seeded == 0 &&
-         wired_srvloop_recv(
-             s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof pkt), 0, 0},
-             &out) == 0;
+/* A client 1-RTT PING (pn 0, RFC 9000 19.2) sealed under the client
+ * application keys a client derives once it has the server Finished
+ * (RFC 8446 7.1: over CH..server Finished), from a copy of the server's
+ * schedule -- so the packet is genuine before the server is confirmed. */
+static usz mtls_onertt_ping(const mtls_fix* f, u8* pkt, usz cap) {
+  static const u8     ping[1] = {0x01};
+  keysched            ks      = f->s.sched;
+  const initial_keys* k;
+  aes128              hp;
+  /* a no-op once the server confirmed (its schedule already has them) */
+  (void)keysched_advance_master(&ks, f->tr, f->tr_sh + f->flight_len);
+  CHECK(keysched_get(&ks, KS_CLIENT_AP, &k) == 1);
+  aes128_init(&hp, k->hp);
+  {
+    protect_keys      pk = {k, &hp};
+    hspkt_onertt_desc d  = {
+        wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+        0,
+        wired_span_of(ping, 1),
+        0,
+        0,
+        0};
+    wired_obuf o = obuf_of(pkt, cap);
+    CHECK(hspkt_onertt_build(&pk, &d, &o));
+    return o.len;
+  }
 }
 
-/* RFC 9001 5.7: no client 1-RTT packet is opened while the server waits for
- * the client Certificate, CertificateVerify or Finished. */
+/* Offer that PING to the server: 1 if it opened at 1-RTT as the PING. */
+static int mtls_onertt_opened(mtls_fix* f) {
+  u8                     pkt[128];
+  wired_srvloop_recv_out out;
+  usz                    n = mtls_onertt_ping(f, pkt, sizeof pkt);
+  return wired_srvloop_recv(
+             &f->s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, n), 0, 0},
+             &out) == 1 &&
+         out.level == LEVEL_ONERTT && out.payload.n >= 1 &&
+         out.payload.p[0] == 0x01;
+}
+
+/* RFC 9001 5.7 / RFC 8446 4.4.4: a genuine client 1-RTT packet is not
+ * opened (so nothing in it is processed or acknowledged) while the server
+ * waits for the client Certificate, CertificateVerify or Finished. */
 static void test_srvcauth_onertt_gated(void) {
   for (int step = 0; step < 3; step++) {
     mtls_fix f;
     mtlsf_to_wait(&f, WIRED_CLIENT_AUTH_REQUIRED, step);
-    CHECK(mtls_onertt_dropped(&f.s));
+    CHECK(mtls_onertt_opened(&f) == 0);
   }
 }
 
-/* Once the client Finished verified, the 1-RTT receive keys are armed. */
+/* The same packet opens once the client Finished verified. */
 static void test_srvcauth_onertt_after_confirm(void) {
-  mtls_fix            f;
-  const initial_keys* k;
+  mtls_fix f;
   mtlsf_to_wait(&f, WIRED_CLIENT_AUTH_REQUIRED, 2);
   CHECK(mtlsf_send_fin(&f) == 1);
-  CHECK(f.s.ku_seeded == 1);
-  CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 1);
+  CHECK(mtls_onertt_opened(&f) == 1);
 }
 
 /* RFC 8446 4.4.4: verified Certificate and CertificateVerify are not yet
@@ -616,7 +717,7 @@ static void test_srvcauth_nothing_after_abort(void) {
   CHECK(mtlsf_send_cv(&f) == 0);
   CHECK(mtlsf_send_fin(&f) == 0);
   CHECK(f.s.hs_error == 0x12a);
-  CHECK(mtls_onertt_dropped(&f.s));
+  CHECK(mtls_onertt_opened(&f) == 0);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
 }
 
@@ -646,7 +747,7 @@ static void test_srvcauth_requires_trust_store(void) {
 /* RFC 9001 4.4: the flight's CertificateRequest is the only one; a
  * Handshake message after confirmation (no post-handshake authentication)
  * is refused rather than answered. */
-static void test_srvcauth_no_post_handshake_certreq(void) {
+static void test_srvcauth_one_certreq_late_cert_refused(void) {
   mtls_fix f;
   u8       t[8];
   usz      n, crs = 0;
@@ -672,6 +773,8 @@ void test_srvcauth(void) {
   test_srvcauth_optional_empty_unauth();
   test_srvcauth_required_empty_rejected();
   test_srvcauth_cert_rejects();
+  test_srvcauth_handshake_crypto_limit();
+  test_srvcauth_validity_clock();
   test_srvcauth_cv_rejects();
   test_srvcauth_bad_finished();
   test_srvcauth_unexpected_matrix();
@@ -680,5 +783,5 @@ void test_srvcauth(void) {
   test_srvcauth_identity_before_confirm();
   test_srvcauth_nothing_after_abort();
   test_srvcauth_requires_trust_store();
-  test_srvcauth_no_post_handshake_certreq();
+  test_srvcauth_one_certreq_late_cert_refused();
 }

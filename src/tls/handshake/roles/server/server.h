@@ -26,10 +26,13 @@
 /** Capacity of the raw handshake transcript buffer in octets: ClientHello +
  * ServerHello + the server Handshake flight, sized past
  * quic-interop-runner's deliberately inflated 9-cert amplificationlimit
- * chain (~10KB flight) with headroom. A truncated transcript silently
- * desyncs server_srv_verify_finished's hash from the client's real one, so
- * every client Finished fails and the server goes silent (RFC
- * 8446 4.4.1/4.4.4). */
+ * chain (~10KB flight) with headroom. Under client authentication the
+ * client's Certificate and CertificateVerify join it: with a typical
+ * ~4 KB server flight that leaves ~11 KB for the client chain, and a
+ * client Certificate that does not fit is refused with bad_certificate.
+ * A truncated transcript silently desyncs server_srv_verify_finished's hash
+ * from the client's real one, so every client Finished fails and the server
+ * goes silent (RFC 8446 4.4.1/4.4.4). */
 #define WIRED_SERVER_TRANSCRIPT_MAX 16384
 /** Capacity of one received UDP datagram in octets. */
 #define WIRED_SERVER_DATAGRAM_MAX 1500
@@ -138,6 +141,10 @@ typedef struct {
   /** RFC 8446 6.2: 1 once a handshake message latched an alert; no
    * further handshake message is processed on this connection. */
   int hs_aborted;
+  /** RFC 5280 6.1.3 (a)(2): the clock (YYYYMMDDHHMMSS, 0 = unreadable,
+   * which fails closed) client certificates are judged at;
+   * wired_server_init sets clock_ymdhms. */
+  u64 (*cauth_clock)(void);
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
@@ -254,9 +261,10 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len);
 int wired_server_build_hrr(wired_server* s, wired_obuf* out);
 
 /** RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into
- * out->sh, EncryptedExtensions||Certificate||CertificateVerify||Finished into
- * out->hs) and derive the Handshake key. Only valid after the ClientHello was
- * received. Advances CH_RECVD -> FLIGHT_SENT.
+ * out->sh, EncryptedExtensions||[CertificateRequest]||Certificate||
+ * CertificateVerify||Finished into out->hs, the CertificateRequest only
+ * under client authentication) and derive the Handshake key. Only valid
+ * after the ClientHello was received. Advances CH_RECVD -> FLIGHT_SENT.
  * @param s the orchestrator to advance
  * @param server_random the ServerHello.random, 32 bytes
  * @param out receives the ServerHello and the Handshake-level flight
@@ -266,9 +274,13 @@ int wired_server_build_flight(
 
 /** RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the
- * client Finished, verifies its verify_data, and ONLY on a match advances to
- * Master, installs the 1-RTT key set and confirms (CH_RECVD/FLIGHT_SENT ->
- * CONFIRMED). A forged Finished promotes nothing.
+ * client's messages -- under client authentication its Certificate and
+ * CertificateVerify first (RFC 8446 4.4.2 / 4.4.3), then the Finished --
+ * verifies each, and ONLY on a verified Finished advances to Master,
+ * installs the 1-RTT key set and confirms (FLIGHT_SENT -> CONFIRMED). A
+ * forged message promotes nothing: it latches an alert in hs_error, as
+ * does CRYPTO data past the reassembly buffer (CRYPTO_BUFFER_EXCEEDED,
+ * RFC 9000 7.5).
  * @param s the orchestrator to advance
  * @param crypto_payload one Handshake-packet CRYPTO payload
  * @param len length of crypto_payload in octets

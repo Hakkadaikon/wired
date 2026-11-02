@@ -87,17 +87,18 @@ static void test_crecv_overflow_rejected(void) {
   crecv s;
   u8    f[8];
   usz   n = 0;
-  /* offset 4095 as a 2-byte varint (0x4000 | value), length 2 ends at 4097,
-   * one past CRECV_BUF=4096 -> rejected (RFC 9000 19.6). */
+  /* offset CRECV_BUF - 1 as a 2-byte varint (0x4000 | value), length 2
+   * ends one past CRECV_BUF -> rejected (RFC 9000 19.6 / 7.5). */
   f[n++] = 0x06;
-  f[n++] = 0x4f;
-  f[n++] = 0xff; /* offset 0x0fff = 4095 */
+  f[n++] = (u8)(0x40 | (CRECV_BUF - 1) >> 8);
+  f[n++] = (u8)(CRECV_BUF - 1);
   f[n++] = 0x02; /* length 2 */
   f[n++] = 1;
   f[n++] = 2;
 
   crecv_init(&s);
   CHECK(crecv_collect(&s, f, n) == 0);
+  CHECK(s.overflow == 1);
 }
 
 /* RFC 9000 7.5: at least 4096 bytes of out-of-order CRYPTO data buffer --

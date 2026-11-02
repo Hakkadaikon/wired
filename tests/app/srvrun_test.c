@@ -25799,6 +25799,18 @@ static void sr_origin_auth(srvrun_conn* c, const char* a) {
 }
 
 static const char* g_sr_arm_method;
+/* A verified client leaf to give the armed connection (RFC 8446 4.4.2);
+ * none while g_sr_arm_peer_len is 0. */
+static const u8* g_sr_arm_peer;
+static usz       g_sr_arm_peer_len;
+
+/* Place g_sr_arm_peer past c's transcript as wired_server_peer_cert's
+ * leaf (the confirmed connection then reports it). */
+static void sr_arm_peer(srvrun_conn* c) {
+  bytes_memcpy(c->s.tr + c->s.tr_len, g_sr_arm_peer, g_sr_arm_peer_len);
+  c->s.peer_cert_off = c->s.tr_len;
+  c->s.peer_cert_len = g_sr_arm_peer_len;
+}
 static const char* g_sr_arm_authority; /* non-0: the request :authority */
 static int         g_sr_arm_wt;        /* 1: a WebTransport Extended CONNECT */
 
@@ -25815,6 +25827,7 @@ static wired_span sr_arm_with_cfg(srvrun_conn* c, srvrun_cfg* cfg) {
   if (g_sr_arm_authority) {
     sr_origin_auth(c, g_sr_arm_authority);
   }
+  sr_arm_peer(c);
   cfg->fd  = -1;
   cfg->env = &g_srvrun_env;
   {
@@ -25863,12 +25876,14 @@ typedef struct {
 } sr_hx_case;
 static sr_hx_case g_sr_hx;
 static int        g_sr_hx_calls;
-static u64        g_sr_hx_off; /* x->offset of the latest call */
+static u64        g_sr_hx_off;  /* x->offset of the latest call */
+static wired_span g_sr_hx_peer; /* x->peer_cert of the latest call */
 
 static int sr_hx_handler(void* hctx, wired_http_exchange* x) {
   (void)hctx;
   g_sr_hx_calls++;
   g_sr_hx_off     = x->offset;
+  g_sr_hx_peer    = x->peer_cert;
   x->status       = g_sr_hx.status;
   x->content_type = g_sr_hx.ct;
   x->field_count  = g_sr_hx.n;
@@ -25963,6 +25978,24 @@ static void sr_hx_expect_500(void) {
   CHECK(
       d.body.n == 22 &&
       ct_diffn(d.body.p, (const u8*)"Internal Server Error\n", 22) == 0);
+}
+
+/* RFC 8446 4.4.2: the handler's exchange carries the connection's
+ * verified client leaf (wired_server_peer_cert), and an empty span when
+ * the connection has none. */
+static void test_srvrun_exchange_peer_cert(void) {
+  static const u8 leaf[] = {0x30, 0x03, 0x02, 0x01, 0x07};
+  sr_hx_dec       d;
+  g_sr_hx = (sr_hx_case){200, 0, 0, 0, "ok", 0, 0};
+  sr_hx_run(&d);
+  CHECK(g_sr_hx_peer.n == 0);
+  g_sr_arm_peer     = leaf;
+  g_sr_arm_peer_len = sizeof leaf;
+  sr_hx_run(&d);
+  g_sr_arm_peer_len = 0;
+  CHECK(
+      g_sr_hx_peer.n == sizeof leaf &&
+      ct_diffn(g_sr_hx_peer.p, leaf, sizeof leaf) == 0);
 }
 
 /* sr_hx_run with the request's :method set to m. */
@@ -27617,6 +27650,7 @@ void test_srvrun(void) {
   test_srvrun_http_field_bytes_limit();
   test_srvrun_http_streaming_round0();
   test_srvrun_legacy_handler_headers_golden();
+  test_srvrun_exchange_peer_cert();
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
   test_srvrun_broadcast_datagram_skips_unused_slot();

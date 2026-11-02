@@ -48,6 +48,7 @@ static inline wired_span server_cauth_body(const u8* msg, usz len) {
 
 const tls_hash* server_srv_hash(const wired_server* s);
 int             server_srv_latch(wired_server* s, u8 alert);
+int             server_srv_collect(wired_server* s, const u8* frames, usz len);
 int             server_cauth_on_cert(wired_server* s, const u8* msg, usz len);
 int             server_cauth_on_cv(wired_server* s, const u8* msg, usz len);
 usz             server_srv_tr_add(wired_server* s, const u8* msg, usz len);

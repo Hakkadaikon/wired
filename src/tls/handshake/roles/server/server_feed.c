@@ -219,7 +219,7 @@ static int srv_take_all(wired_server* s) {
 }
 
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
-  if (s->hs_aborted || !crecv_collect(&s->crecv, crypto_payload, len)) {
+  if (s->hs_aborted || !server_srv_collect(s, crypto_payload, len)) {
     return 0;
   }
   return srv_take_all(s);

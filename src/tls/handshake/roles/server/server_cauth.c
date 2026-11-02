@@ -1,4 +1,3 @@
-#include "common/platform/clock/clock.h"
 #include "crypto/pki/encoding/x509/eku.h"
 #include "crypto/pki/trust/castore/pathvalidate.h"
 #include "tls/handshake/core/tls/cert.h"
@@ -63,11 +62,11 @@ static u8 cauth_shape(wired_span body, cauth_chain* c) {
 }
 
 /* RFC 5280 6.1 against the client trust store, the leaf allowed
- * id-kp-clientAuth, every certificate valid at the current clock -- a
- * clock that cannot be read fails closed instead of skipping the check. */
+ * id-kp-clientAuth, every certificate valid at the server's cauth_clock --
+ * a clock that cannot be read fails closed instead of skipping the check. */
 static int cauth_trusted(const wired_server* s, const cauth_chain* c) {
   wired_span certs[TLS_CERT_CHAIN_MAX];
-  u64        now = clock_ymdhms();
+  u64        now = s->cauth_clock();
   for (usz i = 0; i < c->n; i++) {
     certs[i] = wired_span_of(c->e[i].cert_data, c->e[i].cert_len);
   }

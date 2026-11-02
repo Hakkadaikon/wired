@@ -16,7 +16,7 @@ typedef struct {
   u16        scheme;
   wired_span cert;
   wired_span sig;
-  const u8*  transcript_hash; /* 32 bytes */
+  const u8*  transcript_hash; /* 32 bytes, or hash_len for the _ctx form */
 } certverify_in;
 
 /* RFC 8446 4.4.3. Verify a server CertificateVerify signature against the

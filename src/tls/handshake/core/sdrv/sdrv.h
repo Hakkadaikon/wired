@@ -16,8 +16,9 @@
 /** @file
  * RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
  * ClientHello and emits the real TLS bytes of the server flight (ServerHello +
- * EncryptedExtensions + Certificate + CertificateVerify + Finished). Pure
- * orchestration over the existing build/sign/key-schedule parts. */
+ * EncryptedExtensions + CertificateRequest (under client authentication) +
+ * Certificate + CertificateVerify + Finished). Pure orchestration over the
+ * existing build/sign/key-schedule parts. */
 
 /** RFC 8446 4.3.2 / 4.4.2.4: client certificate authentication off (the
  * default: no CertificateRequest is sent). */
@@ -586,11 +587,13 @@ int sdrv_build_hrr(sdrv* s, wired_obuf* out);
 u64 sdrv_last_error(const sdrv* s);
 
 /** Destination for sdrv_build_server_flight: sh receives the
- * ServerHello, hs the EncryptedExtensions || Certificate ||
- * CertificateVerify || Finished flight. */
+ * ServerHello, hs the EncryptedExtensions || [CertificateRequest] ||
+ * Certificate || CertificateVerify || Finished flight (CertificateRequest
+ * only under client authentication, sdrv_set_client_auth). */
 typedef struct {
   wired_obuf* sh; /**< receives the ServerHello */
-  wired_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
+  wired_obuf* hs; /**< receives EncryptedExtensions ||
+                   * [CertificateRequest] || Certificate ||
                    * CertificateVerify || Finished */
 } sdrv_flight_out;
 
