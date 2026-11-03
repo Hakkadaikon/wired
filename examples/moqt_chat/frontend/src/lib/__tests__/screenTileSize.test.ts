@@ -40,4 +40,19 @@ describe("drawFrameInto", () => {
 			270,
 		);
 	});
+
+	it("sizes to the visible display size, not the padded coded size", () => {
+		const ctx = { drawImage: vi.fn() };
+		const canvas = { width: 0, height: 0, getContext: () => ctx };
+		const canvases = new Map([["own", canvas as unknown as HTMLCanvasElement]]);
+		const frame = {
+			codedWidth: 480,
+			codedHeight: 290,
+			displayWidth: 480,
+			displayHeight: 270,
+		} as never;
+		drawFrameInto(canvases, "own", frame);
+		expect([canvas.width, canvas.height]).toEqual([480, 270]);
+		expect(ctx.drawImage).toHaveBeenCalledWith(frame, 0, 0, 480, 270);
+	});
 });

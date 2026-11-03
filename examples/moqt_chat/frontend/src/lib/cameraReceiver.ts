@@ -56,6 +56,7 @@ const visibleSize = (vf: DecodedFrame) => ({
 });
 
 const DECODE_FAILED = "a peer's camera could not be decoded";
+const DRAW_FAILED = "a peer's camera could not be shown";
 
 export function createCameraReceiver(deps: CameraReceiverDeps): CameraReceiver {
 	const reassemblers = new Map<string, ScreenFrameReassembler>();
@@ -76,6 +77,9 @@ export function createCameraReceiver(deps: CameraReceiverDeps): CameraReceiver {
 				stalls.set(senderId, createStallDetector(SCREEN_STALL_MS));
 			stalls.get(senderId)?.frame(now);
 			cameraTap({ senderId, ...visibleSize(vf), t: now });
+		} catch {
+			// runs in the decoder's output callback: onChunk's catch is long gone
+			deps.onError(DRAW_FAILED);
 		} finally {
 			vf.close?.();
 		}
