@@ -7,6 +7,8 @@
 	--red: #fc3d21;
 	--gray: #a19d94;
 	--gray-light: #e8e6e1;
+	/* Off the NASA palette on purpose: connected / good reads as green. */
+	--green: #1f9d55;
 	--ink: #000;
 	--paper: #fff;
 	--mark: var(--red);
@@ -289,8 +291,15 @@ input {
 	list-style: none;
 }
 
-.peers li::before {
-	content: "\2192  ";
+/* The status square leads each name; flex lets the empty span take its size. */
+.peers li {
+	display: flex;
+	align-items: center;
+	gap: 0.5em;
+}
+
+.peers li + li {
+	margin-top: 0.25em;
 }
 
 .you {
@@ -305,14 +314,16 @@ input {
 }
 
 .status__block {
+	/* none: a long unbreakable name must not squeeze the square. */
+	flex: none;
 	width: 1.2em;
 	height: 1.2em;
 	border: 1px solid var(--ink);
 }
 
 .status__block[data-status="connected"] {
-	border-color: var(--red);
-	background: var(--red);
+	border-color: var(--green);
+	background: var(--green);
 }
 
 .status__block[data-status="connecting"] {
@@ -321,8 +332,8 @@ input {
 }
 
 .status__block[data-quality="good"] {
-	border-color: var(--red);
-	background: var(--red);
+	border-color: var(--green);
+	background: var(--green);
 }
 
 .status__block[data-quality="degraded"] {
