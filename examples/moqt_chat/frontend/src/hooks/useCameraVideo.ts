@@ -28,10 +28,11 @@ import {
 	type VideoSourceDeps,
 } from "@/lib/videoSourceController";
 import type { BackgroundMode } from "@/lib/videoSourceMachine";
-import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { type ConnectionState, useMoqtChatStore } from "@/stores/moqtChatStore";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
+/* v8 ignore start -- browser-only (Image.decode, OffscreenCanvas, VideoFrame, MediaPipe wasm): e2e s22-camera runs it */
 async function loadImage(url: string): Promise<HTMLImageElement> {
 	const img = new Image();
 	img.src = url;
@@ -56,6 +57,7 @@ function loadBrowserBackground(onFail: () => void) {
 		onFail,
 	);
 }
+/* v8 ignore stop */
 
 /** One session's camera track, as useMoqtChat drives it. */
 export type CameraSession = {
@@ -71,6 +73,9 @@ export type CameraSession = {
 	tick(now: number): void;
 	source: VideoSourceController;
 	leave(): void;
+	/** A dropped connection turns the source off at once (camera/file
+	 * released, unpublished) rather than at the next connect's teardown. */
+	onStatus(status: ConnectionState): void;
 };
 
 function startPipeline(client: MoqtScreenClient, onEncodeError: () => void) {
@@ -147,6 +152,9 @@ function createCameraSession(
 		// Turning the source off releases the camera/file and, if published,
 		// unpublishes (client.close()); unpublished there is nothing to close.
 		leave: () => source.leave(),
+		onStatus: (status) => {
+			if (status === "disconnected") source.leave();
+		},
 	};
 }
 

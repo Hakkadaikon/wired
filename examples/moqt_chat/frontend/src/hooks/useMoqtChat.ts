@@ -989,6 +989,7 @@ export function useMoqtChat() {
 			const reportStatus = (status: ConnectionState) => {
 				if (clientRef.current !== client) return;
 				store.setConnectionState(status);
+				cameraRef.current?.onStatus(status);
 				handleSessionStatus(
 					reconnectRefs,
 					status,
