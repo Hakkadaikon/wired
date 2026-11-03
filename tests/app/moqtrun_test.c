@@ -2133,9 +2133,11 @@ static void test_moqtrun_sixth_publish_gets_error(void) {
  * + 3 other peers x 5 SUBSCRIBEs = 24 request streams; the per-session
  * quarter must leave room above that for a fill or FETCH. */
 static void test_moqtrun_session_reqs_fit_full_room(void) {
-  CHECK(
-      WIRED_MOQTRUN_MAX_REQS_PER_SESSION >=
-      WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4 + 4 + 2);
+  /* own PUBLISHes + one SUBSCRIBE per track of each of the 3 others */
+  usz tracks     = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4;
+  usz namespaces = 4; /* 3 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE */
+  usz fill       = 2; /* a history fill or FETCH in flight, with one spare */
+  CHECK(WIRED_MOQTRUN_MAX_REQS_PER_SESSION >= tracks + namespaces + fill);
 }
 
 /* Re-PUBLISHing the same track name ("alice") a second time still consumes
