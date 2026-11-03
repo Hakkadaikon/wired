@@ -1411,17 +1411,28 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
     aes128_init(&hp, sk.hp);
     k = (protect_keys){&sk, &hp};
     CHECK(rx_packet(&k, &d, &frames) == 1);
-    /* find and decode the type-0x03 (ECN) ACK among the frames. */
-    for (off = 0; off + 8 < frames.n && !seen; off++) {
-      if (frames.p[off] == 0x03 && frames.p[off + 1] == 0x03) {
-        ack_frame f;
-        if (ack_decode(frames.p + off, frames.n - off, &f) == 0) {
-          continue;
-        }
-        CHECK(f.has_ecn == 1);
-        CHECK(f.ect0 == 2 && f.ect1 == 0 && f.ce == 1);
-        seen = 1;
+    /* walk the frames in order to the ACK: the CRYPTO frame ahead of it
+     * carries the ServerHello, whose legacy_version 0x0303 and random bytes
+     * once passed for an ACK when the bytes were scanned for 03 03. */
+    while (off < frames.n && !seen) {
+      ack_frame    f;
+      crypto_frame cf;
+      usz          used = 0;
+      if (frames.p[off] == 0x00) { /* PADDING */
+        off++;
+        continue;
       }
+      if (frames.p[off] == 0x06) {
+        used = frame_get_crypto(frames.p + off, frames.n - off, &cf);
+        CHECK(used != 0);
+        off += used ? used : frames.n;
+        continue;
+      }
+      CHECK(frames.p[off] == 0x03);
+      CHECK(ack_decode(frames.p + off, frames.n - off, &f) != 0);
+      CHECK(f.has_ecn == 1);
+      CHECK(f.ect0 == 2 && f.ect1 == 0 && f.ce == 1);
+      seen = 1;
     }
     CHECK(seen == 1);
   }
