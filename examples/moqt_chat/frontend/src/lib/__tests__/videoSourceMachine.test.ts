@@ -380,7 +380,7 @@ describe("videoSourceMachine", () => {
 		expect(msg("file")).toBe("video file could not be played");
 		expect(msg("publish")).toBe("video could not be published");
 		expect(msg("encode")).toBe("video could not be encoded");
-		expect(msg("frames")).toBe("video frames could not be read");
+		expect(msg("frames")).toBe("video frames stopped");
 	});
 
 	it("an error stays across background changes while off, until the next selection", () => {
@@ -473,12 +473,12 @@ function checkEffects(s: VideoSourceState, r: StepResult) {
 		[
 			"camera released",
 			s.camHeld !== null && n.camHeld === null,
-			["releaseCamera", "releaseStale:camera"],
+			["releaseCamera"],
 		],
 		[
 			"file released",
 			s.fileHeld !== null && n.fileHeld === null,
-			["releaseFile", "releaseStale:file"],
+			["releaseFile"],
 		],
 		[
 			"segmenter closed",

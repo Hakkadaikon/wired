@@ -225,7 +225,9 @@ describe("videoSourceController", () => {
 		expect(t.pipeline.stop).toHaveBeenCalled();
 		expect(t.deps.unpublish).toHaveBeenCalledTimes(1);
 		expect(stop).toHaveBeenCalled();
-		expect(t.view()?.source).toBe("off");
+		// the track this off stopped ending is not a failure
+		await flush();
+		expect(t.view()).toMatchObject({ source: "off", error: null });
 	});
 
 	it("a camera failure shows an error and returns to off", async () => {
@@ -337,7 +339,7 @@ describe("videoSourceController", () => {
 		expect(t.view()).toMatchObject({ source: "camera", error: null });
 	});
 
-	it("a processor that cannot be made turns the source off with a send error", async () => {
+	it("a processor that cannot be made turns the source off with a frames error", async () => {
 		const t = setup({
 			makeProcessor: () => {
 				throw new Error("no MediaStreamTrackProcessor");
@@ -348,11 +350,11 @@ describe("videoSourceController", () => {
 		expect(t.camera.stop).toHaveBeenCalled();
 		expect(t.view()).toMatchObject({
 			source: "off",
-			error: "video frames could not be read",
+			error: "video frames stopped",
 		});
 	});
 
-	it("a pushFrame that throws turns the source off with a send error", async () => {
+	it("a pushFrame that throws turns the source off with a frames error", async () => {
 		const t = setup();
 		t.pipeline.pushFrame.mockImplementation(() => {
 			throw new Error("encoder closed");
@@ -363,7 +365,7 @@ describe("videoSourceController", () => {
 		await flush();
 		expect(t.view()).toMatchObject({
 			source: "off",
-			error: "video frames could not be read",
+			error: "video frames stopped",
 		});
 	});
 
@@ -407,7 +409,7 @@ describe("videoSourceController", () => {
 		await flush();
 		expect(t.view()).toMatchObject({
 			source: "off",
-			error: "video frames could not be read",
+			error: "video frames stopped",
 		});
 		expect(t.deps.unpublish).toHaveBeenCalled();
 	});

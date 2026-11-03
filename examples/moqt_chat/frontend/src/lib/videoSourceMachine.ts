@@ -223,7 +223,7 @@ const FAILURE_MESSAGE: Record<VideoFailure, string> = {
 	file: "video file could not be played",
 	publish: "video could not be published",
 	encode: "video could not be encoded",
-	frames: "video frames could not be read",
+	frames: "video frames stopped",
 };
 
 /** The error to show for this state, if any. */
