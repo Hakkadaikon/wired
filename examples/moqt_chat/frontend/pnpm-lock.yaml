@@ -16,6 +16,9 @@ importers:
       '@jitsi/rnnoise-wasm':
         specifier: 0.2.1
         version: 0.2.1
+      '@mediapipe/tasks-vision':
+        specifier: 1.1.1
+        version: 1.1.1
       next:
         specifier: 16.3.3
         version: 16.3.3(@types/node@26.1.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -336,6 +339,9 @@ packages:
 
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
+
+  '@mediapipe/tasks-vision@1.1.1':
+    resolution: {integrity: sha512-jwntgT5tzDrKOkqg6xNDNpRcTUnGvmylZE5DFnzPXossiWOIDdZX+C81LI75hlXhsG58YZW+lGzcmjH1qrQE/Q==}
 
   '@napi-rs/wasm-runtime@1.1.6':
     resolution: {integrity: sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==}
@@ -1233,6 +1239,8 @@ snapshots:
   '@jitsi/rnnoise-wasm@0.2.1': {}
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@mediapipe/tasks-vision@1.1.1': {}
 
   '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
