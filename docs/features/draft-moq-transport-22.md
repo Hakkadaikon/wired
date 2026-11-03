@@ -1863,7 +1863,7 @@ draft-18 and draft-19.
 - [x] MQ22-176 Each request opened on its own bidirectional stream shall be
   answered on that stream; a reset of the stream cancels the request
   (unsubscribe/unpublish), a FIN alone does not, and a session may hold at
-  most 24 open requests (more are reset with EXCESSIVE_LOAD).
+  most 32 open requests (more are reset with EXCESSIVE_LOAD).
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
   - test: `tests/app/moqtrun_sub_test.c` —

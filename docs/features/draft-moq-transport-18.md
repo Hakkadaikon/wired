@@ -1551,7 +1551,7 @@ Legend:
   answered on that stream; a reset of the stream cancels the request
   (unsubscribe/unpublish), a FIN alone does not (for most request types; see
   MQ18-037a for the draft-18 SUBSCRIBE_NAMESPACE/SUBSCRIBE_TRACKS exception),
-  and a session may hold at most 24 open requests (more are reset with
+  and a session may hold at most 32 open requests (more are reset with
   EXCESSIVE_LOAD).
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
