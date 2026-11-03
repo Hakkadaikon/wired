@@ -1400,13 +1400,14 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, n)) == 1);
   CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 1);
   {
-    initial_keys ck, sk;
-    aes128       hp;
-    wired_span   frames;
-    protect_keys k;
-    rx_desc      d    = {wired_mspan_of(ini, iob.len), 1, 0};
-    usz          off  = 0;
-    int          seen = 0;
+    initial_keys   ck, sk;
+    aes128         hp;
+    wired_span     frames;
+    protect_keys   k;
+    rx_desc        d = {wired_mspan_of(ini, iob.len), 1, 0};
+    framewalk      it;
+    framewalk_item fr;
+    int            seen = 0;
     initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
     k = (protect_keys){&sk, &hp};
@@ -1414,22 +1415,13 @@ static void test_srvboot_initial_ack_carries_ecn_counts(void) {
     /* walk the frames in order to the ACK: the CRYPTO frame ahead of it
      * carries the ServerHello, whose legacy_version 0x0303 and random bytes
      * once passed for an ACK when the bytes were scanned for 03 03. */
-    while (off < frames.n && !seen) {
-      ack_frame    f;
-      crypto_frame cf;
-      usz          used = 0;
-      if (frames.p[off] == 0x00) { /* PADDING */
-        off++;
+    framewalk_init(&it, frames.p, frames.n);
+    while (!seen && framewalk_next(&it, &fr)) {
+      ack_frame f = {0};
+      if (fr.type != 0x03) {
         continue;
       }
-      if (frames.p[off] == 0x06) {
-        used = frame_get_crypto(frames.p + off, frames.n - off, &cf);
-        CHECK(used != 0);
-        off += used ? used : frames.n;
-        continue;
-      }
-      CHECK(frames.p[off] == 0x03);
-      CHECK(ack_decode(frames.p + off, frames.n - off, &f) != 0);
+      CHECK(ack_decode(fr.start, fr.remaining, &f) != 0);
       CHECK(f.has_ecn == 1);
       CHECK(f.ect0 == 2 && f.ect1 == 0 && f.ce == 1);
       seen = 1;

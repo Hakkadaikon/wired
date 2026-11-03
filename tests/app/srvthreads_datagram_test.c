@@ -57,7 +57,9 @@ static const u8 g_sdt_srv_scid[6] = {'S', 'R', 'V', 'S', 'C', 'I'};
 static u16 g_sdt_port = 14961;
 
 /* An unused UDP port from the kernel (bind :0, read it back), or the
- * fixed default when sockets are unavailable. */
+ * fixed default when sockets are unavailable. shortcut: another process
+ * can take the port between this pick and the server's bind; upgrade if
+ * the SDK ever reports the port it bound for a port-0 run. */
 static void sdt_pick_port(void) {
   sockaddr any, bound;
   u64      addrlen = sizeof(bound);
