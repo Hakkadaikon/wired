@@ -23,3 +23,28 @@ export function fitCanvasToFrame(
 	canvas.height = frameH;
 	return true;
 }
+
+export type DrawableFrame = CanvasImageSource & {
+	displayWidth?: number;
+	displayHeight?: number;
+	codedWidth?: number;
+	codedHeight?: number;
+};
+
+/** Draws one frame into the tile canvas registered for `key` (if mounted),
+ * its backing store following the frame's own size. */
+export function drawFrameInto(
+	canvases: Map<string, HTMLCanvasElement>,
+	key: string,
+	frame: DrawableFrame,
+): void {
+	const canvas = canvases.get(key);
+	const ctx = canvas?.getContext("2d");
+	if (!ctx || !canvas) return;
+	fitCanvasToFrame(
+		canvas,
+		frame.displayWidth ?? frame.codedWidth,
+		frame.displayHeight ?? frame.codedHeight,
+	);
+	ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+}
