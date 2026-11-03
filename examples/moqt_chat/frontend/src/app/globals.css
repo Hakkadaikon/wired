@@ -276,6 +276,13 @@ input {
 	padding: 1em 0;
 }
 
+/* The room is one viewport tall: a rail taller than that scrolls itself
+   instead of running under the folio. */
+.rail {
+	min-height: 0;
+	overflow-y: auto;
+}
+
 .rail h2,
 .body h2 {
 	margin-bottom: 0.25em;

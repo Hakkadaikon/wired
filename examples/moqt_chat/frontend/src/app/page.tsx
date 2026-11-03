@@ -19,6 +19,7 @@ import {
 	SCREEN_TILE_MIN_PX,
 	SCREEN_TILE_STEP_PX,
 } from "@/lib/screenTileSize";
+import type { BackgroundMode } from "@/lib/videoSourceMachine";
 import {
 	type ChatMessage,
 	resolveDisplayName,
@@ -241,6 +242,124 @@ function ScreenTiles({
 					</div>
 				))}
 			<Notice message={screenShareError} />
+		</div>
+	);
+}
+
+const BACKGROUNDS: { value: BackgroundMode; label: string }[] = [
+	{ value: "none", label: "None" },
+	{ value: "blur", label: "Blur" },
+	{ value: "image", label: "Image" },
+];
+
+// One outgoing video source at a time: the camera or an mp4 (the bundled
+// sample, or a picked file). Pressing the active one turns it off.
+function VideoSection({
+	connected,
+	onToggle,
+	onBackground,
+	onPickFile,
+}: {
+	connected: boolean;
+	onToggle: (source: "camera" | "file") => void;
+	onBackground: (mode: BackgroundMode) => void;
+	onPickFile: (file: File) => void;
+}) {
+	const video = useMoqtChatStore((s) => s.video);
+	const toggle = (source: "camera" | "file", label: string) => (
+		<button
+			type="button"
+			className={video.source === source ? "sign" : "sign sign--outline"}
+			data-testid={source === "camera" ? "camera-toggle" : "video-file-toggle"}
+			aria-pressed={video.source === source}
+			disabled={!connected}
+			onClick={() => onToggle(source)}
+		>
+			{label}
+		</button>
+	);
+	return (
+		<section>
+			<h2>Video</h2>
+			{toggle("camera", "Camera")}
+			<label className="volume">
+				<span className="volume__label">Background</span>
+				<select
+					data-testid="background-select"
+					value={video.background}
+					disabled={!connected}
+					onChange={(e) => onBackground(e.target.value as BackgroundMode)}
+				>
+					{BACKGROUNDS.map((b) => (
+						<option key={b.value} value={b.value}>
+							{b.label}
+						</option>
+					))}
+				</select>
+			</label>
+			{toggle("file", "Video file")}
+			<label className="volume">
+				<span className="volume__label">Other mp4</span>
+				<input
+					type="file"
+					accept="video/mp4"
+					data-testid="video-file-input"
+					disabled={!connected}
+					onChange={(e) => {
+						const file = e.target.files?.[0];
+						e.target.value = "";
+						if (file) onPickFile(file);
+					}}
+				/>
+			</label>
+			{video.error && (
+				<p className="caption" role="alert" data-testid="video-error">
+					{video.error}
+				</p>
+			)}
+		</section>
+	);
+}
+
+// Camera tiles beside the screen tiles: the own preview while a source is
+// on, then one per peer whose camera is decoding.
+function CameraTiles({
+	registerCameraCanvas,
+}: {
+	registerCameraCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+}) {
+	const cameraTiles = useMoqtChatStore((s) => s.cameraTiles);
+	const source = useMoqtChatStore((s) => s.video.source);
+	const tileWidth = useMoqtChatStore((s) => s.screenTileWidth);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	if (cameraTiles.length === 0 && source === "off") return null;
+	return (
+		<div
+			className="screens"
+			style={{ "--tile-w": `${tileWidth}px` } as React.CSSProperties}
+		>
+			{source !== "off" && (
+				<div className="screen-own-wrap" data-testid="camera-tile-own">
+					<canvas
+						ref={(el) => registerCameraCanvas("own", el)}
+						className="screen-own"
+						width={160}
+						height={90}
+					/>
+				</div>
+			)}
+			{cameraTiles.map((id) => (
+				<div key={id} className="screen-tile" data-testid={`camera-tile-${id}`}>
+					<canvas
+						ref={(el) => registerCameraCanvas(id, el)}
+						width={320}
+						height={180}
+					/>
+					<div className="screen-tile__bar">
+						<span className="caption">{resolveDisplayName(id, nicknames)}</span>
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }
@@ -824,6 +943,10 @@ export default function Home() {
 		registerScreenCanvas,
 		setOutputDevice,
 		setScreenQuality,
+		toggleVideoSource,
+		pickVideoFile,
+		setVideoBackground,
+		registerCameraCanvas,
 	} = useMoqtChat();
 	const connectionState = useMoqtChatStore((s) => s.connectionState);
 	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
@@ -935,6 +1058,12 @@ export default function Home() {
 					<aside className="rail">
 						<Peers />
 						<Volume />
+						<VideoSection
+							connected={connectionState === "connected"}
+							onToggle={toggleVideoSource}
+							onBackground={setVideoBackground}
+							onPickFile={pickVideoFile}
+						/>
 						<ScreenTileWidth />
 						<OutputDevice onSelect={setOutputDevice} />
 						<section>
@@ -947,6 +1076,7 @@ export default function Home() {
 							registerScreenCanvas={registerScreenCanvas}
 							setScreenQuality={setScreenQuality}
 						/>
+						<CameraTiles registerCameraCanvas={registerCameraCanvas} />
 						<MessageList />
 						<Compose
 							onSend={(text, attachments) =>
