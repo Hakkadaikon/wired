@@ -5,9 +5,8 @@
 // Chrome's fake camera shows no person, so with the image background the
 // segmenter keeps none of the frame and the tile turns the bundled
 // image's blue; without a background, or blurred, the fake camera's green
-// shows. The
-// mp4 is 480x270, unlike the fake camera, so its frames are told apart by
-// size.
+// shows. The mp4 is 480x270, unlike the fake camera, so its frames are
+// told apart by size.
 //
 //   just e2e-stability s22-camera
 
@@ -67,20 +66,30 @@ async function lastFrameSize(viewer, sender, t0) {
 const select = (c, value) =>
 	c.page.select('[data-testid="background-select"]', value);
 
-// Blur keeps frames flowing and, with no person, the camera's green.
+// Blur keeps frames flowing and, with no person, the camera's green. Raw
+// frames stop the moment blur is picked, so a frame decoded well after it
+// (past the in-flight ones) can only be a blurred one.
 async function blurStep({ user1, user2, report, failures, log }) {
 	log("user1 picks the blur background");
 	const tBlur = await now(user2);
 	await select(user1, "blur");
-	const blurred = await waitFor(
-		async () => (await framesSince(user2, "user1", tBlur)).length > 0,
-		20000,
+	const framesAfterBlur = await waitFor(
+		async () => (await framesSince(user2, "user1", tBlur + 3000)).length > 0,
+		30000,
 	);
-	if (!blurred) failures.push("user2 got no frames after the blur switch");
+	if (!framesAfterBlur)
+		failures.push("user2 got no blurred frames after the blur switch");
 	// the fake camera blurred is still green; blue would be the image
-	report.blurColour = await tileColour(user2, "user1");
-	if (!isGreen(report.blurColour))
-		failures.push(`blur tile is not green: ${report.blurColour}`);
+	// The tile may have stalled out while the segmenter loaded; a fresh
+	// tile's canvas is blank until its next frame is drawn.
+	report.blurColour = await waitFor(async () => {
+		const rgb = await tileColour(user2, "user1");
+		return isGreen(rgb) ? rgb : null;
+	}, 15000);
+	if (!report.blurColour)
+		failures.push(
+			`blur tile is not green: ${await tileColour(user2, "user1")}`,
+		);
 }
 
 // Off removes the tile, and no frame is decoded a second after it.
