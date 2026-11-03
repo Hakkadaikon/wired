@@ -279,16 +279,15 @@ function Peers() {
 			<p className="caption">{peers.length + 1} in room</p>
 			<ul className="peers">
 				<li className="you">
-					You
 					<span
 						className="status__block"
 						data-testid="speaking-you"
 						data-speaking={localSpeaking || undefined}
 					/>
+					You
 				</li>
 				{peers.map((p) => (
 					<li key={p}>
-						{resolveDisplayName(p, nicknames)}
 						<span
 							className="status__block"
 							data-testid={`quality-${p}`}
@@ -297,6 +296,7 @@ function Peers() {
 							}
 							data-speaking={speaking[p] || undefined}
 						/>
+						{resolveDisplayName(p, nicknames)}
 					</li>
 				))}
 			</ul>
