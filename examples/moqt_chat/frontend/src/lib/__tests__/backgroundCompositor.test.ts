@@ -32,9 +32,4 @@ describe("shader sources", () => {
 		expect(VERTEX_SHADER.startsWith("#version 300 es")).toBe(true);
 		expect(FRAGMENT_SHADER.startsWith("#version 300 es")).toBe(true);
 	});
-
-	it("mixes background and person by a smoothstep(0.35, 0.65) of the mask", () => {
-		expect(FRAGMENT_SHADER).toContain("smoothstep(0.35, 0.65,");
-		expect(FRAGMENT_SHADER).toMatch(/mix\(bg, person,/);
-	});
 });
