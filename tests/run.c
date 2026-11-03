@@ -673,6 +673,7 @@
 #include "app/http3/server/srvrun/srvrun_bbr.c"
 #include "app/http3/server/srvrun/srvrun_bcast.c"
 #include "app/http3/server/srvrun/srvrun_bcast_ring.c"
+#include "app/http3/server/srvrun/srvrun_dgring_send.c"
 #include "app/http3/server/srvrun/srvrun_boot.c"
 #include "app/http3/server/srvrun/srvrun_boot_hrr.c"
 #include "app/http3/server/srvrun/srvrun_claim.c"
