@@ -1,6 +1,7 @@
 #include "app/http3/server/srvloop/body_window_impl.h"
 
 static int  bodywin_forbidden(const bodywin* w, u64 type);
+static int  bodywin_reject(const bodywin* w, u64 type);
 static void bodywin_note_type(bodywin* w, u64 type);
 static usz  bodywin_header_take(const bodywin_run* r, u64* type, u64* len);
 static int  bodywin_header(bodywin_run* r);
@@ -20,6 +21,17 @@ static void bodywin_end(bodywin* w, bodywin_sink fn, void* ctx);
  * 0x9 are H3_FRAME_UNEXPECTED on a request stream. */
 static int bodywin_forbidden(const bodywin* w, u64 type) {
   return type < 14 && (((0x23fcu | w->deny) >> type) & 1u);
+}
+
+/* The state a frame header of type ends the window in, BODYWIN_OPEN if none:
+ * draft-ietf-webtrans-http3-15 4.3 makes WT_STREAM (0x41) as a frame type
+ * past a request stream's first bytes an H3_FRAME_ERROR. */
+static int bodywin_reject(const bodywin* w, u64 type) {
+  static const u8 bad[2] = {BODYWIN_OPEN, BODYWIN_FRAME_UNEXPECTED};
+  if (type == H3_STREAM_WEBTRANSPORT_BIDI) {
+    return BODYWIN_WT_SIGNAL;
+  }
+  return bad[bodywin_forbidden(w, type)];
 }
 
 /* RFC 9114 4.1: a HEADERS past the leading one is the trailer section;
@@ -48,8 +60,8 @@ static int bodywin_header(bodywin_run* r) {
   if (!n) {
     return 0;
   }
-  if (bodywin_forbidden(r->w, type)) {
-    r->w->state = BODYWIN_FRAME_UNEXPECTED;
+  r->w->state = bodywin_reject(r->w, type);
+  if (r->w->state != BODYWIN_OPEN) {
     return 0;
   }
   bodywin_note_type(r->w, type);

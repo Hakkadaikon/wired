@@ -4,8 +4,11 @@
 #include "app/http3/server/srvrun/srvrun_impl_protos3b.h"
 
 /* A response's field lines: the application's (or one extra) plus the
- * SDK's own Content-Length / Date / Allow, with the value bytes those
- * need. WIRED_HTTP_MAX_FIELDS + 3 holds every app field plus all three. */
+ * SDK's own, with the value bytes those need. An app response adds
+ * Content-Length and Date. A status response (srvrun_status_build) adds at
+ * most three of its four -- capsule-protocol only on a 2xx, Content-Length
+ * only from 300, Allow only on a 405, plus Date -- so
+ * WIRED_HTTP_MAX_FIELDS + 3 holds either. */
 typedef struct {
   qpack_field f[WIRED_HTTP_MAX_FIELDS + 3];
   usz         n;

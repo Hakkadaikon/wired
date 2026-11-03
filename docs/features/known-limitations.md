@@ -588,6 +588,14 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   caller's job; `wired_srvrun_opt.wt_on_stream_credit` tells it when the
   same open would succeed. Source: `srvrun_wt_streams_blocked_owed`,
   `srvrun_credit.c`.
+- **A WT bidi stream must start in order** — Affects: clients whose
+  packets reorder. A client bidi stream is classified by its offset-0 bytes.
+  A fragment that arrives before them lands in a request slot. If the stream
+  then turns out to be WebTransport (the 0x41 signal), that fragment is not
+  moved into the WT stream: the request slot is freed and the fragment is
+  dropped. The peer does not resend ACKed bytes, so the WT stream stalls at
+  that gap. Source: `srvloop_wt_slot_for`, `wt_drop_overtaken`,
+  `wired_srvloop_slot_for`.
 - **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
   HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
   HTTP/2 are not implemented. There are also no rate-limit headers and no
@@ -597,9 +605,6 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
 - **`h3_tunnel_relay` only flips state** — Affects: apps that use a CONNECT
   tunnel. The raw byte relay of the tunnel (over h3 DATA frames) is the
   application's job. Source: `h3_tunnel_relay` (ponytail).
-- **Capsule-Protocol header not generated or parsed** (RFC 9297 3.4) —
-  Affects: nobody for WebTransport, which does not require it. This is a
-  deliberate scope decision. Source: [rfc9297.md](rfc9297.md) Out of scope.
 - **Capsule-only HTTP Datagram fallback absent** — Affects: paths without
   QUIC DATAGRAM support. QUIC DATAGRAM is assumed. Source:
   [rfc9297.md](rfc9297.md).
@@ -698,18 +703,22 @@ recently sent headers, updated over its own encoder and decoder streams.
   one abort per stream the connection can track (99). If more than that many
   aborts are unacknowledged within one RTT, the excess ones are sent once and
   never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
-- **A request that cannot be decoded is aborted, not answered** — Affects:
-  clients that send malformed or oversized HEADERS. A request stream whose
-  whole HEADERS frame cannot become a request is reset with H3_MESSAGE_ERROR
-  plus STOP_SENDING, without waiting for a FIN. One that ends before its
-  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. No 4xx status is sent,
-  and a HEADERS frame past this decoder's local limits gets H3_MESSAGE_ERROR
-  like a malformed one. Its slot and bidi stream credit are returned. The
-  same happens for a request stream the peer resets while it is still being
-  received, or before any of its data claimed a slot. Source:
-  `connect_headers_complete`, `route_note_incomplete_append`,
-  `reset_request_stream`, `srvrun_abort_incomplete_reqs`,
-  `srvrun_free_reset_reqs`.
+- **A malformed request is aborted, not answered** — Affects: clients that
+  send malformed HEADERS. A request stream whose whole HEADERS frame cannot
+  become a request is reset with H3_MESSAGE_ERROR plus STOP_SENDING, without
+  waiting for a FIN; no 400 is sent first (RFC 9114 4.1.2 MAY), so
+  conformance checkers see the reset they expect. One that ends before its
+  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section whose
+  decoded lines overflow the decode scratch (which puts it past the
+  advertised SETTINGS_MAX_FIELD_SECTION_SIZE) is answered 431 instead (RFC
+  9114 4.2.2), but a single field line larger than the whole decode
+  scratch, or one this decoder cannot interpret, is reset with
+  QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4). Its slot and bidi stream credit
+  are returned. The same happens for a request stream the peer resets while
+  it is still being received, or before any of its data claimed a slot.
+  Source: `connect_headers_complete`, `route_note_incomplete_append`,
+  `h3reqdrive_line_fail`, `reset_request_stream`,
+  `srvrun_abort_incomplete_reqs`, `srvrun_free_reset_reqs`.
 - **Graceful shutdown is tick-bounded** — Affects: operators who stop the
   server with SIGTERM. The server sends GOAWAY, then waits at most
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before it closes. A SIGTERM

@@ -20,12 +20,17 @@ _Static_assert(BODYWIN_CAP % 8 == 0, "bits_shift_down slides whole bytes");
 
 /** Lifecycle of a streamed request body. */
 enum {
-  BODYWIN_OPEN = 0,    /**< still receiving */
-  BODYWIN_DONE,        /**< fin=1 delivered */
-  BODYWIN_REJECTED,    /**< the sink returned 0 */
-  BODYWIN_FRAME_ERROR, /**< the stream ended inside a frame (RFC 9114 7.1) */
+  BODYWIN_OPEN = 0, /**< still receiving */
+  BODYWIN_DONE,     /**< fin=1 delivered */
+  BODYWIN_REJECTED, /**< the sink returned 0 */
+  /** the stream ended inside a frame (RFC 9114 7.1) or a capsule (RFC 9297
+   * 3.3) */
+  BODYWIN_FRAME_ERROR,
   /** a frame type a request stream must not carry (RFC 9114 7.2) */
   BODYWIN_FRAME_UNEXPECTED,
+  /** a WT_STREAM (0x41) frame type past the stream's first bytes: an
+   * H3_FRAME_ERROR (draft-ietf-webtrans-http3-15 4.3) */
+  BODYWIN_WT_SIGNAL,
   /** ended without fin, reported through wired_srvloop_on_body_abort */
   BODYWIN_ABORTED,
 };
@@ -84,8 +89,9 @@ void bodywin_consume(bodywin* w, u8* buf, usz n);
  * frame boundary at the final size, fn gets an empty chunk with fin=1. A
  * final size inside a frame is BODYWIN_FRAME_ERROR, never fin=1; a frame
  * type a request stream must not carry, or HEADERS/DATA after the trailer
- * section (RFC 9114 4.1), is BODYWIN_FRAME_UNEXPECTED. The
- * window slides once per call, past everything parsed.
+ * section (RFC 9114 4.1), is BODYWIN_FRAME_UNEXPECTED; a WT_STREAM type
+ * is BODYWIN_WT_SIGNAL. The window slides once per call, past everything
+ * parsed.
  * @return the new state */
 int bodywin_pump(bodywin* w, u8* buf, bodywin_sink fn, void* ctx);
 

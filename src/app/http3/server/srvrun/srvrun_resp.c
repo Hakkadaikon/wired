@@ -67,7 +67,8 @@ usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
 /* RFC 9114 4.2.2: build the SDK status response unless its field section
  * exceeds the peer's SETTINGS_MAX_FIELD_SECTION_SIZE.
  * shortcut: the size counts :status and the extra line only, not the SDK's
- * Date/content-type/content-length lines (~150 bytes), upgrade if a peer
+ * own lines (content-type plus at most three of capsule-protocol, Allow,
+ * Content-Length and Date, srvrun_hdrs; ~150 bytes), upgrade if a peer
  * advertises a limit that small. */
 static int srvrun_wt_status_build(
     const srvrun_conn* c,

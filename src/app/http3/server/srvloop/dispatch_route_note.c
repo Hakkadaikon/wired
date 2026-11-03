@@ -5,9 +5,12 @@ static int  route_headers_whole(const wired_srvloop_stream_slot* slot);
 static void route_note_incomplete_append(wired_srvloop* l, int i);
 static void route_note_incomplete(wired_srvloop* l, int i);
 static void route_note_rejected(wired_srvloop* l, int i);
+static int  route_note_too_large(wired_srvloop* l, int i);
 static u16  route_too_large_status(const wired_srvloop_stream_slot* slot);
 static int  route_window_stuck(const wired_srvloop_stream_slot* slot);
-static int  route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i);
+static int  route_body_unsendable(
+    const wired_srvloop* l, const wired_srvloop_stream_slot* s);
+static int route_is_over(const wired_srvloop_dispatch_ctx* ctx, int i);
 
 /* Append slot i to this step's completion list and mirror its request into
  * l->req/req_stream_id (the pre-existing single-request API surface; the
@@ -30,13 +33,15 @@ void srvloop_route_note_done(wired_srvloop* l, int i) {
 }
 
 /* RFC 9114 4.1 / 7.2 (9114-007/067/073): a frame a request stream must not
- * carry is a connection error of type H3_FRAME_UNEXPECTED -- latched for
- * srvrun to close over. Also append slot i to frame_unexpected_slots -- split
- * out of route_note_incomplete so its own reject-vs- incomplete branch stays a
- * single extra check there. */
+ * carry is a connection error of type H3_FRAME_UNEXPECTED -- or H3_FRAME_ERROR
+ * for a mid-stream WT_STREAM type (req.frame_unexpected == 2,
+ * draft-ietf-webtrans-http3-15 4.3) -- latched for srvrun to close over. Also
+ * append slot i to frame_unexpected_slots -- split out of route_note_incomplete
+ * so its own reject-vs- incomplete branch stays a single extra check there. */
 void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i) {
+  static const u16 code[2] = {H3_FRAME_UNEXPECTED, H3_FRAME_ERROR};
   route_unreset(l, i);
-  srvloop_h3_fail(l, H3_FRAME_UNEXPECTED); /* RFC 9114 4.1 / 7.2: connection */
+  srvloop_h3_fail(l, code[l->streams[i].req.frame_unexpected == 2]);
   if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS) {
     l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
   }
@@ -47,6 +52,16 @@ void srvloop_route_note_frame_unexpected(wired_srvloop* l, int i) {
 static int route_headers_whole(const wired_srvloop_stream_slot* slot) {
   return wired_h3reqdrive_headers_end(
              wired_span_of(slot->req_buf, slot->req_len)) != 0;
+}
+
+/* RFC 9114 7.1: slot i's streamed body ended inside a frame --
+ * H3_FRAME_ERROR, latched for srvrun to close over; latched as 2 for a
+ * mid-stream WT_STREAM type (draft-ietf-webtrans-http3-15 4.3) so the
+ * close names that cause. */
+void srvloop_route_note_frame_error(wired_srvloop* l, int i) {
+  l->streams[i].req_done = 1;
+  l->req_frame_error     = 1 + (l->streams[i].body.state == BODYWIN_WT_SIGNAL);
+  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
 }
 
 /* Mark slot i incomplete and append it to incomplete_slots -- the actual
@@ -121,13 +136,28 @@ static void route_note_rejected(wired_srvloop* l, int i) {
   route_note_incomplete(l, i);
 }
 
-/* Record slot i's decode outcome: a request to answer, or an incomplete /
- * rejected stream to abort. */
+/* RFC 9114 4.2.2 / 4.1.2: a field section past this server's limit
+ * (h3reqdrive's too_large_status) is answered with that status before
+ * the stream ends, like an overflow (srvloop_route_complete_over): the
+ * request, already empty but for it (h3reqdrive_line_fail), is handed up
+ * with its references cancelled (RFC 9204 2.2.2.2). 1 if slot i was
+ * handled so. */
+static int route_note_too_large(wired_srvloop* l, int i) {
+  if (!l->streams[i].req.too_large_status) {
+    return 0;
+  }
+  srvloop_qdec_cancel_slot(l, i);
+  srvloop_route_note_done(l, i);
+  return 1;
+}
+
+/* Record slot i's decode outcome: a request to answer (or a too-large one
+ * to refuse with a status), or an incomplete / rejected stream to abort. */
 void srvloop_route_note_result(wired_srvloop* l, int i, int got) {
   srvloop_route_note_qpack(l, i);
   if (got) {
     srvloop_route_note_done(l, i);
-  } else {
+  } else if (!route_note_too_large(l, i)) {
     route_note_rejected(l, i);
   }
 }
@@ -208,4 +238,28 @@ int srvloop_route_body_decode(
       wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch), 0};
   return wired_h3srv_on_request_raw(ctx->h3, &rin, &slot->req) &&
          !srvloop_req_method_is_connect(&slot->req);
+}
+
+/* s's send side already ended (an early STOP_SENDING was answered with
+ * RESET_STREAM, send_done) and its HEADERS are whole, its body not yet
+ * streaming. */
+static int route_body_unsendable(
+    const wired_srvloop* l, const wired_srvloop_stream_slot* s) {
+  return wired_srvloop_closed_has(&l->send_done, s->stream_id) && !s->body.on &&
+         srvloop_route_body_head_len(s);
+}
+
+/* RFC 9114 4.1.1: no response can go out on slot i (route_body_unsendable),
+ * so refuse it with H3_REQUEST_REJECTED (wt_refused: STOP_SENDING, its
+ * stream credit returned) BEFORE any of its body reaches on_body -- the
+ * request then truly was "not processed in any way" -- and free its slot. */
+int srvloop_route_body_refused(wired_srvloop* l, int i) {
+  u64 id = l->streams[i].stream_id;
+  if (!route_body_unsendable(l, &l->streams[i])) {
+    return 0;
+  }
+  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
+  wired_srvloop_wt_refuse(l, id);
+  wired_srvloop_slot_release(l, id);
+  return 1;
 }

@@ -20,6 +20,24 @@ usz h3reqdrive_decode_line(
   return c;
 }
 
+/* RFC 9114 4.2.2 / RFC 9204 7.4: why the line at rest failed to decode.
+ * One that fits the whole scratch (re-decoded there: the request is
+ * dropped, so earlier lines' bytes may go) failed only for the room
+ * earlier lines took -- the section is past the advertised
+ * SETTINGS_MAX_FIELD_SECTION_SIZE, answered 431 -- r is cleared, its views
+ * into the re-used scratch included, so only too_large_status remains.
+ * Anything else (a line larger than the scratch alone, a bad encoding) is
+ * the stream error QPACK_DECOMPRESSION_FAILED. */
+void h3reqdrive_line_fail(
+    rd_cursor* cur, wired_span rest, wired_h3reqdrive_req* r) {
+  rline L = {0};
+  if (h3reqdrive_decode_line(rest, cur->scr, &cur->dyn, &L)) {
+    *r = (wired_h3reqdrive_req){.too_large_status = 431};
+    return;
+  }
+  r->reject_code = QPACK_DECOMPRESSION_FAILED;
+}
+
 /* A request pseudo-header kind has a (value, len) slot in wired_h3reqdrive_req.
  */
 static int is_request_pseudo(h3_ph_kind k) {

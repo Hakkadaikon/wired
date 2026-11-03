@@ -7,6 +7,10 @@ static void srvrun_connect_stop(
 static int srvrun_critical_send(const srvrun_conn* c, u64 stream_id);
 static int srvrun_stop_on_critical(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id);
+static int  srvrun_bidi_fresh(srvrun_conn* c, u64 id);
+static int  srvrun_req_unopened(srvrun_conn* c, u64 id);
+static void srvrun_req_stop_early(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e);
 static usz srvrun_req_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e);
 static usz srvrun_answer_stream_stop(
@@ -68,24 +72,61 @@ static int srvrun_stop_on_critical(
   return 1;
 }
 
+/* Client bidi id with no WT slot whose send side is still Ready (RFC 9000
+ * 3.1): no response ended and no RESET_STREAM sent (srvrun_wt_send_ended)
+ * -- even when the peer's own RESET_STREAM already closed its receive side
+ * (req_closed), in this step or an earlier one. */
+static int srvrun_bidi_fresh(srvrun_conn* c, u64 id) {
+  return wired_srvloop_wt_slot_find(&c->l, id) < 0 &&
+         !srvrun_wt_send_ended(c, id);
+}
+
+/* RFC 9000 3.2 / 19.5: a client bidi stream this STOP_SENDING opens on an
+ * HTTP/3 connection (raw QUIC has no request streams) -- no request slot,
+ * so it may still turn out a request or a WebTransport stream. */
+static int srvrun_req_unopened(srvrun_conn* c, u64 id) {
+  return id % 4 == 0 && !srvrun_conn_is_raw(c) && srvrun_bidi_fresh(c, id);
+}
+
+/* RFC 9000 3.5: answer an early STOP_SENDING (srvrun_req_unopened) on the
+ * send side alone -- RESET_STREAM with the peer's code at Final Size 0,
+ * once (the send side is then recorded ended, so a repeat builds
+ * nothing). Later bytes take the normal path: a request is refused
+ * unanswered (srvrun_start_resp), a WT stream reads on but takes no reply. */
+static void srvrun_req_stop_early(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_reset* e) {
+  u8         pl[SRVRUN_RST_PL];
+  wired_obuf plb = obuf_of(pl, sizeof pl);
+  srvrun_send_kept(
+      cfg, c, pl,
+      srvrun_wt_abort_reset(c, e->stream_id, e->error_code, &plb, 0),
+      "request RESET sent\n");
+  srvrun_wt_send_done_mark(c, e->stream_id);
+}
+
 /* RFC 9000 3.5: a STOP_SENDING for a request whose response has not
  * started still MUST be answered with RESET_STREAM -- Final Size 0, since
  * no byte was sent -- and the request is cancelled: the rest of its body
  * is refused (STOP_SENDING, the same pair srvrun_wt_abort_pair builds),
  * and its slot is released, so a late byte opens nothing (req_closed), no
  * response ever starts, and a body streaming to the app is aborted with
- * the peer's code. 1 when a slot was freed (its stream credit is owed). */
+ * the peer's code. Before any byte, srvrun_req_stop_early. 1 when a slot
+ * was freed (its stream credit is owed). */
 static usz srvrun_req_stop(
     const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_srvloop_reset* e) {
   u8         pl[48];
   wired_obuf plb = obuf_of(pl, sizeof pl);
   if (!srvrun_req_slot_of(c, e->stream_id)) {
+    if (srvrun_req_unopened(c, e->stream_id)) {
+      srvrun_req_stop_early(ctx->cfg, c, e);
+    }
     return 0;
   }
   srvrun_send_kept(
       ctx->cfg, c, pl,
       srvrun_wt_abort_pair(c, e->stream_id, e->error_code, &plb),
       "request RESET sent\n");
+  srvrun_wt_send_done_mark(c, e->stream_id);
   wired_srvloop_slot_cancel(&c->l, e->stream_id, e->error_code);
   return 1;
 }

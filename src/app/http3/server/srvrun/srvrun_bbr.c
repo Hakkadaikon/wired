@@ -62,9 +62,16 @@ void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w) {
  * flight: srvrun_wtsend_request_fin defers it until that round is done).
  * A client that waits for the stream to end (transport.closed) settles on
  * it. A CONNECT stream this server already FINs (its own WT_CLOSE_SESSION
- * round) gets nothing more. */
-void srvrun_wt_connect_fin(srvrun_conn* c, int sidx) {
+ * round) gets nothing more. With every send slot busy the stream is reset
+ * instead (draft-ietf-webtrans-http3-16 6: "close or reset"). */
+void srvrun_wt_connect_fin(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   srvrun_wtsend* w = srvrun_wt_connect_sender(c, sidx);
+  /* RFC 9000 4.5: the reset carries the stream's real final size and ends
+   * its send side, so a late STOP_SENDING draws no Final Size 0 reset */
+  if (!w) {
+    srvrun_reset_connect_stream_code(cfg, c, sidx, WTERR_SESSION_GONE);
+    return;
+  }
   if (srvrun_wt_connect_finable(w)) {
     srvrun_wtsend_request_fin(c, w);
   }

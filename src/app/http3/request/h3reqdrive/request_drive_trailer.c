@@ -107,9 +107,13 @@ static int trailer_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
       wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
       &L);
-  r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3, as in h3reqdrive_step_line */
+  r->qpack_failed = L.ref_bad; /* RFC 9204 2.2.3 */
+  /* RFC 9204 7.4: trailers keep the QPACK_DECOMPRESSION_FAILED stream
+   * error for any line that does not decode, even one that only lacks the
+   * room the leading section took -- no 431 here, unlike
+   * h3reqdrive_line_fail. */
   if (!c) {
-    r->reject_code = QPACK_DECOMPRESSION_FAILED; /* RFC 9204 7.4 */
+    r->reject_code = QPACK_DECOMPRESSION_FAILED;
     return 0;
   }
   if (!trailer_line_ok(&L)) {

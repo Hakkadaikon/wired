@@ -174,19 +174,3 @@ void srvrun_close_on_datagram_violation(const srvrun_cfg* cfg, srvrun_conn* c) {
   srvrun_send_transport_close(
       cfg, c, ERR_PROTOCOL_VIOLATION, wired_span_of(reason, sizeof reason - 1));
 }
-
-/* draft-ietf-webtrans-http3-15 4.3: this step's WT bidi gathering
- * (dispatch.c's gather_one_wt_signal_violation) latched the WT_STREAM signal
- * (0x41) arriving as a STREAM frame's own leading bytes at a non-zero stream
- * offset -- "Receiving this frame type in any other circumstances MUST be
- * treated as a connection error of type H3_FRAME_ERROR." An H3-level error
- * on an HTTP/3 connection is an application-level CONNECTION_CLOSE (RFC 9114
- * 8.1), the same shape srvrun_close_on_bad_qsid already uses for a different
- * H3-level violation -- NOT srvrun_close_on_datagram_violation's transport-
- * level PROTOCOL_VIOLATION, which is RFC 9221's own (different-layer) rule. */
-void srvrun_close_on_wt_signal_violation(
-    const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "WT_STREAM signal outside stream's leading bytes";
-  srvrun_send_app_close(
-      cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
-}

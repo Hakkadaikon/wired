@@ -2,9 +2,6 @@
 
 static int line_name_ok(const rline* L);
 static int line_chars_ok(const rline* L);
-static int rd_ows(u8 c);
-static usz rd_ows_lead(const u8* p, usz n);
-static usz rd_ows_trail(const u8* p, usz n);
 static int line_smuggling_ok(const rline* L);
 static usz rd_copy(rd_cursor* cur, const u8* p, usz n);
 static usz rd_pos(rd_cursor* cur, const u8* p, usz n);
@@ -47,34 +44,6 @@ static int line_smuggling_ok(const rline* L) {
 /* Decode failure or any malformed-line check on the recovered line. */
 int h3reqdrive_line_ok(const rline* L) {
   return line_chars_ok(L) && line_smuggling_ok(L);
-}
-
-/* RFC 9110 5.6.3: OWS is SP or HTAB. */
-static int rd_ows(u8 c) { return c == ' ' || c == '\t'; }
-
-static usz rd_ows_lead(const u8* p, usz n) {
-  usz i = 0;
-  while (i < n && rd_ows(p[i])) {
-    i++;
-  }
-  return i;
-}
-
-static usz rd_ows_trail(const u8* p, usz n) {
-  usz i = 0;
-  while (i < n && rd_ows(p[n - 1 - i])) {
-    i++;
-  }
-  return i;
-}
-
-/* RFC 9110 5.5: a field value excludes its leading and trailing whitespace
- * before it is evaluated. */
-void h3reqdrive_line_trim(rline* L) {
-  usz lead = rd_ows_lead(L->value, L->value_len);
-  L->value += lead;
-  L->value_len -= lead;
-  L->value_len -= rd_ows_trail(L->value, L->value_len);
 }
 
 /* Copy n octets to cur's unused scratch tail. Returns their position, or
@@ -166,11 +135,11 @@ int h3reqdrive_step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
       &cur->dyn, &L);
   /* RFC 9204 2.2.3: a reference to no live entry (unresolvable or
    * evicted) fails the connection. Any other line this decoder cannot
-   * decode -- one too large for its scratch or name cap -- is a stream
-   * error of type QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4 / 6). */
+   * decode is either a section too large for it (431) or a stream error
+   * of type QPACK_DECOMPRESSION_FAILED (h3reqdrive_line_fail). */
   r->qpack_failed = L.ref_bad;
   if (!c) {
-    r->reject_code = QPACK_DECOMPRESSION_FAILED;
+    h3reqdrive_line_fail(cur, rest, r);
     return 0;
   }
   h3reqdrive_line_trim(&L);
