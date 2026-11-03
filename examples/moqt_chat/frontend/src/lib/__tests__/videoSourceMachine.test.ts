@@ -559,5 +559,6 @@ describe("videoSourceMachine random walks", () => {
 			expect(counts.get(k) ?? 0, k).toBeGreaterThanOrEqual(20);
 		}
 		expect(counts.get("staleSuccess") ?? 0).toBeGreaterThanOrEqual(20);
-	});
+		// 12k steps: ~3 s plain, near the 5 s default under coverage
+	}, 30_000);
 });

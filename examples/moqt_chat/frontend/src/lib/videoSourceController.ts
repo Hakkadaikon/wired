@@ -95,6 +95,29 @@ const DONE: Record<
 	segmenter: ["segmenterReady", "segmenterFailed"],
 };
 
+/** What the frame loop does with one read: a held source that ends by
+ * itself (unplugged, revoked) is a failure; a released one just ends, and
+ * its in-flight frame is closed. */
+export function frameStep(
+	done: boolean,
+	held: boolean,
+): "fail" | "end" | "close" | "send" {
+	if (done) return held ? "fail" : "end";
+	return held ? "send" : "close";
+}
+
+/** True when `effects` release `source`'s completion at `gen` as stale. */
+export function isStale(
+	effects: readonly VideoSourceEffect[],
+	source: Source,
+	gen: number,
+): boolean {
+	return effects.some(
+		(fx) =>
+			fx.kind === "releaseStale" && fx.source === source && fx.gen === gen,
+	);
+}
+
 export function createVideoSourceController(
 	deps: VideoSourceDeps,
 ): VideoSourceController {
@@ -114,6 +137,7 @@ export function createVideoSourceController(
 			background: state.bg,
 			error: videoErrorMessage(state),
 		});
+		return r.effects;
 	};
 
 	const release = (source: Source) => {
@@ -129,9 +153,10 @@ export function createVideoSourceController(
 
 	const arrive = (source: Source, gen: number, res: Resource) => {
 		const key = `${source}:${gen}`;
-		pending.set(key, res);
-		dispatch({ kind: DONE[source][0], gen } as VideoSourceEvent);
-		if (!pending.delete(key)) return; // released as stale
+		pending.set(key, res); // so releaseStale can stop it
+		const fx = dispatch({ kind: DONE[source][0], gen } as VideoSourceEvent);
+		pending.delete(key);
+		if (isStale(fx, source, gen)) return;
 		held[source] = res;
 		if (source !== "segmenter")
 			void pump(res as SourceHandle).catch(() =>
@@ -171,7 +196,7 @@ export function createVideoSourceController(
 		});
 	};
 
-	const publish = async () => {
+	const startPublish = async () => {
 		const seq = ++pubSeq;
 		try {
 			const p = await deps.startPipeline(() => {
@@ -204,7 +229,7 @@ export function createVideoSourceController(
 		releaseCamera: () => release("camera"),
 		releaseFile: () => release("file"),
 		closeSegmenter: () => release("segmenter"),
-		publish: () => void publish(),
+		publish: () => void startPublish(),
 		unpublish,
 		keyframe: () => pipeline?.requestKeyframe(),
 		releaseStale: (fx) => {
@@ -245,11 +270,11 @@ export function createVideoSourceController(
 		const isHeld = () => held.camera === res || held.file === res;
 		for (;;) {
 			const { value, done } = await reader.read();
-			// a held source that ends by itself (unplugged, revoked) is a failure
-			if (done && isHeld()) throw new Error("source ended");
-			if (done) return;
 			const frame = value as FrameLike;
-			if (!isHeld()) return frame.close?.();
+			const next = frameStep(done, isHeld());
+			if (next === "fail") throw new Error("source ended");
+			if (next === "end") return;
+			if (next === "close") return frame.close?.();
 			send(frame);
 		}
 	};

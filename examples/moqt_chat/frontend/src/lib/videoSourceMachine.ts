@@ -145,7 +145,7 @@ function failed(
 }
 
 /** The ready segmenter broke later (e.g. its WebGL context was lost). */
-function segmenterLost(s: VideoSourceState, fx: Fx): VideoSourceState {
+function loseSegmenter(s: VideoSourceState, fx: Fx): VideoSourceState {
 	if (s.seg !== "ready") return s;
 	fx.push({ kind: "closeSegmenter" });
 	return { ...s, seg: "failed" };
@@ -195,7 +195,7 @@ const handlers: Handlers = {
 	fileFailed: (s, e, fx) => sourceDone(s, "file", e.gen, false, fx),
 	segmenterReady: (s, e, fx) => segmenterDone(s, e.gen, true, fx),
 	segmenterFailed: (s, e, fx) => segmenterDone(s, e.gen, false, fx),
-	segmenterLost: (s, _e, fx) => segmenterLost(s, fx),
+	segmenterLost: (s, _e, fx) => loseSegmenter(s, fx),
 	failed: (s, e, fx) => failed(s, e.gen, e.failure, fx),
 };
 

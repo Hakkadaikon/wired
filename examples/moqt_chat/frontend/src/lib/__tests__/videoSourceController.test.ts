@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createVideoSourceController,
 	type FrameLike,
+	frameStep,
+	isStale,
 	loadBackgroundProcessor,
 	playLoopedVideo,
 	type VideoSourceDeps,
@@ -600,6 +602,45 @@ describe("videoSourceController", () => {
 	});
 });
 
+// Completions that arrive after the source moved on.
+describe("videoSourceController late completions", () => {
+	it("an old publish rejecting after off and a reselect leaves the new source alone", async () => {
+		const old = deferred<void>();
+		const publish = vi.fn(() => old.promise);
+		const t = setup({ publish });
+		t.ctl.toggle("camera");
+		await flush();
+		t.ctl.toggle("camera");
+		publish.mockImplementation(async () => {});
+		t.ctl.toggle("camera");
+		await flush();
+		old.reject(new Error("announce refused"));
+		await flush();
+		expect(t.view()).toEqual({
+			source: "camera",
+			background: "none",
+			error: null,
+		});
+	});
+
+	it("a frame read in flight when the source is released is closed, not pushed", async () => {
+		const read = deferred<{ value: unknown; done: boolean }>();
+		const t = setup({
+			makeProcessor: () => ({
+				readable: { getReader: () => ({ read: () => read.promise }) },
+			}),
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		t.ctl.toggle("camera");
+		const late = frame("late");
+		read.resolve({ value: late, done: false });
+		await flush();
+		expect(late.close).toHaveBeenCalled();
+		expect(t.pushed()).toEqual([]);
+	});
+});
+
 describe("loadBackgroundProcessor (fail-closed per frame)", () => {
 	function bg(over: {
 		segment?: () => unknown;
@@ -654,6 +695,14 @@ describe("loadBackgroundProcessor (fail-closed per frame)", () => {
 		expect(b.seg.segment).toHaveBeenCalledWith(expect.anything(), 1);
 		expect(b.comp.render.mock.calls[0][2]).toBe("image");
 		expect(t.pushed()).toEqual(["snap@1000"]);
+	});
+
+	it("a frame without a timestamp is segmented and snapshotted at 0", async () => {
+		const b = bg({});
+		const proc = await b.load();
+		const out = proc.process({ close: vi.fn() }, "blur");
+		expect(b.seg.segment).toHaveBeenCalledWith(expect.anything(), 0);
+		expect(out).toEqual({ name: "snap@0", timestamp: 0 });
 	});
 
 	it("segment throws: nothing is pushed", async () => {
@@ -782,5 +831,29 @@ describe("playLoopedVideo", () => {
 		await expect(playLoopedVideo(v.video, "blob:z", revoke)).rejects.toThrow();
 		expect(revoke).toHaveBeenCalledWith("blob:z");
 		expect(v.video.load).toHaveBeenCalled();
+	});
+});
+
+describe("frameStep", () => {
+	it.each([
+		[true, true, "fail"],
+		[true, false, "end"],
+		[false, false, "close"],
+		[false, true, "send"],
+	] as const)("done=%s held=%s -> %s", (done, held, want) => {
+		expect(frameStep(done, held)).toBe(want);
+	});
+});
+
+describe("isStale", () => {
+	const stale = { kind: "releaseStale", source: "camera", gen: 2 } as const;
+	it.each([
+		["no effects", [], false],
+		["a releaseStale for this source and gen", [stale], true],
+		["one for another gen", [{ ...stale, gen: 1 }], false],
+		["one for another source", [{ ...stale, source: "file" }], false],
+		["other effects only", [{ kind: "publish" }, { kind: "keyframe" }], false],
+	] as const)("%s", (_name, effects, want) => {
+		expect(isStale(effects, "camera", 2)).toBe(want);
 	});
 });
