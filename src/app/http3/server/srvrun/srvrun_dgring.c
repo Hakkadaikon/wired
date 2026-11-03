@@ -131,9 +131,9 @@ static int srvrun_dgring_push(
   if (!srvrun_dgring_fill(e, slot, raw, connect_id, payload)) {
     return 0;
   }
-  e->conn_gen = env->conns[slot].gen;
-  e->urgency  = urgency;
-  e->sent     = 0;
+  e->conn_gen  = env->conns[slot].gen;
+  e->urgency   = urgency;
+  e->queued_ms = 0;
   env->dgring_n++;
   return 1;
 }

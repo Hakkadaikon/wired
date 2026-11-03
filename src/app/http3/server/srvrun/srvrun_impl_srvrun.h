@@ -1118,10 +1118,9 @@ struct wired_srvrun_env {
   /* Session-addressed HTTP Datagram send ring (wired_server_wt_send_
    * datagram_to): dgring_n entries starting at dgring_head, drained once per
    * loop step most urgent first, oldest first within one urgency
-   * (srvrun_dgring_send_best; RFC 9221 5.1). shortcut: an entry drained
-   * ahead of the head holds its slot until the head passes it, so a long
-   * stall of low-urgency entries shrinks the free space; fine at the ring's
-   * 256 entries. Env-level, not per-connection,
+   * (srvrun_dgring_send_best; RFC 9221 5.1). A sent entry frees its slot at
+   * once (srvrun_dgring_remove), so a held one never pins the ring.
+   * Env-level, not per-connection,
    * so one step's burst across many sessions shares one bounded pool. */
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;

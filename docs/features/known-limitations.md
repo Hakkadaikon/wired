@@ -543,16 +543,14 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   dropped whole, never truncated. Source: `WIRED_WT_BUFFERED_DATAGRAM_CAP`
   (ponytail).
 - **Datagram ring slots and broadcast urgency** — Affects: apps that send
-  HTTP Datagrams at mixed urgencies. An entry drained ahead of the ring head
-  keeps its slot until the head passes it, so a long stall of low-urgency
-  entries shrinks the free space of the 256-entry ring. A broadcast copied
-  to another worker thread loses its urgency and is queued there at the
-  default (3). The ring drains at each connection's congestion window and
-  pacing rate; an entry whose connection is held waits while other
-  connections' entries go. Without `datagram_first`, a connection whose
-  streams keep its pacer empty sends no ring datagrams until the streams
-  pause. Source: `srvrun_dgring_send_best`, `srvrun_broadcast_registered`
-  (shortcut).
+  HTTP Datagrams at mixed urgencies. A broadcast copied to another worker
+  thread loses its urgency and is queued there at the default (3). The ring
+  drains at each connection's congestion window and pacing rate; an entry
+  whose connection is held waits while other connections' entries go.
+  Without `datagram_first`, a connection whose streams keep its pacer empty
+  holds a ring datagram for up to max(2 x smoothed RTT, 25 ms); after that
+  the datagram goes before the streams. Source: `srvrun_dgring_send_best`,
+  `srvrun_dgring_overdue`, `srvrun_broadcast_registered` (shortcut).
 - **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
   sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
   counts WT streams, streamed request bodies, CONNECT-stream capsules and the

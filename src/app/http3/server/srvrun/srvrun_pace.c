@@ -55,13 +55,15 @@ void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 
 /* RFC 9221 5.4 / RFC 9002 7.7: refills c's pacer to now_ms (side effect),
  * then 1 while a ring DATAGRAM of len payload bytes must wait -- c's window
- * has no room, or the bucket holds fewer than len bytes. Unlike the stream
- * pump's > 0 gate there is no overdraft: one datagram per refill would run
- * at a packet per ms whatever the rate. Unpaced until the first RTT sample.
- */
+ * has no room, or the bucket holds less than the whole packet (len plus
+ * SRVRUN_DG_PKT_OVERHEAD; the charge is the sealed packet, so a payload-only
+ * gate let small datagrams overspend the rate). Unlike the stream pump's > 0
+ * gate there is no overdraft: one datagram per refill would run at a packet
+ * per ms whatever the rate. Unpaced until the first RTT sample. */
 int srvrun_dg_refill_held(srvrun_conn* c, usz len, u64 now_ms) {
   srvrun_pace_refill_at(c, now_ms);
-  return srvrun_dg_cwnd_blocked(c, len) || (c->srtt_ms && c->pace_tokens < len);
+  return srvrun_dg_cwnd_blocked(c, len) ||
+         (c->srtt_ms && c->pace_tokens < len + SRVRUN_DG_PKT_OVERHEAD);
 }
 
 /* Spend bytes from the bucket (clamped at zero -- srvrun_pace_ok's > 0

@@ -82,6 +82,9 @@ int  srvrun_pmtu_big_lost(
 void srvrun_pmtu_feed_losses(srvrun_conn* c, usz big);
 int  srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c);
 void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot);
+/* 1 when a ring entry for connection slot has waited past its bound behind
+ * that connection's streams (stamps first-seen times as a side effect). */
+int  srvrun_dgring_overdue(const srvrun_step_ctx* ctx, int slot);
 void srvrun_qlog_lost(
     const srvrun_cfg*                cfg,
     const srvrun_conn*               c,
