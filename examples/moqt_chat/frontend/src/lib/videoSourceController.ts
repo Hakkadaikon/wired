@@ -135,7 +135,7 @@ export function createVideoSourceController(
 		held[source] = res;
 		if (source !== "segmenter")
 			void pump(res as SourceHandle).catch(() =>
-				dispatch({ kind: "failed", gen, failure: "send" }),
+				dispatch({ kind: "failed", gen, failure: "frames" }),
 			);
 	};
 

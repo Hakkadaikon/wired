@@ -341,7 +341,7 @@ describe("videoSourceController", () => {
 		expect(t.camera.stop).toHaveBeenCalled();
 		expect(t.view()).toMatchObject({
 			source: "off",
-			error: "video could not be sent",
+			error: "video frames could not be read",
 		});
 	});
 
@@ -356,7 +356,7 @@ describe("videoSourceController", () => {
 		await flush();
 		expect(t.view()).toMatchObject({
 			source: "off",
-			error: "video could not be sent",
+			error: "video frames could not be read",
 		});
 	});
 

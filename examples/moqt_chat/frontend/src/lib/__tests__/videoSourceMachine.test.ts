@@ -364,7 +364,7 @@ describe("videoSourceMachine", () => {
 
 	it("a failure of an older selection or while off changes nothing", () => {
 		const s = run([...cameraLive, selectFile]);
-		const stale = { kind: "failed", gen: 1, failure: "send" } as const;
+		const stale = { kind: "failed", gen: 1, failure: "frames" } as const;
 		expect(step(s, stale)).toEqual({ state: s, effects: [] });
 		const off = run([{ kind: "off" }], s);
 		const now = { kind: "failed", gen: 2, failure: "encode" } as const;
@@ -379,7 +379,7 @@ describe("videoSourceMachine", () => {
 		expect(msg("file")).toBe("video file could not be played");
 		expect(msg("publish")).toBe("video could not be published");
 		expect(msg("encode")).toBe("video could not be encoded");
-		expect(msg("send")).toBe("video could not be sent");
+		expect(msg("frames")).toBe("video frames could not be read");
 	});
 
 	it("an error stays across background changes while off, until the next selection", () => {

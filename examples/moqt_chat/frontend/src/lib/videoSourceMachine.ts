@@ -8,7 +8,7 @@ export type Selection = "off" | "camera" | "file";
 export type BackgroundMode = "none" | "blur" | "image";
 export type SegmenterState = "none" | "ready" | "failed";
 /** Why the source was turned off: what could not be done. */
-export type VideoFailure = "camera" | "file" | "publish" | "encode" | "send";
+export type VideoFailure = "camera" | "file" | "publish" | "encode" | "frames";
 
 export interface VideoSourceState {
 	sel: Selection;
@@ -223,7 +223,7 @@ const FAILURE_MESSAGE: Record<VideoFailure, string> = {
 	file: "video file could not be played",
 	publish: "video could not be published",
 	encode: "video could not be encoded",
-	send: "video could not be sent",
+	frames: "video frames could not be read",
 };
 
 /** The error to show for this state, if any. */
