@@ -105,6 +105,13 @@ A pure state machine (events in, state and effects out) owns the source.
 - **Frame gate.** For each camera frame, the frame is sent raw when the
   mode is none. It is composited when the segmenter is ready, and dropped
   otherwise.
+- **Per-frame fail-closed.** A composited frame is sent only when the
+  segmenter returned a mask for that very frame and the compositor drew
+  it. If segmentation throws or gives no mask, the frame is dropped. The
+  same holds when the compositor cannot be created or its WebGL context
+  is lost, and those two failures also count as a segmenter failure: an
+  error shows and frames stay withheld until the background is set to
+  none. A raw frame is never the fallback.
 
 ### Background
 
@@ -136,10 +143,32 @@ The rail gets a Video section:
 The toggles are disabled while disconnected. Errors show under the
 section. Camera tiles show next to the screen tiles.
 
+## Acceptance criteria
+
+- Turning the camera on captures it and publishes the camera track.
+  Turning the file on plays it and publishes the same track.
+- Switching between camera and file keeps the track published. Only the
+  new source's frames are sent once it is up. If the new source fails,
+  the track ends.
+- Turning the source off ends the track and releases the camera, the file
+  and the segmenter.
+- A camera or file that comes up after the user turned it off or switched
+  away is released at once and never sent.
+- With blur or image selected, no camera frame is sent while the
+  segmenter is loading or after it failed.
+- Changing between blur and image keeps the loaded segmenter and does not
+  restart the camera. Choosing none closes the segmenter.
+- A file source ignores the background.
+- A camera that cannot be opened, or a file that cannot play, returns to
+  off and shows an error. The error stays until the next selection.
+- Leaving the room releases everything, including acquisitions still in
+  flight.
+
 ## Verification
 
-- The source lifecycle is model-checked before implementation, and its
-  scenarios become unit tests of the state machine.
+- The source lifecycle's behaviour is fixed before implementation, and
+  each acceptance criterion below becomes a unit test of the state
+  machine or the controller.
 - **Unit tests** cover the frame gate, alias ranges and routing, and the
   track kind.
 - **e2e** runs two headless Chrome participants with a fake camera:
