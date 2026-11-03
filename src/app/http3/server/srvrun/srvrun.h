@@ -558,7 +558,8 @@ void wired_srvrun_env_wt_usage(
  * @param obs optional qlog/keylog file paths and cert reload paths, each 0
  *   to disable
  * @param opt busy_poll / so_busy_poll_us / no_signal_handlers knobs
- * @return same as wired_server_run. */
+ * @return same as wired_server_run. On return the run's sockets are
+ *   closed, so the port is free for a later run in the same process. */
 int wired_srvrun_serve_env(
     wired_srvrun_env*       env,
     u16                     port,

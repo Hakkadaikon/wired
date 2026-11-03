@@ -172,6 +172,7 @@ i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   srvrun_maybe_incoming_cpu(fd, opt);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (wired_udp_bind(fd, &sa) < 0) {
+    wired_udp_close(fd);
     return -1;
   }
   return fd;
