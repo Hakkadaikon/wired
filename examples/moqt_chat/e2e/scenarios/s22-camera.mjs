@@ -1,10 +1,11 @@
-// S22 camera: user1 turns the camera on, picks the image background,
-// switches to the bundled mp4, and turns it off. user2 watches the whole
-// time; user3 joins while the mp4 is streaming.
+// S22 camera: user1 turns the camera on, picks the blur and then the image
+// background, switches to the bundled mp4, and turns it off. user2 watches
+// the whole time; user3 joins while the mp4 is streaming.
 //
 // Chrome's fake camera shows no person, so with the image background the
 // segmenter keeps none of the frame and the tile turns the bundled
-// image's blue; without a background the fake camera's green shows. The
+// image's blue; without a background, or blurred, the fake camera's green
+// shows. The
 // mp4 is 480x270, unlike the fake camera, so its frames are told apart by
 // size.
 //
@@ -63,6 +64,52 @@ async function lastFrameSize(viewer, sender, t0) {
 	return frames.at(-1);
 }
 
+const select = (c, value) =>
+	c.page.select('[data-testid="background-select"]', value);
+
+// Blur keeps frames flowing and, with no person, the camera's green.
+async function blurStep({ user1, user2, report, failures, log }) {
+	log("user1 picks the blur background");
+	const tBlur = await now(user2);
+	await select(user1, "blur");
+	const blurred = await waitFor(
+		async () => (await framesSince(user2, "user1", tBlur)).length > 0,
+		20000,
+	);
+	if (!blurred) failures.push("user2 got no frames after the blur switch");
+	// the fake camera blurred is still green; blue would be the image
+	report.blurColour = await tileColour(user2, "user1");
+	if (!isGreen(report.blurColour))
+		failures.push(`blur tile is not green: ${report.blurColour}`);
+}
+
+// Off removes the tile, and no frame is decoded a second after it.
+async function offStep({ user1, user2, report, failures, log }) {
+	log("user1 turns the video file off");
+	const tOff = await now(user2);
+	await user1.page.click('[data-testid="video-file-toggle"]');
+	const gone = await waitFor(
+		() =>
+			user2.page.evaluate(
+				() => !document.querySelector('[data-testid="camera-tile-user1"]'),
+			),
+		10000,
+	);
+	if (!gone) failures.push("user1's camera tile stayed after off");
+	// Frames still decoded a second after off mean the sender kept sending;
+	// give that second and more time to pass before counting.
+	await waitFor(async () => (await now(user2)) > tOff + 2500, 10000);
+	report.framesAfterOff = (
+		await framesSince(user2, "user1", tOff + 1000)
+	).length;
+	if (report.framesAfterOff)
+		failures.push(`${report.framesAfterOff} frames arrived after off`);
+	const back = await user2.page.evaluate(
+		() => !!document.querySelector('[data-testid="camera-tile-user1"]'),
+	);
+	if (back) failures.push("user1's camera tile came back after off");
+}
+
 export async function run({ pageUrl, serverUrl, server, log }) {
 	const opts = (tag) => ({
 		pageUrl,
@@ -74,12 +121,11 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 	const failures = [];
 	const report = {};
 	const clients = [];
-	const select = (c, value) =>
-		c.page.select('[data-testid="background-select"]', value);
 	try {
 		const user1 = await joinStabilityClient(opts("user1"));
 		const user2 = await joinStabilityClient(opts("user2"));
 		clients.push(user1, user2);
+		const ctx = { user1, user2, report, failures, log };
 		await sleep(1000);
 
 		log("user1 turns the camera on");
@@ -98,6 +144,8 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 			failures.push(
 				`raw camera tile is not the fake camera's green: ${await tileColour(user2, "user1")}`,
 			);
+
+		await blurStep(ctx);
 
 		log("user1 picks the image background");
 		await select(user1, "image");
@@ -139,23 +187,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		}, 15000);
 		if (!late) failures.push("late joiner never decoded the mp4 stream");
 
-		log("user1 turns the video file off");
-		const tOff = await now(user2);
-		await user1.page.click('[data-testid="video-file-toggle"]');
-		const gone = await waitFor(
-			() =>
-				user2.page.evaluate(
-					() => !document.querySelector('[data-testid="camera-tile-user1"]'),
-				),
-			10000,
-		);
-		if (!gone) failures.push("user1's camera tile stayed after off");
-		// Frames still decoded a second after off mean the sender kept sending.
-		report.framesAfterOff = (
-			await framesSince(user2, "user1", tOff + 1000)
-		).length;
-		if (report.framesAfterOff)
-			failures.push(`${report.framesAfterOff} frames arrived after off`);
+		await offStep(ctx);
 
 		for (const c of clients)
 			if (c.errors.length)
