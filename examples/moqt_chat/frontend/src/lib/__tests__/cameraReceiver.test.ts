@@ -8,10 +8,12 @@ import { SCREEN_STALL_MS } from "../stallDetector";
 type Decoded = { close: ReturnType<typeof vi.fn>; [k: string]: unknown };
 const decoded: Decoded[] = [];
 const decoders: { close: ReturnType<typeof vi.fn> }[] = [];
+// Per-test replacements for the fake decoder's methods.
+let override: (init: { error: (e: unknown) => void }) => object = () => ({});
 let nextFrame: Record<string, number> = { codedWidth: 480, codedHeight: 270 };
 const FakeDecoder = vi.fn(function (
 	this: unknown,
-	init: { output: (f: unknown) => void },
+	init: { output: (f: unknown) => void; error: (e: unknown) => void },
 ) {
 	const d = {
 		configure: vi.fn(),
@@ -21,6 +23,7 @@ const FakeDecoder = vi.fn(function (
 			decoded.push(f);
 			queueMicrotask(() => init.output(f));
 		}),
+		...override(init),
 	};
 	decoders.push(d);
 	return d;
@@ -59,6 +62,7 @@ afterEach(() => {
 	decoded.length = 0;
 	decoders.length = 0;
 	nextFrame = { codedWidth: 480, codedHeight: 270 };
+	override = () => ({});
 	delete (globalThis as { __wiredCameraTap?: unknown }).__wiredCameraTap;
 });
 
@@ -125,12 +129,48 @@ describe("cameraReceiver", () => {
 		expect(deps.addTile).toHaveBeenCalledTimes(2);
 	});
 
-	it("a malformed chunk reports an error instead of throwing", async () => {
+	it("a malformed chunk is ignored without throwing", async () => {
 		const { deps, rx } = setup();
 		expect(() =>
 			rx.onChunk("user1", { ...key(0), idx: 5 } as ScreenChunk),
 		).not.toThrow();
 		await settle();
+		expect(deps.draw).not.toHaveBeenCalled();
+		expect(deps.onError).not.toHaveBeenCalled();
+	});
+
+	const DECODE_FAILED = "a peer's camera could not be decoded";
+
+	it("a decoder that rejects its configuration is reported, not thrown", () => {
+		override = () => ({
+			configure: () => {
+				throw new Error("unsupported codec");
+			},
+		});
+		const { deps, rx } = setup();
+		expect(() => rx.onChunk("user1", key(0))).not.toThrow();
+		expect(deps.onError).toHaveBeenCalledExactlyOnceWith(DECODE_FAILED);
+	});
+
+	it("a decode that throws is reported", () => {
+		override = () => ({
+			decode: () => {
+				throw new Error("bad chunk");
+			},
+		});
+		const { deps, rx } = setup();
+		expect(() => rx.onChunk("user1", key(0))).not.toThrow();
+		expect(deps.onError).toHaveBeenCalledExactlyOnceWith(DECODE_FAILED);
+	});
+
+	it("the decoder's error callback is reported", async () => {
+		override = (init) => ({
+			decode: () => queueMicrotask(() => init.error(new Error("corrupt"))),
+		});
+		const { deps, rx } = setup();
+		rx.onChunk("user1", key(0));
+		await settle();
+		expect(deps.onError).toHaveBeenCalledExactlyOnceWith(DECODE_FAILED);
 		expect(deps.draw).not.toHaveBeenCalled();
 	});
 

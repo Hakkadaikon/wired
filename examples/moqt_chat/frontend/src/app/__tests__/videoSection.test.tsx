@@ -43,6 +43,7 @@ function render(connected: boolean, video: Partial<VideoSourceView> = {}) {
 		file: q<HTMLButtonElement>("video-file-toggle"),
 		select: q<HTMLSelectElement>("background-select"),
 		input: q<HTMLInputElement>("video-file-input"),
+		error: () => q<HTMLElement>("video-error"),
 	};
 }
 
@@ -80,5 +81,30 @@ describe("VideoSection", () => {
 			v.input.dispatchEvent(new Event("change", { bubbles: true }));
 		});
 		expect(v.props.onPickFile).toHaveBeenCalledExactlyOnceWith(file);
+	});
+
+	it("only the live source's toggle is pressed", () => {
+		const pressed = (v: ReturnType<typeof render>) =>
+			[v.camera, v.file].map((b) => b.getAttribute("aria-pressed"));
+		expect(pressed(render(true, { source: "camera" }))).toEqual([
+			"true",
+			"false",
+		]);
+		act(() => root?.unmount());
+		expect(pressed(render(true, { source: "file" }))).toEqual([
+			"false",
+			"true",
+		]);
+	});
+
+	it("a video error is shown under the section, and nothing without one", () => {
+		const v = render(true, { error: "camera could not be started" });
+		expect(v.error()?.textContent).toBe("camera could not be started");
+		act(() =>
+			useMoqtChatStore
+				.getState()
+				.setVideo({ source: "off", background: "none", error: null }),
+		);
+		expect(v.error()).toBeNull();
 	});
 });

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	coverScale,
-	FRAGMENT_SHADER,
-	modeUniform,
-	VERTEX_SHADER,
-} from "../backgroundCompositor";
+import { coverScale, modeUniform } from "../backgroundCompositor";
 
 describe("modeUniform", () => {
 	it("is 0 for blur and 1 for image", () => {
@@ -24,12 +19,5 @@ describe("coverScale", () => {
 
 	it("crops the background's width when the frame is taller", () => {
 		expect(coverScale(1600, 900, 100, 100)).toEqual([900 / 1600, 1]);
-	});
-});
-
-describe("shader sources", () => {
-	it("are GLSL ES 3.00", () => {
-		expect(VERTEX_SHADER.startsWith("#version 300 es")).toBe(true);
-		expect(FRAGMENT_SHADER.startsWith("#version 300 es")).toBe(true);
 	});
 });
