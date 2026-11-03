@@ -168,7 +168,9 @@ just up -d    # same, but detached; `docker compose logs -f` to follow it, `just
 self-signed certificate (it prints `cert IP SAN: ...`), so a browser can
 dial `https://<that IP>:4433/`. Behind NAT that address is the private
 one; set `WIRED_SAN_IPV4=<public IP> just up` to name the address
-clients actually dial.
+clients actually dial. The address replaces the demo's 127.0.0.1, so on
+the host itself dial `https://localhost:4433/` (the cert also names
+`localhost`): `https://127.0.0.1:4433/` is answered 421.
 
 The container runs with `network_mode: host` (see `docker-compose.yml`), so
 `wired_server` listens on the host's own `4433/udp` directly rather than

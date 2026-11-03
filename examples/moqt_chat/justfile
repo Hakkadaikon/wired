@@ -21,7 +21,9 @@ up *flags: build
     # The cert's IP SAN is this host's default-route source address (override
     # with WIRED_SAN_IPV4=a.b.c.d), so dialing https://<that IP>:4433/ is not
     # answered 421 (RFC 9110 7.4).
-    san="${WIRED_SAN_IPV4:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"; echo "cert IP SAN: ${san:-127.0.0.1}"; WIRED_SAN_IPV4="$san" docker compose up --build {{flags}}
+    san="${WIRED_SAN_IPV4:-$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')}"; \
+    echo "cert IP SAN: ${san:-127.0.0.1}"; \
+    WIRED_SAN_IPV4="$san" docker compose up --build {{flags}}
 
 # Stop and remove the container.
 down:
