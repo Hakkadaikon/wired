@@ -25,3 +25,6 @@ services:
       context: ../..
       dockerfile: examples/moqt_chat/Dockerfile
     network_mode: host
+    # The self-signed cert's IP SAN: `just up` fills in this host's address;
+    # a bare `docker compose up` keeps the demo's 127.0.0.1.
+    command: ["--san-ipv4", "${WIRED_SAN_IPV4:-127.0.0.1}"]
