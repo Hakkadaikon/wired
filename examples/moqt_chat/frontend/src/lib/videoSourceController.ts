@@ -242,11 +242,14 @@ export function createVideoSourceController(
 
 	const pump = async (res: SourceHandle) => {
 		const reader = deps.makeProcessor(res.track).readable.getReader();
+		const isHeld = () => held.camera === res || held.file === res;
 		for (;;) {
 			const { value, done } = await reader.read();
+			// a held source that ends by itself (unplugged, revoked) is a failure
+			if (done && isHeld()) throw new Error("source ended");
 			if (done) return;
 			const frame = value as FrameLike;
-			if (held.camera !== res && held.file !== res) return frame.close?.();
+			if (!isHeld()) return frame.close?.();
 			send(frame);
 		}
 	};

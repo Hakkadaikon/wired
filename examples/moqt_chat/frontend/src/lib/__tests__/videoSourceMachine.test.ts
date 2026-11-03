@@ -3,6 +3,7 @@ import {
 	type BackgroundMode,
 	frameAction,
 	initialVideoSource,
+	type StepResult,
 	step,
 	type VideoFailure,
 	type VideoSourceEvent,
@@ -459,6 +460,41 @@ describe("videoSourceMachine", () => {
 	});
 });
 
+// A resource the state stops holding must be let go by an effect of the
+// same step.
+function checkEffects(s: VideoSourceState, r: StepResult) {
+	const fx = new Set(
+		r.effects.map((f) =>
+			f.kind === "releaseStale" ? `${f.kind}:${f.source}` : f.kind,
+		),
+	);
+	const n = r.state;
+	const rules: [string, boolean, string[]][] = [
+		[
+			"camera released",
+			s.camHeld !== null && n.camHeld === null,
+			["releaseCamera", "releaseStale:camera"],
+		],
+		[
+			"file released",
+			s.fileHeld !== null && n.fileHeld === null,
+			["releaseFile", "releaseStale:file"],
+		],
+		[
+			"segmenter closed",
+			s.seg === "ready" && n.seg !== "ready",
+			["closeSegmenter"],
+		],
+		["unpublished", s.published && !n.published, ["unpublish"]],
+	];
+	for (const [name, happened, any] of rules)
+		if (happened)
+			expect(
+				any.some((k) => fx.has(k)),
+				name,
+			).toBe(true);
+}
+
 describe("videoSourceMachine random walks", () => {
 	it("holds its safety properties over random event sequences", () => {
 		let seed = 12345;
@@ -470,7 +506,7 @@ describe("videoSourceMachine random walks", () => {
 			return (seed >>> 0) % n;
 		};
 		const modes: BackgroundMode[] = ["none", "blur", "image"];
-		const failures: VideoFailure[] = ["publish", "encode", "send"];
+		const failures: VideoFailure[] = ["publish", "encode", "frames"];
 		const gk = [
 			"cameraAcquired",
 			"cameraFailed",
@@ -510,6 +546,7 @@ describe("videoSourceMachine random walks", () => {
 						gen: (e as { gen: number }).gen,
 					});
 				}
+				checkEffects(s, r);
 				expect(r.state.gen).toBeGreaterThanOrEqual(s.gen);
 				s = r.state;
 				for (const [name, holds] of invariants) {

@@ -63,9 +63,16 @@ function setup(over: Partial<VideoSourceDeps> = {}) {
 	const fileStop = vi.fn(() => file.stop());
 	const views: { source: string; background: string; error: string | null }[] =
 		[];
+	// each acquisition hands over a live track, as a fresh one would be
 	const deps: VideoSourceDeps = {
-		getUserMedia: vi.fn(async () => ({ getVideoTracks: () => [camera] })),
-		playFile: vi.fn(async () => ({ track: file, stop: fileStop })),
+		getUserMedia: vi.fn(async () => {
+			camera.stopped = false;
+			return { getVideoTracks: () => [camera] };
+		}),
+		playFile: vi.fn(async () => {
+			file.stopped = false;
+			return { track: file, stop: fileStop };
+		}),
 		defaultFileUrl: "/videos/sample.mp4",
 		makeProcessor: (track) => ({
 			readable: { getReader: () => (track as Track).reader },
@@ -358,6 +365,67 @@ describe("videoSourceController", () => {
 			source: "off",
 			error: "video frames could not be read",
 		});
+	});
+
+	it("a preview that throws does not stop the frame going out", async () => {
+		const t = setup({
+			drawPreview: vi.fn(() => {
+				throw new Error("canvas");
+			}),
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		t.camera.push(frame("c1"));
+		await flush();
+		expect(t.pushed()).toEqual(["c1"]);
+		expect(t.view()).toMatchObject({ source: "camera", error: null });
+	});
+
+	it("a frame before the pipeline exists is closed, not pushed", async () => {
+		const p = deferred<{
+			pushFrame: () => void;
+			requestKeyframe: () => void;
+			stop: () => void;
+		}>();
+		const t = setup({ startPipeline: vi.fn(() => p.promise) });
+		t.ctl.toggle("camera");
+		await flush();
+		const early = frame("early");
+		t.camera.push(early);
+		await flush();
+		expect(early.close).toHaveBeenCalled();
+		p.resolve(t.pipeline);
+		await flush();
+		expect(t.pushed()).toEqual([]);
+	});
+
+	it("the held camera ending by itself turns the source off", async () => {
+		const t = setup();
+		t.ctl.toggle("camera");
+		await flush();
+		t.camera.stop(); // unplugged: the track ends without the controller
+		await flush();
+		expect(t.view()).toMatchObject({
+			source: "off",
+			error: "video frames could not be read",
+		});
+		expect(t.deps.unpublish).toHaveBeenCalled();
+	});
+
+	it("a camera without a video track fails and holds nothing", async () => {
+		const makeProcessor = vi.fn();
+		const t = setup({
+			getUserMedia: vi.fn(async () => ({ getVideoTracks: () => [] })),
+			makeProcessor,
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		expect(t.view()).toMatchObject({
+			source: "off",
+			error: "camera could not be started",
+		});
+		expect(makeProcessor).not.toHaveBeenCalled();
+		expect(t.deps.publish).not.toHaveBeenCalled();
 	});
 
 	it("an off while the pipeline is starting stops that pipeline", async () => {
@@ -699,6 +767,18 @@ describe("playLoopedVideo", () => {
 		const revoke = vi.fn();
 		await expect(playLoopedVideo(v.video, "blob:y", revoke)).rejects.toThrow();
 		expect(revoke).toHaveBeenCalledWith("blob:y");
+		expect(v.video.load).toHaveBeenCalled();
+	});
+
+	it("a capture without a video track unloads and revokes, then rejects", async () => {
+		const v = fakeVideo();
+		v.video.captureStream.mockReturnValue({
+			getVideoTracks: () => [],
+			getTracks: () => [v.audioTrack],
+		});
+		const revoke = vi.fn();
+		await expect(playLoopedVideo(v.video, "blob:z", revoke)).rejects.toThrow();
+		expect(revoke).toHaveBeenCalledWith("blob:z");
 		expect(v.video.load).toHaveBeenCalled();
 	});
 });
