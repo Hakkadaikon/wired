@@ -17,7 +17,7 @@ static u64 srvrun_dgring_wait_ms(const srvrun_conn* c) {
   return u64_max(2 * c->srtt_ms, SRVRUN_PTO_MS);
 }
 
-/* Stamp e the first time a send pass sees it. */
+/* Stamp e the first time a send pass finds it at its connection's front. */
 static void srvrun_dgring_stamp(srvrun_dgring_entry* e, u64 now_ms) {
   if (!e->seen_ms) {
     e->seen_ms = now_ms;
@@ -39,15 +39,17 @@ static int srvrun_dgring_for(
              st->conns[slot].up, st->conns[slot].gen, e->conn_gen);
 }
 
-/* Entries are stamped in ring order on a send pass's scan, so stamped ones
- * form a prefix and slot's first entry is its oldest: only it is checked. */
+/* Only slot's oldest live entry is stamped and checked: each datagram's wait
+ * starts when it reaches the front of its connection's queue, so the
+ * streams get a full wait between two overdue datagrams even when the ring
+ * stays full (no stream starvation under a datagram flood). */
 int srvrun_dgring_overdue(const srvrun_step_ctx* ctx, int slot) {
   wired_srvrun_env* env = ctx->cfg->env;
   for (usz i = 0; i < env->dgring_n; i++) {
     srvrun_dgring_entry* e =
         &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP];
-    srvrun_dgring_stamp(e, ctx->now_ms);
     if (srvrun_dgring_for(ctx->st, e, slot)) {
+      srvrun_dgring_stamp(e, ctx->now_ms);
       return srvrun_dgring_late(ctx->st, e, ctx->now_ms);
     }
   }

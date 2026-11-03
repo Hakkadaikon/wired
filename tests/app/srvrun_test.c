@@ -21857,8 +21857,9 @@ static void test_srvrun_dgring_overdue_yields_at_low_rate(void) {
 }
 
 /* RFC 9221 5.1: removing a sent entry from the middle of the ring keeps
- * call order for the rest -- [held A1, sendable B, held A2]: B leaves,
- * then with room for one packet A1 goes before A2. */
+ * call order for the rest -- [held A1, sendable B, held A2, held A3]: B
+ * leaves, then with room for one packet A1 goes and A2 (not A3, as a
+ * swap-with-tail removal would leave) is next. */
 static void test_srvrun_dgring_middle_removal_keeps_call_order(void) {
   struct lp_fix              f0, f1, f2;
   wired_obuf                 ob0 = {0}, ob1 = {0}, ob2 = {0};
@@ -21877,17 +21878,19 @@ static void test_srvrun_dgring_middle_removal_keeps_call_order(void) {
       &g_srvrun_state.conns[1].wt, wired_span_of(msg, 1)));
   msg[0] = 2;
   CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+  msg[0] = 3;
+  CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
   a->cc.cwnd = 1; /* A held */
   srvrun_dgring_drain(&cfg, &st, 1);
-  CHECK(g_srvrun_env.dgring_n == 2); /* B left from the middle */
+  CHECK(g_srvrun_env.dgring_n == 3); /* B left from the middle */
   a->cc.cwnd        = 1u << 20;
   a->srtt_ms        = 100;
   a->pace_tokens    = 2 + SRVRUN_DG_PKT_OVERHEAD + 10; /* one packet */
   a->pace_refill_ms = 2;
   srvrun_dgring_drain(&cfg, &st, 2);
-  CHECK(g_srvrun_env.dgring_n == 1);
+  CHECK(g_srvrun_env.dgring_n == 2);
   e = &g_srvrun_env.dgring[g_srvrun_env.dgring_head];
-  CHECK(e->buf[e->len - 1] == 2); /* A1 went first, A2 remains */
+  CHECK(e->buf[e->len - 1] == 2); /* A1 went first, A2 is next */
 }
 
 /* srvrun_dgring_overdue at now_ms on slot (stamps first-seen times). */
@@ -21925,6 +21928,16 @@ static void test_srvrun_dgring_overdue_bound(void) {
   a->srtt_ms = 50;
   CHECK(!sr_dgring_overdue_at(0, 100 + 2 * 50 - 1));
   CHECK(sr_dgring_overdue_at(0, 100 + 2 * 50));
+  {
+    /* a queued second entry of A starts its wait only once it is A's
+     * front: scanning the ring for another slot does not stamp it */
+    const srvrun_dgring_entry* a2;
+    CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+    CHECK(!sr_dgring_overdue_at(2, 500));
+    a2 = &g_srvrun_env
+              .dgring[(g_srvrun_env.dgring_head + 2) % SRVRUN_DGRING_CAP];
+    CHECK(a2->conn_slot == 0 && a2->seen_ms == 0);
+  }
   a->gen++; /* a new client took slot 0: the old one's entry holds nobody */
   CHECK(!sr_dgring_overdue_at(0, 100 + 2 * 50));
   a->gen--;
