@@ -798,8 +798,8 @@ typedef struct {
 
 /** Fixed capacity: SUBSCRIBEs held for a publisher (RENDEZVOUS_TIMEOUT,
  * draft-18/19 10.2.6, draft-22 9.20.6), hub-wide. Each hold already pins
- * one request-stream slot (WIRED_MOQTRUN_MAX_REQS = 96), so 16 lets a
- * sixth of the pool wait at once -- interop clients hold one (moq-test-*,
+ * one request-stream slot (WIRED_MOQTRUN_MAX_REQS = 128), so 16 lets an
+ * eighth of the pool wait at once -- interop clients hold one (moq-test-*,
  * rendezvous-timeout) or two (two subscribers of one track). Past it, or
  * past WIRED_MOQTRUN_RDV_PER_SESSION, the SUBSCRIBE is refused
  * EXCESSIVE_LOAD at once, never dropped. Each slot ~1.3 KB of BSS.
