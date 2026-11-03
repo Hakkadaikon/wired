@@ -51,7 +51,7 @@ import {
 	startScreenSharePipeline,
 } from "@/lib/screenSharePipeline";
 import { screenTap } from "@/lib/screenTap";
-import { fitCanvasToFrame } from "@/lib/screenTileSize";
+import { type DrawableFrame, drawFrameInto } from "@/lib/screenTileSize";
 import {
 	createStallDetector,
 	SCREEN_STALL_MS,
@@ -74,6 +74,7 @@ import {
 	type MoqtChatState,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
+import { useCameraVideo } from "./useCameraVideo";
 
 const JITTER_BUFFER_CAPACITY = 8;
 const DRAIN_INTERVAL_MS = 20;
@@ -259,6 +260,8 @@ export async function connectChatThenVoice(
 // (its chat subscription is the client's own) -- and <peer>/screen means a
 // share started: subscribe the screen track. A share's withdrawal needs
 // nothing here; the tile's stall detector already retires it.
+// <peer>/camera is the same for the camera track, except that its
+// withdrawal (the sender turned its source off) removes the tile at once.
 export function handleRoomNamespace(
 	suffix: string[],
 	active: boolean,
@@ -269,6 +272,10 @@ export function handleRoomNamespace(
 			subscribeToScreenTrack(id: string): Promise<void>;
 			forgetParticipant?(id: string): void;
 		} | null;
+		camera?: {
+			subscribeToScreenTrack(id: string): Promise<void>;
+			forget(id: string): void;
+		} | null;
 	},
 ): void {
 	const [peer, sub] = suffix;
@@ -276,10 +283,16 @@ export function handleRoomNamespace(
 		if (active) void deps.screen?.subscribeToScreenTrack(peer).catch(() => {});
 		return;
 	}
+	if (sub === "camera") {
+		if (active) void deps.camera?.subscribeToScreenTrack(peer).catch(() => {});
+		else deps.camera?.forget(peer);
+		return;
+	}
 	if (sub !== undefined) return;
 	if (!active) {
 		deps.store.removePeer(peer);
 		deps.screen?.forgetParticipant?.(peer);
+		deps.camera?.forget(peer);
 		return;
 	}
 	deps.store.addPeer(peer);
@@ -412,6 +425,7 @@ export type SessionRefs = {
 	screenReassemblers: { current: Map<string, unknown> };
 	screenKeyframeMeta: { current: Map<string, unknown> };
 	screenStall: { current: Map<string, unknown> };
+	camera: { current: { leave: () => void } | null };
 	client: { current: { close: () => void } | null };
 	unregisterLifecycle: { current: (() => void) | null };
 	audioCtx: { current: { close: () => Promise<void> } | null };
@@ -421,7 +435,10 @@ export function teardownSession(
 	refs: SessionRefs,
 	store: Pick<
 		MoqtChatState,
-		"setScreenSharing" | "setScreenShareError" | "setScreenTileStalled"
+		| "setScreenSharing"
+		| "setScreenShareError"
+		| "setScreenTileStalled"
+		| "clearCameraTiles"
 	>,
 ): void {
 	if (refs.drainTimer.current !== null) {
@@ -465,6 +482,9 @@ export function teardownSession(
 	refs.screenStall.current.clear();
 	store.setScreenSharing(false);
 	store.setScreenShareError(null);
+	refs.camera.current?.leave();
+	refs.camera.current = null;
+	store.clearCameraTiles();
 	refs.client.current?.close();
 	refs.client.current = null;
 	refs.unregisterLifecycle.current?.();
@@ -582,6 +602,11 @@ export function useMoqtChat() {
 	const clientRef = useRef<MoqtChatClient | null>(null);
 	const voiceRef = useRef<MoqtVoiceClient | null>(null);
 	const screenRef = useRef<MoqtScreenClient | null>(null);
+	const {
+		session: cameraRef,
+		start: startCamera,
+		api: cameraApi,
+	} = useCameraVideo(makeProcessor);
 	// One frame reassembler per remote sender AND variant ("<id>/hi",
 	// "<id>/lo"): moqtScreenWire.ts's reassembler is single-stream state (a
 	// `pending` frame keyed by seq), so sharing one across senders would
@@ -700,26 +725,8 @@ export function useMoqtChat() {
 	// scale it without changing its aspect -- the own preview included, so
 	// a portrait share previews as portrait.
 	const drawScreenFrame = useCallback(
-		(
-			key: string,
-			frame: CanvasImageSource & {
-				close?: () => void;
-				displayWidth?: number;
-				displayHeight?: number;
-				codedWidth?: number;
-				codedHeight?: number;
-			},
-		) => {
-			const canvas = screenCanvasRefs.current.get(key);
-			const ctx = canvas?.getContext("2d");
-			if (!ctx || !canvas) return;
-			fitCanvasToFrame(
-				canvas,
-				frame.displayWidth ?? frame.codedWidth,
-				frame.displayHeight ?? frame.codedHeight,
-			);
-			ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-		},
+		(key: string, frame: DrawableFrame) =>
+			drawFrameInto(screenCanvasRefs.current, key, frame),
 		[],
 	);
 
@@ -730,6 +737,7 @@ export function useMoqtChat() {
 				for (const key of knownSendersRef.current) pipeline.drainAndDecode(key);
 			}
 			const now = performance.now();
+			cameraRef.current?.tick(now);
 			for (const [key, d] of screenStallRef.current) {
 				const stalled = d.isStalled(now);
 				useMoqtChatStore.getState().setScreenTileStalled(key, stalled);
@@ -746,7 +754,7 @@ export function useMoqtChat() {
 			drainTimerRef.current = setTimeout(tick, DRAIN_INTERVAL_MS);
 		};
 		tick();
-	}, []);
+	}, [cameraRef]);
 
 	const teardownCurrentSession = useCallback(() => {
 		teardownSession(
@@ -765,6 +773,7 @@ export function useMoqtChat() {
 				screenReassemblers: screenReassemblersRef,
 				screenKeyframeMeta: screenKeyframeMetaRef,
 				screenStall: screenStallRef,
+				camera: cameraRef,
 				client: clientRef,
 				unregisterLifecycle: unregisterLifecycleRef,
 				audioCtx: audioCtxRef,
@@ -779,7 +788,7 @@ export function useMoqtChat() {
 		store.setLocalSpeaking(false);
 		noiseSuppressorRef.current?.stop();
 		noiseSuppressorRef.current = null;
-	}, [store]);
+	}, [store, cameraRef]);
 
 	const startVoice = useCallback(
 		async (localId: string, chat: MoqtChatClient) => {
@@ -1000,6 +1009,8 @@ export function useMoqtChat() {
 				...moqtChatCallbacks(store),
 				onStatusChange: reportStatus,
 				onUnknownUniStream: (header, firstChunkTail, reader) => {
+					// Camera first: its range sits above screen's.
+					if (cameraRef.current?.route(header, firstChunkTail, reader)) return;
 					// Screen alias range must be checked before the voice fallback
 					// below: MoqtVoiceClient cancels any stream whose alias it
 					// doesn't own, so a screen stream routed there first is eaten.
@@ -1042,6 +1053,7 @@ export function useMoqtChat() {
 						store,
 						voice: voiceRef.current,
 						screen: screenRef.current,
+						camera: cameraRef.current,
 					}),
 			});
 			clientRef.current = client;
@@ -1134,6 +1146,8 @@ export function useMoqtChat() {
 				},
 			});
 
+			startCamera(client);
+
 			unregisterLifecycleRef.current = registerPageLifecycleCleanup({
 				closeTransport: () => client.close(),
 				getMicTracks: () => micTracksFrom(micRef.current),
@@ -1161,7 +1175,14 @@ export function useMoqtChat() {
 				() => client.announce(),
 			);
 		},
-		[store, startVoice, drawScreenFrame, teardownCurrentSession],
+		[
+			store,
+			startVoice,
+			drawScreenFrame,
+			teardownCurrentSession,
+			startCamera,
+			cameraRef,
+		],
 	);
 
 	const sendMessage = useCallback(
@@ -1413,5 +1434,6 @@ export function useMoqtChat() {
 		registerScreenCanvas,
 		setOutputDevice,
 		setScreenQuality,
+		...cameraApi,
 	};
 }
