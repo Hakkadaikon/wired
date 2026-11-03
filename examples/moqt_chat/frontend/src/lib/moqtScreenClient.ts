@@ -1,3 +1,4 @@
+// The "screen" names are historical: the camera track uses this class too, via its VideoTrackKind.
 // MOQT screen-share transport: PUBLISHes/SUBSCRIBEs the "<id>/screen" track
 // over the same MOQT session moqtClient.ts's MoqtChatClient already manages.
 // Like moqtVoiceClient.ts, frames are appended to a long-lived uni stream
@@ -753,7 +754,7 @@ export class MoqtScreenClient {
 	}
 
 	/** FINs the send streams, if any were ever opened, and withdraws the
-	 * <id>/screen announcement. */
+	 * announcement of this kind's namespace (<id>/screen or <id>/camera). */
 	close(): void {
 		for (const lane of Object.values(this.#lanes)) {
 			lane.writer?.close().catch(() => {});

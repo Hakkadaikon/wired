@@ -24,7 +24,6 @@ import {
 	type ChatAttachment as WireChatAttachment,
 } from "@/lib/moqtClient";
 import {
-	isScreenTrackAlias,
 	MoqtScreenClient,
 	type ScreenQuality,
 	type ScreenVariant,
@@ -57,6 +56,7 @@ import {
 	SCREEN_STALL_MS,
 	type StallDetector,
 } from "@/lib/stallDetector";
+import { routeUniStream } from "@/lib/uniStreamRoute";
 import {
 	createQualityWindow,
 	isSpeaking,
@@ -273,7 +273,7 @@ export function handleRoomNamespace(
 			forgetParticipant?(id: string): void;
 		} | null;
 		camera?: {
-			subscribeToScreenTrack(id: string): Promise<void>;
+			subscribe(id: string): Promise<void>;
 			forget(id: string): void;
 		} | null;
 	},
@@ -284,7 +284,7 @@ export function handleRoomNamespace(
 		return;
 	}
 	if (sub === "camera") {
-		if (active) void deps.camera?.subscribeToScreenTrack(peer).catch(() => {});
+		if (active) void deps.camera?.subscribe(peer).catch(() => {});
 		else deps.camera?.forget(peer);
 		return;
 	}
@@ -1008,26 +1008,12 @@ export function useMoqtChat() {
 			const client: MoqtChatClient = new MoqtChatClient(localId, {
 				...moqtChatCallbacks(store),
 				onStatusChange: reportStatus,
-				onUnknownUniStream: (header, firstChunkTail, reader) => {
-					// Camera first: its range sits above screen's.
-					if (cameraRef.current?.route(header, firstChunkTail, reader)) return;
-					// Screen alias range must be checked before the voice fallback
-					// below: MoqtVoiceClient cancels any stream whose alias it
-					// doesn't own, so a screen stream routed there first is eaten.
-					if (isScreenTrackAlias(header.trackAlias)) {
-						screenRef.current?.handleIncomingStream(
-							header,
-							firstChunkTail,
-							reader,
-						);
-						return;
-					}
-					voiceRef.current?.handleIncomingStream(
-						header,
-						firstChunkTail,
-						reader,
-					);
-				},
+				onUnknownUniStream: (header, firstChunkTail, reader) =>
+					routeUniStream(header, firstChunkTail, reader, {
+						camera: cameraRef.current,
+						screen: screenRef.current,
+						voice: voiceRef.current,
+					}),
 				// Only voice sends OBJECT_DATAGRAMs (moqtVoiceClient.ts's
 				// sendOpusFrame); screen is stream-borne, so no alias dispatch is
 				// needed here yet.

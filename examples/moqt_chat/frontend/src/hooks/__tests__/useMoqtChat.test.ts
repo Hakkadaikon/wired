@@ -346,7 +346,7 @@ describe("handleRoomNamespace", () => {
 				forgetParticipant: vi.fn(),
 			},
 			camera: {
-				subscribeToScreenTrack: vi.fn(async () => {}),
+				subscribe: vi.fn(async () => {}),
 				forget: vi.fn(),
 			},
 		};
@@ -355,9 +355,7 @@ describe("handleRoomNamespace", () => {
 	it("a <peer>/camera namespace subscribes that peer's camera", () => {
 		const d = deps();
 		handleRoomNamespace(["user3", "camera"], true, d);
-		expect(d.camera.subscribeToScreenTrack).toHaveBeenCalledExactlyOnceWith(
-			"user3",
-		);
+		expect(d.camera.subscribe).toHaveBeenCalledExactlyOnceWith("user3");
 		expect(d.screen.subscribeToScreenTrack).not.toHaveBeenCalled();
 		expect(d.camera.forget).not.toHaveBeenCalled();
 	});

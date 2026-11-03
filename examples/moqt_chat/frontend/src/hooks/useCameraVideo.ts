@@ -6,19 +6,15 @@
 // browser APIs -- the default camera, a looped muted <video> for the mp4,
 // MediaPipe + the WebGL compositor for the background, and the
 // screen-share encoder pipeline. Assets come from the app's own base path
-// (next.config.ts), the same way noiseSuppressor's worklet does. A camera
-// failure stays in the store's video error, never in chat, voice or screen
-// sharing.
+// (next.config.ts), the same way noiseSuppressor's worklet does. A failure
+// of our own source stays in the store's video error, never in chat, voice
+// or screen sharing; a peer's undecodable camera only goes to the console.
 
 import { useCallback, useRef } from "react";
 import { createBackgroundCompositor } from "@/lib/backgroundCompositor";
 import { createCameraReceiver } from "@/lib/cameraReceiver";
 import type { MoqtChatClient } from "@/lib/moqtClient";
-import {
-	CAMERA_TRACK,
-	isCameraTrackAlias,
-	MoqtScreenClient,
-} from "@/lib/moqtScreenClient";
+import { CAMERA_TRACK, MoqtScreenClient } from "@/lib/moqtScreenClient";
 import type { SubgroupHeader } from "@/lib/moqtWire";
 import { startScreenSharePipeline } from "@/lib/screenSharePipeline";
 import { type DrawableFrame, drawFrameInto } from "@/lib/screenTileSize";
@@ -63,13 +59,13 @@ function loadBrowserBackground(onFail: () => void) {
 
 /** One session's camera track, as useMoqtChat drives it. */
 export type CameraSession = {
-	/** Takes an incoming uni stream if its alias is a camera track's. */
-	route(
+	/** Reads an incoming camera-track uni stream (uniStreamRoute.ts). */
+	handleIncomingStream(
 		header: SubgroupHeader,
 		firstChunk: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
-	): boolean;
-	subscribeToScreenTrack(id: string): Promise<void>;
+	): void;
+	subscribe(id: string): Promise<void>;
 	/** A peer's camera went away: its tile and its subscription state. */
 	forget(id: string): void;
 	tick(now: number): void;
@@ -77,19 +73,14 @@ export type CameraSession = {
 	leave(): void;
 };
 
-const videoError = (error: string) => {
-	const s = useMoqtChatStore.getState();
-	s.setVideo({ ...s.video, error });
-};
-
-function startPipeline(client: MoqtScreenClient) {
+function startPipeline(client: MoqtScreenClient, onEncodeError: () => void) {
 	// The frames come from the controller (pushFrame), not a capture.
 	return startScreenSharePipeline({
 		getDisplayMedia: async () => ({ getVideoTracks: () => [] }),
 		VideoEncoderCtor: VideoEncoder as never,
 		sendVideoChunk: (chunk) => client.sendVideoChunk(chunk),
 		contentHint: "motion",
-		onEncodeError: () => videoError("camera video could not be encoded"),
+		onEncodeError,
 	});
 }
 
@@ -109,7 +100,7 @@ function createSource(
 		defaultFileUrl: `${BASE_PATH}/videos/sample.mp4`,
 		makeProcessor,
 		loadBackground: loadBrowserBackground,
-		startPipeline: () => startPipeline(client),
+		startPipeline: (onError) => startPipeline(client, onError),
 		publish: () => client.publishScreenTrack(),
 		unpublish: () => client.close(),
 		drawPreview: (frame) =>
@@ -131,7 +122,7 @@ function createCameraSession(
 		draw: (id, frame) => drawFrameInto(canvases, id, frame as DrawableFrame),
 		addTile: (id) => store().addCameraTile(id),
 		removeTile: (id) => store().removeCameraTile(id),
-		onError: videoError,
+		onError: (msg) => console.warn(msg),
 		now: () => performance.now(),
 	});
 	const client = new MoqtScreenClient(
@@ -144,23 +135,18 @@ function createCameraSession(
 	);
 	const source = createSource(client, canvases, makeProcessor);
 	return {
-		route: (header, firstChunk, reader) => {
-			if (!isCameraTrackAlias(header.trackAlias)) return false;
-			client.handleIncomingStream(header, firstChunk, reader);
-			return true;
-		},
-		subscribeToScreenTrack: (id) => client.subscribeToScreenTrack(id),
+		handleIncomingStream: (header, firstChunk, reader) =>
+			client.handleIncomingStream(header, firstChunk, reader),
+		subscribe: (id) => client.subscribeToScreenTrack(id),
 		forget: (id) => {
 			receive.forget(id);
 			client.forgetParticipant(id);
 		},
 		tick: receive.tick,
 		source,
-		// Turning the source off releases the camera/file and unpublishes.
-		leave: () => {
-			source.leave();
-			client.close();
-		},
+		// Turning the source off releases the camera/file and, if published,
+		// unpublishes (client.close()); unpublished there is nothing to close.
+		leave: () => source.leave(),
 	};
 }
 
