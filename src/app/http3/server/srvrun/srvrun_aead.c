@@ -4,8 +4,6 @@ static int  srvrun_aead_limit_reached(const srvrun_conn* c);
 static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c);
 static int  srvrun_close_on_req_frame_error(
     const srvrun_cfg* cfg, srvrun_conn* c);
-static int srvrun_close_on_wt_signal_latched(
-    const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_ctrl_overflow(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_refused_overflow(
     const srvrun_cfg* cfg, srvrun_conn* c);
@@ -16,14 +14,6 @@ static int srvrun_close_on_aead_or_cid(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_transport_error(
     const srvrun_cfg* cfg, srvrun_conn* c);
 
-/* 1 if this step's own gathering (dispatch.c) latched a connection-ending
- * violation and closed c over it -- datagram_violation (RFC 9221 3) or
- * wt_signal_mid_stream_violation (draft-ietf-webtrans-http3-15 4.3), checked
- * and cleared together so srvrun_on_step itself carries only one guard for
- * both (CCN). Datagram is checked first only because it was the original,
- * single violation; a step latching both simply chooses the datagram close
- * (RFC 9000 10.2: any CONNECTION_CLOSE ends the connection, so it does not
- * matter which of two same-step violations sends it). */
 /* RFC 9001 6.6: the 1-RTT auth-failure count (srvloop's recv path) reached
  * the negotiated AEAD's integrity limit -- the connection MUST close with
  * AEAD_LIMIT_REACHED. */
@@ -40,27 +30,21 @@ static void srvrun_close_on_aead_limit(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* RFC 9114 7.1: a request stream ended inside a frame -- "MUST be treated
  * as a connection error of type H3_FRAME_ERROR" (srvloop's body window
- * latched it). */
+ * latched it); latch 2 is a mid-stream WT_STREAM type
+ * (draft-ietf-webtrans-http3-15 4.3), same code, its own reason. */
 static int srvrun_close_on_req_frame_error(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "request stream ended inside a frame";
+  static const u8 cut[] = "request stream ended inside a frame";
+  static const u8 sig[] = "WT_STREAM signal after the first frame";
+  int             wt    = c->l.req_frame_error == 2;
   if (!c->l.req_frame_error) {
     return 0;
   }
   c->l.req_frame_error = 0;
   srvrun_send_app_close(
-      cfg, c, H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
-  return 1;
-}
-
-/* The latched WT signal violation, consumed. */
-static int srvrun_close_on_wt_signal_latched(
-    const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!c->l.wt_signal_mid_stream_violation) {
-    return 0;
-  }
-  c->l.wt_signal_mid_stream_violation = 0;
-  srvrun_close_on_wt_signal_violation(cfg, c);
+      cfg, c, H3_FRAME_ERROR,
+      wt ? wired_span_of(sig, sizeof sig - 1)
+         : wired_span_of(cut, sizeof cut - 1));
   return 1;
 }
 
@@ -79,12 +63,9 @@ static int srvrun_close_on_ctrl_overflow(
   return 1;
 }
 
-/* The two H3_FRAME_ERROR latches (the WT signal, a truncated request), then
- * the control-stream overflow. */
+/* The H3_FRAME_ERROR latch (a truncated request), then the control-stream
+ * overflow. */
 int srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (srvrun_close_on_wt_signal_latched(cfg, c)) {
-    return 1;
-  }
   if (srvrun_close_on_req_frame_error(cfg, c)) {
     return 1;
   }

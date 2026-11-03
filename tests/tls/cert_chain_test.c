@@ -110,9 +110,26 @@ static void test_cert_chain_truncated(void) {
           &(tls_cert_chain_out){e, 4, &count}) == 0);
 }
 
+/* RFC 8446 6.2: a byte after the certificate_list is a malformed message
+ * (decode_error), not ignored. */
+static void test_cert_chain_trailing_rejected(void) {
+  u8             body[64];
+  const u8*      certs[1] = {cc_a};
+  usz            lens[1]  = {sizeof(cc_a)};
+  tls_cert_entry e[TLS_CERT_CHAIN_MAX];
+  wired_span     ctx;
+  usz            n = cc_body(body, certs, lens, 1), count;
+  body[n]          = 0;
+  CHECK(
+      tls_cert_chain(
+          wired_span_of(body, n + 1), &ctx,
+          &(tls_cert_chain_out){e, 4, &count}) == 0);
+}
+
 void test_cert_chain(void) {
   test_cert_chain_two();
   test_cert_chain_counts();
   test_cert_chain_overflow();
   test_cert_chain_truncated();
+  test_cert_chain_trailing_rejected();
 }

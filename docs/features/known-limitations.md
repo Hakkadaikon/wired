@@ -6,7 +6,7 @@ peer behaves in a way the spec allows but wired does not support. Each entry
 starts with who is affected, then says what is limited and where in the code
 (or in which per-spec ledger) it is recorded.
 
-Last reviewed: 2026-10-27
+Last reviewed: 2026-11-03
 
 ## How to read this page
 
@@ -20,7 +20,7 @@ lists the capacities an application meets first and the MoQT parts that are
 not implemented. This page adds what the guide does not cover: the effect of
 each overflow, the less visible limits, and the reason for each deviation.
 Where the two pages disagree, the values on this page are taken from the
-current code (checked on 2026-10-27) and win.
+current code (checked on 2026-11-03) and win.
 
 The entries come from three places:
 
@@ -52,7 +52,8 @@ Contents: [MoQT relay (hub)](#moqt-relay-hub) |
 [Platform / I/O](#platform--io) | [Capacity limits](#capacity-limits) |
 [Testing and verification gaps](#testing-and-verification-gaps) |
 [Library code not reached by the shipped server](#library-code-not-reached-by-the-shipped-server) |
-[Out of scope by design](#out-of-scope-by-design)
+[Out of scope by design](#out-of-scope-by-design) |
+[Not planned](#not-planned)
 
 ---
 
@@ -175,7 +176,12 @@ The limits:
   subscription) is still served from the cache only. A Descending FETCH
   (newest Group first) of a Track the hub does not hold is reset when its
   upstream FETCH fails, because the hub knows nothing of that range to mark.
-  The cache side applies no Range Filter, so MQ22-137 stays open.
+  The cache side applies a FETCH's Range Filters by Object ID only: the
+  cache keeps no Subgroup, priority or Properties, so a filter set that
+  names one of them passes no cached Object and leaves an unmarked
+  (unknown) gap. A Joining FETCH applies no Range Filter
+  (`moqtrun_fsel_skip`, MQ22-137; `moqtrun_fetch_joining` in
+  `moqtrun_live.c` drops them).
 
   Buffering details: an Object under `WIRED_MOQTRUN_RELAY_FRAG_MAX` (16 KiB)
   is held whole while it is torn; a larger one's payload passes through as
@@ -251,12 +257,15 @@ The limits:
   d22's TIMESTAMP, VIDEO_FRAME_MARKING, AUDIO_CONFIG, ENCRYPTED_LIST and
   PADDING) are relayed unchanged and never interpreted. Source: the MoQT
   ledgers' Out of scope sections.
-- **FILL_TIMEOUT, EXPIRES and NEW_GROUP_REQUEST are decoded, not acted on**
-  — Affects: clients that rely on these parameters. FILL_TIMEOUT's presence
-  only decides whether a missing range is marked "End of Timed-Out Range"
-  (d22: the hub could not get it in time), and it can shorten the upstream
-  FETCH budget above. EXPIRES and NEW_GROUP_REQUEST are parsed and ignored.
-  RENDEZVOUS_TIMEOUT, in contrast, is acted on (see the rendezvous cap in
+- **FILL_TIMEOUT and EXPIRES are decoded, not acted on** — Affects:
+  clients that rely on these parameters. FILL_TIMEOUT's presence only
+  decides whether a missing range is marked "End of Timed-Out Range" (d22:
+  the hub could not get it in time), and it can shorten the upstream FETCH
+  budget above. EXPIRES is parsed and ignored. NEW_GROUP_REQUEST, in
+  contrast, is relayed upstream (d18 10.2.13, d19 10.2.18: in the hub's own
+  SUBSCRIBE, or a REQUEST_UPDATE once the Track is Established;
+  `moqtrun_ngr.c`), and RENDEZVOUS_TIMEOUT is acted on (see the
+  rendezvous cap in
   [MoQT versions and spec deviations](#moqt-versions-and-spec-deviations)).
   Source: the MoQT ledgers' Out of scope sections.
 - **Track Properties forwarded in SUBSCRIBE_OK only, up to 32 bytes** —
@@ -572,6 +581,14 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
   caller's job; `wired_srvrun_opt.wt_on_stream_credit` tells it when the
   same open would succeed. Source: `srvrun_wt_streams_blocked_owed`,
   `srvrun_credit.c`.
+- **A WT bidi stream must start in order** — Affects: clients whose
+  packets reorder. A client bidi stream is classified by its offset-0 bytes.
+  A fragment that arrives before them lands in a request slot. If the stream
+  then turns out to be WebTransport (the 0x41 signal), that fragment is not
+  moved into the WT stream: the request slot is freed and the fragment is
+  dropped. The peer does not resend ACKed bytes, so the WT stream stalls at
+  that gap. Source: `srvloop_wt_slot_for`, `wt_drop_overtaken`,
+  `wired_srvloop_slot_for`.
 - **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
   HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
   HTTP/2 are not implemented. There are also no rate-limit headers and no
@@ -581,9 +598,6 @@ MoQT interop runs; see [Testing](#testing-and-verification-gaps).
 - **`h3_tunnel_relay` only flips state** — Affects: apps that use a CONNECT
   tunnel. The raw byte relay of the tunnel (over h3 DATA frames) is the
   application's job. Source: `h3_tunnel_relay` (ponytail).
-- **Capsule-Protocol header not generated or parsed** (RFC 9297 3.4) —
-  Affects: nobody for WebTransport, which does not require it. This is a
-  deliberate scope decision. Source: [rfc9297.md](rfc9297.md) Out of scope.
 - **Capsule-only HTTP Datagram fallback absent** — Affects: paths without
   QUIC DATAGRAM support. QUIC DATAGRAM is assumed. Source:
   [rfc9297.md](rfc9297.md).
@@ -599,12 +613,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   [Out of scope by design](#out-of-scope-by-design). Source:
   [rfc9114.md](rfc9114.md), [rfc9218.md](rfc9218.md),
   [rfc9220.md](rfc9220.md).
-- **QPACK dynamic table on the receive side only** — Affects: bandwidth of
-  response headers, and peers whose encoder stream is lost early. In short:
-  responses never reference the dynamic table, so their headers are a little
-  larger. Request headers can use the client's dynamic table, up to 2016
-  bytes. A request that would have to wait for a table update fails instead
-  of waiting.
+- **QPACK dynamic table: requests fully, responses only for `:status`** —
+  Affects: bandwidth of response headers, and peers whose encoder stream is
+  lost early. In short: request headers can use the client's dynamic table,
+  up to 2016 bytes. Responses use the table only for a `:status` with no
+  static entry, and only once the client has acknowledged it. A request
+  that would have to wait for a table update fails instead of waiting.
 
   The details: the decoder advertises capacity 2016 (`QPACK_DYN_MAX_CAPACITY`)
   and `SETTINGS_QPACK_BLOCKED_STREAMS 0`. It applies the peer's encoder stream
@@ -628,9 +642,16 @@ recently sent headers, updated over its own encoder and decoder streams.
   credit. Decoder instructions that arrive past a gap (reordered ahead of
   earlier bytes) are dropped, and reading that stream stops at the gap for
   good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
-  own encoder table stays at capacity 0, and response
-  strings are never Huffman-coded. Source: [rfc9204.md](rfc9204.md),
-  [rfc7541.md](rfc7541.md) Out of scope.
+  own encoder table takes min(the peer's capacity, 2016)
+  (`QPACKENC_LOCAL_CAP`; build with `-DQPACKENC_LOCAL_CAP=0` to turn it
+  off). Other response fields stay static or literal; literal names and
+  values are Huffman-coded when shorter. An insert is made only once its
+  response's field section is built and its instruction fits the encoder
+  stream's send ring; otherwise the field goes out as a literal. The
+  encoder evicts only when every insert is
+  acknowledged and no section is pending, and a cancelled stream's section
+  stays pending, so after one the table stops evicting. Source:
+  [rfc9204.md](rfc9204.md), [rfc7541.md](rfc7541.md).
 - **HTTP semantics are the application's** — Affects: every HTTP app. The
   SDK does not handle trailers, `Date`, conditional or range requests,
   content negotiation or TRACE; field values are passed to the application
@@ -642,11 +663,12 @@ recently sent headers, updated over its own encoder and decoder streams.
   round. Larger bodies use a `srvbigbuf` row (the large-response buffer
   pool) or streaming
   ([guide](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/)). The
-  grid is 64 connections x 40 response slots (`SRVRUN_RESP_SLOTS`) x 16 KiB,
-  about 40 MiB of BSS (zero-initialized static memory), multiplied by the
-  worker count under `--cores N`. The low-level handler body cap is
-  `WIRED_SRVLOOP_BODY_MAX` (1024). Source: `WIRED_SRVRUN_RESP_MAX`,
-  `WIRED_SRVLOOP_BODY_MAX` (ponytail).
+  grid is `WIRED_CONNTABLE_CAP` connections x 40 response slots
+  (`SRVRUN_RESP_SLOTS`) x 16 KiB of BSS (zero-initialized static memory):
+  about 2.5 MiB at the default 4 connections, 40 MiB at the interop
+  image's 64, multiplied by the worker count under `--cores N`. The
+  low-level handler body cap is `WIRED_SRVLOOP_BODY_MAX` (1024). Source:
+  `WIRED_SRVRUN_RESP_MAX`, `WIRED_SRVLOOP_BODY_MAX` (ponytail).
 - **Request buffer limited to `BODYWIN_CAP` (10240)** — Affects: clients that
   send request bodies to a handler without `on_body`. A buffered request that
   fills the window without FIN is answered with 413 or 431, including one whose
@@ -662,34 +684,34 @@ recently sent headers, updated over its own encoder and decoder streams.
   (`STP_DEFAULT_STREAM_DATA_REMOTE`) are 10240 bytes each. A request slot
   holds the decode scratch, the window, its wrap buffer and the window's
   receive bitmap, about 25 KB more than at the earlier 2048-byte size. With
-  64 connections (`WIRED_CONNTABLE_CAP`) of 40 request slots
-  (`WIRED_SRVLOOP_MAX_STREAMS`) that is about 65 MB more per server
-  environment (static memory for one server loop), and `srvthreads` maps
-  one environment per worker, so the cost multiplies by the worker count.
+  40 request slots (`WIRED_SRVLOOP_MAX_STREAMS`) per connection that is
+  about 1 MB more per connection (`WIRED_CONNTABLE_CAP`): about 4 MB at
+  the default 4 connections and 65 MB at the interop image's 64, per
+  server environment (static memory for one server loop), and
+  `srvthreads` maps one environment per worker, so the cost multiplies by
+  the worker count.
   Source: `body_window.h`, `control_settings.h`.
 - **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
   stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
   one abort per stream the connection can track (99). If more than that many
   aborts are unacknowledged within one RTT, the excess ones are sent once and
   never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
-- **A request that cannot be decoded is aborted, not answered** — Affects:
-  clients that send malformed or oversized HEADERS. A request stream whose
-  whole HEADERS frame cannot become a request is reset with H3_MESSAGE_ERROR
-  plus STOP_SENDING, without waiting for a FIN. One that ends before its
-  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. No 4xx status is sent,
-  and a HEADERS frame past this decoder's local limits gets H3_MESSAGE_ERROR
-  like a malformed one. Its slot and bidi stream credit are returned. The
-  same happens for a request stream the peer resets while it is still being
-  received, or before any of its data claimed a slot. Source:
-  `connect_headers_complete`, `route_note_incomplete_append`,
-  `reset_request_stream`, `srvrun_abort_incomplete_reqs`,
-  `srvrun_free_reset_reqs`.
-- **STOP_SENDING before the response starts is not remembered** — Affects:
-  clients that cancel a request early. A peer's STOP_SENDING is answered
-  with RESET_STREAM (RFC 9000 3.5) only on a send part that already exists
-  (a response slot, a WT send slot, a CONNECT stream). One that arrives while
-  the request is still being read leaves the later response to run
-  normally. Source: `srvrun_answer_peer_stops`.
+- **A malformed request is aborted, not answered** — Affects: clients that
+  send malformed HEADERS. A request stream whose whole HEADERS frame cannot
+  become a request is reset with H3_MESSAGE_ERROR plus STOP_SENDING, without
+  waiting for a FIN; no 400 is sent first (RFC 9114 4.1.2 MAY), so
+  conformance checkers see the reset they expect. One that ends before its
+  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section whose
+  decoded lines overflow the decode scratch (which puts it past the
+  advertised SETTINGS_MAX_FIELD_SECTION_SIZE) is answered 431 instead (RFC
+  9114 4.2.2), but a single field line larger than the whole decode
+  scratch, or one this decoder cannot interpret, is reset with
+  QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4). Its slot and bidi stream credit
+  are returned. The same happens for a request stream the peer resets while
+  it is still being received, or before any of its data claimed a slot.
+  Source: `connect_headers_complete`, `route_note_incomplete_append`,
+  `h3reqdrive_line_fail`, `reset_request_stream`,
+  `srvrun_abort_incomplete_reqs`, `srvrun_free_reset_reqs`.
 - **Graceful shutdown is tick-bounded** — Affects: operators who stop the
   server with SIGTERM. The server sends GOAWAY, then waits at most
   `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before it closes. A SIGTERM
@@ -790,11 +812,6 @@ The next two entries concern lower-level entry points. The server that
 - **`appdata_recv` has no packet-number history** — Affects: users of this
   one-shot entry only. It passes largest_pn 0; full packet-number recovery
   is the job of the srvloop path. Source: `app_recv.c` (ponytail).
-- **Key Update limit stalls instead of closing** — Affects: very long
-  connections. AEAD keys have a confidentiality limit (how much data one key
-  may protect). A limit hit while the previous key update is still
-  unconfirmed stalls sends; in practice the idle timeout fires first.
-  Source: `ku_limit_gate` (ponytail).
 - **Fixed connection table** — Affects: servers that need more
   connections than the build-time cap. `WIRED_CONNTABLE_CAP` defaults to 4
   in the normal build (`scripts/just/flags.sh`; override with
@@ -862,14 +879,6 @@ The next two entries concern lower-level entry points. The server that
   passes against ngtcp2, and the quic-go client never triggers a path
   change. The quic-go client does not support the `ecn` and `v2` testcases;
   both pass against ngtcp2 (`v2` also against picoquic).
-- **An Initial re-initializes a confirmed connection's slot** — Affects:
-  every confirmed connection, because its CID is visible on the wire. An
-  Initial packet whose destination CID matches a confirmed connection is
-  treated as a fresh connection attempt: the slot is cold-started for a new
-  handshake, which replaces the confirmed connection's state. Anyone who can
-  see the CID can therefore send such an Initial. (Before confirmation the
-  same Initial is handled as a retransmit instead.) Source:
-  `srvrun_reinit_ok`, `srvrun_serve_boot`.
 
 ## TLS 1.3
 
@@ -930,22 +939,42 @@ The next two entries concern lower-level entry points. The server that
   independent peer yet, and `tls_exporter` (RFC 8446 7.5) still hashes its
   context with SHA-256 under it (it has no production caller). CCM suites
   are refused. Source: `cipher.c`, [rfc8446.md](rfc8446.md) 8446-099.
-- **No client authentication or server-side CertificateRequest** — Affects:
-  apps that need mutual TLS. The server never requests client certificates
-  (the codec exists but is not wired). There is no post_handshake_auth, no
-  OCSP/SCT, no `certificate_authorities` selection and no FFDHE, and external
-  PSKs ("ext binder") are unsupported. Source: [rfc8446.md](rfc8446.md) Out
-  of scope.
+- **Client authentication turns resumption off and is chain-strict** —
+  Affects: apps that enable mutual TLS (`wired_srvboot_id.client_auth`).
+  With client authentication on, every connection runs a full certificate
+  handshake: offered PSKs and 0-RTT are ignored and no session ticket is
+  issued (RFC 8446 4.4 allows no certificate authentication on a PSK
+  handshake). The client chain must be sent leaf first and link by link to
+  the trust store; extraneous or reordered certificates are refused with
+  bad_certificate (RFC 8446 4.4.2 only says SHOULD accept them). Every chain
+  failure is bad_certificate, never unknown_ca or certificate_expired.
+  There is no revocation check, no post-handshake authentication (RFC 9001
+  4.4 forbids it), no `certificate_authorities` or `oid_filters` in the
+  CertificateRequest, and only HTTP handlers see the certificate
+  (`wired_http_exchange.peer_cert`, first round). The client role sends no
+  certificate. The client's Certificate, CertificateVerify and Finished
+  must fit the 12,288-byte Handshake receive buffer (`CRECV_BUF`, about
+  four 2 KB RSA certificates) and what the 16,384-byte transcript
+  (`WIRED_SERVER_TRANSCRIPT_MAX`) has left after the ClientHello and the
+  server flight. A larger client chain closes the connection with
+  CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) or bad_certificate. Source:
+  `server_cauth.c`, `server_feed.c`, [rfc8446.md](rfc8446.md)
+  8446-133..139.
+- **TLS gaps** — Affects: peers that need these. There is no OCSP/SCT, no
+  `certificate_authorities` selection for the server chain and no FFDHE,
+  and external PSKs ("ext binder") are unsupported. Source:
+  [rfc8446.md](rfc8446.md) Out of scope.
 - **TLS extensions not shipped** — Affects: clients that need these
   extensions. max_fragment_length, client_certificate_url, trusted_ca_keys,
   truncated_hmac and status_request are not implemented. Source:
   [rfc6066.md](rfc6066.md).
 - **ClientHello and Retry scratch buffers are MTU-bounded** — Affects:
   memory footprint, and ClientHellos larger than two Initial packets. The
-  boot-stage accumulator is about 4 KB per connection slot (64 slots, in
-  BSS) and spans two Initials, enough for a post-quantum-sized ClientHello.
-  The `retry_tag` pseudo-packet scratch is 1521 bytes. Source:
-  `wired_srvboot_acc` (ponytail), `retry_tag.c` (ponytail).
+  boot-stage accumulator is about 4 KB per connection slot
+  (`WIRED_CONNTABLE_CAP` slots, in BSS) and spans two Initials, enough for
+  a post-quantum-sized ClientHello. The `retry_tag` pseudo-packet scratch
+  is 1521 bytes. Source: `wired_srvboot_acc` (ponytail), `retry_tag.c`
+  (ponytail).
 - **Client / server pump shortcuts** — Affects: users of these legacy entry
   points only; the `wired_server_run` server does not use them.
   `wired_server_pump` hands a raw datagram to `wired_server_feed`, and
@@ -1177,11 +1206,11 @@ Notes on the two send-side buffers:
 - **Fuzz coverage** — Affects: robustness of the hub loop. `fuzz_moqt`
   covers the codecs, `moqdg` and `moqcache`. The hub run loop (`moqtrun`) is
   not fuzzed, because it is not a codec.
-- **Ledger counts** — Affects: the coverage total. 2 requirements are
-  untested: MQ22-070a and MQ22-137 (both in
-  [draft-moq-transport-22.md](draft-moq-transport-22.md)). The experimental
-  track-switching section (MQ22-X13 among them) is not counted. Source:
-  [features README](README.md).
+- **Ledger counts** — Affects: the coverage total. Some requirements are
+  still untested; the current count is in the
+  [features README](README.md), and the open items are the `[ ]` boxes in
+  each ledger. The experimental track-switching section (MQ22-X13 among
+  them) is not counted.
 - **BoringSSL oracle** — Affects: nobody; listed for completeness. There are
   no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
   AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
@@ -1319,3 +1348,32 @@ concerns, not SDK code, and exclude them from the coverage count.
   drafts 14 to 17), a peer that demands raw-QUIC 0-RTT, a deployment that
   needs a per-transport GOAWAY URI, and a need for a wired-side raw MoQT
   client role.
+
+## Not planned
+
+These are SDK protocol features, not operator or client concerns. They are
+decided: wired will not implement them unless the reason below
+stops holding. Each is described in its layer's section above and in the
+named ledger's Out of scope section.
+
+- **RFC 9002 MAY heuristics** — MAY items, not required.
+  [rfc9002.md](rfc9002.md).
+- **OCSP stapling** — browsers do not require stapling and must-staple
+  certificates are rare; it needs ClientHello extension parsing,
+  CertificateEntry extensions and a refresh mechanism, which cost more than
+  they return. [rfc8446.md](rfc8446.md), [rfc6066.md](rfc6066.md).
+- **`certificate_authorities` certificate selection** — it presumes several
+  certificate chains, and the server serves one. [rfc8446.md](rfc8446.md).
+- **HTTP/3 server push** — browsers have removed push.
+  [rfc9114.md](rfc9114.md).
+- **QPACK blocked streams on the decoder side** — they need a state machine
+  that parks request streams, for a gain of a few bytes of request headers;
+  failing the section is enough. [rfc9204.md](rfc9204.md).
+- **MoQT Alias token cache** — it needs a per-session memory cap and an
+  authorization story; deferred until a client uses it. The MoQT ledgers.
+- **MoQT Padding Datagrams** — sending them is the origin's role, not the
+  relay's (hub's). The MoQT ledgers.
+- **MoQT EXPIRES** — a relay gains little from acting on it. The MoQT
+  ledgers.
+- **Capsule-only HTTP Datagram fallback** — WebTransport assumes QUIC
+  DATAGRAM, so no path would use it. [rfc9297.md](rfc9297.md).

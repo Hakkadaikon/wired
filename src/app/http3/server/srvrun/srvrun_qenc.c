@@ -118,12 +118,20 @@ static qpackenc_state* srvrun_qenc_active(srvrun_conn* c) {
   return c->qenc_stream_opened ? &c->l.h3.qenc : 0;
 }
 
+/* 1 iff ins planned an instruction and it was staged whole on w. */
+static int srvrun_qenc_staged(
+    srvrun_conn* c, srvrun_wtsend* w, const qpackenc_status_result* ins) {
+  return ins->insert_len &&
+         srvrun_wtsend_stage_round(
+             c, w, wired_span_of(ins->insert_instr, ins->insert_len), 0);
+}
+
 /* RFC 9204 4.3.3/4.4.1: forward a fresh Insert instruction (ins->insert_len
- * bytes) to the QPACK encoder stream's wtsend slot, then record that the
- * field section it was generated for was sent (qpackenc_note_sent) so
- * pending_acks tracks it. A no-op when there is nothing to send (insert_len
- * == 0, the common case: an entry already lived in the dynamic table or
- * capacity fell back to literal) or the encoder stream is not open. */
+ * bytes) to the QPACK encoder stream's wtsend slot and only then commit it
+ * to the encoder's table (2.1.4: the table mirrors what the decoder was
+ * sent; a full ring leaves the insert for a later response), then record
+ * that the field section was sent (qpackenc_note_sent) so pending_acks
+ * tracks it. A no-op when the encoder stream is not open. */
 static void srvrun_qenc_send_insert(
     srvrun_conn* c, const qpackenc_status_result* ins) {
   srvrun_wtsend* w = srvrun_plumbing_wtsend(
@@ -131,15 +139,15 @@ static void srvrun_qenc_send_insert(
   if (!w) {
     return;
   }
-  if (ins->insert_len) {
-    srvrun_wtsend_stage_round(
-        c, w, wired_span_of(ins->insert_instr, ins->insert_len), 0);
+  if (srvrun_qenc_staged(c, w, ins)) {
+    qpackenc_status_commit(&c->l.h3.qenc, ins);
   }
   qpackenc_note_sent(&c->l.h3.qenc, ins->required_insert_count);
 }
 
 /* Build x's response prefix (HEADERS + DATA header for total_len body
- * bytes) into pob and forward any QPACK Insert it generated. Returns 0 when
+ * bytes) into pob and forward any QPACK Insert it generated; a prefix that
+ * fails commits no encoder state. Returns 0 when
  * the app's fields overflow pob, or make a field section larger than the
  * peer's SETTINGS_MAX_FIELD_SECTION_SIZE (RFC 9114 4.2.2 "SHOULD NOT
  * send"): the caller then resets the stream. */

@@ -1,5 +1,6 @@
 #include "tls/handshake/core/tls/cert.h"
 
+#include "common/bytes/util/bytes.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 
 /* TLS uses fixed big-endian length prefixes. A small cursor reads them and
@@ -55,25 +56,12 @@ static int take_entry(cur* c, tls_cert_entry* first) {
     return 0;
   }
   if (!take_vec(c, 2, &ext)) {
-    return 0; /* skip this entry's extensions */
+    return 0;
   }
   first->cert_data = cert.p;
   first->cert_len  = (u32)cert.n;
+  first->ext_len   = (u32)ext.n;
   return 1;
-}
-
-int tls_cert_parse(wired_span buf, wired_span* context, tls_cert_entry* first) {
-  cur        c = {buf.p, buf.n, 0};
-  wired_span list;
-  cur        lc;
-  if (!take_vec(&c, 1, context)) {
-    return 0;
-  }
-  if (!take_vec(&c, 3, &list)) {
-    return 0;
-  }
-  lc = (cur){list.p, list.n, 0};
-  return take_entry(&lc, first); /* first entry is the end-entity cert */
 }
 
 /* One more entry into out->entries[*out->count], bounded by out->cap (fail
@@ -99,16 +87,36 @@ static int entries_loop(cur* lc, const tls_cert_chain_out* out) {
   return 1;
 }
 
+/* The context and certificate_list vectors, and nothing after them
+ * (RFC 8446 6.2: trailing bytes are a malformed message). */
+static int cert_take_list(cur* c, wired_span* context, wired_span* list) {
+  if (!take_vec(c, 1, context)) {
+    return 0;
+  }
+  if (!take_vec(c, 3, list)) {
+    return 0;
+  }
+  return c->off == c->n;
+}
+
+int tls_cert_parse(wired_span buf, wired_span* context, tls_cert_entry* first) {
+  cur        c = {buf.p, buf.n, 0};
+  wired_span list;
+  cur        lc;
+  if (!cert_take_list(&c, context, &list)) {
+    return 0;
+  }
+  lc = (cur){list.p, list.n, 0};
+  return take_entry(&lc, first); /* first entry is the end-entity cert */
+}
+
 int tls_cert_chain(
     wired_span buf, wired_span* context, const tls_cert_chain_out* out) {
   cur        c = {buf.p, buf.n, 0};
   wired_span list;
   cur        lc;
   *out->count = 0;
-  if (!take_vec(&c, 1, context)) {
-    return 0;
-  }
-  if (!take_vec(&c, 3, &list)) {
+  if (!cert_take_list(&c, context, &list)) {
     return 0;
   }
   lc = (cur){list.p, list.n, 0};
@@ -131,28 +139,13 @@ int tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig) {
 /* The RFC 8446 4.4.3 server context string, sans terminating NUL. */
 static const char ctx_str[] = "TLS 1.3, server CertificateVerify";
 
-/* Copy len bytes from src to dst. */
-static void cert_copy_bytes(u8* dst, const u8* src, usz len) {
-  for (usz i = 0; i < len; i++) {
-    dst[i] = src[i];
-  }
-}
-
-static const u8 pad64[64] = {
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
-
 /* Build the 130-byte signed content into out (64 pad + 33 context + 1 sep +
  * 32 hash). */
 static void build_signed(const u8 transcript_hash[32], u8 out[130]) {
-  cert_copy_bytes(out, pad64, 64);
-  cert_copy_bytes(out + 64, (const u8*)ctx_str, 33);
+  bytes_memset(out, 0x20, 64);
+  bytes_memcpy(out + 64, (const u8*)ctx_str, 33);
   out[97] = 0x00;
-  cert_copy_bytes(out + 98, transcript_hash, 32);
+  bytes_memcpy(out + 98, transcript_hash, 32);
 }
 
 int tls_certverify_ed25519(

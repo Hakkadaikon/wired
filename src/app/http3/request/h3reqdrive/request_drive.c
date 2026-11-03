@@ -4,6 +4,9 @@ static int line_is_indexed(u8 lead);
 static int borrow_static(const qpack_field* f, rline* L);
 static int indexed_keep(
     const qpack_field* f, u8 lead, wired_mspan scr, rline* L);
+static int rd_ows(u8 c);
+static usz rd_ows_lead(const u8* p, usz n);
+static usz rd_ows_trail(const u8* p, usz n);
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
@@ -98,4 +101,32 @@ usz h3reqdrive_line_indexed(
     return 0;
   }
   return indexed_keep(&f, fs.p[0], scr, L) ? consumed : 0;
+}
+
+/* RFC 9110 5.6.3: OWS is SP or HTAB. */
+static int rd_ows(u8 c) { return c == ' ' || c == '\t'; }
+
+static usz rd_ows_lead(const u8* p, usz n) {
+  usz i = 0;
+  while (i < n && rd_ows(p[i])) {
+    i++;
+  }
+  return i;
+}
+
+static usz rd_ows_trail(const u8* p, usz n) {
+  usz i = 0;
+  while (i < n && rd_ows(p[n - 1 - i])) {
+    i++;
+  }
+  return i;
+}
+
+/* RFC 9110 5.5: a field value excludes its leading and trailing whitespace
+ * before it is evaluated. */
+void h3reqdrive_line_trim(rline* L) {
+  usz lead = rd_ows_lead(L->value, L->value_len);
+  L->value += lead;
+  L->value_len -= lead;
+  L->value_len -= rd_ows_trail(L->value, L->value_len);
 }

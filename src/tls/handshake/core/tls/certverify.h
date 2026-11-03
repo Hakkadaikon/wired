@@ -16,7 +16,7 @@ typedef struct {
   u16        scheme;
   wired_span cert;
   wired_span sig;
-  const u8*  transcript_hash; /* 32 bytes */
+  const u8*  transcript_hash; /* 32 bytes, or hash_len for the _ctx form */
 } certverify_in;
 
 /* RFC 8446 4.4.3. Verify a server CertificateVerify signature against the
@@ -26,5 +26,12 @@ typedef struct {
  * selects the algorithm and the certificate's public key type. Returns 1 if
  * the signature verifies, 0 otherwise. */
 int tls_verify_cert_signature(const certverify_in* in);
+
+/* RFC 8446 4.4.3: tls_verify_cert_signature for either peer and any suite
+ * hash. client 1 selects the context string "TLS 1.3, client
+ * CertificateVerify" (0: server); in->transcript_hash is hash_len bytes
+ * (32 for SHA-256 suites, 48 for SHA-384). */
+int tls_verify_cert_signature_ctx(
+    const certverify_in* in, int client, usz hash_len);
 
 #endif

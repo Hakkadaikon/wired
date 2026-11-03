@@ -94,7 +94,6 @@ void srvrun_deliver_wt_reset(
 usz  srvrun_peer_resets_stored(const srvrun_conn* c);
 void srvrun_deliver_wt_reset_if_owned(const srvrun_cfg* cfg, srvrun_conn* c);
 void srvrun_close_on_datagram_violation(const srvrun_cfg* cfg, srvrun_conn* c);
-void srvrun_close_on_wt_signal_violation(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_close_on_frame_error(const srvrun_cfg* cfg, srvrun_conn* c);
 int  srvrun_flow_violated(const srvrun_conn* c);
 int  srvrun_close_on_cid(const srvrun_cfg* cfg, srvrun_conn* c);

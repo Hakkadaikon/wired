@@ -1,4 +1,5 @@
 #include "app/http3/core/h3/frame_permit.h"
+#include "app/http3/core/h3/qpack_settings.h"
 #include "app/http3/core/h3/settings_check.h"
 #include "app/http3/core/h3/settings_dup.h"
 #include "app/http3/server/srvloop/priority_ctrl_impl.h"
@@ -6,6 +7,7 @@
 static void ctrl_wt_initial_set(wired_srvloop* l, u64 id, u64 v);
 static void ctrl_field_section_set(wired_srvloop* l, u64 id, u64 v);
 static void ctrl_h3_datagram_set(wired_srvloop* l, u64 id, u64 v);
+static void ctrl_qpack_cap_set(wired_srvloop* l, u64 id, u64 v);
 static int  ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v);
 static usz  ctrl_settings_walk(wired_srvloop* l, wired_span p);
 static void ctrl_on_settings(wired_srvloop* l, const h3_frame* f);
@@ -46,6 +48,15 @@ static void ctrl_h3_datagram_set(wired_srvloop* l, u64 id, u64 v) {
   }
 }
 
+/* RFC 9204 5: the peer's SETTINGS_QPACK_MAX_TABLE_CAPACITY bounds this
+ * server's encoder table. Its SETTINGS_QPACK_BLOCKED_STREAMS needs no copy:
+ * the encoder never references an unacknowledged entry (RFC 9204 2.1.2). */
+static void ctrl_qpack_cap_set(wired_srvloop* l, u64 id, u64 v) {
+  if (id == H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY) {
+    qpackenc_peer_capacity(&l->h3.qenc, v);
+  }
+}
+
 /* RFC 9114 7.2.4.1 (HTTP/2-reserved ids), 7.2.4 (a repeated id), RFC 9297
  * 2.1.1 (SETTINGS_H3_DATAGRAM > 1): 0 if the pair is an H3_SETTINGS_ERROR. */
 static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
@@ -54,8 +65,8 @@ static int ctrl_setting_ok(h3_settings_seen* seen, u64 id, u64 v) {
 }
 
 /* Walk p's (Identifier, Value) pairs, checking each and latching the
- * WebTransport initial limits, the field-section limit and
- * SETTINGS_H3_DATAGRAM; returns the bytes
+ * WebTransport initial limits, the field-section limit,
+ * SETTINGS_H3_DATAGRAM and the QPACK table capacity; returns the bytes
  * the complete pairs took. */
 static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
   h3_settings_seen seen;
@@ -67,6 +78,7 @@ static usz ctrl_settings_walk(wired_srvloop* l, wired_span p) {
     ctrl_wt_initial_set(l, id, v);
     ctrl_field_section_set(l, id, v);
     ctrl_h3_datagram_set(l, id, v);
+    ctrl_qpack_cap_set(l, id, v);
     done = off;
   }
   return done;
@@ -121,11 +133,13 @@ static void ctrl_on_max_push_id(wired_srvloop* l, const h3_frame* f) {
 }
 
 /* RFC 9114 7.2.1/7.2.2/7.2.5/7.2.8: DATA, HEADERS, PUSH_PROMISE and the
- * HTTP/2-only types are H3_FRAME_UNEXPECTED on a control stream; an
- * unknown/grease type is ignored. */
+ * HTTP/2-only types are H3_FRAME_UNEXPECTED on a control stream; WT_STREAM
+ * (0x41) is H3_FRAME_ERROR anywhere but a request stream's first bytes
+ * (draft-ietf-webtrans-http3-15 4.3); an unknown/grease type is ignored. */
 static void ctrl_on_other(wired_srvloop* l, const h3_frame* f) {
   int ok = h3_frame_on_stream(f->type, H3_STREAM_KIND_CONTROL) &&
            h3_frame_recv_ok(f->type);
+  srvloop_ctrl_check(l, f->type != H3_STREAM_WEBTRANSPORT_BIDI, H3_FRAME_ERROR);
   srvloop_ctrl_check(l, ok, H3_FRAME_UNEXPECTED);
 }
 

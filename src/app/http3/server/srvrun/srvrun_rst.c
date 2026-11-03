@@ -95,6 +95,7 @@ void srvrun_send_wt_busy_reset(
   /* RFC 9000 3.1: no STREAM frame follows a RESET_STREAM -- an unsent tail
    * past its Final Size would be a FINAL_SIZE_ERROR at the peer. */
   srvrun_wtsend_release(c, stream_id);
+  srvrun_wt_send_done_mark(c, stream_id);
 }
 
 /* 1 iff pn lies in [lo, hi]. */

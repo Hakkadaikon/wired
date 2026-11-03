@@ -1,6 +1,7 @@
 #ifndef QPACK_STRING_H
 #define QPACK_STRING_H
 
+#include "app/qpack/qpack/integer.h"
 #include "common/bytes/span/span.h"
 
 /* RFC 9204 4.1.2 / RFC 7541 5.2. A string literal: an H flag (1 bit), a
@@ -8,9 +9,14 @@
  * copied raw; H=1 octets are the static Huffman code and are decoded (RFC
  * 7541 Appendix B). The H flag is the high bit of the length's prefix byte. */
 
-/* Encode src as a raw (H=0) string literal into buf. Returns bytes written,
- * or 0 if it does not fit. */
+/* Encode src as a string literal into buf: Huffman-coded (H=1) when that is
+ * shorter, else raw (H=0). Returns bytes written, or 0 if it does not fit. */
 usz qpack_string_encode(wired_mspan buf, wired_span src);
+
+/* Same, for a length prefix of pfx.bits bits under pfx.pattern, with H in
+ * the bit just above the prefix (RFC 9204 4.3.3's 5-bit and 4.5.6's 3-bit
+ * literal names). */
+usz qpack_string_encode_pfx(wired_mspan buf, wired_span src, qpack_pfx pfx);
 
 /* Decode a string literal at buf into dst, setting dst->len. H=1 values are
  * Huffman-decoded. Returns bytes consumed, or 0 on truncation, a Huffman

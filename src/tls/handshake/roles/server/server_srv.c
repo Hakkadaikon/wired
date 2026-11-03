@@ -61,6 +61,10 @@ static int srv_install_hs_keys(wired_server* s) {
 static int srv_after_flight(wired_server* s, const sdrv_flight_out* out) {
   s->tr_through_sh     = server_srv_tr_add(s, out->sh->p, out->sh->len);
   s->tr_through_flight = server_srv_tr_add(s, out->hs->p, out->hs->len);
+  /* RFC 8446 4.4.2: a CertificateRequest went out, so the client answers
+   * with its Certificate first */
+  s->hs_wait = s->sdrv.client_auth == WIRED_CLIENT_AUTH_OFF ? SRV_WAIT_FIN
+                                                            : SRV_WAIT_CERT;
   return srv_install_hs_keys(s);
 }
 
@@ -87,7 +91,9 @@ int wired_server_build_flight(
 
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret (written to c_traffic for the key log) and the transcript
- * hash through the server Finished. */
+ * hash through the server Finished -- and, under client authentication,
+ * through the client Certificate and CertificateVerify (4.4.1), which is
+ * everything folded so far. */
 int server_srv_verify_finished(
     wired_server* s, const u8* msg, usz len, u8* c_traffic) {
   const u8*        hs;
@@ -101,7 +107,7 @@ int server_srv_verify_finished(
   dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
   dsi.suite    = s->sdrv.cipher_suite;
   tls_derive_secret(&dsi, c_traffic);
-  server_srv_hash(s)->digest(s->tr, s->tr_through_flight, th);
+  server_srv_hash(s)->digest(s->tr, s->tr_len, th);
   return srvfin_verify_client_finished_suite(
       s->sdrv.cipher_suite, wired_span_of(msg, len), c_traffic, th);
 }

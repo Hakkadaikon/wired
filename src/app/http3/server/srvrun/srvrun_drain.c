@@ -35,7 +35,7 @@ void srvrun_close_wt_on_stream_close(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (sidx >= 0) {
     srvrun_log_close(
         "wt session closed by peer (CONNECT stream)", wired_span_of(0, 0));
-    srvrun_wt_connect_fin(c, sidx); /* draft-ietf-webtrans-http3-16 SS6 */
+    srvrun_wt_connect_fin(cfg, c, sidx); /* draft-ietf-webtrans-http3-16 SS6 */
     srvrun_close_wt_session_slot(cfg, c, sidx, WTERR_SESSION_GONE);
   }
   c->l.closed_stream_seen = 0;

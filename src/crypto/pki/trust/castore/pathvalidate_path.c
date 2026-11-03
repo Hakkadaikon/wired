@@ -4,10 +4,11 @@ static int policy_wrapup_ok(u64 explicit_policy, const x509_policy_tree* tree);
 static int cert_seen_before(const wired_span* certs, usz i);
 static int no_duplicate_certs(const wired_span* certs, usz n_certs);
 static int certs_hygienic(const wired_span* certs, usz n_certs);
-static int leaf_purpose_ok(wired_span leaf);
-static int path_head_ok(const wired_span* certs, usz n_certs);
+static int leaf_purpose_ok(wired_span leaf, wired_span purpose);
+static int path_head_ok(
+    const wired_span* certs, usz n_certs, wired_span purpose);
 static int path_body_ok(const wired_span* certs, usz n_certs);
-static int path_ok(const wired_span* certs, usz n_certs);
+static int path_ok(const wired_span* certs, usz n_certs, wired_span purpose);
 static int path_len_ok(usz n_certs);
 static int cert_in_window(wired_span cert, u64 now);
 static int certs_in_window(const wired_span* certs, usz n_certs, u64 now);
@@ -81,10 +82,10 @@ static int certs_hygienic(const wired_span* certs, usz n_certs) {
   return no_duplicate_certs(certs, n_certs);
 }
 
-/* The leaf's purpose: EKU serverAuth, a keyUsage that lets it sign
+/* The leaf's purpose: EKU purpose, a keyUsage that lets it sign
  * (RFC 5280 4.2.1.12), and the RFC 8410 SPKI-specific keyUsage. */
-static int leaf_purpose_ok(wired_span leaf) {
-  if (!castore_leaf_allows_server_auth(leaf)) {
+static int leaf_purpose_ok(wired_span leaf, wired_span purpose) {
+  if (!castore_leaf_allows(leaf, purpose)) {
     return 0;
   }
   if (!castore_leaf_ku_signs(leaf)) {
@@ -94,8 +95,9 @@ static int leaf_purpose_ok(wired_span leaf) {
 }
 
 /* The leaf's purpose and per-certificate hygiene. */
-static int path_head_ok(const wired_span* certs, usz n_certs) {
-  if (!leaf_purpose_ok(certs[0])) {
+static int path_head_ok(
+    const wired_span* certs, usz n_certs, wired_span purpose) {
+  if (!leaf_purpose_ok(certs[0], purpose)) {
     return 0;
   }
   return certs_hygienic(certs, n_certs);
@@ -112,8 +114,8 @@ static int path_body_ok(const wired_span* certs, usz n_certs) {
 
 /* The leaf's purpose, per-certificate hygiene, every adjacent link, and the
  * path-wide name constraints all verify. */
-static int path_ok(const wired_span* certs, usz n_certs) {
-  if (!path_head_ok(certs, n_certs)) {
+static int path_ok(const wired_span* certs, usz n_certs, wired_span purpose) {
+  if (!path_head_ok(certs, n_certs, purpose)) {
     return 0;
   }
   return path_body_ok(certs, n_certs);
@@ -181,13 +183,24 @@ static int path_anchored_ok(
       certs, policy_walk_len(certs, n_certs, root));
 }
 
-int castore_validate_chain(
-    const castore* s, const wired_span* certs, usz n_certs, u64 now) {
+int castore_validate_chain_for(
+    const castore*    s,
+    const wired_span* certs,
+    usz               n_certs,
+    u64               now,
+    wired_span        purpose) {
   if (!path_len_ok(n_certs)) {
     return 0;
   }
-  if (!path_ok(certs, n_certs)) {
+  if (!path_ok(certs, n_certs, purpose)) {
     return 0;
   }
   return path_anchored_ok(s, certs, n_certs, now);
+}
+
+int castore_validate_chain(
+    const castore* s, const wired_span* certs, usz n_certs, u64 now) {
+  return castore_validate_chain_for(
+      s, certs, n_certs, now,
+      wired_span_of(x509_oid_server_auth, sizeof(x509_oid_server_auth)));
 }

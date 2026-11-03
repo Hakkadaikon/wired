@@ -3625,8 +3625,9 @@ static void test_srvloop_qpack_nonminimal_type(void) {
  * without waiting for a FIN that never comes. */
 /* GET whose field section repeats one 40-byte dynamic entry (static name
  * 95) refs times: 300 refs (~0.3 KiB encoded, ~15 KiB decoded) pass
- * WIRED_H3_MAX_FIELD_SECTION, 8 fit. Returns f.l.done_n. */
-static usz lp_qpack_amplified_get(usz refs) {
+ * WIRED_H3_MAX_FIELD_SECTION, 8 fit. Returns f.l.done_n, the handed-up
+ * request's too_large_status in *status. */
+static usz lp_qpack_amplified_get(usz refs, u16* status) {
   u8            enc[3 + 3 + 40] = {0x3f, 0xbd, 0x01, 0xff, 0x20, 40};
   u8            hdr[11 + 300]   = {0x01, 0,    0,    0x02, 0x00, 0xd1,
                                    0xd7, 0xc1, 0x50, 0x01, 'h'};
@@ -3643,6 +3644,7 @@ static usz lp_qpack_amplified_get(usz refs) {
   off = lp_qenc_frame(payload, sizeof payload, 0, enc, sizeof enc);
   off += frame_put_stream(payload + off, sizeof payload - off, &sf);
   lp_step_payload(&f, 3, payload, off);
+  *status = f.l.req.too_large_status;
   return f.l.done_n;
 }
 
@@ -3670,11 +3672,14 @@ static void test_srvloop_many_reserved_frames_before_headers_served(void) {
 
 /* GHSA-g754-hx8w-x2g6 / GHSA-vvgj-x9jq-8cj9 (V-0422, V-0421, V-0450): a
  * small QPACK section that decodes into a field section larger than the
- * fixed scratch fails closed -- it is never dispatched, never grows. */
+ * fixed scratch fails closed -- it never grows and no request reaches the
+ * app: it is handed up empty but for a 431 (RFC 9114 4.2.2). */
 static void test_srvloop_qpack_amplified_field_section_rejected(void) {
-  CHECK(lp_qpack_amplified_get(8) == 1);
-  CHECK(lp_qpack_amplified_get(150) == 1); /* ~7.5 KiB still fits */
-  CHECK(lp_qpack_amplified_get(300) == 0);
+  u16 status = 1;
+  CHECK(lp_qpack_amplified_get(8, &status) == 1 && status == 0);
+  /* ~7.5 KiB still fits */
+  CHECK(lp_qpack_amplified_get(150, &status) == 1 && status == 0);
+  CHECK(lp_qpack_amplified_get(300, &status) == 1 && status == 431);
 }
 
 static void test_srvloop_qpack_connect_dynamic_refs(void) {
@@ -4114,42 +4119,10 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
   CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
 }
 
-/* draft-ietf-webtrans-http3-15 4.3 (WTH3-035): "Endpoints MUST NOT send
- * WT_STREAM as a frame type on HTTP/3 streams other than the very first
- * bytes of a request stream. Receiving this frame type in any other
- * circumstances MUST be treated as a connection error of type
- * H3_FRAME_ERROR." A STREAM frame at a NON-zero offset whose own leading
- * bytes decode as the WT_STREAM signal varint (0x41) on a client bidi
- * stream latches wt_signal_mid_stream_violation -- mirrors
- * test_srvloop_wt_bidi_stream_not_request's own offset-0 case but at
- * offset 3, past some already-buffered bytes of the same stream. */
-static void test_srvloop_wt_signal_mid_stream_latches_violation(void) {
-  struct lp_fix f;
-  u8            out[1024], spkt[1024];
-  u8            sig[3] = {0x40, 0x41, 'X'}; /* same 2-byte signal varint
-                                             * lp_wt_bidi_stream uses */
-  stream_frame sf = {4, 3, sizeof sig, sig, 0};
-  u8           payload[64];
-  usz          plen, slen;
-  wired_obuf   ob = {out, sizeof out, 0};
-  lp_confirm(&f, &ob);
-  plen = frame_put_stream(payload, sizeof payload, &sf);
-  CHECK(plen != 0);
-  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (wired_obuf){out, sizeof out, 0};
-  CHECK(f.l.wt_signal_mid_stream_violation == 0);
-  wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.wt_signal_mid_stream_violation == 1);
-}
-
-/* REGRESSION: the SAME signal varint at offset 0 (the legitimate leading-
- * bytes case draft-ietf-webtrans-http3-15 4.3 requires) must NOT latch the
- * violation -- mirrors test_srvloop_wt_bidi_stream_not_request's own setup,
- * checked here specifically against wt_signal_mid_stream_violation staying
- * 0 so a regression narrowing the offset!=0 check cannot silently start
- * flagging the valid case too. */
-static void test_srvloop_wt_signal_offset_zero_not_violation(void) {
+/* draft-ietf-webtrans-http3-16 4.3: the WT_STREAM signal at offset 0 (the
+ * stream's leading bytes, the only place it means anything -- issue #212)
+ * opens a WebTransport stream. */
+static void test_srvloop_wt_signal_offset_zero_opens_wt(void) {
   struct lp_fix f;
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
@@ -4160,7 +4133,7 @@ static void test_srvloop_wt_signal_offset_zero_not_violation(void) {
   ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.wt_signal_mid_stream_violation == 0);
+  CHECK(wired_srvloop_wt_slot_find(&f.l, 4) >= 0);
 }
 
 /* RFC 9000 2.2 / RFC 9114 4.1: a POST whose HEADERS and DATA arrive as two
@@ -7259,6 +7232,10 @@ static void test_srvloop_h3ctrl_control_frames(void) {
                                 0x05, 0x0d, 0x01, 0x04};
   static const u8 mup[]      = {0x00, 0x04, 0x00, 0x0d, 0x01,
                                 0x04, 0x0d, 0x01, 0x05};
+  /* draft-ietf-webtrans-http3-15 4.3: WT_STREAM (0x41) off a request
+   * stream's first bytes is H3_FRAME_ERROR, not a skipped unknown type */
+  static const u8 wtsig[] = {0x00, 0x04, 0x00, 0x40, 0x41, 0x00};
+  CHECK(h3c_ctrl(wtsig, sizeof wtsig) == H3_FRAME_ERROR);
   CHECK(h3c_ctrl(ok, sizeof ok) == 0); /* SETTINGS + a grease frame */
   CHECK(h3c_ctrl(first, sizeof first) == H3_MISSING_SETTINGS);
   CHECK(h3c_ctrl(second, sizeof second) == H3_FRAME_UNEXPECTED);
@@ -7742,8 +7719,7 @@ void test_srvloop(void) {
   test_srvloop_datagram_without_advertising_rejected();
   test_srvloop_request_only_leaves_rx_datagrams_empty();
   test_srvloop_stream_leading_0x40_not_wt_signal();
-  test_srvloop_wt_signal_mid_stream_latches_violation();
-  test_srvloop_wt_signal_offset_zero_not_violation();
+  test_srvloop_wt_signal_offset_zero_opens_wt();
   test_srvloop_send_initial_roundtrip();
   test_srvloop_wrong_direction_open_fails();
   test_srvloop_no_onertt_seal_before_confirm();

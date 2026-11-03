@@ -46,7 +46,9 @@ int h3resp_prefix_field(
  * never null) receives any pending encoder-stream instruction the :status
  * line generated -- insert_out->insert_len > 0 means a fresh Insert
  * instruction must be sent on the QPACK encoder stream (RFC 9204 4.3.3) and
- * qpackenc_note_sent called once it is; always 0 when qenc == 0. Returns 1
+ * once it is staged qpackenc_status_commit then qpackenc_note_sent called
+ * (neither when the section or the staging fails); always 0 when
+ * qenc == 0. Returns 1
  * with out->len set, 0 if out lacks capacity. */
 int h3resp_prefix_field_qenc(
     u16                     status,

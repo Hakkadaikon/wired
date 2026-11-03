@@ -66,9 +66,31 @@ static void test_literal_name_golden(void) {
   CHECK(fb.value.len == 1 && outv[0] == 'y');
 }
 
-/* A name length of 7 fills the 3-bit prefix, spilling the length integer. */
+/* RFC 9204 4.5.6: a name shorter Huffman-coded is sent with H=1 (0x08).
+ * "date" is d 100100, a 00011, t 01001, e 00101 (RFC 7541 Appendix B) plus
+ * 3 bits of EOS padding: 90 69 2f; first byte 001 N=0 H=1 + length 3. */
+static void test_literal_name_huffman(void) {
+  const u8    nm[] = {'d', 'a', 't', 'e'};
+  const u8    v[]  = {'y'};
+  u8          buf[16];
+  qpack_field ef = {wired_span_of(nm, 4), wired_span_of(v, 1)};
+  usz w = qpack_literal_name_encode(wired_mspan_of(buf, sizeof(buf)), 0, &ef);
+  CHECK(w == 6 && buf[0] == 0x2b);
+  CHECK(buf[1] == 0x90 && buf[2] == 0x69 && buf[3] == 0x2f);
+  CHECK(buf[4] == 0x01 && buf[5] == 'y');
+
+  int            nv;
+  u8             outn[8], outv[8];
+  qpack_fieldbuf fb = {
+      obuf_of(outn, sizeof(outn)), obuf_of(outv, sizeof(outv))};
+  CHECK(qpack_literal_name_decode(wired_span_of(buf, w), &nv, &fb) == w);
+  CHECK(fb.name.len == 4 && outn[0] == 'd' && outn[3] == 'e');
+}
+
+/* A name length of 7 fills the 3-bit prefix, spilling the length integer.
+ * 'X' and 'Z' have 8-bit Huffman codes, so the name stays raw (H=0). */
 static void test_literal_name_prefix_boundary(void) {
-  const u8    nm[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g'};
+  const u8    nm[] = {'X', 'X', 'X', 'X', 'X', 'X', 'Z'};
   const u8    v[]  = {'z'};
   u8          buf[16];
   qpack_field ef = {wired_span_of(nm, 7), wired_span_of(v, 1)};
@@ -81,7 +103,7 @@ static void test_literal_name_prefix_boundary(void) {
   qpack_fieldbuf fb = {
       obuf_of(outn, sizeof(outn)), obuf_of(outv, sizeof(outv))};
   usz r = qpack_literal_name_decode(wired_span_of(buf, w), &nv, &fb);
-  CHECK(r == w && fb.name.len == 7 && outn[6] == 'g');
+  CHECK(r == w && fb.name.len == 7 && outn[6] == 'Z');
   CHECK(fb.value.len == 1 && outv[0] == 'z');
 }
 
@@ -234,6 +256,7 @@ void test_literal(void) {
   test_literal_namref_reject();
   test_literal_name_golden();
   test_literal_name_prefix_boundary();
+  test_literal_name_huffman();
   test_literal_name_reject();
   test_literal_postbase_golden();
   test_literal_postbase_flags();

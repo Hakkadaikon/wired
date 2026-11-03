@@ -18,6 +18,7 @@ NO_HIT = 3  # Groups._tier index of a key the stem does not match
 # test stem -> production group dir (as it appears in run.c includes).
 OVERRIDES = {
     "gcm256": "crypto/symmetric/aead/gcm",
+    "srvcauth": "tls/handshake/roles/server",
     "bssl_aes128gcm": "crypto/symmetric/aead/gcm",
     "bssl_aes256gcm": "crypto/symmetric/aead/gcm",
     "bssl_chacha20poly1305": "crypto/symmetric/aead/chacha",

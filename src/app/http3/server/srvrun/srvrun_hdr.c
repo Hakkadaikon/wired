@@ -13,6 +13,8 @@ static int  srvrun_app_len_ok(const wired_http_exchange* x);
 static const char* srvrun_status_ct(wired_span body);
 static void        srvrun_hdrs_allow(srvrun_hdrs* h, u16 status);
 static void        srvrun_hdrs_extra(srvrun_hdrs* h, const qpack_field* extra);
+static void        srvrun_hdrs_capsule(
+    srvrun_hdrs* h, const wired_h3reqdrive_req* r, u16 status);
 
 static const u8 srvrun_hdr_date_n[]  = {'d', 'a', 't', 'e'};
 static const u8 srvrun_hdr_cl_n[]    = {'c', 'o', 'n', 't', 'e', 'n', 't',
@@ -176,6 +178,20 @@ static void srvrun_hdrs_extra(srvrun_hdrs* h, const qpack_field* extra) {
   }
 }
 
+/* RFC 9297 3.4 / RFC 9220 3: a 2xx to an Extended CONNECT (one with
+ * :protocol) opens a tunnel whose stream carries capsules (a WebTransport
+ * session), said with capsule-protocol: ?1 (an sf-boolean true). A
+ * client's own capsule-protocol header needs nothing: the capsule parser
+ * runs on the CONNECT stream either way. */
+static void srvrun_hdrs_capsule(
+    srvrun_hdrs* h, const wired_h3reqdrive_req* r, u16 status) {
+  if (r->protocol_len && srvrun_connect_2xx(r, status)) {
+    srvrun_hdrs_add(
+        h, wired_span_of((const u8*)"capsule-protocol", 16),
+        wired_span_of((const u8*)"?1", 2));
+  }
+}
+
 /* An SDK-generated status response for req into out: HEADERS (:status,
  * extra when given, Allow on a 405, Content-Length, Date) plus, for a
  * 4xx/5xx, a DATA frame explaining it (srvrun_status_body). Content-Length
@@ -191,6 +207,7 @@ int srvrun_status_build(
   qpackenc_status_result unused;
   usz                    off;
   srvrun_hdrs_extra(&h, extra);
+  srvrun_hdrs_capsule(&h, req, status);
   srvrun_hdrs_allow(&h, status);
   srvrun_hdrs_sdk(&h, status >= 300, body.n);
   if (!h3resp_prefix_fields_qenc(

@@ -4,20 +4,25 @@
 #include "app/http3/core/h3/frame_permit.h"
 #include "app/http3/request/h3reqdrive/request_parse_impl.h"
 
-/* RFC 9114 4.1: 1 if a frame of type t is acceptable while walking to the
- * leading HEADERS. DATA there is an invalid frame sequence. */
-static int find_headers_type_ok(u64 t) {
-  return t != H3_FRAME_DATA && h3reqdrive_frame_type_ok(t);
-}
-
-/* Latch *unexpected (H3_FRAME_UNEXPECTED) for a frame f that must be
- * rejected before HEADERS. Split out of find_headers's loop so the reject
- * latch stays a single extra branch there. */
-static int find_headers_frame_ok(const h3_frame* f, int* unexpected) {
-  if (find_headers_type_ok(f->type)) {
+/* RFC 9114 4.1: the h3reqdrive_frame_reject code of a frame of type t at
+ * offset off while walking to the leading HEADERS. DATA there is an invalid
+ * frame sequence (H3_FRAME_UNEXPECTED). */
+static int find_headers_reject(u64 t, usz off) {
+  if (t == H3_FRAME_DATA) {
     return 1;
   }
-  *unexpected = 1;
+  return h3reqdrive_frame_reject(t, off);
+}
+
+/* Latch *unexpected (h3reqdrive_frame_reject's code) for a frame f at off
+ * that must be rejected before HEADERS. Split out of find_headers's loop so
+ * the reject latch stays a single extra branch there. */
+static int find_headers_frame_ok(const h3_frame* f, usz off, int* unexpected) {
+  int bad = find_headers_reject(f->type, off);
+  if (!bad) {
+    return 1;
+  }
+  *unexpected = bad;
   return 0;
 }
 
@@ -35,7 +40,7 @@ static int find_headers_step(
     return 0;
   }
   *f = g;
-  if (!find_headers_frame_ok(f, unexpected)) {
+  if (!find_headers_frame_ok(f, *off, unexpected)) {
     return 0;
   }
   *off += used;

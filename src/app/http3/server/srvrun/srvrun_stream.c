@@ -60,6 +60,7 @@ u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
  * (srvrun_wt_rx_capsules); srvrun_close_wt_session_slot releases it then. */
 void srvrun_resp_release_stream(srvrun_conn* c, u64 stream_id) {
   if (srvrun_wt_slot_by_connect_id(c, stream_id) < 0) {
+    srvrun_wt_send_done_mark(c, stream_id); /* the response's FIN is ACKed */
     wired_srvloop_slot_release(&c->l, stream_id);
   }
 }

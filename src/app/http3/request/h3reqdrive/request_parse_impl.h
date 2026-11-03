@@ -5,7 +5,7 @@
 
 /* request_parse_frames.c: the request-stream frame grammar (RFC 9114 4.1,
  * 7.2) shared with request_parse.c. */
-int h3reqdrive_frame_type_ok(u64 t);
+int h3reqdrive_frame_reject(u64 t, usz off);
 int h3reqdrive_frames_after_headers(
     wired_span h3, usz off, wired_h3reqdrive_req* r);
 

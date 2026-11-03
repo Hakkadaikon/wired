@@ -8,11 +8,11 @@ static int  route_body_sink(void* ctx, wired_span chunk, int fin);
 static void route_body_open(wired_srvloop* l, int i);
 static void route_body_done(wired_srvloop* l, int i);
 static void route_body_reject(wired_srvloop* l, int i);
-static void route_body_frame_error(wired_srvloop* l, int i);
 static void route_body_frame_unexpected(wired_srvloop* l, int i);
 static void route_body_pump(wired_srvloop* l, int i);
 static int  route_body_ready(
     const wired_srvloop_dispatch_ctx* ctx, wired_srvloop_stream_slot* slot);
+static int  route_body_go(const wired_srvloop_dispatch_ctx* ctx, int i);
 static int  route_body(const wired_srvloop_dispatch_ctx* ctx, int i);
 static int  route_answered_early(const wired_srvloop_dispatch_ctx* ctx, int i);
 static void route_complete_touched(
@@ -87,13 +87,6 @@ static void route_body_reject(wired_srvloop* l, int i) {
   route_body_done(l, i);
 }
 
-/* RFC 9114 7.1: the stream ended inside a frame -- H3_FRAME_ERROR. */
-static void route_body_frame_error(wired_srvloop* l, int i) {
-  l->streams[i].req_done = 1;
-  l->req_frame_error     = 1;
-  srvloop_qdec_cancel_slot(l, i); /* RFC 9204 2.2.2.2: reading abandoned */
-}
-
 /* RFC 9114 7.2: a frame a request stream must not carry -- rejected the
  * same way the buffered path rejects it (H3_FRAME_UNEXPECTED). */
 static void route_body_frame_unexpected(wired_srvloop* l, int i) {
@@ -106,8 +99,12 @@ static void route_body_frame_unexpected(wired_srvloop* l, int i) {
  * body is never pumped again, so a re-armed slot cannot re-settle). */
 static void route_body_pump(wired_srvloop* l, int i) {
   static void (*const settle[])(wired_srvloop*, int) = {
-      route_body_open, route_body_done, route_body_reject,
-      route_body_frame_error, route_body_frame_unexpected};
+      route_body_open,
+      route_body_done,
+      route_body_reject,
+      srvloop_route_note_frame_error,
+      route_body_frame_unexpected,
+      srvloop_route_note_frame_error};
   wired_srvloop_stream_slot* slot = &l->streams[i];
   route_body_call            c    = {l, slot};
   if (slot->body.state != BODYWIN_OPEN) {
@@ -122,17 +119,23 @@ static int route_body_ready(
   return slot->body.on || route_body_start(ctx, slot);
 }
 
-/* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
- * streaming path (the buffered completion below then stays out of it). */
-static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
-  if (!srvloop_route_body_on(ctx)) {
-    return 0;
-  }
+/* Stream slot i's body to on_body once its HEADERS are whole. */
+static int route_body_go(const wired_srvloop_dispatch_ctx* ctx, int i) {
   if (!route_body_ready(ctx, &ctx->l->streams[i])) {
     return 0;
   }
   route_body_pump(ctx->l, i);
   return 1;
+}
+
+/* RFC 9114 4.1: stream slot i's body to on_body. 1 if the slot is on the
+ * streaming path or was refused (the buffered completion below then stays
+ * out of it). */
+static int route_body(const wired_srvloop_dispatch_ctx* ctx, int i) {
+  if (!srvloop_route_body_on(ctx)) {
+    return 0;
+  }
+  return srvloop_route_body_refused(ctx->l, i) || route_body_go(ctx, i);
 }
 
 /* Slot i is on the streaming-body path, was answered for overflowing, or

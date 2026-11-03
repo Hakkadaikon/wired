@@ -25,18 +25,25 @@ typedef struct {
   u64 required_insert_count; /**< RFC 9204 4.5.1: this section's Prefix RIC */
   u8  insert_instr[QPACK_DYN_MAX_CAPACITY + 8];
   usz insert_len; /**< bytes at insert_instr, 0 if none generated */
+  u16 status;     /**< the status encoded, for qpackenc_status_commit */
 } qpackenc_status_result;
 
-/** Encode one :status field line against st, updating st's dynamic table and
- * counters on a fresh insert (see qpackenc_plan_field). status is rendered
- * as its 3 decimal ASCII digits (RFC 9110 15) before matching/inserting.
- * @param st the encoder-side state (unchanged on the static-match/literal-
- *   fallback paths)
+/** Encode one :status field line against st (see qpackenc_plan_field).
+ * status is rendered as its 3 decimal ASCII digits (RFC 9110 15) before
+ * matching. A planned insert is not applied here: call
+ * qpackenc_status_commit once its instruction is staged.
+ * @param st the encoder-side state, unchanged
  * @param status the HTTP status code
  * @param out the result, always fully written
  * @return 1 ok, 0 if out->field lacks capacity (never happens for the
  *   64-byte-bounded shapes produced here in practice, checked all the same) */
 int qpackenc_status_line(
-    u16 status, qpackenc_state* st, qpackenc_status_result* out);
+    u16 status, const qpackenc_state* st, qpackenc_status_result* out);
+
+/** RFC 9204 2.1.4: apply r's planned insert to st (qpackenc_commit_field);
+ * a no-op when r planned none (insert_len == 0). Call only after the field
+ * section was built and r's instruction staged on the encoder stream. */
+void qpackenc_status_commit(
+    qpackenc_state* st, const qpackenc_status_result* r);
 
 #endif

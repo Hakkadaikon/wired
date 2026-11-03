@@ -1,4 +1,5 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
+#include "common/bytes/text/text.h"
 
 static int srvrun_close_on_h3(const srvrun_cfg* cfg, srvrun_conn* c);
 static int srvrun_close_on_qpack(const srvrun_cfg* cfg, srvrun_conn* c);
@@ -93,17 +94,41 @@ static int srvrun_close_on_reset_flood(const srvrun_cfg* cfg, srvrun_conn* c) {
   return 1;
 }
 
+/* Reason phrases for latched handshake error codes: RFC 9000 7.5
+ * CRYPTO_BUFFER_EXCEEDED, else CRYPTO_ERROR 0x100 + TLS alert (RFC 9001 4.8,
+ * RFC 8446 6). */
+static const struct {
+  u64         code;
+  const char* reason;
+} srvrun_hs_reasons[] = {
+    {ERR_CRYPTO_BUFFER_EXCEEDED, "crypto buffer exceeded"},
+    {ERR_CRYPTO_BASE + 10, "unexpected handshake message"},
+    {ERR_CRYPTO_BASE + 42, "bad certificate"},
+    {ERR_CRYPTO_BASE + 51, "decrypt error"},
+    {ERR_CRYPTO_BASE + 116, "certificate required"},
+};
+
+/* The close reason phrase for a latched handshake error code. */
+static wired_span srvrun_hs_reason(u64 code) {
+  for (usz i = 0; i < sizeof srvrun_hs_reasons / sizeof *srvrun_hs_reasons;
+       i++) {
+    if (srvrun_hs_reasons[i].code == code) {
+      return wired_span_cstr(srvrun_hs_reasons[i].reason);
+    }
+  }
+  return wired_span_cstr("handshake alert");
+}
+
 /* RFC 8446 4 / 4.4.4: a handshake message latched an alert (an
  * out-of-order or wrong-level message, a forged client Finished) -- close
- * with that CRYPTO_ERROR (RFC 9001 4.8). */
+ * with that CRYPTO_ERROR (RFC 9001 4.8), or CRYPTO_BUFFER_EXCEEDED for a
+ * Handshake CRYPTO stream past the buffer (RFC 9000 7.5). */
 static int srvrun_close_on_hs_error(const srvrun_cfg* cfg, srvrun_conn* c) {
-  static const u8 reason[] = "unexpected handshake message";
-  u64             code     = wired_server_take_hs_error(&c->s);
+  u64 code = wired_server_take_hs_error(&c->s);
   if (!code) {
     return 0;
   }
-  srvrun_send_transport_close(
-      cfg, c, code, wired_span_of(reason, sizeof reason - 1));
+  srvrun_send_transport_close(cfg, c, code, srvrun_hs_reason(code));
   return 1;
 }
 
@@ -156,8 +181,11 @@ void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
  * srvloop pass found no free slot for (wt_refused) -- RESET_STREAM +
  * STOP_SENDING carrying H3_REQUEST_REJECTED ("not processed in any way", so
  * the peer may retry), never a silent drop of data the transport already
- * ACKed. Not a WebTransport application code, so a browser surfaces it as
- * a reset with no application error (draft-ietf-webtrans-http3-15 4.4). */
+ * ACKed. A request queued there (send_done, dispatch_reassemble.c) already had
+ * its RESET_STREAM, so it gets the STOP_SENDING alone (srvrun_wt_abort_reset
+ * builds nothing for an ended send side). Not a WebTransport application code,
+ * so a browser surfaces it as a reset with no application error
+ * (draft-ietf-webtrans-http3-15 4.4). */
 void srvrun_refuse_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < c->l.wt_refused_n; i++) {
     srvrun_send_wt_busy_reset(

@@ -88,7 +88,9 @@ typedef int (*wired_srvloop_handler)(
  * connection with H3_FRAME_ERROR (RFC 9114 7.1); fin=1 never arrives.
  * A body that ends any other way -- the client resets the stream, stops
  * the response before it starts, or the connection ends -- gets no fin:
- * wired_srvloop_on_body_abort reports it instead.
+ * wired_srvloop_on_body_abort reports it instead. One exception: a request
+ * on a stream opened past this server's GOAWAY is refused after its fin=1
+ * (RFC 9114 5.2), so neither the handler nor on_body_abort runs for it.
  * @param ctx the context registered with wired_srvloop_set_handler
  * @param req the decoded request; valid only during the call
  * @param stream_id the request stream
@@ -635,6 +637,18 @@ typedef struct {
    * "zombies" once filled the table until genuinely new streams were
    * dropped. */
   wired_srvloop_closed req_closed;
+  /** Client-bidi stream ids whose server send part already ran to its end
+   * (reply FIN ACKed and slot reaped, or a reset already sent) -- consulted
+   * before building any further RESET_STREAM for the id. The record must
+   * outlive BOTH the receive slot (freed once the request's FIN is
+   * delivered; the reply usually comes on a later step) and the send slot
+   * (reaped on the FIN ACK), so it lives in neither: same exact-id sliding
+   * window as req_closed. Server-initiated ids are covered by the
+   * wt_uni_opened/wt_bidi_opened counters instead (and would alias client
+   * ids in this /4-indexed window, the same reason wt_closed_mark skips
+   * them). A request whose send side ended is refused once its HEADERS
+   * are whole, before any body reaches on_body (RFC 9114 4.1.1). */
+  wired_srvloop_closed send_done;
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -907,17 +921,6 @@ typedef struct {
   /** RFC 9114 6.2 / 7.2 / 8.1: the peer's control/critical stream state
    * and the connection error it latched (srvloop_h3peer's doc). */
   srvloop_h3peer h3peer;
-  /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
-   * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
-   * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a
-   * frame type on HTTP/3 streams other than the very first bytes of a
-   * request stream. Receiving this frame type in any other circumstances
-   * MUST be treated as a connection error of type H3_FRAME_ERROR." Mirrors
-   * datagram_violation's shape: dispatch.c only latches it, the caller
-   * driving the loop (srvrun.c) closes the connection over it. Not reset
-   * across steps by this loop itself, same convention as max_data_seen_flag
-   * (the caller consumes and clears it every step). */
-  int wt_signal_mid_stream_violation;
   /** RFC 9000 19.4/19.5: every RESET_STREAM/STOP_SENDING this step carried,
    * in arrival order, with its wire error code. This loop has no notion of
    * which stream id is a WT data stream, a CONNECT stream or a plain request
@@ -951,9 +954,10 @@ typedef struct {
   /** Told when a body streaming to on_body ends without fin (see
    * wired_srvloop_on_body_abort), its ctx being req_ctx; 0 to ignore. */
   wired_srvloop_on_body_abort on_body_abort;
-  /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame --
-   * a connection error of type H3_FRAME_ERROR. dispatch.c only latches it;
-   * the caller (srvrun.c) closes the connection and clears it. */
+  /** RFC 9114 7.1: 1 once a streamed request body ended inside a frame, 2
+   * once it carried a mid-stream WT_STREAM type (draft-ietf-webtrans-http3-15
+   * 4.3) -- a connection error of type H3_FRAME_ERROR. dispatch.c only
+   * latches it; the caller (srvrun.c) closes the connection and clears it. */
   int req_frame_error;
   /** RFC 9114 6.2.1: 1 once the peer control stream's unparsed backlog no
    * longer fit WIRED_SRVLOOP_CTRL_BUF_CAP (ctrl's doc). The caller
@@ -993,8 +997,9 @@ typedef struct {
    * request side of the connection-wide MAX_DATA ceiling (srvrun.c). */
   u64 req_body_released;
   /** RFC 9114 8.1: client WT bidi streams whose signal frame found every
-   * wt_streams[] slot busy. dispatch.c only queues them; the caller
-   * (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
+   * wt_streams[] slot busy, and requests whose response can no longer be
+   * sent (send_done, before its body streams). dispatch.c only queues them; the
+   * caller (srvrun.c) refuses each with H3_REQUEST_REJECTED, gives its stream
    * credit back, and clears wt_refused_n. The bidi credit never has more
    * than WIRED_SRVLOOP_MAX_STREAMS new streams outstanding, so the queue
    * cannot overflow for a peer that honors MAX_STREAMS. */
@@ -1139,7 +1144,8 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
 int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id);
 
 /** RFC 9114 8.1: queue client WT bidi stream_id for refusal (wt_refused)
- * because no slot was free -- unless it is a retransmission of a stream
+ * because no slot was free, or a request whose response can no longer be
+ * sent -- unless it is a retransmission of a stream
  * already released or refused. Marks it closed so its later frames are not
  * read as an HTTP/3 request. */
 void wired_srvloop_wt_refuse(wired_srvloop* l, u64 stream_id);

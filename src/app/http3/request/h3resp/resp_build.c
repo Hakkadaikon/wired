@@ -90,8 +90,9 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
  * fields. *insert_out receives any pending encoder-stream
  * instruction the :status line generated (insert_len == 0 if none, always
  * the case when qenc == 0) -- the caller sends it on the QPACK encoder
- * stream and calls qpackenc_note_sent once it does (RFC 9204 4.3.3 /
- * 4.4.1). */
+ * stream and, once it is staged, calls qpackenc_status_commit then
+ * qpackenc_note_sent; on a failed section or staging it calls neither
+ * (RFC 9204 4.3.3 / 4.4.1). */
 int h3resp_prefix_fields_qenc(
     u16                     status,
     const char*             content_type,
