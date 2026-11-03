@@ -18,8 +18,10 @@ import pathlib
 import re
 
 _ATTR = re.compile(r"__attribute__\s*\(\((?:[^()]|\([^()]*\))*\)\)")
-_COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.S)
-_STRING = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'')
+# one pass, leftmost wins: a "/*" inside a string literal opens no comment
+_LEXEME = re.compile(
+    r'(/\*.*?\*/|//[^\n]*)|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'', re.S
+)
 _PREPRO = re.compile(r"^[ \t]*#(?:[^\n]*\\\n)*[^\n]*", re.M)
 _DEFINE = re.compile(r"#\s*define\s+(\w+)(.*)", re.S)
 _IDENT = re.compile(r"\b[A-Za-z_]\w*\b")
@@ -30,7 +32,11 @@ _SYMBOL = re.compile(r"\b[A-Za-z]\w*_\w+\b")
 
 
 def strip(text):
-    return _ATTR.sub(" ", _STRING.sub('""', _COMMENT.sub(" ", text)))
+    return _ATTR.sub(" ", _LEXEME.sub(_blank, text))
+
+
+def _blank(m):
+    return " " if m.group(1) else '""'
 
 
 def _defname(head):

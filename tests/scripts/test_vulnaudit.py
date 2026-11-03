@@ -186,6 +186,10 @@ class ReachTest(InTmp):
             ["V-0001: test does not reach cited code: test_live"],
         )
 
+    def test_comment_opener_inside_string_ignored(self):
+        # "*/*" (an Accept value) once opened a comment that swallowed braces
+        self.assertEqual(reach.strip("a(\"*/*\"); /* c */ b('{');"), 'a("");   b("");')
+
     def test_open_and_na_rows_skipped(self):
         r = row(status="done", verdict="n/a", ours="dead_fn")
         self.assertEqual(reach.check([r, row(ours="dead_fn")]), [])
