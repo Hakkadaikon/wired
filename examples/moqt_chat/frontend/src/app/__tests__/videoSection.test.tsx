@@ -19,6 +19,8 @@ afterEach(() => {
 });
 
 function render(connected: boolean, video: Partial<VideoSourceView> = {}) {
+	// a second render in one test must not leave the first root subscribed
+	act(() => root?.unmount());
 	useMoqtChatStore.getState().setVideo({
 		source: "off",
 		background: "none",
@@ -81,6 +83,15 @@ describe("VideoSection", () => {
 			v.input.dispatchEvent(new Event("change", { bubbles: true }));
 		});
 		expect(v.props.onPickFile).toHaveBeenCalledExactlyOnceWith(file);
+	});
+
+	it("a cancelled file dialog (no file) picks nothing", () => {
+		const v = render(true);
+		Object.defineProperty(v.input, "files", { value: [] });
+		act(() => {
+			v.input.dispatchEvent(new Event("change", { bubbles: true }));
+		});
+		expect(v.props.onPickFile).not.toHaveBeenCalled();
 	});
 
 	it("only the live source's toggle is pressed", () => {

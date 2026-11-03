@@ -98,6 +98,18 @@ describe("cameraReceiver", () => {
 		]);
 	});
 
+	it("taps 0x0 for a frame that reports no size at all", async () => {
+		const tap: unknown[] = [];
+		(globalThis as { __wiredCameraTap?: unknown[] }).__wiredCameraTap = tap;
+		nextFrame = {};
+		const { rx } = setup();
+		rx.onChunk("user1", key(0));
+		await settle();
+		expect(tap).toEqual([
+			{ senderId: "user1", width: 0, height: 0, t: expect.any(Number) },
+		]);
+	});
+
 	it("works without a tap installed", async () => {
 		const { deps, rx } = setup();
 		rx.onChunk("user1", key(0));

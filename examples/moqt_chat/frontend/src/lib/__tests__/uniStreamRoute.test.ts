@@ -39,4 +39,21 @@ describe("routeUniStream", () => {
 		});
 		expect(cancel).toHaveBeenCalled();
 	});
+
+	it("a cancel that rejects (stream already gone) is swallowed", () => {
+		// the rejection gets a handler, so it is never an unhandled one
+		const pending = { catch: vi.fn() };
+		const r = {
+			cancel: () => pending,
+		} as unknown as ReadableStreamDefaultReader<Uint8Array>;
+		routeUniStream(header(3n), new Uint8Array(), r, {
+			camera: sink(),
+			screen: sink(),
+			voice: null,
+		});
+		expect(pending.catch).toHaveBeenCalledOnce();
+		expect(() =>
+			pending.catch.mock.calls[0][0](new Error("gone")),
+		).not.toThrow();
+	});
 });
