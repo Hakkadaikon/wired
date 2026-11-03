@@ -184,9 +184,10 @@ Bundled assets (served from the app's own origin, no CDN):
 | `public/backgrounds/default.jpg` | generated: `ffmpeg -f lavfi -i gradients=size=1280x720:c0=0x1d4e89:c1=0x3fa7d6:x0=0:y0=0:x1=1280:y1=720:nb_colors=2 -frames:v 1 default.jpg` |
 
 `just e2e-stability s22-camera` checks it end to end with Chrome's fake
-camera: the peer decodes the camera, the image background turns the tile
-the image's blue (the fake camera shows no person), the mp4 arrives at its
-own size, a late joiner sees it, and off removes the tile.
+camera: the peer decodes the camera, blurred frames keep arriving, the
+image background turns the tile the image's blue (the fake camera shows no
+person), the mp4 arrives at its own size, a late joiner sees it, and off
+removes the tile with no frame decoded a second later.
 
 ## Build and run (server)
 

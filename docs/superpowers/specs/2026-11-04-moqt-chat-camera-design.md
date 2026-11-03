@@ -103,7 +103,9 @@ A pure state machine (events in, state and effects out) owns the source.
   - completions that may arrive late, out of order or not at all: camera
     acquired / failed, file playing / failed, segmenter ready / failed
   - from the running track: a failure of the live source's publish,
-    encoding or frame reading (turns the source off with an error), and a
+    encoding or frames, including the source ending by itself (an
+    unplugged camera, a revoked permission), which turns the source off
+    with an error; and a
     ready segmenter lost later, e.g. its WebGL context (treated as a
     segmenter failure)
 - **Generations.** Each acquisition carries a generation number. A
@@ -169,8 +171,8 @@ Errors show under the section. Camera tiles show next to the screen tiles.
   restart the camera. Choosing none closes the segmenter.
 - A file source ignores the background.
 - A camera that cannot be opened, a file that cannot play, or a live
-  source whose publish, encoding or frame reading fails, returns to off and
-  shows an error. The error stays until the next selection.
+  source whose publish, encoding or frames fail (or that ends by itself),
+  returns to off and shows an error. The error stays until the next selection.
 - Leaving the room releases everything, including acquisitions still in
   flight.
 
@@ -183,8 +185,10 @@ Errors show under the section. Camera tiles show next to the screen tiles.
   track kind.
 - **e2e** runs two headless Chrome participants with a fake camera:
   - camera on: the peer's camera tile receives frames
+  - blur background: blurred frames keep arriving and the tile keeps the
+    fake camera's colour
   - image background: since the fake camera shows no person, the tile turns
     the bundled image's colour
   - switch to the mp4: the frame size changes to the mp4's
-  - off: the tile goes away
+  - off: the tile goes away and no frame is decoded a second later
   - a late joiner sees the live camera track
