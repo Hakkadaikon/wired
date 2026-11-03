@@ -1,7 +1,9 @@
 # moqt_chat: camera video, virtual background, and mp4 streaming
 
-Status: approved design, 2026-11-04 (the request itself fixed the
-approach). Implementation plan follows this spec.
+Status: approved design, 2026-11-04. The request asked for a camera with
+a virtual background built from MediaPipe's segmentation and a
+self-written WebGL compositor, and for a frontend toggle that streams a
+saved mp4.
 
 ## Intent
 
@@ -85,8 +87,10 @@ These would make the feature a failure even if it works:
   descriptor. The camera instance publishes `<id>/camera` at alias
   18 + index and announces the `[id, "camera"]` namespace. It has no lo
   variant.
-- The existing encoder pipeline is reused unchanged except for one setting,
-  the content hint, which the camera sets to `motion`. It encodes VP8 in
+- The existing encoder pipeline is reused with two changes: the camera
+  sets the content hint to `motion`, and the encoder follows each frame's
+  visible size (a frame from a `<video>` carries padding in its coded
+  size). It encodes VP8 in
   480 B chunks with a keyframe every 2 s.
 - A source switch forces a keyframe, so receivers can decode the new source.
 
@@ -100,7 +104,7 @@ A pure state machine (events in, state and effects out) owns the source.
     acquired / failed, file playing / failed, segmenter ready / failed
 - **Generations.** Each acquisition carries a generation number. A
   completion from an older generation is released and never published.
-- **Effects** are carried out by the hook: acquire, release, publish or end
+- **Effects** are carried out by a controller the hook owns: acquire, release, publish or end
   the track, load or close the segmenter, show an error.
 - **Frame gate.** For each camera frame, the frame is sent raw when the
   mode is none. It is composited when the segmenter is ready, and dropped
@@ -167,7 +171,7 @@ section. Camera tiles show next to the screen tiles.
 ## Verification
 
 - The source lifecycle's behaviour is fixed before implementation, and
-  each acceptance criterion below becomes a unit test of the state
+  each acceptance criterion above becomes a unit test of the state
   machine or the controller.
 - **Unit tests** cover the frame gate, alias ranges and routing, and the
   track kind.
@@ -177,4 +181,4 @@ section. Camera tiles show next to the screen tiles.
     the bundled image's colour
   - switch to the mp4: the frame size changes to the mp4's
   - off: the tile goes away
-  - a late joiner sees a live camera
+  - a late joiner sees the live camera track
