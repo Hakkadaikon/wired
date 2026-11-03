@@ -143,7 +143,8 @@ export type ScreenSharePipelineDeps = {
 	 * first Group starts aligned with hi's. */
 	loActive?: () => boolean;
 	/** The captured track's contentHint (default "detail", text/UI; the
-	 * camera passes "motion"). */
+	 * camera passes "motion"). When given it also goes to the encoder's
+	 * config, since pushed frames (the camera) have no captured track. */
 	contentHint?: string;
 	onError?: (err: unknown) => void;
 	onEncodeError?: (err: unknown) => void;
@@ -310,6 +311,7 @@ export async function startScreenSharePipeline(
 			height: size.height,
 			bitrate: lane.bitrate(width, height),
 			latencyMode: "realtime",
+			...(deps.contentHint && { contentHint: deps.contentHint }),
 		});
 	};
 

@@ -123,6 +123,24 @@ describe("screenSharePipeline", () => {
 		expect(track.contentHint).toBe("motion");
 	});
 
+	it("passes a given contentHint to the encoder too (a pushed frame has no track)", async () => {
+		const given = fakeEncoder(10);
+		await startScreenSharePipeline({
+			getDisplayMedia: async () => ({ getVideoTracks: () => [] }),
+			VideoEncoderCtor: given.ctor as never,
+			sendVideoChunk: vi.fn(),
+			contentHint: "motion",
+		});
+		expect(given.configureCalls[0]).toMatchObject({ contentHint: "motion" });
+		const none = fakeEncoder(10);
+		await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(fakeTrack()),
+			VideoEncoderCtor: none.ctor as never,
+			sendVideoChunk: vi.fn(),
+		});
+		expect(none.configureCalls[0]).not.toHaveProperty("contentHint");
+	});
+
 	it("configures the encoder for vp8 realtime at 720p's bitrate until a frame reports its size", async () => {
 		const track = fakeTrack();
 		const encoder = fakeEncoder(10);
