@@ -281,6 +281,89 @@ static void test_udp_send_tos_overrides_socket_ect0(void) {
   wired_udp_close(sfd);
 }
 
+/* Issue #201: one GSO sendmsg carrying a Not-ECT TOS cmsg delivers every
+ * segment unmarked despite the socket's ECT(0) (RFC 9000 13.4.2.2). */
+static void test_udp_send_gso_tos_overrides_socket_ect0(void) {
+  i64      sfd, cfd;
+  sockaddr srv;
+  u8       rx[3][64];
+  mmsg_buf bufs[3] = {
+      {wired_mspan_of(rx[0], sizeof rx[0]), {0}, 0, 0},
+      {wired_mspan_of(rx[1], sizeof rx[1]), {0}, 0, 0},
+      {wired_mspan_of(rx[2], sizeof rx[2]), {0}, 0, 0}};
+  u8 payload[30] = {0}; /* 3 segments of 10 bytes */
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  CHECK(wired_udp_ect0_enable(cfd) == 0);
+  CHECK(
+      wired_udp_send_gso_tos(
+          cfd, &srv, wired_span_of(payload, sizeof payload), 10, 0) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 3) == 3);
+  for (int i = 0; i < 3; i++) {
+    CHECK(bufs[i].len == 10 && bufs[i].ecn == 0);
+  }
+  CHECK(
+      wired_udp_send_batch_tos(cfd, &srv, wired_span_of(payload, 20), 10, 0) ==
+      20);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 3) == 2);
+  CHECK(bufs[0].ecn == 0 && bufs[1].ecn == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* The ECN sockets on native IPv6 ::1 (port 4440): 0 (skip) when the host
+ * has no IPv6 loopback. */
+static int ecn_open_sockets6(i64* sfd, i64* cfd, sockaddr* srv) {
+  *srv          = (sockaddr){WIRED_AF_INET6, 0, 0, {0}, 0};
+  srv->port_be  = (u16)((4440 >> 8) | ((4440 & 0xff) << 8));
+  srv->addr[15] = 1; /* ::1 */
+  *sfd          = wired_udp_socket();
+  if (*sfd < 0) {
+    return 0;
+  }
+  if (wired_udp_bind(*sfd, srv) < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  wired_udp_recvtos_enable(*sfd);
+  *cfd = wired_udp_socket();
+  if (*cfd < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  return 1;
+}
+
+/* Issue #201 over native IPv6: the GSO send's IPV6_TCLASS cmsg overrides
+ * the socket-wide ECT(0) on every segment (RFC 9000 13.4.2.2). */
+static void test_udp_send_gso_tclass_overrides_socket_ect0_v6(void) {
+  i64      sfd, cfd;
+  sockaddr srv;
+  u8       rx[2][64];
+  mmsg_buf bufs[2] = {
+      {wired_mspan_of(rx[0], sizeof rx[0]), {0}, 0, 0},
+      {wired_mspan_of(rx[1], sizeof rx[1]), {0}, 0, 0}};
+  u8 payload[20] = {0}; /* 2 segments of 10 bytes */
+  if (!ecn_open_sockets6(&sfd, &cfd, &srv)) {
+    return; /* no ::1: skip */
+  }
+  CHECK(wired_udp_ect0_enable(cfd) == 0);
+  CHECK(wired_udp_send(cfd, &srv, wired_span_of(payload, 10)) == 10);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].ecn == 2); /* control: the socket marks ECT(0) on IPv6 */
+  CHECK(
+      wired_udp_send_gso_tos(
+          cfd, &srv, wired_span_of(payload, sizeof payload), 10, 0) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 2) == 2);
+  CHECK(bufs[0].len == 10 && bufs[0].ecn == 0);
+  CHECK(bufs[1].len == 10 && bufs[1].ecn == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* A sender that never called wired_udp_ect0_enable delivers Not-ECT
  * (0) -- no cmsg is attached for an unmarked packet, and udp_cmsg_read_ip_tos's
  * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
@@ -356,5 +439,7 @@ void test_udp_gso(void) {
   test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e();
   test_udp_recvmmsg_batch_ecn_per_slot();
   test_udp_send_tos_overrides_socket_ect0();
+  test_udp_send_gso_tos_overrides_socket_ect0();
+  test_udp_send_gso_tclass_overrides_socket_ect0_v6();
   test_udp_ect0_enable_propagates_setsockopt_failure();
 }

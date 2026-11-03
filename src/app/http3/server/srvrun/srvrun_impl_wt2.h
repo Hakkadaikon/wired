@@ -141,27 +141,6 @@ typedef struct {
  * never seen) has no owner left to check. */
 #define SRVRUN_WT_UNTRACKED (-2)
 
-/* RFC 9221 5: DATAGRAM frames are congestion-controlled and never
- * retransmitted, so a ring drained at line rate is a burst a bottleneck
- * queue simply discards, and every dropped datagram is gone for good. A
- * per-step cap alone is not enough: every arriving ACK triggers a step, so
- * ack-clocking amplifies "16 per step" back into a line-rate burst (the
- * interop simulator's 25-packet queue saw 160 packets in 10ms and dropped
- * ~90 of a 200-datagram transfer). Pace by TIME: at most one
- * SRVRUN_DGRING_DRAIN_MAX slice per SRVRUN_DGRING_DRAIN_MS, sized so a
- * slice never overruns a small bottleneck queue (16 < 25) and the rate
- * (16/5ms = 3200 pkt/s) stays far under a 10Mbps path's small-packet
- * capacity. The count cap alone is calibrated for SMALL datagrams: 16
- * near-MTU entries per 5ms is ~23Mbps, which the same 10Mbps queue steadily
- * discarded (45 of 200 ~900B transfer replies lost) -- so a slice is ALSO
- * bounded by bytes (3000B/5ms = 4.8Mbps sustained, leaving stream-traffic
- * headroom under 10Mbps). ponytail: fixed slice/interval, not real cc
- * pacing -- wire the drain into the connection's cc budget if a lossy path
- * still overruns this. */
-#define SRVRUN_DGRING_DRAIN_MAX 16
-#define SRVRUN_DGRING_DRAIN_MS 5
-#define SRVRUN_DGRING_DRAIN_BYTES 3000
-
 /* The default advertised max_idle_timeout in ms (STP_DEFAULT_IDLE_TIMEOUT_MS
  * in tls/ext/stp/server_tp.h). The idle sweep itself uses each
  * connection's negotiated period (srvrun_idle_ms, RFC 9000 10.1). */

@@ -133,7 +133,7 @@ static int srvrun_dgring_push(
   }
   e->conn_gen = env->conns[slot].gen;
   e->urgency  = urgency;
-  e->sent     = 0;
+  e->seen_ms  = 0;
   env->dgring_n++;
   return 1;
 }

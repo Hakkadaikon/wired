@@ -1,13 +1,15 @@
 #include "app/http3/server/srvrun/srvrun_impl.h"
 
 static void srvrun_stage_reset(wired_srvrun_env* e);
+static i64  srvrun_stage_gso(i64 fd, const wired_srvrun_env* e, wired_span all);
+static void srvrun_stage_batch(
+    i64 fd, const wired_srvrun_env* e, wired_span all);
 static void srvrun_stage_tx_multi(const srvrun_cfg* cfg);
 static int  srvrun_stage_room(const wired_srvrun_env* e, usz n);
 static int  srvrun_stage_same_peer(
     const wired_srvrun_env* e, const sockaddr* sa);
 static int srvrun_stage_extends(
-    const wired_srvrun_env* e, const sockaddr* sa, usz n);
-static int srvrun_conn_unstaged(const srvrun_cfg* cfg, const srvrun_conn* c);
+    const wired_srvrun_env* e, const sockaddr* sa, usz n, int unmarked);
 static int srvrun_stage_bypass(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt);
 
@@ -19,6 +21,26 @@ static void srvrun_stage_reset(wired_srvrun_env* e) {
   e->gso_seg_size = 0;
 }
 
+/* The batch's GSO sendmsg; an unmarked batch carries a Not-ECT TOS cmsg
+ * (RFC 9000 13.4.2.2). */
+static i64 srvrun_stage_gso(i64 fd, const wired_srvrun_env* e, wired_span all) {
+  u16 seg = (u16)e->gso_seg_size;
+  if (e->gso_unmarked) {
+    return wired_udp_send_gso_tos(fd, &e->gso_peer, all, seg, 0);
+  }
+  return wired_udp_send_gso(fd, &e->gso_peer, all, seg);
+}
+
+static void srvrun_stage_batch(
+    i64 fd, const wired_srvrun_env* e, wired_span all) {
+  u16 seg = (u16)e->gso_seg_size;
+  if (e->gso_unmarked) {
+    wired_udp_send_batch_tos(fd, &e->gso_peer, all, seg, 0);
+    return;
+  }
+  wired_udp_send_batch(fd, &e->gso_peer, all, seg);
+}
+
 /* Multi-segment wire-out: one UDP GSO sendmsg for the whole batch, or --
  * when the kernel lacks UDP_SEGMENT (negative return) -- a sendto per
  * segment. Either way it is one flush. */
@@ -27,10 +49,10 @@ static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
   wired_span        all = wired_span_of(e->gso_stage, e->gso_len);
   i64               fd  = srvrun_stage_fd(cfg, e);
   e->tx_flush_count++;
-  if (wired_udp_send_gso(fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0) {
+  if (srvrun_stage_gso(fd, e, all) >= 0) {
     return;
   }
-  wired_udp_send_batch(fd, &e->gso_peer, all, (u16)e->gso_seg_size);
+  srvrun_stage_batch(fd, e, all);
 }
 
 /* Flush the staged batch to the wire: a single staged datagram goes out the
@@ -43,9 +65,9 @@ void srvrun_stage_flush(const srvrun_cfg* cfg) {
     return;
   }
   if (e->gso_count == 1) {
-    srvrun_tx(
+    srvrun_tx_ecn(
         cfg, srvrun_stage_fd(cfg, e), &e->gso_peer,
-        wired_span_of(e->gso_stage, e->gso_len));
+        wired_span_of(e->gso_stage, e->gso_len), e->gso_unmarked);
   } else {
     srvrun_stage_tx_multi(cfg);
   }
@@ -67,23 +89,29 @@ static int srvrun_stage_same_peer(
          ct_diffn(sa->addr, e->gso_peer.addr, 16) == 0;
 }
 
+/* 1 if the open batch takes an n-byte datagram for sa with this ECN mark
+ * (one sendmsg carries one TOS, so a mark change splits the stage). */
 static int srvrun_stage_extends(
-    const wired_srvrun_env* e, const sockaddr* sa, usz n) {
-  return srvrun_stage_room(e, n) && srvrun_stage_same_peer(e, sa);
+    const wired_srvrun_env* e, const sockaddr* sa, usz n, int unmarked) {
+  return srvrun_stage_room(e, n) && srvrun_stage_same_peer(e, sa) &&
+         e->gso_unmarked == unmarked;
 }
 
 /* Stage one sealed datagram for c's peer. A datagram that cannot extend the
- * open batch (different peer, larger than the segment size, or the batch is
- * full) flushes it first and opens a new one; a shorter-than-segment
- * datagram joins as the batch's legal short tail and closes it. */
+ * open batch (different peer or ECN mark, larger than the segment size, or
+ * the batch is full) flushes it first and opens a new one; a
+ * shorter-than-segment datagram joins as the batch's legal short tail and
+ * closes it. */
 void srvrun_stage_put(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
-  wired_srvrun_env* e = cfg->env;
-  if (!srvrun_stage_extends(e, &c->peer, pkt.n)) {
+  wired_srvrun_env* e        = cfg->env;
+  int               unmarked = srvrun_ecn_unmarked(cfg, c);
+  if (!srvrun_stage_extends(e, &c->peer, pkt.n, unmarked)) {
     srvrun_stage_flush(cfg);
     e->gso_seg_size = pkt.n;
     e->gso_peer     = c->peer;
     e->gso_fd       = c->tx_fd;
+    e->gso_unmarked = unmarked;
   }
   bytes_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
   e->gso_len += pkt.n;
@@ -100,17 +128,10 @@ void srvrun_stage_put(
  * same pump pass (e.g. DATA_BLOCKED) -- plain datagram reordering, which
  * any QUIC peer already tolerates (RFC 9000 12.3). */
 /* 1 iff pkt skips the GSO stage for srvrun_send: AF_XDP, an empty packet,
- * a closing connection (srvrun_send's own gate drops it), or an unmarked
- * one (srvrun_ecn_unmarked: its per-send TOS cmsg is not staged).
- * ponytail: an unmarked connection loses GSO batching; carry the TOS in
- * the stage if ECN-failed paths ever matter for throughput. */
-static int srvrun_conn_unstaged(const srvrun_cfg* cfg, const srvrun_conn* c) {
-  return c->closing || srvrun_ecn_unmarked(cfg, c);
-}
-
+ * or a closing connection (srvrun_send's own gate drops it). */
 static int srvrun_stage_bypass(
     const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
-  return cfg->xdp || pkt.n == 0 || srvrun_conn_unstaged(cfg, c);
+  return cfg->xdp || pkt.n == 0 || c->closing;
 }
 
 void srvrun_send_staged(

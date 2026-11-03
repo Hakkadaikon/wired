@@ -5,19 +5,7 @@ static int srvrun_bcast_ring_conn(
     wired_srvrun_env* env, int cslot, wired_span data);
 static void srvrun_wt_close_record_message(
     srvrun_conn* c, int sidx, wired_span message);
-static usz                  srvrun_wt_streams_open(const srvrun_conn* c);
-static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i);
-static int  srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best);
-static usz  srvrun_dgring_best(wired_srvrun_env* env);
-static int  srvrun_dgring_over_budget(usz bytes, usz len);
-static void srvrun_dgring_pop_sent(wired_srvrun_env* env);
-static int  srvrun_dgring_live(
-    const srvrun_conn* c, const srvrun_dgring_entry* e);
-static int srvrun_dgring_take(
-    const srvrun_cfg*    cfg,
-    srvrun_state*        st,
-    srvrun_dgring_entry* e,
-    usz*                 bytes);
+static usz srvrun_wt_streams_open(const srvrun_conn* c);
 
 /* All of one connection's session slots, ANDing per-target success -- split
  * out of wired_server_broadcast_datagram_ring so each loop stays at the CCN
@@ -103,104 +91,4 @@ int wired_server_wt_close_session(
   srvrun_wt_close_record_message(c, sidx, message);
   c->wt_close_pending[sidx] = 1;
   return 1;
-}
-
-/* 1 iff e's target connection is still the one it was queued for. */
-static int srvrun_dgring_live(
-    const srvrun_conn* c, const srvrun_dgring_entry* e) {
-  return srvrun_conn_gen_live(c->up, c->gen, e->conn_gen);
-}
-
-/* Seal and send one ring entry to its target connection; a connection gone
- * down since queue time -- or replaced by another client on the same slot --
- * is skipped, and a frame the peer's advertised
- * max_datagram_frame_size rejects is dropped (RFC 9221 1: DATAGRAM delivery
- * is best-effort by design, so no retry/retention). 0 (the entry stays
- * queued) while the congestion window has no room for it (RFC 9221 5.4):
- * a burst would otherwise lose every entry past the window. */
-int srvrun_dgring_send_one(
-    const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e) {
-  u8           out[1500];
-  wired_obuf   ob = obuf_of(out, sizeof out);
-  srvrun_conn* c  = &st->conns[e->conn_slot];
-  if (!srvrun_dgring_live(c, e)) {
-    return 1;
-  }
-  if (srvrun_dg_cwnd_blocked(c, e->len)) {
-    return 0;
-  }
-  srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
-  return 1;
-}
-
-/* Queued entry i (0 = the ring head). */
-static srvrun_dgring_entry* srvrun_dgring_at(wired_srvrun_env* env, usz i) {
-  return &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP];
-}
-
-/* RFC 9221 5.1: unsent entry i outranks the best so far (dgring_n = none
- * yet); an equal urgency keeps the older one. */
-static int srvrun_dgring_beats(wired_srvrun_env* env, usz i, usz best) {
-  const srvrun_dgring_entry* e = srvrun_dgring_at(env, i);
-  return !e->sent &&
-         (best == env->dgring_n ||
-          dgpriority_higher(e->urgency, srvrun_dgring_at(env, best)->urgency));
-}
-
-/* The most urgent unsent entry, oldest within its urgency; dgring_n when
- * every queued entry was sent. */
-static usz srvrun_dgring_best(wired_srvrun_env* env) {
-  usz best = env->dgring_n;
-  for (usz i = 0; i < env->dgring_n; i++) {
-    if (srvrun_dgring_beats(env, i, best)) {
-      best = i;
-    }
-  }
-  return best;
-}
-
-/* An entry of len past this slice's byte budget -- never the slice's first,
- * so a datagram larger than the whole budget still drains instead of
- * wedging the ring. */
-static int srvrun_dgring_over_budget(usz bytes, usz len) {
-  return bytes && bytes + len > SRVRUN_DGRING_DRAIN_BYTES;
-}
-
-/* Free the sent entries at the ring head. */
-static void srvrun_dgring_pop_sent(wired_srvrun_env* env) {
-  while (env->dgring_n && srvrun_dgring_at(env, 0)->sent) {
-    env->dgring_head = (env->dgring_head + 1) % SRVRUN_DGRING_CAP;
-    env->dgring_n--;
-  }
-}
-
-/* Send ring entry e unless it is past this slice's byte budget or its
- * connection's window has no room (shortcut: one window-blocked connection
- * holds the ring back until its window opens; skip per connection if many
- * ever share it under load). */
-static int srvrun_dgring_take(
-    const srvrun_cfg*    cfg,
-    srvrun_state*        st,
-    srvrun_dgring_entry* e,
-    usz*                 bytes) {
-  if (srvrun_dgring_over_budget(*bytes, e->len)) {
-    return 0;
-  }
-  if (!srvrun_dgring_send_one(cfg, st, e)) {
-    return 0;
-  }
-  e->sent = 1;
-  *bytes += e->len;
-  srvrun_dgring_pop_sent(cfg->env);
-  return 1;
-}
-
-int srvrun_dgring_send_best(
-    const srvrun_cfg* cfg, srvrun_state* st, usz* bytes) {
-  wired_srvrun_env* env = cfg->env;
-  usz               i   = srvrun_dgring_best(env);
-  if (i == env->dgring_n) {
-    return 0;
-  }
-  return srvrun_dgring_take(cfg, st, srvrun_dgring_at(env, i), bytes);
 }

@@ -1,6 +1,7 @@
 #ifndef APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_DGRING_H
 #define APP_HTTP3_SERVER_SRVRUN_SRVRUN_IMPL_DGRING_H
 
+#include "app/http3/server/srvrun/srvrun_impl_dgsend.h"
 #include "app/http3/server/srvrun/srvrun_impl_protos2.h"
 
 srvrun_conn* srvrun_session_conn_env(
@@ -66,15 +67,6 @@ void           srvrun_wt_send_done_mark(srvrun_conn* c, u64 stream_id);
 int            srvrun_wt_stop_refused(srvrun_conn* c, int sidx, u64 stream_id);
 int            srvrun_bcast_ring_sess(
     wired_srvrun_env* env, int cslot, int i, wired_span data);
-int srvrun_dgring_send_one(
-    const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e);
-int srvrun_dg_cwnd_blocked(const srvrun_conn* c, usz len);
-/* RFC 9221 5.1: send the most urgent unsent ring entry if it fits the
- * slice's byte budget (*bytes, the slice's total so far); 0 when none was
- * sent. */
-int srvrun_dgring_send_best(
-    const srvrun_cfg* cfg, srvrun_state* st, usz* bytes);
-void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms);
 void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st);
 int  srvrun_all_drained(const srvrun_state* st);
 void srvrun_sigterm_handler(int sig);

@@ -38,7 +38,9 @@ static int srvrun_dg_build(
 }
 
 /* RFC 9221 5.4: 1 iff a DATAGRAM of len payload bytes cannot fit the
- * congestion window now (frame type + an 8-byte Length bound included). */
+ * congestion window now (frame type + an 8-byte Length bound included).
+ * Frame bytes, not SRVRUN_DG_PKT_OVERHEAD: it mirrors srvrun_dg_build's
+ * frame-only window check, so an entry admitted here is not refused there. */
 int srvrun_dg_cwnd_blocked(const srvrun_conn* c, usz len) {
   return srvrun_bytes_in_flight(c) + len + 9 > c->cc.cwnd;
 }

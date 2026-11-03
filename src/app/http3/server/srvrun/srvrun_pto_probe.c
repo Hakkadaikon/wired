@@ -122,9 +122,12 @@ void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
 /* A poll tick pumps every slot with a send session active, PTO due or not:
  * stream data the app queued from another connection's callback (a MoQT
  * hub's push when a publisher leaves) has no packet of this peer's own to
- * carry it out. */
+ * carry it out. Like srvrun_send_pass, it yields to an overdue ring entry
+ * so the pacer refills for it before the step's ring drain (RFC 9221 5.1;
+ * the PTO and loss-timer probes stay ungated, RFC 9002 6.2). */
 void srvrun_send_tick_slot(const srvrun_step_ctx* ctx, int slot) {
-  if (srvrun_has_outbound(&ctx->st->conns[slot])) {
+  if (srvrun_has_outbound(&ctx->st->conns[slot]) &&
+      !srvrun_dgring_overdue(ctx, slot)) {
     srvrun_pump_sess(ctx, slot);
   }
 }

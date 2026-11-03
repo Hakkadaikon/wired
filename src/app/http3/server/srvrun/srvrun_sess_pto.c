@@ -3,19 +3,32 @@
 static int  srvrun_any_resp_active(const srvrun_conn* c);
 static int  srvrun_any_wtsend_active(const srvrun_conn* c);
 static int  srvrun_any_send_active(const srvrun_conn* c);
+static int  srvrun_dg_goes_first(const srvrun_step_ctx* ctx, int late);
 static void srvrun_send_pass(const srvrun_step_ctx* ctx, int slot);
+
+/* Datagrams go first: the app asked (datagram_first), or a ring entry of
+ * this connection has waited out its bound (late, srvrun_dgring_overdue). */
+static int srvrun_dg_goes_first(const srvrun_step_ctx* ctx, int late) {
+  return ctx->cfg->env->datagram_first || late;
+}
 
 /* RFC 9221 5.1: the app's DATAGRAM-vs-stream priority
  * (wired_srvrun_opt.datagram_first) orders the pass; whichever goes second
- * finds only the window the first left. The trailing pump is a no-op once
- * the queue drained ahead of the streams. */
+ * finds only the window the first left. An overdue ring entry (checked
+ * once, before its drain) skips the stream pump, so the pacer refills for it
+ * instead of the streams spending every token (RFC 9002 7.7: no burst past
+ * the bucket either way). The trailing pump is a no-op once the queue
+ * drained ahead of the streams. */
 static void srvrun_send_pass(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  if (ctx->cfg->env->datagram_first) {
+  srvrun_conn* c    = &ctx->st->conns[slot];
+  int          late = srvrun_dgring_overdue(ctx, slot);
+  if (srvrun_dg_goes_first(ctx, late)) {
     srvrun_dgring_drain(ctx->cfg, ctx->st, ctx->now_ms);
     srvrun_pump_datagram(ctx, c);
   }
-  srvrun_pump_sess(ctx, slot);
+  if (!late) {
+    srvrun_pump_sess(ctx, slot);
+  }
   srvrun_pump_datagram(ctx, c);
 }
 

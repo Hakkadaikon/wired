@@ -81,17 +81,26 @@ int srvrun_ecn_unmarked(const srvrun_cfg* cfg, const srvrun_conn* c) {
   return !cfg->xdp && c->ecn.fail_count != 0;
 }
 
-/* srvrun_tx for c's own packet: an unmarked connection's datagram carries a
+/* srvrun_tx, except an unmarked (srvrun_ecn_unmarked) datagram carries a
  * Not-ECT TOS cmsg overriding the socket's ECT(0) (wired_udp_send_tos). */
-static void srvrun_tx_conn(
-    const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
-  i64 fd = srvrun_conn_fd(cfg, c);
-  if (!srvrun_ecn_unmarked(cfg, c)) {
-    srvrun_tx(cfg, fd, &c->peer, pkt);
+void srvrun_tx_ecn(
+    const srvrun_cfg* cfg,
+    i64               fd,
+    const sockaddr*   sa,
+    wired_span        pkt,
+    int               unmarked) {
+  if (!unmarked) {
+    srvrun_tx(cfg, fd, sa, pkt);
     return;
   }
   cfg->env->tx_flush_count++;
-  wired_udp_send_tos(fd, &c->peer, pkt, 0);
+  wired_udp_send_tos(fd, sa, pkt, 0);
+}
+
+static void srvrun_tx_conn(
+    const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
+  srvrun_tx_ecn(
+      cfg, srvrun_conn_fd(cfg, c), &c->peer, pkt, srvrun_ecn_unmarked(cfg, c));
 }
 
 void srvrun_send_now(

@@ -673,8 +673,9 @@ typedef struct {
   usz prio_order[SRVRUN_RESP_SLOTS];
   /** RFC 9002 7.7 pacer token bucket for the sub-poll-tick regime
    * (srvrun_pace_within_poll_tick): bytes sendable right now, refilled at
-   * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill, once per pump
-   * pass) and capped at SRVRUN_PACE_BURST, charged per sent slice. Idle
+   * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill per pump pass,
+   * srvrun_dg_refill_held per ring datagram) and capped at
+   * SRVRUN_PACE_BURST, charged per sent slice and ring datagram. Idle
    * until the first RTT sample (srtt_ms == 0: unpaced, like next_send_ms).
    */
   u64 pace_tokens;
@@ -1106,18 +1107,13 @@ struct wired_srvrun_env {
   /* Session-addressed HTTP Datagram send ring (wired_server_wt_send_
    * datagram_to): dgring_n entries starting at dgring_head, drained once per
    * loop step most urgent first, oldest first within one urgency
-   * (srvrun_dgring_send_best; RFC 9221 5.1). shortcut: an entry drained
-   * ahead of the head holds its slot until the head passes it, so a long
-   * stall of low-urgency entries shrinks the free space; fine at the ring's
-   * 256 entries. Env-level, not per-connection,
+   * (srvrun_dgring_send_best; RFC 9221 5.1). A sent entry frees its slot at
+   * once (srvrun_dgring_remove), so a held one never pins the ring.
+   * Env-level, not per-connection,
    * so one step's burst across many sessions shares one bounded pool. */
   srvrun_dgring_entry dgring[SRVRUN_DGRING_CAP];
   usz                 dgring_head;
   usz                 dgring_n;
-  /* Earliest monotonic time the next drain slice may go out (0 = at once);
-   * paces the ring so ack-clocked steps cannot amplify into a line-rate
-   * burst (srvrun_dgring_drain). */
-  u64 dgring_next_drain_ms;
   /* RFC 9000 9.6.2: the second UDP socket bound on the preferred address's
    * port, so replies on a migrated path leave FROM that port (a
    * single-socket NAT redirect left the reply source flapping between
@@ -1131,6 +1127,9 @@ struct wired_srvrun_env {
   /* The fd the staged GSO batch must flush through (srvrun_stage_put
    * records the owning connection's path fd; 0 = primary). */
   i64 gso_fd;
+  /* 1 when the staged batch is Not-ECT (srvrun_ecn_unmarked, RFC 9000
+   * 13.4.2.2): it flushes with a TOS cmsg, so a batch never mixes marks. */
+  int gso_unmarked;
   /* RFC 9114 10.5 rapid-reset limit: RESET_STREAM/STOP_SENDING frames one
    * connection may send per SRVRUN_RESET_WINDOW_MS before it is closed with
    * H3_EXCESSIVE_LOAD; 0 = SRVRUN_MAX_RESETS_PER_WINDOW. A plain env field

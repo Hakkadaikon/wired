@@ -18524,9 +18524,8 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
 static srvrun_conn* sr_wtsend_fixture(struct lp_fix* f, wired_obuf* ob) {
   srvrun_conn* c = &g_srvrun_state.conns[0];
   sr_reset_global_table();
-  g_srvrun_env.dgring_head          = 0;
-  g_srvrun_env.dgring_n             = 0;
-  g_srvrun_env.dgring_next_drain_ms = 0;
+  g_srvrun_env.dgring_head = 0;
+  g_srvrun_env.dgring_n    = 0;
   sr_make_confirmed_conn(c, f, ob);
   wired_wt_session_init(&c->wt, 4);
   wired_wt_session_establish(&c->wt);
@@ -21463,23 +21462,21 @@ static void test_srvrun_wt_send_datagram_to_requires_send_side_open(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
-/* BYTE PACING: near-MTU datagrams must drain SLOWER (per slice) than tiny
- * ones -- a count-only slice of 16 x ~900B per 5ms is ~23Mbps, which a
- * 10Mbps bottleneck queue steadily discards (flupke's 200-file datagram
- * transfer lost 45 replies to exactly this; datagrams are never
- * retransmitted). A slice stops once its byte budget is spent. */
-static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
+/* RFC 9002 7.7 / RFC 9221 5.4: the ring drains at the connection's pacing
+ * rate, not a fixed time slice -- with a large window and a small RTT one
+ * drain spends a whole pacer bucket (SRVRUN_PACE_BURST), far past the old
+ * 3000-byte-per-5ms slice. */
+static void test_srvrun_wt_datagram_ring_drains_at_pacing_rate(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
   u8            obuf[1024];
-  u8            pay[900];
+  u8            pay[900] = {0};
   srvrun_conn*  c;
   ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
   c                                      = sr_wtsend_fixture(&f, &ob);
   c->s.sdrv.peer_max_datagram_frame_size = 65535;
-  for (usz i = 0; i < sizeof pay; i++) {
-    pay[i] = (u8)i;
-  }
+  c->srtt_ms                             = 1;
+  c->pace_refill_ms                      = 0; /* fresh: a full bucket */
   for (int i = 0; i < 20; i++) {
     CHECK(
         wired_server_wt_send_datagram_to(
@@ -21491,23 +21488,178 @@ static void test_srvrun_wt_datagram_ring_paces_by_bytes(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st, 0);
-    /* ~901B per entry against the slice byte budget: a handful per slice,
-     * far under the tiny-datagram slice cap. */
-    CHECK(srvrun_test_send_count() >= 1);
-    CHECK(srvrun_test_send_count() <= 4);
-    for (int i = 0; i < 64 && g_srvrun_env.dgring_n; i++) {
-      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    srvrun_dgring_drain(&cfg, &st, 5);
+    CHECK(srvrun_test_send_count() * sizeof pay > 3000);
+    for (u64 t = 6; t < 64 && g_srvrun_env.dgring_n; t++) {
+      srvrun_dgring_drain(&cfg, &st, t);
     }
     CHECK(srvrun_test_send_count() == 20); /* nothing lost, only paced */
   }
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* RFC 9002 7.7: an empty pacer bucket holds the ring (kept, not dropped)
+ * even with window room; the next ms's refill releases it. */
+static void test_srvrun_wt_datagram_ring_waits_for_pacer(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[2] = {1, 2};
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  CHECK(wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, 2)) == 1);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0, 0, 0,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    c->srtt_ms        = 100;
+    c->pace_tokens    = 0;
+    c->pace_refill_ms = 10;
+    srvrun_dgring_drain(&cfg, &st, 10);
+    CHECK(srvrun_test_send_count() == 0);
+    CHECK(g_srvrun_env.dgring_n == 1);
+    srvrun_dgring_drain(&cfg, &st, 11);
+    CHECK(srvrun_test_send_count() == 1);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* RFC 9002 7.7: below one packet per ms the ring still drains at the
+ * pacing rate, not one datagram per refill. cwnd 120000, srtt 1000ms: 1.25
+ * * 120000 / 1000 = 150 B/ms (the window itself never binds), so 100ms of
+ * drains carry ~15000 B -- 12..16 ~1000-byte datagrams (within one packet),
+ * never one per ms (100). */
+static void test_srvrun_wt_datagram_ring_paces_below_one_packet_per_ms(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_conn*  c;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  for (int i = 0; i < 40; i++) {
+    CHECK(
+        wired_server_wt_send_datagram_to(
+            &c->wt, wired_span_of(pay, sizeof pay)) == 1);
+  }
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    c->cc.cwnd        = 120000;
+    c->srtt_ms        = 1000;
+    c->pace_tokens    = 0;
+    c->pace_refill_ms = 1;
+    for (u64 t = 2; t <= 101; t++) {
+      srvrun_dgring_drain(&cfg, &st, t);
+    }
+    CHECK(srvrun_test_send_count() >= 12);
+    CHECK(srvrun_test_send_count() <= 16);
+  }
+}
+
+static void sr_three_wt_conns(
+    struct lp_fix* f0,
+    struct lp_fix* f1,
+    struct lp_fix* f2,
+    wired_obuf*    ob0,
+    wired_obuf*    ob1,
+    wired_obuf*    ob2);
+
+/* RFC 9221 5.1: a held connection's entry (its window is full) does not
+ * block another connection's entry behind it; it stays queued and goes
+ * once its own window opens. */
+static void test_srvrun_dgring_held_conn_does_not_block_others(void) {
+  struct lp_fix f0, f1, f2;
+  wired_obuf    ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg[] = {0x42};
+  ob0                 = (wired_obuf){obuf0, sizeof obuf0, 0};
+  ob1                 = (wired_obuf){obuf1, sizeof obuf1, 0};
+  ob2                 = (wired_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  CHECK(wired_server_broadcast_datagram_ring(wired_span_of(msg, 1)) == 1);
+  g_srvrun_state.conns[0].cc.cwnd = 1; /* the head entry's conn is held */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st, 0);
+    CHECK(srvrun_test_send_count() == 2); /* conns 1 and 2 */
+    CHECK(g_srvrun_env.dgring_n == 1);    /* only the held head remains */
+    g_srvrun_state.conns[0].cc.cwnd = 1u << 20;
+    srvrun_dgring_drain(&cfg, &st, 1);
+    CHECK(srvrun_test_send_count() == 3);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* One step of the real loop at t on c (slot 0): the send pass, the tick
+ * pass's stream pump (srvrun_fire_ptos -> srvrun_send_tick_slot), then the
+ * end-of-step ring drain (srvrun_step). Returns resp[0]'s sent bytes. */
+static usz sr_mixed_step(srvrun_cfg* cfg, srvrun_conn* c, u64 t) {
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {cfg, 0, &st, t, 0};
+  c->l.now_ms         = t;
+  srvrun_sess_on_step(&ctx, 0);
+  srvrun_send_tick_slot(&ctx, 0);
+  srvrun_dgring_drain(cfg, &st, t);
+  return c->resp[0].sess.q.cur;
+}
+
+/* RFC 9221 5.1 / RFC 9002 7.7: streams and ring DATAGRAMs share one paced
+ * connection; under a datagram backlog the drains (first in the pass, or
+ * at the end of the step) never starve the stream pump of pacer budget. */
+static void sr_mixed_streams_progress(int datagram_first) {
+  static u8     body[200 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_cfg    cfg       = sr_wt_send_cfg();
+  srvrun_conn*  c;
+  usz           first;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  c->resp[0].in_use                      = 1;
+  c->resp[0].stream_id                   = 0;
+  c->resp[0].stream_credit               = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  for (int i = 0; i < 200; i++) {
+    CHECK(
+        wired_server_wt_send_datagram_to(
+            &c->wt, wired_span_of(pay, sizeof pay)) == 1);
+  }
+  c->srtt_ms                  = 100;
+  c->pace_tokens              = 0;
+  c->pace_refill_ms           = 1;
+  g_srvrun_env.datagram_first = datagram_first;
+  first                       = sr_mixed_step(&cfg, c, 2);
+  for (u64 t = 3; t <= 6; t++) {
+    CHECK(sr_mixed_step(&cfg, c, t) > first); /* a slice every step */
+    first = c->resp[0].sess.q.cur;
+  }
+  g_srvrun_env.datagram_first = 0;
+  /* datagram_first: the ring goes too (by default strict stream priority
+   * may hold it while streams keep the bucket empty) */
+  CHECK(!datagram_first || g_srvrun_env.dgring_n < 200);
+}
+
+static void test_srvrun_mixed_streams_keep_pacer_budget(void) {
+  sr_mixed_streams_progress(0);
+  sr_mixed_streams_progress(1);
+}
+
 /* RFC 9221 5.1 (9221-019): the ring drains its most urgent datagram first,
- * call order within one urgency. Two ~1000-byte entries fill one slice's
- * byte budget, so the first slice sends the urgent y and the older x1;
- * x2 waits for the next slice. */
+ * call order within one urgency. A 2500-byte pacer balance covers two
+ * ~1000-byte packets and leaves less than a third entry, so the first drain
+ * sends the urgent y and the older x1; x2 waits for the next refill. */
 static void test_srvrun_wt_datagram_ring_by_urgency(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -21533,24 +21685,268 @@ static void test_srvrun_wt_datagram_ring_by_urgency(void) {
     srvrun_state               st = {g_srvrun_table, g_srvrun_state.conns};
     const srvrun_dgring_entry* e;
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st, 0);
+    c->srtt_ms        = 100;
+    c->pace_tokens    = 2500;
+    c->pace_refill_ms = 1;
+    srvrun_dgring_drain(&cfg, &st, 1);
     CHECK(srvrun_test_send_count() == 2);
-    CHECK(g_srvrun_env.dgring_n == 2); /* x2, then y (sent, not yet freed) */
+    CHECK(g_srvrun_env.dgring_n == 1); /* x2 only: sent slots free at once */
     e = &g_srvrun_env.dgring[g_srvrun_env.dgring_head];
-    CHECK(e[0].buf[1] == 2 && !e[0].sent);
-    CHECK(e[1].buf[1] == 3 && e[1].sent);
-    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS);
+    CHECK(e->buf[1] == 2);
+    srvrun_dgring_drain(&cfg, &st, 2);
     CHECK(srvrun_test_send_count() == 3);
     CHECK(g_srvrun_env.dgring_n == 0);
   }
 }
 
+/* A connection held at the ring head (window starved) must not pin the
+ * ring: 2 * SRVRUN_DGRING_CAP datagrams pushed and drained for another
+ * connection all queue, and the held entry drains once its window opens. */
+static void test_srvrun_dgring_held_head_does_not_pin_ring(void) {
+  struct lp_fix f0, f1, f2;
+  wired_obuf    ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg[] = {0x42};
+  srvrun_cfg    cfg   = sr_wt_send_cfg();
+  srvrun_state  st    = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_conn*  c1    = &g_srvrun_state.conns[1];
+  int           ok    = 1;
+  ob0                 = (wired_obuf){obuf0, sizeof obuf0, 0};
+  ob1                 = (wired_obuf){obuf1, sizeof obuf1, 0};
+  ob2                 = (wired_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  g_srvrun_state.conns[0].cc.cwnd = 1;
+  c1->srtt_ms                     = 0; /* unpaced */
+  CHECK(wired_server_wt_send_datagram_to(
+      &g_srvrun_state.conns[0].wt, wired_span_of(msg, 1)));
+  for (u64 t = 1; t <= 2 * SRVRUN_DGRING_CAP; t++) {
+    ok &= wired_server_wt_send_datagram_to(&c1->wt, wired_span_of(msg, 1));
+    srvrun_dgring_drain(&cfg, &st, t);
+  }
+  CHECK(ok);
+  CHECK(g_srvrun_env.dgring_n == 1);
+  g_srvrun_state.conns[0].cc.cwnd = 1u << 20;
+  srvrun_dgring_drain(&cfg, &st, 1000);
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* RFC 9002 7.7: the ring gates on the whole packet (payload plus
+ * SRVRUN_DG_PKT_OVERHEAD), not the payload alone -- one byte short of it
+ * holds, exactly it releases. */
+static void test_srvrun_dg_refill_held_counts_packet_overhead(void) {
+  srvrun_conn c    = {0};
+  c.cc.cwnd        = 1u << 20;
+  c.srtt_ms        = 100;
+  c.pace_refill_ms = 5;
+  c.pace_tokens    = 10 + SRVRUN_DG_PKT_OVERHEAD - 1;
+  CHECK(srvrun_dg_refill_held(&c, 10, 5));
+  c.pace_tokens = 10 + SRVRUN_DG_PKT_OVERHEAD;
+  CHECK(!srvrun_dg_refill_held(&c, 10, 5));
+}
+
+/* RFC 9002 7.7: small voice-sized datagrams stay at the pacing rate. cwnd
+ * 16000, srtt 1000ms: 1.25 * 16000 / 1000 = 20 B/ms, so 100ms carry 2000 B
+ * -- about 2000 / P packets of P bytes each (P measured as one send's
+ * charge). A payload-only gate (2 bytes) sent one packet every ms (100). */
+static void test_srvrun_wt_datagram_ring_small_payload_rate(void) {
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[2] = {0};
+  srvrun_conn*  c;
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  srvrun_state  st  = {g_srvrun_table, g_srvrun_state.conns};
+  u64           p;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  c->cc.cwnd                             = 16000;
+  c->srtt_ms                             = 1000;
+  c->pace_tokens                         = 1000;
+  c->pace_refill_ms                      = 1;
+  CHECK(wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, 2)));
+  srvrun_dgring_drain(&cfg, &st, 1);
+  p = 1000 - c->pace_tokens;
+  CHECK(g_srvrun_env.dgring_n == 0 && p > SRVRUN_DG_PKT_OVERHEAD / 2);
+  for (int i = 0; i < SRVRUN_DGRING_CAP; i++) {
+    CHECK(wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, 2)));
+  }
+  srvrun_test_reset_send_count();
+  c->pace_tokens = 0;
+  for (u64 t = 2; t <= 101; t++) {
+    srvrun_dgring_drain(&cfg, &st, t);
+  }
+  CHECK(srvrun_test_send_count() <= 2000 / p + 1);
+  CHECK(srvrun_test_send_count() + 2 >= 2000 / p);
+}
+
+/* RFC 9221 5.1 default (datagram_first = 0): streams go first, but a ring
+ * datagram held behind its own connection's saturating stream leaves
+ * within max(2 * srtt, SRVRUN_PTO_MS) plus the pacer time for one packet,
+ * and the queue drains to 0 once the streams stop. Every step ACKs all
+ * in-flight slices so the stream never runs out of window or send log. */
+static void test_srvrun_dgring_stream_starved_datagram_leaves(void) {
+  static u8     body[800 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_cfg    cfg       = sr_wt_send_cfg();
+  srvrun_conn*  c;
+  u64           t;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  c->resp[0].in_use                      = 1;
+  c->resp[0].stream_id                   = 0;
+  c->resp[0].stream_credit               = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(
+      wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, sizeof pay)));
+  c->conn_credit              = sizeof body;
+  c->pace_tokens              = 0;
+  c->pace_refill_ms           = 1;
+  g_srvrun_env.datagram_first = 0;
+  for (t = 2; t <= 2 + 25 + 5 && g_srvrun_env.dgring_n; t++) {
+    sr_wtsend_ack_all_inflight(c, &c->resp[0].sess, t);
+    c->srtt_ms = 10; /* bound: max(2 * 10, 25) = 25ms */
+    sr_mixed_step(&cfg, c, t);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+  CHECK(t > 2 + 20); /* streams kept priority before the bound */
+  CHECK(c->resp[0].sess.q.cur < sizeof body); /* still saturating */
+}
+
+/* RFC 9221 5.1 / RFC 9002 7.7 at a low pacing rate: cwnd 14000, srtt 100ms
+ * refill 1.25 * 14000 / 100 = 175 B/ms, under one ring packet (len +
+ * SRVRUN_DG_PKT_OVERHEAD) per step, and the stream pump spends every token.
+ * Once the entry is overdue (max(2 * 100, 25) = 200ms) BOTH stream pumps of
+ * a step -- the send pass and the tick pass -- yield, so the bucket refills
+ * and the datagram leaves while the stream still has data. */
+static void test_srvrun_dgring_overdue_yields_at_low_rate(void) {
+  static u8     body[800 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  wired_obuf    ob = {0};
+  u8            obuf[1024];
+  u8            pay[1000] = {0};
+  srvrun_cfg    cfg       = sr_wt_send_cfg();
+  srvrun_conn*  c;
+  u64           t;
+  ob                                     = (wired_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  c->resp[0].in_use                      = 1;
+  c->resp[0].stream_id                   = 0;
+  c->resp[0].stream_credit               = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(
+      wired_server_wt_send_datagram_to(&c->wt, wired_span_of(pay, sizeof pay)));
+  c->conn_credit              = sizeof body;
+  c->pace_tokens              = 0;
+  c->pace_refill_ms           = 1;
+  g_srvrun_env.datagram_first = 0;
+  for (t = 2; t <= 2 + 200 + 20 && g_srvrun_env.dgring_n; t++) {
+    sr_wtsend_ack_all_inflight(c, &c->resp[0].sess, t);
+    c->srtt_ms = 100;
+    c->cc.cwnd = 14000;
+    sr_mixed_step(&cfg, c, t);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+  CHECK(t > 2 + 200); /* streams kept priority before the bound */
+  CHECK(c->resp[0].sess.q.cur < sizeof body); /* still saturating */
+}
+
+/* RFC 9221 5.1: removing a sent entry from the middle of the ring keeps
+ * call order for the rest -- [held A1, sendable B, held A2, held A3]: B
+ * leaves, then with room for one packet A1 goes and A2 (not A3, as a
+ * swap-with-tail removal would leave) is next. */
+static void test_srvrun_dgring_middle_removal_keeps_call_order(void) {
+  struct lp_fix              f0, f1, f2;
+  wired_obuf                 ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8                         obuf0[1024], obuf1[1024], obuf2[1024];
+  u8                         msg[] = {1};
+  srvrun_cfg                 cfg   = sr_wt_send_cfg();
+  srvrun_state               st    = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_conn*               a     = &g_srvrun_state.conns[0];
+  const srvrun_dgring_entry* e;
+  ob0 = (wired_obuf){obuf0, sizeof obuf0, 0};
+  ob1 = (wired_obuf){obuf1, sizeof obuf1, 0};
+  ob2 = (wired_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+  CHECK(wired_server_wt_send_datagram_to(
+      &g_srvrun_state.conns[1].wt, wired_span_of(msg, 1)));
+  msg[0] = 2;
+  CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+  msg[0] = 3;
+  CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+  a->cc.cwnd = 1; /* A held */
+  srvrun_dgring_drain(&cfg, &st, 1);
+  CHECK(g_srvrun_env.dgring_n == 3); /* B left from the middle */
+  a->cc.cwnd        = 1u << 20;
+  a->srtt_ms        = 100;
+  a->pace_tokens    = 2 + SRVRUN_DG_PKT_OVERHEAD + 10; /* one packet */
+  a->pace_refill_ms = 2;
+  srvrun_dgring_drain(&cfg, &st, 2);
+  CHECK(g_srvrun_env.dgring_n == 2);
+  e = &g_srvrun_env.dgring[g_srvrun_env.dgring_head];
+  CHECK(e->buf[e->len - 1] == 2); /* A1 went first, A2 is next */
+}
+
+/* srvrun_dgring_overdue at now_ms on slot (stamps first-seen times). */
+static int sr_dgring_overdue_at(int slot, u64 now_ms) {
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, now_ms, 0};
+  return srvrun_dgring_overdue(&ctx, slot);
+}
+
+/* The wait bound max(2 * srtt, SRVRUN_PTO_MS) at both edges: srtt 10 takes
+ * the 25ms floor, srtt 50 the 100ms; another connection's late entry does
+ * not make this connection yield. */
+static void test_srvrun_dgring_overdue_bound(void) {
+  struct lp_fix f0, f1, f2;
+  wired_obuf    ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg[] = {1};
+  srvrun_conn*  a     = &g_srvrun_state.conns[0];
+  srvrun_conn*  b     = &g_srvrun_state.conns[1];
+  ob0                 = (wired_obuf){obuf0, sizeof obuf0, 0};
+  ob1                 = (wired_obuf){obuf1, sizeof obuf1, 0};
+  ob2                 = (wired_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  a->srtt_ms = 10;
+  b->srtt_ms = 10;
+  CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+  CHECK(!sr_dgring_overdue_at(0, 100)); /* A seen at 100 */
+  CHECK(wired_server_wt_send_datagram_to(&b->wt, wired_span_of(msg, 1)));
+  CHECK(!sr_dgring_overdue_at(1, 120)); /* B seen at 120 */
+  CHECK(!sr_dgring_overdue_at(0, 100 + SRVRUN_PTO_MS - 1));
+  CHECK(sr_dgring_overdue_at(0, 100 + SRVRUN_PTO_MS));
+  CHECK(!sr_dgring_overdue_at(1, 100 + SRVRUN_PTO_MS)); /* A's, not B's */
+  CHECK(sr_dgring_overdue_at(1, 120 + SRVRUN_PTO_MS));
+  a->srtt_ms = 50;
+  CHECK(!sr_dgring_overdue_at(0, 100 + 2 * 50 - 1));
+  CHECK(sr_dgring_overdue_at(0, 100 + 2 * 50));
+  {
+    /* a queued second entry of A starts its wait only once it is A's
+     * front: scanning the ring for another slot does not stamp it */
+    const srvrun_dgring_entry* a2;
+    CHECK(wired_server_wt_send_datagram_to(&a->wt, wired_span_of(msg, 1)));
+    CHECK(!sr_dgring_overdue_at(2, 500));
+    a2 = &g_srvrun_env
+              .dgring[(g_srvrun_env.dgring_head + 2) % SRVRUN_DGRING_CAP];
+    CHECK(a2->conn_slot == 0 && a2->seen_ms == 0);
+  }
+  a->gen++; /* a new client took slot 0: the old one's entry holds nobody */
+  CHECK(!sr_dgring_overdue_at(0, 100 + 2 * 50));
+  a->gen--;
+}
+
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
  * and ALL of them eventually go out -- none dropped, none overwritten (the
- * ring exists exactly so a burst is not last-writer-wins). One drain sends
- * at most SRVRUN_DGRING_DRAIN_MAX (a line-rate 200-datagram burst overflows
- * any bottleneck queue, and datagrams are never retransmitted); the rest
- * persist in the ring for the following steps. */
+ * ring exists exactly so a burst is not last-writer-wins); what the pacer
+ * holds back persists in the ring for the following steps. */
 static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
   struct lp_fix f;
   wired_obuf    ob = {0};
@@ -21572,14 +21968,9 @@ static void test_srvrun_wt_datagram_ring_drains_200_queued(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_test_reset_send_count();
-    srvrun_dgring_drain(&cfg, &st, 0);
-    CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
-    CHECK(g_srvrun_env.dgring_n == 200 - SRVRUN_DGRING_DRAIN_MAX);
-    /* inside the pacing interval nothing more goes out */
-    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS - 1);
-    CHECK(srvrun_test_send_count() == SRVRUN_DGRING_DRAIN_MAX);
-    for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++) {
-      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+    c->srtt_ms = 100;
+    for (u64 t = 1; t < 64 && g_srvrun_env.dgring_n; t++) {
+      srvrun_dgring_drain(&cfg, &st, t);
     }
     CHECK(srvrun_test_send_count() == 200);
   }
@@ -21611,7 +22002,7 @@ static void test_srvrun_wt_datagram_ring_waits_for_cwnd(void) {
     CHECK(srvrun_test_send_count() == 0);
     CHECK(g_srvrun_env.dgring_n == 1); /* kept, not dropped */
     c->cc.cwnd = 1u << 20;
-    srvrun_dgring_drain(&cfg, &st, SRVRUN_DGRING_DRAIN_MS);
+    srvrun_dgring_drain(&cfg, &st, 1);
     CHECK(srvrun_test_send_count() == 1);
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -21642,7 +22033,7 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
     for (int i = 0; i < 32 && g_srvrun_env.dgring_n; i++) {
-      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1) * SRVRUN_DGRING_DRAIN_MS);
+      srvrun_dgring_drain(&cfg, &st, (u64)(i + 1));
     }
   }
   CHECK(g_srvrun_env.dgring_n == 0);
@@ -23209,6 +23600,49 @@ static void test_srvrun_ecn_failed_conn_sends_not_ect(void) {
   srvrun_send(&cfg, &c, wired_span_of(pkt, sizeof pkt), "t\n");
   CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
   CHECK(bufs[0].ecn == 0); /* Not-ECT */
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* Issue #201, RFC 9000 13.4.2.2: an ECN-failed connection still batches --
+ * its staged packets leave as ONE GSO sendmsg carrying a Not-ECT TOS cmsg;
+ * a marked connection's packet after them needs a different TOS, so it
+ * opens a new stage (one more flush) and keeps the socket's ECT(0). */
+static void test_srvrun_ecn_failed_conn_stages_gso_not_ect(void) {
+  i64                sfd, cfd;
+  sockaddr           srv;
+  u8                 rx[4][64];
+  mmsg_buf           bufs[4];
+  static const u8    pkt[3] = {1, 2, 3};
+  static srvrun_conn c, m;
+  srvrun_cfg         cfg = {.fd = -1, .env = &g_srvrun_env, 0};
+  u64                tx0;
+  for (int i = 0; i < 4; i++) {
+    bufs[i] = (mmsg_buf){wired_mspan_of(rx[i], sizeof rx[i]), {0}, 0, 0};
+  }
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) {
+    return; /* sandbox: skip */
+  }
+  wired_udp_recvtos_enable(sfd);
+  wired_udp_ect0_enable(cfd);
+  c                      = (srvrun_conn){0};
+  m                      = (srvrun_conn){0};
+  cfg.fd                 = cfd;
+  c.peer                 = srv;
+  m.peer                 = srv;
+  c.ecn.fail_count       = 1; /* validation failed (ecn_track_fail) */
+  g_srvrun_env.gso_count = 0; /* drop any stage an earlier test left */
+  g_srvrun_env.gso_len   = 0;
+  tx0                    = g_srvrun_env.tx_flush_count;
+  for (int i = 0; i < 3; i++) {
+    srvrun_send_staged(&cfg, &c, wired_span_of(pkt, sizeof pkt), "t\n");
+  }
+  srvrun_send_staged(&cfg, &m, wired_span_of(pkt, sizeof pkt), "t\n");
+  srvrun_stage_flush(&cfg);
+  CHECK(g_srvrun_env.tx_flush_count == tx0 + 2); /* GSO x3, then single */
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 4) == 4);
+  CHECK(bufs[0].ecn == 0 && bufs[1].ecn == 0 && bufs[2].ecn == 0);
+  CHECK(bufs[3].ecn == 2); /* the marked connection: ECT(0) */
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -28825,6 +29259,7 @@ void test_srvrun(void) {
   test_srvrun_wt_stop_after_fin_reaches_app();
   test_srvrun_reset_queue_overflow_closes();
   test_srvrun_ecn_failed_conn_sends_not_ect();
+  test_srvrun_ecn_failed_conn_stages_gso_not_ect();
   test_srvrun_ctrl_overflow_closes();
   test_srvrun_h3_conn_error_closes();
   test_srvrun_qpack_violation_closes();
@@ -28979,8 +29414,19 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_settings_sent();
   test_srvrun_wt_send_datagram_to_requires_established();
   test_srvrun_wt_send_datagram_to_requires_send_side_open();
-  test_srvrun_wt_datagram_ring_paces_by_bytes();
+  test_srvrun_wt_datagram_ring_drains_at_pacing_rate();
+  test_srvrun_wt_datagram_ring_waits_for_pacer();
+  test_srvrun_wt_datagram_ring_paces_below_one_packet_per_ms();
+  test_srvrun_dgring_held_conn_does_not_block_others();
+  test_srvrun_mixed_streams_keep_pacer_budget();
   test_srvrun_wt_datagram_ring_by_urgency();
+  test_srvrun_dgring_held_head_does_not_pin_ring();
+  test_srvrun_dg_refill_held_counts_packet_overhead();
+  test_srvrun_wt_datagram_ring_small_payload_rate();
+  test_srvrun_dgring_stream_starved_datagram_leaves();
+  test_srvrun_dgring_overdue_yields_at_low_rate();
+  test_srvrun_dgring_middle_removal_keeps_call_order();
+  test_srvrun_dgring_overdue_bound();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_waits_for_cwnd();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();

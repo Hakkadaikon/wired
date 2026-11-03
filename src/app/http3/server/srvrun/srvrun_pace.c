@@ -5,6 +5,7 @@ static u64  srvrun_pace_rate(const srvrun_conn* c);
 static u64  srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms);
 static int  srvrun_hystart_paces(const srvrun_conn* c);
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now);
+static void srvrun_pace_refill_at(srvrun_conn* c, u64 now_ms);
 
 /* Bytes per ms the pacer refills at: BBR paces at its own model's
  * pacing_gain% x btl_bw (falling back to the generic formula until the
@@ -35,21 +36,38 @@ static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
 }
 
 /* Advance the token bucket by the wall time since the last refill, capped
- * at the burst ceiling. Once per pump pass (srvrun_pump_sess) -- within a
- * pass now_ms is frozen, so the pass can never send more than one bucket.
- */
-void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+ * at the burst ceiling. Run by every pump pass (srvrun_pump_sess) and every
+ * ring-datagram check (srvrun_dg_refill_held) -- repeated calls at one
+ * now_ms add nothing, so a frozen-time pass never sends past one bucket. */
+static void srvrun_pace_refill_at(srvrun_conn* c, u64 now_ms) {
   u64 t;
   if (!c->srtt_ms) {
     return; /* unpaced until the first RTT sample */
   }
-  t                 = srvrun_pace_new_tokens(c, ctx->now_ms);
+  t                 = srvrun_pace_new_tokens(c, now_ms);
   c->pace_tokens    = t > SRVRUN_PACE_BURST ? SRVRUN_PACE_BURST : t;
-  c->pace_refill_ms = ctx->now_ms;
+  c->pace_refill_ms = now_ms;
+}
+
+void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  srvrun_pace_refill_at(c, ctx->now_ms);
+}
+
+/* RFC 9221 5.4 / RFC 9002 7.7: refills c's pacer to now_ms (side effect),
+ * then 1 while a ring DATAGRAM of len payload bytes must wait -- c's window
+ * has no room, or the bucket holds less than the whole packet (len plus
+ * SRVRUN_DG_PKT_OVERHEAD; the charge is the sealed packet, so a payload-only
+ * gate let small datagrams overspend the rate). Unlike the stream pump's > 0
+ * gate there is no overdraft: one datagram per refill would run at a packet
+ * per ms whatever the rate. Unpaced until the first RTT sample. */
+int srvrun_dg_refill_held(srvrun_conn* c, usz len, u64 now_ms) {
+  srvrun_pace_refill_at(c, now_ms);
+  return srvrun_dg_cwnd_blocked(c, len) ||
+         (c->srtt_ms && c->pace_tokens < len + SRVRUN_DG_PKT_OVERHEAD);
 }
 
 /* Spend bytes from the bucket (clamped at zero -- srvrun_pace_ok's > 0
- * gate deliberately allows a one-slice overdraft). */
+ * gate deliberately allows the stream pump a one-slice overdraft). */
 void srvrun_pace_charge(srvrun_conn* c, usz bytes) {
   c->pace_tokens = c->pace_tokens > bytes ? c->pace_tokens - bytes : 0;
 }

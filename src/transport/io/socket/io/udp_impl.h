@@ -80,6 +80,14 @@ typedef struct {
  * CMSG_LEN(4) = 20, i32 level, i32 type, the int, 4 pad) at out. */
 #define WIRED_INT_CMSG_SPACE 24
 
+/* An IP_TOS + IPV6_TCLASS cmsg pair (wired_udp_send_tos): 2 x
+ * CMSG_SPACE(sizeof(int)). */
+#define WIRED_TOS_CMSG_SPACE (2 * WIRED_INT_CMSG_SPACE)
+
+/* UDP_SEGMENT then the TOS pair (wired_udp_send_gso_tos): CMSG_SPACE(u16)
+ * + 2 x CMSG_SPACE(int) = 72 bytes; each entry is already 8-aligned. */
+#define WIRED_GSO_TOS_CMSG_SPACE (WIRED_GSO_CMSG_SPACE + WIRED_TOS_CMSG_SPACE)
+
 /* Byte capacity of the recvmmsg() cmsg buffer allocated per slot: room for one
  * IP_TOS cmsg (CMSG_SPACE(sizeof(int)) = 24, same layout family as
  * WIRED_GSO_CMSG_SPACE) plus WIRED_CMSG_SLACK bytes so an unrelated cmsg
@@ -146,6 +154,10 @@ typedef struct {
 #define WIRED_SO_INCOMING_CPU 49
 
 u8 udp_cmsg_read_ip_tos(const u8* control, u64 controllen);
+/* One sendmsg of buf to sa with the len-byte ancillary data at cmsg
+ * (udp_cmsg.c; shared by the GSO and per-send TOS senders). */
+i64 udp_sendmsg_ctl(
+    i64 fd, const sockaddr* sa, wired_span buf, u8* cmsg, u64 len);
 
 extern u16 udp_family;
 

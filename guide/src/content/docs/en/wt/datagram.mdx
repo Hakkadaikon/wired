@@ -32,6 +32,8 @@ no retransmission. This server echoes each one back to the client that sent it.
   within one urgency. The calls without `_prio` use 3.
 - Stream data goes out before queued datagrams in each send pass. Set
   `opt.datagram_first = 1` to send datagrams first; when the congestion
-  window has room for only one, the other waits.
+  window has room for only one, the other waits. By default a queued
+  datagram may wait behind its own connection's stream data for up to
+  max(2 x smoothed RTT, 25 ms); after that it goes before the streams.
 - The client keeps the QUIC connection and closes it before exiting, so the
   server logs `conn closed by peer` right away.
