@@ -142,6 +142,9 @@ export type ScreenSharePipelineDeps = {
 	 * PUBLISH costs no second encode. Turning on forces a keyframe, so lo's
 	 * first Group starts aligned with hi's. */
 	loActive?: () => boolean;
+	/** The captured track's contentHint (default "detail", text/UI; the
+	 * camera passes "motion"). */
+	contentHint?: string;
 	onError?: (err: unknown) => void;
 	onEncodeError?: (err: unknown) => void;
 };
@@ -275,7 +278,7 @@ export async function startScreenSharePipeline(
 		throw err;
 	}
 	const track = media.getVideoTracks()[0];
-	if (track) track.contentHint = "detail";
+	if (track) track.contentHint = deps.contentHint ?? "detail";
 	const settings = track?.getSettings?.() ?? {};
 	let width = settings.width ?? DEFAULT_WIDTH;
 	let height = settings.height ?? DEFAULT_HEIGHT;

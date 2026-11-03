@@ -112,6 +112,17 @@ describe("screenSharePipeline", () => {
 		expect(track.contentHint).toBe("detail");
 	});
 
+	it("marks the captured track with the given contentHint (camera: motion)", async () => {
+		const track = fakeTrack();
+		await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(track),
+			VideoEncoderCtor: fakeEncoder(10).ctor as never,
+			sendVideoChunk: vi.fn(),
+			contentHint: "motion",
+		});
+		expect(track.contentHint).toBe("motion");
+	});
+
 	it("configures the encoder for vp8 realtime at 720p's bitrate until a frame reports its size", async () => {
 		const track = fakeTrack();
 		const encoder = fakeEncoder(10);

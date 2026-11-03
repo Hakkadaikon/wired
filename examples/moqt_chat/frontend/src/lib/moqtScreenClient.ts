@@ -31,6 +31,10 @@
 //
 // Lo aliases sit right above the hi range: SCREEN_LO_ALIAS_OFFSET =
 // SCREEN_ALIAS_OFFSET + N.
+//
+// The camera track "<id>/camera" (CAMERA_TRACK) rides this same transport
+// as a hi-only kind, aliases right above lo: CAMERA_ALIAS_OFFSET =
+// SCREEN_LO_ALIAS_OFFSET + N.
 
 import {
 	CANDIDATE_PARTICIPANT_IDS,
@@ -63,15 +67,31 @@ export type ScreenQuality = "auto" | "high" | "low";
 const POOL = BigInt(CANDIDATE_PARTICIPANT_IDS.length);
 export const SCREEN_ALIAS_OFFSET = POOL * 2n + 2n;
 export const SCREEN_LO_ALIAS_OFFSET = SCREEN_ALIAS_OFFSET + POOL;
+export const CAMERA_ALIAS_OFFSET = SCREEN_LO_ALIAS_OFFSET + POOL;
 
-const VARIANT_OFFSET: Record<ScreenVariant, bigint> = {
-	hi: SCREEN_ALIAS_OFFSET,
-	lo: SCREEN_LO_ALIAS_OFFSET,
+/** One kind of video track this transport carries: its track-name suffix
+ * and alias range per variant. A kind without lo never publishes variants. */
+export interface VideoTrackKind {
+	hiSuffix: string;
+	loSuffix?: string;
+	hiOffset: bigint;
+	loOffset?: bigint;
+}
+export const SCREEN_TRACK: VideoTrackKind = {
+	hiSuffix: "screen",
+	loSuffix: "screen-lo",
+	hiOffset: SCREEN_ALIAS_OFFSET,
+	loOffset: SCREEN_LO_ALIAS_OFFSET,
 };
-const VARIANT_SUFFIX: Record<ScreenVariant, string> = {
-	hi: "screen",
-	lo: "screen-lo",
+export const CAMERA_TRACK: VideoTrackKind = {
+	hiSuffix: "camera",
+	hiOffset: CAMERA_ALIAS_OFFSET,
 };
+
+function variantOffset(kind: VideoTrackKind, variant: ScreenVariant): bigint {
+	return (variant === "lo" ? kind.loOffset : undefined) ?? kind.hiOffset;
+}
+
 const QUALITY_VARIANT: Record<"high" | "low", ScreenVariant> = {
 	high: "hi",
 	low: "lo",
@@ -102,42 +122,66 @@ export function ownScreenTrackAlias(localId: string): bigint {
 export function screenVariantAlias(
 	localId: string,
 	variant: ScreenVariant,
+	kind: VideoTrackKind = SCREEN_TRACK,
 ): bigint {
-	return ownTrackAlias(localId) + VARIANT_OFFSET[variant];
+	return ownTrackAlias(localId) + variantOffset(kind, variant);
 }
 
-/** The participant and variant a screen Track Alias belongs to. */
+/** The "<id>/camera" track's Track Alias, in [18, 22). */
+export function ownCameraTrackAlias(localId: string): bigint {
+	return screenVariantAlias(localId, "hi", CAMERA_TRACK);
+}
+
+/** The participant and variant a Track Alias of `kind` belongs to. */
 function screenAliasOwner(
 	trackAlias: bigint,
+	kind: VideoTrackKind,
 ): { participant: string; variant: ScreenVariant } | undefined {
-	if (!isScreenTrackAlias(trackAlias)) return undefined;
+	if (!isKindTrackAlias(kind, trackAlias)) return undefined;
 	const variant: ScreenVariant =
-		trackAlias >= SCREEN_LO_ALIAS_OFFSET ? "lo" : "hi";
+		kind.loOffset !== undefined && trackAlias >= kind.loOffset ? "lo" : "hi";
 	const participant = participantForTrackAlias(
-		trackAlias - VARIANT_OFFSET[variant],
+		trackAlias - variantOffset(kind, variant),
 	);
 	return participant ? { participant, variant } : undefined;
+}
+
+// Every alias range of `kind`: [hiOffset, (loOffset ?? hiOffset) + N).
+function isKindTrackAlias(kind: VideoTrackKind, trackAlias: bigint): boolean {
+	return (
+		trackAlias >= kind.hiOffset &&
+		trackAlias < (kind.loOffset ?? kind.hiOffset) + POOL
+	);
 }
 
 /** True when `trackAlias` falls in either screen-share alias range
  * [SCREEN_ALIAS_OFFSET, SCREEN_LO_ALIAS_OFFSET + N). Exported so
  * useMoqtChat.ts's onUnknownUniStream can route on it directly. */
 export function isScreenTrackAlias(trackAlias: bigint): boolean {
-	return (
-		trackAlias >= SCREEN_ALIAS_OFFSET &&
-		trackAlias < SCREEN_LO_ALIAS_OFFSET + POOL
-	);
+	return isKindTrackAlias(SCREEN_TRACK, trackAlias);
 }
 
-function screenLabel(participantId: string, variant: ScreenVariant): string {
-	return `${participantId}/${VARIANT_SUFFIX[variant]}`;
+/** True when `trackAlias` is a camera track's: [CAMERA_ALIAS_OFFSET, +N). */
+export function isCameraTrackAlias(trackAlias: bigint): boolean {
+	return isKindTrackAlias(CAMERA_TRACK, trackAlias);
+}
+
+function screenLabel(
+	participantId: string,
+	variant: ScreenVariant,
+	kind: VideoTrackKind,
+): string {
+	const suffix =
+		(variant === "lo" ? kind.loSuffix : undefined) ?? kind.hiSuffix;
+	return `${participantId}/${suffix}`;
 }
 
 function screenTrackName(
 	participantId: string,
-	variant: ScreenVariant = "hi",
+	variant: ScreenVariant,
+	kind: VideoTrackKind,
 ): Uint8Array {
-	return new TextEncoder().encode(screenLabel(participantId, variant));
+	return new TextEncoder().encode(screenLabel(participantId, variant, kind));
 }
 
 /** Which (Group, variant) a participant's decoder is following. */
@@ -279,15 +323,31 @@ export class MoqtScreenClient {
 	// Bumped by forgetParticipant: a quality change begun before it is stale.
 	#generation = new Map<string, number>();
 
-	constructor(chat: MoqtChatClient, callbacks: MoqtScreenCallbacks) {
+	#kind: VideoTrackKind;
+
+	constructor(
+		chat: MoqtChatClient,
+		callbacks: MoqtScreenCallbacks,
+		kind: VideoTrackKind = SCREEN_TRACK,
+	) {
 		this.#chat = chat;
 		this.#callbacks = callbacks;
+		this.#kind = kind;
 	}
 
-	/** Whether shares go out as two variants and watchers may switch:
-	 * MoqtChatClient.trackSwitching (draft-22, hub advertised SSTS). */
+	/** Whether shares go out as two variants and watchers may switch: the
+	 * kind has a lo variant and MoqtChatClient.trackSwitching (draft-22, hub
+	 * advertised SSTS). */
 	get variantsEnabled(): boolean {
-		return this.#chat.trackSwitching;
+		return this.#kind.loSuffix !== undefined && this.#chat.trackSwitching;
+	}
+
+	#label(participantId: string, variant: ScreenVariant): string {
+		return screenLabel(participantId, variant, this.#kind);
+	}
+
+	#trackName(participantId: string, variant: ScreenVariant): Uint8Array {
+		return screenTrackName(participantId, variant, this.#kind);
 	}
 
 	/** Whether "<id>/screen-lo" is PUBLISHed on this session (the hub may
@@ -327,17 +387,20 @@ export class MoqtScreenClient {
 		const id = this.#chat.localId;
 		if (!this.#published) {
 			this.#published = await this.#chat.publishTrack(
-				screenTrackName(id),
-				ownScreenTrackAlias(id),
+				this.#trackName(id, "hi"),
+				screenVariantAlias(id, "hi", this.#kind),
 			);
 		}
 		if (!this.#loPublished && this.variantsEnabled) {
 			this.#loPublished = await this.#chat.publishTrack(
-				screenTrackName(id, "lo"),
-				screenVariantAlias(id, "lo"),
+				this.#trackName(id, "lo"),
+				screenVariantAlias(id, "lo", this.#kind),
 			);
 		}
-		this.#announcement = await this.#chat.publishNamespace([id, "screen"]);
+		this.#announcement = await this.#chat.publishNamespace([
+			id,
+			this.#kind.hiSuffix,
+		]);
 	}
 
 	/** The quality chosen for participantId's tile ("auto" until set). */
@@ -406,8 +469,8 @@ export class MoqtScreenClient {
 		// A share restarted while still subscribed sends no new SUBSCRIBE, so no
 		// fetch will end the hold: release it now.
 		const sent = await this.#chat.subscribeTrack(
-			screenTrackName(participantId, variant),
-			screenLabel(participantId, variant),
+			this.#trackName(participantId, variant),
+			this.#label(participantId, variant),
 			{
 				joiningStart: 0n,
 				onObject: (o) => {
@@ -482,7 +545,7 @@ export class MoqtScreenClient {
 			if (stale()) return;
 			if (
 				this.#chat.isSubscribed(
-					screenLabel(participantId, QUALITY_VARIANT[quality]),
+					this.#label(participantId, QUALITY_VARIANT[quality]),
 				)
 			) {
 				this.#quality.set(participantId, quality);
@@ -494,7 +557,7 @@ export class MoqtScreenClient {
 		if (
 			quality === "auto" ||
 			this.#chat.isSubscribed(
-				screenLabel(participantId, QUALITY_VARIANT[quality]),
+				this.#label(participantId, QUALITY_VARIANT[quality]),
 			)
 		)
 			return;
@@ -507,7 +570,7 @@ export class MoqtScreenClient {
 	): Promise<void> {
 		this.#quality.set(participantId, quality);
 		for (const variant of ["hi", "lo"] as const)
-			this.#chat.unsubscribe(screenLabel(participantId, variant));
+			this.#chat.unsubscribe(this.#label(participantId, variant));
 		await this.subscribeToScreenTrack(participantId);
 	}
 
@@ -517,7 +580,7 @@ export class MoqtScreenClient {
 		to: ScreenVariant,
 		stale: () => boolean,
 	): Promise<void> {
-		const fromLabel = screenLabel(participantId, from);
+		const fromLabel = this.#label(participantId, from);
 		const rid = await this.#chat.subscriptionRequestId(fromLabel);
 		if (stale()) return; // left while we looked: send nothing
 		const params =
@@ -531,14 +594,14 @@ export class MoqtScreenClient {
 						}),
 					];
 		await this.#chat.subscribeTrack(
-			screenTrackName(participantId, to),
-			screenLabel(participantId, to),
+			this.#trackName(participantId, to),
+			this.#label(participantId, to),
 			undefined,
 			{
 				params,
 			},
 		);
-		if (this.#chat.isSubscribed(screenLabel(participantId, to)))
+		if (this.#chat.isSubscribed(this.#label(participantId, to)))
 			this.#chat.forgetSubscription(fromLabel);
 	}
 
@@ -635,7 +698,7 @@ export class MoqtScreenClient {
 		lane.group = groupId;
 		const stream = await wt.createUnidirectionalStream();
 		lane.writer = stream.getWriter();
-		const alias = screenVariantAlias(this.#chat.localId, variant);
+		const alias = screenVariantAlias(this.#chat.localId, variant, this.#kind);
 		await lane.writer.write(
 			concatBytes([buildScreenSubgroupHeader(alias, groupId), object]),
 		);
@@ -651,7 +714,7 @@ export class MoqtScreenClient {
 		firstChunk: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): void {
-		const owner = screenAliasOwner(header.trackAlias);
+		const owner = screenAliasOwner(header.trackAlias, this.#kind);
 		if (!owner) {
 			reader.cancel().catch(() => {});
 			return;
