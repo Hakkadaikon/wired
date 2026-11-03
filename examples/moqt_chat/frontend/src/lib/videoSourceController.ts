@@ -19,9 +19,10 @@ import {
 	initialVideoSource,
 	type Selection,
 	step,
+	type VideoFailure,
 	type VideoSourceEffect,
 	type VideoSourceEvent,
-	type VideoSourceState,
+	videoErrorMessage,
 } from "./videoSourceMachine";
 
 export type FrameLike = { close?: () => void; timestamp?: number };
@@ -63,7 +64,8 @@ export type VideoSourceDeps = {
 	makeProcessor: (track: TrackLike) => ProcessorLike;
 	/** `onFail`: the processor broke after loading (WebGL context lost). */
 	loadBackground: (onFail: () => void) => Promise<BackgroundProcessor>;
-	startPipeline: () => Promise<PipelineLike>;
+	/** `onError`: the running encoder failed. */
+	startPipeline: (onError: () => void) => Promise<PipelineLike>;
 	publish: () => Promise<void>;
 	unpublish: () => void;
 	drawPreview: (frame: FrameLike) => void;
@@ -93,23 +95,10 @@ const DONE: Record<
 	segmenter: ["segmenterReady", "segmenterFailed"],
 };
 
-const FAILURE = {
-	camera: "camera could not be started",
-	file: "video file could not be played",
-};
-const BACKGROUND_FAILED = "background effect could not be loaded";
-
-function errorOf(s: VideoSourceState, failure: string): string | null {
-	if (s.error) return failure;
-	return s.seg === "failed" ? BACKGROUND_FAILED : null;
-}
-
 export function createVideoSourceController(
 	deps: VideoSourceDeps,
 ): VideoSourceController {
 	let state = initialVideoSource;
-	let failure = "";
-	let fileUrl = deps.defaultFileUrl;
 	let pipeline: PipelineLike | null = null;
 	// Bumped by unpublish: a pipeline start begun before it is stale.
 	let pubSeq = 0;
@@ -123,7 +112,7 @@ export function createVideoSourceController(
 		deps.onChange({
 			source: state.sel,
 			background: state.bg,
-			error: errorOf(state, failure),
+			error: videoErrorMessage(state),
 		});
 	};
 
@@ -132,11 +121,11 @@ export function createVideoSourceController(
 		held[source] = undefined;
 	};
 
-	const fail = (source: Source, gen: number) => {
-		if (source !== "segmenter" && state.sel === source && state.gen === gen)
-			failure = FAILURE[source];
+	const fail = (source: Source, gen: number) =>
 		dispatch({ kind: DONE[source][1], gen } as VideoSourceEvent);
-	};
+	// A failure of the published track, whichever source feeds it now.
+	const failNow = (failure: VideoFailure) =>
+		dispatch({ kind: "failed", gen: state.gen, failure });
 
 	const arrive = (source: Source, gen: number, res: Resource) => {
 		const key = `${source}:${gen}`;
@@ -144,7 +133,10 @@ export function createVideoSourceController(
 		dispatch({ kind: DONE[source][0], gen } as VideoSourceEvent);
 		if (!pending.delete(key)) return; // released as stale
 		held[source] = res;
-		if (source !== "segmenter") void pump(res as SourceHandle).catch(() => {});
+		if (source !== "segmenter")
+			void pump(res as SourceHandle).catch(() =>
+				dispatch({ kind: "failed", gen, failure: "send" }),
+			);
 	};
 
 	const acquire = (
@@ -171,7 +163,7 @@ export function createVideoSourceController(
 		const slot: { res?: BackgroundProcessor } = {};
 		const onFail = () => {
 			if (slot.res && held.segmenter === slot.res)
-				dispatch({ kind: "segmenterFailed", gen: state.gen });
+				dispatch({ kind: "segmenterLost" });
 		};
 		return deps.loadBackground(onFail).then((res) => {
 			slot.res = res;
@@ -182,13 +174,15 @@ export function createVideoSourceController(
 	const publish = async () => {
 		const seq = ++pubSeq;
 		try {
-			const p = await deps.startPipeline();
+			const p = await deps.startPipeline(() => {
+				if (seq === pubSeq) failNow("encode");
+			});
 			if (seq !== pubSeq) return p.stop();
 			pipeline = p;
 			await deps.publish();
 			if (seq !== pubSeq) deps.unpublish(); // an announce that raced the off
 		} catch {
-			if (seq === pubSeq && state.sel !== "off") fail(state.sel, state.gen);
+			if (seq === pubSeq) failNow("publish");
 		}
 	};
 
@@ -205,7 +199,7 @@ export function createVideoSourceController(
 		) => void;
 	} = {
 		acquireCamera: (fx) => acquire("camera", fx.gen, startCamera),
-		playFile: (fx) => acquire("file", fx.gen, () => deps.playFile(fileUrl)),
+		playFile: (fx) => acquire("file", fx.gen, () => deps.playFile(fx.url)),
 		loadSegmenter: (fx) => acquire("segmenter", fx.gen, loadBackground),
 		releaseCamera: () => release("camera"),
 		releaseFile: () => release("file"),
@@ -260,13 +254,10 @@ export function createVideoSourceController(
 	return {
 		toggle: (source) => {
 			if (state.sel === source) return dispatch({ kind: "off" });
-			fileUrl = deps.defaultFileUrl;
-			dispatch({ kind: source === "camera" ? "selectCamera" : "selectFile" });
+			if (source === "camera") return dispatch({ kind: "selectCamera" });
+			dispatch({ kind: "selectFile", url: deps.defaultFileUrl });
 		},
-		pickFile: (url) => {
-			fileUrl = url;
-			dispatch({ kind: "selectFile" });
-		},
+		pickFile: (url) => dispatch({ kind: "selectFile", url }),
 		setBackground: (mode) => dispatch({ kind: "setBackground", mode }),
 		leave: () => dispatch({ kind: "leave" }),
 		requestKeyframe: () => pipeline?.requestKeyframe(),

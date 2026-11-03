@@ -7,6 +7,8 @@
 export type Selection = "off" | "camera" | "file";
 export type BackgroundMode = "none" | "blur" | "image";
 export type SegmenterState = "none" | "ready" | "failed";
+/** Why the source was turned off: what could not be done. */
+export type VideoFailure = "camera" | "file" | "publish" | "encode" | "send";
 
 export interface VideoSourceState {
 	sel: Selection;
@@ -19,12 +21,15 @@ export interface VideoSourceState {
 	segGen: number | null;
 	camHeld: number | null;
 	fileHeld: number | null;
-	error: boolean;
+	/** kept until the next selection */
+	error: VideoFailure | null;
 }
 
 export type VideoSourceEvent =
-	| { kind: "selectCamera" | "selectFile" | "off" | "leave" }
+	| { kind: "selectCamera" | "off" | "leave" | "segmenterLost" }
+	| { kind: "selectFile"; url: string }
 	| { kind: "setBackground"; mode: BackgroundMode }
+	| { kind: "failed"; gen: number; failure: VideoFailure }
 	| {
 			kind:
 				| "cameraAcquired"
@@ -37,7 +42,8 @@ export type VideoSourceEvent =
 	  };
 
 export type VideoSourceEffect =
-	| { kind: "acquireCamera" | "playFile" | "loadSegmenter"; gen: number }
+	| { kind: "acquireCamera" | "loadSegmenter"; gen: number }
+	| { kind: "playFile"; gen: number; url: string }
 	| { kind: "releaseCamera" | "releaseFile" | "closeSegmenter" }
 	| { kind: "publish" | "unpublish" | "keyframe" }
 	| {
@@ -63,7 +69,7 @@ export const initialVideoSource: VideoSourceState = {
 	segGen: null,
 	camHeld: null,
 	fileHeld: null,
-	error: false,
+	error: null,
 };
 
 type Fx = VideoSourceEffect[];
@@ -85,15 +91,16 @@ function wantSegmenter(s: VideoSourceState, fx: Fx): VideoSourceState {
 	return { ...s, seg: "none", segGen: s.gen };
 }
 
-function select(s: VideoSourceState, sel: "camera" | "file", fx: Fx) {
+function select(s: VideoSourceState, url: string | null, fx: Fx) {
 	const gen = s.gen + 1;
+	const sel = url === null ? "camera" : "file";
 	const held = releaseAll(s, fx, sel === "file");
 	fx.push(
-		sel === "camera"
+		url === null
 			? { kind: "acquireCamera", gen }
-			: { kind: "playFile", gen },
+			: { kind: "playFile", gen, url },
 	);
-	return wantSegmenter({ ...s, ...held, sel, gen, error: false }, fx);
+	return wantSegmenter({ ...s, ...held, sel, gen, error: null }, fx);
 }
 
 function turnOff(s: VideoSourceState, fx: Fx, left: boolean): VideoSourceState {
@@ -119,15 +126,30 @@ function sourceDone(
 		if (ok) fx.push({ kind: "releaseStale", source, gen });
 		return s;
 	}
-	if (!ok) return { ...turnOff(s, fx, s.left), error: true };
+	if (!ok) return { ...turnOff(s, fx, s.left), error: source };
 	if (!s.published) fx.push({ kind: "publish" });
 	fx.push({ kind: "keyframe" });
 	const held = source === "camera" ? { camHeld: gen } : { fileHeld: gen };
 	return { ...s, ...held, published: true };
 }
 
-const readyFor = (s: VideoSourceState, gen: number) =>
-	s.seg === "ready" && s.gen === gen;
+/** A failure of the current selection; an older or turned-off one is moot. */
+function failed(
+	s: VideoSourceState,
+	gen: number,
+	failure: VideoFailure,
+	fx: Fx,
+) {
+	if (s.sel === "off" || s.gen !== gen) return s;
+	return { ...turnOff(s, fx, s.left), error: failure };
+}
+
+/** The ready segmenter broke later (e.g. its WebGL context was lost). */
+function segmenterLost(s: VideoSourceState, fx: Fx): VideoSourceState {
+	if (s.seg !== "ready") return s;
+	fx.push({ kind: "closeSegmenter" });
+	return { ...s, seg: "failed" };
+}
 
 function segmenterDone(
 	s: VideoSourceState,
@@ -135,11 +157,6 @@ function segmenterDone(
 	ok: boolean,
 	fx: Fx,
 ): VideoSourceState {
-	if (!ok && readyFor(s, gen)) {
-		// the ready segmenter broke later (e.g. its WebGL context was lost)
-		fx.push({ kind: "closeSegmenter" });
-		return { ...s, seg: "failed" };
-	}
 	const wanted =
 		s.sel === "camera" && s.gen === gen && s.bg !== "none" && s.segGen === gen;
 	if (!wanted) {
@@ -167,8 +184,8 @@ const userEvents = new Set([
 ]);
 
 const handlers: Handlers = {
-	selectCamera: (s, _e, fx) => select(s, "camera", fx),
-	selectFile: (s, _e, fx) => select(s, "file", fx),
+	selectCamera: (s, _e, fx) => select(s, null, fx),
+	selectFile: (s, e, fx) => select(s, e.url, fx),
 	off: (s, _e, fx) => (s.sel === "off" ? s : turnOff(s, fx, false)),
 	leave: (s, _e, fx) => turnOff(s, fx, true),
 	setBackground: (s, e, fx) => setBackground(s, e.mode, fx),
@@ -178,12 +195,19 @@ const handlers: Handlers = {
 	fileFailed: (s, e, fx) => sourceDone(s, "file", e.gen, false, fx),
 	segmenterReady: (s, e, fx) => segmenterDone(s, e.gen, true, fx),
 	segmenterFailed: (s, e, fx) => segmenterDone(s, e.gen, false, fx),
+	segmenterLost: (s, _e, fx) => segmenterLost(s, fx),
+	failed: (s, e, fx) => failed(s, e.gen, e.failure, fx),
 };
 
 export function step(s: VideoSourceState, e: VideoSourceEvent): StepResult {
 	if (s.left && userEvents.has(e.kind)) return { state: s, effects: [] };
 	const effects: Fx = [];
-	return { state: handlers[e.kind](s, e as never, effects), effects };
+	const handle = handlers[e.kind] as (
+		s: VideoSourceState,
+		e: VideoSourceEvent,
+		fx: Fx,
+	) => VideoSourceState;
+	return { state: handle(s, e, effects), effects };
 }
 
 /** What to do with the next frame; never raw while a background is selected. */
@@ -192,4 +216,18 @@ export function frameAction(s: VideoSourceState): FrameAction {
 	if (s.camHeld === null) return "drop";
 	if (s.bg === "none") return "raw";
 	return s.seg === "ready" ? "composite" : "drop";
+}
+
+const FAILURE_MESSAGE: Record<VideoFailure, string> = {
+	camera: "camera could not be started",
+	file: "video file could not be played",
+	publish: "video could not be published",
+	encode: "video could not be encoded",
+	send: "video could not be sent",
+};
+
+/** The error to show for this state, if any. */
+export function videoErrorMessage(s: VideoSourceState): string | null {
+	if (s.error) return FAILURE_MESSAGE[s.error];
+	return s.seg === "failed" ? "background effect could not be loaded" : null;
 }

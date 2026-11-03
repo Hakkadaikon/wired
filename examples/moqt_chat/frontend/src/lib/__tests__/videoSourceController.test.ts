@@ -258,7 +258,106 @@ describe("videoSourceController", () => {
 		await flush();
 		expect(t.camera.stop).toHaveBeenCalled();
 		expect(t.view()?.source).toBe("off");
-		expect(t.view()?.error).toBe("camera could not be started");
+		expect(t.view()?.error).toBe("video could not be published");
+	});
+
+	it("a publish that rejects turns the source off with a publish error", async () => {
+		const t = setup({
+			publish: vi.fn(async () => {
+				throw new Error("announce refused");
+			}),
+		});
+		t.ctl.toggle("file");
+		await flush();
+		expect(t.fileStop).toHaveBeenCalled();
+		expect(t.pipeline.stop).toHaveBeenCalled();
+		expect(t.view()).toEqual({
+			source: "off",
+			background: "none",
+			error: "video could not be published",
+		});
+	});
+
+	it("a publish that resolves after off is withdrawn again", async () => {
+		const pub = deferred<void>();
+		const t = setup({ publish: vi.fn(() => pub.promise) });
+		t.ctl.toggle("camera");
+		await flush();
+		t.ctl.toggle("camera");
+		expect(t.deps.unpublish).toHaveBeenCalledTimes(1);
+		pub.resolve();
+		await flush();
+		expect(t.deps.unpublish).toHaveBeenCalledTimes(2);
+	});
+
+	it("an encode error turns the source off and stays until the next selection", async () => {
+		let encodeError = () => {};
+		const t = setup({
+			startPipeline: vi.fn(async (onError: () => void) => {
+				encodeError = onError;
+				return t.pipeline;
+			}),
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		encodeError();
+		expect(t.camera.stop).toHaveBeenCalled();
+		t.ctl.setBackground("blur");
+		expect(t.view()).toEqual({
+			source: "off",
+			background: "blur",
+			error: "video could not be encoded",
+		});
+		t.ctl.toggle("camera");
+		expect(t.view()?.error).toBeNull();
+	});
+
+	it("an encode error of a stopped pipeline does not touch the next one", async () => {
+		let encodeError = () => {};
+		const t = setup({
+			startPipeline: vi.fn(async (onError: () => void) => {
+				encodeError = onError;
+				return t.pipeline;
+			}),
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		const old = encodeError;
+		t.ctl.toggle("camera");
+		t.ctl.toggle("camera");
+		await flush();
+		old();
+		expect(t.view()).toMatchObject({ source: "camera", error: null });
+	});
+
+	it("a processor that cannot be made turns the source off with a send error", async () => {
+		const t = setup({
+			makeProcessor: () => {
+				throw new Error("no MediaStreamTrackProcessor");
+			},
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		expect(t.camera.stop).toHaveBeenCalled();
+		expect(t.view()).toMatchObject({
+			source: "off",
+			error: "video could not be sent",
+		});
+	});
+
+	it("a pushFrame that throws turns the source off with a send error", async () => {
+		const t = setup();
+		t.pipeline.pushFrame.mockImplementation(() => {
+			throw new Error("encoder closed");
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		t.camera.push(frame("c1"));
+		await flush();
+		expect(t.view()).toMatchObject({
+			source: "off",
+			error: "video could not be sent",
+		});
 	});
 
 	it("an off while the pipeline is starting stops that pipeline", async () => {
@@ -319,6 +418,95 @@ describe("videoSourceController", () => {
 		await flush();
 		expect(t.pushed()).toEqual([]);
 		expect(t.view()?.error).toBe("background effect could not be loaded");
+	});
+
+	it("a lost background after reselecting the camera still withholds frames", async () => {
+		let fail = () => {};
+		const t = setup({
+			loadBackground: vi.fn(async (onFail: () => void) => {
+				fail = onFail;
+				return {
+					process: () => ({ name: "comp", timestamp: 0 }),
+					stop: vi.fn(),
+				};
+			}),
+		});
+		t.ctl.toggle("camera");
+		t.ctl.setBackground("blur");
+		await flush();
+		t.ctl.toggle("file");
+		t.ctl.toggle("camera");
+		await flush();
+		fail();
+		t.camera.push(frame("c1"));
+		await flush();
+		expect(t.pushed()).toEqual([]);
+		expect(t.view()?.error).toBe("background effect could not be loaded");
+	});
+
+	it("a lost report from a background already released changes nothing", async () => {
+		let fail = () => {};
+		const t = setup({
+			loadBackground: vi.fn(async (onFail: () => void) => {
+				fail = onFail;
+				return {
+					process: () => ({ name: "comp", timestamp: 0 }),
+					stop: vi.fn(),
+				};
+			}),
+		});
+		t.ctl.toggle("camera");
+		t.ctl.setBackground("blur");
+		await flush();
+		t.ctl.setBackground("none");
+		const before = t.view();
+		fail();
+		expect(t.view()).toBe(before);
+		t.camera.push(frame("c1"));
+		await flush();
+		expect(t.pushed()).toEqual(["c1"]);
+	});
+
+	it("after a background load failure, background none clears the error and raw frames flow", async () => {
+		const t = setup({
+			loadBackground: vi.fn(async () => {
+				throw new Error("wasm");
+			}),
+		});
+		t.ctl.toggle("camera");
+		t.ctl.setBackground("blur");
+		await flush();
+		expect(t.view()?.error).toBe("background effect could not be loaded");
+		t.ctl.setBackground("none");
+		expect(t.view()?.error).toBeNull();
+		t.camera.push(frame("c1"));
+		await flush();
+		expect(t.pushed()).toEqual(["c1"]);
+	});
+
+	it("the preview draws exactly the pushed (composited) frame, never a dropped one", async () => {
+		const seg =
+			deferred<Awaited<ReturnType<VideoSourceDeps["loadBackground"]>>>();
+		const t = setup({ loadBackground: vi.fn(() => seg.promise) });
+		t.ctl.toggle("camera");
+		t.ctl.setBackground("blur");
+		await flush();
+		t.camera.push(frame("dropped"));
+		await flush();
+		expect(t.deps.drawPreview).not.toHaveBeenCalled();
+		seg.resolve({
+			process: (f) => ({
+				name: `comp(${(f as { name: string }).name})`,
+				timestamp: 0,
+			}),
+			stop: vi.fn(),
+		});
+		await flush();
+		t.camera.push(frame("c2"));
+		await flush();
+		const drawn = vi.mocked(t.deps.drawPreview).mock.calls.map((c) => c[0]);
+		expect(drawn).toEqual(t.pipeline.pushFrame.mock.calls.map((c) => c[0]));
+		expect(drawn).toEqual([{ name: "comp(c2)", timestamp: 0 }]);
 	});
 
 	it("a reopened send stream asks the running pipeline for a keyframe", async () => {

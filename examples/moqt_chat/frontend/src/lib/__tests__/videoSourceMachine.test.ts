@@ -4,8 +4,10 @@ import {
 	frameAction,
 	initialVideoSource,
 	step,
+	type VideoFailure,
 	type VideoSourceEvent,
 	type VideoSourceState,
+	videoErrorMessage,
 } from "../videoSourceMachine";
 
 function run(events: VideoSourceEvent[], from = initialVideoSource) {
@@ -14,12 +16,35 @@ function run(events: VideoSourceEvent[], from = initialVideoSource) {
 	return s;
 }
 
+const FILE_URL = "/videos/sample.mp4";
+const selectFile: VideoSourceEvent = { kind: "selectFile", url: FILE_URL };
+
 const cameraLive: VideoSourceEvent[] = [
 	{ kind: "selectCamera" },
 	{ kind: "cameraAcquired", gen: 1 },
 ];
 
 const held = (s: VideoSourceState) => s.camHeld !== null || s.fileHeld !== null;
+
+const SUCCESS = {
+	cameraAcquired: "camera",
+	filePlaying: "file",
+	segmenterReady: "segmenter",
+} as const;
+
+// Whether the state still wants what a successful completion delivers.
+const wants = (s: VideoSourceState, source: string, gen: number) =>
+	source === "segmenter"
+		? s.sel === "camera" && s.bg !== "none" && s.segGen === gen
+		: s.sel === source && s.gen === gen;
+
+// The source of a successful completion the state no longer wants, or null.
+function staleSuccess(s: VideoSourceState, e: VideoSourceEvent) {
+	const source = SUCCESS[e.kind as keyof typeof SUCCESS];
+	if (!source) return null;
+	const gen = (e as { gen: number }).gen;
+	return wants(s, source, gen) && s.gen === gen ? null : source;
+}
 
 // Safety properties that must hold after every step.
 const invariants: [string, (s: VideoSourceState) => boolean][] = [
@@ -87,7 +112,7 @@ describe("videoSourceMachine", () => {
 	});
 
 	it("a camera capture arriving after a switch to the file is stale", () => {
-		const s = run([{ kind: "selectCamera" }, { kind: "selectFile" }]);
+		const s = run([{ kind: "selectCamera" }, selectFile]);
 		const r = step(s, { kind: "cameraAcquired", gen: 2 });
 		expect(r.state.camHeld).toBeNull();
 		expect(r.effects).toEqual([
@@ -97,7 +122,7 @@ describe("videoSourceMachine", () => {
 
 	it("switching camera to file releases the camera and keeps the track", () => {
 		const s = run(cameraLive);
-		const r = step(s, { kind: "selectFile" });
+		const r = step(s, selectFile);
 		expect(r.state).toMatchObject({
 			sel: "file",
 			gen: 2,
@@ -106,13 +131,13 @@ describe("videoSourceMachine", () => {
 		});
 		expect(r.effects).toEqual([
 			{ kind: "releaseCamera" },
-			{ kind: "playFile", gen: 2 },
+			{ kind: "playFile", gen: 2, url: FILE_URL },
 		]);
 		expect(frameAction(r.state)).toBe("drop");
 	});
 
 	it("a playing file is held and forces a keyframe without republishing", () => {
-		const s = run([...cameraLive, { kind: "selectFile" }]);
+		const s = run([...cameraLive, selectFile]);
 		const r = step(s, { kind: "filePlaying", gen: 2 });
 		expect(r.state.fileHeld).toBe(2);
 		expect(r.effects).toEqual([{ kind: "keyframe" }]);
@@ -120,7 +145,7 @@ describe("videoSourceMachine", () => {
 	});
 
 	it("a stale file is released", () => {
-		const s = run([{ kind: "selectFile" }, { kind: "off" }]);
+		const s = run([selectFile, { kind: "off" }]);
 		const r = step(s, { kind: "filePlaying", gen: 1 });
 		expect(r.state).toEqual(s);
 		expect(r.effects).toEqual([
@@ -129,7 +154,7 @@ describe("videoSourceMachine", () => {
 	});
 
 	it("switching file to camera releases the file", () => {
-		const s = run([{ kind: "selectFile" }, { kind: "filePlaying", gen: 1 }]);
+		const s = run([selectFile, { kind: "filePlaying", gen: 1 }]);
 		const r = step(s, { kind: "selectCamera" });
 		expect(r.state.fileHeld).toBeNull();
 		expect(r.effects).toEqual([
@@ -144,17 +169,17 @@ describe("videoSourceMachine", () => {
 		expect(r.state).toMatchObject({
 			sel: "off",
 			published: false,
-			error: true,
+			error: "camera",
 		});
 		expect(r.effects).toEqual([{ kind: "unpublish" }]);
 	});
 
 	it("a current file failure returns to off with an error", () => {
-		const r = step(run([{ kind: "selectFile" }]), {
+		const r = step(run([selectFile]), {
 			kind: "fileFailed",
 			gen: 1,
 		});
-		expect(r.state).toMatchObject({ sel: "off", error: true });
+		expect(r.state).toMatchObject({ sel: "off", error: "file" });
 		expect(r.effects).toEqual([]);
 	});
 
@@ -171,9 +196,9 @@ describe("videoSourceMachine", () => {
 	});
 
 	it("selecting a source again clears the error", () => {
-		const s = run([{ kind: "selectFile" }, { kind: "fileFailed", gen: 1 }]);
-		expect(step(s, { kind: "selectCamera" }).state.error).toBe(false);
-		expect(step(s, { kind: "selectFile" }).state.error).toBe(false);
+		const s = run([selectFile, { kind: "fileFailed", gen: 1 }]);
+		expect(step(s, { kind: "selectCamera" }).state.error).toBeNull();
+		expect(step(s, selectFile).state.error).toBeNull();
 	});
 
 	it("off releases everything, unpublishes and closes the segmenter", () => {
@@ -224,7 +249,7 @@ describe("videoSourceMachine", () => {
 		const user: VideoSourceEvent[] = [
 			{ kind: "setBackground", mode: "blur" },
 			{ kind: "selectCamera" },
-			{ kind: "selectFile" },
+			selectFile,
 			{ kind: "off" },
 			{ kind: "leave" },
 		];
@@ -276,7 +301,7 @@ describe("videoSourceMachine", () => {
 	});
 
 	it("picking a background without the camera loads nothing", () => {
-		const s = run([{ kind: "selectFile" }]);
+		const s = run([selectFile]);
 		const r = step(s, { kind: "setBackground", mode: "blur" });
 		expect(r.state.bg).toBe("blur");
 		expect(r.effects).toEqual([]);
@@ -300,19 +325,98 @@ describe("videoSourceMachine", () => {
 		expect(retry.effects).toEqual([{ kind: "loadSegmenter", gen: 1 }]);
 	});
 
-	it("a ready segmenter that fails later (context lost) is closed and frames are withheld", () => {
+	it("a ready segmenter that is lost later (context lost) is closed and frames are withheld", () => {
 		const s = run([
 			...cameraLive,
 			{ kind: "setBackground", mode: "blur" },
 			{ kind: "segmenterReady", gen: 1 },
 		]);
-		const r = step(s, { kind: "segmenterFailed", gen: 1 });
+		const r = step(s, { kind: "segmenterLost" });
 		expect(r.state.seg).toBe("failed");
 		expect(r.effects).toEqual([{ kind: "closeSegmenter" }]);
 		expect(frameAction(r.state)).toBe("drop");
+		expect(videoErrorMessage(r.state)).toBe(
+			"background effect could not be loaded",
+		);
 		const none = step(r.state, { kind: "setBackground", mode: "none" });
 		expect(none.effects).toEqual([]);
 		expect(frameAction(none.state)).toBe("raw");
+	});
+
+	it("a lost report without a ready segmenter changes nothing", () => {
+		const s = run([...cameraLive, { kind: "setBackground", mode: "blur" }]);
+		expect(step(s, { kind: "segmenterLost" })).toEqual({
+			state: s,
+			effects: [],
+		});
+	});
+
+	it("a failure of the current source turns it off with that failure", () => {
+		const s = run(cameraLive);
+		const r = step(s, { kind: "failed", gen: 1, failure: "publish" });
+		expect(r.state).toMatchObject({ sel: "off", error: "publish" });
+		expect(r.effects).toEqual([
+			{ kind: "releaseCamera" },
+			{ kind: "unpublish" },
+		]);
+		expect(videoErrorMessage(r.state)).toBe("video could not be published");
+	});
+
+	it("a failure of an older selection or while off changes nothing", () => {
+		const s = run([...cameraLive, selectFile]);
+		const stale = { kind: "failed", gen: 1, failure: "send" } as const;
+		expect(step(s, stale)).toEqual({ state: s, effects: [] });
+		const off = run([{ kind: "off" }], s);
+		const now = { kind: "failed", gen: 2, failure: "encode" } as const;
+		expect(step(off, now)).toEqual({ state: off, effects: [] });
+	});
+
+	it("the message is derived from the failure kind", () => {
+		const msg = (error: VideoSourceState["error"], seg = "none" as const) =>
+			videoErrorMessage({ ...initialVideoSource, error, seg });
+		expect(msg(null)).toBeNull();
+		expect(msg("camera")).toBe("camera could not be started");
+		expect(msg("file")).toBe("video file could not be played");
+		expect(msg("publish")).toBe("video could not be published");
+		expect(msg("encode")).toBe("video could not be encoded");
+		expect(msg("send")).toBe("video could not be sent");
+	});
+
+	it("an error stays across background changes while off, until the next selection", () => {
+		const s = run([selectFile, { kind: "fileFailed", gen: 1 }]);
+		const r = run(
+			[
+				{ kind: "setBackground", mode: "blur" },
+				{ kind: "setBackground", mode: "none" },
+			],
+			s,
+		);
+		expect(r.error).toBe("file");
+		expect(step(r, { kind: "selectCamera" }).state.error).toBeNull();
+	});
+
+	it("switching blur to image keeps the ready segmenter", () => {
+		const s = run([
+			...cameraLive,
+			{ kind: "setBackground", mode: "blur" },
+			{ kind: "segmenterReady", gen: 1 },
+		]);
+		const r = step(s, { kind: "setBackground", mode: "image" });
+		expect(r.effects).toEqual([]);
+		expect(r.state).toMatchObject({ bg: "image", seg: "ready" });
+		expect(frameAction(r.state)).toBe("composite");
+	});
+
+	it("after a segmenter failure, background none clears the error and sends raw", () => {
+		const s = run([
+			...cameraLive,
+			{ kind: "setBackground", mode: "blur" },
+			{ kind: "segmenterFailed", gen: 1 },
+		]);
+		expect(videoErrorMessage(s)).toBe("background effect could not be loaded");
+		const r = step(s, { kind: "setBackground", mode: "none" });
+		expect(videoErrorMessage(r.state)).toBeNull();
+		expect(frameAction(r.state)).toBe("raw");
 	});
 
 	it("a segmenter nobody wants is released, the held one stays", () => {
@@ -349,18 +453,24 @@ describe("videoSourceMachine", () => {
 			{ kind: "setBackground", mode: "blur" },
 			{ kind: "segmenterReady", gen: 1 },
 		]);
-		const r = step(s, { kind: "selectFile" });
+		const r = step(s, selectFile);
 		expect(r.state.seg).toBe("none");
 		expect(r.effects).toContainEqual({ kind: "closeSegmenter" });
 	});
+});
 
+describe("videoSourceMachine random walks", () => {
 	it("holds its safety properties over random event sequences", () => {
 		let seed = 12345;
+		// xorshift32: exact in 32-bit integers, unlike an LCG in doubles
 		const rand = (n: number) => {
-			seed = (seed * 1103515245 + 12345) % 2147483648;
-			return seed % n;
+			seed ^= seed << 13;
+			seed ^= seed >>> 17;
+			seed ^= seed << 5;
+			return (seed >>> 0) % n;
 		};
 		const modes: BackgroundMode[] = ["none", "blur", "image"];
+		const failures: VideoFailure[] = ["publish", "encode", "send"];
 		const gk = [
 			"cameraAcquired",
 			"cameraFailed",
@@ -369,24 +479,48 @@ describe("videoSourceMachine", () => {
 			"segmenterReady",
 			"segmenterFailed",
 		] as const;
-		const pick = (s: VideoSourceState): VideoSourceEvent => {
-			const i = rand(9);
-			if (i === 0) return { kind: "selectCamera" };
-			if (i === 1) return { kind: "selectFile" };
-			if (i === 2) return { kind: rand(20) ? "off" : "leave" };
-			if (i === 3) return { kind: "setBackground", mode: modes[rand(3)] };
-			return { kind: gk[rand(gk.length)], gen: rand(s.gen + 2) };
+		// the last one (a completion) is picked 5 times in 11
+		const picks: ((gen: number) => VideoSourceEvent)[] = [
+			() => ({ kind: "selectCamera" }),
+			() => selectFile,
+			() => ({ kind: rand(20) ? "off" : "leave" }),
+			() => ({ kind: "setBackground", mode: modes[rand(3)] }),
+			() => ({ kind: "segmenterLost" }),
+			(gen) => ({ kind: "failed", gen, failure: failures[rand(3)] }),
+			(gen) => ({ kind: gk[rand(gk.length)], gen }),
+		];
+		const pick = (s: VideoSourceState) => {
+			const gen = rand(s.gen + 2);
+			return picks[Math.min(rand(11), picks.length - 1)](gen);
 		};
+		const counts = new Map<string, number>();
+		const seen = (k: string) => counts.set(k, (counts.get(k) ?? 0) + 1);
 		for (let walk = 0; walk < 300; walk++) {
 			let s = initialVideoSource;
 			for (let n = 0; n < 40; n++) {
-				const prevGen = s.gen;
-				s = step(s, pick(s)).state;
+				const e = pick(s);
+				const r = step(s, e);
+				seen(e.kind);
+				const source = staleSuccess(s, e);
+				if (source !== null) {
+					seen("staleSuccess");
+					expect(r.effects).toContainEqual({
+						kind: "releaseStale",
+						source,
+						gen: (e as { gen: number }).gen,
+					});
+				}
+				expect(r.state.gen).toBeGreaterThanOrEqual(s.gen);
+				s = r.state;
 				for (const [name, holds] of invariants) {
 					expect(holds(s), name).toBe(true);
 				}
-				expect(s.gen).toBeGreaterThanOrEqual(prevGen);
 			}
 		}
+		const kinds = [...gk, "selectCamera", "selectFile", "off", "leave"];
+		for (const k of [...kinds, "setBackground", "segmenterLost", "failed"]) {
+			expect(counts.get(k) ?? 0, k).toBeGreaterThanOrEqual(20);
+		}
+		expect(counts.get("staleSuccess") ?? 0).toBeGreaterThanOrEqual(20);
 	});
 });
