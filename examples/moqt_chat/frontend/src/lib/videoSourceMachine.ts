@@ -126,12 +126,20 @@ function sourceDone(
 	return { ...s, ...held, published: true };
 }
 
+const readyFor = (s: VideoSourceState, gen: number) =>
+	s.seg === "ready" && s.gen === gen;
+
 function segmenterDone(
 	s: VideoSourceState,
 	gen: number,
 	ok: boolean,
 	fx: Fx,
 ): VideoSourceState {
+	if (!ok && readyFor(s, gen)) {
+		// the ready segmenter broke later (e.g. its WebGL context was lost)
+		fx.push({ kind: "closeSegmenter" });
+		return { ...s, seg: "failed" };
+	}
 	const wanted =
 		s.sel === "camera" && s.gen === gen && s.bg !== "none" && s.segGen === gen;
 	if (!wanted) {

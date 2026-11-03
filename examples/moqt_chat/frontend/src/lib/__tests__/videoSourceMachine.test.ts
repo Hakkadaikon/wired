@@ -300,6 +300,21 @@ describe("videoSourceMachine", () => {
 		expect(retry.effects).toEqual([{ kind: "loadSegmenter", gen: 1 }]);
 	});
 
+	it("a ready segmenter that fails later (context lost) is closed and frames are withheld", () => {
+		const s = run([
+			...cameraLive,
+			{ kind: "setBackground", mode: "blur" },
+			{ kind: "segmenterReady", gen: 1 },
+		]);
+		const r = step(s, { kind: "segmenterFailed", gen: 1 });
+		expect(r.state.seg).toBe("failed");
+		expect(r.effects).toEqual([{ kind: "closeSegmenter" }]);
+		expect(frameAction(r.state)).toBe("drop");
+		const none = step(r.state, { kind: "setBackground", mode: "none" });
+		expect(none.effects).toEqual([]);
+		expect(frameAction(none.state)).toBe("raw");
+	});
+
 	it("a segmenter nobody wants is released, the held one stays", () => {
 		const s = run([
 			{ kind: "setBackground", mode: "blur" },
