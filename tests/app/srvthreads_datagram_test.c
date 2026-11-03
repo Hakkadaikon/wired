@@ -50,7 +50,25 @@
 static const u8 g_sdt_cli_scid[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 static const u8 g_sdt_srv_scid[6] = {'S', 'R', 'V', 'S', 'C', 'I'};
 
-#define SDT_PORT 14961
+/* The server's port, picked per run by sdt_pick_port: the server binds with
+ * SO_REUSEPORT, so a fixed port shared with another live socket (a second
+ * `just test` in another worktree) split the client's packets between the
+ * two servers and the handshake failed. */
+static u16 g_sdt_port = 14961;
+
+/* An unused UDP port from the kernel (bind :0, read it back), or the
+ * fixed default when sockets are unavailable. */
+static void sdt_pick_port(void) {
+  sockaddr any, bound;
+  u64      addrlen = sizeof(bound);
+  i64      fd      = wired_udp_socket();
+  wired_udp_addr(&any, 0, (const u8[4]){0, 0, 0, 0});
+  if (fd >= 0 && wired_udp_bind(fd, &any) == 0 &&
+      syscall3(51 /* getsockname */, fd, (i64)&bound, (i64)&addrlen) == 0) {
+    g_sdt_port = (u16)((bound.port_be >> 8) | (bound.port_be << 8));
+  }
+  wired_udp_close(fd);
+}
 
 /* SO_RCVTIMEO (Linux SOL_SOCKET=1, SO_RCVTIMEO=20): bound every recv on the
  * client socket so a reproduction of "the reply never comes" fails fast
@@ -129,7 +147,7 @@ static void sdt_server_thread(void* argp) {
   opt.run.wt_on_datagram   = sdt_on_datagram_cb;
   wired_srvrun_handler h   = {0, 0, 0, 0, 0};
   wired_srvrun_obs     obs = {0, 0, 0, 0, 0};
-  wired_srvthreads_run(SDT_PORT, id, h, obs, &opt);
+  wired_srvthreads_run(g_sdt_port, id, h, obs, &opt);
 }
 
 /* --- independent client role: real AEAD wire, own key schedule -----------
@@ -223,7 +241,7 @@ static void sdt_client_init(struct sdt_client* cx) {
   if (cx->fd >= 0) {
     sdt_set_rcvtimeo(cx->fd, 200); /* 200ms per recv */
   }
-  wired_udp_addr(&cx->srv, SDT_PORT, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&cx->srv, g_sdt_port, (const u8[4]){127, 0, 0, 1});
 }
 
 /* Send our real protected Initial (ClientHello) and return 1 once the
@@ -1304,6 +1322,21 @@ static void sdt_run_from_handshake(struct sdt_client* cx) {
   }
 }
 
+/* 1 when a plain socket (no SO_REUSEPORT) can bind g_sdt_port: the stopped
+ * server closed its own, which would otherwise hold the port (EADDRINUSE). */
+static int sdt_port_free(void) {
+  sockaddr sa;
+  i64      fd = wired_udp_socket();
+  int      ok;
+  if (fd < 0) {
+    return 1; /* sandbox: no sockets */
+  }
+  wired_udp_addr(&sa, g_sdt_port, (const u8[4]){0, 0, 0, 0});
+  ok = wired_udp_bind(fd, &sa) == 0;
+  wired_udp_close(fd);
+  return ok;
+}
+
 /* Full scenario: real srvthreads worker (--cores 0 equivalent), real
  * independent client, handshake -> WT CONNECT -> DATAGRAM self-echo. Each
  * stage CHECKs separately so a failure pinpoints where. Benign skip if the
@@ -1316,6 +1349,7 @@ static void test_srvthreads_datagram_self_echo(void) {
   struct sdt_client cx         = {0};
 
   sdt_make_id(&id, priv, pub, seed, rnd);
+  sdt_pick_port();
   __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
   if (wired_thread_start(&srv_thread, sdt_server_thread, &id) < 0) {
     return; /* sandbox: no thread support */
@@ -1326,6 +1360,7 @@ static void test_srvthreads_datagram_self_echo(void) {
   wired_udp_close(cx.fd);
   __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
   wired_thread_join(&srv_thread);
+  CHECK(sdt_port_free());
 }
 
 /* --- direct root-cause confirmation (no handshake needed) ----------------
