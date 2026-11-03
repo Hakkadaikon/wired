@@ -14,6 +14,11 @@ static int  srvrun_dgring_live(
     const srvrun_conn* c, const srvrun_dgring_entry* e);
 static int srvrun_dgring_take(
     const srvrun_cfg* cfg, srvrun_state* st, usz i, u64 now_ms);
+static int srvrun_dgring_send_one(
+    const srvrun_cfg*          cfg,
+    srvrun_state*              st,
+    const srvrun_dgring_entry* e,
+    u64                        now_ms);
 
 /* 1 iff e's target connection is still the one it was queued for. */
 static int srvrun_dgring_live(
@@ -30,7 +35,7 @@ static int srvrun_dgring_live(
  * a burst would otherwise lose every entry past the window -- or while
  * the connection's pacer is empty (RFC 9002 7.7); the sent packet is
  * charged to that pacer. */
-int srvrun_dgring_send_one(
+static int srvrun_dgring_send_one(
     const srvrun_cfg*          cfg,
     srvrun_state*              st,
     const srvrun_dgring_entry* e,

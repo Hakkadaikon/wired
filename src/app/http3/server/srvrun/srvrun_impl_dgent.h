@@ -22,9 +22,9 @@ typedef struct {
   u32 conn_gen;  /**< that slot's srvrun_conn.gen at queue time */
   usz len;       /**< bytes used at buf (qsid prefix included) */
   u8  urgency;   /**< RFC 9221 5.1: dgpriority scale, lower drains first */
-  /** monotonic ms a send pass first saw it (0 = not yet), see
-   * srvrun_dgring_overdue */
-  u64 queued_ms;
+  /** monotonic ms a send pass first saw it (0 = not yet; push has no
+   * clock), see srvrun_dgring_overdue */
+  u64 seen_ms;
   u8  buf[SRVRUN_DGRING_SLOT];
 } srvrun_dgring_entry;
 

@@ -7,49 +7,15 @@ __attribute__((unused)) static void srvrun_test_set_reload(int v);
 static void                         srvrun_reload_cert(
     const srvrun_cfg* cfg, wired_certreload_store* store);
 static int srvrun_reinit_ok(const srvrun_conn* c);
-static u64 srvrun_dgring_wait_ms(const srvrun_conn* c);
-static int srvrun_dgring_late(
-    srvrun_state* st, srvrun_dgring_entry* e, int slot, u64 now_ms);
 
 /* Drain ring entries most urgent first (RFC 9221 5.1) until every one left
  * is held by its connection's window or pacer (srvrun_dg_refill_held: RFC
  * 9221 5.4, RFC 9002 7.7) -- run once per loop step (srvrun_step); what is
- * held stays queued for a later step, never dropped. Each pass marks one
- * entry sent, so the loop is bounded by dgring_n. */
+ * held stays queued for a later step, never dropped. Each pass removes one
+ * entry from the ring, so the loop is bounded by dgring_n. */
 void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   while (srvrun_dgring_send_best(cfg, st, now_ms)) {
   }
-}
-
-/* How long a ring datagram may wait behind its own connection's streams
- * (RFC 9221 5.1 leaves the order to the app; liveness bounds it): two
- * smoothed RTTs, so stream priority keeps a round trip or two of
- * precedence, floored at SRVRUN_PTO_MS, the poll tick -- the longest gap
- * between two send passes, so a shorter bound could not be honored. */
-static u64 srvrun_dgring_wait_ms(const srvrun_conn* c) {
-  return u64_max(2 * c->srtt_ms, SRVRUN_PTO_MS);
-}
-
-/* Stamp e when a send pass first sees it, then 1 when it targets slot and
- * has waited past srvrun_dgring_wait_ms. */
-static int srvrun_dgring_late(
-    srvrun_state* st, srvrun_dgring_entry* e, int slot, u64 now_ms) {
-  if (!e->queued_ms) {
-    e->queued_ms = now_ms;
-  }
-  return e->conn_slot == slot &&
-         now_ms >= e->queued_ms + srvrun_dgring_wait_ms(&st->conns[slot]);
-}
-
-int srvrun_dgring_overdue(const srvrun_step_ctx* ctx, int slot) {
-  wired_srvrun_env* env  = ctx->cfg->env;
-  int               late = 0;
-  for (usz i = 0; i < env->dgring_n; i++) {
-    late |= srvrun_dgring_late(
-        ctx->st, &env->dgring[(env->dgring_head + i) % SRVRUN_DGRING_CAP], slot,
-        ctx->now_ms);
-  }
-  return late;
 }
 
 /* Send GOAWAY to every live connection that still owes one (RFC 9114 5.2), the
