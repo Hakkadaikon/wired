@@ -51,6 +51,17 @@ static void srvrun_env_take(
   env->spin_off                = opt->spin_off;
 }
 
+/* Close the run's sockets once its loop returns: they are SO_REUSEPORT, so
+ * one left open after shutdown would keep taking a share of the port's
+ * packets from a later run on the same port, and nobody reads it. */
+static void srvrun_close_listen(srvrun_cfg* cfg) {
+  wired_udp_close(cfg->fd);
+  if (cfg->env->pref_fd) {
+    wired_udp_close(cfg->env->pref_fd);
+    cfg->env->pref_fd = 0;
+  }
+}
+
 int wired_srvrun_serve_env(
     wired_srvrun_env*       env,
     u16                     port,
@@ -74,6 +85,7 @@ int wired_srvrun_serve_env(
   srvrun_install_signals(&cfg, opt);
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
+  srvrun_close_listen(&cfg);
   return 1;
 }
 
