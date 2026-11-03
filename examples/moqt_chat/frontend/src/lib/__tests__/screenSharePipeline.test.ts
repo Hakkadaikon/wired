@@ -160,6 +160,24 @@ describe("screenSharePipeline", () => {
 		expect(sent[0]).toMatchObject({ width: 405, height: 720 });
 	});
 
+	it("sizes the encoder by the frame's visible size, not its padded coded size", async () => {
+		const encoder = fakeEncoder(10);
+		const pipeline = await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(fakeTrack()),
+			VideoEncoderCtor: encoder.ctor as never,
+			sendVideoChunk: vi.fn(),
+		});
+		pipeline.pushFrame({
+			...fakeFrame({ codedWidth: 480, codedHeight: 290 }),
+			displayWidth: 480,
+			displayHeight: 270,
+		});
+		expect(encoder.configureCalls.at(-1)).toMatchObject({
+			width: 480,
+			height: 270,
+		});
+	});
+
 	it("reconfigures and forces a keyframe when a frame arrives at a new size", async () => {
 		const track = fakeTrack();
 		const encoder = fakeEncoder(10);

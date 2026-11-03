@@ -153,6 +153,8 @@ export type ScreenFrameLike = {
 	close?: () => void;
 	codedWidth?: number;
 	codedHeight?: number;
+	displayWidth?: number;
+	displayHeight?: number;
 	/** VideoFrame.timestamp: matches each encoder output to its frame. */
 	timestamp?: number;
 };
@@ -316,8 +318,9 @@ export async function startScreenSharePipeline(
 	// encoders and forces a keyframe, since only a keyframe carries the size
 	// the receiver decodes against.
 	const followFrameSize = (frame: ScreenFrameLike) => {
-		const fw = frame.codedWidth;
-		const fh = frame.codedHeight;
+		// The visible size: a decoded video's coded size can carry padding rows.
+		const fw = frame.displayWidth ?? frame.codedWidth;
+		const fh = frame.displayHeight ?? frame.codedHeight;
 		if (!fw || !fh || (fw === width && fh === height)) return;
 		width = fw;
 		height = fh;
