@@ -466,8 +466,8 @@ Capacity: each subscriber session can hold `WIRED_MOQTRUN_SSTS_SETS` (8)
 switching sets (an assignment beyond that is refused with INTERNAL_ERROR),
 and
 each set can hold `MOQSSTS_MAX_MEMBERS` (4) members.
-`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` is 4 (raised from 3) so that one peer
-can publish a fourth, low-rate variant track.
+`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` is 5 (raised from 3) so that one peer
+can publish a low-rate variant track beside its camera.
 
 `examples/moqt_chat` uses all of this for its screen share. See
 [its README](../../examples/moqt_chat/README.md#track-switching-screen-share-hilo-variants).

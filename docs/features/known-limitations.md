@@ -1111,8 +1111,8 @@ the value here is the current one.
 | `WIRED_MOQTRUN_MAX_RELAYS` | 4 | publisher streams relayed at once per track | stream not relayed, subscribers miss it |
 | `WIRED_MOQTRUN_MAX_NAME` | 64 | Track Name bytes | refused (PUBLISH; hub-owned publish returns 0) |
 | `WIRED_MOQTRUN_MAX_NS` | 128 | encoded namespace bytes | namespace refused on PUBLISH |
-| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 4 | tracks one session publishes | PUBLISH refused |
-| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 96 / 24 | request streams | request stream reset EXCESSIVE_LOAD |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5 | tracks one session publishes | PUBLISH refused |
+| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 128 / 32 | request streams | request stream reset EXCESSIVE_LOAD |
 | `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4 | rendezvous holds | SUBSCRIBE refused EXCESSIVE_LOAD |
 | `WIRED_MOQTRUN_RDV_MAX_MS` | 1500 | rendezvous hold time | hold times out (deviation) |
 | `WIRED_MOQTRUN_MAX_UP` | 16 | upstream waiters | waiter refused EXCESSIVE_LOAD |

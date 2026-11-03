@@ -587,15 +587,16 @@ typedef struct {
 #define WIRED_MOQTRUN_MAX_NS 128
 
 /** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio +
- * screen + the screen's low-rate SSTS variant, screen-lo). Each track
- * slot is ~13 KB (31 subs + 4 relays), so 3 -> 4 grows the peer table by
- * ~32 slots of that; SUB_NAMES and CTL_SEND_BUF scale with it below. */
-#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 4
+ * screen + the screen's low-rate SSTS variant, screen-lo, + camera). Each
+ * track slot is ~13 KB (31 subs + 4 relays), so 4 -> 5 grows the peer
+ * table by ~32 slots of that; SUB_NAMES and CTL_SEND_BUF scale with it
+ * below. */
+#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 5
 
 /** Fixed capacity: Track Names one peer remembers having SUBSCRIBEd to
  * (wired_moqtrun_peer.sub_names). The chat app subscribes to every track
  * of every other candidate participant, and the sample room has four
- * candidate ids, so a peer can hold 3 others * 4 tracks = 12 names; 16
+ * candidate ids, so a peer can hold 3 others * 5 tracks = 15 names; 20
  * leaves room without a rejoined publisher's oldest name being evicted. */
 #define WIRED_MOQTRUN_SUB_NAMES ((usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4)
 
@@ -642,11 +643,11 @@ typedef struct {
  * EXCESSIVE_LOAD; a completed request frees its slot once both sides have
  * ended. Each slot is ~1.9 KB of BSS.
  * Sized for a full moqt_chat room with track switching on (draft-22, one
- * request per stream): each of 4 peers holds 4 PUBLISH + 3 namespace
- * requests + 3x4 SUBSCRIBEs = 19 streams (76 hub-wide), so 96 keeps the
- * per-session quarter (24) above 19 with headroom for a fill or FETCH.
+ * request per stream): each of 4 peers holds 5 PUBLISH + 4 namespace
+ * requests + 3x5 SUBSCRIBEs = 24 streams (96 hub-wide), so 128 keeps the
+ * per-session quarter (32) above 24 with headroom for a fill or FETCH.
  * ponytail: room-sized; raise when rooms grow. */
-#define WIRED_MOQTRUN_MAX_REQS 96
+#define WIRED_MOQTRUN_MAX_REQS 128
 
 /** Request streams one session may hold at once, so one session cannot
  * take the whole pool: a fair quarter of it. Past it a new request stream
