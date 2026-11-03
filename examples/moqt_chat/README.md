@@ -164,6 +164,14 @@ just up       # builds, then runs in the foreground, Ctrl-C stops it
 just up -d    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
 ```
 
+`just up` names this host's default-route source address in the
+self-signed certificate (it prints `cert IP SAN: ...`), so a browser can
+dial `https://<that IP>:4433/`. Behind NAT that address is the private
+one; set `WIRED_SAN_IPV4=<public IP> just up` to name the address
+clients actually dial. The address replaces the demo's 127.0.0.1, so on
+the host itself dial `https://localhost:4433/` (the cert also names
+`localhost`): `https://127.0.0.1:4433/` is answered 421.
+
 The container runs with `network_mode: host` (see `docker-compose.yml`), so
 `wired_server` listens on the host's own `4433/udp` directly rather than
 through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
@@ -179,6 +187,7 @@ process's memory, so it is single-process only: do not pass
 | Flag / environment | Default | Effect |
 |---|---|---|
 | `--port N` | 4433 | UDP port |
+| `--san-ipv4 a.b.c.d` / `WIRED_SAN_IPV4` (`just up`) | 127.0.0.1 (`just up`: this host's address) | the IPv4 address the self-signed cert names; a WebTransport CONNECT to any other IP literal is answered 421 (RFC 9110 7.4), which Chrome reports as `net::ERR_METHOD_NOT_SUPPORTED` |
 | `--cc cubic\|bbr` | `cubic` | congestion controller for new connections |
 | `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
 | `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
