@@ -784,8 +784,8 @@ choose which one to forward, using a selection algorithm.
 - **`WIRED_MOQTRUN_SSTS_SETS`.** An assignment beyond it is refused with
   INTERNAL_ERROR.
 - **`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`.** It is 5 so that a peer can
-  publish a low-rate variant and a camera beside its other Tracks; it sizes the peer
-  table.
+  publish a low-rate variant and a camera beside its other Tracks; it sizes
+  the peer table.
 - **Code points.** SWITCH_FROM is parameter 0x24, SWITCHING_SET_ASSIGNMENT
   0x41, SSTS_ALGORITHMS Setup Option 0x09, INVALID_SWITCH error 0x32,
   UNSUPPORTED_EXTENSION error 0x33, and SWITCHED done code 0x3. The
