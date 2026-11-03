@@ -102,10 +102,14 @@ A pure state machine (events in, state and effects out) owns the source.
   - from the user: SelectCamera, SelectFile, Off, SetBackground, Leave
   - completions that may arrive late, out of order or not at all: camera
     acquired / failed, file playing / failed, segmenter ready / failed
+  - from the running track: a failure of the live source's publish,
+    encoding or frame reading (turns the source off with an error), and a
+    ready segmenter lost later, e.g. its WebGL context (treated as a
+    segmenter failure)
 - **Generations.** Each acquisition carries a generation number. A
   completion from an older generation is released and never published.
-- **Effects** are carried out by a controller the hook owns: acquire, release, publish or end
-  the track, load or close the segmenter, show an error.
+- **Effects** are carried out by a controller the hook owns: acquire,
+  release, publish or end the track, load or close the segmenter, show an error.
 - **Frame gate.** For each camera frame, the frame is sent raw when the
   mode is none. It is composited when the segmenter is ready, and dropped
   otherwise.
@@ -144,8 +148,9 @@ The rail gets a Video section:
 - a Background selector: none / blur / image
 - a Video file toggle, which streams the bundled mp4 or a picked file
 
-The toggles are disabled while disconnected. Errors show under the
-section. Camera tiles show next to the screen tiles.
+Turning a source on needs a connection, but the live source's toggle
+stays pressable while disconnected, so the camera can still be released.
+Errors show under the section. Camera tiles show next to the screen tiles.
 
 ## Acceptance criteria
 
@@ -163,8 +168,9 @@ section. Camera tiles show next to the screen tiles.
 - Changing between blur and image keeps the loaded segmenter and does not
   restart the camera. Choosing none closes the segmenter.
 - A file source ignores the background.
-- A camera that cannot be opened, or a file that cannot play, returns to
-  off and shows an error. The error stays until the next selection.
+- A camera that cannot be opened, a file that cannot play, or a live
+  source whose publish, encoding or frame reading fails, returns to off and
+  shows an error. The error stays until the next selection.
 - Leaving the room releases everything, including acquisitions still in
   flight.
 

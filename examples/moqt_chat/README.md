@@ -143,8 +143,8 @@ for the gaps.
   (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
 - **One more track per peer.** `screen-lo` is one more PUBLISH per
   participant, which is why `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` went from 3
-  to 4 (and to 5 with the camera track). If the hub refuses the lo PUBLISH, the sharer does not run the lo
-  encoder.
+  to 4 (and to 5 with the camera track). If the hub refuses the lo
+  PUBLISH, the sharer does not run the lo encoder.
 - **Draft-19 fallback unchanged.** On draft-19, or against a hub without
   the extension, the client behaves as before: it publishes and subscribes
   `<id>/screen` (hi) only. There is no switching set and no Group gate, and
@@ -178,10 +178,10 @@ Bundled assets (served from the app's own origin, no CDN):
 
 | File | Origin |
 |---|---|
-| `public/mediapipe/selfie_segmenter.tflite` | MediaPipe selfie segmenter, `storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` (Apache-2.0); sha256 `191ac952...658b` |
+| `public/mediapipe/selfie_segmenter.tflite` | MediaPipe selfie segmenter, `storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` (Apache-2.0); sha256 `191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b` |
 | `public/mediapipe/vision_wasm_internal.{js,wasm}` | copied from `@mediapipe/tasks-vision` (Apache-2.0, pinned in `pnpm-lock.yaml`) by `predev`/`prebuild`; not committed |
 | `public/videos/sample.mp4` | generated: `ffmpeg -f lavfi -i mandelbrot=size=480x270:rate=15 -t 8 -c:v libx264 -profile:v baseline -pix_fmt yuv420p` |
-| `public/backgrounds/default.jpg` | generated: ffmpeg `gradients=size=1280x720:c0=0x1d4e89:c1=0x3fa7d6` |
+| `public/backgrounds/default.jpg` | generated: `ffmpeg -f lavfi -i gradients=size=1280x720:c0=0x1d4e89:c1=0x3fa7d6:x0=0:y0=0:x1=1280:y1=720:nb_colors=2 -frames:v 1 default.jpg` |
 
 `just e2e-stability s22-camera` checks it end to end with Chrome's fake
 camera: the peer decodes the camera, the image background turns the tile
