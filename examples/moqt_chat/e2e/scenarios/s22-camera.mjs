@@ -1,8 +1,8 @@
 // S22 camera: user1 turns the camera on, picks the blur and then the image
 // background, switches to the bundled mp4, and turns it off. user2 watches
 // the whole time; user3 joins while the mp4 is streaming, then shows its
-// own camera and crashes. Then user2 leaves with its camera on, and last,
-// user1's camera is live when the hub dies.
+// own camera and crashes. user1 then streams an mp4 it picks, user2 leaves
+// with its camera on, and last, user1's camera is live when the hub dies.
 //
 // Chrome's fake camera shows no person, so with the image background the
 // segmenter keeps none of the frame and the tile turns the bundled
@@ -12,6 +12,7 @@
 //
 //   just e2e-stability s22-camera
 
+import { fileURLToPath } from "node:url";
 import { leaveProd } from "../lib/prodClient.mjs";
 import {
 	closeClient,
@@ -30,6 +31,10 @@ navigator.mediaDevices.getUserMedia = async (c) => {
 	return s;
 };`;
 const MP4 = { width: 480, height: 270 };
+const SAMPLE_MP4 = new URL(
+	"../../frontend/public/videos/sample.mp4",
+	import.meta.url,
+);
 
 const tileSelector = (sender) => `[data-testid="camera-tile-${sender}"] canvas`;
 
@@ -107,6 +112,21 @@ async function blurStep({ user1, user2, report, failures, log }) {
 		failures.push(
 			`blur tile is not green: ${await tileColour(user2, "user1")}`,
 		);
+}
+
+// "Other mp4" streams a file the user picks (here the bundled one again,
+// handed in through the file input) from the off state.
+async function pickStep({ user1, user2, failures, log }) {
+	log("user1 picks an mp4 file");
+	const t0 = await now(user2);
+	const input = await user1.page.$('[data-testid="video-file-input"]');
+	await input.uploadFile(fileURLToPath(SAMPLE_MP4));
+	const picked = await waitFor(async () => {
+		const f = await lastFrameSize(user2, "user1", t0);
+		return f && isMp4(f) ? f : null;
+	}, 15000);
+	if (!picked) failures.push("user2 never got the picked file's frames");
+	await user1.page.click('[data-testid="video-file-toggle"]');
 }
 
 // Leaving the room with the camera live ends the camera track right away.
@@ -351,6 +371,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		await stallStep({ ...ctx, user3 });
 
 		await offStep(ctx);
+		await pickStep(ctx);
 		await leaveStep(ctx);
 		await dropStep({ ...ctx, server });
 
