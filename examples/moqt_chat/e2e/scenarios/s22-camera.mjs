@@ -178,6 +178,8 @@ async function stallStep({ user2, user3, report, failures, log }) {
 		15000,
 	);
 	report.stallRemovalMs = gone ? Date.now() - crashAt : null;
+	// 3 s stall threshold + the drain tick + slack; the hub's 30 s idle
+	// timeout (the withdrawal path) is far past it.
 	if (!gone || report.stallRemovalMs > 8000)
 		failures.push(
 			`user3's stalled tile stayed ${report.stallRemovalMs ?? ">15000"}ms`,

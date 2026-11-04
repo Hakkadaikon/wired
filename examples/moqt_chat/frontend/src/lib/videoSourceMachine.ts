@@ -46,6 +46,8 @@ export type VideoSourceEffect =
 	| { kind: "playFile"; gen: number; url: string }
 	| { kind: "releaseCamera" | "releaseFile" | "closeSegmenter" }
 	| { kind: "publish" | "unpublish" | "keyframe" }
+	// Marks the completion just dispatched as stale; whoever dispatched it
+	// holds the resource and stops it.
 	| {
 			kind: "releaseStale";
 			source: "camera" | "file" | "segmenter";

@@ -152,7 +152,9 @@ The rail gets a Video section:
 
 Turning a source on needs a connection. When the connection drops, the
 live source turns off at once (camera or file released, track
-unpublished), without waiting for the automatic rejoin.
+unpublished), without waiting for the automatic rejoin. The live source's
+toggle stays pressable while disconnected anyway, as a fallback should a
+source still be live.
 Errors show under the section. Camera tiles show next to the screen tiles.
 
 ## Acceptance criteria
@@ -194,3 +196,6 @@ Errors show under the section. Camera tiles show next to the screen tiles.
   - switch to the mp4: the frame size changes to the mp4's
   - off: the tile goes away and no frame is decoded a second later
   - a late joiner sees the live camera track
+  - the sender sees its own preview, and the viewer's tile names the sender
+  - a sender that crashes loses its tile once its frames stall
+  - a dropped connection turns the camera off and locks its toggle at once
