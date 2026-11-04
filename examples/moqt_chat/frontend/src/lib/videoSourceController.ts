@@ -4,9 +4,8 @@
 // pumps the held source's frames through the machine's frame gate. Every
 // browser API is injected, so tests run it with fakes.
 //
-// A completion is parked under its generation while the machine looks at
-// it: a stale one is released by the machine's releaseStale effect, a
-// current one moves into `held` afterwards.
+// A completion goes to the machine first: if the machine releases it as
+// stale, it is stopped right there, otherwise it moves into `held`.
 
 import type {
 	BackgroundCompositor,
@@ -126,7 +125,6 @@ export function createVideoSourceController(
 	// Bumped by unpublish: a pipeline start begun before it is stale.
 	let pubSeq = 0;
 	const held: Partial<Record<Source, Resource>> = {};
-	const pending = new Map<string, Resource>();
 
 	const dispatch = (e: VideoSourceEvent) => {
 		const r = step(state, e);
@@ -152,11 +150,8 @@ export function createVideoSourceController(
 		dispatch({ kind: "failed", gen: state.gen, failure });
 
 	const arrive = (source: Source, gen: number, res: Resource) => {
-		const key = `${source}:${gen}`;
-		pending.set(key, res); // so releaseStale can stop it
 		const fx = dispatch({ kind: DONE[source][0], gen } as VideoSourceEvent);
-		pending.delete(key);
-		if (isStale(fx, source, gen)) return;
+		if (isStale(fx, source, gen)) return res.stop();
 		held[source] = res;
 		if (source !== "segmenter")
 			void pump(res as SourceHandle).catch(() =>
@@ -232,11 +227,8 @@ export function createVideoSourceController(
 		publish: () => void startPublish(),
 		unpublish,
 		keyframe: () => pipeline?.requestKeyframe(),
-		releaseStale: (fx) => {
-			const key = `${fx.source}:${fx.gen}`;
-			pending.get(key)?.stop();
-			pending.delete(key);
-		},
+		// Only the completion being dispatched can be stale; arrive stops it.
+		releaseStale: () => {},
 	};
 	const run = (fx: VideoSourceEffect) => effects[fx.kind](fx as never);
 
