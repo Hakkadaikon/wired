@@ -92,6 +92,38 @@ async function blurStep({ user1, user2, report, failures, log }) {
 		);
 }
 
+// A dropped connection releases the camera at once: the badge turning
+// "disconnected" and the camera toggle going off land in the same render,
+// a second before the first automatic rejoin would tear the session down.
+async function dropStep({ user1, user2, server, report, failures, log }) {
+	log("user1 turns the camera on again; the hub dies");
+	const t0 = await now(user2);
+	await user1.page.click('[data-testid="camera-toggle"]');
+	if (!(await waitFor(() => lastFrameSize(user2, "user1", t0), 15000)))
+		failures.push("user2 never decoded user1's camera before the drop");
+	await server.stop("SIGKILL");
+	try {
+		await user1.page.waitForFunction(
+			() =>
+				document
+					.querySelector('[data-testid="status"]')
+					?.getAttribute("data-status") === "disconnected",
+			{ timeout: 30000, polling: 50 },
+		);
+	} catch {
+		failures.push("user1 never saw the connection drop");
+		return;
+	}
+	report.cameraOffOnDrop = await user1.page.evaluate(
+		() =>
+			document
+				.querySelector('[data-testid="camera-toggle"]')
+				?.getAttribute("aria-pressed") === "false",
+	);
+	if (!report.cameraOffOnDrop)
+		failures.push("camera still on right after the connection dropped");
+}
+
 // Off removes the tile, and no frame is decoded a second after it.
 async function offStep({ user1, user2, report, failures, log }) {
 	log("user1 turns the video file off");
@@ -197,6 +229,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		if (!late) failures.push("late joiner never decoded the mp4 stream");
 
 		await offStep(ctx);
+		await dropStep({ ...ctx, server });
 
 		for (const c of clients)
 			if (c.errors.length)
