@@ -44,7 +44,8 @@ function fakeGl(linked = true) {
 		},
 	});
 	const calls = (k: string) => fns.get(k)?.mock.calls ?? [];
-	return { gl, calls };
+	const order = (k: string) => fns.get(k)?.mock.invocationCallOrder ?? [];
+	return { gl, calls, order };
 }
 
 const canvasWith = (gl: unknown) => ({
@@ -71,19 +72,28 @@ describe("createBackgroundCompositor", () => {
 	});
 
 	it("binds the three samplers and uploads the background once", () => {
-		const { gl, calls } = fakeGl();
+		const { gl, calls, order } = fakeGl();
 		const bg = { width: 4, height: 4 };
 		createBackgroundCompositor(canvasWith(gl) as never, bg as never);
+		// one program, bound once (a second link would drop the uniforms)
 		expect(calls("useProgram")).toHaveLength(1);
 		expect(calls("uniform1i")).toEqual([
 			["frame", 0],
 			["mask", 1],
 			["background", 2],
 		]);
+		// the background image itself is uploaded, once, not per frame
 		expect(calls("texImage2D")).toHaveLength(1);
 		expect(calls("texImage2D")[0].at(-1)).toBe(bg);
-		// The upload's unit: TEXTURE0 + 2 (the fake's constants are strings).
-		expect(calls("activeTexture").at(-1)).toEqual(["TEXTURE02"]);
+		// ...into unit 2: the activeTexture right before the upload is
+		// TEXTURE0 + 2 (the fake's constants are strings, so "TEXTURE02")
+		const upload = order("texImage2D")[0];
+		const units = order("activeTexture")
+			.map((n, i) => [n, calls("activeTexture")[i][0]] as const)
+			.filter(([n]) => n < upload);
+		expect(units.at(-1)?.[1]).toBe("TEXTURE02");
+		// ...after unit 2's texture is bound, or the upload goes nowhere
+		expect(upload).toBeGreaterThan(Math.max(...order("bindTexture")));
 		expect(calls("compileShader")).toHaveLength(2);
 	});
 

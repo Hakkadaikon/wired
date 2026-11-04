@@ -360,18 +360,33 @@ describe("handleRoomNamespace", () => {
 		expect(d.camera.forget).not.toHaveBeenCalled();
 	});
 
-	it("a rejecting camera subscribe is swallowed, not left unhandled", () => {
-		// the rejection gets a handler, so it is never an unhandled one
-		const pending = { catch: vi.fn() };
+	it("a rejecting camera subscribe is swallowed, not left unhandled", async () => {
+		// Any way of handling it (.catch, .then(_, h), await) goes through then().
+		let handled = false;
+		class Watched<T> extends Promise<T> {
+			// biome-ignore lint/suspicious/noThenProperty: overriding Promise#then on purpose
+			then<A = T, B = never>(
+				ok?: ((v: T) => A | PromiseLike<A>) | null,
+				err?: ((e: unknown) => B | PromiseLike<B>) | null,
+			): Promise<A | B> {
+				if (err) handled = true;
+				return super.then(ok, err);
+			}
+		}
+		// a plain function: vi.fn would attach its own then() to record the result
+		let subscribed = 0;
+		const subscribe = () => {
+			subscribed++;
+			return Watched.reject(new Error("no camera")) as Promise<void>;
+		};
 		const d = deps();
 		handleRoomNamespace(["user3", "camera"], true, {
 			...d,
-			camera: { ...d.camera, subscribe: () => pending as never },
+			camera: { ...d.camera, subscribe },
 		});
-		expect(pending.catch).toHaveBeenCalledOnce();
-		expect(() =>
-			pending.catch.mock.calls[0][0](new Error("no camera")),
-		).not.toThrow();
+		await new Promise((r) => setTimeout(r, 0));
+		expect(subscribed).toBe(1);
+		expect(handled).toBe(true);
 	});
 
 	it("a withdrawn <peer>/camera namespace removes its tile and forgets it", () => {
