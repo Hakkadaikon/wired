@@ -12,6 +12,7 @@
 //
 //   just e2e-stability s22-camera
 
+import { leaveProd } from "../lib/prodClient.mjs";
 import {
 	closeClient,
 	crashClient,
@@ -115,11 +116,10 @@ async function leaveStep({ user1, user2, report, failures, log }) {
 	await user2.page.click('[data-testid="camera-toggle"]');
 	if (!(await waitFor(() => lastFrameSize(user1, "user2", t0), 15000)))
 		failures.push("user1 never decoded user2's camera");
-	await user2.page.evaluate(() =>
-		[...document.querySelectorAll("button")]
-			.find((b) => b.textContent.includes("Leave"))
-			?.click(),
-	);
+	if (!(await leaveProd(user2))) {
+		failures.push("user2 found no Leave button");
+		return;
+	}
 	report.cameraEndedOnLeave = await waitFor(
 		() =>
 			user2.page.evaluate(
@@ -144,7 +144,9 @@ async function dropStep({ user1, server, report, failures, log }) {
 			user1,
 			'[data-testid="camera-tile-own"] canvas',
 		);
-		// the image background is still selected, so any picture will do
+		// The image background is still selected, so blue is expected; raw
+		// green proves the camera is live just as well, and that is all this
+		// step needs (user2 has left, so the own preview stands in for it).
 		return isGreen(rgb) || isBlue(rgb) ? rgb : null;
 	}, 30000);
 	if (!live) failures.push("user1's camera never came back before the drop");

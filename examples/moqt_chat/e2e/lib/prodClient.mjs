@@ -131,13 +131,15 @@ export async function joinProd(
  * scenario simulate the same tab rejoining, matching a real user's
  * refresh/rejoin more closely than closing and reopening a page. No
  * data-testid exists on this button in production markup (it's plain
- * button text), so this matches by visible text. */
+ * button text), so this matches by visible text. Resolves false when no
+ * such button was there to click. */
 export async function leaveProd(client) {
-	await client.page.evaluate(() => {
+	return client.page.evaluate(() => {
 		const btn = [...document.querySelectorAll("button")].find((b) =>
 			b.textContent?.includes("Leave"),
 		);
 		btn?.click();
+		return Boolean(btn);
 	});
 }
 
