@@ -129,16 +129,11 @@ async function pickStep({ user1, user2, failures, log }) {
 		return f && isMp4(f) ? f : null;
 	}, 15000);
 	if (!picked) failures.push("user2 never got the picked file's frames");
-	await user1.page.click('[data-testid="video-file-toggle"]');
-	const gone = await waitFor(
-		() =>
-			user2.page.evaluate(
-				() => !document.querySelector('[data-testid="camera-tile-user1"]'),
-			),
-		10000,
+	const shown = await user2.page.evaluate(
+		() => !!document.querySelector('[data-testid="camera-tile-user1"]'),
 	);
-	if (!gone)
-		failures.push("user1's tile stayed after the picked file went off");
+	if (!shown) failures.push("user2 shows no tile for the picked file");
+	await turnFileOff({ user1, user2, failures }, "the picked file");
 }
 
 // Leaving the room with the camera live ends the camera track right away.
@@ -276,9 +271,9 @@ async function stallStep({ user2, user3, report, failures, log }) {
 		);
 }
 
-// Off removes the tile, and no frame is decoded a second after it.
-async function offStep({ user1, user2, report, failures, log }) {
-	log("user1 turns the video file off");
+// Turning the file off removes user1's tile, no frame is decoded a second
+// after it, and the tile does not come back. Returns those late frames.
+async function turnFileOff({ user1, user2, failures }, what) {
 	const tOff = await now(user2);
 	await user1.page.click('[data-testid="video-file-toggle"]');
 	const gone = await waitFor(
@@ -288,19 +283,22 @@ async function offStep({ user1, user2, report, failures, log }) {
 			),
 		10000,
 	);
-	if (!gone) failures.push("user1's camera tile stayed after off");
+	if (!gone) failures.push(`user1's tile stayed after ${what} went off`);
 	// Frames still decoded a second after off mean the sender kept sending;
 	// give that second and more time to pass before counting.
 	await waitFor(async () => (await now(user2)) > tOff + 2500, 10000);
-	report.framesAfterOff = (
-		await framesSince(user2, "user1", tOff + 1000)
-	).length;
-	if (report.framesAfterOff)
-		failures.push(`${report.framesAfterOff} frames arrived after off`);
+	const late = (await framesSince(user2, "user1", tOff + 1000)).length;
+	if (late) failures.push(`${late} frames arrived after ${what} went off`);
 	const back = await user2.page.evaluate(
 		() => !!document.querySelector('[data-testid="camera-tile-user1"]'),
 	);
-	if (back) failures.push("user1's camera tile came back after off");
+	if (back) failures.push(`user1's tile came back after ${what} went off`);
+	return late;
+}
+
+async function offStep(ctx) {
+	ctx.log("user1 turns the video file off");
+	ctx.report.framesAfterOff = await turnFileOff(ctx, "the video file");
 }
 
 export async function run({ pageUrl, serverUrl, server, log }) {

@@ -6,6 +6,8 @@
 // draft-19 fallback 10.12.2: Relative Joining FETCH, Joining Start 0),
 // which hands it the current Group from its keyframe, so the
 // first frame decodes well before the next keyframe would arrive.
+// After the join, the following Groups arrive on new uni streams, so
+// frames must keep coming for seconds past the first one.
 //
 //   just e2e-stability s17-video-join-keyframe
 
