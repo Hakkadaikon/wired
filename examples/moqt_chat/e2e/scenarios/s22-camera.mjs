@@ -1,6 +1,7 @@
 // S22 camera: user1 turns the camera on, picks the blur and then the image
 // background, switches to the bundled mp4, and turns it off. user2 watches
-// the whole time; user3 joins while the mp4 is streaming.
+// the whole time; user3 joins while the mp4 is streaming, then shows its
+// own camera and crashes. Last, user1's camera is live when the hub dies.
 //
 // Chrome's fake camera shows no person, so with the image background the
 // segmenter keeps none of the frame and the tile turns the bundled
@@ -10,7 +11,11 @@
 //
 //   just e2e-stability s22-camera
 
-import { closeClient, joinStabilityClient } from "../lib/stabilityClient.mjs";
+import {
+	closeClient,
+	crashClient,
+	joinStabilityClient,
+} from "../lib/stabilityClient.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const TAP_SCRIPT = "window.__wiredCameraTap = [];";
@@ -18,8 +23,8 @@ const MP4 = { width: 480, height: 270 };
 
 const tileSelector = (sender) => `[data-testid="camera-tile-${sender}"] canvas`;
 
-// Mean RGB of the sender's camera tile as the viewer sees it.
-const tileColour = (client, sender) =>
+// Mean RGB of a canvas: a sender's camera tile, or the own preview.
+const canvasColour = (client, selector) =>
 	client.page.evaluate((sel) => {
 		const canvas = document.querySelector(sel);
 		if (!canvas?.width) return null;
@@ -30,7 +35,9 @@ const tileColour = (client, sender) =>
 			for (let c = 0; c < 3; c++) sum[c] += data[i + c];
 		const n = data.length / 4;
 		return sum.map((s) => Math.round(s / n));
-	}, tileSelector(sender));
+	}, selector);
+const tileColour = (client, sender) =>
+	canvasColour(client, tileSelector(sender));
 
 const framesSince = (client, sender, t0) =>
 	client.page.evaluate(
@@ -122,6 +129,59 @@ async function dropStep({ user1, user2, server, report, failures, log }) {
 	);
 	if (!report.cameraOffOnDrop)
 		failures.push("camera still on right after the connection dropped");
+	// Turning a source on needs a connection; the off source's toggle locks.
+	report.toggleLockedOnDrop = await user1.page.evaluate(
+		() =>
+			document.querySelector('[data-testid="camera-toggle"]')?.disabled ===
+			true,
+	);
+	if (!report.toggleLockedOnDrop)
+		failures.push("camera toggle still enabled while disconnected");
+}
+
+// The sender sees its own preview, and the viewer's tile names the sender.
+async function previewStep({ user1, user2, report, failures }) {
+	report.ownPreview = await waitFor(async () => {
+		const rgb = await canvasColour(
+			user1,
+			'[data-testid="camera-tile-own"] canvas',
+		);
+		return isGreen(rgb) ? rgb : null;
+	}, 5000);
+	if (!report.ownPreview) failures.push("user1's own preview shows no camera");
+	report.tileLabel = await user2.page.evaluate(
+		() =>
+			document.querySelector('[data-testid="camera-tile-user1"]')?.textContent,
+	);
+	if (!report.tileLabel?.includes("user1"))
+		failures.push(`user1's tile is not labelled: ${report.tileLabel}`);
+}
+
+// A sender that vanishes without withdrawing its namespace (its browser is
+// killed; the hub only notices at its idle timeout) loses its tile once its
+// frames stall, a few seconds after the last one.
+async function stallStep({ user2, user3, report, failures, log }) {
+	log("user3 turns the camera on, then its browser dies");
+	const t0 = await now(user2);
+	await user3.page.click('[data-testid="camera-toggle"]');
+	if (!(await waitFor(() => lastFrameSize(user2, "user3", t0), 15000))) {
+		failures.push("user2 never decoded user3's camera");
+		return;
+	}
+	await crashClient(user3);
+	const crashAt = Date.now();
+	const gone = await waitFor(
+		() =>
+			user2.page.evaluate(
+				() => !document.querySelector('[data-testid="camera-tile-user3"]'),
+			),
+		15000,
+	);
+	report.stallRemovalMs = gone ? Date.now() - crashAt : null;
+	if (!gone || report.stallRemovalMs > 8000)
+		failures.push(
+			`user3's stalled tile stayed ${report.stallRemovalMs ?? ">15000"}ms`,
+		);
 }
 
 // Off removes the tile, and no frame is decoded a second after it.
@@ -185,6 +245,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 			failures.push(
 				`raw camera tile is not the fake camera's green: ${await tileColour(user2, "user1")}`,
 			);
+		await previewStep(ctx);
 
 		await blurStep(ctx);
 
@@ -227,6 +288,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 			return f && isMp4(f) ? f : null;
 		}, 15000);
 		if (!late) failures.push("late joiner never decoded the mp4 stream");
+		await stallStep({ ...ctx, user3 });
 
 		await offStep(ctx);
 		await dropStep({ ...ctx, server });
