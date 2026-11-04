@@ -154,7 +154,21 @@ async function previewStep({ user1, user2, report, failures }) {
 			document.querySelector('[data-testid="camera-tile-user1"]')?.textContent,
 	);
 	if (!report.tileLabel?.includes("user1"))
-		failures.push(`user1's tile is not labelled: ${report.tileLabel}`);
+		failures.push(`user1's tile is not labelled: ${report.tileLabel}`);	// The rail's "Tile width" slider sizes camera tiles like screen tiles.
+	report.tileWidth = await user2.page.evaluate(async () => {
+		const range = document.querySelector('[data-testid="screen-tile-width"]');
+		const set = Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		).set;
+		set.call(range, "480");
+		range.dispatchEvent(new Event("input", { bubbles: true }));
+		await new Promise((r) => requestAnimationFrame(() => r()));
+		return document.querySelector('[data-testid="camera-tile-user1"]')
+			?.offsetWidth;
+	});
+	if (report.tileWidth !== 480)
+		failures.push(`user1's tile ignores the tile width: ${report.tileWidth}`);
 }
 
 // A sender that vanishes without withdrawing its namespace (its browser is
