@@ -150,8 +150,9 @@ The rail gets a Video section:
 - a Background selector: none / blur / image
 - a Video file toggle, which streams the bundled mp4 or a picked file
 
-Turning a source on needs a connection, but the live source's toggle
-stays pressable while disconnected, so the camera can still be released.
+Turning a source on needs a connection. When the connection drops, the
+live source turns off at once (camera or file released, track
+unpublished), without waiting for the automatic rejoin.
 Errors show under the section. Camera tiles show next to the screen tiles.
 
 ## Acceptance criteria
@@ -175,6 +176,7 @@ Errors show under the section. Camera tiles show next to the screen tiles.
   returns to off and shows an error. The error stays until the next selection.
 - Leaving the room releases everything, including acquisitions still in
   flight.
+- A dropped connection turns the source off at once.
 
 ## Verification
 
