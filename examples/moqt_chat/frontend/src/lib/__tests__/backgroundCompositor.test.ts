@@ -92,8 +92,11 @@ describe("createBackgroundCompositor", () => {
 			.map((n, i) => [n, calls("activeTexture")[i][0]] as const)
 			.filter(([n]) => n < upload);
 		expect(units.at(-1)?.[1]).toBe("TEXTURE02");
-		// ...after unit 2's texture is bound, or the upload goes nowhere
-		expect(upload).toBeGreaterThan(Math.max(...order("bindTexture")));
+		// ...after a texture is bound while unit 2 is active, or the upload
+		// goes nowhere
+		expect(order("bindTexture")).toHaveLength(3);
+		const bind = Math.max(...order("bindTexture").filter((n) => n < upload));
+		expect(units.filter(([n]) => n < bind).at(-1)?.[1]).toBe("TEXTURE02");
 		expect(calls("compileShader")).toHaveLength(2);
 	});
 

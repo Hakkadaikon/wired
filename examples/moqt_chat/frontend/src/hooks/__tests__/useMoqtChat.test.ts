@@ -360,8 +360,8 @@ describe("handleRoomNamespace", () => {
 		expect(d.camera.forget).not.toHaveBeenCalled();
 	});
 
-	it("a rejecting camera subscribe is swallowed, not left unhandled", async () => {
-		// Any way of handling it (.catch, .then(_, h), await) goes through then().
+	it("a rejecting camera subscribe is swallowed, not left unhandled", () => {
+		// .catch and .then(_, h) both go through then() with a rejection handler.
 		let handled = false;
 		class Watched<T> extends Promise<T> {
 			// biome-ignore lint/suspicious/noThenProperty: overriding Promise#then on purpose
@@ -384,7 +384,6 @@ describe("handleRoomNamespace", () => {
 			...d,
 			camera: { ...d.camera, subscribe },
 		});
-		await new Promise((r) => setTimeout(r, 0));
 		expect(subscribed).toBe(1);
 		expect(handled).toBe(true);
 	});

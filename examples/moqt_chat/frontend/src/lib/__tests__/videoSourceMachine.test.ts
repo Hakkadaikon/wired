@@ -495,10 +495,13 @@ function checkEffects(s: VideoSourceState, r: StepResult) {
 			).toBe(true);
 }
 
-// VSM_SEED=<n> replays another walk (n in 1..2^32-1; 0 is xorshift's fixed point).
+// VSM_SEED=<n> replays another walk (n in 1..2^32-1; 0 is xorshift's fixed
+// point); unset, the seed is 12345.
 const WALK_SEED = Number(process.env.VSM_SEED ?? 12345);
 if (!Number.isInteger(WALK_SEED) || WALK_SEED < 1 || WALK_SEED >= 2 ** 32)
-	throw new Error(`VSM_SEED must be an integer in 1..2^32-1: ${WALK_SEED}`);
+	throw new Error(
+		`VSM_SEED must be an integer in 1..2^32-1, got "${process.env.VSM_SEED}"`,
+	);
 
 describe("videoSourceMachine random walks", () => {
 	it("holds its safety properties over random event sequences", () => {

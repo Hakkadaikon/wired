@@ -146,7 +146,8 @@ async function dropStep({ user1, server, report, failures, log }) {
 		);
 		// The image background is still selected, so blue is expected; raw
 		// green proves the camera is live just as well, and that is all this
-		// step needs (user2 has left, so the own preview stands in for it).
+		// step needs. user2 has already left, so user1's own preview is checked
+		// instead of user2's decoded tile.
 		return isGreen(rgb) || isBlue(rgb) ? rgb : null;
 	}, 30000);
 	if (!live) failures.push("user1's camera never came back before the drop");
