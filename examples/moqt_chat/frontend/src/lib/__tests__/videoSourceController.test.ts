@@ -618,6 +618,7 @@ describe("videoSourceController late completions", () => {
 		t.ctl.toggle("camera");
 		await flush();
 		t.ctl.toggle("file");
+		expect(t.camera.stopped).toBe(true);
 		encodeError();
 		expect(t.deps.unpublish).toHaveBeenCalledOnce();
 		expect(t.view()).toMatchObject({
@@ -625,6 +626,7 @@ describe("videoSourceController late completions", () => {
 			error: "video could not be encoded",
 		});
 		const stop = vi.fn();
+		t.file.push(frame("late"));
 		play.resolve({ track: t.file, stop });
 		await flush();
 		expect(stop).toHaveBeenCalledOnce();
