@@ -1,7 +1,8 @@
 // S22 camera: user1 turns the camera on, picks the blur and then the image
 // background, switches to the bundled mp4, and turns it off. user2 watches
 // the whole time; user3 joins while the mp4 is streaming, then shows its
-// own camera and crashes. Last, user1's camera is live when the hub dies.
+// own camera and crashes. Then user2 leaves with its camera on, and last,
+// user1's camera is live when the hub dies.
 //
 // Chrome's fake camera shows no person, so with the image background the
 // segmenter keeps none of the frame and the tile turns the bundled
@@ -18,7 +19,15 @@ import {
 } from "../lib/stabilityClient.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const TAP_SCRIPT = "window.__wiredCameraTap = [];";
+// Records every camera track the page opens, so a test can see it ended.
+const TAP_SCRIPT = `window.__wiredCameraTap = [];
+window.__camTracks = [];
+const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+navigator.mediaDevices.getUserMedia = async (c) => {
+	const s = await gum(c);
+	window.__camTracks.push(...s.getVideoTracks());
+	return s;
+};`;
 const MP4 = { width: 480, height: 270 };
 
 const tileSelector = (sender) => `[data-testid="camera-tile-${sender}"] canvas`;
@@ -99,15 +108,46 @@ async function blurStep({ user1, user2, report, failures, log }) {
 		);
 }
 
+// Leaving the room with the camera live ends the camera track right away.
+async function leaveStep({ user1, user2, report, failures, log }) {
+	log("user2 turns the camera on and leaves");
+	const t0 = await now(user1);
+	await user2.page.click('[data-testid="camera-toggle"]');
+	if (!(await waitFor(() => lastFrameSize(user1, "user2", t0), 15000)))
+		failures.push("user1 never decoded user2's camera");
+	await user2.page.evaluate(() =>
+		[...document.querySelectorAll("button")]
+			.find((b) => b.textContent.includes("Leave"))
+			?.click(),
+	);
+	report.cameraEndedOnLeave = await waitFor(
+		() =>
+			user2.page.evaluate(
+				() =>
+					window.__camTracks.length > 0 &&
+					window.__camTracks.every((t) => t.readyState === "ended"),
+			),
+		2000,
+	);
+	if (!report.cameraEndedOnLeave)
+		failures.push("user2's camera track still live after leaving");
+}
+
 // A dropped connection releases the camera at once: the badge turning
 // "disconnected" and the camera toggle going off land in the same render,
 // a second before the first automatic rejoin would tear the session down.
-async function dropStep({ user1, user2, server, report, failures, log }) {
+async function dropStep({ user1, server, report, failures, log }) {
 	log("user1 turns the camera on again; the hub dies");
-	const t0 = await now(user2);
 	await user1.page.click('[data-testid="camera-toggle"]');
-	if (!(await waitFor(() => lastFrameSize(user2, "user1", t0), 15000)))
-		failures.push("user2 never decoded user1's camera before the drop");
+	const live = await waitFor(async () => {
+		const rgb = await canvasColour(
+			user1,
+			'[data-testid="camera-tile-own"] canvas',
+		);
+		// the image background is still selected, so any picture will do
+		return isGreen(rgb) || isBlue(rgb) ? rgb : null;
+	}, 30000);
+	if (!live) failures.push("user1's camera never came back before the drop");
 	await server.stop("SIGKILL");
 	try {
 		await user1.page.waitForFunction(
@@ -308,6 +348,7 @@ export async function run({ pageUrl, serverUrl, server, log }) {
 		await stallStep({ ...ctx, user3 });
 
 		await offStep(ctx);
+		await leaveStep(ctx);
 		await dropStep({ ...ctx, server });
 
 		for (const c of clients)

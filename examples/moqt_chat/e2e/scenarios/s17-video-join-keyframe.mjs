@@ -65,6 +65,14 @@ export async function run({ pageUrl, serverUrl, server, arg, log }) {
 			failures.push(
 				`only ${report.framesAfter2s} frames in the 2 s after the first`,
 			);
+		// The decoded frames reach the tile's canvas, not just the decoder.
+		report.tilePainted = await user2.page.evaluate(() => {
+			const c = document.querySelector('[data-testid="screen-tile-user1"]');
+			if (!c?.width) return false;
+			const { data } = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+			return data.some((v, i) => i % 4 === 3 && v > 0);
+		});
+		if (!report.tilePainted) failures.push("user1's screen tile stays blank");
 
 		for (const c of clients)
 			if (c.errors.length)
