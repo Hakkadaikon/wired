@@ -24,6 +24,7 @@ import {
 	resolveDisplayName,
 	useMoqtChatStore,
 } from "@/stores/moqtChatStore";
+import { VideoSection } from "./videoSection";
 import { Wordmark } from "./wordmark";
 
 const DEFAULT_URL = "https://localhost:4433/";
@@ -241,6 +242,49 @@ function ScreenTiles({
 					</div>
 				))}
 			<Notice message={screenShareError} />
+		</div>
+	);
+}
+
+// Camera tiles beside the screen tiles: the own preview while a source is
+// on, then one per peer whose camera is decoding.
+function CameraTiles({
+	registerCameraCanvas,
+}: {
+	registerCameraCanvas: (id: string, el: HTMLCanvasElement | null) => void;
+}) {
+	const cameraTiles = useMoqtChatStore((s) => s.cameraTiles);
+	const source = useMoqtChatStore((s) => s.video.source);
+	const tileWidth = useMoqtChatStore((s) => s.screenTileWidth);
+	const nicknames = useMoqtChatStore((s) => s.nicknames);
+	if (cameraTiles.length === 0 && source === "off") return null;
+	return (
+		<div
+			className="screens"
+			style={{ "--tile-w": `${tileWidth}px` } as React.CSSProperties}
+		>
+			{source !== "off" && (
+				<div className="screen-own-wrap" data-testid="camera-tile-own">
+					<canvas
+						ref={(el) => registerCameraCanvas("own", el)}
+						className="screen-own"
+						width={160}
+						height={90}
+					/>
+				</div>
+			)}
+			{cameraTiles.map((id) => (
+				<div key={id} className="screen-tile" data-testid={`camera-tile-${id}`}>
+					<canvas
+						ref={(el) => registerCameraCanvas(id, el)}
+						width={320}
+						height={180}
+					/>
+					<div className="screen-tile__bar">
+						<span className="caption">{resolveDisplayName(id, nicknames)}</span>
+					</div>
+				</div>
+			))}
 		</div>
 	);
 }
@@ -824,6 +868,10 @@ export default function Home() {
 		registerScreenCanvas,
 		setOutputDevice,
 		setScreenQuality,
+		toggleVideoSource,
+		pickVideoFile,
+		setVideoBackground,
+		registerCameraCanvas,
 	} = useMoqtChat();
 	const connectionState = useMoqtChatStore((s) => s.connectionState);
 	const screenSharing = useMoqtChatStore((s) => s.screenSharing);
@@ -935,6 +983,12 @@ export default function Home() {
 					<aside className="rail">
 						<Peers />
 						<Volume />
+						<VideoSection
+							connected={connectionState === "connected"}
+							onToggle={toggleVideoSource}
+							onBackground={setVideoBackground}
+							onPickFile={pickVideoFile}
+						/>
 						<ScreenTileWidth />
 						<OutputDevice onSelect={setOutputDevice} />
 						<section>
@@ -947,6 +1001,7 @@ export default function Home() {
 							registerScreenCanvas={registerScreenCanvas}
 							setScreenQuality={setScreenQuality}
 						/>
+						<CameraTiles registerCameraCanvas={registerCameraCanvas} />
 						<MessageList />
 						<Compose
 							onSend={(text, attachments) =>

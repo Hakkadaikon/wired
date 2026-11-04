@@ -31,6 +31,29 @@ describe("moqtChatStore", () => {
 		expect(useMoqtChatStore.getState().maximizedScreenTile).toBe("user2");
 	});
 
+	it("holds the video source view, starting off with no background or error", () => {
+		const s = useMoqtChatStore.getState();
+		expect(s.video).toEqual({ source: "off", background: "none", error: null });
+		s.setVideo({ source: "camera", background: "blur", error: "x" });
+		expect(useMoqtChatStore.getState().video).toEqual({
+			source: "camera",
+			background: "blur",
+			error: "x",
+		});
+	});
+
+	it("camera tiles are added once, removed one by one, and cleared", () => {
+		const s = useMoqtChatStore.getState();
+		s.addCameraTile("user2");
+		s.addCameraTile("user2");
+		s.addCameraTile("user3");
+		expect(useMoqtChatStore.getState().cameraTiles).toEqual(["user2", "user3"]);
+		s.removeCameraTile("user2");
+		expect(useMoqtChatStore.getState().cameraTiles).toEqual(["user3"]);
+		s.clearCameraTiles();
+		expect(useMoqtChatStore.getState().cameraTiles).toEqual([]);
+	});
+
 	it("un-maximizes a tile when it is removed", () => {
 		const s = useMoqtChatStore.getState();
 		s.addScreenTile("user2");

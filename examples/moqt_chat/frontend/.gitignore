@@ -15,3 +15,10 @@ next-env.d.ts
 # vendored @jitsi/rnnoise-wasm glue -- copied from node_modules by
 # predev/prebuild (package.json), not committed (1.9MB generated file)
 /public/worklets/rnnoise-sync.js
+
+# vendored @mediapipe/tasks-vision wasm (SIMD pair) -- copied by
+# predev/prebuild (package.json), not committed (~13MB generated files)
+/public/mediapipe/vision_wasm_internal.*
+
+# vitest coverage output (pnpm coverage)
+/coverage/

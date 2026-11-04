@@ -14,6 +14,7 @@ import { create } from "zustand";
 import { noiseSuppressionDefault } from "@/lib/joinPrefs";
 import type { ScreenQuality, ScreenVariant } from "@/lib/moqtScreenClient";
 import { SCREEN_TILE_DEFAULT_PX } from "@/lib/screenTileSize";
+import type { VideoSourceView } from "@/lib/videoSourceController";
 import type { QualityLevel } from "@/lib/voiceQuality";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected";
@@ -50,6 +51,8 @@ export type MoqtChatState = {
 	screenSwitching: boolean; // track switching on this session (d22 + hub SSTS): the quality selector shows
 	screenTileVariants: Record<string, ScreenVariant>; // per-sender variant last decoded (keyframe); absent = unknown
 	screenTileQuality: Record<string, ScreenQuality>; // per-sender chosen quality; absent key means "auto"
+	video: VideoSourceView; // own camera/file source, background mode and its error
+	cameraTiles: string[]; // participant ids whose camera is decoding, for rendering tiles
 	masterVolume: number; // 0..1, applied on top of every peer's own volume
 	peerVolumes: Record<string, number>; // per-sender volume, 0..1; absent key means 1 (unity)
 	voiceQuality: Record<string, QualityLevel>; // per-sender quality; absent key renders as "none"
@@ -77,6 +80,10 @@ export type MoqtChatState = {
 	setScreenSwitching: (on: boolean) => void;
 	setScreenTileVariant: (id: string, variant: ScreenVariant) => void;
 	setScreenTileQuality: (id: string, quality: ScreenQuality) => void;
+	setVideo: (video: VideoSourceView) => void;
+	addCameraTile: (id: string) => void;
+	removeCameraTile: (id: string) => void;
+	clearCameraTiles: () => void;
 	setMasterVolume: (v: number) => void;
 	setPeerVolume: (id: string, v: number) => void;
 	setVoiceQuality: (id: string, level: QualityLevel) => void;
@@ -105,6 +112,8 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 	screenSwitching: false,
 	screenTileVariants: {},
 	screenTileQuality: {},
+	video: { source: "off", background: "none", error: null },
+	cameraTiles: [],
 	masterVolume: 1,
 	peerVolumes: {},
 	voiceQuality: {},
@@ -195,6 +204,14 @@ export const useMoqtChatStore = create<MoqtChatState>((set, get) => ({
 				? s
 				: { stalledScreenTiles: { ...s.stalledScreenTiles, [id]: stalled } },
 		),
+	setVideo: (video) => set({ video }),
+	addCameraTile: (id) =>
+		set((s) =>
+			s.cameraTiles.includes(id) ? s : { cameraTiles: [...s.cameraTiles, id] },
+		),
+	removeCameraTile: (id) =>
+		set((s) => ({ cameraTiles: s.cameraTiles.filter((t) => t !== id) })),
+	clearCameraTiles: () => set({ cameraTiles: [] }),
 	setMasterVolume: (masterVolume) => set({ masterVolume }),
 	setPeerVolume: (id, v) =>
 		set((s) => ({ peerVolumes: { ...s.peerVolumes, [id]: v } })),

@@ -112,6 +112,35 @@ describe("screenSharePipeline", () => {
 		expect(track.contentHint).toBe("detail");
 	});
 
+	it("marks the captured track with the given contentHint (camera: motion)", async () => {
+		const track = fakeTrack();
+		await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(track),
+			VideoEncoderCtor: fakeEncoder(10).ctor as never,
+			sendVideoChunk: vi.fn(),
+			contentHint: "motion",
+		});
+		expect(track.contentHint).toBe("motion");
+	});
+
+	it("passes a given contentHint to the encoder too (a pushed frame has no track)", async () => {
+		const given = fakeEncoder(10);
+		await startScreenSharePipeline({
+			getDisplayMedia: async () => ({ getVideoTracks: () => [] }),
+			VideoEncoderCtor: given.ctor as never,
+			sendVideoChunk: vi.fn(),
+			contentHint: "motion",
+		});
+		expect(given.configureCalls[0]).toMatchObject({ contentHint: "motion" });
+		const none = fakeEncoder(10);
+		await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(fakeTrack()),
+			VideoEncoderCtor: none.ctor as never,
+			sendVideoChunk: vi.fn(),
+		});
+		expect(none.configureCalls[0]).not.toHaveProperty("contentHint");
+	});
+
 	it("configures the encoder for vp8 realtime at 720p's bitrate until a frame reports its size", async () => {
 		const track = fakeTrack();
 		const encoder = fakeEncoder(10);
@@ -147,6 +176,24 @@ describe("screenSharePipeline", () => {
 		pipeline.pushFrame(fakeFrame());
 		await new Promise((r) => setTimeout(r, 0));
 		expect(sent[0]).toMatchObject({ width: 405, height: 720 });
+	});
+
+	it("sizes the encoder by the frame's visible size, not its padded coded size", async () => {
+		const encoder = fakeEncoder(10);
+		const pipeline = await startScreenSharePipeline({
+			getDisplayMedia: fakeGetDisplayMedia(fakeTrack()),
+			VideoEncoderCtor: encoder.ctor as never,
+			sendVideoChunk: vi.fn(),
+		});
+		pipeline.pushFrame({
+			...fakeFrame({ codedWidth: 480, codedHeight: 290 }),
+			displayWidth: 480,
+			displayHeight: 270,
+		});
+		expect(encoder.configureCalls.at(-1)).toMatchObject({
+			width: 480,
+			height: 270,
+		});
 	});
 
 	it("reconfigures and forces a keyframe when a frame arrives at a new size", async () => {

@@ -44,10 +44,11 @@ draft-19 number where the fallback differs ("draft-22 X; draft-19 Y").
 Unlike a plain WebTransport DATAGRAM-broadcast chat (raw QUIC DATAGRAMs,
 message framing left entirely to the frontend — the guide's browser chapter
 builds one), this sample speaks MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
-an id's index is its Track Alias) PUBLISHes up to three tracks under the
-namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice and
-`<id>/screen` for a screen share — plus a fourth, `<id>/screen-lo`, when
-the hub offers track switching (see
+an id's index is its Track Alias) PUBLISHes up to four tracks under the
+namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice,
+`<id>/screen` for a screen share and `<id>/camera` for camera or video-file
+streaming (see [Camera and video](#camera-and-video)) — plus a fifth,
+`<id>/screen-lo`, when the hub offers track switching (see
 [Track switching](#track-switching-screen-share-hilo-variants)). There is
 a single fixed room.
 
@@ -140,14 +141,53 @@ for the gaps.
   draft-22 SETUP carries SSTS_ALGORITHMS. `wired_server.c` turns both on
   with `switch_track = 1` and `ssts_algs = {0xff01 (backpressure), 0
   (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
-- **One more track per peer.** `screen-lo` is a fourth PUBLISH per
+- **One more track per peer.** `screen-lo` is one more PUBLISH per
   participant, which is why `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` went from 3
-  to 4. If the hub refuses the lo PUBLISH, the sharer does not run the lo
-  encoder.
+  to 4 (and to 5 with the camera track). If the hub refuses the lo
+  PUBLISH, the sharer does not run the lo encoder.
 - **Draft-19 fallback unchanged.** On draft-19, or against a hub without
   the extension, the client behaves as before: it publishes and subscribes
   `<id>/screen` (hi) only. There is no switching set and no Group gate, and
   the quality selector and HI/LO badge are not shown.
+
+## Camera and video
+
+The rail's Video section sends one picture on the participant's
+`<id>/camera` track (Track Alias 18 + the id's index), next to any screen
+share:
+
+- **Camera**: the browser's default camera.
+- **Background**: `none`, `blur` or `image`. MediaPipe's selfie segmenter
+  cuts the person out, and the app's own WebGL2 shader composites the
+  person over a blurred copy of the frame or over the bundled image, before
+  encoding. Changing the background does not restart the camera. With a
+  background selected, a camera frame is sent only after it was
+  composited; while the segmenter loads, or if segmentation fails, frames
+  are withheld, never sent raw.
+- **Video file**: streams the bundled sample mp4 (or a picked local mp4)
+  instead of the camera, looped, video only: its audio is neither sent nor
+  played.
+
+Camera and file share the one track: choosing one while the other is live
+switches the source without ending the track, and pressing the live one
+turns it off. Peers see the track in a camera tile, which goes when the
+sender turns it off or its frames stall. The encoder is the screen share's
+VP8 pipeline.
+
+Bundled assets (served from the app's own origin, no CDN):
+
+| File | Origin |
+|---|---|
+| `public/mediapipe/selfie_segmenter.tflite` | MediaPipe selfie segmenter, `storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` (Apache-2.0); sha256 `191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b` |
+| `public/mediapipe/vision_wasm_internal.{js,wasm}` | copied from `@mediapipe/tasks-vision` (Apache-2.0, pinned in `pnpm-lock.yaml`) by `predev`/`prebuild`; not committed |
+| `public/videos/sample.mp4` | generated: `ffmpeg -f lavfi -i mandelbrot=size=480x270:rate=15 -t 8 -c:v libx264 -profile:v baseline -pix_fmt yuv420p` |
+| `public/backgrounds/default.jpg` | generated: `ffmpeg -f lavfi -i gradients=size=1280x720:c0=0x1d4e89:c1=0x3fa7d6:x0=0:y0=0:x1=1280:y1=720:nb_colors=2 -frames:v 1 default.jpg` |
+
+`just e2e-stability s22-camera` checks it end to end with Chrome's fake
+camera: the peer decodes the camera, blurred frames keep arriving, the
+image background turns the tile the image's blue (the fake camera shows no
+person), the mp4 arrives at its own size, a late joiner sees it, and off
+removes the tile with no frame decoded a second later.
 
 ## Build and run (server)
 
@@ -205,8 +245,8 @@ process's memory, so it is single-process only: do not pass
   cached at all, so a joiner's history skips it.
 - **Namespaces**: only namespaces under `wired/moqt_chat` may be announced
   or watched; anything else is refused UNAUTHORIZED.
-- **Request-stream budget**: the hub tracks at most 24 open request streams
-  per session and 96 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
+- **Request-stream budget**: the hub tracks at most 32 open request streams
+  per session and 128 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
   request stream is reset EXCESSIVE_LOAD. A full 4-user room keeps up to 15
   live per session (3 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
   9 SUBSCRIBEs), which is why the client sends history FETCHes one at a
@@ -217,6 +257,10 @@ process's memory, so it is single-process only: do not pass
   12 SUBSCRIBEs (`screen` and `screen-lo` for each of 3 sharing peers in
   Auto) = 19 per session, 76 hub-wide, so the hub's pool was raised to 96
   (`WIRED_MOQTRUN_MAX_REQS`), a per-session budget of 24.
+  The camera track adds one PUBLISH, one PUBLISH_NAMESPACE and one
+  SUBSCRIBE per other peer: 5 PUBLISH + 3 PUBLISH_NAMESPACE +
+  SUBSCRIBE_NAMESPACE + 15 SUBSCRIBEs = 24 per session, 96 hub-wide, so the
+  pool is now 128, a per-session budget of 32.
 - **Fill capacity (draft-22)**: fills share one hub-wide table of 8 serving
   slots plus 8 waiting (`WIRED_MOQTRUN_MAX_FETCHES`, together with
   draft-19 FETCHes). When both are full the hub refuses the whole

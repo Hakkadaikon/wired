@@ -142,6 +142,10 @@ export type ScreenSharePipelineDeps = {
 	 * PUBLISH costs no second encode. Turning on forces a keyframe, so lo's
 	 * first Group starts aligned with hi's. */
 	loActive?: () => boolean;
+	/** The captured track's contentHint (default "detail", text/UI; the
+	 * camera passes "motion"). When given it also goes to the encoder's
+	 * config, since pushed frames (the camera) have no captured track. */
+	contentHint?: string;
 	onError?: (err: unknown) => void;
 	onEncodeError?: (err: unknown) => void;
 };
@@ -150,6 +154,8 @@ export type ScreenFrameLike = {
 	close?: () => void;
 	codedWidth?: number;
 	codedHeight?: number;
+	displayWidth?: number;
+	displayHeight?: number;
 	/** VideoFrame.timestamp: matches each encoder output to its frame. */
 	timestamp?: number;
 };
@@ -275,7 +281,7 @@ export async function startScreenSharePipeline(
 		throw err;
 	}
 	const track = media.getVideoTracks()[0];
-	if (track) track.contentHint = "detail";
+	if (track) track.contentHint = deps.contentHint ?? "detail";
 	const settings = track?.getSettings?.() ?? {};
 	let width = settings.width ?? DEFAULT_WIDTH;
 	let height = settings.height ?? DEFAULT_HEIGHT;
@@ -305,6 +311,7 @@ export async function startScreenSharePipeline(
 			height: size.height,
 			bitrate: lane.bitrate(width, height),
 			latencyMode: "realtime",
+			...(deps.contentHint && { contentHint: deps.contentHint }),
 		});
 	};
 
@@ -313,8 +320,9 @@ export async function startScreenSharePipeline(
 	// encoders and forces a keyframe, since only a keyframe carries the size
 	// the receiver decodes against.
 	const followFrameSize = (frame: ScreenFrameLike) => {
-		const fw = frame.codedWidth;
-		const fh = frame.codedHeight;
+		// The visible size: a decoded video's coded size can carry padding rows.
+		const fw = frame.displayWidth ?? frame.codedWidth;
+		const fh = frame.displayHeight ?? frame.codedHeight;
 		if (!fw || !fh || (fw === width && fh === height)) return;
 		width = fw;
 		height = fh;

@@ -16,3 +16,10 @@ export function screenTap(e: ScreenTapEvent): void {
 		globalThis as { __wiredScreenTap?: ScreenTapEvent[] }
 	).__wiredScreenTap?.push(e);
 }
+
+/** The same per-frame trace for camera tiles (s22-camera.mjs). */
+export function cameraTap(e: ScreenTapEvent): void {
+	(
+		globalThis as { __wiredCameraTap?: ScreenTapEvent[] }
+	).__wiredCameraTap?.push(e);
+}

@@ -50,6 +50,7 @@ function fakeSessionRefs(): SessionRefs {
 		screenReassemblers: { current: new Map([["peerA", {}]]) },
 		screenKeyframeMeta: { current: new Map([["peerA", {}]]) },
 		screenStall: { current: new Map([["peerA", {}]]) },
+		camera: { current: { leave: vi.fn() } },
 		client: { current: { close: vi.fn() } },
 		unregisterLifecycle: { current: vi.fn() },
 		audioCtx: { current: { close: vi.fn().mockResolvedValue(undefined) } },
@@ -61,6 +62,7 @@ function fakeScreenStore() {
 		setScreenSharing: vi.fn(),
 		setScreenShareError: vi.fn(),
 		setScreenTileStalled: vi.fn(),
+		clearCameraTiles: vi.fn(),
 	};
 }
 
@@ -343,8 +345,61 @@ describe("handleRoomNamespace", () => {
 				subscribeToScreenTrack: vi.fn(async () => {}),
 				forgetParticipant: vi.fn(),
 			},
+			camera: {
+				subscribe: vi.fn(async () => {}),
+				forget: vi.fn(),
+			},
 		};
 	}
+
+	it("a <peer>/camera namespace subscribes that peer's camera", () => {
+		const d = deps();
+		handleRoomNamespace(["user3", "camera"], true, d);
+		expect(d.camera.subscribe).toHaveBeenCalledExactlyOnceWith("user3");
+		expect(d.screen.subscribeToScreenTrack).not.toHaveBeenCalled();
+		expect(d.camera.forget).not.toHaveBeenCalled();
+	});
+
+	it("a rejecting camera subscribe is swallowed, not left unhandled", () => {
+		// .catch and .then(_, h) both go through then() with a rejection handler.
+		let handled = false;
+		class Watched<T> extends Promise<T> {
+			// biome-ignore lint/suspicious/noThenProperty: overriding Promise#then on purpose
+			then<A = T, B = never>(
+				ok?: ((v: T) => A | PromiseLike<A>) | null,
+				err?: ((e: unknown) => B | PromiseLike<B>) | null,
+			): Promise<A | B> {
+				if (err) handled = true;
+				return super.then(ok, err);
+			}
+		}
+		// a plain function: vi.fn would attach its own then() to record the result
+		let subscribed = 0;
+		const subscribe = () => {
+			subscribed++;
+			return Watched.reject(new Error("no camera")) as Promise<void>;
+		};
+		const d = deps();
+		handleRoomNamespace(["user3", "camera"], true, {
+			...d,
+			camera: { ...d.camera, subscribe },
+		});
+		expect(subscribed).toBe(1);
+		expect(handled).toBe(true);
+	});
+
+	it("a withdrawn <peer>/camera namespace removes its tile and forgets it", () => {
+		const d = deps();
+		handleRoomNamespace(["user3", "camera"], false, d);
+		expect(d.camera.forget).toHaveBeenCalledWith("user3");
+		expect(d.store.removePeer).not.toHaveBeenCalled();
+	});
+
+	it("a leaving peer's camera tile goes with it", () => {
+		const d = deps();
+		handleRoomNamespace(["user2"], false, d);
+		expect(d.camera.forget).toHaveBeenCalledWith("user2");
+	});
 
 	it("a withdrawn peer namespace also drops its screen state (quality, gate, hold)", () => {
 		const d = deps();
@@ -563,6 +618,19 @@ describe("teardownSession", () => {
 		expect(refs.screenKeyframeMeta.current.size).toBe(0);
 		expect(store.setScreenSharing).toHaveBeenCalledWith(false);
 		expect(store.setScreenShareError).toHaveBeenCalledWith(null);
+	});
+
+	it("ends the camera session once and clears camera tiles", () => {
+		const refs = fakeSessionRefs();
+		const camera = refs.camera.current as { leave: ReturnType<typeof vi.fn> };
+		const store = fakeScreenStore();
+
+		teardownSession(refs, store);
+		teardownSession(refs, store);
+
+		expect(camera.leave).toHaveBeenCalledTimes(1);
+		expect(refs.camera.current).toBeNull();
+		expect(store.clearCameraTiles).toHaveBeenCalled();
 	});
 
 	it("is idempotent -- a second call touches nothing already torn down", () => {

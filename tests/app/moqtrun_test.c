@@ -2104,12 +2104,12 @@ static u64 moqtrun_test_publish_reply(
   return type;
 }
 
-/* A fifth distinct track name (all WIRED_MOQTRUN_MAX_TRACKS_PER_PEER = 4
- * of the peer's slots taken: chat, audio, screen and the screen's SSTS
- * low variant) gets REQUEST_ERROR instead of silently overwriting an
- * existing track. The third and fourth PUBLISH must succeed first -- this
- * is what proves the per-peer limit is 4, not less. */
-static void test_moqtrun_fifth_publish_gets_error(void) {
+/* A sixth distinct track name (all WIRED_MOQTRUN_MAX_TRACKS_PER_PEER = 5
+ * of the peer's slots taken: chat, audio, screen, the screen's SSTS low
+ * variant and camera) gets REQUEST_ERROR instead of silently overwriting
+ * an existing track. The third to fifth PUBLISH must succeed first -- this
+ * is what proves the per-peer limit is 5, not less. */
+static void test_moqtrun_sixth_publish_gets_error(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
   wired_moqt_init(&hub, moqtrun_test_io());
@@ -2122,8 +2122,22 @@ static void test_moqtrun_fifth_publish_gets_error(void) {
       moqtrun_test_publish_reply(&hub, ctrl_a, "alice/video-lo") ==
       MOQCTL_T_REQUEST_OK);
   CHECK(
+      moqtrun_test_publish_reply(&hub, ctrl_a, "alice/camera") ==
+      MOQCTL_T_REQUEST_OK);
+  CHECK(
       moqtrun_test_publish_reply(&hub, ctrl_a, "alice/extra") ==
       MOQCTL_T_REQUEST_ERROR);
+}
+
+/* A full moqt_chat room holds, per peer, 5 PUBLISH + 4 namespace requests
+ * + 3 other peers x 5 SUBSCRIBEs = 24 request streams; the per-session
+ * quarter must leave room above that for a fill or FETCH. */
+static void test_moqtrun_session_reqs_fit_full_room(void) {
+  /* own PUBLISHes + one SUBSCRIBE per track of each of the 3 others */
+  usz tracks     = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER * 4;
+  usz namespaces = 4; /* 3 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE */
+  usz fill       = 2; /* a history fill or FETCH in flight, with one spare */
+  CHECK(WIRED_MOQTRUN_MAX_REQS_PER_SESSION >= tracks + namespaces + fill);
 }
 
 /* Re-PUBLISHing the same track name ("alice") a second time still consumes
@@ -6375,7 +6389,8 @@ static void mtall_main(void) {
   test_moqtrun_padding_stream_discarded();
   test_moqtrun_peer_publishes_two_tracks();
   test_moqtrun_peer_publishes_three_tracks();
-  test_moqtrun_fifth_publish_gets_error();
+  test_moqtrun_sixth_publish_gets_error();
+  test_moqtrun_session_reqs_fit_full_room();
   test_moqtrun_republish_same_name_reuses_slot();
   test_moqtrun_subscribe_audio_track_replies_ok();
   test_moqtrun_chat_and_audio_get_different_aliases();

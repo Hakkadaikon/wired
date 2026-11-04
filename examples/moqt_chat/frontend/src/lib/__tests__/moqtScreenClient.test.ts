@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CANDIDATE_PARTICIPANT_IDS, type MoqtChatClient } from "../moqtClient";
 import {
+	CAMERA_ALIAS_OFFSET,
+	CAMERA_TRACK,
+	isCameraTrackAlias,
 	MoqtScreenClient,
+	ownCameraTrackAlias,
 	ownScreenTrackAlias,
 	SCREEN_ALIAS_OFFSET,
 	SCREEN_WRITE_TIMEOUT_MS,
@@ -439,5 +443,175 @@ describe("MoqtScreenClient Groups and discovery", () => {
 			["user2", 1],
 			["user2", 2],
 		]);
+	});
+});
+
+describe("isCameraTrackAlias", () => {
+	it("is true only for [18, 22)", () => {
+		expect(CAMERA_ALIAS_OFFSET).toBe(18n);
+		expect(isCameraTrackAlias(17n)).toBe(false);
+		expect(isCameraTrackAlias(18n)).toBe(true);
+		expect(isCameraTrackAlias(21n)).toBe(true);
+		expect(isCameraTrackAlias(22n)).toBe(false);
+	});
+
+	it("ownCameraTrackAlias is 18 + the participant's index", () => {
+		expect(CANDIDATE_PARTICIPANT_IDS.map(ownCameraTrackAlias)).toEqual([
+			18n,
+			19n,
+			20n,
+			21n,
+		]);
+	});
+});
+
+describe("MoqtScreenClient with CAMERA_TRACK", () => {
+	const cameraClient = (
+		chat: MoqtChatClient,
+		onScreenChunk = vi.fn(),
+	): MoqtScreenClient =>
+		new MoqtScreenClient(chat, { onScreenChunk }, CAMERA_TRACK);
+	const liveObject = (seq: number) => {
+		const body = encodeScreenObjectMessage({ ...chunkAt(seq), keyframe: true });
+		return concatBytes([
+			encodeVarint(0n),
+			encodeVarint(BigInt(body.length)),
+			body,
+		]);
+	};
+
+	it("publishes <id>/camera at the camera alias, announces [id, camera], and never a lo variant", async () => {
+		const wt = fakeWebTransport();
+		const chat = fakeChatClient(wt);
+		(chat as unknown as { trackSwitching: boolean }).trackSwitching = true;
+		const client = cameraClient(chat);
+
+		await client.publishScreenTrack();
+		await client.sendVideoChunk({ ...chunkAt(0), keyframe: true });
+
+		expect(client.variantsEnabled).toBe(false);
+		expect(
+			(chat.publishTrack as ReturnType<typeof vi.fn>).mock.calls.map(
+				([name, alias]) => [new TextDecoder().decode(name), alias],
+			),
+		).toEqual([["user1/camera", ownCameraTrackAlias("user1")]]);
+		expect(chat.publishNamespace).toHaveBeenCalledWith(["user1", "camera"]);
+		expect(decodeSubgroupHeader(wt.writes[0]).header.trackAlias).toBe(
+			ownCameraTrackAlias("user1"),
+		);
+	});
+
+	it("subscribes <peer>/camera", async () => {
+		const wt = fakeWebTransport();
+		const chat = fakeChatClient(wt);
+		await cameraClient(chat).subscribeToScreenTrack("user2");
+		const [name, label] = (chat.subscribeTrack as ReturnType<typeof vi.fn>).mock
+			.calls[0];
+		expect(new TextDecoder().decode(name)).toBe("user2/camera");
+		expect(label).toBe("user2/camera");
+	});
+
+	it("subscribe joins <peer>/camera from the current keyframe Group, like the screen", async () => {
+		const chat = fakeChatClient(fakeWebTransport());
+		const onScreenChunk = vi.fn();
+		const client = cameraClient(chat, onScreenChunk);
+
+		await client.subscribeToScreenTrack("user2");
+		const [, label, history] = (chat.subscribeTrack as ReturnType<typeof vi.fn>)
+			.mock.calls[0];
+		expect(label).toBe("user2/camera");
+		expect(history.joiningStart).toBe(0n);
+
+		const body = encodeScreenObjectMessage(chunkAt(2));
+		const live = concatBytes([
+			encodeVarint(0n),
+			encodeVarint(BigInt(body.length)),
+			body,
+		]);
+		client.handleIncomingStream(
+			{
+				trackAlias: ownCameraTrackAlias("user2"),
+				groupId: 4n,
+				flags: { properties: false },
+			} as never,
+			live,
+			{
+				read: vi.fn(async () => ({ value: undefined, done: true })),
+				cancel: vi.fn(),
+			} as never,
+		);
+		await Promise.resolve();
+		expect(onScreenChunk).not.toHaveBeenCalled();
+
+		history.onObject({
+			group: 4n,
+			object: 0n,
+			payload: encodeScreenObjectMessage({ ...chunkAt(0), keyframe: true }),
+		});
+		history.onObject({
+			group: 4n,
+			object: 1n,
+			payload: encodeScreenObjectMessage(chunkAt(1)),
+		});
+		history.onDone();
+		expect(onScreenChunk.mock.calls.map((c) => [c[0], c[1].seq])).toEqual([
+			["user2", 0],
+			["user2", 1],
+			["user2", 2],
+		]);
+	});
+
+	it("routes a camera-alias stream to onScreenChunk and cancels a screen-alias one", () => {
+		const onScreenChunk = vi.fn();
+		const client = cameraClient(
+			fakeChatClient(fakeWebTransport()),
+			onScreenChunk,
+		);
+		const reader = () => ({
+			read: vi.fn(async () => ({ value: undefined, done: true })),
+			cancel: vi.fn(async () => {}),
+		});
+		const screen = reader();
+		client.handleIncomingStream(
+			{
+				trackAlias: ownScreenTrackAlias("user2"),
+				groupId: 0n,
+				flags: { properties: false },
+			} as never,
+			liveObject(0),
+			screen as never,
+		);
+		client.handleIncomingStream(
+			{
+				trackAlias: ownCameraTrackAlias("user2"),
+				groupId: 0n,
+				flags: { properties: false },
+			} as never,
+			liveObject(1),
+			reader() as never,
+		);
+		expect(screen.cancel).toHaveBeenCalledTimes(1);
+		expect(onScreenChunk.mock.calls.map((c) => [c[0], c[1].seq, c[2]])).toEqual(
+			[["user2", 1, "hi"]],
+		);
+	});
+
+	it("a screen client cancels a camera-alias stream", () => {
+		const onScreenChunk = vi.fn();
+		const client = new MoqtScreenClient(fakeChatClient(fakeWebTransport()), {
+			onScreenChunk,
+		});
+		const cancel = vi.fn(async () => {});
+		client.handleIncomingStream(
+			{
+				trackAlias: ownCameraTrackAlias("user2"),
+				groupId: 0n,
+				flags: { properties: false },
+			} as never,
+			liveObject(0),
+			{ cancel, read: vi.fn() } as never,
+		);
+		expect(cancel).toHaveBeenCalledTimes(1);
+		expect(onScreenChunk).not.toHaveBeenCalled();
 	});
 });
