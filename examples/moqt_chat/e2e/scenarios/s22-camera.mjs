@@ -114,12 +114,15 @@ async function blurStep({ user1, user2, report, failures, log }) {
 		);
 }
 
-// "Other mp4" streams a file the user picks (here the bundled one again,
-// handed in through the file input) from the off state.
+// "Other mp4" streams a file the user picks, here the bundled one again
+// handed in through the file input. Starting from off, the only way mp4-
+// sized frames reach user2 is through the picker. Turning it off again must
+// take the tile away, as it does for the bundled file.
 async function pickStep({ user1, user2, failures, log }) {
 	log("user1 picks an mp4 file");
 	const t0 = await now(user2);
 	const input = await user1.page.$('[data-testid="video-file-input"]');
+	if (!input) return void failures.push("user1 has no mp4 file input");
 	await input.uploadFile(fileURLToPath(SAMPLE_MP4));
 	const picked = await waitFor(async () => {
 		const f = await lastFrameSize(user2, "user1", t0);
@@ -127,6 +130,15 @@ async function pickStep({ user1, user2, failures, log }) {
 	}, 15000);
 	if (!picked) failures.push("user2 never got the picked file's frames");
 	await user1.page.click('[data-testid="video-file-toggle"]');
+	const gone = await waitFor(
+		() =>
+			user2.page.evaluate(
+				() => !document.querySelector('[data-testid="camera-tile-user1"]'),
+			),
+		10000,
+	);
+	if (!gone)
+		failures.push("user1's tile stayed after the picked file went off");
 }
 
 // Leaving the room with the camera live ends the camera track right away.
