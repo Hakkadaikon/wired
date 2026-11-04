@@ -45,7 +45,7 @@ importers:
         specifier: ^19
         version: 19.2.3(@types/react@19.2.17)
       '@vitest/coverage-v8':
-        specifier: 4.1.10
+        specifier: ^4.1.10
         version: 4.1.10(vitest@4.1.10)
       fast-check:
         specifier: ^4.9.0

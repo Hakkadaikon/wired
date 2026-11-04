@@ -11,6 +11,7 @@
 		"build": "next build",
 		"start": "next start",
 		"test": "vitest run",
+		"coverage": "vitest run --coverage.enabled --coverage.provider=v8 --coverage.reporter=text --coverage.include=src/**",
 		"check": "biome ci --error-on-warnings .",
 		"fix": "biome check --write ."
 	},
@@ -27,7 +28,7 @@
 		"@types/node": "^26.1.1",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
-		"@vitest/coverage-v8": "4.1.10",
+		"@vitest/coverage-v8": "^4.1.10",
 		"fast-check": "^4.9.0",
 		"jsdom": "^29.1.1",
 		"typescript": "^5.9.3",
