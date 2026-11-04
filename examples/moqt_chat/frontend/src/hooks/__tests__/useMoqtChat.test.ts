@@ -360,6 +360,20 @@ describe("handleRoomNamespace", () => {
 		expect(d.camera.forget).not.toHaveBeenCalled();
 	});
 
+	it("a rejecting camera subscribe is swallowed, not left unhandled", () => {
+		// the rejection gets a handler, so it is never an unhandled one
+		const pending = { catch: vi.fn() };
+		const d = deps();
+		handleRoomNamespace(["user3", "camera"], true, {
+			...d,
+			camera: { ...d.camera, subscribe: () => pending as never },
+		});
+		expect(pending.catch).toHaveBeenCalledOnce();
+		expect(() =>
+			pending.catch.mock.calls[0][0](new Error("no camera")),
+		).not.toThrow();
+	});
+
 	it("a withdrawn <peer>/camera namespace removes its tile and forgets it", () => {
 		const d = deps();
 		handleRoomNamespace(["user3", "camera"], false, d);

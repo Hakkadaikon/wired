@@ -495,9 +495,12 @@ function checkEffects(s: VideoSourceState, r: StepResult) {
 			).toBe(true);
 }
 
+// VSM_SEED=<n> replays another walk; unset (or 0, xorshift's fixed point) is 12345.
+const WALK_SEED = Number(process.env.VSM_SEED) || 12345;
+
 describe("videoSourceMachine random walks", () => {
 	it("holds its safety properties over random event sequences", () => {
-		let seed = 12345;
+		let seed = WALK_SEED;
 		// xorshift32: exact in 32-bit integers, unlike an LCG in doubles
 		const rand = (n: number) => {
 			seed ^= seed << 13;

@@ -72,19 +72,18 @@ describe("createBackgroundCompositor", () => {
 
 	it("binds the three samplers and uploads the background once", () => {
 		const { gl, calls } = fakeGl();
-		createBackgroundCompositor(
-			canvasWith(gl) as never,
-			{
-				width: 4,
-				height: 4,
-			} as never,
-		);
+		const bg = { width: 4, height: 4 };
+		createBackgroundCompositor(canvasWith(gl) as never, bg as never);
+		expect(calls("useProgram")).toHaveLength(1);
 		expect(calls("uniform1i")).toEqual([
 			["frame", 0],
 			["mask", 1],
 			["background", 2],
 		]);
 		expect(calls("texImage2D")).toHaveLength(1);
+		expect(calls("texImage2D")[0].at(-1)).toBe(bg);
+		// The upload's unit: TEXTURE0 + 2 (the fake's constants are strings).
+		expect(calls("activeTexture").at(-1)).toEqual(["TEXTURE02"]);
 		expect(calls("compileShader")).toHaveLength(2);
 	});
 
