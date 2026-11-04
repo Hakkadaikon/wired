@@ -1245,7 +1245,7 @@ Legend:
 - [x] MOQT-155 If a peer attempts to PUBLISH more distinct tracks than the
   implementation's per-peer capacity, then the implementation shall reply with
   REQUEST_ERROR rather than silently overwriting an existing track.
-  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_fifth_publish_gets_error`
+  - test: `tests/app/moqtrun_test.c` — `test_moqtrun_sixth_publish_gets_error`
 - [x] MOQT-156 Re-PUBLISHing the same Track Name that already occupies a slot
   shall reuse that slot rather than consuming a new one.
   - test: `tests/app/moqtrun_test.c` —
