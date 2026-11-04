@@ -6,6 +6,7 @@ import {
 	isStale,
 	loadBackgroundProcessor,
 	playLoopedVideo,
+	type SourceHandle,
 	type VideoSourceDeps,
 } from "../videoSourceController";
 
@@ -604,6 +605,33 @@ describe("videoSourceController", () => {
 
 // Completions that arrive after the source moved on.
 describe("videoSourceController late completions", () => {
+	it("an encode error while the next source is still coming turns it off; the late file is stopped", async () => {
+		let encodeError = () => {};
+		const play = deferred<SourceHandle>();
+		const t = setup({
+			startPipeline: vi.fn(async (onError: () => void) => {
+				encodeError = onError;
+				return t.pipeline;
+			}),
+			playFile: vi.fn(() => play.promise),
+		});
+		t.ctl.toggle("camera");
+		await flush();
+		t.ctl.toggle("file");
+		encodeError();
+		expect(t.deps.unpublish).toHaveBeenCalledOnce();
+		expect(t.view()).toMatchObject({
+			source: "off",
+			error: "video could not be encoded",
+		});
+		const stop = vi.fn();
+		play.resolve({ track: t.file, stop });
+		await flush();
+		expect(stop).toHaveBeenCalledOnce();
+		expect(t.pipeline.pushFrame).not.toHaveBeenCalled();
+		expect(t.view()?.source).toBe("off");
+	});
+
 	it("an old publish rejecting after off and a reselect leaves the new source alone", async () => {
 		const old = deferred<void>();
 		const publish = vi.fn(() => old.promise);
