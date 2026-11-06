@@ -130,28 +130,28 @@ wired は同じスタックの上に MoQT リレーを載せています。別�
 
 ```mermaid
 flowchart TD
-  app["アプリケーション<br/>(あなたが書くコールバック)"]
+  app["Your application<br/>(the callbacks you write)"]
   moqt["MoQT<br/>src/app/moqt"]
   wt["WebTransport<br/>src/app/webtransport"]
-  h3["HTTP/3 + QPACK + ドライバー<br/>src/app/http3, src/app/qpack"]
-  quic["QUIC トランスポート<br/>src/transport"]
-  tls["TLS 1.3 + 暗号<br/>src/tls, src/crypto"]
-  io["ソケット / AF_XDP の I/O<br/>src/transport/io"]
-  sys["型付きシステムコールラッパー<br/>src/common/arch"]
-  udp["カーネルの UDP ソケット"]
-  xdp["AF_XDP リング<br/>(カーネルバイパス)"]
+  h3["HTTP/3 + QPACK + drivers<br/>src/app/http3, src/app/qpack"]
+  quic["QUIC transport<br/>src/transport"]
+  tls["TLS 1.3 + crypto<br/>src/tls, src/crypto"]
+  io["Socket / AF_XDP I/O<br/>src/transport/io"]
+  sys["Typed syscall wrappers<br/>src/common/arch"]
+  udp["Kernel UDP socket"]
+  xdp["AF_XDP ring<br/>(kernel bypass)"]
   app --> moqt
   app --> wt
   app --> h3
-  moqt -->|"WebTransport 上"| wt
-  moqt -->|"またはネイティブ QUIC"| quic
+  moqt -->|"over WebTransport"| wt
+  moqt -->|"or native QUIC"| quic
   wt -->|"Extended CONNECT"| h3
   h3 --> quic
-  quic -->|"鍵 + パケット保護"| tls
-  quic -->|"暗号化済みデータグラム"| io
+  quic -->|"keys + packet protection"| tls
+  quic -->|"encrypted datagrams"| io
   io --> sys
   sys -->|"socket / sendmsg / recvmmsg"| udp
-  sys -->|"UMEM リング + BPF アタッチ"| xdp
+  sys -->|"UMEM ring + BPF attach"| xdp
 ```
 
 各ボックスの元になっている仕様は [RFC とドラフト](docs/arch/rfcs.md) に、各層の詳しい説明は [アーキテクチャ](docs/arch/overview.md) にあります。
