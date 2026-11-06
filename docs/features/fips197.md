@@ -1,173 +1,94 @@
-[Docs](../README.md) › [Features](README.md) › FIPS 197
+[ドキュメント](../README.md) › [機能](README.md) › FIPS 197
 
-# FIPS 197 — Advanced Encryption Standard (AES)
+# FIPS 197: 高度暗号化標準（AES）
 
-EARS requirement ledger extracted from the spec text
-(`tasks/specs/fips197.txt`, not in git). Each requirement carries the test
-that demonstrates it; an unchecked box with no test line is an open gap.
-Status as of 2026-10.
+仕様の本文(`tasks/specs/fips197.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。2026-10 時点の状況です。
 
-Legend:
+凡例:
 
-- `[x]` — demonstrated by the referenced test
-- `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
-- `[ ]` — not demonstrated by any test yet
+- `[x]`: 挙げたテストで確認済み
+- `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
+- `[ ]`: まだどのテストでも確認していない
 
 **カバレッジ: テスト済み 12/15、間接 3、未テスト 0。**
 
-## §3 Notation and Conventions
+## §3 表記法と規約
 
-- [x] F197-001 (§3.4) The implementation shall copy the 16-byte input array
-  into the two-dimensional state array with `s[r,c] = in[r + 4c]`, and shall
-  copy the final state back to the output array with the inverse mapping.
+- [x] F197-001 (§3.4) 実装は、16 バイトの入力配列を `s[r,c] = in[r + 4c]` で 2 次元のステート配列へ写し、最終的なステートを逆の対応で出力配列へ写し戻さなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-  - gap: the mapping is implicit in the vector round-trip, not asserted on
-    the internal state layout directly.
+  - gap: この対応はベクターの往復で暗に確かめているだけで、内部のステートの配置を直接は検証していません。
 
-## §4 Mathematical Preliminaries
+## §4 数学的準備
 
-- [~] F197-002 (§4.1, §4.2) The implementation shall add two bytes in
-  GF(2^8) by XOR and multiply them by polynomial multiplication reduced
-  modulo m(x) = x^8+x^4+x^3+x+1 (XTIMES for multiplication by {02}).
-  - evidence: `XTIME` in `src/crypto/symmetric/aead/aes/aes.c` implements the
-    modular reduction (`((x << 1) ^ ((x >> 7) * 0x1b))`, the byte form of
-    m(x)); `MIX_COLUMNS`/`INV_MIX_COLUMNS`-style multiplication by fixed
-    small constants is built from repeated `XTIME`. No dedicated GF(2^8)
-    multiplication unit test exists; it is only exercised through the full
-    `CIPHER()` known-answer tests.
-- [x] F197-003 (§4.3) The implementation shall multiply a word by the fixed
-  matrix [{02},{01},{01},{03}] (forward) using GF(2^8) multiplication and
-  XOR, as the mathematical basis of MIXCOLUMNS().
+- [~] F197-002 (§4.1, §4.2) 実装は、GF(2^8) の 2 つのバイトを XOR で加算し、m(x) = x^8+x^4+x^3+x+1 を法として簡約する多項式乗算で乗算しなければならない({02} による乗算には XTIMES を使う)。
+  - evidence: `src/crypto/symmetric/aead/aes/aes.c` の `XTIME` が法による簡約を実装しています(`((x << 1) ^ ((x >> 7) * 0x1b))`。m(x) のバイト形式)。`MIX_COLUMNS`/`INV_MIX_COLUMNS` で使うような小さな固定の定数による乗算は、`XTIME` を繰り返して組み立てています。GF(2^8) の乗算だけを確かめる単体テストはなく、`CIPHER()` 全体の既知解テストを通じて間接的に動かしているだけです。
+- [x] F197-003 (§4.3) 実装は、MIXCOLUMNS() の数学的な基礎として、GF(2^8) の乗算と XOR を使ってワードに固定行列 [{02},{01},{01},{03}](順方向)を掛けなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
 
 ## §5.1 CIPHER()
 
-- [x] F197-004 (§5.1) The implementation shall transform the state through
-  an initial ADDROUNDKEY, Nr-1 full rounds (SUBBYTES, SHIFTROWS,
-  MIXCOLUMNS, ADDROUNDKEY), and a final round that omits MIXCOLUMNS.
+- [x] F197-004 (§5.1) 実装は、最初の ADDROUNDKEY、Nr-1 回の完全なラウンド(SUBBYTES、SHIFTROWS、MIXCOLUMNS、ADDROUNDKEY)、MIXCOLUMNS を省いた最終ラウンドの順にステートを変換しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-- [x] F197-005 (§5.1.1) The implementation shall apply the SBOX
-  substitution table (Table 4) independently to each byte of the state in
-  SUBBYTES().
+- [x] F197-005 (§5.1.1) 実装は、SUBBYTES() で SBOX の置換表(Table 4)をステートの各バイトに独立に適用しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-- [~] F197-006 (§5.1.2) The implementation shall cyclically shift row r of
-  the state left by r positions in SHIFTROWS(), leaving row 0 unchanged.
-  - evidence: `shift_rows`/`shift_col` in
-    `src/crypto/symmetric/aead/aes/aes.c` implement
-    `t[4c+r] = s[4*((c+r)%4)+r]`; only exercised end to end via the
-    known-answer tests, no isolated SHIFTROWS assertion.
-- [x] F197-007 (§5.1.3) The implementation shall mix each column of the
-  state by multiplying it by the fixed matrix
-  [{02},{01},{01},{03}] in MIXCOLUMNS().
+- [~] F197-006 (§5.1.2) 実装は、SHIFTROWS() でステートの r 行目を左へ r 位置だけ巡回シフトし、0 行目は変えずに残さなければならない。
+  - evidence: `src/crypto/symmetric/aead/aes/aes.c` の `shift_rows`/`shift_col` が `t[4c+r] = s[4*((c+r)%4)+r]` を実装しています。既知解テストで端から端まで動かしているだけで、SHIFTROWS 単体の検証はありません。
+- [x] F197-007 (§5.1.3) 実装は、MIXCOLUMNS() でステートの各列に固定行列 [{02},{01},{01},{03}] を掛けて混ぜなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
-- [x] F197-008 (§5.1.4) The implementation shall combine each round key
-  (four words from the key schedule) with the state by XOR in
-  ADDROUNDKEY(), invoked once before the first round and once per round
-  thereafter.
+- [x] F197-008 (§5.1.4) 実装は、ADDROUNDKEY() で各ラウンド鍵(鍵スケジュールの 4 ワード)とステートを XOR で組み合わせなければならない。ADDROUNDKEY() は最初のラウンドの前に 1 回、その後はラウンドごとに 1 回呼び出す。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
 
 ## §5.2 KEYEXPANSION()
 
-- [x] F197-009 (§5.2) The implementation shall expand the cipher key into
-  4*(Nr+1) key-schedule words: the first Nk words are the key itself, and
-  each subsequent word w[i] is w[i-Nk] XORed with either
-  SUBWORD(ROTWORD(w[i-1])) XOR Rcon[i/Nk] (when i is a multiple of Nk),
-  SUBWORD(w[i-1]) (AES-256 only, when i+4 is a multiple of 8), or plain
-  w[i-1] otherwise.
+- [x] F197-009 (§5.2) 実装は、暗号鍵を 4*(Nr+1) 個の鍵スケジュールのワードに拡張しなければならない。最初の Nk ワードは鍵そのものであり、以降の各ワード w[i] は w[i-Nk] に次のいずれかを XOR したものである。i が Nk の倍数なら SUBWORD(ROTWORD(w[i-1])) XOR Rcon[i/Nk]、i+4 が 8 の倍数なら SUBWORD(w[i-1])(AES-256 のみ)、それ以外は w[i-1] そのもの。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
   - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
-  - gap: the Nk=4 (`schedule_word`) and Nk=8 (`aes128_schedule_word256`,
-    including the extra SUBWORD at i mod 8 = 4) branches are shown only
-    through the cipher output; the Nk=6 branch (AES-192) is not shipped.
-- [x] F197-010 (§5.2, Table 5) The implementation shall use the ten fixed
-  round constants Rcon[1..10] = {01,02,04,08,10,20,40,80,1b,36} (each
-  left-most byte only, low three bytes zero) in KEYEXPANSION().
+  - gap: Nk=4(`schedule_word`)と Nk=8(`aes128_schedule_word256`。i mod 8 = 4 での追加の SUBWORD を含む)の分岐は、暗号化の出力を通じてしか確かめていません。Nk=6 の分岐(AES-192)は提供していません。
+- [x] F197-010 (§5.2, Table 5) 実装は、KEYEXPANSION() で 10 個の固定のラウンド定数 Rcon[1..10] = {01,02,04,08,10,20,40,80,1b,36}(それぞれ値を持つのは左端のバイトだけで、下位 3 バイトはゼロ)を使わなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
   - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
-  - gap: AES-128 consumes all ten constants and AES-256 the first seven;
-    no test asserts the table values outside the cipher output.
+  - gap: AES-128 は 10 個の定数をすべて、AES-256 は最初の 7 個を使います。暗号化の出力以外で表の値を検証するテストはありません。
 
 ## §5.3 INVCIPHER() / EQINVCIPHER()
 
-F197-011 through F197-015 (INVCIPHER, INVSHIFTROWS, INVSUBBYTES,
-INVMIXCOLUMNS, EQINVCIPHER/KEYEXPANSIONEIC) — moved to "Out of scope"; see
-below.
+F197-011 から F197-015(INVCIPHER、INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS、EQINVCIPHER/KEYEXPANSIONEIC)は「対象外」へ移しました。下を参照してください。
 
-## §6 Implementation Considerations
+## §6 実装上の考慮事項
 
-- [x] F197-016 (§6.1) The implementation shall support at least one of the
-  three key lengths (128, 192, or 256 bits).
+- [x] F197-016 (§6.1) 実装は、3 つの鍵長(128、192、256 ビット)のうち少なくとも 1 つをサポートしなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
-- [x] F197-017 (§6.2) The implementation shall impose no restriction on an
-  appropriately generated cryptographic key beyond its length.
+- [x] F197-017 (§6.2) 実装は、適切に生成された暗号鍵に対して、長さ以外の制限を課してはならない。
   - test: `tests/crypto/aes_test.c` —
     `test_aes_no_key_restriction_beyond_length`
   - test: `tests/crypto/aes_test.c` —
     `test_aes256_no_key_restriction_beyond_length`
-  - evidence: `aes128_init` (`src/crypto/symmetric/aead/aes/aes.c`)
-    schedules every key byte unconditionally with no validation branch;
-    the test drives the all-zero and all-0xff 16-byte keys (the values a
-    weak-key check would most plausibly reject) through init+encrypt and
-    confirms both succeed and produce distinct ciphertext.
-- [~] F197-018 (§6.5) The implementation shall use AES only in conjunction
-  with a FIPS-approved or NIST-recommended mode of operation.
-  - evidence: `aes128_encrypt`/`aes256_encrypt`
-    (`src/crypto/symmetric/aead/aes/aes.h`) and the AES-NI rounds in
-    `src/crypto/symmetric/aead/gcmx86/` are called only from the GCM
-    modules (SP 800-38D counter mode, `gcm_*.c`, `gcmx86_ctr.c`) and the
-    header-protection mask (`hp.c`, `hp_suite.c`: RFC 9001 5.4.3 AES-ECB
-    encryption of one sample), confirmed by grep of `src/`. A negative
-    test would only re-assert that call-site enumeration.
+  - evidence: `aes128_init`(`src/crypto/symmetric/aead/aes/aes.c`)は、検証の分岐を持たず、鍵のすべてのバイトを無条件にスケジュールします。テストは全ゼロと全 0xff の 16 バイトの鍵(弱い鍵の検査がいちばん拒否しそうな値)を init と encrypt に通し、両方が成功して異なる暗号文を出すことを確かめています。
+- [~] F197-018 (§6.5) 実装は、AES を FIPS 承認または NIST 推奨の暗号利用モードと組み合わせてのみ使わなければならない。
+  - evidence: `aes128_encrypt`/`aes256_encrypt`(`src/crypto/symmetric/aead/aes/aes.h`)と `src/crypto/symmetric/aead/gcmx86/` の AES-NI のラウンドを呼び出すのは、GCM のモジュール(SP 800-38D のカウンターモード。`gcm_*.c`、`gcmx86_ctr.c`)とヘッダー保護のマスク(`hp.c`、`hp_suite.c`。RFC 9001 5.4.3 の、1 つのサンプルを AES-ECB で暗号化する処理)だけです。これは `src/` を grep して確かめました。ネガティブテストを書いても、この呼び出し箇所の列挙を確かめ直すだけになります。
 
-## Appendix A/B/C — Key Expansion, Cipher, and Example Vectors
+## 付録 A/B/C: 鍵拡張、暗号化、例示ベクター
 
-- [x] F197-019 (App. A.1, B, C.1) The implementation shall reproduce the
-  Appendix B and Appendix C.1 CIPHER() known-answer vectors for a 128-bit
-  key (whose round keys are those of Appendix A.1).
+- [x] F197-019 (App. A.1, B, C.1) 実装は、128 ビット鍵(ラウンド鍵は付録 A.1 のもの)について、付録 B と付録 C.1 の CIPHER() の既知解ベクターを再現しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes_fips197`
   - test: `tests/crypto/aes_test.c` — `test_aes_appendix_c`
-- [x] F197-020 (App. A.3, C.3) The implementation shall reproduce the
-  Appendix C.3 CIPHER() known-answer vector for a 256-bit key (Nk=8,
-  Nr=14).
+- [x] F197-020 (App. A.3, C.3) 実装は、256 ビット鍵(Nk=8、Nr=14)について、付録 C.3 の CIPHER() の既知解ベクターを再現しなければならない。
   - test: `tests/crypto/aes_test.c` — `test_aes256_appendix_c3`
 
-## Out of scope
+## 対象外
 
-Requirements this server SDK deliberately does not implement, excluded from
-the coverage denominator:
+このサーバー SDK が意図して実装しない要件です。カバレッジの分母から除いています。
 
-- (Abstract, §1, §5, Table 3, App. A.2) AES-192 (Nk=6, Nr=12) -- no TLS 1.3
-  cipher suite uses it. AES-256 (App. A.3, C.3) is implemented
-  (`aes256_*` in `src/crypto/symmetric/aead/aes/aes.h`) and keys QUIC
-  packet and header protection under `TLS_AES_256_GCM_SHA384`
-  (`tests/crypto/aes_test.c` — `test_aes256_appendix_c3`,
-  `tests/transport/hp_suite_test.c` — `test_hp_suite`).
-- (§5.3 F197-011, §5.3.1 F197-012, §5.3.2 F197-013, §5.3.3 F197-014,
-  §5.3.5 F197-015) INVCIPHER(), EQINVCIPHER(), and all of their component
-  transformations (INVSHIFTROWS, INVSUBBYTES, INVMIXCOLUMNS,
-  KEYEXPANSIONEIC) — QUIC never decrypts with raw AES. GCM (SP 800-38D)
-  uses only the forward cipher in counter mode, and RFC 9001 5.4.3 header
-  protection uses AES-ECB *encryption* of the sample on both send and
-  receive (there is no header "decryption" operation distinct from
-  encryption). This SDK ships no AES decryption primitive at all.
-- (§6.3) Parameter Extensions (guidance to implementers about future
-  revisions defining new Nk/Nb/Nr values) — forward-looking guidance to
-  standards implementers, not a testable requirement of this Standard.
-- (§6.4) Implementation Suggestions Regarding Various Platforms, including
-  "protecting implementations ... against implementation attacks ...
-  should be considered" — the Standard places this outside its own scope;
-  the scalar path uses a table S-box (the AES-NI path in `gcmx86` does
-  not).
-- (App. A.2, C.2) AES-192 key expansion and example vector — AES-192 not
-  shipped (see above).
-- (Announcement 8) Export-control compliance ("must comply with all
-  federal laws") — legal notice, not an implementation rule.
-- (Appendix D) Change log (informative) — editorial history of the
-  publication, not a normative requirement.
+- (Abstract, §1, §5, Table 3, App. A.2) AES-192(Nk=6、Nr=12)。TLS 1.3 のどの暗号スイートも AES-192 を使いません。AES-256(App. A.3, C.3)は実装済みで(`src/crypto/symmetric/aead/aes/aes.h` の `aes256_*`)、`TLS_AES_256_GCM_SHA384` での QUIC のパケット保護とヘッダー保護の鍵に使っています(`tests/crypto/aes_test.c` の `test_aes256_appendix_c3`、`tests/transport/hp_suite_test.c` の `test_hp_suite`)。
+- (§5.3 F197-011, §5.3.1 F197-012, §5.3.2 F197-013, §5.3.3 F197-014, §5.3.5 F197-015) INVCIPHER()、EQINVCIPHER() と、それらを構成するすべての変換(INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS、KEYEXPANSIONEIC)。QUIC は生の AES で復号することがありません。GCM(SP 800-38D)はカウンターモードで順方向の暗号だけを使い、RFC 9001 5.4.3 のヘッダー保護は送信側でも受信側でもサンプルを AES-ECB で*暗号化*します(暗号化とは別にヘッダーを「復号」する操作はありません)。この SDK は AES の復号プリミティブをまったく提供していません。
+- (§6.3) パラメーターの拡張(将来の改訂で新しい Nk/Nb/Nr の値を定める場合についての、実装者向けの指針)。標準の実装者に向けた将来の指針であり、本標準のテスト可能な要件ではありません。
+- (§6.4) 各種プラットフォームに関する実装上の提案。「実装攻撃から実装を保護することを……検討するべきである」も含みます。本標準はこれを自身の範囲の外に置いています。スカラーの経路は表引きの S-box を使います(`gcmx86` の AES-NI の経路は表引きを使いません)。
+- (App. A.2, C.2) AES-192 の鍵拡張と例示ベクター。AES-192 は提供していません(上を参照)。
+- (Announcement 8) 輸出規制の順守(「すべての連邦法に従わなければならない」)。法的な告知であり、実装の規則ではありません。
+- (Appendix D) 変更履歴(参考)。刊行物の編集の経緯であり、規範的な要件ではありません。
