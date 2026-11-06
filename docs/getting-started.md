@@ -320,4 +320,4 @@ word_list と webtransport_interop では、2 つの出力を `--qlog-file` / `-
 
 ---
 
-**次へ:** [アーキテクチャとデータフロー](arch/overview.md)。スタック内部の動きを説明しています。([全ドキュメント](README.md))
+**次へ:** [アーキテクチャとデータの流れ](arch/overview.md)。スタック内部の動きを説明しています。([全ドキュメント](README.md))
