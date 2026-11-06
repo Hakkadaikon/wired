@@ -76,8 +76,8 @@ page: **[Interop Results](../interop.md)**.
 
 ## Coverage by spec
 
-**Total: 2259/2266 requirements demonstrated (99.7%) — 1958 directly tested,
-301 indirect, 7 untested.**
+**合計: 2259/2266 件の要件を確認済み(99.7%)。内訳は直接テスト 1958 件、
+間接 301 件、未テスト 7 件。**
 
 ## QUIC core
 

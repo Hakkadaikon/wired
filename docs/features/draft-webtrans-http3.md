@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 74/81 tested, 7 indirect, 0 untested.**
+**カバレッジ: テスト済み 74/81、間接 7、未テスト 0。**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 

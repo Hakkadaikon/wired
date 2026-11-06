@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 12/15 tested, 3 indirect, 0 untested.**
+**カバレッジ: テスト済み 12/15、間接 3、未テスト 0。**
 
 ## §3 Notation and Conventions
 

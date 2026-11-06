@@ -33,7 +33,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 224/259 tested, 34 indirect, 1 untested.**
+**カバレッジ: テスト済み 224/259、間接 34、未テスト 1。**
 
 ## SS8.1 Variable-Length Integers
 

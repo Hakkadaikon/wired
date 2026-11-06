@@ -20,16 +20,18 @@ TEST_RE = re.compile(r"- test: `([^`]+)`\s+—\s+`([^`]+)`")
 TEST_HEAD = re.compile(r"^\s*- test:.*$", re.M)
 # boxes under these headings are tracked but not counted (README)
 CUT = re.compile(
-    r"^## (?:Not implemented|Out of scope|Experimental|Informational)", re.M
+    r"^## (?:Not implemented|Out of scope|Experimental|Informational"
+    r"|未実装|対象外|実験的|参考情報)",
+    re.M,
 )
 BOX = re.compile(r"^- \[([x~ ])\] (\S+)", re.M)
 X_BLOCK = re.compile(r"^- \[x\] (\S+).*\n((?:  .*\n)*)", re.M)
-COV = re.compile(r"\*\*Coverage: \d+/\d+ tested, \d+ indirect, \d+ untested\.\*\*")
+COV = re.compile(r"\*\*カバレッジ: テスト済み \d+/\d+、間接 \d+、未テスト \d+。\*\*")
 ROW = re.compile(
     r"^(\| \[[^\]]+\]\(([\w.-]+\.md)\) \| )\d+/\d+ \| \d+ \| \d+ \| \d+ \|", re.M
 )
 TOTAL = re.compile(
-    r"\*\*Total: \d+/\d+ requirements demonstrated .*?untested\.\*\*", re.S
+    r"\*\*合計: \d+/\d+ 件の要件を確認済み.*?未テスト \d+ 件。\*\*", re.S
 )
 PLACEHOLDER = re.compile(r"-X+$")
 
@@ -86,7 +88,7 @@ def counts(text):
 
 def cov_line(n):
     x, t, u = n
-    return f"**Coverage: {x}/{x + t + u} tested, {t} indirect, {u} untested.**"
+    return f"**カバレッジ: テスト済み {x}/{x + t + u}、間接 {t}、未テスト {u}。**"
 
 
 def resolve(path, old, new, fix):
@@ -125,8 +127,8 @@ def total_line(tot):
     x, t, u = tot
     pct = 100 * (x + t) / (x + t + u)
     return (
-        f"**Total: {x + t}/{x + t + u} requirements demonstrated ({pct:.1f}%)"
-        f" — {x} directly tested,\n{t} indirect, {u} untested.**"
+        f"**合計: {x + t}/{x + t + u} 件の要件を確認済み({pct:.1f}%)。"
+        f"内訳は直接テスト {x} 件、\n間接 {t} 件、未テスト {u} 件。**"
     )
 
 
