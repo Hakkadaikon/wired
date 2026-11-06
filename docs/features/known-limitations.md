@@ -1,1238 +1,319 @@
-# Known Limitations
+# 既知の制限
 
-This page lists every known limitation and every deliberate spec deviation of
-the wired SDK, grouped by layer. Read it before you deploy wired, or when a
-peer behaves in a way the spec allows but wired does not support. Each entry
-starts with who is affected, then says what is limited and where in the code
-(or in which per-spec ledger) it is recorded.
+このページは wired SDK の既知の制限と、意図して仕様から外している点をすべて、層ごとにまとめたものです。wired を本番に入れる前や、仕様では許されているのに wired が対応していない動きを相手がしたときに読んでください。各項目はまず影響を受ける人を示し、次に何が制限されているかと、それがコードのどこ(または仕様ごとのどの台帳)に記録されているかを書いています。
 
-Last reviewed: 2026-11-03
+最終確認日: 2026-11-03
 
-## How to read this page
+## このページの読み方
 
-wired is a C library with no libc dependency that implements QUIC, HTTP/3,
-WebTransport and MoQT (Media over QUIC Transport) on Linux. Many of its
-limits exist on purpose. Every table is a fixed array sized at build time,
-so a peer that needs more than a table holds is refused instead of being
-served from new memory. The guide page
-[Current limits](https://hakkadaikon.github.io/wired/guide/en/concepts/limits/)
-lists the capacities an application meets first and the MoQT parts that are
-not implemented. This page adds what the guide does not cover: the effect of
-each overflow, the less visible limits, and the reason for each deviation.
-Where the two pages disagree, the values on this page are taken from the
-current code (checked on 2026-11-03) and win.
+wired は Linux 上で QUIC、HTTP/3、WebTransport、MoQT (Media over QUIC Transport) を実装する、libc に依存しない C ライブラリです。制限の多くは意図したものです。テーブルはすべてビルド時に大きさを決める固定長の配列なので、テーブルに収まる数を超えて求める相手は、新しいメモリで受け入れるのではなく断ります。ガイドの「[現在の上限](https://hakkadaikon.github.io/wired/guide/ja/concepts/limits/)」のページは、アプリケーションが最初に突き当たる容量と、MoQT の未実装の部分を挙げています。このページは、ガイドが扱っていないこと、つまりあふれたときの影響、目に付きにくい制限、仕様から外した理由を補います。2 つのページが食い違うときは、このページの値を正とします。このページの値は今のコードから取ったものです(2026-11-03 に確認)。
 
-The entries come from three places:
+項目の出どころは次の 3 つです。
 
-- `ponytail:` and `shortcut:` comments in `src/`. These are the repo's
-  markers for a limitation that was accepted on purpose, with a note on how
-  to lift it.
-- The "Not implemented" and "Out of scope" sections and the untested items of
-  the per-spec ledgers in this directory (one Markdown file per RFC or
-  draft).
-- The skip tables of the BoringSSL test vectors.
+- `src/` の `ponytail:` と `shortcut:` のコメント。意図して受け入れた制限に付けるこのリポジトリの目印で、制限を外す方法の覚え書きが添えてあります。
+- このディレクトリにある仕様ごとの台帳(RFC またはドラフトごとに 1 つの Markdown ファイル)の「未実装」と「対象外」の節、およびテストされていない項目。
+- BoringSSL のテストベクターのスキップ表。
 
-A "Source:" line names the code symbol (function or macro) or the ledger
-file. Section numbers such as "9.5" refer to the spec
-the entry names.
+「参照:」の行にはコードのシンボル(関数またはマクロ)か台帳のファイルを書いています。「9.5」のような節番号は、その項目が挙げている仕様の節を指します。
 
-MoQT terms (Track, Group, Subgroup, Object) follow the guide's
-[media mapping](https://hakkadaikon.github.io/wired/guide/en/concepts/media-mapping/).
-The **hub** is wired's built-in MoQT relay: publishers send it Objects and
-it forwards them to subscribers
-([guide](https://hakkadaikon.github.io/wired/guide/en/moqt/hub/)). "d18",
-"d19" and "d22" mean draft-ietf-moq-transport-18, -19 and -22.
+MoQT の用語(Track、Group、Subgroup、Object)は、ガイドの「[MoQT へのメディアの載せ方](https://hakkadaikon.github.io/wired/guide/ja/concepts/media-mapping/)」に従います。**ハブ** は wired に組み込まれた MoQT リレーです。パブリッシャーから Object を受け取り、サブスクライバーへ転送します([MoQT ハブ](https://hakkadaikon.github.io/wired/guide/ja/moqt/hub/))。「d18」「d19」「d22」はそれぞれ draft-ietf-moq-transport-18、-19、-22 を指します。
 
-Contents: [MoQT relay (hub)](#moqt-relay-hub) |
-[MoQT versions and spec deviations](#moqt-versions-and-spec-deviations) |
-[MoQT track switching (experimental)](#moqt-track-switching-experimental) |
-[Raw-QUIC MoQT](#raw-quic-moqt) | [WebTransport](#webtransport) |
-[HTTP/3 and QPACK](#http3-and-qpack) | [QUIC transport](#quic-transport) |
-[TLS 1.3](#tls-13) | [Cryptography](#cryptography) |
-[Platform / I/O](#platform--io) | [Capacity limits](#capacity-limits) |
-[Testing and verification gaps](#testing-and-verification-gaps) |
-[Library code not reached by the shipped server](#library-code-not-reached-by-the-shipped-server) |
-[Out of scope by design](#out-of-scope-by-design) |
-[Not planned](#not-planned)
+目次: [MoQT リレー(ハブ)](#moqt-リレーハブ) |
+[MoQT のバージョンと仕様からの逸脱](#moqt-のバージョンと仕様からの逸脱) |
+[MoQT の Track 切り替え(実験的)](#moqt-の-track-切り替え実験的) |
+[Raw QUIC 上の MoQT](#raw-quic-上の-moqt) | [WebTransport](#webtransport) |
+[HTTP/3 と QPACK](#http3-と-qpack) | [QUIC トランスポート](#quic-トランスポート) |
+[TLS 1.3](#tls-13) | [暗号](#暗号) |
+[プラットフォームと I/O](#プラットフォームと-io) | [容量の上限](#容量の上限) |
+[テストと検証の抜け](#テストと検証の抜け) |
+[出荷するサーバーから呼ばれないライブラリコード](#出荷するサーバーから呼ばれないライブラリコード) |
+[対象外(設計上)](#対象外設計上) |
+[予定なし](#予定なし)
 
 ---
 
-## MoQT relay (hub)
+## MoQT リレー(ハブ)
 
-The hub is a single-process relay sized for one room of participants. It is
-not a relay network: it has no upstream relay and no sibling relays. Three
-terms recur below:
+ハブは 1 つの部屋の参加者に合わせた大きさの、単一プロセスのリレーです。リレーのネットワークではなく、上流のリレーも兄弟のリレーも持ちません。以下では次の 3 つの用語を繰り返し使います。
 
-- An **upstream SUBSCRIBE** is the SUBSCRIBE the hub itself sends to a
-  publisher to get a Track that its subscribers asked for (d18/d19 9.4, d22
-  7.4).
-- A **rendezvous** is a SUBSCRIBE the hub holds open until a publisher of
-  that Track appears, instead of refusing it at once.
-- A **reliable ring** is the per-track buffer the hub keeps so it can replay
-  a stream to a subscriber that joins late. Each subscriber has a **cursor**
-  (its read position in the ring), and the ring keeps **arrival marks**
-  (timestamps it uses to apply a delivery timeout).
+- **上流 SUBSCRIBE**: サブスクライバーが求めた Track を得るために、ハブ自身がパブリッシャーへ送る SUBSCRIBE(d18/d19 9.4、d22 7.4)。
+- **ランデブー**: その Track のパブリッシャーが現れるまで、ハブがすぐには断らずに保留しておく SUBSCRIBE。
+- **信頼リング**: 遅れて参加したサブスクライバーにストリームを再送できるよう、ハブが Track ごとに持つバッファー。サブスクライバーはそれぞれ **カーソル**(リング内の読み出し位置)を持ち、リングは **到着マーク**(配送タイムアウトを適用するためのタイムスタンプ)を保持します。
 
-The limits:
+制限は次のとおりです。
 
-- **One publisher per Track unless `multi_publisher`** — Affects: hubs
-  left at the `wired_moqt_init` default (moqt_chat), where several
-  publishers announce the same Track. The default keys one Track per Full
-  Track Name (the newest session owns it), so d22 7.6's "MUST send
-  SUBSCRIBE messages to all matching publishers" holds only with
-  `wired_moqt_hub.multi_publisher = 1` (examples/moqt_interop sets it):
-  then every matching publisher is subscribed, a later announcer
-  included, and their Objects merge into each subscription. Its dedup is
-  by whole Subgroup stream and datagram over a 64-entry window, and a
-  Subgroup the first publisher left unfinished is not completed from the
-  other's copy. Source: `moqtrun_supersede_name`, `moqtrun_mpub.c`,
-  `moqtrun_mpub_dd.c`, `moqtrun_up_fan.c`.
-- **Failover waits at most 1.5 s** — Affects: subscribers of a Track whose
-  publisher drops while another publisher of the namespace is announced.
-  The steps are:
+- **`multi_publisher` を設定しない限り、Track ごとのパブリッシャーは 1 つ**: 影響を受けるのは、`wired_moqt_init` の既定値のままのハブ(moqt_chat)で、複数のパブリッシャーが同じ Track を告知する場合です。既定では Full Track Name ごとに Track を 1 つ持ちます(最も新しいセッションが所有します)。そのため、d22 7.6 の「一致するすべてのパブリッシャーに SUBSCRIBE メッセージを送らなければならない (MUST)」が成り立つのは、`wired_moqt_hub.multi_publisher = 1` のとき(examples/moqt_interop が設定しています)だけです。このとき、あとから告知したものも含めて一致するパブリッシャーすべてを購読し、それぞれの Object を各購読へ合流させます。重複の除去は Subgroup のストリーム単位とデータグラム単位で、64 項目の窓で行います。最初のパブリッシャーが途中で終えた Subgroup を、もう一方のコピーで補うことはしません。参照: `moqtrun_supersede_name`、`moqtrun_mpub.c`、`moqtrun_mpub_dd.c`、`moqtrun_up_fan.c`。
+- **フェイルオーバーで待つのは最大 1.5 秒**: 影響を受けるのは、Track のパブリッシャーが切れ、その名前空間の別のパブリッシャーが告知されている場合の、その Track のサブスクライバーです。手順は次のとおりです。
 
-  1. The upstream SUBSCRIBE ends on the publisher's side: PUBLISH_DONE with
-     GOING_AWAY or INTERNAL_ERROR, a reset of the hub's stream, or the
-     publisher's session closing.
-  1. The downstream subscriptions wait up to `WIRED_MOQTRUN_RDV_MAX_MS`
-     (1.5 s).
-  1. Meanwhile the hub SUBSCRIBEs the other announcers of the namespace, one
-     at a time.
-  1. The first SUBSCRIBE_OK re-attaches the waiting subscriptions silently,
-     under the Track Alias (the short number a subscriber uses for the
-     Track) they already hold. If none answers by the deadline, each gets
-     PUBLISH_DONE with the status of the end.
+  1. 上流 SUBSCRIBE がパブリッシャー側で終わる。GOING_AWAY か INTERNAL_ERROR の PUBLISH_DONE、ハブのストリームのリセット、パブリッシャーのセッションの終了のいずれか。
+  1. 下流の購読は最大 `WIRED_MOQTRUN_RDV_MAX_MS`(1.5 秒)待つ。
+  1. その間に、ハブはその名前空間を告知している別のパブリッシャーへ 1 つずつ SUBSCRIBE を送る。
+  1. 最初に届いた SUBSCRIBE_OK で、待っていた購読を、すでに持っている Track Alias(サブスクライバーが Track を指すのに使う短い番号)のまま、通知せずにつなぎ直す。期限までにどこも応答しなければ、それぞれの購読に、終了時のステータスを付けた PUBLISH_DONE を送る。
 
-  Any other PUBLISH_DONE status, and a Malformed Track (a publisher that
-  broke the Track rules, see below), ends the subscriptions at once.
-  Source: `moqtrun_track_ended`.
-- **Waits for a new path share the rendezvous table** — Affects: Tracks with
-  many subscribers when their publisher drops. Each waiting subscription
-  takes one slot of the hub-wide `WIRED_MOQTRUN_MAX_RDV` (16) table, at most
-  `WIRED_MOQTRUN_RDV_PER_SESSION` (4) per session, with its own copy of the
-  Track's deadline. When a Track has more waiting subscribers than free
-  slots, it fails over only partly: the rest get PUBLISH_DONE with the
-  status of the end at once. While the table is full, every new rendezvous
-  hold is refused with EXCESSIVE_LOAD, for up to 1.5 s. How a wait
-  interacts with track switching is listed under
-  [MoQT track switching](#moqt-track-switching-experimental). Source:
-  `moqtrun_rp_wait`.
-- **One SUBGROUP stream kept before SUBSCRIBE_OK** — Affects: publishers
-  that start sending before they answer the hub's SUBSCRIBE. A SUBGROUP
-  stream that reaches the hub before the upstream SUBSCRIBE_OK is kept (one
-  per publisher session, up to `WIRED_MOQTRUN_EARLY_BUF` = 2048 bytes) and
-  relayed when the OK arrives. A second such stream, or one that outgrows
-  the buffer, is dropped. Source: `moqtrun_early_stash`.
-- **Late replay from a reliable ring is bounded** — Affects: subscribers
-  that join in the middle of a stream. A subscriber that arrives while the
-  ring holds a stream gets that stream replayed, starting from the stream's
-  first Object at or past the subscriber's start Object. This works only
-  while the ring has not wrapped or been reclaimed past the stream's header,
-  and only once an Object at or past the start Object has arrived.
-  Otherwise that stream is not sent to the subscriber. Source:
-  `moqtrun_rel_replay_ok`, `moqtrun_rel_replay` (ponytail).
-- **Late joiners skip a stream whose first delivery was torn** — Affects:
-  subscribers joining a stream whose header uses Subgroup ID mode 0b01 (the
-  Subgroup ID is the ID of the stream's first Object). "Torn" means an
-  Object was split across two deliveries. When the first delivery of such a
-  stream ends inside its first Object, the hub saves no stream header, so
-  later joiners of that stream are skipped. Source:
-  `moqtrun_relay_save_hdr` (ponytail).
-- **Subscriber-less ring holds its publisher** — Affects: publishers of a
-  reliable track nobody has subscribed to yet. A ring that no cursor has
-  joined may hold the publisher up to `WIRED_MOQTREL_STALL_MS` (10000 ms).
-  Source: `moqtrun_rel_drain_one` (ponytail).
-- **Ring arrival marks absorb appends** — Affects: tracks that use a
-  delivery timeout. With all `WIRED_MOQTREL_MARKS` (8) taken, the newest mark
-  absorbs further appends, so a delivery timeout can fire early by at most
-  the time since that mark. Source: `moqtrel_mark` (ponytail).
-- **Fill and FETCH capacity refusal** — Affects: rooms where many
-  subscribers ask for history at once. A fill is the history a SUBSCRIBE
-  asks for; a FETCH asks for a range of past Objects
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/moqt/fetch/)). Fills
-  beyond `fetches[]` + `fetch_waits[]` (8 + 8, both sized by
-  `WIRED_MOQTRUN_MAX_FETCHES`) are refused with REQUEST_ERROR
-  INTERNAL_ERROR before the OK is sent. They are never dropped silently.
-  Source: `moqtrun_fill_room`, `moqtrun_fill_wait_put` (ponytail).
-- **A FETCH's own Subscriber Priority is not kept** — Affects: clients that
-  rank several FETCHes against each other. A fill uses its subscription's
-  Subscriber Priority; a Standalone FETCH uses the default. Source:
-  `moqtrun_fetch_sub_prio` (ponytail).
-- **Upstream FETCH is one request per FETCH, passed through** — Affects:
-  FETCHes of ranges the hub's cache does not fully hold. If the cache lacks
-  the start of a FETCH range, the hub asks upstream once (the Track's
-  publisher, else an announcer whose namespace covers it) and passes the
-  Objects through as they arrive. It does not merge, retry or cache them.
-  This upstream request is called a "leg" below. An application can observe
-  these effects. Two FETCHes of one range are not merged into one upstream
-  FETCH. A GOAWAY on the upstream request stream ends the leg instead of
-  re-issuing it. Relayed Objects are not cached. The leg's time budget is
-  fixed at `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` (2000 ms) unless FILL_TIMEOUT is
-  shorter. A leg that ends in the middle of an Object resets the downstream
-  fetch stream with INTERNAL_ERROR, because the cache side cannot resume
-  mid-Object. This happens when the upstream cuts the Object, when the budget
-  runs out while part of it still waits to be written, or when the held tail
-  does not fit. A d19 Joining FETCH (one that starts relative to a live
-  subscription) is still served from the cache only. A Descending FETCH
-  (newest Group first) of a Track the hub does not hold is reset when its
-  upstream FETCH fails, because the hub knows nothing of that range to mark.
-  The cache side applies a FETCH's Range Filters by Object ID only: the
-  cache keeps no Subgroup, priority or Properties, so a filter set that
-  names one of them passes no cached Object and leaves an unmarked
-  (unknown) gap. A Joining FETCH applies no Range Filter
-  (`moqtrun_fsel_skip`, MQ22-137; `moqtrun_fetch_joining` in
-  `moqtrun_live.c` drops them).
+  それ以外のステータスの PUBLISH_DONE と、Malformed Track(Track の規則を破ったパブリッシャー。後述)は、購読をすぐに終わらせます。参照: `moqtrun_track_ended`。
+- **新しい経路を待つ購読は、ランデブーのテーブルを共有する**: 影響を受けるのは、パブリッシャーが切れたときにサブスクライバーの多い Track です。待っている購読はそれぞれ、ハブ全体の `WIRED_MOQTRUN_MAX_RDV`(16)のテーブルのスロットを 1 つ使います。セッションあたりは最大 `WIRED_MOQTRUN_RDV_PER_SESSION`(4)で、Track の期限のコピーを各スロットが持ちます。待っているサブスクライバーが空きスロットより多い Track は、一部だけがフェイルオーバーします。残りには終了時のステータスを付けた PUBLISH_DONE をすぐに送ります。テーブルが埋まっている間は、新しいランデブーの保留をすべて EXCESSIVE_LOAD で断ります。この状態は最大 1.5 秒続きます。待機と Track 切り替えの関係は「[MoQT の Track 切り替え](#moqt-の-track-切り替え実験的)」に書いています。参照: `moqtrun_rp_wait`。
+- **SUBSCRIBE_OK の前に保持する SUBGROUP ストリームは 1 本**: 影響を受けるのは、ハブの SUBSCRIBE に応答する前に送り始めるパブリッシャーです。上流の SUBSCRIBE_OK より先にハブへ届いた SUBGROUP ストリームは保持し(パブリッシャーのセッションごとに 1 本、`WIRED_MOQTRUN_EARLY_BUF` = 2048 バイトまで)、OK が届いた時点で中継します。2 本目のストリームと、バッファーに収まらなくなったストリームは捨てます。参照: `moqtrun_early_stash`。
+- **信頼リングからの遅れた再送には限りがある**: 影響を受けるのは、ストリームの途中で参加するサブスクライバーです。リングがストリームを保持している間に来たサブスクライバーには、そのストリームを再送します。再送はサブスクライバーの開始 Object 以降で最初の、そのストリームの Object から始めます。再送できるのは、リングが一周しておらず、そのストリームのヘッダーより先まで回収されていない間だけで、しかも開始 Object 以降の Object がすでに届いている場合に限ります。それ以外の場合、そのストリームはサブスクライバーに送りません。参照: `moqtrun_rel_replay_ok`、`moqtrun_rel_replay`(ponytail)。
+- **最初の配送が分断されたストリームを、遅れて参加した購読は飛ばす**: 影響を受けるのは、ヘッダーが Subgroup ID モード 0b01(Subgroup ID がストリームの最初の Object の ID になる)を使うストリームに参加するサブスクライバーです。「分断」は、1 つの Object が 2 回の配送に分かれて届くことを指します。こうしたストリームの最初の配送が最初の Object の途中で終わると、ハブはストリームのヘッダーを保存しないので、あとからそのストリームに参加したサブスクライバーには送りません。参照: `moqtrun_relay_save_hdr`(ponytail)。
+- **サブスクライバーのいないリングがパブリッシャーを止める**: 影響を受けるのは、まだ誰も購読していない信頼 Track のパブリッシャーです。どのカーソルも参加していないリングは、パブリッシャーを最大 `WIRED_MOQTREL_STALL_MS`(10000 ミリ秒)止めることがあります。参照: `moqtrun_rel_drain_one`(ponytail)。
+- **リングの到着マークが追記をまとめる**: 影響を受けるのは、配送タイムアウトを使う Track です。`WIRED_MOQTREL_MARKS`(8)をすべて使い切ると、それ以降の追記は最新のマークにまとめられます。そのため配送タイムアウトはそのマークからの経過時間を上限として早く発火することがあります。参照: `moqtrel_mark`(ponytail)。
+- **フィルと FETCH は容量を超えると断る**: 影響を受けるのは、多くのサブスクライバーが同時に履歴を求める部屋です。フィルは SUBSCRIBE が求める履歴で、FETCH は過去の Object の範囲を求めるものです([過去の Object の取得](https://hakkadaikon.github.io/wired/guide/ja/moqt/fetch/))。`fetches[]` + `fetch_waits[]`(8 + 8、どちらも `WIRED_MOQTRUN_MAX_FETCHES` で決まる)を超えたフィルは、OK を送る前に REQUEST_ERROR INTERNAL_ERROR で断ります。通知なしに捨てることはありません。参照: `moqtrun_fill_room`、`moqtrun_fill_wait_put`(ponytail)。
+- **FETCH 自身の Subscriber Priority は使わない**: 影響を受けるのは、複数の FETCH の間で優先順位を付けるクライアントです。フィルはその購読の Subscriber Priority を使い、Standalone FETCH は既定値を使います。参照: `moqtrun_fetch_sub_prio`(ponytail)。
+- **上流への FETCH は FETCH 1 つにつき 1 回で、そのまま中継する**: 影響を受けるのは、ハブのキャッシュがすべては持っていない範囲への FETCH です。FETCH の範囲の先頭がキャッシュにないと、ハブは上流(その Track のパブリッシャー、いなければその Track を含む名前空間を告知しているもの)に 1 回だけ問い合わせ、届いた Object を順にそのまま中継します。まとめたり、再試行したり、キャッシュしたりはしません。以下では、この上流への要求を「レッグ」と呼びます。アプリケーションから見える影響は次のとおりです。同じ範囲への 2 つの FETCH は 1 つの上流 FETCH にまとめません。上流の要求ストリームで GOAWAY を受けると、出し直さずにそのレッグを終えます。中継した Object はキャッシュしません。レッグの持ち時間は、FILL_TIMEOUT のほうが短くない限り `WIRED_MOQTRUN_UPFETCH_BUDGET_MS`(2000 ミリ秒)に固定です。Object の途中で終わったレッグは、下流の fetch ストリームを INTERNAL_ERROR でリセットします。キャッシュ側は Object の途中から再開できないためです。これが起きるのは、上流が Object を途中で切ったとき、一部がまだ書き込み待ちのうちに持ち時間が尽きたとき、保持していた末尾が収まらなかったときです。d19 の Joining FETCH(進行中の購読を基準に始まる FETCH)は、今もキャッシュだけから応えます。ハブが持っていない Track への Descending FETCH(新しい Group から順に返す FETCH)は、上流 FETCH が失敗するとリセットします。ハブはその範囲について何も知らず、印を付けられないためです。キャッシュ側は FETCH の Range Filter を Object ID だけで適用します。キャッシュは Subgroup、優先度、Properties を保持しないので、それらのどれかを指定したフィルターの組はキャッシュ済みの Object を 1 つも通さず、印のない(不明の)欠落を残します。Joining FETCH は Range Filter を適用しません(`moqtrun_fsel_skip`、MQ22-137。`moqtrun_live.c` の `moqtrun_fetch_joining` が捨てます)。
 
-  Buffering details: an Object under `WIRED_MOQTRUN_RELAY_FRAG_MAX` (16 KiB)
-  is held whole while it is torn; a larger one's payload passes through as
-  it arrives, and a write the transport refuses is retried on the next tick
-  or delivery. One hub-wide buffer keeps what a leg holds, so a second leg
-  that needs it at the same time gives up its upstream FETCH. If a
-  FETCH_HEADER arrives split across deliveries while the peer's single early
-  slot is already taken, every upstream FETCH to that peer that is still
-  waiting for its data stream ends. Source: `moqtrun_upf_*`; requirements
-  MQ22-213 to MQ22-219 and MQ22-137 in
-  [draft-moq-transport-22.md](draft-moq-transport-22.md).
-- **Object cache is arena-scanned** — Affects: hubs with a large FETCH
-  cache. The cache lives in an arena (one memory block) the application
-  passes in. Eviction compacts the arena with one memmove pass, and lookups
-  scan it linearly. A one-entry resume point lets a forward walk over one
-  track continue where its last lookup stopped. So a FETCH or FETCH_OK walk
-  costs O(arena) per walk plus O(arena) per gap it crosses (the gap check
-  rescans), not per Object. FETCHes of different tracks served in turn share
-  that one entry and rescan from the start. Groups are assumed to arrive in
-  ascending order per track, so an Object of an older Group is cached as if
-  new. The largest cached payload is `MOQCACHE_OBJ_MAX` (65472 bytes).
-  Source: `moqcache.h` header comment, `moqtrun_fetch_last`.
-- **Discovery syncs are quadratic** — Affects: hubs with many namespace
-  subscriptions
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/moqt/discovery/)).
-  SUBSCRIBE_NAMESPACE catch-up is an O(reqs^2) scan per event, and
-  SUBSCRIBE_TRACKS sync is O(sessions x tracks x reqs). This is fine at the
-  fixed capacities. Source: `moqtrun_disc_sync`,
-  `moqtrun_subtracks_sync_track`.
-- **Range Filters are stream- or track-granular** — Affects: subscribers
-  that filter below the stream level. A Range Filter is a SUBSCRIBE
-  parameter (d19 and d22) that limits which streams or Objects are
-  delivered. SUBGROUP_FILTER and PRIORITY_FILTER gate a whole stream when it
-  opens toward the subscriber, using its header's Subgroup ID and Publisher
-  Priority. TRACK_PROPERTY_FILTER selects the tracks a SUBSCRIBE_TRACKS is
-  offered, by Track Properties up to 32 bytes (see "Track Properties"
-  below). OBJECTID_FILTER gates datagrams only, and OBJECT_PROPERTY_FILTER
-  is not evaluated: the hub does not cut single Objects out of a relayed
-  stream. If a SUBSCRIBE_TRACKS carries several filter sets, and one set's
-  TRACK_PROPERTY_FILTER fails while another set admits the track, the
-  object filters of the failing set still admit Objects. Source:
-  `moqtrun_sub_rngf_stream`, `moqtrun_subtracks_tp_pass`.
-- **No Alias token cache** — Affects: clients that send auth tokens by alias
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/moqt/authorize/)).
-  An auth token can be sent by alias: REGISTER stores one, USE_ALIAS refers
-  to it, and DELETE drops it. The hub does not advertise
-  MAX_AUTH_TOKEN_CACHE_SIZE, so its cache is 0 bytes. A REGISTER closes the
-  session with AUTH_TOKEN_CACHE_OVERFLOW, and DELETE or USE_ALIAS closes it
-  with UNKNOWN_AUTH_TOKEN_ALIAS (d22 8.9). FETCH and SETUP tokens are not
-  inspected. Source: `moqtrun_take_tok_or_close`.
-- **OBJECT_DELIVERY_TIMEOUT starts at the leading byte of the Object** —
-  Affects: peers that measure the timeout from a different byte. d19 starts
-  the clock at the first payload byte and d22 at the last header byte. Both
-  fall on the same moment here because Objects decode atomically. Source:
-  `moqtrun_relay_born` (ponytail),
-  [draft-moq-transport-22.md](draft-moq-transport-22.md) MQ22-070a
-  (untested).
-- **Priority scheduling** — Affects: subscribers that change priority in the
-  middle of a subscription
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/moqt/priority-goaway/)).
-  The send pump orders Object streams by Subscriber Priority, then
-  Publisher Priority, then group order, and puts fill before live inside
-  one subscription. One-shot streams already queued are not re-prioritized
-  by a REQUEST_UPDATE. Datagrams bypass the stream classes and are sent at
-  once. Equal priorities across subscriptions share each pump pass
-  round-robin. Source: `moqtrun_upd_resched` (ponytail); the Out of scope
-  sections (section 7 / section 5) of the MoQT ledgers
-  ([d19](draft-moq-transport.md), [d18](draft-moq-transport-18.md),
-  [d22](draft-moq-transport-22.md)).
-- **Properties are opaque** — Affects: applications that expect the relay to
-  act on Properties. MAX_CACHE_DURATION, DEFAULT_PUBLISHER_GROUP_ORDER,
-  DYNAMIC_GROUPS, Immutable Properties and Prior Group/Object ID Gap (and
-  d22's TIMESTAMP, VIDEO_FRAME_MARKING, AUDIO_CONFIG, ENCRYPTED_LIST and
-  PADDING) are relayed unchanged and never interpreted. Source: the MoQT
-  ledgers' Out of scope sections.
-- **FILL_TIMEOUT and EXPIRES are decoded, not acted on** — Affects:
-  clients that rely on these parameters. FILL_TIMEOUT's presence only
-  decides whether a missing range is marked "End of Timed-Out Range" (d22:
-  the hub could not get it in time), and it can shorten the upstream FETCH
-  budget above. EXPIRES is parsed and ignored. NEW_GROUP_REQUEST, in
-  contrast, is relayed upstream (d18 10.2.13, d19 10.2.18: in the hub's own
-  SUBSCRIBE, or a REQUEST_UPDATE once the Track is Established;
-  `moqtrun_ngr.c`), and RENDEZVOUS_TIMEOUT is acted on (see the
-  rendezvous cap in
-  [MoQT versions and spec deviations](#moqt-versions-and-spec-deviations)).
-  Source: the MoQT ledgers' Out of scope sections.
-- **Track Properties forwarded in SUBSCRIBE_OK only, up to 32 bytes** —
-  Affects: subscribers that read Track Properties. The publisher's Track
-  Properties reach a subscriber's SUBSCRIBE_OK unless it sent
-  INCLUDE_PROPERTIES (0x35, d22 9.20.21) = 0. A block longer than
-  `WIRED_MOQTRUN_TRACK_PROPS_MAX` (96) is forwarded empty. TRACK_STATUS_OK,
-  FETCH_OK and the PUBLISH of a SUBSCRIBE_TRACKS carry none. Source:
-  `moqtrun_queue_subscribe_ok`.
-- **Padding Datagrams are not sent** — Affects: deployments that need
-  traffic padding. Source: the MoQT ledgers (section 11.5).
-- **No Session Migration or REDIRECT behavior** — Affects: clients that
-  expect to be moved to another relay. The hub never sends REDIRECT and does
-  not react to one, because it has no upstream relay or sibling to move a
-  requester to. Source: the MoQT ledgers' Out of scope sections.
-- **REQUEST_UPDATE of a SUBSCRIBE_TRACKS** — Affects: clients that update a
-  SUBSCRIBE_TRACKS. TRACK_NAMESPACE_PREFIX and FORWARD apply to the PUBLISHes
-  generated afterwards. A TRACK_PROPERTY_FILTER in the update is accepted but
-  not applied; the request keeps its own. Source: `moqtrun_upd_ns_forward`,
-  `moqtrun_upd_ns_prefix`.
-- **Malformed-Track detection is partial** — Affects: subscribers of a
-  publisher that breaks the Track rules. Besides an unknown Object Status
-  and an Object ID overflow at decode, the relay detects only an Object past
-  the END_OF_TRACK Object or past its Group's latest END_OF_GROUP Object (by
-  Status, not by the FIN of an END_OF_GROUP stream), a Subgroup stream
-  whose Publisher Priority differs from the latest Subgroup header of the
-  same Subgroup (an older interleaved Subgroup is not remembered), and a
-  datagram for an Object the cache still holds from a Subgroup stream (a
-  datagram is not recorded, so a datagram followed by the same Object on
-  a stream goes unseen). It does not check differing finals or duplicate
-  Objects with a different payload on the subscription path (that would
-  need a cache lookup per Object). The round that triggers the detection
-  can still reach subscribers before their PUBLISH_DONE. Source:
-  `moqtrun_track_obj`, `moqtrun_sgprio_gate`, `moqtrun_dg_mode_gate` (d22
-  12.1).
-- **Request IDs past 2^56 alias another** — Affects: a session that sends
-  more than 2^56 requests (not reachable in practice). The hub keys each
-  request's flow by session slot and the low 56 bits of its Request ID.
-  Source: `moqtrun_flow_of` (ponytail).
-- **Drained session grace is fixed** — Affects: slow peers during a
-  GOAWAY. `WIRED_MOQTRUN_GOAWAY_GRACE_MS` (1000 ms) separates the
-  PUBLISH_DONE flush from the GOAWAY_TIMEOUT close. It is a fixed wait, not
-  a wait for acknowledgements. Source: `WIRED_MOQTRUN_GOAWAY_GRACE_MS`
-  (ponytail).
+  バッファリングの詳細: `WIRED_MOQTRUN_RELAY_FRAG_MAX`(16 KiB)より小さい Object は、分断されている間は丸ごと保持します。それより大きい Object のペイロードは届いた順にそのまま流し、トランスポートが拒んだ書き込みは次の tick か次の配送で再試行します。レッグが保持するものはハブ全体で 1 つのバッファーに置くので、同時にそれを必要とした 2 本目のレッグは上流 FETCH を諦めます。FETCH_HEADER が複数の配送に分かれて届き、相手の早着スロット(1 つだけ)がすでに使われていると、その相手への上流 FETCH のうち、データストリームを待っているものはすべて終わります。参照: `moqtrun_upf_*`。要件は [draft-moq-transport-22.md](draft-moq-transport-22.md) の MQ22-213 から MQ22-219 と MQ22-137。
+- **Object キャッシュはアリーナを走査する**: 影響を受けるのは、FETCH のキャッシュが大きいハブです。キャッシュは、アプリケーションが渡すアリーナ(1 つのメモリブロック)に置きます。追い出しでは memmove を 1 回通してアリーナを詰め、検索はアリーナを線形に走査します。1 項目だけの再開位置を持つので、1 つの Track を前へたどる走査は、前回の検索が止まった所から続けられます。そのため FETCH や FETCH_OK の走査のコストは、Object ごとではなく、1 回の走査につき O(arena) と、越える欠落 1 つにつき O(arena)(欠落の確認でもう一度走査するため)です。異なる Track への FETCH を交互に処理すると、その 1 項目を取り合うので、先頭から走査し直します。Group は Track ごとに昇順で届く前提なので、古い Group の Object は新しいものとしてキャッシュします。キャッシュできるペイロードの最大は `MOQCACHE_OBJ_MAX`(65472 バイト)です。参照: `moqcache.h` の先頭のコメント、`moqtrun_fetch_last`。
+- **発見の同期は 2 乗のコスト**: 影響を受けるのは、名前空間の購読が多いハブです([名前空間の発見](https://hakkadaikon.github.io/wired/guide/ja/moqt/discovery/))。SUBSCRIBE_NAMESPACE の追いつきはイベントごとに O(reqs^2) の走査で、SUBSCRIBE_TRACKS の同期は O(sessions x tracks x reqs) です。固定の容量の範囲では問題ありません。参照: `moqtrun_disc_sync`、`moqtrun_subtracks_sync_track`。
+- **Range Filter はストリーム単位か Track 単位**: 影響を受けるのは、ストリームより細かい単位で絞り込むサブスクライバーです。Range Filter は配送するストリームや Object を絞る SUBSCRIBE のパラメーターです(d19 と d22)。SUBGROUP_FILTER と PRIORITY_FILTER は、サブスクライバーへ向けてストリームを開く時点で、そのヘッダーの Subgroup ID と Publisher Priority を使ってストリーム全体を通すか決めます。TRACK_PROPERTY_FILTER は、SUBSCRIBE_TRACKS に提示する Track を、32 バイトまでの Track Properties で選びます(後述の「Track Properties」を参照)。OBJECTID_FILTER はデータグラムだけに効き、OBJECT_PROPERTY_FILTER は評価しません。ハブは中継するストリームから個々の Object を切り出さないためです。SUBSCRIBE_TRACKS が複数のフィルターの組を持ち、ある組の TRACK_PROPERTY_FILTER が通らずに別の組がその Track を通したときは、通らなかった組の Object のフィルターも Object を通します。参照: `moqtrun_sub_rngf_stream`、`moqtrun_subtracks_tp_pass`。
+- **エイリアスによる認可トークンのキャッシュはない**: 影響を受けるのは、エイリアスで認可トークンを送るクライアントです([購読者の認可](https://hakkadaikon.github.io/wired/guide/ja/moqt/authorize/))。認可トークンはエイリアスで送ることができ、REGISTER で登録し、USE_ALIAS で参照し、DELETE で消します。ハブは MAX_AUTH_TOKEN_CACHE_SIZE を広告しないので、キャッシュは 0 バイトです。REGISTER はセッションを AUTH_TOKEN_CACHE_OVERFLOW で閉じ、DELETE と USE_ALIAS は UNKNOWN_AUTH_TOKEN_ALIAS で閉じます(d22 8.9)。FETCH と SETUP のトークンは検査しません。参照: `moqtrun_take_tok_or_close`。
+- **OBJECT_DELIVERY_TIMEOUT は Object の先頭バイトから数える**: 影響を受けるのは、別のバイトからタイムアウトを測る相手です。d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバイトで時計を始めます。ここでは Object をまとめて復号するので、どちらも同じ時点になります。参照: `moqtrun_relay_born`(ponytail)、[draft-moq-transport-22.md](draft-moq-transport-22.md) MQ22-070a(テストなし)。
+- **優先度によるスケジューリング**: 影響を受けるのは、購読の途中で優先度を変えるサブスクライバーです([優先度と GOAWAY](https://hakkadaikon.github.io/wired/guide/ja/moqt/priority-goaway/))。送信ポンプは Object のストリームを Subscriber Priority、Publisher Priority、Group の順序の順で並べ、1 つの購読の中ではフィルを進行中の配信より先に送ります。すでにキューに入った単発のストリームは、REQUEST_UPDATE で優先度を付け直しません。データグラムはストリームの区分を通らず、すぐに送ります。購読をまたいで優先度が等しいものは、ポンプの 1 回分をラウンドロビンで分け合います。参照: `moqtrun_upd_resched`(ponytail)。MoQT の台帳の対象外の節(7 節 / 5 節)([d19](draft-moq-transport.md)、[d18](draft-moq-transport-18.md)、[d22](draft-moq-transport-22.md))。
+- **Properties は中身を見ない**: 影響を受けるのは、リレーが Properties に従って動くと期待するアプリケーションです。MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap(と d22 の TIMESTAMP、VIDEO_FRAME_MARKING、AUDIO_CONFIG、ENCRYPTED_LIST、PADDING)は、そのまま中継し、解釈しません。参照: MoQT の台帳の対象外の節。
+- **FILL_TIMEOUT と EXPIRES は復号するが、それに従っては動かない**: 影響を受けるのは、これらのパラメーターに頼るクライアントです。FILL_TIMEOUT はあるかどうかで、欠けた範囲に「End of Timed-Out Range」(d22: ハブが時間内に取得できなかった範囲)の印を付けるかを決めるだけです。また、上で述べた上流 FETCH の持ち時間を短くすることがあります。EXPIRES は解析して無視します。一方、NEW_GROUP_REQUEST は上流へ中継し(d18 10.2.13、d19 10.2.18: ハブ自身の SUBSCRIBE に入れるか、Track が Established になったあとは REQUEST_UPDATE で送る。`moqtrun_ngr.c`)、RENDEZVOUS_TIMEOUT にも従います(「[MoQT のバージョンと仕様からの逸脱](#moqt-のバージョンと仕様からの逸脱)」のランデブーの上限を参照)。参照: MoQT の台帳の対象外の節。
+- **Track Properties は SUBSCRIBE_OK でだけ転送し、32 バイトまで**: 影響を受けるのは、Track Properties を読むサブスクライバーです。パブリッシャーの Track Properties は、サブスクライバーが INCLUDE_PROPERTIES(0x35、d22 9.20.21)= 0 を送っていない限り、そのサブスクライバーへの SUBSCRIBE_OK に入ります。`WIRED_MOQTRUN_TRACK_PROPS_MAX`(96)より長いブロックは空にして転送します。TRACK_STATUS_OK、FETCH_OK、SUBSCRIBE_TRACKS による PUBLISH には入れません。参照: `moqtrun_queue_subscribe_ok`。
+- **Padding Datagram は送らない**: 影響を受けるのは、トラフィックのパディングが必要な運用です。参照: MoQT の台帳(11.5 節)。
+- **Session Migration と REDIRECT の動作はない**: 影響を受けるのは、別のリレーへ移されることを期待するクライアントです。ハブは REDIRECT を送らず、受けても反応しません。要求元を移す先の上流のリレーも兄弟のリレーもないためです。参照: MoQT の台帳の対象外の節。
+- **SUBSCRIBE_TRACKS の REQUEST_UPDATE**: 影響を受けるのは、SUBSCRIBE_TRACKS を更新するクライアントです。TRACK_NAMESPACE_PREFIX と FORWARD は、その後に生成する PUBLISH に適用します。更新に入っている TRACK_PROPERTY_FILTER は受け付けますが適用せず、要求は元のものを使い続けます。参照: `moqtrun_upd_ns_forward`、`moqtrun_upd_ns_prefix`。
+- **Malformed Track の検出は一部だけ**: 影響を受けるのは、Track の規則を破るパブリッシャーのサブスクライバーです。復号時の未知の Object Status と Object ID のオーバーフローのほかに、リレーが検出するのは次のものだけです。END_OF_TRACK の Object より後ろの Object と、その Group の最新の END_OF_GROUP の Object より後ろの Object(Status で判定し、END_OF_GROUP のストリームの FIN では判定しない)。同じ Subgroup の最新の Subgroup ヘッダーと Publisher Priority が異なる Subgroup ストリーム(交互に届いた古い Subgroup は覚えていない)。Subgroup ストリームから来た Object をキャッシュがまだ持っているときの、同じ Object のデータグラム(データグラムは記録しないので、データグラムのあとにストリームで同じ Object が来ても気づかない)。購読の経路では、最終位置の食い違いと、ペイロードの異なる重複 Object は確認しません(確認には Object ごとのキャッシュ検索が要るため)。検出のきっかけになった回の配送は、PUBLISH_DONE より先にサブスクライバーへ届くことがあります。参照: `moqtrun_track_obj`、`moqtrun_sgprio_gate`、`moqtrun_dg_mode_gate`(d22 12.1)。
+- **2^56 を超える Request ID は別の ID と重なる**: 影響を受けるのは、2^56 を超える要求を送るセッションです(実際には届かない数です)。ハブは各要求の流れを、セッションのスロットと Request ID の下位 56 ビットで識別します。参照: `moqtrun_flow_of`(ponytail)。
+- **終わらせるセッションの猶予は固定**: 影響を受けるのは、GOAWAY の最中の遅い相手です。`WIRED_MOQTRUN_GOAWAY_GRACE_MS`(1000 ミリ秒)が、PUBLISH_DONE の送り出しと GOAWAY_TIMEOUT による切断の間隔になります。確認応答を待つのではなく、決まった時間だけ待ちます。参照: `WIRED_MOQTRUN_GOAWAY_GRACE_MS`(ponytail)。
 
-## MoQT versions and spec deviations
+## MoQT のバージョンと仕様からの逸脱
 
-- **Supported drafts: 18, 19 and 22 only** — Affects: peers that speak only
-  another draft. Drafts 14 to 17 and drafts 20/21 are out of scope (their
-  control-stream shape and varint use differ), and ALPN `moq-00` is not
-  supported. Source: `moqver_caps`.
-- **Deliberate deviation: Filter Type 250 accepted as Largest Object** —
-  Affects: a strict peer that sends 250 and expects rejection. moxygen sends
-  its own Filter Type 250 (LargestGroup), which is not in the spec. Closing
-  with PROTOCOL_VIOLATION broke interop with moxygen, so the hub treats 250
-  as Largest Object (`moqctl_locfilter_is_quirk`). Remove that branch for
-  strict compliance. Source: commit `b217989`, `moqctl_locfilter_is_quirk`.
-- **Deliberate deviation: rendezvous hold capped at 1.5 s** — Affects:
-  publishers that legitimately arrive more than 1.5 s after a subscriber.
-  The cap exists because imquic sends 500000 (microseconds) where
-  milliseconds are expected and gives up after 2 s, so a longer hold broke
-  interop with it. `WIRED_MOQTRUN_RDV_MAX_MS` is therefore 1500, and a
-  rendezvous wait longer than 1.5 s ends with REQUEST_ERROR TIMEOUT. The
-  draft lets a relay use a shorter timeout (10.2.6). Source: commit
-  `03e69af`, `WIRED_MOQTRUN_RDV_MAX_MS`.
-- **Range Filters do not exist in draft-18** — Affects: d18 clients that send
-  one anyway. The hub closes a d18 session that sends one (unknown parameter
-  type). Source: [draft-moq-transport-18.md](draft-moq-transport-18.md).
-- **Descending FETCH may mark a nonexistent group tail as unknown** —
-  Affects: clients that read End of Unknown Range markers in a descending
-  FETCH. This follows d22 3.2.2 read literally, so it is not a deviation.
-  The hub leaves groups and Objects that do not exist unmarked, and marks
-  each group it cannot vouch for with its own End of Unknown Range marker
-  that runs to the end of that group. So the marker also labels the tail of
-  the previous item's group as unknown, even though that tail does not
-  exist. Source: `moqtrun_fetch_descend`.
+- **対応するドラフトは 18、19、22 だけ**: 影響を受けるのは、それ以外のドラフトしか話さない相手です。ドラフト 14 から 17 とドラフト 20/21 は対象外で(制御ストリームの形と varint の使い方が異なるため)、ALPN `moq-00` にも対応していません。参照: `moqver_caps`。
+- **意図した逸脱: Filter Type 250 を Largest Object として受け付ける**: 影響を受けるのは、250 を送って拒否されることを期待する厳格な相手です。moxygen は仕様にない独自の Filter Type 250(LargestGroup)を送ります。PROTOCOL_VIOLATION で閉じると moxygen と相互接続できなかったので、ハブは 250 を Largest Object として扱います(`moqctl_locfilter_is_quirk`)。仕様に厳密に従わせるには、この分岐を取り除いてください。参照: コミット `b217989`、`moqctl_locfilter_is_quirk`。
+- **意図した逸脱: ランデブーの保留は 1.5 秒が上限**: 影響を受けるのは、正当な理由でサブスクライバーより 1.5 秒以上遅れて来るパブリッシャーです。この上限があるのは、imquic がミリ秒を期待する所に 500000(マイクロ秒)を送り、2 秒で諦めるためで、保留を長くすると imquic と相互接続できませんでした。そのため `WIRED_MOQTRUN_RDV_MAX_MS` は 1500 で、1.5 秒を超えるランデブーの待機は REQUEST_ERROR TIMEOUT で終わります。ドラフトは、リレーがより短いタイムアウトを使うことを認めています(10.2.6)。参照: コミット `03e69af`、`WIRED_MOQTRUN_RDV_MAX_MS`。
+- **draft-18 には Range Filter がない**: 影響を受けるのは、それでも Range Filter を送る d18 のクライアントです。ハブはそれを送った d18 のセッションを閉じます(未知のパラメーター型のため)。参照: [draft-moq-transport-18.md](draft-moq-transport-18.md)。
+- **Descending FETCH は存在しない Group の末尾を不明として印を付けることがある**: 影響を受けるのは、Descending FETCH で End of Unknown Range の印を読むクライアントです。これは d22 3.2.2 を文字どおりに読んだ動作なので、逸脱ではありません。ハブは存在しない Group と Object には印を付けず、存在を保証できない Group ごとに、その Group の終わりまでの End of Unknown Range の印を付けます。そのため、この印は、1 つ前の項目の Group の末尾も、その末尾が存在しないにもかかわらず不明として扱います。参照: `moqtrun_fetch_descend`。
 
-## MoQT track switching (experimental)
+## MoQT の Track 切り替え(実験的)
 
-Track switching lets a subscriber move between variants of one stream (for
-example a high and a low video quality). The moqtail-compatible SWITCH_FROM
-(0x24) and SSTS (sender-side track switching: 0x41, Setup Option 0x09)
-extension is opt-in through `wired_moqt_hub.switch_track` and `ssts_algs` /
-`ssts_alg_n`, and works on draft-22 sessions only. None of it is part of
-draft-22. The [overview](moqt-track-switching.md) defines the terms used
-below; in short:
+Track 切り替えを使うと、サブスクライバーは 1 つのストリームの別版(たとえば高画質と低画質の映像)の間を移れます。moqtail 互換の SWITCH_FROM(0x24)と SSTS(sender-side track switching: 0x41、Setup Option 0x09)の拡張は、`wired_moqt_hub.switch_track` と `ssts_algs` / `ssts_alg_n` で有効にしたときだけ動き、draft-22 のセッションでだけ使えます。どれも draft-22 には含まれません。以下で使う用語は[概要](moqt-track-switching.md)で定義しています。要点は次のとおりです。
 
-- SWITCH_FROM is a switch the subscriber asks for, from an old track A to a
-  new track B at a boundary Group G. In **Hard** mode, A ends as soon as B's
-  Group G reaches the hub. In **Soft** mode, A is allowed to finish its last
-  Group first.
-- With SSTS the hub switches for a **switching set** of variant tracks,
-  Group by Group, based on what it measures about the subscriber's
-  connection. A **tier** is a quality level, and the **pacing set** is the
-  one set whose Groups drive tier changes.
+- SWITCH_FROM は、サブスクライバーが求める切り替えで、古い Track A から新しい Track B へ、境界の Group G で移ります。**Hard** モードでは、B の Group G がハブに届いた時点で A を終えます。**Soft** モードでは、A が最後の Group を先に終えるのを待ちます。
+- SSTS では、ハブが **切り替えセット**(別版の Track の集まり)について、サブスクライバーの接続で測った値をもとに Group ごとに切り替えます。**ティア** は品質の段階で、**ペーシングセット** はその Group によってティアの変更を決めるセット 1 つです。
 
-The limits:
+制限は次のとおりです。
 
-- **Loopback-tested only** — Affects: anyone who wants to use it with
-  moqtail or another third-party peer. The codec is pinned to moqtail-rs
-  unit-test byte vectors, and the hub behavior is tested in-process. No
-  moqtail (or other third-party) peer has been run against it. Source:
-  [draft-moq-transport-22.md](draft-moq-transport-22.md) MQ22-X13.
-- **Backpressure is sampled once per pacing-set Group and once per 100 ms
-  tick** — Affects: apps that call `wired_moqt_tick` rarely. The tier can
-  move at each Group of the session's pacing set (its lowest-slot active
-  backpressure set) and on `wired_moqt_tick` every 100 ms, as moqtail does.
-  The tick runs only as often as the server loop calls `wired_moqt_tick`.
-  Source: `moqtssts_run.c` header comment.
-- **What backpressure counts as congestion** — Affects: sessions that mix
-  switching-set tracks with chat or audio. Depth (the number of open streams
-  toward the subscriber) counts a stream from its open until the hub relays the
-  publisher's FIN, not until the subscriber acknowledges it. The other input is
-  the hub's own resets of the session's streams, on any of its streams, chat
-  and audio included, because moqtail counts any stream of the connection. A
-  reset here is a busy shed (the lossy relay resets a stream the transport kept
-  refusing, see below), a DELIVERY_TIMEOUT, or a reliable stall (a reliable
-  ring drops a subscriber that, with data still pending, accepted no data for
-  `WIRED_MOQTREL_STALL_MS`). These resets are counted only while the session
-  has a backpressure set, and they take the place of the resets that moqtail's
-  own discard timeout would trigger. Source: `moqtssts_run.c` header comment.
-- **The default algorithm's estimate follows the congestion window** —
-  Affects: subscribers whose quality should rise quickly. The budget is the
-  stricter of `ssts_cap_kbps` and the subscriber connection's delivery-rate
-  estimate: BBR's bottleneck bandwidth (BBR is the congestion controller
-  that models the narrowest link), else cwnd (congestion window: how much
-  the sender may have in flight) divided by the smoothed RTT. It is not a
-  probe. A subscriber that only receives the lower member keeps the
-  connection app-limited, so the estimate can rise slowly and the split may
-  stay low until the window grows. Before the first RTT sample the estimate
-  is unknown and only the cap applies. Source: `wired_server_wt_est_kbps`.
-- **SWITCHING_SET_ASSIGNMENT in PUBLISH_OK / REQUEST_OK is unsupported** —
-  Affects: moqtail clients that put it there. moqtail accepts it in those
-  messages, but this hub accepts it only in SUBSCRIBE and in a REQUEST_UPDATE
-  of a subscription. Elsewhere it is not an allowed parameter (a decode
-  violation). Source: `MOQCTL_PARAM_RULES`.
-- **Fills and FETCH are not gated by SSTS** — Affects: members that also ask
-  for history. A member joining in the middle of a Group (by SUBSCRIBE or
-  REQUEST_UPDATE) gets the track's largest Group decided at once (its
-  recorded decision wins), so the reliable ring replays it. A fill or FETCH,
-  however, serves every Group regardless of the set's decisions. Source:
-  `moqtss_on_subscribe`.
-- **No switch prompt, GOP extension or latency budget** — Affects: nobody
-  today. These ideas come from the "Art of the Switch" talk but are not in
-  moqtail's code either, so they are out of scope.
-- **SWITCH_FROM and SSTS do not combine on one subscription** — Affects:
-  clients that try both. A SWITCH_FROM naming a member of a switching set is
-  refused with INVALID_SWITCH (0x32). Use the set (sender-side) or explicit
-  switches (receiver-side), not both. Source: `moqtswitch.c`.
-- **SWITCH_FROM with FILL_PARAMETERS is refused** — Affects: clients that
-  want history on the new track. The refusal is INVALID_SWITCH (0x32). A
-  switched-to subscription starts at the boundary Group G and gets no
-  history fill. Source: `test_moqtrun_switch_fill_refused`.
-- **Hard mode cuts when Group G reaches the hub, not the subscriber** —
-  Affects: Hard switches on a congested connection. The old subscription
-  ends once the new track's Largest Group is at least G (by stream or
-  datagram). If the hub cannot open the new Group-G stream to the subscriber
-  yet (no stream credit, or a backlog), the old in-flight Groups are reset
-  first, so there is an explicit gap. The new Group G then arrives through a
-  late open and may lose its first Object. Source: `moqtswitch.c`.
-- **A suspended subscription holds its slots** — Affects: hubs near their
-  subscriber or request capacity. Without Publish Done (flag 0x80), the
-  switched-away subscription stays (FORWARD 0, request stream open) so that
-  it can be switched back. It keeps its subscriber slot and request stream
-  until the subscriber cancels it or the session closes. Source:
-  `moqtsw_suspend`.
-- **Only request-stream subscriptions can join a switching set** — Affects:
-  clients that subscribe on the control stream or to the hub's own tracks.
-  A SWITCHING_SET_ASSIGNMENT on a control-stream SUBSCRIBE (one that can
-  silently re-attach when its publisher returns), or on a SUBSCRIBE to the
-  hub's own tracks, is refused with UNSUPPORTED_EXTENSION (0x33). Draft-22
-  request-stream subscriptions end with PUBLISH_DONE when the publisher goes
-  away, so their set membership never outlives the track. Source:
-  `test_moqtrun_ssts_ctrl_subscribe_refused`.
-- **Switching during a failover wait** — Affects: switched or set-member
-  subscriptions whose publisher drops (see the failover entries under
-  [MoQT relay (hub)](#moqt-relay-hub)). The old side of a SWITCH_FROM never
-  waits: it ends at once, so a re-attach cannot feed both sides the same
-  Group. A waiting new side whose old side ended in the meantime is released
-  from the boundary when it re-attaches. A member of a switching set that is
-  re-attached leaves its set and gets every Group until a REQUEST_UPDATE
-  assigns it again. That assignment must come after the re-attach: one sent
-  while the subscription still waits is refused as a failed update, which
-  ends the subscription. Source: `moqtrun_rp_wait`,
-  `moqtrun_reattach_one_sub`.
-- **A member lagging more than 5 Groups is decided again** — Affects:
-  members that deliver very late Groups. Decisions are kept per set for its
-  newest Group minus 5 (moqtail's window). A member that delivers a Group
-  older than that gets a fresh decision, so such a late Group can come from
-  both members. Source: `test_moqtrun_ssts_lag_outside_window`.
-- **A cross-publisher switch can lose its boundary across a reconnect** —
-  Affects: a rare combination of a cross-publisher switch, a reconnect and a
-  filter update. If the old track's publisher reconnects while the
-  switched-to track's publisher (a different session) stays live, the new
-  subscription is released from its boundary before the old one
-  re-attaches. A later LOCATION_FILTER update on the new subscription is
-  then no longer clamped to G, so a few Groups could reach the subscriber
-  from both tracks. Source: `moqtsw_old_alive`.
-- **Busy-shed can downshift without network congestion** — Affects:
-  high-bitrate tracks in a switching set. The lossy relay resets a
-  subscriber stream after `WIRED_MOQTRUN_RESET_AFTER_BUSY` (8) refused
-  rounds, a threshold tuned for 20 ms voice, and every such reset feeds
-  backpressure. In browser runs, a 1080p screen share at about 3 Mbps on
-  loopback hit it in 2 of 3 runs, so Auto went to the low member with no cap
-  in place. A shed Group of a switching-set member is not re-opened midway;
-  a track outside any set (voice) still is. Source:
-  `moqtrun_relay_shed_one`.
-- **A newer Group cuts only the newest older stream** — Affects:
-  subscribers on the lossy path of a hub with `newest_group_only` set (off
-  by default; the moqt_chat example sets it). The lossy relay remembers one
-  stream per subscription. When a newer Group opens, it resets that stream and any
-  older Group stream whose publisher is still sending. Another Subgroup of
-  an older Group that the publisher already ended still drains. These resets
-  do not feed backpressure, because the hub cannot tell whether the stream
-  still had unsent bytes. Source: `moqtrun_sub_note_open`.
-- **Variants must share Group numbers** — Affects: publishers of variant
-  tracks. The boundary rule assumes aligned Group IDs across the variant
-  tracks. The hub does not check this.
-- **Soft give-up is fixed** — Affects: Soft switches to a track whose next
-  keyframe is far away. The hub waits `WIRED_MOQTSW_SOFT_WAIT_MS` (4000 ms,
-  two moqt_chat keyframe Groups) of wall-clock time after the switch. It
-  gives up only while nothing of the old subscription below G is still live.
-  Groups of the old subscription that arrive later are dropped. Source:
-  `WIRED_MOQTSW_SOFT_WAIT_MS`.
+- **ループバックでしかテストしていない**: 影響を受けるのは、moqtail やほかの第三者の相手と組み合わせて使いたい人です。コーデックは moqtail-rs の単体テストのバイト列に固定し、ハブの動作はプロセス内でテストしています。moqtail(やほかの第三者)の相手と実際に動かしたことはありません。参照: [draft-moq-transport-22.md](draft-moq-transport-22.md) MQ22-X13。
+- **背圧は、ペーシングセットの Group ごとに 1 回と、100 ミリ秒の tick ごとに 1 回だけ測る**: 影響を受けるのは、`wired_moqt_tick` をまれにしか呼ばないアプリです。ティアはセッションのペーシングセット(背圧を測る有効なセットのうち、スロットが最も小さいもの)の Group ごとと、100 ミリ秒ごとの `wired_moqt_tick` で動けます。moqtail と同じです。tick は、サーバーのループが `wired_moqt_tick` を呼ぶ頻度でしか回りません。参照: `moqtssts_run.c` の先頭のコメント。
+- **背圧が混雑として数えるもの**: 影響を受けるのは、切り替えセットの Track とチャットや音声を混ぜたセッションです。深さ(サブスクライバーへ開いているストリームの数)は、ストリームを開いてから、ハブがパブリッシャーの FIN を中継するまで数えます。サブスクライバーが確認応答するまでではありません。もう 1 つの入力は、ハブ自身がそのセッションのストリームをリセットした回数で、チャットや音声も含めて、そのセッションのどのストリームでも数えます。moqtail が接続のどのストリームでも数えるためです。ここでいうリセットは busy shed(トランスポートが拒み続けたストリームを lossy relay がリセットするもの。後述)、DELIVERY_TIMEOUT、reliable stall(データが残っているのに `WIRED_MOQTREL_STALL_MS` の間データを受け取らなかったサブスクライバーを信頼リングが外すもの)のいずれかです。これらのリセットを数えるのは、セッションが背圧を測るセットを持っている間だけで、moqtail 自身の破棄タイムアウトが起こすリセットの代わりになります。参照: `moqtssts_run.c` の先頭のコメント。
+- **既定のアルゴリズムの見積もりは輻輳ウィンドウに従う**: 影響を受けるのは、品質をすぐに上げたいサブスクライバーです。予算は `ssts_cap_kbps` と、サブスクライバーの接続の配送レートの見積もりのうち、厳しいほうです。見積もりは BBR のボトルネック帯域(BBR は最も細いリンクをモデル化する輻輳制御)で、BBR でなければ cwnd(輻輳ウィンドウ: 送信側が送信中にしておける量)を平滑化 RTT で割った値です。探査はしません。下位のメンバーだけを受け取るサブスクライバーは接続をアプリ律速に保つので、見積もりはゆっくりとしか上がらず、ウィンドウが大きくなるまで割り当てが低いままのことがあります。最初の RTT の標本が取れるまでは見積もりが不明なので、上限だけが効きます。参照: `wired_server_wt_est_kbps`。
+- **PUBLISH_OK / REQUEST_OK の中の SWITCHING_SET_ASSIGNMENT には対応しない**: 影響を受けるのは、そこにこれを入れる moqtail のクライアントです。moqtail はこれらのメッセージで受け付けますが、このハブが受け付けるのは SUBSCRIBE と、購読の REQUEST_UPDATE の中だけです。それ以外の場所では許されたパラメーターではありません(復号時の違反になります)。参照: `MOQCTL_PARAM_RULES`。
+- **フィルと FETCH は SSTS で絞らない**: 影響を受けるのは、履歴も求めるメンバーです。Group の途中で(SUBSCRIBE か REQUEST_UPDATE で)参加したメンバーには、その Track の最大の Group をすぐに決定済みにします(記録済みの決定が優先されます)。そのため信頼リングがその Group を再送します。一方、フィルと FETCH はセットの決定にかかわらずすべての Group を返します。参照: `moqtss_on_subscribe`。
+- **切り替えの促し、GOP の延長、遅延の予算はない**: 今のところ影響を受ける人はいません。これらは「Art of the Switch」の講演で出たアイデアですが、moqtail のコードにもないので対象外です。
+- **1 つの購読で SWITCH_FROM と SSTS は組み合わせられない**: 影響を受けるのは、両方を試すクライアントです。切り替えセットのメンバーを指定した SWITCH_FROM は INVALID_SWITCH(0x32)で断ります。セット(送信側)か明示的な切り替え(受信側)のどちらか一方を使ってください。参照: `moqtswitch.c`。
+- **FILL_PARAMETERS 付きの SWITCH_FROM は断る**: 影響を受けるのは、新しい Track の履歴を求めるクライアントです。断るときは INVALID_SWITCH(0x32)を返します。切り替え先の購読は境界の Group G から始まり、履歴のフィルは受け取りません。参照: `test_moqtrun_switch_fill_refused`。
+- **Hard モードは、Group G がサブスクライバーではなくハブに届いた時点で切る**: 影響を受けるのは、混雑した接続での Hard の切り替えです。新しい Track の Largest Group が G 以上になった時点(ストリームでもデータグラムでも)で、古い購読を終えます。ハブがまだ新しい Group G のストリームをサブスクライバーへ開けないとき(ストリームのクレジットがない、または滞留がある)は、送信中の古い Group を先にリセットするので、はっきりした欠落ができます。新しい Group G はそのあと遅れて開いたストリームで届き、最初の Object を失うことがあります。参照: `moqtswitch.c`。
+- **一時停止した購読はスロットを持ち続ける**: 影響を受けるのは、サブスクライバーや要求の容量に近いハブです。Publish Done(フラグ 0x80)がないと、切り替え元の購読は、元に戻せるように残ります(FORWARD 0、要求ストリームは開いたまま)。サブスクライバーが取り消すかセッションが閉じるまで、サブスクライバーのスロットと要求ストリームを持ち続けます。参照: `moqtsw_suspend`。
+- **切り替えセットに入れるのは要求ストリームの購読だけ**: 影響を受けるのは、制御ストリームで購読するクライアントと、ハブ自身の Track を購読するクライアントです。制御ストリームの SUBSCRIBE(パブリッシャーが戻ったときに通知なしでつなぎ直せるもの)や、ハブ自身の Track への SUBSCRIBE に付いた SWITCHING_SET_ASSIGNMENT は、UNSUPPORTED_EXTENSION(0x33)で断ります。draft-22 の要求ストリームの購読はパブリッシャーがいなくなると PUBLISH_DONE で終わるので、セットへの所属が Track より長く残ることはありません。参照: `test_moqtrun_ssts_ctrl_subscribe_refused`。
+- **フェイルオーバーの待機中の切り替え**: 影響を受けるのは、パブリッシャーが切れた、切り替え中の購読やセットのメンバーの購読です(「[MoQT リレー(ハブ)](#moqt-リレーハブ)」のフェイルオーバーの項目を参照)。SWITCH_FROM の古い側は待たずにすぐ終わるので、つなぎ直しで両側に同じ Group が流れることはありません。待っている新しい側は、その間に古い側が終わっていれば、つなぎ直したときに境界から解放されます。つなぎ直した切り替えセットのメンバーはセットを離れ、REQUEST_UPDATE で再び割り当てられるまですべての Group を受け取ります。この割り当ては、つなぎ直しのあとに送らなければなりません。購読がまだ待っている間に送ったものは更新の失敗として断り、その購読は終わります。参照: `moqtrun_rp_wait`、`moqtrun_reattach_one_sub`。
+- **5 Group より遅れたメンバーは決定をやり直す**: 影響を受けるのは、かなり遅れた Group を配送するメンバーです。決定はセットごとに、最新の Group から 5 を引いた所まで保持します(moqtail の窓)。それより古い Group を配送したメンバーには新しく決定するので、そうした遅れた Group が両方のメンバーから届くことがあります。参照: `test_moqtrun_ssts_lag_outside_window`。
+- **パブリッシャーをまたぐ切り替えは、再接続をはさむと境界を失うことがある**: 影響を受けるのは、パブリッシャーをまたぐ切り替え、再接続、フィルターの更新が重なるまれな場合です。切り替え先の Track のパブリッシャー(別のセッション)が生きている間に古い Track のパブリッシャーが再接続すると、古い購読がつなぎ直される前に、新しい購読が境界から解放されます。そのあと新しい購読で LOCATION_FILTER を更新しても G に切り詰められないので、いくつかの Group が両方の Track からサブスクライバーに届くことがあります。参照: `moqtsw_old_alive`。
+- **busy shed は、ネットワークが混んでいなくても品質を下げることがある**: 影響を受けるのは、切り替えセットの中のビットレートの高い Track です。lossy relay は `WIRED_MOQTRUN_RESET_AFTER_BUSY`(8)回拒まれたあとにサブスクライバーのストリームをリセットします。この閾値は 20 ミリ秒の音声に合わせたもので、こうしたリセットはすべて背圧に入ります。ブラウザーでの実行では、ループバック上の約 3 Mbps の 1080p の画面共有が 3 回中 2 回これに当たり、上限を設けていないのに Auto が下位のメンバーへ移りました。切り替えセットのメンバーの捨てた Group は、途中で開き直しません。どのセットにも入っていない Track(音声)は今も開き直します。参照: `moqtrun_relay_shed_one`。
+- **新しい Group が切るのは、古いストリームのうち最新のものだけ**: 影響を受けるのは、`newest_group_only` を設定したハブ(既定ではオフ。moqt_chat の例は設定しています)の lossy な経路のサブスクライバーです。lossy relay は購読ごとにストリームを 1 本だけ覚えています。新しい Group が開くと、そのストリームと、パブリッシャーがまだ送っている古い Group のストリームをリセットします。パブリッシャーがすでに終えた古い Group の別の Subgroup は、そのまま流し切ります。これらのリセットは背圧に入りません。ストリームにまだ送っていないバイトがあったかを、ハブが判断できないためです。参照: `moqtrun_sub_note_open`。
+- **別版の Track は Group の番号をそろえる必要がある**: 影響を受けるのは、別版の Track のパブリッシャーです。境界の規則は、別版の Track 間で Group ID がそろっていることを前提にしています。ハブはこれを確認しません。
+- **Soft の打ち切りは固定**: 影響を受けるのは、次のキーフレームが遠い Track への Soft の切り替えです。ハブは切り替えのあと、実時間で `WIRED_MOQTSW_SOFT_WAIT_MS`(4000 ミリ秒、moqt_chat のキーフレームの Group 2 つ分)待ちます。打ち切るのは、古い購読の G より前の部分が何も残っていないときだけです。あとから届いた古い購読の Group は捨てます。参照: `WIRED_MOQTSW_SOFT_WAIT_MS`。
 
-## Raw-QUIC MoQT
+## Raw QUIC 上の MoQT
 
-MoQT can also run directly over QUIC, without HTTP/3 or WebTransport, using
-the ALPN `moqt-18`, `moqt-19` or `moqt-22`. These raw sessions share the hub
-with WebTransport sessions (`wired_moqt_on_session_raw`). It is verified
-in-process, against pinned xquic and moqtopus bytes, and in the project's
-MoQT interop runs; see [Testing](#testing-and-verification-gaps).
+MoQT は HTTP/3 や WebTransport を使わずに、ALPN `moqt-18`、`moqt-19`、`moqt-22` で QUIC の上で直接動かすこともできます。こうした raw のセッションは WebTransport のセッションとハブを共有します(`wired_moqt_on_session_raw`)。プロセス内のテスト、固定した xquic と moqtopus のバイト列との照合、このプロジェクトの MoQT の相互接続の実行で検証しています。「[テスト](#テストと検証の抜け)」を参照してください。
 
-- **raw_policy accepts every well-formed PATH/AUTHORITY** — Affects: raw
-  deployments that need access control. The hub's `raw_policy`
-  (`moqraw_accept_all`) validates only the RFC 3986 shape
-  (MALFORMED_PATH 0x9 / MALFORMED_AUTHORITY 0x1A). Any well-formed value is
-  accepted unless the app installs a hook. Source: `moqraw_accept_all`.
-- **GOAWAY New Session URI is empty on raw QUIC** — Affects: mixed
-  deployments that must send a raw client to a different target. The app's
-  one URI names the WebTransport endpoint, so raw sessions get an empty URI,
-  which means "reuse the current one". Source: `moqtrun_goaway_uri`.
-- **0-RTT refused on a raw ALPN** — Affects: raw clients that want 0-RTT
-  (sending data in the first flight of a resumed connection). A raw-QUIC
-  connection is never admitted in 0-RTT (d18 3.3.1 / d22 6.3.1 make this a
-  relay MAY). Its NewSessionTicket omits the early_data extension so a
-  resuming client does not attempt it. Source: `ticket_max_early_data`.
-- **Close reasons bounded by one minimum-size packet** — Affects: nobody in
-  practice. The hub's application CONNECTION_CLOSE (0x1d) reason phrase is
-  cut (at a UTF-8 boundary) to `SRVRUN_RAW_CLOSE_REASON_MAX` = 1148 bytes,
-  which is what fits next to the frame overhead in a 1200-byte datagram.
-  Every kept WT close message (at most 1024 bytes) goes out whole. Source:
-  `SRVRUN_CLOSE_PL_MAX`.
-- **9 client uni streams per connection** — Affects: raw publishers with
-  many Subgroups open at once. Raw MoQT uses one uni stream per Subgroup.
-  The server advertises 9 client uni streams and has a receive slot, with
-  its own `WIRED_SRVLOOP_WT_BUF_CAP` window, for each of them
-  (`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` = 9). The same 9 slots serve
-  WebTransport: over HTTP/3, 3 of them go to the client's control and QPACK
-  streams, leaving 6 for WT data. Raw sessions get all 9. Source:
-  `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS`.
-- **Hub full on raw** — Affects: raw clients joining a full hub. With no free
-  session slot, a raw session is closed with INTERNAL_ERROR at once. Source:
-  `moqtrun_refuse_session`.
-- **No raw MoQT client role** — Affects: apps that want wired to connect out
-  over raw QUIC. wired has no raw-QUIC MoQT client; only the relay role is
-  registered in the interop runner. Client roles in general are listed under
-  [Out of scope by design](#out-of-scope-by-design).
+- **raw_policy は形式の正しい PATH/AUTHORITY をすべて受け付ける**: 影響を受けるのは、アクセス制御が必要な raw の運用です。ハブの `raw_policy`(`moqraw_accept_all`)は RFC 3986 の形だけを検証します(MALFORMED_PATH 0x9 / MALFORMED_AUTHORITY 0x1A)。アプリがフックを入れない限り、形式の正しい値はすべて受け付けます。参照: `moqraw_accept_all`。
+- **raw QUIC では GOAWAY の New Session URI が空**: 影響を受けるのは、raw のクライアントを別の宛先へ送る必要がある、両方を混ぜた運用です。アプリが指定する URI は 1 つで、WebTransport のエンドポイントを指すので、raw のセッションには空の URI を送ります。これは「今の URI を使い続ける」という意味です。参照: `moqtrun_goaway_uri`。
+- **raw の ALPN では 0-RTT を断る**: 影響を受けるのは、0-RTT(再開した接続の最初の送信でデータを送ること)を使いたい raw のクライアントです。raw QUIC の接続は 0-RTT では受け入れません(d18 3.3.1 / d22 6.3.1 では、これはリレーの MAY です)。NewSessionTicket から early_data 拡張を外すので、再開するクライアントは 0-RTT を試しません。参照: `ticket_max_early_data`。
+- **切断理由は最小サイズのパケット 1 つに収まる長さまで**: 実際に影響を受ける人はいません。ハブのアプリケーションの CONNECTION_CLOSE(0x1d)の理由文字列は、`SRVRUN_RAW_CLOSE_REASON_MAX` = 1148 バイトに(UTF-8 の境界で)切り詰めます。これは 1200 バイトのデータグラムにフレームのオーバーヘッドと並べて収まる長さです。保持する WT の close メッセージ(最大 1024 バイト)は、すべて丸ごと送ります。参照: `SRVRUN_CLOSE_PL_MAX`。
+- **クライアントの単方向ストリームは接続あたり 9 本**: 影響を受けるのは、多くの Subgroup を同時に開く raw のパブリッシャーです。raw の MoQT は Subgroup ごとに単方向ストリームを 1 本使います。サーバーはクライアントの単方向ストリームを 9 本と広告し、それぞれに受信スロットを持ちます。各スロットの窓は `WIRED_SRVLOOP_WT_BUF_CAP` です(`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` = 9)。同じ 9 個のスロットを WebTransport も使います。HTTP/3 では、そのうち 3 個がクライアントの制御ストリームと QPACK のストリームに使われ、WT のデータに残るのは 6 個です。raw のセッションは 9 個すべてを使えます。参照: `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS`。
+- **raw でハブが満員のとき**: 影響を受けるのは、満員のハブに参加する raw のクライアントです。空いているセッションのスロットがないと、raw のセッションはすぐに INTERNAL_ERROR で閉じます。参照: `moqtrun_refuse_session`。
+- **raw の MoQT のクライアント役はない**: 影響を受けるのは、wired から raw QUIC で外へ接続したいアプリです。wired には raw QUIC の MoQT クライアントがなく、interop runner に登録しているのはリレー役だけです。クライアント役全般は「[対象外(設計上)](#対象外設計上)」に挙げています。
 
 ## WebTransport
 
-- **Control stream backlog capped** — Affects: peers that send large control
-  frames. The unparsed backlog of the peer's control stream must fit
-  `WIRED_SRVLOOP_CTRL_BUF_CAP` (512 bytes); a larger frame or gap closes the
-  connection with H3_EXCESSIVE_LOAD. Source: `priority_ctrl.c`.
-- **Pending broadcast datagrams per connection** — Affects: apps that
-  broadcast datagrams in bursts. A connection queues `SRVRUN_DG_PENDING_Q`
-  (4) datagrams of up to 1200 bytes; a full queue refuses the newest. Source:
-  `SRVRUN_DG_PENDING_Q`.
-- **Pre-establishment datagram buffering is bounded** — Affects: clients that
-  send datagrams before the session is established.
-  `WIRED_WT_MAX_BUFFERED_DATAGRAMS` (4) datagrams of up to
-  `WIRED_WT_BUFFERED_DATAGRAM_CAP` (256) bytes are kept; longer ones are
-  dropped whole, never truncated. Source: `WIRED_WT_BUFFERED_DATAGRAM_CAP`
-  (ponytail).
-- **Datagram ring slots and broadcast urgency** — Affects: apps that send
-  HTTP Datagrams at mixed urgencies. A broadcast copied to another worker
-  thread loses its urgency and is queued there at the default (3). The ring
-  drains at each connection's congestion window and pacing rate; an entry
-  whose connection is held waits while other connections' entries go.
-  Without `datagram_first`, a connection whose streams keep its pacer empty
-  holds a ring datagram for up to max(2 x smoothed RTT, 25 ms); after that
-  the datagram goes before the streams. Source: `srvrun_dgring_send_best`,
-  `srvrun_dgring_overdue`, `srvrun_broadcast_registered` (shortcut).
-- **MAX_DATA ignores control-stream bytes** — Affects: nobody at normal
-  sizes. MAX_DATA is the connection-wide flow-control limit. The ceiling
-  counts WT streams, streamed request bodies, CONNECT-stream capsules and the
-  peer's QPACK encoder stream. Control-stream and buffered request bytes
-  ride on the initial 10 MB (`STP_DEFAULT_MAX_DATA`). Source:
-  `srvrun_grant_conn_credit` (ponytail).
-- **Concurrent WT sessions per connection** — Affects: clients that open
-  many sessions on one connection. The limit is
-  `WIRED_SRVRUN_MAX_WT_SESSIONS` (2, a `-D` build knob, at least 2) per
-  connection, `SRVRUN_MAX_WT_SESSIONS_GLOBAL` (equal to
-  `WIRED_CONNTABLE_CAP`: 4 by default, 64 in the interop image) across all
-  connections, and
-  `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` (10) new sessions per connection per
-  second. Source: those macros.
-- **Server-initiated stream blocked: the caller retries** — Affects: apps
-  that open server streams. When the peer's stream limit is reached, the open
-  function (`wired_server_wt_open_uni` and its siblings) returns -1, and
-  WT_STREAMS_BLOCKED is sent only for the stream-count cause. Retrying is the
-  caller's job; `wired_srvrun_opt.wt_on_stream_credit` tells it when the
-  same open would succeed. Source: `srvrun_wt_streams_blocked_owed`,
-  `srvrun_credit.c`.
-- **A WT bidi stream must start in order** — Affects: clients whose
-  packets reorder. A client bidi stream is classified by its offset-0 bytes.
-  A fragment that arrives before them lands in a request slot. If the stream
-  then turns out to be WebTransport (the 0x41 signal), that fragment is not
-  moved into the WT stream: the request slot is freed and the fragment is
-  dropped. The peer does not resend ACKed bytes, so the WT stream stalls at
-  that gap. Source: `srvloop_wt_slot_for`, `wt_drop_overtaken`,
-  `wired_srvloop_slot_for`.
-- **No HTTP/2 or capsule-only WebTransport** — Affects: clients without
-  HTTP/3. WebTransport over HTTP/2 and HTTP Datagrams over HTTP/1.x or
-  HTTP/2 are not implemented. There are also no rate-limit headers and no
-  re-expression of flow control by intermediaries. Source:
-  [draft-webtrans-http3.md](draft-webtrans-http3.md),
-  [rfc9297.md](rfc9297.md) Out of scope.
-- **`h3_tunnel_relay` only flips state** — Affects: apps that use a CONNECT
-  tunnel. The raw byte relay of the tunnel (over h3 DATA frames) is the
-  application's job. Source: `h3_tunnel_relay` (ponytail).
-- **Capsule-only HTTP Datagram fallback absent** — Affects: paths without
-  QUIC DATAGRAM support. QUIC DATAGRAM is assumed. Source:
-  [rfc9297.md](rfc9297.md).
+- **制御ストリームの滞留に上限がある**: 影響を受けるのは、大きな制御フレームを送る相手です。相手の制御ストリームのうちまだ解析していない分は、`WIRED_SRVLOOP_CTRL_BUF_CAP`(512 バイト)に収まらなければなりません。それより大きいフレームや欠落があると、H3_EXCESSIVE_LOAD で接続を閉じます。参照: `priority_ctrl.c`。
+- **接続ごとの未送信のブロードキャストデータグラム**: 影響を受けるのは、データグラムをまとめてブロードキャストするアプリです。接続は 1200 バイトまでのデータグラムを `SRVRUN_DG_PENDING_Q`(4)個までキューに入れます。キューが埋まっていると、いちばん新しいものを断ります。参照: `SRVRUN_DG_PENDING_Q`。
+- **セッション確立前のデータグラムのバッファリングには限りがある**: 影響を受けるのは、セッションが確立する前にデータグラムを送るクライアントです。`WIRED_WT_BUFFERED_DATAGRAM_CAP`(256)バイトまでのデータグラムを `WIRED_WT_MAX_BUFFERED_DATAGRAMS`(4)個保持します。それより長いものは切り詰めずに丸ごと捨てます。参照: `WIRED_WT_BUFFERED_DATAGRAM_CAP`(ponytail)。
+- **データグラムのリングのスロットとブロードキャストの緊急度**: 影響を受けるのは、緊急度の混ざった HTTP Datagram を送るアプリです。別のワーカースレッドへ複製したブロードキャストは緊急度を失い、そこでは既定値(3)でキューに入ります。リングは接続ごとの輻輳ウィンドウとペーシングレートに合わせて送り出します。接続が止められている項目は待ち、その間にほかの接続の項目が先に出ます。`datagram_first` がない場合、ストリームがペーサーを空にし続けている接続は、リングのデータグラムを最大 max(2 x 平滑化 RTT, 25 ミリ秒) 保留し、そのあとはデータグラムをストリームより先に送ります。参照: `srvrun_dgring_send_best`、`srvrun_dgring_overdue`、`srvrun_broadcast_registered`(shortcut)。
+- **MAX_DATA は制御ストリームのバイトを数えない**: 通常の大きさでは影響を受ける人はいません。MAX_DATA は接続全体のフロー制御の上限です。この上限で数えるのは、WT のストリーム、ストリーミングで受けるリクエストボディ、CONNECT ストリームのカプセル、相手の QPACK エンコーダーストリームです。制御ストリームとバッファーに入れたリクエストのバイトは、最初の 10 MB(`STP_DEFAULT_MAX_DATA`)の範囲で扱います。参照: `srvrun_grant_conn_credit`(ponytail)。
+- **接続ごとの同時 WT セッション数**: 影響を受けるのは、1 つの接続で多くのセッションを開くクライアントです。上限は接続あたり `WIRED_SRVRUN_MAX_WT_SESSIONS`(2。`-D` で変えられるビルド時の設定で、最小 2)、全接続で `SRVRUN_MAX_WT_SESSIONS_GLOBAL`(`WIRED_CONNTABLE_CAP` と同じで、既定は 4、interop のイメージでは 64)、新しいセッションは接続ごとに 1 秒あたり `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW`(10)です。参照: これらのマクロ。
+- **サーバーから開くストリームが止められたら、呼び出し側が再試行する**: 影響を受けるのは、サーバー側からストリームを開くアプリです。相手のストリームの上限に達すると、開く関数(`wired_server_wt_open_uni` とその仲間)は -1 を返します。WT_STREAMS_BLOCKED を送るのは、原因がストリーム数のときだけです。再試行は呼び出し側の仕事で、同じ開き方が成功するようになったら `wired_srvrun_opt.wt_on_stream_credit` で知らせます。参照: `srvrun_wt_streams_blocked_owed`、`srvrun_credit.c`。
+- **WT の双方向ストリームは順に始まらなければならない**: 影響を受けるのは、パケットの順序が入れ替わるクライアントです。クライアントの双方向ストリームはオフセット 0 のバイトで種類を判定します。それより先に届いた断片はリクエストのスロットに入ります。そのストリームがあとで WebTransport(0x41 の合図)だと分かっても、その断片は WT のストリームへ移しません。リクエストのスロットを解放し、断片は捨てます。相手は ACK 済みのバイトを再送しないので、WT のストリームはその欠落で止まります。参照: `srvloop_wt_slot_for`、`wt_drop_overtaken`、`wired_srvloop_slot_for`。
+- **HTTP/2 上の WebTransport と、カプセルだけの WebTransport はない**: 影響を受けるのは、HTTP/3 を使えないクライアントです。HTTP/2 上の WebTransport と、HTTP/1.x や HTTP/2 上の HTTP Datagram は実装していません。レート制限のヘッダーも中継者によるフロー制御の表し直しもありません。参照: [draft-webtrans-http3.md](draft-webtrans-http3.md)、[rfc9297.md](rfc9297.md) の対象外。
+- **`h3_tunnel_relay` は状態を切り替えるだけ**: 影響を受けるのは、CONNECT のトンネルを使うアプリです。トンネルの生のバイトの中継(h3 の DATA フレームの上で行う)は、アプリケーションの仕事です。参照: `h3_tunnel_relay`(ponytail)。
+- **カプセルだけで送る HTTP Datagram への代替はない**: 影響を受けるのは、QUIC DATAGRAM に対応していない経路です。QUIC DATAGRAM があることを前提にしています。参照: [rfc9297.md](rfc9297.md)。
 
-## HTTP/3 and QPACK
+## HTTP/3 と QPACK
 
-QPACK is the header compression of HTTP/3. It can keep a dynamic table of
-recently sent headers, updated over its own encoder and decoder streams.
+QPACK は HTTP/3 のヘッダー圧縮です。最近送ったヘッダーの動的テーブルを持つことができ、そのテーブルは専用のエンコーダーストリームとデコーダーストリームで更新します。
 
-- **Origin server only** — Affects: apps that need a proxy or push. There is
-  no CONNECT proxying to TCP (only Extended CONNECT per RFC 9220), no server
-  push (PUSH_PROMISE, push-ID priority). Client roles are listed under
-  [Out of scope by design](#out-of-scope-by-design). Source:
-  [rfc9114.md](rfc9114.md), [rfc9218.md](rfc9218.md),
-  [rfc9220.md](rfc9220.md).
-- **QPACK dynamic table: requests fully, responses only for `:status`** —
-  Affects: bandwidth of response headers, and peers whose encoder stream is
-  lost early. In short: request headers can use the client's dynamic table,
-  up to 2016 bytes. Responses use the table only for a `:status` with no
-  static entry, and only once the client has acknowledged it. A request
-  that would have to wait for a table update fails instead of waiting.
+- **オリジンサーバーとしてだけ動く**: 影響を受けるのは、プロキシやプッシュが必要なアプリです。TCP への CONNECT のプロキシ(RFC 9220 の Extended CONNECT だけはある)も、サーバープッシュ(PUSH_PROMISE、push ID の優先度)もありません。クライアント役は「[対象外(設計上)](#対象外設計上)」に挙げています。参照: [rfc9114.md](rfc9114.md)、[rfc9218.md](rfc9218.md)、[rfc9220.md](rfc9220.md)。
+- **QPACK の動的テーブル: リクエストはすべて使い、レスポンスは `:status` だけに使う**: 影響を受けるのは、レスポンスヘッダーの帯域と、エンコーダーストリームが早い段階で失われた相手です。要点は次のとおりです。リクエストヘッダーはクライアントの動的テーブルを 2016 バイトまで使えます。レスポンスがテーブルを使うのは、静的テーブルに項目のない `:status` だけで、しかもクライアントがそれを確認応答してからです。テーブルの更新を待たなければならないリクエストは、待たずに失敗します。
 
-  The details: the decoder advertises capacity 2016 (`QPACK_DYN_MAX_CAPACITY`)
-  and `SETTINGS_QPACK_BLOCKED_STREAMS 0`. It applies the peer's encoder stream
-  and sends Section Acknowledgments, Stream Cancellations and Insert Count
-  Increments on a decoder stream opened at id 11, so the first application uni
-  stream is 15. It never blocks a stream: a section that needs inserts not yet
-  received is `QPACK_DECOMPRESSION_FAILED`.
+  詳細: デコーダーは容量 2016(`QPACK_DYN_MAX_CAPACITY`)と `SETTINGS_QPACK_BLOCKED_STREAMS 0` を広告します。相手のエンコーダーストリームを適用し、ID 11 で開いたデコーダーストリームで Section Acknowledgment、Stream Cancellation、Insert Count Increment を送ります。そのため、アプリケーションの最初の単方向ストリームは 15 になります。ストリームを止めることはなく、まだ受け取っていない挿入を必要とするセクションは `QPACK_DECOMPRESSION_FAILED` になります。
 
-  The encoder stream is reassembled in a 48 KB window equal to its stream
-  credit, re-granted as it is consumed. Bytes that arrive before a stream's
-  type byte are held while only one uni stream's type is unknown (a stream
-  whose type is known is never held). When two are lost at once, the
-  second one's early bytes are dropped. If that is the encoder stream, no
-  later insert applies, and the peer's encoder is left with the static table
-  and the entries acknowledged before.
+  エンコーダーストリームはそのストリームのクレジットと同じ 48 KB の窓で組み立て直し、消費した分だけクレジットを与え直します。ストリームの種類を示すバイトより先に届いたバイトは、種類の分からない単方向ストリームが 1 本だけの間は保持します(種類が分かっているストリームは保持しません)。2 本が同時に失われると、2 本目の先に届いたバイトは捨てます。それがエンコーダーストリームだった場合、その後の挿入は適用されず、相手のエンコーダーは静的テーブルと、それまでに確認応答した項目だけで動くことになります。
 
-  A trailer section on a request whose body streams to the application
-  (`on_body`) is skipped unacknowledged, which keeps its references pinned
-  for the connection's life. The acknowledgment queue holds one step's
-  worth; it drops entries only if the peer grants the decoder stream no
-  credit. Decoder instructions that arrive past a gap (reordered ahead of
-  earlier bytes) are dropped, and reading that stream stops at the gap for
-  good, without an error (`qpackenc_decrx_feed`, shortcut). The server's
-  own encoder table takes min(the peer's capacity, 2016)
-  (`QPACKENC_LOCAL_CAP`; build with `-DQPACKENC_LOCAL_CAP=0` to turn it
-  off). Other response fields stay static or literal; literal names and
-  values are Huffman-coded when shorter. An insert is made only once its
-  response's field section is built and its instruction fits the encoder
-  stream's send ring; otherwise the field goes out as a literal. The
-  encoder evicts only when every insert is
-  acknowledged and no section is pending, and a cancelled stream's section
-  stays pending, so after one the table stops evicting. Source:
-  [rfc9204.md](rfc9204.md), [rfc7541.md](rfc7541.md).
-- **HTTP semantics are the application's** — Affects: every HTTP app. The
-  SDK does not handle trailers, `Date`, conditional or range requests,
-  content negotiation or TRACE; field values are passed to the application
-  verbatim. Source:
-  [rfc9110.md](rfc9110.md) Out of scope.
-- **Response body cap** — Affects: handlers with large responses. A fixed
-  response row holds `WIRED_SRVRUN_RESP_MAX` (16384 bytes) minus the
-  512-byte header room (`SRVRUN_RESP_HDR_ROOM`), so 15872 body bytes per
-  round. Larger bodies use a `srvbigbuf` row (the large-response buffer
-  pool) or streaming
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/)). The
-  grid is `WIRED_CONNTABLE_CAP` connections x 40 response slots
-  (`SRVRUN_RESP_SLOTS`) x 16 KiB of BSS (zero-initialized static memory):
-  about 2.5 MiB at the default 4 connections, 40 MiB at the interop
-  image's 64, multiplied by the worker count under `--cores N`. The
-  low-level handler body cap is `WIRED_SRVLOOP_BODY_MAX` (1024). Source:
-  `WIRED_SRVRUN_RESP_MAX`, `WIRED_SRVLOOP_BODY_MAX` (ponytail).
-- **Request buffer limited to `BODYWIN_CAP` (10240)** — Affects: clients that
-  send request bodies to a handler without `on_body`. A buffered request that
-  fills the window without FIN is answered with 413 or 431, including one whose
-  FIN comes in a later empty frame ("window stuck"). A byte past the window is
-  past the stream credit and closes the connection with FLOW_CONTROL_ERROR. Use
-  `on_body` for larger bodies
-  ([guide](https://hakkadaikon.github.io/wired/guide/en/h3/post-body/)). Source:
-  `route_window_stuck` (ponytail).
-- **Request slots are sized for 8000-octet request targets** — Affects:
-  memory budgets. RFC 9110 4.1 recommends accepting URIs of at least 8000
-  octets, so the field-section limit (`WIRED_H3_MAX_FIELD_SECTION`), the
-  request window (`BODYWIN_CAP`) and the request-stream credit
-  (`STP_DEFAULT_STREAM_DATA_REMOTE`) are 10240 bytes each. A request slot
-  holds the decode scratch, the window, its wrap buffer and the window's
-  receive bitmap, about 25 KB more than at the earlier 2048-byte size. With
-  40 request slots (`WIRED_SRVLOOP_MAX_STREAMS`) per connection that is
-  about 1 MB more per connection (`WIRED_CONNTABLE_CAP`): about 4 MB at
-  the default 4 connections and 65 MB at the interop image's 64, per
-  server environment (static memory for one server loop), and
-  `srvthreads` maps one environment per worker, so the cost multiplies by
-  the worker count.
-  Source: `body_window.h`, `control_settings.h`.
-- **Abort retransmit table is fixed-size** — Affects: nobody in practice. A
-  stream abort is a RESET_STREAM or STOP_SENDING frame. `SRVRUN_RST_RETX` keeps
-  one abort per stream the connection can track (99). If more than that many
-  aborts are unacknowledged within one RTT, the excess ones are sent once and
-  never retransmitted (RFC 9000 13.3). Source: `srvrun_rst_keep` (ponytail).
-- **A malformed request is aborted, not answered** — Affects: clients that
-  send malformed HEADERS. A request stream whose whole HEADERS frame cannot
-  become a request is reset with H3_MESSAGE_ERROR plus STOP_SENDING, without
-  waiting for a FIN; no 400 is sent first (RFC 9114 4.1.2 MAY), so
-  conformance checkers see the reset they expect. One that ends before its
-  HEADERS frame is whole gets H3_REQUEST_INCOMPLETE. A field section whose
-  decoded lines overflow the decode scratch (which puts it past the
-  advertised SETTINGS_MAX_FIELD_SECTION_SIZE) is answered 431 instead (RFC
-  9114 4.2.2), but a single field line larger than the whole decode
-  scratch, or one this decoder cannot interpret, is reset with
-  QPACK_DECOMPRESSION_FAILED (RFC 9204 7.4). Its slot and bidi stream credit
-  are returned. The same happens for a request stream the peer resets while
-  it is still being received, or before any of its data claimed a slot.
-  Source: `connect_headers_complete`, `route_note_incomplete_append`,
-  `h3reqdrive_line_fail`, `reset_request_stream`,
-  `srvrun_abort_incomplete_reqs`, `srvrun_free_reset_reqs`.
-- **Graceful shutdown is tick-bounded** — Affects: operators who stop the
-  server with SIGTERM. The server sends GOAWAY, then waits at most
-  `SRVRUN_DRAIN_TICKS` (25) x 200 ms (about 5 s) before it closes. A SIGTERM
-  delivered before the handler is installed takes the default action (no
-  GOAWAY). See the guide's
-  [shutdown page](https://hakkadaikon.github.io/wired/guide/en/ops/shutdown/).
-  Source: `srvrun_drain_tick` (ponytail).
-- **Spin backoff is count-based** — Affects: CPU use of an idle busy-poll loop
-  (a loop that polls the socket instead of sleeping). There is no time-based
-  backoff, because the only clock has millisecond granularity. Source:
-  `srvpoll_backoff_pause_n` (ponytail).
-- **Receive batch** — Affects: throughput at high fan-in. The server reads
-  up to `SRVRUN_RX_BATCH` (16) datagrams per `recvmmsg` call, with 32 KB of
-  storage per environment. Source: `SRVRUN_RX_BATCH` (ponytail).
-- **Idle timeout and eviction grace are fixed** — Affects: long-idle
-  clients. `WIRED_SRVRUN_IDLE_MS` is 30000 and `WIRED_SRVRUN_EVICT_GRACE_MS`
-  is 1000. Source: those macros.
+  ボディをアプリケーションへストリーミングするリクエスト(`on_body`)のトレーラーセクションは、確認応答せずに読み飛ばします。そのため、そこからの参照は接続が続く間ずっと固定されたままになります。確認応答のキューは 1 ステップ分を保持し、項目を捨てるのは、相手がデコーダーストリームにクレジットを与えないときだけです。欠落の先に届いた(前のバイトより先に並び替わって届いた)デコーダー命令は捨て、そのストリームの読み取りはエラーを出さずに欠落の所で止まったままになります(`qpackenc_decrx_feed`、shortcut)。サーバー自身のエンコーダーテーブルは min(相手の容量, 2016) を使います(`QPACKENC_LOCAL_CAP`。無効にするには `-DQPACKENC_LOCAL_CAP=0` でビルドします)。レスポンスのほかのフィールドは静的テーブルかリテラルのままで、リテラルの名前と値は短くなるときに Huffman 符号化します。挿入するのは、そのレスポンスのフィールドセクションができあがり、命令がエンコーダーストリームの送信リングに収まるときだけです。そうでなければ、そのフィールドはリテラルで送ります。エンコーダーが追い出すのは、すべての挿入が確認応答され、保留中のセクションがないときだけです。取り消されたストリームのセクションは保留のまま残るので、一度取り消しがあると、テーブルは追い出しをしなくなります。参照: [rfc9204.md](rfc9204.md)、[rfc7541.md](rfc7541.md)。
+- **HTTP の意味論はアプリケーションが扱う**: 影響を受けるのは、すべての HTTP アプリです。SDK はトレーラー、`Date`、条件付きリクエストと範囲リクエスト、コンテンツネゴシエーション、TRACE を扱いません。フィールドの値はそのままアプリケーションへ渡します。参照: [rfc9110.md](rfc9110.md) の対象外。
+- **レスポンスボディの上限**: 影響を受けるのは、大きなレスポンスを返すハンドラーです。固定のレスポンスの行は `WIRED_SRVRUN_RESP_MAX`(16384 バイト)から 512 バイトのヘッダー領域(`SRVRUN_RESP_HDR_ROOM`)を引いた分を保持するので、1 回あたりのボディは 15872 バイトです。それより大きいボディは `srvbigbuf` の行(大きなレスポンス用のバッファープール)かストリーミングを使います([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。この配列全体は `WIRED_CONNTABLE_CAP` 接続 x 40 レスポンススロット(`SRVRUN_RESP_SLOTS`)x 16 KiB の BSS(ゼロで初期化される静的メモリ)です。既定の 4 接続で約 2.5 MiB、interop のイメージの 64 接続で 40 MiB になり、`--cores N` のもとではワーカーの数を掛けた量になります。低レベルのハンドラーのボディの上限は `WIRED_SRVLOOP_BODY_MAX`(1024)です。参照: `WIRED_SRVRUN_RESP_MAX`、`WIRED_SRVLOOP_BODY_MAX`(ponytail)。
+- **リクエストのバッファーは `BODYWIN_CAP`(10240)まで**: 影響を受けるのは、`on_body` のないハンドラーへリクエストボディを送るクライアントです。バッファーに入れるリクエストが FIN のないまま窓を埋めると、413 か 431 で応答します。FIN があとの空のフレームで来る場合(「window stuck」)も同じです。窓を超えたバイトはストリームのクレジットも超えているので、FLOW_CONTROL_ERROR で接続を閉じます。大きなボディには `on_body` を使ってください([POST ボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/post-body/))。参照: `route_window_stuck`(ponytail)。
+- **リクエストのスロットは 8000 オクテットのリクエストターゲットに合わせた大きさ**: 影響を受けるのは、メモリの予算です。RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付けることを推奨しているので、フィールドセクションの上限(`WIRED_H3_MAX_FIELD_SECTION`)、リクエストの窓(`BODYWIN_CAP`)、リクエストストリームのクレジット(`STP_DEFAULT_STREAM_DATA_REMOTE`)はそれぞれ 10240 バイトです。リクエストのスロットは復号用の作業領域、窓、その折り返し用のバッファー、窓の受信ビットマップを持ち、以前の 2048 バイトのときより約 25 KB 大きくなっています。接続あたり 40 個のリクエストスロット(`WIRED_SRVLOOP_MAX_STREAMS`)があるので、接続(`WIRED_CONNTABLE_CAP`)ごとに約 1 MB 増えます。サーバー環境(1 つのサーバーループの静的メモリ)ごとに、既定の 4 接続で約 4 MB、interop のイメージの 64 接続で 65 MB です。`srvthreads` はワーカーごとに環境を 1 つ割り当てるので、このコストはワーカーの数だけ掛け算になります。参照: `body_window.h`、`control_settings.h`。
+- **中断の再送テーブルは固定長**: 実際に影響を受ける人はいません。ストリームの中断は RESET_STREAM か STOP_SENDING のフレームです。`SRVRUN_RST_RETX` は、接続が追跡できるストリームごとに中断を 1 つ保持します(99)。1 RTT の間にそれより多くの中断が確認応答されないままになると、超えた分は 1 回だけ送り、再送しません(RFC 9000 13.3)。参照: `srvrun_rst_keep`(ponytail)。
+- **不正なリクエストには応答せず中断する**: 影響を受けるのは、不正な HEADERS を送るクライアントです。HEADERS フレーム全体からリクエストを組み立てられないリクエストストリームは、FIN を待たずに H3_MESSAGE_ERROR と STOP_SENDING でリセットします。その前に 400 は送りません(RFC 9114 4.1.2 の MAY)。こうすることで、適合性の検査ツールが期待どおりのリセットを受け取ります。HEADERS フレームが揃う前に終わったものには H3_REQUEST_INCOMPLETE を送ります。復号した行が復号用の作業領域からあふれる(つまり広告した SETTINGS_MAX_FIELD_SECTION_SIZE を超える)フィールドセクションには、代わりに 431 で応答します(RFC 9114 4.2.2)。ただし、1 行のフィールドが復号用の作業領域全体より大きい場合や、このデコーダーが解釈できない場合は、QPACK_DECOMPRESSION_FAILED でリセットします(RFC 9204 7.4)。そのスロットと双方向ストリームのクレジットは返します。受信の途中で相手がリセットしたリクエストストリームや、データがまだスロットを取る前にリセットされたリクエストストリームも同じ扱いです。参照: `connect_headers_complete`、`route_note_incomplete_append`、`h3reqdrive_line_fail`、`reset_request_stream`、`srvrun_abort_incomplete_reqs`、`srvrun_free_reset_reqs`。
+- **グレースフルシャットダウンは tick の回数で区切る**: 影響を受けるのは、SIGTERM でサーバーを止める運用者です。サーバーは GOAWAY を送り、閉じる前に最大 `SRVRUN_DRAIN_TICKS`(25)x 200 ミリ秒(約 5 秒)待ちます。ハンドラーを設定する前に届いた SIGTERM は既定の動作になります(GOAWAY は送りません)。ガイドの「[SIGTERM によるグレースフルストップ](https://hakkadaikon.github.io/wired/guide/ja/ops/shutdown/)」を参照してください。参照: `srvrun_drain_tick`(ponytail)。
+- **スピンの待ち時間は回数で決める**: 影響を受けるのは、何もしていないビジーポーリングのループ(眠らずにソケットをポーリングするループ)の CPU 使用量です。時間に基づく待ち時間の延長はありません。使える時計がミリ秒の粒度しかないためです。参照: `srvpoll_backoff_pause_n`(ponytail)。
+- **受信のまとめ数**: 影響を受けるのは、多くの相手から受けるときのスループットです。サーバーは `recvmmsg` の 1 回の呼び出しで最大 `SRVRUN_RX_BATCH`(16)個のデータグラムを読み、環境ごとに 32 KB の領域を使います。参照: `SRVRUN_RX_BATCH`(ponytail)。
+- **アイドルタイムアウトと追い出しの猶予は固定**: 影響を受けるのは、長くアイドルなクライアントです。`WIRED_SRVRUN_IDLE_MS` は 30000、`WIRED_SRVRUN_EVICT_GRACE_MS` は 1000 です。参照: これらのマクロ。
 
-## QUIC transport
+## QUIC トランスポート
 
-- **Handshake bytes in flight are approximate** — Affects: congestion
-  control while the handshake runs. Initial and Handshake packets keep no
-  per-packet ACK record, so their bytes stay in flight until the keys are
-  discarded (an over-count), and a replayed datagram that the
-  anti-amplification budget held back can be under-counted. Source:
-  `srvrun_boot_inflight` (shortcut).
-- **Very old stream IDs count as retired** — Affects: nobody in practice.
-  Receive accounting remembers retired stream IDs in a window; an ID below
-  the window's ceiling is treated as already fully counted. Source:
-  `srvloop_rxacct_entry` (shortcut).
-  (shortcut).
-- **Grease bit choice is a mix, not a PRF** — Affects: nobody in practice.
-  When the peer allows greasing the QUIC Bit (RFC 9287), the server clears it
-  based on a multiply-mix of a per-connection secret and the packet number,
-  which an observer could in principle analyse. Source:
-  `send_onertt_clear_bit` (shortcut).
-- **Path validation limits** — Affects: clients that change address (for
-  example from Wi-Fi to mobile), and resistance to address spoofing. A QUIC
-  server checks a new client address by sending a PATH_CHALLENGE and waiting
-  for the matching PATH_RESPONSE. Two PATH_CHALLENGEs are tracked at once
-  (the new path and the path left), plus the last validated path. A probe
-  from a new path is answered whenever an unused peer connection ID is
-  available (RFC 9000 8.2.2, 9.5), but its validation starts only when a
-  slot is free; otherwise the answer stays within three times the datagram
-  that carried the probe and the path is not used. Answering such a probe
-  binds a spare peer connection ID to that path, and when the path is not
-  tracked the same step retires it with RETIRE_CONNECTION_ID (when the
-  current path's 3x limit holds that frame back, it is resent until
-  acknowledged): RFC 9000 9.5
-  requires a fresh ID per path, so one spare ID per answered probe is the
-  accepted cost. A datagram with more than eight PATH_CHALLENGEs (this
-  implementation's capacity) closes the connection with PROTOCOL_VIOLATION
-  instead of leaving one unanswered: RFC 9000 21.9 allows treating excess
-  non-productive activity as a connection error, and 8.2.1 says a sender
-  SHOULD NOT bundle several in one packet.
+- **ハンドシェイク中の送信中バイト数は概算**: 影響を受けるのは、ハンドシェイク中の輻輳制御です。Initial パケットと Handshake パケットはパケットごとの ACK の記録を持たないので、そのバイトは鍵を破棄するまで送信中のまま数えます(多めに数えることになります)。また、増幅防止の予算で送るのを控えた、再送されたデータグラムは少なめに数えることがあります。参照: `srvrun_boot_inflight`(shortcut)。
+- **とても古いストリーム ID は使用済みとして扱う**: 実際に影響を受ける人はいません。受信の計上では、使用済みのストリーム ID を窓で覚えています。窓の上限より小さい ID はすでに数え終えたものとして扱います。参照: `srvloop_rxacct_entry`(shortcut)。
+- **grease ビットの選び方は撹拌で、PRF ではない**: 実際に影響を受ける人はいません。相手が QUIC Bit の grease を許しているとき(RFC 9287)、サーバーは接続ごとの秘密値とパケット番号を掛け算で撹拌した値をもとに、このビットを 0 にします。観測者が原理的には解析できる方法です。参照: `send_onertt_clear_bit`(shortcut)。
+- **経路検証の制限**: 影響を受けるのは、アドレスが変わるクライアント(たとえば Wi-Fi からモバイル回線へ)と、アドレス詐称への耐性です。QUIC サーバーは新しいクライアントのアドレスを、PATH_CHALLENGE を送って対応する PATH_RESPONSE を待つことで確認します。同時に追跡する PATH_CHALLENGE は 2 つ(新しい経路と離れた経路)で、ほかに最後に検証した経路を覚えます。新しい経路からのプローブには、使っていない相手の接続 ID があればいつでも応答します(RFC 9000 8.2.2、9.5)。ただし、その経路の検証はスロットが空いているときにしか始めません。空いていなければ、応答はプローブを運んだデータグラムの 3 倍以内に収め、その経路は使いません。こうしたプローブに応答すると、予備の相手の接続 ID をその経路に結び付けます。経路を追跡しない場合は、同じ手順でその ID を RETIRE_CONNECTION_ID で使用済みにします(今の経路の 3 倍の上限でそのフレームを送れないときは、確認応答されるまで再送します)。RFC 9000 9.5 は経路ごとに新しい ID を求めているので、応答したプローブ 1 つにつき予備の ID を 1 つ使うのは受け入れたコストです。PATH_CHALLENGE を 8 個(この実装の容量)より多く含むデータグラムを受けると、1 つを未応答にするのではなく、PROTOCOL_VIOLATION で接続を閉じます。RFC 9000 21.9 は、度を超えた非生産的な活動を接続エラーとして扱うことを認めており、8.2.1 は、送信側が 1 つのパケットに複数をまとめるべきではない (SHOULD NOT) としています。
 
-  When a path's validation is re-armed (for example, because a second move
-  left that path), a fresh challenge starts, so a late response to the
-  earlier one is not matched; the path validates on the next one. An
-  off-path copy of a genuine new packet still moves the send path until that
-  path's validation times out
-  and the server reverts (RFC 9000 9.3.3 calls this defense imperfect). The
-  anti-amplification limit (send at most three times what was received)
-  is counted on the path's challenge slot; a path that holds none gets
-  three times its latest datagram, so its earlier bytes are not credited.
-  Source: `srvrun_path_*`, `srvrun_amp.c`, `pathsel`.
-- **Peer connection IDs** — Affects: clients that migrate more than three
-  times without the old IDs being retired. A connection ID (CID) is the
-  label that lets a QUIC connection survive an address change. The server
-  holds four of the client's CIDs (it advertises active_connection_id_limit
-  4). With no spare ID left, the old one stays in use until the peer issues
-  more. A repeated NEW_CONNECTION_ID for an ID the server retired more than
-  64 sequence numbers above Retire Prior To is held again, and one more
-  than 64 below it (below Retire Prior To - 64) is retired again, owing a
-  second RETIRE_CONNECTION_ID. Source: `peercid_bit` (ponytail),
-  `peercid_past_bit` (shortcut).
-- **ECN marks are ECT(0) on the UDP socket only** — Affects: networks that
-  rely on ECN (Explicit Congestion Notification marks in the IP header).
-  AF_XDP (the kernel-bypass driver) never marks, and ECT(1) is never sent.
-  A connection whose ECN validation failed sends Not-ECT, still batched by
-  GSO. Source: `srvrun_ecn_unmarked`.
-- **No kernel-fallback paths for socket options** — Affects: apps that call
-  the `udp.h` socket helpers directly. The helpers for `IP_TOS`/`IP_RECVTOS`
-  and the `IP_MTU_DISCOVER`-style PMTU probe option return the setsockopt
-  error and offer no fallback. `wired_server_run` calls them best-effort and
-  binds anyway, so on a kernel that rejects them the server runs without ECN
-  marking/reading or without kernel PMTU suspension. Source:
-  `wired_udp_ect0_enable` and its siblings in `udp.h` (ponytail),
-  `srvrun_listen`.
+  経路の検証を仕掛け直すとき(たとえば 2 回目の移動でその経路を離れたとき)は、新しいチャレンジを始めるので、前のチャレンジへの遅れた応答は一致しません。その経路は次のチャレンジで検証されます。本物の新しいパケットを経路外から複製したものも、その経路の検証がタイムアウトしてサーバーが元に戻るまでは、送信経路を動かしてしまいます(RFC 9000 9.3.3 はこの防御を不完全なものとしています)。増幅防止の上限(受け取った量の 3 倍までしか送らない)は、その経路のチャレンジのスロットで数えます。スロットを持たない経路には最新のデータグラムの 3 倍を許すので、それより前のバイトは計上されません。参照: `srvrun_path_*`、`srvrun_amp.c`、`pathsel`。
+- **相手の接続 ID**: 影響を受けるのは、古い ID が使用済みにならないまま 3 回より多く移動するクライアントです。接続 ID (CID) は、アドレスが変わっても QUIC の接続を保てるようにするラベルです。サーバーはクライアントの CID を 4 つ保持します(active_connection_id_limit 4 を広告します)。予備の ID が残っていないと、相手が新しい ID を発行するまで古い ID を使い続けます。サーバーが使用済みにした ID について、Retire Prior To より 64 を超えて大きいシーケンス番号の NEW_CONNECTION_ID が重ねて届くと、その ID を再び保持します。64 を超えて小さいもの(Retire Prior To - 64 より小さいもの)は再び使用済みにし、RETIRE_CONNECTION_ID をもう一度送る必要が生じます。参照: `peercid_bit`(ponytail)、`peercid_past_bit`(shortcut)。
+- **ECN の印は UDP ソケットでの ECT(0) だけ**: 影響を受けるのは、ECN(IP ヘッダーに付ける明示的輻輳通知の印)に頼るネットワークです。AF_XDP(カーネルを迂回するドライバー)は印を付けず、ECT(1) は一切送りません。ECN の検証に失敗した接続は Not-ECT で送り、GSO でのまとめ送りは続けます。参照: `srvrun_ecn_unmarked`。
+- **ソケットオプションにカーネル側の代替経路がない**: 影響を受けるのは、`udp.h` のソケット用ヘルパーを直接呼ぶアプリです。`IP_TOS`/`IP_RECVTOS` と、`IP_MTU_DISCOVER` 系の PMTU プローブのオプションのヘルパーは、setsockopt のエラーを返すだけで、代わりの手段はありません。`wired_server_run` はこれらをできる範囲で呼び、失敗しても bind します。そのため、これらを拒むカーネルでは、ECN の印の付与や読み取りがないまま、あるいはカーネルの PMTU の停止がないまま、サーバーが動きます。参照: `udp.h` の `wired_udp_ect0_enable` とその仲間(ponytail)、`srvrun_listen`。
 
-The next two entries concern lower-level entry points. The server that
-`wired_server_run` builds (the one the guide uses) does not run connio or
-`appdata_recv`, so they matter only if you call those directly.
+次の 2 項目は低レベルの入口についてのものです。`wired_server_run` が組み立てるサーバー(ガイドが使うもの)は connio も `appdata_recv` も動かさないので、これらを直接呼ぶ場合にだけ関係します。
 
-- **`connio` always marks its sends as ack-eliciting** — Affects: users of
-  connio only. The flag is hard-set to 1, so a send of non-ack-eliciting
-  frames only is not classified as such. Source: `connio.c`.
-- **`appdata_recv` has no packet-number history** — Affects: users of this
-  one-shot entry only. It passes largest_pn 0; full packet-number recovery
-  is the job of the srvloop path. Source: `app_recv.c` (ponytail).
-- **Fixed connection table** — Affects: servers that need more
-  connections than the build-time cap. `WIRED_CONNTABLE_CAP` defaults to 4
-  in the normal build (`scripts/just/flags.sh`; override with
-  `CONNTABLE_CAP=<n> just ninja`) and is built with 64 for the interop
-  image; the header's own fallback is 64. Lookup is an open-addressing
-  hash over every CID a slot owns. The index is rebuilt on each insert,
-  rekey and CID change (per connection event, not per packet). The hash is
-  keyed with a random per-process seed, so a client cannot precompute
-  colliding Initial DCIDs; it is not a PRF, so one that learns collisions
-  (e.g. by timing) can still cluster them. Worst case: a lookup walks at
-  most 3 * cap buckets (up to 9 * cap CID compares, about 3x the former
-  linear scan) and a rebuild is O(cap^2). Source: `conntable.h` header
-  comment (ponytail).
-- **0-RTT replay ring** — Affects: deployments that accept 0-RTT under
-  heavy resumption. `ZERORTT_SEEN_CAP` holds 4096 fingerprints. An entry is
-  evicted only once a replay of it can no longer pass the freshness check
-  (`ZERORTT_SEEN_LIVE_SECS`, 21 s); while the ring is full of live entries,
-  new 0-RTT attempts are refused and those clients fall back to 1-RTT
-  (RFC 8446 8.2). Forked workers share the ring; separate server processes
-  and restarts do not (no persistence). So with a `ticket_key` seed shared
-  across servers, a 0-RTT ticket can be replayed once per server: do not
-  enable `early_data` on servers that share a seed. Source:
-  `zerortt_seen.h` (ponytail).
-- **Used NEW_TOKEN record holds 4096 tokens** — Affects: servers whose
-  clients present many NEW_TOKEN tokens within a token lifetime. The same
-  4096-entry ring records each accepted token, and an entry is evicted only
-  once it is more than `NEWTOKEN_MAX_AGE_SECS` (7 days) old, so the token
-  it records has expired. While the ring is full of live entries, further
-  tokens are refused and those clients proceed unvalidated: the
-  anti-amplification limit, or a Retry under `force_retry` (RFC 9000
-  8.1.3). Forked workers share the one ring, so the 4096 is per server, not
-  per worker. The record is not shared across separately started servers
-  or kept across a restart, so with a token seed shared through
-  `wired_srvkeys_set_token_key` a token can be reused once per server and
-  per restart. Source: `srvrun_newtok_ok`, `zerortt_seen_check_live`.
-- **PTB (ICMP) ignored** — Affects: paths with a smaller MTU than probed.
-  DPLPMTUD (finding the largest packet size by sending probes) is
-  probe-based only (the RFC 8899 4.6.1 option). The initial window uses a
-  fixed 1200-byte maximum datagram. There is no PLPMTU sharing across flows
-  and no ERROR/DISABLED phase. Source: [rfc8899.md](rfc8899.md),
-  [rfc9000.md](rfc9000.md), [rfc9002.md](rfc9002.md) Out of scope.
-- **Optional RFC 9002 heuristics not implemented** — Affects: recovery
-  behavior in unusual loss patterns. These are MAY items: re-establishing
-  min_rtt at other times (5.2; the SHOULD reset on persistent congestion is
-  done), RTT reuse across connections, loss leniency for pre-key packets,
-  the RFC 7661 window update, and a CE-marking probe. Persistent congestion
-  (7.6.2) is declared conservatively: it is not declared for a loss period
-  that overlaps an ACK from an earlier ACK frame, or that is checked against
-  a step whose ACK ranges filled the 32-entry list. Under BBR, persistent
-  congestion leaves cwnd (the congestion window) to BBR's model. Source:
-  `srvrun_loss_unbroken` (ponytail),
-  [rfc9002.md](rfc9002.md) Out of scope.
-- **IPv4/UDP/IP details** — Affects: unusual IP traffic. wired never
-  fragments and sends no IP options; on the AF_XDP path, received fragments
-  and option-bearing datagrams (IHL > 5) are dropped: the BPF filter passes
-  them to the kernel, whose reassembled or option-processed result lands on
-  the unread port-reservation socket. This is deliberate: DF is always set
-  and RFC 9000 §14 rules out QUIC paths that need fragmentation. The kernel
-  UDP driver receives both normally. There is no ToS use, TTL is fixed at
-  64 on the AF_XDP path, and the UDP source port 0 case is not handled.
-  On `veth`, `--skip-udp-csum` is needed (CHECKSUM_PARTIAL frames). Source:
-  [rfc791.md](rfc791.md), [rfc768.md](rfc768.md) Out of scope.
-- **Connection migration interop** — Affects: clients that migrate. The
-  [interop page](../interop.md) records `connectionmigration` as partial: it
-  passes against ngtcp2, and the quic-go client never triggers a path
-  change. The quic-go client does not support the `ecn` and `v2` testcases;
-  both pass against ngtcp2 (`v2` also against picoquic).
+- **`connio` は送信を常に ack-eliciting として印を付ける**: 影響を受けるのは、connio の利用者だけです。このフラグは 1 に固定されているので、ack-eliciting でないフレームだけを送っても、そのようには分類されません。参照: `connio.c`。
+- **`appdata_recv` はパケット番号の履歴を持たない**: 影響を受けるのは、この単発の入口の利用者だけです。largest_pn には 0 を渡します。パケット番号の完全な復元は srvloop の経路の仕事です。参照: `app_recv.c`(ponytail)。
+- **接続テーブルは固定**: 影響を受けるのは、ビルド時の上限より多くの接続が必要なサーバーです。`WIRED_CONNTABLE_CAP` は通常のビルドでは既定で 4(`scripts/just/flags.sh`。`CONNTABLE_CAP=<n> just ninja` で上書きできます)で、interop のイメージでは 64 でビルドします。ヘッダー自身の既定値は 64 です。検索は、スロットが持つすべての CID を対象にしたオープンアドレス法のハッシュです。索引は挿入、鍵の更新、CID の変更のたびに作り直します(パケットごとではなく、接続のイベントごとです)。ハッシュはプロセスごとのランダムなシードで鍵付けしているので、クライアントが衝突する Initial の DCID を前もって計算することはできません。ただし PRF ではないので、(たとえばタイミングから)衝突を知った者は、それらを固めて送ることができます。最悪の場合、1 回の検索で最大 3 * cap 個のバケットをたどり(CID の比較は最大 9 * cap 回で、以前の線形走査の約 3 倍)、作り直しは O(cap^2) です。参照: `conntable.h` の先頭のコメント(ponytail)。
+- **0-RTT のリプレイ検出用リング**: 影響を受けるのは、再開が多い中で 0-RTT を受け付ける運用です。`ZERORTT_SEEN_CAP` は 4096 個の指紋を保持します。項目を追い出すのは、そのリプレイが鮮度の確認(`ZERORTT_SEEN_LIVE_SECS`、21 秒)をもう通れなくなってからです。リングが有効な項目で埋まっている間は新しい 0-RTT の試みを断り、そのクライアントは 1-RTT に戻ります(RFC 8446 8.2)。fork したワーカーはリングを共有しますが、別々のサーバープロセスや再起動をまたいでは共有しません(永続化しません)。そのため、`ticket_key` のシードをサーバー間で共有すると、0-RTT のチケットはサーバーごとに 1 回リプレイできてしまいます。シードを共有するサーバーでは `early_data` を有効にしないでください。参照: `zerortt_seen.h`(ponytail)。
+- **使用済みの NEW_TOKEN の記録は 4096 個まで**: 影響を受けるのは、トークンの有効期間内に多くの NEW_TOKEN のトークンをクライアントが提示するサーバーです。同じ 4096 項目のリングが受け付けたトークンをそれぞれ記録し、項目を追い出すのは `NEWTOKEN_MAX_AGE_SECS`(7 日)より古くなってから、つまり記録したトークンが期限切れになってからです。リングが有効な項目で埋まっている間は、それ以上のトークンを断り、そのクライアントは検証なしで進みます。このとき効くのは増幅防止の上限か、`force_retry` のもとでの Retry です(RFC 9000 8.1.3)。fork したワーカーは 1 つのリングを共有するので、4096 はワーカーごとではなくサーバーごとの数です。この記録は別々に起動したサーバーの間では共有せず、再起動をまたいでも残りません。そのため、`wired_srvkeys_set_token_key` でトークンのシードを共有すると、トークンはサーバーごと、再起動ごとに 1 回再利用できます。参照: `srvrun_newtok_ok`、`zerortt_seen_check_live`。
+- **PTB (ICMP) は無視する**: 影響を受けるのは、プローブした値より MTU が小さい経路です。DPLPMTUD(プローブを送って使える最大のパケットサイズを探すこと)はプローブだけに基づきます(RFC 8899 4.6.1 の選択肢)。最初の窓は 1200 バイト固定の最大データグラムを使います。フロー間での PLPMTU の共有も、ERROR/DISABLED の段階もありません。参照: [rfc8899.md](rfc8899.md)、[rfc9000.md](rfc9000.md)、[rfc9002.md](rfc9002.md) の対象外。
+- **RFC 9002 の任意の経験則は実装していない**: 影響を受けるのは、珍しい損失のパターンでの回復の動きです。これらは MAY の項目です。ほかの時点での min_rtt の再設定(5.2。持続的輻輳のときの SHOULD のリセットは実装済み)、接続をまたいだ RTT の再利用、鍵がそろう前のパケットの損失判定の緩和、RFC 7661 のウィンドウ更新、CE の印のプローブ。持続的輻輳(7.6.2)は控えめに宣言します。前の ACK フレームの ACK と重なる損失期間や、ACK 範囲が 32 項目のリストを埋めたステップに照らして確かめる損失期間では宣言しません。BBR のもとでは、持続的輻輳のときの cwnd(輻輳ウィンドウ)は BBR のモデルに任せます。参照: `srvrun_loss_unbroken`(ponytail)、[rfc9002.md](rfc9002.md) の対象外。
+- **IPv4/UDP/IP の細部**: 影響を受けるのは、珍しい IP トラフィックです。wired はフラグメント化せず、IP オプションも送りません。AF_XDP の経路では受け取ったフラグメントとオプション付きのデータグラム(IHL > 5)を捨てます。BPF のフィルターがそれらをカーネルへ渡し、カーネルが組み立て直した結果やオプションを処理した結果は、読まれないポート予約用のソケットに届きます。これは意図したものです。DF は常に立てており、RFC 9000 §14 はフラグメント化が必要な QUIC の経路を除外しています。カーネルの UDP ドライバーはどちらも通常どおり受け取ります。ToS は使わず、AF_XDP の経路では TTL を 64 に固定し、UDP の送信元ポートが 0 の場合は扱いません。`veth` では `--skip-udp-csum` が必要です(CHECKSUM_PARTIAL のフレームのため)。参照: [rfc791.md](rfc791.md)、[rfc768.md](rfc768.md) の対象外。
+- **接続マイグレーションの相互接続性**: 影響を受けるのは、移動するクライアントです。[相互接続性の検証結果](../interop.md)は `connectionmigration` を部分的な対応として記録しています。ngtcp2 との組み合わせでは通り、quic-go のクライアントは経路の変更を一度も起こしません。quic-go のクライアントは `ecn` と `v2` のテストケースに対応していません。どちらも ngtcp2 との組み合わせでは通ります(`v2` は picoquic とも通ります)。
 
 ## TLS 1.3
 
-- **ALPN follows the server's order, except in the interop image** —
-  Affects: clients that offer several protocols. The server picks its own
-  most preferred protocol among those offered (RFC 7301 3.2): the configured
-  raw ids, then h3, then hq-interop. The interop image passes
-  `--alpn-client-order` (`alpn_client_order`) to follow the client's order,
-  which msquic's interop runs expect. Source: `sdrv_negotiate_alpn`.
-- **0-RTT start-up check has one-second granularity** — Affects: servers
-  restarted within the same second. A ticket issued by an earlier instance
-  in the very second this one opened its recording window is not recognised
-  as pre-start. Source: `zerortt_seen_pre_start` (shortcut).
-- **Ticket and Retry-token keys live for one process by default** —
-  Affects: resumption and address validation across a restart, and across
-  servers started separately behind one address. Unless the application
-  supplies its own seeds, both are drawn from the CSPRNG when the server
-  starts (forked `srvworkers` and `srvthreads` workers share one draw), so
-  a ticket or Retry token issued before a restart, or by another
-  independently started server, no longer opens. To keep them valid, set
-  the same secret in `wired_srvboot_id.ticket_key` and pass the same seed
-  to `wired_srvkeys_set_token_key` before the server starts. Each seed is
-  a long-term root secret: generate 32 bytes from a CSPRNG and keep them
-  secret; changing a seed invalidates every outstanding ticket or token.
-  Use separate secrets for `ticket_key` and the token seed; reusing one is
-  not catastrophic, because purpose labels keep the derived keys apart.
-  The 0-RTT replay record stays per process, so with a shared seed early
-  data can be replayed once per server: do not enable `early_data` across
-  servers that share a seed. Source: `srvkeys.h`.
-- **0-RTT replay and NEW_TOKEN trackers share one spinlock each** —
-  Affects: `srvworkers` deployments. Each tracker is shared across forked
-  workers through a `MAP_SHARED` mapping, guarded by one spinlock over a
-  bounded scan. The spin is bounded (`ZERORTT_SEEN_SPIN` tries): a worker
-  killed inside that scan (SIGKILL at that instant) leaves the lock held.
-  The first check to time out marks the tracker stuck, and every later
-  check refuses at once without spinning, so 0-RTT (or NEW_TOKEN) is
-  refused in every worker until restart, and clients fall back to 1-RTT
-  (or proceed unvalidated). The cost: one stall of `ZERORTT_SEEN_SPIN`
-  tries for the check that times out, and a timeout under mere contention
-  (not expected: the limit is far above one scan) disables the tracker
-  until restart all the same. Source: `zerortt_seen.c` (ponytail,
-  shortcut), `sdrv_zerortt_share`, `srvkeys_newtoken_share`.
-- **No 0-RTT on pre-start tickets for 21 s after start** — Affects:
-  clients resuming with early data, on a ticket an earlier server instance
-  issued (a fixed `ticket_key` across restarts), right after the server
-  starts. The 0-RTT replay store opens its recording window at the first
-  `sdrv_init` and, for `ZERORTT_SEEN_LIVE_SECS` (21 s), refuses early data
-  on any ticket issued before that (RFC 8446 8.2: a ClientHello accepted
-  before a restart is in no record); those connections fall back to 1-RTT.
-  Tickets this instance issued keep 0-RTT. The check has one-second
-  granularity, so a ticket issued in the same second the window opened is
-  not caught. Source: `zerortt_seen_pre_start` (shortcut),
-  [rfc8446.md](rfc8446.md) 8446-123.
-- **Cipher suites: preference AES-128-GCM, ChaCha20-Poly1305, AES-256-GCM**
-  — Affects: clients that insist on their own suite order. All three TLS 1.3
-  AEAD suites are negotiated, in the server's order rather than the
-  client's. `TLS_AES_256_GCM_SHA384` has no recorded interop run against an
-  independent peer yet, and `tls_exporter` (RFC 8446 7.5) still hashes its
-  context with SHA-256 under it (it has no production caller). CCM suites
-  are refused. Source: `cipher.c`, [rfc8446.md](rfc8446.md) 8446-099.
-- **Client authentication turns resumption off and is chain-strict** —
-  Affects: apps that enable mutual TLS (`wired_srvboot_id.client_auth`).
-  With client authentication on, every connection runs a full certificate
-  handshake: offered PSKs and 0-RTT are ignored and no session ticket is
-  issued (RFC 8446 4.4 allows no certificate authentication on a PSK
-  handshake). The client chain must be sent leaf first and link by link to
-  the trust store; extraneous or reordered certificates are refused with
-  bad_certificate (RFC 8446 4.4.2 only says SHOULD accept them). Every chain
-  failure is bad_certificate, never unknown_ca or certificate_expired.
-  There is no revocation check, no post-handshake authentication (RFC 9001
-  4.4 forbids it), no `certificate_authorities` or `oid_filters` in the
-  CertificateRequest, and only HTTP handlers see the certificate
-  (`wired_http_exchange.peer_cert`, first round). The client role sends no
-  certificate. The client's Certificate, CertificateVerify and Finished
-  must fit the 12,288-byte Handshake receive buffer (`CRECV_BUF`, about
-  four 2 KB RSA certificates) and what the 16,384-byte transcript
-  (`WIRED_SERVER_TRANSCRIPT_MAX`) has left after the ClientHello and the
-  server flight. A larger client chain closes the connection with
-  CRYPTO_BUFFER_EXCEEDED (RFC 9000 7.5) or bad_certificate. Source:
-  `server_cauth.c`, `server_feed.c`, [rfc8446.md](rfc8446.md)
-  8446-133..139.
-- **TLS gaps** — Affects: peers that need these. There is no OCSP/SCT, no
-  `certificate_authorities` selection for the server chain and no FFDHE,
-  and external PSKs ("ext binder") are unsupported. Source:
-  [rfc8446.md](rfc8446.md) Out of scope.
-- **TLS extensions not shipped** — Affects: clients that need these
-  extensions. max_fragment_length, client_certificate_url, trusted_ca_keys,
-  truncated_hmac and status_request are not implemented. Source:
-  [rfc6066.md](rfc6066.md).
-- **ClientHello and Retry scratch buffers are MTU-bounded** — Affects:
-  memory footprint, and ClientHellos larger than two Initial packets. The
-  boot-stage accumulator is about 4 KB per connection slot
-  (`WIRED_CONNTABLE_CAP` slots, in BSS) and spans two Initials, enough for
-  a post-quantum-sized ClientHello. The `retry_tag` pseudo-packet scratch
-  is 1521 bytes. Source: `wired_srvboot_acc` (ponytail), `retry_tag.c`
-  (ponytail).
-- **Client / server pump shortcuts** — Affects: users of these legacy entry
-  points only; the `wired_server_run` server does not use them.
-  `wired_server_pump` hands a raw datagram to `wired_server_feed`, and
-  `client_build_initial` builds the ClientHello, both without on-wire AEAD
-  Initial protection. Source: `wired_server_pump`, `client_build_initial`
-  (ponytail).
-- **Certificate path processing** — Affects: apps that verify certificate
-  chains with these features. iPAddress name-constraint subtrees are not
-  applied to an IP-literal CN. There is no CRL, OCSP or other revocation
-  check, no policy mapping, no IDN processing, and no SRV-ID or URI-ID
-  matching (only DNS-ID dNSName). Source: `nameconstraints.c` (ponytail),
-  [rfc5280.md](rfc5280.md), [rfc6125.md](rfc6125.md) Out of scope.
-- **Signature algorithms in chains** — Affects: chains with legacy or
-  compressed keys. Chains signed with legacy RSA-SHA-1 cannot be verified.
-  P-521 issuers verify (ecdsa-with-SHA256/384/512), but only with an
-  uncompressed SPKI point; a compressed P-521 key is rejected. Source:
-  [BoringSSL vector README](../../tests/vectors/boringssl/README.md),
-  `ec_pubkey.c`.
+- **ALPN はサーバーの順で選ぶ(interop のイメージを除く)**: 影響を受けるのは、複数のプロトコルを提示するクライアントです。サーバーは、提示されたもののうち自分が最も優先するプロトコルを選びます(RFC 7301 3.2)。順序は設定した raw の ID、h3、hq-interop です。interop のイメージは `--alpn-client-order`(`alpn_client_order`)を渡してクライアントの順に従います。msquic の相互接続の実行がこれを期待しているためです。参照: `sdrv_negotiate_alpn`。
+- **0-RTT の起動時の確認は 1 秒単位**: 影響を受けるのは、同じ秒のうちに再起動したサーバーです。このインスタンスが記録の窓を開いたその秒に、前のインスタンスが発行したチケットは、起動前のものとして認識されません。参照: `zerortt_seen_pre_start`(shortcut)。
+- **チケットと Retry トークンの鍵は、既定では 1 つのプロセスの間だけ有効**: 影響を受けるのは、再起動をまたいだ再開とアドレス検証、および 1 つのアドレスの後ろで別々に起動したサーバーの間での再開とアドレス検証です。アプリケーションが自分でシードを渡さない限り、どちらの鍵もサーバーの起動時に CSPRNG から取ります(fork した `srvworkers` と `srvthreads` のワーカーは 1 回の取得を共有します)。そのため、再起動の前に発行したチケットや Retry トークン、あるいは独立して起動した別のサーバーが発行したものは、もう開けません。有効なままにするには、サーバーの起動前に `wired_srvboot_id.ticket_key` に同じ秘密値を設定し、`wired_srvkeys_set_token_key` に同じシードを渡してください。どのシードも長期のルートの秘密値です。CSPRNG から 32 バイトを生成し、秘密にしておいてください。シードを変えると、発行済みのチケットやトークンはすべて無効になります。`ticket_key` とトークンのシードには別々の秘密値を使ってください。1 つを使い回しても致命的ではありません。用途ラベルで導出する鍵が分かれるためです。0-RTT のリプレイの記録はプロセスごとのままなので、シードを共有すると early data はサーバーごとに 1 回リプレイできてしまいます。シードを共有するサーバーで `early_data` を有効にしないでください。参照: `srvkeys.h`。
+- **0-RTT のリプレイと NEW_TOKEN の追跡は、それぞれスピンロック 1 つを共有する**: 影響を受けるのは、`srvworkers` を使う運用です。どちらの追跡も `MAP_SHARED` のマッピングで fork したワーカー間で共有し、上限のある走査を 1 つのスピンロックで守ります。スピンには上限があります(`ZERORTT_SEEN_SPIN` 回)。その走査の途中でワーカーが殺される(ちょうどその瞬間の SIGKILL)と、ロックは取られたまま残ります。最初にタイムアウトした確認で追跡を固まった状態として印を付け、以降の確認はスピンせずにすぐ断ります。そのため、再起動するまでどのワーカーでも 0-RTT(または NEW_TOKEN)を断り、クライアントは 1-RTT に戻ります(または検証なしで進みます)。コストはタイムアウトする確認での `ZERORTT_SEEN_SPIN` 回分の停止 1 回です。また、単なる競合でタイムアウトした場合も(上限は走査 1 回よりずっと大きいので、起きない想定です)、同じく再起動するまで追跡が無効になります。参照: `zerortt_seen.c`(ponytail、shortcut)、`sdrv_zerortt_share`、`srvkeys_newtoken_share`。
+- **起動後 21 秒は、起動前のチケットで 0-RTT を使えない**: 影響を受けるのは、サーバーの起動直後に、前のサーバーインスタンスが発行したチケット(再起動をまたいで `ticket_key` を固定している場合)で early data 付きの再開をするクライアントです。0-RTT のリプレイの記録は最初の `sdrv_init` で記録の窓を開き、`ZERORTT_SEEN_LIVE_SECS`(21 秒)の間、それより前に発行されたチケットでの early data を断ります(RFC 8446 8.2: 再起動の前に受け付けた ClientHello はどの記録にも残っていない)。そうした接続は 1-RTT に戻ります。このインスタンスが発行したチケットは 0-RTT を使えます。確認は 1 秒単位なので、窓を開いたのと同じ秒に発行されたチケットは見逃します。参照: `zerortt_seen_pre_start`(shortcut)、[rfc8446.md](rfc8446.md) 8446-123。
+- **暗号スイートの優先順位は AES-128-GCM、ChaCha20-Poly1305、AES-256-GCM**: 影響を受けるのは、自分のスイートの順序にこだわるクライアントです。TLS 1.3 の AEAD スイートは 3 つともネゴシエートし、クライアントではなくサーバーの順序に従います。`TLS_AES_256_GCM_SHA384` は、独立した相手との相互接続の実行をまだ記録していません。また、このスイートのもとでも `tls_exporter`(RFC 8446 7.5)はコンテキストを SHA-256 でハッシュしています(本番の呼び出し元はありません)。CCM のスイートは断ります。参照: `cipher.c`、[rfc8446.md](rfc8446.md) 8446-099。
+- **クライアント認証を使うと再開が無効になり、チェーンの扱いが厳格になる**: 影響を受けるのは、相互 TLS を有効にするアプリ(`wired_srvboot_id.client_auth`)です。クライアント認証を有効にすると、すべての接続が証明書を使う完全なハンドシェイクになります。提示された PSK と 0-RTT は無視し、セッションチケットも発行しません(RFC 8446 4.4 は、PSK のハンドシェイクで証明書による認証を認めていません)。クライアントのチェーンはリーフから順に、信頼ストアまで 1 つずつつながる形で送らなければなりません。余分な証明書や順序の入れ替わった証明書は bad_certificate で断ります(RFC 8446 4.4.2 は受け入れるべき (SHOULD) としか言っていません)。チェーンの失敗はすべて bad_certificate で、unknown_ca や certificate_expired にはしません。失効の確認もハンドシェイク後の認証(RFC 9001 4.4 が禁じています)もなく、CertificateRequest に `certificate_authorities` も `oid_filters` も入れません。証明書を見られるのは HTTP のハンドラーだけです(`wired_http_exchange.peer_cert`、最初の回)。クライアント役は証明書を送りません。クライアントの Certificate、CertificateVerify、Finished は、12,288 バイトの Handshake の受信バッファー(`CRECV_BUF`。2 KB の RSA 証明書なら約 4 枚)に収まり、かつ 16,384 バイトのトランスクリプト(`WIRED_SERVER_TRANSCRIPT_MAX`)の、ClientHello とサーバーの送信分を除いた残りに収まらなければなりません。それより大きいクライアントのチェーンは、CRYPTO_BUFFER_EXCEEDED(RFC 9000 7.5)か bad_certificate で接続を閉じます。参照: `server_cauth.c`、`server_feed.c`、[rfc8446.md](rfc8446.md) 8446-133..139。
+- **TLS の抜け**: 影響を受けるのは、これらを必要とする相手です。OCSP/SCT、サーバーのチェーンを選ぶための `certificate_authorities`、FFDHE はなく、外部 PSK(「ext binder」)にも対応していません。参照: [rfc8446.md](rfc8446.md) の対象外。
+- **出荷していない TLS 拡張**: 影響を受けるのは、これらの拡張を必要とするクライアントです。max_fragment_length、client_certificate_url、trusted_ca_keys、truncated_hmac、status_request は実装していません。参照: [rfc6066.md](rfc6066.md)。
+- **ClientHello と Retry の作業用バッファーは MTU に合わせた大きさ**: 影響を受けるのは、メモリの使用量と、Initial パケット 2 つより大きい ClientHello です。起動段階の蓄積用バッファーは接続のスロットごとに約 4 KB(`WIRED_CONNTABLE_CAP` 個のスロット、BSS)で、Initial 2 つ分を受けられます。耐量子暗号の大きさの ClientHello にも足ります。`retry_tag` の擬似パケット用の作業領域は 1521 バイトです。参照: `wired_srvboot_acc`(ponytail)、`retry_tag.c`(ponytail)。
+- **クライアント / サーバーのポンプの簡略化**: 影響を受けるのは、これらの古い入口の利用者だけです。`wired_server_run` のサーバーは使いません。`wired_server_pump` は生のデータグラムを `wired_server_feed` へ渡し、`client_build_initial` は ClientHello を組み立てます。どちらも送信路上での Initial の AEAD による保護をしません。参照: `wired_server_pump`、`client_build_initial`(ponytail)。
+- **証明書パスの処理**: 影響を受けるのは、これらの機能を使って証明書のチェーンを検証するアプリです。iPAddress の名前制約のサブツリーは、IP アドレスをそのまま書いた CN には適用しません。CRL、OCSP などの失効の確認、ポリシーのマッピング、IDN の処理、SRV-ID や URI-ID の照合はありません(DNS-ID の dNSName だけ)。参照: `nameconstraints.c`(ponytail)、[rfc5280.md](rfc5280.md)、[rfc6125.md](rfc6125.md) の対象外。
+- **チェーンの署名アルゴリズム**: 影響を受けるのは、古い方式の鍵や圧縮形式の鍵を含むチェーンです。古い RSA-SHA-1 で署名したチェーンは検証できません。P-521 の発行者は検証できます(ecdsa-with-SHA256/384/512)が、SPKI の点が非圧縮形式の場合だけです。圧縮形式の P-521 の鍵は拒否します。参照: [BoringSSL のベクターの README](../../tests/vectors/boringssl/README.md)、`ec_pubkey.c`。
 
-## Cryptography
+## 暗号
 
-- **Hash and MAC set** — Affects: only certificate chains signed with SHA-1;
-  TLS 1.3 handshakes are not affected. SHA-256, SHA-384 and SHA-512 are
-  shipped; SHA-1, SHA-224, SHA-512/224, SHA-512/256 and MD5 are **not**.
-  HMAC is SHA-256, SHA-384 and SHA-512 only, so there is **no HMAC-SHA1,
-  HMAC-SHA224 or HMAC-MD5**. HKDF is SHA-256 only in the TLS/QUIC profile.
-  Source: [BoringSSL vectors](../security/boringssl-vectors.md),
-  [BoringSSL vector README](../../tests/vectors/boringssl/README.md),
-  [fips180-4.md](fips180-4.md), [rfc5869.md](rfc5869.md).
-- **Curves: P-256, P-384 and P-521 only** — Affects: certificates on other
-  curves. There is **no P-224, secp224k1, P-192, binary or Koblitz curve**.
-  P-384 and P-521 are verify-only (certificate chains; P-521 is not a TLS
-  CertificateVerify scheme here). P-256 signs (deterministic RFC 6979,
-  `ecdsa_secp256r1_sha256` only). 91 BoringSSL ECDSA vectors are skipped for
-  this reason. Source: same as above, [rfc6979.md](rfc6979.md),
-  [rfc5480.md](rfc5480.md).
-- **No X448, Ed448, Ed25519ctx or Ed25519ph** — Affects: peers that need
-  these algorithms. Only X25519 and pure Ed25519 exist. Ed25519 has no
-  PKCS#8/OneAsymmetricKey parsing (it takes a raw 32-byte seed) and accepts
-  DER only (no BER). Source: [rfc7748.md](rfc7748.md),
-  [rfc8032.md](rfc8032.md), [rfc8410.md](rfc8410.md).
-- **AEAD: 96-bit nonce and 128-bit tag only** — Affects: nothing in QUIC or
-  TLS 1.3. `GCM_NONCE` is 12 bytes and `GCM_TAG` is 16. BoringSSL AES-GCM
-  cases with other nonce lengths (5 in AES-128, 2 in AES-256) are skipped.
-  There is no GMAC, and short tags are unsupported. Source:
-  [BoringSSL vectors](../security/boringssl-vectors.md),
-  [sp800-38d.md](sp800-38d.md).
-- **AES-192 not implemented** — Affects: nothing in QUIC or TLS 1.3.
-  AES-128-GCM and AES-256-GCM (`gcm256.h`, BoringSSL vectors pass) key QUIC
-  packet protection. There is no AES-192 and no AES decryption primitive
-  (neither GCM nor header protection needs it). Source:
-  [fips197.md](fips197.md),
-  [BoringSSL vectors](../security/boringssl-vectors.md).
-- **RSA: public exponent e = 65537 only, verify only** — Affects:
-  certificates with another exponent, and any app that wants to sign with
-  RSA. PKCS#1 v1.5 verify accepts SHA-256/384/512 DigestInfo. RSA-PSS is
-  SHA-256 with salt length 32 and MGF1-SHA-256 only (TLS 1.3
-  `rsa_pss_rsae_sha256`). There is no RSA signing, encryption, key
-  generation or private-key type, and no BoringSSL RSA vectors. Source:
-  `rsa_verify.h`, `pss.c`, [rfc8017.md](rfc8017.md).
-- **ECDSA nonces are RFC 6979 deterministic, not FIPS 186-4 B.5** —
-  Affects: deployments that need FIPS 186-4 validation. P-256 signing
-  derives k by RFC 6979 (approved by FIPS 186-5 §6.3.2, not by FIPS 186-4),
-  so the signer does not depend on an RBG at signing time. The SDK makes no
-  FIPS 186-4 validation claim. Source: `p256sign_sign`,
-  [fips186-4.md](fips186-4.md) Out of scope (F186-029).
-- **ECDSA/ECC key generation not shipped** — Affects: apps that want to
-  create keys at runtime. Keys are loaded from certificates or PEM. There is
-  no DSA at all. Source: [fips186-4.md](fips186-4.md).
-- **Fixed scratch sizes** — Affects: callers of the AEAD primitives with
-  large inputs. The ChaCha20-Poly1305 MAC scratch is 3032 bytes
-  (MTU-bounded; larger inputs are not supported). GCM re-expands the AES-NI
-  key schedule on every call by design. Source: `aead.c`, `gcm.c`
-  (ponytail).
-- **HKDF, plain SHA-2 digest and RSA lack BoringSSL vectors** — Affects:
-  nobody; upstream moved these cases out of its FileTest files. They are
-  covered by RFC and FIPS vectors instead. Source:
-  [BoringSSL vectors](../security/boringssl-vectors.md).
+- **ハッシュと MAC の種類**: 影響を受けるのは、SHA-1 で署名した証明書のチェーンだけで、TLS 1.3 のハンドシェイクは影響を受けません。SHA-256、SHA-384、SHA-512 は出荷しており、SHA-1、SHA-224、SHA-512/224、SHA-512/256、MD5 は出荷して **いません**。HMAC は SHA-256、SHA-384、SHA-512 だけなので、**HMAC-SHA1、HMAC-SHA224、HMAC-MD5 はありません**。HKDF は TLS/QUIC のプロファイルでは SHA-256 だけです。参照: [BoringSSL のベクター](../security/boringssl-vectors.md)、[BoringSSL のベクターの README](../../tests/vectors/boringssl/README.md)、[fips180-4.md](fips180-4.md)、[rfc5869.md](rfc5869.md)。
+- **曲線は P-256、P-384、P-521 だけ**: 影響を受けるのは、ほかの曲線の証明書です。**P-224、secp224k1、P-192、二進体の曲線、Koblitz 曲線はありません**。P-384 と P-521 は検証だけに使います(証明書のチェーン。ここでは P-521 は TLS の CertificateVerify の方式ではありません)。P-256 は署名もします(決定的な RFC 6979、`ecdsa_secp256r1_sha256` だけ)。このため BoringSSL の ECDSA のベクターのうち 91 件をスキップしています。参照: 上と同じ、[rfc6979.md](rfc6979.md)、[rfc5480.md](rfc5480.md)。
+- **X448、Ed448、Ed25519ctx、Ed25519ph はない**: 影響を受けるのは、これらのアルゴリズムを必要とする相手です。あるのは X25519 と素の Ed25519 だけです。Ed25519 は PKCS#8/OneAsymmetricKey を解析せず(生の 32 バイトのシードを受け取ります)、DER だけを受け付けます(BER は受け付けません)。参照: [rfc7748.md](rfc7748.md)、[rfc8032.md](rfc8032.md)、[rfc8410.md](rfc8410.md)。
+- **AEAD は 96 ビットのノンスと 128 ビットのタグだけ**: QUIC と TLS 1.3 では何も影響を受けません。`GCM_NONCE` は 12 バイト、`GCM_TAG` は 16 バイトです。BoringSSL の AES-GCM のうち、ノンスの長さが異なるケース(AES-128 で 5 件、AES-256 で 2 件)はスキップしています。GMAC はなく、短いタグにも対応していません。参照: [BoringSSL のベクター](../security/boringssl-vectors.md)、[sp800-38d.md](sp800-38d.md)。
+- **AES-192 は実装していない**: QUIC と TLS 1.3 では何も影響を受けません。QUIC のパケット保護の鍵は AES-128-GCM と AES-256-GCM(`gcm256.h`。BoringSSL のベクターは通ります)です。AES-192 も AES の復号のプリミティブもありません(GCM もヘッダー保護も必要としないためです)。参照: [fips197.md](fips197.md)、[BoringSSL のベクター](../security/boringssl-vectors.md)。
+- **RSA は公開指数 e = 65537 だけで、検証だけ**: 影響を受けるのは、ほかの指数の証明書と、RSA で署名したいアプリです。PKCS#1 v1.5 の検証は SHA-256/384/512 の DigestInfo を受け付けます。RSA-PSS は SHA-256、ソルト長 32、MGF1-SHA-256 の組み合わせだけです(TLS 1.3 の `rsa_pss_rsae_sha256`)。RSA の署名、暗号化、鍵生成、秘密鍵の型はなく、BoringSSL の RSA のベクターもありません。参照: `rsa_verify.h`、`pss.c`、[rfc8017.md](rfc8017.md)。
+- **ECDSA のノンスは FIPS 186-4 B.5 ではなく RFC 6979 の決定的な方式**: 影響を受けるのは、FIPS 186-4 の検証が必要な運用です。P-256 の署名は k を RFC 6979 で導出します(FIPS 186-4 ではなく FIPS 186-5 §6.3.2 が承認している方式)。そのため署名者は署名の時点で RBG に依存しません。SDK は FIPS 186-4 の検証に合格しているとは主張しません。参照: `p256sign_sign`、[fips186-4.md](fips186-4.md) の対象外(F186-029)。
+- **ECDSA/ECC の鍵生成は出荷していない**: 影響を受けるのは、実行時に鍵を作りたいアプリです。鍵は証明書か PEM から読み込みます。DSA はまったくありません。参照: [fips186-4.md](fips186-4.md)。
+- **作業領域の大きさは固定**: 影響を受けるのは、大きな入力で AEAD のプリミティブを呼ぶ側です。ChaCha20-Poly1305 の MAC の作業領域は 3032 バイトです(MTU に合わせた大きさで、それより大きい入力には対応していません)。GCM は設計として、呼び出しのたびに AES-NI の鍵スケジュールを展開し直します。参照: `aead.c`、`gcm.c`(ponytail)。
+- **HKDF、素の SHA-2 のダイジェスト、RSA には BoringSSL のベクターがない**: 影響を受ける人はいません。上流がこれらのケースを FileTest のファイルから移したためです。代わりに RFC と FIPS のベクターで確かめています。参照: [BoringSSL のベクター](../security/boringssl-vectors.md)。
 
-## Platform / I/O
+## プラットフォームと I/O
 
-- **Linux x86-64 only** — Affects: every other OS and CPU. ISA-specific code
-  lives in `src/common/arch/x8664/`, and no other ISA is provided (inferred
-  from the layout; see [syscalls](../syscalls.md)).
-- **`recvmmsg` batch cap** — Affects: callers of the UDP layer that want
-  larger batches. `WIRED_RECVMMSG_MAX` is 64, on the stack. Source:
-  `WIRED_RECVMMSG_MAX` (ponytail).
-- **SO_REUSEPORT is best-effort** — Affects: multi-worker (`--cores N`)
-  deployments. `wired_server_run` enables `SO_REUSEPORT` on its socket
-  best-effort (`wired_udp_reuseport_enable` in `srvrun_listen`). If the
-  kernel refuses it, the error is ignored and a second worker's bind fails,
-  so `--cores N` needs a kernel that allows `SO_REUSEPORT`. Source:
-  `srvrun_listen`.
-- **`printf`-compatible deviations** (`wired_snprintf` family) — Affects:
-  apps that log with these functions. `%p` with NULL prints `0x0`. `%f`
-  saturates the integer part at 2^64 and caps precision at 40.
-  `wired_dprintf` truncates output past 511 bytes. Source: `fmt.h`.
-- **AF_XDP path is IPv4 only** — Affects: IPv6 deployments that want the
-  kernel-bypass driver. It uses a fixed 20-byte IPv4 header with no options.
-  Source: [rfc791.md](rfc791.md).
-- **AF_XDP CID routing is obfuscated, not encrypted** — Affects: AF_XDP
-  multi-queue (`--ifindex` with `--cores`) deployments facing a determined
-  on-path observer. The core id in each connection ID is masked with a
-  keyed multiply/xorshift mix of the next four CID bytes, under a key drawn
-  per process and shared only with the BPF steering program (RFC 9312
-  §2.6). The BPF side cannot run a block cipher, so this is weaker than
-  QUIC-LB's AES-based schemes. Source: [rfc9312.md](rfc9312.md) 9312-005,
-  `ncid_route_key`.
-- **Hub and socket tuning** — see [Capacity limits](#capacity-limits).
+- **Linux x86-64 だけ**: 影響を受けるのは、ほかのすべての OS と CPU です。ISA に依存するコードは `src/common/arch/x8664/` にあり、ほかの ISA 向けのものはありません(ディレクトリ構成から判断。[システムコール](../syscalls.md)を参照)。
+- **`recvmmsg` のまとめ数の上限**: 影響を受けるのは、もっと大きなまとめ数を使いたい UDP 層の呼び出し側です。`WIRED_RECVMMSG_MAX` は 64 で、スタックに置きます。参照: `WIRED_RECVMMSG_MAX`(ponytail)。
+- **SO_REUSEPORT はできる範囲で設定する**: 影響を受けるのは、複数ワーカー(`--cores N`)の運用です。`wired_server_run` は、自分のソケットで `SO_REUSEPORT` をできる範囲で有効にします(`srvrun_listen` の中の `wired_udp_reuseport_enable`)。カーネルがこれを拒むとエラーは無視され、2 つ目のワーカーの bind が失敗します。そのため `--cores N` には、`SO_REUSEPORT` を許すカーネルが必要です。参照: `srvrun_listen`。
+- **`printf` 互換関数の違い**(`wired_snprintf` の仲間): 影響を受けるのは、これらの関数でログを出すアプリです。NULL を `%p` で出すと `0x0` になります。`%f` は整数部を 2^64 で頭打ちにし、精度の上限は 40 です。`wired_dprintf` は 511 バイトを超えた出力を切り捨てます。参照: `fmt.h`。
+- **AF_XDP の経路は IPv4 だけ**: 影響を受けるのは、カーネルを迂回するドライバーを使いたい IPv6 の運用です。オプションのない 20 バイト固定の IPv4 ヘッダーを使います。参照: [rfc791.md](rfc791.md)。
+- **AF_XDP の CID によるルーティングは難読化で、暗号化ではない**: 影響を受けるのは、経路上に意図を持った観測者がいる、AF_XDP のマルチキュー(`--ifindex` と `--cores`)の運用です。各接続 ID の中のコア ID は CID の続く 4 バイトを鍵付きの乗算 / xorshift で撹拌した値でマスクします。鍵はプロセスごとに取り、BPF の振り分けプログラムとだけ共有します(RFC 9312 §2.6)。BPF の側ではブロック暗号を動かせないので、QUIC-LB の AES を使う方式より弱くなります。参照: [rfc9312.md](rfc9312.md) 9312-005、`ncid_route_key`。
+- **ハブとソケットの調整**: 「[容量の上限](#容量の上限)」を参照してください。
 
-## Capacity limits
+## 容量の上限
 
-All of these are fixed-size tables and buffers, most of them in BSS. To
-raise one, change the constant and rebuild. The guide's
-[Current limits](https://hakkadaikon.github.io/wired/guide/en/concepts/limits/)
-page explains the app-facing ones; these tables add the rest and say what
-happens when each limit is exceeded. The values here were re-checked against
-the `#define`s on 2026-10-15; where the guide shows a different value (for
-example `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` or `WIRED_MOQTRUN_MAX_REQS`),
-the value here is the current one.
+これらはすべて固定長のテーブルとバッファーで、ほとんどは BSS に置いています。上限を上げるには、定数を変えてビルドし直してください。ガイドの「[現在の上限](https://hakkadaikon.github.io/wired/guide/ja/concepts/limits/)」のページはアプリから見える上限を説明しています。ここの表は残りの上限を加え、それぞれを超えたときに何が起きるかを示します。ここの値は 2026-10-15 に `#define` と照らし合わせて確認し直したものです。ガイドの値と異なる場合(たとえば `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` や `WIRED_MOQTRUN_MAX_REQS`)は、ここの値が今の値です。
 
-### MoQT hub
+### MoQT ハブ
 
-| Constant | Value | Bounds | Effect when exceeded |
+| 定数 | 値 | 制限する対象 | 超えたときの影響 |
 |---|---|---|---|
-| `WIRED_MOQTRUN_MAX_SESSIONS` | 32 | sessions per hub | no free slot; raw: INTERNAL_ERROR close |
-| `WIRED_MOQTRUN_MAX_SUBS` | 31 | subscribers per track | no free subscriber slot |
-| `WIRED_MOQTRUN_MAX_FILTER_RANGES` | 4 | Range Filter ranges per request | REQUEST_ERROR INVALID_FILTER |
-| `WIRED_MOQTRUN_MAX_REQ_UPDATES` | 4 | unanswered REQUEST_UPDATEs | TOO_MANY_REQUEST_UPDATES (d19+) |
-| `WIRED_MOQTRUN_IMPL_MAX` | 64 | MOQT_IMPLEMENTATION bytes | value truncated |
-| `WIRED_MOQTRUN_HOLD_BUF` | 2048 | bytes held before SETUP | request reset EXCESSIVE_LOAD, Object dropped |
-| `WIRED_MOQTRUN_EARLY_BUF` | 2048 | SUBGROUP bytes before upstream SUBSCRIBE_OK | stream dropped |
-| `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 8192 | GOAWAY URI (the spec maximum) | `wired_moqt_goaway` returns -1 |
-| `WIRED_MOQTRUN_MAX_RELAYS` | 4 | publisher streams relayed at once per track | stream not relayed, subscribers miss it |
-| `WIRED_MOQTRUN_MAX_NAME` | 64 | Track Name bytes | refused (PUBLISH; hub-owned publish returns 0) |
-| `WIRED_MOQTRUN_MAX_NS` | 128 | encoded namespace bytes | namespace refused on PUBLISH |
-| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5 | tracks one session publishes | PUBLISH refused |
-| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 128 / 32 | request streams | request stream reset EXCESSIVE_LOAD |
-| `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4 | rendezvous holds | SUBSCRIBE refused EXCESSIVE_LOAD |
-| `WIRED_MOQTRUN_RDV_MAX_MS` | 1500 | rendezvous hold time | hold times out (deviation) |
-| `WIRED_MOQTRUN_MAX_UP` | 16 | upstream waiters | waiter refused EXCESSIVE_LOAD |
-| `WIRED_MOQTRUN_MAX_FETCHES` (+ fetch_waits) | 8 (+8) | FETCHes and fills served | REQUEST_ERROR INTERNAL_ERROR |
-| `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` | 2000 | upstream FETCH leg time | leg ends |
-| `WIRED_MOQTRUN_RELAY_FRAG_MAX` | 16384 | torn Object held whole | larger payload passes through |
-| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 96 | Track Properties forwarded | forwarded empty |
-| `WIRED_MOQTRUN_RESET_AFTER_BUSY` | 8 | refused rounds on the lossy path | subscriber stream reset |
-| `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | drain grace | session closed after 1 s, acked or not |
-| `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | wait after PUBLISH_DONE | remaining streams reset |
-| `WIRED_MOQTRUN_SSTS_SETS` | 8 | switching sets | SWITCHING_SET_ASSIGNMENT refused INTERNAL_ERROR |
-| `MOQSSTS_MAX_MEMBERS` | 4 | members per switching set | SWITCHING_SET_ASSIGNMENT refused INTERNAL_ERROR |
-| `MOQCTL_SSTS_MAX_ALGS` | 4 | SSTS_ALGORITHMS ids | extra ids not kept or sent |
-| `WIRED_MOQTSW_SOFT_WAIT_MS` | 4000 | Soft switch wait | gives up on the old track |
-| `WIRED_MOQTREL_POOL` | 4 | reliable rings | further reliable tracks use the lossy path |
-| `WIRED_MOQTREL_CAP` | 3 x `WIRED_SRVLOOP_WT_BUF_CAP` | ring size | ring wraps |
-| `WIRED_MOQTREL_STALL_MS` | 10000 | slow-subscriber wait | slow subscriber shed (reset) |
-| `WIRED_MOQTREL_MAX_SUBS` / `_MARKS` | 31 / 8 | ring cursors / arrival marks | no cursor for the subscriber / delivery timeout may fire early |
-| `MOQCACHE_OBJ_MAX` | 65472 | cached Object payload | larger Object not cached |
+| `WIRED_MOQTRUN_MAX_SESSIONS` | 32 | ハブあたりのセッション数 | 空きスロットなし。raw では INTERNAL_ERROR で切断 |
+| `WIRED_MOQTRUN_MAX_SUBS` | 31 | Track あたりのサブスクライバー数 | サブスクライバーの空きスロットなし |
+| `WIRED_MOQTRUN_MAX_FILTER_RANGES` | 4 | 要求あたりの Range Filter の範囲数 | REQUEST_ERROR INVALID_FILTER |
+| `WIRED_MOQTRUN_MAX_REQ_UPDATES` | 4 | 未応答の REQUEST_UPDATE | TOO_MANY_REQUEST_UPDATES(d19 以降) |
+| `WIRED_MOQTRUN_IMPL_MAX` | 64 | MOQT_IMPLEMENTATION のバイト数 | 値を切り詰め |
+| `WIRED_MOQTRUN_HOLD_BUF` | 2048 | SETUP の前に保持するバイト数 | 要求を EXCESSIVE_LOAD でリセット、Object を破棄 |
+| `WIRED_MOQTRUN_EARLY_BUF` | 2048 | 上流の SUBSCRIBE_OK より前の SUBGROUP のバイト数 | ストリームを破棄 |
+| `WIRED_MOQTRUN_GOAWAY_URI_MAX` | 8192 | GOAWAY の URI(仕様の最大) | `wired_moqt_goaway` が -1 を返す |
+| `WIRED_MOQTRUN_MAX_RELAYS` | 4 | Track あたりで同時に中継するパブリッシャーのストリーム数 | ストリームを中継せず、サブスクライバーは受け取れない |
+| `WIRED_MOQTRUN_MAX_NAME` | 64 | Track Name のバイト数 | 拒否(PUBLISH。ハブが所有する publish は 0 を返す) |
+| `WIRED_MOQTRUN_MAX_NS` | 128 | 符号化した名前空間のバイト数 | PUBLISH で名前空間を拒否 |
+| `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5 | 1 つのセッションが公開する Track 数 | PUBLISH を拒否 |
+| `WIRED_MOQTRUN_MAX_REQS` / `_PER_SESSION` | 128 / 32 | 要求ストリーム | 要求ストリームを EXCESSIVE_LOAD でリセット |
+| `WIRED_MOQTRUN_MAX_RDV` / `_RDV_PER_SESSION` | 16 / 4 | ランデブーの保留 | SUBSCRIBE を EXCESSIVE_LOAD で拒否 |
+| `WIRED_MOQTRUN_RDV_MAX_MS` | 1500 | ランデブーの保留時間 | 保留がタイムアウト(逸脱) |
+| `WIRED_MOQTRUN_MAX_UP` | 16 | 上流を待つもの | 待機を EXCESSIVE_LOAD で拒否 |
+| `WIRED_MOQTRUN_MAX_FETCHES`(+ fetch_waits) | 8 (+8) | 処理する FETCH とフィル | REQUEST_ERROR INTERNAL_ERROR |
+| `WIRED_MOQTRUN_UPFETCH_BUDGET_MS` | 2000 | 上流 FETCH のレッグの時間 | レッグが終わる |
+| `WIRED_MOQTRUN_RELAY_FRAG_MAX` | 16384 | 分断された Object を丸ごと保持する大きさ | それより大きいペイロードはそのまま流す |
+| `WIRED_MOQTRUN_TRACK_PROPS_MAX` | 96 | 転送する Track Properties | 空にして転送 |
+| `WIRED_MOQTRUN_RESET_AFTER_BUSY` | 8 | lossy な経路で拒まれた回数 | サブスクライバーのストリームをリセット |
+| `WIRED_MOQTRUN_GOAWAY_GRACE_MS` | 1000 | 終了時の猶予 | 確認応答の有無にかかわらず 1 秒後にセッションを閉じる |
+| `WIRED_MOQTRUN_PUBDONE_WAIT_MS` | 2000 | PUBLISH_DONE のあとの待ち時間 | 残りのストリームをリセット |
+| `WIRED_MOQTRUN_SSTS_SETS` | 8 | 切り替えセット | SWITCHING_SET_ASSIGNMENT を INTERNAL_ERROR で拒否 |
+| `MOQSSTS_MAX_MEMBERS` | 4 | 切り替えセットあたりのメンバー数 | SWITCHING_SET_ASSIGNMENT を INTERNAL_ERROR で拒否 |
+| `MOQCTL_SSTS_MAX_ALGS` | 4 | SSTS_ALGORITHMS の ID | 超えた ID は保持も送信もしない |
+| `WIRED_MOQTSW_SOFT_WAIT_MS` | 4000 | Soft の切り替えの待ち時間 | 古い Track を諦める |
+| `WIRED_MOQTREL_POOL` | 4 | 信頼リング | それ以降の信頼 Track は lossy な経路を使う |
+| `WIRED_MOQTREL_CAP` | 3 x `WIRED_SRVLOOP_WT_BUF_CAP` | リングの大きさ | リングが一周する |
+| `WIRED_MOQTREL_STALL_MS` | 10000 | 遅いサブスクライバーを待つ時間 | 遅いサブスクライバーを外す(リセット) |
+| `WIRED_MOQTREL_MAX_SUBS` / `_MARKS` | 31 / 8 | リングのカーソル / 到着マーク | サブスクライバーにカーソルがない / 配送タイムアウトが早く発火することがある |
+| `MOQCACHE_OBJ_MAX` | 65472 | キャッシュする Object のペイロード | それより大きい Object はキャッシュしない |
 
-### WebTransport, HTTP/3 and QUIC
+### WebTransport、HTTP/3、QUIC
 
-| Constant | Value | Bounds | Effect when exceeded |
+| 定数 | 値 | 制限する対象 | 超えたときの影響 |
 |---|---|---|---|
-| `WIRED_WT_MAX_BUFFERED_DATAGRAMS` / `_CAP` | 4 / 256 | datagrams before session setup | longer datagram dropped |
-| `WIRED_SRVRUN_MAX_WT_SESSIONS` | 2 | WT sessions per connection | session refused |
-| `SRVRUN_WTSEND_BUF` | 131072 | staging bytes per WT send slot | larger payload stays a caller-owned view |
-| `SRVRUN_DG_PENDING_Q` | 4 | broadcast datagrams queued per connection | newest refused |
-| `WIRED_SENDSESS_LOG` | 128 | unacknowledged slices per send session | sent packets go untracked and later look lost; cwnd growth stalls |
-| `WIRED_SRVRUN_RESP_MAX` | 16384 | one fixed response round | larger body needs bigbuf or streaming |
-| `WIRED_SRVLOOP_BODY_MAX` | 1024 | low-level handler body | body capped |
-| `SRVRUN_RX_BATCH` | 16 | datagrams per `recvmmsg` | read in the next batch |
-| `WIRED_SRVLOOP_MAX_STREAMS` | 40 | request slots | stream dropped |
-| `WIRED_SRVLOOP_MAX_WT_STREAMS` / `_UNI_STREAMS` | 24 / 9 | WT bidi / uni slots | a peer opening more breaks the stream limit (STREAM_LIMIT_ERROR) |
-| `WIRED_SRVLOOP_WT_BUF_CAP` | 49152 | per-slot receive window | flow control holds the peer |
-| `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | received datagram queue | datagram dropped |
-| `BODYWIN_CAP` | 10240 | request body window | 413/431 or FLOW_CONTROL_ERROR |
-| `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | control stream backlog | H3_EXCESSIVE_LOAD |
-| `SRVRUN_RST_RETX` | 99 | aborts awaiting ACK | excess sent once |
-| `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw close reason bytes | reason cut (unreachable: messages <= 1024) |
-| `WIRED_CONNTABLE_CAP` | 4 (64 in the interop image) | QUIC connections | no new connection |
-| `ZERORTT_SEEN_CAP` | 4096 | 0-RTT fingerprints | oldest evicted |
-| `WIRED_RECVMMSG_MAX` | 64 | UDP batch size | batch capped |
+| `WIRED_WT_MAX_BUFFERED_DATAGRAMS` / `_CAP` | 4 / 256 | セッション確立前のデータグラム | 長いデータグラムを破棄 |
+| `WIRED_SRVRUN_MAX_WT_SESSIONS` | 2 | 接続あたりの WT セッション数 | セッションを拒否 |
+| `SRVRUN_WTSEND_BUF` | 131072 | WT の送信スロットあたりの一時置き場のバイト数 | それより大きいペイロードは呼び出し側が所有するビューのまま |
+| `SRVRUN_DG_PENDING_Q` | 4 | 接続ごとにキューに入れるブロードキャストデータグラム | いちばん新しいものを拒否 |
+| `WIRED_SENDSESS_LOG` | 128 | 送信セッションあたりの未確認応答のスライス | 送ったパケットを追跡できず、あとで失われたように見える。cwnd の成長が止まる |
+| `WIRED_SRVRUN_RESP_MAX` | 16384 | 固定のレスポンス 1 回分 | それより大きいボディには bigbuf かストリーミングが必要 |
+| `WIRED_SRVLOOP_BODY_MAX` | 1024 | 低レベルのハンドラーのボディ | ボディを上限で切る |
+| `SRVRUN_RX_BATCH` | 16 | `recvmmsg` 1 回あたりのデータグラム | 次のまとめで読む |
+| `WIRED_SRVLOOP_MAX_STREAMS` | 40 | リクエストのスロット | ストリームを破棄 |
+| `WIRED_SRVLOOP_MAX_WT_STREAMS` / `_UNI_STREAMS` | 24 / 9 | WT の双方向 / 単方向のスロット | それより多く開く相手はストリームの上限を破る(STREAM_LIMIT_ERROR) |
+| `WIRED_SRVLOOP_WT_BUF_CAP` | 49152 | スロットごとの受信の窓 | フロー制御で相手を止める |
+| `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` / `_RX_DATAGRAM_CAP` | 256 / 1200 | 受信データグラムのキュー | データグラムを破棄 |
+| `BODYWIN_CAP` | 10240 | リクエストボディの窓 | 413/431 か FLOW_CONTROL_ERROR |
+| `WIRED_SRVLOOP_CTRL_BUF_CAP` | 512 | 制御ストリームの滞留 | H3_EXCESSIVE_LOAD |
+| `SRVRUN_RST_RETX` | 99 | ACK を待つ中断 | 超えた分は 1 回だけ送る |
+| `SRVRUN_RAW_CLOSE_REASON_MAX` | 1148 | raw の切断理由のバイト数 | 理由を切り詰める(到達しない: メッセージは 1024 以下) |
+| `WIRED_CONNTABLE_CAP` | 4(interop のイメージでは 64) | QUIC の接続 | 新しい接続を受け入れない |
+| `ZERORTT_SEEN_CAP` | 4096 | 0-RTT の指紋 | 最も古いものを追い出す |
+| `WIRED_RECVMMSG_MAX` | 64 | UDP のまとめ数 | まとめ数を上限で切る |
 
-Notes on the two send-side buffers:
+送信側の 2 つのバッファーについて補足します。
 
-- `SRVRUN_WTSEND_BUF` is the staging area of each server-initiated WT send
-  slot (`SRVRUN_WT_SEND_SLOTS` = 17 per connection). A payload up to this
-  size is copied in, so the caller's buffer is free when the call returns. A
-  larger one stays the caller's own memory (a view) until it is sent. The
-  size holds one full WT receive window (49152) plus a held relay fragment
-  (16384), so a relayed full-window payload such as a screen-share frame is
-  still copied.
-- `WIRED_SENDSESS_LOG` is how many sent slices one send session (a response
-  or WT send slot) tracks while they wait for acknowledgement. It is sized
-  past one bandwidth-delay product of the interop runner's link (about 35
-  slices). If it fills, packets already sent are missing from the in-flight
-  accounting and later look lost, which stalls congestion-window growth.
+- `SRVRUN_WTSEND_BUF` は、サーバーから送る WT の送信スロット(接続あたり `SRVRUN_WT_SEND_SLOTS` = 17 個)それぞれの一時置き場です。この大きさまでのペイロードは中へ複製するので、呼び出しから戻った時点で呼び出し側のバッファーは空いています。それより大きいペイロードは送り終わるまで呼び出し側自身のメモリ(ビュー)のままです。この大きさは WT の受信の窓 1 つ分(49152)と、保持する中継の断片(16384)を合わせたものです。そのため、画面共有のフレームのような、窓いっぱいの大きさの中継するペイロードも複製されます。
+- `WIRED_SENDSESS_LOG` は、1 つの送信セッション(レスポンスか WT の送信スロット)が、確認応答を待つ間に追跡する送信済みスライスの数です。interop runner のリンクの帯域遅延積 1 つ分(約 35 スライス)を超える大きさにしています。これが埋まると、送信済みのパケットが送信中の計上から漏れ、あとで失われたように見えるので、輻輳ウィンドウの成長が止まります。
 
-## Testing and verification gaps
+## テストと検証の抜け
 
-- **Self-loopback is not interop** — Affects: how to read a green test run.
-  wired talking to itself shares the same code on both ends, so a shared bug
-  cancels out. By project rule, a feature that touches the wire stays `[~]`
-  (indirectly demonstrated) in the ledgers until a test pins it to an RFC
-  vector or a real-peer trace; a loopback test alone never marks it done.
-- **MoQT interop is the project's own runs** — Affects: readers of interop
-  dashboards. The MoQT relay results come from the project's own runs of the
-  MoQT interop runner with wired added, published at
-  <https://moq-interop-runner-wired.vercel.app>. They are not part of the
-  runner's official public results. The QUIC and WebTransport interop status
-  is on the [interop page](../interop.md).
-- **Paced datagram drain awaits an interop run** — Affects: apps that send
-  bursts of datagrams over lossy paths. The ring drain now follows the
-  connection's pacer instead of the fixed 16-datagram / 3000-byte slice that
-  was tuned from interop-simulator loss. Only unit tests cover it; no interop
-  datagram run has checked it yet. Source: `srvrun_dgring_drain`.
-- **Valgrind** — Affects: people reading valgrind output. 7 reports on BPF
-  attr structs are expected false positives (the kernel zero-fills past the
-  given size). 5 reports in `srvworkers_test` depend on timing under
-  valgrind.
-- **Flaky test** — Affects: CI reruns. The stage CHECKs of
-  `sdt_run_wt_stages` (in `tests/app/srvthreads_datagram_test.c`) fail
-  rarely. Its handshake CHECK (`hs_ok`) also fails under load: the 5 s
-  Initial deadline starts before the worker thread has bound its socket, and
-  the server exposes no ready signal to start it from. Source:
-  `sdt_retry_initial`.
-- **Test builds differ** — Affects: contributors. The shard TUs of
-  `just test-fast` can hide a `static`/`typedef` name collision that only the
-  single-TU `just test` sees (see [development](../development.md)).
-- **Fuzz coverage** — Affects: robustness of the hub loop. `fuzz_moqt`
-  covers the codecs, `moqdg` and `moqcache`. The hub run loop (`moqtrun`) is
-  not fuzzed, because it is not a codec.
-- **Ledger counts** — Affects: the coverage total. Some requirements are
-  still untested; the current count is in the
-  [features README](README.md), and the open items are the `[ ]` boxes in
-  each ledger. The experimental track-switching section (MQ22-X13 among
-  them) is not counted.
-- **BoringSSL oracle** — Affects: nobody; listed for completeness. There are
-  no failures. Skipped: 91 ECDSA P-224/secp224k1, 12 HMAC MD5/SHA1/SHA224, 7
-  AES-GCM cases with non-96-bit nonces, and the 1,000,000-iteration X25519
-  case. Source: [BoringSSL vectors](../security/boringssl-vectors.md).
+- **自分同士のループバックは相互接続性の確認ではない**: 影響を受けるのは、テストが通ったという結果の読み方です。wired が自分自身と通信すると、両端が同じコードを共有するので、共通のバグは打ち消し合います。このプロジェクトの決まりでは、送信路に関わる機能は、テストが RFC のベクターか実際の相手のトレースに固定するまで、台帳で `[~]`(間接的に示した)のままにします。ループバックのテストだけで完了にすることはありません。
+- **MoQT の相互接続性はこのプロジェクト自身の実行による**: 影響を受けるのは、相互接続性のダッシュボードを読む人です。MoQT のリレーの結果は、wired を加えた MoQT interop runner をこのプロジェクト自身が実行したもので、<https://moq-interop-runner-wired.vercel.app> で公開しています。runner の公式の公開結果には含まれません。QUIC と WebTransport の相互接続の状況は「[相互接続性の検証結果](../interop.md)」にあります。
+- **ペーシングに従うデータグラムの送り出しは、相互接続の実行を待っている**: 影響を受けるのは、損失のある経路でデータグラムをまとめて送るアプリです。リングの送り出しは interop のシミュレーターでの損失をもとに調整した 16 データグラム / 3000 バイトの固定の区切りではなく、今は接続のペーサーに従います。これを確かめているのは単体テストだけで、データグラムの相互接続の実行ではまだ確認していません。参照: `srvrun_dgring_drain`。
+- **Valgrind**: 影響を受けるのは、valgrind の出力を読む人です。BPF の attr 構造体についての 7 件の報告は、想定どおりの誤検出です(カーネルが渡した大きさより後ろをゼロで埋めるため)。`srvworkers_test` の 5 件の報告は valgrind のもとでのタイミングに左右されます。
+- **不安定なテスト**: 影響を受けるのは、CI の再実行です。`sdt_run_wt_stages`(`tests/app/srvthreads_datagram_test.c` の中)の段階ごとの CHECK は、まれに失敗します。ハンドシェイクの CHECK(`hs_ok`)も負荷がかかると失敗します。5 秒の Initial の期限が、ワーカースレッドがソケットを bind する前に始まり、しかもサーバーには期限の起点にできる準備完了の合図がないためです。参照: `sdt_retry_initial`。
+- **テストのビルドが異なる**: 影響を受けるのは、コントリビューターです。`just test-fast` の分割した翻訳単位では、単一の翻訳単位の `just test` だけが見つけられる `static`/`typedef` の名前の衝突を見逃すことがあります([開発](../development.md)を参照)。
+- **ファジングの範囲**: 影響を受けるのは、ハブのループの頑健さです。`fuzz_moqt` はコーデック、`moqdg`、`moqcache` を対象にしています。ハブの実行ループ(`moqtrun`)はコーデックではないので、ファジングしていません。
+- **台帳の件数**: 影響を受けるのは、網羅率の合計です。まだテストしていない要件があります。今の件数は[機能: 仕様ごとの要件台帳](README.md)にあり、残っている項目は各台帳の `[ ]` の欄です。実験的な Track 切り替えの節(MQ22-X13 を含む)は数えていません。
+- **BoringSSL による照合**: 影響を受ける人はいません。漏れなく載せるために挙げています。失敗はありません。スキップしているのは、ECDSA の P-224/secp224k1 が 91 件、HMAC の MD5/SHA1/SHA224 が 12 件、96 ビットでないノンスの AES-GCM が 7 件、1,000,000 回反復する X25519 のケースです。参照: [BoringSSL のベクター](../security/boringssl-vectors.md)。
 
-## Library code not reached by the shipped server
+## 出荷するサーバーから呼ばれないライブラリコード
 
-Issue #24 decided to delete code that nothing calls, keeping only what the
-fuzz harnesses, the guide snippets, the examples or a behavior test of a
-shipped path use. The function-level deletions are done. The 102 source
-files below are still compiled into the library and unit-tested, but no
-`examples/` server reaches them: their only callers are their own tests in
-`tests/` (plus, for `tls/handshake/roles/client/client.c`, the TLS client
-that the test suite uses as a peer). No guide snippet or example includes
-any of them; the three marked "fuzzed" are also built into a fuzz harness.
-They are kept for now because deleting about 100 files at once is outside
-#24's list; each is a candidate for a later deletion pass, and a ledger row
-that cites only one of them is not evidence for the shipped server.
+Issue #24 では何からも呼ばれないコードを削除し、ファズハーネス、ガイドのスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めました。関数単位の削除は済んでいます。以下の 102 個のソースファイルは今もライブラリにコンパイルされ単体テストもされていますが、`examples/` のどのサーバーからも到達しません。呼び出し元は `tests/` にあるそれぞれのテストだけです(`tls/handshake/roles/client/client.c` については、テストスイートが相手として使う TLS クライアントも呼び出し元です)。ガイドのスニペットや例はどれもこれらを含みません。「fuzzed」と書いた 3 つは、ファズハーネスにも組み込んでいます。約 100 ファイルを一度に削除するのは #24 の一覧の範囲外なので、今は残しています。どれも今後の削除の候補であり、これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにはなりません。
 
-- **Unreached files** — Affects: readers who take a passing unit test as
-  proof that the server does it. Source: `tests/run.c` includes, compared
-  against the includes reachable from `examples/`.
+- **到達しないファイル**: 影響を受けるのは、単体テストが通ったことを、サーバーがそう動く証拠と受け取る読み手です。参照: `tests/run.c` の include を、`examples/` から到達できる include と比べた結果。
   - `app/datagram/datagram/`: `dgsize.c`
   - `app/http3/core/h3/`: `firstframe.c`, `goaway_check.c`, `h3dgram.c`,
     `qpack_settings.c`, `reuse.c`, `shutdown.c`
@@ -1299,81 +380,30 @@ that cites only one of them is not evidence for the shipped server.
   - `transport/version/versmgr/`: `v2switch.c`
   - `transport/version/vndrive/`: `accept.c`, `reconnect.c`, `select.c`
 
-## Out of scope by design
+## 対象外(設計上)
 
-The ledgers mark these as operator, application, client or intermediary
-concerns, not SDK code, and exclude them from the coverage count.
+台帳はこれらを SDK のコードではなく、運用者、アプリケーション、クライアント、中継者の関心事として扱い、網羅率の集計から外しています。
 
-- **Client roles** — Affects: apps that need a client. Client-side
-  TLS/QUIC/HTTP/3/WebTransport/MoQT behavior is not shipped: client packet
-  handling, ClientHello construction, the reaction to Version Negotiation,
-  0-RTT client rules, redirect following and WT-Available-Protocols
-  construction. The server ignores received Version Negotiation packets.
-  Source: [rfc9000.md](rfc9000.md), [rfc9368.md](rfc9368.md),
-  [rfc9369.md](rfc9369.md), [rfc8999.md](rfc8999.md),
-  [draft-webtrans-http3.md](draft-webtrans-http3.md) Out of scope.
-- **Intermediary and proxy behavior** — Affects: deployments that need a
-  proxy. HTTP caching, Via/Forwarded, CONNECT to TCP, capsule re-expression,
-  QPACK re-encoding, relay-to-relay coordination and Session Migration are
-  out of scope. Source: the ledgers.
-- **Operator guidance** — Affects: operators. Load-balancer CID routing,
-  Alt-Svc, DSCP/QoS, NAT timeouts, key lifecycle, cross-protocol and privacy
-  considerations (RFC 9312, RFC 9308, the MoQT security sections) are left
-  to the operator. Source: the ledgers.
-- **PUBLISH_DONE on the legacy control stream** — Affects: subscribers that
-  subscribe on the shared control stream. Such a subscription gets no
-  PUBLISH_DONE. The message carries no Request ID in draft-18/19/22 (it
-  names its subscription by the request stream it rides), so on a stream
-  shared by several subscriptions it cannot say which one ended. The hub
-  instead keeps such a subscription and re-attaches it silently when the
-  publisher rejoins (`moqtrun_reattach_subs`). Source:
-  `moqctl_publish_done`.
-- **MoQT URI and name rendering** — Affects: clients. Parsing and
-  dereferencing `moqt://` URIs and resolving them through SVCB/HTTPS DNS
-  records are client concerns and are not implemented. Names are compared as
-  raw bytes, never rendered for humans. Source: the MoQT ledgers.
-- **End-to-end Object encryption (SFRAME / Secure Objects)** — Affects:
-  apps that need end-to-end encryption. It is an external mechanism. Source:
-  [draft-moq-transport-22.md](draft-moq-transport-22.md).
-- **Revocation and PKI operations** — Affects: operators who manage
-  certificates. CRL, OCSP, CA issuance rules, pinning and the construction of
-  reference identifiers are caller policy. Source: [rfc5280.md](rfc5280.md),
-  [rfc6125.md](rfc6125.md).
-- **Legacy TLS** — Affects: clients without TLS 1.3. TLS 1.2 and earlier,
-  the record layer, the KeyUpdate message, EndOfEarlyData and middlebox
-  compatibility mode are out of scope; QUIC replaces them. Source:
-  [rfc8446.md](rfc8446.md).
-- **Re-open conditions recorded for MoQT** — Any of these would bring an
-  out-of-scope item back: a peer that speaks only draft-17 or earlier (for
-  drafts 14 to 17), a peer that demands raw-QUIC 0-RTT, a deployment that
-  needs a per-transport GOAWAY URI, and a need for a wired-side raw MoQT
-  client role.
+- **クライアント役**: 影響を受けるのは、クライアントが必要なアプリです。クライアント側の TLS/QUIC/HTTP/3/WebTransport/MoQT の動作は出荷していません。クライアントのパケット処理、ClientHello の組み立て、Version Negotiation への反応、0-RTT のクライアントの規則、リダイレクトの追跡、WT-Available-Protocols の組み立てです。サーバーは受け取った Version Negotiation パケットを無視します。参照: [rfc9000.md](rfc9000.md)、[rfc9368.md](rfc9368.md)、[rfc9369.md](rfc9369.md)、[rfc8999.md](rfc8999.md)、[draft-webtrans-http3.md](draft-webtrans-http3.md) の対象外。
+- **中継者とプロキシの動作**: 影響を受けるのは、プロキシが必要な運用です。HTTP のキャッシュ、Via/Forwarded、TCP への CONNECT、カプセルの表し直し、QPACK の再符号化、リレー同士の連携、Session Migration は対象外です。参照: 各台帳。
+- **運用者向けの指針**: 影響を受けるのは、運用者です。ロードバランサーの CID によるルーティング、Alt-Svc、DSCP/QoS、NAT のタイムアウト、鍵のライフサイクル、プロトコルをまたぐ考慮事項とプライバシーの考慮事項(RFC 9312、RFC 9308、MoQT のセキュリティの節)は、運用者に任せます。参照: 各台帳。
+- **従来の制御ストリームでの PUBLISH_DONE**: 影響を受けるのは、共有の制御ストリームで購読するサブスクライバーです。そうした購読は PUBLISH_DONE を受け取りません。このメッセージは draft-18/19/22 では Request ID を持たず(載っている要求ストリームで購読を指します)、複数の購読が共有するストリームではどの購読が終わったかを示せないためです。ハブは代わりにそうした購読を残し、パブリッシャーが戻ったときに通知なしでつなぎ直します(`moqtrun_reattach_subs`)。参照: `moqctl_publish_done`。
+- **MoQT の URI と名前の表示**: 影響を受けるのは、クライアントです。`moqt://` の URI を解析して参照先を引くことや、SVCB/HTTPS の DNS レコードで名前解決することはクライアントの関心事で、実装していません。名前は生のバイト列として比べ、人が読む形に表示することはしません。参照: MoQT の台帳。
+- **Object のエンドツーエンド暗号化(SFRAME / Secure Objects)**: 影響を受けるのは、エンドツーエンドの暗号化が必要なアプリです。これは外部の仕組みです。参照: [draft-moq-transport-22.md](draft-moq-transport-22.md)。
+- **失効と PKI の運用**: 影響を受けるのは、証明書を管理する運用者です。CRL、OCSP、CA の発行規則、ピン留め、参照識別子の組み立ては、呼び出し側の方針です。参照: [rfc5280.md](rfc5280.md)、[rfc6125.md](rfc6125.md)。
+- **古い TLS**: 影響を受けるのは、TLS 1.3 を使えないクライアントです。TLS 1.2 以前、レコード層、KeyUpdate メッセージ、EndOfEarlyData、ミドルボックス互換モードは対象外です。QUIC がこれらを置き換えます。参照: [rfc8446.md](rfc8446.md)。
+- **MoQT について記録した、対象に戻す条件**: 次のどれかがあれば、対象外の項目が対象に戻ります。draft-17 以前しか話さない相手(ドラフト 14 から 17 について)、raw QUIC での 0-RTT を求める相手、トランスポートごとに GOAWAY の URI が必要な運用、wired 側に raw の MoQT のクライアント役が必要になること。
 
-## Not planned
+## 予定なし
 
-These are SDK protocol features, not operator or client concerns. They are
-decided: wired will not implement them unless the reason below
-stops holding. Each is described in its layer's section above and in the
-named ledger's Out of scope section.
+これらは運用者やクライアントの関心事ではなく、SDK のプロトコルの機能です。実装しないと決めており、下に書いた理由が成り立たなくならない限り、wired は実装しません。それぞれ、上の各層の節と、挙げた台帳の対象外の節で説明しています。
 
-- **RFC 9002 MAY heuristics** — MAY items, not required.
-  [rfc9002.md](rfc9002.md).
-- **OCSP stapling** — browsers do not require stapling and must-staple
-  certificates are rare; it needs ClientHello extension parsing,
-  CertificateEntry extensions and a refresh mechanism, which cost more than
-  they return. [rfc8446.md](rfc8446.md), [rfc6066.md](rfc6066.md).
-- **`certificate_authorities` certificate selection** — it presumes several
-  certificate chains, and the server serves one. [rfc8446.md](rfc8446.md).
-- **HTTP/3 server push** — browsers have removed push.
-  [rfc9114.md](rfc9114.md).
-- **QPACK blocked streams on the decoder side** — they need a state machine
-  that parks request streams, for a gain of a few bytes of request headers;
-  failing the section is enough. [rfc9204.md](rfc9204.md).
-- **MoQT Alias token cache** — it needs a per-session memory cap and an
-  authorization story; deferred until a client uses it. The MoQT ledgers.
-- **MoQT Padding Datagrams** — sending them is the origin's role, not the
-  relay's (hub's). The MoQT ledgers.
-- **MoQT EXPIRES** — a relay gains little from acting on it. The MoQT
-  ledgers.
-- **Capsule-only HTTP Datagram fallback** — WebTransport assumes QUIC
-  DATAGRAM, so no path would use it. [rfc9297.md](rfc9297.md).
+- **RFC 9002 の MAY の経験則**: MAY の項目で、必須ではありません。[rfc9002.md](rfc9002.md)。
+- **OCSP stapling**: ブラウザーは stapling を求めず、must-staple の証明書もまれです。実装には ClientHello の拡張の解析、CertificateEntry の拡張、更新の仕組みが必要で、得られるものよりコストのほうが大きくなります。[rfc8446.md](rfc8446.md)、[rfc6066.md](rfc6066.md)。
+- **`certificate_authorities` による証明書の選択**: 複数の証明書チェーンを前提としていますが、サーバーが出すチェーンは 1 つです。[rfc8446.md](rfc8446.md)。
+- **HTTP/3 のサーバープッシュ**: ブラウザーがプッシュを削除しました。[rfc9114.md](rfc9114.md)。
+- **デコーダー側の QPACK のブロックされたストリーム**: リクエストストリームを待たせておく状態機械が必要になるのに、得られるのはリクエストヘッダーの数バイトです。セクションを失敗させれば十分です。[rfc9204.md](rfc9204.md)。
+- **MoQT のエイリアスによる認可トークンのキャッシュ**: セッションごとのメモリの上限と、認可の考え方を決める必要があります。使うクライアントが現れるまで先送りします。MoQT の台帳。
+- **MoQT の Padding Datagram**: これを送るのはオリジンの役割で、リレー(ハブ)の役割ではありません。MoQT の台帳。
+- **MoQT の EXPIRES**: リレーがこれに従って動いても得るものはわずかです。MoQT の台帳。
+- **カプセルだけで送る HTTP Datagram への代替**: WebTransport は QUIC DATAGRAM を前提にしているので、これを使う経路がありません。[rfc9297.md](rfc9297.md)。

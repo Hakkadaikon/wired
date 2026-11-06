@@ -108,7 +108,7 @@ SSTS_ALGORITHMS 0x09) extension. None of these code points is in
 draft-22. See
 [MoQT track switching](../../docs/features/moqt-track-switching.md) for
 the wire format and the hub's rules, and
-[Known Limitations](../../docs/features/known-limitations.md#moqt-track-switching-experimental)
+[Known Limitations](../../docs/features/known-limitations.md#moqt-の-track-切り替え実験的)
 for the gaps.
 
 - **Two variants, shared Group numbers.** A sharer publishes the capture as
