@@ -1,8 +1,8 @@
 # moqt_chat: 実回線で「画像が相手に出ない/画面共有が届かない」の修正
 
-Spec(上位の権威): このファイルの「設計(Spec)」節。
+仕様(上位の権威): このファイルの「設計(仕様)」節。
 
-## Context
+## 背景
 
 前回(2026-09-23、main 45d70a3f)で hub に chat track の信頼中継(捨てない中継 + 発行者への credit hold)を入れ、e2e(localhost)では 5MB まで数秒で届くようになった。ところが実配備(自宅 hub、参加者 2 人、実回線)では **≤2MB の画像が 5 分待っても相手に出ず、画面共有も届かない**(受信側コンソールは無出力)。
 
@@ -31,9 +31,9 @@ Spec(上位の権威): このファイルの「設計(Spec)」節。
 - `sent_data` は staging 受理時(:4155/4198/4238/4374)に加算。
 - 現挙動を pin するテスト(`tests/app/srvrun_test.c`): `test_srvrun_wt_open_uni_exceeding_max_streams_refused`(:15076、`wt_flow_violation[0]==1` を断定)、`..._open_bidi_exceeding_max_streams_refused`(:15093)、`..._open_uni_exceeding_max_data_refused`(:15112)、`..._stream_reply_exceeding_max_data_refused`(:15129)、close 機構自体の `test_srvrun_close_wt_flow_violations_resets_session`(:15156)/`..._noop_without_latch`(:15203)。
 
-## 設計(Spec)
+## 設計(仕様)
 
-### 1. 自分の送信拒否でセッションを閉じない(root cause fix、srvrun)
+### 1. 自分の送信拒否でセッションを閉じない(根本原因の修正、srvrun)
 - `wt_open_flow_ok`(:4110-4120)/ `wt_reply_flow_ok`(:4217-4223)は **拒否のみ**(latch 行を削除)。相手の上限内に収まるまで待つのが送信側の正しい挙動(draft-ietf-webtrans-http3 §5.3/5.4)。
 - 書き手が無くなる機構を**削除**(dormant で残さない: 書き手ゼロ、サーバは上限を advertise しないので受信側 enforcement は成立しえず、dead code は本リポの hygiene ゲートで落ちる): `wt_flow_violation[]`(メンバ + doc :460-470)、`srvrun_close_flow_violated_slot`/`srvrun_close_wt_flow_violations`(:3312-3329、呼び出し :3490)、`srvrun_wt_flow_control_code`(:2856、唯一の呼び出しが :3322)。参照する doc コメント :498 / :2954 / :3109 / :3159 / :3914 のアンカーを `srvrun_wt_rx_capsules` 等に書き換え。ゲート: `grep -rn 'wt_flow_violation\|flow_violated\|wt_flow_control_code' src tests` が空。
 - テスト(`tests/app/srvrun_test.c`): `CHECK(c->wt_flow_violation[0] == 1)` の 4 本(:15076/:15093/:15112/:15129)を「拒否後も `WIRED_WT_ESTABLISHED`、次 step で RESET/STOP_SENDING 無し」に反転。`==0` を断定する :15069/:15309/:15462 はメンバ削除でコンパイル不能になるので該当 CHECK を削除。close 機構のテスト :15156/:15203 と runner 登録 :18299-18300、節コメント :15048-15053 を削除。新規 1 本(既存 capsule テスト :15296-15309 は open 経路なので重複しない): `wired_server_wt_stream_send` が max_data 到達で -1 → capsule で max_data を上げる → **同じ round** が受理される(中継の実経路「待てば進む」を pin)。
@@ -67,30 +67,30 @@ s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityC
 
 ## タスク
 
-順序: Task 1 → (Task 2 ∥ Task 3、別ファイル群) → Task 4 → Task 5 → Task 6。`tests/run.c` 変更は無し(新ファイル無し)。git は直列。
+順序: タスク 1 → (タスク 2 ∥ タスク 3、別ファイル群) → タスク 4 → タスク 5 → タスク 6。`tests/run.c` 変更は無し(新ファイル無し)。git は直列。
 
-### Task 1: e2e 再現(RED の記録、修正前)
-`examples/moqt_chat/e2e/scenarios/s15-image-send.mjs`: §5 のとおり(`joinStabilityClient` に置換、`--jitter-ms`/`--loss-rate`、proxy、`elapsedMs`、close 無し + status badge の assert)。修正前 main で `just e2e-stability s15-image-send --large-bytes=2000000 --jitter-ms=100` を実行し結果を記録(期待: FAIL、`__wtEvents` に close)。再現しなければ `--qlog` の `wtsend_flow` を添えて「再現せず」と記録(RED の主根拠は Task 2 の単体テスト)。既定引数(jitter 0)では従来どおり直結と同等の挙動(proxy 経由でも可)で既存 s15 が PASS すること。
+### タスク 1: e2e 再現(RED の記録、修正前)
+`examples/moqt_chat/e2e/scenarios/s15-image-send.mjs`: §5 のとおり(`joinStabilityClient` に置換、`--jitter-ms`/`--loss-rate`、proxy、`elapsedMs`、close 無し + status badge の assert)。修正前 main で `just e2e-stability s15-image-send --large-bytes=2000000 --jitter-ms=100` を実行し結果を記録(期待: FAIL、`__wtEvents` に close)。再現しなければ `--qlog` の `wtsend_flow` を添えて「再現せず」と記録(RED の主根拠はタスク 2 の単体テスト)。既定引数(jitter 0)では従来どおり直結と同等の挙動(proxy 経由でも可)で既存 s15 が PASS すること。
 
-### Task 2: srvrun — 自分の送信拒否でセッションを閉じない(root cause)
+### タスク 2: srvrun で自分の送信拒否によりセッションを閉じない(根本原因)
 §1 のとおり。`src/app/http3/server/srvrun/srvrun.c`(latch 行削除、機構削除、doc アンカー 5 箇所)、`src/app/http3/server/srvrun/srvrun.h`(:449 の「4096」を実値に)、`tests/app/srvrun_test.c`(反転 4、CHECK 削除 3、機構テスト 2 + runner 登録削除、新規 1)。grep ゲート空。三点ゲート + `just docs`。
 
-### Task 3: hub — drain に session credit の余裕(`send_budget`)
+### タスク 3: hub の drain に session credit の余裕を残す(`send_budget`)
 §2 のとおり。`src/app/moqt/run/moqtrun.h`(io 末尾 `send_budget` + doc、`stat_rel_wait` + doc)、`src/app/moqt/run/moqtrel.h`(`WIRED_MOQTREL_HEADROOM` + doc)、`src/app/moqt/run/moqtrun.c`(`moqtrun_rel_budget_ok`/`_budget_wait`/`_send_span` 分割)、`tests/app/moqtrun_test.c`(fake io `send_budget` + テスト 4 本)。CCN ≤ 3、既存テスト無変更緑。
 
-### Task 4: wired_server.c — open の 2048B 上限撤廃 + ライブ観測 + 配線
+### タスク 4: wired_server.c で open の 2048B 上限撤廃 + ライブ観測 + 配線
 §3・§4 のとおり。`examples/moqt_chat/wired_server.c`: `MOQT_OPEN_BUF` + `static u8 g_open_buf[]`(:163/:185)、`g_moqt_io` 末尾に `moqt_io_send_budget`、`on_step` 10 秒タイマー、`log_relay_stats(label)`、`sessions=/closed=/rel_wait=`、`wired_moqt_on_session` のカウント用ラッパ。`ninja examples/moqt_chat/wired_server` + boot smoke(`--port 14433`、SIGTERM、10 秒行と shutdown 行が出る)。
 
-### Task 5: 三点ゲート・e2e GREEN・回帰
+### タスク 5: 三点ゲート・e2e GREEN・回帰
 `just test`(単一 TU)、`just ninja` + count、`lizard src --CCN 3 -w`、`just docs`、`just fmt-check`/`just lint`、`just fuzz-smoke`(io テーブル拡張は fuzz ハーネスに影響しうる)。e2e(docker 停止 → 実行 → `docker start`): s15 `--large-bytes=2000000 --jitter-ms=100` PASS(close 無し、`open_dropped=0 rel_stall=0 rel_overflow=0`)、s15 既定 / `--large-bytes=5000000` PASS、s13 `--clients=2 --talk-ms=30000` PASS、s2-chat-longevity / s8-late-join PASS。
 
-### Task 6: 仕上げ
+### タスク 6: 仕上げ
 micro-commit(C 側 / e2e 側は別系列)、main へ merge → push → CI 見届け、`tasks/todo-moqt-reliable-relay.md` に追記(epoch 継続)、`tasks/lessons.md` に「送信側の flow 拒否を違反として自セッションを閉じていた / localhost e2e は credit 遅延を隠す(RTT 注入を標準化)」を追記。実配備は `just up-bg` で再ビルドし、ユーザーに再試験を依頼(10 秒統計行で `closed=` が増えないことを確認)。
 
 ## 検証(全体)
 1. srvrun_test: 反転 4 + 新規 1 が緑、close 機構のコード/テストが消えている(`grep -n wt_flow_violation src tests` が空)。
 2. moqtrun_test: budget 3 本緑、既存 105+ 本無変更緑。
-3. e2e: Task 1 の RED(修正前)と Task 5 の GREEN(修正後)が同じコマンドで対になっている。`server.log` に `closed=0`(10 秒行)/`open_dropped=0 rel_stall=0 rel_overflow=0`。
+3. e2e: タスク 1 の RED(修正前)とタスク 5 の GREEN(修正後)が同じコマンドで対になっている。`server.log` に `closed=0`(10 秒行)/`open_dropped=0 rel_stall=0 rel_overflow=0`。
 4. 三点ゲート + docs + fmt/lint + fuzz-smoke + CI 4 本 success。
 5. `examples/moqt_chat/frontend/` 無変更。
 

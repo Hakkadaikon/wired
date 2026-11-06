@@ -1,8 +1,8 @@
 # MoQT hub: chat track の keep-open 中継を「捨てない」信頼配送にする(添付の大容量送信)
 
-Spec(上位の権威): このファイルの「設計」節。
+仕様(上位の権威): このファイルの「設計」節。
 
-## Context
+## 背景
 
 moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャンク × N オブジェクト」で送る。前回の修正(`bfd131d2`)で「チャンクごとに uni ストリーム」を「1添付=1ストリーム(keep-open)」に変えて 20KB/50KB は通るようになったが、200KB・2MB は届かない。ユーザー体感「画像1枚 20〜30 秒」の根本原因は **hub(`src/app/moqt/run/moqtrun.c`)の keep-open 中継がライブ音声向け設計で、バルク転送を想定していない**こと。実測(`tasks/voice-stability/s15-image-send/server.log`):
 
@@ -26,11 +26,11 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 - 容量: `WIRED_MOQTRUN_MAX_SESSIONS`=32、`MAX_SUBS`=31、`MAX_RELAYS`=4/track、`MAX_TRACKS_PER_PEER`=3。
 - テスト: `tests/app/moqtrun_test.c`(3501行)は fake io(`moqtrun_test_stream_send` が `g_stream_send_reject_n`/`_sess` で拒否を注入、`moqtrun_test_record` で送信を記録)。`tests/app/srvrun_test.c` は credit を `stream_credit` で扱う。unity build(`tests/run.c`)に `#include "app/moqt/run/moqtrun.c"`(557行目)。
 
-## 設計(Spec)
+## 設計(仕様)
 
 ### 1. 発行者への背圧: 受信 credit の hold(srvrun)
 - slot 構造体に `int credit_hold` を追加(bidi/uni 両方)。`srvrun_grant_stream_credit` の呼び出し側(`srvrun_grant_wt_slot_credit`/`_uni_`)は `credit_hold` なら advertise を**上げない**(advertise は減らせない: RFC 9000 19.10。上げるのを止めるだけ)。
-- 公開 API(srvrun.h): `int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold)` — s のコネクションの受信 slot(bidi/uni どちらでも)を stream_id で探し `credit_hold=hold`。1=適用、負=slot 無し。ループ内(コールバック)からのみ呼べる契約は他の `wired_server_wt_*` と同じ。
+- 公開 API(srvrun.h): `int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold)`: s のコネクションの受信 slot(bidi/uni どちらでも)を stream_id で探し `credit_hold=hold`。1=適用、負=slot 無し。ループ内(コールバック)からのみ呼べる契約は他の `wired_server_wt_*` と同じ。
 - 効果: hold 後に発行者が送れるのは advertise 済み残り ≤ `WT_BUF_CAP`(49152)。**hub はこの分を必ず吸収できるサイズの待ち行列を持つ**(下記 2)。
 
 ### 2. hub の信頼中継モード(新モジュール `src/app/moqt/run/moqtrel.{h,c}`、prefix `moqtrel_`)
@@ -73,7 +73,7 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 2. コーデックの可逆性等は今回変更しないので、これ以上の保証は不要。
 3. TDD: 上記性質を 1:1 で `tests/app/moqtrun_test.c`(fake io の拒否注入+tick 駆動)と `tests/app/srvrun_test.c`(hold で ceiling が上がらない/解除で再 grant)に落とす。
 
-## リポジトリ規約(Global Constraints)
+## リポジトリ規約(全体の制約)
 
 - libc-free / `src/` は `util/*` と `sys` 以外の標準ヘッダ禁止。**CCN ≤ 3**(`lizard src --CCN 3 -w`)。unity build の名前衝突: 新規 non-static は `moqtrel_` prefix、static/typedef/macro も `moqtrel_`/`MOQTREL_` で grep 確認。
 - 三点ゲート: `just test-fast`(push 前に一度 `just test`)/ `just ninja` / `lizard src --CCN 3 -w` + obj==src count。`src/**/*.h` の doc コメントを触るので **`just docs`(doxygen WARN_AS_ERROR)も必須**。fmt/lint は nix pin(`just fmt-check`/`just lint`、サンドボックスで無理なら push 後の CI を見届ける)。
@@ -83,33 +83,33 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 
 ## タスク
 
-### Task 1: 設計の検証
+### タスク 1: 設計の検証
 上記「設計」§2 の状態と遷移を小さな構成(Subs=2, CAP=6, BUF=2, ROUND=2, Bytes=8 程度)で網羅的に確かめ、「検証する性質」の各項目が全遷移で成り立つことを固める。成果: C テストリスト(各性質→テスト名)。
 
-### Task 2: srvrun 受信 credit hold
+### タスク 2: srvrun 受信 credit hold
 `src/app/http3/server/srvloop/srvloop.h` の両 slot に `int credit_hold`(claim 時 0 初期化: srvloop.c:58/78/472/565 と同じ箇所)。`srvrun.c` の `srvrun_grant_wt_slot_credit`/`_uni_slot_credit` で `credit_hold` なら return。`srvrun.h` に `wired_server_wt_stream_hold` 宣言+doc(doxygen 形式は隣の `wired_server_wt_stream_fin` に揃える)、`srvrun.c` に実装(slot 検索は `wt_uni_streams[i].stream_id`/`wt_streams[i].stream_id` を走査、CCN 内で bidi/uni を helper 分割)。テスト(`tests/app/srvrun_test.c`): hold 中は delivered が進んでも MAX_STREAM_DATA が出ない / hold 解除の次 step で出る / 未知 stream は負。
 
-### Task 3: fresh stream の torn first Object 受理(moqtrun)
+### タスク 3: fresh stream の torn first Object 受理(moqtrun)
 `moqtrun_decode_fresh_subgroup` を「ヘッダ OK なら Object 0 個でも track を返す(whole_end=ヘッダ末尾)」に変え、`moqtrun_dispatch_fresh_stream` で `fin && whole_end==ヘッダ末尾` は従来どおり破棄。テスト: (a) 1回目=ヘッダ+Object 前半(fin=0)→ open が起き frag 保持、2回目=後半+次 Object → 2 Object 分が中継される、(b) fin=1 で 0 個 → 何も送らない(既存挙動)。
 
-### Task 4: `moqtrel` モジュール(新規 `src/app/moqt/run/moqtrel.{h,c}`)
-純粋なリング+カーソル管理と drain 判断を、io を関数ポインタで受ける形で実装(hub 構造体に依存しすぎない: `moqtrel_buf`、`moqtrel_append`, `moqtrel_next_round(sub) -> span`, `moqtrel_note_sent/refused`, `moqtrel_reclaim`, `moqtrel_should_hold/release`, `moqtrel_stalled(now)`)。CCN ≤3 で小関数分割。単体テスト `tests/app/moqtrel_test.c`(Task 1 のテストリストのうち ring/カーソル/watermark/wrap-around の性質)。unity 配線は Task 6。
+### タスク 4: `moqtrel` モジュール(新規 `src/app/moqt/run/moqtrel.{h,c}`)
+純粋なリング+カーソル管理と drain 判断を、io を関数ポインタで受ける形で実装(hub 構造体に依存しすぎない: `moqtrel_buf`、`moqtrel_append`, `moqtrel_next_round(sub) -> span`, `moqtrel_note_sent/refused`, `moqtrel_reclaim`, `moqtrel_should_hold/release`, `moqtrel_stalled(now)`)。CCN ≤3 で小関数分割。単体テスト `tests/app/moqtrel_test.c`(タスク 1 のテストリストのうち ring/カーソル/watermark/wrap-around の性質)。unity 配線はタスク 6。
 
-### Task 5: moqtrun への統合
-`wired_moqt_hub` に `u64 reliable_alias_limit`(init で 0)、`moqtrel_buf pool[WIRED_MOQTREL_POOL]`、`stat_rel_stall/overflow`。`wired_moqt_io` 末尾に `int (*stream_hold)(wired_wt_session*, u64, int)`(0 ガード)。`moqtrun_relay_start/continue/append_one/forward_one` に reliable 分岐、`wired_moqt_tick` に drain+stall、`on_session_close`/relay 解放でプール返却。テスト(`tests/app/moqtrun_test.c`、Task 1 の残りの性質): 拒否→tick で再送され全バイト順序どおり / watermark で `stream_hold(1)`→drain 後 `(0)` / fin は最後 / 速度差のある 2 sub / sub 離脱で reclaim 進む / stall shed / `reliable_alias_limit=0` なら既存テスト全緑(lossy 不変)。fake io に `stream_hold` 記録を追加。
+### タスク 5: moqtrun への統合
+`wired_moqt_hub` に `u64 reliable_alias_limit`(init で 0)、`moqtrel_buf pool[WIRED_MOQTREL_POOL]`、`stat_rel_stall/overflow`。`wired_moqt_io` 末尾に `int (*stream_hold)(wired_wt_session*, u64, int)`(0 ガード)。`moqtrun_relay_start/continue/append_one/forward_one` に reliable 分岐、`wired_moqt_tick` に drain+stall、`on_session_close`/relay 解放でプール返却。テスト(`tests/app/moqtrun_test.c`、タスク 1 の残りの性質): 拒否→tick で再送され全バイト順序どおり / watermark で `stream_hold(1)`→drain 後 `(0)` / fin は最後 / 速度差のある 2 sub / sub 離脱で reclaim 進む / stall shed / `reliable_alias_limit=0` なら既存テスト全緑(lossy 不変)。fake io に `stream_hold` 記録を追加。
 
-### Task 6: 配線+三点ゲート(integrator、直列)
+### タスク 6: 配線+三点ゲート(integrator、直列)
 `tests/run.c` に `moqtrel.c`/`moqtrel_test.c`/`test_moqtrel()` を追加(grep で着地確認)、count check、`just test`(単一 TU で衝突検出)、`just ninja`、`lizard src --CCN 3 -w`、`just docs`。`wired_server.c` の配線(§4)と `ninja examples/moqt_chat/wired_server` + boot smoke。micro-commit で C 側を連続コミット。
 
-### Task 7: e2e と実測
+### タスク 7: e2e と実測
 docker の `moqt_chat-wired_server-1` を止めてから(ポート 4433)`just e2e-stability s15-image-send` を既定 / `--large-bytes=200000` / `--large-bytes=2000000` / `--large-bytes=5000000` で実行し全ケース PASS、`server.log` の `dropped=0 reset=0`、2MB/5MB の所要時間を記録。回帰: s1-voice-clean / s13-screen-longrun / s14-screen-rejoin / s2-chat-longevity / s8-late-join が PASS(voice/screen の lossy 経路不変)。終了後 `docker start`。
 
-### Task 8: 台帳・仕上げ(controller)
+### タスク 8: 台帳・仕上げ(controller)
 `tasks/todo.md` を退避→新 epoch、`tasks/lessons.md` に「hub の中継は drop 設計だった/事前調査で見落とした」を追記。main へ merge → push → CI(Examples/CI/Docs)を見届け。
 
 ## 検証(全体)
 1. 三点ゲート+count+`just docs` 緑、`just test`(単一 TU)緑。
-2. moqtrun/moqtrel/srvrun の新テストが Task 1 の性質と 1:1 で存在し緑。
+2. moqtrun/moqtrel/srvrun の新テストがタスク 1 の性質と 1:1 で存在し緑。
 3. s15: 20KB/200KB/2MB/5MB PASS、`dropped=0 reset=0 frag_dropped=0`。2MB の受信完了が 30 秒を大きく下回る(目標: localhost で数秒以内)。
 4. voice/screen の e2e 5 本 PASS。
 5. `git diff --stat` で `examples/moqt_chat/frontend/` に変更が無い(フロント無変更)。
