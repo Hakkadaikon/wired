@@ -1,28 +1,16 @@
-# Memory Layout and Sizing
+# メモリ配置とサイズの見積もり
 
-[Docs](../README.md) › Architecture › Memory
+[Docs](../README.md) › アーキテクチャ › メモリ
 
-This page shows how the server's memory is laid out and how it changes when
-you change a capacity constant. Read it before you raise a buffer size or a
-slot count, or when you size a machine for a given number of connections.
+このページでは、サーバーのメモリがどう配置されているか、容量の定数を変えるとそれがどう変わるかを示します。バッファーのサイズやスロット数を増やす前や、想定するコネクション数に合わせてマシンのサイズを決めるときに読んでください。
 
-> **TL;DR** — wired has no heap, so every capacity is a fixed table. The
-> reserved memory is `slots × slot size`, summed per connection and then
-> multiplied by `WIRED_CONNTABLE_CAP`. Changing one constant changes the
-> memory in exact proportion; the table below gives the cost of each one.
+> **要約**: wired にはヒープがないので、どの容量も固定のテーブルです。予約されるメモリは `slots × slot size`(スロット数 × スロットのサイズ)をコネクションごとに合計し、それに `WIRED_CONNTABLE_CAP` を掛けた値です。定数を 1 つ変えると、メモリはちょうどその比率で変わります。各定数のコストは下の表にあります。
 
-## Where the bytes live
+## バイトの置き場所
 
-Every table is a static array, so its size is fixed when the server is
-built. The tables land in the `bss` section of the executable. `bss` is
-address space, not memory in use: the kernel puts a page into RAM only when
-the server first writes to it. So the numbers on this page are the
-*reserved* size, the ceiling a fully loaded server can reach, not what an
-idle or lightly loaded server uses.
+どのテーブルも静的な配列なので、サイズはサーバーのビルド時に決まります。テーブルは実行ファイルの `bss` セクションに置かれます。`bss` はアドレス空間であって、使用中のメモリではありません。カーネルがページを RAM に載せるのは、サーバーがそのページに初めて書き込んだときだけです。そのため、このページの数値は*予約*サイズ、つまり負荷が最大のサーバーが到達しうる上限であり、アイドル中や負荷の軽いサーバーが使う量ではありません。
 
-Nearly all of `bss` is one object, `g_srvrun_env` (`wired_srvrun_env`, in
-`src/app/http3/server/srvrun/srvrun_impl_srvrun.h`). Under the threads
-driver there is one per worker. Its bulk is the connection table:
+`bss` のほぼすべては 1 つのオブジェクト `g_srvrun_env`(`wired_srvrun_env`。`src/app/http3/server/srvrun/srvrun_impl_srvrun.h` にあります)です。threads ドライバーではワーカーごとに 1 つあります。その大部分はコネクションテーブルです。
 
 ```mermaid
 flowchart LR
@@ -49,26 +37,21 @@ flowchart LR
   streams --> rq
 ```
 
-## One connection at the default settings
+## デフォルト設定での 1 コネクション
 
-One connection slot (`sizeof(srvrun_conn)`) is **6,187,832 bytes (5.90 MiB)**
-at the defaults. It splits into these parts:
+1 つのコネクションスロット(`sizeof(srvrun_conn)`)は、デフォルトで **6,187,832 バイト(5.90 MiB)** です。内訳は次のとおりです。
 
-| Part | Size per connection | Share |
+| 部分 | コネクションあたりのサイズ | 割合 |
 |---|---|---|
-| WT send staging, `wtsend[17]` | 2,405,976 B | 38.9% |
-| WT bidi streams, `l.wt_streams[24]` | 1,330,176 B | 21.5% |
-| Request streams, `l.streams[40]` | 924,160 B | 14.9% |
-| WT uni streams, `l.wt_uni_streams[]` | 498,816 B | 8.1% |
-| Responses, `resp[]` | 487,680 B | 7.9% |
-| Received DATAGRAMs, `l.rx_datagrams[256]` | 309,248 B | 5.0% |
-| Everything else (TLS state, boot flight, keys, counters) | 231,776 B | 3.7% |
+| WT 送信のステージング、`wtsend[17]` | 2,405,976 B | 38.9% |
+| WT 双方向ストリーム、`l.wt_streams[24]` | 1,330,176 B | 21.5% |
+| リクエストストリーム、`l.streams[40]` | 924,160 B | 14.9% |
+| WT 単方向ストリーム、`l.wt_uni_streams[]` | 498,816 B | 8.1% |
+| レスポンス、`resp[]` | 487,680 B | 7.9% |
+| 受信した DATAGRAM、`l.rx_datagrams[256]` | 309,248 B | 5.0% |
+| その他(TLS の状態、起動時のフライト、鍵、カウンター) | 231,776 B | 3.7% |
 
-A WT bidi stream slot (`wired_srvloop_wt_stream_slot`, 55,424 B) is its
-48 KiB receive window (`WIRED_SRVLOOP_WT_BUF_CAP`), the window's 6 KiB
-received-byte bitmap, and a little bookkeeping. It holds no HTTP/3 request buffers: those (`req_scratch`,
-`req_buf`) exist only in the request stream slots. A request is decoded in
-place from `req_buf`, so there is no second, linearized copy of the window.
+WT 双方向ストリームのスロット(`wired_srvloop_wt_stream_slot`、55,424 B)の中身は、48 KiB の受信ウィンドウ(`WIRED_SRVLOOP_WT_BUF_CAP`)、そのウィンドウの 6 KiB の受信済みバイトのビットマップ、少しの管理情報です。HTTP/3 のリクエスト用バッファーは持ちません。それら(`req_scratch`、`req_buf`)があるのはリクエストストリームのスロットだけです。リクエストは `req_buf` の上でその場でデコードするので、ウィンドウを連続した領域に並べ直したコピーをもう 1 つ持つことはありません。
 
 ```mermaid
 pie showData
@@ -82,35 +65,26 @@ pie showData
     "Everything else" : 226
 ```
 
-## What each constant costs
+## 定数ごとのコスト
 
-Each row was measured by setting the constant to several values in the
-current source and taking `sizeof(srvrun_conn)`, with all other constants at
-their defaults. The relationship was exactly linear in every case, so the
-"cost per step" column applies at any value inside the allowed range.
+各行は現在のソースで定数をいくつかの値に設定し、ほかの定数はすべてデフォルトのまま `sizeof(srvrun_conn)` を取って測りました。どの場合も関係は完全に線形だったので、「1 単位あたりのコスト」の列は許される範囲の中のどの値にも当てはまります。
 
-| Constant | Default | Cost per connection | Allowed range |
+| 定数 | デフォルト | コネクションあたりのコスト | 許される範囲 |
 |---|---|---|---|
-| `SRVRUN_WTSEND_BUF` (WT send staging per slot) | 131,072 B | +17 B per byte (once per send slot) | `ceil(SRVRUN_WTSEND_BUF / 1100) ≤ WIRED_SENDSESS_LOG` |
-| `WIRED_SENDSESS_LOG` (in-flight slices per send session) | 128 | +4,560 B per entry | at least the bound above |
-| `SRVRUN_WT_SEND_SLOTS` (concurrent WT send slots) | 17 | +141,616 B per slot | — |
-| `WIRED_SRVLOOP_MAX_STREAMS` (request streams) | 40 | +35,514 B per stream | ≤ 64 (`wt_held_mask` is one 64-bit mask) |
-| `BODYWIN_CAP` (request body window) | 10,240 B | +45 B per byte | — |
-| `WIRED_H3_MAX_FIELD_SECTION` (request field section) | 10,240 B | +40 B per byte | ≥ 8000 for RFC 9110 §4.1 request targets |
-| `WIRED_SRVLOOP_MAX_WT_STREAMS` (WT bidi streams) | 24 | +55,560 B per stream | — |
-| `WIRED_SRVLOOP_MAX_RX_DATAGRAMS` (queued received DATAGRAMs) | 256 | +1,208 B per slot | — |
+| `SRVRUN_WTSEND_BUF`(スロットごとの WT 送信のステージング) | 131,072 B | 1 バイトあたり +17 B(送信スロットごとに 1 回) | `ceil(SRVRUN_WTSEND_BUF / 1100) ≤ WIRED_SENDSESS_LOG` |
+| `WIRED_SENDSESS_LOG`(送信セッションごとの送信中のスライス) | 128 | 1 エントリあたり +4,560 B | 上の下限以上 |
+| `SRVRUN_WT_SEND_SLOTS`(同時に使える WT 送信スロット) | 17 | 1 スロットあたり +141,616 B | — |
+| `WIRED_SRVLOOP_MAX_STREAMS`(リクエストストリーム) | 40 | 1 ストリームあたり +35,514 B | ≤ 64(`wt_held_mask` が 64 ビットのマスク 1 つのため) |
+| `BODYWIN_CAP`(リクエストボディのウィンドウ) | 10,240 B | 1 バイトあたり +45 B | — |
+| `WIRED_H3_MAX_FIELD_SECTION`(リクエストのフィールドセクション) | 10,240 B | 1 バイトあたり +40 B | RFC 9110 §4.1 のリクエストターゲットのため ≥ 8000 |
+| `WIRED_SRVLOOP_MAX_WT_STREAMS`(WT 双方向ストリーム) | 24 | 1 ストリームあたり +55,560 B | — |
+| `WIRED_SRVLOOP_MAX_RX_DATAGRAMS`(キューに入る受信 DATAGRAM) | 256 | 1 スロットあたり +1,208 B | — |
 
-Two constants are coupled. One staged WT send round is cut into 1,100-byte
-slices, and every slice needs a send-log entry. So doubling
-`SRVRUN_WTSEND_BUF` to 262,144 also forces `WIRED_SENDSESS_LOG` up to at
-least 239; the build refuses the first change without the second (a static
-assertion in `srvrun_impl_srvrun.h`).
+2 つの定数は連動しています。ステージングした WT 送信の 1 ラウンドは 1,100 バイトのスライスに切り分けられ、スライスごとに送信ログのエントリが 1 つ必要です。そのため `SRVRUN_WTSEND_BUF` を 2 倍の 262,144 にすると、`WIRED_SENDSESS_LOG` も 239 以上に上げなければなりません。後者を変えずに前者だけを変えると、ビルドが通りません(`srvrun_impl_srvrun.h` の静的アサーション)。
 
-### How one connection grows with each constant
+### 定数ごとの 1 コネクションの増え方
 
-The charts below show the size of one connection slot (MiB) as each constant
-moves, with every other constant at its default. The point marked
-"default" reads 5.90 MiB on every chart.
+下のグラフは各定数を動かしたときの 1 コネクションスロットのサイズ(MiB)を示します。ほかの定数はすべてデフォルトのままです。「デフォルト」と記した点は、どのグラフでも 5.90 MiB です。
 
 ```mermaid
 xychart-beta
@@ -160,31 +134,21 @@ xychart-beta
     line [5.63, 5.69, 5.90, 6.79]
 ```
 
-`WIRED_H3_MAX_FIELD_SECTION` behaves like `BODYWIN_CAP` at half the slope:
-5.60 MiB at 2 KiB, 5.90 MiB at 10 KiB (default), 6.14 MiB at 16 KiB.
-`WIRED_SENDSESS_LOG` at 256 gives 6.46 MiB.
+`WIRED_H3_MAX_FIELD_SECTION` は `BODYWIN_CAP` と同じように振る舞い、傾きはその半分です。2 KiB で 5.60 MiB、10 KiB(デフォルト)で 5.90 MiB、16 KiB で 6.14 MiB です。`WIRED_SENDSESS_LOG` を 256 にすると 6.46 MiB になります。
 
-## The whole server: `WIRED_CONNTABLE_CAP`
+## サーバー全体: `WIRED_CONNTABLE_CAP`
 
-The connection count multiplies everything above. Each extra connection
-costs **6,843,260 B (6.53 MiB)**: the 5.90 MiB connection slot plus its
-response storage and table entry. About 1.6 MiB is fixed per worker. That
-includes the run's own copy of the identity and paths it was started with
-(`srvrun_own`, about 34 KiB: a 16 KiB certificate chain, four 4 KiB paths,
-two 512-byte id lists and the keys), so nothing the run reads lives in the
-caller's memory, except the client-auth trust store (`client_ca`): its
-store, roots array and CA DERs stay with the caller and must outlive the
-run.
+ここまでのすべてに、コネクション数が掛かります。コネクションを 1 つ増やすごとに **6,843,260 B(6.53 MiB)** かかります。5.90 MiB のコネクションスロットに、そのレスポンスの保存領域とテーブルのエントリを加えた値です。ワーカーごとの固定分は約 1.6 MiB です。この中には、起動時に渡された ID 情報とパスを実行側が自分で持つコピー(`srvrun_own`、約 34 KiB。16 KiB の証明書チェーン、4 KiB のパス 4 つ、512 バイトの ID リスト 2 つ、鍵)も入っています。そのため、実行中に読むもので呼び出し側のメモリに置かれるものはありません。例外はクライアント認証のトラストストア(`client_ca`)で、そのストア、ルートの配列、CA の DER は呼び出し側に残るので、実行が終わるまで生きていなければなりません。
 
 ```text
 bss per worker ≈ 1.6 MiB + WIRED_CONNTABLE_CAP × 6.53 MiB
 ```
 
-| `WIRED_CONNTABLE_CAP` | Reserved per worker |
+| `WIRED_CONNTABLE_CAP` | ワーカーあたりの予約サイズ |
 |---|---|
 | 4 | 27.8 MiB |
 | 16 | 106 MiB |
-| 64 (library default) | 419 MiB |
+| 64(ライブラリのデフォルト) | 419 MiB |
 | 128 | 837 MiB |
 
 ```mermaid
@@ -195,41 +159,19 @@ xychart-beta
     line [27.8, 106, 419, 837]
 ```
 
-The threads driver multiplies again by the number of workers. The default
-ninja build sets `-DWIRED_CONNTABLE_CAP=4`; the interop image builds with 64.
+threads ドライバーでは、これにさらにワーカー数が掛かります。デフォルトの ninja ビルドは `-DWIRED_CONNTABLE_CAP=4` を設定し、interop イメージは 64 でビルドします。
 
-## Reserved is not resident
+## 予約サイズと常駐サイズは違う
 
-Because pages are mapped only on first write, a server reserves the full
-table but uses far less. On the loopback lane of
-[Implementation Comparison](../performance/comparison.md) (the 4-connection
-build, 20 concurrent streams on one connection), wired used 512 KiB of RAM
-when idle and 1,932 KiB at its peak (2026-11-02, `efd61452e`), against
-27.7 MiB reserved. Resident
-memory grows with what connections actually touch: a connection that sends
-a large WebTransport round fills its 128 KiB staging buffer, and a request
-with a long target fills its 10 KiB request window.
+ページは初めて書き込まれたときにだけ割り当てられるので、サーバーはテーブル全体を予約しても、実際に使うのはずっと少ない量です。[Implementation Comparison](../performance/comparison.md) のループバックのレーン(4 コネクションのビルド、1 つのコネクション上で 20 ストリームを同時に流す)では、予約が 27.7 MiB だったのに対し、wired が使った RAM はアイドル時 512 KiB、ピーク時 1,932 KiB でした(2026-11-02、`efd61452e`)。常駐メモリは、コネクションが実際に触れた分だけ増えます。大きな WebTransport のラウンドを送るコネクションは 128 KiB のステージングバッファーを埋め、長いターゲットを持つリクエストは 10 KiB のリクエストウィンドウを埋めます。
 
-When a connection closes, the server hands its slot's big tables (request
-and WT stream slots, received DATAGRAMs, WT send staging, its `respstore`
-row) back to the kernel with `madvise(MADV_DONTNEED)`, once per close. So
-resident memory falls back after load instead of staying at its peak: on
-the same lane, 1,412 KiB after the load rounds. The pages read as zero
-afterwards, which is what a fresh slot holds, so the next claim skips
-rewriting them and touches only the pages the new connection uses, which
-keeps the peak itself low.
+コネクションが閉じると、サーバーはそのスロットの大きなテーブル(リクエストと WT のストリームスロット、受信した DATAGRAM、WT 送信のステージング、その `respstore` の行)を、`madvise(MADV_DONTNEED)` でカーネルに返します。これはクローズごとに 1 回行います。そのため常駐メモリはピークのまま留まらず、負荷が去ると下がります。同じレーンでは、負荷のラウンドのあとに 1,412 KiB でした。返したページはそのあと 0 として読めます。これは新しいスロットが持つべき内容と同じなので、次にスロットを確保するときは書き直しを省き、新しいコネクションが使うページだけに触れます。これがピーク自体を低く保っています。
 
-## Choosing a constant
+## 定数の選び方
 
-- **Size it from a requirement.** Write the reason next to the constant: an
-  RFC minimum (8000-octet request targets, RFC 9110 §4.1), a peer behavior
-  seen in interop, or a bandwidth-delay product.
-- **Multiply before you merge.** Use the cost column above times
-  `WIRED_CONNTABLE_CAP` times the worker count, and compare that with the
-  target machine's address space and RAM.
-- **Respect the coupled limits.** Raise `WIRED_SENDSESS_LOG` with
-  `SRVRUN_WTSEND_BUF`, and keep `WIRED_SRVLOOP_MAX_STREAMS` at 64 or below.
-- **Share the constant with the tests.** A test buffer larger than the
-  production buffer hides an overflow. Use the same `#define` on both sides.
+- **要件からサイズを決めます**。理由を定数の横に書いてください。RFC の最低値(8000 オクテットのリクエストターゲット、RFC 9110 §4.1)、interop で見た相手の挙動、帯域幅遅延積などです。
+- **マージする前に掛け算をします**。上のコストの列に `WIRED_CONNTABLE_CAP` とワーカー数を掛け、対象マシンのアドレス空間と RAM と比べてください。
+- **連動する上限を守ります**。`SRVRUN_WTSEND_BUF` を上げるときは `WIRED_SENDSESS_LOG` も上げ、`WIRED_SRVLOOP_MAX_STREAMS` は 64 以下に保ってください。
+- **定数をテストと共有します**。本番のバッファーより大きいテストのバッファーは、オーバーフローを隠してしまいます。両側で同じ `#define` を使ってください。
 
-**Next:** [The Layers](layers.md) — what each table belongs to.
+**次へ:** [レイヤー](layers.md): 各テーブルがどこに属するか。

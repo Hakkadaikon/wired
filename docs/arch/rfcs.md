@@ -1,33 +1,16 @@
-# Implemented Specifications and Why They Matter
+# 実装している仕様とその理由
 
-[Docs](../README.md) › Architecture › Specifications
+[Docs](../README.md) › アーキテクチャ › 仕様
 
-This page lists every specification the SDK implements and says, for each
-one, why a server needs it. Read it when a code comment cites an RFC or a
-draft you do not recognize, or when you want to know which standard a
-behavior comes from. It is a lookup table, not a reading list. Specs
-that code comments only mention in passing (for example RFC 9525 or RFC
-1035) are left out. Every row here has code behind it. Some rows, mostly
-certificate verification, are helpers the server does not call yet; those
-rows say so.
+このページは、SDK が実装しているすべての仕様を挙げ、それぞれについてサーバーがなぜ必要とするかを説明します。コードのコメントが見覚えのない RFC やドラフトを引いているときや、ある動作がどの規格から来ているかを知りたいときに参照してください。通読するための資料ではなく、引くための一覧表です。コードのコメントで触れるだけの仕様(たとえば RFC 9525 や RFC 1035)は載せていません。ここにある行には、どれも裏付けとなるコードがあります。いくつかの行(主に証明書の検証)は、サーバーがまだ呼び出していないヘルパーで、その行にはそう書いてあります。
 
-> **At a glance** — eight groups: the QUIC core (4 RFCs), QUIC extensions
-> (13), TLS and PKI (16), cryptographic primitives (11), HTTP/3 and QPACK
-> (6), WebTransport (4), MoQT (3 drafts), and the IP/UDP foundations (3). Each
-> group's intro says why the group exists; each table row says why that one
-> spec is needed.
+> **概要**: 8 つのグループがあります。QUIC のコア(4 本の RFC)、QUIC の拡張(13)、TLS と PKI(16)、暗号プリミティブ(11)、HTTP/3 と QPACK(6)、WebTransport(4)、MoQT(3 本のドラフト)、IP/UDP の基盤(3)です。各グループの導入文でそのグループがある理由を、表の各行でその仕様が必要な理由を説明します。
 
-## How the groups stack
+## グループの積み重なり
 
-No single RFC defines a working QUIC server. QUIC is a transport that runs
-over UDP, gets its encryption keys from a TLS 1.3 handshake, and carries
-HTTP/3 on top. WebTransport and MoQT then add layers above HTTP/3. Each
-layer is its own standard, so a server that answers a browser needs all of
-them at once.
+動く QUIC サーバーを 1 本の RFC だけで定義することはできません。QUIC は UDP の上で動くトランスポートで、暗号鍵を TLS 1.3 のハンドシェイクから得て、その上に HTTP/3 を載せます。さらに WebTransport と MoQT が HTTP/3 の上に層を足します。層ごとに別の規格なので、ブラウザーに応答するサーバーはそれらすべてを同時に必要とします。
 
-The diagram shows which group each group depends on. Read it from the
-bottom up. The dashed edge is the one shortcut: MoQT can also run directly
-on a QUIC connection, skipping HTTP/3 and WebTransport.
+図は、各グループがどのグループに依存するかを示します。下から上へ読んでください。破線の辺が唯一の近道で、MoQT は HTTP/3 と WebTransport を飛ばして QUIC コネクションの上で直接動くこともできます。
 
 ```mermaid
 flowchart BT
@@ -48,292 +31,168 @@ flowchart BT
     quic -.->|raw QUIC, ALPN moqt-NN| moqt
 ```
 
-The sections below follow the same groups, from the QUIC core outward, and
-end with the IP/UDP foundations.
+以下の節も同じグループに沿って QUIC のコアから外側へ進み、最後に IP/UDP の基盤を扱います。
 
-## QUIC core
+## QUIC のコア
 
-QUIC is the transport under HTTP/3. Like TCP it gives reliable, ordered
-byte streams, but it runs over UDP, encrypts almost every byte, and carries
-many independent streams in one connection. Its minimal core has three
-jobs: the transport itself, its encryption, and loss recovery.
+QUIC は HTTP/3 の下にあるトランスポートです。TCP と同じく信頼性があり順序の保たれたバイトストリームを提供しますが、UDP の上で動き、ほぼすべてのバイトを暗号化し、1 つのコネクションで独立した多数のストリームを運びます。最小限のコアが受け持つ仕事は 3 つで、トランスポートそのもの、その暗号化、損失回復です。
 
-RFC 9000 defines the shape of packets and frames and the connection's
-states. RFC 9001 ties the TLS 1.3 handshake into QUIC's keys. RFC 9002 adds
-the retransmission and congestion control that UDP does not provide. RFC
-8999 gathers the few header properties that every QUIC version keeps.
+RFC 9000 はパケットとフレームの形、コネクションの状態を定義します。RFC 9001 は TLS 1.3 のハンドシェイクを QUIC の鍵に結び付けます。RFC 9002 は UDP にない再送と輻輳制御を加えます。RFC 8999 はどの QUIC バージョンでも変わらない少数のヘッダーの性質をまとめています。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 9000 | QUIC: A UDP-Based Multiplexed and Secure Transport | <https://www.rfc-editor.org/rfc/rfc9000> | Defines the packet and frame formats, streams, and the connection's state transitions. |
-| RFC 9001 | Using TLS to Secure QUIC | <https://www.rfc-editor.org/rfc/rfc9001> | Ties the TLS 1.3 handshake into QUIC's key derivation and packet protection. |
-| RFC 9002 | QUIC Loss Detection and Congestion Control | <https://www.rfc-editor.org/rfc/rfc9002> | Defines how the sender detects lost packets and controls congestion itself, because UDP does neither. |
-| RFC 8999 | Version-Independent Properties of QUIC | <https://www.rfc-editor.org/rfc/rfc8999> | Defines the header properties that are fixed regardless of version, forming the basis for version negotiation. |
+| RFC 9000 | QUIC: UDP ベースの多重化されたセキュアなトランスポート | <https://www.rfc-editor.org/rfc/rfc9000> | パケットとフレームの形式、ストリーム、コネクションの状態遷移を定義する。 |
+| RFC 9001 | TLS による QUIC の保護 | <https://www.rfc-editor.org/rfc/rfc9001> | TLS 1.3 のハンドシェイクを QUIC の鍵導出とパケット保護に結び付ける。 |
+| RFC 9002 | QUIC の損失検出と輻輳制御 | <https://www.rfc-editor.org/rfc/rfc9002> | UDP はどちらも行わないため、送信側が失われたパケットを自分で検出し、輻輳を自分で制御する方法を定義する。 |
+| RFC 8999 | QUIC のバージョンに依存しない性質 | <https://www.rfc-editor.org/rfc/rfc8999> | バージョンによらず固定のヘッダーの性質を定義し、バージョンネゴシエーションの土台になる。 |
 
-The guide's [QUIC header page](https://hakkadaikon.github.io/wired/guide/en/quic/header/)
-walks through the packet header these RFCs define.
+ガイドの [QUIC ヘッダーのページ](https://hakkadaikon.github.io/wired/guide/ja/quic/header/)で、これらの RFC が定義するパケットヘッダーを順に説明しています。
 
-## QUIC extensions
+## QUIC の拡張
 
-The core is enough to move bytes, but real clients and networks expect
-more. Some clients offer QUIC version 2, and browsers use unreliable
-datagrams for WebTransport. Operators need to know what the path can
-observe and need logs they can read. A server that sends media needs good
-congestion control and the largest packet size the path allows. These
-features were standardized after the core, so each one is a separate RFC
-or draft.
+バイトを運ぶだけならコアで足りますが、実際のクライアントやネットワークはそれ以上を求めます。QUIC バージョン 2 を提示するクライアントがあり、ブラウザーは WebTransport で信頼性のないデータグラムを使います。運用者は経路上から何が観測できるかを知る必要があり、読めるログも必要です。メディアを送るサーバーには、良い輻輳制御と、経路が許す最大のパケットサイズが要ります。これらの機能はコアより後に標準化されたため、それぞれが別の RFC やドラフトになっています。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 9221 | An Unreliable Datagram Extension to QUIC | <https://www.rfc-editor.org/rfc/rfc9221> | Adds the DATAGRAM frame, which trades reliability for low latency. |
-| RFC 9287 | Greasing the QUIC Bit | <https://www.rfc-editor.org/rfc/rfc9287> | Greasing the fixed bit; the encode/accept helpers exist and are tested, but the server does not advertise grease_quic_bit yet, so it always sends the bit set. |
-| RFC 9368 | Compatible Version Negotiation for QUIC | <https://www.rfc-editor.org/rfc/rfc9368> | Defines the procedure to move to a compatible version without an extra round trip. |
-| RFC 9369 | QUIC Version 2 | <https://www.rfc-editor.org/rfc/rfc9369> | A second version to avoid version ossification; the salts and labels differ per version. |
-| RFC 9308 | Applicability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9308> | Operational guidance. Section 5.6 suggests a Retry under load; the server offers this as an operator switch (`force_retry`, off by default) that sends a Retry to every new client. |
-| RFC 9312 | Manageability of the QUIC Transport Protocol | <https://www.rfc-editor.org/rfc/rfc9312> | Describes what an on-path observer can see in a QUIC header. The server leaves the spin bit at 0 (RFC 9000 17.4 allows disabling it); the spin-bit helpers exist and are tested but are not wired in. |
-| RFC 8899 | Packetization Layer Path MTU Discovery for Datagram Transport Protocols | <https://www.rfc-editor.org/rfc/rfc8899> | Discovers the MTU of a datagram path without relying on ICMP. |
-| RFC 9438 | CUBIC for Fast and Long-Distance Networks | <https://www.rfc-editor.org/rfc/rfc9438> | The default congestion-control algorithm, growing the window as a cubic function of time since the last loss. |
-| RFC 9406 | HyStart++: Modified Slow Start for TCP | <https://www.rfc-editor.org/rfc/rfc9406> | Exits slow start on a round-trip-time signal instead of only on loss, avoiding a large overshoot. |
-| draft-cardwell-iccrg-bbr-congestion-control | BBR Congestion Control | <https://datatracker.ietf.org/doc/draft-cardwell-iccrg-bbr-congestion-control/> | A selectable alternative to CUBIC that paces sending from a model of bandwidth and round-trip time instead of reacting to loss. |
-| RFC 3168 | The Addition of Explicit Congestion Notification (ECN) to IP | <https://www.rfc-editor.org/rfc/rfc3168> | Marks outgoing packets ECT(0) and reads the ECN bits of received ones, so routers can signal congestion without dropping packets. |
-| draft-ietf-quic-reliable-stream-reset | QUIC Stream Resets with Partial Delivery | <https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/> | Adds the RESET_STREAM_AT frame, which resets a stream but still delivers its first bytes; WebTransport requires it. |
-| RFC 7464 | JavaScript Object Notation (JSON) Text Sequences | <https://www.rfc-editor.org/rfc/rfc7464> | The JSON-SEQ framing of the qlog files the SDK writes for debugging. |
+| RFC 9221 | QUIC の信頼性のないデータグラム拡張 | <https://www.rfc-editor.org/rfc/rfc9221> | 信頼性と引き換えに低遅延を得る DATAGRAM フレームを加える。 |
+| RFC 9287 | QUIC ビットのグリース | <https://www.rfc-editor.org/rfc/rfc9287> | fixed bit のグリース。エンコードと受理のヘルパーはありテストもあるが、サーバーはまだ grease_quic_bit を通知しないため、常にこのビットを立てて送る。 |
+| RFC 9368 | QUIC の互換バージョンネゴシエーション | <https://www.rfc-editor.org/rfc/rfc9368> | 余分なラウンドトリップなしに互換バージョンへ移る手順を定義する。 |
+| RFC 9369 | QUIC バージョン 2 | <https://www.rfc-editor.org/rfc/rfc9369> | バージョンの硬直化を避けるための 2 つ目のバージョン。salt と label がバージョンごとに異なる。 |
+| RFC 9308 | QUIC トランスポートプロトコルの適用性 | <https://www.rfc-editor.org/rfc/rfc9308> | 運用上の指針。5.6 節は高負荷時に Retry を使うことを提案している。サーバーはこれを運用者向けのスイッチ(`force_retry`、既定はオフ)として提供し、オンにするとすべての新しいクライアントに Retry を送る。 |
+| RFC 9312 | QUIC トランスポートプロトコルの管理性 | <https://www.rfc-editor.org/rfc/rfc9312> | 経路上の観測者が QUIC ヘッダーから何を見られるかを説明する。サーバーは spin bit を 0 のままにする(RFC 9000 17.4 は無効化を認めている)。spin bit のヘルパーはありテストもあるが、組み込まれていない。 |
+| RFC 8899 | データグラムトランスポートのためのパケット化層パス MTU 探索 | <https://www.rfc-editor.org/rfc/rfc8899> | ICMP に頼らずにデータグラム経路の MTU を探索する。 |
+| RFC 9438 | 高速・長距離ネットワークのための CUBIC | <https://www.rfc-editor.org/rfc/rfc9438> | 既定の輻輳制御アルゴリズム。直前の損失からの経過時間の 3 次関数としてウィンドウを広げる。 |
+| RFC 9406 | HyStart++: TCP のための修正スロースタート | <https://www.rfc-editor.org/rfc/rfc9406> | 損失だけでなくラウンドトリップ時間のシグナルでもスロースタートを抜け、大きなオーバーシュートを避ける。 |
+| draft-cardwell-iccrg-bbr-congestion-control | BBR 輻輳制御 | <https://datatracker.ietf.org/doc/draft-cardwell-iccrg-bbr-congestion-control/> | CUBIC に代えて選べるアルゴリズム。損失に反応する代わりに、帯域とラウンドトリップ時間のモデルから送信ペースを決める。 |
+| RFC 3168 | IP への明示的輻輳通知(ECN)の追加 | <https://www.rfc-editor.org/rfc/rfc3168> | 送信パケットに ECT(0) を付け、受信パケットの ECN ビットを読む。これによりルーターはパケットを捨てずに輻輳を知らせられる。 |
+| draft-ietf-quic-reliable-stream-reset | 部分配送付きの QUIC ストリームリセット | <https://datatracker.ietf.org/doc/draft-ietf-quic-reliable-stream-reset/> | ストリームをリセットしつつ先頭のバイトは配送する RESET_STREAM_AT フレームを加える。WebTransport が必要とする。 |
+| RFC 7464 | JSON テキストシーケンス | <https://www.rfc-editor.org/rfc/rfc7464> | SDK がデバッグ用に書き出す qlog ファイルの JSON-SEQ 形式の区切り方。 |
 
-A few terms from the table:
+表に出てくる用語をいくつか説明します。
 
-- A **middlebox** is a router, firewall, or NAT between the two ends. When
-  a header field never changes, middleboxes start to depend on its value
-  and break when it does change. This is called **ossification**, and
-  greasing (sending deliberately varied values) prevents it.
-- The **MTU** is the largest packet a path carries without splitting it.
-  ICMP messages that report it are often filtered, so RFC 8899 probes with
-  packets of growing size instead.
-- The **fixed bit** is a header bit that RFC 9000 always sets to 1.
-- **ECN** uses two bits in the IP header. A sender sets them to ECT(0)
-  ("this packet can carry a congestion mark"), and a congested router
-  changes them to CE instead of dropping the packet.
-- A **salt** and a **label** are constants mixed into key derivation, so
-  version 1 and version 2 packets get different keys.
-- **qlog** is a JSON log format for QUIC events that tools such as qvis
-  can display.
-- **Slow start** is the phase where a sender doubles its sending rate each
-  round trip until it detects congestion.
+- **ミドルボックス**は両端のあいだにあるルーター、ファイアウォール、NAT のことです。ヘッダーのフィールドがまったく変わらないと、ミドルボックスはその値に依存するようになり、値が変わったときに動かなくなります。これを**硬直化**(ossification)と呼び、グリース(わざと値を変えて送ること)で防ぎます。
+- **MTU** は、経路が分割せずに運べる最大のパケットサイズです。MTU を知らせる ICMP メッセージはフィルターされることが多いため、RFC 8899 は代わりにサイズを大きくしながらパケットを送って探ります。
+- **fixed bit** は、RFC 9000 が常に 1 にするヘッダーのビットです。
+- **ECN** は IP ヘッダーの 2 ビットを使います。送信側がこれを ECT(0)(「このパケットは輻輳の印を運べる」)にし、輻輳したルーターはパケットを捨てる代わりに CE に書き換えます。
+- **salt** と **label** は鍵導出に混ぜる定数で、これによりバージョン 1 とバージョン 2 のパケットは異なる鍵を得ます。
+- **qlog** は QUIC のイベントを記録する JSON のログ形式で、qvis などのツールで表示できます。
+- **スロースタート**は、送信側が輻輳を検出するまでラウンドトリップごとに送信レートを倍にしていく段階です。
 
-## TLS and PKI
+## TLS と PKI
 
-QUIC encrypts its packets with keys that come out of a TLS 1.3 handshake
-(RFC 8446). Without those keys the server cannot send even its first
-encrypted packet, so this group is a precondition for everything above it.
+QUIC はパケットを、TLS 1.3 のハンドシェイク(RFC 8446)から得た鍵で暗号化します。この鍵がなければサーバーは最初の暗号化パケットすら送れないため、このグループはその上にあるすべての前提になります。
 
-The handshake also has to prove the server is who it claims to be. It does that
-with an X.509 certificate: the server sends its certificate and signs the
-handshake with the matching private key, and the client checks the
-certificate's name and the chain of signatures up to a trusted root. That is
-why a server SDK needs the PKI specs (Public Key Infrastructure, the rules for
-certificates and their signatures). The SDK parses and generates certificates.
-It also has a TLS client role that verifies a chain against a trust store
-(`castore_validate_chain`), but the server does not use it yet, so the
-verification rows below are marked helper only. Two TLS extensions round out
-the group: SNI names the host the client wants, and ALPN picks the application
-protocol (for example `h3` for HTTP/3) during the handshake.
+ハンドシェイクでは、サーバーが名乗ったとおりの相手であることも証明しなければなりません。そのために X.509 証明書を使います。サーバーは証明書を送り、対応する秘密鍵でハンドシェイクに署名し、クライアントは証明書の名前と、信頼されたルートまでの署名の連鎖を確かめます。サーバー SDK が PKI(公開鍵基盤。証明書とその署名に関する規則)の仕様を必要とするのはこのためです。SDK は証明書を解析し、生成します。トラストストアに照らして証明書チェーンを検証する TLS クライアントの役割(`castore_validate_chain`)もありますが、サーバーはまだ使っていないため、下の表で検証に関わる行はヘルパーのみと記しています。このグループには TLS の拡張も 2 つ入ります。SNI はクライアントが求めるホストを名指しし、ALPN はハンドシェイク中にアプリケーションプロトコル(たとえば HTTP/3 なら `h3`)を選びます。
 
-The server also has to read its own key and certificate from disk. Those files
-are usually PEM: base64 text between `-----BEGIN ...-----` lines, wrapping a
-DER-encoded private key or certificate. That is why the PEM, base64, and
-private-key formats appear in this group, next to the LDAP string-matching
-rules that the (not yet wired) certificate name checks use. The SSLKEYLOGFILE
-draft is the debugging hook: it writes the session secrets to a file so
-Wireshark can decrypt a capture.
+サーバーは自分の鍵と証明書をディスクから読む必要もあります。これらのファイルはふつう PEM 形式で、`-----BEGIN ...-----` の行のあいだにある base64 のテキストが、DER でエンコードされた秘密鍵や証明書を包んでいます。PEM、base64、秘密鍵の形式がこのグループにあるのはこのためで、(まだ組み込まれていない)証明書の名前チェックが使う LDAP の文字列照合の規則も並んでいます。SSLKEYLOGFILE のドラフトはデバッグ用のフックで、セッションのシークレットをファイルに書き出し、Wireshark がキャプチャーを復号できるようにします。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 8446 | The Transport Layer Security (TLS) Protocol Version 1.3 | <https://www.rfc-editor.org/rfc/rfc8446> | Defines the handshake (key exchange and authentication) and the key schedule. |
-| RFC 5280 | Internet X.509 Public Key Infrastructure Certificate and CRL Profile | <https://www.rfc-editor.org/rfc/rfc5280> | Defines the certificate syntax, which the server uses to build and parse certificates, and the constraints to honor during verification (client-side only, not yet wired). |
-| RFC 5480 | Elliptic Curve Cryptography Subject Public Key Information | <https://www.rfc-editor.org/rfc/rfc5480> | Defines the representation of elliptic-curve public keys in a certificate. |
-| RFC 5758 | Internet X.509 PKI: Additional Algorithms and Identifiers for DSA and ECDSA | <https://www.rfc-editor.org/rfc/rfc5758> | Maps the ECDSA signature-algorithm identifiers onto certificates. |
-| RFC 8410 | Algorithm Identifiers for Ed25519, Ed448, X25519, and X448 | <https://www.rfc-editor.org/rfc/rfc8410> | The identifiers for handling Ed25519 and X25519 in certificates and key information. Helper only (client-side verification, not yet wired). |
-| RFC 6066 | Transport Layer Security (TLS) Extensions: Extension Definitions | <https://www.rfc-editor.org/rfc/rfc6066> | Defines several TLS extensions, including SNI, which carries the host name the client wants. |
-| RFC 6125 | Representation and Verification of Domain-Based Application Service Identity | <https://www.rfc-editor.org/rfc/rfc6125> | Defines the rules for matching the certificate name against the target host name (obsoleted by RFC 9525; the code follows 6125's CN fallback, which 9525 drops). Helper only (client-side verification, not yet wired). |
-| RFC 7301 | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | <https://www.rfc-editor.org/rfc/rfc7301> | Selects HTTP/3 during the handshake via ALPN. |
-| RFC 8017 | PKCS #1: RSA Cryptography Specifications Version 2.2 | <https://www.rfc-editor.org/rfc/rfc8017> | Defines the RSA signature schemes (PKCS #1 v1.5 and RSASSA-PSS) and how to verify them; needed to verify RSA certificates. Helper only (client-side verification, not yet wired). |
-| RFC 7468 | Textual Encodings of PKIX, PKCS, and CMS Structures | <https://www.rfc-editor.org/rfc/rfc7468> | The PEM text format of the certificate and key files the server loads. |
-| RFC 4648 | The Base16, Base32, and Base64 Data Encodings | <https://www.rfc-editor.org/rfc/rfc4648> | The base64 decoding inside a PEM block. |
-| RFC 5958 | Asymmetric Key Packages | <https://www.rfc-editor.org/rfc/rfc5958> | The PKCS #8 wrapper around a private key file. |
-| RFC 5915 | Elliptic Curve Private Key Structure | <https://www.rfc-editor.org/rfc/rfc5915> | The SEC1 structure that holds a P-256 private key, on its own or inside PKCS #8. |
-| RFC 5891 | Internationalized Domain Names in Applications (IDNA): Protocol | <https://www.rfc-editor.org/rfc/rfc5891> | Host names are compared as A-labels (the `xn--...` ASCII form of an internationalized name); a non-ASCII name is refused, with no Punycode conversion. Helper only, not yet called by the SNI or certificate checks. |
-| RFC 4518 | LDAP: Internationalized String Preparation | <https://www.rfc-editor.org/rfc/rfc4518> | Case-insensitive, space-collapsing comparison of certificate names (ASCII subset only). Helper only (client-side verification, not yet wired). |
-| draft-ietf-tls-keylogfile | The SSLKEYLOGFILE Format for TLS | <https://datatracker.ietf.org/doc/draft-ietf-tls-keylogfile/> | Writes session secrets to a key log file so a packet capture can be decrypted for debugging. |
+| RFC 8446 | トランスポート層セキュリティ(TLS)プロトコル バージョン 1.3 | <https://www.rfc-editor.org/rfc/rfc8446> | ハンドシェイク(鍵交換と認証)と鍵スケジュールを定義する。 |
+| RFC 5280 | インターネット X.509 公開鍵基盤の証明書と CRL のプロファイル | <https://www.rfc-editor.org/rfc/rfc5280> | 証明書の構文と、検証時に守るべき制約を定義する。サーバーは構文を使って証明書を組み立て、解析する。制約はクライアント側だけで使い、まだ組み込まれていない。 |
+| RFC 5480 | 楕円曲線暗号の主体公開鍵情報 | <https://www.rfc-editor.org/rfc/rfc5480> | 証明書の中での楕円曲線公開鍵の表し方を定義する。 |
+| RFC 5758 | インターネット X.509 PKI: DSA と ECDSA の追加アルゴリズムと識別子 | <https://www.rfc-editor.org/rfc/rfc5758> | ECDSA の署名アルゴリズム識別子を証明書に対応付ける。 |
+| RFC 8410 | Ed25519、Ed448、X25519、X448 のアルゴリズム識別子 | <https://www.rfc-editor.org/rfc/rfc8410> | 証明書と鍵情報で Ed25519 と X25519 を扱うための識別子。ヘルパーのみ(クライアント側の検証、まだ組み込まれていない)。 |
+| RFC 6066 | トランスポート層セキュリティ(TLS)拡張: 拡張の定義 | <https://www.rfc-editor.org/rfc/rfc6066> | いくつかの TLS 拡張を定義する。その中の SNI は、クライアントが求めるホスト名を運ぶ。 |
+| RFC 6125 | ドメインベースのアプリケーションサービス識別子の表現と検証 | <https://www.rfc-editor.org/rfc/rfc6125> | 証明書の名前を接続先のホスト名と照合する規則を定義する(RFC 9525 により廃止。コードは 6125 の CN へのフォールバックに従っており、9525 ではこれがなくなっている)。ヘルパーのみ(クライアント側の検証、まだ組み込まれていない)。 |
+| RFC 7301 | トランスポート層セキュリティ(TLS)アプリケーション層プロトコルネゴシエーション拡張 | <https://www.rfc-editor.org/rfc/rfc7301> | ハンドシェイク中に ALPN で HTTP/3 を選ぶ。 |
+| RFC 8017 | PKCS #1: RSA 暗号仕様 バージョン 2.2 | <https://www.rfc-editor.org/rfc/rfc8017> | RSA の署名方式(PKCS #1 v1.5 と RSASSA-PSS)とその検証方法を定義する。RSA 証明書の検証に必要。ヘルパーのみ(クライアント側の検証、まだ組み込まれていない)。 |
+| RFC 7468 | PKIX、PKCS、CMS の構造のテキストエンコーディング | <https://www.rfc-editor.org/rfc/rfc7468> | サーバーが読み込む証明書と鍵のファイルの PEM テキスト形式。 |
+| RFC 4648 | Base16、Base32、Base64 のデータエンコーディング | <https://www.rfc-editor.org/rfc/rfc4648> | PEM ブロックの中の base64 のデコード。 |
+| RFC 5958 | 非対称鍵パッケージ | <https://www.rfc-editor.org/rfc/rfc5958> | 秘密鍵ファイルを包む PKCS #8 の形式。 |
+| RFC 5915 | 楕円曲線秘密鍵の構造 | <https://www.rfc-editor.org/rfc/rfc5915> | P-256 の秘密鍵を単体で、または PKCS #8 の中で保持する SEC1 の構造。 |
+| RFC 5891 | アプリケーションにおける国際化ドメイン名(IDNA): プロトコル | <https://www.rfc-editor.org/rfc/rfc5891> | ホスト名を A-label(国際化された名前の `xn--...` という ASCII 形式)として比較する。非 ASCII の名前は拒否し、Punycode への変換はしない。ヘルパーのみで、SNI や証明書のチェックからはまだ呼ばれていない。 |
+| RFC 4518 | LDAP: 国際化された文字列の準備 | <https://www.rfc-editor.org/rfc/rfc4518> | 大文字小文字を区別せず、空白をまとめて証明書の名前を比較する(ASCII の範囲のみ)。ヘルパーのみ(クライアント側の検証、まだ組み込まれていない)。 |
+| draft-ietf-tls-keylogfile | TLS の SSLKEYLOGFILE 形式 | <https://datatracker.ietf.org/doc/draft-ietf-tls-keylogfile/> | セッションのシークレットをキーログファイルに書き出し、デバッグのためにパケットキャプチャーを復号できるようにする。 |
 
-The guide covers the
-[handshake](https://hakkadaikon.github.io/wired/guide/en/tls/handshake/) and
-[certificates](https://hakkadaikon.github.io/wired/guide/en/tls/certificates/)
-from the point of view of an application built on the SDK.
+ガイドでは SDK の上に作るアプリケーションの視点から、[ハンドシェイク](https://hakkadaikon.github.io/wired/guide/ja/tls/handshake/)と[証明書](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/)を説明しています。
 
-## Cryptographic primitives
+## 暗号プリミティブ
 
-Most servers get these algorithms from a library such as OpenSSL. This SDK
-uses no libc and no crypto library, so it implements every algorithm the
-handshake and packet protection need itself. Each one comes from its own
-standard.
+たいていのサーバーはこれらのアルゴリズムを OpenSSL などのライブラリから得ます。この SDK は libc も暗号ライブラリも使わないため、ハンドシェイクとパケット保護に必要なアルゴリズムをすべて自前で実装しています。それぞれが別の規格に基づいています。
 
-The group holds the building blocks that TLS and QUIC combine. An **AEAD**
-(authenticated encryption with associated data) encrypts a packet and detects
-any tampering in one step. **HKDF** derives many keys from one shared secret.
-**X25519** is the key exchange that creates that secret, and the signature
-scheme (ECDSA P-256) proves the server owns its certificate. Hashes (SHA-2) and
-HMAC sit under all of them. QUIC calls the AEAD and header-protection ciphers
-directly for every packet; TLS only hands it the keys. None of these functions
-knows anything about QUIC, so each is tested on its own against the standard's
-published test vectors.
+このグループには、TLS と QUIC が組み合わせて使う部品が入っています。**AEAD**(関連データ付き認証付き暗号)は、パケットの暗号化と改ざんの検出を 1 回の処理で済ませます。**HKDF** は 1 つの共有シークレットから多数の鍵を導出します。**X25519** はその共有シークレットを作る鍵交換で、署名方式(ECDSA P-256)はサーバーが自分の証明書の持ち主であることを証明します。その全部の下にハッシュ(SHA-2)と HMAC があります。QUIC は AEAD とヘッダー保護の暗号をパケットごとに直接呼び出し、TLS は鍵を渡すだけです。これらの関数はどれも QUIC について何も知らないため、それぞれ単独で、規格が公開しているテストベクターに照らしてテストしています。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 8439 | ChaCha20 and Poly1305 for IETF Protocols | <https://www.rfc-editor.org/rfc/rfc8439> | An AEAD cipher that stays fast on CPUs without AES hardware instructions. |
-| FIPS 197 | Advanced Encryption Standard (AES) | <https://csrc.nist.gov/pubs/fips/197/final> | Defines the AES block cipher that AES-GCM builds on. |
-| SP 800-38D | Recommendation for Block Cipher Modes of Operation: GCM and GMAC | <https://csrc.nist.gov/pubs/sp/800/38/d/final> | The GCM mode that turns AES into an AEAD; the default packet-protection scheme. |
-| RFC 7748 | Elliptic Curves for Security | <https://www.rfc-editor.org/rfc/rfc7748> | Defines the curve arithmetic for X25519 key exchange; creates the ECDHE shared secret. |
-| RFC 8032 | Edwards-Curve Digital Signature Algorithm (EdDSA) | <https://www.rfc-editor.org/rfc/rfc8032> | Ed25519 signing and verification. Helper only: the server signs with ECDSA P-256, and the Ed25519 CertificateVerify and self-signed-certificate builders are not yet called. |
-| RFC 6979 | Deterministic Usage of DSA and ECDSA | <https://www.rfc-editor.org/rfc/rfc6979> | Derives the ECDSA nonce deterministically, so a weak random-number generator cannot leak the private key. |
-| RFC 6090 | Fundamental Elliptic Curve Cryptography Algorithms | <https://www.rfc-editor.org/rfc/rfc6090> | Defines the basic operations on elliptic curves; the foundation of the P-256 implementation. |
-| FIPS 186-4 | Digital Signature Standard (DSS) | <https://csrc.nist.gov/pubs/fips/186/4/final> | The rules and curve parameters for ECDSA P-256 signing (the server's CertificateVerify and certificates) and verification (client-side only, not yet wired). |
-| FIPS 180-4 | Secure Hash Standard (SHS) | <https://csrc.nist.gov/pubs/fips/180/4/final> | SHA-256, SHA-384, and SHA-512; the foundation of the handshake transcript and key derivation. |
-| FIPS 198-1 | The Keyed-Hash Message Authentication Code (HMAC) | <https://csrc.nist.gov/pubs/fips/198/1/final> | HMAC; the foundation of HKDF and Finished verification. |
-| RFC 5869 | HMAC-based Extract-and-Expand Key Derivation Function (HKDF) | <https://www.rfc-editor.org/rfc/rfc5869> | The key-derivation function that drives the whole TLS 1.3 key schedule. |
+| RFC 8439 | IETF プロトコルのための ChaCha20 と Poly1305 | <https://www.rfc-editor.org/rfc/rfc8439> | AES のハードウェア命令がない CPU でも速さを保つ AEAD 暗号。 |
+| FIPS 197 | Advanced Encryption Standard (AES) | <https://csrc.nist.gov/pubs/fips/197/final> | AES-GCM の土台となる AES ブロック暗号を定義する。 |
+| SP 800-38D | ブロック暗号の利用モードに関する勧告: GCM と GMAC | <https://csrc.nist.gov/pubs/sp/800/38/d/final> | AES を AEAD にする GCM モード。既定のパケット保護方式。 |
+| RFC 7748 | セキュリティのための楕円曲線 | <https://www.rfc-editor.org/rfc/rfc7748> | X25519 鍵交換の曲線演算を定義し、ECDHE の共有シークレットを作る。 |
+| RFC 8032 | エドワーズ曲線デジタル署名アルゴリズム(EdDSA) | <https://www.rfc-editor.org/rfc/rfc8032> | Ed25519 の署名と検証。ヘルパーのみ。サーバーは ECDSA P-256 で署名し、Ed25519 の CertificateVerify と自己署名証明書のビルダーはまだ呼ばれていない。 |
+| RFC 6979 | DSA と ECDSA の決定的な使用法 | <https://www.rfc-editor.org/rfc/rfc6979> | ECDSA の nonce を決定的に導出し、乱数生成器が弱くても秘密鍵が漏れないようにする。 |
+| RFC 6090 | 基本的な楕円曲線暗号アルゴリズム | <https://www.rfc-editor.org/rfc/rfc6090> | 楕円曲線上の基本演算を定義する。P-256 実装の土台。 |
+| FIPS 186-4 | Digital Signature Standard (DSS) | <https://csrc.nist.gov/pubs/fips/186/4/final> | ECDSA P-256 の署名(サーバーの CertificateVerify と証明書)と検証(クライアント側のみ、まだ組み込まれていない)の規則と曲線パラメーター。 |
+| FIPS 180-4 | Secure Hash Standard (SHS) | <https://csrc.nist.gov/pubs/fips/180/4/final> | SHA-256、SHA-384、SHA-512。ハンドシェイクのトランスクリプトと鍵導出の土台。 |
+| FIPS 198-1 | The Keyed-Hash Message Authentication Code (HMAC) | <https://csrc.nist.gov/pubs/fips/198/1/final> | HMAC。HKDF と Finished の検証の土台。 |
+| RFC 5869 | HMAC ベースの抽出・展開鍵導出関数(HKDF) | <https://www.rfc-editor.org/rfc/rfc5869> | TLS 1.3 の鍵スケジュール全体を動かす鍵導出関数。 |
 
-ECDHE in the RFC 7748 row means the key pair is fresh for each connection,
-so a key stolen later cannot decrypt recorded traffic. The guide shows
-[X25519](https://hakkadaikon.github.io/wired/guide/en/tls/x25519/) and
-[SHA-256](https://hakkadaikon.github.io/wired/guide/en/tls/sha256/) in use.
+RFC 7748 の行にある ECDHE は、鍵ペアをコネクションごとに新しく作ることを意味します。そのため、後で鍵が盗まれても、記録された通信は復号できません。ガイドでは [X25519](https://hakkadaikon.github.io/wired/guide/ja/tls/x25519/) と [SHA-256](https://hakkadaikon.github.io/wired/guide/ja/tls/sha256/) の使い方を示しています。
 
-## HTTP/3 and QPACK
+## HTTP/3 と QPACK
 
-HTTP/3 is HTTP (methods, status codes, headers) mapped onto QUIC streams:
-each request gets its own stream, so one slow response does not hold up
-the others. RFC 9114 defines that mapping, and RFC 9110 defines the HTTP
-meaning that stays the same across HTTP versions.
+HTTP/3 は HTTP(メソッド、ステータスコード、ヘッダー)を QUIC のストリームに対応付けたものです。リクエストごとに専用のストリームを使うため、1 つの応答が遅れても他の応答は待たされません。RFC 9114 がこの対応付けを定義し、RFC 9110 が HTTP のバージョンをまたいで変わらない HTTP の意味を定義します。
 
-Headers are compressed, but HTTP/2's compressor (HPACK) cannot be reused as
-is. HPACK assumes every header block arrives in order on one connection.
-QUIC streams arrive independently, so with HPACK one lost packet would stall
-headers on every other stream. This stall is called **head-of-line
-blocking**. QPACK (RFC 9204) avoids it by sending the compressor's table
-updates on separate streams; each header block states how many updates it
-needs (its Required Insert Count) before it can be decoded.
+ヘッダーは圧縮されますが、HTTP/2 の圧縮方式(HPACK)はそのままでは使えません。HPACK は、すべてのヘッダーブロックが 1 本のコネクション上で順番どおりに届くことを前提にしています。QUIC のストリームは互いに独立して届くため、HPACK では 1 つのパケットが失われると他のすべてのストリームのヘッダーが止まってしまいます。この停止を **head-of-line blocking** と呼びます。QPACK(RFC 9204)は圧縮テーブルの更新を別のストリームで送ることでこれを避けます。各ヘッダーブロックはデコードできるようになるまでに必要な更新の数(Required Insert Count)を示します。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 9114 | HTTP/3 | <https://www.rfc-editor.org/rfc/rfc9114> | Maps HTTP semantics onto frames carried on QUIC streams. |
-| RFC 9110 | HTTP Semantics | <https://www.rfc-editor.org/rfc/rfc9110> | The version-independent HTTP semantics such as methods, status, and headers. |
-| RFC 9204 | QPACK: Field Compression for HTTP/3 | <https://www.rfc-editor.org/rfc/rfc9204> | Header compression that avoids head-of-line blocking even though streams arrive independently. |
-| RFC 7541 | HPACK: Header Compression for HTTP/2 | <https://www.rfc-editor.org/rfc/rfc7541> | Defines the static table, Huffman code, and integer encoding that QPACK reuses. |
-| RFC 9218 | Extensible Prioritization Scheme for HTTP | <https://www.rfc-editor.org/rfc/rfc9218> | Defines the mechanism for conveying request priorities. |
-| RFC 8941 | Structured Field Values for HTTP | <https://www.rfc-editor.org/rfc/rfc8941> | The header-value syntax of the WebTransport subprotocol offer (`wt-available-protocols`, `wt-protocol`), which selects the MoQT draft, and of the RFC 9218 `Priority` value. |
+| RFC 9114 | HTTP/3 | <https://www.rfc-editor.org/rfc/rfc9114> | HTTP のセマンティクスを、QUIC ストリーム上を運ばれるフレームに対応付ける。 |
+| RFC 9110 | HTTP セマンティクス | <https://www.rfc-editor.org/rfc/rfc9110> | メソッド、ステータス、ヘッダーなど、バージョンに依存しない HTTP のセマンティクス。 |
+| RFC 9204 | QPACK: HTTP/3 のフィールド圧縮 | <https://www.rfc-editor.org/rfc/rfc9204> | ストリームが独立して届いても head-of-line blocking を起こさないヘッダー圧縮。 |
+| RFC 7541 | HPACK: HTTP/2 のヘッダー圧縮 | <https://www.rfc-editor.org/rfc/rfc7541> | QPACK が再利用する静的テーブル、ハフマン符号、整数エンコーディングを定義する。 |
+| RFC 9218 | HTTP の拡張可能な優先度付け方式 | <https://www.rfc-editor.org/rfc/rfc9218> | リクエストの優先度を伝える仕組みを定義する。 |
+| RFC 8941 | HTTP の構造化フィールド値 | <https://www.rfc-editor.org/rfc/rfc8941> | MoQT のドラフトを選ぶ WebTransport サブプロトコルの提示(`wt-available-protocols`、`wt-protocol`)と、RFC 9218 の `Priority` の値に使うヘッダー値の構文。 |
 
-The guide's [HTTP/3 hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/)
-is the shortest server that uses this group.
+ガイドの [HTTP/3 hello](https://hakkadaikon.github.io/wired/guide/ja/h3/hello/) が、このグループを使う最も短いサーバーです。
 
 ## WebTransport
 
-HTTP/3 carries requests and responses. A browser application that wants
-its own streams and datagrams to a server, without the request/response
-shape, needs one more layer: WebTransport. The browser sends an **Extended
-CONNECT** request (an HTTP CONNECT request with a `:protocol`
-pseudo-header, from RFC 9220). When the server accepts it, a session opens,
-and the streams and datagrams bound to that session belong to the
-application. This SDK implements the server side: the session state
-machine, the WebTransport capsules, and the error-code mapping. A
-**capsule** is a small typed message sent inside the CONNECT request's
-stream, used for example to close the session. The guide's
-[browser page](https://hakkadaikon.github.io/wired/guide/en/wt/browser/)
-drives a live session from a real browser, and the
-[session lifecycle page](https://hakkadaikon.github.io/wired/guide/en/wt/session-lifecycle/)
-shows how a session closes.
+HTTP/3 はリクエストと応答を運びます。ブラウザーのアプリケーションが、リクエストと応答の形にとらわれずにサーバーとのあいだで独自のストリームやデータグラムを使いたいなら、もう 1 つ層が必要です。それが WebTransport です。ブラウザーは **Extended CONNECT** リクエスト(`:protocol` 疑似ヘッダーを付けた HTTP の CONNECT リクエスト。RFC 9220 で導入)を送ります。サーバーがこれを受け入れるとセッションが開き、そのセッションに結び付いたストリームとデータグラムはアプリケーションのものになります。この SDK はサーバー側を実装しています。具体的には、セッションの状態機械、WebTransport のカプセル、エラーコードの対応付けです。**カプセル**は CONNECT リクエストのストリームの中で送る型付きの小さなメッセージで、たとえばセッションを閉じるときに使います。ガイドの[ブラウザーのページ](https://hakkadaikon.github.io/wired/guide/ja/wt/browser/)では本物のブラウザーから実際のセッションを動かし、[セッションのライフサイクルのページ](https://hakkadaikon.github.io/wired/guide/ja/wt/session-lifecycle/)ではセッションの閉じ方を示しています。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| draft-ietf-webtrans-http3 | WebTransport over HTTP/3 | <https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3> | The core spec: the session state machine, the WebTransport stream signals, the session-close capsules, and the application error-code mapping; implemented against draft-16 (the version MoQT draft-19 and later reference). |
-| RFC 9220 | Bootstrapping WebSockets with HTTP/3 | <https://www.rfc-editor.org/rfc/rfc9220> | Brings Extended CONNECT into HTTP/3; the `:protocol` pseudo-header and SETTINGS_ENABLE_CONNECT_PROTOCOL that session establishment rides on. |
-| RFC 9297 | HTTP Datagrams and the Capsule Protocol | <https://www.rfc-editor.org/rfc/rfc9297> | Binds DATAGRAMs to a request stream via SETTINGS_H3_DATAGRAM and defines the generic capsule envelope the WebTransport capsules are layered on. |
-| RFC 3629 | UTF-8, a transformation format of ISO 10646 | <https://www.rfc-editor.org/rfc/rfc3629> | Validates the UTF-8 close reason in a session-close capsule and truncates it only on a character boundary. |
+| draft-ietf-webtrans-http3 | HTTP/3 上の WebTransport | <https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3> | 中核の仕様。セッションの状態機械、WebTransport ストリームのシグナル、セッションを閉じるカプセル、アプリケーションのエラーコードの対応付けを定める。draft-16(MoQT draft-19 以降が参照する版)に合わせて実装している。 |
+| RFC 9220 | HTTP/3 による WebSocket のブートストラップ | <https://www.rfc-editor.org/rfc/rfc9220> | Extended CONNECT を HTTP/3 に持ち込む。セッションの確立が依存する `:protocol` 疑似ヘッダーと SETTINGS_ENABLE_CONNECT_PROTOCOL。 |
+| RFC 9297 | HTTP データグラムとカプセルプロトコル | <https://www.rfc-editor.org/rfc/rfc9297> | SETTINGS_H3_DATAGRAM で DATAGRAM をリクエストストリームに結び付け、WebTransport のカプセルが載る汎用のカプセルの外枠を定義する。 |
+| RFC 3629 | UTF-8: ISO 10646 の変換形式 | <https://www.rfc-editor.org/rfc/rfc3629> | セッションを閉じるカプセルにある UTF-8 の終了理由を検証し、切り詰めるときは文字の境目でだけ切る。 |
 
-WebTransport is still an Internet-Draft, so the version matters. The
-implementation targets draft-16, the version MoQT draft-19 and draft-22
-cite (MoQT draft-18 still cites draft-15). The requirement ledger
-([draft-webtrans-http3](../features/draft-webtrans-http3.md)) is extracted
-from draft-16 too.
+WebTransport はまだ Internet-Draft なので、版が重要です。実装は draft-16 を対象にしています。MoQT draft-19 と draft-22 が引用している版です(MoQT draft-18 はまだ draft-15 を引用しています)。要件台帳([draft-webtrans-http3](../features/draft-webtrans-http3.md))も draft-16 から抽出しています。
 
-### Why code comments cite draft-15
+### コードのコメントが draft-15 を引用している理由
 
-Code comments cite draft-15 far more often than draft-16. The code was
-first written against draft-15. When the target moved to draft-16, only the
-sections that changed were reimplemented and re-cited: flow control
-(initial SETTINGS, WT_MAX_STREAMS, WT_MAX_DATA), session establishment
-checks (Section 3.2), session-close validation (Section 6), and the error
-codes (Section 9.5). Sections that read the same in both drafts kept their
-draft-15 citation.
+コードのコメントでは、draft-16 よりも draft-15 の引用のほうがはるかに多くなっています。コードは最初に draft-15 に合わせて書かれました。対象を draft-16 に移したとき、変わった節だけを実装し直して引用も改めました。フロー制御(初期 SETTINGS、WT_MAX_STREAMS、WT_MAX_DATA)、セッション確立時のチェック(3.2 節)、セッションを閉じるときの検証(6 節)、エラーコード(9.5 節)です。両方のドラフトで内容が同じ節は、draft-15 の引用のままです。
 
-### Why several enable settings are sent
+### 有効化の設定を複数送る理由
 
-A client opens WebTransport only if the server's HTTP/3 SETTINGS contain a
-setting ID the client knows, and different clients look for different IDs.
-So the server sends three generations at once. SETTINGS_WT_ENABLED
-(`H3_SETTINGS_WT_ENABLED`, numeric setting ID 0x2c7cf000, the same in
-draft-15 and draft-16) is what webtransport-go requires. Chrome looks for
-the older draft-02 and draft-07 settings, so the server sends those too.
+クライアントが WebTransport を開くのは、サーバーの HTTP/3 SETTINGS に自分の知っている設定 ID が含まれているときだけで、クライアントによって探す ID が違います。そのため、サーバーは 3 世代の設定を同時に送ります。SETTINGS_WT_ENABLED(`H3_SETTINGS_WT_ENABLED`、設定 ID の数値は 0x2c7cf000 で draft-15 と draft-16 で同じ)は webtransport-go が必要とするものです。Chrome は古い draft-02 と draft-07 の設定を探すので、サーバーはそれらも送ります。
 
 ## Media over QUIC Transport (MoQT)
 
-WebTransport gives an application raw streams and datagrams, but a live
-media service still needs rules on top: how a client announces what it
-publishes, how another client subscribes, and how media is cut into
-pieces. MoQT defines those rules. Its control messages set up a session
-and its subscriptions. Its object model splits a Track into Groups,
-Subgroups, and Objects, which a publisher pushes and a hub forwards. The
-guide's [hub page](https://hakkadaikon.github.io/wired/guide/en/moqt/hub/)
-shows that model in code.
+WebTransport はアプリケーションに生のストリームとデータグラムを提供しますが、ライブメディアのサービスにはその上の規則がまだ必要です。クライアントが何を配信するかを告知する方法、別のクライアントがそれを購読する方法、メディアを区切る方法です。MoQT がこれらの規則を定めます。制御メッセージでセッションとその購読を確立します。オブジェクトモデルは Track を Group、Subgroup、Object に分け、パブリッシャーがそれを送り出し、ハブが転送します。ガイドの[ハブのページ](https://hakkadaikon.github.io/wired/guide/ja/moqt/hub/)で、このモデルをコードで示しています。
 
-Different clients and browsers implement different MoQT drafts, so the hub
-accepts three: draft-18, draft-19, and draft-22. Each session picks one from
-the WebTransport subprotocol the peer offers (`moqt-18`, `moqt-19`, or
-`moqt-22`). A peer that offers no subprotocol gets draft-19. MoQT can also
-run on a raw QUIC connection without HTTP/3; there the ALPN value (for
-example `moqt-22`) picks the draft. The code lives under `src/app/moqt/`;
-see [Layers](layers.md) for its modules.
+クライアントやブラウザーによって実装している MoQT のドラフトが違うため、ハブは draft-18、draft-19、draft-22 の 3 つを受け付けます。各セッションは、相手が提示する WebTransport サブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`)から 1 つを選びます。サブプロトコルを提示しない相手には draft-19 を使います。MoQT は HTTP/3 を使わずに生の QUIC コネクション上で動くこともでき、その場合は ALPN の値(たとえば `moqt-22`)でドラフトを選びます。コードは `src/app/moqt/` にあります。そのモジュールについては [Layers](layers.md) を参照してください。
 
-Three examples drive it. `examples/moqt_chat` is a live audio, video, and
-chat hub over WebTransport. It uses draft-22 when the browser can offer the
-`moqt-22` subprotocol through the WebTransport `protocols` option, and
-draft-19 otherwise. The guide's MoQT samples run draft-22.
-`examples/moqt_interop` offers all three drafts to the moq-interop-runner
-clients.
+これを使う例は 3 つあります。`examples/moqt_chat` は、WebTransport 上で音声、映像、チャットを扱うライブのハブです。ブラウザーが WebTransport の `protocols` オプションで `moqt-22` サブプロトコルを提示できるときは draft-22 を、できないときは draft-19 を使います。ガイドの MoQT のサンプルは draft-22 で動きます。`examples/moqt_interop` は、moq-interop-runner のクライアントに 3 つのドラフトすべてを提示します。
 
-Per-draft differences are listed in the requirement ledgers:
-[draft-18](../features/draft-moq-transport-18.md),
-[draft-19](../features/draft-moq-transport.md), and
-[draft-22](../features/draft-moq-transport-22.md).
+ドラフトごとの違いは要件台帳に載っています。[draft-18](../features/draft-moq-transport-18.md)、[draft-19](../features/draft-moq-transport.md)、[draft-22](../features/draft-moq-transport-22.md) です。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| draft-ietf-moq-transport-18 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/> | Older draft, negotiated via `moqt-18`. Wire-compatible with draft-19 except for a few control-message details. |
-| draft-ietf-moq-transport-19 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/> | The core spec for publish/subscribe media over a WebTransport session or raw QUIC; negotiated via `moqt-19`, and the default when the peer offers no subprotocol. Hub-role subset: SETUP, SUBSCRIBE, PUBLISH, FETCH, namespace discovery, with the SUBGROUP_HEADER and OBJECT_DATAGRAM data plane. |
-| draft-ietf-moq-transport-22 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/> | Newest draft, negotiated via `moqt-22`. Reworks subscription filters and FETCH. |
+| draft-ietf-moq-transport-18 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/> | 古いドラフトで、`moqt-18` でネゴシエーションする。いくつかの制御メッセージの細部を除けば、ワイヤー上では draft-19 と互換。 |
+| draft-ietf-moq-transport-19 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/> | WebTransport セッションまたは生の QUIC 上での、パブリッシュ/サブスクライブ型メディアの中核の仕様。`moqt-19` でネゴシエーションし、相手がサブプロトコルを提示しないときの既定。ハブの役割に絞った部分集合: SETUP、SUBSCRIBE、PUBLISH、FETCH、名前空間の探索と、SUBGROUP_HEADER と OBJECT_DATAGRAM のデータプレーン。 |
+| draft-ietf-moq-transport-22 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/> | 最新のドラフトで、`moqt-22` でネゴシエーションする。購読のフィルターと FETCH を作り直している。 |
 
-## IP and UDP foundations
+## IP と UDP の基盤
 
-QUIC packets travel inside UDP datagrams, which travel inside IP packets.
-Usually the kernel builds those headers. This SDK can also bypass the
-kernel's network stack with AF_XDP (a Linux socket type that hands raw
-frames straight to the program). On that path it writes the IPv4 header,
-the UDP header, and their checksums itself, so these old RFCs are in scope
-too.
+QUIC のパケットは UDP データグラムの中を、UDP データグラムは IP パケットの中を運ばれます。ふつうはカーネルがこれらのヘッダーを組み立てます。この SDK は AF_XDP(生のフレームをプログラムへ直接渡す Linux のソケット種別)でカーネルのネットワークスタックを迂回することもできます。その経路では IPv4 ヘッダー、UDP ヘッダー、それらのチェックサムを自分で書くため、これらの古い RFC も対象に入ります。
 
-| Spec | Title | Link | Why |
+| 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|
-| RFC 768 | User Datagram Protocol | <https://www.rfc-editor.org/rfc/rfc768> | The UDP header format and checksum that QUIC rides on. |
-| RFC 791 | Internet Protocol | <https://www.rfc-editor.org/rfc/rfc791> | The IPv4 header format that carries the UDP datagram. |
-| RFC 1071 | Computing the Internet Checksum | <https://www.rfc-editor.org/rfc/rfc1071> | The checksum-computation procedure for IP and UDP. |
+| RFC 768 | ユーザーデータグラムプロトコル | <https://www.rfc-editor.org/rfc/rfc768> | QUIC が載る UDP のヘッダー形式とチェックサム。 |
+| RFC 791 | インターネットプロトコル | <https://www.rfc-editor.org/rfc/rfc791> | UDP データグラムを運ぶ IPv4 のヘッダー形式。 |
+| RFC 1071 | インターネットチェックサムの計算 | <https://www.rfc-editor.org/rfc/rfc1071> | IP と UDP のチェックサムの計算手順。 |
 
 ---
 
-**Next:** [Test Coverage](../test-coverage.md) — how far each of these
-specs is tested. ([all docs](../README.md))
+**次へ:** [テストカバレッジ](../test-coverage.md)。これらの仕様それぞれがどこまでテストされているかを説明します。([すべてのドキュメント](../README.md))
