@@ -1,114 +1,79 @@
-# Not applicable because the feature is absent
+# 機能がないために該当しない脆弱性
 
-This page lists security risks that do not apply to wired, but only because
-it leaves a feature out. Read it before a security review, and before you add
-any of the features below: adding one brings its risks back.
+このページは wired には該当しないものの、その理由が機能を省いていることだけにあるセキュリティリスクを並べたものです。
+セキュリティレビューの前と、下に挙げた機能を追加する前に読んでください。どれか 1 つでも追加すると、その機能のリスクが戻ってくるからです。
 
-## What a ledger row is
+## 台帳の行とは
 
-The [vulnerability ledger](vuln-ledger.md) has one row per known kind of
-attack (a "vulnerability class"), each with an ID like `V-0238`. A row comes
-from, for example, a published bug in another TLS or QUIC library, a security
-paragraph in an RFC, or a research paper. Each row ends with a verdict:
+[脆弱性台帳](vuln-ledger.md) には、既知の攻撃の種類(「脆弱性クラス」)ごとに 1 行があり、それぞれ `V-0238` のような ID を持ちます。
+行の出どころはたとえばほかの TLS や QUIC ライブラリで公表されたバグ、RFC のセキュリティに関する段落、研究論文です。
+各行の最後には判定が付きます。
 
-- **fixed** or **already-safe**: wired has the code the attack targets, and
-  the row is *defended*. Usually a named test shows the attack fails. For a
-  few structural rows there is no test, and the Rationale explains why the
-  code cannot be attacked.
-- **not applicable** (`n/a`): wired has no code the attack could target, so
-  there is nothing to test. The row's Rationale says why. Some `n/a` rows are
-  informational: they record a design note in an RFC or an operator concern,
-  not an attack on wired's code.
+- **fixed** または **already-safe**: 攻撃が狙うコードが wired にあり、その行は *防御済み* である。たいていは名前の付いたテストで攻撃が失敗することを示している。構造上の理由による少数の行にはテストがなく、コードが攻撃されえない理由を Rationale に書いている。
+- **not applicable**(`n/a`): 攻撃が狙えるコードが wired になく、テストする対象がない。理由は行の Rationale に書いている。`n/a` の行の一部は情報としての行で、wired のコードへの攻撃ではなく、RFC の設計上の注記や運用者の懸念を記録している。
 
-The difference matters. A defended row stays safe when the code around it
-changes, because its test (where it has one) keeps running. An `n/a` row has
-no test. When it is `n/a` because a feature is missing, it is safe only while
-the feature stays out.
+この違いには意味があります。
+防御済みの行は、周りのコードが変わっても安全なままです。テストがある行ではそのテストが動き続けるからです。
+`n/a` の行にはテストがありません。機能がないことを理由に `n/a` になっている行は、その機能を入れないあいだだけ安全です。
 
-## Why this list matters when you add a feature
+## 機能を追加するときにこの一覧が重要な理由
 
-The rows below are safe today for one reason only: a feature is missing. If
-you add the feature, every row in its group becomes a real risk again. You
-then have to re-triage those rows: re-read each one, decide its new verdict,
-and write the test that defends it.
+下の表の行がいま安全なのは、ある機能がないという理由だけによるものです。
+その機能を追加すると、そのグループのすべての行がふたたび現実のリスクになります。
+そのときは該当する行をトリアージし直す必要があります。各行を読み直し、新しい判定を決め、それを防御するテストを書きます。
 
-Most of these rows are recorded as `n/a`. Three are recorded as
-`already-safe` instead, because the ledger ties them to code that wired does
-have (the ECN counter check, SAN name matching, RSA signature verification):
+これらの行の大半は `n/a` として記録しています。
+3 行だけは `already-safe` として記録しています。台帳がそれらの行を、wired に実際にあるコード(ECN カウンターの検査、SAN の名前照合、RSA 署名の検証)と結び付けているためです。
 
-- V-0223 and V-0547: a test pins that part (the ECN count check, and
-  case-insensitive name matching). The missing part (the self-marked CE
-  probe, RFC 4518 string normalisation) has no test.
-- V-0711: structural, no test. wired never decrypts with RSA, so the timing
-  attack on RSA decryption has no code path.
+- V-0223 と V-0547: その部分(ECN カウントの検査と、大文字小文字を区別しない名前照合)はテストで固定している。欠けている部分(自分で CE を付けるプローブ、RFC 4518 の文字列正規化)にはテストがない。
+- V-0711: 構造上の理由によるもので、テストはない。wired は RSA で復号することがないので、RSA 復号へのタイミング攻撃には狙えるコードパスがない。
 
-Where the consequence column says **re-triage if added**, the attack cannot
-happen today, and adding the feature means re-triaging those rows. The other
-cells say what the gap means for a deployment. For the rest of the security
-records, see the [security index](README.md).
+影響の列が「**追加したら再トリアージ**」になっている行は、いまは攻撃が成り立たず、機能を追加したらその行をトリアージし直すことを示します。
+それ以外のセルには、その欠落がデプロイにとって何を意味するかを書いています。
+ほかのセキュリティ記録は [セキュリティ文書](README.md) を見てください。
 
-TLS terms used in the table:
+表で使う TLS の用語:
 
-- *TLS 1.3* is the handshake that QUIC uses to agree on keys and to
-  authenticate the server. QUIC carries the TLS messages inside its own
-  packets (see the
-  [TLS handshake guide](https://hakkadaikon.github.io/wired/guide/en/tls/handshake/)).
-- *CertificateVerify* is the handshake message where a peer signs to prove
-  it owns its certificate. A certificate chain carries its own, separate
-  signatures (each CA signs the certificate below it).
-- *ECDHE* and *DHE* are the two families of key-exchange methods
-  (elliptic-curve and finite-field Diffie-Hellman).
-- A *PSK* (pre-shared key) resumes or starts a session without a full
-  handshake. The *Selfie* attack reflects an endpoint's own PSK handshake back
-  at it, so it ends up talking to itself; it needs an external PSK that one
-  endpoint uses in both the client and the server role.
-- *Revocation* is how a certificate is withdrawn before it expires.
+- *TLS 1.3* は、QUIC が鍵を合意し、サーバーを認証するのに使うハンドシェイクです。QUIC は TLS のメッセージを自身のパケットに入れて運びます([TLS 1.3 ハンドシェイク](https://hakkadaikon.github.io/wired/guide/ja/tls/handshake/) を参照)。
+- *CertificateVerify* は、ピアが署名して自分の証明書を所有していることを示すハンドシェイクメッセージです。証明書チェーンはこれとは別に、それ自体の署名を持ちます(各 CA がその下の証明書に署名する)。
+- *ECDHE* と *DHE* は鍵交換方式の 2 つの系統です(楕円曲線と有限体の Diffie-Hellman)。
+- *PSK*(pre-shared key)は、フルハンドシェイクなしでセッションを再開または開始します。*Selfie* 攻撃はエンドポイント自身の PSK ハンドシェイクをそのエンドポイントへ反射させ、自分自身と通信させます。成立には、1 つのエンドポイントがクライアントとサーバーの両方の役割で使う外部 PSK が必要です。
+- *Revocation*(失効)は証明書を有効期限より前に取り消す仕組みです。
 
-ECN terms used in the table: *ECN* (Explicit Congestion Notification) lets
-routers mark a packet "congestion experienced" (CE) instead of dropping it,
-and the receiver reports the counts of marks it saw.
+表で使う ECN の用語: *ECN*(Explicit Congestion Notification)は、ルーターがパケットを破棄する代わりに「congestion experienced」(CE)の印を付けられるようにするもので、受信側は見た印の数を報告します。
 
-- A *self-marked CE probe* means the sender marks some of its own packets CE
-  to test whether the peer reports them honestly. wired cannot do this: it
-  sets the ECN bits for the whole socket (`IP_TOS`), not for each packet sent
-  (`cmsg`).
-- The *count floor* (RFC 9000 13.4.2.1) makes the sender check that the
-  peer's reported counts rise by at least the number of packets newly
-  acknowledged. A peer that drops CE reports fails this check, and wired then
-  turns ECN off and relies on loss detection. A peer that relabels CE as an
-  ordinary mark passes it; catching that would need the self-marked probe.
+- *自分で CE を付けるプローブ* は、送信側が自分のパケットの一部に CE を付け、ピアがそれを正直に報告するかを試すことです。wired にはこれができません。ECN ビットをソケット全体に設定しており(`IP_TOS`)、送信するパケットごとには設定していないからです(`cmsg`)。
+- *カウントの下限*(RFC 9000 13.4.2.1)は、ピアが報告するカウントが、新しく確認応答されたパケットの数以上に増えているかを送信側に検査させるものです。CE の報告を落とすピアはこの検査に失敗し、wired はそのとき ECN を無効にしてロス検出に頼ります。CE を通常の印に付け替えるピアはこの検査を通過します。それを見つけるには、自分で CE を付けるプローブが必要です。
 
-The MoQT row's hook is how your application approves each subscription; see
-the [authorization guide](https://hakkadaikon.github.io/wired/guide/en/moqt/authorize/).
+MoQT の行にあるフックは、アプリケーションが購読を 1 件ずつ承認するための仕組みです。[購読者の認可](https://hakkadaikon.github.io/wired/guide/ja/moqt/authorize/) を参照してください。
 
-| Feature absent | Ledger rows | Consequence for a deployment |
+| ない機能 | 台帳の行 | デプロイへの影響 |
 |---|---|---|
-| Encrypted Client Hello (ECH, draft-ietf-tls-esni) | V-0238, V-0240 | re-triage if added |
-| ECDSA P-521 for CertificateVerify (supported: P-256, RSA-PSS, Ed25519) | V-0247 | a peer cannot sign CertificateVerify with `ecdsa_secp521r1_sha512`; P-521-signed certificate chains do verify (since 2026-10-10) |
-| Finite-field DHE groups (only X25519 / P-256 ECDHE) | V-0270 | re-triage if added |
-| RSA-PSK / RSA key transport (RSA is verify-only) | V-0271, V-0274, V-0660, V-0696, V-0711, V-0739, V-0741 | re-triage if added |
-| CBC-mode cipher suites (only AES-GCM and ChaCha20-Poly1305) | V-0285, V-0759 | re-triage if added |
-| certificate_compression extension (RFC 8879) | V-0299 | re-triage if added |
-| External PSK (only server-sealed resumption tickets) | V-0300 | only ticket resumption; Selfie-style reflection has no surface |
-| Revocation checking: CRL, OCSP, OCSP stapling, AIA / CRL-DP fetching | V-0324, V-0528, V-0531, V-0557, V-0560, V-0573, V-0620, V-0621 | revocation is an operator concern (short-lived certificates, out-of-band rotation); with client authentication on, a revoked client certificate is accepted until it expires, so issue short-lived client certificates or remove their CA from the trust store |
-| TLS 1.2 and earlier: extended_master_secret, middlebox compatibility mode, SSLv2 CLIENT-HELLO | V-0347, V-0360, V-0366 | wired speaks only TLS 1.3, and only inside QUIC |
-| Client-side retry-with-different-parameters loop | V-0351 | re-triage if added |
-| ECN self-marked CE probe (socket-wide IP_TOS only, no per-send cmsg) | V-0223 | suppressed CE reports are still caught by the RFC 9000 13.4.2.1 count floor |
-| DSA | V-0576, V-0655, V-0677, V-0687 | re-triage if added |
-| Curve448 / Ed448 / Ed25519ctx-ph context parameter | V-0718, V-0729, V-0730, V-0732, V-0734, V-0766 | re-triage if added |
-| Init/Update/Finish (streaming) signature API (single-buffer only) | V-0736, V-0737 | re-triage if added |
-| Private key generation (keys are supplied as raw seeds / scalars) | V-0747 | re-triage if added |
-| PKCS#7 / CMS parsing | V-0526 | re-triage if added |
-| RFC 4518 DN string normalisation in name constraints (exact-bytes match for the non-directoryName forms) | V-0547 | re-triage if added |
-| Signed Certificate Timestamps / Certificate Transparency | V-0549 | re-triage if added |
-| rfc822Name (email) GeneralName in SAN / name constraints | V-0556 | re-triage if added |
-| Composite / multi-algorithm signatures (draft PKIX CompositeSignature) | V-0568 | re-triage if added |
-| HTTP/1.1 backend connections (no proxy role) | V-0435 | re-triage if added |
-| HTTP/3 server push (PUSH_PROMISE) | V-0446 | re-triage if added |
-| QPACK intermediary role (one dynamic table per connection, no forwarding) | V-0468 | re-triage if added |
-| Client-side WebTransport session opening | V-0510 | re-triage if added |
-| MoQT authorization token schemes (CAT / Privacy Pass); the token is decoded and handed to the authorize hook | V-0794 | the relay decides authorization through wired_moqt_hub.authorize_subscribe |
+| Encrypted Client Hello(ECH、draft-ietf-tls-esni) | V-0238, V-0240 | 追加したら再トリアージ |
+| CertificateVerify での ECDSA P-521(対応: P-256、RSA-PSS、Ed25519) | V-0247 | ピアは CertificateVerify に `ecdsa_secp521r1_sha512` で署名できない。P-521 で署名された証明書チェーンは検証できる(2026-10-10 から) |
+| 有限体 DHE のグループ(X25519 / P-256 の ECDHE のみ) | V-0270 | 追加したら再トリアージ |
+| RSA-PSK / RSA 鍵輸送(RSA は検証専用) | V-0271, V-0274, V-0660, V-0696, V-0711, V-0739, V-0741 | 追加したら再トリアージ |
+| CBC モードの暗号スイート(AES-GCM と ChaCha20-Poly1305 のみ) | V-0285, V-0759 | 追加したら再トリアージ |
+| certificate_compression 拡張(RFC 8879) | V-0299 | 追加したら再トリアージ |
+| 外部 PSK(サーバーが封印した再開用チケットのみ) | V-0300 | チケットによる再開のみ。Selfie 型の反射には攻撃面がない |
+| 失効確認: CRL、OCSP、OCSP stapling、AIA / CRL-DP の取得 | V-0324, V-0528, V-0531, V-0557, V-0560, V-0573, V-0620, V-0621 | 失効は運用者の関心事(短命な証明書、帯域外でのローテーション)。クライアント認証を有効にしていると、失効したクライアント証明書も有効期限まで受け入れられるので、短命なクライアント証明書を発行するか、その CA をトラストストアから外す |
+| TLS 1.2 以前: extended_master_secret、middlebox compatibility mode、SSLv2 CLIENT-HELLO | V-0347, V-0360, V-0366 | wired は TLS 1.3 だけを、QUIC の中でだけ話す |
+| クライアント側の、パラメーターを変えて再試行するループ | V-0351 | 追加したら再トリアージ |
+| ECN の自分で CE を付けるプローブ(ソケット全体の IP_TOS のみ、送信ごとの cmsg なし) | V-0223 | CE の報告を抑えるピアは、RFC 9000 13.4.2.1 のカウントの下限で引き続き検出できる |
+| DSA | V-0576, V-0655, V-0677, V-0687 | 追加したら再トリアージ |
+| Curve448 / Ed448 / Ed25519ctx-ph のコンテキストパラメーター | V-0718, V-0729, V-0730, V-0732, V-0734, V-0766 | 追加したら再トリアージ |
+| Init/Update/Finish(ストリーミング)の署名 API(単一バッファーのみ) | V-0736, V-0737 | 追加したら再トリアージ |
+| 秘密鍵の生成(鍵は生のシードやスカラーとして渡す) | V-0747 | 追加したら再トリアージ |
+| PKCS#7 / CMS のパース | V-0526 | 追加したら再トリアージ |
+| 名前制約での RFC 4518 DN 文字列正規化(directoryName 以外の形式はバイト列の完全一致) | V-0547 | 追加したら再トリアージ |
+| Signed Certificate Timestamps / Certificate Transparency | V-0549 | 追加したら再トリアージ |
+| SAN / 名前制約での rfc822Name(メール)GeneralName | V-0556 | 追加したら再トリアージ |
+| 複合 / 複数アルゴリズムの署名(draft PKIX CompositeSignature) | V-0568 | 追加したら再トリアージ |
+| HTTP/1.1 のバックエンド接続(プロキシの役割なし) | V-0435 | 追加したら再トリアージ |
+| HTTP/3 サーバープッシュ(PUSH_PROMISE) | V-0446 | 追加したら再トリアージ |
+| QPACK の中継者の役割(コネクションごとに動的テーブル 1 つ、転送なし) | V-0468 | 追加したら再トリアージ |
+| クライアント側での WebTransport セッションの開始 | V-0510 | 追加したら再トリアージ |
+| MoQT の認可トークン方式(CAT / Privacy Pass)。トークンはデコードして authorize フックに渡す | V-0794 | 認可はリレーが wired_moqt_hub.authorize_subscribe で判断する |
 
-The table lists 57 ledger rows in 26 groups. Every other ledger row is either
-defended (fixed or already-safe) or `n/a` for a reason that does not depend
-on a missing feature, such as an informational or design-level row.
+この表には、26 のグループに台帳の 57 行があります。
+台帳のほかの行は防御済み(fixed または already-safe)か、機能の欠落によらない理由(情報としての行や設計レベルの行など)で `n/a` になっているかのどちらかです。

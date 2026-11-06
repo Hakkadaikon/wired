@@ -1,41 +1,32 @@
-# BoringSSL test vectors as a third-party oracle
+# 第三者オラクルとしての BoringSSL テストベクター
 
-This page answers one question: does wired's crypto give the same answers as
-an established, independent implementation? It is for anyone who wants to
-trust (or audit) wired's encryption, signatures and key exchange without
-reading the crypto code.
+このページが答える問いは 1 つです。wired の暗号は定評のある独立した実装と同じ答えを出すか。
+暗号のコードを読まずに wired の暗号化、署名、鍵交換を信頼したい(あるいは監査したい)人に向けた文書です。
 
-## What a test vector is
+## テストベクターとは
 
-A test vector is one recorded input together with the output a correct
-implementation must produce: for example a key, a nonce (a number used once
-per message) and a plaintext, plus the exact ciphertext and tag that must
-come out. A test feeds the input to our code and compares the result with
-the recorded output, byte for byte. A vector can also say "this input must
-be rejected", such as a forged signature.
+テストベクターは、記録した 1 つの入力と、正しい実装が出すべき出力の組です。
+たとえば鍵、nonce(メッセージごとに 1 回だけ使う数)、平文と、そこから出てくるべき正確な暗号文とタグです。
+テストは入力を wired のコードに渡し、結果を記録した出力と 1 バイトずつ比べます。
+ベクターは偽造された署名のように「この入力は拒否されなければならない」と示すこともできます。
 
-## Why vectors from another implementation
+## ほかの実装のベクターを使う理由
 
-wired already checks each primitive against the examples printed in its RFC
-or FIPS standard. Those examples are few, and they cover the normal path. A
-bug in a rare branch (a carry in big-number math, a length on a boundary, a
-malformed signature that should be refused) can pass every RFC example.
+wired はすでに、各プリミティブを RFC や FIPS 規格に載っている例と照らして確かめています。
+その例は数が少なく、通常の経路しか扱いません。
+まれな分岐のバグ(多倍長演算の繰り上がり、境界にある長さ、拒否すべき不正な形式の署名)は、RFC の例をすべて通過してしまうことがあります。
 
-BoringSSL is Google's TLS library, used by Chrome and Android. Its developers
-collected many cases per algorithm, and BoringSSL also ships vectors from other
-independent sources: 518 X25519 cases from Google's Wycheproof project (known
-attack and edge cases) and 514 Ed25519 cases from the Ed25519 authors'
-reference set. None of these expected values comes from wired, so a match means
-independent sources agree. This is what "third-party oracle" means here: an
-outside source of correct answers. We never derive an expected value from
-wired's own output.
+BoringSSL は Google の TLS ライブラリで、Chrome と Android が使っています。
+開発者がアルゴリズムごとに多くのケースを集めており、BoringSSL はほかの独立した出どころのベクターも同梱しています。Google の Wycheproof プロジェクトの X25519 ケース 518 件(既知の攻撃とエッジケース)と、Ed25519 の作者による参照セットの Ed25519 ケース 514 件です。
+どの期待値も wired から来たものではないので、一致すれば独立した出どころどうしが同意していることになります。
+ここでいう「第三者オラクル」は、このように正しい答えを外部から与えるものを指します。
+期待値を wired 自身の出力から導くことはしません。
 
-## BoringSSL's FileTest format
+## BoringSSL の FileTest 形式
 
-BoringSSL stores its vectors as plain text files that its test runner, called
-FileTest, reads. Each case is a block of `NAME: value` (or `NAME = value`)
-lines, mostly hex bytes, and a blank line ends the case. One AES-128-GCM case
-looks like this:
+BoringSSL はベクターをプレーンテキストのファイルに保存しており、FileTest というテストランナーがそれを読みます。
+各ケースは `NAME: value`(または `NAME = value`)の行のまとまりで、値はほとんどが 16 進のバイト列です。空行でケースが終わります。
+AES-128-GCM のケース 1 件は次のようになります。
 
 ```text
 KEY: 3881e7be1bb3bbcaff20bdb78e5d1b67
@@ -46,119 +37,82 @@ CT: 5626f96ecb
 TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 ```
 
-`IN` is the plaintext, `AD` the extra data that is authenticated but not
-encrypted, `CT` the ciphertext and `TAG` the authentication tag.
+`IN` は平文、`AD` は暗号化はしないが認証はする追加データ、`CT` は暗号文、`TAG` は認証タグです。
 
-## Where the files and tests live
+## ファイルとテストの置き場所
 
-The vector files are copied from BoringSSL at the pinned commit
-`dd73e69a4e86fa178a4d19033c691e9b42cc1088`. Only the data is copied, no
-BoringSSL source code. Provenance, the upstream path of each file and the
-skip reasons are in
-[`tests/vectors/boringssl/README.md`](../../tests/vectors/boringssl/README.md).
-Only a fixed list of BoringSSL vector files was approved for import (the
-files in that README's table); "the allowed files" below means that list.
+ベクターファイルは固定したコミット `dd73e69a4e86fa178a4d19033c691e9b42cc1088` の BoringSSL からコピーしています。
+コピーしたのはデータだけで、BoringSSL のソースコードは含みません。
+出どころ、各ファイルの上流のパス、skip の理由は [`tests/vectors/boringssl/README.md`](../../tests/vectors/boringssl/README.md) にあります。
+取り込みを許可したのは、決まった一覧の BoringSSL ベクターファイルだけです(その README の表にあるファイル)。以下の「許可したファイル」はこの一覧を指します。
 
-The tests are `tests/crypto/bssl_*_test.c`, one per primitive family. Each
-loops over every case in its file and runs as part of `just test`. A failing
-case is reported with its line range in the vector file, so you can open the
-exact block that disagreed.
+テストは `tests/crypto/bssl_*_test.c` で、プリミティブの系統ごとに 1 つあります。
+それぞれがファイル内のすべてのケースをループで回し、`just test` の一部として動きます。
+失敗したケースはベクターファイル内の行範囲付きで報告されるので、食い違ったブロックをそのまま開けます。
 
-## How to read the Results table
+## 結果の表の読み方
 
-Each row is one primitive (one algorithm). The columns mean:
+各行は 1 つのプリミティブ(1 つのアルゴリズム)です。列の意味は次のとおりです。
 
-- **Added**: how many cases for this primitive the vector files contain.
-- **Pass**: wired produced exactly the expected output, or rejected an input
-  the vector marks as invalid.
-- **Fail**: wired disagreed with BoringSSL. Any non-zero value here is a bug.
-- **Skip**: the case could not be run because wired does not implement that
-  algorithm or that input shape. A skip is not counted as a pass.
+- **Added**: ベクターファイルにあるこのプリミティブのケース数。
+- **Pass**: wired が期待どおりの出力を正確に出したか、ベクターが不正と示す入力を拒否した。
+- **Fail**: wired が BoringSSL と食い違った。ここが 0 でなければバグである。
+- **Skip**: wired がそのアルゴリズムやその形の入力を実装していないため、ケースを実行できなかった。skip は pass として数えない。
 
-A dash (–) means none of the vector files imported from the pinned commit
-has cases for that primitive, so nothing was run.
+ダッシュ(–)は、固定したコミットから取り込んだベクターファイルのどれにもそのプリミティブのケースがなく、何も実行していないことを示します。
 
-## Results (2026-10-05)
+## 結果(2026-10-05)
 
-| Primitive | Added | Pass | Fail | Skip | Notes |
+| プリミティブ | Added | Pass | Fail | Skip | 備考 |
 |---|---|---|---|---|---|
-| AES-128-GCM | 74 | 69 | 0 | 5 | skip: NONCE ≠ 12 bytes (API is 96-bit nonce only) |
-| AES-256-GCM | 66 | 64 | 0 | 2 | skip: NONCE ≠ 12 bytes |
-| ChaCha20-Poly1305 | 81 | 81 | 0 | 0 | truncated tags must be (and are) rejected |
-| X25519 | 527 | 526 | 0 | 1 | 518 Wycheproof + 8 `x25519_test.cc` inline (RFC 7748, small order, 1,000 iterations); skip: 1,000,000-iteration test (`DISABLED_` upstream); low-order / zero shared secret rejected |
-| Ed25519 | 514 | 514 | 0 | 0 | keygen from seed, deterministic sign, verify |
-| ECDSA P-256 | 85 | 85 | 0 | 0 | verify; `Invalid` cases rejected |
-| ECDSA P-384 | 85 | 85 | 0 | 0 | verify; `Invalid` cases rejected |
-| ECDSA P-521 | 88 | 88 | 0 | 0 | verify (added 2026-10-10); `Invalid` cases rejected; the raw digest is passed and cut to 521 bits (one 71-byte digest exercises the cut) |
-| ECDSA P-224 / secp224k1 | 91 | 0 | 0 | 91 | curve not implemented |
-| HMAC-SHA256 | 5 | 5 | 0 | 0 | also a SHA-256 oracle |
-| HMAC-SHA384 | 3 | 3 | 0 | 0 | also a SHA-384 oracle |
-| HMAC-SHA512 | 3 | 3 | 0 | 0 | also a SHA-512 oracle (one key longer than the block) |
-| HMAC-MD5 / SHA1 / SHA224 | 12 | 0 | 0 | 12 | hash not implemented |
-| HKDF | 0 | – | – | – | no vectors in the allowed files at the pinned commit (moved to C++ test source) |
-| SHA-2 (plain digest) | 0 | – | – | – | same; SHA-256/384/512 covered through HMAC |
-| RSA | 0 | – | – | – | no RSA vectors in the allowed files |
+| AES-128-GCM | 74 | 69 | 0 | 5 | skip: NONCE ≠ 12 バイト(API は 96 ビットの nonce のみ) |
+| AES-256-GCM | 66 | 64 | 0 | 2 | skip: NONCE ≠ 12 バイト |
+| ChaCha20-Poly1305 | 81 | 81 | 0 | 0 | 切り詰めたタグは拒否すべきもので、実際に拒否している |
+| X25519 | 527 | 526 | 0 | 1 | Wycheproof 518 件 + `x25519_test.cc` に直接書かれた 8 件(RFC 7748、小さい位数、1,000 回反復)。skip: 1,000,000 回反復のテスト(上流で `DISABLED_`)。低位数 / ゼロの共有秘密は拒否 |
+| Ed25519 | 514 | 514 | 0 | 0 | シードからの鍵生成、決定的な署名、検証 |
+| ECDSA P-256 | 85 | 85 | 0 | 0 | 検証。`Invalid` のケースは拒否 |
+| ECDSA P-384 | 85 | 85 | 0 | 0 | 検証。`Invalid` のケースは拒否 |
+| ECDSA P-521 | 88 | 88 | 0 | 0 | 検証(2026-10-10 に追加)。`Invalid` のケースは拒否。生のダイジェストを渡して 521 ビットに切り詰める(71 バイトのダイジェスト 1 件で切り詰めを検査する) |
+| ECDSA P-224 / secp224k1 | 91 | 0 | 0 | 91 | 曲線を実装していない |
+| HMAC-SHA256 | 5 | 5 | 0 | 0 | SHA-256 のオラクルも兼ねる |
+| HMAC-SHA384 | 3 | 3 | 0 | 0 | SHA-384 のオラクルも兼ねる |
+| HMAC-SHA512 | 3 | 3 | 0 | 0 | SHA-512 のオラクルも兼ねる(ブロックより長い鍵が 1 件) |
+| HMAC-MD5 / SHA1 / SHA224 | 12 | 0 | 0 | 12 | ハッシュを実装していない |
+| HKDF | 0 | – | – | – | 固定したコミットの許可したファイルにベクターがない(C++ のテストソースへ移動) |
+| SHA-2(ダイジェスト単体) | 0 | – | – | – | 同上。SHA-256/384/512 は HMAC を通じてカバー |
+| RSA | 0 | – | – | – | 許可したファイルに RSA のベクターがない |
 
-What the primitives do, in one line each:
+各プリミティブが何をするかを 1 行ずつ:
 
-- AES-GCM and ChaCha20-Poly1305 are AEAD ciphers: they encrypt a packet and
-  add a tag that detects any change to it. QUIC and TLS 1.3 encrypt every
-  packet with one of them.
-- X25519 is the key exchange that lets client and server agree on a shared
-  secret; the guide walks through it in
-  [X25519](https://hakkadaikon.github.io/wired/guide/en/tls/x25519/).
-- Ed25519 and ECDSA are signature schemes; the TLS handshake uses them to
-  prove and check a server's identity (see
-  [Certificates](https://hakkadaikon.github.io/wired/guide/en/tls/certificates/)).
-- HMAC is a keyed checksum built on a hash such as
-  [SHA-256](https://hakkadaikon.github.io/wired/guide/en/tls/sha256/); HKDF
-  derives keys from HMAC.
+- AES-GCM と ChaCha20-Poly1305 は AEAD 暗号です。パケットを暗号化し、改変を検出するタグを付けます。QUIC と TLS 1.3 はすべてのパケットをこのどちらかで暗号化します。
+- X25519 は、クライアントとサーバーが共有秘密を合意するための鍵交換です。ガイドの [X25519 鍵交換](https://hakkadaikon.github.io/wired/guide/ja/tls/x25519/) で順を追って説明しています。
+- Ed25519 と ECDSA は署名方式です。TLS ハンドシェイクはこれらを使って、サーバーの身元を証明し、確かめます([証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/) を参照)。
+- HMAC は [SHA-256](https://hakkadaikon.github.io/wired/guide/ja/tls/sha256/) などのハッシュの上に作る鍵付きチェックサムです。HKDF は HMAC から鍵を導出します。
 
-## Checking that the tests can fail
+## テストが失敗しうることの確認
 
-No case failed, so this oracle found no open defect. An all-pass result is
-only meaningful if the test would notice a wrong answer, so we broke things
-on purpose and confirmed the tests caught it.
+失敗したケースはなく、このオラクルで見つかった未解決の欠陥はありません。
+すべて pass という結果に意味があるのは、テストが誤った答えに気づける場合だけです。そこで意図的に壊し、テストがそれを捕まえることを確かめました。
 
-One expected value was flipped temporarily in each of three vector sets:
-AES-128-GCM, Ed25519 and ECDSA P-256 (in a valid P-256 case). Each produced
-exactly one failing case (`aes_128_gcm_tests.txt:4-9`,
-`ed25519_tests.txt:19-22`, `ecdsa_verify_tests.txt:649-654`), and the files
-were restored.
+AES-128-GCM、Ed25519、ECDSA P-256(P-256 の有効なケース)の 3 つのベクターセットで、それぞれ期待値を 1 つ一時的に反転させました。
+それぞれちょうど 1 件のケースが失敗し(`aes_128_gcm_tests.txt:4-9`、`ed25519_tests.txt:19-22`、`ecdsa_verify_tests.txt:649-654`)、そのあとファイルを元に戻しました。
 
-For P-521 (2026-10-10) the verifier itself was broken instead. An ECDSA
-verifier computes a curve point R from the message and the public key, and
-accepts only if R's x-coordinate matches the signature's r value. We removed
-that comparison and accepted any R that is not the point at infinity (the
-curve's "zero"). 63 of the 88 P-521 cases failed, then the source
-was restored.
+P-521(2026-10-10)では、代わりに検証器そのものを壊しました。
+ECDSA の検証器はメッセージと公開鍵から曲線上の点 R を計算し、R の x 座標が署名の r の値と一致するときだけ受け入れます。
+この比較を取り除き、無限遠点(曲線の「ゼロ」)でない R ならどれでも受け入れるようにしました。
+P-521 の 88 件のうち 63 件が失敗し、そのあとソースを元に戻しました。
 
-## Known gaps
+## 既知の穴
 
-Every skip in the table has a reason, and none of them weakens QUIC, HTTP/3,
-WebTransport or MoQT. Some algorithms are not implemented because TLS 1.3 does
-not need them (P-224, secp224k1, MD5, SHA-1, SHA-224). HKDF, SHA-2 and RSA are
-implemented and used, but the allowed files have no FileTest vectors for them,
-so other tests cover them. The remaining skips are input shapes the protocol
-never uses.
+表の skip にはすべて理由があり、どれも QUIC、HTTP/3、WebTransport、MoQT を弱めるものではありません。
+いくつかのアルゴリズムは TLS 1.3 が必要としないので実装していません(P-224、secp224k1、MD5、SHA-1、SHA-224)。
+HKDF、SHA-2、RSA は実装して使っていますが、許可したファイルに FileTest のベクターがないので、ほかのテストでカバーしています。
+残りの skip は、プロトコルが使うことのない入力の形です。
 
-- **AES-GCM with a nonce that is not 96 bits (12 bytes).** BoringSSL accepts
-  other lengths, but wired's API takes only a 96-bit nonce, so those cases
-  cannot be expressed. QUIC and TLS 1.3 always use 96-bit nonces, so the
-  protocol never needs the other lengths.
-- **ECDSA P-224 and secp224k1.** wired verifies only P-256, P-384 and P-521.
-  Neither curve is a TLS 1.3 group or signature scheme.
-- **HMAC with MD5, SHA-1 or SHA-224.** wired does not implement these hashes.
-  TLS 1.3 cipher suites use SHA-256 or SHA-384, and MD5 and SHA-1
-  signatures are forbidden in the TLS 1.3 handshake.
-- **HKDF, plain SHA-2 and RSA.** The pinned commit has no FileTest vectors
-  for them in the allowed files (HKDF and SHA-2 moved into C++ test source).
-  SHA-256, SHA-384 and SHA-512 are still exercised through the HMAC rows. HKDF
-  and SHA-2 also have their own RFC and FIPS tests, RSA has its own tests with
-  generated signatures, and RSA and HKDF are additionally checked against
-  Wycheproof (see [Wycheproof vectors](wycheproof-vectors.md)).
-- **X25519 1,000,000-iteration test.** BoringSSL itself disables it; the
-  1,000-iteration case runs instead.
+- **96 ビット(12 バイト)でない nonce の AES-GCM。** BoringSSL はほかの長さも受け付けますが、wired の API は 96 ビットの nonce しか受け取らないので、そのケースは表現できません。QUIC と TLS 1.3 は常に 96 ビットの nonce を使うので、プロトコルがほかの長さを必要とすることはありません。
+- **ECDSA P-224 と secp224k1。** wired が検証するのは P-256、P-384、P-521 だけです。どちらの曲線も TLS 1.3 のグループや署名方式ではありません。
+- **MD5、SHA-1、SHA-224 の HMAC。** wired はこれらのハッシュを実装していません。TLS 1.3 の暗号スイートは SHA-256 か SHA-384 を使い、MD5 と SHA-1 の署名は TLS 1.3 ハンドシェイクでは禁止されています。
+- **HKDF、SHA-2 単体、RSA。** 固定したコミットの許可したファイルには、これらの FileTest ベクターがありません(HKDF と SHA-2 は C++ のテストソースへ移動)。SHA-256、SHA-384、SHA-512 は HMAC の行を通じて引き続き検査しています。HKDF と SHA-2 には RFC と FIPS による専用のテストもあり、RSA には生成した署名を使う専用のテストがあります。さらに RSA と HKDF は Wycheproof とも照合しています([Wycheproof ベクターの結果](wycheproof-vectors.md) を参照)。
+- **X25519 の 1,000,000 回反復のテスト。** BoringSSL 自身が無効にしており、代わりに 1,000 回反復のケースを実行します。
 
-One real limit follows from the missing algorithms: a certificate chain
-signed with legacy RSA-SHA-1 cannot be verified by wired.
+アルゴリズムの欠落から生じる実際の制約が 1 つあります。旧来の RSA-SHA-1 で署名された証明書チェーンは、wired では検証できません。
