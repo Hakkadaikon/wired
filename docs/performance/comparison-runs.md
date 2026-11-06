@@ -1,17 +1,12 @@
-# Benchmark runs
+# ベンチマークの実行結果
 
-[Docs](../README.md) › [Performance](./) › [Comparison](comparison.md) › Runs
+[ドキュメント](../README.md) › [性能](./) › [比較](comparison.md) › 実行結果
 
-The raw data behind [Implementation Comparison](comparison.md), so anyone can
-recompute it. Snapshot of 2026-11-02, wired at `efd61452e`.
+[実装の比較](comparison.md)の元になった生データです。誰でも計算し直せるように載せています。2026-11-02 時点のスナップショットで、wired は `efd61452e` です。
 
-## Loopback lane
+## ループバックの計測
 
-Output of `bench/run-lane.sh` for each server, run back-to-back; summarize
-with `node bench/report.mjs speed|usage <file>`. RSS in KiB, `dticks` at
-`hz=100`. The client's UDP-buffer warning (`rmem_max` was 208 KiB) is
-removed from these lines. This is the second of two passes: the first ran
-while the machine was still busy from building quiche and is not used.
+各サーバーについて続けて実行した `bench/run-lane.sh` の出力です。集計には `node bench/report.mjs speed|usage <file>` を使います。RSS の単位は KiB、`dticks` は `hz=100` での値です。クライアントが出す UDP バッファーの警告(`rmem_max` が 208 KiB だった)は、これらの行から取り除いています。これは 2 回行った計測の 2 回目です。1 回目は quiche のビルドでまだマシンが忙しいときに走ったので使っていません。
 
 ```text
 wired-p2 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=512 vmrss_kb=512
@@ -64,24 +59,23 @@ quiche-p2 r5 mode=load n=10000 fails=0 reqps=22359.8 p50=0.79 p99=2.56 cpu%=118
 quiche-p2 r5 usage kind=load reqs=10000 dticks=36 wall_ms=471 hz=100 vmhwm_kb=8468 vmrss_kb=8468
 ```
 
-## Goodput lane
+## グッドプットの計測
 
-quic-interop-runner at `045b88d`, client `martenseemann/quic-go-interop`,
-`-t goodput`, 5 repetitions per server.
+quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go-interop`、`-t goodput` で、サーバーごとに 5 回繰り返しました。
 
-| Server | per-run kbps | Image |
+| サーバー | 各回の kbps | イメージ |
 |---|---|---|
-| wired `efd61452e` | 9433 9419 9445 9453 9419 | local build (`CONNTABLE_CAP=64`) |
+| wired `efd61452e` | 9433 9419 9445 9453 9419 | ローカルでビルド(`CONNTABLE_CAP=64`) |
 | quic-go | 9526 9562 9531 9529 9529 | `martenseemann/quic-go-interop@sha256:15040012e5cf` |
 | quiche | 9438 9426 9433 9437 9435 | `cloudflare/quiche-qns@sha256:b67c084e211e` |
 | ngtcp2 | 9316 9392 9297 9385 9371 | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb4689908dc` |
 | picoquic | 9099 9106 9151 9105 9130 | `privateoctopus/picoquic@sha256:4d1da8e8557c` |
 
-## Binary sections
+## バイナリのセクション
 
-Berkeley `size(1)`; the stripped size is the file after `strip`.
+Berkeley 形式の `size(1)` で測りました。strip 後のサイズは、`strip` をかけた後のファイルの大きさです。
 
-| Binary | text | data | bss | stripped |
+| バイナリ | text | data | bss | strip 後 |
 |---|---|---|---|---|
 | wired_server `efd61452e` | 510,144 | 7,994 | 29,427,736 | 525,040 |
 | qgserver (quic-go v0.61.0) | 6,944,189 | 353,891 | 267,888 | 7,311,104 |

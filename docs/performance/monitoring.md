@@ -1,90 +1,51 @@
-# moqt_chat wired_server — 4.5-hour resource monitoring
+# moqt_chat の wired_server: 4.5 時間のリソース監視
 
-[Docs](../README.md) › [Performance](./) › Monitoring
+[ドキュメント](../README.md) › [性能](./) › 監視
 
-This page answers one question: does the `moqt_chat` example server stay
-healthy when real people use it for hours? We sampled its CPU, memory, and
-network use over a 4.5-hour window while 2–4 real users kept live
-[WebTransport sessions](https://hakkadaikon.github.io/wired/guide/en/wt/session/)
-open. A long run matters because a short benchmark cannot show slow
-problems: a memory leak or CPU use that drifts upward only appears after
-hours.
+このページが答える問いは 1 つです。実際の人が何時間も使ったとき、`moqt_chat` サンプルサーバーは正常に動き続けるか。実際のユーザー 2〜4 人が [WebTransport のセッション](https://hakkadaikon.github.io/wired/guide/ja/wt/session/)を開いたままにしている 4.5 時間のあいだ、CPU、メモリ、ネットワークの使用量を記録しました。長時間の実行が重要なのは、短いベンチマークではゆっくり進む問題が見えないためです。メモリリークや、じわじわ上がっていく CPU 使用率は、何時間もたってから初めて現れます。
 
-The subject is the `wired_server` container from
-`examples/moqt_chat/docker-compose.yml`, which runs with
-`network_mode: host` (the container shares the host's network instead of
-getting its own virtual interface). This is a capacity/health baseline for
-a single-threaded server that can use at most one CPU core, not a throughput benchmark
-(see [Comparison](comparison.md) for that).
+対象は `examples/moqt_chat/docker-compose.yml` の `wired_server` コンテナで、`network_mode: host` で動いています(コンテナは自分専用の仮想インターフェースを持たず、ホストのネットワークを共有します)。これは、使える CPU コアが最大 1 つのシングルスレッドのサーバーについての、容量と健全性の基準値です。スループットのベンチマークではありません(それは[実装の比較](comparison.md)を見てください)。
 
-## Method
+## 方法
 
-- Sampled roughly every 10 minutes (30 samples, first at 01:42 and last
-  at 06:15 JST). There is one 28-minute gap (01:54–02:21), and a few samples
-  near the start and end are only seconds apart. Each sample averages CPU and
-  network deltas over a 3-second window.
-- CPU: the delta of `utime`+`stime` from `/proc/<pid>/stat`, normalized to
-  percent of one core. `utime` is the time the process spent running its own
-  code; `stime` is the time the kernel spent working on its behalf (for
-  example, sending packets). The server is intentionally single-process
-  and single-threaded: the hub keeps its peer table in one process's memory,
-  so the example refuses `--workers`/`--cores` (see
-  [examples/moqt_chat/README.md](../../examples/moqt_chat/README.md)).
-- Memory: `VmRSS` from `/proc/<pid>/status`. `VmRSS` (resident set size)
-  is the amount of the process's memory actually held in RAM right now.
-- Network: the delta of `/sys/class/net/eth0/statistics/{rx,tx}_bytes`.
-  This counts ALL traffic on the host's primary interface, not just this
-  container's. With `network_mode: host` there is no per-container
-  interface to isolate, so treat the throughput numbers as an upper bound
-  that also includes any other traffic the host carried during each
-  3-second window.
-- Raw data: [`perf-monitor.csv`](perf-monitor.csv) (30 rows, one per
-  sample).
+- およそ 10 分ごとに記録した(30 サンプル。最初は 01:42、最後は 06:15 JST)。01:54–02:21 に 28 分の空白が 1 つあり、開始と終了の近くでは数秒しか離れていないサンプルがいくつかある。各サンプルでは、CPU とネットワークの差分を 3 秒の区間で平均している。
+- CPU: `/proc/<pid>/stat` の `utime`+`stime` の差分を、1 コアに対する百分率に正規化した。`utime` はプロセスが自分のコードを実行していた時間、`stime` はカーネルがそのプロセスのために働いていた時間(たとえばパケットの送信)。このサーバーは意図してシングルプロセス・シングルスレッドにしている。ハブがピアの表を 1 つのプロセスのメモリに持つので、このサンプルは `--workers`/`--cores` を受け付けない([examples/moqt_chat/README.md](../../examples/moqt_chat/README.md) を参照)。
+- メモリ: `/proc/<pid>/status` の `VmRSS`。`VmRSS`(resident set size)は、プロセスのメモリのうち、いま実際に RAM に載っている量。
+- ネットワーク: `/sys/class/net/eth0/statistics/{rx,tx}_bytes` の差分。これはこのコンテナの分だけでなく、ホストの主インターフェースを流れたすべての通信を数える。`network_mode: host` ではコンテナごとに切り分けられるインターフェースがないので、スループットの数値は上限として扱うこと。各 3 秒の区間にホストが運んだほかの通信も含まれている。
+- 生データ: [`perf-monitor.csv`](perf-monitor.csv)(30 行、1 サンプル 1 行)。
 
-## Result (30 samples, 2026-09-22 01:42–06:15 JST)
+## 結果(30 サンプル、2026-09-22 01:42–06:15 JST)
 
-| Metric | Min | Median | Mean | Max |
+| 指標 | 最小 | 中央値 | 平均 | 最大 |
 |---|---|---|---|---|
-| CPU (% of 1 core) | 4.00 | 7.67 | 7.80 | 12.00 |
-| Memory (VmRSS, MiB) | 20.85 | 20.85 | 20.85 | 20.85 |
-| Receive throughput (KB/s) | 35.2 | 57.4 | 68.0 | 187.7 |
-| Send throughput (KB/s) | 448.4 | 673.1 | 812.5 | 1474.6 |
+| CPU(1 コアに対する %) | 4.00 | 7.67 | 7.80 | 12.00 |
+| メモリ(VmRSS、MiB) | 20.85 | 20.85 | 20.85 | 20.85 |
+| 受信スループット(KB/s) | 35.2 | 57.4 | 68.0 | 187.7 |
+| 送信スループット(KB/s) | 448.4 | 673.1 | 812.5 | 1474.6 |
 
-In this table, KB/s means 1024 bytes per second, and the Median column is
-the upper median (the 16th of the 30 sorted values).
+この表の KB/s は毎秒 1024 バイトを表し、中央値の列は上側中央値(30 個の値を並べたときの 16 番目)です。
 
-- Memory stayed exactly flat across all 30 samples (20.85 MiB): no sign
-  of a leak over the 4.5-hour window.
-- CPU stayed in a narrow single-digit-to-low-double-digit band (4–12% of
-  one core) throughout, tracking connection/share activity rather than
-  climbing over time.
-- Container status was `running` for every sample; no crash or restart
-  during the window.
-- Send throughput is well above receive, as expected. The
-  [hub](https://hakkadaikon.github.io/wired/guide/en/moqt/hub/) fans a
-  shared live feed and screen-share/voice traffic out to every connected
-  peer, so outbound grows with the number of peers while inbound is
-  roughly one uploader's worth.
+- メモリは 30 サンプルすべてでまったく変わらなかった(20.85 MiB)。4.5 時間のあいだ、リークの兆候はない。
+- CPU は終始、1 桁から 10 % 台前半の狭い範囲(1 コアの 4〜12 %)にとどまった。時間とともに上がるのではなく、接続や画面共有の動きに合わせて上下していた。
+- コンテナの状態はどのサンプルでも `running` だった。期間中にクラッシュや再起動はない。
+- 予想どおり、送信スループットは受信を大きく上回る。[ハブ](https://hakkadaikon.github.io/wired/guide/ja/moqt/hub/)は共有のライブ映像と、画面共有や音声の通信を、接続しているすべてのピアに配る。そのため送信はピアの数に応じて増え、受信はおおよそアップロードする 1 人分にとどまる。
 
-## Test machine
+## テストマシン
 
-The host running this container (ConoHa VPS, KVM guest), from `lscpu`:
+このコンテナを動かしたホスト(ConoHa VPS、KVM ゲスト)の `lscpu` の出力です。
 
 | | |
 |---|---|
-| CPU model | Intel(R) Xeon(R) Gold 6230 @ 2.10GHz |
-| vCPUs | 4 (4 sockets × 1 core) |
-| Architecture | x86_64, 46-bit physical / 48-bit virtual addressing |
-| Hypervisor | KVM (full virtualization) |
-| L1d / L1i cache | 128 KiB each (4 instances) |
-| L2 cache | 16 MiB (4 instances) |
-| L3 cache | 64 MiB (4 instances) |
-| NUMA nodes | 1 |
-| Notable ISA extensions | AVX-512 (F/DQ/CD/BW/VL/VNNI), AES-NI, RDRAND/RDSEED |
+| CPU のモデル | Intel(R) Xeon(R) Gold 6230 @ 2.10GHz |
+| vCPU | 4(4 ソケット × 1 コア) |
+| アーキテクチャ | x86_64、物理アドレス 46 ビット / 仮想アドレス 48 ビット |
+| ハイパーバイザー | KVM(完全仮想化) |
+| L1d / L1i キャッシュ | それぞれ 128 KiB(4 インスタンス) |
+| L2 キャッシュ | 16 MiB(4 インスタンス) |
+| L3 キャッシュ | 64 MiB(4 インスタンス) |
+| NUMA ノード | 1 |
+| 主な命令セット拡張 | AVX-512(F/DQ/CD/BW/VL/VNNI)、AES-NI、RDRAND/RDSEED |
 
-The guest sees its 4 vCPUs as four 1-core sockets rather than one 4-core
-socket. This is the typical shape of cloud vCPUs, not a physical 4-socket
-server.
+ゲストからは、4 つの vCPU が 1 つの 4 コアのソケットではなく、1 コアのソケット 4 つに見えます。これはクラウドの vCPU によくある形で、物理的な 4 ソケットのサーバーではありません。
 
-CPU vulnerability mitigations are the standard set for a patched KVM guest.
-They do not affect the numbers above.
+CPU の脆弱性対策はパッチを当てた KVM ゲストの標準的な設定です。上の数値には影響しません。

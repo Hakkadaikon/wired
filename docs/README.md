@@ -1,108 +1,57 @@
-# wired documentation
+# wired のドキュメント
 
-This page is the map of the `docs/` directory: which page to read first, and
-where to go next for the question you have. It is written for anyone new to
-wired, including readers who know HTTP and TLS but not QUIC.
+このページは `docs/` ディレクトリの地図です。最初に読むページと、知りたいことごとの次の行き先を示します。wired を初めて使う人に向けて書いており、HTTP と TLS は知っていても QUIC は知らない読み手も想定しています。
 
-wired is a server SDK for four protocols stacked on each other: QUIC (the
-encrypted UDP transport under HTTP/3), HTTP/3, WebTransport (browser-to-server
-streams and datagrams over HTTP/3), and MoQT (Media over QUIC Transport, a
-publish/subscribe protocol for live media).
+wired は積み重なった 4 つのプロトコルのためのサーバー SDK です。QUIC(HTTP/3 の下にある、暗号化された UDP のトランスポート)、HTTP/3、WebTransport(HTTP/3 の上で、ブラウザーとサーバーの間にストリームとデータグラムを通すもの)、MoQT(Media over QUIC Transport。ライブメディアのための publish/subscribe 型のプロトコル)の 4 つです。
 
-## Where to start
+## どこから読むか
 
-Read these three in this order.
+次の 3 つをこの順に読んでください。
 
-1. [Getting Started](getting-started.md) — build the SDK, run an example
-   server, and write a small server of your own. Start here because every
-   other page assumes you have seen a wired server run.
-1. [The guide](https://hakkadaikon.github.io/wired/guide/en/) — one short,
-   complete program per feature (HTTP/3 routes, WebTransport streams and
-   datagrams, MoQT publish and subscribe), each shown with the output it
-   actually printed when run. Go here whenever your question is "how do I
-   use X?".
-1. [Architecture](arch/overview.md) — how the pieces fit together inside the
-   SDK, and how a request travels through them. Read this once you want to
-   know why the code is shaped the way it is.
+1. [はじめに](getting-started.md): SDK をビルドし、サンプルのサーバーを動かし、自分の小さなサーバーを書きます。ほかのページはどれも、wired のサーバーが動くところを見たことがある前提で書いているので、ここから始めてください。
+1. [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/): 機能ごとに 1 本、短くて完結したプログラムを載せています(HTTP/3 のルート、WebTransport のストリームとデータグラム、MoQT の publish と subscribe)。どれも、実際に動かしたときに出力された結果を添えています。「X はどう使うのか」を知りたいときは、いつでもここを見てください。
+1. [アーキテクチャとデータの流れ](arch/overview.md): SDK の中で部品がどう組み合わさり、リクエストがその中をどう通るか。コードがなぜこの形になっているかを知りたくなったら読んでください。
 
-The rest of `docs/` covers what the guide does not: internal structure,
-design reasons, guarantees, and how the SDK is verified.
+`docs/` の残りのページは、ガイドが扱わないことを扱います。内部の構造、設計の理由、保証していること、SDK の検証方法です。
 
-## Learn it
+## 学ぶ
 
-- [Getting Started](getting-started.md) — build, run, write your first
-  server.
-- [examples/](../examples/) — four runnable servers. `word_list` is a small
-  HTTP/3 server, `moqt_chat` is a browser chat and voice room over MoQT,
-  and `webtransport_interop` and `moqt_interop` are the endpoints used in the
-  cross-implementation test runs.
+- [はじめに](getting-started.md): ビルドし、動かし、最初のサーバーを書く。
+- [examples/](../examples/): 動かせるサーバー 4 つ。`word_list` は小さな HTTP/3 サーバー、`moqt_chat` は MoQT の上で動くブラウザーのチャットと音声ルーム、`webtransport_interop` と `moqt_interop` はほかの実装との相互接続テストで使うエンドポイント。
 
-## Understand it
+## 理解する
 
-- [Architecture](arch/overview.md) — the big picture and the data flows.
-- [The Layers](arch/layers.md) — the five layers (common, crypto, transport,
-  tls, app; the last one covers HTTP/3, WebTransport, and MoQT), one section
-  at a time.
-- [Memory Layout and Sizing](arch/memory.md) — where the server's memory
-  comes from, and how binary size and memory grow with code and with each
-  capacity constant.
-- [Specifications](arch/rfcs.md) — every specification the SDK implements
-  (RFCs, drafts, and the FIPS / NIST SP crypto standards), and why a server
-  needs each one.
-- [MoQT track switching](features/moqt-track-switching.md) — an experimental,
-  opt-in extension that lets a subscriber switch between two versions of a
-  track (for example a high- and a low-resolution screen share) at a point
-  where the video decoder can start cleanly. It matches the wire format of
-  moqtail, another MoQT implementation, and works only on MoQT draft-22
-  sessions.
+- [アーキテクチャとデータの流れ](arch/overview.md): 全体像とデータの流れ。
+- [レイヤー構成](arch/layers.md): 5 つのレイヤー(common、crypto、transport、tls、app。最後の app が HTTP/3、WebTransport、MoQT を受け持つ)を 1 節ずつ説明。
+- [メモリ配置とサイズの見積もり](arch/memory.md): サーバーのメモリがどこから来るか。バイナリのサイズとメモリが、コードの量や容量の定数ごとにどう増えるか。
+- [実装している仕様とその理由](arch/rfcs.md): SDK が実装している仕様のすべて(RFC、ドラフト、暗号の標準である FIPS / NIST SP)と、サーバーにそれぞれが必要な理由。
+- [MoQT のトラック切り替え](features/moqt-track-switching.md): 実験的な拡張で、明示的に有効にしたときだけ働きます。サブスクライバーが 1 つのトラックの 2 つの版(たとえば高解像度と低解像度の画面共有)を、映像のデコーダーがきれいに再生を始められる位置で切り替えられるようにします。別の MoQT 実装である moqtail とワイヤーフォーマットが一致し、MoQT draft-22 のセッションでだけ動きます。
 
-## Use it as a dependency
+## 依存先として使う
 
-Read these before you build a product on wired: they say what you can rely
-on and what stays your job.
+wired の上に製品を作る前に、次のページを読んでください。頼ってよいことと、アプリ側の仕事として残ることを説明しています。
 
-- [What the SDK does and what the app does](https://hakkadaikon.github.io/wired/guide/en/concepts/responsibilities/)
-  — the line between protocol work and your app's policy, storage, and
-  scaling.
-- [Current limits](https://hakkadaikon.github.io/wired/guide/en/concepts/limits/)
-  — the fixed capacities wired is built with.
-- [API Stability](api-stability.md) — which functions are safe to build on.
-- [API reference](https://hakkadaikon.github.io/wired/) — the full reference
-  generated by Doxygen from the header comments.
-- [Syscalls](syscalls.md) — every kernel call the SDK makes.
-- [Security](security.md) — what the SDK guarantees, what it leaves to you.
-- [Security documents](security/README.md) — the audit records behind the
-  Security page: the vulnerability ledger and the third-party crypto test
-  vectors.
+- [SDK とアプリの役割分担](https://hakkadaikon.github.io/wired/guide/ja/concepts/responsibilities/): プロトコルの処理と、アプリが決めるポリシー・ストレージ・スケーリングとの境目。
+- [現在の上限](https://hakkadaikon.github.io/wired/guide/ja/concepts/limits/): wired に組み込まれている固定の容量。
+- [API の安定性](api-stability.md): どの関数なら安心して使えるか。
+- [API リファレンス](https://hakkadaikon.github.io/wired/): ヘッダーのコメントから Doxygen で生成した完全なリファレンス。
+- [システムコール](syscalls.md): SDK が呼ぶカーネルの呼び出しのすべて。
+- [セキュリティ](security.md): SDK が保証すること、利用者に任せること。
+- [セキュリティ文書](security/README.md): セキュリティのページの裏付けになる監査の記録。脆弱性台帳と、第三者による暗号のテストベクター。
 
-## Check how well it is tested
+## テストの度合いを確かめる
 
-- [Test Coverage](test-coverage.md) — how far each spec is tested, from
-  unit vectors to real-client interop, checkbox by checkbox.
-- [Features](features/README.md) — one requirement list per specification
-  (45 specifications in all: IETF RFCs and drafts, plus the US government
-  FIPS and NIST SP standards that define the crypto algorithms), each
-  requirement mapped to its test or its gap.
-- [Interop Results](interop.md) — runs against independent implementations
-  (mainly quic-go and webtransport-go, plus ngtcp2, picoquic, and
-  flupke-webtransport for some testcases). Only these prove that wired talks
-  to someone else's code, not just to itself.
+- [テストカバレッジ](test-coverage.md): 仕様ごとに、単体のテストベクターから実際のクライアントとの相互接続性まで、どこまでテストしたかをチェックボックス 1 つずつで示す。
+- [機能: 仕様ごとの要件台帳](features/README.md): 仕様ごとに 1 つの要件リスト(全部で 45 の仕様。IETF の RFC とドラフトに加え、暗号アルゴリズムを定める米国政府の FIPS と NIST SP 標準)。各要件を、それを確かめるテストか、足りない部分に対応づけている。
+- [相互接続性の検証結果](interop.md): 独立した実装との実行結果(主に quic-go と webtransport-go。一部のテストケースでは ngtcp2、picoquic、flupke-webtransport も)。wired が自分自身とだけでなく、他人のコードと通信できることを示せるのは、これだけです。
 
-## Measure it
+## 測る
 
-- [Comparison](performance/comparison.md) — features and measured speed
-  ([raw runs](performance/comparison-runs.md))
-  versus other HTTP/3, WebTransport, and MoQT implementations, under pinned
-  conditions.
-- [Performance Monitoring](performance/monitoring.md) — a 4.5-hour resource
-  baseline (CPU, memory, network) for the `moqt_chat` example server, and the
-  test machine's `lscpu` output.
+- [実装の比較](performance/comparison.md)(生データは[ベンチマークの実行結果](performance/comparison-runs.md)): ほかの HTTP/3、WebTransport、MoQT の実装との、機能と実測の速さの比較。条件は固定している。
+- [moqt_chat の wired_server: 4.5 時間のリソース監視](performance/monitoring.md): `moqt_chat` サンプルサーバーの 4.5 時間分のリソースの基準値(CPU、メモリ、ネットワーク)と、テストマシンの `lscpu` の出力。
 
-## Change it
+## 変更する
 
-- [Development](development.md) — the rules every change must hold, why they
-  exist, and how to add code.
+- [開発](development.md): すべての変更が守るべきルールと、それがある理由、コードの足し方。
 
-`sdk/` in this directory is Doxygen output (gitignored, and published as the
-API reference above). To change it, edit the doc comments in the headers, not
-the generated HTML.
+このディレクトリの `sdk/` は Doxygen の出力です(gitignore 済みで、上の API リファレンスとして公開しています)。変更するときは、生成された HTML ではなく、ヘッダーのドキュメントコメントを編集してください。
