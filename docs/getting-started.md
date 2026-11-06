@@ -1,132 +1,104 @@
-# Getting Started
+# はじめに
 
-[Docs](README.md) › Getting Started
+[ドキュメント](README.md) › はじめに
 
-This page takes you from a fresh checkout to a running HTTP/3 server, and then
-to a server binary of your own. It is for a developer who knows HTTP and TLS
-from the web side but has not used QUIC or a C program without libc before.
+このページではリポジトリをチェックアウトした直後の状態から HTTP/3 サーバーを動かし、さらに自分のサーバーバイナリを作るところまで案内します。
+想定する読み手は Web 側から HTTP と TLS を知っているものの、QUIC や libc を使わない C プログラムには触れたことがない開発者です。
 
-HTTP/3 is HTTP carried over QUIC, a transport that runs over UDP instead of
-TCP and has TLS 1.3 built in. You do not need to know how QUIC works to follow
-this page; the SDK handles it.
+HTTP/3 は QUIC の上で HTTP を運ぶプロトコルです。QUIC は TCP ではなく UDP の上で動くトランスポートで、TLS 1.3 を組み込んでいます。
+QUIC の仕組みは SDK が扱うので、このページを読み進めるのに QUIC の知識は要りません。
 
-The page is in three parts. You can stop after any of them:
+ページは 3 部に分かれています。どの部のあとで読むのをやめてもかまいません。
 
-| Part | What you get | Time |
+| 部 | 得られるもの | 所要時間 |
 |---|---|---|
-| [1. First five minutes](#part-1-first-five-minutes) | The example server running, answering real HTTP/3 requests | ~5 min |
-| [2. A server of your own](#part-2-a-server-of-your-own) | Your own binary linked against the SDK | ~15 min |
-| [3. Going further](#part-3-going-further) | Pointers to I/O drivers, WebTransport, certificates, observability | as needed |
+| [1. 最初の 5 分](#第-1-部-最初の-5-分) | サンプルサーバーが動き、実際の HTTP/3 リクエストに応答する | 約 5 分 |
+| [2. 自分のサーバー](#第-2-部-自分のサーバー) | SDK をリンクした自分のバイナリ | 約 15 分 |
+| [3. さらに進む](#第-3-部-さらに進む) | I/O ドライバー、WebTransport、証明書、可観測性への案内 | 必要に応じて |
 
-## Part 1: First five minutes
+## 第 1 部: 最初の 5 分
 
-### Install the toolchain
+### ツールチェーンのインストール
 
-`wired` targets **x86_64-linux only**. You need clang, `just` (a command
-runner; every build step in this repo is a `just` recipe), `ninja` (the build
-tool the recipes call), and `lizard` (a complexity checker). Pick one of two
-ways to get them.
+`wired` が対象とするのは **x86_64-linux のみ** です。
+必要なのは clang、`just`(コマンドランナー。このリポジトリのビルド手順はすべて `just` のレシピです)、`ninja`(レシピが呼ぶビルドツール)、`lizard`(複雑度チェッカー)です。
+入手方法は次の 2 つから選びます。
 
-**Option A (recommended): let Nix pin everything.** Nix is a package manager
-that can install exact tool versions into a temporary shell without touching
-the rest of your system. That shell is called a *devShell*, and this repo's
-devShell holds the same clang, just, ninja, lizard, and doxygen versions that
-CI uses:
+**方法 A(推奨): Nix ですべてのバージョンを固定する。** Nix はパッケージマネージャーで、システムのほかの部分に手を触れずに、正確なバージョンのツールを一時的なシェルへインストールできます。
+このシェルを *devShell* と呼びます。このリポジトリの devShell には、CI と同じバージョンの clang、just、ninja、lizard、doxygen が入っています。
 
 ```sh
 just setup     # one-time: installs Nix (Determinate Systems installer) if absent
 nix develop    # enter the pinned devShell
 ```
 
-**Option B: your own package manager.** Install `clang`, `just`, `ninja`, and
-`lizard` (for example `apt install clang just ninja-build` plus
-`pip install lizard`). Everything builds and tests fine this way.
+**方法 B: 手持ちのパッケージマネージャーを使う。** `clang`、`just`、`ninja`、`lizard` をインストールします(たとえば `apt install clang just ninja-build` と `pip install lizard`)。
+この方法でもビルドとテストは問題なく通ります。
 
-The one caveat with Option B is formatting and linting. A host `clang-format`
-or `clang-tidy` of a different version can format or lint slightly
-differently from CI. If a formatting check surprises you, run that one recipe
-through the pinned toolchain with `just nix <recipe>`.
+方法 B で一つだけ気をつけたいのが、フォーマットと lint です。
+ホストにある別バージョンの `clang-format` や `clang-tidy` は、CI とわずかに違うフォーマットや lint の結果を出すことがあります。
+フォーマットのチェックで思わぬ結果が出たら、そのレシピだけを `just nix <recipe>` で固定したツールチェーンを通して実行してください。
 
-### Build and test
+### ビルドとテスト
 
 ```sh
 just build     # format + compile + lint
 just test      # run the whole test suite
 ```
 
-Both should end green. `just check` is the pre-commit combination: the
-complexity gate plus the tests.
+どちらも成功で終わるはずです。`just check` はコミット前に実行する組み合わせで、複雑度のチェックとテストを合わせたものです。
 
-### Run the example server
+### サンプルサーバーの実行
 
 ```sh
 cd examples/word_list
 just run       # builds the SDK + the sample, binds 0.0.0.0:4433
 ```
 
-Then, from a machine that can reach UDP port 4433:
+次に、UDP ポート 4433 に届くマシンから次を実行します。
 
 ```sh
 curl --http3-only --insecure https://<host>:4433/
 ```
 
-`--insecure` is needed because the example presents a self-signed
-certificate, one that no certificate authority (CA) vouches for. If your
-local curl lacks HTTP/3 support, use the Docker one:
+`--insecure` が要るのは、サンプルが自己署名証明書、つまりどの認証局(CA)も保証していない証明書を提示するためです。
+手元の curl が HTTP/3 に対応していなければ、Docker 版を使います。
 
 ```sh
 docker run --rm ymuski/curl-http3 \
     curl --http3-only --insecure -v https://<host>:4433/
 ```
 
-**Checkpoint**: you have a working HTTP/3 server.
+**チェックポイント**: 動く HTTP/3 サーバーができました。
 
-Every sample in [examples/](../examples/) runs the same way:
+[examples/](../examples/) のサンプルはどれも同じ方法で動かせます。
 
-- [word_list](../examples/word_list/): the HTTP/3 message-log and
-  static-file server you just ran.
-- [webtransport_interop](../examples/webtransport_interop/): a WebTransport
-  server endpoint for the
-  [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
-  test harness.
-- [moqt_chat](../examples/moqt_chat/): a browser chat and voice-call room
-  built on MOQT (Media over QUIC Transport, a publish/subscribe protocol for
-  live media).
-- [moqt_interop](../examples/moqt_interop/): a MOQT relay for the
-  moq-interop-runner test harness.
+- [word_list](../examples/word_list/): いま動かした、HTTP/3 のメッセージログと静的ファイルのサーバー。
+- [webtransport_interop](../examples/webtransport_interop/): [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) テストハーネス用の WebTransport サーバーエンドポイント。
+- [moqt_chat](../examples/moqt_chat/): MOQT(Media over QUIC Transport。ライブメディア向けのパブリッシュ/サブスクライブ型プロトコル)で作ったブラウザーのチャットと音声通話のルーム。
+- [moqt_interop](../examples/moqt_interop/): moq-interop-runner テストハーネス用の MOQT リレー。
 
-For guided, runnable walkthroughs, see the
-[interactive guide](https://hakkadaikon.github.io/wired/guide/en/).
+実際に動かしながら学べる解説は、[インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/)を見てください。
 
-These four recipes (`setup`, `build`, `test`, `run`) are all Part 1 needs;
-Part 2 adds `lib`. The full recipe list lives in
-[Development](development.md#build-system).
+第 1 部で使うレシピはこの 4 つ(`setup`、`build`、`test`、`run`)だけです。第 2 部では `lib` が加わります。
+レシピの全一覧は [開発](development.md#ビルドシステム) にあります。
 
-## Part 2: A server of your own
+## 第 2 部: 自分のサーバー
 
-### Why the build looks unusual
+### ビルドが変わって見える理由
 
-A normal C program links against libc, the C standard library that provides
-`printf`, `malloc`, and the startup code that calls `main`. wired does not
-use libc at all, so the server is one static binary that depends only on the
-Linux kernel ([Why wired](../README.md#wired-の特長) explains the reasons). Your
-program is therefore compiled *freestanding*: the compiler is told there is
-no standard library.
+通常の C プログラムは libc にリンクします。libc は C の標準ライブラリで、`printf` や `malloc`、`main` を呼び出す起動コードを提供します。
+wired は libc をまったく使わないので、サーバーは Linux カーネルだけに依存する 1 つの静的バイナリになります(理由は [wired の特長](../README.md#wired-の特長) で説明しています)。
+そのため、あなたのプログラムは *freestanding* でコンパイルします。標準ライブラリがないことをコンパイラーに伝えるということです。
 
-Two things libc normally supplies must then come from somewhere else:
+すると、ふだんは libc が提供している次の 2 つを、ほかから用意しなければなりません。
 
-- **`_start`**: the real entry point the kernel jumps to. In a libc program,
-  libc's `_start` sets up `argc`/`argv` and calls `main`. Here the SDK
-  provides a `_start` that does the same and calls your `wired_main`.
-- **`memcpy` and `memset`**: the compiler emits calls to these two names on
-  its own (for example when you copy a struct), even if your code never
-  calls them. The SDK provides a small *shim*, two functions with those
-  names that forward to its own byte helpers.
+- **`_start`**: カーネルが最初に飛び込む本当のエントリポイント。libc を使うプログラムでは、libc の `_start` が `argc`/`argv` を準備して `main` を呼びます。wired では SDK が同じことをする `_start` を提供し、あなたの `wired_main` を呼びます。
+- **`memcpy` と `memset`**: コード中で呼んでいなくても、コンパイラーはこの 2 つの名前の呼び出しを自分で出力します(たとえば構造体をコピーしたとき)。SDK は小さな *shim* を提供します。この 2 つの名前を持ち、SDK 自身のバイト操作ヘルパーに処理を渡す 2 つの関数です。
 
-### Link against the SDK
+### SDK とのリンク
 
-Build the static library, then compile your application freestanding with
-`src/` as the include root and link `build/libwired.a`:
+静的ライブラリをビルドしてから、`src/` をインクルードのルートにしてアプリケーションを freestanding でコンパイルし、`build/libwired.a` をリンクします。
 
 ```sh
 just lib
@@ -135,26 +107,21 @@ clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
       -Isrc -o my_server my_server.c build/libwired.a
 ```
 
-Every guide page builds with this same command. The smallest program that
-uses it, with no server at all, is the guide's
-[Hello, wired](https://hakkadaikon.github.io/wired/guide/en/getting-started/hello/).
+ガイドのページはどれもこのコマンドでビルドします。
+このコマンドを使う最小のプログラムはサーバーをまったく含まないもので、ガイドの [はじめての wired](https://hakkadaikon.github.io/wired/guide/ja/getting-started/hello/) にあります。
 
-Exactly one translation unit (one `.c` file, compiled on its own) must
-define `WIRED_MAIN` before including `wired.h`. That makes `wired.h` emit the
-`memcpy`/`memset` shim and the `_start` stub; defining it in two files would
-emit them twice and fail to link. `wired.h` is the only include you need, as
-it carries the whole public API:
+`wired.h` をインクルードする前に `WIRED_MAIN` を定義する翻訳単位(単独でコンパイルする 1 つの `.c` ファイル)は、ちょうど 1 つでなければなりません。
+`WIRED_MAIN` を定義すると、`wired.h` が `memcpy`/`memset` の shim と `_start` のスタブを出力します。2 つのファイルで定義すると 2 回出力され、リンクに失敗します。
+公開 API はすべて `wired.h` にあるので、インクルードはこれだけで足ります。
 
 ```c
 #define WIRED_MAIN
 #include "wired.h"
 ```
 
-The diagram below shows what happens between the kernel starting your binary
-and the server running. You write only `wired_main`. One call to
-`wired_srvdriver_run` hands control to the SDK, which starts the I/O driver
-the command-line flags chose (see [Part 3](#choosing-an-io-driver)). Every
-driver ends in the same server loop, which runs until SIGTERM.
+次の図は、カーネルがバイナリを起動してからサーバーが動き出すまでに何が起きるかを示しています。
+あなたが書くのは `wired_main` だけです。`wired_srvdriver_run` を 1 回呼ぶと制御が SDK に移り、SDK はコマンドラインのフラグで選んだ I/O ドライバーを起動します([第 3 部](#io-ドライバーの選択)を参照)。
+どのドライバーも最後は同じサーバーループに入り、SIGTERM を受けるまで動き続けます。
 
 ```mermaid
 sequenceDiagram
@@ -175,21 +142,15 @@ sequenceDiagram
     S->>K: exit(return value)
 ```
 
-How each driver reaches that loop is in
-[Architecture](arch/overview.md).
+各ドライバーがどのようにこのループへたどり着くかは、[アーキテクチャ](arch/overview.md) で説明しています。
 
-### A minimal server
+### 最小のサーバー
 
-A server needs three pieces: a request handler, a server identity, and the
-call that runs it. The code below is the guide's
-[hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/) handler joined
-with the `wired_main` of its
-[TLS handshake](https://hakkadaikon.github.io/wired/guide/en/tls/handshake/) page.
-[`examples/word_list/wired_server.c`](../examples/word_list/wired_server.c)
-is the full worked version.
+サーバーに必要なのは、リクエストハンドラー、サーバーの識別情報、それを動かす呼び出しの 3 つです。
+次のコードはガイドの [はじめての HTTP/3](https://hakkadaikon.github.io/wired/guide/ja/h3/hello/) のハンドラーと、[TLS 1.3 ハンドシェイク](https://hakkadaikon.github.io/wired/guide/ja/tls/handshake/) のページにある `wired_main` を組み合わせたものです。
+完全な実例は [`examples/word_list/wired_server.c`](../examples/word_list/wired_server.c) です。
 
-**1. The request handler** answers each decoded HTTP/3 request by filling a
-body buffer:
+**1. リクエストハンドラー** はデコード済みの HTTP/3 リクエストそれぞれに、ボディのバッファーを埋めて応答します。
 
 ```c
 /* Called once per request (and again while *more is set). Fill body_out and
@@ -214,28 +175,20 @@ static int on_request(
 }
 ```
 
-`req` holds the method, path, and body; its contents are valid only during
-the call. If the whole body fits in `body_out`, the handler can ignore
-`offset`, `more`, and `total_size`.
+`req` にはメソッド、パス、ボディが入っています。中身が有効なのは呼び出しの間だけです。
+ボディ全体が `body_out` に収まるなら、ハンドラーは `offset`、`more`、`total_size` を無視してかまいません。
 
-Those three exist for large bodies. The SDK calls the handler in *rounds*.
-`offset` is how many body bytes earlier rounds already sent. The handler
-writes the next chunk, sets `*more = 1` to be called again, and on the first
-round may set `*total_size` to the full length. word_list's `app_on_request`
-uses this to stream static files; the guide's
-[streaming](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/) page shows
-it step by step.
+この 3 つは大きなボディのためにあります。SDK はハンドラーを *ラウンド* に分けて呼びます。
+`offset` は、それまでのラウンドで送り終えたボディのバイト数です。
+ハンドラーは次のチャンクを書き、もう一度呼んでほしければ `*more = 1` を設定します。最初のラウンドでは `*total_size` に全体の長さを設定できます。
+word_list の `app_on_request` はこの仕組みで静的ファイルをストリーム配信しています。手順はガイドの [大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/) のページで一つずつ説明しています。
 
-**2. The server identity** (`wired_srvboot_id`) holds the server's TLS keys
-and certificate. `wired_srvboot_demo` fills it with fixed demo values, so
-every run presents the same self-signed certificate. That is fine for a demo,
-but never use it in production; [Certificates](#certificates) below shows how
-to load a real one.
+**2. サーバーの識別情報**(`wired_srvboot_id`)は、サーバーの TLS の鍵と証明書を保持します。
+`wired_srvboot_demo` はこれを固定のデモ用の値で埋めるので、毎回同じ自己署名証明書を提示します。
+デモならそれで問題ありませんが、本番では絶対に使わないでください。本物の証明書を読み込む方法は、下の[証明書](#証明書)で説明します。
 
-**3. Parse the CLI and run.** `wired_srvdriver_parse` reads `--port` and the
-I/O-driver flags into a `wired_srvdriver_opt` and returns 0 for a bad or
-conflicting combination. `wired_srvdriver_run` starts the selected driver
-and serves until the process receives SIGTERM:
+**3. CLI を解析して実行する。** `wired_srvdriver_parse` は `--port` と I/O ドライバーのフラグを読んで `wired_srvdriver_opt` に格納し、不正な組み合わせや矛盾する組み合わせなら 0 を返します。
+`wired_srvdriver_run` は選んだドライバーを起動し、プロセスが SIGTERM を受けるまでリクエストを処理し続けます。
 
 ```c
 int wired_main(int argc, char** argv) {
@@ -253,81 +206,61 @@ int wired_main(int argc, char** argv) {
 }
 ```
 
-`wired_srvboot_demo`'s last two arguments are the first byte of the demo
-key pattern (`0x50`) and the server's connection ID, a short label that
-names the connection on the server side (`"guide-tl"`). Any values work for a
-demo. `keys` is `static` because `id` keeps pointers into it for the whole
-run. `obs = {0}` turns the optional outputs off and keeps the default
-settings.
+`wired_srvboot_demo` の最後の 2 つの引数はデモ用の鍵パターンの先頭バイト(`0x50`)と、サーバーのコネクション ID(サーバー側でコネクションを指す短いラベル。ここでは `"guide-tl"`)です。
+デモならどんな値でもかまいません。
+`id` は実行中ずっと `keys` の中を指すポインターを持つので、`keys` は `static` にしています。
+`obs = {0}` は、任意の出力をオフにし、設定を既定値のままにします。
 
-A program that does not want CLI parsing can skip `wired_srvdriver_parse`
-and call `wired_server_run(port, &id, h, obs)` directly. That is the
-single-process driver with default options; the guide's
-[hello](https://hakkadaikon.github.io/wired/guide/en/h3/hello/) page does this.
+CLI の解析が要らないプログラムは、`wired_srvdriver_parse` を省き、`wired_server_run(port, &id, h, obs)` を直接呼べます。
+これは既定のオプションで動く単一プロセスのドライバーで、ガイドの [はじめての HTTP/3](https://hakkadaikon.github.io/wired/guide/ja/h3/hello/) のページはこの方法を使っています。
 
-**Checkpoint**: you have your own HTTP/3 server binary. Everything below is
-opt-in.
+**チェックポイント**: 自分の HTTP/3 サーバーバイナリができました。ここから先はすべて任意です。
 
-## Part 3: Going further
+## 第 3 部: さらに進む
 
-Four independent topics. Each says what it is and why you would want it, then
-points to the guide page that shows the code and its output.
+互いに独立した 4 つのトピックです。
+それぞれ、どんなものか、なぜ使いたくなるかを説明し、コードとその出力を示すガイドのページへ案内します。
 
-### Choosing an I/O driver
+### I/O ドライバーの選択
 
-An I/O driver is the part that moves packets between the network and the
-server loop. All four drivers call the same handler, so switching is a
-command-line flag, not a code change:
+I/O ドライバーはネットワークとサーバーループの間でパケットを運ぶ部分です。
+4 つのドライバーはどれも同じハンドラーを呼ぶので、切り替えはコードの変更ではなく、コマンドラインのフラグで済みます。
 
-| Driver | Select with | Why you'd pick it |
+| ドライバー | 選び方 | 選ぶ理由 |
 |---|---|---|
-| Single process | no flag | Simplest; enough for development and light load |
-| Forked workers | `--workers N` | Use several CPU cores with separate processes |
-| Threads | `--cores a,b,c` | Use several CPU cores within one process |
-| AF_XDP | `--ifindex N --ip a.b.c.d` | Highest throughput; needs root and a capable NIC |
+| 単一プロセス | フラグなし | 最も単純。開発と軽い負荷ならこれで十分 |
+| フォークしたワーカー | `--workers N` | 別々のプロセスで複数の CPU コアを使う |
+| スレッド | `--cores a,b,c` | 1 つのプロセスの中で複数の CPU コアを使う |
+| AF_XDP | `--ifindex N --ip a.b.c.d` | スループットが最も高い。root 権限と対応した NIC が必要 |
 
-The forked workers all bind the same UDP port with `SO_REUSEPORT`, a socket
-option that lets several sockets share one port while the kernel spreads
-incoming packets among them. AF_XDP is a Linux feature that hands packets
-from the network card to the program through shared memory, skipping most of
-the kernel's network stack.
+フォークしたワーカーは、どれも `SO_REUSEPORT` で同じ UDP ポートをバインドします。
+`SO_REUSEPORT` は、複数のソケットで 1 つのポートを共有し、届いたパケットをカーネルがそれらに振り分けるソケットオプションです。
+AF_XDP は、カーネルのネットワークスタックの大半を通さずに、ネットワークカードからプログラムへ共有メモリ経由でパケットを渡す Linux の機能です。
 
-The parser rejects combinations that make no sense, such as `--workers` with
-`--cores`. The full flag list, the pinning flags, and the rejection rules are
-on [Server flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/).
-How the drivers work inside is in
-[Architecture](arch/overview.md).
+パーサーは、`--workers` と `--cores` の併用のような意味をなさない組み合わせを拒否します。
+フラグの全一覧、ピン留めのフラグ、拒否の規則は [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) にあります。
+ドライバー内部の動きは [アーキテクチャ](arch/overview.md) で説明しています。
 
 ### WebTransport
 
-WebTransport lets a browser open streams and send datagrams to a server over
-an HTTP/3 connection. A datagram is a small message that is never
-retransmitted and may arrive out of order. You want WebTransport for
-anything real-time in the browser, such as chat, games, or live media, where
-WebSocket's single ordered TCP stream adds delay.
+WebTransport を使うと、ブラウザーは HTTP/3 コネクション上でサーバーとの間にストリームを開いたり、データグラムを送ったりできます。
+データグラムは再送されない小さなメッセージで、届く順序が入れ替わることもあります。
+チャット、ゲーム、ライブメディアのように、ブラウザーでリアルタイム性が要るものには WebTransport が向いています。こうした用途では、WebSocket の順序付きの TCP ストリーム 1 本が遅延を生むためです。
 
-The browser starts a WebTransport session with an Extended CONNECT request;
-the SDK accepts it and calls your WebTransport callbacks, passing the
-session that each stream or datagram belongs to. Start with
-[WebTransport datagrams](https://hakkadaikon.github.io/wired/guide/en/wt/datagram/)
-(echo one datagram back), then
-[Fanning a datagram out](https://hakkadaikon.github.io/wired/guide/en/wt/broadcast/)
-(send one datagram to every session, the core of a chat relay).
-[Streams vs datagrams](https://hakkadaikon.github.io/wired/guide/en/concepts/streams-vs-datagrams/)
-helps you pick between the two.
+ブラウザーは Extended CONNECT リクエストで WebTransport のセッションを始めます。
+SDK はそれを受け入れて WebTransport のコールバックを呼び、各ストリームやデータグラムがどのセッションに属するかを渡します。
+まず [WebTransport のデータグラム](https://hakkadaikon.github.io/wired/guide/ja/wt/datagram/)(データグラムを 1 つエコーで返す)から始め、次に [データグラムを全セッションへ配る](https://hakkadaikon.github.io/wired/guide/ja/wt/broadcast/)(1 つのデータグラムを全セッションへ送る。チャットのリレーの中核)へ進んでください。
+2 つのどちらを選ぶかは [ストリームとデータグラム](https://hakkadaikon.github.io/wired/guide/ja/concepts/streams-vs-datagrams/) が参考になります。
 
-### Certificates
+### 証明書
 
-A browser only trusts a server whose certificate chains to a CA it knows, so
-a public server needs a CA-issued certificate instead of the self-signed
-demo one. `wired_certreload_load_or_selfsigned(cert_path, key_path, &store,
-&id)` loads a `cert.pem` / `key.pem` pair into the identity.
+ブラウザーは、自分が知っている CA までチェーンがつながる証明書を持つサーバーしか信頼しません。
+そのため公開サーバーには、自己署名のデモ用証明書ではなく、CA が発行した証明書が必要です。
+`wired_certreload_load_or_selfsigned(cert_path, key_path, &store, &id)` は、`cert.pem` と `key.pem` の組を識別情報に読み込みます。
 
-Call it in `wired_main` after `wired_srvboot_demo` and before
-`wired_srvdriver_run`, so a loaded certificate replaces the demo one. The
-store must be `static` for the same reason as `keys`: `id` keeps pointers
-into it. Here is the call added to the Part 2 server, reading word_list's
-`--cert` / `--key` flags:
+この関数は `wired_main` の中で、`wired_srvboot_demo` のあと、`wired_srvdriver_run` の前に呼びます。こうすると、読み込んだ証明書がデモ用の証明書を置き換えます。
+ストアは `keys` と同じ理由で `static` にしなければなりません。`id` がその中を指すポインターを持つためです。
+次のコードは第 2 部のサーバーにこの呼び出しを加え、word_list の `--cert` / `--key` フラグを読むようにしたものです。
 
 ```c
 /* id points into it until wired_server_run copies it at start. */
@@ -343,14 +276,12 @@ int wired_main(int argc, char** argv) {
 }
 ```
 
-`wired_cliargs_str` returns the value after a flag, or its last argument
-when the flag is absent. With no `--cert` the path is `0`, so the demo
-identity stays; `--key` defaults to `key.pem`.
+`wired_cliargs_str` はフラグの次の値を返し、フラグがなければ最後の引数を返します。
+`--cert` がなければパスは `0` になり、デモ用の識別情報がそのまま残ります。`--key` の既定値は `key.pem` です。
 
-The function's rule is "load what you asked for, or stop": an unset path keeps the
-self-signed identity, while a set path that cannot be loaded stops the
-process at startup instead of silently serving the demo certificate. The
-flowchart shows each check in order:
+この関数の規則は「指定したものを読み込むか、止まるか」です。
+パスを指定しなければ自己署名の識別情報を保ちます。指定したパスを読み込めなければ、何も知らせずにデモ用の証明書で動き続けるのではなく、起動時にプロセスを止めます。
+次のフローチャートは、各チェックを順に示しています。
 
 ```mermaid
 flowchart TD
@@ -365,40 +296,28 @@ flowchart TD
     F -->|yes| G["id.chain, chain_count, cert_seed<br/>point into store; log the cert count"]
 ```
 
-`cert.pem` is a full chain, leaf certificate first. `key.pem` must be an
-ECDSA P-256 private key; RSA and Ed25519 server keys are not supported.
-[Loading certificates](https://hakkadaikon.github.io/wired/guide/en/tls/certificates/)
-walks through the decoding step by step.
+`cert.pem` はリーフ証明書を先頭にした完全なチェーンです。
+`key.pem` は ECDSA P-256 の秘密鍵でなければなりません。RSA と Ed25519 のサーバー鍵には対応していません。
+デコードの手順は [証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/) で一つずつ説明しています。
 
-You can also replace a certificate without restarting: put the same paths in
-`obs.cert_path` / `obs.key_path`, and on SIGHUP the server re-reads the pair.
-Connections that already finished their handshake are not disturbed. See
-[Certificate hot reload](https://hakkadaikon.github.io/wired/guide/en/ops/cert-reload/).
+再起動せずに証明書を入れ替えることもできます。同じパスを `obs.cert_path` / `obs.key_path` に設定しておくと、サーバーは SIGHUP を受けたときにこの組を読み直します。
+すでにハンドシェイクを終えたコネクションには影響しません。
+詳しくは [証明書のホットリロード](https://hakkadaikon.github.io/wired/guide/ja/ops/cert-reload/) を見てください。
 
-### Observability
+### 可観測性
 
-QUIC encrypts almost everything on the wire, so a packet capture alone does
-not tell you what went wrong. Besides the reload paths above,
-`wired_srvrun_obs` carries two optional debug outputs (`0` = off) and one
-tuning setting:
+QUIC は通信路上のほぼすべてを暗号化するので、パケットキャプチャーだけでは何が悪かったのかが分かりません。
+`wired_srvrun_obs` には、上で触れた再読み込み用のパスのほかに、任意のデバッグ出力が 2 つ(`0` でオフ)と、チューニング用の設定が 1 つあります。
 
-- `qlog_path`: a qlog file, a JSON log of every packet sent and received
-  (qlog is the IETF's draft log format for QUIC).
-- `keylog_path`: an NSS key log (the `SSLKEYLOGFILE` format), which lets
-  Wireshark decrypt a capture of the same run.
-- `cc_algo`: the congestion-control algorithm, which decides how fast the
-  server sends. `0` keeps the build's default (CUBIC), `1` is CUBIC, `2` is
-  BBR.
+- `qlog_path`: qlog ファイル。送受信したすべてのパケットを記録する JSON のログです(qlog は IETF がドラフトとして定めている QUIC のログ形式です)。
+- `keylog_path`: NSS のキーログ(`SSLKEYLOGFILE` の形式)。同じ実行で取ったキャプチャーを Wireshark で復号できます。
+- `cc_algo`: 輻輳制御のアルゴリズム。サーバーの送信速度を決めます。`0` はビルドの既定値(CUBIC)のまま、`1` は CUBIC、`2` は BBR です。
 
-The forked-workers driver (`--workers`) ignores the two debug outputs; use
-any other driver when you need them.
+フォークしたワーカーのドライバー(`--workers`)は、2 つのデバッグ出力を無視します。これらが必要なときは、ほかのドライバーを使ってください。
 
-word_list and webtransport_interop map the two outputs to `--qlog-file` /
-`--keylog-file`; the MOQT examples use `--qlog` / `--keylog`.
-[Handshake and observability knobs](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)
-shows them together with session resumption and Retry.
+word_list と webtransport_interop では、2 つの出力を `--qlog-file` / `--keylog-file` に対応させています。MOQT のサンプルでは `--qlog` / `--keylog` を使います。
+[ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) では、セッション再開や Retry と合わせて紹介しています。
 
 ---
 
-**Next:** [Architecture and Data Flow](arch/overview.md) — how the stack
-works inside. ([all docs](README.md))
+**次へ:** [アーキテクチャとデータフロー](arch/overview.md)。スタック内部の動きを説明しています。([全ドキュメント](README.md))
