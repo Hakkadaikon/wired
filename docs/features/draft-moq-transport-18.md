@@ -26,7 +26,7 @@
 - [x] MQ18-003 実装は、可変長整数を、値を表せる最小のバイト数でエンコードしなければならない。
   - test: `tests/app/moqvi_test.c` — `test_moqvi_roundtrip`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_official_examples`
-- [x] MQ18-004 可変長整数が必要最小限より多いバイト数でエンコードされている構成では、実装はそれでも正しい値にデコードしなければならない(最小でないエンコーディングも有効)。
+- [x] MQ18-004 可変長整数が必要最小限より多いバイト数でエンコードされている場合でも、実装は正しい値にデコードしなければならない(最小でないエンコーディングも有効)。
   - test: `tests/app/moqvi_test.c` — `test_moqvi_decode_zero_all_lengths`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_decode_nine_byte_padded`
 - [x] MQ18-005 可変長整数のエンコード長が利用できるバイト数を超える場合、実装は入力の終わりを越えて読まず、デコードをデータ不足として報告しなければならない。
@@ -116,11 +116,11 @@
 - [~] MQ18-026 (§2.5) リレーは、型がアプリケーション固有の範囲 0x38-0x3F と 0x3800-0x3FFF に入る Property を、解釈せずにそのまま転送しなければならない。
   - evidence: これらの範囲の Property 型をハブは読まない(`moqtrun_tprop` は未知の型を読み飛ばす)。Track Property は受け取ったまま転送し(MQ18-208)、Object Property はリレーする Object のバイト列に含まれて運ばれる(`test_moqtrun_object_relay_preserves_bytes`)。これらの範囲の Property を送るテストはない。
   - note: draft-18 の §15.8 は 1 バイトのアプリケーション範囲を 0x78-0x7F としており、§2.5 の 0x38-0x3F と食い違う。draft-19 は 0x78-0x7F に決めた(`draft18-vs-19-diff.md` の SS11 を参照)。
-- [x] MQ18-027 (§2.5.1) PUBLISH または上流の SUBSCRIBE_OK が、ハブの理解しない Mandatory Track Property(型 0x4000-0x7FFF)を含む場合、ハブはその Track を処理も転送もしてはならない。PUBLISH なら REQUEST_ERROR UNSUPPORTED_EXTENSION で拒否し、上流の SUBSCRIBE_OK なら上流の購読を取り消して、待っている下流のサブスクライバーに REQUEST_ERROR UNSUPPORTED_EXTENSION を送らなければならない。
+- [x] MQ18-027 (§2.5.1) PUBLISH または上流の SUBSCRIBE_OK が、ハブの理解しない Mandatory Track Property(型 0x4000-0x7FFF)を含む場合、ハブはその Track を処理も転送もしてはならない。PUBLISH なら REQUEST_ERROR UNSUPPORTED_EXTENSION で拒否し、上流の SUBSCRIBE_OK なら上流の購読を取り消して、待っている下流の購読者に REQUEST_ERROR UNSUPPORTED_EXTENSION を送らなければならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [~] MQ18-208 (§2.5, §9.6) Track をリレーするとき、ハブはパブリッシャーの Track Property を未知のものも含めて変えずに SUBSCRIBE_OK で転送し、その Track の後の PUBLISH が来たら、保持している組を(マージせずに)置き換えなければならない。
-  - evidence: `test_moqtrun_sub_include_properties_1_forwards` は、PUBLISH の Property が後の SUBSCRIBE_OK に入っていることを確かめる(パラメーターなしのサブスクライバーはすべてのドラフトで動く)。置き換えは作りによるもので(`moqtrun_track_keep_props`)、テストはない。
+  - evidence: `test_moqtrun_sub_include_properties_1_forwards` は、PUBLISH の Property が後の SUBSCRIBE_OK に入っていることを確かめる(パラメーターなしの購読者はすべてのドラフトで動く)。置き換えは作りによるもので(`moqtrun_track_keep_props`)、テストはない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_props_long_forwarded`
   - note: `WIRED_MOQTRUN_TRACK_PROPS_MAX`(96 バイト)より長いブロックは、空のまま転送せず、その Track を INTERNAL_ERROR で拒否する。
 - [x] MQ18-220 (§9.6, §10.14) ハブは、リレーする Track について自分が送る、ハブが始める PUBLISH、TRACK_STATUS の REQUEST_OK、FETCH_OK のすべてに、その Track の Track Property を含めなければならない。
@@ -161,14 +161,14 @@
 - [x] MQ18-031 (§3.3) 双方向のリクエストストリームは、最初に置ける型のメッセージ(TRACK_STATUS、SUBSCRIBE、PUBLISH、FETCH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS)のどれかで始まらなければならない。そうでなければ、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_bad_first_message_closes`
-- [x] MQ18-032 Object を含む単方向ストリームや双方向のリクエストストリームが、両方の制御ストリームで SETUP が完了する前に届く構成では、実装はそれをアプリケーションに渡さず、バッファーに保持しなければならない。
+- [x] MQ18-032 Object を含む単方向ストリームや双方向のリクエストストリームが、両方の制御ストリームで SETUP が完了する前に届いた場合、実装はそれをアプリケーションに渡さず、バッファーに保持しなければならない。
   - test: `tests/app/moqsess_test.c` —
     `test_moqsess_buffer_before_setup_then_deliver`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_token_requests_held_until_established`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_token_object_stream_held_until_established`
-- [x] MQ18-033 (§3.3) SETUP がまだ完了していない構成では、実装は双方向のリクエストストリームをバッファーに保持する代わりにリセットしてもよい。
+- [x] MQ18-033 (§3.3) SETUP がまだ完了していない場合、実装は双方向のリクエストストリームをバッファーに保持する代わりにリセットしてもよい。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_token_unbufferable_request_reset`
 - [~] MQ18-034 (§10.3) エンドポイントは、自分の SETUP を送ったあと、ピアの SETUP を待たずに後続の制御メッセージをパイプラインで送ってもよい。
@@ -188,10 +188,10 @@
 
 ## SS6.1 リクエストストリームの終了(draft-18: FIN は取り消し)
 
-- [x] MQ18-037a (§6.1) SUBSCRIBE_NAMESPACE のリクエストストリームの一方向が FIN で閉じられる構成では、実装はそれをそのリクエストの取り消しとして扱わなければならない。draft-19 以降では、FIN は取り消しではない正常な片側クローズであり、この点が異なる。
+- [x] MQ18-037a (§6.1) SUBSCRIBE_NAMESPACE のリクエストストリームの一方向が FIN で閉じられた場合、実装はそれをそのリクエストの取り消しとして扱わなければならない。draft-19 以降では、FIN は取り消しではない正常な片側クローズであり、この点が異なる。
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_fin_cancels_d18`
   - note: これは draft-18 固有のワイヤー上の動作(`MOQVER_CAP_FIN_CANCEL_NS`)。`draft18-vs-19-diff.md` の SS2 "Request-stream FIN semantics" を参照。
-- [~] MQ18-211 (§6.1) SUBSCRIBE_TRACKS のリクエストストリームの一方向が FIN で閉じられる構成では、実装はそれをそのリクエストの取り消しとして扱わなければならない。
+- [~] MQ18-211 (§6.1) SUBSCRIBE_TRACKS のリクエストストリームの一方向が FIN で閉じられた場合、実装はそれをそのリクエストの取り消しとして扱わなければならない。
   - evidence: `moqtrun_req_fin_kind` は、SUBSCRIBE_NAMESPACE と並べて SUBSCRIBE_TRACKS を同じ `MOQVER_CAP_FIN_CANCEL_NS` の判定の下に挙げている。その SUBSCRIBE_NAMESPACE の側は `test_moqtrun_ns_fin_cancels_d18` が確かめる。draft-18 の SUBSCRIBE_TRACKS の FIN のテストはない。
 
 ## SS3.3.3 ストリームリセットのエラーコード / SS3.5 終了(使っている部分)
@@ -234,7 +234,7 @@
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_uri`
 - [x] MQ18-046 (§10.4) 同じ制御ストリームで GOAWAY を 2 回以上受信した場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_twice`
-- [x] MQ18-047 (§10.4) GOAWAY を制御ストリームではなくリクエストストリームで受信する構成では、実装はセッションを閉じずにそれを受け入れなければならない。ただし、同じリクエストストリームでの 2 回目の GOAWAY は、やはりプロトコル違反でなければならない。
+- [x] MQ18-047 (§10.4) GOAWAY を制御ストリームではなくリクエストストリームで受信した場合、実装はセッションを閉じずにそれを受け入れなければならない。ただし、同じリクエストストリームでの 2 回目の GOAWAY は、やはりプロトコル違反として扱わなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_second_goaway_closes`
 - [x] MQ18-048a 実装は、末尾に Request ID(vi64)を持つ制御ストリームの GOAWAY をエンコード・デコードしなければならない。この Request ID は、送信側がまだ処理していない(または処理していない可能性がある)ピアの Request ID の最小値である。draft-19 以降では GOAWAY に Request ID フィールドがまったくなく、この点が異なる。
@@ -246,14 +246,14 @@
   - test: `tests/app/moqtrun_drain_test.c` —
     `test_moqtrun_peer_goaway_d18_parity`
   - note: `MOQVER_CAP_GOAWAY_REQID`。`draft18-vs-19-diff.md` の SS4 を参照。
-- [x] MQ18-048b サーバーが、自分の送った制御ストリームの GOAWAY に載せた基準値以上の Request ID を持つ draft-18 のリクエスト(またはその GOAWAY のあとに届いたリクエスト)を受信した場合、実装はそれを REQUEST_ERROR GOING_AWAY で拒否しなければならない。
+- [x] MQ18-048b サーバーが、自分の送った制御ストリームの GOAWAY に載せた値以上の Request ID を持つ draft-18 のリクエスト(またはその GOAWAY のあとに届いたリクエスト)を受信した場合、実装はそれを REQUEST_ERROR GOING_AWAY で拒否しなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_goaway_watermark_d18`
-  - note: 既存のバージョンに依存しない `moqtrun_is_late` の判定で対応した(ハブは GOAWAY を 1 回しか送らないので、GOAWAY の送信後のリクエストをすべて拒否することは、基準値以上のリクエストをすべて拒否することと同じになる)。台帳 4-1 を参照。
+  - note: 既存のバージョンに依存しない `moqtrun_is_late` の判定で対応した(ハブは GOAWAY を 1 回しか送らないので、GOAWAY の送信後のリクエストをすべて拒否することは、その値以上の Request ID のリクエストをすべて拒否することと同じになる)。台帳 4-1 を参照。
 
 ## SS9 リレー(SS9.4/9.6/9.7 の転送の決まり)
 
-- [x] MQ18-049 リレーは、複数の Object を運ぶストリームで受信した Object をサブスクライバーへ転送するとき、順序を入れ替えたり落としたりしてはならない。
+- [x] MQ18-049 リレーは、複数の Object を運ぶストリームで受信した Object を購読者へ転送するとき、順序を入れ替えたり落としたりしてはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_to_subscriber`
   - test: `tests/app/moqtrun_test.c` —
@@ -269,7 +269,7 @@
     `test_moqtrun_subscribe_matching_publish_replies_ok`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_ok_after_upstream`
-- [x] MQ18-052 どのパブリッシャーも PUBLISH していない Track への SUBSCRIBE をリレーが受信した場合、実装は、その Track の名前空間またはその接頭辞を PUBLISH_NAMESPACE した(サブスクライバー以外の)セッションへ、上流の SUBSCRIBE を送らなければならない(SS9.5)。送るのはその時点か、保留した SUBSCRIBE なら PUBLISH_NAMESPACE が届いたときである。そして、その上流の購読が Established になったら SUBSCRIBE_OK で、拒否されたら上流のコードで REQUEST_ERROR で応答しなければならない。そのようなパブリッシャーがいない(かつ RENDEZVOUS_TIMEOUT もない)場合は、REQUEST_ERROR DOES_NOT_EXIST で応答しなければならない。
+- [x] MQ18-052 どのパブリッシャーも PUBLISH していない Track への SUBSCRIBE をリレーが受信した場合、実装は、その Track の名前空間またはその接頭辞を PUBLISH_NAMESPACE した(購読者以外の)セッションへ、上流の SUBSCRIBE を送らなければならない(SS9.5)。送るのはその時点か、保留した SUBSCRIBE なら PUBLISH_NAMESPACE が届いたときである。そして、その上流の購読が Established になったら SUBSCRIBE_OK で、拒否されたら上流のコードで REQUEST_ERROR で応答しなければならない。そのようなパブリッシャーがいない(かつ RENDEZVOUS_TIMEOUT もない)場合は、REQUEST_ERROR DOES_NOT_EXIST で応答しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_without_publish_replies_error`
   - test: `tests/app/moqtrun_upsub_test.c` —
@@ -280,16 +280,16 @@
     `test_moqtrun_upsub_cross_draft`
   - note: 上流の SUBSCRIBE はパラメーターを持たないので、FORWARD は 1 になり、下流の SUBSCRIBER_PRIORITY、GROUP_ORDER、配信タイムアウトは転送しない(§7.3, §9.2, §10.2.3/10.2.4)。下流の誰も必要としなくなった上流の購読は取り消す(`test_moqtrun_upsub_last_cancel_cancels_upstream`)。
   - note: 上流の SUBSCRIBE は Full Track Name ごとに 1 つで、最初に一致した告知元へ送る。ただし `multi_publisher` が有効なら、一致するパブリッシャーそれぞれに 1 つずつ送る(§9.5, MQ18-223)。
-- [x] MQ18-228 (§10.2.6) パブリッシャーのいない Track への SUBSCRIBE が 0 でない RENDEZVOUS_TIMEOUT を持つ構成では、ハブはそれを保留し、パブリッシャーが現れたら SUBSCRIBE_OK で、(上限を設けた)期限に達したら REQUEST_ERROR TIMEOUT で応答しなければならない。パラメーターがないか 0 なら、ただちに REQUEST_ERROR DOES_NOT_EXIST で応答しなければならない。
+- [x] MQ18-228 (§10.2.6) パブリッシャーのいない Track への SUBSCRIBE が 0 でない RENDEZVOUS_TIMEOUT を持つ場合、ハブはそれを保留し、パブリッシャーが現れたら SUBSCRIBE_OK で、(上限を設けた)期限に達したら REQUEST_ERROR TIMEOUT で応答しなければならない。パラメーターがないか 0 なら、ただちに REQUEST_ERROR DOES_NOT_EXIST で応答しなければならない。
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s4_resolve`
-- [x] MQ18-229 (§10.2.13) 下流の SUBSCRIBE や REQUEST_UPDATE が NEW_GROUP_REQUEST を持つ構成では、ハブはそれを上流の SUBSCRIBE に含めるか、Established の購読なら上流へ REQUEST_UPDATE で送らなければならない(値が 0 か Largest Group より大きく、Track が動的な Group に対応し、未処理の要求がないとき)。
+- [x] MQ18-229 (§10.2.13) 下流の SUBSCRIBE や REQUEST_UPDATE が NEW_GROUP_REQUEST を持つ場合、ハブはそれを上流の SUBSCRIBE に含めるか、Established の購読なら上流へ REQUEST_UPDATE で送らなければならない(値が 0 か Largest Group より大きく、Track が動的な Group に対応し、未処理の要求がないとき)。
   - evidence: `moqtrun_ngr_upstream` は待っている側の値を上流の SUBSCRIBE にコピーする(`test_moqtrun_upsub_ngr_in_subscribe`)。`moqtrun_ngr_relay` は 3 つの条件の下で、ハブ自身の上流の SUBSCRIBE ストリームに REQUEST_UPDATE を送り、Largest Group が進むまで未処理として扱う(`test_moqtrun_upsub_ngr_update`)。
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_ngr_on_publish` (PUBLISH で始まった Track。REQUEST_UPDATE は PUBLISH ストリームで運ばれ、その REQUEST_OK / REQUEST_ERROR の応答もそこで解析する)
   - note: 従来の双方向制御ストリーム 1 本で届いた PUBLISH には送らない。
-- [x] MQ18-053 (§9.4, §9.5) 複数のサブスクライバーが同じ Track を要求したとき、リレーはその Track への認可済みの購読を集約してもよい。その場合、Established の上流の購読がある Track への SUBSCRIBE には SUBSCRIBE_OK で応答し、上流の 1 つの Object を一致する下流のサブスクライバー全員へ転送する。
+- [x] MQ18-053 (§9.4, §9.5) 複数の購読者が同じ Track を要求したとき、リレーはその Track への認可済みの購読を集約してもよい。その場合、Established の上流の購読がある Track への SUBSCRIBE には SUBSCRIBE_OK で応答し、上流の 1 つの Object を一致する下流の購読者全員へ転送する。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_upsub_test.c` —
@@ -325,7 +325,7 @@
   - test: `tests/app/moqtstat_test.c` — `test_moqtstat_golden`
   - test: `tests/app/moqtstat_test.c` — `test_moqtstat_update_golden`
   - note: FETCH(0x16)、FETCH_OK(0x18)、TRACK_STATUS(0xD)、REQUEST_UPDATE(0x2)、PUBLISH_NAMESPACE(0x6)、SUBSCRIBE_NAMESPACE(0x50)、NAMESPACE(0x8)、NAMESPACE_DONE(0xE)は、それぞれ専用のコーデック(fetch/、ns/、tstat/)でエンコード・デコードし、各コーデックは draft-19 としてデコードするゴールデンベクターで固定している。これらのメッセージの draft-18 と draft-19 のレイアウトはバイト単位で同じである。
-- [x] MQ18-055a draft-18 のセッションが PUBLISH_OK を送る構成では、実装はそれを REQUEST_OK(0x7)としてエンコードしなければならない。draft-18 のセッションがメッセージ型 0x1E を受信する構成では、実装はそれを REQUEST_OK(0x7)の別名として受け入れなければならない。draft-19 以降では 0x1E は RESERVED で、未知の型としてセッションを閉じるので、この点が異なる。
+- [x] MQ18-055a draft-18 のセッションが PUBLISH_OK を送る場合、実装はそれを REQUEST_OK(0x7)としてエンコードしなければならない。draft-18 のセッションがメッセージ型 0x1E を受信した場合、実装はそれを REQUEST_OK(0x7)の別名として受け入れなければならない。draft-19 以降では 0x1E は RESERVED で、未知の型としてセッションを閉じるので、この点が異なる。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_publish_ok_alias_d18_only`
   - test: `tests/app/moqver_test.c` — `test_moqver_caps_d18`
@@ -387,7 +387,7 @@
 - [x] MQ18-070 (§10.2.1, §10.2.3, §10.2.4) ハブは、配信タイムアウトのパラメーターを、それらのパラメーターが許されるメッセージに入らない SUBSCRIBE_OK で送ってはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_ok_carries_no_timeout_param`
-- [x] MQ18-071 0 でない SUBGROUP_DELIVERY_TIMEOUT または OBJECT_DELIVERY_TIMEOUT パラメーターを持つ SUBSCRIBE は、受け入れて適用しなければならない。サブスクライバーの値とパブリッシャーの Track Property の値がどちらも 0 でなければ、その min() を使う。
+- [x] MQ18-071 0 でない SUBGROUP_DELIVERY_TIMEOUT または OBJECT_DELIVERY_TIMEOUT パラメーターを持つ SUBSCRIBE は、受け入れて適用しなければならない。購読者の値とパブリッシャーの Track Property の値がどちらも 0 でなければ、その min() を使う。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_nonzero_timeout_accepted`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
@@ -401,7 +401,7 @@
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_uint8_value_ranges`
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_params_absent`
-- [x] MQ18-073 (§5.1, §10.10) PUBLISH で FORWARD=0 を送ったパブリッシャーは、サブスクライバーが Forward State を 1 にするまで、Object を 1 つも送信してはならない。購読への Object の転送は、その購読の Forward State で制御する。
+- [x] MQ18-073 (§5.1, §10.10) PUBLISH で FORWARD=0 を送ったパブリッシャーは、購読者が Forward State を 1 にするまで、Object を 1 つも送信してはならない。購読への Object の転送は、その購読の Forward State で制御する。
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_forward0_then_update`
 
@@ -524,12 +524,12 @@
 
 - [x] MQ18-095 実装は、PUBLISH を Type(0x1D)+ Length + Request ID + Track Namespace + Track Name + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_publish_roundtrip`
-- [x] MQ18-096 (§5.1) PUBLISH で始まった購読が成功したとき、サブスクライバーはちょうど 1 つの PUBLISH_OK(REQUEST_OK)で応答しなければならない。
+- [x] MQ18-096 (§5.1) PUBLISH で始まった購読が成功したとき、購読者はちょうど 1 つの PUBLISH_OK(REQUEST_OK)で応答しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_publish_replies_request_ok`
 - [~] MQ18-097 (§5.1) パブリッシャーは、PUBLISH で始まった購読について、PUBLISH_OK を受信する前に Object の送信を始めてもよい。
-  - evidence: サブスクライバーとしてのハブは、自分の応答が処理される前に届いた Object を受け入れる(上流: `test_moqtrun_upsub_stream_before_ok`)。PUBLISH の送信側としてのハブは PUBLISH_OK を待つ(`test_moqtrun_misc_pub_ok_relays`)。
-- [x] MQ18-098 (§5.1.1, §10.10) サブスクライバーが PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、その購読は Object を 1 つも送らずに終わらなければならない。
+  - evidence: 購読者としてのハブは、自分の応答が処理される前に届いた Object を受け入れる(上流: `test_moqtrun_upsub_stream_before_ok`)。PUBLISH の送信側としてのハブは PUBLISH_OK を待つ(`test_moqtrun_misc_pub_ok_relays`)。
+- [x] MQ18-098 (§5.1.1, §10.10) 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、その購読は Object を 1 つも送らずに終わらなければならない。
   - test: `tests/app/moqtrun_subtracks_test.c` —
     `test_subtracks_publish_error_frees_slot`
 
@@ -544,7 +544,7 @@
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_publish_done_relayed`
-- [~] MQ18-102 (§10.11) サブスクライバーが応答を送る前に PUBLISH_DONE が届いた場合、サブスクライバーは FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
+- [~] MQ18-102 (§10.11) 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
   - evidence: これを示すのは配線していない `moqsub` モデルだけである(`test_moqsub_publish_done_before_response_defers_ok`)。ハブは PUBLISH に同期して応答するので、この競合は起きない。
 - [x] MQ18-103 (§10.11) 実装は、自分が知らせる終わり方について、draft-18 の PUBLISH_DONE のステータスコード(INTERNAL_ERROR、TRACK_ENDED、SUBSCRIPTION_ENDED、GOING_AWAY、UPDATE_FAILED、MALFORMED_TRACK)を使わなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
@@ -585,7 +585,7 @@
     `test_moqtrun_sub_filter_from_largest`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
-  - note: フィルターは、信頼性のあるリレーで遅れて来たサブスクライバーに Object を再送するときに評価する。開始 Group のうち開始 Object より前の Object は、どのリレー経路でも切り捨てる。
+  - note: フィルターは、信頼性のあるリレーで遅れて来た購読者に Object を再送するときに評価する。開始 Group のうち開始 Object より前の Object は、どのリレー経路でも切り捨てる。
 
 - [x] MQ18-217 (§5.1.2) ハブが Subscription Filter を満たせない場合、またはフィルターの End Group 全体がすでに公開済みの場合、ハブは REQUEST_ERROR INVALID_RANGE で応答するべきである。
   - evidence: `moqtrun_filter_past` は、End Group が Track の Largest Group より前にある AbsoluteRange を拒否する。`test_moqtrun_sub_range_past_invalid`(Largest Group で終わるものは受け入れる)。
@@ -607,7 +607,7 @@
 - [x] MQ18-112 パブリッシャーは、同じセッションの中で、同じ Track Alias を同時に 2 つの異なる Track を指すために使ってはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_and_audio_get_different_aliases`
-- [x] MQ18-113 (§11.1) サブスクライバーが、別の Established の購読にすでに結び付いている Track Alias を使い回す PUBLISH または SUBSCRIBE_OK を受信した場合、実装は DUPLICATE_TRACK_ALIAS でセッションを閉じなければならない。
+- [x] MQ18-113 (§11.1) 購読者が、別の Established の購読にすでに結び付いている Track Alias を使い回す PUBLISH または SUBSCRIBE_OK を受信した場合、実装は DUPLICATE_TRACK_ALIAS でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_dup_alias_closes`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_dup_alias_closes`
 
@@ -645,10 +645,10 @@
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
 - [x] MQ18-123 実装は、SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット(0x01)、END_OF_GROUP ビット(0x08)、DEFAULT_PRIORITY ビット(0x20)、FIRST_OBJECT ビット(0x40)をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
-- [x] MQ18-124 DEFAULT_PRIORITY が立っている構成では、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
+- [x] MQ18-124 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_track_default`
-- [~] MQ18-125 (§11.4.2) END_OF_GROUP ビットが立っていてストリームが FIN で終わる構成では、実装は、同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
+- [~] MQ18-125 (§11.4.2) END_OF_GROUP ビットが立っていてストリームが FIN で終わった場合、実装は、同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
   - evidence: このビットはデコードされ(MQ18-123)、ヘッダーのバイト列に含めてリレーされる。推定を確かめるテストはない。
 - [x] MQ18-126 (§2.2, §11.4.2) ハブが自分の Track(`wired_moqt_publish_blob` / `_live`)の Original Publisher として新しい Subgroup を開くとき、ハブは FIRST_OBJECT ビットを立てなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_golden`
@@ -705,12 +705,12 @@
     `test_moqtrun_chat_split_data_then_bare_fin_relays_and_closes`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_split_data_then_bare_fin_closes`
-- [ ] MQ18-235 (§11.4.3) サブスクライバーがリレーの Subgroup ストリームで STOP_SENDING を送ったとき、ハブはそのストリームをリセットするべきであり、その Subgroup の後続の Object のために新しいストリームを開くべきではない。
+- [ ] MQ18-235 (§11.4.3) 購読者がリレーの Subgroup ストリームで STOP_SENDING を送ったとき、ハブはそのストリームをリセットするべきであり、その Subgroup の後続の Object のために新しいストリームを開くべきではない。
   - gap: リレーのストリームで STOP_SENDING を送るテストはない。
 - [x] MQ18-140 同じ Track で重なり合う 2 本のパブリッシャーのストリームは、それぞれ独立したストリームでリレーしなければならず、それぞれ自分のパブリッシャーの FIN によってだけ閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_interleaved_chat_messages_close_independently`
-- [x] MQ18-141 (§2.2, §11.4.2) Subgroup ストリームが始まったあとに加わったサブスクライバーも、リレーのストリームを受け取らなければならない。そのストリームは元のストリームの SUBGROUP_HEADER で、FIRST_OBJECT を落として開く(ストリームはもう Subgroup の最初の Object から始まらないため)。最初の Object から始まるストリームは、受け取ったままのビットを保つ。
+- [x] MQ18-141 (§2.2, §11.4.2) Subgroup ストリームが始まったあとに加わった購読者も、リレーのストリームを受け取らなければならない。そのストリームは元のストリームの SUBGROUP_HEADER で、FIRST_OBJECT を落として開く(ストリームはもう Subgroup の最初の Object から始まらないため)。最初の Object から始まるストリームは、受け取ったままのビットを保つ。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
   - test: `tests/app/moqtrun_test.c` —
@@ -762,10 +762,10 @@
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_forward_toggles`
 - [x] MQ18-148 (§3.3.2) リクエストを送った直後、応答を受け取る前に自分の方向を FIN で閉じたリクエスト元について、そのリクエストを失敗として扱ってはならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_fin_keeps_request`
-- [x] MQ18-149 (§5.1, §3.3.2) サブスクライバーは、リクエストストリームを取り消すことで Established の購読を終わらせられなければならない。
+- [x] MQ18-149 (§5.1, §3.3.2) 購読者は、リクエストストリームを取り消すことで Established の購読を終わらせられなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_reset_unsubscribes`
-- [~] MQ18-150 (§3.3.2) リクエスト元の自分の方向がすでに FIN で閉じている構成では、購読の取り消しは受信方向に STOP_SENDING だけを送らなければならない。
+- [~] MQ18-150 (§3.3.2) リクエスト元の自分の方向がすでに FIN で閉じている場合、購読の取り消しは受信方向に STOP_SENDING だけを送らなければならない。
   - evidence: これを示すのは配線していない `moqsub` モデルだけである(`test_moqsub_cancel_after_fin`)。ハブは、上流の SUBSCRIBE を取り消すとき RESET_STREAM と STOP_SENDING を送る(`test_moqtrun_upsub_last_cancel_cancels_upstream`)。
 - [x] MQ18-151 (§3.3.2) 応答側が一度も応答を送らずに自分の方向を FIN で閉じた場合、リクエスト元はそのリクエストを失敗として扱わなければならない。
   - evidence: `moqtrun_up_rx` / `moqtrun_upf_rx` は FIN を受け取り、応答のない上流の SUBSCRIBE / FETCH を REQUEST_ERROR と同じように失敗させる。`test_moqtrun_upsub_fin_unanswered_fails` と `test_moqtrun_upfetch_fin_unanswered` は応答の前に FIN を送り、下流のリクエスト元が拒否され、ハブの側が FIN で閉じられ、スロットが解放されることを確かめる。
@@ -777,20 +777,20 @@
 - [x] MQ18-213 (§5.1) ハブが、そのピアへの購読が Pending(パブリッシャー側)状態にある(ハブが始めた PUBLISH にまだ応答がない)Track への SUBSCRIBE を受信した場合、ハブはそれを REQUEST_ERROR DUPLICATE_SUBSCRIPTION で拒否しなければならない。
   - evidence: `moqtrun_fresh_refusal`(`moqtrun_pub_crossing`)。`test_subtracks_subscribe_crosses_publish` は、ハブの SUBSCRIBE_TRACKS による PUBLISH に応答がない間に購読し、draft-18 では DUPLICATE_SUBSCRIPTION、後のドラフトでは購読になることを確かめる。
   - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_subscribe_crosses_publish`
-- [x] MQ18-214 (§5.1) ハブが、そのピアへの自分の上流の SUBSCRIBE がまだ Pending(サブスクライバー側)である Track への PUBLISH を受信した場合、ハブは PUBLISH_OK を送る前に自分の購読を終わらせなければならない。
+- [x] MQ18-214 (§5.1) ハブが、そのピアへの自分の上流の SUBSCRIBE がまだ Pending(購読者側)である Track への PUBLISH を受信した場合、ハブは PUBLISH_OK を送る前に自分の購読を終わらせなければならない。
   - evidence: `moqtrun_up_crossed` は、PUBLISH_OK をキューに入れる前に `moqtrun_publish_checked` の中で Pending の上流の SUBSCRIBE を取り消す。`test_moqtrun_upsub_publish_crosses` は、リセットが PUBLISH_OK より先に来ること、待っている側が PUBLISH に乗ることを確かめる。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_publish_crosses`
-- [x] MQ18-215 (§5.1.1) サブスクライバーが購読を取り消したとき、ハブはその購読の開いているデータストリームをすべてリセットしなければならない。
-  - evidence: `moqtrun_req_cancel` は購読を破棄する前に、その購読のリレーのストリームをリセットする(`moqtrun_cancel_peer_subs`)。`test_moqtrun_req_reset_resets_data_streams` は、サブスクライバーへの開いている Subgroup ストリームがリセットされることを確かめる。
+- [x] MQ18-215 (§5.1.1) 購読者が購読を取り消したとき、ハブはその購読の開いているデータストリームをすべてリセットしなければならない。
+  - evidence: `moqtrun_req_cancel` は購読を破棄する前に、その購読のリレーのストリームをリセットする(`moqtrun_cancel_peer_subs`)。`test_moqtrun_req_reset_resets_data_streams` は、購読者への開いている Subgroup ストリームがリセットされることを確かめる。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_reset_resets_data_streams`
-- [x] MQ18-216 (§5.1) パブリッシャーは、未完成の Object を、届いた分から送り始めるべきである。
+- [x] MQ18-216 (§5.1) パブリッシャーは、未完成の Object でも、使えるようになった分から送り始めるべきである。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_relay_forwards_bytes_as_they_arrive`
   - test: `tests/app/moqtrun_cut_test.c` —
     `test_moqtrun_cut_lossy_refusal_mid_object_resets`,
     `test_moqtrun_cut_reliable_resumes_at_byte`
   - note: Object のヘッダーがそろったら、そのバイト列は、それを受け取る開いているすべての Subgroup ストリームへ送り出す。Object の途中で拒否された損失を許すストリームはリセットする(残りを捨てて区切りを保つことはできないため)。リングバッファーを持つストリームは、そのバイトの位置から再試行する。モデル: `tasks/loopeng/MoqtCutThrough.tla`。
-- [ ] MQ18-218 (§5.1) ピアが自分で公開している Track を SUBSCRIBE する構成では、ハブはそれをほかの購読と同じように扱い、公開された Object を送り返さなければならない。
+- [ ] MQ18-218 (§5.1) ピアが自分で公開している Track を SUBSCRIBE した場合、ハブはそれをほかの購読と同じように扱い、公開された Object を送り返さなければならない。
   - gap: テストはない。購読していた名前を改めて PUBLISH したパブリッシャーは、意図的に自分の Track には結び付けない(`test_moqtrun_publisher_is_not_reattached_to_own_track`)。
 
 ## SS10 制御メッセージ: セッションの状態機械の望ましくない動作(追加の確認)
@@ -810,7 +810,7 @@
     `test_moqtrun_publish_replies_request_ok`
 - [x] MQ18-155 ピアは、2 つ以上の異なる Track を(実装のピアごとの Track 数の上限まで)PUBLISH してもよく、それぞれが独立して REQUEST_OK を受け取る。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_peer_publishes_two_tracks`
-- [x] MQ18-156 ピアが実装のピアごとの上限を超える数の異なる Track を PUBLISH しようとした場合、実装は既存の Track を知らないうちに上書きすることなく、REQUEST_ERROR で応答しなければならない。
+- [x] MQ18-156 ピアが実装のピアごとの上限を超える数の異なる Track を PUBLISH しようとした場合、実装は既存の Track を何も知らせずに上書きすることはせず、REQUEST_ERROR で応答しなければならない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_sixth_publish_gets_error`
 - [x] MQ18-157 すでにスロットを占めている同じ Track Name を再び PUBLISH したときは、新しいスロットを使わず、そのスロットを再利用しなければならない。
   - test: `tests/app/moqtrun_test.c` —
@@ -822,14 +822,14 @@
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow`
 
-## ハブのリレー: 一致するサブスクライバーだけへの Object の転送(SS9.4, SS11.1)
+## ハブのリレー: 一致する購読者だけへの Object の転送(SS9.4, SS11.1)
 
-- [x] MQ18-160 Object は、その Track Alias が示す Track のサブスクライバーにだけ転送しなければならず、同じセッションのほかの Track のサブスクライバーに転送してはならない。
+- [x] MQ18-160 Object は、その Track Alias が示す Track の購読者にだけ転送しなければならず、同じセッションのほかの Track の購読者に転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_only_to_chat_subscriber`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_object_relays_only_to_audio_subscriber`
-- [x] MQ18-161 Object の Track Alias がパブリッシャーの宣言したどの Track にも一致しない場合、実装はそれをどのサブスクライバーにも転送してはならない。
+- [x] MQ18-161 Object の Track Alias がパブリッシャーの宣言したどの Track にも一致しない場合、実装はそれをどの購読者にも転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_unknown_alias_object_relays_nowhere`
   - test: `tests/app/moqtrun_test.c` —
@@ -837,7 +837,7 @@
 - [x] MQ18-162 同じ Track への複数の購読に一致する Object は、一致する購読ごとに 1 回ずつ送らなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
-- [x] MQ18-163 あるサブスクライバーへの Object の転送が失敗した(下位のトランスポートが送信を拒否した)場合でも、実装はほかの一致するサブスクライバー全員へそれを転送しなければならず、その損失を知らないうちに放置せず数えなければならない。
+- [x] MQ18-163 ある購読者への Object の転送が失敗した(下位のトランスポートが送信を拒否した)場合でも、実装はほかの一致する購読者全員へそれを転送しなければならず、その損失を見過ごさずに数えなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_one_of_three_subscribers_refused`
   - test: `tests/app/moqtrun_test.c` —
@@ -858,13 +858,13 @@
 - [x] MQ18-167 実装は、各 Subgroup を、その配信の形に合ったトランスポートの基本操作で一貫してリレーしなければならない(1 回で終わる Subgroup には open+send+FIN を 1 度に、長く続く Subgroup には FIN なしの open とその後の追記を使う)。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_still_uses_send_uni_every_object`
-- [x] MQ18-168 同じ Track の 2 人のサブスクライバーは、それぞれ独立したリレーのストリームを受け取らなければならず、一方への配信が他方のストリームの結び付きに影響してはならない。
+- [x] MQ18-168 同じ Track の 2 人の購読者は、それぞれ独立したリレーのストリームを受け取らなければならず、一方への配信が他方のストリームの結び付きに影響してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_two_subscribers_independent_streams`
 
 ## ハブのリレー: 拒否が続いたときの切り捨て(SS11.4.3 のリセットの決まりの適用)
 
-- [x] MQ18-169 サブスクライバーのリレーのストリームが、実装のしきい値を超えて混雑し(拒否され)続けた場合、実装は古い滞留分を持ち続けず、そのストリームをリセットし、次の配信で新しいストリームを開き直さなければならない。
+- [x] MQ18-169 購読者のリレーのストリームが、実装のしきい値を超えて混雑し(拒否され)続けた場合、実装は古い滞留分を持ち続けず、そのストリームをリセットし、次の配信で新しいストリームを開き直さなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_busy_streak_sheds_after_threshold`
 - [x] MQ18-170 混雑が続く途中で配信が受け入れられたら、混雑の連続回数のカウンターをリセットしなければならない。そうすることで、ときどき起きる一時的な拒否が積み重なって切り捨てに至ることはない。
@@ -873,7 +873,7 @@
 - [x] MQ18-171 ストリームを切り捨てたあと、その放棄したストリームに対してパブリッシャーから届くデータなしの FIN を、そこへ転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_shed_stream_skips_publisher_fin`
-- [x] MQ18-172 混雑の連続回数のカウンターはサブスクライバーごとに持たなければならない。そうすることで、送れずにいる 1 人のサブスクライバーの切り捨てが、ほかのサブスクライバーの正常なストリームに影響しない。
+- [x] MQ18-172 混雑の連続回数のカウンターは購読者ごとに持たなければならない。そうすることで、送れずにいる 1 人の購読者の切り捨てが、ほかの購読者の正常なストリームに影響しない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_busy_shed_isolated_per_subscriber`
 - [x] MQ18-173 リセットそのものが下位のトランスポートに拒否された場合、実装はそれを完了したものとして扱わず、次の混雑の回で切り捨てを再試行しなければならない。
@@ -888,7 +888,7 @@
 - [x] MQ18-175 セッションが閉じたとき、実装はそのピアのスロットを解放しなければならない。そうすることで、下位の同じセッションポインターで後から再接続したものを、終わったピアではなく新しいピアとして扱う。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_close_frees_peer_for_reregistration`
-- [x] MQ18-176 サブスクライバーのセッションが閉じたとき、実装は、ほかのすべてのピアの Track にあるそのサブスクライバーの購読エントリを無効にしなければならない。そうすることで、後の Object を終わったセッションへリレーしない。
+- [x] MQ18-176 購読者のセッションが閉じたとき、実装は、ほかのすべてのピアの Track にあるその購読者の購読エントリを無効にしなければならない。そうすることで、後の Object を終わったセッションへリレーしない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_close_drops_subscriptions`
 - [x] MQ18-177 実装が一度も登録していないセッション(またはすでに閉じたセッション)を閉じる操作は、何もせず、ほかのピアに影響を与えないものでなければならない。
   - test: `tests/app/moqtrun_test.c` —
@@ -937,7 +937,7 @@
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_ok_largest`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_largest_from_datagram`
-- [x] MQ18-185 Object は、共有のバッファープールから各サブスクライバーへ信頼性をもってリレーしなければならない。遅いサブスクライバーがプールを引き止めるのは基準値までで、止まったサブスクライバーはタイムアウト後に切り離し、末尾を落としたストリームは続けない(続けるとサブスクライバーとの同期が崩れる)。
+- [x] MQ18-185 Object は、共有のバッファープールから各購読者へ信頼性をもってリレーしなければならない。遅い購読者がプールを引き止めるのは上限(watermark)までで、止まった購読者はタイムアウト後に切り離し、末尾を落としたストリームは続けない(続けると購読者との同期が崩れる)。
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_append_hold_at_watermark`
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_reclaim_follows_slowest`
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_stalled_after_timeout`
@@ -945,7 +945,7 @@
     `test_moqtrun_poison_survives_reset_and_close`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqt_reliable_relay_sheds_stalled_sub`
-- [x] MQ18-186 サブスクライバーの優先度は、そのサブスクライバーのリレーのストリームの WebTransport のストリームの urgency に対応付けなければならない。優先度を変える REQUEST_UPDATE は後のストリームに適用され、その購読の開いたままのストリームと埋め戻しのストリームのクラスを付け直す。io の stream_sched フックがあれば、ハブは各 Object ストリームのクラス全体(urgency 4、Subscriber << 8 | Publisher Priority、Group の順序と「ライブより埋め戻しが先」で順位を付けた購読ごとのフロー)を設定し、送信ポンプはそれに従ってスケジュールする。
+- [x] MQ18-186 購読者の優先度は、その購読者のリレーのストリームの WebTransport のストリームの urgency に対応付けなければならない。優先度を変える REQUEST_UPDATE は後のストリームに適用され、その購読の開いたままのストリームと埋め戻しのストリームのクラスを付け直す。io の stream_sched フックがあれば、ハブは各 Object ストリームのクラス全体(urgency 4、Subscriber << 8 | Publisher Priority、Group の順序と「ライブより埋め戻しが先」で順位を付けた購読ごとのフロー)を設定し、送信ポンプはそれに従ってスケジュールする。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_relay_keys`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_update_reclasses`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_fill_shares_flow`
@@ -1001,7 +1001,7 @@
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_cache_attach`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_cache_default_off`
-- [x] MQ18-192 単独の FETCH はキャッシュから返さなければならない。追い出された範囲や一度もキャッシュされなかった範囲は、知らないうちに飛ばさず、End of Unknown Range の印として報告しなければならない。
+- [x] MQ18-192 単独の FETCH はキャッシュから返さなければならない。追い出された範囲や一度もキャッシュされなかった範囲は、何も知らせずに飛ばすのではなく、End of Unknown Range の印として報告しなければならない。
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_serves_cached`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_evicted_group_unknown`
@@ -1019,7 +1019,7 @@
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_join_unknown_request`
   - note: draft-18 の FETCH の本文(Fetch Type + Standalone/Joining)は draft-19 とバイト単位で同じ。draft-22 は Joining FETCH をすべて削除した(`docs/features/draft-moq-transport-22.md` の 4-6 を参照)。
-  - gap: まだ Pending(サブスクライバー側)の購読に対する Joining FETCH を確かめるテストはない。§10.12.2 は、それを購読が確立するまでバッファーに保持するとしている。
+  - gap: まだ Pending(購読者側)の購読に対する Joining FETCH を確かめるテストはない。§10.12.2 は、それを購読が確立するまでバッファーに保持するとしている。
 - [x] MQ18-233 (§10.12.3, §10.13) 単独の FETCH は、何も公開されていない場合、Start が Largest Object より後にある場合、End が Start より前にある場合は INVALID_RANGE で、誰もその Track を公開していない場合は DOES_NOT_EXIST で拒否しなければならない。Largest Object より後の End は、FETCH_OK で {Largest.Group, Largest.Object + 1} に切り詰めなければならない。
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_nothing_published`
@@ -1044,13 +1044,13 @@
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_fill_timeout_zero`
   - note: draft-18 には End of Timed-Out Range の印がない。そのようなドラフトに対しては、隙間は End of Unknown Range になる(予算のテストの draft-19 の部分)。
-- [x] MQ18-222 (§9.1) ハブが Object を存在しないものとして記録している構成では、その Object が後から届いても、キャッシュも転送もするべきではない。
+- [x] MQ18-222 (§9.1) ハブが Object を存在しないものとして記録している場合、その Object が後から届いても、キャッシュも転送もするべきではない。
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_late_nonexistent_not_cached`
   - test: `tests/app/moqtrun_cut_test.c` —
     `test_moqtrun_stream_skips_gone_object`
   - note: 記録とはキャッシュのことである(閉じた Group の中で、存在しないとして返す Location)。Subgroup ストリームではそのような Object を切り取り、次の Object の Object ID Delta をつなぎ直す。そのような Object から始まるストリームはリレーせず、1 回きりのストリームは最初のそのような Object の位置で切る。
-- [x] MQ18-238 (§12.3) Track が MAX_CACHE_DURATION を持つ構成では、ハブは、Object の最初のバイトを受信してからそのミリ秒数を過ぎたあとに、その Object の転送を始めてはならない。
+- [x] MQ18-238 (§12.3) Track が MAX_CACHE_DURATION を持つ場合、ハブは、Object の最初のバイトを受信してからそのミリ秒数を過ぎたあとに、その Object の転送を始めてはならない。
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_max_cache_duration`
   - note: 「受信した時刻」は Object が届く前の最後の `wired_moqt_tick` の時刻で、最初のバイトより後になることはないので、Object は早めに期限切れになるだけである。期限切れの Object を 1 つでも含むキャッシュ済みの Group は、全体が未知になる(キャッシュは Group の一部だけを持つことはない)。draft-18/19 の FETCH の本文で動かす。
 - [x] MQ18-194 FETCH は、リクエスト元が取り消したとき、データストリームが止められたとき、パブリッシャーかリクエスト元が去ったとき、配信が止まったときに、そのスロットを解放しなければならない。
@@ -1088,7 +1088,7 @@
 - [x] MQ18-197 ピアからの 2 回目の GOAWAY、またはクライアントからの New Session URI を持つ GOAWAY は、プロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_twice`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_uri`
-- [x] MQ18-198 ハブは、PUBLISH_DONE の前に購読のデータストリームをリセットしなければならない。パブリッシャーのセッションが終わると、そのサブスクライバーに PUBLISH_DONE TRACK_ENDED を送る。
+- [x] MQ18-198 ハブは、PUBLISH_DONE の前に購読のデータストリームをリセットしなければならない。パブリッシャーのセッションが終わると、その購読者に PUBLISH_DONE TRACK_ENDED を送る。
   - test: `tests/app/moqtrun_drain_test.c` —
     `test_moqtrun_done_resets_streams_first`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
@@ -1098,7 +1098,7 @@
 
 ## ハブのリレー: Object Datagram
 
-- [x] MQ18-200 (§11.3) Object Datagram は、その alias が示す Track のすべてのサブスクライバーへバイト単位で同じままリレーしなければならない。alias が未知のデータグラムは捨ててもよい(数える)。
+- [x] MQ18-200 (§11.3) Object Datagram は、その alias が示す Track のすべての購読者へバイト単位で同じままリレーしなければならない。alias が未知のデータグラムは捨ててもよい(数える)。
   - test: `tests/app/moqdg_test.c` — `test_moqdg_roundtrip_golden`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_identical_bytes_to_subscriber`
@@ -1118,7 +1118,7 @@
   - test: `tests/app/moqtrun_ctlfix_test.c` —
     `test_mtcf_d18_subtracks_range_filter`
   - note: draft-18 が SUBSCRIBE_TRACKS で認めるのは AUTHORIZATION TOKEN と FORWARD だけである(パラメーターの表を参照)。subtracks のシナリオは draft-18 を含むすべてのドラフトで動く。
-- [x] MQ18-202 (SS10.19) 確立済みの SUBSCRIBE_TRACKS の接頭辞に一致し、サブスクライバー自身が公開したものではないすべての Track について、ハブは新しい双方向ストリームでその Track を指定する PUBLISH を 1 つ開き、SUBSCRIBE_TRACKS の FORWARD の値を載せなければならない。SUBSCRIBE_TRACKS を取り消すと新しい PUBLISH は止まるが、確立済みのものは残る。応答の前に消えた Track はその PUBLISH ストリームをリセットし、REQUEST_ERROR の応答はスロットを解放する。PUBLISH_OK(REQUEST_OK)の応答は、PUBLISH の Track Alias でサブスクライバーの購読を開き、PUBLISH のパラメーターから始める(FORWARD 0 なら Object を送らずにおく)。そのストリームでのサブスクライバーの REQUEST_UPDATE は SUBSCRIBE の場合と同じように適用し、そこで応答する(台帳 12-11、12-18。失敗した更新は MQ18-230)。2 つ目の REQUEST_OK(PUBLISH_OK)または REQUEST_ERROR は、PROTOCOL_VIOLATION でセッションを閉じる(SS5.1 の "SHOULD close the session with a protocol error"、台帳 12-28)。
+- [x] MQ18-202 (SS10.19) 確立済みの SUBSCRIBE_TRACKS の接頭辞に一致し、購読者自身が公開したものではないすべての Track について、ハブは新しい双方向ストリームでその Track を指定する PUBLISH を 1 つ開き、SUBSCRIBE_TRACKS の FORWARD の値を載せなければならない。SUBSCRIBE_TRACKS を取り消すと新しい PUBLISH は止まるが、確立済みのものは残る。応答の前に消えた Track はその PUBLISH ストリームをリセットし、REQUEST_ERROR の応答はスロットを解放する。PUBLISH_OK(REQUEST_OK)の応答は、PUBLISH の Track Alias で購読者の購読を開き、PUBLISH のパラメーターから始める(FORWARD 0 なら Object を送らずにおく)。そのストリームでの購読者の REQUEST_UPDATE は SUBSCRIBE の場合と同じように適用し、そこで応答する(台帳 12-11、12-18。失敗した更新は MQ18-230)。2 つ目の REQUEST_OK(PUBLISH_OK)または REQUEST_ERROR は、PROTOCOL_VIOLATION でセッションを閉じる(SS5.1 の "SHOULD close the session with a protocol error"、台帳 12-28)。
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_second_ok_closes`
@@ -1141,10 +1141,10 @@
   - test: `tests/app/moqtrun_subtracks_test.c` —
     `test_subtracks_liveness_eventually_attempted`
   - note: 台帳 10-2(E-2): ハブが始める PUBLISH の経路。TLA+ で検査した設計は `tasks/loopeng/moqt/MoqtHubPublish/`(git には含まない)にある。シナリオは draft-18 を含むすべてのドラフトで動く。
-- [x] MQ18-225 (§9.5) ハブが、ある Track のパブリッシャーを待つ下流の SUBSCRIBE を保留していて、そのサブスクライバーが一致する SUBSCRIBE_TRACKS も持っている構成では、届いた PUBLISH は保留中の SUBSCRIBE を完了させなければならず、そのサブスクライバーへハブが始める PUBLISH として重ねて転送してはならない。
+- [x] MQ18-225 (§9.5) ハブが、ある Track のパブリッシャーを待つ下流の SUBSCRIBE を保留していて、その購読者が一致する SUBSCRIBE_TRACKS も持っている場合、届いた PUBLISH は保留中の SUBSCRIBE を完了させなければならず、その購読者へハブが始める PUBLISH として重ねて転送してはならない。
   - test: `tests/app/moqtrun_rdv_test.c` —
     `test_moqtrun_rdv_s12_subtracks_skips_held`
-- [x] MQ18-203 (SS10.20) ハブがそのような PUBLISH のための双方向ストリームを開けない構成では、ハブは代わりに SUBSCRIBE_TRACKS のリクエストストリームで PUBLISH_SKIPPED(draft-18 では PUBLISH_BLOCKED)(Track Namespace Suffix, Track Name)を送らなければならず、同じ Track の同じ回について後から PUBLISH を送ってはならない。
+- [x] MQ18-203 (SS10.20) ハブがそのような PUBLISH のための双方向ストリームを開けない場合、ハブは代わりに SUBSCRIBE_TRACKS のリクエストストリームで PUBLISH_SKIPPED(draft-18 では PUBLISH_BLOCKED)(Track Namespace Suffix, Track Name)を送らなければならず、同じ Track の同じ回について後から PUBLISH を送ってはならない。
   - test: `tests/app/moqtrun_subtracks_test.c` —
     `test_subtracks_skip_then_no_publish`
   - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_roundtrip`
@@ -1161,14 +1161,14 @@
     `test_moqtrun_fetch_descending_group_order`
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
   - note: 台帳 10-6。これらのシナリオは、draft-18/19 の FETCH の本文で、draft-18 を含むすべてのドラフトで動く。不正な形式の FETCH は未知の Fetch Type を持つ(§10.12)。
-- [x] MQ18-206 (SS5.1.4) ライブの Track に加わった遅れて来たサブスクライバーは、Location Filter の開始 Group から始めなければならない。ライブの先頭より前の開始位置は現在の Group に切り詰め、未来の開始位置はその Group まで配信を待たせる。
+- [x] MQ18-206 (SS5.1.4) ライブの Track に加わった遅れて来た購読者は、Location Filter の開始 Group から始めなければならない。ライブの先頭より前の開始位置は現在の Group に切り詰め、未来の開始位置はその Group まで配信を待たせる。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
   - note: 台帳 10-7。最初の Group の中にある開始 Object は、Subgroup ストリームで Object ごとに切る(`test_moqtrun_sub_filter22_start_object_*`、`test_moqtrun_sub_filter22_ring_*`)。シナリオは draft-18 を含むすべてのドラフトで動く。
 
 ## 未実装
 
-draft-18 のリレーとしては対象内ですが、まだ実装していないものです。これらのどれかを必要とするピアには NOT_SUPPORTED を返します(注記がある場合は別の動作になります)。予約済みの名前空間、SUBSCRIBE_TRACKS、PUBLISH_SKIPPED(PUBLISH_BLOCKED)、FETCH の GROUP_ORDER、FETCH と名前空間リクエストへの REQUEST_UPDATE は、台帳 10 章で実装される(MQ18-028、MQ18-201 から MQ18-206)まで、ここに載せていました。
+draft-18 のリレーとしては対象内ですが、まだ実装していないものです。これらのどれかを必要とするピアには NOT_SUPPORTED を返します(注記がある場合は別の動作になります)。予約済みの名前空間、SUBSCRIBE_TRACKS、PUBLISH_SKIPPED(PUBLISH_BLOCKED)、FETCH の GROUP_ORDER、FETCH と名前空間リクエストへの REQUEST_UPDATE は、台帳 10 章で実装する(MQ18-028、MQ18-201 から MQ18-206)まで、ここに載せていました。
 
 上の `[ ]` の項目(それぞれ `gap:` を付けています)のほかにはありません。
 
@@ -1193,10 +1193,10 @@ draft-18 のリレーとしては対象内ですが、まだ実装していな�
 - (SS5.1.3.1, SS10.2.13) ハブ自身の Track での新しい Group の動的な開始: ハブ自身の Track は DYNAMIC_GROUPS を宣言しない。
 - (SS10.4) クライアントの長さ 0 の New Session URI と、クライアントによるその URI の使い方: クライアントの規則(MQ18-082 は削除した。サーバー側の確認は MQ18-045)。
 - (SS10.4, SS3.6) リクエストストリームでの GOAWAY の送信とその後にそのストリームをリセットする SHOULD、リクエストストリームの GOAWAY のあとのリクエストの再発行、SS3.6 の「上流の購読を解除する前に下流へ GOAWAY を送る」: ハブは制御ストリームでだけ GOAWAY を送り、ハブの drain は上流の購読を先に解除することがない。
-- (SS10.11, SS10.18, SS10.19) ハブが送らない、または応答を待たないリクエストについてのサブスクライバー側の規則: SUBSCRIBE_NAMESPACE / SUBSCRIBE_TRACKS のリクエスト元が行う最初のメッセージの確認と、NAMESPACE より前の NAMESPACE_DONE によるクローズ、PUBLISH_DONE のあとのタイマーと STOP_SENDING による後片付け、PUBLISH_NAMESPACE への重複した応答によるクローズ(ハブは PUBLISH_NAMESPACE を送らない)。
+- (SS10.11, SS10.18, SS10.19) ハブが送らない、または応答を待たないリクエストについての購読者側の規則: SUBSCRIBE_NAMESPACE / SUBSCRIBE_TRACKS のリクエスト元が行う最初のメッセージの確認と、NAMESPACE より前の NAMESPACE_DONE によるクローズ、PUBLISH_DONE のあとのタイマーと STOP_SENDING による後片付け、PUBLISH_NAMESPACE への重複した応答によるクローズ(ハブは PUBLISH_NAMESPACE を送らない)。
 - (SS10.2.2) トークンの送信側の規則(再利用するときだけ登録する、USE_ALIAS / DELETE の順序)、期限切れのトークンの保持、MALFORMED_AUTH_TOKEN: ハブはトークンを送らず、キャッシュも持たず、トークンの有効性はアプリケーションの認可の処理に任せる(UNAUTHORIZED、MQ18-189)。
 - (SS8, SS11.4.3) トランスポートの再送の前の配信タイムアウトの確認と、RESET_STREAM_AT の reliable_size: QUIC スタックは MOQT 層に再送のフックを提供せず、ハブは RESET_STREAM でだけリセットする。
-- (SS10.2.13, SS10.6.2, SS10.10) NEW_GROUP_REQUEST についてのサブスクライバーの義務、Retry Interval による間隔の調整、望まない PUBLISH の UNINTERESTED による拒否: ハブは下流のサブスクライバーが求めていない NEW_GROUP_REQUEST を自分から出すことはなく(上流へリレーする。MQ18-229)、拒否されたリクエストを再試行せず、空きがある限り認可済みの PUBLISH をすべて受け入れる(MQ18-156)。
+- (SS10.2.13, SS10.6.2, SS10.10) NEW_GROUP_REQUEST についての購読者の義務、Retry Interval による間隔の調整、望まない PUBLISH の UNINTERESTED による拒否: ハブは下流の購読者が求めていない NEW_GROUP_REQUEST を自分から出すことはなく(上流へリレーする。MQ18-229)、拒否されたリクエストを再試行せず、空きがある限り認可済みの PUBLISH をすべて受け入れる(MQ18-156)。
 - (SS13) セキュリティの考慮事項(購読による増幅、通信のセキュリティ、認可、メディアのセキュリティ、リソースの枯渇、タイムアウト、リレーのセキュリティ、実装のフィンガープリンティング): 運用・配備の指針であり、この台帳がテストするワイヤー上の動作ではない。
 - (SS15) IANA の考慮事項: レジストリの管理であり、実装の動作ではない。
 - バージョンごとの対象範囲(台帳 4-4): このハブはセッションごとに draft-18、-19、-22 をネゴシエートする(`moqver.c`)。上の Range Filter、MAX_FILTER_RANGES、MAX_REQUEST_UPDATES の項目が対象外なのは draft-18 だけである。draft-19 と draft-22 のセッションでは、ハブは Range Filter を検証し、リクエストの更新のクレジットを適用する(MOQT-206 から MOQT-208、MQ22-199 から MQ22-201 を参照)。SUBSCRIBE_TRACKS そのものはすべてのバージョンで扱う(MQ18-201)。違うのはパラメーターの組だけで、draft-18 では AUTHORIZATION TOKEN と FORWARD、draft-19 と draft-22 ではすべての Subscription パラメーターである(`moqctl.c` の `MOQCTL_PARAM_RULES`)。
