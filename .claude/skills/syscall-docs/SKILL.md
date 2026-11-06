@@ -51,14 +51,15 @@ afterthought.
    - which subsystem/feature it serves (client loop, server loop, file I/O,
      RNG, signal handling, etc.)
 4. **Diff against `docs/syscalls.md`'s table**: add a row for a new syscall,
-   update the "Why wired calls it" cell if the call site's purpose changed,
+   update the "`wired` が呼ぶ理由" (why `wired` calls it) cell if the call site's purpose changed,
    remove the row if a syscall was deleted. Keep one row per syscall name,
    not per call site — list multiple call sites in the same cell.
-5. **Keep the table's columns**: Syscall | Number | Defined | Description |
-   Why `wired` calls it. "Defined" says `syscall.h` (the shared facade +
+5. **Keep the table's columns** (the doc is in Japanese): システムコール |
+   番号 | 定義場所 | 説明 | `wired` が呼ぶ理由. "定義場所" (defined) says
+   `syscall.h` (the shared facade +
    arch adapter surface) for every syscall — local defines no longer exist.
 6. If the change affects *how* I/O multiplexing works (e.g. moving off a
-   single-fd `poll` model), also revisit the "Why `poll`, not `epoll`"
+   single-fd `poll` model), also revisit the "`epoll` ではなく `poll` を使う理由" (why `poll`, not `epoll`)
    section — it documents a design decision (single fd per wire loop), not
    just a syscall list entry, and it goes stale independently of the table.
 7. Verify the doc still matches reality: re-run the two `grep` commands from

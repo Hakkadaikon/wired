@@ -1,52 +1,26 @@
-# Syscalls
+# システムコール
 
-[Docs](README.md) › Syscalls
+[ドキュメント](README.md) › システムコール
 
-This page lists every Linux system call the `wired` SDK makes, what each
-one does, and which part of the SDK needs it. Read it when you want to know
-what the SDK asks of the kernel (for a sandbox or a seccomp policy, the
-Linux filter that limits which syscalls a process may make), or
-when you add or remove a syscall yourself.
+このページには、`wired` SDK が発行する Linux システムコールをすべて載せ、それぞれの働きと、SDK のどの部分が必要とするかを書いています。SDK がカーネルに何を求めるかを知りたいとき(サンドボックスや seccomp ポリシーを用意するとき。seccomp はプロセスが発行できるシステムコールを制限する Linux のフィルターです)や、自分でシステムコールを追加・削除するときに読んでください。
 
-> **At a glance** — 42 syscalls total, in seven groups: UDP sockets (the wire
-> loop), file I/O (certs, logs, static files), AF_XDP setup (rings and BPF),
-> threads and processes (the multi-core drivers), signals (graceful
-> shutdown), memory (returning a closed connection's pages), and utilities
-> (clock, randomness). The table below is a lookup
-> reference — you don't need to read it top to bottom.
+> **概要**: システムコールは全部で 42 個あり、7 つのグループに分かれます。UDP ソケット(ワイヤーループ)、ファイル I/O(証明書、ログ、静的ファイル)、AF_XDP のセットアップ(リングと BPF)、スレッドとプロセス(マルチコアのドライバー)、シグナル(グレースフルシャットダウン)、メモリ(閉じたコネクションのページの返却)、ユーティリティ(時計、乱数)です。下の表は引いて使うための資料なので、上から順に読む必要はありません。
 
-## What a syscall is, and why `wired` issues its own
+## システムコールとは何か、なぜ `wired` は自分で発行するのか
 
-A syscall (system call) is how a program asks the operating system kernel
-to do something it cannot do alone: open a file, send a UDP packet, start a
-thread, read the clock. The program puts a call number and its arguments in
-CPU registers and executes a special instruction (`syscall` on x86_64); the
-kernel does the work and returns a result, or a negative error code.
+システムコールは、プログラムが自分ではできない処理を OS のカーネルに頼む手段です。ファイルを開く、UDP パケットを送る、スレッドを起動する、時計を読む、といった処理がこれにあたります。プログラムは呼び出し番号と引数を CPU のレジスターに置き、専用の命令(x86_64 では `syscall`)を実行します。カーネルが処理をして、結果か負のエラーコードを返します。
 
-Most C programs never see this, because the C standard library (libc)
-wraps each syscall in a function such as `read()` or `sendto()`. `wired`
-is built without libc (`-ffreestanding -nostdlib`), so nothing provides
-those functions. The SDK issues every syscall itself, which is why it can
-list all of them here.
+ふつうの C プログラムはこの仕組みを意識しません。C 標準ライブラリ(libc)が各システムコールを `read()` や `sendto()` のような関数で包んでいるからです。`wired` は libc なし(`-ffreestanding -nostdlib`)でビルドするので、こうした関数を用意してくれるものがありません。SDK はすべてのシステムコールを自分で発行しており、そのためここに全部を挙げられます。
 
-## Where syscalls live in the code
+## コードの中のシステムコールの置き場所
 
-The x86_64-specific parts, called the arch layer below, are kept in one
-corner, `src/common/arch/`, so the rest of the SDK never touches registers
-or call numbers:
+x86_64 に固有の部分(以下、arch 層と呼びます)は `src/common/arch/` の一か所にまとめてあり、SDK のほかの部分がレジスターや呼び出し番号に触れることはありません。
 
-- **`src/common/platform/sys/syscall.h`** is the facade every domain
-  includes. It pulls in the arch layer through `common/arch/arch.h`.
-- **`src/common/arch/sysops.h`** holds one typed `wired_arch_<name>`
-  wrapper per syscall, e.g. `wired_arch_openat`. Domain code calls only
-  these.
-- **`src/common/arch/x8664/x8664.h`** holds the `SYS_*` call numbers, the
-  raw `syscallN` macros, and `syscall6`, the inline-asm sequence that
-  executes the instruction. Only code inside `src/common/arch/` uses them.
+- **`src/common/platform/sys/syscall.h`** は、すべてのドメインがインクルードするファサードです。`common/arch/arch.h` を通して arch 層を取り込みます。
+- **`src/common/arch/sysops.h`** には、システムコールごとに型付きの `wired_arch_<name>` ラッパーが 1 つずつあります(例: `wired_arch_openat`)。ドメインのコードはこれだけを呼びます。
+- **`src/common/arch/x8664/x8664.h`** には、`SYS_*` の呼び出し番号、生の `syscallN` マクロ、命令を実行するインラインアセンブリの `syscall6` があります。これらを使うのは `src/common/arch/` の中のコードだけです。
 
-Follow the arrows to see how a call such as `wired_udp_send` reaches the
-kernel. Each box between the domain code and the kernel is one header; only
-`x8664.h`, the last of them, knows it runs on x86_64.
+`wired_udp_send` のような呼び出しがカーネルに届くまでの道筋は、矢印をたどると分かります。ドメインのコードとカーネルの間にある箱はそれぞれ 1 つのヘッダーで、x86_64 で動くことを知っているのは最後の `x8664.h` だけです。
 
 ```mermaid
 flowchart LR
@@ -57,173 +31,106 @@ flowchart LR
   raw -->|"syscall instruction"| k(["Linux kernel"])
 ```
 
-Two calls cannot be plain C wrappers and are hand-written assembly in
-`src/common/arch/x8664/`: `wired_arch_clone_raw` (the new thread starts on
-a new stack) and `wired_arch_sigreturn_restorer` (the return path from a
-signal handler). Their table rows below say why.
+2 つの呼び出しは単純な C のラッパーにできないため、`src/common/arch/x8664/` に手書きのアセンブリで置いています。`wired_arch_clone_raw`(新しいスレッドが新しいスタックで動き始める)と `wired_arch_sigreturn_restorer`(シグナルハンドラーからの戻り道)です。理由は下の表のそれぞれの行に書いています。
 
-## Terms used in the table
+## 表で使う用語
 
-A few kernel features appear in many rows:
+いくつかのカーネルの機能が表の多くの行に出てきます。
 
-- **AF_XDP** is a Linux path that passes packets straight from the network
-  card into memory shared with the program, skipping most of the normal socket
-  stack. **UMEM** is that shared memory, split into frames; four **rings** (RX,
-  TX, Fill, Completion) hand frame addresses back and forth. An **XDP program**
-  is a small program the kernel runs on each arriving packet. It is written in
-  BPF, a bytecode the kernel checks for safety and then runs inside the kernel.
-  The **XSKMAP** is the BPF map the program uses to route a packet to an AF_XDP
-  socket. See [How a packet reaches the application: I/O
-  drivers](arch/overview.md#how-a-packet-reaches-the-application-io-drivers).
-- **GSO** (Generic Segmentation Offload): the program hands the kernel one
-  large buffer and the kernel splits it into many datagrams, saving one
-  syscall per datagram.
-- **ECN** (Explicit Congestion Notification): two bits in the IP header
-  that routers set to signal congestion instead of dropping packets.
-- **Path-MTU probing**: sending a larger packet with the "don't fragment"
-  (DF) bit set to learn the biggest packet the network path carries.
+- **AF_XDP** はネットワークカードからプログラムと共有するメモリへパケットを直接渡す Linux の経路で、通常のソケットスタックの大半を通りません。**UMEM** はその共有メモリで、フレームに分割されています。4 つの **リング**(RX、TX、Fill、Completion)がフレームのアドレスをやり取りします。**XDP プログラム** は届いたパケットごとにカーネルが実行する小さなプログラムです。BPF で書かれます。BPF はバイトコードで、カーネルが安全性を検査してからカーネル内で実行します。**XSKMAP** は XDP プログラムがパケットを AF_XDP ソケットへ振り分けるために使う BPF マップです。[パケットがアプリケーションに届くまで: I/O ドライバー](arch/overview.md#io-ドライバーとパケットの届き方)を参照してください。
+- **GSO**(Generic Segmentation Offload): プログラムが大きなバッファーを 1 つカーネルに渡し、カーネルがそれを多数のデータグラムに分割します。データグラムごとに 1 回ずつ要っていたシステムコールが省けます。
+- **ECN**(Explicit Congestion Notification): IP ヘッダーの 2 ビットで、ルーターがパケットを捨てる代わりにこのビットを立てて輻輳を知らせます。
+- **Path-MTU の探索**: 「フラグメント禁止」(DF)ビットを立てた大きめのパケットを送り、ネットワークの経路が運べる最大のパケットサイズを調べることです。
 
-The SDK has two multi-core server drivers, and the rows name them
-explicitly. The **forked-workers driver** (`--workers N`) forks N processes
-watched by a supervisor process (`app/http3/server/srvworkers/srvworkers.c`).
-The **threads driver** (`--cores a,b,c`) runs one thread per CPU in a
-single process, coordinated by a control thread
-(`app/http3/server/srvthreads/srvthreads.c`). See
-[Choosing an I/O driver](getting-started.md#choosing-an-io-driver).
+SDK にはマルチコアのサーバードライバーが 2 つあり、表の行ではどちらかを名前で明記しています。**フォーク型ワーカードライバー**(`--workers N`)は N 個のプロセスをフォークし、それをスーパーバイザープロセスが見守ります(`app/http3/server/srvworkers/srvworkers.c`)。**スレッドドライバー**(`--cores a,b,c`)は 1 つのプロセスの中で CPU ごとに 1 スレッドを動かし、制御スレッドがそれらをまとめます(`app/http3/server/srvthreads/srvthreads.c`)。[I/O ドライバーの選び方](getting-started.md#io-ドライバーの選択)を参照してください。
 
-## The table
+## 表
 
-One row per syscall, sorted by syscall number. To look one up by group
-instead, use this index (a syscall that serves two groups is listed once):
+1 行に 1 つのシステムコールを、システムコール番号の順に並べています。グループから引きたいときは、次の索引を使ってください(2 つのグループで使うシステムコールは 1 か所にだけ載せています)。
 
-- **UDP sockets**: `poll`, `socket`, `connect`, `sendto`, `recvfrom`,
-  `sendmsg`, `bind`, `setsockopt`, `fcntl`, `recvmmsg`
-- **File I/O**: `read`, `write`, `close`, `pread64`, `openat`, `mkdirat`,
-  `newfstatat`
-- **AF_XDP setup**: `mmap`, `munmap`, `getsockopt`, `bpf` (plus `socket`,
-  `bind`, `setsockopt`, `sendto`)
-- **Threads and processes**: `mprotect`, `getpid`, `clone`, `fork`, `exit`,
-  `wait4`, `getppid`, `prctl`, `gettid`, `futex`, `sched_setaffinity`,
-  `sched_getaffinity`, `exit_group`
-- **Signals**: `rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `kill`,
-  `rt_sigtimedwait`
-- **Memory**: `madvise`
-- **Utilities**: `clock_gettime`, `getrandom`
+- **UDP ソケット**: `poll`, `socket`, `connect`, `sendto`, `recvfrom`, `sendmsg`, `bind`, `setsockopt`, `fcntl`, `recvmmsg`
+- **ファイル I/O**: `read`, `write`, `close`, `pread64`, `openat`, `mkdirat`, `newfstatat`
+- **AF_XDP のセットアップ**: `mmap`, `munmap`, `getsockopt`, `bpf`(ほかに `socket`, `bind`, `setsockopt`, `sendto`)
+- **スレッドとプロセス**: `mprotect`, `getpid`, `clone`, `fork`, `exit`, `wait4`, `getppid`, `prctl`, `gettid`, `futex`, `sched_setaffinity`, `sched_getaffinity`, `exit_group`
+- **シグナル**: `rt_sigaction`, `rt_sigprocmask`, `rt_sigreturn`, `kill`, `rt_sigtimedwait`
+- **メモリ**: `madvise`
+- **ユーティリティ**: `clock_gettime`, `getrandom`
 
-The Defined column reads `syscall.h` in every row. It names the shared
-facade described above; the numbers themselves are defined in `x8664.h`.
-Paths in the table are relative to `src/`, given in full the first time a
-file appears.
+「定義場所」列はどの行も `syscall.h` です。これは上で説明した共有のファサードを指しており、番号そのものは `x8664.h` で定義しています。表のパスは `src/` からの相対パスで、ファイルが初めて出てくるときだけフルパスで書いています。
 
-| Syscall | Number | Defined | Description | Why `wired` calls it |
+| システムコール | 番号 | 定義場所 | 説明 | `wired` が呼ぶ理由 |
 |---|---|---|---|---|
-| `read` | 0 | `syscall.h` | Read bytes from a file descriptor. | `common/platform/fio/fio.c`: `wired_fio_read` fills the caller's buffer in a loop (`fio_fill`) and does a 1-byte overflow probe (`fio_full_result`) to detect a file larger than the buffer, e.g. loading a cert/key PEM file. |
-| `write` | 1 | `syscall.h` | Write bytes to a file descriptor. | `fio.c`: `wired_fio_append` (ticket/log persistence) and `wired_fio_write_new` (whole-file replace) loop over short writes. `common/platform/debug/debug.c`: `wired_log_str`/`wired_log_ts` write formatted trace lines to fd 2 (stderr); `common/fmt/fmt.c`: `wired_dprintf` writes formatted output to any fd; `common/bytes/text/text.c`: `wired_dump_text` and the hex dump write raw/hexed bytes, both looping over short writes. |
-| `close` | 3 | `syscall.h` | Close a file descriptor. | Cleanup: `wired_fio_read`/`wired_fio_append`/`wired_fio_write_new`/`wired_fio_close` close the file they opened; `wired_udp_close` closes the UDP socket; `client_close` (`tls/handshake/roles/client/client.c`) / `wired_server_close` (`tls/handshake/roles/server/serverio.c`) close the connection's socket fd when set; `xsksetup_unwind` closes the AF_XDP socket, and `srvxdpbpf_close_fd` (`app/http3/server/srvxdpbpf/srvxdpbpf.c`) closes the XSKMAP and XDP-program fds. |
-| `poll` | 7 | `syscall.h` | Wait for events on a small set of file descriptors with a timeout. | `poll_wait_readable` (`transport/io/socket/poll/wait.c`) blocks on one fd (the UDP socket) until it is readable or `timeout_ms` elapses, driving the server wire loop (`app/http3/server/srvrun/srvrun.c`); when the server also listens on a preferred-address socket, `poll_wait_readable2` watches both in one call. `srvworkers.c`'s supervisor naps in a zero-fd `poll` for 100 ms only when `wait4` fails (e.g. `ECHILD`). |
-| `mmap` | 9 | `syscall.h` | Map pages into the process's address space, backed by a file/fd or anonymous memory. | `xsksetup_mmap`/`xsksetup_umem` (`transport/io/xdp/xsksetup/xsksetup.c`) map the UMEM (one anonymous region) and each of the four AF_XDP rings at the socket's per-ring `pgoff`, so the driver gets direct pointers into kernel-shared memory. The thread runtime (`common/platform/thread/thread.c`) maps each worker thread's stack. The threads driver (`srvthreads.c`) maps its per-worker env table and the N*N broadcast inbox mesh, sized to the core count. |
-| `mprotect` | 10 | `syscall.h` | Change protection of mapped pages. | The thread runtime turns the lowest page of each thread stack into a `PROT_NONE` guard page, so a stack overflow faults instead of silently corrupting the adjacent mapping. |
-| `munmap` | 11 | `syscall.h` | Unmap a previously mapped region. | `xsksetup_munmap`, called from `xsksetup_unwind`/`xsksetup_close` (`xsksetup.c`), releases the UMEM and ring mappings on teardown or when a later step of `xsksetup_open` fails partway through setup. The thread runtime unmaps a joined thread's stack; `srvthreads.c` releases both of its maps on teardown. |
-| `rt_sigaction` | 13 | `syscall.h` | Install a signal handler. | `app/http3/server/sigterm/sigterm.c`: `wired_sigterm_install` / `wired_sighup_install` register a handler for `SIGTERM` and `SIGHUP` (graceful server shutdown / config reload), with `SA_RESTORER` set: on x86_64 the kernel has no default return path, so delivering a signal to a handler without a restorer kills the process with `SIGSEGV`. |
-| `rt_sigprocmask` | 14 | `syscall.h` | Block/unblock signal delivery for the calling thread. | Blocks `SIGTERM`/`SIGHUP` (and `SIGCHLD`) at three points so no signal is lost or misdelivered: in the threads driver around worker creation (`sigterm.c`'s `wired_sigmask_block_shutdown`/`wired_sigmask_unblock_shutdown`), and in the forked-workers driver around each `fork` and before each `wait4`. See [Ordering that avoids races](#ordering-that-avoids-races). |
-| `rt_sigreturn` | 15 | `syscall.h` | Return from a signal handler back to interrupted context. | `wired_arch_sigreturn_restorer` (`common/arch/x8664/sigret.c`): a hand-written naked-asm trampoline passed as the `SA_RESTORER` target by `sigterm.c`, standing in for libc's `restore_rt` (freestanding has no libc to provide one). |
-| `pread64` | 17 | `syscall.h` | Read from a file descriptor at a given offset, without moving the file position. | `fio.c`: `wired_fio_pread` reads one chunk of a file at an explicit offset — how `examples/word_list` streams a large static file into per-response body buffers without loading the whole file. |
-| `madvise` | 28 | `syscall.h` | Advise the kernel about a memory range; `MADV_DONTNEED` drops its pages, which read as zero on the next touch. | `wired_arch_madvise` (`common/arch/sysops.h`), called once per connection close from `srvrun_release_tables` (`srvrun_free.c`), returns the closed slot's request / WT stream tables, received DATAGRAMs, WT send staging and respstore row, so an idle server's resident memory falls back instead of staying at its peak. |
-| `getpid` | 39 | `syscall.h` | Return the calling process id. | `srvworkers.c` saves the supervisor's pid before each `fork` so the worker can compare it against `getppid`. |
-| `socket` | 41 | `syscall.h` | Create a socket. | `wired_udp_socket` (`transport/io/socket/io/udp.c`) creates a dual-stack `AF_INET6` UDP socket (IPv4 peers arrive v4-mapped), falling back to `AF_INET` when IPv6 is unavailable (`EAFNOSUPPORT`); used by both client and server (`wired_server_listen`) setup. `xsksetup_open` creates the `AF_XDP` socket. `wired_udp_path_mtu` (`udp.c`) opens a throwaway UDP socket to read the kernel path MTU toward a peer (closed right after). |
-| `connect` | 42 | `syscall.h` | Set a socket's default peer. | `wired_udp_path_mtu` (`transport/io/socket/io/udp.c`) connects its throwaway UDP socket to the peer so `IP_MTU`/`IPV6_MTU` can be read (they need a connected socket); the server calls it per connection and per new path (`srvrun_pmtu_start`) to bound the DPLPMTUD search ceiling by the local link (RFC 8899 3.5). No datagram is sent. |
-| `sendto` | 44 | `syscall.h` | Send a datagram, optionally to an explicit address. | `wired_udp_send` (`udp.c`) sends one UDP datagram; also the per-segment fallback loop in `wired_udp_send_batch` when GSO is unavailable. `xsksetup_kick_tx` (`xsksetup.c`) issues an empty `MSG_DONTWAIT` send to wake the kernel to transmit the AF_XDP TX ring. |
-| `recvfrom` | 45 | `syscall.h` | Receive a datagram, optionally capturing the sender's address. | `wired_udp_recv` (no sender needed) and `wired_udp_recvfrom` (captures the peer address) in `udp.c`; also the per-message fallback loop in `wired_udp_recvmmsg_fallback` when `recvmmsg` is unavailable. |
-| `sendmsg` | 46 | `syscall.h` | Send a message described by a `struct msghdr` (supports ancillary data / cmsg). | `wired_udp_send_gso` (`udp_cmsg.c`) attaches a `UDP_SEGMENT` control message so one syscall emits a whole GSO-segmented batch of datagrams; `wired_udp_send_tos` (`udp_tos.c`) attaches an `IP_TOS`/`IPV6_TCLASS` cmsg pair to set one datagram's ECN bits, and `wired_udp_send_gso_tos` puts that pair after the `UDP_SEGMENT` one so a whole GSO batch leaves Not-ECT. |
-| `bind` | 49 | `syscall.h` | Bind a socket to a local address. | `wired_udp_bind` (`udp.c`) binds the listening port; called from `wired_server_listen` on the server side. `xsksetup.c` binds the AF_XDP socket to its interface queue. |
-| `setsockopt` | 54 | `syscall.h` | Set a socket option. | `udp.c`: dual stack (`IPV6_V6ONLY`=0 in `wired_udp_socket`), ECN marking and receiving (`wired_udp_ect0_enable`, `wired_udp_recvtos_enable`), the DF bit with the kernel PMTU suspended for path-MTU probing (`IP_MTU_DISCOVER`/`IPV6_MTU_DISCOVER` = `IP_PMTUDISC_PROBE`, `wired_udp_pmtu_probe_enable`), `SO_REUSEPORT` for per-worker sockets (`wired_udp_reuseport_enable`), busy polling (`wired_udp_busy_poll_enable` and siblings), and `SO_INCOMING_CPU` (`wired_udp_incoming_cpu_set`). `xsksetup.c`: AF_XDP UMEM registration (`XDP_UMEM_REG`) and ring sizing (`xsksetup_ring_size`). |
-| `getsockopt` | 55 | `syscall.h` | Get a socket option. | `xsksetup_get_offsets` (`xsksetup.c`) reads `XDP_MMAP_OFFSETS` to learn each ring's producer/consumer/descriptor byte offsets before mmap'ing it; `xsksetup_stats` reads `XDP_STATISTICS` to report kernel-side drop/fill counters for the AF_XDP socket. `wired_udp_path_mtu` (`udp.c`) reads `IP_MTU`/`IPV6_MTU` on its connected throwaway socket for the DPLPMTUD ceiling. |
-| `clone` | 56 | `syscall.h` | Create a new thread (or process) sharing the caller's address space per flags. | `wired_thread_start` (`thread.c`) spawns one worker thread (`CLONE_VM\|FS\|FILES\|SIGHAND\|THREAD\|SYSVSEM\|PARENT_SETTID\|CHILD_CLEARTID`) on a freshly mmap'd stack, via the asm trampoline `wired_arch_clone_raw` (`common/arch/x8664/clone.c`): the child returns on the new stack, so a plain C wrapper cannot issue it. Why `PARENT_SETTID`: see [Ordering that avoids races](#ordering-that-avoids-races). |
-| `fork` | 57 | `syscall.h` | Create a child process duplicating the caller. | `srvworkers.c`: `wired_srvworkers_run` forks N shared-nothing worker processes for the forked-workers driver, each binding the same port via `SO_REUSEPORT`; the parent stays behind as their restart supervisor. |
-| `exit` | 60 | `syscall.h` | Terminate the calling process (or thread: the last thread exiting ends the process). | `common/platform/sys/sys.c`'s generic freestanding `_start` calls `exit(0)` once done; the `WIRED_MAIN` `_start` stub `wired.h` emits into an application binary exits with `wired_main`'s return value; `wired_die` (`common/platform/exit/exit.c`) calls `exit(1)` on a fatal error; the clone trampoline `wired_arch_clone_raw` (`common/arch/x8664/clone.c`) exits a finished worker thread, which fires the `CHILD_CLEARTID` wake. |
-| `wait4` | 61 | `syscall.h` | Wait for a child process to change state. | `srvworkers.c`'s supervisor loop reaps workers with `wait4(-1, ..., WNOHANG)` and re-forks a replacement for one that crashed — crash resilience for the forked-workers driver; a worker that exits 0, or any worker after `SIGTERM`, is not replaced. |
-| `kill` | 62 | `syscall.h` | Send a signal to a process. | `srvworkers.c`'s supervisor forwards `SIGTERM` once to every live worker after it receives `SIGTERM` itself, so the workers drain before it exits. |
-| `fcntl` | 72 | `syscall.h` | Get/set file descriptor flags. | `poll_set_nonblock` (`transport/io/socket/poll/nonblock.c`) sets `O_NONBLOCK` on the UDP socket so a send/recv call returns immediately instead of blocking, letting the `poll`-driven loop own all waiting. |
-| `getppid` | 110 | `syscall.h` | Return the parent process id. | A fresh `srvworkers.c` worker exits at once if `getppid` no longer matches the pid saved before `fork` (the supervisor died before `PR_SET_PDEATHSIG` was armed). |
-| `rt_sigtimedwait` | 128 | `syscall.h` | Wait for one of a set of blocked signals and consume it. | `srvworkers.c`'s supervisor blocks `SIGCHLD`/`SIGTERM` and sleeps here when no worker has exited, so it wakes only when a worker exits or shutdown is requested — no periodic wakeups. |
-| `prctl` | 157 | `syscall.h` | Process-control operations. | `srvworkers.c`: each worker arms `PR_SET_PDEATHSIG(SIGTERM)` so it drains if the supervisor dies. |
-| `gettid` | 186 | `syscall.h` | Return the calling thread's kernel thread id. | `wired_thread_tid` (`thread.c`): identifies the calling worker (e.g. mapping a broadcast back to its source worker's inbox row) without thread-local storage. |
-| `futex` | 202 | `syscall.h` | Wait on / wake a 32-bit user-space word (a kernel-assisted wait on a memory word). | `wired_thread_join` (`thread.c`) sleeps with `FUTEX_WAIT` on the thread's tid word until the kernel's `CHILD_CLEARTID` exit path zeroes it and wakes the waiter; the threads driver's control thread (`srvthreads.c`) also waits on the shutdown word with a timeout as its idle tick. |
-| `sched_setaffinity` | 203 | `syscall.h` | Pin a thread to a set of CPUs. | `app/http3/server/srvpin/srvpin.c`: `wired_srvpin_bind_self` pins the calling worker to one core — what `--pin-core`, `--pin-cores`, and `--cores` resolve to. |
-| `sched_getaffinity` | 204 | `syscall.h` | Read a thread's allowed-CPU set. | `srvpin.c`: `wired_srvpin_cpu_count` counts the CPUs the process may run on, the default worker count for `--workers 0`. |
-| `clock_gettime` | 228 | `syscall.h` | Read a system clock. | `common/platform/clock/clock.c`'s `clock_ymdhms` reads `CLOCK_REALTIME` for the client's certificate validity check (`tls/handshake/roles/client/client.c`), its only caller; `wired_clock_epoch_secs` (same file) reads `CLOCK_REALTIME` as Unix seconds for the session-ticket and Retry-token key rotation and for a ticket's issue time and freshness check (RFC 8446 4.6.1); `common/platform/clock/mono.c`'s `clock_mono_ms` reads `CLOCK_MONOTONIC` for interval measurement (connection idle age, RFC 9000 10.1); `debug.c`'s `wired_log_ts` reads `CLOCK_REALTIME` to timestamp trace lines. |
-| `exit_group` | 231 | `syscall.h` | Terminate every thread in the calling process. | `srvworkers.c`: a forked worker whose serve loop returns terminates its whole process with `exit_group(0)`, so the supervisor's `wait4` observes a clean exit rather than a half-dead child. |
-| `openat` | 257 | `syscall.h` | Open (or create) a file relative to a directory fd. | `fio.c`: `wired_fio_read`/`wired_fio_open` open a file read-only (e.g. a cert/key PEM, or a static file to stream); `wired_fio_append` opens (creating if needed) a file for append (e.g. ticket/log persistence); `wired_fio_write_new` opens with `O_TRUNC` (mode 0644) to replace a file's content (e.g. saving a received WebTransport upload), all relative to `AT_FDCWD`. |
-| `mkdirat` | 258 | `syscall.h` | Create a directory relative to a directory fd. | `fio.c`: `wired_fio_mkdir` creates an output directory (mode 0755, `EEXIST` treated as success) relative to `AT_FDCWD`, e.g. the per-endpoint download directory a `wired_fio_write_new` result lands in. |
-| `newfstatat` | 262 | `syscall.h` | Stat a file relative to a directory fd. | `fio.c`: `wired_fio_size` reads a file's size before serving it, so a static-file response can be sized and chunked without reading the whole file first. |
-| `recvmmsg` | 299 | `syscall.h` | Receive multiple datagrams in one syscall. | `wired_udp_recvmmsg` (`udp.c`) drains up to `WIRED_RECVMMSG_MAX` (64, a fixed stack-sized cap — QUIC read batches are small) datagrams per call, cutting syscall overhead under load; `wired_udp_recvmmsg_nowait` does the same with `MSG_DONTWAIT`, so it returns at once when nothing is queued. |
-| `getrandom` | 318 | `syscall.h` | Fill a buffer with random bytes from the kernel CSPRNG (cryptographically secure random generator). | `common/platform/rng/rng.c`'s `rng_bytes` is the SDK's single source of randomness — connection IDs, key material, nonces — looping until the requested length is filled. |
-| `bpf` | 321 | `syscall.h` | Issue a `bpf(2)` command (create/update a map, load a program, create a link). | `transport/io/xdp/xdpbpf/xdpbpf.c` sets up AF_XDP redirection: `xdpbpf_map_create` (`BPF_MAP_CREATE`) makes the XSKMAP, `xdpbpf_map_set` (`BPF_MAP_UPDATE_ELEM`) puts one queue's socket fd in it, `xdpbpf_prog_load` (`BPF_PROG_LOAD`) loads the XDP program built by `xdpbpf_prog_build`, and `xdpbpf_link_create` (`BPF_LINK_CREATE`) attaches it to the interface. |
+| `read` | 0 | `syscall.h` | ファイルディスクリプターからバイトを読む。 | `common/platform/fio/fio.c`: `wired_fio_read` がループで呼び出し側のバッファーを埋め(`fio_fill`)、バッファーより大きいファイルを見つけるために 1 バイトのあふれ検査をする(`fio_full_result`)。例: 証明書・鍵の PEM ファイルの読み込み。 |
+| `write` | 1 | `syscall.h` | ファイルディスクリプターにバイトを書く。 | `fio.c`: `wired_fio_append`(チケット・ログの保存)と `wired_fio_write_new`(ファイル全体の置き換え)が、書き込みが途中までで返ったときにループで書き続ける。`common/platform/debug/debug.c`: `wired_log_str`/`wired_log_ts` が整形したトレース行を fd 2(stderr)に書く。`common/fmt/fmt.c`: `wired_dprintf` が整形した出力を任意の fd に書く。`common/bytes/text/text.c`: `wired_dump_text` と 16 進ダンプが生のバイトや 16 進にしたバイトを書き、どちらも途中までで返った書き込みをループで続ける。 |
+| `close` | 3 | `syscall.h` | ファイルディスクリプターを閉じる。 | 後始末: `wired_fio_read`/`wired_fio_append`/`wired_fio_write_new`/`wired_fio_close` が自分で開いたファイルを閉じる。`wired_udp_close` が UDP ソケットを閉じる。`client_close`(`tls/handshake/roles/client/client.c`)/ `wired_server_close`(`tls/handshake/roles/server/serverio.c`)が、コネクションのソケット fd が設定されていれば閉じる。`xsksetup_unwind` が AF_XDP ソケットを閉じ、`srvxdpbpf_close_fd`(`app/http3/server/srvxdpbpf/srvxdpbpf.c`)が XSKMAP と XDP プログラムの fd を閉じる。 |
+| `poll` | 7 | `syscall.h` | 少数のファイルディスクリプターのイベントをタイムアウト付きで待つ。 | `poll_wait_readable`(`transport/io/socket/poll/wait.c`)が 1 つの fd(UDP ソケット)で、読めるようになるか `timeout_ms` が過ぎるまでブロックし、サーバーのワイヤーループ(`app/http3/server/srvrun/srvrun.c`)を動かす。サーバーが preferred address のソケットでも待ち受けるときは、`poll_wait_readable2` が 1 回の呼び出しで両方を見張る。`srvworkers.c` のスーパーバイザーは、`wait4` が失敗したとき(例: `ECHILD`)だけ、fd 0 個の `poll` で 100 ms 休む。 |
+| `mmap` | 9 | `syscall.h` | ファイル・fd か無名メモリを裏付けにして、ページをプロセスのアドレス空間にマップする。 | `xsksetup_mmap`/`xsksetup_umem`(`transport/io/xdp/xsksetup/xsksetup.c`)が UMEM(無名の領域 1 つ)と 4 つの AF_XDP リングを、ソケットのリングごとの `pgoff` でマップする。これでドライバーはカーネルと共有するメモリを直接指すポインターを得る。スレッドのランタイム(`common/platform/thread/thread.c`)が各ワーカースレッドのスタックをマップする。スレッドドライバー(`srvthreads.c`)が、ワーカーごとの env テーブルと N*N のブロードキャスト受信箱のメッシュを、コア数に合わせた大きさでマップする。 |
+| `mprotect` | 10 | `syscall.h` | マップしたページの保護属性を変える。 | スレッドのランタイムが各スレッドのスタックの最下位ページを `PROT_NONE` のガードページにする。スタックがあふれたときに、隣のマッピングを気づかないうちに壊さず、フォールトになる。 |
+| `munmap` | 11 | `syscall.h` | マップした領域を解除する。 | `xsksetup_munmap` は `xsksetup_unwind`/`xsksetup_close`(`xsksetup.c`)から呼ばれ、後始末のときや、`xsksetup_open` の後のほうの段階がセットアップの途中で失敗したときに、UMEM とリングのマッピングを解放する。スレッドのランタイムが join したスレッドのスタックのマップを解除する。`srvthreads.c` が後始末で 2 つのマップを両方解放する。 |
+| `rt_sigaction` | 13 | `syscall.h` | シグナルハンドラーを登録する。 | `app/http3/server/sigterm/sigterm.c`: `wired_sigterm_install` / `wired_sighup_install` が `SIGTERM` と `SIGHUP` のハンドラー(サーバーのグレースフルシャットダウン / 設定の再読み込み)を `SA_RESTORER` 付きで登録する。x86_64 のカーネルには既定の戻り道がないため、restorer のないハンドラーにシグナルを届けると、プロセスが `SIGSEGV` で終了する。 |
+| `rt_sigprocmask` | 14 | `syscall.h` | 呼び出したスレッドへのシグナル配送をブロック・解除する。 | シグナルを失ったり誤った相手に届けたりしないよう、3 か所で `SIGTERM`/`SIGHUP`(と `SIGCHLD`)をブロックする。スレッドドライバーではワーカーの作成の前後(`sigterm.c` の `wired_sigmask_block_shutdown`/`wired_sigmask_unblock_shutdown`)、フォーク型ワーカードライバーでは各 `fork` の前後と各 `wait4` の前。[競合を避ける順序](#競合を避ける順序)を参照。 |
+| `rt_sigreturn` | 15 | `syscall.h` | シグナルハンドラーから割り込まれたコンテキストへ戻る。 | `wired_arch_sigreturn_restorer`(`common/arch/x8664/sigret.c`): `sigterm.c` が `SA_RESTORER` の行き先として渡す、手書きの naked asm のトランポリン。libc の `restore_rt` の代わり(freestanding では、それを用意する libc がない)。 |
+| `pread64` | 17 | `syscall.h` | ファイル位置を動かさずに、指定したオフセットからファイルディスクリプターを読む。 | `fio.c`: `wired_fio_pread` がファイルの 1 チャンクを明示したオフセットから読む。`examples/word_list` はこれで、大きな静的ファイル全体を読み込まずに、レスポンスごとのボディバッファーへ流し込む。 |
+| `madvise` | 28 | `syscall.h` | メモリ範囲についてカーネルに助言する。`MADV_DONTNEED` はその範囲のページを捨て、次に触れたときにはゼロとして読める。 | `wired_arch_madvise`(`common/arch/sysops.h`)は、コネクションを閉じるたびに `srvrun_release_tables`(`srvrun_free.c`)から 1 回呼ばれ、閉じたスロットのリクエスト / WT ストリームのテーブル、受信した DATAGRAM、WT の送信用の一時領域、respstore の行を返却する。これで、アイドル状態のサーバーの常駐メモリはピークのまま残らず、下がる。 |
+| `getpid` | 39 | `syscall.h` | 呼び出したプロセスの ID を返す。 | `srvworkers.c` が各 `fork` の前にスーパーバイザーの pid を保存し、ワーカーがそれを `getppid` と比べられるようにする。 |
+| `socket` | 41 | `syscall.h` | ソケットを作る。 | `wired_udp_socket`(`transport/io/socket/io/udp.c`)がデュアルスタックの `AF_INET6` UDP ソケットを作り(IPv4 のピアは v4-mapped アドレスで届く)、IPv6 が使えないとき(`EAFNOSUPPORT`)は `AF_INET` に切り替える。クライアントとサーバー(`wired_server_listen`)の両方のセットアップで使う。`xsksetup_open` が `AF_XDP` ソケットを作る。`wired_udp_path_mtu`(`udp.c`)がピアへの経路のカーネルの path MTU を読むために使い捨ての UDP ソケットを開く(読んだらすぐ閉じる)。 |
+| `connect` | 42 | `syscall.h` | ソケットの既定の相手を設定する。 | `wired_udp_path_mtu`(`transport/io/socket/io/udp.c`)が使い捨ての UDP ソケットをピアに connect し、`IP_MTU`/`IPV6_MTU` を読めるようにする(これらは connect 済みのソケットでないと読めない)。サーバーはコネクションごと、新しい経路ごと(`srvrun_pmtu_start`)にこれを呼び、DPLPMTUD の探索の上限をローカルのリンクで抑える(RFC 8899 3.5)。データグラムは送らない。 |
+| `sendto` | 44 | `syscall.h` | データグラムを送る。宛先のアドレスを明示してもよい。 | `wired_udp_send`(`udp.c`)が UDP データグラムを 1 つ送る。GSO が使えないときの `wired_udp_send_batch` の、セグメントごとの代替ループでも使う。`xsksetup_kick_tx`(`xsksetup.c`)が空の `MSG_DONTWAIT` 送信を出してカーネルを起こし、AF_XDP の TX リングを送信させる。 |
+| `recvfrom` | 45 | `syscall.h` | データグラムを受け取る。送信元のアドレスを取得してもよい。 | `udp.c` の `wired_udp_recv`(送信元が不要なとき)と `wired_udp_recvfrom`(ピアのアドレスを取得する)。`recvmmsg` が使えないときの `wired_udp_recvmmsg_fallback` の、メッセージごとの代替ループでも使う。 |
+| `sendmsg` | 46 | `syscall.h` | `struct msghdr` で記述したメッセージを送る(補助データ / cmsg を付けられる)。 | `wired_udp_send_gso`(`udp_cmsg.c`)が `UDP_SEGMENT` 制御メッセージを付け、1 回のシステムコールで GSO で分割したデータグラムの一群をまとめて送り出す。`wired_udp_send_tos`(`udp_tos.c`)が `IP_TOS`/`IPV6_TCLASS` の cmsg の組を付けて 1 つのデータグラムの ECN ビットを設定し、`wired_udp_send_gso_tos` はその組を `UDP_SEGMENT` の後ろに置いて、GSO の一群全体を Not-ECT で送り出す。 |
+| `bind` | 49 | `syscall.h` | ソケットをローカルのアドレスに結びつける。 | `wired_udp_bind`(`udp.c`)が待ち受けポートに bind する。サーバー側では `wired_server_listen` から呼ばれる。`xsksetup.c` が AF_XDP ソケットをインターフェースのキューに bind する。 |
+| `setsockopt` | 54 | `syscall.h` | ソケットオプションを設定する。 | `udp.c`: デュアルスタック(`wired_udp_socket` での `IPV6_V6ONLY`=0)、ECN の付与と受信(`wired_udp_ect0_enable`, `wired_udp_recvtos_enable`)、Path-MTU の探索のためにカーネルの PMTU を止めて DF ビットを立てる設定(`IP_MTU_DISCOVER`/`IPV6_MTU_DISCOVER` = `IP_PMTUDISC_PROBE`, `wired_udp_pmtu_probe_enable`)、ワーカーごとのソケットのための `SO_REUSEPORT`(`wired_udp_reuseport_enable`)、ビジーポーリング(`wired_udp_busy_poll_enable` とその仲間)、`SO_INCOMING_CPU`(`wired_udp_incoming_cpu_set`)。`xsksetup.c`: AF_XDP の UMEM の登録(`XDP_UMEM_REG`)とリングのサイズ設定(`xsksetup_ring_size`)。 |
+| `getsockopt` | 55 | `syscall.h` | ソケットオプションを読む。 | `xsksetup_get_offsets`(`xsksetup.c`)が `XDP_MMAP_OFFSETS` を読み、各リングを mmap する前に producer/consumer/ディスクリプターのバイトオフセットを知る。`xsksetup_stats` が `XDP_STATISTICS` を読み、AF_XDP ソケットのカーネル側のドロップ・フィルのカウンターを報告する。`wired_udp_path_mtu`(`udp.c`)が connect 済みの使い捨てソケットで `IP_MTU`/`IPV6_MTU` を読み、DPLPMTUD の上限にする。 |
+| `clone` | 56 | `syscall.h` | フラグに応じて呼び出し元のアドレス空間を共有する、新しいスレッド(またはプロセス)を作る。 | `wired_thread_start`(`thread.c`)が、mmap したばかりのスタックでワーカースレッドを 1 つ起動する(`CLONE_VM\|FS\|FILES\|SIGHAND\|THREAD\|SYSVSEM\|PARENT_SETTID\|CHILD_CLEARTID`)。asm のトランポリン `wired_arch_clone_raw`(`common/arch/x8664/clone.c`)を通す。子は新しいスタックの上で戻るので、単純な C のラッパーでは発行できない。`PARENT_SETTID` を使う理由は[競合を避ける順序](#競合を避ける順序)を参照。 |
+| `fork` | 57 | `syscall.h` | 呼び出し元を複製した子プロセスを作る。 | `srvworkers.c`: `wired_srvworkers_run` がフォーク型ワーカードライバーのために、何も共有しない N 個のワーカープロセスをフォークする。各ワーカーは `SO_REUSEPORT` で同じポートに bind する。親は残って、ワーカーを再起動するスーパーバイザーになる。 |
+| `exit` | 60 | `syscall.h` | 呼び出したプロセス(またはスレッド。最後のスレッドが終わるとプロセスが終わる)を終了する。 | `common/platform/sys/sys.c` の汎用の freestanding な `_start` が、処理を終えたら `exit(0)` を呼ぶ。`wired.h` がアプリケーションのバイナリに出力する `WIRED_MAIN` の `_start` スタブは、`wired_main` の戻り値で終了する。`wired_die`(`common/platform/exit/exit.c`)が致命的なエラーで `exit(1)` を呼ぶ。clone のトランポリン `wired_arch_clone_raw`(`common/arch/x8664/clone.c`)が終わったワーカースレッドを終了させ、これで `CHILD_CLEARTID` の wake が発火する。 |
+| `wait4` | 61 | `syscall.h` | 子プロセスの状態が変わるのを待つ。 | `srvworkers.c` のスーパーバイザーのループが `wait4(-1, ..., WNOHANG)` でワーカーを回収し、クラッシュしたワーカーの代わりを再びフォークする。フォーク型ワーカードライバーをクラッシュから立ち直らせるためのもの。0 で終了したワーカーと、`SIGTERM` 後のワーカーは置き換えない。 |
+| `kill` | 62 | `syscall.h` | プロセスにシグナルを送る。 | `srvworkers.c` のスーパーバイザーが自分で `SIGTERM` を受け取ったあと、生きている各ワーカーに `SIGTERM` を 1 回ずつ転送する。これで、スーパーバイザーが終了する前にワーカーがドレイン(処理中の仕事の片付け)を済ませる。 |
+| `fcntl` | 72 | `syscall.h` | ファイルディスクリプターのフラグを読む・設定する。 | `poll_set_nonblock`(`transport/io/socket/poll/nonblock.c`)が UDP ソケットに `O_NONBLOCK` を設定し、送受信の呼び出しがブロックせずにすぐ戻るようにする。これで、待ちはすべて `poll` で動くループが受け持つ。 |
+| `getppid` | 110 | `syscall.h` | 親プロセスの ID を返す。 | 起動したばかりの `srvworkers.c` のワーカーは、`getppid` が `fork` の前に保存した pid と一致しなければ(`PR_SET_PDEATHSIG` を設定する前にスーパーバイザーが死んだ)、すぐに終了する。 |
+| `rt_sigtimedwait` | 128 | `syscall.h` | ブロックしたシグナルの集合のどれかを待ち、それを消費する。 | `srvworkers.c` のスーパーバイザーが `SIGCHLD`/`SIGTERM` をブロックし、終了したワーカーがいないときはここで眠る。目を覚ますのはワーカーが終了したときかシャットダウンを求められたときだけで、定期的には起きない。 |
+| `prctl` | 157 | `syscall.h` | プロセス制御の操作。 | `srvworkers.c`: 各ワーカーが `PR_SET_PDEATHSIG(SIGTERM)` を設定し、スーパーバイザーが死んだらドレインするようにする。 |
+| `gettid` | 186 | `syscall.h` | 呼び出したスレッドのカーネルのスレッド ID を返す。 | `wired_thread_tid`(`thread.c`): スレッドローカルストレージを使わずに、呼び出したワーカーを特定する(例: ブロードキャストを送信元ワーカーの受信箱の行に対応づける)。 |
+| `futex` | 202 | `syscall.h` | ユーザー空間の 32 ビットのワードで待つ / 起こす(メモリ上のワードをカーネルの助けを借りて待つ)。 | `wired_thread_join`(`thread.c`)がスレッドの tid ワードで `FUTEX_WAIT` して眠り、カーネルの `CHILD_CLEARTID` の終了処理がそのワードをゼロにして待っているスレッドを起こすまで待つ。スレッドドライバーの制御スレッド(`srvthreads.c`)も、アイドル時のティックとしてシャットダウン用のワードをタイムアウト付きで待つ。 |
+| `sched_setaffinity` | 203 | `syscall.h` | スレッドを CPU の集合に固定する。 | `app/http3/server/srvpin/srvpin.c`: `wired_srvpin_bind_self` が呼び出したワーカーを 1 つのコアに固定する。`--pin-core`、`--pin-cores`、`--cores` は最終的にこれになる。 |
+| `sched_getaffinity` | 204 | `syscall.h` | スレッドが使ってよい CPU の集合を読む。 | `srvpin.c`: `wired_srvpin_cpu_count` がプロセスの動ける CPU を数える。これが `--workers 0` のときの既定のワーカー数になる。 |
+| `clock_gettime` | 228 | `syscall.h` | システムの時計を読む。 | `common/platform/clock/clock.c` の `clock_ymdhms` が、クライアントの証明書の有効期間の検査(`tls/handshake/roles/client/client.c`。呼び出し元はここだけ)のために `CLOCK_REALTIME` を読む。同じファイルの `wired_clock_epoch_secs` が、セッションチケットと Retry トークンの鍵のローテーション、チケットの発行時刻と鮮度の検査(RFC 8446 4.6.1)のために、`CLOCK_REALTIME` を Unix 秒で読む。`common/platform/clock/mono.c` の `clock_mono_ms` が、間隔の計測(コネクションのアイドル時間、RFC 9000 10.1)のために `CLOCK_MONOTONIC` を読む。`debug.c` の `wired_log_ts` がトレース行にタイムスタンプを付けるために `CLOCK_REALTIME` を読む。 |
+| `exit_group` | 231 | `syscall.h` | 呼び出したプロセスのすべてのスレッドを終了する。 | `srvworkers.c`: フォークしたワーカーのサーブループが戻ったら、`exit_group(0)` でプロセス全体を終了する。これで、スーパーバイザーの `wait4` には半分死んだ子ではなく、正常な終了が見える。 |
+| `openat` | 257 | `syscall.h` | ディレクトリ fd からの相対でファイルを開く(または作る)。 | `fio.c`: `wired_fio_read`/`wired_fio_open` がファイルを読み取り専用で開く(例: 証明書・鍵の PEM、流し込む静的ファイル)。`wired_fio_append` がファイルを追記用に開く(なければ作る。例: チケット・ログの保存)。`wired_fio_write_new` が `O_TRUNC`(モード 0644)で開き、ファイルの中身を置き換える(例: 受け取った WebTransport のアップロードの保存)。どれも `AT_FDCWD` からの相対で開く。 |
+| `mkdirat` | 258 | `syscall.h` | ディレクトリ fd からの相対でディレクトリを作る。 | `fio.c`: `wired_fio_mkdir` が出力先のディレクトリ(モード 0755。`EEXIST` は成功として扱う)を `AT_FDCWD` からの相対で作る。例: `wired_fio_write_new` の結果を置く、エンドポイントごとのダウンロードディレクトリ。 |
+| `newfstatat` | 262 | `syscall.h` | ディレクトリ fd からの相対でファイルの stat を取る。 | `fio.c`: `wired_fio_size` が配信する前にファイルのサイズを読む。これで、静的ファイルのレスポンスはファイル全体を先に読まなくても、サイズを決めてチャンクに分けられる。 |
+| `recvmmsg` | 299 | `syscall.h` | 1 回のシステムコールで複数のデータグラムを受け取る。 | `wired_udp_recvmmsg`(`udp.c`)が 1 回の呼び出しで最大 `WIRED_RECVMMSG_MAX` 個(64。スタックに置ける大きさの固定の上限。QUIC で一度にまとめて読む数は少ない)のデータグラムを取り出し、負荷が高いときのシステムコールのオーバーヘッドを減らす。`wired_udp_recvmmsg_nowait` は同じことを `MSG_DONTWAIT` 付きで行い、キューに何もなければすぐ戻る。 |
+| `getrandom` | 318 | `syscall.h` | カーネルの CSPRNG(暗号論的に安全な乱数生成器)の乱数でバッファーを埋める。 | `common/platform/rng/rng.c` の `rng_bytes` が SDK の唯一の乱数源で、コネクション ID、鍵の材料、nonce に使う。求めた長さが埋まるまでループする。 |
+| `bpf` | 321 | `syscall.h` | `bpf(2)` のコマンドを発行する(マップの作成・更新、プログラムのロード、リンクの作成)。 | `transport/io/xdp/xdpbpf/xdpbpf.c` が AF_XDP へのリダイレクトを用意する。`xdpbpf_map_create`(`BPF_MAP_CREATE`)が XSKMAP を作り、`xdpbpf_map_set`(`BPF_MAP_UPDATE_ELEM`)が 1 つのキューのソケット fd をそこに入れ、`xdpbpf_prog_load`(`BPF_PROG_LOAD`)が `xdpbpf_prog_build` で組み立てた XDP プログラムをロードし、`xdpbpf_link_create`(`BPF_LINK_CREATE`)がそれをインターフェースに取り付ける。 |
 
-## Ordering that avoids races
+## 競合を避ける順序
 
-Several rows above do things in a specific order. Each order closes a race
-where a signal or a thread id could be lost.
+上の表のいくつかの行は決まった順序で処理をしています。どの順序も、シグナルやスレッド ID が失われうる競合をふさいでいます。
 
-**The thread id word (`clone`).** `wired_thread_join` waits until the
-kernel zeroes the new thread's tid word when the thread exits
-(`CHILD_CLEARTID`). `PARENT_SETTID` makes the kernel write the new tid into
-that word before the child runs. If the parent stored the tid itself after
-`clone()` returned, the child could already have exited and the kernel
-could already have zeroed the word; the parent's late store would then
-overwrite that zero, and the join would wait forever.
+**スレッド ID のワード(`clone`)。** `wired_thread_join` は、新しいスレッドが終了したときにカーネルがそのスレッドの tid ワードをゼロにする(`CHILD_CLEARTID`)まで待ちます。`PARENT_SETTID` を付けると、子が動き出す前にカーネルが新しい tid をそのワードに書きます。もし `clone()` が戻ったあとで親が自分で tid を書き込むと、そのときには子がもう終了していて、カーネルがワードをゼロにしているかもしれません。親の遅れた書き込みがそのゼロを上書きし、join は永遠に待ち続けることになります。
 
-**Signal mask inherited by threads (`rt_sigprocmask`, threads driver).**
-The driver blocks `SIGTERM`/`SIGHUP` before it creates the worker threads.
-A new thread inherits the mask, so there is no window in which a worker
-could receive one of these signals. Afterwards only the control
-thread unblocks them, which makes it the sole receiver of process-directed
-shutdown and reload signals.
+**スレッドが受け継ぐシグナルマスク(`rt_sigprocmask`、スレッドドライバー)。** ドライバーはワーカースレッドを作る前に `SIGTERM`/`SIGHUP` をブロックします。新しいスレッドはマスクを受け継ぐので、ワーカーがこれらのシグナルを受け取りうる隙間はありません。そのあと制御スレッドだけがブロックを解除するので、プロセス宛てのシャットダウンと再読み込みのシグナルを受け取るのは制御スレッドだけになります。
 
-**Mask around `fork` (forked-workers driver).** The supervisor blocks the
-signals around each `fork`. A `SIGTERM` forwarded to a fresh worker then
-stays pending until the worker has reset its handler to the default.
+**`fork` の前後のマスク(フォーク型ワーカードライバー)。** スーパーバイザーは各 `fork` の前後でシグナルをブロックします。起動したばかりのワーカーに転送した `SIGTERM` は、そのワーカーがハンドラーを既定に戻すまで保留されます。
 
-**Mask before `wait4` (forked-workers driver).** The supervisor blocks
-`SIGCHLD`/`SIGTERM` before each `wait4`. A signal raised between `wait4`
-and the sleep in `rt_sigtimedwait` stays pending and wakes that sleep, so
-it is not lost.
+**`wait4` の前のマスク(フォーク型ワーカードライバー)。** スーパーバイザーは各 `wait4` の前に `SIGCHLD`/`SIGTERM` をブロックします。`wait4` から `rt_sigtimedwait` で眠るまでの間に上がったシグナルは保留され、その眠りを起こすので、失われません。
 
-## Why `poll`, not `epoll`
+## `epoll` ではなく `poll` を使う理由
 
-Both `poll` and `epoll` let a program sleep until one of its file
-descriptors (fds) has data. `epoll` pays off when one loop watches many
-fds: the kernel keeps the watch list, so each wait does not resend it. The
-price is an extra fd plus `epoll_create`/`epoll_ctl` calls to set it up.
+`poll` と `epoll` はどちらも、プログラムのファイルディスクリプター(fd)のどれかにデータが来るまで眠らせる仕組みです。`epoll` が得になるのは、1 つのループが多くの fd を見張るときです。カーネルが見張りのリストを持つので、待つたびにリストを渡し直さずに済みます。その代わり、fd が 1 つ増え、用意のために `epoll_create`/`epoll_ctl` の呼び出しが要ります。
 
-A `wired` wire loop watches very few fds. QUIC carries every connection
-over one UDP socket and tells them apart by connection ID, so the server
-loop (`srvrun.c`) waits on one socket. The server adds a second socket only when it advertises a
-preferred address (RFC 9000 9.6, a second server address the client may
-move to), and `poll_wait_readable2` then watches both in the same call.
+`wired` のワイヤーループが見張る fd はごく少数です。QUIC はすべてのコネクションを 1 つの UDP ソケットで運び、コネクション ID で区別するので、サーバーのループ(`srvrun.c`)は 1 つのソケットで待ちます。サーバーが 2 つ目のソケットを足すのは preferred address(RFC 9000 9.6。クライアントが移ってよい、サーバーの 2 つ目のアドレス)を広告するときだけで、そのときは `poll_wait_readable2` が同じ呼び出しで両方を見張ります。
 
-With one or two fds, `poll` costs the same as `epoll` and needs no extra
-fd to manage. To use more cores, the multi-core drivers run more loops,
-each with its own socket, instead of making one loop watch more fds.
-Revisit this choice only if a single loop ever has to wait on many fds.
+fd が 1 つか 2 つなら、`poll` の負担は `epoll` と変わらず、管理する fd も増えません。より多くのコアを使うために、マルチコアのドライバーは 1 つのループに見張らせる fd を増やすのではなく、それぞれ自分のソケットを持つループの数を増やします。この選択を見直すのは、1 つのループが多くの fd を待たなければならなくなったときだけです。
 
-## Adding a new syscall
+## 新しいシステムコールの追加
 
-Keep the layering above intact: the number and the instruction stay in the
-arch layer, and domain code sees only a typed wrapper.
+上で述べた層の分け方を崩さないでください。番号と命令は arch 層に置き、ドメインのコードには型付きのラッパーだけが見えるようにします。
 
-1. Add `#define SYS_<name> <number>` to `src/common/arch/x8664/x8664.h`.
-   Every number lives in the arch layer, never next to a call site.
-1. Add a typed `wired_arch_<name>` wrapper to `src/common/arch/sysops.h`:
-   kernel argument order, struct pointers as `void*`, and the raw i64
-   return where a negative value is -errno. Call only that wrapper from
-   the domain, never a raw `syscallN` or `__asm__("syscall")` outside
-   `src/common/arch/`.
-1. Add a row to the table above: the syscall name, its number, where it is
-   defined, a one-line description of what the syscall does, and why
-   `wired` needs it (which subsystem, which call site, what it enables).
+1. `#define SYS_<name> <number>` を `src/common/arch/x8664/x8664.h` に追加します。番号はすべて arch 層に置き、呼び出し箇所の近くには置きません。
+1. 型付きの `wired_arch_<name>` ラッパーを `src/common/arch/sysops.h` に追加します。引数はカーネルの順に並べ、構造体のポインターは `void*` にし、戻り値は負の値が -errno を表す生の i64 のままにします。ドメインからはそのラッパーだけを呼び、`src/common/arch/` の外で生の `syscallN` や `__asm__("syscall")` を使わないでください。
+1. 上の表に行を追加します。システムコール名、番号、定義場所、そのシステムコールが何をするかの 1 行の説明、`wired` がそれを必要とする理由(どのサブシステムの、どの呼び出し箇所で、何を可能にするか)を書きます。
 
 ---
 
-**Next:** [Architecture and Data Flow](arch/overview.md) — the code that
-issues these calls. ([all docs](README.md))
+**次へ:** [アーキテクチャとデータの流れ](arch/overview.md): これらのシステムコールを発行するコード。([すべてのドキュメント](README.md))
