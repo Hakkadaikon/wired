@@ -16,11 +16,11 @@
 
 ## SS1.4.1 可変長整数
 
-- [x] MOQT-001 実装はMOQT の可変長整数を、先頭バイトの先頭から続く 1 のビット数で符号化長(1〜9 バイト)を決め、残りのビットと後続のバイトにネットワークバイトオーダーで値を持つものとしてデコードしなければならない。
+- [x] MOQT-001 実装は MOQT の可変長整数を、先頭バイトの先頭から続く 1 のビット数で符号化長(1〜9 バイト)を決め、残りのビットと後続のバイトにネットワークバイトオーダーで値を持つものとしてデコードしなければならない。
   - test: `tests/app/moqvi_test.c` — `test_moqvi_decode_official_examples`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_decode_zero_all_lengths`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_decode_nine_byte_padded`
-- [x] MOQT-002 実装は64 ビットの符号なし整数(0〜2^64-1)すべてを MOQT の可変長整数でエンコードしなければならない。
+- [x] MOQT-002 実装は 64 ビットの符号なし整数(0〜2^64-1)すべてを MOQT の可変長整数でエンコードしなければならない。
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_official_examples`
   - test: `tests/app/moqvi_test.c` — `test_moqvi_encode_boundaries`
 - [x] MOQT-003 (SS1.4.1) 実装は可変長整数を、使えるビットに値が収まる長さのうち最小のものでエンコードしなければならない(ドラフトはそのような長さならどれでも許しており、最短を選ぶのはこのエンコーダーの方針である)。
@@ -38,21 +38,21 @@
 
 ## SS1.4.2 Location の構造
 
-- [x] MOQT-008 実装はLocation を連続する 2 つの可変長整数(Group, Object)としてエンコード・デコードしなければならない。
+- [x] MOQT-008 実装は Location を連続する 2 つの可変長整数(Group, Object)としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_location_roundtrip_and_order`
-- [x] MOQT-009 実装は2 つの Location A と B を、A.Group < B.Group であるか、A.Group == B.Group かつ A.Object < B.Object であるときに限り A < B となるように比較しなければならない。
+- [x] MOQT-009 実装は 2 つの Location A と B を、A.Group < B.Group であるか、A.Group == B.Group かつ A.Object < B.Object であるときに限り A < B となるように比較しなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_location_roundtrip_and_order`
 
 ## SS1.4.3 Key-Value-Pair の構造
 
-- [x] MOQT-010 実装はKey-Value-Pair の Type を、直前までの累積 Type に Delta Type を足した値(最初のペアでは 0 に足す)としてデコードしなければならない。
+- [x] MOQT-010 実装は Key-Value-Pair の Type を、直前までの累積 Type に Delta Type を足した値(最初のペアでは 0 に足す)としてデコードしなければならない。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_even_num`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_delta_accumulates`
 - [x] MOQT-011 Key-Value-Pair の累積 Type が 2^64-1 を超える場合、実装はプロトコル違反を報告しなければならない。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_type_overflow`
-- [x] MOQT-012 実装はType が奇数の Key-Value-Pair の Value を Length バイトとして、Type が偶数のペアの Value を 1 つの可変長整数としてデコードしなければならない。
+- [x] MOQT-012 実装は Type が奇数の Key-Value-Pair の Value を Length バイトとして、Type が偶数のペアの Value を 1 つの可変長整数としてデコードしなければならない。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_even_num`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_odd_raw`
 - [x] MOQT-013 Key-Value-Pair の Length フィールドは 2^16-1 バイトを超えてはならない。それより大きい長さを受信した場合、実装はプロトコル違反を報告しなければならない。
@@ -62,17 +62,17 @@
 - [x] MOQT-014 (SS1.4.3) 実装が理解する Type の Key-Value-Pair で、Value がその Type のシリアライズ形式に合わない場合、サーバーはセッションを KEY_VALUE_FORMATTING_ERROR で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_request_token_kvfmt`
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_setup_token_alias`
-- [x] MOQT-015 実装はKey-Value-Pair の Delta Type や偶数 Type の Value が最小のエンコード長であることを、デコードの条件にしてはならない(最小でないエンコードも有効である)。
+- [x] MOQT-015 実装は Key-Value-Pair の Delta Type や偶数 Type の Value が最小のエンコード長であることを、デコードの条件にしてはならない(最小でないエンコードも有効である)。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_nonminimal_delta`
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_nonminimal_even_value`
 - [x] MOQT-016 (SS1.4.3) Key-Value-Pair が、それ自身の既知のバイト境界の内側で途切れている場合、実装は入力を消費せずに不足として報告し、閉じるかどうかの判断は呼び出し元に任せなければならない。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_take_truncated_insufficient`
-- [x] MOQT-017 実装はKey-Value-Pair を呼び出し元が渡したバイト境界を越えて読まずにデコードし、Type の順序を保った、往復変換できる Key-Value-Pair のリストをエンコードしなければならない。
+- [x] MOQT-017 実装は Key-Value-Pair を呼び出し元が渡したバイト境界を越えて読まずにデコードし、Type の順序を保った、往復変換できる Key-Value-Pair のリストをエンコードしなければならない。
   - test: `tests/app/moqkvp_test.c` — `test_moqkvp_roundtrip`
 
 ## SS1.4.4 Reason Phrase の構造
 
-- [x] MOQT-018 実装はReason Phrase を、可変長整数の Length と、それに続く同じバイト数の UTF-8 バイト列としてデコードしなければならない。
+- [x] MOQT-018 実装は Reason Phrase を、可変長整数の Length と、それに続く同じバイト数の UTF-8 バイト列としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_reason_boundary`
   - vuln: V-0800
 - [~] MOQT-019 (SS1.4.4) Reason Phrase の Length が 1024 バイトを超える場合、実装はセッションをプロトコル違反で閉じなければならない。
@@ -80,7 +80,7 @@
 
 ## SS2.4.1 Track の命名
 
-- [x] MOQT-020 実装はTrack Namespace を、可変長整数のフィールド数と、それに続く同じ数の長さ付き Track Namespace Field としてデコードしなければならない。
+- [x] MOQT-020 実装は Track Namespace を、可変長整数のフィールド数と、それに続く同じ数の長さ付き Track Namespace Field としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_decode_basic`
 - [~] MOQT-021 (SS2.4.1) Track Namespace Field の Length が 0 の場合、実装はセッションをプロトコル違反で閉じなければならない。
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_ns_field_len_zero_rejected`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
@@ -88,12 +88,12 @@
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_ns_fields_32_accept_33_reject`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
 - [~] MOQT-023 (SS2.4.1) Full Track Name(Track Namespace と Track Name を合わせたもの)が 4096 バイトを超える場合、実装はセッションをプロトコル違反で閉じなければならない。
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_ftn_4096_accept_4097_reject`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
-- [x] MOQT-024 実装はTrack Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
+- [x] MOQT-024 実装は Track Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_eq_exact_bytes`
 
 ## SS2.4.2 不正な Track
 
-- [x] MOQT-025 (SS2.4.2) ハブがサブスクライバーとして Malformed Track(Track の END_OF_TRACK や Group の END_OF_GROUP より後の Object、または食い違う再送)を検出したとき、ハブはそのパブリッシャーに対する、その Track の購読と FETCH を取り消さなければならない。
+- [x] MOQT-025 (SS2.4.2) ハブが購読者として Malformed Track(Track の END_OF_TRACK や Group の END_OF_GROUP より後の Object、または食い違う再送)を検出したとき、ハブはそのパブリッシャーに対する、その Track の購読と FETCH を取り消さなければならない。
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_after_end_of_track`
   - test: `tests/app/moqtrun_upfetch_test.c` —
@@ -105,7 +105,7 @@
     `test_moqtrun_pubdone_malformed_after_end_of_group`
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_malformed_resets_fetch`
-- [x] MOQT-210 (SS2.4.2) ハブはMalformed Track の状態を引き起こした Object をキャッシュしてはならない。
+- [x] MOQT-210 (SS2.4.2) ハブは Malformed Track の状態を引き起こした Object をキャッシュしてはならない。
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_past_end`
 
@@ -113,7 +113,7 @@
 
 - [~] MOQT-026 (SS2.5) ハブはアプリケーション固有の範囲 0x78-0x7F と 0x3800-0x3FFF の Property を、解釈せずにそのまま転送しなければならない。
   - evidence: DEFAULT_PUBLISHER_PRIORITY と配信タイムアウト以外の Property は、すべて中身を見ないスパンとして中継する(MOQT-211)。この範囲のコードポイントを使うテストはない。
-- [~] MOQT-027 (SS2.5.1) 実装はProperty の型 0x4000-0x7FFF を Mandatory Track Property に分類しなければならない。
+- [~] MOQT-027 (SS2.5.1) 実装は Property の型 0x4000-0x7FFF を Mandatory Track Property に分類しなければならない。
   - evidence: `moqtrun_tprops_check` がこの範囲を分類する。`test_moqtrun_upfetch_mandatory` は型 0x4000 を、`test_moqtrun_sub_publish_mandatory_refused` は 0x7FFF を使う。範囲のすぐ外側(0x3FFF、0x8000)はテストしていない。
 - [x] MOQT-211 (SS2.5, SS9.6) ハブは解釈しない Track Property と Object Property をそのまま転送し、キャッシュした Track や Object と一緒に保持し、送信する SUBSCRIBE_OK と FETCH_OK に Track の Property を含めなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
@@ -125,7 +125,7 @@
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
 - [x] MOQT-213 (SS2.5.1) PUBLISH が、ハブの理解しない Mandatory Track Property を持っている場合、ハブは REQUEST_ERROR UNSUPPORTED_EXTENSION を返し、その Track を転送してはならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_publish_mandatory_refused`
-- [x] MOQT-214 (SS2.5.1) 上流の SUBSCRIBE_OK が、ハブの理解しない Mandatory Track Property を持っている場合、ハブは上流の購読を取り消し、応答待ちの下流のサブスクライバーに REQUEST_ERROR UNSUPPORTED_EXTENSION を返さなければならない。
+- [x] MOQT-214 (SS2.5.1) 上流の SUBSCRIBE_OK が、ハブの理解しない Mandatory Track Property を持っている場合、ハブは上流の購読を取り消し、応答待ちの下流の購読者に REQUEST_ERROR UNSUPPORTED_EXTENSION を返さなければならない。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_mandatory_refused`
 - [x] MOQT-215 (SS2.5.1) 上流の FETCH_OK が、ハブの理解しない Mandatory Track Property を持っている場合、ハブは上流の FETCH を取り消し、まだ応答していない下流の FETCH には REQUEST_ERROR UNSUPPORTED_EXTENSION を返し、データを送り始めた FETCH はリセットしなければならない。
   - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch_mandatory`
@@ -197,7 +197,7 @@
 
 ## SS3.5 終了
 
-- [x] MOQT-041 サーバーはWebTransport 上の MOQT セッションを、CLOSE_WEBTRANSPORT_SESSION の仕組みで閉じなければならない。
+- [x] MOQT-041 サーバーは WebTransport 上の MOQT セッションを、CLOSE_WEBTRANSPORT_SESSION の仕組みで閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_unknown_type_closes_session`
   - test: `tests/app/moqtrun_test.c` —
@@ -226,7 +226,7 @@
     `test_moqtrun_goaway_on_request_stream_produces_no_reply`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_second_goaway_closes`
-- [~] MOQT-218 (SS3.6) ハブがドレインするとき、ハブは上流のパブリッシャーへの購読を解除する前に、下流のサブスクライバーへ GOAWAY を送信するべきである。
+- [~] MOQT-218 (SS3.6) ハブがドレインするとき、ハブは上流のパブリッシャーへの購読を解除する前に、下流の購読者へ GOAWAY を送信するべきである。
   - evidence: `wired_moqt_goaway` は全セッションへ一斉に GOAWAY を送り(`test_moqtrun_goaway_once_per_session`)、上流の購読はタイムアウト時にはじめて取り消す。この 2 つの順序を確かめるテストはない。
 - [x] MOQT-235 (SS10.4) GOAWAY を送信した後、ハブは移行に必要な場合を除き、新しいリクエストを始めることを避けるべきである。
   - evidence: `moqtrun_up_ga_skip` / `moqtrun_upf_owner_free` は、ハブが GOAWAY を送ったピアを上流の SUBSCRIBE / FETCH の相手から外す。例外は、上流を失った購読の経路を付け直す場合(移行)だけである。`test_moqtrun_upfetch_upsub_skips_goaway`、`test_moqtrun_upfetch_owner_excluded`(ケース 4)、`test_moqtrun_upfetch_drain_failover` が両側を固定している。
@@ -234,7 +234,7 @@
 
 ## SS9 リレー(SS9.4/9.6/9.7 の転送の決まり)
 
-- [x] MOQT-048 リレーは複数の Object を運ぶストリームで受信した Object をサブスクライバーへ転送するとき、順序を入れ替えたり Object を落としたりしてはならない。
+- [x] MOQT-048 リレーは複数の Object を運ぶストリームで受信した Object を購読者へ転送するとき、順序を入れ替えたり Object を落としたりしてはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_to_subscriber`
   - test: `tests/app/moqtrun_test.c` —
@@ -253,7 +253,7 @@
     `test_moqtrun_subscribe_matching_publish_replies_ok`
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_ok_after_upstream`
-- [x] MOQT-051 リレーが、どのパブリッシャーも PUBLISH していない Track への SUBSCRIBE を受信した場合、実装はその Track の名前空間またはその接頭辞を PUBLISH_NAMESPACE したセッション(サブスクライバー自身のもの以外)へ上流の SUBSCRIBE を送り(SS9.5)、その時点で送るか、保留した SUBSCRIBE なら PUBLISH_NAMESPACE が届いた時点で送り、上流の購読が Established になったら SUBSCRIBE_OK を、そうでなければ上流のコードで REQUEST_ERROR を返さなければならない。そのようなパブリッシャーがいない(かつ RENDEZVOUS_TIMEOUT もない)場合、実装は REQUEST_ERROR DOES_NOT_EXIST を返さなければならない。
+- [x] MOQT-051 リレーが、どのパブリッシャーも PUBLISH していない Track への SUBSCRIBE を受信した場合、実装はその Track の名前空間またはそのプレフィックスを PUBLISH_NAMESPACE したセッション(購読者自身のもの以外)へ上流の SUBSCRIBE を送り(SS9.5)、その時点で送るか、保留した SUBSCRIBE なら PUBLISH_NAMESPACE が届いた時点で送り、上流の購読が Established になったら SUBSCRIBE_OK を、そうでなければ上流のコードで REQUEST_ERROR を返さなければならない。そのようなパブリッシャーがいない(かつ RENDEZVOUS_TIMEOUT もない)場合、実装は REQUEST_ERROR DOES_NOT_EXIST を返さなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_without_publish_replies_error`
   - test: `tests/app/moqtrun_upsub_test.c` —
@@ -263,14 +263,14 @@
     `test_moqtrun_upsub_own_namespace`, `test_moqtrun_upsub_prefix`,
     `test_moqtrun_upsub_cross_draft`
   - note: 上流の SUBSCRIBE は、Full Track Name ごとに 1 本、最初に一致したアナウンス元へ送る。ただし `wired_moqt_hub.multi_publisher` が有効なら、一致するパブリッシャーそれぞれへ 1 本ずつ送る(SS9.5、`tests/app/moqtrun_mpub_test.c`)。下流で誰も必要としなくなった上流の購読は取り消す(`test_moqtrun_upsub_last_cancel_cancels_upstream`)。
-- [x] MOQT-052 (SS9.4) 複数のサブスクライバーが同じ Track を要求したとき、リレーはその Track への認可済みの購読をまとめ、上流の 1 つの Object を、一致する下流のサブスクライバー全員へ転送してもよい。
+- [x] MOQT-052 (SS9.4) 複数の購読者が同じ Track を要求したとき、リレーはその Track への認可済みの購読をまとめ、上流の 1 つの Object を、一致する下流の購読者全員へ転送してもよい。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_two_share_one`
 - [x] MOQT-226 (SS9.1) ハブが保持しているものと異なるペイロードで Object が再び届いた場合、ハブはその Track を Malformed として扱い、その Object を中継してはならない。
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_malformed_conflict`
-- [x] MOQT-227 (SS9.1) ハブが、ある Object は存在しないと記録している構成では、後からその Object が届いても、ハブはそれをキャッシュも転送もするべきではない。
+- [x] MOQT-227 (SS9.1) ハブが、ある Object は存在しないと記録している場合、後からその Object が届いても、ハブはそれをキャッシュも転送もするべきではない。
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_late_nonexistent_not_cached`
   - test: `tests/app/moqtrun_cut_test.c` —
@@ -295,7 +295,7 @@
 - [x] MOQT-053 実装はすべての制御メッセージを Message Type(varint)+ Message Length(16 ビット)+ Message Body としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_peek_type_setup`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
-- [x] MOQT-054 実装はMessage Type の表のうち実装している項目、SETUP (0x2F00)、GOAWAY (0x10)、SUBSCRIBE (0x3)、SUBSCRIBE_OK (0x4)、PUBLISH (0x1D)、PUBLISH_DONE (0xB)、REQUEST_OK (0x7)、REQUEST_ERROR (0x5) を認識しなければならない。
+- [x] MOQT-054 実装は Message Type の表のうち実装している項目、SETUP (0x2F00)、GOAWAY (0x10)、SUBSCRIBE (0x3)、SUBSCRIBE_OK (0x4)、PUBLISH (0x1D)、PUBLISH_DONE (0xB)、REQUEST_OK (0x7)、REQUEST_ERROR (0x5) を認識しなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_peek_type_setup`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_subscribe_roundtrip`
@@ -338,7 +338,7 @@
 
 ## SS10.2 Message Parameter
 
-- [x] MOQT-062 実装はMessage Parameter を、Type Delta(varint。直前の Parameter Type からの累積)と、それに続く Value としてデコードしなければならない。Value のエンコード(uint8、varint、Location、長さ付きバイト列)は Type ごとに決まっている。
+- [x] MOQT-062 実装は Message Parameter を、Type Delta(varint。直前の Parameter Type からの累積)と、それに続く Value としてデコードしなければならない。Value のエンコード(uint8、varint、Location、長さ付きバイト列)は Type ごとに決まっている。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_delivery_timeout_decode`
@@ -361,7 +361,7 @@
 
 ## SS10.2.3/10.2.4 SUBGROUP_DELIVERY_TIMEOUT / OBJECT_DELIVERY_TIMEOUT
 
-- [x] MOQT-068 実装はMessage Parameter の SUBGROUP_DELIVERY_TIMEOUT (0x06) と OBJECT_DELIVERY_TIMEOUT (0x02) を varint としてデコードし、値 0 はタイムアウトを設定しないことを意味するものとしなければならない。
+- [x] MOQT-068 実装は Message Parameter の SUBGROUP_DELIVERY_TIMEOUT (0x06) と OBJECT_DELIVERY_TIMEOUT (0x02) を varint としてデコードし、値 0 はタイムアウトを設定しないことを意味するものとしなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_params_delivery_timeout_decode`
 - [x] MOQT-069 ハブは自分が返す SUBSCRIBE_OK / REQUEST_OK / PUBLISH_DONE に配信タイムアウトのパラメーターを入れてはならない(ロスのない単一ハブのサブセットでは、配信タイムアウトを設定しない)。
@@ -376,7 +376,7 @@
 
 ## SS10.2.5/10.2.6 FILL_TIMEOUT / RENDEZVOUS_TIMEOUT、SS8 Subgroup のタイマー
 
-- [x] MOQT-231 (SS10.2.6, SS9.5) パブリッシャーのいない Track への SUBSCRIBE が 0 でない RENDEZVOUS_TIMEOUT を持つ場合、ハブはそれを(上限付きで)保留し、Track が公開されたら SUBSCRIBE_OK を返し(そのサブスクライバーに同じ Track の PUBLISH は送らない)、タイムアウトが過ぎたら REQUEST_ERROR TIMEOUT を返さなければならない。値が 0 またはパラメーターがない場合、ハブはただちに DOES_NOT_EXIST を返さなければならない。
+- [x] MOQT-231 (SS10.2.6, SS9.5) パブリッシャーのいない Track への SUBSCRIBE が 0 でない RENDEZVOUS_TIMEOUT を持つ場合、ハブはそれを(上限付きで)保留し、Track の配信が始まったら SUBSCRIBE_OK を返し(その購読者に同じ Track の PUBLISH は送らない)、タイムアウトが過ぎたら REQUEST_ERROR TIMEOUT を返さなければならない。値が 0 またはパラメーターがない場合、ハブはただちに DOES_NOT_EXIST を返さなければならない。
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s1_one_answer`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s2_timeout`
   - test: `tests/app/moqtrun_rdv_test.c` — `test_moqtrun_rdv_s3_zero_is_dne`
@@ -391,9 +391,9 @@
 
 ## SS10.2.17 FORWARD パラメーター
 
-- [x] MOQT-071 実装はFORWARD パラメーター(Type 0x10)を、値が 0(転送しない)または 1(転送する)の uint8 としてエンコード・デコードし、省略時は 1 としなければならない。
+- [x] MOQT-071 実装は FORWARD パラメーター(Type 0x10)を、値が 0(転送しない)または 1(転送する)の uint8 としてエンコード・デコードし、省略時は 1 としなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
-- [x] MOQT-072 (SS5.1, SS10.10) PUBLISH で FORWARD=0 を送ったパブリッシャーは、サブスクライバーが Forward State を 1 にするまで Object を送信してはならない。購読への Object の転送は、その購読の Forward State で止めたり通したりする。
+- [x] MOQT-072 (SS5.1, SS10.10) PUBLISH で FORWARD=0 を送ったパブリッシャーは、購読者が Forward State を 1 にするまで Object を送信してはならない。購読への Object の転送は、その購読の Forward State で止めたり通したりする。
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_forward0_then_update`
   - test: `tests/app/moqtrun_sub_test.c` —
@@ -401,7 +401,7 @@
 
 ## SS10.3 SETUP
 
-- [x] MOQT-073 実装はSETUP の Setup Option を、メッセージのペイロード全体にわたる Key-Value-Pair のリストとしてエンコード・デコードしなければならない。
+- [x] MOQT-073 実装は SETUP の Setup Option を、メッセージのペイロード全体にわたる Key-Value-Pair のリストとしてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
 - [x] MOQT-074 (SS10.3) エンドポイントは認識できない Setup Option を、未知のオプションの重複も含めて無視しなければならない。
   - test: `tests/app/moqctl_test.c` —
@@ -413,7 +413,7 @@
 
 ## SS10.3.1.1 AUTHORITY / SS10.3.1.2 PATH / SS10.3.1.5 MOQT_IMPLEMENTATION
 
-- [x] MOQT-076 実装はSetup Option の PATH (0x01) と AUTHORITY (0x05) をバイト列の値としてデコードしなければならない。
+- [x] MOQT-076 実装は Setup Option の PATH (0x01) と AUTHORITY (0x05) をバイト列の値としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_path_option_decode`
 - [x] MOQT-077 (SS10.3.1.1, SS10.3.1.2) WebTransport を使っているときに PATH または AUTHORITY のオプションを受信した場合、実装はセッションをそれぞれ INVALID_PATH または INVALID_AUTHORITY で閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
@@ -421,18 +421,18 @@
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_setup_authority_closes_invalid_authority`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_wt`
-- [x] MOQT-234 (SS10.3.1.1, SS10.3.1.2) ネイティブ QUIC のセッションでは、ハブはURI の規則に反する PATH や AUTHORITY には MALFORMED_PATH / MALFORMED_AUTHORITY で、自分が扱わない PATH や AUTHORITY には INVALID_PATH / INVALID_AUTHORITY で閉じなければならない。
+- [x] MOQT-234 (SS10.3.1.1, SS10.3.1.2) ネイティブ QUIC のセッションでは、ハブは URI の規則に反する PATH や AUTHORITY には MALFORMED_PATH / MALFORMED_AUTHORITY で、自分が扱わない PATH や AUTHORITY には INVALID_PATH / INVALID_AUTHORITY で閉じなければならない。
   - test: `tests/app/moqraw_test.c` — `test_moqraw_path`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_authority`
   - test: `tests/app/moqraw_test.c` — `test_moqraw_hook`
 - [x] MOQT-237 (SS10.3.1.5) ハブは自分の名前とバージョンだけを持つ MOQT_IMPLEMENTATION の Setup Option を送信するべきである。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_setup_sends_implementation`
-- [x] MOQT-078 実装はSetup Option の MOQT_IMPLEMENTATION (0x07) を UTF-8 のバイト列の値としてデコードしなければならない。
+- [x] MOQT-078 実装は Setup Option の MOQT_IMPLEMENTATION (0x07) を UTF-8 のバイト列の値としてデコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_setup_roundtrip`
 
 ## SS10.4 GOAWAY(ワイヤー形式)
 
-- [x] MOQT-079 実装はGOAWAY を Type (0x10) + Length + New Session URI Length + New Session URI + Timeout としてエンコード・デコードしなければならない。
+- [x] MOQT-079 実装は GOAWAY を Type (0x10) + Length + New Session URI Length + New Session URI + Timeout としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_goaway_roundtrip`
 - [~] MOQT-080 (SS10.4) New Session URI Length が 8192 バイトを超える場合、実装はセッションをプロトコル違反で閉じなければならない。
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_goaway_uri_boundary`)、デコードに失敗した GOAWAY では PROTOCOL_VIOLATION で閉じる(`test_moqtrun_peer_goaway_uri`、不正な GOAWAY)。長すぎる URI を送るハブのテストはない。
@@ -441,7 +441,7 @@
 
 ## SS10.5 REQUEST_OK
 
-- [x] MOQT-082 実装はREQUEST_OK を Type (0x7) + Length + Number of Parameters + Parameters + Track Properties(メッセージの残りのバイト)としてエンコード・デコードしなければならない。
+- [x] MOQT-082 実装は REQUEST_OK を Type (0x7) + Length + Number of Parameters + Parameters + Track Properties(メッセージの残りのバイト)としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_ok_roundtrip`
 - [x] MOQT-083 (SS10.5) Track Properties が空でなければならない REQUEST_OK(PUBLISH_OK、REQUEST_UPDATE_OK、SUBSCRIBE_NAMESPACE_OK、PUBLISH_NAMESPACE_OK)が Track Properties を持っている場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_publish_ok_props_closes`
@@ -449,7 +449,7 @@
 
 ## SS10.6 REQUEST_ERROR
 
-- [x] MOQT-084 実装はREQUEST_ERROR を Type (0x5) + Length + Error Code + Retry Interval + Error Reason + 任意の Redirect としてエンコード・デコードしなければならない。
+- [x] MOQT-084 実装は REQUEST_ERROR を Type (0x5) + Length + Error Code + Retry Interval + Error Reason + 任意の Redirect としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_request_error_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_request_error_redirect_roundtrip`
@@ -470,14 +470,14 @@
 
 ## SS10.7 SUBSCRIBE / SS10.8 SUBSCRIBE_OK
 
-- [x] MOQT-089 実装はSUBSCRIBE を Type (0x3) + Length + Request ID + Track Namespace + Track Name + Number of Parameters + Parameters としてエンコード・デコードしなければならない。
+- [x] MOQT-089 実装は SUBSCRIBE を Type (0x3) + Length + Request ID + Track Namespace + Track Name + Number of Parameters + Parameters としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_subscribe_roundtrip`
 - [x] MOQT-090 (SS5.1, SS10.7) 購読が成功したとき、パブリッシャーはちょうど 1 つの SUBSCRIBE_OK で応答しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_subscribe_matching_publish_replies_ok`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
-- [x] MOQT-091 実装はSUBSCRIBE_OK を Type (0x4) + Length + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
+- [x] MOQT-091 実装は SUBSCRIBE_OK を Type (0x4) + Length + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_subscribe_ok_roundtrip`
 - [x] MOQT-092 (SS5.1) ハブが、自分の SUBSCRIBE に対する SUBSCRIBE_OK または REQUEST_ERROR を 2 つ以上、あるいは自分の PUBLISH に対する REQUEST_OK または REQUEST_ERROR を 2 つ以上受信した場合、ハブはセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqsess_test.c` —
@@ -493,20 +493,20 @@
 
 ## SS10.10 PUBLISH
 
-- [x] MOQT-094 実装はPUBLISH を Type (0x1D) + Length + Request ID + Track Namespace + Track Name + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
+- [x] MOQT-094 実装は PUBLISH を Type (0x1D) + Length + Request ID + Track Namespace + Track Name + Track Alias + Number of Parameters + Parameters + Track Properties としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_publish_roundtrip`
-- [x] MOQT-095 (SS5.1, SS10.5) PUBLISH で始まる購読が成功したとき、サブスクライバーはちょうど 1 つの PUBLISH_OK(REQUEST_OK)で応答しなければならない。
+- [x] MOQT-095 (SS5.1, SS10.5) PUBLISH で始まる購読が成功したとき、購読者はちょうど 1 つの PUBLISH_OK(REQUEST_OK)で応答しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_publish_replies_request_ok`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_peer_publishes_two_tracks`
-- [~] MOQT-096 (SS5.1) パブリッシャーはPUBLISH で始まる購読で、PUBLISH_OK を受信する前に Object の送信を始めてもよい。
+- [~] MOQT-096 (SS5.1) パブリッシャーは PUBLISH で始まる購読で、PUBLISH_OK を受信する前に Object の送信を始めてもよい。
   - evidence: ハブは PUBLISH にただちに応答し、その後に続く Object を中継する(`test_moqtrun_object_relay_to_subscriber`)。Object が REQUEST_OK より先に届くケースを固定したテストはない。
-- [~] MOQT-097 (SS10.10) サブスクライバーが PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、その購読は Object を 1 つも送信せずに終了しなければならない。
+- [~] MOQT-097 (SS10.10) 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、その購読は Object が 1 つも送信されないまま終了しなければならない。
   - evidence: ハブが送った PUBLISH への REQUEST_ERROR は、そのスロットを解放する(`test_subtracks_publish_error_frees_slot`)。その後に Object を送るテストはない。
 
 ## SS10.11 PUBLISH_DONE
 
-- [x] MOQT-098 実装はPUBLISH_DONE を Type (0xB) + Length + Status Code + Stream Count + Error Reason としてエンコード・デコードしなければならない。
+- [x] MOQT-098 実装は PUBLISH_DONE を Type (0xB) + Length + Status Code + Stream Count + Error Reason としてエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_publish_done_roundtrip`
 - [x] MOQT-099 (SS5.1.1, SS10.11) 送信側はその購読のために開いたデータストリームをすべて閉じるまで、PUBLISH_DONE を送信してはならない。
   - test: `tests/app/moqtrun_done_test.c` —
@@ -516,7 +516,7 @@
 - [x] MOQT-100 (SS10.11) PUBLISH_DONE と、購読の双方向ストリームを閉じることによって、購読は終了しなければならない。その後、送信側は購読の状態を破棄してもよい。
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_fin_after`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
-- [~] MOQT-101 (SS5.1, SS10.11) サブスクライバーが応答を送信する前に PUBLISH_DONE が届いた場合、サブスクライバーは FIN する前に、遅れた PUBLISH_OK をちょうど 1 つ返さなければならない。
+- [~] MOQT-101 (SS5.1, SS10.11) 購読者が応答を送信する前に PUBLISH_DONE が届いた場合、購読者は FIN する前に、遅れた PUBLISH_OK をちょうど 1 つ返さなければならない。
   - evidence: ハブはすべての PUBLISH にただちに応答するので、応答していない PUBLISH を抱えることはない。この規則は購読モデルでしか固定していない(`test_moqsub_publish_done_before_response_defers_ok`)。
 - [x] MOQT-102 実装は自分が使う PUBLISH_DONE のステータスコード、INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY を認識しなければならない。
   - test: `tests/app/moqctl_test.c` —
@@ -524,7 +524,7 @@
 - [x] MOQT-103 (SS10.11) パブリッシャーが購読のためにデータストリームを 1 本も開かなかった場合、パブリッシャーは PUBLISH_DONE の Stream Count を 0 にしなければならない。
   - test: `tests/app/moqtrun_done_test.c` —
     `test_moqtrun_pubdone_datagram_only`
-- [x] MOQT-239 (SS10.11) ハブはパブリッシャーの PUBLISH_DONE を各サブスクライバーへ中継しなければならない。その際、ステータスはパブリッシャーのものを使い、ストリーム数はハブがそのサブスクライバーのために開いたストリームの正確な数にする。中継するのは、パブリッシャーが数えたストリームをすべて終わりまで中継し終えてからとし、その待ち時間には上限を設ける。
+- [x] MOQT-239 (SS10.11) ハブはパブリッシャーの PUBLISH_DONE を各購読者へ中継しなければならない。その際、ステータスはパブリッシャーのものを使い、ストリーム数はハブがその購読者のために開いたストリームの正確な数にする。中継するのは、パブリッシャーが数えたストリームをすべて終わりまで中継し終えてからとし、その待ち時間には上限を設ける。
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_n_groups`
   - test: `tests/app/moqtrun_done_test.c` —
@@ -535,7 +535,7 @@
 
 ## SS10 制御メッセージで共有する Reason Phrase / Location / Track Namespace の構造
 
-- [x] MOQT-104 実装はMessage Parameter、Location、Reason Phrase を、それらを含むすべての制御メッセージで一貫してエンコード・デコードしなければならない。
+- [x] MOQT-104 実装は Message Parameter、Location、Reason Phrase を、それらを含むすべての制御メッセージで一貫してエンコード・デコードしなければならない。
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_forward_roundtrip`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_location_roundtrip_and_order`
@@ -544,7 +544,7 @@
 
 ## SS5.1.2 Location Filter(購読のフィルタリング)
 
-- [x] MOQT-105 実装はLocation Filter の Filter Type を Next Group Start (0x1)、Largest Object (0x2)、AbsoluteStart (0x3)、AbsoluteRange (0x4) のいずれかとしてデコードし、フィールドの配置(Start Location、End Group Delta)を型に従って決めなければならない。
+- [x] MOQT-105 実装は Location Filter の Filter Type を Next Group Start (0x1)、Largest Object (0x2)、AbsoluteStart (0x3)、AbsoluteRange (0x4) のいずれかとしてデコードし、フィールドの配置(Start Location、End Group Delta)を型に従って決めなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_locfilter_next_group_and_largest`
   - test: `tests/app/moqctl_test.c` —
@@ -553,7 +553,7 @@
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_locfilter_end_group_overflow_violation`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
 - [~] MOQT-107 (SS5.1.2) エンドポイントが、定義された 4 つの値以外の Location Filter Type を受信した場合、実装はセッションをプロトコル違反で閉じなければならない。
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_locfilter_unknown_type_violation`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
-- [x] MOQT-108 (SS5.1.2, SS5.1.4) パブリッシャーはForward State と Location Filter の両方を満たす Object だけを転送しなければならない(Pass = Forward AND Filters)。
+- [x] MOQT-108 (SS5.1.2, SS5.1.4) パブリッシャーは Forward State と Location Filter の両方を満たす Object だけを転送しなければならない(Pass = Forward AND Filters)。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_reattach_keeps_state`
   - test: `tests/app/moqtrun_upd_test.c` —
@@ -562,7 +562,7 @@
     `test_moqtrun_sub_filter_from_largest`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_replay_before_start`
-- [x] MOQT-222 (SS5.1.2) SUBSCRIBE の Location Filter を満たせない場合(たとえば End Group がすでにすべて公開済みの場合)、ハブは REQUEST_ERROR INVALID_RANGE を返すべきである。
+- [x] MOQT-222 (SS5.1.2) SUBSCRIBE の Location Filter を満たせない場合(たとえば End Group がすでにすべて配信済みの場合)、ハブは REQUEST_ERROR INVALID_RANGE を返すべきである。
   - evidence: `moqtrun_filter_past`(End Group が Largest Group より前)と `test_moqtrun_sub_range_past_invalid`。draft-22 の逆転したフィルターは `test_moqtrun_sub_filter22_inverted` が確かめる。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_range_past_invalid`
 
@@ -589,7 +589,7 @@
 
 - [x] MOQT-243 (SS11, SS11.3.1) データグラムの Type が未知または不正な場合、ハブはセッションを PROTOCOL_VIOLATION で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_datagram_invalid_closes`
-- [x] MOQT-244 (SS11.3.1) 実装はOBJECT_DATAGRAM を Type のビット(PROPERTIES、END_OF_GROUP、ZERO_OBJECT_ID、DEFAULT_PRIORITY、STATUS)に従ってデコードし、不正な Type(STATUS と END_OF_GROUP の組み合わせ、0b00X0XXXX の範囲外)、ビットが立っているのに空の Properties、Normal 以外の状態に付いた Properties を拒否しなければならない。
+- [x] MOQT-244 (SS11.3.1) 実装は OBJECT_DATAGRAM を Type のビット(PROPERTIES、END_OF_GROUP、ZERO_OBJECT_ID、DEFAULT_PRIORITY、STATUS)に従ってデコードし、不正な Type(STATUS と END_OF_GROUP の組み合わせ、0b00X0XXXX の範囲外)、ビットが立っているのに空の Properties、Normal 以外の状態に付いた Properties を拒否しなければならない。
   - test: `tests/app/moqdg_test.c` — `test_moqdg_type_valid_accepts`
   - test: `tests/app/moqdg_test.c` — `test_moqdg_type_valid_rejects`
   - test: `tests/app/moqdg_test.c` — `test_moqdg_take_basic`
@@ -601,7 +601,7 @@
 
 ## SS11.2.1.1 Object Status
 
-- [x] MOQT-113 実装はObject Status の値 0x0(Normal)、0x3(End of Group)、0x4(End of Track)を認識しなければならない。
+- [x] MOQT-113 実装は Object Status の値 0x0(Normal)、0x3(End of Group)、0x4(End of Track)を認識しなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_status_values`
 - [x] MOQT-114 (SS11.2.1.1) Object が登録されていない Status の値を持つ場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_object_violations`
@@ -623,24 +623,24 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [x] MOQT-119 (SS11.4.2) SUBGROUP_HEADER の Type フィールドは 0b0XX1XXXX の形(ビット 4 は常に立つ)でなければならない。それ以外の形で受信した場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_unknown_uni_closes`
-- [x] MOQT-120 実装はSUBGROUP_ID_MODE フィールド(ビット 1-2)を次のようにデコードしなければならない。0b00 は Subgroup ID がなく 0、0b01 は Subgroup ID がなく最初の Object の Object ID と等しい、0b10 はヘッダーに Subgroup ID がある。
+- [x] MOQT-120 実装は SUBGROUP_ID_MODE フィールド(ビット 1-2)を次のようにデコードしなければならない。0b00 は Subgroup ID がなく 0、0b01 は Subgroup ID がなく最初の Object の Object ID と等しい、0b10 はヘッダーに Subgroup ID がある。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode2`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MOQT-121 (SS11.4.2) SUBGROUP_ID_MODE が 0b11 の場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [x] MOQT-122 実装はSUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
+- [x] MOQT-122 実装は SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
 - [x] MOQT-123 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [~] MOQT-124 (SS11.4.2) END_OF_GROUP ビットが立っていて、ストリームが FIN で終わる場合、実装は同じ Group ID でより大きな Object ID を持つ Object は存在しないと推定しなければならない。
   - evidence: ビットはデコードしている(MOQT-122)。Malformed Track の検査は、この推定ではなく END_OF_GROUP の状態を使う(`test_moqtrun_pubdone_malformed_after_end_of_group`)。
-- [x] MOQT-125 (SS2.2, SS11.4.2) ハブはその Subgroup で最初に公開された Object から始まる Subgroup では FIRST_OBJECT ビットを転送し、Subgroup の途中から開くストリームではそのビットを下ろさなければならない。
+- [x] MOQT-125 (SS2.2, SS11.4.2) ハブは、その Subgroup で最初に配信された Object から始まる Subgroup では FIRST_OBJECT ビットを転送し、Subgroup の途中から開くストリームではそのビットを下ろさなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_preserves_bytes`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
-- [x] MOQT-126 実装はSUBGROUP_HEADER を、ワイヤー上のフィールド(Type、Track Alias、Group ID、任意の Subgroup ID、任意の Publisher Priority)とバイト単位で一致するようにエンコード・デコードしなければならない。
+- [x] MOQT-126 実装は SUBGROUP_HEADER を、ワイヤー上のフィールド(Type、Track Alias、Group ID、任意の Subgroup ID、任意の Publisher Priority)とバイト単位で一致するようにエンコード・デコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_put_golden`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_put_errors`
 - [x] MOQT-127 SUBGROUP_HEADER が、宣言したフィールドがすべてそろう前に途切れている場合、実装はデコードを不足として報告しなければならない。
@@ -650,7 +650,7 @@
 
 ## SS11.4.2 Subgroup の Object のフィールド
 
-- [x] MOQT-129 実装はSubgroup の Object を Object ID Delta + 任意の Properties + Object Payload Length + 任意の Object Status + 任意の Object Payload としてエンコード・デコードしなければならない。
+- [x] MOQT-129 実装は Subgroup の Object を Object ID Delta + 任意の Properties + Object Payload Length + 任意の Object Status + 任意の Object Payload としてエンコード・デコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_take_basic_stream`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_put`
 - [x] MOQT-130 Object ID は、Subgroup の最初の Object では Object ID Delta そのもの、それ以降の Object では直前の Object ID に Delta と 1 を足した値でなければならない。
@@ -664,7 +664,7 @@
 - [x] MOQT-133 Subgroup の Object のストリームで、Object ごとのデコードがプロトコル違反を報告した場合、実装はそのストリームの以降の Object のデコードをその時点で止めなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_decode_loop_stops_at_violation`
-- [x] MOQT-134 実装は1 つのストリームバッファーから複数の Object を順にデコードし、その結果は各 Object を個別にデコードした結果と一致しなければならない。
+- [x] MOQT-134 実装は 1 つのストリームバッファーから複数の Object を順にデコードし、その結果は各 Object を個別にデコードした結果と一致しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_decode_loop_single_object_matches_one_shot`
   - test: `tests/app/moqtrun_test.c` —
@@ -678,7 +678,7 @@
 - [x] MOQT-136 ストリームの FIN を観測した実装は、購読の開始以降、その Subgroup のすべての Object を受信したことが保証される。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_torn_object_cut_through`
-- [x] MOQT-137 リレーは既存の Subgroup ストリームで Object を転送するのは、それがその Subgroup の次の Object である場合に限らなければならない(2 回に分かれて届いた Object は、送信済みの部分が終わった位置からちょうど続ける)。
+- [x] MOQT-137 リレーは、その Subgroup の次の Object でない限り、既存の Subgroup ストリームで Object を転送してはならない(2 回に分かれて届いた Object は、送信済みの部分が終わった位置からちょうど続ける)。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_fresh_delivery_tail_cut_through`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_frag_overflow_counted`
@@ -690,10 +690,10 @@
 - [x] MOQT-139 同じ Track で重なり合う 2 本のパブリッシャーのストリームは、それぞれ独立したストリームで中継し、それぞれ自分のパブリッシャーの FIN によってだけ閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_interleaved_chat_messages_close_independently`
-- [x] MOQT-140 (SS11.4.3) Subgroup ストリームが始まった後に参加したサブスクライバーにも、中継のストリームを開いて届けなければならない。そのストリームは、送信済みの SUBGROUP_HEADER を FIRST_OBJECT を下ろした形で載せて開く。
+- [x] MOQT-140 (SS11.4.3) Subgroup ストリームが始まった後に参加した購読者にも、中継のストリームを開いて届けなければならない。そのストリームは、送信済みの SUBGROUP_HEADER を FIRST_OBJECT を下ろした形で載せて開く。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`
-- [ ] MOQT-247 (SS11.4.3) サブスクライバーが Subgroup の中継ストリームに STOP_SENDING を送ったとき、ハブはそのストリームをリセットし、その Subgroup の残りのために新しいストリームを開くべきではない。
+- [ ] MOQT-247 (SS11.4.3) 購読者が Subgroup の中継ストリームに STOP_SENDING を送ったとき、ハブはそのストリームをリセットし、その Subgroup の残りのために新しいストリームを開くべきではない。
   - gap: 中継のデータストリームに STOP_SENDING を送るテストはない。
 
 ## SS11.5.1 パディングのストリーム
@@ -703,7 +703,7 @@
 
 ## SS11.4.2 Subgroup Header: フロー制御の優先度
 
-- [x] MOQT-142 エンドポイントは接続のフロー制御のクレジットを、データストリームより先に制御ストリームへ割り当てなければならない。そうすれば、受信側が、届くためにフロー制御を必要とする制御メッセージを待ってデッドロックすることはない。
+- [x] MOQT-142 エンドポイントは接続のフロー制御のクレジットを、データストリームより先に制御ストリームへ割り当てなければならない。受信側が、届くのにフロー制御を必要とする制御メッセージを待ってデッドロックしないようにするためである。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_control_first`
     (ハブの制御ストリームは urgency 2 で、リクエストストリームの 3 と Object ストリームの 4..7 より上)
   - test: `tests/app/srvrun_test.c` —
@@ -711,7 +711,7 @@
 
 ## SS11.4.2 Subgroup の Object のフィールド(エンコーダーのバイト単位の一致)
 
-- [x] MOQT-143 実装はSubgroup の Object の Object ID Delta、Payload Length、そして明示的な Object Status(ペイロードが空のとき)またはペイロードのバイト列を、ワイヤー形式とバイト単位で一致するようにエンコードしなければならない。
+- [x] MOQT-143 実装は Subgroup の Object の Object ID Delta、Payload Length、そして明示的な Object Status(ペイロードが空のとき)またはペイロードのバイト列を、ワイヤー形式とバイト単位で一致するようにエンコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_put`
 - [x] MOQT-144 1 メッセージのビルダーは、Object を 1 つ運ぶ SUBGROUP_HEADER を 1 つ、ワイヤー形式とバイト単位で一致するように組み立て、書き込み先のバッファーが小さすぎるときは途中まで書かずに失敗しなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_golden`
@@ -730,7 +730,7 @@
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_params_replace`
 - [x] MOQT-147 (SS3.3.2) リクエストを送った直後、応答を待たずに自分の方向を FIN した要求元について、そのリクエストを失敗扱いにしてはならない。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_req_fin_keeps_request`
-- [x] MOQT-148 (SS3.3.3, SS5.1) サブスクライバーはリクエストストリームを取り消すことで Established の購読を終了できなければならない。
+- [x] MOQT-148 (SS3.3.3, SS5.1) 購読者はリクエストストリームを取り消すことで Established の購読を終了できなければならない。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_reset_unsubscribes`
 - [~] MOQT-149 (SS3.3.3) ハブが自分の送ったリクエストを取り消すとき、ハブは開いている送信方向をリセットし、受信方向に STOP_SENDING を送らなければならない(自分の方向を FIN 済みなら STOP_SENDING だけを送る)。
@@ -772,14 +772,14 @@
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow`
 
-## ハブのリレー: 一致するサブスクライバーだけへの Object の転送(SS9.4, SS11.1)
+## ハブのリレー: 一致する購読者だけへの Object の転送(SS9.4, SS11.1)
 
-- [x] MOQT-159 Object は、その Track Alias が指す Track のサブスクライバーだけに転送し、同じセッションのほかの Track のサブスクライバーには転送してはならない。
+- [x] MOQT-159 Object は、その Track Alias が指す Track の購読者だけに転送し、同じセッションのほかの Track の購読者には転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_only_to_chat_subscriber`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_object_relays_only_to_audio_subscriber`
-- [x] MOQT-160 Object の Track Alias が、パブリッシャーの宣言したどの Track とも一致しない場合、実装はそれをどのサブスクライバーにも転送してはならない。
+- [x] MOQT-160 Object の Track Alias が、パブリッシャーの宣言したどの Track とも一致しない場合、実装はそれをどの購読者にも転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_unknown_alias_object_relays_nowhere`
   - test: `tests/app/moqtrun_test.c` —
@@ -787,7 +787,7 @@
 - [x] MOQT-161 同じ Track への複数の購読に一致する Object は、一致する購読ごとに 1 回ずつ送信しなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_object_relays_to_all_three_subscribers`
-- [x] MOQT-162 あるサブスクライバーへの Object の転送が失敗した(下位のトランスポートが送信を拒否した)場合でも、実装は一致するほかのサブスクライバー全員へそれを転送し、損失を黙って見過ごさずに数えなければならない。
+- [x] MOQT-162 ある購読者への Object の転送が失敗した(下位のトランスポートが送信を拒否した)場合でも、実装は一致するほかの購読者全員へそれを転送し、損失を黙って見過ごさずに数えなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_one_of_three_subscribers_refused`
   - test: `tests/app/moqtrun_test.c` —
@@ -808,13 +808,13 @@
 - [x] MOQT-166 実装は各 Subgroup を、その届き方に合ったトランスポートの基本操作で一貫して中継しなければならない(1 回で届く Subgroup は open+send+FIN を 1 度に、長く続く Subgroup は FIN なしで開いて後から追記する)。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_chat_still_uses_send_uni_every_object`
-- [x] MOQT-167 同じ Track の 2 人のサブスクライバーには、それぞれ独立した中継ストリームを与え、一方への配信が他方のストリームの結び付けに影響しないようにしなければならない。
+- [x] MOQT-167 同じ Track の 2 人の購読者には、それぞれ独立した中継ストリームを与え、一方への配信が他方のストリームの結び付けに影響しないようにしなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_audio_two_subscribers_independent_streams`
 
 ## ハブのリレー: 拒否が続くストリームの切り捨て(SS11.4.3 のリセットの決まりの適用)
 
-- [x] MOQT-168 サブスクライバーの中継ストリームが、実装のしきい値を超えて busy(拒否)の状態を続けた場合、実装は古い滞留を抱え続けず、そのストリームをリセットし、次の配信で新しいストリームを開き直さなければならない。
+- [x] MOQT-168 購読者の中継ストリームが、実装のしきい値を超えて busy(拒否)の状態を続けた場合、実装は古い滞留を抱え続けず、そのストリームをリセットし、次の配信で新しいストリームを開き直さなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_busy_streak_sheds_after_threshold`
 - [x] MOQT-169 busy が続く途中で配信が受け入れられたら、busy の連続回数のカウンターをリセットし、散発的な一時的拒否が積み重なって切り捨てに至らないようにしなければならない。
@@ -823,7 +823,7 @@
 - [x] MOQT-170 ストリームを切り捨てた後、その放棄したストリーム宛てに届いたパブリッシャーの何も載せない FIN を、そこへ転送してはならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_shed_stream_skips_publisher_fin`
-- [x] MOQT-171 busy の連続回数のカウンターはサブスクライバーごとに持ち、詰まった 1 人のサブスクライバーの切り捨てが、ほかのサブスクライバーの正常なストリームに影響しないようにしなければならない。
+- [x] MOQT-171 busy の連続回数のカウンターは購読者ごとに持ち、詰まった 1 人の購読者の切り捨てが、ほかの購読者の正常なストリームに影響しないようにしなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_busy_shed_isolated_per_subscriber`
 - [x] MOQT-172 リセットそのものが下位のトランスポートに拒否された場合、実装はそれを完了扱いにせず、次の busy の回で切り捨てを再試行しなければならない。
@@ -838,7 +838,7 @@
 - [x] MOQT-174 セッションが閉じたとき、実装はそのピアのスロットを解放し、後で同じ下位のセッションポインターで再接続してきたものを、死んだピアではなく新しいピアとして扱わなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_close_frees_peer_for_reregistration`
-- [x] MOQT-175 サブスクライバーのセッションが閉じたとき、実装はほかのすべてのピアの Track にあるそのサブスクライバーの購読エントリを無効にし、後から来た Object が死んだセッションへ中継されないようにしなければならない。
+- [x] MOQT-175 購読者のセッションが閉じたとき、実装はほかのすべてのピアの Track にあるその購読者の購読エントリを無効にし、後から来た Object が死んだセッションへ中継されないようにしなければならない。
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_close_drops_subscriptions`
 - [x] MOQT-176 実装が登録していないセッション(またはすでに閉じたセッション)を閉じる操作は、ほかのピアに影響しない、何もしない操作でなければならない。
   - test: `tests/app/moqtrun_test.c` —
@@ -866,7 +866,7 @@
 - [x] MOQT-180 制御ストリームがまったく未知の Message Type を含む場合、ハブはセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_unknown_type_closes_session`
-- [x] MOQT-181 それぞれ専用の双方向ストリームで開いたリクエストには、そのストリームで応答しなければならない。ストリームのリセットはリクエストを取り消す(購読解除・公開解除)が、FIN だけでは取り消さない。1 つのセッションが開いておけるリクエストは最大 32 個とする(それを超えるものは EXCESSIVE_LOAD でリセットする)。
+- [x] MOQT-181 それぞれ専用の双方向ストリームで開いたリクエストには、そのストリームで応答しなければならない。ストリームのリセットはリクエストを取り消す(購読の解除・PUBLISH の取り消し)が、FIN だけでは取り消さない。1 つのセッションが開いておけるリクエストは最大 32 個とする(それを超えるものは EXCESSIVE_LOAD でリセットする)。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_subscribe_answered_on_its_stream`
   - test: `tests/app/moqtrun_sub_test.c` —
@@ -878,7 +878,7 @@
 
 ## ハブのリレー: 購読
 
-- [x] MOQT-182 SUBSCRIBE は、公開された Track を完全な Track Name(名前空間と名前)で照合しなければならない。名前空間が違えば、同じ名前でも別の Track である。
+- [x] MOQT-182 SUBSCRIBE は、配信されている Track を完全な Track Name(名前空間と名前)で照合しなければならない。名前空間が違えば、同じ名前でも別の Track である。
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_ns_must_match`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_same_name_other_ns_coexist`
@@ -889,13 +889,13 @@
   - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_sub_ok_largest`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_largest_from_datagram`
-- [x] MOQT-184 Object は、共有のバッファープールから各サブスクライバーへ確実に中継しなければならない。遅いサブスクライバーがプールを引き止めるのはウォーターマークまでとし、止まったサブスクライバーはタイムアウト後に外し、末尾を捨てたストリームは続けない(続けるとサブスクライバーとの同期が崩れる)。
+- [x] MOQT-184 Object は、共有のバッファープールから各購読者へ確実に中継しなければならない。遅い購読者がプールを引き止めるのはウォーターマークまでとし、止まった購読者はタイムアウト後に外し、末尾を捨てたストリームは続けない(続けると購読者との同期が崩れる)。
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_append_hold_at_watermark`
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_reclaim_follows_slowest`
   - test: `tests/app/moqtrel_test.c` — `test_moqtrel_stalled_after_timeout`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_poison_survives_reset_and_close`
-- [x] MOQT-185 サブスクライバーの優先度は、そのサブスクライバーの中継ストリームの WebTransport ストリームの urgency に対応させなければならない。優先度を変える REQUEST_UPDATE は以降のストリームに適用し、その購読の開いたままのストリームと fill のストリームのクラスも付け直す。io の stream_sched フックがあれば、ハブは各 Object ストリームのクラス全体(urgency 4、Subscriber << 8 | Publisher Priority、group order と fill を live より先にする順で並べた購読ごとのフロー)を設定し、送信ポンプはそれに従ってスケジュールする。
+- [x] MOQT-185 購読者の優先度は、その購読者の中継ストリームの WebTransport ストリームの urgency に対応させなければならない。優先度を変える REQUEST_UPDATE は以降のストリームに適用し、その購読の開いたままのストリームと fill のストリームのクラスも付け直す。io の stream_sched フックがあれば、ハブは各 Object ストリームのクラス全体(urgency 4、Subscriber << 8 | Publisher Priority、group order と fill を live より先にする順で並べた購読ごとのフロー)を設定し、送信ポンプはそれに従ってスケジュールする。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_relay_keys`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_update_reclasses`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_sched_fill_shares_flow`
@@ -909,7 +909,7 @@
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_failed_changes_nothing`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_survives_rejoin`
-- [x] MOQT-238 (SS10.9.1) ハブが公開している購読への REQUEST_UPDATE が失敗したとき、ハブは REQUEST_ERROR を返し、購読を PUBLISH_DONE UPDATE_FAILED で終え、リクエストストリームを FIN しなければならない。
+- [x] MOQT-238 (SS10.9.1) ハブがパブリッシャー側にいる購読への REQUEST_UPDATE が失敗したとき、ハブは REQUEST_ERROR を返し、購読を PUBLISH_DONE UPDATE_FAILED で終え、リクエストストリームを FIN しなければならない。
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_pub_update_failed_fins`
   - test: `tests/app/moqtrun_upd_test.c` —
@@ -957,7 +957,7 @@
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_no_cache_unknown`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_stream_end_of_range`
-- [x] MOQT-240 (SS10.12, SS10.13) 実装はFETCH(Standalone、Relative Joining、Absolute Joining)と FETCH_OK をエンコード・デコードし、それ以外の Fetch Type ではセッションを閉じなければならない。ハブは、何も公開されていない、Start が Largest Object より後ろ、または End が Start より後ろでない Standalone FETCH を INVALID_RANGE で拒否し、Largest より後ろの End は {Largest.Group, Largest.Object + 1} に切り詰めなければならない。
+- [x] MOQT-240 (SS10.12, SS10.13) 実装は FETCH(Standalone、Relative Joining、Absolute Joining)と FETCH_OK をエンコード・デコードし、それ以外の Fetch Type ではセッションを閉じなければならない。ハブは、まだ何も配信されていない、Start が Largest Object より後ろ、または End が Start より後ろでない Standalone FETCH を INVALID_RANGE で拒否し、Largest より後ろの End は {Largest.Group, Largest.Object + 1} に切り詰めなければならない。
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_standalone_golden`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_joining_golden`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_bad_type_and_scope`
@@ -970,7 +970,7 @@
     `test_moqtrun_fetch_range_against_largest`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_end_before_start`
-- [x] MOQT-245 (SS11.4.4) 実装はFETCH_HEADER のストリームをエンコード・デコードしなければならない。対象は、Subgroup のエンコードとフィールドの有無を表すビットを持つ Serialization Flags、Datagram ビット、End of Non-Existent / Unknown Range、最初の Object の絶対 ID である。未知のフラグ値、前の Object がないのに前の Object を参照するもの、範囲外の Group / Object ID では PROTOCOL_VIOLATION としなければならない。
+- [x] MOQT-245 (SS11.4.4) 実装は FETCH_HEADER のストリームをエンコード・デコードしなければならない。対象は、Subgroup のエンコードとフィールドの有無を表すビットを持つ Serialization Flags、Datagram ビット、End of Non-Existent / Unknown Range、最初の Object の絶対 ID である。未知のフラグ値、前の Object がないのに前の Object を参照するもの、範囲外の Group / Object ID では PROTOCOL_VIOLATION としなければならない。
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_hdr`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_stream_golden`
   - test: `tests/app/moqfetch_test.c` — `test_moqfetch_obj_flags_reject`
@@ -1012,7 +1012,7 @@
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_publisher_leaves`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_multiple_publishers`
   - test: `tests/app/moqtrun_ns_test.c` — `test_moqtrun_ns_prefix_overlap`
-  - evidence: `[~]` にしているのは、PREFIX_OVERLAP を厳しく解釈しているためである。1 つのセッション内では、どちらかの接頭辞が空であるか、最初のフィールドが等しければ 2 つの接頭辞は重なるとみなすので、ドラフトが求めるより多くを拒否する。
+  - evidence: `[~]` にしているのは、PREFIX_OVERLAP を厳しく解釈しているためである。1 つのセッション内では、どちらかのプレフィックスが空であるか、最初のフィールドが等しければ 2 つのプレフィックスは重なるとみなすので、ドラフトが求めるより多くを拒否する。
 
 ## ハブのリレー: GOAWAY と PUBLISH_DONE
 
@@ -1027,7 +1027,7 @@
 - [x] MOQT-196 ピアからの 2 回目の GOAWAY、またはクライアントからの New Session URI 付きの GOAWAY では、セッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_twice`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_peer_goaway_uri`
-- [x] MOQT-197 ハブはPUBLISH_DONE の前に購読のデータストリームをリセットしなければならない。パブリッシャーのセッションが終わると、そのサブスクライバーに PUBLISH_DONE TRACK_ENDED を送る。
+- [x] MOQT-197 ハブは PUBLISH_DONE の前に購読のデータストリームをリセットしなければならない。パブリッシャーのセッションが終わると、その購読者に PUBLISH_DONE TRACK_ENDED を送る。
   - test: `tests/app/moqtrun_drain_test.c` —
     `test_moqtrun_done_resets_streams_first`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
@@ -1037,7 +1037,7 @@
 
 ## ハブのリレー: Object Datagram
 
-- [x] MOQT-199 (SS11.3) Object Datagram は、その Alias が指す Track のサブスクライバー全員へバイト単位で同一のまま中継しなければならない。Alias が送信者のどの Track も指さないデータグラムは、捨てて数えなければならない。
+- [x] MOQT-199 (SS11.3) Object Datagram は、その Alias が指す Track の購読者全員へバイト単位で同一のまま中継しなければならない。Alias が送信者のどの Track も指さないデータグラムは、捨てて数えなければならない。
   - test: `tests/app/moqdg_test.c` — `test_moqdg_roundtrip_golden`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_dg_relays_identical_bytes_to_subscriber`
@@ -1048,11 +1048,11 @@
 
 ## マルチドラフト対応の作業で完成したハブの機能(台帳 10 章)
 
-- [x] MOQT-200 (SS10.19) ハブはSUBSCRIBE_TRACKS に、そのリクエストストリームでちょうど 1 つの REQUEST_OK で応答し、Track Namespace Prefix が同じセッションの確立済みの SUBSCRIBE_TRACKS と重なるものは PREFIX_OVERLAP で拒否しなければならない。
+- [x] MOQT-200 (SS10.19) ハブは SUBSCRIBE_TRACKS に、そのリクエストストリームでちょうど 1 つの REQUEST_OK で応答し、Track Namespace Prefix が同じセッションの確立済みの SUBSCRIBE_TRACKS と重なるものは PREFIX_OVERLAP で拒否しなければならない。
   - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_ok_once`
   - test: `tests/app/moqtrun_subtracks_test.c` — `test_subtracks_prefix_overlap`
   - test: `tests/app/moqns_test.c` — `test_moqns_subscribe_tracks_param_scope`
-- [x] MOQT-201 (SS10.19) 確立済みの SUBSCRIBE_TRACKS の接頭辞に一致し、サブスクライバー自身が公開したものではない Track それぞれについて、ハブは新しい双方向ストリームでその Track を指す PUBLISH を 1 つ開き、SUBSCRIBE_TRACKS の FORWARD の値を載せなければならない。SUBSCRIBE_TRACKS を取り消すと新しい PUBLISH は止まるが、確立済みのものは残る。応答の前に消えた Track は PUBLISH のストリームをリセットし、REQUEST_ERROR の応答はスロットを解放する。PUBLISH_OK(REQUEST_OK)の応答は、PUBLISH の Track Alias でサブスクライバーの購読を開き、PUBLISH のパラメーターから始める(FORWARD 0 なら Object を止めておく)。そのストリームでのサブスクライバーの REQUEST_UPDATE は SUBSCRIBE のものと同じく適用し、そのストリームで応答する(台帳 12-11、12-18)。SUBSCRIBE_TRACKS の Object の Range Filter がその購読の初期値になり(SS10.19.1 "copied over as the default Subscription parameters")、Range Filter が不正、重複、または MAX_FILTER_RANGES を超える SUBSCRIBE_TRACKS は INVALID_FILTER で拒否する(SS5.1.3、台帳 12-26)。更新が失敗したら PUBLISH_DONE UPDATE_FAILED で購読を終え、ハブは PUBLISH のストリームを FIN する(SS10.9.1、SS10.11、台帳 12-27)。2 つ目の REQUEST_OK または REQUEST_ERROR では、セッションを PROTOCOL_VIOLATION で閉じる(SS5.1、台帳 12-28)。
+- [x] MOQT-201 (SS10.19) 確立済みの SUBSCRIBE_TRACKS のプレフィックスに一致し、購読者自身が PUBLISH したものではない Track それぞれについて、ハブは新しい双方向ストリームでその Track を指す PUBLISH を 1 つ開き、SUBSCRIBE_TRACKS の FORWARD の値を載せなければならない。SUBSCRIBE_TRACKS を取り消すと新しい PUBLISH は止まるが、確立済みのものは残る。応答の前に消えた Track は PUBLISH のストリームをリセットし、REQUEST_ERROR の応答はスロットを解放する。PUBLISH_OK(REQUEST_OK)の応答は、PUBLISH の Track Alias で購読者の購読を開き、PUBLISH のパラメーターから始める(FORWARD 0 なら Object を止めておく)。そのストリームでの購読者の REQUEST_UPDATE は SUBSCRIBE のものと同じく適用し、そのストリームで応答する(台帳 12-11、12-18)。SUBSCRIBE_TRACKS の Object の Range Filter がその購読の初期値になり(SS10.19.1 "copied over as the default Subscription parameters")、Range Filter が不正、重複、または MAX_FILTER_RANGES を超える SUBSCRIBE_TRACKS は INVALID_FILTER で拒否する(SS5.1.3、台帳 12-26)。更新が失敗したら PUBLISH_DONE UPDATE_FAILED で購読を終え、ハブは PUBLISH のストリームを FIN する(SS10.9.1、SS10.11、台帳 12-27)。2 つ目の REQUEST_OK または REQUEST_ERROR では、セッションを PROTOCOL_VIOLATION で閉じる(SS5.1、台帳 12-28)。
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_pub_ok_relays`
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_subtracks_rngf_gates`
@@ -1086,14 +1086,14 @@
     `test_subtracks_skip_then_no_publish`
   - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_roundtrip`
   - test: `tests/app/moqns_test.c` — `test_moqns_pub_skipped_rejects`
-- [x] MOQT-219 (SS5.1.3, SS6.3) SUBSCRIBE_TRACKS の TRACK_PROPERTY_FILTER は、Track Property の値が範囲内にある Track だけをサブスクライバーへ PUBLISH させなければならない。
+- [x] MOQT-219 (SS5.1.3, SS6.3) SUBSCRIBE_TRACKS の TRACK_PROPERTY_FILTER は、Track Property の値が範囲内にある Track だけを購読者へ PUBLISH させなければならない。
   - test: `tests/app/moqtrun_misc_test.c` —
     `test_moqtrun_misc_subtracks_track_prop_filter`
 - [ ] MOQT-230 (SS10.19) 認可関数を組み込んだ構成では、すべての SUBSCRIBE_TRACKS をそれに渡し、拒否は REQUEST_ERROR UNAUTHORIZED としなければならない。
   - gap: 認可のフックが扱うのは SUBSCRIBE、TRACK_STATUS、PUBLISH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE だけである。
 - [~] MOQT-241 (SS10.19.1) ハブが SUBSCRIBE_TRACKS のために送る PUBLISH は、その SUBSCRIBE_TRACKS の GROUP_ORDER を持たなければならない。
   - evidence: `test_moqtrun_misc_d22_publish_params` は PUBLISH のバイト列を draft-22 のセッションでしか固定していない。
-- [x] MOQT-203 (SS10.9, SS10.9.2) FETCH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE に対する、そのリクエストストリームでの REQUEST_UPDATE を処理しなければならない。受け入れた更新には確認応答を返し(SUBSCRIBE_NAMESPACE の新しい接頭辞は、それ以降のアナウンスから有効になる)、拒否した名前空間の更新(たとえば PREFIX_OVERLAP)ではリクエストストリームを閉じ、古い接頭辞をそのまま残す。受け入れた FETCH の更新が失敗することはない(Token Alias はデコード時にセッションを閉じる)ので、SS10.9.1 の FETCH データストリームのリセットは起こらない。
+- [x] MOQT-203 (SS10.9, SS10.9.2) FETCH、PUBLISH_NAMESPACE、SUBSCRIBE_NAMESPACE に対する、そのリクエストストリームでの REQUEST_UPDATE を処理しなければならない。受け入れた更新には確認応答を返し(SUBSCRIBE_NAMESPACE の新しいプレフィックスは、それ以降のアナウンスから有効になる)、拒否した名前空間の更新(たとえば PREFIX_OVERLAP)ではリクエストストリームを閉じ、古いプレフィックスをそのまま残す。受け入れた FETCH の更新が失敗することはない(Token Alias はデコード時にセッションを閉じる)ので、SS10.9.1 の FETCH データストリームのリセットは起こらない。
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_on_fetch_stream`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_on_fetch_stream_refused`
@@ -1109,7 +1109,7 @@
     `test_moqtrun_fetch_descending_group_order`
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
   - note: 台帳 10-6。
-- [x] MOQT-205 (SS5.1.4) ライブの Track に途中から参加したサブスクライバーは、Location Filter の開始 Group から始めなければならない。ライブの先端より前の開始位置は現在の Group に切り上げ、未来の開始位置ならその Group まで配信を止めておく。
+- [x] MOQT-205 (SS5.1.4) ライブの Track に途中から参加した購読者は、Location Filter の開始 Group から始めなければならない。ライブの先端より前の開始位置は現在の Group に切り上げ、未来の開始位置ならその Group まで配信を止めておく。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
   - note: 台帳 10-7。最初の Group 内の開始 Object は、Subgroup ストリーム上で Object 単位で切り取る(`test_moqtrun_sub_filter22_start_object_*`、`test_moqtrun_sub_filter22_ring_*`)。
