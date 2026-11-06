@@ -1,126 +1,91 @@
-[Docs](../README.md) › [Features](README.md) › Ledger format
+[ドキュメント](../README.md) › [機能](README.md) › 台帳の書式
 
-# Requirement ledger format
+# 要件台帳の書式
 
-Every ledger in docs/features/ is an EARS requirement ledger for ONE spec,
-mapping each requirement to the existing test that demonstrates it. The
-goal: untested requirements must be visible at a glance. This page is for
-contributors who add or edit a ledger; `scripts/check_features.py`
-(`just features-check`, run in CI) enforces the machine-checkable rules.
+docs/features/ の各台帳は、1 つの仕様についての EARS 形式の要件台帳で、各要件をそれを確かめる既存のテストに結び付けます。
+目的はテストされていない要件をひと目で分かるようにすることです。
+このページは台帳を追加・編集するコントリビューター向けです。機械で確かめられる規則は `scripts/check_features.py`(`just features-check`。CI で実行)が強制します。
 
-## File skeleton (follow exactly)
+## ファイルの骨組み(このとおりに書く)
 
 ```markdown
-[Docs](../README.md) › [Features](README.md) › RFC 9000
+[ドキュメント](../README.md) › [機能](README.md) › RFC 9000
 
-# RFC 9000 — QUIC: A UDP-Based Multiplexed and Secure Transport
+# RFC 9000: QUIC: UDP ベースの多重化されたセキュアなトランスポート
 
-EARS requirement ledger extracted from the spec text
-(`tasks/specs/rfc9000.txt`, not in git). Each requirement carries the test
-that demonstrates it; an unchecked box with no test line is an open gap.
-Status as of 2026-07.
+仕様の本文(`tasks/specs/rfc9000.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。
+各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。
+2026-07 時点の状況です。
 
-Legend:
+凡例:
 
-- `[x]` — demonstrated by the referenced test
-- `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
-- `[ ]` — not demonstrated by any test yet
+- `[x]`: 挙げたテストで確認済み
+- `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
+- `[ ]`: まだどのテストでも確認していない
 
-**Coverage: NN/MM tested, KK indirect, LL untested.**
+**カバレッジ: テスト済み NN/MM、間接 KK、未テスト LL。**
 
-## §16 Variable-Length Integer Encoding
+## §16 可変長整数エンコーディング
 
-- [x] 9000-001 (§16) The server shall decode the two most significant bits
-  of the first byte as the variable-length integer length.
+- [x] 9000-001 (§16) サーバーは、先頭バイトの上位 2 ビットを可変長整数の長さとしてデコードしなければならない。
   - test: `tests/transport/varint_test.c` — `test_varint_decode`
-- [~] 9000-002 (§16) When encoding a variable-length integer, the server
-  shall not use a longer encoding than necessary.
-  - evidence: exercised by every frame-codec round-trip test; no dedicated
-    minimal-length assertion.
-- [ ] 9000-003 (§16) If a varint exceeds 2^62-1, then the server shall
-  reject the encoding.
+- [~] 9000-002 (§16) 可変長整数をエンコードするとき、サーバーは必要以上に長いエンコーディングを使ってはならない。
+  - evidence: すべてのフレームコーデックのラウンドトリップテストで動いている。最小長を確かめる専用のアサーションはない。
+- [ ] 9000-003 (§16) 可変長整数が 2^62-1 を超える場合、サーバーはそのエンコーディングを拒否しなければならない。
 
-## Out of scope
+## 対象外
 
-Client-only or operator-level requirements this server SDK does not
-implement, excluded from the coverage denominator:
+このサーバー SDK が実装しない、クライアント専用または運用者向けの要件。カバレッジの分母から除く:
 
-- (§6.2) Client-initiated version negotiation response handling — client
-  behavior.
+- (§6.2) クライアントが始めるバージョンネゴシエーションの応答の処理: クライアントの動作。
 ```
 
-## Rules
+## 規則
 
-1. **IDs**: `<stem>-NNN`, three digits. A new ledger numbers its items in
-   spec order. After that an ID is permanent, because other pages (e.g.
-   known-limitations.md, GitHub issues) cite it: a deleted item leaves a gap,
-   a new item takes the next free number even when that puts it out of
-   order within its section, and an ID is never reused or renumbered
-   (the checker rejects an ID used twice). A suffix letter (`MQ18-118a`)
-   marks an item split out of an existing one. The RFC 9000 ledger still
-   uses the placeholder `9000-XXX`, which the uniqueness check skips.
-   Stems: rfc9000 → `9000`, fips197 → `F197`, fips186-4 → `F186`,
-   fips180-4 → `F180`, fips198-1 → `F198`, sp800-38d → `S38D`,
-   draft-ietf-webtrans-http3-15 → `WTH3`,
-   draft-ietf-moq-transport-19 → `MOQT`.
-2. **EARS phrasing** (pick the matching template, English):
-   - Ubiquitous: "The server shall X."
-   - Event-driven: "When T, the server shall X."
-   - State-driven: "While S, the server shall X."
-   - Unwanted behavior: "If C, then the server shall X."
-   - Optional feature: "Where F, the server shall X."
-   The system name is "the server" (wired is a server SDK); for pure
-   library primitives (crypto, codecs) use "the implementation".
-3. **Extraction scope**: every normative MUST / MUST NOT / SHALL / SHOULD /
-   SHOULD NOT / REQUIRED statement relevant to a server-side implementation,
-   plus the spec's central algorithms even when phrased descriptively (e.g.
-   a KDF's derivation steps, a state machine's transitions).
-   Over-extraction is safe; omission is dangerous — when in doubt, include.
-   Group items under `##` headings mirroring the spec's own section
-   structure, in spec order.
-4. **Out-of-scope items** go in the final `## Out of scope` section as plain
-   bullets (no checkbox, no ID), each with a one-phrase reason. Client-only
-   behavior, operator guidance, and algorithms the SDK deliberately does not
-   ship belong here — never silently dropped, never counted in the summary.
-5. **Test references** — the checker enforces this format EXACTLY:
+1. **ID**: `<stem>-NNN` の形で、数字は 3 桁です。
+   新しい台帳では仕様の順に番号を振ります。
+   その後は ID を変えません。ほかのページ(known-limitations.md など)や GitHub の issue が引用するからです。
+   項目を消したら番号は欠番として残し、新しい項目は、節の中で順序が崩れても次の空き番号を使います。
+   ID は再利用も振り直しもしません(同じ ID を 2 回使うとチェッカーが拒否します)。
+   末尾の英字(`MQ18-118a`)は、既存の項目から分けた項目を表します。
+   RFC 9000 の台帳は今も仮の ID `9000-XXX` を使っていて、一意性の検査はこれを飛ばします。
+   stem の例: rfc9000 → `9000`、fips197 → `F197`、fips186-4 → `F186`、fips180-4 → `F180`、fips198-1 → `F198`、sp800-38d → `S38D`、draft-ietf-webtrans-http3-15 → `WTH3`、draft-ietf-moq-transport-19 → `MOQT`。
+2. **EARS の書き方**(合う型を選ぶ。要件文は常体で書く):
+   - 常時: 「サーバーは X しなければならない。」
+   - イベント駆動: 「T とき、サーバーは X しなければならない。」
+   - 状態駆動: 「S 間、サーバーは X しなければならない。」
+   - 望ましくない動作: 「C 場合、サーバーは X しなければならない。」
+   - オプション機能: 「F の構成では、サーバーは X しなければならない。」
+   システムの名前は「サーバー」です(wired はサーバー SDK です)。純粋なライブラリのプリミティブ(暗号、コーデック)には「実装」を使います。
+3. **抽出の範囲**: サーバー側の実装に関わる規範的な MUST / MUST NOT / SHALL / SHOULD / SHOULD NOT / REQUIRED の記述すべてと、記述的に書かれていても仕様の中心となるアルゴリズム(KDF の導出手順、ステートマシンの遷移など)です。
+   取りすぎは安全で、漏れは危険です。迷ったら入れます。
+   項目は仕様の節の構成をなぞった `##` 見出しの下に、仕様の順にまとめます。
+4. **対象外の項目**は最後の `## 対象外` の節に、チェックボックスも ID もない普通の箇条として、理由を一言添えて書きます。
+   クライアントだけの動作、運用者向けの指針、SDK が意図的に出荷しないアルゴリズムがここに入ります。黙って落とすことも、集計に数えることもしません。
+5. **テストの参照**: チェッカーはこの書式を**厳密に**強制します。
    ``- test: `tests/<dir>/<file>` — `<function>` ``
-   - The file path must exist in the repo; the function name must appear in
-     that file. NEVER cite a test you have not grep-verified. If you cannot
-     find a real test, the item is `[~]` (with an evidence line) or `[ ]` —
-     an honest gap beats an invented reference.
-   - The cited test must be reachable from `tests/run.c` `main()` AND drive
-     code that a production path (`examples/` -> srvrun/srvloop/sdrv/
-     moqtrun) calls. A test of a helper with no production caller is at
-     most `[~]` evidence. This holds for library and codec items phrased
-     "the implementation shall" too: a primitive that only a test, a fuzz
-     harness or an unshipped client calls is `[~]` (or `[ ]` when no
-     production path exercises it at all), with an evidence or gap line
-     saying so.
-   - SHOULD / RECOMMENDED rules are phrased "should", MUST rules "shall".
-   - Multiple tests: repeat the `- test:` line.
-   - Golden-vector headers (`tests/*_golden.h`) and fuzz harnesses
-     (`fuzz/fuzz_*.c`) may also be cited on `- test:` lines.
-   - `[~]` items use `- evidence:` (free text) instead of `- test:`.
-   - An interop-only demonstration is `[~]` with an evidence line naming the
-     testcase, e.g. `- evidence: interop testcase `keyupdate` (see
-     [Interop](../interop.md)); no dedicated unit test.`
-   - A `- vuln: V-nnnn, ...` line names the
-     [vulnerability ledger](../security/vuln-ledger.md) rows whose pinning
-     test is one of the item's `- test:` lines (the threat this requirement
-     answers). It is the last sub-line and is regenerated from the shared
-     test names, not hand-picked.
-6. **Where to look for tests**: `tests/{transport,crypto,tls,app,common}/
-   <domain>_test.c`, functions `static void test_*`. Hint maps:
-   `docs/test-coverage.md` (vector locations). Verify with grep; the hint
-   map is NOT evidence.
-7. **Summary line**: `**Coverage: NN/MM tested, KK indirect, LL untested.**`
-   where MM = total checkboxed items, NN = `[x]`, KK = `[~]`, LL = `[ ]`.
-   Boxes under a `## Not implemented`, `## Out of scope`,
-   `## Experimental ...` or `## Informational ...` heading are not counted.
-   Counts must match the actual boxes, and the README rows and Total line
-   must match the ledgers; `python3 scripts/check_features.py --fix`
-   rewrites all three from the boxes.
-8. Keep each requirement one sentence. Cite the spec section in parentheses
-   after the ID. Do not editorialize; gap notes are allowed as a short
-   `- gap:` line when the reason an item is untested is already known.
-9. Write the file in English (docs/ convention). Wrap prose at ~79 columns.
+   - ファイルパスはリポジトリに存在し、関数名はそのファイルに出てこなければなりません。
+     grep で確かめていないテストは**決して**挙げません。本物のテストが見つからなければ、その項目は `[~]`(evidence 行付き)か `[ ]` です。作り話の参照より、正直なギャップのほうがましです。
+   - 挙げるテストは `tests/run.c` の `main()` から到達でき、かつ本番の経路(`examples/` → srvrun/srvloop/sdrv/moqtrun)が呼ぶコードを動かすものでなければなりません。
+     本番から呼ばれないヘルパーのテストは、せいぜい `[~]` の evidence です。
+     「実装は〜しなければならない」と書くライブラリやコーデックの項目も同じです。テスト、ファズハーネス、出荷していないクライアントからしか呼ばれないプリミティブは `[~]`(本番の経路がまったく動かさないなら `[ ]`)とし、evidence 行かギャップの行でそう書きます。
+   - SHOULD / RECOMMENDED の規則は「するべきである」、MUST の規則は「しなければならない」で書きます。
+   - テストが複数あるときは `- test:` 行を繰り返します。
+   - ゴールデンベクターのヘッダー(`tests/*_golden.h`)とファズハーネス(`fuzz/fuzz_*.c`)も `- test:` 行に挙げられます。
+   - `[~]` の項目は、`- test:` の代わりに `- evidence:`(自由記述)を使います。
+   - 相互接続性テストでしか確かめていない項目は `[~]` とし、テストケースの名前を evidence 行に書きます。例: ``- evidence: interop テストケース `keyupdate`([相互接続性の検証結果](../interop.md) を参照)。専用の単体テストはない。``
+   - `- vuln: V-nnnn, ...` の行は、[脆弱性台帳](../security/vuln-ledger.md) の行のうち、項目の `- test:` 行のどれかを pinning test(その脅威への修正を固定するテスト)とするものを挙げます(この要件が対処する脅威です)。
+     これは最後の下位行で、手で選ぶのではなく共有のテスト名から生成し直します。
+6. **テストの探し場所**: `tests/{transport,crypto,tls,app,common}/<domain>_test.c` の `static void test_*` 関数です。
+   手がかりの対応表は `docs/test-coverage.md`(ベクターの置き場所)にあります。必ず grep で確かめます。対応表は証拠になりません。
+7. **集計の行**: `**カバレッジ: テスト済み NN/MM、間接 KK、未テスト LL。**`
+   MM はチェックボックス付きの項目の総数、NN は `[x]`、KK は `[~]`、LL は `[ ]` の数です。
+   `## Not implemented`、`## Out of scope`、`## Experimental ...`、`## Informational ...` と、日本語の `## 未実装`、`## 対象外`、`## 実験的...`、`## 参考情報...` の見出しの下にあるチェックボックスは数えません。
+   件数は実際のチェックボックスと一致しなければならず、README の各行と合計の行も台帳と一致しなければなりません。`python3 scripts/check_features.py --fix` が、この 3 つをチェックボックスから書き直します。
+8. 各要件は 1 文で書きます。
+   ID の後ろの括弧に仕様の節を書きます。
+   論評は書きません。項目がテストされていない理由がすでに分かっているときは、短い `- gap:` 行を書けます。
+9. 地の文は日本語(です・ます)、要件文は常体で書きます。
+   要件文は項目の 1 行目に 1 行で書き、下位行(`- test:` など)は 2 文字字下げします。
+   `- test:`、`- evidence:`、`- gap:`、`- vuln:` のラベルと `- test:` 行の書式は、チェッカーとツールが読むので英語のままにします。
+   英語のまま残っている台帳(MoQT と WebTransport のドラフト、known-limitations.md)は、その書式のままでも検査を通ります。
