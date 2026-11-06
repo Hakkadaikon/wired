@@ -2,7 +2,7 @@
 
 Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 
-## Context
+## 背景
 
 既存のmoqt_chatは単一画像の即時送信機能(`sendImage`/`moqtImageWire.ts`)のみを持つ。ユーザーから5つの拡張要求があった:
 
@@ -137,7 +137,7 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 - 削除 `assets/movie-live.mp4`(要: 他未参照確認)
 - `examples/moqt_chat/README.md`
 
-## Global Constraints
+## 全体の制約
 
 - `just test-fast`(または`just test`)/`just ninja`/`lizard src --CCN 3 -w` の三点ゲートはC側(`wired_server.c`)を編集した場合のみ必須(SDK `src/`本体は無変更のため通常は影響なしだが、`wired_server.c`はexamples配下でも`.github/workflows/examples.yml`の対象なので、変更したら少なくとも該当exampleのビルドを確認する)。
 - `src/`ディレクトリ配下は本タスクでは一切変更しない。`git diff --stat src/`が空であることを最終確認する。
