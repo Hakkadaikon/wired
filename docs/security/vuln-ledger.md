@@ -16,7 +16,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 | 概要 | 元の問題の 1 行の説明 |
 | 判定 | `fixed`、`already-safe`、`n/a` のどれか |
 | 層 | 検証の層と優先度(`unit P1`、`fuzz P2` など) |
-| このコード | この SDK がその懸念を扱う場所(どこにもなければ `n/a`) |
+| SDK のコード | この SDK がその懸念を扱う場所(どこにもなければ `n/a`) |
 | テスト | 判定を固定するテスト(`n/a` なら空) |
 | コミット | 修正または固定したコミット(`existing` は監査より前からあるもの) |
 | 根拠 | 判定が成り立つ理由(`n/a` ならその理由) |
@@ -53,7 +53,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## QUIC トランスポート(RFC 9000/9001/9002/9368/9369/9287)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0002 | done | CVE-2024-52811 | ngtcp2 | integer-overflow | ACK の範囲が qlog の出力に書き込まれる前に検証されず、ACK フレーム…で整数アンダーフローを起こす… | n/a | unit P3 | src/common/platform/qlog/qlogevent.c |  |  | qlog の書き手(qev_w)は容量を使い切ると自分を無効化する有界カーソル。ACK の範囲は検証済みの ack_frame のフィールド(ack.c の take_first/pair_fits)として届き、ワイヤー上の生の整数から導き直すことはない。ngtcp2 の固定バッファーの qlog シリアライザーに当たるクラスはここには存在しない。 |
 | V-0003 | done | CVE-2026-40170 | ngtcp2 | oob-write | ngtcp2_qlog_parameters_set_transport_params() が相手のトランスポートパラメーターを固定 1024 バイトのスタ… | n/a | unit P3 | src/tls/ext/tparam/tparam.c:tparam_get_int |  |  | トランスポートパラメーターは take_value が vlen を残りの buf.n と照らして境界検査したうえでデコードしており、この SDK にはトランスポートパラメーターを qlog 用にスタックバッファーへシリアライズする処理がない。ngtcp2 の固定 1024 バイトの qlog バッファーはここには存在しない。 |
@@ -295,7 +295,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## TLS 1.3(RFC 8446 と鍵交換の RFC)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0235 | done | CVE-2025-13034 | curl (ngtcp2/GnuTLS backend) | cert-validation-bypass | ngtcp2/GnuTLS で QUIC を使うと、curl のサーバー証明書の公開鍵ピン留め検査が飛ばされていた… | n/a | unit P3 | n/a |  |  | 証明書のピン留めは、チェーン検証の上に呼び出し側・アプリケーションが載せる機能。この SDK は castore_validate_chain を公開し、ピン留めの方針はアプリに任せる(docs/security.md の呼び出し側の責任の分担)。curl 固有の配線のバグにあたるものはここにはない。 |
 | V-0236 | done | GHSA-w5f4-fx9m-m4q7 | msquic | cert-validation-bypass | OpenSSL/… に対してビルドした MsQuic で、TLS のホスト名検証が不適切なため中間者攻撃が可能… | fixed | unit P2 | src/tls/handshake/roles/client/client.h + client.c | test_fullhs_rejects_missing_san_when_policy_set (default documented in fullhs.h: standalone fullhs matches no SAN until fullhs_set_policy; the client role always sets it) | 4bc6edb0 | ホスト名/SAN の照合(x509_san_matches)は client_init の server_name が設定されているときだけ走り、fullhs_set_policy は feed_initial が毎回呼ぶので、既定のクライアント経路では強制される。ただし fullhs を単体で使う呼び出し元やサーバー役には同様の要件も強制もないため、クライアント役を迂回すればOpenSSL のコールバック配線を迂回するのと同じ種類の問題に到達しうる。policy_host_len>0 のとき fullhs が SAN 検査なしに cert_verified を立てないことを assert するテストを追加すること。 |
@@ -488,7 +488,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## 共通鍵暗号とハッシュ
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0752 | done | CVE-2022-23408 | wolfssl | nonce-reuse | TLS/DTLS 1.2 または 1.1 の AES-CBC/DES3 で IV がランダムでない(レコード暗号化)。 | n/a | unit P3 | n/a |  |  | src/crypto/symmetric のどこにも CBC や DES3 の暗号はない。実装しているのは AES-GCM/AES-256-GCM と ChaCha20-Poly1305 だけなので、CBC の IV がランダムでないというバグの類は起こりえない。 |
 | V-0753 | done | CVE-2026-50584 | mbedtls | nonce-reuse | ChaCha20 のカウンターのオーバーフローでキーストリームが再利用されうる。 | n/a | unit P3 | src/crypto/symmetric/aead/chacha/chacha20.c:chacha20_xor |  |  | メッセージごとのカウンターは u32 で、1 から始めて 64 バイトのブロックごとに 1 増える。QUIC/UDP のパケットは 1 回の chapoly_seal/open の呼び出しで 2^32 ブロック(約 256GB)よりはるかに小さいので、mbedtls のストリーミング API のカウンターオーバーフロー(複数回呼び出す API の状態)の種類のバグは、このパケット単位の一回きりの設計では起こりえない。 |
@@ -525,7 +525,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## 公開鍵署名と鍵共有
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0644 | done | CVE-2024-2881 | wolfssl | timing-side-channel | EdDSA(Ed25519)の署名処理でのフォールトインジェクションの脆弱性。 | n/a | unit P3 | src/crypto/asymmetric/ecc/ed25519/ed25519_sign.c |  |  | 署名中のフォールトインジェクションやグリッチは物理攻撃の類型で、ソフトウェア SDK の脅威モデルの外。libc に依存しない移植可能な署名器に当てはまるフォールト検知の対策はない。 |
 | V-0645 | done | CVE-2024-1545 | wolfssl | timing-side-channel | RsaPrivateDecryption(RSA 秘密鍵演算)のフォールトインジェクションの脆弱性。 | n/a | unit P3 | src/crypto/asymmetric/rsa: rsa_verify.c, rsa_pss_verify.c |  |  | RSA 秘密鍵による復号(RsaPrivateDecryption)はこの SDK に存在しない(検証のみ)。存在しない演算にフォールトインジェクションは当てはまらない。 |
@@ -638,7 +638,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## X.509 / DER / PKI
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0513 | done | CVE-2026-11310 | wolfssl | name-constraint-bypass | OpenSSL 互換の証明書検証器での X.509 信頼チェーンの回避。 | n/a | unit P3 | n/a |  |  | この行の対象は wolfssl の OpenSSL 互換の X509_verify_cert ラッパー API。この SDK にはそうした互換層はなく、あるのは castore_validate_chain だけ。 |
 | V-0514 | done | CVE-2026-11999 | wolfssl | ca-bit | パス深さの枯渇による X.509 信頼チェーンの回避。証明書パスの構築に影響する。 | n/a | unit P2 | src/crypto/pki/trust/castore/pathvalidate.c:cert_pathlen_ok |  |  | #173 の再監査(2026-10-27): 出荷するサーバーには該当しない(n/a)。サーバーはピアの証明書もピアの署名も検証しない(CertificateRequest を送らず、チェーン検証、CertificateVerify、署名検証には examples/ から到達する呼び出し元がない。scripts/vulnaudit/reach.py による)。サーバーは自分に設定された証明書を解析し、それで署名するだけである。引用したライブラリのコード(cert_pathlen_ok)に到達するのは単体テストだけである。 |
@@ -775,7 +775,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## HTTP/3、QPACK、HTTP データグラム(RFC 9114/9204/9297/9220/9218)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0421 | done | GHSA-vvgj-x9jq-8cj9 | quic-go | resource-exhaustion-pre-handshake | QPACK でエンコードした HTTP/3 のトレーラーフレームが、デコードすると非常に大きなヘッダーフィールドセクションになりうる。CVE-2025… と同様… | already-safe | fuzz P2 | src/app/http3/server/srvloop/dispatch_route.c:srvloop_route_qpack_ack; src/app/http3/server/srvloop/body_window_bodywin.c:bodywin_note_type | test_srvloop_qpack_trailer_section_acked, test_srvloop_qpack_amplified_field_section_rejected | 5c6677e17 | #173 の再監査(2026-10-27): サーバーはトレーラーセクションを展開しない。そのバイトは固定のリクエストウィンドウに置かれ、セクションは確認応答するだけ(RFC 9204 4.4.1)。先頭の HEADERS がデコードで WIRED_H3_MAX_FIELD_SECTION を超えれば拒否側に倒す(fail closed)。 |
 | V-0422 | done | GHSA-g754-hx8w-x2g6 | quic-go | resource-exhaustion-pre-handshake | 非常に大きなヘッダーフィールドにデコードされる、QPACK でエンコードした HTTP/3 HEADERS フレームによる過剰なメモリ確保… | already-safe | fuzz P2 | src/app/http3/server/srvloop/dispatch_reassemble.c:srvloop_route_complete_slot | test_srvloop_qpack_amplified_field_section_rejected | 5c6677e17 | #173 の再監査(2026-10-27): フィールドセクションはスロットの固定の req_scratch(WIRED_H3_MAX_FIELD_SECTION)にデコードされる。小さな QPACK セクションが動的参照でそれを超えて膨らんでもディスパッチされず、何も確保しない。 |
@@ -854,7 +854,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## WebTransport(draft-ietf-webtrans-http3)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0492 | done | CVE-2026-21434 | webtransport-go (WebTransport) | resource-exhaustion | 大きすぎる WT_CLOSE_SESSION の Application Error Message によるメモリ枯渇: ドラフトは 1024 バイトの上限を義務づけ… | already-safe | unit P2 | src/app/http3/server/srvloop/body_window_bodywin_capq.c:bodywin_capq_oversized | test_bodywin_capsule_oversized_skipped, test_srvrun_wt_unknown_capsule_past_window_skipped | existing | #173 の再監査(2026-10-27): 固定の BODYWIN_CAPSULE_CAP キューより大きいカプセル(大きすぎる WT_CLOSE_SESSION のメッセージを含む)は、空の値として通知し、そのバイトは読み飛ばす。バッファーに溜めることはない。 |
 | V-0493 | done | CVE-2026-21435 | webtransport-go (WebTransport) | resource-exhaustion | セッションの終了が無期限にハングする: 悪意のあるピアが CONNECT ストリームの QUIC フロー制御クレジットを出し渋ると、b… | n/a | unit P3 | src/app/http3/server/srvrun/srvrun.c (WT session close path) |  |  | この CVE は、セッション終了時に CONNECT ストリームの QUIC フロー制御クレジットを待ってクライアントライブラリがハングするもの。wired はサーバー側の SDK で、その終了経路(セッションごとにバッファーする wt_close_pending/wt_close_msg、srvrun.c)は、ピアが制御するクレジットを同期的に待ってブロックせず、自身のイベントループから送信を進める。そのため、ここで説明されている無期限ブロックの失敗に対応する、脆弱かどうかを評価すべきコード経路はない。 |
@@ -883,7 +883,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## MoQT(draft-ietf-moq-transport)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0783 | done | L-0041 | MoQT shared per-session QUIC t | resource-contention: |  | n/a | unit P3 | n/a |  |  | 1 つの共有 QUIC 接続上のセッション間の公平性はトランスポートやスケジューラーの関心事で、src/app/moqt の外にある。ハブ自身のセッションごと・トラックごとの固定テーブル(WIRED_MOQTRUN_MAX_SESSIONS など)は 1 つのピアの状態の大きさをすでに抑えているが、QUIC レベルのフロー制御の公平性は扱わない。それは moqt ではなく、この SDK の QUIC 層が受け持つもの。 |
 | V-0784 | done | S-moqt-13-1 | draft-ietf-moq-transport-18/19 §13; draft-ietf-moq-transport-22 §16 | MOQT is hop-by-hop, so security spans multiple relay hops | セキュリティの考慮では、2 つのエンドポイントの間で起きることと、e…の両方を考える必要がある | n/a | unit P3 | n/a |  |  | リレーの連鎖全体にまたがるホップごとの信頼についての、参考情報の枠組みの段落(それ自体の攻撃も防御もない)。後の節の範囲を決めるだけの段落なので、src/app/moqt でテストするものはない。 |
@@ -911,7 +911,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## IP / UDP / AF_XDP の I/O
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0489 | done | GHSA-px8v-pp82-rcvr | quic-go | path-mtu-spoofing | Linux では、オフパスの攻撃者が偽装した ICMP の 'Packet Too Big' / Fragmentation Needed メッセージを注入して…を強いることができ… | already-safe | unit P1 | src/transport/io/socket/io/udp.c:wired_udp_pmtu_probe_enable (WIRED_IP_PMTUDISC_PROBE); src/app/http3/server/srvrun/srvrun_feed.c:srvrun_pmtu_reap_ack | test_srvrun_pmtu_ack_outside_range_no_effect, test_srvrun_pmtu_ack_raises_validated | existing | #173 の再監査(2026-10-27): リッスンソケットは IP_PMTUDISC_PROBE を使うので、ICMP Packet Too Big は無視される。パス MTU が上がるのは、パディングしたプローブが ACK されたときだけである(RFC 8899 / RFC 9000 14.3)。 |
 | V-0490 | done | GHSA-hxq4-mx37-fqvg | s2n-quic | nil-deref/crash-on-frame | 空の UDP パケットを受け取ったときの、s2n-quic の DoS の可能性がある脆弱性。 | already-safe | unit P1 | src/app/http3/server/srvrun/srvrun_busy_poll.c:srvrun_serve | test_srvrun_serve_zero_length_datagram_ignored | cd853824/feb85a1b | サーバーの経路では、0 バイトまたは 1 バイトのデータグラムを渡された srvrun_serve はスロットを取らず、何も送らない(stateless reset も送らない)。 |
@@ -919,7 +919,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## メディア(mp4frag)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0803 | done | CVE-2016-3062 | FFmpeg (libavformat mov demuxer) | box-entry-count-overflow | libavformat/mov.c の mov_read_dref() が dref ボックスの 'entries' の数のフィールドを誤って扱い、範囲外…を許す… | n/a | unit P3 | n/a |  |  | FFmpeg の dref ボックスの entries 数のバグは、すべて libavformat/mov.c の中にあり、この SDK はそのコードを取り込みも実行もしない。mp4frag.c はサンプルテーブル・dref のパースを一切しない(mp4frag.h: 'no sample-table parsing')ので、脆弱な関数に相当するものはここにはない。 |
 | V-0804 | done | CVE-2015-1208 | FFmpeg (libavformat mov demuxer) | box-length-underflow | mov_read_default()(再帰的な ISOBMFF のボックス木の走査)の整数アンダーフローで、heap/stack…の漏えいを許す… | n/a | fuzz P2 | src/app/media/mp4frag/mp4frag.c:mp4frag_box_take / mp4frag_size_ok |  |  | #173 の再監査(2026-10-27): 出荷するサーバーには該当しない(n/a)。mp4frag(mp4frag_box_take, mp4frag_size_ok)には examples/ から到達する呼び出し元がない(scripts/vulnaudit/reach.py による)。MP4 のボックスをパースするサーバーはない。 |
@@ -949,7 +949,7 @@ SDK のプロトコルがさらされる脆弱性の種類やアドバイザリ�
 
 ## サンプルと依存(examples、フロントエンドの npm、e2e の npm)
 
-| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | このコード | テスト | コミット | 根拠 |
+| ID | 状態 | 出典 | 対象 | 分類 | 概要 | 判定 | 層 | SDK のコード | テスト | コミット | 根拠 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | V-0828 | done | CVE-2026-69152 | brace-expansion@(see pnpm audit output) | regex-dos-incomplete-fix | brace-expansion の DoS: combine() に渡す中間配列に上限がない。CVE-2026… の maxLength による緩和策… | n/a | unit P3 | n/a |  |  | brace-expansion は minimatch 経由でだけ入り、minimatch は eslint / typescript-eslint / eslint-plugin-* の devDependencies の推移的な依存でしかない(pnpm-lock.yaml: minimatch の利用元はすべて @eslint/*, @typescript-eslint/*, eslint-plugin-import/jsx-a11y/react)。これは `pnpm lint` のときだけ動く lint のツールで、`next build` の出力にも `next start` の実行時にも入らない。 |
 | V-0829 | done | GHSA-5p4m-2wfm-xmqj | js-yaml@(see pnpm audit output) | quadratic-cpu-dos | js-yaml で、3.x と 4.x の両方のブランチで !!omap の解決時に CPU を二次関数的に消費する。関連する…の修正… | n/a | unit P3 | n/a |  |  | js-yaml は @eslint/eslintrc(pnpm-lock.yaml)経由でしか入らない。つまり eslint 自身の devDependency の連鎖で、lint 時に eslint の設定 YAML をパースするだけで、Next.js の本番ビルドやランタイムにバンドルも実行もされない。 |
