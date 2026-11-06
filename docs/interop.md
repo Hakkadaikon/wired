@@ -1,202 +1,99 @@
-# Interop Results
+# 相互接続性の検証結果
 
-[Docs](README.md) › Interop Results
+[ドキュメント](README.md) › 相互接続性の検証結果
 
-This page answers one question: which QUIC, WebTransport and MoQT
-testcases does the wired server pass when an independent client
-implementation talks to it, and what is the evidence? Read it when you need to know how far wired
-is proven to work with other stacks, or before you claim wire
-compatibility for a feature.
+このページが答える問いは一つです。独立したクライアント実装が wired サーバーと通信したとき、wired サーバーはどの QUIC、WebTransport、MoQT のテストケースに合格し、その証拠は何か。wired がほかのスタックとどこまで動くと証明されているかを知りたいときや、ある機能についてワイヤー互換を主張する前に読んでください。
 
-## What interop testing is, and why it matters
+## 相互接続性テストとは何か、なぜ重要か
 
-Interoperability ("interop") testing runs the wired server against a
-client written by someone else, from the same specification. Unit tests
-and self-loopback tests (wired's client talking to wired's server) check
-that the code does what we meant. They cannot check that what we meant is
-what the RFC says: when both ends share the same misreading of the spec,
-the mistake cancels out and the loopback test still passes. Three such wire
-bugs once passed loopback and broke a real peer. So spec compliance can be
-shown in only two ways: against the RFC's own test vectors, or against an
-independent implementation. This page is the second kind, and it is the
-only evidence tier that proves wire compatibility. Per-requirement
-unit/vector coverage lives in [Features](features/README.md).
+相互接続性（interop）テストでは、同じ仕様から他者が書いたクライアントを相手に wired サーバーを動かします。単体テストとセルフループバックテスト（wired のクライアントが wired のサーバーと通信するテスト）は、コードが意図どおりに動くかを確かめます。しかし、その意図が RFC の内容と一致しているかは確かめられません。両端が仕様を同じように読み違えていると、誤りが打ち消し合い、ループバックテストは合格してしまいます。実際に、そうしたワイヤー上のバグが 3 件、ループバックでは合格しながら実際のピアとの通信を壊しました。そのため、仕様への準拠を示す方法は二つしかありません。RFC 自身のテストベクターと照らし合わせるか、独立した実装と照らし合わせるかです。このページは後者にあたり、ワイヤー互換を証明できる唯一の証拠の段階です。要件ごとの単体テストとテストベクターによる網羅は [Features](features/README.md) にあります。
 
-The runs use the
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner),
-a public harness that puts one server and one client in Docker containers
-behind a simulated network link. For each named testcase (for example
-`handshake`, `retry`, `zerortt`) it drives the client, captures the
-traffic, and decides pass or fail by inspecting the capture and the
-downloaded files. Its result matrix prints one symbol per cell, followed by
-a short testcase code in parentheses:
+実行には [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) を使います。これは公開のテストハーネスで、サーバーとクライアントを 1 つずつ Docker コンテナに入れ、模擬ネットワークリンクの両側に置きます。名前の付いたテストケース（たとえば `handshake`、`retry`、`zerortt`）ごとにクライアントを動かしてトラフィックをキャプチャし、キャプチャとダウンロードされたファイルを調べて合否を判定します。結果の表はセルごとに記号を 1 つ表示し、その後ろの括弧に短いテストケースの略号が付きます。
 
-- `✓` passed, `✕` failed, `?` unsupported: one side declared it does not
-  implement this testcase, so the runner gave no verdict.
-- The letters name the testcase: `(E)` is `ecn`, `(V2)` is `v2`, `(CM)` is
-  `connectionmigration`. So `✓(E)` is a pass of `ecn`, while `?(E)` is NOT a
-  pass, only "unsupported".
+- `✓` は合格、`✕` は不合格、`?` は未対応です。未対応とは、片方がそのテストケースを実装していないと宣言したため、ランナーが判定を出さなかったことを指します。
+- 文字はテストケースを表します。`(E)` は `ecn`、`(V2)` は `v2`、`(CM)` は `connectionmigration` です。したがって `✓(E)` は `ecn` の合格ですが、`?(E)` は合格ではなく「未対応」にすぎません。
 
-A result is recorded here as passed only when the cell shows `✓` and the
-run's log directory exists.
+このページで合格として記録するのは、セルが `✓` を示し、かつその実行のログディレクトリが存在するものだけです。
 
-## How to read the tables
+## 表の読み方
 
-At a glance: the snapshot is the CI run of 2026-10-27 at wired `d32fccff5`
-([QUIC and WebTransport run](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893), [MoQT run](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)).
+概要: スナップショットは 2026-10-27 の CI 実行で、wired は `d32fccff5` です（[QUIC と WebTransport の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40475049893)、[MoQT の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)）。
 
-- QUIC, 15 clients: 249 passed, 28 failed, 53 unsupported (testcase
-  cells only; the two measurements are counted separately). Against
-  quic-go, 19 of the 22 testcases pass and both measurement testcases
-  pass; `ecn` and `v2` are unsupported by the quic-go client and
-  `connectionmigration` fails.
-- WebTransport, 5 clients: 26 passed, 9 failed.
-- MoQT relay, 14 clients: 11 pass over WebTransport, 13 over raw QUIC.
+- QUIC、クライアント 15 種: 合格 249、不合格 28、未対応 53（テストケースのセルのみ。二つの計測は別に数えています）。quic-go に対しては 22 テストケースのうち 19 が合格し、計測のテストケースも両方合格しています。`ecn` と `v2` は quic-go クライアントが未対応で、`connectionmigration` は不合格です。
+- WebTransport、クライアント 5 種: 合格 26、不合格 9。
+- MoQT リレー、クライアント 14 種: WebTransport 経由で 11、raw QUIC 経由で 13 が合格。
 
-Three of the loss and corruption testcases (`handshakeloss` L1,
-`transferloss` L2, `handshakecorruption` C1) fail for different clients
-from one run to the next: they are flaky under the simulator's
-random loss pattern, so a single run's `✕` there is weak evidence either
-way. The two CI runs of 2026-10-27 show it. `handshakeloss` failed with
-ngtcp2, mvfst, quiche, picoquic, msquic, xquic and quinn in the
-[earlier run](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712), and with ngtcp2, mvfst, quiche, kwik, msquic and
-quinn in the later one. `handshakecorruption` failed with ngtcp2, mvfst,
-quiche, xquic and quinn, then with ngtcp2, mvfst, quinn and s2n-quic.
-`transferloss` failed only in the later run, with xquic.
-`transfercorruption` is the exception: it failed with xquic in both runs,
-so it is listed as a reproducible failure below. The open failures and their issues are listed in
-[Open interop failures](#open-interop-failures).
+損失と破損のテストケースのうち 3 つ（`handshakeloss` L1、`transferloss` L2、`handshakecorruption` C1）は、実行ごとに不合格になるクライアントが変わります。シミュレーターのランダムな損失パターンのもとで不安定（flaky）なので、1 回の実行でそこに出た `✕` はどちらの判断にも弱い証拠にしかなりません。2026-10-27 の 2 回の CI 実行がそれを示しています。`handshakeloss` は、[先の実行](https://github.com/Hakkadaikon/quic-interop-runner/actions/runs/40448020712)では ngtcp2、mvfst、quiche、picoquic、msquic、xquic、quinn で不合格になり、後の実行では ngtcp2、mvfst、quiche、kwik、msquic、quinn で不合格になりました。`handshakecorruption` は ngtcp2、mvfst、quiche、xquic、quinn で不合格になり、次は ngtcp2、mvfst、quinn、s2n-quic で不合格になりました。`transferloss` は後の実行でだけ、xquic で不合格になりました。例外は `transfercorruption` で、2 回とも xquic で不合格になったため、下では再現する不合格として載せています。未解決の不合格とその issue は [未解決の相互接続の失敗](#未解決の相互接続の失敗) にまとめています。
 
-The tables below list each testcase against quic-go (QUIC) and
-webtransport-go (WebTransport), with the other clients noted inline where
-they differ.
+以下の表は各テストケースを quic-go（QUIC）と webtransport-go（WebTransport）に対して並べ、ほかのクライアントで結果が違う場合はその場で書き添えています。
 
-Legend: `✅` passed · `❌` failed in this snapshot · `🟡` implemented but no
-verdict possible (peer/tooling limitation, or a non-protocol gap) · `—` not
-demonstrated yet.
+凡例: `✅` 合格 · `❌` このスナップショットで不合格 · `🟡` 実装済みだが判定できない（ピアやツールの制約、またはプロトコル以外の未達） · `—` まだ実証していない。
 
-Each Remark is one line. Where a testcase has a longer story (a root cause,
-a peer limitation), it is under the same name in the notes after the
-table.
+各備考は 1 行です。根本原因やピアの制約など、長い経緯があるテストケースは、表のあとの補足に同じ名前で載せています。
 
-## QUIC testcases (server: wired · client: quic-go)
+## QUIC のテストケース（サーバー: wired・クライアント: quic-go）
 
-| Testcase | Implemented | Remark |
+| テストケース | 実装 | 備考 |
 |---|---|---|
-| `handshake` | ✅ | connection establishment |
-| `transfer` | ✅ | file download over streams; regressed and re-fixed 2026-08 (see notes) |
-| `http3` | ✅ | parallel HTTP/3 GETs (3 streams, 500 KB bodies) |
-| `longrtt` | ✅ | high-latency link |
-| `chacha20` | ✅ | TLS_CHACHA20_POLY1305_SHA256 negotiation end to end, including a mid-transfer Key Update under that suite |
-| `keyupdate` | ✅ | RFC 9001 §6 key update, both directions |
-| `transferloss` | ✅ | file transfer under packet loss |
-| `transfercorruption` | ✅ | file transfer under packet corruption |
-| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight; failed with msquic on 2026-10-27 ([#178](https://github.com/Hakkadaikon/wired/issues/178)); fixed on the server side (a Handshake PING when the budget blocks every replay), 5 of 5 local runs pass, awaiting the next CI run |
-| `goodput` (measurement) | ✅ | 10 MB at 9418±14 kbps over the runner's simulated 10 Mbps link (2026-10-27); 9169–9418 kbps across the 14 clients that run it |
-| `blackhole` | ✅ | resumes correctly after a simulated 2 s link outage |
-| `multiplexing` | ✅ | passes fully as of 2026-08-05 (see notes) |
-| `handshakeloss` | ✅ | all 50 handshakes complete under a 30% bursty loss rate (see notes) |
-| `handshakecorruption` | ✅ | same scenario under corruption; passes with the same fixes |
-| `retry` | ✅ | RFC 9000 §8.1.2 forced address validation via `--force-retry` (see notes) |
-| `resumption` | ✅ | PSK-based session resumption over a real second handshake (see notes) |
-| `zerortt` | ✅ | 0-RTT data received and acted on, wired end to end (see notes); fails with msquic ([#177](https://github.com/Hakkadaikon/wired/issues/177)); mvfst and quiche not yet triaged |
-| `ecn` | 🟡 | quic-go client declares `unsupported test case: ecn`; passes against ngtcp2, picoquic, neqo, lsquic, quinn and s2n-quic (2026-10-27) |
-| `ipv6` | ✅ | transfer over native IPv6 (see notes) |
-| `v2` | 🟡 | quic-go client declares `unsupported test case: v2`; passes against ngtcp2, kwik, picoquic, aioquic, neqo and lsquic, fails with msquic and quinn (2026-10-27) |
-| `rebind-port` / `rebind-addr` | ✅ | pass against all 14 clients that run them (2026-10-27); see notes |
-| `connectionmigration` | ❌ | fails against quic-go and 8 other clients; passes against ngtcp2, picoquic, aioquic, neqo and lsquic (2026-10-27, see notes) |
-| `crosstraffic` (measurement) | ✅ | 25 MB alongside a competing TCP cubic flow: 1453 (± 111) kbps against quic-go (2026-10-27); fails with msquic and xquic |
+| `handshake` | ✅ | コネクションの確立 |
+| `transfer` | ✅ | ストリーム上のファイルダウンロード。2026-08 にリグレッションが起き、再修正（補足を参照） |
+| `http3` | ✅ | 並列の HTTP/3 GET（3 ストリーム、500 KB のボディ） |
+| `longrtt` | ✅ | 高遅延のリンク |
+| `chacha20` | ✅ | TLS_CHACHA20_POLY1305_SHA256 のエンドツーエンドのネゴシエーション。そのスイートでの転送途中の Key Update を含む |
+| `keyupdate` | ✅ | RFC 9001 §6 の鍵更新、両方向 |
+| `transferloss` | ✅ | パケット損失のもとでのファイル転送 |
+| `transfercorruption` | ✅ | パケット破損のもとでのファイル転送 |
+| `amplificationlimit` | ✅ | 膨らませた（証明書 9 枚の）サーバーフライトで RFC 9000 §8.1 の増幅攻撃対策を適用。2026-10-27 に msquic で不合格（[#178](https://github.com/Hakkadaikon/wired/issues/178)）。サーバー側で修正済み（予算がすべての再送を阻むときは Handshake PING を送る）。ローカルで 5 回中 5 回合格、次の CI 実行待ち |
+| `goodput`（計測） | ✅ | ランナーの模擬 10 Mbps リンクで 10 MB を 9418±14 kbps（2026-10-27）。これを実行するクライアント 14 種で 9169〜9418 kbps |
+| `blackhole` | ✅ | 2 秒間の模擬リンク断のあと正しく再開 |
+| `multiplexing` | ✅ | 2026-08-05 時点で完全に合格（補足を参照） |
+| `handshakeloss` | ✅ | 30% のバースト損失のもとで 50 回のハンドシェイクがすべて完了（補足を参照） |
+| `handshakecorruption` | ✅ | 同じシナリオを破損のもとで実行。同じ修正で合格 |
+| `retry` | ✅ | `--force-retry` による RFC 9000 §8.1.2 の強制アドレス検証（補足を参照） |
+| `resumption` | ✅ | 実際の 2 回目のハンドシェイクでの PSK によるセッション再開（補足を参照） |
+| `zerortt` | ✅ | 0-RTT データを受け取って処理。エンドツーエンドで組み込み済み（補足を参照）。msquic では不合格（[#177](https://github.com/Hakkadaikon/wired/issues/177)）。mvfst と quiche は未調査 |
+| `ecn` | 🟡 | quic-go クライアントが `unsupported test case: ecn` を宣言。ngtcp2、picoquic、neqo、lsquic、quinn、s2n-quic では合格（2026-10-27） |
+| `ipv6` | ✅ | ネイティブ IPv6 での転送（補足を参照） |
+| `v2` | 🟡 | quic-go クライアントが `unsupported test case: v2` を宣言。ngtcp2、kwik、picoquic、aioquic、neqo、lsquic では合格、msquic と quinn では不合格（2026-10-27） |
+| `rebind-port` / `rebind-addr` | ✅ | これらを実行するクライアント 14 種すべてで合格（2026-10-27）。補足を参照 |
+| `connectionmigration` | ❌ | quic-go とほか 8 種のクライアントで不合格。ngtcp2、picoquic、aioquic、neqo、lsquic では合格（2026-10-27、補足を参照） |
+| `crosstraffic`（計測） | ✅ | 競合する TCP cubic フローと並べて 25 MB。quic-go に対して 1453（± 111）kbps（2026-10-27）。msquic と xquic では不合格 |
 
-### Notes on the QUIC testcases
+### QUIC テストケースの補足
 
 #### `transfer`
 
-In short: larger packets, enabled by path-MTU discovery, overflowed a
-buffer after their data had already left the send queue, so the lost bytes
-were never resent. PMTU is the largest packet size the network path
-carries, and DPLPMTUD is the probing that finds it.
+要点: 経路 MTU 探索で大きくなったパケットが、データを送信キューから取り出したあとでバッファーをあふれさせ、失われたバイトは二度と再送されませんでした。PMTU はネットワーク経路が運べる最大のパケットサイズで、DPLPMTUD はそれを見つけるための探索です。
 
-The testcase regressed to ✕ between 2026-08-05 (when DPLPMTUD was wired
-in) and 2026-08-09. Full-size slices at the PMTU-raised chunk size
-overflowed a fixed plaintext buffer *after* their bytes had been taken from
-the send queue, so the bytes were lost where loss detection could not see
-them. After the fix, the testcase passed 5 of 5 consecutive runs, plus 3 of
-3 at the build that uses Cubic (a congestion-control algorithm) by default
-([Comparison](performance/comparison.md) has the full story).
+このテストケースは 2026-08-05（DPLPMTUD を組み込んだ日）から 2026-08-09 までのあいだにリグレッションで ✕ になりました。PMTU で引き上げたチャンクサイズで切り出したフルサイズの断片が、送信キューからバイトを取り出した *あとで* 固定長の平文バッファーをあふれさせたため、そのバイトは損失検出から見えない場所で失われました。修正後、このテストケースは 5 回連続で合格し、Cubic（輻輳制御アルゴリズムの一つ）を既定にしたビルドでも 3 回中 3 回合格しました（経緯の全体は [Comparison](performance/comparison.md) にあります）。
 
 #### `multiplexing`
 
-In short: late copies of already-finished requests filled a table, so a
-new request was silently lost. Passes fully as of 2026-08-05.
+要点: すでに終わったリクエストの遅れて届いたコピーがテーブルを埋め、新しいリクエストが気づかないうちに失われていました。2026-08-05 時点で完全に合格しています。
 
-The earlier 🟡 (98% of 1999 files, 60 s timeout missed) was NOT the
-throughput gap it was believed to be. Late retransmissions of request
-streams that had already been answered reclaimed reassembly slots (the
-table entries that collect a stream's bytes in order; "zombies") until the
-table was full. A genuinely new stream's frames were then dropped silently,
-but their packet was still ACKed, so the client never retransmitted and
-that request never finished.
+以前の 🟡（1999 ファイルの 98%、60 秒のタイムアウトに間に合わず）は、思われていたようなスループット不足ではありませんでした。すでに応答済みのリクエストストリームの遅れた再送が、再組み立てスロット（ストリームのバイトを順に集めるテーブルの項目。「ゾンビ」）を再び占有し、テーブルがいっぱいになっていました。すると本当に新しいストリームのフレームは何の知らせもなく捨てられ、それでもそのパケットには ACK が返っていたため、クライアントは再送せず、そのリクエストは終わりませんでした。
 
-Fixed by tracking answered-and-released stream IDs per connection and
-discarding their late duplicates (RFC 9000 §3.2), plus clamping the
-advertised stream limit to the table capacity so the limit and the table
-stay in lockstep.
+修正では、応答して解放したストリーム ID をコネクションごとに記録し、その遅れた重複を捨てるようにしました（RFC 9000 §3.2）。あわせて、通知するストリーム上限をテーブルの容量に合わせて抑え、上限とテーブルが常にそろうようにしました。
 
-#### `handshakeloss` and `handshakecorruption`
+#### `handshakeloss` と `handshakecorruption`
 
-In short: when handshake packets were lost, the server did not resend all
-of them. All 50 handshakes complete under a 30% bursty loss rate. Three
-server-side gaps had to close:
+要点: ハンドシェイクのパケットが失われたとき、サーバーがそれらをすべて再送していませんでした。現在は 30% のバースト損失のもとで 50 回のハンドシェイクがすべて完了します。サーバー側で 3 つの穴をふさぐ必要がありました。
 
-- a resend of the server's first handshake flight (the boot flight) only
-  replayed the still-unsent tail, so one lost Handshake datagram
-  deadlocked the handshake;
-- the one-time confirmation packet (SETTINGS + ticket + HANDSHAKE_DONE) was
-  never retransmitted when lost;
-- a still-incomplete ClientHello split across several packets was never
-  acknowledged, so the client's 5 s handshake idle timer (it gives up when
-  it hears nothing) ran out.
+- サーバーの最初のハンドシェイクフライト（ブートフライト）の再送が、まだ送っていない末尾だけを再生していたため、Handshake データグラムが 1 つ失われるとハンドシェイクが行き詰まった。
+- 一度きりの確認パケット（SETTINGS + チケット + HANDSHAKE_DONE）が、失われても再送されなかった。
+- 複数のパケットに分かれた、まだ揃っていない ClientHello に ACK を返していなかったため、クライアントの 5 秒のハンドシェイクアイドルタイマー（何も届かないと諦めるタイマー）が切れた。
 
-`handshakecorruption` runs the same scenario under corruption and passes
-with the same fixes.
+`handshakecorruption` は同じシナリオを破損のもとで実行し、同じ修正で合格します。
 
 #### `retry`
 
-A Retry is the server's way to check that a client really owns its source
-address before spending memory on it: the server answers the first
-Initial (the client's opening packet) with a Retry carrying a token, and
-the client must send the token back. Every QUIC packet names its
-connection by connection IDs rather than by IP address and port: the DCID
-(destination connection ID) is the ID the receiver looks the connection up
-by, and the SCID (source connection ID) is the sender's own. The guide's
-[handshake knobs](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)
-page shows how to turn Retry on.
+Retry は、クライアントのためにメモリを使う前に、そのクライアントが本当に送信元アドレスを持っているかをサーバーが確かめる方法です。サーバーは最初の Initial パケット（クライアントが最初に送るパケット）にトークン付きの Retry で応え、クライアントはそのトークンを送り返さなければなりません。QUIC のパケットはどれも、IP アドレスとポートではなくコネクション ID でコネクションを示します。DCID（宛先コネクション ID）は受信側がコネクションを引くための ID で、SCID（送信元コネクション ID）は送信側自身の ID です。Retry を有効にする方法は、ガイドの [ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) のページにあります。
 
-RFC 9000 §8.1.2 forced address validation: a `--force-retry` server mode
-sends a Retry for every token-less Initial, verifies the presented token's
-HMAC (a keyed checksum only the server can produce; RFC 9000 §8.1.1) and
-address binding before accepting, and drops datagrams carrying an invalid
-one. The Retry Integrity Tag is pinned to the RFC 9001 Appendix A.4
-vector.
+RFC 9000 §8.1.2 の強制アドレス検証: `--force-retry` のサーバーモードはトークンのない Initial パケットすべてに Retry を送ります。受け入れる前に、提示されたトークンの HMAC（サーバーだけが作れる鍵付きのチェックサム。RFC 9000 §8.1.1）とアドレスの結び付きを検証し、無効なトークンを持つデータグラムは捨てます。Retry Integrity Tag は RFC 9001 Appendix A.4 のベクターに固定しています。
 
-The token itself carries the client's original DCID in the clear
-(`odcid_len || odcid || HMAC-SHA256`), so the server needs no per-client
-memory to finish the handshake: it recovers that DCID from the token for
-the `original_destination_connection_id` transport parameter (a setting
-the server announces during the handshake). The server keeps two separate
-fields end to end: the Retry's own SCID, which feeds Initial-key
-derivation, and the recovered original DCID, which goes into that
-transport parameter. The two values are never mixed up.
+トークン自体はクライアントの元の DCID を平文で持っています（`odcid_len || odcid || HMAC-SHA256`）。そのため、サーバーはハンドシェイクを終えるのにクライアントごとのメモリを必要としません。`original_destination_connection_id` トランスポートパラメーター（サーバーがハンドシェイク中に通知する設定）に入れる DCID は、トークンから取り出します。サーバーは処理の最初から最後まで二つのフィールドを分けて持ちます。Initial の鍵導出に使う Retry 自身の SCID と、そのトランスポートパラメーターに入れる、取り出した元の DCID です。この二つの値が混ざることはありません。
 
-The flowchart below is the per-datagram decision in `srvrun_serve` (size
-floor) and `srvrun_serve_sized` (everything after it). In the diagram, a
-slot is the server's per-connection state entry, so "matches no slot" means
-the server has no connection for this ID yet. Look at the three outcomes of
-the gate in `srvrun_retry_gate`: no token sends a Retry, a valid token
-continues to the normal routing with the original DCID recovered, and an
-invalid token is dropped. A token is valid when its HMAC
-matches under the current or the previous key (`srvrun_retry_token_ok`) for
-this peer's address.
+下のフローチャートは `srvrun_serve`（サイズの下限）と `srvrun_serve_sized`（それ以降すべて）でのデータグラムごとの判定です。図のスロットはサーバーのコネクションごとの状態の項目で、「どのスロットにも一致しない」とは、その ID のコネクションをサーバーがまだ持っていないことを指します。`srvrun_retry_gate` の判定の三つの結果に注目してください。トークンがなければ Retry を送り、有効なトークンなら元の DCID を取り出して通常のルーティングへ進み、無効なトークンなら捨てます。トークンが有効なのは、このピアのアドレスについて、その HMAC が現在または一つ前の鍵で一致するとき（`srvrun_retry_token_ok`）です。
 
 ```mermaid
 flowchart TD
@@ -218,66 +115,28 @@ flowchart TD
 
 #### `resumption`
 
-PSK-based session resumption over a real second handshake, wired end to
-end into the ClientHello receive path and the server flight builder. A PSK
-(pre-shared key) here is a secret from an earlier connection that lets the
-client skip the certificate step. The guide's
-[handshake knobs](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)
-page shows how to turn resumption on.
+実際の 2 回目のハンドシェイクでの PSK によるセッション再開で、ClientHello の受信経路とサーバーフライトの組み立てにエンドツーエンドで組み込んでいます。ここでの PSK（事前共有鍵）は以前のコネクションから得た秘密で、クライアントはこれを使って証明書の段階を省けます。セッション再開を有効にする方法は、ガイドの [ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) のページにあります。
 
-Three details had to match RFC 8446 exactly, or a real client would reject
-the resumed handshake. "Finished" below is the last handshake message each side
-sends, and the transcript is the running record of handshake messages that
-keys are derived from.
+3 つの細部を RFC 8446 に正確に合わせる必要がありました。合っていないと、実際のクライアントは再開したハンドシェイクを拒否します。以下の「Finished」は各側が最後に送るハンドシェイクメッセージで、トランスクリプトは鍵の導出元になる、ハンドシェイクメッセージの累積記録です。
 
-- `resumption_master_secret` spans the transcript through the *client's*
-  Finished, not just the server's (RFC 8446 §7.1: of the four secrets the
-  key schedule derives, this is the only one whose transcript runs past the
-  server's Finished; the other three stop there).
-- The ServerHello echoes `pre_shared_key` (`selected_identity`) whenever a
-  PSK is accepted (RFC 8446 §4.1.3/§4.2.11).
-- A PSK handshake omits Certificate/CertificateVerify entirely
-  (RFC 8446 §4.4).
+- `resumption_master_secret` は、サーバーの Finished だけでなく *クライアントの* Finished までのトランスクリプトを対象にする（RFC 8446 §7.1: 鍵スケジュールが導出する 4 つの秘密のうち、トランスクリプトがサーバーの Finished より先まで続くのはこれだけで、残りの 3 つはそこで止まる）。
+- PSK を受け入れたときは、ServerHello が必ず `pre_shared_key`（`selected_identity`）を返す（RFC 8446 §4.1.3/§4.2.11）。
+- PSK ハンドシェイクでは Certificate/CertificateVerify をまったく送らない（RFC 8446 §4.4）。
 
-Two consecutive interop runs passed, and
-`handshake`/`transfer`/`retry`/`http3` still pass (no regression).
+2 回連続で相互接続性テストの実行に合格し、`handshake`/`transfer`/`retry`/`http3` も引き続き合格しています（リグレッションなし）。
 
 #### `zerortt`
 
-0-RTT lets a resuming client send its request in its very first flight,
-before the handshake finishes. (1-RTT is the normal encrypted traffic sent
-once the handshake is done.) It needs resumption, so the
-[handshake knobs](https://hakkadaikon.github.io/wired/guide/en/ops/handshake-knobs/)
-page applies here too. wired receives and acts on 0-RTT data end to end,
-building on the PSK and key-schedule plumbing from resumption:
+0-RTT を使うと、セッションを再開するクライアントは、ハンドシェイクが終わる前の最初のフライトでリクエストを送れます（1-RTT は、ハンドシェイクが終わってから送る通常の暗号化トラフィックです）。0-RTT にはセッション再開が必要なので、[ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) のページがここでも当てはまります。wired はセッション再開で用意した PSK と鍵スケジュールの仕組みの上に、0-RTT データをエンドツーエンドで受け取って処理します。
 
-- 0-RTT datagrams that arrive before their packet-protection keys are
-  derived (which happens only after the ClientHello is processed and the
-  PSK accepted) are buffered verbatim at the boot-accumulator layer (the
-  per-connection buffer used during the handshake) and replayed once keys
-  are derived (RFC 9001 §4.6.1).
-- QUIC has two header forms: long headers, used during the handshake,
-  which carry the connection-ID lengths, and short headers, used
-  afterwards, which are compact. 0-RTT shares 1-RTT's application-data
-  packet-number space (the sequence that numbers application packets;
-  RFC 9000 §12.3) but uses the long form, so packet-number recovery
-  branches on the header form instead of assuming every packet at that
-  level is short-header.
-- A response to a 0-RTT-carried request is deferred until the server's own
-  1-RTT send keys exist (they are derived from the transcript that
-  includes Finished).
-- The concurrent-stream table is sized for the interop runner's 40-file
-  zerortt burst (raised from a handful of entries; the WebTransport stream cap
-  already makes the same tradeoff).
+- パケット保護の鍵が導出される前（鍵は ClientHello を処理して PSK を受け入れたあとにだけ導出される）に届いた 0-RTT データグラムは、ブートアキュムレーター層（ハンドシェイク中に使うコネクションごとのバッファー）にそのまま溜め、鍵を導出したら再生する（RFC 9001 §4.6.1）。
+- QUIC のヘッダーには二つの形がある。ハンドシェイク中に使い、コネクション ID の長さを持つロングヘッダーと、そのあとに使う簡潔なショートヘッダーである。0-RTT は 1-RTT とアプリケーションデータのパケット番号空間（アプリケーションパケットに番号を振る通し番号。RFC 9000 §12.3）を共有するが、ロングヘッダーを使う。そのため、パケット番号の復元は、その暗号化レベルのパケットがすべてショートヘッダーだと決めつけず、ヘッダーの形で分岐する。
+- 0-RTT で運ばれたリクエストへの応答は、サーバー自身の 1-RTT 送信鍵ができるまで遅らせる（この鍵は Finished を含むトランスクリプトから導出される）。
+- 同時ストリームのテーブルは相互接続性ランナーの zerortt で一度に来る 40 ファイルに合わせた大きさにした（数項目から引き上げた。WebTransport のストリーム上限もすでに同じトレードオフを選んでいる）。
 
-Two consecutive interop runs passed, and
-`handshake`/`transfer`/`retry`/`resumption`/`http3` still pass.
+2 回連続で相互接続性テストの実行に合格し、`handshake`/`transfer`/`retry`/`resumption`/`http3` も引き続き合格しています。
 
-The sequence below shows the buffer-then-replay order ("slot not up"
-means the server's per-connection state entry has not finished setting
-up). Look at where the response waits: the request is parsed during the replay
-(`srvrun_boot_flush_zerortt`), but `srvrun_pump_sess` sends nothing until
-the client's Finished confirms the handshake.
+下のシーケンス図は溜めてから再生する順序を示します（「スロット未準備」は、サーバーのコネクションごとの状態の項目がまだ準備を終えていないことを指します）。応答がどこで待つかに注目してください。リクエストは再生中（`srvrun_boot_flush_zerortt`）に解析されますが、クライアントの Finished がハンドシェイクを確定させるまで、`srvrun_pump_sess` は何も送りません。
 
 ```mermaid
 sequenceDiagram
@@ -297,70 +156,29 @@ sequenceDiagram
 
 #### `ecn`
 
-ECN (Explicit Congestion Notification) lets routers mark packets instead of
-dropping them. RFC 9000 §13.4 ECT(0) marking (the "ECN-capable" bit) on
-send, reading the router's marks from the IP header (the IP_TOS control
-message) on receive, and cumulative ECN counts reported in 1-RTT ACKs are
-all implemented and unit-tested. The runner still marks the case `?`: the
-quic-go interop client itself declares `unsupported test case: ecn`, so no
-end-to-end verdict is possible with this peer.
+ECN（Explicit Congestion Notification）を使うと、ルーターはパケットを捨てる代わりに印を付けられます。RFC 9000 §13.4 の、送信時の ECT(0) の印（「ECN 対応」を示すビット）、受信時に IP ヘッダーからルーターの印を読むこと（IP_TOS 制御メッセージ）、1-RTT の ACK で報告する累積 ECN カウントは、どれも実装して単体テストしています。それでもランナーはこのケースを `?` にします。quic-go の相互接続性クライアント自身が `unsupported test case: ecn` を宣言するので、このピアではエンドツーエンドの判定ができません。
 
-Against ngtcp2 as the client it does pass end to end (`✓(E)`, 2026-08-21)
-after a fix: the server's Initial-space ACK carried no ECN counts, so the
-client concluded the path was not ECN-capable.
+ngtcp2 をクライアントにすると、ある修正のあとエンドツーエンドで合格します（`✓(E)`、2026-08-21）。修正前は、サーバーの Initial 空間の ACK が ECN カウントを持っていなかったため、クライアントは経路が ECN に対応していないと判断していました。
 
 #### `ipv6`
 
-Transfer over native IPv6; the socket layer is dual-stack (one AF_INET6
-socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every other case still
-runs over IPv4 unchanged.
+ネイティブ IPv6 での転送です。ソケット層はデュアルスタック（AF_INET6 ソケット 1 つ、IPV6_V6ONLY はオフ、IPv4 のピアは v4-mapped）なので、ほかのケースはすべて変わらず IPv4 で動きます。
 
 #### `v2`
 
-QUIC version 2 (RFC 9369) is the same protocol under a new version number.
-It is implemented and unit-tested end to end. Key derivation, the
-long-header type bits and the Version Negotiation accept list are all
-version-parameterized, and a v2 Initial carrying a real ClientHello is
-accepted and answered in v2. No end-to-end verdict is possible with
-quic-go, because its interop client declares `unsupported test case: v2`
-(exit 127), as with `ecn`.
+QUIC バージョン 2（RFC 9369）は、同じプロトコルに新しいバージョン番号を付けたものです。エンドツーエンドで実装し、単体テストしています。鍵導出、ロングヘッダーの型ビット、Version Negotiation の受け入れリストはどれもバージョンを引数に取り、実際の ClientHello を持つ v2 の Initial パケットを受け入れて v2 で応答します。quic-go の相互接続性クライアントは `ecn` と同様に `unsupported test case: v2`（exit 127）を宣言するので、quic-go ではエンドツーエンドの判定ができません。
 
-The server never switches a connection's version on its own initiative. It
-replies in whichever version the client's Initial used (RFC 9368 §2). The
-runner's TestCaseV2 check instead describes a server that moves a
-v1-started connection to v2. Whether that difference matters is unverified
-until a client exercises it.
+サーバーが自分からコネクションのバージョンを切り替えることはありません。クライアントの Initial パケットが使ったバージョンで応答します（RFC 9368 §2）。一方、ランナーの TestCaseV2 のチェックは、v1 で始まったコネクションを v2 へ移すサーバーを想定しています。この違いが問題になるかは、それを試すクライアントが現れるまで確かめられていません。
 
-A post-v2 regression run (handshake/transfer/http3/retry/ipv6) stayed all
-green, confirming no impact on the v1 path. Against ngtcp2 and picoquic as
-clients it does pass end to end (`✓(V2)`, 2026-08-21) via RFC
-9368/9369-compatible version negotiation.
+v2 を入れたあとのリグレッション確認の実行（handshake/transfer/http3/retry/ipv6）はすべて緑のままで、v1 の経路に影響がないことを確かめました。ngtcp2 と picoquic をクライアントにすると、RFC 9368/9369 に沿ったバージョンネゴシエーションにより、エンドツーエンドで合格します（`✓(V2)`、2026-08-21）。
 
 #### `rebind-port` / `rebind-addr`
 
-These cases simulate a NAT changing the client's port or address
-mid-connection. Because QUIC finds the connection by its DCID (see
-`retry`), not by address and port, the connection can survive the change.
-The server follows a confirmed connection's peer address across a rebind
-and sends a PATH_CHALLENGE on the new path, validating a matching
-PATH_RESPONSE (RFC 9000 §8.2/§9.3). A PATH_CHALLENGE is a frame carrying 8
-random bytes; the peer proves it is reachable on that path by echoing them
-in a PATH_RESPONSE.
+これらのケースは、NAT がコネクションの途中でクライアントのポートやアドレスを変えることを模擬します。QUIC はアドレスとポートではなく DCID でコネクションを見つける（`retry` を参照）ので、コネクションはこの変化を乗り越えられます。サーバーは確定したコネクションのピアアドレスを再バインドに合わせて追い、新しい経路に PATH_CHALLENGE を送って、一致する PATH_RESPONSE を検証します（RFC 9000 §8.2/§9.3）。PATH_CHALLENGE は 8 バイトの乱数を運ぶフレームで、ピアはそれを PATH_RESPONSE でそのまま返し、その経路で到達できることを示します。
 
-Both testcases pass against every client that runs them in the
-2026-10-27 CI run. Earlier runs failed only because the runner's analysis
-tooling (pyshark/tshark) could not decrypt the new path's first packet:
-short-header packets omit the DCID's length (see `zerortt`), so a decoder
-must already know it from an earlier long-header packet on the same UDP
-conversation, and a rebind's fresh source port never provides one.
+2026-10-27 の CI 実行では、両テストケースとも、これらを実行するすべてのクライアントで合格しました。以前の実行で不合格になったのは、ランナーの解析ツール（pyshark/tshark）が新しい経路の最初のパケットを復号できなかったからにすぎません。ショートヘッダーのパケットは DCID の長さを持たない（`zerortt` を参照）ため、デコーダーは同じ UDP の会話で先に届いたロングヘッダーのパケットからその長さを知っている必要があります。ところが再バインドで新しくなった送信元ポートでは、そのパケットが届きません。
 
-The sequence below is what the server does when a confirmed connection's
-packets start arriving from a new port. Look at two things: the server
-challenges both the new and the old path and moves its sending to the new
-one at once, and if no matching PATH_RESPONSE arrives, `srvrun_path_tick`
-gives up after three PTOs (probe timeouts, the retransmission timer QUIC
-derives from the measured round-trip time) and returns to the last
-validated path.
+下のシーケンス図は確定したコネクションのパケットが新しいポートから届き始めたときにサーバーがすることを示します。注目する点は二つです。サーバーは新旧両方の経路にチャレンジを送り、送信先をすぐに新しい経路へ移します。そして、一致する PATH_RESPONSE が届かなければ、`srvrun_path_tick` は 3 PTO（probe timeout。計測した往復時間から QUIC が導く再送タイマー）のあとで諦め、最後に検証済みの経路へ戻ります。
 
 ```mermaid
 sequenceDiagram
@@ -381,149 +199,67 @@ sequenceDiagram
 
 #### `connectionmigration`
 
-The server side works (the file transfer completes) and reuses the same
-PATH_CHALLENGE/PATH_RESPONSE machinery as `rebind-*`. In the 2026-10-27
-run it failed against quic-go and 8 other clients and passed against
-ngtcp2, picoquic, aioquic, neqo and lsquic. Earlier runs traced the
-quic-go failure to the client never triggering a path change (runner
-log: "Server saw only a single path in use"); the other failures have
-not been triaged yet. Against ngtcp2 as the
-client it does pass end to end (`✓(CM)`, 2026-08-21), confirming a real
-migration (runner log: "DCID changed during active migration").
+サーバー側は動作し（ファイル転送は完了します）、`rebind-*` と同じ PATH_CHALLENGE/PATH_RESPONSE の仕組みを使います。2026-10-27 の実行では quic-go とほか 8 種のクライアントで不合格、ngtcp2、picoquic、aioquic、neqo、lsquic で合格でした。以前の実行では、quic-go での不合格はクライアントが経路の変更を起こさなかったことが原因だと突き止めています（ランナーのログ: "Server saw only a single path in use"）。ほかの不合格はまだ調査していません。ngtcp2 をクライアントにするとエンドツーエンドで合格し（`✓(CM)`、2026-08-21）、実際にマイグレーションしたことを確かめています（ランナーのログ: "DCID changed during active migration"）。
 
-## WebTransport testcases (server: wired · client: webtransport-go)
+## WebTransport のテストケース（サーバー: wired・クライアント: webtransport-go）
 
-WebTransport runs browser-style sessions over HTTP/3; a session starts with
-an Extended CONNECT request (see the guide's
-[session page](https://hakkadaikon.github.io/wired/guide/en/wt/session/)).
+WebTransport はブラウザー形式のセッションを HTTP/3 の上で動かします。セッションは Extended CONNECT リクエストで始まります（ガイドの [WebTransport のセッション](https://hakkadaikon.github.io/wired/guide/ja/wt/session/) を参照）。
 
-| Testcase | Implemented | Remark |
+| テストケース | 実装 | 備考 |
 |---|---|---|
-| `handshake` | ✅ | Extended CONNECT session establishment |
-| `transfer-unidirectional-receive` | ✅ | server pushes files on uni streams |
-| `transfer-bidirectional-receive` | ✅ | server replies on bidi streams |
-| `transfer-datagram-receive` | ✅ | server pushes over DATAGRAMs |
-| `transfer-unidirectional-send` | ✅ | 2xx/stream ordering fixed 2026-08-23 (`ee13cc7`); passed against ngtcp2 and webtransport-go (see notes) |
-| `transfer-bidirectional-send` | ❌ | failed against webtransport-go on 2026-10-27 with a truncated file ([#180](https://github.com/Hakkadaikon/wired/issues/180)); root cause fixed (received bytes tracked with a bitmap), 5 of 5 local runs pass, awaiting the next CI run |
-| `transfer-datagram-send` | ✅ | same fix; passed against webtransport-go in the 2026-08-23 local serial re-run |
+| `handshake` | ✅ | Extended CONNECT によるセッション確立 |
+| `transfer-unidirectional-receive` | ✅ | サーバーが単方向ストリームでファイルを送る |
+| `transfer-bidirectional-receive` | ✅ | サーバーが双方向ストリームで応答する |
+| `transfer-datagram-receive` | ✅ | サーバーが DATAGRAM で送る |
+| `transfer-unidirectional-send` | ✅ | 2xx とストリームの順序を 2026-08-23 に修正（`ee13cc7`）。ngtcp2 と webtransport-go で合格（補足を参照） |
+| `transfer-bidirectional-send` | ❌ | 2026-10-27 に webtransport-go でファイルが途中で切れて不合格（[#180](https://github.com/Hakkadaikon/wired/issues/180)）。根本原因は修正済み（受信したバイトをビットマップで記録）。ローカルで 5 回中 5 回合格、次の CI 実行待ち |
+| `transfer-datagram-send` | ✅ | 同じ修正。2026-08-23 のローカルでの逐次再実行で webtransport-go に合格 |
 
-The 2026-10-27 CI run covered 5 clients: flupke-webtransport and ngtcp2
-pass all 7 testcases, webtransport-go passes 6 (all but
-`transfer-bidirectional-send`), Firefox passes 6 (all but `handshake`)
-and Chrome fails all 7. The Chrome and Firefox failures have not been
-triaged yet.
+2026-10-27 の CI 実行はクライアント 5 種を対象にしました。flupke-webtransport と ngtcp2 は 7 テストケースすべてに合格、webtransport-go は 6 つ（`transfer-bidirectional-send` 以外）に合格、Firefox は 6 つ（`handshake` 以外）に合格し、Chrome は 7 つすべてで不合格でした。Chrome と Firefox の不合格はまだ調査していません。
 
-### Notes on the WebTransport testcases
+### WebTransport テストケースの補足
 
 #### `transfer-bidirectional-send`
 
-The 2026-10-27 failure was a stall, not data loss on the wire. Under the
-simulator's loss, quic-go's retransmissions split into many small pieces,
-and the server's WebTransport receive window tracked received bytes as at
-most 8 disjoint ranges. When a ninth arrived it forgot the farthest one.
-Those bytes were already acknowledged, so the client never sent them
-again: the window could not move past the hole and the stream's credit
-stopped. (The CI run kept no per-test logs; in a local reproduction the
-client's qlog showed every byte acknowledged and the client blocked at the
-stream's limit until it gave up with "no recent network activity".) The
-window now marks every received byte in a bitmap, like the request
-window, so no received byte can be forgotten.
+2026-10-27 の不合格は停止で、ワイヤー上でデータが失われたわけではありません。シミュレーターの損失のもとで quic-go の再送が多数の小さな断片に分かれ、サーバーの WebTransport 受信ウィンドウは、受信したバイトを最大 8 個の互いに離れた範囲として記録していました。9 個目が届くと、いちばん遠い範囲を忘れていました。そのバイトはすでに確認応答済みだったので、クライアントは二度と送らず、ウィンドウは穴の先へ進めず、ストリームのクレジットが止まりました（CI 実行はテストごとのログを残していませんでした。ローカルで再現したところ、クライアントの qlog では、すべてのバイトが確認応答済みで、クライアントはストリームの上限で止まったまま、"no recent network activity" で諦めていました）。現在、ウィンドウはリクエストのウィンドウと同じく受信したバイトをすべてビットマップに記録するので、受信したバイトを忘れることはありません。
 
 #### `transfer-unidirectional-send`
 
-The root cause: the server's round-robin pump sent a
-WebTransport-signalled stream before the session's 2xx response reached
-the wire, but draft-ietf-webtrans-http3-15 §3.2 requires the 2xx to come
-first. A real ngtcp2-webtransport client silently discarded the misordered
-stream. The bug was fixed on 2026-08-23 (`ee13cc7`). The fix was then
-re-verified against ngtcp2, and against webtransport-go in the local
-serial re-run on the same day.
+根本原因: サーバーのラウンドロビンのポンプが、セッションの 2xx 応答がワイヤーに出る前に、WebTransport の印を付けたストリームを送っていました。しかし draft-ietf-webtrans-http3-15 §3.2 は 2xx を先に送ることを求めています。実際の ngtcp2-webtransport クライアントは、順序の狂ったストリームを何の知らせもなく捨てていました。このバグは 2026-08-23 に修正しました（`ee13cc7`）。その後、ngtcp2 で、また同じ日のローカルでの逐次再実行で webtransport-go でも、改めて確認しています。
 
-### Bugs these runs found
+### これらの実行で見つかったバグ
 
-Two real interop bugs were found and fixed by the WebTransport runs (a
-QPACK literal field-line buffer split and a WebTransport stream-signal
-length bug), which is exactly what this tier exists for. A third, the
-2xx/stream ordering bug above, was found by comparing against ngtcp2's own
-server: there the ngtcp2 client receives the 2xx and its streams in the
-same packet, 2xx first, while wired sent the streams before the 2xx. The
-QUIC root causes are in the notes above.
+WebTransport の実行で、実際の相互接続性のバグが 2 件見つかり、修正しました（QPACK のリテラルフィールド行のバッファー分割と、WebTransport のストリームシグナルの長さのバグ）。これこそがこの段階の存在理由です。3 件目は上の 2xx とストリームの順序のバグで、ngtcp2 自身のサーバーと比べて見つけました。そこでは ngtcp2 クライアントが 2xx とそのストリームを同じパケットで、2xx を先に受け取っていましたが、wired は 2xx より前にストリームを送っていました。QUIC の根本原因は上の補足にあります。
 
-## MoQT relay (server: wired · 14 clients)
+## MoQT リレー（サーバー: wired・クライアント 14 種）
 
-The [moq-interop-runner](https://github.com/englishm/moq-interop-runner)
-runs each client's test suite against `examples/moqt_interop` as a relay,
-once over WebTransport and once over raw QUIC ([2026-10-27 run](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)).
+[moq-interop-runner](https://github.com/englishm/moq-interop-runner) は、各クライアントのテストスイートを、リレーとして動かした `examples/moqt_interop` に対して、WebTransport 経由と raw QUIC 経由で 1 回ずつ実行します（[2026-10-27 の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806)）。
 
-| Transport | Passed | Failed clients |
+| トランスポート | 合格 | 不合格のクライアント |
 |---|---|---|
-| WebTransport | 11 of 14 | moq-dev-js; xquic-draft-18 and moqtopus run over raw QUIC only |
-| raw QUIC | 13 of 14 | moq-dev-js |
+| WebTransport | 14 中 11 | moq-dev-js。xquic-draft-18 と moqtopus は raw QUIC でのみ動く |
+| raw QUIC | 14 中 13 | moq-dev-js |
 
-moq-dev-js failed `subscribe-namespace-lifecycle` over WebTransport
-([#179](https://github.com/Hakkadaikon/wired/issues/179)). Its @moq/net
-0.4.4 withdrew a PUBLISH_NAMESPACE with a FIN alone, which
-draft-ietf-moq-transport-22 §6.4.2.2 says is not a cancellation, so the
-relay rightly kept the namespace and sent no NAMESPACE_DONE. @moq/net
-0.4.7 cancels the request instead and passes all 8 tests against the
-same relay in a local run. Over raw QUIC moq-dev-js fails every test,
-`setup-only` included: the client has no raw QUIC transport and always
-opens a WebTransport session, whatever the URL scheme. xquic-draft-18 and
-moqtopus fail over WebTransport because they support only raw QUIC relay
-URLs (their own logs say so); both pass over raw QUIC. Among the passing
-clients, moq-dev-rs and stitcher-moq skip 2 tests each (`ok # SKIP`).
+moq-dev-js は WebTransport 経由で `subscribe-namespace-lifecycle` に不合格でした（[#179](https://github.com/Hakkadaikon/wired/issues/179)）。このクライアントが使う @moq/net 0.4.4 は PUBLISH_NAMESPACE を FIN だけで取り下げていましたが、draft-ietf-moq-transport-22 §6.4.2.2 はこれをキャンセルではないとしています。そのため、リレーが名前空間を保持し、NAMESPACE_DONE を送らなかったのは正しい動作です。@moq/net 0.4.7 は代わりにリクエストをキャンセルし、ローカルの実行では同じリレーに対して 8 テストすべてに合格します。raw QUIC 経由では、moq-dev-js は `setup-only` を含むすべてのテストで不合格です。このクライアントは raw QUIC のトランスポートを持たず、URL スキームにかかわらず常に WebTransport のセッションを開くためです。xquic-draft-18 と moqtopus が WebTransport 経由で不合格なのは、raw QUIC のリレー URL にしか対応していないためで（それぞれのログにそう書かれています）、どちらも raw QUIC 経由では合格します。合格したクライアントのうち、moq-dev-rs と stitcher-moq はそれぞれ 2 テストをスキップします（`ok # SKIP`）。
 
-## Open interop failures
+## 未解決の相互接続の失敗
 
-From the 2026-10-27 runs, with the issue that tracks each one:
+2026-10-27 の実行から、それぞれを追う issue とあわせて挙げます。
 
-- `zerortt` with msquic, "client sent too much data in 1-RTT":
-  [#177](https://github.com/Hakkadaikon/wired/issues/177). The rebuilt
-  msquic image sends only its first 0-RTT packet (about 600 bytes) and
-  the rest in 1-RTT, against quic-go's server as well, and the wired
-  commit that passed on 2026-10-04 (`4f38861a7`) now fails the same way
-  in a local run. wired accepts the PSK and the
-  early data.
-- `amplificationlimit` with msquic, missing files:
-  [#178](https://github.com/Hakkadaikon/wired/issues/178), a server-side
-  stall: on PTO wired only replayed whole cached datagrams, every one
-  larger than the anti-amplification budget left, so it went silent while
-  the testcase dropped msquic's retries. wired now sends a small
-  Handshake PING when it fits; 5 of 5 local runs pass, awaiting the next
-  CI run.
-- WebTransport `transfer-bidirectional-send` with webtransport-go:
-  [#180](https://github.com/Hakkadaikon/wired/issues/180), fixed
-  (received bytes tracked with a bitmap), awaiting the next CI run.
-- MoQT `subscribe-namespace-lifecycle` with moq-dev-js:
-  [#179](https://github.com/Hakkadaikon/wired/issues/179), a client
-  behavior fixed in @moq/net 0.4.7.
-- Not triaged yet, no issue: `zerortt` with mvfst and quiche,
-  `connectionmigration` with 9 clients, `multiplexing` and
-  `transfercorruption` with xquic (both runs), `v2`
-  with msquic and quinn, `crosstraffic` with msquic and xquic, and Chrome
-  (all 7) and Firefox (`handshake`) over WebTransport.
-- Flaky under the simulator's loss (see
-  [How to read the tables](#how-to-read-the-tables)): `handshakeloss`
-  with ngtcp2, mvfst, quiche, kwik, msquic and quinn, `handshakecorruption`
-  with ngtcp2, mvfst, quinn and s2n-quic, and `transferloss` with xquic.
+- msquic での `zerortt`、"client sent too much data in 1-RTT": [#177](https://github.com/Hakkadaikon/wired/issues/177)。作り直した msquic のイメージは最初の 0-RTT パケット（約 600 バイト）だけを送り、残りを 1-RTT で送ります。これは quic-go のサーバーに対しても同じで、2026-10-04 に合格した wired のコミット（`4f38861a7`）もローカルの実行で同じように不合格になります。wired は PSK と early data を受け入れています。
+- msquic での `amplificationlimit`、ファイルの欠落: [#178](https://github.com/Hakkadaikon/wired/issues/178)。サーバー側の停止です。PTO のとき wired はキャッシュしたデータグラムを丸ごと再生するだけで、そのどれもが残りの増幅攻撃対策の予算より大きかったため、テストケースが msquic の再送を落としているあいだ何も送らなくなっていました。現在は収まるときに小さな Handshake PING を送ります。ローカルで 5 回中 5 回合格、次の CI 実行待ちです。
+- webtransport-go での WebTransport の `transfer-bidirectional-send`: [#180](https://github.com/Hakkadaikon/wired/issues/180)。修正済み（受信したバイトをビットマップで記録）、次の CI 実行待ちです。
+- moq-dev-js での MoQT の `subscribe-namespace-lifecycle`: [#179](https://github.com/Hakkadaikon/wired/issues/179)。クライアントの動作で、@moq/net 0.4.7 で修正されています。
+- 未調査で issue なし: mvfst と quiche での `zerortt`、9 種のクライアントでの `connectionmigration`、xquic での `multiplexing` と `transfercorruption`（2 回とも）、msquic と quinn での `v2`、msquic と xquic での `crosstraffic`、WebTransport 経由の Chrome（7 つすべて）と Firefox（`handshake`）。
+- シミュレーターの損失のもとで不安定（[表の読み方](#表の読み方) を参照）: ngtcp2、mvfst、quiche、kwik、msquic、quinn での `handshakeloss`、ngtcp2、mvfst、quinn、s2n-quic での `handshakecorruption`、xquic での `transferloss`。
 
-## Honest summary of the gaps
+## 未達の点の正直なまとめ
 
-- Three of the 22 QUIC testcases have no pass against quic-go: `ecn` and
-  `v2` (the quic-go client refuses both; both pass against ngtcp2 and
-  several others) and `connectionmigration` (passes against 5 other
-  clients). Both measurement testcases pass.
-- The open failures with an issue, and the ones not triaged yet, are in
-  [Open interop failures](#open-interop-failures).
-- Ed25519 and RSA certificate paths, HTTP/3 request priorities
-  ([RFC 9218](features/rfc9218.md)), and QUIC-bit greasing (randomly
-  flipping a fixed header bit so middleboxes don't come to rely on it;
-  [RFC 9287](features/rfc9287.md)) are fully unit-tested but have never
-  been exercised against a real peer.
-- The AF_XDP path (an optional kernel-bypass network path where wired
-  builds the IPv4/UDP headers itself) has no interop run.
+- QUIC の 22 テストケースのうち 3 つは quic-go に対して合格がありません。`ecn` と `v2`（quic-go クライアントがどちらも拒否。どちらも ngtcp2 とほかのいくつかのクライアントでは合格）と、`connectionmigration`（ほかのクライアント 5 種では合格）です。計測のテストケースは両方とも合格しています。
+- issue のある未解決の失敗と、まだ調査していない失敗は [未解決の相互接続の失敗](#未解決の相互接続の失敗) にあります。
+- Ed25519 と RSA の証明書の経路、HTTP/3 のリクエスト優先度（[RFC 9218](features/rfc9218.md)）、QUIC ビットのグリース（固定のヘッダービットをランダムに反転させ、ミドルボックスがそれに頼らないようにすること。[RFC 9287](features/rfc9287.md)）は、単体テストでは網羅していますが、実際のピアに対して試したことはありません。
+- AF_XDP の経路（wired が IPv4/UDP ヘッダーを自分で組み立てる、オプションのカーネルバイパスのネットワーク経路）は、相互接続性テストを実行していません。
 
 ---
 
-**Next:** [Features](features/README.md) — per-spec EARS requirement
-ledgers. ([all docs](README.md))
+**次へ:** [Features](features/README.md)（仕様ごとの EARS 要件台帳）（[すべてのドキュメント](README.md)）
