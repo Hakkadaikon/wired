@@ -109,7 +109,7 @@ Part 2 adds `lib`. The full recipe list lives in
 A normal C program links against libc, the C standard library that provides
 `printf`, `malloc`, and the startup code that calls `main`. wired does not
 use libc at all, so the server is one static binary that depends only on the
-Linux kernel ([Why wired](../README.md#why-wired) explains the reasons). Your
+Linux kernel ([Why wired](../README.md#wired-の特長) explains the reasons). Your
 program is therefore compiled *freestanding*: the compiler is told there is
 no standard library.
 

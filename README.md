@@ -1,7 +1,7 @@
 # wired
 
-**A QUIC, HTTP/3, WebTransport and Media over QUIC server SDK in C, with no
-dependencies at all — no OpenSSL, no libevent, not even libc.**
+**C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC のサーバー SDK です。
+依存ライブラリは一切ありません。OpenSSL も libevent も、libc さえ使いません。**
 
 [![CI](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml)
 [![Fuzz](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml)
@@ -9,193 +9,158 @@ dependencies at all — no OpenSSL, no libevent, not even libc.**
 [![codecov](https://codecov.io/gh/Hakkadaikon/wired/branch/main/graph/badge.svg)](https://codecov.io/gh/Hakkadaikon/wired)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-wired implements the whole stack itself, in user space: TLS 1.3 and its
-cryptography, QUIC, HTTP/3 and QPACK, WebTransport, and MoQT (Media over QUIC
-Transport). The result is one static server binary of about 640 KB, with
-nothing else to install next to it.
+wired はスタック全体をユーザー空間で自前実装しています。TLS 1.3 とその暗号、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(Media over QUIC Transport)です。
+できあがるのは約 640 KB の静的なサーバーバイナリ 1 つで、ほかに何もインストールする必要はありません。
 
-## Why wired
+## wired の特長
 
-### Nothing to trust but this repository
+### 信頼すべきものはこのリポジトリだけ
 
-A typical QUIC server pulls in a TLS library, an event loop, an allocator and
-libc, and every one of them is code you inherit. wired pulls in none of them.
+一般的な QUIC サーバーは TLS ライブラリ、イベントループ、アロケーター、libc を取り込みます。そのどれもが引き継ぐことになるコードです。
+wired はどれも取り込みません。
 
-- **No third-party code.** The SDK contains no vendored or downloaded
-  libraries. Cryptography, TLS, QUIC, HTTP/3 and MoQT are all written here.
-- **No libc.** Every file compiles with `-ffreestanding -nostdlib`, so a
-  stray libc call fails to link. The server talks to the kernel through a
-  small set of typed system-call wrappers in `src/common/arch`, listed in
-  [docs/syscalls.md](docs/syscalls.md).
-- **No dynamic loading.** The server is a static binary. There is no shared
-  library to swap or preload.
-- **A pinned toolchain.** The compiler, formatter and linters come from a
-  Nix flake with a lock file, so CI and your machine build with the same
-  versions.
+- **サードパーティのコードがありません。** SDK には同梱したライブラリもダウンロードしたライブラリも含まれていません。
+  暗号、TLS、QUIC、HTTP/3、MoQT はすべてこのリポジトリで書いています。
+- **libc を使いません。** すべてのファイルを `-ffreestanding -nostdlib` でコンパイルするので、libc の呼び出しが紛れ込むとリンクに失敗します。
+  サーバーは `src/common/arch` にある少数の型付きシステムコールラッパーを通してカーネルとやり取りします。一覧は [docs/syscalls.md](docs/syscalls.md) にあります。
+- **動的ロードがありません。** サーバーは静的バイナリです。差し替えたりプリロードしたりできる共有ライブラリはありません。
+- **ツールチェーンを固定しています。** コンパイラー、フォーマッター、リンターはロックファイル付きの Nix flake から取得するので、CI と手元のマシンは同じバージョンでビルドします。
 
-For a supply-chain attack, this leaves very little to aim at. There is no
-upstream package to poison and no transitive dependency to hijack. Every byte
-the server runs can be read and reviewed in this repository.
+そのため、サプライチェーン攻撃の標的になる部分はほとんど残りません。
+汚染できる上流パッケージも、乗っ取れる推移的依存もありません。
+サーバーが実行するバイトはすべて、このリポジトリで読んでレビューできます。
 
-### No heap: no `malloc` / `free` to get wrong
+### ヒープを使わない
 
-Use-after-free and double-free bugs are among the most common causes of
-memory-safety CVEs in C network code, and most of them start with `malloc`
-and `free`. wired has neither.
+use-after-free と double free のバグは、C のネットワークコードでメモリ安全性の CVE を生むよくある原因の一つで、その多くは `malloc` と `free` から始まります。
+wired はそのどちらも使わないので、扱いを誤ることもありません。
 
-- Memory is either static or reserved once at startup with `mmap`: the
-  per-worker tables, thread stacks and the AF_XDP ring. None of it is
-  released while the server runs.
-- Connections, streams and sessions live in fixed-size tables whose slots
-  are reused in place. Every capacity is a compile-time constant with its
-  sizing rationale next to it.
-- Parsers read peer bytes through bounded views (`wired_span`) and write
-  through bounded output buffers (`wired_obuf`), never through raw lengths
-  taken from the wire.
+- メモリは静的に確保するか、起動時に `mmap` で一度だけ確保します。ワーカーごとのテーブル、スレッドのスタック、AF_XDP のリングがこれにあたります。
+  どれもサーバーの実行中には解放しません。
+- コネクション、ストリーム、セッションは固定サイズのテーブルに置き、スロットはその場で再利用します。
+  容量はすべてコンパイル時の定数で、その大きさにした理由を定数の隣に書いています。
+- パーサーはピアから受け取ったバイトを範囲付きのビュー(`wired_span`)で読み、範囲付きの出力バッファー(`wired_obuf`)に書きます。
+  受信したバイト列から取り出した生の長さをそのまま使って読み書きすることはありません。
 
-This removes the heap's bug classes entirely: use-after-free and double free
-of heap memory, leaks, and corrupted allocator metadata. It does not make the
-code memory-safe, and two kinds of dangling reference are still possible:
+これで、ヒープに起因するバグの種類は丸ごとなくなります。ヒープメモリの use-after-free と double free、リーク、アロケーターのメタデータ破壊です。
+ただし、これでコードがメモリ安全になるわけではありません。ダングリング参照は、次の 2 種類がまだ起こりえます。
 
-- **A view that outlives the stack frame it points into.** A `wired_span`
-  taken over a local buffer becomes invalid when the function returns
-  (use-after-return / use-after-scope). Buffers a view must outlive are
-  declared in the caller's scope for this reason. With the pinned clang,
-  returning a `wired_span_of` / `wired_mspan_of` view of a local is a
-  compile error (`lifetimebound`), and a CI check (`just view-check`) makes
-  each view stored in the SDK's long-lived state (its env, configuration,
-  connections, TLS driver and MoQT hub) name the storage it points into.
-- **A stale reference into a reused slot.** A pointer kept to a connection or
-  stream slot after that slot has been freed and handed to a new peer. An
-  application keeps a WebTransport session across steps as a
-  generation-checked `wired_wt_ref`, which resolves to nothing once the slot
-  is reused; that lifecycle is bounded-model-checked (`just cbmc`). A raw
-  `wired_wt_session*`, or a pointer to a connection or stream slot, kept
-  across steps is not checked.
+- **指している先のスタックフレームより長く生きるビュー。** ローカルバッファーに対して取った `wired_span` は、関数から戻った時点で無効になります(use-after-return / use-after-scope)。
+  そのため、ビューより長く生きる必要があるバッファーは呼び出し側のスコープで宣言しています。
+  固定した clang ではローカル変数の `wired_span_of` / `wired_mspan_of` ビューを返すとコンパイルエラーになります(`lifetimebound`)。
+  さらに CI のチェック(`just view-check`)が、SDK の長寿命な状態(env、設定、コネクション、TLS ドライバー、MoQT ハブ)に保存する各ビューについて、指している先がどこに置かれたメモリかを明記させます。
+- **再利用されたスロットへの古い参照。** コネクションやストリームのスロットが解放されて新しいピアに割り当てられた後も、そのスロットへのポインターを持ち続けている場合です。
+  アプリケーションはステップをまたいで保持する WebTransport セッションを、世代をチェックする `wired_wt_ref` として持ちます。これはスロットが再利用されると何も指さなくなります。このライフサイクルは有界モデル検査で確かめています(`just cbmc`)。
+  一方、ステップをまたいで保持した生の `wired_wt_session*` や、コネクション・ストリームのスロットへのポインターはチェックされません。
 
-The checks below exist to catch exactly these. The CI sanitizer run checks
-both use-after-scope and use-after-return: under ASan the SDK's threads run
-as pthreads, so each has the thread-local area ASan's use-after-return mode
-needs.
+下の表のチェックはまさにこれらを見つけるためにあります。
+CI のサニタイザー実行は use-after-scope と use-after-return の両方を検査します。ASan の下では SDK のスレッドが pthread として動くので、ASan の use-after-return モードが必要とするスレッドローカル領域を各スレッドが持てます。
 
-### Hardened and checked on every push
+### 堅牢化と push ごとのチェック
 
-| Check | What it catches |
+| チェック | 見つけるもの |
 |---|---|
-| ASan + UBSan test run, plus a trap-sanitized production build | out-of-bounds access, use of a stack buffer after its scope ends or its function returns, undefined behavior |
-| clang-tidy with the CERT C secure-coding rules, as errors | unsafe idioms, integer conversions, null dereferences |
-| Fuzzing: 9 harnesses (QUIC frames and headers, 1-RTT packets, TLS messages, X.509, QPACK, capsules, MoQT, MP4 fragments), smoke-tested on every push and run nightly | crashes and hangs on hostile input |
-| RFC / FIPS test vectors for every primitive, plus the BoringSSL and Wycheproof suites | wrong cryptography |
-| Cyclomatic complexity ≤ 3 for every function | functions too tangled to review |
-| [Requirement ledgers](docs/features/README.md): every normative statement of 40+ specs, each backed by a test on the shipping server path | silently unimplemented spec rules |
-| [Vulnerability ledger](docs/security/vuln-ledger.md): 856 known CVEs and advisories from other QUIC/TLS/HTTP stacks, each re-checked against this code; a reachability check in CI keeps the cited defenses on the production path | repeating someone else's CVE |
+| ASan + UBSan でのテスト実行と、trap サニタイザー付きの本番ビルド | 範囲外アクセス、スコープを抜けた後や関数から戻った後のスタックバッファーの使用、未定義動作 |
+| CERT C セキュアコーディング規則を有効にした clang-tidy(エラー扱い) | 危険なイディオム、整数変換、null 参照 |
+| ファジング: 9 つのハーネス(QUIC のフレームとヘッダー、1-RTT パケット、TLS メッセージ、X.509、QPACK、カプセル、MoQT、MP4 フラグメント)。push のたびにスモークテストし、毎晩フル実行 | 悪意のある入力でのクラッシュとハング |
+| すべての暗号プリミティブに対する RFC / FIPS のテストベクターと、BoringSSL・Wycheproof のテストスイート | 誤った暗号 |
+| すべての関数で循環的複雑度 3 以下 | レビューできないほど込み入った関数 |
+| [要件台帳](docs/features/README.md): 40 以上の仕様のすべての規範的な記述を挙げ、それぞれを出荷するサーバーの経路上のテストで裏付ける | 気づかないうちに実装されていない仕様の規則 |
+| [脆弱性台帳](docs/security/vuln-ledger.md): ほかの QUIC/TLS/HTTP スタックで知られている 856 件の CVE とアドバイザリを、それぞれこのコードに対して確かめ直したもの。CI の到達性チェックで、挙げた防御が本番の経路上にあり続けることを確かめる | 他人の CVE の繰り返し |
 
-The [security overview](docs/security.md) describes the threat model and the
-order in which each incoming packet is checked.
+[セキュリティの概要](docs/security.md) で、脅威モデルと、受信した各パケットをどの順序でチェックするかを説明しています。
 
-### Fast and small
+### 速くて小さい
 
-The SDK owns the event loop, and no hot path allocates memory. The same
-server code runs under four I/O drivers, selected with a
-command-line flag: a `poll` loop, forked workers, raw threads, and AF_XDP,
-which moves packets between the network card and the server without going
-through the kernel's UDP stack.
+イベントループは SDK が持ち、ホットパスではメモリを確保しません。
+同じサーバーコードが 4 つの I/O ドライバーの上で動き、コマンドラインフラグで選べます。`poll` ループ、fork したワーカー、生のスレッド、そして AF_XDP です。
+AF_XDP はカーネルの UDP スタックを通さずにネットワークカードとサーバーの間でパケットを受け渡します。
 
-Measured against quic-go and quiche on the same 4-vCPU VM, serving small
-HTTP/3 responses over loopback:
+同じ 4 vCPU の VM 上で、ループバック経由の小さな HTTP/3 レスポンスを返すときの quic-go・quiche との比較です。
 
 | | wired | quiche 0.29.3 | quic-go v0.61.0 |
 |---|---|---|---|
-| Requests per second | **23,825** | 22,175 | 12,042 |
-| Latency under load, p50 | **0.71 ms** | 0.81 ms | 1.45 ms |
-| Server CPU per request | **35.4 µs** | 37.2 µs | 79.6 µs |
-| Memory when idle (RSS) | **512 KiB** | 7,804 KiB | 8,424 KiB |
-| Peak memory under load | **1,932 KiB** | 8,468 KiB | 15,340 KiB |
-| Server binary | **525 KB** (static) | 6.2 MB | 7.3 MB |
+| 1 秒あたりのリクエスト数 | **23,825** | 22,175 | 12,042 |
+| 負荷時のレイテンシ(p50) | **0.71 ms** | 0.81 ms | 1.45 ms |
+| 1 リクエストあたりのサーバー CPU 時間 | **35.4 µs** | 37.2 µs | 79.6 µs |
+| アイドル時のメモリ(RSS) | **512 KiB** | 7,804 KiB | 8,424 KiB |
+| 負荷時のピークメモリ | **1,932 KiB** | 8,468 KiB | 15,340 KiB |
+| サーバーバイナリ | **525 KB**(静的) | 6.2 MB | 7.3 MB |
 
-On a simulated 10 Mbps link, all five servers tested (with ngtcp2 and
-picoquic) reach nearly the same goodput (9,118 to 9,535 kbps; wired 9,434).
+10 Mbps の模擬リンクでは、試した 5 つのサーバー(ngtcp2 と picoquic を含む)がほぼ同じグッドプットに達します(9,118〜9,535 kbps。wired は 9,434)。
 
-Measured 2026-11-02 at `efd61452e`, all servers the same day on the same
-machine. [Implementation Comparison](docs/performance/comparison.md) has
-the feature matrix, every lane and how to reproduce them.
+2026-11-02 に `efd61452e` で計測しました。すべてのサーバーを同じ日に同じマシンで計測しています。
+機能の比較表、すべての計測レーンとその再現方法は [実装の比較](docs/performance/comparison.md) にあります。
 
-### Media over QUIC, not only HTTP
+### HTTP だけでなく Media over QUIC も
 
-wired ships a MoQT relay on the same stack, not a separate product.
+wired は同じスタックの上に MoQT リレーを載せています。別の製品ではありません。
 
-- **Three draft versions, negotiated per session**:
-  [draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/),
-  [-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/) and
-  [-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/).
-- **Two transports**: over a WebTransport session, so browsers can join, or
-  directly on a raw QUIC connection (ALPN `moqt-NN`).
-- **A full relay**, covering:
-  - PUBLISH / SUBSCRIBE and FETCH with a cache;
-  - namespace discovery, Track Properties, filters and priorities;
-  - several publishers merged into one track, with deduplication;
-  - Objects forwarded byte by byte as they arrive;
-  - delivery timeouts and GOAWAY.
-- **Tested against other implementations** in the
-  [moq-interop-runner](https://github.com/englishm/moq-interop-runner). The
-  [moqt_chat live demo](https://hakkadaikon.github.io/wired/moqt_chat) runs a
-  browser chat and voice room on it.
+- **3 つのドラフトバージョン**
+  ([draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/)、
+  [-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/)、
+  [-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/))を、セッションごとにネゴシエーションします。
+- **2 つのトランスポート**で動きます。ブラウザーから参加できる WebTransport セッションの上か、生の QUIC コネクションの上(ALPN `moqt-NN`)で直接動きます。
+- **フル機能のリレー**で、次をカバーします。
+  - PUBLISH / SUBSCRIBE と、キャッシュ付きの FETCH
+  - 名前空間の探索、Track Properties、フィルター、優先度
+  - 複数のパブリッシャーを重複排除しつつ 1 つの Track にまとめる
+  - Object を届いたそばから 1 バイトずつ転送する
+  - 配送のタイムアウトと GOAWAY
+- [moq-interop-runner](https://github.com/englishm/moq-interop-runner) で**ほかの実装と相互接続テストをしています**。
+  [moqt_chat のライブデモ](https://hakkadaikon.github.io/wired/moqt_chat) では、その上でブラウザーのチャットと音声通話のルームが動いています。
 
-### Readable down to the bytes
+### バイト単位まで読める
 
-Every layer is plain C in this one repository, and each file names the RFC
-section it implements. It is a working server, and also a place to learn how
-QUIC, TLS 1.3 and HTTP/3 actually fit together.
+どの層もこの 1 つのリポジトリにあるプレーンな C で、各ファイルには実装している RFC の節を書いています。
+動くサーバーであると同時に、QUIC、TLS 1.3、HTTP/3 が実際にどう組み合わさっているかを学べる場所でもあります。
 
-## How the layers fit
+## 層の組み合わせ
 
-Each protocol builds on the one below it and lives in its own directory
-under `src/`. Your code plugs in at one of three levels:
+各プロトコルはその下の層の上に作られていて、それぞれ `src/` の下の専用ディレクトリにあります。
+あなたのコードは次の 3 つのどの層にでもつなげられます。
 
-- plain HTTP/3;
-- WebTransport: browser-friendly streams opened with an HTTP/3 *Extended
-  CONNECT* request;
-- MoQT, over WebTransport or directly over QUIC.
+- 素の HTTP/3
+- WebTransport: HTTP/3 の *Extended CONNECT* リクエストで開く、ブラウザーから扱いやすいストリーム
+- MoQT: WebTransport 上でも、QUIC 上で直接でも動く
 
-Read the chart from top to bottom. Only the syscall wrappers in
-`src/common/arch` talk to the kernel. `--ifindex` selects the AF_XDP driver.
+図は上から下へ読みます。
+カーネルとやり取りするのは `src/common/arch` のシステムコールラッパーだけです。
+`--ifindex` を指定すると AF_XDP ドライバーを使います。
 
 ```mermaid
 flowchart TD
-  app["Your application<br/>(the callbacks you write)"]
+  app["アプリケーション<br/>(あなたが書くコールバック)"]
   moqt["MoQT<br/>src/app/moqt"]
   wt["WebTransport<br/>src/app/webtransport"]
-  h3["HTTP/3 + QPACK + drivers<br/>src/app/http3, src/app/qpack"]
-  quic["QUIC transport<br/>src/transport"]
-  tls["TLS 1.3 + crypto<br/>src/tls, src/crypto"]
-  io["Socket / AF_XDP I/O<br/>src/transport/io"]
-  sys["Typed syscall wrappers<br/>src/common/arch"]
-  udp["Kernel UDP socket"]
-  xdp["AF_XDP ring<br/>(kernel bypass)"]
+  h3["HTTP/3 + QPACK + ドライバー<br/>src/app/http3, src/app/qpack"]
+  quic["QUIC トランスポート<br/>src/transport"]
+  tls["TLS 1.3 + 暗号<br/>src/tls, src/crypto"]
+  io["ソケット / AF_XDP の I/O<br/>src/transport/io"]
+  sys["型付きシステムコールラッパー<br/>src/common/arch"]
+  udp["カーネルの UDP ソケット"]
+  xdp["AF_XDP リング<br/>(カーネルバイパス)"]
   app --> moqt
   app --> wt
   app --> h3
-  moqt -->|"over WebTransport"| wt
-  moqt -->|"or native QUIC"| quic
+  moqt -->|"WebTransport 上"| wt
+  moqt -->|"またはネイティブ QUIC"| quic
   wt -->|"Extended CONNECT"| h3
   h3 --> quic
-  quic -->|"keys + packet protection"| tls
-  quic -->|"encrypted datagrams"| io
+  quic -->|"鍵 + パケット保護"| tls
+  quic -->|"暗号化済みデータグラム"| io
   io --> sys
   sys -->|"socket / sendmsg / recvmmsg"| udp
-  sys -->|"UMEM ring + BPF attach"| xdp
+  sys -->|"UMEM リング + BPF アタッチ"| xdp
 ```
 
-The specifications behind each box are listed in [RFCs and
-drafts](docs/arch/rfcs.md), and [Architecture](docs/arch/overview.md)
-explains each layer in detail.
+各ボックスの元になっている仕様は [RFC とドラフト](docs/arch/rfcs.md) に、各層の詳しい説明は [アーキテクチャ](docs/arch/overview.md) にあります。
 
-## What the code looks like
+## コードの見た目
 
-Your side of a server is one callback. The SDK binds the port, runs the
-handshake, encryption, loss recovery and HTTP/3, and calls your function when
-a request is complete. This one is from
-[examples/word_list](examples/word_list/wired_server.c):
+サーバーのうちあなたが書く部分は、コールバック 1 つです。
+SDK がポートをバインドし、ハンドシェイク、暗号化、ロスリカバリー、HTTP/3 を処理して、リクエストがそろったらあなたの関数を呼びます。
+次のコードは [examples/word_list](examples/word_list/wired_server.c) からの抜粋です。
 
 ```c
 static int app_on_request(
@@ -211,13 +176,12 @@ static int app_on_request(
 }
 ```
 
-`req` holds the method, path and body. Write the body into `body_out`, point
-`*content_type` at a MIME type, and return 1. The remaining parameters are
-for bodies too large for one call
-([Streaming responses](https://hakkadaikon.github.io/wired/guide/en/h3/streaming/)).
+`req` にはメソッド、パス、ボディが入っています。
+ボディを `body_out` に書き、`*content_type` に MIME タイプを指させて、1 を返します。
+残りの引数は 1 回の呼び出しに収まらない大きなボディのためのものです([レスポンスのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
 
-There is no libc to call `main`, so `wired_main` takes its place. It parses
-the flags, sets up the TLS identity, and hands the callback to the driver:
+`main` を呼ぶ libc がないので、`wired_main` がその代わりになります。
+フラグを解析し、TLS のアイデンティティを用意して、コールバックをドライバーに渡します。
 
 ```c
 int wired_main(int argc, char** argv) {
@@ -231,51 +195,44 @@ int wired_main(int argc, char** argv) {
 }
 ```
 
-The [interactive guide](https://hakkadaikon.github.io/wired/guide/en/) goes
-from here to a running server step by step.
+ここから動くサーバーまでは [インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/) で一歩ずつ進められます。
 
-## Examples
+## サンプル
 
-| Example | What it shows |
+| サンプル | 内容 |
 |---|---|
-| [word_list](examples/word_list/) | HTTP/3 message log (POST/GET) or static-file server; all four I/O drivers; CA-certificate drop-in |
-| [moqt_chat](examples/moqt_chat/) ([live demo](https://hakkadaikon.github.io/wired/moqt_chat)) | Browser chat + voice call room over Media over QUIC Transport: PUBLISH/SUBSCRIBE track relay, Opus voice frames, single fixed room |
-| [webtransport_interop](examples/webtransport_interop/) | The [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) WebTransport server endpoint: file transfer over streams and DATAGRAMs against real client implementations |
-| [moqt_interop](examples/moqt_interop/) | The [moq-interop-runner](https://github.com/englishm/moq-interop-runner) relay: a MoQT relay over WebTransport (negotiates draft-18/19/22 per session) tested against real client implementations |
+| [word_list](examples/word_list/) | HTTP/3 のメッセージログ(POST/GET)または静的ファイルサーバー。4 つの I/O ドライバーすべてに対応し、CA 証明書を置くだけで使える |
+| [moqt_chat](examples/moqt_chat/)([ライブデモ](https://hakkadaikon.github.io/wired/moqt_chat)) | Media over QUIC Transport 上のブラウザーチャットと音声通話のルーム。PUBLISH/SUBSCRIBE による Track の中継、Opus の音声フレーム、固定のルーム 1 つ |
+| [webtransport_interop](examples/webtransport_interop/) | [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) の WebTransport サーバーエンドポイント。実際のクライアント実装を相手に、ストリームと DATAGRAM でファイルを転送する |
+| [moqt_interop](examples/moqt_interop/) | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) のリレー。WebTransport 上の MoQT リレー(セッションごとに draft-18/19/22 をネゴシエーション)を、実際のクライアント実装を相手にテストする |
 
-## Interop results
+## 相互接続テストの結果
 
-Interop matrices against other implementations. "wired runs" are this
-project's own runs of each runner with wired added; "official" is the
-upstream runner's public results.
+ほかの実装との相互接続テストの結果表です。
+「wired の実行」は、各ランナーに wired を追加してこのプロジェクト自身が実行した結果で、「公式」は上流ランナーの公開結果です。
 
-| Protocol | wired runs | Official |
+| プロトコル | wired の実行 | 公式 |
 |---|---|---|
 | QUIC | <https://quic-interop-runner-wired.vercel.app/quic> | <https://interop.seemann.io/quic> |
 | WebTransport | <https://quic-interop-runner-wired.vercel.app/webtransport> | <https://interop.seemann.io/webtransport> |
-| MoQT (relay role) | <https://moq-interop-runner-wired.vercel.app> | <https://englishm.github.io/moq-interop-runner/> |
+| MoQT(リレー役) | <https://moq-interop-runner-wired.vercel.app> | <https://englishm.github.io/moq-interop-runner/> |
 
-## Documentation
+## ドキュメント
 
-- [docs/](docs/README.md): every document, ordered by task.
-- [Getting Started](docs/getting-started.md): toolchain setup and a first
-  build.
-- [Architecture](docs/arch/overview.md): how the layers are built.
-- [API reference](https://hakkadaikon.github.io/wired/): the full public
-  interface.
-- [Known limitations](docs/features/known-limitations.md): every deliberate
-  deviation and capacity limit.
+- [docs/](docs/README.md): すべてのドキュメントを作業の順に並べた一覧
+- [はじめに](docs/getting-started.md): ツールチェーンの準備と最初のビルド
+- [アーキテクチャ](docs/arch/overview.md): 各層の作り
+- [API リファレンス](https://hakkadaikon.github.io/wired/): 公開インターフェースの全体
+- [既知の制限](docs/features/known-limitations.md): 意図的に仕様から外れている点と容量の制限のすべて
 
-## Supported platform
+## 対応プラットフォーム
 
-x86_64 Linux only. The optional AF_XDP driver also needs root and kernel 5.9
-or later (for `BPF_LINK_CREATE` on XDP). If your network card (NIC) has no
-native XDP support, `--skb-mode` selects the slower generic XDP mode. Some
-virtual NICs (e.g. `virtio_net`) may fail to send AF_XDP packets in generic
-mode; if that happens, use the plain UDP driver. The [server
-flags](https://hakkadaikon.github.io/wired/guide/en/quic/server-flags/) page
-lists the driver flags.
+x86_64 Linux のみです。
+オプションの AF_XDP ドライバーは、さらに root 権限とカーネル 5.9 以降(XDP の `BPF_LINK_CREATE` のため)が必要です。
+ネットワークカード(NIC)がネイティブの XDP に対応していない場合は、`--skb-mode` で遅い汎用 XDP モードを選べます。
+一部の仮想 NIC(`virtio_net` など)では、汎用モードで AF_XDP のパケット送信に失敗することがあります。その場合は通常の UDP ドライバーを使ってください。
+ドライバーのフラグは [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) のページにあります。
 
-## License
+## ライセンス
 
-MIT — see [LICENSE](LICENSE).
+MIT です。[LICENSE](LICENSE) を参照してください。
