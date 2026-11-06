@@ -1,291 +1,155 @@
-# Development
+# 開発
 
-[Docs](README.md) › Development
+[Docs](README.md) › 開発
 
-This page is for contributors who change the code under `src/` or `tests/`.
-It explains the rules every change must follow, why each rule exists, and
-the checks you run before a commit. If you only want to build an
-application on top of `wired`, start with the
-[guide](https://hakkadaikon.github.io/wired/guide/en/getting-started/hello/)
-instead.
+このページは `src/` や `tests/` のコードを変更するコントリビューター向けです。どの変更も守るべきルールと、各ルールがある理由、コミット前に実行する検査を説明します。`wired` の上にアプリケーションを作るだけなら、代わりに [ガイド](https://hakkadaikon.github.io/wired/guide/ja/getting-started/hello/) から始めてください。
 
-> **The 30-second version.** Four rules govern every change:
-> **(1)** no libc (`src/` must compile freestanding);
-> **(2)** every function has cyclomatic complexity ≤ 3;
-> **(3)** one concern lives in exactly one `src/` directory;
-> **(4)** all symbols share one global namespace, so grep before you name
-> anything.
-> Before each commit, `just test-fast`, `just ninja`, and `just ccn` must
-> pass, and the number of compiled objects must equal the number of sources.
-> Before pushing a diff that adds new names, also run the slower `just test`
-> once, because only it catches every name collision (see
-> [test-fast or test](#test-fast-or-test)).
+> **30 秒で読む要約。** すべての変更は 4 つのルールに従います。
+> **(1)** libc を使わない(`src/` は freestanding でコンパイルできなければならない)。
+> **(2)** すべての関数の循環的複雑度は 3 以下。
+> **(3)** 1 つの関心事は `src/` のちょうど 1 つのディレクトリに置く。
+> **(4)** すべてのシンボルが 1 つのグローバル名前空間を共有するので、名前を付ける前に grep する。
+> 各コミットの前に `just test-fast`、`just ninja`、`just ccn` が通り、コンパイルされたオブジェクトの数がソースの数と一致しなければなりません。
+> 新しい名前を追加する差分を push する前には、時間のかかる `just test` も 1 回実行してください。すべての名前の衝突を検出できるのはこれだけだからです([test-fast と test の使い分け](#test-fast-と-test-の使い分け) を参照)。
 
-## Philosophy
+## 設計思想
 
-`wired` is a QUIC, HTTP/3, WebTransport, and MoQT stack in C, built under
-three self-imposed disciplines. Each one is unusual for a C project, so
-this section gives the reason before the rule.
+`wired` は C で書いた QUIC、HTTP/3、WebTransport、MoQT のスタックで、自らに課した 3 つの規律のもとで作っています。どれも C のプロジェクトとしては珍しいため、この節ではルールの前に理由を述べます。
 
-### No libc
+### libc を使わない
 
-Most C programs link against libc, the C standard library that provides
-`printf`, `memcpy`, `malloc`, and the startup code (the CRT) that runs
-before `main`. `wired` uses none of it. The SDK talks to the Linux kernel
-directly through its own system-call wrappers, and copies bytes with its
-own small helpers.
+ほとんどの C プログラムは libc にリンクします。libc は C の標準ライブラリで、`printf`、`memcpy`、`malloc` と、`main` の前に動くスタートアップコード(CRT)を提供します。`wired` はそのどれも使いません。SDK は独自のシステムコールラッパーで Linux カーネルと直接やり取りし、バイトのコピーも独自の小さなヘルパーで行います。
 
-The reason is control: the SDK's behavior, memory use, and attack surface
-do not depend on which libc the host has. Two checks enforce the rule.
-First, every production source is compiled with `-ffreestanding
--nostdlib`, the compiler flags for code that has no standard library.
-Second, the example and guide binaries are linked with `-nostdlib
--static`, so a call into libc such as `memcpy` has no library to resolve
-against, and the link fails.
-The compiler can still find system headers, though, so a
-`#include <string.h>` on its own compiles; a grep (see
-[Hard constraints](#hard-constraints)) catches it instead.
+理由は制御です。SDK の振る舞い、メモリ使用量、攻撃対象領域が、ホストにどの libc があるかに左右されません。このルールは 2 つの検査で強制しています。1 つ目に、本番のソースはすべて `-ffreestanding -nostdlib`(標準ライブラリを持たないコード向けのコンパイラーフラグ)でコンパイルします。2 つ目に、examples と guide のバイナリは `-nostdlib -static` でリンクするので、`memcpy` のような libc の呼び出しは解決先のライブラリがなく、リンクが失敗します。
+ただしコンパイラーはシステムヘッダーを見つけられるため、`#include <string.h>` だけならコンパイルは通ります。こちらは grep([必須の制約](#必須の制約) を参照)で検出します。
 
-### Low complexity by construction
+### 構造で複雑さを抑える
 
-Cyclomatic complexity (CCN) counts the independent paths through a
-function: a function with no branches has CCN 1, and every `if`, loop,
-`&&`, `||`, or `?:` adds one. `wired` caps every function at CCN 3, and
-the tool `lizard` enforces the cap.
+循環的複雑度(CCN)は関数を通る独立した経路の数を数えます。分岐のない関数は CCN 1 で、`if`、ループ、`&&`、`||`、`?:` のそれぞれが 1 を足します。`wired` はすべての関数を CCN 3 までに制限し、ツール `lizard` でこの上限を強制しています。
 
-The reason is reviewability. A protocol codec with CCN 3 per function can
-be read side by side with its RFC section, one small step at a time. The
-cap forces small functions, named predicate helpers, and table-driven
-dispatch instead of long `if`/`else` chains.
+理由はレビューのしやすさです。関数ごとに CCN 3 のプロトコルコーデックなら、対応する RFC の節と並べて、小さな段階ごとに読めます。この上限があると、長い `if`/`else` の連鎖の代わりに、小さな関数、名前付きの述語ヘルパー、テーブル駆動のディスパッチを使うことになります。
 
-### Verification-driven
+### 検証駆動
 
-Behavior is implemented against the IETF primary source (the RFC text),
-with test vectors recomputed by hand. State machines and critical math get
-an extra check before the code is written; see
-[Verification layers](#verification-layers).
+振る舞いは IETF の一次資料(RFC の本文)に沿って実装し、テストベクターは手で計算し直します。状態機械と重要な数学には、コードを書く前に追加の検査をします。[検証の層](#検証の層) を参照してください。
 
-## Architecture
+## アーキテクチャ
 
-The code is split into five top-level groups under `src/`, and the groups
-form layers. `common` and `crypto` sit at the bottom, `tls` builds on
-them, `transport` (QUIC) builds on `tls`, and `app` sits on top: HTTP/3
-first, then WebTransport (WT) and MoQT. In protocol terms the order is
-TLS → QUIC → H3 → WT → MoQT, each arrow pointing to the layer that uses
-the one before it.
+コードは `src/` の下で 5 つのトップレベルのグループに分かれ、グループは層をなします。いちばん下に `common` と `crypto` があり、`tls` がその上に、`transport`(QUIC)が `tls` の上に、`app` が最上位に乗ります。`app` の中は HTTP/3 が先で、その上に WebTransport(WT)と MoQT が来ます。プロトコルで言えば順序は TLS → QUIC → H3 → WT → MoQT で、各矢印は前の層を使う層を指します。
 
-| Group | Role | Example subdirectories |
+| グループ | 役割 | サブディレクトリの例 |
 |---|---|---|
-| `app` | HTTP/3 and everything above it | `http3`, `qpack`, `datagram`, `webtransport`, `moqt` |
-| `transport` | QUIC transport | `conn`, `packet`, `stream`, `recovery`, `version`, `io` |
-| `tls` | TLS 1.3 handshake and keys | `handshake`, `ext`, `keys` |
-| `crypto` | Cryptographic primitives | `symmetric`, `asymmetric`, `kdf`, `pki` |
-| `common` | Foundation shared by all | `bytes`, `diag`, `platform`, `arch`, `fmt` |
+| `app` | HTTP/3 とその上のすべて | `http3`, `qpack`, `datagram`, `webtransport`, `moqt` |
+| `transport` | QUIC トランスポート | `conn`, `packet`, `stream`, `recovery`, `version`, `io` |
+| `tls` | TLS 1.3 のハンドシェイクと鍵 | `handshake`, `ext`, `keys` |
+| `crypto` | 暗号プリミティブ | `symmetric`, `asymmetric`, `kdf`, `pki` |
+| `common` | すべてが共有する土台 | `bytes`, `diag`, `platform`, `arch`, `fmt` |
 
-A domain is a leaf directory inside one of these subdirectories. For
-example, `src/common/bytes/varint/` holds the QUIC variable-length integer
-codec.
-For how the layers call each other and how a packet moves through them,
-read [Architecture and Data Flow](arch/overview.md) and
-[Layers](arch/layers.md).
+ドメインはこれらのサブディレクトリの中にある末端のディレクトリです。たとえば `src/common/bytes/varint/` には QUIC の可変長整数のコーデックがあります。
+層同士がどう呼び合い、パケットが層をどう通るかは、[アーキテクチャとデータフロー](arch/overview.md) と [レイヤー](arch/layers.md) を読んでください。
 
-### MECE: one concern, one directory
+### MECE: 関心事ごとに 1 つのディレクトリ
 
-MECE means "mutually exclusive, collectively exhaustive": every concern
-has exactly one home, and every piece of code has a home. In `wired` this
-is a directory rule. One concern lives in exactly one `src/` directory, so
-finding the code for a behavior is one `grep` in one place, and a new
-behavior goes into the layer whose responsibility it matches.
+MECE は「mutually exclusive, collectively exhaustive(互いに重ならず、全体として漏れがない)」の略です。どの関心事にもちょうど 1 つの置き場所があり、どのコードにも置き場所があります。`wired` ではこれをディレクトリのルールにしています。1 つの関心事は `src/` のちょうど 1 つのディレクトリに置くので、ある振る舞いのコードは 1 か所を 1 回 `grep` すれば見つかり、新しい振る舞いは責務の合う層に入ります。
 
-### Name prefixes tell you the audience
+### 名前の接頭辞が示す呼び出し側
 
-The prefix of a non-`static` name says who may call it.
+非 `static` な名前の接頭辞は、誰が呼んでよいかを示します。
 
-- **Application-facing API** (anything the examples call) uses `wired_*`
-  or `WIRED_*`.
-- **Internal API** uses the module's own token as its prefix, such as
-  `varint_*`, `sdrv_*`, or `moqctl_*`.
+- **アプリケーション向け API**(examples が呼ぶものすべて)は `wired_*` か `WIRED_*` を使います。
+- **内部 API** は `varint_*`、`sdrv_*`、`moqctl_*` のように、モジュール自身のトークンを接頭辞にします。
 
-[API stability](api-stability.md) decides which side each name belongs
-to.
+各名前がどちら側に属するかは [API の安定性](api-stability.md) で決めます。
 
-## Build system
+## ビルドシステム
 
-`just` is a command runner: each `just <recipe>` runs a named recipe from
-the `justfile`. Every recipe body is one or two lines; anything longer is
-a script under `scripts/just/`. All compiler flags are defined once, in
-`scripts/just/flags.sh`, and sources are found automatically, so adding a
-`src/**/*.c` file needs no `justfile` edit.
+`just` はコマンドランナーで、`just <recipe>` は `justfile` にある名前付きのレシピを実行します。レシピの本体はどれも 1〜2 行で、それより長いものは `scripts/just/` の下のスクリプトにしています。コンパイラーフラグはすべて `scripts/just/flags.sh` で 1 回だけ定義し、ソースは自動で見つけるので、`src/**/*.c` のファイルを追加しても `justfile` の編集は要りません。
 
-The code is compiled in two different ways, and both matter.
+コードは 2 通りの方法でコンパイルされ、どちらも重要です。
 
-- **Freestanding** (`just ninja`): each `src/**/*.c` is compiled on its
-  own with `-ffreestanding -nostdlib -Werror` into a path-qualified
-  `build/<path>.o`. The full path in the object name keeps the objects of
-  sources that share a basename (`frame.c`, `grease.c`, ...) from
-  overwriting each other.
-- **Hosted test** (`just test` and `just test-fast`): the tests are built
-  against the normal host libc so they can print results, and they run
-  with assertions on.
+- **Freestanding**(`just ninja`): `src/**/*.c` をそれぞれ単独で `-ffreestanding -nostdlib -Werror` でコンパイルし、パス付きの `build/<path>.o` を出力します。オブジェクト名にフルパスを含めることで、basename が同じソース(`frame.c`、`grease.c` など)のオブジェクトが互いを上書きしません。
+- **ホスト向けテスト**(`just test` と `just test-fast`): テストは結果を表示できるよう通常のホストの libc に対してビルドし、アサーションを有効にして実行します。
 
-### Unity build: one translation unit
+### ユニティビルドと 1 つの翻訳単位
 
-A translation unit (TU) is what the compiler sees after it pastes in every
-`#include`: one `.c` file plus everything it includes. Normally each `.c`
-file is its own TU, so two files can each have a `static` helper named
-`put_bytes` without conflict.
+翻訳単位(TU)は、コンパイラーがすべての `#include` を展開したあとに見るもので、1 つの `.c` ファイルとそれがインクルードするすべてを合わせたものです。通常は `.c` ファイルごとに別の TU なので、2 つのファイルがそれぞれ `put_bytes` という `static` ヘルパーを持っていても衝突しません。
 
-`wired`'s test build is different. `tests/run.c` is a unity build: a
-single TU that `#include`s every production `.c` once and every
-`*_test.c` once. The tests therefore exercise the real implementation, not
-a mock. The cost is that every name in the repository, including `static`
-helpers, `typedef`s, macros, and constants, now lives in one global
-namespace. Two files that each define `static put_bytes` compile fine on
-their own and only fail when `run.c` pulls them into the same TU. That is
-why collisions show up only in the unity build, and why you grep before
-naming.
+`wired` のテストビルドは違います。`tests/run.c` はユニティビルドで、本番の `.c` をすべて 1 回ずつ、`*_test.c` もすべて 1 回ずつ `#include` する単一の TU です。そのためテストはモックではなく本物の実装を動かします。その代わり、`static` ヘルパー、`typedef`、マクロ、定数を含め、リポジトリ中のすべての名前が 1 つのグローバル名前空間に入ります。それぞれ `static put_bytes` を定義する 2 つのファイルは単独ならコンパイルでき、`run.c` が両者を同じ TU に取り込んだときに初めて失敗します。衝突がユニティビルドでしか現れず、名前を付ける前に grep するのはこのためです。
 
-### test-fast or test
+### test-fast と test の使い分け
 
-Both recipes run the same tests and print the same `all tests passed`
-line. They differ in how `tests/run.c` is compiled.
+どちらのレシピも同じテストを実行し、同じ `all tests passed` の行を表示します。違いは `tests/run.c` のコンパイル方法です。
 
-| Recipe | How it compiles | Catches cross-file `static`/`typedef`/macro collisions |
+| レシピ | コンパイル方法 | ファイルをまたぐ `static`/`typedef`/マクロの衝突の検出 |
 |---|---|---|
-| `just test` | One TU, as CI does | Yes |
-| `just test-fast` | `run.c` split into 8 shard TUs, compiled in parallel | Only inside a shard |
+| `just test` | CI と同じく 1 つの TU | 検出する |
+| `just test-fast` | `run.c` を 8 つのシャード TU に分け、並列にコンパイル | シャードの中だけ |
 
-`test-fast` is about 3x faster, so the per-commit gate uses it. The split,
-made by `scripts/gen_shards.py`, keeps each production file in the same
-shard as its test. Two unrelated files can still land in different
-shards, and a collision between them then stays invisible. Duplicate
-non-`static` functions are still caught, because they collide at link
-time. Run `just test` once before pushing any diff that adds new names; CI
-runs it on every push.
+`test-fast` は約 3 倍速いので、コミットごとのゲートではこちらを使います。分割は `scripts/gen_shards.py` が行い、本番のファイルとそのテストを同じシャードに置きます。それでも無関係な 2 つのファイルは別々のシャードに入ることがあり、その間の衝突は見えないままになります。非 `static` な関数の重複はリンク時に衝突するので、こちらは検出できます。新しい名前を追加する差分は、push する前に `just test` を 1 回実行してください。CI は push のたびにこれを実行します。
 
-Both recipes run `just fmt` first, so they may reformat your sources in
-place.
+どちらのレシピも先に `just fmt` を実行するので、ソースがその場で整形されることがあります。
 
-### All recipes
+### レシピ一覧
 
-Install the toolchain first with `just setup` and `nix develop`; see
-[Getting started](getting-started.md) for what the Nix devShell is and why
-its tool versions are pinned.
+まず `just setup` と `nix develop` でツールチェーンを入れます。Nix の devShell が何で、なぜツールのバージョンを固定しているかは [はじめに](getting-started.md) を参照してください。
 
-Run every build and check through a recipe, never `lizard`, `ninja`,
-`clang`, `clang-format`, or `clang-tidy` by hand. The recipe regenerates
-`build.ninja`, pins the flags, and switches to the Nix devShell where the
-tool version matters, so a local run matches CI. The `justfile` has 22
-recipes.
+ビルドと検査はすべてレシピ経由で実行し、`lizard`、`ninja`、`clang`、`clang-format`、`clang-tidy` を手で実行しないでください。レシピは `build.ninja` を作り直し、フラグを固定し、ツールのバージョンが問題になる所では Nix の devShell に切り替えるので、ローカルの実行結果が CI と一致します。`justfile` には 22 個のレシピがあります。
 
-| Recipe | What it does |
+| レシピ | 内容 |
 |---|---|
-| `setup` | One-time bootstrap: install Nix if absent. |
-| `nix <recipe>` | Run any recipe inside the pinned flake devShell. |
-| `build` | `fmt` + `ninja` + `lint` in the devShell. |
-| `gen-ninja` | Regenerate `build.ninja` from the source list. |
-| `ninja [targets]` | Freestanding compile of all of `src/`, or of the named targets. |
-| `lib` | Archive the SDK objects into `build/libwired.a`. |
-| `compdb` | Emit `compile_commands.json` for clangd. |
-| `test` | Build and run the single-TU unity test. |
-| `test-fast` | Same tests as `test`, from parallel shard TUs. |
-| `test-san` | CI only: the unity test under ASan + UBSan. |
-| `check` | `ccn` + `test`. |
-| `ccn [paths]` | Check that every function has CCN ≤ 3 (lizard). |
-| `wire-check` | Check that every source is in `tests/run.c` once and builds one object. |
-| `cov` | Line coverage of the unity test. |
-| `valgrind` | Run the unity test under valgrind. |
-| `san-check [ids]` | CI only: production build with UBSan traps, driven by the guide snippets. |
-| `golden-check` | Check that `tests/app/moqt_golden.h` matches its test vectors. |
-| `fuzz-smoke` | Build each fuzz harness and run it once. |
-| `cbmc` | Bounded model check of the WebTransport session reference and connection generation lifecycles (`verify/cbmc`, CBMC from the flake's `verify` shell). Verification only. |
-| `cbmc-mutate` | Mutation-tests the two `cbmc` harnesses against five hand-written bugs in `srvrun_gen.h`. Verification only. |
-| `view-check` | Stored views name their storage class and none is set from a local array (`scripts/viewcheck.py`; also run by `py-check`). |
-| `fuzz-ci [secs]` | Run each fuzz harness for `secs` seconds (default 120). |
-| `fmt` | Format C sources in place with the pinned clang-format. |
-| `fmt-check` | Verify formatting without writing. |
-| `lint` | clang-tidy static analysis; any warning fails. |
-| `docs` | Regenerate the doxygen API reference into `docs/sdk/`. |
-| `guide-verify [ids]` | Run the guide snippets and compare with `golden.txt`. |
+| `setup` | 最初に 1 回だけ行う準備: Nix がなければインストールする。 |
+| `nix <recipe>` | 任意のレシピを、固定した flake の devShell の中で実行する。 |
+| `build` | devShell の中で `fmt` + `ninja` + `lint`。 |
+| `gen-ninja` | ソースの一覧から `build.ninja` を作り直す。 |
+| `ninja [targets]` | `src/` 全体、または指定したターゲットを freestanding でコンパイルする。 |
+| `lib` | SDK のオブジェクトを `build/libwired.a` にまとめる。 |
+| `compdb` | clangd 向けに `compile_commands.json` を出力する。 |
+| `test` | 単一 TU のユニティテストをビルドして実行する。 |
+| `test-fast` | `test` と同じテストを、並列のシャード TU から実行する。 |
+| `test-san` | CI 専用: ASan + UBSan 下のユニティテスト。 |
+| `check` | `ccn` + `test`。 |
+| `ccn [paths]` | すべての関数の CCN が 3 以下かを確かめる(lizard)。 |
+| `wire-check` | すべてのソースが `tests/run.c` に 1 回ずつあり、オブジェクトを 1 つ生成するかを確かめる。 |
+| `cov` | ユニティテストの行カバレッジ。 |
+| `valgrind` | ユニティテストを valgrind 下で実行する。 |
+| `san-check [ids]` | CI 専用: UBSan のトラップ付き本番ビルドを、guide のスニペットで動かす。 |
+| `golden-check` | `tests/app/moqt_golden.h` がテストベクターと一致するかを確かめる。 |
+| `fuzz-smoke` | 各ファズハーネスをビルドし、1 回ずつ実行する。 |
+| `cbmc` | WebTransport セッションの参照とコネクションの世代のライフサイクルを有界モデル検査する(`verify/cbmc`、CBMC は flake の `verify` シェルのもの)。検証専用。 |
+| `cbmc-mutate` | 2 つの `cbmc` ハーネスを、`srvrun_gen.h` に手で入れた 5 つのバグでミューテーションテストする。検証専用。 |
+| `view-check` | 保存したビューがストレージクラスを明記し、ローカル配列から設定されたものがないかを確かめる(`scripts/viewcheck.py`。`py-check` からも実行される)。 |
+| `fuzz-ci [secs]` | 各ファズハーネスを `secs` 秒ずつ実行する(既定は 120)。 |
+| `fmt` | 固定した clang-format で C のソースをその場で整形する。 |
+| `fmt-check` | 書き込まずに整形を確かめる。 |
+| `lint` | clang-tidy による静的解析。警告が 1 つでも出たら失敗。 |
+| `docs` | doxygen の API リファレンスを `docs/sdk/` に作り直す。 |
+| `guide-verify [ids]` | guide のスニペットを実行し、`golden.txt` と比べる。 |
 
-Notes on a few recipes:
+いくつかのレシピの補足です。
 
-- **`ninja`** takes targets to build only those, for example
-  `just ninja examples/word_list/wired_server`, `just ninja guide`, or
-  `just ninja build/src/<path>.o`.
-- **`lib`** leaves out `sys.o`, the SDK's own `_start` entry stub, so an
-  application that links `libwired.a` supplies its own entry point.
-  `examples/word_list` builds this way.
-- **`lint`** runs clang-tidy with the CERT C checks plus the `bugprone-*`
-  and `clang-analyzer-*` bug-finding checks. CERT
-  C is the SEI CERT C Coding Standard, a published set of secure-coding
-  rules for C (for example, rules against integer overflow and
-  out-of-bounds access).
-- **`wire-check`** is a stronger form of the count check below: it also
-  proves that every source except `sys.c` is `#include`d in `tests/run.c`.
-- **`valgrind`** names the culprit of a hang that happens only sometimes.
-  Freestanding code gets no implicit zeroing, so such a hang usually means
-  an uninitialized variable.
-- **`test-san`** builds the unity test with AddressSanitizer and
-  UndefinedBehaviorSanitizer, so an out-of-bounds access (stack, global or
-  heap) or undefined behavior stops the run at the faulting line. It takes
-  several times longer than `test`, so CI runs it (the `sanitize` job) and
-  the local loop does not; run it by hand when chasing memory corruption.
-- **`san-check`** rebuilds the freestanding SDK, examples and guide
-  snippets under `build/san/` with UBSan and array-bounds checks in trap
-  mode, then runs the guide snippets against them. A check that fires kills
-  the server with SIGILL, so the snippet fails. ASan is not available
-  there: its runtime needs libc. It needs go and node 22. CI runs it in
-  the same `sanitize` job.
-- **`docs`** reads `wired.h`'s transitive includes and treats warnings as
-  errors, so a public declaration without a doxygen comment fails it.
+- **`ninja`** はターゲットを渡すとそれだけをビルドします。たとえば `just ninja examples/word_list/wired_server`、`just ninja guide`、`just ninja build/src/<path>.o` です。
+- **`lib`** は SDK 独自の `_start` エントリスタブである `sys.o` を含めないので、`libwired.a` にリンクするアプリケーションは自前のエントリポイントを用意します。`examples/word_list` はこの方法でビルドしています。
+- **`lint`** は、CERT C の検査に加えて、バグを見つける `bugprone-*` と `clang-analyzer-*` の検査で clang-tidy を実行します。CERT C は SEI CERT C Coding Standard のことで、C 向けに公開されたセキュアコーディングのルール集です(たとえば整数オーバーフローや範囲外アクセスを禁じるルールがあります)。
+- **`wire-check`** は下のカウント検査を強めたもので、`sys.c` 以外のすべてのソースが `tests/run.c` で `#include` されていることも確かめます。
+- **`valgrind`** は、ときどきしか起きないハングの原因を特定します。freestanding のコードは暗黙のゼロ初期化を受けないので、そうしたハングはたいてい未初期化の変数が原因です。
+- **`test-san`** はユニティテストを AddressSanitizer と UndefinedBehaviorSanitizer 付きでビルドするので、範囲外アクセス(スタック、グローバル、ヒープ)や未定義動作が起きると、その行で実行が止まります。`test` の数倍の時間がかかるため、CI(`sanitize` ジョブ)では実行し、ローカルの作業の流れでは実行しません。メモリ破壊を追うときは手で実行してください。
+- **`san-check`** は、freestanding の SDK、examples、guide のスニペットを、UBSan と配列境界の検査をトラップモードにして `build/san/` の下にビルドし直し、guide のスニペットをそれに対して実行します。検査が発動するとサーバーが SIGILL で終了し、スニペットは失敗します。ASan はランタイムに libc が要るため、ここでは使えません。go と node 22 が必要です。CI は同じ `sanitize` ジョブでこれを実行します。
+- **`docs`** は `wired.h` から推移的にインクルードされるヘッダーを読み、警告をエラーとして扱うので、doxygen コメントのない公開宣言があると失敗します。
 
-## Hard constraints
+## 必須の制約
 
-A change that breaks any of these is not done.
+どれか 1 つでも破る変更は完了とはみなしません。
 
-- **No libc, no CRT.** `src/` includes only headers from this
-  repository, never a system or standard-library header (`#include <...>`).
-  For system types and calls it uses the repo's own facade
-  `common/platform/sys/syscall.h` (not libc's `<sys/syscall.h>`). Do not
-  add a standard header to make a file compile; fix the code. Verify: the
-  first grep below prints nothing, and `just ninja` passes.
-- **Reuse the util helpers.** `src/common/bytes/util/` (called `util/` for
-  short on this page) already has `bytes.h` (byte copy, put, take), `be.h`
-  (big-endian store and load), `ct.h` (constant-time compare), and `num.h`
-  (`u64_max` and friends). Never write a second `static` copy of these.
-- **Architecture-specific code stays in `common/arch/`.** Inline assembly,
-  CPU builtins, and raw system calls live only there, behind `wired_arch_*`
-  names. A domain file calls the typed wrappers in `sysops.h`. A new system
-  call means a number in `x8664.h`, a wrapper in `sysops.h`, and a row in
-  [System calls](syscalls.md).
-- **CCN ≤ 3 for every function.** Count branches before you write. Move a
-  compound condition into a named predicate helper, split three or more
-  `if (!put(...)) return 0;` lines into two helpers, and replace a branch
-  cluster with a lookup table of function pointers. Verify: `just ccn`.
-- **Nesting depth ≤ 2 and cognitive complexity ≤ 4 for every function.**
-  Both limits were the tree's maximum when they were set. `just ccn` checks
-  the nesting depth and `just lint` checks the cognitive complexity.
-- **Halstead, MI, exits and parameters per function, size per file.**
-  `just halstead-check` fails on a function over Halstead volume 1000,
-  difficulty 30 or 0.5 estimated bugs, MI below 65, more than 4 exits or
-  7 parameters, and on a `.c`/`.h` over volume 8000 or 2 estimated bugs.
-  A file over the limit is split: functions and tables used by one piece
-  stay `static` there, and those several pieces share are declared in a
-  `<stem>_impl.h` internal header with the module prefix. A hot helper
-  (crypto field or block math) goes there as `static inline` instead, or
-  the per-object build loses the inlining and the code slows down.
-- **MECE: one domain, one directory.** Do not scatter a concern across
-  directories or merge two concerns into one.
-- **One global namespace.** Grep `src/` before adding any name. When you
-  write the same small helper a second time, move it to `util/` as an
-  `inline` function instead. Verify: `just test`.
+- **libc も CRT も使わない。** `src/` はこのリポジトリのヘッダーだけをインクルードし、システムや標準ライブラリのヘッダー(`#include <...>`)はインクルードしません。システムの型と呼び出しには、リポジトリ独自のファサード `common/platform/sys/syscall.h`(libc の `<sys/syscall.h>` ではありません)を使います。コンパイルを通すために標準ヘッダーを足さず、コードを直してください。確認: 下の 1 つ目の grep が何も表示せず、`just ninja` が通ること。
+- **util のヘルパーを再利用する。** `src/common/bytes/util/`(このページでは略して `util/` と呼びます)には、すでに `bytes.h`(バイトのコピー、put、take)、`be.h`(ビッグエンディアンの格納と読み出し)、`ct.h`(定数時間の比較)、`num.h`(`u64_max` など)があります。これらの `static` な複製を新たに書かないでください。
+- **アーキテクチャ固有のコードは `common/arch/` に置く。** インラインアセンブリ、CPU の builtin、生のシステムコールはそこにだけ置き、`wired_arch_*` の名前の後ろに隠します。ドメインのファイルは `sysops.h` の型付きラッパーを呼びます。新しいシステムコールを使うには、`x8664.h` に番号を、`sysops.h` にラッパーを、[システムコール](syscalls.md) に行を追加します。
+- **すべての関数で CCN 3 以下。** 書く前に分岐を数えてください。複合条件は名前付きの述語ヘルパーに移し、3 つ以上並ぶ `if (!put(...)) return 0;` は 2 つのヘルパーに分け、分岐の固まりは関数ポインターのルックアップテーブルに置き換えます。確認: `just ccn`。
+- **すべての関数でネストの深さ 2 以下、認知的複雑度 4 以下。** どちらの上限も設定した時点でのツリー内の最大値です。ネストの深さは `just ccn` が、認知的複雑度は `just lint` が確かめます。
+- **関数ごとの Halstead、MI、出口、引数と、ファイルごとのサイズ。** `just halstead-check` は、Halstead volume 1000、difficulty 30、推定バグ数 0.5 のいずれかを超える関数、MI が 65 未満の関数、出口が 4 つまたは引数が 7 つを超える関数で失敗し、volume 8000 か推定バグ数 2 を超える `.c`/`.h` でも失敗します。上限を超えたファイルは分割します。1 つの断片だけが使う関数とテーブルはその断片で `static` のままにし、複数の断片が共有するものはモジュールの接頭辞付きで `<stem>_impl.h` という内部ヘッダーに宣言します。ホットなヘルパー(暗号の体演算やブロック演算)は、代わりに `static inline` としてそこに置きます。そうしないとオブジェクトごとのビルドでインライン化が失われ、コードが遅くなります。
+- **MECE: 1 つのドメインに 1 つのディレクトリ。** 1 つの関心事を複数のディレクトリに散らしたり、2 つの関心事を 1 つにまとめたりしないでください。
+- **1 つのグローバル名前空間。** 名前を追加する前に `src/` を grep してください。同じ小さなヘルパーを 2 回目に書くときは、代わりに `inline` 関数として `util/` に移します。確認: `just test`。
 
-Two of these rules can be checked with grep, and each of the three
-commands must print nothing. The first checks the no-libc rule by finding
-a system or standard-library header. The second and third check the
-`common/arch/` rule: one finds inline assembly and CPU builtins, the other
-raw system calls.
+このうち 2 つのルールは grep で確かめられ、次の 3 つのコマンドはどれも何も表示してはなりません。1 つ目はシステムや標準ライブラリのヘッダーを探して libc を使わないルールを確かめます。2 つ目と 3 つ目は `common/arch/` のルールを確かめるもので、片方はインラインアセンブリと CPU の builtin を、もう片方は生のシステムコールを探します。
 
 ```sh
 grep -rn '#include <' src/
@@ -293,16 +157,11 @@ grep -rn '__asm__\|__builtin_ia32' src/ | grep -v common/arch/
 grep -rn 'syscall[1-6](\|SYS_[a-z]' src/ | grep -v common/arch/
 ```
 
-## The commit gate
+## コミットゲート
 
-Each check in the gate exists because skipping it once let a broken
-commit reach `main`. The hosted test build and the freestanding build
-enable different warnings, so one can pass while the other fails. And
-because `tests/run.c` is edited by hand, a new source can be committed
-without ever being compiled; the count check catches that.
+ゲートの各検査は、それを一度飛ばしたせいで壊れたコミットが `main` に届いたことから設けたものです。ホスト向けのテストビルドと freestanding のビルドでは有効な警告が異なるので、片方が通っても、もう片方が失敗することがあります。また `tests/run.c` は手で編集するので、新しいソースが一度もコンパイルされないままコミットされることがあり、カウント検査がそれを検出します。
 
-The gate runs four checks in order. Any red result stops the commit; you
-fix the cause and start again from the top.
+ゲートは 4 つの検査を順に実行します。どれかが赤ならコミットは止まり、原因を直してから最初からやり直します。
 
 ```mermaid
 flowchart TD
@@ -317,7 +176,7 @@ flowchart TD
     cnt -- no --> stop
 ```
 
-Run it as one guarded command, so a red result cannot reach `git commit`:
+赤の結果が `git commit` に届かないよう、ガード付きの 1 つのコマンドとして実行してください。
 
 ```sh
 if just test-fast 2>&1 | grep -q "all tests passed" \
@@ -328,63 +187,39 @@ if just test-fast 2>&1 | grep -q "all tests passed" \
 fi
 ```
 
-Count `build/src` only, not all of `build/`: `build/shards/` holds the
-`test-fast` shard objects, which would skew the count.
+数えるのは `build/` 全体ではなく `build/src` だけです。`build/shards/` には `test-fast` のシャードのオブジェクトがあり、数がずれるためです。
 
-Two shell mistakes have shipped red commits before:
+これまでに赤いコミットを出したシェルの誤りが 2 つあります。
 
-- **Piping a gate into `tail` or `head`, then `&&`-ing the commit.** The
-  exit status of a pipe is the last command's, so `tail` succeeds even
-  when the gate failed.
-- **Chaining the gate and the commit with `;`.** A `;` ignores the
-  failure. Use `&&` or `if`.
+- **ゲートを `tail` や `head` にパイプし、そのあと `&&` でコミットする。** パイプの終了ステータスは最後のコマンドのものなので、ゲートが失敗しても `tail` は成功します。
+- **ゲートとコミットを `;` でつなぐ。** `;` は失敗を無視します。`&&` か `if` を使ってください。
 
-### Before you push
+### push の前に
 
-The gate is a local subset of CI. `.github/workflows/ci.yml` also runs
-these jobs, so run the matching recipe when your diff touches the files
-listed.
+ゲートは CI の一部をローカルで実行するものです。`.github/workflows/ci.yml` はほかに次のジョブも実行するので、差分が表に挙げたファイルに触れるときは、対応するレシピを実行してください。
 
-| CI job | Run locally | When |
+| CI のジョブ | ローカルで実行するもの | 実行するとき |
 |---|---|---|
-| test (single TU) | `just test` | Your diff adds new names |
-| fmt-check | `just fmt-check` | Any `.c` or `.h` changed |
-| lint | `just lint` | Any `src/` file changed |
-| golden-check | `just golden-check` | MoQT test vectors changed |
-| fuzz smoke | `just fuzz-smoke` | A `src/` function signature changed |
-| py-check | `just py-check` | Any `scripts/**/*.py` or `tests/scripts/` changed |
-| sh-check | `just sh-check` | Any `.sh` or the `justfile` changed |
-| js (job) | `just js-check` | The moqt_chat frontend or e2e changed |
+| test(単一 TU) | `just test` | 差分が新しい名前を追加する |
+| fmt-check | `just fmt-check` | `.c` か `.h` を変更した |
+| lint | `just lint` | `src/` のファイルを変更した |
+| golden-check | `just golden-check` | MoQT のテストベクターを変更した |
+| fuzz smoke | `just fuzz-smoke` | `src/` の関数シグネチャを変更した |
+| py-check | `just py-check` | `scripts/**/*.py` か `tests/scripts/` を変更した |
+| sh-check | `just sh-check` | `.sh` か `justfile` を変更した |
+| js(ジョブ) | `just js-check` | moqt_chat の frontend か e2e を変更した |
 
-`ccn`, `halstead-check` and `lint` cover the examples' C as well as `src/`,
-and `halstead-check` also covers `scripts/`. The frontend and e2e get their
-own limits in `js-check`: frontend CCN <= 10, and for e2e CCN and for both
-the Halstead set, a cap at the maximum measured when the gate was added
-(`PROFILES` in `scripts/halstead.py`), so they cannot get worse.
+`ccn`、`halstead-check`、`lint` は `src/` に加えて examples の C も対象にし、`halstead-check` は `scripts/` も対象にします。frontend と e2e には `js-check` で別の上限があります。frontend は CCN <= 10 です。e2e の CCN と、両者の Halstead 指標一式には、ゲートを追加した時点で測った最大値を上限にしており(`scripts/halstead.py` の `PROFILES`)、それより悪くはなりません。
 
-Two other workflows matter: `docs.yml` runs `just docs` on every push to
-`main`, and `guide.yml` runs the guide snippets against their
-`golden.txt` (locally `just guide-verify`). Run `find .github/workflows
--type f` to see the full, current list.
+ほかに 2 つのワークフローが関係します。`docs.yml` は `main` への push のたびに `just docs` を実行し、`guide.yml` は guide のスニペットを実行して `golden.txt` と比べます(ローカルでは `just guide-verify`)。最新の全一覧は `find .github/workflows -type f` で確かめてください。
 
-Two recipes only report the values behind those limits. `just metrics`
-shows each function's NLOC, length and nesting depth, then each file's
-NLOC. `just cognitive` shows each function's cognitive complexity. Both
-take paths, like `just ccn`. `just halstead` also only reports: Halstead
-volume, difficulty, effort and estimated bugs, and the maintainability
-index in its original, SEI and Visual Studio forms, per function and per
-file (rust-code-analysis). No limit is set on these.
+上限の元になる値を表示するだけのレシピが 2 つあります。`just metrics` は関数ごとの NLOC、長さ、ネストの深さと、ファイルごとの NLOC を表示します。`just cognitive` は関数ごとの認知的複雑度を表示します。どちらも `just ccn` と同じくパスを受け取ります。`just halstead` も表示するだけで、Halstead の volume、difficulty、effort、推定バグ数と、元の形・SEI の形・Visual Studio の形の保守性指標(maintainability index)を、関数ごととファイルごとに表示します(rust-code-analysis)。これらには上限を設けていません。
 
-## Adding a domain
+## ドメインの追加
 
-A domain is a leaf directory (see [Architecture](#architecture)) that holds a
-header (types, constants, prototypes) and its `.c` implementation. For example,
-the varint domain is `src/common/bytes/varint/varint.{h,c}`, and its test is
-`tests/common/varint_test.c`.
+ドメインは末端のディレクトリ([アーキテクチャ](#アーキテクチャ) を参照)で、ヘッダー(型、定数、プロトタイプ)とその `.c` 実装を持ちます。たとえば varint のドメインは `src/common/bytes/varint/varint.{h,c}` で、そのテストは `tests/common/varint_test.c` です。
 
-The `justfile` finds new sources by itself, but `tests/run.c` does not.
-A new domain needs three edits there, or it is committed but never built
-by the tests. The diagram shows the order.
+`justfile` は新しいソースを自動で見つけますが、`tests/run.c` は見つけません。新しいドメインには `run.c` の編集が 3 か所必要で、これを忘れるとコミットはされてもテストでビルドされません。順序は図のとおりです。
 
 ```mermaid
 flowchart TD
@@ -398,103 +233,47 @@ flowchart TD
     chk -- yes --> gate["Run the commit gate"]
 ```
 
-In the steps below, `<token>` is the domain's module token, such as
-`varint`.
+以下の手順では、`<token>` は `varint` のようなドメインのモジュールトークンを表します。
 
-1. **Pick a module token.** Internal API is `<token>_*`; use
-   `wired_<token>_*` only if applications will call it. Grep `src/` to
-   confirm the token is unused.
-1. **Write the test first.** Write `tests/<group>/<token>_test.c` with a
-   `void test_<token>(void)` that uses the `CHECK(...)` macro from
-   `tests/test.h`. Cover the RFC vector, a round trip, and malformed input
-   (see [Test strategy](#test-strategy)).
-1. **Write the domain.** Add the `.h` and `.c` under the domain's `src/`
-   directory, with the smallest code that makes the test pass.
-1. **Wire `tests/run.c`.** Add `#include "<path>/<file>.c"` in the
-   production block, `#include "<group>/<token>_test.c"` in the test
-   block, and `test_<token>();` inside `main()`. Each production `.c` must
-   come before the test that uses it: because `run.c` is one TU, a test can
-   only call what the compiler has already seen above it.
-1. **Confirm the edits landed.** Grep `run.c` for all three lines. Scripted
-   edits to `run.c` have failed silently before, leaving dozens of sources
-   unbuilt.
-1. **Run the commit gate.** If it is red, split a CCN-4 function or rename
-   a colliding symbol, then rerun. When it is green, commit.
+1. **モジュールトークンを決める。** 内部 API は `<token>_*` です。アプリケーションが呼ぶ場合だけ `wired_<token>_*` を使います。`src/` を grep して、トークンが未使用だと確かめてください。
+1. **テストを先に書く。** `tests/<group>/<token>_test.c` を書き、`tests/test.h` の `CHECK(...)` マクロを使う `void test_<token>(void)` を定義します。RFC のベクター、ラウンドトリップ、不正な入力を扱います([テスト戦略](#テスト戦略) を参照)。
+1. **ドメインを書く。** ドメインの `src/` ディレクトリに `.h` と `.c` を追加し、テストを通す最小のコードを書きます。
+1. **`tests/run.c` に組み込む。** 本番ブロックに `#include "<path>/<file>.c"` を、テストブロックに `#include "<group>/<token>_test.c"` を、`main()` の中に `test_<token>();` を追加します。本番の `.c` は、それを使うテストより前に置かなければなりません。`run.c` は 1 つの TU なので、テストから呼べるのは、コンパイラーがそれより上ですでに見たものだけだからです。
+1. **編集が入ったことを確かめる。** `run.c` を grep して 3 行すべてがあるか確かめます。スクリプトによる `run.c` の編集は、これまでにエラーを出さずに失敗し、数十のソースがビルドされないまま残ったことがあります。
+1. **コミットゲートを実行する。** 赤なら CCN 4 の関数を分割するか、衝突したシンボルの名前を変えて、やり直します。緑になったらコミットします。
 
-## Verification layers
+## 検証の層
 
-Different properties need different kinds of evidence, so decide the layer
-while planning, before writing code. Using a heavy layer on simple logic
-is over-engineering. Ask two questions in order. If both answers are no,
-use TDD alone.
+性質によって必要な証拠の種類が違うので、層はコードを書く前の計画の段階で決めます。単純なロジックに重い層を使うのは過剰設計です。次の 2 つを順に問い、どちらも答えが「いいえ」なら TDD だけを使います。
 
-1. Does the design have state transitions, concurrency, or a protocol
-   lifecycle? Use **TLA+**.
-1. Otherwise, is there a critical crypto or math property? Use **Lean 4**.
+1. 設計に状態遷移、並行性、プロトコルのライフサイクルがあるか。あれば **TLA+** を使います。
+1. そうでなければ、暗号や数学の重要な性質があるか。あれば **Lean 4** を使います。
 
-- **TLA+** is a language for describing a system as states and the steps
-  between them. Its model checker, TLC, explores every reachable state and
-  reports a counterexample trace when a rule can be broken. The specs are
-  also mutated on purpose, to confirm the checker catches a planted bug.
-  Specs cover stream, connection, handshake, packet-number space,
-  close-and-draining, key update, path, version negotiation, Retry and
-  reconnection, and HTTP/3 control state. Each counterexample becomes an
-  acceptance test.
-- **Lean 4** is a proof assistant: you state a property and the tool
-  checks your proof of it. Proofs cover varint encoding, packet-number
-  decoding, AEAD round trip, congestion window, RTT estimation, and the
-  Ed25519 signature equation, with no unfinished (`sorry`) steps.
-- **TDD** (test-driven development): write the test list, watch a test
-  fail (red), write the minimum code to pass (green), then refactor.
+- **TLA+** は、システムを状態とその間の遷移として記述する言語です。モデル検査器の TLC は到達可能なすべての状態を探索し、ルールが破られうるときは反例のトレースを報告します。仕様はわざとミューテーションも加え、仕込んだバグを検査器が捕まえるかを確かめます。仕様が扱うのは、ストリーム、コネクション、ハンドシェイク、パケット番号空間、クローズと draining、鍵更新、パス、バージョンネゴシエーション、Retry と再接続、HTTP/3 の制御状態です。反例はそれぞれ受け入れテストになります。
+- **Lean 4** は証明支援系で、性質を書くと、その証明をツールが確かめます。証明が扱うのは、varint のエンコード、パケット番号のデコード、AEAD のラウンドトリップ、輻輳ウィンドウ、RTT の推定、Ed25519 の署名方程式で、未完了(`sorry`)の段階はありません。
+- **TDD**(テスト駆動開発): テストリストを書き、テストが失敗する(red)のを確かめ、通すための最小のコードを書き(green)、それからリファクタリングします。
 
-Properties checked with TLA+ or proven with Lean become one-to-one
-predicates in the TDD test list. The specs and proofs are working files
-kept outside the repository; what lands in the repository is the code and
-the tests derived from them.
+TLA+ で検査した性質や Lean で証明した性質は、TDD のテストリストで 1 対 1 の述語になります。仕様と証明はリポジトリの外に置く作業用のファイルで、リポジトリに入るのは、そこから導いたコードとテストです。
 
-## Test strategy
+## テスト戦略
 
-Because `tests/run.c` is the single unity TU, tests run against the real
-implementation, and a name collision fails the build at once. Each
-domain's test covers four kinds of check against its RFC:
+`tests/run.c` が単一のユニティ TU なので、テストは本物の実装に対して動き、名前が衝突すればすぐにビルドが失敗します。各ドメインのテストは、RFC に照らして 4 種類の検査を含みます。
 
-- **Official golden vector.** The published RFC or FIPS vector,
-  recomputed by hand before it goes into a test. External snippets have
-  been wrong before: a nonce with a mis-XORed byte, and a truncated
-  ClientHello. When a full vector cannot be obtained, combine a round
-  trip, known sub-component vectors, and hand-computed parts. Never
-  present such a combination as a match against the full golden vector.
-- **Encode/decode round trip.** Encoding then decoding returns the input.
-- **Boundary values and equivalence partitioning.** Equivalence
-  partitioning tests one value from each class of inputs that should
-  behave the same; boundary values test the edges between classes. Here
-  that means lengths, offsets, varint size classes, and connection ID edge
-  lengths.
-- **Malformed-input rejection.** Truncated, tampered, and out-of-range
-  inputs are rejected, not silently accepted.
+- **公式のゴールデンベクター。** 公開されている RFC や FIPS のベクターを、テストに入れる前に手で計算し直します。外部から得た断片が誤っていたことがあります。XOR を誤ったバイトを含む nonce と、途中で切れた ClientHello です。完全なベクターが手に入らないときは、ラウンドトリップ、既知の部分要素のベクター、手で計算した部分を組み合わせます。その組み合わせを、完全なゴールデンベクターとの一致として示してはいけません。
+- **エンコードとデコードのラウンドトリップ。** エンコードしてからデコードすると入力に戻ること。
+- **境界値と同値分割。** 同値分割は、同じ振る舞いをするはずの入力のクラスから 1 つずつ値を選んでテストし、境界値はクラスの間の境目をテストします。ここでは長さ、オフセット、varint のサイズクラス、コネクション ID の長さの両端がそれに当たります。
+- **不正な入力の拒否。** 途中で切れた入力、改ざんされた入力、範囲外の入力を、黙って受け入れずに拒否すること。
 
-A test that exercises a size or boundary must use the production buffer
-size, through a shared constant. A test buffer larger than the real one
-once hid an overflow that broke the real server.
+サイズや境界を扱うテストは、共有の定数を通して本番と同じバッファーサイズを使わなければなりません。本物より大きなテスト用バッファーが、本物のサーバーを壊すオーバーフローを隠していたことがあります。
 
-## Workflow
+## 作業の流れ
 
-[Adding a domain](#adding-a-domain) gives the steps for new code. Three
-habits apply to every change, new domain or not.
+新しいコードの手順は [ドメインの追加](#ドメインの追加) にあります。新しいドメインかどうかにかかわらず、すべての変更に次の 3 つの習慣が当てはまります。
 
-1. **Read the RFC first.** Find its published test vector before writing
-   code.
-1. **Implement minimally.** Write the smallest code that passes and stays
-   at CCN ≤ 3. Before adding a helper, check whether `util/`, the varint
-   helpers, or `fsm_step` already does the job. `fsm_step` is the
-   table-driven state-machine engine in
-   `src/transport/conn/lifecycle/fsm/` that the stream and connection state
-   machines share.
-1. **Micro-commit.** Make conventional commits of about 30 to 50 lines,
-   with an RFC section reference where relevant. Keep `feat(<domain>):`
-   and `test(<domain>):` as separate commits.
+1. **まず RFC を読む。** コードを書く前に、公開されているテストベクターを見つけます。
+1. **最小限に実装する。** テストを通し、CCN 3 以下に収まる最小のコードを書きます。ヘルパーを追加する前に、`util/`、varint のヘルパー、`fsm_step` がすでにその役目を果たしていないか確かめてください。`fsm_step` は `src/transport/conn/lifecycle/fsm/` にあるテーブル駆動の状態機械エンジンで、ストリームとコネクションの状態機械が共有しています。
+1. **マイクロコミットする。** 30〜50 行程度の conventional commit にし、関係する場合は RFC の節を参照します。`feat(<domain>):` と `test(<domain>):` は別のコミットにします。
 
 ---
 
-**Next:** [Architecture and Data Flow](arch/overview.md) — the structure
-you are changing. ([all docs](README.md))
+**次へ:** [アーキテクチャとデータフロー](arch/overview.md)。変更する対象の構造です。([すべてのドキュメント](README.md))
