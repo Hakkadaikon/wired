@@ -1,49 +1,49 @@
-# MoQT Live Movie Implementation Plan
+# MoQT ライブ動画 実装計画
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **エージェントで作業する人へ:** 必須のサブスキル: この計画をタスクごとに実装するには superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使います。各ステップは進捗管理のためにチェックボックス(`- [ ]`)の記法で書いています。
 
-**Goal:** Deliver `assets/movie.mp4` from `examples/moqt_chat`'s server as a wall-clock-paced MoQT live track (one keyframe-aligned fMP4 fragment per Group) that browsers play through MSE, with late joiners starting at the current Group.
+**目的:** `examples/moqt_chat` のサーバーから `assets/movie.mp4` を、実時間の速さで進む MoQT のライブ Track(Group ごとにキーフレームでそろえた fMP4 フラグメントを 1 つ)として配信し、ブラウザーが MSE で再生できるようにします。途中から参加した人は現在の Group から再生を始めます。
 
-**Architecture:** A new `mp4frag` domain splits the committed fMP4 into init + fragments; the hub (`moqtrun`) gains a clock-driven live track that fans each Group out with one `send_uni2` per subscriber; `srvrun` gains a per-step `on_step` hook and an `inflight` query so the example can recycle per-session staging; the frontend appends fragments to a `SourceBuffer` in sequence mode.
+**構成:** 新しい `mp4frag` ドメインがコミット済みの fMP4 を init とフラグメントに分けます。ハブ(`moqtrun`)には時計で進むライブ Track を足し、各 Group をサブスクライバーごとに `send_uni2` を 1 回ずつ呼んで配ります。`srvrun` にはステップごとに呼ばれる `on_step` フックと `inflight` の問い合わせを足し、サンプルがセッションごとのステージング領域を使い回せるようにします。フロントエンドはフラグメントを sequence モードの `SourceBuffer` に追記します。
 
-**Tech Stack:** libc-free C (this SDK's constraints), TypeScript/Next.js + vitest, puppeteer e2e, ffmpeg via nix for the one-time asset conversion.
+**使う技術:** libc-free の C(この SDK の制約に従う)、TypeScript/Next.js と vitest、puppeteer の e2e、一度だけのアセット変換に nix 経由の ffmpeg。
 
-**Spec:** `docs/superpowers/specs/2026-09-10-moqt-live-movie-design.md`
+**仕様:** `docs/superpowers/specs/2026-09-10-moqt-live-movie-design.md`
 
-## Global Constraints
+## 全体の制約
 
-- `src/` is libc-free: only `common/platform/sys/syscall.h` types and `src/common/bytes/util/*.h` helpers (`bytes_memcpy`, `be_get_be32`, `ct_diffn`, `u64_min`). No standard headers.
-- Every function in `src/` has cyclomatic complexity <= 3 (`lizard src --CCN 3 -w` exits 0). `&&`, `||`, `?:`, `if`, `for`, `while` each count +1.
-- `tests/run.c` is one translation unit including every `src/**/*.c` and every `tests/**/*_test.c`: every new non-static AND static name must be globally unique (`grep -rn '<name>' src/ tests/` before adding).
-- New public header members/macros/functions carry `/** */` doc comments (doxygen runs with WARN_AS_ERROR).
-- Internal API uses the module token as prefix (`mp4frag_*`, `moqtrun_*`); application-facing API uses `wired_*`.
-- Commit gate (every commit): `just test-fast` prints "all tests passed" AND `just ninja` exits 0 AND `lizard src --CCN 3 -w` exits 0, run as `if A && B && C; then git commit; fi` (never `| tail && commit`). Before pushing: `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke` (all through `nix develop`, which `just` does itself).
-- Parallel workers edit only their own new files; never `git add`/`commit`/`push`; never edit `tests/run.c` or `justfile`. One integrator wires and commits (Task 8).
-- Commit trailer (every commit):
+- `src/` は libc-free: 使えるのは `common/platform/sys/syscall.h` の型と `src/common/bytes/util/*.h` のヘルパー(`bytes_memcpy`, `be_get_be32`, `ct_diffn`, `u64_min`)だけ。標準ヘッダーは使わない。
+- `src/` のすべての関数は循環的複雑度 3 以下(`lizard src --CCN 3 -w` が 0 で終わる)。`&&`, `||`, `?:`, `if`, `for`, `while` はそれぞれ +1 と数える。
+- `tests/run.c` は、すべての `src/**/*.c` とすべての `tests/**/*_test.c` を取り込む 1 つの翻訳単位。新しく足す名前は static でも非 static でも全体で一意にする(足す前に `grep -rn '<name>' src/ tests/` で確かめる)。
+- 公開ヘッダーに足すメンバー、マクロ、関数には `/** */` のドキュメントコメントを付ける(doxygen は WARN_AS_ERROR で動く)。
+- 内部 API はモジュール名を接頭辞にする(`mp4frag_*`, `moqtrun_*`)。アプリケーション向けの API は `wired_*` にする。
+- コミットゲート(毎回): `just test-fast` が "all tests passed" を出し、かつ `just ninja` が 0 で終わり、かつ `lizard src --CCN 3 -w` が 0 で終わること。`if A && B && C; then git commit; fi` の形で実行する(`| tail && commit` は使わない)。push の前には `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke` を実行する(どれも `nix develop` 経由。`just` が自分で通す)。
+- 並列で動くワーカーは自分の新しいファイルだけを編集する。`git add`/`commit`/`push` はしない。`tests/run.c` と `justfile` も編集しない。配線とコミットは 1 人の統合担当が行う(タスク 8)。
+- コミットのトレーラー(毎回):
   ```
   Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
   Claude-Session: https://claude.ai/code/session_01MUGHRYWD7RZSxw8p3C7GP1
   ```
-- Track aliases: chat 0..3, audio 4..7, `movie` 8, `movie/init` 9. Group cadence 2000 ms. MIME `video/mp4; codecs="avc1.64001e, mp4a.40.2"` (from the generated file's `avcC` 64 00 1e and AAC-LC DSI).
+- Track Alias: チャット 0..3、音声 4..7、`movie` 8、`movie/init` 9。Group の間隔は 2000 ms。MIME は `video/mp4; codecs="avc1.64001e, mp4a.40.2"`(生成したファイルの `avcC` 64 00 1e と AAC-LC の DSI から決めた値)。
 
-## Parallelism
+## 並列化
 
-Wave 1 (independent, run concurrently): Task 1 (asset), Task 2 (mp4frag), Task 3 (srvrun hooks), Task 4 (hub live track), Task 5 (frontend live client). Task 4's state model (Task 4a) runs alongside Task 4 and its counterexamples are folded into Task 4's tests before Task 8 commits.
-Wave 2: Task 6 (example server) after 2, 3, 4. Task 7 (e2e + docs) after 5, 6.
-Task 8 (integrator: wiring, gate, micro-commits) closes each wave.
+第 1 波(互いに独立。同時に実行する): タスク 1(アセット)、タスク 2(mp4frag)、タスク 3(srvrun のフック)、タスク 4(ハブのライブ Track)、タスク 5(フロントエンドのライブクライアント)。タスク 4 の状態モデル(タスク 4a)は タスク 4 と並行して進め、見つかった反例は タスク 8 がコミットする前に タスク 4 のテストへ取り込む。
+第 2 波: タスク 6(サンプルサーバー)は 2、3、4 のあと。タスク 7(e2e とドキュメント)は 5、6 のあと。
+タスク 8(統合担当: 配線、ゲート、マイクロコミット)で各波を締める。
 
 ---
 
-### Task 1: Generate and commit the fragmented asset
+### タスク 1: 断片化したアセットを生成してコミットする
 
-**Files:**
-- Create: `assets/movie-live.mp4`
-- Modify: `examples/moqt_chat/README.md` (only the conversion command block; the rest of the README is Task 7)
+**ファイル:**
+- 作成: `assets/movie-live.mp4`
+- 変更: `examples/moqt_chat/README.md`(変換コマンドのブロックだけ。README のほかの部分は タスク 7)
 
-**Interfaces:**
-- Produces: `assets/movie-live.mp4` — fMP4, init 1,260 bytes, 16 `moof`+`mdat` fragments, `avcC` profile/compat/level = 64 00 1e.
+**インターフェース:**
+- 生成するもの: `assets/movie-live.mp4`。fMP4、init 1,260 バイト、`moof`+`mdat` のフラグメント 16 個、`avcC` の profile/compat/level = 64 00 1e。
 
-- [ ] **Step 1: Generate the file**
+- [ ] **ステップ 1: ファイルを生成する**
 
 ```sh
 nix shell nixpkgs#ffmpeg-headless -c ffmpeg -v error -y -i assets/movie.mp4 \
@@ -53,7 +53,7 @@ nix shell nixpkgs#ffmpeg-headless -c ffmpeg -v error -y -i assets/movie.mp4 \
   -f mp4 assets/movie-live.mp4
 ```
 
-- [ ] **Step 2: Verify the layout (this is the acceptance test of the asset)**
+- [ ] **ステップ 2: レイアウトを確かめる(これがアセットの受け入れテスト)**
 
 ```sh
 python3 - <<'EOF'
@@ -69,13 +69,13 @@ i=d.find(b'avcC'); print('init',init,'frags',frags,'avcC',d[i+5:i+8].hex())
 assert init==1260 and frags==16 and d[i+5:i+8].hex()=='64001e'
 EOF
 ```
-Expected: `init 1260 frags 16 avcC 64001e` and no assertion.
+期待する結果: `init 1260 frags 16 avcC 64001e` が出て、アサーションが失敗しないこと。
 
-- [ ] **Step 3: Record the command in the README**
+- [ ] **ステップ 3: README にコマンドを記録する**
 
-Add under "## What this demonstrates" (after the paragraph that starts "The server is a publisher too") a fenced block containing exactly the Step 1 command, introduced by one sentence: "`assets/movie-live.mp4` is generated from `assets/movie.mp4` once with:".
+"## What this demonstrates" の下("The server is a publisher too" で始まる段落のあと)に、ステップ 1 のコマンドだけを入れたフェンス付きブロックを足す。前置きは "`assets/movie-live.mp4` is generated from `assets/movie.mp4` once with:" の 1 文にする。
 
-- [ ] **Step 4: Commit**
+- [ ] **ステップ 4: コミットする**
 
 ```sh
 git add assets/movie-live.mp4 examples/moqt_chat/README.md
@@ -84,23 +84,23 @@ git commit -m "chore(assets): add fragmented 2-second-GOP copy of the sample mov
 
 ---
 
-### Task 2: `mp4frag` domain — fMP4 top-level box scan
+### タスク 2: `mp4frag` ドメイン(fMP4 の最上位ボックスの走査)
 
-**Files:**
-- Create: `src/app/media/mp4frag/mp4frag.h`, `src/app/media/mp4frag/mp4frag.c`
-- Test: `tests/app/mp4frag_test.c`
-- (Task 8 wires both into `tests/run.c`.)
+**ファイル:**
+- 作成: `src/app/media/mp4frag/mp4frag.h`, `src/app/media/mp4frag/mp4frag.c`
+- テスト: `tests/app/mp4frag_test.c`
+- (両方を `tests/run.c` に配線するのは タスク 8。)
 
-**Interfaces:**
-- Consumes: `be_get_be32` (`common/bytes/util/be.h`), `wired_span`/`wired_span_of` (`common/bytes/span/span.h`).
-- Produces:
+**インターフェース:**
+- 使うもの: `be_get_be32`(`common/bytes/util/be.h`)、`wired_span`/`wired_span_of`(`common/bytes/span/span.h`)。
+- 生成するもの:
   ```c
   #define MP4FRAG_MAX_FRAGS 64
   typedef struct { wired_span init; wired_span frags[MP4FRAG_MAX_FRAGS]; usz n_frags; } mp4frag_layout;
   int mp4frag_scan(wired_span file, mp4frag_layout* out);   /* 1 ok, 0 malformed */
   ```
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **ステップ 1: 失敗するテストを書く**
 
 `tests/app/mp4frag_test.c`:
 
@@ -241,9 +241,9 @@ void test_mp4frag(void) {
 }
 ```
 
-Note the first malformed case: renaming `moof` to `foof` leaves a valid file with zero fragments, so `scan` returns 0 there too (no fragment at all is a failure). Replace that `CHECK` with `CHECK(mp4frag_scan(...) == 0);` and drop the stray comment.
+最初の不正ケースに注意: `moof` を `foof` に改名すると、フラグメントが 0 個の正しい形のファイルになるので、そこでも `scan` は 0 を返す(フラグメントが 1 つもないのは失敗扱い)。その `CHECK` を `CHECK(mp4frag_scan(...) == 0);` に置き換え、紛れ込んだコメントを消す。
 
-- [ ] **Step 2: Verify it fails (compile against a stub in $TMPDIR)**
+- [ ] **ステップ 2: 失敗することを確かめる($TMPDIR でスタブに対してコンパイルする)**
 
 ```sh
 mkdir -p $TMPDIR/mp4frag && cat > $TMPDIR/mp4frag/main.c <<'EOF'
@@ -255,9 +255,9 @@ int main(void){ test_mp4frag(); printf("fails=%d\n", wired_test_fails); return w
 EOF
 clang -Wall -Wextra -Werror -O2 -Isrc -Itests -Itests/app $TMPDIR/mp4frag/main.c -o $TMPDIR/mp4frag/t && $TMPDIR/mp4frag/t
 ```
-Expected: compile error (header missing) — that is the Red. Check `tests/test.h` for how `CHECK`/`wired_test_fails` are declared and mirror it (the unity `tests/run.c` defines `wired_test_fails`; here the stub main does).
+期待する結果: コンパイルエラー(ヘッダーがない)。これが Red。`tests/test.h` で `CHECK`/`wired_test_fails` がどう宣言されているかを確かめ、同じ形にする(unity ビルドでは `tests/run.c` が `wired_test_fails` を定義する。ここではスタブの main が定義する)。
 
-- [ ] **Step 3: Write the header**
+- [ ] **ステップ 3: ヘッダーを書く**
 
 `src/app/media/mp4frag/mp4frag.h`:
 
@@ -300,7 +300,7 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out);
 #endif
 ```
 
-- [ ] **Step 4: Write the implementation (every function CCN <= 3)**
+- [ ] **ステップ 4: 実装を書く(どの関数も CCN 3 以下)**
 
 `src/app/media/mp4frag/mp4frag.c`:
 
@@ -388,36 +388,36 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out) {
 }
 ```
 
-`mp4frag_scan_frags` has `while` + `if` + `if(&&)` = CCN 4: split the `&&` into a predicate `static int mp4frag_moof_bad(wired_span file, usz* off, const mp4frag_box* b, mp4frag_layout* out) { return b->type == mp4frag_fourcc("moof") && !mp4frag_take_mdat(file, off, b, out); }` and call `if (mp4frag_moof_bad(...)) return 0;`. Confirm with `lizard src/app/media/mp4frag/mp4frag.c --CCN 3 -w`.
+`mp4frag_scan_frags` は `while` + `if` + `if(&&)` で CCN 4 になる。`&&` を述語関数 `static int mp4frag_moof_bad(wired_span file, usz* off, const mp4frag_box* b, mp4frag_layout* out) { return b->type == mp4frag_fourcc("moof") && !mp4frag_take_mdat(file, off, b, out); }` に切り出し、`if (mp4frag_moof_bad(...)) return 0;` で呼ぶ。`lizard src/app/media/mp4frag/mp4frag.c --CCN 3 -w` で確かめる。
 
-- [ ] **Step 5: Run the $TMPDIR harness — expect `fails=0`; run lizard on the file — expect exit 0.**
+- [ ] **ステップ 5: $TMPDIR のハーネスを実行して `fails=0` を確かめる。このファイルに lizard をかけ、0 で終わることを確かめる。**
 
-- [ ] **Step 6: Do NOT commit or wire. Report the two file paths and the harness output to the integrator (Task 8).**
+- [ ] **ステップ 6: コミットも配線もしない。2 つのファイルのパスとハーネスの出力を統合担当(タスク 8)に報告する。**
 
 ---
 
-### Task 3: srvrun per-step hook and in-flight query
+### タスク 3: srvrun のステップごとのフックと送信中の問い合わせ
 
-**Files:**
-- Modify: `src/app/http3/server/srvrun/srvrun.h` (add to `wired_srvrun_opt` after `wt_session_close_ctx`; add the query declaration after `wired_server_wt_stream_reset`)
-- Modify: `src/app/http3/server/srvrun/srvrun.c` (`srvrun_cfg` tail, `srvrun_build_cfg`, `srvrun_step`, new query function)
-- Test: `tests/app/srvrun_test.c` (append two tests; register them in `test_srvrun`)
+**ファイル:**
+- 変更: `src/app/http3/server/srvrun/srvrun.h`(`wired_srvrun_opt` の `wt_session_close_ctx` のあとにメンバーを足し、`wired_server_wt_stream_reset` のあとに問い合わせ関数の宣言を足す)
+- 変更: `src/app/http3/server/srvrun/srvrun.c`(`srvrun_cfg` の末尾、`srvrun_build_cfg`、`srvrun_step`、新しい問い合わせ関数)
+- テスト: `tests/app/srvrun_test.c`(テストを 2 つ追記し、`test_srvrun` に登録する)
 
-**Interfaces:**
-- Produces:
+**インターフェース:**
+- 生成するもの:
   ```c
   typedef void (*wired_srvrun_on_step)(void* ctx, u64 now_ms);
   /* in wired_srvrun_opt: */ wired_srvrun_on_step on_step; void* on_step_ctx;
   int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
   ```
 
-- [ ] **Step 1: Read the existing test style**
+- [ ] **ステップ 1: 既存のテストの書き方を読む**
 
-Open `tests/app/srvrun_test.c` around line 4500-4560 (the test that calls `srvrun_step(&cfg, &st, bufs, 2)` in a loop) and around line 4561 ("WRAPPER EQUIVALENCE") to see how a `srvrun_cfg`/`srvrun_state` is built directly in a test. Reuse the same construction helpers by name (copy the exact setup lines from the nearest test; do not invent new fixtures).
+`tests/app/srvrun_test.c` の 4500〜4560 行あたり(`srvrun_step(&cfg, &st, bufs, 2)` をループで呼ぶテスト)と 4561 行あたり("WRAPPER EQUIVALENCE")を開き、テストの中で `srvrun_cfg`/`srvrun_state` をじかに組み立てる方法を確かめる。組み立て用のヘルパーは同じ名前のものを使い回す(いちばん近いテストから準備の行をそのまま写す。新しいフィクスチャーは作らない)。
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **ステップ 2: 失敗するテストを書く**
 
-Append before `void test_srvrun(void)`:
+`void test_srvrun(void)` の前に追記する:
 
 ```c
 /* on_step fires once per srvrun_step with a non-decreasing monotonic
@@ -452,13 +452,13 @@ static void test_srvrun_wt_stream_inflight_unknown_is_zero(void) {
 }
 ```
 
-Replace the `...` with the copied fixture lines (the plan cannot know their exact shape without the file open; the neighboring test at ~line 4500 is the template). The `srvrun_step` in that test must not block: the fixture there uses a non-blocking configuration — keep it identical.
+`...` は写したフィクスチャーの行に置き換える(ファイルを開かずに正確な形は計画に書けない。4500 行あたりの隣のテストを雛形にする)。そのテストの `srvrun_step` はブロックしてはならない。そこのフィクスチャーはブロックしない設定を使っているので、そのまま同じにする。
 
-- [ ] **Step 3: Run `just test-fast` — expect a compile error naming `on_step` (Red).**
+- [ ] **ステップ 3: `just test-fast` を実行し、`on_step` を名指しするコンパイルエラーになることを確かめる(Red)。**
 
-- [ ] **Step 4: Implement**
+- [ ] **ステップ 4: 実装する**
 
-`srvrun.h`, after the `wt_session_close_ctx` member of `wired_srvrun_opt`:
+`srvrun.h` の、`wired_srvrun_opt` の `wt_session_close_ctx` メンバーのあと:
 
 ```c
   /** Per-step application hook, 0 to disable (the default): called once
@@ -472,7 +472,7 @@ Replace the `...` with the copied fixture lines (the plan cannot know their exac
   void*                on_step_ctx; /**< opaque ctx passed to on_step */
 ```
 
-and above the `wired_srvrun_opt` typedef (next to the other callback typedefs):
+`wired_srvrun_opt` の typedef の上(ほかのコールバックの typedef の隣):
 
 ```c
 /** Per-step application hook (wired_srvrun_opt.on_step).
@@ -481,7 +481,7 @@ and above the `wired_srvrun_opt` typedef (next to the other callback typedefs):
 typedef void (*wired_srvrun_on_step)(void* ctx, u64 now_ms);
 ```
 
-and after `wired_server_wt_stream_reset`'s declaration:
+`wired_server_wt_stream_reset` の宣言のあと:
 
 ```c
 /** 1 while a send slot on s's connection still holds stream_id -- its
@@ -496,7 +496,7 @@ and after `wired_server_wt_stream_reset`'s declaration:
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
 ```
 
-`srvrun.c`: add to the END of `srvrun_cfg` (after `wt_session_close_ctx`):
+`srvrun.c`: `srvrun_cfg` の末尾(`wt_session_close_ctx` のあと)に足す:
 
 ```c
   /** Per-step app hook, 0 to disable, see wired_srvrun_opt. */
@@ -504,15 +504,15 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id);
   void*                on_step_ctx; /**< opaque ctx for on_step */
 ```
 
-and to the END of the compound literal in `srvrun_build_cfg`: `opt->on_step, opt->on_step_ctx`.
+`srvrun_build_cfg` の複合リテラルの末尾にも足す: `opt->on_step, opt->on_step_ctx`。
 
-In `srvrun_step`, right after the `if (srvrun_wait_input(cfg, st)) srvrun_recv_serve(...)` line:
+`srvrun_step` の、`if (srvrun_wait_input(cfg, st)) srvrun_recv_serve(...)` の行の直後:
 
 ```c
   srvrun_app_step(cfg);
 ```
 
-with, above `srvrun_step`:
+あわせて `srvrun_step` の上に:
 
 ```c
 /* wired_srvrun_opt.on_step: the app's own per-step work (e.g. a clock-
@@ -522,7 +522,7 @@ static void srvrun_app_step(const srvrun_cfg* cfg) {
 }
 ```
 
-The query, next to `wired_server_wt_stream_reset`:
+問い合わせ関数は `wired_server_wt_stream_reset` の隣に:
 
 ```c
 int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
@@ -532,24 +532,24 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
 }
 ```
 
-Check `srvrun_session_conn(0)` returns 0 for a null session (read it; if it dereferences, guard `if (!s) return 0;` first) and that `srvrun_wtsend_find` only matches `in_use` slots (read its body; it is forward-declared near line 3752).
+`srvrun_session_conn(0)` が null のセッションに 0 を返すことを確かめる(中身を読む。参照外しをしているなら、先頭に `if (!s) return 0;` のガードを置く)。`srvrun_wtsend_find` が `in_use` のスロットだけに一致することも確かめる(本体を読む。3752 行あたりで前方宣言されている)。
 
-- [ ] **Step 5: `just test-fast` prints "all tests passed"; `lizard src/app/http3/server/srvrun/srvrun.c --CCN 3 -w` exits 0; `just docs` exits 0 (new header members).**
+- [ ] **ステップ 5: `just test-fast` が "all tests passed" を出し、`lizard src/app/http3/server/srvrun/srvrun.c --CCN 3 -w` が 0 で終わり、`just docs` が 0 で終わる(ヘッダーにメンバーを足したため)。**
 
-- [ ] **Step 6: Do NOT commit. Report to the integrator.**
+- [ ] **ステップ 6: コミットしない。統合担当に報告する。**
 
 ---
 
-### Task 4: Hub live track (`moqtrun`)
+### タスク 4: ハブのライブ Track(`moqtrun`)
 
-**Files:**
-- Modify: `src/app/moqt/run/moqtrun.h` (io table: `send_uni2`; new `wired_moqtrun_live` type + hub member; two new functions; two counters)
-- Modify: `src/app/moqt/run/moqtrun.c`
-- Test: `tests/app/moqtrun_test.c` (stub `send_uni2` + new section 13)
+**ファイル:**
+- 変更: `src/app/moqt/run/moqtrun.h`(io テーブルに `send_uni2`。新しい `wired_moqtrun_live` 型とハブのメンバー。新しい関数 2 つ。カウンター 2 つ)
+- 変更: `src/app/moqt/run/moqtrun.c`
+- テスト: `tests/app/moqtrun_test.c`(`send_uni2` のスタブと、新しい第 13 節)
 
-**Interfaces:**
-- Consumes: `moqdata_subhdr_put`, `moqdata_obj_put` (data/moqdata.h), `MOQDATA_MSG_OVERHEAD`; existing `moqtrun_track_claim`, `moqtrun_sub_slot`, `moqtrun_track_sub_of_peer`, `moqtrun_queue_subscribe_ok`, `moqtrun_send_request_error`, `moqtrun_track_drop_sub`.
-- Produces:
+**インターフェース:**
+- 使うもの: `moqdata_subhdr_put`, `moqdata_obj_put`(data/moqdata.h)、`MOQDATA_MSG_OVERHEAD`。既存の `moqtrun_track_claim`, `moqtrun_sub_slot`, `moqtrun_track_sub_of_peer`, `moqtrun_queue_subscribe_ok`, `moqtrun_send_request_error`, `moqtrun_track_drop_sub`。
+- 生成するもの:
   ```c
   /* io table, after stream_reset: */
   i64 (*send_uni2)(wired_wt_session* s, wired_span head, wired_span body);
@@ -559,9 +559,9 @@ Check `srvrun_session_conn(0)` returns 0 for a null session (read it; if it dere
   /* hub counters: */ u64 stat_live_sent; u64 stat_live_drop;
   ```
 
-- [ ] **Step 1: Extend the test stub** (top of `tests/app/moqtrun_test.c`)
+- [ ] **ステップ 1: テスト用スタブを拡張する**(`tests/app/moqtrun_test.c` の先頭)
 
-Add call kind 8 = `send_uni2`; record `head||body` into `payload` (truncated to `MOQTRUN_TEST_MAX_PAYLOAD`), `payload_len` = full `head.n + body.n` (so a test can check the real length even when the recorder truncates); refuse (return -1) while `g_send_uni2_fail_n > 0` or when `g_send_uni2_reject_sess == s`; reset both in `moqtrun_test_reset`; set `io.send_uni2 = moqtrun_test_send_uni2` in `moqtrun_test_io`.
+呼び出しの種類 8 = `send_uni2` を足す。`head||body` を `payload` に記録し(`MOQTRUN_TEST_MAX_PAYLOAD` で切り詰める)、`payload_len` には切り詰める前の `head.n + body.n` を入れる(記録側が切り詰めても、テストが本当の長さを確かめられるようにするため)。`g_send_uni2_fail_n > 0` のあいだと、`g_send_uni2_reject_sess == s` のときは拒否する(-1 を返す)。この 2 つは `moqtrun_test_reset` で戻す。`moqtrun_test_io` で `io.send_uni2 = moqtrun_test_send_uni2` を設定する。
 
 ```c
 static int               g_send_uni2_fail_n;
@@ -585,9 +585,9 @@ static i64 moqtrun_test_send_uni2(
 }
 ```
 
-Note `payload_len` may exceed the buffer: every existing reader of `payload_len` indexes `payload` — keep the live tests' fragments <= 200 bytes so head+body always fits, and never read past `MOQTRUN_TEST_MAX_PAYLOAD`.
+`payload_len` はバッファーより大きくなりうる点に注意する。`payload_len` を読む既存の箇所はどれも、その値で `payload` を添字参照している。ライブのテストのフラグメントは 200 バイト以下にして head+body が必ず収まるようにし、`MOQTRUN_TEST_MAX_PAYLOAD` より先は読まない。
 
-- [ ] **Step 2: Write the failing tests** (new section 13 before `void test_moqtrun(void)`)
+- [ ] **ステップ 2: 失敗するテストを書く**(`void test_moqtrun(void)` の前に新しい第 13 節として)
 
 ```c
 /* ===================== 13. hub-owned live track ===================== */
@@ -795,13 +795,13 @@ static void test_moqtrun_live_and_blob_coexist(void) {
 }
 ```
 
-For the `...` in the last test: copy `moqtrun_test_rename_track_to_audio` into a generic `moqtrun_test_rename_track(const u8* src, usz src_len, const u8* name, usz name_len, u8* dst)` that backpatches the 16-bit Length by `name_len - 5`, then use it for `"movie/init"`. Register all eight tests in `test_moqtrun`.
+最後のテストの `...` について: `moqtrun_test_rename_track_to_audio` を写して汎用の `moqtrun_test_rename_track(const u8* src, usz src_len, const u8* name, usz name_len, u8* dst)` を作り、16 ビットの Length を `name_len - 5` だけ後から書き換えるようにする。それを `"movie/init"` に使う。8 つのテストをすべて `test_moqtrun` に登録する。
 
-- [ ] **Step 3: Run `just test-fast` — compile error on `wired_moqt_publish_live` (Red).**
+- [ ] **ステップ 3: `just test-fast` を実行し、`wired_moqt_publish_live` でコンパイルエラーになることを確かめる(Red)。**
 
-- [ ] **Step 4: Implement**
+- [ ] **ステップ 4: 実装する**
 
-`moqtrun.h` — io table, after `stream_reset`:
+`moqtrun.h` の io テーブルの、`stream_reset` のあと:
 
 ```c
   /** wired_server_wt_open_uni-shaped for a two-part payload: head (a
@@ -813,7 +813,7 @@ For the `...` in the last test: copy `moqtrun_test_rename_track_to_audio` into a
   i64 (*send_uni2)(wired_wt_session* s, wired_span head, wired_span body);
 ```
 
-new type before `wired_moqt_hub`:
+`wired_moqt_hub` の前に新しい型:
 
 ```c
 /** The hub's own clock-paced live track (wired_moqt_publish_live): Group
@@ -833,7 +833,7 @@ typedef struct {
 } wired_moqtrun_live;
 ```
 
-hub members after `blob_wire`:
+`blob_wire` のあとにハブのメンバー:
 
 ```c
   /** The hub's live track (wired_moqt_publish_live); track.in_use once
@@ -845,7 +845,7 @@ hub members after `blob_wire`:
   u64 stat_live_drop;
 ```
 
-functions:
+関数:
 
 ```c
 /** Publish a hub-owned live track ... (spec section 3 text) ...
@@ -859,9 +859,9 @@ int wired_moqt_publish_live(wired_moqt_hub* hub, wired_span name, u64 track_alia
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 ```
 
-`moqtrun.c` — in `wired_moqt_init`: `hub->live.track.in_use = 0; hub->stat_live_sent = 0; hub->stat_live_drop = 0;`.
+`moqtrun.c` の `wired_moqt_init` に: `hub->live.track.in_use = 0; hub->stat_live_sent = 0; hub->stat_live_drop = 0;`。
 
-Live section (after the blob section):
+ライブの節(blob の節のあと):
 
 ```c
 /* ===================== hub-owned live track ===================== */
@@ -906,7 +906,7 @@ static usz moqtrun_live_head(
 }
 ```
 
-(`moqdata_obj_put` writes delta + length + payload in one go; the head needs delta + length WITHOUT the payload, hence the two `moqvi_put` calls. Check `moqdata_obj_put`'s body in `moqdata.c` to confirm the exact varint sequence it emits for a non-empty payload -- delta, then length, then bytes -- so `head||body` is byte-identical to `moqdata_obj_put`; the coexist test's `moqtrun_test_live_group` decodes it with `moqdata_obj_take`, which is the proof.)
+(`moqdata_obj_put` は delta + length + payload を一度に書く。head にはペイロード抜きの delta + length が要るので、`moqvi_put` を 2 回呼ぶ。`moqdata.c` の `moqdata_obj_put` の本体を読み、空でないペイロードのときに出す varint の並び(delta、length、バイト列の順)を確かめて、`head||body` が `moqdata_obj_put` の出力とバイト単位で一致するようにする。共存テストの `moqtrun_test_live_group` がそれを `moqdata_obj_take` でデコードすることが、その証明になる。)
 
 ```c
 /* 1 iff sub slot i still owes Group g (never sent, or last sent older). */
@@ -939,7 +939,7 @@ static void moqtrun_live_skip_stale(wired_moqt_hub* hub, usz i, u64 g) {
 }
 ```
 
-Careful: `moqtrun_live_skip_stale` counts drops once per Group skipped, but a subscriber that fell behind by k Groups must be counted exactly once per skipped Group and then caught up by `sent_group = g` on the next accepted send. Simplest correct shape: in `moqtrun_live_send_one`, on acceptance, `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` BEFORE setting `sent_group = g`, and delete `moqtrun_live_skip_stale`. That keeps CCN <= 3 by moving the two-condition check into a helper `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` returning the number of skipped Groups (0 when none).
+注意: `moqtrun_live_skip_stale` は飛ばした Group ごとに 1 回ずつ取りこぼしを数える。しかし k Group 遅れたサブスクライバーは、飛ばした Group ごとにちょうど 1 回ずつ数えたうえで、次に受け付けられた送信で `sent_group = g` によって追いつかせなければならない。いちばん単純で正しい形は次のとおり。`moqtrun_live_send_one` で送信が受け付けられたとき、`sent_group = g` を設定する前に `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` を実行し、`moqtrun_live_skip_stale` は消す。2 条件の判定を、飛ばした Group の数(なければ 0)を返すヘルパー `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` に移せば、CCN 3 以下を保てる。
 
 ```c
 static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
@@ -956,7 +956,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
 }
 ```
 
-The tick needs the current clock at SUBSCRIBE time too (spec: send the current Group at once). The hub has no clock of its own: store the last tick's `now_ms` in `hub->live.last_now_ms` (add to the struct with a doc comment: "clock of the most recent wired_moqt_tick; a SUBSCRIBE between ticks is served the Group current at that tick") and use it in the SUBSCRIBE path:
+SUBSCRIBE を受けた時点でも現在の時刻が要る(仕様: 現在の Group をすぐに送る)。ハブは自前の時計を持たないので、最後の tick の `now_ms` を `hub->live.last_now_ms` に保存し(構造体に足し、ドキュメントコメントは "clock of the most recent wired_moqt_tick; a SUBSCRIBE between ticks is served the Group current at that tick" にする)、SUBSCRIBE の経路でそれを使う:
 
 ```c
 /* SUBSCRIBE for the live track: record the peer and send it the current
@@ -987,35 +987,35 @@ static void moqtrun_live_attach(wired_moqt_hub* hub, wired_moqtrun_peer* p, wire
 }
 ```
 
-`moqtrun_subscribe_live` has `if` + `if` = CCN 3 (the `held`/`slot` ifs); fine. Routing in `moqtrun_route_subscribe`: after the blob check add `if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) { moqtrun_subscribe_live(hub, p, peer_idx); return; }` -- that makes `moqtrun_route_subscribe` CCN 3. Session close: in `moqtrun_blob_drop_sub` add the live track the same way (rename it `moqtrun_hub_tracks_drop_sub`; CCN: two guarded ifs = 3).
+`moqtrun_subscribe_live` は `if` + `if` で CCN 3(`held`/`slot` の if)。これで問題ない。`moqtrun_route_subscribe` の振り分けでは、blob の判定のあとに `if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) { moqtrun_subscribe_live(hub, p, peer_idx); return; }` を足す。これで `moqtrun_route_subscribe` は CCN 3 になる。セッションを閉じるときは、`moqtrun_blob_drop_sub` に同じやり方でライブ Track を足す(名前を `moqtrun_hub_tracks_drop_sub` に変える。CCN はガード付きの if 2 つで 3)。
 
-Also `moqtrun_track_claim` clears `subs[].active` only when the slot was not in_use; `sent_any` is reset per attach, so no extra zeroing is needed.
+また、`moqtrun_track_claim` が `subs[].active` をクリアするのはスロットが in_use でなかったときだけだが、`sent_any` はサブスクライバーを付けるたびにリセットされるので、追加のゼロ埋めは要らない。
 
-- [ ] **Step 5: `just test-fast` prints "all tests passed"; `lizard src/app/moqt/run/moqtrun.c --CCN 3 -w` exits 0; `just docs` exits 0.**
+- [ ] **ステップ 5: `just test-fast` が "all tests passed" を出し、`lizard src/app/moqt/run/moqtrun.c --CCN 3 -w` が 0 で終わり、`just docs` が 0 で終わる。**
 
-- [ ] **Step 6: Do NOT commit. Report to the integrator, including any test you had to adjust and why.**
-
----
-
-### Task 4a: State model of the live sender (runs alongside Task 4)
-
-**Files:** everything under `tasks/loopeng/moqtlive/` (never committed).
-
-Model the hub's live sender with the modeler agent: variables `clock_group`, per-subscriber `sent_group`/`sent_any`/`active`, per-session staging slots `free|inflight`; actions `Tick` (clock_group' = clock_group + 1, then a serve pass), `Subscribe`, `Close`, `SendAccepted` (requires a free slot; marks it inflight; records the Group), `SendRefused` (no free slot; records nothing), `SlotReleased`. Invariants: (1) no subscriber has the same Group recorded twice across its history, (2) recorded Groups per subscriber strictly increase, (3) an inflight slot is never re-claimed, (4) a recorded Group equals the clock Group at the time of the send (never late). Liveness: under weak fairness of `SlotReleased`, every active subscriber's `sent_group` eventually reaches any given Group. Model bound: 2 subscribers, 2 slots, clock up to 4.
-
-Every counterexample becomes one more test in Task 4's section 13 (written in the same style, no model vocabulary or ids in the test names). If the model finds no counterexample, Task 4's tests stand.
+- [ ] **ステップ 6: コミットしない。統合担当に報告する。直す必要があったテストがあれば、それと理由も含める。**
 
 ---
 
-### Task 5: Frontend live client
+### タスク 4a: ライブ送信部の状態モデル(タスク 4 と並行して進める)
 
-**Files:**
-- Create: `examples/moqt_chat/frontend/src/lib/moqtLiveClient.ts`, `examples/moqt_chat/frontend/src/lib/__tests__/moqtLiveClient.test.ts`
-- Modify: `examples/moqt_chat/frontend/src/lib/moqtMovieClient.ts` (rename `MOVIE_TRACK_NAME` use for init: add `MOVIE_INIT_TRACK_NAME = "movie/init"`, `MOVIE_INIT_TRACK_ALIAS = 9n`; `subscribeMovieInit(chat)`; keep `readMovie` as the init reader), `useMoqtChat.ts`, `moqtChatStore.ts` (+ its test), `page.tsx`
+**ファイル:** `tasks/loopeng/moqtlive/` の下のすべて(コミットしない)。
 
-**Interfaces:**
-- Consumes: `MoqtChatClient.subscribeTrack`, `readToEof`, `decodeBlobObjects`, `MOVIE_TRACK_ALIAS = 8n`.
-- Produces:
+ハブのライブ送信部を modeler エージェントでモデル化する。変数は `clock_group`、サブスクライバーごとの `sent_group`/`sent_any`/`active`、セッションごとのステージングスロット `free|inflight`。アクションは `Tick`(clock_group' = clock_group + 1 のあと、配信を 1 巡)、`Subscribe`、`Close`、`SendAccepted`(空きスロットが要る。そのスロットを inflight にし、Group を記録する)、`SendRefused`(空きスロットがない。何も記録しない)、`SlotReleased`。不変条件は次の 4 つ。(1) どのサブスクライバーも、履歴の中で同じ Group を 2 回記録しない。(2) サブスクライバーごとに、記録した Group は狭義単調に増える。(3) inflight のスロットを取り直さない。(4) 記録した Group は、送信した時点の時計の Group に等しい(遅れない)。活性: `SlotReleased` の弱公平性のもとで、アクティブなサブスクライバーの `sent_group` は、どの Group にもいずれ届く。モデルの範囲: サブスクライバー 2、スロット 2、時計は 4 まで。
+
+反例が出たら、1 つごとに タスク 4 の第 13 節へテストを 1 つ足す(同じ書き方で、テスト名にモデルの用語や ID を入れない)。モデルが反例を見つけなければ、タスク 4 のテストはそのままにする。
+
+---
+
+### タスク 5: フロントエンドのライブクライアント
+
+**ファイル:**
+- 作成: `examples/moqt_chat/frontend/src/lib/moqtLiveClient.ts`, `examples/moqt_chat/frontend/src/lib/__tests__/moqtLiveClient.test.ts`
+- 変更: `examples/moqt_chat/frontend/src/lib/moqtMovieClient.ts`(init 用に使っていた `MOVIE_TRACK_NAME` を改める: `MOVIE_INIT_TRACK_NAME = "movie/init"` と `MOVIE_INIT_TRACK_ALIAS = 9n` を足す。`subscribeMovieInit(chat)` を足す。`readMovie` は init の読み取りに残す)、`useMoqtChat.ts`、`moqtChatStore.ts`(とそのテスト)、`page.tsx`
+
+**インターフェース:**
+- 使うもの: `MoqtChatClient.subscribeTrack`, `readToEof`, `decodeBlobObjects`, `MOVIE_TRACK_ALIAS = 8n`。
+- 生成するもの:
   ```ts
   export const MOVIE_MIME = 'video/mp4; codecs="avc1.64001e, mp4a.40.2"';
   export interface SourceBufferLike { updating: boolean; mode: string; appendBuffer(b: BufferSource): void; remove(s: number, e: number): void; addEventListener(t: "updateend" | "error", h: () => void): void; buffered: { length: number; start(i: number): number; end(i: number): number } }
@@ -1023,7 +1023,7 @@ Every counterexample becomes one more test in Task 4's section 13 (written in th
   export class LiveMovie { constructor(chat: MoqtChatClient, video: HTMLVideoElement, onError: (msg: string) => void); start(): Promise<void>; handleInit(bytes: Uint8Array): void; handleFragment(firstChunkTail: Uint8Array, reader, hasProperties: boolean, groupId: bigint): Promise<void>; stop(): void; firstGroup: bigint | undefined }
   ```
 
-- [ ] **Step 1: Write the failing tests** (`moqtLiveClient.test.ts`, vitest, style of `moqtMovieClient.test.ts`)
+- [ ] **ステップ 1: 失敗するテストを書く**(`moqtLiveClient.test.ts`、vitest、`moqtMovieClient.test.ts` と同じ書き方)
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
@@ -1084,11 +1084,11 @@ describe("LiveMovie", () => {
 });
 ```
 
-Fill the three `/* */` bodies with real code before running (they are the test, not placeholders): build a fragment stream as `concatBytes([encodeVarint(0n), encodeVarint(BigInt(payload.length)), payload])` (header already consumed by the caller), a fake reader from `moqtMovieClient.test.ts`'s helper, and a fake `MediaSource` global with `addSourceBuffer` returning the fake SourceBuffer and dispatching `sourceopen` synchronously from `start()` (`vi.stubGlobal("MediaSource", ...)`, `URL.createObjectURL` stubbed).
+実行する前に、3 つの `/* */` の本体を実際のコードで埋める(これはテストそのもので、仮置きではない)。フラグメントのストリームは `concatBytes([encodeVarint(0n), encodeVarint(BigInt(payload.length)), payload])` で組み立てる(ヘッダーは呼び出し側が読み終えている)。偽の reader は `moqtMovieClient.test.ts` のヘルパーから作る。偽の `MediaSource` をグローバルに置き、その `addSourceBuffer` が偽の SourceBuffer を返し、`start()` の中から `sourceopen` を同期的に発火させる(`vi.stubGlobal("MediaSource", ...)`、`URL.createObjectURL` もスタブにする)。
 
-- [ ] **Step 2: `pnpm test src/lib/__tests__/moqtLiveClient.test.ts` fails (module missing).**
+- [ ] **ステップ 2: `pnpm test src/lib/__tests__/moqtLiveClient.test.ts` が失敗する(モジュールがない)。**
 
-- [ ] **Step 3: Implement `moqtLiveClient.ts`**
+- [ ] **ステップ 3: `moqtLiveClient.ts` を実装する**
 
 ```ts
 // MOQT live movie playback: the hub paces keyframe-aligned fMP4 fragments
@@ -1125,25 +1125,25 @@ export class AppendQueue {
 }
 ```
 
-`LiveMovie`: holds `chat`, `video`, `AppendQueue | undefined`, `#init?: Uint8Array`, `#pending: Uint8Array[]`, `firstGroup?: bigint`. `start()`: `const ms = new MediaSource(); video.src = URL.createObjectURL(ms); await new Promise(r => ms.addEventListener("sourceopen", r, { once: true })); const sb = ms.addSourceBuffer(MOVIE_MIME); sb.mode = "sequence"; this.#q = new AppendQueue(sb, onError); await subscribeMovieInit(chat);` -- and `video.addEventListener("timeupdate", () => this.#q?.trim(video.currentTime))`. `handleInit(bytes)`: store, `q.push(bytes)`, then flush `#pending` in order, then `chat.subscribeTrack(utf8ToBytes(MOVIE_TRACK_NAME), MOVIE_TRACK_NAME)`. `handleFragment(tail, reader, props, groupId)`: `const bytes = decodeBlobObjects(await readToEof(tail, reader), props)` in try/catch (return on failure); `firstGroup ??= groupId`; if no init yet push to `#pending` (cap 8, drop oldest) else `q.push`. `stop()`: `video.removeAttribute("src"); video.load();`.
+`LiveMovie`: `chat`、`video`、`AppendQueue | undefined`、`#init?: Uint8Array`、`#pending: Uint8Array[]`、`firstGroup?: bigint` を持つ。`start()`: `const ms = new MediaSource(); video.src = URL.createObjectURL(ms); await new Promise(r => ms.addEventListener("sourceopen", r, { once: true })); const sb = ms.addSourceBuffer(MOVIE_MIME); sb.mode = "sequence"; this.#q = new AppendQueue(sb, onError); await subscribeMovieInit(chat);`。あわせて `video.addEventListener("timeupdate", () => this.#q?.trim(video.currentTime))`。`handleInit(bytes)`: 保存して `q.push(bytes)` し、続いて `#pending` を順に流し込み、最後に `chat.subscribeTrack(utf8ToBytes(MOVIE_TRACK_NAME), MOVIE_TRACK_NAME)`。`handleFragment(tail, reader, props, groupId)`: try/catch の中で `const bytes = decodeBlobObjects(await readToEof(tail, reader), props)`(失敗したら return)。`firstGroup ??= groupId`。init がまだなければ `#pending` に積み(上限 8、あふれたらいちばん古いものを捨てる)、あれば `q.push`。`stop()`: `video.removeAttribute("src"); video.load();`。
 
-- [ ] **Step 4: Wire the hook/store/page**
+- [ ] **ステップ 4: フック、ストア、ページを配線する**
 
-`moqtChatStore.ts`: replace `movieUrl`/`setMovieUrl` with `liveError: string | null` / `setLiveError`; update its test's initial-state assertion. `useMoqtChat.ts`: a `videoRef` (`useRef<HTMLVideoElement>(null)`) returned from the hook; in `connect()`, after chat connects, `const live = new LiveMovie(client, videoRef.current!, (m) => store.setLiveError(m)); liveRef.current = live; live.start().catch(() => {});`; `onUnknownUniStream`: alias 9 -> `readMovie(...).then((b) => b && liveRef.current?.handleInit(b))`; alias 8 -> `liveRef.current?.handleFragment(tail, reader, header.flags.properties, header.groupId)`; else voice. `leave()`: `liveRef.current?.stop()`. `page.tsx`: render `<video ref={videoRef} data-testid="live" autoplay muted playsInline controls data-first-group={...}>` above the message list whenever connected (`data-first-group` is set from a small store field `liveFirstGroup: string | null` that `handleFragment` updates through an `onFirstGroup` callback -- add it to `LiveMovie`'s constructor options; the e2e reads it). Show `liveError` under the video when set.
+`moqtChatStore.ts`: `movieUrl`/`setMovieUrl` を `liveError: string | null` / `setLiveError` に置き換え、そのテストの初期状態のアサーションを更新する。`useMoqtChat.ts`: フックから `videoRef`(`useRef<HTMLVideoElement>(null)`)を返す。`connect()` の中で、チャットがつながったあとに `const live = new LiveMovie(client, videoRef.current!, (m) => store.setLiveError(m)); liveRef.current = live; live.start().catch(() => {});`。`onUnknownUniStream`: alias 9 なら `readMovie(...).then((b) => b && liveRef.current?.handleInit(b))`、alias 8 なら `liveRef.current?.handleFragment(tail, reader, header.flags.properties, header.groupId)`、それ以外は音声。`leave()`: `liveRef.current?.stop()`。`page.tsx`: 接続中はメッセージ一覧の上に `<video ref={videoRef} data-testid="live" autoplay muted playsInline controls data-first-group={...}>` を描く(`data-first-group` には、ストアの小さなフィールド `liveFirstGroup: string | null` の値を入れる。このフィールドは `handleFragment` が `onFirstGroup` コールバックで更新する。コールバックは `LiveMovie` のコンストラクターのオプションに足す。e2e がこの属性を読む)。`liveError` が設定されていれば動画の下に表示する。
 
-- [ ] **Step 5: `pnpm test && pnpm lint && pnpm build` all pass. Do NOT commit; report.**
+- [ ] **ステップ 5: `pnpm test && pnpm lint && pnpm build` がすべて通る。コミットせず、報告する。**
 
 ---
 
-### Task 6: Example server: fMP4 boot, live publish, staging ring
+### タスク 6: サンプルサーバー(fMP4 での起動、ライブ配信、ステージングのリング)
 
-**Files:**
-- Modify: `examples/moqt_chat/wired_server.c`
+**ファイル:**
+- 変更: `examples/moqt_chat/wired_server.c`
 
-**Interfaces:**
-- Consumes: `mp4frag_scan`, `wired_moqt_publish_live`, `wired_moqt_tick`, `wired_srvrun_opt.on_step`, `wired_server_wt_stream_inflight`, `wired_moqt_publish_blob`.
+**インターフェース:**
+- 使うもの: `mp4frag_scan`, `wired_moqt_publish_live`, `wired_moqt_tick`, `wired_srvrun_opt.on_step`, `wired_server_wt_stream_inflight`, `wired_moqt_publish_blob`。
 
-- [ ] **Step 1: Replace the movie block**
+- [ ] **ステップ 1: 動画のブロックを置き換える**
 
 ```c
 /* --- Movie track (--movie PATH, a fragmented MP4) ----------------------
@@ -1175,37 +1175,37 @@ typedef struct { wired_wt_session* s; live_slot ring[LIVE_RING]; } live_session;
 static live_session g_live[BIG_SLOTS];
 ```
 
-Functions (each small): `live_session_for(s)` (find or claim by session pointer), `live_slot_free(session, slot)` (`!used || !wired_server_wt_stream_inflight(s, stream_id)`), `live_slot_claim(...)`, `moqt_io_send_uni2(s, head, body)` (claim a slot; signal prefix + head + body via `bytes_memcpy`; `wired_server_wt_open_uni`; on success record `stream_id`, `used = 1`), `live_session_release(s)` in `on_session_close`. Remove `g_big`/`big_slot_*`/`send_uni_big` (the blob's init is 1.2 KB and takes the stack path; `moqt_io_send_uni` returns -1 above the stack staging as before). Add `send_uni2` to `g_moqt_io`. `publish_movie`: read, `mp4frag_scan` (die on 0), publish blob (init) then live (`clock_mono_ms()` -- include `common/platform/clock/mono.h`, check it is reachable through `wired.h`; if not, add the include), log `movie: <n> fragments, init <b> bytes, group <ms> ms`. `on_step`: `static void on_step(void* ctx, u64 now_ms) { wired_moqt_tick((wired_moqt_hub*)ctx, now_ms); }` and `opt.run.on_step = on_step; opt.run.on_step_ctx = &g_hub;`. Extend `log_relay_stats` with `live_sent=`/`live_dropped=`.
+関数(どれも小さく): `live_session_for(s)`(セッションのポインターで探すか確保する)、`live_slot_free(session, slot)`(`!used || !wired_server_wt_stream_inflight(s, stream_id)`)、`live_slot_claim(...)`、`moqt_io_send_uni2(s, head, body)`(スロットを確保し、シグナルの接頭部 + head + body を `bytes_memcpy` で写し、`wired_server_wt_open_uni` を呼ぶ。成功したら `stream_id` を記録し、`used = 1` にする)、`on_session_close` の中の `live_session_release(s)`。`g_big`/`big_slot_*`/`send_uni_big` は消す(blob の init は 1.2 KB でスタックの経路を通る。`moqt_io_send_uni` はスタックのステージングを超える大きさで、これまでどおり -1 を返す)。`g_moqt_io` に `send_uni2` を足す。`publish_movie`: 読み込み、`mp4frag_scan`(0 なら終了する)、blob(init)を配信してからライブを配信し(`clock_mono_ms()`。`common/platform/clock/mono.h` を取り込む。`wired.h` 経由で届くかを確かめ、届かなければ include を足す)、`movie: <n> fragments, init <b> bytes, group <ms> ms` をログに出す。`on_step`: `static void on_step(void* ctx, u64 now_ms) { wired_moqt_tick((wired_moqt_hub*)ctx, now_ms); }` と `opt.run.on_step = on_step; opt.run.on_step_ctx = &g_hub;`。`log_relay_stats` に `live_sent=`/`live_dropped=` を足す。
 
-- [ ] **Step 2: `ninja examples/moqt_chat/wired_server` builds; boot smoke: `./examples/moqt_chat/wired_server --movie assets/movie-live.mp4 --port 14433` prints the movie line and stays up 2 s; without `--movie` it boots too (CI's examples workflow runs it bare).**
+- [ ] **ステップ 2: `ninja examples/moqt_chat/wired_server` でビルドできる。起動の確認: `./examples/moqt_chat/wired_server --movie assets/movie-live.mp4 --port 14433` が動画の行を出し、2 秒間動き続ける。`--movie` なしでも起動する(CI の examples ワークフローは引数なしで動かす)。**
 
-- [ ] **Step 3: Do NOT commit; report.**
-
----
-
-### Task 7: Real-browser check, docs, Docker
-
-**Files:**
-- Create: `examples/moqt_chat/e2e/run-live-check.mjs`
-- Modify: `examples/moqt_chat/justfile` (`e2e-live` recipe next to `e2e-movie`; `e2e-movie` is deleted along with `run-movie-check.mjs` -- the blob movie track no longer exists as a user feature), `examples/moqt_chat/Dockerfile` (`COPY assets/movie-live.mp4 /movie.mp4`), `examples/moqt_chat/README.md` (replace the movie paragraphs: live track model, aliases 8/9, `--movie` takes the fMP4, `just e2e-live`)
-
-- [ ] **Step 1: Write `run-live-check.mjs`** (same skeleton as `run-movie-check.mjs`: `arg` from `lib/args.mjs`, `startServer`, static frontend, puppeteer with `args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]`):
-
-join user1; `waitForFunction(() => { const v = document.querySelector('[data-testid="live"]'); return v && v.readyState >= 3 && v.currentTime > 4; }, { timeout: 30000 })`; read `data-first-group`; `await sleep(5000)`; join user2 the same way; require `BigInt(user2.firstGroup) > BigInt(user1.firstGroup)`; for both, sample `currentTime` twice 3 s apart and require it advanced by >= 2 s; close; `await server.stop()`; grep the server log for `live_sent=` and require a value > 0. Print a JSON summary; exit non-zero on any failure.
-
-- [ ] **Step 2: Run it: `cd examples/moqt_chat && just e2e-live` (after Task 8 has built the server and `pnpm build` ran). Expected: JSON with both clients ok, exit 0. Kill any stale `wired_server` first (`pgrep -a wired_server`): a leftover one shares port 4433 via SO_REUSEPORT and steals the handshake.**
-
-- [ ] **Step 3: Docs + Docker edits as listed. Do NOT commit; report.**
+- [ ] **ステップ 3: コミットせず、報告する。**
 
 ---
 
-### Task 8: Integration, gate, micro-commits (serial, one worker)
+### タスク 7: 実ブラウザーでの確認、ドキュメント、Docker
 
-- [ ] **Step 1: Wire `mp4frag` into `tests/run.c`:** `#include "app/media/mp4frag/mp4frag.c"` in the production block (alphabetically near `app/http3/server/staticfile/staticfile.c` is fine), `#include "app/mp4frag_test.c"` in the test block, `test_mp4frag();` in `main()`. Then `grep -c include tests/run.c` before/after (+2) and the count check `[ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]` after `just ninja`.
+**ファイル:**
+- 作成: `examples/moqt_chat/e2e/run-live-check.mjs`
+- 変更: `examples/moqt_chat/justfile`(`e2e-movie` の隣に `e2e-live` レシピを置く。`e2e-movie` は `run-movie-check.mjs` と一緒に消す。blob の動画 Track はもう利用者向けの機能ではないため)、`examples/moqt_chat/Dockerfile`(`COPY assets/movie-live.mp4 /movie.mp4`)、`examples/moqt_chat/README.md`(動画の段落を置き換える: ライブ Track のモデル、alias 8/9、`--movie` に fMP4 を渡すこと、`just e2e-live`)
 
-- [ ] **Step 2: Gate:** `just fmt` (nix), then `if just test-fast 2>&1 | grep -q "all tests passed" && just ninja >/dev/null 2>&1 && lizard src --CCN 3 -w; then echo GATE-OK; fi`; then `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke`; then `cd examples/moqt_chat/frontend && pnpm test && pnpm lint && pnpm build`; then `just e2e-live`.
+- [ ] **ステップ 1: `run-live-check.mjs` を書く**(骨組みは `run-movie-check.mjs` と同じ: `lib/args.mjs` の `arg`、`startServer`、静的なフロントエンド、`args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]` 付きの puppeteer):
 
-- [ ] **Step 3: Micro-commits in this order (each after the gate above is green in the same tree):**
+user1 で参加する。`waitForFunction(() => { const v = document.querySelector('[data-testid="live"]'); return v && v.readyState >= 3 && v.currentTime > 4; }, { timeout: 30000 })`。`data-first-group` を読む。`await sleep(5000)`。user2 も同じように参加させる。`BigInt(user2.firstGroup) > BigInt(user1.firstGroup)` を求める。両方について `currentTime` を 3 秒あけて 2 回取り、2 秒以上進んでいることを求める。閉じる。`await server.stop()`。サーバーのログから `live_sent=` を grep し、値が 0 より大きいことを求める。JSON の要約を出力し、どれか 1 つでも失敗したら 0 以外で終わる。
+
+- [ ] **ステップ 2: 実行する: `cd examples/moqt_chat && just e2e-live`(タスク 8 がサーバーをビルドし、`pnpm build` を実行したあと)。期待する結果: 両クライアントが ok の JSON が出て、0 で終わる。先に、残っている古い `wired_server` を止める(`pgrep -a wired_server`)。残ったプロセスは SO_REUSEPORT で 4433 番ポートを共有し、ハンドシェイクを横取りする。**
+
+- [ ] **ステップ 3: 上に挙げたドキュメントと Docker の編集。コミットせず、報告する。**
+
+---
+
+### タスク 8: 統合、ゲート、マイクロコミット(直列、ワーカー 1 人)
+
+- [ ] **ステップ 1: `mp4frag` を `tests/run.c` に配線する:** 本番コードのブロックに `#include "app/media/mp4frag/mp4frag.c"`(アルファベット順で `app/http3/server/staticfile/staticfile.c` の近くでよい)、テストのブロックに `#include "app/mp4frag_test.c"`、`main()` に `test_mp4frag();`。そのあと、配線の前後で `grep -c include tests/run.c` を比べ(+2)、`just ninja` のあとに数の確認 `[ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]` を実行する。
+
+- [ ] **ステップ 2: ゲート:** `just fmt`(nix)、続いて `if just test-fast 2>&1 | grep -q "all tests passed" && just ninja >/dev/null 2>&1 && lizard src --CCN 3 -w; then echo GATE-OK; fi`、続いて `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke`、続いて `cd examples/moqt_chat/frontend && pnpm test && pnpm lint && pnpm build`、最後に `just e2e-live`。
+
+- [ ] **ステップ 3: 次の順でマイクロコミットする(どれも、同じ作業ツリーで上のゲートが通ったあとに):**
   1. `feat(mp4frag): scan a fragmented MP4 into init segment and moof+mdat fragments` -- mp4frag.[ch], mp4frag_test.c, tests/run.c
   2. `feat(srvrun): per-step app hook and WT send in-flight query` -- srvrun.[ch], srvrun_test.c
   3. `feat(moqtrun): clock-paced live track with one fragment per Group` -- moqtrun.[ch], moqtrun_test.c
@@ -1215,4 +1215,4 @@ join user1; `waitForFunction(() => { const v = document.querySelector('[data-tes
   7. `build(moqt_chat): ship the fragmented movie in the scratch image` -- Dockerfile
   8. `docs(moqt_chat): describe the live movie track` -- README
 
-- [ ] **Step 4: `git status` clean; `git log --oneline -9`; report the hashes and the e2e JSON.**
+- [ ] **ステップ 4: `git status` がクリーンであることを確かめ、`git log --oneline -9` を実行し、ハッシュと e2e の JSON を報告する。**
