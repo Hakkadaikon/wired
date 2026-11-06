@@ -1,60 +1,35 @@
-# moqt_chat: multi-attachment compose (images/video/clipboard) + movie removal
+# moqt_chat: 複数添付の作成(画像/動画/クリップボード)と動画配信の削除
 
-Status: approved design, 2026-09-22. Implementation plan follows this spec.
+状態: 承認済みの設計(2026-09-22)。実装計画はこの仕様のあとに続きます。
 
-## Goal
+## 目的
 
-Extend moqt_chat's single-image-send feature (already shipped: `sendImage`,
-`moqtImageWire.ts`, `MoqtChatClient.sendImage`/`onImage`) into a general
-attachment-compose flow:
+moqt_chat の画像 1 枚の送信機能(出荷済み: `sendImage`、`moqtImageWire.ts`、`MoqtChatClient.sendImage`/`onImage`)を、汎用の添付付きメッセージ作成の流れに広げます。
 
-1. Multiple files can be attached to one outgoing message (up to 4).
-2. Files can be attached by pasting from the clipboard while the text input
-   is focused, in addition to the existing file-picker button.
-3. Video files can be attached the same way images are, sent as raw bytes
-   (no client-side transcode/compression).
-4. Attaching a file no longer sends immediately. It queues into a
-   send-time draft with a preview (thumbnail for images/video, filename
-   chip otherwise), individually removable, until the user presses Send —
-   at which point the text (if any) and every remaining attachment go out
-   together as one logical message.
-5. The server-side `--movie` MP4 live-delivery feature (wired_server.c's
-   `publish_movie`, the Dockerfile's `--movie` flag, `assets/movie-live.mp4`)
-   and its frontend consumers (`moqtMovieClient.ts`, `moqtLiveClient.ts`,
-   `LivePlayer`, `videoRef` wiring) are deleted entirely — not hidden,
-   removed.
+1. 1 通の送信メッセージに複数のファイル(最大 4 個)を添付できる。
+2. 既存のファイル選択ボタンに加えて、テキスト入力にフォーカスがある状態でクリップボードから貼り付けてファイルを添付できる。
+3. 動画ファイルも画像と同じ方法で添付でき、生のバイト列のまま送る(クライアント側でのトランスコードや圧縮はしない)。
+4. ファイルを添付しても、すぐには送らない。送信前の下書きにプレビュー(画像/動画はサムネイル、それ以外はファイル名のチップ)付きで積み、1 個ずつ取り除けるようにする。ユーザーが Send を押した時点で、テキスト(あれば)と残っているすべての添付を、1 つの論理メッセージとしてまとめて送る。
+5. サーバー側の `--movie` による MP4 のライブ配信機能(wired_server.c の `publish_movie`、Dockerfile の `--movie` フラグ、`assets/movie-live.mp4`)と、それを使うフロントエンド(`moqtMovieClient.ts`、`moqtLiveClient.ts`、`LivePlayer`、`videoRef` の配線)を丸ごと削除する。隠すのではなく、取り除く。
 
-Attachments continue to ride the existing chat Object channel (no new MOQT
-track, no server change beyond the movie removal) — same fixed-room,
-same-track-alias design as the shipped image feature, extended per
-Attachment Wire Format below.
+添付は引き続き既存の chat の Object チャネルに載せます(新しい MOQT の Track は作らず、動画配信の削除以外にサーバーの変更はありません)。出荷済みの画像機能と同じ、固定ルーム・同じ Track Alias の設計を、下の「添付のワイヤーフォーマット」のとおりに広げたものです。
 
-## Non-goals (explicit, matching the shipped image feature's own scope cuts)
+## 対象外(明示。出荷済みの画像機能で削った範囲に合わせる)
 
-- No image/video compression, resizing, or EXIF stripping.
-- No upload progress bar beyond an overall per-attachment/percent indicator
-  already implied by chunk count (see UI section) — no fine-grained
-  byte-level progress.
-- No send-in-progress cancellation.
-- No persistence: attachments are never written to disk anywhere (server or
-  client); this matches the shipped image feature and is unchanged.
-- No clipboard-read() button; paste is the only clipboard entry point.
-- No per-file-type icon library; a generic filename chip covers any
-  non-image/video MIME type that manages to get attached (accept filters
-  restrict the picker to image/video, but paste is not filtered the same
-  way — see Compose section).
+- 画像/動画の圧縮、リサイズ、EXIF の除去はしない。
+- アップロードの進捗バーは、チャンク数からすでに分かる添付ごとの全体の割合表示(UI の節を参照)以上のものは作らない。バイト単位の細かな進捗は出さない。
+- 送信中の取り消しはしない。
+- 永続化しない: 添付はどこ(サーバーでもクライアントでも)のディスクにも書かない。出荷済みの画像機能と同じで、変更はない。
+- clipboard-read() のボタンは作らない。クリップボードからの入口は貼り付けだけ。
+- ファイル種別ごとのアイコンライブラリは作らない。添付されてしまった画像/動画以外の MIME 型は、汎用のファイル名チップで扱う(ファイル選択は accept フィルターで画像/動画に絞るが、貼り付けには同じ絞り込みがかからない。Compose の節を参照)。
 
-## Attachment Wire Format (`moqtAttachmentWire.ts`, replaces `moqtImageWire.ts`)
+## 添付のワイヤーフォーマット(`moqtAttachmentWire.ts`、`moqtImageWire.ts` を置き換える)
 
-Generalizes the shipped chunk format to (a) carry a `messageId` so multiple
-independent Objects/streams belong to one logical chat message, and (b)
-carry an `attachmentIdx` so multiple attachments within one message don't
-collide in the receiver's reassembly state.
+出荷済みのチャンク形式を一般化し、(a) `messageId` を運んで、独立した複数の Object/ストリームを 1 つの論理チャットメッセージにまとめられるようにし、(b) `attachmentIdx` を運んで、1 つのメッセージ内の複数の添付が受信側の再組み立ての状態でぶつからないようにします。
 
-### Text part
+### テキスト部
 
-One MoQT Object (same one-stream-one-Object shape as the shipped
-`buildChatObjectMessage`), payload:
+MoQT の Object 1 個(出荷済みの `buildChatObjectMessage` と同じ、ストリーム 1 本に Object 1 個の形)。ペイロード:
 
 ```
 marker (1 byte, 0xFE — distinct from the image-chunk marker 0xFF and the
@@ -65,9 +40,9 @@ textLen (u16 BE)
 text (UTF-8 bytes, textLen bytes)   -- "" when the message is attachments-only
 ```
 
-### Attachment chunk part
+### 添付のチャンク部
 
-One MoQT Object per chunk (same shape as the shipped image chunk), payload:
+チャンクごとに MoQT の Object 1 個(出荷済みの画像チャンクと同じ形)。ペイロード:
 
 ```
 marker (1 byte, 0xFD — distinct from 0xFF/0xFE/nickname's 0x00)
@@ -87,32 +62,17 @@ count (u16 BE)             -- total chunks for this attachment
 data (remaining bytes)
 ```
 
-### Marker disambiguation
+### マーカーの見分け方
 
-Four distinct first-byte markers now share the chat Object channel:
-`0x00` (nickname), `0xFD` (attachment chunk), `0xFE` (text-with-attachments),
-`0xFF` (bare legacy image chunk — kept only if a compatibility path is
-needed; see Migration below), and no marker (plain chat text, any valid
-UTF-8 first byte, none of which can be 0xFD/0xFE/0xFF per RFC 3629 §3's
-leading-byte table, and 0x00 is excluded by construction since chat text
-never starts with NUL). `classifyChatPayload` (moqtClient.ts) is extended
-with two more branches, ordered marker-byte-first same as today.
+chat の Object チャネルには、先頭バイトのマーカーが 4 種類あります。`0x00`(ニックネーム)、`0xFD`(添付のチャンク)、`0xFE`(添付付きのテキスト)、`0xFF`(旧来の単独の画像チャンク。互換の経路が必要なときだけ残す。下の「移行」を参照)、そしてマーカーなし(通常のチャットのテキスト。先頭バイトは有効な UTF-8 のどれかで、RFC 3629 §3 の先頭バイトの表により 0xFD/0xFE/0xFF にはなりえません。チャットのテキストは NUL で始まらないので、0x00 も構造上ありえません)です。`classifyChatPayload`(moqtClient.ts)には分岐を 2 つ足し、今と同じくマーカーのバイトを先に見る順にします。
 
-### Migration note
+### 移行についての注記
 
-The already-shipped `moqtImageWire.ts`/`IMAGE_CHUNK_MARKER=0xFF` single-image
-path is superseded by this format. Per this spec's scope (a full replacement,
-not a dual-write), `moqtImageWire.ts` is deleted and `moqtClient.ts`'s
-`sendImage`/`onImage` are replaced by `sendMessage`/`onMessage`-with-
-attachments (see API section). No backward-compat wire shim: this is a
-single-repo demo app with no independently-deployed old clients to support.
+出荷済みの `moqtImageWire.ts`/`IMAGE_CHUNK_MARKER=0xFF` による画像 1 枚の経路は、この形式に置き換わります。この仕様の範囲(二重書き込みではなく完全な置き換え)に従い、`moqtImageWire.ts` は削除し、`moqtClient.ts` の `sendImage`/`onImage` は添付付きの `sendMessage`/`onMessage` に置き換えます(API の節を参照)。ワイヤーの後方互換シムは作りません。これは単一リポジトリのデモアプリで、別にデプロイされた古いクライアントを支える必要がないためです。
 
-## Receive-side aggregation (state machine — verified design, see
-Verification section)
+## 受信側の集約(状態機械。検証済みの設計。「検証」の節を参照)
 
-`MoqtChatClient` gains a `#pendingMessages: Map<string, PendingMessage>`
-keyed by `` `${participant}:${messageId}` `` (messageId alone is not
-globally unique — it is a per-sender counter, like the shipped `#imageSeq`).
+`MoqtChatClient` に `#pendingMessages: Map<string, PendingMessage>` を加えます。キーは `` `${participant}:${messageId}` `` です(messageId だけでは全体で一意になりません。出荷済みの `#imageSeq` と同じく送信者ごとのカウンターだからです)。
 
 ```
 PendingMessage = {
@@ -128,70 +88,35 @@ PendingMessage = {
 }
 ```
 
-Transitions:
-- **Text part arrives, no pending entry**: create one, set
-  `text`/`attachmentCount`, `firstSeenAt = now`.
-- **Text part arrives, pending entry exists (attachment(s) arrived first)**:
-  fill in `text`/`attachmentCount` on the existing entry, do not reset
-  `firstSeenAt`.
-- **Attachment chunk arrives, no pending entry**: create one with `text =
-  undefined`, `attachmentCount = undefined`, `firstSeenAt = now`, push the
-  chunk into a fresh per-attachmentIdx `ImageFrameReassembler`.
-- **Attachment chunk arrives, pending entry exists**: push into that
-  attachmentIdx's reassembler (existing per-attachment chunk-completion
-  logic, unchanged from the shipped `imageFrameReassemblerPush`).
-- **An attachment's reassembler completes**: store the result in
-  `attachments[attachmentIdx]`.
-- **Completion check** (run after every transition above): if `text !==
-  undefined` AND `attachmentCount !== undefined` AND every index in
-  `[0, attachmentCount)` of `attachments` is filled, fire `onMessage` with
-  the full `{text, attachments}` and delete the pending entry.
-- **Timeout**: a periodic sweep (interval TBD in plan, e.g. every 5s) drops
-  any pending entry whose `firstSeenAt` is more than 30s old, silently (no
-  callback, matching the shipped reassembler's silent-drop convention).
-  No unbounded growth: room size is capped at 4 participants
-  (`CANDIDATE_PARTICIPANT_IDS`), and each sender can only have one pending
-  message maturing at a time in practice (the send path awaits full
-  delivery before allowing another `sendMessage` call — see API section) —
-  no concurrency cap is enforced in the data structure itself (YAGNI, per
-  the approved design decision).
+遷移:
+- **テキスト部が届き、保留エントリがない**: エントリを作り、`text`/`attachmentCount` を設定し、`firstSeenAt = now` とする。
+- **テキスト部が届き、保留エントリがある(添付が先に届いていた)**: 既存のエントリに `text`/`attachmentCount` を埋める。`firstSeenAt` はリセットしない。
+- **添付のチャンクが届き、保留エントリがない**: `text = undefined`、`attachmentCount = undefined`、`firstSeenAt = now` でエントリを作り、そのチャンクを attachmentIdx ごとの新しい `ImageFrameReassembler` に入れる。
+- **添付のチャンクが届き、保留エントリがある**: その attachmentIdx の再組み立て器に入れる(添付ごとのチャンク完了判定は既存のもので、出荷済みの `imageFrameReassemblerPush` から変えない)。
+- **ある添付の再組み立てが完了**: 結果を `attachments[attachmentIdx]` に格納する。
+- **完了判定**(上の各遷移のあとに毎回実行): `text !== undefined` かつ `attachmentCount !== undefined` かつ `attachments` の `[0, attachmentCount)` のすべてのインデックスが埋まっていれば、完成した `{text, attachments}` で `onMessage` を呼び、保留エントリを削除する。
+- **タイムアウト**: 定期的な掃除(間隔は計画で決める。例: 5 秒ごと)で、`firstSeenAt` から 30 秒を超えた保留エントリを通知せずに捨てる(コールバックなし。出荷済みの再組み立て器が通知せずに捨てる慣習に合わせる)。際限なく増えることはありません。ルームの人数は 4 人が上限(`CANDIDATE_PARTICIPANT_IDS`)で、実際には各送信者が同時に組み立て途中にできるメッセージは 1 つだけです(送信の経路は、配送が終わるまで次の `sendMessage` 呼び出しを待たせます。API の節を参照)。データ構造そのものには同時数の上限を設けません(承認済みの設計判断どおり YAGNI)。
 
-This is the state machine to verify: does every reachable
-interleaving of (text-first vs. attachment-first arrival, any attachment
-completion order, timeout racing arrival) either (a) eventually fire
-exactly one `onMessage` with the correct assembled content, or (b) time out
-and drop with no `onMessage` — never firing twice, never firing with a gap,
-never leaking a pending entry forever.
+検証する状態機械はこれです。(テキストが先か添付が先か、添付の完了順はどれでも、タイムアウトと到着の競合)のあらゆる到達可能な交互実行が、(a) 正しく組み上がった内容でちょうど 1 回 `onMessage` を呼ぶか、(b) タイムアウトして `onMessage` を呼ばずに捨てるかのどちらかになり、2 回呼ぶことも、欠けたまま呼ぶことも、保留エントリをいつまでも残すこともないか。
 
-## Client-side send API (`moqtClient.ts`)
+## クライアント側の送信 API(`moqtClient.ts`)
 
-Replaces `sendImage`/`onImage` with:
+`sendImage`/`onImage` を次で置き換えます。
 
 ```ts
 interface AttachmentInput { bytes: Uint8Array; mimeType: string }
 async sendMessage(text: string, attachments: AttachmentInput[]): Promise<void>
 ```
 
-`onImage` in `MoqtChatCallbacks` is replaced by:
+`MoqtChatCallbacks` の `onImage` は次で置き換えます。
 ```ts
 onMessage(participantId: string, text: string, attachments: ReassembledAttachment[]): void
 ```
-(This is a breaking rename of the existing `onMessage(participantId, text)`
-signature too — the shipped plain-text path becomes attachments: [] through
-the same callback, unifying text-only and attachment-bearing messages
-into one path. `onNickname` stays separate/unchanged, still riding its own
-marker.)
+(既存の `onMessage(participantId, text)` のシグネチャも互換性を壊す形で変わります。出荷済みのテキストだけの経路は同じコールバックを attachments: [] で通るようになり、テキストだけのメッセージと添付付きのメッセージが 1 つの経路にまとまります。`onNickname` は別のまま変えず、引き続き専用のマーカーで運びます。)
 
-`sendMessage`'s internal order: assign `messageId = this.#messageSeq++`,
-send the text part first (one stream), then each attachment's chunks in
-order (one stream per chunk, chunks awaited sequentially within an
-attachment — same discipline as shipped `sendImage` — attachments
-themselves may be sent one after another, no need for the shipped
-"chunks never fired concurrently" rule to extend across attachments since
-each chunk stream is independent and the receiver keys by
-messageId+attachmentIdx regardless of arrival order).
+`sendMessage` の内部の順序: `messageId = this.#messageSeq++` を割り当て、先にテキスト部を送り(ストリーム 1 本)、続いて各添付のチャンクを順に送ります(チャンクごとにストリーム 1 本。1 つの添付の中ではチャンクを 1 つずつ待つ。出荷済みの `sendImage` と同じ規律)。添付どうしは続けて送ってかまいません。出荷済みの「チャンクを同時に送らない」決まりを添付をまたいで広げる必要はありません。チャンクのストリームはそれぞれ独立しており、受信側は到着順に関係なく messageId+attachmentIdx をキーにするからです。
 
-## Store shape (`moqtChatStore.ts`)
+## ストアの形(`moqtChatStore.ts`)
 
 ```ts
 export type ChatAttachment = {
@@ -213,122 +138,48 @@ export type ChatMessage = {
 };
 ```
 
-`imageDataUrl`/`imageMimeType` fields are removed (migration, not
-additive — matches the wire format's full-replacement scope). `addMessage`
-signature unchanged in shape (`Omit<ChatMessage, "id">`).
+`imageDataUrl`/`imageMimeType` のフィールドは取り除きます(追加ではなく移行です。ワイヤーフォーマットが完全な置き換えであることに合わせます)。`addMessage` のシグネチャの形は変わりません(`Omit<ChatMessage, "id">`)。
 
-`imageSendError` is renamed `messageSendError` (still `string | null` +
-setter), since it now covers any send failure (text-only, attachment-only,
-or mixed) uniformly with `sendChat`'s existing failure path — this also
-means `sendChat` and `sendImage` collapse into one `sendMessage` hook
-callback (see UI section), so there is only one failure surface, not two.
+`imageSendError` は `messageSendError` に改名します(型は引き続き `string | null` + セッター)。テキストだけ、添付だけ、両方を含むもののどの送信失敗も、`sendChat` の既存の失敗経路と同じように扱うようになるためです。これに伴い、`sendChat` と `sendImage` は 1 つの `sendMessage` フックのコールバックにまとまり(UI の節を参照)、失敗の出口は 2 つではなく 1 つになります。
 
-## UI (`page.tsx`)
+## UI(`page.tsx`)
 
-### `Compose` becomes stateful (`draftAttachments`)
+### `Compose` が状態を持つ(`draftAttachments`)
 
 ```ts
 type Draft = { id: string; bytes: Uint8Array; mimeType: string; previewUrl: string; fileName: string };
 ```
 
-- File-picker `<input type="file" accept="image/*,video/*" multiple
-  data-testid="attachment-file">`: `multiple` lets one picker invocation
-  select several files at once (still capped at 4 total including
-  already-drafted ones — files beyond the cap are dropped with the same
-  `onAttachmentError`/size-style Notice used for the 5MB cap, message
-  "up to 4 attachments").
-- Paste handler on the text `<input>`'s `onPaste`: iterates
-  `e.clipboardData.items`, for each `kind === "file"` item calls
-  `getAsFile()` and adds it as a draft (same 4-cap/5MB-cap enforcement as
-  the picker path). Does not call `preventDefault()` on the whole paste —
-  only suppresses default if a file item was actually found and handled,
-  so pasting plain text into the input is unaffected.
-- Each draft renders a preview chip in a new row above the input: an
-  `<img>` (image) or a `<video muted>` first-frame poster (video, via the
-  browser's native poster rendering — no thumbnail generation), else a
-  filename chip. Each chip has a small remove (×) button
-  (`data-testid="draft-remove"`) that revokes its `previewUrl` and drops
-  it from `draftAttachments`.
-- `Send` button (renamed from the implicit Enter-only submit — Enter in
-  the text input still submits, matching existing behavior) is enabled
-  when there is text OR at least one draft attachment (previously: text
-  only). On submit: calls `onSendMessage(text, draftAttachments)`, clears
-  both `draft` and `draftAttachments` (revoking every `previewUrl` first).
+- ファイル選択の `<input type="file" accept="image/*,video/*" multiple data-testid="attachment-file">`: `multiple` により、1 回の選択で複数のファイルを選べます(下書き済みのものと合わせて合計 4 個が上限のまま。上限を超えたファイルは、5MB の上限と同じ `onAttachmentError`/サイズ系の Notice で捨て、メッセージは "up to 4 attachments")。
+- テキストの `<input>` の `onPaste` の貼り付けハンドラー: `e.clipboardData.items` を走査し、`kind === "file"` の項目ごとに `getAsFile()` を呼んで下書きに加えます(ファイル選択の経路と同じく 4 個/5MB の上限を適用)。貼り付け全体に `preventDefault()` はかけません。ファイルの項目を実際に見つけて処理したときだけ既定の動作を抑えるので、入力欄へのテキストの貼り付けには影響しません。
+- 各下書きは入力欄の上の新しい行にプレビューのチップを描画します。画像は `<img>`、動画は `<video muted>` の最初のフレームのポスター(ブラウザー標準のポスター描画を使い、サムネイルは生成しない)、それ以外はファイル名のチップです。各チップには小さな削除(×)ボタン(`data-testid="draft-remove"`)があり、押すとその `previewUrl` を revoke して `draftAttachments` から外します。
+- `Send` ボタン(これまでの Enter だけの暗黙の送信から名前を付けたもの。テキスト入力での Enter による送信は既存の動作どおり残る)は、テキストがあるか、下書きの添付が 1 個以上あれば有効になります(これまではテキストのみ)。送信時は `onSendMessage(text, draftAttachments)` を呼び、`draft` と `draftAttachments` の両方を空にします(その前にすべての `previewUrl` を revoke する)。
 
-### `Message` component
+### `Message` コンポーネント
 
-Renders `m.text` (if non-empty) as today, followed by one `<img>` /
-`<video controls>` per `m.attachments[i]` (`data-testid="message-image"`
-for image MIME types — kept as-is so the existing e2e scenario's selector
-still works; `data-testid="message-video"` for video MIME types), each with
-its own unmount-revoke `useEffect` (same pattern as today, now per-
-attachment instead of per-message).
+`m.text` を(空でなければ)今と同じく描画し、続けて `m.attachments[i]` ごとに `<img>` / `<video controls>` を 1 つずつ描画します(画像の MIME 型には `data-testid="message-image"`。既存の e2e シナリオのセレクターが動くようにそのまま残す。動画の MIME 型には `data-testid="message-video"`)。それぞれにアンマウント時に revoke する `useEffect` を付けます(今と同じパターンで、単位がメッセージごとから添付ごとに変わる)。
 
-## Movie removal
+## 動画配信の削除
 
-- `wired_server.c`: delete `publish_movie`, the movie track constants
-  (`MOVIE_MAX`, `g_movie`, etc.), the `--movie` CLI arg handling, and any
-  movie-Group pacing/timer code. Grep `movie` in this file must return
-  nothing after.
-- `Dockerfile`: drop the `COPY assets/movie-live.mp4` line and the
-  `--movie /movie.mp4` ENTRYPOINT arg.
-- `assets/movie-live.mp4` (and `assets/movie.mp4` if nothing else
-  references it — verify in plan) deleted from the repo.
-- Frontend: delete `moqtMovieClient.ts`, `moqtLiveClient.ts`, and their
-  test files; remove `LivePlayer`, `videoRef`, and the
-  `MOVIE_INIT_TRACK_ALIAS`/`MOVIE_TRACK_ALIAS` branches in
-  `useMoqtChat.ts`'s `onUnknownUniStream` handler and `moqtClient.ts` (if
-  any movie-specific alias constants live there — verify in plan).
-- e2e: delete `run-live-check.mjs` and the `just e2e-live` justfile recipe.
-- This is a `src/app/moqt/run/*.c`-adjacent change (wired_server.c, not
-  `src/`) — the SDK core (`src/`) is untouched; only the example server
-  binary's own `--movie` feature goes. Confirm no `src/` diff in the plan's
-  verification section, same discipline as the shipped image feature.
+- `wired_server.c`: `publish_movie`、動画の Track の定数(`MOVIE_MAX`、`g_movie` など)、`--movie` の CLI 引数の処理、動画の Group のペース配分やタイマーのコードを削除する。削除後、このファイルで `movie` を grep しても何も出ないこと。
+- `Dockerfile`: `COPY assets/movie-live.mp4` の行と、ENTRYPOINT の `--movie /movie.mp4` 引数を取り除く。
+- `assets/movie-live.mp4`(と、ほかから参照されていなければ `assets/movie.mp4`。計画で確かめる)をリポジトリから削除する。
+- フロントエンド: `moqtMovieClient.ts`、`moqtLiveClient.ts` とそれらのテストファイルを削除する。`LivePlayer`、`videoRef`、そして `useMoqtChat.ts` の `onUnknownUniStream` ハンドラーと `moqtClient.ts` にある `MOVIE_INIT_TRACK_ALIAS`/`MOVIE_TRACK_ALIAS` の分岐(動画用の Alias 定数がそこにあれば。計画で確かめる)を取り除く。
+- e2e: `run-live-check.mjs` と justfile の `just e2e-live` レシピを削除する。
+- これは `src/app/moqt/run/*.c` に隣接する変更で(`src/` ではなく wired_server.c)、SDK のコア(`src/`)には手を入れません。なくなるのは example のサーバーバイナリ自身の `--movie` 機能だけです。出荷済みの画像機能と同じ規律で、計画の検証の節で `src/` に差分がないことを確かめます。
 
-## Verification layers
+## 検証の層
 
-1. **State transitions/concurrency**: YES — the receive-side aggregation
-   state machine above (interleaved text/attachment arrival, timeout races,
-   multiple pending messages per sender in the Map). Verified before
-   implementation; results (confirmed safe interleavings, any design fix
-   the verification forced) feed directly into this spec's aggregation
-   section above and the plan's derived test list.
-2. **Lean-grade critical algorithm**: NO — chunk encode/decode and
-   reassembly are round-trip-testable extensions of the already-shipped,
-   already-TDD-covered `moqtImageWire.ts` pattern. No new cryptographic or
-   exhaustive-classification property beyond what TDD round-trip tests
-   already cover for the shipped feature.
-3. **TDD bridge**: the state machine's confirmed-safe interleavings (or any
-   fix the verification forced) become the test list for
-   `moqtAttachmentWire.test.ts` and `moqtClient.test.ts`'s aggregation
-   tests, one test per interleaving/edge case (text-first, attachment-
-   first, timeout mid-assembly, multiple concurrent pending messages from
-   different senders, 0-attachment text-only message, 4-attachment message).
+1. **状態遷移/並行性**: 対象。上の受信側の集約の状態機械(テキストと添付の到着の交互実行、タイムアウトの競合、Map 内で送信者ごとに複数の保留メッセージ)。実装の前に検証します。結果(安全と確かめた交互実行と、検証で必要になった設計の修正)は、この仕様の上の集約の節と、計画から導くテストリストにそのまま反映します。
+2. **Lean で扱うべき重要なアルゴリズム**: 対象外。チャンクのエンコード/デコードと再組み立ては、出荷済みで TDD でカバー済みの `moqtImageWire.ts` のパターンを広げたもので、往復テストで確かめられます。出荷済み機能の TDD の往復テストがすでに覆っている範囲を超える、新しい暗号上の性質や網羅的な分類の性質はありません。
+3. **TDD への橋渡し**: 状態機械で安全と確かめた交互実行(または検証で必要になった修正)を、`moqtAttachmentWire.test.ts` と `moqtClient.test.ts` の集約テストのテストリストにします。交互実行や境界のケースごとに 1 テストです(テキストが先、添付が先、組み立て途中のタイムアウト、別々の送信者からの同時の複数保留メッセージ、添付 0 個のテキストだけのメッセージ、添付 4 個のメッセージ)。
 
-## Testing scope
+## テストの範囲
 
-- Unit (vitest, TDD): wire encode/decode round-trips (`moqtAttachmentWire.
-  test.ts`), aggregation state machine (`moqtClient.test.ts`, informed by
-  the verified design), store shape (`moqtChatStore.test.ts`), Compose
-  draft/paste/remove logic to the extent it can be isolated as pure
-  functions from `page.tsx` (paste-item-filtering, cap enforcement),
-  useMoqtChat wiring (`moqtChatCallbacks`'s `onMessage`-with-attachments
-  translation to `store.addMessage`).
-- e2e (Puppeteer, matching the shipped `s15-image-send.mjs` pattern): one
-  new scenario covering the main path — a message with text + 2 attachments
-  (at least one image, at least one video) sent and verified byte-identical
-  on the receiving end, plus a text-only and an attachments-only case in
-  the same scenario file. Clipboard paste is NOT covered by e2e (per the
-  approved decision) — covered by a vitest unit test of the paste handler's
-  pure logic instead.
-- Movie removal: no test needed for removed code; the plan's verification
-  step confirms `grep -rn movie` (case-insensitive) returns nothing under
-  `examples/moqt_chat/` except this spec/commit history, and the existing
-  e2e/unit suites (now without movie tests) stay green.
+- 単体(vitest、TDD): ワイヤーのエンコード/デコードの往復(`moqtAttachmentWire.test.ts`)、集約の状態機械(`moqtClient.test.ts`。検証済みの設計に基づく)、ストアの形(`moqtChatStore.test.ts`)、`page.tsx` から純粋関数として切り出せる範囲での Compose の下書き/貼り付け/削除のロジック(貼り付け項目の絞り込み、上限の適用)、useMoqtChat の配線(`moqtChatCallbacks` の添付付き `onMessage` から `store.addMessage` への変換)。
+- e2e(Puppeteer。出荷済みの `s15-image-send.mjs` のパターンに合わせる): 主な経路を覆う新しいシナリオを 1 つ作ります。テキスト + 添付 2 個(画像を 1 個以上、動画を 1 個以上)のメッセージを送り、受信側でバイト単位で同一であることを確かめます。同じシナリオファイルで、テキストだけの場合と添付だけの場合も確かめます。クリップボードからの貼り付けは e2e では扱いません(承認済みの判断どおり)。代わりに、貼り付けハンドラーの純粋なロジックを vitest の単体テストで確かめます。
+- 動画配信の削除: 削除したコードにテストは要りません。計画の検証の手順で、`examples/moqt_chat/` の下で `grep -rn movie`(大文字小文字を区別しない)がこの仕様とコミット履歴以外に何も返さないこと、既存の e2e/単体のスイート(動画のテストを除いたもの)が緑のままであることを確かめます。
 
-## Migration/compatibility
+## 移行/互換性
 
-None required — single-repo demo, no external deployed clients depend on
-the shipped single-image wire format staying stable. The shipped feature's
-own files (`moqtImageWire.ts`, its test, the `sendImage`/`onImage` methods)
-are replaced, not kept alongside the new format.
+不要です。単一リポジトリのデモで、出荷済みの画像 1 枚のワイヤーフォーマットが変わらないことに依存する、外部にデプロイされたクライアントはありません。出荷済み機能のファイル(`moqtImageWire.ts`、そのテスト、`sendImage`/`onImage` メソッド)は置き換え、新しい形式と並べて残すことはしません。

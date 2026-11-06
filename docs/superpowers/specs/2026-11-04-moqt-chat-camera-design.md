@@ -1,201 +1,120 @@
-# moqt_chat: camera video, virtual background, and mp4 streaming
+# moqt_chat: カメラ映像、バーチャル背景、mp4 の配信
 
-Status: approved design, 2026-11-04. The request asked for a camera with
-a virtual background built from MediaPipe's segmentation and a
-self-written WebGL compositor, and for a frontend toggle that streams a
-saved mp4.
+状態: 承認済みの設計(2026-11-04)。依頼は、MediaPipe のセグメンテーションと自作の WebGL コンポジターで作るバーチャル背景付きのカメラと、保存済みの mp4 を配信するフロントエンドのトグルでした。
 
-## Intent
+## 意図
 
-A participant can show themselves on camera, optionally hiding the room
-behind a blurred or replaced background, and can instead stream a saved mp4
-into the room. Both are turned on and off from the frontend. The request
-named the background method: MediaPipe's person segmentation plus a
-self-written WebGL compositor, the way LiveKit's track processors work.
+参加者はカメラで自分を映せます。部屋をぼかした背景や差し替えた背景で隠すこともできます。代わりに、保存済みの mp4 をルームに配信することもできます。どちらもフロントエンドからオンとオフを切り替えます。依頼では背景の方法も指定されていました。MediaPipe の人物セグメンテーションと自作の WebGL コンポジターを組み合わせる、LiveKit の track processor と同じやり方です。
 
-## Goals
+## 目標
 
-1. **Camera on/off.** The participant's camera goes out on a new track
-   `<id>/camera`. Every other participant sees it in a camera tile.
-2. **Virtual background.** While the camera is the source, the participant
-   picks `none`, `blur` or `image` (one bundled image).
-   - MediaPipe's selfie segmenter cuts out the person.
-   - An app-owned WebGL2 shader composites person and background before
-     encoding.
-   - Changing the mode applies to the next frames, without restarting the
-     camera or the track.
-3. **Video streaming on/off.** Turning it on streams a saved mp4 on the same
-   camera track.
-   - The default is a sample mp4 shipped with the app.
-   - The participant may pick another local mp4 instead.
-   - The file loops, and only its video is sent. Its audio is not sent and
-     not played locally.
-4. **One source per track.** At most one of camera and file feeds the camera
-   track at a time. Choosing one while the other is live switches the source
-   without ending the track.
-5. **Screen sharing is independent.** It keeps running beside camera or file
-   streaming.
+1. **カメラのオン/オフ。** 参加者のカメラ映像は新しい Track `<id>/camera` で送り出します。ほかの参加者は全員、それをカメラのタイルで見ます。
+2. **バーチャル背景。** カメラが映像ソースである間、参加者は `none`、`blur`、`image`(同梱の画像 1 枚)から選びます。
+   - MediaPipe の selfie segmenter で人物を切り出す。
+   - アプリが持つ WebGL2 のシェーダーで、エンコードの前に人物と背景を合成する。
+   - モードを変えると次のフレームから反映され、カメラも Track も再起動しない。
+3. **動画配信のオン/オフ。** オンにすると、保存済みの mp4 を同じカメラの Track で配信します。
+   - 既定はアプリに同梱のサンプル mp4。
+   - 参加者は代わりに別のローカルの mp4 を選んでもよい。
+   - ファイルはループし、映像だけを送る。音声は送らず、ローカルでも再生しない。
+4. **Track ごとにソースは 1 つ。** カメラの Track に映像を流すのは、カメラとファイルのどちらか一方だけです。片方が配信中にもう片方を選ぶと、Track を終わらせずにソースを切り替えます。
+5. **画面共有は独立。** カメラやファイルの配信と並行して動き続けます。
 
-## Non-goals
+## 対象外
 
-- Sending the mp4's audio.
-- More than one bundled background image, or uploading your own.
-- Camera device selection: the browser's default camera is used.
-- A low-rate variant (track switching) for the camera track.
+- mp4 の音声の送信。
+- 2 枚以上の同梱背景画像、または自分の画像のアップロード。
+- カメラデバイスの選択: ブラウザーの既定のカメラを使う。
+- カメラの Track の低レート版(Track の切り替え)。
 
-## Anti-goals
+## 失敗とみなすこと
 
-These would make the feature a failure even if it works:
+動いたとしても、次のどれかに当たればこの機能は失敗です。
 
-- **Leaking the room.** With a background effect selected, the room must
-  never be sent while the segmenter is still loading or after it failed to
-  load. Frames are withheld instead (fail-closed).
-- **Holding the camera after off.** The camera light must go out when the
-  participant turns the camera off, leaves, or switches to the file. This
-  includes the case where the camera permission prompt resolves only after
-  the participant already switched away.
-- **Breaking chat, voice or screen sharing.** A camera failure must not
-  break them, the same isolation rule the screen share follows.
+- **部屋が漏れる。** 背景効果を選んでいるときは、セグメンターの読み込み中や読み込みに失敗したあとに、部屋の映像を決して送ってはなりません。その間はフレームを送らずに止めます(fail-closed)。
+- **オフにしたあともカメラを握り続ける。** 参加者がカメラをオフにしたとき、退出したとき、ファイルに切り替えたときには、カメラのランプが消えなければなりません。参加者がすでに切り替えたあとでカメラの許可のプロンプトが解決した場合も含みます。
+- **チャット、音声、画面共有を壊す。** カメラの失敗でこれらを壊してはなりません。画面共有が従っているのと同じ分離の決まりです。
 
-## Constraints
+## 制約
 
-- The frontend is a static export on GitHub Pages under `/wired/moqt_chat/`.
-  The MediaPipe wasm (~13.5 MB) and the model (~250 KB) are served from the
-  app's own origin and base path, not from a CDN.
-- **Hub capacity.** The hub's per-peer track limit was 4 (chat, audio,
-  screen, screen-lo), and the camera is a fifth track.
-  `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` becomes 5. `WIRED_MOQTRUN_MAX_REQS`
-  becomes 128 (32 per session), because a full room now needs 24 request
-  streams per peer.
-- **Track aliases.** Chat uses 0..3, audio 4..7, screen 10..13 and
-  screen-lo 14..17, so the camera takes 18..21. The client's incoming-stream
-  routing checks the camera range before its voice fallback.
+- フロントエンドは GitHub Pages の `/wired/moqt_chat/` の下にある静的エクスポートです。MediaPipe の wasm(約 13.5 MB)とモデル(約 250 KB)は、CDN ではなくアプリ自身のオリジンとベースパスから配信します。
+- **hub の容量。** hub のピアごとの Track の上限はこれまで 4(chat、audio、screen、screen-lo)でしたが、カメラは 5 本目の Track です。`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` を 5 にします。満員のルームではピアごとに 24 本のリクエストストリームが要るようになるので、`WIRED_MOQTRUN_MAX_REQS` を 128(セッションあたり 32)にします。
+- **Track Alias。** chat が 0..3、audio が 4..7、screen が 10..13、screen-lo が 14..17 を使うので、カメラは 18..21 を取ります。クライアントの受信ストリームの振り分けは、音声へのフォールバックより前にカメラの範囲を確かめます。
 
-## Approaches
+## 方式の比較
 
-| Approach | Trade-off | Decision |
+| 方式 | トレードオフ | 判断 |
 |---|---|---|
-| MediaPipe Tasks Vision `ImageSegmenter` + own WebGL2 compositor | One dependency; full control; wasm hosted by us | **Chosen** (requested) |
-| `@livekit/track-processors` | Fastest to a demo, but built around LiveKit tracks | Rejected |
-| Chrome's `backgroundBlur` constraint | Platform-limited, blur only | Rejected |
+| MediaPipe Tasks Vision `ImageSegmenter` + 自作の WebGL2 コンポジター | 依存は 1 つ。すべて自分で制御できる。wasm は自前で配信 | **採用**(依頼どおり) |
+| `@livekit/track-processors` | デモまでは最速だが、LiveKit の Track を前提に作られている | 不採用 |
+| Chrome の `backgroundBlur` 制約 | 使えるプラットフォームが限られ、ぼかしのみ | 不採用 |
 
-## Design
+## 設計
 
-### Transport
+### トランスポート
 
-- The screen-share client (`MoqtScreenClient`) takes a track-kind
-  descriptor. The camera instance publishes `<id>/camera` at alias
-  18 + index and announces the `[id, "camera"]` namespace. It has no lo
-  variant.
-- The existing encoder pipeline is reused with two changes: the camera
-  sets the content hint to `motion`, and the encoder follows each frame's
-  visible size (a frame from a `<video>` carries padding in its coded
-  size). It encodes VP8 in
-  480 B chunks with a keyframe every 2 s.
-- A source switch forces a keyframe, so receivers can decode the new source.
+- 画面共有のクライアント(`MoqtScreenClient`)は、Track の種類を表す記述子を受け取ります。カメラのインスタンスは `<id>/camera` を Alias 18 + インデックスで公開し、名前空間 `[id, "camera"]` を告知します。lo 版はありません。
+- 既存のエンコーダーのパイプラインを、2 か所だけ変えて使い回します。カメラはコンテンツヒントを `motion` にし、エンコーダーは各フレームの可視サイズに従います(`<video>` から取ったフレームは、符号化サイズにパディングを含むためです)。VP8 で、480 B のチャンク、2 秒ごとのキーフレームでエンコードします。
+- ソースの切り替えではキーフレームを強制し、受信側が新しいソースをデコードできるようにします。
 
-### Source lifecycle
+### ソースのライフサイクル
 
-A pure state machine (events in, state and effects out) owns the source.
+純粋な状態機械(イベントを受け取り、状態と効果を返す)がソースを管理します。
 
-- **Events:**
-  - from the user: SelectCamera, SelectFile, Off, SetBackground, Leave
-  - completions that may arrive late, out of order or not at all: camera
-    acquired / failed, file playing / failed, segmenter ready / failed
-  - from the running track: a failure of the live source's publish,
-    encoding or frames, including the source ending by itself (an
-    unplugged camera, a revoked permission), which turns the source off
-    with an error; and a
-    ready segmenter lost later, e.g. its WebGL context (treated as a
-    segmenter failure)
-- **Generations.** Each acquisition carries a generation number. A
-  completion from an older generation is released and never published.
-- **Effects** are carried out by a controller the hook owns: acquire,
-  release, publish or end the track, load or close the segmenter, show an error.
-- **Frame gate.** For each camera frame, the frame is sent raw when the
-  mode is none. It is composited when the segmenter is ready, and dropped
-  otherwise.
-- **Per-frame fail-closed.** A composited frame is sent only when the
-  segmenter returned a mask for that very frame and the compositor drew
-  it. If segmentation throws or gives no mask, the frame is dropped. The
-  same holds when the compositor cannot be created or its WebGL context
-  is lost, and those two failures also count as a segmenter failure: an
-  error shows and frames stay withheld until the background is set to
-  none. A raw frame is never the fallback.
+- **イベント:**
+  - ユーザーから: SelectCamera、SelectFile、Off、SetBackground、Leave
+  - 遅れて、順不同で、あるいはまったく届かないかもしれない完了通知: カメラの取得成功/失敗、ファイルの再生開始/失敗、セグメンターの準備完了/失敗
+  - 動作中の Track から: 配信中のソースの公開、エンコード、フレームの失敗。ソースが自分で終わった場合(カメラが抜かれた、許可が取り消された)も含み、エラーとともにソースをオフにする。また、準備が済んだセグメンターがあとで失われた場合(たとえば WebGL コンテキストの喪失。セグメンターの失敗として扱う)
+- **世代。** 取得のたびに世代番号を付けます。古い世代からの完了通知は解放し、決して公開しません。
+- **効果** は、フックが持つコントローラーが実行します。取得、解放、Track の公開または終了、セグメンターの読み込みまたはクローズ、エラーの表示です。
+- **フレームのゲート。** カメラのフレームごとに、モードが none なら加工せずに送ります。セグメンターの準備ができていれば合成し、それ以外は捨てます。
+- **フレーム単位の fail-closed。** 合成したフレームを送るのは、セグメンターがまさにそのフレームのマスクを返し、コンポジターがそれを描いたときだけです。セグメンテーションが例外を投げたりマスクを返さなかったりしたら、そのフレームは捨てます。コンポジターを作れないときや、その WebGL コンテキストが失われたときも同じで、この 2 つの失敗はセグメンターの失敗としても数えます。エラーを表示し、背景を none にするまでフレームは送りません。加工していないフレームを代わりに送ることは決してありません。
 
-### Background
+### 背景
 
-- **Loading.** `segmenter.ts` lazily loads `ImageSegmenter` (selfie
-  segmenter, VIDEO mode) from `<basePath>/mediapipe/`. It tries the GPU
-  delegate first and falls back to CPU.
-- **Mask.** The segmenter's confidence mask is read as floats and uploaded
-  as an 8-bit texture.
-- **Compositing.** `backgroundCompositor.ts` draws into an offscreen WebGL2
-  canvas: `mix(background, person, smoothstep(lo, hi, mask))`. The
-  background is a blurred copy of the frame or the bundled image. A new
-  `VideoFrame` is taken from the canvas and fed to the encoder. The local
-  preview draws that same frame.
+- **読み込み。** `segmenter.ts` は `ImageSegmenter`(selfie segmenter、VIDEO モード)を `<basePath>/mediapipe/` から遅延読み込みします。まず GPU デリゲートを試し、だめなら CPU に切り替えます。
+- **マスク。** セグメンターの confidence mask を float として読み、8 ビットのテクスチャーとしてアップロードします。
+- **合成。** `backgroundCompositor.ts` はオフスクリーンの WebGL2 キャンバスに `mix(background, person, smoothstep(lo, hi, mask))` を描きます。背景はフレームをぼかしたコピーか、同梱の画像です。キャンバスから新しい `VideoFrame` を取ってエンコーダーに渡します。ローカルのプレビューもその同じフレームを描きます。
 
-### Receive
+### 受信
 
-- A camera receive pipeline (decoder per sender) and camera tiles are kept
-  separate from the screen tiles.
-- A tile is removed when its namespace is withdrawn or its frames stall.
+- カメラの受信パイプライン(送信者ごとにデコーダー)とカメラのタイルは、画面共有のタイルとは分けて持ちます。
+- 名前空間が取り下げられるか、フレームが止まると、タイルを取り除きます。
 
 ### UI
 
-The rail gets a Video section:
+サイドのレールに Video の節を加えます。
 
-- a Camera toggle
-- a Background selector: none / blur / image
-- a Video file toggle, which streams the bundled mp4 or a picked file
+- Camera のトグル
+- Background の選択: none / blur / image
+- Video file のトグル(同梱の mp4 か、選んだファイルを配信する)
 
-Turning a source on needs a connection. When the connection drops, the
-live source turns off at once (camera or file released, track
-unpublished), without waiting for the automatic rejoin. The live source's
-toggle stays pressable while disconnected anyway, as a fallback should a
-source still be live.
-Errors show under the section. Camera tiles show next to the screen tiles.
+ソースをオンにするには接続が必要です。接続が切れたら、自動の再参加を待たずに、配信中のソースをすぐにオフにします(カメラやファイルを解放し、Track の公開を取り消す)。それでも、ソースがまだ配信中だった場合の保険として、切断中も配信中のソースのトグルは押せるままにします。エラーはこの節の下に表示します。カメラのタイルは画面共有のタイルの隣に表示します。
 
-## Acceptance criteria
+## 受け入れ基準
 
-- Turning the camera on captures it and publishes the camera track.
-  Turning the file on plays it and publishes the same track.
-- Switching between camera and file keeps the track published. Only the
-  new source's frames are sent once it is up. If the new source fails,
-  the track ends.
-- Turning the source off ends the track and releases the camera, the file
-  and the segmenter.
-- A camera or file that comes up after the user turned it off or switched
-  away is released at once and never sent.
-- With blur or image selected, no camera frame is sent while the
-  segmenter is loading or after it failed.
-- Changing between blur and image keeps the loaded segmenter and does not
-  restart the camera. Choosing none closes the segmenter.
-- A file source ignores the background.
-- A camera that cannot be opened, a file that cannot play, or a live
-  source whose publish, encoding or frames fail (or that ends by itself),
-  returns to off and shows an error. The error stays until the next selection.
-- Leaving the room releases everything, including acquisitions still in
-  flight.
-- A dropped connection turns the source off at once.
+- カメラをオンにすると、カメラを取得してカメラの Track を公開する。ファイルをオンにすると、ファイルを再生して同じ Track を公開する。
+- カメラとファイルを切り替えても、Track は公開されたままである。新しいソースが立ち上がったら、そのソースのフレームだけを送る。新しいソースが失敗したら、Track は終わる。
+- ソースをオフにすると、Track を終わらせ、カメラ、ファイル、セグメンターを解放する。
+- ユーザーがオフにした、または切り替えたあとで立ち上がったカメラやファイルは、すぐに解放し、決して送らない。
+- blur か image を選んでいるときは、セグメンターの読み込み中や失敗後にカメラのフレームを送らない。
+- blur と image の間で切り替えても、読み込んだセグメンターはそのままで、カメラも再起動しない。none を選ぶとセグメンターを閉じる。
+- ファイルのソースは背景を無視する。
+- 開けないカメラ、再生できないファイル、公開・エンコード・フレームが失敗した(または自分で終わった)配信中のソースは、オフに戻ってエラーを表示する。エラーは次に選び直すまで残る。
+- ルームを退出すると、取得途中のものも含めてすべてを解放する。
+- 接続が切れたら、ソースはすぐにオフになる。
 
-## Verification
+## 検証
 
-- The source lifecycle's behaviour is fixed before implementation, and
-  each acceptance criterion above becomes a unit test of the state
-  machine or the controller.
-- **Unit tests** cover the frame gate, alias ranges and routing, and the
-  track kind.
-- **e2e** runs two headless Chrome participants with a fake camera:
-  - camera on: the peer's camera tile receives frames
-  - blur background: blurred frames keep arriving and the tile keeps the
-    fake camera's colour
-  - image background: since the fake camera shows no person, the tile turns
-    the bundled image's colour
-  - switch to the mp4: the frame size changes to the mp4's
-  - off: the tile goes away and no frame is decoded a second later
-  - a late joiner sees the live camera track
-  - the sender sees its own preview, and the viewer's tile names the sender
-  - a sender that crashes loses its tile once its frames stall
-  - a dropped connection turns the camera off and locks its toggle at once
+- ソースのライフサイクルの振る舞いは実装の前に固め、上の受け入れ基準をそれぞれ状態機械かコントローラーの単体テストにします。
+- **単体テスト** で、フレームのゲート、Alias の範囲と振り分け、Track の種類を確かめます。
+- **e2e** では偽のカメラを使うヘッドレス Chrome の参加者を 2 人動かします。
+  - カメラをオン: 相手のカメラのタイルがフレームを受け取る
+  - blur 背景: ぼかしたフレームが届き続け、タイルは偽のカメラの色を保つ
+  - image 背景: 偽のカメラには人物が映っていないので、タイルは同梱画像の色になる
+  - mp4 に切り替え: フレームサイズが mp4 のものに変わる
+  - オフ: タイルが消え、1 秒後にはフレームがデコードされていない
+  - 途中から参加した人にも、配信中のカメラの Track が見える
+  - 送信者は自分のプレビューを見られ、視聴者のタイルには送信者の名前が出る
+  - クラッシュした送信者は、フレームが止まった時点でタイルを失う
+  - 接続が切れると、カメラはすぐにオフになり、そのトグルもロックされる

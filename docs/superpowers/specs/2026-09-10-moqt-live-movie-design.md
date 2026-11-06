@@ -1,27 +1,16 @@
-# moqt_chat: live delivery of the sample movie over MoQT
+# moqt_chat: サンプル動画を MoQT でライブ配信する
 
-Status: approved design, 2026-09-10. Implementation plan follows this spec.
+状態: 承認済みの設計(2026-09-10)。実装計画はこの仕様のあとに続きます。
 
-## Goal
+## 目的
 
-`examples/moqt_chat`'s server currently publishes `assets/movie.mp4` as one
-static MoQT track: the whole file is framed once and sent to each subscriber
-on a single stream. This change delivers the movie the way a live MoQT
-stream is delivered: the server paces keyframe-aligned media fragments on a
-wall clock as successive MoQT Groups, every viewer sees the same position,
-a viewer who joins mid-stream starts at the current Group, and a viewer that
-falls behind loses Groups instead of stalling the publisher. The browser
-client plays the arriving fragments through Media Source Extensions (MSE).
+`examples/moqt_chat` のサーバーは現在、`assets/movie.mp4` を静的な MoQT Track 1 本として公開しています。ファイル全体を一度フレーム化し、サブスクライバーごとに 1 本のストリームで送る方式です。この変更ではライブの MoQT ストリームと同じ方式で動画を配信します。サーバーはキーフレームでそろえたメディアフラグメントを実時間に合わせて連続した MoQT Group として送り出します。視聴者は全員が同じ位置を見ます。途中から参加した視聴者は現在の Group から見始めます。遅れた視聴者は Group を取りこぼし、パブリッシャーを止めることはありません。ブラウザーのクライアントは届いたフラグメントを Media Source Extensions (MSE) で再生します。
 
-The sample stays a demonstration of MoQT mechanics on top of this SDK. It is
-not a media server: one fixed asset, one bitrate, no catalog, no FETCH.
+このサンプルはこの SDK の上で MoQT の仕組みを示すデモのままです。メディアサーバーではありません。アセットは固定の 1 本、ビットレートは 1 種類で、カタログも FETCH もありません。
 
-## Asset
+## アセット
 
-`assets/movie-live.mp4`: a fragmented MP4 (fMP4) derived from
-`assets/movie.mp4`, committed to the repository. H.264 High profile video
-(854x480, 24 fps, ~1.2 Mbps) and AAC-LC audio, re-encoded with a fixed
-2-second GOP so that every fragment starts with a keyframe:
+`assets/movie-live.mp4`: `assets/movie.mp4` から作った fragmented MP4 (fMP4) で、リポジトリにコミットします。映像は H.264 High profile(854x480、24 fps、約 1.2 Mbps)、音声は AAC-LC です。すべてのフラグメントがキーフレームで始まるよう、GOP を 2 秒に固定して再エンコードします。
 
 ```sh
 nix shell nixpkgs#ffmpeg-headless -c ffmpeg -i assets/movie.mp4 \
@@ -31,50 +20,32 @@ nix shell nixpkgs#ffmpeg-headless -c ffmpeg -i assets/movie.mp4 \
   -f mp4 assets/movie-live.mp4
 ```
 
-Layout (verified on the generated file): `ftyp` + `moov` = the init segment
-(1,260 bytes, no sample tables), then 16 `moof`+`mdat` pairs of about 2
-seconds each (10 KB to 405 KB; the last one is short). Both tracks' samples
-share each `moof`.
+構成(生成したファイルで確認済み): `ftyp` + `moov` が初期化セグメント(1,260 バイト、サンプルテーブルなし)で、そのあとに約 2 秒ずつの `moof`+`mdat` の組が 16 個続きます(10 KB から 405 KB。最後の 1 個は短い)。両方のトラックのサンプルが各 `moof` を共有します。
 
-The original `assets/movie.mp4` stays in the repository untouched.
+元の `assets/movie.mp4` は手を加えずにリポジトリに残します。
 
-## Track model on the wire
+## ワイヤー上の Track モデル
 
-Two hub-owned tracks under the room's fixed namespace `wired/moqt_chat`:
+ルームの固定の名前空間 `wired/moqt_chat` の下に、hub が持つ Track を 2 本置きます。
 
-| Track name   | Track Alias | Content | Delivery |
+| Track 名     | Track Alias | 内容 | 配信方法 |
 |--------------|-------------|---------|----------|
-| `movie/init` | 9           | the init segment (`ftyp`+`moov`) | existing static blob track (`wired_moqt_publish_blob`): one stream, sent once per subscriber on SUBSCRIBE |
-| `movie`      | 8           | one media fragment (`moof`+`mdat`) per Group | live track (new): Group g carries fragment `g mod 16` as Group g's only Object (Object ID 0), on its own unidirectional stream, sent when the wall clock enters Group g |
+| `movie/init` | 9           | 初期化セグメント(`ftyp`+`moov`) | 既存の静的な blob Track(`wired_moqt_publish_blob`): ストリーム 1 本で、SUBSCRIBE を受けたらサブスクライバーごとに 1 回送る |
+| `movie`      | 8           | Group ごとにメディアフラグメント(`moof`+`mdat`)1 個 | ライブ Track(新規): Group g はフラグメント `g mod 16` を Group g の唯一の Object(Object ID 0)として運ぶ。専用の単方向ストリームで、実時間が Group g に入ったときに送る |
 
-Aliases: chat 0..3, audio 4..7, movie 8, movie/init 9. The frontend's alias
-constants and the server's must agree, as today.
+Alias: chat 0..3、audio 4..7、movie 8、movie/init 9。今と同じく、フロントエンドとサーバーの Alias 定数は一致していなければなりません。
 
-Group IDs never wrap. The hub computes the current Group from the wall clock:
-`group = (now_ms - t0_ms) / group_ms` with `group_ms = 2000` and `t0_ms` the
-time the live track was published. The asset loops (Group g maps to
-fragment `g mod 16`), the Group IDs keep increasing, so a subscriber's view
-of "largest Group" is always monotonic.
+Group ID は折り返しません。hub は実時間から現在の Group を求めます。式は `group = (now_ms - t0_ms) / group_ms` で、`group_ms = 2000`、`t0_ms` はライブ Track を公開した時刻です。アセットはループします(Group g はフラグメント `g mod 16` に対応)が、Group ID は増え続けるので、サブスクライバーから見た「最大の Group」は常に単調増加です。
 
-Each Group's stream is one SUBGROUP_HEADER (the same Type 0x70 shape as every
-other stream in this sample: PROPERTIES off, Subgroup ID mode 0b00, default
-priority, FIRST_OBJECT set; Track Alias 8; Group ID g) followed by exactly
-one Object (Object ID Delta 0, Payload Length = fragment length, payload =
-the fragment bytes), then FIN.
+各 Group のストリームは SUBGROUP_HEADER 1 個(このサンプルのほかのすべてのストリームと同じ Type 0x70 の形: PROPERTIES なし、Subgroup ID モード 0b00、既定の優先度、FIRST_OBJECT あり、Track Alias 8、Group ID g)、続いてちょうど 1 個の Object(Object ID Delta 0、Payload Length = フラグメント長、ペイロード = フラグメントのバイト列)、最後に FIN です。
 
-A subscriber that SUBSCRIBEs `movie` is answered SUBSCRIBE_OK carrying Track
-Alias 8 and immediately receives the current Group (the fragment starts with
-a keyframe, so playback can begin at once). It then receives every later
-Group as the clock enters it. This SDK's SUBSCRIBE_OK codec carries no
-Largest Location; the client learns its starting position from the first
-Group's header. Filters in the SUBSCRIBE are ignored (behaves as
-"largest object / next group").
+`movie` を SUBSCRIBE したサブスクライバーには、Track Alias 8 を載せた SUBSCRIBE_OK を返し、すぐに現在の Group を送ります(フラグメントはキーフレームで始まるので、すぐに再生を始められます)。その後は、実時間が次の Group に入るたびにその Group を受け取ります。この SDK の SUBSCRIBE_OK のコーデックは Largest Location を運ばないので、クライアントは最初の Group のヘッダーから開始位置を知ります。SUBSCRIBE のフィルターは無視します("largest object / next group" と同じ動作)。
 
-## Server components
+## サーバー側の部品
 
-### 1. `src/app/media/mp4frag/` (new domain, prefix `mp4frag_`)
+### 1. `src/app/media/mp4frag/`(新しいドメイン、プレフィックス `mp4frag_`)
 
-Pure, libc-free walk over an fMP4's top-level boxes:
+fMP4 のトップレベルのボックスをたどる、libc に依存しない純粋な処理です。
 
 ```c
 typedef struct {
@@ -89,37 +60,18 @@ typedef struct {
 int mp4frag_scan(wired_span file, mp4frag_layout* out);
 ```
 
-`MP4FRAG_MAX_FRAGS` is 64 with the sizing rationale next to it (16 today;
-a 2-minute loop at 2 s per fragment). Box sizes of 1 (64-bit largesize) and
-0 (to end of file) are rejected as VIOLATION-shaped for this sample's
-purposes. Any box other than `moof`/`mdat` after the init segment (for
-example `free`, `sidx`) is skipped.
+`MP4FRAG_MAX_FRAGS` は 64 で、隣にサイズの根拠を書きます(今は 16。上限は、フラグメント 2 秒で 2 分のループを組める大きさ)。ボックスサイズ 1(64 ビットの largesize)と 0(ファイル末尾まで)は、このサンプルの目的では VIOLATION 相当として拒否します。初期化セグメントのあとにある `moof`/`mdat` 以外のボックス(`free`、`sidx` など)は読み飛ばします。
 
-### 2. srvrun additions (`src/app/http3/server/srvrun/`)
+### 2. srvrun への追加(`src/app/http3/server/srvrun/`)
 
-- `wired_srvrun_opt.on_step` / `on_step_ctx`: an app callback
-  `void (*)(void* ctx, u64 now_ms)` invoked once per loop step from
-  `srvrun_step`, after the step's receive/serve work and before the step's
-  PTO and datagram drains, with the loop's monotonic clock. Default 0 =
-  not called. It is a loop callback, so every `wired_server_wt_*` send API
-  may be called from it. The loop already polls with a bounded timeout
-  (`SRVRUN_PTO_MS`, 25 ms) whenever a connection is live, so the callback
-  fires at least that often while anyone is connected; when no connection
-  exists it may not fire at all, which is harmless because the live track's
-  position is derived from the clock, not from tick counts.
-- `int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id)`:
-  1 while a send slot still holds `stream_id` (its bytes not yet fully
-  acknowledged, or the stream still open for appends), 0 once the slot was
-  reaped or the id was never a server-sent stream on this session. This is
-  the signal an app needs to know when a payload it handed over as a VIEW
-  (a payload above the slot's staging capacity) can be reused.
+- `wired_srvrun_opt.on_step` / `on_step_ctx`: アプリのコールバック `void (*)(void* ctx, u64 now_ms)`。`srvrun_step` からループの 1 ステップごとに 1 回、そのステップの受信・応答の処理のあと、PTO とデータグラムの吐き出しの前に、ループの単調時計を渡して呼びます。既定値 0 なら呼びません。ループのコールバックなので、`wired_server_wt_*` の送信 API はどれもここから呼べます。ループはコネクションが 1 本でも生きていれば上限つきのタイムアウト(`SRVRUN_PTO_MS`、25 ms)でポーリングしているので、誰かが接続している間は少なくともその間隔でコールバックが呼ばれます。コネクションが 1 本もないときは一度も呼ばれないこともありますが、ライブ Track の位置は tick の回数ではなく時計から求めるので問題ありません。
+- `int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id)`: 送信スロットがまだ `stream_id` を保持している間(バイト列の ACK がまだそろっていないか、ストリームが追記のためにまだ開いている)は 1、スロットが回収されたか、その ID がこのセッションでサーバーが送ったストリームではないときは 0 を返します。VIEW として渡したペイロード(スロットのステージング容量を超えるもの)をいつ再利用してよいかを、アプリはこの値で知ります。
 
-Both are forwarded unchanged by the other drivers (workers/threads/xdp) the
-way the existing `wt_on_*` callbacks are.
+どちらも既存の `wt_on_*` コールバックと同じように、ほかのドライバー(workers/threads/xdp)がそのまま転送します。
 
-### 3. Hub live track (`src/app/moqt/run/moqtrun.[ch]`)
+### 3. hub のライブ Track(`src/app/moqt/run/moqtrun.[ch]`)
 
-New state on `wired_moqt_hub`:
+`wired_moqt_hub` に追加する状態:
 
 ```c
 typedef struct {
@@ -149,33 +101,12 @@ int wired_moqt_publish_live(wired_moqt_hub* hub, wired_span name,
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 ```
 
-Behavior:
+動作:
 
-- `SUBSCRIBE movie` (name match on the live track, checked after the blob
-  track and before peer tracks): record the peer in `subs[]`, queue
-  SUBSCRIBE_OK with the live alias, and send the current Group to it at
-  once (`sent_group` = current). No free sub slot: REQUEST_ERROR
-  INTERNAL_ERROR. A repeat SUBSCRIBE from a peer already subscribed:
-  SUBSCRIBE_OK again, nothing sent.
-- `wired_moqt_tick(now)`: `g = (now - t0) / group_ms`. For each active sub
-  with `sent_group < g` (or `!sent_any`): build the Group stream for
-  fragment `g mod n_frags` and call `io.send_uni`. On acceptance
-  `sent_group = g`. On refusal (the session has no free staging or send
-  slot) nothing is recorded: the send is retried on the next tick while
-  the clock is still in Group g, and abandoned once the clock moves on
-  (`stat_live_drop++` per Group skipped for a subscriber). A subscriber
-  therefore never receives a Group out of order and never receives the
-  same Group twice.
-- Session close: the peer's live subscription is dropped like its other
-  subscriptions (a reconnect starts from the then-current Group).
-- Framing per send: the hub builds SUBGROUP_HEADER + Object ID Delta +
-  Payload Length into a small stack buffer and hands `io.send_uni` a
-  payload that is the framing followed by the fragment. Because the
-  io table takes one contiguous span, the hub needs `moqdata`'s help to
-  frame directly in front of the fragment bytes without copying 400 KB
-  per subscriber: the example's io adapter already copies the payload
-  into per-session staging (see 4), so the hub passes a two-part payload
-  through a new io entry:
+- `SUBSCRIBE movie`(ライブ Track の名前と一致したとき。blob Track のあと、ピアの Track の前に照合する): ピアを `subs[]` に記録し、ライブの Alias で SUBSCRIBE_OK を積み、現在の Group をすぐに送ります(`sent_group` = 現在)。空いている sub スロットがなければ REQUEST_ERROR INTERNAL_ERROR を返します。購読済みのピアから SUBSCRIBE が再び来たら、SUBSCRIBE_OK をもう一度返し、何も送りません。
+- `wired_moqt_tick(now)`: `g = (now - t0) / group_ms`。有効な sub のうち `sent_group < g`(または `!sent_any`)のものについて、フラグメント `g mod n_frags` の Group ストリームを組み立てて `io.send_uni` を呼びます。受け付けられたら `sent_group = g` にします。拒否されたとき(セッションに空いたステージングスロットか送信スロットがない)は何も記録しません。実時間がまだ Group g にある間は次の tick で送り直し、実時間が先に進んだら諦めます(サブスクライバーごとに、飛ばした Group 1 個につき `stat_live_drop++`)。そのため、サブスクライバーが Group を順不同で受け取ることも、同じ Group を 2 回受け取ることもありません。
+- セッションのクローズ: そのピアのライブの購読はほかの購読と同じように破棄します(再接続するとその時点の現在の Group から始まります)。
+- 送信ごとのフレーム化: hub は SUBGROUP_HEADER + Object ID Delta + Payload Length を小さなスタックバッファーに組み立て、フレームのあとにフラグメントが続くペイロードを `io.send_uni` に渡します。io テーブルは連続した span を 1 つしか受け取らないので、サブスクライバーごとに 400 KB をコピーせずにフラグメントのバイト列の直前でフレーム化するには、`moqdata` の助けが要ります。example の io アダプターはすでにペイロードをセッションごとのステージングにコピーしている(4 を参照)ので、hub は新しい io エントリで 2 分割のペイロードを渡します。
 
   ```c
   /* wired_server_wt_open_uni-shaped, for a payload whose first part is a
@@ -184,131 +115,56 @@ Behavior:
   i64 (*send_uni2)(wired_wt_session* s, wired_span head, wired_span body);
   ```
 
-  The existing `send_uni` stays for the chat/blob paths. The test stub
-  records `head||body`.
+  既存の `send_uni` は chat/blob の経路のために残します。テストのスタブは `head||body` を記録します。
 
-Counters added to the hub: `stat_live_sent`, `stat_live_drop`, logged at
-shutdown with the relay stats.
+hub に追加するカウンター: `stat_live_sent`、`stat_live_drop`。終了時にリレーの統計と一緒にログに出します。
 
-### 4. Example server (`examples/moqt_chat/wired_server.c`)
+### 4. example のサーバー(`examples/moqt_chat/wired_server.c`)
 
-- `--movie PATH` now expects the fMP4. Boot: `wired_fio_read` into an 8 MiB
-  static buffer, `mp4frag_scan`, then `wired_moqt_publish_blob("movie/init",
-  9, init, ...)` and `wired_moqt_publish_live("movie", 8, frags, n, 2000,
-  clock_mono_ms())`. Scan failure is fatal with a message naming the flag.
-  Log one line: fragment count, init bytes, group cadence.
-- `opt.run.on_step` = a function calling `wired_moqt_tick(&g_hub, now_ms)`.
-- Per-session staging becomes a ring: `LIVE_RING = 3` slots of
-  `LIVE_FRAG_MAX = 1 MiB` (rationale: the largest fragment is 405 KB; a
-  2-second fragment at 4 Mbps is 1 MB) per session, `BIG_SLOTS` sessions as
-  today. `send_uni2` claims the first slot whose recorded stream is no
-  longer `wired_server_wt_stream_inflight`, writes signal prefix + head +
-  body, opens the stream, records the stream id in the slot. No free slot,
-  or head+body larger than the slot: return -1 (the hub counts a drop).
-  Session close frees all of the session's slots.
-- The blob path's 8 MB big slot pool is removed: `movie/init` is 1.2 KB and
-  rides the existing 2 KB stack path. `send_uni` keeps refusing payloads
-  above the stack staging (no caller sends one any more).
+- `--movie PATH` は fMP4 を受け取るようになります。起動時に `wired_fio_read` で 8 MiB の静的バッファーに読み込み、`mp4frag_scan` をかけ、`wired_moqt_publish_blob("movie/init", 9, init, ...)` と `wired_moqt_publish_live("movie", 8, frags, n, 2000, clock_mono_ms())` を呼びます。スキャンに失敗したら、フラグ名を示すメッセージを出して終了します。ログには 1 行で、フラグメント数、初期化セグメントのバイト数、Group の間隔を出します。
+- `opt.run.on_step` = `wired_moqt_tick(&g_hub, now_ms)` を呼ぶ関数。
+- セッションごとのステージングをリングにします。1 セッションあたり `LIVE_FRAG_MAX = 1 MiB` のスロットを `LIVE_RING = 3` 個(根拠: 最大のフラグメントは 405 KB。4 Mbps で 2 秒のフラグメントは 1 MB)、セッション数は今と同じ `BIG_SLOTS` です。`send_uni2` は、記録したストリームがもう `wired_server_wt_stream_inflight` でない最初のスロットを取り、シグナルのプレフィックス + head + body を書き込み、ストリームを開き、スロットにストリーム ID を記録します。空きスロットがないか、head+body がスロットより大きいときは -1 を返します(hub はドロップとして数えます)。セッションのクローズで、そのセッションのスロットをすべて解放します。
+- blob 経路の 8 MB の大きなスロットプールは取り除きます。`movie/init` は 1.2 KB なので、既存の 2 KB のスタックの経路に載ります。`send_uni` はスタックのステージングを超えるペイロードを引き続き拒否します(そうしたペイロードを送る呼び出し元はもうありません)。
 
-## Browser client (`examples/moqt_chat/frontend`)
+## ブラウザーのクライアント(`examples/moqt_chat/frontend`)
 
 `src/lib/moqtLiveClient.ts`:
 
-- Constants `MOVIE_TRACK_NAME = "movie"`, `MOVIE_INIT_TRACK_NAME =
-  "movie/init"`, `MOVIE_TRACK_ALIAS = 8n`, `MOVIE_INIT_TRACK_ALIAS = 9n`,
-  `MOVIE_MIME = 'video/mp4; codecs="avc1.640015, mp4a.40.2"'`.
-  (`avc1.640015` is written after reading the generated file's `avcC`:
-  High profile 0x64, constraints 0x00, level 0x15 for 480p24 — verified
-  during implementation, not assumed.)
-- `startLive(chat, video)`: creates a `MediaSource`, attaches it to the
-  `<video>`, and on `sourceopen` adds one `SourceBuffer(MOVIE_MIME)` with
-  `mode = "sequence"` (timestamps restart when the asset loops; sequence
-  mode appends by arrival order and ignores them). SUBSCRIBEs `movie/init`
-  first; when its bytes arrive (through the existing blob read path), they
-  are appended, and only then is `movie` SUBSCRIBEd.
-- Incoming uni streams with alias 8: read to EOF, decode exactly one Object
-  (`decodeBlobObjects` already does this shape), push the payload onto an
-  append queue. The queue appends one buffer at a time, waiting for
-  `updateend` between appends (SourceBuffer rejects concurrent appends).
-  The queue is a pure, testable unit (`AppendQueue`) fed by a fake
-  SourceBuffer in tests.
-- Buffer hygiene: after each append, if more than 60 seconds are buffered
-  behind `currentTime`, `remove(0, currentTime - 30)` (queued like an
-  append). Keeps memory bounded across a long-running loop.
-- Playback: `<video data-testid="live" autoplay muted playsInline controls>`.
-  Muted autoplay is allowed without a gesture; the user can unmute.
-- Errors: a decode failure on one stream drops that Group; a `SourceBuffer`
-  error surfaces as a store error string, nothing crashes chat/voice.
+- 定数 `MOVIE_TRACK_NAME = "movie"`、`MOVIE_INIT_TRACK_NAME = "movie/init"`、`MOVIE_TRACK_ALIAS = 8n`、`MOVIE_INIT_TRACK_ALIAS = 9n`、`MOVIE_MIME = 'video/mp4; codecs="avc1.640015, mp4a.40.2"'`。(`avc1.640015` は生成したファイルの `avcC` を読んでから書きます: High profile 0x64、制約 0x00、480p24 のレベル 0x15。想定ではなく、実装中に確かめます。)
+- `startLive(chat, video)`: `MediaSource` を作って `<video>` に付け、`sourceopen` で `SourceBuffer(MOVIE_MIME)` を 1 つ `mode = "sequence"` で追加します(アセットがループするとタイムスタンプが巻き戻ります。sequence モードは到着順に追記し、タイムスタンプを無視します)。先に `movie/init` を SUBSCRIBE し、そのバイト列が(既存の blob の読み取り経路で)届いたら追記し、そのあとで初めて `movie` を SUBSCRIBE します。
+- Alias 8 で届く単方向ストリーム: EOF まで読み、Object をちょうど 1 個デコードし(`decodeBlobObjects` がすでにこの形を扱います)、ペイロードを追記キューに積みます。キューは一度に 1 バッファーずつ追記し、追記と追記の間で `updateend` を待ちます(SourceBuffer は同時の追記を拒否します)。キューはテストできる純粋な単位(`AppendQueue`)で、テストでは偽の SourceBuffer を与えます。
+- バッファーの整理: 追記のたびに、`currentTime` より後ろに 60 秒より多くバッファーされていれば `remove(0, currentTime - 30)` を(追記と同じようにキューに積んで)実行します。長時間ループしてもメモリが一定の範囲に収まります。
+- 再生: `<video data-testid="live" autoplay muted playsInline controls>`。ミュートした自動再生はユーザー操作なしで許されます。ユーザーはミュートを解除できます。
+- エラー: 1 本のストリームでデコードに失敗したら、その Group を捨てます。`SourceBuffer` のエラーはストアのエラー文字列として出し、chat/voice を落とすことはありません。
 
-`useMoqtChat.ts`: replaces the movie Blob wiring with `startLive` after
-chat connects; alias 9 routes to the blob reader (init), alias 8 to the live
-reader; `leave()` tears the MediaSource down. The store's `movieUrl`
-becomes `liveError: string | null`; `page.tsx` renders the `<video>` above
-the message list once connected.
+`useMoqtChat.ts`: 動画の Blob の配線を、chat の接続後に `startLive` を呼ぶ形に置き換えます。Alias 9 は blob の読み取り(init)へ、Alias 8 はライブの読み取りへ回します。`leave()` で MediaSource を破棄します。ストアの `movieUrl` は `liveError: string | null` に変わり、`page.tsx` は接続後にメッセージ一覧の上に `<video>` を描画します。
 
-## Verification
+## 検証
 
-Properties the live sender must hold (each becomes at least one test):
+ライブの送信側が満たすべき性質(それぞれ少なくとも 1 つのテストにします):
 
-- A subscriber never receives the same Group twice.
-- A subscriber receives Groups in strictly increasing order; a Group the
-  clock has already left is never sent late.
-- A staging slot whose stream is still in flight is never overwritten; a
-  slot is reused only after the SDK reports its stream done.
-- A refused send never loses state: it is retried while the clock stays in
-  that Group and counted as a drop once the clock moves on.
-- If slots keep being released, every subscriber eventually receives a
-  Group newer than any given one (no subscriber is starved by another).
-- Session close releases the peer's subscription and its slots; a reconnect
-  starts at the clock's current Group.
+- サブスクライバーが同じ Group を 2 回受け取ることはない。
+- サブスクライバーは Group を厳密に増加する順で受け取る。実時間がすでに過ぎた Group を遅れて送ることはない。
+- ストリームがまだ送信中のステージングスロットは上書きしない。スロットを再利用するのは、SDK がそのストリームの完了を報告したあとだけ。
+- 拒否された送信が状態を失うことはない。実時間がその Group にある間は送り直し、実時間が先に進んだらドロップとして数える。
+- スロットが解放され続けるなら、どのサブスクライバーも任意の Group より新しい Group をいずれ受け取る(あるサブスクライバーが別のサブスクライバーに飢えさせられることはない)。
+- セッションのクローズで、そのピアの購読とスロットを解放する。再接続は時計の現在の Group から始まる。
 
-These are checked as a state model before the C code is written (the
-interplay of ticks, subscribes, closes and slot releases is the part most
-likely to hide an ordering bug), and the test list below carries one test
-per property. Everything else is plain test-first development.
+これらは C のコードを書く前に状態モデルとして検査します(tick、SUBSCRIBE、クローズ、スロット解放の絡み合いが、順序のバグを最も隠しやすい部分だからです)。下のテストリストには性質ごとに 1 つのテストを入れます。それ以外はすべて、通常のテストファーストの開発です。
 
-Test list (C):
+テストリスト(C):
 
-- mp4frag: synthetic fMP4 (ftyp, moov, 2 x moof+mdat) scans to init + 2
-  fragments with exact spans; a `free` box between fragments is skipped;
-  moof without mdat, truncated box, largesize box, zero-size box, and more
-  than the cap all return 0; the real asset scans to 16 fragments and a
-  1,260-byte init (pinned by size, not by bytes).
-- srvrun: `on_step` fires once per step with a non-decreasing clock; a
-  session's stream is `inflight` right after `wired_server_wt_open_uni` and
-  no longer inflight after the loopback peer has acknowledged it.
-- moqtrun live: publish rejects n_frags 0 / group_ms 0; SUBSCRIBE replies
-  SUBSCRIBE_OK alias 8 and sends the current Group at once with the right
-  header (alias 8, Group = clock Group) and the fragment as Object 0;
-  tick within the same Group sends nothing more; tick into the next Group
-  sends the next fragment; fragments wrap at n_frags; a refused send is
-  retried on the next tick of the same Group and abandoned (counted) once
-  the Group advances; two subscribers are served independently (one
-  refused, the other not); session close stops sends and a reconnect starts
-  at the current Group; blob track `movie/init` and live track `movie`
-  coexist and route by name; `send_uni2`'s head||body equals a
-  `moqdata_msg_build` of the same fragment.
-- example (through the real-browser e2e): see below.
+- mp4frag: 合成した fMP4(ftyp、moov、moof+mdat × 2)をスキャンすると、init と 2 個のフラグメントが正確な span で得られる。フラグメントの間の `free` ボックスは読み飛ばす。mdat のない moof、途中で切れたボックス、largesize のボックス、サイズ 0 のボックス、上限を超える数は、いずれも 0 を返す。実際のアセットをスキャンすると、16 個のフラグメントと 1,260 バイトの init が得られる(バイト列ではなくサイズで固定)。
+- srvrun: `on_step` はステップごとに 1 回、減少しない時刻で呼ばれる。セッションのストリームは `wired_server_wt_open_uni` の直後には `inflight` で、ループバックのピアが ACK したあとは inflight でなくなる。
+- moqtrun のライブ: publish は n_frags 0 / group_ms 0 を拒否する。SUBSCRIBE には Alias 8 の SUBSCRIBE_OK を返し、現在の Group を正しいヘッダー(Alias 8、Group = 時計の Group)とフラグメント(Object 0)ですぐに送る。同じ Group の中の tick では何も送らない。次の Group に入った tick で次のフラグメントを送る。フラグメントは n_frags で折り返す。拒否された送信は同じ Group の次の tick で送り直し、Group が進んだら諦める(数える)。2 人のサブスクライバーは独立に扱う(片方は拒否、もう片方は拒否されない)。セッションのクローズで送信が止まり、再接続は現在の Group から始まる。blob Track `movie/init` とライブ Track `movie` は共存し、名前で振り分ける。`send_uni2` の head||body は同じフラグメントを `moqdata_msg_build` したものと等しい。
+- example(実ブラウザーの e2e を通して): 下を参照。
 
-Test list (TypeScript, vitest):
+テストリスト(TypeScript、vitest):
 
-- AppendQueue serializes appends across `updateend`, preserves order, and
-  queues `remove` like an append; init is appended before any fragment;
-  a fragment arriving before init waits; decode failure drops one Group
-  only; MIME string matches the asset's `avcC` (test reads the committed
-  file's `avcC` bytes and derives the codec string).
+- AppendQueue は `updateend` をまたいで追記を直列化し、順序を保ち、`remove` を追記と同じようにキューに積む。init はどのフラグメントよりも先に追記する。init より先に届いたフラグメントは待つ。デコードの失敗で捨てるのは Group 1 個だけ。MIME 文字列はアセットの `avcC` と一致する(テストはコミットしたファイルの `avcC` のバイト列を読み、コーデック文字列を導く)。
 
-Real-browser check (`just e2e-live`, `e2e/run-live-check.mjs`): starts the
-server with `--movie assets/movie-live.mp4`, joins user1, waits until
-`video.currentTime` advances past 4 s with `readyState >= 3`; joins user2
-5 s later and requires its first received Group ID (exposed on the video
-element as `data-first-group`) to exceed user1's; both keep advancing; the
-server's shutdown log shows `live_sent > 0`.
+実ブラウザーでの確認(`just e2e-live`、`e2e/run-live-check.mjs`): `--movie assets/movie-live.mp4` でサーバーを起動し、user1 を参加させ、`readyState >= 3` で `video.currentTime` が 4 秒を超えて進むまで待ちます。5 秒後に user2 を参加させ、user2 が最初に受け取った Group ID(video 要素の `data-first-group` で公開)が user1 のものより大きいことを求めます。両方とも再生が進み続け、サーバーの終了ログに `live_sent > 0` が出ることを確かめます。
 
-## Out of scope
+## 対象外
 
-Multiple bitrates or a catalog track, FETCH / rewind, Largest Location in
-SUBSCRIBE_OK, per-frame Objects (one fragment per Group is the unit),
-publisher-initiated PUBLISH announcements (subscribe-by-fixed-name stays,
-as for every other track in this sample), separate audio/video tracks,
-transcoding at runtime.
+複数のビットレートやカタログ Track、FETCH / 巻き戻し、SUBSCRIBE_OK の Largest Location、フレーム単位の Object(単位は Group あたりフラグメント 1 個)、パブリッシャー起点の PUBLISH による告知(このサンプルのほかのすべての Track と同じく、固定の名前で購読する方式のまま)、音声と映像の Track の分離、実行時のトランスコード。

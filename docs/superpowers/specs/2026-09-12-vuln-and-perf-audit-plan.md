@@ -1,6 +1,6 @@
 # 実装プロトコルの脆弱性監査 + 性能計測 + TDD 修正: 進め方
 
-Status: 承認済み(2026-09-12)。決定: 台帳は `docs/security/vuln-ledger.md` で git 管理、性能退行は中央値 3% 超で停止して原因特定(goodput レーンは任意)、同種実装は §2-B の製品リスト + frontend/e2e の npm audit。
+状態: 承認済み(2026-09-12)。決定: 台帳は `docs/security/vuln-ledger.md` で git 管理、性能退行は中央値 3% 超で停止して原因特定(goodput レーンは任意)、同種実装は §2-B の製品リスト + frontend/e2e の npm audit。
 
 ## 目的
 
@@ -103,7 +103,7 @@ product, published, CWE, CVSS, summary, area, bug_class)→ 台帳 v0。
    (Green、CCN ≤ 3)→ ゲート → マイクロコミット。コミット件名に CVE/節番号を
    入れる(例 `fix(recovery): reject ACK ranges above the largest sent PN (CVE-2025-4820 class)`)。
    既に通るなら「固定テスト」として `already-safe` で閉じる。
-4. fuzz の拡充(第 1 波で先行): 未カバーのパーサに harness を足す —
+4. fuzz の拡充(第 1 波で先行): 未カバーのパーサに harness を足す:
    TLS ハンドシェイクメッセージ、QUIC 全フレーム種、transport parameters、
    capsule、MoQT control/data、QPACK encoder stream、mp4frag。`fuzz-smoke`(毎コミット)
    と `fuzz-ci`(夜間)に載せ、corpus を蓄積。
