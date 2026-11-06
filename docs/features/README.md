@@ -145,7 +145,7 @@ wired が自分自身と通信するテスト(ループバックテスト)では
 [MoQT の Track 切り替え](moqt-track-switching.md) は、moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションでのみ使えます。
 テストはプロセス内だけで、サードパーティとの相互接続性テストはまだしていません。
 その項目は draft-22 の台帳の
-[Experimental extensions](draft-moq-transport-22.md#experimental-extensions-moqtail-compatible-track-switching)
+[実験的な拡張](draft-moq-transport-22.md#実験的な拡張moqtail-互換の-track-切り替え)
 の節にあります。
 
 ## IP/UDP の基盤

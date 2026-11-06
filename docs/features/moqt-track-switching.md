@@ -17,7 +17,7 @@
 
 ハブのフラグがオフのとき、または draft-18 か draft-19 のセッションでは、パラメーター 0x24 と 0x41 は、拡張を入れる前と同じく、セッションを PROTOCOL_VIOLATION で閉じます(`test_moqtrun_switch_off_closes`、`test_moqtrun_switch_old_drafts_close`、`test_moqtrun_ssts_off_violates`)。
 
-これまでの検証はすべてプロセス内(ループバック)で動かしたものと、moqtail-rs の単体テストから写したコーデックのベクターです。**サードパーティーの実装と組み合わせて動かしたことは、まだありません。** 項目ごとの状況は [draft-22 の要件台帳](draft-moq-transport-22.md#experimental-extensions-moqtail-compatible-track-switching) を、ギャップは [既知の制限](known-limitations.md#moqt-の-track-切り替え実験的) を参照してください。
+これまでの検証はすべてプロセス内(ループバック)で動かしたものと、moqtail-rs の単体テストから写したコーデックのベクターです。**サードパーティーの実装と組み合わせて動かしたことは、まだありません。** 項目ごとの状況は [draft-22 の要件台帳](draft-moq-transport-22.md#実験的な拡張moqtail-互換の-track-切り替え) を、ギャップは [既知の制限](known-limitations.md#moqt-の-track-切り替え実験的) を参照してください。
 
 ## ワイヤー形式
 
