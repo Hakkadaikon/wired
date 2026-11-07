@@ -340,7 +340,9 @@ flowchart TD
 
 #### 4.1.3 backpressure で tier が動くとき
 
-1 つの tier をセッションのすべてのセットで共有し、tier は最も低いところから始まる。tier は pacing set(セッションのセット表で最初の有効な backpressure セット)の Group ごとと、100 ms ごとのハブの tick(`wired_moqt_tick`)で動くので、そのセットが止まっている間も動く。ほかの backpressure セットは、現在の tier を自分の ladder の範囲に収めて使う。
+1 つの tier をセッションのすべてのセットで共有し、tier は最も低いところから始まる。
+
+tier は pacing set(セッションのセット表で最初の有効な backpressure セット)の Group ごとと、100 ms ごとのハブの tick(`wired_moqt_tick`)で動くので、そのセットが止まっている間も動く。ほかの backpressure セットは、現在の tier を自分の ladder の範囲に収めて使う。
 
 | 条件 | 動作 |
 |---|---|

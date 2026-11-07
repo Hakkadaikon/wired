@@ -11,7 +11,10 @@
 
 ## 1. 実行の方法
 
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) は、サーバーとクライアントを 1 つずつ Docker コンテナに入れ、模擬ネットワークリンクの両側に置く。テストケース(`handshake`、`retry`、`zerortt` など)ごとにクライアントを動かし、トラフィックのキャプチャとダウンロードしたファイルを調べて合否を判定する。MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) で実行する(5 章)。
+[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) は、サーバーとクライアントを 1 つずつ Docker コンテナに入れ、模擬ネットワークリンクの両側に置く。
+テストケース(`handshake`、`retry`、`zerortt` など)ごとにクライアントを動かし、トラフィックのキャプチャとダウンロードしたファイルを調べて合否を判定する。
+
+MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) で実行する(5 章)。
 
 ### 1.1 ランナーの結果の記号
 

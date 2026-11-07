@@ -205,4 +205,6 @@ largest_pn には 0 を渡す。パケット番号の完全な復元は srvloop 
 
 影響: 移動するクライアント。
 
-[相互運用性の検証結果](../../verification/interop.md) は `connectionmigration` を部分的な対応として記録している。ngtcp2 との組み合わせでは通り、quic-go のクライアントはパスの変更を一度も起こさない。quic-go のクライアントは `ecn` と `v2` のテストケースに対応していない。どちらも ngtcp2 との組み合わせでは通る(`v2` は picoquic とも通る)。
+[相互運用性の検証結果](../../verification/interop.md) は `connectionmigration` を部分的な対応として記録している。ngtcp2 との組み合わせでは通り、quic-go のクライアントはパスの変更を一度も起こさない。
+
+quic-go のクライアントは `ecn` と `v2` のテストケースに対応していない。どちらも ngtcp2 との組み合わせでは通る(`v2` は picoquic とも通る)。
