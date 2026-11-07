@@ -5,7 +5,6 @@ static int moqtrun_upd_fits(
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
-    const moqctl_params*       params,
     u8                         was_off);
 static int moqtrun_ssts_peer_track(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t);
@@ -21,27 +20,23 @@ static int moqtrun_fill_open_of(
 static void moqtrun_fills_resched(
     wired_moqt_hub* hub, const wired_wt_session* wt, u64 rid);
 
-/* 1 iff the applied update s can stand: its fill has room (decided
- * before REQUEST_OK, moqtrun_fill_room) and a FORWARD 0 -> 1 blob send
- * is accepted. */
+/* 1 iff the applied update s with fill room can stand: a FORWARD
+ * 0 -> 1 blob send is accepted. */
 static int moqtrun_upd_fits(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
-    const moqctl_params*       params,
     u8                         was_off) {
-  if (!moqtrun_fill_room(hub, t, s, params)) {
-    return 0;
-  }
   if (!moqtrun_upd_turned_on(was_off, s, t)) {
     return 1;
   }
   return moqtrun_upd_forward_on(hub, p, s, t);
 }
 
-/* All or nothing: a fill without room or a refused blob send restores
- * the whole subscription as it was and fails the update. */
+/* All or nothing: a fill without room (decided before REQUEST_OK,
+ * moqtrun_fill_room) or a refused blob send restores the whole
+ * subscription as it was and fails the update. */
 int moqtrun_upd_apply(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -50,7 +45,8 @@ int moqtrun_upd_apply(
     const moqctl_params*       params) {
   wired_moqtrun_sub before = *s;
   moqtrun_upd_params(s, t, params);
-  if (moqtrun_upd_fits(hub, p, s, t, params, before.forward_off)) {
+  if (moqtrun_fill_room(hub, t, s, params) &&
+      moqtrun_upd_fits(hub, p, s, t, before.forward_off)) {
     return 1;
   }
   *s = before;
