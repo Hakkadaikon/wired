@@ -187,7 +187,8 @@ static void test_moqtrun_fillfix_full_empty_fill_ok(void) {
 }
 
 /* 12-16 on REQUEST_UPDATE: refused with REQUEST_ERROR before any
- * REQUEST_OK, no fill stream. */
+ * REQUEST_OK, no fill stream; the failed update ends the subscription
+ * (draft-22 9.5). */
 static void test_moqtrun_fillfix_full_update_refused(void) {
   moqfetch_fill fill = {0};
   mffx_three_groups();
@@ -197,6 +198,7 @@ static void test_moqtrun_fillfix_full_update_refused(void) {
   mfill_update(&fill, 0);
   CHECK(mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
   CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
 }
 
 /* Q-08: the upstream track retired (superseded by a newer PUBLISH of the

@@ -678,6 +678,10 @@ static void test_moqtrun_upd_on_publish_stream(void) {
   mtup_update(SESS_A, MTRQ_S1, &t);
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
   CHECK(mtst_hub.peers[0].tracks[0].in_use == 1);
+  /* draft-22 9.5: the refusal leaves the request open for a next update */
+  CHECK(!mtrq_fin_on(MTRQ_S1));
+  mtup_update(SESS_A, MTRQ_S1, &(moqctl_params){0});
+  CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
 /* REQUEST_UPDATE replaces a mentioned Range Filter type whole, a
@@ -762,6 +766,7 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
   }
   g_stream_send_ok_n = -1;       /* transport drains */
   wired_moqt_tick(&mtst_hub, 1); /* flush: coalesced answers out */
+  CHECK(moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1)->pending_updates == 0);
   mtup_update(SESS_B, MTRQ_S1, &p1);
   CHECK(mtup_close_count(0x1B) == 0);
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);

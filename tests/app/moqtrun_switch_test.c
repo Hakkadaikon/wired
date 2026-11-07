@@ -681,6 +681,7 @@ static void test_moqtrun_switch_update(void) {
   CHECK(mtrq_err_on(MTRQ_S2) == MOQCTL_ERR_INVALID_SWITCH);
   CHECK(mtsw_lo() && mtsw_lo()->forward_off == 1);
   CHECK(mtsw_done_n(MTRQ_S2) == 0);
+  CHECK(!mtrq_fin_on(MTRQ_S2));
   mtrq_raw(SESS_B, MTRQ_S2, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
   CHECK(mtrq_type_on(3, MTRQ_S2) == MOQCTL_T_REQUEST_OK);
   CHECK(mtsw_lo() && mtsw_lo()->forward_off == 0);
