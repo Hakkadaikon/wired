@@ -1,9 +1,9 @@
-# 相互接続性の検証結果(移転しました)
+# 相互運用性の検証結果(移転しました)
 
 | 旧ページの節 | 移転先 |
 |---|---|
-| <a id="interop-results"></a><a id="相互接続性の検証結果"></a>相互接続性の検証結果 | [相互運用性テストの結果](verification/interop.md) |
-| <a id="what-interop-testing-is-and-why-it-matters"></a><a id="相互接続性テストとは何かなぜ重要か"></a>相互接続性テストとは何か、なぜ重要か | [テストの範囲](verification/coverage.md#24-相互運用性)、[実行の方法](verification/interop.md#1-実行の方法) |
+| <a id="interop-results"></a><a id="相互接続性の検証結果"></a>相互運用性の検証結果 | [相互運用性テストの結果](verification/interop.md) |
+| <a id="what-interop-testing-is-and-why-it-matters"></a><a id="相互接続性テストとは何かなぜ重要か"></a>相互運用性テストとは何か、なぜ重要か | [テストの範囲](verification/coverage.md#24-相互運用性)、[実行の方法](verification/interop.md#1-実行の方法) |
 | <a id="how-to-read-the-tables"></a><a id="表の読み方"></a>表の読み方 | [スナップショット](verification/interop.md#2-スナップショット) |
 | <a id="quic-testcases-server-wired--client-quic-go"></a><a id="quic-のテストケースサーバー-wiredクライアント-quic-go"></a>QUIC のテストケース | [QUIC のテストケース](verification/interop.md#3-quic-のテストケースサーバー-wiredクライアント-quic-go) |
 | <a id="notes-on-the-quic-testcases"></a><a id="quic-テストケースの補足"></a>QUIC テストケースの補足 | [相互運用性テストの経緯](verification/interop-history.md#1-quic) |

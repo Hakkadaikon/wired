@@ -156,7 +156,7 @@
 - `output` コールバックで `chunk.copyTo` → ≤480B 分割 → 既存 `sendGate.ts` を再利用(新しい gate は作らない)。
 - ブラウザの「共有を停止」でトラックが `ended` → エンコーダー停止 → ストリーム FIN。
 
-- [ ] **ステップ 1: 偽 VideoEncoder/getDisplayMedia でチャンク数・ヘッダ内容を断言するテストを先に書く**
+- [ ] **ステップ 1: 偽 VideoEncoder/getDisplayMedia でチャンク数・ヘッダーの内容を断言するテストを先に書く**
   DI で注入した偽 `getDisplayMedia`(固定サイズのフレームを返す)と偽 `VideoEncoderCtor`(`output` を同期呼び出しするスタブ)を使い、期待されるチャンク数とヘッダー内容(タスク 4 の `moqtScreenWire.ts` の関数を使って decode)をアサート(Red)。
 - [ ] **ステップ 2: 実装**
   `screenSharePipeline.ts` を実装しステップ 1 を Green にする。

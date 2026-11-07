@@ -8,4 +8,4 @@
 | <a id="1-unit-tests"></a><a id="1-単体テスト"></a>1. 単体テスト | [テストの範囲](verification/coverage.md#21-単体テスト) |
 | <a id="2-independent-vectors-and-known-answer-tests"></a><a id="2-独立したベクターと既知解テスト"></a>2. 独立したベクターと既知解テスト | [テストの範囲](verification/coverage.md#22-独立したベクターと既知解テスト) |
 | <a id="3-fuzzing"></a><a id="3-ファジング"></a>3. ファジング | [テストの範囲](verification/coverage.md#23-ファジング) |
-| <a id="4-interop"></a><a id="4-相互接続性"></a>4. 相互接続性 | [テストの範囲](verification/coverage.md#24-相互運用性) |
+| <a id="4-interop"></a><a id="4-相互接続性"></a>4. 相互運用性 | [テストの範囲](verification/coverage.md#24-相互運用性) |

@@ -18,7 +18,7 @@
 | <a id="idle-timeout"></a><a id="アイドルタイムアウト"></a>アイドルタイムアウト | [api-stable.md](reference/api-stable.md#11-アイドルタイムアウト) |
 | <a id="low-level--internal-api-use-with-care"></a><a id="low-level--internal-api注意して使う"></a>Low-level / internal API | [api-lowlevel.md](reference/api-lowlevel.md) |
 | <a id="the-server-handshake-phases"></a><a id="サーバーのハンドシェイクのフェーズ"></a>サーバーのハンドシェイクのフェーズ | [api-lowlevel.md](reference/api-lowlevel.md#1-サーバーのハンドシェイクのフェーズ) |
-| <a id="driving-one-connection-by-hand"></a><a id="1-本のコネクションを手で動かす"></a>1 本のコネクションを手で動かす | [api-lowlevel.md](reference/api-lowlevel.md#2-1-本の接続を手で動かす) |
+| <a id="driving-one-connection-by-hand"></a><a id="1-本のコネクションを手で動かす"></a>1 本の接続を手で動かす | [api-lowlevel.md](reference/api-lowlevel.md#2-1-本の接続を手で動かす) |
 | <a id="low-level-functions-at-a-glance"></a><a id="低レベル関数の一覧"></a>低レベル関数の一覧 | [api-lowlevel.md](reference/api-lowlevel.md#3-低レベル関数の一覧) |
 | <a id="versioning-policy"></a><a id="バージョニングの方針"></a>バージョニングの方針 | [api-versioning.md](reference/api-versioning.md) |
 | <a id="moqt-reachable-from-wiredh-experimental-tier"></a><a id="moqt-wiredh-から呼べる-experimental-の層"></a>MoQT: `wired.h` から呼べる experimental の層 | [api-moqt.md](reference/api-moqt.md) |
