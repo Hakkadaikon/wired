@@ -160,7 +160,7 @@ SDK はトレーラー、`Date`、条件付きリクエストと範囲リクエ�
 
 固定のレスポンスの行は `WIRED_SRVRUN_RESP_MAX`(16384 バイト)から 640 バイトのヘッダー領域(`SRVRUN_RESP_HDR_ROOM`)を引いた分を保持するので、1 回あたりの body は 15744 バイトである。
 
-それより大きい body は `srvbigbuf` の行(大きなレスポンス用のバッファープール)かストリーミングを使う([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
+それより大きい body は `srvbigbuf` の行(大きなレスポンス用のバッファープール)かストリーミングを使う([大きな body のストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
 
 この配列全体は `WIRED_CONNTABLE_CAP` 接続 x 40 レスポンススロット(`SRVRUN_RESP_SLOTS`)x 16 KiB の BSS である。
 
@@ -180,7 +180,7 @@ SDK はトレーラー、`Date`、条件付きリクエストと範囲リクエ�
 
 バッファーに入れるリクエストが FIN のないまま窓を埋めると、413 か 431 で応答する。FIN があとの空のフレームで来る場合(「window stuck」)も同じである。
 
-窓を超えたバイトはストリームのクレジットも超えているので、FLOW_CONTROL_ERROR で接続を閉じる。大きな body には `on_body` を使う([POST ボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/post-body/))。
+窓を超えたバイトはストリームのクレジットも超えているので、FLOW_CONTROL_ERROR で接続を閉じる。大きな body には `on_body` を使う([POST の body のストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/post-body/))。
 
 参照: `route_window_stuck`(ponytail)
 

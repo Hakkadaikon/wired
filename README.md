@@ -227,7 +227,7 @@ static int app_on_request(
 | `req` | method、path、body |
 | `body_out` | レスポンスの body を書く先 |
 | `*content_type` | MIME タイプを指させる |
-| `offset`、`more`、`total_size` | 1 回の呼び出しに収まらない大きな body 用([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/)) |
+| `offset`、`more`、`total_size` | 1 回の呼び出しに収まらない大きな body 用([大きな body のストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/)) |
 
 戻り値は 1。
 
