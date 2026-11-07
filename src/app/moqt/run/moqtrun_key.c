@@ -2,10 +2,25 @@
 
 static int moqtrun_encode_request_error(
     wired_mspan buf, usz* off, const void* m);
+static int moqtrun_encode_request_error23(
+    wired_mspan buf, usz* off, const void* m);
+static moqtrun_body_encode_fn moqtrun_request_error_encoder(int ver);
 
 static int moqtrun_encode_request_error(
     wired_mspan buf, usz* off, const void* m) {
   return moqctl_request_error_encode(buf, off, m);
+}
+
+static int moqtrun_encode_request_error23(
+    wired_mspan buf, usz* off, const void* m) {
+  return moqctl_request_error_encode23(buf, off, m);
+}
+
+/* draft-23 9.4.1 carries the Redirect as an Error Detail. */
+static moqtrun_body_encode_fn moqtrun_request_error_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_ERR_DETAILS)
+             ? moqtrun_encode_request_error23
+             : moqtrun_encode_request_error;
 }
 
 /* REQUEST_ERROR in as p's draft spells it (moqctl_request_error_for); a
@@ -18,7 +33,7 @@ void moqtrun_queue_request_error(
   e.has_redirect = in->has_redirect && e.error_code == MOQCTL_ERR_REDIRECT;
   usz n          = moqtrun_envelope_put(
       p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
-      moqtrun_encode_request_error, &e);
+      moqtrun_request_error_encoder(p->ver), &e);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
@@ -33,6 +48,18 @@ void moqtrun_send_request_error_ri(wired_moqtrun_peer* p, u64 code, u64 retry) {
 
 void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   moqtrun_send_request_error_ri(p, code, 0);
+}
+
+/* REQUEST_ERROR code with the UNSUPPORTED_PROPERTY Error Details types[n]
+ * (draft-23 9.4.2.2; sent with UNSUPPORTED_EXTENSION only, and only where
+ * the draft has Error Details). */
+void moqtrun_send_request_error_unsupp(
+    wired_moqtrun_peer* p, u64 code, const u64* types, usz n) {
+  moqctl_request_error e = {0};
+  e.error_code           = code;
+  e.n_unsupported        = (u8)u64_min(n, MOQCTL_MAX_UNSUPP);
+  bytes_memcpy(e.unsupported, types, e.n_unsupported * sizeof(u64));
+  moqtrun_queue_request_error(p, &e);
 }
 
 /* draft-23 7.4: a request the hub cannot forward upstream now (no stream

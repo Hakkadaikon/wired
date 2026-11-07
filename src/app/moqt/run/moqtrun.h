@@ -461,6 +461,10 @@ typedef struct {
    * retried from a moqtrel ring, publisher held back instead of dropping).
    * The wired_moqt_init default 0 keeps every track on the lossy path. */
   u64 reliable_alias_limit;
+  /** UNSUPPORTED_PROPERTY Types (draft-23 9.4.2.2) the waiters refused
+   * right now get with UNSUPPORTED_EXTENSION (moqtrun_rdv_do_refuse);
+   * set around one refusal, 0 entries otherwise. */
+  u64 unsupp[MOQCTL_MAX_UNSUPP];
   /** 1: a lossy subscription keeps only its newest Group -- opening its
    * stream in a newer Group resets the older Group's stream and drops that
    * Group's later rounds, so a stale backlog never holds live media back.
@@ -480,6 +484,8 @@ typedef struct {
    * a Subgroup stream rule (moqtrun_rx_flag), else 0;
    * wired_moqt_on_stream_data closes the sending session and clears it. */
   u8 rx_violation;
+  /** Entries of unsupp in use. */
+  u8 unsupp_n;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */

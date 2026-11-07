@@ -160,7 +160,9 @@ void moqtrun_queue_request_error(
     wired_moqtrun_peer* p, const moqctl_request_error* in);
 void moqtrun_send_request_error_ri(wired_moqtrun_peer* p, u64 code, u64 retry);
 void moqtrun_send_unavailable(wired_moqtrun_peer* p);
-void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code);
+void moqtrun_send_request_error_unsupp(
+    wired_moqtrun_peer* p, u64 code, const u64* types, usz n);
+void        moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code);
 moqtrun_key moqtrun_key_of(const moqctl_ftn* f, u8* ns_buf);
 moqtrun_key moqtrun_key_name(wired_span name);
 int         moqtrun_key_oversized(moqtrun_key k);

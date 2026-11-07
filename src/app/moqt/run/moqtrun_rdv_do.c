@@ -68,10 +68,9 @@ void moqtrun_rdv_do_refuse(
     const wired_moqtrun_rdv* r,
     wired_moqtrun_track*     t,
     u64                      code) {
-  (void)hub;
   (void)r;
   (void)t;
-  moqtrun_send_request_error(sp, code);
+  moqtrun_send_request_error_unsupp(sp, code, hub->unsupp, hub->unsupp_n);
 }
 
 /* moqtrun_send_unavailable on r's request (code unused). */

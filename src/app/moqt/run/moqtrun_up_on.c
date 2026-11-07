@@ -95,7 +95,12 @@ static void moqtrun_up_on_error(
   if (!moqtrun_reqerr_take(hub, pp, body, &e)) {
     return;
   }
+  /* draft-23 9.4.2.2: UNSUPPORTED_EXTENSION goes on with the
+   * UNSUPPORTED_PROPERTY details received */
+  bytes_memcpy(hub->unsupp, e.unsupported, e.n_unsupported * sizeof(u64));
+  hub->unsupp_n = e.n_unsupported;
   moqtrun_up_failed(hub, u, e.error_code);
+  hub->unsupp_n = 0;
 }
 
 /* PUBLISH_DONE: relayed like a PUBLISHer's (moqtrun_pubdone_arm, each

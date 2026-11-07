@@ -8,6 +8,8 @@ static int moqtrun_tprop_out_of(const moqkvp* kv, u64 type, u64 lo, u64 hi);
 static u32 moqtrun_tprop_flags(const moqkvp* kv);
 static u32 moqtrun_tprops_scan(wired_span props);
 static u64 moqtrun_tprops_code(u32 f);
+static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type);
+static usz moqtrun_tprops_mand_in(wired_span props, u64* out, usz n);
 
 /* The last varint value of type in one Property list (KVPs to the end,
  * 2.5); dflt when absent, a malformed pair ends the scan. */
@@ -100,6 +102,34 @@ int moqtrun_tprops_refused(wired_span props, u64* code) {
   u32 f = moqtrun_tprops_check(props);
   *code = moqtrun_tprops_code(f);
   return f != 0 || props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX;
+}
+
+/* type appended to out[n] when it is a Mandatory Track Property and room
+ * is left (MOQCTL_MAX_UNSUPP); the entries now in use. */
+static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type) {
+  if (!moqtrun_tprop_is_mand(type) || n == MOQCTL_MAX_UNSUPP) {
+    return n;
+  }
+  out[n] = type;
+  return n + 1;
+}
+
+static usz moqtrun_tprops_mand_in(wired_span props, u64* out, usz n) {
+  usz    off  = 0;
+  u64    prev = 0;
+  moqkvp kv;
+  while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
+    n = moqtrun_tprops_mand_add(out, n, kv.type);
+  }
+  return n;
+}
+
+/* draft-23 9.4.2.2: the Mandatory Track Property Types in props (and its
+ * Immutable Properties) into out[MOQCTL_MAX_UNSUPP], one UNSUPPORTED_
+ * PROPERTY Error Detail each; how many. */
+usz moqtrun_tprops_unsupp(wired_span props, u64* out) {
+  return moqtrun_tprops_mand_in(
+      moqtrun_tprop_imm(props), out, moqtrun_tprops_mand_in(props, out, 0));
 }
 
 /* t's kept Track Properties, empty for no track. */

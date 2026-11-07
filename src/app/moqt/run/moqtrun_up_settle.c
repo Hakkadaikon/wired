@@ -26,7 +26,11 @@ static void moqtrun_up_settle_open(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_props_refuse(
-    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u, u64 code);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    u64                 code,
+    wired_span          props);
 static int moqtrun_up_slot_ok(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
@@ -161,18 +165,22 @@ void moqtrun_up_sync(wired_moqt_hub* hub) {
  * bad value closes pp's session PROTOCOL_VIOLATION (draft-18 12.5/12.6;
  * MALFORMED_KEY_VALUE in draft-23 10.5/10.6);
  * a Mandatory Track Property cancels the subscription and refuses every
- * waiter UNSUPPORTED_EXTENSION (draft-19 2.5.1, draft-22 3.7). */
+ * waiter UNSUPPORTED_EXTENSION (draft-19 2.5.1, draft-22 3.7), naming
+ * each one in an UNSUPPORTED_PROPERTY Error Detail (draft-23 9.4.2.2). */
 static void moqtrun_up_props_refuse(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
-    u64                 code) {
+    u64                 code,
+    wired_span          props) {
   if (code == MOQTRUN_REQ_CLOSE) {
     moqtrun_close_cc(hub, pp, MOQTRUN_CC_PROP_VALUE);
     return;
   }
   moqtrun_up_cancel(hub, pp, u, 0);
+  hub->unsupp_n = (u8)moqtrun_tprops_unsupp(props, hub->unsupp);
   moqtrun_up_refused(hub, u, code);
+  hub->unsupp_n = 0;
 }
 
 /* 1 when slot t may take a SUBSCRIBE_OK for u. No slot (the publisher's
@@ -209,7 +217,7 @@ void moqtrun_up_claim(
   wired_moqtrun_track* t;
   u64                  code;
   if (moqtrun_tprops_refused(m->track_properties, &code)) {
-    moqtrun_up_props_refuse(hub, pp, u, code);
+    moqtrun_up_props_refuse(hub, pp, u, code, m->track_properties);
     return;
   }
   t = moqtrun_publish_slot(hub, pp, pi, k);

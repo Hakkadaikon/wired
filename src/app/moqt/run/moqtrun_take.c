@@ -3,7 +3,7 @@
 static u8   moqtrun_track_prop_prio(wired_span props);
 static void moqtrun_track_keep_props(wired_moqtrun_track* t, wired_span props);
 static void moqtrun_refuse_or_close(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code, wired_span props);
 static int moqtrun_token_by_value(const moqctl_token* t);
 static u32 moqtrun_token_close_code(const moqctl_token* t);
 static int moqtrun_redirect_bad(const moqctl_request_error* e);
@@ -52,15 +52,19 @@ void moqtrun_track_open(
   moqtrun_track_keep_props(t, props);
 }
 
-/* REQUEST_ERROR code, or for MOQTRUN_REQ_CLOSE (draft-18 12.5/12.6) a
+/* REQUEST_ERROR code -- with one UNSUPPORTED_PROPERTY Error Detail per
+ * Mandatory Track Property in props for UNSUPPORTED_EXTENSION (draft-23
+ * 9.4.2.2) -- or for MOQTRUN_REQ_CLOSE (draft-18 12.5/12.6) a
  * PROTOCOL_VIOLATION close (MALFORMED_KEY_VALUE in draft-23 10.5/10.6). */
 static void moqtrun_refuse_or_close(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code, wired_span props) {
+  u64 types[MOQCTL_MAX_UNSUPP];
   if (code == MOQTRUN_REQ_CLOSE) {
     moqtrun_close_cc(hub, p, MOQTRUN_CC_PROP_VALUE);
     return;
   }
-  moqtrun_send_request_error(p, code);
+  moqtrun_send_request_error_unsupp(
+      p, code, types, moqtrun_tprops_unsupp(props, types));
 }
 
 /* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): alias, carried by a
@@ -107,7 +111,7 @@ void moqtrun_publish_checked(
   u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
   u64 code;
   if (moqtrun_publish_refused(hub, m, &code)) {
-    moqtrun_refuse_or_close(hub, p, code);
+    moqtrun_refuse_or_close(hub, p, code, m->track_properties);
     return;
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
@@ -166,7 +170,7 @@ int moqtrun_reqerr_take(
     moqctl_request_error* e) {
   usz off = 0;
   if (!moqtrun_take_or_close(
-          hub, p, moqctl_request_error_take(body, &off, e))) {
+          hub, p, moqctl_request_error_take_v(p->ver, body, &off, e))) {
     return 0;
   }
   return moqtrun_take_or_close(

@@ -1545,6 +1545,7 @@
 #include "app/moqtrun_rawpeer_test.c"
 #include "app/moqssts_test.c"
 #include "app/moqtrun_upsub_test.c"
+#include "app/moqtrun_errdet_test.c"
 #include "app/moqtrun_mpub_test.c"
 #include "app/moqtrun_repath_test.c"
 #include "app/moqtrun_upfetch_test.c"
@@ -2156,6 +2157,7 @@ int main(void) {
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();
+  test_moqtrun_errdet();
   test_moqtrun_mpub();
   test_moqtrun_repath();
   test_moqtrun_upfetch();

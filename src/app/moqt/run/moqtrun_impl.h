@@ -44,6 +44,7 @@ moqctl_loc moqtrun_upf_ok_end(
 u64  moqtrun_tprop(wired_span props, u64 type, u64 dflt);
 u32  moqtrun_tprops_check(wired_span props);
 int  moqtrun_tprops_refused(wired_span props, u64* code);
+usz  moqtrun_tprops_unsupp(wired_span props, u64* out);
 void moqtrun_queue_request_ok_props(
     wired_moqtrun_peer* p, const wired_moqtrun_track* t, wired_span props);
 wired_span moqtrun_track_props(const wired_moqtrun_track* t);
