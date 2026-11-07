@@ -49,6 +49,10 @@ flowchart LR
 | クライアントの PUBLISH に SUBSCRIBE_TRACKS_ID があるとき | ハブは SUBSCRIBE_TRACKS を送らないので、INVALID_PARAMETER で閉じる |
 | 上流へ SUBSCRIBE する相手 | §7.7 の MUST に従い、一致する prefix を告知した発行者すべてに送る(§4.1 の SHOULD より優先) |
 | 待っている上流の応答が失敗したとき | 待っている下流の要求すべてに REQUEST_ERROR を返す。コードは上流のものを使い、セッションが失われたときは INTERNAL_ERROR にする |
+| REQUEST_UPDATE がエラーになったとき | どのエラーでも、その要求を終える。終わった後に届いた REQUEST_UPDATE には応答せずに捨てる |
+| まとめて処理した REQUEST_UPDATE が失敗したとき | REQUEST_ERROR 1 件で、まとめた更新すべてに答える |
+| 上流の応答を待つ時間 | 上流ごとのタイムアウトは設けない。落ちた上流はセッションごと閉じて INTERNAL_ERROR を返し、黙り続ける上流はその要求を塞ぐ(draft-22 と同じ) |
+| MAX_REQUEST_UPDATES の数え方 | 要求が終わった後も数える。捨てた更新は応答待ちのまま残り、まとめた REQUEST_ERROR は覆った更新の数だけ枠を戻す |
 | 受信する制御メッセージの上限 | すべての版で 65535 バイトにする。1 KiB を超えるメッセージは、共有の 64 KiB バッファーを借りて組み立てる。借りられないときは INTERNAL_ERROR で閉じる |
 
 ## 4. 作業の分け方
