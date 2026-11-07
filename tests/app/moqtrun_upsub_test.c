@@ -393,14 +393,16 @@ static void test_moqtrun_upsub_publish_done_relayed(void) {
 }
 
 /* U8 NoLeakOnClose: A's session closing frees its entries with no io; a
- * waiter left with no announcer gets DOES_NOT_EXIST, an Established
+ * waiter left with no announcer gets DOES_NOT_EXIST (INTERNAL_ERROR for
+ * the lost upstream on draft-23), an Established
  * subscriber waits for another announcer and, with none, gets its
  * PUBLISH_DONE at the end of that wait (moqtrun_repath_test.c). */
 static void test_moqtrun_upsub_publisher_close(void) {
+  int lost = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_UP_LOSS) != 0;
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
-  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
+  CHECK(mrdv_is(SESS_B, MRDV_S1, lost ? "E0|FIN|" : "E10|FIN|"));
   CHECK(mups_used() == 0);
   mups_init();
   mups_sub(SESS_B, MRDV_S1);

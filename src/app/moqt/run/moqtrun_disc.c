@@ -135,13 +135,16 @@ static int moqtrun_disc_same_session(
 }
 
 /* A session publishing a namespace it already publishes is refused
- * UNINTERESTED (10.6.2). Other sessions may publish the same namespace
- * (9.3 multiple publishers; 3.6 a client migrating after GOAWAY): it is
- * announced once (moqtrun_disc_sync_new). */
+ * UNINTERESTED (10.6.2) before draft-23, which accepts it: the namespace
+ * stays published until all are withdrawn (4.1), each request slot one
+ * count (moqtrun_disc_heir). Other sessions may publish the same
+ * namespace (9.3 multiple publishers; 3.6 a client migrating after
+ * GOAWAY): it is announced once (moqtrun_disc_sync_new). */
 u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  int dup = moqtrun_disc_any(
-      hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same_session);
+  int dup = !(moqtrun_req_caps(hub, q) & MOQVER_CAP_PUBNS_DUP) &&
+            moqtrun_disc_any(
+                hub, q, MOQNS_T_PUBLISH_NAMESPACE, moqtrun_disc_same_session);
   return dup ? MOQCTL_ERR_UNINTERESTED : MOQTRUN_REQ_ACCEPT;
 }
 

@@ -257,6 +257,195 @@ static void test_moqtrun_nsx_prefix_fieldwise(void) {
   CHECK(mnsx_pubs_all() == 1);
 }
 
+/* 4.1: the same prefix announced twice in one session stays published
+ * until both are withdrawn; each gets its own REQUEST_OK. */
+static void test_moqtrun_nsx_refcount_one_withdraw_still_known(void) {
+  mnsx_init();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mtns_pub(SESS_A, MTRQ_S2, "a");
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "OK|"));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  mtns_sub(SESS_B, MTRQ_S1, "a");
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:|"));
+}
+
+/* 4.1 / 4.2: NAMESPACE_DONE only once the last duplicate is withdrawn. */
+static void test_moqtrun_nsx_refcount_done_on_last(void) {
+  mnsx_init();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mtns_pub(SESS_A, MTRQ_S2, "a");
+  mtns_sub(SESS_B, MTRQ_S1, "a");
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:|"));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S2, 0, 0);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:|DONE:|"));
+}
+
+/* 4.2: a announced by two sessions is advertised once and stays so while
+ * either still publishes it. */
+static void test_moqtrun_nsx_two_publishers_same_ns(void) {
+  mnsx_init();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mtns_pub(SESS_C, MTRQ_S1, "a");
+  mtns_sub(SESS_B, MTRQ_S1, "a");
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:|"));
+}
+
+/* Upstream SUBSCRIBE (7.7) in relay mode (hub->multi_publisher). */
+static void mnsx_relay(void) {
+  mnsx_init();
+  mtst_hub.multi_publisher = 1;
+  g_next_stream_id         = 201; /* server-initiated bidi ids */
+}
+
+/* SESS_B SUBSCRIBEs t1 on sid. */
+static void mnsx_dsub(u64 sid) {
+  moqctl_ftn f = mnsx_ftn("a/b", "t1");
+  mtst_subscribe_p(SESS_B, sid, &f, mtst_rid += 4, 0);
+}
+
+/* 7.7: a second PUBLISH_NAMESPACE of a by SESS_A, which the hub already
+ * subscribed t1 at, sends no second SUBSCRIBE ("unless it already has a
+ * subscription to that Track from that publisher"). */
+static void test_moqtrun_nsx_dup_pubns_no_resubscribe(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_n_up(SESS_A) == 1);
+  mtns_pub(SESS_A, MTRQ_S2, "a");
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* 7.7: two announcements of SESS_A covering t1 (a, a/b): one SUBSCRIBE. */
+static void test_moqtrun_nsx_overlap_pubns_one_subscribe(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mtns_pub(SESS_A, MTRQ_S2, "a/b");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* 7.7: every session announcing a prefix of t1's namespace is asked, not
+ * only the exact match (4.1's SHOULD gives way to 7.7's MUST). */
+static void test_moqtrun_nsx_subscribe_every_announcer(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a/b");
+  mtns_pub(SESS_C, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_n_up(SESS_A) == 1);
+  CHECK(mups_n_up(SESS_C) == 1);
+}
+
+/* 7.7: SESS_A already PUBLISHed t1, so its later announcement of a/b is
+ * not answered with a SUBSCRIBE for t1. */
+static void test_moqtrun_nsx_no_subscribe_after_publish(void) {
+  mnsx_relay();
+  mnsx_pub_t1();
+  mnsx_dsub(MTRQ_S1);
+  mtns_pub(SESS_A, MTRQ_S1, "a/b");
+  CHECK(mups_n_up(SESS_A) == 0);
+}
+
+/* 7.7: a withdrawn and re-sent announcement keeps the existing upstream
+ * subscription: no second SUBSCRIBE. */
+static void test_moqtrun_nsx_reannounce_no_resubscribe(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  mups_ok((u64)mups_up_sid());
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  mtns_pub(SESS_A, MTRQ_S2, "a");
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* 7.7: an announcement of c does not cover t1 (a/b). */
+static void test_moqtrun_nsx_no_subscribe_uncovered(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "c");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_n_up(SESS_A) == 0);
+}
+
+/* 7.7: an announcement alone, with nobody subscribed downstream, sends no
+ * SUBSCRIBE. */
+static void test_moqtrun_nsx_no_subscribe_without_downstream(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  CHECK(mups_n_up(SESS_A) == 0);
+}
+
+/* 7.7: a second downstream SUBSCRIBE to t1 rides the pending upstream
+ * one. */
+static void test_moqtrun_nsx_second_dsub_no_resubscribe(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  mnsx_dsub(MTRQ_S2);
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* SUBSCRIBE_OK from s on the hub's upstream stream sid. */
+static void mnsx_up_ok(wired_wt_session* s, u64 sid) {
+  static moqctl_subscribe_ok ok;
+  ok.track_alias = MUPS_ALIAS;
+  mtst_send(s, sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+}
+
+/* t1 fanned out to SESS_A (a/b) and SESS_C (a); their stream ids. */
+static void mnsx_fan(i64* sa, i64* sc) {
+  moqctl_subscribe m;
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a/b");
+  mtns_pub(SESS_C, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  *sa = mups_up(SESS_A, 0, &m);
+  *sc = mups_up(SESS_C, 0, &m);
+}
+
+/* 7.7: one announcer refusing while another answers OK: SUBSCRIBE_OK. */
+static void test_moqtrun_nsx_fan_one_fails(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
+  mnsx_up_ok(SESS_A, (u64)sa);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+}
+
+/* 7.7: every announcer refusing: REQUEST_ERROR with the last code. */
+static void test_moqtrun_nsx_fan_all_fail(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "E10|FIN|"));
+}
+
+/* A refused upstream SUBSCRIBE is forgotten: the next downstream
+ * SUBSCRIBE asks the publisher again. */
+static void test_moqtrun_nsx_refused_then_resent(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  mtst_pub_err(SESS_A, (u64)mups_up_sid(), MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "E1|FIN|"));
+  mnsx_dsub(MTRQ_S2);
+  CHECK(mups_n_up(SESS_A) == 2);
+}
+
+/* The only announcer's session lost while the upstream SUBSCRIBE is
+ * pending: REQUEST_ERROR INTERNAL_ERROR on draft-23, DOES_NOT_EXIST on
+ * earlier drafts (no publisher left, 10.2.6). */
+static void mnsx_lost_publisher(void) {
+  int d23 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_UP_LOSS) != 0;
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, d23 ? "E0|FIN|" : "E10|FIN|"));
+}
+
 /* Drafts with PREFIX_OVERLAP: the hub's PUBLISH has no
  * SUBSCRIBE_TRACKS_ID (the parameter does not exist there). */
 static void mtall_nsx_untagged(void) {
@@ -283,10 +472,25 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_ns_widen_new_only();
   test_moqtrun_nsx_ns_narrow_rewiden();
   test_moqtrun_nsx_prefix_fieldwise();
+  test_moqtrun_nsx_refcount_one_withdraw_still_known();
+  test_moqtrun_nsx_refcount_done_on_last();
+  test_moqtrun_nsx_two_publishers_same_ns();
+  test_moqtrun_nsx_dup_pubns_no_resubscribe();
+  test_moqtrun_nsx_overlap_pubns_one_subscribe();
+  test_moqtrun_nsx_subscribe_every_announcer();
+  test_moqtrun_nsx_no_subscribe_after_publish();
+  test_moqtrun_nsx_reannounce_no_resubscribe();
+  test_moqtrun_nsx_no_subscribe_uncovered();
+  test_moqtrun_nsx_no_subscribe_without_downstream();
+  test_moqtrun_nsx_second_dsub_no_resubscribe();
+  test_moqtrun_nsx_fan_one_fails();
+  test_moqtrun_nsx_fan_all_fail();
+  test_moqtrun_nsx_refused_then_resent();
 }
 
 void test_moqtrun_nsx(void) {
   moqtrun_test_vers(0, MOQVER_CAP_PREFIX_OVERLAP, mtall_nsx_overlap);
   moqtrun_test_vers(MOQVER_CAP_PREFIX_OVERLAP, 0, mtall_nsx_untagged);
   moqtrun_test_allver(test_moqtrun_nsx_ns_narrow_implied_done);
+  moqtrun_test_allver(mnsx_lost_publisher);
 }

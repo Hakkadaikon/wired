@@ -32,6 +32,10 @@
 #define MOQVER_CAP_DUP_SUBSCRIPTION (1u << 1)
 /** FIN cancels a namespace subscription (draft-18). */
 #define MOQVER_CAP_FIN_CANCEL_NS (1u << 2)
+/** A session may send PUBLISH_NAMESPACE for a prefix it already
+ * publishes; the namespace stays published until all are withdrawn
+ * (draft-23 4.1). */
+#define MOQVER_CAP_PUBNS_DUP (1u << 3)
 /** LOCATION_FILTER with an explicit type (draft-22). */
 #define MOQVER_CAP_LOCFILTER_TYPED (1u << 4)
 /** draft-22 FETCH body layout. */
@@ -42,6 +46,10 @@
 #define MOQVER_CAP_PUBLISH_STATE_NOTIFY (1u << 7)
 /** FETCH End Location is inclusive (draft-22). */
 #define MOQVER_CAP_FETCH_END_INCLUSIVE (1u << 8)
+/** A SUBSCRIBE waiting on an upstream SUBSCRIBE whose publisher session
+ * is lost is refused INTERNAL_ERROR (draft-23 12.3), not DOES_NOT_EXIST:
+ * the publisher existed, the relay lost it. */
+#define MOQVER_CAP_UP_LOSS (1u << 9)
 /** Range filters (draft-19, 22). */
 #define MOQVER_CAP_RANGE_FILTERS (1u << 10)
 /** MAX_REQUEST_UPDATES credit (draft-19, 22). */

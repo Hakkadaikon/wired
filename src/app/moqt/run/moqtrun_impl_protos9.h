@@ -137,5 +137,6 @@ void moqtrun_asm_unlease(wired_moqtrun_ctl_asm* a);
 int  moqtrun_asm_lease(wired_moqt_hub* hub, wired_moqtrun_ctl_asm* a);
 void moqtrun_dispatch_role(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+void moqtrun_up_refuse_lost(wired_moqt_hub* hub, moqtrun_key k);
 
 #endif

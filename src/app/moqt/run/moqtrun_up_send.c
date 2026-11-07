@@ -11,7 +11,10 @@ static int moqtrun_up_send(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     moqtrun_key         k);
-static int  moqtrun_rdv_fresh(const wired_moqtrun_rdv* r, moqtrun_key k);
+static int moqtrun_rdv_fresh(const wired_moqtrun_rdv* r, moqtrun_key k);
+static int moqtrun_rdv_loss_coded(wired_moqt_hub* hub, wired_wt_session* wt);
+static int moqtrun_rdv_loses(
+    wired_moqt_hub* hub, const wired_moqtrun_rdv* r, moqtrun_key k);
 static void moqtrun_up_wait_single(wired_moqt_hub* hub, wired_moqtrun_rdv* r);
 static int  moqtrun_up_needs(wired_moqt_hub* hub, const wired_moqtrun_rdv* r);
 
@@ -85,6 +88,29 @@ void moqtrun_up_refuse_waiters(wired_moqt_hub* hub, moqtrun_key k, u64 code) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     if (moqtrun_rdv_fresh(&hub->rdv[i], k)) {
       moqtrun_rdv_answer(hub, &hub->rdv[i], moqtrun_rdv_do_refuse, 0, code);
+    }
+  }
+}
+
+static int moqtrun_rdv_loss_coded(wired_moqt_hub* hub, wired_wt_session* wt) {
+  const wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, wt);
+  return p && (moqver_caps(p->ver) & MOQVER_CAP_UP_LOSS);
+}
+
+static int moqtrun_rdv_loses(
+    wired_moqt_hub* hub, const wired_moqtrun_rdv* r, moqtrun_key k) {
+  return moqtrun_rdv_fresh(r, k) && moqtrun_rdv_loss_coded(hub, r->wt);
+}
+
+/* The publisher session the upstream SUBSCRIBE for k waited on is lost:
+ * a draft-23 waiter is refused INTERNAL_ERROR (12.3). Others stay to be
+ * answered DOES_NOT_EXIST once no announcer is left (moqtrun_up_unserved). */
+void moqtrun_up_refuse_lost(wired_moqt_hub* hub, moqtrun_key k) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    if (moqtrun_rdv_loses(hub, &hub->rdv[i], k)) {
+      moqtrun_rdv_answer(
+          hub, &hub->rdv[i], moqtrun_rdv_do_refuse, 0,
+          MOQCTL_ERR_INTERNAL_ERROR);
     }
   }
 }

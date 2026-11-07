@@ -24,6 +24,8 @@ static void moqtrun_up_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_settle_open(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
+static int  moqtrun_up_pending(const wired_moqtrun_up* u);
+static void moqtrun_up_lost(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_props_refuse(
     wired_moqt_hub*     hub,
@@ -134,8 +136,23 @@ static void moqtrun_up_settle_open(
   }
 }
 
-/* A publisher session gone takes u with it, no io (NoLeakOnClose); its
- * track already ended for every subscriber. */
+static int moqtrun_up_pending(const wired_moqtrun_up* u) {
+  return !u->track_tag && !u->failed;
+}
+
+/* u's publisher session is gone: u goes, no io. Its track already ended
+ * for every subscriber; a still unanswered u fails its waiters once no
+ * other publisher's SUBSCRIBE for the Track is open
+ * (moqtrun_up_refuse_lost). */
+static void moqtrun_up_lost(wired_moqt_hub* hub, wired_moqtrun_up* u) {
+  moqtrun_key k = moqtrun_up_key(u);
+  u->in_use     = 0;
+  if (moqtrun_up_pending(u) && !moqtrun_up_live_of_key(hub, k)) {
+    moqtrun_up_refuse_lost(hub, k);
+  }
+}
+
+/* A publisher session gone takes u with it (moqtrun_up_lost). */
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   wired_moqtrun_peer* pp;
   if (!u->in_use) {
@@ -143,7 +160,7 @@ static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   }
   pp = moqtrun_find_by_wt(hub, u->wt);
   if (!pp) {
-    u->in_use = 0;
+    moqtrun_up_lost(hub, u);
     return;
   }
   moqtrun_up_settle_open(hub, pp, u);

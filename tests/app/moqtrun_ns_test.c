@@ -526,7 +526,6 @@ static void mtall_ns(void) {
   test_moqtrun_ns_publisher_leaves();
   test_moqtrun_ns_subscriber_cancels();
   test_moqtrun_ns_own_echoed();
-  test_moqtrun_ns_duplicate_refused();
   test_moqtrun_ns_multiple_publishers();
   test_moqtrun_ns_authorization();
   test_moqtrun_ns_oversized_refused();
@@ -543,4 +542,6 @@ void test_moqtrun_ns(void) {
   /* draft-23 3.6 / 4.2 accept overlaps (moqtrun_nsx_test.c) */
   moqtrun_test_vers(
       MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_ns_prefix_overlap);
+  /* draft-23 4.1 accepts duplicates (moqtrun_nsx_test.c) */
+  moqtrun_test_vers(0, MOQVER_CAP_PUBNS_DUP, test_moqtrun_ns_duplicate_refused);
 }
