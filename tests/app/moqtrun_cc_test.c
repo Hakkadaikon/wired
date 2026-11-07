@@ -63,6 +63,16 @@ static u64 mtcc_psn_on_ctl(void) {
   return mtcc_ctl(MOQCTL_T_PUBLISH_STATE_NOTIFY, b, sizeof b);
 }
 
+/* 9.10: PUBLISH_STATE_NOTIFY from the subscriber on its SUBSCRIBE's
+ * stream (the hub publishes there): ROLE_VIOLATION. */
+static u64 mtcc_psn_from_subscriber(void) {
+  static const u8 b[] = {0x00, 0x00};
+  moqctl_ftn      f   = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_STATE_NOTIFY, b, sizeof b);
+  return moqtrun_test_close_code();
+}
+
 /* 9.19.8: GROUP_ORDER 3 in a SUBSCRIBE: INVALID_PARAMETER. */
 static u64 mtcc_param_range(void) {
   moqctl_params p = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 3);
@@ -190,6 +200,8 @@ static const mtcc_case mtcc_cases[] = {
      WIRED_MOQTRUN_CLOSE_FIELD_LENGTH_EXCEEDED},
     {mtcc_psn_on_ctl, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
      WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE},
+    {mtcc_psn_from_subscriber, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_ROLE_VIOLATION},
     {mtcc_param_range, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
      WIRED_MOQTRUN_CLOSE_INVALID_PARAMETER},
     {mtcc_token_bad, WIRED_MOQTRUN_CLOSE_MALFORMED_KEY_VALUE,

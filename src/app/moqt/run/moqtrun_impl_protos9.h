@@ -126,5 +126,7 @@ usz  moqtrun_asm_cap(const wired_moqtrun_ctl_asm* a);
 void moqtrun_asm_compact(wired_moqtrun_ctl_asm* a, u8* dst);
 void moqtrun_asm_unlease(wired_moqtrun_ctl_asm* a);
 int  moqtrun_asm_lease(wired_moqt_hub* hub, wired_moqtrun_ctl_asm* a);
+void moqtrun_dispatch_role(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 
 #endif

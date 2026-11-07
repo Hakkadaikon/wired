@@ -168,6 +168,15 @@ void moqtrun_dispatch_close(
   moqtrun_sess_fault(hub, p, MOQSESS_EV_MALFORMED_CTRL);
 }
 
+/* A message only the other role may send: ROLE_VIOLATION (draft-23
+ * 12.2; PROTOCOL_VIOLATION before). */
+void moqtrun_dispatch_role(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  (void)peer_idx;
+  (void)body;
+  moqtrun_close_cc(hub, p, MOQTRUN_CC_ROLE);
+}
+
 /* draft-19 3.3: a request stream whose first message is no request type
  * closes the session PROTOCOL_VIOLATION (moqsess EV_BAD_FIRST). */
 void moqtrun_dispatch_bad_first(

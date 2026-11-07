@@ -4,6 +4,7 @@ static int  moqtrun_req_done_ok(const wired_moqtrun_req* q, u64 type);
 static int  moqtrun_req_goaway_ok(const wired_moqtrun_req* q, u64 type);
 static int  moqtrun_req_follow_ok(const wired_moqtrun_req* q, u64 type);
 static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body);
+static moqtrun_ctl_fn moqtrun_req_refused(const wired_moqtrun_req* q, u64 type);
 static moqtrun_ctl_fn moqtrun_req_route(
     wired_moqtrun_req* q, u64 type, wired_span body);
 static int  moqtrun_peek_known(int peek);
@@ -92,6 +93,17 @@ static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
   moqvi_take(body, &off, &q->request_id);
 }
 
+/* draft-23 9.10: a PUBLISH_STATE_NOTIFY on a SUBSCRIBE's stream comes to
+ * the hub as that subscription's publisher -- ROLE_VIOLATION; any other
+ * message out of place is UNEXPECTED_MESSAGE (both PROTOCOL_VIOLATION
+ * before draft-23). */
+static moqtrun_ctl_fn moqtrun_req_refused(
+    const wired_moqtrun_req* q, u64 type) {
+  return q->kind == MOQCTL_T_SUBSCRIBE && type == MOQCTL_T_PUBLISH_STATE_NOTIFY
+             ? moqtrun_dispatch_role
+             : moqtrun_dispatch_close;
+}
+
 /* A request-stream message out of place (draft 3.3: a bidi stream begins
  * with a request; draft 10: a "First" type only first, and every later
  * message must belong to that request) closes the session with
@@ -99,7 +111,7 @@ static void moqtrun_req_note(wired_moqtrun_req* q, u64 type, wired_span body) {
 static moqtrun_ctl_fn moqtrun_req_route(
     wired_moqtrun_req* q, u64 type, wired_span body) {
   if (!moqtrun_req_allowed(q, type)) {
-    return q->kind ? moqtrun_dispatch_close : moqtrun_dispatch_bad_first;
+    return q->kind ? moqtrun_req_refused(q, type) : moqtrun_dispatch_bad_first;
   }
   moqtrun_req_note(q, type, body);
   return moqtrun_ctl_lookup(type);
