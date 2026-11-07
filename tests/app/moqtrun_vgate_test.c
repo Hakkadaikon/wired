@@ -141,7 +141,7 @@ static void mtvg_update_subtracks_overlap(void) {
   mtst_subtracks(SESS_B, MTRQ_S2, "video");
   moqctl_params p = mtup_ns_param("chat");
   mtup_update(SESS_B, MTRQ_S2, &p);
-  CHECK(mtup_err_code(MTRQ_S2) == mt_overlap());
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
 }
 
@@ -151,7 +151,8 @@ static void test_moqtrun_vgate_update_kinds(void) {
   moqtrun_test_vers(
       MOQVER_CAP_FETCH_BODY_V22, 0, mtvg_update_subtracks_forward);
   moqtrun_test_vers(0, 0, mtvg_update_subtracks_prefix);
-  moqtrun_test_vers(0, 0, mtvg_update_subtracks_overlap);
+  moqtrun_test_vers(
+      MOQVER_CAP_PREFIX_OVERLAP, 0, mtvg_update_subtracks_overlap);
 }
 
 /* A publishes chat/room1/alice; then B sends SUBSCRIBE_TRACKS "chat"
@@ -180,8 +181,10 @@ static void mtvg_subtracks_then_publish(u8 go) {
  * Number of Parameters, then FORWARD (Type 0x10, uint8 0) and GROUP_ORDER
  * (Type Delta 0x22-0x10 = 0x12, uint8 go), no Track Properties; draft-23
  * 9.19.18 spells FORWARD 0 as PAUSED (Type 0x11, uint8 1), GROUP_ORDER's
- * delta then 0x22-0x11 = 0x11. Request ID
- * and Alias are the hub's own picks (each a 1-byte varint here). */
+ * delta then 0x22-0x11 = 0x11, and SUBSCRIBE_TRACKS_ID (9.19.21, Type
+ * 0x36) closes the list with the SUBSCRIBE_TRACKS's Request ID. The
+ * PUBLISH's Request ID and Alias are the hub's own picks (each a 1-byte
+ * varint here). */
 static usz mtvg_publish_wire(u8* w, u8 go) {
   static const u8 name[] = {0x02, 0x04, 'c', 'h',  'a', 't', 0x05, 'r', 'o',
                             'o',  'm',  '1', 0x05, 'a', 'l', 'i',  'c', 'e'};
@@ -196,6 +199,7 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
     return 0;
   }
   CHECK(q->request_id < 64);
+  CHECK(mtst_rid < 128);
   CHECK(mtst_hub.peers[0].tracks[0].own_alias < 64);
   int d23 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_PAUSED) != 0;
   usz n   = 3;
@@ -203,7 +207,7 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
   bytes_memcpy(w + n, name, sizeof name);
   n += sizeof name;
   w[n++] = (u8)mtst_hub.peers[0].tracks[0].own_alias;
-  w[n++] = go ? 2 : 1;
+  w[n++] = (u8)((go ? 2 : 1) + d23);
   w[n++] = (u8)(0x10 + d23);
   w[n++] = (u8)d23;
   if (go) {
@@ -211,6 +215,10 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
   }
   if (go) {
     w[n++] = go;
+  }
+  if (d23) { /* 9.19.21 SUBSCRIBE_TRACKS_ID: Request ID, a 1-byte vi64 */
+    w[n++] = (u8)(0x36 - (go ? 0x22 : 0x11));
+    w[n++] = (u8)mtst_rid;
   }
   w[0] = MOQCTL_T_PUBLISH;
   w[1] = 0;

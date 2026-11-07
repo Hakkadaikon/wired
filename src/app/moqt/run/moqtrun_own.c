@@ -8,8 +8,19 @@ static int moqtrun_peer_tracks_clash(
     const wired_moqtrun_peer* q, const wired_moqtrun_track* t, usz pi, u64 a);
 static int moqtrun_peer_clash(
     const wired_moqtrun_peer* q, const wired_moqtrun_track* t, usz pi, u64 a);
+static int moqtrun_own_untagged(int r, const moqctl_publish* m);
 static int moqtrun_own_alias_clash(
     const wired_moqtrun_track* x, const wired_moqtrun_track* t, u64 a);
+
+/* draft-23 9.19.21: SUBSCRIBE_TRACKS_ID appears only in a PUBLISH sent as
+ * a result of a SUBSCRIBE_TRACKS, and the hub sends none: in a client's
+ * PUBLISH it is INVALID_PARAMETER. */
+static int moqtrun_own_untagged(int r, const moqctl_publish* m) {
+  return r == MOQCTL_OK && moqctl_params_find(
+                               &m->params, MOQCTL_PARAM_SUBSCRIBE_TRACKS_ID)
+             ? MOQCTL_R_PARAM
+             : r;
+}
 
 /* draft SS10.9 PUBLISH: decode, then authorize and claim
  * (moqtrun_publish_checked). */
@@ -17,8 +28,9 @@ void moqtrun_handle_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz            off = 0;
   moqctl_publish m;
+  int            r = moqctl_publish_take(p->ver, body, &off, &m);
   if (!moqtrun_take_tok_or_close(
-          hub, p, moqctl_publish_take(p->ver, body, &off, &m), &m.params)) {
+          hub, p, moqtrun_own_untagged(r, &m), &m.params)) {
     return;
   }
   moqtrun_publish_checked(hub, p, peer_idx, &m);

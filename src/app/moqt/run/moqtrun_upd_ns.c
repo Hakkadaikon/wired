@@ -1,7 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static u64 moqtrun_disc_kind_check(
-    const wired_moqt_hub* hub, const wired_moqtrun_req* q);
 static int moqtrun_disc_record(wired_moqtrun_req* q, const moqctl_ns* ns);
 static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx);
 static u64 moqtrun_upd_ns_prefix(
@@ -14,15 +12,6 @@ static int moqtrun_disc_auth_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code);
 static int moqtrun_disc_refused(
     const wired_moqt_hub* hub, u64 type, const moqns_req* m, u64* code);
-
-/* PREFIX_OVERLAP against the live requests of q's own kind: the overlap
- * restriction applies per type (draft-22 9.5.2), SUBSCRIBE_NAMESPACE or
- * SUBSCRIBE_TRACKS. */
-static u64 moqtrun_disc_kind_check(
-    const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  int clash = moqtrun_disc_any(hub, q, q->kind, moqtrun_disc_overlap);
-  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
-}
 
 /* Copies ns into q; 0 when it exceeds WIRED_MOQTRUN_MAX_NS (refused, never
  * truncated). */
@@ -57,7 +46,7 @@ static u64 moqtrun_upd_ns_prefix(
   if (!moqtrun_upd_ns_write(q, pfx)) {
     return MOQCTL_ERR_INTERNAL_ERROR;
   }
-  u64 code = moqtrun_disc_kind_check(hub, q);
+  u64 code = moqtrun_disc_clash(hub, q, q->kind);
   if (code == MOQTRUN_REQ_ACCEPT) {
     return code;
   }

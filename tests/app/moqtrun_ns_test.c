@@ -180,8 +180,6 @@ static void test_moqtrun_ns_empty_prefix(void) {
   mtns_pub(SESS_A, MTRQ_S2, "video/x");
   mtns_sub(SESS_B, MTRQ_S1, "");
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:chat/room1|NS:video/x|"));
-  mtns_sub(SESS_B, MTRQ_S2, "video/x");
-  CHECK(mtns_is(SESS_B, MTRQ_S2, mt_overlap_log()));
   mtst_join(SESS_C);
   mtns_sub(SESS_C, MTRQ_S1, "video/x");
   CHECK(mtns_is(SESS_C, MTRQ_S1, "OK|NS:|"));
@@ -259,12 +257,14 @@ static void test_moqtrun_ns_prefix_overlap(void) {
   mtns_init();
   mtns_sub(SESS_B, MTRQ_S1, "chat/room1");
   mtns_sub(SESS_B, MTRQ_S2, "chat/room2");
-  CHECK(mtns_is(SESS_B, MTRQ_S2, mt_overlap_log()));
+  CHECK(mtns_is(SESS_B, MTRQ_S2, "ERR:30|"));
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   mtns_sub(SESS_B, MTRQ_ID(5), "video");
   CHECK(mtns_is(SESS_B, MTRQ_ID(5), "OK|"));
   mtns_sub(SESS_B, MTRQ_ID(6), "");
-  CHECK(mtns_is(SESS_B, MTRQ_ID(6), mt_overlap_log()));
+  CHECK(mtns_is(SESS_B, MTRQ_ID(6), "ERR:30|"));
+  mtns_sub(SESS_B, MTRQ_ID(7), "video/x");
+  CHECK(mtns_is(SESS_B, MTRQ_ID(7), "ERR:30|"));
   mtns_sub(SESS_A, MTRQ_S1, "chat");
   CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|"));
 }
@@ -526,7 +526,6 @@ static void mtall_ns(void) {
   test_moqtrun_ns_publisher_leaves();
   test_moqtrun_ns_subscriber_cancels();
   test_moqtrun_ns_own_echoed();
-  test_moqtrun_ns_prefix_overlap();
   test_moqtrun_ns_duplicate_refused();
   test_moqtrun_ns_multiple_publishers();
   test_moqtrun_ns_authorization();
@@ -541,4 +540,7 @@ void test_moqtrun_ns(void) {
   test_moqtrun_ns_pub_fin_is_not_withdrawal_d22();
   test_moqtrun_req_fin_keeps_subscribe_d18();
   moqtrun_test_allver(mtall_ns);
+  /* draft-23 3.6 / 4.2 accept overlaps (moqtrun_nsx_test.c) */
+  moqtrun_test_vers(
+      MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_ns_prefix_overlap);
 }

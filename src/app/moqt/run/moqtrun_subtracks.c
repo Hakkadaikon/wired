@@ -109,15 +109,12 @@ void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
  * hub-opened PUBLISH bidi stream addressed to the SUBSCRIBE_TRACKS's own
  * session (or a PUBLISH_SKIPPED on the SUBSCRIBE_TRACKS's own stream)
  * instead of a NAMESPACE push -- 1751/1768. PREFIX_OVERLAP is checked the
- * same way, scoped to kind MOQCTL_T_SUBSCRIBE_TRACKS alone
- * (moqtrun_disc_is), which is 3899's "independent overlap spaces" for
- * free. */
+ * same way (moqtrun_disc_clash), scoped to kind MOQCTL_T_SUBSCRIBE_TRACKS
+ * alone, which is 3899's "independent overlap spaces" for free. */
 
 u64 moqtrun_subtracks_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  int clash =
-      moqtrun_disc_any(hub, q, MOQCTL_T_SUBSCRIBE_TRACKS, moqtrun_disc_overlap);
-  return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
+  return moqtrun_disc_clash(hub, q, MOQCTL_T_SUBSCRIBE_TRACKS);
 }
 
 /* One Range Filter of a SUBSCRIBE_TRACKS: TRACK_PROPERTY_FILTER selects

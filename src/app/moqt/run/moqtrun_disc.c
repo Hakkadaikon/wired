@@ -8,6 +8,8 @@ static int        moqtrun_disc_rel(
     moqtrun_disc_rel_fn      rel);
 static int moqtrun_disc_same_session(
     const wired_moqtrun_req* a, const wired_moqtrun_req* b);
+static int moqtrun_disc_peer_is(
+    const wired_moqtrun_peer* p, const wired_wt_session* wt);
 
 /* A REQUEST_UPDATE of the request riding its stream (its own Request ID
  * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
@@ -145,7 +147,30 @@ u64 moqtrun_disc_pub_check(
 
 u64 moqtrun_disc_sub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  int clash = moqtrun_disc_any(
-      hub, q, MOQNS_T_SUBSCRIBE_NAMESPACE, moqtrun_disc_overlap);
+  return moqtrun_disc_clash(hub, q, MOQNS_T_SUBSCRIBE_NAMESPACE);
+}
+
+static int moqtrun_disc_peer_is(
+    const wired_moqtrun_peer* p, const wired_wt_session* wt) {
+  return p->in_use && p->wt == wt;
+}
+
+/* Capability bits of the draft q's session speaks, 0 once it is gone. */
+u32 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_disc_peer_is(&hub->peers[i], q->wt)) {
+      return moqver_caps(hub->peers[i].ver);
+    }
+  }
+  return 0;
+}
+
+/* PREFIX_OVERLAP against the live requests of kind (each kind its own
+ * overlap space, draft-22 9.5.2). draft-23 3.6 / 4.2 / 9.5.2 drop the
+ * restriction: overlapping prefixes are all served. */
+u64 moqtrun_disc_clash(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q, u64 kind) {
+  int clash = (moqtrun_req_caps(hub, q) & MOQVER_CAP_PREFIX_OVERLAP) &&
+              moqtrun_disc_any(hub, q, kind, moqtrun_disc_overlap);
   return clash ? MOQCTL_ERR_PREFIX_OVERLAP : MOQTRUN_REQ_ACCEPT;
 }

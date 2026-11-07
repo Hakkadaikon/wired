@@ -241,12 +241,12 @@ static void test_subtracks_prefix_overlap(void) {
   mtst_join(SESS_B);
   mtst_subtracks(SESS_B, MTRQ_S1, "chat/room1");
   mtst_subtracks(SESS_B, MTRQ_S2, "chat");
-  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, mt_overlap_log()));
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, "ERR:30|"));
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   u64 ca = mtst_join(SESS_A);
   mtst_publish(SESS_A, ca, &f, 1);
   wired_moqt_tick(&mtst_hub, 0);
-  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, mt_overlap_log()));
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, "ERR:30|"));
 }
 
 /* T-03/T-04/T-05: a matching track (not the subscriber's own) gets exactly
@@ -428,7 +428,6 @@ static void test_subtracks_forward_zero_reflected(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_subtracks(void) {
   test_subtracks_ok_once();
-  test_subtracks_prefix_overlap();
   test_subtracks_publish_match_excludes_self();
   test_subtracks_publish_carries_props();
   test_subtracks_skip_then_no_publish();
@@ -440,4 +439,9 @@ static void mtall_subtracks(void) {
   test_subtracks_subscribe_crosses_publish();
 }
 
-void test_moqtrun_subtracks(void) { moqtrun_test_allver(mtall_subtracks); }
+void test_moqtrun_subtracks(void) {
+  moqtrun_test_allver(mtall_subtracks);
+  /* draft-23 3.6 accepts overlaps (moqtrun_nsx_test.c) */
+  moqtrun_test_vers(
+      MOQVER_CAP_PREFIX_OVERLAP, 0, test_subtracks_prefix_overlap);
+}

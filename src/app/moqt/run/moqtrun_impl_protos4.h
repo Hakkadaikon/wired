@@ -123,6 +123,9 @@ u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q);
 u64 moqtrun_disc_sub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q);
+u32 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q);
+u64 moqtrun_disc_clash(
+    const wired_moqt_hub* hub, const wired_moqtrun_req* q, u64 kind);
 void moqtrun_update_ns(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -165,7 +168,9 @@ void moqtrun_subtracks_admit(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m);
 void moqtrun_dispatch_subscribe_tracks(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
-usz  moqtrun_subtracks_slot(usz peer_idx, usz track_idx);
+usz moqtrun_subtracks_slot(usz peer_idx, usz track_idx);
+int moqtrun_subtracks_blocked(
+    const wired_moqtrun_peer* st_peer, wired_moqtrun_track* t, usz idx);
 void moqtrun_subtracks_mark_tried(
     wired_moqtrun_req* st, const wired_moqtrun_track* t, usz slot);
 int moqtrun_subtracks_candidate(

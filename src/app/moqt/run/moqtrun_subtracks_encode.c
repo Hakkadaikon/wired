@@ -2,6 +2,7 @@
 
 static int moqtrun_subtracks_encode_pub(
     wired_mspan buf, usz* off, const void* m);
+static void moqtrun_subtracks_tag(int ver, moqctl_params* p, u64 rid);
 static void moqtrun_subtracks_pub_fill(
     moqctl_publish*            m,
     wired_moqt_hub*            hub,
@@ -21,6 +22,19 @@ static int moqtrun_subtracks_encode_pub(
   return moqctl_publish_encode(buf, off, m);
 }
 
+/* draft-23 3.6 / 9.19.21: each PUBLISH a SUBSCRIBE_TRACKS causes carries
+ * SUBSCRIBE_TRACKS_ID, that request's Request ID (a draft without it still
+ * has PREFIX_OVERLAP, so one request per prefix). */
+static void moqtrun_subtracks_tag(int ver, moqctl_params* p, u64 rid) {
+  if (moqver_caps(ver) & MOQVER_CAP_PREFIX_OVERLAP) {
+    return;
+  }
+  p->items[p->n].type = MOQCTL_PARAM_SUBSCRIBE_TRACKS_ID;
+  p->items[p->n].enc  = MOQCTL_PENC_VARINT;
+  p->items[p->n].vi   = rid;
+  p->n++;
+}
+
 /* The PUBLISH m for t on st_peer's session, naming q's request_id. */
 static void moqtrun_subtracks_pub_fill(
     moqctl_publish*            m,
@@ -33,6 +47,7 @@ static void moqtrun_subtracks_pub_fill(
   m->request_id  = q->request_id;
   m->track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
   m->params      = moqtrun_subtracks_publish_params(st);
+  moqtrun_subtracks_tag(st_peer->ver, &m->params, st->request_id);
   moqctl_params_out(st_peer->ver, &m->params);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
   m->name.name = wired_span_of(t->name, t->name_len);

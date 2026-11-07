@@ -99,15 +99,15 @@ static void moqtrun_subtracks_offer(
 
 /* A session already subscribed to t (a held SUBSCRIBE that t's PUBLISH
  * resolved, moqtrun_rdv_resolve) is marked tried with nothing sent:
- * 18/19 9.5, 22 7.6 "MUST NOT also forward the PUBLISH to that
- * subscriber". */
+ * 18/19 9.5, 22 7.6 / 23 7.7 "MUST NOT also forward the PUBLISH to that
+ * subscriber" (moqtrun_subtracks_blocked). */
 static void moqtrun_subtracks_attempt(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  st_peer,
     wired_moqtrun_req*   st,
     wired_moqtrun_track* t,
     usz                  slot) {
-  if (!moqtrun_track_sub_of_peer(t, (usz)(st_peer - hub->peers))) {
+  if (!moqtrun_subtracks_blocked(st_peer, t, (usz)(st_peer - hub->peers))) {
     moqtrun_subtracks_offer(hub, st_peer, st, t);
   }
   moqtrun_subtracks_mark_tried(st, t, slot);

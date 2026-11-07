@@ -80,6 +80,7 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_NEW_GROUP_REQUEST,         MOQCTL_PENC_VARINT,    {0x4001,  0x4001,  0x5009,  0x4009},  0, 0,   0},
     {MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX,    MOQCTL_PENC_NS,        {0x30000, 0x30000, 0x30000, 0x30000}, 0, 0,   0},
     {MOQCTL_PARAM_INCLUDE_PROPERTIES,        MOQCTL_PENC_UINT8,     {0x1051,  0x1051,  0,       0},       0, 1,   0},
+    {MOQCTL_PARAM_SUBSCRIBE_TRACKS_ID,       MOQCTL_PENC_VARINT,    {0x4,     0,       0,       0},       0, 0,   0},
     {MOQCTL_PARAM_SWITCH_FROM,               MOQCTL_PENC_SWITCHFROM, {0x4001,  0x4001,  0,       0},       0, 0,   0},
     {MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT,  MOQCTL_PENC_SSA,       {0x4001,  0x4001,  0,       0},       0, 0,   0},
 };

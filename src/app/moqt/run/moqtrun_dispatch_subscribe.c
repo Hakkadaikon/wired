@@ -8,6 +8,8 @@ static int moqtrun_subtracks_matches(
     usz                        pub_idx,
     usz                        st_peer_idx);
 static void moqtrun_subtracks_u8_add(moqctl_params* out, u64 type, u8 v);
+static int  moqtrun_sub_by_subscribe(const wired_moqtrun_sub* s, usz idx);
+static int  moqtrun_subtracks_held(const wired_moqtrun_track* t, usz idx);
 
 void moqtrun_dispatch_subscribe_tracks(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
@@ -116,4 +118,32 @@ wired_moqtrun_req* moqtrun_subtracks_claim_slot(
   q->request_id     = st_peer->request_id_next;
   st_peer->request_id_next += 2;
   return q;
+}
+
+/* s is session idx's subscription opened by its own SUBSCRIBE: a
+ * client-chosen (even) Request ID, where a PUBLISH the hub sent has the
+ * hub's odd one (draft-23 6.4.2.1). */
+static int moqtrun_sub_by_subscribe(const wired_moqtrun_sub* s, usz idx) {
+  return moqtrun_sub_is_peer(s, idx) && !(s->request_id & 1);
+}
+
+static int moqtrun_subtracks_held(const wired_moqtrun_track* t, usz idx) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    if (moqtrun_sub_by_subscribe(&t->subs[i], idx)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+/* 1 iff session idx (st_peer) is already served t without a PUBLISH. A
+ * draft-23 subscription that another SUBSCRIBE_TRACKS's PUBLISH opened
+ * does not count: "If a Track matches more than one SUBSCRIBE_TRACKS, the
+ * publisher sends a PUBLISH for each" (3.6). */
+int moqtrun_subtracks_blocked(
+    const wired_moqtrun_peer* st_peer, wired_moqtrun_track* t, usz idx) {
+  if (moqver_caps(st_peer->ver) & MOQVER_CAP_PREFIX_OVERLAP) {
+    return moqtrun_track_sub_of_peer(t, idx) != 0;
+  }
+  return moqtrun_subtracks_held(t, idx);
 }

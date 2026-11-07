@@ -851,7 +851,7 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
   mtns_sub(SESS_B, MTRQ_S2, "video");
   moqctl_params p = mtup_ns_param("chat"); /* clashes with MTRQ_S1's own */
   mtup_update(SESS_B, MTRQ_S2, &p);
-  CHECK(mtup_err_code(MTRQ_S2) == mt_overlap());
+  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
   CHECK(mtrq_fin_on(MTRQ_S2) == 1); /* 10.9.1: refusal closes the stream */
 }
 
@@ -859,7 +859,6 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
 static void mtall_upd(void) {
   test_moqtrun_upd_credit_restored_by_flush();
   test_moqtrun_upd_ns_prefix_changes();
-  test_moqtrun_upd_ns_prefix_overlap_refused();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_tstat_ok_largest();
   test_moqtrun_tstat_ok_props();
@@ -904,6 +903,8 @@ void test_moqtrun_upd(void) {
   test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_upd_filter_d22();
   moqtrun_test_allver(mtall_upd);
+  moqtrun_test_vers(
+      MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_upd_ns_prefix_overlap_refused);
   moqtrun_test_vers(0, MOQVER_CAP_FETCH_BODY_V22, mtall_upd_fetch19);
   moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_upd_rngf);
   moqtrun_test_vers(
