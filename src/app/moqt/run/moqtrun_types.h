@@ -630,7 +630,7 @@ typedef struct {
   (MOQCTL_MAX_MSG_LEN + WIRED_MOQTRUN_CTL_HDR_MAX)
 
 /** Hub-wide buffers for control messages longer than
- * WIRED_MOQTRUN_CTL_MSG_MAX (R4 of the draft-23 plan). A stream leases
+ * WIRED_MOQTRUN_CTL_MSG_MAX (draft-23 9: up to 65535 bytes). A stream leases
  * one only while such a message is mid-reassembly and gives it back once
  * its unread bytes fit inline again, so the count bounds concurrently
  * torn large messages, not streams: the chat room's and the hub's own
@@ -642,14 +642,15 @@ typedef struct {
 
 /** Reassembly of control messages split across stream deliveries: holds
  * the not-yet-complete tail of one stream. skip counts bytes of an
- * over-cap message still to discard. */
+ * over-cap message still to discard.
+ * views: big=slot */
 typedef struct {
   /** The held tail, inline: whole messages up to
    * WIRED_MOQTRUN_CTL_MSG_MAX bodies. */
   u8 buf[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
   /** The hub's ctl_pool buffer (WIRED_MOQTRUN_CTL_BIG_MAX bytes) holding
    * the tail instead of buf while a longer message is reassembled, else
-   * 0. views: big=slot */
+   * 0. */
   u8* big;
   usz n;    /**< bytes held */
   usz at;   /**< next unread byte */
