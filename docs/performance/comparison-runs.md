@@ -1,12 +1,31 @@
 # ベンチマークの実行結果
 
-[ドキュメント](../README.md) › [性能](./) › [比較](comparison.md) › 実行結果
+<a id="benchmark-runs"></a>
 
-[実装の比較](comparison.md)の元になった生データです。誰でも計算し直せるように載せています。2026-11-02 時点のスナップショットで、wired は `efd61452e` です。
+[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › [実装の比較](comparison.md) › ベンチマークの実行結果
 
-## ループバックの計測
+| 項目 | 内容 |
+|---|---|
+| 目的 | [実装の比較](comparison.md)の元になった生データを載せる |
+| 読む人 | 比較の数値を計算し直すコントリビューター |
+| 前提文書 | [実装の比較](comparison.md)(計測の条件) |
+| 関連文書 | [`bench/README.md`](../../bench/README.md) |
 
-各サーバーについて続けて実行した `bench/run-lane.sh` の出力です。集計には `node bench/report.mjs speed|usage <file>` を使います。RSS の単位は KiB、`dticks` は `hz=100` での値です。クライアントが出す UDP バッファーの警告(`rmem_max` が 208 KiB だった)は、これらの行から取り除いています。これは 2 回行った計測の 2 回目です。1 回目は quiche のビルドでまだマシンが忙しいときに走ったので使っていません。
+2026-11-02 時点のスナップショットで、wired は `efd61452e` である。
+
+<a id="loopback-lane"></a><a id="ループバックの計測"></a>
+
+## 1. ループバックの計測
+
+各サーバーについて続けて実行した `bench/run-lane.sh` の出力である。
+
+| 項目 | 内容 |
+|---|---|
+| 集計 | `node bench/report.mjs speed\|usage <file>` |
+| RSS の単位 | KiB |
+| `dticks` | `hz=100` での値 |
+| 取り除いた行 | クライアントが出す UDP バッファーの警告(`rmem_max` が 208 KiB だった) |
+| 使った計測 | 2 回のうち 2 回目。1 回目は quiche のビルドでマシンが負荷を受けている間に走ったので使っていない |
 
 ```text
 wired-p2 r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=512 vmrss_kb=512
@@ -59,9 +78,11 @@ quiche-p2 r5 mode=load n=10000 fails=0 reqps=22359.8 p50=0.79 p99=2.56 cpu%=118
 quiche-p2 r5 usage kind=load reqs=10000 dticks=36 wall_ms=471 hz=100 vmhwm_kb=8468 vmrss_kb=8468
 ```
 
-## グッドプットの計測
+<a id="goodput-lane"></a><a id="グッドプットの計測"></a>
 
-quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go-interop`、`-t goodput` で、サーバーごとに 5 回繰り返しました。
+## 2. グッドプットの計測
+
+quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go-interop`、`-t goodput` で、サーバーごとに 5 回実行した。
 
 | サーバー | 各回の kbps | イメージ |
 |---|---|---|
@@ -71,9 +92,11 @@ quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go
 | ngtcp2 | 9316 9392 9297 9385 9371 | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb4689908dc` |
 | picoquic | 9099 9106 9151 9105 9130 | `privateoctopus/picoquic@sha256:4d1da8e8557c` |
 
-## バイナリのセクション
+<a id="binary-sections"></a><a id="バイナリのセクション"></a>
 
-Berkeley 形式の `size(1)` で測りました。strip 後のサイズは、`strip` をかけた後のファイルの大きさです。
+## 3. バイナリのセクション
+
+Berkeley 形式の `size(1)` で測った。strip 後のサイズは `strip` をかけた後のファイルの大きさである。
 
 | バイナリ | text | data | bss | strip 後 |
 |---|---|---|---|---|

@@ -1,46 +1,70 @@
 # 実装の比較
 
-[ドキュメント](../README.md) › [性能](./) › 比較
+<a id="implementation-comparison"></a>
 
-wired を広く使われている 4 つの QUIC サーバー、quic-go(Go)、quiche(Rust)、ngtcp2(C)、picoquic(C)と並べて比べます。このページの数値はすべて、1 台のマシンで同じ日に取った 1 回分の計測によるものです(2026-11-02、wired は `efd61452e`)。生データは[ベンチマークの実行結果](comparison-runs.md)にあります。
+[ドキュメント](../README.md) › [試験と品質](../verification/README.md) › 実装の比較
 
-## 概要
+| 項目 | 内容 |
+|---|---|
+| 目的 | wired と quic-go(Go)、quiche(Rust)、ngtcp2(C)、picoquic(C)の性能と機能を数値で比べる |
+| 読む人 | 性能の数値や機能の対応を確かめるコントリビューター |
+| 前提文書 | なし |
+| 関連文書 | [ベンチマークの実行結果](comparison-runs.md)(生データ)、[相互運用性テストの結果](../verification/interop.md) |
+
+数値はすべて、1 台のマシンで同じ日に取った 1 回分の計測である(2026-11-02、wired は `efd61452e`)。
+
+<a id="at-a-glance"></a><a id="概要"></a>
+
+## 1. 概要
 
 | | wired | quiche 0.29.3 | quic-go v0.61.0 |
 |---|---|---|---|
-| 毎秒リクエスト数(ループバック) | **23,825** | 22,175 | 12,042 |
-| 負荷時のレイテンシー、p50 | **0.71 ms** | 0.81 ms | 1.45 ms |
-| 1 リクエストあたりのサーバー CPU | **35.4 µs** | 37.2 µs | 79.6 µs |
-| アイドル時のメモリ | **512 KiB** | 7,804 KiB | 8,424 KiB |
-| 負荷時のピークメモリ | **1,932 KiB** | 8,468 KiB | 15,340 KiB |
-| サーバーのバイナリ(strip 後) | **525 KB**(静的リンク、libc なし) | 6.2 MB | 7.3 MB |
-| グッドプット、10 Mbps の模擬リンク | 9,434 kbps | 9,434 kbps | **9,535 kbps** |
+| 毎秒リクエスト数(ループバック) | 23,825 | 22,175 | 12,042 |
+| 負荷時のレイテンシー、p50 | 0.71 ms | 0.81 ms | 1.45 ms |
+| 負荷時のレイテンシー、p99 | 3.05 ms | 2.57 ms | 3.68 ms |
+| 新しい接続の TTFB、p50 | 2.73 ms | 1.97 ms | 2.64 ms |
+| 1 リクエストあたりのサーバー CPU | 35.4 µs | 37.2 µs | 79.6 µs |
+| アイドル時のメモリ | 512 KiB | 7,804 KiB | 8,424 KiB |
+| 負荷時のピークメモリ | 1,932 KiB | 8,468 KiB | 15,340 KiB |
+| サーバーのバイナリ(strip 後) | 525 KB(静的リンク、libc なし) | 6.2 MB | 7.3 MB |
+| グッドプット、10 Mbps の模擬リンク | 9,434 kbps | 9,434 kbps | 9,535 kbps |
 
-wired が劣る点もあります。新しいコネクションで最初の応答が返るまでの時間は 3 つの中で最も遅く(TTFB p50 2.73 ms。quiche は 1.97 ms、quic-go は 2.64 ms)、負荷時の p99 レイテンシーは quiche に及ばず(3.05 ms 対 2.57 ms)、グッドプットでは quic-go が上回ります。WebTransport と MOQT の速さは測っていません。
+WebTransport と MoQT の性能は計測していない。
 
-## 機能の比較表
+<a id="feature-matrix"></a><a id="機能の比較表"></a>
+
+## 2. 機能の比較表
 
 | | wired | quic-go | quiche | ngtcp2 (+nghttp3) | picoquic |
 |---|---|---|---|---|---|
 | 言語 | C、freestanding [^w-libc] | Go [^qg-readme] | Rust + BoringSSL [^qc-readme] | C11 [^ng-readme] | C [^pq-readme] |
 | TLS | 組み込みの TLS 1.3 [^w-tls] | Go の crypto/tls [^qg-readme] | BoringSSL [^qc-readme] | 差し替え可能(GnuTLS、BoringSSL、OpenSSL など) [^ng-readme] | picotls [^pq-readme] |
-| libc が必要か | 不要 [^w-libc] | 不要。ただし Go ランタイムが必要 [^qg-nocgo] | 必要 [^qc-readme] | 必要 [^ng-readme] | 必要 [^pq-readme] |
-| HTTP/3 | ✅ [^w-h3] | ✅ [^qg-readme] | ✅ [^qc-h3] | ✅ nghttp3 経由 [^ng-h3] | ✅ 最小限 [^pq-readme] |
-| QPACK の動的テーブル | 一部: デコードはするが、エンコードは静的テーブルのみ [^w-qpack] | — [^qg-qpack] | — [^qc-qpack] | ✅ [^ng-qpack] | — [^pq-qpack] |
-| WebTransport | ✅ [^w-wt] | 一部: 別ライブラリの webtransport-go [^qg-readme] | 一部: Extended CONNECT のみ [^qc-wt] | 一部: 前提となる部分のみ [^ng-wt] | ✅ [^pq-wt] |
-| QUIC DATAGRAM | ✅ [^w-dgram] | ✅ [^qg-readme] | ✅ [^qc-dgram] | ✅ [^ng-readme] | ✅ [^pq-readme] |
-| 0-RTT | ✅ [^w-interop] | ✅ [^qg-0rtt] | ✅ [^qc-0rtt] | ✅ [^ng-0rtt] | ✅ [^pq-0rtt] |
-| Key Update | ✅ [^w-interop] | ✅ [^qg-ku] | 一部: 応答のみ [^qc-ku] | ✅ [^ng-ku] | ✅ [^pq-ku] |
-| ECN | ✅ [^w-interop] | ✅ [^qg-ecn] | — [^qc-ecn] | ✅ [^ng-ecn] | ✅ [^pq-ecn] |
-| コネクションマイグレーション | ✅ [^w-interop] | ✅ [^qg-mig] | ✅ [^qc-mig] | ✅ [^ng-mig] | ✅ [^pq-mig] |
-| QUIC v2 | ✅ [^w-interop] | ✅ [^qg-readme] | — [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
-| MOQT | ✅ draft 18/19/22 [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — [^pq-nomoqt] |
+| libc | 不要 [^w-libc] | 不要。Go ランタイムが必要 [^qg-nocgo] | 必要 [^qc-readme] | 必要 [^ng-readme] | 必要 [^pq-readme] |
+| HTTP/3 | あり [^w-h3] | あり [^qg-readme] | あり [^qc-h3] | あり(nghttp3 経由) [^ng-h3] | あり(最小限) [^pq-readme] |
+| QPACK の動的テーブル | 一部: デコードはする。エンコードは静的テーブルのみ [^w-qpack] | なし [^qg-qpack] | なし [^qc-qpack] | あり [^ng-qpack] | なし [^pq-qpack] |
+| WebTransport | あり [^w-wt] | 一部: 別ライブラリの webtransport-go [^qg-readme] | 一部: Extended CONNECT のみ [^qc-wt] | 一部: 前提となる部分のみ [^ng-wt] | あり [^pq-wt] |
+| QUIC DATAGRAM | あり [^w-dgram] | あり [^qg-readme] | あり [^qc-dgram] | あり [^ng-readme] | あり [^pq-readme] |
+| 0-RTT | あり [^w-interop] | あり [^qg-0rtt] | あり [^qc-0rtt] | あり [^ng-0rtt] | あり [^pq-0rtt] |
+| Key Update | あり [^w-interop] | あり [^qg-ku] | 一部: 応答のみ [^qc-ku] | あり [^ng-ku] | あり [^pq-ku] |
+| ECN | あり [^w-interop] | あり [^qg-ecn] | なし [^qc-ecn] | あり [^ng-ecn] | あり [^pq-ecn] |
+| 接続の移行 | あり [^w-interop] | あり [^qg-mig] | あり [^qc-mig] | あり [^ng-mig] | あり [^pq-mig] |
+| QUIC v2 | あり [^w-interop] | あり [^qg-readme] | なし [^qc-v2] | あり [^ng-readme] | あり [^pq-v2] |
+| MoQT | あり(draft 18/19/22) [^w-moqt] | なし [^qg-nomoqt] | なし [^qc-nomoqt] | なし [^ng-nomoqt] | なし [^pq-nomoqt] |
 
-QUIC の機能に付けた wired の ✅ は、wired 自身のテストだけでなく、独立したクライアントとの通信でも確かめています。[相互接続性の検証結果](../interop.md)を参照してください。
+wired の QUIC の機能の「あり」は、wired 自身のテストに加え、独立したクライアントとの相互運用性テストでも確かめている。
 
-## 模擬リンクでのグッドプット
+<a id="goodput-over-a-simulated-link"></a><a id="模擬リンクでのグッドプット"></a>
 
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) の 10 Mbps の模擬リンクで 10 MB をダウンロードし、5 回繰り返しました。どのサーバーに対してもクライアントは quic-go です。5 つのサーバーはすべて runner の Docker イメージとして動かしました(wired のイメージは 64 コネクションのテーブルでビルドしています)。
+## 3. 模擬リンクでのグッドプット
+
+| 条件 | 値 |
+|---|---|
+| ツール | [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) |
+| リンク | 10 Mbps の模擬リンク |
+| 転送 | 10 MB のダウンロード |
+| 回数 | サーバーごとに 5 回 |
+| クライアント | すべて quic-go |
+| サーバー | 5 つすべて runner の Docker イメージ。wired のイメージは 64 接続のテーブルでビルド |
 
 | サーバー | グッドプット(kbps) |
 |---|---|
@@ -52,17 +76,27 @@ QUIC の機能に付けた wired の ✅ は、wired 自身のテストだけで
 
 ```mermaid
 xychart-beta
-    title "Goodput (kbps, higher is better)"
+    title "Goodput (kbps)"
     x-axis ["quic-go", "wired", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
     bar [9535, 9434, 9434, 9352, 9118]
 ```
 
-ここではリンクがボトルネックなので、5 つともほぼ同じようにリンクの帯域を使い切っています。
+この計測では 10 Mbps のリンクが上限になる。
 
-## ループバック: 1 リクエストあたりのコスト
+<a id="loopback-cost-per-request"></a><a id="ループバック-1-リクエストあたりのコスト"></a>
 
-クライアントとサーバーを 1 台のマシン(`127.0.0.1`)で動かすので、測っているのはサーバー自身のコストです。1 ラウンドでは、まず新しいコネクションで 100 リクエストを送り(TTFB)、次に 20 本の並列ストリームで小さなリクエストを 10,000 件送ります(負荷)。サーバーごとに 5 ラウンド行い、サーバーは 1 コアに固定し、各サーバーはデフォルト設定のままです(wired は固定サイズのバッファーに合わせて、ほかの実装より小さいストリームごとのウィンドウを通知します)。ngtcp2 と picoquic はネイティブにビルドしていないため、グッドプットの計測にだけ登場します。
+## 4. ループバックでの 1 リクエストあたりのコスト
+
+クライアントとサーバーを 1 台のマシン(`127.0.0.1`)で動かし、サーバー自身のコストを測る。
+
+| 条件 | 値 |
+|---|---|
+| 1 ラウンド | 新しい接続で 100 リクエスト(TTFB)、次に 20 本の並列ストリームで小さなリクエスト 10,000 件(負荷) |
+| ラウンド数 | サーバーごとに 5 |
+| CPU | サーバーを 1 コアに固定 |
+| 設定 | 各サーバーのデフォルト。wired は固定サイズのバッファーに合わせ、ほかの実装より小さいストリームごとのウィンドウを通知する |
+| 対象外 | ngtcp2 と picoquic(ネイティブにビルドしていないので、グッドプットの計測だけに入る) |
 
 | サーバー | 負荷 req/s | 負荷 p50 (ms) | 負荷 p99 (ms) | TTFB p50 (ms) |
 |---|---|---|---|---|
@@ -72,17 +106,25 @@ xychart-beta
 
 ```mermaid
 xychart-beta
-    title "Requests per second (higher is better)"
+    title "Requests per second"
     x-axis ["wired", "quiche", "quic-go"]
     y-axis "req/s" 0 --> 26000
     bar [23825, 22175, 12042]
 ```
 
-どの実行でも、失敗したリクエストはありませんでした。
+どの実行でも、失敗したリクエストは 0 件である。
 
-## メモリ、CPU、バイナリサイズ
+<a id="memory-cpu-and-binary-size"></a><a id="メモリcpuバイナリサイズ"></a>
 
-同じループバックの実行で測りました。アイドル時のメモリは起動の 1.5 秒後に読み取った値、ピークメモリは負荷のラウンド中にプロセスが達した最大値です。CPU は、1 リクエストあたりのサーバー自身の CPU 時間です。
+## 5. メモリ、CPU、バイナリサイズ
+
+4 章と同じループバックの実行で測った。
+
+| 指標 | 測り方 |
+|---|---|
+| アイドル時のメモリ | 起動の 1.5 秒後に読み取った値 |
+| ピークメモリ | 負荷のラウンド中にプロセスが達した最大値 |
+| CPU | 1 リクエストあたりのサーバー自身の CPU 時間 |
 
 | サーバー | アイドル (KiB) | ピーク (KiB) | 1 リクエストあたりの CPU (µs) | strip 後のバイナリ (B) |
 |---|---|---|---|---|
@@ -92,31 +134,41 @@ xychart-beta
 
 ```mermaid
 xychart-beta
-    title "Peak memory under load (KiB, lower is better)"
+    title "Peak memory under load (KiB)"
     x-axis ["wired", "quiche", "quic-go"]
     y-axis "KiB" 0 --> 16000
     bar [1932, 8468, 15340]
 ```
 
-wired はテーブルを最初にまとめて確保します(`bss` で約 29 MB)。ただし実メモリに載るのは書き込んだページだけで、閉じたコネクションのページはカーネルに返します。[メモリ配置とサイズの見積もり](../arch/memory.md)を参照してください。
+wired はテーブルを起動時にまとめて確保する(`bss` で約 29 MB)。実メモリに載るのは書き込んだページだけで、閉じた接続のページはカーネルに返す。詳細は [メモリ配置とサイズ](../architecture/memory.md) にある。
 
-## 環境と再現方法
+<a id="environment-and-reproduction"></a><a id="環境と再現方法"></a>
 
-- KVM の VM、Intel Xeon Gold 6230 @ 2.10 GHz、4 vCPU、3.8 GiB RAM、Ubuntu 24.04、カーネル 6.8。ループバックではサーバーをコア 3、クライアントをコア 0–1 で動かした。`net.core.rmem_max` は 208 KiB(どのサーバーでも同じ)。
-- バージョン: quic-go v0.61.0(Go 1.25.0)、quiche 0.29.3(`55886df`)。グッドプットの計測には runner の interop イメージを使った(ダイジェストは[ベンチマークの実行結果](comparison-runs.md)にある)。
-- スクリプト: [`bench/`](../../bench/)(`run-lane.sh`、`report.mjs`、負荷をかけるクライアント、quic-go のサーバー)。手順ごとのコマンドは [`bench/README.md`](../../bench/README.md) にある。グッドプットは quic-interop-runner で `python run.py -s <server> -c quic-go -t goodput` を実行して測った。wired は [interop/README.md](../../interop/README.md) のとおりに登録する。
-- 証明書の SAN には `127.0.0.1` が入っていなければならない。wired は証明書が対象にしていない名前へのリクエストに 421 を返すため。
+## 6. 環境と再現方法
 
-## 脚注
+| 項目 | 内容 |
+|---|---|
+| マシン | KVM の VM、Intel Xeon Gold 6230 @ 2.10 GHz、4 vCPU、3.8 GiB RAM、Ubuntu 24.04、カーネル 6.8 |
+| CPU の割り当て(ループバック) | サーバーはコア 3、クライアントはコア 0–1 |
+| `net.core.rmem_max` | 208 KiB(どのサーバーでも同じ) |
+| バージョン | quic-go v0.61.0(Go 1.25.0)、quiche 0.29.3(`55886df`) |
+| グッドプットのイメージ | runner の interop イメージ。ダイジェストは [ベンチマークの実行結果](comparison-runs.md) にある |
+| スクリプト | [`bench/`](../../bench/)(`run-lane.sh`、`report.mjs`、負荷をかけるクライアント、quic-go のサーバー)。手順ごとのコマンドは [`bench/README.md`](../../bench/README.md) にある |
+| グッドプットの実行 | quic-interop-runner で `python run.py -s <server> -c quic-go -t goodput`。wired は [interop/README.md](../../interop/README.md) のとおりに登録する |
+| 証明書 | SAN に `127.0.0.1` を入れる。wired は証明書が対象にしていない名前へのリクエストに 421 を返す |
 
-[^w-libc]: `src/**/*.c` はすべて `-ffreestanding -nostdlib` でビルドできます。[システムコール](../syscalls.md)を参照。
-[^w-tls]: [機能 › RFC 8446](../features/rfc8446.md)。
-[^w-h3]: [機能 › RFC 9114](../features/rfc9114.md)。
-[^w-qpack]: [機能 › RFC 9204](../features/rfc9204.md)。サーバーは動的テーブルの容量を 0 と通知し、エンコーダーは静的テーブルだけを使います。
-[^w-wt]: [機能 › RFC 9220](../features/rfc9220.md)、[draft-webtrans-http3](../features/draft-webtrans-http3.md)。
-[^w-dgram]: [機能 › RFC 9221](../features/rfc9221.md)、[RFC 9297](../features/rfc9297.md)。
-[^w-interop]: 独立したクライアントとの相互接続テストに合格。[相互接続性の検証結果](../interop.md)を参照。
-[^w-moqt]: WebTransport と素の QUIC の上でサーバー/リレーとして動作し、draft はセッションごとに選びます。`src/app/moqt/`。
+<a id="footnotes"></a><a id="脚注"></a>
+
+## 7. 脚注
+
+[^w-libc]: `src/**/*.c` はすべて `-ffreestanding -nostdlib` でビルドできる。[システムコール](../syscalls.md)を参照。
+[^w-tls]: [要件台帳 › RFC 8446](../features/rfc8446.md)。
+[^w-h3]: [要件台帳 › RFC 9114](../features/rfc9114.md)。
+[^w-qpack]: [要件台帳 › RFC 9204](../features/rfc9204.md)。サーバーは動的テーブルの容量を 0 と通知し、エンコーダーは静的テーブルだけを使う。
+[^w-wt]: [要件台帳 › RFC 9220](../features/rfc9220.md)、[draft-webtrans-http3](../features/draft-webtrans-http3.md)。
+[^w-dgram]: [要件台帳 › RFC 9221](../features/rfc9221.md)、[RFC 9297](../features/rfc9297.md)。
+[^w-interop]: 独立したクライアントとの相互運用性テストに合格。[相互運用性テストの結果](../verification/interop.md)を参照。
+[^w-moqt]: WebTransport と raw QUIC の上でサーバー/リレーとして動作し、draft はセッションごとに選ぶ。`src/app/moqt/`。
 [^qg-readme]: <https://github.com/quic-go/quic-go/blob/v0.61.0/README.md>。
 [^qg-nocgo]: v0.61.0 に `import "C"` はない。
 [^qg-qpack]: <https://github.com/quic-go/qpack/blob/v0.6.0/README.md> に "does not support the dynamic table" とある。
@@ -131,7 +183,7 @@ wired はテーブルを最初にまとめて確保します(`bss` で約 29 MB)
 [^qc-wt]: 0.29.3 の `quiche/src/h3/mod.rs`(`enable_extended_connect`)。WebTransport のセッション層はない。
 [^qc-dgram]: 0.29.3 の `quiche/src/lib.rs`(`enable_dgram`)。
 [^qc-0rtt]: 0.29.3 の `quiche/src/lib.rs`(`enable_early_data`)。
-[^qc-ku]: 0.29.3 の `quiche/src/lib.rs`。鍵の更新を始める API がない。
+[^qc-ku]: 0.29.3 の `quiche/src/lib.rs`。鍵更新を始める API がない。
 [^qc-ecn]: 0.29.3 の `quiche/src/lib.rs` に "sending ECN is not supported" とある。
 [^qc-mig]: 0.29.3 の `quiche/src/path.rs`、`lib.rs`(`migrate`)。
 [^qc-v2]: 0.29.3 の `quiche/src/lib.rs`。v1 のみ。
@@ -144,7 +196,7 @@ wired はテーブルを最初にまとめて確保します(`bss` で約 29 MB)
 [^ng-ku]: ngtcp2 の `ngtcp2.h` の `ngtcp2_conn_initiate_key_update`。
 [^ng-ecn]: ngtcp2 の `ngtcp2_conn.c` にある ECN 検証の状態。
 [^ng-mig]: ngtcp2 の `ngtcp2.h` の `ngtcp2_conn_initiate_migration`。
-[^ng-nomoqt]: ngtcp2 にも nghttp3 にも MOQT の該当なし。
+[^ng-nomoqt]: ngtcp2 にも nghttp3 にも MoQT の該当なし。
 [^pq-readme]: <https://github.com/private-octopus/picoquic/blob/master/README.md>。
 [^pq-qpack]: picoquic の `picohttp/h3zero.c`。静的テーブルのみ。
 [^pq-wt]: picoquic の `picohttp/webtransport.c`。
