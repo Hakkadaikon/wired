@@ -112,8 +112,17 @@ static int moqctl_pv_ssa(wired_span buf, usz* at, moqctl_param* p) {
   return moqctl_ssa_take(p->bytes, &p->ssa);
 }
 
-const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[10] = {
+/* The value runs to the end of its last inner Parameter. */
+static int moqctl_pv_fill23(wired_span buf, usz* at, moqctl_param* p) {
+  moqctl_params inner;
+  usz           start = *at;
+  int r    = moqctl_params_take(MOQVER_D23, buf, at, MOQCTL_PCTX_FETCH, &inner);
+  p->bytes = wired_span_of(buf.p + start, *at - start);
+  return r;
+}
+
+const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[11] = {
     moqctl_pv_uint8, moqctl_pv_varint,     moqctl_pv_location,
     moqctl_pv_bytes, moqctl_pv_token,      moqctl_pv_locfilter,
     moqctl_pv_ns,    moqctl_pv_rangeloc22, moqctl_pv_switchfrom,
-    moqctl_pv_ssa};
+    moqctl_pv_ssa,   moqctl_pv_fill23};

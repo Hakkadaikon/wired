@@ -18,6 +18,7 @@ static int moqctl_param_admit(
 static int moqctl_param_take_delta(
     wired_span buf, usz* at, u64 prev, moqctl_param* p);
 static int  moqctl_param_typed_filter(const moqctl_param_rule* rule, int ver);
+static int  moqctl_param_fill_counted(const moqctl_param_rule* rule, int ver);
 static void moqctl_param_rule_select(
     const moqctl_param_rule* rule, int ver, moqctl_param_rule* over);
 static int moqctl_param_take_body(
@@ -99,11 +100,20 @@ static int moqctl_param_typed_filter(const moqctl_param_rule* rule, int ver) {
          (moqver_caps(ver) & MOQVER_CAP_LOCFILTER_TYPED);
 }
 
+/* draft-23 9.19.15: FILL_PARAMETERS counts its Parameters, no Length. */
+static int moqctl_param_fill_counted(const moqctl_param_rule* rule, int ver) {
+  return rule->type == MOQCTL_PARAM_FILL_PARAMETERS &&
+         (moqver_caps(ver) & MOQVER_CAP_FILL_COUNT);
+}
+
 static void moqctl_param_rule_select(
     const moqctl_param_rule* rule, int ver, moqctl_param_rule* over) {
   *over = *rule;
   if (moqctl_param_typed_filter(rule, ver)) {
     over->enc = MOQCTL_PENC_RANGELOC22;
+  }
+  if (moqctl_param_fill_counted(rule, ver)) {
+    over->enc = MOQCTL_PENC_FILL23;
   }
 }
 

@@ -152,8 +152,8 @@ int moqctl_request_error_take_head(
 int moqctl_request_error_encode_codes_reason(
     wired_mspan buf, usz* at, const moqctl_request_error* m);
 
-extern const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[10];
-extern const moqctl_param_put_fn   MOQCTL_PARAM_PUT_FNS[10];
+extern const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[11];
+extern const moqctl_param_put_fn   MOQCTL_PARAM_PUT_FNS[11];
 
 /* The SSTS_ALGORITHMS Setup Option type draft ver uses (moqctl_ssts.c). */
 u64 moqctl_ssts_opt_for(int ver);

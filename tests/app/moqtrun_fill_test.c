@@ -47,6 +47,27 @@ static void test_moqtrun_fill_subscribe_opens(void) {
   CHECK(mf_fin);
 }
 
+/* draft-23 9.19.15: on a moqt-23 session FILL_PARAMETERS is the count
+ * and Parameters with no Length, and opens the fill all the same; the
+ * rest of Group 0 is only inferred missing, so a marker covers it
+ * (2.1.2). */
+static void test_moqtrun_fill_subscribe_opens_d23(void) {
+  moqfetch_fill fill = {0};
+  moqctl_params p    = mfill_params(&fill, 0);
+  moqctl_ftn    f    = mf_track();
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  p.items[0].enc                             = MOQCTL_PENC_FILL23;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D23;
+  mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, mtst_rid += 4, &p);
+  moqfetch_seq seq  = {0};
+  seq.eor_timed_out = 1;
+  CHECK(mf_read_seq(seq) && mf_hdr_rid == mtst_rid && mf_n == 3 && mf_fin);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(2, 1, 0, 1));
+  CHECK(mf_items[1].flags == MOQFETCH_EOR_TIMED_OUT && !mf_items[1].group);
+}
+
 /* draft-22 3.4: "The fill fetch stream inherits the subscription's
  * parameters, including ... range filters": a subscription filtered to
  * Object 1 is filled with Object 1 of each cached group only. */
@@ -879,6 +900,7 @@ static void test_moqtrun_fill_inbound_fetch_unknown_rid(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_fill(void) {
   test_moqtrun_fill_subscribe_opens();
+  test_moqtrun_fill_subscribe_opens_d23();
   test_moqtrun_fill_inherits_range_filter();
   test_moqtrun_fill_end_clipped_to_largest();
   test_moqtrun_fill_empty_or_future_range();

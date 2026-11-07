@@ -107,8 +107,8 @@ static int moqctl_pp_ssa(wired_mspan buf, usz* at, const moqctl_param* p) {
 
 /* PENC_TOKEN re-emits the raw Token bytes the sender placed in p->bytes
  * (this subset only receives tokens; no Token-structure encoder). */
-const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[10] = {
+const moqctl_param_put_fn MOQCTL_PARAM_PUT_FNS[11] = {
     moqctl_pp_uint8, moqctl_pp_varint,     moqctl_pp_location,
     moqctl_pp_bytes, moqctl_pp_bytes,      moqctl_pp_locfilter,
     moqctl_pp_raw,   moqctl_pp_rangeloc22, moqctl_pp_switchfrom,
-    moqctl_pp_ssa};
+    moqctl_pp_ssa,   moqctl_pp_raw};

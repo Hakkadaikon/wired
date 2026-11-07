@@ -111,8 +111,51 @@ static void test_moqctl_d23_scope(void) {
       1));
 }
 
+/* Takes params under ver and SUBSCRIBE scope; *off past them. */
+static int mqd23_take_sub(
+    int ver, const u8* p, usz n, usz* off, moqctl_params* out) {
+  *off = 0;
+  return moqctl_params_take(
+      ver, wired_span_of(p, n), off, MOQCTL_PCTX_SUBSCRIBE, out);
+}
+
+/* The fill value at out's first item says FILL_TIMEOUT 5. */
+static int mqd23_fill_tmo5(const moqctl_params* out) {
+  moqfetch_fill f;
+  return moqfetch_fill_take(out->items[0].bytes, &f) == MOQCTL_OK &&
+         f.has_timeout && f.timeout_ms == 5;
+}
+
+/* 9.19.15: draft-23 FILL_PARAMETERS is Number of Parameters + Parameters,
+ * no Length. SUBSCRIBE's {FILL_PARAMETERS {FILL_TIMEOUT 5},
+ * INCLUDE_PROPERTIES 1} reads to its end, the fill value is the inner
+ * count and Parameter, and it encodes back to the same bytes; draft-22
+ * reads that value behind a Length. An inner Parameter the FETCH scope
+ * lacks (RENDEZVOUS_TIMEOUT) is INVALID_PARAMETER; a cut one is not OK. */
+static void test_moqctl_d23_fill_count(void) {
+  static const u8 d23[] = {0x02, 0x23, 0x01, 0x0A, 0x05, 0x12, 0x01};
+  static const u8 d22[] = {0x02, 0x23, 0x03, 0x01, 0x0A, 0x05, 0x12, 0x01};
+  static const u8 bad[] = {0x01, 0x23, 0x01, 0x04, 0x05};
+  static const u8 cut[] = {0x01, 0x23, 0x02, 0x0A, 0x05};
+  moqctl_params   out;
+  usz             off, n = 0;
+  u8              buf[16];
+  CHECK(mqd23_take_sub(MOQVER_D23, d23, sizeof d23, &off, &out) == MOQCTL_OK);
+  CHECK(off == sizeof d23 && out.n == 2 && mqd23_fill_tmo5(&out));
+  CHECK(out.items[1].type == MOQCTL_PARAM_INCLUDE_PROPERTIES);
+  CHECK(moqctl_params_put(wired_mspan_of(buf, sizeof buf), &n, &out));
+  CHECK(n == sizeof d23 && ct_diffn(buf, d23, n) == 0);
+  CHECK(mqd23_take_sub(MOQVER_D22, d22, sizeof d22, &off, &out) == MOQCTL_OK);
+  CHECK(off == sizeof d22 && out.n == 2 && mqd23_fill_tmo5(&out));
+  CHECK(
+      mqd23_take_sub(MOQVER_D23, bad, sizeof bad, &off, &out) ==
+      MOQCTL_R_PARAM);
+  CHECK(mqd23_take_sub(MOQVER_D23, cut, sizeof cut, &off, &out) != MOQCTL_OK);
+}
+
 void test_moqctl_d23(void) {
   test_moqctl_d23_paused_take();
   test_moqctl_d23_paused_put();
   test_moqctl_d23_scope();
+  test_moqctl_d23_fill_count();
 }

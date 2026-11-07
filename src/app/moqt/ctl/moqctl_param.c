@@ -51,8 +51,9 @@ int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason) {
  * GROUP_ORDER parameter"). An unqualified "REQUEST_UPDATE" covers every
  * REQUEST_UPDATE kind. RENDEZVOUS and FILL timeouts state no encoding; varint
  * is assumed. Range filters (5.1.3) and FILL_PARAMETERS (22 SS9.20.15: Number
- * of Parameters
- * + Parameters) are kept as their raw Length-prefixed bytes. SWITCH_FROM
+ * of Parameters + Parameters) are kept as their raw Length-prefixed bytes
+ * (draft-23 9.19.15 drops FILL_PARAMETERS' Length: MOQCTL_PENC_FILL23,
+ * chosen per draft by moqctl_params_take). SWITCH_FROM
  * and SWITCHING_SET_ASSIGNMENT are moqtail's experimental track-switching
  * extensions: draft-22 SUBSCRIBE + REQUEST_UPDATE (subscription) only. */
 /* clang-format off */

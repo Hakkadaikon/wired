@@ -96,6 +96,9 @@
 /** FORWARD (0x10) goes out as PAUSED (0x11) with the value inverted
  * (draft-23 9.19.18, moqctl_params_out). */
 #define MOQVER_CAP_PAUSED (1u << 29)
+/** FILL_PARAMETERS is Number of Parameters + Parameters with no Length
+ * (draft-23 9.19.15, MOQCTL_PENC_FILL23). */
+#define MOQVER_CAP_FILL_COUNT (1u << 30)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

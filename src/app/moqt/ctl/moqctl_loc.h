@@ -373,6 +373,11 @@
  * a truncated value, Weight outside 1..10 or bytes after the optional Rank
  * is a VIOLATION. */
 #define MOQCTL_PENC_SSA 9
+/** draft-23 FILL_PARAMETERS (9.19.15): Number of Parameters + Parameters,
+ * no Length; each inner Parameter is checked against the FETCH scope and
+ * the whole value kept in moqctl_param.bytes (count included), which
+ * encode re-emits as is. Selected by moqctl_params_take under draft-23. */
+#define MOQCTL_PENC_FILL23 10
 
 /** AUTHORIZATION TOKEN Alias Types (SS10.2.2). Which fields follow the
  * Alias Type is fixed per code point: DELETE/USE_ALIAS carry only the
