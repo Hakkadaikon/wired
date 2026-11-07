@@ -75,3 +75,10 @@ int moqctl_pp_bytes(wired_mspan buf, usz* at, const moqctl_param* p) {
   }
   return bytes_put(buf, at, p->bytes);
 }
+
+/* moqkvp_take's failures (index -r) as decode results: a cut pair is a
+ * Length mismatch (draft-23 8.3 for the other two). */
+static const int moqctl_kvp_r_tbl[] = {
+    MOQCTL_VIOLATION, MOQCTL_VIOLATION, MOQCTL_R_DELTA, MOQCTL_R_FIELD_LEN};
+
+int moqctl_kvp_r(int r) { return moqctl_kvp_r_tbl[-r]; }

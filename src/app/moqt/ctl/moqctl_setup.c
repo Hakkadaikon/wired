@@ -171,17 +171,12 @@ static int moqctl_setup_apply_kvp(
   return moqctl_setup_apply_checked(out, kv, ver);
 }
 
-/* moqkvp_take's failures (index -r) as decode results: a cut pair is a
- * Length mismatch (draft-23 8.3 for the other two). */
-static const int moqctl_setup_kvp_r[] = {
-    MOQCTL_VIOLATION, MOQCTL_VIOLATION, MOQCTL_R_DELTA, MOQCTL_R_FIELD_LEN};
-
 static int moqctl_setup_take_one(
     wired_span buf, usz* at, u64* prev, moqctl_setup* out, int ver) {
   moqkvp kv;
   int    r = moqkvp_take(buf, at, prev, &kv);
   if (r != MOQKVP_OK) {
-    return moqctl_setup_kvp_r[-r];
+    return moqctl_kvp_r(r);
   }
   return moqctl_setup_apply_kvp(out, &kv, ver);
 }

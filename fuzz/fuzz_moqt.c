@@ -22,6 +22,8 @@
 #include "app/moqt/cache/moqcache_item.c"
 #include "app/moqt/cache/moqcache_rec.c"
 #include "app/moqt/ctl/moqctl.c"
+#include "app/moqt/ctl/moqctl_errdet.c"
+#include "app/moqt/ctl/moqctl_errdet_put.c"
 #include "app/moqt/ctl/moqctl_ftn.c"
 #include "app/moqt/ctl/moqctl_goaway.c"
 #include "app/moqt/ctl/moqctl_locfilter.c"
@@ -67,6 +69,23 @@
 #include "app/moqt/vi/moqvi.c"
 
 /* Decode one control message body by its envelope type (SS10). */
+/* draft-23 9.4.1: a decoded REQUEST_ERROR re-encoded with Error Details
+ * decodes again, to the same code and details. */
+static void fuzz_reqerr_roundtrip(const moqctl_request_error* m) {
+  static u8            buf[1 << 17];
+  usz                  n = 0, off = 0;
+  moqctl_request_error back;
+  if (!moqctl_request_error_encode23(wired_mspan_of(buf, sizeof buf), &n, m)) {
+    return;
+  }
+  if (moqctl_request_error_take_v(
+          MOQVER_D23, wired_span_of(buf, n), &off, &back) != MOQCTL_OK ||
+      off != n || back.error_code != m->error_code ||
+      back.has_redirect != m->has_redirect) {
+    __builtin_trap();
+  }
+}
+
 static void fuzz_ctl_body(int ver, u64 type, wired_span body) {
   usz off = 0;
   if (type == MOQCTL_T_SETUP) {
@@ -86,8 +105,9 @@ static void fuzz_ctl_body(int ver, u64 type, wired_span body) {
     moqctl_request_ok_take(ver, body, &off, &m);
   } else if (type == MOQCTL_T_REQUEST_ERROR) {
     moqctl_request_error m;
-    if (moqctl_request_error_take(body, &off, &m) == MOQCTL_OK) {
+    if (moqctl_request_error_take_v(ver, body, &off, &m) == MOQCTL_OK) {
       moqctl_request_error_for(ver, m.error_code);
+      fuzz_reqerr_roundtrip(&m);
     }
   } else if (type == MOQCTL_T_PUBLISH_DONE) {
     moqctl_publish_done m;

@@ -818,6 +818,8 @@
 #include "app/moqt/ctl/moqctl_rangefilter.c"
 #include "app/moqt/ctl/moqctl_rangeloc19.c"
 #include "app/moqt/ctl/moqctl_rangeloc22.c"
+#include "app/moqt/ctl/moqctl_errdet.c"
+#include "app/moqt/ctl/moqctl_errdet_put.c"
 #include "app/moqt/ctl/moqctl_request.c"
 #include "app/moqt/ctl/moqctl_rngf.c"
 #include "app/moqt/ctl/moqctl_rngf_put.c"
@@ -1515,6 +1517,7 @@
 #include "app/moqvi_test.c"
 #include "app/moqkvp_test.c"
 #include "app/moqctl_test.c"
+#include "app/moqctl_errdet_test.c"
 #include "app/moqdata_test.c"
 #include "app/moqdg_test.c"
 #include "app/moqsess_test.c"
@@ -2126,6 +2129,7 @@ int main(void) {
   test_moqvi();
   test_moqkvp();
   test_moqctl();
+  test_moqctl_errdet();
   test_moqdata();
   test_moqdg();
   test_moqsess();

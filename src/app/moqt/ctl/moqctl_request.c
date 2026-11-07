@@ -4,16 +4,10 @@ static int moqctl_request_error_take_redirect(
     wired_span buf, usz* at, moqctl_request_error* out);
 static int moqctl_request_error_take_codes(
     wired_span buf, usz* at, moqctl_request_error* out);
-static int moqctl_request_error_take_reason_redirect(
-    wired_span buf, usz* at, moqctl_request_error* out);
 static int moqctl_redirect_put_uri(
     wired_mspan buf, usz* at, const moqctl_redirect* r);
 static int moqctl_redirect_put_name(
     wired_mspan buf, usz* at, const moqctl_redirect* r);
-static int moqctl_redirect_put(
-    wired_mspan buf, usz* at, const moqctl_redirect* r);
-static int moqctl_request_error_encode_codes_reason(
-    wired_mspan buf, usz* at, const moqctl_request_error* m);
 static int moqctl_request_error_encode_redirect(
     wired_mspan buf, usz* at, const moqctl_request_error* m);
 
@@ -38,23 +32,26 @@ static int moqctl_request_error_take_codes(
   return MOQCTL_OK;
 }
 
-static int moqctl_request_error_take_reason_redirect(
+/* Error Code, Retry Interval and Reason Phrase: every draft's head. */
+int moqctl_request_error_take_head(
     wired_span buf, usz* at, moqctl_request_error* out) {
-  int r = moqctl_reason_take(buf, at, &out->reason);
+  int r = moqctl_request_error_take_codes(buf, at, out);
   if (r != MOQCTL_OK) {
     return r;
   }
-  return moqctl_request_error_take_redirect(buf, at, out);
+  out->n_unsupported = 0;
+  out->has_redirect  = 0;
+  return moqctl_reason_take(buf, at, &out->reason);
 }
 
 int moqctl_request_error_take(
     wired_span buf, usz* off, moqctl_request_error* out) {
   usz at = *off;
-  int r  = moqctl_request_error_take_codes(buf, &at, out);
+  int r  = moqctl_request_error_take_head(buf, &at, out);
   if (r != MOQCTL_OK) {
     return r;
   }
-  r = moqctl_request_error_take_reason_redirect(buf, &at, out);
+  r = moqctl_request_error_take_redirect(buf, &at, out);
   if (r != MOQCTL_OK) {
     return r;
   }
@@ -78,8 +75,7 @@ static int moqctl_redirect_put_name(
   return bytes_put(buf, at, r->track_name);
 }
 
-static int moqctl_redirect_put(
-    wired_mspan buf, usz* at, const moqctl_redirect* r) {
+int moqctl_redirect_put(wired_mspan buf, usz* at, const moqctl_redirect* r) {
   if (!moqctl_redirect_put_uri(buf, at, r)) {
     return 0;
   }
@@ -89,7 +85,7 @@ static int moqctl_redirect_put(
   return moqctl_redirect_put_name(buf, at, r);
 }
 
-static int moqctl_request_error_encode_codes_reason(
+int moqctl_request_error_encode_codes_reason(
     wired_mspan buf, usz* at, const moqctl_request_error* m) {
   if (!moqvi_put(buf, at, m->error_code)) {
     return 0;

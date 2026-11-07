@@ -137,6 +137,20 @@ wired_span moqctl_residual(wired_span buf, usz at);
 int        moqctl_publish_take_alias_params(
     int ver, wired_span buf, usz* at, moqctl_publish* out);
 int moqctl_redirect_take(wired_span buf, usz* at, moqctl_redirect* r);
+/** A failed moqkvp_take result (MOQKVP_INSUFFICIENT .. MOQKVP_R_LEN) as a
+ * decode result: cut short VIOLATION, MOQCTL_R_DELTA, MOQCTL_R_FIELD_LEN. */
+int moqctl_kvp_r(int r);
+/* Error Detail Types (16.11). */
+#define MOQCTL_DETAIL_REDIRECT 0x01ULL
+#define MOQCTL_DETAIL_UNSUPPORTED_PROPERTY 0x02ULL
+/* Delta Type of the REDIRECT detail (1 byte) and its Length (vi64, up to
+ * 9 bytes). */
+#define MOQCTL_DETAIL_HDR_MAX 10
+int moqctl_redirect_put(wired_mspan buf, usz* at, const moqctl_redirect* r);
+int moqctl_request_error_take_head(
+    wired_span buf, usz* at, moqctl_request_error* out);
+int moqctl_request_error_encode_codes_reason(
+    wired_mspan buf, usz* at, const moqctl_request_error* m);
 
 extern const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[10];
 extern const moqctl_param_put_fn   MOQCTL_PARAM_PUT_FNS[10];

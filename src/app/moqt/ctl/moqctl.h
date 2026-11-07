@@ -319,6 +319,10 @@ typedef struct {
   wired_span track_name;
 } moqctl_redirect;
 
+/** UNSUPPORTED_PROPERTY Error Details one REQUEST_ERROR keeps or sends
+ * (draft-23 9.4.2.2: one per unknown Mandatory Track Property). */
+#define MOQCTL_MAX_UNSUPP 8
+
 /** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR. has_redirect is only
  * legal when error_code == MOQCTL_ERR_REDIRECT (checked on
  * encode/decode: a Redirect present with any other code, or absent with
@@ -336,12 +340,26 @@ typedef struct {
   int has_redirect;
   /** Redirect target; valid iff has_redirect. */
   moqctl_redirect redirect;
+  /** draft-23 9.4.2.2 UNSUPPORTED_PROPERTY Error Details: the Mandatory
+   * Track Property Types not understood, in order (the first
+   * MOQCTL_MAX_UNSUPP); carried only with UNSUPPORTED_EXTENSION. */
+  u64 unsupported[MOQCTL_MAX_UNSUPP];
+  /** Entries of unsupported in use. */
+  u8 n_unsupported;
 } moqctl_request_error;
 
 /** Decodes a REQUEST_ERROR Message Body (Redirect read iff the code is
  * REDIRECT). */
 int moqctl_request_error_take(
     wired_span buf, usz* off, moqctl_request_error* out);
+/** moqctl_request_error_take in draft ver: under MOQVER_CAP_ERR_DETAILS
+ * (draft-23 9.4.1) the Redirect and UNSUPPORTED_PROPERTY entries come as
+ * Error Details, Key-Value-Pairs to the end of the body. */
+int moqctl_request_error_take_v(
+    int ver, wired_span buf, usz* off, moqctl_request_error* out);
+/** moqctl_request_error_encode with draft-23 9.4.1 Error Details. */
+int moqctl_request_error_encode23(
+    wired_mspan buf, usz* off, const moqctl_request_error* m);
 /** Encodes m as a REQUEST_ERROR Message Body; 1 ok, 0 when buf runs
  * out. */
 int moqctl_request_error_encode(

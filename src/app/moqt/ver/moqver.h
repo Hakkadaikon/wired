@@ -78,6 +78,9 @@
 /** REQUEST_ERROR PREFIX_OVERLAP (0x30) exists (draft-18, 19, 22; gone in
  * draft-23 16.12.2). */
 #define MOQVER_CAP_PREFIX_OVERLAP (1u << 24)
+/** REQUEST_ERROR ends in Error Details (Key-Value-Pairs) carrying the
+ * Redirect (draft-23 9.4.1). */
+#define MOQVER_CAP_ERR_DETAILS (1u << 25)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
