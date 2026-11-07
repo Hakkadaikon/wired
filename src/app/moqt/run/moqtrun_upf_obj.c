@@ -2,8 +2,6 @@
 
 static void moqtrun_upf_obj_of(
     moqfetch_obj* d, const moqfetch_obj* o, const moqfetch_seq* s);
-static int moqtrun_upf_send_item(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, usz n);
 static int moqtrun_upf_append(wired_moqt_hub* hub, usz* n, wired_span pre);
 static int moqtrun_upf_encode(
     wired_moqt_hub*     hub,
@@ -24,11 +22,6 @@ static int moqtrun_upf_skip(
     wired_span           pre);
 static int moqtrun_upf_shown(
     const wired_moqtrun_fetch* f, const moqfetch_obj* o);
-static int moqtrun_upf_mark_out(const wired_moqtrun_fetch* f);
-static int moqtrun_upf_mark_send(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o);
-static int moqtrun_upf_end_mark(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o);
 static int moqtrun_upf_relay_item(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
@@ -46,8 +39,7 @@ static void moqtrun_upf_obj_of(
 
 /* The n encoded bytes written out on f's stream, opened with the first
  * item. */
-static int moqtrun_upf_send_item(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, usz n) {
+int moqtrun_upf_send_item(wired_moqt_hub* hub, wired_moqtrun_fetch* f, usz n) {
   return moqtrun_fetch_open(hub, f) &&
          hub->io.stream_send(
              f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), 0) > 0;
@@ -125,38 +117,6 @@ static int moqtrun_upf_skip(
 static int moqtrun_upf_shown(
     const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
   return o->flags >= 0x80 || moqtrun_fsel_up_pass(f, o);
-}
-
-/* The item before went out on a stream whose draft has End of Group /
- * Track (draft-23 11.4.1). */
-static int moqtrun_upf_mark_out(const wired_moqtrun_fetch* f) {
-  return f->seq.d23 && f->has_up_last && !f->up_skip;
-}
-
-static int moqtrun_upf_mark_send(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o) {
-  moqfetch_seq seq = f->seq;
-  usz          n   = 0;
-  if (!moqfetch_obj_put(
-          wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n,
-          &seq, o) ||
-      !moqtrun_upf_send_item(hub, f, n)) {
-    return 0;
-  }
-  f->seq        = seq;
-  f->last_ok_ms = hub->live.last_now_ms;
-  return 1;
-}
-
-/* draft-23 11.4.2.2: End of Group / Track ends the item before it, so it
- * goes on right after that item (the leg's place stays there), and is
- * left out where that item was not relayed or the draft lacks it. */
-static int moqtrun_upf_end_mark(
-    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o) {
-  if (!moqtrun_upf_mark_out(f)) {
-    return 1;
-  }
-  return moqtrun_upf_mark_send(hub, f, o);
 }
 
 static int moqtrun_upf_relay_item(

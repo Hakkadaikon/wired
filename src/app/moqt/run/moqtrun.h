@@ -35,6 +35,9 @@ typedef struct {
   u8 name[WIRED_MOQTRUN_MAX_NAME];
   /** Bytes of name in use. */
   usz name_len;
+  /** The upstream FETCH's End Location (inclusive): where its response
+   * ends without LARGEST_OBJECT (draft-23 3.2). */
+  moqctl_loc req_end;
 } wired_moqtrun_upf_leg;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded

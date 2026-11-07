@@ -44,6 +44,13 @@ typedef struct {
   usz                    n;
 } moqfetch_put_ops;
 
+int moqfetch_put_object(
+    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
+int moqfetch_put_eor(
+    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
+int moqfetch_put_end(
+    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
+
 int moqfetch_add(u64 a, u64 b, u64* out);
 int moqfetch_first_ok(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o);
@@ -55,6 +62,7 @@ int moqfetch_take_eor(
 int moqfetch_kind(u64 flags, const moqfetch_seq* s);
 int moqfetch_group_up(u64 prior, u64 d, u64* out);
 int moqfetch_eor_rel(const moqfetch_seq* s);
+int moqfetch_ok23_take(int ver, wired_span body, moqfetch_ok* out);
 
 extern const moqfetch_step_fn  MOQFETCH_OBJ_STEPS[7];
 extern const moqfetch_step_fn  MOQFETCH_HEAD_STEPS[7];

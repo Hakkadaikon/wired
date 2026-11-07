@@ -144,7 +144,10 @@ moqctl_loc moqtrun_upf_loc(const moqfetch_obj* o);
 int        moqtrun_upf_valid(const wired_moqtrun_fetch* f, moqctl_loc l);
 u64        moqtrun_upf_eor_of(u64 flags, const moqfetch_seq* s);
 u64        moqtrun_upf_flags_of(const moqfetch_obj* o, const moqfetch_seq* s);
-int        moqtrun_upf_relay(
+int moqtrun_upf_send_item(wired_moqt_hub* hub, wired_moqtrun_fetch* f, usz n);
+int moqtrun_upf_end_mark(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o);
+int moqtrun_upf_relay(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_obj*  o,

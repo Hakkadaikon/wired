@@ -1073,9 +1073,6 @@ typedef struct {
   moqctl_loc up_lo;
   /** See up_lo. */
   moqctl_loc up_span_end;
-  /** The upstream FETCH's End Location (inclusive): where its response
-   * ends without LARGEST_OBJECT (draft-23 3.2). */
-  moqctl_loc up_req_end;
   /** The last relayed item's Location; valid iff has_up_last. */
   moqctl_loc up_last;
   /** Payload bytes of the Object at up_last still to pass through as

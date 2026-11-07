@@ -8,10 +8,6 @@ static int moqfetch_put_group(
 static int moqfetch_has_sg_field(u64 flags);
 static int moqfetch_put_subgroup(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
-static int moqfetch_put_odelta(
-    wired_mspan b, usz* at, const moqfetch_seq* s, u64 d);
-static int moqfetch_put_object(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
 static int moqfetch_put_priority(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
 static int moqfetch_put_props(
@@ -20,15 +16,6 @@ static int moqfetch_put_payload(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
 static int moqfetch_put_payload_len(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
-static u64  moqfetch_eor_gdelta(const moqfetch_seq* s, u64 g);
-static void moqfetch_eor_deltas(
-    const moqfetch_seq* s, const moqfetch_obj* o, u64* gd, u64* od);
-static int moqfetch_put_eor(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
-static int moqfetch_put_end(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o);
-static int moqfetch_same_group(const moqfetch_seq* s, u64 g);
-static int moqfetch_next_of(const moqfetch_seq* s, u64 g, u64 obj);
 static int moqfetch_put_all(
     const moqfetch_put_ops* ops,
     wired_mspan             b,
@@ -78,27 +65,6 @@ static int moqfetch_put_subgroup(
   return moqvi_put(b, at, o->subgroup);
 }
 
-/* A relative Object ID Delta; draft-23 11.4.1.1 writes it less 2, so a
- * step under 2 cannot carry one. */
-static int moqfetch_put_odelta(
-    wired_mspan b, usz* at, const moqfetch_seq* s, u64 d) {
-  if (!s->d23) {
-    return moqvi_put(b, at, d);
-  }
-  return d >= 2 && moqvi_put(b, at, d - 2);
-}
-
-static int moqfetch_put_object(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
-  if (!(o->flags & MOQFETCH_F_OBJECT)) {
-    return 1;
-  }
-  if (moqfetch_object_absolute(s, o)) {
-    return moqvi_put(b, at, o->object);
-  }
-  return moqfetch_put_odelta(b, at, s, o->object - s->object);
-}
-
 static int moqfetch_put_priority(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
@@ -127,39 +93,6 @@ static int moqfetch_put_payload_len(
     wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
   (void)s;
   return moqvi_put(b, at, o->payload.n);
-}
-
-static u64 moqfetch_eor_gdelta(const moqfetch_seq* s, u64 g) {
-  return s->descending ? s->group - g : g - s->group;
-}
-
-/* The End of Range fields: absolute, or the draft-23 11.4.2.1 deltas. */
-static void moqfetch_eor_deltas(
-    const moqfetch_seq* s, const moqfetch_obj* o, u64* gd, u64* od) {
-  *gd = o->group;
-  *od = o->object;
-  if (!moqfetch_eor_rel(s)) {
-    return;
-  }
-  *gd = moqfetch_eor_gdelta(s, o->group);
-  *od = *gd ? o->object : o->object - s->object - 1;
-}
-
-static int moqfetch_put_eor(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
-  u64 gd, od;
-  moqfetch_eor_deltas(s, o, &gd, &od);
-  if (!moqvi_put(b, at, gd)) {
-    return 0;
-  }
-  return moqvi_put(b, at, od);
-}
-
-/* End of Group / End of Track: no field, a prior Object required. */
-static int moqfetch_put_end(
-    wired_mspan b, usz* at, const moqfetch_seq* s, const moqfetch_obj* o) {
-  (void)b, (void)at, (void)o;
-  return s->have_loc;
 }
 
 static const moqfetch_put_fn MOQFETCH_PUT_OBJ[] = {
@@ -235,16 +168,4 @@ int moqfetch_obj_put(
 int moqfetch_obj_put_head(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o) {
   return moqfetch_obj_put_with(MOQFETCH_PUT_HEAD_BY_KIND, buf, off, seq, o);
-}
-
-static int moqfetch_same_group(const moqfetch_seq* s, u64 g) {
-  return s->have_loc && s->group == g;
-}
-
-static int moqfetch_next_of(const moqfetch_seq* s, u64 g, u64 obj) {
-  return moqfetch_same_group(s, g) && obj == s->object + 1;
-}
-
-u64 moqfetch_object_flag(const moqfetch_seq* s, u64 group, u64 object) {
-  return s->d23 && moqfetch_next_of(s, group, object) ? 0 : MOQFETCH_F_OBJECT;
 }

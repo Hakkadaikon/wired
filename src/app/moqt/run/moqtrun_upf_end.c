@@ -4,7 +4,7 @@ static int moqtrun_upf_end_behind(const wired_moqtrun_fetch* f, moqctl_loc e);
 static moqctl_loc moqtrun_upf_end_for(
     const wired_moqtrun_peer* dp, moqctl_loc e);
 static int moqtrun_upf_largest_in(
-    const wired_moqtrun_fetch* f, const moqfetch_ok* up);
+    const wired_moqtrun_fetch* f, const moqfetch_ok* up, moqctl_loc req);
 static void moqtrun_upf_answer_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_ok* up);
 static int moqtrun_upf_complete(
@@ -20,9 +20,7 @@ static void moqtrun_upf_ok(
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok);
 static void moqtrun_upf_req_end(
-    const wired_moqtrun_peer*  pp,
-    const wired_moqtrun_fetch* f,
-    moqfetch_ok*               ok);
+    const wired_moqtrun_peer* pp, moqctl_loc req, moqfetch_ok* ok);
 
 /* An End below an item already relayed cannot be. */
 static int moqtrun_upf_end_behind(const wired_moqtrun_fetch* f, moqctl_loc e) {
@@ -42,8 +40,8 @@ static moqctl_loc moqtrun_upf_end_for(
  * says so (LARGEST_OBJECT) or, before draft-23, ends short of the End
  * Location the hub asked for. */
 static int moqtrun_upf_largest_in(
-    const wired_moqtrun_fetch* f, const moqfetch_ok* up) {
-  return up->has_largest || moqctl_loc_less(f->up_end, f->up_req_end);
+    const wired_moqtrun_fetch* f, const moqfetch_ok* up, moqctl_loc req) {
+  return up->has_largest || moqctl_loc_less(f->up_end, req);
 }
 
 /* A FETCH of a track the hub does not hold is answered with the upstream
@@ -56,9 +54,10 @@ static void moqtrun_upf_answer_ok(
   if (!moqtrun_upf_unanswered(f) || !dp) {
     return;
   }
-  ok.end              = moqtrun_upf_end_for(dp, f->up_end);
-  ok.end_of_track     = up->end_of_track;
-  ok.has_largest      = moqtrun_upf_largest_in(f, up);
+  ok.end          = moqtrun_upf_end_for(dp, f->up_end);
+  ok.end_of_track = up->end_of_track;
+  ok.has_largest =
+      moqtrun_upf_largest_in(f, up, moqtrun_upf_leg_of(hub, f)->req_end);
   ok.track_properties = up->track_properties;
   f->end              = moqtrun_end_excl(f->up_end);
   moqtrun_upf_answer(hub, f, moqtrun_upf_say_ok, &ok);
@@ -123,12 +122,10 @@ static void moqtrun_upf_ok(
 /* draft-23 3.2: with no LARGEST_OBJECT the response ends at the
  * requested End Location. */
 static void moqtrun_upf_req_end(
-    const wired_moqtrun_peer*  pp,
-    const wired_moqtrun_fetch* f,
-    moqfetch_ok*               ok) {
+    const wired_moqtrun_peer* pp, moqctl_loc req, moqfetch_ok* ok) {
   u32 caps = moqver_caps(pp->ver);
   if ((caps & MOQVER_CAP_FETCH_REQUEST_OK) && !ok->has_largest) {
-    ok->end = f->up_req_end;
+    ok->end = req;
   }
 }
 
@@ -144,6 +141,6 @@ void moqtrun_upf_on_ok(
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  moqtrun_upf_req_end(pp, f, &ok);
+  moqtrun_upf_req_end(pp, moqtrun_upf_leg_of(hub, f)->req_end, &ok);
   moqtrun_upf_ok(hub, pp, f, &ok);
 }
