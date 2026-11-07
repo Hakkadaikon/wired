@@ -4,6 +4,8 @@ static int moqctl_params_take_step(
     wired_span buf, usz* at, u32 ctx, int ver, u64* prev, moqctl_params* out);
 static int moqctl_params_take_loop(
     wired_span buf, usz* at, u32 ctx, int ver, u64 count, moqctl_params* out);
+static void moqctl_param_flip(moqctl_param* p, u64 from, u64 to);
+static void moqctl_params_flip(moqctl_params* params, u64 from, u64 to);
 
 static int moqctl_params_take_step(
     wired_span buf, usz* at, u32 ctx, int ver, u64* prev, moqctl_params* out) {
@@ -31,6 +33,28 @@ static int moqctl_params_take_loop(
   return MOQCTL_OK;
 }
 
+/* draft-23 9.19.18: PAUSED is FORWARD inverted; p of Type from becomes
+ * Type to with the other value. */
+static void moqctl_param_flip(moqctl_param* p, u64 from, u64 to) {
+  if (p->type == from) {
+    p->type = to;
+    p->u8v  = !p->u8v;
+  }
+}
+
+static void moqctl_params_flip(moqctl_params* params, u64 from, u64 to) {
+  for (usz i = 0; i < params->n; i++) {
+    moqctl_param_flip(&params->items[i], from, to);
+  }
+}
+
+void moqctl_params_out(int ver, moqctl_params* params) {
+  if (moqver_caps(ver) & MOQVER_CAP_PAUSED) {
+    moqctl_params_flip(params, MOQCTL_PARAM_FORWARD, MOQCTL_PARAM_PAUSED);
+  }
+}
+
+/* PAUSED (only a draft-23 table admits it) is kept as FORWARD. */
 int moqctl_params_take(
     int ver, wired_span buf, usz* off, u32 ctx, moqctl_params* out) {
   usz at = *off;
@@ -44,6 +68,7 @@ int moqctl_params_take(
   if (r != MOQCTL_OK) {
     return r;
   }
+  moqctl_params_flip(out, MOQCTL_PARAM_PAUSED, MOQCTL_PARAM_FORWARD);
   *off = at;
   return MOQCTL_OK;
 }

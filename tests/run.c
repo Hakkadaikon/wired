@@ -1522,6 +1522,7 @@
 #include "app/moqkvp_test.c"
 #include "app/moqctl_test.c"
 #include "app/moqctl_errdet_test.c"
+#include "app/moqctl_d23_test.c"
 #include "app/moqdata_test.c"
 #include "app/moqdg_test.c"
 #include "app/moqsess_test.c"
@@ -2138,6 +2139,7 @@ int main(void) {
   test_moqkvp();
   test_moqctl();
   test_moqctl_errdet();
+  test_moqctl_d23();
   test_moqdata();
   test_moqdg();
   test_moqsess();

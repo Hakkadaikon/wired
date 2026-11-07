@@ -3,8 +3,11 @@
  * recording io stubs and request-stream fixtures of the same unity TU
  * (moqtrun_test.c, moqtrun_sub_test.c). */
 
+/* FORWARD goes as PAUSED toward a draft-23 session (9.19.18). */
 static int mtst_enc_subtracks(wired_mspan buf, usz* off, const void* m) {
-  return moqns_req_encode(buf, off, m);
+  moqns_req r = *(const moqns_req*)m;
+  moqctl_params_out(g_mtst_send_ver, &r.params);
+  return moqns_req_encode(buf, off, &r);
 }
 
 /* SUBSCRIBE_TRACKS for prefix z ("" = zero fields) on sid, Request ID

@@ -747,8 +747,9 @@ static void test_moqtrun_upsub_second_ok_closes(void) {
 #define MUPS_PUB_SID 12
 
 /* A PUBLISHes the awaited track on its request stream MUPS_PUB_SID with
- * Track Property DYNAMIC_GROUPS 1, FORWARD fwd (2: absent). */
-static void mups_pub_stream(int fwd) {
+ * Track Property DYNAMIC_GROUPS 1, uint8 Parameter ptype = v (v 2:
+ * absent). */
+static void mups_pub_stream_p(u64 ptype, int v) {
   static u8             props[16];
   static moqctl_publish m;
   usz                   n    = 0;
@@ -759,13 +760,18 @@ static void mups_pub_stream(int fwd) {
   m.name             = mrdv_f();
   m.track_alias      = MUPS_ALIAS;
   m.track_properties = wired_span_of(props, n);
-  if (fwd < 2) {
-    m.params.items[0].type = MOQCTL_PARAM_FORWARD;
+  if (v < 2) {
+    m.params.items[0].type = ptype;
     m.params.items[0].enc  = MOQCTL_PENC_UINT8;
-    m.params.items[0].u8v  = (u8)fwd;
+    m.params.items[0].u8v  = (u8)v;
     m.params.n             = 1;
   }
   mtst_send(SESS_A, MUPS_PUB_SID, MOQCTL_T_PUBLISH, mtst_enc_publish, &m);
+}
+
+/* FORWARD fwd (2: absent). */
+static void mups_pub_stream(int fwd) {
+  mups_pub_stream_p(MOQCTL_PARAM_FORWARD, fwd);
 }
 
 /* REQUEST_UPDATEs the hub sent A on sid carrying ptype; the last one's
@@ -827,6 +833,19 @@ static void test_moqtrun_upsub_publish_resumed(void) {
   CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 0);
 }
 
+/* draft-23 9.19.18: the same with PAUSED (0x11, inverted): a moqt-23
+ * PUBLISH with PAUSED 1 is resumed with PAUSED 0 -- decoded back here as
+ * FORWARD 1, which a FORWARD on the wire would not be (unregistered in
+ * draft-23, INVALID_PARAMETER). */
+static void test_moqtrun_upsub_publish_resumed_d23(void) {
+  u64 v = 9;
+  mups_pub_init(MOQVER_D23);
+  mups_pub_stream_p(MOQCTL_PARAM_PAUSED, 1);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 0);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_FORWARD, &v) == 1 && v == 1);
+}
+
 /* draft-18 10.2.13 on a PUBLISH-initiated track: B's NEW_GROUP_REQUEST
  * goes to A in a REQUEST_UPDATE on A's PUBLISH stream; A's REQUEST_ERROR
  * answers it there (no session close) and it is outstanding no more. */
@@ -850,5 +869,6 @@ void test_moqtrun_upsub(void) {
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();
   test_moqtrun_upsub_publish_resumed();
+  test_moqtrun_upsub_publish_resumed_d23();
   test_moqtrun_upsub_ngr_on_publish();
 }

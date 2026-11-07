@@ -116,9 +116,13 @@ static void mqmd_subscribe_lf_one(int ver) {
   CHECK(p->rl.end_group == 8);
 }
 
+/* Not on draft-23: the draft-22 vector carries FORWARD (0x10), which
+ * draft-23 9.19.18 replaced with PAUSED (0x11). */
 static void test_moqt_golden_location_filter_multidraft(void) {
   for (int ver = 0; ver < MOQVER_COUNT; ver++) {
-    mqmd_subscribe_lf_one(ver);
+    if (!(moqver_caps(ver) & MOQVER_CAP_PAUSED)) {
+      mqmd_subscribe_lf_one(ver);
+    }
   }
 }
 

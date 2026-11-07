@@ -158,6 +158,10 @@ int moqctl_params_take(
  * enc. 1 ok; 0 when buf runs out or items are not in ascending type
  * order (a Type Delta cannot be negative). */
 int moqctl_params_put(wired_mspan buf, usz* off, const moqctl_params* params);
+/** Readies params for a ver peer before moqctl_params_put: on draft-23
+ * every FORWARD v becomes PAUSED !v (9.19.18; Type order is kept, no
+ * Parameter lies between 0x10 and 0x11). */
+void moqctl_params_out(int ver, moqctl_params* params);
 
 /** First item of Type type in params, or 0 when absent (the draft
  * default then applies, e.g. SUBSCRIBER_PRIORITY 128, SS10.2.7). */

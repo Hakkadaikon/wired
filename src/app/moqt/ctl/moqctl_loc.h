@@ -234,6 +234,11 @@
 /** FORWARD: uint8 0 or 1; 0 pauses Object delivery for the subscription,
  * 1 resumes it. */
 #define MOQCTL_PARAM_FORWARD 0x10ULL
+/** PAUSED (draft-23 9.19.18): FORWARD's draft-23 successor, uint8 0
+ * unpaused / 1 paused. Decoded as FORWARD with the value inverted, so a
+ * subscription's state reads the same on every draft (moqctl_params_out
+ * turns it back for a draft-23 peer). */
+#define MOQCTL_PARAM_PAUSED 0x11ULL
 /** RENDEZVOUS_TIMEOUT: a timeout value (encoding unstated by the draft;
  * varint assumed). */
 #define MOQCTL_PARAM_RENDEZVOUS_TIMEOUT 0x04ULL

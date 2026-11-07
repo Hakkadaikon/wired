@@ -116,6 +116,7 @@ usz moqtrun_upd_msg(
   moqtstat_update m = {0};
   m.request_id      = pp->request_id_next;
   m.params          = *params;
+  moqctl_params_out(pp->ver, &m.params);
   return moqtrun_envelope_put(
       pp->ver, wired_mspan_of(msg, cap), MOQTSTAT_T_REQUEST_UPDATE,
       moqtrun_ngr_enc_upd, &m);

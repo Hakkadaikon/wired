@@ -33,6 +33,7 @@ static void moqtrun_subtracks_pub_fill(
   m->request_id  = q->request_id;
   m->track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
   m->params      = moqtrun_subtracks_publish_params(st);
+  moqctl_params_out(st_peer->ver, &m->params);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
   m->name.name = wired_span_of(t->name, t->name_len);
   /* draft-18 9.6 / 2.5: the relayed track's Track Properties, unchanged */

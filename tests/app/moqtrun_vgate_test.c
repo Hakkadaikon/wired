@@ -178,7 +178,9 @@ static void mtvg_subtracks_then_publish(u8 go) {
  * layout in all three): Type 0x1D, Length (16), Request ID, Track
  * Namespace (2 fields "chat" "room1"), Track Name "alice", Track Alias,
  * Number of Parameters, then FORWARD (Type 0x10, uint8 0) and GROUP_ORDER
- * (Type Delta 0x22-0x10 = 0x12, uint8 go), no Track Properties. Request ID
+ * (Type Delta 0x22-0x10 = 0x12, uint8 go), no Track Properties; draft-23
+ * 9.19.18 spells FORWARD 0 as PAUSED (Type 0x11, uint8 1), GROUP_ORDER's
+ * delta then 0x22-0x11 = 0x11. Request ID
  * and Alias are the hub's own picks (each a 1-byte varint here). */
 static usz mtvg_publish_wire(u8* w, u8 go) {
   static const u8 name[] = {0x02, 0x04, 'c', 'h',  'a', 't', 0x05, 'r', 'o',
@@ -195,16 +197,17 @@ static usz mtvg_publish_wire(u8* w, u8 go) {
   }
   CHECK(q->request_id < 64);
   CHECK(mtst_hub.peers[0].tracks[0].own_alias < 64);
-  usz n  = 3;
-  w[n++] = (u8)q->request_id;
+  int d23 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_PAUSED) != 0;
+  usz n   = 3;
+  w[n++]  = (u8)q->request_id;
   bytes_memcpy(w + n, name, sizeof name);
   n += sizeof name;
   w[n++] = (u8)mtst_hub.peers[0].tracks[0].own_alias;
   w[n++] = go ? 2 : 1;
-  w[n++] = 0x10;
-  w[n++] = 0x00;
+  w[n++] = (u8)(0x10 + d23);
+  w[n++] = (u8)d23;
   if (go) {
-    w[n++] = 0x12;
+    w[n++] = (u8)(0x12 - d23);
   }
   if (go) {
     w[n++] = go;

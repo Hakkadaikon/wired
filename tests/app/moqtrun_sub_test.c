@@ -58,6 +58,7 @@ static void mtst_filter_to_d22(moqctl_param* it) {
 /* params as session s's draft spells them: only LOCATION_FILTER's wire
  * shape differs (MOQVER_CAP_LOCFILTER_TYPED). */
 static void mtst_params_for(wired_wt_session* s, moqctl_params* p) {
+  moqctl_params_out(mtst_ver(s), p); /* FORWARD as PAUSED on draft-23 */
   if (!(moqver_caps(mtst_ver(s)) & MOQVER_CAP_LOCFILTER_TYPED)) {
     return;
   }
@@ -76,14 +77,19 @@ static int mtst_enc_subscribe(wired_mspan buf, usz* off, const void* m) {
   return moqctl_subscribe_encode(buf, off, m);
 }
 
+/* The draft of the session mtst_send writes for, -1 when it has none. */
+static int g_mtst_send_ver;
+
 static void mtst_send(
     wired_wt_session*      s,
     u64                    ctrl,
     u64                    type,
     moqtrun_body_encode_fn fn,
     const void*            m) {
-  u8  buf[MTST_MSG_MAX];
-  usz n = moqtrun_envelope_put(
+  u8                        buf[MTST_MSG_MAX];
+  const wired_moqtrun_peer* p = moqtrun_find_by_wt(&mtst_hub, s);
+  g_mtst_send_ver             = p ? p->ver : -1;
+  usz n                       = moqtrun_envelope_put(
       MOQVER_D22, wired_mspan_of(buf, sizeof buf), type, fn, m);
   CHECK(n != 0);
   mt_feed(&mtst_hub, s, ctrl, wired_span_of(buf, n), 0);

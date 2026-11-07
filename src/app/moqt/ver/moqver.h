@@ -93,6 +93,9 @@
  * closed by a later one) is Unknown, so it is forwarded when it arrives
  * (draft-23 2.1.2, 7.1); earlier drafts drop it (draft-22 7.1). */
 #define MOQVER_CAP_LATE_FORWARD (1u << 28)
+/** FORWARD (0x10) goes out as PAUSED (0x11) with the value inverted
+ * (draft-23 9.19.18, moqctl_params_out). */
+#define MOQVER_CAP_PAUSED (1u << 29)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
