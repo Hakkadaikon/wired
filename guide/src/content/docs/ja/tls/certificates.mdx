@@ -20,6 +20,33 @@ import Example from '../../../../components/Example.astro';
 - `wired_eckey_p256_priv(der, priv)` は SEC1 または PKCS#8 の DER から P-256 の秘密鍵を取り出します。
 - `wired_certreload_load(cert, key, &store, &id)` は上の処理をすべて行い、`id.chain`、`id.chain_count`、`id.cert_seed` が `store` を指すようにします。
   `id` を使っているあいだは `store` を有効なまま保持します。
+- `cert.pem` はリーフ証明書（サーバー自身の証明書）を先頭にした完全なチェーンで、`CERTIFICATE` ブロックを 10 個まで読みます。
+  `key.pem` は ECDSA P-256 の秘密鍵（`EC PRIVATE KEY` または `PRIVATE KEY`）です。RSA と Ed25519 のサーバー鍵には対応していません。
+
+## 起動時に読み込む
+
+`wired_certreload_load_or_selfsigned(cert_path, key_path, &store, &id)` は、`cert_path` が設定されている（NULL でも空でもない）ときだけ `wired_certreload_load` を呼びます。
+`cert_path` がなければ何もせず、`id` はそれまでの識別情報（多くはデモ用の自己署名）のままです。
+`cert_path` があるのに読み込めないときは、デモ用の証明書で動き続けず、`wired_die`（診断メッセージを出してプロセスを終える関数）で起動を止めます。
+
+`wired_main` の中で、`wired_srvboot_demo` のあと、`wired_srvdriver_run` の前に呼びます。
+`id` が `store` の中を指すので、`store` は `static` にします。
+
+```c
+static wired_certreload_store cert_store;
+
+int wired_main(int argc, char** argv) {
+  /* ... */
+  wired_srvboot_demo(&id, &keys, 0x50, "guide-tl");
+  wired_certreload_load_or_selfsigned(
+      wired_cliargs_str(argc, argv, "--cert", 0),
+      wired_cliargs_str(argc, argv, "--key", "key.pem"), &cert_store, &id);
+  /* ... wired_srvdriver_parse, wired_srvdriver_run */
+}
+```
+
+`wired_cliargs_str` はフラグの次の値を返し、フラグがなければ最後の引数を返します。
+この例では `--cert` がなければパスは `0` になり、`--key` の既定値は `key.pem` です。
 
 ## クライアント証明書（相互 TLS）
 

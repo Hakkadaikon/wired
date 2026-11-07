@@ -22,6 +22,38 @@ The pair is a self-signed demo for `localhost`.
 - `wired_certreload_load(cert, key, &store, &id)` does all of the above and
   points `id.chain`/`id.chain_count`/`id.cert_seed` at `store`. Keep
   `store` alive as long as `id` is in use.
+- `cert.pem` is the full chain, leaf first; up to 10 `CERTIFICATE` blocks
+  are read. `key.pem` must be an ECDSA P-256 private key (`EC PRIVATE KEY`
+  or `PRIVATE KEY`); RSA and Ed25519 server keys are not supported.
+
+## Loading at startup
+
+`wired_certreload_load_or_selfsigned(cert_path, key_path, &store, &id)`
+calls `wired_certreload_load` only when `cert_path` is set (non-NULL,
+non-empty). Without `cert_path` it does nothing and `id` keeps the identity
+it already had (typically the demo self-signed one). When `cert_path` is set
+but the pair cannot be loaded, it stops the process with `wired_die` instead
+of carrying on with the demo certificate.
+
+Call it in `wired_main` after `wired_srvboot_demo` and before
+`wired_srvdriver_run`. `id` points into `store`, so `store` is `static`.
+
+```c
+static wired_certreload_store cert_store;
+
+int wired_main(int argc, char** argv) {
+  /* ... */
+  wired_srvboot_demo(&id, &keys, 0x50, "guide-tl");
+  wired_certreload_load_or_selfsigned(
+      wired_cliargs_str(argc, argv, "--cert", 0),
+      wired_cliargs_str(argc, argv, "--key", "key.pem"), &cert_store, &id);
+  /* ... wired_srvdriver_parse, wired_srvdriver_run */
+}
+```
+
+`wired_cliargs_str` returns the value after the flag, or its last argument
+when the flag is absent: here the cert path is `0` without `--cert`, and
+`--key` defaults to `key.pem`.
 
 ## Client certificates (mutual TLS)
 

@@ -20,6 +20,11 @@ answers every request with `hello`.
   `wired_srvboot_demo(&id, &keys, 0x50, "guide-h3")` fills it with fixed
   demo bytes (a self-signed certificate; never use it in production).
   `keys` holds the key material `id` points at, so it is `static`.
+  The last two arguments are the first byte of the demo key pattern
+  (`0x50`) and the server's connection id (a short label the server uses
+  for the connection); any value works for a demo.
+- `obs = {0}` turns every optional output, such as qlog, off and leaves the
+  settings at their defaults.
 - The handler writes the body into `body_out`, sets `*content_type`, and
   returns 1. Returning 0 sends a body-less 200.
 - `wired_cliargs_int` reads `--port` from the command line.

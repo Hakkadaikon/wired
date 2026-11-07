@@ -49,4 +49,8 @@ key log output.
 - `obs.qlog_path` / `obs.keylog_path` write a qlog (RFC 9002-shaped
   `packet_sent`/`packet_received` events) and an NSS key log
   (`SSLKEYLOGFILE` format) a tool like Wireshark reads to decrypt a
-  capture -- both 0 by default.
+  capture -- both 0 by default. The forked-workers driver of
+  `wired_srvdriver_run` (`--workers`) drops both, because several processes
+  writing one file would interleave; use another driver when you need them.
+  The examples set them with `--qlog-file` / `--keylog-file` (word_list,
+  webtransport_interop) and `--qlog` / `--keylog` (the MoQT examples).

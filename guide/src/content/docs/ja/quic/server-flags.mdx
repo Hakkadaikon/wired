@@ -18,4 +18,6 @@ import Example from '../../../../components/Example.astro';
   値が不正なときや、`--workers` と `--cores` のように両立しない組み合わせのときは 0 を返します。
 - `wired_srvdriver_run(&id, h, obs, &opt)` は `opt.kind` が示すドライバーを起動します。
   ドライバーは、単一プロセス、`--workers N` で fork する複数プロセス、`--cores 0,1` で指定した CPU ごとに一つのスレッド、`--ifindex` による AF_XDP のいずれかです。
+  AF_XDP は `--ifindex N --ip a.b.c.d` で選び、root 権限と AF_XDP に対応した NIC（ネットワークカード）が必要です。
+  どのドライバーも同じサーバーループに入り、プロセスが SIGTERM を受けるまでリクエストを処理し続けます。
 - 識別情報とハンドラーは、「はじめての HTTP/3」のページと同じものです。

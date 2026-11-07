@@ -6,7 +6,7 @@
 |---|---|
 | 目的 | ビルドの 2 つの方式と、レシピの使い分けを定める |
 | 読む人 | ビルドやテストを実行するコントリビューター |
-| 前提文書 | [はじめに](../getting-started.md)(`just setup` と `nix develop`) |
+| 前提文書 | [開発環境の準備](setup.md) |
 | 関連文書 | [コミットゲート](commit-gate.md)、[コーディング規約](coding.md) |
 
 ## 1. 2 つのビルド方式
@@ -22,7 +22,7 @@ flowchart LR
 
 | 方式 | レシピ | 確かめること |
 |---|---|---|
-| Freestanding | `just ninja` | `src/` が libc なしでコンパイルできる |
+| freestanding ビルド | `just ninja` | `src/` が libc なしでコンパイルできる |
 | ホスト向けテスト | `just test`、`just test-fast` | テストが通る(結果の表示に libc を使う) |
 
 2 つの方式では有効な警告が違う。片方が通っても、もう片方が失敗することがある。

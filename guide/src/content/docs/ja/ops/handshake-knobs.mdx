@@ -50,3 +50,6 @@ import Example from '../../../../components/Example.astro';
   `packet_sent` / `packet_received` イベント）と、
   Wireshark などのツールがキャプチャの復号に使う NSS key log（`SSLKEYLOGFILE` 形式）を書き出します。
   どちらもデフォルトは 0（無効）です。
+  `wired_srvdriver_run` の fork したワーカーのドライバー（`--workers`）は、この 2 つを捨てます。
+  複数のプロセスが同じファイルに書くと中身が混ざるためです。出力が要るときはほかのドライバーを使います。
+  サンプルでは、word_list と webtransport_interop が `--qlog-file` / `--keylog-file`、MoQT のサンプルが `--qlog` / `--keylog` でこの 2 つを設定します。
