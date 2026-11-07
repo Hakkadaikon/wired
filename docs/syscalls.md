@@ -84,7 +84,7 @@ flowchart LR
 | `rt_sigaction` | 13 | `syscall.h` | シグナルハンドラーを登録する。 | `app/http3/server/sigterm/sigterm.c`: `wired_sigterm_install` / `wired_sighup_install` が `SIGTERM` と `SIGHUP` のハンドラー(サーバーのグレースフルシャットダウン / 設定の再読み込み)を `SA_RESTORER` 付きで登録する。x86_64 のカーネルには既定の戻り道がないため、restorer のないハンドラーにシグナルを届けると、プロセスが `SIGSEGV` で終了する。 |
 | `rt_sigprocmask` | 14 | `syscall.h` | 呼び出したスレッドへのシグナル配送をブロック・解除する。 | シグナルを失ったり誤った相手に届けたりしないよう、3 か所で `SIGTERM`/`SIGHUP`(と `SIGCHLD`)をブロックする。スレッドドライバーではワーカーの作成の前後(`sigterm.c` の `wired_sigmask_block_shutdown`/`wired_sigmask_unblock_shutdown`)、フォーク型ワーカードライバーでは各 `fork` の前後と各 `wait4` の前。[競合を避ける順序](#5-競合を避ける順序)を参照。 |
 | `rt_sigreturn` | 15 | `syscall.h` | シグナルハンドラーから割り込まれたコンテキストへ戻る。 | `wired_arch_sigreturn_restorer`(`common/arch/x8664/sigret.c`): `sigterm.c` が `SA_RESTORER` の行き先として渡す、手書きの naked asm のトランポリン。libc の `restore_rt` の代わり(freestanding では、それを用意する libc がない)。 |
-| `pread64` | 17 | `syscall.h` | ファイル位置を動かさずに、指定したオフセットからファイルディスクリプターを読む。 | `fio.c`: `wired_fio_pread` がファイルの 1 チャンクを明示したオフセットから読む。`examples/word_list` はこれで、大きな静的ファイル全体を読み込まずに、レスポンスごとのボディバッファーへ流し込む。 |
+| `pread64` | 17 | `syscall.h` | ファイル位置を動かさずに、指定したオフセットからファイルディスクリプターを読む。 | `fio.c`: `wired_fio_pread` がファイルの 1 チャンクを明示したオフセットから読む。`examples/word_list` はこれで、大きな静的ファイル全体を読み込まずに、レスポンスごとの body のバッファーへ流し込む。 |
 | `madvise` | 28 | `syscall.h` | メモリ範囲についてカーネルに助言する。`MADV_DONTNEED` はその範囲のページを捨て、次に触れたときにはゼロとして読める。 | `wired_arch_madvise`(`common/arch/sysops.h`)は、接続を閉じるたびに `srvrun_release_tables`(`srvrun_free.c`)から 1 回呼ばれ、閉じたスロットのリクエスト / WT ストリームのテーブル、受信した DATAGRAM、WT の送信用の一時領域、respstore の行を返却する。これで、アイドル状態のサーバーの常駐メモリはピークのまま残らず、下がる。 |
 | `getpid` | 39 | `syscall.h` | 呼び出したプロセスの ID を返す。 | `srvworkers.c` が各 `fork` の前にスーパーバイザーの pid を保存し、ワーカーがそれを `getppid` と比べられるようにする。 |
 | `socket` | 41 | `syscall.h` | ソケットを作る。 | `wired_udp_socket`(`transport/io/socket/io/udp.c`)がデュアルスタックの `AF_INET6` UDP ソケットを作り(IPv4 のピアは v4-mapped アドレスで届く)、IPv6 が使えないとき(`EAFNOSUPPORT`)は `AF_INET` に切り替える。クライアントとサーバー(`wired_server_listen`)の両方のセットアップで使う。`xsksetup_open` が `AF_XDP` ソケットを作る。`wired_udp_path_mtu`(`udp.c`)がピアへの経路のカーネルの path MTU を読むために使い捨ての UDP ソケットを開く(読んだらすぐ閉じる)。 |
@@ -136,7 +136,9 @@ flowchart LR
 
 `epoll` が `poll` より有利なのは、1 つのループが多くの fd を見張るときである。カーネルが見張りのリストを持つので、待つたびにリストを渡し直さずに済む。その代わり、fd が 1 つ増え、用意のために `epoll_create`/`epoll_ctl` の呼び出しが要る。
 
-`wired` のワイヤーループが見張る fd は 1 つか 2 つである。QUIC はすべての接続を 1 つの UDP ソケットで運び、接続 ID で区別するので、サーバーのループ(`srvrun.c`)は 1 つのソケットで待つ。2 つ目のソケットを足すのは優先アドレス(RFC 9000 9.6)を広告するときだけで、そのときは `poll_wait_readable2` が同じ呼び出しで両方を見張る。
+`wired` のワイヤーループが見張る fd は 1 つか 2 つである。QUIC はすべての接続を 1 つの UDP ソケットで運び、接続 ID で区別するので、サーバーのループ(`srvrun.c`)は 1 つのソケットで待つ。
+
+2 つ目のソケットを足すのは優先アドレス(RFC 9000 9.6)を広告するときだけで、そのときは `poll_wait_readable2` が同じ呼び出しで両方を見張る。
 
 fd が 1 つか 2 つなら、`poll` の負担は `epoll` と変わらず、管理する fd も増えない。マルチコアのドライバーは 1 つのループに見張らせる fd を増やさずに、それぞれ自分のソケットを持つループの数を増やす。この選択を見直す条件は、1 つのループが多くの fd を待つようになったときである。
 

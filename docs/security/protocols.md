@@ -70,7 +70,9 @@ flowchart TD
   E -->|yes| G["CONNECTION_CLOSE with<br/>H3_EXCESSIVE_LOAD (0x0107)"]
 ```
 
-ウィンドウの切り替えはパケットを処理する前に行うので、そのパケットのリセットは本来属するウィンドウで数える。2 つ目の条件は 1 ステップでキューに入れられる数(`WIRED_SRVLOOP_RESET_Q`。追跡するストリームのスロット 1 つにつき 2 つ)より多いリセットを 1 つのパケットで送る場合を捕まえる。テスト: `test_srvrun_reset_flood_over_threshold_closes_excessive_load`。
+ウィンドウの切り替えはパケットを処理する前に行うので、そのパケットのリセットは本来属するウィンドウで数える。2 つ目の条件は 1 ステップでキューに入れられる数(`WIRED_SRVLOOP_RESET_Q`。追跡するストリームのスロット 1 つにつき 2 つ)より多いリセットを 1 つのパケットで送る場合を捕まえる。
+
+テスト: `test_srvrun_reset_flood_over_threshold_closes_excessive_load`。
 
 | 呼び出し側の責任 | 補足 |
 |---|---|
@@ -141,7 +143,9 @@ flowchart TD
 
 ### 3.2 ドレイン
 
-ピアの `WT_DRAIN_SESSION` カプセルはセッションごとに 1 回 `wired_srvrun_opt.wt_on_session_draining` でアプリに届く(4.7)。値を持つドレインのカプセルは不正な形(Length は 0 でなければならない)で、セッションを閉じる。テスト: `test_srvrun_wt_drain_rx_notifies_app`、`test_srvrun_wt_drain_rx_with_value_closes`。
+ピアの `WT_DRAIN_SESSION` カプセルはセッションごとに 1 回 `wired_srvrun_opt.wt_on_session_draining` でアプリに届く(4.7)。値を持つドレインのカプセルは不正な形(Length は 0 でなければならない)で、セッションを閉じる。
+
+テスト: `test_srvrun_wt_drain_rx_notifies_app`、`test_srvrun_wt_drain_rx_with_value_closes`。
 
 ### 3.3 既知の制限
 
@@ -150,7 +154,9 @@ flowchart TD
 
 ## 4. MoQT
 
-`src/app/moqt/` は WebTransport のセッションの上で MoQT(draft-ietf-moq-transport-18、-19、-22。セッションごとに WebTransport のサブプロトコルから選ぶ)を実装する。節番号は draft-19 のものである。MoQT はそのセッションの TLS 1.3 による機密性、完全性、エンドポイントの認証を引き継ぎ、MoQT の層に独自の暗号はない。
+`src/app/moqt/` は WebTransport のセッションの上で MoQT(draft-ietf-moq-transport-18、-19、-22。セッションごとに WebTransport のサブプロトコルから選ぶ)を実装する。節番号は draft-19 のものである。
+
+MoQT はそのセッションの TLS 1.3 による機密性、完全性、エンドポイントの認証を引き継ぎ、MoQT の層に独自の暗号はない。
 
 | 検査 | 内容 | テスト |
 |---|---|---|

@@ -87,4 +87,6 @@ wired は libc を使わない。サーバーは Linux カーネルだけに依�
 | `_start` | カーネルが最初に入るエントリポイント。`argc`/`argv` を準備して `main` を呼ぶ | SDK の `_start` が `wired_main` を呼ぶ |
 | `memcpy`、`memset` | コンパイラーが構造体のコピーなどで自分で呼び出しを出す | SDK の shim が SDK のバイト操作ヘルパーに渡す |
 
-shim と `_start` のスタブは `wired.h` をインクルードする前に `WIRED_MAIN` を定義した翻訳単位に出る。`WIRED_MAIN` を定義する翻訳単位は 1 つだけにする。2 つで定義するとリンクに失敗する。リンクのコマンドは guide の [はじめての wired](https://hakkadaikon.github.io/wired/guide/ja/getting-started/hello/) にある。
+shim と `_start` のスタブは `wired.h` をインクルードする前に `WIRED_MAIN` を定義した翻訳単位に出る。`WIRED_MAIN` を定義する翻訳単位は 1 つだけにする。2 つで定義するとリンクに失敗する。
+
+リンクのコマンドは guide の [はじめての wired](https://hakkadaikon.github.io/wired/guide/ja/getting-started/hello/) にある。

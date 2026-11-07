@@ -55,7 +55,9 @@ imquic はミリ秒を期待する所に 500000(マイクロ秒)を送り、2 �
 
 ## 2. Raw QUIC 上の MoQT
 
-MoQT は HTTP/3 や WebTransport を使わず、ALPN `moqt-18`、`moqt-19`、`moqt-22` で QUIC の上で直接動かせる。raw のセッションは WebTransport のセッションとハブを共有する(`wired_moqt_on_session_raw`)。検証はプロセス内のテスト、固定した xquic と moqtopus のバイト列との照合、このプロジェクトによる MoQT の相互運用性テストの実行である([テストと検証の抜け](testing.md))。
+MoQT は HTTP/3 や WebTransport を使わず、ALPN `moqt-18`、`moqt-19`、`moqt-22` で QUIC の上で直接動かせる。raw のセッションは WebTransport のセッションとハブを共有する(`wired_moqt_on_session_raw`)。
+
+検証はプロセス内のテスト、固定した xquic と moqtopus のバイト列との照合、このプロジェクトによる MoQT の相互運用性テストの実行である([テストと検証の抜け](testing.md))。
 
 ### 2.1 raw_policy は形式の正しい PATH/AUTHORITY をすべて受け付ける
 

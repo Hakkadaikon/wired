@@ -69,7 +69,9 @@ flowchart TD
 
 ## 4. 相互運用性を別に追う理由
 
-台帳が示すのは、wired のテストが解釈した仕様のとおりに wired のコードが動くことである。wired が自分自身と通信するテスト(ループバックテスト)では両端が同じコードなので、共通の誤りは打ち消し合い、テストは通る。ワイヤー上の互換性は、独立した実装(第三者の QUIC クライアント)を相手に動かしたときだけ示せるので、その結果は [相互運用性の検証結果](../verification/interop.md) にまとめている。
+台帳が示すのは、wired のテストが解釈した仕様のとおりに wired のコードが動くことである。wired が自分自身と通信するテスト(ループバックテスト)では両端が同じコードなので、共通の誤りは打ち消し合い、テストは通る。
+
+ワイヤー上の互換性は、独立した実装(第三者の QUIC クライアント)を相手に動かしたときだけ示せるので、その結果は [相互運用性の検証結果](../verification/interop.md) にまとめている。
 
 <a id="coverage-by-spec"></a><a id="仕様ごとのカバレッジ"></a>
 
@@ -169,7 +171,9 @@ flowchart TD
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 246/248 | 213 | 33 | 2 |
 | [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 258/259 | 224 | 34 | 1 |
 
-上の表は実験的な機能を数えない。[MoQT の Track 切り替え](moqt-track-switching.md) は moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションでだけ使える。テストはプロセス内だけで、第三者との相互運用性テストはしていない。項目は draft-22 の台帳の [実験的な拡張](draft-moq-transport-22.md#実験的な拡張moqtail-互換の-track-切り替え) の節にある。
+上の表は実験的な機能を数えない。[MoQT の Track 切り替え](moqt-track-switching.md) は moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションでだけ使える。
+
+テストはプロセス内だけで、第三者との相互運用性テストはしていない。項目は draft-22 の台帳の [実験的な拡張](draft-moq-transport-22.md#実験的な拡張moqtail-互換の-track-切り替え) の節にある。
 
 <a id="ipudp-foundations"></a><a id="ipudp-の基盤"></a>
 

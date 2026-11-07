@@ -11,7 +11,11 @@
 
 ## 1. 対象
 
-Track 切り替えは、購読者が 1 つのストリームの別版(高画質と低画質の映像など)の間を移る仕組みである。moqtail 互換の SWITCH_FROM(0x24)と SSTS(sender-side track switching: 0x41、Setup Option 0x09)の拡張は、`wired_moqt_hub.switch_track` と `ssts_algs` / `ssts_alg_n` で有効にしたときだけ動き、draft-22 のセッションでだけ使える。どれも draft-22 には含まれない。
+Track 切り替えは、購読者が 1 つのストリームの別版(高画質と低画質の映像など)の間を移る仕組みである。
+
+moqtail 互換の SWITCH_FROM(0x24)と SSTS(sender-side track switching: 0x41、Setup Option 0x09)の拡張は、`wired_moqt_hub.switch_track` と `ssts_algs` / `ssts_alg_n` で有効にしたときだけ動く。使えるのは draft-22 のセッションだけである。
+
+どれも draft-22 には含まれない。
 
 | 語 | 意味 |
 |---|---|
@@ -110,7 +114,9 @@ INVALID_SWITCH(0x32)を返す。切り替え先の購読は境界の Group G か
 
 影響: 混雑した接続での Hard の切り替え。
 
-新しい Track の Largest Group が G 以上になった時点(ストリームでもデータグラムでも)で、古い購読を終える。ハブが新しい Group G のストリームを購読者へまだ開けないとき(ストリームのクレジットがない、または滞留がある)は、送信中の古い Group を先にリセットするので、明示的な欠落ができる。新しい Group G はそのあと遅れて開いたストリームで届き、最初の Object を失うことがある。
+新しい Track の Largest Group が G 以上になった時点(ストリームでもデータグラムでも)で、古い購読を終える。
+
+ハブが新しい Group G のストリームを購読者へまだ開けないとき(ストリームのクレジットがない、または滞留がある)は、送信中の古い Group を先にリセットするので、明示的な欠落ができる。新しい Group G はそのあと遅れて開いたストリームで届き、最初の Object を失うことがある。
 
 参照: `moqtswitch.c`
 
@@ -126,7 +132,9 @@ Publish Done(フラグ 0x80)がないと、切り替え元の購読は元に戻�
 
 影響: 制御ストリームで購読するクライアントと、ハブ自身の Track を購読するクライアント。
 
-制御ストリームの SUBSCRIBE(パブリッシャーが戻ったときに通知なしでつなぎ直すもの)や、ハブ自身の Track への SUBSCRIBE に付いた SWITCHING_SET_ASSIGNMENT は、UNSUPPORTED_EXTENSION(0x33)で断る。draft-22 のリクエストストリームの購読はパブリッシャーがいなくなると PUBLISH_DONE で終わるので、セットへの所属が Track より長く残ることはない。
+制御ストリームの SUBSCRIBE(パブリッシャーが戻ったときに通知なしでつなぎ直すもの)や、ハブ自身の Track への SUBSCRIBE に付いた SWITCHING_SET_ASSIGNMENT は、UNSUPPORTED_EXTENSION(0x33)で断る。
+
+draft-22 のリクエストストリームの購読はパブリッシャーがいなくなると PUBLISH_DONE で終わるので、セットへの所属が Track より長く残ることはない。
 
 参照: `test_moqtrun_ssts_ctrl_subscribe_refused`
 
@@ -134,7 +142,9 @@ Publish Done(フラグ 0x80)がないと、切り替え元の購読は元に戻�
 
 影響: 切り替えセットの中のビットレートの高い Track。
 
-lossy relay は `WIRED_MOQTRUN_RESET_AFTER_BUSY`(8)回拒まれたあとに購読者のストリームをリセットする。この閾値は 20 ミリ秒の音声に合わせたもので、こうしたリセットはすべて背圧に入る。ブラウザーでの実行では、ループバック上の約 3 Mbps の 1080p の画面共有が 3 回中 2 回これに当たり、上限を設けていないのに Auto が下位のメンバーへ移った。
+lossy relay は `WIRED_MOQTRUN_RESET_AFTER_BUSY`(8)回拒まれたあとに購読者のストリームをリセットする。この閾値は 20 ミリ秒の音声に合わせたもので、こうしたリセットはすべて背圧に入る。
+
+ブラウザーでの実行では、ループバック上の約 3 Mbps の 1080p の画面共有が 3 回中 2 回これに当たり、上限を設けていないのに Auto が下位のメンバーへ移った。
 
 切り替えセットのメンバーの捨てた Group は、途中で開き直さない。どのセットにも入っていない Track(音声)は開き直す。
 

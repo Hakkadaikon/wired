@@ -93,7 +93,11 @@ TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 | SHA-2(ダイジェスト単体) | 0 | – | – | – | 同上。SHA-256/384/512 は HMAC を通じてカバー |
 | RSA | 0 | – | – | – | 許可したファイルに RSA のベクターがない |
 
-各プリミティブが TLS のどこで使われるかは、ガイドの [X25519 鍵交換](https://hakkadaikon.github.io/wired/guide/ja/tls/x25519/)、[証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/)、[SHA-256](https://hakkadaikon.github.io/wired/guide/ja/tls/sha256/) にある。
+各プリミティブが TLS のどこで使われるかは、ガイドの次のページにある。
+
+- [X25519 鍵交換](https://hakkadaikon.github.io/wired/guide/ja/tls/x25519/)
+- [証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/)
+- [SHA-256](https://hakkadaikon.github.io/wired/guide/ja/tls/sha256/)
 
 ## 5. テストが失敗しうることの確認
 

@@ -39,11 +39,15 @@ stateDiagram-v2
 | `wired_server_feed` | フェーズを確認する前に、バイト列を再構成バッファーに追加する |
 | `wired_server_set_cids`、`wired_server_set_limits`、`wired_server_set_reset_token` | フェーズを確認しない。設定する接続 ID、制限値、トークンは flight に載るので、`wired_server_build_flight` より前に呼ぶ。あとで呼ぶと、エラーにならずに反映されない |
 
-ClientHello が x25519 の鍵共有を提示しない場合、フェーズは INITIAL のままである。`wired_server_build_hrr` が HelloRetryRequest を出し、クライアントの 2 回目の ClientHello はもう一度 `wired_server_recv_initial` を通る。偽造されたクライアントの Finished ではフェーズは進まない。
+ClientHello が x25519 の鍵共有を提示しない場合、フェーズは INITIAL のままである。`wired_server_build_hrr` が HelloRetryRequest を出し、クライアントの 2 回目の ClientHello はもう一度 `wired_server_recv_initial` を通る。
+
+偽造されたクライアントの Finished ではフェーズは進まない。
 
 ## 2. 1 本の接続を手で動かす
 
-`srvboot` はクライアントの最初のデータグラムから接続をコールドスタートし、`srvloop` はそれ以降のすべてのデータグラムを扱う。図は `wired_server_run` がたどる順序である。ただし run のループはアキュムレーター形式の `wired_srvboot_accept_acc` を使う(2.1 節)。accept の呼び出しはハンドシェイクの準備の呼び出しを内部で済ませる。
+`srvboot` はクライアントの最初のデータグラムから接続をコールドスタートし、`srvloop` はそれ以降のすべてのデータグラムを扱う。
+
+図は `wired_server_run` がたどる順序である。ただし run のループはアキュムレーター形式の `wired_srvboot_accept_acc` を使う(2.1 節)。accept の呼び出しはハンドシェイクの準備の呼び出しを内部で済ませる。
 
 ```mermaid
 sequenceDiagram

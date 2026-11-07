@@ -167,7 +167,9 @@ SDK はサーバー側(セッションの状態機械、WebTransport のカプ�
 | RFC 9297 | HTTP データグラムとカプセルプロトコル | <https://www.rfc-editor.org/rfc/rfc9297> | SETTINGS_H3_DATAGRAM で DATAGRAM をリクエストストリームに結び付け、WebTransport のカプセルが載る汎用のカプセルの外枠を定義する。 |
 | RFC 3629 | UTF-8: ISO 10646 の変換形式 | <https://www.rfc-editor.org/rfc/rfc3629> | セッションを閉じるカプセルにある UTF-8 の終了理由を検証し、切り詰めるときは文字の境目でだけ切る。 |
 
-WebTransport はまだ Internet-Draft である。実装の対象は draft-16 で、MoQT draft-19 と draft-22 が引用する版である(MoQT draft-18 は draft-15 を引用する)。要件台帳([draft-webtrans-http3](../features/draft-webtrans-http3.md))も draft-16 から抽出している。
+WebTransport はまだ Internet-Draft である。実装の対象は draft-16 で、MoQT draft-19 と draft-22 が引用する版である(MoQT draft-18 は draft-15 を引用する)。
+
+要件台帳([draft-webtrans-http3](../features/draft-webtrans-http3.md))も draft-16 から抽出している。
 
 ガイドの関連ページは [ブラウザー](https://hakkadaikon.github.io/wired/guide/ja/wt/browser/)(実際のブラウザーでセッションを動かす)と [セッションのライフサイクル](https://hakkadaikon.github.io/wired/guide/ja/wt/session-lifecycle/)(セッションの閉じ方)である。
 
@@ -212,7 +214,9 @@ MoQT は配信の告知、購読、メディアの区切り方を定める。制
 | ガイドの MoQT のサンプル | draft-22 |
 | `examples/moqt_interop` | moq-interop-runner のクライアントに 3 つのドラフトすべてを提示する |
 
-ドラフトごとの違いは要件台帳の [draft-18](../features/draft-moq-transport-18.md)、[draft-19](../features/draft-moq-transport.md)、[draft-22](../features/draft-moq-transport-22.md) にある。データモデルのコード例はガイドの [ハブ](https://hakkadaikon.github.io/wired/guide/ja/moqt/hub/) にある。
+ドラフトごとの違いは要件台帳の [draft-18](../features/draft-moq-transport-18.md)、[draft-19](../features/draft-moq-transport.md)、[draft-22](../features/draft-moq-transport-22.md) にある。
+
+データモデルのコード例はガイドの [ハブ](https://hakkadaikon.github.io/wired/guide/ja/moqt/hub/) にある。
 
 | 仕様 | タイトル | リンク | 理由 |
 |------|------------|--------|-----------|

@@ -122,7 +122,9 @@ SHA-2 専用の Wycheproof ファイルはない。ECDSA と RSA のどのケー
 
 <a id="what-invalid-rejected-does-and-does-not-prove"></a><a id="invalid-rejectedが証明することしないこと"></a>
 
-Wycheproof は、正しい実装が拒否しなければならないケースを `invalid` とする。書き換えたタグ、展性(malleability)のある署名や誤ったエンコードの署名、壊れた RSA パディング、255 × 32 バイト(SHA-256 の出力サイズの 255 倍で、RFC 5869 が認める最大)より長い HKDF の出力などである。invalid rejected の件数には 2 つの限界がある。
+Wycheproof は、正しい実装が拒否しなければならないケースを `invalid` とする。書き換えたタグ、展性(malleability)のある署名や誤ったエンコードの署名、壊れた RSA パディング、255 × 32 バイト(SHA-256 の出力サイズの 255 倍で、RFC 5869 が認める最大)より長い HKDF の出力などである。
+
+invalid rejected の件数には 2 つの限界がある。
 
 ### 4.1 確かめているのは結果だけで、理由ではない
 

@@ -2,6 +2,13 @@
 
 [ドキュメント](../README.md) › [ユビキタス言語](README.md) › HTTP
 
+| 項目 | 内容 |
+|---|---|
+| 目的 | HTTP、HTTP/3、QPACK、WebTransport の用語の表記を定める |
+| 読む人 | ドキュメントを書く・直すすべての人 |
+| 前提文書 | [ユビキタス言語](README.md)(表記の決め方) |
+| 関連文書 | [ドキュメント規約](../standards/documentation.md) |
+
 出典は tex2e/rfc-translater の RFC 9110、9114、9204、7541、9218、9220、9297 の訳。WebTransport はドラフトに訳がないので、[HTTP/3 の台帳](../features/rfc9114.md) と guide の日本語ページに合わせる。規則の番号は [表記の決め方](README.md#1-表記の決め方) のもの。
 
 ## 1. HTTP メッセージ

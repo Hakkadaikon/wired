@@ -129,7 +129,9 @@ Chrome と Firefox の不合格は調査していない。
 
 ## 5. MoQT リレー(サーバー: wired、クライアント 14 種)
 
-moq-interop-runner は、各クライアントのテストスイートを、リレーとして動かした `examples/moqt_interop` に対して WebTransport 経由と raw QUIC 経由で 1 回ずつ実行する([2026-10-27 の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806))。
+moq-interop-runner は、各クライアントのテストスイートを、リレーとして動かした `examples/moqt_interop` に対して WebTransport 経由と raw QUIC 経由で 1 回ずつ実行する。
+
+下の表は [2026-10-27 の実行](https://github.com/Hakkadaikon/moq-interop-runner/actions/runs/40475054806) の結果である。
 
 | トランスポート | 合格 | 不合格のクライアント |
 |---|---|---|

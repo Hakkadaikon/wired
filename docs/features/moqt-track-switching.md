@@ -21,7 +21,9 @@
 
 ## 1. 機能と成熟度
 
-パブリッシャーは同じメディアを複数の別版で、それぞれ別の Track として提供できる(画面共有の高解像度版と低解像度版など)。ハブは購読者を、デコーダーが始められる Group の境界で、それらの間で切り替える。切り替え方は 2 通りで、どちらも [moqtail](https://github.com/moqtail/moqtail)(コミット `ee9753c`)から取り入れ、ワイヤー上で moqtail と互換である。
+パブリッシャーは同じメディアを複数の別版で、それぞれ別の Track として提供できる(画面共有の高解像度版と低解像度版など)。ハブは購読者を、デコーダーが始められる Group の境界で、それらの間で切り替える。
+
+切り替え方は 2 通りで、どちらも [moqtail](https://github.com/moqtail/moqtail)(コミット `ee9753c`)から取り入れ、ワイヤー上で moqtail と互換である。
 
 | 方式 | 決める側 | 内容 |
 |---|---|---|
@@ -30,7 +32,9 @@
 
 状況は実験的である。どちらも draft-ietf-moq-transport-22 に含まれず、コードポイントは moqtail のものを使う。動くのは **draft-22 のセッションだけ** で、ハブが有効にしたときに限る。
 
-ハブのフラグがオフのとき、または draft-18 か draft-19 のセッションでは、パラメーター 0x24 と 0x41 は、拡張を入れる前と同じくセッションを PROTOCOL_VIOLATION で閉じる(`test_moqtrun_switch_off_closes`、`test_moqtrun_switch_old_drafts_close`、`test_moqtrun_ssts_off_violates`)。
+ハブのフラグがオフのとき、または draft-18 か draft-19 のセッションでは、パラメーター 0x24 と 0x41 は、拡張を入れる前と同じくセッションを PROTOCOL_VIOLATION で閉じる。
+
+テスト: `test_moqtrun_switch_off_closes`、`test_moqtrun_switch_old_drafts_close`、`test_moqtrun_ssts_off_violates`。
 
 検証はすべてプロセス内(ループバック)の実行と、moqtail-rs の単体テストから写したコーデックのベクターである。**第三者の実装と組み合わせて動かしたことはない。** 項目ごとの状況は draft-22 の要件台帳に、制限は [既知の制限: MoQT の Track 切り替え](../security/limitations/moqt-switching.md) にある。
 
@@ -86,7 +90,9 @@
 
 拡張を draft-22 に限る理由の 1 つは、draft-18/19 では 0x32 が INVALID_JOINING_REQUEST_ID を意味することである。0x33 の UNSUPPORTED_EXTENSION は 3 つのドラフトすべてで標準のコードである。
 
-ハブは PUBLISH_DONE の各ステータスを `moqctl_publish_done_for` に通し、セッションのドラフトに合わせて変換する。draft-22 ではこの関数が 0x3(draft-18/19 の SUBSCRIPTION_ENDED)を TRACK_ENDED に対応させるので、"switched" が別のコードになる。そのため 0x3 は専用の経路(`src/app/moqt/run/moqtswitch.h` の `moqtsw_done_code`)で書き、変換せずに送る。
+ハブは PUBLISH_DONE の各ステータスを `moqctl_publish_done_for` に通し、セッションのドラフトに合わせて変換する。
+
+draft-22 ではこの関数が 0x3(draft-18/19 の SUBSCRIPTION_ENDED)を TRACK_ENDED に対応させるので、"switched" が別のコードになる。そのため 0x3 は専用の経路(`src/app/moqt/run/moqtswitch.h` の `moqtsw_done_code`)で書き、変換せずに送る。
 
 <a id="switch_from"></a>
 
@@ -139,7 +145,9 @@ sequenceDiagram
     Note over H: past A's end: not sent
 ```
 
-Track のパブリッシャーが再接続して Track をもう一度パブリッシュしたとき(再アタッチ)と、購読者が REQUEST_UPDATE で Location Filter を変えたとき、ハブは購読の Group の範囲を計算し直す。切り替えが保留中の間は、計算し直すたびに `moqtsw_rebound` が切り替えの範囲を適用し直し、範囲は狭まる方向にしか変わらない。A が終わったあとは B の開始位置を制限せず、その後の再計算では B 自身のフィルターを使う。
+Track のパブリッシャーが再接続して Track をもう一度パブリッシュしたとき(再アタッチ)と、購読者が REQUEST_UPDATE で Location Filter を変えたとき、ハブは購読の Group の範囲を計算し直す。切り替えが保留中の間は、計算し直すたびに `moqtsw_rebound` が切り替えの範囲を適用し直し、範囲は狭まる方向にしか変わらない。
+
+A が終わったあとは B の開始位置を制限せず、その後の再計算では B 自身のフィルターを使う。
 
 別版どうしは同じ Group 番号を使う必要がある。ハブはこれを前提とし、確かめない。
 
@@ -155,7 +163,9 @@ Soft は A に最後の Group を終えさせ、Hard は B にデータが届き
 | Hard (Mode 0) | B の Group G(またはそれより後の Group)がストリームかデータグラムでハブに届いた時点、または B がなくなった(キャンセルまたは終了した)時点。そのあと A の開いているストリームを CANCELLED (0x1) でリセットする |
 | G = 0 | どちらのモードでも A はすぐに終わる |
 
-Hard では、ハブが B の Group G のストリームを購読者に向けてまだ開けないことがある。購読者が次のストリームを許可していない(QUIC のストリームのクレジット)場合や、ハブがその購読者に向けたストリームを多く待たせている場合である。それでも B の Group G が届く前に、A の送信中の Group はリセットする。この欠落はストリームの RESET で明示される。ハブはそのあと B のストリームを Group G の途中から開き、その時点より前に届いた Group G の Object は再送しない。
+Hard では、ハブが B の Group G のストリームを購読者に向けてまだ開けないことがある。購読者が次のストリームを許可していない(QUIC のストリームのクレジット)場合や、ハブがその購読者に向けたストリームを多く待たせている場合である。
+
+それでも B の Group G が届く前に、A の送信中の Group はリセットする。この欠落はストリームの RESET で明示される。ハブはそのあと B のストリームを Group G の途中から開き、その時点より前に届いた Group G の Object は再送しない。
 
 A の終わり方は Publish Done フラグで決まる。
 
@@ -193,7 +203,9 @@ stateDiagram-v2
 
 拒否した切り替えでは両方の購読を元のままにする。そのため、切り替えの検査はすべて、何かを変更する前に行う。
 
-SUBSCRIBE では、リクエストの通常の検査が先に応答する。不正な形式の FILL_PARAMETERS、通常の SUBSCRIBE の拒否(予約済みの名前空間、不正なフィルター、認可)、セットに加われない割り当てに対する SSTS の拒否(UNSUPPORTED_EXTENSION。[4. SSTS](#4-ssts送信側での-track-切り替え))である。まだ誰もパブリッシュしていない Track への SUBSCRIBE は、通常どおりパブリッシャーが来るまで保留するか、DOES_NOT_EXIST で拒否する。その SWITCH_FROM は、パブリッシャーが来た時点で検査する。
+SUBSCRIBE では、リクエストの通常の検査が先に応答する。不正な形式の FILL_PARAMETERS、通常の SUBSCRIBE の拒否(予約済みの名前空間、不正なフィルター、認可)、セットに加われない割り当てに対する SSTS の拒否(UNSUPPORTED_EXTENSION。[4. SSTS](#4-ssts送信側での-track-切り替え))である。
+
+まだ誰もパブリッシュしていない Track への SUBSCRIBE は、通常どおりパブリッシャーが来るまで保留するか、DOES_NOT_EXIST で拒否する。その SWITCH_FROM は、パブリッシャーが来た時点で検査する。
 
 そのあと、次の 15 の条件のどれかが成り立つと、ハブは REQUEST_ERROR INVALID_SWITCH (0x32) を返す。
 
@@ -258,7 +270,9 @@ SWITCH_FROM では切り替える時点を購読者が決める。SSTS では、
 
 セットに加われるのは draft-22 のリクエストストリームでの購読だけである。制御ストリームの購読は、パブリッシャーが Track をもう一度パブリッシュしたときに通知なしで再アタッチされ、新しいパブリッシャーの Group 番号が、削除済みかもしれないセットのもとで振り直されるためである(`moqtrun_ssts_unsettable`)。
 
-各セットは決定を別々に保持するので、パブリッシャーが独立に Group に番号を振るセットどうしは干渉しない。g についての決定は確定したもので、g がセットの最新の Group から 5 Group 以内の古さである間は計算し直さない(`WIRED_MOQTRUN_SSTS_KEEP`)。決定はハブの通常の Group ごとのゲート(`moqtss_sub_pass`)で適用する。Fill と FETCH はこのゲートを通らない。
+各セットは決定を別々に保持するので、パブリッシャーが独立に Group に番号を振るセットどうしは干渉しない。g についての決定は確定したもので、g がセットの最新の Group から 5 Group 以内の古さである間は計算し直さない(`WIRED_MOQTRUN_SSTS_KEEP`)。
+
+決定はハブの通常の Group ごとのゲート(`moqtss_sub_pass`)で適用する。Fill と FETCH はこのゲートを通らない。
 
 次のフローチャートは 1 回の決定である。
 

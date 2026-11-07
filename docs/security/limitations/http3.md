@@ -158,7 +158,9 @@ SDK はトレーラー、`Date`、条件付きリクエストと範囲リクエ�
 
 影響: 大きなレスポンスを返すハンドラー。
 
-固定のレスポンスの行は `WIRED_SRVRUN_RESP_MAX`(16384 バイト)から 640 バイトのヘッダー領域(`SRVRUN_RESP_HDR_ROOM`)を引いた分を保持するので、1 回あたりの body は 15744 バイトである。それより大きい body は `srvbigbuf` の行(大きなレスポンス用のバッファープール)かストリーミングを使う([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
+固定のレスポンスの行は `WIRED_SRVRUN_RESP_MAX`(16384 バイト)から 640 バイトのヘッダー領域(`SRVRUN_RESP_HDR_ROOM`)を引いた分を保持するので、1 回あたりの body は 15744 バイトである。
+
+それより大きい body は `srvbigbuf` の行(大きなレスポンス用のバッファープール)かストリーミングを使う([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
 
 この配列全体は `WIRED_CONNTABLE_CAP` 接続 x 40 レスポンススロット(`SRVRUN_RESP_SLOTS`)x 16 KiB の BSS である。
 
@@ -176,7 +178,9 @@ SDK はトレーラー、`Date`、条件付きリクエストと範囲リクエ�
 
 影響: `on_body` のないハンドラーへリクエストの body を送るクライアント。
 
-バッファーに入れるリクエストが FIN のないまま窓を埋めると、413 か 431 で応答する。FIN があとの空のフレームで来る場合(「window stuck」)も同じである。窓を超えたバイトはストリームのクレジットも超えているので、FLOW_CONTROL_ERROR で接続を閉じる。大きな body には `on_body` を使う([POST ボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/post-body/))。
+バッファーに入れるリクエストが FIN のないまま窓を埋めると、413 か 431 で応答する。FIN があとの空のフレームで来る場合(「window stuck」)も同じである。
+
+窓を超えたバイトはストリームのクレジットも超えているので、FLOW_CONTROL_ERROR で接続を閉じる。大きな body には `on_body` を使う([POST ボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/post-body/))。
 
 参照: `route_window_stuck`(ponytail)
 
@@ -227,7 +231,9 @@ RFC 9110 4.1 は少なくとも 8000 オクテットの URI を受け付ける�
 
 影響: SIGTERM でサーバーを止める運用者。
 
-サーバーは GOAWAY を送り、閉じる前に最大 `SRVRUN_DRAIN_TICKS`(25)x 200 ミリ秒(約 5 秒)待つ。ハンドラーを設定する前に届いた SIGTERM は既定の動作になる(GOAWAY は送らない)。運用の手順は guide の「[SIGTERM によるグレースフルストップ](https://hakkadaikon.github.io/wired/guide/ja/ops/shutdown/)」にある。
+サーバーは GOAWAY を送り、閉じる前に最大 `SRVRUN_DRAIN_TICKS`(25)x 200 ミリ秒(約 5 秒)待つ。ハンドラーを設定する前に届いた SIGTERM は既定の動作になる(GOAWAY は送らない)。
+
+運用の手順は guide の「[SIGTERM によるグレースフルストップ](https://hakkadaikon.github.io/wired/guide/ja/ops/shutdown/)」にある。
 
 参照: `srvrun_drain_tick`(ponytail)
 

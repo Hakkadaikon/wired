@@ -54,8 +54,8 @@
 | メンバー | 型 | 内容 |
 |---|---|---|
 | `http` | `wired_http_handler` | `wired_http_exchange` を埋めてステータスを選び、`WIRED_HTTP_MAX_FIELDS`(8)個までのレスポンスヘッダーを加える |
-| `on_body` | `wired_srvloop_on_body` | レスポンダーが動く前に、リクエストボディを届いた順にチャンク単位で受け取る。0 なら、ボディ全体を先にバッファーに溜める |
-| `on_body_abort` | `wired_srvloop_on_body_abort` | `on_body` へストリーミング中のボディが fin なしで終わったときに一度だけ呼ばれる |
+| `on_body` | `wired_srvloop_on_body` | レスポンダーが動く前に、リクエストの body を届いた順にチャンク単位で受け取る。0 なら、body 全体を先にバッファーに溜める |
+| `on_body_abort` | `wired_srvloop_on_body_abort` | `on_body` へストリーミング中の body が fin なしで終わったときに一度だけ呼ばれる |
 
 `on_body_abort` が呼ばれるのは、クライアントがストリームをリセットしたとき、レスポンスが始まる前に止めたとき、接続が終わったときである。ストリーム ID とクライアントのエラーコード(接続が終わったときは `H3_REQUEST_CANCELLED`)を受け取る。`on_body` に渡される `req` はその呼び出しの間だけ有効である。
 
@@ -75,7 +75,9 @@
 | `wired_server_wt_occupancy`, `wired_wt_occupancy` (struct) | 開いているセッションとストリームのスナップショット |
 | `wired_wt_ref` (struct), `wired_wt_ref_of`, `wired_wt_ref_get` | ステップをまたいでセッションを保持する。開いている間はそのセッションに解決し、古くなったら 0 になる |
 
-どれもサーバー自身のループの中、つまりコールバックの中からだけ呼べる。スレッドセーフでもシグナルセーフでもない。使い方は [WebTransport のデータグラム](https://hakkadaikon.github.io/wired/guide/ja/wt/datagram/) と [サーバーが開いたストリームを閉じずに保つ](https://hakkadaikon.github.io/wired/guide/ja/wt/open-streams/) にある。
+どれもサーバー自身のループの中、つまりコールバックの中からだけ呼べる。スレッドセーフでもシグナルセーフでもない。
+
+使い方は [WebTransport のデータグラム](https://hakkadaikon.github.io/wired/guide/ja/wt/datagram/) と [サーバーが開いたストリームを閉じずに保つ](https://hakkadaikon.github.io/wired/guide/ja/wt/open-streams/) にある。
 
 ### 2.1 古いセッション
 
@@ -119,7 +121,19 @@ open と reply の呼び出しは 128 KiB(131072 バイト。送信スロット�
 
 同じヘッダーには、どちらの区分にもまだ入れていない呼び出しがある。ループの中だけというルールは同じで、前提条件はそれぞれのヘッダーのコメントにある。
 
-`wired_server_wt_stream_reply_open`、`wired_server_wt_stream_send`、`wired_server_wt_stream_fin`、`wired_server_wt_stream_hold`、`wired_server_wt_stream_reset`、`wired_server_wt_stream_stop`、`wired_server_wt_send_datagram_to`、`wired_server_wt_close_session`、`wired_server_wt_est_kbps`、`wired_server_wt_exporter`、`wired_server_broadcast_datagram_ring`、`wired_server_wt_send_datagram_prio`、`wired_server_broadcast_datagram_prio`
+- `wired_server_wt_stream_reply_open`
+- `wired_server_wt_stream_send`
+- `wired_server_wt_stream_fin`
+- `wired_server_wt_stream_hold`
+- `wired_server_wt_stream_reset`
+- `wired_server_wt_stream_stop`
+- `wired_server_wt_send_datagram_to`
+- `wired_server_wt_close_session`
+- `wired_server_wt_est_kbps`
+- `wired_server_wt_exporter`
+- `wired_server_broadcast_datagram_ring`
+- `wired_server_wt_send_datagram_prio`
+- `wired_server_broadcast_datagram_prio`
 
 2 つの `_prio` の呼び出しは 0(最も急ぐ)から 7 までの urgency を受け取る(RFC 9221 §5.1)。キューに積んだデータグラムは urgency の高い順に、同じ urgency の中では呼び出し順に出ていく。`_prio` の付かない呼び出しは 3 を使う。
 
@@ -129,12 +143,14 @@ open と reply の呼び出しは 128 KiB(131072 バイト。送信スロット�
 |---|---|
 | `wired_h3req_path` | リクエストの `:path` を 1 つの `wired_span` で返す |
 | `wired_http_req_header` | 小文字の名前でリクエストヘッダーを探す |
-| `wired_http_reply_text` (`srvrun/httpx.h`) | ステータス、`text/plain`、ボディのテキストを 1 回の呼び出しで設定する |
+| `wired_http_reply_text` (`srvrun/httpx.h`) | ステータス、`text/plain`、body のテキストを 1 回の呼び出しで設定する |
 | `wired_http_add_field` (`srvrun/httpx.h`) | 2 つの C 文字列からレスポンスヘッダーを 1 つ追加する。フィールドの表が満杯のとき 0 を返す |
 
-`wired_http_req_header` は名前を完全一致で照合する。`cookie` は全部の断片を `"; "` でつないで返し、それ以外の繰り返されたヘッダーは最初の 1 つを返す。`cookie`、`origin`、`wt-available-protocols` 以外のヘッダーは最初の `WIRED_H3REQDRIVE_MAX_HDRS`(32)個しか保持しない。戻り値はリクエストの中を指すビューで、リクエストのほかのビューと同じ間だけ生きている。
+`wired_http_req_header` は名前を完全一致で照合する。`cookie` は全部の断片を `"; "` でつないで返し、それ以外の繰り返されたヘッダーは最初の 1 つを返す。
 
-1 つのバッファーより大きいレスポンスボディはラウンドに分けて作り、次のチャンクを埋めるためにレスポンダーをもう一度呼ぶ([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。2 回目以降のラウンドで見えるリクエストはコピーで、ビューとヘッダー用の余地は 512 バイトである。コピーに収まらなかったヘッダーは、そこでは見つからない。
+`cookie`、`origin`、`wt-available-protocols` 以外のヘッダーは最初の `WIRED_H3REQDRIVE_MAX_HDRS`(32)個しか保持しない。戻り値はリクエストの中を指すビューで、リクエストのほかのビューと同じ間だけ生きている。
+
+1 つのバッファーより大きいレスポンスの body はラウンドに分けて作り、次のチャンクを埋めるためにレスポンダーをもう一度呼ぶ([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。2 回目以降のラウンドで見えるリクエストはコピーで、ビューとヘッダー用の余地は 512 バイトである。コピーに収まらなかったヘッダーは、そこでは見つからない。
 
 ## 4. 証明書
 
@@ -145,7 +161,9 @@ open と reply の呼び出しは 128 KiB(131072 バイト。送信スロット�
 | `wired_pem_next` | PEM ブロックを 1 つデコードする。繰り返せば full-chain のファイルを順にたどれる |
 | `wired_eckey_p256_priv` | DER(SEC1 または PKCS#8)から P-256 の秘密鍵を取り出す |
 
-`wired_certreload_load` に渡す領域はそこから作った identity より長く生きていなければならない。`wired_certreload_load_or_selfsigned` は、パスが設定されているのに読み込めなかったとき、自己署名証明書へ切り替えずに診断メッセージを出して終了する。使い方は [証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/) と [証明書のホットリロード](https://hakkadaikon.github.io/wired/guide/ja/ops/cert-reload/) にある。
+`wired_certreload_load` に渡す領域はそこから作った identity より長く生きていなければならない。`wired_certreload_load_or_selfsigned` は、パスが設定されているのに読み込めなかったとき、自己署名証明書へ切り替えずに診断メッセージを出して終了する。
+
+使い方は [証明書の読み込み](https://hakkadaikon.github.io/wired/guide/ja/tls/certificates/) と [証明書のホットリロード](https://hakkadaikon.github.io/wired/guide/ja/ops/cert-reload/) にある。
 
 ## 5. ソケット、ファイル、コーデック
 
@@ -185,7 +203,9 @@ UDP の呼び出しは、普通のソケットプログラムが使う順序な�
 | `wired_srvboot_demo`, `wired_srvboot_demo_keys` (`srvboot/srvdemo.h`) | サンプルとテスト用の固定のデモ identity。本番では使わない |
 | `wired_srvboot_cert_sha256`, `wired_srvboot_log_fingerprint` (`srvboot/srvdemo.h`) | リーフ証明書の SHA-256。生の値か、ログに出した値 |
 
-デモの identity は連番パターンの鍵と自己署名証明書を使うので、誰でも再現できる。証明書のハッシュは、ブラウザーが `serverCertificateHashes` に期待する値である。フィンガープリントはコロン区切りでログに出る。`wired_srvboot_cert_sha256` と `wired_srvboot_log_fingerprint` はプロセス全体で 1 つの作業用サーバーを共有するので、再入可能ではない。
+デモの identity は連番パターンの鍵と自己署名証明書を使うので、誰でも再現できる。証明書のハッシュは、ブラウザーが `serverCertificateHashes` に期待する値である。フィンガープリントはコロン区切りでログに出る。
+
+`wired_srvboot_cert_sha256` と `wired_srvboot_log_fingerprint` はプロセス全体で 1 つの作業用サーバーを共有するので、再入可能ではない。
 
 ## 8. セッション再開と 0-RTT
 
@@ -194,7 +214,9 @@ UDP の呼び出しは、普通のソケットプログラムが使う順序な�
 | `wired_srvboot_id.ticket_key` | セッションチケットの鍵のシード。0 = 再開なし |
 | `wired_srvboot_id.early_data` | 1 = 再開した接続で 0-RTT を受け入れる。0(デフォルト)= 1-RTT としてのみ再開する |
 
-0-RTT はオプトインである。0-RTT のデータはリプレイされうるので、RFC 8446 Appendix E.5 は、アプリケーションが求めない限り 0-RTT を有効にすることを禁じている。`ticket_key` だけで有効になるのは再開で、0-RTT ではない。`early_data = 1` の前提は、クライアントが早期に送りうるすべてのリクエストが 2 回処理されても問題ないことである。
+0-RTT はオプトインである。0-RTT のデータはリプレイされうるので、RFC 8446 Appendix E.5 は、アプリケーションが求めない限り 0-RTT を有効にすることを禁じている。
+
+`ticket_key` だけで有効になるのは再開で、0-RTT ではない。`early_data = 1` の前提は、クライアントが早期に送りうるすべてのリクエストが 2 回処理されても問題ないことである。
 
 `early_data = 1` でも、SDK は次の場合に 0-RTT を断り、接続を 1-RTT として再開する。チケットが早期データを告知するのは、0-RTT が有効なときだけである。
 

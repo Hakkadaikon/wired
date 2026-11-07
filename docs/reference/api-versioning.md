@@ -33,7 +33,9 @@ Low-level / internal API は `wired_server_run` と examples を組み立てる�
 
 ## 3. 名前の接頭辞と区分
 
-テストのビルドは全ソースを 1 つの翻訳単位にまとめるので、SDK のすべての名前が 1 つの名前空間を共有する。接頭辞は想定する利用者と所有するモジュールの両方を表す。名前の付け方と衝突の避け方は [コーディング規約](../standards/coding.md) の 5 章、ルールの全文は [`.claude/rules/naming-and-unity-build.md`](../../.claude/rules/naming-and-unity-build.md) にある。
+テストのビルドは全ソースを 1 つの翻訳単位にまとめるので、SDK のすべての名前が 1 つの名前空間を共有する。接頭辞は想定する利用者と所有するモジュールの両方を表す。
+
+名前の付け方と衝突の避け方は [コーディング規約](../standards/coding.md) の 5 章、ルールの全文は [`.claude/rules/naming-and-unity-build.md`](../../.claude/rules/naming-and-unity-build.md) にある。
 
 | 接頭辞 | 対象 | 安定性 |
 |---|---|---|

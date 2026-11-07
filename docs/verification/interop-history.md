@@ -55,7 +55,9 @@
 
 ### 1.5 `retry`
 
-`--force-retry` のサーバーモードはトークンのない Initial パケットすべてに Retry を送る(RFC 9000 §8.1.2)。受け入れる前に、提示されたトークンの HMAC(RFC 9000 §8.1.1)とアドレスの結び付きを検証し、無効なトークンを持つデータグラムは捨てる。Retry Integrity Tag は RFC 9001 Appendix A.4 のベクターに固定している。Retry を有効にする方法は guide の [ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) にある。
+`--force-retry` のサーバーモードはトークンのない Initial パケットすべてに Retry を送る(RFC 9000 §8.1.2)。受け入れる前に、提示されたトークンの HMAC(RFC 9000 §8.1.1)とアドレスの結び付きを検証し、無効なトークンを持つデータグラムは捨てる。
+
+Retry Integrity Tag は RFC 9001 Appendix A.4 のベクターに固定している。Retry を有効にする方法は guide の [ハンドシェイクと可観測性のつまみ](https://hakkadaikon.github.io/wired/guide/ja/ops/handshake-knobs/) にある。
 
 トークンはクライアントの元の DCID を平文で持つ(`odcid_len || odcid || HMAC-SHA256`)。サーバーはハンドシェイクを終えるのにクライアントごとのメモリを使わない。サーバーは次の 2 つの値を最初から最後まで別のフィールドに持つ。
 
@@ -143,7 +145,9 @@ ngtcp2 をクライアントにすると、ある修正の後エンドツーエ�
 
 ### 1.10 `v2`
 
-QUIC バージョン 2(RFC 9369)を実装し、単体テストしている。鍵導出、ロングヘッダーの型ビット、Version Negotiation の受け入れリストはバージョンを引数に取る。実際の ClientHello を持つ v2 の Initial パケットを受け入れ、v2 で応答する。quic-go の相互運用性クライアントは `unsupported test case: v2`(exit 127)を宣言する。
+QUIC バージョン 2(RFC 9369)を実装し、単体テストしている。鍵導出、ロングヘッダーの型ビット、Version Negotiation の受け入れリストはバージョンを引数に取る。実際の ClientHello を持つ v2 の Initial パケットを受け入れ、v2 で応答する。
+
+quic-go の相互運用性クライアントは `unsupported test case: v2`(exit 127)を宣言する。
 
 サーバーは自分から接続のバージョンを切り替えず、クライアントの Initial パケットのバージョンで応答する(RFC 9368 §2)。ランナーの TestCaseV2 のチェックは、v1 で始めた接続を v2 へ移すサーバーを想定している。この違いの影響は、それを試すクライアントが現れるまで確かめられない。
 

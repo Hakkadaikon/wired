@@ -141,7 +141,9 @@ FETCH の範囲の先頭がキャッシュにないと、ハブは上流に 1 �
 
 レッグが Object の途中で終わるのは、上流が Object を途中で切ったとき、一部が書き込み待ちのうちに持ち時間が尽きたとき、保持していた末尾が収まらなかったときである。
 
-キャッシュ側は FETCH の Range Filter を Object ID だけで適用する。キャッシュは Subgroup、優先度、Properties を保持しないので、それらのどれかを指定したフィルターの組はキャッシュ済みの Object を 1 つも通さず、印のない(不明の)欠落を残す。Joining FETCH は Range Filter を適用しない(`moqtrun_fsel_skip`、MQ22-137。`moqtrun_live.c` の `moqtrun_fetch_joining` が捨てる)。
+キャッシュ側は FETCH の Range Filter を Object ID だけで適用する。キャッシュは Subgroup、優先度、Properties を保持しないので、それらのどれかを指定したフィルターの組はキャッシュ済みの Object を 1 つも通さず、印のない(不明の)欠落を残す。
+
+Joining FETCH は Range Filter を適用しない(`moqtrun_fsel_skip`、MQ22-137。`moqtrun_live.c` の `moqtrun_fetch_joining` が捨てる)。
 
 バッファリングの詳細は次のとおりである。
 
@@ -193,7 +195,9 @@ SUBSCRIBE_TRACKS が複数のフィルターの組を持ち、ある組の TRACK
 
 影響: エイリアスで認可トークンを送るクライアント([購読者の認可](https://hakkadaikon.github.io/wired/guide/ja/moqt/authorize/))。
 
-認可トークンはエイリアスで送れる(REGISTER で登録、USE_ALIAS で参照、DELETE で削除)。ハブは MAX_AUTH_TOKEN_CACHE_SIZE を広告しないので、キャッシュは 0 バイトである。REGISTER はセッションを AUTH_TOKEN_CACHE_OVERFLOW で、DELETE と USE_ALIAS は UNKNOWN_AUTH_TOKEN_ALIAS で閉じる(d22 8.9)。FETCH と SETUP のトークンは検査しない。
+認可トークンはエイリアスで送れる(REGISTER で登録、USE_ALIAS で参照、DELETE で削除)。ハブは MAX_AUTH_TOKEN_CACHE_SIZE を広告しないので、キャッシュは 0 バイトである。
+
+REGISTER はセッションを AUTH_TOKEN_CACHE_OVERFLOW で、DELETE と USE_ALIAS は UNKNOWN_AUTH_TOKEN_ALIAS で閉じる(d22 8.9)。FETCH と SETUP のトークンは検査しない。
 
 参照: `moqtrun_take_tok_or_close`
 
@@ -215,13 +219,19 @@ d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバ
 - データグラムはストリームの区分を通らず、すぐに送る。
 - 購読をまたいで優先度が等しいものは、ポンプの 1 回分をラウンドロビンで分け合う。
 
-参照: `moqtrun_upd_resched`(ponytail)。MoQT の台帳の対象外の節(7 節 / 5 節)([d19](../../features/draft-moq-transport.md)、[d18](../../features/draft-moq-transport-18.md)、[d22](../../features/draft-moq-transport-22.md))。
+参照:
+
+- `moqtrun_upd_resched`(ponytail)
+- MoQT の台帳の対象外の節(7 節 / 5 節)([d19](../../features/draft-moq-transport.md)、[d18](../../features/draft-moq-transport-18.md)、[d22](../../features/draft-moq-transport-22.md))。
 
 ### 2.18 Properties は中身を見ない
 
 影響: リレーが Properties に従って動くと期待するアプリケーション。
 
-MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap と、d22 の TIMESTAMP、VIDEO_FRAME_MARKING、AUDIO_CONFIG、ENCRYPTED_LIST、PADDING は、解釈せずにそのまま中継する。
+次の Properties は、解釈せずにそのまま中継する。
+
+- MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap
+- d22 の TIMESTAMP、VIDEO_FRAME_MARKING、AUDIO_CONFIG、ENCRYPTED_LIST、PADDING
 
 参照: MoQT の台帳の対象外の節
 
@@ -231,7 +241,9 @@ MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable 
 
 FILL_TIMEOUT はあるかどうかで、欠けた範囲に「End of Timed-Out Range」(d22: ハブが時間内に取得できなかった範囲)の印を付けるかを決めるだけである。上流 FETCH の持ち時間([2.11](#211-上流への-fetch-は-fetch-1-つにつき-1-回でそのまま中継する))を短くすることもある。EXPIRES は解析して無視する。
 
-一方、NEW_GROUP_REQUEST は上流へ中継する(d18 10.2.13、d19 10.2.18。ハブ自身の SUBSCRIBE に入れるか、Track が Established になったあとは REQUEST_UPDATE で送る。`moqtrun_ngr.c`)。RENDEZVOUS_TIMEOUT にも従う([ドラフトと raw QUIC](moqt-drafts.md#13-意図した逸脱-ランデブーの保留は-15-秒が上限))。
+一方、NEW_GROUP_REQUEST は上流へ中継する(d18 10.2.13、d19 10.2.18。ハブ自身の SUBSCRIBE に入れるか、Track が Established になったあとは REQUEST_UPDATE で送る。`moqtrun_ngr.c`)。
+
+RENDEZVOUS_TIMEOUT にも従う([ドラフトと raw QUIC](moqt-drafts.md#13-意図した逸脱-ランデブーの保留は-15-秒が上限))。
 
 参照: MoQT の台帳の対象外の節
 
@@ -241,7 +253,9 @@ FILL_TIMEOUT はあるかどうかで、欠けた範囲に「End of Timed-Out Ra
 
 影響: Track Properties を読む購読者。
 
-パブリッシャーの Track Properties は、購読者が INCLUDE_PROPERTIES(0x35、d22 9.20.21)= 0 を送っていない限り、その購読者への SUBSCRIBE_OK に入る。`WIRED_MOQTRUN_TRACK_PROPS_MAX`(96)より長いブロックは空にして転送する。TRACK_STATUS_OK、FETCH_OK、SUBSCRIBE_TRACKS による PUBLISH には入れない。
+パブリッシャーの Track Properties は、購読者が INCLUDE_PROPERTIES(0x35、d22 9.20.21)= 0 を送っていない限り、その購読者への SUBSCRIBE_OK に入る。
+
+`WIRED_MOQTRUN_TRACK_PROPS_MAX`(96)より長いブロックは空にして転送する。TRACK_STATUS_OK、FETCH_OK、SUBSCRIBE_TRACKS による PUBLISH には入れない。
 
 参照: `moqtrun_queue_subscribe_ok`
 

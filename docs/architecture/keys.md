@@ -66,7 +66,9 @@ stateDiagram-v2
 | Handshake | 接続のスロットに残る(下記) | `srvrun_free_slot`、`srvrun_open_slot` |
 | 古い 1-RTT | 鍵更新から 3 PTO 後に捨てる。古い鍵で送った送信中(in flight)のパケットを届かせるため | `srvrun_ku_discard_stale` |
 
-Handshake 鍵は CONFIRMED のあとも、接続が閉じたあとも残る。CONFIRMED のあと、サーバーは Handshake パケットを送らないが、届いた Handshake パケットは開ける。接続が閉じると `srvrun_free_slot` がスロットを解放し、鍵スケジュールは残す。そのバイト列を上書きするのは、`srvrun_open_slot` がスロットを再利用したときだけである。
+Handshake 鍵は CONFIRMED のあとも、接続が閉じたあとも残る。CONFIRMED のあと、サーバーは Handshake パケットを送らないが、届いた Handshake パケットは開ける。
+
+接続が閉じると `srvrun_free_slot` がスロットを解放し、鍵スケジュールは残す。そのバイト列を上書きするのは、`srvrun_open_slot` がスロットを再利用したときだけである。
 
 `wired_server_close` は `keysched_wipe` で鍵スケジュールを消去するが、サーバーループはこれを呼ばない。RFC 9001 §4.9.2 は確認の時点で Handshake 鍵を捨てることを要求する(MUST)。サーバーはこれをまだ満たしていない。
 

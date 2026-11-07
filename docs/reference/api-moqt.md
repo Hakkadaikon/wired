@@ -13,9 +13,13 @@
 
 MoQT の公開面は丸ごと experimental で、Stable API と Low-level / internal API のどちらの表にも載せない。MoQ Transport は IETF のドラフトで、名前、デフォルト、ワイヤー上の振る舞いはドラフトに従い、非推奨期間なしにどのコミットでも変わりうる。前提条件はヘッダーのコメントにある。
 
-`src/app/moqt/` は MoQT を 14 のモジュールで実装する。`cache`、`ctl`、`data`、`dgram`、`fetch`、`kvp`、`ns`、`qraw`、`run`、`sess`、`ssts`、`tstat`、`ver`、`vi` である。セッションは draft-ietf-moq-transport-18、-19、-22 のうち、ピアが WebTransport のサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`)として提示したものを話す。
+`src/app/moqt/` は MoQT を 14 のモジュールで実装する。`cache`、`ctl`、`data`、`dgram`、`fetch`、`kvp`、`ns`、`qraw`、`run`、`sess`、`ssts`、`tstat`、`ver`、`vi` である。
 
-`src/wired.h` は、MoQT のヘッダー(`run/moqtrun.h`、`qraw/moqrawio.h`、`data/moqdata.h`、`dgram/moqdg.h`)と、ライブメディア用の `media/mp4frag/mp4frag.h` と `platform/clock/mono.h` をインクルードする。`wired_moqt_init` などに 2 つ目のインクルードは要らない。
+セッションは draft-ietf-moq-transport-18、-19、-22 のうち、ピアが WebTransport のサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`)として提示したものを話す。
+
+`src/wired.h` は、MoQT のヘッダー(`run/moqtrun.h`、`qraw/moqrawio.h`、`data/moqdata.h`、`dgram/moqdg.h`)と、ライブメディア用の `media/mp4frag/mp4frag.h` と `platform/clock/mono.h` をインクルードする。
+
+`wired_moqt_init` などに 2 つ目のインクルードは要らない。
 
 | 語 | 意味 |
 |---|---|
@@ -68,7 +72,9 @@ MoQT の公開面は丸ごと experimental で、Stable API と Low-level / inte
 
 ## 4. raw QUIC 上の MoQT
 
-MoQT は HTTP/3 や WebTransport を使わずに QUIC の上で直接動く(draft-ietf-moq-transport-22 6.2.2、-18/-19 3.1.4-5)。クライアントは ALPN で MoQT を選ぶ。この接続には CONNECT リクエストがないので、SDK は接続全体を表す暗黙のセッションを 1 つ与える。下の名前はすべてデフォルトが 0 か未設定で、その場合は WebTransport だけになる。
+MoQT は HTTP/3 や WebTransport を使わずに QUIC の上で直接動く(draft-ietf-moq-transport-22 6.2.2、-18/-19 3.1.4-5)。クライアントは ALPN で MoQT を選ぶ。この接続には CONNECT リクエストがないので、SDK は接続全体を表す暗黙のセッションを 1 つ与える。
+
+下の名前はすべてデフォルトが 0 か未設定で、その場合は WebTransport だけになる。
 
 | Name | Role |
 |---|---|
@@ -91,7 +97,9 @@ MoQT は HTTP/3 や WebTransport を使わずに QUIC の上で直接動く(draf
 
 ## 5. Track 切り替え(moqtail 互換、draft-22 のみ)
 
-Track 切り替えは、購読者が購読し直さずに Track のバリエーション(高レートと低レートのエンコードなど)の間を移る拡張である。draft-ietf-moq-transport-22 にもほかのどのドラフトにもない。バージョンの更新も非推奨期間もなしに、どのコミットでも丸ごと削除されうる。moqtail のコードポイントを使い、検証はプロセス内だけで、第三者の実装との相互運用性は確かめていない。仕組みは [MoQT の Track 切り替え](../features/moqt-track-switching.md) にある。
+Track 切り替えは、購読者が購読し直さずに Track のバリエーション(高レートと低レートのエンコードなど)の間を移る拡張である。draft-ietf-moq-transport-22 にもほかのどのドラフトにもない。バージョンの更新も非推奨期間もなしに、どのコミットでも丸ごと削除されうる。
+
+moqtail のコードポイントを使い、検証はプロセス内だけで、第三者の実装との相互運用性は確かめていない。仕組みは [MoQT の Track 切り替え](../features/moqt-track-switching.md) にある。
 
 すべてデフォルトでオフである。これらのフィールドを設定しないハブでは、パラメーター SWITCH_FROM(0x24)と SWITCHING_SET_ASSIGNMENT(0x41)は PROTOCOL_VIOLATION でセッションを閉じる。
 

@@ -2,6 +2,13 @@
 
 [ドキュメント](../README.md) › [ユビキタス言語](README.md) › MoQT
 
+| 項目 | 内容 |
+|---|---|
+| 目的 | MoQT の用語の表記を定める |
+| 読む人 | ドキュメントを書く・直すすべての人 |
+| 前提文書 | [ユビキタス言語](README.md)(表記の決め方) |
+| 関連文書 | [ドキュメント規約](../standards/documentation.md) |
+
 MoQT のドラフトには既存の日本語訳がない。表記は guide の日本語ページ(`guide/src/content/docs/ja/moqt/`、`ja/concepts/`)と [draft-18/19/22 の台帳](../features/README.md) に合わせる。規則の番号は [表記の決め方](README.md#1-表記の決め方) のもの。
 
 | 英語 | 表記 | 規則・備考 |

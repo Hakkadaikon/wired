@@ -61,7 +61,9 @@
 
 影響: 自分のスイートの順序にこだわるクライアント。
 
-TLS 1.3 の AEAD スイートは 3 つともネゴシエートし、クライアントではなくサーバーの順序に従う。`TLS_AES_256_GCM_SHA384` は、独立した相手との相互運用性テストの実行をまだ記録していない。このスイートのもとでも `tls_exporter`(RFC 8446 7.5)はコンテキストを SHA-256 でハッシュする(本番の呼び出し元はない)。CCM のスイートは断る。
+TLS 1.3 の AEAD スイートは 3 つともネゴシエートし、クライアントではなくサーバーの順序に従う。
+
+`TLS_AES_256_GCM_SHA384` は、独立した相手との相互運用性テストの実行をまだ記録していない。このスイートのもとでも `tls_exporter`(RFC 8446 7.5)はコンテキストを SHA-256 でハッシュする(本番の呼び出し元はない)。CCM のスイートは断る。
 
 参照: `cipher.c`、[rfc8446.md](../../features/rfc8446.md) 8446-099
 
@@ -164,7 +166,14 @@ P-224、secp224k1、P-192、二進体の曲線、Koblitz 曲線はない。
 
 このため BoringSSL の ECDSA のベクターのうち 91 件をスキップしている。
 
-参照: [BoringSSL のベクター](../boringssl-vectors.md)、[BoringSSL のベクターの README](../../../tests/vectors/boringssl/README.md)、[fips180-4.md](../../features/fips180-4.md)、[rfc5869.md](../../features/rfc5869.md)、[rfc6979.md](../../features/rfc6979.md)、[rfc5480.md](../../features/rfc5480.md)
+参照:
+
+- [BoringSSL のベクター](../boringssl-vectors.md)
+- [BoringSSL のベクターの README](../../../tests/vectors/boringssl/README.md)
+- [fips180-4.md](../../features/fips180-4.md)
+- [rfc5869.md](../../features/rfc5869.md)
+- [rfc6979.md](../../features/rfc6979.md)
+- [rfc5480.md](../../features/rfc5480.md)
 
 ### 3.3 X448、Ed448、Ed25519ctx、Ed25519ph はない
 
