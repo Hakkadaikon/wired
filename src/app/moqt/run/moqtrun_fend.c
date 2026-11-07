@@ -30,6 +30,7 @@ static int moqtrun_fend_eot_past(const wired_moqtrun_track* t, moqctl_loc l);
 static int moqtrun_fend_eog_past(const wired_moqtrun_track* t, moqctl_loc l);
 static moqctl_loc moqtrun_fend_known(
     const wired_moqtrun_track* t, moqctl_loc from);
+static int moqtrun_upf_eot_due(const wired_moqtrun_fetch* f);
 static int moqtrun_upf_mark_send(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o);
 
@@ -191,4 +192,21 @@ int moqtrun_upf_end_mark(
     return 1;
   }
   return moqtrun_upf_mark_send(hub, f, o);
+}
+
+/* draft-22 9.12's End Of Track: the upstream End Location is the Track's
+ * final Object. */
+static int moqtrun_upf_eot_due(const wired_moqtrun_fetch* f) {
+  return f->up_eot && f->has_up_last && !moqctl_loc_less(f->up_last, f->up_end);
+}
+
+/* A completed leg whose last relayed Object ends the Track, per a
+ * moqt-22 FETCH_OK, is followed by End of Track on a draft-23 stream
+ * (3.2.2: "MUST follow an Object known to end the Track"). */
+void moqtrun_upf_eot_mark(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqfetch_obj o = {0};
+  o.flags        = MOQFETCH_END_OF_TRACK;
+  if (moqtrun_upf_eot_due(f)) {
+    moqtrun_upf_end_mark(hub, f, &o);
+  }
 }

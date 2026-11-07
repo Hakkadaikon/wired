@@ -47,6 +47,7 @@ moqctl_loc moqtrun_fend_skip(
     const wired_moqtrun_fetch* f,
     moqctl_loc                 from,
     moqctl_loc                 cur);
+void moqtrun_upf_eot_mark(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 void moqtrun_fsel_keep(
     wired_moqtrun_fetch* f, const wired_moqtrun_rngrow* rows, usz n);
 usz moqtrun_fsel_rows(const moqctl_params* params, wired_moqtrun_rngrow* rows);

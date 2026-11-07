@@ -112,7 +112,63 @@ static void test_moqtrun_upfetch_d23_markers(void) {
   mupf23_markers(MOQVER_D22);
 }
 
+/* A moqt-22 announcer C serves {0,0} {0,1} and answers FETCH_OK End
+ * {0,1} with End Of Track 1 (draft-22 9.12: the final Object in the
+ * Track). draft-23 3.2.2: toward a moqt-23 requester the hub follows that
+ * Object with End of Track; a moqt-22 one has End Of Track in its
+ * FETCH_OK. */
+static void mupf23_eot(int bv) {
+  moqfetch_req         m  = {0};
+  moqfetch_ok          ok = {0};
+  moqctl_request_error e;
+  i64                  sid;
+  mupf_init_v(bv);
+  mupf_vers(MOQVER_D22);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  sid = mupf_up(SESS_C, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(0, 0, 1);
+  mupf_obj(0, 1, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 1);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(0, 1), 1, wired_span_of(0, 0));
+  if (bv != MOQVER_D23) {
+    CHECK(mupf_read(0) && mf_n == 2 && mf_fin && mf_is_obj(1, 0, 1, 1));
+    CHECK(mupf_reply(&ok, &e) == MOQFETCH_T_FETCH_OK && ok.end_of_track);
+    return;
+  }
+  CHECK(mupf_read(0) && mf_n == 3 && mf_fin && mf_is_obj(1, 0, 1, 1));
+  CHECK(mf_items[2].flags == MOQFETCH_END_OF_TRACK);
+}
+
+static void test_moqtrun_upfetch_d23_eot(void) {
+  mupf23_eot(MOQVER_D23);
+  mupf23_eot(MOQVER_D22);
+}
+
+/* draft-23 3.2.3: an upstream FETCH that fails once the response went
+ * out leaves the rest of the range Unknown -- End of Unknown Range, then
+ * FIN; the stream is not reset (12.5 drops UNKNOWN_OBJECT_STATUS). */
+static void test_moqtrun_upfetch_d23_leg_fails(void) {
+  moqfetch_req m = {0};
+  i64          sid;
+  mupf_init_v(MOQVER_D23);
+  mupf_vers(MOQVER_D23);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  sid = mupf_up(SESS_C, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(0, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  mupf23_up_ok(SESS_C, sid, 0, 0, 0, wired_span_of(0, 0));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_C, MUPF_DATA_SID, 1, 0);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mupf_read(0) && mf_fin && mf_n == 2 && mf_is_obj(0, 0, 0, 1));
+  CHECK(mf_items[1].flags == MOQFETCH_EOR_UNKNOWN && mf_items[1].group == 5);
+}
+
 void test_moqtrun_upfetch_d23(void) {
   test_moqtrun_upfetch_d23_relay();
   test_moqtrun_upfetch_d23_markers();
+  test_moqtrun_upfetch_d23_eot();
+  test_moqtrun_upfetch_d23_leg_fails();
 }

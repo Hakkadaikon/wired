@@ -77,6 +77,7 @@ void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
     return;
   }
   moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_FIN);
+  moqtrun_upf_eot_mark(hub, f);
   moqtrun_upf_resume(hub, f, 1, 1);
 }
 
