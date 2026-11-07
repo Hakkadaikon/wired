@@ -39,7 +39,13 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
   - 送信スロットは接続あたり `WIRED_SRVLOOP_MAX_STREAMS`=40。ACK/スロット解放のコールバックは無い。
 - ハブの入口 `wired_moqt_on_stream_data`(moqtrun.c:1444-1459)は `void` で即時消費。`wired_moqt_tick(hub, now_ms)`(934-940)は `on_step` から呼ばれ、**イベントごと+最低 25ms 周期**(srvrun.h:292-299)。
 - keep-open 中継:
-  - 呼び出しの順: `moqtrun_relay_start`(1293-1322, fin 無しの fresh stream)→ `moqtrun_relay_open_all`(open_uni_stream、失敗は `stat_open_drop`)→ 以後 `moqtrun_relay_continue`(1231-1243)→ `moqtrun_relay_normalize`(Object 境界で切り、端数 ≤512B を `frag` に保持)→ `moqtrun_relay_append_all/one`(1156-1181)→ `moqtrun_relay_forward_one`。
+  - 呼び出しの順は次のとおり。
+    1. `moqtrun_relay_start`(1293-1322, fin 無しの fresh stream)
+    2. `moqtrun_relay_open_all`(open_uni_stream、失敗は `stat_open_drop`)
+    3. 以後 `moqtrun_relay_continue`(1231-1243)
+    4. `moqtrun_relay_normalize`(Object 境界で切り、端数 ≤512B を `frag` に保持)
+    5. `moqtrun_relay_append_all/one`(1156-1181)
+    6. `moqtrun_relay_forward_one`
   - fin は `stream_fin`/`stream_send(fin)` で伝播、relay entry は fin で解放。
 - 相手ごとの one-shot 経路(`moqtrun_relay_object`、fin 付き1ラウンド)は `moqt_io_send_uni` のスタック 2048B が上限(wired_server.c:157-163)。**チャンクは ≤512B/Object を維持**(前回コミット `5f1e46f5` で 448B に固定済み)。
 - io テーブル `wired_moqt_io`(moqtrun.h:40-56)は関数ポインタの位置指定初期化。末尾に追加するなら既存の初期化子は変えずに済む(`send_datagram != 0` ガードの前例 moqtrun.c:1466-1468)。
@@ -55,7 +61,9 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 
 <a id="1-発行者への背圧-受信-credit-の-holdsrvrun"></a><a id="31-発行者への背圧-受信-credit-の-holdsrvrun"></a>
 ### 3.1 パブリッシャーへの背圧: 受信 credit の hold(srvrun)
-- slot 構造体に `int credit_hold` を追加(bidi/uni 両方)。`srvrun_grant_stream_credit` の呼び出し側(`srvrun_grant_wt_slot_credit`/`_uni_`)は `credit_hold` なら advertise を**上げない**(advertise は減らせない: RFC 9000 19.10。上げるのを止めるだけ)。
+- slot 構造体に `int credit_hold` を追加(bidi/uni 両方)。
+  - `srvrun_grant_stream_credit` の呼び出し側(`srvrun_grant_wt_slot_credit`/`_uni_`)は `credit_hold` なら advertise を**上げない**。
+  - advertise は減らせない(RFC 9000 19.10)。上げるのを止めるだけである。
 - 公開 API(srvrun.h): `int wired_server_wt_stream_hold(wired_wt_session* s, u64 stream_id, int hold)`。
   - s の接続の受信 slot(bidi/uni どちらでも)を stream_id で探し `credit_hold=hold`。1=適用、負=slot 無し。
   - ループ内(コールバック)からのみ呼べる契約は他の `wired_server_wt_*` と同じ。
@@ -133,9 +141,14 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 
 <a id="タスク-2-srvrun-受信-credit-hold"></a>
 ### 6.2 タスク 2: srvrun 受信 credit hold
-`src/app/http3/server/srvloop/srvloop.h` の両 slot に `int credit_hold`(claim 時 0 初期化: srvloop.c:58/78/472/565 と同じ箇所)。`srvrun.c` の `srvrun_grant_wt_slot_credit`/`_uni_slot_credit` で `credit_hold` なら return。
+- `src/app/http3/server/srvloop/srvloop.h` の両 slot に `int credit_hold` を足す。
+  - claim 時に 0 で初期化する(srvloop.c:58/78/472/565 と同じ箇所)。
+- `srvrun.c` の `srvrun_grant_wt_slot_credit`/`_uni_slot_credit` で `credit_hold` なら return。
 
-`srvrun.h` に `wired_server_wt_stream_hold` 宣言+doc(doxygen 形式は隣の `wired_server_wt_stream_fin` に揃える)、`srvrun.c` に実装(slot 検索は `wt_uni_streams[i].stream_id`/`wt_streams[i].stream_id` を走査、CCN 内で bidi/uni を helper 分割)。
+- `srvrun.h` に `wired_server_wt_stream_hold` の宣言と doc を置く(doxygen 形式は隣の `wired_server_wt_stream_fin` に揃える)。
+- `srvrun.c` に実装する。
+  - slot 検索は `wt_uni_streams[i].stream_id`/`wt_streams[i].stream_id` を走査する。
+  - CCN 内に収めるため、bidi/uni を helper に分割する。
 
 テスト(`tests/app/srvrun_test.c`): hold 中は delivered が進んでも MAX_STREAM_DATA が出ない / hold 解除の次 step で出る / 未知 stream は負。
 
@@ -147,7 +160,15 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 
 <a id="タスク-4-moqtrel-モジュール新規-srcappmoqtrunmoqtrelhc"></a>
 ### 6.4 タスク 4: `moqtrel` モジュール(新規 `src/app/moqt/run/moqtrel.{h,c}`)
-純粋なリング+カーソル管理と drain 判断を、io を関数ポインタで受ける形で実装(ハブ構造体への依存を減らす。関数:`moqtrel_buf`、`moqtrel_append`, `moqtrel_next_round(sub) -> span`, `moqtrel_note_sent/refused`, `moqtrel_reclaim`, `moqtrel_should_hold/release`, `moqtrel_stalled(now)`)。CCN ≤3 で小関数分割。
+純粋なリング+カーソル管理と drain 判断を、io を関数ポインタで受ける形で実装する(ハブ構造体への依存を減らす)。CCN ≤3 で小関数に分割する。関数は次のとおり。
+
+- `moqtrel_buf`
+- `moqtrel_append`
+- `moqtrel_next_round(sub) -> span`
+- `moqtrel_note_sent/refused`
+- `moqtrel_reclaim`
+- `moqtrel_should_hold/release`
+- `moqtrel_stalled(now)`
 
 単体テスト `tests/app/moqtrel_test.c`(タスク 1 のテストリストのうち ring/カーソル/watermark/wrap-around の性質)。ユニティビルドへの配線はタスク 6。
 
@@ -156,7 +177,15 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 - `wired_moqt_hub` に `u64 reliable_alias_limit`(init で 0)、`moqtrel_buf pool[WIRED_MOQTREL_POOL]`、`stat_rel_stall/overflow`。
 - `wired_moqt_io` 末尾に `int (*stream_hold)(wired_wt_session*, u64, int)`(0 ガード)。
 - `moqtrun_relay_start/continue/append_one/forward_one` に reliable 分岐、`wired_moqt_tick` に drain+stall、`on_session_close`/relay 解放でプール返却。
-- テスト(`tests/app/moqtrun_test.c`、タスク 1 の残りの性質): 拒否→tick で再送され全バイト順序どおり / watermark で `stream_hold(1)`→drain 後 `(0)` / fin は最後 / 速度差のある 2 sub / sub 離脱で reclaim 進む / stall shed / `reliable_alias_limit=0` なら既存テスト全緑(lossy 不変)。fake io に `stream_hold` 記録を追加。
+- テスト(`tests/app/moqtrun_test.c`、タスク 1 の残りの性質):
+  - 拒否→tick で再送され全バイト順序どおり
+  - watermark で `stream_hold(1)`→drain 後 `(0)`
+  - fin は最後
+  - 速度差のある 2 sub
+  - sub 離脱で reclaim 進む
+  - stall shed
+  - `reliable_alias_limit=0` なら既存テスト全緑(lossy 不変)
+- fake io に `stream_hold` 記録を追加。
 
 <a id="タスク-6-配線三点ゲートintegrator直列"></a>
 ### 6.6 タスク 6: 配線+三点ゲート(integrator、直列)
@@ -166,7 +195,14 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 
 <a id="タスク-7-e2e-と実測"></a>
 ### 6.7 タスク 7: e2e と実測
-docker の `moqt_chat-wired_server-1` を止めてから(ポート 4433)`just e2e-stability s15-image-send` を既定 / `--large-bytes=200000` / `--large-bytes=2000000` / `--large-bytes=5000000` で実行し全ケース PASS、`server.log` の `dropped=0 reset=0`、2MB/5MB の所要時間を記録。
+docker の `moqt_chat-wired_server-1` を止めてから(ポート 4433)、`just e2e-stability s15-image-send` を次の引数で実行する。
+
+- 既定
+- `--large-bytes=200000`
+- `--large-bytes=2000000`
+- `--large-bytes=5000000`
+
+全ケース PASS、`server.log` の `dropped=0 reset=0`、2MB/5MB の所要時間を記録。
 
 回帰: s1-voice-clean / s13-screen-longrun / s14-screen-rejoin / s2-chat-longevity / s8-late-join が PASS(voice/screen の lossy 経路不変)。終了後 `docker start`。
 

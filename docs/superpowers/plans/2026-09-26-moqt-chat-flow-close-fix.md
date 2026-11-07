@@ -20,7 +20,9 @@
 
 <a id="調査で確定した事実"></a>
 ### 1.1 調査で確定した事実
-- コンテナは新バイナリ(23:02 ビルド)。ユーザー試験セッション 4.5 分のハブ統計(shutdown 行): `sent=11908 dropped=865(7%) reset=100 open_dropped=0 relay_full=0 rel_stall=0 rel_overflow=0 dg_sent=15039`。終了は exit 0(フォアグラウンド `just up` の Ctrl-C と整合、原因ではない)。
+- コンテナは新バイナリ(23:02 ビルド)。
+  - ユーザー試験セッション 4.5 分のハブ統計(shutdown 行): `sent=11908 dropped=865(7%) reset=100 open_dropped=0 relay_full=0 rel_stall=0 rel_overflow=0 dg_sent=15039`。
+  - 終了は exit 0(フォアグラウンド `just up` の Ctrl-C と整合、原因ではない)。
 - 同じコンテナ + 本番フロント(Pages、45d70a3f 配備済)に localhost から Chrome 146 ヘッドレス 2 タブで再現試行 → 画面共有 59 フレーム復号、画像 200KB 110ms / 2MB 863ms で**すべて正常**(`.superpowers/repro/report.md`)。
 - alias は chat 0..3 / voice 4..7 / screen 10..13 → screen は lossy 経路のまま(alias 誤判定は棄却)。差分監査で lossy/共通経路の挙動変更なし、`credit_hold` の初期化漏れなし。
 - e2e/再現と実環境の差: **購読者向け送信の拒否率 7%・reset 100 回/4.5 分**(e2e・再現は 0/0)。実回線では credit(WT_MAX_DATA)の更新が RTT 分遅れる。
@@ -59,7 +61,10 @@
   - `wired_wt_session` は公開 struct で `max_data`/`sent_data` を直接読める(session.h:91-102、srvrun.h 経由でハブからも見える)。
 - `sent_data` は staging 受理時(:4155/4198/4238/4374)に加算。
 - 現挙動を pin するテスト(`tests/app/srvrun_test.c`):
-  - `test_srvrun_wt_open_uni_exceeding_max_streams_refused`(:15076、`wt_flow_violation[0]==1` を断定)、`..._open_bidi_exceeding_max_streams_refused`(:15093)、`..._open_uni_exceeding_max_data_refused`(:15112)、`..._stream_reply_exceeding_max_data_refused`(:15129)。
+  - `test_srvrun_wt_open_uni_exceeding_max_streams_refused`(:15076、`wt_flow_violation[0]==1` を断定)
+  - `..._open_bidi_exceeding_max_streams_refused`(:15093)
+  - `..._open_uni_exceeding_max_data_refused`(:15112)
+  - `..._stream_reply_exceeding_max_data_refused`(:15129)
   - close 機構自体の `test_srvrun_close_wt_flow_violations_resets_session`(:15156)/`..._noop_without_latch`(:15203)。
 
 <a id="設計仕様"></a>
@@ -105,7 +110,9 @@ latch を外しても、信頼中継が毎 tick 16KB を staging が満ちるま
 
 単一スレッド・同期コールバックで再入無し → `static u8 g_open_buf[MOQT_OPEN_BUF]` 1 本で足りる。
 
-`#define MOQT_OPEN_BUF (BIG_SIG_MAX + WIRED_MOQTRUN_RELAY_HDR_MAX + WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP)` = 9+40+512+49152 = 49713(< 65536 ⇒ 常にコピー、根拠をコメント)。使用箇所は `moqt_io_open_uni_stream`(:185)と `moqt_io_send_uni`(:163)。bidi 制御応答(:96)は 2048 のスタックのまま。
+`#define MOQT_OPEN_BUF (BIG_SIG_MAX + WIRED_MOQTRUN_RELAY_HDR_MAX + WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP)` = 9+40+512+49152 = 49713。
+
+49713 < 65536 なので常にコピーされる。この根拠をコメントに書く。使用箇所は `moqt_io_open_uni_stream`(:185)と `moqt_io_send_uni`(:163)。bidi 制御応答(:96)は 2048 のスタックのまま。
 
 srvrun.h:449 の古い「4096 bytes」表記を実値(`SRVRUN_WTSEND_BUF` 65536)に直す(doxygen 対象)。観測は既存 `open_dropped`。
 
@@ -119,7 +126,9 @@ srvrun.h:449 の古い「4096 bytes」表記を実値(`SRVRUN_WTSEND_BUF` 65536)
 ### 2.5 e2e 再現(RTT 注入)
 s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityClient` に置換(`serverUrl` を localStorage prefs で seed し、`WT_INSTRUMENTATION_SCRIPT` で `window.__wtEvents[].closedAt` を記録済み)。
 
-`--jitter-ms`/`--loss-rate` を parse し `startUdpProxy({listenBase: 25433, upstreamPort: 4433, flowCount: 2, profile: {lossRate, seed: 1, jitterBaseMs}})`、各クライアントは `https://127.0.0.1:${proxy.port(i)}/`、`finally` で `proxy.close()`。
+- `--jitter-ms`/`--loss-rate` を parse し `startUdpProxy({listenBase: 25433, upstreamPort: 4433, flowCount: 2, profile: {lossRate, seed: 1, jitterBaseMs}})`。
+- 各クライアントは `https://127.0.0.1:${proxy.port(i)}/`。
+- `finally` で `proxy.close()`。
 
 ケース毎に `__wtEvents.every(e => !e.closedAt)` と `[data-testid="status"]` の `data-status === "connected"` を assert、`elapsedMs` を report に記録。
 - **RED の主根拠は srvrun 単体テスト**(§2.1)。
@@ -136,12 +145,16 @@ s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityC
 <a id="追加で確定した事実examplee2e-側"></a>
 ### 3.1 追加で確定した事実(example/e2e 側)
 - `wired_server_wt_open_uni_stream` / `wired_server_wt_open_uni` はペイロード ≤ `SRVRUN_WTSEND_BUF`(65536)を送信スロットにコピー(srvrun.h:444-450、:481-489。doc の「4096」は古い、実値は srvrun.c:290)。
-  - → `MOQT_SIG_BUF` を 2048 から「signal(≤9)+ `WIRED_MOQTRUN_RELAY_FRAG_MAX`(512)+ `WIRED_SRVLOOP_WT_BUF_CAP`(49152)」以上にすれば、:164 `moqt_io_send_uni`(one-shot、最大 ~49664)と :186 `moqt_io_open_uni_stream`(keep-open open、同上)の両方がバッファーに収まる。
+  - → `MOQT_SIG_BUF` を 2048 から「signal(≤9)+ `WIRED_MOQTRUN_RELAY_FRAG_MAX`(512)+ `WIRED_SRVLOOP_WT_BUF_CAP`(49152)」以上にすれば、次の両方がバッファーに収まる。
+    - :164 `moqt_io_send_uni`(one-shot、最大 ~49664)
+    - :186 `moqt_io_open_uni_stream`(keep-open open、同上)
   - 単一プロセス・同期呼び出しなのでスタックでなく static 1 本でよい(スタック 50KB を避ける)。:97 の bidi(制御応答、数十 B)は現状維持。
 - s15 への RTT 注入:
-  - s13 と同じく `startUdpProxy({listenBase, upstreamPort: 4433, flowCount: 2, profile: {lossRate, seed, jitterBaseMs}})`(s13:81-86、udpProxy.mjs:45-65)、クライアントは `https://127.0.0.1:${proxy.port(i)}/` を `data-testid="url"` に入力(s15 は現状 certHash のみ入力、:32)。
+  - s13 と同じく `startUdpProxy({listenBase, upstreamPort: 4433, flowCount: 2, profile: {lossRate, seed, jitterBaseMs}})`(s13:81-86、udpProxy.mjs:45-65)。
+  - クライアントは `https://127.0.0.1:${proxy.port(i)}/` を `data-testid="url"` に入力(s15 は現状 certHash のみ入力、:32)。
   - `runCase`(:177-210)に `elapsedMs` を追加。
-  - 切断検出は `stabilityClient.mjs:34,132-146` の `WT_INSTRUMENTATION_SCRIPT`(`window.__wtEvents[].closedAt`)を `evaluateOnNewDocument` で注入して assert、UI 側は `[data-testid="status"]` の `data-status` が `connected` のままを assert。
+  - 切断検出は `stabilityClient.mjs:34,132-146` の `WT_INSTRUMENTATION_SCRIPT`(`window.__wtEvents[].closedAt`)を `evaluateOnNewDocument` で注入して assert する。
+  - UI 側は `[data-testid="status"]` の `data-status` が `connected` のままであることを assert する。
 
 <a id="タスク"></a>
 ## 4. タスク
@@ -152,7 +165,9 @@ s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityC
 ### 4.1 タスク 1: e2e 再現(RED の記録、修正前)
 `examples/moqt_chat/e2e/scenarios/s15-image-send.mjs`: §2.5 のとおり(`joinStabilityClient` に置換、`--jitter-ms`/`--loss-rate`、proxy、`elapsedMs`、close 無し + status badge の assert)。
 
-修正前 main で `just e2e-stability s15-image-send --large-bytes=2000000 --jitter-ms=100` を実行し結果を記録(期待: FAIL、`__wtEvents` に close)。再現しなければ `--qlog` の `wtsend_flow` を添えて「再現せず」と記録(RED の主根拠はタスク 2 の単体テスト)。既定引数(jitter 0)では従来どおり直結と同等の挙動(proxy 経由でも可)で既存 s15 が PASS すること。
+- 修正前 main で `just e2e-stability s15-image-send --large-bytes=2000000 --jitter-ms=100` を実行し結果を記録(期待: FAIL、`__wtEvents` に close)。
+- 再現しなければ `--qlog` の `wtsend_flow` を添えて「再現せず」と記録(RED の主根拠はタスク 2 の単体テスト)。
+- 既定引数(jitter 0)では従来どおり直結と同等の挙動(proxy 経由でも可)で既存 s15 が PASS すること。
 
 <a id="タスク-2-srvrun-で自分の送信拒否によりセッションを閉じない根本原因"></a>
 ### 4.2 タスク 2: srvrun で自分の送信拒否によりセッションを閉じない(根本原因)
@@ -177,7 +192,13 @@ CCN ≤ 3、既存テスト無変更緑。
 ### 4.4 タスク 4: wired_server.c で open の 2048B 上限撤廃 + ライブ観測 + 配線
 §2.3・§2.4 のとおり。
 
-`examples/moqt_chat/wired_server.c`: `MOQT_OPEN_BUF` + `static u8 g_open_buf[]`(:163/:185)、`g_moqt_io` 末尾に `moqt_io_send_budget`、`on_step` 10 秒タイマー、`log_relay_stats(label)`、`sessions=/closed=/rel_wait=`、`wired_moqt_on_session` のカウント用ラッパ。
+`examples/moqt_chat/wired_server.c`:
+
+- `MOQT_OPEN_BUF` + `static u8 g_open_buf[]`(:163/:185)
+- `g_moqt_io` 末尾に `moqt_io_send_budget`
+- `on_step` 10 秒タイマー
+- `log_relay_stats(label)`、`sessions=/closed=/rel_wait=`
+- `wired_moqt_on_session` のカウント用ラッパ
 
 `ninja examples/moqt_chat/wired_server` + boot smoke(`--port 14433`、SIGTERM、10 秒行と shutdown 行が出る)。
 

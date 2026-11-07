@@ -67,7 +67,9 @@
 - 変更後、1 peer あたり chat + audio + screen の 3 Track を PUBLISH できる。4 本目は既存のエラー経路のまま。
 
 - [ ] **ステップ 1: テストを先に赤くする**
-  `test_moqtrun_third_publish_gets_error` を `test_moqtrun_fourth_publish_gets_error` に改名し、2 本目までの PUBLISH 成功アサーションの後に 3 本目の成功 PUBLISH を追加、4 本目の PUBLISH がエラーになることをアサート。`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` はまだ 2 のまま実行し、3 本目の成功アサーションが失敗することを確認する(Red)。
+  - `test_moqtrun_third_publish_gets_error` を `test_moqtrun_fourth_publish_gets_error` に改名する。
+  - 2 本目までの PUBLISH 成功アサーションの後に 3 本目の成功 PUBLISH を追加し、4 本目の PUBLISH がエラーになることをアサートする。
+  - `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` はまだ 2 のまま実行し、3 本目の成功アサーションが失敗することを確認する(Red)。
 - [ ] **ステップ 2: 定数変更**
   `moqtrun.h` の `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` を `2` → `3` に変更。隣接する doc comment(peer あたりの Track 数を説明している行)も 3 に合わせて更新。
 - [ ] **ステップ 3: Green 確認**
@@ -86,7 +88,9 @@
 - `SRVRUN_WTSEND_BUF` が 65536 になることで、49664 B(受信窓 49152 + 保持断片 512)を超えるペイロードでも `srvrun_wtsend_arm_id` が copy 経路(view_round にならない)を取れる。
 
 - [ ] **ステップ 1: テストを先に赤くする**
-  新規ユニットテストで、`SRVRUN_WTSEND_BUF` に収まらないサイズ(約 50000 B)のペイロードを `srvrun_wtsend_arm_id` に渡し、`view_round` にならず copy されることをアサートする。定数が 4096 のままでは失敗することを確認(Red)。テスト関数名は `grep -rn` で `tests/` 配下との重複がないことを確認してから追加すること。
+  - 新規ユニットテストで、`SRVRUN_WTSEND_BUF` に収まらないサイズ(約 50000 B)のペイロードを `srvrun_wtsend_arm_id` に渡し、`view_round` にならず copy されることをアサートする。
+  - 定数が 4096 のままでは失敗することを確認する(Red)。
+  - テスト関数名は `grep -rn` で `tests/` 配下との重複がないことを確認してから追加する。
 - [ ] **ステップ 2: 定数変更**
   `SRVRUN_WTSEND_BUF` を `4096` → `65536` に変更。doc comment にサイズ根拠(受信窓 49152 + 保持断片 512 を超える必要がある旨)を1行で残す。
 - [ ] **ステップ 3: Green 確認**
@@ -202,7 +206,11 @@
 - 受信側状態機械: WaitKey(キーフレーム待ち)→ Decoding。decode error でも WaitKey へ戻る。
 
 - [ ] **ステップ 1: 状態機械のテストを先に書く**
-  `screenReceivePipeline.ts` の WaitKey/Decoding 遷移を、偽 `VideoDecoder`(configure/decode/close をスタブ)で駆動するテストを先に書く: (a) キーフレーム未着時は decode を呼ばない、(b) キーフレーム到着で Decoding へ、(c) decode error で WaitKey に戻る、(d) 以後キーフレームが来れば再度 Decoding へ戻る(Red)。
+  `screenReceivePipeline.ts` の WaitKey/Decoding 遷移を、偽 `VideoDecoder`(configure/decode/close をスタブ)で駆動するテストを先に書く(Red)。
+  - (a) キーフレーム未着時は decode を呼ばない。
+  - (b) キーフレーム到着で Decoding へ。
+  - (c) decode error で WaitKey に戻る。
+  - (d) 以後キーフレームが来れば再度 Decoding へ戻る。
 - [ ] **ステップ 2: 実装**
   `screenReceivePipeline.ts` を実装しステップ 1 を Green にする。
 - [ ] **ステップ 3: UI 結線**

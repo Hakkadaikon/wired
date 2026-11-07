@@ -49,13 +49,47 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 ## 2. 調査で確定した既存コード状況
 
 - `moqtImageWire.ts`(183行)/`moqtImageWire.test.ts`(257行)は今回**全面置き換え**(新規`moqtAttachmentWire.ts`)。
-  - exportは`MAX_IMAGE_CHUNK_BYTES`, `IMAGE_CHUNK_MARKER`, `ImageChunk`, `buildImageSubgroupHeader`, `encodeImageChunkMessage`, `decodeImageChunkMessage`, `isImageChunkPayload`, `splitImageIntoChunks`, `ImageFrameReassembler`, `imageFrameReassemblerInit`, `imageFrameReassemblerPush`。
-- `moqtClient.ts`(739行)の`classifyChatPayload`(207行目、`"text"|"nickname"|"image"`を返す、呼び出しは711行目1箇所のみ)を`"text"|"nickname"|"attachment"`等に拡張。
+  - `moqtImageWire.ts`の export は次のとおり。
+    - `MAX_IMAGE_CHUNK_BYTES`
+    - `IMAGE_CHUNK_MARKER`
+    - `ImageChunk`
+    - `buildImageSubgroupHeader`
+    - `encodeImageChunkMessage`
+    - `decodeImageChunkMessage`
+    - `isImageChunkPayload`
+    - `splitImageIntoChunks`
+    - `ImageFrameReassembler`
+    - `imageFrameReassemblerInit`
+    - `imageFrameReassemblerPush`
+- `moqtClient.ts`(739行)の変更点は次のとおり。
+  - `classifyChatPayload`(207行目、`"text"|"nickname"|"image"`を返す、呼び出しは711行目1箇所のみ)を`"text"|"nickname"|"attachment"`等に拡張。
   - `#imageReassemblers: Map<string, ImageFrameReassembler>`(278行目)と`#handleImageChunkPayload`(724-738行目)を、messageId+attachmentIdxキーの新集約ロジックに置き換え。
   - `sendImage`/`onImage`はそれぞれ`sendMessage`/`onMessage`に統合(既存のプレーンテキスト`onMessage(participantId, text)`も`attachments: []`を伴う形に統一)。
 - `moqtClient.ts`にmovie関連のimportやコードは無い(コメント2箇所のみ、229-230行目)。ここは削除不要。
 - `page.tsx`にコンポーネントテストは存在しない(このコードベースの一貫した方針: Reactコンポーネントは直接テストせず、抽出可能な純粋関数のみvitestでテストする。`@testing-library/react`もdevDependenciesに無い)。
-  - 既存`data-testid`一覧: `author, certHash, chat-form, connect, image-file, live, master-volume, message, message-image, messages, mic-toggle, nickname, ns-toggle, output-device, screen-stalled-own, screen-tile-own, screen-tile-width, screen-toggle, speaking-you, status, text, url`。
+  - 既存の`data-testid`は次のとおり。
+    - `author`
+    - `certHash`
+    - `chat-form`
+    - `connect`
+    - `image-file`
+    - `live`
+    - `master-volume`
+    - `message`
+    - `message-image`
+    - `messages`
+    - `mic-toggle`
+    - `nickname`
+    - `ns-toggle`
+    - `output-device`
+    - `screen-stalled-own`
+    - `screen-tile-own`
+    - `screen-tile-width`
+    - `screen-toggle`
+    - `speaking-you`
+    - `status`
+    - `text`
+    - `url`
   - `message-image`は既存e2e(`s15-image-send.mjs`)が依存しているセレクタなので、新e2eでも同じtestidを画像に使い続ける。動画には新規`message-video`を使う。
 - リスト個別削除の既存パターンは`moqtChatStore.ts`の`removeScreenTile`(該当項目をfilterで除去+関連する依存stateもクリア)。添付ドラフト削除もこのパターンを踏襲。
 - `moqtScreenClient.ts`が`moqtMovieClient.ts`から`MOVIE_INIT_TRACK_ALIAS`をimportし、`SCREEN_ALIAS_OFFSET = MOVIE_INIT_TRACK_ALIAS + 1n`(現在値10、`CANDIDATE_PARTICIPANT_IDS.length=4`から`2*4+2=10`)を計算している。
@@ -63,8 +97,9 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 - `wired_server.c`の movie専用コードは丸ごと削除可能:
   - `publish_movie()`関数(360-390行目)
   - 定数/グローバル変数ブロック(38-57行目、`MOVIE_MAX`/`MOVIE_GROUP_MS`/`MOVIE_TRACK_ALIAS`/`MOVIE_INIT_TRACK_ALIAS`/`MOVIE_TRACK_NAME`/`MOVIE_INIT_TRACK_NAME`/`g_movie`/`g_movie_layout`/`g_movie_init_wire`)
-  - 共有コード側の編集点は`wired_main()`内453行目の`publish_movie(...)`呼び出し1行のみ削除、176行目のdocコメント内のmovie言及は文言修正。`g_live`/`LIVE_RING`等はscreen-share/voiceとも共有される汎用機構なので**削除対象外**。
-  - `wired_server.c`自体はSDKのunity-buildテスト対象外(examples配下の独立バイナリ、C単体テストなし、e2e経由でのみ検証)。
+- `wired_server.c`の共有コード側の編集点は`wired_main()`内453行目の`publish_movie(...)`呼び出し1行のみ削除、176行目のdocコメント内のmovie言及は文言修正。
+  - `g_live`/`LIVE_RING`等はscreen-share/voiceとも共有される汎用機構なので**削除対象外**。
+- `wired_server.c`自体はSDKのunity-buildテスト対象外(examples配下の独立バイナリ、C単体テストなし、e2e経由でのみ検証)。
 - `Dockerfile`の`COPY assets/movie-live.mp4 /movie.mp4`と`ENTRYPOINT`の`--movie /movie.mp4`引数を削除。`docker-compose.yml`にmovie関連行なし。
 - `useMoqtChat.ts`のmovie関連コードは広範囲(22-23, 230, 539-541, 585-612, 660, 875-924, 1011, 1033, 1237-1238, 1257行目付近):
   - import、`videoRef`/`liveRef`、`clearLive`、`shouldStartLive`(純粋関数、テスト対象)、`onUnknownUniStream`内の`MOVIE_INIT_TRACK_ALIAS`/`MOVIE_TRACK_ALIAS`分岐、返り値の`videoRef`。
@@ -75,11 +110,10 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 - 動画プレビューの技術方針: `<video src={blobURL} muted preload="metadata">` + `loadedmetadata`後に`currentTime`を明示セットしてフレームデコードを強制(Safari/WebKitは無操作だと黒枠のまま)。
   - revokeのタイミングは`<img>`の`onload`と違い`<video>`は`loadeddata`まで待つか、その添付がドラフトから削除されるまでrevokeしない設計にする(Firefoxのモバイル録画mp4で`loadedmetadata`時点のrevokeが既知の問題を起こすため)。
   - React実装は「file単位のuseObjectUrlフック、item削除時にunmountでrevoke」パターン(親でURL mapを手動管理しない)。
-- 既存e2e `s15-image-send.mjs`の構造:
+- 既存e2e `s15-image-send.mjs`の構造を多添付・動画・テキストのみケースに拡張する。現在の構造は次のとおり。
   - `joinClient`(loadTest.mjs版から`received`ポーリングを省いた簡易版)、`makePattern`(決定的疑似ランダムバイト列)
   - `sendImageFromPage`(`waitForSelector`後にFile+DataTransfer+changeイベント)
   - `waitForReceivedImage(page, previousCount)`(要素数がpreviousCountを超えるまで待つ、送信者自身の楽観エコーとの混同を避けるため)、`runCase`。
-  - この構造を多添付・動画・テキストのみケースに拡張する。
 
 <a id="実装方針"></a>
 ## 3. 実装方針
@@ -248,8 +282,8 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
    - 添付チャンク受信時: 対応する`AttachmentReassembler`に`attachmentReassemblerPush`し、結合バイト列が返ってきたら`PendingMessage.attachments`に格納。**その場で**「テキストが届いていて、かつ添付が全部揃っているか」を判定し、揃っていれば即座に`onMessage`を呼んでエントリを削除。
    - どちらの処理も、揃っていなければ何もせず次のストリームを待つ。
    - messageId再利用時は新しいMapエントリとして独立する(古いエントリを明示的に探して破棄する処理は不要、Mapが過去を記憶しない設計のまま)。
-   - タイムアウト(30秒)は`moqtAttachmentWire.ts`側の`AttachmentReassembler`が個別チャンク単位で処理する設計である。
-     - `PendingMessage`自体の掃除は「一定時間経過したエントリを定期的にsweepする」既存パターンがコード内にあれば踏襲する。
+   - タイムアウト(30秒)は`moqtAttachmentWire.ts`側の`AttachmentReassembler`が個別チャンク単位で処理する設計である。`PendingMessage`自体の掃除は次のとおり。
+     - 「一定時間経過したエントリを定期的にsweepする」既存パターンがコード内にあれば踏襲する。
      - 無ければテキストパート/添付チャンクの受信処理の中で`receivedAt`が30秒超過した古いエントリを見つけ次第(同じ処理のついでに)破棄するだけでよい(YAGNI、専用のタイマー/setIntervalは新設しない)。
 5. `MoqtChatCallbacks.onMessage`のシグネチャを`(participantId: string, text: string, attachments: {bytes: Uint8Array; mimeType: string}[]) => void`に統一する。既存の`onImage`コールバックは削除。
    - プレーンテキストメッセージも同じ`onMessage`を通す(`attachments: []`)。
@@ -376,7 +410,17 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 
 `examples/moqt_chat/wired_server.c`全文を読んでから着手する。
 
-`publish_movie()`関数と、movie専用の定数/グローバル変数ブロック(`MOVIE_MAX`/`MOVIE_GROUP_MS`/`MOVIE_TRACK_ALIAS`/`MOVIE_INIT_TRACK_ALIAS`/`MOVIE_TRACK_NAME`/`MOVIE_INIT_TRACK_NAME`/`g_movie`/`g_movie_layout`/`g_movie_init_wire`、該当箇所を検索)を削除する。
+`publish_movie()`関数と、movie専用の定数/グローバル変数ブロック(該当箇所を検索)を削除する。ブロックに含まれる名前は次のとおり。
+
+- `MOVIE_MAX`
+- `MOVIE_GROUP_MS`
+- `MOVIE_TRACK_ALIAS`
+- `MOVIE_INIT_TRACK_ALIAS`
+- `MOVIE_TRACK_NAME`
+- `MOVIE_INIT_TRACK_NAME`
+- `g_movie`
+- `g_movie_layout`
+- `g_movie_init_wire`
 
 `wired_main()`内の`publish_movie(...)`呼び出し1行を削除する。doc内のmovie言及コメントを、movie機能が存在しない前提の文言に修正する。`g_live`/`LIVE_RING`等、screen-share/voiceと共有される汎用機構は削除対象外(残すこと)。
 
@@ -412,7 +456,10 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 
 `examples/moqt_chat/README.md`を読み、冒頭紹介文とWhat this demonstratesセクションのmovie関連4段落を削除/書き換え、Build and run/e2e/Layoutセクションのmovie言及行を削除する。jp-writer的な日本語散文ではなく英語READMEの体裁を維持すること(既存ファイルの言語・文体をそのまま踏襲)。
 
-検証: `grep -rni movie examples/moqt_chat/ --include="*.c" --include="*.ts" --include="*.tsx" --include="*.md" --include="*.mjs" --include="Dockerfile" --include="justfile" | grep -v node_modules | grep -v /out/ | grep -v /.next/`が空であること。
+検証: 次の 2 行をつないだパイプラインの出力が空であること。
+
+- `grep -rni movie examples/moqt_chat/ --include="*.c" --include="*.ts" --include="*.tsx" --include="*.md" --include="*.mjs" --include="Dockerfile" --include="justfile"`
+- `| grep -v node_modules | grep -v /out/ | grep -v /.next/`
 
 `cd examples/moqt_chat/frontend && npx vitest run && npx tsc --noEmit`が全てgreen(この時点でTask 1-6全ての変更が揃っているはず)。
 
@@ -429,7 +476,7 @@ C側は`just build`(リポジトリルートから)を実行して`src/`が無�
 2. **テキストのみメッセージケース**: 添付なしでテキストのみ送信し、受信側にテキストが表示されることを確認する。
 3. **添付のみメッセージケース**(テキスト空): テキスト無しで添付のみ送信し、受信側に添付が表示されることを確認する。
 
-`waitForReceivedImage`相当の待機ヘルパーは、複数添付・複数種別に対応できるよう拡張する(例: 期待する`message-image`件数と`message-video`件数をそれぞれ受け取り、両方が閾値を超えるまで待つ)。既存の「送信者自身の楽観エコーとの混同を避けるため要素数がpreviousCountを超えるまで待つ」設計は維持する。
+`waitForReceivedImage`相当の待機ヘルパーは複数添付・複数種別に対応できるよう拡張する(例: 期待する`message-image`件数と`message-video`件数をそれぞれ受け取り、両方が閾値を超えるまで待つ)。既存の「送信者自身の楽観エコーとの混同を避けるため要素数がpreviousCountを超えるまで待つ」設計は維持する。
 
 クリップボード添付のe2eはこのタスクの範囲外(承認済み方針通りunitテストのみでカバー済み、Task 5で対応済み)。
 
@@ -468,4 +515,3 @@ C側は`just build`(リポジトリルートから)を実行して`src/`が無�
 - アップロード進捗バー(チャンク数以上の細粒度表示)。
 - クリップボードのe2eカバレッジ(unitテストのみ)。
 - `clipboard.read()`による明示的貼り付けボタン(pasteイベントのみ対応)。
-</content>

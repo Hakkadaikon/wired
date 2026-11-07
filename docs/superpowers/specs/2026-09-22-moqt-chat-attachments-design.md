@@ -207,7 +207,7 @@ type Draft = { id: string; bytes: Uint8Array; mimeType: string; previewUrl: stri
 
 - ファイル選択の `<input type="file" accept="image/*,video/*" multiple data-testid="attachment-file">`: `multiple` により、1 回の選択で複数のファイルを選べる。
   - 下書き済みのものと合わせて合計 4 個が上限のまま。
-  - 上限を超えたファイルは、5MB の上限と同じ `onAttachmentError`/サイズ系の Notice で捨て、メッセージは "up to 4 attachments"。
+  - 上限を超えたファイルは 5MB の上限と同じ `onAttachmentError`/サイズ系の Notice で捨て、メッセージは "up to 4 attachments"。
 - テキストの `<input>` の `onPaste` の貼り付けハンドラー: `e.clipboardData.items` を走査し、`kind === "file"` の項目ごとに `getAsFile()` を呼んで下書きに加える(ファイル選択の経路と同じく 4 個/5MB の上限を適用)。
   - 貼り付け全体に `preventDefault()` はかけない。ファイルの項目を実際に見つけて処理したときだけ既定の動作を抑えるので、入力欄へのテキストの貼り付けには影響しない。
 - 各下書きは入力欄の上の新しい行にプレビューのチップを描画する。
