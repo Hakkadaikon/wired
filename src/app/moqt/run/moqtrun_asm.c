@@ -62,7 +62,7 @@ static int moqtrun_asm_fit(
 
 /* draft-23 9: a Length over the hub's MAX_CONTROL_MESSAGE_SIZE closes
  * FIELD_LENGTH_EXCEEDED (a 16-bit Length never is); a message no pool
- * buffer is left for closes INTERNAL_ERROR (R4: the limit is ours). */
+ * buffer is left for closes INTERNAL_ERROR (the limit is ours). */
 static void moqtrun_asm_fault(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
   moqtrun_close_with(

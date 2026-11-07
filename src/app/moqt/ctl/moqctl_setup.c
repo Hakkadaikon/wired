@@ -113,7 +113,7 @@ static int moqctl_maxctl_is(const moqkvp* kv, int ver) {
 }
 
 /* draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE (0x09 under
- * MOQVER_CAP_OPT_MAX_CTL_SIZE): ruling R2 reads the odd Type's bytes as
+ * MOQVER_CAP_OPT_MAX_CTL_SIZE): the odd Type's bytes are read as
  * exactly one vi64, at least MOQCTL_MAX_MSG_LEN; anything else does not
  * match the Type's definition -- MALFORMED_KEY_VALUE (8.3), surfaced as
  * MOQCTL_PARAMS_KVFMT (the same code, 0x6). */

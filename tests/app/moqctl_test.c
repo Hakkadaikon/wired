@@ -1472,7 +1472,7 @@ static void test_moqctl_setup_limit_options_default_zero(void) {
   CHECK(s.max_request_updates == 0);
 }
 
-/* ===== TEST: draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE (ruling R2) ===== */
+/* ===== TEST: draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE ===== */
 
 /* Setup Options opts decoded as draft ver; the result code. */
 static int mqmcs_take(int ver, const u8* opts, usz n, moqctl_setup* s) {
@@ -1498,7 +1498,7 @@ static void test_moqctl_setup_d23_max_ctl_size_ok(void) {
   CHECK(s.max_ctl_size == 65535);
 }
 
-/* R2: a value below 65535 (C0 FF FE), one byte short (Length 2 for a
+/* A value below 65535 (C0 FF FE), one byte short (Length 2 for a
  * 3-byte vi64), a trailing byte, or an empty value is
  * MALFORMED_KEY_VALUE (MOQCTL_PARAMS_KVFMT, code 0x6). */
 static void test_moqctl_setup_d23_max_ctl_size_malformed(void) {

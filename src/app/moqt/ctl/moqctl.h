@@ -220,8 +220,8 @@ int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out);
 /** moqctl_setup_take for draft ver (MOQVER_*): under
  * MOQVER_CAP_OPT_MAX_CTL_SIZE (draft-23 9.1.8) option 0x09 is
  * MAX_CONTROL_MESSAGE_SIZE -- a value that is not exactly one vi64, or is
- * below MOQCTL_MAX_MSG_LEN, is MOQCTL_PARAMS_KVFMT (MALFORMED_KEY_VALUE,
- * ruling R2) -- and SSTS_ALGORITHMS is MOQCTL_OPT_SSTS_ALGORITHMS_D23. */
+ * below MOQCTL_MAX_MSG_LEN, is MOQCTL_PARAMS_KVFMT (MALFORMED_KEY_VALUE)
+ * -- and SSTS_ALGORITHMS is MOQCTL_OPT_SSTS_ALGORITHMS_D23. */
 int moqctl_setup_take_v(int ver, wired_span buf, usz* off, moqctl_setup* out);
 /** Encodes s's present options as a SETUP Message Body, in ascending
  * option order; 1 ok, 0 when buf runs out. */

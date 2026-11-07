@@ -1687,7 +1687,7 @@ static void mtasm_large_one(usz body_len, usz cut) {
   mtasm_check_both_answered();
 }
 
-/* R4 (draft-23 9.1.8: every draft lets a peer send a 65535-byte body): a
+/* Every draft lets a peer send a 65535-byte body (draft-23 9.1.8): a
  * message past the inline buffer is reassembled in a pooled one --
  * split after its header, inside it, or after its first byte -- and the
  * SUBSCRIBE behind it is still answered. */
@@ -1722,7 +1722,7 @@ static void test_moqtrun_ctl_large_messages_reuse_pool(void) {
   }
 }
 
-/* R4: a large message finding every pool buffer leased (held by other
+/* A large message finding every pool buffer leased (held by other
  * sessions' half-received large messages) closes its session
  * INTERNAL_ERROR -- the limit is the hub's, the peer broke no rule. */
 static void test_moqtrun_ctl_pool_exhausted_closes(void) {
@@ -1812,7 +1812,7 @@ static void mtmcs_setup(const u8* opts, usz n) {
 }
 
 /* The client's value is remembered, 65535 when absent (9.1.8); one below
- * 65535 closes MALFORMED_KEY_VALUE (0x6, ruling R2). */
+ * 65535 closes MALFORMED_KEY_VALUE (0x6). */
 static void test_moqtrun_setup_d23_max_ctl_size(void) {
   static const u8 big[] = {0x09, 0x03, 0xC1, 0x00, 0x00}; /* 65536 */
   static const u8 low[] = {0x09, 0x01, 0x05};

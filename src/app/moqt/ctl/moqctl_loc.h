@@ -202,7 +202,7 @@
  * concatenated varint algorithm ids, no count), up to draft-22. */
 #define MOQCTL_OPT_SSTS_ALGORITHMS 0x9ULL
 /** draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE (odd type: Length + exactly one
- * vi64, at least MOQCTL_MAX_MSG_LEN; ruling R2). It takes 0x09, so a
+ * vi64, at least MOQCTL_MAX_MSG_LEN). It takes 0x09, so a
  * draft-23 session moves SSTS_ALGORITHMS off it. */
 #define MOQCTL_OPT_MAX_CONTROL_MESSAGE_SIZE 0x9ULL
 /** SSTS_ALGORITHMS on a draft-23 session: odd (Length-prefixed like the

@@ -1,7 +1,7 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 /* @file
- * The control-message reassembly's buffers (R4 of the draft-23 plan): a
+ * The control-message reassembly's buffers (65535-byte limit): a
  * stream's inline buffer, and the hub-wide pool buffer it leases while a
  * message longer than that is mid-reassembly (moqtrun_asm_pop). */
 
