@@ -48,6 +48,7 @@ static u64 moqtrun_upd_ns_prefix(
   }
   u64 code = moqtrun_disc_clash(hub, q, q->kind);
   if (code == MOQTRUN_REQ_ACCEPT) {
+    moqtrun_disc_forget(hub, q);
     return code;
   }
   q->ns_len = before.ns_len;

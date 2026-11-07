@@ -10,6 +10,8 @@ static void moqtrun_disc_sync_one(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
 static void moqtrun_disc_sync_sub(wired_moqt_hub* hub, wired_moqtrun_req* sub);
 static int  moqtrun_disc_owes(const wired_moqtrun_req* q, usz i);
+static void moqtrun_disc_forget_one(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
 
 /* A matching namespace sub has not been told of: NAMESPACE. */
 void moqtrun_disc_sync_new(wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
@@ -95,6 +97,24 @@ int moqtrun_disc_held(const wired_moqt_hub* hub, usz i) {
     }
   }
   return 0;
+}
+
+static void moqtrun_disc_forget_one(
+    wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
+  if (!moqtrun_disc_under(sub, &hub->reqs[i])) {
+    sub->ns_seen[moqtrun_disc_word(i)] &= ~moqtrun_disc_bit(i);
+  }
+}
+
+/* sub's prefix was updated: a namespace it no longer matches is done
+ * with no NAMESPACE_DONE ("the REQUEST_OK implies a NAMESPACE_DONE for
+ * each advertised namespace that no longer matches the prefix", draft-23
+ * 9.5.2) -- its suffix past the new prefix would not exist. One that
+ * matches again later is advertised anew (moqtrun_disc_sync_new). */
+void moqtrun_disc_forget(wired_moqt_hub* hub, wired_moqtrun_req* sub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    moqtrun_disc_forget_one(hub, sub, i);
+  }
 }
 
 void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {

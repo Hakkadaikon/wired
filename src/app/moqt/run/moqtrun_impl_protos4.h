@@ -155,6 +155,7 @@ int moqtrun_disc_fresh(
     const wired_moqtrun_req* q);
 void moqtrun_disc_sync_new(wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i);
 void moqtrun_disc_sync(wired_moqt_hub* hub);
+void moqtrun_disc_forget(wired_moqt_hub* hub, wired_moqtrun_req* sub);
 int  moqtrun_disc_held(const wired_moqt_hub* hub, usz i);
 void moqtrun_handle_not_supported(wired_moqtrun_peer* p);
 u64  moqtrun_subtracks_check(
