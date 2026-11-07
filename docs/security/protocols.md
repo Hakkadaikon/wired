@@ -162,7 +162,7 @@ MoQT はそのセッションの TLS 1.3 による機密性、完全性、エン
 |---|---|---|
 | 長さのオーバーフロー | Object とプロパティの長さのパースで、`fuzz/fuzz_moqt.c` が varint の長さのオーバーフローを見つけた。`*at + len > buf.n` の検査が 2^64 で一周し、範囲外の読み込みや無限ループを許すおそれがあった。オーバーフローしない引き算に書き直した | `test_moqdata_obj_take_len_wrap`、`test_moqdata_obj_take_payload_len_boundary`、`test_moqvi_put_at_capacity_edge` |
 | `AUTHORIZATION_TOKEN`(0x03) | SUBSCRIBE と PUBLISH のパラメーターでデコードする(10.2.2)。認可フックがルーティングの前にすべての SUBSCRIBE を通すかを決める(13.3: "Relays will verify the token") | `test_moqctl_params_auth_token_use_value_decode`、`test_moqctl_params_auth_token_scope_violation`、`test_moqtrun_subscribe_requires_authorization`、`test_moqtrun_subscribe_alias_token_rejected` |
-| ファジング | `fuzz/fuzz_moqt.c` が MoQT のデコードを push ごと(`just fuzz-smoke`)と夜間(`just fuzz-ci`)に対象にする。シードコーパスに、上の長さのオーバーフローを見つけた入力を回帰用に残している | — |
+| ファジング | `fuzz/fuzz_moqt.c` が MoQT のデコードを push ごと(`just fuzz-smoke`)と夜間(`just fuzz-ci`)に対象にする。シードコーパスに、上の長さのオーバーフローを見つけた入力をリグレッションテスト用に残している | — |
 
 認可フックはどれもオプトインで、デフォルトのハブはすべてのリクエストを通す。フックの登録方法はガイドの [購読者の認可](https://hakkadaikon.github.io/wired/guide/ja/moqt/authorize/) にある。
 
