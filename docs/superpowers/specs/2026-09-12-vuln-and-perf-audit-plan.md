@@ -30,7 +30,7 @@
   - 再現用に `scripts/vulnaudit/collect.py`(同じクエリ列を発行する)も置く。ネットワーク許可がある環境ではそれで再実行できる。
 - NVD の `keywordSearch=QUIC` は語幹一致で "quickly" まで拾う(1,417 件)。**製品 CPE で引く**(`cpeName=cpe:2.3:a:<vendor>:<product>:*:*:*:*:*:*:*:*`)か `keywordExactMatch` を付ける。
 - GitHub Advisory API は `keywords` が効かず、`ecosystem` + `affects=<パッケージ名>` で引く。
-- 既存資産:
+- 既存資産は次のとおり。
   - `docs/security.md`(現状の保証一覧、Psychic Signature 等の既知クラスへの言及あり)
   - `fuzz/`(header / qpack / x509 / onertt の 4 ハーネス、`just fuzz-ci` 夜間)
   - `bench/`(benchclient による ttfb/load レーン、sections、goodput)
@@ -83,7 +83,7 @@ C. **攻撃分類の文献**。
 <a id="3-台帳チェックボックスの設計"></a>
 ## 5. 台帳(チェックボックス)の設計
 
-置き場は決めの問題(後述の質問 1)。形式:
+置き場は決めの問題(後述の質問 1)。形式は次のとおり。
 
 ```
 ## QUIC transport
@@ -103,7 +103,7 @@ C. **攻撃分類の文献**。
 <a id="4-トリアージと修正phase-34tdd"></a>
 ## 6. トリアージと修正(Phase 3〜4、TDD)
 
-各項目で:
+各項目で次の手順を踏む。
 1. バグクラス → 我々のコード位置を `grep` で特定(無ければ `n/a`)。
 2. 検証層を決める(リポ規範の三層)。
    - パーサー/メモリ安全 → **fuzz ハーネス + 単体テスト**
@@ -161,11 +161,11 @@ integrator(配線・ゲート・コミット)の既存パイプライン。台�
 <a id="7-決めてほしいこと"></a>
 ## 9. 決めてほしいこと
 
-1. **台帳の置き場**: `docs/security/vuln-ledger.md` として git 管理(監査の
+1. 台帳の置き場: `docs/security/vuln-ledger.md` として git 管理(監査の
    成果物として残る、推奨)か、規範どおり `tasks/` で非管理か。
-2. **性能退行の予算**: 中央値 3% 超で止める(暫定)でよいか。goodput レーン
+2. 性能退行の予算: 中央値 3% 超で止める(暫定)でよいか。goodput レーン
    (docker + tshark)を必須にするか任意にするか。
-3. **同種実装の範囲**: 上記 B の製品リストでよいか。Chromium/nginx/curl の
+3. 同種実装の範囲: 上記 B の製品リストでよいか。Chromium/nginx/curl の
    ような規模の大きい製品は「QUIC/HTTP3 部分のみ」に絞る。frontend/e2e の npm 依存は
    `pnpm audit` / `npm audit` の結果を別節として台帳に含めるか。
 

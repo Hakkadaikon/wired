@@ -166,7 +166,7 @@ P-224、secp224k1、P-192、二進体の曲線、Koblitz 曲線はない。
 
 このため BoringSSL の ECDSA のベクターのうち 91 件をスキップしている。
 
-参照:
+参照先は次のとおり。
 
 - [BoringSSL のベクター](../boringssl-vectors.md)
 - [BoringSSL のベクターの README](../../../tests/vectors/boringssl/README.md)

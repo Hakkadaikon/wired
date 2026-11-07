@@ -16,7 +16,7 @@
 
 moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャンク × N Object」で送る。前回の修正(`bfd131d2`)で「チャンクごとに単方向ストリーム」を「1添付=1ストリーム(keep-open)」に変えて、20KB/50KB は通るようになった。200KB・2MB は届かない。
 
-ユーザー体感「画像1枚 20〜30 秒」の根本原因は、**ハブ(`src/app/moqt/run/moqtrun.c`)の keep-open 中継がライブ音声向けの設計で、バルク転送を想定していない**こと。実測(`tasks/voice-stability/s15-image-send/server.log`):
+ユーザー体感「画像1枚 20〜30 秒」の根本原因は、**ハブ(`src/app/moqt/run/moqtrun.c`)の keep-open 中継がライブ音声向けの設計で、バルク転送を想定していない**こと。実測(`tasks/voice-stability/s15-image-send/server.log`)は次のとおり。
 
 | サイズ | 結果 | ハブ統計 | 原因(コード) |
 |---|---|---|---|
@@ -29,16 +29,16 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 <a id="調査で確定した前提fileline"></a>
 ## 2. 調査で確定した前提(file:line)
 
-- 受信側 credit:
+- 受信側 credit は次のとおり。
   - `srvrun_grant_stream_credit`(srvrun.c:2420-2431)が毎 step、`wt_slot_credit_ceiling(delivered_len) = delivered_len + WIRED_SRVLOOP_WT_BUF_CAP(49152)` を advertise。アプリから止める手段は無い。
   - 呼び出しは 2815/2817(bidi/uni の各 slot)。
   - slot 構造体 `wired_srvloop_wt_stream_slot` / `wired_srvloop_wt_uni_stream_slot`(srvloop.h:290-312, 366-378)に `credit_advertised` がある。
-- 送信側:
+- 送信側は次のとおり。
   - `wired_server_wt_stream_send`(srvrun.c:4357-4374)は **1ストリームにつき1ラウンドだけ送信中(in flight)**(前ラウンド未ACKなら `srvrun_wtsend_accept_round` が拒否)。
   - ペイロード ≤4096 はコピー、それ超は VIEW(ACK まで caller が保持)。
   - 送信スロットは接続あたり `WIRED_SRVLOOP_MAX_STREAMS`=40。ACK/スロット解放のコールバックは無い。
 - ハブの入口 `wired_moqt_on_stream_data`(moqtrun.c:1444-1459)は `void` で即時消費。`wired_moqt_tick(hub, now_ms)`(934-940)は `on_step` から呼ばれ、**イベントごと+最低 25ms 周期**(srvrun.h:292-299)。
-- keep-open 中継:
+- keep-open 中継は次のとおり。
   - 呼び出しの順は次のとおり。
     1. `moqtrun_relay_start`(1293-1322, fin 無しの fresh stream)
     2. `moqtrun_relay_open_all`(open_uni_stream、失敗は `stat_open_drop`)
@@ -51,7 +51,7 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 - io テーブル `wired_moqt_io`(moqtrun.h:40-56)は関数ポインタの位置指定初期化。末尾に追加するなら既存の初期化子は変えずに済む(`send_datagram != 0` ガードの前例 moqtrun.c:1466-1468)。
 - Track 名: chat=`<id>`、voice=`<id>/audio`、screen=`<id>/screen`。alias はクライアントが PUBLISH で宣言(chat 0..3、voice/screen はそれ以上)。ハブ側 `wired_moqtrun_track.own_alias`(moqtrun.h:224)で判別可能。
 - 容量: `WIRED_MOQTRUN_MAX_SESSIONS`=32、`MAX_SUBS`=31、`MAX_RELAYS`=4/track、`MAX_TRACKS_PER_PEER`=3。
-- テスト:
+- テストは次のとおり。
   - `tests/app/moqtrun_test.c`(3501行)は fake io(`moqtrun_test_stream_send` が `g_stream_send_reject_n`/`_sess` で拒否を注入、`moqtrun_test_record` で送信を記録)。
   - `tests/app/srvrun_test.c` は credit を `stream_credit` で扱う。
   - ユニティビルド(`tests/run.c`)に `#include "app/moqt/run/moqtrun.c"`(557行目)。
@@ -73,27 +73,27 @@ moqt_chat の複数添付機能(main 済み)は、1添付を「480→448B チャ
 ### 3.2 hub の信頼中継モード(新モジュール `src/app/moqt/run/moqtrel.{h,c}`、prefix `moqtrel_`)
 対象: `track->own_alias < hub->reliable_alias_limit` の Track(既定 0 = 無効 → 他利用者の挙動不変。moqt_chat のサーバーは 4 を設定)。voice/screen(alias ≥ 4)は**現行の捨てる/RESET 経路のまま**。
 
-状態(ハブ全体でプール、`WIRED_MOQTREL_POOL`=4 本、1本 `WIRED_MOQTREL_CAP = 3 * WIRED_SRVLOOP_WT_BUF_CAP`=147456B、静的 576KB):
+状態(ハブ全体でプール、`WIRED_MOQTREL_POOL`=4 本、1本 `WIRED_MOQTREL_CAP = 3 * WIRED_SRVLOOP_WT_BUF_CAP`=147456B、静的 576KB)は次のとおり。
 - `moqtrel_buf`: バイトリング `buf[CAP]`、`head`(reclaim 済み絶対オフセット)、`tail`(書込済み絶対オフセット)、`fin_seen`、`held`(パブリッシャーの credit hold 中)、パブリッシャーの `(wt, stream_id)`(hold/release 用)。
 - 購読者ごと(`WIRED_MOQTRUN_MAX_SUBS`): `sent`(次に送る絶対オフセット)、`inflight_from`(前回受理ラウンドの先頭。`sent` との差が送信中)、`fin_done`、`last_ok_ms`(最後に `stream_send` が受理された時刻、stall 判定)。
 - relay entry(`wired_moqtrun_relay`)に `i32 rel_idx`(-1 = lossy)。
 
-遷移(すべて既存の `moqtrun_relay_*` から分岐、reliable でなければ従来どおり):
-- **start**(fresh stream, fin=0, reliable track):
+遷移(すべて既存の `moqtrun_relay_*` から分岐、reliable でなければ従来どおり)は次のとおり。
+- start(fresh stream, fin=0, reliable track)は次のとおり。
   - プールから1本確保(無ければ `stat_relay_full++` して従来 lossy にフォールバック)。
   - ヘッダー〜whole_end を ring へ append(端数は従来の `frag`)。
   - 購読者ストリームは従来どおり `open_uni_stream(header + whole)` で開く。開けた購読者の `sent = tail`, `inflight_from = 0`。
-- **continue**(以降の配送): `normalize` した whole を ring へ **append**(捨てない)。append 後 `free < 2*WT_BUF_CAP` なら `io.stream_hold(pub, 1)`, `held=1`。fin は `fin_seen=1`。その後 **drain**。
-- **drain**(配送直後と `wired_moqt_tick` の毎回):
+- continue(以降の配送): `normalize` した whole を ring へ **append**(捨てない)。append 後 `free < 2*WT_BUF_CAP` なら `io.stream_hold(pub, 1)`, `held=1`。fin は `fin_seen=1`。その後 **drain**。
+- drain(配送直後と `wired_moqt_tick` の毎回)は次のとおり。
   - 各 active sub で `sent < tail` なら、`[sent, min(tail, sent+ROUND_MAX, リング終端))` を `stream_send(view)` する(`WIRED_MOQTREL_ROUND_MAX`=16384。≤4096 はコピー、それ超は VIEW: リング上のバイトは `head` より下でしか再利用しないので ACK まで不動)。
   - 受理(=前ラウンド完了の証)なら `inflight_from = sent(旧)`, `sent += n`, `last_ok_ms = now`。拒否なら何もしない(次の tick で再試行、捨てない)。
   - `fin_seen && sent == tail && !fin_done` なら最後のラウンドに fin=1(バイト無しなら `stream_fin`)。受理で `fin_done=1`。
-- **reclaim**: `head = min(inflight_from)`(active な sub のうち)。`held && used <= WT_BUF_CAP/2` なら `io.stream_hold(pub, 0)`, `held=0`。
-- **stall shed**: `now - last_ok_ms > WIRED_MOQTREL_STALL_MS`(10000)かつ `sent < tail` の sub は従来の `stream_reset` で捨て、`sent = tail`, `fin_done=1`(その sub だけ諦める。他は進む、パブリッシャーは止まらない)。
-- **sub 離脱**(`on_session_close` 経由で `subs[i].active=0`): reclaim 対象から外れるだけ。
-- **パブリッシャー離脱**: relay entry と一緒にプール返却。hold は接続ごと消えるので不要。
-- **終了**: 全 active sub が `fin_done` → プール返却、relay entry 解放。
-- **late open**(中継開始後の購読者): 従来どおりヘッダーで開き `sent = tail`(途中からで、その添付は不完全。現状と同じ制約、docs に明記)。
+- reclaim: `head = min(inflight_from)`(active な sub のうち)。`held && used <= WT_BUF_CAP/2` なら `io.stream_hold(pub, 0)`, `held=0`。
+- stall shed: `now - last_ok_ms > WIRED_MOQTREL_STALL_MS`(10000)かつ `sent < tail` の sub は従来の `stream_reset` で捨て、`sent = tail`, `fin_done=1`(その sub だけ諦める。他は進む、パブリッシャーは止まらない)。
+- sub 離脱(`on_session_close` 経由で `subs[i].active=0`): reclaim 対象から外れるだけ。
+- パブリッシャー離脱: relay entry と一緒にプール返却。hold は接続ごと消えるので不要。
+- 終了: 全 active sub が `fin_done` → プール返却、relay entry 解放。
+- late open(中継開始後の購読者): 従来どおりヘッダーで開き `sent = tail`(途中からで、その添付は不完全。現状と同じ制約、docs に明記)。
 - 統計: `stat_rel_stall`(shed 数)、`stat_rel_overflow`(設計上 0。0 でなければ不変条件違反 = バグ検出用)。
 
 <a id="3-fresh-stream-の-torn-first-object-修正moqtrun"></a>
@@ -111,7 +111,7 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 <a id="検証する性質実装前に確定"></a>
 ## 4. 検証する性質(実装前に確定)
 
-1. **設計段階で成り立ちを固める性質**(パブリッシャーの配送は hold により outstanding ≤ BUF、購読者ごとの send 受理/拒否は非決定、reclaim・fin・sub 離脱・stall shed を含めた全遷移で):
+1. **設計段階で成り立ちを固める性質**(パブリッシャーの配送は hold により outstanding ≤ BUF、購読者ごとの send 受理/拒否は非決定、reclaim・fin・sub 離脱・stall shed を含めた全遷移で)は次のとおり。
    - リングの使用量は常に容量を超えない(hold の閾値 `2*BUF` の正当性)。
    - 各 sub が受け取る列は ring 内容の連続 prefix(欠落・重複・順序崩れ無し)。
    - fin は全バイト送信後にのみ送られる。
@@ -177,7 +177,7 @@ fin=1(one-shot)で 0 個は従来どおり捨てる。reliable/lossy 両方に�
 - `wired_moqt_hub` に `u64 reliable_alias_limit`(init で 0)、`moqtrel_buf pool[WIRED_MOQTREL_POOL]`、`stat_rel_stall/overflow`。
 - `wired_moqt_io` 末尾に `int (*stream_hold)(wired_wt_session*, u64, int)`(0 ガード)。
 - `moqtrun_relay_start/continue/append_one/forward_one` に reliable 分岐、`wired_moqt_tick` に drain+stall、`on_session_close`/relay 解放でプール返却。
-- テスト(`tests/app/moqtrun_test.c`、タスク 1 の残りの性質):
+- テスト(`tests/app/moqtrun_test.c`、タスク 1 の残りの性質)は次のとおり。
   - 拒否→tick で再送され全バイト順序どおり
   - watermark で `stream_hold(1)`→drain 後 `(0)`
   - fin は最後
@@ -204,7 +204,7 @@ docker の `moqt_chat-wired_server-1` を止めてから(ポート 4433)、`just
 
 全ケース PASS、`server.log` の `dropped=0 reset=0`、2MB/5MB の所要時間を記録。
 
-回帰: s1-voice-clean / s13-screen-longrun / s14-screen-rejoin / s2-chat-longevity / s8-late-join が PASS(voice/screen の lossy 経路不変)。終了後 `docker start`。
+リグレッション: s1-voice-clean / s13-screen-longrun / s14-screen-rejoin / s2-chat-longevity / s8-late-join が PASS(voice/screen の lossy 経路不変)。終了後 `docker start`。
 
 <a id="タスク-8-台帳仕上げcontroller"></a>
 ### 6.8 タスク 8: 台帳・仕上げ(controller)

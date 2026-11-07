@@ -86,7 +86,7 @@ typedef struct {
 int mp4frag_scan(wired_span file, mp4frag_layout* out);
 ```
 
-`MP4FRAG_MAX_FRAGS` は 64 で、隣にサイズの根拠を書く(今は 16。上限は、フラグメント 2 秒で 2 分のループを組める大きさ)。
+`MP4FRAG_MAX_FRAGS` は 64 で、隣にサイズの根拠を書く(今は 16。上限はフラグメント 2 秒で 2 分のループを組める大きさ)。
 
 ボックスサイズ 1(64 ビットの largesize)と 0(ファイル末尾まで)は、このサンプルの目的では VIOLATION 相当として拒否する。初期化セグメントのあとにある `moof`/`mdat` 以外のボックス(`free`、`sidx` など)は読み飛ばす。
 
@@ -107,7 +107,7 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out);
 <a id="3-hub-のライブ-tracksrcappmoqtrunmoqtrunch"></a>
 ### 4.3 hub のライブ Track(`src/app/moqt/run/moqtrun.[ch]`)
 
-`wired_moqt_hub` に追加する状態:
+`wired_moqt_hub` に追加する状態は次のとおり。
 
 ```c
 typedef struct {
@@ -121,7 +121,7 @@ typedef struct {
 } wired_moqtrun_live;
 ```
 
-API:
+API は次のとおり。
 
 ```c
 /* Publish a hub-owned live track: fragment i is sent as Group g's only
@@ -137,7 +137,7 @@ int wired_moqt_publish_live(wired_moqt_hub* hub, wired_span name,
 void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 ```
 
-動作:
+動作は次のとおり。
 
 - `SUBSCRIBE movie`(ライブ Track の名前と一致したとき。blob Track のあと、ピアの Track の前に照合する): ピアを `subs[]` に記録し、ライブの Alias で SUBSCRIBE_OK を積み、現在の Group をすぐに送る(`sent_group` = 現在)。
   - 空いている sub スロットがなければ REQUEST_ERROR INTERNAL_ERROR を返す。
@@ -179,7 +179,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 <a id="ブラウザーのクライアントexamplesmoqt_chatfrontend"></a>
 ## 5. ブラウザーのクライアント(`examples/moqt_chat/frontend`)
 
-`src/lib/moqtLiveClient.ts`:
+`src/lib/moqtLiveClient.ts` は次のとおり。
 
 - 定数 `MOVIE_TRACK_NAME = "movie"`、`MOVIE_INIT_TRACK_NAME = "movie/init"`、`MOVIE_TRACK_ALIAS = 8n`、`MOVIE_INIT_TRACK_ALIAS = 9n`、`MOVIE_MIME = 'video/mp4; codecs="avc1.640015, mp4a.40.2"'`。
   - (`avc1.640015` は生成したファイルの `avcC` を読んでから書く: High profile 0x64、制約 0x00、480p24 のレベル 0x15。想定ではなく、実装中に確かめる。)
@@ -199,7 +199,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 <a id="検証"></a>
 ## 6. 検証
 
-ライブの送信側が満たすべき性質(それぞれ少なくとも 1 つのテストにする):
+ライブの送信側が満たすべき性質(それぞれ少なくとも 1 つのテストにする)は次のとおり。
 
 - 購読者が同じ Group を 2 回受け取ることはない。
 - 購読者は Group を厳密に増加する順で受け取る。実時間がすでに過ぎた Group を遅れて送ることはない。
@@ -210,14 +210,14 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
 
 これらは C のコードを書く前に状態モデルとして検査する(tick、SUBSCRIBE、クローズ、スロット解放の絡み合いが、順序のバグを最も隠しやすい部分だからである)。下のテストリストには性質ごとに 1 つのテストを入れる。それ以外はすべて、通常のテストファーストの開発である。
 
-テストリスト(C):
+テストリスト(C)は次のとおり。
 
 - mp4frag: 合成した fMP4(ftyp、moov、moof+mdat × 2)をスキャンすると、init と 2 個のフラグメントが正確な span で得られる。
   - フラグメントの間の `free` ボックスは読み飛ばす。
   - mdat のない moof、途中で切れたボックス、largesize のボックス、サイズ 0 のボックス、上限を超える数は、いずれも 0 を返す。
   - 実際のアセットをスキャンすると、16 個のフラグメントと 1,260 バイトの init が得られる(バイト列ではなくサイズで固定)。
 - srvrun: `on_step` はステップごとに 1 回、減少しない時刻で呼ばれる。セッションのストリームは `wired_server_wt_open_uni` の直後には `inflight` で、ループバックのピアが ACK したあとは inflight でなくなる。
-- moqtrun のライブ:
+- moqtrun のライブは次のとおり。
   - publish は n_frags 0 / group_ms 0 を拒否する。
   - SUBSCRIBE には Alias 8 の SUBSCRIBE_OK を返し、現在の Group をヘッダー(Alias 8、Group = 時計の Group)とフラグメント(Object 0)ですぐに送る。
   - 同じ Group の中の tick では何も送らない。次の Group に入った tick で次のフラグメントを送る。フラグメントは n_frags で折り返す。
@@ -228,7 +228,7 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms);
   - `send_uni2` の head||body は同じフラグメントを `moqdata_msg_build` したものと等しい。
 - example(実ブラウザーの e2e を通して): 下を参照。
 
-テストリスト(TypeScript、vitest):
+テストリスト(TypeScript、vitest)は次のとおり。
 
 - AppendQueue は `updateend` をまたいで追記を直列化し、順序を保ち、`remove` を追記と同じようにキューに積む。
 - init はどのフラグメントよりも先に追記する。init より先に届いたフラグメントは待つ。

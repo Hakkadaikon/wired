@@ -29,15 +29,15 @@
 
 <a id="根本原因コードで確認済み"></a>
 ### 1.2 根本原因(コードで確認済み)
-`src/app/http3/server/srvrun/srvrun.c`:
+`src/app/http3/server/srvrun/srvrun.c` の内容は次のとおり。
 - `wt_reply_flow_ok`(~:4217)と `wt_open_flow_ok`(~:4110)は、**サーバー自身の送信/open が購読者の WT_MAX_DATA / WT_MAX_STREAMS を超えるとき**、拒否するだけでなく `c->wt_flow_violation[sidx] = 1` を latch する。
 - `srvrun_close_wt_flow_violations`(~:3325、毎 step)がその latch を **WT_FLOW_CONTROL_ERROR でのセッション close** に変換する。
 - 仕様(draft-ietf-webtrans-http3 §5.3/5.4)は「送信側は相手の上限を超えて送ってはならない(= 拒否して待つ)」「**受信側**が相手の超過を検出したら close」。自分の送信試行を違反として自分のセッションを閉じるのは誤読。導入: 4f582229(2026-07-24)、相手の capsule 適用: 1894c633(2026-09-13)。
-- 発火条件:
+- 発火条件は次のとおり。
   - `sent_data` は staging 受理時に加算(`wired_wt_session_note_data_sent`)されるため、ハブの「送った」は相手の「受け取った」より最大 staging 分(64KB/stream)先行する。
   - 信頼中継は毎 tick 16KB ラウンドを staging が満ちるまで詰めるので、実回線(RTT で credit 更新が遅い)では残 credit < 16KB になりやすい。
   - その結果、次の `stream_send` が flow 拒否 → latch → **購読者セッション close**。
-- 帰結:
+- 帰結は次のとおり。
   - 購読者は自動再参加(フロントの backoff、コンソール無出力)→ 添付ストリームは途中から(reliable 経路は late-open しない/lossy fallback は途中から)→ フロントは EOF まで表示しないので**画像は永遠に出ない**。
   - 同じセッション上の画面共有ストリームも close で消え、再参加後に再び credit 枯渇 → close の繰り返し → **画面共有が届かない**。
   - lossy 経路でも flow 拒否は busy streak → reset(100 回)として現れており統計と整合。
@@ -60,7 +60,7 @@
   - カウンタは qlog のみ(`--qlog` 時 1 秒毎)、公開 API 無し。
   - `wired_wt_session` は公開 struct で `max_data`/`sent_data` を直接読める(session.h:91-102、srvrun.h 経由でハブからも見える)。
 - `sent_data` は staging 受理時(:4155/4198/4238/4374)に加算。
-- 現挙動を pin するテスト(`tests/app/srvrun_test.c`):
+- 現挙動を pin するテスト(`tests/app/srvrun_test.c`)は次のとおり。
   - `test_srvrun_wt_open_uni_exceeding_max_streams_refused`(:15076、`wt_flow_violation[0]==1` を断定)
   - `..._open_bidi_exceeding_max_streams_refused`(:15093)
   - `..._open_uni_exceeding_max_data_refused`(:15112)
@@ -78,7 +78,7 @@
   - 削除対象: `wt_flow_violation[]`(メンバ + doc :460-470)、`srvrun_close_flow_violated_slot`/`srvrun_close_wt_flow_violations`(:3312-3329、呼び出し :3490)、`srvrun_wt_flow_control_code`(:2856、唯一の呼び出しが :3322)。
   - 参照する doc コメント :498 / :2954 / :3109 / :3159 / :3914 のアンカーを `srvrun_wt_rx_capsules` 等に書き換え。
   - ゲート: `grep -rn 'wt_flow_violation\|flow_violated\|wt_flow_control_code' src tests` が空。
-- テスト(`tests/app/srvrun_test.c`):
+- テスト(`tests/app/srvrun_test.c`)は次のとおり。
   - `CHECK(c->wt_flow_violation[0] == 1)` の 4 本(:15076/:15093/:15112/:15129)を「拒否後も `WIRED_WT_ESTABLISHED`、次 step で RESET/STOP_SENDING 無し」に反転。
   - `==0` を断定する :15069/:15309/:15462 はメンバ削除でコンパイル不能になるので該当 CHECK を削除。close 機構のテスト :15156/:15203 と runner 登録 :18299-18300、節コメント :15048-15053 を削除。
   - 新規 1 本(既存 capsule テスト :15296-15309 は open 経路なので重複しない): `wired_server_wt_stream_send` が max_data 到達で -1 → capsule で max_data を上げる → **同じ round** が受理される(中継の実経路「待てば進む」を pin)。
@@ -91,14 +91,14 @@ latch を外しても、信頼中継が毎 tick 16KB を staging が満ちるま
 - `sent_data` は staging 受理時に加算済みなので、budget は staged 未送信分を既に差し引いている(64KB/stream の追加 reserve は不要)。
   - lossy 画面共有 1 ラウンドの最大は `relay_scratch` = `WIRED_MOQTRUN_RELAY_FRAG_MAX`(512)+ `WIRED_SRVLOOP_WT_BUF_CAP`(49152)+ signal(≤9)。
   - よって `WIRED_MOQTREL_HEADROOM` = `WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 16`(16 はハブから見えない signal prefix 分)。
-- 述語と待ち:
+- 述語と待ちは次のとおり。
   - 述語(CCN 2): `static int moqtrun_rel_budget_ok(hub, wt, n) { if (!hub->io.send_budget) return 1; return hub->io.send_budget(wt) >= n + WIRED_MOQTREL_HEADROOM; }`。
   - 待ち(CCN 2): `moqtrun_rel_budget_wait` = ok なら 0、そうでなければ `stat_rel_wait++` だけして 1(cursor も stall クロックも動かさない)。
   - `moqtrun_rel_send_round`(現 CCN 3)は「span==0 の FIN 枝」「budget_wait なら return」「`moqtrun_rel_send_span`(fin_flag + 受理判定、CCN 2)」に分割。
 - credit 枯渇が stall 窓を超えて続く購読者は、既存の busy 拒否とまったく同じ経路で lossy fallback へ shed される。
   - 理由: QUIC 上は生きているのに WT_MAX_DATA を上げない相手を待ち続けると、ring が塞がり、パブリッシャーの hold が他の全購読者を巻き込む。
   - 再試行は `wired_moqt_tick` が毎 step 全 ring を drain するので保証済み。
-- fake io に `send_budget` を追加(既定 0 = 無制限)し、テスト 4 本:
+- fake io に `send_budget` を追加(既定 0 = 無制限)する。テストは次の 4 本。
   - budget 不足で round を送らず `stat_rel_wait` が増え、budget 回復後に**同じ span** が送られる
   - headroom 分は常に残る(budget = n + HEADROOM − 1 では送らない、= n + HEADROOM で送る)
   - `send_budget == 0` なら従来どおり(既存 105+ 本無変更で緑)
@@ -133,7 +133,7 @@ s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityC
 ケース毎に `__wtEvents.every(e => !e.closedAt)` と `[data-testid="status"]` の `data-status === "connected"` を assert、`elapsedMs` を report に記録。
 - **RED の主根拠は srvrun 単体テスト**(§2.1)。
   - e2e の RED は best-effort: Chrome 146 が WT_MAX_DATA capsule を送る直接証拠は repo に無い(間接: 1894c633 の動機、実配備の flow 拒否は `max_data != 0` を要する、localhost e2e では `wtsend_flow=0`(tasks/call-quality-ledger.md:67))。
-  - `--large-bytes=2000000 --jitter-ms=100` で修正前に FAIL しなければ、`--qlog` の metrics `wtsend_flow` を記録して「再現せず(初期 credit が転送を上回る)」と明記し、修正後は GREEN のみを回帰として残す。
+  - `--large-bytes=2000000 --jitter-ms=100` で修正前に FAIL しなければ、`--qlog` の metrics `wtsend_flow` を記録して「再現せず(初期 credit が転送を上回る)」と明記し、修正後は GREEN のみをリグレッションとして残す。
 
 <a id="検証する性質"></a>
 ## 3. 検証する性質
@@ -149,7 +149,7 @@ s15 の私製 `joinClient` を `e2e/lib/stabilityClient.mjs` の `joinStabilityC
     - :164 `moqt_io_send_uni`(one-shot、最大 ~49664)
     - :186 `moqt_io_open_uni_stream`(keep-open open、同上)
   - 単一プロセス・同期呼び出しなのでスタックでなく static 1 本でよい(スタック 50KB を避ける)。:97 の bidi(制御応答、数十 B)は現状維持。
-- s15 への RTT 注入:
+- s15 への RTT 注入は次のとおり。
   - s13 と同じく `startUdpProxy({listenBase, upstreamPort: 4433, flowCount: 2, profile: {lossRate, seed, jitterBaseMs}})`(s13:81-86、udpProxy.mjs:45-65)。
   - クライアントは `https://127.0.0.1:${proxy.port(i)}/` を `data-testid="url"` に入力(s15 は現状 certHash のみ入力、:32)。
   - `runCase`(:177-210)に `elapsedMs` を追加。
@@ -192,7 +192,7 @@ CCN ≤ 3、既存テスト無変更緑。
 ### 4.4 タスク 4: wired_server.c で open の 2048B 上限撤廃 + ライブ観測 + 配線
 §2.3・§2.4 のとおり。
 
-`examples/moqt_chat/wired_server.c`:
+`examples/moqt_chat/wired_server.c` の変更は次のとおり。
 
 - `MOQT_OPEN_BUF` + `static u8 g_open_buf[]`(:163/:185)
 - `g_moqt_io` 末尾に `moqt_io_send_budget`
@@ -202,8 +202,8 @@ CCN ≤ 3、既存テスト無変更緑。
 
 `ninja examples/moqt_chat/wired_server` + boot smoke(`--port 14433`、SIGTERM、10 秒行と shutdown 行が出る)。
 
-<a id="タスク-5-三点ゲートe2e-green回帰"></a>
-### 4.5 タスク 5: 三点ゲート・e2e GREEN・回帰
+<a id="タスク-5-三点ゲートe2e-green回帰"></a><a id="45-タスク-5-三点ゲートe2e-green回帰"></a>
+### 4.5 タスク 5: 三点ゲート・e2e GREEN・リグレッション
 `just test`(単一 TU)、`just ninja` + count、`lizard src --CCN 3 -w`、`just docs`、`just fmt-check`/`just lint`、`just fuzz-smoke`(io テーブル拡張は fuzz ハーネスに影響しうる)。
 
 e2e(docker 停止 → 実行 → `docker start`): s15 `--large-bytes=2000000 --jitter-ms=100` PASS(close 無し、`open_dropped=0 rel_stall=0 rel_overflow=0`)。

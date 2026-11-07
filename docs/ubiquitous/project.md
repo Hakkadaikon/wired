@@ -31,3 +31,4 @@
 | implementation | 実装 | |
 | specification | 仕様 | |
 | interface | インターフェース | 規則 5 |
+| regression | リグレッション | 開発現場で定着した言い方。「回帰」「デグレ」は使わない |

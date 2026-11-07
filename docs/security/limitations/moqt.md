@@ -219,7 +219,7 @@ d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバ
 - データグラムはストリームの区分を通らず、すぐに送る。
 - 購読をまたいで優先度が等しいものは、ポンプの 1 回分をラウンドロビンで分け合う。
 
-参照:
+参照先は次のとおり。
 
 - `moqtrun_upd_resched`(ponytail)
 - MoQT の台帳の対象外の節(7 節 / 5 節)([d19](../../features/draft-moq-transport.md)、[d18](../../features/draft-moq-transport-18.md)、[d22](../../features/draft-moq-transport-22.md))。
@@ -228,7 +228,7 @@ d19 は最初のペイロードのバイト、d22 は最後のヘッダーのバ
 
 影響: リレーが Properties に従って動くと期待するアプリケーション。
 
-次の Properties は、解釈せずにそのまま中継する。
+次の Properties は解釈せずにそのまま中継する。
 
 - MAX_CACHE_DURATION、DEFAULT_PUBLISHER_GROUP_ORDER、DYNAMIC_GROUPS、Immutable Properties、Prior Group/Object ID Gap
 - d22 の TIMESTAMP、VIDEO_FRAME_MARKING、AUDIO_CONFIG、ENCRYPTED_LIST、PADDING

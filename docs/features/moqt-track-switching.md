@@ -114,7 +114,7 @@ draft-22 では、各リクエストを専用の双方向ストリームであ�
 G = max(Largest_A.group, Largest_B.group) + 1     (0 when neither track has any Object)
 ```
 
-A は Group G−1 で終わるように、B は {G, 0}(Group G、Object 0)から始まるように範囲を絞る。規則の各部分はそれぞれ 1 つの失敗を防ぐ。どちらの失敗も、切り替えの設計を TLA+ で書き TLC でモデル検査して見つけたもので、名前は検査器が出した反例の名前である。
+A は Group G−1 で終わるように、B は {G, 0}(Group G、Object 0)から始まるように範囲を絞る。規則の各部分はそれぞれ 1 つの失敗を防ぐ。どちらの失敗も切り替えの設計を TLA+ で書き TLC でモデル検査して見つけたもので、名前は検査器が出した反例の名前である。
 
 | 反例 | 規則を欠いた場合 | 起きたこと |
 |---|---|---|
@@ -257,9 +257,9 @@ SWITCH_FROM では切り替える時点を購読者が決める。SSTS では、
 | セッションごとの状態 | `moqtss.h` |
 | テスト | `tests/app/moqssts_test.c`、`tests/app/moqtrun_ssts_test.c` |
 
-1. **ネゴシエーション**: ハブを設定していると、ハブの draft-22 の SETUP は SSTS_ALGORITHMS を持つ。セッションのアルゴリズムはハブのリストとクライアントのリストの共通部分である。
-1. **メンバーシップ**: SWITCHING_SET_ASSIGNMENT を持つ SUBSCRIBE(または REQUEST_UPDATE)は、その購読を Set ID が指すセットに入れる。メンバーは Threshold の順に保持する。セットは `Activate` 個のメンバーがそろった時点で有効になり、それまではメンバーを選ばないので、メンバーは Group を受け取らない。
-1. **Group ごとの決定**: どれかのメンバーの Track で Group g の最初のストリームかデータグラムがハブに届くと、そのセットのアルゴリズムが g について決める(`moqtss_prime`)。転送するのは、選ばれたメンバーの Group g だけである。
+1. ネゴシエーション: ハブを設定していると、ハブの draft-22 の SETUP は SSTS_ALGORITHMS を持つ。セッションのアルゴリズムはハブのリストとクライアントのリストの共通部分である。
+1. メンバーシップ: SWITCHING_SET_ASSIGNMENT を持つ SUBSCRIBE(または REQUEST_UPDATE)は、その購読を Set ID が指すセットに入れる。メンバーは Threshold の順に保持する。セットは `Activate` 個のメンバーがそろった時点で有効になり、それまではメンバーを選ばないので、メンバーは Group を受け取らない。
+1. Group ごとの決定: どれかのメンバーの Track で Group g の最初のストリームかデータグラムがハブに届くと、そのセットのアルゴリズムが g について決める(`moqtss_prime`)。転送するのは、選ばれたメンバーの Group g だけである。
 
 ハブが割り当てを UNSUPPORTED_EXTENSION (0x33) で拒否するのは次の場合である。
 

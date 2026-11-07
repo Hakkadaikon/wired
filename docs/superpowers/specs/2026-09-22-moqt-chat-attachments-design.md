@@ -50,7 +50,7 @@ moqt_chat の画像 1 枚の送信機能(出荷済み: `sendImage`、`moqtImageW
 <a id="テキスト部"></a>
 ### 3.1 テキスト部
 
-MoQT の Object 1 個(出荷済みの `buildChatObjectMessage` と同じ、ストリーム 1 本に Object 1 個の形)。ペイロード:
+MoQT の Object 1 個(出荷済みの `buildChatObjectMessage` と同じ、ストリーム 1 本に Object 1 個の形)。ペイロードは次のとおり。
 
 ```
 marker (1 byte, 0xFE — distinct from the image-chunk marker 0xFF and the
@@ -64,7 +64,7 @@ text (UTF-8 bytes, textLen bytes)   -- "" when the message is attachments-only
 <a id="添付のチャンク部"></a>
 ### 3.2 添付のチャンク部
 
-チャンクごとに MoQT の Object 1 個(出荷済みの画像チャンクと同じ形)。ペイロード:
+チャンクごとに MoQT の Object 1 個(出荷済みの画像チャンクと同じ形)。ペイロードは次のとおり。
 
 ```
 marker (1 byte, 0xFD — distinct from 0xFF/0xFE/nickname's 0x00)
@@ -125,19 +125,19 @@ PendingMessage = {
 }
 ```
 
-遷移:
-- **テキスト部が届き、保留エントリがない**: エントリを作り、`text`/`attachmentCount` を設定し、`firstSeenAt = now` とする。
-- **テキスト部が届き、保留エントリがある(添付が先に届いていた)**: 既存のエントリに `text`/`attachmentCount` を埋める。`firstSeenAt` はリセットしない。
-- **添付のチャンクが届き、保留エントリがない**: `text = undefined`、`attachmentCount = undefined`、`firstSeenAt = now` でエントリを作り、そのチャンクを attachmentIdx ごとの新しい `ImageFrameReassembler` に入れる。
-- **添付のチャンクが届き、保留エントリがある**: その attachmentIdx の再組み立て器に入れる(添付ごとのチャンク完了判定は既存のもので、出荷済みの `imageFrameReassemblerPush` から変えない)。
-- **ある添付の再組み立てが完了**: 結果を `attachments[attachmentIdx]` に格納する。
-- **完了判定**(上の各遷移のあとに毎回実行): `text !== undefined` かつ `attachmentCount !== undefined` かつ `attachments` の `[0, attachmentCount)` のすべてのインデックスが埋まっていれば、次を行う。
+遷移は次のとおり。
+- テキスト部が届き、保留エントリがない: エントリを作り、`text`/`attachmentCount` を設定し、`firstSeenAt = now` とする。
+- テキスト部が届き、保留エントリがある(添付が先に届いていた): 既存のエントリに `text`/`attachmentCount` を埋める。`firstSeenAt` はリセットしない。
+- 添付のチャンクが届き、保留エントリがない: `text = undefined`、`attachmentCount = undefined`、`firstSeenAt = now` でエントリを作り、そのチャンクを attachmentIdx ごとの新しい `ImageFrameReassembler` に入れる。
+- 添付のチャンクが届き、保留エントリがある: その attachmentIdx の再組み立て器に入れる(添付ごとのチャンク完了判定は既存のもので、出荷済みの `imageFrameReassemblerPush` から変えない)。
+- ある添付の再組み立てが完了: 結果を `attachments[attachmentIdx]` に格納する。
+- 完了判定(上の各遷移のあとに毎回実行): `text !== undefined` かつ `attachmentCount !== undefined` かつ `attachments` の `[0, attachmentCount)` のすべてのインデックスが埋まっていれば、次を行う。
   - 完成した `{text, attachments}` で `onMessage` を呼び、保留エントリを削除する。
-- **タイムアウト**: 定期的な掃除(間隔は計画で決める。例: 5 秒ごと)で、`firstSeenAt` から 30 秒を超えた保留エントリを通知せずに捨てる(コールバックなし。出荷済みの再組み立て器が通知せずに捨てる慣習に合わせる)。
+- タイムアウト: 定期的な掃除(間隔は計画で決める。例: 5 秒ごと)で、`firstSeenAt` から 30 秒を超えた保留エントリを通知せずに捨てる(コールバックなし。出荷済みの再組み立て器が通知せずに捨てる慣習に合わせる)。
   - 保留エントリは際限なく増えることはない。ルームの人数は 4 人が上限(`CANDIDATE_PARTICIPANT_IDS`)で、実際には各送信者が同時に組み立て途中にできるメッセージは 1 つだけである(送信の経路は、配送が終わるまで次の `sendMessage` 呼び出しを待たせる。API の節を参照)。
   - データ構造そのものには同時数の上限を設けない(承認済みの設計判断どおり YAGNI)。
 
-検証する状態機械はこれである。対象の交互実行は、テキストが先か添付が先か、添付の完了順はどれでも、タイムアウトと到着の競合を含む、あらゆる到達可能なものである。検証する問いは、それぞれが次のどちらかになるかである。
+検証する状態機械はこれである。対象の交互実行は、テキストが先か添付が先か、添付の完了順はどれでも、タイムアウトと到着の競合を含む、あらゆる到達可能なものである。検証では、それぞれが次のどちらかになるかを問う。
 
 - (a) 組み上がった内容でちょうど 1 回 `onMessage` を呼ぶ。
 - (b) タイムアウトして `onMessage` を呼ばずに捨てる。
@@ -242,19 +242,19 @@ type Draft = { id: string; bytes: Uint8Array; mimeType: string; previewUrl: stri
 <a id="検証の層"></a>
 ## 9. 検証の層
 
-1. **状態遷移/並行性**: 対象。上の受信側の集約の状態機械(テキストと添付の到着の交互実行、タイムアウトの競合、Map 内で送信者ごとに複数の保留メッセージ)。
+1. 状態遷移/並行性: 対象。上の受信側の集約の状態機械(テキストと添付の到着の交互実行、タイムアウトの競合、Map 内で送信者ごとに複数の保留メッセージ)。
    - 実装の前に検証する。
    - 結果(安全と確かめた交互実行と、検証で必要になった設計の修正)は、この仕様の上の集約の節と、計画から導くテストリストにそのまま反映する。
-2. **Lean で扱うべき重要なアルゴリズム**: 対象外。チャンクのエンコード/デコードと再組み立ては、出荷済みで TDD でカバー済みの `moqtImageWire.ts` のパターンを広げたもので、往復テストで確かめられる。
+2. Lean で扱うべき重要なアルゴリズム: 対象外。チャンクのエンコード/デコードと再組み立ては、出荷済みで TDD でカバー済みの `moqtImageWire.ts` のパターンを広げたもので、往復テストで確かめられる。
    - 出荷済み機能の TDD の往復テストがすでに覆っている範囲を超える、新しい暗号上の性質や網羅的な分類の性質はない。
-3. **TDD への橋渡し**: 状態機械で安全と確かめた交互実行(または検証で必要になった修正)を、`moqtAttachmentWire.test.ts` と `moqtClient.test.ts` の集約テストのテストリストにする。
+3. TDD への橋渡し: 状態機械で安全と確かめた交互実行(または検証で必要になった修正)を、`moqtAttachmentWire.test.ts` と `moqtClient.test.ts` の集約テストのテストリストにする。
    - 交互実行や境界のケースごとに 1 テストである。
    - ケース: テキストが先、添付が先、組み立て途中のタイムアウト、別々の送信者からの同時の複数保留メッセージ、添付 0 個のテキストだけのメッセージ、添付 4 個のメッセージ。
 
 <a id="テストの範囲"></a>
 ## 10. テストの範囲
 
-- 単体(vitest、TDD):
+- 単体(vitest、TDD)は次のとおり。
   - ワイヤーのエンコード/デコードの往復(`moqtAttachmentWire.test.ts`)
   - 集約の状態機械(`moqtClient.test.ts`。検証済みの設計に基づく)
   - ストアの形(`moqtChatStore.test.ts`)
