@@ -2,8 +2,10 @@
 
 static int moqctl_classify_type(u64 type);
 static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire);
-static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire);
-static int                    moqctl_body_left(usz off, wired_span body);
+static const moqctl_type_row* moqctl_type_row_for(
+    const moqctl_type_row* rows, usz n, int ver, u64 wire);
+static int moqctl_type_retired(int ver, int peek, u64 type);
+static int moqctl_body_left(usz off, wired_span body);
 
 /* ===== Common envelope (SS10) ===== */
 
@@ -42,25 +44,40 @@ static const moqctl_type_row MOQCTL_TYPE_ROWS[] = {
      MOQCTL_T_PUBLISH_STATE_NOTIFY, MOQCTL_KNOWN_UNIMPLEMENTED},
 };
 
+/* Types a draft no longer has: draft-23 9 Table 5 "0x18 | RESERVED
+ * (FETCH_OK in <= 22)". */
+static const moqctl_type_row MOQCTL_TYPE_RETIRED[] = {
+    {MOQVER_CAP_FETCH_REQUEST_OK, MOQFETCH_T_FETCH_OK, MOQFETCH_T_FETCH_OK,
+     MOQCTL_UNKNOWN_TYPE},
+};
+
 static int moqctl_type_row_is(const moqctl_type_row* r, int ver, u64 wire) {
   return r->wire == wire && (moqver_caps(ver) & r->cap);
 }
 
-static const moqctl_type_row* moqctl_type_row_for(int ver, u64 wire) {
-  for (usz i = 0; i < MOQCTL_TYPE_ROWS_N; i++) {
-    if (moqctl_type_row_is(&MOQCTL_TYPE_ROWS[i], ver, wire)) {
-      return &MOQCTL_TYPE_ROWS[i];
+static const moqctl_type_row* moqctl_type_row_for(
+    const moqctl_type_row* rows, usz n, int ver, u64 wire) {
+  for (usz i = 0; i < n; i++) {
+    if (moqctl_type_row_is(&rows[i], ver, wire)) {
+      return &rows[i];
     }
   }
   return 0;
 }
 
+static int moqctl_type_retired(int ver, int peek, u64 type) {
+  const moqctl_type_row* r = moqctl_type_row_for(
+      MOQCTL_TYPE_RETIRED,
+      sizeof MOQCTL_TYPE_RETIRED / sizeof MOQCTL_TYPE_RETIRED[0], ver, type);
+  return r ? r->peek : peek;
+}
+
 int moqctl_type_ver(int ver, int peek, u64* type) {
   const moqctl_type_row* r;
   if (peek != MOQCTL_UNKNOWN_TYPE) {
-    return peek;
+    return moqctl_type_retired(ver, peek, *type);
   }
-  r = moqctl_type_row_for(ver, *type);
+  r = moqctl_type_row_for(MOQCTL_TYPE_ROWS, MOQCTL_TYPE_ROWS_N, ver, *type);
   if (!r) {
     return peek;
   }

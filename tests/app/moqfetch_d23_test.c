@@ -1,4 +1,5 @@
 #include "app/moqt/fetch/moqfetch.h"
+#include "app/moqt/ver/moqver.h"
 #include "app/moqt/vi/moqvi.h"
 #include "test.h"
 
@@ -230,6 +231,79 @@ static void test_moqfetch23_object_flag(void) {
   CHECK(moqfetch_object_flag(&s, 5, 3) == MOQFETCH_F_OBJECT);
 }
 
+/* draft-23 9.3: the FETCH response is a REQUEST_OK -- Parameters, then
+ * Track Properties -- with LARGEST_OBJECT when the response ends at the
+ * Largest Object (3.2); pinned to moqctl's REQUEST_OK encoder. */
+static void test_moqfetch23_ok_encode(void) {
+  static const u8   props[] = {0x0C, 0x05};
+  moqfetch_ok       ok      = {0};
+  moqctl_request_ok want    = {0};
+  u8                a[64], b[64];
+  usz               an = 0, bn = 0;
+  ok.has_largest            = 1;
+  ok.end                    = moqctl_loc_of(2, 3);
+  ok.track_properties       = wired_span_of(props, sizeof props);
+  want.params.n             = 1;
+  want.params.items[0]      = (moqctl_param){0};
+  want.params.items[0].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  want.params.items[0].enc  = MOQCTL_PENC_LOCATION;
+  want.params.items[0].loc  = moqctl_loc_of(2, 3);
+  want.track_properties     = ok.track_properties;
+  CHECK(moqfetch_ok23_encode(wired_mspan_of(a, sizeof a), &an, &ok));
+  CHECK(moqctl_request_ok_encode(wired_mspan_of(b, sizeof b), &bn, &want));
+  CHECK(an == bn);
+  for (usz i = 0; i < an && i < bn; i++) {
+    CHECK(a[i] == b[i]);
+  }
+  ok.has_largest = 0;
+  an             = 0;
+  CHECK(moqfetch_ok23_encode(wired_mspan_of(a, sizeof a), &an, &ok));
+  CHECK(an == 3 && a[0] == 0 && a[1] == 0x0C && a[2] == 0x05);
+}
+
+/* The draft-23 response decodes back: LARGEST_OBJECT sets has_largest and
+ * end, without it end stays for the caller to fill (the requested End);
+ * End Of Track is not on the wire any more. */
+static void test_moqfetch23_ok_take(void) {
+  static const u8 props[] = {0x0C, 0x05};
+  moqfetch_ok     ok      = {0}, d;
+  u8              a[64];
+  usz             an  = 0;
+  ok.has_largest      = 1;
+  ok.end              = moqctl_loc_of(2, 3);
+  ok.track_properties = wired_span_of(props, sizeof props);
+  CHECK(moqfetch_ok23_encode(wired_mspan_of(a, sizeof a), &an, &ok));
+  CHECK(moqfetch_ok_take(MOQVER_D23, wired_span_of(a, an), &d) == MOQCTL_OK);
+  CHECK(d.has_largest && d.end.group == 2 && d.end.object == 3);
+  CHECK(!d.end_of_track && d.track_properties.n == 2);
+  CHECK(d.params.n == 1);
+  if (an < 3) {
+    return;
+  }
+  a[an - 3] = 0; /* the same Track Properties after zero Parameters */
+  CHECK(
+      moqfetch_ok_take(MOQVER_D23, wired_span_of(a + an - 3, 3), &d) ==
+      MOQCTL_OK);
+  CHECK(!d.has_largest && d.params.n == 0 && d.track_properties.n == 2);
+}
+
+/* draft-23 9 Table 5: 0x18 is RESERVED (FETCH_OK in <= 22), an unknown
+ * Type in a moqt-23 session; draft-22 keeps it. */
+static void test_moqfetch23_type_retired(void) {
+  u64 t = MOQFETCH_T_FETCH_OK;
+  CHECK(
+      moqctl_type_ver(MOQVER_D23, MOQCTL_KNOWN_UNIMPLEMENTED, &t) ==
+      MOQCTL_UNKNOWN_TYPE);
+  t = MOQFETCH_T_FETCH_OK;
+  CHECK(
+      moqctl_type_ver(MOQVER_D22, MOQCTL_KNOWN_UNIMPLEMENTED, &t) ==
+      MOQCTL_KNOWN_UNIMPLEMENTED);
+  t = MOQFETCH_T_FETCH;
+  CHECK(
+      moqctl_type_ver(MOQVER_D23, MOQCTL_KNOWN_UNIMPLEMENTED, &t) ==
+      MOQCTL_KNOWN_UNIMPLEMENTED);
+}
+
 void test_moqfetch_d23(void) {
   test_moqfetch23_object_delta();
   test_moqfetch23_object_overflow();
@@ -239,4 +313,7 @@ void test_moqfetch_d23(void) {
   test_moqfetch23_end_of_group();
   test_moqfetch23_put();
   test_moqfetch23_object_flag();
+  test_moqfetch23_ok_encode();
+  test_moqfetch23_ok_take();
+  test_moqfetch23_type_retired();
 }

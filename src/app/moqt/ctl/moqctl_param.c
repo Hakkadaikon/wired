@@ -43,7 +43,8 @@ int moqctl_reason_put(wired_mspan buf, usz* off, moqctl_reason reason) {
 }
 
 /* ctx sets, {draft-23, draft-22, draft-19, draft-18}: each draft's "MAY appear
- * in" (23 = 22 until the draft-23 scope table lands; 22 SS9.20.x, 19 SS10.2.x,
+ * in" (23 = 22 plus FETCH_OK's EXPIRES and LARGEST_OBJECT, draft-23 9.3,
+ * until the draft-23 scope table lands; 22 SS9.20.x, 19 SS10.2.x,
  * 18 SS10.2.x). draft-19 adds SUBSCRIBE_TRACKS for every SUBSCRIBE parameter
  * (19 SS10.19.1); draft-19 PUBLISH also takes GROUP_ORDER, which a
  * SUBSCRIBE_TRACKS-generated PUBLISH echoes (19 SS10.19.1 "will include the
@@ -61,8 +62,8 @@ static const moqctl_param_rule MOQCTL_PARAM_RULES[] = {
     {MOQCTL_PARAM_AUTHORIZATION_TOKEN,       MOQCTL_PENC_TOKEN,     {0x7D555, 0x7D555, 0x7D555, 0x7D555}, 0, 0,   0},
     {MOQCTL_PARAM_RENDEZVOUS_TIMEOUT,        MOQCTL_PENC_VARINT,    {0x1,     0x1,     0x1001,  0x1},     0, 0,   0},
     {MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT,    {0x7C005, 0x7C005, 0x7D009, 0x7C009}, 0, 0,   0},
-    {MOQCTL_PARAM_EXPIRES,                   MOQCTL_PENC_VARINT,    {0x82A0E, 0x82A0E, 0x82A0E, 0x8000E}, 0, 0,   0},
-    {MOQCTL_PARAM_LARGEST_OBJECT,            MOQCTL_PENC_LOCATION,  {0x80086, 0x80086, 0x80086, 0x80086}, 0, 0,   0},
+    {MOQCTL_PARAM_EXPIRES,                   MOQCTL_PENC_VARINT,    {0x82A2E, 0x82A0E, 0x82A0E, 0x8000E}, 0, 0,   0},
+    {MOQCTL_PARAM_LARGEST_OBJECT,            MOQCTL_PENC_LOCATION,  {0x800A6, 0x80086, 0x80086, 0x80086}, 0, 0,   0},
     {MOQCTL_PARAM_FILL_TIMEOUT,              MOQCTL_PENC_VARINT,    {0x10,    0x10,    0x10,    0x10},    0, 0,   0},
     {MOQCTL_PARAM_FORWARD,                   MOQCTL_PENC_UINT8,     {0x25005, 0x25005, 0x500D,  0x500D},  0, 1,   0},
     {MOQCTL_PARAM_SUBSCRIBER_PRIORITY,       MOQCTL_PENC_UINT8,     {0xC015,  0xC015,  0xD019,  0xC019},  0, 255, 0},

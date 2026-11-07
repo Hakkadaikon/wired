@@ -175,8 +175,12 @@ typedef struct {
    * its final Object, else 0. */
   u64 end_of_track;
   /** End Location: draft-19 wire form (last Object + 1) from
-   * moqfetch_ok_take, inclusive in draft-22. */
+   * moqfetch_ok_take, inclusive in draft-22; in draft-23 the
+   * LARGEST_OBJECT parameter, valid iff has_largest. */
   moqctl_loc end;
+  /** 1 iff end is the Largest Object, in the requested range (draft-23
+   * 3.2: sent as LARGEST_OBJECT). */
+  int has_largest;
   /** Message Parameters (FETCH_OK scope). */
   moqctl_params params;
   /** Track Properties: the body bytes after Parameters (view into the
@@ -184,7 +188,8 @@ typedef struct {
   wired_span track_properties;
 } moqfetch_ok;
 
-/** Decodes a FETCH_OK body in draft ver's layout.
+/** Decodes a FETCH_OK body in draft ver's layout (draft-23 9.3: the
+ * REQUEST_OK answering a FETCH, has_largest from LARGEST_OBJECT).
  * @param ver MOQVER_* id of the session
  * @param body one whole Message Body
  * @param out decoded message; views point into body
@@ -219,6 +224,11 @@ moqctl_loc moqfetch_req_end(const moqctl_rangeloc* r, moqctl_loc largest);
  * form (wire == model); a draft-19 decode applies moqfetch_end19_incl to
  * moqfetch_ok_take's end. */
 int moqfetch_ok19_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
+
+/** The draft-23 FETCH response, a REQUEST_OK body (9.3): m's Parameters,
+ * LARGEST_OBJECT = m->end when m->has_largest, then Track Properties.
+ * End Of Track is not sent. Returns 1 ok, 0 if buf is too small. */
+int moqfetch_ok23_encode(wired_mspan buf, usz* off, const moqfetch_ok* m);
 
 /** FETCH_HEADER (11.4.4 Figure 26): Type 0x5 then Request ID. A Type
  * other than 0x5 is a VIOLATION. */

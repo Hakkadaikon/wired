@@ -1,10 +1,15 @@
 #include "app/moqt/fetch/moqfetch_impl.h"
+#include "app/moqt/ver/moqver.h"
 
-static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m);
-static int moqfetch_ok_put_head(wired_mspan b, usz* at, const moqfetch_ok* m);
-static int moqfetch_hdr_type(wired_span buf, usz* at);
-static int moqfetch_group_down(u64 prior, u64 d, u64* out);
-static int moqfetch_group_resolve(const moqfetch_seq* s, u64 d, u64* g);
+static int  moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m);
+static int  moqfetch_ok22_take(int ver, wired_span body, moqfetch_ok* out);
+static void moqfetch_ok23_largest(moqfetch_ok* m);
+static int  moqfetch_ok23_take(int ver, wired_span body, moqfetch_ok* out);
+static int  moqfetch_ok23_params(const moqfetch_ok* m, moqctl_params* p);
+static int  moqfetch_ok_put_head(wired_mspan b, usz* at, const moqfetch_ok* m);
+static int  moqfetch_hdr_type(wired_span buf, usz* at);
+static int  moqfetch_group_down(u64 prior, u64 d, u64* out);
+static int  moqfetch_group_resolve(const moqfetch_seq* s, u64 d, u64* g);
 
 /* ===== FETCH_OK (10.13 Figure 16) ===== */
 
@@ -16,14 +21,42 @@ static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m) {
   return moqctl_loc_take(b, at, &m->end);
 }
 
-int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out) {
-  usz at = 0;
-  int r  = moqfetch_ok_take_head(body, &at, out);
+static int moqfetch_ok22_take(int ver, wired_span body, moqfetch_ok* out) {
+  usz at           = 0;
+  int r            = moqfetch_ok_take_head(body, &at, out);
+  out->has_largest = 0;
   if (r == MOQCTL_OK) {
     r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
   }
   out->track_properties = wired_span_of(body.p + at, body.n - at);
   return moqctl_body_end(r, body.n, body);
+}
+
+static void moqfetch_ok23_largest(moqfetch_ok* m) {
+  const moqctl_param* lo =
+      moqctl_params_find(&m->params, MOQCTL_PARAM_LARGEST_OBJECT);
+  m->has_largest = lo != 0;
+  if (lo) {
+    m->end = lo->loc;
+  }
+}
+
+/* draft-23 9.3: Parameters, then Track Properties to the end. */
+static int moqfetch_ok23_take(int ver, wired_span body, moqfetch_ok* out) {
+  usz at = 0;
+  int r;
+  bytes_memset(out, 0, sizeof *out);
+  r = moqctl_params_take(ver, body, &at, MOQCTL_PCTX_FETCH_OK, &out->params);
+  out->track_properties = wired_span_of(body.p + at, body.n - at);
+  moqfetch_ok23_largest(out);
+  return moqctl_body_end(r, body.n, body);
+}
+
+int moqfetch_ok_take(int ver, wired_span body, moqfetch_ok* out) {
+  if (moqver_caps(ver) & MOQVER_CAP_FETCH_REQUEST_OK) {
+    return moqfetch_ok23_take(ver, body, out);
+  }
+  return moqfetch_ok22_take(ver, body, out);
 }
 
 static int moqfetch_ok_put_head(wired_mspan b, usz* at, const moqfetch_ok* m) {
@@ -38,6 +71,32 @@ int moqfetch_ok_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
     return 0;
   }
   if (!moqctl_params_put(buf, off, &m->params)) {
+    return 0;
+  }
+  return bytes_put(buf, off, m->track_properties);
+}
+
+/* m's Parameters, then LARGEST_OBJECT: every other FETCH_OK Parameter
+ * (EXPIRES 0x08) has a lower Type, so the list stays ascending. */
+static int moqfetch_ok23_params(const moqfetch_ok* m, moqctl_params* p) {
+  *p = m->params;
+  if (!m->has_largest) {
+    return 1;
+  }
+  if (p->n >= MOQCTL_MAX_PARAMS) {
+    return 0;
+  }
+  p->items[p->n]      = (moqctl_param){0};
+  p->items[p->n].type = MOQCTL_PARAM_LARGEST_OBJECT;
+  p->items[p->n].enc  = MOQCTL_PENC_LOCATION;
+  p->items[p->n].loc  = m->end;
+  p->n++;
+  return 1;
+}
+
+int moqfetch_ok23_encode(wired_mspan buf, usz* off, const moqfetch_ok* m) {
+  moqctl_params p;
+  if (!moqfetch_ok23_params(m, &p) || !moqctl_params_put(buf, off, &p)) {
     return 0;
   }
   return bytes_put(buf, off, m->track_properties);

@@ -85,6 +85,10 @@
  * delta-encoded End of Range, End of Gone Range, End of Group / Track
  * (moqfetch_seq.d23). */
 #define MOQVER_CAP_FETCH_STREAM23 (1u << 26)
+/** FETCH is answered with REQUEST_OK carrying LARGEST_OBJECT (0x18 is
+ * reserved) and a relative Location filter on it is INVALID_RANGE
+ * (draft-23 3.2, 9.3). */
+#define MOQVER_CAP_FETCH_REQUEST_OK (1u << 27)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
