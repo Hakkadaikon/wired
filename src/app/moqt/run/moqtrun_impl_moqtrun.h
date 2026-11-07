@@ -184,10 +184,12 @@ typedef u64 (*moqtrun_disc_check_fn)(
 typedef int (*moqtrun_disc_take_fn)(int, wired_span, moqns_req*);
 
 /* NAMESPACE / NAMESPACE_DONE body: the Track Namespace Suffix (10.16-17),
- * its count then the fields after the prefix. */
+ * its count then the fields after the prefix; params: a draft-23
+ * NAMESPACE's trailing Number of Parameters 0 (9.15). */
 typedef struct {
   u64        n;
   wired_span fields;
+  int        params;
 } moqtrun_disc_suffix;
 
 typedef void (*moqtrun_ctl_fn)(

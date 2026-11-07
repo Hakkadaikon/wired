@@ -91,6 +91,16 @@ static void mtns_put_msg(u64 type, wired_span body) {
   mtns_put("|");
 }
 
+/* draft-23 9.15: a NAMESPACE ends with Number of Parameters, 0 from the
+ * hub; stripped so the rest reads as the bare suffix. */
+static wired_span mtns_ns_body(u64 type, wired_span body, int ver) {
+  if (type == MOQNS_T_NAMESPACE && (moqver_caps(ver) & MOQVER_CAP_NS_PARAMS)) {
+    CHECK(body.n && body.p[body.n - 1] == 0);
+    body.n -= body.n != 0;
+  }
+  return body;
+}
+
 static void mtns_put_call(const moqtrun_test_call* c) {
   wired_span all = wired_span_of(c->payload, c->payload_len);
   usz        off = 0;
@@ -98,7 +108,7 @@ static void mtns_put_call(const moqtrun_test_call* c) {
   wired_span body;
   while (off < all.n) {
     CHECK(mt_peek_type(all, &off, &type, &body) != MOQCTL_INSUFFICIENT);
-    mtns_put_msg(type, body);
+    mtns_put_msg(type, mtns_ns_body(type, body, mtst_ver(c->s)));
   }
 }
 

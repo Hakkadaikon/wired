@@ -99,6 +99,9 @@
 /** FILL_PARAMETERS is Number of Parameters + Parameters with no Length
  * (draft-23 9.19.15, MOQCTL_PENC_FILL23). */
 #define MOQVER_CAP_FILL_COUNT (1u << 30)
+/** NAMESPACE ends with Number of Parameters; no parameter is scoped to it,
+ * so the hub writes 0 (draft-23 9.15). */
+#define MOQVER_CAP_NS_PARAMS (1u << 31)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

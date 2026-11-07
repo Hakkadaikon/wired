@@ -57,10 +57,16 @@ void moqtrun_dispatch_subscribe_ns(
       hub, p, body, moqns_subscribe_take, moqtrun_disc_sub_check);
 }
 
+static int moqtrun_disc_params_put(
+    wired_mspan buf, usz* off, const moqtrun_disc_suffix* s) {
+  return !s->params || moqvi_put(buf, off, 0);
+}
+
 static int moqtrun_encode_disc_suffix(
     wired_mspan buf, usz* off, const void* m) {
   const moqtrun_disc_suffix* s = (const moqtrun_disc_suffix*)m;
-  return moqvi_put(buf, off, s->n) && bytes_put(buf, off, s->fields);
+  return moqvi_put(buf, off, s->n) && bytes_put(buf, off, s->fields) &&
+         moqtrun_disc_params_put(buf, off, s);
 }
 
 /* Queues q's whole msg on its stream; 0 when it does not fit yet. */
@@ -83,13 +89,16 @@ int moqtrun_disc_push(
     wired_moqtrun_req*       sub,
     const wired_moqtrun_req* pub,
     u64                      type) {
-  u8                  msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS];
+  /* + 1: draft-23's Number of Parameters 0 */
+  u8                  msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS + 1];
   u64                 pre_n;
   moqtrun_disc_suffix s;
   wired_span          pre = moqtrun_disc_fields(sub, &pre_n);
   wired_span          all = moqtrun_disc_fields(pub, &s.n);
   s.n -= pre_n;
   s.fields = wired_span_of(all.p + pre.n, all.n - pre.n);
+  s.params = type == MOQNS_T_NAMESPACE &&
+             (moqver_caps(moqtrun_req_ver(hub, sub)) & MOQVER_CAP_NS_PARAMS);
   usz n    = moqtrun_envelope_put(
       moqtrun_req_ver(hub, sub), wired_mspan_of(msg, sizeof msg), type,
       moqtrun_encode_disc_suffix, &s);
