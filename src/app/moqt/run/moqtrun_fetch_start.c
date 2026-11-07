@@ -4,6 +4,8 @@ static int moqtrun_fetch_range_bad(
     const wired_moqtrun_track* t, moqctl_loc start, moqctl_loc end);
 static void moqtrun_fetch_clamp(
     moqtrun_frange* r, const wired_moqtrun_track* t, moqctl_loc end);
+static int moqtrun_fetch_relative(
+    const wired_moqtrun_peer* p, const moqfetch_req* m);
 static void moqtrun_fetch_held(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
@@ -32,6 +34,7 @@ static void moqtrun_fetch_clamp(
   moqctl_loc top = moqtrun_after(t->largest);
   r->end         = moqtrun_end_excl(end);
   r->ok_end      = end;
+  r->ok_largest  = !moqctl_loc_less(end, t->largest);
   if (!moqctl_loc_less(top, r->end)) {
     return;
   }
@@ -86,6 +89,14 @@ static void moqtrun_fetch_held(
       k, &r, &m->params);
 }
 
+/* draft-23 3.2: "If the Location filter is relative (9.19.9: Type 0x01)
+ * ... INVALID_RANGE". */
+static int moqtrun_fetch_relative(
+    const wired_moqtrun_peer* p, const moqfetch_req* m) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_FETCH_REQUEST_OK) &&
+         m->range.sk == MOQCTL_RSK_REL_GROUP;
+}
+
 /* A Standalone Fetch (draft-19 10.12.1; every draft-22 FETCH): of a
  * peer-published track, else of one a covering announcer may have. */
 void moqtrun_fetch_standalone(
@@ -93,6 +104,10 @@ void moqtrun_fetch_standalone(
   u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
   moqtrun_key          k = moqtrun_key_of(&m->track, ns_buf);
   wired_moqtrun_track* t = moqtrun_find_published_track(hub, k);
+  if (moqtrun_fetch_relative(p, m)) {
+    moqtrun_send_request_error(p, MOQCTL_ERR_INVALID_RANGE);
+    return;
+  }
   if (!t) {
     moqtrun_upf_no_track(hub, p, m, k);
     return;

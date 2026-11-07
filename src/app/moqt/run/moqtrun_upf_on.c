@@ -5,6 +5,7 @@ static void moqtrun_upf_on_err(
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
     wired_span           body);
+static u64  moqtrun_upf_route_type(const wired_moqtrun_peer* pp, u64 type);
 static void moqtrun_upf_reply(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
@@ -55,12 +56,23 @@ static const struct {
     {MOQCTL_T_REQUEST_ERROR, moqtrun_upf_on_err},
 };
 
+/* The route of a reply's wire Type in pp's draft: the FETCH response
+ * (REQUEST_OK in draft-23 9.3) routes as FETCH_OK; 0x18 is reserved
+ * there (9 Table 5) and routes nowhere. */
+static u64 moqtrun_upf_route_type(const wired_moqtrun_peer* pp, u64 type) {
+  if (type == moqtrun_fetch_ok_type(pp->ver)) {
+    return MOQFETCH_T_FETCH_OK;
+  }
+  return type == MOQFETCH_T_FETCH_OK ? 0 : type;
+}
+
 static void moqtrun_upf_reply(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
     u64                  type,
     wired_span           body) {
+  type = moqtrun_upf_route_type(pp, type);
   for (usz i = 0; i < sizeof MOQTRUN_UPF_ROUTES / sizeof MOQTRUN_UPF_ROUTES[0];
        i++) {
     if (MOQTRUN_UPF_ROUTES[i].type == type) {

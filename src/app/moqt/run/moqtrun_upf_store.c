@@ -32,6 +32,7 @@ static void moqtrun_upf_store(
   f->up_wt      = pp->wt;
   f->up_req_sid = (u64)sid;
   f->up_rid     = m->request_id;
+  f->up_req_end = moqfetch_req_end(&m->range, moqctl_loc_of(~0ULL, ~0ULL));
   bytes_memset(
       &moqtrun_upf_leg_of(hub, f)->in, 0, sizeof(wired_moqtrun_ctl_asm));
   f->up_data_open = 0;

@@ -145,6 +145,8 @@ typedef struct {
    * inherits its subscription's, 3.4), rngf_n of them; 0 = none. */
   const wired_moqtrun_rngrow* rngf;
   usz                         rngf_n;
+  /* 1 iff ok_end is the Largest Object, in the range (draft-23 3.2). */
+  int ok_largest;
 } moqtrun_frange;
 
 /* One Object as a Range Filter judges it (draft-22 3.3.2): v[] the

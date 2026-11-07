@@ -153,7 +153,8 @@ void moqtrun_fetches_stream_gone(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid);
 void moqtrun_queue_fetch_ok_m(wired_moqtrun_peer* p, const moqfetch_ok* ok);
 void moqtrun_queue_fetch_ok(
-    wired_moqtrun_peer* p, moqctl_loc end, wired_span props);
+    wired_moqtrun_peer* p, moqctl_loc end, int largest, wired_span props);
+u64                  moqtrun_fetch_ok_type(int ver);
 moqctl_loc           moqtrun_fetch_last(moqcache* c, const moqtrun_frange* r);
 wired_moqtrun_fetch* moqtrun_fetch_begin(
     wired_moqt_hub*       hub,

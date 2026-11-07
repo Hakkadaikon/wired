@@ -129,29 +129,44 @@ static int moqtrun_encode_fetch_ok19(wired_mspan buf, usz* off, const void* m) {
   return moqfetch_ok19_encode(buf, off, m);
 }
 
+static int moqtrun_encode_fetch_ok23(wired_mspan buf, usz* off, const void* m) {
+  return moqfetch_ok23_encode(buf, off, m);
+}
+
 /* End Location on the wire: inclusive in draft-22 (SS9.12), last + 1 with
- * Object 0 = whole group before (10.13). */
+ * Object 0 = whole group before (10.13); none in draft-23 (9.3). */
 static moqtrun_body_encode_fn moqtrun_fetch_ok_encoder(int ver) {
-  return (moqver_caps(ver) & MOQVER_CAP_FETCH_END_INCLUSIVE)
-             ? moqtrun_encode_fetch_ok
-             : moqtrun_encode_fetch_ok19;
+  u32 caps = moqver_caps(ver);
+  if (caps & MOQVER_CAP_FETCH_REQUEST_OK) {
+    return moqtrun_encode_fetch_ok23;
+  }
+  return (caps & MOQVER_CAP_FETCH_END_INCLUSIVE) ? moqtrun_encode_fetch_ok
+                                                 : moqtrun_encode_fetch_ok19;
+}
+
+/* The FETCH response's Type in draft ver: REQUEST_OK in draft-23 (9.3). */
+u64 moqtrun_fetch_ok_type(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_FETCH_REQUEST_OK) ? MOQCTL_T_REQUEST_OK
+                                                          : MOQFETCH_T_FETCH_OK;
 }
 
 /* FETCH_OK ok (End Location inclusive) in p's draft. */
 void moqtrun_queue_fetch_ok_m(wired_moqtrun_peer* p, const moqfetch_ok* ok) {
   u8  msg[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
   usz n = moqtrun_envelope_put(
-      p->ver, wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
+      p->ver, wired_mspan_of(msg, sizeof msg), moqtrun_fetch_ok_type(p->ver),
       moqtrun_fetch_ok_encoder(p->ver), ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
-/* FETCH_OK (10.13): not End Of Track, End Location end (inclusive), no
- * parameters; the track's Track Properties props (draft-18 9.6). */
+/* FETCH_OK (10.13): not End Of Track, End Location end (inclusive) --
+ * the Largest Object when largest (draft-23 3.2) --, no parameters; the
+ * track's Track Properties props (draft-18 9.6). */
 void moqtrun_queue_fetch_ok(
-    wired_moqtrun_peer* p, moqctl_loc end, wired_span props) {
+    wired_moqtrun_peer* p, moqctl_loc end, int largest, wired_span props) {
   moqfetch_ok ok      = {0};
   ok.end              = end;
+  ok.has_largest      = largest;
   ok.track_properties = props;
   moqtrun_queue_fetch_ok_m(p, &ok);
 }

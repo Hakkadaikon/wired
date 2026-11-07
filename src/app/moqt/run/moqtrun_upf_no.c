@@ -37,7 +37,8 @@ static void moqtrun_upf_nt_go(
       {0, 0},
       {0, 0},
       rows,
-      moqtrun_fsel_rows(&m->params, rows)};
+      moqtrun_fsel_rows(&m->params, rows),
+      0};
   wired_moqtrun_fetch* f = moqtrun_fetch_begin(hub, p->wt, m->request_id, &r);
   if (!f) {
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
