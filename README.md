@@ -79,9 +79,9 @@ flowchart LR
 | 不具合の種類 | 扱い | 確かめる仕組み |
 |---|---|---|
 | ヒープの use-after-free、double free、リーク、アロケーターのメタデータ破壊 | 起こらない | ヒープがない |
-| ローカルバッファーを指す `wired_span` が関数から戻った後も使われる(use-after-return / use-after-scope) | 起こりうる | 長く生きるバッファーは呼び出し側のスコープで宣言する。固定した clang ではローカル変数の `wired_span_of` / `wired_mspan_of` を返すとコンパイルエラー(`lifetimebound`)。`just view-check` が長寿命の状態(env、設定、コネクション、TLS ドライバー、MoQT ハブ)に保存するビューに指す先を明記させる。CI の ASan が両方を検査する |
+| ローカルバッファーを指す `wired_span` が関数から戻った後も使われる(use-after-return / use-after-scope) | 起こりうる | 長く生きるバッファーは呼び出し側のスコープで宣言する。固定した clang ではローカル変数の `wired_span_of` / `wired_mspan_of` を返すとコンパイルエラー(`lifetimebound`)。`just view-check` が長寿命の状態(env、設定、接続、TLS ドライバー、MoQT ハブ)に保存するビューに指す先を明記させる。CI の ASan が両方を検査する |
 | 再利用されたスロットへの古い参照(WebTransport セッション) | `wired_wt_ref` は検出する | 世代をチェックし、スロットが再利用されると何も指さない。ライフサイクルを有界モデル検査で確かめる(`just cbmc`) |
-| 再利用されたスロットへの古い参照(生の `wired_wt_session*`、コネクション・ストリームのスロットへのポインター) | 検出しない | なし |
+| 再利用されたスロットへの古い参照(生の `wired_wt_session*`、接続・ストリームのスロットへのポインター) | 検出しない | なし |
 
 ASan の下では SDK のスレッドが pthread として動くので、use-after-return の検査に必要なスレッドローカル領域を各スレッドが持つ。
 
@@ -102,9 +102,9 @@ flowchart LR
 | 項目 | 内容 |
 |---|---|
 | ドラフト | [draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/)、[-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/)、[-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/)。セッションごとにネゴシエーションする |
-| トランスポート | WebTransport セッション(ブラウザーから参加できる)、生の QUIC コネクション(ALPN `moqt-NN`) |
+| トランスポート | WebTransport セッション(ブラウザーから参加できる)、生の QUIC 接続(ALPN `moqt-NN`) |
 | リレーの機能 | PUBLISH / SUBSCRIBE、キャッシュ付きの FETCH、名前空間の探索、Track Properties、フィルター、優先度、複数パブリッシャーの重複排除による 1 Track への統合、届いた Object のバイト単位の即時転送、配送のタイムアウト、GOAWAY |
-| 相互接続テスト | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) |
+| 相互運用性テスト | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) |
 | デモ | [moqt_chat のライブデモ](https://hakkadaikon.github.io/wired/moqt_chat)(ブラウザーのチャットと音声通話のルーム) |
 
 ### 2.4 I/O ドライバー
@@ -207,7 +207,7 @@ flowchart TD
 
 ## 6. コードの例
 
-アプリケーションが書くのはコールバック 1 つである。ポートのバインド、ハンドシェイク、暗号化、ロスリカバリー、HTTP/3 は SDK が処理し、リクエストがそろったらコールバックを呼ぶ。次は [examples/word_list](examples/word_list/wired_server.c) からの抜粋である。
+アプリケーションが書くのはコールバック 1 つである。ポートのバインド、ハンドシェイク、暗号化、損失回復、HTTP/3 は SDK が処理し、リクエストがそろったらコールバックを呼ぶ。次は [examples/word_list](examples/word_list/wired_server.c) からの抜粋である。
 
 ```c
 static int app_on_request(
@@ -225,10 +225,10 @@ static int app_on_request(
 
 | 引数 | 役割 |
 |---|---|
-| `req` | メソッド、パス、ボディ |
-| `body_out` | レスポンスのボディを書く先 |
+| `req` | method、path、body |
+| `body_out` | レスポンスの body を書く先 |
 | `*content_type` | MIME タイプを指させる |
-| `offset`、`more`、`total_size` | 1 回の呼び出しに収まらない大きなボディ用([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/)) |
+| `offset`、`more`、`total_size` | 1 回の呼び出しに収まらない大きな body 用([大きなボディのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/)) |
 
 戻り値は 1。
 
@@ -259,9 +259,9 @@ int wired_main(int argc, char** argv) {
 | [webtransport_interop](examples/webtransport_interop/) | [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) の WebTransport サーバーエンドポイント。実際のクライアント実装を相手に、ストリームと DATAGRAM でファイルを転送する |
 | [moqt_interop](examples/moqt_interop/) | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) のリレー。WebTransport 上の MoQT リレー(セッションごとに draft-18/19/22 をネゴシエーション)を、実際のクライアント実装を相手にテストする |
 
-<a id="interop-results"></a><a id="相互接続テストの結果"></a>
+<a id="interop-results"></a><a id="相互接続テストの結果"></a><a id="8-相互接続テストの結果"></a>
 
-## 8. 相互接続テストの結果
+## 8. 相互運用性テストの結果
 
 「wired の実行」は各ランナーに wired を追加してこのプロジェクトが実行した結果、「公式」は上流ランナーの公開結果である。
 
@@ -278,6 +278,7 @@ int wired_main(int argc, char** argv) {
 | 文書 | 内容 |
 |---|---|
 | [docs/](docs/README.md) | すべてのドキュメントの一覧 |
+| [ユビキタス言語](docs/ubiquitous/README.md) | ドキュメントで使う技術用語の表記 |
 | [はじめに](docs/getting-started.md) | ツールチェーンの準備と最初のビルド |
 | [アーキテクチャ](docs/arch/overview.md) | 各層の作り |
 | [API リファレンス](https://hakkadaikon.github.io/wired/) | 公開インターフェースの全体 |
