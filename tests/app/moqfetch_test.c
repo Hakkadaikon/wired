@@ -330,7 +330,7 @@ static void test_moqfetch_eor_timed_out(void) {
   usz             off = 0, n = 0;
   CHECK(
       moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_OBJ);
   seq.eor_timed_out = 1;
   CHECK(
       moqfetch_obj_take(wired_span_of(wire, sizeof wire), &off, &seq, &o) ==
@@ -367,13 +367,13 @@ static void test_moqfetch_obj_flags_reject(void) {
   static const u8 noprio[] = {0x0c, 0x00, 0x00, 0x00};
   moqfetch_seq    seq      = {0};
   moqfetch_obj    o;
-  CHECK(moqfetch_t_one(f80, sizeof f80, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(f8d, sizeof f8d, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(no_g, sizeof no_g, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(no_o, sizeof no_o, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(noprio, sizeof noprio, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(f80, sizeof f80, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(f8d, sizeof f8d, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(no_g, sizeof no_g, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(no_o, sizeof no_o, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(noprio, sizeof noprio, &seq, &o) == MOQCTL_R_OBJ);
   CHECK(!seq.have_loc);
 }
 
@@ -388,9 +388,9 @@ static void test_moqfetch_obj_after_eor_reject(void) {
   moqfetch_seq    seq      = {0};
   moqfetch_obj    o;
   CHECK(moqfetch_t_one(eor, sizeof eor, &seq, &o) == MOQCTL_OK);
-  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(noprio, sizeof noprio, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(noprio, sizeof noprio, &seq, &o) == MOQCTL_R_OBJ);
   CHECK(moqfetch_t_one(cut, sizeof cut, &seq, &o) == MOQCTL_INSUFFICIENT);
 }
 
@@ -439,7 +439,7 @@ static void test_moqfetch_obj_group_order(void) {
   CHECK(o.group == 4);
   CHECK(moqfetch_t_one(g_d3, sizeof g_d3, &seq, &o) == MOQCTL_OK);
   CHECK(o.group == 0);
-  CHECK(moqfetch_t_one(g_d0, sizeof g_d0, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(g_d0, sizeof g_d0, &seq, &o) == MOQCTL_R_DELTA);
   CHECK(seq.group == 0);
 }
 
@@ -459,8 +459,8 @@ static void test_moqfetch_obj_overflow(void) {
   max_first[n++] = 0;
   CHECK(moqfetch_t_one(max_first, n, &seq, &o) == MOQCTL_OK);
   CHECK(o.group == ~0ULL && o.object == ~0ULL);
-  CHECK(moqfetch_t_one(next_g, sizeof next_g, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(next_o, sizeof next_o, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(next_g, sizeof next_g, &seq, &o) == MOQCTL_R_DELTA);
+  CHECK(moqfetch_t_one(next_o, sizeof next_o, &seq, &o) == MOQCTL_R_DELTA);
 }
 
 /* Truncated Objects need more stream bytes: INSUFFICIENT, nothing moved. */
@@ -676,7 +676,7 @@ static void test_moqfetch_stream_cases(void) {
       MOQCTL_OK);
   CHECK(
       moqfetch_obj_take(wired_span_of(bad, sizeof bad), &off, &seq, o) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_OBJ);
 }
 
 static u8 moqfetch_t_pay[128];
@@ -792,18 +792,18 @@ static void test_moqfetch_obj_more_rejects(void) {
   static const u8 od2[]   = {0x04, 0x02, 0x00};
   moqfetch_seq    seq     = {0};
   moqfetch_obj    o;
-  CHECK(moqfetch_t_one(f100, sizeof f100, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(f10d, sizeof f10d, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(f100, sizeof f100, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(f10d, sizeof f10d, &seq, &o) == MOQCTL_R_OBJ);
   CHECK(moqfetch_t_one(first, sizeof first, &seq, &o) == MOQCTL_OK);
   CHECK(moqfetch_t_one(dgram, sizeof dgram, &seq, &o) == MOQCTL_OK);
-  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_VIOLATION);
-  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(sg1, sizeof sg1, &seq, &o) == MOQCTL_R_OBJ);
+  CHECK(moqfetch_t_one(sg2, sizeof sg2, &seq, &o) == MOQCTL_R_OBJ);
   seq.descending = 1;
-  CHECK(moqfetch_t_one(down3, sizeof down3, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(down3, sizeof down3, &seq, &o) == MOQCTL_R_DELTA);
   seq = (moqfetch_seq){0};
   CHECK(moqfetch_t_one(big, sizeof big, &seq, &o) == MOQCTL_OK);
   CHECK(o.object == ~0ULL - 1);
-  CHECK(moqfetch_t_one(od2, sizeof od2, &seq, &o) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_t_one(od2, sizeof od2, &seq, &o) == MOQCTL_R_DELTA);
 }
 
 /* ===== moqfetch_req (version-neutral FETCH, 19 SS10.12, 22 SS9.11) ===== */

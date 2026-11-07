@@ -476,9 +476,9 @@ typedef struct {
    * (moqtrun_mpub.c). The wired_moqt_init default 0 keeps one publisher
    * per name, the newest session owning it (moqtrun_supersede_name). */
   u8 multi_publisher;
-  /** 1 while the delivery being handled broke a Subgroup stream rule
-   * (moqtrun_rx_flag); wired_moqt_on_stream_data closes the sending
-   * session PROTOCOL_VIOLATION and clears it. */
+  /** Close class + 1 (moqtrun_cc) while the delivery being handled broke
+   * a Subgroup stream rule (moqtrun_rx_flag), else 0;
+   * wired_moqt_on_stream_data closes the sending session and clears it. */
   u8 rx_violation;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An

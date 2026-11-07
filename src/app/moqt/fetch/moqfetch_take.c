@@ -37,7 +37,7 @@ static int moqfetch_sg_prior(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   (void)b, (void)at;
   if (!s->have_subgroup) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_OBJ;
   }
   o->subgroup = s->subgroup;
   return MOQCTL_OK;
@@ -47,7 +47,7 @@ static int moqfetch_sg_next(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
   (void)b, (void)at;
   if (!s->have_subgroup) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_OBJ;
   }
   return moqfetch_add(s->subgroup, 1, &o->subgroup);
 }
@@ -107,7 +107,7 @@ static int moqfetch_take_priority(
     return moqctl_param_take_uint8(b, at, &o->priority);
   }
   if (!s->have_priority) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_OBJ;
   }
   o->priority = s->priority;
   return MOQCTL_OK;

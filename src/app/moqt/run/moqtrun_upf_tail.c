@@ -118,7 +118,7 @@ void moqtrun_upf_rest(
     return;
   }
   if (r < MOQCTL_INSUFFICIENT) {
-    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_take_pv(hub, pp, r);
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }

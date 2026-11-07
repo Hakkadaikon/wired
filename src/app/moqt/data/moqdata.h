@@ -19,6 +19,19 @@
 #define MOQDATA_INSUFFICIENT 0
 /** Take result: malformed; the session closes with PROTOCOL_VIOLATION. */
 #define MOQDATA_VIOLATION (-1)
+/* VIOLATION outcomes naming their draft-23 12.2 code (each a
+ * PROTOCOL_VIOLATION before draft-23; moqtrun_cc_of_data maps them). */
+/** An unregistered Object Status, or Properties on a non-Normal Object:
+ * INVALID_OBJECT_STATUS (draft-23 11.1.1, 11.1.2, 11.2.1). */
+#define MOQDATA_R_STATUS (-2)
+/** An Object ID past 2^64-1: DELTA_ENCODING_OVERFLOW (11.3.1). */
+#define MOQDATA_R_DELTA (-3)
+/** An unknown or invalid stream / datagram Type: INVALID_STREAM_HEADER
+ * (11, 11.2.1, 11.3.1). */
+#define MOQDATA_R_HDR (-4)
+/** PROPERTIES set with a Properties Length of 0: MALFORMED_OBJECT
+ * (11.2.1). */
+#define MOQDATA_R_OBJ (-5)
 
 /* Unidirectional stream types (3.4). */
 /** Stream Type varint not complete yet. */

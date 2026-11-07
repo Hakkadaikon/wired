@@ -140,7 +140,7 @@ int moqdata_subhdr_take(wired_span buf, usz* off, moqdata_subhdr* h) {
     return MOQDATA_INSUFFICIENT;
   }
   if (!moqdata_type_valid(type)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_HDR;
   }
   *h      = (moqdata_subhdr){0};
   h->type = type;

@@ -105,6 +105,74 @@ static u64 mtcc_setup_kvp_long(void) {
   return mtcc_setup(opt, sizeof opt);
 }
 
+/* A's uni stream 14: SUBGROUP_HEADER Type type + obj (fin as given). */
+static u64 mtcc_sg(u64 type, const u8* obj, usz n, int fin) {
+  u8 b[64];
+  mtrq_setup();
+  mtss_uni(14, b, mtss_sg(b, type, obj, n), fin);
+  return moqtrun_test_close_code();
+}
+
+/* 11.1.1: an unregistered Object Status (0x7F): INVALID_OBJECT_STATUS. */
+static u64 mtcc_sg_status(void) {
+  static const u8 obj[] = {0x00, 0x00, 0x7F};
+  return mtcc_sg(0x10, obj, sizeof obj, 0);
+}
+
+/* 11.1.2: Properties on an End of Group Object: INVALID_OBJECT_STATUS. */
+static u64 mtcc_sg_props_eog(void) {
+  static const u8 obj[] = {0x00, 0x02, 0x02, 0x05, 0x00, 0x03};
+  return mtcc_sg(0x11, obj, sizeof obj, 0);
+}
+
+/* 11.3.1: Object ID Delta 2^64-1 after Object 0 wraps:
+ * DELTA_ENCODING_OVERFLOW. */
+static u64 mtcc_sg_id_wrap(void) {
+  static const u8 obj[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                           0xFF, 0xFF, 0x01, 'a',  0x00, 0x01, 'b'};
+  return mtcc_sg(0x10, obj, sizeof obj, 0);
+}
+
+/* 11.3: a FIN inside a serialized Object: TRUNCATED_OBJECT. */
+static u64 mtcc_sg_fin_torn(void) {
+  static const u8 obj[] = {0x00, 0x05, 'h', 'i'};
+  return mtcc_sg(0x10, obj, sizeof obj, 1);
+}
+
+/* 6.4.1: an unknown uni Stream Type (0x01): INVALID_STREAM_HEADER. */
+static u64 mtcc_uni_unknown(void) {
+  static const u8 b[] = {0x01, 0x01, 0x00, 0x00};
+  mtrq_setup();
+  mtss_uni(14, b, sizeof b, 0);
+  return moqtrun_test_close_code();
+}
+
+/* A (alice, alias 1) sends datagram b. */
+static u64 mtcc_dg(const u8* b, usz n) {
+  mtrq_setup();
+  wired_moqt_on_datagram(&mtst_hub, SESS_A, wired_span_of(b, n));
+  return moqtrun_test_close_code();
+}
+
+/* 11.2.1: datagram Type 0x40 (outside 0b00X0XXXX): INVALID_STREAM_HEADER. */
+static u64 mtcc_dg_type(void) {
+  static const u8 b[] = {0x40, 0x01, 0x00, 0x00, 0x00, 'x'};
+  return mtcc_dg(b, sizeof b);
+}
+
+/* 11.2.1: PROPERTIES with a Properties Length of 0: MALFORMED_OBJECT. */
+static u64 mtcc_dg_props0(void) {
+  static const u8 b[] = {0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 'x'};
+  return mtcc_dg(b, sizeof b);
+}
+
+/* 11.2.1: STATUS and PROPERTIES with a non-Normal Status:
+ * INVALID_OBJECT_STATUS. */
+static u64 mtcc_dg_status_props(void) {
+  static const u8 b[] = {0x21, 0x01, 0x00, 0x00, 0x00, 0x02, 0x04, 0x01, 0x03};
+  return mtcc_dg(b, sizeof b);
+}
+
 typedef struct {
   u64 (*run)(void);
   u64 before; /* draft-18..22 */
@@ -132,6 +200,22 @@ static const mtcc_case mtcc_cases[] = {
      WIRED_MOQTRUN_CLOSE_DELTA_ENCODING_OVERFLOW},
     {mtcc_setup_kvp_long, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
      WIRED_MOQTRUN_CLOSE_FIELD_LENGTH_EXCEEDED},
+    {mtcc_sg_status, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_INVALID_OBJECT_STATUS},
+    {mtcc_sg_props_eog, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_INVALID_OBJECT_STATUS},
+    {mtcc_sg_id_wrap, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_DELTA_ENCODING_OVERFLOW},
+    {mtcc_sg_fin_torn, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_TRUNCATED_OBJECT},
+    {mtcc_uni_unknown, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_INVALID_STREAM_HEADER},
+    {mtcc_dg_type, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_INVALID_STREAM_HEADER},
+    {mtcc_dg_props0, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_MALFORMED_OBJECT},
+    {mtcc_dg_status_props, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION,
+     WIRED_MOQTRUN_CLOSE_INVALID_OBJECT_STATUS},
 };
 
 /* Every case under the harness draft (moqtrun_test_vers). */

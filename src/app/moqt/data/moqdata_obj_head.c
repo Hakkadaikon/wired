@@ -42,7 +42,7 @@ static int moqdata_obj_take_id(
     return MOQDATA_INSUFFICIENT;
   }
   if (moqdata_id_overflow(seq->have_prev, seq->prev_id, delta)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_DELTA;
   }
   o->object_id = moqdata_next_id(seq->have_prev, seq->prev_id, delta);
   return MOQDATA_OK;
@@ -90,7 +90,7 @@ static int moqdata_obj_take_status(wired_span buf, usz* at, u64* status) {
     return MOQDATA_INSUFFICIENT;
   }
   if (!moqdata_status_known(*status)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_STATUS;
   }
   return MOQDATA_OK;
 }
@@ -102,7 +102,7 @@ static int moqdata_obj_take_empty(
     return r;
   }
   if (!moqdata_obj_props_ok(props_len, o->status)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_STATUS;
   }
   o->payload = wired_span_of(0, 0);
   return MOQDATA_OK;

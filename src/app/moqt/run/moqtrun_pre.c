@@ -103,14 +103,16 @@ void wired_moqt_on_stream_data(
 }
 
 /* A Subgroup stream fault this delivery flagged (moqtrun_rx_flag) closes
- * p's session PROTOCOL_VIOLATION. */
+ * p's session with its class's code (PROTOCOL_VIOLATION before
+ * draft-23). */
 static void moqtrun_rx_violation_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (!hub->rx_violation) {
     return;
   }
+  moqtrun_cc c      = (moqtrun_cc)(hub->rx_violation - 1);
   hub->rx_violation = 0;
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_cc(hub, p, c);
 }
 
 /* ===================== OBJECT_DATAGRAM relay (draft 11.3) ============= */

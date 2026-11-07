@@ -4,7 +4,7 @@ static int moqtrun_dg_prop_violates(
     const wired_moqtrun_peer* p, const moqdg_obj* o);
 static int  moqtrun_dg_padding(wired_span data);
 static void moqtrun_dg_refused(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data, int r);
 static int moqtrun_dg_on_stream(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 static int moqtrun_dg_stream_group(const wired_moqtrun_track* t, moqctl_loc l);
@@ -54,11 +54,13 @@ static int moqtrun_dg_padding(wired_span data) {
  * unless it is padding: an unknown or invalid Type, PROPERTIES with a
  * Properties Length of 0, Properties on a non-Normal Status or a cut
  * header (draft-19 11 / 11.3.1, draft-18 11.3.1, draft-22 11.2.1: "MUST
- * close the session with a PROTOCOL_VIOLATION"). */
+ * close the session with a PROTOCOL_VIOLATION"; draft-23 11, 11.1.1,
+ * 11.2.1: INVALID_STREAM_HEADER, MALFORMED_OBJECT or
+ * INVALID_OBJECT_STATUS by cause, moqtrun_cc_of_data). */
 static void moqtrun_dg_refused(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span data, int r) {
   if (!moqtrun_dg_padding(data)) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, p, moqtrun_cc_of_data(r));
   }
 }
 
@@ -118,8 +120,9 @@ static wired_moqtrun_track* moqtrun_dg_track(
     moqctl_loc*         loc) {
   usz       off = 0;
   moqdg_obj obj;
-  if (moqdg_take(data, &off, &obj) != MOQDATA_OK) {
-    moqtrun_dg_refused(hub, p, data);
+  int       r = moqdg_take(data, &off, &obj);
+  if (r != MOQDATA_OK) {
+    moqtrun_dg_refused(hub, p, data, r);
     return 0;
   }
   if (moqtrun_dg_prop_violates(p, &obj)) {

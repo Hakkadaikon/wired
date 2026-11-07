@@ -102,7 +102,7 @@ static int moqfetch_obj_take_at(
   }
   int kind = moqfetch_kind(flags, s);
   if (kind < 0) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_OBJ;
   }
   moqfetch_obj_clear(o, flags);
   return moqfetch_run(&ops[kind], b, at, s, o);

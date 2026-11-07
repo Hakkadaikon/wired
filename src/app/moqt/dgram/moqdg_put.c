@@ -29,7 +29,7 @@ int moqdg_take(wired_span buf, usz* off, moqdg_obj* out) {
     return MOQDATA_INSUFFICIENT;
   }
   if (!moqdg_type_valid(type)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_HDR;
   }
   *out      = (moqdg_obj){0};
   out->type = type;

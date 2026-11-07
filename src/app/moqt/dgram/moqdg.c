@@ -73,7 +73,7 @@ static int moqdg_take_prio(wired_span buf, usz* at, moqdg_obj* o) {
 static int moqdg_take_props_body(
     wired_span buf, usz* at, u64 len, moqdg_obj* o) {
   if (len == 0) {
-    return MOQDATA_VIOLATION; /* PROPERTIES bit + length 0 */
+    return MOQDATA_R_OBJ; /* PROPERTIES bit + length 0 */
   }
   if (len > buf.n - *at) {
     return MOQDATA_INSUFFICIENT;
@@ -99,7 +99,7 @@ static int moqdg_take_status(wired_span buf, usz* at, moqdg_obj* o) {
     return MOQDATA_INSUFFICIENT;
   }
   if (!moqdg_props_status_ok(o)) {
-    return MOQDATA_VIOLATION;
+    return MOQDATA_R_STATUS;
   }
   return MOQDATA_OK;
 }

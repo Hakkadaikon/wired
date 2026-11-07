@@ -54,6 +54,7 @@ static const u8 moqtrun_cc_take_tbl[] = {
     MOQTRUN_CC_AUTH_TOKEN,    /* R_AUTH_TOKEN */
     MOQTRUN_CC_FIELD,         /* R_FIELD */
     MOQTRUN_CC_ROLE,          /* R_ROLE */
+    MOQTRUN_CC_MALFORMED_OBJ, /* R_OBJ */
 };
 
 #define MOQTRUN_CC_TAKE_N (sizeof moqtrun_cc_take_tbl)
@@ -66,6 +67,25 @@ u32 moqtrun_cc_code(int ver, moqtrun_cc c) {
 moqtrun_cc moqtrun_cc_of_take(int r) {
   usz i = (usz)(unsigned)-r;
   return i < MOQTRUN_CC_TAKE_N ? (moqtrun_cc)moqtrun_cc_take_tbl[i]
+                               : MOQTRUN_CC_PV;
+}
+
+/* Class of a failed Object decode r (MOQDATA_INSUFFICIENT .. MOQDATA_R_OBJ,
+ * indexed by -r): a datagram cut short is a malformed Object. */
+static const u8 moqtrun_cc_data_tbl[] = {
+    MOQTRUN_CC_MALFORMED_OBJ, /* INSUFFICIENT */
+    MOQTRUN_CC_MALFORMED_OBJ, /* VIOLATION */
+    MOQTRUN_CC_OBJ_STATUS,    /* R_STATUS */
+    MOQTRUN_CC_DELTA,         /* R_DELTA */
+    MOQTRUN_CC_STREAM_HDR,    /* R_HDR */
+    MOQTRUN_CC_MALFORMED_OBJ, /* R_OBJ */
+};
+
+#define MOQTRUN_CC_DATA_N (sizeof moqtrun_cc_data_tbl)
+
+moqtrun_cc moqtrun_cc_of_data(int r) {
+  usz i = (usz)(unsigned)-r;
+  return i < MOQTRUN_CC_DATA_N ? (moqtrun_cc)moqtrun_cc_data_tbl[i]
                                : MOQTRUN_CC_PV;
 }
 

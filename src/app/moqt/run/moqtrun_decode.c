@@ -109,12 +109,12 @@ static void moqtrun_track_obj(
 /* 1 iff a stream ends (fin) with bytes past its last whole Object. */
 static int moqtrun_fin_torn(int fin, usz off, usz n) { return fin && off < n; }
 
-/* Notes a received Subgroup stream fault on hub (0: a scan of the hub's
- * own bytes, nothing to note): wired_moqt_on_stream_data then closes the
- * sending session PROTOCOL_VIOLATION (moqtrun_rx_violation_close). */
-void moqtrun_rx_flag(wired_moqt_hub* hub, int bad) {
+/* Notes a received Subgroup stream fault of class c on hub (0: a scan of
+ * the hub's own bytes, nothing to note): wired_moqt_on_stream_data then
+ * closes the sending session (moqtrun_rx_violation_close). */
+void moqtrun_rx_flag(wired_moqt_hub* hub, int bad, moqtrun_cc c) {
   if (hub && bad) {
-    hub->rx_violation = 1;
+    hub->rx_violation = (u8)(c + 1);
   }
 }
 
@@ -122,7 +122,9 @@ void moqtrun_rx_flag(wired_moqt_hub* hub, int bad) {
  * unregistered Object Status, Properties on a non-Normal Object, a
  * cumulative Object ID past 2^64-1 (draft-19 11.2.1.1, 11.2.1.2, 11.4.2;
  * draft-18 alike; draft-22 11.1, 11.3.1) -- ends the loop and flags the
- * session for a PROTOCOL_VIOLATION close (moqtrun_rx_flag). */
+ * session for a PROTOCOL_VIOLATION close (moqtrun_rx_flag;
+ * INVALID_OBJECT_STATUS / DELTA_ENCODING_OVERFLOW in draft-23 11.1.1,
+ * 11.1.2, 11.3.1). */
 usz moqtrun_decode_object_loop(
     wired_moqt_hub*      hub,
     wired_span           data,
@@ -135,7 +137,7 @@ usz moqtrun_decode_object_loop(
     moqdata_obj obj;
     int         r = moqdata_obj_take(data, off, seq, &obj);
     if (r != MOQDATA_OK) {
-      moqtrun_rx_flag(hub, r == MOQDATA_VIOLATION);
+      moqtrun_rx_flag(hub, r < MOQDATA_INSUFFICIENT, moqtrun_cc_of_data(r));
       break;
     }
     moqtrun_track_obj(hub, t, group, &obj);
@@ -221,8 +223,10 @@ wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   usz            whole =
       moqtrun_decode_object_loop(hub, data, &off, &seq, hdr.group_id, t);
   /* draft-19 11.4 (draft-18 11.4, draft-22 11.3): a FIN in the middle of
-   * a serialized Object SHOULD close the session PROTOCOL_VIOLATION. */
-  moqtrun_rx_flag(hub, moqtrun_fin_torn(fin, off, data.n));
+   * a serialized Object SHOULD close the session PROTOCOL_VIOLATION
+   * (draft-23 11.3: TRUNCATED_OBJECT). */
+  moqtrun_rx_flag(
+      hub, moqtrun_fin_torn(fin, off, data.n), MOQTRUN_CC_TRUNCATED);
   if (moqtrun_fresh_nothing_due(whole, fin)) {
     return moqtrun_fresh_count_only(t);
   }

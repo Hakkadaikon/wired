@@ -76,7 +76,7 @@ void moqtrun_cut_settle(wired_moqtrun_relay* relay, usz whole_n) {
  * that Object went out, not forwarded (moqtrun_cut_torn). */
 int moqtrun_cut_fin(wired_moqt_hub* hub, wired_moqtrun_relay* relay, int fin) {
   int torn = fin && relay->frag_len != 0;
-  moqtrun_rx_flag(hub, torn);
+  moqtrun_rx_flag(hub, torn, MOQTRUN_CC_TRUNCATED);
   return fin && !moqtrun_cut_torn(hub, relay, torn);
 }
 

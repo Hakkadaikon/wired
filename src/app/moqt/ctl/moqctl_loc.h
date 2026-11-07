@@ -33,6 +33,9 @@
 #define MOQCTL_R_FIELD (-10)
 /** A field only the other role may send: ROLE_VIOLATION. */
 #define MOQCTL_R_ROLE (-11)
+/** A FETCH stream item whose flags are invalid, or that refers to a prior
+ * Object's field with none before it: MALFORMED_OBJECT (draft-23 11.4.1). */
+#define MOQCTL_R_OBJ (-12)
 
 /* Message Type IDs this codec knows how to decode/encode (SS10 table). */
 /** SETUP (SS10.4): the single Setup message each endpoint sends first on

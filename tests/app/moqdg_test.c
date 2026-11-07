@@ -196,16 +196,16 @@ static void moqdg_test_take_rejects(const u8* in, usz n, int want) {
 static void test_moqdg_take_reject_golden(void) {
   moqdg_test_take_rejects(
       g_moqt_data_dgram_reject_status_eog,
-      G_MOQT_DATA_DGRAM_REJECT_STATUS_EOG_LEN, MOQDATA_VIOLATION);
+      G_MOQT_DATA_DGRAM_REJECT_STATUS_EOG_LEN, MOQDATA_R_HDR);
   moqdg_test_take_rejects(
       g_moqt_data_dgram_reject_bit4, G_MOQT_DATA_DGRAM_REJECT_BIT4_LEN,
-      MOQDATA_VIOLATION);
+      MOQDATA_R_HDR);
   moqdg_test_take_rejects(
       g_moqt_data_dgram_reject_props_len0,
-      G_MOQT_DATA_DGRAM_REJECT_PROPS_LEN0_LEN, MOQDATA_VIOLATION);
+      G_MOQT_DATA_DGRAM_REJECT_PROPS_LEN0_LEN, MOQDATA_R_OBJ);
   moqdg_test_take_rejects(
       g_moqt_data_dgram_reject_status_props_not_normal,
-      G_MOQT_DATA_DGRAM_REJECT_STATUS_PROPS_NOT_NORMAL_LEN, MOQDATA_VIOLATION);
+      G_MOQT_DATA_DGRAM_REJECT_STATUS_PROPS_NOT_NORMAL_LEN, MOQDATA_R_STATUS);
 }
 
 /* TEST: a Type varint encoding a value >= 0x100 (here 0x108 as the
@@ -213,7 +213,7 @@ static void test_moqdg_take_reject_golden(void) {
  * though its low byte matches the valid 0x08. */
 static void test_moqdg_take_multibyte_type(void) {
   static const u8 in[] = {0x81, 0x08, 0x02, 0x00, 0x05, 0x68, 0x69};
-  moqdg_test_take_rejects(in, sizeof in, MOQDATA_VIOLATION);
+  moqdg_test_take_rejects(in, sizeof in, MOQDATA_R_HDR);
 }
 
 /* TEST: the insufficient golden and the basic golden cut at every

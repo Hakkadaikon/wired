@@ -100,16 +100,17 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id) {
 
 /* ===== Fetch Objects (11.4.4 Figure 27, 11.4.4.1, 11.4.4.2) ===== */
 
-/* a + b, or VIOLATION past 2^64-1 (11.4.4.1). */
+/* a + b, or R_DELTA past 2^64-1 (11.4.4.1; DELTA_ENCODING_OVERFLOW in
+ * draft-23 11.4.1.1). */
 int moqfetch_add(u64 a, u64 b, u64* out) {
-  return u64_add_ok(a, b, out) ? MOQCTL_OK : MOQCTL_VIOLATION;
+  return u64_add_ok(a, b, out) ? MOQCTL_OK : MOQCTL_R_DELTA;
 }
 
 /* Ascending: prior + (Delta + 1). */
 static int moqfetch_group_up(u64 prior, u64 d, u64* out) {
   u64 step;
   if (moqfetch_add(d, 1, &step) != MOQCTL_OK) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_DELTA;
   }
   return moqfetch_add(prior, step, out);
 }
@@ -117,7 +118,7 @@ static int moqfetch_group_up(u64 prior, u64 d, u64* out) {
 /* Descending: prior - (Delta + 1), a VIOLATION below 0. */
 static int moqfetch_group_down(u64 prior, u64 d, u64* out) {
   if (d >= prior) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_DELTA;
   }
   *out = prior - d - 1;
   return MOQCTL_OK;
@@ -143,7 +144,7 @@ int moqfetch_first_ok(
   return (o->flags & (MOQFETCH_F_GROUP | MOQFETCH_F_OBJECT)) ==
                  (MOQFETCH_F_GROUP | MOQFETCH_F_OBJECT)
              ? MOQCTL_OK
-             : MOQCTL_VIOLATION;
+             : MOQCTL_R_OBJ;
 }
 
 /* Absent Group ID Delta: the prior Object's Group ID. */

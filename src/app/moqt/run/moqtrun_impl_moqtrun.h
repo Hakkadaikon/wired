@@ -306,6 +306,7 @@ void moqtrun_rdv_resolve(
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
 u32  moqtrun_cc_code(int ver, moqtrun_cc c);
 moqtrun_cc moqtrun_cc_of_take(int r);
+moqtrun_cc moqtrun_cc_of_data(int r);
 void moqtrun_close_cc(wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_cc c);
 void moqtrun_close_take_pv(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r);
 void moqtrun_fill_on_subscribe(

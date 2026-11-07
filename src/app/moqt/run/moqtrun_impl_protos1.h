@@ -63,7 +63,7 @@ void moqtrun_reqs_tick(wired_moqt_hub* hub);
 void moqtrun_drain_tick(wired_moqt_hub* hub, u64 now_ms);
 void moqtrun_subgroup_scan(
     wired_span wire, wired_moqtrun_track* t, moqdata_objseq* seq, u64* group);
-void moqtrun_rx_flag(wired_moqt_hub* hub, int bad);
+void moqtrun_rx_flag(wired_moqt_hub* hub, int bad, moqtrun_cc c);
 usz  moqtrun_decode_object_loop(
     wired_moqt_hub*      hub,
     wired_span           data,

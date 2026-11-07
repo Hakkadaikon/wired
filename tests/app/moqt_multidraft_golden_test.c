@@ -246,7 +246,7 @@ static void test_moqt_golden_fetch_timed_out_d22(void) {
   moqfetch_obj o;
   CHECK(mqmd_fetch_stream_last(1, &o) == MOQCTL_OK);
   CHECK(o.flags == MOQFETCH_EOR_TIMED_OUT && o.group == 4 && o.object == 2);
-  CHECK(mqmd_fetch_stream_last(0, &o) == MOQCTL_VIOLATION);
+  CHECK(mqmd_fetch_stream_last(0, &o) == MOQCTL_R_OBJ);
 }
 
 void test_moqt_multidraft_golden(void) {

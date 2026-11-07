@@ -201,10 +201,10 @@ static void test_moqdata_subhdr_take_bad_type(void) {
   usz             off = 0;
   CHECK(
       moqdata_subhdr_take(wired_span_of(mode3, sizeof mode3), &off, &h) ==
-      MOQDATA_VIOLATION);
+      MOQDATA_R_HDR);
   CHECK(
       moqdata_subhdr_take(wired_span_of(nobit4, sizeof nobit4), &off, &h) ==
-      MOQDATA_VIOLATION);
+      MOQDATA_R_HDR);
   CHECK(off == 0);
 }
 
@@ -334,7 +334,7 @@ static void test_moqdata_obj_take_id_overflow(void) {
   CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_OK);
   CHECK(o.object_id == (u64)-1);
   off = 0;
-  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_VIOLATION);
+  CHECK(moqdata_obj_take(s, &off, &seq, &o) == MOQDATA_R_DELTA);
   CHECK(off == 0);
   /* first object: delta alone may be 2^64-1 (no +1 applied) */
   static const u8 max[] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -369,13 +369,13 @@ static void test_moqdata_obj_take_status_values(void) {
   off = 0;
   CHECK(
       moqdata_obj_take(wired_span_of(bad1, 3), &off, &seq, &o) ==
-      MOQDATA_VIOLATION);
+      MOQDATA_R_STATUS);
   CHECK(off == 0);
   seq = moqdata_objseq_of(0x10);
   off = 0;
   CHECK(
       moqdata_obj_take(wired_span_of(bad5, 3), &off, &seq, &o) ==
-      MOQDATA_VIOLATION);
+      MOQDATA_R_STATUS);
 }
 
 /* TEST: PROPERTIES bit set: Properties Length is read and skipped; a
@@ -405,7 +405,7 @@ static void test_moqdata_obj_take_properties(void) {
   CHECK(
       moqdata_obj_take(
           wired_span_of(props_eog, sizeof props_eog), &off, &seq, &o) ==
-      MOQDATA_VIOLATION);
+      MOQDATA_R_STATUS);
   seq = moqdata_objseq_of(0x11);
   off = 0;
   CHECK(

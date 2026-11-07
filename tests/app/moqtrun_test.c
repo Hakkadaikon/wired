@@ -4194,7 +4194,8 @@ static void test_moqtrun_fresh_oneshot_no_object_discarded(void) {
   moqtrun_test_reset();
   mt_feed(&hub, SESS_A, 999, wired_span_of(wire, hdr_end + 1), 1 /* fin */);
   CHECK(g_n_calls == 1); /* nothing complete, nothing sent: only the close */
-  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(
+      moqtrun_test_close_code() == mt_cc(WIRED_MOQTRUN_CLOSE_TRUNCATED_OBJECT));
 }
 
 /* An undeliverable tail larger than one whole relayable Object is dropped
@@ -5498,7 +5499,9 @@ static void test_moqtrun_dg_malformed_counts_bad(void) {
   wired_moqt_on_datagram(&hub, SESS_A, wired_span_of(dg, sizeof dg));
 
   CHECK(g_n_calls == 1);
-  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(
+      moqtrun_test_close_code() ==
+      mt_cc(WIRED_MOQTRUN_CLOSE_INVALID_STREAM_HEADER));
   CHECK(hub.stat_dg_bad == 1);
   CHECK(hub.stat_dg_sent == 0 && hub.stat_dg_drop == 0);
 }
