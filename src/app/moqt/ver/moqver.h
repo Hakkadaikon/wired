@@ -83,8 +83,10 @@
 /** REQUEST_ERROR UNAVAILABLE (0xA) exists (draft-23 12.3); earlier drafts
  * send EXCESSIVE_LOAD instead (moqctl_request_error_for). */
 #define MOQVER_CAP_UNAVAILABLE (1u << 23)
-/** REQUEST_ERROR PREFIX_OVERLAP (0x30) exists (draft-18, 19, 22; gone in
- * draft-23 16.12.2). */
+/** Overlapping namespace subscriptions are refused PREFIX_OVERLAP (0x30)
+ * (draft-18, 19, 22). Without it (draft-23 3.6, 4.2, 9.5.2, 16.12.2) they
+ * are all served and each PUBLISH a SUBSCRIBE_TRACKS causes carries
+ * SUBSCRIBE_TRACKS_ID (9.19.21). */
 #define MOQVER_CAP_PREFIX_OVERLAP (1u << 24)
 /** REQUEST_ERROR ends in Error Details (Key-Value-Pairs) carrying the
  * Redirect (draft-23 9.4.1). */
