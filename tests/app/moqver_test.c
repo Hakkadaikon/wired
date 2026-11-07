@@ -13,6 +13,7 @@ static wired_span moqver_test_tok(const char* s) {
 }
 
 static void test_moqver_find_each_token(void) {
+  CHECK(moqver_find(moqver_test_tok("moqt-23")) == MOQVER_D23);
   CHECK(moqver_find(moqver_test_tok("moqt-18")) == MOQVER_D18);
   CHECK(moqver_find(moqver_test_tok("moqt-19")) == MOQVER_D19);
   CHECK(moqver_find(moqver_test_tok("moqt-22")) == MOQVER_D22);
@@ -51,9 +52,19 @@ static void test_moqver_caps_d22(void) {
        MOQVER_CAP_FILL_FETCH | MOQVER_CAP_PUBLISH_STATE_NOTIFY |
        MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |
        MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH |
-       MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE));
+       MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE |
+       MOQVER_CAP_SSTS));
 }
 
+/* draft-23 keeps every draft-22 behaviour bit; its own deltas add bits. */
+static void test_moqver_caps_d23(void) {
+  u32 d22 = moqver_caps(MOQVER_D22);
+  CHECK((moqver_caps(MOQVER_D23) & d22) == d22);
+  CHECK(MOQVER_D23 == 0 && MOQVER_COUNT == 4);
+}
+
+/* moqt-23 is not offered yet (draft-23 support lands item by item): the
+ * list is the same three tokens as before. */
 static void test_moqver_offer(void) {
   static const char want[]  = "moqt-22 moqt-19 moqt-18";
   char              out[32] = {0};
@@ -77,6 +88,7 @@ void test_moqver(void) {
   test_moqver_caps_d18();
   test_moqver_caps_d19();
   test_moqver_caps_d22();
+  test_moqver_caps_d23();
   test_moqver_offer();
   test_moqver_offer_cap_boundary();
 }

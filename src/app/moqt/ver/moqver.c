@@ -14,22 +14,30 @@ typedef struct {
   int         ver;
   const char* tok;
   u32         caps;
+  int         offered; /* 0: kept out of the subprotocol / ALPN list */
 } moqver_row;
 
+/* Every draft-22 behaviour; draft-23 rows add one bit per delta. */
+#define MOQVER_CAPS_D22                                          \
+  (MOQVER_CAP_LOCFILTER_TYPED | MOQVER_CAP_FETCH_BODY_V22 |      \
+   MOQVER_CAP_FILL_FETCH | MOQVER_CAP_PUBLISH_STATE_NOTIFY |     \
+   MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |   \
+   MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH | \
+   MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE | MOQVER_CAP_SSTS)
+
 static const moqver_row moqver_table[MOQVER_COUNT] = {
-    {MOQVER_D22, "moqt-22",
-     MOQVER_CAP_LOCFILTER_TYPED | MOQVER_CAP_FETCH_BODY_V22 |
-         MOQVER_CAP_FILL_FETCH | MOQVER_CAP_PUBLISH_STATE_NOTIFY |
-         MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |
-         MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH |
-         MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE},
+    /* Not offered until every draft-23 delta has landed. */
+    {MOQVER_D23, "moqt-23", MOQVER_CAPS_D22, 0},
+    {MOQVER_D22, "moqt-22", MOQVER_CAPS_D22, 1},
     {MOQVER_D19, "moqt-19",
      MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
-         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE},
+         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE,
+     1},
     {MOQVER_D18, "moqt-18",
      MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
          MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
-         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE},
+         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE,
+     1},
 };
 
 static int moqver_tok_eq(wired_span token, const char* tok) {
@@ -62,23 +70,36 @@ u32 moqver_caps(int ver) {
   return moqver_valid(ver) ? moqver_table[ver].caps : 0;
 }
 
+/* Bytes row i adds to the list: its token plus a separating space when
+ * it is not the first offered one (off != 0); 0 when it is not offered. */
+static usz moqver_offer_add(int i, usz off) {
+  usz n = wired_cstr_len(moqver_table[i].tok) + (off != 0);
+  return n * (usz)(moqver_table[i].offered != 0);
+}
+
 static usz moqver_offer_len(void) {
   usz off = 0;
   for (int i = 0; i < MOQVER_COUNT; i++) {
-    off += wired_cstr_len(moqver_table[i].tok) + (i > 0 ? 1 : 0);
+    off += moqver_offer_add(i, off);
   }
   return off;
+}
+
+static usz moqver_offer_one(char* out, usz off, int i) {
+  usz tn = wired_cstr_len(moqver_table[i].tok);
+  if (!moqver_table[i].offered) {
+    return off;
+  }
+  out[off] = ' ';
+  off += (off != 0);
+  bytes_memcpy(out + off, moqver_table[i].tok, tn);
+  return off + tn;
 }
 
 static void moqver_offer_write(char* out) {
   usz off = 0;
   for (int i = 0; i < MOQVER_COUNT; i++) {
-    if (i > 0) {
-      out[off++] = ' ';
-    }
-    usz tn = wired_cstr_len(moqver_table[i].tok);
-    bytes_memcpy(out + off, moqver_table[i].tok, tn);
-    off += tn;
+    off = moqver_offer_one(out, off, i);
   }
   out[off] = 0;
 }

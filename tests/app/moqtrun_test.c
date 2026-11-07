@@ -153,7 +153,7 @@ static int g_moqtrun_test_ver = MOQVER_D19;
  * order), for the scenarios that drive the uni control-stream pair. */
 static const char* moqtrun_test_ver_tok(void) {
   static const char* const tok[MOQVER_COUNT] = {
-      "moqt-22", "moqt-19", "moqt-18"};
+      "moqt-23", "moqt-22", "moqt-19", "moqt-18"};
   return tok[g_moqtrun_test_ver];
 }
 

@@ -88,7 +88,7 @@ static int moqtss_hub_runs(const wired_moqt_hub* hub, u64 id) {
 
 static int moqtss_offers(
     const wired_moqt_hub* hub, const wired_moqtrun_peer* p) {
-  return hub->ssts_alg_n != 0 && p->ver == MOQVER_D22;
+  return hub->ssts_alg_n != 0 && (moqver_caps(p->ver) & MOQVER_CAP_SSTS) != 0;
 }
 
 void moqtss_setup_opt(
@@ -117,7 +117,7 @@ void moqtss_negotiate(
     algs |= (u8)(moqtss_alg_bit(m->ssts_algs[i]) *
                  moqtss_hub_runs(hub, m->ssts_algs[i]));
   }
-  p->ssts.algs = (u8)(algs * (p->ver == MOQVER_D22));
+  p->ssts.algs = (u8)(algs * ((moqver_caps(p->ver) & MOQVER_CAP_SSTS) != 0));
 }
 
 void moqtss_sess_reset(moqtss_sess* s) {

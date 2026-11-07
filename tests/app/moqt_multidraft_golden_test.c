@@ -91,7 +91,7 @@ static void test_moqt_golden_goaway_multidraft(void) {
  * Length and uses an explicit Filter Type 0x03. Both decode to the same
  * moqctl_rangeloc: Absolute start {5,0}, end = whole Group 5+3=8. */
 static wired_span mqmd_subscribe_lf_body(int ver) {
-  if (ver == MOQVER_D22) {
+  if (moqver_caps(ver) & MOQVER_CAP_LOCFILTER_TYPED) {
     return mqmd_body(
         g_moqt_ctl_subscribe_params_d22, G_MOQT_CTL_SUBSCRIBE_PARAMS_D22_LEN,
         0);
@@ -128,7 +128,7 @@ static void test_moqt_golden_location_filter_multidraft(void) {
  * range -- Absolute start {0,0}, End Location (End Group 1, whole group)
  * -- decoded through the version-neutral moqfetch_req. */
 static wired_span mqmd_fetch_body(int ver) {
-  if (ver == MOQVER_D22) {
+  if (moqver_caps(ver) & MOQVER_CAP_FETCH_BODY_V22) {
     return mqmd_body(
         g_moqt_ctl_fetch_standalone_d22, G_MOQT_CTL_FETCH_STANDALONE_D22_LEN,
         1);
@@ -138,7 +138,7 @@ static wired_span mqmd_fetch_body(int ver) {
 }
 
 static int mqmd_fetch_take(int ver, wired_span body, moqfetch_req* out) {
-  if (ver == MOQVER_D22) {
+  if (moqver_caps(ver) & MOQVER_CAP_FETCH_BODY_V22) {
     return moqfetch_req22_take(body, out);
   }
   return moqfetch_req19_take(ver, body, out);

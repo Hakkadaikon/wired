@@ -13,15 +13,18 @@
  * the two cannot drift apart. */
 
 /** Dense version ids: the table's row index, which is also the order of
- * the server's subprotocol list (the client's offer order decides). */
-#define MOQVER_D22 0
+ * the server's subprotocol list (the client's offer order decides).
+ * draft-ietf-moq-transport-23 ("moqt-23"). */
+#define MOQVER_D23 0
+/** draft-ietf-moq-transport-22 ("moqt-22"). */
+#define MOQVER_D22 1
 /** draft-ietf-moq-transport-19 ("moqt-19"); also the row used when no
  * subprotocol was negotiated. */
-#define MOQVER_D19 1
+#define MOQVER_D19 2
 /** draft-ietf-moq-transport-18 ("moqt-18"). */
-#define MOQVER_D18 2
+#define MOQVER_D18 3
 /** Number of supported drafts (rows in the table). */
-#define MOQVER_COUNT 3
+#define MOQVER_COUNT 4
 
 /** GOAWAY carries a Request ID (draft-18). */
 #define MOQVER_CAP_GOAWAY_REQID (1u << 0)
@@ -57,6 +60,9 @@
 /** A delivery-timeout Object Property on a datagram closes the session
  * (draft-18, ruling Q18-05: undefined input). */
 #define MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE (1u << 18)
+/** The experimental SSTS_ALGORITHMS Setup Option is offered (draft-22,
+ * 23). */
+#define MOQVER_CAP_SSTS (1u << 19)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
@@ -67,8 +73,9 @@ int moqver_find(wired_span token);
 u32 moqver_caps(int ver);
 
 /** Writes the server's space-separated subprotocol list ("moqt-22 moqt-19
- * moqt-18", NUL-terminated) to out, for wired_srvrun_opt.wt_protocols.
- * Returns its length without the NUL, 0 when cap is too small. */
+ * moqt-18", NUL-terminated; rows not offered yet are left out) to out, for
+ * wired_srvrun_opt.wt_protocols. Returns its length without the NUL, 0 when cap
+ * is too small. */
 usz wired_moqt_wt_protocols(char* out, usz cap);
 
 #endif
