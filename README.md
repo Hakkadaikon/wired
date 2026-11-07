@@ -1,7 +1,7 @@
 # wired
 
-**C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC のサーバー SDK です。
-依存ライブラリは一切ありません。OpenSSL も libevent も、libc さえ使いません。**
+**C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC のサーバー SDK である。
+依存ライブラリは一切ない。OpenSSL も libevent も、libc さえ使わない。**
 
 [![CI](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml)
 [![Fuzz](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml)
@@ -9,52 +9,52 @@
 [![codecov](https://codecov.io/gh/Hakkadaikon/wired/branch/main/graph/badge.svg)](https://codecov.io/gh/Hakkadaikon/wired)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-wired はスタック全体をユーザー空間で自前実装しています。TLS 1.3 とその暗号、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(Media over QUIC Transport)です。
-できあがるのは約 640 KB の静的なサーバーバイナリ 1 つで、ほかに何もインストールする必要はありません。
+wired はスタック全体をユーザー空間で自前実装している。TLS 1.3 とその暗号、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(Media over QUIC Transport)である。
+できあがるのは約 640 KB の静的なサーバーバイナリ 1 つで、ほかに何もインストールする必要はない。
 
 ## wired の特長
 
 ### 信頼すべきものはこのリポジトリだけ
 
-一般的な QUIC サーバーは TLS ライブラリ、イベントループ、アロケーター、libc を取り込みます。そのどれもが引き継ぐことになるコードです。
-wired はどれも取り込みません。
+一般的な QUIC サーバーは TLS ライブラリ、イベントループ、アロケーター、libc を取り込む。そのどれもが引き継ぐことになるコードである。
+wired はどれも取り込まない。
 
-- **サードパーティのコードがありません。** SDK には同梱したライブラリもダウンロードしたライブラリも含まれていません。
-  暗号、TLS、QUIC、HTTP/3、MoQT はすべてこのリポジトリで書いています。
-- **libc を使いません。** すべてのファイルを `-ffreestanding -nostdlib` でコンパイルするので、libc の呼び出しが紛れ込むとリンクに失敗します。
-  サーバーは `src/common/arch` にある少数の型付きシステムコールラッパーを通してカーネルとやり取りします。一覧は [docs/syscalls.md](docs/syscalls.md) にあります。
-- **動的ロードがありません。** サーバーは静的バイナリです。差し替えたりプリロードしたりできる共有ライブラリはありません。
-- **ツールチェーンを固定しています。** コンパイラー、フォーマッター、リンターはロックファイル付きの Nix flake から取得するので、CI と手元のマシンは同じバージョンでビルドします。
+- **サードパーティのコードがない。** SDK には同梱したライブラリもダウンロードしたライブラリも含まれていない。
+  暗号、TLS、QUIC、HTTP/3、MoQT はすべてこのリポジトリで書いている。
+- **libc を使わない。** すべてのファイルを `-ffreestanding -nostdlib` でコンパイルするので、libc の呼び出しが紛れ込むとリンクに失敗する。
+  サーバーは `src/common/arch` にある少数の型付きシステムコールラッパーを通してカーネルとやり取りする。一覧は [docs/syscalls.md](docs/syscalls.md) にある。
+- **動的ロードがない。** サーバーは静的バイナリである。差し替えたりプリロードしたりできる共有ライブラリはない。
+- **ツールチェーンを固定している。** コンパイラー、フォーマッター、リンターはロックファイル付きの Nix flake から取得するので、CI と手元のマシンは同じバージョンでビルドする。
 
-そのため、サプライチェーン攻撃の標的になる部分はほとんど残りません。
-汚染できる上流パッケージも、乗っ取れる推移的依存もありません。
-サーバーが実行するバイトはすべて、このリポジトリで読んでレビューできます。
+そのため、サプライチェーン攻撃の標的になる部分はほとんど残らない。
+汚染できる上流パッケージも、乗っ取れる推移的依存もない。
+サーバーが実行するバイトはすべて、このリポジトリで読んでレビューできる。
 
 ### ヒープを使わない
 
-use-after-free と double free のバグは、C のネットワークコードでメモリ安全性の CVE を生む特によくある原因で、その多くは `malloc` と `free` から始まります。
-wired はそのどちらも使わないので、扱いを誤ることもありません。
+use-after-free と double free のバグは、C のネットワークコードでメモリ安全性の CVE を生む特によくある原因で、その多くは `malloc` と `free` から始まる。
+wired はそのどちらも使わないので、扱いを誤ることもない。
 
-- メモリは静的に確保するか、起動時に `mmap` で一度だけ確保します。ワーカーごとのテーブル、スレッドのスタック、AF_XDP のリングがこれにあたります。
-  どれもサーバーの実行中には解放しません。
-- コネクション、ストリーム、セッションは固定サイズのテーブルに置き、スロットはその場で再利用します。
-  容量はすべてコンパイル時の定数で、その大きさにした理由を定数の隣に書いています。
-- パーサーはピアから受け取ったバイトを範囲付きのビュー(`wired_span`)で読み、範囲付きの出力バッファー(`wired_obuf`)に書きます。
-  受信したバイト列から取り出した生の長さをそのまま使って読み書きすることはありません。
+- メモリは静的に確保するか、起動時に `mmap` で一度だけ確保する。ワーカーごとのテーブル、スレッドのスタック、AF_XDP のリングがこれにあたる。
+  どれもサーバーの実行中には解放しない。
+- コネクション、ストリーム、セッションは固定サイズのテーブルに置き、スロットはその場で再利用する。
+  容量はすべてコンパイル時の定数で、その大きさにした理由を定数の隣に書いている。
+- パーサーはピアから受け取ったバイトを範囲付きのビュー(`wired_span`)で読み、範囲付きの出力バッファー(`wired_obuf`)に書く。
+  受信したバイト列から取り出した生の長さをそのまま使って読み書きすることはない。
 
-これで、ヒープに起因するバグの種類は丸ごとなくなります。ヒープメモリの use-after-free と double free、リーク、アロケーターのメタデータ破壊です。
-ただし、これでコードがメモリ安全になるわけではありません。ダングリング参照は、次の 2 種類がまだ起こりえます。
+これで、ヒープに起因するバグの種類は丸ごとなくなる。ヒープメモリの use-after-free と double free、リーク、アロケーターのメタデータ破壊である。
+ただし、これでコードがメモリ安全になるわけではない。ダングリング参照は、次の 2 種類がまだ起こりうる。
 
-- **指している先のスタックフレームより長く生きるビュー。** ローカルバッファーに対して取った `wired_span` は、関数から戻った時点で無効になります(use-after-return / use-after-scope)。
-  そのため、ビューより長く生きる必要があるバッファーは呼び出し側のスコープで宣言しています。
-  固定した clang ではローカル変数の `wired_span_of` / `wired_mspan_of` ビューを返すとコンパイルエラーになります(`lifetimebound`)。
-  さらに CI のチェック(`just view-check`)が、SDK の長寿命な状態(env、設定、コネクション、TLS ドライバー、MoQT ハブ)に保存する各ビューについて、指している先がどこに置かれたメモリかを明記させます。
-- **再利用されたスロットへの古い参照。** コネクションやストリームのスロットが解放されて新しいピアに割り当てられた後も、そのスロットへのポインターを持ち続けている場合です。
-  アプリケーションはステップをまたいで保持する WebTransport セッションを、世代をチェックする `wired_wt_ref` として持ちます。これはスロットが再利用されると何も指さなくなります。このライフサイクルは有界モデル検査で確かめています(`just cbmc`)。
-  一方、ステップをまたいで保持した生の `wired_wt_session*` や、コネクション・ストリームのスロットへのポインターはチェックされません。
+- **指している先のスタックフレームより長く生きるビュー。** ローカルバッファーに対して取った `wired_span` は、関数から戻った時点で無効になる(use-after-return / use-after-scope)。
+  そのため、ビューより長く生きる必要があるバッファーは呼び出し側のスコープで宣言している。
+  固定した clang ではローカル変数の `wired_span_of` / `wired_mspan_of` ビューを返すとコンパイルエラーになる(`lifetimebound`)。
+  さらに CI のチェック(`just view-check`)が、SDK の長寿命な状態(env、設定、コネクション、TLS ドライバー、MoQT ハブ)に保存する各ビューについて、指している先がどこに置かれたメモリかを明記させる。
+- **再利用されたスロットへの古い参照。** コネクションやストリームのスロットが解放されて新しいピアに割り当てられた後も、そのスロットへのポインターを持ち続けている場合である。
+  アプリケーションはステップをまたいで保持する WebTransport セッションを、世代をチェックする `wired_wt_ref` として持つ。これはスロットが再利用されると何も指さなくなる。このライフサイクルは有界モデル検査で確かめている(`just cbmc`)。
+  一方、ステップをまたいで保持した生の `wired_wt_session*` や、コネクション・ストリームのスロットへのポインターはチェックされない。
 
-下の表のチェックはまさにこれらを見つけるためにあります。
-CI のサニタイザー実行は use-after-scope と use-after-return の両方を検査します。ASan の下では SDK のスレッドが pthread として動くので、ASan の use-after-return モードが必要とするスレッドローカル領域を各スレッドが持てます。
+下の表のチェックはまさにこれらを見つけるためにある。
+CI のサニタイザー実行は use-after-scope と use-after-return の両方を検査する。ASan の下では SDK のスレッドが pthread として動くので、ASan の use-after-return モードが必要とするスレッドローカル領域を各スレッドが持てる。
 
 ### 堅牢化と push ごとのチェック
 
@@ -68,15 +68,15 @@ CI のサニタイザー実行は use-after-scope と use-after-return の両方
 | [要件台帳](docs/features/README.md): 40 以上の仕様のすべての規範的な記述を挙げ、それぞれを出荷するサーバーの経路上のテストで裏付ける | 気づかないうちに実装されていない仕様の規則 |
 | [脆弱性台帳](docs/security/vuln-ledger.md): ほかの QUIC/TLS/HTTP スタックで知られている 856 件の CVE とアドバイザリを、それぞれこのコードに対して確かめ直したもの。CI の到達性チェックで、挙げた防御が本番の経路上にあり続けることを確かめる | 他人の CVE の繰り返し |
 
-[セキュリティの概要](docs/security.md) で、脅威モデルと、受信した各パケットをどの順序でチェックするかを説明しています。
+[セキュリティの概要](docs/security.md) で、脅威モデルと、受信した各パケットをどの順序でチェックするかを説明している。
 
 ### 速くて小さい
 
-イベントループは SDK が持ち、ホットパスではメモリを確保しません。
-同じサーバーコードが 4 つの I/O ドライバーの上で動き、コマンドラインフラグで選べます。`poll` ループ、fork したワーカー、生のスレッド、そして AF_XDP です。
-AF_XDP はカーネルの UDP スタックを通さずにネットワークカードとサーバーの間でパケットを受け渡します。
+イベントループは SDK が持ち、ホットパスではメモリを確保しない。
+同じサーバーコードが 4 つの I/O ドライバーの上で動き、コマンドラインフラグで選べる。`poll` ループ、fork したワーカー、生のスレッド、そして AF_XDP である。
+AF_XDP はカーネルの UDP スタックを通さずにネットワークカードとサーバーの間でパケットを受け渡す。
 
-同じ 4 vCPU の VM 上で、ループバック経由の小さな HTTP/3 レスポンスを返すときの quic-go・quiche との比較です。
+同じ 4 vCPU の VM 上で、ループバック経由の小さな HTTP/3 レスポンスを返すときの quic-go・quiche との比較である。
 
 | | wired | quiche 0.29.3 | quic-go v0.61.0 |
 |---|---|---|---|
@@ -87,46 +87,46 @@ AF_XDP はカーネルの UDP スタックを通さずにネットワークカ�
 | 負荷時のピークメモリ | **1,932 KiB** | 8,468 KiB | 15,340 KiB |
 | サーバーバイナリ | **525 KB**(静的) | 6.2 MB | 7.3 MB |
 
-10 Mbps の模擬リンクでは、試した 5 つのサーバー(ngtcp2 と picoquic を含む)がほぼ同じグッドプットに達します(9,118〜9,535 kbps。wired は 9,434)。
+10 Mbps の模擬リンクでは、試した 5 つのサーバー(ngtcp2 と picoquic を含む)がほぼ同じグッドプットに達する(9,118〜9,535 kbps。wired は 9,434)。
 
-2026-11-02 に `efd61452e` で計測しました。すべてのサーバーを同じ日に同じマシンで計測しています。
-機能の比較表、すべての計測レーンとその再現方法は [実装の比較](docs/performance/comparison.md) にあります。
+2026-11-02 に `efd61452e` で計測した。すべてのサーバーを同じ日に同じマシンで計測している。
+機能の比較表、すべての計測レーンとその再現方法は [実装の比較](docs/performance/comparison.md) にある。
 
 ### HTTP だけでなく Media over QUIC も
 
-wired は同じスタックの上に MoQT リレーを載せています。別の製品ではありません。
+wired は同じスタックの上に MoQT リレーを載せている。別の製品ではない。
 
 - **3 つのドラフトバージョン**
   ([draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/)、
   [-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/)、
-  [-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/))を、セッションごとにネゴシエーションします。
-- **2 つのトランスポート**で動きます。ブラウザーから参加できる WebTransport セッションの上か、生の QUIC コネクションの上(ALPN `moqt-NN`)で直接動きます。
-- **フル機能のリレー**で、次をカバーします。
+  [-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/))を、セッションごとにネゴシエーションする。
+- **2 つのトランスポート**で動く。ブラウザーから参加できる WebTransport セッションの上か、生の QUIC コネクションの上(ALPN `moqt-NN`)で直接動く。
+- **フル機能のリレー**で、次をカバーする。
   - PUBLISH / SUBSCRIBE と、キャッシュ付きの FETCH
   - 名前空間の探索、Track Properties、フィルター、優先度
   - 複数のパブリッシャーを重複排除しつつ 1 つの Track にまとめる
   - Object を届いたそばから 1 バイトずつ転送する
   - 配送のタイムアウトと GOAWAY
-- [moq-interop-runner](https://github.com/englishm/moq-interop-runner) で**ほかの実装と相互接続テストをしています**。
-  [moqt_chat のライブデモ](https://hakkadaikon.github.io/wired/moqt_chat) では、その上でブラウザーのチャットと音声通話のルームが動いています。
+- [moq-interop-runner](https://github.com/englishm/moq-interop-runner) で**ほかの実装と相互接続テストをしている**。
+  [moqt_chat のライブデモ](https://hakkadaikon.github.io/wired/moqt_chat) では、その上でブラウザーのチャットと音声通話のルームが動いている。
 
 ### バイト単位まで読める
 
-どの層もこの 1 つのリポジトリにあるプレーンな C で、各ファイルには実装している RFC の節を書いています。
-動くサーバーであると同時に、QUIC、TLS 1.3、HTTP/3 が実際にどう組み合わさっているかを学べる場所でもあります。
+どの層もこの 1 つのリポジトリにあるプレーンな C で、各ファイルには実装している RFC の節を書いている。
+動くサーバーであると同時に、QUIC、TLS 1.3、HTTP/3 が実際にどう組み合わさっているかを学べる場所でもある。
 
 ## 層の組み合わせ
 
-各プロトコルはその下の層の上に作られていて、それぞれ `src/` の下の専用ディレクトリにあります。
-あなたのコードは次の 3 つのどの層にでもつなげられます。
+各プロトコルはその下の層の上に作られていて、それぞれ `src/` の下の専用ディレクトリにある。
+あなたのコードは次の 3 つのどの層にでもつなげられる。
 
 - 素の HTTP/3
 - WebTransport: HTTP/3 の *Extended CONNECT* リクエストで開く、ブラウザーから扱いやすいストリーム
 - MoQT: WebTransport 上でも、QUIC 上で直接でも動く
 
-図は上から下へ読みます。
-カーネルとやり取りするのは `src/common/arch` のシステムコールラッパーだけです。
-`--ifindex` を指定すると AF_XDP ドライバーを使います。
+図は上から下へ読む。
+カーネルとやり取りするのは `src/common/arch` のシステムコールラッパーだけである。
+`--ifindex` を指定すると AF_XDP ドライバーを使う。
 
 ```mermaid
 flowchart TD
@@ -154,13 +154,13 @@ flowchart TD
   sys -->|"UMEM ring + BPF attach"| xdp
 ```
 
-各ボックスの元になっている仕様は [RFC とドラフト](docs/arch/rfcs.md) に、各層の詳しい説明は [アーキテクチャ](docs/arch/overview.md) にあります。
+各ボックスの元になっている仕様は [RFC とドラフト](docs/arch/rfcs.md) に、各層の詳しい説明は [アーキテクチャ](docs/arch/overview.md) にある。
 
 ## コードの見た目
 
-サーバーのうちあなたが書く部分は、コールバック 1 つです。
-SDK がポートをバインドし、ハンドシェイク、暗号化、ロスリカバリー、HTTP/3 を処理して、リクエストがそろったらあなたの関数を呼びます。
-次のコードは [examples/word_list](examples/word_list/wired_server.c) からの抜粋です。
+サーバーのうちあなたが書く部分は、コールバック 1 つである。
+SDK がポートをバインドし、ハンドシェイク、暗号化、ロスリカバリー、HTTP/3 を処理して、リクエストがそろったらあなたの関数を呼ぶ。
+次のコードは [examples/word_list](examples/word_list/wired_server.c) からの抜粋である。
 
 ```c
 static int app_on_request(
@@ -176,12 +176,12 @@ static int app_on_request(
 }
 ```
 
-`req` にはメソッド、パス、ボディが入っています。
-ボディを `body_out` に書き、`*content_type` に MIME タイプを指させて、1 を返します。
-残りの引数は 1 回の呼び出しに収まらない大きなボディのためのものです([レスポンスのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
+`req` にはメソッド、パス、ボディが入っている。
+ボディを `body_out` に書き、`*content_type` に MIME タイプを指させて、1 を返す。
+残りの引数は 1 回の呼び出しに収まらない大きなボディのためのものである([レスポンスのストリーミング](https://hakkadaikon.github.io/wired/guide/ja/h3/streaming/))。
 
-`main` を呼ぶ libc がないので、`wired_main` がその代わりになります。
-フラグを解析し、TLS のアイデンティティを用意して、コールバックをドライバーに渡します。
+`main` を呼ぶ libc がないので、`wired_main` がその代わりになる。
+フラグを解析し、TLS のアイデンティティを用意して、コールバックをドライバーに渡す。
 
 ```c
 int wired_main(int argc, char** argv) {
@@ -195,7 +195,7 @@ int wired_main(int argc, char** argv) {
 }
 ```
 
-ここから動くサーバーまでは [インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/) で一歩ずつ進められます。
+ここから動くサーバーまでは [インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/) で一歩ずつ進められる。
 
 ## サンプル
 
@@ -208,8 +208,8 @@ int wired_main(int argc, char** argv) {
 
 ## 相互接続テストの結果
 
-ほかの実装との相互接続テストの結果表です。
-「wired の実行」は、各ランナーに wired を追加してこのプロジェクト自身が実行した結果で、「公式」は上流ランナーの公開結果です。
+ほかの実装との相互接続テストの結果表である。
+「wired の実行」は、各ランナーに wired を追加してこのプロジェクト自身が実行した結果で、「公式」は上流ランナーの公開結果である。
 
 | プロトコル | wired の実行 | 公式 |
 |---|---|---|
@@ -227,12 +227,12 @@ int wired_main(int argc, char** argv) {
 
 ## 対応プラットフォーム
 
-x86_64 Linux のみです。
-オプションの AF_XDP ドライバーは、さらに root 権限とカーネル 5.9 以降(XDP の `BPF_LINK_CREATE` のため)が必要です。
-ネットワークカード(NIC)がネイティブの XDP に対応していない場合は、`--skb-mode` で遅い汎用 XDP モードを選べます。
-一部の仮想 NIC(`virtio_net` など)では、汎用モードで AF_XDP のパケット送信に失敗することがあります。その場合は通常の UDP ドライバーを使ってください。
-ドライバーのフラグは [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) のページにあります。
+x86_64 Linux のみである。
+オプションの AF_XDP ドライバーは、さらに root 権限とカーネル 5.9 以降(XDP の `BPF_LINK_CREATE` のため)が必要である。
+ネットワークカード(NIC)がネイティブの XDP に対応していない場合は、`--skb-mode` で遅い汎用 XDP モードを選べる。
+一部の仮想 NIC(`virtio_net` など)では、汎用モードで AF_XDP のパケット送信に失敗することがある。その場合は通常の UDP ドライバーを使う。
+ドライバーのフラグは [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) のページにある。
 
 ## ライセンス
 
-MIT です。[LICENSE](LICENSE) を参照してください。
+MIT である。[LICENSE](LICENSE) を参照する。
