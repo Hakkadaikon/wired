@@ -1,32 +1,43 @@
 # 実装プロトコルの脆弱性監査 + 性能計測 + TDD 修正: 進め方
 
-状態: 承認済み(2026-09-12)。決定: 台帳は `docs/security/vuln-ledger.md` で git 管理、性能退行は中央値 3% 超で停止して原因特定(goodput レーンは任意)、同種実装は §2-B の製品リスト + frontend/e2e の npm audit。
+[ドキュメント](../../README.md) › superpowers › 実装プロトコルの脆弱性監査 + 性能計測 + TDD 修正: 進め方
 
-## 目的
+| 項目 | 内容 |
+|---|---|
+| 目的 | 実装プロトコルの脆弱性監査、性能計測、TDD での修正の進め方を決めた計画書 |
+| 読む人 | コントリビューター |
+| 前提文書 | なし |
+| 関連文書 | [脆弱性台帳](../../security/vuln-ledger.md)、[セキュリティ設計](../../security/README.md) |
 
-このリポジトリが実装する全プロトコル/アルゴリズムについて、(1) 関連する脆弱性
-(公開 CVE/アドバイザリ、RFC の Security Considerations、学術・業界の攻撃分類)を
-網羅的に台帳へ採番し、(2) 各項目を TDD(先に失敗するテスト)で潰す/既に安全なら
-テストで固定する/対象外なら理由を書く、(3) 修正前後で性能を同一手順で計測し、
-退行を台帳に残す。台帳のチェックボックスが進捗の唯一の真実。
+状態: 承認済み(2026-09-12)。決定: 台帳は `docs/security/vuln-ledger.md` で git 管理、性能退行は中央値 3% 超で停止して原因特定(goodput レーンは任意)、同種実装は §4-B の製品リスト + frontend/e2e の npm audit。
 
-## 0. 前提の事実(確認済み)
+<a id="目的"></a>
+## 1. 目的
 
-- 外部 DB への `curl` は本セッションでは権限拒否。**WebFetch/WebSearch ツールは
-  到達可**(NVD 2.0 API、GitHub Advisory API、各社アドバイザリ、RFC 本文)。
-  収集は「エージェントが WebFetch で取得 → JSON に正規化して保存」を主経路にし、
-  再現用に `scripts/vulnaudit/collect.py`(同じクエリ列を発行する)も置く
-  (ネットワーク許可がある環境ではそれで再実行できる)。
-- NVD の `keywordSearch=QUIC` は語幹一致で "quickly" まで拾う(1,417 件)。
-  **製品 CPE で引く**(`cpeName=cpe:2.3:a:<vendor>:<product>:*:*:*:*:*:*:*:*`)か
-  `keywordExactMatch` を付ける。GitHub Advisory API は `keywords` が効かず、
-  `ecosystem` + `affects=<パッケージ名>` で引く。
-- 既存資産: `docs/security.md`(現状の保証一覧、Psychic Signature 等の既知クラス
-  への言及あり)、`fuzz/`(header / qpack / x509 / onertt の 4 ハーネス、`just
-  fuzz-ci` 夜間)、`bench/`(benchclient による ttfb/load レーン、sections、
-  goodput)、`tasks/fv`(Lean 述語カタログ)、`tasks/loopeng`(TLA+)。
+このリポジトリが実装する全プロトコル/アルゴリズムについて、次の 3 つを行う。
 
-## 1. 対象の棚卸し(プロトコル → ソース → 一次資料)
+1. 関連する脆弱性(公開 CVE/アドバイザリ、RFC の Security Considerations、学術・業界の攻撃分類)を網羅的に台帳へ採番する。
+2. 各項目を TDD(先に失敗するテスト)で修正する。既に防げているならテストで固定し、対象外なら理由を書く。
+3. 修正前後で性能を同一手順で計測し、退行を台帳に残す。
+
+進捗は台帳のチェックボックスだけで記録する。
+
+<a id="0-前提の事実確認済み"></a>
+## 2. 前提の事実(確認済み)
+
+- 外部 DB への `curl` は本セッションでは権限拒否。**WebFetch/WebSearch ツールは到達可**(NVD 2.0 API、GitHub Advisory API、各社アドバイザリ、RFC 本文)。
+  - 収集は「エージェントが WebFetch で取得 → JSON に正規化して保存」を主経路にする。
+  - 再現用に `scripts/vulnaudit/collect.py`(同じクエリ列を発行する)も置く。ネットワーク許可がある環境ではそれで再実行できる。
+- NVD の `keywordSearch=QUIC` は語幹一致で "quickly" まで拾う(1,417 件)。**製品 CPE で引く**(`cpeName=cpe:2.3:a:<vendor>:<product>:*:*:*:*:*:*:*:*`)か `keywordExactMatch` を付ける。
+- GitHub Advisory API は `keywords` が効かず、`ecosystem` + `affects=<パッケージ名>` で引く。
+- 既存資産:
+  - `docs/security.md`(現状の保証一覧、Psychic Signature 等の既知クラスへの言及あり)
+  - `fuzz/`(header / qpack / x509 / onertt の 4 ハーネス、`just fuzz-ci` 夜間)
+  - `bench/`(benchclient による ttfb/load レーン、sections、goodput)
+  - `tasks/fv`(Lean 述語カタログ)、`tasks/loopeng`(TLA+)
+
+<a id="1-対象の棚卸しプロトコル--ソース--一次資料"></a>
+## 3. 対象の棚卸し(プロトコル → ソース → 一次資料)
 
 | 領域 | 一次仕様 | src |
 |---|---|---|
@@ -42,36 +53,35 @@
 | メディア | ISO 14496-12 box 構造 | `app/media/mp4frag` |
 | サンプル/フロント | examples/*、frontend(npm)、e2e(npm) | `examples/` |
 
-## 2. 収集の方法(Phase 1)
+<a id="2-収集の方法phase-1"></a>
+## 4. 収集の方法(Phase 1)
 
-三系統を全部採る。**過剰抽出は安全、漏れは危険**(迷ったら採る)。
+三系統を全部採る。**過剰抽出は許し、漏れは許さない**(迷ったら採る)。
 
-A. **仕様由来の脆弱性クラス**: 上表の各 RFC/draft の Security Considerations を
-   段落単位で採番(`S-<RFC>-<n>`)。RFC 9000 は 21 節、9001 は 9 節、9114 は 10 節、
-   9204 は 7 節、8446 は付録 E まで。WebFetch で rfc-editor の本文を取り、段落ごとに
-   「攻撃/前提/要求される防御」を 1 行化する。
-B. **同種実装の CVE/アドバイザリ**(我々にも同じバグクラスが無いかの点検表):
-   ngtcp2/nghttp3、quiche(Cloudflare)、quinn、quic-go、msquic、lsquic、picoquic、
-   aioquic、s2n-quic、mvfst、xquic、neqo、quicly、Chromium QUIC、nginx HTTP/3、
-   HAProxy、Envoy、curl(HTTP/3 部)、OpenSSL/BoringSSL/wolfSSL/mbedTLS/GnuTLS/
-   rustls/s2n-tls(TLS 1.3・X.509・RSA/ECDSA/Ed25519)、libsodium(ed25519)、
-   mp4 パーサ(FFmpeg mov、GPAC、Bento4)。取得元は NVD(CPE 指定)、GitHub
-   Advisory(`affects=`)、各リポジトリの GHSA、OSV(`/v1/vulns/<id>` で補完)。
-   期間は 2018 年(QUIC draft 実装期)〜現在。
-C. **攻撃分類の文献**: NCC Group「QUIC Hash-DoS」(2025 一斉開示)、「Revisiting
-   QUIC attacks」(IJIS 2022)、Rapid Reset(CVE-2023-44487)と HTTP/3 版、
-   Loop DoS(CVE-2024-2169)、楽観的 ACK(CVE-2025-4820 quiche 他)、QUIC-LEAK
-   (CVE-2025-54939)、Marvin(RSA タイミング)、Minerva(ECDSA タイミング)、
-   punycode X.509(CVE-2022-3602/3786)、TLS の Raccoon/ALPACA/SLOTH 類、
-   QUIC WG implementations ページの既知問題。
+A. **仕様由来の脆弱性クラス**: 上表の各 RFC/draft の Security Considerations を段落単位で採番する(`S-<RFC>-<n>`)。
+   - RFC 9000 は 21 節、9001 は 9 節、9114 は 10 節、9204 は 7 節、8446 は付録 E まで。
+   - WebFetch で rfc-editor の本文を取り、段落ごとに「攻撃/前提/要求される防御」を 1 行化する。
+B. **同種実装の CVE/アドバイザリ**(我々にも同じバグクラスが無いかの点検表)。
+   - QUIC と HTTP/3: ngtcp2/nghttp3、quiche(Cloudflare)、quinn、quic-go、msquic、lsquic、picoquic、aioquic、s2n-quic、mvfst、xquic、neqo、quicly、Chromium QUIC、nginx HTTP/3、HAProxy、Envoy、curl(HTTP/3 部)
+   - TLS と暗号: OpenSSL/BoringSSL/wolfSSL/mbedTLS/GnuTLS/rustls/s2n-tls(TLS 1.3・X.509・RSA/ECDSA/Ed25519)、libsodium(ed25519)
+   - mp4 パーサー: FFmpeg mov、GPAC、Bento4
+   - 取得元: NVD(CPE 指定)、GitHub Advisory(`affects=`)、各リポジトリの GHSA、OSV(`/v1/vulns/<id>` で補完)
+   - 期間: 2018 年(QUIC draft 実装期)〜現在
+C. **攻撃分類の文献**。
+   - QUIC: NCC Group「QUIC Hash-DoS」(2025 一斉開示)、「Revisiting QUIC attacks」(IJIS 2022)、楽観的 ACK(CVE-2025-4820 quiche 他)、QUIC-LEAK(CVE-2025-54939)、QUIC WG implementations ページの既知問題
+   - HTTP と UDP: Rapid Reset(CVE-2023-44487)と HTTP/3 版、Loop DoS(CVE-2024-2169)
+   - 暗号と TLS: Marvin(RSA タイミング)、Minerva(ECDSA タイミング)、punycode X.509(CVE-2022-3602/3786)、TLS の Raccoon/ALPACA/SLOTH 類
 
-成果物: `tasks/vuln/raw/<source>.json`(取得生データ、取得日時・クエリ付き)→
-`scripts/vulnaudit/merge.py` で `tasks/vuln/catalog.json`(正規化: id, source,
-product, published, CWE, CVSS, summary, area, bug_class)→ 台帳 v0。
-網羅性ゲート: 製品ごとの件数を OpenCVE/GHSA の件数と突き合わせ、RFC は節数と
-段落数の突き合わせ(loopeng の 0 段と同じ「採番チェックリスト + トレーサビリティ表」)。
+成果物は次の順に作る。
 
-## 3. 台帳(チェックボックス)の設計
+1. `tasks/vuln/raw/<source>.json`(取得生データ、取得日時・クエリ付き)
+2. `scripts/vulnaudit/merge.py` で `tasks/vuln/catalog.json`(正規化: id, source, product, published, CWE, CVSS, summary, area, bug_class)
+3. 台帳 v0
+
+網羅性ゲート: 製品ごとの件数を OpenCVE/GHSA の件数と突き合わせる。RFC は節数と段落数を突き合わせる(loopeng の 0 段と同じ「採番チェックリスト + トレーサビリティ表」)。
+
+<a id="3-台帳チェックボックスの設計"></a>
+## 5. 台帳(チェックボックス)の設計
 
 置き場は決めの問題(後述の質問 1)。形式:
 
@@ -90,30 +100,29 @@ product, published, CWE, CVSS, summary, area, bug_class)→ 台帳 v0。
 - `scripts/vulnaudit/ledger_check.py`: 上の規則を機械検査し、領域別の
   件数(未/判定/完了)と perf 欄の退行を集計する。台帳更新はコミットと同じ手番で行う。
 
-## 4. トリアージと修正(Phase 3〜4、TDD)
+<a id="4-トリアージと修正phase-34tdd"></a>
+## 6. トリアージと修正(Phase 3〜4、TDD)
 
 各項目で:
 1. バグクラス → 我々のコード位置を `grep` で特定(無ければ `n/a`)。
-2. 検証層を決める(リポ規範の三層): パーサ/メモリ安全 → **fuzz ハーネス + 単体テスト**;
-   プロトコル状態(楽観的 ACK、増幅上限、ストリーム上限、移行、鍵更新、Retry
-   トークン)→ **TLA+**(tasks/loopeng に既存モデルあり)で反例を出してから
-   テスト; 暗号・パースの数学的性質(定数時間、非正準入力拒否、DER 長さ)→
-   **Lean 述語 + ベクタ**、タイミングは `$TMPDIR` で dudect 風の統計検定。
-3. TDD: 攻撃入力/性質を表す **失敗するテストを先に書く**(Red)→ 最小修正
-   (Green、CCN ≤ 3)→ ゲート → マイクロコミット。コミット件名に CVE/節番号を
-   入れる(例 `fix(recovery): reject ACK ranges above the largest sent PN (CVE-2025-4820 class)`)。
-   既に通るなら「固定テスト」として `already-safe` で閉じる。
-4. fuzz の拡充(第 1 波で先行): 未カバーのパーサに harness を足す:
-   TLS ハンドシェイクメッセージ、QUIC 全フレーム種、transport parameters、
-   capsule、MoQT control/data、QPACK encoder stream、mp4frag。`fuzz-smoke`(毎コミット)
-   と `fuzz-ci`(夜間)に載せ、corpus を蓄積。
+2. 検証層を決める(リポ規範の三層)。
+   - パーサー/メモリ安全 → **fuzz ハーネス + 単体テスト**
+   - プロトコル状態(楽観的 ACK、増幅上限、ストリーム上限、移行、鍵更新、Retry トークン)→ **TLA+**(tasks/loopeng に既存モデルあり)で反例を出してからテスト
+   - 暗号・パースの数学的性質(定数時間、非正準入力拒否、DER 長さ)→ **Lean 述語 + テストベクター**。タイミングは `$TMPDIR` で dudect 風の統計検定
+3. TDD: 攻撃入力/性質を表す **失敗するテストを先に書く**(Red)→ 最小修正(Green、CCN ≤ 3)→ ゲート → マイクロコミット。
+   - コミット件名に CVE/節番号を入れる(例 `fix(recovery): reject ACK ranges above the largest sent PN (CVE-2025-4820 class)`)。
+   - 既に通るなら「固定テスト」として `already-safe` で閉じる。
+4. fuzz の拡充(第 1 波で先行): 未カバーのパーサーに harness を足す。
+   - 対象: TLS ハンドシェイクメッセージ、QUIC 全フレーム種、トランスポートパラメーター、カプセル、MoQT control/data、QPACK のエンコーダーストリーム、mp4frag
+   - `fuzz-smoke`(毎コミット)と `fuzz-ci`(夜間)に載せ、corpus を蓄積する。
 5. 各領域の完了時に security 観点のレビュー(diff-review の security レンズ)。
 
 並列化: 領域ごとに explorer(トリアージ)→ coder(修正、自分のファイルのみ)→
 integrator(配線・ゲート・コミット)の既存パイプライン。台帳は integrator が
 コミットと同じ手番で更新。
 
-## 5. 性能計測の方法(Phase 2 と各波の後)
+<a id="5-性能計測の方法phase-2-と各波の後"></a>
+## 7. 性能計測の方法(Phase 2 と各波の後)
 
 同一手順・同一機材で「修正前ベースライン → 各波後」を比べる。
 
@@ -133,7 +142,8 @@ integrator(配線・ゲート・コミット)の既存パイプライン。台�
   フレーム分岐)に検査を足すことが多いので、per-packet レーンを必ず見る。
 - 最後に `docs/performance/comparison.md` の表を更新(手順は同文書の Run manifest に従う)。
 
-## 6. フェーズと成果物
+<a id="6-フェーズと成果物"></a>
+## 8. フェーズと成果物
 
 | Phase | 内容 | 成果物 | 並列 |
 |---|---|---|---|
@@ -148,17 +158,19 @@ integrator(配線・ゲート・コミット)の既存パイプライン。台�
 複数セッションにまたがるので、台帳と `tasks/todo.md` を再開の唯一の入口にする
 (セッションごとに `[ ]` の先頭から再開)。
 
-## 7. 決めてほしいこと
+<a id="7-決めてほしいこと"></a>
+## 9. 決めてほしいこと
 
 1. **台帳の置き場**: `docs/security/vuln-ledger.md` として git 管理(監査の
    成果物として残る、推奨)か、規範どおり `tasks/` で非管理か。
 2. **性能退行の予算**: 中央値 3% 超で止める(暫定)でよいか。goodput レーン
    (docker + tshark)を必須にするか任意にするか。
 3. **同種実装の範囲**: 上記 B の製品リストでよいか。Chromium/nginx/curl の
-   ような巨大製品は「QUIC/HTTP3 部分のみ」に絞る。frontend/e2e の npm 依存は
+   ような規模の大きい製品は「QUIC/HTTP3 部分のみ」に絞る。frontend/e2e の npm 依存は
    `pnpm audit` / `npm audit` の結果を別節として台帳に含めるか。
 
-## 対象外(この計画で扱わないもの)
+<a id="対象外この計画で扱わないもの"></a>
+## 10. 対象外(この計画で扱わないもの)
 
 - ペネトレーションテストや実ネットワークでの攻撃再現(ループバック・単体・
   fuzz・モデル検査で代替)。

@@ -1,23 +1,39 @@
 # MoQT ライブ動画 実装計画
 
+[ドキュメント](../../README.md) › superpowers › MoQT ライブ動画 実装計画
+
+| 項目 | 内容 |
+|---|---|
+| 目的 | moqt_chat のサンプル動画を MoQT のライブ Track で配信する実装計画 |
+| 読む人 | コントリビューター |
+| 前提文書 | [設計書](../specs/2026-09-10-moqt-live-movie-design.md) |
+| 関連文書 | [app の詳細設計](../../design/app.md) |
+
 > **エージェントで作業する人へ:** 必須のサブスキル: この計画をタスクごとに実装するには superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使う。各ステップは進捗管理のためにチェックボックス(`- [ ]`)の記法で書いている。
 
 **目的:** `examples/moqt_chat` のサーバーから `assets/movie.mp4` を、実時間の速さで進む MoQT のライブ Track(Group ごとにキーフレームでそろえた fMP4 フラグメントを 1 つ)として配信し、ブラウザーが MSE で再生できるようにする。途中から参加した人は現在の Group から再生を始める。
 
-**構成:** 新しい `mp4frag` ドメインがコミット済みの fMP4 を init とフラグメントに分ける。ハブ(`moqtrun`)には時計で進むライブ Track を足し、各 Group を購読者ごとに `send_uni2` を 1 回ずつ呼んで配る。`srvrun` にはステップごとに呼ばれる `on_step` フックと `inflight` の問い合わせを足し、サンプルがセッションごとのステージング領域を使い回せるようにする。フロントエンドはフラグメントを sequence モードの `SourceBuffer` に追記する。
+**構成:**
+
+- 新しい `mp4frag` ドメインがコミット済みの fMP4 を init とフラグメントに分ける。
+- ハブ(`moqtrun`)には時計で進むライブ Track を足し、各 Group を購読者ごとに `send_uni2` を 1 回ずつ呼んで配る。
+- `srvrun` にはステップごとに呼ばれる `on_step` フックと `inflight` の問い合わせを足し、サンプルがセッションごとのステージング領域を使い回せるようにする。
+- フロントエンドはフラグメントを sequence モードの `SourceBuffer` に追記する。
 
 **使う技術:** libc-free の C(この SDK の制約に従う)、TypeScript/Next.js と vitest、puppeteer の e2e、一度だけのアセット変換に nix 経由の ffmpeg。
 
 **仕様:** `docs/superpowers/specs/2026-09-10-moqt-live-movie-design.md`
 
-## 全体の制約
+<a id="全体の制約"></a>
+## 1. 全体の制約
 
 - `src/` は libc-free: 使えるのは `common/platform/sys/syscall.h` の型と `src/common/bytes/util/*.h` のヘルパー(`bytes_memcpy`, `be_get_be32`, `ct_diffn`, `u64_min`)だけ。標準ヘッダーは使わない。
 - `src/` のすべての関数は循環的複雑度 3 以下(`lizard src --CCN 3 -w` が 0 で終わる)。`&&`, `||`, `?:`, `if`, `for`, `while` はそれぞれ +1 と数える。
 - `tests/run.c` は、すべての `src/**/*.c` とすべての `tests/**/*_test.c` を取り込む 1 つの翻訳単位。新しく足す名前は static でも非 static でも全体で一意にする(足す前に `grep -rn '<name>' src/ tests/` で確かめる)。
 - 公開ヘッダーに足すメンバー、マクロ、関数には `/** */` のドキュメントコメントを付ける(doxygen は WARN_AS_ERROR で動く)。
 - 内部 API はモジュール名を接頭辞にする(`mp4frag_*`, `moqtrun_*`)。アプリケーション向けの API は `wired_*` にする。
-- コミットゲート(毎回): `just test-fast` が "all tests passed" を出し、かつ `just ninja` が 0 で終わり、かつ `lizard src --CCN 3 -w` が 0 で終わること。`if A && B && C; then git commit; fi` の形で実行する(`| tail && commit` は使わない)。push の前には `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke` を実行する(どれも `nix develop` 経由。`just` が自分で通す)。
+- コミットゲート(毎回): `just test-fast` が "all tests passed" を出し、かつ `just ninja` が 0 で終わり、かつ `lizard src --CCN 3 -w` が 0 で終わること。`if A && B && C; then git commit; fi` の形で実行する(`| tail && commit` は使わない)。
+- push の前: `just test`, `just fmt-check`, `just docs`, `just lint`, `just fuzz-smoke` を実行する(どれも `nix develop` 経由。`just` が自分で通す)。
 - 並列で動くワーカーは自分の新しいファイルだけを編集する。`git add`/`commit`/`push` はしない。`tests/run.c` と `justfile` も編集しない。配線とコミットは 1 人の統合担当が行う(タスク 8)。
 - コミットのトレーラー(毎回):
   ```
@@ -26,15 +42,17 @@
   ```
 - Track Alias: チャット 0..3、音声 4..7、`movie` 8、`movie/init` 9。Group の間隔は 2000 ms。MIME は `video/mp4; codecs="avc1.64001e, mp4a.40.2"`(生成したファイルの `avcC` 64 00 1e と AAC-LC の DSI から決めた値)。
 
-## 並列化
+<a id="並列化"></a>
+## 2. 並列化
 
-第 1 波(互いに独立。同時に実行する): タスク 1(アセット)、タスク 2(mp4frag)、タスク 3(srvrun のフック)、タスク 4(ハブのライブ Track)、タスク 5(フロントエンドのライブクライアント)。タスク 4 の状態モデル(タスク 4a)は タスク 4 と並行して進め、見つかった反例は タスク 8 がコミットする前に タスク 4 のテストへ取り込む。
-第 2 波: タスク 6(サンプルサーバー)は 2、3、4 のあと。タスク 7(e2e とドキュメント)は 5、6 のあと。
-タスク 8(統合担当: 配線、ゲート、マイクロコミット)で各波を締める。
+- 第 1 波(互いに独立。同時に実行する): タスク 1(アセット)、タスク 2(mp4frag)、タスク 3(srvrun のフック)、タスク 4(ハブのライブ Track)、タスク 5(フロントエンドのライブクライアント)。タスク 4 の状態モデル(タスク 4a)は タスク 4 と並行して進め、見つかった反例は タスク 8 がコミットする前に タスク 4 のテストへ取り込む。
+- 第 2 波: タスク 6(サンプルサーバー)は 2、3、4 のあと。タスク 7(e2e とドキュメント)は 5、6 のあと。
+- タスク 8(統合担当: 配線、ゲート、マイクロコミット)で各波を締める。
 
 ---
 
-### タスク 1: 断片化したアセットを生成してコミットする
+<a id="タスク-1-断片化したアセットを生成してコミットする"></a>
+### 2.1 タスク 1: 断片化したアセットを生成してコミットする
 
 **ファイル:**
 - 作成: `assets/movie-live.mp4`
@@ -84,7 +102,8 @@ git commit -m "chore(assets): add fragmented 2-second-GOP copy of the sample mov
 
 ---
 
-### タスク 2: `mp4frag` ドメイン(fMP4 の最上位ボックスの走査)
+<a id="タスク-2-mp4frag-ドメインfmp4-の最上位ボックスの走査"></a>
+### 2.2 タスク 2: `mp4frag` ドメイン(fMP4 の最上位ボックスの走査)
 
 **ファイル:**
 - 作成: `src/app/media/mp4frag/mp4frag.h`, `src/app/media/mp4frag/mp4frag.c`
@@ -388,7 +407,11 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out) {
 }
 ```
 
-`mp4frag_scan_frags` は `while` + `if` + `if(&&)` で CCN 4 になる。`&&` を述語関数 `static int mp4frag_moof_bad(wired_span file, usz* off, const mp4frag_box* b, mp4frag_layout* out) { return b->type == mp4frag_fourcc("moof") && !mp4frag_take_mdat(file, off, b, out); }` に切り出し、`if (mp4frag_moof_bad(...)) return 0;` で呼ぶ。`lizard src/app/media/mp4frag/mp4frag.c --CCN 3 -w` で確かめる。
+`mp4frag_scan_frags` は `while` + `if` + `if(&&)` で CCN 4 になる。
+
+`&&` は述語関数に切り出す。述語関数は `static int mp4frag_moof_bad(wired_span file, usz* off, const mp4frag_box* b, mp4frag_layout* out) { return b->type == mp4frag_fourcc("moof") && !mp4frag_take_mdat(file, off, b, out); }` とする。
+
+`if (mp4frag_moof_bad(...)) return 0;` で呼ぶ。`lizard src/app/media/mp4frag/mp4frag.c --CCN 3 -w` で確かめる。
 
 - [ ] **ステップ 5: $TMPDIR のハーネスを実行して `fails=0` を確かめる。このファイルに lizard をかけ、0 で終わることを確かめる。**
 
@@ -396,7 +419,8 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out) {
 
 ---
 
-### タスク 3: srvrun のステップごとのフックと送信中の問い合わせ
+<a id="タスク-3-srvrun-のステップごとのフックと送信中の問い合わせ"></a>
+### 2.3 タスク 3: srvrun のステップごとのフックと送信中の問い合わせ
 
 **ファイル:**
 - 変更: `src/app/http3/server/srvrun/srvrun.h`(`wired_srvrun_opt` の `wt_session_close_ctx` のあとにメンバーを足し、`wired_server_wt_stream_reset` のあとに問い合わせ関数の宣言を足す)
@@ -413,7 +437,9 @@ int mp4frag_scan(wired_span file, mp4frag_layout* out) {
 
 - [ ] **ステップ 1: 既存のテストの書き方を読む**
 
-`tests/app/srvrun_test.c` の 4500〜4560 行あたり(`srvrun_step(&cfg, &st, bufs, 2)` をループで呼ぶテスト)と 4561 行あたり("WRAPPER EQUIVALENCE")を開き、テストの中で `srvrun_cfg`/`srvrun_state` をじかに組み立てる方法を確かめる。組み立て用のヘルパーは同じ名前のものを使い回す(いちばん近いテストから準備の行をそのまま写す。新しいフィクスチャーは作らない)。
+`tests/app/srvrun_test.c` の 4500〜4560 行あたり(`srvrun_step(&cfg, &st, bufs, 2)` をループで呼ぶテスト)と 4561 行あたり("WRAPPER EQUIVALENCE")を開き、テストの中で `srvrun_cfg`/`srvrun_state` をじかに組み立てる方法を確かめる。
+
+組み立て用のヘルパーは同じ名前のものを使い回す(いちばん近いテストから準備の行をそのまま写す。新しいフィクスチャーは作らない)。
 
 - [ ] **ステップ 2: 失敗するテストを書く**
 
@@ -540,7 +566,8 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
 
 ---
 
-### タスク 4: ハブのライブ Track(`moqtrun`)
+<a id="タスク-4-ハブのライブ-trackmoqtrun"></a>
+### 2.4 タスク 4: ハブのライブ Track(`moqtrun`)
 
 **ファイル:**
 - 変更: `src/app/moqt/run/moqtrun.h`(io テーブルに `send_uni2`。新しい `wired_moqtrun_live` 型とハブのメンバー。新しい関数 2 つ。カウンター 2 つ)
@@ -548,7 +575,9 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
 - テスト: `tests/app/moqtrun_test.c`(`send_uni2` のスタブと、新しい第 13 節)
 
 **インターフェース:**
-- 使うもの: `moqdata_subhdr_put`, `moqdata_obj_put`(data/moqdata.h)、`MOQDATA_MSG_OVERHEAD`。既存の `moqtrun_track_claim`, `moqtrun_sub_slot`, `moqtrun_track_sub_of_peer`, `moqtrun_queue_subscribe_ok`, `moqtrun_send_request_error`, `moqtrun_track_drop_sub`。
+- 使うもの:
+  - `moqdata_subhdr_put`, `moqdata_obj_put`(data/moqdata.h)、`MOQDATA_MSG_OVERHEAD`。
+  - 既存の `moqtrun_track_claim`, `moqtrun_sub_slot`, `moqtrun_track_sub_of_peer`, `moqtrun_queue_subscribe_ok`, `moqtrun_send_request_error`, `moqtrun_track_drop_sub`。
 - 生成するもの:
   ```c
   /* io table, after stream_reset: */
@@ -561,7 +590,9 @@ int wired_server_wt_stream_inflight(wired_wt_session* s, u64 stream_id) {
 
 - [ ] **ステップ 1: テスト用スタブを拡張する**(`tests/app/moqtrun_test.c` の先頭)
 
-呼び出しの種類 8 = `send_uni2` を足す。`head||body` を `payload` に記録し(`MOQTRUN_TEST_MAX_PAYLOAD` で切り詰める)、`payload_len` には切り詰める前の `head.n + body.n` を入れる(記録側が切り詰めても、テストが本当の長さを確かめられるようにするため)。`g_send_uni2_fail_n > 0` のあいだと、`g_send_uni2_reject_sess == s` のときは拒否する(-1 を返す)。この 2 つは `moqtrun_test_reset` で戻す。`moqtrun_test_io` で `io.send_uni2 = moqtrun_test_send_uni2` を設定する。
+呼び出しの種類 8 = `send_uni2` を足す。`head||body` を `payload` に記録し(`MOQTRUN_TEST_MAX_PAYLOAD` で切り詰める)、`payload_len` には切り詰める前の `head.n + body.n` を入れる(記録側が切り詰めても、テストが本当の長さを確かめられるようにするため)。
+
+`g_send_uni2_fail_n > 0` のあいだと、`g_send_uni2_reject_sess == s` のときは拒否する(-1 を返す)。この 2 つは `moqtrun_test_reset` で戻す。`moqtrun_test_io` で `io.send_uni2 = moqtrun_test_send_uni2` を設定する。
 
 ```c
 static int               g_send_uni2_fail_n;
@@ -795,7 +826,9 @@ static void test_moqtrun_live_and_blob_coexist(void) {
 }
 ```
 
-最後のテストの `...` について: `moqtrun_test_rename_track_to_audio` を写して汎用の `moqtrun_test_rename_track(const u8* src, usz src_len, const u8* name, usz name_len, u8* dst)` を作り、16 ビットの Length を `name_len - 5` だけ後から書き換えるようにする。それを `"movie/init"` に使う。8 つのテストをすべて `test_moqtrun` に登録する。
+最後のテストの `...` について: `moqtrun_test_rename_track_to_audio` を写して汎用の `moqtrun_test_rename_track(const u8* src, usz src_len, const u8* name, usz name_len, u8* dst)` を作る。この関数は 16 ビットの Length を `name_len - 5` だけ後から書き換える。それを `"movie/init"` に使う。
+
+8 つのテストをすべて `test_moqtrun` に登録する。
 
 - [ ] **ステップ 3: `just test-fast` を実行し、`wired_moqt_publish_live` でコンパイルエラーになることを確かめる(Red)。**
 
@@ -906,7 +939,9 @@ static usz moqtrun_live_head(
 }
 ```
 
-(`moqdata_obj_put` は delta + length + payload を一度に書く。head にはペイロード抜きの delta + length が要るので、`moqvi_put` を 2 回呼ぶ。`moqdata.c` の `moqdata_obj_put` の本体を読み、空でないペイロードのときに出す varint の並び(delta、length、バイト列の順)を確かめて、`head||body` が `moqdata_obj_put` の出力とバイト単位で一致するようにする。共存テストの `moqtrun_test_live_group` がそれを `moqdata_obj_take` でデコードすることが、その証明になる。)
+(`moqdata_obj_put` は delta + length + payload を一度に書く。head にはペイロード抜きの delta + length が要るので、`moqvi_put` を 2 回呼ぶ。)
+
+(`moqdata.c` の `moqdata_obj_put` の本体を読み、空でないペイロードのときに出す varint の並び(delta、length、バイト列の順)を確かめて、`head||body` が `moqdata_obj_put` の出力とバイト単位で一致するようにする。共存テストの `moqtrun_test_live_group` がそれを `moqdata_obj_take` でデコードすることが、その証明になる。)
 
 ```c
 /* 1 iff sub slot i still owes Group g (never sent, or last sent older). */
@@ -939,7 +974,11 @@ static void moqtrun_live_skip_stale(wired_moqt_hub* hub, usz i, u64 g) {
 }
 ```
 
-注意: `moqtrun_live_skip_stale` は飛ばした Group ごとに 1 回ずつ取りこぼしを数える。しかし k Group 遅れた購読者は、飛ばした Group ごとにちょうど 1 回ずつ数えたうえで、次に受け付けられた送信で `sent_group = g` によって追いつかせなければならない。いちばん単純で正しい形は次のとおり。`moqtrun_live_send_one` で送信が受け付けられたとき、`sent_group = g` を設定する前に `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` を実行し、`moqtrun_live_skip_stale` は消す。2 条件の判定を、飛ばした Group の数(なければ 0)を返すヘルパー `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` に移せば、CCN 3 以下を保てる。
+注意: `moqtrun_live_skip_stale` は飛ばした Group ごとに 1 回ずつ取りこぼしを数える。しかし k Group 遅れた購読者は、飛ばした Group ごとにちょうど 1 回ずつ数えたうえで、次に受け付けられた送信で `sent_group = g` によって追いつかせなければならない。
+
+直し方は次のとおり。`moqtrun_live_send_one` で送信が受け付けられたとき、`sent_group = g` を設定する前に `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` を実行し、`moqtrun_live_skip_stale` は消す。
+
+2 条件の判定を、飛ばした Group の数(なければ 0)を返すヘルパー `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` に移せば、CCN 3 以下を保てる。
 
 ```c
 static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
@@ -956,7 +995,9 @@ void wired_moqt_tick(wired_moqt_hub* hub, u64 now_ms) {
 }
 ```
 
-SUBSCRIBE を受けた時点でも現在の時刻が要る(仕様: 現在の Group をすぐに送る)。ハブは自前の時計を持たないので、最後の tick の `now_ms` を `hub->live.last_now_ms` に保存し(構造体に足し、ドキュメントコメントは "clock of the most recent wired_moqt_tick; a SUBSCRIBE between ticks is served the Group current at that tick" にする)、SUBSCRIBE の経路でそれを使う:
+SUBSCRIBE を受けた時点でも現在の時刻が要る(仕様: 現在の Group をすぐに送る)。
+
+ハブは自前の時計を持たないので、最後の tick の `now_ms` を `hub->live.last_now_ms` に保存し(構造体に足し、ドキュメントコメントは "clock of the most recent wired_moqt_tick; a SUBSCRIBE between ticks is served the Group current at that tick" にする)、SUBSCRIBE の経路でそれを使う:
 
 ```c
 /* SUBSCRIBE for the live track: record the peer and send it the current
@@ -987,7 +1028,11 @@ static void moqtrun_live_attach(wired_moqt_hub* hub, wired_moqtrun_peer* p, wire
 }
 ```
 
-`moqtrun_subscribe_live` は `if` + `if` で CCN 3(`held`/`slot` の if)。これで問題ない。`moqtrun_route_subscribe` の振り分けでは、blob の判定のあとに `if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) { moqtrun_subscribe_live(hub, p, peer_idx); return; }` を足す。これで `moqtrun_route_subscribe` は CCN 3 になる。セッションを閉じるときは、`moqtrun_blob_drop_sub` に同じやり方でライブ Track を足す(名前を `moqtrun_hub_tracks_drop_sub` に変える。CCN はガード付きの if 2 つで 3)。
+`moqtrun_subscribe_live` は `if` + `if` で CCN 3(`held`/`slot` の if)。これで問題ない。
+
+`moqtrun_route_subscribe` の振り分けでは、blob の判定のあとに `if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) { moqtrun_subscribe_live(hub, p, peer_idx); return; }` を足す。これで `moqtrun_route_subscribe` は CCN 3 になる。
+
+セッションを閉じるときは、`moqtrun_blob_drop_sub` に同じやり方でライブ Track を足す(名前を `moqtrun_hub_tracks_drop_sub` に変える。CCN はガード付きの if 2 つで 3)。
 
 また、`moqtrun_track_claim` が `subs[].active` をクリアするのはスロットが in_use でなかったときだけだが、`sent_any` は購読者を付けるたびにリセットされるので、追加のゼロ埋めは要らない。
 
@@ -997,21 +1042,35 @@ static void moqtrun_live_attach(wired_moqt_hub* hub, wired_moqtrun_peer* p, wire
 
 ---
 
-### タスク 4a: ライブ送信部の状態モデル(タスク 4 と並行して進める)
+<a id="タスク-4a-ライブ送信部の状態モデルタスク-4-と並行して進める"></a>
+### 2.5 タスク 4a: ライブ送信部の状態モデル(タスク 4 と並行して進める)
 
 **ファイル:** `tasks/loopeng/moqtlive/` の下のすべて(コミットしない)。
 
-ハブのライブ送信部を modeler エージェントでモデル化する。変数は `clock_group`、購読者ごとの `sent_group`/`sent_any`/`active`、セッションごとのステージングスロット `free|inflight`。アクションは `Tick`(clock_group' = clock_group + 1 のあと、配信を 1 巡)、`Subscribe`、`Close`、`SendAccepted`(空きスロットが要る。そのスロットを inflight にし、Group を記録する)、`SendRefused`(空きスロットがない。何も記録しない)、`SlotReleased`。不変条件は次の 4 つ。(1) どの購読者も、履歴の中で同じ Group を 2 回記録しない。(2) 購読者ごとに、記録した Group は狭義単調に増える。(3) inflight のスロットを取り直さない。(4) 記録した Group は、送信した時点の時計の Group に等しい(遅れない)。活性: `SlotReleased` の弱公平性のもとで、アクティブな購読者の `sent_group` は、どの Group にもいずれ届く。モデルの範囲: 購読者 2、スロット 2、時計は 4 まで。
+ハブのライブ送信部を modeler エージェントでモデル化する。
+
+- 変数: `clock_group`、購読者ごとの `sent_group`/`sent_any`/`active`、セッションごとのステージングスロット `free|inflight`。
+- アクション: `Tick`(clock_group' = clock_group + 1 のあと、配信を 1 巡)、`Subscribe`、`Close`、`SendAccepted`(空きスロットが要る。そのスロットを inflight にし、Group を記録する)、`SendRefused`(空きスロットがない。何も記録しない)、`SlotReleased`。
+- 不変条件は次の 4 つ。
+  1.  どの購読者も、履歴の中で同じ Group を 2 回記録しない。
+  2. 購読者ごとに、記録した Group は狭義単調に増える。
+  3. inflight のスロットを取り直さない。
+  4. 記録した Group は、送信した時点の時計の Group に等しい(遅れない)。
+- 活性: `SlotReleased` の弱公平性のもとで、アクティブな購読者の `sent_group` は、どの Group にもいずれ届く。
+- モデルの範囲: 購読者 2、スロット 2、時計は 4 まで。
 
 反例が出たら、1 つごとに タスク 4 の第 13 節へテストを 1 つ足す(同じ書き方で、テスト名にモデルの用語や ID を入れない)。モデルが反例を見つけなければ、タスク 4 のテストはそのままにする。
 
 ---
 
-### タスク 5: フロントエンドのライブクライアント
+<a id="タスク-5-フロントエンドのライブクライアント"></a>
+### 2.6 タスク 5: フロントエンドのライブクライアント
 
 **ファイル:**
 - 作成: `examples/moqt_chat/frontend/src/lib/moqtLiveClient.ts`, `examples/moqt_chat/frontend/src/lib/__tests__/moqtLiveClient.test.ts`
-- 変更: `examples/moqt_chat/frontend/src/lib/moqtMovieClient.ts`(init 用に使っていた `MOVIE_TRACK_NAME` を改める: `MOVIE_INIT_TRACK_NAME = "movie/init"` と `MOVIE_INIT_TRACK_ALIAS = 9n` を足す。`subscribeMovieInit(chat)` を足す。`readMovie` は init の読み取りに残す)、`useMoqtChat.ts`、`moqtChatStore.ts`(とそのテスト)、`page.tsx`
+- 変更:
+  - `examples/moqt_chat/frontend/src/lib/moqtMovieClient.ts`(init 用に使っていた `MOVIE_TRACK_NAME` を改める: `MOVIE_INIT_TRACK_NAME = "movie/init"` と `MOVIE_INIT_TRACK_ALIAS = 9n` を足す。`subscribeMovieInit(chat)` を足す。`readMovie` は init の読み取りに残す)
+  - `useMoqtChat.ts`、`moqtChatStore.ts`(とそのテスト)、`page.tsx`
 
 **インターフェース:**
 - 使うもの: `MoqtChatClient.subscribeTrack`, `readToEof`, `decodeBlobObjects`, `MOVIE_TRACK_ALIAS = 8n`。
@@ -1084,7 +1143,11 @@ describe("LiveMovie", () => {
 });
 ```
 
-実行する前に、3 つの `/* */` の本体を実際のコードで埋める(これはテストそのもので、仮置きではない)。フラグメントのストリームは `concatBytes([encodeVarint(0n), encodeVarint(BigInt(payload.length)), payload])` で組み立てる(ヘッダーは呼び出し側が読み終えている)。偽の reader は `moqtMovieClient.test.ts` のヘルパーから作る。偽の `MediaSource` をグローバルに置き、その `addSourceBuffer` が偽の SourceBuffer を返し、`start()` の中から `sourceopen` を同期的に発火させる(`vi.stubGlobal("MediaSource", ...)`、`URL.createObjectURL` もスタブにする)。
+実行する前に、3 つの `/* */` の本体を実際のコードで埋める(これはテストそのもので、仮置きではない)。
+
+フラグメントのストリームは `concatBytes([encodeVarint(0n), encodeVarint(BigInt(payload.length)), payload])` で組み立てる(ヘッダーは呼び出し側が読み終えている)。偽の reader は `moqtMovieClient.test.ts` のヘルパーから作る。
+
+偽の `MediaSource` をグローバルに置き、その `addSourceBuffer` が偽の SourceBuffer を返し、`start()` の中から `sourceopen` を同期的に発火させる(`vi.stubGlobal("MediaSource", ...)`、`URL.createObjectURL` もスタブにする)。
 
 - [ ] **ステップ 2: `pnpm test src/lib/__tests__/moqtLiveClient.test.ts` が失敗する(モジュールがない)。**
 
@@ -1125,17 +1188,36 @@ export class AppendQueue {
 }
 ```
 
-`LiveMovie`: `chat`、`video`、`AppendQueue | undefined`、`#init?: Uint8Array`、`#pending: Uint8Array[]`、`firstGroup?: bigint` を持つ。`start()`: `const ms = new MediaSource(); video.src = URL.createObjectURL(ms); await new Promise(r => ms.addEventListener("sourceopen", r, { once: true })); const sb = ms.addSourceBuffer(MOVIE_MIME); sb.mode = "sequence"; this.#q = new AppendQueue(sb, onError); await subscribeMovieInit(chat);`。あわせて `video.addEventListener("timeupdate", () => this.#q?.trim(video.currentTime))`。`handleInit(bytes)`: 保存して `q.push(bytes)` し、続いて `#pending` を順に流し込み、最後に `chat.subscribeTrack(utf8ToBytes(MOVIE_TRACK_NAME), MOVIE_TRACK_NAME)`。`handleFragment(tail, reader, props, groupId)`: try/catch の中で `const bytes = decodeBlobObjects(await readToEof(tail, reader), props)`(失敗したら return)。`firstGroup ??= groupId`。init がまだなければ `#pending` に積み(上限 8、あふれたらいちばん古いものを捨てる)、あれば `q.push`。`stop()`: `video.removeAttribute("src"); video.load();`。
+`LiveMovie`: `chat`、`video`、`AppendQueue | undefined`、`#init?: Uint8Array`、`#pending: Uint8Array[]`、`firstGroup?: bigint` を持つ。
+
+- `start()`: `const ms = new MediaSource(); video.src = URL.createObjectURL(ms); await new Promise(r => ms.addEventListener("sourceopen", r, { once: true })); const sb = ms.addSourceBuffer(MOVIE_MIME); sb.mode = "sequence"; this.#q = new AppendQueue(sb, onError); await subscribeMovieInit(chat);`。あわせて `video.addEventListener("timeupdate", () => this.#q?.trim(video.currentTime))`。
+- `handleInit(bytes)`: 保存して `q.push(bytes)` し、続いて `#pending` を順に流し込み、最後に `chat.subscribeTrack(utf8ToBytes(MOVIE_TRACK_NAME), MOVIE_TRACK_NAME)`。
+- `handleFragment(tail, reader, props, groupId)`: try/catch の中で `const bytes = decodeBlobObjects(await readToEof(tail, reader), props)`(失敗したら return)。`firstGroup ??= groupId`。init がまだなければ `#pending` に積み(上限 8、あふれたらいちばん古いものを捨てる)、あれば `q.push`。
+- `stop()`: `video.removeAttribute("src"); video.load();`。
 
 - [ ] **ステップ 4: フック、ストア、ページを配線する**
 
-`moqtChatStore.ts`: `movieUrl`/`setMovieUrl` を `liveError: string | null` / `setLiveError` に置き換え、そのテストの初期状態のアサーションを更新する。`useMoqtChat.ts`: フックから `videoRef`(`useRef<HTMLVideoElement>(null)`)を返す。`connect()` の中で、チャットがつながったあとに `const live = new LiveMovie(client, videoRef.current!, (m) => store.setLiveError(m)); liveRef.current = live; live.start().catch(() => {});`。`onUnknownUniStream`: alias 9 なら `readMovie(...).then((b) => b && liveRef.current?.handleInit(b))`、alias 8 なら `liveRef.current?.handleFragment(tail, reader, header.flags.properties, header.groupId)`、それ以外は音声。`leave()`: `liveRef.current?.stop()`。`page.tsx`: 接続中はメッセージ一覧の上に `<video ref={videoRef} data-testid="live" autoplay muted playsInline controls data-first-group={...}>` を描く(`data-first-group` には、ストアの小さなフィールド `liveFirstGroup: string | null` の値を入れる。このフィールドは `handleFragment` が `onFirstGroup` コールバックで更新する。コールバックは `LiveMovie` のコンストラクターのオプションに足す。e2e がこの属性を読む)。`liveError` が設定されていれば動画の下に表示する。
+`moqtChatStore.ts`: `movieUrl`/`setMovieUrl` を `liveError: string | null` / `setLiveError` に置き換え、そのテストの初期状態のアサーションを更新する。
+
+`useMoqtChat.ts`:
+
+- フックから `videoRef`(`useRef<HTMLVideoElement>(null)`)を返す。
+- `connect()` の中で、チャットがつながったあとに `const live = new LiveMovie(client, videoRef.current!, (m) => store.setLiveError(m)); liveRef.current = live; live.start().catch(() => {});`。
+- `onUnknownUniStream`: alias 9 なら `readMovie(...).then((b) => b && liveRef.current?.handleInit(b))`、alias 8 なら `liveRef.current?.handleFragment(tail, reader, header.flags.properties, header.groupId)`、それ以外は音声。
+- `leave()`: `liveRef.current?.stop()`。
+
+`page.tsx`: 接続中はメッセージ一覧の上に `<video ref={videoRef} data-testid="live" autoplay muted playsInline controls data-first-group={...}>` を描く。
+
+`data-first-group` には、ストアのフィールド `liveFirstGroup: string | null` の値を入れる。このフィールドは `handleFragment` が `onFirstGroup` コールバックで更新する。コールバックは `LiveMovie` のコンストラクターのオプションに足す。e2e がこの属性を読む。
+
+`liveError` が設定されていれば動画の下に表示する。
 
 - [ ] **ステップ 5: `pnpm test && pnpm lint && pnpm build` がすべて通る。コミットせず、報告する。**
 
 ---
 
-### タスク 6: サンプルサーバー(fMP4 での起動、ライブ配信、ステージングのリング)
+<a id="タスク-6-サンプルサーバーfmp4-での起動ライブ配信ステージングのリング"></a>
+### 2.7 タスク 6: サンプルサーバー(fMP4 での起動、ライブ配信、ステージングのリング)
 
 **ファイル:**
 - 変更: `examples/moqt_chat/wired_server.c`
@@ -1175,7 +1257,19 @@ typedef struct { wired_wt_session* s; live_slot ring[LIVE_RING]; } live_session;
 static live_session g_live[BIG_SLOTS];
 ```
 
-関数(どれも小さく): `live_session_for(s)`(セッションのポインターで探すか確保する)、`live_slot_free(session, slot)`(`!used || !wired_server_wt_stream_inflight(s, stream_id)`)、`live_slot_claim(...)`、`moqt_io_send_uni2(s, head, body)`(スロットを確保し、シグナルの接頭部 + head + body を `bytes_memcpy` で写し、`wired_server_wt_open_uni` を呼ぶ。成功したら `stream_id` を記録し、`used = 1` にする)、`on_session_close` の中の `live_session_release(s)`。`g_big`/`big_slot_*`/`send_uni_big` は消す(blob の init は 1.2 KB でスタックの経路を通る。`moqt_io_send_uni` はスタックのステージングを超える大きさで、これまでどおり -1 を返す)。`g_moqt_io` に `send_uni2` を足す。`publish_movie`: 読み込み、`mp4frag_scan`(0 なら終了する)、blob(init)を配信してからライブを配信し(`clock_mono_ms()`。`common/platform/clock/mono.h` を取り込む。`wired.h` 経由で届くかを確かめ、届かなければ include を足す)、`movie: <n> fragments, init <b> bytes, group <ms> ms` をログに出す。`on_step`: `static void on_step(void* ctx, u64 now_ms) { wired_moqt_tick((wired_moqt_hub*)ctx, now_ms); }` と `opt.run.on_step = on_step; opt.run.on_step_ctx = &g_hub;`。`log_relay_stats` に `live_sent=`/`live_dropped=` を足す。
+関数(どれも小さく):
+
+- `live_session_for(s)`(セッションのポインターで探すか確保する)
+- `live_slot_free(session, slot)`(`!used || !wired_server_wt_stream_inflight(s, stream_id)`)
+- `live_slot_claim(...)`
+- `moqt_io_send_uni2(s, head, body)`(スロットを確保し、シグナルの接頭部 + head + body を `bytes_memcpy` で写し、`wired_server_wt_open_uni` を呼ぶ。成功したら `stream_id` を記録し、`used = 1` にする)
+- `on_session_close` の中の `live_session_release(s)`
+
+`g_big`/`big_slot_*`/`send_uni_big` は消す(blob の init は 1.2 KB でスタックの経路を通る。`moqt_io_send_uni` はスタックのステージングを超える大きさで、これまでどおり -1 を返す)。`g_moqt_io` に `send_uni2` を足す。
+
+- `publish_movie`: 読み込み、`mp4frag_scan`(0 なら終了する)、blob(init)を配信してからライブを配信し(`clock_mono_ms()`。`common/platform/clock/mono.h` を取り込む。`wired.h` 経由で届くかを確かめ、届かなければ include を足す)、`movie: <n> fragments, init <b> bytes, group <ms> ms` をログに出す。
+- `on_step`: `static void on_step(void* ctx, u64 now_ms) { wired_moqt_tick((wired_moqt_hub*)ctx, now_ms); }` と `opt.run.on_step = on_step; opt.run.on_step_ctx = &g_hub;`。
+- `log_relay_stats` に `live_sent=`/`live_dropped=` を足す。
 
 - [ ] **ステップ 2: `ninja examples/moqt_chat/wired_server` でビルドできる。起動の確認: `./examples/moqt_chat/wired_server --movie assets/movie-live.mp4 --port 14433` が動画の行を出し、2 秒間動き続ける。`--movie` なしでも起動する(CI の examples ワークフローは引数なしで動かす)。**
 
@@ -1183,15 +1277,23 @@ static live_session g_live[BIG_SLOTS];
 
 ---
 
-### タスク 7: 実ブラウザーでの確認、ドキュメント、Docker
+<a id="タスク-7-実ブラウザーでの確認ドキュメントdocker"></a>
+### 2.8 タスク 7: 実ブラウザーでの確認、ドキュメント、Docker
 
 **ファイル:**
 - 作成: `examples/moqt_chat/e2e/run-live-check.mjs`
-- 変更: `examples/moqt_chat/justfile`(`e2e-movie` の隣に `e2e-live` レシピを置く。`e2e-movie` は `run-movie-check.mjs` と一緒に消す。blob の動画 Track はもう利用者向けの機能ではないため)、`examples/moqt_chat/Dockerfile`(`COPY assets/movie-live.mp4 /movie.mp4`)、`examples/moqt_chat/README.md`(動画の段落を置き換える: ライブ Track のモデル、alias 8/9、`--movie` に fMP4 を渡すこと、`just e2e-live`)
+- 変更:
+  - `examples/moqt_chat/justfile`(`e2e-movie` の隣に `e2e-live` レシピを置く。`e2e-movie` は `run-movie-check.mjs` と一緒に消す。blob の動画 Track はもう利用者向けの機能ではないため)
+  - `examples/moqt_chat/Dockerfile`(`COPY assets/movie-live.mp4 /movie.mp4`)
+  - `examples/moqt_chat/README.md`(動画の段落を置き換える: ライブ Track のモデル、alias 8/9、`--movie` に fMP4 を渡すこと、`just e2e-live`)
 
 - [ ] **ステップ 1: `run-live-check.mjs` を書く**(骨組みは `run-movie-check.mjs` と同じ: `lib/args.mjs` の `arg`、`startServer`、静的なフロントエンド、`args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]` 付きの puppeteer):
 
-user1 で参加する。`waitForFunction(() => { const v = document.querySelector('[data-testid="live"]'); return v && v.readyState >= 3 && v.currentTime > 4; }, { timeout: 30000 })`。`data-first-group` を読む。`await sleep(5000)`。user2 も同じように参加させる。`BigInt(user2.firstGroup) > BigInt(user1.firstGroup)` を求める。両方について `currentTime` を 3 秒あけて 2 回取り、2 秒以上進んでいることを求める。閉じる。`await server.stop()`。サーバーのログから `live_sent=` を grep し、値が 0 より大きいことを求める。JSON の要約を出力し、どれか 1 つでも失敗したら 0 以外で終わる。
+user1 で参加する。`waitForFunction(() => { const v = document.querySelector('[data-testid="live"]'); return v && v.readyState >= 3 && v.currentTime > 4; }, { timeout: 30000 })`。`data-first-group` を読む。
+
+`await sleep(5000)`。user2 も同じように参加させる。`BigInt(user2.firstGroup) > BigInt(user1.firstGroup)` を求める。両方について `currentTime` を 3 秒あけて 2 回取り、2 秒以上進んでいることを求める。
+
+閉じる。`await server.stop()`。サーバーのログから `live_sent=` を grep し、値が 0 より大きいことを求める。JSON の要約を出力し、どれか 1 つでも失敗したら 0 以外で終わる。
 
 - [ ] **ステップ 2: 実行する: `cd examples/moqt_chat && just e2e-live`(タスク 8 がサーバーをビルドし、`pnpm build` を実行したあと)。期待する結果: 両クライアントが ok の JSON が出て、0 で終わる。先に、残っている古い `wired_server` を止める(`pgrep -a wired_server`)。残ったプロセスは SO_REUSEPORT で 4433 番ポートを共有し、ハンドシェイクを横取りする。**
 
@@ -1199,7 +1301,8 @@ user1 で参加する。`waitForFunction(() => { const v = document.querySelecto
 
 ---
 
-### タスク 8: 統合、ゲート、マイクロコミット(直列、ワーカー 1 人)
+<a id="タスク-8-統合ゲートマイクロコミット直列ワーカー-1-人"></a>
+### 2.9 タスク 8: 統合、ゲート、マイクロコミット(直列、ワーカー 1 人)
 
 - [ ] **ステップ 1: `mp4frag` を `tests/run.c` に配線する:** 本番コードのブロックに `#include "app/media/mp4frag/mp4frag.c"`(アルファベット順で `app/http3/server/staticfile/staticfile.c` の近くでよい)、テストのブロックに `#include "app/mp4frag_test.c"`、`main()` に `test_mp4frag();`。そのあと、配線の前後で `grep -c include tests/run.c` を比べ(+2)、`just ninja` のあとに数の確認 `[ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]` を実行する。
 

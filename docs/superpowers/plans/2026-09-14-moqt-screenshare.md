@@ -1,23 +1,38 @@
 # MoQT 画面共有(ウインドウ / 画面全体)実装計画
 
+[ドキュメント](../../README.md) › superpowers › MoQT 画面共有(ウインドウ / 画面全体)実装計画
+
+| 項目 | 内容 |
+|---|---|
+| 目的 | moqt_chat に画面共有(ウインドウ / 画面全体)を足す実装計画。仕様を兼ねる |
+| 読む人 | コントリビューター |
+| 前提文書 | なし |
+| 関連文書 | [app の詳細設計](../../design/app.md)、[カメラ映像の設計書](../specs/2026-11-04-moqt-chat-camera-design.md) |
+
 > **エージェント型ワーカー向け**: 必須のサブスキルである。この計画をタスクごとに実装するときは superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使う。各ステップは進捗を追うためにチェックボックス(`- [ ]`)の記法で書いている。
 
-**目的**: `examples/moqt_chat` の各参加者が `getDisplayMedia`(ウインドウ / 画面全体、ブラウザ標準ピッカー)で自分の画面を配信し、他の全参加者がタイルで見られるようにする。チャット・音声と同じハブ中継(バイト透過リレー)に乗せる。
+**目的**: `examples/moqt_chat` の各参加者が `getDisplayMedia`(ウインドウ / 画面全体、ブラウザー標準ピッカー)で自分の画面を配信し、他の全参加者がタイルで見られるようにする。チャット・音声と同じハブ中継(バイト透過リレー)に乗せる。
 
-**構成**: ブラウザ側で VP8 (WebCodecs `VideoEncoder`) にエンコードし、各 `EncodedVideoChunk` を ≤480B の MoQT Object に分割して alias 10..13 の長寿命 uni ストリームで送る(音声 `MoqtVoiceClient` と同形)。C 側のリレー本体(`moqtrun`)はトラック非依存なので無変更。`SRVRUN_WTSEND_BUF` と `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` の 2 定数だけ変更する。受信側は送信者ごとに再構成器 → `VideoDecoder` → `<canvas>` タイル。
+**構成**:
+
+- 送信側: ブラウザー側で VP8 (WebCodecs `VideoEncoder`) にエンコードし、各 `EncodedVideoChunk` を ≤480B の MoQT Object に分割して alias 10..13 の長寿命の単方向ストリームで送る(音声 `MoqtVoiceClient` と同形)。
+- C 側: リレー本体(`moqtrun`)は Track 非依存なので無変更。`SRVRUN_WTSEND_BUF` と `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` の 2 定数だけ変更する。
+- 受信側: 送信者ごとに再構成器 → `VideoDecoder` → `<canvas>` タイル。
 
 **技術スタック**: libc-free C(このリポジトリの制約)、TypeScript/Next.js + vitest、WebCodecs/WebTransport(素の DOM API、DI でテスト)、puppeteer e2e。
 
 **仕様**: 本計画がそのまま仕様を兼ねる(直前の brainstorming/plan mode で承認済み)。
 
-## 全体の制約
+<a id="全体の制約"></a>
+## 1. 全体の制約
 
 - `src/` は libc-free: `sys/syscall.h` の型と `util/*.h`(`util/bytes.h`, `util/be.h`, `util/ct.h`, `util/num.h`)のみ。標準ヘッダー禁止。
 - `src/` の全関数 CCN ≤ 3(`lizard src --CCN 3 -w` が exit 0)。`&&`, `||`, `?:`, `if`, `for`, `while` は各 +1。
 - `tests/run.c` は単一 TU: 新規の non-static / static シンボル名はすべて `grep -rn '<name>' src/ tests/` で一意なことを確認してから追加。
 - 新規公開ヘッダーメンバ・マクロ・関数には doc comment(`/** */`)必須。
 - 内部 API は module token を prefix にする(`moqtrun_*`, `srvrun_*`)。application-facing API は `wired_*`。
-- コミットゲート(毎コミット): `just test-fast` が "all tests passed" を出力 AND `just ninja` が exit 0 AND `lizard src --CCN 3 -w` が exit 0、`if A && B && C; then git commit; fi` の形で実行(`| tail && commit` 禁止)。push 前は `just test`、`just fmt-check`、`just docs`、`just lint`、`just fuzz-smoke`(すべて `nix develop` 経由)。
+- コミットゲート(毎コミット): `just test-fast` が "all tests passed" を出力 AND `just ninja` が exit 0 AND `lizard src --CCN 3 -w` が exit 0。`if A && B && C; then git commit; fi` の形で実行(`| tail && commit` 禁止)。
+- push 前: `just test`、`just fmt-check`、`just docs`、`just lint`、`just fuzz-smoke`(すべて `nix develop` 経由)。
 - 並列ワーカーは自分の新規ファイルのみ編集。`git add`/`commit`/`push` 禁止、`tests/run.c`・`examples/moqt_chat/justfile` 編集禁止。integrator(タスク 8)のみが wiring とコミットを行う。
 - コミットの末尾トレーラー(毎コミット):
   ```
@@ -27,20 +42,22 @@
 - alias: chat 0..3, audio 4..7, movie 8, movie/init 9, **screen 10..13**(`3N` オフセット、N=4)。
 - チャンクヘッダー codec: `seq u16 | idx u16 | count u16 | flags u8 (bit0=keyframe) | ts u32 (µs)`。キーフレームの idx=0 にだけ続けて `width u16 | height u16 | codec len u8 + bytes`。Object payload ≤ 480 B。
 - vp8、`latencyMode: "realtime"`、bitrate ≈ 1 Mbps、2 秒ごとに `encode(frame, {keyFrame:true})` で強制キーフレーム。
-- 受信側は「欠けた idx があればフレーム全体を破棄」。キーフレームが揃うまで decoder には渡さない(WaitKey → Decoding の状態機械。decode error は WaitKey へ戻る)。
+- 受信側は「欠けた idx があればフレーム全体を破棄」。キーフレームが揃うまでデコーダーには渡さない(WaitKey → Decoding の状態機械。decode error は WaitKey へ戻る)。
 
-## 並列化
+<a id="並列化"></a>
+## 2. 並列化
 
-ウェーブ 0(直列・最初): タスク 1。
-ウェーブ 1(並列、タスク 1 の後): タスク 2, タスク 3。
-ウェーブ 2(並列、タスク 4 単体・タスク 4 完了後にウェーブ 3 着手可): タスク 4。
-ウェーブ 3(並列、タスク 4 の後): タスク 5, タスク 6。
-ウェーブ 4(直列、タスク 5+6 の後): タスク 7。
-ウェーブ 5(直列、integrator): タスク 8(ビルドゲート)、タスク 9(e2e)。
+- ウェーブ 0(直列・最初): タスク 1。
+- ウェーブ 1(並列、タスク 1 の後): タスク 2, タスク 3。
+- ウェーブ 2(並列、タスク 4 単体・タスク 4 完了後にウェーブ 3 着手可): タスク 4。
+- ウェーブ 3(並列、タスク 4 の後): タスク 5, タスク 6。
+- ウェーブ 4(直列、タスク 5+6 の後): タスク 7。
+- ウェーブ 5(直列、integrator): タスク 8(ビルドゲート)、タスク 9(e2e)。
 
 ---
 
-### タスク 1: `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` 2→3
+<a id="タスク-1-wired_moqtrun_max_tracks_per_peer-23"></a>
+### 2.1 タスク 1: `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` 2→3
 
 **ファイル**:
 - 変更: `src/app/moqt/run/moqtrun.h`(line 180 の define、line 179/191 の doc comment)
@@ -58,7 +75,8 @@
 
 ---
 
-### タスク 2: `SRVRUN_WTSEND_BUF` 4096→65536
+<a id="タスク-2-srvrun_wtsend_buf-409665536"></a>
+### 2.2 タスク 2: `SRVRUN_WTSEND_BUF` 4096→65536
 
 **ファイル**:
 - 変更: `src/app/http3/server/srvrun/srvrun.c`(line 286 の define + doc comment)
@@ -76,7 +94,8 @@
 
 ---
 
-### タスク 3: C リレー本体は無変更、テストのみ追加
+<a id="タスク-3-c-リレー本体は無変更テストのみ追加"></a>
+### 2.3 タスク 3: C リレー本体は無変更、テストのみ追加
 
 **ファイル**:
 - 変更: `tests/app/moqtrun_test.c`
@@ -94,7 +113,8 @@
 
 ---
 
-### タスク 4: `moqtScreenWire.ts`(純粋なチャンク符号化、pure TS)
+<a id="タスク-4-moqtscreenwirets純粋なチャンク符号化pure-ts"></a>
+### 2.4 タスク 4: `moqtScreenWire.ts`(純粋なチャンク符号化、pure TS)
 
 **ファイル**:
 - 新規作成: `examples/moqt_chat/frontend/src/lib/moqtScreenWire.ts`
@@ -118,7 +138,8 @@
 
 ---
 
-### タスク 5: `moqtScreenClient.ts`(ネットワーク結線)
+<a id="タスク-5-moqtscreenclienttsネットワーク結線"></a>
+### 2.5 タスク 5: `moqtScreenClient.ts`(ネットワーク結線)
 
 **ファイル**:
 - 新規作成: `examples/moqt_chat/frontend/src/lib/moqtScreenClient.ts`
@@ -128,7 +149,7 @@
 - `publishScreenTrack()`: alias `<id>/screen`(index+10)を PUBLISH。
 - `subscribeToScreenTrack(id)`: 1 秒リトライループへの追加(既存の chat/audio ポーリングと同じ形)。
 - `sendVideoChunk(bytes)`: `sendOpusFrame` と同じ 1 writer・長寿命ストリームで送信(`sendGate` を再利用)。
-- `handleIncomingStream(...)`: 受信 uni ストリームのエントリポイント。
+- `handleIncomingStream(...)`: 受信した単方向ストリームのエントリポイント。
 - `onUnknownUniStream` の判定順序: movie チェックの後、voice の無条件 `reader.cancel()` フォールバックより**前**に screen alias 範囲(10..13)チェックを挿入する。順序を誤ると画面共有ストリームが voice に食われて cancel される。
 - `ownScreenTrackAlias(id)` 等、alias 算術は純粋関数として切り出し単体テスト可能にする。
 
@@ -143,7 +164,8 @@
 
 ---
 
-### タスク 6: `screenSharePipeline.ts`(WebCodecs キャプチャ)
+<a id="タスク-6-screensharepipelinetswebcodecs-キャプチャ"></a>
+### 2.6 タスク 6: `screenSharePipeline.ts`(WebCodecs キャプチャ)
 
 **ファイル**:
 - 新規作成: `examples/moqt_chat/frontend/src/lib/screenSharePipeline.ts`
@@ -154,7 +176,7 @@
 - `getDisplayMedia({ video: { width: 1280, height: 720, frameRate: 10 }, audio: false })`。
 - `VideoEncoder`(codec vp8、bitrate 1 Mbps、2 秒ごとに `encode(frame, {keyFrame:true})` で強制キーフレーム)。
 - `output` コールバックで `chunk.copyTo` → ≤480B 分割 → 既存 `sendGate.ts` を再利用(新しい gate は作らない)。
-- ブラウザの「共有を停止」でトラックが `ended` → エンコーダー停止 → ストリーム FIN。
+- ブラウザーの「共有を停止」でトラックが `ended` → エンコーダー停止 → ストリーム FIN。
 
 - [ ] **ステップ 1: 偽 VideoEncoder/getDisplayMedia でチャンク数・ヘッダーの内容を断言するテストを先に書く**
   DI で注入した偽 `getDisplayMedia`(固定サイズのフレームを返す)と偽 `VideoEncoderCtor`(`output` を同期呼び出しするスタブ)を使い、期待されるチャンク数とヘッダー内容(タスク 4 の `moqtScreenWire.ts` の関数を使って decode)をアサート(Red)。
@@ -165,7 +187,8 @@
 
 ---
 
-### タスク 7: 受信側再構成 + canvas タイル描画 + UI 結線
+<a id="タスク-7-受信側再構成--canvas-タイル描画--ui-結線"></a>
+### 2.7 タスク 7: 受信側再構成 + canvas タイル描画 + UI 結線
 
 **ファイル**:
 - 新規作成: `examples/moqt_chat/frontend/src/lib/screenReceivePipeline.ts`(`voiceReceivePipeline.ts` の形、送信者ごと `VideoDecoder` → `drawImage` → `frame.close()`)
@@ -189,7 +212,8 @@
 
 ---
 
-### タスク 8: ビルドゲート(integrator)
+<a id="タスク-8-ビルドゲートintegrator"></a>
+### 2.8 タスク 8: ビルドゲート(integrator)
 
 **ファイル**:
 - 変更: `tests/run.c`(タスク 2, タスク 3 で新設/変更したテストファイルの `#include` と `test_*()` 呼び出しを追加)
@@ -209,10 +233,11 @@
 
 ---
 
-### タスク 9: e2e
+<a id="タスク-9-e2e"></a>
+### 2.9 タスク 9: e2e
 
 **ファイル**:
-- 新規作成: `examples/moqt_chat/e2e/run-screenshare-check.mjs`(`run-live-check.mjs` の 2 ブラウザ構造を踏襲)
+- 新規作成: `examples/moqt_chat/e2e/run-screenshare-check.mjs`(`run-live-check.mjs` の 2 ブラウザー構造を踏襲)
 
 **インターフェース**:
 - `page.evaluateOnNewDocument` で `navigator.mediaDevices.getDisplayMedia` を `canvas.captureStream()`(オフスクリーン canvas に時刻を描く動画)へ差し替え(headless Chrome の実 getDisplayMedia は不安定なため、`voiceTap.ts` と同じ設置点)。
@@ -220,7 +245,7 @@
 - 4 参加者 + チャット同時発火のシナリオを流し、`WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 6` が chat+audio+screen 同時開で足りるかを実測する(未確定事項の解消)。
 
 - [ ] **ステップ 1: e2e スクリプト作成**
-  `run-live-check.mjs` を参考に `run-screenshare-check.mjs` を作成。2 ブラウザで画面共有 → 受信側タイルにフレームが描画されることを確認。
+  `run-live-check.mjs` を参考に `run-screenshare-check.mjs` を作成。2 つのブラウザーで画面共有 → 受信側タイルにフレームが描画されることを確認。
 - [ ] **ステップ 2: 負荷シナリオ**
   4 参加者 + チャット同時発火で `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 6` が不足しないか確認。不足が判明した場合はこの plan には含めず、別タスクとして再計画する旨をログに残す。
 - [ ] **ステップ 3: 実行確認**
@@ -228,7 +253,8 @@
 
 ---
 
-## 対象外(YAGNI)
+<a id="対象外yagni"></a>
+## 3. 対象外(YAGNI)
 
 - 音声付き画面共有、複数同時共有の帯域制御、SVC/simulcast、ハブの大 Object レーンは対象外。
 - Lean による符号化の形式証明は対象外(vitest の golden/property テストで代替)。
