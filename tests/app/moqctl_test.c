@@ -2108,6 +2108,24 @@ static void test_moqctl_request_error_for_draft(void) {
       MOQCTL_ERR_NOT_SUPPORTED);
 }
 
+/* draft-23 16.12.2-16.12.3 (Tables 21, 22): REQUEST_ERROR UNAVAILABLE
+ * (0xA) is new and PREFIX_OVERLAP (0x30) gone, PUBLISH_DONE
+ * EXPIRED_AUTH_TOKEN (0x7) is new. Per draft: UNAVAILABLE is 0xA only in
+ * draft-23 (EXCESSIVE_LOAD 0x9 before), PREFIX_OVERLAP 0x30 before
+ * draft-23 (INTERNAL_ERROR in it), and 0x7 is relayed as received. */
+static void test_moqctl_codes_d23(void) {
+  static const u64 unavailable[MOQVER_COUNT] = {0xA, 0x9, 0x9, 0x9};
+  static const u64 overlap[MOQVER_COUNT]     = {0x0, 0x30, 0x30, 0x30};
+  for (int v = 0; v < MOQVER_COUNT; v++) {
+    CHECK(
+        moqctl_request_error_for(v, MOQCTL_ERR_UNAVAILABLE) == unavailable[v]);
+    CHECK(moqctl_request_error_for(v, MOQCTL_ERR_PREFIX_OVERLAP) == overlap[v]);
+  }
+  CHECK(moqctl_publish_done_for(MOQVER_D23, 0x7) == 0x7);
+  CHECK(moqctl_known_publish_done(0x7) == MOQCTL_DONE_EXPIRED_AUTH_TOKEN);
+  CHECK(moqctl_known_request_error(0xA) == MOQCTL_ERR_UNAVAILABLE);
+}
+
 /* draft-22 SS12.4 drops SUBSCRIPTION_ENDED (0x3). */
 static void test_moqctl_publish_done_for_draft(void) {
   CHECK(
@@ -2251,6 +2269,7 @@ void test_moqctl(void) {
   test_moqctl_grease_pattern();
   test_moqctl_unknown_error_normalizes_to_internal();
   test_moqctl_request_error_for_draft();
+  test_moqctl_codes_d23();
   test_moqctl_publish_done_for_draft();
 
   test_moqctl_request_error_redirect_roundtrip();

@@ -74,6 +74,20 @@ void moqtrun_rdv_do_refuse(
   moqtrun_send_request_error(sp, code);
 }
 
+/* moqtrun_send_unavailable on r's request (code unused). */
+void moqtrun_rdv_do_unavailable(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code) {
+  (void)hub;
+  (void)r;
+  (void)t;
+  (void)code;
+  moqtrun_send_unavailable(sp);
+}
+
 /* t came by the hub's upstream SUBSCRIBE to fresh hold r's own session:
  * never r's answer (its own announcement never serves it), r keeps
  * waiting. A wait for a new path is answered there anyway

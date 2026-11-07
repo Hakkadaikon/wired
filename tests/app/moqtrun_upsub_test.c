@@ -456,12 +456,17 @@ static void test_moqtrun_upsub_hold_then_announce(void) {
 
 /* U10: no stream to open toward the publisher (the QUIC stream limit is
  * MOQT's request limit since draft-18 removed MAX_REQUEST_ID) -- the
- * SUBSCRIBE is refused EXCESSIVE_LOAD now, nothing is held. */
+ * SUBSCRIBE is refused now, nothing is held: EXCESSIVE_LOAD without a
+ * Retry Interval before draft-23, UNAVAILABLE with one in draft-23 7.4. */
 static void test_moqtrun_upsub_open_fails(void) {
+  int d23 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_UNAVAILABLE) != 0;
   mups_init();
   g_open_bidi_fail_n = 1;
   mups_sub(SESS_B, MRDV_S1);
-  CHECK(mrdv_is(SESS_B, MRDV_S1, "E9|FIN|"));
+  CHECK(mrdv_is(SESS_B, MRDV_S1, d23 ? "Ea|FIN|" : "E9|FIN|"));
+  CHECK(
+      mrdv_err(SESS_B, MRDV_S1).retry_interval ==
+      (d23 ? WIRED_MOQTRUN_RDV_RETRY : 0));
   CHECK(mups_used() == 0);
   CHECK(mrdv_used() == 0);
 }

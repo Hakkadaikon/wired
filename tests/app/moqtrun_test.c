@@ -163,6 +163,19 @@ static u32 mt_cc(u32 d23) {
              : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
 }
 
+/* An overlapping namespace request's refusal: PREFIX_OVERLAP, which
+ * draft-23 16.12.2 removed (INTERNAL_ERROR there). */
+static u64 mt_overlap(void) {
+  return (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_PREFIX_OVERLAP)
+             ? MOQCTL_ERR_PREFIX_OVERLAP
+             : MOQCTL_ERR_INTERNAL_ERROR;
+}
+
+/* mt_overlap as the namespace logs spell a refusal. */
+static const char* mt_overlap_log(void) {
+  return mt_overlap() == MOQCTL_ERR_PREFIX_OVERLAP ? "ERR:30|" : "ERR:00|";
+}
+
 /* draft-23 9 re-spelling for the scenarios. Their goldens and builders
  * write the draft-18..22 envelope (16-bit Length); mt_feed hands a
  * delivery that is a whole run of such messages to a vi64-Length session

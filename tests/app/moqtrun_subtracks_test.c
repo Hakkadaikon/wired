@@ -238,12 +238,12 @@ static void test_subtracks_prefix_overlap(void) {
   mtst_join(SESS_B);
   mtst_subtracks(SESS_B, MTRQ_S1, "chat/room1");
   mtst_subtracks(SESS_B, MTRQ_S2, "chat");
-  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, "ERR:30|"));
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, mt_overlap_log()));
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   u64 ca = mtst_join(SESS_A);
   mtst_publish(SESS_A, ca, &f, 1);
   wired_moqt_tick(&mtst_hub, 0);
-  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, "ERR:30|"));
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S2, mt_overlap_log()));
 }
 
 /* T-03/T-04/T-05: a matching track (not the subscriber's own) gets exactly

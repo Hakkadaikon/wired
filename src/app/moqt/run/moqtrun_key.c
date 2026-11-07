@@ -35,6 +35,16 @@ void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   moqtrun_send_request_error_ri(p, code, 0);
 }
 
+/* draft-23 7.4: a request the hub cannot forward upstream now (no stream
+ * opens toward the publisher) fails UNAVAILABLE with a Retry Interval
+ * (12.3 SHOULD); earlier drafts get EXCESSIVE_LOAD with none, as before. */
+void moqtrun_send_unavailable(wired_moqtrun_peer* p) {
+  u64 ri = (moqver_caps(p->ver) & MOQVER_CAP_UNAVAILABLE)
+               ? WIRED_MOQTRUN_RDV_RETRY
+               : 0;
+  moqtrun_send_request_error_ri(p, MOQCTL_ERR_UNAVAILABLE, ri);
+}
+
 /* f's key, its namespace encoded into ns_buf (WIRED_MOQTRUN_MAX_NS bytes).
  * A namespace that does not fit gets length WIRED_MOQTRUN_MAX_NS + 1,
  * which no stored namespace has: it matches nothing and is never stored. */

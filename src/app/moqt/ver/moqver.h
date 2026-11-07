@@ -72,6 +72,12 @@
 /** Session close codes use the draft-23 12.2 table (0x200-0x401) where
  * earlier drafts close PROTOCOL_VIOLATION (moqtrun_cc_code). */
 #define MOQVER_CAP_CLOSE_CODES23 (1u << 22)
+/** REQUEST_ERROR UNAVAILABLE (0xA) exists (draft-23 12.3); earlier drafts
+ * send EXCESSIVE_LOAD instead (moqctl_request_error_for). */
+#define MOQVER_CAP_UNAVAILABLE (1u << 23)
+/** REQUEST_ERROR PREFIX_OVERLAP (0x30) exists (draft-18, 19, 22; gone in
+ * draft-23 16.12.2). */
+#define MOQVER_CAP_PREFIX_OVERLAP (1u << 24)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

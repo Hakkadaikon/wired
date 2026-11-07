@@ -171,7 +171,7 @@ static void test_moqtrun_ns_empty_prefix(void) {
   mtns_sub(SESS_B, MTRQ_S1, "");
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:chat/room1|NS:video/x|"));
   mtns_sub(SESS_B, MTRQ_S2, "video/x");
-  CHECK(mtns_is(SESS_B, MTRQ_S2, "ERR:30|"));
+  CHECK(mtns_is(SESS_B, MTRQ_S2, mt_overlap_log()));
   mtst_join(SESS_C);
   mtns_sub(SESS_C, MTRQ_S1, "video/x");
   CHECK(mtns_is(SESS_C, MTRQ_S1, "OK|NS:|"));
@@ -249,12 +249,12 @@ static void test_moqtrun_ns_prefix_overlap(void) {
   mtns_init();
   mtns_sub(SESS_B, MTRQ_S1, "chat/room1");
   mtns_sub(SESS_B, MTRQ_S2, "chat/room2");
-  CHECK(mtns_is(SESS_B, MTRQ_S2, "ERR:30|"));
+  CHECK(mtns_is(SESS_B, MTRQ_S2, mt_overlap_log()));
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   mtns_sub(SESS_B, MTRQ_ID(5), "video");
   CHECK(mtns_is(SESS_B, MTRQ_ID(5), "OK|"));
   mtns_sub(SESS_B, MTRQ_ID(6), "");
-  CHECK(mtns_is(SESS_B, MTRQ_ID(6), "ERR:30|"));
+  CHECK(mtns_is(SESS_B, MTRQ_ID(6), mt_overlap_log()));
   mtns_sub(SESS_A, MTRQ_S1, "chat");
   CHECK(mtns_is(SESS_A, MTRQ_S1, "OK|"));
 }

@@ -141,7 +141,7 @@ static void mtvg_update_subtracks_overlap(void) {
   mtst_subtracks(SESS_B, MTRQ_S2, "video");
   moqctl_params p = mtup_ns_param("chat");
   mtup_update(SESS_B, MTRQ_S2, &p);
-  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
+  CHECK(mtup_err_code(MTRQ_S2) == mt_overlap());
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
 }
 

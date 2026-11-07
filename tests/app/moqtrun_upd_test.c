@@ -851,7 +851,7 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
   mtns_sub(SESS_B, MTRQ_S2, "video");
   moqctl_params p = mtup_ns_param("chat"); /* clashes with MTRQ_S1's own */
   mtup_update(SESS_B, MTRQ_S2, &p);
-  CHECK(mtup_err_code(MTRQ_S2) == MOQCTL_ERR_PREFIX_OVERLAP);
+  CHECK(mtup_err_code(MTRQ_S2) == mt_overlap());
   CHECK(mtrq_fin_on(MTRQ_S2) == 1); /* 10.9.1: refusal closes the stream */
 }
 

@@ -100,7 +100,8 @@ int moqtrun_up_waiters(wired_moqt_hub* hub, moqtrun_key k) {
 
 /* A waiter no upstream can serve: with no announcer left DOES_NOT_EXIST
  * (10.2.6's answer for no publisher), with no stream to open toward one
- * (refused) EXCESSIVE_LOAD. A rendezvous hold keeps waiting for its
+ * (refused) UNAVAILABLE (draft-23 7.4; EXCESSIVE_LOAD before,
+ * moqtrun_send_unavailable). A rendezvous hold keeps waiting for its
  * deadline. */
 void moqtrun_up_unserved(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, int refused) {
@@ -108,8 +109,8 @@ void moqtrun_up_unserved(
     return;
   }
   moqtrun_rdv_answer(
-      hub, r, moqtrun_rdv_do_refuse, 0,
-      refused ? MOQCTL_ERR_EXCESSIVE_LOAD : MOQCTL_ERR_DOES_NOT_EXIST);
+      hub, r, refused ? moqtrun_rdv_do_unavailable : moqtrun_rdv_do_refuse, 0,
+      MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
 /* 1 iff r waits with no upstream SUBSCRIBE for its track. */

@@ -53,7 +53,7 @@ static void moqtrun_upf_nt_go(
   p->req->live = 0;
   f->answered  = 1; /* below, on p->req */
   moqtrun_fetch_free(hub, f);
-  moqtrun_send_request_error(p, MOQCTL_ERR_EXCESSIVE_LOAD);
+  moqtrun_send_unavailable(p);
 }
 
 /* draft-22 3.2.3, 7.6: a FETCH of a track the hub does not hold goes,

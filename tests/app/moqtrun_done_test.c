@@ -574,8 +574,21 @@ static void test_moqtrun_ended_track_stops_ctl_sub(void) {
   CHECK(moqtrun_track_sub_of_peer(t, b) == 0);
 }
 
+/* draft-23 9.9 / 12.4: a publisher ending the subscription because its
+ * token expired sends EXPIRED_AUTH_TOKEN (0x7, Table 22); the hub relays
+ * it to a draft-23 subscriber as received, not as INTERNAL_ERROR. */
+static void test_moqtrun_pubdone_expired_auth_d23(void) {
+  u64 count = 0;
+  mtdn_setup_v(MOQVER_D23, MOQVER_D23);
+  mtdn_group(2002, 1);
+  mtdn_done(MOQCTL_DONE_EXPIRED_AUTH_TOKEN, 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == 0x7);
+  CHECK(count == 1);
+}
+
 void test_moqtrun_done(void) {
   test_moqtrun_ended_track_stops_ctl_sub();
+  test_moqtrun_pubdone_expired_auth_d23();
   moqtrun_test_allver(mtall_pubdone);
   /* mf_stuck_fetch parks a draft-18/19-layout FETCH */
   moqtrun_test_vers(

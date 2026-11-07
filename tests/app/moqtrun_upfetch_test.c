@@ -668,8 +668,8 @@ static void test_moqtrun_upfetch_no_track_bad_end(void) {
 }
 
 /* d22 9.20.5 / 7.6: no covering announcer is DOES_NOT_EXIST, FILL_TIMEOUT
- * 0 is TIMEOUT, no request stream toward the announcer EXCESSIVE_LOAD --
- * each leaving no slot behind. */
+ * 0 is TIMEOUT, no request stream toward the announcer UNAVAILABLE
+ * (draft-23 7.4; EXCESSIVE_LOAD before) -- each leaving no slot behind. */
 static void test_moqtrun_upfetch_no_track_refusals(void) {
   moqctl_params ft0 = mtst_params_vi(MOQCTL_PARAM_FILL_TIMEOUT, 0);
   mupf_init();
@@ -683,7 +683,7 @@ static void test_moqtrun_upfetch_no_track_refusals(void) {
   mupf_init();
   g_open_bidi_fail_n = 1;
   mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
-  CHECK(mupf_refused(MOQCTL_ERR_EXCESSIVE_LOAD) && mupf_used() == 0);
+  CHECK(mupf_refused(MOQCTL_ERR_UNAVAILABLE) && mupf_used() == 0);
 }
 
 /* The hub's own tracks (blob, live) are never fetched upstream, even

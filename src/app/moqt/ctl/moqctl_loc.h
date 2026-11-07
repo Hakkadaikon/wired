@@ -125,6 +125,9 @@
 #define MOQCTL_ERR_PREFIX_OVERLAP 0x30ULL
 /** Codes that exist in only some drafts (moqctl_request_error_for). */
 #define MOQCTL_ERR_EXCESSIVE_LOAD 0x9ULL
+/** UNAVAILABLE: cannot forward the request now, e.g. no stream credit
+ * upstream (draft-23 7.4, 12.3); EXCESSIVE_LOAD before draft-23. */
+#define MOQCTL_ERR_UNAVAILABLE 0xAULL
 /** DUPLICATE_SUBSCRIPTION: draft-18 only; mapped to INTERNAL_ERROR on
  * later drafts, which allow several subscriptions per Track. */
 #define MOQCTL_ERR_DUPLICATE_SUBSCRIPTION 0x19ULL
@@ -155,6 +158,9 @@
 #define MOQCTL_DONE_UPDATE_FAILED 0x8ULL
 /** Not in draft-22 (moqctl_publish_done_for). */
 #define MOQCTL_DONE_SUBSCRIPTION_ENDED 0x3ULL
+/** EXPIRED_AUTH_TOKEN: the token that authorized the subscription expired
+ * (draft-23 12.4, new in 23); relayed as received. */
+#define MOQCTL_DONE_EXPIRED_AUTH_TOKEN 0x7ULL
 /** PUBLISH_DONE MALFORMED_TRACK (draft-18/19/22, 0x12 in each): a relay
  * detected the track violates MOQT (draft-22 12.1). */
 #define MOQCTL_DONE_MALFORMED_TRACK 0x12ULL

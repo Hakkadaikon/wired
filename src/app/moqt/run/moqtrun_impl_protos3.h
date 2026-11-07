@@ -56,6 +56,12 @@ void moqtrun_rdv_do_refuse(
     const wired_moqtrun_rdv* r,
     wired_moqtrun_track*     t,
     u64                      code);
+void moqtrun_rdv_do_unavailable(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code);
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 void moqtrun_rdv_tick(wired_moqt_hub* hub, u64 now_ms);

@@ -35,14 +35,16 @@ static void test_moqver_caps_d18(void) {
       moqver_caps(MOQVER_D18) ==
       (MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
        MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
-       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE));
+       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE |
+       MOQVER_CAP_PREFIX_OVERLAP));
 }
 
 static void test_moqver_caps_d19(void) {
   CHECK(
       moqver_caps(MOQVER_D19) ==
       (MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
-       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE));
+       MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE |
+       MOQVER_CAP_PREFIX_OVERLAP));
 }
 
 static void test_moqver_caps_d22(void) {
@@ -53,13 +55,15 @@ static void test_moqver_caps_d22(void) {
        MOQVER_CAP_FETCH_END_INCLUSIVE | MOQVER_CAP_RANGE_FILTERS |
        MOQVER_CAP_MAX_REQUEST_UPDATES | MOQVER_CAP_NS_PREFIX_MATCH |
        MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE |
-       MOQVER_CAP_SSTS));
+       MOQVER_CAP_SSTS | MOQVER_CAP_PREFIX_OVERLAP));
 }
 
-/* draft-23 keeps every draft-22 behaviour bit; its own deltas add bits. */
+/* draft-23 keeps every draft-22 behaviour bit but PREFIX_OVERLAP (gone in
+ * draft-23 16.12.2); its own deltas add bits. */
 static void test_moqver_caps_d23(void) {
-  u32 d22 = moqver_caps(MOQVER_D22);
+  u32 d22 = moqver_caps(MOQVER_D22) & ~MOQVER_CAP_PREFIX_OVERLAP;
   CHECK((moqver_caps(MOQVER_D23) & d22) == d22);
+  CHECK(!(moqver_caps(MOQVER_D23) & MOQVER_CAP_PREFIX_OVERLAP));
   CHECK(MOQVER_D23 == 0 && MOQVER_COUNT == 4);
 }
 
