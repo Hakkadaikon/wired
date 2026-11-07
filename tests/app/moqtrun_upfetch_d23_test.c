@@ -71,4 +71,48 @@ static void test_moqtrun_upfetch_d23_relay(void) {
   mupf23_relay(MOQVER_D22);
 }
 
-void test_moqtrun_upfetch_d23(void) { test_moqtrun_upfetch_d23_relay(); }
+/* B's relayed stream: {0,0}, End of Group, {1,0}, Gone through {1,5}
+ * from a moqt-23 announcer -- as is on draft-23; on draft-22 (no 0x80,
+ * no 0x40C, 11.4.1) the marker is left out and Gone reads Unknown. */
+static int mupf23_relayed_ok(void) {
+  if (mtst_ver(SESS_B) == MOQVER_D23) {
+    return mupf_read(0) && mf_n == 4 && mf_is_obj(0, 0, 0, 1) &&
+           mf_items[1].flags == MOQFETCH_END_OF_GROUP &&
+           mf_is_obj(2, 1, 0, 1) && mf_items[3].flags == MOQFETCH_EOR_GONE &&
+           mf_items[3].object == 5;
+  }
+  return mupf_read(0) && mf_n == 3 && mf_is_obj(0, 0, 0, 1) &&
+         mf_is_obj(1, 1, 0, 1) && mf_is_unknown(2, 1, 5);
+}
+
+/* draft-23 3.2.3: the hub never originates Gone but relays the
+ * announcer's; End of Group is relayed in place (3.2.2). */
+static void mupf23_markers(int bv) {
+  moqfetch_req m   = {0};
+  moqfetch_obj eog = {0};
+  i64          sid;
+  mupf_init_v(bv);
+  mupf_vers(MOQVER_D23);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  sid = mupf_up(SESS_C, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(0, 0, 1);
+  eog.flags = MOQFETCH_END_OF_GROUP;
+  mupf_put(&eog);
+  mupf_obj(1, 0, 1);
+  mupf_eor(MOQFETCH_EOR_GONE, 1, 5);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 1);
+  mupf23_up_ok(SESS_C, sid, 0, 0, 0, wired_span_of(0, 0));
+  CHECK(mupf23_relayed_ok());
+}
+
+static void test_moqtrun_upfetch_d23_markers(void) {
+  mupf23_markers(MOQVER_D23);
+  mupf23_markers(MOQVER_D22);
+}
+
+void test_moqtrun_upfetch_d23(void) {
+  test_moqtrun_upfetch_d23_relay();
+  test_moqtrun_upfetch_d23_markers();
+}

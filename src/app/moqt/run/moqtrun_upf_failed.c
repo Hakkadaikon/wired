@@ -122,11 +122,10 @@ int moqtrun_upf_valid(const wired_moqtrun_fetch* f, moqctl_loc l) {
          moqtrun_upf_by_end(f, l);
 }
 
-/* 0x20C toward a draft without it is 0x10C (11.4.1). */
+/* An End of Range toward a draft without it -- 0x20C before draft-22,
+ * 0x40C before draft-23 -- is 0x10C (11.4.1). */
 u64 moqtrun_upf_eor_of(u64 flags, const moqfetch_seq* s) {
-  return flags == MOQFETCH_EOR_TIMED_OUT && !s->eor_timed_out
-             ? MOQFETCH_EOR_UNKNOWN
-             : flags;
+  return moqfetch_marker_ok(flags, s) ? flags : MOQFETCH_EOR_UNKNOWN;
 }
 
 static u64 moqtrun_upf_sg_bits(const moqfetch_obj* o) {

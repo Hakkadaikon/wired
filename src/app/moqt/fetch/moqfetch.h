@@ -267,6 +267,8 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
 #define MOQFETCH_END_OF_GROUP 0x80ULL
 /** draft-23 11.4.2.2 End of Track (also End of Group). */
 #define MOQFETCH_END_OF_TRACK 0x81ULL
+/** 1 iff flags is End of Group or End of Track. */
+#define MOQFETCH_IS_END_MARK(flags) (((flags) | 1) == MOQFETCH_END_OF_TRACK)
 
 /** The "prior Object" state threaded through one fetch stream. Zero it,
  * then set descending when the FETCH's GROUP_ORDER is Descending (0x2):
@@ -354,6 +356,10 @@ int moqfetch_obj_take_head(
  * on the wire as is. */
 int moqfetch_obj_put_head(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o);
+
+/** 1 iff flags (>= 128) is a marker a stream with seq s carries: an End
+ * of Range or End of Group / Track its draft has (11.4.1 Table 8). */
+int moqfetch_marker_ok(u64 flags, const moqfetch_seq* s);
 
 /** MOQFETCH_F_OBJECT, or 0 for the Object {group, object} on a draft-23
  * stream when it is the one after the prior Object in the same Group: a

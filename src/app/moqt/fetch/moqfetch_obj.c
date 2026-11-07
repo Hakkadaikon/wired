@@ -99,6 +99,10 @@ int moqfetch_kind(u64 flags, const moqfetch_seq* s) {
   return moqfetch_marker_kind(flags, s);
 }
 
+int moqfetch_marker_ok(u64 flags, const moqfetch_seq* s) {
+  return moqfetch_marker_kind(flags, s) > 0;
+}
+
 const moqfetch_kind_ops MOQFETCH_KIND_OPS[3] = {
     {MOQFETCH_OBJ_STEPS, MOQFETCH_N(MOQFETCH_OBJ_STEPS), moqfetch_note_obj},
     {MOQFETCH_EOR_STEPS, MOQFETCH_N(MOQFETCH_EOR_STEPS), moqfetch_note_eor},
