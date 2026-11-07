@@ -7,7 +7,7 @@
 | 目的 | 検証の層の選び方と、テストに入れる検査を定める |
 | 読む人 | 設計を決める、またはテストを書くコントリビューター |
 | 前提文書 | [ドメインの追加](add-domain.md) |
-| 関連文書 | [テストカバレッジ](../test-coverage.md)、[要件台帳](../features/README.md) |
+| 関連文書 | [テストカバレッジ](../verification/coverage.md)、[要件台帳](../features/README.md) |
 
 ## 1. 検証の層の選び方
 

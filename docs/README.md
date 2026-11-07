@@ -1,58 +1,51 @@
-# wired のドキュメント
+# ドキュメント
 
-このページは `docs/` ディレクトリの地図です。最初に読むページと、知りたいことごとの次の行き先を示します。wired を初めて使う人に向けて書いており、HTTP と TLS は知っていても QUIC は知らない読み手も想定しています。
+| 項目 | 内容 |
+|---|---|
+| 目的 | docs/ の文書体系と、各文書の置き場所を示す |
+| 読む人 | コントリビューター |
+| 前提文書 | [README](../README.md) |
+| 関連文書 | [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/)(利用者向け)、[API リファレンス](https://hakkadaikon.github.io/wired/) |
 
-wired は積み重なった 4 つのプロトコルのためのサーバー SDK です。QUIC(HTTP/3 の下にある、暗号化された UDP のトランスポート)、HTTP/3、WebTransport(HTTP/3 の上で、ブラウザーとサーバーの間にストリームとデータグラムを通すもの)、MoQT(Media over QUIC Transport。ライブメディアのための publish/subscribe 型のプロトコル)の 4 つです。
+<a id="wired-documentation"></a><a id="wired-のドキュメント"></a><a id="where-to-start"></a><a id="どこから読むか"></a>
 
-## どこから読むか
+## 1. 読む順
 
-次の 3 つをこの順に読んでください。
+```mermaid
+flowchart LR
+    ov["overview<br/>purpose, policy"] --> arch["architecture<br/>basic design"]
+    arch --> des["design<br/>per-domain design"]
+    st["standards<br/>rules, build, gate"] --> des
+    des --> ver["verification<br/>tests, interop, performance"]
+    des --> sec["security<br/>threats, limits, ledger"]
+```
 
-1. [はじめに](getting-started.md): SDK をビルドし、サンプルのサーバーを動かし、自分の小さなサーバーを書きます。ほかのページはどれも、wired のサーバーが動くところを見たことがある前提で書いているので、ここから始めてください。
-1. [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/): 機能ごとに 1 本、短くて完結したプログラムを載せています(HTTP/3 のルート、WebTransport のストリームとデータグラム、MoQT の publish と subscribe)。どれも、実際に動かしたときに出力された結果を添えています。「X はどう使うのか」を知りたいときは、いつでもここを見てください。
-1. [アーキテクチャとデータの流れ](arch/overview.md): SDK の中で部品がどう組み合わさり、リクエストがその中をどう通るか。コードがなぜこの形になっているかを知りたくなったら読んでください。
+| 順 | 文書 | 内容 |
+|---|---|---|
+| 1 | [概要書](overview/README.md) | 目的、適用範囲、設計方針と理由 |
+| 2 | [開発標準](standards/README.md) | 準備、規約、ビルド、コミットゲート、ドメインの追加、テスト、文書の書き方 |
+| 3 | [基本設計](architecture/README.md) | 全体構成、データの流れ、I/O ドライバー、鍵、メモリ |
+| 4 | [詳細設計](design/README.md) | ドメインごとの設計、実装している仕様 |
 
-`docs/` の残りのページは、ガイドが扱わないことを扱います。内部の構造、設計の理由、保証していること、SDK の検証方法です。
+アプリケーションの作り方(API の使い方、フラグ、証明書の設定)は [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/) にある。
 
-## 学ぶ
+<a id="learn-it"></a><a id="学ぶ"></a><a id="understand-it"></a><a id="理解する"></a><a id="use-it-as-a-dependency"></a><a id="依存先として使う"></a><a id="check-how-well-it-is-tested"></a><a id="テストの度合いを確かめる"></a><a id="measure-it"></a><a id="測る"></a><a id="change-it"></a><a id="変更する"></a>
 
-- [はじめに](getting-started.md): ビルドし、動かし、最初のサーバーを書く。
-- [examples/](../examples/): 動かせるサーバー 4 つ。`word_list` は小さな HTTP/3 サーバー、`moqt_chat` は MoQT の上で動くブラウザーのチャットと音声ルーム、`webtransport_interop` と `moqt_interop` はほかの実装との相互接続テストで使うエンドポイント。
+## 2. 文書体系
 
-## 理解する
+| ディレクトリ | 文書の種類 | 主な文書 |
+|---|---|---|
+| [overview/](overview/README.md) | 概要書 | 目的、適用範囲、設計方針 |
+| [architecture/](architecture/README.md) | 基本設計書 | [データの流れ](architecture/dataflow.md)、[I/O ドライバー](architecture/io-drivers.md)、[鍵](architecture/keys.md)、[メモリ](architecture/memory.md) |
+| [design/](design/README.md) | 詳細設計書 | [common](design/common.md)、[crypto](design/crypto.md)、[transport](design/transport.md)、[tls](design/tls.md)、[app](design/app.md)、[実装している仕様](design/specs.md) |
+| [standards/](standards/README.md) | 開発標準 | [準備](standards/setup.md)、[コーディング規約](standards/coding.md)、[ビルド](standards/build.md)、[コミットゲート](standards/commit-gate.md)、[ドメインの追加](standards/add-domain.md)、[テスト](standards/testing.md)、[ドキュメント規約](standards/documentation.md) |
+| [reference/](reference/README.md) | 参照資料 | [Stable API](reference/api-stable.md)、[Low-level API](reference/api-lowlevel.md)、[MoQT API](reference/api-moqt.md)、[バージョニング](reference/api-versioning.md)、[システムコール](syscalls.md) |
+| [verification/](verification/README.md) | 試験と品質 | [テストの範囲](verification/coverage.md)、[相互運用性テスト](verification/interop.md)、[その経緯](verification/interop-history.md)、[性能の比較](performance/comparison.md)、[計測の生データ](performance/comparison-runs.md)、[リソース監視](performance/monitoring.md) |
+| [security/](security/README.md) | セキュリティ設計 | [脅威モデル](security/threat-model.md)、[暗号](security/crypto.md)、[PKI](security/pki.md)、[プロトコルの防御](security/protocols.md)、[既知の制限](security/limitations/README.md)、[脆弱性台帳](security/vuln-ledger.md) |
+| [features/](features/README.md) | 要件台帳 | 仕様ごとの要件とテスト、[台帳の書式](features/FORMAT.md)、[MoQT の Track 切り替え](features/moqt-track-switching.md) |
+| [ubiquitous/](ubiquitous/README.md) | 用語集 | 技術用語の表記 |
+| superpowers/ | 過去の設計と計画の記録 | 機能ごとの設計書と実装計画 |
 
-- [アーキテクチャとデータの流れ](arch/overview.md): 全体像とデータの流れ。
-- [レイヤー構成](arch/layers.md): 5 つのレイヤー(common、crypto、transport、tls、app。最後の app が HTTP/3、WebTransport、MoQT を受け持つ)を 1 節ずつ説明。
-- [メモリ配置とサイズの見積もり](arch/memory.md): サーバーのメモリがどこから来るか。バイナリのサイズとメモリが、コードの量や容量の定数ごとにどう増えるか。
-- [実装している仕様とその理由](arch/rfcs.md): SDK が実装している仕様のすべて(RFC、ドラフト、暗号の標準である FIPS / NIST SP)と、サーバーにそれぞれが必要な理由。
-- [MoQT のトラック切り替え](features/moqt-track-switching.md): 実験的な拡張で、明示的に有効にしたときだけ働きます。サブスクライバーが 1 つのトラックの 2 つの版(たとえば高解像度と低解像度の画面共有)を、映像のデコーダーがきれいに再生を始められる位置で切り替えられるようにします。別の MoQT 実装である moqtail とワイヤーフォーマットが一致し、MoQT draft-22 のセッションでだけ動きます。
+## 3. 生成物
 
-## 依存先として使う
-
-wired の上に製品を作る前に、次のページを読んでください。頼ってよいことと、アプリ側の仕事として残ることを説明しています。
-
-- [SDK とアプリの役割分担](https://hakkadaikon.github.io/wired/guide/ja/concepts/responsibilities/): プロトコルの処理と、アプリが決めるポリシー・ストレージ・スケーリングとの境目。
-- [現在の上限](https://hakkadaikon.github.io/wired/guide/ja/concepts/limits/): wired に組み込まれている固定の容量。
-- [API の安定性](api-stability.md): どの関数なら安心して使えるか。
-- [API リファレンス](https://hakkadaikon.github.io/wired/): ヘッダーのコメントから Doxygen で生成した完全なリファレンス。
-- [システムコール](syscalls.md): SDK が呼ぶカーネルの呼び出しのすべて。
-- [セキュリティ](security.md): SDK が保証すること、利用者に任せること。
-- [セキュリティ文書](security/README.md): セキュリティのページの裏付けになる監査の記録。脆弱性台帳と、第三者による暗号のテストベクター。
-
-## テストの度合いを確かめる
-
-- [テストカバレッジ](test-coverage.md): 仕様ごとに、単体のテストベクターから実際のクライアントとの相互接続性まで、どこまでテストしたかをチェックボックス 1 つずつで示す。
-- [機能: 仕様ごとの要件台帳](features/README.md): 仕様ごとに 1 つの要件リスト(全部で 45 の仕様。IETF の RFC とドラフトに加え、暗号アルゴリズムを定める米国政府の FIPS と NIST SP 標準)。各要件を、それを確かめるテストか、足りない部分に対応づけている。
-- [相互接続性の検証結果](interop.md): 独立した実装との実行結果(主に quic-go と webtransport-go。一部のテストケースでは ngtcp2、picoquic、flupke-webtransport も)。wired が自分自身とだけでなく、他人のコードと通信できることを示せるのは、これだけです。
-
-## 測る
-
-- [実装の比較](performance/comparison.md)(生データは[ベンチマークの実行結果](performance/comparison-runs.md)): ほかの HTTP/3、WebTransport、MoQT の実装との、機能と実測の速さの比較。条件は固定している。
-- [moqt_chat の wired_server: 4.5 時間のリソース監視](performance/monitoring.md): `moqt_chat` サンプルサーバーの 4.5 時間分のリソースの基準値(CPU、メモリ、ネットワーク)と、テストマシンの `lscpu` の出力。
-
-## 変更する
-
-- [開発標準](standards/README.md): コーディング規約、ビルド、コミットゲート、ドメインの追加、テスト。
-- [ユビキタス言語](ubiquitous/README.md): ドキュメントで使う技術用語の表記。
-
-このディレクトリの `sdk/` は Doxygen の出力です(gitignore 済みで、上の API リファレンスとして公開しています)。変更するときは、生成された HTML ではなく、ヘッダーのドキュメントコメントを編集してください。
+`sdk/` は doxygen の出力で、git の管理外である([API リファレンス](https://hakkadaikon.github.io/wired/) として公開)。直すときは、生成された HTML ではなくヘッダーのドキュメントコメントを編集する。

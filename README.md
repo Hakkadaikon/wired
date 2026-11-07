@@ -136,7 +136,7 @@ push のたびに次の検査を実行する。
 | 仕様 | [要件台帳](docs/features/README.md): 40 以上の仕様の規範的な記述をすべて挙げ、それぞれを出荷するサーバーの経路上のテストで裏付ける | 実装されていない仕様の規則 |
 | 既知の脆弱性 | [脆弱性台帳](docs/security/vuln-ledger.md): ほかの QUIC/TLS/HTTP スタックの CVE とアドバイザリ 856 件を、このコードに対して確かめ直したもの。CI の到達性チェックで、挙げた防御が本番の経路上にあり続けることを確かめる | 他の実装の CVE の繰り返し |
 
-脅威モデルと、受信した各パケットを検査する順序は [セキュリティ](docs/security.md) にある。
+脅威モデルとプロトコルごとの防御は [セキュリティ設計](docs/security/README.md) にある。
 
 <a id="fast-and-small"></a><a id="速くて小さい"></a>
 
@@ -200,7 +200,7 @@ flowchart TD
 | WebTransport | HTTP/3 の *Extended CONNECT* リクエストで開く、ブラウザーから扱えるストリーム |
 | MoQT | WebTransport 上、または QUIC 上で直接 |
 
-各ボックスの元になる仕様は [RFC とドラフト](docs/arch/rfcs.md)、各層の説明は [アーキテクチャ](docs/arch/overview.md) にある。
+各ボックスの元になる仕様は [実装している仕様](docs/design/specs.md)、各層の説明は [基本設計](docs/architecture/README.md) にある。
 
 <a id="what-the-code-looks-like"></a><a id="コードの見た目"></a>
 
@@ -278,10 +278,10 @@ int wired_main(int argc, char** argv) {
 |---|---|
 | [docs/](docs/README.md) | すべてのドキュメントの一覧 |
 | [ユビキタス言語](docs/ubiquitous/README.md) | ドキュメントで使う技術用語の表記 |
-| [はじめに](docs/getting-started.md) | ツールチェーンの準備と最初のビルド |
-| [アーキテクチャ](docs/arch/overview.md) | 各層の作り |
+| [開発環境の準備](docs/standards/setup.md) | ツールチェーンの準備と最初のビルド |
+| [基本設計](docs/architecture/README.md) | 各層の作り |
 | [API リファレンス](https://hakkadaikon.github.io/wired/) | 公開インターフェースの全体 |
-| [既知の制限](docs/features/known-limitations.md) | 意図的に仕様から外れている点と容量の制限 |
+| [既知の制限](docs/security/limitations/README.md) | 意図的に仕様から外れている点と容量の制限 |
 
 <a id="supported-platform"></a><a id="対応プラットフォーム"></a>
 

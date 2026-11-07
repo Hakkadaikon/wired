@@ -52,7 +52,7 @@ QUIC + TLS 1.3 handshake against this server and received `HTTP/3 200`.
 cannot combine with `--workers` or `--cores` (they have their own pinning
 flags); `--cores` plus `--ifindex` is AF_XDP multi-queue mode (worker *i*
 serves NIC queue *i*). The drivers are covered in detail in
-[docs/getting-started.md](../../docs/getting-started.md).
+[docs/getting-started.md](../../docs/standards/setup.md).
 
 ## Certificates
 
