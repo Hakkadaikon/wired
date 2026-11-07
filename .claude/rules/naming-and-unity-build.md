@@ -14,11 +14,11 @@ not surface until link/wiring time, never in a coder's isolated `$TMPDIR` build.
 ## Rules that prevent collisions
 
 - **The prefix encodes the audience.** Application-facing API (anything the
-  examples call, or that `docs/api-stability.md`'s Stable table lists) is
+  examples call, or that `docs/reference/api-stable.md` lists) is
   `wired_<rest>` / `WIRED_<rest>`. Internal non-`static` API carries its
   module token as the prefix (`sdrv_*`, `moqctl_*`, `bn_*`, macro
-  `LEVEL_*`) — no protocol-wide prefix. `docs/api-stability.md` is the
-  authority on which side a name falls.
+  `LEVEL_*`) — no protocol-wide prefix. `docs/reference/` (Stable API vs
+  Low-level / internal API) is the authority on which side a name falls.
 - **The module token must still be distinct.** MECE splits responsibility,
   not namespace — both halves still link into one binary (#17). Historically
   `quic_sent_init` collided across `sentpkt` and `recovery`, and
