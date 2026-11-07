@@ -219,7 +219,7 @@
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_unknown_type_closes_session`
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_ctl_over_max_closes_session`
+    `test_moqtrun_ctl_pool_exhausted_closes`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_bad_first_message_closes`
   - evidence: ハブは、io テーブルの `close_session` 操作(本番では `wired_server_wt_close_session`)を通じて、ドラフトの終了コードで閉じます。WT_CLOSE_SESSION カプセルそのものは WebTransport の台帳で確かめています。
@@ -1071,7 +1071,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_ctl_message_then_half`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_ctl_max_length_accepted`
   - test: `tests/app/moqtrun_test.c` —
-    `test_moqtrun_ctl_over_max_closes_session`
+    `test_moqtrun_ctl_pool_exhausted_closes`
 - [x] MQ22-175 制御ストリームがまったく未知の Message Type を運ぶ場合、ハブはプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_unknown_type_closes_session`
