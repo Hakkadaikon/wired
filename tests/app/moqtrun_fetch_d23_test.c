@@ -110,10 +110,67 @@ static void test_moqtrun_fetch_d23_relative(void) {
   CHECK(mfd23_ok_is(1, 0, 1));
 }
 
+/* A sends Object status st (draft-23 11.1.1: End of Group 0x3, End of
+ * Track 0x4) at {g, o} on its own one-shot stream. */
+static void mfd23_status(u64 g, u64 o, u64 st) {
+  u8             buf[64];
+  usz            off = 0;
+  moqdata_subhdr h   = {0};
+  h.type             = 0x30;
+  h.track_alias      = MF_ALIAS;
+  h.group_id         = g;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  moqdata_obj_put_status(wired_mspan_of(buf, sizeof buf), &off, o, st);
+  mf_pub_sid += 4;
+  mt_feed(&mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), 1);
+}
+
+/* Item i is the End of Group / End of Track marker flags of Group g. */
+static int mfd23_is_mark(usz i, u64 flags, u64 g) {
+  return i < mf_n && mf_items[i].flags == flags && mf_items[i].group == g;
+}
+
+/* B's stream: the Objects {0,0} {0,1}, then on draft-23 the marker
+ * flags (3.2.2); draft-22 has none. */
+static int mfd23_two_then(u64 flags) {
+  usz n = mfd23_is23() ? 3 : 2;
+  return mf_read() && mf_n == n && mf_is_obj(0, 0, 0, 1) &&
+         mf_is_obj(1, 0, 1, 1) && (n == 2 || mfd23_is_mark(2, flags, 0));
+}
+
+/* draft-23 3.2.2: the last Object of the response is followed by End of
+ * Group when the hub knows it ends its Group -- an End of Group status
+ * after it, or a later Group arrived -- and by End of Track when an End
+ * of Track status follows it. An open Group gets no marker. */
+static void test_moqtrun_fetch_d23_end_marks(void) {
+  moqctl_rangeloc g0 = mf_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 0, 1);
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mf_read() && mf_n == 2);
+  mfd23_status(0, 2, MOQDATA_STATUS_END_OF_GROUP);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mfd23_status(0, 2, MOQDATA_STATUS_END_OF_TRACK);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mfd23_two_then(MOQFETCH_END_OF_TRACK));
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mf_obj(1, 0, 1);
+  mf_fetch_v(g_moqtrun_test_ver, &g0);
+  CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
+}
+
 static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_stream();
   test_moqtrun_fetch_d23_ok();
   test_moqtrun_fetch_d23_relative();
+  test_moqtrun_fetch_d23_end_marks();
 }
 
 void test_moqtrun_fetch_d23(void) {

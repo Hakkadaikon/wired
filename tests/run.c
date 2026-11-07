@@ -860,6 +860,7 @@
 #include "app/moqt/run/moqtrun_fetch_last.c"
 #include "app/moqt/run/moqtrun_fetch_start.c"
 #include "app/moqt/run/moqtrun_fetches.c"
+#include "app/moqt/run/moqtrun_fend.c"
 #include "app/moqt/run/moqtrun_fill.c"
 #include "app/moqt/run/moqtrun_fill_on.c"
 #include "app/moqt/run/moqtrun_fill_wait.c"

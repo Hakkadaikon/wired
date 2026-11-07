@@ -20,6 +20,7 @@ static int moqtrun_fetch_send_one(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   usz          n   = moqtrun_fetch_encode_one(hub, f, &seq, &next);
   moqtrun_fetch_after(hub, f, next, &w);
   int fin = moqtrun_fwin_drained(&w);
+  n       = moqtrun_fend_mark(hub, f, &seq, n, fin);
   if (hub->io.stream_send(
           f->wt, f->stream_id, wired_span_of(hub->relay_scratch, n), fin) <=
       0) {
