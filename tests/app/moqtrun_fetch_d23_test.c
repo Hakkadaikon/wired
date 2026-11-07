@@ -166,11 +166,36 @@ static void test_moqtrun_fetch_d23_end_marks(void) {
   CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
 }
 
+/* A's track is Malformed: flagged, or already ended by the sweep. */
+static int mfd23_a_malformed(void) {
+  const wired_moqtrun_peer* a = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  return !a->tracks[0].in_use || a->tracks[0].malformed;
+}
+
+/* draft-23 2.1.2 / 7.1: the hub only infers that Group 1's Object 1 does
+ * not exist (Group 2 began without it), so its state is Unknown: arriving,
+ * it is forwarded and the Track is not Malformed (12.1 item 10 needs a
+ * record of non-existence); draft-22 7.1 drops it ("SHOULD NOT cache or
+ * forward"). Neither caches it behind a later Group. */
+static void test_moqtrun_fetch_d23_late_unknown(void) {
+  int fwd = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_LATE_FORWARD) != 0;
+  usz used;
+  mf_init(sizeof mf_arena);
+  mf_obj(1, 0, 1);
+  mf_subscribe(0);
+  mf_obj(2, 0, 1);
+  used = mtst_hub.cache.used;
+  mf_obj(1, 1, 1);
+  CHECK(mf_relayed(1, 1) == fwd);
+  CHECK(!mfd23_a_malformed() && mtst_hub.cache.used == used);
+}
+
 static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_stream();
   test_moqtrun_fetch_d23_ok();
   test_moqtrun_fetch_d23_relative();
   test_moqtrun_fetch_d23_end_marks();
+  test_moqtrun_fetch_d23_late_unknown();
 }
 
 void test_moqtrun_fetch_d23(void) {

@@ -89,6 +89,10 @@
  * reserved) and a relative Location filter on it is INVALID_RANGE
  * (draft-23 3.2, 9.3). */
 #define MOQVER_CAP_FETCH_REQUEST_OK (1u << 27)
+/** An Object of a range the hub only inferred as not existing (its Group
+ * closed by a later one) is Unknown, so it is forwarded when it arrives
+ * (draft-23 2.1.2, 7.1); earlier drafts drop it (draft-22 7.1). */
+#define MOQVER_CAP_LATE_FORWARD (1u << 28)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

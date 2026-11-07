@@ -17,6 +17,12 @@ static int moqtrun_gone_on(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 static int moqtrun_cache_says_gone(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_gone_known(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_track_in(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t);
+static int moqtrun_track_ver(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
 
 /* The stream's Subgroup ID and Publisher Priority kept for late opens and
  * the Range Filter gate (moqtrun_stream_keys). ponytail: a mode-0b01
@@ -170,10 +176,35 @@ static int moqtrun_gone_on(
   return moqtrun_group_closed(t, l) && moqtrun_cache_says_gone(hub, t, l);
 }
 
-/* Gates caching, datagrams and Subgroup-stream Objects (moqtrun_gone.c). */
-int moqtrun_obj_gone(
+/* Gates caching: an Object behind a later Group is not cached. */
+static int moqtrun_gone_known(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
   return hub && t && moqtrun_gone_on(hub, t, l);
+}
+
+static int moqtrun_track_in(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  return (usz)t - (usz)p->tracks < sizeof p->tracks;
+}
+
+/* The draft of the session publishing t, -1 when none does. */
+static int moqtrun_track_ver(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    if (moqtrun_track_in(&hub->peers[i], t)) {
+      return hub->peers[i].ver;
+    }
+  }
+  return -1;
+}
+
+/* Gates datagrams and Subgroup-stream Objects (moqtrun_gone.c). In
+ * draft-23 the hub's inference is no record of non-existence: the
+ * Object is Unknown there, and forwarded (2.1.2, 7.1). */
+int moqtrun_obj_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  return moqtrun_gone_known(hub, t, l) &&
+         !(moqver_caps(moqtrun_track_ver(hub, t)) & MOQVER_CAP_LATE_FORWARD);
 }
 
 /* t, or 0 when the Object at l is recorded nonexistent (not forwarded). */
@@ -188,7 +219,7 @@ void moqtrun_cache_obj(
     u64                  group,
     const moqdata_obj*   o) {
   if (!moqtrun_cacheable(hub, t, o->status) ||
-      moqtrun_obj_gone(hub, t, moqctl_loc_of(group, o->object_id))) {
+      moqtrun_gone_known(hub, t, moqctl_loc_of(group, o->object_id))) {
     return;
   }
   moqcache_append_exp(
