@@ -58,13 +58,17 @@ moqctl_loc moqtrun_fsel_skip(
   return cur;
 }
 
-/* moqtrun_fsel_skip over f's own rows and track. */
+/* moqtrun_fsel_skip over f's own rows and track, kept to the gaps f's
+ * draft may leave unmarked (moqtrun_fend_skip). */
 moqctl_loc moqtrun_fsel_fskip(
-    moqcache*                  c,
+    wired_moqt_hub*            hub,
     const wired_moqtrun_fetch* f,
     moqctl_loc                 from,
     moqctl_loc                 end) {
-  return moqtrun_fsel_skip(c, f->cache_tag, f->rngf, f->rngf_n, from, end);
+  return moqtrun_fend_skip(
+      hub, f, from,
+      moqtrun_fsel_skip(
+          &hub->cache, f->cache_tag, f->rngf, f->rngf_n, from, end));
 }
 
 /* rows (n of them, at most WIRED_MOQTRUN_MAX_FILTER_RANGES) kept on f. */

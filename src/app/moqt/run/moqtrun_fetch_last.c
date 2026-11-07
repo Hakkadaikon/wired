@@ -64,7 +64,7 @@ wired_moqtrun_fetch* moqtrun_fetch_begin(
   f->end        = r->end;
   moqtrun_fseq_ver(&f->seq, moqtrun_wt_ver(hub, wt));
   moqtrun_fsel_keep(f, r->rngf, r->rngf_n);
-  f->cursor     = moqtrun_fsel_fskip(&hub->cache, f, r->start, r->end);
+  f->cursor     = moqtrun_fsel_fskip(hub, f, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
   return f;
 }

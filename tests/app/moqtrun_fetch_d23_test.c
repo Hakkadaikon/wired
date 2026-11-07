@@ -2,18 +2,38 @@
  * draft-22 on the same scenario: the fetch stream encoding (11.4). Every
  * scenario runs once per draft with the draft-22 FETCH layout. */
 
+static int mfd23_is23(void);
+
 /* 11.4.1.1: consecutive Objects of a Group leave the Object ID Delta out
  * (a present one would mean prior + Delta + 2 on draft-23), a new Group
- * carries Group ID Delta; the stream decodes under B's own draft. */
+ * carries Group ID Delta; the stream decodes under B's own draft.
+ * draft-23 2.1.2 / 3.2.2: the rest of Group 0 is only inferred missing
+ * (Group 1 began), so on draft-23 it is End of Unknown Range, not an
+ * unmarked gap ("does not exist"). */
 static void test_moqtrun_fetch_d23_stream(void) {
+  usz g1 = mfd23_is23() ? 3 : 2;
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
   mf_obj(0, 1, 1);
   mf_obj(1, 0, 1);
   mf_fetch_v(g_moqtrun_test_ver, 0);
-  CHECK(mf_read() && mf_n == 3);
+  CHECK(mf_read() && mf_n == g1 + 1);
   CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(1, 0, 1, 1));
-  CHECK(mf_is_obj(2, 1, 0, 1));
+  CHECK(g1 == 2 || mf_is_unknown(2, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(g1, 1, 0, 1));
+}
+
+/* draft-23 2.1.2: a skipped Object ID is Unknown, so on draft-23 the
+ * hub marks Object 1 End of Unknown Range; draft-22 leaves the gap. */
+static void test_moqtrun_fetch_d23_hole(void) {
+  usz last = mfd23_is23() ? 2 : 1;
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 2, 1);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mf_read() && mf_n == last + 1);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(last, 0, 2, 1));
+  CHECK(last == 1 || mf_is_unknown(1, 0, 1));
 }
 
 /* The FETCH response on B's last request stream, decoded independently
@@ -140,8 +160,9 @@ static int mfd23_two_then(u64 flags) {
 
 /* draft-23 3.2.2: the last Object of the response is followed by End of
  * Group when the hub knows it ends its Group -- an End of Group status
- * after it, or a later Group arrived -- and by End of Track when an End
- * of Track status follows it. An open Group gets no marker. */
+ * after it -- and by End of Track when an End of Track status follows
+ * it. A Group only closed by a later one is no such record (2.1.2, 12.1
+ * item 4), so it gets no marker, like an open Group. */
 static void test_moqtrun_fetch_d23_end_marks(void) {
   moqctl_rangeloc g0 = mf_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 0, 1);
   mf_init(sizeof mf_arena);
@@ -163,7 +184,7 @@ static void test_moqtrun_fetch_d23_end_marks(void) {
   mf_obj(0, 1, 1);
   mf_obj(1, 0, 1);
   mf_fetch_v(g_moqtrun_test_ver, &g0);
-  CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
+  CHECK(mf_read() && mf_n == 2);
 }
 
 /* A's track is Malformed: flagged, or already ended by the sweep. */
@@ -192,6 +213,7 @@ static void test_moqtrun_fetch_d23_late_unknown(void) {
 
 static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_stream();
+  test_moqtrun_fetch_d23_hole();
   test_moqtrun_fetch_d23_ok();
   test_moqtrun_fetch_d23_relative();
   test_moqtrun_fetch_d23_end_marks();

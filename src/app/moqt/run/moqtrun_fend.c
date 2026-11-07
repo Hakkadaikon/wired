@@ -4,13 +4,12 @@
  * Track with End of Track, and MUST follow the last Object in the
  * response with End of Group if it is known to end its Group." What the
  * hub knows: the End of Group / End of Track status Objects it received
- * (moqtrun_track_note_end_on) and that a Group is whole once a later one
- * began (moqtrun_group_closed). */
+ * (moqtrun_track_note_end_on). A Group closed by a later one is no such
+ * record (2.1.2: a gap conveys nothing; 12.1 item 4). */
 
 static int moqtrun_fend_none(
     wired_moqt_hub* hub, u64 tag, moqctl_loc from, moqctl_loc to);
 static int moqtrun_fend_eog_at(const wired_moqtrun_track* t, u64 g);
-static int moqtrun_fend_closed(const wired_moqtrun_track* t, u64 g);
 static int moqtrun_fend_group_end(
     const wired_moqtrun_track* t, moqctl_loc l, moqctl_loc* end);
 static int moqtrun_fend_track_ends(
@@ -26,6 +25,11 @@ static u64 moqtrun_fend_of(
     wired_moqt_hub* hub, const wired_moqtrun_fetch* f, moqctl_loc l);
 static int moqtrun_fend_due(const moqfetch_seq* s, int fin);
 static int moqtrun_upf_mark_out(const wired_moqtrun_fetch* f);
+static int moqtrun_fend_gaps_unknown(const wired_moqtrun_fetch* f);
+static int moqtrun_fend_eot_past(const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_fend_eog_past(const wired_moqtrun_track* t, moqctl_loc l);
+static moqctl_loc moqtrun_fend_known(
+    const wired_moqtrun_track* t, moqctl_loc from);
 static int moqtrun_upf_mark_send(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_obj* o);
 
@@ -39,20 +43,11 @@ static int moqtrun_fend_eog_at(const wired_moqtrun_track* t, u64 g) {
   return (t->end_flags & 2) && t->group_end.group == g;
 }
 
-static int moqtrun_fend_closed(const wired_moqtrun_track* t, u64 g) {
-  return t->has_largest && g < t->largest.group;
-}
-
-/* 1 with *end where l's Group is known to end: its End of Group status,
- * else the next Group once that began. */
+/* 1 with *end where l's Group is known to end: its End of Group status. */
 static int moqtrun_fend_group_end(
     const wired_moqtrun_track* t, moqctl_loc l, moqctl_loc* end) {
-  *end = moqctl_loc_of(l.group + 1, 0);
-  if (moqtrun_fend_eog_at(t, l.group)) {
-    *end = t->group_end;
-    return 1;
-  }
-  return moqtrun_fend_closed(t, l.group);
+  *end = t->group_end;
+  return moqtrun_fend_eog_at(t, l.group);
 }
 
 static int moqtrun_fend_track_ends(
@@ -119,6 +114,49 @@ usz moqtrun_fend_mark(
         &o);
   }
   return n;
+}
+
+/* ----- gaps a draft-23 stream leaves unmarked ----- */
+
+/* draft-23 3.2.2: without Range Filters an unmarked gap says the Objects
+ * do not exist. */
+static int moqtrun_fend_gaps_unknown(const wired_moqtrun_fetch* f) {
+  return f->seq.d23 && !f->rngf_n;
+}
+
+static int moqtrun_fend_eot_past(const wired_moqtrun_track* t, moqctl_loc l) {
+  return (t->end_flags & 1) && !moqctl_loc_less(l, t->track_end);
+}
+
+static int moqtrun_fend_eog_past(const wired_moqtrun_track* t, moqctl_loc l) {
+  return moqtrun_fend_eog_at(t, l.group) && !moqctl_loc_less(l, t->group_end);
+}
+
+/* How far from the hub knows nothing exists: past an End of Track to
+ * anywhere, past an End of Group to the next Group, else nowhere. */
+static moqctl_loc moqtrun_fend_known(
+    const wired_moqtrun_track* t, moqctl_loc from) {
+  if (moqtrun_fend_eot_past(t, from)) {
+    return moqctl_loc_of(~0ULL, ~0ULL);
+  }
+  return moqtrun_fend_eog_past(t, from) ? moqctl_loc_of(from.group + 1, 0)
+                                        : from;
+}
+
+/* cur, where the cache's skip from from landed, cut back on a draft-23
+ * stream to what the hub knows does not exist (2.1.2: "MUST NOT signal
+ * that an Object does not exist unless it knows"); the cursor stops
+ * there and the cache reports the rest as an unknown range. */
+moqctl_loc moqtrun_fend_skip(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_fetch* f,
+    moqctl_loc                 from,
+    moqctl_loc                 cur) {
+  const wired_moqtrun_track* t = moqtrun_upf_track(hub, f);
+  if (!moqtrun_fend_gaps_unknown(f) || !t) {
+    return cur;
+  }
+  return moqctl_loc_min(cur, moqtrun_fend_known(t, from));
 }
 
 /* ----- relaying an upstream End of Group / Track ----- */

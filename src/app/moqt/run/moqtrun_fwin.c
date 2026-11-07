@@ -69,7 +69,7 @@ static void moqtrun_fwin_down(
   u64        g    = moqtrun_fwin_group(w) - 1;
   moqctl_loc from = g == f->lo.group ? f->lo : moqctl_loc_of(g, 0);
   w->end          = moqctl_loc_of(g + 1, 0);
-  w->cursor       = moqtrun_fsel_fskip(&hub->cache, f, from, w->end);
+  w->cursor       = moqtrun_fsel_fskip(hub, f, from, w->end);
 }
 
 /* 1 while a drained descending window still has lower groups to serve. */
@@ -88,7 +88,7 @@ void moqtrun_fetch_after(
     moqctl_loc                 from,
     moqtrun_fwin*              w) {
   w->end    = f->end;
-  w->cursor = moqtrun_fsel_fskip(&hub->cache, f, from, w->end);
+  w->cursor = moqtrun_fsel_fskip(hub, f, from, w->end);
   while (moqtrun_fwin_more(f, w)) {
     moqtrun_fwin_down(hub, f, w);
   }
