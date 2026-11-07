@@ -45,32 +45,36 @@ flowchart LR
 | Setup Option 0x09 の符号化 | 奇数の Type なので Length とバイト列で送られ、その中身は vi64 1 つである。余りや不足、65535 未満の値は MALFORMED_KEY_VALUE |
 | 実験用の SSTS_ALGORITHMS(0x09) | draft-23 のセッションでだけ別の番号へ移す |
 | REDIRECT の Error Detail が 2 つ以上あるとき | 最初のものを使い、残りは無視する |
+| SUBSCRIBE_TRACKS の prefix を広げたとき | 新しく一致した既存の Track にも PUBLISH を送る。その要求で PUBLISH 済みの Track には送らない |
+| クライアントの PUBLISH に SUBSCRIBE_TRACKS_ID があるとき | ハブは SUBSCRIBE_TRACKS を送らないので、INVALID_PARAMETER で閉じる |
+| 上流へ SUBSCRIBE する相手 | §7.7 の MUST に従い、一致する prefix を告知した発行者すべてに送る(§4.1 の SHOULD より優先) |
+| 待っている上流の応答が失敗したとき | 待っている下流の要求すべてに REQUEST_ERROR を返す。コードは上流のものを使い、セッションが失われたときは INTERNAL_ERROR にする |
 | 受信する制御メッセージの上限 | すべての版で 65535 バイトにする。1 KiB を超えるメッセージは、共有の 64 KiB バッファーを借りて組み立てる。借りられないときは INTERNAL_ERROR で閉じる |
 
 ## 4. 作業の分け方
 
-| 作業 | 内容 | 検証 |
+| 順 | 内容 | 検証 |
 |---|---|---|
-| W-01 | `moqt-23` の版の行と能力ビット | TDD |
-| W-02 | 制御メッセージの Length を vi64 にし、受信上限を 65535 にする | TDD |
-| W-03 | Setup Option 0x09 MAX_CONTROL_MESSAGE_SIZE | TDD |
-| W-04 | セッションのエラーコード表を draft-23 版にする | TDD |
-| W-05 | リクエストエラー、PUBLISH_DONE、ストリームリセットのコード | TDD |
-| W-06 | REQUEST_ERROR の Error Details(REDIRECT、UNSUPPORTED_PROPERTY) | TDD |
-| W-07 | FETCH への応答を REQUEST_OK にし、相対 filter を INVALID_RANGE にする | TDD |
-| W-08 | FETCH ストリームの符号化(Object の delta +2、End of Range の差分、0x40C、0x80、0x81) | TDD |
-| W-09 | FETCH と fill の送り側(End of Group、End of Track、Gone の扱い) | TDD |
-| W-10 | Gone と存在しない Object のキャッシュの意味 | TDD |
-| W-11 | FORWARD 0x10 を PAUSED 0x11 に置き換える | TDD |
-| W-12 | パラメーターの出現範囲の表、FILL_PARAMETERS の個数符号化、NAMESPACE の Parameters | TDD |
-| W-13 | 重なる名前空間購読、SUBSCRIBE_TRACKS_ID、prefix の更新 | 状態機械のモデル検査と TDD |
-| W-14 | 同じ prefix の PUBLISH_NAMESPACE の重複 | W-13 のモデルに含める |
-| W-15 | REQUEST_UPDATE を順に処理して順に返す | 状態機械のモデル検査と TDD |
-| W-16 | リレーが返す LARGEST_OBJECT の計算 | 状態機械のモデル検査と TDD |
-| W-17 | Property(grease、多重度、範囲外) | TDD |
-| W-18 | リクエストストリーム上の GOAWAY | TDD |
-| W-19 | 空の Track Name、NEW_GROUP_REQUEST の送信条件 | TDD |
-| W-20 | `moqt-23` を提示リストに載せ、draft-23 の要件台帳を作る | 相互運用性テスト(相手実装があれば) |
+| 1 | `moqt-23` の版の行と能力ビット | TDD |
+| 2 | 制御メッセージの Length を vi64 にし、受信上限を 65535 にする | TDD |
+| 3 | Setup Option 0x09 MAX_CONTROL_MESSAGE_SIZE | TDD |
+| 4 | セッションのエラーコード表を draft-23 版にする | TDD |
+| 5 | リクエストエラー、PUBLISH_DONE、ストリームリセットのコード | TDD |
+| 6 | REQUEST_ERROR の Error Details(REDIRECT、UNSUPPORTED_PROPERTY) | TDD |
+| 7 | FETCH への応答を REQUEST_OK にし、相対 filter を INVALID_RANGE にする | TDD |
+| 8 | FETCH ストリームの符号化(Object の delta +2、End of Range の差分、0x40C、0x80、0x81) | TDD |
+| 9 | FETCH と fill の送り側(End of Group、End of Track、Gone の扱い) | TDD |
+| 10 | Gone と存在しない Object のキャッシュの意味 | TDD |
+| 11 | FORWARD 0x10 を PAUSED 0x11 に置き換える | TDD |
+| 12 | パラメーターの出現範囲の表、FILL_PARAMETERS の個数符号化、NAMESPACE の Parameters | TDD |
+| 13 | 重なる名前空間購読、SUBSCRIBE_TRACKS_ID、prefix の更新 | 状態機械のモデル検査と TDD |
+| 14 | 同じ prefix の PUBLISH_NAMESPACE の重複 | 13 と同じモデルで検査する |
+| 15 | REQUEST_UPDATE を順に処理して順に返す | 状態機械のモデル検査と TDD |
+| 16 | リレーが返す LARGEST_OBJECT の計算 | 状態機械のモデル検査と TDD |
+| 17 | Property(grease、多重度、範囲外) | TDD |
+| 18 | リクエストストリーム上の GOAWAY | TDD |
+| 19 | 空の Track Name、NEW_GROUP_REQUEST の送信条件 | TDD |
+| 20 | `moqt-23` を提示リストに載せ、draft-23 の要件台帳を作る | 相互運用性テスト(相手実装があれば) |
 
 ## 5. 対象外
 
