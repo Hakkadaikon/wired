@@ -93,11 +93,12 @@ static int moqfetch_fill_type_ok(u64 type) {
 /* MOQCTL_OK when every Parameter of p is in Table 7; a parameter "that is
  * not listed above MUST close the session with PROTOCOL_VIOLATION"
  * (SS9.20.15), so any other -- one the FETCH scope admits, like
- * AUTHORIZATION TOKEN -- is MOQCTL_VIOLATION. */
+ * AUTHORIZATION TOKEN -- is MOQCTL_R_PARAM (INVALID_PARAMETER, draft-23
+ * 9.19.15). */
 static int moqfetch_fill_listed(const moqctl_params* p) {
   for (usz i = 0; i < p->n; i++) {
     if (!moqfetch_fill_type_ok(p->items[i].type)) {
-      return MOQCTL_VIOLATION;
+      return MOQCTL_R_PARAM;
     }
   }
   return MOQCTL_OK;

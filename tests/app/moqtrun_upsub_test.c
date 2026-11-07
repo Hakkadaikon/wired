@@ -610,7 +610,7 @@ static void test_moqtrun_upsub_ok_bad_prop_closes(void) {
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
   mups_ok_prop((u64)mups_up_sid(), 0x22, 3);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_MALFORMED_KEY_VALUE) == 1);
   CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
 }
 

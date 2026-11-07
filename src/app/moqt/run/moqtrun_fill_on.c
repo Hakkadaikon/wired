@@ -10,7 +10,7 @@ static int moqtrun_fill_due(
     const moqctl_param*        fp,
     moqfetch_fill*             fill,
     moqtrun_frange*            r);
-static int  moqtrun_fill_bad(const moqctl_params* params);
+static int  moqtrun_fill_take_r(const moqctl_params* params);
 static void moqtrun_fill_from_param(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,
@@ -69,24 +69,27 @@ int moqtrun_fill_room(
          moqtrun_fetch_arr_slot(hub->fetch_waits);
 }
 
-/* 1 iff params carries a FILL_PARAMETERS whose value does not decode. */
-static int moqtrun_fill_bad(const moqctl_params* params) {
+/* MOQCTL_OK, or the decode result of a FILL_PARAMETERS in params whose
+ * value does not decode. */
+static int moqtrun_fill_take_r(const moqctl_params* params) {
   const moqctl_param* fp =
       moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
   moqfetch_fill fill;
-  return fp != 0 && moqfetch_fill_take(fp->bytes, &fill) != MOQCTL_OK;
+  return fp ? moqfetch_fill_take(fp->bytes, &fill) : MOQCTL_OK;
 }
 
 /* A malformed FILL_PARAMETERS (an unknown or truncated inner Parameter)
- * closes the session with PROTOCOL_VIOLATION (SS9.20.15 with SS9.20),
+ * closes the session with PROTOCOL_VIOLATION (SS9.20.15 with SS9.20;
+ * draft-23 9.19.15: INVALID_PARAMETER for an unlisted one),
  * checked before the SUBSCRIBE or REQUEST_UPDATE is answered. 1 when
  * closed. */
 int moqtrun_fill_malformed(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
-  if (!moqtrun_fill_bad(params)) {
+  int r = moqtrun_fill_take_r(params);
+  if (r == MOQCTL_OK) {
     return 0;
   }
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_take_pv(hub, p, r);
   return 1;
 }
 

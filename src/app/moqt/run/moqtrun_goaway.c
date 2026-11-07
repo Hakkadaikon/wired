@@ -1,7 +1,9 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver);
-static int                    moqtrun_goaway_bad(
+static moqtrun_cc             moqtrun_goaway_seen(
+    wired_moqtrun_peer* p, const moqctl_goaway* g);
+static moqtrun_cc moqtrun_goaway_cc(
     wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g);
 static int moqtrun_goaway_rid_bad(
     const wired_moqtrun_peer* p, const moqctl_goaway* g);
@@ -55,17 +57,30 @@ static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver) {
                                                       : moqctl_goaway_take;
 }
 
+/* A decoded control-stream GOAWAY: a New Session URI sent to the hub, the
+ * server, is ROLE_VIOLATION (draft-23 9.2), a second GOAWAY
+ * UNEXPECTED_MESSAGE (9.2); MOQTRUN_CC_N when the first is recorded. */
+static moqtrun_cc moqtrun_goaway_seen(
+    wired_moqtrun_peer* p, const moqctl_goaway* g) {
+  if (g->new_session_uri.n) {
+    return MOQTRUN_CC_ROLE;
+  }
+  return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE
+             ? MOQTRUN_CC_UNEXPECTED
+             : MOQTRUN_CC_N;
+}
+
 /* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
  * be well formed in p's draft, carry no New Session URI (the hub is the
- * server), and be the session's first. */
-static int moqtrun_goaway_bad(
+ * server), and be the session's first. The close class, or MOQTRUN_CC_N. */
+static moqtrun_cc moqtrun_goaway_cc(
     wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
   usz off = 0;
-  if (moqtrun_goaway_decoder(p->ver)(body, &off, g) != MOQCTL_OK ||
-      g->new_session_uri.n) {
-    return 1;
+  int r   = moqtrun_goaway_decoder(p->ver)(body, &off, g);
+  if (r != MOQCTL_OK) {
+    return moqtrun_cc_of_take(r);
   }
-  return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE;
+  return moqtrun_goaway_seen(p, g);
 }
 
 /* draft-18 SS10.4: the Request ID names one of the hub's own Request IDs,
@@ -78,9 +93,10 @@ static int moqtrun_goaway_rid_bad(
 
 /* Session close code a control-stream GOAWAY calls for; 0 for none. */
 static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
-  moqctl_goaway g = {0};
-  if (moqtrun_goaway_bad(p, body, &g)) {
-    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+  moqctl_goaway g  = {0};
+  moqtrun_cc    cc = moqtrun_goaway_cc(p, body, &g);
+  if (cc != MOQTRUN_CC_N) {
+    return moqtrun_cc_code(p->ver, cc);
   }
   return moqtrun_goaway_rid_bad(p, &g) ? WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID
                                        : 0;
@@ -118,15 +134,16 @@ int moqtrun_setup_second(const wired_moqtrun_peer* p) {
 /* An AUTHORIZATION TOKEN naming an Alias (DELETE / USE_ALIAS) closes
  * PROTOCOL_VIOLATION (draft-18 10.3.1.4, draft-22 9.1.4: "If a server
  * receives Alias Type DELETE (0x0) or USE_ALIAS (0x2) in a SETUP
- * message"). PATH/AUTHORITY (-18/-19 10.3.1.1-2, -22 9.1.1-2): over
- * WebTransport either one is a close (INVALID_PATH / INVALID_AUTHORITY); on
- * raw QUIC a well-formed value is accepted unless hub->raw_policy refuses
- * it, a malformed one closes MALFORMED_PATH / MALFORMED_AUTHORITY. */
+ * message"), ROLE_VIOLATION in draft-23 9.1.4. PATH/AUTHORITY
+ * (-18/-19 10.3.1.1-2, -22 9.1.1-2): over WebTransport either one is a close
+ * (INVALID_PATH / INVALID_AUTHORITY); on raw QUIC a well-formed value is
+ * accepted unless hub->raw_policy refuses it, a malformed one closes
+ * MALFORMED_PATH / MALFORMED_AUTHORITY. */
 static u32 moqtrun_setup_opt_bad(
     const wired_moqt_hub*     hub,
     const wired_moqtrun_peer* p,
     const moqctl_setup*       m) {
-  return m->token_alias_ref ? WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION
+  return m->token_alias_ref ? moqtrun_cc_code(p->ver, MOQTRUN_CC_ROLE)
                             : moqraw_setup_verdict(p->raw, m, &hub->raw_policy);
 }
 
@@ -138,11 +155,8 @@ u32 moqtrun_setup_take_code(
     moqctl_setup*             m) {
   usz off = 0;
   int r   = moqctl_setup_take_v(p->ver, body, &off, m);
-  if (r == MOQCTL_PARAMS_KVFMT) {
-    return (u32)MOQCTL_CLOSE_KVFMT_ERROR;
-  }
   if (r != MOQCTL_OK) {
-    return WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+    return moqtrun_cc_code(p->ver, moqtrun_cc_of_take(r));
   }
   return moqtrun_setup_opt_bad(hub, p, m);
 }

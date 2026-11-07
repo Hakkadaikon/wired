@@ -596,7 +596,7 @@ static void test_moqctl_goaway_uri_boundary(void) {
     usz off = 0;
     CHECK(
         moqctl_goaway_take(wired_span_of(buf_reject, at), &off, &m) ==
-        MOQCTL_VIOLATION);
+        MOQCTL_R_FIELD_LEN);
   }
 }
 
@@ -630,7 +630,7 @@ static void test_moqctl_reason_boundary(void) {
     usz off = 0;
     CHECK(
         moqctl_reason_take(wired_span_of(buf_reject, at), &off, &r) ==
-        MOQCTL_VIOLATION);
+        MOQCTL_R_FIELD_LEN);
   }
 }
 
@@ -685,7 +685,7 @@ static void test_moqctl_ns_field_len_zero_rejected(void) {
           wired_span_of(
               g_moqt_name_ns_field_len_zero_reject,
               G_MOQT_NAME_NS_FIELD_LEN_ZERO_REJECT_LEN),
-          &off, &ns) == MOQCTL_VIOLATION);
+          &off, &ns) == MOQCTL_R_TRACK_NS);
 }
 
 /* 32 fields accepted, 33 rejected. */
@@ -708,7 +708,7 @@ static void test_moqctl_ns_fields_32_accept_33_reject(void) {
           wired_span_of(
               g_moqt_name_ns_fields_33_reject,
               G_MOQT_NAME_NS_FIELDS_33_REJECT_LEN),
-          &off, &ns) == MOQCTL_VIOLATION);
+          &off, &ns) == MOQCTL_R_TRACK_NS);
 }
 
 /* Full Track Name 4096 boundary. */
@@ -728,7 +728,7 @@ static void test_moqctl_ftn_4096_accept_4097_reject(void) {
       moqctl_ftn_take(
           wired_span_of(
               g_moqt_name_ftn_4097_reject, G_MOQT_NAME_FTN_4097_REJECT_LEN),
-          &off, &f) == MOQCTL_VIOLATION);
+          &off, &f) == MOQCTL_R_FIELD_LEN);
 }
 
 /* Exact byte comparison, no encoding-dependent shortcuts. */
@@ -800,7 +800,7 @@ static void test_moqctl_params_type_overflow_violation(void) {
     CHECK(
         moqctl_params_take(
             MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
-            &out) == MOQCTL_VIOLATION);
+            &out) == MOQCTL_R_DELTA);
   }
 }
 
@@ -818,7 +818,7 @@ static void test_moqctl_params_unknown_type_violation(void) {
     CHECK(
         moqctl_params_take(
             MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
-            &out) == MOQCTL_VIOLATION);
+            &out) == MOQCTL_R_PARAM);
   }
 }
 
@@ -842,7 +842,7 @@ static void test_moqctl_params_duplicate_type_violation(void) {
     CHECK(
         moqctl_params_take(
             MOQVER_D19, wired_span_of(buf, off), &roff, MOQCTL_PCTX_SUBSCRIBE,
-            &out) == MOQCTL_VIOLATION);
+            &out) == MOQCTL_R_PARAM);
   }
 }
 
@@ -862,7 +862,7 @@ static void test_moqctl_params_scope_violation(void) {
     CHECK(
         moqctl_params_take(
             MOQVER_D19, wired_span_of(buf, off), &roff,
-            MOQCTL_PCTX_SUBSCRIBE_OK, &out) == MOQCTL_VIOLATION);
+            MOQCTL_PCTX_SUBSCRIBE_OK, &out) == MOQCTL_R_PARAM);
   }
 }
 
@@ -969,7 +969,7 @@ static void test_moqctl_params_auth_token_malformed_kvfmt(void) {
     CHECK(
         moqctl_params_take(
             MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE,
-            &out) == MOQCTL_PARAMS_KVFMT);
+            &out) == MOQCTL_R_AUTH_TOKEN);
   }
 }
 
@@ -984,7 +984,7 @@ static void test_moqctl_params_auth_token_scope_violation(void) {
   CHECK(
       moqctl_params_take(
           MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE_OK,
-          &out) == MOQCTL_VIOLATION);
+          &out) == MOQCTL_R_PARAM);
 }
 
 /* draft-ietf-moq-transport-19 10.2.x / 15.7 Table 13: each Message
@@ -1045,7 +1045,7 @@ static void mqpt_check_one(const mqpt_row* r, u32 bit) {
   usz                  roff = 0;
   int                  got =
       moqctl_params_take(MOQVER_D19, wired_span_of(buf, n), &roff, bit, &out);
-  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
+  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_R_PARAM));
   CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
 }
 
@@ -1096,7 +1096,7 @@ static void mqpt_check_one_v(int ver, const mqpt_row* r, u32 bit) {
   usz                  n    = mqpt_build(buf, sizeof buf, r);
   usz                  roff = 0;
   int got = moqctl_params_take(ver, wired_span_of(buf, n), &roff, bit, &out);
-  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_VIOLATION));
+  CHECK(got == ((r->ctx & bit) ? MOQCTL_OK : MOQCTL_R_PARAM));
   CHECK(got != MOQCTL_OK || (roff == n && out.items[0].type == r->type));
 }
 
@@ -1130,7 +1130,7 @@ static void test_moqctl_params_include_properties_range(void) {
   CHECK(
       moqctl_params_take(
           MOQVER_D22, wired_span_of(buf, n), &roff, MOQCTL_PCTX_FETCH, &out) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* Decodes the one-parameter list {type, val} under ctx into *out. */
@@ -1200,7 +1200,7 @@ static void test_moqctl_params_namespace_prefix(void) {
   CHECK(
       mqpt_take(
           MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, bad, sizeof bad,
-          MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS, &out) == MOQCTL_VIOLATION);
+          MOQCTL_PCTX_UPDATE_SUBSCRIBE_TRACKS, &out) == MOQCTL_R_TRACK_NS);
 }
 
 /* uint8 value v of type under SUBSCRIBE: MOQCTL_OK or VIOLATION. */
@@ -1215,11 +1215,11 @@ static int mqpt_u8(u64 type, u8 v) {
 static void test_moqctl_params_uint8_value_ranges(void) {
   CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 0) == MOQCTL_OK);
   CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 1) == MOQCTL_OK);
-  CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 2) == MOQCTL_VIOLATION);
-  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 0) == MOQCTL_VIOLATION);
+  CHECK(mqpt_u8(MOQCTL_PARAM_FORWARD, 2) == MOQCTL_R_PARAM);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 0) == MOQCTL_R_PARAM);
   CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 1) == MOQCTL_OK);
   CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 2) == MOQCTL_OK);
-  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 3) == MOQCTL_VIOLATION);
+  CHECK(mqpt_u8(MOQCTL_PARAM_GROUP_ORDER, 3) == MOQCTL_R_PARAM);
   CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 0) == MOQCTL_OK);
   CHECK(mqpt_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 255) == MOQCTL_OK);
 }
@@ -1261,7 +1261,7 @@ static void test_moqctl_params_repeatable_filters(void) {
   CHECK(mqpt_twice(&sub_flt, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_OK);
   CHECK(out.n == 2 && out.items[1].type == MOQCTL_PARAM_SUBGROUP_FILTER);
   CHECK(mqpt_twice(&trk_flt, MOQCTL_PCTX_SUBSCRIBE_TRACKS, &out) == MOQCTL_OK);
-  CHECK(mqpt_twice(&order, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_VIOLATION);
+  CHECK(mqpt_twice(&order, MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_R_PARAM);
 }
 
 /* REQUEST_OK (10.5) carries the parameters of whichever OK it stands for
@@ -1288,7 +1288,7 @@ static void test_moqctl_request_ok_params_scope(void) {
   CHECK(
       moqctl_request_ok_take(
           MOQVER_D19, wired_span_of(order, sizeof order), &off, &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* moqctl_params_find: the first item of a Type, or 0 when absent -- so a
@@ -1526,7 +1526,7 @@ static void test_moqctl_setup_d22_09_is_ssts(void) {
   CHECK(!s.has_max_ctl_size);
 }
 
-/* S-171: on draft-23 SSTS_ALGORITHMS moves to 0x3F01 (Delta Type BF 01:
+/* draft-23 9.1.8: SSTS_ALGORITHMS moves to 0x3F01 (Delta Type BF 01:
  * 2-byte vi64 10 + 14 bits), both ways; wired's own SETUP carries no
  * MAX_CONTROL_MESSAGE_SIZE. */
 static void test_moqctl_setup_d23_ssts_moved(void) {
@@ -1684,7 +1684,7 @@ static void test_moqctl_locfilter_end_group_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_locfilter_take(wired_span_of(buf, off), &roff, &f) ==
-        MOQCTL_VIOLATION);
+        MOQCTL_R_DELTA);
   }
 }
 
@@ -1696,7 +1696,7 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
 
   CHECK(
       moqctl_locfilter_take(wired_span_of(in, sizeof in), &off, &f) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* moxygen's interop client SUBSCRIBE (captured, moqt-18): its Subscription
@@ -1836,7 +1836,7 @@ static void test_moqctl_rangeloc19_egd_overflow_violation(void) {
     usz roff = 0;
     CHECK(
         moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
-        MOQCTL_VIOLATION);
+        MOQCTL_R_DELTA);
   }
 }
 
@@ -2001,7 +2001,7 @@ static void test_moqctl_rangeloc22_egd_overflow_violation(void) {
     CHECK(
         moqctl_rangeloc22_take(
             wired_span_of(buf, off), &roff, &has_filter, &out) ==
-        MOQCTL_VIOLATION);
+        MOQCTL_R_DELTA);
   }
 }
 
@@ -2015,7 +2015,7 @@ static void test_moqctl_rangeloc22_unknown_type_violation(void) {
   CHECK(
       moqctl_rangeloc22_take(
           wired_span_of(in, sizeof in), &off, &has_filter, &out) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* Cross-version: the same {group,object} AbsoluteStart decodes to a

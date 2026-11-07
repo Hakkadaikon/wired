@@ -12,7 +12,7 @@ static int moqctl_ns_eq(const moqctl_ns* a, const moqctl_ns* b);
 
 static int moqctl_ftn_bound_check(const moqctl_ftn* f) {
   if (moqctl_ns_bytelen(&f->ns) + f->name.n > MOQCTL_MAX_FTN_LEN) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_FIELD_LEN; /* draft-23 8.7 */
   }
   return MOQCTL_OK;
 }

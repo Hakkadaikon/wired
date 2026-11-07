@@ -56,7 +56,7 @@ static void test_moqtstat_param_scope(void) {
   moqctl_subscribe m;
   CHECK(
       moqtstat_take(MOQVER_D19, wired_span_of(prio, sizeof prio), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   CHECK(
       moqtstat_take(MOQVER_D19, wired_span_of(auth, sizeof auth), &m) ==
       MOQCTL_OK);
@@ -113,7 +113,7 @@ static void test_moqtstat_ok_scope(void) {
   usz               off = 0;
   CHECK(
       moqtstat_ok_take(MOQVER_D19, wired_span_of(exp, sizeof exp), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   CHECK(
       moqctl_request_ok_take(
           MOQVER_D19, wired_span_of(exp, sizeof exp), &off, &m) == MOQCTL_OK);
@@ -150,7 +150,7 @@ static void test_moqtstat_update_scope(void) {
   moqtstat_update m;
   CHECK(
       moqtstat_update_take(MOQVER_D19, body, MOQCTL_PCTX_UPDATE_FETCH, &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 static void test_moqtstat_update_length_mismatch(void) {
@@ -228,7 +228,7 @@ static int moqtstat_t_prefix(usz first_len) {
 
 static void test_moqtstat_update_prefix_bound(void) {
   CHECK(moqtstat_t_prefix(MOQCTL_MAX_FTN_LEN - 1) == MOQCTL_OK);
-  CHECK(moqtstat_t_prefix(MOQCTL_MAX_FTN_LEN) == MOQCTL_VIOLATION);
+  CHECK(moqtstat_t_prefix(MOQCTL_MAX_FTN_LEN) == MOQCTL_R_FIELD_LEN);
 }
 
 void test_moqtstat(void) {

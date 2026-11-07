@@ -100,7 +100,7 @@ static void test_moqkvp_take_type_overflow(void) {
 
   CHECK(
       moqkvp_take(wired_span_of(d1, sizeof d1), &off, &prev, &kv) ==
-      MOQKVP_VIOLATION);
+      MOQKVP_R_DELTA);
   CHECK(off == 0 && prev == (u64)-1);
 
   CHECK(
@@ -152,7 +152,7 @@ static void test_moqkvp_take_len_65536_violation(void) {
   CHECK(
       moqkvp_take(
           wired_span_of(moqkvp_len_buf, sizeof moqkvp_len_buf), &off, &prev,
-          &kv) == MOQKVP_VIOLATION);
+          &kv) == MOQKVP_R_LEN);
   CHECK(off == 0 && prev == 0);
 }
 

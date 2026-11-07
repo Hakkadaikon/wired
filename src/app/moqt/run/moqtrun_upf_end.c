@@ -98,7 +98,7 @@ static void moqtrun_upf_ok(
     return;
   }
   if (moqctl_loc_less(e, f->up_lo)) {
-    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_FIELD);
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }

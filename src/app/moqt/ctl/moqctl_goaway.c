@@ -65,7 +65,7 @@ static int moqctl_goaway_take_uri(wired_span buf, usz* at, moqctl_goaway* out) {
     return MOQCTL_INSUFFICIENT;
   }
   if (uri_len > MOQCTL_MAX_URI_LEN) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_FIELD_LEN; /* draft-23 9.2 */
   }
   return moqctl_bytes_take(buf, at, uri_len, &out->new_session_uri);
 }

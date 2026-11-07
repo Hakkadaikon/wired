@@ -60,8 +60,9 @@ static u64 moqtrun_fetch_verdict(
 void moqtrun_handle_fetch(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqfetch_req m;
-  if (moqtrun_fetch_take(p, body, &m) != MOQCTL_OK) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  int          r = moqtrun_fetch_take(p, body, &m);
+  if (r != MOQCTL_OK) {
+    moqtrun_close_take_pv(hub, p, r);
     return;
   }
   u64 code = moqtrun_fetch_verdict(hub, &m);

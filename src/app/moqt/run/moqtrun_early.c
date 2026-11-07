@@ -184,9 +184,41 @@ static const u32 moqtrun_sess_codes[] = {
     WIRED_MOQTRUN_CLOSE_NO_ERROR,           /* NO_ERROR */
 };
 
+/* Close class of each moqsess event whose reason is PROTOCOL_VIOLATION
+ * (MOQSESS_EV_*): draft-23 6.3 CLOSED_CONTROL_STREAM, 6.4.1
+ * INVALID_STREAM_HEADER, 9 / 9.2 UNEXPECTED_MESSAGE for an unknown or
+ * out-of-place message, a second control stream / SETUP / GOAWAY (12.2
+ * "more times than allowed"), 9.2 ROLE_VIOLATION for a New
+ * Session URI sent to the server. */
+static const u8 moqtrun_sess_ev_cc[] = {
+    MOQTRUN_CC_PV,         /* SENT_SETUP */
+    MOQTRUN_CC_PV,         /* RECV_SETUP */
+    MOQTRUN_CC_CTL_CLOSED, /* CTRL_CLOSED */
+    MOQTRUN_CC_STREAM_HDR, /* UNKNOWN_UNI */
+    MOQTRUN_CC_UNEXPECTED, /* SECOND_CTRL */
+    MOQTRUN_CC_UNEXPECTED, /* MALFORMED_CTRL */
+    MOQTRUN_CC_PV,         /* SEND_GOAWAY */
+    MOQTRUN_CC_UNEXPECTED, /* RECV_GOAWAY */
+    MOQTRUN_CC_ROLE,       /* RECV_GOAWAY_BAD_URI */
+    MOQTRUN_CC_PV,         /* GOAWAY_TIMEOUT */
+    MOQTRUN_CC_UNEXPECTED, /* BAD_FIRST */
+    MOQTRUN_CC_PV,         /* BAD_REQUEST_ID */
+};
+
+/* Session close code of moqsess close reason r reached on event ev: a
+ * PROTOCOL_VIOLATION takes ev's class in p's draft. */
+static u32 moqtrun_sess_code(
+    const wired_moqtrun_peer* p, int r, moqsess_event ev) {
+  if (r != MOQSESS_CLOSE_PROTOCOL_VIOLATION) {
+    return moqtrun_sess_codes[r];
+  }
+  return moqtrun_cc_code(p->ver, (moqtrun_cc)moqtrun_sess_ev_cc[ev]);
+}
+
 /* Feeds ev to p's session machine (moqsess) and closes the session with
  * the code its close reason maps to. */
 void moqtrun_sess_fault(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, moqsess_event ev) {
-  moqtrun_close_with(hub, p, moqtrun_sess_codes[moqsess_step(&p->sess, ev)]);
+  int r = moqsess_step(&p->sess, ev);
+  moqtrun_close_with(hub, p, moqtrun_sess_code(p, r, ev));
 }

@@ -58,7 +58,7 @@ int moqtrun_pubst_repeat(
     return 0;
   }
   p->req = q;
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_cc(hub, p, MOQTRUN_CC_UNEXPECTED);
   p->req = saved;
   return 1;
 }
@@ -97,7 +97,7 @@ static int moqtrun_pubst_ok_take(
     return 0;
   }
   return moqtrun_take_or_close(
-      hub, p, ok->track_properties.n ? MOQCTL_VIOLATION : MOQCTL_OK);
+      hub, p, ok->track_properties.n ? MOQCTL_R_FIELD : MOQCTL_OK);
 }
 
 /* 1 when the PUBLISH_OK body may open the subscription. Otherwise it was

@@ -192,7 +192,7 @@ static int moqtrun_upd_stray(const wired_moqtrun_peer* p) {
  * else (d18's control stream) NOT_SUPPORTED. */
 void moqtrun_upd_refuse(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (moqtrun_upd_stray(p)) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, p, MOQTRUN_CC_UNEXPECTED);
     return;
   }
   moqtrun_send_request_error(p, MOQCTL_ERR_NOT_SUPPORTED);

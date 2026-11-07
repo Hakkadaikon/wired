@@ -8,6 +8,7 @@
 #include "app/moqt/fetch/moqfetch.h"
 #include "app/moqt/qraw/moqraw.h"
 #include "app/moqt/run/moqtrel.h"
+#include "app/moqt/run/moqtrun_close.h"
 #include "app/moqt/run/moqtss.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"

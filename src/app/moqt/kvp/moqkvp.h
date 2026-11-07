@@ -30,6 +30,11 @@
 #define MOQKVP_OK 1
 #define MOQKVP_INSUFFICIENT 0
 #define MOQKVP_VIOLATION (-1)
+/** VIOLATION: Type past 2^64-1 (draft-23 8.3 DELTA_ENCODING_OVERFLOW). */
+#define MOQKVP_R_DELTA (-2)
+/** VIOLATION: Length past MOQKVP_MAX_LEN (draft-23 8.3
+ * FIELD_LENGTH_EXCEEDED). */
+#define MOQKVP_R_LEN (-3)
 
 /** One decoded (or to-be-encoded) Key-Value-Pair. */
 typedef struct {
@@ -50,8 +55,8 @@ typedef struct {
  * @param off       in/out cursor within buf
  * @param prev_type in/out cumulative Type (0 before the first pair)
  * @param out       decoded pair on success
- * @return MOQKVP_OK, MOQKVP_INSUFFICIENT (truncated), or
- *   MOQKVP_VIOLATION (Type overflow / Length too large)
+ * @return MOQKVP_OK, MOQKVP_INSUFFICIENT (truncated), MOQKVP_R_DELTA
+ *   (Type overflow) or MOQKVP_R_LEN (Length too large)
  */
 int moqkvp_take(wired_span buf, usz* off, u64* prev_type, moqkvp* out);
 

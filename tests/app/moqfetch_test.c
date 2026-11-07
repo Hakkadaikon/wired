@@ -100,7 +100,7 @@ static void test_moqfetch_bad_type_and_scope(void) {
       MOQCTL_VIOLATION);
   CHECK(
       moqfetch_fetch_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   m.fetch_type = 4;
   CHECK(!moqfetch_fetch_encode(wired_mspan_of(out, sizeof out), &n, &m));
 }
@@ -225,7 +225,7 @@ static void test_moqfetch_ok_reject(void) {
   CHECK(m.track_properties.n == 2);
   CHECK(
       moqfetch_ok_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* 11.4.4 Figure 26: FETCH_HEADER is Type 0x5 + Request ID. */
@@ -595,7 +595,7 @@ static void moqfetch_t_ftn(usz ns_len, int want) {
 
 static void test_moqfetch_ftn_bound(void) {
   moqfetch_t_ftn(MOQCTL_MAX_FTN_LEN - 1, MOQCTL_OK);
-  moqfetch_t_ftn(MOQCTL_MAX_FTN_LEN, MOQCTL_VIOLATION);
+  moqfetch_t_ftn(MOQCTL_MAX_FTN_LEN, MOQCTL_R_FIELD_LEN);
 }
 
 /* 10: the largest Message Length (65,535) round trips; the bulk is an
@@ -646,10 +646,10 @@ static void test_moqfetch_more_rejects(void) {
   CHECK(moqfetch_fetch_take(MOQVER_D19, body, &m) == MOQCTL_VIOLATION);
   CHECK(
       moqfetch_fetch_take(MOQVER_D19, wired_span_of(lf, sizeof lf), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   CHECK(
       moqfetch_fetch_take(MOQVER_D19, wired_span_of(wrap, sizeof wrap), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_DELTA);
 }
 
 /* ===== more fetch stream / Object cases (11.4.4) ===== */
@@ -1003,7 +1003,7 @@ static void test_moqfetch_req22_bad_ns_rejects(void) {
   moqfetch_req    m;
   CHECK(
       moqfetch_req22_take(wired_span_of(bad_ns, sizeof bad_ns), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_TRACK_NS);
 }
 
 /* Cross-version: the same NS/Name + absolute {2,3}..{5,0} inclusive

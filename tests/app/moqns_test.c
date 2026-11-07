@@ -130,7 +130,7 @@ static void test_moqns_field_rules(void) {
   static const u8 empty[] = {0x00};
   CHECK(
       moqns_suffix_take(wired_span_of(zero_len, sizeof zero_len), &ns) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_TRACK_NS);
   CHECK(moqns_suffix_take(wired_span_of(empty, 1), &ns) == MOQCTL_OK);
   CHECK(ns.n == 0);
   for (usz i = 0; i < 33; i++) {
@@ -143,7 +143,7 @@ static void test_moqns_field_rules(void) {
   many[0] = 33;
   CHECK(
       moqns_suffix_take(wired_span_of(many, sizeof many), &ns) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_TRACK_NS);
 }
 
 /* 2.4.1: the namespace length (sum of field lengths) may be 4,096 bytes,
@@ -163,7 +163,7 @@ static void test_moqns_total_bound(void) {
   CHECK(moqns_suffix_take(wired_span_of(b, n + 1), &ns) == MOQCTL_OK);
   CHECK(moqctl_ns_bytelen(&ns) == MOQCTL_MAX_FTN_LEN);
   b[n - 1] = 2;
-  CHECK(moqns_suffix_take(wired_span_of(b, n + 2), &ns) == MOQCTL_VIOLATION);
+  CHECK(moqns_suffix_take(wired_span_of(b, n + 2), &ns) == MOQCTL_R_FIELD_LEN);
 }
 
 /* 10.2.1: SUBSCRIBE_NAMESPACE admits AUTHORIZATION_TOKEN but not FORWARD
@@ -175,7 +175,7 @@ static void test_moqns_param_scope(void) {
   moqns_req       m;
   CHECK(
       moqns_subscribe_take(MOQVER_D19, wired_span_of(fwd, sizeof fwd), &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   CHECK(
       moqns_subscribe_take(MOQVER_D19, wired_span_of(auth, sizeof auth), &m) ==
       MOQCTL_OK);
@@ -325,13 +325,13 @@ static void test_moqns_tuple_rejects(void) {
   usz             n   = 0;
   usz             off = 0;
   moqctl_ns       ns;
-  CHECK(moqctl_ns_take(wired_span_of(c33, 1), &off, &ns) == MOQCTL_VIOLATION);
+  CHECK(moqctl_ns_take(wired_span_of(c33, 1), &off, &ns) == MOQCTL_R_TRACK_NS);
   CHECK(
       moqctl_ns_take(wired_span_of(cmax, sizeof cmax), &off, &ns) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_TRACK_NS);
   CHECK(
       moqctl_ns_take(wired_span_of(z, sizeof z), &off, &ns) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_TRACK_NS);
   CHECK(
       moqctl_ns_take(wired_span_of(cut, sizeof cut), &off, &ns) ==
       MOQCTL_INSUFFICIENT);
@@ -344,7 +344,8 @@ static void test_moqns_tuple_rejects(void) {
   n += MOQCTL_MAX_FTN_LEN;
   over[n++] = 1;
   over[n++] = 'z';
-  CHECK(moqctl_ns_take(wired_span_of(over, n), &off, &ns) == MOQCTL_VIOLATION);
+  CHECK(
+      moqctl_ns_take(wired_span_of(over, n), &off, &ns) == MOQCTL_R_FIELD_LEN);
 }
 
 void test_moqns(void) {

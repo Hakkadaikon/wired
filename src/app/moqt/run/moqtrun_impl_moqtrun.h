@@ -71,6 +71,29 @@ typedef struct {
 /* Not a REQUEST_ERROR code: the session closes PROTOCOL_VIOLATION. */
 #define MOQTRUN_REQ_CLOSE (~(u64)1)
 
+/* Why the hub closes a session, one class per draft-23 12.2 code it may
+ * pick; moqtrun_cc_code turns it into the session's draft's code. */
+typedef enum {
+  MOQTRUN_CC_PV,            /* PROTOCOL_VIOLATION in every draft */
+  MOQTRUN_CC_MALFORMED_MSG, /* MALFORMED_MESSAGE */
+  MOQTRUN_CC_FIELD,         /* INVALID_FIELD */
+  MOQTRUN_CC_TRACK_NS,      /* INVALID_TRACK_NAMESPACE */
+  MOQTRUN_CC_UNEXPECTED,    /* UNEXPECTED_MESSAGE */
+  MOQTRUN_CC_ROLE,          /* ROLE_VIOLATION */
+  MOQTRUN_CC_PARAM,         /* INVALID_PARAMETER */
+  MOQTRUN_CC_CTL_CLOSED,    /* CLOSED_CONTROL_STREAM */
+  MOQTRUN_CC_STREAM_HDR,    /* INVALID_STREAM_HEADER */
+  MOQTRUN_CC_MALFORMED_OBJ, /* MALFORMED_OBJECT */
+  MOQTRUN_CC_OBJ_STATUS,    /* INVALID_OBJECT_STATUS */
+  MOQTRUN_CC_TRUNCATED,     /* TRUNCATED_OBJECT */
+  MOQTRUN_CC_DELTA,         /* DELTA_ENCODING_OVERFLOW */
+  MOQTRUN_CC_FIELD_LEN,     /* FIELD_LENGTH_EXCEEDED */
+  MOQTRUN_CC_KVFMT,         /* MALFORMED_KEY_VALUE in every draft */
+  MOQTRUN_CC_AUTH_TOKEN,    /* MALFORMED_AUTH_TOKEN (0x6 before 23) */
+  MOQTRUN_CC_PROP_VALUE,    /* MALFORMED_KEY_VALUE (PV before 23) */
+  MOQTRUN_CC_N
+} moqtrun_cc;
+
 /* A filter's Start Location (19 SS5.1.2, 22 SS9.20.9) against top, the
  * Largest Object (0: nothing published), indexed by moqctl_rsk. */
 typedef moqctl_loc (*moqtrun_start_fn)(
@@ -281,6 +304,10 @@ int  moqtrun_publish_refused(
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);
+u32  moqtrun_cc_code(int ver, moqtrun_cc c);
+moqtrun_cc moqtrun_cc_of_take(int r);
+void moqtrun_close_cc(wired_moqt_hub* hub, wired_moqtrun_peer* p, moqtrun_cc c);
+void moqtrun_close_take_pv(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r);
 void moqtrun_fill_on_subscribe(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,

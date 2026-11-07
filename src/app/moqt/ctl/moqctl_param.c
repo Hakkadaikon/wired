@@ -10,7 +10,7 @@ static int moqctl_reason_take_len(wired_span buf, usz* at, u64* len) {
     return MOQCTL_INSUFFICIENT;
   }
   if (*len > MOQCTL_MAX_REASON_LEN) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_FIELD_LEN; /* draft-23 8.5 */
   }
   return MOQCTL_OK;
 }

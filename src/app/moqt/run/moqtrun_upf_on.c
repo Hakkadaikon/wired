@@ -77,7 +77,7 @@ static void moqtrun_upf_goaway(
     wired_moqtrun_fetch* f,
     int                  seen) {
   if (seen) {
-    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
     return;
   }
   if (moqtrun_upf_live(f)) {

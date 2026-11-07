@@ -851,6 +851,7 @@
 #include "app/moqt/run/moqtrun_done.c"
 #include "app/moqt/run/moqtrun_drain.c"
 #include "app/moqt/run/moqtrun_each.c"
+#include "app/moqt/run/moqtrun_ccode.c"
 #include "app/moqt/run/moqtrun_early.c"
 #include "app/moqt/run/moqtrun_encode.c"
 #include "app/moqt/run/moqtrun_fetch.c"
@@ -1533,6 +1534,7 @@
 #include "app/moqtrun_misc_test.c"
 #include "app/moqtrun_ctlfix_test.c"
 #include "app/moqtrun_sess_test.c"
+#include "app/moqtrun_cc_test.c"
 #include "app/moqtrun_fillfix_test.c"
 #include "app/moqtrun_rdv_test.c"
 #include "app/moqraw_test.c"
@@ -2146,6 +2148,7 @@ int main(void) {
   test_moqtrun_rawpeer();
   test_moqtrun_ctlfix();
   test_moqtrun_sess();
+  test_moqtrun_cc();
   test_moqtrun_fillfix();
   test_moqtrun_rdv();
   test_moqtrun_upsub();

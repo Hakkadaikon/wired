@@ -187,7 +187,7 @@ static void test_moqtrun_misc_pub_update_failed_fins(void) {
   CHECK(mtup_err_code(sid) == MOQCTL_ERR_INVALID_FILTER);
   CHECK(mtrq_fin_on(sid) == 1);
   mtst_pub_ok(SESS_B, sid);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   CHECK(mtmi_dg_to_b() == 0);
 }
 
@@ -202,7 +202,7 @@ static void test_moqtrun_misc_pub_second_ok_closes(void) {
   mtst_pub_ok(SESS_B, sid);
   CHECK(mtrq_closes() == 0);
   mtst_pub_ok(SESS_B, sid);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
 /* 12-28: a REQUEST_ERROR after the REQUEST_OK is the same "more than
@@ -212,7 +212,7 @@ static void test_moqtrun_misc_pub_error_after_ok_closes(void) {
   u64            sid = mtmi_setup(0, &pub);
   mtst_pub_ok(SESS_B, sid);
   mtst_pub_err(SESS_B, sid, MOQCTL_ERR_INTERNAL_ERROR);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
 /* moqtrun_envelope_put's body_fn type; calling the typed encoder through a
@@ -256,7 +256,7 @@ static void mtmi_pub_ok_refused(u64 sid, int decodes) {
     CHECK(mtrq_closes() == 0);
   }
   if (!decodes) {
-    CHECK(mtrq_closes() == 1);
+    CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_INVALID_PARAMETER) == 1);
   }
   CHECK(mtmi_dg_to_b() == 0);
 }
@@ -408,7 +408,7 @@ static void mtmi_update_on_ctl_closes(void) {
   mtst_init();
   u64 cb = mtst_join(SESS_B);
   mtup_update(SESS_B, cb, &p1);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
 /* 12-17, d18 10.9 has no such sentence (only "MUST respond with exactly
@@ -429,7 +429,7 @@ static void mtmi_update_on_tstat_closes(void) {
   moqctl_ftn    f  = mtrq_setup();
   mtup_tstat(SESS_B, MTRQ_S1, &f);
   mtup_update(SESS_B, MTRQ_S1, &p1);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
 static void test_moqtrun_misc_stray_update(void) {

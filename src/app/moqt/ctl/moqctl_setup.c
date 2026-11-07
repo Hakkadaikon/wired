@@ -132,7 +132,7 @@ static int moqctl_setup_apply_maxctl(
 }
 
 /* AUTHORIZATION TOKEN (draft-18/19 10.3.1.4, draft-22 9.1.4): its Token
- * must decode (else KEY_VALUE_FORMATTING_ERROR, SS10.2.2); an Alias Type
+ * must decode (else MOQCTL_R_AUTH_TOKEN, SS10.2.2); an Alias Type
  * naming an Alias (DELETE / USE_ALIAS) is noted for the server's close.
  * REGISTER and USE_VALUE need nothing: this SDK registers no SETUP token,
  * so a REGISTER is used as USE_VALUE, never AUTH_TOKEN_CACHE_OVERFLOW. */
@@ -142,7 +142,7 @@ static int moqctl_setup_apply_token(moqctl_setup* out, const moqkvp* kv) {
     return MOQCTL_OK;
   }
   if (moqctl_token_take(kv->raw, &t) != MOQCTL_OK) {
-    return MOQCTL_PARAMS_KVFMT;
+    return MOQCTL_R_AUTH_TOKEN;
   }
   out->token_alias_ref |= (u8)moqctl_token_names_alias(&t);
   return MOQCTL_OK;
@@ -171,12 +171,17 @@ static int moqctl_setup_apply_kvp(
   return moqctl_setup_apply_checked(out, kv, ver);
 }
 
+/* moqkvp_take's failures (index -r) as decode results: a cut pair is a
+ * Length mismatch (draft-23 8.3 for the other two). */
+static const int moqctl_setup_kvp_r[] = {
+    MOQCTL_VIOLATION, MOQCTL_VIOLATION, MOQCTL_R_DELTA, MOQCTL_R_FIELD_LEN};
+
 static int moqctl_setup_take_one(
     wired_span buf, usz* at, u64* prev, moqctl_setup* out, int ver) {
   moqkvp kv;
   int    r = moqkvp_take(buf, at, prev, &kv);
   if (r != MOQKVP_OK) {
-    return MOQCTL_VIOLATION;
+    return moqctl_setup_kvp_r[-r];
   }
   return moqctl_setup_apply_kvp(out, &kv, ver);
 }

@@ -130,7 +130,7 @@ void moqtrun_req_check_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (!moqtrun_req_bad_open(p->req)) {
     return;
   }
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_cc(hub, p, MOQTRUN_CC_UNEXPECTED);
 }
 
 /* draft-18 6.1 names exactly these two as cancellable by FIN. */

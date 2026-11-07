@@ -14,6 +14,25 @@
 /** Decode outcome: the bytes break the draft's encoding rules; the caller
  * closes the session with PROTOCOL_VIOLATION (SS17.1). */
 #define MOQCTL_VIOLATION (-1)
+/* VIOLATION outcomes that name the draft-23 12.2 code they call for (each
+ * a PROTOCOL_VIOLATION before draft-23; moqtrun_cc_of_take maps them). */
+/** A Track Namespace with an empty field or more than 32 fields:
+ * INVALID_TRACK_NAMESPACE (draft-23 8.7). */
+#define MOQCTL_R_TRACK_NS (-5)
+/** A length past its field's maximum: FIELD_LENGTH_EXCEEDED. */
+#define MOQCTL_R_FIELD_LEN (-6)
+/** A delta-encoded Type or value past 2^64-1: DELTA_ENCODING_OVERFLOW. */
+#define MOQCTL_R_DELTA (-7)
+/** An unknown, misplaced, repeated or out-of-range Message Parameter:
+ * INVALID_PARAMETER (draft-23 9.19). */
+#define MOQCTL_R_PARAM (-8)
+/** An AUTHORIZATION TOKEN that does not decode: MALFORMED_AUTH_TOKEN
+ * (draft-23 8.9; KEY_VALUE_FORMATTING_ERROR before). */
+#define MOQCTL_R_AUTH_TOKEN (-9)
+/** A parsed field with a value its definition forbids: INVALID_FIELD. */
+#define MOQCTL_R_FIELD (-10)
+/** A field only the other role may send: ROLE_VIOLATION. */
+#define MOQCTL_R_ROLE (-11)
 
 /* Message Type IDs this codec knows how to decode/encode (SS10 table). */
 /** SETUP (SS10.4): the single Setup message each endpoint sends first on

@@ -140,7 +140,7 @@ static const moqctl_rangeloc22_fn MOQCTL_RANGELOC22_FNS[6] = {
 int moqctl_rangeloc22_body(
     u64 type, wired_span buf, usz* at, moqctl_rangeloc* out) {
   if (type == 0 || type >= MOQCTL_RANGELOC22_FNS_N) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_PARAM; /* draft-23 9.19.9 */
   }
   return MOQCTL_RANGELOC22_FNS[type](buf, at, out);
 }

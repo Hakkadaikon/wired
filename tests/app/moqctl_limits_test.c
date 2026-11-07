@@ -31,7 +31,7 @@ static void test_moqctl_limits_req22_ftn_boundary(void) {
   usz          n = moqlim_t_req22(body, sizeof body, 4000, 96);
   CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_OK);
   n = moqlim_t_req22(body, sizeof body, 4000, 97);
-  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_VIOLATION);
+  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_R_FIELD_LEN);
 }
 
 static void moqlim_t_req19(moqfetch_req* m, moqctl_rsk sk, moqctl_rek ek) {
@@ -93,7 +93,7 @@ static int moqlim_t_redirect(usz ns_len, usz name_len) {
  * Full Track Name, so SS2.4.1's 4096-byte bound applies. */
 static void test_moqctl_limits_redirect_ftn_boundary(void) {
   CHECK(moqlim_t_redirect(4000, 96) == MOQCTL_OK);
-  CHECK(moqlim_t_redirect(4000, 97) == MOQCTL_VIOLATION);
+  CHECK(moqlim_t_redirect(4000, 97) == MOQCTL_R_FIELD_LEN);
 }
 
 static int moqlim_t_skipped(usz ns_len, usz name_len) {
@@ -109,7 +109,7 @@ static int moqlim_t_skipped(usz ns_len, usz name_len) {
  * (the prefix only adds bytes), so > 4096 already violates SS2.4.1. */
 static void test_moqctl_limits_pub_skipped_ftn_boundary(void) {
   CHECK(moqlim_t_skipped(4000, 96) == MOQCTL_OK);
-  CHECK(moqlim_t_skipped(4000, 97) == MOQCTL_VIOLATION);
+  CHECK(moqlim_t_skipped(4000, 97) == MOQCTL_R_FIELD_LEN);
 }
 
 void test_moqctl_limits(void) {

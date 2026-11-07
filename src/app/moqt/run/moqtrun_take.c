@@ -53,11 +53,11 @@ void moqtrun_track_open(
 }
 
 /* REQUEST_ERROR code, or for MOQTRUN_REQ_CLOSE (draft-18 12.5/12.6) a
- * PROTOCOL_VIOLATION close. */
+ * PROTOCOL_VIOLATION close (MALFORMED_KEY_VALUE in draft-23 10.5/10.6). */
 static void moqtrun_refuse_or_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
   if (code == MOQTRUN_REQ_CLOSE) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, p, MOQTRUN_CC_PROP_VALUE);
     return;
   }
   moqtrun_send_request_error(p, code);
@@ -133,15 +133,13 @@ void moqtrun_publish_checked(
  * REQUEST_UPDATE do (ledger 12-13); a known parameter whose Value does not
  * match its encoding (an undecodable AUTHORIZATION TOKEN, say) closes it
  * KEY_VALUE_FORMATTING_ERROR instead (draft-19 1.4.3, 10.2.2), as SETUP
- * does (moqtrun_setup_take_code). 1 when r is MOQCTL_OK. */
+ * does (moqtrun_setup_take_code). draft-23 12.2 names a code per cause
+ * (moqtrun_cc_of_take). 1 when r is MOQCTL_OK. */
 int moqtrun_take_or_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
   if (r == MOQCTL_OK) {
     return 1;
   }
-  moqtrun_close_with(
-      hub, p,
-      r == MOQCTL_PARAMS_KVFMT ? (u32)MOQCTL_CLOSE_KVFMT_ERROR
-                               : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_cc(hub, p, moqtrun_cc_of_take(r));
   return 0;
 }
 
@@ -157,8 +155,9 @@ static int moqtrun_redirect_bad(const moqctl_request_error* e) {
  * Redirect with a non-zero Connect URI Length: "If a server receives a
  * Redirect with a non-zero Connect URI Length it MUST close the session
  * with a PROTOCOL_VIOLATION" (draft-19 10.6.1, draft-18 10.6.1, draft-22
- * 9.4). The draft-18/19 rule on a namespace-scoped request's Track Name
- * has nothing to check: the hub sends no SUBSCRIBE_NAMESPACE,
+ * 9.4; ROLE_VIOLATION in draft-23 9.4.2.1). The draft-18/19 rule
+ * on a namespace-scoped request's Track Name has nothing to check: the
+ * hub sends no SUBSCRIBE_NAMESPACE,
  * PUBLISH_NAMESPACE or SUBSCRIBE_TRACKS of its own. */
 int moqtrun_reqerr_take(
     wired_moqt_hub*       hub,
@@ -171,7 +170,7 @@ int moqtrun_reqerr_take(
     return 0;
   }
   return moqtrun_take_or_close(
-      hub, p, moqtrun_redirect_bad(e) ? MOQCTL_VIOLATION : MOQCTL_OK);
+      hub, p, moqtrun_redirect_bad(e) ? MOQCTL_R_ROLE : MOQCTL_OK);
 }
 
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or

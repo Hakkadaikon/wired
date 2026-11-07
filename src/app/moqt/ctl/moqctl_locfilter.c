@@ -38,7 +38,7 @@ static int moqctl_locfilter_take_end_value(
   u64 end;
   return u64_add_ok(out->start.group, out->end_group_delta, &end)
              ? MOQCTL_OK
-             : MOQCTL_VIOLATION;
+             : MOQCTL_R_DELTA; /* draft-23 9.19.9 */
 }
 
 static int moqctl_locfilter_take_end(
@@ -72,7 +72,7 @@ static int moqctl_locfilter_take_type(
   }
   if (!moqctl_u64_in(
           MOQCTL_LOCFILTER_TYPES, MOQCTL_LOCFILTER_TYPES_N, out->type)) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_PARAM; /* draft-23 9.19.9 */
   }
   return MOQCTL_OK;
 }

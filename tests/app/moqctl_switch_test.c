@@ -139,18 +139,17 @@ static void test_mcsw_switch_from_scope(void) {
   moqctl_params p;
   const u8*     g = MCSW_SW_GOLDEN;
   usz           n = sizeof MCSW_SW_GOLDEN;
-  CHECK(
-      mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_PUBLISH, &p) == MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_FETCH, &p) == MOQCTL_VIOLATION);
+  CHECK(mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_PUBLISH, &p) == MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_FETCH, &p) == MOQCTL_R_PARAM);
   CHECK(
       mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_UPDATE_FETCH, &p) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   CHECK(
       mcsw_take(MOQVER_D22, g, n, MOQCTL_PCTX_SUBSCRIBE_OK, &p) ==
-      MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D19, g, n, MCSW_CTX_SUB, &p) == MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D19, g, n, MCSW_CTX_UPD, &p) == MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D18, g, n, MCSW_CTX_SUB, &p) == MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D19, g, n, MCSW_CTX_SUB, &p) == MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D19, g, n, MCSW_CTX_UPD, &p) == MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D18, g, n, MCSW_CTX_SUB, &p) == MOQCTL_R_PARAM);
 }
 
 /* Duplicate SWITCH_FROM in one message: not a repeatable Type. */
@@ -158,8 +157,7 @@ static void test_mcsw_switch_from_duplicate(void) {
   static const u8 b[] = {0x02, 0x24, 0x03, 0x07, 0x00, 0x80,
                          0x00, 0x03, 0x08, 0x00, 0x80};
   moqctl_params   p;
-  CHECK(
-      mcsw_take(MOQVER_D22, b, sizeof b, MCSW_CTX_SUB, &p) == MOQCTL_VIOLATION);
+  CHECK(mcsw_take(MOQVER_D22, b, sizeof b, MCSW_CTX_SUB, &p) == MOQCTL_R_PARAM);
 }
 
 /* ===== SWITCHING_SET_ASSIGNMENT (0x41) ===== */
@@ -227,13 +225,12 @@ static void test_mcsw_ssa_scope(void) {
   moqctl_params p;
   const u8*     b = MCSW_SSA_NORANK;
   usz           n = sizeof MCSW_SSA_NORANK;
-  CHECK(
-      mcsw_take(MOQVER_D22, b, n, MOQCTL_PCTX_PUBLISH, &p) == MOQCTL_VIOLATION);
+  CHECK(mcsw_take(MOQVER_D22, b, n, MOQCTL_PCTX_PUBLISH, &p) == MOQCTL_R_PARAM);
   CHECK(
       mcsw_take(MOQVER_D22, b, n, MOQCTL_PCTX_TRACK_STATUS, &p) ==
-      MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D19, b, n, MCSW_CTX_SUB, &p) == MOQCTL_VIOLATION);
-  CHECK(mcsw_take(MOQVER_D18, b, n, MCSW_CTX_UPD, &p) == MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D19, b, n, MCSW_CTX_SUB, &p) == MOQCTL_R_PARAM);
+  CHECK(mcsw_take(MOQVER_D18, b, n, MCSW_CTX_UPD, &p) == MOQCTL_R_PARAM);
 }
 
 /* Both extensions plus a standard parameter in one SUBSCRIBE list,
@@ -277,7 +274,7 @@ static void test_mcsw_subscribe_message(void) {
   off = 0;
   CHECK(
       moqctl_subscribe_take(MOQVER_D19, wired_span_of(b, sizeof b), &off, &m) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
 }
 
 /* ===== SSTS_ALGORITHMS Setup Option (0x09) ===== */

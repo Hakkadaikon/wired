@@ -347,7 +347,7 @@ static void test_moqtrun_upd_bad_and_control(void) {
   moqctl_ftn    f = mtup_setup();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtup_update(SESS_B, MTRQ_S1, &g);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_INVALID_PARAMETER) == 1);
 }
 
 /* ===================== Location Filter delivery (5.1.4) ============== */

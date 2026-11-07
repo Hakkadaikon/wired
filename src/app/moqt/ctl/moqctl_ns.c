@@ -28,7 +28,7 @@ static int moqctl_ns_field_take(wired_span buf, usz* at, wired_span* field) {
     return MOQCTL_INSUFFICIENT;
   }
   if (len == 0) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_TRACK_NS; /* draft-23 8.7 */
   }
   return moqctl_bytes_take(buf, at, len, field);
 }
@@ -49,7 +49,7 @@ static int moqctl_ns_take_count(wired_span buf, usz* at, moqctl_ns* ns) {
     return MOQCTL_INSUFFICIENT;
   }
   if (count > MOQCTL_MAX_NS_FIELDS) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_TRACK_NS; /* draft-23 8.7 */
   }
   ns->n = (usz)count;
   return MOQCTL_OK;
@@ -60,7 +60,7 @@ static int moqctl_ns_take_count(wired_span buf, usz* at, moqctl_ns* ns) {
  * sum of the field lengths). Applies to every Track Namespace this file
  * decodes: FTN, redirect, TRACK_NAMESPACE_PREFIX, and moqctl_ns_take. */
 static int moqctl_ns_bound(const moqctl_ns* ns) {
-  return moqctl_ns_bytelen(ns) > MOQCTL_MAX_FTN_LEN ? MOQCTL_VIOLATION
+  return moqctl_ns_bytelen(ns) > MOQCTL_MAX_FTN_LEN ? MOQCTL_R_FIELD_LEN
                                                     : MOQCTL_OK;
 }
 

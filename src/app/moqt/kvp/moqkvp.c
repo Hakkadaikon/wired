@@ -9,7 +9,7 @@
 /* Length is already read; check the 2^16-1 cap, then view the bytes. */
 static int moqkvp_raw_body(wired_span buf, usz* at, u64 len, moqkvp* out) {
   if (len > MOQKVP_MAX_LEN) {
-    return MOQKVP_VIOLATION;
+    return MOQKVP_R_LEN;
   }
   if (buf.n - *at < len) {
     return MOQKVP_INSUFFICIENT;
@@ -43,7 +43,7 @@ static int moqkvp_take_at(wired_span buf, usz* at, u64 prev, moqkvp* out) {
   }
   /* 1.4.3: prev + Delta MUST NOT exceed 2^64-1 (u64 addition would wrap) */
   if (delta > (u64)-1 - prev) {
-    return MOQKVP_VIOLATION;
+    return MOQKVP_R_DELTA;
   }
   out->type   = prev + delta;
   out->is_raw = (int)(out->type & 1);

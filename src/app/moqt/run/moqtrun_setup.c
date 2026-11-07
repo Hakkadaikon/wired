@@ -79,7 +79,7 @@ static void moqtrun_dispatch_pub_notify(
   if (p->req) {
     return;
   }
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  moqtrun_close_cc(hub, p, MOQTRUN_CC_UNEXPECTED);
 }
 
 /* A message with no request to refuse: consumed by its Length, no reply. */

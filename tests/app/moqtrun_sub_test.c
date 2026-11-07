@@ -632,6 +632,16 @@ static usz mtrq_closes(void) {
   return n;
 }
 
+/* Session closes with mt_cc(d23): draft-23 12.2's code d23, else
+ * PROTOCOL_VIOLATION. */
+static usz mtrq_closes_cc(u32 d23) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    n += g_calls[i].kind == 11 && g_calls[i].stream_id == mt_cc(d23);
+  }
+  return n;
+}
+
 /* 1 iff the hub FINed its side of sid (io.stream_fin). */
 static int mtrq_fin_on(u64 sid) {
   for (usz i = 0; i < g_n_calls; i++) {
@@ -805,7 +815,7 @@ static void test_moqtrun_req_bad_first_message_closes(void) {
   static const u8 body[] = {0x00, 0x00};
   mtrq_setup();
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_OK, body, sizeof body);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   mtrq_setup();
   mt_feed(
       &mtst_hub, SESS_B, MTRQ_S1,
@@ -813,7 +823,7 @@ static void test_moqtrun_req_bad_first_message_closes(void) {
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       0);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   CHECK(moqtrun_test_count_kind(12) == 0);
 }
 
@@ -829,12 +839,12 @@ static void test_moqtrun_req_second_message_checked(void) {
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
   CHECK(mtrq_closes() == 0);
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   mtrq_setup();
   mtrq_tstat_on(SESS_B, MTRQ_S1);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   mtrq_raw(SESS_B, MTRQ_S1, MOQTSTAT_T_REQUEST_UPDATE, upd, sizeof upd);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   mtrq_setup();
   mtst_publish(SESS_B, MTRQ_S1, &f, 1);
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_PUBLISH_DONE, upd, sizeof upd);
@@ -963,7 +973,7 @@ static void test_moqtrun_req_second_goaway_closes(void) {
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
   CHECK(mtrq_closes() == 0);
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
-  CHECK(mtrq_closes() == 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
 /* A reset before the hub answered still resets the hub's side with
@@ -1969,7 +1979,7 @@ static usz mtst_publish_prop_closes(u64 type, u64 num, int imm) {
   }
   mtst_init();
   mtst_publish_props(SESS_A, mtst_join(SESS_A), &f, 1, wired_span_of(out, no));
-  return mtrq_closes();
+  return mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_MALFORMED_KEY_VALUE);
 }
 
 /* draft-18 12.5: DEFAULT_PUBLISHER_GROUP_ORDER (0x22) other than 0x1/0x2,

@@ -69,6 +69,9 @@
  * SSTS_ALGORITHMS moves to MOQCTL_OPT_SSTS_ALGORITHMS_D23 (draft-23
  * 9.1.8). */
 #define MOQVER_CAP_OPT_MAX_CTL_SIZE (1u << 21)
+/** Session close codes use the draft-23 12.2 table (0x200-0x401) where
+ * earlier drafts close PROTOCOL_VIOLATION (moqtrun_cc_code). */
+#define MOQVER_CAP_CLOSE_CODES23 (1u << 22)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

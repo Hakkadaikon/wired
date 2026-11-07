@@ -158,7 +158,8 @@ void moqtrun_up_sync(wired_moqt_hub* hub) {
 /* ----- the publisher's replies on the hub's stream ----- */
 
 /* Track Properties the hub must not take (moqtrun_tprops_refused): a
- * bad value closes pp's session PROTOCOL_VIOLATION (draft-18 12.5/12.6);
+ * bad value closes pp's session PROTOCOL_VIOLATION (draft-18 12.5/12.6;
+ * MALFORMED_KEY_VALUE in draft-23 10.5/10.6);
  * a Mandatory Track Property cancels the subscription and refuses every
  * waiter UNSUPPORTED_EXTENSION (draft-19 2.5.1, draft-22 3.7). */
 static void moqtrun_up_props_refuse(
@@ -167,7 +168,7 @@ static void moqtrun_up_props_refuse(
     wired_moqtrun_up*   u,
     u64                 code) {
   if (code == MOQTRUN_REQ_CLOSE) {
-    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_PROP_VALUE);
     return;
   }
   moqtrun_up_cancel(hub, pp, u, 0);

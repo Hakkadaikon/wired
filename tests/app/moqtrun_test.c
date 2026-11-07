@@ -155,6 +155,14 @@ static void moqtrun_test_reset(void) {
  * outside that driver it stays draft-19, the empty-token default. */
 static int g_moqtrun_test_ver = MOQVER_D19;
 
+/* The session close code a scenario expects where draft-23 12.2 names
+ * d23 and draft-18..22 close PROTOCOL_VIOLATION. */
+static u32 mt_cc(u32 d23) {
+  return (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_CLOSE_CODES23)
+             ? d23
+             : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+}
+
 /* draft-23 9 re-spelling for the scenarios. Their goldens and builders
  * write the draft-18..22 envelope (16-bit Length); mt_feed hands a
  * delivery that is a whole run of such messages to a vi64-Length session
@@ -851,7 +859,7 @@ static void test_moqtrun_second_ctl_stream_violates(void) {
     }
     CHECK(moqtrun_test_count_kind(11) == 1);
     const moqtrun_test_call* c = moqtrun_test_last_kind(11);
-    CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    CHECK(c && c->stream_id == mt_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
   }
 }
 
@@ -917,7 +925,7 @@ static void test_moqtrun_setup_malformed_closes(void) {
   mtctl_session_with_setup(&hub, moqtrun_test_ver_tok(), cut, sizeof cut);
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(moqtrun_test_count_kind(11) == 1);
-  CHECK(c && c->stream_id == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(c && c->stream_id == mt_cc(WIRED_MOQTRUN_CLOSE_MALFORMED_MESSAGE));
 }
 
 /* draft-19 3.3: a negotiated moqt-NN token makes the hub open its OWN
@@ -1071,7 +1079,7 @@ static void test_moqtrun_ctl_fin_violates(void) {
   moqtrun_test_session(&hub, SESS_A);
   u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
   mt_feed(&hub, SESS_A, ctrl, wired_span_of(0, 0), 1);
-  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtctl_check_closed(SESS_A, mt_cc(WIRED_MOQTRUN_CLOSE_CLOSED_CONTROL_STREAM));
 
   u8  msg[16];
   usz n = mtctl_uni_ctl(msg, 0, 0);
@@ -1081,7 +1089,7 @@ static void test_moqtrun_ctl_fin_violates(void) {
       &hub, SESS_A, wired_span_of(0, 0),
       moqtrun_test_proto(moqtrun_test_ver_tok()));
   mt_feed(&hub, SESS_A, 2, mtctl_span(msg, n), 1);
-  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtctl_check_closed(SESS_A, mt_cc(WIRED_MOQTRUN_CLOSE_CLOSED_CONTROL_STREAM));
 }
 
 /* A RESET_STREAM / STOP_SENDING on either control stream likewise. */
@@ -1092,7 +1100,7 @@ static void test_moqtrun_ctl_reset_violates(void) {
   moqtrun_test_session(&hub, SESS_A);
   u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
   wired_moqt_on_stream_reset(&hub, SESS_A, ctrl, 0, 0);
-  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtctl_check_closed(SESS_A, mt_cc(WIRED_MOQTRUN_CLOSE_CLOSED_CONTROL_STREAM));
 
   u8  msg[16];
   usz n = mtctl_uni_ctl(msg, 0, 0);
@@ -1104,7 +1112,7 @@ static void test_moqtrun_ctl_reset_violates(void) {
   mt_feed(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
   CHECK(moqtrun_test_count_kind(11) == 0);
   wired_moqt_on_stream_reset(&hub, SESS_A, 2, 0, 0);
-  mtctl_check_closed(SESS_A, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtctl_check_closed(SESS_A, mt_cc(WIRED_MOQTRUN_CLOSE_CLOSED_CONTROL_STREAM));
 }
 
 /* draft-19 3.3: on a token session, request streams arriving before
@@ -1599,9 +1607,9 @@ static void test_moqtrun_ctl_unknown_type_closes_session(void) {
   usz n        = mtasm_tstat_then_subscribe(2);
   mtasm_buf[0] = 0x3E; /* 1-byte varint, no draft-19 type */
   mtasm_feed(0, n);
-  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtasm_check_closed(mt_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
   mtasm_feed(0, n); /* more bytes after the close are not dispatched */
-  mtasm_check_closed(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  mtasm_check_closed(mt_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
 }
 
 /* B (joined with tok) sends a 2-byte-body message of Type type, then
@@ -1860,7 +1868,7 @@ static usz mtenv_put(int ver, usz n, usz hdr) {
 }
 
 /* draft-23 9: the Length is a vi64 written minimally (05; 80 C8 for 200;
- * C0 FF FF for 65535), draft-18..22 keep 16 bits; S-088: a body over
+ * C0 FF FF for 65535), draft-18..22 keep 16 bits; 9.1.8: a body over
  * 65535 -- the floor of every peer's MAX_CONTROL_MESSAGE_SIZE and the
  * 16-bit maximum -- is never sent. */
 static void test_moqtrun_envelope_length_spelling(void) {
@@ -3041,8 +3049,9 @@ static void test_moqtrun_unbound_stream_id_relays_nowhere(void) {
    * relayed and the session closes (draft-19 3.4). */
   CHECK(g_n_calls == 1);
   CHECK(
-      moqtrun_test_last_kind(11) && moqtrun_test_last_kind(11)->stream_id ==
-                                        WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+      moqtrun_test_last_kind(11) &&
+      moqtrun_test_last_kind(11)->stream_id ==
+          mt_cc(WIRED_MOQTRUN_CLOSE_INVALID_STREAM_HEADER));
 }
 
 /* ===================== 8. audio long-lived relay stream

@@ -42,14 +42,17 @@ static int moqctl_param_in_range(
 }
 
 /* FORWARD outside {0,1} (SS10.2.17) and GROUP_ORDER outside {1,2}
- * (SS10.2.8) MUST close the session with PROTOCOL_VIOLATION. */
+ * (SS10.2.8) MUST close the session with PROTOCOL_VIOLATION
+ * (INVALID_PARAMETER in draft-23 9.19.8 / 9.19.18 / 9.19.22, as is an
+ * unknown, misplaced or repeated Type, 9.19 / 9.19.1; a Type past 2^64-1
+ * is DELTA_ENCODING_OVERFLOW, 9.19). */
 static int moqctl_param_take_checked(
     wired_span buf, usz* at, const moqctl_param_rule* rule, moqctl_param* p) {
   int r = moqctl_param_take_value(buf, at, rule->enc, p);
   if (r != MOQCTL_OK) {
     return r;
   }
-  return moqctl_param_in_range(rule, p) ? MOQCTL_OK : MOQCTL_VIOLATION;
+  return moqctl_param_in_range(rule, p) ? MOQCTL_OK : MOQCTL_R_PARAM;
 }
 
 static int moqctl_param_dup(const moqctl_params* out, u64 type) {
@@ -86,7 +89,7 @@ static int moqctl_param_take_delta(
   if (!moqvi_take(buf, at, &delta)) {
     return MOQCTL_INSUFFICIENT;
   }
-  return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_VIOLATION;
+  return u64_add_ok(prev, delta, &p->type) ? MOQCTL_OK : MOQCTL_R_DELTA;
 }
 
 /* d22's LOCATION_FILTER is the only Type whose wire shape differs from
@@ -114,11 +117,11 @@ static int moqctl_param_take_body(
   const moqctl_param_rule* rule = moqctl_param_rule_for(p->type);
   moqctl_param_rule        over = {0};
   if (!rule) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_PARAM;
   }
   moqctl_param_rule_select(rule, ver, &over);
   if (!moqctl_param_admit(&over, ver, ctx, out, p->type)) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_PARAM;
   }
   p->enc = over.enc;
   return moqctl_param_take_checked(buf, at, &over, p);

@@ -29,7 +29,7 @@ static int moqctl_token_take_alias(wired_span v, usz* at, moqctl_token* t) {
     return MOQCTL_OK;
   }
   if (!moqvi_take(v, at, &t->alias)) {
-    return MOQCTL_PARAMS_KVFMT;
+    return MOQCTL_R_AUTH_TOKEN;
   }
   return MOQCTL_OK;
 }
@@ -37,7 +37,7 @@ static int moqctl_token_take_alias(wired_span v, usz* at, moqctl_token* t) {
 /* Token Value is the remainder of the Length-prefixed value; an Alias-only
  * shape must end exactly at the Alias. */
 static int moqctl_token_at_end(wired_span v, usz at) {
-  return at == v.n ? MOQCTL_OK : MOQCTL_PARAMS_KVFMT;
+  return at == v.n ? MOQCTL_OK : MOQCTL_R_AUTH_TOKEN;
 }
 
 static int moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t) {
@@ -45,7 +45,7 @@ static int moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t) {
     return moqctl_token_at_end(v, *at);
   }
   if (!moqvi_take(v, at, &t->token_type)) {
-    return MOQCTL_PARAMS_KVFMT;
+    return MOQCTL_R_AUTH_TOKEN;
   }
   t->value = wired_span_of(v.p + *at, v.n - *at);
   return MOQCTL_OK;
@@ -53,17 +53,18 @@ static int moqctl_token_take_value(wired_span v, usz* at, moqctl_token* t) {
 
 static int moqctl_token_take_head(wired_span v, usz* at, moqctl_token* t) {
   if (!moqvi_take(v, at, &t->alias_type)) {
-    return MOQCTL_PARAMS_KVFMT;
+    return MOQCTL_R_AUTH_TOKEN;
   }
   if (t->alias_type > MOQCTL_TOKEN_USE_VALUE) {
-    return MOQCTL_PARAMS_KVFMT;
+    return MOQCTL_R_AUTH_TOKEN;
   }
   return moqctl_token_take_alias(v, at, t);
 }
 
 /* v is exactly the parameter's Length bytes. "If the Token structure
  * cannot be decoded, the receiver MUST close the Session with
- * KEY_VALUE_FORMATTING_ERROR" -- surfaced as MOQCTL_PARAMS_KVFMT. */
+ * KEY_VALUE_FORMATTING_ERROR" (draft-22 8.9; MALFORMED_AUTH_TOKEN in
+ * draft-23 8.9) -- surfaced as MOQCTL_R_AUTH_TOKEN. */
 int moqctl_token_take(wired_span v, moqctl_token* t) {
   usz at = 0;
   int r  = moqctl_token_take_head(v, &at, t);

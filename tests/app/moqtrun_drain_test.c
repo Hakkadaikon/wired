@@ -325,7 +325,7 @@ static void test_moqtrun_peer_goaway_twice(void) {
   CHECK(mtdr_closes(SESS_B, &code) == 0);
   mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, away, n);
   CHECK(mtdr_closes(SESS_B, &code) == 1);
-  CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(code == mt_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
 }
 
 /* A server receiving a non-zero New Session URI MUST close with
@@ -337,7 +337,7 @@ static void test_moqtrun_peer_goaway_uri(void) {
   mtrq_setup();
   mtrq_raw(SESS_B, mtdr_ctl(SESS_B), MOQCTL_T_GOAWAY, uri, sizeof uri);
   CHECK(mtdr_closes(SESS_B, &code) == 1);
-  CHECK(code == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(code == mt_cc(WIRED_MOQTRUN_CLOSE_ROLE_VIOLATION));
   mtrq_raw(SESS_A, mtdr_ctl(SESS_A), MOQCTL_T_GOAWAY, bad, sizeof bad);
   CHECK(mtdr_closes(SESS_A, &code) == 1);
 }

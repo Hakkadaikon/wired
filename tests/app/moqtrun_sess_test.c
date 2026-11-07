@@ -281,7 +281,7 @@ static void test_mtss_fill_unlisted_param_closes(void) {
   p.items[0].bytes  = wired_span_of(inner, sizeof inner);
   CHECK(
       moqfetch_fill_take(wired_span_of(inner, sizeof inner), &fill) ==
-      MOQCTL_VIOLATION);
+      MOQCTL_R_PARAM);
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
   mtcf_check_violation();
 }

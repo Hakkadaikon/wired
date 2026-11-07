@@ -123,7 +123,7 @@ void moqtrun_fetch_route(
     return;
   }
   if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, p, MOQTRUN_CC_FIELD);
     return;
   }
   moqtrun_fetch_joining(hub, p, peer_idx, m);

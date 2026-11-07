@@ -55,7 +55,7 @@ static int moqtrun_up_first_answer(
     return 1;
   }
   if (u->sub.session_fault) {
-    moqtrun_close_with(hub, pp, WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
   }
   return 0;
 }

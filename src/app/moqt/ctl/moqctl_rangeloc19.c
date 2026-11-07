@@ -24,8 +24,7 @@ int moqctl_rangeloc_take_end_group(
   if (!moqvi_take(buf, at, &delta)) {
     return MOQCTL_INSUFFICIENT;
   }
-  return u64_add_ok(start_group, delta, end_group) ? MOQCTL_OK
-                                                   : MOQCTL_VIOLATION;
+  return u64_add_ok(start_group, delta, end_group) ? MOQCTL_OK : MOQCTL_R_DELTA;
 }
 
 /* ----- draft-19 (SS5.1.2/SS10.2.9): type 0x1..0x4 -----
@@ -91,7 +90,7 @@ static const moqctl_rangeloc19_fn MOQCTL_RANGELOC19_FNS[5] = {
 static int moqctl_rangeloc19_body(
     u64 type, wired_span buf, usz* at, moqctl_rangeloc* out) {
   if (type == 0 || type >= MOQCTL_RANGELOC19_FNS_N) {
-    return MOQCTL_VIOLATION;
+    return MOQCTL_R_PARAM;
   }
   return MOQCTL_RANGELOC19_FNS[type](buf, at, out);
 }
