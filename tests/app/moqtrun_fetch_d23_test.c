@@ -211,6 +211,41 @@ static void test_moqtrun_fetch_d23_late_unknown(void) {
   CHECK(!mfd23_a_malformed() && mtst_hub.cache.used == used);
 }
 
+/* draft-23 10.3: "The same limit applies to cached Does Not Exist and
+ * Gone states"; on expiry the Object returns to Unknown (2.1.2). A
+ * 100 ms track's Group 0 ends at {0,2} (End of Group status): 99 ms on,
+ * draft-23 serves {0,0} {0,1} then End of Group; from 100 ms on the
+ * whole Group, the stretch past End of Group too, is End of Unknown
+ * Range. Draft-22 serves the same Unknown range once it expired. */
+static void test_moqtrun_fetch_d23_dne_expires(void) {
+  u8         buf[16];
+  usz        n    = 0;
+  u64        prev = 0;
+  moqkvp     kv   = {0};
+  moqctl_ftn f    = mf_track();
+  kv.type         = 0x04; /* MAX_CACHE_DURATION */
+  kv.num          = 100;
+  CHECK(moqkvp_put(wired_mspan_of(buf, sizeof buf), &n, &prev, &kv));
+  mtst_init();
+  wired_moqt_cache_attach(&mtst_hub, mf_arena, sizeof mf_arena);
+  mf_pub_sid = 2;
+  mf_ctrl_a  = mtst_join(SESS_A);
+  mf_ctrl_b  = mtst_join(SESS_B);
+  mtst_publish_props(SESS_A, mf_ctrl_a, &f, MF_ALIAS, wired_span_of(buf, n));
+  wired_moqt_tick(&mtst_hub, 1000);
+  mf_obj(0, 0, 1);
+  mf_obj(0, 1, 1);
+  mfd23_status(0, 2, MOQDATA_STATUS_END_OF_GROUP);
+  wired_moqt_tick(&mtst_hub, 1099);
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mfd23_two_then(MOQFETCH_END_OF_GROUP));
+  wired_moqt_tick(&mtst_hub, 1100);
+  g_open_bidi_fail_n = 1;
+  mf_fetch_v(g_moqtrun_test_ver, 0);
+  CHECK(mf_read() && mf_n == 1 && mf_items[0].flags == MOQFETCH_EOR_UNKNOWN);
+  CHECK(mf_items[0].group == 0 && mf_items[0].object >= 2);
+}
+
 static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_stream();
   test_moqtrun_fetch_d23_hole();
@@ -218,6 +253,7 @@ static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_relative();
   test_moqtrun_fetch_d23_end_marks();
   test_moqtrun_fetch_d23_late_unknown();
+  test_moqtrun_fetch_d23_dne_expires();
 }
 
 void test_moqtrun_fetch_d23(void) {
