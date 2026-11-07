@@ -1,10 +1,10 @@
 # MoQT ライブ動画 実装計画
 
-> **エージェントで作業する人へ:** 必須のサブスキル: この計画をタスクごとに実装するには superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使います。各ステップは進捗管理のためにチェックボックス(`- [ ]`)の記法で書いています。
+> **エージェントで作業する人へ:** 必須のサブスキル: この計画をタスクごとに実装するには superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使う。各ステップは進捗管理のためにチェックボックス(`- [ ]`)の記法で書いている。
 
-**目的:** `examples/moqt_chat` のサーバーから `assets/movie.mp4` を、実時間の速さで進む MoQT のライブ Track(Group ごとにキーフレームでそろえた fMP4 フラグメントを 1 つ)として配信し、ブラウザーが MSE で再生できるようにします。途中から参加した人は現在の Group から再生を始めます。
+**目的:** `examples/moqt_chat` のサーバーから `assets/movie.mp4` を、実時間の速さで進む MoQT のライブ Track(Group ごとにキーフレームでそろえた fMP4 フラグメントを 1 つ)として配信し、ブラウザーが MSE で再生できるようにする。途中から参加した人は現在の Group から再生を始める。
 
-**構成:** 新しい `mp4frag` ドメインがコミット済みの fMP4 を init とフラグメントに分けます。ハブ(`moqtrun`)には時計で進むライブ Track を足し、各 Group をサブスクライバーごとに `send_uni2` を 1 回ずつ呼んで配ります。`srvrun` にはステップごとに呼ばれる `on_step` フックと `inflight` の問い合わせを足し、サンプルがセッションごとのステージング領域を使い回せるようにします。フロントエンドはフラグメントを sequence モードの `SourceBuffer` に追記します。
+**構成:** 新しい `mp4frag` ドメインがコミット済みの fMP4 を init とフラグメントに分ける。ハブ(`moqtrun`)には時計で進むライブ Track を足し、各 Group を購読者ごとに `send_uni2` を 1 回ずつ呼んで配る。`srvrun` にはステップごとに呼ばれる `on_step` フックと `inflight` の問い合わせを足し、サンプルがセッションごとのステージング領域を使い回せるようにする。フロントエンドはフラグメントを sequence モードの `SourceBuffer` に追記する。
 
 **使う技術:** libc-free の C(この SDK の制約に従う)、TypeScript/Next.js と vitest、puppeteer の e2e、一度だけのアセット変換に nix 経由の ffmpeg。
 
@@ -939,7 +939,7 @@ static void moqtrun_live_skip_stale(wired_moqt_hub* hub, usz i, u64 g) {
 }
 ```
 
-注意: `moqtrun_live_skip_stale` は飛ばした Group ごとに 1 回ずつ取りこぼしを数える。しかし k Group 遅れたサブスクライバーは、飛ばした Group ごとにちょうど 1 回ずつ数えたうえで、次に受け付けられた送信で `sent_group = g` によって追いつかせなければならない。いちばん単純で正しい形は次のとおり。`moqtrun_live_send_one` で送信が受け付けられたとき、`sent_group = g` を設定する前に `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` を実行し、`moqtrun_live_skip_stale` は消す。2 条件の判定を、飛ばした Group の数(なければ 0)を返すヘルパー `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` に移せば、CCN 3 以下を保てる。
+注意: `moqtrun_live_skip_stale` は飛ばした Group ごとに 1 回ずつ取りこぼしを数える。しかし k Group 遅れた購読者は、飛ばした Group ごとにちょうど 1 回ずつ数えたうえで、次に受け付けられた送信で `sent_group = g` によって追いつかせなければならない。いちばん単純で正しい形は次のとおり。`moqtrun_live_send_one` で送信が受け付けられたとき、`sent_group = g` を設定する前に `if (live->sent_any[i] && live->sent_group[i] + 1 < g) hub->stat_live_drop += g - live->sent_group[i] - 1;` を実行し、`moqtrun_live_skip_stale` は消す。2 条件の判定を、飛ばした Group の数(なければ 0)を返すヘルパー `static u64 moqtrun_live_gap(const wired_moqtrun_live*, usz i, u64 g)` に移せば、CCN 3 以下を保てる。
 
 ```c
 static void moqtrun_live_serve_sub(wired_moqt_hub* hub, usz i, u64 g) {
@@ -989,7 +989,7 @@ static void moqtrun_live_attach(wired_moqt_hub* hub, wired_moqtrun_peer* p, wire
 
 `moqtrun_subscribe_live` は `if` + `if` で CCN 3(`held`/`slot` の if)。これで問題ない。`moqtrun_route_subscribe` の振り分けでは、blob の判定のあとに `if (moqtrun_track_name_matches(&hub->live.track, m->name.name)) { moqtrun_subscribe_live(hub, p, peer_idx); return; }` を足す。これで `moqtrun_route_subscribe` は CCN 3 になる。セッションを閉じるときは、`moqtrun_blob_drop_sub` に同じやり方でライブ Track を足す(名前を `moqtrun_hub_tracks_drop_sub` に変える。CCN はガード付きの if 2 つで 3)。
 
-また、`moqtrun_track_claim` が `subs[].active` をクリアするのはスロットが in_use でなかったときだけだが、`sent_any` はサブスクライバーを付けるたびにリセットされるので、追加のゼロ埋めは要らない。
+また、`moqtrun_track_claim` が `subs[].active` をクリアするのはスロットが in_use でなかったときだけだが、`sent_any` は購読者を付けるたびにリセットされるので、追加のゼロ埋めは要らない。
 
 - [ ] **ステップ 5: `just test-fast` が "all tests passed" を出し、`lizard src/app/moqt/run/moqtrun.c --CCN 3 -w` が 0 で終わり、`just docs` が 0 で終わる。**
 
@@ -1001,7 +1001,7 @@ static void moqtrun_live_attach(wired_moqt_hub* hub, wired_moqtrun_peer* p, wire
 
 **ファイル:** `tasks/loopeng/moqtlive/` の下のすべて(コミットしない)。
 
-ハブのライブ送信部を modeler エージェントでモデル化する。変数は `clock_group`、サブスクライバーごとの `sent_group`/`sent_any`/`active`、セッションごとのステージングスロット `free|inflight`。アクションは `Tick`(clock_group' = clock_group + 1 のあと、配信を 1 巡)、`Subscribe`、`Close`、`SendAccepted`(空きスロットが要る。そのスロットを inflight にし、Group を記録する)、`SendRefused`(空きスロットがない。何も記録しない)、`SlotReleased`。不変条件は次の 4 つ。(1) どのサブスクライバーも、履歴の中で同じ Group を 2 回記録しない。(2) サブスクライバーごとに、記録した Group は狭義単調に増える。(3) inflight のスロットを取り直さない。(4) 記録した Group は、送信した時点の時計の Group に等しい(遅れない)。活性: `SlotReleased` の弱公平性のもとで、アクティブなサブスクライバーの `sent_group` は、どの Group にもいずれ届く。モデルの範囲: サブスクライバー 2、スロット 2、時計は 4 まで。
+ハブのライブ送信部を modeler エージェントでモデル化する。変数は `clock_group`、購読者ごとの `sent_group`/`sent_any`/`active`、セッションごとのステージングスロット `free|inflight`。アクションは `Tick`(clock_group' = clock_group + 1 のあと、配信を 1 巡)、`Subscribe`、`Close`、`SendAccepted`(空きスロットが要る。そのスロットを inflight にし、Group を記録する)、`SendRefused`(空きスロットがない。何も記録しない)、`SlotReleased`。不変条件は次の 4 つ。(1) どの購読者も、履歴の中で同じ Group を 2 回記録しない。(2) 購読者ごとに、記録した Group は狭義単調に増える。(3) inflight のスロットを取り直さない。(4) 記録した Group は、送信した時点の時計の Group に等しい(遅れない)。活性: `SlotReleased` の弱公平性のもとで、アクティブな購読者の `sent_group` は、どの Group にもいずれ届く。モデルの範囲: 購読者 2、スロット 2、時計は 4 まで。
 
 反例が出たら、1 つごとに タスク 4 の第 13 節へテストを 1 つ足す(同じ書き方で、テスト名にモデルの用語や ID を入れない)。モデルが反例を見つけなければ、タスク 4 のテストはそのままにする。
 

@@ -1,8 +1,8 @@
 # MoQT 画面共有(ウインドウ / 画面全体)実装計画
 
-> **エージェント型ワーカー向け**: 必須のサブスキルです。この計画をタスクごとに実装するときは superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使ってください。各ステップは進捗を追うためにチェックボックス(`- [ ]`)の記法で書いています。
+> **エージェント型ワーカー向け**: 必須のサブスキルである。この計画をタスクごとに実装するときは superpowers:subagent-driven-development(推奨)か superpowers:executing-plans を使う。各ステップは進捗を追うためにチェックボックス(`- [ ]`)の記法で書いている。
 
-**目的**: `examples/moqt_chat` の各参加者が `getDisplayMedia`(ウインドウ / 画面全体、ブラウザ標準ピッカー)で自分の画面を配信し、他の全参加者がタイルで見られるようにする。チャット・音声と同じ hub 中継(バイト透過リレー)に乗せる。
+**目的**: `examples/moqt_chat` の各参加者が `getDisplayMedia`(ウインドウ / 画面全体、ブラウザ標準ピッカー)で自分の画面を配信し、他の全参加者がタイルで見られるようにする。チャット・音声と同じハブ中継(バイト透過リレー)に乗せる。
 
 **構成**: ブラウザ側で VP8 (WebCodecs `VideoEncoder`) にエンコードし、各 `EncodedVideoChunk` を ≤480B の MoQT Object に分割して alias 10..13 の長寿命 uni ストリームで送る(音声 `MoqtVoiceClient` と同形)。C 側のリレー本体(`moqtrun`)はトラック非依存なので無変更。`SRVRUN_WTSEND_BUF` と `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` の 2 定数だけ変更する。受信側は送信者ごとに再構成器 → `VideoDecoder` → `<canvas>` タイル。
 
@@ -12,10 +12,10 @@
 
 ## 全体の制約
 
-- `src/` は libc-free: `sys/syscall.h` の型と `util/*.h`(`util/bytes.h`, `util/be.h`, `util/ct.h`, `util/num.h`)のみ。標準ヘッダ禁止。
+- `src/` は libc-free: `sys/syscall.h` の型と `util/*.h`(`util/bytes.h`, `util/be.h`, `util/ct.h`, `util/num.h`)のみ。標準ヘッダー禁止。
 - `src/` の全関数 CCN ≤ 3(`lizard src --CCN 3 -w` が exit 0)。`&&`, `||`, `?:`, `if`, `for`, `while` は各 +1。
 - `tests/run.c` は単一 TU: 新規の non-static / static シンボル名はすべて `grep -rn '<name>' src/ tests/` で一意なことを確認してから追加。
-- 新規公開ヘッダメンバ・マクロ・関数には doc comment(`/** */`)必須。
+- 新規公開ヘッダーメンバ・マクロ・関数には doc comment(`/** */`)必須。
 - 内部 API は module token を prefix にする(`moqtrun_*`, `srvrun_*`)。application-facing API は `wired_*`。
 - コミットゲート(毎コミット): `just test-fast` が "all tests passed" を出力 AND `just ninja` が exit 0 AND `lizard src --CCN 3 -w` が exit 0、`if A && B && C; then git commit; fi` の形で実行(`| tail && commit` 禁止)。push 前は `just test`、`just fmt-check`、`just docs`、`just lint`、`just fuzz-smoke`(すべて `nix develop` 経由)。
 - 並列ワーカーは自分の新規ファイルのみ編集。`git add`/`commit`/`push` 禁止、`tests/run.c`・`examples/moqt_chat/justfile` 編集禁止。integrator(タスク 8)のみが wiring とコミットを行う。
@@ -25,7 +25,7 @@
   Claude-Session: https://claude.ai/code/session_01MUGHRYWD7RZSxw8p3C7GP1
   ```
 - alias: chat 0..3, audio 4..7, movie 8, movie/init 9, **screen 10..13**(`3N` オフセット、N=4)。
-- チャンクヘッダ codec: `seq u16 | idx u16 | count u16 | flags u8 (bit0=keyframe) | ts u32 (µs)`。キーフレームの idx=0 にだけ続けて `width u16 | height u16 | codec len u8 + bytes`。Object payload ≤ 480 B。
+- チャンクヘッダー codec: `seq u16 | idx u16 | count u16 | flags u8 (bit0=keyframe) | ts u32 (µs)`。キーフレームの idx=0 にだけ続けて `width u16 | height u16 | codec len u8 + bytes`。Object payload ≤ 480 B。
 - vp8、`latencyMode: "realtime"`、bitrate ≈ 1 Mbps、2 秒ごとに `encode(frame, {keyFrame:true})` で強制キーフレーム。
 - 受信側は「欠けた idx があればフレーム全体を破棄」。キーフレームが揃うまで decoder には渡さない(WaitKey → Decoding の状態機械。decode error は WaitKey へ戻る)。
 
@@ -47,12 +47,12 @@
 - 変更: `tests/app/moqtrun_test.c`(`test_moqtrun_third_publish_gets_error` を `test_moqtrun_fourth_publish_gets_error` へ改名し、3 本目の成功 PUBLISH を追加してから 4 本目で失敗することを検証)
 
 **インターフェース**:
-- 変更後、1 peer あたり chat + audio + screen の 3 トラックを PUBLISH できる。4 本目は既存のエラー経路のまま。
+- 変更後、1 peer あたり chat + audio + screen の 3 Track を PUBLISH できる。4 本目は既存のエラー経路のまま。
 
 - [ ] **ステップ 1: テストを先に赤くする**
   `test_moqtrun_third_publish_gets_error` を `test_moqtrun_fourth_publish_gets_error` に改名し、2 本目までの PUBLISH 成功アサーションの後に 3 本目の成功 PUBLISH を追加、4 本目の PUBLISH がエラーになることをアサート。`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` はまだ 2 のまま実行し、3 本目の成功アサーションが失敗することを確認する(Red)。
 - [ ] **ステップ 2: 定数変更**
-  `moqtrun.h` の `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` を `2` → `3` に変更。隣接する doc comment(peer あたりのトラック数を説明している行)も 3 に合わせて更新。
+  `moqtrun.h` の `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` を `2` → `3` に変更。隣接する doc comment(peer あたりの Track 数を説明している行)も 3 に合わせて更新。
 - [ ] **ステップ 3: Green 確認**
   `just test-fast` で "all tests passed"、`lizard src --CCN 3 -w` で exit 0 を確認。
 
@@ -82,13 +82,13 @@
 - 変更: `tests/app/moqtrun_test.c`
 
 **インターフェース**:
-- 既存の `test_moqtrun_peer_publishes_two_tracks`(line 840 付近)を 3 トラック版に拡張、または並置する新規テストを追加。
-- 既存の音声長寿命リレー継続テスト(`relays[0]` 周り、line 1770 近辺)を "screen" という名前のトラックで複製し、`WIRED_MOQTRUN_MAX_RELAYS` がトラックごとに独立した枠を持つこと(音声と画面共有が競合しないこと)を検証する。
+- 既存の `test_moqtrun_peer_publishes_two_tracks`(line 840 付近)を 3 Track 版に拡張、または並置する新規テストを追加。
+- 既存の音声長寿命リレー継続テスト(`relays[0]` 周り、line 1770 近辺)を "screen" という名前の Track で複製し、`WIRED_MOQTRUN_MAX_RELAYS` が Track ごとに独立した枠を持つこと(音声と画面共有が競合しないこと)を検証する。
 
 - [ ] **ステップ 1: 3 トラック PUBLISH テスト**
-  `test_moqtrun_peer_publishes_two_tracks` を参考に、chat + audio + screen の 3 トラックを 1 peer が PUBLISH できることを検証するテストを追加(関数名は `grep -rn` で一意性確認)。
+  `test_moqtrun_peer_publishes_two_tracks` を参考に、chat + audio + screen の 3 Track を 1 peer が PUBLISH できることを検証するテストを追加(関数名は `grep -rn` で一意性確認)。
 - [ ] **ステップ 2: screen トラックの長寿命リレーテスト**
-  音声の長寿命リレー継続テストを "screen" トラック名で複製し、`relays[]` がトラックごとに独立していることを確認。
+  音声の長寿命リレー継続テストを "screen" Track 名で複製し、`relays[]` が Track ごとに独立していることを確認。
 - [ ] **ステップ 3: Green 確認**
   `just test-fast` で "all tests passed"。
 
@@ -102,7 +102,7 @@
 
 **インターフェース**:
 - `buildScreenSubgroupHeader()`: `buildVoiceSubgroupHeader`(既存)を模倣し SUBGROUP_HEADER 0x70 を組み立てる。
-- チャンクヘッダ codec: `seq u16 | idx u16 | count u16 | flags u8 (bit0=keyframe) | ts u32 (µs)`。キーフレームの idx=0 にだけ `width u16 | height u16 | codec len u8 + bytes` を続ける。
+- チャンクヘッダー codec: `seq u16 | idx u16 | count u16 | flags u8 (bit0=keyframe) | ts u32 (µs)`。キーフレームの idx=0 にだけ `width u16 | height u16 | codec len u8 + bytes` を続ける。
 - `encodeScreenObjectMessage(...)`: 1 チャンクを MoQT Object(ID delta 0)にエンコード。
 - `decodeScreenObjectMessage(...)`: 上記の逆関数。
 - フレーム再構成関数(`drainVoiceObjectStream` の形を踏襲): `seq` ごとに idx を集め、`count` 揃ったときだけ完全なフレームを返す。**欠けた idx が 1 つでもあればそのフレーム全体を破棄**(音声の欠落許容とは異なる仕様)。
@@ -154,10 +154,10 @@
 - `getDisplayMedia({ video: { width: 1280, height: 720, frameRate: 10 }, audio: false })`。
 - `VideoEncoder`(codec vp8、bitrate 1 Mbps、2 秒ごとに `encode(frame, {keyFrame:true})` で強制キーフレーム)。
 - `output` コールバックで `chunk.copyTo` → ≤480B 分割 → 既存 `sendGate.ts` を再利用(新しい gate は作らない)。
-- ブラウザの「共有を停止」でトラックが `ended` → エンコーダ停止 → ストリーム FIN。
+- ブラウザの「共有を停止」でトラックが `ended` → エンコーダー停止 → ストリーム FIN。
 
 - [ ] **ステップ 1: 偽 VideoEncoder/getDisplayMedia でチャンク数・ヘッダ内容を断言するテストを先に書く**
-  DI で注入した偽 `getDisplayMedia`(固定サイズのフレームを返す)と偽 `VideoEncoderCtor`(`output` を同期呼び出しするスタブ)を使い、期待されるチャンク数とヘッダ内容(タスク 4 の `moqtScreenWire.ts` の関数を使って decode)をアサート(Red)。
+  DI で注入した偽 `getDisplayMedia`(固定サイズのフレームを返す)と偽 `VideoEncoderCtor`(`output` を同期呼び出しするスタブ)を使い、期待されるチャンク数とヘッダー内容(タスク 4 の `moqtScreenWire.ts` の関数を使って decode)をアサート(Red)。
 - [ ] **ステップ 2: 実装**
   `screenSharePipeline.ts` を実装しステップ 1 を Green にする。
 - [ ] **ステップ 3: 検証**
@@ -174,7 +174,7 @@
 - 変更: `examples/moqt_chat/frontend/src/app/page.tsx`(`ScreenShareToggle` を `MicToggle` と同形で追加、タイル描画を `LivePlayer` の `<video>` ref パターンに倣い `<canvas data-testid="screen-tile-<id>">` で追加)
 
 **インターフェース**:
-- `ScreenShareToggle`: `data-testid="screen-toggle"`、Mic と同列にヘッダへ配置。
+- `ScreenShareToggle`: `data-testid="screen-toggle"`、Mic と同列にヘッダーへ配置。
 - `ScreenTiles`: 共有中の送信者ごとに canvas タイル + 名前。自分の共有は小さなプレビュー。
 - 受信側状態機械: WaitKey(キーフレーム待ち)→ Decoding。decode error でも WaitKey へ戻る。
 
@@ -230,5 +230,5 @@
 
 ## 対象外(YAGNI)
 
-- 音声付き画面共有、複数同時共有の帯域制御、SVC/simulcast、hub の大オブジェクトレーンは対象外。
+- 音声付き画面共有、複数同時共有の帯域制御、SVC/simulcast、ハブの大 Object レーンは対象外。
 - Lean による符号化の形式証明は対象外(vitest の golden/property テストで代替)。

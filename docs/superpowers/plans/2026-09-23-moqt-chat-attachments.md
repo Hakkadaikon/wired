@@ -253,7 +253,7 @@ Spec: docs/superpowers/specs/2026-09-22-moqt-chat-attachments-design.md
 **movie機能の全削除:**
 - movie関連の`import`文を削除(`moqtMovieClient`/`moqtLiveClient`関連、該当箇所を検索)。
 - `videoRef`/`liveRef`/`clearLive`/`shouldStartLive`を削除。
-- `onUnknownUniStream`(または相当のハンドラ、該当箇所を検索)内のMOVIE系トラックエイリアス分岐を削除。
+- `onUnknownUniStream`(または相当のハンドラ、該当箇所を検索)内のMOVIE系Track Alias分岐を削除。
 - フックの返り値オブジェクトから`videoRef`を削除。
 
 削除にあたり、`grep -n "movie\|Movie\|MOVIE\|live\|Live\|LIVE" examples/moqt_chat/frontend/src/hooks/useMoqtChat.ts`を実行し、該当箇所を漏れなく洗い出してから着手すること(ただし`liveRef`等`live`という文字列が偶然他の意味で使われている箇所があれば誤削除しないよう文脈を確認する)。
