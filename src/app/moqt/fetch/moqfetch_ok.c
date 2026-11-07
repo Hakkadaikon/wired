@@ -3,7 +3,6 @@
 static int moqfetch_ok_take_head(wired_span b, usz* at, moqfetch_ok* m);
 static int moqfetch_ok_put_head(wired_mspan b, usz* at, const moqfetch_ok* m);
 static int moqfetch_hdr_type(wired_span buf, usz* at);
-static int moqfetch_group_up(u64 prior, u64 d, u64* out);
 static int moqfetch_group_down(u64 prior, u64 d, u64* out);
 static int moqfetch_group_resolve(const moqfetch_seq* s, u64 d, u64* g);
 
@@ -107,7 +106,7 @@ int moqfetch_add(u64 a, u64 b, u64* out) {
 }
 
 /* Ascending: prior + (Delta + 1). */
-static int moqfetch_group_up(u64 prior, u64 d, u64* out) {
+int moqfetch_group_up(u64 prior, u64 d, u64* out) {
   u64 step;
   if (moqfetch_add(d, 1, &step) != MOQCTL_OK) {
     return MOQCTL_R_DELTA;

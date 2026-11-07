@@ -26,6 +26,14 @@ typedef struct {
   void (*note)(moqfetch_seq*, const moqfetch_obj*);
 } moqfetch_kind_ops;
 
+/* A Table 8 marker value, its kind (1 End of Range, 2 End of Group /
+ * Track) and whether the stream's draft has it. */
+typedef struct {
+  u64 flags;
+  int kind;
+  int ok;
+} moqfetch_mark;
+
 /* ----- encode: the inverse of each take step ----- */
 
 typedef int (*moqfetch_put_fn)(
@@ -45,9 +53,11 @@ int moqfetch_object_absolute(const moqfetch_seq* s, const moqfetch_obj* o);
 int moqfetch_take_eor(
     wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o);
 int moqfetch_kind(u64 flags, const moqfetch_seq* s);
+int moqfetch_group_up(u64 prior, u64 d, u64* out);
+int moqfetch_eor_rel(const moqfetch_seq* s);
 
 extern const moqfetch_step_fn  MOQFETCH_OBJ_STEPS[7];
 extern const moqfetch_step_fn  MOQFETCH_HEAD_STEPS[7];
-extern const moqfetch_kind_ops MOQFETCH_KIND_OPS[2];
+extern const moqfetch_kind_ops MOQFETCH_KIND_OPS[3];
 
 #endif

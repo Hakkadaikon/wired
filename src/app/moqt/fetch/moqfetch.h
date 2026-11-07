@@ -249,17 +249,29 @@ int moqfetch_hdr_put(wired_mspan buf, usz* off, u64 request_id);
 /** draft-22 SS11.4.1 End of Timed-Out Range; accepted only when
  * moqfetch_seq.eor_timed_out is set. */
 #define MOQFETCH_EOR_TIMED_OUT 0x20CULL
+/** draft-23 11.4.1 End of Gone Range; accepted only when moqfetch_seq.d23
+ * is set. */
+#define MOQFETCH_EOR_GONE 0x40CULL
+/** draft-23 11.4.2.2 End of Group: no other field, the prior Object ends
+ * its Group; accepted only when moqfetch_seq.d23 is set. */
+#define MOQFETCH_END_OF_GROUP 0x80ULL
+/** draft-23 11.4.2.2 End of Track (also End of Group). */
+#define MOQFETCH_END_OF_TRACK 0x81ULL
 
 /** The "prior Object" state threaded through one fetch stream. Zero it,
  * then set descending when the FETCH's GROUP_ORDER is Descending (0x2):
  * Group ID Deltas run the other way (11.4.4.1); set eor_timed_out on a
  * stream of a session whose draft has MOQVER_CAP_EOR_TIMED_OUT, so the
- * 0x20C marker is an End of Range rather than a VIOLATION. */
+ * 0x20C marker is an End of Range rather than a VIOLATION; set d23 on a
+ * stream of a session whose draft has MOQVER_CAP_FETCH_STREAM23. */
 typedef struct {
   /** 1 iff Group ID Deltas count downward (GROUP_ORDER Descending). */
   int descending;
   /** 1 iff the 0x20C End of Timed-Out Range marker is accepted. */
   int eor_timed_out;
+  /** 1 on a draft-23 stream (11.4): Object ID Delta + 2, delta-encoded
+   * End of Range, 0x40C, End of Group / End of Track. */
+  int d23;
   /** 1 once a prior Object or End of Range set group/object. */
   int have_loc;
   /** 1 iff the last Object (not End of Range) carried a Subgroup ID. */
@@ -332,5 +344,11 @@ int moqfetch_obj_take_head(
  * on the wire as is. */
 int moqfetch_obj_put_head(
     wired_mspan buf, usz* off, moqfetch_seq* seq, const moqfetch_obj* o);
+
+/** MOQFETCH_F_OBJECT, or 0 for the Object {group, object} on a draft-23
+ * stream when it is the one after the prior Object in the same Group: a
+ * present Object ID Delta there means prior + Delta + 2 (draft-23
+ * 11.4.1.1), so the next Object must leave it out. */
+u64 moqfetch_object_flag(const moqfetch_seq* s, u64 group, u64 object);
 
 #endif

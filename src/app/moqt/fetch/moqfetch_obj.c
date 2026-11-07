@@ -2,7 +2,11 @@
 
 static void moqfetch_note_eor(moqfetch_seq* s, const moqfetch_obj* o);
 static void moqfetch_note_obj(moqfetch_seq* s, const moqfetch_obj* o);
-static int  moqfetch_is_eor(u64 flags, const moqfetch_seq* s);
+static void moqfetch_note_end(moqfetch_seq* s, const moqfetch_obj* o);
+static int  moqfetch_take_end(
+    wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o);
+static int  moqfetch_mark_kind(const moqfetch_mark* m);
+static int  moqfetch_marker_kind(u64 flags, const moqfetch_seq* s);
 static void moqfetch_obj_clear(moqfetch_obj* o, u64 flags);
 static int  moqfetch_run(
     const moqfetch_kind_ops* ops,
@@ -24,6 +28,7 @@ static int moqfetch_obj_take_with(
     moqfetch_obj*            out);
 
 static const moqfetch_step_fn MOQFETCH_EOR_STEPS[] = {moqfetch_take_eor};
+static const moqfetch_step_fn MOQFETCH_END_STEPS[] = {moqfetch_take_end};
 
 /* "Prior Group ID and prior Object ID: The values from the End of Range
  * indicator"; Subgroup and Priority stay those of the last real Object. */
@@ -41,31 +46,69 @@ static void moqfetch_note_obj(moqfetch_seq* s, const moqfetch_obj* o) {
   s->priority      = o->priority;
 }
 
-/* 0x20C only where the stream's draft has it (draft-22 SS11.4.1). */
-static int moqfetch_is_eor(u64 flags, const moqfetch_seq* s) {
-  if (flags == MOQFETCH_EOR_TIMED_OUT) {
-    return s->eor_timed_out;
-  }
-  return flags == MOQFETCH_EOR_NONEXISTENT || flags == MOQFETCH_EOR_UNKNOWN;
+/* draft-23 11.4.2.2: End of Group / End of Track leave the Group as is
+ * and make the prior Object ID 2^64-1. */
+static void moqfetch_note_end(moqfetch_seq* s, const moqfetch_obj* o) {
+  (void)o;
+  s->object = ~0ULL;
 }
 
-/* 11.4.4: < 128 is a flag set (kind 0), 0x8C / 0x10C (/ 0x20C) an End of
- * Range (kind 1); "Any other value is a PROTOCOL_VIOLATION" (-1). */
+/* No field follows; with no prior Object there is no Group to end
+ * (draft-23 11.4.1.1, a flag referencing the prior Object). */
+static int moqfetch_take_end(
+    wired_span b, usz* at, const moqfetch_seq* s, moqfetch_obj* o) {
+  (void)b, (void)at;
+  if (!s->have_loc) {
+    return MOQCTL_R_OBJ;
+  }
+  o->group  = s->group;
+  o->object = ~0ULL;
+  return MOQCTL_OK;
+}
+
+static int moqfetch_mark_kind(const moqfetch_mark* m) {
+  return m->ok ? m->kind : -1;
+}
+
+/* Table 8 values >= 128: an End of Range (kind 1) or End of Group /
+ * Track (kind 2) where the stream's draft has it -- 0x20C from draft-22
+ * SS11.4.1, 0x40C / 0x80 / 0x81 from draft-23 11.4.1. */
+static int moqfetch_marker_kind(u64 flags, const moqfetch_seq* s) {
+  const moqfetch_mark t[] = {
+      {MOQFETCH_EOR_NONEXISTENT, 1, 1},
+      {MOQFETCH_EOR_UNKNOWN, 1, 1},
+      {MOQFETCH_EOR_TIMED_OUT, 1, s->eor_timed_out},
+      {MOQFETCH_EOR_GONE, 1, s->d23},
+      {MOQFETCH_END_OF_GROUP, 2, s->d23},
+      {MOQFETCH_END_OF_TRACK, 2, s->d23},
+  };
+  for (usz i = 0; i < MOQFETCH_N(t); i++) {
+    if (t[i].flags == flags) {
+      return moqfetch_mark_kind(&t[i]);
+    }
+  }
+  return -1;
+}
+
+/* 11.4.4: < 128 is a flag set (kind 0), else a marker; "Any other value"
+ * is MALFORMED_OBJECT (-1). */
 int moqfetch_kind(u64 flags, const moqfetch_seq* s) {
   if (flags < 0x80) {
     return 0;
   }
-  return moqfetch_is_eor(flags, s) ? 1 : -1;
+  return moqfetch_marker_kind(flags, s);
 }
 
-const moqfetch_kind_ops MOQFETCH_KIND_OPS[2] = {
+const moqfetch_kind_ops MOQFETCH_KIND_OPS[3] = {
     {MOQFETCH_OBJ_STEPS, MOQFETCH_N(MOQFETCH_OBJ_STEPS), moqfetch_note_obj},
     {MOQFETCH_EOR_STEPS, MOQFETCH_N(MOQFETCH_EOR_STEPS), moqfetch_note_eor},
+    {MOQFETCH_END_STEPS, MOQFETCH_N(MOQFETCH_END_STEPS), moqfetch_note_end},
 };
 
-static const moqfetch_kind_ops MOQFETCH_HEAD_OPS[2] = {
+static const moqfetch_kind_ops MOQFETCH_HEAD_OPS[3] = {
     {MOQFETCH_HEAD_STEPS, MOQFETCH_N(MOQFETCH_HEAD_STEPS), moqfetch_note_obj},
     {MOQFETCH_EOR_STEPS, MOQFETCH_N(MOQFETCH_EOR_STEPS), moqfetch_note_eor},
+    {MOQFETCH_END_STEPS, MOQFETCH_N(MOQFETCH_END_STEPS), moqfetch_note_end},
 };
 
 static void moqfetch_obj_clear(moqfetch_obj* o, u64 flags) {

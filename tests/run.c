@@ -1556,6 +1556,7 @@
 #include "app/moqns_test.c"
 #include "app/moqtstat_test.c"
 #include "app/moqfetch_test.c"
+#include "app/moqfetch_d23_test.c"
 #include "app/moqcache_test.c"
 #include "app/moqver_test.c"
 #include "app/moqt_multidraft_golden_test.c"
@@ -2168,6 +2169,7 @@ int main(void) {
   test_moqns();
   test_moqtstat();
   test_moqfetch();
+  test_moqfetch_d23();
   test_moqcache();
   test_moqver();
   test_moqssts();
