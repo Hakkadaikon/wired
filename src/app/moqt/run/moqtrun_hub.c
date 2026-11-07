@@ -85,6 +85,9 @@ static void moqtrun_hub_rel_stats_clear(wired_moqt_hub* hub) {
 }
 
 static void moqtrun_hub_pools_clear(wired_moqt_hub* hub) {
+  for (usz i = 0; i < WIRED_MOQTRUN_CTL_POOL; i++) {
+    hub->ctl_owner[i] = 0;
+  }
   for (usz i = 0; i < WIRED_MOQTREL_POOL; i++) {
     moqtrel_reset(&hub->rel_pool[i]);
   }

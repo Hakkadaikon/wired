@@ -27,7 +27,7 @@ typedef struct {
 
 static const moqver_row moqver_table[MOQVER_COUNT] = {
     /* Not offered until every draft-23 delta has landed. */
-    {MOQVER_D23, "moqt-23", MOQVER_CAPS_D22, 0},
+    {MOQVER_D23, "moqt-23", MOQVER_CAPS_D22 | MOQVER_CAP_CTL_LEN_VI, 0},
     {MOQVER_D22, "moqt-22", MOQVER_CAPS_D22, 1},
     {MOQVER_D19, "moqt-19",
      MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |

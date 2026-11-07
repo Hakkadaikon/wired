@@ -57,7 +57,8 @@
 /* Wire limits (draft-ietf-moq-transport-18/19/22: the same in all three;
  * draft-19 sections). */
 /** Largest Message Body in bytes (SS10): the 16-bit Length field's
- * maximum, 2^16-1. */
+ * maximum, 2^16-1; draft-23 9.1.8's default (and floor of)
+ * MAX_CONTROL_MESSAGE_SIZE, so never more than a peer accepts. */
 #define MOQCTL_MAX_MSG_LEN 0xFFFF
 /** Largest Reason Phrase in bytes (SS1.4.4); a longer one is a
  * VIOLATION. */

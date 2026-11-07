@@ -20,7 +20,7 @@ static usz mtvg_oks_on(u64 sid) {
     u64        t;
     wired_span body;
     wired_span all = wired_span_of(c->payload, c->payload_len);
-    while (moqctl_peek_type(all, &off, &t, &body) == MOQCTL_OK) {
+    while (mt_peek_type(all, &off, &t, &body) == MOQCTL_OK) {
       n += t == MOQCTL_T_REQUEST_OK;
     }
   }
@@ -225,7 +225,7 @@ static void mtvg_hub_publish_in(u8 go) {
   wired_span     body;
   mtvg_subtracks_then_publish(go);
   const moqtrun_test_call* c = moqtrun_test_last_kind(1);
-  usz                      n = mtvg_publish_wire(want, go);
+  usz                      n = mt_spell(want, mtvg_publish_wire(want, go));
   CHECK(c != 0);
   if (!c) {
     return;
@@ -233,7 +233,7 @@ static void mtvg_hub_publish_in(u8 go) {
   CHECK(c->s == SESS_B && c->payload_len == n);
   CHECK(c->payload_len == n && !ct_diffn(c->payload, want, n));
   wired_span all = wired_span_of(c->payload, c->payload_len);
-  CHECK(moqctl_peek_type(all, &off, &t, &body) == MOQCTL_OK);
+  CHECK(mt_peek_type(all, &off, &t, &body) == MOQCTL_OK);
   int r = moqctl_publish_take(g_moqtrun_test_ver, body, &boff, &got);
   CHECK(moqctl_body_end(r, boff, body) == MOQCTL_OK);
 }

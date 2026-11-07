@@ -83,7 +83,7 @@ static void mtst_stlog_call(const moqtrun_test_call* c) {
   u64        type;
   wired_span body;
   while (off < all.n) {
-    CHECK(moqctl_peek_type(all, &off, &type, &body) != MOQCTL_INSUFFICIENT);
+    CHECK(mt_peek_type(all, &off, &type, &body) != MOQCTL_INSUFFICIENT);
     mtst_stlog_msg(type, body);
   }
 }
@@ -142,7 +142,7 @@ static usz mtst_pub_opens(wired_wt_session* s, moqctl_publish* out, usz cap) {
     if (c->kind != 1 || c->s != s || !mtst_pub_is_open(c->stream_id)) {
       continue;
     }
-    if (moqctl_peek_type(
+    if (mt_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_PUBLISH) {
@@ -167,7 +167,7 @@ static i64 mtst_pub_stream_id(usz which) {
     if (c->kind != 1 || !mtst_pub_is_open(c->stream_id)) {
       continue;
     }
-    if (moqctl_peek_type(
+    if (mt_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_PUBLISH) {
@@ -198,9 +198,9 @@ static void mtst_pub_ok(wired_wt_session* s, u64 sid) {
   usz                      n  = 0;
   static moqctl_request_ok ok = {0};
   n                           = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
+      MOQVER_D22, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       mtsub_encode_request_ok, &ok);
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
 }
 
 static void mtst_pub_err(wired_wt_session* s, u64 sid, u64 code) {
@@ -209,9 +209,9 @@ static void mtst_pub_err(wired_wt_session* s, u64 sid, u64 code) {
   static moqctl_request_error e = {0};
   e.error_code                  = code;
   n                             = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
+      MOQVER_D22, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       mtsub_encode_request_error, &e);
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(msg, n), 0);
 }
 
 /* Resets the hub only; every test joins the sessions it needs itself
@@ -383,8 +383,7 @@ static void test_subtracks_publish_error_frees_slot(void) {
   i64 sid    = mtst_pub_stream_id(0);
   usz before = mtrq_used();
   mtst_pub_err(SESS_B, (u64)sid, MOQCTL_ERR_UNINTERESTED);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, (u64)sid, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, (u64)sid, wired_span_of(0, 0), 1);
   CHECK(mtrq_used() < before);
 }
 

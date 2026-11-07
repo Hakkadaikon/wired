@@ -6,7 +6,7 @@
 
 /* Delivers b on SESS_A's uni stream sid (fin as given). */
 static void mtss_uni(u64 sid, const u8* b, usz n, int fin) {
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(b, n), fin);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(b, n), fin);
 }
 
 /* 1 iff the hub's last session close used code. */

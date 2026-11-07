@@ -141,9 +141,7 @@ void moqtrun_up_store(
   moqsub_step(&u->sub, MOQSUB_EV_OPEN);
   u->ns_len   = k.ns.n;
   u->name_len = k.name.n;
-  u->in.n     = 0;
-  u->in.at    = 0;
-  u->in.skip  = 0;
+  moqtrun_asm_reset(&u->in);
   bytes_memcpy(u->ns, k.ns.p, k.ns.n);
   bytes_memcpy(u->name, k.name.p, k.name.n);
 }

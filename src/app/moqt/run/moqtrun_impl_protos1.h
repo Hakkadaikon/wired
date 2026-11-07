@@ -140,7 +140,11 @@ void                moqtrun_reqs_clear(wired_moqt_hub* hub);
 void                moqtrun_rdv_clear(wired_moqt_hub* hub);
 void                moqtrun_up_clear(wired_moqt_hub* hub);
 usz                 moqtrun_envelope_put(
-    wired_mspan buf, u64 type, moqtrun_body_encode_fn body_fn, const void* msg);
+    int                    ver,
+    wired_mspan            buf,
+    u64                    type,
+    moqtrun_body_encode_fn body_fn,
+    const void*            msg);
 void moqtrun_setup_limits(moqctl_setup* s, int ver);
 void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_peer_ctl_reset(wired_moqtrun_peer* p);

@@ -115,7 +115,7 @@ void moqtrun_queue_request_ok_props(
   ok.track_properties  = props;
   moqtrun_largest_param(&ok.params, t);
   usz n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }

@@ -179,6 +179,11 @@ typedef struct {
 /** draft-ietf-moq-transport-19 SS3.5 INTERNAL_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR 0x1
 
+/** draft-ietf-moq-transport-23 9 / 12.2 FIELD_LENGTH_EXCEEDED session
+ * code: a control message's Length is over the hub's
+ * MAX_CONTROL_MESSAGE_SIZE (MOQCTL_MAX_MSG_LEN). */
+#define WIRED_MOQTRUN_CLOSE_FIELD_LENGTH_EXCEEDED 0x401
+
 /** draft-ietf-moq-transport-19 3.5 NO_ERROR session code. */
 #define WIRED_MOQTRUN_CLOSE_NO_ERROR 0x0
 
@@ -606,21 +611,45 @@ typedef struct {
  * buffer). */
 #define WIRED_MOQTRUN_CTL_REPLY_MAX 128
 
-/** Largest received control-message Length (body bytes) this hub handles.
- * draft-ietf-moq-transport-19 SS10 allows up to 65535; a longer message
- * closes the session like an unknown Type (moqtrun_asm_pop). */
+/** Largest control-message body a stream's reassembly holds inline, and
+ * the bound of the bodies this hub builds and holds itself. Every draft
+ * lets a peer send up to MOQCTL_MAX_MSG_LEN (65535: the 16-bit Length's
+ * maximum, draft-23 9.1.8's MAX_CONTROL_MESSAGE_SIZE floor); a longer
+ * one is reassembled in a WIRED_MOQTRUN_CTL_POOL buffer
+ * (moqtrun_asm_pop). */
 #define WIRED_MOQTRUN_CTL_MSG_MAX 1024
 
-/** Type (vi64, up to 9 bytes) + 16-bit Length. */
-#define WIRED_MOQTRUN_CTL_HDR_MAX 11
+/** Type (vi64, up to 9 bytes) + Length (16 bits, or a vi64 of up to 9
+ * bytes in draft-23 9: non-minimal encodings are legal). */
+#define WIRED_MOQTRUN_CTL_HDR_MAX 18
+
+/** One shared reassembly buffer: the header plus the largest body any
+ * draft lets a peer send (MOQCTL_MAX_MSG_LEN). */
+#define WIRED_MOQTRUN_CTL_BIG_MAX \
+  (MOQCTL_MAX_MSG_LEN + WIRED_MOQTRUN_CTL_HDR_MAX)
+
+/** Hub-wide buffers for control messages longer than
+ * WIRED_MOQTRUN_CTL_MSG_MAX (R4 of the draft-23 plan). A stream leases
+ * one only while such a message is mid-reassembly and gives it back once
+ * its unread bytes fit inline again, so the count bounds concurrently
+ * torn large messages, not streams: the chat room's and the hub's own
+ * messages stay far below 1 KiB, and 2 x 64 KiB keeps the hub's footprint
+ * small while letting two peers send a large one at once. A message
+ * finding none free closes its session INTERNAL_ERROR (a resource limit,
+ * like the over-cap close it replaces). */
+#define WIRED_MOQTRUN_CTL_POOL 2
 
 /** Reassembly of control messages split across stream deliveries: holds
  * the not-yet-complete tail of one stream. skip counts bytes of an
  * over-cap message still to discard. */
 typedef struct {
-  /** The held tail: at most one whole message (header plus the largest
-   * accepted body). */
-  u8  buf[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
+  /** The held tail, inline: whole messages up to
+   * WIRED_MOQTRUN_CTL_MSG_MAX bodies. */
+  u8 buf[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
+  /** The hub's ctl_pool buffer (WIRED_MOQTRUN_CTL_BIG_MAX bytes) holding
+   * the tail instead of buf while a longer message is reassembled, else
+   * 0. views: big=slot */
+  u8* big;
   usz n;    /**< bytes held */
   usz at;   /**< next unread byte */
   usz skip; /**< bytes still to discard */
@@ -845,8 +874,8 @@ typedef struct {
   usz name_len;
   /** The SUBSCRIBE body as received, re-decoded in the session's own
    * draft when the hold resolves (the decoded views dangle after the
-   * dispatch). WIRED_MOQTRUN_CTL_MSG_MAX bounds every body this hub
-   * accepts, so it always fits. */
+   * dispatch). A SUBSCRIBE whose body is longer than this is refused
+   * instead of held (moqtrun_rdv_hold). */
   u8 body[WIRED_MOQTRUN_CTL_MSG_MAX];
   /** Bytes of body in use. */
   usz body_len;

@@ -392,15 +392,21 @@ int moqctl_goaway18_encode(wired_mspan buf, usz* off, const moqctl_goaway* m);
  * answer or skip it and go on with the next one. */
 int moqctl_peek_type(wired_span buf, usz* off, u64* type_out, wired_span* body);
 
+/** moqctl_peek_type with the Length as draft ver (MOQVER_*) spells it:
+ * a vi64 under MOQVER_CAP_CTL_LEN_VI (draft-23 9), else 16 bits. */
+int moqctl_peek_type_v(
+    int ver, wired_span buf, usz* off, u64* type_out, wired_span* body);
+
 /** Re-classifies a moqctl_peek_type result for draft ver (MOQVER_*): a
  * Type unknown to the draft-19 table that ver does define gets ver's
  * classification, and *type is rewritten to the Type it stands for
  * (draft-18 0x1E -> REQUEST_OK). Every other peek passes through. */
 int moqctl_type_ver(int ver, int peek, u64* type);
 
-/** Reads only Type + Length at *at (no body check): MOQCTL_OK advances *at
- * past them; on MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */
-int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len);
+/** Reads only Type + Length (draft ver's spelling, moqctl_peek_type_v) at
+ * *at (no body check): MOQCTL_OK advances *at past them; on
+ * MOQCTL_INSUFFICIENT *len is unset and *at may have moved. */
+int moqctl_peek_header(int ver, wired_span buf, usz* at, u64* type, u64* len);
 
 /** Whole-body decode verdict: r is a take's result after reading from the
  * start of a Message Body, off where it stopped. INSUFFICIENT (truncated

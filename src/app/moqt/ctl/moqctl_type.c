@@ -68,27 +68,35 @@ int moqctl_type_ver(int ver, int peek, u64* type) {
   return r->peek;
 }
 
-int moqctl_peek_header(wired_span buf, usz* at, u64* type, u16* len) {
-  if (!moqvi_take(buf, at, type)) {
-    return MOQCTL_INSUFFICIENT;
+/* draft-23 9: the Length is a vi64; draft-18..22 a 16-bit big-endian. */
+static int moqctl_len_take(int ver, wired_span buf, usz* at, u64* len) {
+  if (moqver_caps(ver) & MOQVER_CAP_CTL_LEN_VI) {
+    return moqvi_take(buf, at, len);
   }
   if (buf.n - *at < 2) {
-    return MOQCTL_INSUFFICIENT;
+    return 0;
   }
   *len = be_get_be16(buf.p + *at);
   *at += 2;
-  return MOQCTL_OK;
+  return 1;
+}
+
+int moqctl_peek_header(int ver, wired_span buf, usz* at, u64* type, u64* len) {
+  if (!moqvi_take(buf, at, type)) {
+    return MOQCTL_INSUFFICIENT;
+  }
+  return moqctl_len_take(ver, buf, at, len) ? MOQCTL_OK : MOQCTL_INSUFFICIENT;
 }
 
 /* A complete message of any Type is framed by its Length (SS10), so the
  * outputs are filled and *off skips it whatever the classification --
  * the caller decides what an unknown/unimplemented Type means. */
-int moqctl_peek_type(
-    wired_span buf, usz* off, u64* type_out, wired_span* body) {
+int moqctl_peek_type_v(
+    int ver, wired_span buf, usz* off, u64* type_out, wired_span* body) {
   usz at = *off;
   u64 type;
-  u16 len;
-  int r = moqctl_peek_header(buf, &at, &type, &len);
+  u64 len;
+  int r = moqctl_peek_header(ver, buf, &at, &type, &len);
   if (r != MOQCTL_OK) {
     return r;
   }
@@ -96,9 +104,15 @@ int moqctl_peek_type(
     return MOQCTL_INSUFFICIENT;
   }
   *type_out = type;
-  *body     = wired_span_of(buf.p + at, len);
-  *off      = at + len;
+  *body     = wired_span_of(buf.p + at, (usz)len);
+  *off      = at + (usz)len;
   return moqctl_classify_type(type);
+}
+
+/* The draft-18..22 envelope (16-bit Length). */
+int moqctl_peek_type(
+    wired_span buf, usz* off, u64* type_out, wired_span* body) {
+  return moqctl_peek_type_v(MOQVER_D22, buf, off, type_out, body);
 }
 
 /* A Message Body is framed by its Length (SS10), so running out of bytes

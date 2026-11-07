@@ -42,10 +42,10 @@ static void mtss_client_setup(wired_wt_session* s, const u64* algs, int n) {
   m.ssts_alg_n = (u8)(n < 0 ? 0 : n);
   m.has_ssts   = (u8)(n >= 0);
   usz len      = moqtrun_envelope_put(
-      wired_mspan_of(buf, sizeof buf), MOQCTL_T_SETUP, mtss_enc_setup, &m);
+      MOQVER_D22, wired_mspan_of(buf, sizeof buf), MOQCTL_T_SETUP,
+      mtss_enc_setup, &m);
   CHECK(len != 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, s, MTSS_SETUP_SID, wired_span_of(buf, len), 0);
+  mt_feed(&mtst_hub, s, MTSS_SETUP_SID, wired_span_of(buf, len), 0);
 }
 
 /* SWITCHING_SET_ASSIGNMENT param. */
@@ -74,7 +74,7 @@ static u64 mtss_ok_alias(u64 sid) {
     if ((c->kind != 12 && c->kind != 3) || c->stream_id != sid) {
       continue;
     }
-    if (moqctl_peek_type(
+    if (mt_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_SUBSCRIBE_OK) {
@@ -155,8 +155,7 @@ static u64 mtss_push(u64 pub_alias, u64 g, usz n, int fin) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   u64 sid = mtss_pub_sid += 4;
   usz len = mtss_wire(pub_alias, g, n, 1, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, sid, wired_span_of(buf, len), fin);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, len), fin);
   return sid;
 }
 
@@ -164,8 +163,7 @@ static u64 mtss_push(u64 pub_alias, u64 g, usz n, int fin) {
 static void mtss_more(u64 sid, usz n, int fin) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz len = mtss_wire(0, 0, n, 0, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, sid, wired_span_of(buf, len), fin);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, len), fin);
   wired_moqt_tick(&mtst_hub, 0);
 }
 
@@ -254,7 +252,7 @@ static int mtss_hub_setup(
     return 0;
   }
   *raw = wired_span_of(c->payload, c->payload_len);
-  moqctl_peek_type(*raw, &off, &type, &body);
+  mt_peek_type(*raw, &off, &type, &body);
   return moqctl_setup_take(body, &boff, s) == MOQCTL_OK;
 }
 
@@ -302,10 +300,10 @@ static void test_moqtrun_ssts_setup_malformed_closes(void) {
   u8              buf[64];
   mtss_init(mtss_algs_both, 2);
   usz len = moqtrun_envelope_put(
-      wired_mspan_of(buf, sizeof buf), MOQCTL_T_SETUP, mtss_enc_raw, &v);
+      MOQVER_D22, wired_mspan_of(buf, sizeof buf), MOQCTL_T_SETUP, mtss_enc_raw,
+      &v);
   CHECK(len != 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTSS_SETUP_SID, wired_span_of(buf, len), 0);
+  mt_feed(&mtst_hub, SESS_B, MTSS_SETUP_SID, wired_span_of(buf, len), 0);
   const moqtrun_test_call* c = moqtrun_test_last_kind(11);
   CHECK(c && c->s == SESS_B && c->stream_id == MOQCTL_CLOSE_KVFMT_ERROR);
 }

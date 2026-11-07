@@ -69,7 +69,7 @@ static void test_moqtrun_prio_per_subscriber(void) {
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &hi);
   mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, &lo);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(10, 128));
   CHECK(mtdr_urgency(SESS_C) == WIRED_MOQTRUN_URGENCY(200, 128));
   CHECK(WIRED_MOQTRUN_URGENCY(10, 128) < WIRED_MOQTRUN_URGENCY(200, 128));
@@ -83,7 +83,7 @@ static void test_moqtrun_prio_one_shot(void) {
   u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtdr_stream(3, 5, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(4) == 1);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
 }
@@ -102,11 +102,11 @@ static void test_moqtrun_prio_track_default(void) {
   mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(props, sizeof props));
   mtst_subscribe_p(SESS_B, cb, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
   usz before = moqtrun_test_count_kind(13);
   n          = mtst_stream(4, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(13) == before + 1);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 5));
 }
@@ -119,15 +119,15 @@ static void test_moqtrun_prio_update_applies(void) {
   u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(128, 128));
   mtup_update(SESS_B, MTRQ_S1, &p);
   n = mtst_stream(4, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
   CHECK(mtdr_urgency(SESS_B) == WIRED_MOQTRUN_URGENCY(250, 128));
   mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, &p);
   n = mtst_stream(4, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
   CHECK(mtdr_urgency(SESS_C) == WIRED_MOQTRUN_URGENCY(250, 128));
 }
 
@@ -137,7 +137,7 @@ static void test_moqtrun_prio_op_absent(void) {
   u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   CHECK(moqtrun_test_count_kind(5) == 1);
   CHECK(moqtrun_test_count_kind(13) == 0);
 }
@@ -196,13 +196,13 @@ static void test_moqtrun_sched_relay_keys(void) {
   mtdr_sched_on();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &hi);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
   CHECK(r && r->k.urgency == 4 && r->k.fine == 0x0a80);
   CHECK(r && r->k.order == 3 && r->k.tie == MTDR_LIVE && r->k.flow != 0);
   u64 flow = r ? r->k.flow : 0;
   n        = mtdr_stream(4, 5, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
   r = mtdr_sched_last(SESS_B);
   CHECK(r && r->k.fine == 0x0a05 && r->k.order == 4 && r->k.flow == flow);
   CHECK(moqtrun_test_count_kind(13) == 0);
@@ -215,7 +215,7 @@ static void test_moqtrun_sched_flow_per_subscription(void) {
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtst_subscribe_p(SESS_C, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   const mtdr_sched_rec* b = mtdr_sched_last(SESS_B);
   const mtdr_sched_rec* c = mtdr_sched_last(SESS_C);
   CHECK(b && c && b->k.flow != c->k.flow);
@@ -229,7 +229,7 @@ static void test_moqtrun_sched_descending(void) {
   mtdr_sched_on();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &d);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
   CHECK(r && r->k.order == ~3ULL);
 }
@@ -241,7 +241,7 @@ static void test_moqtrun_sched_update_reclasses(void) {
   mtdr_sched_on();
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   const mtdr_sched_rec* r = mtdr_sched_last(SESS_B);
   u64                   s = r ? r->sid : 0;
   u64                   w = r ? r->k.flow : 0;
@@ -250,7 +250,7 @@ static void test_moqtrun_sched_update_reclasses(void) {
   r = mtdr_sched_last(SESS_B);
   CHECK(r && r->sid == s && r->k.fine == 0xfa80 && r->k.flow == w);
   n = mtst_stream(4, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 0);
   r = mtdr_sched_last(SESS_B);
   CHECK(r && r->sid != s && r->k.fine == 0xfa80);
 }
@@ -281,7 +281,7 @@ static void test_moqtrun_sched_fetch_own_flow(void) {
   mf_obj(0, 0, 1);
   mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   const mtdr_sched_rec* r    = mtdr_sched_last(SESS_B);
   u64                   flow = r ? r->k.flow : 0;
   mf_standalone(mf_loc(0, 0), mf_loc(1, 0));
@@ -363,7 +363,7 @@ static int mtdr_goaway_body(u64 sid, wired_span* body) {
     if (c->kind != 3 || c->stream_id != sid) {
       continue;
     }
-    if (moqctl_peek_type(
+    if (mt_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_GOAWAY) {
@@ -555,7 +555,7 @@ static u64 mtdr_done_in(const moqtrun_test_call* c, u64* count) {
   u64                 type;
   wired_span          body;
   moqctl_publish_done d;
-  while (moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK) {
+  while (mt_peek_type(all, &off, &type, &body) == MOQCTL_OK) {
     if (type == MOQCTL_T_PUBLISH_DONE &&
         moqctl_publish_done_take(body, &boff, &d) == MOQCTL_OK) {
       *count = d.stream_count;
@@ -594,7 +594,7 @@ static void test_moqtrun_done_filter_end_keeps_sub(void) {
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
   usz n = mtst_stream(2, 1, 1, buf); /* Group 2, past End Group 1 */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(4) == 0);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
   CHECK(!mtrq_fin_on(MTRQ_S1));
@@ -633,11 +633,9 @@ static void test_moqtrun_done_stream_count_real(void) {
     moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
     mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
     usz n = mtst_stream(1, 1, 1, buf);
-    wired_moqt_on_stream_data(
-        &mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+    mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
     n = mtst_stream(2, 1, 1, buf);
-    wired_moqt_on_stream_data(
-        &mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
+    mt_feed(&mtst_hub, SESS_A, 2005, wired_span_of(buf, n), 1);
     wired_moqt_on_session_close(&mtst_hub, SESS_A);
     CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
     CHECK(count == 2);
@@ -692,7 +690,7 @@ static void test_moqtrun_done_resets_streams_first(void) {
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   u64 sb = mtdr_uni_sid(SESS_B), sc = mtdr_uni_sid(SESS_C);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);
   usz at = mtdr_reset_at(sb, &code);
@@ -716,7 +714,7 @@ static void test_moqtrun_upd_failed_resets_first(void) {
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   u64 sb = mtdr_uni_sid(SESS_B);
   mtup_update(SESS_B, MTRQ_S1, &p);
   CHECK(mtdr_reset_at(sb, &code) < mtdr_done_at(MTRQ_S1));
@@ -741,7 +739,7 @@ static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   mtst_join(SESS_C);
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);
   u64 sb = mtdr_uni_sid(SESS_B);
   wired_moqt_tick(&mtst_hub, 1000);
   wired_moqt_goaway(&mtst_hub, mtst_z(""), 500);

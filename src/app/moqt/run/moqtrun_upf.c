@@ -143,7 +143,7 @@ i64 moqtrun_upf_send(
   u8 msg[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
   m->request_id = pp->request_id_next;
   usz n         = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH,
+      pp->ver, wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH,
       moqtrun_upf_encoder(pp->ver), m);
   i64 sid = n ? hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n)) : -1;
   if (sid >= 0) {

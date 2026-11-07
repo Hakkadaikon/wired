@@ -141,7 +141,7 @@ static moqtrun_body_encode_fn moqtrun_fetch_ok_encoder(int ver) {
 void moqtrun_queue_fetch_ok_m(wired_moqtrun_peer* p, const moqfetch_ok* ok) {
   u8  msg[WIRED_MOQTRUN_CTL_MSG_MAX + WIRED_MOQTRUN_CTL_HDR_MAX];
   usz n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH_OK,
       moqtrun_fetch_ok_encoder(p->ver), ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }

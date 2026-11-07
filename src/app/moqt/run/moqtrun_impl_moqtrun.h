@@ -173,8 +173,10 @@ typedef int (*moqtrun_goaway_take_fn)(wired_span, usz*, moqctl_goaway*);
 #define MOQTRUN_CTL_TABLE_N \
   (sizeof(moqtrun_ctl_table) / sizeof(moqtrun_ctl_table[0]))
 
-/* moqtrun_asm_pop's result for a message over the cap. */
+/* moqtrun_asm_fit's results for a skipped message: Length over
+ * MOQCTL_MAX_MSG_LEN, or no pool buffer left for it. */
 #define MOQTRUN_ASM_OVER_CAP (-100)
+#define MOQTRUN_ASM_NO_POOL (-101)
 
 #define MOQTRUN_REQ_FIRST_N \
   (sizeof(moqtrun_req_first) / sizeof(moqtrun_req_first[0]))

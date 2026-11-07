@@ -1,7 +1,7 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static void moqtrun_subtracks_send_skipped(
-    wired_moqtrun_req* st, const wired_moqtrun_track* t);
+    int ver, wired_moqtrun_req* st, const wired_moqtrun_track* t);
 static int moqtrun_subtracks_opened(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        st_peer,
@@ -36,7 +36,7 @@ static void moqtrun_subtracks_sync_track(
 static void moqtrun_subtracks_sync_peer(wired_moqt_hub* hub, usz pub_idx);
 
 static void moqtrun_subtracks_send_skipped(
-    wired_moqtrun_req* st, const wired_moqtrun_track* t) {
+    int ver, wired_moqtrun_req* st, const wired_moqtrun_track* t) {
   moqns_pub_skipped m;
   u8
       msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS +
@@ -46,7 +46,7 @@ static void moqtrun_subtracks_send_skipped(
   moqtrun_subtracks_ns_suffix(st, t, wired_mspan_of(ns, sizeof ns), &m.ns);
   m.name = wired_span_of(t->name, t->name_len);
   n      = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_SKIPPED,
+      ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_SKIPPED,
       moqtrun_subtracks_encode_skip, &m);
   moqtrun_req_queue(st, wired_span_of(msg, n));
 }
@@ -93,7 +93,7 @@ static void moqtrun_subtracks_offer(
   wired_moqtrun_req* q =
       moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
   if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st)) {
-    moqtrun_subtracks_send_skipped(st, t);
+    moqtrun_subtracks_send_skipped(st_peer->ver, st, t);
   }
 }
 

@@ -17,7 +17,7 @@ void moqtrun_queue_request_error(
   e.error_code           = moqctl_request_error_for(p->ver, in->error_code);
   e.has_redirect = in->has_redirect && e.error_code == MOQCTL_ERR_REDIRECT;
   usz n          = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
 }

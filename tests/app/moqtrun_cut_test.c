@@ -34,8 +34,7 @@ static usz mcut_stream(
 }
 
 static void mcut_send(const u8* p, usz a, usz b, int fin) {
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MCUT_SID, wired_span_of(p + a, b - a), fin);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID, wired_span_of(p + a, b - a), fin);
 }
 
 /* B subscribes to alice; A's stream (Objects 0, 1, 2 of Group 1) is
@@ -146,8 +145,7 @@ static void test_moqtrun_stream_skips_gone_object(void) {
   mcut_send(buf, 0, ends[1], 0);
   u64 sid = mcut_sub_sid();
   usz h   = mcut_stream(one, 1, 1, five, 1, e1); /* Subgroup 1: Object 5 */
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, e1[0]), 1);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, e1[0]), 1);
   mf_obj(2, 0, 1); /* Group 1 is closed */
   moqtrun_test_reset();
   mcut_send(buf, ends[1], ends[3], 0);

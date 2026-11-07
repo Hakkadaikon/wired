@@ -70,10 +70,19 @@ static int moqtrun_req_push(wired_moqtrun_req* q, wired_span msg) {
   return q->send_lens[q->armed_idx ^ 1] != before;
 }
 
+/* The draft sub's session speaks (draft-19 once it is gone). */
+static int moqtrun_req_ver(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  const wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, q->wt);
+  return p ? p->ver : MOQVER_D19;
+}
+
 /* Queues NAMESPACE or NAMESPACE_DONE (type) for pub's namespace on sub's
  * stream; 1 when queued. */
 int moqtrun_disc_push(
-    wired_moqtrun_req* sub, const wired_moqtrun_req* pub, u64 type) {
+    wired_moqt_hub*          hub,
+    wired_moqtrun_req*       sub,
+    const wired_moqtrun_req* pub,
+    u64                      type) {
   u8                  msg[WIRED_MOQTRUN_CTL_HDR_MAX + WIRED_MOQTRUN_MAX_NS];
   u64                 pre_n;
   moqtrun_disc_suffix s;
@@ -82,7 +91,8 @@ int moqtrun_disc_push(
   s.n -= pre_n;
   s.fields = wired_span_of(all.p + pre.n, all.n - pre.n);
   usz n    = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), type, moqtrun_encode_disc_suffix, &s);
+      moqtrun_req_ver(hub, sub), wired_mspan_of(msg, sizeof msg), type,
+      moqtrun_encode_disc_suffix, &s);
   return moqtrun_req_push(sub, wired_span_of(msg, n));
 }
 

@@ -117,8 +117,8 @@ usz moqtrun_upd_msg(
   m.request_id      = pp->request_id_next;
   m.params          = *params;
   return moqtrun_envelope_put(
-      wired_mspan_of(msg, cap), MOQTSTAT_T_REQUEST_UPDATE, moqtrun_ngr_enc_upd,
-      &m);
+      pp->ver, wired_mspan_of(msg, cap), MOQTSTAT_T_REQUEST_UPDATE,
+      moqtrun_ngr_enc_upd, &m);
 }
 
 /* REQUEST_UPDATE {NEW_GROUP_REQUEST v} on the hub's SUBSCRIBE stream; a

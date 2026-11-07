@@ -50,8 +50,7 @@ static i64 mups_up(wired_wt_session* s, usz which, moqctl_subscribe* m) {
     if (c->kind != 1 || c->s != s) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type != MOQCTL_T_SUBSCRIBE) {
       continue;
     }
@@ -217,8 +216,7 @@ static void test_moqtrun_upsub_objects_relayed(void) {
   mups_sub(SESS_B, MRDV_S1);
   mups_ok((u64)mups_up_sid());
   n = mups_stream(MUPS_ALIAS, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
   CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
 }
 
@@ -231,8 +229,7 @@ static void test_moqtrun_upsub_stream_before_ok(void) {
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
   n = mups_stream(MUPS_ALIAS, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
   CHECK(mups_relayed_alias(SESS_B) == ~(u64)0);
   mups_ok((u64)mups_up_sid());
   CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
@@ -246,16 +243,14 @@ static void test_moqtrun_upsub_open_stream_before_ok(void) {
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
   n = mups_stream(MUPS_ALIAS, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 0);
   mups_ok((u64)mups_up_sid());
   CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
   const moqtrun_test_call* o = moqtrun_test_last_kind(5);
   CHECK(o && o->s == SESS_B);
   u64 relay_sid = o ? o->stream_id : 0;
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(0, 0), 1);
   const moqtrun_test_call* f = moqtrun_test_last_kind(6);
   CHECK(f && f->s == SESS_B && f->stream_id == relay_sid);
 }
@@ -303,7 +298,7 @@ static void test_moqtrun_upsub_fin_unanswered_fails(void) {
   mups_init();
   mups_sub(SESS_B, MRDV_S1);
   sid = (u64)mups_up_sid();
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
   CHECK(mups_up_is(sid, "FIN|"));
   CHECK(mups_used() == 0);
@@ -311,7 +306,7 @@ static void test_moqtrun_upsub_fin_unanswered_fails(void) {
   mups_sub(SESS_B, MRDV_S1);
   sid = (u64)mups_up_sid();
   mups_ok(sid);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
   CHECK(mups_up_is(sid, ""));
   CHECK(mups_used() == 1);
 }
@@ -536,8 +531,7 @@ static usz mups_ngr_sent(u64 sid, u64* v) {
     if (c->s != SESS_A || c->stream_id != sid || c->kind != 3) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type != MOQTSTAT_T_REQUEST_UPDATE) {
       continue;
     }
@@ -578,8 +572,7 @@ static void mups_ngr_established(int dyn, u64 v, usz want) {
   u64 sid = (u64)mups_up_sid();
   mups_ok_prop(sid, MOQTRUN_PROP_DYNAMIC_GROUPS, (u64)dyn);
   usz n = mups_stream(MUPS_ALIAS, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
   mups_sub_ngr(SESS_C, MRDV_S1, v);
   CHECK(mups_ngr_sent(sid, &got) == want);
   CHECK(!want || got == v);
@@ -605,8 +598,7 @@ static void test_moqtrun_upsub_ngr_update(void) {
   mups_sub_ngr(SESS_D, MRDV_S1, 2);
   CHECK(mups_ngr_sent(sid, &got) == 1 && got == 3);
   usz n = mups_stream(MUPS_ALIAS, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, n), 1);
   mtup_update(SESS_D, MRDV_S1, &p0);
   CHECK(mups_ngr_sent(sid, &got) == 2 && got == 0);
 }
@@ -784,8 +776,7 @@ static usz mups_upd_sent(u64 sid, u64 ptype, u64* v) {
     if (c->s != SESS_A || c->stream_id != sid || c->kind != 3) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type != MOQTSTAT_T_REQUEST_UPDATE) {
       continue;
     }

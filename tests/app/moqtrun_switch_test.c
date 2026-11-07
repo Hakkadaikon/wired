@@ -99,14 +99,14 @@ static usz mtsw_bytes(u64 alias, u64 g, usz n, int hdr, u8* buf) {
 static void mtsw_group(u64 sid, u64 alias, u64 g, int fin) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = mtsw_bytes(alias, g, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), fin);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), fin);
 }
 
 /* One more Object on A's open stream sid (fin ends it with it). */
 static void mtsw_more(u64 sid, int fin) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = mtsw_bytes(0, 0, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), fin);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), fin);
 }
 
 /* A's publisher stream ids, one per (alias, group): client uni (2 mod 4). */
@@ -340,8 +340,7 @@ static void test_moqtrun_switch_soft_done_after_fin(void) {
   mtsw_switch(MTSW_SOFT, MTSW_DONE);
   mtsw_more(mtsw_sid(MTSW_HI, 3), 0);
   CHECK(mtsw_done_n(MTRQ_S1) == 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, mtsw_sid(MTSW_HI, 3), wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, mtsw_sid(MTSW_HI, 3), wired_span_of(0, 0), 1);
   CHECK(mtsw_fin_seen(hs));
   CHECK(mtsw_dones(MTRQ_S1, &first) == 1);
   CHECK(mtsw_call_at(6, hs) < first);
@@ -1032,14 +1031,12 @@ static void test_moqtrun_switch_soft_expired_ends(void) {
   }
   wired_moqt_tick(&mtst_hub, 1000);
   /* Object 0 whole (Largest {3, 0}), Object 1 torn: its last byte later */
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, sid, wired_span_of(buf, n - 1), 0);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n - 1), 0);
   u64 hs = mtsw_sub_sid(MTSW_HI, 3);
   mtsw_switch(MTSW_SOFT, MTSW_DONE); /* G = 4 */
   CHECK(mtsw_done_n(MTRQ_S1) == 0);
   wired_moqt_tick(&mtst_hub, 2000);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, sid, wired_span_of(buf + n - 1, 1), 0);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf + n - 1, 1), 0);
   CHECK(mtrq_reset_code(hs) == MOQTRUN_RESET_DELIVERY_TIMEOUT);
   CHECK(mtsw_done_n(MTRQ_S1) == 1);
 }

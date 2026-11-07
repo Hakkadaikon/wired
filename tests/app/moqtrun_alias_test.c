@@ -93,7 +93,7 @@ static u64 mtal_two_pubs(u64 alias) {
 }
 
 static void mtal_push(wired_wt_session* s, u64 sid, wired_span w, int fin) {
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, w, fin);
+  mt_feed(&mtst_hub, s, sid, w, fin);
 }
 
 /* One publisher (alias 5): the one-shot relayed stream carries the alias

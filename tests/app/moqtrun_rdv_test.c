@@ -73,7 +73,7 @@ static void mrdv_put_call(const moqtrun_test_call* c) {
     return;
   }
   while (off < all.n) {
-    CHECK(moqctl_peek_type(all, &off, &type, &body) == MOQCTL_OK);
+    CHECK(mt_peek_type(all, &off, &type, &body) == MOQCTL_OK);
     mrdv_put_msg(type, body);
   }
 }
@@ -114,8 +114,7 @@ static moqctl_request_error mrdv_err(wired_wt_session* s, u64 sid) {
     if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12)) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type == MOQCTL_T_REQUEST_ERROR) {
       CHECK(moqctl_request_error_take(body, &boff, &e) == MOQCTL_OK);
     }
@@ -135,8 +134,7 @@ static u64 mrdv_alias(wired_wt_session* s, u64 sid) {
     if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12)) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type != MOQCTL_T_SUBSCRIBE_OK) {
       continue;
     }
@@ -270,13 +268,13 @@ static void test_moqtrun_rdv_s6_clamp(void) {
 static void test_moqtrun_rdv_s7_fin_keeps_hold(void) {
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 500);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MRDV_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, MRDV_S1, wired_span_of(0, 0), 1);
   CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
   mrdv_publish();
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 500);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MRDV_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, MRDV_S1, wired_span_of(0, 0), 1);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
   wired_moqt_tick(&mtst_hub, 500);

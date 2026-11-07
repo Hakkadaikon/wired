@@ -30,7 +30,7 @@ void moqtrun_queue_subscribe_ok(
   ok.track_properties = wired_span_of(t->props, s->no_props ? 0 : t->props_len);
   moqtrun_largest_param(&ok.params, t);
   usz n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
   moqtrun_req_mark_live(p);

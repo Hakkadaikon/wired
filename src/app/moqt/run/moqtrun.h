@@ -531,6 +531,11 @@ typedef struct {
   /** The relay that last took each buffer; the buffer is free unless that
    * relay is still in use and still names it (moqtrun_frag_slot_free). */
   wired_moqtrun_relay* frag_owner[WIRED_MOQTRUN_FRAG_POOL];
+  /** Large control-message reassembly buffers (wired_moqtrun_ctl_asm.big). */
+  u8 ctl_pool[WIRED_MOQTRUN_CTL_POOL][WIRED_MOQTRUN_CTL_BIG_MAX];
+  /** The reassembly that last took each buffer; free unless it still
+   * names it (moqtrun_asm_slot_free). */
+  wired_moqtrun_ctl_asm* ctl_owner[WIRED_MOQTRUN_CTL_POOL];
   /** Object cache over the app's arena (wired_moqt_cache_attach); empty,
    * caching nothing, until one is attached. */
   moqcache cache;

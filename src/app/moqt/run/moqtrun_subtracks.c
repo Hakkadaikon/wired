@@ -16,7 +16,7 @@ void moqtrun_disc_sync_new(wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
   if (!moqtrun_disc_fresh(hub, sub, &hub->reqs[i])) {
     return;
   }
-  if (moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE)) {
+  if (moqtrun_disc_push(hub, sub, &hub->reqs[i], MOQNS_T_NAMESPACE)) {
     sub->ns_seen[moqtrun_disc_word(i)] |= moqtrun_disc_bit(i);
   }
 }
@@ -45,7 +45,7 @@ static void moqtrun_disc_retire(
     wired_moqt_hub* hub, wired_moqtrun_req* sub, usz i) {
   usz k = moqtrun_disc_heir(hub, &hub->reqs[i]);
   if (k == WIRED_MOQTRUN_MAX_REQS &&
-      !moqtrun_disc_push(sub, &hub->reqs[i], MOQNS_T_NAMESPACE_DONE)) {
+      !moqtrun_disc_push(hub, sub, &hub->reqs[i], MOQNS_T_NAMESPACE_DONE)) {
     return;
   }
   sub->ns_seen[moqtrun_disc_word(i)] &= ~moqtrun_disc_bit(i);

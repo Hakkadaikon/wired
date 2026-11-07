@@ -68,16 +68,18 @@ static void moqtrun_rdv_store(
   bytes_memcpy(r->body, body.p, body.n);
 }
 
-/* Holds the SUBSCRIBE, sending nothing yet; with no slot left it is
- * refused EXCESSIVE_LOAD with a Retry Interval at once (10.6), never
- * dropped silently. */
+/* Holds the SUBSCRIBE, sending nothing yet; with no slot left -- or a
+ * body longer than a slot keeps (WIRED_MOQTRUN_CTL_MSG_MAX; up to 65535
+ * bytes arrive) -- it is refused EXCESSIVE_LOAD with a Retry Interval at
+ * once (10.6), never dropped silently. */
 static void moqtrun_rdv_hold(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     const moqctl_subscribe* m,
     moqtrun_key             k,
     wired_span              body) {
-  wired_moqtrun_rdv* r = moqtrun_rdv_admit(hub, p->wt);
+  wired_moqtrun_rdv* r =
+      body.n <= WIRED_MOQTRUN_CTL_MSG_MAX ? moqtrun_rdv_admit(hub, p->wt) : 0;
   if (!r) {
     moqtrun_send_request_error_ri(
         p, MOQCTL_ERR_EXCESSIVE_LOAD, WIRED_MOQTRUN_RDV_RETRY);

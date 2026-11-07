@@ -840,6 +840,7 @@
 #include "app/moqt/run/moqtrun_accept.c"
 #include "app/moqt/run/moqtrun_alias.c"
 #include "app/moqt/run/moqtrun_asm.c"
+#include "app/moqt/run/moqtrun_asm_pool.c"
 #include "app/moqt/run/moqtrun_bidi.c"
 #include "app/moqt/run/moqtrun_ctl.c"
 #include "app/moqt/run/moqtrun_decode.c"

@@ -228,8 +228,7 @@ static void mfill_obj_c(u64 g, u64 o, usz n) {
   }
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_C, 3002, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, SESS_C, 3002, wired_span_of(buf, off), 1);
 }
 
 /* A subscription revived by a new PUBLISH (no SUBSCRIBE round) is
@@ -572,7 +571,7 @@ static u64 mfill_done_count(u64 sid) {
     if ((c->kind != 3 && c->kind != 12) || c->stream_id != sid) {
       continue;
     }
-    while (moqctl_peek_type(
+    while (mt_peek_type(
                wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
            MOQCTL_OK) {
       if (type == MOQCTL_T_PUBLISH_DONE &&
@@ -718,7 +717,7 @@ static void mfill_obj_more(u64 sid, u64 g, u64 o, usz n) {
   }
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 0);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 0);
 }
 
 /* One parked fill round and one parked (ring-held) live round for the
@@ -844,7 +843,7 @@ static void mfill_inbound_fetch(wired_wt_session* s, u64 sid, u64 rid) {
   u8  buf[32];
   usz n = 0;
   CHECK(moqfetch_hdr_put(wired_mspan_of(buf, sizeof buf), &n, rid));
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
 }
 
 /* An inbound fetch stream naming the Request ID of the peer's own

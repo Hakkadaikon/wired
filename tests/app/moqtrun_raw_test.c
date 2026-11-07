@@ -18,7 +18,7 @@ static void mtraw_join(const char* alpn) {
 static void mtraw_setup(const u8* opts, usz opts_len) {
   u8  msg[64];
   usz n = mtctl_uni_ctl(msg, opts, opts_len);
-  wired_moqt_on_stream_data(&mtraw_hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  mt_feed(&mtraw_hub, SESS_A, 2, mtctl_span(msg, n), 0);
 }
 
 /* Close code of the one io.close_session call, ~0 for none. */
@@ -180,7 +180,7 @@ static wired_span mtraw_goaway_uri(const wired_moqtrun_peer* p) {
   if (!c) {
     return none;
   }
-  if (moqctl_peek_type(
+  if (mt_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
       MOQCTL_OK) {
     return none;

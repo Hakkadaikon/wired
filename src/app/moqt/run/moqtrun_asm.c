@@ -1,63 +1,127 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static int  moqtrun_asm_over_cap(wired_span rest, usz* total);
+static int moqtrun_asm_total(int ver, wired_span rest, usz* total);
+static int moqtrun_asm_room(
+    wired_moqt_hub* hub, wired_moqtrun_ctl_asm* a, usz total);
+static void moqtrun_asm_skip(wired_moqtrun_ctl_asm* a, usz total);
+static int  moqtrun_asm_fit(
+    wired_moqt_hub* hub, int ver, wired_moqtrun_ctl_asm* a);
+static void moqtrun_asm_fault(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, int r);
 static void moqtrun_ctl_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx);
 
-/* Moves a's unread tail to the front, then appends as much of *data as
- * fits -- after discarding the bytes of an over-cap message still owed
- * (a->skip) -- and advances *data past everything consumed. */
+/* Once rest starts with a whole header (draft ver's Length spelling):
+ * *total the whole message's size, MOQTRUN_ASM_OVER_CAP when its Length
+ * is over MOQCTL_MAX_MSG_LEN, else MOQCTL_OK. While the header is
+ * incomplete *total stays 0 (nothing to size yet). A vi64 Length is
+ * clamped so *total cannot wrap (its message is skipped, never held). */
+static int moqtrun_asm_total(int ver, wired_span rest, usz* total) {
+  usz at = 0;
+  u64 type;
+  u64 len;
+  if (moqctl_peek_header(ver, rest, &at, &type, &len) != MOQCTL_OK) {
+    return MOQCTL_OK;
+  }
+  *total = at + (usz)u64_min(len, (u64)1 << 62);
+  return len > MOQCTL_MAX_MSG_LEN ? MOQTRUN_ASM_OVER_CAP : MOQCTL_OK;
+}
+
+/* A message of total bytes fits a's buffer, or a leased pool one. */
+static int moqtrun_asm_room(
+    wired_moqt_hub* hub, wired_moqtrun_ctl_asm* a, usz total) {
+  if (total <= moqtrun_asm_cap(a) || moqtrun_asm_lease(hub, a)) {
+    return MOQCTL_OK;
+  }
+  return MOQTRUN_ASM_NO_POOL;
+}
+
+/* Consumes the total-byte message at a's head, now and across later
+ * deliveries (a->skip). */
+static void moqtrun_asm_skip(wired_moqtrun_ctl_asm* a, usz total) {
+  usz held = (usz)u64_min(total, a->n - a->at);
+  a->at += held;
+  a->skip = total - held;
+}
+
+/* Makes room for the message at a's head: MOQCTL_OK (also while its
+ * header is incomplete), or it is skipped whole and the reason returned
+ * (MOQTRUN_ASM_OVER_CAP / MOQTRUN_ASM_NO_POOL). */
+static int moqtrun_asm_fit(
+    wired_moqt_hub* hub, int ver, wired_moqtrun_ctl_asm* a) {
+  usz total = 0;
+  int r     = moqtrun_asm_total(ver, moqtrun_asm_rest(a), &total);
+  if (r == MOQCTL_OK) {
+    r = moqtrun_asm_room(hub, a, total);
+  }
+  if (r != MOQCTL_OK) {
+    moqtrun_asm_skip(a, total);
+  }
+  return r;
+}
+
+/* draft-23 9: a Length over the hub's MAX_CONTROL_MESSAGE_SIZE closes
+ * FIELD_LENGTH_EXCEEDED (a 16-bit Length never is); a message no pool
+ * buffer is left for closes INTERNAL_ERROR (R4: the limit is ours). */
+static void moqtrun_asm_fault(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
+  moqtrun_close_with(
+      hub, p,
+      r == MOQTRUN_ASM_OVER_CAP ? WIRED_MOQTRUN_CLOSE_FIELD_LENGTH_EXCEEDED
+                                : WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
+}
+
+/* Discards the bytes of a skipped message still owed (a->skip), then
+ * appends as much of *data as fits a's buffer and advances *data past
+ * everything consumed. */
 void moqtrun_asm_push(wired_moqtrun_ctl_asm* a, wired_span* data) {
   usz drop = (usz)u64_min(a->skip, data->n);
   a->skip -= drop;
   moqtrun_span_drop(data, drop);
-  usz keep = a->n - a->at;
-  bytes_move_down(a->buf, a->buf + a->at, keep);
-  usz take = (usz)u64_min(sizeof a->buf - keep, data->n);
-  bytes_memcpy(a->buf + keep, data->p, take);
-  a->n  = keep + take;
-  a->at = 0;
+  moqtrun_asm_unlease(a);
+  moqtrun_asm_compact(a, moqtrun_asm_mem(a));
+  usz take = (usz)u64_min(moqtrun_asm_cap(a) - a->n, data->n);
+  bytes_memcpy(moqtrun_asm_mem(a) + a->n, data->p, take);
+  a->n += take;
   moqtrun_span_drop(data, take);
+}
+
+/* 1 when the push took bytes from *data (loop: push, drain, repeat). */
+int moqtrun_asm_feed(wired_moqtrun_ctl_asm* a, wired_span* data) {
+  usz before = data->n;
+  moqtrun_asm_push(a, data);
+  return data->n < before;
 }
 
 /* a's unread bytes. */
 wired_span moqtrun_asm_rest(const wired_moqtrun_ctl_asm* a) {
-  return wired_span_of(a->buf + a->at, a->n - a->at);
+  const u8* m = a->big ? a->big : a->buf;
+  return wired_span_of(m + a->at, a->n - a->at);
 }
 
-/* 1 iff rest starts with a complete header whose Length exceeds the cap;
- * *total is then the whole message's size. */
-static int moqtrun_asm_over_cap(wired_span rest, usz* total) {
-  usz at = 0;
-  u64 type;
-  u16 len;
-  if (moqctl_peek_header(rest, &at, &type, &len) != MOQCTL_OK) {
-    return 0;
-  }
-  *total = at + len;
-  return len > WIRED_MOQTRUN_CTL_MSG_MAX;
-}
-
-/* Next complete message held in a (moqctl_peek_type's result, *body a view
- * into a->buf valid until the next push), or MOQCTL_INSUFFICIENT when more
- * bytes are needed. A message whose Length exceeds
- * WIRED_MOQTRUN_CTL_MSG_MAX is consumed by its Length, now and across
- * later deliveries (a->skip), and reported as MOQTRUN_ASM_OVER_CAP
- * (moqtrun_dispatch_over_cap). */
-int moqtrun_asm_pop(wired_moqtrun_ctl_asm* a, u64* type, wired_span* body) {
+/* Next complete message held in a, read as p's draft spells the envelope
+ * (moqctl_peek_type_v's result, *body a view valid until the next push or
+ * pop), or MOQCTL_INSUFFICIENT when more bytes are needed. A message
+ * longer than the inline buffer is reassembled in a leased pool buffer;
+ * one over MOQCTL_MAX_MSG_LEN, or finding the pool exhausted, is skipped
+ * by its Length and closes p's session (moqtrun_asm_fault). */
+int moqtrun_asm_pop(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    wired_moqtrun_ctl_asm* a,
+    u64*                   type,
+    wired_span*            body) {
+  moqtrun_asm_unlease(a);
   if (a->skip) {
     return MOQCTL_INSUFFICIENT; /* rest of a held message */
   }
-  wired_span rest  = moqtrun_asm_rest(a);
-  usz        total = 0;
-  if (moqtrun_asm_over_cap(rest, &total)) {
-    usz held = (usz)u64_min(total, rest.n);
-    a->at += held;
-    a->skip = total - held;
-    return MOQTRUN_ASM_OVER_CAP;
+  int r = moqtrun_asm_fit(hub, p->ver, a);
+  if (r != MOQCTL_OK) {
+    moqtrun_asm_fault(hub, p, r);
+    return MOQCTL_INSUFFICIENT;
   }
   usz off = 0;
-  int r   = moqctl_peek_type(rest, &off, type, body);
+  r       = moqctl_peek_type_v(p->ver, moqtrun_asm_rest(a), &off, type, body);
   a->at += off;
   return r;
 }
@@ -68,7 +132,7 @@ static void moqtrun_ctl_drain(
   u64        type = 0;
   wired_span body = {0, 0};
   int        r;
-  while ((r = moqtrun_asm_pop(moqtrun_cur_asm(p), &type, &body)) !=
+  while ((r = moqtrun_asm_pop(hub, p, moqtrun_cur_asm(p), &type, &body)) !=
          MOQCTL_INSUFFICIENT) {
     moqtrun_msg_route(p, r, type, body)(hub, p, peer_idx, body);
   }

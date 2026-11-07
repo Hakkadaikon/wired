@@ -97,7 +97,7 @@ static void mtns_put_call(const moqtrun_test_call* c) {
   u64        type;
   wired_span body;
   while (off < all.n) {
-    CHECK(moqctl_peek_type(all, &off, &type, &body) != MOQCTL_INSUFFICIENT);
+    CHECK(mt_peek_type(all, &off, &type, &body) != MOQCTL_INSUFFICIENT);
     mtns_put_msg(type, body);
   }
 }
@@ -441,8 +441,8 @@ static usz mtns_sub_bytes(const char* z, u8* buf) {
   m.ns         = mtns_ns(z);
   m.params.n   = 0;
   return moqtrun_envelope_put(
-      wired_mspan_of(buf, MTST_MSG_MAX), MOQNS_T_SUBSCRIBE_NAMESPACE, mtns_enc,
-      &m);
+      MOQVER_D22, wired_mspan_of(buf, MTST_MSG_MAX),
+      MOQNS_T_SUBSCRIBE_NAMESPACE, mtns_enc, &m);
 }
 
 /* draft-18 6.1: a FIN cancels a SUBSCRIBE_NAMESPACE -- no NAMESPACE is
@@ -454,13 +454,12 @@ static void test_moqtrun_ns_fin_cancels_d18(void) {
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
   mtns_sub(SESS_B, MTRQ_S1, "chat");
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
   mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|"));
   CHECK(mtrq_used() == 1); /* A's PUBLISH_NAMESPACE only */
   usz n = mtns_sub_bytes("chat", buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
   mtns_pub(SESS_A, MTRQ_S2, "chat/room2");
   CHECK(mtns_is(SESS_B, MTRQ_S2, "OK|"));
 }
@@ -473,8 +472,7 @@ static void test_moqtrun_ns_fin_half_closes_d19_d22(void) {
     mtns_init();
     moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = vers[v];
     mtns_sub(SESS_B, MTRQ_S1, "chat");
-    wired_moqt_on_stream_data(
-        &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+    mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
     mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
     CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
   }
@@ -492,7 +490,7 @@ static void test_moqtrun_ns_pub_fin_is_not_withdrawal_d22(void) {
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mtns_sub(SESS_B, MTRQ_S1, "chat");
   mtns_pub(SESS_A, MTRQ_S1, "chat/room1");
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, MTRQ_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, MTRQ_S1, wired_span_of(0, 0), 1);
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|"));
   wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
   CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:room1|DONE:room1|"));
@@ -504,7 +502,7 @@ static void test_moqtrun_req_fin_keeps_subscribe_d18(void) {
   moqctl_ftn f                               = mtrq_setup();
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D18;
   mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, 0);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
 }
 

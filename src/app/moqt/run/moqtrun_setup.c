@@ -150,6 +150,7 @@ void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   }
   a->at   = a->n;
   a->skip = (usz)-1;
+  a->big  = 0; /* nothing left to read: its pool buffer is free */
 }
 
 /* draft SS10: an unknown message type MUST close the session; SS3.5
@@ -170,21 +171,9 @@ void moqtrun_dispatch_bad_first(
   moqtrun_sess_fault(hub, p, MOQSESS_EV_BAD_FIRST);
 }
 
-/* A message longer than WIRED_MOQTRUN_CTL_MSG_MAX: the peer broke no
- * rule, the limit is ours, so SS3.5 INTERNAL_ERROR is the code. */
-void moqtrun_dispatch_over_cap(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  (void)peer_idx;
-  (void)body;
-  moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
-}
-
 moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type) {
   if (peek == MOQCTL_UNKNOWN_TYPE) {
     return moqtrun_dispatch_close;
-  }
-  if (peek == MOQTRUN_ASM_OVER_CAP) {
-    return moqtrun_dispatch_over_cap;
   }
   return moqtrun_ctl_lookup(type);
 }

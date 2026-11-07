@@ -63,6 +63,8 @@
 /** The experimental SSTS_ALGORITHMS Setup Option is offered (draft-22,
  * 23). */
 #define MOQVER_CAP_SSTS (1u << 19)
+/** The control message Length is a vi64, not 16 bits (draft-23 9). */
+#define MOQVER_CAP_CTL_LEN_VI (1u << 20)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

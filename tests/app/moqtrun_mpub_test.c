@@ -46,7 +46,7 @@ static void mpub_push(wired_wt_session* s, u64 sid, u64 g) {
   h.group_id         = g;
   moqdata_subhdr_put(out, &off, &h);
   moqdata_obj_put(out, &off, 0, wired_span_of(&b, 1));
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, off), 1);
 }
 
 /* s sends OBJECT_DATAGRAM (Group g, Object o). */

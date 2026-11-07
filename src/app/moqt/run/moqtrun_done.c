@@ -55,7 +55,7 @@ void moqtrun_done_emit(
   d.status_code  = moqtsw_done_code(p->ver, status);
   d.stream_count = count;
   usz n          = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH_DONE,
       moqtrun_encode_publish_done, &d);
   moqtrun_req_queue(q, wired_span_of(msg, n));
   q->live = 0;

@@ -38,10 +38,8 @@ int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
 
 /* q's stream-level state: framing, send slots, FIN/GOAWAY flags. */
 static void moqtrun_req_stream_reset(wired_moqtrun_req* q) {
-  q->opened       = 0;
-  q->in.n         = 0;
-  q->in.at        = 0;
-  q->in.skip      = 0;
+  q->opened = 0;
+  moqtrun_asm_reset(&q->in);
   q->send_lens[0] = 0;
   q->send_lens[1] = 0;
   q->armed_idx    = 0;

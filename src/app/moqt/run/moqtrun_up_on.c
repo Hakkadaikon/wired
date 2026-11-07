@@ -192,8 +192,21 @@ static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64        type = 0;
   wired_span body = {0, 0};
-  while (u->in_use && moqtrun_asm_pop(&u->in, &type, &body) == MOQCTL_OK) {
+  while (u->in_use &&
+         moqtrun_asm_pop(hub, pp, &u->in, &type, &body) == MOQCTL_OK) {
     moqtrun_up_route(hub, pp, u, type, body);
+  }
+}
+
+/* data into u's reassembly, drained after each push (a message past the
+ * inline buffer moves to a pool buffer between them). */
+static void moqtrun_up_feed(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          data) {
+  while (moqtrun_asm_feed(&u->in, &data)) {
+    moqtrun_up_drain(hub, pp, u);
   }
 }
 
@@ -219,8 +232,7 @@ int moqtrun_up_rx(
   if (!u) {
     return 0;
   }
-  moqtrun_asm_push(&u->in, &data);
-  moqtrun_up_drain(hub, p, u);
+  moqtrun_up_feed(hub, p, u, data);
   if (fin) {
     moqtrun_up_on_fin(hub, u);
   }

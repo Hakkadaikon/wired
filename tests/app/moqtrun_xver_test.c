@@ -19,8 +19,7 @@ static int mtxv_setup_of(const char* tok, moqctl_setup* s) {
   if (!c) {
     return 0;
   }
-  moqctl_peek_type(
-      wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+  mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
   return moqctl_setup_take(body, &boff, s) == MOQCTL_OK;
 }
 
@@ -74,8 +73,7 @@ static wired_span mtxv_last_body(wired_wt_session* s, u64 type) {
     if (c->s != s || (c->kind != 3 && c->kind != 12)) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &t, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &t, &body);
     if (t == type) {
       return body;
     }
@@ -114,7 +112,7 @@ static void mtxv_relay_pair(int pv, int sv) {
   CHECK(mtxv_sub_ok_in(sv));
   usz n = mtst_stream(3, 2, 1, buf);
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
   CHECK(mtxv_relayed_as(4, buf, n));
   moqtrun_test_reset();
   wired_moqt_on_datagram(
@@ -180,7 +178,7 @@ static void test_moqtrun_xver_location_filter_each_draft(void) {
   CHECK(mtxv_sub_ok_in(MOQVER_D22));
   CHECK(mf_loc_eq(mtst_sub(SESS_A, SESS_B)->start, 2, 1));
   mtxv_init(MOQVER_D22, MOQVER_D18, 0);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 1);
   mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, 2, &lo);
   CHECK(mtxv_sub_ok_in(MOQVER_D18));
   CHECK(mf_loc_eq(mtst_sub(SESS_A, SESS_B)->start, 3, 2));

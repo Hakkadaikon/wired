@@ -116,8 +116,9 @@ static void moqtrun_upf_drain(
   u64        type    = 0;
   wired_span body    = {0, 0};
   int        goaways = 0;
-  while (!pp->closing && moqtrun_upf_popped(moqtrun_asm_pop(
-                             &moqtrun_upf_leg_of(hub, f)->in, &type, &body))) {
+  while (!pp->closing &&
+         moqtrun_upf_popped(moqtrun_asm_pop(
+             hub, pp, &moqtrun_upf_leg_of(hub, f)->in, &type, &body))) {
     goaways += moqtrun_upf_route(hub, pp, f, type, body, goaways);
   }
 }
@@ -141,6 +142,18 @@ static int moqtrun_upf_fin_unanswered(const wired_moqtrun_fetch* f, int fin) {
   return fin && f->up_state == WIRED_MOQTRUN_UPF_SENT;
 }
 
+/* data into f's reassembly, drained after each push (a message past the
+ * inline buffer moves to a pool buffer between them). */
+static void moqtrun_upf_rx_feed(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           data) {
+  while (moqtrun_asm_feed(&moqtrun_upf_leg_of(hub, f)->in, &data)) {
+    moqtrun_upf_drain(hub, pp, f);
+  }
+}
+
 /* Replies on one of the hub's upstream FETCH request streams; the
  * answers they cause go out in the same dispatch. 1 when sid is one. A
  * FIN with no FETCH_OK yet fails the request (draft-19 3.3.2) as a
@@ -155,8 +168,7 @@ int moqtrun_upf_rx(
   if (!f) {
     return 0;
   }
-  moqtrun_asm_push(&moqtrun_upf_leg_of(hub, f)->in, &data);
-  moqtrun_upf_drain(hub, pp, f);
+  moqtrun_upf_rx_feed(hub, pp, f, data);
   if (moqtrun_upf_fin_unanswered(f, fin)) {
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_FIN, MOQCTL_ERR_INTERNAL_ERROR);
   }

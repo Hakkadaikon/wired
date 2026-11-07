@@ -904,7 +904,7 @@
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_uint8_value_ranges`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_params_repeatable_filters`
   - test: `tests/app/moqctl_test.c` — `test_moqctl_golden_subscribe_params`
-- [x] MQ18-180 ストリームの複数回の受け渡しに分かれた制御メッセージは、再び組み立てて 1 回だけ処理しなければならない。ハブの受信の上限(1024 バイト)より長いメッセージは、INTERNAL_ERROR でセッションを閉じなければならない。
+- [x] MQ18-180 ストリームの複数回の受け渡しに分かれた制御メッセージは、再び組み立てて 1 回だけ処理しなければならない。1 KiB を超えるメッセージ(65535 バイトまで)は共有の再組み立てバッファで受け取り、そのバッファが尽きたときは INTERNAL_ERROR でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_split_subscribe_answered_once`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_ctl_message_then_half`

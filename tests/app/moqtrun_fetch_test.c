@@ -45,8 +45,7 @@ static u64 mf_obj_on(u64 g, u64 o, usz n, int fin) {
   moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, o, wired_span_of(pl, n));
   mf_pub_sid += 4;
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), fin);
+  mt_feed(&mtst_hub, SESS_A, mf_pub_sid, wired_span_of(buf, off), fin);
   return mf_pub_sid;
 }
 
@@ -119,10 +118,10 @@ static void mf_send_fetch(moqfetch_fetch* m) {
   mf_req_sid    = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
   m->request_id = mf_req_rid = mtst_rid += 4;
   n                          = moqtrun_envelope_put(
-      wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH, mf_enc_fetch, m);
+      MOQVER_D22, wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
+      mf_enc_fetch, m);
   CHECK(n != 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
 }
 
 static void mf_standalone(moqctl_loc start, moqctl_loc end) {
@@ -148,8 +147,7 @@ static u64 mf_reply(u64* code, moqctl_loc* end) {
     if (c->kind != 12 || c->stream_id != mf_req_sid) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type == MOQFETCH_T_FETCH_OK &&
         moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK) {
       *end = ok.end;
@@ -174,8 +172,7 @@ static wired_span mf_ok_props(void) {
     if (c->kind != 12 || c->stream_id != mf_req_sid) {
       continue;
     }
-    moqctl_peek_type(
-        wired_span_of(c->payload, c->payload_len), &off, &type, &body);
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &type, &body);
     if (type == MOQFETCH_T_FETCH_OK &&
         moqfetch_ok_take(mtst_ver(c->s), body, &ok) == MOQCTL_OK) {
       return ok.track_properties;
@@ -424,8 +421,7 @@ static void test_moqtrun_fetch_malformed_closes(void) {
   /* Type 0x16 + Length 2 + body {Request ID 0, Fetch Type 0x09} */
   static const u8 bad[] = {0x16, 0x00, 0x02, 0x00, 0x09};
   mf_init(sizeof mf_arena);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MF_REQ, wired_span_of(bad, sizeof bad), 0);
+  mt_feed(&mtst_hub, SESS_B, MF_REQ, wired_span_of(bad, sizeof bad), 0);
   CHECK(mtrq_closes() == 1);
 }
 
@@ -852,11 +848,10 @@ static void mf_fetch22(const moqctl_rangeloc* rl) {
     m.range = *rl;
   }
   n = moqtrun_envelope_put(
-      wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
+      MOQVER_D22, wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
       rl ? mf_enc_fetch22 : mf_enc_fetch22_bare, &m);
   CHECK(n != 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
 }
 
 static moqctl_rangeloc mf_rl(
@@ -1001,7 +996,7 @@ static void test_moqtrun_fetch_no_replay_before_start(void) {
   mf_subscribe(0); /* start (1,1) */
   mtst_subscribe(SESS_C, mtst_join(SESS_C), &f);
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(0, 0), 1);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(moqtrun_test_count_kind(5) == 1);
   CHECK(moqtrun_test_last_kind(5)->s == SESS_C);

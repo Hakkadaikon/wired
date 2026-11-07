@@ -40,8 +40,6 @@ void moqtrun_dispatch_close(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 void moqtrun_dispatch_bad_first(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
-void moqtrun_dispatch_over_cap(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 moqtrun_ctl_fn moqtrun_ctl_route(int peek, u64 type);
 int            moqtrun_req_is_first(u64 type);
 int            moqtrun_req_update_ok(u64 kind, u64 type);
@@ -59,7 +57,13 @@ moqtrun_ctl_fn moqtrun_rid_gate(
 void       moqtrun_span_drop(wired_span* s, usz d);
 void       moqtrun_asm_push(wired_moqtrun_ctl_asm* a, wired_span* data);
 wired_span moqtrun_asm_rest(const wired_moqtrun_ctl_asm* a);
-int  moqtrun_asm_pop(wired_moqtrun_ctl_asm* a, u64* type, wired_span* body);
+int        moqtrun_asm_feed(wired_moqtrun_ctl_asm* a, wired_span* data);
+int        moqtrun_asm_pop(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    wired_moqtrun_ctl_asm* a,
+    u64*                   type,
+    wired_span*            body);
 void moqtrun_dispatch_ctl_stream(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span data);
 u64 moqtrun_live_group_at(const wired_moqtrun_live* live, u64 now_ms);

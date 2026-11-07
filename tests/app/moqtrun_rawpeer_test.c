@@ -49,14 +49,14 @@ static void mtrp_session(void) {
   wired_moqt_init(&mtraw_hub, moqtrun_test_io());
   mtraw_hub.no_implementation = 1;
   wired_moqt_on_session_raw(&mtraw_hub, SESS_A, moqtrun_test_proto("moqt-18"));
-  wired_moqt_on_stream_data(
+  mt_feed(
       &mtraw_hub, SESS_A, 2,
       wired_span_of(mtrp_client_setup, sizeof mtrp_client_setup), 0);
 }
 
 /* A captured request on bidi stream 0. */
 static void mtrp_request(const u8* b, usz n) {
-  wired_moqt_on_stream_data(&mtraw_hub, SESS_A, 0, wired_span_of(b, n), 0);
+  mt_feed(&mtraw_hub, SESS_A, 0, wired_span_of(b, n), 0);
 }
 
 /* RFC 7301 3.1 over the captured ALPN extension: the server picks the raw

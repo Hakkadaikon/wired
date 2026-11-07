@@ -99,7 +99,7 @@ static void moqtrun_goaway_one(
   g.request_id      = p->peer_rid_next;
   g.new_session_uri = moqtrun_goaway_uri(p, g.new_session_uri);
   usz n             = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY,
+      p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_GOAWAY,
       moqtrun_goaway_encoder(p->ver), &g);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
   moqtrun_flush_replies(&hub->io, p);

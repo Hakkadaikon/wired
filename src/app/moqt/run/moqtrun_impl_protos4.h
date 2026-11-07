@@ -139,7 +139,10 @@ void moqtrun_dispatch_publish_ns(
 void moqtrun_dispatch_subscribe_ns(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 int moqtrun_disc_push(
-    wired_moqtrun_req* sub, const wired_moqtrun_req* pub, u64 type);
+    wired_moqt_hub*          hub,
+    wired_moqtrun_req*       sub,
+    const wired_moqtrun_req* pub,
+    u64                      type);
 u64 moqtrun_disc_bit(usz i);
 usz moqtrun_disc_word(usz i);
 int moqtrun_disc_seen(const wired_moqtrun_req* sub, usz i);

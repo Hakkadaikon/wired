@@ -119,4 +119,12 @@ int  moqtrun_up_key_subs(wired_moqt_hub* hub, moqtrun_key k);
 void moqtrun_up_failed(wired_moqt_hub* hub, wired_moqtrun_up* u, u64 code);
 void moqtrun_up_refused(wired_moqt_hub* hub, wired_moqtrun_up* u, u64 code);
 
+/* moqtrun_asm_pool.c: the reassembly's inline and pooled buffers. */
+void moqtrun_asm_reset(wired_moqtrun_ctl_asm* a);
+u8*  moqtrun_asm_mem(wired_moqtrun_ctl_asm* a);
+usz  moqtrun_asm_cap(const wired_moqtrun_ctl_asm* a);
+void moqtrun_asm_compact(wired_moqtrun_ctl_asm* a, u8* dst);
+void moqtrun_asm_unlease(wired_moqtrun_ctl_asm* a);
+int  moqtrun_asm_lease(wired_moqt_hub* hub, wired_moqtrun_ctl_asm* a);
+
 #endif

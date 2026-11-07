@@ -75,7 +75,7 @@ int moqtrun_subtracks_open_pub(
   moqctl_publish m = {0};
   moqtrun_subtracks_pub_fill(&m, hub, st_peer, q, t, st);
   usz n = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH,
+      st_peer->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_PUBLISH,
       moqtrun_subtracks_encode_pub, &m);
   i64 sid = hub->io.open_bidi_stream(st_peer->wt, wired_span_of(msg, n));
   if (sid < 0) {

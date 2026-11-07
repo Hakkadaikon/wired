@@ -856,7 +856,7 @@
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_bad_and_control`
   - test: `tests/app/moqtrun_fillfix_test.c` —
     `test_moqtrun_fillfix_malformed_subscribe`
-- [x] MOQT-179 複数回のストリーム配信に分かれて届いた制御メッセージは、組み立て直して 1 回だけ処理しなければならない。ハブの受信上限(1024 バイト)より長いメッセージでは、セッションを INTERNAL_ERROR で閉じなければならない。
+- [x] MOQT-179 複数回のストリーム配信に分かれて届いた制御メッセージは、組み立て直して 1 回だけ処理しなければならない。1 KiB を超えるメッセージ(65535 バイトまで)は共有の再組み立てバッファで受け取り、そのバッファが尽きたときはセッションを INTERNAL_ERROR で閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_split_subscribe_answered_once`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_ctl_message_then_half`

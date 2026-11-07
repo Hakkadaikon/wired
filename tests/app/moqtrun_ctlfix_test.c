@@ -17,8 +17,7 @@ static void mtcf_token_session(wired_moqt_hub* hub) {
 /* Delivers msg[from, to) on sid without FIN. */
 static void mtcf_part(
     wired_moqt_hub* hub, u64 sid, const u8* msg, usz from, usz to) {
-  wired_moqt_on_stream_data(
-      hub, SESS_A, sid, wired_span_of(msg + from, to - from), 0);
+  mt_feed(hub, SESS_A, sid, wired_span_of(msg + from, to - from), 0);
 }
 
 /* draft-22 6.3 / draft-19 3.3: the client's uni control stream arrives
@@ -31,7 +30,7 @@ static void test_mtcf_uni_split_in_type(void) {
   usz            n = mtctl_uni_ctl(msg, 0, 0);
   mtcf_token_session(&hub);
   mtcf_part(&hub, 2, msg, 0, 1);
-  wired_moqt_on_stream_data(
+  mt_feed(
       &hub, SESS_A, 0,
       moqtrun_test_stamped(
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
@@ -76,7 +75,7 @@ static void test_mtcf_uni_byte_at_a_time(void) {
   static const u8 impl[] = {0x07, 0x01, 'w'};
   wired_moqt_hub  hub;
   u8              msg[16];
-  usz             n = mtctl_uni_ctl(msg, impl, sizeof impl);
+  usz             n = mt_spell(msg, mtctl_uni_ctl(msg, impl, sizeof impl));
   mtcf_token_session(&hub);
   for (usz i = 0; i < n; i++) {
     mtcf_part(&hub, 2, msg, i, i + 1);
@@ -233,14 +232,14 @@ static void test_mtcf_subgroup_split_after_type(void) {
   wired_moqt_init(&hub, moqtrun_test_io());
   moqtrun_test_publish_alice(&hub);
   moqtrun_test_session(&hub, SESS_B);
-  wired_moqt_on_stream_data(
+  mt_feed(
       &hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
       moqtrun_test_stamped(
           g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
       0);
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
-  wired_moqt_on_stream_data(&hub, SESS_A, 999, wired_span_of(d + 1, n - 1), 1);
+  mt_feed(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
+  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 1, n - 1), 1);
   CHECK(moqtrun_test_count_kind(11) == 0);
   /* the whole header opens the relayed stream, the Object follows */
   CHECK(moqtrun_test_count_kind(5) == 1 && moqtrun_test_count_kind(3) == 1);

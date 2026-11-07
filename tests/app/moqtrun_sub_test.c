@@ -76,9 +76,10 @@ static void mtst_send(
     moqtrun_body_encode_fn fn,
     const void*            m) {
   u8  buf[MTST_MSG_MAX];
-  usz n = moqtrun_envelope_put(wired_mspan_of(buf, sizeof buf), type, fn, m);
+  usz n = moqtrun_envelope_put(
+      MOQVER_D22, wired_mspan_of(buf, sizeof buf), type, fn, m);
   CHECK(n != 0);
-  wired_moqt_on_stream_data(&mtst_hub, s, ctrl, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, s, ctrl, wired_span_of(buf, n), 0);
 }
 
 static void mtst_publish_p(
@@ -145,7 +146,7 @@ static const moqctl_subscribe_ok* mtst_last_ok(void) {
   if (!c) {
     return 0;
   }
-  if (moqctl_peek_type(
+  if (mt_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
       MOQCTL_OK) {
     return 0;
@@ -346,7 +347,7 @@ static void test_moqtrun_sub_forward0_gets_nothing(void) {
   CHECK(moqtrun_test_relay_alice_chat(&mtst_hub) == 1);
   CHECK(moqtrun_test_last_kind(4)->s == SESS_C);
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(
+  mt_feed(
       &mtst_hub, SESS_A, 1001,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
@@ -436,9 +437,9 @@ static void test_moqtrun_sub_ok_largest(void) {
   mtst_subscribe(SESS_B, cb, &f);
   CHECK(mtst_largest() == 0);
   usz n = mtst_stream(4, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
   n = mtst_stream(4, 2, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
   mtst_subscribe(SESS_C, mtst_join(SESS_C), &f); /* fresh: d18 refuses a dup */
   const moqctl_param* l = mtst_largest();
   CHECK(l != 0);
@@ -458,7 +459,7 @@ static void test_moqtrun_sub_filter_from_largest(void) {
   u64 cc = mtst_join(SESS_C);
   mtst_publish(SESS_A, ca, &f, 1);
   usz n = mtst_stream(6, 3, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
   mtst_subscribe_p(SESS_B, cb, &f, 2, &lo);
   mtst_subscribe_p(SESS_C, cc, &f, 2, &ng);
   wired_moqtrun_sub* b = mtst_sub(SESS_A, SESS_B);
@@ -574,7 +575,7 @@ static u64 mtrq_type_of(const moqtrun_test_call* c) {
   usz        off = 0;
   u64        type;
   wired_span body;
-  if (moqctl_peek_type(
+  if (mt_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
       MOQCTL_OK) {
     return 0;
@@ -608,7 +609,7 @@ static u64 mtrq_err_on(u64 sid) {
     wired_span               body;
     moqctl_request_error     e;
     const moqtrun_test_call* c = &g_calls[i - 1];
-    if (moqctl_peek_type(
+    if (mt_peek_type(
             wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
             MOQCTL_OK ||
         type != MOQCTL_T_REQUEST_ERROR) {
@@ -669,7 +670,7 @@ static void mtrq_raw(
   buf[off++] = (u8)(n >> 8);
   buf[off++] = (u8)n;
   bytes_memcpy(buf + off, body, n);
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off + n), 0);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, off + n), 0);
 }
 
 /* TRACK_STATUS MTRQ_TSTAT on sid under a fresh Request ID (mtst_rid). */
@@ -687,8 +688,8 @@ static usz mtrq_sub_bytes(const moqctl_ftn* f, u64 rid, u8* buf) {
   m.name       = *f;
   m.params.n   = 0;
   return moqtrun_envelope_put(
-      wired_mspan_of(buf, MTST_MSG_MAX), MOQCTL_T_SUBSCRIBE, mtst_enc_subscribe,
-      &m);
+      MOQVER_D22, wired_mspan_of(buf, MTST_MSG_MAX), MOQCTL_T_SUBSCRIBE,
+      mtst_enc_subscribe, &m);
 }
 
 /* A, B joined; A PUBLISHes alice on its control stream. */
@@ -721,14 +722,12 @@ static void test_moqtrun_req_two_streams_answered_apart(void) {
   u8         buf[MTST_MSG_MAX];
   u64        cc = mtst_join(SESS_C);
   mtst_publish(SESS_C, cc, &g, 1);
-  usz n = mtrq_sub_bytes(&f, 2, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
+  usz n = mt_spell(buf, mtrq_sub_bytes(&f, 2, buf));
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
   mtst_subscribe_p(SESS_B, MTRQ_S2, &g, 4, 0);
   CHECK(mtrq_type_on(12, MTRQ_S2) == MOQCTL_T_SUBSCRIBE_OK);
   CHECK(mtrq_type_on(12, MTRQ_S1) == 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf + 3, n - 3), 0);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf + 3, n - 3), 0);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
   CHECK(moqtrun_test_count_kind(12) == 2);
   CHECK(mtst_sub(SESS_A, SESS_B) != 0 && mtst_sub(SESS_C, SESS_B) != 0);
@@ -779,7 +778,7 @@ static void test_moqtrun_req_reset_resets_data_streams(void) {
   moqctl_ftn f = mtrq_setup();
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   usz n = mtst_stream(4, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 0);
   CHECK(moqtrun_test_count_kind(5) >= 1);
   CHECK(mtrq_resets_besides(SESS_B, MTRQ_S1) == 0);
   wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
@@ -808,7 +807,7 @@ static void test_moqtrun_req_bad_first_message_closes(void) {
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_OK, body, sizeof body);
   CHECK(mtrq_closes() == 1);
   mtrq_setup();
-  wired_moqt_on_stream_data(
+  mt_feed(
       &mtst_hub, SESS_B, MTRQ_S1,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
@@ -849,8 +848,7 @@ static void test_moqtrun_req_fin_keeps_request(void) {
   moqctl_ftn f = mtrq_setup();
   u8         buf[MTST_MSG_MAX];
   usz        n = mtrq_sub_bytes(&f, 2, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 1);
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_SUBSCRIBE_OK);
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
   CHECK(mtrq_fin_on(MTRQ_S1) == 0); /* Established: our side stays open */
@@ -868,11 +866,10 @@ static void test_moqtrun_req_refusal_fins_and_frees(void) {
   CHECK(mtrq_type_on(12, MTRQ_S1) == MOQCTL_T_REQUEST_ERROR);
   CHECK(mtrq_fin_on(MTRQ_S1) == 1);
   CHECK(mtrq_used() == 1);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
   CHECK(mtrq_used() == 0);
   usz n = mtrq_sub_bytes(&g, 2, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S2, wired_span_of(buf, n), 1);
   CHECK(mtrq_type_on(12, MTRQ_S2) == MOQCTL_T_REQUEST_ERROR);
   CHECK(mtrq_fin_on(MTRQ_S2) == 1);
   CHECK(mtrq_used() == 0);
@@ -885,8 +882,7 @@ static void test_moqtrun_req_finished_do_not_exhaust(void) {
   mtst_join(SESS_B);
   for (usz i = 0; i < 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION; i++) {
     mtrq_tstat_on(SESS_B, MTRQ_ID(i));
-    wired_moqt_on_stream_data(
-        &mtst_hub, SESS_B, MTRQ_ID(i), wired_span_of(0, 0), 1);
+    mt_feed(&mtst_hub, SESS_B, MTRQ_ID(i), wired_span_of(0, 0), 1);
   }
   CHECK(moqtrun_test_count_kind(12) == 2 * WIRED_MOQTRUN_MAX_REQS_PER_SESSION);
   CHECK(mtrq_used() == 0);
@@ -930,7 +926,7 @@ static void test_moqtrun_req_pool_full_resets(void) {
   CHECK(4 * per == WIRED_MOQTRUN_MAX_REQS);
   CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
   mtst_join(late);
-  wired_moqt_on_stream_data(
+  mt_feed(
       &mtst_hub, late, MTRQ_S1,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
@@ -975,9 +971,8 @@ static void test_moqtrun_req_second_goaway_closes(void) {
 static void test_moqtrun_req_reset_unanswered(void) {
   moqctl_ftn f = mtrq_setup();
   u8         buf[MTST_MSG_MAX];
-  mtrq_sub_bytes(&f, 2, buf);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
+  mt_spell(buf, mtrq_sub_bytes(&f, 2, buf));
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, 3), 0);
   wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S1, 0, 0);
   CHECK(mtrq_reset_code(MTRQ_S1) == 0x1);
   CHECK(mtrq_used() == 0);
@@ -1117,7 +1112,7 @@ static wired_moqtrun_sub* mt22_subscribe(const moqctl_params* p) {
   u64 cb = mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
   usz n = mtst_stream(6, 4, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   mtst_subscribe_p(SESS_B, cb, &f, 2, p);
   return mtst_sub(SESS_A, SESS_B);
@@ -1180,7 +1175,7 @@ static u64 mt22_last_error(void) {
   if (!c || c->s != SESS_B) {
     return ~(u64)0;
   }
-  if (moqctl_peek_type(
+  if (mt_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) !=
           MOQCTL_OK ||
       type != MOQCTL_T_REQUEST_ERROR) {
@@ -1203,7 +1198,7 @@ static void mtst_range_past(u64 end_group, int refused) {
   u64 cb = mtst_join(SESS_B);
   mtst_publish(SESS_A, ca, &f, 1);
   usz n = mtst_stream(6, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1001, wired_span_of(buf, n), 1);
   p.items[0].lf.start.group     = 1;
   p.items[0].lf.end_group_delta = end_group - 1;
   mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
@@ -1244,11 +1239,11 @@ static void test_moqtrun_sub_filter22_end_gates(void) {
   wired_moqtrun_sub* s = mt22_subscribe(&obj);
   moqtrun_test_reset();
   usz n = mtst_stream(7, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(4) + moqtrun_test_count_kind(5) == 0);
   CHECK(s && s->active);
   n = mtst_stream(6, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1009, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1009, wired_span_of(buf, n), 1);
   CHECK(moqtrun_test_count_kind(4) + moqtrun_test_count_kind(5) == 1);
   mt22_subscribe(&dg4);
   moqtrun_test_reset();
@@ -1297,7 +1292,7 @@ static void test_moqtrun_sub_filter22_end_object_mid_round_oneshot(void) {
   mt22_subscribe(&end1);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
   const moqtrun_test_call* c = moqtrun_test_last_kind(4); /* send_uni */
   CHECK(c != 0);
   CHECK(mt22_obj_count(wired_span_of(c->payload, c->payload_len)) == 2);
@@ -1312,7 +1307,7 @@ static void test_moqtrun_sub_filter22_end_object_mid_round_keepopen(void) {
   mt22_subscribe(&end1);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni_stream */
   CHECK(c != 0);
   CHECK(mt22_obj_count(wired_span_of(c->payload, c->payload_len)) == 2);
@@ -1329,11 +1324,11 @@ static void test_moqtrun_sub_filter22_end_object_mid_round_append(void) {
   mt22_subscribe(&end1);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 1, 1, buf); /* Object 0, header, stream stays open */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   CHECK(moqtrun_test_last_kind(5) != 0); /* fresh open carried Object 0 */
   moqtrun_test_reset();
   n = mtst_stream(6, 2, 0, buf); /* header-less continuation: Objects 1, 2 */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
   const moqtrun_test_call* c = moqtrun_test_last_kind(3); /* stream_send */
   CHECK(c != 0);
   usz            off = 0;
@@ -1370,7 +1365,7 @@ static void test_moqtrun_sub_filter22_end_object_per_sub(void) {
   mtst_subscribe_p(SESS_C, cc, &f, 4, &end2);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf); /* Objects 0, 1, 2 in one wire */
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
   const moqtrun_test_call* cB = 0;
   const moqtrun_test_call* cC = 0;
   for (usz i = g_n_calls; i > 0; i--) {
@@ -1422,7 +1417,7 @@ static void test_moqtrun_sub_filter22_start_object_oneshot(void) {
   mt22_subscribe(&s61);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 1);
   const moqtrun_test_call* c = moqtrun_test_last_kind(4); /* send_uni */
   CHECK(c != 0 && mt22_ids(c, 1, ids) == 2);
   CHECK(ids[0] == 1 && ids[1] == 2);
@@ -1437,7 +1432,7 @@ static void test_moqtrun_sub_filter22_start_object_keepopen(void) {
   mt22_subscribe(&s61);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni */
   CHECK(c != 0 && mt22_ids(c, 1, ids) == 2);
   CHECK(ids[0] == 1 && ids[1] == 2);
@@ -1454,12 +1449,12 @@ static void test_moqtrun_sub_filter22_start_object_append(void) {
   mt22_subscribe(&s62);
   moqtrun_test_reset();
   usz n = mtst_stream(6, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   const moqtrun_test_call* c = moqtrun_test_last_kind(5); /* open_uni */
   CHECK(c != 0 && mt22_ids(c, 1, ids) == 0);
   moqtrun_test_reset();
   n = mtst_stream(6, 2, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   c = moqtrun_test_last_kind(3); /* stream_send */
   CHECK(c != 0 && mt22_ids(c, 0, ids) == 1);
   CHECK(ids[0] == 2);
@@ -1513,9 +1508,9 @@ static void test_moqtrun_sub_filter22_ring_end_object_append(void) {
   mtst_hub.reliable_alias_limit = 100;
   moqtrun_test_reset();
   usz n = mtst_stream(6, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   n = mtst_stream(6, 2, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mt22_b_ids(ids, &fin) == 2 && ids[0] == 0 && ids[1] == 1);
   CHECK(fin == 1);
@@ -1533,9 +1528,9 @@ static void test_moqtrun_sub_filter22_ring_end_object_open(void) {
   mtst_hub.reliable_alias_limit = 100;
   moqtrun_test_reset();
   usz n = mtst_stream(6, 3, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   n = mtst_stream(6, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mt22_b_ids(ids, &fin) == 2 && ids[1] == 1);
   CHECK(fin == 1);
@@ -1553,9 +1548,9 @@ static void test_moqtrun_sub_filter22_ring_start_object(void) {
   mtst_hub.reliable_alias_limit = 100;
   moqtrun_test_reset();
   usz n = mtst_stream(6, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   n = mtst_stream(6, 2, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mt22_b_ids(ids, &fin) == 1 && ids[0] == 2);
 }
@@ -1572,7 +1567,7 @@ static usz mt22_ring_late(const moqctl_params* p, u64* ids, int* fin) {
   mtst_hub.reliable_alias_limit              = 100;
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
   usz n                                      = mtst_stream(7, 3, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
   mtst_subscribe_p(SESS_B, cb, &f, 2, p);
   wired_moqt_tick(&mtst_hub, 1);
   return mt22_b_ids(ids, fin);
@@ -1745,7 +1740,7 @@ static void test_moqtrun_sub_rngf_gates_stream(void) {
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
   mtst_rngf_two(&pb, &pc);
   moqtrun_test_reset();
-  wired_moqt_on_stream_data(
+  mt_feed(
       &mtst_hub, SESS_A, 999,
       wired_span_of(
           g_moqt_data_subgroup_stream_basic,
@@ -2179,11 +2174,11 @@ static void mtst_sgt_case(int inflight, usz want) {
   mtst_publish(SESS_A, ca, &f, 1);
   mtst_subscribe_p(SESS_B, cb, &f, 2, &p);
   usz n = mtst_stream(0, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 0);
   o = moqtrun_test_last_kind(5);
   CHECK(o && o->s == SESS_B);
   n = mtst_stream(0, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2, wired_span_of(buf, n), 1);
   wired_moqt_tick(&mtst_hub, 1299);
   CHECK(moqtrun_test_count_kind(7) == 0);
   wired_moqt_tick(&mtst_hub, 1300);

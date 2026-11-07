@@ -1,10 +1,13 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static int moqtrun_pubst_next(
-    const wired_moqtrun_peer* p,
-    wired_moqtrun_req*        q,
-    u64*                      type,
-    wired_span*               body);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    u64*                type,
+    wired_span*         body);
+static void moqtrun_pubst_drain(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q);
 static wired_moqtrun_req* moqtrun_pubst_slot(
     wired_moqt_hub* hub, wired_wt_session* s, u64 stream_id);
 static int moqtrun_dispatch_pubst(
@@ -29,11 +32,13 @@ static int moqtrun_dispatch_own_req(
 /* Next complete message on q (Type mapped for p's draft), 0 once none is
  * left or the slot was freed. */
 static int moqtrun_pubst_next(
-    const wired_moqtrun_peer* p,
-    wired_moqtrun_req*        q,
-    u64*                      type,
-    wired_span*               body) {
-  int r = q->in_use ? moqtrun_asm_pop(&q->in, type, body) : MOQCTL_INSUFFICIENT;
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    u64*                type,
+    wired_span*         body) {
+  int r = q->in_use ? moqtrun_asm_pop(hub, p, &q->in, type, body)
+                    : MOQCTL_INSUFFICIENT;
   if (r == MOQCTL_INSUFFICIENT) {
     return 0;
   }
@@ -41,16 +46,25 @@ static int moqtrun_pubst_next(
   return 1;
 }
 
+static void moqtrun_pubst_drain(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_req* q) {
+  u64        type = 0;
+  wired_span body = {0, 0};
+  while (moqtrun_pubst_next(hub, p, q, &type, &body)) {
+    moqtrun_pubst_lookup(type)(hub, p, q, body);
+  }
+}
+
+/* Every message data completes on q, data fed in as many pushes as the
+ * reassembly needs (a message past the inline buffer moves to a pool
+ * buffer between them). */
 void moqtrun_pubst_recv(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_moqtrun_req*  q,
     wired_span          data) {
-  u64        type = 0;
-  wired_span body = {0, 0};
-  moqtrun_asm_push(&q->in, &data);
-  while (moqtrun_pubst_next(p, q, &type, &body)) {
-    moqtrun_pubst_lookup(type)(hub, p, q, body);
+  while (moqtrun_asm_feed(&q->in, &data)) {
+    moqtrun_pubst_drain(hub, p, q);
   }
   moqtrun_reqs_tick_one(&hub->io, q);
 }

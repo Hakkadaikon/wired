@@ -50,7 +50,7 @@ static u64 mtmi_setup(int fwd0, moqctl_publish* pub) {
 static void mtmi_object(u64 g, u64 sid) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = mtst_stream(g, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 1);
 }
 
 /* B's SUBSCRIBE_TRACKS "chat" carrying sp, after A published
@@ -232,11 +232,10 @@ static int mtmi_pub_ok_p(u64 sid, const moqctl_params* sp) {
   static moqctl_request_ok ok, back;
   ok.params = *sp;
   usz n     = moqtrun_envelope_put(
-      wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
+      MOQVER_D22, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       mtmisc_encode_request_ok, &ok);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(msg, n), 0);
-  if (moqctl_peek_type(wired_span_of(msg, n), &off, &type, &body) !=
-      MOQCTL_OK) {
+  mt_feed(&mtst_hub, SESS_B, sid, wired_span_of(msg, n), 0);
+  if (mt_peek_type(wired_span_of(msg, n), &off, &type, &body) != MOQCTL_OK) {
     return 0;
   }
   return moqctl_request_ok_take(g_moqtrun_test_ver, body, &boff, &back) ==
@@ -388,7 +387,7 @@ static void test_moqtrun_misc_pub_error_fins(void) {
   CHECK(mtrq_fin_on(sid) == 1);
   CHECK(mtrq_closes() == 0);
   CHECK(mtst_pub_is_open(sid) == 1);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_B, sid, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_B, sid, wired_span_of(0, 0), 1);
   CHECK(mtst_pub_is_open(sid) == 0);
 }
 

@@ -46,7 +46,7 @@ static void mtdn_done(u64 status, u64 count) {
 static void mtdn_group(u64 sid, u64 g) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = mtst_stream(g, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 1);
 }
 
 /* Tracks A still publishes. */
@@ -100,7 +100,7 @@ static void test_moqtrun_pubdone_count_after_supersede(void) {
   mtst_join(SESS_C);
   mtst_publish(SESS_C, MTDN_PUB, &f, 1);
   usz n = mtst_stream(2, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_C, 2002, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_C, 2002, wired_span_of(buf, n), 1);
   d.status_code  = MOQCTL_DONE_TRACK_ENDED;
   d.stream_count = 1;
   mtst_send(SESS_C, MTDN_PUB, MOQCTL_T_PUBLISH_DONE, mtdn_enc_done, &d);
@@ -154,7 +154,7 @@ static void test_moqtrun_pubdone_counts_header_only(void) {
   mtdn_setup();
   mtdn_done(MOQCTL_DONE_TRACK_ENDED, 1);
   usz n = mtst_stream(1, 0, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
 }
 
@@ -165,12 +165,12 @@ static void test_moqtrun_pubdone_waits_open_stream(void) {
   u64 count = 0;
   mtdn_setup();
   usz n = mtst_stream(1, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 0);
   mtdn_done(MOQCTL_DONE_TRACK_ENDED, 1);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == ~(u64)0);
   n = mtst_stream(1, 1, 0, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 1);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
   CHECK(count == 1);
   CHECK(moqtrun_test_count_kind(7) == 0);
@@ -214,7 +214,7 @@ static void mtdn_status_group(u64 sid, u64 g, usz n, u64 status) {
   if (status != MOQDATA_STATUS_NORMAL) {
     moqdata_obj_put_status(wired_mspan_of(buf, sizeof buf), &off, 0, status);
   }
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
 }
 
 /* 1 iff the hub did io op kind (7 reset, 13 stop) on A's stream sid. */
@@ -284,8 +284,7 @@ static void mtdn_obj_props(wired_span props, int dg) {
   bytes_put(out, &off, props);
   moqvi_put(out, &off, 1); /* Payload Length */
   bytes_put(out, &off, wired_span_of(&b, 1));
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, 2002, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, off), 1);
 }
 
 /* One even-Type Object Property list: type = num. */
@@ -334,7 +333,7 @@ static void mtdn_sg_hdr(u64 sid, u64 type, u64 g, u64 sg, u8 prio, u64 obj) {
   h.priority         = prio;
   moqdata_subhdr_put(out, &off, &h);
   moqdata_obj_put(out, &off, obj, wired_span_of(&b, 1));
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, off), 1);
 }
 
 /* mtdn_sg_hdr with an explicit Subgroup ID and priority (Type 0x14). */
@@ -458,8 +457,7 @@ static void test_moqtrun_pubdone_malformed_resets_fetch(void) {
   moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
   moqdata_obj_put_status(
       wired_mspan_of(buf, sizeof buf), &off, 0, MOQDATA_STATUS_END_OF_TRACK);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, 9002, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, SESS_A, 9002, wired_span_of(buf, off), 1);
   mf_obj(2, 0, 1);
   CHECK(mfill_reset_code(sid) == MOQTRUN_RESET_MALFORMED_TRACK);
   CHECK(mf_no_fetch());
@@ -496,8 +494,7 @@ static void test_moqtrun_pubdone_fin_after(void) {
   moqctl_ftn f    = mtdn_setup();
   usz        used = mtrq_used();
   mtdn_done(MOQCTL_DONE_TRACK_ENDED, 0);
-  wired_moqt_on_stream_data(
-      &mtst_hub, SESS_A, MTDN_PUB, wired_span_of(0, 0), 1);
+  mt_feed(&mtst_hub, SESS_A, MTDN_PUB, wired_span_of(0, 0), 1);
   CHECK(mtrq_used() == used - 1); /* A's PUBLISH slot */
   mtst_subscribe_p(SESS_B, MTRQ_S2, &f, 4, 0);
   CHECK(mtrq_type_on(12, MTRQ_S2) != MOQCTL_T_SUBSCRIBE_OK);
@@ -569,7 +566,7 @@ static void test_moqtrun_ended_track_stops_ctl_sub(void) {
   wired_moqtrun_track* t = &moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0];
   usz                  b = mtst_idx(SESS_B);
   usz                  n = mtst_stream(1, 1, 1, buf);
-  wired_moqt_on_stream_data(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, SESS_A, 2002, wired_span_of(buf, n), 0);
   CHECK(moqtrun_track_sub_of_peer(t, b) != 0);
   CHECK(moqtrun_test_count_kind(7) == 0);
   wired_moqt_on_session_close(&mtst_hub, SESS_A);

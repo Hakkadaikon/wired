@@ -68,7 +68,7 @@ static void mrp_group(wired_wt_session* s, u64 sid, u64 g, u64 status) {
   if (status != MOQDATA_STATUS_NORMAL) {
     moqdata_obj_put_status(out, &off, 0, status);
   }
-  wired_moqt_on_stream_data(&mtst_hub, s, sid, wired_span_of(buf, off), 1);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, off), 1);
 }
 
 /* 1 iff s's Objects reached C and D under the aliases they hold. */

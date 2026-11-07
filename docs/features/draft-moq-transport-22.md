@@ -1065,7 +1065,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
 
 - [~] MQ22-173 実装は、すべての Message Parameter を draft-22 の登録表(値のエンコーディング、現れてよいメッセージ、許される値の範囲)に従ってデコードしなければならない。メッセージや範囲の外にあるパラメーターは、プロトコル違反でセッションを閉じなければならない。
   - evidence: 登録表によるデコード(値のエンコーディング、許されるメッセージ、値の範囲)はコーデックで確かめています(`test_moqctl_params_registry_scope`、`test_moqctl_params_uint8_value_ranges`、`test_moqctl_params_repeatable_filters`、`test_moqctl_golden_subscribe_params`)。ハブは対象外のパラメーターで閉じます(`test_moqtrun_upd_bad_and_control`)が、範囲外の値を送るハブのテストはありません。
-- [x] MQ22-174 ストリームの複数回の配送に分かれて届いた制御メッセージは、組み立て直して 1 回だけ処理しなければならない。ハブの受信の上限(1024 バイト)より長いメッセージは、INTERNAL_ERROR でセッションを閉じなければならない。
+- [x] MQ22-174 ストリームの複数回の配送に分かれて届いた制御メッセージは、組み立て直して 1 回だけ処理しなければならない。1 KiB を超えるメッセージ(65535 バイトまで)は共有の再組み立てバッファで受け取り、そのバッファが尽きたときは INTERNAL_ERROR でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_ctl_split_subscribe_answered_once`
   - test: `tests/app/moqtrun_test.c` — `test_moqtrun_ctl_message_then_half`
