@@ -65,6 +65,8 @@ static void moqtrun_req_body_reset(wired_moqtrun_req* q) {
   q->has_forward    = 0;
   q->forward        = 0;
   q->group_order    = 0;
+  q->fill_len       = 0;
+  q->pub_fills      = 0;
   q->rngf_n         = 0;
   q->pub_answered   = 0;
   q->upd_out        = 0;

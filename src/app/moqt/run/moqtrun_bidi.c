@@ -130,7 +130,8 @@ void moqtrun_pubst_open_sub(
   m.request_id          = q->request_id;
   m.params              = moqtrun_subtracks_publish_params(q);
   moqtrun_sub_open(s, t, (usz)(p - hub->peers), q->pub_alias, &m);
-  s->rngf_n = q->rngf_n;
+  s->stream_count = q->pub_fills; /* opened with the PUBLISH (3.4.1) */
+  s->rngf_n       = q->rngf_n;
   bytes_memcpy(s->rngf, q->rngf, sizeof s->rngf);
   if (moqctl_request_ok_take(p->ver, body, &off, &ok) == MOQCTL_OK) {
     moqtrun_upd_params(s, t, &ok.params);

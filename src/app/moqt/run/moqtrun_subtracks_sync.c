@@ -94,7 +94,9 @@ static void moqtrun_subtracks_offer(
       moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
   if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st)) {
     moqtrun_subtracks_send_skipped(st_peer->ver, st, t);
+    return;
   }
+  moqtrun_subtracks_fill(hub, st_peer, q, t, st);
 }
 
 /* A session already subscribed to t (a held SUBSCRIBE that t's PUBLISH

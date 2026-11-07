@@ -196,39 +196,6 @@ typedef struct {
  * Alias, 11.1). */
 #define WIRED_MOQTRUN_CLOSE_DUPLICATE_TRACK_ALIAS 0x5
 
-/** draft-ietf-moq-transport-19 3.5 GOAWAY_TIMEOUT session code. */
-#define WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT 0x10
-
-/** draft-ietf-moq-transport-19 3.5 INVALID_PATH session code (a SETUP
- * carried PATH over WebTransport, 10.4). */
-#define WIRED_MOQTRUN_CLOSE_INVALID_PATH 0x8
-
-/** draft-ietf-moq-transport-19 3.5 INVALID_AUTHORITY session code (a
- * SETUP carried AUTHORITY over WebTransport, 10.4). */
-#define WIRED_MOQTRUN_CLOSE_INVALID_AUTHORITY 0x19
-
-/** draft-ietf-moq-transport-19 3.5 / -22 12.2 MALFORMED_PATH session code
- * (a raw-QUIC SETUP's PATH is not path-abempty [?query], 10.3.1.2). */
-#define WIRED_MOQTRUN_CLOSE_MALFORMED_PATH 0x9
-
-/** draft-ietf-moq-transport-19 3.5 / -22 12.2 MALFORMED_AUTHORITY session
- * code (a raw-QUIC SETUP's AUTHORITY is no RFC 3986 authority,
- * 10.3.1.1). */
-#define WIRED_MOQTRUN_CLOSE_MALFORMED_AUTHORITY 0x1A
-
-/** draft-ietf-moq-transport-19 3.5/10.9 TOO_MANY_REQUEST_UPDATES session
- * code: a request stream already holding MAX_REQUEST_UPDATES outstanding
- * REQUEST_UPDATEs received one more. */
-#define WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES 0x1B
-
-/** draft-ietf-moq-transport-22 8.9 / 12.2 AUTH_TOKEN_CACHE_OVERFLOW
- * session code: a REGISTER Token exceeded the hub's 0-byte token cache. */
-#define WIRED_MOQTRUN_CLOSE_AUTH_TOKEN_CACHE_OVERFLOW 0x13
-
-/** draft-ietf-moq-transport-22 8.9 / 12.2 UNKNOWN_AUTH_TOKEN_ALIAS session
- * code: a Token referenced an Alias the hub never registered. */
-#define WIRED_MOQTRUN_CLOSE_UNKNOWN_AUTH_TOKEN_ALIAS 0x17
-
 /** MAX_FILTER_RANGES the hub advertises in its SETUP (draft-19 10.4):
  * Ranges accepted concurrently across one subscription's or fetch's Range
  * filter parameters (10.2.10-10.2.14); a request past it is answered
@@ -680,6 +647,12 @@ typedef struct {
  * ponytail: room-sized; raise when rooms grow. */
 #define WIRED_MOQTRUN_MAX_REQS 128
 
+/** Bytes of a SUBSCRIBE_TRACKS's FILL_PARAMETERS value the hub keeps to
+ * copy into each PUBLISH it causes (draft-23 3.4.1, 9.19.15): Number of
+ * Parameters plus LOCATION_FILTER (Type and up to four 8-byte vi64) and
+ * FILL_TIMEOUT fit in 64; a longer value is refused INTERNAL_ERROR. */
+#define WIRED_MOQTRUN_FILL_MAX 64
+
 /** Request streams one session may hold at once, so one session cannot
  * take the whole pool: a fair quarter of it. Past it a new request stream
  * is reset with EXCESSIVE_LOAD (draft-ietf-moq-transport-19 3.3.4). */
@@ -810,6 +783,15 @@ typedef struct {
   u8 forward;
   /** GROUP_ORDER as received; 0 = absent. */
   u8 group_order;
+  /** SUBSCRIBE_TRACKS (draft-23 3.4.1): its FILL_PARAMETERS value (Number
+   * of Parameters + Parameters), copied into every PUBLISH it causes;
+   * fill_len 0 when it carried none. */
+  u8 fill[WIRED_MOQTRUN_FILL_MAX];
+  /** Bytes of fill in use. */
+  u8 fill_len;
+  /** A hub-opened PUBLISH slot only: the fill streams opened with it
+   * (3.4.1), counted in its subscription's PUBLISH_DONE Stream Count. */
+  u8 pub_fills;
   /** SUBSCRIBE_TRACKS and the PUBLISH slots it opens: the object Range
    * Filter rows it carried (draft-22 3.6.1, draft-19 10.19.1), the
    * resulting subscription's initial rows; never in the PUBLISH (22 9.8). */

@@ -446,6 +446,78 @@ static void mnsx_lost_publisher(void) {
   CHECK(mrdv_is(SESS_B, MTRQ_S1, d23 ? "E0|FIN|" : "E10|FIN|"));
 }
 
+/* SESS_B's SUBSCRIBE_TRACKS for chat carrying FILL_PARAMETERS (an
+ * open-ended fill), paused when paused; mf_init's alice matches. */
+static void mnsx_st_fill(int paused) {
+  static moqns_req m;
+  moqfetch_fill    fill              = {0};
+  m.request_id                       = mtst_rid += 4;
+  m.ns                               = mtns_ns("chat");
+  m.params                           = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  m.params.n                         = paused != 0;
+  m.params                           = mfill_params(&fill, &m.params);
+  m.params.items[m.params.n - 1].enc = MOQCTL_PENC_FILL23;
+  mtst_send(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
+}
+
+/* 3.4.1 / 9.19.15: each PUBLISH the hub sends for a SUBSCRIBE_TRACKS
+ * carrying FILL_PARAMETERS carries them too, and the fill fetch stream
+ * opens as the PUBLISH goes out (no PUBLISH_OK awaited), its FETCH_HEADER
+ * naming the PUBLISH's Request ID. */
+static void test_moqtrun_nsx_tracks_fill_opens(void) {
+  moqctl_publish got[2];
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1);
+  mnsx_st_fill(0);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
+  CHECK(moqctl_params_find(&got[0].params, MOQCTL_PARAM_FILL_PARAMETERS));
+  moqfetch_seq seq  = {0};
+  seq.eor_timed_out = 1;
+  CHECK(mf_read_seq(seq) && mf_hdr_rid == got[0].request_id && mf_fin);
+  CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(mf_n - 1, 1, 0, 1));
+}
+
+/* 3.4.1: a paused PUBLISH opens no fill stream. */
+static void test_moqtrun_nsx_tracks_fill_paused(void) {
+  moqctl_publish got[2];
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  mnsx_st_fill(1);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
+  CHECK(mfill_opens() == 0);
+}
+
+/* A FILL_PARAMETERS value longer than the hub keeps (one 70-byte
+ * AUTHORIZATION_TOKEN: count 1, Type 0x03, Length 70, USE_VALUE, Token
+ * Type 0, 68 bytes) refuses the SUBSCRIBE_TRACKS INTERNAL_ERROR. */
+static void test_moqtrun_nsx_tracks_fill_too_long(void) {
+  static u8        v[73];
+  static moqns_req m;
+  mnsx_init();
+  bytes_memset(v, 'x', sizeof v);
+  v[0]                    = 1;
+  v[1]                    = 0x03;
+  v[2]                    = 70;
+  v[3]                    = MOQCTL_TOKEN_USE_VALUE;
+  v[4]                    = 0;
+  m.request_id            = mtst_rid += 4;
+  m.ns                    = mtns_ns("a");
+  m.params.n              = 1;
+  m.params.items[0].type  = MOQCTL_PARAM_FILL_PARAMETERS;
+  m.params.items[0].enc   = MOQCTL_PENC_FILL23;
+  m.params.items[0].bytes = wired_span_of(v, sizeof v);
+  mtst_send(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "ERR:00|"));
+}
+
+/* FILL_PARAMETERS on SUBSCRIBE_TRACKS: draft-23 only (9.19.15). */
+static void mtall_nsx_fill(void) {
+  test_moqtrun_nsx_tracks_fill_opens();
+  test_moqtrun_nsx_tracks_fill_paused();
+  test_moqtrun_nsx_tracks_fill_too_long();
+}
+
 /* Drafts with PREFIX_OVERLAP: the hub's PUBLISH has no
  * SUBSCRIBE_TRACKS_ID (the parameter does not exist there). */
 static void mtall_nsx_untagged(void) {
@@ -493,4 +565,5 @@ void test_moqtrun_nsx(void) {
   moqtrun_test_vers(MOQVER_CAP_PREFIX_OVERLAP, 0, mtall_nsx_untagged);
   moqtrun_test_allver(test_moqtrun_nsx_ns_narrow_implied_done);
   moqtrun_test_allver(mnsx_lost_publisher);
+  moqtrun_test_vers(MOQVER_CAP_FILL_COUNT, 0, mtall_nsx_fill);
 }

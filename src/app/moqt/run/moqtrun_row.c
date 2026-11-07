@@ -16,6 +16,9 @@ static u64 moqtrun_subtracks_verdict(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m);
 static void moqtrun_subtracks_note_params(
     wired_moqtrun_req* q, const moqctl_params* params);
+static u64  moqtrun_subtracks_fill_refusal(const moqctl_params* params);
+static void moqtrun_subtracks_note_fill(
+    wired_moqtrun_req* q, const moqctl_params* params);
 
 /* 1 iff Track Property type of props is present (a varint value), its
  * value in *v. */
@@ -101,10 +104,32 @@ static void moqtrun_subtracks_note_rngf(
 static u64 moqtrun_subtracks_verdict(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
   u64 code = moqtrun_rngf_refusal(&m->params);
+  if (code == MOQTRUN_REQ_ACCEPT) {
+    code = moqtrun_subtracks_fill_refusal(&m->params);
+  }
   if (code != MOQTRUN_REQ_ACCEPT) {
     return code;
   }
   return moqtrun_disc_verdict(hub, p->req, m, moqtrun_subtracks_check);
+}
+
+/* A FILL_PARAMETERS value longer than WIRED_MOQTRUN_FILL_MAX cannot be
+ * kept for the PUBLISHes: INTERNAL_ERROR (a resource limit). */
+static u64 moqtrun_subtracks_fill_refusal(const moqctl_params* params) {
+  const moqctl_param* fp =
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
+  return fp && fp->bytes.n > WIRED_MOQTRUN_FILL_MAX ? MOQCTL_ERR_INTERNAL_ERROR
+                                                    : MOQTRUN_REQ_ACCEPT;
+}
+
+/* draft-23 3.4.1: kept to ride every PUBLISH the request causes. */
+static void moqtrun_subtracks_note_fill(
+    wired_moqtrun_req* q, const moqctl_params* params) {
+  const moqctl_param* fp =
+      moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
+  wired_span v = fp ? fp->bytes : wired_span_of(0, 0);
+  bytes_memcpy(q->fill, v.p, v.n);
+  q->fill_len = (u8)v.n;
 }
 
 /* FORWARD and GROUP_ORDER are recorded as given, to be echoed on every
@@ -121,6 +146,7 @@ static void moqtrun_subtracks_note_params(
   q->forward            = moqtrun_param_u8(f);
   q->group_order        = moqtrun_param_u8(g);
   moqtrun_subtracks_note_rngf(q, params);
+  moqtrun_subtracks_note_fill(q, params);
 }
 
 /* Body of moqtrun_dispatch_subscribe_tracks once p->req and the decode are

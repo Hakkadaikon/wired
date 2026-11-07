@@ -3,6 +3,8 @@
 static int moqtrun_subtracks_encode_pub(
     wired_mspan buf, usz* off, const void* m);
 static void moqtrun_subtracks_tag(int ver, moqctl_params* p, u64 rid);
+static void moqtrun_subtracks_fill_param(
+    moqctl_params* p, const wired_moqtrun_req* st);
 static void moqtrun_subtracks_pub_fill(
     moqctl_publish*            m,
     wired_moqt_hub*            hub,
@@ -35,6 +37,19 @@ static void moqtrun_subtracks_tag(int ver, moqctl_params* p, u64 rid) {
   p->n++;
 }
 
+/* draft-23 3.4.1: the SUBSCRIBE_TRACKS's FILL_PARAMETERS ride the PUBLISH
+ * (Type 0x23, between GROUP_ORDER and SUBSCRIBE_TRACKS_ID). */
+static void moqtrun_subtracks_fill_param(
+    moqctl_params* p, const wired_moqtrun_req* st) {
+  if (!st->fill_len) {
+    return;
+  }
+  p->items[p->n].type  = MOQCTL_PARAM_FILL_PARAMETERS;
+  p->items[p->n].enc   = MOQCTL_PENC_FILL23;
+  p->items[p->n].bytes = wired_span_of(st->fill, st->fill_len);
+  p->n++;
+}
+
 /* The PUBLISH m for t on st_peer's session, naming q's request_id. */
 static void moqtrun_subtracks_pub_fill(
     moqctl_publish*            m,
@@ -47,6 +62,7 @@ static void moqtrun_subtracks_pub_fill(
   m->request_id  = q->request_id;
   m->track_alias = moqtrun_session_alias(hub, (usz)(st_peer - hub->peers), t);
   m->params      = moqtrun_subtracks_publish_params(st);
+  moqtrun_subtracks_fill_param(&m->params, st);
   moqtrun_subtracks_tag(st_peer->ver, &m->params, st->request_id);
   moqctl_params_out(st_peer->ver, &m->params);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
@@ -99,6 +115,29 @@ int moqtrun_subtracks_open_pub(
   }
   moqtrun_subtracks_pub_opened(q, sid, m.track_alias, t, st);
   return 1;
+}
+
+/* draft-23 3.4.1: "the publisher opens the fill fetch stream when it
+ * sends a PUBLISH carrying FILL_PARAMETERS" unless paused -- now, not
+ * after PUBLISH_OK, its FETCH_HEADER naming the PUBLISH's Request ID. The
+ * subscription the PUBLISH_OK will open is staged here to resolve the
+ * fill; its stream count is kept on q (moqtrun_pubst_open_sub). */
+void moqtrun_subtracks_fill(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      st_peer,
+    wired_moqtrun_req*       q,
+    wired_moqtrun_track*     t,
+    const wired_moqtrun_req* st) {
+  moqctl_subscribe  m   = {0};
+  wired_moqtrun_sub sub = {0};
+  m.request_id          = q->request_id;
+  m.params              = moqtrun_subtracks_publish_params(st);
+  moqtrun_subtracks_fill_param(&m.params, st);
+  moqtrun_sub_open(&sub, t, (usz)(st_peer - hub->peers), q->pub_alias, &m);
+  sub.rngf_n = q->rngf_n;
+  bytes_memcpy(sub.rngf, q->rngf, sizeof sub.rngf);
+  moqtrun_fill_on_subscribe(hub, st_peer, t, &sub, &m.params);
+  q->pub_fills = (u8)sub.stream_count;
 }
 
 /* 10.20: Track Namespace Suffix (past st's own Prefix, like
