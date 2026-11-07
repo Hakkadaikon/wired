@@ -31,7 +31,8 @@ static void moqtrun_pubst_ignore(
     wired_span          body);
 
 /* With its track gone or its subs[] full there is nothing to deliver on,
- * so the PUBLISH stream is reset like a retired track's. */
+ * so the PUBLISH stream is reset like a retired track's, and so is the
+ * fill opened with it (draft-23 3.4.1). */
 static void moqtrun_pubst_attach(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -40,6 +41,7 @@ static void moqtrun_pubst_attach(
   wired_moqtrun_track* t = moqtrun_pubst_track(hub, q->pub_track_tag);
   wired_moqtrun_sub*   s = t ? moqtrun_sub_slot(t) : 0;
   if (!s) {
+    moqtrun_fetches_cancel(hub, p->wt, q->request_id);
     moqtrun_subtracks_pub_reset(hub, q);
     return;
   }
@@ -151,6 +153,9 @@ static void moqtrun_pubst_error(
   p->req          = q;
   q->pub_answered = moqtrun_reqerr_take(hub, p, body, &e);
   p->req          = saved;
+  /* draft-23 3.4.1: no subscription, so the fill opened with the PUBLISH
+   * is reset CANCELLED (12.5). */
+  moqtrun_fetches_cancel(hub, p->wt, q->request_id);
 }
 
 /* 12-18: the subscriber's REQUEST_UPDATE is a subscription update

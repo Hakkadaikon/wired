@@ -511,11 +511,58 @@ static void test_moqtrun_nsx_tracks_fill_too_long(void) {
   CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "ERR:00|"));
 }
 
+/* A PUBLISH carrying FILL_PARAMETERS whose fill parks mid-range, open;
+ * the PUBLISH's stream id. */
+static u64 mnsx_fill_parked(void) {
+  mf_init(sizeof mf_arena);
+  mf_obj(0, 0, 1);
+  g_stream_send_ok_n = 0;
+  mnsx_st_fill(0);
+  g_stream_send_ok_n = -1;
+  CHECK(mfill_opens() == 1 && !mf_no_fetch());
+  return (u64)mtst_pub_stream_id(0);
+}
+
+/* 3.4.1 "When the subscription is cancelled, the publisher MUST reset any
+ * open fill fetch streams": a PUBLISH rejected with REQUEST_ERROR never
+ * became a subscription, so its fill is reset CANCELLED (12.5). */
+static void test_moqtrun_nsx_tracks_fill_rejected_resets(void) {
+  mtst_pub_err(SESS_B, mnsx_fill_parked(), MOQCTL_ERR_UNINTERESTED);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_CANCELLED);
+  CHECK(mf_no_fetch());
+}
+
+/* 3.4.1 / 6.4.2.3: the subscriber cancelling the PUBLISH (its stream
+ * reset) resets the fill CANCELLED (12.5). */
+static void test_moqtrun_nsx_tracks_fill_cancel_resets(void) {
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, mnsx_fill_parked(), 0, 0);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_CANCELLED);
+  CHECK(mf_no_fetch());
+}
+
+/* 3.4.1: a PUBLISH_OK the hub cannot attach (the track's subs[] full)
+ * leaves no subscription, so the fill is reset too. */
+static void test_moqtrun_nsx_tracks_fill_unattached_resets(void) {
+  u64                  sid = mnsx_fill_parked();
+  wired_moqtrun_track* t =
+      moqtrun_pubst_track(&mtst_hub, mtst_hub.cache_tag_next);
+  CHECK(t != 0);
+  for (usz i = 0; t && i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    t->subs[i].active = 1;
+  }
+  mtst_pub_ok(SESS_B, sid);
+  CHECK(mfill_reset_code(mfill_sid(0)) == MOQTRUN_RESET_CANCELLED);
+  CHECK(mf_no_fetch());
+}
+
 /* FILL_PARAMETERS on SUBSCRIBE_TRACKS: draft-23 only (9.19.15). */
 static void mtall_nsx_fill(void) {
   test_moqtrun_nsx_tracks_fill_opens();
   test_moqtrun_nsx_tracks_fill_paused();
   test_moqtrun_nsx_tracks_fill_too_long();
+  test_moqtrun_nsx_tracks_fill_rejected_resets();
+  test_moqtrun_nsx_tracks_fill_cancel_resets();
+  test_moqtrun_nsx_tracks_fill_unattached_resets();
 }
 
 /* Drafts with PREFIX_OVERLAP: the hub's PUBLISH has no
