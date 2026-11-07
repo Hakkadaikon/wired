@@ -11,9 +11,9 @@ static int moqctl_setup_put_tail(
 static usz moqctl_ssts_count(const moqctl_setup* s);
 static int moqctl_ssts_put_list(wired_mspan b, usz* at, const moqctl_setup* s);
 static int moqctl_setup_put_ssts(
-    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s);
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s, u64 type);
 static int moqctl_setup_put_rest(
-    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s);
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s, int ver);
 
 static int moqctl_setup_put_opt(
     wired_mspan buf, usz* at, u64* prev, u64 type, int has, wired_span val) {
@@ -82,9 +82,16 @@ static int moqctl_ssts_put_list(wired_mspan b, usz* at, const moqctl_setup* s) {
   return 1;
 }
 
-/* SSTS_ALGORITHMS (0x09) follows MAX_REQUEST_UPDATES (0x08). */
+u64 moqctl_ssts_opt_for(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_OPT_MAX_CTL_SIZE)
+             ? MOQCTL_OPT_SSTS_ALGORITHMS_D23
+             : MOQCTL_OPT_SSTS_ALGORITHMS;
+}
+
+/* SSTS_ALGORITHMS (0x09, or draft-23's 0x3F01) follows MAX_REQUEST_UPDATES
+ * (0x08). */
 static int moqctl_setup_put_ssts(
-    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s, u64 type) {
   u8  tmp[MOQCTL_SSTS_MAX_ALGS * 9]; /* moqvi: 9 bytes at most */
   usz n = 0;
   if (!s->has_ssts) {
@@ -93,25 +100,29 @@ static int moqctl_setup_put_ssts(
   if (!moqctl_ssts_put_list(wired_mspan_of(tmp, sizeof tmp), &n, s)) {
     return 0;
   }
-  return moqctl_setup_put_opt(
-      buf, at, prev, MOQCTL_OPT_SSTS_ALGORITHMS, 1, wired_span_of(tmp, n));
+  return moqctl_setup_put_opt(buf, at, prev, type, 1, wired_span_of(tmp, n));
 }
 
 static int moqctl_setup_put_rest(
-    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s) {
+    wired_mspan buf, usz* at, u64* prev, const moqctl_setup* s, int ver) {
   if (!moqctl_setup_put_tail(buf, at, prev, s)) {
     return 0;
   }
-  return moqctl_setup_put_ssts(buf, at, prev, s);
+  return moqctl_setup_put_ssts(buf, at, prev, s, moqctl_ssts_opt_for(ver));
 }
 
 int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s) {
+  return moqctl_setup_encode_v(MOQVER_D22, buf, off, s);
+}
+
+int moqctl_setup_encode_v(
+    int ver, wired_mspan buf, usz* off, const moqctl_setup* s) {
   usz at   = *off;
   u64 prev = 0;
   if (!moqctl_setup_put_path_authority(buf, &at, &prev, s)) {
     return 0;
   }
-  if (!moqctl_setup_put_rest(buf, &at, &prev, s)) {
+  if (!moqctl_setup_put_rest(buf, &at, &prev, s, ver)) {
     return 0;
   }
   *off = at;

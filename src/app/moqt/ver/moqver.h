@@ -65,6 +65,10 @@
 #define MOQVER_CAP_SSTS (1u << 19)
 /** The control message Length is a vi64, not 16 bits (draft-23 9). */
 #define MOQVER_CAP_CTL_LEN_VI (1u << 20)
+/** Setup Option 0x09 is MAX_CONTROL_MESSAGE_SIZE and the experimental
+ * SSTS_ALGORITHMS moves to MOQCTL_OPT_SSTS_ALGORITHMS_D23 (draft-23
+ * 9.1.8). */
+#define MOQVER_CAP_OPT_MAX_CTL_SIZE (1u << 21)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

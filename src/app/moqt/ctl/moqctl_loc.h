@@ -171,8 +171,18 @@
  * moqctl_setup.max_request_updates. */
 #define MOQCTL_OPT_MAX_REQUEST_UPDATES 0x8ULL
 /** moqtail-compatible SSTS_ALGORITHMS (experimental, odd: Length + the
- * concatenated varint algorithm ids, no count). */
+ * concatenated varint algorithm ids, no count), up to draft-22. */
 #define MOQCTL_OPT_SSTS_ALGORITHMS 0x9ULL
+/** draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE (odd type: Length + exactly one
+ * vi64, at least MOQCTL_MAX_MSG_LEN; ruling R2). It takes 0x09, so a
+ * draft-23 session moves SSTS_ALGORITHMS off it. */
+#define MOQCTL_OPT_MAX_CONTROL_MESSAGE_SIZE 0x9ULL
+/** SSTS_ALGORITHMS on a draft-23 session: odd (Length-prefixed like the
+ * 0x09 form), outside draft-23 Table 11's registered 0x01-0x09 and its
+ * grease series 0x7f * N + 0x9D (0x3F01 - 0x9D = 0x3E64 is no multiple
+ * of 0x7f), and not yet registered by moqtail -- a provisional code until
+ * the experiment picks its own. */
+#define MOQCTL_OPT_SSTS_ALGORITHMS_D23 0x3F01ULL
 
 /** SSTS algorithm ids (moqtail): 0 bandwidth-weighted default, 0xff01
  * active-stream-depth backpressure. */

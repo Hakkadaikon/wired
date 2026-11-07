@@ -1774,6 +1774,61 @@ static void test_moqtrun_ctl_d23_nonminimal_length(void) {
   CHECK(types[0] == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* ---- draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE on a session ---- */
+
+static wired_moqt_hub mtmcs_hub;
+
+/* A draft-23 client (uni control-stream pair) sends a SETUP with opts. */
+static void mtmcs_setup(const u8* opts, usz n) {
+  u8  msg[32];
+  usz m;
+  moqtrun_test_reset();
+  wired_moqt_init(&mtmcs_hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      &mtmcs_hub, SESS_A, wired_span_of(0, 0), moqtrun_test_proto("moqt-23"));
+  m = mtctl_uni_ctl(msg, opts, n);
+  mt_feed(&mtmcs_hub, SESS_A, 2, mtctl_span(msg, m), 0);
+}
+
+/* The client's value is remembered, 65535 when absent (9.1.8); one below
+ * 65535 closes MALFORMED_KEY_VALUE (0x6, ruling R2). */
+static void test_moqtrun_setup_d23_max_ctl_size(void) {
+  static const u8 big[] = {0x09, 0x03, 0xC1, 0x00, 0x00}; /* 65536 */
+  static const u8 low[] = {0x09, 0x01, 0x05};
+  mtmcs_setup(0, 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtmcs_hub.peers[0].peer_max_ctl == 65535);
+  mtmcs_setup(big, sizeof big);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mtmcs_hub.peers[0].peer_max_ctl == 65536);
+  mtmcs_setup(low, sizeof low);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(moqtrun_test_last_kind(11)->stream_id == MOQCTL_CLOSE_KVFMT_ERROR);
+}
+
+/* The hub's own draft-23 SETUP carries no MAX_CONTROL_MESSAGE_SIZE (its
+ * limit is the 65535 default). */
+static void test_moqtrun_setup_d23_hub_omits_max_ctl_size(void) {
+  const moqtrun_test_call* c;
+  usz                      off = 0, boff = 0;
+  u64                      type;
+  wired_span               body;
+  moqctl_setup             s;
+  mtmcs_setup(0, 0);
+  c = moqtrun_test_last_kind(5);
+  CHECK(c != 0);
+  if (!c) {
+    return;
+  }
+  CHECK(
+      moqctl_peek_type_v(
+          MOQVER_D23, wired_span_of(c->payload, c->payload_len), &off, &type,
+          &body) == MOQCTL_OK);
+  CHECK(type == MOQCTL_T_SETUP);
+  CHECK(moqctl_setup_take_v(MOQVER_D23, body, &boff, &s) == MOQCTL_OK);
+  CHECK(!s.has_max_ctl_size);
+}
+
 /* A body of *(const usz*)m bytes, byte i = (u8)(i + 1). */
 static int mtenv_body(wired_mspan buf, usz* off, const void* m) {
   usz n = *(const usz*)m;
@@ -6605,6 +6660,8 @@ static void mtall_main(void) {
   test_moqtrun_ctl_d23_over_limit_skipped_without_close();
   test_moqtrun_ctl_d23_nonminimal_length();
   test_moqtrun_envelope_length_spelling();
+  test_moqtrun_setup_d23_max_ctl_size();
+  test_moqtrun_setup_d23_hub_omits_max_ctl_size();
   test_moqtrun_subscribe_fits_every_other_peer();
   test_moqtrun_object_relay_to_subscriber();
   test_moqtrun_object_relay_preserves_bytes();

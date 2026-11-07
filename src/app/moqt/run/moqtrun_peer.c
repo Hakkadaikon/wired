@@ -23,6 +23,7 @@ static void moqtrun_peer_rx_reset(wired_moqtrun_peer* p) {
   p->peer_impl_len = 0;
   p->peer_has_impl = 0;
   p->peer_max_rngf = 0;
+  p->peer_max_ctl  = MOQCTL_MAX_MSG_LEN;
 }
 
 static void moqtrun_peer_life_reset(wired_moqtrun_peer* p) {

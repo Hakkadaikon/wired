@@ -1,9 +1,11 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static int moqtrun_encode_setup(wired_mspan buf, usz* off, const void* m);
-static usz moqtrun_len_room(int ver);
-static usz moqtrun_len_put(u8* p, usz room, usz len);
-static int moqtrun_env_body(
+static int moqtrun_encode_setup23(wired_mspan buf, usz* off, const void* m);
+static moqtrun_body_encode_fn moqtrun_setup_encoder(int ver);
+static usz                    moqtrun_len_room(int ver);
+static usz                    moqtrun_len_put(u8* p, usz room, usz len);
+static int                    moqtrun_env_body(
     wired_mspan buf, usz* end, moqtrun_body_encode_fn body_fn, const void* m);
 static i64 moqtrun_ctl_open_io(
     wired_moqt_io* io, wired_wt_session* s, int legacy, wired_span b);
@@ -68,8 +70,20 @@ usz moqtrun_envelope_put(
   return len_at + moqtrun_len_put(buf.p + len_at, room, len) + len;
 }
 
+/* The hub's SETUP in a draft-23 session's option spelling (SSTS off 0x09;
+ * no MAX_CONTROL_MESSAGE_SIZE: the hub's limit is the 65535 default). */
+static int moqtrun_encode_setup23(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_setup_encode_v(MOQVER_D23, buf, off, m);
+}
+
 static int moqtrun_encode_setup(wired_mspan buf, usz* off, const void* m) {
   return moqctl_setup_encode(buf, off, m);
+}
+
+static moqtrun_body_encode_fn moqtrun_setup_encoder(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_OPT_MAX_CTL_SIZE)
+             ? moqtrun_encode_setup23
+             : moqtrun_encode_setup;
 }
 
 static i64 moqtrun_ctl_open_io(
@@ -131,7 +145,7 @@ void moqtrun_ctl_open(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   moqtrun_setup_impl(hub, &setup);
   moqtss_setup_opt(hub, p, &setup); /* SSTS (moqtssts_run.c) */
   usz off = moqtrun_envelope_put(
-      p->ver, buf, MOQCTL_T_SETUP, moqtrun_encode_setup, &setup);
+      p->ver, buf, MOQCTL_T_SETUP, moqtrun_setup_encoder(p->ver), &setup);
   i64 sid = moqtrun_ctl_open_io(
       &hub->io, p->wt, p->legacy, wired_span_of(buf.p, off));
   if (sid < 0) {

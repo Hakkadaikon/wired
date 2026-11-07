@@ -195,6 +195,10 @@ typedef struct {
   /** MAX_FILTER_RANGES the client's SETUP advertised (draft-22 9.1.6;
    * 0 when absent): the most Ranges an upstream FETCH to it may carry. */
   u64 peer_max_rngf;
+  /** The client's MAX_CONTROL_MESSAGE_SIZE (draft-23 9.1.8; 65535 when
+   * absent or before its SETUP). The hub never sends a body longer than
+   * MOQCTL_MAX_MSG_LEN, which this always admits (moqtrun_envelope_put). */
+  u64 peer_max_ctl;
   /** Registration order (wired_moqt_init-relative, never reused): a
    * higher value is a newer session. Decides which of two sessions
    * PUBLISHing the same name owns it (moqtrun_supersede_name). */

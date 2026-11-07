@@ -1,6 +1,7 @@
 #include "app/moqt/ctl/moqctl.h"
 
 #include "app/moqt/ver/moqver.h"
+#include "common/bytes/util/ct.h"
 #include "moqt_golden.h"
 #include "test.h"
 
@@ -1471,6 +1472,82 @@ static void test_moqctl_setup_limit_options_default_zero(void) {
   CHECK(s.max_request_updates == 0);
 }
 
+/* ===== TEST: draft-23 9.1.8 MAX_CONTROL_MESSAGE_SIZE (ruling R2) ===== */
+
+/* Setup Options opts decoded as draft ver; the result code. */
+static int mqmcs_take(int ver, const u8* opts, usz n, moqctl_setup* s) {
+  usz off = 0;
+  return moqctl_setup_take_v(ver, wired_span_of(opts, n), &off, s);
+}
+
+/* Option 0x09 (odd: Length + one vi64) at 65535 (C0 FF FF: 3-byte vi64,
+ * 110 + 21 bits) and at 65536 (C1 00 00) is taken and remembered; a
+ * non-minimal 9-byte vi64 of 65535 too (#1595: non-minimal is legal). */
+static void test_moqctl_setup_d23_max_ctl_size_ok(void) {
+  static const u8 at_min[] = {0x09, 0x03, 0xC0, 0xFF, 0xFF};
+  static const u8 above[]  = {0x09, 0x03, 0xC1, 0x00, 0x00};
+  static const u8 nonmin[] = {0x09, 0x09, 0xFF, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0xFF, 0xFF};
+  moqctl_setup    s;
+  CHECK(mqmcs_take(MOQVER_D23, at_min, sizeof at_min, &s) == MOQCTL_OK);
+  CHECK(s.has_max_ctl_size && s.max_ctl_size == 65535);
+  CHECK(!s.has_ssts);
+  CHECK(mqmcs_take(MOQVER_D23, above, sizeof above, &s) == MOQCTL_OK);
+  CHECK(s.max_ctl_size == 65536);
+  CHECK(mqmcs_take(MOQVER_D23, nonmin, sizeof nonmin, &s) == MOQCTL_OK);
+  CHECK(s.max_ctl_size == 65535);
+}
+
+/* R2: a value below 65535 (C0 FF FE), one byte short (Length 2 for a
+ * 3-byte vi64), a trailing byte, or an empty value is
+ * MALFORMED_KEY_VALUE (MOQCTL_PARAMS_KVFMT, code 0x6). */
+static void test_moqctl_setup_d23_max_ctl_size_malformed(void) {
+  static const u8 below[]    = {0x09, 0x03, 0xC0, 0xFF, 0xFE};
+  static const u8 small[]    = {0x09, 0x01, 0x05};
+  static const u8 short_[]   = {0x09, 0x02, 0xC0, 0xFF};
+  static const u8 trailing[] = {0x09, 0x04, 0xC0, 0xFF, 0xFF, 0x00};
+  static const u8 empty[]    = {0x09, 0x00};
+  const u8*       cases[]    = {below, small, short_, trailing, empty};
+  const usz       lens[]     = {
+      sizeof below, sizeof small, sizeof short_, sizeof trailing, sizeof empty};
+  moqctl_setup s;
+  for (usz i = 0; i < sizeof lens / sizeof lens[0]; i++) {
+    CHECK(mqmcs_take(MOQVER_D23, cases[i], lens[i], &s) == MOQCTL_PARAMS_KVFMT);
+  }
+}
+
+/* Up to draft-22 0x09 stays the experimental SSTS_ALGORITHMS: the same
+ * bytes are an SSTS list, never a size. */
+static void test_moqctl_setup_d22_09_is_ssts(void) {
+  static const u8 small[] = {0x09, 0x01, 0x01};
+  moqctl_setup    s;
+  CHECK(mqmcs_take(MOQVER_D22, small, sizeof small, &s) == MOQCTL_OK);
+  CHECK(s.has_ssts && s.ssts_alg_n == 1 && s.ssts_algs[0] == 1);
+  CHECK(!s.has_max_ctl_size);
+}
+
+/* S-171: on draft-23 SSTS_ALGORITHMS moves to 0x3F01 (Delta Type BF 01:
+ * 2-byte vi64 10 + 14 bits), both ways; wired's own SETUP carries no
+ * MAX_CONTROL_MESSAGE_SIZE. */
+static void test_moqctl_setup_d23_ssts_moved(void) {
+  static const u8 d23[] = {0xBF, 0x01, 0x01, 0x01};
+  u8              out[16];
+  usz             n = 0;
+  moqctl_setup    s;
+  CHECK(mqmcs_take(MOQVER_D23, d23, sizeof d23, &s) == MOQCTL_OK);
+  CHECK(s.has_ssts && s.ssts_alg_n == 1 && s.ssts_algs[0] == 1);
+  CHECK(moqctl_setup_encode_v(
+      MOQVER_D23, wired_mspan_of(out, sizeof out), &n, &s));
+  CHECK(n == sizeof d23);
+  CHECK(ct_diffn(out, d23, sizeof d23) == 0);
+  n = 0;
+  CHECK(moqctl_setup_encode_v(
+      MOQVER_D22, wired_mspan_of(out, sizeof out), &n, &s));
+  CHECK(n == 3 && out[0] == 0x09 && out[1] == 0x01 && out[2] == 0x01);
+  CHECK(mqmcs_take(MOQVER_D22, d23, sizeof d23, &s) == MOQCTL_OK);
+  CHECK(!s.has_ssts); /* 0x3F01 is an unknown option before draft-23 */
+}
+
 /* ===== TEST: Range Filter values (10.2.10-10.2.14) ===== */
 
 /* The draft's own delta example: ranges 3-5 and 10-15 (Start 3, End 2,
@@ -2140,6 +2217,10 @@ void test_moqctl(void) {
 
   test_moqctl_setup_unknown_option_ignored();
   test_moqctl_setup_path_option_decode();
+  test_moqctl_setup_d23_max_ctl_size_ok();
+  test_moqctl_setup_d23_max_ctl_size_malformed();
+  test_moqctl_setup_d22_09_is_ssts();
+  test_moqctl_setup_d23_ssts_moved();
   test_moqctl_setup_limit_options_roundtrip();
   test_moqctl_setup_limit_options_default_zero();
 

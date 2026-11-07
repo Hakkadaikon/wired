@@ -204,6 +204,11 @@ typedef struct {
    * DELETE or USE_ALIAS), which a server receiving SETUP must close on
    * (draft-18 10.3.1.4, draft-22 9.1.4). */
   u8 token_alias_ref;
+  /** 1 when a draft-23 MAX_CONTROL_MESSAGE_SIZE option was present
+   * (decode only: this SDK sends none, its limit being the default). */
+  u8 has_max_ctl_size;
+  /** That option's value (draft-23 9.1.8: at least MOQCTL_MAX_MSG_LEN). */
+  u64 max_ctl_size;
 } moqctl_setup;
 
 /** Decodes a SETUP Message Body: every byte from *off to the end of buf
@@ -212,9 +217,20 @@ typedef struct {
  * ending mid-varint or an undecodable AUTHORIZATION TOKEN
  * (KEY_VALUE_FORMATTING_ERROR). */
 int moqctl_setup_take(wired_span buf, usz* off, moqctl_setup* out);
+/** moqctl_setup_take for draft ver (MOQVER_*): under
+ * MOQVER_CAP_OPT_MAX_CTL_SIZE (draft-23 9.1.8) option 0x09 is
+ * MAX_CONTROL_MESSAGE_SIZE -- a value that is not exactly one vi64, or is
+ * below MOQCTL_MAX_MSG_LEN, is MOQCTL_PARAMS_KVFMT (MALFORMED_KEY_VALUE,
+ * ruling R2) -- and SSTS_ALGORITHMS is MOQCTL_OPT_SSTS_ALGORITHMS_D23. */
+int moqctl_setup_take_v(int ver, wired_span buf, usz* off, moqctl_setup* out);
 /** Encodes s's present options as a SETUP Message Body, in ascending
  * option order; 1 ok, 0 when buf runs out. */
 int moqctl_setup_encode(wired_mspan buf, usz* off, const moqctl_setup* s);
+/** moqctl_setup_encode for draft ver: SSTS_ALGORITHMS under its draft's
+ * option type (moqctl_setup_take_v); MAX_CONTROL_MESSAGE_SIZE is never
+ * written. */
+int moqctl_setup_encode_v(
+    int ver, wired_mspan buf, usz* off, const moqctl_setup* s);
 
 /** draft-ietf-moq-transport-19 SS10.6 SUBSCRIBE. */
 typedef struct {

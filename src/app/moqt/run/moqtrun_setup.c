@@ -19,6 +19,11 @@ static void moqtrun_impl_copy(wired_moqtrun_peer* p, const moqctl_setup* m) {
   p->peer_has_impl = 1;
 }
 
+/* draft-23 9.1.8: the default 65535 unless the client's SETUP said more. */
+static u64 moqtrun_peer_max_ctl_of(const moqctl_setup* m) {
+  return m->has_max_ctl_size ? m->max_ctl_size : MOQCTL_MAX_MSG_LEN;
+}
+
 /* Records the accepted client SETUP: the stream it rode becomes the
  * client control stream, its MOQT_IMPLEMENTATION is copied, and the
  * session machine advances (3.3: Established once both sides' SETUP are
@@ -28,6 +33,7 @@ static void moqtrun_setup_accept(wired_moqtrun_peer* p, const moqctl_setup* m) {
   p->peer_ctl_stream_id = p->rx_sid;
   p->setup_recv         = 1;
   p->peer_max_rngf      = m->max_filter_ranges;
+  p->peer_max_ctl       = moqtrun_peer_max_ctl_of(m);
   moqtrun_impl_copy(p, m);
   moqsess_step(&p->sess, MOQSESS_EV_RECV_SETUP);
 }

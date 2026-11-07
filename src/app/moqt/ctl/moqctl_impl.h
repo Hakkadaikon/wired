@@ -141,4 +141,7 @@ int moqctl_redirect_take(wired_span buf, usz* at, moqctl_redirect* r);
 extern const moqctl_param_value_fn MOQCTL_PARAM_VALUE_FNS[10];
 extern const moqctl_param_put_fn   MOQCTL_PARAM_PUT_FNS[10];
 
+/* The SSTS_ALGORITHMS Setup Option type draft ver uses (moqctl_ssts.c). */
+u64 moqctl_ssts_opt_for(int ver);
+
 #endif

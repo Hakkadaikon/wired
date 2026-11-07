@@ -137,7 +137,7 @@ u32 moqtrun_setup_take_code(
     wired_span                body,
     moqctl_setup*             m) {
   usz off = 0;
-  int r   = moqctl_setup_take(body, &off, m);
+  int r   = moqctl_setup_take_v(p->ver, body, &off, m);
   if (r == MOQCTL_PARAMS_KVFMT) {
     return (u32)MOQCTL_CLOSE_KVFMT_ERROR;
   }
