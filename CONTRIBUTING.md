@@ -16,7 +16,7 @@ just test && just ninja && just ccn
 
 For the full picture — the design philosophy, the layered architecture, the
 constraints behind each rule above, and the workflow for adding a domain —
-see [docs/development.md](docs/development.md).
+see [docs/standards/](docs/standards/README.md).
 
 ## Reporting issues
 

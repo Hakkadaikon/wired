@@ -81,7 +81,7 @@ docker run --rm ymuski/curl-http3 \
 実際に動かしながら学べる解説は、[インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/)を見てください。
 
 第 1 部で使うレシピはこの 4 つ(`setup`、`build`、`test`、`run`)だけです。第 2 部では `lib` が加わります。
-レシピの全一覧は [開発](development.md#ビルドシステム) にあります。
+レシピの全一覧は [ビルド](standards/build.md#4-レシピ) にあります。
 
 ## 第 2 部: 自分のサーバー
 
