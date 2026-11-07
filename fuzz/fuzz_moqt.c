@@ -219,6 +219,7 @@ static void fuzz_fetch_stream(int ver, wired_span in) {
     moqfetch_obj obj;
     seq.descending    = desc;
     seq.eor_timed_out = (moqver_caps(ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0;
+    seq.d23           = (moqver_caps(ver) & MOQVER_CAP_FETCH_STREAM23) != 0;
     if (moqfetch_hdr_take(in, &off, &rid) != MOQCTL_OK) {
       return;
     }

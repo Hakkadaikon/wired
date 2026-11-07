@@ -4,6 +4,7 @@ static int moqtrun_fetch_end_open22(
     const wired_moqtrun_peer* p, const moqtrun_frange* r);
 static moqctl_loc moqtrun_fetch_ok_end(
     wired_moqt_hub* hub, const wired_moqtrun_peer* p, const moqtrun_frange* r);
+static int moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt);
 
 /* The Location of the last item r serves (its End Location when it serves
  * none). ponytail: walks the cache once per FETCH_OK -- O(arena) per walk
@@ -38,6 +39,12 @@ static moqctl_loc moqtrun_fetch_ok_end(
   return moqtrun_fetch_last(&hub->cache, r);
 }
 
+/* wt's draft, -1 (no capability) when it has no session. */
+static int moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt) {
+  const wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, wt);
+  return p ? p->ver : -1;
+}
+
 /* Claims a fetch slot serving r to wt under request_id, its cursor on
  * the first cached item; 0 when the table is full. */
 wired_moqtrun_fetch* moqtrun_fetch_begin(
@@ -55,6 +62,7 @@ wired_moqtrun_fetch* moqtrun_fetch_begin(
   f->request_id = request_id;
   f->cache_tag  = r->tag;
   f->end        = r->end;
+  moqtrun_fseq_ver(&f->seq, moqtrun_wt_ver(hub, wt));
   moqtrun_fsel_keep(f, r->rngf, r->rngf_n);
   f->cursor     = moqtrun_fsel_fskip(&hub->cache, f, r->start, r->end);
   f->last_ok_ms = hub->live.last_now_ms;
@@ -81,8 +89,6 @@ wired_moqtrun_fetch* moqtrun_fetch_accept(
     moqtrun_send_request_error(p, MOQCTL_ERR_INTERNAL_ERROR);
     return 0;
   }
-  f->seq.eor_timed_out =
-      (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0; /* 22 SS11.4.1 */
   if (descending) {
     moqtrun_fetch_descend(hub, f, r);
   }

@@ -12,12 +12,11 @@ static void moqtrun_upf_nt_go(
  * until then the stream stays open (not yet answered). */
 static void moqtrun_upf_nt_init(
     wired_moqtrun_peer* p, wired_moqtrun_fetch* f, const moqfetch_req* m) {
-  f->no_track          = 1;
-  f->req_sid           = p->req->stream_id;
-  p->req->live         = 1;
-  f->descending        = moqtrun_fetch_order_desc(&m->params);
-  f->seq.descending    = f->descending;
-  f->seq.eor_timed_out = (moqver_caps(p->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0;
+  f->no_track       = 1;
+  f->req_sid        = p->req->stream_id;
+  p->req->live      = 1;
+  f->descending     = moqtrun_fetch_order_desc(&m->params);
+  f->seq.descending = f->descending;
   f->up_lo       = moqctl_loc_of(m->range.start_group, m->range.start_object);
   f->up_span_end = moqctl_loc_of(~(u64)0, ~(u64)0);
   moqtrun_upf_budget_of(f, &m->params);

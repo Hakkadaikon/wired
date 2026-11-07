@@ -81,6 +81,10 @@
 /** REQUEST_ERROR ends in Error Details (Key-Value-Pairs) carrying the
  * Redirect (draft-23 9.4.1). */
 #define MOQVER_CAP_ERR_DETAILS (1u << 25)
+/** Fetch streams use the draft-23 11.4 encoding: Object ID Delta + 2,
+ * delta-encoded End of Range, End of Gone Range, End of Group / Track
+ * (moqfetch_seq.d23). */
+#define MOQVER_CAP_FETCH_STREAM23 (1u << 26)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

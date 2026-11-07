@@ -114,6 +114,7 @@ void moqtrun_fetch_sched(wired_moqt_hub* hub, const wired_moqtrun_fetch* f);
 void moqtrun_fetch_free(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 int  moqtrun_fetch_open(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 int  moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group);
+void moqtrun_fseq_ver(moqfetch_seq* s, int ver);
 void moqtrun_fetch_obj_of(
     moqfetch_obj* o, const moqcache_item* it, const moqfetch_seq* s, u64 eor);
 int  moqtrun_fwin_drained(const moqtrun_fwin* w);

@@ -41,8 +41,7 @@ static void moqtrun_upf_store(
   f->up_pl_at     = 0;
   bytes_memset(&f->up_seq, 0, sizeof f->up_seq);
   f->up_seq.descending = f->descending;
-  f->up_seq.eor_timed_out =
-      (moqver_caps(pp->ver) & MOQVER_CAP_EOR_TIMED_OUT) != 0;
+  moqtrun_fseq_ver(&f->up_seq, pp->ver);
   f->up_deadline_ms = hub->live.last_now_ms + f->up_budget_ms;
 }
 

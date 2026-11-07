@@ -1524,6 +1524,7 @@
 #include "app/moqtrun_test.c"
 #include "app/moqtrun_sub_test.c"
 #include "app/moqtrun_fetch_test.c"
+#include "app/moqtrun_fetch_d23_test.c"
 #include "app/moqtrun_ns_test.c"
 #include "app/moqtrun_subtracks_test.c"
 #include "app/moqtrun_upd_test.c"
@@ -2138,6 +2139,7 @@ int main(void) {
   test_moqtrun();
   test_moqtrun_sub();
   test_moqtrun_fetch();
+  test_moqtrun_fetch_d23();
   test_moqtrun_fill();
   test_moqtrun_ns();
   test_moqtrun_subtracks();

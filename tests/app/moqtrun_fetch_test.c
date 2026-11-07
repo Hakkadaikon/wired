@@ -266,6 +266,7 @@ static int mf_read_seq(moqfetch_seq seq) {
   static u8 buf[4096];
   usz       len = mf_gather(buf), off = 0;
   mf_n = 0;
+  seq  = mtst_fseq(SESS_B, seq);
   if (moqfetch_hdr_take(wired_span_of(buf, len), &off, &mf_hdr_rid) !=
       MOQCTL_OK) {
     return 0;
@@ -835,11 +836,12 @@ static int mf_enc_fetch22(wired_mspan buf, usz* off, const void* m) {
 
 /* B (draft-22) FETCHes alice on a fresh request stream with LOCATION_FILTER
  * rl, or with no Parameters at all when rl is 0. */
-static void mf_fetch22(const moqctl_rangeloc* rl) {
+/* B, now on draft ver, sends a draft-22-layout FETCH of rl (0: none). */
+static void mf_fetch_v(int ver, const moqctl_rangeloc* rl) {
   static moqfetch_req m;
   u8                  buf[MTST_MSG_MAX];
   usz                 n;
-  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = ver;
   mf_req_sid   = mf_req_sid < MF_REQ ? MF_REQ : mf_req_sid + 4;
   m.request_id = mf_req_rid = mtst_rid += 4;
   m.track                   = mf_track();
@@ -848,10 +850,14 @@ static void mf_fetch22(const moqctl_rangeloc* rl) {
     m.range = *rl;
   }
   n = moqtrun_envelope_put(
-      MOQVER_D22, wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
+      ver, wired_mspan_of(buf, sizeof buf), MOQFETCH_T_FETCH,
       rl ? mf_enc_fetch22 : mf_enc_fetch22_bare, &m);
   CHECK(n != 0);
   mt_feed(&mtst_hub, SESS_B, mf_req_sid, wired_span_of(buf, n), 0);
+}
+
+static void mf_fetch22(const moqctl_rangeloc* rl) {
+  mf_fetch_v(MOQVER_D22, rl);
 }
 
 static moqctl_rangeloc mf_rl(

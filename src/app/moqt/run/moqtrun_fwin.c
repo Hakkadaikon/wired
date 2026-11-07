@@ -11,6 +11,14 @@ int moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group) {
   return !s->have_loc || s->group != group;
 }
 
+/* s encodes a fetch stream of draft ver's session: 0x20C from draft-22
+ * SS11.4.1, the draft-23 11.4 encoding. */
+void moqtrun_fseq_ver(moqfetch_seq* s, int ver) {
+  u32 caps         = moqver_caps(ver);
+  s->eor_timed_out = (caps & MOQVER_CAP_EOR_TIMED_OUT) != 0;
+  s->d23           = (caps & MOQVER_CAP_FETCH_STREAM23) != 0;
+}
+
 /* A miss on a fill is End of Timed-Out Range (the hub could not keep the
  * backlog, SS11.4.1), and so is one a FETCH's upstream budget ran out on
  * (or FILL_TIMEOUT 0 forbade asking for, SS9.20.5); anything else, and
@@ -24,8 +32,9 @@ static u64 moqtrun_fetch_eor(const wired_moqtrun_fetch* f) {
                                     : MOQFETCH_EOR_UNKNOWN;
 }
 
-/* A cache item as a fetch Object (11.4.4.1): Object ID Delta and
- * Publisher Priority always present (the cache keeps no priority, so the
+/* A cache item as a fetch Object (11.4.4.1): Object ID Delta (except
+ * where draft-23 11.4.1.1 needs it left out) and Publisher Priority
+ * always present (the cache keeps no priority, so the
  * 12.4 default 128), Group ID Delta when the group changes, Subgroup ID
  * zero. An unknown range is an End of Range marker, eor (11.4.4.2). */
 void moqtrun_fetch_obj_of(
@@ -37,7 +46,8 @@ void moqtrun_fetch_obj_of(
   if (it->unknown) {
     return;
   }
-  o->flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
+  o->flags = moqfetch_object_flag(s, it->loc.group, it->loc.object) |
+             MOQFETCH_F_PRIORITY |
              (moqtrun_fetch_new_group(s, it->loc.group) ? MOQFETCH_F_GROUP : 0);
   o->has_subgroup = 1;
   o->priority     = 128;

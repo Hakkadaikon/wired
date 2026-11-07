@@ -35,6 +35,13 @@ static int mtst_ver(wired_wt_session* s) {
   return moqtrun_find_by_wt(&mtst_hub, s)->ver;
 }
 
+/* seq for a fetch stream toward s, in s's draft's encoding (draft-23
+ * 11.4 on a moqt-23 session). */
+static moqfetch_seq mtst_fseq(wired_wt_session* s, moqfetch_seq seq) {
+  seq.d23 = (moqver_caps(mtst_ver(s)) & MOQVER_CAP_FETCH_STREAM23) != 0;
+  return seq;
+}
+
 /* Re-encodes a draft-19 LOCATION_FILTER item (PENC_LOCFILTER, lf) as
  * draft-22's typed form (SS9.20.9, PENC_RANGELOC22, rl): the same range,
  * via the draft-19 wire bytes and the version-neutral rangeloc model. */

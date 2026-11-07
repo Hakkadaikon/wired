@@ -138,7 +138,7 @@ static u64 moqtrun_upf_sg_bits(const moqfetch_obj* o) {
  * when it changes, Properties and the Datagram flag kept. */
 u64 moqtrun_upf_flags_of(const moqfetch_obj* o, const moqfetch_seq* s) {
   u64 keep = o->flags & (MOQFETCH_F_PROPS | MOQFETCH_F_DATAGRAM);
-  return keep | MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
-         moqtrun_upf_sg_bits(o) |
+  return keep | moqfetch_object_flag(s, o->group, o->object) |
+         MOQFETCH_F_PRIORITY | moqtrun_upf_sg_bits(o) |
          (moqtrun_fetch_new_group(s, o->group) ? MOQFETCH_F_GROUP : 0);
 }
