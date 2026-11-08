@@ -477,6 +477,25 @@ static void test_moqtrun_d23uo_every_update_resolved(void) {
   CHECK(mtuo_n() + mtuo_pending() == sent);
 }
 
+/* 9.5: the hub sent the SUBSCRIBE, so the publisher A is its receiver;
+ * a REQUEST_UPDATE from A on that stream closes the session
+ * UNEXPECTED_MESSAGE and is not answered. */
+static void mtuo_wrong_direction(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  u64 up = (u64)mups_up_sid();
+  usz n0 = mtuo_n_on(up);
+  mtup_update(SESS_A, up, &p);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
+  CHECK(mtuo_n_on(up) == n0);
+}
+
+static void test_moqtrun_d23uo_wrong_direction_unexpected(void) {
+  moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_wrong_direction);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -517,4 +536,5 @@ void test_moqtrun_d23uo(void) {
       MOQVER_CAP_LOCFILTER_TYPED, MOQVER_CAP_UPD_ERR_ENDS,
       mtuo_publish_refused_keeps_d22);
   moqtrun_test_vers(MOQVER_CAP_MAX_REQUEST_UPDATES, 0, mtuo_credit);
+  test_moqtrun_d23uo_wrong_direction_unexpected();
 }

@@ -30,6 +30,11 @@ static void moqtrun_up_on_reqerr(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     wired_span          body);
+static void moqtrun_up_on_update(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body);
 static void moqtrun_up_route(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -167,6 +172,21 @@ static void moqtrun_up_on_reqerr(
   u->ngr.out = 0;
 }
 
+/* draft-23 9.5: the hub sent this SUBSCRIBE, so a REQUEST_UPDATE from
+ * its receiver is unexpected and closes the session (d22 9.5 / d19 10.9
+ * PROTOCOL_VIOLATION; d18 has no such sentence and ignores it). */
+static void moqtrun_up_on_update(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  (void)u;
+  (void)body;
+  if (moqver_caps(pp->ver) & MOQVER_CAP_UPDATE_STRAY_CLOSE) {
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
+  }
+}
+
 /* What a publisher sends on a SUBSCRIBE's stream (draft-19 10.7, 10.8,
  * 10.9, 10.11); anything else is ignored. */
 static const struct {
@@ -177,6 +197,7 @@ static const struct {
     {MOQCTL_T_REQUEST_ERROR, moqtrun_up_on_reqerr},
     {MOQCTL_T_REQUEST_OK, moqtrun_up_on_upd_ok},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_up_on_done},
+    {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_up_on_update},
 };
 
 static void moqtrun_up_route(
@@ -193,12 +214,23 @@ static void moqtrun_up_route(
   }
 }
 
+/* 1 when u holds a complete message for the route table: a known Type,
+ * implemented or not (REQUEST_UPDATE classifies as the latter). */
+static int moqtrun_up_pop(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    u64*                type,
+    wired_span*         body) {
+  int r = moqtrun_asm_pop(hub, pp, &u->in, type, body);
+  return r == MOQCTL_OK || r == MOQCTL_KNOWN_UNIMPLEMENTED;
+}
+
 static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64        type = 0;
   wired_span body = {0, 0};
-  while (u->in_use &&
-         moqtrun_asm_pop(hub, pp, &u->in, &type, &body) == MOQCTL_OK) {
+  while (u->in_use && moqtrun_up_pop(hub, pp, u, &type, &body)) {
     moqtrun_up_route(hub, pp, u, type, body);
   }
 }
