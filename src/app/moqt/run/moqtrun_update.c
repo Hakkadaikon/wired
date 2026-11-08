@@ -30,6 +30,11 @@ static void moqtrun_update_sub_apply(
     const moqtrun_upd_at* u,
     const moqctl_params*  params,
     u64                   rid);
+static void moqtrun_upd_sw_failed(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    const moqtrun_upd_at* u,
+    u64                   code);
 static int moqtrun_upd_sw_refused(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -62,8 +67,9 @@ static u64 moqtrun_upd_checked(
     wired_moqtrun_peer*   p,
     const moqtrun_upd_at* u,
     const moqctl_params*  params) {
-  if (!moqtrun_upd_apply(hub, p, u->s, u->t, params)) {
-    return MOQCTL_ERR_INTERNAL_ERROR;
+  u64 code = moqtrun_upd_apply(hub, p, u->s, u->t, params);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    return code;
   }
   moqtrun_upd_resched(hub, p, u->s, u->t);
   moqtss_on_update(hub, u->s, params, u->t); /* SSTS: joins once applied */
@@ -126,9 +132,22 @@ static void moqtrun_update_sub_apply(
   moqtrun_fill_on_update(hub, p, u->t, u->s, params, rid);
 }
 
-/* SWITCH_FROM (moqtswitch.c) on a REQUEST_UPDATE: an invalid switch is
- * refused INVALID_SWITCH before anything is applied and -- unlike a
- * failed parameter update -- leaves the subscription as it was. */
+/* An invalid switch is refused INVALID_SWITCH before anything is
+ * applied. draft-23 9.5.1: like any failed update it ends the
+ * subscription; earlier drafts leave the subscription as it was. */
+static void moqtrun_upd_sw_failed(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    const moqtrun_upd_at* u,
+    u64                   code) {
+  if (moqver_caps(p->ver) & MOQVER_CAP_UPD_ERR_ENDS) {
+    moqtrun_upd_failed(hub, p, u, code);
+    return;
+  }
+  moqtrun_send_request_error(p, code);
+}
+
+/* SWITCH_FROM (moqtswitch.c) on a REQUEST_UPDATE: 1 iff refused. */
 static int moqtrun_upd_sw_refused(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -139,7 +158,7 @@ static int moqtrun_upd_sw_refused(
   if (code == MOQTSW_ACCEPT) {
     return 0;
   }
-  moqtrun_send_request_error(p, code);
+  moqtrun_upd_sw_failed(hub, p, u, code);
   return 1;
 }
 

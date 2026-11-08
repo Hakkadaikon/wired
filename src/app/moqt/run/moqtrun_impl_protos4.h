@@ -69,7 +69,7 @@ void moqtrun_upd_params(
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     const moqctl_params*       params);
-int moqtrun_upd_apply(
+u64 moqtrun_upd_apply(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,

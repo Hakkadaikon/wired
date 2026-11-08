@@ -38,15 +38,13 @@ static int moqtrun_upd_ns_write(wired_moqtrun_req* q, const moqctl_param* pfx) {
  * TRACK_NAMESPACE_PREFIX; the same overlap restriction as a fresh
  * SUBSCRIBE_NAMESPACE applies (moqtrun_disc_sub_check), checked against
  * the CANDIDATE prefix before it replaces the live one -- a refused
- * update leaves the request's existing prefix (and announcements)
- * untouched. */
+ * update -- one that does not fit included -- leaves the request's
+ * existing prefix (and announcements) untouched. */
 static u64 moqtrun_upd_ns_prefix(
     wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_param* pfx) {
   wired_moqtrun_req before = *q;
-  if (!moqtrun_upd_ns_write(q, pfx)) {
-    return MOQCTL_ERR_INTERNAL_ERROR;
-  }
-  u64 code = moqtrun_disc_clash(hub, q, q->kind);
+  u64 code = moqtrun_upd_ns_write(q, pfx) ? moqtrun_disc_clash(hub, q, q->kind)
+                                          : MOQCTL_ERR_INTERNAL_ERROR;
   if (code == MOQTRUN_REQ_ACCEPT) {
     moqtrun_disc_forget(hub, q);
     return code;
@@ -91,6 +89,7 @@ void moqtrun_update_ns(
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     moqtrun_upd_close_ns(q);
+    moqtrun_upd_end(p); /* draft-23 9.5.1 */
     return;
   }
   moqtrun_upd_ns_forward(q, params);

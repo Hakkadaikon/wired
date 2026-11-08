@@ -1,11 +1,12 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static int moqtrun_upd_fits(
+static u64 moqtrun_upd_fits(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     u8                         was_off);
+static u64 moqtrun_upd_load_code(const wired_moqtrun_peer* p);
 static int moqtrun_ssts_peer_track(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t);
 static int  moqtrun_relay_holds(const wired_moqtrun_relay* rl, usz i);
@@ -20,24 +21,34 @@ static int moqtrun_fill_open_of(
 static void moqtrun_fills_resched(
     wired_moqt_hub* hub, const wired_wt_session* wt, u64 rid);
 
-/* 1 iff the applied update s with fill room can stand: a FORWARD
- * 0 -> 1 blob send is accepted. */
-static int moqtrun_upd_fits(
+/* MOQTRUN_REQ_ACCEPT iff the applied update s with fill room can stand:
+ * a FORWARD 0 -> 1 blob send is accepted; else INTERNAL_ERROR. */
+static u64 moqtrun_upd_fits(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
     const wired_moqtrun_track* t,
     u8                         was_off) {
   if (!moqtrun_upd_turned_on(was_off, s, t)) {
-    return 1;
+    return MOQTRUN_REQ_ACCEPT;
   }
-  return moqtrun_upd_forward_on(hub, p, s, t);
+  return moqtrun_upd_forward_on(hub, p, s, t) ? MOQTRUN_REQ_ACCEPT
+                                              : MOQCTL_ERR_INTERNAL_ERROR;
+}
+
+/* A fill without room: draft-23 9.19.15 "MAY reject ... with
+ * EXCESSIVE_LOAD"; earlier drafts answer INTERNAL_ERROR. */
+static u64 moqtrun_upd_load_code(const wired_moqtrun_peer* p) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_UPD_ERR_ENDS)
+             ? MOQCTL_ERR_EXCESSIVE_LOAD
+             : MOQCTL_ERR_INTERNAL_ERROR;
 }
 
 /* All or nothing: a fill without room (decided before REQUEST_OK,
  * moqtrun_fill_room) or a refused blob send restores the whole
- * subscription as it was and fails the update. */
-int moqtrun_upd_apply(
+ * subscription as it was and fails the update with that code;
+ * MOQTRUN_REQ_ACCEPT once applied. */
+u64 moqtrun_upd_apply(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     wired_moqtrun_sub*         s,
@@ -45,12 +56,13 @@ int moqtrun_upd_apply(
     const moqctl_params*       params) {
   wired_moqtrun_sub before = *s;
   moqtrun_upd_params(s, t, params);
-  if (moqtrun_fill_room(hub, t, s, params) &&
-      moqtrun_upd_fits(hub, p, s, t, before.forward_off)) {
-    return 1;
+  u64 code = moqtrun_fill_room(hub, t, s, params)
+                 ? moqtrun_upd_fits(hub, p, s, t, before.forward_off)
+                 : moqtrun_upd_load_code(p);
+  if (code != MOQTRUN_REQ_ACCEPT) {
+    *s = before;
   }
-  *s = before;
-  return 0;
+  return code;
 }
 
 /* SSTS (moqtssts_run.c): t is a peer's track, not the hub's blob / live;

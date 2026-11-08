@@ -115,6 +115,7 @@ static void moqtrun_update_pub(
   (void)hub;
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
+    moqtrun_upd_end(p); /* draft-23 9.5.1 */
     return;
   }
   moqtrun_queue_request_ok(p, 0);

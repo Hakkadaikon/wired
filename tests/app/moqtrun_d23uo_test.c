@@ -244,6 +244,133 @@ static void test_moqtrun_d23uo_nothing_after_close(void) {
   CHECK(mtuo_n() <= WIRED_MOQTRUN_MAX_REQ_UPDATES);
 }
 
+/* ===================== kinds of failure ===================== */
+
+/* Reply count on request stream sid. */
+static usz mtuo_n_on(u64 sid) {
+  u64 t[16];
+  return mtuo_replies(sid, t, 16);
+}
+
+/* draft-23 9.5.1: a refused switch (INVALID_SWITCH) ends the request
+ * like any failed update -- PUBLISH_DONE UPDATE_FAILED, the subscription
+ * gone, a later update unanswered. Earlier drafts keep the subscription
+ * (test_moqtrun_switch_update). */
+static void test_moqtrun_d23uo_invalid_switch_ends(void) {
+  static const u8 bad[] = {0x08, 0x01, 0x24, 0x03, 0x28, 0x01, 0x80};
+  u64             count;
+  moqctl_params   p0 = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  moqctl_params   pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 1);
+  moqctl_ftn      lo = mtsw_ftn("lo");
+  mtsw_setup();
+  mtst_subscribe_p(SESS_B, MTRQ_S2, &lo, MTSW_RID_LO, &p0);
+  mtrq_raw(SESS_B, MTRQ_S2, MOQTSTAT_T_REQUEST_UPDATE, bad, sizeof bad);
+  CHECK(mtrq_err_on(MTRQ_S2) == MOQCTL_ERR_INVALID_SWITCH);
+  CHECK(mtsw_lo() == 0);
+  CHECK(mtdr_done_on(MTRQ_S2, &count) == MOQCTL_DONE_UPDATE_FAILED);
+  mtup_update(SESS_B, MTRQ_S2, &pr);
+  CHECK(mtuo_n_on(MTRQ_S2) == 1);
+}
+
+/* draft-23 9.19.15: a FILL_PARAMETERS update that would open one fill
+ * too many is EXCESSIVE_LOAD and ends the subscription (PUBLISH_DONE
+ * UPDATE_FAILED); earlier drafts answer INTERNAL_ERROR
+ * (test_moqtrun_fillfix_full_update_refused). */
+static void test_moqtrun_d23uo_fill_excessive_load_ends(void) {
+  moqfetch_fill fill = {0};
+  u64           count;
+  mffx_three_groups();
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D19;
+  mffx_fill_tables(); /* its FETCHes use B's pre-draft-22 layout */
+  mfill_subscribe_req(0);
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = g_moqtrun_test_ver;
+  moqctl_params p                            = mfill_params(&fill, 0);
+  p.items[0].enc = MOQCTL_PENC_FILL23; /* count, no Length (9.19.15) */
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_UPDATE_FAILED);
+}
+
+/* B's own PUBLISH on MTRQ_S1 gets a refused update (an inverted
+ * LOCATION_FILTER is INVALID_RANGE) and then an acceptable one. */
+static usz mtuo_pub_refused_then_update(void) {
+  moqctl_params bad =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1));
+  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  usz n0 = mtuo_n_on(MTRQ_S1); /* a draft-22 PUBLISH is answered REQUEST_OK */
+  mtup_update(SESS_A, MTRQ_S1, &bad);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
+  mtup_update(SESS_A, MTRQ_S1, &(moqctl_params){0});
+  return mtuo_n_on(MTRQ_S1) - n0;
+}
+
+/* draft-23 9.5.1: refusing an update of the peer's own PUBLISH ends the
+ * request too: the next update gets no reply. */
+static void test_moqtrun_d23uo_publish_update_refused_ends(void) {
+  CHECK(mtuo_pub_refused_then_update() == 1);
+}
+
+/* draft-22: the request stays and the next update is REQUEST_OK. */
+static void mtuo_publish_refused_keeps_d22(void) {
+  CHECK(mtuo_pub_refused_then_update() == 2);
+}
+
+/* A TRACK_NAMESPACE_PREFIX update the hub cannot store (one field past
+ * WIRED_MOQTRUN_MAX_NS) is refused and leaves the request's prefix "chat"
+ * as it was -- no half-written prefix (9.5). On draft-23 the request has
+ * ended, so a later update is not answered. */
+static void test_moqtrun_d23uo_failed_prefix_keeps_old(void) {
+  static char big[WIRED_MOQTRUN_MAX_NS + 8];
+  u8          want[16];
+  usz         n    = 0;
+  moqctl_ns   chat = mtns_ns("chat");
+  bytes_memset(big, 'x', sizeof big - 1);
+  CHECK(moqctl_ns_put(wired_mspan_of(want, sizeof want), &n, &chat));
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  usz           n0 = mtuo_n_on(MTRQ_S1); /* its own REQUEST_OK */
+  moqctl_params p  = mtup_ns_param(big);
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
+  wired_moqtrun_req* q = moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1);
+  CHECK(q && q->ns_len == n && moqtrun_bytes_eq(q->ns, want, n));
+  mtup_update(SESS_B, MTRQ_S1, &(moqctl_params){0});
+  CHECK(
+      mtuo_n_on(MTRQ_S1) - n0 ==
+      ((moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_UPD_ERR_ENDS) ? 1 : 2));
+}
+
+/* ===================== never coalesced (9.19.15, 9.19.20) ============ */
+
+/* A FILL_PARAMETERS update and the plain update after it get one reply
+ * each. */
+static void test_moqtrun_d23uo_fill_not_coalesced(void) {
+  moqctl_params base = mffx_sub_filter(MOQCTL_RSK_ABS, 2);
+  mffx_three_groups();
+  mfill_subscribe_req(&base);
+  usz           n0  = mtuo_n_on(MTRQ_S1);
+  moqctl_params upd = mffx_no_lf(0);
+  mtup_update(SESS_B, MTRQ_S1, &upd);
+  mtuo_prio(4);
+  CHECK(mtuo_n_on(MTRQ_S1) - n0 == 2);
+}
+
+/* A TRACK_NAMESPACE_PREFIX update and the plain update after it get one
+ * reply each. */
+static void test_moqtrun_d23uo_prefix_not_coalesced(void) {
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  usz           n0 = mtuo_n_on(MTRQ_S1);
+  moqctl_params p  = mtup_ns_param("video");
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  mtup_update(SESS_B, MTRQ_S1, &(moqctl_params){0});
+  CHECK(mtuo_n_on(MTRQ_S1) - n0 == 2);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -251,6 +378,9 @@ static void mtuo_all(void) {
   test_moqtrun_d23uo_coalesce_equals_sequential();
   test_moqtrun_d23uo_refused_reply_keeps_order();
   test_moqtrun_d23uo_failed_update_publish_done();
+  test_moqtrun_d23uo_failed_prefix_keeps_old();
+  test_moqtrun_d23uo_fill_not_coalesced();
+  test_moqtrun_d23uo_prefix_not_coalesced();
 }
 
 static void mtuo_d23(void) {
@@ -258,6 +388,9 @@ static void mtuo_d23(void) {
   test_moqtrun_d23uo_after_end_no_reply();
   test_moqtrun_d23uo_over_credit_after_end();
   test_moqtrun_d23uo_flush_keeps_dropped_outstanding();
+  test_moqtrun_d23uo_invalid_switch_ends();
+  test_moqtrun_d23uo_fill_excessive_load_ends();
+  test_moqtrun_d23uo_publish_update_refused_ends();
 }
 
 static void mtuo_credit(void) {
@@ -270,5 +403,8 @@ void test_moqtrun_d23uo(void) {
   moqtrun_test_allver(mtuo_all);
   moqtrun_test_vers(MOQVER_CAP_UPD_ERR_ENDS, 0, mtuo_d23);
   moqtrun_test_vers(0, MOQVER_CAP_UPD_ERR_ENDS, mtuo_after_end_answered_d22);
+  moqtrun_test_vers(
+      MOQVER_CAP_LOCFILTER_TYPED, MOQVER_CAP_UPD_ERR_ENDS,
+      mtuo_publish_refused_keeps_d22);
   moqtrun_test_vers(MOQVER_CAP_MAX_REQUEST_UPDATES, 0, mtuo_credit);
 }
