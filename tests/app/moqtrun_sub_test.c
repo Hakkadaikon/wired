@@ -842,15 +842,12 @@ static void test_moqtrun_req_bad_first_message_closes(void) {
 
 /* After the first message a request stream carries only what its kind
  * allows (draft 10.4, 10.9, 10.11): a second request, or REQUEST_UPDATE
- * on TRACK_STATUS, is a PROTOCOL_VIOLATION; GOAWAY, and PUBLISH_DONE on a
- * PUBLISH, are not. */
+ * on TRACK_STATUS, is a PROTOCOL_VIOLATION; PUBLISH_DONE on a PUBLISH is
+ * not (GOAWAY: test_moqtrun_req_goaway_receiver). */
 static void test_moqtrun_req_second_message_checked(void) {
-  static const u8 upd[]  = {0x00, 0x00};
-  static const u8 away[] = {0x00};
-  moqctl_ftn      f      = mtrq_setup();
+  static const u8 upd[] = {0x00, 0x00};
+  moqctl_ftn      f     = mtrq_setup();
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
-  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
-  CHECK(mtrq_closes() == 0);
   mtst_subscribe(SESS_B, MTRQ_S1, &f);
   CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
   mtrq_setup();
@@ -978,7 +975,8 @@ static void test_moqtrun_req_goaway_watermark_d18(void) {
 }
 
 /* draft 10.4: a second GOAWAY on one request stream is a
- * PROTOCOL_VIOLATION. */
+ * PROTOCOL_VIOLATION (UNEXPECTED_MESSAGE in draft-23 9.2, where the
+ * first one already closes: mtrq_goaway_receiver_closes). */
 static void test_moqtrun_req_second_goaway_closes(void) {
   static const u8 away[] = {0x00};
   moqctl_ftn      f      = mtrq_setup();
@@ -987,6 +985,33 @@ static void test_moqtrun_req_second_goaway_closes(void) {
   CHECK(mtrq_closes() == 0);
   mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
   CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
+}
+
+/* draft-23 9.2: "Only the receiver of a request can send GOAWAY on its
+ * request stream" -- the hub received B's SUBSCRIBE, so B's GOAWAY there
+ * closes PROTOCOL_VIOLATION. */
+static void mtrq_goaway_receiver_closes(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(mtrq_closes() == 1);
+}
+
+/* Earlier drafts let either side send it: the hub ignores it. */
+static void mtrq_goaway_receiver_ignores(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtrq_setup();
+  mtst_subscribe(SESS_B, MTRQ_S1, &f);
+  mtrq_raw(SESS_B, MTRQ_S1, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
+static void test_moqtrun_req_goaway_receiver(void) {
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtrq_goaway_receiver_closes);
+  moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mtrq_goaway_receiver_ignores);
+  moqtrun_test_vers(
+      0, MOQVER_CAP_REQ_GOAWAY23, test_moqtrun_req_second_goaway_closes);
 }
 
 /* A reset before the hub answered still resets the hub's side with
@@ -2276,7 +2301,6 @@ static void mtall_sub(void) {
   test_moqtrun_req_finished_do_not_exhaust();
   test_moqtrun_req_per_session_cap();
   test_moqtrun_req_pool_full_resets();
-  test_moqtrun_req_second_goaway_closes();
   test_moqtrun_req_reset_unanswered();
   test_moqtrun_req_needs_reply_op();
 }
@@ -2301,4 +2325,5 @@ void test_moqtrun_sub(void) {
   test_moqtrun_req_goaway_watermark_d18();
   moqtrun_test_allver(mtall_sub);
   moqtrun_test_vers(MOQVER_CAP_RANGE_FILTERS, 0, mtall_sub_rngf);
+  test_moqtrun_req_goaway_receiver();
 }

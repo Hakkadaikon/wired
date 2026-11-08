@@ -174,6 +174,18 @@ void moqtrun_pubst_update(
   p->req = saved;
 }
 
+/* draft-23 9.2: B received the hub's PUBLISH and may send GOAWAY on its
+ * stream (moqtrun_goaway_moves). shortcut: the PUBLISH is not re-issued
+ * (a SHOULD), the subscription stays; re-PUBLISH on the current session
+ * if a subscriber is seen to rely on it. */
+static void moqtrun_pubst_goaway(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_req*  q,
+    wired_span          body) {
+  (void)moqtrun_goaway_moves(hub, p, &q->goaway, body);
+}
+
 static void moqtrun_pubst_ignore(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -192,6 +204,7 @@ static const struct {
     {MOQCTL_T_REQUEST_OK, moqtrun_pubst_ok},
     {MOQCTL_T_REQUEST_ERROR, moqtrun_pubst_error},
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_pubst_update},
+    {MOQCTL_T_GOAWAY, moqtrun_pubst_goaway},
 };
 
 moqtrun_pubst_fn moqtrun_pubst_lookup(u64 type) {

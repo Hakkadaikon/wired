@@ -121,6 +121,10 @@
  * parameter in its PUBLISH once it received Objects (draft-23 7.5,
  * 9.19.17). */
 #define MOQVER_CAP_RELAY_LARGEST (1ull << 32)
+/** Only a request's receiver sends GOAWAY on its stream: one received by
+ * the receiver closes PROTOCOL_VIOLATION, the sender re-issues the request
+ * (draft-23 9.2). */
+#define MOQVER_CAP_REQ_GOAWAY23 (1ull << 34)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
