@@ -24,7 +24,6 @@ static void moqtrun_up_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_settle_open(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
-static int  moqtrun_up_pending(const wired_moqtrun_up* u);
 static void moqtrun_up_lost(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_sweep_one(wired_moqt_hub* hub, wired_moqtrun_up* u);
 static void moqtrun_up_props_refuse(
@@ -136,18 +135,15 @@ static void moqtrun_up_settle_open(
   }
 }
 
-static int moqtrun_up_pending(const wired_moqtrun_up* u) {
-  return !u->track_tag && !u->failed;
-}
-
 /* u's publisher session is gone: u goes, no io. Its track already ended
- * for every subscriber; a still unanswered u fails its waiters once no
+ * for every subscriber; a u with no track fails its waiters once no
  * other publisher's SUBSCRIBE for the Track is open
- * (moqtrun_up_refuse_lost). */
+ * (moqtrun_up_refuse_lost) -- a refusal record finds none: they were
+ * answered when the last open SUBSCRIBE for the Track settled. */
 static void moqtrun_up_lost(wired_moqt_hub* hub, wired_moqtrun_up* u) {
   moqtrun_key k = moqtrun_up_key(u);
   u->in_use     = 0;
-  if (moqtrun_up_pending(u) && !moqtrun_up_live_of_key(hub, k)) {
+  if (!u->track_tag && !moqtrun_up_live_of_key(hub, k)) {
     moqtrun_up_refuse_lost(hub, k);
   }
 }
