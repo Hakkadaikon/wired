@@ -52,6 +52,13 @@ import {
 	stubWebTransport,
 } from "./fakeWebTransport";
 
+// A NAMESPACE (0x8: suffix + no Parameters, 9.15) or NAMESPACE_DONE (0xE:
+// the suffix alone, 9.16) body.
+function nsBody(type: bigint, fields: string[]): Uint8Array {
+	const suffix = encodeNamespace(fields.map(utf8ToBytes));
+	return type === 0x8n ? concatBytes([suffix, Uint8Array.of(0)]) : suffix;
+}
+
 // Wraps an already-encoded Object body (text-part or attachment-chunk) in
 // the SUBGROUP_HEADER + Object envelope a real uni stream carries, for
 // pushing into FakeWebTransport.incomingUnidirectionalStreams.
@@ -338,8 +345,8 @@ describe("MoqtChatClient transport close detection", () => {
 	});
 });
 
-// draft-ietf-moq-transport-19 3.3 (draft-19 legacy session): every request
-// rides its own bidi stream and its answer comes back on that stream.
+// draft-ietf-moq-transport-23 6.4.2: every request rides its own bidi
+// stream and its answer comes back on that stream.
 describe("MoqtChatClient request streams", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
@@ -382,7 +389,6 @@ describe("MoqtChatClient request streams", () => {
 				errorReason: new Uint8Array(0),
 			}),
 		);
-	const fetchOk = () => hexToBytes("18000400030100"); // not End of Track, End {3,1}, no params
 
 	it("connect PUBLISHes the chat track on its own request stream with an even Request ID", async () => {
 		const { fake } = await connected();
@@ -445,111 +451,9 @@ describe("MoqtChatClient request streams", () => {
 
 		expect(fake.requestsOf(MSG_SUBSCRIBE)).toHaveLength(0);
 	});
-
-	it("history: SUBSCRIBE asks for Largest Object, then a Relative Joining FETCH tied to it", async () => {
-		const { fake, client } = await connected();
-		const done = vi.fn();
-
-		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
-			joiningStart: 16n,
-			onObject: () => {},
-			onDone: done,
-		});
-		await flush();
-		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-		const req = decodeSubscribe(s.request.body);
-		expect(req.parameters).toEqual([
-			{ type: 0x21n, value: Uint8Array.of(0x2) },
-		]);
-		s.replies.push(subscribeOk({ group: 3n, object: 0n }));
-		await sub;
-		await flush();
-
-		const [f] = fake.requestsOf(MSG_FETCH);
-		// Fetch Type 0x2, Joining Request ID = the SUBSCRIBE's, Joining Start 16.
-		const body = f.request.body;
-		expect(decodeVarint(body, 1).value).toBe(2n);
-		expect(decodeVarint(body, 2).value).toBe(req.requestId);
-		expect(decodeVarint(body, 3).value).toBe(16n);
-		expect(f.closed).toBe(true);
-		expect(done).not.toHaveBeenCalled();
-	});
-
-	it("history: one FETCH request at a time, so a join burst stays inside the hub's per-session request cap", async () => {
-		const { fake, client } = await connected();
-		const history = () => ({
-			joiningStart: 16n,
-			onObject: () => {},
-			onDone: () => {},
-		});
-
-		const a = client.subscribeTrack(utf8ToBytes("user2"), "user2", history());
-		const b = client.subscribeTrack(utf8ToBytes("user3"), "user3", history());
-		await flush();
-		for (const s of fake.requestsOf(MSG_SUBSCRIBE))
-			s.replies.push(subscribeOk({ group: 1n, object: 0n }));
-		await Promise.all([a, b]);
-		await flush();
-		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(1);
-
-		fake.requestsOf(MSG_FETCH)[0].replies.push(fetchOk());
-		await flush();
-		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(2);
-	});
-
-	it("history: no FETCH when SUBSCRIBE_OK carries no Largest Object", async () => {
-		const { fake, client } = await connected();
-		const done = vi.fn();
-
-		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
-			joiningStart: 16n,
-			onObject: () => {},
-			onDone: done,
-		});
-		await flush();
-		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(subscribeOk());
-		await sub;
-
-		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
-		expect(done).toHaveBeenCalledOnce();
-	});
-
-	it("history: the FETCH_HEADER stream's Objects go to the subscription's onObject, then onDone", async () => {
-		const { fake, client } = await connected();
-		const got: string[] = [];
-		const done = vi.fn();
-
-		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
-			joiningStart: 16n,
-			onObject: (o) =>
-				got.push(`${o.group}/${o.object}:${bytesToUtf8(o.payload)}`),
-			onDone: done,
-		});
-		await flush();
-		fake
-			.requestsOf(MSG_SUBSCRIBE)[0]
-			.replies.push(subscribeOk({ group: 5n, object: 1n }));
-		await sub;
-		await flush();
-		const [f] = fake.requestsOf(MSG_FETCH);
-		f.replies.push(fetchOk());
-		const rid = decodeVarint(f.request.body, 0).value;
-		// FETCH_HEADER(rid), then G5/O0 "hi" and G5/O1 "x" (fetch_stream_basic's Objects).
-		fake.incomingUnidirectionalStreams.push(
-			concatBytes([
-				hexToBytes("05"),
-				encodeVarint(rid),
-				hexToBytes("1c050080026869010178"),
-			]),
-		);
-		await flush();
-
-		expect(got).toEqual(["5/0:hi", "5/1:x"]);
-		expect(done).toHaveBeenCalledOnce();
-	});
 });
 
-// draft-ietf-moq-transport-19 6.1-6.2 (draft-19 legacy session): who is in the room comes from
+// draft-ietf-moq-transport-23 4.1-4.2: who is in the room comes from
 // PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE, not from polling SUBSCRIBE.
 describe("MoqtChatClient namespace discovery", () => {
 	afterEach(() => {
@@ -558,8 +462,10 @@ describe("MoqtChatClient namespace discovery", () => {
 	});
 
 	const flush = () => vi.advanceTimersByTimeAsync(0);
+	// NAMESPACE (0x8) ends with its Number of Parameters (9.15); NAMESPACE_DONE
+	// is the suffix alone (9.16).
 	const ns = (type: bigint, ...fields: string[]) =>
-		encodeControlFrame(type, encodeNamespace(fields.map(utf8ToBytes)));
+		encodeControlFrame(type, nsBody(type, fields));
 
 	async function announced() {
 		vi.useFakeTimers();
@@ -604,6 +510,24 @@ describe("MoqtChatClient namespace discovery", () => {
 		expect(bytesToUtf8(decodeSubscribe(s.request.body).trackName)).toBe(
 			"user2",
 		);
+	});
+
+	it("a NAMESPACE carrying Parameters is still discovered (9.15)", async () => {
+		const { seen, watch } = await announced();
+
+		// suffix {user2}, 1 parameter: AUTHORIZATION_TOKEN (0x03) Length 1 "x".
+		watch.replies.push(
+			encodeControlFrame(
+				0x8n,
+				concatBytes([
+					encodeNamespace([utf8ToBytes("user2")]),
+					hexToBytes("01030178"),
+				]),
+			),
+		);
+		await flush();
+
+		expect(seen).toEqual(["+user2"]);
 	});
 
 	it("its own namespace and an id outside the room's pool are ignored", async () => {
@@ -755,6 +679,8 @@ describe("MoqtChatClient.sendMessage", () => {
 		const connected = client.connect("https://hub.example/", []);
 		fake.resolveReady();
 		await connected;
+		// The first uni stream is our control stream (SETUP, 6.3).
+		streams.shift();
 		return { client, streams, written: streams };
 	}
 
@@ -1266,7 +1192,7 @@ describe("certHashesToWebTransportOptions", () => {
 	});
 });
 
-// draft-ietf-moq-transport-19 3.6 / 10.4 (draft-19 legacy session): GOAWAY on the hub's control
+// draft-ietf-moq-transport-23 6.6.1 / 9.2: GOAWAY on the hub's control
 // stream, or the WebTransport session draining, tells the client to move.
 describe("MoqtChatClient going away", () => {
 	afterEach(() => {
@@ -1285,6 +1211,7 @@ describe("MoqtChatClient going away", () => {
 			onGoaway: (uri) => goaways.push(uri),
 		});
 		const ready = client.connect("https://hub.example/", []);
+		fake.startControl();
 		fake.resolveReady();
 		await ready;
 		return { fake, client, goaways };
@@ -1299,8 +1226,8 @@ describe("MoqtChatClient going away", () => {
 	it("a GOAWAY on the control stream reports its New Session URI, once per session", async () => {
 		const { fake, goaways } = await connected();
 
-		fake.controlReplies.push(goaway("https://next.example/"));
-		fake.controlReplies.push(goaway("https://other.example/"));
+		fake.serverControl.push(goaway("https://next.example/"));
+		fake.serverControl.push(goaway("https://other.example/"));
 		await vi.advanceTimersByTimeAsync(0);
 
 		expect(goaways).toEqual(["https://next.example/"]);
@@ -1328,7 +1255,7 @@ describe("MoqtChatClient going away", () => {
 		const { fake, client, goaways } = await connected();
 
 		client.close();
-		fake.controlReplies.push(goaway(""));
+		fake.serverControl.push(goaway(""));
 		fake.resolveDraining();
 		await vi.advanceTimersByTimeAsync(0);
 
@@ -1336,13 +1263,12 @@ describe("MoqtChatClient going away", () => {
 	});
 });
 
-// draft-ietf-moq-transport-22, negotiated as the WebTransport subprotocol
-// "moqt-22": each side opens its own uni control stream starting with SETUP
-// (6.3), GOAWAY (9.2) arrives on the hub's, and a chat history is a
-// SUBSCRIBE whose FILL_PARAMETERS (9.20.15) opens a fill fetch stream (3.4)
-// -- no Joining FETCH. Without the subprotocol (protocol undefined) every
-// test above runs the draft-19 legacy session unchanged.
-describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
+// draft-ietf-moq-transport-23, negotiated as the WebTransport subprotocol
+// "moqt-23" (6.2.1): each side opens its own uni control stream starting
+// with SETUP (6.3), GOAWAY (9.2) arrives on the hub's, and a chat history
+// is a SUBSCRIBE whose FILL_PARAMETERS (9.19.15) opens a fill fetch stream
+// (3.4). A session that negotiated anything else is refused.
+describe("MoqtChatClient draft-23 session (moqt-23 negotiated)", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.useRealTimers();
@@ -1350,10 +1276,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 
 	const flush = () => vi.advanceTimersByTimeAsync(0);
 
-	async function connected22(
-		callbacks: Partial<MoqtChatCallbacks> = {},
-		negotiate = true,
-	) {
+	async function connected23(callbacks: Partial<MoqtChatCallbacks> = {}) {
 		vi.useFakeTimers();
 		const fake = new FakeWebTransport();
 		stubWebTransport((_url, options) => {
@@ -1369,7 +1292,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 			...callbacks,
 		});
 		const ready = client.connect("https://hub.example/", []);
-		if (negotiate) fake.startD22Control();
+		fake.startControl();
 		fake.resolveReady();
 		await ready;
 		await flush();
@@ -1419,26 +1342,48 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		onDone: done,
 	});
 
-	it("offers the moqt-22 WebTransport subprotocol", async () => {
-		const { fake, client } = await connected22();
+	it("offers the moqt-23 WebTransport subprotocol, and only it", async () => {
+		const { fake } = await connected23();
 
-		expect(fake.options?.protocols).toEqual(["moqt-22"]);
-		expect(client.draft).toBe(22);
+		expect(fake.options?.protocols).toEqual(["moqt-23"]);
 	});
 
+	for (const protocol of [undefined, "", "moqt-22"]) {
+		it(`refuses a session that negotiated ${JSON.stringify(protocol)}, not moqt-23`, async () => {
+			vi.useFakeTimers();
+			const fake = new FakeWebTransport();
+			stubWebTransport(() => fake);
+			const statuses: string[] = [];
+			const client = new MoqtChatClient("user1", {
+				onStatusChange: (s) => statuses.push(s),
+				onMessage: () => {},
+			});
+			const attempt = client.connect("https://hub.example/", []);
+			fake.protocol = protocol;
+			fake.resolveReady();
+
+			await expect(attempt).rejects.toThrow(/moqt-23/);
+			expect(fake.closeCalls).toBe(1);
+			expect(fake.requests).toHaveLength(0);
+			expect(fake.uniStreams).toHaveLength(0);
+			expect(statuses).toEqual(["connecting"]);
+		});
+	}
+
 	it("opens its own uni control stream with SETUP and keeps it open", async () => {
-		const { fake, statuses } = await connected22();
+		const { fake, statuses } = await connected23();
 
 		expect(statuses).toEqual(["connecting", "connected"]);
-		// SETUP's only option: SSTS_ALGORITHMS [0xff01, 0] (moqtClientSwitch.test.ts).
+		// SETUP (Type af00, vi64 Length 7) whose only option is SSTS_ALGORITHMS
+		// (0x3F01 -> bf01) [0xff01, 0] (moqtClientSwitch.test.ts).
 		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
-			"af0000060904c0ff0100",
+			"af0007bf0104c0ff0100",
 		);
 		expect(fake.uniStreams[0].closed).toBe(false);
 	});
 
 	it("takes no hub-opened bidi stream for a control stream", async () => {
-		const { fake, goaways } = await connected22();
+		const { fake, goaways } = await connected23();
 
 		const req = fake.pushHubRequest(goaway("https://next.example/"));
 		await flush();
@@ -1447,7 +1392,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("answers a request the hub opens (an upstream FETCH) with REQUEST_ERROR NOT_SUPPORTED at once", async () => {
-		const { fake } = await connected22();
+		const { fake } = await connected23();
 
 		const req = fake.pushHubRequest(
 			encodeControlFrame(MSG_FETCH, new Uint8Array([0x00, 0x01])),
@@ -1466,7 +1411,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("a GOAWAY on the hub's uni control stream reports its New Session URI, once", async () => {
-		const { fake, goaways } = await connected22();
+		const { fake, goaways } = await connected23();
 
 		fake.serverControl.push(goaway("https://next.example/"));
 		fake.serverControl.push(goaway("https://other.example/"));
@@ -1476,7 +1421,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: SUBSCRIBE asks for Next Object plus a fill of Relative Start joiningStart+1; no FETCH", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 
 		const sub = client.subscribeTrack(
 			utf8ToBytes("user2"),
@@ -1486,8 +1431,8 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		await flush();
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
 		// 2 params: LOCATION_FILTER (0x21) Next Object 05, FILL_PARAMETERS (delta
-		// 2 -> 0x23) Length 4 { 1 param: LOCATION_FILTER Relative Start 17 }.
-		expect(subscribeParamsHex(s.request.body)).toBe("022105020401210111");
+		// 2 -> 0x23, no Length) { 1 param: LOCATION_FILTER Relative Start 17 }.
+		expect(subscribeParamsHex(s.request.body)).toBe("0221050201210111");
 		s.replies.push(subscribeOk({ group: 3n, object: 0n }));
 		await sub;
 		await flush();
@@ -1496,7 +1441,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: joiningStart 0 (the screen share's current Group) is Relative Start 1", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 
 		void client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
@@ -1507,28 +1452,26 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 
 		expect(
 			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
-		).toBe("022105020401210101");
+		).toBe("0221050201210101");
 	});
 
 	it("a peer's chat track asks for CHAT_HISTORY_GROUPS (64) Groups: Relative Start 65", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 
 		await client.announce();
 		await flush();
 		fake
 			.requestsOf(MSG_SUBSCRIBE_NAMESPACE)[0]
-			.replies.push(
-				encodeControlFrame(0x8n, encodeNamespace([utf8ToBytes("user2")])),
-			);
+			.replies.push(encodeControlFrame(0x8n, nsBody(0x8n, ["user2"])));
 		await flush();
 
 		expect(
 			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
-		).toBe("022105020401210141");
+		).toBe("0221050201210141");
 	});
 
 	it("history: the fill stream (FETCH_HEADER with the SUBSCRIBE's Request ID) feeds onObject, then onDone", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const got: string[] = [];
 		const done = vi.fn();
 
@@ -1541,7 +1484,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
 		s.replies.push(subscribeOk({ group: 5n, object: 1n }));
 		await sub;
-		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const rid = decodeSubscribe(s.request.body).requestId;
 		fake.incomingUnidirectionalStreams.push(
 			concatBytes([
 				hexToBytes("05"),
@@ -1557,7 +1500,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: a fill stream that beats SUBSCRIBE_OK is still delivered, and onDone fires once", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const got: string[] = [];
 		const done = vi.fn();
 
@@ -1568,7 +1511,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		);
 		await flush();
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
-		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const rid = decodeSubscribe(s.request.body).requestId;
 		fake.incomingUnidirectionalStreams.push(
 			concatBytes([
 				hexToBytes("05"),
@@ -1586,7 +1529,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: a fill's End of Timed-Out Range (0x20C) is skipped, the Objects after it delivered", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const got: string[] = [];
 		const done = vi.fn();
 
@@ -1599,9 +1542,9 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
 		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
 		await sub;
-		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const rid = decodeSubscribe(s.request.body).requestId;
 		// 0x20C through G4/O9, then G5/O0 "hi" (flags 0x1c: Group Delta 0 after
-		// the marker's Group 4 -> 5, Object 0, priority 0x80; 11.4.1.2).
+		// the marker's Group 4 -> 5, Object 0, priority 0x80; 11.4.2.2).
 		fake.incomingUnidirectionalStreams.push(
 			concatBytes([
 				hexToBytes("05"),
@@ -1616,7 +1559,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: no Largest Object means no fill stream: onDone fires right away", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const done = vi.fn();
 
 		const sub = client.subscribeTrack(
@@ -1632,7 +1575,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: a refused SUBSCRIBE (DOES_NOT_EXIST) ends the history once, with no retry", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const done = vi.fn();
 
 		const sub = client.subscribeTrack(
@@ -1651,7 +1594,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: an INTERNAL_ERROR (the hub's fill table is full) retries once live-only, history ended", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		const done = vi.fn();
 
 		const sub = client.subscribeTrack(
@@ -1667,9 +1610,9 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		expect(subs).toHaveLength(2);
 		expect(first.closed).toBe(true);
 		// Same track, LOCATION_FILTER Next Object only: no FILL_PARAMETERS.
-		expect(
-			bytesToUtf8(decodeSubscribe(subs[1].request.body, 22).trackName),
-		).toBe("user2");
+		expect(bytesToUtf8(decodeSubscribe(subs[1].request.body).trackName)).toBe(
+			"user2",
+		);
 		expect(subscribeParamsHex(subs[1].request.body)).toBe("012105");
 		expect(done).toHaveBeenCalledOnce();
 		subs[1].replies.push(subscribeOk({ group: 3n, object: 0n }));
@@ -1680,8 +1623,57 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		expect(fake.requestsOf(MSG_FETCH)).toHaveLength(0);
 	});
 
+	it("history: an unknown REQUEST_ERROR code counts as INTERNAL_ERROR (13): one live-only retry", async () => {
+		const { fake, client } = await connected23();
+		const done = vi.fn();
+
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, [], done),
+		);
+		await flush();
+		// 0x9D: the first grease REQUEST_ERROR code (0x7f * 0 + 0x9D).
+		fake.requestsOf(MSG_SUBSCRIBE)[0].replies.push(requestError(0x9dn));
+		await flush();
+		const subs = fake.requestsOf(MSG_SUBSCRIBE);
+		expect(subs).toHaveLength(2);
+		expect(subscribeParamsHex(subs[1].request.body)).toBe("012105");
+		subs[1].replies.push(subscribeOk());
+		expect(await sub).toBe(true);
+		expect(done).toHaveBeenCalledOnce();
+	});
+
+	it("a SUBSCRIBE_OK with an unknown Mandatory Track Property cancels the subscription (3.7)", async () => {
+		const { fake, client } = await connected23();
+		const done = vi.fn();
+
+		const sub = client.subscribeTrack(
+			utf8ToBytes("user2"),
+			"user2",
+			history(16n, [], done),
+		);
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(
+			encodeControlFrame(
+				0x4n,
+				encodeSubscribeOk({
+					trackAlias: 9n,
+					parameters: [{ type: 0x09n, value: { group: 3n, object: 0n } }],
+					trackProperties: [{ type: 0x4000n, num: 1n }],
+				}),
+			),
+		);
+		await sub;
+
+		expect(client.isSubscribed("user2")).toBe(false);
+		expect(s.cancelled).toBe(true);
+		expect(done).toHaveBeenCalledOnce();
+	});
+
 	it("history: a peer leaving before its fill stream opens ends the history once", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		await client.announce();
 		await flush();
 		const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
@@ -1707,7 +1699,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		expect(s.cancelled).toBe(true);
 		expect(done).toHaveBeenCalledOnce();
 		// A late fill stream for the cancelled SUBSCRIBE is no longer ours.
-		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const rid = decodeSubscribe(s.request.body).requestId;
 		fake.incomingUnidirectionalStreams.push(
 			concatBytes([
 				hexToBytes("05"),
@@ -1721,7 +1713,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 	});
 
 	it("history: a peer leaving while its fill stream is open stops delivering it", async () => {
-		const { fake, client } = await connected22();
+		const { fake, client } = await connected23();
 		await client.announce();
 		await flush();
 		const [watch] = fake.requestsOf(MSG_SUBSCRIBE_NAMESPACE);
@@ -1737,7 +1729,7 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
 		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
 		await sub;
-		const rid = decodeSubscribe(s.request.body, 22).requestId;
+		const rid = decodeSubscribe(s.request.body).requestId;
 		const fill = new FakeControlReplies();
 		fill.push(
 			concatBytes([
@@ -1760,66 +1752,5 @@ describe("MoqtChatClient draft-22 session (moqt-22 negotiated)", () => {
 		await flush();
 		expect(got).toHaveLength(1);
 		expect(done).toHaveBeenCalledOnce();
-	});
-
-	it("no protocol attribute, but the hub's uni SETUP arrives: switches to draft-22", async () => {
-		vi.useFakeTimers();
-		const fake = new FakeWebTransport();
-		stubWebTransport(() => fake);
-		const goaways: string[] = [];
-		const client = new MoqtChatClient("user1", {
-			onStatusChange: () => {},
-			onMessage: () => {},
-			onGoaway: (uri) => goaways.push(uri),
-		});
-		const ready = client.connect("https://hub.example/", []);
-		fake.startD22Control(null);
-		fake.resolveReady();
-		await ready;
-		await flush();
-
-		expect(client.draft).toBe(22);
-		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
-			"af0000060904c0ff0100",
-		);
-		// The losing d19 wait on incomingBidirectionalStreams takes no later
-		// hub-opened bidi stream for a control stream: it is a request, refused.
-		const req = fake.pushHubRequest(goaway("https://other.example/"));
-		await flush();
-		expect(req.answer.type).toBe(0x5n);
-		expect(goaways).toEqual([]);
-		fake.serverControl.push(goaway("https://next.example/"));
-		await flush();
-		expect(goaways).toEqual(["https://next.example/"]);
-	});
-
-	it("an empty protocol (the flag on, nothing negotiated) is the draft-19 session", async () => {
-		vi.useFakeTimers();
-		const fake = new FakeWebTransport();
-		stubWebTransport(() => fake);
-		const client = new MoqtChatClient("user1", {
-			onStatusChange: () => {},
-			onMessage: () => {},
-		});
-		const ready = client.connect("https://hub.example/", []);
-		fake.protocol = "";
-		fake.resolveReady();
-		await ready;
-
-		expect(client.draft).toBe(19);
-		expect(fake.bidiReads).toBe(1);
-		expect(fake.uniStreams).toHaveLength(0);
-	});
-
-	it("without the subprotocol it falls back to draft-19: bidi control stream, no uni SETUP", async () => {
-		const { fake, client, goaways } = await connected22({}, false);
-
-		expect(fake.options?.protocols).toEqual(["moqt-22"]);
-		expect(client.draft).toBe(19);
-		expect(fake.bidiReads).toBe(1);
-		expect(fake.uniStreams).toHaveLength(0);
-		fake.controlReplies.push(goaway(""));
-		await flush();
-		expect(goaways).toEqual([""]);
 	});
 });

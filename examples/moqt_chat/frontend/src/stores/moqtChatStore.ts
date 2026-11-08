@@ -48,7 +48,7 @@ export type MoqtChatState = {
 	stalledScreenTiles: Record<string, boolean>; // per-sender "no frame for a while"; absent key renders as false
 	screenTileWidth: number; // displayed width of every remote screen tile, px
 	maximizedScreenTile: string | null; // remote tile shown fullscreen (or full-width without the API)
-	screenSwitching: boolean; // track switching on this session (d22 + hub SSTS): the quality selector shows
+	screenSwitching: boolean; // track switching on this session (the hub advertised SSTS): the quality selector shows
 	screenTileVariants: Record<string, ScreenVariant>; // per-sender variant last decoded (keyframe); absent = unknown
 	screenTileQuality: Record<string, ScreenQuality>; // per-sender chosen quality; absent key means "auto"
 	video: VideoSourceView; // own camera/file source, background mode and its error

@@ -1,8 +1,8 @@
-// Track switching wire forms (draft-22 sessions only; experimental
+// Track switching wire forms (experimental
 // extension values shared with moqtail, tasks/moqt-trackswitch-plan.md 1):
 // SWITCH_FROM (message parameter 0x24), SWITCHING_SET_ASSIGNMENT (0x41) and
-// the SSTS_ALGORITHMS Setup Option (0x09). Goldens are hand-derived from the
-// wire contract with MOQT's leading-ones varint (d22 8.1): 10xxxxxx is a
+// the SSTS_ALGORITHMS Setup Option (0x3F01). Goldens are hand-derived from the
+// wire contract with MOQT's leading-ones varint (d23 8.1): 10xxxxxx is a
 // 2-byte form (300 = 0x12c -> 81 2c, 2000 = 0x7d0 -> 87 d0), 110xxxxx a
 // 3-byte one (0xff01 = 65281 > 16383 -> c0 ff 01).
 import { describe, expect, it } from "vitest";
@@ -40,7 +40,7 @@ describe("SWITCH_FROM (0x24)", () => {
 			publishDone: true,
 		});
 		// Number of Parameters 1, then the parameter itself.
-		expect(bytesToHex(encodeParams([p], 22))).toBe("012403070080");
+		expect(bytesToHex(encodeParams([p]))).toBe("012403070080");
 	});
 
 	it("golden: rid 300 (2-byte varint), Soft, no Publish Done", () => {
@@ -55,29 +55,19 @@ describe("SWITCH_FROM (0x24)", () => {
 		).toBe("812c0100");
 	});
 
-	it("round-trips through decodeParams on a draft-22 session", () => {
+	it("round-trips through decodeParams", () => {
 		const sf = { requestId: 12n, mode: SWITCH_MODE_SOFT, publishDone: true };
-		const { params } = decodeParams(
-			encodeParams([switchFromParam(sf)], 22),
-			0,
-			22,
-		);
+		const { params } = decodeParams(encodeParams([switchFromParam(sf)]), 0);
 		expect(params).toHaveLength(1);
 		expect(params[0].type).toBe(PARAM_SWITCH_FROM);
 		expect(decodeSwitchFrom(params[0].value as Uint8Array)).toEqual(sf);
-	});
-
-	it("is an unknown parameter (PROTOCOL_VIOLATION) on a draft-19 session", () => {
-		expect(() => decodeParams(hexToBytes("012403070080"), 0, 19)).toThrow(
-			MoqtDecodeError,
-		);
 	});
 
 	it("rejects trailing bytes after Flags", () => {
 		expect(() => decodeSwitchFrom(hexToBytes("07008000"))).toThrow(
 			/PROTOCOL_VIOLATION/,
 		);
-		expect(() => decodeParams(hexToBytes("01240407008000"), 0, 22)).toThrow(
+		expect(() => decodeParams(hexToBytes("01240407008000"), 0)).toThrow(
 			MoqtDecodeError,
 		);
 	});
@@ -116,7 +106,7 @@ describe("SWITCHING_SET_ASSIGNMENT (0x41)", () => {
 
 	it("golden: set 2, backpressure, 2000 kbps, weight 1, activate 2, no Rank", () => {
 		const p = switchingSetAssignmentParam(base);
-		expect(bytesToHex(encodeParams([p], 22))).toBe(
+		expect(bytesToHex(encodeParams([p]))).toBe(
 			"0141" + "08" + "02" + "c0ff01" + "87d0" + "01" + "02",
 		);
 	});
@@ -134,9 +124,8 @@ describe("SWITCHING_SET_ASSIGNMENT (0x41)", () => {
 			{ ...base, rank: 255, algorithmId: SSTS_ALGORITHM_DEFAULT },
 		]) {
 			const { params } = decodeParams(
-				encodeParams([switchingSetAssignmentParam(a)], 22),
+				encodeParams([switchingSetAssignmentParam(a)]),
 				0,
-				22,
 			);
 			expect(params[0].type).toBe(PARAM_SWITCHING_SET_ASSIGNMENT);
 			expect(
@@ -190,40 +179,27 @@ describe("SWITCHING_SET_ASSIGNMENT (0x41)", () => {
 		);
 	});
 
-	it("is an unknown parameter on a draft-19 session", () => {
-		expect(() =>
-			decodeParams(
-				encodeParams([switchingSetAssignmentParam(base)], 22),
-				0,
-				19,
-			),
-		).toThrow(MoqtDecodeError);
-	});
-
 	it("orders after SWITCH_FROM in one parameter list (ascending Type deltas)", () => {
-		const bytes = encodeParams(
-			[
-				switchFromParam({
-					requestId: 1n,
-					mode: SWITCH_MODE_SOFT,
-					publishDone: false,
-				}),
-				switchingSetAssignmentParam(base),
-			],
-			22,
-		);
+		const bytes = encodeParams([
+			switchFromParam({
+				requestId: 1n,
+				mode: SWITCH_MODE_SOFT,
+				publishDone: false,
+			}),
+			switchingSetAssignmentParam(base),
+		]);
 		// 0x24, then delta 0x1d -> 0x41.
 		expect(bytesToHex(bytes)).toBe(
 			"02" + "2403010100" + "1d0802c0ff0187d00102",
 		);
-		expect(decodeParams(bytes, 0, 22).params.map((p) => p.type)).toEqual([
+		expect(decodeParams(bytes, 0).params.map((p) => p.type)).toEqual([
 			0x24n,
 			0x41n,
 		]);
 	});
 });
 
-describe("SSTS_ALGORITHMS Setup Option (0x09)", () => {
+describe("SSTS_ALGORITHMS Setup Option (0x3F01)", () => {
 	it("golden: [0xff01, 0] is 3+1 bytes of varints, no count", () => {
 		expect(
 			bytesToHex(
@@ -235,7 +211,9 @@ describe("SSTS_ALGORITHMS Setup Option (0x09)", () => {
 		).toBe("c0ff0100");
 	});
 
-	it("golden: a SETUP carrying it is 09 04 c0ff01 00 (odd Type: Length + bytes)", () => {
+	// draft-23 9.1.8 gives 0x09 to MAX_CONTROL_MESSAGE_SIZE, so the option
+	// moves to 0x3F01 (odd: Length + bytes; 16129 <= 16383 -> 2-byte bf 01).
+	it("golden: a SETUP carrying it is bf01 04 c0ff01 00 (odd Type: Length + bytes)", () => {
 		const body = encodeSetup({
 			setupOptions: [
 				{
@@ -244,7 +222,7 @@ describe("SSTS_ALGORITHMS Setup Option (0x09)", () => {
 				},
 			],
 		});
-		expect(bytesToHex(body)).toBe("0904c0ff0100");
+		expect(bytesToHex(body)).toBe("bf0104c0ff0100");
 		expect(sstsAlgorithmsOf(decodeSetup(body).setupOptions)).toEqual([
 			0xff01n,
 			0n,
@@ -269,6 +247,10 @@ describe("SSTS_ALGORITHMS Setup Option (0x09)", () => {
 		// another option (MOQT_IMPLEMENTATION 0x07) only
 		expect(
 			sstsAlgorithmsOf(decodeSetup(hexToBytes("070161")).setupOptions),
+		).toBeUndefined();
+		// MAX_CONTROL_MESSAGE_SIZE (0x09, d23 9.1.8), not SSTS_ALGORITHMS
+		expect(
+			sstsAlgorithmsOf(decodeSetup(hexToBytes("0904c0ff0100")).setupOptions),
 		).toBeUndefined();
 	});
 

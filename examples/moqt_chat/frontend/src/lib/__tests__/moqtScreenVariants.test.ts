@@ -55,7 +55,7 @@ const flush = () => vi.advanceTimersByTimeAsync(0);
 
 type Got = { participant: string; seq: number; variant?: ScreenVariant };
 
-async function session(opts: { draft: 19 | 22; hubAlgs?: bigint[] }) {
+async function session(opts: { hubAlgs?: bigint[] } = {}) {
 	vi.useFakeTimers();
 	const fake = new FakeWebTransport();
 	stubWebTransport(() => fake);
@@ -73,8 +73,7 @@ async function session(opts: { draft: 19 | 22; hubAlgs?: bigint[] }) {
 	});
 	routed.screen = screen;
 	const ready = chat.connect("https://hub.example/", []);
-	if (opts.draft === 22)
-		fake.startD22Control("moqt-22", hubSetupBody(opts.hubAlgs));
+	fake.startControl(hubSetupBody(opts.hubAlgs));
 	fake.resolveReady();
 	await ready;
 	await flush();
@@ -97,7 +96,7 @@ function paramsHex(body: Uint8Array): string {
 }
 
 const trackNameOf = (s: { request: { body: Uint8Array } }) =>
-	bytesToUtf8(decodeSubscribe(s.request.body, 22).trackName);
+	bytesToUtf8(decodeSubscribe(s.request.body).trackName);
 
 const chunk = (seq: number, keyframe: boolean): ScreenChunk => ({
 	seq,
@@ -262,9 +261,8 @@ describe("MoqtScreenClient variants: publishing", () => {
 			return [bytesToUtf8(p.trackName), p.trackAlias];
 		});
 
-	it("d22 + SSTS advertised: PUBLISHes <id>/screen (alias 10) and <id>/screen-lo (alias 14), one namespace", async () => {
+	it("SSTS advertised: PUBLISHes <id>/screen (alias 10) and <id>/screen-lo (alias 14), one namespace", async () => {
 		const { fake, screen } = await session({
-			draft: 22,
 			hubAlgs: [0xff01n, 0n],
 		});
 		expect(screen.variantsEnabled).toBe(true);
@@ -282,23 +280,19 @@ describe("MoqtScreenClient variants: publishing", () => {
 		).toEqual([["wired", "moqt_chat", "user1", "screen"]]);
 	});
 
-	it("d22 without the hub's option, and d19: only <id>/screen, as before", async () => {
-		for (const draft of [22, 19] as const) {
-			const { fake, screen } = await session({ draft });
-			expect(screen.variantsEnabled).toBe(false);
-			await screen.publishScreenTrack();
-			await flush();
-			expect(published(fake)).toEqual([
-				["user1", 0n],
-				["user1/screen", 10n],
-			]);
-			vi.unstubAllGlobals();
-			vi.useRealTimers();
-		}
+	it("without the hub's option: only <id>/screen, as before", async () => {
+		const { fake, screen } = await session();
+		expect(screen.variantsEnabled).toBe(false);
+		await screen.publishScreenTrack();
+		await flush();
+		expect(published(fake)).toEqual([
+			["user1", 0n],
+			["user1/screen", 10n],
+		]);
 	});
 
 	it("sendVideoChunk with explicit Groups: one stream per (variant, Group), headers aligned, old one FINed", async () => {
-		const { fake, screen } = await session({ draft: 22, hubAlgs: [0xff01n] });
+		const { fake, screen } = await session({ hubAlgs: [0xff01n] });
 		await screen.publishScreenTrack();
 		await flush();
 		const before = fake.uniStreams.length;
@@ -326,8 +320,8 @@ describe("MoqtScreenClient variants: publishing", () => {
 		expect(streams[0].written).toHaveLength(2); // hi Group g: keyframe + delta on one stream
 	});
 
-	it("a lo chunk is dropped when the lo variant is not published (d19 / extension off)", async () => {
-		const { fake, screen } = await session({ draft: 19 });
+	it("a lo chunk is dropped when the lo variant is not published (extension off)", async () => {
+		const { fake, screen } = await session();
 		await screen.publishScreenTrack();
 		await flush();
 		const before = fake.uniStreams.length;
@@ -342,9 +336,8 @@ describe("MoqtScreenClient variants: subscribing", () => {
 		vi.useRealTimers();
 	});
 
-	it("d22 + backpressure advertised: subscribes both variants into one switching set per participant", async () => {
+	it("backpressure advertised: subscribes both variants into one switching set per participant", async () => {
 		const { fake, screen } = await session({
-			draft: 22,
 			hubAlgs: [0xff01n, 0n],
 		});
 		void screen.subscribeToScreenTrack("user2");
@@ -353,44 +346,37 @@ describe("MoqtScreenClient variants: subscribing", () => {
 		expect(subs.map(trackNameOf)).toEqual(["user2/screen", "user2/screen-lo"]);
 		// Next Object + fill Relative Start 1 + SSA {set 1 (user2), 0xff01, kbps, weight 1, activate 2}.
 		expect(paramsHex(subs[0].request.body)).toBe(
-			"03" + "2105" + "020401210101" + "1e08" + "01c0ff0187d00102",
+			"03" + "2105" + "0201210101" + "1e08" + "01c0ff0187d00102",
 		);
 		// 400 kbps = 0x190 -> 81 90.
 		expect(paramsHex(subs[1].request.body)).toBe(
-			"03" + "2105" + "020401210101" + "1e08" + "01c0ff0181900102",
+			"03" + "2105" + "0201210101" + "1e08" + "01c0ff0181900102",
 		);
 	});
 
 	it("a hub offering only the default algorithm gets algorithm 0 in both assignments", async () => {
-		const { fake, screen } = await session({ draft: 22, hubAlgs: [0n] });
+		const { fake, screen } = await session({ hubAlgs: [0n] });
 		void screen.subscribeToScreenTrack("user3");
 		await flush();
 		const subs = fake.requestsOf(MSG_SUBSCRIBE);
 		expect(paramsHex(subs[0].request.body)).toBe(
-			"03" + "2105" + "020401210101" + "1e06" + "020087d00102",
+			"03" + "2105" + "0201210101" + "1e06" + "020087d00102",
 		);
 		expect(paramsHex(subs[1].request.body)).toBe(
-			"03" + "2105" + "020401210101" + "1e06" + "020081900102",
+			"03" + "2105" + "0201210101" + "1e06" + "020081900102",
 		);
 	});
 
-	it("without SSTS (no option, or no common algorithm) and on d19: one plain SUBSCRIBE to <id>/screen", async () => {
-		const cases: [19 | 22, bigint[] | undefined, string][] = [
-			[22, undefined, "022105020401210101"],
-			[22, [7n], "022105020401210101"],
-			[19, undefined, "01210102"],
-		];
-		for (const [draft, hubAlgs, params] of cases) {
-			const { fake, screen } = await session({ draft, hubAlgs });
+	it("without SSTS (no option, or no common algorithm): one plain SUBSCRIBE to <id>/screen", async () => {
+		for (const hubAlgs of [undefined, [7n]]) {
+			const { fake, screen } = await session({ hubAlgs });
 			void screen.subscribeToScreenTrack("user2");
 			await flush();
 			const subs = fake.requestsOf(MSG_SUBSCRIBE);
 			expect(
-				subs.map((s) =>
-					bytesToUtf8(decodeSubscribe(s.request.body, draft).trackName),
-				),
+				subs.map((s) => bytesToUtf8(decodeSubscribe(s.request.body).trackName)),
 			).toEqual(["user2/screen"]);
-			expect(paramsHex(subs[0].request.body)).toBe(params);
+			expect(paramsHex(subs[0].request.body)).toBe("0221050201210101");
 			vi.unstubAllGlobals();
 			vi.useRealTimers();
 		}
@@ -398,7 +384,6 @@ describe("MoqtScreenClient variants: subscribing", () => {
 
 	it("both aliases deliver to the same participant, tagged with their variant, through the Group gate", async () => {
 		const { fake, screen, got } = await session({
-			draft: 22,
 			hubAlgs: [0xff01n],
 		});
 		const sub = screen.subscribeToScreenTrack("user2");
@@ -436,7 +421,6 @@ describe("MoqtScreenClient variants: subscribing", () => {
 
 	it("live chunks wait until BOTH variants' fills have ended", async () => {
 		const { fake, screen, got } = await session({
-			draft: 22,
 			hubAlgs: [0xff01n],
 		});
 		void screen.subscribeToScreenTrack("user2");
@@ -495,7 +479,7 @@ describe("MoqtScreenClient per-tile quality", () => {
 	});
 
 	async function subscribedPair() {
-		const s = await session({ draft: 22, hubAlgs: [0xff01n] });
+		const s = await session({ hubAlgs: [0xff01n] });
 		const sub = s.screen.subscribeToScreenTrack("user2");
 		await flush();
 		for (const r of s.fake.requestsOf(MSG_SUBSCRIBE))
@@ -515,7 +499,7 @@ describe("MoqtScreenClient per-tile quality", () => {
 		await done;
 		expect(hiPair.cancelled && loPair.cancelled).toBe(true);
 		expect(trackNameOf(lo)).toBe("user2/screen-lo");
-		expect(paramsHex(lo.request.body)).toBe("022105020401210101");
+		expect(paramsHex(lo.request.body)).toBe("0221050201210101");
 		expect(screen.screenQuality("user2")).toBe("low");
 	});
 
@@ -590,8 +574,8 @@ describe("MoqtScreenClient per-tile quality", () => {
 		expect(screen.screenQuality("user2")).toBe("auto");
 	});
 
-	it("is a no-op where the extension is off (d19)", async () => {
-		const { fake, screen } = await session({ draft: 19 });
+	it("is a no-op where the extension is off", async () => {
+		const { fake, screen } = await session();
 		void screen.subscribeToScreenTrack("user2");
 		await flush();
 		await screen.setScreenQuality("user2", "low");
@@ -653,7 +637,6 @@ function minimalChat(opts: { loPublishOk?: boolean } = {}) {
 	};
 	const chat = {
 		localId: "user1",
-		draft: 22,
 		trackSwitching: true,
 		webTransport: wt,
 		publishTrack: vi.fn(async (name: Uint8Array) =>
@@ -771,7 +754,7 @@ describe("review round 1: receive side", () => {
 		);
 
 	async function pair() {
-		const s = await session({ draft: 22, hubAlgs: [0xff01n] });
+		const s = await session({ hubAlgs: [0xff01n] });
 		const sub = s.screen.subscribeToScreenTrack("user2");
 		await flush();
 		return { ...s, sub };

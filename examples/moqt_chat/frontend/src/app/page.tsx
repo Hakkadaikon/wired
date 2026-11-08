@@ -863,6 +863,7 @@ export default function Home() {
 		toggleMute,
 		leave,
 		micError,
+		connectError,
 		startScreenShare,
 		stopScreenShare,
 		registerScreenCanvas,
@@ -945,7 +946,7 @@ export default function Home() {
 					<p className="masthead__id">
 						Media over QUIC Transport
 						<br />
-						draft-ietf-moq-transport-22 (draft-19 fallback)
+						draft-ietf-moq-transport-23
 					</p>
 				)}
 			</header>
@@ -970,6 +971,7 @@ export default function Home() {
 					→ Rejoin
 				</button>
 			</Notice>
+			<Notice title="Could not connect" message={connectError} />
 			<Notice message={micError} />
 			{/* Also shown inside ScreenTiles while a tile is on screen; repeated
           here so the message survives an auto-stop that removed the last

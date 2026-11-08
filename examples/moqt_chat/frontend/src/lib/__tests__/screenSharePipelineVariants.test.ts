@@ -121,7 +121,7 @@ describe("screenLoSize", () => {
 });
 
 describe("screenSharePipeline variants", () => {
-	it("without sendLoVideoChunk only one encoder runs and sendVideoChunk gets no Group (d19 / extension-less)", async () => {
+	it("without sendLoVideoChunk only one encoder runs and sendVideoChunk gets no Group (extension-less hub)", async () => {
 		const enc = deferredEncoders();
 		const sent: unknown[][] = [];
 		const pipeline = await startScreenSharePipeline({

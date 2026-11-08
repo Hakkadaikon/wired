@@ -1,7 +1,7 @@
-// MoqtChatClient's side of the track switching extension (draft-22 only,
-// tasks/moqt-trackswitch-plan.md 1): it advertises SSTS_ALGORITHMS in its
+// MoqtChatClient's side of the track switching extension
+// (tasks/moqt-trackswitch-plan.md 1): it advertises SSTS_ALGORITHMS in its
 // own SETUP, reads the hub's, and sends extension parameters only when the
-// session is draft-22 AND the hub advertised the option.
+// hub advertised the option.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type MoqtChatCallbacks, MoqtChatClient } from "../moqtClient";
 import {
@@ -29,7 +29,6 @@ import {
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
 async function connect(opts: {
-	draft: 19 | 22;
 	hubAlgs?: bigint[];
 	callbacks?: Partial<MoqtChatCallbacks>;
 }) {
@@ -42,9 +41,7 @@ async function connect(opts: {
 		...opts.callbacks,
 	});
 	const ready = client.connect("https://hub.example/", []);
-	if (opts.draft === 22)
-		fake.startD22Control("moqt-22", hubSetupBody(opts.hubAlgs));
-	else fake.protocol = undefined;
+	fake.startControl(hubSetupBody(opts.hubAlgs));
 	fake.resolveReady();
 	await ready;
 	await flush();
@@ -81,18 +78,17 @@ describe("MoqtChatClient SSTS_ALGORITHMS negotiation", () => {
 		vi.useRealTimers();
 	});
 
-	it("its own d22 SETUP advertises SSTS_ALGORITHMS [0xff01, 0] (backpressure preferred)", async () => {
-		const { fake } = await connect({ draft: 22 });
-		// Type 0x2F00, Length 6, option 0x09 Length 4 { c0ff01, 00 }.
+	it("its own SETUP advertises SSTS_ALGORITHMS [0xff01, 0] (backpressure preferred)", async () => {
+		const { fake } = await connect({});
+		// Type 0x2F00, Length 7, option 0x3F01 (bf01) Length 4 { c0ff01, 00 }.
 		expect(bytesToHex(concatBytes(fake.uniStreams[0].written))).toBe(
-			"af0000060904c0ff0100",
+			"af0007bf0104c0ff0100",
 		);
 	});
 
 	it("reads the hub's SETUP: advertised ids, and the negotiated algorithm prefers backpressure", async () => {
 		const onHubSetup = vi.fn();
 		const { client } = await connect({
-			draft: 22,
 			hubAlgs: [0n, 0xff01n],
 			callbacks: { onHubSetup },
 		});
@@ -103,128 +99,23 @@ describe("MoqtChatClient SSTS_ALGORITHMS negotiation", () => {
 	});
 
 	it("a hub offering only the default algorithm negotiates 0", async () => {
-		const { client } = await connect({ draft: 22, hubAlgs: [0n] });
+		const { client } = await connect({ hubAlgs: [0n] });
 		expect(client.sstsAlgorithm).toBe(SSTS_ALGORITHM_DEFAULT);
 	});
 
 	it("a hub offering no algorithm we know negotiates none, but the extension is on", async () => {
-		const { client } = await connect({ draft: 22, hubAlgs: [7n] });
+		const { client } = await connect({ hubAlgs: [7n] });
 		expect(client.sstsAlgorithm).toBeUndefined();
 		expect(client.trackSwitching).toBe(true);
 	});
 
 	it("an extension-less hub (no option): no algorithm, no track switching", async () => {
 		const onHubSetup = vi.fn();
-		const { client } = await connect({ draft: 22, callbacks: { onHubSetup } });
+		const { client } = await connect({ callbacks: { onHubSetup } });
 		expect(client.sstsAlgorithms).toEqual([]);
 		expect(client.trackSwitching).toBe(false);
 		expect(client.sstsAlgorithm).toBeUndefined();
 		expect(onHubSetup).toHaveBeenCalledWith([]);
-	});
-
-	it("no protocol attribute: the hub's uni SETUP (read before the draft settles) still counts", async () => {
-		vi.useFakeTimers();
-		const fake = new FakeWebTransport();
-		stubWebTransport(() => fake);
-		const client = new MoqtChatClient("user1", {
-			onStatusChange: () => {},
-			onMessage: () => {},
-		});
-		const ready = client.connect("https://hub.example/", []);
-		fake.startD22Control(null, hubSetupBody([0xff01n]));
-		fake.resolveReady();
-		await ready;
-		await flush();
-		expect(client.draft).toBe(22);
-		expect(client.trackSwitching).toBe(true);
-		expect(client.sstsAlgorithm).toBe(SSTS_ALGORITHM_BACKPRESSURE);
-	});
-
-	it("no protocol attribute: onHubSetup already sees the d22 session (algorithms and trackSwitching)", async () => {
-		vi.useFakeTimers();
-		const fake = new FakeWebTransport();
-		stubWebTransport(() => fake);
-		const seen: { algs: bigint[]; switching: boolean }[] = [];
-		const client: MoqtChatClient = new MoqtChatClient("user1", {
-			onStatusChange: () => {},
-			onMessage: () => {},
-			onHubSetup: (algs) =>
-				seen.push({ algs, switching: client.trackSwitching }),
-		});
-		const ready = client.connect("https://hub.example/", []);
-		fake.startD22Control(null, hubSetupBody([0xff01n]));
-		fake.resolveReady();
-		await ready;
-		await flush();
-		expect(seen).toEqual([{ algs: [0xff01n], switching: true }]);
-	});
-
-	it("F5: a d19 winner (bidi control first) is never reported as d22, whenever a stray uni SETUP lands", async () => {
-		for (let ticks = 0; ticks < 10; ticks++) {
-			vi.useFakeTimers();
-			const fake = new FakeWebTransport(); // bidi control stream on offer
-			stubWebTransport(() => fake);
-			const client = new MoqtChatClient("user1", {
-				onStatusChange: () => {},
-				onMessage: () => {},
-			});
-			const ready = client.connect("https://hub.example/", []);
-			fake.resolveReady();
-			for (let i = 0; i < ticks; i++) await Promise.resolve();
-			fake.serverControl.push(
-				encodeControlFrame(0x2f00n, hubSetupBody([0xff01n])),
-			);
-			fake.incomingUnidirectionalStreams.pushStream(fake.serverControl);
-			await ready;
-			await flush();
-			// d22 exactly when our own d22 control stream (uni SETUP) went out.
-			const opened22 = fake.uniStreams.length === 1;
-			expect({ ticks, draft: client.draft }).toEqual({
-				ticks,
-				draft: opened22 ? 22 : 19,
-			});
-			expect(client.trackSwitching).toBe(opened22);
-			vi.unstubAllGlobals();
-			vi.useRealTimers();
-		}
-	});
-
-	it("N2: a SETUP on a stray uni stream after d19 won is not reported and changes nothing", async () => {
-		// tick 1 is the ordering where the stray stream starts during the race
-		// and d19 wins (see the F5 test).
-		vi.useFakeTimers();
-		const fake = new FakeWebTransport();
-		stubWebTransport(() => fake);
-		const onHubSetup = vi.fn();
-		const client = new MoqtChatClient("user1", {
-			onStatusChange: () => {},
-			onMessage: () => {},
-			onHubSetup,
-		});
-		const ready = client.connect("https://hub.example/", []);
-		fake.resolveReady();
-		await Promise.resolve();
-		fake.serverControl.push(
-			encodeControlFrame(0x2f00n, hubSetupBody([0xff01n])),
-		);
-		fake.incomingUnidirectionalStreams.pushStream(fake.serverControl);
-		await ready;
-		await flush();
-		expect(client.draft).toBe(19);
-		fake.serverControl.push(
-			encodeControlFrame(0x2f00n, hubSetupBody([0xff01n])),
-		); // more on that stream
-		await flush();
-		expect(onHubSetup).not.toHaveBeenCalled();
-		expect(client.sstsAlgorithms).toEqual([]);
-		expect(client.trackSwitching).toBe(false);
-	});
-
-	it("a d19 session never has track switching", async () => {
-		const { client } = await connect({ draft: 19 });
-		expect(client.draft).toBe(19);
-		expect(client.trackSwitching).toBe(false);
-		expect(client.sstsAlgorithm).toBeUndefined();
 	});
 });
 
@@ -240,8 +131,8 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 		onDone: () => {},
 	});
 
-	it("d22 + advertised: SWITCHING_SET_ASSIGNMENT goes after the fill, in ascending Type order", async () => {
-		const { fake, client } = await connect({ draft: 22, hubAlgs: [0xff01n] });
+	it("advertised: SWITCHING_SET_ASSIGNMENT goes after the fill, in ascending Type order", async () => {
+		const { fake, client } = await connect({ hubAlgs: [0xff01n] });
 		void client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
 			"user2/screen",
@@ -252,12 +143,12 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
 		// 3 params: 0x21 Next Object, 0x23 fill Relative Start 1, 0x41 (delta 0x1e).
 		expect(subscribeParamsHex(s.request.body)).toBe(
-			"03" + "2105" + "020401210101" + "1e08" + "01c0ff0187d00102",
+			"03" + "2105" + "0201210101" + "1e08" + "01c0ff0187d00102",
 		);
 	});
 
-	it("d22 without the hub's option: extension parameters are not sent", async () => {
-		const { fake, client } = await connect({ draft: 22 });
+	it("without the hub's option: extension parameters are not sent", async () => {
+		const { fake, client } = await connect({});
 		void client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
 			"user2/screen",
@@ -267,26 +158,11 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 		await flush();
 		expect(
 			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
-		).toBe("022105020401210101");
-	});
-
-	it("d19: extension parameters are never sent (they would be unknown parameters there)", async () => {
-		const { fake, client } = await connect({ draft: 19 });
-		void client.subscribeTrack(
-			utf8ToBytes("user2/screen"),
-			"user2/screen",
-			history(),
-			{ params: [ssa] },
-		);
-		await flush();
-		// d19 LOCATION_FILTER Largest Object (Length-prefixed), nothing else.
-		expect(
-			subscribeParamsHex(fake.requestsOf(MSG_SUBSCRIBE)[0].request.body),
-		).toBe("01210102");
+		).toBe("0221050201210101");
 	});
 
 	it("SWITCH_FROM names the old subscription's Request ID; forgetSubscription FINs (not resets) it", async () => {
-		const { fake, client } = await connect({ draft: 22, hubAlgs: [0xff01n] });
+		const { fake, client } = await connect({ hubAlgs: [0xff01n] });
 		const first = client.subscribeTrack(
 			utf8ToBytes("user2/screen-lo"),
 			"user2/screen-lo",
@@ -328,7 +204,7 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 	});
 
 	it("a SUBSCRIBE_OK landing after its label was unsubscribed does not mark it subscribed", async () => {
-		const { fake, client } = await connect({ draft: 22, hubAlgs: [0xff01n] });
+		const { fake, client } = await connect({ hubAlgs: [0xff01n] });
 		const sub = client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
 			"user2/screen",
@@ -345,7 +221,7 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 	});
 
 	it("a stale answer does not clobber a newer SUBSCRIBE of the same label", async () => {
-		const { fake, client } = await connect({ draft: 22, hubAlgs: [0xff01n] });
+		const { fake, client } = await connect({ hubAlgs: [0xff01n] });
 		const first = client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
 			"user2/screen",
@@ -371,7 +247,7 @@ describe("MoqtChatClient extension parameters on SUBSCRIBE", () => {
 	});
 
 	it("unsubscribe cancels (resets) one label's request and lets it be subscribed again", async () => {
-		const { fake, client } = await connect({ draft: 22, hubAlgs: [0xff01n] });
+		const { fake, client } = await connect({ hubAlgs: [0xff01n] });
 		const sub = client.subscribeTrack(
 			utf8ToBytes("user2/screen"),
 			"user2/screen",

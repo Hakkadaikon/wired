@@ -233,7 +233,7 @@ export async function sendChatMessage(
 export async function connectChatThenVoice(
 	connectChat: () => Promise<void>,
 	startVoice: () => Promise<void>,
-	onChatFailed: () => void,
+	onChatFailed: (err: unknown) => void,
 	onVoiceFailed: (err: unknown) => void,
 	// Joins the room's discovery (MoqtChatClient.announce) last: by then the
 	// chat and (when voice came up) audio tracks are PUBLISHed, so a peer
@@ -243,8 +243,8 @@ export async function connectChatThenVoice(
 ): Promise<void> {
 	try {
 		await connectChat();
-	} catch {
-		onChatFailed();
+	} catch (err) {
+		onChatFailed(err);
 		return;
 	}
 	try {
@@ -300,8 +300,8 @@ export function handleRoomNamespace(
 }
 
 // A remote tile's HI/LO badge: a keyframe is where a switch lands, so the
-// label follows keyframes -- only with track switching on (d19 and
-// extension-less sessions have one variant and show no badge).
+// label follows keyframes -- only with track switching on (sessions
+// against an extension-less hub have one variant and show no badge).
 export function noteScreenTileVariant(
 	store: Pick<MoqtChatState, "setScreenTileVariant">,
 	switching: boolean,
@@ -598,6 +598,9 @@ export function cancelReconnect(refs: ReconnectRefs): void {
 export function useMoqtChat() {
 	const store = useMoqtChatStore();
 	const [micError, setMicError] = useState<string | null>(null);
+	// Why the last connect attempt failed (e.g. the hub did not negotiate
+	// moqt-23); cleared once a connect succeeds or the user leaves.
+	const [connectError, setConnectError] = useState<string | null>(null);
 
 	const clientRef = useRef<MoqtChatClient | null>(null);
 	const voiceRef = useRef<MoqtVoiceClient | null>(null);
@@ -1143,6 +1146,7 @@ export function useMoqtChat() {
 			await connectChatThenVoice(
 				async () => {
 					await client.connect(url, certHashesHex);
+					setConnectError(null);
 					// Best-effort, once per session: a failed send here must not
 					// fail the connection itself (chat/voice already work without a
 					// nickname -- see joinPrefs.ts's own doc on this being opt-in).
@@ -1154,7 +1158,10 @@ export function useMoqtChat() {
 				// "Connecting..." forever. The client itself stays silent on this
 				// path, so this is the session's one "disconnected" -- and it
 				// schedules the automatic rejoin.
-				() => reportStatus("disconnected"),
+				(err) => {
+					setConnectError(err instanceof Error ? err.message : null);
+					reportStatus("disconnected");
+				},
 				(err) =>
 					setMicError(
 						err instanceof Error ? err.message : "voice setup failed",
@@ -1363,6 +1370,7 @@ export function useMoqtChat() {
 		sessionArgsRef.current = null;
 		teardownCurrentSession();
 		setMicError(null);
+		setConnectError(null);
 		store.setConnectionState("disconnected");
 		store.clearPeers();
 		store.clearMessages();
@@ -1416,6 +1424,7 @@ export function useMoqtChat() {
 		toggleMute,
 		leave,
 		micError,
+		connectError,
 		startScreenShare,
 		stopScreenShare,
 		registerScreenCanvas,
