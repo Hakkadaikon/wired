@@ -15,7 +15,8 @@ static int moqtrun_up_failed_key(const wired_moqtrun_up* u, moqtrun_key k) {
  * again only on a new trigger -- a downstream SUBSCRIBE for the Track or
  * that publisher's PUBLISH_NAMESPACE covering it. Its refusal record is
  * forgotten here, never on a plain hub step (moqtrun_up_fan runs every
- * sync and would ask again without end). */
+ * sync and would ask again without end). Deliberately draft-independent:
+ * a multi-publisher hub forgets a refusal this way on every draft. */
 void moqtrun_up_forget_key(wired_moqt_hub* hub, moqtrun_key k) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
     if (moqtrun_up_failed_key(&hub->ups[i], k)) {

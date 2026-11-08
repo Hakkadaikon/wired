@@ -60,8 +60,9 @@ static u64 moqtrun_upd_verdict(
       moqtrun_params_refusal(params));
 }
 
-/* Applies an accepted update: INTERNAL_ERROR when it cannot stand
- * (moqtrun_upd_apply restored s), else MOQTRUN_REQ_ACCEPT. */
+/* Applies an accepted update: moqtrun_upd_apply's refusal code when it
+ * cannot stand (one fill too many: EXCESSIVE_LOAD on draft-23; else
+ * INTERNAL_ERROR; s restored), else MOQTRUN_REQ_ACCEPT. */
 static u64 moqtrun_upd_checked(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
