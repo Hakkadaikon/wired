@@ -19,6 +19,8 @@ import {
 	decodeSubgroupHeader,
 	decodeSubgroupObject,
 	encodeVarint,
+	hexToBytes,
+	MoqtMalformedTrackError,
 } from "../moqtWire";
 
 describe("ownScreenTrackAlias", () => {
@@ -90,6 +92,8 @@ function fakeChatClient(
 		publishTrack: vi.fn(async () => true),
 		subscribeTrack: vi.fn(async () => true),
 		publishNamespace: vi.fn(async () => ({ cancel: vi.fn() })),
+		dataStreamEnded: vi.fn(),
+		dataStreamFailed: vi.fn(),
 	} as unknown as MoqtChatClient;
 }
 
@@ -285,6 +289,69 @@ describe("MoqtScreenClient.handleIncomingStream", () => {
 			["user2", 0],
 			["user2", 1],
 		]);
+	});
+
+	// user2's screen stream whose SUBGROUP_HEADER has the PROPERTIES bit:
+	// one Object (delta 0) with the given Properties (hex, Length first),
+	// read to FIN.
+	async function receive(props: string, cut = 0, more = false) {
+		const wt = fakeWebTransport();
+		const chat = fakeChatClient(wt);
+		const onScreenChunk = vi.fn();
+		const client = new MoqtScreenClient(chat, { onScreenChunk });
+		const body = encodeScreenObjectMessage(chunkAt(3));
+		const object = concatBytes([
+			hexToBytes(`00${props}`),
+			encodeVarint(BigInt(body.length)),
+			body,
+		]);
+		const first = object.slice(0, cut || undefined);
+		const reads = more
+			? [{ value: object.slice(first.length), done: false }]
+			: [];
+		client.handleIncomingStream(
+			{
+				trackAlias: ownScreenTrackAlias("user2"),
+				groupId: 0n,
+				flags: { properties: true },
+			} as never,
+			first,
+			{
+				read: async () => reads.shift() ?? { done: true },
+				cancel: vi.fn(),
+			} as never,
+		);
+		await new Promise((r) => setTimeout(r, 0));
+		return { wt, chat, onScreenChunk, object: first };
+	}
+
+	it("decodes past the Object Properties the header announces", async () => {
+		const { onScreenChunk } = await receive("020207");
+		expect(onScreenChunk.mock.calls.map((c) => c[1].seq)).toEqual([3]);
+	});
+
+	it("a Mandatory Track Property is a Malformed Track of user2/screen (3.7)", async () => {
+		const { onScreenChunk, chat } = await receive("04c0400001");
+		expect(onScreenChunk).not.toHaveBeenCalled();
+		expect(chat.dataStreamFailed).toHaveBeenCalledWith(
+			"user2/screen",
+			expect.any(MoqtMalformedTrackError),
+		);
+	});
+
+	it("an Object split across reads is decoded once whole", async () => {
+		const { onScreenChunk, chat } = await receive("020207", 5, true);
+		expect(onScreenChunk).toHaveBeenCalledTimes(1);
+		expect(chat.dataStreamEnded).toHaveBeenCalledWith(
+			expect.anything(),
+			new Uint8Array(0),
+		);
+	});
+
+	it("a FIN inside an Object hands the rest to dataStreamEnded", async () => {
+		const { onScreenChunk, chat, wt, object } = await receive("020207", 5);
+		expect(onScreenChunk).not.toHaveBeenCalled();
+		expect(chat.dataStreamEnded).toHaveBeenCalledWith(wt.webTransport, object);
 	});
 
 	it("cancels the reader for a track alias outside the screen range", () => {

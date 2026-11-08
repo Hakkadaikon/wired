@@ -5,12 +5,18 @@ import {
 	ownTrackAlias,
 } from "../moqtClient";
 import { MoqtVoiceClient, ownAudioTrackAlias } from "../moqtVoiceClient";
-import { decodeVoiceObjectStream } from "../moqtVoiceWire";
+import {
+	decodeVoiceObjectStream,
+	encodeVoiceObjectPayload,
+} from "../moqtVoiceWire";
 import {
 	concatBytes,
 	decodeObjectDatagram,
 	decodeSubgroupHeader,
 	encodeObjectDatagram,
+	encodeVarint,
+	hexToBytes,
+	MoqtMalformedTrackError,
 } from "../moqtWire";
 
 describe("ownAudioTrackAlias", () => {
@@ -90,6 +96,8 @@ function fakeChatClient(
 		localId: "user1",
 		webTransport: wt.webTransport,
 		publishTrack: vi.fn(async () => {}),
+		dataStreamEnded: vi.fn(),
+		dataStreamFailed: vi.fn(),
 	} as unknown as MoqtChatClient;
 }
 
@@ -260,5 +268,75 @@ describe("MoqtVoiceClient.handleIncomingDatagram", () => {
 		);
 		expect(() => client.handleIncomingDatagram(short)).not.toThrow();
 		expect(onOpusFrame).not.toHaveBeenCalled();
+	});
+});
+
+describe("MoqtVoiceClient.handleIncomingStream (Object framing, 11.3)", () => {
+	// user2's audio stream whose SUBGROUP_HEADER has the PROPERTIES bit: one
+	// Object (delta 0) with the given Properties (hex, Length first) and a
+	// seq-7 frame, read to FIN.
+	async function receive(props: string, cut = 0, more = false) {
+		const wt = fakeWebTransport();
+		const chat = fakeChatClient(wt);
+		const onOpusFrame = vi.fn();
+		const client = new MoqtVoiceClient(chat, { onOpusFrame });
+		const body = encodeVoiceObjectPayload({
+			seq: 7,
+			opus: new Uint8Array([9]),
+		});
+		const object = concatBytes([
+			hexToBytes(`00${props}`),
+			encodeVarint(BigInt(body.length)),
+			body,
+		]);
+		const first = object.slice(0, cut || undefined);
+		const reads = more
+			? [{ value: object.slice(first.length), done: false }]
+			: [];
+		client.handleIncomingStream(
+			{
+				trackAlias: ownAudioTrackAlias("user2"),
+				groupId: 0n,
+				flags: { properties: true },
+			} as never,
+			first,
+			{
+				read: async () => reads.shift() ?? { done: true },
+				cancel: vi.fn(),
+			} as never,
+		);
+		await new Promise((r) => setTimeout(r, 0));
+		return { wt, chat, onOpusFrame, object: first };
+	}
+
+	it("decodes past the Object Properties the header announces", async () => {
+		const { onOpusFrame, chat } = await receive("020207");
+		expect(onOpusFrame).toHaveBeenCalledTimes(1);
+		expect(onOpusFrame.mock.calls[0][1].seq).toBe(7);
+		expect(chat.dataStreamFailed).not.toHaveBeenCalled();
+	});
+
+	it("a Mandatory Track Property is a Malformed Track of user2/audio (3.7)", async () => {
+		const { onOpusFrame, chat } = await receive("04c0400001");
+		expect(onOpusFrame).not.toHaveBeenCalled();
+		expect(chat.dataStreamFailed).toHaveBeenCalledWith(
+			"user2/audio",
+			expect.any(MoqtMalformedTrackError),
+		);
+	});
+
+	it("an Object split across reads is decoded once whole", async () => {
+		const { onOpusFrame, chat } = await receive("020207", 5, true);
+		expect(onOpusFrame).toHaveBeenCalledTimes(1);
+		expect(chat.dataStreamEnded).toHaveBeenCalledWith(
+			expect.anything(),
+			new Uint8Array(0),
+		);
+	});
+
+	it("a FIN inside an Object hands the rest to dataStreamEnded", async () => {
+		const { onOpusFrame, chat, wt, object } = await receive("020207", 5);
+		expect(onOpusFrame).not.toHaveBeenCalled();
+		expect(chat.dataStreamEnded).toHaveBeenCalledWith(wt.webTransport, object);
 	});
 });

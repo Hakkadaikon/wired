@@ -14,6 +14,7 @@ import {
 	decodeSubgroupObject,
 	encodeVarint,
 	MoqtDecodeError,
+	MoqtTruncatedError,
 } from "./moqtWire";
 
 const SEQ_LEN = 2;
@@ -91,10 +92,8 @@ export function voiceObjectSeqInit(): VoiceObjectSeq {
 
 /** Decodes at most one Object starting at `pos`, advancing `seq` in place
  * on success. Returns null (seq unchanged) when `wire` does not yet hold a
- * complete Object at `pos` -- the stream is still arriving, not malformed;
- * decodeSubgroupObject slices its declared Payload Length past the end of
- * `wire` without throwing in that case (short read, not a
- * PROTOCOL_VIOLATION), so the truncation is detected here explicitly. */
+ * complete Object at `pos` -- the stream is still arriving; a malformed
+ * Object (a Malformed Track, 3.7) throws. */
 export function tryDecodeOneVoiceObject(
 	wire: Uint8Array,
 	pos: number,
@@ -110,10 +109,10 @@ export function tryDecodeOneVoiceObject(
 			seq.prevObjectId,
 			seq.isFirst,
 		);
-	} catch {
-		return null;
+	} catch (err) {
+		if (err instanceof MoqtTruncatedError) return null;
+		throw err;
 	}
-	if (pos + decoded.len > wire.length) return null;
 	seq.prevObjectId = decoded.object.objectId;
 	seq.isFirst = false;
 	try {
@@ -132,7 +131,7 @@ export function tryDecodeOneVoiceObject(
 /** Decodes every complete Object following a voice stream's header bytes
  * (headerLen: how many bytes of `wire` the SUBGROUP_HEADER itself took).
  * Stops at the first Object that does not fully decode (stream still
- * arriving) without throwing -- returns whatever decoded so far, matching
+ * arriving; a Malformed Track throws) -- returns whatever decoded so far, matching
  * moqtrun_decode_object_loop's own "stop at truncation" behavior on the hub
  * side (src/app/moqt/run/moqtrun.c). */
 export function decodeVoiceObjectStream(

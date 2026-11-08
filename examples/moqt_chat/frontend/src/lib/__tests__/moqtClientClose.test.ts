@@ -3,7 +3,7 @@
 // WebTransport session with the 16.12.1 code it names; running out of bytes
 // only waits for more. Also the 3.7 refusal of a hub PUBLISH.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MoqtChatClient } from "../moqtClient";
+import { MoqtChatClient, ownTrackAlias } from "../moqtClient";
 import {
 	concatBytes,
 	decodeRequestError,
@@ -13,6 +13,7 @@ import {
 	encodeSubscribeOk,
 	encodeVarint,
 	hexToBytes,
+	MoqtTruncatedError,
 	utf8ToBytes,
 } from "../moqtWire";
 import {
@@ -24,6 +25,7 @@ import {
 } from "./fakeWebTransport";
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
+const hex = (s: string) => hexToBytes(s.replace(/ /g, ""));
 
 async function connected23() {
 	vi.useFakeTimers();
@@ -138,6 +140,151 @@ describe("MoqtChatClient protocol violations (draft-23 12.2)", () => {
 		await flush();
 
 		expect(got).toEqual(["5/0:hi"]);
+		expect(fake.closeCalls).toBe(0);
+	});
+
+	// A SUBSCRIBE for user2's chat with history, answered with Largest
+	// Object 5/0, plus the fill stream it gets (FETCH_HEADER pushed by the
+	// caller): the request, the history's onObject log and onDone.
+	async function filling(onObject?: (got: string[]) => void) {
+		const { fake, client } = await connected23();
+		const got: string[] = [];
+		const done = vi.fn();
+		const h = history(16n, got, done);
+		const sub = client.subscribeTrack(utf8ToBytes("user2"), "user2", {
+			...h,
+			onObject: (o) => {
+				h.onObject(o);
+				onObject?.(got);
+			},
+		});
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 5n, object: 0n }));
+		await sub;
+		const rid = decodeSubscribe(s.request.body).requestId;
+		const fill = new FakeControlReplies();
+		fake.incomingUnidirectionalStreams.pushStream(fill);
+		return { fake, client, s, rid, fill, got, done };
+	}
+
+	it("a FIN inside a fill Object closes TRUNCATED_OBJECT (11.3) and ends the history", async () => {
+		const { fake, rid, fill, done } = await filling();
+
+		fill.push(
+			concatBytes([hexToBytes("05"), encodeVarint(rid), hexToBytes("1c05")]),
+		);
+		fill.end();
+		await flush();
+
+		expect(closedWith(fake)).toEqual({ calls: 1, code: 0x203 });
+		expect(done).toHaveBeenCalledOnce();
+	});
+
+	it("a first chunk shorter than FETCH_HEADER waits for the rest", async () => {
+		const { fake, rid, fill, got } = await filling();
+
+		fill.push(hexToBytes("05"));
+		await flush();
+		fill.push(concatBytes([encodeVarint(rid), hexToBytes("1c050080026869")]));
+		fill.end();
+		await flush();
+
+		expect(got).toEqual(["5/0:hi"]);
+		expect(fake.closeCalls).toBe(0);
+	});
+
+	it("a FIN before the FETCH_HEADER is whole ends the stream quietly", async () => {
+		const { fake, fill, got } = await filling();
+
+		fill.push(hexToBytes("05"));
+		fill.end();
+		await flush();
+
+		expect(got).toEqual([]);
+		expect(fake.closeCalls).toBe(0);
+	});
+
+	it("a fill Object with a Mandatory Track Property cancels the subscription, not the session (3.7, 12.1)", async () => {
+		const { fake, client, s, rid, fill, got, done } = await filling();
+		void client.subscribeTrack(utf8ToBytes("user3"), "user3");
+		await flush();
+		const other = fake.requestsOf(MSG_SUBSCRIBE)[1];
+
+		// Flags 0x3c: G5 O0 prio 0x80, Properties {0x4000: 1}, payload "a".
+		fill.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hex("3c 05 00 80 04 c04000 01 01 61"),
+			]),
+		);
+		await flush();
+
+		expect(got).toEqual([]);
+		expect(s.cancelled).toBe(true);
+		expect(other.cancelled).toBe(false);
+		expect(done).toHaveBeenCalledOnce();
+		expect(fake.closeCalls).toBe(0);
+	});
+
+	it("a MoqtTruncatedError thrown by onObject is not taken for running out of bytes", async () => {
+		const { rid, fill, got } = await filling((got) => {
+			if (got.length === 1) throw new MoqtTruncatedError("app");
+		});
+
+		fill.push(
+			concatBytes([
+				hexToBytes("05"),
+				encodeVarint(rid),
+				hexToBytes("1c050080026869"),
+			]),
+		);
+		await flush();
+		fill.push(hexToBytes("010178"));
+		await flush();
+
+		expect(got).toEqual(["5/0:hi"]);
+	});
+
+	it("a FIN inside a chat Object closes TRUNCATED_OBJECT", async () => {
+		const { fake } = await connected23();
+
+		// SUBGROUP_HEADER 0x70, user2's alias, Group 0; Object 0 says 5 bytes, has 2.
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("70"),
+				encodeVarint(ownTrackAlias("user2")),
+				hex("00 00 05 6869"),
+			]),
+		);
+		await flush();
+
+		expect(closedWith(fake)).toEqual({ calls: 1, code: 0x203 });
+	});
+
+	it("a chat Object with a Mandatory Track Property cancels that chat subscription (3.7)", async () => {
+		const { fake, client } = await connected23();
+		const onMessage = vi.fn();
+		void client.subscribeTrack(utf8ToBytes("user2"), "user2");
+		await flush();
+		const [s] = fake.requestsOf(MSG_SUBSCRIBE);
+		s.replies.push(subscribeOk({ group: 0n, object: 0n }));
+		await flush();
+
+		// 0x71: SUBGROUP_HEADER with the PROPERTIES bit.
+		fake.incomingUnidirectionalStreams.push(
+			concatBytes([
+				hexToBytes("71"),
+				encodeVarint(ownTrackAlias("user2")),
+				hex("00 00 04 c04000 01 01 61"),
+			]),
+		);
+		await flush();
+
+		expect(s.cancelled).toBe(true);
+		expect(client.isSubscribed("user2")).toBe(false);
+		expect(onMessage).not.toHaveBeenCalled();
 		expect(fake.closeCalls).toBe(0);
 	});
 

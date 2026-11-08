@@ -201,32 +201,40 @@ export class MoqtVoiceClient {
 			reader.cancel().catch(() => {});
 			return;
 		}
-		this.#readOneVoiceStream(participant, firstChunk, reader);
+		this.#readOneVoiceStream(
+			participant,
+			header.flags.properties,
+			firstChunk,
+			reader,
+		);
 	}
 
 	async #readOneVoiceStream(
 		participant: string,
+		hasProperties: boolean,
 		firstChunk: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
+		const wt = this.#chat.webTransport; // the session this stream belongs to
 		const seq = voiceObjectSeqInit();
 		const onPayload = (payload: VoiceObjectPayload) =>
 			this.#callbacks.onOpusFrame(participant, payload);
-		let buffered = drainVoiceObjectStream(firstChunk, false, seq, onPayload);
+		let buffered = firstChunk;
 		try {
 			for (;;) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				if (!value) continue;
 				buffered = drainVoiceObjectStream(
-					concatBytes([buffered, value]),
-					false,
+					buffered,
+					hasProperties,
 					seq,
 					onPayload,
 				);
+				const { value, done } = await reader.read();
+				if (done) return this.#chat.dataStreamEnded(wt, buffered);
+				buffered = concatBytes([buffered, value]);
 			}
-		} catch {
-			// aborted mid-stream: whatever wasn't decoded yet is dropped, not fatal
+		} catch (err) {
+			// aborted mid-stream: whatever wasn't decoded yet is dropped
+			this.#chat.dataStreamFailed(`${participant}/audio`, err);
 		}
 	}
 
