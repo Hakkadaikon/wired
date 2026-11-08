@@ -1,6 +1,8 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static void moqtrun_upf_store_key(wired_moqtrun_upf_leg* l, moqtrun_key k);
+static void moqtrun_upf_leg_start(
+    wired_moqtrun_upf_leg* l, const moqfetch_req* m);
 static void moqtrun_upf_store(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
@@ -21,6 +23,14 @@ static void moqtrun_upf_store_key(wired_moqtrun_upf_leg* l, moqtrun_key k) {
   bytes_memcpy(l->name, k.name.p, k.name.n);
 }
 
+/* l's reply side starts afresh for the FETCH m. */
+static void moqtrun_upf_leg_start(
+    wired_moqtrun_upf_leg* l, const moqfetch_req* m) {
+  l->req_end = moqfetch_req_end(&m->range, moqctl_loc_of(~0ULL, ~0ULL));
+  bytes_memset(&l->in, 0, sizeof(wired_moqtrun_ctl_asm));
+  l->goaway = 0;
+}
+
 /* f's leg starts: the FETCH m went to pp on stream sid. */
 static void moqtrun_upf_store(
     wired_moqt_hub*      hub,
@@ -32,10 +42,7 @@ static void moqtrun_upf_store(
   f->up_wt      = pp->wt;
   f->up_req_sid = (u64)sid;
   f->up_rid     = m->request_id;
-  moqtrun_upf_leg_of(hub, f)->req_end =
-      moqfetch_req_end(&m->range, moqctl_loc_of(~0ULL, ~0ULL));
-  bytes_memset(
-      &moqtrun_upf_leg_of(hub, f)->in, 0, sizeof(wired_moqtrun_ctl_asm));
+  moqtrun_upf_leg_start(moqtrun_upf_leg_of(hub, f), m);
   f->up_data_open = 0;
   f->up_data_end  = 0;
   f->has_up_last  = 0;

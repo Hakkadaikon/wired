@@ -38,6 +38,8 @@ typedef struct {
   /** The upstream FETCH's End Location (inclusive): where its response
    * ends without LARGEST_OBJECT (draft-23 3.2). */
   moqctl_loc req_end;
+  /** 1 once a GOAWAY arrived on up_req_sid (draft-23 9.2: at most one). */
+  int goaway;
 } wired_moqtrun_upf_leg;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
