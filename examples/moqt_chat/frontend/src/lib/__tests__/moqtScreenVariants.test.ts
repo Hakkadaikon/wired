@@ -643,6 +643,8 @@ function minimalChat(opts: { loPublishOk?: boolean } = {}) {
 			bytesToUtf8(name).endsWith("-lo") ? (opts.loPublishOk ?? true) : true,
 		),
 		publishNamespace: vi.fn(async () => ({ cancel: vi.fn() })),
+		dataStreamEnded: vi.fn(),
+		dataStreamFailed: vi.fn(),
 	} as unknown as MoqtChatClient;
 	return { chat, streams, state };
 }

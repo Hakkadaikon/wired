@@ -53,6 +53,7 @@ import {
 	decodeSubgroupObject,
 	encodeVarint,
 	type MessageParam,
+	MoqtTruncatedError,
 	type SubgroupHeader,
 	SWITCH_MODE_SOFT,
 	switchFromParam,
@@ -721,7 +722,7 @@ export class MoqtScreenClient {
 		this.#readOneScreenStream(
 			owner.participant,
 			owner.variant,
-			header.groupId,
+			header,
 			firstChunk,
 			reader,
 		);
@@ -730,24 +731,30 @@ export class MoqtScreenClient {
 	async #readOneScreenStream(
 		participant: string,
 		variant: ScreenVariant,
-		group: bigint,
+		header: SubgroupHeader,
 		firstChunk: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
+		const wt = this.#chat.webTransport; // the session this stream belongs to
+		const group = header.groupId;
 		let buffered = firstChunk;
-		const seq: ScreenObjectSeq = { prevObjectId: 0n, isFirst: true };
+		const seq: ScreenObjectSeq = {
+			prevObjectId: 0n,
+			isFirst: true,
+			hasProperties: header.flags.properties,
+		};
 		const onChunk = (chunk: ScreenChunk) =>
 			this.#emitLive(participant, { chunk, group, variant, live: true });
 		try {
 			for (;;) {
 				buffered = drainScreenObjectStream(buffered, seq, onChunk);
 				const { value, done } = await reader.read();
-				if (done) break;
-				if (!value) continue;
+				if (done) return this.#chat.dataStreamEnded(wt, buffered);
 				buffered = concatBytes([buffered, value]);
 			}
-		} catch {
-			// aborted mid-stream: whatever wasn't decoded yet is dropped, not fatal
+		} catch (err) {
+			// aborted mid-stream or a bad chunk: whatever wasn't decoded yet is dropped
+			this.#chat.dataStreamFailed(this.#label(participant, variant), err);
 		}
 	}
 
@@ -772,13 +779,14 @@ export class MoqtScreenClient {
 interface ScreenObjectSeq {
 	prevObjectId: bigint;
 	isFirst: boolean;
+	/** The SUBGROUP_HEADER's PROPERTIES bit: every Object has Properties. */
+	hasProperties: boolean;
 }
 
 /** Decodes as many complete Objects as `buffered` holds, calling `onChunk`
  * for each, and returns the undecoded remainder. Mirrors
- * drainVoiceObjectStream's incremental shape: decodeSubgroupObject slices a
- * short payload without throwing on a truncated tail, so `len >
- * buffered.length` is checked explicitly. */
+ * drainVoiceObjectStream's incremental shape; a malformed Object or chunk
+ * throws. */
 function drainScreenObjectStream(
 	buffered: Uint8Array,
 	seq: ScreenObjectSeq,
@@ -791,14 +799,14 @@ function drainScreenObjectStream(
 			parsed = decodeSubgroupObject(
 				buffered,
 				pos,
-				false,
+				seq.hasProperties,
 				seq.prevObjectId,
 				seq.isFirst,
 			);
-		} catch {
-			break; // incomplete Object (truncated varint), wait for more data
+		} catch (err) {
+			if (err instanceof MoqtTruncatedError) break; // wait for more data
+			throw err;
 		}
-		if (pos + parsed.len > buffered.length) break; // truncated tail, wait for more data
 		const { chunk } = decodeScreenObjectMessage(parsed.object.payload);
 		onChunk(chunk);
 		seq.prevObjectId = parsed.object.objectId;
