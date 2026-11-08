@@ -237,7 +237,8 @@ static void test_moqtrun_d23uo_honest_peer_never_closed(void) {
 }
 
 /* After the credit close neither the update past the credit nor a later
- * one is applied or answered: only the MAX replies queued before it go. */
+ * one is applied or answered, and the MAX replies still queued when the
+ * session closed are dropped: nothing more goes out on the stream. */
 static void test_moqtrun_d23uo_nothing_after_close(void) {
   mtuo_sub();
   g_stream_send_ok_n = 0;
@@ -250,7 +251,7 @@ static void test_moqtrun_d23uo_nothing_after_close(void) {
   mtuo_prio(9);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mtuo_s() && mtuo_s()->priority == WIRED_MOQTRUN_MAX_REQ_UPDATES);
-  CHECK(mtuo_n() == WIRED_MOQTRUN_MAX_REQ_UPDATES);
+  CHECK(mtuo_n() == 0);
 }
 
 /* ===================== kinds of failure ===================== */

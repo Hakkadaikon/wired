@@ -134,6 +134,19 @@ moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
   return moqtrun_dispatch_not_supported;
 }
 
+/* Drops the replies p's streams still have queued (the pending slots):
+ * none may go out once the session is closed. */
+static void moqtrun_peer_drop_queued(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  p->send_lens[p->armed_idx ^ 1] = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
+    wired_moqtrun_req* q = &hub->reqs[i];
+    if (q->wt == p->wt) {
+      q->send_lens[q->armed_idx ^ 1] = 0;
+    }
+  }
+}
+
 /* Closes p's session with code, after which nothing more is sent on it;
  * 0 when the io table has no close_session. */
 int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
@@ -142,6 +155,7 @@ int moqtrun_peer_close(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   }
   hub->io.close_session(p->wt, code, wired_span_of(0, 0));
   p->closing = 1;
+  moqtrun_peer_drop_queued(hub, p);
   return 1;
 }
 
