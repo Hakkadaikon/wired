@@ -83,7 +83,11 @@ static int moqtrun_ngr_ahead(const wired_moqtrun_track* t, u64 v) {
   return v == 0 || !t->has_largest || v > t->largest.group;
 }
 
-/* t has dynamic Groups (DYNAMIC_GROUPS 1) and v asks past its Largest. */
+/* t has dynamic Groups (DYNAMIC_GROUPS 1) and v asks past its Largest.
+ * draft-23 9.19.19 forbids the REQUEST_UPDATE only once the Track's
+ * Properties arrived without DYNAMIC_GROUPS 1; an Established t always
+ * has them (the hub never sends INCLUDE_PROPERTIES 0 upstream), so the
+ * gate is the same in every draft. */
 static int moqtrun_ngr_wanted(const wired_moqtrun_track* t, u64 v) {
   return moqtrun_tprop(
              moqtrun_track_props(t), MOQTRUN_PROP_DYNAMIC_GROUPS, 0) == 1 &&
