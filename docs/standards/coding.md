@@ -7,7 +7,7 @@
 | 目的 | `src/` のコードが必ず守る制約と、その確かめ方を定める |
 | 読む人 | `src/` を変更するコントリビューター |
 | 前提文書 | [開発標準](README.md) |
-| 関連文書 | [ビルド](build.md)、[コミットゲート](commit-gate.md)、[API の安定性](../reference/README.md) |
+| 関連文書 | [ビルド](build.md)、[コミットゲート](commit-gate.md) |
 
 ## 1. 制約の一覧
 
@@ -125,13 +125,13 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    n["New non-static name"] --> q{"Called by applications?<br/>(examples, Stable table)"}
+    n["New non-static name"] --> q{"Called by applications?<br/>(examples)"}
     q -- yes --> w["wired_* / WIRED_*"]
     q -- no --> m["&lt;module token&gt;_*<br/>e.g. varint_*, sdrv_*, moqctl_*"]
     w & m --> g["grep src/ for the name<br/>before adding it"]
 ```
 
-どちらに属するかは [API の安定性](../reference/README.md) の Stable の表で決める。モジュールのトークンはほかのモジュールと重ならないものにする。
+`examples/` から呼ぶ名前は `wired_*` にする。モジュールのトークンはほかのモジュールと重ならないものにする。
 
 ### 5.3 名前の衝突
 
