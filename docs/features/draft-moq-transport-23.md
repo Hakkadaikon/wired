@@ -171,6 +171,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_errdet_test.c` — `test_mted_upsub_ok_mandatory_d23`
 - [x] MQ23-224 (SS3.7) Object が Mandatory Track Property を Object Property として含む場合、ハブはその Track を不正なもの(SS12.1)として扱わなければならない。
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_malformed_mandatory_obj_prop`
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_obj_props`
 
 ## SS6.2 セッションの確立
 
@@ -1269,7 +1270,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-288 (SS10.4, SS10.5, SS10.6) DEFAULT_PUBLISHER_PRIORITY が 255 を、DEFAULT_PUBLISHER_GROUP_ORDER や DYNAMIC_GROUPS が定義の範囲を超える場合、実装は MALFORMED_KEY_VALUE (0x6) でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_tprops_test.c` — `test_moqtrun_tprops_prio`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_ok_bad_prop_closes`
-  - gap: 上流の FETCH への REQUEST_OK には、まだこの検査を当てていません([#237](https://github.com/hakkadaikon/wired/issues/237))。
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_props_close`
 - [~] MQ23-289 (SS9.19.19) 購読者は、Track の Properties を受信していて、それが DYNAMIC_GROUPS=1 を含まないときに限り、REQUEST_UPDATE で NEW_GROUP_REQUEST を送ってはならない。
   - evidence: ハブは上流へ INCLUDE_PROPERTIES 0 を送らないので、Established の Track はつねに Properties を持ちます。そのため転送の関門(`moqtrun_ngr.c` の `moqtrun_ngr_wanted`)は draft-22 と同じ「DYNAMIC_GROUPS=1 を見たとき」で済み、`test_moqtrun_upsub_ngr_update` がそれを確かめています。draft-23 のセッションで確かめる専用のテストはありません。
 
@@ -1501,9 +1502,7 @@ draft-23 のリレーの範囲内ですが、まだ実装していない項目�
 - (SS9.5) パイプラインで届いた REQUEST_UPDATE をまとめること(MAY): [#228](https://github.com/hakkadaikon/wired/issues/228)。
 - (SS7.5) 生きているが応答しない上流を待つ時間の上限: [#229](https://github.com/hakkadaikon/wired/issues/229)。
 - (SS9.1.7) 応答をキューに入れられなかった REQUEST_UPDATE の枠を戻してしまう: [#223](https://github.com/hakkadaikon/wired/issues/223)。
-- (SS10.4, SS8.4) 上流の FETCH への REQUEST_OK の Track Properties の検査: [#237](https://github.com/hakkadaikon/wired/issues/237)。
 - (SS9.2) 上流の FETCH のストリームでの GOAWAY と、送り直しの残りの場合: [#238](https://github.com/hakkadaikon/wired/issues/238)、[#239](https://github.com/hakkadaikon/wired/issues/239)。
-- (SS3.7, SS13) 上流のセッションがないときの grease の Track Property の判定: [#240](https://github.com/hakkadaikon/wired/issues/240)。
 - (SS7.5) リレーの LARGEST_OBJECT の既知の逸脱: [#241](https://github.com/hakkadaikon/wired/issues/241)。
 
 ## 対象外

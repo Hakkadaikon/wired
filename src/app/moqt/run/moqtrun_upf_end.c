@@ -9,12 +9,17 @@ static void moqtrun_upf_answer_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_ok* up);
 static int moqtrun_upf_complete(
     const wired_moqt_hub* hub, const wired_moqtrun_fetch* f);
+static int moqtrun_upf_props_stop(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           props);
 static void moqtrun_upf_ok_checked(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok,
     moqctl_loc           e,
-    u64                  caps);
+    wired_moqtrun_peer*  pp);
 static void moqtrun_upf_ok(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
@@ -82,15 +87,33 @@ void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
   moqtrun_upf_resume(hub, f, 1, 1);
 }
 
+/* Track Properties the leg cannot take; 1 when it stopped. A bad value
+ * closes pp's session (draft-23 10.4-10.6, draft-18 12.5/12.6). */
+static int moqtrun_upf_props_stop(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           props) {
+  u32 tp = moqtrun_tprops_check(props, moqver_caps(pp->ver));
+  if (tp & MOQTRUN_TP_BAD) {
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_PROP_VALUE);
+    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
+    return 1;
+  }
+  if (tp & (MOQTRUN_TP_MAND | MOQTRUN_TP_MALF)) {
+    moqtrun_upf_mand(hub, f, !(tp & MOQTRUN_TP_MAND));
+    return 1;
+  }
+  return 0;
+}
+
 static void moqtrun_upf_ok_checked(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok,
     moqctl_loc           e,
-    u64                  caps) {
-  u32 tp = moqtrun_tprops_check(ok->track_properties, caps);
-  if (tp & (MOQTRUN_TP_MAND | MOQTRUN_TP_MALF)) {
-    moqtrun_upf_mand(hub, f, !(tp & MOQTRUN_TP_MAND));
+    wired_moqtrun_peer*  pp) {
+  if (moqtrun_upf_props_stop(hub, pp, f, ok->track_properties)) {
     return;
   }
   if (moqtrun_upf_end_behind(f, e)) {
@@ -120,7 +143,7 @@ static void moqtrun_upf_ok(
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  moqtrun_upf_ok_checked(hub, f, ok, e, moqver_caps(pp->ver));
+  moqtrun_upf_ok_checked(hub, f, ok, e, pp);
 }
 
 /* draft-23 3.2: with no LARGEST_OBJECT the response ends at the

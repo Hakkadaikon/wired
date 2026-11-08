@@ -221,8 +221,110 @@ static void test_moqtrun_upfetch_d23_goaway(void) {
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mupf23_goaway_refused);
 }
 
+/* One Property list: type t with value num. */
+static wired_span mupf23_prop(u64 t, u64 num) {
+  static u8 b[16];
+  usz       n    = 0;
+  u64       prev = 0;
+  moqkvp    kv   = {0};
+  kv.type        = t;
+  kv.num         = num;
+  CHECK(moqkvp_put(wired_mspan_of(b, sizeof b), &n, &prev, &kv));
+  return wired_span_of(b, n);
+}
+
+/* C (on cv) answers the hub's upstream FETCH with Track Properties: type
+ * t, value num; C's session close code, ~0 for none. */
+static u64 mupf23_props_close(int cv, u64 t, u64 num) {
+  moqfetch_req m = {0};
+  i64          sid;
+  mupf_init_v(MOQVER_D22);
+  mupf_vers(cv);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  sid = mupf_up(SESS_C, 0, &m);
+  if (moqver_caps(cv) & MOQVER_CAP_FETCH_REQUEST_OK) {
+    mupf23_up_ok(SESS_C, sid, 0, 0, 0, mupf23_prop(t, num));
+  } else {
+    mupf_up_ok_p(SESS_C, sid, mf_loc(2, 3), 0, mupf23_prop(t, num));
+  }
+  return moqtrun_test_close_code();
+}
+
+/* draft-23 10.5 / 10.6 (draft-18 12.5 / 12.6): DEFAULT_PUBLISHER_GROUP_ORDER
+ * outside 1-2 or DYNAMIC_GROUPS above 1 in the upstream FETCH response
+ * closes C -- MALFORMED_KEY_VALUE on draft-23, else PROTOCOL_VIOLATION --
+ * and B is refused; draft-23 10.4: DEFAULT_PUBLISHER_PRIORITY above 255
+ * too (draft-22 took it as 128). In range, nothing closes. */
+static void test_moqtrun_upfetch_d23_props_close(void) {
+  for (int v = 0; v < MOQVER_COUNT; v++) {
+    u64 want = v == MOQVER_D23 ? WIRED_MOQTRUN_CLOSE_MALFORMED_KEY_VALUE
+                               : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION;
+    CHECK(mupf23_props_close(v, 0x22, 3) == want);
+    CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+    CHECK(mupf23_props_close(v, 0x22, 2) == ~(u64)0);
+    CHECK(mupf23_props_close(v, 0x30, 2) == want);
+    CHECK(mupf23_props_close(v, 0x30, 1) == ~(u64)0);
+    CHECK(
+        mupf23_props_close(v, 0x0E, 256) == (v == MOQVER_D23 ? want : ~(u64)0));
+    CHECK(mupf23_props_close(v, 0x0E, 255) == ~(u64)0);
+  }
+}
+
+/* Object {g, 0}, one byte, whose Object Properties hold one Property of
+ * type t. */
+static moqfetch_obj mupf23_prop_obj(u64 g, u64 t) {
+  static const u8 pl[] = {0x21};
+  moqfetch_obj    ob   = {0};
+  ob.flags        = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY | MOQFETCH_F_GROUP |
+                    MOQFETCH_F_PROPS;
+  ob.group        = g;
+  ob.has_subgroup = 1;
+  ob.priority     = 128;
+  ob.has_props    = 1;
+  ob.props        = mupf23_prop(t, 1);
+  ob.payload      = wired_span_of(pl, 1);
+  return ob;
+}
+
+/* A (draft-23) relays an Object with a Property of type t on the hub's
+ * upstream FETCH -- through its data stream, or, gone, straight to the
+ * item step; B's reset code, ~0 for none. */
+static u64 mupf23_obj_props(int gone, u64 t) {
+  moqfetch_req        m = {0};
+  moqfetch_obj        o = mupf23_prop_obj(1, t);
+  wired_moqtrun_peer* a;
+  mupf_init_v(MOQVER_D23);
+  mupf_vers(MOQVER_D23);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  if (!gone) {
+    mupf_hdr(m.request_id, 0);
+    mupf_seq.d23 = 1;
+    mupf_put(&o);
+    mupf_send(0);
+    return mupf_reset_code();
+  }
+  a     = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  a->wt = SESS_D;
+  moqtrun_upf_item(&mtst_hub, &mtst_hub.fetches[0], &o, o.payload);
+  a->wt = SESS_A;
+  return mupf_reset_code();
+}
+
+/* draft-23 3.7: a Mandatory Object Property (0x4000) on the upstream
+ * FETCH makes the track Malformed, a grease one (0x409C = 0x9D + 129 *
+ * 0x7F) does not -- also once the upstream session is gone (B's draft). */
+static void test_moqtrun_upfetch_d23_obj_props(void) {
+  CHECK(mupf23_obj_props(0, 0x4000) == MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mupf23_obj_props(0, 0x409C) != MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mupf23_obj_props(1, 0x409C) != MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
 void test_moqtrun_upfetch_d23(void) {
   test_moqtrun_upfetch_d23_goaway();
+  test_moqtrun_upfetch_d23_obj_props();
+  test_moqtrun_upfetch_d23_props_close();
   test_moqtrun_upfetch_d23_relay();
   test_moqtrun_upfetch_d23_markers();
   test_moqtrun_upfetch_d23_eot();
