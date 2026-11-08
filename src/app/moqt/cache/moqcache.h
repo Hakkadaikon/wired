@@ -96,8 +96,8 @@ void moqcache_append_exp(
 void moqcache_release(moqcache* c, u64 tag);
 
 /** cur moved past Locations known not to exist (the rest of a cached
- * group, groups between cached ones), stopping at a cached Object, an
- * unknown range or end. */
+ * group), stopping at a cached Object, the next group, an unknown range
+ * or end. */
 moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end);
 
 /** The item at cur (a moqcache_skip result below end). An unknown range

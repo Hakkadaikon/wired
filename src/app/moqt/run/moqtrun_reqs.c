@@ -115,6 +115,7 @@ static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
 void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
+  moqtrun_pubst_moves(hub);
   moqtrun_up_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     if (!moqtrun_req_muted(hub, &hub->reqs[i])) {

@@ -320,6 +320,70 @@ static void mtlg_tstat_d22(void) {
   CHECK(mtlg_rok_is(MRDV_S1, 0, 5));
 }
 
+/* B's Established subscription to A's PUBLISH, which is then paused (as
+ * when the publisher re-sends its PUBLISH paused), and B's
+ * REQUEST_UPDATE (SUBSCRIBER_PRIORITY 7) on it. */
+static void mtlg_upd_on_paused(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 7);
+  mtlg_pub(0, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].pub_paused = 1;
+  mtup_update(SESS_B, MRDV_S1, &p);
+}
+
+/* 7.5: the REQUEST_OK for an update carries LARGEST_OBJECT, so it waits
+ * for the unpause and carries what the REQUEST_UPDATE_OK does. */
+static void mtlg_upd_waits_d23(void) {
+  mtlg_upd_on_paused();
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  CHECK(mtlg_unpauses() == 1);
+  mtlg_rok(MUPS_PUB_SID, 0, 9);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|ROK|"));
+  CHECK(mtlg_rok_is(MRDV_S1, 0, 9));
+  CHECK(mrdv_used() == 0);
+}
+
+/* Before draft-23 the update is answered at once. */
+static void mtlg_upd_waits_d22(void) {
+  mtlg_upd_on_paused();
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|ROK|"));
+}
+
+/* 9.5.1: a refused unpause refuses the waiting update with the
+ * publisher's code, which ends the subscription (PUBLISH_DONE). */
+static void mtlg_upd_refused_d23(void) {
+  mtlg_upd_on_paused();
+  mtst_pub_err(SESS_A, MUPS_PUB_SID, MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|E3|Tb|FIN|"));
+  CHECK(!mtst_sub(SESS_A, SESS_B));
+  CHECK(mrdv_used() == 0);
+}
+
+/* Answers stay in order (9.5): a second update behind a waiting one
+ * answers that one TIMEOUT (12.3), which ends the subscription, and is
+ * itself dropped (9.5.1); a silent publisher times the wait out alike. */
+static void mtlg_upd_pipelined_d23(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 9);
+  mtlg_upd_on_paused();
+  mtup_update(SESS_B, MRDV_S1, &p);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|E2|Tb|FIN|"));
+  mtlg_rok(MUPS_PUB_SID, 0, 9);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|E2|Tb|FIN|"));
+  CHECK(mrdv_used() == 0);
+  mtlg_upd_on_paused();
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UP_WAIT_MS);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|E2|Tb|FIN|"));
+  CHECK(mrdv_used() == 0);
+}
+
+static void test_moqtrun_d23lg_update_waits_resume(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_waits_d23);
+  moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_upd_waits_d22);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_refused_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_pipelined_d23);
+}
+
 static void test_moqtrun_d23lg_tstat_paused_fresh(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_tstat_d23);
   moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_tstat_d22);
@@ -349,8 +413,30 @@ static void mtlg_wait_slots_d23(void) {
   CHECK(mrdv_used() == 0 && mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
 }
 
+/* One publisher's paused PUBLISH holds at most half of the rendezvous
+ * slots: past that a new wait on it is refused EXCESSIVE_LOAD at once,
+ * so a silent publisher cannot take every slot. */
+static void mtlg_pub_cap_d23(void) {
+  wired_wt_session* const subs[] = {SESS_B, SESS_C};
+  u64                     sid    = MRDV_S1;
+  mtlg_pub(1, 0, 5);
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  for (usz s = 0; s < 2; s++) {
+    for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++, sid += 4) {
+      mups_sub(subs[s], sid);
+    }
+  }
+  CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV / 2);
+  mups_sub(SESS_D, sid);
+  CHECK(mrdv_err(SESS_D, sid).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(mrdv_err(SESS_D, sid).retry_interval == WIRED_MOQTRUN_RDV_RETRY);
+  CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV / 2);
+}
+
 static void test_moqtrun_d23lg_wait_slots_bounded(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_wait_slots_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_pub_cap_d23);
 }
 
 /* ===================== the upstream fails (7.5) ===================== */
@@ -410,7 +496,7 @@ static void mtlg_close_d23(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
   mtlg_pub(1, 0, 5);
   mups_sub(SESS_B, MRDV_S1);
-  mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
+  mups_done(MUPS_PUB_SID, MOQCTL_DONE_INTERNAL_ERROR);
   wired_moqt_tick(&mtst_hub, 1); /* the PUBLISH_DONE sweep */
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
   mtlg_pub(1, 0, 5);
@@ -424,8 +510,34 @@ static void mtlg_close_d23(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* draft-23 12.3 / 12.4: a PUBLISH that ends with PUBLISH_DONE refuses
+ * its waiters with the REQUEST_ERROR twin of the Status Code where one
+ * exists (TRACK_ENDED: the track is not there any more), INTERNAL_ERROR
+ * otherwise. */
+static void mtlg_done_err_d23(void) {
+  static const u64 map[][2] = {
+      {MOQCTL_DONE_TRACK_ENDED, MOQCTL_ERR_DOES_NOT_EXIST},
+      {MOQCTL_DONE_UNAUTHORIZED, MOQCTL_ERR_UNAUTHORIZED},
+      {MOQCTL_DONE_GOING_AWAY, MOQCTL_ERR_GOING_AWAY},
+      {MOQCTL_DONE_EXPIRED_AUTH_TOKEN, MOQCTL_ERR_EXPIRED_AUTH_TOKEN},
+      {MOQCTL_DONE_EXCESSIVE_LOAD, MOQCTL_ERR_EXCESSIVE_LOAD},
+      {0x5 /* TOO_FAR_BEHIND */, MOQCTL_ERR_INTERNAL_ERROR},
+      {0x6 /* EXPIRED */, MOQCTL_ERR_INTERNAL_ERROR},
+      {MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_ERR_INTERNAL_ERROR},
+  };
+  for (usz i = 0; i < sizeof map / sizeof map[0]; i++) {
+    mtlg_pub(1, 0, 5);
+    mups_sub(SESS_B, MRDV_S1);
+    mups_done(MUPS_PUB_SID, map[i][0]);
+    wired_moqt_tick(&mtst_hub, 1); /* the PUBLISH_DONE sweep */
+    CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == map[i][1]);
+    CHECK(mrdv_used() == 0);
+  }
+}
+
 static void test_moqtrun_d23lg_upstream_close_fails_waiters(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_close_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_done_err_d23);
 }
 
 /* One answer per request: a SUBSCRIBE answered after the unpause ends
@@ -720,7 +832,7 @@ static void mtlg_bad_answer_d23(void) {
   mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
   wired_moqt_tick(&mtst_hub, 1);
   mtlg_rok(MUPS_PUB_SID, 0, 9);
-  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
 }
 
 /* 9.10: a PUBLISH_STATE_NOTIFY whose parameters do not decode is
@@ -841,6 +953,7 @@ void test_moqtrun_d23lg(void) {
   test_moqtrun_d23lg_paused_pub_waits_resume();
   test_moqtrun_d23lg_paused_sub_resumes_upstream();
   test_moqtrun_d23lg_tstat_paused_fresh();
+  test_moqtrun_d23lg_update_waits_resume();
   test_moqtrun_d23lg_wait_slots_bounded();
   test_moqtrun_d23lg_resume_refused_fails_waiters();
   test_moqtrun_d23lg_no_preauthorized_answer();

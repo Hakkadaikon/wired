@@ -544,8 +544,9 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
 - [x] MQ23-258 (SS9.2) ハブが送ったリクエストのストリームで GOAWAY を受信した場合、ハブはそのリクエストを新しいセッションまたは現在のセッションで送り直し、古いリクエストストリームを閉じるべきである。同じリクエストストリームでの 2 回目の GOAWAY は UNEXPECTED_MESSAGE でセッションを閉じる。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_goaway`
-  - note: 制御ストリームで GOAWAY を送ったピアには送り直しません。ストリームを開けないときは、次の tick か次の配送で再試行します。
-  - gap: 上流の SUBSCRIBE だけを送り直します。上流の FETCH のストリームの GOAWAY([#238](https://github.com/hakkadaikon/wired/issues/238))と、上流の FETCH と SUBSCRIBE_TRACKS の PUBLISH の送り直し([#239](https://github.com/hakkadaikon/wired/issues/239))は未対応です。
+  - test: `tests/app/moqtrun_subtracks_test.c` — `test_moqtrun_subtracks`
+  - note: 制御ストリームで GOAWAY を送ったピアには送り直しません。ストリームを開けないときは、次の tick か次の配送で再試行します。SUBSCRIBE_TRACKS のために送った PUBLISH は、新しい Request ID で送り直し、古い購読を PUBLISH_DONE GOING_AWAY で終えます(応答前ならストリームをリセットします)。
+  - gap: 上流の FETCH は送り直さず、その区間を終えます([#239](https://github.com/hakkadaikon/wired/issues/239))。
 
 ## SS9.3 REQUEST_OK
 
@@ -958,6 +959,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
     `test_moqtrun_upfetch_owner_gone_fill`,
     `test_moqtrun_upfetch_owner_gone_fetch`
 - [x] MQ23-272 (SS2.1.2, SS3.2.2) 実装は、Object が一度も存在せず今後も存在しないと分かっているときにだけ、それを存在しないものとして示さなければならない。推測しただけの欠落は Unknown として示す。
+  - test: `tests/app/moqcache_test.c` — `test_moqcache`
+  - test: `tests/app/moqtrun_upfetch_test.c` — `test_moqtrun_upfetch`
   - test: `tests/app/moqtrun_fetch_d23_test.c` — `test_moqtrun_fetch_d23_hole`
   - test: `tests/app/moqtrun_fetch_d23_test.c` — `test_moqtrun_fetch_d23_late_unknown`
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_subscribe_opens_d23`
@@ -993,7 +996,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-141 fill fetch ストリームは、その範囲を、購読の Group Order(GROUP_ORDER による昇順または降順。FILL_PARAMETERS の内側で上書きできる)で配送し、存在しない Group は印を付けずに飛ばさなければならない。
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_descending`
   - test: `tests/app/moqtrun_fill_test.c` —
-    `test_moqtrun_fill_descending_skips_gap`
+    `test_moqtrun_fill_descending_missing_group`
   - test: `tests/app/moqtrun_fill_test.c` —
     `test_moqtrun_fill_next_object_no_gap`
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_ascending_sends_first`
@@ -1263,7 +1266,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_live_answers_at_once`
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_never_above_upstream`
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_wait_edges`
-  - gap: 既知の逸脱を [#241](https://github.com/hakkadaikon/wired/issues/241) に挙げています。
+  - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_update_waits_resume`
+  - note: 一時停止中の PUBLISH への購読の REQUEST_UPDATE も、一時停止を解いた結果を待ってから REQUEST_OK で答えます。待っている更新の後ろに次の更新が届いたら、待っている方を TIMEOUT で終えます。
 - [x] MQ23-287 (SS7.5) 上流の答えを待っている下流のリクエストは、上流が失敗したら(REQUEST_ERROR、PUBLISH_DONE、上流のセッションの喪失)REQUEST_ERROR で終えなければならない。待ちは固定数のスロットを使い、埋まっていれば新しいリクエストを EXCESSIVE_LOAD で拒否する。
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_upstream_refused_fails_waiters`
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_upstream_close_fails_waiters`
@@ -1273,6 +1277,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_one_answer_per_request`
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_no_preauthorized_answer`
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_silent_upstream_times_out`
+  - note: PUBLISH_DONE で終わった上流の待ちは、Status Code に対応する REQUEST_ERROR で終えます(TRACK_ENDED は DOES_NOT_EXIST)。対応がなければ INTERNAL_ERROR です。1 つのパブリッシャーの待ちはスロットの半分までで、超えた分は EXCESSIVE_LOAD で拒否します。
   - note: RENDEZVOUS_TIMEOUT のない待ちは、`WIRED_MOQTRUN_UP_WAIT_MS`(5 秒)で REQUEST_ERROR TIMEOUT にします(SS12.3)。応答しない上流がスロットを持ち続ける時間は、この値で上限が決まります。
 - [x] MQ23-288 (SS10.4, SS10.5, SS10.6) DEFAULT_PUBLISHER_PRIORITY が 255 を、DEFAULT_PUBLISHER_GROUP_ORDER や DYNAMIC_GROUPS が定義の範囲を超える場合、実装は MALFORMED_KEY_VALUE (0x6) でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_tprops_test.c` — `test_moqtrun_tprops_prio`
@@ -1446,9 +1451,9 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_descending_unknown_groups`,
-    `test_moqtrun_fetch_descending_skips_missing_group`,
+    `test_moqtrun_fetch_descending_missing_group_unknown`,
     `test_moqtrun_fetch_descending_start_object`
-  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます([既知の制限](../security/limitations/moqt-drafts.md)を参照)。
+  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。受信していない Group は存在しないとは見なさず(SS2.1.2)、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます([既知の制限](../security/limitations/moqt-drafts.md)を参照)。
 - [x] MQ23-198 (SS3.3.1) ライブの Track に後から加わった購読者は、その Location Filter の始点の Group から始めなければならない。ライブの先端より前の始点は現在の Group に切り詰め、未来の始点はその Group まで配送を止める。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
@@ -1505,8 +1510,7 @@ draft-23 のリレーの範囲内ですが、まだ実装していない項目�
 - (SS7.1, SS10.3) Gone の範囲のキャッシュ(MAY)と、その MAX_CACHE_DURATION による失効: [#225](https://github.com/hakkadaikon/wired/issues/225)。上流から受けた Gone の範囲は、キャッシュせずにそのまま伝えます(MQ23-273)。
 - (SS9.5) パイプラインで届いた REQUEST_UPDATE をまとめること(MAY): [#228](https://github.com/hakkadaikon/wired/issues/228)。
 - (SS9.1.7) 応答をキューに入れられなかった REQUEST_UPDATE の枠を戻してしまう: [#223](https://github.com/hakkadaikon/wired/issues/223)。
-- (SS9.2) 上流の FETCH のストリームでの GOAWAY と、上流の FETCH と SUBSCRIBE_TRACKS の PUBLISH の送り直し: [#238](https://github.com/hakkadaikon/wired/issues/238)、[#239](https://github.com/hakkadaikon/wired/issues/239)。
-- (SS7.5) リレーの LARGEST_OBJECT の既知の逸脱: [#241](https://github.com/hakkadaikon/wired/issues/241)。
+- (SS9.2) 上流の FETCH のストリームで GOAWAY を受けたときの FETCH の送り直し: [#239](https://github.com/hakkadaikon/wired/issues/239)。
 
 ## 対象外
 

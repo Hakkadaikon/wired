@@ -65,10 +65,10 @@ void moqtrun_rdv_do_unavailable(
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 void moqtrun_rdv_tick(wired_moqt_hub* hub, u64 now_ms);
-void moqtrun_rdv_drop_stream(
+int  moqtrun_rdv_drop_stream(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id);
 void moqtrun_rdv_drop_wt(wired_moqt_hub* hub, const wired_wt_session* s);
-void moqtrun_rdv_settle_early(wired_moqt_hub* hub, wired_moqtrun_peer* p);
+int  moqtrun_rdv_settle_early(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_route_subscribe(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,

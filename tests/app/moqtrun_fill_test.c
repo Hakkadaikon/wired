@@ -383,18 +383,21 @@ static void test_moqtrun_fill_descending(void) {
   CHECK(mf_fin);
 }
 
-/* A descending fill walks past a Group that never existed without
- * emitting anything for it, and the real last Object carries FIN. */
-static void test_moqtrun_fill_descending_skips_gap(void) {
+/* A descending fill reports a Group it never received as Unknown
+ * (draft-23 2.1.2: a gap conveys nothing) when no upstream is
+ * reachable, and the real last Object carries FIN. */
+static void test_moqtrun_fill_descending_missing_group(void) {
   moqfetch_fill fill = {0};
   fill.descending    = 1;
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
-  mf_obj(2, 0, 1); /* group 1 never published */
+  mf_obj(2, 0, 1); /* group 1 never received */
+  g_open_bidi_fail_n = 1;
   mfill_subscribe(&fill, 0);
   CHECK(mfill_read_desc());
-  CHECK(mf_n == 2);
-  CHECK(mf_is_obj(0, 2, 0, 1) && mf_is_obj(1, 0, 0, 1));
+  CHECK(mf_n == 3);
+  CHECK(mf_is_obj(0, 2, 0, 1) && mf_is_unknown(1, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(2, 0, 0, 1));
   CHECK(mf_fin);
 }
 
@@ -917,7 +920,7 @@ static void mtall_fill(void) {
   test_moqtrun_fill_evicted_run_collapsed();
   test_moqtrun_fill_eviction_under_cursor();
   test_moqtrun_fill_descending();
-  test_moqtrun_fill_descending_skips_gap();
+  test_moqtrun_fill_descending_missing_group();
   test_moqtrun_fill_next_object_no_gap();
   test_moqtrun_fill_update_overlap_dup();
   test_moqtrun_fill_stop_sending_leaves_sub();

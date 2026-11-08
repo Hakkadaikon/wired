@@ -62,6 +62,9 @@ static void moqtrun_update_answer(
   usz                at = q->send_lens[q->armed_idx ^ 1];
   q->pending_updates++;
   moqtrun_update_route(hub, p, peer_idx, &m->params, m->request_id);
+  if (q->rdv_held) {
+    return; /* answered after the unpause (moqtrun_upd_settle) */
+  }
   if (moqtrun_update_unqueued(p, at)) {
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
     return;

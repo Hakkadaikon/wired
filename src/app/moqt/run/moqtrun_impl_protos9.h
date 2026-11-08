@@ -41,6 +41,8 @@ void moqtrun_rdv_do_resume(
     const wired_moqtrun_rdv* r,
     wired_moqtrun_track*     t,
     u64                      code);
+const wired_moqtrun_peer* moqtrun_track_peer(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
 wired_moqtrun_rdv* moqtrun_rdv_wait(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,

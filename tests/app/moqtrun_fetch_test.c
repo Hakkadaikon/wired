@@ -372,19 +372,21 @@ static void test_moqtrun_fetch_descending_unknown_groups(void) {
   CHECK(mf_fin);
 }
 
-/* A Group the cache knows does not exist (1, between cached 2 and 0)
- * stays an unmarked gap: from {2,1} to {0,0} the gap is the tail of
- * Group 2, all of Group 1 and nothing of Group 0 -- all nonexistent. */
-static void test_moqtrun_fetch_descending_skips_missing_group(void) {
+/* draft-23 2.1.2: a Group never received (1, between cached 2 and 0)
+ * is Unknown, never an unmarked (nonexistent) gap: with no upstream
+ * reachable it is one End of Unknown Range ending at {1, max}. */
+static void test_moqtrun_fetch_descending_missing_group_unknown(void) {
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
   mf_obj(2, 0, 1);
   mf_obj(2, 1, 1);
+  g_open_bidi_fail_n = 1;
   mf_standalone_order(mf_loc(0, 0), mf_loc(2, 0), 0x2);
   CHECK(mf_read_desc());
-  CHECK(mf_n == 3);
+  CHECK(mf_n == 4);
   CHECK(mf_is_obj(0, 2, 0, 1) && mf_is_obj(1, 2, 1, 1));
-  CHECK(mf_is_obj(2, 0, 0, 1));
+  CHECK(mf_is_unknown(2, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_obj(3, 0, 0, 1));
   CHECK(mf_fin);
 }
 
@@ -1025,7 +1027,7 @@ static void mtall_fetch19(void) {
   test_moqtrun_fetch_max_cache_duration();
   test_moqtrun_fetch_descending_group_order();
   test_moqtrun_fetch_descending_unknown_groups();
-  test_moqtrun_fetch_descending_skips_missing_group();
+  test_moqtrun_fetch_descending_missing_group_unknown();
   test_moqtrun_fetch_descending_start_object();
   test_moqtrun_fetch_ascending_group_order();
   test_moqtrun_fetch_malformed_closes();

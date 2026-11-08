@@ -124,8 +124,8 @@ void moqtrun_fetch_standalone(
  * {End.Group, 0}, the last {Start.Group, 2^64-1}, and between items in
  * different groups the gap is the tail of the first one's group, every
  * skipped group, and the next group from Object 0 up to the item. An
- * unmarked gap means nonexistent, which is what a skipped group or
- * Object is here (moqcache_skip). A group the cache cannot vouch for is
+ * unmarked gap means nonexistent, which is what a skipped Object of a
+ * cached group is here (moqcache_skip). A group the cache cannot vouch for is
  * one End of Unknown Range per group ending at {g, max} (the window end):
  * running from the previous item (11.4.1.2), it also covers that item's
  * group tail, nonexistent but reported unknown. Start.Group's Objects

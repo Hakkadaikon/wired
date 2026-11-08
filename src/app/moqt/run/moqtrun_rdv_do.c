@@ -3,6 +3,12 @@
 static int moqtrun_rdv_own_up(
     wired_moqt_hub* hub, const wired_moqtrun_rdv* r, wired_moqtrun_track* t);
 static void moqtrun_rdv_own_refuse(wired_moqt_hub* hub, wired_moqtrun_rdv* r);
+static void moqtrun_rdv_do_resolve_sub(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code);
 static void moqtrun_rdv_resolve_one(
     wired_moqt_hub* hub, wired_moqtrun_rdv* r, wired_moqtrun_track* t);
 static int moqtrun_rdv_due(
@@ -36,8 +42,21 @@ void moqtrun_rdv_answer(
  * found-track way (moqtrun_subscribe_peer_track: SUBSCRIBE_OK, or the
  * held-subscription re-answer, or DOES_NOT_EXIST once subs[] is full) --
  * unless t is paused: then it waits again (draft-23 7.5,
- * moqtrun_resume_wait). */
+ * moqtrun_resume_wait). A held update settles against t instead. */
 void moqtrun_rdv_do_resolve(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code) {
+  if (r->upd) {
+    moqtrun_upd_rdv_resolve(hub, sp, t);
+    return;
+  }
+  moqtrun_rdv_do_resolve_sub(hub, sp, r, t, code);
+}
+
+static void moqtrun_rdv_do_resolve_sub(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
@@ -69,8 +88,11 @@ void moqtrun_rdv_do_refuse(
     wired_moqtrun_track*     t,
     u64                      code) {
   moqctl_request_error e = {0};
-  (void)r;
   (void)t;
+  if (r->upd) {
+    moqtrun_upd_rdv_refuse(hub, sp, code);
+    return;
+  }
   e.error_code    = code;
   e.n_unsupported = hub->unsupp_n;
   bytes_memcpy(e.unsupported, hub->unsupp, hub->unsupp_n * sizeof(u64));

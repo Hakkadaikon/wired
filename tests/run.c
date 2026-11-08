@@ -893,6 +893,7 @@
 #include "app/moqt/run/moqtrun_pre.c"
 #include "app/moqt/run/moqtrun_pubdone.c"
 #include "app/moqt/run/moqtrun_pubst.c"
+#include "app/moqt/run/moqtrun_pubst_move.c"
 #include "app/moqt/run/moqtrun_pubupd.c"
 #include "app/moqt/run/moqtrun_rdv.c"
 #include "app/moqt/run/moqtrun_rdv_do.c"

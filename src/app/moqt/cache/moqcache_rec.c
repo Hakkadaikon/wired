@@ -5,6 +5,7 @@ static moqctl_loc moqcache_rec_last(moqcache_rec r);
 static int        moqcache_at_or_after(moqcache_rec r, u64 tag, moqctl_loc cur);
 static usz moqcache_scan(const moqcache* c, usz off, u64 tag, moqctl_loc cur);
 static int moqcache_resumes(const moqcache* c, u64 tag, moqctl_loc cur);
+static int moqcache_live_in(moqcache_rec r, moqctl_loc cur);
 static int moqcache_covered(const moqcache* c, u64 tag, moqctl_loc cur);
 static int moqcache_holds(const moqcache* c, usz off, moqctl_loc cur);
 static moqctl_loc moqcache_gap_end(const moqcache* c, usz off, moqctl_loc end);
@@ -52,12 +53,17 @@ usz moqcache_find(moqcache* c, u64 tag, moqctl_loc cur) {
   return c->hint_off;
 }
 
-/* cur's group is not older than tag's oldest cached group: every
- * Location there is either cached, tombstoned or nonexistent (groups are
- * cached whole and evicted oldest first). */
+static int moqcache_live_in(moqcache_rec r, moqctl_loc cur) {
+  return r.group == cur.group && !moqcache_dead(r);
+}
+
+/* cur's group is cached: every Location there is either cached or
+ * nonexistent (groups are cached whole). A group never received is
+ * Unknown (draft-23 2.1.2: a gap "does not by itself convey any
+ * information"), so a skip never crosses into another group. */
 static int moqcache_covered(const moqcache* c, u64 tag, moqctl_loc cur) {
-  usz off = moqcache_scan(c, 0, tag, moqctl_loc_of(0, 0));
-  return off < c->used && moqcache_rec_at(c, off).group <= cur.group;
+  usz off = moqcache_scan(c, 0, tag, moqctl_loc_of(cur.group, 0));
+  return off < c->used && moqcache_live_in(moqcache_rec_at(c, off), cur);
 }
 
 static int moqcache_holds(const moqcache* c, usz off, moqctl_loc cur) {
@@ -78,7 +84,8 @@ moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end) {
   if (moqcache_holds(c, off, cur) || !moqcache_covered(c, tag, cur)) {
     return cur;
   }
-  return moqcache_gap_end(c, off, end);
+  return moqcache_gap_end(
+      c, off, moqctl_loc_min(end, moqctl_loc_of(cur.group + 1, 0)));
 }
 
 int moqcache_is_obj(moqcache_rec r, moqctl_loc cur) {
