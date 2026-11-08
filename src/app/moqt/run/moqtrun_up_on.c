@@ -1,5 +1,16 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
+static u64 moqtrun_up_route_type(const wired_moqtrun_up* u, u64 type);
+static int moqtrun_up_was_on(
+    const wired_moqtrun_up* u, const wired_wt_session* s, u64 sid);
+static wired_moqtrun_up* moqtrun_up_was_of(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid);
+static int moqtrun_up_rx_on(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_moqtrun_up*   u,
+    wired_span          data,
+    int                 fin);
 static int moqtrun_up_first_answer(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -200,12 +211,20 @@ static const struct {
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_up_on_update},
 };
 
+/* The route of a message of type on u's stream: once u ended it is
+ * still a request stream (draft-23 9.5) where only a REQUEST_UPDATE
+ * still counts, anything else routes nowhere (0). */
+static u64 moqtrun_up_route_type(const wired_moqtrun_up* u, u64 type) {
+  return u->in_use || type == MOQTSTAT_T_REQUEST_UPDATE ? type : 0;
+}
+
 static void moqtrun_up_route(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     u64                 type,
     wired_span          body) {
+  type = moqtrun_up_route_type(u, type);
   for (usz i = 0; i < sizeof MOQTRUN_UP_ROUTES / sizeof MOQTRUN_UP_ROUTES[0];
        i++) {
     if (MOQTRUN_UP_ROUTES[i].type == type) {
@@ -230,7 +249,7 @@ static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64        type = 0;
   wired_span body = {0, 0};
-  while (u->in_use && moqtrun_up_pop(hub, pp, u, &type, &body)) {
+  while (!pp->closing && moqtrun_up_pop(hub, pp, u, &type, &body)) {
     moqtrun_up_route(hub, pp, u, type, body);
   }
 }
@@ -259,13 +278,29 @@ static void moqtrun_up_on_fin(wired_moqt_hub* hub, wired_moqtrun_up* u) {
 /* The waiters' answers go out, and their streams settle, in the same
  * dispatch (moqtrun_reqs_tick). A FIN after SUBSCRIBE_OK ends nothing
  * (draft-19 3.3.2). */
-int moqtrun_up_rx(
+static int moqtrun_up_was_on(
+    const wired_moqtrun_up* u, const wired_wt_session* s, u64 sid) {
+  return u->wt == s && u->stream_id == sid;
+}
+
+/* The entry whose SUBSCRIBE ran on sid, ended or not: it keeps the id
+ * until it is claimed again. */
+static wired_moqtrun_up* moqtrun_up_was_of(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    if (moqtrun_up_was_on(&hub->ups[i], s, sid)) {
+      return &hub->ups[i];
+    }
+  }
+  return 0;
+}
+
+static int moqtrun_up_rx_on(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
-    u64                 stream_id,
+    wired_moqtrun_up*   u,
     wired_span          data,
     int                 fin) {
-  wired_moqtrun_up* u = moqtrun_up_of_stream(hub, p->wt, stream_id);
   if (!u) {
     return 0;
   }
@@ -275,4 +310,28 @@ int moqtrun_up_rx(
   }
   moqtrun_reqs_tick(hub);
   return 1;
+}
+
+int moqtrun_up_rx(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  return moqtrun_up_rx_on(
+      hub, p, moqtrun_up_of_stream(hub, p->wt, stream_id), data, fin);
+}
+
+/* As moqtrun_up_rx on a stream whose SUBSCRIBE ended: still a request
+ * stream (draft-23 9.5). Asked only once no live request owns sid, so
+ * an entry kept from an earlier session on the same session object
+ * never takes a live stream. */
+int moqtrun_up_rx_ended(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  return moqtrun_up_rx_on(
+      hub, p, moqtrun_up_was_of(hub, p->wt, stream_id), data, fin);
 }

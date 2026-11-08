@@ -661,6 +661,42 @@ static void test_moqtrun_d23uo_upfetch_ended_update(void) {
   moqtrun_test_allver(mtuo_upf_ended_junk);
 }
 
+/* The same for the hub's upstream SUBSCRIBE once A ended it -- end 0:
+ * PUBLISH_DONE after SUBSCRIBE_OK, 1: a REQUEST_ERROR. */
+static u64 mtuo_ups_ended(int end) {
+  static const moqctl_request_error e = {.error_code = 1};
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  u64 up = (u64)mups_up_sid();
+  if (end == 0) {
+    mups_ok(up);
+    mups_done(up, 0);
+  }
+  if (end == 1) {
+    mupf_up_err(SESS_A, (i64)up, &e);
+  }
+  CHECK(mups_used() == 0);
+  return up;
+}
+
+static void mtuo_ups_ended_update(usz closes) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  for (int end = 0; end < 2; end++) {
+    mtup_update(SESS_A, mtuo_ups_ended(end), &p);
+    CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == closes);
+  }
+}
+
+static void mtuo_ups_ended_closes(void) { mtuo_ups_ended_update(1); }
+
+static void mtuo_ups_ended_kept_d18(void) { mtuo_ups_ended_update(0); }
+
+static void test_moqtrun_d23uo_upsub_ended_update(void) {
+  moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ups_ended_closes);
+  moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_ups_ended_kept_d18);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -706,4 +742,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_wrong_direction_unexpected();
   test_moqtrun_d23uo_upfetch_update_unexpected();
   test_moqtrun_d23uo_upfetch_ended_update();
+  test_moqtrun_d23uo_upsub_ended_update();
 }

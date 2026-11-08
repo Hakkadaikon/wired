@@ -125,6 +125,12 @@ int moqtrun_upf_rx(
     u64                 sid,
     wired_span          data,
     int                 fin);
+int moqtrun_up_rx_ended(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
 int moqtrun_upf_rx_ended(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
