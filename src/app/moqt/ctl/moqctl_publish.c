@@ -1,7 +1,7 @@
 #include "app/moqt/ctl/moqctl_impl.h"
 
 static int moqctl_publish_take_id_name(
-    wired_span buf, usz* at, moqctl_publish* out);
+    int ver, wired_span buf, usz* at, moqctl_publish* out);
 static int moqctl_publish_encode_head(
     wired_mspan buf, usz* at, const moqctl_publish* m);
 static int moqctl_publish_encode_tail(
@@ -12,17 +12,18 @@ static int moqctl_redirect_take_target(
     wired_span buf, usz* at, moqctl_redirect* r);
 
 static int moqctl_publish_take_id_name(
-    wired_span buf, usz* at, moqctl_publish* out) {
+    int ver, wired_span buf, usz* at, moqctl_publish* out) {
   if (!moqvi_take(buf, at, &out->request_id)) {
     return MOQCTL_INSUFFICIENT;
   }
-  return moqctl_ftn_take(buf, at, &out->name);
+  return moqctl_ftn_check_v(
+      ver, moqctl_ftn_take(buf, at, &out->name), &out->name);
 }
 
 int moqctl_publish_take(
     int ver, wired_span buf, usz* off, moqctl_publish* out) {
   usz at = *off;
-  int r  = moqctl_publish_take_id_name(buf, &at, out);
+  int r  = moqctl_publish_take_id_name(ver, buf, &at, out);
   if (r != MOQCTL_OK) {
     return r;
   }

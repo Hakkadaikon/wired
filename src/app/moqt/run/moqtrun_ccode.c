@@ -55,6 +55,7 @@ static const u8 moqtrun_cc_take_tbl[] = {
     MOQTRUN_CC_FIELD,         /* R_FIELD */
     MOQTRUN_CC_ROLE,          /* R_ROLE */
     MOQTRUN_CC_MALFORMED_OBJ, /* R_OBJ */
+    MOQTRUN_CC_PV,            /* R_NAME_EMPTY */
 };
 
 #define MOQTRUN_CC_TAKE_N (sizeof moqtrun_cc_take_tbl)

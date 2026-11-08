@@ -246,6 +246,69 @@ static void mtcc_all_cases(void) {
   }
 }
 
+/* draft-23 2.4.1: "If an endpoint receives a Track Name with a length of
+ * 0, it MUST close the session with a PROTOCOL_VIOLATION" -- on every
+ * request that carries one (Request ID 0, namespace "c", Track Name
+ * Length 0, then the rest). draft-18..22 allowed an empty Track Name. */
+static u64 mtcc_name_empty(u64 type) {
+  static const u8 b[] = {0x00, 0x01, 0x01, 'c', 0x00, 0x00};
+  return mtcc_req(type, b, sizeof b);
+}
+
+static u64 mtcc_subscribe_name_empty(void) {
+  return mtcc_name_empty(MOQCTL_T_SUBSCRIBE);
+}
+
+static u64 mtcc_tstat_name_empty(void) {
+  return mtcc_name_empty(MOQTSTAT_T_TRACK_STATUS);
+}
+
+/* PUBLISH: Track Alias 1 and no Parameters after the empty name. */
+static u64 mtcc_publish_name_empty(void) {
+  static const u8 b[] = {0x00, 0x01, 0x01, 'c', 0x00, 0x01, 0x00};
+  return mtcc_req(MOQCTL_T_PUBLISH, b, sizeof b);
+}
+
+/* draft-23 6.5 no longer singles out ".session" with an empty Track
+ * Name (draft-22 6.5: DOES_NOT_EXIST); 2.4.1 closes the session first.
+ * Before draft-23 it is still refused DOES_NOT_EXIST, no close. */
+static u64 mtcc_session_name_empty(void) {
+  static const u8 b[] = {0x00, 0x01, 0x08, '.', 's',  'e', 's',
+                         's',  'i',  'o',  'n', 0x00, 0x00};
+  u64             got = mtcc_req(MOQCTL_T_SUBSCRIBE, b, sizeof b);
+  CHECK(got != ~(u64)0 || mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_DOES_NOT_EXIST);
+  return got;
+}
+
+static u64 (*const mtcc_name_cases[])(void) = {
+    mtcc_subscribe_name_empty, mtcc_tstat_name_empty, mtcc_publish_name_empty,
+    mtcc_session_name_empty};
+
+/* The close an empty Track Name earns in the harness draft: none before
+ * draft-23. */
+static u64 mtcc_name_want(void) {
+  return (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_TRACK_NAME_NONEMPTY)
+             ? WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION
+             : ~(u64)0;
+}
+
+static void mtcc_name_all(void) {
+  for (usz i = 0; i < sizeof mtcc_name_cases / sizeof mtcc_name_cases[0]; i++) {
+    u64 got = mtcc_name_cases[i]();
+    CHECK(got == mtcc_name_want());
+    if (got != mtcc_name_want()) {
+      printf(
+          "  ^ empty name case %u got 0x%llx\n", (unsigned)i,
+          (unsigned long long)got);
+    }
+  }
+}
+
+/* FETCH: the draft-22 body (Request ID, Full Track Name, Parameters). */
+static void mtcc_fetch_name_empty(void) {
+  CHECK(mtcc_name_empty(MOQFETCH_T_FETCH) == mtcc_name_want());
+}
+
 /* Only moqt-23 carries the new codes. */
 static void test_mtcc_cap_only_d23(void) {
   for (int v = 0; v < MOQVER_COUNT; v++) {
@@ -258,4 +321,6 @@ static void test_mtcc_cap_only_d23(void) {
 void test_moqtrun_cc(void) {
   test_mtcc_cap_only_d23();
   moqtrun_test_vers(0, 0, mtcc_all_cases);
+  moqtrun_test_vers(0, 0, mtcc_name_all);
+  moqtrun_test_vers(MOQVER_CAP_FETCH_BODY_V22, 0, mtcc_fetch_name_empty);
 }

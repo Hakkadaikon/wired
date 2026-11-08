@@ -36,6 +36,8 @@
 /** A FETCH stream item whose flags are invalid, or that refers to a prior
  * Object's field with none before it: MALFORMED_OBJECT (draft-23 11.4.1). */
 #define MOQCTL_R_OBJ (-12)
+/** A Track Name of length 0: PROTOCOL_VIOLATION (draft-23 2.4.1). */
+#define MOQCTL_R_NAME_EMPTY (-13)
 
 /* Message Type IDs this codec knows how to decode/encode (SS10 table). */
 /** SETUP (SS10.4): the single Setup message each endpoint sends first on
@@ -604,13 +606,17 @@ typedef struct {
 typedef struct {
   /** Track Namespace. */
   moqctl_ns ns;
-  /** Track Name bytes (view); may be empty. */
+  /** Track Name bytes (view); empty only before draft-23 or in a Redirect
+   * (draft-23 2.4.1, moqctl_ftn_check_v). */
   wired_span name;
 } moqctl_ftn;
 
 /** VIOLATION on: a field of length 0, >32 fields, or total (namespace +
  * name) bytes > MOQCTL_MAX_FTN_LEN. */
 int moqctl_ftn_take(wired_span buf, usz* off, moqctl_ftn* out);
+/** r, or MOQCTL_R_NAME_EMPTY when r is MOQCTL_OK, f's Track Name is empty
+ * and draft ver forbids that (draft-23 2.4.1). */
+int moqctl_ftn_check_v(int ver, int r, const moqctl_ftn* f);
 /** Encodes f as Track Namespace then Track Name; 1 ok, 0 when buf runs
  * out. */
 int moqctl_ftn_put(wired_mspan buf, usz* off, const moqctl_ftn* f);

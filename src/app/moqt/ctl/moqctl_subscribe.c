@@ -11,7 +11,8 @@ static int moqctl_subscribe_ok_encode_head(
 
 static int moqctl_subscribe_take_body(
     int ver, wired_span buf, usz* at, moqctl_subscribe* out) {
-  int r = moqctl_ftn_take(buf, at, &out->name);
+  int r =
+      moqctl_ftn_check_v(ver, moqctl_ftn_take(buf, at, &out->name), &out->name);
   if (r != MOQCTL_OK) {
     return r;
   }
