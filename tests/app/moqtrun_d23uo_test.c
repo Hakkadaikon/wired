@@ -745,6 +745,25 @@ static void test_moqtrun_d23uo_ended_entry_new_session(void) {
   moqtrun_test_allver(mtuo_ended_entry_new_session);
 }
 
+/* A fresh hub (wired_moqt_init) keeps no ended SUBSCRIBE or FETCH from
+ * before it: A's REQUEST_UPDATE on that stream id is no request stream's
+ * and closes nothing (9.5). */
+static void mtuo_ended_reinit(void) {
+  moqctl_params p  = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  u64           up = mtuo_ups_ended(1);
+  mnsx_relay();
+  mtup_update(SESS_A, up, &p);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 0);
+  u64 sid = mtuo_upf_ended(1);
+  mupf_init();
+  mtup_update(SESS_A, sid, &p);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 0);
+}
+
+static void test_moqtrun_d23uo_ended_reinit(void) {
+  moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ended_reinit);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -792,4 +811,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_upfetch_ended_update();
   test_moqtrun_d23uo_upsub_ended_update();
   test_moqtrun_d23uo_ended_entry_new_session();
+  test_moqtrun_d23uo_ended_reinit();
 }
