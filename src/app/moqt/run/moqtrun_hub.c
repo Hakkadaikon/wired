@@ -21,6 +21,7 @@ static void moqtrun_fetch_arr_clear(wired_moqtrun_fetch* arr) {
     arr[i].wt           = 0;
     arr[i].up_state     = WIRED_MOQTRUN_UPF_NONE;
     arr[i].up_data_open = 0;
+    arr[i].up_wt        = 0; /* no ended leg's stream kept (draft-23 9.5) */
   }
 }
 

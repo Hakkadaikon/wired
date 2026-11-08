@@ -50,5 +50,6 @@ void moqtrun_rdv_clear(wired_moqt_hub* hub) {
 void moqtrun_up_clear(wired_moqt_hub* hub) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
     hub->ups[i].in_use = 0;
+    hub->ups[i].wt     = 0; /* no ended SUBSCRIBE's stream kept (9.5) */
   }
 }
