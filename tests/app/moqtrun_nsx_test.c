@@ -403,14 +403,27 @@ static void mnsx_fan(i64* sa, i64* sc) {
   *sc = mups_up(SESS_C, 0, &m);
 }
 
-/* 7.7: one announcer refusing while another answers OK: SUBSCRIBE_OK. */
+/* A few hub steps with no new request or announcement. */
+static void mnsx_syncs(void) {
+  for (u64 t = 1; t <= 3; t++) {
+    wired_moqt_tick(&mtst_hub, t);
+  }
+}
+
+/* 7.7: one announcer refusing while another answers OK: SUBSCRIBE_OK.
+ * Without a new downstream SUBSCRIBE or PUBLISH_NAMESPACE the refusing
+ * announcer is not asked again, before or after the other one's OK. */
 static void test_moqtrun_nsx_fan_one_fails(void) {
   i64 sa, sc;
   mnsx_fan(&sa, &sc);
   mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
   CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
+  mnsx_syncs();
+  CHECK(mups_n_up(SESS_C) == 1);
   mnsx_up_ok(SESS_A, (u64)sa);
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+  mnsx_syncs();
+  CHECK(mups_n_up(SESS_C) == 1);
 }
 
 /* 7.7: every announcer refusing: REQUEST_ERROR with the last code. */
@@ -432,6 +445,56 @@ static void test_moqtrun_nsx_refused_then_resent(void) {
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "E1|FIN|"));
   mnsx_dsub(MTRQ_S2);
   CHECK(mups_n_up(SESS_A) == 2);
+}
+
+/* 7.7 fan-out: the downstream SUBSCRIBE_OK given on A's OK stands when C
+ * refuses afterwards -- no REQUEST_ERROR follows it. */
+static void test_moqtrun_nsx_fanout_fail_after_ok(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mnsx_up_ok(SESS_A, (u64)sa);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+}
+
+/* 7.7: while both upstream SUBSCRIBEs are pending, the owner A PUBLISHes
+ * t1: the waiting downstream SUBSCRIBE is answered SUBSCRIBE_OK, and C's
+ * later refusal sends no REQUEST_ERROR. */
+static void test_moqtrun_nsx_fanout_owner_publish_ok(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mnsx_pub_t1();
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+}
+
+/* 7.7: once the owner A has PUBLISHed t1 and its upstream SUBSCRIBE
+ * fails, a new downstream SUBSCRIBE rides A's published track: no new
+ * SUBSCRIBE goes to A. */
+static void test_moqtrun_nsx_resend_skips_publisher(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mnsx_pub_t1();
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  mnsx_dsub(MTRQ_S2);
+  mnsx_syncs();
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* 7.7: the only announcer refuses, is asked again on the next downstream
+ * SUBSCRIBE, and refuses again: that SUBSCRIBE fails too. */
+static void test_moqtrun_nsx_second_fail_error(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  mtst_pub_err(SESS_A, (u64)mups_up_sid(), MOQCTL_ERR_UNAUTHORIZED);
+  mnsx_dsub(MTRQ_S2);
+  CHECK(mups_n_up(SESS_A) == 2);
+  moqctl_subscribe m;
+  mtst_pub_err(SESS_A, (u64)mups_up(SESS_A, 1, &m), MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mrdv_is(SESS_B, MTRQ_S2, "E1|FIN|"));
 }
 
 /* The only announcer's session lost while the upstream SUBSCRIBE is
@@ -605,6 +668,10 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_fan_one_fails();
   test_moqtrun_nsx_fan_all_fail();
   test_moqtrun_nsx_refused_then_resent();
+  test_moqtrun_nsx_fanout_fail_after_ok();
+  test_moqtrun_nsx_fanout_owner_publish_ok();
+  test_moqtrun_nsx_resend_skips_publisher();
+  test_moqtrun_nsx_second_fail_error();
 }
 
 void test_moqtrun_nsx(void) {
