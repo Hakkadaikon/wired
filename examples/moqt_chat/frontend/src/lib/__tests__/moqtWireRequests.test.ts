@@ -108,6 +108,34 @@ describe("Message Parameters (9.19)", () => {
 		expect(() => decodeParams(hex("01 11 02"), 0)).toThrow(/INVALID_PARAMETER/);
 		expect(() => decodeParams(hex("01 10 01"), 0)).toThrow(MoqtDecodeError);
 	});
+
+	it("uint8 parameters are one byte: SUBSCRIBER_PRIORITY 64, GROUP_ORDER 2", () => {
+		const params = [
+			{ type: 0x20n, value: 64n },
+			{ type: 0x22n, value: 2n },
+		];
+		// 2 params: 0x20 then 40; delta 2 -> 0x22 then 02.
+		expect(bytesToHex(encodeParams(params))).toBe("0220400202");
+		expect(decodeParams(hex("0220400202"), 0).params).toEqual(params);
+		expect(() => decodeParams(hex("01 20"), 0)).toThrow(/truncated/);
+	});
+
+	it("a Type past 2^64-1 is DELTA_ENCODING_OVERFLOW (9.19)", () => {
+		// OBJECT_DELIVERY_TIMEOUT (0x02) 0, then Type Delta 2^64-1 (9-byte ff..).
+		expect(() => decodeParams(hex("02 02 00 ff ffffffffffffffff"), 0)).toThrow(
+			/DELTA_ENCODING_OVERFLOW/,
+		);
+	});
+
+	it("a Track Namespace over 4096 bytes is FIELD_LENGTH_EXCEEDED (8.7)", () => {
+		// 2 fields of 2049 bytes each (Length 0x801 -> 88 01).
+		const field = new Uint8Array(2 + 2049);
+		field.set(hex("8801"));
+		const ns = new Uint8Array([0x02, ...field, ...field]);
+		expect(() => decodeNamespaceSuffix(ns, false)).toThrow(
+			/FIELD_LENGTH_EXCEEDED/,
+		);
+	});
 });
 
 describe("LOCATION_FILTER (9.19.9)", () => {
