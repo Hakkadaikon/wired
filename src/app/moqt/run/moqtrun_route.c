@@ -63,6 +63,7 @@ static void moqtrun_route_peer_subscribe(
   u8                   ns_buf[WIRED_MOQTRUN_MAX_NS];
   moqtrun_key          k     = moqtrun_key_of(&m->name, ns_buf);
   wired_moqtrun_track* track = moqtrun_find_published_track(hub, k);
+  moqtrun_up_forget_key(hub, k); /* draft-23 7.7: ask a refuser again */
   if (!track) {
     moqtrun_rdv_miss(hub, p, m, k, body);
     return;

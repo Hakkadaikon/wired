@@ -108,6 +108,8 @@ int  moqtrun_relay_feeds(const wired_moqtrun_relay* r, usz si);
 int moqtrun_up_matches(const wired_moqtrun_up* u, moqtrun_key k);
 int moqtrun_up_matches_wt(
     const wired_moqtrun_up* u, moqtrun_key k, const wired_wt_session* s);
+void moqtrun_up_forget_key(wired_moqt_hub* hub, moqtrun_key k);
+void moqtrun_up_forget_under(wired_moqt_hub* hub, const wired_moqtrun_req* q);
 wired_moqtrun_up* moqtrun_up_of_key_wt(
     wired_moqt_hub* hub, moqtrun_key k, const wired_wt_session* s);
 int moqtrun_up_candidate(

@@ -937,6 +937,7 @@
 #include "app/moqt/run/moqtrun_up.c"
 #include "app/moqt/run/moqtrun_up_announcer.c"
 #include "app/moqt/run/moqtrun_up_of.c"
+#include "app/moqt/run/moqtrun_up_forget.c"
 #include "app/moqt/run/moqtrun_up_on.c"
 #include "app/moqt/run/moqtrun_up_send.c"
 #include "app/moqt/run/moqtrun_up_settle.c"

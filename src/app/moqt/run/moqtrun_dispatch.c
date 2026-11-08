@@ -40,13 +40,15 @@ static void moqtrun_handle_disc(
 }
 
 /* An accepted PUBLISH_NAMESPACE makes its session worth asking again by a
- * wait for a new path. */
+ * wait for a new path, and for the Tracks it covers that it refused
+ * (draft-23 7.7). */
 void moqtrun_dispatch_publish_ns(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
   moqtrun_handle_disc(hub, p, body, moqns_publish_take, moqtrun_disc_pub_check);
   if (p->req && p->req->live) {
     moqtrun_rp_untry(hub, p->req);
+    moqtrun_up_forget_under(hub, p->req);
   }
 }
 
