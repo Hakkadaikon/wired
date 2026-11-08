@@ -95,7 +95,8 @@ static wired_srvrun_obs cli_obs(int argc, char** argv) {
 /* Driver flags, the offered MoQT versions, and the hub callbacks. */
 static void run_setup(
     wired_srvdriver_opt* opt, wired_srvboot_id* id, int argc, char** argv) {
-  static char wt_protocols[32];
+  /* "moqt-23,moqt-22,moqt-19,moqt-18" is 31 bytes; room for later drafts */
+  static char wt_protocols[64];
   if (!wired_srvdriver_parse(argc, argv, opt)) {
     wired_die("bad CLI flags (single-process only)\n");
   }

@@ -202,9 +202,10 @@ static void hub_callbacks(wired_srvrun_opt* run) {
 /* Driver flags (single-process only), the offered subprotocols, and the
  * hub and origin callbacks. */
 static void run_setup(wired_srvdriver_opt* opt, int argc, char** argv) {
-  /* draft-22 6.2.1: the WebTransport subprotocols offered ("moqt-22
-   * moqt-19 moqt-18"); none negotiated = the draft-19 legacy session. */
-  static char wt_protocols[32];
+  /* draft-23 6.2.1: the WebTransport subprotocols offered ("moqt-23
+   * moqt-22 moqt-19 moqt-18", 31 bytes; room for later drafts); none
+   * negotiated = the draft-19 legacy session. */
+  static char wt_protocols[64];
   if (!wired_srvdriver_parse(argc, argv, opt)) {
     wired_die(
         "bad CLI flags (moqt_chat is single-process only: do not pass "
