@@ -16,14 +16,18 @@ static int moqtrun_rdv_on_stream(
   return moqtrun_rdv_owned(r, s) && r->stream_id == stream_id;
 }
 
-/* A cancelled request stream's hold goes, unanswered (3.3.3). */
-void moqtrun_rdv_drop_stream(
+/* A cancelled request stream's hold goes, unanswered (3.3.3); 1 when it
+ * held an update (wired_moqtrun_rdv.upd). */
+int moqtrun_rdv_drop_stream(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id) {
+  int upd = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
     if (moqtrun_rdv_on_stream(&hub->rdv[i], s, stream_id)) {
+      upd |= hub->rdv[i].upd;
       hub->rdv[i].in_use = 0;
     }
   }
+  return upd;
 }
 
 /* A closed session's holds go at once: a new session may reuse its handle
@@ -42,14 +46,21 @@ static int moqtrun_rdv_held_here(const wired_moqtrun_peer* p) {
 
 /* A REQUEST_UPDATE on a held SUBSCRIBE (draft-19 10.9: exactly one answer
  * each, and the first on the stream reads as the SUBSCRIBE's): the hold is
- * answered TIMEOUT first -- the shorter timeout 10.2.6 allows. */
-void moqtrun_rdv_settle_early(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+ * answered TIMEOUT first -- the shorter timeout 10.2.6 allows. A held
+ * update answered so ends its subscription (draft-23 9.5.1): 1, the
+ * request is over. */
+int moqtrun_rdv_settle_early(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  int upd;
   if (!moqtrun_rdv_held_here(p)) {
-    return;
+    return 0;
   }
   moqtrun_send_request_error(p, MOQTRUN_ERR_TIMEOUT);
   p->req->rdv_held = 0;
-  moqtrun_rdv_drop_stream(hub, p->wt, p->req->stream_id);
+  upd              = moqtrun_rdv_drop_stream(hub, p->wt, p->req->stream_id);
+  if (upd) {
+    moqtrun_upd_drop_now(hub, p);
+  }
+  return upd;
 }
 
 /* draft SS10.6 SUBSCRIBE for a peer-published track: find it and reply

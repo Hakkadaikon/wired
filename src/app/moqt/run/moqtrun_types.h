@@ -879,6 +879,11 @@ typedef struct {
    * SUBSCRIBE, answered once that REQUEST_UPDATE is, or TIMEOUT after
    * WIRED_MOQTRUN_UP_WAIT_MS. */
   u8 resume;
+  /** resume only: 1 when the slot holds an accepted REQUEST_UPDATE on an
+   * Established subscription (draft-23 7.5: its REQUEST_OK carries
+   * LARGEST_OBJECT): answered REQUEST_OK, or a REQUEST_ERROR that ends
+   * the subscription (9.5.1). */
+  u8 upd;
   /** resume only: the session publishing that PUBLISH (owned by the
    * transport), so one publisher holds at most half of the slots. */
   const wired_wt_session* pub_wt;

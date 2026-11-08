@@ -66,6 +66,7 @@ static void moqtrun_rp_store(
   r->up_only     = 0;
   r->repath      = 1;
   r->resume      = 0;
+  r->upd         = 0;
   r->done_status = status;
   r->done_count  = count;
   r->tried       = moqtrun_rp_bit(hub, u->wt);

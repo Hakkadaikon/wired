@@ -16,6 +16,10 @@
 
 static int moqtrun_must_wait(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t);
+static int moqtrun_upd_must_wait(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t);
+static int moqtrun_resume_hold_upd(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 static int  moqtrun_resume_of(const wired_moqtrun_rdv* r, moqtrun_key k);
 static int  moqtrun_resume_due(const wired_moqtrun_track* t);
 static void moqtrun_resume_end(
@@ -44,6 +48,35 @@ int moqtrun_resume_wait(
     moqtrun_pub_resume(hub, t);
   }
   return 1;
+}
+
+static int moqtrun_upd_must_wait(
+    const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  return t && moqtrun_must_wait(p, t);
+}
+
+/* Holds p's applied update until t's unpause: 1, or -1 when refused
+ * (moqtrun_rdv_wait sent EXCESSIVE_LOAD). */
+static int moqtrun_resume_hold_upd(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  wired_moqtrun_rdv* r = moqtrun_rdv_wait(hub, p, t, wired_span_of(0, 0));
+  if (!r) {
+    return -1;
+  }
+  r->upd = 1;
+  moqtrun_pub_resume(hub, t);
+  return 1;
+}
+
+/* moqtrun_resume_wait for p's applied REQUEST_UPDATE on t (draft-23 7.5:
+ * its REQUEST_OK carries LARGEST_OBJECT): 0 when it is answered now, 1
+ * held, -1 refused. */
+int moqtrun_resume_wait_upd(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  if (!moqtrun_upd_must_wait(p, t)) {
+    return 0;
+  }
+  return moqtrun_resume_hold_upd(hub, p, t);
 }
 
 static int moqtrun_resume_of(const wired_moqtrun_rdv* r, moqtrun_key k) {
@@ -138,14 +171,18 @@ void moqtrun_resume_gone(wired_moqt_hub* hub, wired_moqtrun_track* t) {
                          : MOQCTL_ERR_INTERNAL_ERROR);
 }
 
-/* A waiter re-runs once t is usable: TRACK_STATUS, or the SUBSCRIBE
- * (moqtrun_rdv_do_resolve). */
+/* A waiter re-runs once t is usable: an update's REQUEST_OK, TRACK_STATUS,
+ * or the SUBSCRIBE (moqtrun_rdv_do_resolve). */
 void moqtrun_rdv_do_resume(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
     wired_moqtrun_track*     t,
     u64                      code) {
+  if (r->upd) {
+    moqtrun_upd_rdv_ok(sp, t);
+    return;
+  }
   if (sp->req->kind == MOQTSTAT_T_TRACK_STATUS) {
     moqtrun_tstat_answer(hub, sp, wired_span_of(r->body, r->body_len));
     return;

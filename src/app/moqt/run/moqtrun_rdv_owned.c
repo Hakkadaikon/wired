@@ -70,6 +70,7 @@ static void moqtrun_rdv_store(
   r->up_only     = rt == 0;
   r->repath      = 0;
   r->resume      = 0;
+  r->upd         = 0;
   r->tried       = 0;
   r->ns_len      = k.ns.n;
   r->name_len    = k.name.n;

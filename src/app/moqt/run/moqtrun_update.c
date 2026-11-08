@@ -19,6 +19,8 @@ static u64 moqtrun_upd_checked(
     wired_moqtrun_peer*   p,
     const moqtrun_upd_at* u,
     const moqctl_params*  params);
+static void moqtrun_upd_drop(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqtrun_upd_at* u);
 static void moqtrun_upd_failed(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -92,20 +94,70 @@ void moqtrun_upd_end(wired_moqtrun_peer* p) {
   p->req->upd_ended |= (moqver_caps(p->ver) & MOQVER_CAP_UPD_ERR_ENDS) != 0;
 }
 
-/* A refused update: REQUEST_ERROR code, and an existing subscription
- * ends UPDATE_FAILED with its mirrors. */
-static void moqtrun_upd_failed(
-    wired_moqt_hub*       hub,
-    wired_moqtrun_peer*   p,
-    const moqtrun_upd_at* u,
-    u64                   code) {
-  moqtrun_send_request_error(p, code);
+/* After an update's REQUEST_ERROR: an existing subscription ends
+ * UPDATE_FAILED with its mirrors. */
+static void moqtrun_upd_drop(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqtrun_upd_at* u) {
   moqtrun_upd_end(p);
   if (u->s) {
     moqtrun_sub_done(hub, p, p->req, u->t, u->s, MOQCTL_DONE_UPDATE_FAILED);
     moqtrun_cancel_peer_subs(
         hub, u->s->session_idx, u->s->request_id); /* mirrors */
   }
+}
+
+/* moqtrun_upd_drop for p's subscription as it stands now (after a wait it
+ * may have moved). */
+void moqtrun_upd_drop_now(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  moqtrun_upd_at u = {(usz)(p - hub->peers), 0, 0};
+  u.s              = moqtrun_upd_target(hub, p, u.idx, &u.t);
+  moqtrun_upd_drop(hub, p, &u);
+}
+
+/* A refused update: REQUEST_ERROR code, then moqtrun_upd_drop. */
+static void moqtrun_upd_failed(
+    wired_moqt_hub*       hub,
+    wired_moqtrun_peer*   p,
+    const moqtrun_upd_at* u,
+    u64                   code) {
+  moqtrun_send_request_error(p, code);
+  moqtrun_upd_drop(hub, p, u);
+}
+
+/* Answers p's applied update on t: REQUEST_OK now, or once t's PUBLISH
+ * is unpaused (draft-23 7.5: the OK carries LARGEST_OBJECT); a wait that
+ * did not fit was refused EXCESSIVE_LOAD and ends the subscription. */
+void moqtrun_upd_settle(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  int w = moqtrun_resume_wait_upd(hub, p, t);
+  if (!w) {
+    moqtrun_queue_request_ok(p, t);
+  }
+  if (w < 0) {
+    moqtrun_upd_drop_now(hub, p);
+  }
+}
+
+/* The held update's answer, queued on its stream after the wait: its
+ * credit comes back once that is flushed (draft-23 9.1.7). */
+void moqtrun_upd_rdv_ok(wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
+  moqtrun_queue_request_ok(p, t);
+  p->req->upd_answered++;
+}
+
+void moqtrun_upd_rdv_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
+  moqtrun_send_request_error(p, code);
+  moqtrun_upd_drop_now(hub, p);
+  p->req->upd_answered++;
+}
+
+/* A new PUBLISH for the held update's track: settled against it, the
+ * credit counted unless it waits again. */
+void moqtrun_upd_rdv_resolve(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
+  moqtrun_upd_settle(hub, p, t);
+  p->req->upd_answered += !p->req->rdv_held;
 }
 
 static void moqtrun_update_sub_apply(
@@ -127,9 +179,9 @@ static void moqtrun_update_sub_apply(
   moqtsw_rebound(u->s);
   moqtrun_upd_remember(p, u->s);
   moqtrun_mirror_update(hub, p, u->s, params);
-  moqtrun_queue_request_ok(p, u->t);
   moqtrun_ngr_relay(hub, u->t, params);
   moqtrun_pub_resume(hub, u->t);
+  moqtrun_upd_settle(hub, p, u->t);
   moqtrun_fill_on_update(hub, p, u->t, u->s, params, rid);
 }
 
@@ -169,7 +221,9 @@ void moqtrun_update_sub(
     usz                  idx,
     const moqctl_params* params,
     u64                  rid) {
-  moqtrun_rdv_settle_early(hub, p);
+  if (moqtrun_rdv_settle_early(hub, p)) {
+    return; /* draft-23 9.5.1: the request ended; this update is dropped */
+  }
   moqtrun_upd_at u = {idx, 0, 0};
   u.s              = moqtrun_upd_target(hub, p, idx, &u.t);
   if (moqtrun_upd_sw_refused(hub, p, &u, params)) {
