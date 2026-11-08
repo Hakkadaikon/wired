@@ -64,6 +64,9 @@ static void moqtrun_subtracks_pub_fill(
   m->params      = moqtrun_subtracks_publish_params(st);
   moqtrun_subtracks_fill_param(&m->params, st);
   moqtrun_subtracks_tag(st_peer->ver, &m->params, st->request_id);
+  if (moqtrun_relay_largest(st_peer->ver)) {
+    moqtrun_largest_prepend(&m->params, t);
+  }
   moqctl_params_out(st_peer->ver, &m->params);
   moqctl_ns_take(wired_span_of(t->ns, t->ns_len), &off, &m->name.ns);
   m->name.name = wired_span_of(t->name, t->name_len);

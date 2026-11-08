@@ -156,6 +156,9 @@ void moqtrun_reattach_subs(
     moqtrun_key          k);
 int  moqtrun_encode_subscribe_ok(wired_mspan buf, usz* off, const void* m);
 void moqtrun_largest_param(moqctl_params* params, const wired_moqtrun_track* t);
+void moqtrun_largest_prepend(
+    moqctl_params* params, const wired_moqtrun_track* t);
+int  moqtrun_relay_largest(int ver);
 void moqtrun_queue_subscribe_ok(
     wired_moqtrun_peer*        p,
     const wired_moqtrun_track* t,

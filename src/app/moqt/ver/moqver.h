@@ -116,6 +116,11 @@
 /** NAMESPACE ends with Number of Parameters; no parameter is scoped to it,
  * so the hub writes 0 (draft-23 9.15). */
 #define MOQVER_CAP_NS_PARAMS (1u << 31)
+/** A relay counts REQUEST_UPDATE_OK and PUBLISH_STATE_NOTIFY toward its
+ * LARGEST_OBJECT, answers only from an unpaused upstream and includes the
+ * parameter in its PUBLISH once it received Objects (draft-23 7.5,
+ * 9.19.17). */
+#define MOQVER_CAP_RELAY_LARGEST (1ull << 32)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

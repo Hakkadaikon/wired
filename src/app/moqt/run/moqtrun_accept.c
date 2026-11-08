@@ -17,6 +17,27 @@ void moqtrun_largest_param(
   }
 }
 
+/* draft-23 7.5 / 9.19.17 apply to a ver session (MOQVER_CAP_RELAY_LARGEST). */
+int moqtrun_relay_largest(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_RELAY_LARGEST) != 0;
+}
+
+/* draft-23 9.19.17: a relay that received Objects includes LARGEST_OBJECT
+ * in the PUBLISH it sends too; it goes first, the lowest Type (0x09). */
+void moqtrun_largest_prepend(
+    moqctl_params* params, const wired_moqtrun_track* t) {
+  moqctl_params l;
+  moqtrun_largest_param(&l, t);
+  if (!l.n) {
+    return;
+  }
+  for (usz i = params->n; i > 0; i--) {
+    params->items[i] = params->items[i - 1];
+  }
+  params->items[0] = l.items[0];
+  params->n++;
+}
+
 /* SUBSCRIBE_OK with s's alias; LARGEST_OBJECT once t has published
  * Objects (MUST, draft 10.2.16); t's Track Properties unless s asked
  * INCLUDE_PROPERTIES=0 (draft-22 9.20.21). */
