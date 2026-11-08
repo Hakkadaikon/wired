@@ -19,7 +19,7 @@ jobs:
         example:
           - word_list
           - webtransport_interop
-          - moqt_chat
+          - moqt_chat/server
     steps:
       - uses: actions/checkout@v4
 

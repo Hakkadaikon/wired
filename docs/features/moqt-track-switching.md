@@ -356,7 +356,7 @@ tier は pacing set(セッションのセット表で最初の有効な backpres
 
 `ssts_algs` に入れる ID は `MOQCTL_SSTS_ALG_DEFAULT` (0) と `MOQCTL_SSTS_ALG_BACKPRESSURE` (0xff01) である。送るのは最大 `MOQCTL_SSTS_MAX_ALGS` (4) 個である。配信レートの見積もりが `ssts_cap_kbps` より厳しいときは見積もりを使う。
 
-`examples/moqt_chat/wired_server.c` は backpressure を先に挙げ、default の割り当てをフォールバックにしている。
+`examples/moqt_chat/server/wired_server.c` は backpressure を先に挙げ、default の割り当てをフォールバックにしている。
 
 ```c
 static const u64 chat_ssts_algs[] = {

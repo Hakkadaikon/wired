@@ -12,7 +12,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| 対象 | `examples/moqt_chat/docker-compose.yml` の `wired_server` コンテナ |
+| 対象 | `examples/moqt_chat/server/docker-compose.yml` の `wired_server` コンテナ |
 | ネットワーク | `network_mode: host`(コンテナはホストのネットワークを共有し、専用の仮想インターフェースを持たない) |
 | 利用 | 実際の利用者 2〜4 人が [WebTransport のセッション](https://hakkadaikon.github.io/wired/guide/ja/wt/session/)を開いたままにした |
 | 期間 | 2026-09-22 01:42–06:15 JST |

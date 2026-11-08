@@ -161,8 +161,8 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/webtransport_interop/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs webtransport_interop) build/libwired.a"
     echo
-    echo "build examples/moqt_chat/wired_server: cc_freestanding_bin \$"
-    echo "    $(ex_srcs moqt_chat) build/libwired.a"
+    echo "build examples/moqt_chat/server/wired_server: cc_freestanding_bin \$"
+    echo "    $(ex_srcs moqt_chat/server) build/libwired.a"
     echo
     echo "build examples/moqt_interop/wired_server: cc_freestanding_bin \$"
     echo "    $(ex_srcs moqt_interop) build/libwired.a"
@@ -186,7 +186,7 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     done
     sanlib=$(printf '%s\n' "$libobjs" | tr ' ' '\n' | sed '/^$/d; s|^build/|build/san/|' | tr '\n' ' ')
     echo "build build/san/libwired.a: ar $sanlib"
-    for ex in word_list webtransport_interop moqt_chat moqt_interop; do
+    for ex in word_list webtransport_interop moqt_chat/server moqt_interop; do
         echo "build build/san/examples/$ex/wired_server: cc_san_bin $(ex_srcs "$ex") build/san/libwired.a"
         san_bins="$san_bins build/san/examples/$ex/wired_server"
     done
@@ -198,10 +198,10 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     done
     echo "build san: phony$san_bins"
     echo
-    echo "# lint: one stamp per src/**.c and examples/*/*.c (just lint runs it"
+    echo "# lint: one stamp per src/**.c and examples/**/*.c (just lint runs it"
     echo "# in the devShell)."
     stamps=""
-    for f in $srcs $(find examples -mindepth 2 -maxdepth 2 -name '*.c' | sort); do
+    for f in $srcs $(find examples -mindepth 2 -maxdepth 3 -name '*.c' | sort); do
         echo "build build/lint/${f%.c}.stamp: tidy $f"
         stamps="$stamps build/lint/${f%.c}.stamp"
     done

@@ -59,7 +59,7 @@ test-san: gen-ninja
 check: ccn test
 
 # CCN <= 3 and nesting depth <= 2 for every C function (lizard).
-ccn *paths="src examples/*/*.c examples/*/*.h":
+ccn *paths="src examples/*/*.c examples/*/*.h examples/*/*/*.c examples/*/*/*.h":
     # Default is src/ and the examples' C (the gate); pass files to measure
     # only those.
     # The nesting limit is the tree's maximum when it was set.
@@ -74,7 +74,7 @@ halstead *paths="src":
     sh scripts/just/rca.sh {{ paths }}
 
 # Halstead/MI/exits/parameter limits per function and file (rust-code-analysis).
-halstead-check *paths="src examples/*/*.c examples/*/*.h scripts":
+halstead-check *paths="src examples/*/*.c examples/*/*.h examples/*/*/*.c examples/*/*/*.h scripts":
     sh scripts/just/rca.sh --check {{ paths }}
 
 # Report only: per-function cognitive complexity; 0 scores are not listed.

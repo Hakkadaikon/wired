@@ -1,6 +1,6 @@
 // MOQT chat transport: wires the browser WebTransport API to the
 // draft-ietf-moq-transport-22 codec in moqtWire.ts, matching the fixed hub
-// protocol implemented by wired_server (examples/moqt_chat/wired_server.c,
+// protocol implemented by wired_server (examples/moqt_chat/server/wired_server.c,
 // src/app/moqt/run/moqtrun.c). The session's draft is the WebTransport
 // subprotocol: the client offers "moqt-22"; a browser that cannot negotiate
 // one (Chromium exposes `protocols` only behind

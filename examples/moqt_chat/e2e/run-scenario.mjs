@@ -62,7 +62,7 @@ const serverWrap = cpuQuota
 	? ["systemd-run", "--user", "--scope", "-q", "-p", `CPUQuota=${cpuQuota}%`]
 	: undefined;
 const server = await startServer({
-	binPath: path.join(e2eDir, "..", "wired_server"),
+	binPath: path.join(e2eDir, "..", "server", "wired_server"),
 	logPath: path.join(evidenceDir, "server.log"),
 	args: serverArgs,
 	wrap: serverWrap,

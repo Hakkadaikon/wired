@@ -4,7 +4,7 @@ A chat + voice call room over Media over QUIC Transport
 (draft-ietf-moq-transport-22, with a draft-19 fallback; see
 [`moqt_interop`](../moqt_interop/) for the multi-draft relay): a libc-free
 WebTransport server
-(`wired_server.c`) relays each participant's chat messages and Opus voice
+(`server/wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
 
@@ -138,7 +138,7 @@ for the gaps.
   = 1`) and an SSTS algorithm list (`ssts_algs` / `ssts_alg_n`, plus
   `ssts_cap_kbps` for the default algorithm's budget), all set after
   `wired_moqt_init`. The client enables variants only when the hub's
-  draft-22 SETUP carries SSTS_ALGORITHMS. `wired_server.c` turns both on
+  draft-22 SETUP carries SSTS_ALGORITHMS. `server/wired_server.c` turns both on
   with `switch_track = 1` and `ssts_algs = {0xff01 (backpressure), 0
   (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
 - **One more track per peer.** `screen-lo` is one more PUBLISH per
@@ -201,7 +201,7 @@ image holds nothing besides `wired_server`. Mount a PEM pair and point
 ```sh
 cd examples/moqt_chat
 just up       # builds, then runs in the foreground, Ctrl-C stops it
-just up -d    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
+just up -d    # same, but detached; `docker compose logs -f` in `server/` to follow it, `just down` to tear it down
 ```
 
 `just up` names this host's default-route source address in the
@@ -212,7 +212,7 @@ clients actually dial. The address replaces the demo's 127.0.0.1, so on
 the host itself dial `https://localhost:4433/` (the cert also names
 `localhost`): `https://127.0.0.1:4433/` is answered 421.
 
-The container runs with `network_mode: host` (see `docker-compose.yml`), so
+The container runs with `network_mode: host` (see `server/docker-compose.yml`), so
 `wired_server` listens on the host's own `4433/udp` directly rather than
 through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
 confirmed by hand to never complete the QUIC handshake (the client sits at
@@ -408,12 +408,13 @@ needed to run the scenarios on draft-22.
 
 ## Layout
 
-- `wired_server.c` — the MOQT hub server: wires WebTransport session/stream
+- `server/` — the server side. `wired_server.c` (with `access.c`,
+  `live.c`, `relay.c` and `moqt_chat.h`) is the MOQT hub server: wires WebTransport session/stream
   callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
   draft-ietf-webtrans-http3-15 SS4.2), plus the Origin allow-list, the
   certificate paths, the object cache and GOAWAY on shutdown.
-- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`
+- `server/Dockerfile` / `server/docker-compose.yml` — the `scratch` image `just up`
   builds and runs (see "Build and run (server)" above).
 - `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
