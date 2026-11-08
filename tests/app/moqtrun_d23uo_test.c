@@ -784,6 +784,34 @@ static void test_moqtrun_d23uo_ups_ended_after_close(void) {
       MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ups_ended_after_close);
 }
 
+/* The hub cancelled its FETCH (B's write refused) while the cache side
+ * still owes B the rest: A's FIN on the ended request stream and a reset
+ * of its data stream end the leg no second time (nothing more toward A),
+ * and B gets its FETCH whole. */
+static void mtuo_upf_ended_serving(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  g_stream_send_reject_sess = SESS_B;
+  mupf_send(0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|") && mupf_used() == 1);
+  mt_feed(&mtst_hub, SESS_A, (u64)sid, wired_span_of(0, 0), 1);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MUPF_DATA_SID, 1, 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  g_stream_send_reject_sess = 0;
+  wired_moqt_tick(&mtst_hub, mtst_hub.live.last_now_ms + 1);
+  CHECK(mupf_read(0) && mf_n == 2 && mf_fin);
+}
+
+static void test_moqtrun_d23uo_upf_ended_serving(void) {
+  moqtrun_test_allver(mtuo_upf_ended_serving);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -833,4 +861,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_ended_entry_new_session();
   test_moqtrun_d23uo_ended_reinit();
   test_moqtrun_d23uo_ups_ended_after_close();
+  test_moqtrun_d23uo_upf_ended_serving();
 }
