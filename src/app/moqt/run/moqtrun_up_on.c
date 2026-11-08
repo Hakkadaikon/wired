@@ -87,6 +87,13 @@ static void moqtrun_up_on_ok(
   moqtrun_up_claim(hub, pp, u, &m);
 }
 
+/* e's REDIRECT detail, or 0 when it carries none (e.redirect is then
+ * unset). */
+static const moqctl_redirect* moqtrun_up_redirect_of(
+    const moqctl_request_error* e) {
+  return e->has_redirect ? &e->redirect : 0;
+}
+
 /* REQUEST_ERROR: each waiter gets the publisher's code, re-spelled for
  * its own draft (moqtrun_send_request_error); the request is complete,
  * so the hub's side FINs (draft-19 3.3.2). */
@@ -107,7 +114,7 @@ static void moqtrun_up_on_error(
    * REDIRECT detail */
   bytes_memcpy(hub->unsupp, e.unsupported, e.n_unsupported * sizeof(u64));
   hub->unsupp_n    = e.n_unsupported;
-  hub->up_redirect = &e.redirect; /* sent only with REDIRECT */
+  hub->up_redirect = moqtrun_up_redirect_of(&e);
   moqtrun_up_failed(hub, u, e.error_code);
   hub->unsupp_n    = 0;
   hub->up_redirect = 0;
