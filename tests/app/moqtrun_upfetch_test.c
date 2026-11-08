@@ -428,6 +428,31 @@ static void test_moqtrun_upfetch_fill_gap(void) {
   CHECK(mupf_used() == 0);
 }
 
+/* draft-23 3.2.3: an Unknown gap inside the range (group 2, between
+ * cached groups 1 and 3, dropped from the cache and so a tombstone) is
+ * fetched upstream too -- one FETCH from the range start to just past
+ * the last such gap -- and relayed in place. */
+static void test_moqtrun_upfetch_middle_gap(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(1, 1);
+  mupf_cache_group(2, 1);
+  moqcache_entomb(&mtst_hub.cache, mtst_hub.cache_tag_next, 2);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  CHECK(sid >= 0 && m.range.start_group == 1 && m.range.end_group == 2);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 0, 1);
+  mupf_send(0);
+  mupf_up_ok(sid, 2, MOQFETCH_OBJ_GROUP_END);
+  mupf_send(1);
+  CHECK(mupf_read(0) && mf_n == 3 && mf_fin);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
+  CHECK(mf_is_obj(2, 3, 0, 1));
+}
+
 /* Fully cached: no upstream request at all. */
 static void test_moqtrun_upfetch_cached_no_upstream(void) {
   mupf_init();
@@ -2040,6 +2065,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_drain_failover();
   test_moqtrun_upfetch_gap_to_owner();
   test_moqtrun_upfetch_fill_gap();
+  test_moqtrun_upfetch_middle_gap();
   test_moqtrun_upfetch_cached_no_upstream();
   test_moqtrun_upfetch_reencode();
   test_moqtrun_upfetch_two_not_shared();
