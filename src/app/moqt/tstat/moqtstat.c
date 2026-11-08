@@ -7,7 +7,8 @@
  * are checked against the TRACK_STATUS scope instead of SUBSCRIBE's. */
 static int moqtstat_take_body(
     int ver, wired_span body, usz* at, moqctl_subscribe* out) {
-  int r = moqctl_ftn_take(body, at, &out->name);
+  int r = moqctl_ftn_check_v(
+      ver, moqctl_ftn_take(body, at, &out->name), &out->name);
   if (r != MOQCTL_OK) {
     return r;
   }

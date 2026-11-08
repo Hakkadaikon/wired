@@ -9,6 +9,7 @@ static int moqctl_bytes_eq(const u8* a, const u8* b, usz n);
 static int moqctl_span_eq(wired_span a, wired_span b);
 static int moqctl_ns_fields_eq(const moqctl_ns* a, const moqctl_ns* b);
 static int moqctl_ns_eq(const moqctl_ns* a, const moqctl_ns* b);
+static int moqctl_ftn_name_bad(int ver, int r, const moqctl_ftn* f);
 
 static int moqctl_ftn_bound_check(const moqctl_ftn* f) {
   if (moqctl_ns_bytelen(&f->ns) + f->name.n > MOQCTL_MAX_FTN_LEN) {
@@ -38,6 +39,15 @@ int moqctl_ftn_take(wired_span buf, usz* off, moqctl_ftn* out) {
   }
   *off = at;
   return MOQCTL_OK;
+}
+
+static int moqctl_ftn_name_bad(int ver, int r, const moqctl_ftn* f) {
+  return r == MOQCTL_OK && !f->name.n &&
+         (moqver_caps(ver) & MOQVER_CAP_TRACK_NAME_NONEMPTY);
+}
+
+int moqctl_ftn_check_v(int ver, int r, const moqctl_ftn* f) {
+  return moqctl_ftn_name_bad(ver, r, f) ? MOQCTL_R_NAME_EMPTY : r;
 }
 
 static int moqctl_ns_field_put(wired_mspan buf, usz* at, wired_span field) {

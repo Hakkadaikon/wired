@@ -56,6 +56,22 @@ static void test_mced_golden_put(void) {
   CHECK(mced_bytes_eq(wired_span_of(out, n), mced_unsupp, n));
 }
 
+/* draft-23 9.4.2.1: a Redirect for a namespace-scoped request carries an
+ * empty Track Name (MUST), the one place 2.4.1's non-empty rule does not
+ * reach: REDIRECT (Delta 1, Length 5), Connect URI Length 0, Namespace
+ * {"a"}, Track Name Length 0 decodes and encodes back to its bytes. */
+static void test_mced_redirect_empty_name(void) {
+  static const u8      b[] = {0x34, 0x00, 0x00, 0x01, 0x05,
+                              0x00, 0x01, 0x01, 'a',  0x00};
+  moqctl_request_error e;
+  u8                   out[64];
+  usz                  n = 0;
+  CHECK(mced_take(b, sizeof b, &e) == MOQCTL_OK);
+  CHECK(e.has_redirect && e.redirect.track_name.n == 0);
+  CHECK(moqctl_request_error_encode23(wired_mspan_of(out, sizeof out), &n, &e));
+  CHECK(n == sizeof b && mced_bytes_eq(wired_span_of(out, n), b, n));
+}
+
 /* xorshift64: a fixed sequence for the round-trip cases. */
 static u64 mced_rng(u64* s) {
   *s ^= *s << 13;
@@ -218,6 +234,7 @@ static void test_mced_d22_positional(void) {
 void test_moqctl_errdet(void) {
   test_mced_golden_take();
   test_mced_golden_put();
+  test_mced_redirect_empty_name();
   test_mced_roundtrip_property();
   test_mced_rejects();
   test_mced_ignored();

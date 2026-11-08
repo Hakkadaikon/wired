@@ -106,7 +106,7 @@ static void moqtrun_fetch_joining(
 int moqtrun_fetch_take(
     const wired_moqtrun_peer* p, wired_span body, moqfetch_req* m) {
   if (moqver_caps(p->ver) & MOQVER_CAP_FETCH_BODY_V22) {
-    return moqfetch_req22_take(body, m);
+    return moqctl_ftn_check_v(p->ver, moqfetch_req22_take(body, m), &m->track);
   }
   return moqfetch_req19_take(p->ver, body, m);
 }
