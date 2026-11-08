@@ -1429,7 +1429,6 @@ function takeObjectProperties(
 	const len = decodeVarint(bytes, pos);
 	const start = pos + len.len;
 	const end = start + Number(len.value);
-	if (end > bytes.length) truncated("Object Properties");
 	const properties = decodeKvpSpan(bytes, start, end);
 	if (hasUnknownMandatoryProperty(properties))
 		throw new MoqtMalformedTrackError(

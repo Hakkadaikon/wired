@@ -165,7 +165,7 @@ describe("MoqtChatClient protocol violations (draft-23 12.2)", () => {
 		const rid = decodeSubscribe(s.request.body).requestId;
 		const fill = new FakeControlReplies();
 		fake.incomingUnidirectionalStreams.pushStream(fill);
-		return { fake, s, rid, fill, got, done };
+		return { fake, client, s, rid, fill, got, done };
 	}
 
 	it("a FIN inside a fill Object closes TRUNCATED_OBJECT (11.3) and ends the history", async () => {
@@ -194,8 +194,22 @@ describe("MoqtChatClient protocol violations (draft-23 12.2)", () => {
 		expect(fake.closeCalls).toBe(0);
 	});
 
+	it("a FIN before the FETCH_HEADER is whole ends the stream quietly", async () => {
+		const { fake, fill, got } = await filling();
+
+		fill.push(hexToBytes("05"));
+		fill.end();
+		await flush();
+
+		expect(got).toEqual([]);
+		expect(fake.closeCalls).toBe(0);
+	});
+
 	it("a fill Object with a Mandatory Track Property cancels the subscription, not the session (3.7, 12.1)", async () => {
-		const { fake, s, rid, fill, got, done } = await filling();
+		const { fake, client, s, rid, fill, got, done } = await filling();
+		void client.subscribeTrack(utf8ToBytes("user3"), "user3");
+		await flush();
+		const other = fake.requestsOf(MSG_SUBSCRIBE)[1];
 
 		// Flags 0x3c: G5 O0 prio 0x80, Properties {0x4000: 1}, payload "a".
 		fill.push(
@@ -209,6 +223,7 @@ describe("MoqtChatClient protocol violations (draft-23 12.2)", () => {
 
 		expect(got).toEqual([]);
 		expect(s.cancelled).toBe(true);
+		expect(other.cancelled).toBe(false);
 		expect(done).toHaveBeenCalledOnce();
 		expect(fake.closeCalls).toBe(0);
 	});

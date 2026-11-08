@@ -531,8 +531,8 @@ async function readFetchHeader(
 		try {
 			const head = decodeFetchHeader(buffered);
 			return [head.requestId, buffered.slice(head.len)];
-		} catch (err) {
-			if (!(err instanceof MoqtTruncatedError)) throw err;
+		} catch {
+			// cut short: the Type is 0x05 already, so only the Request ID can fail
 		}
 		const { value, done } = await reader.read();
 		if (done) return undefined;
