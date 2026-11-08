@@ -16,6 +16,42 @@ function fail(message: string): never {
 	throw new MoqtDecodeError(message);
 }
 
+/** The bytes ran out before the structure ended: a stream reader waits for
+ * more instead of treating it as a protocol violation. */
+export class MoqtTruncatedError extends MoqtDecodeError {
+	constructor(message: string) {
+		super(message);
+		this.name = "MoqtTruncatedError";
+	}
+}
+
+function truncated(message: string): never {
+	throw new MoqtTruncatedError(`truncated ${message}`);
+}
+
+// Session Termination Error Codes (16.12.1) a decode failure names as the
+// prefix of its message ("FIELD_LENGTH_EXCEEDED: ...").
+const CLOSE_CODES: Record<string, number> = {
+	PROTOCOL_VIOLATION: 0x3,
+	MALFORMED_KEY_VALUE: 0x6,
+	INVALID_STREAM_HEADER: 0x200,
+	MALFORMED_OBJECT: 0x201,
+	INVALID_OBJECT_STATUS: 0x202,
+	MALFORMED_MESSAGE: 0x300,
+	INVALID_FIELD: 0x301,
+	INVALID_TRACK_NAMESPACE: 0x302,
+	INVALID_PARAMETER: 0x305,
+	DELTA_ENCODING_OVERFLOW: 0x400,
+	FIELD_LENGTH_EXCEEDED: 0x401,
+};
+
+/** The session close code for a protocol violation err: the code its
+ * message names, else PROTOCOL_VIOLATION. */
+export function closingCodeOf(err: unknown): number {
+	const name = err instanceof Error ? err.message.split(":")[0] : "";
+	return CLOSE_CODES[name] ?? CLOSE_CODES.PROTOCOL_VIOLATION;
+}
+
 // ---------------------------------------------------------------------
 // draft-ietf-moq-transport-23 8.1: Variable-Length Integers
 // ---------------------------------------------------------------------
@@ -40,9 +76,9 @@ export interface DecodedVarint {
 
 /** Decode a single MOQT varint starting at `offset`. Non-minimal encodings are accepted. */
 export function decodeVarint(bytes: Uint8Array, offset = 0): DecodedVarint {
-	if (offset >= bytes.length) fail("truncated varint: no data");
+	if (offset >= bytes.length) truncated("varint: no data");
 	const len = VARINT_LEN_BY_PREFIX[bytes[offset]];
-	if (offset + len > bytes.length) fail("truncated varint: insufficient bytes");
+	if (offset + len > bytes.length) truncated("varint: insufficient bytes");
 
 	const usableBits = 8 - len; // for len==9, this is -1 and unused below
 	let value = len === 9 ? 0n : BigInt(bytes[offset] & ((1 << usableBits) - 1));
@@ -132,7 +168,7 @@ export function decodeKvp(
 		fail("FIELD_LENGTH_EXCEEDED: kvp length exceeds 65535");
 	pos += length.len;
 	const end = pos + Number(length.value);
-	if (end > bytes.length) fail("PROTOCOL_VIOLATION: kvp value truncated");
+	if (end > bytes.length) truncated("kvp value");
 	const raw = bytes.slice(pos, end);
 	return { pair: { type, raw }, len: end - offset };
 }
@@ -217,7 +253,7 @@ function decodeLenPrefixedBytes(
 	const length = decodeVarint(bytes, offset);
 	const start = offset + length.len;
 	const end = start + Number(length.value);
-	if (end > bytes.length) fail(`PROTOCOL_VIOLATION: ${errorLabel} truncated`);
+	if (end > bytes.length) truncated(errorLabel);
 	return { value: bytes.slice(start, end), len: end - offset };
 }
 
@@ -472,7 +508,7 @@ type ParamValue = { value: MessageParam["value"]; len: number };
 type ParamDecoder = (bytes: Uint8Array, pos: number) => ParamValue;
 
 function decodeUint8(bytes: Uint8Array, pos: number): ParamValue {
-	if (pos >= bytes.length) fail("truncated uint8 parameter");
+	if (pos >= bytes.length) truncated("uint8 parameter");
 	return { value: BigInt(bytes[pos]), len: 1 };
 }
 
@@ -518,6 +554,8 @@ const PARAM_DECODERS = new Map<bigint, ParamDecoder>([
 ]);
 
 function encodeParamValue(p: MessageParam): Uint8Array {
+	if (p.type === PARAM_PAUSED && (p.value as bigint) > 1n)
+		fail(`invalid: PAUSED ${p.value} is not 0 or 1 (9.19.18)`);
 	if (PARAM_UINT8.has(p.type)) return Uint8Array.of(Number(p.value));
 	if (p.value instanceof Uint8Array) {
 		if (!PARAM_LEN_PREFIXED.has(p.type)) return p.value;
@@ -798,7 +836,7 @@ export function decodeControlFrame(
 		fail(`FIELD_LENGTH_EXCEEDED: control message Length ${bodyLen}`);
 	const bodyEnd = pos + Number(bodyLen);
 	if (bodyEnd > bytes.length)
-		fail("truncated control message: body shorter than Length");
+		truncated("control message: body shorter than Length");
 	return {
 		frame: { type, body: bytes.slice(pos, bodyEnd) },
 		len: bodyEnd - offset,
@@ -983,6 +1021,11 @@ export function decodeNamespaceSuffix(
 	return ns.fields;
 }
 
+/** A message whose Length is longer than its fields is malformed (9). */
+function bodyEnds(body: Uint8Array, end: number, what: string): void {
+	if (end !== body.length) fail(`MALFORMED_MESSAGE: bytes after ${what}`);
+}
+
 // --- REQUEST_ERROR (0x5; 9.4) -------------------------------------------------
 
 // 8.5: a Reason Phrase is at most 1024 bytes.
@@ -1037,10 +1080,12 @@ export interface PublishDoneMessage {
 
 export function decodePublishDone(body: Uint8Array): PublishDoneMessage {
 	const { values, pos } = takeVarints(body, 0, 2);
+	const reason = decodeReason(body, pos);
+	bodyEnds(body, pos + reason.len, "PUBLISH_DONE");
 	return {
 		statusCode: values[0],
 		streamCount: values[1],
-		errorReason: decodeReason(body, pos).value,
+		errorReason: reason.value,
 	};
 }
 
@@ -1063,6 +1108,7 @@ export interface GoawayMessage {
 export function decodeGoaway(body: Uint8Array): GoawayMessage {
 	const uri = decodeLenPrefixedBytes(body, 0, "new session uri");
 	const timeout = decodeVarint(body, uri.len);
+	bodyEnds(body, uri.len + timeout.len, "GOAWAY");
 	return { newSessionUri: uri.value, timeout: timeout.value };
 }
 
@@ -1600,8 +1646,7 @@ export function decodeFetchObject(
 	if ((f & FETCH_PRIORITY) === 0n)
 		priority = inherited(seq.priority, "Priority");
 	else {
-		if (pos >= bytes.length)
-			fail("truncated fetch Object: no Publisher Priority");
+		if (pos >= bytes.length) truncated("fetch Object: no Publisher Priority");
 		priority = bytes[pos++];
 	}
 	// take() advances pos past the length varint; read it before adding.
@@ -1610,7 +1655,7 @@ export function decodeFetchObject(
 		pos += propsLen;
 	}
 	const payloadLen = Number(take());
-	if (pos + payloadLen > bytes.length) fail("truncated fetch Object payload");
+	if (pos + payloadLen > bytes.length) truncated("fetch Object payload");
 	const payload = bytes.slice(pos, pos + payloadLen);
 	pos += payloadLen;
 	Object.assign(seq, { group, object, subgroup, priority });

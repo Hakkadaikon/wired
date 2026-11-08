@@ -7,13 +7,16 @@ import { describe, expect, it } from "vitest";
 import {
 	bytesToHex,
 	bytesToUtf8,
+	closingCodeOf,
 	decodeControlFrame,
 	decodeFetchHeader,
 	decodeFetchObject,
+	decodeGoaway,
 	decodeLocationFilter,
 	decodeNamespaceSuffix,
 	decodeParams,
 	decodePublish,
+	decodePublishDone,
 	decodeRequestError,
 	decodeSubscribe,
 	decodeSubscribeOk,
@@ -29,6 +32,7 @@ import {
 	hexToBytes,
 	largestObjectOf,
 	MoqtDecodeError,
+	MoqtTruncatedError,
 	newFetchSeq,
 	utf8ToBytes,
 } from "../moqtWire";
@@ -422,5 +426,65 @@ describe("FETCH data stream (11.4)", () => {
 			decodeFetchObject(bytes.slice(0, 6), 0, newFetchSeq()),
 		).toThrow(MoqtDecodeError);
 		expect(decodeFetchObject(bytes, 0, newFetchSeq()).len).toBe(7);
+	});
+});
+
+describe("truncated vs malformed, and the session close code (12.2)", () => {
+	it("running out of bytes is a MoqtTruncatedError (the reader waits)", () => {
+		for (const run of [
+			() => decodeControlFrame(hex("07 80c8 00")),
+			() => decodeControlFrame(hex("07")),
+			() => decodeFetchObject(hex("1c 05 00 80 02 68"), 0, newFetchSeq()),
+			() => decodeFetchObject(hex("1c 05 00"), 0, newFetchSeq()),
+		])
+			expect(run).toThrow(MoqtTruncatedError);
+	});
+
+	it("a protocol violation is not a truncation and names its 16.12.1 code", () => {
+		const errOf = (run: () => unknown) => {
+			try {
+				run();
+			} catch (e) {
+				return e as Error;
+			}
+			throw new Error("no error");
+		};
+		const cases: [() => unknown, number][] = [
+			[() => decodeControlFrame(hex("07 c10000")), 0x401],
+			[() => decodeFetchObject(hex("8082"), 0, newFetchSeq()), 0x201],
+			[
+				() => {
+					const seq = newFetchSeq();
+					const b = hex("1c 05 00 80 01 61 8080 00 01 62");
+					let pos = decodeFetchObject(b, 0, seq).len;
+					pos += decodeFetchObject(b, pos, seq).len;
+					decodeFetchObject(b, pos, seq);
+				},
+				0x400,
+			],
+			[() => decodePublishDone(hex("02 00 00 ff")), 0x300],
+			[() => decodeGoaway(hex("00 00 ff")), 0x300],
+		];
+		for (const [run, code] of cases) {
+			const err = errOf(run);
+			expect(err).not.toBeInstanceOf(MoqtTruncatedError);
+			expect(closingCodeOf(err)).toBe(code);
+		}
+		// anything without a known code name closes PROTOCOL_VIOLATION (0x3)
+		expect(closingCodeOf(new Error("boom"))).toBe(0x3);
+	});
+
+	it("PUBLISH_DONE / GOAWAY with nothing after their last field decode", () => {
+		expect(decodePublishDone(hex("02 00 00")).statusCode).toBe(2n);
+		expect(decodeGoaway(hex("00 00")).timeout).toBe(0n);
+	});
+
+	it("refuses to send PAUSED other than 0 or 1 (9.19.18)", () => {
+		expect(() => encodeParams([{ type: 0x11n, value: 2n }])).toThrow(
+			MoqtDecodeError,
+		);
+		expect(bytesToHex(encodeParams([{ type: 0x11n, value: 1n }]))).toBe(
+			"011101",
+		);
 	});
 });
