@@ -74,6 +74,7 @@ import {
 	largestObjectOf,
 	type MessageParam,
 	MoqtDecodeError,
+	MoqtMalformedTrackError,
 	MoqtTruncatedError,
 	newFetchSeq,
 	type ObjectDatagram,
@@ -497,18 +498,45 @@ async function refuseHubRequests(
 	}
 }
 
-/** Runs decode on buffered: the bytes it leaves when they run out (wait for
- * more), rethrowing any other decode failure -- a protocol violation. */
-function untilTruncated(
+/** Decodes items off buffered (decode(pos) -> [item, length]) and hands
+ * each to use, until the bytes run out: returns the rest to wait on. Any
+ * other decode failure -- a protocol violation -- is rethrown. use runs
+ * outside the try: nothing it throws is taken for running out of bytes. */
+function untilTruncated<T>(
 	buffered: Uint8Array,
-	decode: () => number,
+	decode: (pos: number) => [T, number],
+	use: (item: T) => void,
 ): Uint8Array {
-	let pos = 0;
-	try {
-		for (;;) pos = decode();
-	} catch (err) {
-		if (!(err instanceof MoqtTruncatedError)) throw err;
-		return buffered.slice(pos);
+	for (let pos = 0; ; ) {
+		let item: T;
+		let len: number;
+		try {
+			[item, len] = decode(pos);
+		} catch (err) {
+			if (!(err instanceof MoqtTruncatedError)) throw err;
+			return buffered.slice(pos);
+		}
+		pos += len;
+		use(item);
+	}
+}
+
+/** Reads until buffered holds the whole FETCH_HEADER (11.4): it and the
+ * bytes after it, or undefined when the stream ends first. */
+async function readFetchHeader(
+	buffered: Uint8Array,
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<[bigint, Uint8Array] | undefined> {
+	for (;;) {
+		try {
+			const head = decodeFetchHeader(buffered);
+			return [head.requestId, buffered.slice(head.len)];
+		} catch (err) {
+			if (!(err instanceof MoqtTruncatedError)) throw err;
+		}
+		const { value, done } = await reader.read();
+		if (done) return undefined;
+		buffered = concatBytes([buffered, value]);
 	}
 }
 
@@ -543,13 +571,16 @@ function drainFetchObjects(
 	seq: FetchSeq,
 	onObject: (o: FetchObject) => void,
 ): Uint8Array {
-	let pos = 0;
-	return untilTruncated(buffered, () => {
-		const item = decodeFetchObject(buffered, pos, seq);
-		pos += item.len;
-		if (!item.object.marker) onObject(item.object);
-		return pos;
-	});
+	return untilTruncated(
+		buffered,
+		(pos) => {
+			const item = decodeFetchObject(buffered, pos, seq);
+			return [item.object, item.len];
+		},
+		(o) => {
+			if (!o.marker) onObject(o);
+		},
+	);
 }
 
 /** Hands every whole control message in buffered to onFrame and returns
@@ -558,13 +589,14 @@ function drainControlFrames(
 	buffered: Uint8Array,
 	onFrame: (r: Reply) => void,
 ): Uint8Array {
-	let offset = 0;
-	return untilTruncated(buffered, () => {
-		const decoded = decodeControlFrame(buffered, offset);
-		onFrame(decoded.frame);
-		offset += decoded.len;
-		return offset;
-	});
+	return untilTruncated(
+		buffered,
+		(pos) => {
+			const decoded = decodeControlFrame(buffered, pos);
+			return [decoded.frame, decoded.len];
+		},
+		onFrame,
+	);
 }
 
 /** Feeds every whole control message the reader yields -- after any bytes
@@ -1237,35 +1269,63 @@ export class MoqtChatClient {
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
 		const wt = this.#wt; // the session this stream belongs to
-		const head = decodeFetchHeader(first);
-		const history = this.#fetches.get(head.requestId);
+		const head = await readFetchHeader(first, reader);
+		if (!head) return;
+		const [rid, rest] = head;
+		const history = this.#fetches.get(rid);
 		if (!history) {
 			void reader.cancel().catch(() => {});
 			return;
 		}
-		let buffered: Uint8Array = first.slice(head.len);
+		let buffered = rest;
 		const seq = newFetchSeq();
 		try {
 			for (;;) {
 				// A cancel (#dropPeer) ended this history: drop bytes still in flight.
-				if (this.#fetches.get(head.requestId) !== history) {
+				if (this.#fetches.get(rid) !== history) {
 					void reader.cancel().catch(() => {});
 					break;
 				}
 				buffered = drainFetchObjects(buffered, seq, history.onObject);
 				const { value, done } = await reader.read();
-				if (done) break;
+				if (done) return this.dataStreamEnded(wt, buffered);
 				buffered = concatBytes([buffered, value]);
 			}
 		} catch (err) {
-			// A malformed fetch item (11.4.1): close the session; else the
-			// stream was reset and the history just ends.
-			if (wt && err instanceof MoqtDecodeError) this.#violation(wt, err);
+			this.#fetchFailed(wt, rid, err);
 		} finally {
 			// Once: a cancel (#dropPeer) may have ended this history already.
-			if (this.#fetches.get(head.requestId) === history)
-				this.#endFetch(head.requestId);
+			if (this.#fetches.get(rid) === history) this.#endFetch(rid);
 		}
+	}
+
+	// A Malformed Track (12.1) cancels the SUBSCRIBE the fill belongs to; any
+	// other malformed fetch item (11.4.1) closes the session; else the stream
+	// was reset and the history just ends.
+	#fetchFailed(wt: WebTransport | undefined, rid: bigint, err: unknown): void {
+		if (err instanceof MoqtMalformedTrackError) {
+			for (const [label, pending] of this.#subs)
+				void pending.then((req) => {
+					if (req?.requestId === rid) this.dataStreamFailed(label, err);
+				});
+		} else if (wt && err instanceof MoqtDecodeError) this.#violation(wt, err);
+	}
+
+	/** A subgroup or fetch stream's FIN (11.3): bytes of an Object still
+	 * undecoded close wt's session with TRUNCATED_OBJECT. */
+	dataStreamEnded(wt: WebTransport | undefined, rest: Uint8Array): void {
+		if (wt && rest.length > 0)
+			this.#violation(
+				wt,
+				new MoqtDecodeError("TRUNCATED_OBJECT: a FIN inside an Object"),
+			);
+	}
+
+	/** A subgroup or fetch stream that failed: a Malformed Track (12.1)
+	 * cancels the subscription under label; anything else (a reset, a bad
+	 * payload) only ends the stream. */
+	dataStreamFailed(label: string, err: unknown): void {
+		if (err instanceof MoqtMalformedTrackError) this.unsubscribe(label);
 	}
 
 	async #readIncomingUniStreams(): Promise<void> {
@@ -1358,6 +1418,7 @@ export class MoqtChatClient {
 		firstChunk: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
+		const wt = this.#wt; // the session this stream belongs to
 		const wire = await readToEof(firstChunk, reader);
 
 		// Decode only the SUBGROUP_HEADER + Object framing here -- NOT via
@@ -1366,7 +1427,9 @@ export class MoqtChatClient {
 		// own doc on why the marker byte must be checked first). A text or
 		// nickname stream carries one Object; an attachment stream carries one
 		// per chunk, so walk them all. A torn trailing Object ends the walk --
-		// whatever decoded before it still counts.
+		// whatever decoded before it still counts -- and, cut by the FIN,
+		// closes the session TRUNCATED_OBJECT (11.3); a Malformed Track
+		// (3.7) cancels the sender's chat subscription.
 		let header: SubgroupHeader;
 		let offset: number;
 		try {
@@ -1398,7 +1461,10 @@ export class MoqtChatClient {
 				prevObjectId = object.objectId;
 				offset += len;
 				first = false;
-			} catch {
+			} catch (err) {
+				if (err instanceof MoqtTruncatedError)
+					this.dataStreamEnded(wt, wire.slice(offset));
+				this.dataStreamFailed(participant, err);
 				return;
 			}
 			this.#dispatchChatPayload(participant, payload);
