@@ -215,7 +215,59 @@ static void test_moqtrun_upfetch_d23_props_close(void) {
   }
 }
 
+/* Object {g, 0}, one byte, whose Object Properties hold one Property of
+ * type t. */
+static moqfetch_obj mupf23_prop_obj(u64 g, u64 t) {
+  static const u8 pl[] = {0x21};
+  moqfetch_obj    ob   = {0};
+  ob.flags        = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY | MOQFETCH_F_GROUP |
+                    MOQFETCH_F_PROPS;
+  ob.group        = g;
+  ob.has_subgroup = 1;
+  ob.priority     = 128;
+  ob.has_props    = 1;
+  ob.props        = mupf23_prop(t, 1);
+  ob.payload      = wired_span_of(pl, 1);
+  return ob;
+}
+
+/* A (draft-23) relays an Object with a Property of type t on the hub's
+ * upstream FETCH -- through its data stream, or, gone, straight to the
+ * item step; B's reset code, ~0 for none. */
+static u64 mupf23_obj_props(int gone, u64 t) {
+  moqfetch_req        m = {0};
+  moqfetch_obj        o = mupf23_prop_obj(1, t);
+  wired_moqtrun_peer* a;
+  mupf_init_v(MOQVER_D23);
+  mupf_vers(MOQVER_D23);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  if (!gone) {
+    mupf_hdr(m.request_id, 0);
+    mupf_seq.d23 = 1;
+    mupf_put(&o);
+    mupf_send(0);
+    return mupf_reset_code();
+  }
+  a     = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  a->wt = SESS_D;
+  moqtrun_upf_item(&mtst_hub, &mtst_hub.fetches[0], &o, o.payload);
+  a->wt = SESS_A;
+  return mupf_reset_code();
+}
+
+/* draft-23 3.7: a Mandatory Object Property (0x4000) on the upstream
+ * FETCH makes the track Malformed, a grease one (0x409C = 0x9D + 129 *
+ * 0x7F) does not -- also once the upstream session is gone (B's draft). */
+static void test_moqtrun_upfetch_d23_obj_props(void) {
+  CHECK(mupf23_obj_props(0, 0x4000) == MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mupf23_obj_props(0, 0x409C) != MOQTRUN_RESET_MALFORMED_TRACK);
+  CHECK(mupf23_obj_props(1, 0x409C) != MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
 void test_moqtrun_upfetch_d23(void) {
+  test_moqtrun_upfetch_d23_obj_props();
   test_moqtrun_upfetch_d23_props_close();
   test_moqtrun_upfetch_d23_relay();
   test_moqtrun_upfetch_d23_markers();

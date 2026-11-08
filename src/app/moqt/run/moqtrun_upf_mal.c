@@ -10,6 +10,8 @@ static int moqtrun_upf_malformed(
     const wired_moqtrun_fetch* f,
     const moqfetch_obj*        o,
     wired_span                 pre);
+static u64 moqtrun_upf_prop_caps(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f);
 static void moqtrun_upf_mal_stop(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 static int  moqtrun_upf_other_leg(
     const wired_moqtrun_fetch* g, const wired_moqtrun_fetch* f);
@@ -47,8 +49,15 @@ static int moqtrun_upf_malformed(
     wired_span                 pre) {
   return o->flags < 0x80 &&
          (moqtrun_upf_mal_at(hub, f, o, pre) ||
-          moqtrun_obj_props_bad(
-              o->props, moqver_caps(moqtrun_wt_ver(hub, f->up_wt))));
+          moqtrun_obj_props_bad(o->props, moqtrun_upf_prop_caps(hub, f)));
+}
+
+/* The upstream session's draft; once it is gone, the requester's, so a
+ * draft-23 grease Property is not taken for a Mandatory one (3.7). */
+static u64 moqtrun_upf_prop_caps(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f) {
+  int v = moqtrun_wt_ver(hub, f->up_wt);
+  return moqver_caps(v >= 0 ? v : moqtrun_wt_ver(hub, f->wt));
 }
 
 /* f reset MALFORMED_TRACK, opened first if need be so its requester
