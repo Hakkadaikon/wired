@@ -3,9 +3,8 @@
  * sent upstream to that publisher, and answered SUBSCRIBE_OK only once
  * the upstream subscription is Established (draft-ietf-moq-transport-
  * 18/19 9.4-9.5, draft-22 7.4/7.6). One upstream subscription serves every
- * downstream subscriber of the Track. Scenarios map to UpstreamSub.tla's
- * invariants. Shares the recording io stubs (moqtrun_test.c) and the
- * fixtures of moqtrun_sub_test.c, moqtrun_ns_test.c,
+ * downstream subscriber of the Track. Shares the recording io stubs
+ * (moqtrun_test.c) and the fixtures of moqtrun_sub_test.c, moqtrun_ns_test.c,
  * moqtrun_subtracks_test.c and moqtrun_rdv_test.c (same unity TU). */
 
 #define MUPS_ALIAS 7
@@ -148,7 +147,7 @@ static int mups_up_is(u64 sid, const char* want) {
   return got[i] == want[i];
 }
 
-/* U1 NoOkBeforeUpstream (9.4/7.4): B's SUBSCRIBE goes upstream as a
+/* 9.4/7.4: B's SUBSCRIBE goes upstream as a
  * SUBSCRIBE in A's draft with the server's odd Request ID (10.1) and no
  * parameters (FORWARD defaults to 1, unfiltered); B hears nothing until
  * A's SUBSCRIBE_OK, then SUBSCRIBE_OK, and B is an active subscriber of
@@ -206,7 +205,7 @@ static u64 mups_relayed_alias(wired_wt_session* s) {
   return alias;
 }
 
-/* U2 (9.4 "Relays use the Track Alias of an incoming Object"): A's
+/* 9.4 ("Relays use the Track Alias of an incoming Object"): A's
  * SUBGROUP stream under the alias its SUBSCRIBE_OK named reaches B under
  * B's own alias (moqtrun_alias_splice). */
 static void test_moqtrun_upsub_objects_relayed(void) {
@@ -255,7 +254,7 @@ static void test_moqtrun_upsub_open_stream_before_ok(void) {
   CHECK(f && f->s == SESS_B && f->stream_id == relay_sid);
 }
 
-/* U3 aggregation (9.4 MAY): B and C waiting share one upstream SUBSCRIBE
+/* Aggregation (9.4 MAY): B and C waiting share one upstream SUBSCRIBE
  * and both get SUBSCRIBE_OK; D arriving once it is Established is
  * answered at once, still with one upstream. */
 static void test_moqtrun_upsub_two_share_one(void) {
@@ -273,7 +272,7 @@ static void test_moqtrun_upsub_two_share_one(void) {
   CHECK(mups_n_up(SESS_A) == 1);
 }
 
-/* U4 UpErr: A's REQUEST_ERROR reaches every waiter with its code; the
+/* 9.4: A's REQUEST_ERROR reaches every waiter with its code; the
  * hub ends its side of the upstream stream and forgets the entry. */
 static void test_moqtrun_upsub_error_relayed(void) {
   u64 sid;
@@ -342,7 +341,7 @@ static void test_moqtrun_upsub_publish_crosses(void) {
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
 }
 
-/* U5 NoLeak: the upstream outlives one downstream cancel, and is
+/* 9.4: the upstream outlives one downstream cancel, and is
  * cancelled (RESET_STREAM + STOP_SENDING CANCELLED, 19 3.3.3) with the
  * last; A's track goes with it. */
 static void test_moqtrun_upsub_last_cancel_cancels_upstream(void) {
@@ -361,7 +360,7 @@ static void test_moqtrun_upsub_last_cancel_cancels_upstream(void) {
   CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
 }
 
-/* U6 NoLeak (pending) + stale reply: the only waiter cancels before the
+/* 9.4, pending, and a stale reply: the only waiter cancels before the
  * answer -- the upstream is cancelled, and A's late SUBSCRIBE_OK on that
  * stream claims nothing and answers no one. */
 static void test_moqtrun_upsub_pending_cancel_and_stale_ok(void) {
@@ -395,7 +394,7 @@ static void test_moqtrun_upsub_silent_upstream_times_out(void) {
   CHECK(mups_used() == 0 && mrdv_used() == 0);
 }
 
-/* U7 (10.11 relayed): A's PUBLISH_DONE on the upstream stream reaches B
+/* 10.11, relayed: A's PUBLISH_DONE on the upstream stream reaches B
  * as PUBLISH_DONE on B's stream; the hub then ends its upstream side. */
 static void test_moqtrun_upsub_publish_done_relayed(void) {
   u64 sid;
@@ -409,7 +408,7 @@ static void test_moqtrun_upsub_publish_done_relayed(void) {
   CHECK(mups_used() == 0);
 }
 
-/* U8 NoLeakOnClose: A's session closing frees its entries with no io; a
+/* 9.4: A's session closing frees its entries with no io; a
  * waiter left with no announcer gets DOES_NOT_EXIST (INTERNAL_ERROR for
  * the lost upstream on draft-23), an Established
  * subscriber waits for another announcer and, with none, gets its
@@ -457,7 +456,7 @@ static void test_moqtrun_upsub_publisher_reset(void) {
   CHECK(mups_used() == 0);
 }
 
-/* U9 (9.5 "a PUBLISH_NAMESPACE ... MUST send a SUBSCRIBE"; interop
+/* 9.5 ("a PUBLISH_NAMESPACE ... MUST send a SUBSCRIBE"; interop
  * subscribe-before-announce): a rendezvous hold made before any
  * announcer goes upstream once A announces, and resolves on its OK. */
 static void test_moqtrun_upsub_hold_then_announce(void) {
@@ -473,7 +472,7 @@ static void test_moqtrun_upsub_hold_then_announce(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
-/* U10: no stream to open toward the publisher (the QUIC stream limit is
+/* No stream to open toward the publisher (the QUIC stream limit is
  * MOQT's request limit since draft-18 removed MAX_REQUEST_ID) -- the
  * SUBSCRIBE is refused now, nothing is held: EXCESSIVE_LOAD without a
  * Retry Interval before draft-23, UNAVAILABLE with one in draft-23 7.4. */
@@ -490,7 +489,7 @@ static void test_moqtrun_upsub_open_fails(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* U11: a session's own announcement never routes its SUBSCRIBE back to
+/* A session's own announcement never routes its SUBSCRIBE back to
  * itself; with no other announcer it is DOES_NOT_EXIST at once. */
 static void test_moqtrun_upsub_own_namespace(void) {
   mrdv_init();
@@ -500,7 +499,7 @@ static void test_moqtrun_upsub_own_namespace(void) {
   CHECK(mups_n_up(SESS_B) == 0);
 }
 
-/* U12 prefix matching (9.5): an announcement of the namespace's first
+/* Prefix matching (9.5): an announcement of the namespace's first
  * field alone covers it; an unrelated one does not. */
 static void test_moqtrun_upsub_prefix(void) {
   mrdv_init();
@@ -661,7 +660,44 @@ static void test_moqtrun_upsub_ok_mandatory_refused(void) {
   CHECK(mtrq_closes() == 0);
 }
 
+/* Calls the hub made toward s from call index from on. */
+static usz mups_calls_to(wired_wt_session* s, usz from) {
+  usz n = 0;
+  for (usz i = from; i < g_n_calls; i++) {
+    n += g_calls[i].s == s;
+  }
+  return n;
+}
+
+/* draft-23 6.6: once the hub closed B's session, the other peers going
+ * on queue nothing for B -- A answers the upstream SUBSCRIBE B and C wait
+ * on and sends Objects, D announces a namespace B's SUBSCRIBE_NAMESPACE
+ * matches, time passes -- while C is still served. */
+static void test_moqtrun_upsub_closed_session_gets_nothing(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz before;
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mtns_sub(SESS_B, MRDV_S2, "chat");
+  mups_sub(SESS_B, MRDV_S1);
+  mups_sub(SESS_C, MRDV_S1);
+  CHECK(moqtrun_peer_close(
+      &mtst_hub, moqtrun_find_by_wt(&mtst_hub, SESS_B), 0x3));
+  before = g_n_calls;
+  mups_ok((u64)mups_up_sid());
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS, buf)), 1);
+  mtns_pub(SESS_D, MRDV_S1, "chat/room9");
+  wired_moqt_tick(&mtst_hub, 1000);
+  CHECK(mups_calls_to(SESS_B, before) == 0);
+  CHECK(mrdv_is(SESS_C, MRDV_S1, "SOK|"));
+  CHECK(mups_relayed_alias(SESS_C) == mrdv_alias(SESS_C, MRDV_S1));
+}
+
 static void mtall_upsub(void) {
+  test_moqtrun_upsub_closed_session_gets_nothing();
   test_moqtrun_upsub_ok_after_upstream();
   test_moqtrun_upsub_objects_relayed();
   test_moqtrun_upsub_stream_before_ok();

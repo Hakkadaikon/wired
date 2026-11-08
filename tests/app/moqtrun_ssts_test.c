@@ -2,8 +2,7 @@
  * sessions only, opt-in): SETUP option 0x09 SSTS_ALGORITHMS, the
  * SWITCHING_SET_ASSIGNMENT (0x41) membership, and the per-group forward
  * gate -- one member per group, decided at the group's first arrival and
- * final (tasks/loopeng/moqt/TrackSwitch/SstsDecision.tla: DecisionFinal,
- * OneMemberPerGroup, ForwardAfterDecision, WholeGroup). Shares the
+ * final, nothing forwarded before it, each group whole. Shares the
  * recording io stubs (moqtrun_test.c) and the subscription fixtures
  * (moqtrun_sub_test.c, moqtrun_upd_test.c) of the same unity TU. */
 
@@ -388,10 +387,10 @@ static void test_moqtrun_ssts_track_in_other_set(void) {
   CHECK(mtrq_closes() == 0);
 }
 
-/* ===================== forward gate (SstsDecision.tla) =====================
+/* ===================== forward gate =====================
  */
 
-/* OneMemberPerGroup + WholeGroup: hi's Group 0 arrives first and decides
+/* One member per group, whole: hi's Group 0 arrives first and decides
  * the group (backpressure starts at the lowest tier: lo); hi is not
  * opened, lo's Group 0 is, under B's own lo alias. */
 static void test_moqtrun_ssts_one_member_per_group(void) {
@@ -400,7 +399,7 @@ static void test_moqtrun_ssts_one_member_per_group(void) {
   CHECK(mtss_got(0, 1));
 }
 
-/* ForwardAfterDecision: the unchosen member's keep-open Group never
+/* The unchosen member's keep-open Group never
  * reaches B, however many rounds it carries; the decision exists for the
  * group before anything is forwarded. */
 static void test_moqtrun_ssts_forward_after_decision(void) {
@@ -417,7 +416,7 @@ static void test_moqtrun_ssts_forward_after_decision(void) {
   }
 }
 
-/* WholeGroup: the chosen member's keep-open Group arrives from Object 0
+/* The chosen member's keep-open Group arrives from Object 0
  * (its header round) through every continuation round and the FIN. */
 static void test_moqtrun_ssts_whole_group(void) {
   mtss_room();
@@ -429,7 +428,7 @@ static void test_moqtrun_ssts_whole_group(void) {
   CHECK(mtss_sends(mtss_al, 0) == 2);
 }
 
-/* DecisionFinal: after Group 0 was decided (lo), the algorithm's pick
+/* The decision is final: after Group 0 was decided (lo), the algorithm's pick
  * flips to hi; hi's Group 0 still opens nothing and lo's Group 0 keeps
  * flowing to its last Object. */
 static void test_moqtrun_ssts_decision_final(void) {
@@ -443,7 +442,7 @@ static void test_moqtrun_ssts_decision_final(void) {
   CHECK(mtss_opens(mtss_al, 0) == 1 && mtss_sends(mtss_al, 0) == 1);
 }
 
-/* SstsSticky / MemberChange: the flipped pick takes effect at the next
+/* The flipped pick takes effect at the next
  * group's first arrival, not mid-group. */
 static void test_moqtrun_ssts_switches_at_group_boundary(void) {
   mtss_room();
@@ -642,7 +641,7 @@ static void mtss_tier(u64 tier) {
   mtss_b()->bp.in_cooldown  = 0;
 }
 
-/* B1 (OneMemberPerGroup across sets): each sharer numbers its own groups;
+/* One member per group across sets: each sharer numbers its own groups;
  * set 7 far ahead (group 100) must not prune or reuse set 8's group 3. */
 static void test_moqtrun_ssts_sets_number_groups_independently(void) {
   u64 h, l;
@@ -659,7 +658,7 @@ static void test_moqtrun_ssts_sets_number_groups_independently(void) {
   CHECK(mtss_opens(h, 3) == 1 && mtss_opens(l, 3) == 0);
 }
 
-/* B1 late set: set 8 created after set 7 decided group 3 decides its own
+/* Late set: set 8 created after set 7 decided group 3 decides its own
  * group 3 once (one member); set 8 is not the session's pacing set
  * (set 7 holds the lowest slot), so backpressure does not observe. */
 static void test_moqtrun_ssts_late_set_decides_once(void) {
@@ -675,7 +674,7 @@ static void test_moqtrun_ssts_late_set_decides_once(void) {
   CHECK(mtss_b()->bp.clear_streak == streak);
 }
 
-/* B2: the publisher reconnects and re-PUBLISHes (group numbers restart at
+/* The publisher reconnects and re-PUBLISHes (group numbers restart at
  * 0) and B re-SUBSCRIBEs both into set 7 (PROBE3): the dead members leave
  * and the set starts a fresh decision ring, so group 0 goes to one member
  * only. */

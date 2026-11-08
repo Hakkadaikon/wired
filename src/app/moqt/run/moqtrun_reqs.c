@@ -9,6 +9,7 @@ static int moqtrun_req_both_ended(const wired_moqtrun_req* q);
 static int moqtrun_pubst_awaiting(const wired_moqtrun_req* q);
 static int moqtrun_req_bad_open(const wired_moqtrun_req* q);
 static int moqtrun_req_fin_kind(u64 kind);
+static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q);
 static int moqtrun_req_fin_cancels(
     const wired_moqtrun_peer* p, const wired_moqtrun_req* q);
 
@@ -101,15 +102,24 @@ void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
   moqtrun_req_settle(io, q);
 }
 
+/* q belongs to a session the hub closed: nothing more goes out on it
+ * (draft-23 6.6), whatever other peers queued there since. */
+static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+  const wired_moqtrun_peer* p = q->in_use ? moqtrun_find_by_wt(hub, q->wt) : 0;
+  return p && p->closing;
+}
+
 /* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
  * published track and upstream SUBSCRIBEs against their waiters, then
- * settles every client-request stream. */
+ * settles every client-request stream of a session still open. */
 void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
   moqtrun_up_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
+    if (!moqtrun_req_muted(hub, &hub->reqs[i])) {
+      moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);
+    }
   }
 }
 

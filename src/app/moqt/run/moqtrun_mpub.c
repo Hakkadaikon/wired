@@ -109,7 +109,7 @@ void moqtrun_mirror_all(wired_moqt_hub* hub, moqtrun_key k) {
 
 /* Slot si of t ends but a sibling still carries the subscription: si
  * stops with no message (its open streams reset), its unfinished claims
- * are released for the sibling to send (MoqtMultiPub.tla Leave), and its
+ * are released for the sibling to send, and its
  * Stream Count moves to the sibling's final PUBLISH_DONE (draft-22 9.9).
  * 0 when there is no sibling: the caller ends it as before. */
 int moqtrun_mirror_fold(wired_moqt_hub* hub, wired_moqtrun_track* t, usz si) {

@@ -43,9 +43,8 @@ void wired_moqt_on_session_draining(void* app_ctx, wired_wt_session* s) {
  * and the relay, alias, PUBLISH_DONE and session-close paths all apply
  * unchanged. One upstream subscription per Full Track Name serves every
  * downstream subscriber (9.4 MAY aggregate). moqtrun_up_sync, at the end
- * of every dispatch and tick, is the one decision point (UpstreamSub.tla
- * Sweep): it cancels an upstream nobody wants any more and sends one for
- * a waiter that has none.
+ * of every dispatch and tick, is the one decision point: it cancels an
+ * upstream nobody wants any more and sends one for a waiter that has none.
  * ponytail: one announcer per name unless hub->multi_publisher (then
  * every one, moqtrun_up_fan.c); a publisher's RESET of the hub's stream
  * is left to the session's end. */

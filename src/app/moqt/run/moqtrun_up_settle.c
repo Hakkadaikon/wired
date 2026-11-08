@@ -45,7 +45,7 @@ static int moqtrun_up_slot_ok(
     u64                  alias);
 
 /* Nobody downstream left: the request is cancelled and its track (if
- * Established) retired, so no Object is relayed to no one (NoLeak). */
+ * Established) retired, so no Object is relayed to no one. */
 static void moqtrun_up_cancel(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,

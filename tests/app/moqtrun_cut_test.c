@@ -1,8 +1,7 @@
 /* Relay cut-through (draft-18 5.1: "A publisher SHOULD begin sending
  * incomplete objects when available") and nonexistent Objects on a
- * Subgroup stream (draft-18/19 9.1). Each framing case is a
- * counterexample of tasks/loopeng/MoqtCutThrough.tla's mutants: drop the
- * reset (MutNoReset) or the skip (MutNoSkip) and one of these fails.
+ * Subgroup stream (draft-18/19 9.1). Each framing case fails when the
+ * reset or the skip is dropped.
  * Shares the recording io stubs and the mtst/mf fixtures of
  * moqtrun_test.c, moqtrun_sub_test.c and moqtrun_fetch_test.c (same
  * unity TU). */
@@ -52,7 +51,7 @@ static void mcut_init(u8* buf, usz* ends, int reliable) {
 /* B's stream of the relay: the last one opened. */
 static u64 mcut_sub_sid(void) { return moqtrun_test_last_kind(5)->stream_id; }
 
-/* MutNoReset: a lossy round refused after part of its Object went out
+/* A lossy round refused after part of its Object went out
  * cannot be dropped and stay framed -- the stream is reset instead. */
 static void test_moqtrun_cut_lossy_refusal_mid_object_resets(void) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
@@ -101,7 +100,7 @@ static void test_moqtrun_cut_waits_for_header(void) {
   CHECK(moqtrun_test_sends_are(buf + ends[0], ends[1] - ends[0]));
 }
 
-/* MutNoSkip, ring-backed: a refused send is retried from the exact byte
+/* Ring-backed: a refused send is retried from the exact byte
  * after the part already sent -- nothing twice, nothing lost. */
 static void test_moqtrun_cut_reliable_resumes_at_byte(void) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];

@@ -1,5 +1,4 @@
-/* Raw-QUIC MoQT hub pinned to a REAL peer's bytes (ledger 13-11, plan
- * RawQuic T-L2; .claude/rules/rfc-and-verification-layers.md: a wire
+/* Raw-QUIC MoQT hub pinned to a REAL peer's bytes (a wire
  * feature is not done on self-loopback alone).
  *
  * Source: xquic-moq-interop-client v0.7.0-draft18, image

@@ -19705,7 +19705,7 @@ static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
   wired_udp_close(sfd);
 }
 
-/* ===== W-07/WTH3-058, W-10/WTH3-061: WT_MAX_STREAMS/WT_MAX_DATA flow control
+/* ===== WT_MAX_STREAMS/WT_MAX_DATA flow control
  * on server-initiated stream opens (draft-ietf-webtrans-http3-15 SS5.3/5.4).
  * wired_wt_session_stream_open_allowed/data_send_allowed (session.c) are
  * wired into wired_server_wt_open_uni/_bidi/_stream_reply: exceeding either
@@ -19739,7 +19739,7 @@ static void test_srvrun_wt_open_uni_within_max_streams_succeeds(void) {
   CHECK(c->wt.opened_streams_uni == 1);
 }
 
-/* MAX_STREAMS EXCEEDED (W-07/WTH3-058): with max_streams_uni already at its
+/* MAX_STREAMS EXCEEDED (SS5.3): with max_streams_uni already at its
  * limit (1 opened, 1 allowed), the next open is refused (-1) and claims no
  * send slot of its OWN (it never becomes a stream) -- the only slot the
  * refusal claims is the CONNECT stream's own capsule sender, to carry the
@@ -19770,7 +19770,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_streams_refused(void) {
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
-/* MAX_STREAMS EXCEEDED, BIDI (W-07/WTH3-058): same gate, the bidi direction
+/* MAX_STREAMS EXCEEDED, BIDI (SS5.3): same gate, the bidi direction
  * (wired_server_wt_open_bidi, bidi=1 checked against max_streams_bidi) --
  * and the same refuse-without-closing contract as the uni test above
  * (beyond the WT_STREAMS_BLOCKED hint on the CONNECT stream, 6-10). */
@@ -19797,7 +19797,7 @@ static void test_srvrun_wt_open_bidi_exceeding_max_streams_refused(void) {
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
-/* MAX_DATA EXCEEDED (W-10/WTH3-061): with max_data == 2 and a 4-byte payload,
+/* MAX_DATA EXCEEDED (SS5.4): with max_data == 2 and a 4-byte payload,
  * the open is refused even though the stream-count limit alone would allow
  * it (no WT_MAX_STREAMS ever set here, so that half stays "allowed"). */
 static void test_srvrun_wt_open_uni_exceeding_max_data_refused(void) {
@@ -19821,7 +19821,7 @@ static void test_srvrun_wt_open_uni_exceeding_max_data_refused(void) {
   CHECK(c->l.wt_streams[0].in_use == 1); /* owned stream not reset */
 }
 
-/* MAX_DATA EXCEEDED, STREAM REPLY (W-10/WTH3-061): wired_server_wt_stream_
+/* MAX_DATA EXCEEDED, STREAM REPLY (SS5.4): wired_server_wt_stream_
  * reply checks only the data half (no new stream is opened on an existing
  * client-initiated stream, srvrun_wt_reply_flow_ok's own doc). */
 static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
@@ -20520,7 +20520,7 @@ static void test_srvrun_connect_stream_slot_kept_until_session_close(void) {
   CHECK(slot->in_use == 0); /* released with the session */
 }
 
-/* ===== W-13/WTH3-048: GOAWAY drives a WT_DRAIN_SESSION capsule per active
+/* ===== GOAWAY drives a WT_DRAIN_SESSION capsule per active
  * session (draft-ietf-webtrans-http3-15 SS4.2/4.7). srvrun_send_wt_drain
  * seals the empty-body capsule (wtcapsule_encode_drain, wtcapsule.h) as
  * a STREAM frame on the session's own CONNECT stream at wt_connect_sent_len,
@@ -20570,7 +20570,7 @@ static void test_srvrun_send_wt_drain_all_skips_inactive_slot(void) {
   }
 }
 
-/* ===== W-14/WTH3-067: WT_CLOSE_SESSION capsule immediately followed by FIN
+/* ===== WT_CLOSE_SESSION capsule immediately followed by FIN
  * on the CONNECT stream (draft-ietf-webtrans-http3-15 SS4.2/4.4/8.2).
  * wired_server_wt_close_session latches the request (wt_close_pending); srvrun_
  * drain_wt_close_pending sends it on the next step and closes the session. */

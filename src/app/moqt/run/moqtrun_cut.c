@@ -8,7 +8,7 @@
  * and the round completing the Object starts that far in
  * (moqtrun_cut_skip, moqtrun_cut_ring_take).
  *
- * Framing (tasks/loopeng/MoqtCutThrough.tla): a lossy stream may lose a
+ * Framing (draft-18/19 9.1): a lossy stream may lose a
  * refused round only at an Object boundary; one refused partway into an
  * Object is reset instead (moqtrun_cut_refused) and late-opened again at
  * a later boundary. A ring-backed stream retries the same bytes. */

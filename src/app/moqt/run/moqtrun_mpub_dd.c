@@ -5,7 +5,7 @@
  * a Subgroup stream by (Group, Subgroup) -- one subgroup is one stream,
  * so a second publisher's copy cannot be spliced into the first's -- and
  * a datagram by (Group, Object). The first mirror to forward a Location
- * owns it (MoqtMultiPub.tla claim); a sibling's copy is dropped for that
+ * owns it; a sibling's copy is dropped for that
  * subscriber.
  * shortcut: a Subgroup the first publisher left unfinished is not
  * completed from the sibling's already-dropped copy (no buffering); the
@@ -103,7 +103,7 @@ static void moqtrun_dd_release_one(
 
 /* Slot si of t stops while its relay streams are still open: those
  * Subgroups were never finished for the subscriber, so their claims go
- * (MoqtMultiPub.tla Leave releases only unfinished ones -- a finished
+ * (only unfinished ones are released -- a finished
  * one keeps blocking the sibling's duplicate). */
 void moqtrun_dd_release(wired_moqt_hub* hub, wired_moqtrun_track* t, usz si) {
   for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {

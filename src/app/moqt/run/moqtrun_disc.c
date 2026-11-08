@@ -189,14 +189,14 @@ static int moqtrun_disc_peer_is(
 }
 
 /* Capability bits of the draft q's session speaks; callers pass only
- * requests of live peers. */
+ * requests of live peers (dispatch, REQUEST_UPDATE), so the scan always
+ * finds q's peer. */
 u64 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
-    if (moqtrun_disc_peer_is(&hub->peers[i], q->wt)) {
-      return moqver_caps(hub->peers[i].ver);
-    }
+  usz i = 0;
+  while (!moqtrun_disc_peer_is(&hub->peers[i], q->wt)) {
+    i++;
   }
-  return 0;
+  return moqver_caps(hub->peers[i].ver);
 }
 
 /* PREFIX_OVERLAP against the live requests of kind (each kind its own

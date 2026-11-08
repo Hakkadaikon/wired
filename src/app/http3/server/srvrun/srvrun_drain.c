@@ -75,7 +75,7 @@ void srvrun_send_wt_close(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
  * by closing the connection -- an application CONNECTION_CLOSE (0x1d) whose
  * Error Code is the MoQT code itself, the message (cut at a UTF-8 boundary)
  * as Reason Phrase. srvrun_send_app_close enters the closing state and
- * fires wt_on_session_close once in this same step (TLA+ CloseLive). */
+ * fires wt_on_session_close once in this same step. */
 void srvrun_raw_close(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   wired_span m =
       wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx]);
@@ -84,7 +84,7 @@ void srvrun_raw_close(const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
 }
 
 /* Indexed by srvrun_conn_is_raw: WT_CLOSE_SESSION capsule, CONNECTION_CLOSE
- * (TLA+ RawCloseShape). */
+ * (draft-ietf-webtrans-http3-16 6, draft-ietf-moq-transport-19 3.5). */
 static const srvrun_sess_close_fn srvrun_sess_close_by_raw[2] = {
     srvrun_send_wt_close, srvrun_raw_close};
 
