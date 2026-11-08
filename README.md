@@ -12,7 +12,7 @@ C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC Transport(MoQT)の
 
 | 項目 | 内容 |
 |---|---|
-| 対応プロトコル | TLS 1.3 とその暗号、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(draft-18/19/22) |
+| 対応プロトコル | TLS 1.3 とその暗号、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(draft-18/19/22/23) |
 | 実装範囲 | 上記すべてをユーザー空間で自前実装 |
 | 外部依存 | なし([2.1 依存関係](#21-依存関係)) |
 | 成果物 | 静的なサーバーバイナリ 1 つ。ほかにインストールするものはない |
@@ -101,7 +101,7 @@ flowchart LR
 
 | 項目 | 内容 |
 |---|---|
-| ドラフト | [draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/)、[-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/)、[-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/)。セッションごとにネゴシエーションする |
+| ドラフト | [draft-18](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/)、[-19](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/)、[-22](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/)、[-23](https://datatracker.ietf.org/doc/draft-ietf-moq-transport/23/)。セッションごとにネゴシエーションする |
 | トランスポート | WebTransport セッション(ブラウザーから参加できる)、生の QUIC 接続(ALPN `moqt-NN`) |
 | リレーの機能 | PUBLISH / SUBSCRIBE、キャッシュ付きの FETCH、名前空間の探索、Track Properties、フィルター、優先度、複数パブリッシャーの重複排除による 1 Track への統合、届いた Object のバイト単位の即時転送、配送のタイムアウト、GOAWAY |
 | 相互運用性テスト | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) |
@@ -256,7 +256,7 @@ int wired_main(int argc, char** argv) {
 | [word_list](examples/word_list/) | HTTP/3 のメッセージログ(POST/GET)または静的ファイルサーバー。4 つの I/O ドライバーすべてに対応。CA 証明書を置くだけで使える |
 | [moqt_chat](examples/moqt_chat/)([ライブデモ](https://hakkadaikon.github.io/wired/moqt_chat)) | MoQT 上のブラウザーチャットと音声通話のルーム。PUBLISH/SUBSCRIBE による Track の中継、Opus の音声フレーム、固定のルーム 1 つ |
 | [webtransport_interop](examples/webtransport_interop/) | [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) の WebTransport サーバーエンドポイント。実際のクライアント実装を相手に、ストリームと DATAGRAM でファイルを転送する |
-| [moqt_interop](examples/moqt_interop/) | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) のリレー。WebTransport 上の MoQT リレー(セッションごとに draft-18/19/22 をネゴシエーション)を、実際のクライアント実装を相手にテストする |
+| [moqt_interop](examples/moqt_interop/) | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) のリレー。WebTransport 上の MoQT リレー(セッションごとに draft-18/19/22/23 をネゴシエーション)を、実際のクライアント実装を相手にテストする |
 
 <a id="interop-results"></a><a id="相互接続テストの結果"></a><a id="8-相互接続テストの結果"></a>
 

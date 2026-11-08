@@ -18,7 +18,7 @@ wired は C で書いた QUIC・HTTP/3・WebTransport・MoQT のサーバー SDK
 | 項目 | 範囲 |
 |---|---|
 | 役割 | サーバーの SDK |
-| プロトコル | TLS 1.3、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(draft-18/19/22) |
+| プロトコル | TLS 1.3、QUIC、HTTP/3 と QPACK、WebTransport、MoQT(draft-18/19/22/23) |
 | 動作環境 | x86_64 Linux |
 | カーネルに任せること | UDP データグラムの送受信、ソケットの準備、`poll`、`getrandom`([システムコール](../syscalls.md)) |
 | SDK が持つこと | パケット、暗号、TLS ハンドシェイク、損失回復、輻輳制御、ストリーム、HTTP/3、X.509 の検証、イベントループ |

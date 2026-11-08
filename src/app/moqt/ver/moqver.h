@@ -142,10 +142,10 @@ int moqver_find(wired_span token);
 /** Capability bits (MOQVER_CAP_*) of version id ver (0..MOQVER_COUNT-1). */
 u64 moqver_caps(int ver);
 
-/** Writes the server's space-separated subprotocol list ("moqt-22 moqt-19
- * moqt-18", NUL-terminated; rows not offered yet are left out) to out, for
- * wired_srvrun_opt.wt_protocols. Returns its length without the NUL, 0 when cap
- * is too small. */
+/** Writes the server's space-separated subprotocol list ("moqt-23 moqt-22
+ * moqt-19 moqt-18", NUL-terminated; rows not offered are left out) to out,
+ * for wired_srvrun_opt.wt_protocols. Returns its length without the NUL, 0
+ * when cap is too small. */
 usz wired_moqt_wt_protocols(char* out, usz cap);
 
 #endif

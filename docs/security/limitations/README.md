@@ -39,7 +39,7 @@ guide の「現在の上限」は、アプリケーションが最初に突き�
 | チケットと Retry トークンの鍵は、既定では 1 つのプロセスの間だけ有効 | 再起動をまたいで再開する運用 | [TLS と暗号](crypto.md) |
 | クライアント認証を使うと再開と 0-RTT が無効になる | 相互 TLS を使うアプリケーション | [TLS と暗号](crypto.md) |
 | AF_XDP の経路は IPv4 だけ | IPv6 の運用 | [プラットフォームと I/O](platform.md) |
-| MoQT は draft-18、19、22 だけ | ほかのドラフトしか話さない相手 | [MoQT のドラフトと raw QUIC](moqt-drafts.md) |
+| MoQT は draft-18、19、22、23 だけ | ほかのドラフトしか話さない相手 | [MoQT のドラフトと raw QUIC](moqt-drafts.md) |
 | MoQT の Track ごとのパブリッシャーは既定で 1 つ(`multi_publisher` で変更) | 同じ Track を複数のパブリッシャーが告知する部屋 | [MoQT](moqt.md) |
 | MoQT のランデブーの保留は 1.5 秒が上限(仕様からの逸脱) | 遅れて来るパブリッシャー | [MoQT のドラフトと raw QUIC](moqt-drafts.md) |
 | MoQT の Filter Type 250 を Largest Object として受け付ける(仕様からの逸脱) | 250 の拒否を期待する相手 | [MoQT のドラフトと raw QUIC](moqt-drafts.md) |

@@ -154,7 +154,7 @@ flowchart TD
 
 ## 4. MoQT
 
-`src/app/moqt/` は WebTransport のセッションの上で MoQT(draft-ietf-moq-transport-18、-19、-22。セッションごとに WebTransport のサブプロトコルから選ぶ)を実装する。節番号は draft-19 のものである。
+`src/app/moqt/` は WebTransport のセッションの上で MoQT(draft-ietf-moq-transport-18、-19、-22、-23。セッションごとに WebTransport のサブプロトコルから選ぶ)を実装する。節番号は draft-19 のものである。
 
 MoQT はそのセッションの TLS 1.3 による機密性、完全性、エンドポイントの認証を引き継ぎ、MoQT の層に独自の暗号はない。
 

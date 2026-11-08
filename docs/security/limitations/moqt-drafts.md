@@ -7,13 +7,15 @@
 | 目的 | MoQT の対応ドラフト、仕様からの逸脱、raw QUIC 上の MoQT の制限を示す |
 | 読む人 | ハブを変更するコントリビューター、ハブを本番に入れる人 |
 | 前提文書 | [既知の制限: MoQT](moqt.md) |
-| 関連文書 | [容量の上限](capacity.md)、[draft-22 の台帳](../../features/draft-moq-transport-22.md) |
+| 関連文書 | [容量の上限](capacity.md)、[draft-22 の台帳](../../features/draft-moq-transport-22.md)、[draft-23 の台帳](../../features/draft-moq-transport-23.md) |
 
 用語と d18 / d19 / d22 の略記は [既知の制限: MoQT](moqt.md#1-用語) にある。
 
 ## 1. バージョンと仕様からの逸脱
 
-### 1.1 対応するドラフトは 18、19、22 だけ
+<a id="11-対応するドラフトは-181922-だけ"></a>
+
+### 1.1 対応するドラフトは 18、19、22、23 だけ
 
 影響: ほかのドラフトしか話さない相手。
 
@@ -55,7 +57,7 @@ imquic はミリ秒を期待する所に 500000(マイクロ秒)を送り、2 �
 
 ## 2. Raw QUIC 上の MoQT
 
-MoQT は HTTP/3 や WebTransport を使わず、ALPN `moqt-18`、`moqt-19`、`moqt-22` で QUIC の上で直接動かせる。raw のセッションは WebTransport のセッションとハブを共有する(`wired_moqt_on_session_raw`)。
+MoQT は HTTP/3 や WebTransport を使わず、ALPN `moqt-18`、`moqt-19`、`moqt-22`、`moqt-23` で QUIC の上で直接動かせる。raw のセッションは WebTransport のセッションとハブを共有する(`wired_moqt_on_session_raw`)。
 
 検証はプロセス内のテスト、固定した xquic と moqtopus のバイト列との照合、このプロジェクトによる MoQT の相互運用性テストの実行である([テストと検証の抜け](testing.md))。
 

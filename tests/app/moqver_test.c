@@ -67,10 +67,9 @@ static void test_moqver_caps_d23(void) {
   CHECK(MOQVER_D23 == 0 && MOQVER_COUNT == 4);
 }
 
-/* moqt-23 is not offered yet (draft-23 support lands item by item): the
- * list is the same three tokens as before. */
+/* draft-23 first, then the older drafts in table order. */
 static void test_moqver_offer(void) {
-  static const char want[]  = "moqt-22 moqt-19 moqt-18";
+  static const char want[]  = "moqt-23 moqt-22 moqt-19 moqt-18";
   char              out[32] = {0};
   CHECK(wired_moqt_wt_protocols(out, sizeof out) == sizeof want - 1);
   CHECK(ct_diffn((const u8*)out, (const u8*)want, sizeof want) == 0);
@@ -78,7 +77,7 @@ static void test_moqver_offer(void) {
 
 /* Exactly fits (string + NUL) at sizeof want; one byte less fails. */
 static void test_moqver_offer_cap_boundary(void) {
-  static const char want[]           = "moqt-22 moqt-19 moqt-18";
+  static const char want[]           = "moqt-23 moqt-22 moqt-19 moqt-18";
   char              out[sizeof want] = {0};
   CHECK(wired_moqt_wt_protocols(out, sizeof want) == sizeof want - 1);
   CHECK(wired_moqt_wt_protocols(out, sizeof want - 1) == 0);
