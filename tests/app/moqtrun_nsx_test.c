@@ -468,6 +468,20 @@ static void test_moqtrun_nsx_fan_loss_then_fail(void) {
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "E1|FIN|"));
 }
 
+/* 7.7: A refuses, then A's session is lost while C is still pending: a
+ * refusal is no open SUBSCRIBE, so losing it fails nobody and C's OK
+ * answers the downstream SUBSCRIBE. */
+static void test_moqtrun_nsx_refuser_lost_while_pending(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  mnsx_syncs();
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
+  mnsx_up_ok(SESS_C, (u64)sc);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+}
+
 /* 7.7: the same two refusals in the other order: the last one's code
  * (UNAUTHORIZED) is the one the downstream gets. */
 static void test_moqtrun_nsx_fan_all_fail_last_code(void) {
@@ -765,6 +779,7 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_fan_all_fail_last_code();
   test_moqtrun_nsx_fan_fail_then_loss();
   test_moqtrun_nsx_fan_loss_then_fail();
+  test_moqtrun_nsx_refuser_lost_while_pending();
   test_moqtrun_nsx_pending_sub_overlap_pubns();
   test_moqtrun_nsx_refused_then_resent();
   test_moqtrun_nsx_fanout_fail_after_ok();
