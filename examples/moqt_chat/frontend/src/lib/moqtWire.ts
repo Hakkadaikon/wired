@@ -25,6 +25,15 @@ export class MoqtTruncatedError extends MoqtDecodeError {
 	}
 }
 
+/** A Track that does not conform (12.1): the subscriber cancels its
+ * subscription instead of closing the session. */
+export class MoqtMalformedTrackError extends MoqtDecodeError {
+	constructor(message: string) {
+		super(message);
+		this.name = "MoqtMalformedTrackError";
+	}
+}
+
 function truncated(message: string): never {
 	throw new MoqtTruncatedError(`truncated ${message}`);
 }
@@ -37,6 +46,7 @@ const CLOSE_CODES: Record<string, number> = {
 	INVALID_STREAM_HEADER: 0x200,
 	MALFORMED_OBJECT: 0x201,
 	INVALID_OBJECT_STATUS: 0x202,
+	TRUNCATED_OBJECT: 0x203,
 	MALFORMED_MESSAGE: 0x300,
 	INVALID_FIELD: 0x301,
 	INVALID_TRACK_NAMESPACE: 0x302,
@@ -1410,6 +1420,24 @@ export function encodeObjectDatagram(o: ObjectDatagramInit): Uint8Array {
 	return concatBytes(parts);
 }
 
+/** Object Properties (11.1.2) at `pos`: the pairs and the position after
+ * them. A Mandatory Track Property among them is a Malformed Track (3.7). */
+function takeObjectProperties(
+	bytes: Uint8Array,
+	pos: number,
+): [KeyValuePair[], number] {
+	const len = decodeVarint(bytes, pos);
+	const start = pos + len.len;
+	const end = start + Number(len.value);
+	if (end > bytes.length) truncated("Object Properties");
+	const properties = decodeKvpSpan(bytes, start, end);
+	if (hasUnknownMandatoryProperty(properties))
+		throw new MoqtMalformedTrackError(
+			"MALFORMED_TRACK: a Mandatory Track Property as an Object Property (3.7)",
+		);
+	return [properties, end];
+}
+
 export interface SubgroupObject {
 	objectId: bigint;
 	properties?: KeyValuePair[];
@@ -1434,13 +1462,7 @@ export function decodeSubgroupObject(
 	let pos = offset + delta.len;
 
 	let properties: KeyValuePair[] | undefined;
-	if (hasProperties) {
-		const propLen = decodeVarint(bytes, pos);
-		pos += propLen.len;
-		const propEnd = pos + Number(propLen.value);
-		properties = decodeKvpSpan(bytes, pos, propEnd);
-		pos = propEnd;
-	}
+	if (hasProperties) [properties, pos] = takeObjectProperties(bytes, pos);
 
 	const payloadLen = decodeVarint(bytes, pos);
 	pos += payloadLen.len;
@@ -1453,6 +1475,7 @@ export function decodeSubgroupObject(
 	}
 
 	const payloadEnd = pos + Number(payloadLen.value);
+	if (payloadEnd > bytes.length) truncated("Subgroup Object payload");
 	const payload = bytes.slice(pos, payloadEnd);
 	pos = payloadEnd;
 
@@ -1505,6 +1528,7 @@ export interface FetchObject {
 	group: bigint;
 	object: bigint;
 	priority?: number;
+	properties?: KeyValuePair[];
 	payload: Uint8Array;
 	/** Set on an indicator instead of an Object: an End of Range carries the
 	 * range's last Location, End of Group / Track the prior Object's. */
@@ -1649,15 +1673,16 @@ export function decodeFetchObject(
 		if (pos >= bytes.length) truncated("fetch Object: no Publisher Priority");
 		priority = bytes[pos++];
 	}
-	// take() advances pos past the length varint; read it before adding.
-	if ((f & FETCH_PROPERTIES) !== 0n) {
-		const propsLen = Number(take());
-		pos += propsLen;
-	}
+	let properties: KeyValuePair[] | undefined;
+	if ((f & FETCH_PROPERTIES) !== 0n)
+		[properties, pos] = takeObjectProperties(bytes, pos);
 	const payloadLen = Number(take());
 	if (pos + payloadLen > bytes.length) truncated("fetch Object payload");
 	const payload = bytes.slice(pos, pos + payloadLen);
 	pos += payloadLen;
 	Object.assign(seq, { group, object, subgroup, priority });
-	return { object: { group, object, priority, payload }, len: pos - offset };
+	return {
+		object: { group, object, priority, properties, payload },
+		len: pos - offset,
+	};
 }

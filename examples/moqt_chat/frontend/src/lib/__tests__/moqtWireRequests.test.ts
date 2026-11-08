@@ -18,6 +18,7 @@ import {
 	decodePublish,
 	decodePublishDone,
 	decodeRequestError,
+	decodeSubgroupObject,
 	decodeSubscribe,
 	decodeSubscribeOk,
 	encodeControlFrame,
@@ -32,6 +33,7 @@ import {
 	hexToBytes,
 	largestObjectOf,
 	MoqtDecodeError,
+	MoqtMalformedTrackError,
 	MoqtTruncatedError,
 	newFetchSeq,
 	utf8ToBytes,
@@ -426,6 +428,46 @@ describe("FETCH data stream (11.4)", () => {
 			decodeFetchObject(bytes.slice(0, 6), 0, newFetchSeq()),
 		).toThrow(MoqtDecodeError);
 		expect(decodeFetchObject(bytes, 0, newFetchSeq()).len).toBe(7);
+	});
+});
+
+describe("Object Properties (11.1.2) and Mandatory Track Properties (3.7)", () => {
+	// Property 0x4000 is a 3-byte varint (c0 40 00); 0x401D (0x7f * 128 +
+	// 0x9D) is a grease value inside the Mandatory range.
+	const fetchWith = (props: string) =>
+		decodeFetchObject(hex(`3c 05 00 80 ${props} 01 61`), 0, newFetchSeq());
+	const subgroupWith = (props: string) =>
+		decodeSubgroupObject(hex(`00 ${props} 01 61`), 0, true, 0n, true);
+
+	it("a fetch Object's Properties are decoded, not skipped", () => {
+		const { object } = fetchWith("02 02 07");
+		expect(object.properties).toEqual([{ type: 2n, num: 7n }]);
+		expect(bytesToUtf8(object.payload)).toBe("a");
+	});
+
+	it("a Mandatory Track Property as an Object Property is a Malformed Track", () => {
+		expect(() => fetchWith("04 c04000 01")).toThrow(MoqtMalformedTrackError);
+		expect(() => subgroupWith("04 c04000 01")).toThrow(MoqtMalformedTrackError);
+	});
+
+	it("a grease value in the Mandatory range is not", () => {
+		// Odd type: Length 1, value 07.
+		expect(fetchWith("05 c0401d 01 07").object.properties).toEqual([
+			{ type: 0x401dn, raw: hex("07") },
+		]);
+		expect(subgroupWith("05 c0401d 01 07").object.payload).toEqual(hex("61"));
+	});
+
+	it("a Subgroup Object whose payload runs past the bytes is truncated", () => {
+		expect(() =>
+			decodeSubgroupObject(hex("00 05 6869"), 0, false, 0n, true),
+		).toThrow(MoqtTruncatedError);
+	});
+
+	it("TRUNCATED_OBJECT closes with 0x203 (16.12.1)", () => {
+		expect(closingCodeOf(new MoqtDecodeError("TRUNCATED_OBJECT: x"))).toBe(
+			0x203,
+		);
 	});
 });
 
