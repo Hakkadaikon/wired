@@ -137,6 +137,8 @@ void moqtrun_up_store(
   u->ngr.out    = 0;
   u->upd_out    = 0;
   u->failed     = 0;
+  u->goaway     = 0;
+  u->move       = 0;
   moqsub_init(&u->sub, MOQSUB_ROLE_SUBSCRIBER);
   moqsub_step(&u->sub, MOQSUB_EV_OPEN);
   u->ns_len   = k.ns.n;

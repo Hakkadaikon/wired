@@ -921,6 +921,10 @@ typedef struct {
    * wanted (moqtrun_up_fan) -- until a new downstream SUBSCRIBE or its
    * covering PUBLISH_NAMESPACE forgets it (moqtrun_up_forget.c). */
   u8 failed;
+  /** 1 once a GOAWAY arrived on stream_id (draft-23 9.2: at most one). */
+  int goaway;
+  /** 1 while that GOAWAY's re-issue is owed (moqtrun_up_reissue). */
+  u8 move;
 } wired_moqtrun_up;
 
 /** Fixed capacity of the hub's dedup window (draft-18 9.3 "should

@@ -185,5 +185,7 @@ void moqtrun_peer_tracks_ended(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 
 int moqtrun_goaway_moves(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, int* seen, wired_span body);
+void moqtrun_up_reissue(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 
 #endif
