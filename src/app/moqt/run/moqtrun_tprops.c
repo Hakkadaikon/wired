@@ -46,10 +46,9 @@ u64 moqtrun_tprop(wired_span props, u64 type, u64 dflt) {
 }
 
 /* draft-18/19 2.5.1 (draft-22 3.7): 0x4000-0x7FFF; this hub understands
- * none. */
+ * none. draft-23 3.7: grease in the range is not one. */
 static int moqtrun_tprop_is_mand(u64 type, u64 caps) {
-  (void)caps;
-  return type >= 0x4000 && type <= 0x7FFF;
+  return type >= 0x4000 && type <= 0x7FFF && !moqtrun_tprop_grease(type, caps);
 }
 
 static int moqtrun_tprop_outside(u64 v, u64 lo, u64 hi) {
