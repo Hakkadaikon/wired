@@ -262,6 +262,30 @@ static usz mtuo_n_on(u64 sid) {
   return mtuo_replies(sid, t, 16);
 }
 
+/* A reply held back on B's control stream (a PUBLISH_NAMESPACE there is
+ * NOT_SUPPORTED, 6.2) goes out at the next tick -- unless the session
+ * closed meanwhile: then it is dropped too. */
+static usz mtuo_ctl_reply_after(int close) {
+  mtuo_sub();
+  u64 cb             = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  g_stream_send_ok_n = 0;
+  mtns_pub(SESS_B, cb, "chat/room2");
+  for (u8 i = 0; close && i <= WIRED_MOQTRUN_MAX_REQ_UPDATES; i++) {
+    mtuo_prio(i); /* the last one is past the credit */
+  }
+  CHECK(
+      mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) ==
+      (usz)close);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  return mtuo_n_on(cb);
+}
+
+static void test_moqtrun_d23uo_ctl_reply_dropped_on_close(void) {
+  CHECK(mtuo_ctl_reply_after(0) == 1);
+  CHECK(mtuo_ctl_reply_after(1) == 0);
+}
+
 /* draft-23 9.5.1: a refused switch (INVALID_SWITCH) ends the request
  * like any failed update -- PUBLISH_DONE UPDATE_FAILED, the subscription
  * gone, a later update unanswered. Earlier drafts keep the subscription
@@ -305,10 +329,13 @@ static void test_moqtrun_d23uo_fill_excessive_load_ends(void) {
 /* A's own PUBLISH on MTDN_PUB, which B subscribes (moqtrun_done_test.c),
  * gets a refused update (an inverted LOCATION_FILTER is INVALID_RANGE)
  * and then an acceptable one. */
-static usz mtuo_pub_refused_then_update(void) {
+static usz mtuo_pub_refused_then_update(int done) {
   moqctl_params bad =
       mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1));
   mtdn_setup();
+  if (done) {
+    mtdn_done(MOQCTL_DONE_TRACK_ENDED, 0); /* the track is withdrawn */
+  }
   usz n0 = mtuo_n_on(MTDN_PUB); /* a draft-22 PUBLISH is answered REQUEST_OK */
   mtup_update(SESS_A, MTDN_PUB, &bad);
   CHECK(mtup_err_code(MTDN_PUB) == MOQCTL_ERR_INVALID_RANGE);
@@ -328,7 +355,7 @@ static usz mtuo_unis(void) {
  * (6.4.2.2). */
 static void test_moqtrun_d23uo_publish_update_refused_ends(void) {
   u64 count;
-  CHECK(mtuo_pub_refused_then_update() == 1);
+  CHECK(mtuo_pub_refused_then_update(0) == 1);
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
   CHECK(mtdn_published() == 0);
   CHECK(mtrq_fin_on(MTDN_PUB) == 1);
@@ -337,10 +364,17 @@ static void test_moqtrun_d23uo_publish_update_refused_ends(void) {
   CHECK(mtuo_unis() == n);
 }
 
+/* draft-23 9.5.1: after A's own PUBLISH_DONE withdrew the track (its
+ * stream not FINed yet) a refused update still ends the request, with no
+ * track left to withdraw: the next update gets no reply. */
+static void test_moqtrun_d23uo_publish_update_refused_after_done(void) {
+  CHECK(mtuo_pub_refused_then_update(1) == 1);
+}
+
 /* draft-22: the request stays, the next update is REQUEST_OK and the
  * track is still published. */
 static void mtuo_publish_refused_keeps_d22(void) {
-  CHECK(mtuo_pub_refused_then_update() == 2);
+  CHECK(mtuo_pub_refused_then_update(0) == 2);
   CHECK(mtdn_published() == 1);
 }
 
@@ -468,7 +502,7 @@ static void test_moqtrun_d23uo_error_credits_only_answered(void) {
  * updates, once the transport drains every update sent has one reply or
  * was dropped after the request ended (outstanding for good) -- never
  * neither. A pseudo-random schedule from seed x within the credit. */
-static void mtuo_every_resolved(u32 x) {
+static u64 mtuo_every_resolved(u32 x, int fails) {
   u64 sent = 0, dropped = 0; /* dropped: sent after the first failure */
   int failed = 0;
   mtuo_sub();
@@ -476,7 +510,7 @@ static void mtuo_every_resolved(u32 x) {
     x                  = x * 1103515245u + 12345u;
     g_stream_send_ok_n = (x >> 16) & 1 ? -1 : 0;
     if (sent - mtuo_n() < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
-      int fail = (x >> 20) % 9 == 0;
+      int fail = fails && (x >> 20) % 9 == 0;
       dropped += failed;
       failed |= fail;
       fail ? mtuo_fail() : mtuo_prio((u8)round);
@@ -489,11 +523,15 @@ static void mtuo_every_resolved(u32 x) {
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
   CHECK(mtuo_pending() == dropped);
   CHECK(mtuo_n() + dropped == sent);
+  return dropped;
 }
 
+/* Each seed's schedule with its failures, then the same with none: then
+ * nothing is dropped, every update sent is answered. */
 static void test_moqtrun_d23uo_every_update_resolved(void) {
   for (usz i = 0; i < sizeof MTUO_SEEDS / sizeof MTUO_SEEDS[0]; i++) {
-    mtuo_every_resolved(MTUO_SEEDS[i]);
+    CHECK(mtuo_every_resolved(MTUO_SEEDS[i], 1) > 0);
+    CHECK(mtuo_every_resolved(MTUO_SEEDS[i], 0) == 0);
   }
 }
 
@@ -579,12 +617,14 @@ static void mtuo_d23(void) {
   test_moqtrun_d23uo_invalid_switch_ends();
   test_moqtrun_d23uo_fill_excessive_load_ends();
   test_moqtrun_d23uo_publish_update_refused_ends();
+  test_moqtrun_d23uo_publish_update_refused_after_done();
 }
 
 static void mtuo_credit(void) {
   test_moqtrun_d23uo_over_credit_closes();
   test_moqtrun_d23uo_honest_peer_never_closed();
   test_moqtrun_d23uo_nothing_after_close();
+  test_moqtrun_d23uo_ctl_reply_dropped_on_close();
 }
 
 void test_moqtrun_d23uo(void) {
