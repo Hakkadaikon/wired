@@ -9,6 +9,7 @@
 #include "app/moqt/qraw/moqraw.h"
 #include "app/moqt/run/moqtrel.h"
 #include "app/moqt/run/moqtrun_close.h"
+#include "app/moqt/run/moqtrun_ngr.h"
 #include "app/moqt/run/moqtss.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
@@ -623,18 +624,6 @@ typedef struct {
   usz at;   /**< next unread byte */
   usz skip; /**< bytes still to discard */
 } wired_moqtrun_ctl_asm;
-
-/** A NEW_GROUP_REQUEST the hub sent upstream in a REQUEST_UPDATE
- * (draft-18 10.2.13): outstanding while out and the track's Largest
- * Group is still group. */
-typedef struct {
-  /** That NEW_GROUP_REQUEST's value. */
-  u64 val;
-  /** The track's Largest Group when it went out (~0: none). */
-  u64 group;
-  /** 1 once one went out (val/group valid). */
-  u8 out;
-} wired_moqtrun_ngr;
 
 /** Fixed capacity: peer-opened request streams (draft-ietf-moq-transport-19
  * 3.3) tracked at once, hub-wide. A request stream past it is reset with
