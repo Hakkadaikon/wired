@@ -94,6 +94,10 @@ usz moqtrun_gone_head_cut(
     wired_span                 wire,
     usz                        end);
 int moqtrun_cut_any(const wired_moqtrun_relay* relay);
+int moqtrun_cut_head(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_relay* relay,
+    moqdata_obj*               o);
 int moqtrun_cut_refused(
     wired_moqt_hub*      hub,
     wired_wt_session*    wt,

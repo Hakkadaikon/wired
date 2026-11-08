@@ -13,10 +13,6 @@
  * Object is reset instead (moqtrun_cut_refused) and late-opened again at
  * a later boundary. A ring-backed stream retries the same bytes. */
 
-static int moqtrun_cut_head(
-    const wired_moqt_hub*      hub,
-    const wired_moqtrun_relay* relay,
-    moqdata_obj*               o);
 static int moqtrun_cut_valid(
     wired_moqt_hub*            hub,
     const wired_moqtrun_track* t,
@@ -71,7 +67,7 @@ int moqtrun_cut_any(const wired_moqtrun_relay* relay) {
 }
 
 /* The held fragment's Object header, whole (moqdata_obj_head_take). */
-static int moqtrun_cut_head(
+int moqtrun_cut_head(
     const wired_moqt_hub*      hub,
     const wired_moqtrun_relay* relay,
     moqdata_obj*               o) {

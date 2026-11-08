@@ -4,7 +4,8 @@ static int moqtrun_frag_slot_free(const wired_moqt_hub* hub, usz i);
 static i32 moqtrun_frag_take_free(wired_moqt_hub* hub, wired_moqtrun_relay* r);
 static i32 moqtrun_frag_slot_for(
     wired_moqt_hub* hub, wired_moqtrun_relay* relay, usz n);
-static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now);
+static u64 moqtrun_relay_born(
+    const wired_moqt_hub* hub, const wired_moqtrun_relay* r, u64 now);
 static u64 moqtrun_tail_born(usz off, u64 now, u64 born);
 static usz moqtrun_frag_join(
     wired_moqt_hub* hub, const wired_moqtrun_relay* relay, wired_span data);
@@ -94,18 +95,20 @@ void moqtrun_relay_save_frag(
   relay->frag_ms  = born_ms;
 }
 
-/* Arrival of the first byte a delivery's whole Objects start with: the
- * held fragment's, else now.
+/* When the first Object a delivery's whole Objects start with got its
+ * whole header (draft-23 9.19.4 Table 1, draft-22 the same: the
+ * OBJECT_DELIVERY_TIMEOUT clock starts at "the last byte of the object
+ * header"): the held fragment's arrival once that fragment holds its
+ * header, else now -- the header completes in this delivery. A tail saved
+ * header-torn is so restamped by the delivery completing it.
  *
- * ponytail: decode is atomic per Object (moqdata_obj_take reads header and
- * payload together), so this hub has no observable moment between "an
- * Object's header finished" and "its payload started" -- only "this
- * Object's leading byte arrived". draft-19's "first payload byte" and
- * draft-22's "last header byte" start points collapse to that same moment
- * here; add per-Object header/payload split tracking if a version gate
- * between them is ever needed. */
-static u64 moqtrun_relay_born(const wired_moqtrun_relay* r, u64 now) {
-  return r->frag_len ? r->frag_ms : now;
+ * shortcut: draft-18/19 start at the first payload byte, which differs
+ * only when a delivery ends exactly at a header's end; gate it per draft
+ * if that boundary ever matters. */
+static u64 moqtrun_relay_born(
+    const wired_moqt_hub* hub, const wired_moqtrun_relay* r, u64 now) {
+  moqdata_obj o;
+  return moqtrun_cut_head(hub, r, &o) ? r->frag_ms : now;
 }
 
 /* Arrival of the tail held after a delivery whose whole Objects end at
@@ -150,7 +153,7 @@ wired_span moqtrun_relay_normalize(
   u64 now   = hub->live.last_now_ms;
   usz total = moqtrun_frag_join(hub, relay, data);
   usz off   = 0;
-  *born_ms  = moqtrun_relay_born(relay, now);
+  *born_ms  = moqtrun_relay_born(hub, relay, now);
   *seq0_out = relay->seq;
   moqtrun_decode_object_loop(
       hub, wired_span_of(hub->relay_scratch, total), &off, &relay->seq,

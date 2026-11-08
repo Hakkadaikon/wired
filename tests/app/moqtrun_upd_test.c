@@ -491,6 +491,31 @@ static void test_moqtrun_timeout_ring_torn_object(void) {
   CHECK(mtst_hub.stat_timeout_reset == 1);
 }
 
+/* draft-23 9.19.4 Table 1 (draft-22 the same): the clock starts "when the
+ * last byte of the object header is received", so an Object whose header
+ * is torn (only its ID Delta in) is timed from the delivery completing
+ * the header. Draft-18/19's "first payload byte" is no earlier. The
+ * lossy relay (ring 0) and the ring-backed one alike. */
+static void test_moqtrun_timeout_torn_header(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 100);
+  moqctl_ftn    f = mtrq_setup();
+  for (int ring = 0; ring < 2; ring++) {
+    mtrq_setup();
+    mtst_hub.reliable_alias_limit = ring ? 100 : 0;
+    mtst_subscribe_p(SESS_B, MTRQ_S1, &f, 2, &p);
+    wired_moqt_tick(&mtst_hub, 0);
+    usz n = mtst_stream(1, 2, 1, buf); /* Object 1: ID Delta, Length, 1 */
+    mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n - 2), 0);
+    u64 sid = moqtrun_test_last_kind(5)->stream_id;
+    wired_moqt_tick(&mtst_hub, 150);
+    moqtrun_test_reset();
+    mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf + n - 2, 2), 0);
+    CHECK(mtrq_reset_code(sid) == -1);
+    CHECK(mtst_hub.stat_timeout_reset == 0);
+  }
+}
+
 /* The hub's live track: a Group older than the timeout at send time is
  * not opened; the next one, still fresh, is. */
 static void test_moqtrun_timeout_live(void) {
@@ -885,6 +910,7 @@ static void mtall_upd(void) {
   test_moqtrun_timeout_by_update();
   test_moqtrun_timeout_torn_object();
   test_moqtrun_timeout_ring_torn_object();
+  test_moqtrun_timeout_torn_header();
   test_moqtrun_timeout_live();
   test_moqtrun_timeout_datagram();
 }
