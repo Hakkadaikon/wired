@@ -71,15 +71,17 @@ static int moqtrun_up_send(
  * stream and the old one is cancelled. An Established track keeps its
  * subscribers until the new SUBSCRIBE_OK claims it again. With no stream
  * to open the old request stays (GOAWAY does not impact subscription
- * state). */
+ * state) and a later sweep tries again; a pp that sent a GOAWAY on its
+ * control stream gets no new request (9.2), so it just stays. */
 void moqtrun_up_reissue(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64 sid = u->stream_id;
   u64 tag = u->track_tag;
-  u->move = 0;
-  if (!moqtrun_up_send(hub, pp, u, moqtrun_up_key(u))) {
+  if (!moqtrun_up_peer_usable(pp) ||
+      !moqtrun_up_send(hub, pp, u, moqtrun_up_key(u))) {
     return;
   }
+  u->move      = 0;
   u->track_tag = tag;
   hub->io.stream_reset(pp->wt, sid, MOQTRUN_RESET_CANCELLED);
   moqtrun_stream_stop(hub, pp, sid, MOQTRUN_RESET_CANCELLED);

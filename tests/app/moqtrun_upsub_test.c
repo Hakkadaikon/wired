@@ -977,10 +977,67 @@ static void mups_goaway_ignored(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
+/* 9.2 "MUST NOT send ... SHOULD NOT initiate new requests" after a
+ * control-stream GOAWAY: once A sent one, a GOAWAY on the hub's
+ * SUBSCRIBE stream re-issues nothing toward A; the old request stays. */
+static void mups_goaway_after_session_goaway(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid                                                     = (u64)mups_up_sid();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->sess.goaway_recv = 1;
+  mups_goaways(sid, 1, 0);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mups_n_up(SESS_A) == 1 && mups_up_is(sid, ""));
+  mups_ok(sid);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+}
+
+/* With no stream to open the old request stays for now, and the next
+ * sweep re-issues it once one opens. */
+static void mups_goaway_retries(void) {
+  i64 old;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  old                = mups_up_sid();
+  g_open_bidi_fail_n = 1;
+  mups_goaways((u64)old, 1, 0);
+  CHECK(mups_up_is((u64)old, ""));
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mups_up_is((u64)old, "RST1|STOP1|"));
+}
+
+/* The re-issued SUBSCRIBE's SUBSCRIBE_OK may name a new Track Alias
+ * (3.1.3 picks one per subscription): A's Objects under it reach B under
+ * B's unchanged alias. */
+static void mups_goaway_new_alias(void) {
+  static moqctl_subscribe_ok ok;
+  moqctl_subscribe           m;
+  u8                         buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  i64                        old, sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  old = mups_up_sid();
+  mups_ok((u64)old);
+  mups_goaways((u64)old, 1, 0);
+  sid            = mups_up(SESS_A, 1, &m);
+  ok.track_alias = MUPS_ALIAS + 2;
+  mtst_send(SESS_A, (u64)sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS + 2, buf)), 1);
+  CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
 static void test_moqtrun_upsub_goaway(void) {
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_reissues);
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_moves_established);
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_refused);
+  moqtrun_test_vers(
+      MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_after_session_goaway);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_retries);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_new_alias);
   moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mups_goaway_ignored);
 }
 
