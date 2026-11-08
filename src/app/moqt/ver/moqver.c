@@ -13,7 +13,7 @@
 typedef struct {
   int         ver;
   const char* tok;
-  u32         caps;
+  u64         caps;
   int         offered; /* 0: kept out of the subprotocol / ALPN list */
 } moqver_row;
 
@@ -75,7 +75,7 @@ int moqver_find(wired_span token) {
 
 static int moqver_valid(int ver) { return ver >= 0 && ver < MOQVER_COUNT; }
 
-u32 moqver_caps(int ver) {
+u64 moqver_caps(int ver) {
   return moqver_valid(ver) ? moqver_table[ver].caps : 0;
 }
 

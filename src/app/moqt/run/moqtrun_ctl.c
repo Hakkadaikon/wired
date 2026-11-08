@@ -111,7 +111,7 @@ static i64 moqtrun_ctl_open_io(
  * draft-19 10.4 on; draft-18 10.3.1 has neither, so a draft-18 SETUP
  * leaves them 0 -- moqctl_setup_put_num keeps a 0 option off the wire. */
 void moqtrun_setup_limits(moqctl_setup* s, int ver) {
-  u32 caps = moqver_caps(ver);
+  u64 caps = moqver_caps(ver);
   if (caps & MOQVER_CAP_RANGE_FILTERS) {
     s->max_filter_ranges = WIRED_MOQTRUN_MAX_FILTER_RANGES;
   }

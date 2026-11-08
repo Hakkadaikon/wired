@@ -23,7 +23,7 @@
  * elsewhere alt, that draft's nearest defined code, is sent. */
 typedef struct {
   u64 code;
-  u32 cap;
+  u64 cap;
   u64 alt;
 } moqctl_code_row;
 
@@ -94,7 +94,7 @@ typedef int (*moqctl_param_put_fn)(wired_mspan, usz*, const moqctl_param*);
  * and its classification. Send side always uses the draft-19 Types
  * (REQUEST_OK is sent as 0x7). */
 typedef struct {
-  u32 cap;
+  u64 cap;
   u64 wire;
   u64 type;
   int peek;

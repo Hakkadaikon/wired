@@ -14,7 +14,7 @@ int moqtrun_fetch_new_group(const moqfetch_seq* s, u64 group) {
 /* s encodes a fetch stream of draft ver's session: 0x20C from draft-22
  * SS11.4.1, the draft-23 11.4 encoding. */
 void moqtrun_fseq_ver(moqfetch_seq* s, int ver) {
-  u32 caps         = moqver_caps(ver);
+  u64 caps         = moqver_caps(ver);
   s->eor_timed_out = (caps & MOQVER_CAP_EOR_TIMED_OUT) != 0;
   s->d23           = (caps & MOQVER_CAP_FETCH_STREAM23) != 0;
 }

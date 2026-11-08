@@ -161,7 +161,7 @@ static int moqtrun_disc_peer_is(
 
 /* Capability bits of the draft q's session speaks; callers pass only
  * requests of live peers. */
-u32 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
+u64 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     if (moqtrun_disc_peer_is(&hub->peers[i], q->wt)) {
       return moqver_caps(hub->peers[i].ver);

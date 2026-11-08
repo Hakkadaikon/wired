@@ -61,7 +61,7 @@ static void test_moqver_caps_d22(void) {
 /* draft-23 keeps every draft-22 behaviour bit but PREFIX_OVERLAP (gone in
  * draft-23 16.12.2); its own deltas add bits. */
 static void test_moqver_caps_d23(void) {
-  u32 d22 = moqver_caps(MOQVER_D22) & ~MOQVER_CAP_PREFIX_OVERLAP;
+  u64 d22 = moqver_caps(MOQVER_D22) & ~MOQVER_CAP_PREFIX_OVERLAP;
   CHECK((moqver_caps(MOQVER_D23) & d22) == d22);
   CHECK(!(moqver_caps(MOQVER_D23) & MOQVER_CAP_PREFIX_OVERLAP));
   CHECK(MOQVER_D23 == 0 && MOQVER_COUNT == 4);

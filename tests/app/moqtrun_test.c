@@ -290,9 +290,9 @@ static void moqtrun_test_session(wired_moqt_hub* hub, wired_wt_session* s) {
  * none of deny: a scenario whose expectation is a per-draft difference
  * names that difference's MOQVER_CAP_* bit, never a draft number. A
  * failure is followed by the draft id it hit. */
-static void moqtrun_test_vers(u32 need, u32 deny, void (*fn)(void)) {
+static void moqtrun_test_vers(u64 need, u64 deny, void (*fn)(void)) {
   for (int v = 0; v < MOQVER_COUNT; v++) {
-    u32 caps  = moqver_caps(v);
+    u64 caps  = moqver_caps(v);
     int fails = wired_test_fails;
     if ((caps & need) != need || (caps & deny)) {
       continue;
@@ -314,7 +314,7 @@ static void moqtrun_test_allver(void (*fn)(void)) {
 /* What a repeat SUBSCRIBE for a track the peer already holds gets: draft-18
  * refuses it DUPLICATE_SUBSCRIPTION, later drafts re-answer SUBSCRIBE_OK. */
 static u64 moqtrun_test_resub_reply(void) {
-  u32 dup = moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_DUP_SUBSCRIPTION;
+  u64 dup = moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_DUP_SUBSCRIPTION;
   return dup ? MOQCTL_T_REQUEST_ERROR : MOQCTL_T_SUBSCRIBE_OK;
 }
 

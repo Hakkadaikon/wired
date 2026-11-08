@@ -123,7 +123,7 @@
 int moqver_find(wired_span token);
 
 /** Capability bits (MOQVER_CAP_*) of version id ver (0..MOQVER_COUNT-1). */
-u32 moqver_caps(int ver);
+u64 moqver_caps(int ver);
 
 /** Writes the server's space-separated subprotocol list ("moqt-22 moqt-19
  * moqt-18", NUL-terminated; rows not offered yet are left out) to out, for

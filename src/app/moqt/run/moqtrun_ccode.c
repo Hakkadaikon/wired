@@ -97,6 +97,6 @@ void moqtrun_close_cc(
 /* A decode failure r that draft-18..22 close PROTOCOL_VIOLATION whatever
  * its cause (FETCH, FILL_PARAMETERS); draft-23 names the cause's code. */
 void moqtrun_close_take_pv(wired_moqt_hub* hub, wired_moqtrun_peer* p, int r) {
-  u32 d23 = moqver_caps(p->ver) & MOQVER_CAP_CLOSE_CODES23;
+  u64 d23 = moqver_caps(p->ver) & MOQVER_CAP_CLOSE_CODES23;
   moqtrun_close_cc(hub, p, d23 ? moqtrun_cc_of_take(r) : MOQTRUN_CC_PV);
 }

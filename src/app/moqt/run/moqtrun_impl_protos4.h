@@ -124,7 +124,7 @@ u64 moqtrun_disc_pub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q);
 u64 moqtrun_disc_sub_check(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q);
-u32 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q);
+u64 moqtrun_req_caps(const wired_moqt_hub* hub, const wired_moqtrun_req* q);
 u64 moqtrun_disc_clash(
     const wired_moqt_hub* hub, const wired_moqtrun_req* q, u64 kind);
 void moqtrun_update_ns(

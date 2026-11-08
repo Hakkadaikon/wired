@@ -136,7 +136,7 @@ static int moqtrun_encode_fetch_ok23(wired_mspan buf, usz* off, const void* m) {
 /* End Location on the wire: inclusive in draft-22 (SS9.12), last + 1 with
  * Object 0 = whole group before (10.13); none in draft-23 (9.3). */
 static moqtrun_body_encode_fn moqtrun_fetch_ok_encoder(int ver) {
-  u32 caps = moqver_caps(ver);
+  u64 caps = moqver_caps(ver);
   if (caps & MOQVER_CAP_FETCH_REQUEST_OK) {
     return moqtrun_encode_fetch_ok23;
   }

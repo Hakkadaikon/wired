@@ -124,7 +124,7 @@ static void moqtrun_upf_ok(
  * requested End Location. */
 static void moqtrun_upf_req_end(
     const wired_moqtrun_peer* pp, moqctl_loc req, moqfetch_ok* ok) {
-  u32 caps = moqver_caps(pp->ver);
+  u64 caps = moqver_caps(pp->ver);
   if ((caps & MOQVER_CAP_FETCH_REQUEST_OK) && !ok->has_largest) {
     ok->end = req;
   }
