@@ -506,8 +506,21 @@ static void mtuo_wrong_direction(void) {
   CHECK(mtuo_n_on(up) == n0);
 }
 
+/* draft-18 10.9 has no such sentence: the session stays up. */
+static void mtuo_wrong_direction_kept_d18(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_up_sid() >= 0);
+  mtup_update(SESS_A, (u64)mups_up_sid(), &p);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
 static void test_moqtrun_d23uo_wrong_direction_unexpected(void) {
   moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_wrong_direction);
+  moqtrun_test_vers(
+      0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_wrong_direction_kept_d18);
 }
 
 /* ===================== registration ===================== */
