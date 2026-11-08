@@ -118,10 +118,9 @@ static int moqtrun_req_send(
 }
 
 /* moqtrun_flush_replies for a request stream's own queue. A successful
- * flush answers every REQUEST_UPDATE coalesced into it at once (draft-19
- * 10.4: "each REQUEST_OK or REQUEST_ERROR response restores one
- * credit"), so the outstanding count resets to 0 rather than ticking
- * down per message. */
+ * flush answers every REQUEST_UPDATE whose reply it carries, restoring
+ * one credit each (draft-19 10.4, draft-23 9.1.7); updates dropped after
+ * the request ended were never answered and stay outstanding. */
 void moqtrun_req_flush(
     wired_moqt_io* io, wired_wt_session* s, wired_moqtrun_req* q) {
   int pending_idx = q->armed_idx ^ 1;
@@ -135,7 +134,8 @@ void moqtrun_req_flush(
   }
   q->send_lens[q->armed_idx] = 0;
   q->armed_idx               = pending_idx;
-  q->pending_updates         = 0;
+  q->pending_updates -= q->upd_answered;
+  q->upd_answered = 0;
 }
 
 /* Flushes the queue of the stream p is handling. */

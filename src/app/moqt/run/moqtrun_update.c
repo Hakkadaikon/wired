@@ -79,6 +79,12 @@ void moqtrun_upd_remember(wired_moqtrun_peer* p, const wired_moqtrun_sub* s) {
   }
 }
 
+/* draft-23 9.5.1: a failed REQUEST_UPDATE ends its request; earlier
+ * drafts keep answering later updates. */
+void moqtrun_upd_end(wired_moqtrun_peer* p) {
+  p->req->upd_ended |= (moqver_caps(p->ver) & MOQVER_CAP_UPD_ERR_ENDS) != 0;
+}
+
 /* A refused update: REQUEST_ERROR code, and an existing subscription
  * ends UPDATE_FAILED with its mirrors. */
 static void moqtrun_upd_failed(
@@ -87,6 +93,7 @@ static void moqtrun_upd_failed(
     const moqtrun_upd_at* u,
     u64                   code) {
   moqtrun_send_request_error(p, code);
+  moqtrun_upd_end(p);
   if (u->s) {
     moqtrun_sub_done(hub, p, p->req, u->t, u->s, MOQCTL_DONE_UPDATE_FAILED);
     moqtrun_cancel_peer_subs(

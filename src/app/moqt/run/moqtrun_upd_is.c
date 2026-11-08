@@ -16,6 +16,9 @@ static int moqtrun_update_route_fetch_ns(
 static int moqtrun_update_route_other(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params);
 static int moqtrun_upd_over_credit(const wired_moqtrun_peer* p);
+static int moqtrun_upd_credit_refused(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p);
+static int moqtrun_upd_dropped(wired_moqtrun_req* q);
 static int moqtrun_upd_stray(const wired_moqtrun_peer* p);
 
 /* draft-ietf-moq-transport-19 10.9.1 / draft-22 9.5.1: a failed update of
@@ -199,16 +202,31 @@ void moqtrun_upd_refuse(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   moqtrun_upd_close_ns(p->req);
 }
 
+/* draft-23 9.5.1: an update read after a failure ended the request is
+ * dropped without a reply, yet stays outstanding (9.1.7). */
+static int moqtrun_upd_dropped(wired_moqtrun_req* q) {
+  q->pending_updates += q->upd_ended;
+  return q->upd_ended;
+}
+
+/* Over credit closes the session (also after the request ended, draft-23
+ * 9.1.7); else a dropped update stops here. */
+static int moqtrun_upd_credit_refused(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  if (moqtrun_upd_over_credit(p)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES);
+    return 1;
+  }
+  return moqtrun_upd_dropped(p->req);
+}
+
 /* Rejects (and signals) a REQUEST_UPDATE that must not reach decode: not
- * an allowed request kind, or its stream is already over credit. */
+ * an allowed request kind, its stream is already over credit, or its
+ * request already ended. */
 int moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
   if (!moqtrun_upd_allowed(p)) {
     moqtrun_upd_refuse(hub, p);
     return 1;
   }
-  if (moqtrun_upd_over_credit(p)) {
-    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES);
-    return 1;
-  }
-  return 0;
+  return moqtrun_upd_credit_refused(hub, p);
 }

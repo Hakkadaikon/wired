@@ -708,10 +708,15 @@ typedef struct {
   int armed_idx;
   /** REQUEST_UPDATEs received but not yet answered by a flushed reply
    * (draft-19 10.9/10.4 MAX_REQUEST_UPDATES): one more than the setup
-   * limit closes the session. A flush answers every update coalesced
-   * in the queue at once, so it resets this to 0 rather than
-   * decrementing one at a time. */
+   * limit closes the session. A flush credits back the upd_answered
+   * updates its replies answer; one dropped after the request ended is
+   * never answered and stays counted (draft-23 9.1.7). */
   u64 pending_updates;
+  /** REQUEST_UPDATEs whose replies wait in the queue not yet flushed. */
+  u64 upd_answered;
+  /** 1 once a failed REQUEST_UPDATE ended the request (draft-23 9.5.1):
+   * later updates are dropped unanswered. */
+  u8 upd_ended;
   /** 1 once a GOAWAY arrived on the stream (draft 10.4: at most one). */
   int goaway;
   /** 1 once the request established a subscription or track: it stays

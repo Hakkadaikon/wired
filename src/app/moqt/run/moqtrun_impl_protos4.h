@@ -85,6 +85,7 @@ void moqtrun_upd_resched(
     const wired_moqtrun_sub*   s,
     const wired_moqtrun_track* t);
 void moqtrun_upd_remember(wired_moqtrun_peer* p, const wired_moqtrun_sub* s);
+void moqtrun_upd_end(wired_moqtrun_peer* p);
 void moqtrun_update_sub(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,

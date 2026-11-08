@@ -1559,6 +1559,7 @@
 #include "app/moqtrun_upfetch_d23_test.c"
 #include "app/moqctl_switch_test.c"
 #include "app/moqtrun_switch_test.c"
+#include "app/moqtrun_d23uo_test.c"
 #include "app/moqtrun_ssts_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
@@ -2176,6 +2177,7 @@ int main(void) {
   test_moqtrun_upfetch_d23();
   test_moqctl_switch();
   test_moqtrun_switch();
+  test_moqtrun_d23uo();
   test_moqtrun_ssts();
   test_moqtrel();
   test_moqns();

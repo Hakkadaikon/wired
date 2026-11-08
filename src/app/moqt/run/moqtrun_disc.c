@@ -36,6 +36,7 @@ void moqtrun_handle_update(
     return;
   }
   p->req->pending_updates++;
+  p->req->upd_answered++; /* each routed update is answered on the spot */
   moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
 }
 

@@ -54,6 +54,10 @@
 #define MOQVER_CAP_RANGE_FILTERS (1u << 10)
 /** MAX_REQUEST_UPDATES credit (draft-19, 22). */
 #define MOQVER_CAP_MAX_REQUEST_UPDATES (1u << 11)
+/** A failed REQUEST_UPDATE ends its request: later updates are dropped
+ * unanswered, a refused switch ends it too, a fill refused for load is
+ * EXCESSIVE_LOAD (draft-23 9.5, 9.5.1, 9.19.15). */
+#define MOQVER_CAP_UPD_ERR_ENDS (1u << 12)
 /** Namespace prefix matching (draft-22). */
 #define MOQVER_CAP_NS_PREFIX_MATCH (1u << 13)
 /** End of Timed-Out Range fetch marker 0x20C (draft-22). */
