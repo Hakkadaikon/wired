@@ -195,6 +195,10 @@ typedef struct {
   /** Next Request ID this hub sends on the session: odd, 1-origin, +2
    * per request (the hub is the server, draft SS10.2). */
   u64 request_id_next;
+  /** One past the largest bidi stream id the hub opened on the session (0
+   * for none): a server-initiated bidi stream below it is one of the
+   * hub's request streams, live or ended (RFC 9000 2.1). */
+  u64 own_bidi_end;
   /** One past the largest Request ID the peer has sent (+2, 0 for none):
    * a draft-18 GOAWAY's Request ID (SS10.4). */
   u64 peer_rid_next;

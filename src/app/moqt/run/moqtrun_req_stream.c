@@ -36,6 +36,17 @@ int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id) {
   return (stream_id & 3) == 0 && hub->io.stream_reply_open != 0;
 }
 
+/* Opens a request stream to p carrying msg (io.open_bidi_stream), noted
+ * in p->own_bidi_end; its id, or < 0 when refused. */
+i64 moqtrun_open_req(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span msg) {
+  i64 sid = hub->io.open_bidi_stream(p->wt, msg);
+  if (sid >= 0) {
+    p->own_bidi_end = u64_max(p->own_bidi_end, (u64)sid + 1);
+  }
+  return sid;
+}
+
 /* q's stream-level state: framing, send slots, FIN/GOAWAY flags. */
 static void moqtrun_req_stream_reset(wired_moqtrun_req* q) {
   q->opened = 0;

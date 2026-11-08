@@ -54,7 +54,7 @@ static int moqtrun_up_send(
   u64 rid = pp->request_id_next;
   usz n =
       moqtrun_up_sub_put(hub, pp->ver, wired_mspan_of(msg, sizeof msg), rid, k);
-  i64 sid = hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n));
+  i64 sid = moqtrun_open_req(hub, pp, wired_span_of(msg, n));
   if (sid < 0) {
     return 0;
   }
