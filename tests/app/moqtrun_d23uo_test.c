@@ -764,6 +764,26 @@ static void test_moqtrun_d23uo_ended_reinit(void) {
   moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ended_reinit);
 }
 
+/* A's REQUEST_UPDATE after the close is still read off the ended
+ * SUBSCRIBE's stream, so none is left there to close A's next session
+ * on that stream (9.5). */
+static void mtuo_ups_ended_after_close(void) {
+  moqctl_params p  = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  u64           up = mtuo_ups_ended(1);
+  mtup_update(SESS_A, up, &p);
+  mtup_update(SESS_A, up, &p);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  mtst_join(SESS_A);
+  usz n0 = mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE);
+  mups_ok(up);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == n0);
+}
+
+static void test_moqtrun_d23uo_ups_ended_after_close(void) {
+  moqtrun_test_vers(
+      MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ups_ended_after_close);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -812,4 +832,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_upsub_ended_update();
   test_moqtrun_d23uo_ended_entry_new_session();
   test_moqtrun_d23uo_ended_reinit();
+  test_moqtrun_d23uo_ups_ended_after_close();
 }
