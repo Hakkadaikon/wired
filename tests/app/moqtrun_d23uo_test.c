@@ -263,7 +263,8 @@ static usz mtuo_n_on(u64 sid) {
 }
 
 /* A reply held back on B's control stream (a PUBLISH_NAMESPACE there is
- * NOT_SUPPORTED, 6.2) goes out at the next tick -- unless the session
+ * NOT_SUPPORTED, 6.2) goes out with B's next control message -- here a
+ * REQUEST_UPDATE, which answers nothing there (9.5) -- unless the session
  * closed meanwhile: then it is dropped too. */
 static usz mtuo_ctl_reply_after(int close) {
   mtuo_sub();
@@ -278,6 +279,7 @@ static usz mtuo_ctl_reply_after(int close) {
       (usz)close);
   g_stream_send_ok_n = -1;
   wired_moqt_tick(&mtst_hub, 1);
+  mtup_update(SESS_B, cb, &(moqctl_params){0});
   return mtuo_n_on(cb);
 }
 
