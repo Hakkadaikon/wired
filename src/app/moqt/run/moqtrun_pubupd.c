@@ -115,7 +115,7 @@ static wired_moqtrun_req* moqtrun_pub_live_req(
 
 /* FORWARD 1 on t's PUBLISH stream q; once it is queued t is no longer
  * paused but its unpause is outstanding until the q->upd_out-th answer
- * from now. */
+ * from now (one that cannot be encoded leaves t paused). */
 static void moqtrun_pub_unpause(
     wired_moqt_hub* hub, wired_moqtrun_req* q, wired_moqtrun_track* t) {
   moqctl_params params = {0};
@@ -123,11 +123,9 @@ static void moqtrun_pub_unpause(
   params.items[0].enc  = MOQCTL_PENC_UINT8;
   params.items[0].u8v  = 1;
   params.n             = 1;
-  if (!moqtrun_pubupd_send(hub, q, &params)) {
-    return;
-  }
-  t->pub_paused = 0;
-  t->resume_in  = q->upd_out;
+  int sent             = moqtrun_pubupd_send(hub, q, &params);
+  t->pub_paused        = (u8)!sent;
+  t->resume_in         = (u8)(sent * q->upd_out);
 }
 
 /* draft-22 7.6: "If at least one downstream subscriber for the Track is
