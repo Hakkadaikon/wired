@@ -2,7 +2,7 @@
 
 # draft-ietf-moq-transport-19: Media over QUIC Transport
 
-仕様の本文(`tasks/specs/draft-ietf-moq-transport-19.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。対象は、この SDK が実装する MOQT のサブセットです。WebTransport 上の単一の中央ハブリレーとして、SETUP、GOAWAY、PUBLISH、SUBSCRIBE(Location Filter と Range Filter、FORWARD、優先度、2 種類の配信タイムアウトを含む)、SUBSCRIBE・FETCH・名前空間リクエストに対する REQUEST_UPDATE、TRACK_STATUS、FETCH(単独と joining の両方。Group 単位のキャッシュから返す)、PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_SKIPPED)、PUBLISH_DONE、Subgroup ストリームと Object Datagram による Object の配信を実装しています。ハブは WebTransport のサブプロトコル(`moqt-18`/`moqt-19`/`moqt-22`。サブプロトコルがなければ draft-19)からセッションごとに draft-18、draft-19、draft-22 のいずれかを選びます。このファイルは draft-19 の台帳で、[draft-18](draft-moq-transport-18.md) と [draft-22](draft-moq-transport-22.md) には別の台帳があります。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。まだ足りないものは [未実装](#未実装) にまとめています。2026-10 時点の状況です。
+仕様の本文(`tasks/specs/draft-ietf-moq-transport-19.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。対象は、この SDK が実装する MOQT のサブセットです。WebTransport 上の単一の中央ハブリレーとして、SETUP、GOAWAY、PUBLISH、SUBSCRIBE(Location Filter と Range Filter、FORWARD、優先度、2 種類の配信タイムアウトを含む)、SUBSCRIBE・FETCH・名前空間リクエストに対する REQUEST_UPDATE、TRACK_STATUS、FETCH(単独と joining の両方。Group 単位のキャッシュから返す)、PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_SKIPPED)、PUBLISH_DONE、Subgroup ストリームと Object Datagram による Object の配信を実装しています。ハブは WebTransport のサブプロトコル(`moqt-18`/`moqt-19`/`moqt-22`。サブプロトコルがなければ draft-19)からセッションごとに draft-18、draft-19、draft-22 のいずれかを選びます。このファイルは draft-19 の台帳で、[draft-18](draft-moq-transport-18.md) と [draft-22](draft-moq-transport-22.md) には別の台帳があります。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。まだ足りないものは [未実装](#未実装) にまとめています。
 
 ハブはすべてのセッション、Track、キャッシュを 1 つのプロセスのメモリに持ちます。`examples/moqt_chat` と同じく、単一プロセス(`--workers`、`--cores`、AF_XDP のファンアウトなし)で動かしてください。
 
@@ -1103,7 +1103,7 @@
 - [x] MOQT-203a (SS10.9) 送信者自身の PUBLISH に対する REQUEST_UPDATE("The sender of a request (SUBSCRIBE, PUBLISH, FETCH, ...) can later send a REQUEST_UPDATE")には、Track を保ったまま REQUEST_OK で応答しなければならない。更新できるリクエスト以外での REQUEST_UPDATE(制御ストリーム上、または TRACK_STATUS のストリーム上)では、セッションを PROTOCOL_VIOLATION で閉じなければならない("other than in the two cases above MUST close the session")。
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
-  - note: 台帳 12-6(以前は draft-22 だけだった)。12-17 は `MOQVER_CAP_UPDATE_STRAY_CLOSE` で切り替える。
+  - note: 台帳 12-6。12-17 は `MOQVER_CAP_UPDATE_STRAY_CLOSE` で切り替える。
 - [x] MOQT-204 (SS10.2.8, SS10.12) GROUP_ORDER が Descending の FETCH には、新しい Group から順に返さなければならない(Group 内の Object は昇順のまま)。本体のデコードに失敗した FETCH では、セッションを PROTOCOL_VIOLATION で閉じなければならない。
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_descending_group_order`
@@ -1143,9 +1143,9 @@
 
 ## 未実装
 
-draft-19 のリレーの範囲内ですが、まだ実装していないものです。これらを必要とするピアには NOT_SUPPORTED を返します(注記がある場合は別の振る舞いになります)。予約された名前空間、SUBSCRIBE_TRACKS、PUBLISH_SKIPPED、0 でない SUBGROUP_DELIVERY_TIMEOUT、FETCH の GROUP_ORDER、FETCH と名前空間リクエストに対する REQUEST_UPDATE、MAX_REQUEST_UPDATES、Range Filter の検証は、台帳 10 章で実装するまでここに載っていました(MOQT-028、MOQT-070、MOQT-200〜MOQT-208)。
+draft-19 のリレーの範囲内ですが、まだ実装していないものです。これらを必要とするピアには NOT_SUPPORTED を返します(注記がある場合は別の振る舞いになります)。
 
-2026-10 にドラフトの本文と突き合わせて再監査したところ、次の規則を満たしていませんでした。それぞれ上の未解決の `[ ]` 項目です。
+次の規則は満たしていません。それぞれ上の未解決の `[ ]` 項目です。
 
 - 制御ストリームをデータより先にスケジュールすること(MOQT-223)。
 - SUBSCRIBE_TRACKS の認可(MOQT-230)。

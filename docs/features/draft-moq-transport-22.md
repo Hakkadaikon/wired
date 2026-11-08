@@ -2,7 +2,7 @@
 
 # draft-ietf-moq-transport-22: Media over QUIC Transport
 
-仕様の本文(`tasks/specs/draft-ietf-moq-transport-22.txt`。git には含まない)から抽出した、この SDK の MOQT サブセットについての EARS 形式の要件台帳です。対象のサブセットは、WebTransport 上の単一の中央ハブリレーで、SETUP、GOAWAY、PUBLISH(PUBLISH_STATE_NOTIFY を含む)、SUBSCRIBE(型付きの LOCATION_FILTER、FORWARD、優先度、OBJECT_DELIVERY_TIMEOUT を含む)、fill fetch ストリーム(FILL_PARAMETERS)、Range Filter、SUBSCRIBE・FETCH・名前空間リクエスト・送信者自身の PUBLISH に対する REQUEST_UPDATE、TRACK_STATUS、FETCH(Group 単位のキャッシュから応答)、PUBLISH_NAMESPACE(プレフィックスとして)/ SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_SKIPPED)、PUBLISH_DONE、Subgroup ストリームと Object Datagram での Object の配送を実装します。ピアが WebTransport のサブプロトコル `moqt-22` をネゴシエートすると、セッションは draft-22 で動きます。データプレーン(SUBGROUP_HEADER、OBJECT_DATAGRAM、Object の本体、パディング)は draft-19 とバイト単位で同一です。このファイルには draft-22 に存在する要件だけを載せます(draft-19 には無いもの、draft-19 と書き方が違うものもあり、各項目の注記を参照)。draft-19 と文言まで同じ要件は、その台帳の文言とテストの参照を流用しています。このファイルは、draft-22 だけを読む人が別のドラフトの台帳と見比べなくて済むように置いています。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。2026-10 時点の状況です。
+仕様の本文(`tasks/specs/draft-ietf-moq-transport-22.txt`。git には含まない)から抽出した、この SDK の MOQT サブセットについての EARS 形式の要件台帳です。対象のサブセットは、WebTransport 上の単一の中央ハブリレーで、SETUP、GOAWAY、PUBLISH(PUBLISH_STATE_NOTIFY を含む)、SUBSCRIBE(型付きの LOCATION_FILTER、FORWARD、優先度、OBJECT_DELIVERY_TIMEOUT を含む)、fill fetch ストリーム(FILL_PARAMETERS)、Range Filter、SUBSCRIBE・FETCH・名前空間リクエスト・送信者自身の PUBLISH に対する REQUEST_UPDATE、TRACK_STATUS、FETCH(Group 単位のキャッシュから応答)、PUBLISH_NAMESPACE(プレフィックスとして)/ SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_SKIPPED)、PUBLISH_DONE、Subgroup ストリームと Object Datagram での Object の配送を実装します。ピアが WebTransport のサブプロトコル `moqt-22` をネゴシエートすると、セッションは draft-22 で動きます。データプレーン(SUBGROUP_HEADER、OBJECT_DATAGRAM、Object の本体、パディング)は draft-19 とバイト単位で同一です。このファイルには draft-22 に存在する要件だけを載せます(draft-19 には無いもの、draft-19 と書き方が違うものもあり、各項目の注記を参照)。draft-19 と文言まで同じ要件は、その台帳の文言とテストの参照を流用しています。このファイルは、draft-22 だけを読む人が別のドラフトの台帳と見比べなくて済むように置いています。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。
 
 ハブはすべてのセッション、Track、キャッシュを 1 つのプロセスのメモリに持ちます。`examples/moqt_chat` と同じように、単一プロセスで動かしてください(`--workers`、`--cores`、AF_XDP の振り分けは使わない)。
 
@@ -577,7 +577,7 @@
     `test_moqtrun_misc_pub_forward0_then_update`
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
-  - note: 送信者自身の PUBLISH ストリーム上の REQUEST_UPDATE は、どのドラフトでも受け入れます(18/19 の SS10.9 と 22 の SS9.5 は、どちらも PUBLISH を挙げている)。以前の draft-22 専用の機能ビットは削除しました(台帳 12-6)。SS9.5 の 2 つの場合(制御ストリーム、TRACK_STATUS ストリーム)の外にあるものは、PROTOCOL_VIOLATION でセッションを閉じます(台帳 12-17、`MOQVER_CAP_UPDATE_STRAY_CLOSE`)。
+  - note: 送信者自身の PUBLISH ストリーム上の REQUEST_UPDATE は、どのドラフトでも受け入れます(18/19 の SS10.9 と 22 の SS9.5 は、どちらも PUBLISH を挙げている)。SS9.5 の 2 つの場合(制御ストリーム、TRACK_STATUS ストリーム)の外にあるものは、PROTOCOL_VIOLATION でセッションを閉じます(台帳 12-17、`MOQVER_CAP_UPDATE_STRAY_CLOSE`)。
 - [~] MQ22-096 パブリッシャーは、PUBLISH から始まった購読で、PUBLISH_OK を受信する前に Object を送信し始めてもよい。
   - evidence: ハブは PUBLISH にすぐに応答し、その後に続く Object を中継します(`test_moqtrun_object_relay_to_subscriber`)。Object が REQUEST_OK より先に届く場合を固定するテストはありません。
 - [~] MQ22-097 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、購読は Object を 1 つも送信せずに終了しなければならない。
@@ -1138,7 +1138,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_ns_prefix_changes`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_ns_prefix_overlap_refused`
-  - note: 台帳 4-9 の調べでは、`moqtrun_disc_under`/`_starts`/`_overlap` は、draft-19 と draft-22 の両方について、すでにバイト単位のプレフィックス照合(完全一致ではない)を実装しています。draft-19 自身の NAMESPACE 送信義務の規則が、SUBSCRIBE_NAMESPACE にすでにプレフィックス照合を求めているからです。draft-22 の変更は、フィールド自身の名前(「Track Namespace Prefix」)と、同じアルゴリズムを PUBLISH_NAMESPACE の照合の規則にも当てはめることで、すでに正しく、コードの変更は必要ありませんでした。
+  - note: `moqtrun_disc_under`/`_starts`/`_overlap` は、draft-19 と draft-22 の両方について、バイト単位のプレフィックス照合(完全一致ではない)を実装しています。draft-19 自身の NAMESPACE 送信義務の規則が、SUBSCRIBE_NAMESPACE にプレフィックス照合を求めているからです。draft-22 のフィールド名(「Track Namespace Prefix」)と PUBLISH_NAMESPACE の照合の規則も、同じアルゴリズムで満たします。
 - [x] MQ22-182b TRACK_STATUS には、Track の最大の Location を運ぶ REQUEST_OK(空なら Location なし)か、Track が未知であるか認可関数が拒否したときは REQUEST_ERROR で応答しなければならない。
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_largest`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_empty`

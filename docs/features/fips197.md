@@ -2,7 +2,7 @@
 
 # FIPS 197: 高度暗号化標準（AES）
 
-仕様の本文(`tasks/specs/fips197.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。2026-10 時点の状況です。
+仕様の本文(`tasks/specs/fips197.txt`。git には含まない)から抽出した EARS 形式の要件台帳です。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。
 
 凡例:
 
@@ -57,7 +57,7 @@
 
 ## §5.3 INVCIPHER() / EQINVCIPHER()
 
-F197-011 から F197-015(INVCIPHER、INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS、EQINVCIPHER/KEYEXPANSIONEIC)は「対象外」へ移しました。下を参照してください。
+F197-011 から F197-015(INVCIPHER、INVSHIFTROWS、INVSUBBYTES、INVMIXCOLUMNS、EQINVCIPHER/KEYEXPANSIONEIC)は「対象外」にあります。下を参照してください。
 
 ## §6 実装上の考慮事項
 

@@ -235,6 +235,6 @@ ChaCha20-Poly1305 の MAC の作業領域は 3032 バイトである(MTU に合�
 
 影響: なし。
 
-上流がこれらのケースを FileTest のファイルから移したためである。代わりに RFC と FIPS のベクターで確かめている。
+固定した上流のコミットでは、これらのケースが FileTest のファイルにない。代わりに RFC と FIPS のベクターで確かめている。
 
 参照: [BoringSSL のベクター](../boringssl-vectors.md)

@@ -15,7 +15,6 @@
 |---|---|
 | [テストの範囲](coverage.md) | 要件台帳の集計と、証拠の 4 つの段階(単体テスト、独立したベクター、ファジング、相互運用性) |
 | [相互運用性テストの結果](interop.md) | 独立した実装を相手にした最新の実行の合否と、未解決の失敗 |
-| [相互運用性テストの経緯](interop-history.md) | テストケースごとの過去の失敗、根本原因、修正、確認 |
 | [実装の比較](../performance/comparison.md) | quic-go、quiche、ngtcp2、picoquic との性能と機能の比較 |
 | [ベンチマークの実行結果](../performance/comparison-runs.md) | 実装の比較の生データ |
 | [moqt_chat のリソース監視](../performance/monitoring.md) | `moqt_chat` の `wired_server` の 4.5 時間の CPU、メモリ、ネットワーク |

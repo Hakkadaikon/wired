@@ -69,13 +69,12 @@ TLS サーバーは証明書の鍵でハンドシェイクに署名する。検�
 | ECDSA の nonce | HMAC-DRBG(RFC 6979)で決定的に作る。乱数源が弱くても秘密鍵は漏れない | — |
 | Ed25519 | 非正規のスカラーと、小さい位数または非正規の `A` 点・`R` 点を拒否する | `test_ed25519_verify_rejects_small_order_key`、`test_ed25519_verify_rejects_small_order_r`、`test_ed25519_verify_rejects_noncanonical_key`、`test_ed25519_verify_rejects_noncanonical_r` |
 | 公開鍵 | 曲線上にあり、無限遠点でないことを求める | — |
-| 体の剰余計算 | limb の境界での繰り上がりのバグ(`fe_reduce_wide` / `fe6_reduce_wide` が `m<<256` / `m<<384` の境界で剰余を取りきれない)を修正した | `test_modexp_limb_boundary_square`、`test_p256_field_mul_all_ones_limbs`、`test_p384_field_mul_all_ones_limbs` |
+| 体の剰余計算 | `fe_reduce_wide` / `fe6_reduce_wide` は `m<<256` / `m<<384` の limb の境界でも繰り上がりを含めて剰余を取りきる | `test_modexp_limb_boundary_square`、`test_p256_field_mul_all_ones_limbs`、`test_p384_field_mul_all_ones_limbs` |
 | P-256 の高速な検証経路 | 固定ベースのテーブルとモンゴメリ剰余の経路を、低速な参照実装との差分テストで確かめる | `test_ecdsadiff_valid`、`test_ecdsadiff_tampered`、`test_ecdsadiff_edges` |
 | ファジング | `fuzz/fuzz_x509.c` が署名と DER のデコードを push ごとと夜間に対象にする | — |
 
 既知の制限は次のとおりである。
 
-- P-256/P-384 の limb 境界のバグは契約上のバグだった。それを起こす広い入力を渡す呼び出し元は修正の時点でなく、到達できる検証の迂回ではなかった。
 - P-256 の公開鍵の読み込みは、曲線上の検査の前に `x` や `y` が `>= p` であることを拒否しない。そうした点も曲線上の検査で拒否するので、迂回にはならない。
 
 ## 4. X25519
@@ -111,7 +110,7 @@ TLS サーバーは証明書の鍵でハンドシェイクに署名する。検�
 
 1. AES-256-GCM、P-384、P-521、RSA にも専用のテストがある。ただし期待値は OpenSSL や Python で生成したもので、RFC や FIPS の既知解ではない。この穴を第三者のベクターで埋める。P-521 は証明書チェーンの検証にだけ使う。
 2. 取り込みを許可した BoringSSL のベクターファイルに RSA のベクターがない。
-3. BoringSSL は HKDF のベクターを C++ のテストソースへ移したので、固定したコミットに HKDF のベクターファイルがない。
+3. 固定した BoringSSL のコミットでは HKDF のベクターが C++ のテストソースの中にあり、ベクターファイルがない。
 4. SHA-512 の FIPS 180-4 既知解は 1 件だけである(空文字列のダイジェスト)。
 5. wired は公開指数 e = 65537 だけを検証する。
 6. そのハッシュ専用のベクターはないが、挙げたプリミティブのどのケースも入力を先にハッシュする。ダイジェストが誤っていれば、それらのケースが失敗する。

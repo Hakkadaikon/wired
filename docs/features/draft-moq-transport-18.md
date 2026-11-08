@@ -2,7 +2,7 @@
 
 # draft-ietf-moq-transport-18: Media over QUIC Transport
 
-仕様の本文(`tasks/specs/draft-ietf-moq-transport-18.txt`。git には含まない)から抽出した、この SDK の MOQT サブセットについての EARS 形式の要件台帳です。対象は WebTransport 上の中央ハブリレー 1 つで、SETUP、GOAWAY、PUBLISH、SUBSCRIBE(Location Filter、FORWARD、優先度、2 種類の配信タイムアウトを含む)、SUBSCRIBE・FETCH・名前空間リクエストに対する REQUEST_UPDATE、TRACK_STATUS、FETCH(単独と joining。Group 単位のキャッシュから返す)、PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_BLOCKED)、PUBLISH_DONE、そして Subgroup ストリームと Object Datagram での Object 配信を実装します。ピアが WebTransport のサブプロトコル `moqt-18` をネゴシエートしたとき、セッションは draft-18 で話します。データプレーンは draft-19 とバイト単位で同じです。このファイルには draft-18 に存在する要件だけを載せます(draft-19 に無いもの、draft-19 と書き方が違うものもあります。各項目の注記を参照してください)。draft-19 と一字一句同じ要件は、そちらの台帳の文言とテスト参照をそのまま使います。このファイルがあるのは、draft-18 だけを読む人が別のドラフトの台帳と突き合わせずに済むようにするためです。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。2026-10 時点の状況です。
+仕様の本文(`tasks/specs/draft-ietf-moq-transport-18.txt`。git には含まない)から抽出した、この SDK の MOQT サブセットについての EARS 形式の要件台帳です。対象は WebTransport 上の中央ハブリレー 1 つで、SETUP、GOAWAY、PUBLISH、SUBSCRIBE(Location Filter、FORWARD、優先度、2 種類の配信タイムアウトを含む)、SUBSCRIBE・FETCH・名前空間リクエストに対する REQUEST_UPDATE、TRACK_STATUS、FETCH(単独と joining。Group 単位のキャッシュから返す)、PUBLISH_NAMESPACE / SUBSCRIBE_NAMESPACE、SUBSCRIBE_TRACKS(ハブが始める PUBLISH または PUBLISH_BLOCKED)、PUBLISH_DONE、そして Subgroup ストリームと Object Datagram での Object 配信を実装します。ピアが WebTransport のサブプロトコル `moqt-18` をネゴシエートしたとき、セッションは draft-18 で話します。データプレーンは draft-19 とバイト単位で同じです。このファイルには draft-18 に存在する要件だけを載せます(draft-19 に無いもの、draft-19 と書き方が違うものもあります。各項目の注記を参照してください)。draft-19 と一字一句同じ要件は、そちらの台帳の文言とテスト参照をそのまま使います。このファイルがあるのは、draft-18 だけを読む人が別のドラフトの台帳と突き合わせずに済むようにするためです。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。
 
 ハブはすべてのセッション、Track、キャッシュを 1 つのプロセスのメモリに持ちます。`examples/moqt_chat` と同じように、単一プロセス(`--workers`、`--cores`、AF_XDP の分散なし)で動かしてください。
 
@@ -393,7 +393,7 @@
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_timeout_accepted`
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_subgroup_timeout_min`
-  - note: これは現在の実装(台帳 10-4)を反映したもので、以前の NOT_SUPPORTED による拒否を置き換えた(draft-19 の台帳の MOQT-070 も同じ)。
+  - note: 台帳 10-4。draft-19 の台帳の MOQT-070 も同じ。
 
 ## SS10.2.12 FORWARD パラメーター
 
@@ -1155,7 +1155,7 @@
 - [x] MQ18-204a (SS10.9) 送信側自身の PUBLISH への REQUEST_UPDATE("The sender of a request (SUBSCRIBE, PUBLISH, FETCH, ...) can later send a REQUEST_UPDATE")には REQUEST_OK で応答し、Track を保たなければならない。draft-18 の SS10.9 には "other than in the two cases above" のクローズの規則がないので、制御ストリームでの REQUEST_UPDATE は REQUEST_ERROR NOT_SUPPORTED のままにする。
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
-  - note: 台帳 12-6(以前は draft-22 のみ)。12-17。
+  - note: 台帳 12-6。12-17。
 - [x] MQ18-205 (SS10.12) GROUP_ORDER が Descending の FETCH は、最も新しい Group から返さなければならず(Group の中の Object は昇順のまま)、本文のデコードに失敗した FETCH は PROTOCOL_VIOLATION でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_descending_group_order`

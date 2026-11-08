@@ -4,7 +4,7 @@
 
 仕様の本文(`tasks/specs/draft-ietf-moq-transport-23.txt`。git には含まない)から抽出した、この SDK の MOQT サブセットについての要件台帳です。対象のサブセットは、[draft-22 の台帳](draft-moq-transport-22.md)と同じ単一の中央ハブリレーです。ピアが WebTransport のサブプロトコルか ALPN で `moqt-23` をネゴシエートすると、セッションは draft-23 で動きます。
 
-draft-22 と変わらない要件は、draft-22 の台帳の文言とテストの参照を同じ番号で流用しています(ID の数字は draft-22 の台帳と同じで、MQ23-251 以降が draft-23 で加わった項目です)。draft-23 で変わった要件は、draft-23 の振る舞いに書き直し、draft-23 のセッションで確かめるテストを挙げています。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。2026-11 時点の状況です。
+draft-22 と変わらない要件は、draft-22 の台帳の文言とテストの参照を同じ番号で流用しています(ID の数字は draft-22 の台帳と同じで、MQ23-251 以降が draft-23 で加わった項目です)。draft-23 で変わった要件は、draft-23 の振る舞いに書き直し、draft-23 のセッションで確かめるテストを挙げています。各要件には、それを確かめるテストを付けています。チェックがなくテスト行もない項目は、未解決のギャップです。
 
 ハブはすべてのセッション、Track、キャッシュを 1 つのプロセスのメモリに持ちます。`examples/moqt_chat` と同じように、単一プロセスで動かしてください(`--workers`、`--cores`、AF_XDP の振り分けは使わない)。
 
@@ -631,7 +631,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
     `test_moqtrun_misc_pub_forward0_then_update`
   - test: `tests/app/moqtrun_vgate_test.c` — `test_moqtrun_vgate_update_kinds`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
-  - note: 送信者自身の PUBLISH ストリーム上の REQUEST_UPDATE は、どのドラフトでも受け入れます(18/19 の SS10.9 と 22 の SS9.5 は、どちらも PUBLISH を挙げている)。以前の draft-22 専用の機能ビットは削除しました(台帳 12-6)。SS9.5 の 2 つの場合(制御ストリーム、TRACK_STATUS ストリーム)の外にあるものは、PROTOCOL_VIOLATION でセッションを閉じます(台帳 12-17、`MOQVER_CAP_UPDATE_STRAY_CLOSE`)。
+  - note: 送信者自身の PUBLISH ストリーム上の REQUEST_UPDATE は、どのドラフトでも受け入れます(18/19 の SS10.9 と 22 の SS9.5 は、どちらも PUBLISH を挙げている)。SS9.5 の 2 つの場合(制御ストリーム、TRACK_STATUS ストリーム)の外にあるものは、PROTOCOL_VIOLATION でセッションを閉じます(台帳 12-17、`MOQVER_CAP_UPDATE_STRAY_CLOSE`)。
 - [~] MQ23-096 パブリッシャーは、PUBLISH から始まった購読で、PUBLISH_OK を受信する前に Object を送信し始めてもよい。
   - evidence: ハブは PUBLISH にすぐに応答し、その後に続く Object を中継します(`test_moqtrun_object_relay_to_subscriber`)。Object が REQUEST_OK より先に届く場合を固定するテストはありません。
 - [~] MQ23-097 購読者が PUBLISH を REQUEST_ERROR UNINTERESTED で拒否した場合、購読は Object を 1 つも送信せずに終了しなければならない。
@@ -1232,7 +1232,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_upd_ns_prefix_changes`
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_upd_ns_prefix_overlap_refused`
-  - note: 台帳 4-9 の調べでは、`moqtrun_disc_under`/`_starts`/`_overlap` は、draft-19 と draft-22 の両方について、すでにバイト単位のプレフィックス照合(完全一致ではない)を実装しています。draft-19 自身の NAMESPACE 送信義務の規則が、SUBSCRIBE_NAMESPACE にすでにプレフィックス照合を求めているからです。draft-22 の変更は、フィールド自身の名前(「Track Namespace Prefix」)と、同じアルゴリズムを PUBLISH_NAMESPACE の照合の規則にも当てはめることで、すでに正しく、コードの変更は必要ありませんでした。
+  - note: `moqtrun_disc_under`/`_starts`/`_overlap` は、draft-19 と draft-22 の両方について、バイト単位のプレフィックス照合(完全一致ではない)を実装しています。draft-19 自身の NAMESPACE 送信義務の規則が、SUBSCRIBE_NAMESPACE にプレフィックス照合を求めているからです。draft-22 のフィールド名(「Track Namespace Prefix」)と PUBLISH_NAMESPACE の照合の規則も、同じアルゴリズムで満たします。
 - [x] MQ23-182b TRACK_STATUS には、Track の最大の Location を運ぶ REQUEST_OK(空なら Location なし)か、Track が未知であるか認可関数が拒否したときは REQUEST_ERROR で応答しなければならない。
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_largest`
   - test: `tests/app/moqtrun_upd_test.c` — `test_moqtrun_tstat_ok_empty`

@@ -7,7 +7,7 @@
 | 目的 | 独立したクライアント実装を相手にした wired サーバーの最新の合否と、その証拠を示す |
 | 読む人 | ある機能のワイヤー互換を主張する前に確かめるコントリビューター |
 | 前提文書 | [テストの範囲](coverage.md)(相互運用性テストが要る理由) |
-| 関連文書 | [相互運用性テストの経緯](interop-history.md)、[要件台帳](../features/README.md) |
+| 関連文書 | [要件台帳](../features/README.md) |
 
 ## 1. 実行の方法
 
@@ -76,24 +76,24 @@ MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) �
 
 ## 3. QUIC のテストケース(サーバー: wired、クライアント: quic-go)
 
-ほかのクライアントで結果が違う場合は備考に書く。過去の失敗と修正は [相互運用性テストの経緯](interop-history.md) にある。
+ほかのクライアントで結果が違う場合は備考に書く。
 
 | テストケース | 結果 | 備考 |
 |---|---|---|
 | `handshake` | 合格 | 接続の確立 |
-| `transfer` | 合格 | ストリーム上のファイルダウンロード。2026-08 にリグレッションが起き、再修正した |
+| `transfer` | 合格 | ストリーム上のファイルダウンロード |
 | `http3` | 合格 | 並列の HTTP/3 GET(3 ストリーム、500 KB の body) |
 | `longrtt` | 合格 | 高遅延のリンク |
 | `chacha20` | 合格 | TLS_CHACHA20_POLY1305_SHA256 のエンドツーエンドのネゴシエーション。そのスイートでの転送途中の Key Update を含む |
 | `keyupdate` | 合格 | RFC 9001 §6 の鍵更新、両方向 |
 | `transferloss` | 合格 | パケット損失のもとでのファイル転送 |
 | `transfercorruption` | 合格 | パケット破損のもとでのファイル転送 |
-| `amplificationlimit` | 合格 | 証明書 9 枚で大きくしたサーバーフライトに、RFC 9000 §8.1 の増幅攻撃対策の上限を適用する。2026-10-27 に msquic で不合格([#178](https://github.com/Hakkadaikon/wired/issues/178))。サーバー側で修正済み。ローカルで 5 回中 5 回合格、次の CI 実行待ち |
+| `amplificationlimit` | 合格 | 証明書 9 枚で大きくしたサーバーフライトに、RFC 9000 §8.1 の増幅攻撃対策の上限を適用する。msquic での結果は 6 章にある |
 | `goodput`(計測) | 合格 | ランナーの模擬 10 Mbps リンクで 10 MB、9418±14 kbps(2026-10-27)。これを実行するクライアント 14 種で 9169〜9418 kbps |
 | `blackhole` | 合格 | 2 秒間の模擬リンク断のあと再開する |
-| `multiplexing` | 合格 | 2026-08-05 から合格 |
+| `multiplexing` | 合格 | 1 つの接続で多数のストリームを並行して転送する |
 | `handshakeloss` | 合格 | 30% のバースト損失のもとで 50 回のハンドシェイクがすべて完了 |
-| `handshakecorruption` | 合格 | 同じシナリオを破損のもとで実行。`handshakeloss` と同じ修正で合格 |
+| `handshakecorruption` | 合格 | 同じシナリオを破損のもとで実行 |
 | `retry` | 合格 | `--force-retry` による RFC 9000 §8.1.2 の強制アドレス検証 |
 | `resumption` | 合格 | 実際の 2 回目のハンドシェイクでの PSK によるセッション再開 |
 | `zerortt` | 合格 | 0-RTT データを受け取って処理する。msquic では不合格([#177](https://github.com/Hakkadaikon/wired/issues/177))。mvfst と quiche は未調査 |
@@ -155,9 +155,9 @@ moq-interop-runner は、各クライアントのテストスイートを、リ�
 
 | 失敗 | issue | 状態 |
 |---|---|---|
-| msquic での `zerortt`("client sent too much data in 1-RTT") | [#177](https://github.com/Hakkadaikon/wired/issues/177) | 作り直した msquic のイメージは最初の 0-RTT パケット(約 600 バイト)だけを送り、残りを 1-RTT で送る。quic-go のサーバーに対しても同じである。2026-10-04 に合格した wired のコミット(`4f38861a7`)も、ローカルの実行で同じように不合格になる。wired は PSK と early data を受け入れている |
-| msquic での `amplificationlimit`(ファイルの欠落) | [#178](https://github.com/Hakkadaikon/wired/issues/178) | サーバー側の停止。修正済み。ローカルで 5 回中 5 回合格、次の CI 実行待ち([経緯](interop-history.md#14-amplificationlimit)) |
-| webtransport-go での WebTransport の `transfer-bidirectional-send` | [#180](https://github.com/Hakkadaikon/wired/issues/180) | 修正済み(受信したバイトをビットマップで記録)、次の CI 実行待ち([経緯](interop-history.md#21-transfer-bidirectional-send)) |
+| msquic での `zerortt`("client sent too much data in 1-RTT") | [#177](https://github.com/Hakkadaikon/wired/issues/177) | 作り直した msquic のイメージは最初の 0-RTT パケット(約 600 バイト)だけを送り、残りを 1-RTT で送る。quic-go のサーバーに対しても同じである。wired は PSK と early data を受け入れている |
+| msquic での `amplificationlimit`(ファイルの欠落) | [#178](https://github.com/Hakkadaikon/wired/issues/178) | 原因はサーバー側の停止。現在のコードはローカルで 5 回中 5 回合格し、CI ではまだ実行していない |
+| webtransport-go での WebTransport の `transfer-bidirectional-send` | [#180](https://github.com/Hakkadaikon/wired/issues/180) | 受信したバイトをビットマップで記録する。現在のコードは CI ではまだ実行していない |
 | moq-dev-js での MoQT の `subscribe-namespace-lifecycle` | [#179](https://github.com/Hakkadaikon/wired/issues/179) | クライアントの動作。@moq/net 0.4.7 で修正されている |
 
 issue のない未調査の失敗は次のとおりである。
