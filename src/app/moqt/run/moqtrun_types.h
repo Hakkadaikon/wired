@@ -930,7 +930,8 @@ typedef struct {
   u8 upd_out;
   /** 1 once the publisher refused it (hub->multi_publisher): kept, with
    * no io, so the publisher is not asked again while the Track is
-   * wanted (moqtrun_up_fan). */
+   * wanted (moqtrun_up_fan) -- until a new downstream SUBSCRIBE or its
+   * covering PUBLISH_NAMESPACE forgets it (moqtrun_up_forget.c). */
   u8 failed;
 } wired_moqtrun_up;
 

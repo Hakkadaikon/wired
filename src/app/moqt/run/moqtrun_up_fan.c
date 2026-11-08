@@ -153,7 +153,9 @@ int moqtrun_up_key_subs(wired_moqt_hub* hub, moqtrun_key k) {
 /* u's request ended without serving (code; the caller did the io). Its
  * waiters are refused once no other publisher of the Track is still open;
  * under multi_publisher u stays as a refusal record so its publisher is
- * not asked again (freed by moqtrun_up_settle once unwanted). */
+ * not asked again until a new downstream SUBSCRIBE or its covering
+ * PUBLISH_NAMESPACE forgets it (moqtrun_up_forget.c), or
+ * moqtrun_up_settle frees it once unwanted. */
 void moqtrun_up_refused(wired_moqt_hub* hub, wired_moqtrun_up* u, u64 code) {
   moqtrun_key k = moqtrun_up_key(u);
   u->failed     = 1;
