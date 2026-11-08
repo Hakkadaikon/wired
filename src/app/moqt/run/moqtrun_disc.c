@@ -10,6 +10,11 @@ static int moqtrun_disc_same_session(
     const wired_moqtrun_req* a, const wired_moqtrun_req* b);
 static int moqtrun_disc_peer_is(
     const wired_moqtrun_peer* p, const wired_wt_session* wt);
+static void moqtrun_update_answer(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    usz                    peer_idx,
+    const moqtstat_update* m);
 
 /* A REQUEST_UPDATE of the request riding its stream (its own Request ID
  * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
@@ -35,9 +40,22 @@ void moqtrun_handle_update(
           &m.params)){
     return;
   }
-  p->req->pending_updates++;
-  p->req->upd_answered++; /* each routed update is answered on the spot */
-  moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
+  moqtrun_update_answer(hub, p, peer_idx, &m);
+}
+
+/* Routes update m, answered on the spot. draft-23 9.1.7: its credit
+ * returns with the response, so a reply that found p's queue full (it
+ * never goes out) earns none. */
+static void moqtrun_update_answer(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    usz                    peer_idx,
+    const moqtstat_update* m) {
+  wired_moqtrun_req* q  = p->req;
+  usz                at = q->send_lens[q->armed_idx ^ 1];
+  q->pending_updates++;
+  moqtrun_update_route(hub, p, peer_idx, &m->params, m->request_id);
+  q->upd_answered += q->send_lens[q->armed_idx ^ 1] != at;
 }
 
 /* ===================== namespace discovery ===================== */

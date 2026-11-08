@@ -797,6 +797,35 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
+/* NAMESPACE pushes waiting for a blocked SUBSCRIBE_NAMESPACE stream fill
+ * its reply queue, so the REQUEST_OK to a REQUEST_UPDATE there finds no
+ * room: it never reaches the peer, so a later flush restores no credit
+ * for it (draft-23 9.1.7 "upon receipt of the response"). */
+static void test_moqtrun_upd_credit_reply_unqueued(void) {
+  static char        x[3][123];
+  moqctl_params      none = {0};
+  wired_moqtrun_req* q;
+  for (usz i = 0; i < 3; i++) {
+    bytes_memset(x[i], 'a', 122);
+    x[i][0] = (char)('1' + i);
+  }
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "");
+  g_stream_send_ok_n = 0;
+  for (usz i = 0; i < 3; i++) {
+    mtns_pub(SESS_A, MTRQ_ID(i), x[i]);
+  }
+  q = moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1);
+  CHECK(q->send_lens[q->armed_idx ^ 1] + 4 > WIRED_MOQTRUN_REQ_SEND_BUF);
+  mtup_update(SESS_B, MTRQ_S1, &none);
+  g_stream_send_ok_n = -1;
+  for (usz i = 0; i < 3; i++) {
+    wired_moqt_tick(&mtst_hub, 0);
+  }
+  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:1aaaaaaa|NS:2aaaaaaa|NS:3aaaaaaa|"));
+  CHECK(q->pending_updates == 1);
+}
+
 /* ========= REQUEST_UPDATE on a FETCH stream (draft-19 10.9) ========= */
 
 static moqctl_params mtup_subpri(u8 v) {
@@ -888,6 +917,7 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_upd(void) {
   test_moqtrun_upd_credit_restored_by_flush();
+  test_moqtrun_upd_credit_reply_unqueued();
   test_moqtrun_upd_ns_prefix_changes();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_tstat_ok_largest();
