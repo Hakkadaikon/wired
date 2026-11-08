@@ -6,6 +6,14 @@ int moqtrun_tprop_grease(u64 type, u64 caps) {
   return (caps & MOQVER_CAP_PROP_RULES) && moqctl_is_grease(type);
 }
 
+/* draft-23 10.4: DEFAULT_PUBLISHER_PRIORITY "above 255, it MUST close
+ * the session with MALFORMED_KEY_VALUE" (draft-22 took it as 128). */
+int moqtrun_tprop_prio_bad(const moqkvp* kv, u64 caps) {
+  return (caps & MOQVER_CAP_PROP_RULES) &&
+         moqtrun_prop_is_num(kv, MOQTRUN_PROP_DEFAULT_PUB_PRIO) &&
+         kv->num > 255;
+}
+
 /* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7, draft-23 3.7): "An Object
  * received with a Mandatory Track Property as an Object Property is
  * malformed". */

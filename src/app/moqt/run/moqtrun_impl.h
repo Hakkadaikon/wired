@@ -46,6 +46,7 @@ u32  moqtrun_tprops_check(wired_span props, u64 caps);
 int  moqtrun_tprops_refused(wired_span props, u64 caps, u64* code);
 usz  moqtrun_tprops_unsupp(wired_span props, u64 caps, u64* out);
 int  moqtrun_tprop_grease(u64 type, u64 caps);
+int  moqtrun_tprop_prio_bad(const moqkvp* kv, u64 caps);
 int  moqtrun_obj_props_bad(wired_span props, u64 caps);
 int  moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt);
 void moqtrun_queue_request_ok_props(

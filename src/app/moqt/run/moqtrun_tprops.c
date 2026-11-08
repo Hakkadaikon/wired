@@ -62,10 +62,12 @@ static int moqtrun_tprop_out_of(const moqkvp* kv, u64 type, u64 lo, u64 hi) {
 
 /* draft-18 12.5: DEFAULT_PUBLISHER_GROUP_ORDER outside 1-2, 12.6:
  * DYNAMIC_GROUPS above 1 -- "MUST close the session with
- * PROTOCOL_VIOLATION". */
+ * PROTOCOL_VIOLATION"; draft-23 10.4: DEFAULT_PUBLISHER_PRIORITY above
+ * 255 too. */
 static u32 moqtrun_tprop_flags(const moqkvp* kv, u64 caps) {
   u32 bad = (u32)(moqtrun_tprop_out_of(kv, MOQTRUN_PROP_GROUP_ORDER, 1, 2) |
-                  moqtrun_tprop_out_of(kv, MOQTRUN_PROP_DYNAMIC_GROUPS, 0, 1));
+                  moqtrun_tprop_out_of(kv, MOQTRUN_PROP_DYNAMIC_GROUPS, 0, 1) |
+                  moqtrun_tprop_prio_bad(kv, caps));
   return (u32)moqtrun_tprop_is_mand(kv->type, caps) * MOQTRUN_TP_MAND |
          bad * MOQTRUN_TP_BAD;
 }

@@ -98,4 +98,27 @@ static void test_moqtrun_tprops_grease(void) {
   moqtrun_test_allver(mttp_grease_obj);
 }
 
-void test_moqtrun_tprops(void) { test_moqtrun_tprops_grease(); }
+/* A's track's DEFAULT_PUBLISHER_PRIORITY as the hub keeps it. */
+static u8 mttp_prio(void) {
+  return moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].default_pub_prio;
+}
+
+/* 10.4: DEFAULT_PUBLISHER_PRIORITY "above 255, it MUST close the session
+ * with MALFORMED_KEY_VALUE" on draft-23, mutable or inside Immutable
+ * Properties; 255 is kept. Earlier drafts take 256 as the default 128
+ * (draft-22 10.4: "Priorities above 255 are invalid"). */
+static void mttp_prio_above_255(void) {
+  CHECK(mtst_publish_prop_closes(0x0E, 255, 0) == 0 && mttp_prio() == 255);
+  CHECK(mtst_publish_prop_closes(0x0E, 256, 1) == (usz)mttp_d23());
+  CHECK(mtst_publish_prop_closes(0x0E, 256, 0) == (usz)mttp_d23());
+  CHECK(mttp_d23() || mttp_prio() == 128);
+}
+
+static void test_moqtrun_tprops_prio(void) {
+  moqtrun_test_allver(mttp_prio_above_255);
+}
+
+void test_moqtrun_tprops(void) {
+  test_moqtrun_tprops_grease();
+  test_moqtrun_tprops_prio();
+}
