@@ -643,13 +643,15 @@ static void mtuo_upf_ended_kept_d18(void) { mtuo_upf_ended_update(0); }
 
 /* Other bytes on it are dropped, never read as a uni stream: a stream
  * type SETUP (0x2F00, 3.4) there must not adopt it as A's control
- * stream. The hub sends nothing. */
+ * stream. Neither they, A's FIN on it nor a reset of the data stream
+ * makes the hub send anything. */
 static void mtuo_upf_ended_junk(void) {
   static const u8 junk[] = {0xAF, 0x00, 0x00, 0x00}; /* 0x2F00 */
   for (int end = 0; end < 3; end++) {
     u64 sid = mtuo_upf_ended(end);
     usz n0  = g_n_calls;
-    mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(junk, sizeof junk), 0);
+    mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(junk, sizeof junk), 1);
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MUPF_DATA_SID, 1, 0);
     CHECK(g_n_calls == n0);
     CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->peer_ctl_stream_id != sid);
   }
@@ -688,6 +690,16 @@ static void mtuo_ups_ended_update(usz closes) {
   }
 }
 
+/* A's FIN on the ended stream fails no waiter again: nothing is sent. */
+static void mtuo_ups_ended_fin(void) {
+  for (int end = 0; end < 2; end++) {
+    u64 up = mtuo_ups_ended(end);
+    usz n0 = g_n_calls;
+    mt_feed(&mtst_hub, SESS_A, up, wired_span_of(0, 0), 1);
+    CHECK(g_n_calls == n0);
+  }
+}
+
 static void mtuo_ups_ended_closes(void) { mtuo_ups_ended_update(1); }
 
 static void mtuo_ups_ended_kept_d18(void) { mtuo_ups_ended_update(0); }
@@ -695,6 +707,7 @@ static void mtuo_ups_ended_kept_d18(void) { mtuo_ups_ended_update(0); }
 static void test_moqtrun_d23uo_upsub_ended_update(void) {
   moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ups_ended_closes);
   moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_ups_ended_kept_d18);
+  moqtrun_test_allver(mtuo_ups_ended_fin);
 }
 
 /* An ended SUBSCRIBE's entry kept from A's earlier session never takes a
