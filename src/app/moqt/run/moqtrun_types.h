@@ -880,6 +880,10 @@ typedef struct {
   /** The held SUBSCRIBE's NEW_GROUP_REQUEST, for the upstream SUBSCRIBE
    * (draft-18 10.2.13). */
   u64 ngr;
+  /** 1 when the slot holds a SUBSCRIBE or TRACK_STATUS waiting for its
+   * found track's PUBLISH to be unpaused (draft-23 7.5): no deadline, no
+   * upstream SUBSCRIBE, answered once that REQUEST_UPDATE is. */
+  u8 resume;
 } wired_moqtrun_rdv;
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace

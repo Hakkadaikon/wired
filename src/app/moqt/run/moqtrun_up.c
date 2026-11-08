@@ -65,6 +65,7 @@ static void moqtrun_rp_store(
   r->deadline_ms = hub->live.last_now_ms + WIRED_MOQTRUN_RDV_MAX_MS;
   r->up_only     = 0;
   r->repath      = 1;
+  r->resume      = 0;
   r->done_status = status;
   r->done_count  = count;
   r->tried       = moqtrun_rp_bit(hub, u->wt);

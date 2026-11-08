@@ -90,6 +90,7 @@ static void moqtrun_track_end_or_fold(
 void moqtrun_track_ended(wired_moqt_hub* hub, wired_moqtrun_track* t) {
   wired_moqtrun_up* u      = moqtrun_up_of_track(hub, t);
   u64               status = u ? moqtrun_rp_status(t) : MOQTRUN_RP_NONE;
+  moqtrun_resume_gone(hub, t);
   for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
     moqtrun_track_end_or_fold(hub, t, si, u, status);
   }

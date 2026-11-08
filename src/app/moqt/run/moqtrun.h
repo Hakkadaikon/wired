@@ -125,6 +125,11 @@ typedef struct {
   /** 1 while the publisher's PUBLISH left the hub's subscription paused
    * (FORWARD 0) and no REQUEST_UPDATE resumed it (draft-22 7.6). */
   u8 pub_paused;
+  /** While the hub's unpause REQUEST_UPDATE on that PUBLISH is
+   * unanswered: how many of the stream's answers, its own included, are
+   * still due before it (answers come in order, draft-23 9.5); 0 when none
+   * is outstanding. */
+  u8 resume_in;
   /** Bytes of props in use: the claiming PUBLISH's (or upstream
    * SUBSCRIBE_OK's) Track Properties, 0 when none (a longer block than
    * WIRED_MOQTRUN_TRACK_PROPS_MAX refuses the track). */

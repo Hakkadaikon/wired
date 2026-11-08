@@ -79,7 +79,7 @@ int moqtrun_up_open(
 /* A SUBSCRIBE waiting for k, not yet answered (a wait for a new path
  * was). */
 static int moqtrun_rdv_fresh(const wired_moqtrun_rdv* r, moqtrun_key k) {
-  return moqtrun_rdv_matches(r, k) && !r->repath;
+  return moqtrun_rdv_matches(r, k) && !r->repath && !r->resume;
 }
 
 /* Every SUBSCRIBE waiting for k is answered REQUEST_ERROR code; a wait
@@ -158,6 +158,9 @@ static void moqtrun_up_wait_single(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
 }
 
 void moqtrun_up_wait_one(wired_moqt_hub* hub, wired_moqtrun_rdv* r) {
+  if (r->resume) {
+    return; /* its track is found: nothing to subscribe upstream */
+  }
   if (hub->multi_publisher) {
     moqtrun_up_fan(hub, r);
     return;

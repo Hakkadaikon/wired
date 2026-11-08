@@ -1,11 +1,5 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static void moqtrun_rdv_do_resolve(
-    wired_moqt_hub*          hub,
-    wired_moqtrun_peer*      sp,
-    const wired_moqtrun_rdv* r,
-    wired_moqtrun_track*     t,
-    u64                      code);
 static int moqtrun_rdv_own_up(
     wired_moqt_hub* hub, const wired_moqtrun_rdv* r, wired_moqtrun_track* t);
 static void moqtrun_rdv_own_refuse(wired_moqt_hub* hub, wired_moqtrun_rdv* r);
@@ -40,8 +34,10 @@ void moqtrun_rdv_answer(
 
 /* The held SUBSCRIBE, re-decoded in its session's draft, goes the normal
  * found-track way (moqtrun_subscribe_peer_track: SUBSCRIBE_OK, or the
- * held-subscription re-answer, or DOES_NOT_EXIST once subs[] is full). */
-static void moqtrun_rdv_do_resolve(
+ * held-subscription re-answer, or DOES_NOT_EXIST once subs[] is full) --
+ * unless t is paused: then it waits again (draft-23 7.5,
+ * moqtrun_resume_wait). */
+void moqtrun_rdv_do_resolve(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
@@ -54,6 +50,9 @@ static void moqtrun_rdv_do_resolve(
   (void)code;
   if (moqctl_subscribe_take(sp->ver, body, &off, &m) != MOQCTL_OK) {
     moqtrun_send_request_error(sp, MOQCTL_ERR_INTERNAL_ERROR);
+    return;
+  }
+  if (moqtrun_resume_wait(hub, sp, t, body)) {
     return;
   }
   moqtrun_subscribe_peer_track(

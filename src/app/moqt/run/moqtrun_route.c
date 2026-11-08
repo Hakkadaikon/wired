@@ -68,6 +68,9 @@ static void moqtrun_route_peer_subscribe(
     moqtrun_rdv_miss(hub, p, m, k, body);
     return;
   }
+  if (moqtrun_resume_wait(hub, p, track, body)) {
+    return;
+  }
   moqtrun_subscribe_peer_track(hub, p, track, peer_idx, k, m);
   moqtrun_mirror_all(hub, k);
 }

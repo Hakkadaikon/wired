@@ -49,6 +49,7 @@ void moqtrun_track_open(
   t->pubdone_pending  = 0;
   t->pub_paused       = moqtrun_forward_off(
       moqctl_params_find(params, MOQCTL_PARAM_FORWARD)); /* draft-22 7.6 */
+  t->resume_in = 0;
   moqtrun_track_keep_props(t, props);
 }
 

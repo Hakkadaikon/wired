@@ -897,6 +897,7 @@
 #include "app/moqt/run/moqtrun_rdv.c"
 #include "app/moqt/run/moqtrun_rdv_do.c"
 #include "app/moqt/run/moqtrun_rdv_owned.c"
+#include "app/moqt/run/moqtrun_resume.c"
 #include "app/moqt/run/moqtrun_rel.c"
 #include "app/moqt/run/moqtrun_rel_late.c"
 #include "app/moqt/run/moqtrun_rel_maybe.c"

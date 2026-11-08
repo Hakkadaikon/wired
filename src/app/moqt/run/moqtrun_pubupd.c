@@ -8,7 +8,14 @@ static int moqtrun_pub_req_kind(const wired_moqtrun_req* q);
 static int moqtrun_pub_req_of(
     const wired_moqtrun_req* q, const wired_wt_session* s, u64 rid);
 static int moqtrun_track_forwards(const wired_moqtrun_track* t);
-static int moqtrun_pub_resume_due(const wired_moqtrun_track* t);
+static int moqtrun_track_wants(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+static int moqtrun_pub_resume_due(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+static wired_moqtrun_req* moqtrun_pub_live_req(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t);
+static void moqtrun_pub_unpause(
+    wired_moqt_hub* hub, wired_moqtrun_req* q, wired_moqtrun_track* t);
 static int moqtrun_upd_answer_ok(const wired_moqtrun_peer* p);
 
 /* ===== the hub's REQUEST_UPDATEs on a publisher's PUBLISH stream =====
@@ -86,26 +93,60 @@ static int moqtrun_track_forwards(const wired_moqtrun_track* t) {
   return 0;
 }
 
-static int moqtrun_pub_resume_due(const wired_moqtrun_track* t) {
-  return t && t->pub_paused && moqtrun_track_forwards(t);
+/* Someone needs t unpaused: a forwarding subscription (draft-22 7.6) or
+ * a request waiting for a Largest (draft-23 7.5, moqtrun_resume_wait). */
+static int moqtrun_track_wants(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  return moqtrun_track_forwards(t) || moqtrun_resume_waiting(hub, t);
 }
 
-/* draft-22 7.6: "If at least one downstream subscriber for the Track is
- * not paused, the Relay MUST resume the upstream subscription with
- * REQUEST_UPDATE, if paused" -- FORWARD 1 on t's PUBLISH stream. Called
- * whenever t's PUBLISH or a downstream subscription changes. */
-void moqtrun_pub_resume(wired_moqt_hub* hub, wired_moqtrun_track* t) {
-  moqctl_params      params = {0};
-  wired_moqtrun_req* q =
-      moqtrun_pub_resume_due(t) ? moqtrun_pub_req(hub, t) : 0;
-  if (!q) {
-    return;
-  }
+static int moqtrun_pub_resume_due(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  return t && t->pub_paused && moqtrun_track_wants(hub, t);
+}
+
+/* t's PUBLISH stream, once the hub answered the PUBLISH there: an
+ * unpause never goes out ahead of its REQUEST_OK. */
+static wired_moqtrun_req* moqtrun_pub_live_req(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  wired_moqtrun_req* q = moqtrun_pub_req(hub, t);
+  return q && q->live ? q : 0;
+}
+
+/* FORWARD 1 on t's PUBLISH stream q; once it is queued t is no longer
+ * paused but its unpause is outstanding until the q->upd_out-th answer
+ * from now. */
+static void moqtrun_pub_unpause(
+    wired_moqt_hub* hub, wired_moqtrun_req* q, wired_moqtrun_track* t) {
+  moqctl_params params = {0};
   params.items[0].type = MOQCTL_PARAM_FORWARD;
   params.items[0].enc  = MOQCTL_PENC_UINT8;
   params.items[0].u8v  = 1;
   params.n             = 1;
-  t->pub_paused        = !moqtrun_pubupd_send(hub, q, &params);
+  if (!moqtrun_pubupd_send(hub, q, &params)) {
+    return;
+  }
+  t->pub_paused = 0;
+  t->resume_in  = q->upd_out;
+}
+
+/* draft-22 7.6: "If at least one downstream subscriber for the Track is
+ * not paused, the Relay MUST resume the upstream subscription with
+ * REQUEST_UPDATE, if paused" -- FORWARD 1 on t's PUBLISH stream; draft-23
+ * 7.5 unpauses it for a waiting request too. Called whenever t's PUBLISH
+ * or a downstream subscription changes, or a request starts waiting. */
+void moqtrun_pub_resume(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  wired_moqtrun_req* q =
+      moqtrun_pub_resume_due(hub, t) ? moqtrun_pub_live_req(hub, t) : 0;
+  if (q) {
+    moqtrun_pub_unpause(hub, q, t);
+  }
+}
+
+/* draft-23 7.5: t's upstream may give an answer its Largest -- not
+ * paused, and no unpause still unanswered. */
+int moqtrun_track_usable(const wired_moqtrun_track* t) {
+  return !t->pub_paused && !t->resume_in;
 }
 
 /* ----- the publisher's answers ----- */
@@ -132,10 +173,13 @@ void moqtrun_dispatch_upd_ok(
   p->req->upd_out--;
   moqtrun_largest_note(
       p, moqtrun_pubdone_track_of(p, p->req->request_id), body);
+  moqtrun_pub_answered(hub, p, MOQTRUN_REQ_ACCEPT);
 }
 
 /* REQUEST_ERROR: the update failed, so its NEW_GROUP_REQUEST is no
- * longer outstanding (draft-18 10.2.13). */
+ * longer outstanding (draft-18 10.2.13); a refused unpause fails the
+ * requests waiting on it with its code (one that does not decode closed
+ * the session: INTERNAL_ERROR). */
 void moqtrun_dispatch_upd_err(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqctl_request_error e;
@@ -144,6 +188,7 @@ void moqtrun_dispatch_upd_err(
     return;
   }
   p->req->upd_out--;
-  p->req->ngr.out =
-      (u8)(p->req->ngr.out & !moqtrun_reqerr_take(hub, p, body, &e));
+  int ok          = moqtrun_reqerr_take(hub, p, body, &e);
+  p->req->ngr.out = (u8)(p->req->ngr.out & !ok);
+  moqtrun_pub_answered(hub, p, ok ? e.error_code : MOQCTL_ERR_INTERNAL_ERROR);
 }

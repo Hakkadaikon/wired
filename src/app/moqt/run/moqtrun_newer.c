@@ -82,6 +82,7 @@ static void moqtrun_track_keep_counts(
  * released), and the slot stops matching any name or Track Alias, so the
  * lingering session's stray Objects are dropped instead of relayed. */
 void moqtrun_track_retire(wired_moqt_hub* hub, wired_moqtrun_track* t) {
+  moqtrun_resume_gone(hub, t);
   moqtrun_track_keep_counts(hub, t);
   moqtrun_track_reset_stale_relays(hub, t);
   moqtrun_track_cache_drop(hub, t);

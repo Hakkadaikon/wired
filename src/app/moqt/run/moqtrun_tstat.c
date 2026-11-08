@@ -16,8 +16,11 @@ static u64 moqtrun_tstat_verdict(
     const wired_moqt_hub*      hub,
     const moqctl_subscribe*    m,
     const wired_moqtrun_track* t);
-static void moqtrun_tstat_answer(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body);
+static void moqtrun_tstat_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    wired_span           body);
 
 /* draft-22 7.4: a relay authorizes every request; the hub's SUBSCRIBE
  * authorizer judges a FETCH's Full Track Name too. */
@@ -121,7 +124,22 @@ static u64 moqtrun_tstat_verdict(
   return MOQTRUN_REQ_ACCEPT;
 }
 
-static void moqtrun_tstat_answer(
+/* An accepted TRACK_STATUS for t: TRACK_STATUS_OK now, or -- a paused
+ * PUBLISH -- after its unpause (draft-23 7.5, moqtrun_resume_wait). */
+static void moqtrun_tstat_ok(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    wired_span           body) {
+  if (moqtrun_resume_wait(hub, p, t, body)) {
+    return;
+  }
+  /* draft-18 10.14: "the same parameters and Track Properties it would
+   * have set in a SUBSCRIBE_OK". */
+  moqtrun_queue_request_ok_props(p, t, moqtrun_track_props(t));
+}
+
+void moqtrun_tstat_answer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
   moqctl_subscribe m;
   if (!moqtrun_take_tok_or_close(
@@ -134,9 +152,7 @@ static void moqtrun_tstat_answer(
     moqtrun_send_request_error(p, code);
     return;
   }
-  /* draft-18 10.14: "the same parameters and Track Properties it would
-   * have set in a SUBSCRIBE_OK". */
-  moqtrun_queue_request_ok_props(p, t, moqtrun_track_props(t));
+  moqtrun_tstat_ok(hub, p, t, body);
 }
 
 /* TRACK_STATUS is the first and only message of a new request stream

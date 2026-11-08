@@ -19,6 +19,35 @@ wired_moqtrun_req* moqtrun_pub_req(
 int moqtrun_pubupd_send(
     wired_moqt_hub* hub, wired_moqtrun_req* q, const moqctl_params* params);
 void moqtrun_pub_resume(wired_moqt_hub* hub, wired_moqtrun_track* t);
+int  moqtrun_track_usable(const wired_moqtrun_track* t);
+int  moqtrun_resume_waiting(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+int moqtrun_resume_wait(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* t,
+    wired_span           body);
+void moqtrun_pub_answered(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code);
+void moqtrun_resume_gone(wired_moqt_hub* hub, wired_moqtrun_track* t);
+void moqtrun_rdv_do_resolve(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code);
+void moqtrun_rdv_do_resume(
+    wired_moqt_hub*          hub,
+    wired_moqtrun_peer*      sp,
+    const wired_moqtrun_rdv* r,
+    wired_moqtrun_track*     t,
+    u64                      code);
+wired_moqtrun_rdv* moqtrun_rdv_wait(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    const wired_moqtrun_track* t,
+    wired_span                 body);
+void moqtrun_tstat_answer(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body);
 int  moqtrun_req_upd_answer(const wired_moqtrun_req* q, u64 type);
 void moqtrun_dispatch_upd_ok(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);

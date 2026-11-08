@@ -10,6 +10,8 @@ static void moqtrun_rdv_store(
     moqtrun_key               k,
     wired_span                body,
     u64                       rt);
+static wired_moqtrun_rdv* moqtrun_rdv_take(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body);
 static void moqtrun_rdv_hold(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -59,6 +61,7 @@ static void moqtrun_rdv_store(
   r->deadline_ms = moqtrun_rdv_deadline(hub, rt);
   r->up_only     = rt == 0;
   r->repath      = 0;
+  r->resume      = 0;
   r->tried       = 0;
   r->ns_len      = k.ns.n;
   r->name_len    = k.name.n;
@@ -68,26 +71,54 @@ static void moqtrun_rdv_store(
   bytes_memcpy(r->body, body.p, body.n);
 }
 
-/* Holds the SUBSCRIBE, sending nothing yet; with no slot left -- or a
- * body longer than a slot keeps (WIRED_MOQTRUN_CTL_MSG_MAX; up to 65535
- * bytes arrive) -- it is refused EXCESSIVE_LOAD with a Retry Interval at
- * once (10.6), never dropped silently. */
+/* A slot for p's request body; with no slot left -- or a body longer
+ * than a slot keeps (WIRED_MOQTRUN_CTL_MSG_MAX; up to 65535 bytes
+ * arrive) -- it is refused EXCESSIVE_LOAD with a Retry Interval at once
+ * (10.6), never dropped silently, and 0 returned. */
+static wired_moqtrun_rdv* moqtrun_rdv_take(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
+  wired_moqtrun_rdv* r =
+      body.n <= WIRED_MOQTRUN_CTL_MSG_MAX ? moqtrun_rdv_admit(hub, p->wt) : 0;
+  if (!r) {
+    moqtrun_send_request_error_ri(
+        p, MOQCTL_ERR_EXCESSIVE_LOAD, WIRED_MOQTRUN_RDV_RETRY);
+  }
+  return r;
+}
+
+/* Holds the SUBSCRIBE, sending nothing yet (moqtrun_rdv_take). */
 static void moqtrun_rdv_hold(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
     const moqctl_subscribe* m,
     moqtrun_key             k,
     wired_span              body) {
-  wired_moqtrun_rdv* r =
-      body.n <= WIRED_MOQTRUN_CTL_MSG_MAX ? moqtrun_rdv_admit(hub, p->wt) : 0;
+  wired_moqtrun_rdv* r = moqtrun_rdv_take(hub, p, body);
   if (!r) {
-    moqtrun_send_request_error_ri(
-        p, MOQCTL_ERR_EXCESSIVE_LOAD, WIRED_MOQTRUN_RDV_RETRY);
     return;
   }
   moqtrun_rdv_store(hub, r, p, k, body, moqtrun_rdv_rt(m));
   r->has_ngr       = moqtrun_ngr_of(&m->params, &r->ngr);
   p->req->rdv_held = 1;
+}
+
+/* Holds p's SUBSCRIBE or TRACK_STATUS (body) until t's PUBLISH is
+ * unpaused (draft-23 7.5, moqtrun_resume_wait): no deadline. The slot, or
+ * 0 when refused (moqtrun_rdv_take). */
+wired_moqtrun_rdv* moqtrun_rdv_wait(
+    wired_moqt_hub*            hub,
+    wired_moqtrun_peer*        p,
+    const wired_moqtrun_track* t,
+    wired_span                 body) {
+  wired_moqtrun_rdv* r = moqtrun_rdv_take(hub, p, body);
+  if (!r) {
+    return 0;
+  }
+  moqtrun_rdv_store(hub, r, p, moqtrun_track_key(t), body, 0);
+  r->has_ngr       = 0;
+  r->resume        = 1;
+  p->req->rdv_held = 1;
+  return r;
 }
 
 /* A SUBSCRIBE whose track has no publisher: held (moqtrun_rdv_holdable),
