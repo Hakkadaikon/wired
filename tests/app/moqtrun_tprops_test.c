@@ -202,12 +202,45 @@ static void test_moqtrun_tprops_upfetch_twice_d23(void) {
   CHECK(mupf_refused(MOQCTL_ERR_MALFORMED_TRACK));
 }
 
+/* Object Properties t1 = 1 then t2 = 1 (one when t2 is 0) for A's
+ * Object; B's PUBLISH_DONE status, ~0 for none. */
+static u64 mttp_obj(u64 t1, u64 t2, int dg) {
+  u8  p[32];
+  usz n    = 0;
+  u64 prev = 0, count = 0;
+  mtst_prop_num(p, &n, &prev, t1, 1);
+  if (t2) {
+    mtst_prop_num(p, &n, &prev, t2, 1);
+  }
+  mtdn_setup();
+  mtdn_obj_props(wired_span_of(p, n), dg);
+  wired_moqt_tick(&mtst_hub, 0);
+  return mtdr_done_on(MTRQ_S1, &count);
+}
+
+/* 8.4 / 12.1 items 8-9 for Object Properties: the Track-only
+ * DEFAULT_PUBLISHER_PRIORITY (0x0E) or MAX_CACHE_DURATION (0x04), or
+ * PRIOR_OBJECT_ID_GAP (0x3E) twice, end B's subscription MALFORMED_TRACK
+ * on draft-23 (subgroup stream and datagram); one 0x3E, or 0x3C with 0x3E, does
+ * not. */
+static void mttp_obj_props(void) {
+  u64 want = mttp_d23() ? MOQCTL_DONE_MALFORMED_TRACK : ~(u64)0;
+  for (int dg = 0; dg < 2; dg++) {
+    CHECK(mttp_obj(0x0E, 0, dg) == want);
+    CHECK(mttp_obj(0x04, 0x3C, dg) == want);
+    CHECK(mttp_obj(0x3E, 0x3E, dg) == want);
+    CHECK(mttp_obj(0x3E, 0, dg) == ~(u64)0);
+    CHECK(mttp_obj(0x3C, 0x3E, dg) == ~(u64)0);
+  }
+}
+
 static void test_moqtrun_tprops_once_in_scope(void) {
   moqtrun_test_allver(mttp_twice);
   moqtrun_test_allver(mttp_unknown_twice);
   moqtrun_test_allver(mttp_track_scope);
   moqtrun_test_allver(mttp_upsub_scope);
   test_moqtrun_tprops_upfetch_twice_d23();
+  moqtrun_test_allver(mttp_obj_props);
 }
 
 void test_moqtrun_tprops(void) {

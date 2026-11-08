@@ -78,9 +78,10 @@ int moqtrun_props_malformed(wired_span props, u64 caps, u32 scope) {
 
 /* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7, draft-23 3.7): "An Object
  * received with a Mandatory Track Property as an Object Property is
- * malformed". */
+ * malformed"; draft-23 8.4 adds a Property twice or outside its scope. */
 int moqtrun_obj_props_bad(wired_span props, u64 caps) {
-  return (moqtrun_tprops_check(props, caps) & MOQTRUN_TP_MAND) != 0;
+  return (moqtrun_tprops_check(props, caps) & MOQTRUN_TP_MAND) ||
+         moqtrun_props_malformed(props, caps, MOQTRUN_SCOPE_OBJECT);
 }
 
 /* An Object of t (0: none) with Object Properties props makes t a
