@@ -48,12 +48,28 @@ static void moqtrun_upf_on_err(
   moqtrun_upf_failed_with(hub, f, &e, 1);
 }
 
+/* draft-23 9.5: the hub sent this FETCH, so a REQUEST_UPDATE from its
+ * receiver is unexpected and closes the session (d22 9.5 / d19 10.9
+ * PROTOCOL_VIOLATION; d18 has no such sentence and ignores it). */
+static void moqtrun_upf_on_update(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           body) {
+  (void)f;
+  (void)body;
+  if (moqver_caps(pp->ver) & MOQVER_CAP_UPDATE_STRAY_CLOSE) {
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
+  }
+}
+
 static const struct {
   u64            type;
   moqtrun_upf_fn fn;
 } MOQTRUN_UPF_ROUTES[] = {
     {MOQFETCH_T_FETCH_OK, moqtrun_upf_on_ok},
     {MOQCTL_T_REQUEST_ERROR, moqtrun_upf_on_err},
+    {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_upf_on_update},
 };
 
 /* The route of a reply's wire Type in pp's draft: the FETCH response

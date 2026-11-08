@@ -523,6 +523,32 @@ static void test_moqtrun_d23uo_wrong_direction_unexpected(void) {
       0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_wrong_direction_kept_d18);
 }
 
+/* 9.5: the hub sent this FETCH upstream to A, so A's REQUEST_UPDATE on
+ * its stream closes the session UNEXPECTED_MESSAGE (closes: 1); draft-18
+ * keeps the session (closes: 0). */
+static void mtuo_upfetch_update(usz closes) {
+  moqfetch_req  m = {0};
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 1);
+  mupf_init();
+  mupf_cache_group(3, 2);
+  mupf_fetch(mupf_rl(1, 0, 4, 1), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  CHECK(sid >= 0);
+  mtup_update(SESS_A, (u64)sid, &p);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == closes);
+}
+
+static void mtuo_upfetch_update_closes(void) { mtuo_upfetch_update(1); }
+
+static void mtuo_upfetch_update_kept_d18(void) { mtuo_upfetch_update(0); }
+
+static void test_moqtrun_d23uo_upfetch_update_unexpected(void) {
+  moqtrun_test_vers(
+      MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_upfetch_update_closes);
+  moqtrun_test_vers(
+      0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_upfetch_update_kept_d18);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -564,4 +590,5 @@ void test_moqtrun_d23uo(void) {
       mtuo_publish_refused_keeps_d22);
   moqtrun_test_vers(MOQVER_CAP_MAX_REQUEST_UPDATES, 0, mtuo_credit);
   test_moqtrun_d23uo_wrong_direction_unexpected();
+  test_moqtrun_d23uo_upfetch_update_unexpected();
 }
