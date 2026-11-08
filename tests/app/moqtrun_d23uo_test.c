@@ -697,6 +697,41 @@ static void test_moqtrun_d23uo_upsub_ended_update(void) {
   moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_ups_ended_kept_d18);
 }
 
+/* An ended SUBSCRIBE's entry kept from A's earlier session never takes a
+ * stream of its new one: A's new session gets the same stream id for the
+ * hub's FETCH, and its live leg -- asked first -- still completes. */
+static void mtuo_ended_entry_new_session(void) {
+  static const moqctl_request_error e = {.error_code = 1};
+  moqctl_ftn                        f = mf_track();
+  moqfetch_req                      m = {0};
+  mupf_init();
+  mtst_hub.multi_publisher = 1;
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  i64 up = mups_up_sid();
+  mupf_up_err(SESS_A, up, &e);
+  CHECK(up >= 0 && mups_used() == 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  mtst_publish(SESS_A, mtst_join(SESS_A), &f, MF_ALIAS);
+  mupf_cache_group(3, 1);
+  mupf_cache_group(4, 1);
+  g_next_stream_id = (u64)up;
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) == up);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 0, 1);
+  mupf_send(0);
+  mtuo_upf_answered(up);
+  mupf_send(1);
+  CHECK(mupf_log_is(
+      SESS_A, (u64)up, "FIN|FIN|")); /* the SUBSCRIBE's, the FETCH's */
+}
+
+static void test_moqtrun_d23uo_ended_entry_new_session(void) {
+  moqtrun_test_allver(mtuo_ended_entry_new_session);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -743,4 +778,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_upfetch_update_unexpected();
   test_moqtrun_d23uo_upfetch_ended_update();
   test_moqtrun_d23uo_upsub_ended_update();
+  test_moqtrun_d23uo_ended_entry_new_session();
 }
