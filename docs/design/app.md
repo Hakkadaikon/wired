@@ -83,8 +83,8 @@ MoQT(`src/app/moqt/`)は、ライブデータのための publish/subscribe プ�
 
 | トランスポート | ドラフトの選び方 | セッション |
 |---|---|---|
-| WebTransport | WebTransport のサブプロトコル(`app/moqt/ver/`)でセッションごとに 18、19、22 から選ぶ | Extended CONNECT で開く |
-| 生の QUIC(`src/app/moqt/qraw/`) | ALPN がドラフトのトークン(`moqt-22`、`moqt-19`、`moqt-18`)になる | 接続がそのままセッションになる |
+| WebTransport | WebTransport のサブプロトコル(`app/moqt/ver/`)でセッションごとに 18、19、22、23 から選ぶ | Extended CONNECT で開く |
+| 生の QUIC(`src/app/moqt/qraw/`) | ALPN がドラフトのトークン(`moqt-23`、`moqt-22`、`moqt-19`、`moqt-18`)になる | 接続がそのままセッションになる |
 
 生の QUIC には Extended CONNECT がないので、クライアントは URI の authority と path を AUTHORITY と PATH の Setup Option で送る。アプリケーションは `moqraw_policy` で受け入れか拒否かを決める。
 

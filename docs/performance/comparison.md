@@ -49,7 +49,7 @@ WebTransport と MoQT の性能は計測していない。
 | ECN | あり [^w-interop] | あり [^qg-ecn] | なし [^qc-ecn] | あり [^ng-ecn] | あり [^pq-ecn] |
 | 接続の移行 | あり [^w-interop] | あり [^qg-mig] | あり [^qc-mig] | あり [^ng-mig] | あり [^pq-mig] |
 | QUIC v2 | あり [^w-interop] | あり [^qg-readme] | なし [^qc-v2] | あり [^ng-readme] | あり [^pq-v2] |
-| MoQT | あり(draft 18/19/22) [^w-moqt] | なし [^qg-nomoqt] | なし [^qc-nomoqt] | なし [^ng-nomoqt] | なし [^pq-nomoqt] |
+| MoQT | あり(draft 18/19/22/23) [^w-moqt] | なし [^qg-nomoqt] | なし [^qc-nomoqt] | なし [^ng-nomoqt] | なし [^pq-nomoqt] |
 
 wired の QUIC の機能の「あり」は、wired 自身のテストに加え、独立したクライアントとの相互運用性テストでも確かめている。
 

@@ -34,7 +34,7 @@ flowchart BT
     crypto["Cryptographic primitives<br/>AES-GCM, ChaCha20-Poly1305,<br/>X25519, ECDSA, SHA-2, HKDF"]
     h3["HTTP/3 + QPACK<br/>RFC 9114, 9204, 9110, ..."]
     wt["WebTransport<br/>draft-ietf-webtrans-http3,<br/>RFC 9220, 9297"]
-    moqt["MoQT<br/>draft-ietf-moq-transport-18/19/22"]
+    moqt["MoQT<br/>draft-ietf-moq-transport-18/19/22/23"]
     ip -->|carries packets of| quic
     crypto -->|algorithms for| tls
     crypto -->|AEAD + header protection for| quic
@@ -205,7 +205,7 @@ MoQT は配信の告知、購読、メディアの区切り方を定める。制
 | 項目 | 内容 |
 |---|---|
 | 受け付けるドラフト | draft-18、draft-19、draft-22(クライアントによって実装するドラフトが違うため) |
-| WebTransport での選択 | ピアが提示するサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`)から 1 つ選ぶ。提示がなければ draft-19 |
+| WebTransport での選択 | ピアが提示するサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`、`moqt-23`)から 1 つ選ぶ。提示がなければ draft-19 |
 | 生の QUIC での選択 | ALPN の値(`moqt-22` など) |
 
 | 例 | 使うドラフト |
@@ -222,7 +222,8 @@ MoQT は配信の告知、購読、メディアの区切り方を定める。制
 |------|------------|--------|-----------|
 | draft-ietf-moq-transport-18 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/18/> | 古いドラフトで、`moqt-18` でネゴシエーションする。いくつかの制御メッセージの細部を除けば、ワイヤー上では draft-19 と互換。 |
 | draft-ietf-moq-transport-19 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/19/> | WebTransport セッションまたは生の QUIC 上での、パブリッシュ/サブスクライブ型メディアの中核の仕様。`moqt-19` でネゴシエーションし、ピアがサブプロトコルを提示しないときの既定。ハブの役割に絞った部分集合: SETUP、SUBSCRIBE、PUBLISH、FETCH、名前空間の探索と、SUBGROUP_HEADER と OBJECT_DATAGRAM のデータプレーン。 |
-| draft-ietf-moq-transport-22 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/> | 最新のドラフトで、`moqt-22` でネゴシエーションする。購読のフィルターと FETCH を作り直している。 |
+| draft-ietf-moq-transport-22 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/22/> | `moqt-22` でネゴシエーションする。購読のフィルターと FETCH を作り直している。 |
+| draft-ietf-moq-transport-23 | Media over QUIC Transport | <https://datatracker.ietf.org/doc/draft-ietf-moq-transport/23/> | 最新のドラフトで、`moqt-23` でネゴシエーションする。制御メッセージの Length を vi64 にし、FETCH の応答を REQUEST_OK にし、セッション終了のコードを原因ごとに分けている。 |
 
 ## 9. IP と UDP の基盤
 

@@ -15,7 +15,7 @@ MoQT の公開面は丸ごと experimental で、Stable API と Low-level / inte
 
 `src/app/moqt/` は MoQT を 14 のモジュールで実装する。`cache`、`ctl`、`data`、`dgram`、`fetch`、`kvp`、`ns`、`qraw`、`run`、`sess`、`ssts`、`tstat`、`ver`、`vi` である。
 
-セッションは draft-ietf-moq-transport-18、-19、-22 のうち、ピアが WebTransport のサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`)として提示したものを話す。
+セッションは draft-ietf-moq-transport-18、-19、-22、-23 のうち、ピアが WebTransport のサブプロトコル(`moqt-18`、`moqt-19`、`moqt-22`、`moqt-23`)として提示したものを話す。
 
 `src/wired.h` は、MoQT のヘッダー(`run/moqtrun.h`、`qraw/moqrawio.h`、`data/moqdata.h`、`dgram/moqdg.h`)と、ライブメディア用の `media/mp4frag/mp4frag.h` と `platform/clock/mono.h` をインクルードする。
 
@@ -88,7 +88,7 @@ MoQT は HTTP/3 や WebTransport を使わずに QUIC の上で直接動く(draf
 
 | 対象 | 動作 |
 |---|---|
-| `raw_alpns` | `"moqt-22 moqt-19 moqt-18"` のような空白区切りのリストで、サーバーの優先順に並べ、h3 と hq-interop より先に置く(RFC 7301 3.2)。`alpn_client_order` を 1 にすると、クライアントの順序で選ぶ |
+| `raw_alpns` | `"moqt-23 moqt-22 moqt-19 moqt-18"` のような空白区切りのリストで、サーバーの優先順に並べ、h3 と hq-interop より先に置く(RFC 7301 3.2)。`alpn_client_order` を 1 にすると、クライアントの順序で選ぶ |
 | `raw_on_session` | 接続の暗黙のセッションとネゴシエートされた ALPN を、そのストリームのバイトより前に受け取る。その後のセッションは WebTransport のセッションと同じ `wt_on_*` のコールバックを通る。0 なら raw のセッションは報告しない |
 | raw と WebTransport の違い | raw のセッションでは、`wired_server_wt_close_session` がそのコードで QUIC の CONNECTION_CLOSE(0x1d)を送る。ストリームのリセットは WebTransport の対応付けを経ずにコードを運ぶ。データグラムは quarter-stream-id(セッションのストリーム ID を 4 で割った値)を持たない |
 | `wired_moqraw_io` | ストリームを開く操作に WebTransport のストリームシグナルを加えるのは、WebTransport のセッションの場合だけである。raw セッションのストリームには何も付かない。`send_uni2` は 0 で、必要なアプリケーションが設定する |

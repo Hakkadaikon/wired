@@ -75,7 +75,7 @@ flowchart TD
 
 | 項目 | 内容 |
 |---|---|
-| 対応する版 | draft-ietf-moq-transport-18、-19、-22。セッションごとに 1 つを選ぶ。台帳は版ごとに 1 つ |
+| 対応する版 | draft-ietf-moq-transport-18、-19、-22、-23。セッションごとに 1 つを選ぶ。台帳は版ごとに 1 つ |
 | コード | `src/app/moqt/` の 14 のモジュール |
 | テスト | `tests/app/moq*_test.c` の 1110 個のテスト関数 |
 | ドラフトが公開するベクター | 可変長整数の例の表(Section 1.4.1)の 1 組だけ。`tests/app/moqvi_test.c` で確かめる |
