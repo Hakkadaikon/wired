@@ -42,7 +42,6 @@ flowchart LR
 | [security/](security/README.md) | セキュリティ設計 | [脅威モデル](security/threat-model.md)、[暗号](security/crypto.md)、[PKI](security/pki.md)、[プロトコルの防御](security/protocols.md)、[既知の制限](security/limitations/README.md)、[脆弱性台帳](security/vuln-ledger.md) |
 | [features/](features/README.md) | 要件台帳 | 仕様ごとの要件とテスト、[台帳の書式](features/FORMAT.md)、[MoQT の Track 切り替え](features/moqt-track-switching.md) |
 | [ubiquitous/](ubiquitous/README.md) | 用語集 | 技術用語の表記 |
-| superpowers/ | 過去の設計と計画の記録 | 機能ごとの設計書と実装計画 |
 
 ## 3. 生成物
 

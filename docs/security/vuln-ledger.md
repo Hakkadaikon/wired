@@ -7,7 +7,7 @@
 | 目的 | SDK のプロトコルがさらされる脆弱性の種類やアドバイザリを 1 件 1 行で記録し、判定とそれを固定するテストを示す |
 | 読む人 | ある攻撃の種類について wired の判定を確かめる人、行を追加・更新する人 |
 | 前提文書 | [脅威モデル](threat-model.md) |
-| 関連文書 | [機能がないために該当しない脆弱性](feature-gaps.md)、[台帳を作った方法](../superpowers/specs/2026-09-12-vuln-and-perf-audit-plan.md)(`docs/superpowers/specs/2026-09-12-vuln-and-perf-audit-plan.md`) |
+| 関連文書 | [機能がないために該当しない脆弱性](feature-gaps.md) |
 
 行の出どころは攻撃について警告している RFC の段落、ほかの QUIC/TLS 実装の CVE とアドバイザリ、研究論文、ブラウザー向けサンプルの `npm audit` である。書式と件数は `python3 scripts/vulnaudit/ledger_check.py docs/security/vuln-ledger.md` で機械的に検査する。
 
