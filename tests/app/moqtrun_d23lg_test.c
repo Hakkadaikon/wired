@@ -678,6 +678,115 @@ static void test_moqtrun_d23lg_no_ts_before_established(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_no_ts_d23);
 }
 
+/* ============ edges of the wait (7.5, 9.5, 9.10) ============ */
+
+/* A PUBLISH on the control stream has no request stream to unpause on:
+ * the hub sends nothing, the request waits until the PUBLISH ends.
+ * shortcut: no answer before that; such a PUBLISH predates request
+ * streams and no draft-23 publisher sends one. */
+static void mtlg_ctl_pub_d23(void) {
+  moqctl_ftn    f = mrdv_f();
+  moqctl_params p = mtlg_loc(0, 5);
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  p.items[1].type = MOQCTL_PARAM_FORWARD;
+  p.items[1].enc  = MOQCTL_PENC_UINT8;
+  p.items[1].u8v  = 0;
+  p.n             = 2;
+  mtst_publish_p(SESS_A, ca, &f, MUPS_ALIAS, &p);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  CHECK(mrdv_used() == 1);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+}
+
+/* A REQUEST_ERROR that does not decode closes the publisher's session,
+ * and the waiter gets INTERNAL_ERROR; a REQUEST_OK after the PUBLISH
+ * ended answers nothing more. */
+static void mtlg_bad_answer_d23(void) {
+  static const u8 junk[] = {0xFF};
+  mtlg_pub(1, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  mtrq_raw(SESS_A, MUPS_PUB_SID, MOQCTL_T_REQUEST_ERROR, junk, sizeof junk);
+  CHECK(moqtrun_test_count_kind(11) == 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  mtlg_pub(1, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
+  wired_moqt_tick(&mtst_hub, 1);
+  mtlg_rok(MUPS_PUB_SID, 0, 9);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+}
+
+/* 9.10: a PUBLISH_STATE_NOTIFY whose parameters do not decode is
+ * informative only: nothing counted, the session stays. */
+static void mtlg_bad_psn_d23(void) {
+  static const u8 junk[] = {0x01, 0x09, 0xFF};
+  mtlg_pub(0, 0, 5);
+  mtrq_raw(
+      SESS_A, MUPS_PUB_SID, MOQCTL_T_PUBLISH_STATE_NOTIFY, junk, sizeof junk);
+  CHECK(mtlg_top_is(0, 5));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
+/* A draft-22 publisher's refused unpause fails the draft-23 waiter but
+ * leaves the hub's draft-22 view of its PUBLISH (resumed) as before. */
+static void mtlg_d22_pub_refused_d23(void) {
+  mrdv_init();
+  mups_sids();
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->ver = MOQVER_D22;
+  mtlg_pub_now(1, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  mtst_pub_err(SESS_A, MUPS_PUB_SID, MOQCTL_ERR_NOT_SUPPORTED);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E3|FIN|"));
+  CHECK(!mtlg_paused());
+}
+
+/* A body longer than a slot keeps is refused EXCESSIVE_LOAD, not held. */
+static void mtlg_long_body_d23(void) {
+  static u8     tok[1006];
+  moqctl_ftn    f  = mrdv_f();
+  moqctl_params p  = {0};
+  tok[0]           = 0x03; /* USE_VALUE */
+  tok[1]           = 0x01;
+  p.items[0].type  = MOQCTL_PARAM_AUTHORIZATION_TOKEN;
+  p.items[0].enc   = MOQCTL_PENC_TOKEN;
+  p.items[0].bytes = wired_span_of(tok, sizeof tok);
+  p.n              = 1;
+  mtlg_pub(1, 0, 5);
+  mtst_subscribe_p(SESS_B, MRDV_S1, &f, mtst_rid += 4, &p);
+  CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(mrdv_used() == 0);
+}
+
+/* A wait for the unpause is not the upstream SUBSCRIBE's waiter: B held
+ * for an announced track takes C's paused PUBLISH and waits for its
+ * unpause; A refusing the hub's upstream SUBSCRIBE leaves it waiting. */
+static void mtlg_up_refusal_spares_d23(void) {
+  moqctl_ftn    f = mrdv_f();
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mups_init();
+  mtst_join(SESS_C);
+  mups_sub(SESS_B, MRDV_S1);
+  u64 up = (u64)mups_up_sid();
+  mtst_publish_p(SESS_C, 16, &f, MUPS_ALIAS, &p);
+  mtst_pub_err(SESS_A, up, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  mtst_pub_ok(SESS_C, 16);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+}
+
+static void test_moqtrun_d23lg_wait_edges(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_ctl_pub_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_bad_answer_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_bad_psn_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_d22_pub_refused_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_long_body_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_up_refusal_spares_d23);
+}
+
 /* ===================== the hub's PUBLISH (9.19.17) ===================== */
 
 /* 9.19.17: a relay that received Objects MUST include LARGEST_OBJECT in
@@ -728,4 +837,5 @@ void test_moqtrun_d23lg(void) {
   test_moqtrun_d23lg_upstream_refused_fails_waiters();
   test_moqtrun_d23lg_gone_track_refused();
   test_moqtrun_d23lg_no_ts_before_established();
+  test_moqtrun_d23lg_wait_edges();
 }
