@@ -95,7 +95,7 @@ cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:
 |---|---|---|
 | Object のキャッシュ | 1 MiB(`MOQT_CACHE_BYTES`)。全 Track で 1 つの領域を使い、古い Group から丸ごと捨てる | 1 MiB を超える Group(1 MiB を超える添付ファイル)はキャッシュしない。途中参加の履歴にも入らない |
 | 名前空間 | `wired/moqt_chat` の下だけ(`chat_authorize_room_ns`、`access.c`) | 告知と購読を UNAUTHORIZED で拒否する |
-| リクエストストリーム | セッションあたり 32、ハブ全体で 128(`WIRED_MOQTRUN_MAX_REQS`) | 新しいリクエストストリームを EXCESSIVE_LOAD でリセットする |
+| リクエストストリーム | ハブ全体で 128(`WIRED_MOQTRUN_MAX_REQS`)、セッションあたりはその 4 分の 1 の 32(`WIRED_MOQTRUN_MAX_REQS_PER_SESSION`) | 新しいリクエストストリームを EXCESSIVE_LOAD でリセットする |
 | fill | 8 スロットと待ちの 8 スロット(`WIRED_MOQTRUN_MAX_FETCHES`) | [MoQT の使い方 4.1](wire.md#41-fill-の枠が足りないとき) |
 | 参加者あたりの Track | 5(`WIRED_MOQTRUN_MAX_TRACKS_PER_PEER`) | PUBLISH を拒否する |
 

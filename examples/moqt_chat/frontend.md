@@ -13,7 +13,7 @@
 
 | 項目 | 内容 |
 |---|---|
-| フレームワーク | Next.js と React。スタイルシートは 1976 年の NASA Graphics Standards Manual を手本にした独自のもの |
+| フレームワーク | Next.js と React。スタイルシートは独自のもの |
 | 出力 | `output: "export"`(`next.config.ts`)。静的ファイルだけを出力し、配信に Node のサーバーを使わない |
 | デプロイ先 | GitHub Pages だけ |
 
