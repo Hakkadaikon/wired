@@ -115,9 +115,11 @@ void moqtrun_up_refuse_waiters(wired_moqt_hub* hub, moqtrun_key k, u64 code) {
   }
 }
 
+/* A waiter's session is live: on_session_close drops its waiters
+ * (moqtrun_rdv_drop_wt) before the peer slot is freed. */
 static int moqtrun_rdv_loss_coded(wired_moqt_hub* hub, wired_wt_session* wt) {
-  const wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, wt);
-  return p && (moqver_caps(p->ver) & MOQVER_CAP_UP_LOSS);
+  return (moqver_caps(moqtrun_find_by_wt(hub, wt)->ver) & MOQVER_CAP_UP_LOSS) !=
+         0;
 }
 
 static int moqtrun_rdv_loses(
