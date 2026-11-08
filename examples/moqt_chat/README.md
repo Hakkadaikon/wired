@@ -231,7 +231,7 @@ process's memory, so it is single-process only: do not pass
 | `--cc cubic\|bbr` | `cubic` | congestion controller for new connections |
 | `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
 | `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
-| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://localhost:8443`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
+| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://hakkadaikon.github.io`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
 | `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 8192 bytes) |
 
 - **Certificate reload**: with `--cert`/`--key` set, `kill -HUP <pid>`
@@ -306,20 +306,14 @@ the 1976 NASA Graphics Standards Manual
 (`output: "export"`, so it ships as static files — no Node server needed to
 serve it).
 
-```sh
-just serve-frontend   # builds frontend/ and serves it over TLS at :8443
-```
-
-A non-`localhost` HTTP page is not a secure context, so the frontend is
-served over TLS; a self-signed `cert.pem`/`key.pem` pair is generated
-automatically on first run. Open `https://<host>:8443/`, paste the server's
-cert fingerprint, pick a participant id, and connect. Voice starts
+It is deployed only as the GitHub Pages demo below. Open the page, paste
+the server's cert fingerprint, pick a participant id, and connect. Voice starts
 automatically once connected (mutable via the mic toggle); grant the
 browser's microphone permission prompt to send audio. Open it again with a
 different participant id (or a private window) to chat with yourself across
 two tabs.
 
-For local development with hot reload instead: `just dev-frontend` (plain
+For local development with hot reload: `just dev-frontend` (plain
 HTTP at `:3000`, works for `localhost` since that origin is always a secure
 context regardless of scheme).
 
@@ -396,7 +390,7 @@ The e2e scenarios drive the UI only and do not choose a draft: a stock
 Chrome for Testing takes the draft-19 fallback. To exercise draft-22, run
 the browser with `--enable-experimental-web-platform-features` (for a
 manual check, start Chrome/Chromium with that flag against
-`just serve-frontend`; the session then negotiates `moqt-22`, visible as
+`just dev-frontend`; the session then negotiates `moqt-22`, visible as
 `wt.protocol` in the browser and as `MoqtChatClient.draft === 22`, which
 the page does not display: inspect the client in devtools). A browser that
 offers `protocols` but has no `wt.protocol` attribute is detected by the

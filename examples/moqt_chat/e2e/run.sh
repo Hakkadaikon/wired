@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # examples/moqt_chat/
 
 SERVER_LOG="$(mktemp)"
-FRONTEND_PORT=8091   # distinct from serve-frontend's 8443 / dev-frontend's 5173
+FRONTEND_PORT=8091   # distinct from dev-frontend's 3000
 # wired_server binds with SO_REUSEPORT (srvrun.c's srvrun_listen), which lets
 # the kernel accept a second bind on the same port without erroring -- but it
 # also means a NEXT run of this script that starts before this run's server

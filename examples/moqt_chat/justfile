@@ -49,24 +49,6 @@ fix-frontend: (_pnpm "fix")
 # Frontend unit tests (vitest), pinned to testvectors/moqt_golden.json.
 test-frontend: (_pnpm "test")
 
-# Build the frontend and serve frontend/out/ over TLS (https://<host>:8443/).
-serve-frontend: build-frontend
-    #!/usr/bin/env sh
-    # TLS because a non-localhost http:// page is not a secure context, and the
-    # browser then disables WebTransport.
-    set -e
-    [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-        -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
-    exec python3 -c '
-    import functools, http.server, ssl
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory="frontend/out")
-    srv = http.server.HTTPServer(("0.0.0.0", 8443), handler)
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain("cert.pem", "key.pem")
-    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
-    print("https://0.0.0.0:8443/")
-    srv.serve_forever()'
-
 # --- e2e --------------------------------------------------------------------
 
 # One-time setup for the e2e harness.

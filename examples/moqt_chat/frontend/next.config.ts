@@ -4,13 +4,12 @@ import type { NextConfig } from "next";
 // Doxygen output at its root -- so this app's own build lives under the
 // /wired/moqt_chat/ subpath there. NEXT_PUBLIC_BASE_PATH is unset (empty
 // basePath, root-relative assets) for every other consumer of `out/`
-// (justfile's serve-frontend, e2e/run.sh, `next dev`), and is set to
+// (e2e/run.sh, `next dev`), and is set to
 // /wired/moqt_chat only by the docs.yml Pages build.
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 const nextConfig: NextConfig = {
-	// The app is fully client-side, so a static export (out/) is enough; the
-	// justfile's serve-frontend recipe serves it over TLS.
+	// The app is fully client-side, so a static export (out/) is enough.
 	output: "export",
 	basePath,
 };
