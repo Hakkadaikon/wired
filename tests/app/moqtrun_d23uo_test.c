@@ -128,6 +128,7 @@ static void test_moqtrun_d23uo_error_covers_queued(void) {
   CHECK(mtuo_replies(MTRQ_S1, t, 4) == 2);
   CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_ERROR);
   CHECK(mtuo_s() == 0);
+  CHECK(mtuo_pending() == 1); /* update 3: dropped, never credited back */
 }
 
 /* draft-23 9.5.1: an update arriving after a failure ended the request
@@ -211,17 +212,16 @@ static void test_moqtrun_d23uo_flush_keeps_dropped_outstanding(void) {
  * closed for credit. A pseudo-random schedule from seed x of sends,
  * refused flushes and one failure. */
 static void mtuo_honest_peer(u32 x) {
-  u64 out = 0; /* the peer's own count: sent, reply not read */
+  u64 sent = 0; /* the peer's own count: sent - replies read = outstanding */
   mtuo_sub();
   for (usz round = 0; round < 64; round++) {
     x                  = x * 1103515245u + 12345u;
     g_stream_send_ok_n = (x >> 16) & 1 ? -1 : 0;
-    if (out < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
+    if (sent - mtuo_n() < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
       round == 20 ? mtuo_fail() : mtuo_prio((u8)round);
-      out++;
+      sent++;
     }
     wired_moqt_tick(&mtst_hub, round);
-    out = g_stream_send_ok_n ? mtuo_pending() : out;
   }
   g_stream_send_ok_n = -1;
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
@@ -469,13 +469,17 @@ static void test_moqtrun_d23uo_error_credits_only_answered(void) {
  * was dropped after the request ended (outstanding for good) -- never
  * neither. A pseudo-random schedule from seed x within the credit. */
 static void mtuo_every_resolved(u32 x) {
-  u64 sent = 0;
+  u64 sent = 0, dropped = 0; /* dropped: sent after the first failure */
+  int failed = 0;
   mtuo_sub();
   for (usz round = 0; round < 40; round++) {
     x                  = x * 1103515245u + 12345u;
     g_stream_send_ok_n = (x >> 16) & 1 ? -1 : 0;
-    if (mtuo_pending() < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
-      (x >> 20) % 9 == 0 ? mtuo_fail() : mtuo_prio((u8)round);
+    if (sent - mtuo_n() < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
+      int fail = (x >> 20) % 9 == 0;
+      dropped += failed;
+      failed |= fail;
+      fail ? mtuo_fail() : mtuo_prio((u8)round);
       sent++;
     }
     wired_moqt_tick(&mtst_hub, round);
@@ -483,7 +487,8 @@ static void mtuo_every_resolved(u32 x) {
   g_stream_send_ok_n = -1;
   wired_moqt_tick(&mtst_hub, 99);
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
-  CHECK(mtuo_n() + mtuo_pending() == sent);
+  CHECK(mtuo_pending() == dropped);
+  CHECK(mtuo_n() + dropped == sent);
 }
 
 static void test_moqtrun_d23uo_every_update_resolved(void) {
