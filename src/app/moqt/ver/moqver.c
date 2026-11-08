@@ -27,7 +27,6 @@ typedef struct {
    MOQVER_CAP_EOR_TIMED_OUT | MOQVER_CAP_UPDATE_STRAY_CLOSE | MOQVER_CAP_SSTS)
 
 static const moqver_row moqver_table[MOQVER_COUNT] = {
-    /* Not offered until every draft-23 delta has landed. */
     {.ver = MOQVER_D23,
      .tok = "moqt-23",
      .caps =
@@ -39,7 +38,7 @@ static const moqver_row moqver_table[MOQVER_COUNT] = {
          MOQVER_CAP_PUBNS_DUP | MOQVER_CAP_UP_LOSS | MOQVER_CAP_UPD_ERR_ENDS |
          MOQVER_CAP_RELAY_LARGEST | MOQVER_CAP_TRACK_NAME_NONEMPTY |
          MOQVER_CAP_REQ_GOAWAY23 | MOQVER_CAP_PROP_RULES,
-     .offered = 0},
+     .offered = 1},
     {.ver     = MOQVER_D22,
      .tok     = "moqt-22",
      .caps    = MOQVER_CAPS_D22 | MOQVER_CAP_PREFIX_OVERLAP,
