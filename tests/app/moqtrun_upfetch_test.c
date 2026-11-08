@@ -686,6 +686,41 @@ static void test_moqtrun_upfetch_no_track_refusals(void) {
   CHECK(mupf_refused(MOQCTL_ERR_UNAVAILABLE) && mupf_used() == 0);
 }
 
+/* draft-23 3.2 / 3.2.3: once C's FETCH_OK (End {2,3}) went to B, a
+ * Descending FETCH whose upstream FETCH then fails -- before any Object,
+ * or after {2,0} -- cannot be answered REQUEST_ERROR any more; the hub
+ * marks the rest Unknown, one End of Unknown Range per group down to
+ * Start.Group (3.2.2), and ends the stream with a FIN (on the last
+ * write), not a reset. */
+static void mupf_nt_desc_fails(int relayed) {
+  moqctl_params        desc = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqfetch_req         m    = {0};
+  moqfetch_ok          ok   = {0};
+  moqctl_request_error e;
+  usz                  i = (usz)relayed;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), &desc);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(2, 3), 0, wired_span_of(0, 0));
+  mupf_hdr(m.request_id, 1);
+  if (relayed) {
+    mupf_obj(2, 0, 1);
+  }
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_C, MUPF_DATA_SID, 0, 0);
+  CHECK(mupf_reply(&ok, &e) == MOQFETCH_T_FETCH_OK);
+  CHECK(mupf_read(1) && mf_fin && mf_n == 3 + i);
+  CHECK(!relayed || mf_is_obj(0, 2, 0, 1));
+  CHECK(mf_is_unknown(i, 2, 3) && mf_is_unknown(i + 1, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_unknown(i + 2, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mupf_log_is(SESS_B, mupf_fetch_sid(), "") && mupf_used() == 0);
+}
+
+static void test_moqtrun_upfetch_no_track_desc_fails(void) {
+  mupf_nt_desc_fails(0);
+  mupf_nt_desc_fails(1);
+}
+
 /* The hub's own tracks (blob, live) are never fetched upstream, even
  * where an announcer covers their name. */
 static void test_moqtrun_upfetch_hub_owned(void) {
@@ -2015,6 +2050,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_no_track_waits_ok();
   test_moqtrun_upfetch_no_track_bad_end();
   test_moqtrun_upfetch_no_track_refusals();
+  test_moqtrun_upfetch_no_track_desc_fails();
   test_moqtrun_upfetch_hub_owned();
   test_moqtrun_upfetch_refused_before_routing();
   test_moqtrun_upfetch_descending_order();
