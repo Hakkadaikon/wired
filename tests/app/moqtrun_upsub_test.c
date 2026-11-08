@@ -660,7 +660,44 @@ static void test_moqtrun_upsub_ok_mandatory_refused(void) {
   CHECK(mtrq_closes() == 0);
 }
 
+/* Calls the hub made toward s from call index from on. */
+static usz mups_calls_to(wired_wt_session* s, usz from) {
+  usz n = 0;
+  for (usz i = from; i < g_n_calls; i++) {
+    n += g_calls[i].s == s;
+  }
+  return n;
+}
+
+/* draft-23 6.6: once the hub closed B's session, the other peers going
+ * on queue nothing for B -- A answers the upstream SUBSCRIBE B and C wait
+ * on and sends Objects, D announces a namespace B's SUBSCRIBE_NAMESPACE
+ * matches, time passes -- while C is still served. */
+static void test_moqtrun_upsub_closed_session_gets_nothing(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz before;
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mtns_sub(SESS_B, MRDV_S2, "chat");
+  mups_sub(SESS_B, MRDV_S1);
+  mups_sub(SESS_C, MRDV_S1);
+  CHECK(moqtrun_peer_close(
+      &mtst_hub, moqtrun_find_by_wt(&mtst_hub, SESS_B), 0x3));
+  before = g_n_calls;
+  mups_ok((u64)mups_up_sid());
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS, buf)), 1);
+  mtns_pub(SESS_D, MRDV_S1, "chat/room9");
+  wired_moqt_tick(&mtst_hub, 1000);
+  CHECK(mups_calls_to(SESS_B, before) == 0);
+  CHECK(mrdv_is(SESS_C, MRDV_S1, "SOK|"));
+  CHECK(mups_relayed_alias(SESS_C) == mrdv_alias(SESS_C, MRDV_S1));
+}
+
 static void mtall_upsub(void) {
+  test_moqtrun_upsub_closed_session_gets_nothing();
   test_moqtrun_upsub_ok_after_upstream();
   test_moqtrun_upsub_objects_relayed();
   test_moqtrun_upsub_stream_before_ok();
