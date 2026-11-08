@@ -57,7 +57,8 @@ wired_span moqtrun_track_props(const wired_moqtrun_track* t);
 int        moqtrun_obj_mand(const wired_moqtrun_track* t, wired_span props);
 wired_moqtrun_track* moqtrun_obj_mand_gate(
     wired_moqtrun_track* t, wired_span props);
-void moqtrun_upf_mand(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
+void moqtrun_upf_mand(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, int malformed);
 void moqtrun_upf_done_if(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 void moqtrun_upf_on_ok(
     wired_moqt_hub*      hub,

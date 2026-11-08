@@ -88,8 +88,9 @@ static void moqtrun_upf_ok_checked(
     const moqfetch_ok*   ok,
     moqctl_loc           e,
     u64                  caps) {
-  if (moqtrun_tprops_check(ok->track_properties, caps) & MOQTRUN_TP_MAND) {
-    moqtrun_upf_mand(hub, f);
+  u32 tp = moqtrun_tprops_check(ok->track_properties, caps);
+  if (tp & (MOQTRUN_TP_MAND | MOQTRUN_TP_MALF)) {
+    moqtrun_upf_mand(hub, f, !(tp & MOQTRUN_TP_MAND));
     return;
   }
   if (moqtrun_upf_end_behind(f, e)) {

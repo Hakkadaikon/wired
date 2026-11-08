@@ -188,11 +188,26 @@ static void mttp_upsub_scope(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
+/* 12.3 MALFORMED_TRACK, "In response to a FETCH, a relay publisher
+ * detected the track was malformed": the upstream FETCH_OK repeating
+ * DEFAULT_PUBLISHER_GROUP_ORDER refuses B's unanswered FETCH. */
+static void test_moqtrun_tprops_upfetch_twice_d23(void) {
+  u8           p[32];
+  moqfetch_req m = {0};
+  mupf_init_v(MOQVER_D23);
+  mupf_vers(MOQVER_D23);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf23_up_ok(SESS_C, sid, 1, 1, 0, mttp_two(p, 0x22, 0x22, 0));
+  CHECK(mupf_refused(MOQCTL_ERR_MALFORMED_TRACK));
+}
+
 static void test_moqtrun_tprops_once_in_scope(void) {
   moqtrun_test_allver(mttp_twice);
   moqtrun_test_allver(mttp_unknown_twice);
   moqtrun_test_allver(mttp_track_scope);
   moqtrun_test_allver(mttp_upsub_scope);
+  test_moqtrun_tprops_upfetch_twice_d23();
 }
 
 void test_moqtrun_tprops(void) {
