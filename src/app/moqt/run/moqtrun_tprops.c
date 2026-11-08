@@ -1,13 +1,13 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
-static u64        moqtrun_tprop_in(wired_span props, u64 type, u64 dflt);
-static wired_span moqtrun_tprop_imm(wired_span props);
-static int        moqtrun_tprop_is_mand(u64 type, u64 caps);
-static int        moqtrun_tprop_outside(u64 v, u64 lo, u64 hi);
+static u64 moqtrun_tprop_in(wired_span props, u64 type, u64 dflt);
+static int moqtrun_tprop_is_mand(u64 type, u64 caps);
+static int moqtrun_tprop_outside(u64 v, u64 lo, u64 hi);
 static int moqtrun_tprop_out_of(const moqkvp* kv, u64 type, u64 lo, u64 hi);
 static u32 moqtrun_tprop_flags(const moqkvp* kv, u64 caps);
 static u32 moqtrun_tprops_scan(wired_span props, u64 caps);
 static u64 moqtrun_tprops_code(u32 f);
+static u64 moqtrun_tprops_refusal(u32 f);
 static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type, u64 caps);
 static usz moqtrun_tprops_mand_in(wired_span props, u64 caps, u64* out, usz n);
 
@@ -25,7 +25,7 @@ static u64 moqtrun_tprop_in(wired_span props, u64 type, u64 dflt) {
 
 /* draft-18 12.7: the Immutable Properties (0xB) value, itself a Property
  * list; empty when absent. */
-static wired_span moqtrun_tprop_imm(wired_span props) {
+wired_span moqtrun_tprop_imm(wired_span props) {
   usz        off  = 0;
   u64        prev = 0;
   moqkvp     kv;
@@ -83,22 +83,32 @@ static u32 moqtrun_tprops_scan(wired_span props, u64 caps) {
   return f;
 }
 
-/* props' flags in a session with capability bits caps. */
+/* props' flags as Track Properties in a session with capability bits
+ * caps. */
 u32 moqtrun_tprops_check(wired_span props, u64 caps) {
   return moqtrun_tprops_scan(props, caps) |
-         moqtrun_tprops_scan(moqtrun_tprop_imm(props), caps);
+         moqtrun_tprops_scan(moqtrun_tprop_imm(props), caps) |
+         (u32)moqtrun_props_malformed(props, caps, MOQTRUN_SCOPE_TRACK) *
+             MOQTRUN_TP_MALF;
 }
 
 static u64 moqtrun_tprops_code(u32 f) {
-  return (f & MOQTRUN_TP_BAD)    ? MOQTRUN_REQ_CLOSE
-         : (f & MOQTRUN_TP_MAND) ? MOQCTL_ERR_UNSUPPORTED_EXTENSION
+  return (f & MOQTRUN_TP_BAD) ? MOQTRUN_REQ_CLOSE : moqtrun_tprops_refusal(f);
+}
+
+/* A Mandatory Track Property outranks a Malformed Track (draft-23 3.7,
+ * 12.1), so the refusal names the Types it does not understand. */
+static u64 moqtrun_tprops_refusal(u32 f) {
+  return (f & MOQTRUN_TP_MAND)   ? MOQCTL_ERR_UNSUPPORTED_EXTENSION
+         : (f & MOQTRUN_TP_MALF) ? MOQCTL_ERR_MALFORMED_TRACK
                                  : MOQCTL_ERR_INTERNAL_ERROR;
 }
 
 /* A track's Track Properties the hub must not take (PUBLISH, upstream
  * SUBSCRIBE_OK): 1 with *code MOQTRUN_REQ_CLOSE for a bad value (close
  * PROTOCOL_VIOLATION), UNSUPPORTED_EXTENSION for a Mandatory Track
- * Property (2.5.1: "MUST NOT process or forward that track"), else
+ * Property (2.5.1: "MUST NOT process or forward that track"),
+ * MALFORMED_TRACK for a Property twice or out of scope (draft-23 8.4), else
  * INTERNAL_ERROR for a block longer than the hub keeps
  * (WIRED_MOQTRUN_TRACK_PROPS_MAX: refused, never forwarded emptied). */
 int moqtrun_tprops_refused(wired_span props, u64 caps, u64* code) {

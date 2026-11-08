@@ -1,10 +1,9 @@
 /* draft-ietf-moq-transport-23 Track and Object Properties through the hub:
  * grease in the Mandatory range (3.7, 13), DEFAULT_PUBLISHER_PRIORITY
  * above 255 (10.4), one instance of a supported Property and its scope
- * (8.4, 12.1 items 8-9), and a TRACK_STATUS waiting on an upstream whose
- * answer carries a Mandatory Track Property (3.7). Shares the fixtures of
- * moqtrun_sub_test.c, moqtrun_done_test.c, moqtrun_drain_test.c,
- * moqtrun_upd_test.c, moqtrun_rdv_test.c, moqtrun_upsub_test.c,
+ * (8.4, 12.1 items 8-9). Shares the fixtures of moqtrun_sub_test.c,
+ * moqtrun_done_test.c, moqtrun_drain_test.c, moqtrun_rdv_test.c,
+ * moqtrun_upsub_test.c,
  * moqtrun_errdet_test.c and moqtrun_upfetch_test.c (same unity TU). */
 
 /* 1 when the draft under test applies the draft-23 Property rules. */
@@ -118,7 +117,86 @@ static void test_moqtrun_tprops_prio(void) {
   moqtrun_test_allver(mttp_prio_above_255);
 }
 
+/* Track Properties t1 = 1 then t2 = 1, t2 inside Immutable Properties
+ * when imm, into buf. */
+static wired_span mttp_two(u8* buf, u64 t1, u64 t2, int imm) {
+  u8  in[16];
+  usz n = 0, ni = 0;
+  u64 prev = 0, pi = 0;
+  mtst_prop_num(buf, &n, &prev, t1, 1);
+  if (!imm) {
+    mtst_prop_num(buf, &n, &prev, t2, 1);
+    return wired_span_of(buf, n);
+  }
+  mtst_prop_num(in, &ni, &pi, t2, 1);
+  mtst_prop_imm(buf, &n, &prev, wired_span_of(in, ni));
+  return wired_span_of(buf, n);
+}
+
+/* What a PUBLISH of props gets on draft-23 (want) and earlier (taken). */
+static u64 mttp_d23_or_taken(u64 want) {
+  return mttp_d23() ? mttp_code(want) : ~(u64)0;
+}
+
+/* 8.4: a supported Property "MUST NOT contain more than one instance",
+ * and one that "receives more instances of it than allowed MUST treat
+ * the Track as malformed" (12.1 item 9): two MAX_CACHE_DURATION, also one
+ * mutable and one inside Immutable Properties (10.7), are refused
+ * MALFORMED_TRACK on draft-23; earlier drafts take the track. */
+static void mttp_twice(void) {
+  u8  p[32];
+  u64 want = mttp_d23_or_taken(MOQCTL_ERR_MALFORMED_TRACK);
+  CHECK(mttp_publish(mttp_two(p, 0x04, 0x04, 0)) == want);
+  CHECK(mttp_publish(mttp_two(p, 0x04, 0x04, 1)) == want);
+  CHECK(mttp_publish(mttp_two(p, 0x22, 0x22, 0)) == want);
+  CHECK(mttp_publish(mttp_two(p, 0x04, 0x22, 1)) == ~(u64)0);
+}
+
+/* 8.4: an unsupported Property "MUST allow multiple instances": two
+ * 0x3800 are taken and forwarded as they are, in every draft. */
+static void mttp_unknown_twice(void) {
+  u8         p[32];
+  wired_span s = mttp_two(p, 0x3800, 0x3800, 0);
+  CHECK(mttp_publish(s) == ~(u64)0);
+  CHECK(mttp_forwarded(s));
+}
+
+/* 8.4: a supported Property received "outside its scope ... MUST treat
+ * the Track as malformed" (12.1 item 8): the Object-only PRIOR_GROUP_ID_GAP
+ * (0x3C) or PRIOR_OBJECT_ID_GAP (0x3E) as a Track Property is refused
+ * MALFORMED_TRACK on draft-23; OBJECT_DELIVERY_TIMEOUT (0x02, Track and
+ * Object) is not. */
+static void mttp_track_scope(void) {
+  u8  p[32];
+  u64 want = mttp_d23_or_taken(MOQCTL_ERR_MALFORMED_TRACK);
+  CHECK(mttp_publish(mttp_two(p, 0x02, 0x3C, 0)) == want);
+  CHECK(mttp_publish(mttp_two(p, 0x02, 0x3E, 1)) == want);
+  CHECK(mttp_publish(mttp_two(p, 0x02, 0x06, 1)) == ~(u64)0);
+}
+
+/* 12.1 with 3.7: the upstream SUBSCRIBE_OK with PRIOR_GROUP_ID_GAP as a
+ * Track Property is a Malformed Track: the waiter is refused
+ * MALFORMED_TRACK on draft-23 and gets SUBSCRIBE_OK before. */
+static void mttp_upsub_scope(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mups_ok_prop((u64)mups_up_sid(), 0x3C, 1);
+  if (mttp_d23()) {
+    CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == MOQCTL_ERR_MALFORMED_TRACK);
+    return;
+  }
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+}
+
+static void test_moqtrun_tprops_once_in_scope(void) {
+  moqtrun_test_allver(mttp_twice);
+  moqtrun_test_allver(mttp_unknown_twice);
+  moqtrun_test_allver(mttp_track_scope);
+  moqtrun_test_allver(mttp_upsub_scope);
+}
+
 void test_moqtrun_tprops(void) {
   test_moqtrun_tprops_grease();
   test_moqtrun_tprops_prio();
+  test_moqtrun_tprops_once_in_scope();
 }

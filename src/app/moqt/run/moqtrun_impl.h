@@ -41,15 +41,17 @@ int moqtrun_upf_data(
     int                 fin);
 moqctl_loc moqtrun_upf_ok_end(
     const wired_moqtrun_peer* pp, const moqfetch_ok* ok);
-u64  moqtrun_tprop(wired_span props, u64 type, u64 dflt);
-u32  moqtrun_tprops_check(wired_span props, u64 caps);
-int  moqtrun_tprops_refused(wired_span props, u64 caps, u64* code);
-usz  moqtrun_tprops_unsupp(wired_span props, u64 caps, u64* out);
-int  moqtrun_tprop_grease(u64 type, u64 caps);
-int  moqtrun_tprop_prio_bad(const moqkvp* kv, u64 caps);
-int  moqtrun_obj_props_bad(wired_span props, u64 caps);
-int  moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt);
-void moqtrun_queue_request_ok_props(
+u64        moqtrun_tprop(wired_span props, u64 type, u64 dflt);
+u32        moqtrun_tprops_check(wired_span props, u64 caps);
+int        moqtrun_tprops_refused(wired_span props, u64 caps, u64* code);
+usz        moqtrun_tprops_unsupp(wired_span props, u64 caps, u64* out);
+int        moqtrun_tprop_grease(u64 type, u64 caps);
+int        moqtrun_tprop_prio_bad(const moqkvp* kv, u64 caps);
+int        moqtrun_props_malformed(wired_span props, u64 caps, u32 scope);
+wired_span moqtrun_tprop_imm(wired_span props);
+int        moqtrun_obj_props_bad(wired_span props, u64 caps);
+int        moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt);
+void       moqtrun_queue_request_ok_props(
     wired_moqtrun_peer* p, const wired_moqtrun_track* t, wired_span props);
 wired_span moqtrun_track_props(const wired_moqtrun_track* t);
 int        moqtrun_obj_mand(const wired_moqtrun_track* t, wired_span props);

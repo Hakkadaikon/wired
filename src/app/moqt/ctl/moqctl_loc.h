@@ -111,6 +111,9 @@
 #define MOQCTL_ERR_INVALID_RANGE 0x11ULL
 /** UNINTERESTED: the receiver does not want the offered Track. */
 #define MOQCTL_ERR_UNINTERESTED 0x20ULL
+/** MALFORMED_TRACK: the relay found the requested track malformed
+ * (draft-22/23 12.1, 12.3). */
+#define MOQCTL_ERR_MALFORMED_TRACK 0x12ULL
 /** UNAUTHORIZED: the request's authorization was refused. */
 #define MOQCTL_ERR_UNAUTHORIZED 0x1ULL
 /** MALFORMED_AUTH_TOKEN: an AUTHORIZATION TOKEN could not be parsed. */

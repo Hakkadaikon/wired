@@ -68,6 +68,11 @@ typedef struct {
  * value 12.5/12.6 close the session on. */
 #define MOQTRUN_TP_MAND 1u
 #define MOQTRUN_TP_BAD 2u
+/* ... and a Property twice or outside its scope (draft-23 8.4). */
+#define MOQTRUN_TP_MALF 4u
+/* Where a Property list sits (draft-23 16.8 Table 15 Scope). */
+#define MOQTRUN_SCOPE_TRACK 1u
+#define MOQTRUN_SCOPE_OBJECT 2u
 /* Not a REQUEST_ERROR code: the session closes PROTOCOL_VIOLATION. */
 #define MOQTRUN_REQ_CLOSE (~(u64)1)
 
