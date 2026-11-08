@@ -38,6 +38,149 @@ static void mtlg_subtracks(const moqctl_params* params, moqctl_publish* pub) {
   CHECK(mtst_pub_opens(SESS_B, pub, 1) == 1);
 }
 
+static int mtlg_enc_params(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_params_put(buf, off, m);
+}
+
+/* A, B joined (mrdv_init); A PUBLISHes the awaited track on its request
+ * stream MUPS_PUB_SID, paused or not, with LARGEST_OBJECT {g, o}. */
+static void mtlg_pub(int paused, u64 g, u64 o) {
+  moqctl_ftn    f = mrdv_f();
+  moqctl_params p = mtlg_loc(g, o);
+  mrdv_init();
+  mups_sids();
+  p.items[1].type = MOQCTL_PARAM_FORWARD;
+  p.items[1].enc  = MOQCTL_PENC_UINT8;
+  p.items[1].u8v  = (u8)!paused;
+  p.n             = 2;
+  mtst_publish_p(SESS_A, MUPS_PUB_SID, &f, MUPS_ALIAS, &p);
+}
+
+/* A sends PUBLISH_STATE_NOTIFY {LARGEST_OBJECT {g, o}} on its stream sid. */
+static void mtlg_psn(u64 sid, u64 g, u64 o) {
+  static moqctl_params p;
+  p = mtlg_loc(g, o);
+  mtst_send(SESS_A, sid, MOQCTL_T_PUBLISH_STATE_NOTIFY, mtlg_enc_params, &p);
+}
+
+/* A answers REQUEST_OK {LARGEST_OBJECT {g, o}} on its stream sid. */
+static void mtlg_rok(u64 sid, u64 g, u64 o) {
+  static moqctl_request_ok ok;
+  ok.params = mtlg_loc(g, o);
+  mtst_send(SESS_A, sid, MOQCTL_T_REQUEST_OK, mtsub_encode_request_ok, &ok);
+}
+
+/* The last SUBSCRIBE_OK (or, rok, REQUEST_OK) the hub sent on s's stream
+ * sid, its parameters into *out; 0 when there is none. */
+static int mtlg_answer(
+    wired_wt_session* s, u64 sid, int rok, moqctl_params* out) {
+  int found = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    wired_span               all = wired_span_of(c->payload, c->payload_len);
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    if (c->s != s || c->stream_id != sid || (c->kind != 3 && c->kind != 12)) {
+      continue;
+    }
+    while (off < all.n && mt_peek_type(all, &off, &type, &body) == MOQCTL_OK) {
+      moqctl_subscribe_ok sok;
+      moqctl_request_ok   ok;
+      usz                 boff = 0;
+      if (!rok && type == MOQCTL_T_SUBSCRIBE_OK &&
+          moqctl_subscribe_ok_take(mtst_ver(s), body, &boff, &sok) ==
+              MOQCTL_OK) {
+        *out  = sok.params;
+        found = 1;
+      }
+      if (rok && type == MOQCTL_T_REQUEST_OK &&
+          moqctl_request_ok_take(mtst_ver(s), body, &boff, &ok) == MOQCTL_OK) {
+        *out  = ok.params;
+        found = 1;
+      }
+    }
+  }
+  return found;
+}
+
+/* B's SUBSCRIBE_OK on sid carries LARGEST_OBJECT {g, o}. */
+static int mtlg_sok_is(u64 sid, u64 g, u64 o) {
+  moqctl_params p;
+  return mtlg_answer(SESS_B, sid, 0, &p) && mtlg_has(&p, g, o);
+}
+
+/* A's published track's Largest is {g, o}. */
+static int mtlg_top_is(u64 g, u64 o) {
+  const wired_moqtrun_track* t =
+      &moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0];
+  return t->has_largest && t->largest.group == g && t->largest.object == o;
+}
+
+/* ============== upstream sources (7.5 item 1) ============== */
+
+/* 7.5: PUBLISH_STATE_NOTIFY's LARGEST_OBJECT on the PUBLISH's stream
+ * raises the Largest, and the next answer carries it. */
+static void mtlg_psn_d23(void) {
+  mtlg_pub(0, 0, 5);
+  mtlg_psn(MUPS_PUB_SID, 0, 7);
+  CHECK(mtlg_top_is(0, 7));
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_sok_is(MRDV_S1, 0, 7));
+}
+
+/* draft-22 counts no PUBLISH_STATE_NOTIFY. */
+static void mtlg_psn_d22(void) {
+  mtlg_pub(0, 0, 5);
+  mtlg_psn(MUPS_PUB_SID, 0, 7);
+  CHECK(mtlg_top_is(0, 5));
+}
+
+static void test_moqtrun_d23lg_psn_raises_largest(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_psn_d23);
+  moqtrun_test_vers(
+      MOQVER_CAP_PUBLISH_STATE_NOTIFY, MOQVER_CAP_RELAY_LARGEST, mtlg_psn_d22);
+}
+
+/* The same on the hub's own upstream SUBSCRIBE: its REQUEST_OK and
+ * PUBLISH_STATE_NOTIFY count, as the re-answered SUBSCRIBE_OK shows. */
+static void mtlg_up_sources_d23(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  mtlg_psn(sid, 1, 4);
+  mups_sub(SESS_B, MRDV_S2);
+  CHECK(mtlg_sok_is(MRDV_S2, 1, 4));
+  mtlg_rok(sid, 2, 0);
+  mups_sub(SESS_B, MRDV_S2 + 4);
+  CHECK(mtlg_sok_is(MRDV_S2 + 4, 2, 0));
+}
+
+static void test_moqtrun_d23lg_psn_value_in_answer(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_up_sources_d23);
+}
+
+/* 7.5: REQUEST_UPDATE_OK's LARGEST_OBJECT on the PUBLISH's stream counts. */
+static void mtlg_ruok_d23(void) {
+  mtlg_pub(1, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  mtlg_rok(MUPS_PUB_SID, 0, 9);
+  CHECK(mtlg_top_is(0, 9));
+}
+
+static void mtlg_ruok_d22(void) {
+  mtlg_pub(1, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  mtlg_rok(MUPS_PUB_SID, 0, 9);
+  CHECK(mtlg_top_is(0, 5));
+}
+
+static void test_moqtrun_d23lg_ruok_largest_used(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_ruok_d23);
+  moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_ruok_d22);
+}
+
 /* ===================== the hub's PUBLISH (9.19.17) ===================== */
 
 /* 9.19.17: a relay that received Objects MUST include LARGEST_OBJECT in
@@ -66,4 +209,7 @@ static void test_moqtrun_d23lg_subtracks_publish_largest(void) {
 
 void test_moqtrun_d23lg(void) {
   test_moqtrun_d23lg_subtracks_publish_largest();
+  test_moqtrun_d23lg_psn_raises_largest();
+  test_moqtrun_d23lg_psn_value_in_answer();
+  test_moqtrun_d23lg_ruok_largest_used();
 }

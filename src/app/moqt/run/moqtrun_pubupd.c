@@ -130,6 +130,8 @@ void moqtrun_dispatch_upd_ok(
     return;
   }
   p->req->upd_out--;
+  moqtrun_largest_note(
+      p, moqtrun_pubdone_track_of(p, p->req->request_id), body);
 }
 
 /* REQUEST_ERROR: the update failed, so its NEW_GROUP_REQUEST is no

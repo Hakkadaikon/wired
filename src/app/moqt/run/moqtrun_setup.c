@@ -75,8 +75,9 @@ static void moqtrun_dispatch_setup(
 static void moqtrun_dispatch_pub_notify(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
-  (void)body;
   if (p->req) {
+    moqtrun_largest_note(
+        p, moqtrun_pubdone_track_of(p, p->req->request_id), body);
     return;
   }
   moqtrun_close_cc(hub, p, MOQTRUN_CC_UNEXPECTED);

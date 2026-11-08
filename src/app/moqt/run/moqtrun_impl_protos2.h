@@ -28,6 +28,8 @@ void moqtrun_rel_drop_ring(wired_moqt_hub* hub, wired_moqtrun_relay* r);
 void moqtrun_track_drop_rings(wired_moqt_hub* hub, wired_moqtrun_track* t);
 void moqtrun_peer_drop_rings(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_track_note(wired_moqtrun_track* t, u64 group, u64 object);
+void moqtrun_largest_note(
+    const wired_moqtrun_peer* pp, wired_moqtrun_track* t, wired_span body);
 void moqtrun_track_seed_largest(
     wired_moqtrun_track* t, const moqctl_params* params);
 void moqtrun_track_cache_drop(

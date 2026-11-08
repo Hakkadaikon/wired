@@ -14,15 +14,17 @@ static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_on_fin(wired_moqt_hub* hub, wired_moqtrun_up* u);
 
-/* 1 when u holds a complete message for the route table: a known Type,
- * implemented or not (REQUEST_UPDATE classifies as the latter). */
+/* 1 when u holds a complete message for the route table: a known Type of
+ * pp's draft, implemented or not (REQUEST_UPDATE and PUBLISH_STATE_NOTIFY
+ * classify as the latter). */
 static int moqtrun_up_pop(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     u64*                type,
     wired_span*         body) {
-  int r = moqtrun_asm_pop(hub, pp, &u->in, type, body);
+  int r = moqctl_type_ver(
+      pp->ver, moqtrun_asm_pop(hub, pp, &u->in, type, body), type);
   return r == MOQCTL_OK || r == MOQCTL_KNOWN_UNIMPLEMENTED;
 }
 

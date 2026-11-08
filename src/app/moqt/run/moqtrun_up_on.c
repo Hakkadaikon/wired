@@ -26,6 +26,11 @@ static void moqtrun_up_on_upd_ok(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     wired_span          body);
+static void moqtrun_up_on_psn(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body);
 static void moqtrun_up_on_reqerr(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* pp,
@@ -143,9 +148,19 @@ static void moqtrun_up_on_upd_ok(
     wired_moqtrun_up*   u,
     wired_span          body) {
   (void)hub;
-  (void)pp;
-  (void)body;
   u->upd_out -= (u8)(u->upd_out != 0);
+  moqtrun_largest_note(pp, moqtrun_up_track(pp, u), body);
+}
+
+/* PUBLISH_STATE_NOTIFY (draft-23 9.10): only its LARGEST_OBJECT is read
+ * (7.5). */
+static void moqtrun_up_on_psn(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  (void)hub;
+  moqtrun_largest_note(pp, moqtrun_up_track(pp, u), body);
 }
 
 /* REQUEST_ERROR: an outstanding REQUEST_UPDATE's answer (its
@@ -190,6 +205,7 @@ static const struct {
     {MOQCTL_T_REQUEST_OK, moqtrun_up_on_upd_ok},
     {MOQCTL_T_PUBLISH_DONE, moqtrun_up_on_done},
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_up_on_update},
+    {MOQCTL_T_PUBLISH_STATE_NOTIFY, moqtrun_up_on_psn},
 };
 
 /* The route of a message of type on u's stream: once u ended it is

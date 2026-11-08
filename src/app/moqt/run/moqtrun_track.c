@@ -148,6 +148,22 @@ void moqtrun_track_seed_largest(
   }
 }
 
+/* draft-23 7.5: the LARGEST_OBJECT of a REQUEST_OK or a
+ * PUBLISH_STATE_NOTIFY body (both open with Number of Parameters) from
+ * t's publisher pp counts toward t's Largest. Earlier drafts, or a body
+ * whose parameters do not decode, add nothing (the message is
+ * informative, 9.10). */
+void moqtrun_largest_note(
+    const wired_moqtrun_peer* pp, wired_moqtrun_track* t, wired_span body) {
+  moqctl_params params;
+  usz           off = 0;
+  if (!moqtrun_relay_largest(pp->ver) ||
+      moqctl_params_take(pp->ver, body, &off, ~0u, &params) != MOQCTL_OK) {
+    return;
+  }
+  moqtrun_track_seed_largest(t, &params);
+}
+
 /* A live track's incarnation ends: its cached Objects go and its fills
  * reset INTERNAL_ERROR (a slot never claimed holds no tag worth trusting). */
 void moqtrun_track_cache_drop(
