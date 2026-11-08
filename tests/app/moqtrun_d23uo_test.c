@@ -727,6 +727,20 @@ static void mtuo_ups_ended_fin(void) {
   }
 }
 
+/* Other bytes on it are dropped too, never read as a uni stream: a
+ * stream type SETUP (0x2F00, 3.4) there must not adopt it as A's control
+ * stream, and the hub sends nothing. */
+static void mtuo_ups_ended_junk(void) {
+  static const u8 junk[] = {0xAF, 0x00, 0x00, 0x00}; /* 0x2F00 */
+  for (int end = 0; end < 2; end++) {
+    u64 up = mtuo_ups_ended(end);
+    usz n0 = g_n_calls;
+    mt_feed(&mtst_hub, SESS_A, up, wired_span_of(junk, sizeof junk), 1);
+    CHECK(g_n_calls == n0);
+    CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->peer_ctl_stream_id != up);
+  }
+}
+
 static void mtuo_ups_ended_closes(void) { mtuo_ups_ended_update(1); }
 
 static void mtuo_ups_ended_kept_d18(void) { mtuo_ups_ended_update(0); }
@@ -735,6 +749,7 @@ static void test_moqtrun_d23uo_upsub_ended_update(void) {
   moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ups_ended_closes);
   moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_ups_ended_kept_d18);
   moqtrun_test_allver(mtuo_ups_ended_fin);
+  moqtrun_test_allver(mtuo_ups_ended_junk);
 }
 
 /* An ended SUBSCRIBE's entry kept from A's earlier session never takes a
