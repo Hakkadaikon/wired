@@ -1,14 +1,12 @@
 /* @file
- * Raw-QUIC (native QUIC) application connections in srvrun.c, ledger 13-6 /
- * RawQuic plan S9 (tasks/loopeng/moqt/RawQuic/plan.md §7.5, MoqtRawConn
- * TRACE.md T-E11..T-E12): an ALPN from wired_srvboot_id.raw_alpns gets one
- * implicit session at handshake confirmation (draft-ietf-moq-transport-19
- * 3.1.5 / -22 6.2.2) that carries the native-QUIC binding -- no HTTP/3
- * plumbing, uni ids from 3, unprefixed datagrams, verbatim reset codes, and
- * CONNECTION_CLOSE 0x1d as the session close (-19 3.5 / -22 6.6).
- * Reuses srvrun_test.c's fixtures (sr_make_confirmed_conn, sr_sl_step,
- * g_sl_*, sr_reset_global_table) and srvloop_test.c's lp_* client, both
- * included earlier in the same unity TU. */
+ * Raw-QUIC (native QUIC) application connections in srvrun.c: an ALPN from
+ * wired_srvboot_id.raw_alpns gets one implicit session at handshake
+ * confirmation (draft-ietf-moq-transport-19 3.1.5 / -22 6.2.2) that carries the
+ * native-QUIC binding -- no HTTP/3 plumbing, uni ids from 3, unprefixed
+ * datagrams, verbatim reset codes, and CONNECTION_CLOSE 0x1d as the session
+ * close (-19 3.5 / -22 6.6). Reuses srvrun_test.c's fixtures
+ * (sr_make_confirmed_conn, sr_sl_step, g_sl_*, sr_reset_global_table) and
+ * srvloop_test.c's lp_* client, both included earlier in the same unity TU. */
 
 #include "tls/ext/salpn/salpn_raw.h"
 
@@ -124,7 +122,7 @@ static srvrun_conn* srr_fixture(salpn_choice alpn) {
                            ? wired_span_of((const u8*)g_srr_alpns + 8, 7)
                            : wired_span_of(0, 0);
   c->l.h3peer.ctrl.settings_seen = 0;
-  /* the fixture confirmed as h3; a raw confirm sends no SETTINGS (T-E1) */
+  /* the fixture confirmed as h3; a raw confirm sends no SETTINGS (-19 3.1.5) */
   c->l.h3.settings_sent                              = alpn == SALPN_H3;
   c->l.we_advertised_max_datagram                    = 100;
   c->s.sdrv.peer_initial_max_stream_data_uni         = 1u << 24;
@@ -155,7 +153,7 @@ static void srr_stream(srvrun_conn* c, u64 id, const u8* d, usz n) {
   sr_sl_step(c, pl, sob.len);
 }
 
-/* T-E8 first half / plan §4.4: the session is born at the first step after
+/* -19 3.1.5: the session is born at the first step after
  * confirmation, reported once with the ALPN token, established, flow
  * control off, and never re-created by a later step. */
 static void test_srvrun_raw_session_at_confirm(void) {
@@ -184,7 +182,7 @@ static void test_srvrun_raw_is_raw_query(void) {
   CHECK(wired_server_session_is_raw(&c->wt) == 0);
 }
 
-/* T-E11 (SessOnlyOnApp): an hq-interop, an h3 and a no-ALPN connection get
+/* -19 3.1.5: an hq-interop, an h3 and a no-ALPN connection get
  * no raw_on_session, however many steps run. */
 static void test_srvrun_raw_no_session_off_raw(void) {
   static const salpn_choice other[] = {SALPN_HQ, SALPN_H3, SALPN_NONE};
@@ -197,7 +195,7 @@ static void test_srvrun_raw_no_session_off_raw(void) {
   }
 }
 
-/* T-E1 (NoH3OnRaw), srvrun half: no QPACK encoder stream, no SETTINGS
+/* -19 3.1.5, srvrun half: no QPACK encoder stream, no SETTINGS
  * latch, no GOAWAY on a raw connection. */
 static void test_srvrun_raw_no_h3_plumbing(void) {
   srvrun_conn* c = srr_raw_live();
@@ -208,7 +206,7 @@ static void test_srvrun_raw_no_h3_plumbing(void) {
   CHECK(srvrun_goaway_applies(c) == 0);
 }
 
-/* T-E2 (RFC 9000 2.1, plan §3.4 S1): raw uni ids are 3, 7, 11; the peer's
+/* RFC 9000 2.1: raw uni ids are 3, 7, 11; the peer's
  * uni grant counts only them (no plumbing streams): a grant of 2 admits
  * exactly two. */
 static void test_srvrun_raw_uni_ids_from_3(void) {
@@ -222,7 +220,7 @@ static void test_srvrun_raw_uni_ids_from_3(void) {
   CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 11);
 }
 
-/* T-E2 WT row: an h3 connection's first WT uni stream is 15 (after the
+/* RFC 9000 2.1, WT row: an h3 connection's first WT uni stream is 15 (after the
  * control and QPACK encoder/decoder streams). */
 static void test_srvrun_raw_wt_uni_after_plumbing(void) {
   static const u8 p[] = {0x05};
@@ -233,9 +231,9 @@ static void test_srvrun_raw_wt_uni_after_plumbing(void) {
   CHECK(wired_server_wt_open_uni_stream(&c->wt, wired_span_of(p, 1)) == 15);
 }
 
-/* T-E3: a client uni stream `6f 00 ..` (a MoQT SETUP, -19 3.3) is delivered
- * whole, and a client bidi `03 ..` (SUBSCRIBE) likewise -- never to the h3
- * request path. */
+/* -19 3.1.5: a client uni stream `6f 00 ..` (a MoQT SETUP, -19 3.3) is
+ * delivered whole, and a client bidi `03 ..` (SUBSCRIBE) likewise -- never to
+ * the h3 request path. */
 static void test_srvrun_raw_streams_delivered_whole(void) {
   static const u8 setup[] = {0x6f, 0x00, 0x02, 0x01, 0x02};
   static const u8 sub[]   = {0x03, 0x00, 0x01, 0x07};
@@ -259,7 +257,7 @@ static void srr_datagram(srvrun_conn* c, const u8* d, usz n) {
   sr_sl_step(c, pl, plen);
 }
 
-/* T-E4 (-19 11.3, plan §3.4 S3): a raw DATAGRAM payload reaches the app
+/* -19 11.3: a raw DATAGRAM payload reaches the app
  * whole -- `00 05 'h' 'i'` would lose its first byte to a qsid on WT. */
 static void test_srvrun_raw_datagram_rx_whole(void) {
   static const u8 p[] = {0x00, 0x05, 'h', 'i'};
@@ -270,7 +268,7 @@ static void test_srvrun_raw_datagram_rx_whole(void) {
   CHECK(c->closing == 0);
 }
 
-/* T-E4 boundary: a raw payload that is not a valid qsid (a truncated
+/* -19 11.3 boundary: a raw payload that is not a valid qsid (a truncated
  * 2-byte varint) is still delivered, never an H3_DATAGRAM_ERROR close. */
 static void test_srvrun_raw_datagram_rx_no_qsid_check(void) {
   static const u8 p[] = {0x40};
@@ -285,7 +283,7 @@ static int srr_close_pl_is(const srvrun_conn* c, const u8* want, usz n) {
   return c->close_pln == n && !ct_diffn(c->close_pl, want, n);
 }
 
-/* T-E5 (pinned, RFC 9000 19.19; -19 3.5): close_session(3, "") on raw is
+/* Pinned, RFC 9000 19.19; -19 3.5: close_session(3, "") on raw is
  * an application CONNECTION_CLOSE `1d 03 00`, the connection enters the
  * closing state and on_session_close fires once in the same step. */
 static void test_srvrun_raw_close_session_frame(void) {
@@ -301,7 +299,7 @@ static void test_srvrun_raw_close_session_frame(void) {
   CHECK(srr_close_pl_is(c, want, sizeof want));
 }
 
-/* T-E5 (pinned): code 0x8 INVALID_PATH with reason "bad path". */
+/* RFC 9000 19.19 (pinned): code 0x8 INVALID_PATH with reason "bad path". */
 static void test_srvrun_raw_close_session_reason(void) {
   static const u8 want[] = {0x1d, 0x08, 0x08, 'b', 'a', 'd',
                             ' ',  'p',  'a',  't', 'h'};
@@ -312,7 +310,7 @@ static void test_srvrun_raw_close_session_reason(void) {
   CHECK(srr_close_pl_is(c, want, sizeof want));
 }
 
-/* T-E5 boundary: the longest close message the session keeps
+/* RFC 9000 19.19 boundary: the longest close message the session keeps
  * (WTCAPSULE_CLOSE_MESSAGE_MAX) goes out whole as the Reason Phrase, in one
  * minimum-size packet: type, code 1, 2-byte length varint 0x4400, 1024
  * bytes. */
@@ -338,7 +336,7 @@ static const srvrun_rst* srr_kept(const srvrun_conn* c, u8 t) {
   return 0;
 }
 
-/* T-E6 (pinned, RFC 9000 19.4; -19 3.3.4): raw stream_reset(3, 0x1) is
+/* Pinned, RFC 9000 19.4; -19 3.3.4: raw stream_reset(3, 0x1) is
  * RESET_STREAM `04 03 01 00` -- code verbatim, final size 0 (the queued byte
  * was never pumped). */
 static void test_srvrun_raw_reset_code_verbatim(void) {
@@ -353,7 +351,7 @@ static void test_srvrun_raw_reset_code_verbatim(void) {
   CHECK(k && k->pln == sizeof want && !ct_diffn(k->pl, want, sizeof want));
 }
 
-/* T-E6 WT row (pinned): the same reset on WT carries the 8-byte varint
+/* -19 3.3.4 WT row (pinned): the same reset on WT carries the 8-byte varint
  * 0x52e4a40fa8dc (draft-ietf-webtrans-http3-15 4.4: 0x52e4a40fa8db + 1). */
 static void test_srvrun_raw_reset_code_wt_mapped(void) {
   static const u8   p[]    = {0x05};
@@ -372,7 +370,7 @@ static void test_srvrun_raw_reset_code_wt_mapped(void) {
   CHECK(k && k->pln == sizeof want && !ct_diffn(k->pl, want, sizeof want));
 }
 
-/* T-E6 STOP_SENDING (RFC 9000 19.5): raw stream_stop(2, 0x12) is
+/* STOP_SENDING (RFC 9000 19.5): raw stream_stop(2, 0x12) is
  * `05 02 12`. */
 static void test_srvrun_raw_stop_code_verbatim(void) {
   static const u8   want[] = {0x05, 0x02, 0x12};
@@ -384,7 +382,7 @@ static void test_srvrun_raw_stop_code_verbatim(void) {
   CHECK(k && k->pln == sizeof want && !ct_diffn(k->pl, want, sizeof want));
 }
 
-/* T-E6 receive half (R12/R13): a peer RESET_STREAM 0x12 on a raw uni
+/* RFC 9000 19.4 receive half: a peer RESET_STREAM 0x12 on a raw uni
  * stream reaches the app mapped with 0x12; 2^32 is unmapped. */
 static void test_srvrun_raw_reset_in(void) {
   static const u8  d[]    = {0x6f, 0x00};
@@ -402,7 +400,7 @@ static void test_srvrun_raw_reset_in(void) {
   }
 }
 
-/* T-E7 (pinned, -19 11.3): a raw datagram send queues P itself; on WT the
+/* Pinned, -19 11.3: a raw datagram send queues P itself; on WT the
  * ring entry is qsid(0) = `00` followed by P (RFC 9297 2.1). */
 static void test_srvrun_raw_datagram_tx_unprefixed(void) {
   static const u8      p[] = {0xaa, 0xbb, 0xcc};
@@ -427,7 +425,7 @@ static void test_srvrun_raw_datagram_tx_wt_prefixed(void) {
   CHECK(e->len == 4 && !ct_diffn(e->buf, want, 4));
 }
 
-/* T-E8: a peer CONNECTION_CLOSE ends the raw session once (CloseOnce). */
+/* -19 3.5: a peer CONNECTION_CLOSE ends the raw session once. */
 static void test_srvrun_raw_peer_close_once(void) {
   static const u8  why[] = "bye";
   srvrun_conn*     c     = srr_raw_live();
@@ -441,8 +439,8 @@ static void test_srvrun_raw_peer_close_once(void) {
   CHECK(srr_log_is("SC"));
 }
 
-/* T-E8: the idle sweep ends the raw session once; the reused slot gets a
- * fresh raw_on_session (NoGhost). */
+/* -19 3.5: the idle sweep ends the raw session once; the reused slot gets a
+ * fresh raw_on_session. */
 static void test_srvrun_raw_idle_close_then_reuse(void) {
   srvrun_conn* c = srr_raw_live();
   srvrun_sweep_idle(&g_sl_cfg, &g_sl_st, c->last_ms + WIRED_SRVRUN_IDLE_MS);
@@ -453,7 +451,7 @@ static void test_srvrun_raw_idle_close_then_reuse(void) {
   CHECK(c->wt_active == 1);
 }
 
-/* T-E10 (plan §3.4 S9): a confirmed raw connection is never "boot
+/* -19 3.1.5: a confirmed raw connection is never "boot
  * overdue". */
 static void test_srvrun_raw_not_boot_overdue(void) {
   srvrun_conn* c = srr_raw_live();
@@ -586,7 +584,7 @@ static usz srr_finished_plus_setup(struct lp_fix* f, u8* dg, usz cap) {
   return hn + on;
 }
 
-/* T-E12 / T-L1 (transport half; the hub half waits for S10): a real
+/* -19 3.1.5 (transport half): a real
  * raw-ALPN handshake whose Finished arrives coalesced with the client's
  * SETUP -- raw_on_session then the stream data fire in that ONE step
  * (SessBeforeData, D3), with no second datagram. */
@@ -614,7 +612,7 @@ static void test_srvrun_raw_coalesced_finished_setup(void) {
   CHECK(g_srr_id == 2 && g_srr_len == 4 && g_srr_buf[0] == 0x6f);
 }
 
-/* T-E1 (wire bytes): the same coalesced datagram through srvloop alone --
+/* -19 3.1.5 (wire bytes): the same coalesced datagram through srvloop alone --
  * the server's 1-RTT reply carries HANDSHAKE_DONE and no STREAM frame on
  * the H3 control (3) or QPACK (7) stream. */
 static void test_srvrun_raw_reply_has_no_settings(void) {

@@ -1,13 +1,13 @@
 /* @file
- * Connection and WebTransport session close behaviour of srvrun.c (ledger
- * 12-21/12-22/12-23, TLA+ tasks/loopeng/moqt/MoqtRawConn D1/D2):
+ * Connection and WebTransport session close behaviour of srvrun.c:
  *   - draft-ietf-webtrans-http3-16 SS6: the peer's WT_CLOSE_SESSION or FIN
  *     on the CONNECT stream is answered with this server's own FIN on it;
  *   - RFC 9000 10.2/10.2.1: a server CONNECTION_CLOSE enters the closing
- *     state (T-E14);
- *   - WT stream bytes stay with the session they were offered to (T-E13).
- * Reuses srvrun_test.c's fixtures (sr_sl_*, sr_wtsend_fixture,
- * sr_stream_data_handler), included earlier in the same unity TU. */
+ *     state;
+ *   - WT stream bytes stay with the session they were offered to
+ * (draft-ietf-webtrans-http3-16 4.2/4.3). Reuses srvrun_test.c's fixtures
+ * (sr_sl_*, sr_wtsend_fixture, sr_stream_data_handler), included earlier in the
+ * same unity TU. */
 
 /* The CONNECT stream's (id 0, sr_sl_fixture's session) server send slot:
  * its FIN is on the wire once append_open dropped with no FIN round still
@@ -141,7 +141,8 @@ static void test_srvrun_wt_ref_refuses_stale(void) {
   c->up          = 0;
 }
 
-/* T-E13 (D1, wtroute DeliverToOwner): with WT flow control on, session A in
+/* draft-ietf-webtrans-http3-16 4.2/4.3 (a stream carries its Session
+ * ID): with WT flow control on, session A in
  * slot 0 and B in slot 1; A closes, stream 12 is offered to B, then C
  * reuses slot 0. The next chunk of stream 12 still goes to B. */
 static void test_srvrun_close_stream_stays_with_owner(void) {
@@ -183,7 +184,7 @@ static void test_srvrun_close_stream_stays_with_owner(void) {
   CHECK(g_srsd_last_len == 1 && g_srsd_last_buf[0] == 'b');
 }
 
-/* T-E13 "offered later" row (review F7): a stream that arrived while no
+/* The "offered later" row: a stream that arrived while no
  * session was open is neither offered nor delivered; once a session opens
  * (slot 1 here, slot 0 free) it is offered there and delivers there. */
 static void test_srvrun_close_stream_offered_later(void) {
@@ -216,7 +217,7 @@ static void test_srvrun_close_stream_offered_later(void) {
   CHECK(g_srsd_calls == 1 && g_srsd_last_sess == &c->wt1);
 }
 
-/* T-E14 setup: an established session (sr_sl_fixture, CONNECT stream 0)
+/* RFC 9000 10.2 setup: an established session (sr_sl_fixture, CONNECT stream 0)
  * whose app gets WT stream data, plus a real routing table so the reap can
  * free the slot. */
 static conntable g_src_table[WIRED_CONNTABLE_CAP];
@@ -250,7 +251,7 @@ static void src_wt_stream_packet(srvrun_conn* c, u64 id) {
   sr_sl_step(c, pl, sob.len);
 }
 
-/* T-E14 / RFC 9000 10.2: a violation CONNECTION_CLOSE ends every session in
+/* RFC 9000 10.2: a violation CONNECTION_CLOSE ends every session in
  * the same step (wt_on_session_close once) and enters the closing state. */
 static void test_srvrun_close_violation_closes_sessions_now(void) {
   srvrun_conn* c = src_closing_fixture();
@@ -264,7 +265,7 @@ static void test_srvrun_close_violation_closes_sessions_now(void) {
   CHECK(src_kept_close(c).error_code == H3_DATAGRAM_ERROR);
 }
 
-/* T-E14 / RFC 9000 10.2.1: later client packets reach no app callback and
+/* RFC 9000 10.2.1: later client packets reach no app callback and
  * draw only the same CONNECTION_CLOSE, on the 1st, 2nd and 4th packet. */
 static void test_srvrun_close_closing_answers_only_close(void) {
   srvrun_conn* c = src_closing_fixture();
@@ -288,7 +289,7 @@ static void test_srvrun_close_closing_answers_only_close(void) {
   CHECK(src_kept_close(c).error_code == H3_DATAGRAM_ERROR);
 }
 
-/* T-E14 SingleCloseFrame: a second close attempt while closing sends
+/* RFC 9000 10.2.1: a second close attempt while closing sends
  * nothing and keeps the first code. */
 static void test_srvrun_close_second_close_is_noop(void) {
   static const u8 why[] = "x";
@@ -303,8 +304,8 @@ static void test_srvrun_close_second_close_is_noop(void) {
   CHECK(src_kept_close(c).error_code == H3_DATAGRAM_ERROR);
 }
 
-/* T-E14: no stream data leaves a closing connection -- the app's send API
- * refuses (no open session), and a pending send round is never pumped. */
+/* RFC 9000 10.2: no stream data leaves a closing connection -- the app's send
+ * API refuses (no open session), and a pending send round is never pumped. */
 static void test_srvrun_close_closing_sends_no_stream(void) {
   static const u8   pay[] = {'z'};
   srvrun_conn*      c     = src_closing_fixture();

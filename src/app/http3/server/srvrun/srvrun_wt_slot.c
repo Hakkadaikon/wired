@@ -192,8 +192,9 @@ static int srvrun_wt_owner_live(const srvrun_conn* c, int offered, int owner) {
 /* The session slot a WT stream delivers to: the one it was offered to
  * (wt_session_slot, recorded at offer time), never a fresh first-active
  * lookup -- once that slot closes and an Extended CONNECT reuses it, a
- * recompute would hand one session's bytes to another (TLA+ MoqtRawConn D1,
- * wtroute DeliverToOwner). -1 when nothing may be delivered. */
+ * recompute would hand one session's bytes to another
+ * (draft-ietf-webtrans-http3-16 4.2/4.3: a stream carries its Session
+ * ID). -1 when nothing may be delivered. */
 int srvrun_wt_stream_owner(const srvrun_conn* c, int offered, int owner) {
   return srvrun_wt_owner_live(c, offered, owner) ? owner : -1;
 }

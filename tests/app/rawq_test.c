@@ -125,7 +125,7 @@ static int rawq_test_dispatch(u8 alpn, int* got) {
       &in);
 }
 
-/* T-E3 (plan 7.5): on raw QUIC a client uni stream "6f 00 .." lands whole in
+/* -19 3.1.5: on raw QUIC a client uni stream "6f 00 .." lands whole in
  * wt_uni_streams[] (no type strip) and a client bidi "03 .." (SUBSCRIBE)
  * whole in wt_streams[], neither reaching the H3 request/QPACK paths. */
 static void test_rawq_srvloop_raw_routes(void) {
@@ -151,7 +151,7 @@ static void test_rawq_srvloop_raw_routes(void) {
   CHECK(rawq_test_loop.streams[0].in_use == 0);
 }
 
-/* T-E3 regression: the same bytes on h3 keep today's split -- bidi id 0 is a
+/* Regression: the same bytes on h3 keep today's split -- bidi id 0 is a
  * request stream, uni "6f" is an unknown H3 type, neither is WT. */
 static void test_rawq_srvloop_h3_unchanged(void) {
   int got = 0;
