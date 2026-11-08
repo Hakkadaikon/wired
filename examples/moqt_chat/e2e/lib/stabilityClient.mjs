@@ -35,7 +35,8 @@ export const WT_INSTRUMENTATION_SCRIPT = `
   window.__wtEvents = [];
   // Transport-level receive log: one record per INCOMING uni stream --
   // openedAt/bytes/head (first 256 bytes, printable-projected so a chat
-  // payload's "msg:userX:N" text is grep-able)/closed ("fin" or
+  // payload's "msg:userX:N" text is grep-able)/type (the first byte: the
+  // Stream Type, 0x05 for a FETCH_HEADER fill)/closed ("fin" or
   // "abort:..."). Lets a scenario tell "the bytes never reached this
   // client" apart from "arrived at transport but lost above it" -- the
   // distinction DOM-scrape chat gates cannot make. Each incoming stream is
@@ -60,6 +61,7 @@ export const WT_INSTRUMENTATION_SCRIPT = `
                 for (;;) {
                   const { value: chunk, done: d } = await r.read();
                   if (d) { srec.closed = "fin"; return; }
+                  if (srec.bytes === 0) srec.type = chunk[0];
                   if (srec.head.length < 256) {
                     let s = "";
                     for (const c of chunk)

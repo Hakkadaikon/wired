@@ -118,11 +118,14 @@ const sendChat = async (client, text) => {
 	}, text);
 };
 
-// Incoming uni streams carrying screen-sized payloads (chat's one-shot
-// uploads are a few dozen bytes) opened at/after sinceMs.
+// Incoming live Group streams carrying screen-sized payloads (chat's
+// one-shot uploads are a few dozen bytes) opened at/after sinceMs; history
+// fills (FETCH_HEADER, Stream Type 0x05) are one per SUBSCRIBE, not counted.
 async function screenStreamsSince(client, sinceMs) {
 	const streams = await client.page.evaluate(() => window.__wtUniStreams ?? []);
-	return streams.filter((s) => s.bytes >= 1000 && s.openedAt >= sinceMs).length;
+	return streams.filter(
+		(s) => s.bytes >= 1000 && s.openedAt >= sinceMs && s.type !== 0x05,
+	).length;
 }
 
 const failures = [];

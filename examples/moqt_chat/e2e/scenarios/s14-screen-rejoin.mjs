@@ -13,9 +13,9 @@
 //      the idle track every second, and the hub granted a fresh slot to
 //      each -- 31 slots gone in about 31 s).
 //   5. user1 shares again: gate C -- user3 and user4 both decode frames
-//      within resume-max-ms; gate D -- user3 receives one screen stream
-//      per Group (each keyframe, every 2 s, opens a new one), not one per
-//      slot it had piled up; gate E -- the hub's
+//      within resume-max-ms; gate D -- user3 receives one live screen
+//      stream per Group (each keyframe, every 2 s, opens a new one), not
+//      one per slot it had piled up; gate E -- the hub's
 //      shutdown stats report open_dropped=0.
 //
 //   just e2e-stability s14-screen-rejoin
@@ -92,12 +92,14 @@ async function sawChat(client, text, timeoutMs) {
 	}
 }
 
-// Incoming uni streams carrying a screen share (chat's one-shot uploads
-// are a few dozen bytes) opened at or after `since`.
+// Incoming live Group streams carrying a screen share (chat's one-shot
+// uploads are a few dozen bytes) opened at or after `since`. History fills
+// (FETCH_HEADER, Stream Type 0x05) are not counted: each SUBSCRIBE asks
+// for one, so an Auto watcher's hi and lo pair adds two per re-share.
 async function screenStreamsSince(client, since) {
 	const m = await clientMetrics(client);
 	return (m?.wtUniStreams ?? []).filter(
-		(s) => s.bytes >= 1000 && s.openedAt >= since,
+		(s) => s.bytes >= 1000 && s.openedAt >= since && s.type !== 0x05,
 	).length;
 }
 
@@ -217,7 +219,7 @@ export async function run({ pageUrl, server, arg, log }) {
 		const groups = Math.ceil((Date.now() - reshareAt) / 2000) + 1;
 		if (report.user3ScreenStreams > groups)
 			failures.push(
-				`gate D: user3 received ${report.user3ScreenStreams} screen streams for one re-share (at most ${groups} Groups)`,
+				`gate D: user3 received ${report.user3ScreenStreams} live screen streams for one re-share (at most ${groups} Groups)`,
 			);
 
 		for (const c of clients)
