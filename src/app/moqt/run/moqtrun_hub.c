@@ -117,6 +117,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->newest_group_only    = 0;
   hub->multi_publisher      = 0;
   hub->rx_violation         = 0;
+  hub->up_redirect          = 0;
   hub->switch_track         = 0; /* SWITCH_FROM (moqtswitch.c): off */
   hub->sw_live              = 0;
   hub->no_implementation    = 0; /* MOQT_IMPLEMENTATION sent */

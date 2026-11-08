@@ -61,16 +61,24 @@ void moqtrun_rdv_do_resolve(
 
 /* REQUEST_ERROR code (22: SUBSCRIBE_ERROR, the same message): TIMEOUT
  * when no publisher came within the timeout (10.2.6), or the upstream's
- * refusal (moqtrun_up_refuse_waiters). */
+ * refusal (moqtrun_up_refuse_waiters) with its details. */
 void moqtrun_rdv_do_refuse(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
     const wired_moqtrun_rdv* r,
     wired_moqtrun_track*     t,
     u64                      code) {
+  moqctl_request_error e = {0};
   (void)r;
   (void)t;
-  moqtrun_send_request_error_unsupp(sp, code, hub->unsupp, hub->unsupp_n);
+  e.error_code    = code;
+  e.n_unsupported = hub->unsupp_n;
+  bytes_memcpy(e.unsupported, hub->unsupp, hub->unsupp_n * sizeof(u64));
+  e.has_redirect = hub->up_redirect != 0;
+  if (e.has_redirect) {
+    e.redirect = *hub->up_redirect;
+  }
+  moqtrun_queue_request_error(sp, &e);
 }
 
 /* moqtrun_send_unavailable on r's request (code unused). */

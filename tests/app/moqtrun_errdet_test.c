@@ -161,10 +161,27 @@ static void test_mted_upsub_redirect_relay_d23(void) {
   CHECK(e.error_code == MOQCTL_ERR_INTERNAL_ERROR && !e.has_redirect);
 }
 
+/* draft-23 9.4.2.1 (draft-22 9.4 alike): the upstream SUBSCRIBE's
+ * REQUEST_ERROR REDIRECT to Track Name z reaches the waiter as REDIRECT
+ * with that Track Name, so it can follow the redirect. */
+static void mted_upsub_redirect_relayed(int v) {
+  moqctl_request_error e = {0};
+  CHECK(mted_upsub_redirect(v, v, mtst_z("z")) == ~(u64)0);
+  CHECK(mted_err(SESS_B, MRDV_S1, &e));
+  CHECK(e.error_code == MOQCTL_ERR_REDIRECT && e.has_redirect);
+  CHECK(e.redirect.track_name.n == 1 && e.redirect.track_name.p[0] == 'z');
+}
+
+static void test_mted_upsub_redirect_relayed(void) {
+  mted_upsub_redirect_relayed(MOQVER_D23);
+  mted_upsub_redirect_relayed(MOQVER_D22);
+}
+
 void test_moqtrun_errdet(void) {
   moqtrun_test_vers(0, 0, mted_publish_mandatory);
   moqtrun_test_vers(0, 0, mted_upsub_redirect_empty);
   test_mted_upsub_redirect_relay_d23();
+  test_mted_upsub_redirect_relayed();
   test_mted_upsub_ok_mandatory_d23();
   test_mted_upsub_error_relays_details_d23();
   test_mted_redirect_d23();

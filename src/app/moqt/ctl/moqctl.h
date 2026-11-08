@@ -313,7 +313,8 @@ int moqctl_request_ok_take(
 int moqctl_request_ok_encode(
     wired_mspan buf, usz* off, const moqctl_request_ok* m);
 
-/** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR redirect (SS10.8.1). */
+/** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR redirect (SS10.8.1).
+ * views: connect_uri=caller, track_name=caller */
 typedef struct {
   /** URI of the session to retry the request on (view). */
   wired_span connect_uri;
