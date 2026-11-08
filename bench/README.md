@@ -15,8 +15,7 @@ comparisons, not replacements for the pinned-machine numbers in the doc).
   to one core (`SERVER_CPU`, default 3) and the client to others
   (`CLIENT_CPUS`, default 0,1), runs the rounds, and emits one speed line
   per run plus raw `/proc` usage counters per load round.
-- `sections.sh <bin>...` — Berkeley `size` dump.
-- `report.mjs speed|usage|sections <file>` — markdown tables via
+- `report.mjs speed|usage <file>` — markdown tables via
   `lib/aggregate.mjs` (pure functions, tested:
   `node --test bench/test/aggregate.test.mjs`).
 - `goodput-setup.sh` / `goodput-ci.sh` — pinned quic-interop-runner

@@ -88,14 +88,3 @@ quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go
 | quiche | 9438 9426 9433 9437 9435 | `cloudflare/quiche-qns@sha256:b67c084e211e` |
 | ngtcp2 | 9316 9392 9297 9385 9371 | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb4689908dc` |
 | picoquic | 9099 9106 9151 9105 9130 | `privateoctopus/picoquic@sha256:4d1da8e8557c` |
-
-
-## 3. バイナリのセクション
-
-Berkeley 形式の `size(1)` で測った。strip 後のサイズは `strip` をかけた後のファイルの大きさである。
-
-| バイナリ | text | data | bss | strip 後 |
-|---|---|---|---|---|
-| wired_server `efd61452e` | 510,144 | 7,994 | 29,427,736 | 525,040 |
-| qgserver (quic-go v0.61.0) | 6,944,189 | 353,891 | 267,888 | 7,311,104 |
-| quiche-server 0.29.3 | 5,857,037 | 375,456 | 7,648 | 6,237,840 |

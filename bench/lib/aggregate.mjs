@@ -1,5 +1,5 @@
 // Pure aggregation for the comparison bench lanes: parses run-lane.sh's
-// speed/usage lines and Berkeley `size` output, computes the statistics,
+// speed/usage lines, computes the statistics,
 // and renders the markdown tables the workflow summary and comparison.md
 // use. No I/O here -- the shell stays a thin driver and every derivation
 // (mean/sd, ticks -> us/req, kB -> MiB) is testable.
@@ -60,23 +60,6 @@ export function summarizeSpeed(lines) {
     });
   }
   return out;
-}
-
-/** Berkeley `size` output -> [{text, data, bss, filename}]. */
-export function parseSizeB(output) {
-  const rows = [];
-  for (const line of output.split("\n")) {
-    const m = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+[0-9a-fA-F]+\s+(\S+)$/);
-    if (m) {
-      rows.push({
-        text: Number(m[1]),
-        data: Number(m[2]),
-        bss: Number(m[3]),
-        filename: m[4],
-      });
-    }
-  }
-  return rows;
 }
 
 /**
@@ -155,19 +138,6 @@ export function renderSpeedTable(summary) {
     );
   }
   return rows.join("\n");
-}
-
-/** Markdown: text/data/bss per binary. */
-export function renderSectionsTable(rows) {
-  const out = [
-    "| Binary | text (B) | data (B) | bss (B) |",
-    "|---|---|---|---|",
-  ];
-  for (const r of rows) {
-    const base = r.filename.split("/").pop();
-    out.push(`| ${base} | ${r.text} | ${r.data} | ${r.bss} |`);
-  }
-  return out.join("\n");
 }
 
 /** Markdown: idle/peak RSS + server CPU per request. */

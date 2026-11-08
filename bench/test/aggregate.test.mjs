@@ -4,11 +4,9 @@ import {
   parseBenchLine,
   meanSd,
   summarizeSpeed,
-  parseSizeB,
   parseUsageLine,
   summarizeUsage,
   renderSpeedTable,
-  renderSectionsTable,
   renderUsageTable,
 } from "../lib/aggregate.mjs";
 
@@ -16,11 +14,10 @@ import {
 // 1. parseBenchLine: one run-lane speed line -> typed record; garbage -> null
 // 2. meanSd: sample stdev over rounds; a single value has no spread (sd null)
 // 3. summarizeSpeed: rounds grouped per server+mode, failures totaled
-// 4. parseSizeB: Berkeley `size` output -> text/data/bss per binary
-// 5. parseUsageLine: raw ticks/kB/hz line -> derived cpu us/req and cpu%
+// 4. parseUsageLine: raw ticks/kB/hz line -> derived cpu us/req and cpu%
 //    (derivation lives here, not in the shell, so it is testable)
-// 6. summarizeUsage: load rounds -> cpu stats + peak RSS max; idle line -> idle RSS
-// 7. renderers: markdown tables carry the computed values
+// 5. summarizeUsage: load rounds -> cpu stats + peak RSS max; idle line -> idle RSS
+// 6. renderers: markdown tables carry the computed values
 
 const SPEED_LINES = [
   "wired r1 mode=load n=10000 fails=0 reqps=27067.0 p50=0.61 p99=3.26 cpu%=117",
@@ -65,22 +62,6 @@ test("summarizeSpeed groups per server+mode and totals failures", () => {
   assert.equal(quicheLoad.fails, 2);
 });
 
-test("parseSizeB reads Berkeley size output", () => {
-  const out = [
-    "   text\t   data\t    bss\t    dec\t    hex\tfilename",
-    " 234567\t   1234\t9876543\t10112344\t 9a4c58\tbuild/wired_server",
-    "  11111\t    222\t    333\t  11666\t   2d92\tbench/qgserver/qgserver",
-  ].join("\n");
-  const rows = parseSizeB(out);
-  assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0], {
-    text: 234567,
-    data: 1234,
-    bss: 9876543,
-    filename: "build/wired_server",
-  });
-});
-
 test("parseUsageLine derives cpu us/req and cpu% from raw ticks", () => {
   // 380 ticks at hz=100 over 10000 requests in 1900ms of wall time:
   // cpu time = 3.8s?? no -- 380/100 = 3.8s. Use smaller: 38 ticks = 0.38s
@@ -122,10 +103,6 @@ test("renderers produce markdown rows with the computed values", () => {
   const speed = renderSpeedTable(summarizeSpeed(SPEED_LINES));
   assert.match(speed, /\| wired \|/);
   assert.match(speed, /26,121|26120/);
-  const sections = renderSectionsTable(
-    parseSizeB("   text\tdata\tbss\tdec\thex\tfilename\n100\t2\t3\t105\t69\ta/b"),
-  );
-  assert.match(sections, /\| b \| 100 \| 2 \| 3 \|/);
   const usage = renderUsageTable(
     summarizeUsage([
       "wired r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=900 vmrss_kb=800",

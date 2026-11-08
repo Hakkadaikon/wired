@@ -107,11 +107,6 @@ jobs:
           for s in wired quic-go quiche; do
             grep -q "^$s .* mode=load" out/lines.txt
           done
-      - name: Collect binary sections
-        run: |
-          bench/sections.sh examples/word_list/wired_server \
-            bench/qgserver/qgserver quiche-src/target/release/quiche-server \
-            > out/sections.txt
       - name: Write summary
         if: always()
         run: |
@@ -127,9 +122,6 @@ jobs:
             echo
             echo "### Memory / CPU under load"
             node bench/report.mjs usage out/lines.txt
-            echo
-            echo "### Binary sections"
-            node bench/report.mjs sections out/sections.txt
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -137,7 +129,6 @@ jobs:
           name: loopback-lane
           path: |
             out/lines.txt
-            out/sections.txt
             /tmp/bench-*.server.log
 
   goodput:
