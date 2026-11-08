@@ -4,10 +4,10 @@
  *     on the CONNECT stream is answered with this server's own FIN on it;
  *   - RFC 9000 10.2/10.2.1: a server CONNECTION_CLOSE enters the closing
  *     state;
- *   - WT stream bytes stay with the session they were offered to
- * (draft-ietf-webtrans-http3-16 4.2/4.3). Reuses srvrun_test.c's fixtures
- * (sr_sl_*, sr_wtsend_fixture, sr_stream_data_handler), included earlier in the
- * same unity TU. */
+ *   - draft-ietf-webtrans-http3-16 4.2/4.3: WT stream bytes stay with the
+ *     session they were offered to.
+ * Reuses srvrun_test.c's fixtures (sr_sl_*, sr_wtsend_fixture,
+ * sr_stream_data_handler), included earlier in the same unity TU. */
 
 /* The CONNECT stream's (id 0, sr_sl_fixture's session) server send slot:
  * its FIN is on the wire once append_open dropped with no FIN round still

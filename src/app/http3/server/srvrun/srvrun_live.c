@@ -13,10 +13,11 @@ static void srvrun_live_streams(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
 /* Native QUIC has no Extended CONNECT: the connection itself is the session
  * (-19 3.1.5). Slot 0 is established at the first step after confirmation,
- * BEFORE this step's stream offer/delivery: a SETUP coalesced with the client
- * Finished is delivered in the same step. Its id is the never-on-the-wire
- * RAWQ_NO_CONNECT_ID and flow_control stays 0 (wired_wt_session_init): only RFC
- * 9000's own credit applies, there are no WT_MAX_* capsules. */
+ * BEFORE this step's stream offer/delivery: a SETUP coalesced with the
+ * client Finished is delivered in the same step. Its id is the
+ * never-on-the-wire RAWQ_NO_CONNECT_ID and flow_control stays 0
+ * (wired_wt_session_init): only RFC 9000's own credit applies, there are
+ * no WT_MAX_* capsules. */
 static void srvrun_raw_start(const srvrun_cfg* cfg, srvrun_conn* c) {
   if (!srvrun_raw_start_due(c)) {
     return;
