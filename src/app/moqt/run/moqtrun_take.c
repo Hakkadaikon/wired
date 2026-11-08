@@ -7,6 +7,7 @@ static void moqtrun_refuse_or_close(
 static int moqtrun_token_by_value(const moqctl_token* t);
 static u32 moqtrun_token_close_code(const moqctl_token* t);
 static int moqtrun_redirect_bad(const moqctl_request_error* e);
+static int moqtrun_redirect_r(int ver, const moqctl_request_error* e);
 static int moqtrun_publish_slot_ok(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -167,16 +168,26 @@ static int moqtrun_redirect_bad(const moqctl_request_error* e) {
   return e->has_redirect && e->redirect.connect_uri.n != 0;
 }
 
+/* A Redirect's take result in draft ver: MOQCTL_R_ROLE when bad
+ * (moqtrun_redirect_bad), else MOQCTL_R_NAME_EMPTY for an empty Track Name
+ * where the draft forbids one (draft-23 2.4.1): every request the hub
+ * sends upstream (SUBSCRIBE, FETCH, PUBLISH) is track-scoped, so the
+ * namespace-scoped exception of 9.4.2.1 never applies. */
+static int moqtrun_redirect_r(int ver, const moqctl_request_error* e) {
+  moqctl_ftn f = {0};
+  int        r = moqtrun_redirect_bad(e) ? MOQCTL_R_ROLE : MOQCTL_OK;
+  f.name       = e->redirect.track_name;
+  return e->has_redirect ? moqctl_ftn_check_v(ver, r, &f) : r;
+}
+
 /* A REQUEST_ERROR the hub received for one of its own requests, decoded
  * into *e; 1 when it may be used. One that does not decode closes the
  * session PROTOCOL_VIOLATION (moqtrun_take_or_close), and so does a
  * Redirect with a non-zero Connect URI Length: "If a server receives a
  * Redirect with a non-zero Connect URI Length it MUST close the session
  * with a PROTOCOL_VIOLATION" (draft-19 10.6.1, draft-18 10.6.1, draft-22
- * 9.4; ROLE_VIOLATION in draft-23 9.4.2.1). The draft-18/19 rule
- * on a namespace-scoped request's Track Name has nothing to check: the
- * hub sends no SUBSCRIBE_NAMESPACE,
- * PUBLISH_NAMESPACE or SUBSCRIBE_TRACKS of its own. */
+ * 9.4; ROLE_VIOLATION in draft-23 9.4.2.1), or one with an empty Track
+ * Name on draft-23 (moqtrun_redirect_r). */
 int moqtrun_reqerr_take(
     wired_moqt_hub*       hub,
     wired_moqtrun_peer*   p,
@@ -187,8 +198,7 @@ int moqtrun_reqerr_take(
           hub, p, moqctl_request_error_take_v(p->ver, body, &off, e))) {
     return 0;
   }
-  return moqtrun_take_or_close(
-      hub, p, moqtrun_redirect_bad(e) ? MOQCTL_R_ROLE : MOQCTL_OK);
+  return moqtrun_take_or_close(hub, p, moqtrun_redirect_r(p->ver, e));
 }
 
 /* First AUTHORIZATION TOKEN parameter (draft SS10.2.2) of a message, or

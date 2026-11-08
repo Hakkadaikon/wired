@@ -109,8 +109,62 @@ static void test_mted_redirect_d23(void) {
   CHECK(mted_publish_answered(&e) == ~(u64)0);
 }
 
+/* REQUEST_ERROR REDIRECT, empty Connect URI, Track Name name. */
+static const moqctl_request_error* mted_redirect(wired_span name) {
+  static moqctl_request_error e;
+  e                     = (moqctl_request_error){0};
+  e.error_code          = MOQCTL_ERR_REDIRECT;
+  e.has_redirect        = 1;
+  e.redirect.track_name = name;
+  return &e;
+}
+
+static moqtrun_body_encode_fn mted_enc_for(int ver) {
+  return (moqver_caps(ver) & MOQVER_CAP_ERR_DETAILS)
+             ? mted_enc23
+             : mtsub_encode_request_error;
+}
+
+/* The hub's upstream SUBSCRIBE (A on pv, B on sv) answered by a Redirect
+ * to Track Name name; the session close code, ~0 for none. */
+static u64 mted_upsub_redirect(int pv, int sv, wired_span name) {
+  mups_init_v(pv, sv);
+  mups_sub(SESS_B, MRDV_S1);
+  mtst_send(
+      SESS_A, (u64)mups_up_sid(), MOQCTL_T_REQUEST_ERROR, mted_enc_for(pv),
+      mted_redirect(name));
+  return moqtrun_test_close_code();
+}
+
+/* draft-23 2.4.1 / 9.4.2.1: a SUBSCRIBE is track-scoped, so a Redirect
+ * with an empty Track Name closes the publisher's session
+ * PROTOCOL_VIOLATION; draft-18..22 take it. A named one is taken. */
+static void mted_upsub_redirect_empty(void) {
+  int d23 =
+      (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_TRACK_NAME_NONEMPTY) != 0;
+  int v = g_moqtrun_test_ver;
+  CHECK(
+      mted_upsub_redirect(v, v, wired_span_of(0, 0)) ==
+      (d23 ? WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION : ~(u64)0));
+  CHECK(mted_upsub_redirect(v, v, mtst_z("z")) == ~(u64)0);
+}
+
+/* draft-23 9.4.2.1: REDIRECT needs a REDIRECT detail, whose Track Name a
+ * draft-23 receiver must find non-empty (2.4.1): a draft-22 upstream's
+ * empty-name Redirect reaches a draft-23 waiter as INTERNAL_ERROR. */
+static void test_mted_upsub_redirect_relay_d23(void) {
+  moqctl_request_error e = {0};
+  CHECK(
+      mted_upsub_redirect(MOQVER_D22, MOQVER_D23, wired_span_of(0, 0)) ==
+      ~(u64)0);
+  CHECK(mted_err(SESS_B, MRDV_S1, &e));
+  CHECK(e.error_code == MOQCTL_ERR_INTERNAL_ERROR && !e.has_redirect);
+}
+
 void test_moqtrun_errdet(void) {
   moqtrun_test_vers(0, 0, mted_publish_mandatory);
+  moqtrun_test_vers(0, 0, mted_upsub_redirect_empty);
+  test_mted_upsub_redirect_relay_d23();
   test_mted_upsub_ok_mandatory_d23();
   test_mted_upsub_error_relays_details_d23();
   test_mted_redirect_d23();

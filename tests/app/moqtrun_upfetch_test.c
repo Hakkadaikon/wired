@@ -975,6 +975,36 @@ static void test_moqtrun_upfetch_error_redirect_uri_closes(void) {
       got.error_code != MOQCTL_ERR_REDIRECT);
 }
 
+/* B (on bv) FETCHes, C (on cv) answers the hub's upstream FETCH with a
+ * Redirect to Track Name name; the session close code, ~0 for none. */
+static u64 mupf_redirect(int bv, int cv, wired_span name) {
+  moqfetch_req m = {0};
+  mupf_init_v(bv);
+  mupf_vers(cv);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  mtst_send(
+      SESS_C, (u64)mupf_up(SESS_C, 0, &m), MOQCTL_T_REQUEST_ERROR,
+      mted_enc_for(cv), mted_redirect(name));
+  return moqtrun_test_close_code();
+}
+
+/* draft-23 2.4.1 / 9.4.2.1: a FETCH is track-scoped, so a draft-23
+ * Redirect with an empty Track Name closes C PROTOCOL_VIOLATION; a
+ * draft-22 one is taken, but reaches a draft-23 B as INTERNAL_ERROR
+ * (REDIRECT needs a detail, whose Track Name may not be empty). */
+static void test_moqtrun_upfetch_redirect_empty_name(void) {
+  moqctl_request_error got = {0};
+  CHECK(
+      mupf_redirect(MOQVER_D22, MOQVER_D23, wired_span_of(0, 0)) ==
+      WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(mupf_redirect(MOQVER_D23, MOQVER_D22, wired_span_of(0, 0)) == ~(u64)0);
+  CHECK(mted_err(SESS_B, mf_req_sid, &got));
+  CHECK(got.error_code == MOQCTL_ERR_INTERNAL_ERROR && !got.has_redirect);
+  CHECK(mupf_redirect(MOQVER_D23, MOQVER_D23, mtst_z("z")) == ~(u64)0);
+  CHECK(mted_err(SESS_B, mf_req_sid, &got));
+  CHECK(got.error_code == MOQCTL_ERR_REDIRECT && got.redirect.track_name.n);
+}
+
 /* A held track's FETCH was answered already: an upstream REQUEST_ERROR
  * only hands over to the cache side, Unknown where it lacks Objects. */
 static void test_moqtrun_upfetch_error_held(void) {
@@ -1995,6 +2025,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_bad_end();
   test_moqtrun_upfetch_error_passthrough();
   test_moqtrun_upfetch_error_redirect_uri_closes();
+  test_moqtrun_upfetch_redirect_empty_name();
   test_moqtrun_upfetch_error_held();
   test_moqtrun_upfetch_leg_ends();
   test_moqtrun_upfetch_two_goaways();

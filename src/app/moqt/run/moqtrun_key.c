@@ -5,6 +5,8 @@ static int moqtrun_encode_request_error(
 static int moqtrun_encode_request_error23(
     wired_mspan buf, usz* off, const void* m);
 static moqtrun_body_encode_fn moqtrun_request_error_encoder(int ver);
+static int moqtrun_redirect_named(const moqctl_request_error* e);
+static int moqtrun_redirect_unsendable(int ver, const moqctl_request_error* e);
 
 static int moqtrun_encode_request_error(
     wired_mspan buf, usz* off, const void* m) {
@@ -23,6 +25,19 @@ static moqtrun_body_encode_fn moqtrun_request_error_encoder(int ver) {
              : moqtrun_encode_request_error;
 }
 
+static int moqtrun_redirect_named(const moqctl_request_error* e) {
+  return e->has_redirect && e->redirect.track_name.n != 0;
+}
+
+/* draft-23 9.4.2.1: REDIRECT carries a REDIRECT Error Detail, whose Track
+ * Name a draft-23 receiver closes the session on when empty (2.4.1) -- a
+ * draft-22 upstream may send one: such a REDIRECT cannot be relayed. */
+static int moqtrun_redirect_unsendable(int ver, const moqctl_request_error* e) {
+  return e->error_code == MOQCTL_ERR_REDIRECT &&
+         (moqver_caps(ver) & MOQVER_CAP_TRACK_NAME_NONEMPTY) &&
+         !moqtrun_redirect_named(e);
+}
+
 /* REQUEST_ERROR in as p's draft spells it (moqctl_request_error_for); a
  * Redirect rides along only with REDIRECT (draft-22 9.4.1). */
 void moqtrun_queue_request_error(
@@ -31,7 +46,11 @@ void moqtrun_queue_request_error(
   moqctl_request_error e = *in;
   e.error_code           = moqctl_request_error_for(p->ver, in->error_code);
   e.has_redirect = in->has_redirect && e.error_code == MOQCTL_ERR_REDIRECT;
-  usz n          = moqtrun_envelope_put(
+  if (moqtrun_redirect_unsendable(p->ver, &e)) {
+    e.error_code   = MOQCTL_ERR_INTERNAL_ERROR;
+    e.has_redirect = 0;
+  }
+  usz n = moqtrun_envelope_put(
       p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_ERROR,
       moqtrun_request_error_encoder(p->ver), &e);
   moqtrun_queue_reply(p, wired_span_of(msg, n));
