@@ -1,10 +1,10 @@
-/* Real-UDP MOQT chat server (draft-ietf-moq-transport-22 minimal subset,
- * draft-19 fallback). libc-free, x86_64-linux, direct syscalls, driven by
+/* Real-UDP MOQT chat server (draft-ietf-moq-transport-23, the draft the
+ * frontend offers). libc-free, x86_64-linux, direct syscalls, driven by
  * the single SDK header <wired.h>.
  *
- * The draft is the WebTransport subprotocol (draft-22 6.2.1): the server
- * offers the hub's list (wired_moqt_wt_protocols: moqt-22 moqt-19
- * moqt-18), so a browser that offers "moqt-22" gets a draft-22 session
+ * The draft is the WebTransport subprotocol (draft-23 6.2.1): the server
+ * offers the hub's list (wired_moqt_wt_protocols: moqt-23 moqt-22 moqt-19
+ * moqt-18), so a browser that offers "moqt-23" gets a draft-23 session
  * (one uni control stream per side, 6.3); a browser that offers no
  * subprotocol still gets the draft-19 legacy session (one server-opened
  * bidi control stream), with no branch here.
@@ -53,11 +53,12 @@ static int app_on_request(
     int*                        more,
     u64*                        total_size) {
   static const u8 body[] =
-      "moqt_chat: connect via WebTransport to join the chat room. Offer "
-      "the subprotocol moqt-22 for a draft-ietf-moq-transport-22 session; "
-      "with no subprotocol negotiated the session runs "
-      "draft-ietf-moq-transport-19. Each participant PUBLISHes one track "
-      "and SUBSCRIBEs to every other participant's track.\n";
+      "moqt_chat: connect via WebTransport to join the chat room. The "
+      "server offers the subprotocols moqt-23 moqt-22 moqt-19 moqt-18 "
+      "(draft-ietf-moq-transport-23/22/19/18); with no subprotocol "
+      "negotiated the session runs draft-ietf-moq-transport-19. Each "
+      "participant PUBLISHes its tracks and SUBSCRIBEs to every other "
+      "participant's tracks.\n";
   (void)ctx;
   (void)req;
   (void)offset;
