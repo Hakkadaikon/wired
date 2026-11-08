@@ -1,393 +1,75 @@
-# MOQT chat sample
+# moqt_chat
 
-A chat + voice call room over Media over QUIC Transport
-(draft-ietf-moq-transport-23; see
-[`moqt_interop`](../moqt_interop/) for the multi-draft relay): a libc-free
-WebTransport server
-(`server/wired_server.c`) relays each participant's chat messages and Opus voice
-frames to every other connected participant, using the `app/moqt/run` hub
-(`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
+[wired](../../README.md) › moqt_chat
 
-## Draft version: 23 only
-
-The server offers the hub's full WebTransport subprotocol list
-(`wired_moqt_wt_protocols`: `moqt-23 moqt-22 moqt-19 moqt-18`) via
-`opt.run.wt_protocols`. The browser client offers `protocols: ["moqt-23"]`
-to `new WebTransport(...)` and refuses a session whose `wt.protocol` is
-anything else: `connect` rejects with `hub did not negotiate moqt-23`, which
-the page shows as "Could not connect". Chrome for Testing 146 (the e2e
-pin) and 155 negotiate `protocols` without any flag.
-
-Each side opens a unidirectional control stream that starts with SETUP
-(stream type 0x2F00, 9.1; session initialization 6.3); the server's later
-carries GOAWAY (9.2). Requests ride one client-opened bidirectional stream
-each (6.4.2). History is a SUBSCRIBE carrying FILL_PARAMETERS (0x23, a count
-of Parameters with no Length, 9.19.15) whose inner LOCATION_FILTER is
-RelativeStart N (3.4 Fill Semantics, 3.5 Joining an Ongoing Track). The fill
-arrives on a server unidirectional stream whose FETCH_HEADER (11.4.1) names
-the SUBSCRIBE's Request ID. The live filter is LOCATION_FILTER NextObject
-(0x05, 9.19.9). Section numbers below cite draft-23.
-
-## What this demonstrates
-
-Unlike a plain WebTransport DATAGRAM-broadcast chat (raw QUIC DATAGRAMs,
-message framing left entirely to the frontend — the guide's browser chapter
-builds one), this sample speaks MOQT on the wire. Each participant (one of the fixed ids `user1`..`user4`:
-an id's index is its Track Alias) PUBLISHes up to four tracks under the
-namespace `wired/moqt_chat` — `<id>` for chat, `<id>/audio` for voice,
-`<id>/screen` for a screen share and `<id>/camera` for camera or video-file
-streaming (see [Camera and video](#camera-and-video)) — plus a fifth,
-`<id>/screen-lo`, when the hub offers track switching (see
-[Track switching](#track-switching-screen-share-hilo-variants)). There is
-a single fixed room.
-
-- **Requests on their own streams** (6.4.2): every PUBLISH, SUBSCRIBE,
-  PUBLISH_NAMESPACE and SUBSCRIBE_NAMESPACE opens its own
-  bidirectional stream with an even Request ID, and its answer comes back
-  on that stream. Cancelling a request resets its stream. The server's
-  unidirectional control stream carries SETUP and, when the hub is
-  shutting down, GOAWAY.
-- **Namespace discovery** (4.1-4.2): once its tracks are PUBLISHed, a
-  client announces `wired/moqt_chat/<id>` and watches the `wired/moqt_chat`
-  prefix. NAMESPACE for a peer puts it on the roster and subscribes its chat
-  and audio; NAMESPACE_DONE takes it off and cancels those subscriptions. A
-  screen share additionally announces `wired/moqt_chat/<id>/screen` while it
-  runs. Nothing is polled.
-- **History and late join** (3.4-3.5): a peer's chat track is subscribed
-  from the Next Object and the 64 Groups before it are filled in by
-  FILL_PARAMETERS on the SUBSCRIBE, so a joiner sees recent messages. Every
-  screen-share keyframe starts a new Group, and a late viewer's fill
-  (RelativeStart 1) hands it the current Group from its keyframe, so the
-  first frame decodes at once.
-- **Objects**: a chat message's text is one Object in a Group of its own; an
-  attachment is a Group of its own whose Objects are 15 KiB chunks (the hub
-  holds at most 16384 bytes of one Object, `WIRED_MOQTRUN_RELAY_FRAG_MAX`).
-  One Group per attachment is deliberate: the hub applies a subscription's
-  Location Filter only on reliable late replay, so an attachment whose
-  chunks shared a Group with later messages could reach a joiner torn --
-  its own Group is either replayed whole or not at all;
-  voice is one OBJECT_DATAGRAM per Opus frame (a stream when the frame is
-  too large). The hub relays SUBGROUP bytes verbatim to every subscriber
-  (`moqtrun.c`'s `moqtrun_relay_object`); chat tracks relay reliably, voice
-  and screen drop rather than queue.
-- **Attachment size**: `ATTACHMENT_MAX_BYTES` (`attachmentValidation.ts`) is
-  50 MiB, chosen by measuring this app's own delivery, not a protocol limit.
-  A 50 MiB attachment delivered end to end in ~15s (~3.6 MiB/s) on the
-  machine this was measured on; at 100 MiB the hub's reliable-relay WT flow
-  control stopped recovering send credit and the transfer wedged. Raising
-  the limit past 50 MiB needs that flow-control stall fixed first, not just
-  a bigger constant. The reassembler's own timeout (`attachmentTimeoutMs`,
-  `moqtAttachmentWire.ts`) scales with an attachment's declared size so a
-  large one isn't raced against the same flat deadline as a small one.
-
-The wire codecs (varint/KVP/control messages/data messages) are implemented
-independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
-(`frontend/src/lib/moqtWire.ts`), both pinned against the same golden vectors
-(`testvectors/moqt_golden.json`, draft-19 framing; the frontend re-frames
-the control messages with the draft-23 vi64 Length and pins the draft-23
-deltas to vectors derived from the draft text).
-
-## Track switching (screen share hi/lo variants)
-
-**Experimental.** This uses the hub's moqtail-compatible
-SWITCH_FROM (0x24) / SSTS (SWITCHING_SET_ASSIGNMENT 0x41, Setup Option
-SSTS_ALGORITHMS 0x3F01) extension. None of these code points is in
-draft-23, whose Setup Option 0x09 is MAX_CONTROL_MESSAGE_SIZE. See
-[MoQT track switching](../../docs/features/moqt-track-switching.md) for
-the wire format and the hub's rules, and
-[Known Limitations](../../docs/security/limitations/moqt-switching.md)
-for the gaps.
-
-- **Two variants, shared Group numbers.** A sharer publishes the capture as
-  `<id>/screen` (hi) and also as `<id>/screen-lo` (lo: at most 640 px wide,
-  350 kbps, `screenSharePipeline.ts`). Both are cut from the same captured
-  frames with one keyframe decision, so Group g of hi and Group g of lo
-  start on the same frame. Track Aliases: hi is 10..13 and lo is 14..17
-  (participant index + 10 / + 14, `moqtScreenClient.ts`).
-- **Auto (the default).** A watcher subscribes to both variants as one
-  switching set (Set ID = the sharer's participant index, thresholds hi
-  2000 kbps / lo 400 kbps, Weight 1, Activate 2). The hub then forwards one
-  of them per Group, chosen by the negotiated algorithm. The client prefers
-  backpressure (0xff01) and falls back to default (0). If neither is
-  negotiated, Auto subscribes to hi alone. Both variants feed
-  the participant's one decoder. A Group gate drops the other variant's
-  copy of a Group and a switched-away variant's tail.
-- **High / Low.** The per-tile selector subscribes to one variant only.
-  Moving between High and Low is one SUBSCRIBE carrying SWITCH_FROM
-  {Soft, Publish Done} of the current subscription. The hub ends the old
-  one at the Group boundary with PUBLISH_DONE 0x3, and the tile changes
-  only once that SUBSCRIBE is accepted. Moving to or from Auto cancels and
-  re-subscribes.
-- **HI / LO badge.** Each remote screen tile shows which variant it is
-  currently decoding, so a switch can be observed.
-- **What the server must enable.** The hub advertises nothing until the
-  server turns the extension on: SWITCH_FROM (`wired_moqt_hub.switch_track
-  = 1`) and an SSTS algorithm list (`ssts_algs` / `ssts_alg_n`, plus
-  `ssts_cap_kbps` for the default algorithm's budget), all set after
-  `wired_moqt_init`. The client enables variants only when the hub's
-  SETUP carries SSTS_ALGORITHMS. `server/wired_server.c` turns both on
-  with `switch_track = 1` and `ssts_algs = {0xff01 (backpressure), 0
-  (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
-- **One more track per peer.** `screen-lo` is one more PUBLISH per
-  participant, which is why `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` went from 3
-  to 4 (and to 5 with the camera track). If the hub refuses the lo
-  PUBLISH, the sharer does not run the lo encoder.
-- **Without the extension.** Against a hub without the extension, the
-  client publishes and subscribes
-  `<id>/screen` (hi) only. There is no switching set and no Group gate, and
-  the quality selector and HI/LO badge are not shown.
-
-## Camera and video
-
-The rail's Video section sends one picture on the participant's
-`<id>/camera` track (Track Alias 18 + the id's index), next to any screen
-share:
-
-- **Camera**: the browser's default camera.
-- **Background**: `none`, `blur` or `image`. MediaPipe's selfie segmenter
-  cuts the person out, and the app's own WebGL2 shader composites the
-  person over a blurred copy of the frame or over the bundled image, before
-  encoding. Changing the background does not restart the camera. With a
-  background selected, a camera frame is sent only after it was
-  composited; while the segmenter loads, or if segmentation fails, frames
-  are withheld, never sent raw.
-- **Video file**: streams the bundled sample mp4 (or a picked local mp4)
-  instead of the camera, looped, video only: its audio is neither sent nor
-  played.
-
-Camera and file share the one track: choosing one while the other is live
-switches the source without ending the track, and pressing the live one
-turns it off. Peers see the track in a camera tile, which goes when the
-sender turns it off or its frames stall. The encoder is the screen share's
-VP8 pipeline.
-
-Bundled assets (served from the app's own origin, no CDN):
-
-| File | Origin |
+| 項目 | 内容 |
 |---|---|
-| `public/mediapipe/selfie_segmenter.tflite` | MediaPipe selfie segmenter, `storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` (Apache-2.0); sha256 `191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b` |
-| `public/mediapipe/vision_wasm_internal.{js,wasm}` | copied from `@mediapipe/tasks-vision` (Apache-2.0, pinned in `pnpm-lock.yaml`) by `predev`/`prebuild`; not committed |
-| `public/videos/sample.mp4` | generated: `ffmpeg -f lavfi -i mandelbrot=size=480x270:rate=15 -t 8 -c:v libx264 -profile:v baseline -pix_fmt yuv420p` |
-| `public/backgrounds/default.jpg` | generated: `ffmpeg -f lavfi -i gradients=size=1280x720:c0=0x1d4e89:c1=0x3fa7d6:x0=0:y0=0:x1=1280:y1=720:nb_colors=2 -frames:v 1 default.jpg` |
+| 目的 | MoQT で作ったチャットと音声通話のルームの構成を示す |
+| 読む人 | moqt_chat のサーバーとフロントエンドを動かす・変更するコントリビューター |
+| 前提文書 | [MoQT draft-23 の要件台帳](../../docs/features/draft-moq-transport-23.md) |
+| 関連文書 | [MoQT Track 切り替え](../../docs/features/moqt-track-switching.md)、[moqt_chat のリソース監視](../../docs/performance/monitoring.md) |
 
-`just e2e-stability s22-camera` checks it end to end with Chrome's fake
-camera: the peer decodes the camera, blurred frames keep arriving, the
-image background turns the tile the image's blue (the fake camera shows no
-person), the mp4 arrives at its own size, a late joiner sees it, and off
-removes the tile with no frame decoded a second later.
+## 1. 文書の構成
 
-## Build and run (server)
+| 文書 | 中身 |
+|---|---|
+| この文書 | 全体の構成、Track の一覧、ディレクトリ |
+| [MoQT の使い方](wire.md) | セッション、名前空間の発見、履歴、Object の形、Track 切り替え |
+| [サーバー](server.md) | ビルドと起動、設定、ハブの上限、GOAWAY による再起動 |
+| [フロントエンド](frontend.md) | 開発サーバー、GitHub Pages、Biome、カメラと動画 |
+| [e2e テスト](e2e.md) | 負荷テスト、安定性のシナリオ、そのほかの確認 |
 
-The server runs in a `scratch` container: the binary is fully static
-(`-ffreestanding -nostdlib -static`) and, by default, touches no filesystem
-at runtime (its self-signed cert is generated in memory each boot), so the
-image holds nothing besides `wired_server`. Mount a PEM pair and point
-`WIRED_CERT`/`WIRED_KEY` at it to serve a real certificate instead
-(Configuration below).
+## 2. 全体の構成
 
-```sh
-cd examples/moqt_chat
-just up       # builds, then runs in the foreground, Ctrl-C stops it
-just up -d    # same, but detached; `docker compose logs -f` in `server/` to follow it, `just down` to tear it down
+サーバーは libc を使わない WebTransport サーバーである。`src/app/moqt/run`(`moqtrun.h`)のハブを UDP につなぐ。参加者が送るチャットのメッセージと Opus の音声フレームを、ほかの参加者全員に中継する。
+
+```mermaid
+graph LR
+    a["browser (user1)"] -- "WebTransport / moqt-23" --> hub["wired_server<br/>(moqtrun hub)"]
+    b["browser (user2)"] -- "WebTransport / moqt-23" --> hub
+    hub -- "Objects of user1's tracks" --> b
+    hub -- "Objects of user2's tracks" --> a
 ```
 
-`just up` names this host's default-route source address in the
-self-signed certificate (it prints `cert IP SAN: ...`), so a browser can
-dial `https://<that IP>:4433/`. Behind NAT that address is the private
-one; set `WIRED_SAN_IPV4=<public IP> just up` to name the address
-clients actually dial. The address replaces the demo's 127.0.0.1, so on
-the host itself dial `https://localhost:4433/` (the cert also names
-`localhost`): `https://127.0.0.1:4433/` is answered 421.
+| 項目 | 値 |
+|---|---|
+| MoQT のドラフト | draft-ietf-moq-transport-23。クライアントは `moqt-23` だけを提示する |
+| ルーム | 固定で 1 つ |
+| 参加者 ID | `user1`〜`user4` の 4 つ(`CANDIDATE_PARTICIPANT_IDS`、`moqtClient.ts`) |
+| 名前空間 | `wired/moqt_chat` |
+| フロントエンド | Next.js と React の静的エクスポート。GitHub Pages にだけデプロイする |
 
-The container runs with `network_mode: host` (see `server/docker-compose.yml`), so
-`wired_server` listens on the host's own `4433/udp` directly rather than
-through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
-confirmed by hand to never complete the QUIC handshake (the client sits at
-"Connecting..." forever), while host networking connects immediately.
+## 3. Track
 
-This hub keeps its peer table, request streams and object cache in one
-process's memory, so it is single-process only: do not pass
-`--workers`/`--cores`/`--ifindex` (each worker would run its own room).
+参加者は名前空間 `wired/moqt_chat` の下に、次の Track を配信する。Track Alias は参加者 ID の添字(`user1` が 0)に表のオフセットを足した値である。
 
-### Configuration
+| Track 名 | 中身 | Track Alias | 配信する条件 |
+|---|---|---|---|
+| `<id>` | チャット | 0〜3 | 常に |
+| `<id>/audio` | 音声(Opus) | 4〜7 | 常に |
+| `<id>/screen` | 画面共有(VP8、高レート) | 10〜13 | 画面共有の間 |
+| `<id>/screen-lo` | 画面共有(VP8、低レート) | 14〜17 | 画面共有の間で、ハブが Track 切り替えを提示したとき |
+| `<id>/camera` | カメラか動画ファイル(VP8) | 18〜21 | カメラか動画ファイルを送る間 |
 
-| Flag / environment | Default | Effect |
-|---|---|---|
-| `--port N` | 4433 | UDP port |
-| `--san-ipv4 a.b.c.d` / `WIRED_SAN_IPV4` (`just up`) | 127.0.0.1 (`just up`: this host's address) | the IPv4 address the self-signed cert names; a WebTransport CONNECT to any other IP literal is answered 421 (RFC 9110 7.4), which Chrome reports as `net::ERR_METHOD_NOT_SUPPORTED` |
-| `--cc cubic\|bbr` | `cubic` | congestion controller for new connections |
-| `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
-| `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
-| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://hakkadaikon.github.io`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
-| `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 8192 bytes) |
+ハブは Track Alias 0〜3(`CHAT_ALIAS_LIMIT`、`wired_server.c`)を確実に中継し、それ以外の Track は送れないときに捨てる。各 Track の Object の形は [MoQT の使い方](wire.md) に書く。
 
-- **Certificate reload**: with `--cert`/`--key` set, `kill -HUP <pid>`
-  re-reads both files; connections opened afterwards use the new
-  certificate, open ones are not disturbed. A pair that fails to load leaves
-  the old one in place.
-- **Object cache**: the hub keeps the last 1 MiB of Objects (all tracks in
-  one arena, the oldest whole Group evicted first) to answer FETCH. A busy
-  screen share therefore pushes chat history out of it quickly, and one
-  Group larger than the arena (a single attachment over ~1 MiB) is not
-  cached at all, so a joiner's history skips it.
-- **Namespaces**: only namespaces under `wired/moqt_chat` may be announced
-  or watched; anything else is refused UNAUTHORIZED.
-- **Request-stream budget**: the hub tracks at most 32 open request streams
-  per session and 128 hub-wide (`WIRED_MOQTRUN_MAX_REQS`); past that a new
-  request stream is reset EXCESSIVE_LOAD. A full 4-user room keeps up to 15
-  live per session (3 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
-  9 SUBSCRIBEs; a fill rides its SUBSCRIBE's request and needs no slot of
-  its own), which is why the id pool stays at four.
-  With track switching on (a hub that advertises SSTS_ALGORITHMS), the
-  worst case grows: 4 PUBLISH + 2 PUBLISH_NAMESPACE + SUBSCRIBE_NAMESPACE +
-  12 SUBSCRIBEs (`screen` and `screen-lo` for each of 3 sharing peers in
-  Auto) = 19 per session, 76 hub-wide, so the hub's pool was raised to 96
-  (`WIRED_MOQTRUN_MAX_REQS`), a per-session budget of 24.
-  The camera track adds one PUBLISH, one PUBLISH_NAMESPACE and one
-  SUBSCRIBE per other peer: 5 PUBLISH + 3 PUBLISH_NAMESPACE +
-  SUBSCRIBE_NAMESPACE + 15 SUBSCRIBEs = 24 per session, 96 hub-wide, so the
-  pool is now 128, a per-session budget of 32.
-- **Fill capacity**: fills share one hub-wide table of 8 serving
-  slots plus 8 waiting (`WIRED_MOQTRUN_MAX_FETCHES`). When both are full
-  the hub refuses the whole
-  history SUBSCRIBE with REQUEST_ERROR INTERNAL_ERROR (3.4.1: an
-  accepted fill must get a fill fetch stream, so the hub decides before
-  answering); the client then retries
-  that SUBSCRIBE once without FILL_PARAMETERS, so the peer is followed live
-  without history. A REQUEST_ERROR code draft-23 does not define counts as
-  INTERNAL_ERROR (13).
+## 4. ディレクトリ
 
-### Graceful restart
+| パス | 中身 |
+|---|---|
+| `server/wired_server.c` | ハブの初期化、WebTransport のコールバックの接続、証明書、CLI |
+| `server/access.c` | 名前空間の認可と Origin の許可リスト |
+| `server/live.c` | `wired_moqt_io` の `send_uni2`。セッションごとのリングに送信を溜める |
+| `server/relay.c` | セッションの数え上げ、GOAWAY、10 秒ごとの中継の統計のログ |
+| `server/moqt_chat.h` | サーバーの各ファイルが共有する宣言 |
+| `server/Dockerfile`、`server/docker-compose.yml` | `just up` が作って動かす `scratch` イメージ |
+| `frontend/src/lib/moqtWire.ts`、`moqtClient.ts` | ワイヤーのコーデック。セッション、リクエストストリーム、名前空間の発見、履歴、GOAWAY |
+| `frontend/src/lib/moqtScreenWire.ts`、`moqtScreenClient.ts` | 画面共有とカメラの Track、別版、Track 切り替え |
+| `frontend/src/lib/moqtVoiceWire.ts`、`moqtVoiceClient.ts` | 音声の Object の形と、音声の Track の配信と購読 |
+| `frontend/src/lib/*Pipeline.ts`、`jitterBuffer.ts`、`playbackSink.ts`、`audioContextGate.ts` | マイクの取り込みから Opus のエンコード、Object までと、受信側のジッター吸収、デコード、再生 |
+| `frontend/src/app/page.tsx`、`src/stores/moqtChatStore.ts`、`src/hooks/useMoqtChat.ts` | UI |
+| `e2e/` | ヘッドレスの Chrome を使う e2e テストのハーネス |
+| `testvectors/moqt_golden.json` | C と TypeScript が共有するゴールデンベクター |
+| `justfile` | ビルド、起動、フロントエンド、e2e のレシピ |
 
-On SIGTERM (`docker compose stop`, `kill <pid>`) the hub stops accepting
-connections and sends every MOQT session GOAWAY (6.6.1 / 9.2) with a
-2 s timeout and the `WIRED_GOAWAY_URI`; it exits after the SDK's ~5 s drain.
-The browser reconnects as soon as the GOAWAY (or a WebTransport drain)
-arrives — to the new URI when one was given — and the fresh session
-publishes, announces and subscribes everything again. While the old hub
-drains it refuses new connections, so the reconnect retries on the
-auto-rejoin back-off (1 s, 2 s, 4 s, ...) until the restarted hub answers.
-A restart on the same UTC day keeps the self-signed fingerprint, so the
-pinned hash still matches.
-
-NewReno is not selectable through `--cc` (any value other than `cubic` or
-`bbr` exits with a usage error).
-
-On startup it logs the self-signed certificate's SHA-256 fingerprint:
-
-```
-cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:7d:39:34:24:a4:54:89:ed:de:43:22:39:70:88
-```
-
-This value stays the same across restarts on the same UTC day (the
-certificate's validity window is anchored to the start of the day, not the
-exact startup time, so the frontend's auto-rejoin can keep using a pinned
-hash) but changes after UTC midnight, so copy it from the **current** run if
-it has crossed a day boundary.
-
-## Run the frontend
-
-The frontend is a Next.js + React app with its own stylesheet, modelled on
-the 1976 NASA Graphics Standards Manual
-(`output: "export"`, so it ships as static files — no Node server needed to
-serve it).
-
-It is deployed only as the GitHub Pages demo below. Open the page, paste
-the server's cert fingerprint, pick a participant id, and connect. Voice starts
-automatically once connected (mutable via the mic toggle); grant the
-browser's microphone permission prompt to send audio. Open it again with a
-different participant id (or a private window) to chat with yourself across
-two tabs.
-
-For local development with hot reload: `just dev-frontend` (plain
-HTTP at `:3000`, works for `localhost` since that origin is always a secure
-context regardless of scheme).
-
-### Format and lint the frontend
-
-The frontend's TypeScript is formatted and linted by
-[Biome](https://biomejs.dev/) (`frontend/biome.json`): Biome's
-recommended rule preset plus its Next.js, React and test domains, Biome's
-default formatter (tabs, double quotes, 80 columns), and import ordering.
-
-```sh
-just check-frontend   # format + lint + import order, no writes; fails on any error, warning or unformatted file
-just fix-frontend     # apply Biome's formatting and safe fixes in place
-just test-frontend   # vitest unit tests
-```
-
-`check-frontend` is the gate: it runs `biome ci --error-on-warnings`, so a
-warning is a failure, not a note to clean up later. Inside `frontend/` the
-same commands are `pnpm check` / `pnpm fix` / `pnpm test`. A rule that does
-not fit one spot is silenced on that line only, with
-`// biome-ignore lint/<group>/<rule>: <reason>`; the config is not relaxed
-for it.
-
-### Hosted on GitHub Pages
-
-This repo's [Docs workflow](../../.github/workflows/docs.yml) also publishes
-this frontend as a static demo at `https://<user>.github.io/wired/moqt_chat/`,
-alongside the SDK's Doxygen API reference at the site's root. GitHub Pages
-only serves static files, so it hosts the frontend's assets — it cannot run
-`wired_server` itself (that needs a real UDP/QUIC listener). Run the server
-somewhere reachable (a VM, a home machine with a forwarded port, ...), then
-point the hosted page's "Server URL" field at it and paste its logged cert
-fingerprint, same as running the frontend locally. The self-signed
-cert/fingerprint pair is still per-run: this hosted page is a convenient
-client, not a zero-setup public demo.
-
-## Multi-client e2e test
-
-```sh
-just e2e-setup                                        # once: installs deps + Chrome for Testing
-just e2e-load --clients=4 --messages=10 --max-loss-rate=0
-```
-
-Every e2e entry point binds and dials `WIRED_E2E_PORT` (default 4433) and
-stops only the hub it started — set it to a free port on a host that
-already runs a hub, e.g. `WIRED_E2E_PORT=14833 just e2e-stability
-s21-sigterm-goaway`. Besides the load test, `just e2e-stability <id>` runs
-one scenario from `e2e/scenarios/`, among them `s16-history-join`,
-`s17-video-join-keyframe`, `s18-discovery`, `s19-origin-403`,
-`s20-attachment-1mb` and `s21-sigterm-goaway` for the behavior above.
-
-The per-change stability battery is `s2-chat-longevity`, `s1-voice-clean`,
-`s4-voice-outage-reconnect`, `s5b-server-restart` and `s3-voice-loss
---loss-rate=0.01`; the nightly one adds `s6-voice-soak --talk-ms=1500000`
-and `s10-voice-chat-longevity`. Run each with `just e2e-stability <id>`.
-Other entry points run directly (`just build build-frontend` first where a
-local server is needed): `./e2e/run-voice.sh --clients=4` (4-client
-chat+voice load), `node e2e/run-prod-screenshare-check.mjs
---server-url=... --cert-hash=...` (screen share against a real deployment;
-see its header) and `cd e2e && npm test` (the harness's own metrics math).
-
-Starts the server and frontend, drives up to `MAX_CLIENTS=4` headless-Chrome
-participants (the frontend's fixed candidate id list), has each send several
-chat messages, and grades the run for message loss and latency. This grades
-chat only — sample-accurate audio content isn't checked here; voice call
-verification is manual (see above). See `e2e/run.sh` and
-`e2e/lib/loadTest.mjs` for the harness. `?ns=0` on the page URL starts with
-RNNoise off; the e2e harness uses it so its transport gates measure the
-network path, not the noise-suppression worklet's own CPU cost.
-
-## Layout
-
-- `server/` — the server side. `wired_server.c` (with `access.c`,
-  `live.c`, `relay.c` and `moqt_chat.h`) is the MOQT hub server: wires WebTransport session/stream
-  callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
-  its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
-  draft-ietf-webtrans-http3-15 SS4.2), plus the Origin allow-list, the
-  certificate paths, the object cache and GOAWAY on shutdown.
-- `server/Dockerfile` / `server/docker-compose.yml` — the `scratch` image `just up`
-  builds and runs (see "Build and run (server)" above).
-- `frontend/` — the Next.js + React browser client:
-  `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request
-  streams, discovery, history fill, GOAWAY; draft-23), `moqtScreenWire.ts`/`moqtScreenClient.ts`
-  (screen share, its hi/lo variants and track switching), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
-  framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
-  `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
-  Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
-  path), `src/app/page.tsx` +
-  `src/stores/moqtChatStore.ts` + `src/hooks/useMoqtChat.ts` (UI).
-- `e2e/` — the multi-client load-test harness.
-- `testvectors/moqt_golden.json` — the shared C/TypeScript golden vectors.
+ワイヤーのコーデックは C(`src/app/moqt/vi`、`kvp`、`ctl`、`data`)と TypeScript(`moqtWire.ts`)で別々に実装している。両方を `testvectors/moqt_golden.json`(draft-19 のフレーミング)で固定する。フロントエンドは draft-23 の vi64 の Length で制御メッセージを組み直し、draft-23 との差分はドラフトの本文から導いたベクターで固定する。

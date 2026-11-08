@@ -372,4 +372,4 @@ g_hub.ssts_alg_n   = sizeof chat_ssts_algs / sizeof chat_ssts_algs[0];
 | セットあたりのメンバー | `MOQSSTS_MAX_MEMBERS` (4) |
 | `WIRED_MOQTRUN_MAX_TRACKS_PER_PEER` | 5。低レートの画面の別版のために 3 から 4 に、moqt_chat のカメラの Track(別版なし)のために 5 にした |
 
-`examples/moqt_chat` はこれらすべてを画面共有に使っている([その README](../../examples/moqt_chat/README.md#track-switching-screen-share-hilo-variants))。
+`examples/moqt_chat` はこれらすべてを画面共有に使っている([MoQT の使い方 6](../../examples/moqt_chat/wire.md#6-track-切り替え実験的))。

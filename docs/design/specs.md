@@ -210,7 +210,7 @@ MoQT は配信の告知、購読、メディアの区切り方を定める。制
 
 | 例 | 使うドラフト |
 |---|---|
-| `examples/moqt_chat`(WebTransport 上の音声、映像、チャットのハブ) | ブラウザーが WebTransport の `protocols` オプションで `moqt-22` を提示できれば draft-22、できなければ draft-19 |
+| `examples/moqt_chat`(WebTransport 上の音声、映像、チャットのハブ) | draft-23。クライアントは WebTransport の `protocols` オプションで `moqt-23` だけを提示する |
 | ガイドの MoQT のサンプル | draft-22 |
 | `examples/moqt_interop` | moq-interop-runner のクライアントに 3 つのドラフトすべてを提示する |
 
