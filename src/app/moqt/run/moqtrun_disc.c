@@ -10,6 +10,12 @@ static int moqtrun_disc_same_session(
     const wired_moqtrun_req* a, const wired_moqtrun_req* b);
 static int moqtrun_disc_peer_is(
     const wired_moqtrun_peer* p, const wired_wt_session* wt);
+static int  moqtrun_update_unqueued(const wired_moqtrun_peer* p, usz at);
+static void moqtrun_update_answer(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    usz                    peer_idx,
+    const moqtstat_update* m);
 
 /* A REQUEST_UPDATE of the request riding its stream (its own Request ID
  * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
@@ -35,9 +41,32 @@ void moqtrun_handle_update(
           &m.params)){
     return;
   }
-  p->req->pending_updates++;
-  p->req->upd_answered++; /* each routed update is answered on the spot */
-  moqtrun_update_route(hub, p, peer_idx, &m.params, m.request_id);
+  moqtrun_update_answer(hub, p, peer_idx, &m);
+}
+
+/* 1 when the reply to the update just routed found p's request queue
+ * (at bytes before it) full, the session still open. */
+static int moqtrun_update_unqueued(const wired_moqtrun_peer* p, usz at) {
+  return !p->closing && p->req->send_lens[p->req->armed_idx ^ 1] == at;
+}
+
+/* Routes update m, answered on the spot. draft-23 9.5 owes exactly one
+ * response per update: one that cannot be queued closes the session
+ * INTERNAL_ERROR (12.2), the limit being the hub's own. */
+static void moqtrun_update_answer(
+    wired_moqt_hub*        hub,
+    wired_moqtrun_peer*    p,
+    usz                    peer_idx,
+    const moqtstat_update* m) {
+  wired_moqtrun_req* q  = p->req;
+  usz                at = q->send_lens[q->armed_idx ^ 1];
+  q->pending_updates++;
+  moqtrun_update_route(hub, p, peer_idx, &m->params, m->request_id);
+  if (moqtrun_update_unqueued(p, at)) {
+    moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
+    return;
+  }
+  q->upd_answered++;
 }
 
 /* ===================== namespace discovery ===================== */

@@ -12,10 +12,17 @@ static void moqtrun_upf_reply(
     wired_moqtrun_fetch* f,
     u64                  type,
     wired_span           body);
+static int moqtrun_upf_goaway_closes(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           body,
+    int                  seen);
 static void moqtrun_upf_goaway(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
+    wired_span           body,
     int                  seen);
 static int moqtrun_upf_route(
     wired_moqt_hub*      hub,
@@ -93,15 +100,34 @@ static void moqtrun_upf_reply(
   }
 }
 
-/* GOAWAY on the request stream (9.2): the leg ends (no re-issue); a
- * second one closes the session PROTOCOL_VIOLATION. */
+/* 1 when a GOAWAY on the request stream closed the session. draft-23
+ * 9.2: a bad body, a New Session URI or a second GOAWAY on the stream
+ * (in any read) closes it (moqtrun_goaway_moves); earlier drafts close
+ * on a second one in the same read (seen). */
+static int moqtrun_upf_goaway_closes(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           body,
+    int                  seen) {
+  if (moqver_caps(pp->ver) & MOQVER_CAP_REQ_GOAWAY23) {
+    return !moqtrun_goaway_moves(
+        hub, pp, &moqtrun_upf_leg_of(hub, f)->goaway, body);
+  }
+  if (seen) {
+    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
+  }
+  return seen;
+}
+
+/* GOAWAY on the request stream (9.2): the leg ends (no re-issue). */
 static void moqtrun_upf_goaway(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
+    wired_span           body,
     int                  seen) {
-  if (seen) {
-    moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
+  if (moqtrun_upf_goaway_closes(hub, pp, f, body, seen)) {
     return;
   }
   if (moqtrun_upf_live(f)) {
@@ -124,7 +150,7 @@ static int moqtrun_upf_route(
     wired_span           body,
     int                  goaways) {
   if (type == MOQCTL_T_GOAWAY) {
-    moqtrun_upf_goaway(hub, pp, f, goaways);
+    moqtrun_upf_goaway(hub, pp, f, body, goaways);
     return 1;
   }
   if (moqtrun_upf_routed(f, type)) {

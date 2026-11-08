@@ -797,6 +797,32 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
   CHECK(mtup_reply(MTRQ_S1, &(wired_span){0, 0}) == MOQCTL_T_REQUEST_OK);
 }
 
+/* NAMESPACE pushes waiting for a blocked SUBSCRIBE_NAMESPACE stream fill
+ * its reply queue, so the REQUEST_OK to a REQUEST_UPDATE there finds no
+ * room. draft-23 9.5 owes exactly one response per update, so rather
+ * than drop it the hub closes the session INTERNAL_ERROR (12.2). */
+static void test_moqtrun_upd_credit_reply_unqueued(void) {
+  static char        x[3][123];
+  moqctl_params      none = {0};
+  wired_moqtrun_req* q;
+  for (usz i = 0; i < 3; i++) {
+    bytes_memset(x[i], 'a', 122);
+    x[i][0] = (char)('1' + i);
+  }
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "");
+  g_stream_send_ok_n = 0;
+  for (usz i = 0; i < 3; i++) {
+    mtns_pub(SESS_A, MTRQ_ID(i), x[i]);
+  }
+  q = moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1);
+  CHECK(q->send_lens[q->armed_idx ^ 1] + 4 > WIRED_MOQTRUN_REQ_SEND_BUF);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR) == 0);
+  mtup_update(SESS_B, MTRQ_S1, &none);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR) == 1);
+  g_stream_send_ok_n = -1;
+}
+
 /* ========= REQUEST_UPDATE on a FETCH stream (draft-19 10.9) ========= */
 
 static moqctl_params mtup_subpri(u8 v) {
@@ -888,6 +914,7 @@ static void test_moqtrun_upd_ns_prefix_overlap_refused(void) {
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_upd(void) {
   test_moqtrun_upd_credit_restored_by_flush();
+  test_moqtrun_upd_credit_reply_unqueued();
   test_moqtrun_upd_ns_prefix_changes();
   test_moqtrun_publish_alias_token_rejected();
   test_moqtrun_tstat_ok_largest();

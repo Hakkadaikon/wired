@@ -166,7 +166,63 @@ static void test_moqtrun_upfetch_d23_leg_fails(void) {
   CHECK(mf_items[1].flags == MOQFETCH_EOR_UNKNOWN && mf_items[1].group == 5);
 }
 
+/* ===== GOAWAY on the hub's upstream FETCH stream (draft-23 9.2) ===== */
+
+/* A (on the draft under test) holds the hub's upstream FETCH; its
+ * request stream id. */
+static i64 mupf23_goaway_setup(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_vers(g_moqtrun_test_ver);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  return mupf_up(SESS_A, 0, &m);
+}
+
+/* A sends msg (16-bit Length envelope, mt_feed re-spells it) on sid. */
+static void mupf23_goaway_feed(i64 sid, const u8* msg, usz n) {
+  mt_feed(&mtst_hub, SESS_A, (u64)sid, wired_span_of(msg, n), 0);
+}
+
+/* The hub's session closes with code (1), or stays up (0 closes). */
+static int mupf23_closed_with(u32 code) {
+  const moqtrun_test_call* c = moqtrun_test_last_kind(11);
+  return moqtrun_test_count_kind(11) == 1 && c->s == SESS_A &&
+         c->stream_id == code;
+}
+
+/* GOAWAY, no New Session URI, Timeout 0. */
+static const u8 MUPF23_GOAWAY[] = {MOQCTL_T_GOAWAY, 0x00, 0x02, 0x00, 0x00};
+
+/* "more than one GOAWAY ... on a single request stream" is
+ * UNEXPECTED_MESSAGE, even when the second comes in a later read. */
+static void mupf23_goaway_twice(void) {
+  i64 sid = mupf23_goaway_setup();
+  mupf23_goaway_feed(sid, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  mupf23_goaway_feed(sid, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  CHECK(mupf23_closed_with(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
+}
+
+/* A New Session URI sent to the hub, a server, is ROLE_VIOLATION; a
+ * body that does not decode (no Timeout) is MALFORMED_MESSAGE (12.2). */
+static void mupf23_goaway_refused(void) {
+  static const u8 uri[]    = {MOQCTL_T_GOAWAY, 0x00, 0x03, 0x01, 'x', 0x00};
+  static const u8 short_[] = {MOQCTL_T_GOAWAY, 0x00, 0x01, 0x00};
+  mupf23_goaway_feed(mupf23_goaway_setup(), uri, sizeof uri);
+  CHECK(mupf23_closed_with(WIRED_MOQTRUN_CLOSE_ROLE_VIOLATION));
+  mupf23_goaway_feed(mupf23_goaway_setup(), short_, sizeof short_);
+  CHECK(mupf23_closed_with(WIRED_MOQTRUN_CLOSE_MALFORMED_MESSAGE));
+}
+
+static void test_moqtrun_upfetch_d23_goaway(void) {
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mupf23_goaway_twice);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mupf23_goaway_refused);
+}
+
 void test_moqtrun_upfetch_d23(void) {
+  test_moqtrun_upfetch_d23_goaway();
   test_moqtrun_upfetch_d23_relay();
   test_moqtrun_upfetch_d23_markers();
   test_moqtrun_upfetch_d23_eot();
