@@ -120,7 +120,7 @@
  * LARGEST_OBJECT, answers only from an unpaused upstream and includes the
  * parameter in its PUBLISH once it received Objects (draft-23 7.5,
  * 9.19.17). */
-#define MOQVER_CAP_RELAY_LARGEST (1ull << 32)
+#define MOQVER_CAP_RELAY_LARGEST (1ull << 40)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

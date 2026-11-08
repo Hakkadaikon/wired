@@ -10,10 +10,11 @@
  * wt-available-protocols offer that the list contains
  * (draft-ietf-webtrans-http3 3.4), so the client's order decides. */
 
+/* Widest member first: no interior padding. */
 typedef struct {
-  int         ver;
-  const char* tok;
   u64         caps;
+  const char* tok;
+  int         ver;
   int         offered; /* 0: kept out of the subprotocol / ALPN list */
 } moqver_row;
 
@@ -27,27 +28,34 @@ typedef struct {
 
 static const moqver_row moqver_table[MOQVER_COUNT] = {
     /* Not offered until every draft-23 delta has landed. */
-    {MOQVER_D23, "moqt-23",
-     MOQVER_CAPS_D22 | MOQVER_CAP_CTL_LEN_VI | MOQVER_CAP_OPT_MAX_CTL_SIZE |
-         MOQVER_CAP_CLOSE_CODES23 | MOQVER_CAP_UNAVAILABLE |
-         MOQVER_CAP_ERR_DETAILS | MOQVER_CAP_FETCH_STREAM23 |
-         MOQVER_CAP_FETCH_REQUEST_OK | MOQVER_CAP_LATE_FORWARD |
-         MOQVER_CAP_PAUSED | MOQVER_CAP_FILL_COUNT | MOQVER_CAP_NS_PARAMS |
-         MOQVER_CAP_PUBNS_DUP | MOQVER_CAP_UP_LOSS | MOQVER_CAP_UPD_ERR_ENDS |
-         MOQVER_CAP_RELAY_LARGEST,
-     0},
-    {MOQVER_D22, "moqt-22", MOQVER_CAPS_D22 | MOQVER_CAP_PREFIX_OVERLAP, 1},
-    {MOQVER_D19, "moqt-19",
-     MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
-         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE |
-         MOQVER_CAP_PREFIX_OVERLAP,
-     1},
-    {MOQVER_D18, "moqt-18",
-     MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
-         MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
-         MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE |
-         MOQVER_CAP_PREFIX_OVERLAP,
-     1},
+    {.ver     = MOQVER_D23,
+     .tok     = "moqt-23",
+     .caps    = MOQVER_CAPS_D22 | MOQVER_CAP_CTL_LEN_VI |
+                MOQVER_CAP_OPT_MAX_CTL_SIZE | MOQVER_CAP_CLOSE_CODES23 |
+                MOQVER_CAP_UNAVAILABLE | MOQVER_CAP_ERR_DETAILS |
+                MOQVER_CAP_FETCH_STREAM23 | MOQVER_CAP_FETCH_REQUEST_OK |
+                MOQVER_CAP_LATE_FORWARD | MOQVER_CAP_PAUSED |
+                MOQVER_CAP_FILL_COUNT | MOQVER_CAP_NS_PARAMS |
+                MOQVER_CAP_PUBNS_DUP | MOQVER_CAP_UP_LOSS |
+                MOQVER_CAP_UPD_ERR_ENDS | MOQVER_CAP_RELAY_LARGEST,
+     .offered = 0},
+    {.ver     = MOQVER_D22,
+     .tok     = "moqt-22",
+     .caps    = MOQVER_CAPS_D22 | MOQVER_CAP_PREFIX_OVERLAP,
+     .offered = 1},
+    {.ver     = MOQVER_D19,
+     .tok     = "moqt-19",
+     .caps    = MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
+                MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE |
+                MOQVER_CAP_PREFIX_OVERLAP,
+     .offered = 1},
+    {.ver  = MOQVER_D18,
+     .tok  = "moqt-18",
+     .caps = MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
+             MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
+             MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE |
+             MOQVER_CAP_PREFIX_OVERLAP,
+     .offered = 1},
 };
 
 static int moqver_tok_eq(wired_span token, const char* tok) {
