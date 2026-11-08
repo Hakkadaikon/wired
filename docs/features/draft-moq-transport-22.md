@@ -1292,7 +1292,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
     `test_moqtrun_fetch_descending_unknown_groups`,
     `test_moqtrun_fetch_descending_skips_missing_group`,
     `test_moqtrun_fetch_descending_start_object`
-  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます(known-limitations.md を参照)。
+  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます([既知の制限](../security/limitations/moqt-drafts.md)を参照)。
 - [x] MQ22-198 (SS3.3.1) ライブの Track に後から加わった購読者は、その Location Filter の始点の Group から始めなければならない。ライブの先端より前の始点は現在の Group に切り詰め、未来の始点はその Group まで配送を止める。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`
@@ -1355,7 +1355,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssa_scope`
   - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_moqtail_ssa`
   - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_moqtail_ssa_trailing`
-- [x] MQ22-X03 (0x09 SSTS_ALGORITHMS Setup Option, codec) コーデックは、このオプションを algorithm-id の varint を連結したものとしてデコード・エンコードし、既知の ID を先にして最大 `MOQCTL_SSTS_MAX_ALGS`(4)個まで保持しなければならない。不正なリストは、閉じずに無視する(意図的な逸脱。[既知の制限](known-limitations.md#moqt-の-track-切り替え実験的)を参照)。
+- [x] MQ22-X03 (0x09 SSTS_ALGORITHMS Setup Option, codec) コーデックは、このオプションを algorithm-id の varint を連結したものとしてデコード・エンコードし、既知の ID を先にして最大 `MOQCTL_SSTS_MAX_ALGS`(4)個まで保持しなければならない。不正なリストは、閉じずに無視する(意図的な逸脱。[既知の制限](../security/limitations/moqt-switching.md)を参照)。
   - test: `tests/app/moqctl_switch_test.c` — `test_mcsw_ssts_absent`,
     `test_mcsw_ssts_two`, `test_mcsw_ssts_cap_keeps_known`,
     `test_mcsw_ssts_malformed`

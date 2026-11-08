@@ -7,7 +7,6 @@
 | 前提文書 | [README](../README.md) |
 | 関連文書 | [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/)(利用者向け)、[API リファレンス](https://hakkadaikon.github.io/wired/) |
 
-<a id="wired-documentation"></a><a id="wired-のドキュメント"></a><a id="where-to-start"></a><a id="どこから読むか"></a>
 
 ## 1. 読む順
 
@@ -29,8 +28,6 @@ flowchart LR
 
 アプリケーションの作り方(API の使い方、フラグ、証明書の設定)は [wired ガイド](https://hakkadaikon.github.io/wired/guide/ja/) にある。
 
-<a id="learn-it"></a><a id="学ぶ"></a><a id="understand-it"></a><a id="理解する"></a><a id="use-it-as-a-dependency"></a><a id="依存先として使う"></a>
-<a id="check-how-well-it-is-tested"></a><a id="テストの度合いを確かめる"></a><a id="measure-it"></a><a id="測る"></a><a id="change-it"></a><a id="変更する"></a>
 
 ## 2. 文書体系
 

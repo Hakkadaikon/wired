@@ -1,6 +1,5 @@
 # ベンチマークの実行結果
 
-<a id="benchmark-runs"></a>
 
 [ドキュメント](../README.md) › [試験と品質](../verification/README.md) › [実装の比較](comparison.md) › ベンチマークの実行結果
 
@@ -13,7 +12,6 @@
 
 2026-11-02 時点のスナップショットで、wired は `efd61452e` である。
 
-<a id="loopback-lane"></a><a id="ループバックの計測"></a>
 
 ## 1. ループバックの計測
 
@@ -78,7 +76,6 @@ quiche-p2 r5 mode=load n=10000 fails=0 reqps=22359.8 p50=0.79 p99=2.56 cpu%=118
 quiche-p2 r5 usage kind=load reqs=10000 dticks=36 wall_ms=471 hz=100 vmhwm_kb=8468 vmrss_kb=8468
 ```
 
-<a id="goodput-lane"></a><a id="グッドプットの計測"></a>
 
 ## 2. グッドプットの計測
 
@@ -92,7 +89,6 @@ quic-interop-runner は `045b88d`、クライアントは `martenseemann/quic-go
 | ngtcp2 | 9316 9392 9297 9385 9371 | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:ffb4689908dc` |
 | picoquic | 9099 9106 9151 9105 9130 | `privateoctopus/picoquic@sha256:4d1da8e8557c` |
 
-<a id="binary-sections"></a><a id="バイナリのセクション"></a>
 
 ## 3. バイナリのセクション
 

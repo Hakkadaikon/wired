@@ -2,7 +2,6 @@
 
 [ドキュメント](../README.md) › [要件台帳](README.md) › MoQT の Track 切り替え
 
-<a id="moqt-track-switching-experimental-moqtail-compatible"></a><a id="moqt-の-track-切り替え実験的moqtail-互換"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -17,7 +16,6 @@
 | Largest | ハブがその Track で見た最も新しい Group と Object |
 | A / B | 切り替えで離れる側の購読 / 有効にする側の購読 |
 
-<a id="what-it-does-and-how-mature-it-is"></a><a id="機能と成熟度"></a>
 
 ## 1. 機能と成熟度
 
@@ -38,7 +36,6 @@
 
 検証はすべてプロセス内(ループバック)の実行と、moqtail-rs の単体テストから写したコーデックのベクターである。**第三者の実装と組み合わせて動かしたことはない。** 項目ごとの状況は draft-22 の要件台帳に、制限は [既知の制限: MoQT の Track 切り替え](../security/limitations/moqt-switching.md) にある。
 
-<a id="wire-format"></a><a id="ワイヤー形式"></a>
 
 ## 2. ワイヤー形式
 
@@ -94,7 +91,6 @@
 
 draft-22 ではこの関数が 0x3(draft-18/19 の SUBSCRIPTION_ENDED)を TRACK_ENDED に対応させるので、"switched" が別のコードになる。そのため 0x3 は専用の経路(`src/app/moqt/run/moqtswitch.h` の `moqtsw_done_code`)で書き、変換せずに送る。
 
-<a id="switch_from"></a>
 
 ## 3. SWITCH_FROM
 
@@ -104,7 +100,6 @@ SWITCH_FROM {A の Request ID、Mode、Flags} を持つ Track B への SUBSCRIBE
 
 draft-22 では、各リクエストを専用の双方向ストリームである **リクエストストリーム** で運べ、そのリクエストへの応答もこのストリームで運ぶ。セッションで共有する制御ストリームで送ったリクエストは、専用のリクエストストリームを持たない。
 
-<a id="boundary-rule"></a><a id="境界の規則"></a>
 
 ### 3.1 境界の規則
 
@@ -151,7 +146,6 @@ A が終わったあとは B の開始位置を制限せず、その後の再計
 
 別版どうしは同じ Group 番号を使う必要がある。ハブはこれを前提とし、確かめない。
 
-<a id="hard-and-soft"></a><a id="hard-と-soft"></a>
 
 ### 3.2 Hard と Soft
 
@@ -197,7 +191,6 @@ stateDiagram-v2
     Gone --> [*]
 ```
 
-<a id="refusals"></a><a id="拒否"></a>
 
 ### 3.3 拒否
 
@@ -244,7 +237,6 @@ flowchart TD
     bad[REQUEST_ERROR INVALID_SWITCH 0x32<br/>nothing changes]
 ```
 
-<a id="ssts-sender-side-track-switching"></a><a id="ssts-送信側での-track-切り替え"></a>
 
 ## 4. SSTS(送信側での Track 切り替え)
 
@@ -305,7 +297,6 @@ flowchart TD
     nogate --> gate
 ```
 
-<a id="algorithms"></a><a id="アルゴリズム"></a>
 
 ### 4.1 アルゴリズム
 
@@ -352,7 +343,6 @@ tier は pacing set(セッションのセット表で最初の有効な backpres
 
 定数は `src/app/moqt/ssts/moqssts.h` にある(`MOQSSTS_DEPTH_TARGET`、`MOQSSTS_DOWNSHIFT_DEPTH`、`MOQSSTS_UPSHIFT_GOP_STREAK`、`MOQSSTS_COOLDOWN_HIGH_STREAK`)。
 
-<a id="hub-configuration"></a><a id="ハブの設定"></a>
 
 ## 5. ハブの設定
 

@@ -1,6 +1,5 @@
 # 実装の比較
 
-<a id="implementation-comparison"></a>
 
 [ドキュメント](../README.md) › [試験と品質](../verification/README.md) › 実装の比較
 
@@ -13,7 +12,6 @@
 
 数値はすべて、1 台のマシンで同じ日に取った 1 回分の計測である(2026-11-02、wired は `efd61452e`)。
 
-<a id="at-a-glance"></a><a id="概要"></a>
 
 ## 1. 概要
 
@@ -31,7 +29,6 @@
 
 WebTransport と MoQT の性能は計測していない。
 
-<a id="feature-matrix"></a><a id="機能の比較表"></a>
 
 ## 2. 機能の比較表
 
@@ -53,7 +50,6 @@ WebTransport と MoQT の性能は計測していない。
 
 wired の QUIC の機能の「あり」は、wired 自身のテストに加え、独立したクライアントとの相互運用性テストでも確かめている。
 
-<a id="goodput-over-a-simulated-link"></a><a id="模擬リンクでのグッドプット"></a>
 
 ## 3. 模擬リンクでのグッドプット
 
@@ -84,7 +80,6 @@ xychart-beta
 
 この計測では 10 Mbps のリンクが上限になる。
 
-<a id="loopback-cost-per-request"></a><a id="ループバック-1-リクエストあたりのコスト"></a>
 
 ## 4. ループバックでの 1 リクエストあたりのコスト
 
@@ -114,7 +109,6 @@ xychart-beta
 
 どの実行でも、失敗したリクエストは 0 件である。
 
-<a id="memory-cpu-and-binary-size"></a><a id="メモリcpuバイナリサイズ"></a>
 
 ## 5. メモリ、CPU、バイナリサイズ
 
@@ -142,7 +136,6 @@ xychart-beta
 
 wired はテーブルを起動時にまとめて確保する(`bss` で約 29 MB)。実メモリに載るのは書き込んだページだけで、閉じた接続のページはカーネルに返す。詳細は [メモリ配置とサイズ](../architecture/memory.md) にある。
 
-<a id="environment-and-reproduction"></a><a id="環境と再現方法"></a>
 
 ## 6. 環境と再現方法
 
@@ -157,7 +150,6 @@ wired はテーブルを起動時にまとめて確保する(`bss` で約 29 MB)
 | グッドプットの実行 | quic-interop-runner で `python run.py -s <server> -c quic-go -t goodput`。wired は [interop/README.md](../../interop/README.md) のとおりに登録する |
 | 証明書 | SAN に `127.0.0.1` を入れる。wired は証明書が対象にしていない名前へのリクエストに 421 を返す |
 
-<a id="footnotes"></a><a id="脚注"></a>
 
 ## 7. 脚注
 

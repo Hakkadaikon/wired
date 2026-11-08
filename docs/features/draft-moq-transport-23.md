@@ -1440,7 +1440,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
     `test_moqtrun_fetch_descending_unknown_groups`,
     `test_moqtrun_fetch_descending_skips_missing_group`,
     `test_moqtrun_fetch_descending_start_object`
-  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます(known-limitations.md を参照)。
+  - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます([既知の制限](../security/limitations/moqt-drafts.md)を参照)。
 - [x] MQ23-198 (SS3.3.1) ライブの Track に後から加わった購読者は、その Location Filter の始点の Group から始めなければならない。ライブの先端より前の始点は現在の Group に切り詰め、未来の始点はその Group まで配送を止める。
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_sub_live_attach_filter_start`

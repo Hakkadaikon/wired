@@ -247,7 +247,6 @@ RENDEZVOUS_TIMEOUT にも従う([ドラフトと raw QUIC](moqt-drafts.md#13-意
 
 参照: MoQT の台帳の対象外の節
 
-<a id="220-track-properties-は-subscribe_ok-でだけ転送し32-バイトまで"></a>
 
 ### 2.20 Track Properties は SUBSCRIBE_OK でだけ転送し、96 バイトまで
 

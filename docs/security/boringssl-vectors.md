@@ -2,7 +2,6 @@
 
 [ドキュメント](../README.md) › [セキュリティ設計](README.md) › BoringSSL のテストベクター
 
-<a id="boringssl-test-vectors-as-a-third-party-oracle"></a><a id="第三者オラクルとしての-boringssl-テストベクター"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -13,7 +12,6 @@
 
 ## 1. 出どころ
 
-<a id="what-a-test-vector-is"></a><a id="テストベクターとは"></a><a id="why-vectors-from-another-implementation"></a><a id="ほかの実装のベクターを使う理由"></a>
 
 RFC や FIPS の例は数が少なく、通常の経路しか扱わない。まれな分岐のバグ(多倍長演算の繰り上がり、境界にある長さ、拒否すべき不正な形式の署名)は、RFC の例をすべて通ることがある。
 
@@ -28,7 +26,6 @@ BoringSSL は Google の TLS ライブラリで、Chrome と Android が使う�
 
 ## 2. FileTest 形式
 
-<a id="boringssls-filetest-format"></a><a id="boringssl-の-filetest-形式"></a>
 
 BoringSSL はベクターをプレーンテキストのファイルに保存し、FileTest というテストランナーがそれを読む。各ケースは `NAME: value`(または `NAME = value`)の行のまとまりで、値はほとんどが 16 進のバイト列である。空行でケースが終わる。AES-128-GCM のケース 1 件は次のとおりである。
 
@@ -52,7 +49,6 @@ TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 
 ## 3. ファイルとテストの置き場所
 
-<a id="where-the-files-and-tests-live"></a><a id="ファイルとテストの置き場所"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -64,7 +60,6 @@ TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 
 ## 4. 結果(2026-10-05)
 
-<a id="how-to-read-the-results-table"></a><a id="結果の表の読み方"></a><a id="results-2026-10-05"></a><a id="結果2026-10-05"></a>
 
 | 列 | 意味 |
 |---|---|
@@ -101,7 +96,6 @@ TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 
 ## 5. テストが失敗しうることの確認
 
-<a id="checking-that-the-tests-can-fail"></a><a id="テストが失敗しうることの確認"></a>
 
 失敗したケースはなく、このオラクルで見つかった未解決の欠陥はない。テストが誤った答えに気づけることを、意図して壊して確かめた。
 
@@ -112,7 +106,6 @@ TAG: ff4c4f1d92b0abb1d0820833d9eb83c7
 
 ## 6. 既知の穴
 
-<a id="known-gaps"></a><a id="既知の穴"></a>
 
 skip にはすべて理由があり、どれも QUIC、HTTP/3、WebTransport、MoQT を弱めない。
 

@@ -2,7 +2,6 @@
 
 [ドキュメント](../README.md) › [セキュリティ設計](README.md) › Wycheproof のテストベクター
 
-<a id="wycheproof-vectors-results"></a><a id="wycheproof-ベクターの結果"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -13,7 +12,6 @@
 
 ## 1. 出どころ
 
-<a id="what-wycheproof-is"></a><a id="wycheproof-とは"></a>
 
 [Project Wycheproof](https://github.com/C2SP/wycheproof) は暗号のテストベクター集で、Google で始まり、いまは C2SP が管理する。
 
@@ -27,7 +25,6 @@
 
 ## 2. ベクターの読み方
 
-<a id="how-to-read-a-vector"></a><a id="ベクターの読み方"></a>
 
 | フィールド | 中身 |
 |---|---|
@@ -71,7 +68,6 @@ flowchart TD
 
 ## 3. 結果(最終更新 2026-10-10)
 
-<a id="results-last-updated-2026-10-10"></a><a id="結果最終更新-2026-10-10"></a>
 
 このスイートは 2026-10-05 に取り込み、P-521 の行を 2026-10-10 に追加した。2026-10-15 に、すべての行を `just test` の `wyc` サマリー行と照らして確かめ直し、一致している。
 
@@ -122,7 +118,6 @@ SHA-2 専用の Wycheproof ファイルはない。ECDSA と RSA のどのケー
 
 ## 4. 「invalid rejected」が示す範囲
 
-<a id="what-invalid-rejected-does-and-does-not-prove"></a><a id="invalid-rejectedが証明することしないこと"></a>
 
 Wycheproof は、正しい実装が拒否しなければならないケースを `invalid` とする。書き換えたタグ、展性(malleability)のある署名や誤ったエンコードの署名、壊れた RSA パディング、255 × 32 バイト(SHA-256 の出力サイズの 255 倍で、RFC 5869 が認める最大)より長い HKDF の出力などである。
 
@@ -130,7 +125,6 @@ invalid rejected の件数には 2 つの限界がある。
 
 ### 4.1 確かめているのは結果だけで、理由ではない
 
-<a id="1-only-the-outcome-is-checked-not-the-reason"></a><a id="1-確かめているのは結果だけで理由は確かめていない"></a>
 
 wired が失敗を返せば、そのケースを拒否として数える。どの検査が拒否したかは確かめない。たとえば ECDSA の範囲検査に当たるよう作ったケースも、別の理由(ダイジェストの不一致など)で検証に失敗すれば通る。これは Wycheproof 自身の合格基準だが、個々の検査がすべて wired にあることの証明にはならない。
 
@@ -138,7 +132,6 @@ HMAC は扱いが違う。wired には HMAC の検証関数がないので、テ
 
 ### 4.2 wired の API では表現できない invalid な入力
 
-<a id="2-some-invalid-inputs-cannot-be-expressed-through-wireds-api"></a><a id="2-wired-の-api-では表現できない-invalid-な入力がある"></a>
 
 `invalid` な入力の一部は wired に渡せない。たとえば wired の ChaCha20-Poly1305 関数は 96 ビット固定の nonce を受け取るので、64 ビットの nonce を渡す手段がない。テストはこうしたケースを構造上の拒否として数える(2 章の図の「no, result = invalid」の出口)。答えは正しいが、wired のコードは動いていない。
 
@@ -163,7 +156,6 @@ wired のコードを通った拒否は次のとおりである。
 
 ## 5. フラグ名のテスト
 
-<a id="flag-named-tests"></a><a id="フラグ名のテスト"></a>
 
 一部のフラグには、その名前を付けた専用のテストがある。そのフラグを持つ `invalid` なケースだけを実行するので、ある攻撃の種類でリグレッションが起きると、合計の中の失敗 1 件ではなく名前で分かる。
 

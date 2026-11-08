@@ -2,7 +2,6 @@
 
 [ドキュメント](../README.md) › [要件台帳](README.md) › 台帳の書式
 
-<a id="requirement-ledger-format"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -13,7 +12,6 @@
 
 各台帳は 1 つの仕様についての EARS 形式の要件台帳で、各要件をそれを確かめる既存のテストに結び付ける。テストされていない要件を一覧で示すのが目的である。機械で確かめられる規則は `scripts/check_features.py` が強制する。
 
-<a id="file-skeleton-follow-exactly"></a><a id="ファイルの骨組みこのとおりに書く"></a>
 
 ## 1. ファイルの骨組み(このとおりに書く)
 
@@ -49,7 +47,6 @@
 - (§6.2) クライアントが始めるバージョンネゴシエーションの応答の処理: クライアントの動作。
 ```
 
-<a id="rules"></a><a id="規則"></a>
 
 ## 2. 規則
 
@@ -115,7 +112,7 @@
 
 ### 2.6 テストの探し場所
 
-`tests/{transport,crypto,tls,app,common}/<domain>_test.c` の `static void test_*` 関数である。手がかりの対応表は `docs/test-coverage.md`(ベクターの置き場所)にある。対応表は証拠にならないので、必ず grep で確かめる。
+`tests/{transport,crypto,tls,app,common}/<domain>_test.c` の `static void test_*` 関数である。手がかりの対応表は `docs/verification/coverage.md`(ベクターの置き場所)にある。対応表は証拠にならないので、必ず grep で確かめる。
 
 ### 2.7 集計の行
 

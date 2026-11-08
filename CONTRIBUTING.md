@@ -26,5 +26,5 @@ include the RFC section you believe is violated where possible.
 ## Security
 
 Do not open a public issue for a suspected security vulnerability. See
-[docs/security.md](docs/security/README.md) for what the SDK guarantees and what it
+[docs/security/](docs/security/README.md) for what the SDK guarantees and what it
 leaves to the caller, then contact the maintainers privately.

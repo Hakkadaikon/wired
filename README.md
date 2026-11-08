@@ -19,11 +19,9 @@ C で書いた QUIC・HTTP/3・WebTransport・Media over QUIC Transport(MoQT)の
 | 動作環境 | x86_64 Linux([10. 動作環境](#10-動作環境)) |
 | ライセンス | MIT |
 
-<a id="why-wired"></a><a id="wired-の特長"></a>
 
 ## 2. 設計上の特徴
 
-<a id="nothing-to-trust-but-this-repository"></a><a id="信頼すべきものはこのリポジトリだけ"></a><a id="readable-down-to-the-bytes"></a><a id="バイト単位まで読める"></a>
 
 ### 2.1 依存関係
 
@@ -52,7 +50,6 @@ flowchart LR
 
 汚染しうる上流パッケージも、乗っ取りうる推移的依存もない。サーバーが実行するバイトはすべてこのリポジトリで読める。
 
-<a id="no-heap-no-malloc--free-to-get-wrong"></a><a id="ヒープを使わない"></a>
 
 ### 2.2 メモリ管理
 
@@ -85,7 +82,6 @@ flowchart LR
 
 ASan の下では SDK のスレッドが pthread として動くので、use-after-return の検査に必要なスレッドローカル領域を各スレッドが持つ。
 
-<a id="media-over-quic-not-only-http"></a><a id="http-だけでなく-media-over-quic-も"></a>
 
 ### 2.3 MoQT リレー
 
@@ -120,7 +116,6 @@ flowchart LR
 
 フラグの一覧は [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) にある。
 
-<a id="hardened-and-checked-on-every-push"></a><a id="堅牢化と-push-ごとのチェック"></a>
 
 ## 3. 品質保証
 
@@ -138,7 +133,6 @@ push のたびに次の検査を実行する。
 
 脅威モデルとプロトコルごとの防御は [セキュリティ設計](docs/security/README.md) にある。
 
-<a id="fast-and-small"></a><a id="速くて小さい"></a>
 
 ## 4. 性能
 
@@ -160,7 +154,6 @@ push のたびに次の検査を実行する。
 
 機能の比較表、すべての計測レーン、再現方法は [実装の比較](docs/performance/comparison.md) にある。
 
-<a id="how-the-layers-fit"></a><a id="層の組み合わせ"></a>
 
 ## 5. 構成
 
@@ -202,7 +195,6 @@ flowchart TD
 
 各ボックスの元になる仕様は [実装している仕様](docs/design/specs.md)、各層の説明は [基本設計](docs/architecture/README.md) にある。
 
-<a id="what-the-code-looks-like"></a><a id="コードの見た目"></a>
 
 ## 6. コードの例
 
@@ -247,7 +239,6 @@ int wired_main(int argc, char** argv) {
 
 動くサーバーまでの手順は [インタラクティブガイド](https://hakkadaikon.github.io/wired/guide/ja/) にある。
 
-<a id="examples"></a><a id="サンプル"></a>
 
 ## 7. サンプル
 
@@ -258,7 +249,6 @@ int wired_main(int argc, char** argv) {
 | [webtransport_interop](examples/webtransport_interop/) | [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner) の WebTransport サーバーエンドポイント。実際のクライアント実装を相手に、ストリームと DATAGRAM でファイルを転送する |
 | [moqt_interop](examples/moqt_interop/) | [moq-interop-runner](https://github.com/englishm/moq-interop-runner) のリレー。WebTransport 上の MoQT リレー(セッションごとに draft-18/19/22/23 をネゴシエーション)を、実際のクライアント実装を相手にテストする |
 
-<a id="interop-results"></a><a id="相互接続テストの結果"></a><a id="8-相互接続テストの結果"></a>
 
 ## 8. 相互運用性テストの結果
 
@@ -270,7 +260,6 @@ int wired_main(int argc, char** argv) {
 | WebTransport | <https://quic-interop-runner-wired.vercel.app/webtransport> | <https://interop.seemann.io/webtransport> |
 | MoQT(リレー役) | <https://moq-interop-runner-wired.vercel.app> | <https://englishm.github.io/moq-interop-runner/> |
 
-<a id="documentation"></a><a id="ドキュメント"></a>
 
 ## 9. ドキュメント
 
@@ -283,7 +272,6 @@ int wired_main(int argc, char** argv) {
 | [API リファレンス](https://hakkadaikon.github.io/wired/) | 公開インターフェースの全体 |
 | [既知の制限](docs/security/limitations/README.md) | 意図的に仕様から外れている点と容量の制限 |
 
-<a id="supported-platform"></a><a id="対応プラットフォーム"></a>
 
 ## 10. 動作環境
 
@@ -296,7 +284,6 @@ int wired_main(int argc, char** argv) {
 
 ドライバーのフラグは [サーバーのフラグ](https://hakkadaikon.github.io/wired/guide/ja/quic/server-flags/) にある。
 
-<a id="license"></a><a id="ライセンス"></a>
 
 ## 11. ライセンス
 

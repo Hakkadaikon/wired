@@ -182,8 +182,9 @@ void srvloop_gather_wt_one(
 
 /* A fragment that overtook stream_id's 0x41 signal claimed a request slot
  * (wired_srvloop_slot_for): free it now that the stream is WebTransport.
- * shortcut: its bytes are dropped (known-limitations.md, "A WT bidi stream
- * must start in order"); adopt them into the WT slot if reordering is seen. */
+ * shortcut: its bytes are dropped (docs/security/limitations/http3.md 1.8,
+ * "WT bidi stream must start in order"); adopt them into the WT slot if
+ * reordering is seen. */
 static void wt_drop_overtaken(wired_srvloop* l, u64 stream_id) {
   if (srvloop_stream_slot_find(l, stream_id) >= 0) {
     wired_srvloop_slot_release(l, stream_id);

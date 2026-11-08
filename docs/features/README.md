@@ -2,7 +2,6 @@
 
 [ドキュメント](../README.md) › 要件台帳
 
-<a id="features--per-spec-requirement-ledgers"></a><a id="機能-仕様ごとの要件台帳"></a>
 
 | 項目 | 内容 |
 |---|---|
@@ -11,7 +10,6 @@
 | 前提文書 | [台帳の書式](FORMAT.md) |
 | 関連文書 | [相互運用性の検証結果](../verification/interop.md)、[既知の制限](../security/limitations/README.md) |
 
-<a id="what-a-requirement-ledger-is"></a><a id="要件台帳とは"></a>
 
 ## 1. 要件台帳
 
@@ -27,7 +25,6 @@
 | `test:` 行 | `tests/` の下のテストファイルと、その中のテスト関数を挙げる |
 | 検査 | `scripts/check_features.py`(`just features-check`。CI で実行)が、挙げたファイルと関数の存在、ID の重複のなさ、各カバレッジ行と下の表がチェックボックスと一致することを確かめる |
 
-<a id="what-the-markers-mean"></a><a id="印の意味"></a>
 
 ## 2. 印の意味
 
@@ -54,7 +51,6 @@ flowchart TD
     I -- no --> U["[ ] untested<br/>an open gap"]
 ```
 
-<a id="reading-the-tables"></a><a id="表の読み方"></a>
 
 ## 3. 表の読み方
 
@@ -65,7 +61,6 @@ flowchart TD
 | 間接 | `[~]` の数(確認済みとテスト済みの差) |
 | 未テスト | `[ ]` の数 |
 
-<a id="why-interop-is-tracked-separately"></a><a id="相互接続性を別に追う理由"></a>
 
 ## 4. 相互運用性を別に追う理由
 
@@ -73,14 +68,12 @@ flowchart TD
 
 ワイヤー上の互換性は独立した実装(第三者の QUIC クライアント)を相手に動かしたときだけ示せるので、その結果は [相互運用性の検証結果](../verification/interop.md) にまとめている。
 
-<a id="coverage-by-spec"></a><a id="仕様ごとのカバレッジ"></a>
 
 ## 5. 仕様ごとのカバレッジ
 
 **合計: 2556/2563 件の要件を確認済み(99.7%)。内訳は直接テスト 2221 件、
 間接 335 件、未テスト 7 件。**
 
-<a id="quic-core"></a><a id="quic-のコア"></a>
 
 ### 5.1 QUIC のコア
 
@@ -91,7 +84,6 @@ flowchart TD
 | [RFC 9002: 損失検出と輻輳制御](rfc9002.md) | 75/75 | 62 | 13 | 0 |
 | [RFC 8999: バージョンに依存しない性質](rfc8999.md) | 16/16 | 14 | 2 | 0 |
 
-<a id="quic-extensions"></a><a id="quic-の拡張"></a>
 
 ### 5.2 QUIC の拡張
 
@@ -105,7 +97,6 @@ flowchart TD
 | [RFC 9312: 管理性(Informational)](rfc9312.md) | 5/5 | 3 | 2 | 0 |
 | [RFC 8899: DPLPMTUD](rfc8899.md) | 34/34 | 26 | 8 | 0 |
 
-<a id="tls-and-pki"></a><a id="tls-と-pki"></a>
 
 ### 5.3 TLS と PKI
 
@@ -121,7 +112,6 @@ flowchart TD
 | [RFC 7301: ALPN](rfc7301.md) | 15/15 | 13 | 2 | 0 |
 | [RFC 8017: PKCS #1(RSA)](rfc8017.md) | 23/23 | 18 | 5 | 0 |
 
-<a id="cryptographic-primitives"></a><a id="暗号プリミティブ"></a>
 
 ### 5.4 暗号プリミティブ
 
@@ -139,7 +129,6 @@ flowchart TD
 | [FIPS 180-4: SHA-2](fips180-4.md) | 26/26 | 24 | 2 | 0 |
 | [FIPS 198-1: HMAC](fips198-1.md) | 10/10 | 9 | 1 | 0 |
 
-<a id="http3-and-qpack"></a><a id="http3-と-qpack"></a>
 
 ### 5.5 HTTP/3 と QPACK
 
@@ -151,7 +140,6 @@ flowchart TD
 | [RFC 7541: HPACK(QPACK が再利用)](rfc7541.md) | 18/18 | 18 | 0 | 0 |
 | [RFC 9218: 拡張可能な優先度](rfc9218.md) | 22/22 | 18 | 4 | 0 |
 
-<a id="webtransport"></a>
 
 ### 5.6 WebTransport
 
@@ -161,7 +149,6 @@ flowchart TD
 | [RFC 9220: Extended CONNECT](rfc9220.md) | 10/10 | 9 | 1 | 0 |
 | [RFC 9297: HTTP データグラムとカプセル](rfc9297.md) | 27/27 | 22 | 5 | 0 |
 
-<a id="moqt"></a>
 
 ### 5.7 MOQT
 
@@ -176,7 +163,6 @@ flowchart TD
 
 テストはプロセス内だけで、第三者との相互運用性テストはしていない。項目は draft-22 の台帳の [実験的な拡張](draft-moq-transport-22.md#実験的な拡張moqtail-互換の-track-切り替え) の節にある。
 
-<a id="ipudp-foundations"></a><a id="ipudp-の基盤"></a>
 
 ### 5.8 IP/UDP の基盤
 

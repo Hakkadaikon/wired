@@ -9,7 +9,6 @@
 | 前提文書 | [概要](overview/README.md)(libc を使わない理由) |
 | 関連文書 | [コーディング規約](standards/coding.md)、[I/O ドライバー](architecture/io-drivers.md) |
 
-<a id="syscalls"></a><a id="what-a-syscall-is-and-why-wired-issues-its-own"></a><a id="システムコールとは何かなぜ-wired-は自分で発行するのか"></a>
 
 ## 1. 概要
 
@@ -25,7 +24,6 @@
 | メモリ | 閉じた接続のページの返却 | `madvise` |
 | ユーティリティ | 時計、乱数 | `clock_gettime`, `getrandom` |
 
-<a id="where-syscalls-live-in-the-code"></a><a id="コードの中のシステムコールの置き場所"></a>
 
 ## 2. コードの中の置き場所
 
@@ -53,7 +51,6 @@ flowchart LR
 | `wired_arch_clone_raw` | 新しいスレッドが新しいスタックで動き始める |
 | `wired_arch_sigreturn_restorer` | シグナルハンドラーからの戻り道 |
 
-<a id="terms-used-in-the-table"></a><a id="表で使う用語"></a>
 
 ## 3. マルチコアのドライバー
 
@@ -64,7 +61,6 @@ flowchart LR
 | フォーク型ワーカードライバー | `--workers N` | N 個のプロセスをフォークし、スーパーバイザープロセスが見守る | `app/http3/server/srvworkers/srvworkers.c` |
 | スレッドドライバー | `--cores a,b,c` | 1 つのプロセスの中で CPU ごとに 1 スレッドを動かし、制御スレッドがまとめる | `app/http3/server/srvthreads/srvthreads.c` |
 
-<a id="the-table"></a><a id="表"></a>
 
 ## 4. 表
 
@@ -117,7 +113,6 @@ flowchart LR
 | `getrandom` | 318 | `syscall.h` | カーネルの CSPRNG(暗号論的に安全な乱数生成器)の乱数でバッファーを埋める。 | `common/platform/rng/rng.c` の `rng_bytes` が SDK の唯一の乱数源で、接続 ID、鍵の材料、nonce に使う。求めた長さが埋まるまでループする。 |
 | `bpf` | 321 | `syscall.h` | `bpf(2)` のコマンドを発行する(マップの作成・更新、プログラムのロード、リンクの作成)。 | `transport/io/xdp/xdpbpf/xdpbpf.c` が AF_XDP へのリダイレクトを用意する。`xdpbpf_map_create`(`BPF_MAP_CREATE`)が XSKMAP を作り、`xdpbpf_map_set`(`BPF_MAP_UPDATE_ELEM`)が 1 つのキューのソケット fd をそこに入れ、`xdpbpf_prog_load`(`BPF_PROG_LOAD`)が `xdpbpf_prog_build` で組み立てた XDP プログラムをロードし、`xdpbpf_link_create`(`BPF_LINK_CREATE`)がそれをインターフェースに取り付ける。 |
 
-<a id="ordering-that-avoids-races"></a><a id="競合を避ける順序"></a>
 
 ## 5. 競合を避ける順序
 
@@ -130,7 +125,6 @@ flowchart LR
 | `fork` の前後のマスク(フォーク型ワーカードライバー) | スーパーバイザーは各 `fork` の前後でシグナルをブロックする | 起動したばかりのワーカーに転送した `SIGTERM` は、そのワーカーがハンドラーを既定に戻すまで保留される |
 | `wait4` の前のマスク(フォーク型ワーカードライバー) | スーパーバイザーは各 `wait4` の前に `SIGCHLD`/`SIGTERM` をブロックする | `wait4` から `rt_sigtimedwait` で眠るまでの間に上がったシグナルは保留され、その眠りを起こすので、失われない |
 
-<a id="why-poll-not-epoll"></a><a id="epoll-ではなく-poll-を使う理由"></a>
 
 ## 6. `epoll` ではなく `poll` を使う理由
 
@@ -142,7 +136,6 @@ flowchart LR
 
 fd が 1 つか 2 つなら、`poll` の負担は `epoll` と変わらず、管理する fd も増えない。マルチコアのドライバーは 1 つのループに見張らせる fd を増やさずに、それぞれ自分のソケットを持つループの数を増やす。この選択を見直す条件は、1 つのループが多くの fd を待つようになったときである。
 
-<a id="adding-a-new-syscall"></a><a id="新しいシステムコールの追加"></a>
 
 ## 7. 新しいシステムコールの追加
 
