@@ -104,7 +104,7 @@ void wired_moqt_on_session(
   moqtrun_init_peer(hub, p, s, ver, moqtrun_legacy_token(protocol), 0);
 }
 
-/* Review F4 (MoqtRawConn): a raw session the hub cannot track is closed
+/* A raw session the hub cannot track is closed
  * at once, INTERNAL_ERROR (-22 6.6), not left for the idle sweep. */
 static void moqtrun_refuse_session(wired_moqt_hub* hub, wired_wt_session* s) {
   if (!hub->io.close_session) {

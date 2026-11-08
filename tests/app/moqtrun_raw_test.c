@@ -123,7 +123,7 @@ static void test_moqtrun_raw_policy_refuses(void) {
   CHECK(mtraw_close_code() == WIRED_MOQTRUN_CLOSE_INVALID_PATH);
 }
 
-/* Review F4: with every peer slot taken, a raw session is closed at once
+/* With every peer slot taken, a raw session is closed at once
  * with INTERNAL_ERROR (-22 6.6) instead of waiting for the idle sweep; no
  * SETUP goes to it. */
 static void test_moqtrun_raw_full_hub_closes(void) {

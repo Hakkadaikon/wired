@@ -949,7 +949,7 @@ typedef struct {
 #define WIRED_MOQTRUN_DD_MAX 64
 
 /** One dedup record: subscription (session_idx, request_id) got Location
- * (group, id) of kind through the mirror owner (MoqtMultiPub.tla claim). */
+ * (group, id) of kind through the mirror owner. */
 typedef struct {
   /** The mirror slot that forwarded it: the same mirror may resend. */
   const wired_moqtrun_sub* owner;

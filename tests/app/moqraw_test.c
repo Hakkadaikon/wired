@@ -1,5 +1,5 @@
-/* Raw-QUIC MoQT: Setup Option policy (moqraw.c, plan T-C1..C5) and the
- * transport-mux io table (moqrawio.c, plan T-D1..D4). PATH/AUTHORITY:
+/* Raw-QUIC MoQT: Setup Option policy (moqraw.c) and the
+ * transport-mux io table (moqrawio.c). PATH/AUTHORITY:
  * draft-ietf-moq-transport-18/19 10.3.1.1-2, -22 9.1.1-2; RFC 3986 3.2/3.3. */
 
 static moqctl_setup mqrw_setup(const char* path, const char* auth) {
@@ -16,7 +16,7 @@ static u32 mqrw_v(int raw, const char* path, const char* auth) {
   return moqraw_setup_verdict(raw, &m, 0);
 }
 
-/* T-C1 (R9): path-abempty [?query]. */
+/* RFC 3986 3.3: path-abempty [?query]. */
 static void test_moqraw_path(void) {
   CHECK(mqrw_v(1, 0, 0) == 0);
   CHECK(mqrw_v(1, "", 0) == 0);
@@ -32,7 +32,7 @@ static void test_moqraw_path(void) {
   CHECK(mqrw_v(1, "/\x01", 0) == MOQRAW_CLOSE_MALFORMED_PATH);
 }
 
-/* T-C2 (R8): [userinfo "@"] host [":" port]. */
+/* RFC 3986 3.2: [userinfo "@"] host [":" port]. */
 static void test_moqraw_authority(void) {
   CHECK(mqrw_v(1, 0, "relay:4443") == 0);
   CHECK(mqrw_v(1, 0, "[::1]:443") == 0);
@@ -54,7 +54,7 @@ static void test_moqraw_authority(void) {
   CHECK(mqrw_v(1, 0, "relay/x") == MOQRAW_CLOSE_MALFORMED_AUTHORITY);
 }
 
-/* T-C3: WebTransport keeps the pre-raw behavior (PATH first). */
+/* WebTransport keeps the pre-raw behavior (PATH first). */
 static void test_moqraw_wt(void) {
   CHECK(mqrw_v(0, 0, 0) == 0);
   CHECK(mqrw_v(0, "/", 0) == MOQRAW_CLOSE_INVALID_PATH);
@@ -79,7 +79,7 @@ static u32 mqrw_pol(const char* path, const char* auth, moqraw_policy pol) {
   return moqraw_setup_verdict(1, &m, &pol);
 }
 
-/* T-C4: hook refusal, PATH judged first, hooks see only valid values. */
+/* Hook refusal, PATH judged first, hooks see only valid values. */
 static void test_moqraw_hook(void) {
   int           n   = 0;
   moqraw_policy rp  = {mqrw_refuse, 0, &n};
@@ -101,7 +101,7 @@ static void test_moqraw_hook(void) {
   CHECK(mqrw_pol("/", "h", dft) == 0);
 }
 
-/* T-C5: unknown Setup Options (moqctl_setup_take drops them, duplicates
+/* Unknown Setup Options (moqctl_setup_take drops them, duplicates
  * included, -19 10.3 / -22 9.1) never reach the verdict. */
 static void test_moqraw_unknown(void) {
   /* type 0x21 (odd, 1 byte) twice via delta 0, then even 0x2a = 5 */
@@ -116,7 +116,7 @@ static void test_moqraw_unknown(void) {
   CHECK(moqraw_setup_verdict(0, &m, 0) == 0);
 }
 
-/* ---- T-D: io mux over a recorder backend ---- */
+/* ---- io mux over a recorder backend ---- */
 
 static int mqrw_is_raw;
 static int mqrw_calls;
@@ -145,7 +145,7 @@ static int mqrw_last_is(const u8* want, usz n) {
 
 static wired_wt_session mqrw_sess;
 
-/* T-D1: WT prefixes signal(0x54/0x41, sid=4); raw sends p as is. */
+/* WT prefixes signal(0x54/0x41, sid=4); raw sends p as is. */
 static void test_moqrawio_prefix(void) {
   static const u8 uni[]  = {0x40, 0x54, 0x04, 0xaa, 0xbb};
   static const u8 bidi[] = {0x40, 0x41, 0x04, 0xaa, 0xbb};
@@ -169,7 +169,7 @@ static void test_moqrawio_prefix(void) {
   CHECK(io.stream_stop == wired_server_wt_stream_stop);
 }
 
-/* T-D2: raw opens a bidi stream too (the hub's upstream SUBSCRIBE and
+/* Raw opens a bidi stream too (the hub's upstream SUBSCRIBE and
  * PUBLISH, draft-18 10.1) carrying the payload with no WT signal. */
 static void test_moqrawio_bidi_raw(void) {
   static const u8 pl[] = {0xaa, 0xbb};
@@ -181,7 +181,7 @@ static void test_moqrawio_bidi_raw(void) {
   CHECK(mqrw_last_is(pl, 2));
 }
 
-/* T-D3: WT_MAX_DATA remainder on WT, unlimited on raw. */
+/* WT_MAX_DATA remainder on WT, unlimited on raw. */
 static void test_moqrawio_budget(void) {
   wired_moqt_io io = moqrawio_io(&mqrw_be);
   mqrw_is_raw      = 0;
@@ -195,7 +195,7 @@ static void test_moqrawio_budget(void) {
   CHECK(io.send_budget(&mqrw_sess) == (usz)-1);
 }
 
-/* T-D4: past the production staging -> -1 on both transports. */
+/* Past the production staging -> -1 on both transports. */
 static void test_moqrawio_oversize(void) {
   static u8     big[MOQRAWIO_STAGE_BUF + 1];
   wired_moqt_io io = moqrawio_io(&mqrw_be);

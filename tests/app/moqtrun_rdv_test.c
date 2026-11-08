@@ -1,8 +1,8 @@
 /* Rendezvous: a SUBSCRIBE carrying RENDEZVOUS_TIMEOUT for a track nobody
  * publishes yet is held until a PUBLISH claims it or the timeout expires
  * (draft-ietf-moq-transport-18/19 10.2.6, draft-22 9.20.6; relay rules
- * 18/19 9.5, 22 7.6). Scenarios S1-S18 of the Rendezvous design, each a
- * TLA+ invariant (Rendezvous.tla) or a draft MUST. Shares the recording
+ * 18/19 9.5, 22 7.6). Each scenario below cites the draft text it
+ * checks. Shares the recording
  * io stubs (moqtrun_test.c) and the request-stream fixtures
  * (moqtrun_sub_test.c, moqtrun_ns_test.c, moqtrun_subtracks_test.c) of
  * the same unity TU. */
@@ -184,7 +184,8 @@ static void mrdv_publish(void) {
   mtst_publish(SESS_A, MRDV_S1, &f, 1);
 }
 
-/* S1 AtMostOneAnswer: a hold resolved by PUBLISH is answered once --
+/* 10.2.6 "proceeds with the subscription normally": a hold resolved by
+ * PUBLISH is answered once --
  * SUBSCRIBE_OK, and its deadline passing later sends nothing more. */
 static void test_moqtrun_rdv_s1_one_answer(void) {
   mrdv_init();
@@ -196,7 +197,7 @@ static void test_moqtrun_rdv_s1_one_answer(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
-/* S2 NoSilentDrop + CorrectCode: the deadline answers REQUEST_ERROR
+/* 10.2.6 "If the timeout expires": the deadline answers REQUEST_ERROR
  * TIMEOUT (0x2), exactly at rt and not before, then the hub FINs. */
 static void test_moqtrun_rdv_s2_timeout(void) {
   mrdv_init();
@@ -208,7 +209,7 @@ static void test_moqtrun_rdv_s2_timeout(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S3 R8/R9: no RENDEZVOUS_TIMEOUT, or 0, is DOES_NOT_EXIST at once. */
+/* 10.2.6: no RENDEZVOUS_TIMEOUT, or 0, is DOES_NOT_EXIST at once. */
 static void test_moqtrun_rdv_s3_zero_is_dne(void) {
   moqctl_ftn f = mrdv_f();
   mrdv_init();
@@ -219,8 +220,9 @@ static void test_moqtrun_rdv_s3_zero_is_dne(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S4 ResolveOnPublish: B gets SUBSCRIBE_OK on its own stream and is an
- * active subscriber of A's track; A gets its PUBLISH_OK; the slot frees. */
+/* 10.2.6, a publisher becomes available: B gets SUBSCRIBE_OK on its own stream
+ * and is an active subscriber of A's track; A gets its PUBLISH_OK; the slot
+ * frees. */
 static void test_moqtrun_rdv_s4_resolve(void) {
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 500);
@@ -235,7 +237,7 @@ static void test_moqtrun_rdv_s4_resolve(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S5: two subscribers holding one track both resolve; each is told the
+/* 10.2.6: two subscribers holding one track both resolve; each is told the
  * alias its own subscription's relayed objects carry (Track Alias is
  * per session, draft-22 3.1.3, so the two may share a number). */
 static void test_moqtrun_rdv_s5_two_resolved(void) {
@@ -250,8 +252,8 @@ static void test_moqtrun_rdv_s5_two_resolved(void) {
   CHECK(mrdv_alias(SESS_C, MRDV_S1) == mtst_sub(SESS_A, SESS_C)->track_alias);
 }
 
-/* S6 ClampOK: a longer request is clamped to WIRED_MOQTRUN_RDV_MAX_MS
- * (R7 MAY use a shorter timeout). */
+/* A longer request is clamped to WIRED_MOQTRUN_RDV_MAX_MS (10.2.6: the
+ * relay MAY use a shorter timeout). */
 static void test_moqtrun_rdv_s6_clamp(void) {
   mrdv_init();
   mrdv_hold(SESS_B, MRDV_S1, 60000);
@@ -261,7 +263,7 @@ static void test_moqtrun_rdv_s6_clamp(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
 }
 
-/* S7 NoSilentDrop (TLA+ MC_bug): a subscriber FIN is no cancellation
+/* A subscriber FIN is no cancellation
  * (draft-19 3.3.2) -- the hub neither FINs nor resets the held stream,
  * and the answer still comes: (a) SUBSCRIBE_OK on PUBLISH, (b) TIMEOUT
  * then the hub's FIN, and the slot frees. */
@@ -282,7 +284,7 @@ static void test_moqtrun_rdv_s7_fin_keeps_hold(void) {
   CHECK(mtrq_used() == 0);
 }
 
-/* S8 CancelClean: RESET_STREAM / STOP_SENDING cancels the hold -- the
+/* draft-19 3.3.3: RESET_STREAM / STOP_SENDING cancels the hold -- the
  * hub resets its side CANCELLED, and nothing is ever answered there. */
 static void test_moqtrun_rdv_s8_reset_cancels(void) {
   mrdv_init();
@@ -295,7 +297,7 @@ static void test_moqtrun_rdv_s8_reset_cancels(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "RST1|"));
 }
 
-/* S9 CancelClean (session): a closed session's holds go with it, so a
+/* draft-19 3.5: a closed session's holds go with it, so a
  * new session reusing the same handle and stream id is not answered for
  * the old one's SUBSCRIBE. */
 static void test_moqtrun_rdv_s9_session_close(void) {
@@ -319,7 +321,7 @@ static void mrdv_check_load(wired_wt_session* s, u64 sid) {
   CHECK(mrdv_err(s, sid).retry_interval == WIRED_MOQTRUN_RDV_RETRY);
 }
 
-/* S10 CapacityRespected: past WIRED_MOQTRUN_RDV_PER_SESSION, or past
+/* Past WIRED_MOQTRUN_RDV_PER_SESSION, or past
  * WIRED_MOQTRUN_MAX_RDV hub-wide, the SUBSCRIBE is refused EXCESSIVE_LOAD
  * at once (10.6), never dropped; earlier holds are unaffected. */
 static void test_moqtrun_rdv_s10_capacity(void) {
@@ -350,7 +352,7 @@ static void test_moqtrun_rdv_s10_capacity(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S11: the single-bidi control stream (no request stream to answer on
+/* The single-bidi control stream (no request stream to answer on
  * later) is never held: DOES_NOT_EXIST at once. */
 static void test_moqtrun_rdv_s11_control_stream(void) {
   u64 cb;
@@ -361,7 +363,7 @@ static void test_moqtrun_rdv_s11_control_stream(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S12 (18/19 9.5, 22 7.6 MUST NOT also forward): C holds the track and
+/* 18/19 9.5, 22 7.6 (MUST NOT also forward): C holds the track and
  * has SUBSCRIBE_TRACKS on its namespace -- C gets SUBSCRIBE_OK and no
  * hub-opened PUBLISH; D with SUBSCRIBE_TRACKS only gets the PUBLISH. */
 static void test_moqtrun_rdv_s12_subtracks_skips_held(void) {
@@ -378,8 +380,8 @@ static void test_moqtrun_rdv_s12_subtracks_skips_held(void) {
   CHECK(mtst_pub_opens(SESS_D, got, 2) == 1);
 }
 
-/* S13 AtMostOneAnswer (draft-19 10.9): a REQUEST_UPDATE on a held stream
- * answers the SUBSCRIBE first (TIMEOUT, R7 shorter timeout), then the
+/* draft-19 10.9: a REQUEST_UPDATE on a held stream answers the SUBSCRIBE
+ * first (TIMEOUT, 10.2.6 shorter timeout), then the
  * update (DOES_NOT_EXIST); a later PUBLISH adds nothing. */
 static void test_moqtrun_rdv_s13_update_on_hold(void) {
   u8  upd[16];
@@ -395,7 +397,7 @@ static void test_moqtrun_rdv_s13_update_on_hold(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|E10|FIN|"));
 }
 
-/* S14: one session holding one track twice -- draft-18 answers the
+/* One session holding one track twice -- draft-18 answers the
  * second DUPLICATE_SUBSCRIPTION (6.3), draft-19/22 re-answer
  * SUBSCRIBE_OK with the same alias (5.1). */
 static void test_moqtrun_rdv_s14_twice_one_session(void) {
@@ -412,7 +414,7 @@ static void test_moqtrun_rdv_s14_twice_one_session(void) {
   CHECK(mrdv_alias(SESS_B, MRDV_S1) == mrdv_alias(SESS_B, MRDV_S2));
 }
 
-/* S15: a PUBLISH_NAMESPACE sends the hold upstream (9.5,
+/* A PUBLISH_NAMESPACE sends the hold upstream (9.5,
  * moqtrun_upsub_test.c); a publisher that never answers leaves it to
  * time out, and the upstream SUBSCRIBE nobody waits for is cancelled. */
 static void test_moqtrun_rdv_s15_namespace_only(void) {
@@ -426,7 +428,7 @@ static void test_moqtrun_rdv_s15_namespace_only(void) {
   }
 }
 
-/* S16 (10.4/9.2: GOAWAY does not impact subscription state): a hold
+/* 10.4/9.2 (GOAWAY does not impact subscription state): a hold
  * survives the hub's GOAWAY to its session and resolves on PUBLISH (the
  * publisher is not drained -- a drained one's new PUBLISH may be refused
  * GOING_AWAY); a session the GOAWAY Timeout closes first loses its hold
@@ -451,7 +453,7 @@ static void test_moqtrun_rdv_s16_goaway(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
 }
 
-/* S17: an unauthorized SUBSCRIBE is refused at once, never held. */
+/* An unauthorized SUBSCRIBE is refused at once, never held. */
 static void test_moqtrun_rdv_s17_unauthorized(void) {
   int calls = 0;
   mrdv_init();
@@ -463,7 +465,7 @@ static void test_moqtrun_rdv_s17_unauthorized(void) {
   CHECK(mrdv_used() == 0);
 }
 
-/* S18 AtMostOneAnswer (22 7.6 order): resolved in the PUBLISH dispatch,
+/* 22 7.6 order: resolved in the PUBLISH dispatch,
  * so the same tick reaching the deadline finds no hold to expire. */
 static void test_moqtrun_rdv_s18_publish_then_deadline(void) {
   mrdv_init();
@@ -474,7 +476,8 @@ static void test_moqtrun_rdv_s18_publish_then_deadline(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
-/* Every scenario under every supported draft (S14 the version table). */
+/* Every scenario under every supported draft (the version table matters to
+ * test_moqtrun_rdv_s14_twice_one_session). */
 static void mtall_rdv(void) {
   test_moqtrun_rdv_s1_one_answer();
   test_moqtrun_rdv_s2_timeout();
