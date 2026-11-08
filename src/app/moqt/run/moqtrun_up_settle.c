@@ -207,7 +207,8 @@ static void moqtrun_up_props_refuse(
     return;
   }
   moqtrun_up_cancel(hub, pp, u, 0);
-  hub->unsupp_n = (u8)moqtrun_tprops_unsupp(props, hub->unsupp);
+  hub->unsupp_n =
+      (u8)moqtrun_tprops_unsupp(props, moqver_caps(pp->ver), hub->unsupp);
   moqtrun_up_refused(hub, u, code);
   hub->unsupp_n = 0;
 }
@@ -245,7 +246,8 @@ void moqtrun_up_claim(
   moqtrun_key          k  = moqtrun_up_key(u);
   wired_moqtrun_track* t;
   u64                  code;
-  if (moqtrun_tprops_refused(m->track_properties, &code)) {
+  if (moqtrun_tprops_refused(
+          m->track_properties, moqver_caps(pp->ver), &code)) {
     moqtrun_up_props_refuse(hub, pp, u, code, m->track_properties);
     return;
   }
@@ -253,6 +255,7 @@ void moqtrun_up_claim(
   if (!moqtrun_up_slot_ok(hub, pp, u, t, m->track_alias)) {
     return;
   }
+  t->pub_caps = moqver_caps(pp->ver);
   moqtrun_track_open(
       hub, t, k, m->track_alias, &m->params, m->track_properties,
       u->request_id);

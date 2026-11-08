@@ -1975,6 +1975,11 @@ static void test_moqtrun_sub_props_immutable(void) {
   mtst_init();
   ca = mtst_join(SESS_A);
   mtst_publish_props(SESS_A, ca, &f, 1, wired_span_of(out, no));
+  if (moqver_caps(mtst_ver(SESS_A)) & MOQVER_CAP_PROP_RULES) {
+    /* draft-23 10.7: a one-instance Property may not sit in both lists. */
+    CHECK(mtrq_err_on(ca) == MOQCTL_ERR_MALFORMED_TRACK);
+    return;
+  }
   mtst_subscribe(SESS_B, mtst_join(SESS_B), &f);
   CHECK(mtst_sub(SESS_A, SESS_B)->subgroup_timeout == 5);
 }

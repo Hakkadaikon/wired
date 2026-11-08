@@ -108,13 +108,23 @@ static int moqtrun_upf_data_out(const wired_moqtrun_fetch* f) {
   return f->opened && !moqtrun_upf_unanswered(f);
 }
 
+/* The refusal and reset codes of moqtrun_upf_mand, by malformed. */
+static const u64 moqtrun_upf_mand_codes[2][2] = {
+    {MOQCTL_ERR_UNSUPPORTED_EXTENSION, MOQTRUN_RESET_INTERNAL_ERROR},
+    {MOQCTL_ERR_MALFORMED_TRACK, MOQTRUN_RESET_MALFORMED_TRACK},
+};
+
 /* draft-22 3.7: the fetch is cancelled; UNSUPPORTED_EXTENSION while
- * unanswered, a reset once data went out, else the cache side. */
-void moqtrun_upf_mand(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+ * unanswered, a reset once data went out, else the cache side. A
+ * malformed track (draft-23 8.4, 12.1) is refused and reset
+ * MALFORMED_TRACK instead. */
+void moqtrun_upf_mand(
+    wired_moqt_hub* hub, wired_moqtrun_fetch* f, int malformed) {
+  const u64* c = moqtrun_upf_mand_codes[malformed];
   moqtrun_upf_drop(hub, f, MOQTRUN_UPF_IO_CANCEL);
   if (moqtrun_upf_data_out(f)) {
-    moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
+    moqtrun_fetch_stop_code(hub, f, c[1]);
     return;
   }
-  moqtrun_upf_failed(hub, f, MOQCTL_ERR_UNSUPPORTED_EXTENSION, 1);
+  moqtrun_upf_failed(hub, f, c[0], 1);
 }

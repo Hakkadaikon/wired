@@ -933,6 +933,7 @@
 #include "app/moqt/run/moqtrun_subtracks_sync.c"
 #include "app/moqt/run/moqtrun_take.c"
 #include "app/moqt/run/moqtrun_tprops.c"
+#include "app/moqt/run/moqtrun_tprops_d23.c"
 #include "app/moqt/run/moqtrun_track.c"
 #include "app/moqt/run/moqtrun_tstat.c"
 #include "app/moqt/run/moqtrun_up.c"
@@ -1565,6 +1566,7 @@
 #include "app/moqtrun_switch_test.c"
 #include "app/moqtrun_d23uo_test.c"
 #include "app/moqtrun_d23lg_test.c"
+#include "app/moqtrun_tprops_test.c"
 #include "app/moqtrun_ssts_test.c"
 #include "app/moqtrel_test.c"
 #include "app/moqns_test.c"
@@ -2184,6 +2186,7 @@ int main(void) {
   test_moqtrun_switch();
   test_moqtrun_d23uo();
   test_moqtrun_d23lg();
+  test_moqtrun_tprops();
   test_moqtrun_ssts();
   test_moqtrel();
   test_moqns();

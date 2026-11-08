@@ -12,6 +12,8 @@ static int moqtrun_publish_slot_ok(
     wired_moqtrun_peer*   p,
     wired_moqtrun_track*  t,
     const moqctl_publish* m);
+static int moqtrun_publish_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_publish* m);
 
 static u8 moqtrun_track_prop_prio(wired_span props) {
   u64 v = moqtrun_tprop(props, MOQTRUN_PROP_DEFAULT_PUB_PRIO, 128);
@@ -65,7 +67,7 @@ static void moqtrun_refuse_or_close(
     return;
   }
   moqtrun_send_request_error_unsupp(
-      p, code, types, moqtrun_tprops_unsupp(props, types));
+      p, code, types, moqtrun_tprops_unsupp(props, moqver_caps(p->ver), types));
 }
 
 /* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): alias, carried by a
@@ -100,6 +102,18 @@ static int moqtrun_publish_slot_ok(
   return !moqtrun_alias_dup_close(hub, p, t, m->track_alias);
 }
 
+/* 1 when m is refused (moqtrun_publish_refused, in p's draft): the
+ * REQUEST_ERROR or the session close is sent. */
+static int moqtrun_publish_refuse(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_publish* m) {
+  u64 code;
+  if (!moqtrun_publish_refused(hub, m, moqver_caps(p->ver), &code)) {
+    return 0;
+  }
+  moqtrun_refuse_or_close(hub, p, code, m->track_properties);
+  return 1;
+}
+
 /* A vetted PUBLISH: claim a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot), or a
  * name a newer session already owns (moqtrun_publish_slot), gets
@@ -109,10 +123,8 @@ void moqtrun_publish_checked(
     wired_moqtrun_peer*   p,
     usz                   peer_idx,
     const moqctl_publish* m) {
-  u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
-  u64 code;
-  if (moqtrun_publish_refused(hub, m, &code)) {
-    moqtrun_refuse_or_close(hub, p, code, m->track_properties);
+  u8 ns_buf[WIRED_MOQTRUN_MAX_NS];
+  if (moqtrun_publish_refuse(hub, p, m)) {
     return;
   }
   moqtrun_key          k = moqtrun_key_of(&m->name, ns_buf);
@@ -121,6 +133,7 @@ void moqtrun_publish_checked(
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);
+  t->pub_caps = moqver_caps(p->ver);
   moqtrun_track_open(
       hub, t, k, m->track_alias, &m->params, m->track_properties,
       m->request_id);

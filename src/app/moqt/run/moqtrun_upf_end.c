@@ -13,7 +13,8 @@ static void moqtrun_upf_ok_checked(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok,
-    moqctl_loc           e);
+    moqctl_loc           e,
+    u64                  caps);
 static void moqtrun_upf_ok(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
@@ -85,9 +86,11 @@ static void moqtrun_upf_ok_checked(
     wired_moqt_hub*      hub,
     wired_moqtrun_fetch* f,
     const moqfetch_ok*   ok,
-    moqctl_loc           e) {
-  if (moqtrun_tprops_check(ok->track_properties) & MOQTRUN_TP_MAND) {
-    moqtrun_upf_mand(hub, f);
+    moqctl_loc           e,
+    u64                  caps) {
+  u32 tp = moqtrun_tprops_check(ok->track_properties, caps);
+  if (tp & (MOQTRUN_TP_MAND | MOQTRUN_TP_MALF)) {
+    moqtrun_upf_mand(hub, f, !(tp & MOQTRUN_TP_MAND));
     return;
   }
   if (moqtrun_upf_end_behind(f, e)) {
@@ -117,7 +120,7 @@ static void moqtrun_upf_ok(
     moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_NONE, MOQCTL_ERR_INTERNAL_ERROR);
     return;
   }
-  moqtrun_upf_ok_checked(hub, f, ok, e);
+  moqtrun_upf_ok_checked(hub, f, ok, e, moqver_caps(pp->ver));
 }
 
 /* draft-23 3.2: with no LARGEST_OBJECT the response ends at the

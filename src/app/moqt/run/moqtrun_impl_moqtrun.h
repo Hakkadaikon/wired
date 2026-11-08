@@ -68,6 +68,11 @@ typedef struct {
  * value 12.5/12.6 close the session on. */
 #define MOQTRUN_TP_MAND 1u
 #define MOQTRUN_TP_BAD 2u
+/* ... and a Property twice or outside its scope (draft-23 8.4). */
+#define MOQTRUN_TP_MALF 4u
+/* Where a Property list sits (draft-23 16.8 Table 15 Scope). */
+#define MOQTRUN_SCOPE_TRACK 1u
+#define MOQTRUN_SCOPE_OBJECT 2u
 /* Not a REQUEST_ERROR code: the session closes PROTOCOL_VIOLATION. */
 #define MOQTRUN_REQ_CLOSE (~(u64)1)
 
@@ -304,7 +309,7 @@ void moqtrun_rel_return_ring(
 void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
 void moqtrun_rp_keep_count(wired_moqt_hub* hub, const wired_moqtrun_sub* s);
 int  moqtrun_publish_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64 caps, u64* code);
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);

@@ -128,6 +128,11 @@
  * the receiver closes PROTOCOL_VIOLATION, the sender re-issues the request
  * (draft-23 9.2). */
 #define MOQVER_CAP_REQ_GOAWAY23 (1ull << 34)
+/** Property rules: grease is no Mandatory Track Property, a supported
+ * Property comes once and in its scope or the Track is malformed, and
+ * DEFAULT_PUBLISHER_PRIORITY above 255 closes MALFORMED_KEY_VALUE
+ * (draft-23 3.7, 8.4, 10.4, 12.1). */
+#define MOQVER_CAP_PROP_RULES (1ull << 36)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a
