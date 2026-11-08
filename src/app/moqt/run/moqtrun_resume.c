@@ -6,11 +6,11 @@
  * subscription does not exist, the relay MUST ... unpause an upstream
  * subscription ... and use the resulting LARGEST_OBJECT parameter." A
  * SUBSCRIBE or TRACK_STATUS for a track whose PUBLISH is paused, or whose
- * unpause is not answered yet, waits in a rendezvous slot with no
- * deadline; the REQUEST_UPDATE_OK (its Largest counted, moqtrun_largest_note)
- * re-runs it the normal found-track way, a refusal or the PUBLISH's end
- * answers it REQUEST_ERROR. The hub has no timeout of its own: a silent
- * publisher holds the slot, bounded by WIRED_MOQTRUN_MAX_RDV and
+ * unpause is not answered yet, waits in a rendezvous slot; the
+ * REQUEST_UPDATE_OK (its Largest counted, moqtrun_largest_note) re-runs it
+ * the normal found-track way, a refusal or the PUBLISH's end answers it
+ * REQUEST_ERROR. A silent publisher holds the slot WIRED_MOQTRUN_UP_WAIT_MS
+ * at most (then TIMEOUT), bounded by WIRED_MOQTRUN_MAX_RDV and
  * WIRED_MOQTRUN_RDV_PER_SESSION (a request past them is refused
  * EXCESSIVE_LOAD at once). */
 

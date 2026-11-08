@@ -378,6 +378,23 @@ static void test_moqtrun_upsub_pending_cancel_and_stale_ok(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "RST1|"));
 }
 
+/* draft-23 12.3 TIMEOUT ("a relay could not establish an upstream
+ * subscription within the timeout"): A stays alive and never answers;
+ * after WIRED_MOQTRUN_UP_WAIT_MS B is refused TIMEOUT, and the upstream
+ * SUBSCRIBE nobody waits for any more is cancelled. */
+static void test_moqtrun_upsub_silent_upstream_times_out(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UP_WAIT_MS - 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UP_WAIT_MS);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
+  CHECK(mups_up_is(sid, "RST1|STOP1|"));
+  CHECK(mups_used() == 0 && mrdv_used() == 0);
+}
+
 /* U7 (10.11 relayed): A's PUBLISH_DONE on the upstream stream reaches B
  * as PUBLISH_DONE on B's stream; the hub then ends its upstream side. */
 static void test_moqtrun_upsub_publish_done_relayed(void) {
@@ -657,6 +674,7 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_ngr_update();
   test_moqtrun_upsub_last_cancel_cancels_upstream();
   test_moqtrun_upsub_pending_cancel_and_stale_ok();
+  test_moqtrun_upsub_silent_upstream_times_out();
   test_moqtrun_upsub_publish_done_relayed();
   test_moqtrun_upsub_publisher_close();
   test_moqtrun_upsub_publisher_reset();

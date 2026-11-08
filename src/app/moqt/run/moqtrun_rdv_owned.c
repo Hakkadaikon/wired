@@ -41,10 +41,11 @@ wired_moqtrun_rdv* moqtrun_rdv_admit(
 }
 
 /* The deadline, clamped to WIRED_MOQTRUN_RDV_MAX_MS (10.2.6: the relay
- * MAY use a shorter one); none for an upstream-only hold (rt 0). */
+ * MAY use a shorter one); WIRED_MOQTRUN_UP_WAIT_MS for a hold with none
+ * (rt 0), so a silent upstream cannot keep it forever. */
 static u64 moqtrun_rdv_deadline(const wired_moqt_hub* hub, u64 rt) {
-  return rt ? hub->live.last_now_ms + u64_min(rt, WIRED_MOQTRUN_RDV_MAX_MS)
-            : ~(u64)0;
+  return hub->live.last_now_ms + (rt ? u64_min(rt, WIRED_MOQTRUN_RDV_MAX_MS)
+                                     : WIRED_MOQTRUN_UP_WAIT_MS);
 }
 
 /* Fills r from p's request. */
@@ -103,7 +104,8 @@ static void moqtrun_rdv_hold(
 }
 
 /* Holds p's SUBSCRIBE or TRACK_STATUS (body) until t's PUBLISH is
- * unpaused (draft-23 7.5, moqtrun_resume_wait): no deadline. The slot, or
+ * unpaused (draft-23 7.5, moqtrun_resume_wait), WIRED_MOQTRUN_UP_WAIT_MS at
+ * most. The slot, or
  * 0 when refused (moqtrun_rdv_take). */
 wired_moqtrun_rdv* moqtrun_rdv_wait(
     wired_moqt_hub*            hub,

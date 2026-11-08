@@ -326,9 +326,10 @@ static void test_moqtrun_d23lg_tstat_paused_fresh(void) {
 }
 
 /* A publisher that never answers the unpause holds each waiter in a
- * rendezvous slot (no hub-side timeout): one unpause for all of them,
- * and past the session's share of slots a new SUBSCRIBE or TRACK_STATUS
- * is refused EXCESSIVE_LOAD at once. */
+ * rendezvous slot: one unpause for all of them, and past the session's
+ * share of slots a new SUBSCRIBE or TRACK_STATUS is refused
+ * EXCESSIVE_LOAD at once. After WIRED_MOQTRUN_UP_WAIT_MS each waiter is
+ * refused TIMEOUT (12.3) and its slot freed. */
 static void mtlg_wait_slots_d23(void) {
   u64 sid = MRDV_S1;
   mtlg_pub(1, 0, 5);
@@ -341,9 +342,11 @@ static void mtlg_wait_slots_d23(void) {
   CHECK(mrdv_err(SESS_B, sid).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
   mtlg_tstat(sid + 4);
   CHECK(mrdv_err(SESS_B, sid + 4).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
-  wired_moqt_tick(&mtst_hub, 1000000);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UP_WAIT_MS - 1);
   CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
   CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UP_WAIT_MS);
+  CHECK(mrdv_used() == 0 && mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
 }
 
 static void test_moqtrun_d23lg_wait_slots_bounded(void) {
