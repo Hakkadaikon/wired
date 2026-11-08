@@ -65,7 +65,7 @@ static void moqtrun_refuse_or_close(
     return;
   }
   moqtrun_send_request_error_unsupp(
-      p, code, types, moqtrun_tprops_unsupp(props, types));
+      p, code, types, moqtrun_tprops_unsupp(props, moqver_caps(p->ver), types));
 }
 
 /* draft-19 11.1 (draft-18 11.1, draft-22 3.1.3): alias, carried by a
@@ -111,7 +111,7 @@ void moqtrun_publish_checked(
     const moqctl_publish* m) {
   u8  ns_buf[WIRED_MOQTRUN_MAX_NS];
   u64 code;
-  if (moqtrun_publish_refused(hub, m, &code)) {
+  if (moqtrun_publish_refused(hub, m, moqver_caps(p->ver), &code)) {
     moqtrun_refuse_or_close(hub, p, code, m->track_properties);
     return;
   }
@@ -121,6 +121,7 @@ void moqtrun_publish_checked(
     return;
   }
   moqtrun_supersede_name(hub, peer_idx, k);
+  t->pub_caps = moqver_caps(p->ver);
   moqtrun_track_open(
       hub, t, k, m->track_alias, &m->params, m->track_properties,
       m->request_id);

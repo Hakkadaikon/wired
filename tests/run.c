@@ -933,6 +933,7 @@
 #include "app/moqt/run/moqtrun_subtracks_sync.c"
 #include "app/moqt/run/moqtrun_take.c"
 #include "app/moqt/run/moqtrun_tprops.c"
+#include "app/moqt/run/moqtrun_tprops_d23.c"
 #include "app/moqt/run/moqtrun_track.c"
 #include "app/moqt/run/moqtrun_tstat.c"
 #include "app/moqt/run/moqtrun_up.c"

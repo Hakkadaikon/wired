@@ -84,6 +84,9 @@ typedef struct {
   /** MAX_CACHE_DURATION Track Property (draft-18 12.3) in ms, ~0 when
    * absent: a cached Object is served at most this long after it came. */
   u64 max_cache_ms;
+  /** Capability bits (MOQVER_CAP_*) of the publisher's session: the
+   * draft its Objects' Properties are checked in. */
+  u64 pub_caps;
   /** The PUBLISH's DEFAULT_PUBLISHER_PRIORITY Track Property (12.4), 128
    * when absent: the Publisher Priority of a header that omits it. */
   u8 default_pub_prio;

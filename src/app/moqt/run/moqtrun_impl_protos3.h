@@ -81,7 +81,7 @@ int moqtrun_subscribe_refused(
 int moqtrun_publish_auth_refused(
     const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
 int moqtrun_publish_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64 caps, u64* code);
 usz moqtrun_rngf_count(const moqctl_params* params);
 u64 moqtrun_rngf_refusal(const moqctl_params* params);
 int moqtrun_rngf_rows_over(

@@ -304,7 +304,7 @@ void moqtrun_rel_return_ring(
 void moqtrun_subtracks_track_gone(wired_moqt_hub* hub, u64 tag);
 void moqtrun_rp_keep_count(wired_moqt_hub* hub, const wired_moqtrun_sub* s);
 int  moqtrun_publish_refused(
-    const wired_moqt_hub* hub, const moqctl_publish* m, u64* code);
+    const wired_moqt_hub* hub, const moqctl_publish* m, u64 caps, u64* code);
 void moqtrun_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_key k);
 void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code);

@@ -2,14 +2,14 @@
 
 static u64        moqtrun_tprop_in(wired_span props, u64 type, u64 dflt);
 static wired_span moqtrun_tprop_imm(wired_span props);
-static int        moqtrun_tprop_is_mand(u64 type);
+static int        moqtrun_tprop_is_mand(u64 type, u64 caps);
 static int        moqtrun_tprop_outside(u64 v, u64 lo, u64 hi);
 static int moqtrun_tprop_out_of(const moqkvp* kv, u64 type, u64 lo, u64 hi);
-static u32 moqtrun_tprop_flags(const moqkvp* kv);
-static u32 moqtrun_tprops_scan(wired_span props);
+static u32 moqtrun_tprop_flags(const moqkvp* kv, u64 caps);
+static u32 moqtrun_tprops_scan(wired_span props, u64 caps);
 static u64 moqtrun_tprops_code(u32 f);
-static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type);
-static usz moqtrun_tprops_mand_in(wired_span props, u64* out, usz n);
+static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type, u64 caps);
+static usz moqtrun_tprops_mand_in(wired_span props, u64 caps, u64* out, usz n);
 
 /* The last varint value of type in one Property list (KVPs to the end,
  * 2.5); dflt when absent, a malformed pair ends the scan. */
@@ -47,7 +47,8 @@ u64 moqtrun_tprop(wired_span props, u64 type, u64 dflt) {
 
 /* draft-18/19 2.5.1 (draft-22 3.7): 0x4000-0x7FFF; this hub understands
  * none. */
-static int moqtrun_tprop_is_mand(u64 type) {
+static int moqtrun_tprop_is_mand(u64 type, u64 caps) {
+  (void)caps;
   return type >= 0x4000 && type <= 0x7FFF;
 }
 
@@ -63,27 +64,28 @@ static int moqtrun_tprop_out_of(const moqkvp* kv, u64 type, u64 lo, u64 hi) {
 /* draft-18 12.5: DEFAULT_PUBLISHER_GROUP_ORDER outside 1-2, 12.6:
  * DYNAMIC_GROUPS above 1 -- "MUST close the session with
  * PROTOCOL_VIOLATION". */
-static u32 moqtrun_tprop_flags(const moqkvp* kv) {
+static u32 moqtrun_tprop_flags(const moqkvp* kv, u64 caps) {
   u32 bad = (u32)(moqtrun_tprop_out_of(kv, MOQTRUN_PROP_GROUP_ORDER, 1, 2) |
                   moqtrun_tprop_out_of(kv, MOQTRUN_PROP_DYNAMIC_GROUPS, 0, 1));
-  return (u32)moqtrun_tprop_is_mand(kv->type) * MOQTRUN_TP_MAND |
+  return (u32)moqtrun_tprop_is_mand(kv->type, caps) * MOQTRUN_TP_MAND |
          bad * MOQTRUN_TP_BAD;
 }
 
-static u32 moqtrun_tprops_scan(wired_span props) {
+static u32 moqtrun_tprops_scan(wired_span props, u64 caps) {
   usz    off  = 0;
   u64    prev = 0;
   u32    f    = 0;
   moqkvp kv;
   while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
-    f |= moqtrun_tprop_flags(&kv);
+    f |= moqtrun_tprop_flags(&kv, caps);
   }
   return f;
 }
 
-u32 moqtrun_tprops_check(wired_span props) {
-  return moqtrun_tprops_scan(props) |
-         moqtrun_tprops_scan(moqtrun_tprop_imm(props));
+/* props' flags in a session with capability bits caps. */
+u32 moqtrun_tprops_check(wired_span props, u64 caps) {
+  return moqtrun_tprops_scan(props, caps) |
+         moqtrun_tprops_scan(moqtrun_tprop_imm(props), caps);
 }
 
 static u64 moqtrun_tprops_code(u32 f) {
@@ -98,28 +100,28 @@ static u64 moqtrun_tprops_code(u32 f) {
  * Property (2.5.1: "MUST NOT process or forward that track"), else
  * INTERNAL_ERROR for a block longer than the hub keeps
  * (WIRED_MOQTRUN_TRACK_PROPS_MAX: refused, never forwarded emptied). */
-int moqtrun_tprops_refused(wired_span props, u64* code) {
-  u32 f = moqtrun_tprops_check(props);
+int moqtrun_tprops_refused(wired_span props, u64 caps, u64* code) {
+  u32 f = moqtrun_tprops_check(props, caps);
   *code = moqtrun_tprops_code(f);
   return f != 0 || props.n > WIRED_MOQTRUN_TRACK_PROPS_MAX;
 }
 
 /* type appended to out[n] when it is a Mandatory Track Property and room
  * is left (MOQCTL_MAX_UNSUPP); the entries now in use. */
-static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type) {
-  if (!moqtrun_tprop_is_mand(type) || n == MOQCTL_MAX_UNSUPP) {
+static usz moqtrun_tprops_mand_add(u64* out, usz n, u64 type, u64 caps) {
+  if (!moqtrun_tprop_is_mand(type, caps) || n == MOQCTL_MAX_UNSUPP) {
     return n;
   }
   out[n] = type;
   return n + 1;
 }
 
-static usz moqtrun_tprops_mand_in(wired_span props, u64* out, usz n) {
+static usz moqtrun_tprops_mand_in(wired_span props, u64 caps, u64* out, usz n) {
   usz    off  = 0;
   u64    prev = 0;
   moqkvp kv;
   while (moqtrun_kvp_next(props, &off, &prev, &kv)) {
-    n = moqtrun_tprops_mand_add(out, n, kv.type);
+    n = moqtrun_tprops_mand_add(out, n, kv.type, caps);
   }
   return n;
 }
@@ -127,30 +129,13 @@ static usz moqtrun_tprops_mand_in(wired_span props, u64* out, usz n) {
 /* draft-23 9.4.2.2: the Mandatory Track Property Types in props (and its
  * Immutable Properties) into out[MOQCTL_MAX_UNSUPP], one UNSUPPORTED_
  * PROPERTY Error Detail each; how many. */
-usz moqtrun_tprops_unsupp(wired_span props, u64* out) {
+usz moqtrun_tprops_unsupp(wired_span props, u64 caps, u64* out) {
   return moqtrun_tprops_mand_in(
-      moqtrun_tprop_imm(props), out, moqtrun_tprops_mand_in(props, out, 0));
+      moqtrun_tprop_imm(props), caps, out,
+      moqtrun_tprops_mand_in(props, caps, out, 0));
 }
 
 /* t's kept Track Properties, empty for no track. */
 wired_span moqtrun_track_props(const wired_moqtrun_track* t) {
   return t ? wired_span_of(t->props, t->props_len) : wired_span_of(0, 0);
-}
-
-/* draft-19 2.5.1 (draft-18 2.5.1, draft-22 3.7): "An Object received with
- * a Mandatory Track Property as an Object Property is malformed". */
-int moqtrun_obj_mand(const wired_moqtrun_track* t, wired_span props) {
-  return t && (moqtrun_tprops_check(props) & MOQTRUN_TP_MAND);
-}
-
-/* t, or 0 once an Object of t with Object Properties props made it a
- * Malformed Track (moqtrun_obj_mand): flagged, the Object dropped; the
- * PUBLISH_DONE sweep ends the track (12.1). */
-wired_moqtrun_track* moqtrun_obj_mand_gate(
-    wired_moqtrun_track* t, wired_span props) {
-  if (moqtrun_obj_mand(t, props)) {
-    t->malformed = 1;
-    return 0;
-  }
-  return t;
 }

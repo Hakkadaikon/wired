@@ -4,7 +4,6 @@ static int moqtrun_fetch_end_open22(
     const wired_moqtrun_peer* p, const moqtrun_frange* r);
 static moqctl_loc moqtrun_fetch_ok_end(
     wired_moqt_hub* hub, const wired_moqtrun_peer* p, const moqtrun_frange* r);
-static int moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt);
 
 /* The Location of the last item r serves (its End Location when it serves
  * none). ponytail: walks the cache once per FETCH_OK -- O(arena) per walk
@@ -40,7 +39,7 @@ static moqctl_loc moqtrun_fetch_ok_end(
 }
 
 /* wt's draft, -1 (no capability) when it has no session. */
-static int moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt) {
+int moqtrun_wt_ver(wired_moqt_hub* hub, wired_wt_session* wt) {
   const wired_moqtrun_peer* p = moqtrun_find_by_wt(hub, wt);
   return p ? p->ver : -1;
 }
