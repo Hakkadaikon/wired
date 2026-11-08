@@ -305,6 +305,25 @@ static void test_subtracks_skip_then_no_publish(void) {
   CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "OK|SKIP:alice|"));
 }
 
+/* draft-23 3.6.3: the skip binds one PUBLISH of the track; once the
+ * publisher withdraws it and PUBLISHes the track anew, the
+ * SUBSCRIBE_TRACKS is offered the new one. */
+static void test_subtracks_skip_then_republish_targeted(void) {
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[4];
+  mtst_subtracks_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  g_open_bidi_fail_n = 1;
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "OK|SKIP:alice|"));
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MTRQ_S1, 0, 0);
+  mtst_publish(SESS_A, MTRQ_S2, &f, 2);
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_pub_opens(SESS_B, got, 4) == 1);
+}
+
 /* T-07/T-08: the track vanishing (unpublish) while its hub-opened PUBLISH
  * awaits a reply resets that stream with a consistent error code; a
  * REQUEST_OK delivered afterward on the same (now-freed) stream id is not
@@ -431,6 +450,7 @@ static void mtall_subtracks(void) {
   test_subtracks_publish_match_excludes_self();
   test_subtracks_publish_carries_props();
   test_subtracks_skip_then_no_publish();
+  test_subtracks_skip_then_republish_targeted();
   test_subtracks_track_vanishes_resets_publish();
   test_subtracks_cancel_keeps_established();
   test_subtracks_liveness_eventually_attempted();

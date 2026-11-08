@@ -317,6 +317,17 @@ static void test_moqtrun_nsx_dup_pubns_no_resubscribe(void) {
   CHECK(mups_n_up(SESS_A) == 1);
 }
 
+/* 7.7: while the upstream SUBSCRIBE of t1 is still pending, SESS_A's
+ * announcement of a/b (t1's own namespace) sends no second one. */
+static void test_moqtrun_nsx_pending_sub_overlap_pubns(void) {
+  mnsx_relay();
+  mtns_pub(SESS_A, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  CHECK(mups_n_up(SESS_A) == 1);
+  mtns_pub(SESS_A, MTRQ_S2, "a/b");
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
 /* 7.7: two announcements of SESS_A covering t1 (a, a/b): one SUBSCRIBE. */
 static void test_moqtrun_nsx_overlap_pubns_one_subscribe(void) {
   mnsx_relay();
@@ -431,8 +442,20 @@ static void test_moqtrun_nsx_fan_all_fail(void) {
   i64 sa, sc;
   mnsx_fan(&sa, &sc);
   mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
   mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "E10|FIN|"));
+}
+
+/* 7.7: the same two refusals in the other order: the last one's code
+ * (UNAUTHORIZED) is the one the downstream gets. */
+static void test_moqtrun_nsx_fan_all_fail_last_code(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "E1|FIN|"));
 }
 
 /* A refused upstream SUBSCRIBE is forgotten: the next downstream
@@ -701,6 +724,8 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_second_dsub_no_resubscribe();
   test_moqtrun_nsx_fan_one_fails();
   test_moqtrun_nsx_fan_all_fail();
+  test_moqtrun_nsx_fan_all_fail_last_code();
+  test_moqtrun_nsx_pending_sub_overlap_pubns();
   test_moqtrun_nsx_refused_then_resent();
   test_moqtrun_nsx_fanout_fail_after_ok();
   test_moqtrun_nsx_fanout_owner_publish_ok();
