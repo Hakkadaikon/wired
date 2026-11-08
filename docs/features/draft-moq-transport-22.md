@@ -916,7 +916,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
 - [x] MQ22-141 fill fetch ストリームは、その範囲を、購読の Group Order(GROUP_ORDER による昇順または降順。FILL_PARAMETERS の内側で上書きできる)で配送し、存在しない Group は印を付けずに飛ばさなければならない。
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_descending`
   - test: `tests/app/moqtrun_fill_test.c` —
-    `test_moqtrun_fill_descending_skips_gap`
+    `test_moqtrun_fill_descending_missing_group`
   - test: `tests/app/moqtrun_fill_test.c` —
     `test_moqtrun_fill_next_object_no_gap`
   - test: `tests/app/moqtrun_fill_test.c` — `test_moqtrun_fill_ascending_sends_first`
@@ -1290,7 +1290,7 @@ draft-22 では、購読者は、すでに購読している Track の範囲を�
   - test: `tests/app/moqtrun_fetch_test.c` — `test_moqtrun_fetch_malformed_closes`
   - test: `tests/app/moqtrun_fetch_test.c` —
     `test_moqtrun_fetch_descending_unknown_groups`,
-    `test_moqtrun_fetch_descending_skips_missing_group`,
+    `test_moqtrun_fetch_descending_missing_group_unknown`,
     `test_moqtrun_fetch_descending_start_object`
   - note: 台帳 10-6。draft-19 のセッションで動かしています。ハブの経路はバージョンに依存しません。欠落は 3.2.2 を文字どおりに読んで扱います(最初に期待するのは {End.Group, 0}、最後は {Start.Group, 2^64-1}、Group をまたぐ欠落は複数の論理的な欠落とする)。存在しない Group には印を付けず、キャッシュが保証できない Group にはそれぞれ専用の End of Unknown Range を付けます([既知の制限](../security/limitations/moqt-drafts.md)を参照)。
 - [x] MQ22-198 (SS3.3.1) ライブの Track に後から加わった購読者は、その Location Filter の始点の Group から始めなければならない。ライブの先端より前の始点は現在の Group に切り詰め、未来の始点はその Group まで配送を止める。
