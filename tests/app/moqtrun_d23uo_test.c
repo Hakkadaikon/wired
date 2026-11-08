@@ -32,8 +32,8 @@ static usz mtuo_replies(u64 sid, u64* t, usz n) {
 }
 
 static usz mtuo_n(void) {
-  u64 t[16];
-  return mtuo_replies(MTRQ_S1, t, 16);
+  u64 t[64]; /* the longest schedule's replies (every_update_resolved) */
+  return mtuo_replies(MTRQ_S1, t, 64);
 }
 
 /* B subscribes the hub's blob on MTRQ_S1 with FORWARD 0. */
@@ -78,7 +78,8 @@ static void test_moqtrun_d23uo_immediate_in_order(void) {
   mtuo_prio(2);
   mtuo_prio(3);
   CHECK(mtuo_replies(MTRQ_S1, t, 4) == 3);
-  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[2] == MOQCTL_T_REQUEST_OK);
+  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_OK);
+  CHECK(t[2] == MOQCTL_T_REQUEST_OK);
   CHECK(mtuo_s() && mtuo_s()->priority == 3);
 }
 
@@ -207,10 +208,9 @@ static void test_moqtrun_d23uo_flush_keeps_dropped_outstanding(void) {
 
 /* A peer that never has more than MAX updates unanswered -- whether the
  * replies flush at once, are held back, or the request ended -- is never
- * closed for credit. A fixed pseudo-random schedule of sends, refused
- * flushes and one failure. */
-static void test_moqtrun_d23uo_honest_peer_never_closed(void) {
-  u32 x   = 12345;
+ * closed for credit. A pseudo-random schedule from seed x of sends,
+ * refused flushes and one failure. */
+static void mtuo_honest_peer(u32 x) {
   u64 out = 0; /* the peer's own count: sent, reply not read */
   mtuo_sub();
   for (usz round = 0; round < 64; round++) {
@@ -227,6 +227,15 @@ static void test_moqtrun_d23uo_honest_peer_never_closed(void) {
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
 }
 
+/* Seeds the schedules are drawn from. */
+static const u32 MTUO_SEEDS[] = {12345, 1, 777, 2024, 31337, 65521};
+
+static void test_moqtrun_d23uo_honest_peer_never_closed(void) {
+  for (usz i = 0; i < sizeof MTUO_SEEDS / sizeof MTUO_SEEDS[0]; i++) {
+    mtuo_honest_peer(MTUO_SEEDS[i]);
+  }
+}
+
 /* After the credit close neither the update past the credit nor a later
  * one is applied or answered: only the MAX replies queued before it go. */
 static void test_moqtrun_d23uo_nothing_after_close(void) {
@@ -241,7 +250,7 @@ static void test_moqtrun_d23uo_nothing_after_close(void) {
   mtuo_prio(9);
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mtuo_s() && mtuo_s()->priority == WIRED_MOQTRUN_MAX_REQ_UPDATES);
-  CHECK(mtuo_n() <= WIRED_MOQTRUN_MAX_REQ_UPDATES);
+  CHECK(mtuo_n() == WIRED_MOQTRUN_MAX_REQ_UPDATES);
 }
 
 /* ===================== kinds of failure ===================== */
@@ -411,7 +420,7 @@ static void mtuo_two(const moqctl_params* a, const moqctl_params* b) {
 /* 9.5: two updates read together are answered one OK each, in received
  * order, and the state is both applied in order. The hub decides each on
  * receipt (no upstream wait), so the second never overtakes the first. */
-static void test_moqtrun_d23uo_upstream_wait_holds_later_ok(void) {
+static void test_moqtrun_d23uo_pipelined_in_order(void) {
   u64           t[4];
   moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
@@ -424,7 +433,7 @@ static void test_moqtrun_d23uo_upstream_wait_holds_later_ok(void) {
 
 /* draft-23 9.5.1: of two updates read together, a failed first one gets
  * the one REQUEST_ERROR and the second is dropped, never applied. */
-static void test_moqtrun_d23uo_upstream_refusal_covers_later(void) {
+static void test_moqtrun_d23uo_pipelined_failure_drops_second(void) {
   u64           t[4];
   moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
@@ -439,7 +448,7 @@ static void test_moqtrun_d23uo_upstream_refusal_covers_later(void) {
 /* draft-23 9.1.7: one REQUEST_ERROR answers one update, so after it is
  * flushed the update dropped behind it stays outstanding: MAX - 1 more
  * are dropped without a close, the next one closes. */
-static void test_moqtrun_d23uo_range_error_restores_credit(void) {
+static void test_moqtrun_d23uo_error_credits_only_answered(void) {
   moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
   mtuo_sub();
@@ -457,9 +466,8 @@ static void test_moqtrun_d23uo_range_error_restores_credit(void) {
 /* draft-23 9.5: whatever mix of accepted, failed and back-pressured
  * updates, once the transport drains every update sent has one reply or
  * was dropped after the request ended (outstanding for good) -- never
- * neither. A fixed pseudo-random schedule within the credit. */
-static void test_moqtrun_d23uo_every_update_resolved(void) {
-  u32 x    = 777;
+ * neither. A pseudo-random schedule from seed x within the credit. */
+static void mtuo_every_resolved(u32 x) {
   u64 sent = 0;
   mtuo_sub();
   for (usz round = 0; round < 40; round++) {
@@ -475,6 +483,12 @@ static void test_moqtrun_d23uo_every_update_resolved(void) {
   wired_moqt_tick(&mtst_hub, 99);
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
   CHECK(mtuo_n() + mtuo_pending() == sent);
+}
+
+static void test_moqtrun_d23uo_every_update_resolved(void) {
+  for (usz i = 0; i < sizeof MTUO_SEEDS / sizeof MTUO_SEEDS[0]; i++) {
+    mtuo_every_resolved(MTUO_SEEDS[i]);
+  }
 }
 
 /* 9.5: the hub sent the SUBSCRIBE, so the publisher A is its receiver;
@@ -499,7 +513,7 @@ static void test_moqtrun_d23uo_wrong_direction_unexpected(void) {
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
-  test_moqtrun_d23uo_upstream_wait_holds_later_ok();
+  test_moqtrun_d23uo_pipelined_in_order();
   test_moqtrun_d23uo_immediate_in_order();
   test_moqtrun_d23uo_coalesce_equals_sequential();
   test_moqtrun_d23uo_refused_reply_keeps_order();
@@ -510,9 +524,9 @@ static void mtuo_all(void) {
 }
 
 static void mtuo_d23(void) {
-  test_moqtrun_d23uo_upstream_refusal_covers_later();
+  test_moqtrun_d23uo_pipelined_failure_drops_second();
   test_moqtrun_d23uo_every_update_resolved();
-  test_moqtrun_d23uo_range_error_restores_credit();
+  test_moqtrun_d23uo_error_credits_only_answered();
   test_moqtrun_d23uo_error_covers_queued();
   test_moqtrun_d23uo_after_end_no_reply();
   test_moqtrun_d23uo_over_credit_after_end();
