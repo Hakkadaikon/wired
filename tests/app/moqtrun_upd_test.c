@@ -799,8 +799,8 @@ static void test_moqtrun_upd_credit_restored_by_flush(void) {
 
 /* NAMESPACE pushes waiting for a blocked SUBSCRIBE_NAMESPACE stream fill
  * its reply queue, so the REQUEST_OK to a REQUEST_UPDATE there finds no
- * room: it never reaches the peer, so a later flush restores no credit
- * for it (draft-23 9.1.7 "upon receipt of the response"). */
+ * room. draft-23 9.5 owes exactly one response per update, so rather
+ * than drop it the hub closes the session INTERNAL_ERROR (12.2). */
 static void test_moqtrun_upd_credit_reply_unqueued(void) {
   static char        x[3][123];
   moqctl_params      none = {0};
@@ -817,13 +817,10 @@ static void test_moqtrun_upd_credit_reply_unqueued(void) {
   }
   q = moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1);
   CHECK(q->send_lens[q->armed_idx ^ 1] + 4 > WIRED_MOQTRUN_REQ_SEND_BUF);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR) == 0);
   mtup_update(SESS_B, MTRQ_S1, &none);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR) == 1);
   g_stream_send_ok_n = -1;
-  for (usz i = 0; i < 3; i++) {
-    wired_moqt_tick(&mtst_hub, 0);
-  }
-  CHECK(mtns_is(SESS_B, MTRQ_S1, "OK|NS:1aaaaaaa|NS:2aaaaaaa|NS:3aaaaaaa|"));
-  CHECK(q->pending_updates == 1);
 }
 
 /* ========= REQUEST_UPDATE on a FETCH stream (draft-19 10.9) ========= */
