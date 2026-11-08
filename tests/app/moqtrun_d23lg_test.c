@@ -778,7 +778,22 @@ static void mtlg_up_refusal_spares_d23(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
 }
 
+/* draft-19/22 too: the hub answers a PUBLISH with REQUEST_OK before it
+ * sends an unpause on that stream -- only a subscription established
+ * with PUBLISH can be updated (draft-23 9.5, draft-22 9.5). A held
+ * SUBSCRIBE met by a paused PUBLISH therefore waits for the REQUEST_OK. */
+static void mtlg_d22_order(void) {
+  mrdv_init();
+  mups_sids();
+  mrdv_hold(SESS_B, MRDV_S1, 500);
+  mtlg_pub_now(1, 4, 2);
+  CHECK(mtlg_type_at(MUPS_PUB_SID, 0) == MOQCTL_T_REQUEST_OK);
+  CHECK(mtlg_type_at(MUPS_PUB_SID, 1) == MOQTSTAT_T_REQUEST_UPDATE);
+}
+
 static void test_moqtrun_d23lg_wait_edges(void) {
+  moqtrun_test_vers(
+      MOQVER_CAP_RANGE_FILTERS, MOQVER_CAP_RELAY_LARGEST, mtlg_d22_order);
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_ctl_pub_d23);
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_bad_answer_d23);
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_bad_psn_d23);
