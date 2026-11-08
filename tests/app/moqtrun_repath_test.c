@@ -692,6 +692,16 @@ static void test_moqtrun_repath_fresh_dne(void) {
  * no announcer to ask, so DOES_NOT_EXIST at once -- the record is
  * forgotten (draft-23 7.7) before the hub decides whether to hold E, which
  * would refuse it EXCESSIVE_LOAD instead. */
+/* Refusal records the hub keeps toward s (draft-23 7.7). */
+static usz mrp_failed(const wired_wt_session* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_UP; i++) {
+    const wired_moqtrun_up* u = &mtst_hub.ups[i];
+    n += u->in_use && u->failed && u->wt == s;
+  }
+  return n;
+}
+
 static void test_moqtrun_repath_fresh_failed_record_dne(void) {
   moqctl_ftn f = mtst_ftn("other", "room9", "x");
   mrp_init();
@@ -703,8 +713,10 @@ static void test_moqtrun_repath_fresh_failed_record_dne(void) {
   for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
     mrdv_hold_f(MRP_E, 12 + 4 * i, &f, 1000);
   }
+  CHECK(mrp_failed(SESS_B) == 1);
   mups_sub(MRP_E, MRDV_S1);
   CHECK(mrdv_is(MRP_E, MRDV_S1, "E10|FIN|"));
+  CHECK(mrp_failed(SESS_B) == 0);
 }
 
 /* No room to wait (C holds its share of the table): C gets the end's

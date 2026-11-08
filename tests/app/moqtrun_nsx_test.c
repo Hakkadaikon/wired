@@ -447,6 +447,27 @@ static void test_moqtrun_nsx_fan_all_fail(void) {
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "E10|FIN|"));
 }
 
+/* 7.7 / draft-23 12.3: A refuses, then C's session is lost: the last
+ * failure is the loss, so the downstream gets INTERNAL_ERROR. */
+static void test_moqtrun_nsx_fan_fail_then_loss(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  wired_moqt_on_session_close(&mtst_hub, SESS_C);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "E0|FIN|"));
+}
+
+/* 7.7: C's session is lost, then A refuses: the last failure is A's
+ * refusal, so the downstream gets its code (UNAUTHORIZED). */
+static void test_moqtrun_nsx_fan_loss_then_fail(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  wired_moqt_on_session_close(&mtst_hub, SESS_C);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, ""));
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "E1|FIN|"));
+}
+
 /* 7.7: the same two refusals in the other order: the last one's code
  * (UNAUTHORIZED) is the one the downstream gets. */
 static void test_moqtrun_nsx_fan_all_fail_last_code(void) {
@@ -487,6 +508,22 @@ static void test_moqtrun_nsx_fanout_fail_after_ok(void) {
 static void test_moqtrun_nsx_fanout_owner_publish_ok(void) {
   i64 sa, sc;
   mnsx_fan(&sa, &sc);
+  mnsx_pub_t1();
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+  mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
+}
+
+/* 7.7: only C announced a; while the hub's SUBSCRIBE to C is pending the
+ * owner A, which never announced, PUBLISHes t1: the downstream SUBSCRIBE
+ * is answered SUBSCRIBE_OK and C's later refusal sends no REQUEST_ERROR. */
+static void test_moqtrun_nsx_owner_publish_unannounced(void) {
+  moqctl_subscribe m;
+  mnsx_relay();
+  mtns_pub(SESS_C, MTRQ_S1, "a");
+  mnsx_dsub(MTRQ_S1);
+  i64 sc = mups_up(SESS_C, 0, &m);
+  CHECK(sc >= 0 && mups_n_up(SESS_A) == 0);
   mnsx_pub_t1();
   CHECK(mrdv_is(SESS_B, MTRQ_S1, "SOK|"));
   mtst_pub_err(SESS_C, (u64)sc, MOQCTL_ERR_DOES_NOT_EXIST);
@@ -540,6 +577,7 @@ static void test_moqtrun_nsx_redsub_while_pending(void) {
   mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
   mnsx_dsub(MTRQ_S2);
   CHECK(mups_n_up(SESS_A) == 2);
+  CHECK(mups_n_up(SESS_C) == 1); /* C's pending SUBSCRIBE is not re-sent */
 }
 
 /* draft-23 7.7: A refuses while C answers OK; A's new PUBLISH_NAMESPACE
@@ -725,10 +763,13 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_fan_one_fails();
   test_moqtrun_nsx_fan_all_fail();
   test_moqtrun_nsx_fan_all_fail_last_code();
+  test_moqtrun_nsx_fan_fail_then_loss();
+  test_moqtrun_nsx_fan_loss_then_fail();
   test_moqtrun_nsx_pending_sub_overlap_pubns();
   test_moqtrun_nsx_refused_then_resent();
   test_moqtrun_nsx_fanout_fail_after_ok();
   test_moqtrun_nsx_fanout_owner_publish_ok();
+  test_moqtrun_nsx_owner_publish_unannounced();
   test_moqtrun_nsx_resend_skips_publisher();
   test_moqtrun_nsx_second_fail_error();
   test_moqtrun_nsx_redsub_while_pending();
