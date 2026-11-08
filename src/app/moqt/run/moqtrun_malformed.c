@@ -126,3 +126,12 @@ void moqtrun_pubdone_flush(
     moqtrun_pubdone_finish(hub, p, t);
   }
 }
+
+/* draft-23 9.5.1: a failed update of p's own PUBLISH ended the request
+ * (moqtrun_upd_end), so its track is withdrawn as on PUBLISH_DONE. */
+void moqtrun_pubdone_upd_end(wired_moqt_hub* hub, wired_moqtrun_peer* p) {
+  wired_moqtrun_track* t = moqtrun_pubdone_track_of(p, p->req->request_id);
+  if (t && p->req->upd_ended) {
+    moqtrun_pubdone_finish(hub, p, t);
+  }
+}

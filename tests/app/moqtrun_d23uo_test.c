@@ -292,31 +292,46 @@ static void test_moqtrun_d23uo_fill_excessive_load_ends(void) {
   CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_UPDATE_FAILED);
 }
 
-/* B's own PUBLISH on MTRQ_S1 gets a refused update (an inverted
- * LOCATION_FILTER is INVALID_RANGE) and then an acceptable one. */
+/* A's own PUBLISH on MTDN_PUB, which B subscribes (moqtrun_done_test.c),
+ * gets a refused update (an inverted LOCATION_FILTER is INVALID_RANGE)
+ * and then an acceptable one. */
 static usz mtuo_pub_refused_then_update(void) {
   moqctl_params bad =
       mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 5, 5, MOQCTL_REK_OBJ, 5, 1));
-  moqctl_ftn f = mtst_ftn("chat", "room1", "alice");
-  mtst_init();
-  mtst_join(SESS_A);
-  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
-  usz n0 = mtuo_n_on(MTRQ_S1); /* a draft-22 PUBLISH is answered REQUEST_OK */
-  mtup_update(SESS_A, MTRQ_S1, &bad);
-  CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INVALID_RANGE);
-  mtup_update(SESS_A, MTRQ_S1, &(moqctl_params){0});
-  return mtuo_n_on(MTRQ_S1) - n0;
+  mtdn_setup();
+  usz n0 = mtuo_n_on(MTDN_PUB); /* a draft-22 PUBLISH is answered REQUEST_OK */
+  mtup_update(SESS_A, MTDN_PUB, &bad);
+  CHECK(mtup_err_code(MTDN_PUB) == MOQCTL_ERR_INVALID_RANGE);
+  mtup_update(SESS_A, MTDN_PUB, &(moqctl_params){0});
+  return mtuo_n_on(MTDN_PUB) - n0;
+}
+
+/* Data streams the hub opened (send_uni / open_uni). */
+static usz mtuo_unis(void) {
+  return moqtrun_test_count_kind(4) + moqtrun_test_count_kind(5);
 }
 
 /* draft-23 9.5.1: refusing an update of the peer's own PUBLISH ends the
- * request too: the next update gets no reply. */
+ * request too: the next update gets no reply, the track is withdrawn --
+ * B gets PUBLISH_DONE, A's later objects are not relayed -- and the hub
+ * FINs its side of the PUBLISH stream once its REQUEST_ERROR is out
+ * (6.4.2.2). */
 static void test_moqtrun_d23uo_publish_update_refused_ends(void) {
+  u64 count;
   CHECK(mtuo_pub_refused_then_update() == 1);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_TRACK_ENDED);
+  CHECK(mtdn_published() == 0);
+  CHECK(mtrq_fin_on(MTDN_PUB) == 1);
+  usz n = mtuo_unis();
+  mtdn_group(2002, 1);
+  CHECK(mtuo_unis() == n);
 }
 
-/* draft-22: the request stays and the next update is REQUEST_OK. */
+/* draft-22: the request stays, the next update is REQUEST_OK and the
+ * track is still published. */
 static void mtuo_publish_refused_keeps_d22(void) {
   CHECK(mtuo_pub_refused_then_update() == 2);
+  CHECK(mtdn_published() == 1);
 }
 
 /* A TRACK_NAMESPACE_PREFIX update the hub cannot store (one field past

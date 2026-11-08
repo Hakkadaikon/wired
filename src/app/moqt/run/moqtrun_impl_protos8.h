@@ -11,7 +11,7 @@ void moqtrun_malformed_cancel(
 int moqtrun_pubdone_try(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 void moqtrun_pubdone_sweep(wired_moqt_hub* hub);
-void moqtrun_pubdone_flush(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 rid);
+void moqtrun_pubdone_upd_end(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_pubdone_arm(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  p,

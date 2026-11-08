@@ -112,10 +112,10 @@ static void moqtrun_update_pub(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqctl_params* params) {
   /* SWITCH_FROM (moqtswitch.c) names subscriptions only */
   u64 code = moqtsw_pub_refusal(params, moqtrun_params_refusal(params));
-  (void)hub;
   if (code != MOQTRUN_REQ_ACCEPT) {
     moqtrun_send_request_error(p, code);
     moqtrun_upd_end(p); /* draft-23 9.5.1 */
+    moqtrun_pubdone_upd_end(hub, p);
     return;
   }
   moqtrun_queue_request_ok(p, 0);
