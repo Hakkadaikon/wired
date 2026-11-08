@@ -337,8 +337,12 @@ export class FakeWebTransport {
 		// surface through vitest's unhandled-rejection reporting.
 	}
 
-	close(): void {
+	/** The WebTransportCloseInfo of the last close() call. */
+	closeInfo: { closeCode?: number; reason?: string } | undefined;
+
+	close(info?: { closeCode?: number; reason?: string }): void {
 		this.closeCalls += 1;
+		this.closeInfo = info;
 	}
 
 	/** Every uni stream the client opened, in order, with its writes. */

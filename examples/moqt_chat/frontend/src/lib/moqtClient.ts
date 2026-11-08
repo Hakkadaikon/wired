@@ -41,6 +41,7 @@ import {
 } from "./moqtAttachmentWire";
 import {
 	bytesToUtf8,
+	closingCodeOf,
 	concatBytes,
 	decodeControlFrame,
 	decodeFetchHeader,
@@ -48,6 +49,7 @@ import {
 	decodeGoaway,
 	decodeNamespaceSuffix,
 	decodeObjectDatagram,
+	decodePublish,
 	decodeRequestError,
 	decodeSetup,
 	decodeSubgroupHeader,
@@ -71,6 +73,8 @@ import {
 	type Location,
 	largestObjectOf,
 	type MessageParam,
+	MoqtDecodeError,
+	MoqtTruncatedError,
 	newFetchSeq,
 	type ObjectDatagram,
 	PARAM_FILL_PARAMETERS,
@@ -95,6 +99,9 @@ const REQUEST_ERROR_INTERNAL = 0x0n;
 // REQUEST_ERROR code NOT_SUPPORTED (12.3): this client serves no request
 // the hub opens to it.
 const REQUEST_ERROR_NOT_SUPPORTED = 0x3n;
+// REQUEST_ERROR code UNSUPPORTED_EXTENSION (12.3): the answer to a PUBLISH
+// carrying a Mandatory Track Property this client does not know (3.7).
+const REQUEST_ERROR_UNSUPPORTED_EXTENSION = 0x33n;
 // Every REQUEST_ERROR code draft-23 defines (16.12.2 Table 21); any other
 // one counts as INTERNAL_ERROR (13).
 const REQUEST_ERROR_CODES = new Set(
@@ -429,40 +436,79 @@ interface Request {
 
 /** WebTransport.close() throws on a session the browser already ended
  * (a closing tab, a dropped connection); either way it is closed. */
-function closeQuietly(wt: WebTransport): void {
+function closeQuietly(wt: WebTransport, info?: WebTransportCloseInfo): void {
 	try {
-		wt.close();
+		wt.close(info);
 	} catch {
 		// already closed
 	}
 }
 
+/** The REQUEST_ERROR code refusing a hub-opened request: UNSUPPORTED_EXTENSION
+ * for a PUBLISH with an unknown Mandatory Track Property (3.7), else
+ * NOT_SUPPORTED. */
+function refusalCode({ type, body }: Reply): bigint {
+	if (type !== MSG_TYPE_PUBLISH) return REQUEST_ERROR_NOT_SUPPORTED;
+	try {
+		return hasUnknownMandatoryProperty(decodePublish(body).trackProperties)
+			? REQUEST_ERROR_UNSUPPORTED_EXTENSION
+			: REQUEST_ERROR_NOT_SUPPORTED;
+	} catch {
+		return REQUEST_ERROR_NOT_SUPPORTED;
+	}
+}
+
 /** 6.4.2: a request stream the hub opened to this client -- an upstream
- * FETCH or SUBSCRIBE for a track it PUBLISHed. It serves none: REQUEST_ERROR
- * NOT_SUPPORTED goes back at once (a publisher must answer a request; Retry
- * Interval 0, do not retry), so the hub serves what it has instead of
- * waiting out its own budget. */
-function refuseHubRequest(stream: WebTransportBidirectionalStream): void {
-	const writer = stream.writable.getWriter();
-	const err = encodeRequestError({
-		errorCode: REQUEST_ERROR_NOT_SUPPORTED,
-		retryInterval: 0n,
-		errorReason: new Uint8Array(0),
-	});
-	void writer
-		.write(encodeControlFrame(MSG_TYPE_REQUEST_ERROR, err))
-		.then(() => writer.close())
-		.catch(() => {});
+ * FETCH or SUBSCRIBE for a track it PUBLISHed, or a PUBLISH. It serves
+ * none: once the request is read, REQUEST_ERROR (refusalCode) goes back
+ * (a publisher must answer a request; Retry Interval 0, do not retry), so
+ * the hub serves what it has instead of waiting out its own budget. */
+function refuseHubRequest(
+	stream: WebTransportBidirectionalStream,
+	onViolation: (err: MoqtDecodeError) => void,
+): void {
+	let answered = false;
+	const answer = (request: Reply) => {
+		if (answered) return;
+		answered = true;
+		const writer = stream.writable.getWriter();
+		const err = encodeRequestError({
+			errorCode: refusalCode(request),
+			retryInterval: 0n,
+			errorReason: new Uint8Array(0),
+		});
+		void writer
+			.write(encodeControlFrame(MSG_TYPE_REQUEST_ERROR, err))
+			.then(() => writer.close())
+			.catch(() => {});
+	};
+	void readControlFrames(stream.readable.getReader(), answer, onViolation);
 }
 
 /** Refuses every request stream reader yields until the session ends. */
 async function refuseHubRequests(
 	reader: ReadableStreamDefaultReader<WebTransportBidirectionalStream>,
+	onViolation: (err: MoqtDecodeError) => void,
 ): Promise<void> {
 	for (;;) {
 		const { value: stream, done } = await reader.read();
 		if (done || !stream) return;
-		refuseHubRequest(stream);
+		refuseHubRequest(stream, onViolation);
+	}
+}
+
+/** Runs decode on buffered: the bytes it leaves when they run out (wait for
+ * more), rethrowing any other decode failure -- a protocol violation. */
+function untilTruncated(
+	buffered: Uint8Array,
+	decode: () => number,
+): Uint8Array {
+	let pos = 0;
+	try {
+		for (;;) pos = decode();
+	} catch (err) {
+		if (!(err instanceof MoqtTruncatedError)) throw err;
+		return buffered.slice(pos);
 	}
 }
 
@@ -491,50 +537,43 @@ function subscribeOkLargest(body: Uint8Array): Location | undefined | null {
 }
 
 /** Hands every whole fetch Object in buffered to onObject (indicators are
- * skipped) and returns the undecoded rest. */
+ * skipped) and returns the undecoded rest; throws on a malformed one. */
 function drainFetchObjects(
 	buffered: Uint8Array,
 	seq: FetchSeq,
 	onObject: (o: FetchObject) => void,
 ): Uint8Array {
 	let pos = 0;
-	for (;;) {
-		let item: ReturnType<typeof decodeFetchObject>;
-		try {
-			item = decodeFetchObject(buffered, pos, seq);
-		} catch {
-			return buffered.slice(pos); // incomplete: wait for more bytes
-		}
+	return untilTruncated(buffered, () => {
+		const item = decodeFetchObject(buffered, pos, seq);
 		pos += item.len;
 		if (!item.object.marker) onObject(item.object);
-	}
+		return pos;
+	});
 }
 
 /** Hands every whole control message in buffered to onFrame and returns
- * the undecoded rest. */
+ * the undecoded rest; throws on a malformed one (e.g. a Length over 65535). */
 function drainControlFrames(
 	buffered: Uint8Array,
 	onFrame: (r: Reply) => void,
 ): Uint8Array {
 	let offset = 0;
-	for (;;) {
-		let decoded: ReturnType<typeof decodeControlFrame>;
-		try {
-			decoded = decodeControlFrame(buffered, offset);
-		} catch {
-			return buffered.slice(offset); // not enough bytes yet for the next message
-		}
+	return untilTruncated(buffered, () => {
+		const decoded = decodeControlFrame(buffered, offset);
 		onFrame(decoded.frame);
 		offset += decoded.len;
-	}
+		return offset;
+	});
 }
 
 /** Feeds every whole control message the reader yields -- after any bytes
  * already taken off the same stream (`buffered`) -- to onFrame, until the
- * stream ends or fails. */
+ * stream ends or fails; a malformed one goes to onViolation and ends it. */
 async function readControlFrames(
 	reader: ReadableStreamDefaultReader<Uint8Array>,
 	onFrame: (r: Reply) => void,
+	onViolation: (err: MoqtDecodeError) => void,
 	buffered: Uint8Array = new Uint8Array(0),
 ): Promise<void> {
 	try {
@@ -544,8 +583,9 @@ async function readControlFrames(
 			if (done) return;
 			buffered = concatBytes([buffered, value]);
 		}
-	} catch {
-		// reset or cancelled: the request is over
+	} catch (err) {
+		// else reset or cancelled: the request is over
+		if (err instanceof MoqtDecodeError) onViolation(err);
 	}
 }
 
@@ -657,9 +697,9 @@ export class MoqtChatClient {
 				() => this.#goAway(wt, ""),
 				() => {}, // rejected when the session closes: not a drain
 			);
-			void refuseHubRequests(wt.incomingBidirectionalStreams.getReader()).catch(
-				() => {},
-			);
+			void refuseHubRequests(wt.incomingBidirectionalStreams.getReader(), (e) =>
+				this.#violation(wt, e),
+			).catch(() => {});
 			await this.#openControlStream(wt);
 			await this.publishTrack(
 				utf8ToBytes(this.#localId),
@@ -844,7 +884,12 @@ export class MoqtChatClient {
 	): Promise<void> {
 		const wt = this.#wt;
 		if (!wt) return;
-		await readControlFrames(reader, this.#onControlFrame(wt), first);
+		await readControlFrames(
+			reader,
+			this.#onControlFrame(wt),
+			(e) => this.#violation(wt, e),
+			first,
+		);
 	}
 
 	#onControlFrame(wt: WebTransport): (r: Reply) => void {
@@ -873,6 +918,17 @@ export class MoqtChatClient {
 			this.#hubSsts = undefined; // a malformed SETUP advertises nothing
 		}
 		this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
+	}
+
+	// A protocol violation on the current session closes it with the
+	// draft-23 code the decode failure names (12.2, 16.12.1); its closed
+	// settling then reports "disconnected" like any other drop.
+	#violation(wt: WebTransport, err: MoqtDecodeError): void {
+		if (this.#wt !== wt) return;
+		closeQuietly(wt, {
+			closeCode: closingCodeOf(err),
+			reason: err.message.slice(0, 100),
+		});
 	}
 
 	#goneAway?: WebTransport;
@@ -918,11 +974,15 @@ export class MoqtChatClient {
 		const first = new Promise<Reply | undefined>(
 			(resolve) => (resolveFirst = resolve),
 		);
-		void readControlFrames(reader, (r) => {
-			if (!resolveFirst) return onLater(r);
-			resolveFirst(r);
-			resolveFirst = undefined;
-		}).finally(() => resolveFirst?.(undefined));
+		void readControlFrames(
+			reader,
+			(r) => {
+				if (!resolveFirst) return onLater(r);
+				resolveFirst(r);
+				resolveFirst = undefined;
+			},
+			(e) => this.#violation(wt, e),
+		).finally(() => resolveFirst?.(undefined));
 		await writer.write(encodeControlFrame(type, build(requestId)));
 		return {
 			requestId,
@@ -1176,6 +1236,7 @@ export class MoqtChatClient {
 		first: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
+		const wt = this.#wt; // the session this stream belongs to
 		const head = decodeFetchHeader(first);
 		const history = this.#fetches.get(head.requestId);
 		if (!history) {
@@ -1196,6 +1257,10 @@ export class MoqtChatClient {
 				if (done) break;
 				buffered = concatBytes([buffered, value]);
 			}
+		} catch (err) {
+			// A malformed fetch item (11.4.1): close the session; else the
+			// stream was reset and the history just ends.
+			if (wt && err instanceof MoqtDecodeError) this.#violation(wt, err);
 		} finally {
 			// Once: a cancel (#dropPeer) may have ended this history already.
 			if (this.#fetches.get(head.requestId) === history)
