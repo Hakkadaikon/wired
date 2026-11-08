@@ -206,10 +206,9 @@ describe("moqtChatCallbacks", () => {
 });
 
 describe("connectChatThenVoice", () => {
-	it("never attempts startVoice when connectChat rejects, and reports onChatFailed", async () => {
-		const connectChat = vi
-			.fn()
-			.mockRejectedValue(new Error("cert hash mismatch"));
+	it("never attempts startVoice when connectChat rejects, and reports onChatFailed with the error", async () => {
+		const chatErr = new Error('hub did not negotiate moqt-23 (got "")');
+		const connectChat = vi.fn().mockRejectedValue(chatErr);
 		const startVoice = vi.fn().mockResolvedValue(undefined);
 		const onChatFailed = vi.fn();
 		const onVoiceFailed = vi.fn();
@@ -222,7 +221,7 @@ describe("connectChatThenVoice", () => {
 		);
 
 		expect(startVoice).not.toHaveBeenCalled();
-		expect(onChatFailed).toHaveBeenCalledTimes(1);
+		expect(onChatFailed).toHaveBeenCalledExactlyOnceWith(chatErr);
 		expect(onVoiceFailed).not.toHaveBeenCalled();
 	});
 
@@ -1093,7 +1092,7 @@ describe("noteScreenTileVariant (N1)", () => {
 		expect(st.setScreenTileVariant).toHaveBeenCalledWith("user2", "lo");
 	});
 
-	it("shows no badge on d19 / without the extension, and not on deltas", () => {
+	it("shows no badge without the extension, and not on deltas", () => {
 		const st = store();
 		noteScreenTileVariant(st, false, "user2", true, "hi");
 		noteScreenTileVariant(st, true, "user2", false, "hi");
