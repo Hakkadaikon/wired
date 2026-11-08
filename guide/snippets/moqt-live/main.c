@@ -11,7 +11,7 @@
  * one session and a handful of small Groups, so a 2-slot ring (reused
  * once wired_server_wt_stream_inflight reports the slot's stream done) is
  * enough; a multi-session server needs one ring per session (see
- * examples/moqt_chat/wired_server.c). */
+ * examples/moqt_chat/server/wired_server.c). */
 #define LIVE_RING 2
 #define LIVE_SLOT_CAP 128
 typedef struct {

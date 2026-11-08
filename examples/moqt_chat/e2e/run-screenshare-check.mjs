@@ -119,7 +119,7 @@ const summary = {
 };
 try {
 	server = await startServer({
-		binPath: "./wired_server",
+		binPath: "./server/wired_server",
 		logPath,
 		args: ["--port", String(E2E_PORT)],
 	});

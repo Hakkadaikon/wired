@@ -4,7 +4,7 @@ A chat + voice call room over Media over QUIC Transport
 (draft-ietf-moq-transport-22, with a draft-19 fallback; see
 [`moqt_interop`](../moqt_interop/) for the multi-draft relay): a libc-free
 WebTransport server
-(`wired_server.c`) relays each participant's chat messages and Opus voice
+(`server/wired_server.c`) relays each participant's chat messages and Opus voice
 frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
 
@@ -138,7 +138,7 @@ for the gaps.
   = 1`) and an SSTS algorithm list (`ssts_algs` / `ssts_alg_n`, plus
   `ssts_cap_kbps` for the default algorithm's budget), all set after
   `wired_moqt_init`. The client enables variants only when the hub's
-  draft-22 SETUP carries SSTS_ALGORITHMS. `wired_server.c` turns both on
+  draft-22 SETUP carries SSTS_ALGORITHMS. `server/wired_server.c` turns both on
   with `switch_track = 1` and `ssts_algs = {0xff01 (backpressure), 0
   (default)}`, leaving `ssts_cap_kbps` at 0 (no cap).
 - **One more track per peer.** `screen-lo` is one more PUBLISH per
@@ -201,7 +201,7 @@ image holds nothing besides `wired_server`. Mount a PEM pair and point
 ```sh
 cd examples/moqt_chat
 just up       # builds, then runs in the foreground, Ctrl-C stops it
-just up -d    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
+just up -d    # same, but detached; `docker compose logs -f` in `server/` to follow it, `just down` to tear it down
 ```
 
 `just up` names this host's default-route source address in the
@@ -212,7 +212,7 @@ clients actually dial. The address replaces the demo's 127.0.0.1, so on
 the host itself dial `https://localhost:4433/` (the cert also names
 `localhost`): `https://127.0.0.1:4433/` is answered 421.
 
-The container runs with `network_mode: host` (see `docker-compose.yml`), so
+The container runs with `network_mode: host` (see `server/docker-compose.yml`), so
 `wired_server` listens on the host's own `4433/udp` directly rather than
 through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
 confirmed by hand to never complete the QUIC handshake (the client sits at
@@ -231,7 +231,7 @@ process's memory, so it is single-process only: do not pass
 | `--cc cubic\|bbr` | `cubic` | congestion controller for new connections |
 | `--cert PATH` / `WIRED_CERT` | unset (self-signed, in memory) | fullchain PEM (leaf first) to serve |
 | `--key PATH` / `WIRED_KEY` | unset | its P-256 private key (PEM); required with a cert |
-| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://localhost:8443`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
+| `WIRED_ALLOWED_ORIGINS` | unset (every Origin accepted) | comma-separated exact Origins, e.g. `https://chat.example,https://hakkadaikon.github.io`; a WebTransport CONNECT from any other Origin is answered 403 (draft-ietf-webtrans-http3-15 3.1) |
 | `--goaway-uri URI` / `WIRED_GOAWAY_URI` | unset (reconnect to the same URI) | New Session URI sent in GOAWAY on shutdown (at most 8192 bytes) |
 
 - **Certificate reload**: with `--cert`/`--key` set, `kill -HUP <pid>`
@@ -306,20 +306,14 @@ the 1976 NASA Graphics Standards Manual
 (`output: "export"`, so it ships as static files — no Node server needed to
 serve it).
 
-```sh
-just serve-frontend   # builds frontend/ and serves it over TLS at :8443
-```
-
-A non-`localhost` HTTP page is not a secure context, so the frontend is
-served over TLS; a self-signed `cert.pem`/`key.pem` pair is generated
-automatically on first run. Open `https://<host>:8443/`, paste the server's
-cert fingerprint, pick a participant id, and connect. Voice starts
+It is deployed only as the GitHub Pages demo below. Open the page, paste
+the server's cert fingerprint, pick a participant id, and connect. Voice starts
 automatically once connected (mutable via the mic toggle); grant the
 browser's microphone permission prompt to send audio. Open it again with a
 different participant id (or a private window) to chat with yourself across
 two tabs.
 
-For local development with hot reload instead: `just dev-frontend` (plain
+For local development with hot reload: `just dev-frontend` (plain
 HTTP at `:3000`, works for `localhost` since that origin is always a secure
 context regardless of scheme).
 
@@ -396,7 +390,7 @@ The e2e scenarios drive the UI only and do not choose a draft: a stock
 Chrome for Testing takes the draft-19 fallback. To exercise draft-22, run
 the browser with `--enable-experimental-web-platform-features` (for a
 manual check, start Chrome/Chromium with that flag against
-`just serve-frontend`; the session then negotiates `moqt-22`, visible as
+`just dev-frontend`; the session then negotiates `moqt-22`, visible as
 `wt.protocol` in the browser and as `MoqtChatClient.draft === 22`, which
 the page does not display: inspect the client in devtools). A browser that
 offers `protocols` but has no `wt.protocol` attribute is detected by the
@@ -408,12 +402,13 @@ needed to run the scenarios on draft-22.
 
 ## Layout
 
-- `wired_server.c` — the MOQT hub server: wires WebTransport session/stream
+- `server/` — the server side. `wired_server.c` (with `access.c`,
+  `live.c`, `relay.c` and `moqt_chat.h`) is the MOQT hub server: wires WebTransport session/stream
   callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
   draft-ietf-webtrans-http3-15 SS4.2), plus the Origin allow-list, the
   certificate paths, the object cache and GOAWAY on shutdown.
-- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`
+- `server/Dockerfile` / `server/docker-compose.yml` — the `scratch` image `just up`
   builds and runs (see "Build and run (server)" above).
 - `frontend/` — the Next.js + React browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (wire codec; session, request

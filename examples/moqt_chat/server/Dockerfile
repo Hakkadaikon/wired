@@ -5,13 +5,13 @@
 # itself. Built OUTSIDE this Dockerfile (the repo's pinned clang/ninja
 # toolchain lives in flake.nix, not in any public base image):
 #
-#   just ninja examples/moqt_chat/wired_server
-#   docker build -t moqt-chat -f examples/moqt_chat/Dockerfile .
+#   just ninja examples/moqt_chat/server/wired_server
+#   docker build -t moqt-chat -f examples/moqt_chat/server/Dockerfile .
 #
-# (justfile's `run`/`run-bg` recipes do both steps for you.)
+# (examples/moqt_chat/justfile's `up` recipe does both steps for you.)
 FROM scratch
 
-COPY examples/moqt_chat/wired_server /wired_server
+COPY examples/moqt_chat/server/wired_server /wired_server
 
 EXPOSE 4433/udp
 
