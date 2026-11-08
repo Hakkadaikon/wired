@@ -371,9 +371,101 @@ static void test_moqtrun_d23uo_prefix_not_coalesced(void) {
   CHECK(mtuo_n_on(MTRQ_S1) - n0 == 2);
 }
 
+/* ============ pipelined in one delivery (9.5, synchronous) ============ */
+
+/* Updates a then b on MTRQ_S1, both in one delivery: the hub reads both
+ * before it flushes anything. */
+static void mtuo_two(const moqctl_params* a, const moqctl_params* b) {
+  static moqtstat_update    m[2];
+  u8                        buf[2 * MTST_MSG_MAX];
+  usz                       n     = 0;
+  const moqctl_params*      ps[2] = {a, b};
+  const wired_moqtrun_peer* pb    = moqtrun_find_by_wt(&mtst_hub, SESS_B);
+  g_mtst_send_ver                 = pb->ver;
+  for (usz i = 0; i < 2; i++) {
+    m[i].request_id = mtst_rid += 4;
+    m[i].params     = *ps[i];
+    mtst_params_for(SESS_B, &m[i].params);
+    n += moqtrun_envelope_put(
+        MOQVER_D22, wired_mspan_of(buf + n, sizeof buf - n),
+        MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m[i]);
+  }
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 0);
+}
+
+/* 9.5: two updates read together are answered one OK each, in received
+ * order, and the state is both applied in order. The hub decides each on
+ * receipt (no upstream wait), so the second never overtakes the first. */
+static void test_moqtrun_d23uo_upstream_wait_holds_later_ok(void) {
+  u64           t[4];
+  moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
+  mtuo_sub();
+  mtuo_two(&on, &pr);
+  CHECK(mtuo_replies(MTRQ_S1, t, 4) == 2);
+  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_OK);
+  CHECK(mtuo_s() && !mtuo_s()->forward_off && mtuo_s()->priority == 2);
+}
+
+/* draft-23 9.5.1: of two updates read together, a failed first one gets
+ * the one REQUEST_ERROR and the second is dropped, never applied. */
+static void test_moqtrun_d23uo_upstream_refusal_covers_later(void) {
+  u64           t[4];
+  moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
+  mtuo_sub();
+  g_send_uni_fail_n = 1; /* the FORWARD 0 -> 1 blob send is refused */
+  mtuo_two(&on, &pr);
+  CHECK(mtuo_replies(MTRQ_S1, t, 4) == 1);
+  CHECK(t[0] == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mtuo_s() == 0);
+}
+
+/* draft-23 9.1.7: one REQUEST_ERROR answers one update, so after it is
+ * flushed the update dropped behind it stays outstanding: MAX - 1 more
+ * are dropped without a close, the next one closes. */
+static void test_moqtrun_d23uo_range_error_restores_credit(void) {
+  moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
+  mtuo_sub();
+  g_send_uni_fail_n = 1;
+  mtuo_two(&on, &pr);
+  CHECK(mtuo_pending() == 1);
+  for (u8 i = 1; i < WIRED_MOQTRUN_MAX_REQ_UPDATES; i++) {
+    mtuo_prio(i);
+  }
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
+  mtuo_prio(9);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 1);
+}
+
+/* draft-23 9.5: whatever mix of accepted, failed and back-pressured
+ * updates, once the transport drains every update sent has one reply or
+ * was dropped after the request ended (outstanding for good) -- never
+ * neither. A fixed pseudo-random schedule within the credit. */
+static void test_moqtrun_d23uo_every_update_resolved(void) {
+  u32 x    = 777;
+  u64 sent = 0;
+  mtuo_sub();
+  for (usz round = 0; round < 40; round++) {
+    x                  = x * 1103515245u + 12345u;
+    g_stream_send_ok_n = (x >> 16) & 1 ? -1 : 0;
+    if (mtuo_pending() < WIRED_MOQTRUN_MAX_REQ_UPDATES) {
+      (x >> 20) % 9 == 0 ? mtuo_fail() : mtuo_prio((u8)round);
+      sent++;
+    }
+    wired_moqt_tick(&mtst_hub, round);
+  }
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 99);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
+  CHECK(mtuo_n() + mtuo_pending() == sent);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
+  test_moqtrun_d23uo_upstream_wait_holds_later_ok();
   test_moqtrun_d23uo_immediate_in_order();
   test_moqtrun_d23uo_coalesce_equals_sequential();
   test_moqtrun_d23uo_refused_reply_keeps_order();
@@ -384,6 +476,9 @@ static void mtuo_all(void) {
 }
 
 static void mtuo_d23(void) {
+  test_moqtrun_d23uo_upstream_refusal_covers_later();
+  test_moqtrun_d23uo_every_update_resolved();
+  test_moqtrun_d23uo_range_error_restores_credit();
   test_moqtrun_d23uo_error_covers_queued();
   test_moqtrun_d23uo_after_end_no_reply();
   test_moqtrun_d23uo_over_credit_after_end();
