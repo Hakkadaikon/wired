@@ -279,6 +279,7 @@ static void test_moqtrun_sched_fetch_own_flow(void) {
   mf_init(sizeof mf_arena);
   mtdr_sched_on();
   mf_obj(0, 0, 1);
+  mf_obj(1, 0, 1); /* the whole range cached: served at once */
   mtst_subscribe_p(SESS_B, mf_ctrl_b, &f, 2, 0);
   usz n = mtst_stream(3, 1, 1, buf);
   mt_feed(&mtst_hub, SESS_A, 2001, wired_span_of(buf, n), 0);

@@ -170,7 +170,8 @@ static void test_moqcache_items_evicted_prefix(void) {
 }
 
 /* Inside a cached group a missing Object does not exist (groups are
- * cached whole): skip passes it, and past the last group reaches end. */
+ * cached whole): skip passes it, and stops at the next group, which was
+ * never received. */
 static void test_moqcache_skip_nonexistent(void) {
   moqcache c;
   mc_init(&c, sizeof mc_arena);
@@ -179,7 +180,23 @@ static void test_moqcache_skip_nonexistent(void) {
   CHECK(mc_loc_eq(
       moqcache_skip(&c, MC_TAG, mc_loc(0, 1), mc_loc(0, 3)), mc_loc(0, 2)));
   CHECK(mc_loc_eq(
-      moqcache_skip(&c, MC_TAG, mc_loc(0, 3), mc_loc(2, 0)), mc_loc(2, 0)));
+      moqcache_skip(&c, MC_TAG, mc_loc(0, 3), mc_loc(2, 0)), mc_loc(1, 0)));
+}
+
+/* draft-23 2.1.2: a Group never received between two cached ones is
+ * Unknown, not nonexistent ("a gap ... does not by itself convey any
+ * information"): skip stops at it and it is one unknown range. */
+static void test_moqcache_missing_group_unknown(void) {
+  moqcache      c;
+  moqcache_item it;
+  mc_init(&c, sizeof mc_arena);
+  mc_put(&c, MC_TAG, 0, 0, 1);
+  mc_put(&c, MC_TAG, 2, 0, 1);
+  moqctl_loc cur = moqcache_skip(&c, MC_TAG, mc_loc(0, 1), mc_loc(3, 0));
+  CHECK(mc_loc_eq(cur, mc_loc(1, 0)));
+  moqcache_item_at(&c, MC_TAG, cur, mc_loc(3, 0), &it);
+  CHECK(it.unknown && mc_loc_eq(it.loc, mc_loc(1, MOQCACHE_OBJ_ID_MAX)));
+  CHECK(mc_loc_eq(it.next, mc_loc(2, 0)));
 }
 
 /* Nothing cached: the whole range is one unknown range. */
@@ -309,6 +326,7 @@ void test_moqcache(void) {
   test_moqcache_items_cached();
   test_moqcache_items_evicted_prefix();
   test_moqcache_skip_nonexistent();
+  test_moqcache_missing_group_unknown();
   test_moqcache_items_empty();
   test_moqcache_items_tombstone();
   test_moqcache_evicted_open_group_dead();

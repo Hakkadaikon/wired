@@ -159,7 +159,7 @@ static int moqtrun_group_closed(const wired_moqtrun_track* t, moqctl_loc l) {
 }
 
 /* The cache reports l nonexistent: its skip moves past l (the rest of a
- * cached Group, or a Group between cached ones). */
+ * cached Group). */
 static int moqtrun_cache_says_gone(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
   return moqctl_loc_less(
@@ -176,7 +176,6 @@ static int moqtrun_gone_on(
   return moqtrun_group_closed(t, l) && moqtrun_cache_says_gone(hub, t, l);
 }
 
-/* Gates caching: an Object behind a later Group is not cached. */
 static int moqtrun_gone_known(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
   return hub && t && moqtrun_gone_on(hub, t, l);
@@ -218,8 +217,10 @@ void moqtrun_cache_obj(
     wired_moqtrun_track* t,
     u64                  group,
     const moqdata_obj*   o) {
+  /* Cached in arrival order, so an Object behind a later Group stays out
+   * (moqcache.h: groups ascend per track). */
   if (!moqtrun_cacheable(hub, t, o->status) ||
-      moqtrun_gone_known(hub, t, moqctl_loc_of(group, o->object_id))) {
+      moqtrun_group_closed(t, moqctl_loc_of(group, o->object_id))) {
     return;
   }
   moqcache_append_exp(
