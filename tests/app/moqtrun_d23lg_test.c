@@ -248,9 +248,29 @@ static void mtlg_paused_pub_d22(void) {
   CHECK(mtlg_sok_is(MRDV_S1, 0, 5));
 }
 
+/* The unpause's own REQUEST_UPDATE_OK settles the wait, not an earlier
+ * answer on the stream: a draft-22 subscriber's NEW_GROUP_REQUEST goes
+ * out before the unpause, and its REQUEST_OK leaves the draft-23 request
+ * waiting (answers come in order, 9.5). */
+static void mtlg_resume_in_order_d23(void) {
+  mrdv_init();
+  mups_sids();
+  mtst_join(SESS_C);
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D22;
+  mups_pub_stream_p(MOQCTL_PARAM_PAUSED, 1); /* DYNAMIC_GROUPS 1 */
+  mups_sub_ngr(SESS_C, MRDV_S1, 0);
+  CHECK(moqtrun_req_find(&mtst_hub, SESS_A, MUPS_PUB_SID)->upd_out == 2);
+  mups_sub(SESS_B, MRDV_S1);
+  mtlg_rok(MUPS_PUB_SID, 0, 6);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  mtlg_rok(MUPS_PUB_SID, 0, 7);
+  CHECK(mtlg_sok_is(MRDV_S1, 0, 7));
+}
+
 static void test_moqtrun_d23lg_paused_pub_waits_resume(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_paused_pub_d23);
   moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_paused_pub_d22);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_resume_in_order_d23);
 }
 
 /* 7.5: a paused downstream SUBSCRIBE (PAUSED 1) still needs a Largest,
