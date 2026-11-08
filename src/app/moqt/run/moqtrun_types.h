@@ -10,6 +10,7 @@
 #include "app/moqt/run/moqtrel.h"
 #include "app/moqt/run/moqtrun_close.h"
 #include "app/moqt/run/moqtrun_ngr.h"
+#include "app/moqt/run/moqtrun_rngrow.h"
 #include "app/moqt/run/moqtss.h"
 #include "app/moqt/sess/moqsess.h"
 #include "common/bytes/span/span.h"
@@ -246,23 +247,6 @@ typedef struct {
  * WT_DRAIN_SESSION (wired_moqt_on_session_draining): the peer asked to go,
  * so a short grace for its subscriptions to wind down. */
 #define WIRED_MOQTRUN_DRAIN_TIMEOUT_MS 5000
-
-/** One flattened Range Filter Range (draft-19 10.2.10-10.2.14): the
- * (ptype, set_id[, prop_type]) triple names the parameter it came from;
- * a parameter with k Ranges takes k rows. */
-typedef struct {
-  u64 ptype;     /**< MOQCTL_PARAM_*_FILTER (0x25-0x29) */
-  u64 prop_type; /**< 0x28/0x29 only, valid iff has_prop */
-  u64 start;     /**< inclusive */
-  u64 end;       /**< inclusive, valid iff has_end */
-  /** The filter's one-byte SetID (10.2.10): rows of one parameter
-   * share it. */
-  u8 set_id;
-  /** 1 when prop_type is present (0x28/0x29 filters). */
-  u8 has_prop;
-  /** 1 when the Range has an End (end valid); 0 = open-ended. */
-  u8 has_end;
-} wired_moqtrun_rngrow;
 
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias its SUBSCRIBE_OK named -- the alias every SUBGROUP_HEADER and
