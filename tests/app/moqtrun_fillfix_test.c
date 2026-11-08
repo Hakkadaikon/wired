@@ -199,6 +199,9 @@ static void test_moqtrun_fillfix_full_update_refused(void) {
   CHECK(mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
   CHECK(mfill_opens() == WIRED_MOQTRUN_MAX_FETCHES);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  g_stream_send_ok_n = -1; /* the parked slots' send refusal held the FIN */
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mtrq_fin_on(MTRQ_S1));
 }
 
 /* Q-08: the upstream track retired (superseded by a newer PUBLISH of the
