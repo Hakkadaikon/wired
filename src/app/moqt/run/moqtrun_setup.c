@@ -168,9 +168,7 @@ void moqtrun_close_with(wired_moqt_hub* hub, wired_moqtrun_peer* p, u32 code) {
   if (!moqtrun_peer_close(hub, p, code)) {
     return;
   }
-  a->at   = a->n;
-  a->skip = (usz)-1;
-  a->big  = 0; /* nothing left to read: its pool buffer is free */
+  moqtrun_asm_drop(a);
 }
 
 /* draft SS10: an unknown message type MUST close the session; SS3.5

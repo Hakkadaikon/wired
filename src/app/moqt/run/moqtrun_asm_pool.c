@@ -7,6 +7,26 @@
 
 static int moqtrun_asm_slot_free(const wired_moqt_hub* hub, usz i);
 
+/* Discards what a holds and every later byte (its skip never runs out):
+ * its stream is read no more. */
+void moqtrun_asm_drop(wired_moqtrun_ctl_asm* a) {
+  a->at   = a->n;
+  a->skip = (usz)-1;
+  a->big  = 0; /* nothing left to read: its pool buffer is free */
+}
+
+/* 1 while p's stream with reassembly a may still be read; once p's
+ * session is closing a is discarded instead, so nothing read there
+ * after the close sends anything (moqtrun_peer_close). */
+int moqtrun_asm_readable(
+    const wired_moqtrun_peer* p, wired_moqtrun_ctl_asm* a) {
+  if (p->closing) {
+    moqtrun_asm_drop(a);
+    return 0;
+  }
+  return 1;
+}
+
 /* Empties a: no bytes held or owed, no pool buffer. */
 void moqtrun_asm_reset(wired_moqtrun_ctl_asm* a) {
   a->n    = 0;

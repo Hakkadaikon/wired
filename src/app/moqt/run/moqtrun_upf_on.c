@@ -143,12 +143,12 @@ static int moqtrun_upf_popped(int r) {
  * a GOAWAY or a REQUEST_UPDATE still counts. */
 void moqtrun_upf_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_fetch* f) {
-  u64        type    = 0;
-  wired_span body    = {0, 0};
-  int        goaways = 0;
-  while (!pp->closing &&
-         moqtrun_upf_popped(moqtrun_asm_pop(
-             hub, pp, &moqtrun_upf_leg_of(hub, f)->in, &type, &body))) {
+  u64                    type    = 0;
+  wired_span             body    = {0, 0};
+  int                    goaways = 0;
+  wired_moqtrun_ctl_asm* in      = &moqtrun_upf_leg_of(hub, f)->in;
+  while (moqtrun_asm_readable(pp, in) &&
+         moqtrun_upf_popped(moqtrun_asm_pop(hub, pp, in, &type, &body))) {
     goaways += moqtrun_upf_route(hub, pp, f, type, body, goaways);
   }
 }

@@ -30,7 +30,8 @@ static void moqtrun_up_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   u64        type = 0;
   wired_span body = {0, 0};
-  while (moqtrun_up_pop(hub, pp, u, &type, &body)) {
+  while (moqtrun_asm_readable(pp, &u->in) &&
+         moqtrun_up_pop(hub, pp, u, &type, &body)) {
     moqtrun_up_route(hub, pp, u, type, body);
   }
 }

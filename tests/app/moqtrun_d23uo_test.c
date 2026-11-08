@@ -434,24 +434,32 @@ static void test_moqtrun_d23uo_prefix_not_coalesced(void) {
 
 /* ============ pipelined in one delivery (9.5, synchronous) ============ */
 
-/* Updates a then b on MTRQ_S1, both in one delivery: the hub reads both
+/* s's updates a then b on sid, both in one delivery: the hub reads both
  * before it flushes anything. */
-static void mtuo_two(const moqctl_params* a, const moqctl_params* b) {
+static void mtuo_two_on(
+    wired_wt_session*    s,
+    u64                  sid,
+    const moqctl_params* a,
+    const moqctl_params* b) {
   static moqtstat_update    m[2];
   u8                        buf[2 * MTST_MSG_MAX];
   usz                       n     = 0;
   const moqctl_params*      ps[2] = {a, b};
-  const wired_moqtrun_peer* pb    = moqtrun_find_by_wt(&mtst_hub, SESS_B);
+  const wired_moqtrun_peer* pb    = moqtrun_find_by_wt(&mtst_hub, s);
   g_mtst_send_ver                 = pb->ver;
   for (usz i = 0; i < 2; i++) {
     m[i].request_id = mtst_rid += 4;
     m[i].params     = *ps[i];
-    mtst_params_for(SESS_B, &m[i].params);
+    mtst_params_for(s, &m[i].params);
     n += moqtrun_envelope_put(
         MOQVER_D22, wired_mspan_of(buf + n, sizeof buf - n),
         MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m[i]);
   }
-  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 0);
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
+}
+
+static void mtuo_two(const moqctl_params* a, const moqctl_params* b) {
+  mtuo_two_on(SESS_B, MTRQ_S1, a, b);
 }
 
 /* 9.5: two updates read together are answered one OK each, in received
@@ -812,6 +820,26 @@ static void test_moqtrun_d23uo_upf_ended_serving(void) {
   moqtrun_test_allver(mtuo_upf_ended_serving);
 }
 
+/* 9.5: two REQUEST_UPDATEs read together on an ended request stream
+ * close the session once -- the first closes it, and nothing more goes
+ * out (the second is discarded). */
+static void mtuo_ended_two_updates(u64 sid) {
+  moqctl_params p  = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  usz           n0 = g_n_calls;
+  mtuo_two_on(SESS_A, sid, &p, &p);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
+  CHECK(g_n_calls == n0 + 1);
+}
+
+static void mtuo_ended_close_once(void) {
+  mtuo_ended_two_updates(mtuo_ups_ended(1));
+  mtuo_ended_two_updates(mtuo_upf_ended(1));
+}
+
+static void test_moqtrun_d23uo_ended_close_once(void) {
+  moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_ended_close_once);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -862,4 +890,5 @@ void test_moqtrun_d23uo(void) {
   test_moqtrun_d23uo_ended_reinit();
   test_moqtrun_d23uo_ups_ended_after_close();
   test_moqtrun_d23uo_upf_ended_serving();
+  test_moqtrun_d23uo_ended_close_once();
 }
