@@ -585,7 +585,7 @@
 - [x] MQ22-097a 認可されていないピアが、配信を許されていない名前空間を PUBLISH しようとした場合、実装はそれを REQUEST_ERROR UNAUTHORIZED で拒否しなければならない。これは、リレーが購読する側だけでなく配信する側の名前空間も認可することを求める、draft-22 の SS15.3.3「Preventing Impersonation」の要件に対応する。
   - test: `tests/app/moqtrun_upd_test.c` —
     `test_moqtrun_publish_requires_authorization`
-  - note: `moqtrun_publish_refused` は、以前からある `moqtrun_subscribe_refused` と対になるものです。`docs/security/vuln-ledger.md` に記した V-0839 のギャップを閉じます。台帳 4-14a と、コミット `041b9ef4` の一連のコミットを参照。
+  - note: `moqtrun_publish_refused` は、`moqtrun_subscribe_refused` と対になるものです。`docs/security/vuln-ledger.md` に記した V-0839 のギャップを閉じます。台帳 4-14a と、コミット `041b9ef4` の一連のコミットを参照。
   - vuln: V-0793, V-0839
 
 ## SS9.9 PUBLISH_DONE

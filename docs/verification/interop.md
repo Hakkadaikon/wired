@@ -114,8 +114,8 @@ MoQT は [moq-interop-runner](https://github.com/englishm/moq-interop-runner) �
 | `transfer-unidirectional-receive` | 合格 | サーバーが単方向ストリームでファイルを送る |
 | `transfer-bidirectional-receive` | 合格 | サーバーが双方向ストリームで応答する |
 | `transfer-datagram-receive` | 合格 | サーバーが DATAGRAM で送る |
-| `transfer-unidirectional-send` | 合格 | 2xx とストリームの順序を 2026-08-23 に修正(`ee13cc7`)。ngtcp2 と webtransport-go で合格 |
-| `transfer-bidirectional-send` | 不合格 | 2026-10-27 に webtransport-go でファイルが途中で切れて不合格([#180](https://github.com/Hakkadaikon/wired/issues/180))。根本原因は修正済み。ローカルで 5 回中 5 回合格、次の CI 実行待ち |
+| `transfer-unidirectional-send` | 合格 | ngtcp2 と webtransport-go で合格 |
+| `transfer-bidirectional-send` | 不合格 | webtransport-go でファイルが途中で切れる([#180](https://github.com/Hakkadaikon/wired/issues/180))。現在のコードはローカルで 5 回中 5 回合格し、CI ではまだ実行していない |
 | `transfer-datagram-send` | 合格 | `transfer-unidirectional-send` と同じ修正。2026-08-23 のローカルでの逐次再実行で webtransport-go に合格 |
 
 2026-10-27 の CI 実行のクライアント 5 種の結果は次のとおりである。

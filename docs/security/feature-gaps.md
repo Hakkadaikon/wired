@@ -47,7 +47,7 @@ MoQT の行のフックは、アプリケーションが購読を 1 件ずつ承
 | ない機能 | 台帳の行 | デプロイへの影響 |
 |---|---|---|
 | Encrypted Client Hello(ECH、draft-ietf-tls-esni) | V-0238, V-0240 | 追加したら再トリアージ |
-| CertificateVerify での ECDSA P-521(対応: P-256、RSA-PSS、Ed25519) | V-0247 | ピアは CertificateVerify に `ecdsa_secp521r1_sha512` で署名できない。P-521 で署名された証明書チェーンは検証できる(2026-10-10 から) |
+| CertificateVerify での ECDSA P-521(対応: P-256、RSA-PSS、Ed25519) | V-0247 | ピアは CertificateVerify に `ecdsa_secp521r1_sha512` で署名できない。P-521 で署名された証明書チェーンは検証できる |
 | 有限体 DHE のグループ(X25519 / P-256 の ECDHE のみ) | V-0270 | 追加したら再トリアージ |
 | RSA-PSK / RSA 鍵輸送(RSA は検証専用) | V-0271, V-0274, V-0660, V-0696, V-0711, V-0739, V-0741 | 追加したら再トリアージ |
 | CBC モードの暗号スイート(AES-GCM と ChaCha20-Poly1305 のみ) | V-0285, V-0759 | 追加したら再トリアージ |

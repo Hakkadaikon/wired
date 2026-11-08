@@ -571,7 +571,7 @@
     `test_moqctl_locfilter_next_group_and_largest`
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_locfilter_abs_start_and_range_roundtrip`
-  - note: draft-18 では "Subscription Filter" と呼ぶ(draft-19 で "Location Filter" に改名)。構造はバイト単位で同じ。`draft18-vs-19-diff.md` の §9.3 を参照。
+  - note: draft-18 では "Subscription Filter" と呼ぶ(draft-19 で "Location Filter" に改名)。構造はバイト単位で同じ。
 - [~] MQ18-107 (§5.1.2) AbsoluteRange フィルターの End Group(Start.Group + End Group Delta)が 2^64-1 を超えることになる場合、実装はプロトコル違反でセッションを閉じなければならない。
   - evidence: コーデックは違反を報告し(`test_moqctl_locfilter_end_group_overflow_violation`)、ハブはデコードに失敗したリクエストや SETUP に対して PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件を送るハブのテストはない。
 - [~] MQ18-108 (§5.1.2) エンドポイントが定義済みの 4 つ以外の Subscription Filter Type を受信した場合、実装はプロトコル違反でセッションを閉じなければならない。
