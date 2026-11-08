@@ -349,8 +349,30 @@ static void mtlg_wait_slots_d23(void) {
   CHECK(mrdv_used() == 0 && mrdv_is(SESS_B, MRDV_S1, "E2|FIN|"));
 }
 
+/* One publisher's paused PUBLISH holds at most half of the rendezvous
+ * slots: past that a new wait on it is refused EXCESSIVE_LOAD at once,
+ * so a silent publisher cannot take every slot. */
+static void mtlg_pub_cap_d23(void) {
+  wired_wt_session* const subs[] = {SESS_B, SESS_C};
+  u64                     sid    = MRDV_S1;
+  mtlg_pub(1, 0, 5);
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  for (usz s = 0; s < 2; s++) {
+    for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++, sid += 4) {
+      mups_sub(subs[s], sid);
+    }
+  }
+  CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV / 2);
+  mups_sub(SESS_D, sid);
+  CHECK(mrdv_err(SESS_D, sid).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(mrdv_err(SESS_D, sid).retry_interval == WIRED_MOQTRUN_RDV_RETRY);
+  CHECK(mrdv_used() == WIRED_MOQTRUN_MAX_RDV / 2);
+}
+
 static void test_moqtrun_d23lg_wait_slots_bounded(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_wait_slots_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_pub_cap_d23);
 }
 
 /* ===================== the upstream fails (7.5) ===================== */
@@ -410,7 +432,7 @@ static void mtlg_close_d23(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
   mtlg_pub(1, 0, 5);
   mups_sub(SESS_B, MRDV_S1);
-  mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
+  mups_done(MUPS_PUB_SID, MOQCTL_DONE_INTERNAL_ERROR);
   wired_moqt_tick(&mtst_hub, 1); /* the PUBLISH_DONE sweep */
   CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
   mtlg_pub(1, 0, 5);
@@ -424,8 +446,34 @@ static void mtlg_close_d23(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* draft-23 12.3 / 12.4: a PUBLISH that ends with PUBLISH_DONE refuses
+ * its waiters with the REQUEST_ERROR twin of the Status Code where one
+ * exists (TRACK_ENDED: the track is not there any more), INTERNAL_ERROR
+ * otherwise. */
+static void mtlg_done_err_d23(void) {
+  static const u64 map[][2] = {
+      {MOQCTL_DONE_TRACK_ENDED, MOQCTL_ERR_DOES_NOT_EXIST},
+      {MOQCTL_DONE_UNAUTHORIZED, MOQCTL_ERR_UNAUTHORIZED},
+      {MOQCTL_DONE_GOING_AWAY, MOQCTL_ERR_GOING_AWAY},
+      {MOQCTL_DONE_EXPIRED_AUTH_TOKEN, MOQCTL_ERR_EXPIRED_AUTH_TOKEN},
+      {MOQCTL_DONE_EXCESSIVE_LOAD, MOQCTL_ERR_EXCESSIVE_LOAD},
+      {0x5 /* TOO_FAR_BEHIND */, MOQCTL_ERR_INTERNAL_ERROR},
+      {0x6 /* EXPIRED */, MOQCTL_ERR_INTERNAL_ERROR},
+      {MOQCTL_DONE_INTERNAL_ERROR, MOQCTL_ERR_INTERNAL_ERROR},
+  };
+  for (usz i = 0; i < sizeof map / sizeof map[0]; i++) {
+    mtlg_pub(1, 0, 5);
+    mups_sub(SESS_B, MRDV_S1);
+    mups_done(MUPS_PUB_SID, map[i][0]);
+    wired_moqt_tick(&mtst_hub, 1); /* the PUBLISH_DONE sweep */
+    CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == map[i][1]);
+    CHECK(mrdv_used() == 0);
+  }
+}
+
 static void test_moqtrun_d23lg_upstream_close_fails_waiters(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_close_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_done_err_d23);
 }
 
 /* One answer per request: a SUBSCRIBE answered after the unpause ends
@@ -720,7 +768,7 @@ static void mtlg_bad_answer_d23(void) {
   mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
   wired_moqt_tick(&mtst_hub, 1);
   mtlg_rok(MUPS_PUB_SID, 0, 9);
-  CHECK(mrdv_is(SESS_B, MRDV_S1, "E0|FIN|"));
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
 }
 
 /* 9.10: a PUBLISH_STATE_NOTIFY whose parameters do not decode is

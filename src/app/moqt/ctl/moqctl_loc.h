@@ -120,6 +120,9 @@
 #define MOQCTL_ERR_UNAUTHORIZED 0x1ULL
 /** MALFORMED_AUTH_TOKEN: an AUTHORIZATION TOKEN could not be parsed. */
 #define MOQCTL_ERR_MALFORMED_AUTH_TOKEN 0x4ULL
+/** EXPIRED_AUTH_TOKEN: the authorization token has expired (draft-23
+ * 12.3). */
+#define MOQCTL_ERR_EXPIRED_AUTH_TOKEN 0x5ULL
 /** INVALID_FILTER: a Range Filter parameter is unusable (delta overflow,
  * too many Ranges); not defined in draft-18. */
 #define MOQCTL_ERR_INVALID_FILTER 0x36ULL
@@ -154,8 +157,13 @@
 
 /** PUBLISH_DONE status codes actually used by this subset (SS17.4). */
 #define MOQCTL_DONE_INTERNAL_ERROR 0x0ULL
+/** UNAUTHORIZED: the subscriber is no longer authorized (draft-23 12.4). */
+#define MOQCTL_DONE_UNAUTHORIZED 0x1ULL
 /** TRACK_ENDED: the publisher has no more Objects for the Track. */
 #define MOQCTL_DONE_TRACK_ENDED 0x2ULL
+/** EXCESSIVE_LOAD: the publisher is overloaded and ends the subscription
+ * (draft-23 12.4). */
+#define MOQCTL_DONE_EXCESSIVE_LOAD 0x9ULL
 /** GOING_AWAY: the publisher is migrating away (after GOAWAY). */
 #define MOQCTL_DONE_GOING_AWAY 0x4ULL
 /** UPDATE_FAILED: a REQUEST_UPDATE to the subscription could not be

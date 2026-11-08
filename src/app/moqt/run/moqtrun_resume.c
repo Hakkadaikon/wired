@@ -22,6 +22,7 @@ static void moqtrun_resume_end(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_rdv_fn fn, u64 code);
 static void moqtrun_resume_settle(
     wired_moqt_hub* hub, wired_moqtrun_track* t, u64 code);
+static u64 moqtrun_done_err(u64 status);
 
 static int moqtrun_must_wait(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
@@ -104,11 +105,37 @@ static void moqtrun_resume_settle(
       hub, t, ok ? moqtrun_rdv_do_resume : moqtrun_rdv_do_refuse, code);
 }
 
+/* draft-23 12.4 -> 12.3: the REQUEST_ERROR twin of a PUBLISH_DONE Status
+ * Code; TOO_FAR_BEHIND, EXPIRED, UPDATE_FAILED and MALFORMED_TRACK (a
+ * FETCH-only request error) have none. */
+static const u64 moqtrun_done_errs[][2] = {
+    {MOQCTL_DONE_UNAUTHORIZED, MOQCTL_ERR_UNAUTHORIZED},
+    {MOQCTL_DONE_TRACK_ENDED, MOQCTL_ERR_DOES_NOT_EXIST},
+    {MOQCTL_DONE_SUBSCRIPTION_ENDED, MOQCTL_ERR_DOES_NOT_EXIST},
+    {MOQCTL_DONE_GOING_AWAY, MOQCTL_ERR_GOING_AWAY},
+    {MOQCTL_DONE_EXPIRED_AUTH_TOKEN, MOQCTL_ERR_EXPIRED_AUTH_TOKEN},
+    {MOQCTL_DONE_EXCESSIVE_LOAD, MOQCTL_ERR_EXCESSIVE_LOAD},
+};
+
+static u64 moqtrun_done_err(u64 status) {
+  for (usz i = 0; i < sizeof moqtrun_done_errs / sizeof moqtrun_done_errs[0];
+       i++) {
+    if (moqtrun_done_errs[i][0] == status) {
+      return moqtrun_done_errs[i][1];
+    }
+  }
+  return MOQCTL_ERR_INTERNAL_ERROR;
+}
+
 /* t's PUBLISH ended (PUBLISH_DONE, cancel, its session's loss): its
- * waiters are refused INTERNAL_ERROR -- the hub never answers OK from a
- * subscription that is gone. */
+ * waiters are refused -- the hub never answers OK from a subscription
+ * that is gone -- with the PUBLISH_DONE's code (moqtrun_done_err), or
+ * INTERNAL_ERROR when none came. */
 void moqtrun_resume_gone(wired_moqt_hub* hub, wired_moqtrun_track* t) {
-  moqtrun_resume_end(hub, t, moqtrun_rdv_do_refuse, MOQCTL_ERR_INTERNAL_ERROR);
+  moqtrun_resume_end(
+      hub, t, moqtrun_rdv_do_refuse,
+      t->pubdone_pending ? moqtrun_done_err(t->pubdone_status)
+                         : MOQCTL_ERR_INTERNAL_ERROR);
 }
 
 /* A waiter re-runs once t is usable: TRACK_STATUS, or the SUBSCRIBE

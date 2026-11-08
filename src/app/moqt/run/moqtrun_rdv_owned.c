@@ -10,8 +10,15 @@ static void moqtrun_rdv_store(
     moqtrun_key               k,
     wired_span                body,
     u64                       rt);
+static int                moqtrun_rdv_fits(wired_span body, int room);
 static wired_moqtrun_rdv* moqtrun_rdv_take(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body, int room);
+static const wired_wt_session* moqtrun_rdv_pub_of(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+static int moqtrun_rdv_on_pub(
+    const wired_moqtrun_rdv* r, const wired_wt_session* pub);
+static int moqtrun_rdv_pub_room(
+    const wired_moqt_hub* hub, const wired_wt_session* pub);
 static void moqtrun_rdv_hold(
     wired_moqt_hub*         hub,
     wired_moqtrun_peer*     p,
@@ -72,14 +79,18 @@ static void moqtrun_rdv_store(
   bytes_memcpy(r->body, body.p, body.n);
 }
 
-/* A slot for p's request body; with no slot left -- or a body longer
- * than a slot keeps (WIRED_MOQTRUN_CTL_MSG_MAX; up to 65535 bytes
- * arrive) -- it is refused EXCESSIVE_LOAD with a Retry Interval at once
- * (10.6), never dropped silently, and 0 returned. */
+static int moqtrun_rdv_fits(wired_span body, int room) {
+  return room && body.n <= WIRED_MOQTRUN_CTL_MSG_MAX;
+}
+
+/* A slot for p's request body; with no slot left (room 0 included) -- or
+ * a body longer than a slot keeps (WIRED_MOQTRUN_CTL_MSG_MAX; up to 65535
+ * bytes arrive) -- it is refused EXCESSIVE_LOAD with a Retry Interval at
+ * once (10.6), never dropped silently, and 0 returned. */
 static wired_moqtrun_rdv* moqtrun_rdv_take(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span body, int room) {
   wired_moqtrun_rdv* r =
-      body.n <= WIRED_MOQTRUN_CTL_MSG_MAX ? moqtrun_rdv_admit(hub, p->wt) : 0;
+      moqtrun_rdv_fits(body, room) ? moqtrun_rdv_admit(hub, p->wt) : 0;
   if (!r) {
     moqtrun_send_request_error_ri(
         p, MOQCTL_ERR_EXCESSIVE_LOAD, WIRED_MOQTRUN_RDV_RETRY);
@@ -94,7 +105,7 @@ static void moqtrun_rdv_hold(
     const moqctl_subscribe* m,
     moqtrun_key             k,
     wired_span              body) {
-  wired_moqtrun_rdv* r = moqtrun_rdv_take(hub, p, body);
+  wired_moqtrun_rdv* r = moqtrun_rdv_take(hub, p, body, 1);
   if (!r) {
     return;
   }
@@ -103,22 +114,47 @@ static void moqtrun_rdv_hold(
   p->req->rdv_held = 1;
 }
 
+static const wired_wt_session* moqtrun_rdv_pub_of(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  const wired_moqtrun_peer* pp = moqtrun_track_peer(hub, t);
+  return pp ? pp->wt : 0;
+}
+
+static int moqtrun_rdv_on_pub(
+    const wired_moqtrun_rdv* r, const wired_wt_session* pub) {
+  return r->in_use && r->resume && r->pub_wt == pub;
+}
+
+/* pub's PUBLISHes hold fewer than half of the slots, so one silent
+ * publisher cannot starve every other track's waits. */
+static int moqtrun_rdv_pub_room(
+    const wired_moqt_hub* hub, const wired_wt_session* pub) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_RDV; i++) {
+    n += (usz)moqtrun_rdv_on_pub(&hub->rdv[i], pub);
+  }
+  return n < WIRED_MOQTRUN_MAX_RDV / 2;
+}
+
 /* Holds p's SUBSCRIBE or TRACK_STATUS (body) until t's PUBLISH is
  * unpaused (draft-23 7.5, moqtrun_resume_wait), WIRED_MOQTRUN_UP_WAIT_MS at
- * most. The slot, or
- * 0 when refused (moqtrun_rdv_take). */
+ * most. The slot, or 0 when refused (moqtrun_rdv_take; also when t's
+ * publisher already holds half of the slots). */
 wired_moqtrun_rdv* moqtrun_rdv_wait(
     wired_moqt_hub*            hub,
     wired_moqtrun_peer*        p,
     const wired_moqtrun_track* t,
     wired_span                 body) {
-  wired_moqtrun_rdv* r = moqtrun_rdv_take(hub, p, body);
+  const wired_wt_session* pub = moqtrun_rdv_pub_of(hub, t);
+  wired_moqtrun_rdv*      r =
+      moqtrun_rdv_take(hub, p, body, moqtrun_rdv_pub_room(hub, pub));
   if (!r) {
     return 0;
   }
   moqtrun_rdv_store(hub, r, p, moqtrun_track_key(t), body, 0);
   r->has_ngr       = 0;
   r->resume        = 1;
+  r->pub_wt        = pub;
   p->req->rdv_held = 1;
   return r;
 }

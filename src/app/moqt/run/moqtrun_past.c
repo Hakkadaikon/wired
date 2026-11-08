@@ -186,15 +186,22 @@ static int moqtrun_track_in(
   return (usz)t - (usz)p->tracks < sizeof p->tracks;
 }
 
-/* The draft of the session publishing t, -1 when none does. */
-static int moqtrun_track_ver(
+/* The session publishing t, else 0. */
+const wired_moqtrun_peer* moqtrun_track_peer(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
     if (moqtrun_track_in(&hub->peers[i], t)) {
-      return hub->peers[i].ver;
+      return &hub->peers[i];
     }
   }
-  return -1;
+  return 0;
+}
+
+/* The draft of the session publishing t, -1 when none does. */
+static int moqtrun_track_ver(
+    const wired_moqt_hub* hub, const wired_moqtrun_track* t) {
+  const wired_moqtrun_peer* p = moqtrun_track_peer(hub, t);
+  return p ? p->ver : -1;
 }
 
 /* Gates datagrams and Subgroup-stream Objects (moqtrun_gone.c). In

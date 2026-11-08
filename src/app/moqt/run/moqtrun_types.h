@@ -879,6 +879,9 @@ typedef struct {
    * SUBSCRIBE, answered once that REQUEST_UPDATE is, or TIMEOUT after
    * WIRED_MOQTRUN_UP_WAIT_MS. */
   u8 resume;
+  /** resume only: the session publishing that PUBLISH (owned by the
+   * transport), so one publisher holds at most half of the slots. */
+  const wired_wt_session* pub_wt;
 } wired_moqtrun_rdv;
 
 /** Fixed capacity: upstream SUBSCRIBEs the hub holds toward namespace
