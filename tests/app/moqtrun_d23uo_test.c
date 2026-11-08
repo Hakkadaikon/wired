@@ -595,6 +595,72 @@ static void test_moqtrun_d23uo_upfetch_update_unexpected(void) {
       0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_upfetch_update_kept_d18);
 }
 
+/* A answers the hub's FETCH for the whole range asked: a REQUEST_OK in
+ * draft-23 (9.3), a FETCH_OK before. */
+static void mtuo_upf_answered(i64 sid) {
+  if (moqver_caps(mtst_ver(SESS_A)) & MOQVER_CAP_FETCH_REQUEST_OK) {
+    mupf23_up_ok(SESS_A, sid, 0, 0, 0, wired_span_of(0, 0));
+    return;
+  }
+  mupf_up_ok(sid, 2, MOQFETCH_OBJ_GROUP_END);
+}
+
+/* 9.5: the hub's FETCH stream stays a request stream after its leg
+ * ended -- end 0: the response done (the hub FINs), 1: a REQUEST_ERROR,
+ * 2: cancelled (the hub resets it); its stream id. */
+static u64 mtuo_upf_ended(int end) {
+  static const moqctl_request_error e   = {.error_code = 1};
+  moqfetch_req                      m   = {0};
+  i64                               sid = mupf_span_setup(&m);
+  if (end == 0) {
+    mtuo_upf_answered(sid);
+    mupf_send(1);
+  }
+  if (end == 1) {
+    mupf_up_err(SESS_A, sid, &e);
+  }
+  if (end == 2) {
+    wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MUPF_DATA_SID, 1, 0);
+  }
+  CHECK(mupf_log_is(SESS_A, (u64)sid, end == 2 ? "RST1|STOP1|" : "FIN|"));
+  return (u64)sid;
+}
+
+/* A's REQUEST_UPDATE on the ended stream closes the session
+ * UNEXPECTED_MESSAGE (closes: 1; draft-18 keeps it, closes: 0). */
+static void mtuo_upf_ended_update(usz closes) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 1);
+  for (int end = 0; end < 3; end++) {
+    u64 sid = mtuo_upf_ended(end);
+    mtup_update(SESS_A, sid, &p);
+    CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == closes);
+  }
+}
+
+static void mtuo_upf_ended_closes(void) { mtuo_upf_ended_update(1); }
+
+static void mtuo_upf_ended_kept_d18(void) { mtuo_upf_ended_update(0); }
+
+/* Other bytes on it are dropped, never read as a uni stream: a stream
+ * type SETUP (0x2F00, 3.4) there must not adopt it as A's control
+ * stream. The hub sends nothing. */
+static void mtuo_upf_ended_junk(void) {
+  static const u8 junk[] = {0xAF, 0x00, 0x00, 0x00}; /* 0x2F00 */
+  for (int end = 0; end < 3; end++) {
+    u64 sid = mtuo_upf_ended(end);
+    usz n0  = g_n_calls;
+    mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(junk, sizeof junk), 0);
+    CHECK(g_n_calls == n0);
+    CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->peer_ctl_stream_id != sid);
+  }
+}
+
+static void test_moqtrun_d23uo_upfetch_ended_update(void) {
+  moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_upf_ended_closes);
+  moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_upf_ended_kept_d18);
+  moqtrun_test_allver(mtuo_upf_ended_junk);
+}
+
 /* ===================== registration ===================== */
 
 static void mtuo_all(void) {
@@ -639,4 +705,5 @@ void test_moqtrun_d23uo(void) {
   moqtrun_test_vers(MOQVER_CAP_MAX_REQUEST_UPDATES, 0, mtuo_credit);
   test_moqtrun_d23uo_wrong_direction_unexpected();
   test_moqtrun_d23uo_upfetch_update_unexpected();
+  test_moqtrun_d23uo_upfetch_ended_update();
 }

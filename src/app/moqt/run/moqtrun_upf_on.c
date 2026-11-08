@@ -30,6 +30,17 @@ static void moqtrun_upf_drain(
 static int moqtrun_upf_on_req(
     const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid);
 static int moqtrun_upf_fin_unanswered(const wired_moqtrun_fetch* f, int fin);
+static int moqtrun_upf_routed(const wired_moqtrun_fetch* f, u64 type);
+static int moqtrun_upf_was_req(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid);
+static wired_moqtrun_fetch* moqtrun_upf_was_by_req(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid);
+static int moqtrun_upf_rx_on(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           data,
+    int                  fin);
 
 /* REQUEST_ERROR: the request is complete (the hub FINs its side); a FETCH
  * still unanswered gets it as is -- code, Retry Interval, and for
@@ -113,6 +124,12 @@ static void moqtrun_upf_goaway(
   }
 }
 
+/* Once the leg ended its stream is still a request stream (draft-23 9.5):
+ * only a REQUEST_UPDATE still counts. */
+static int moqtrun_upf_routed(const wired_moqtrun_fetch* f, u64 type) {
+  return moqtrun_upf_live(f) || type == MOQTSTAT_T_REQUEST_UPDATE;
+}
+
 /* 1 when the message was a GOAWAY. */
 static int moqtrun_upf_route(
     wired_moqt_hub*      hub,
@@ -125,7 +142,7 @@ static int moqtrun_upf_route(
     moqtrun_upf_goaway(hub, pp, f, goaways);
     return 1;
   }
-  if (moqtrun_upf_live(f)) {
+  if (moqtrun_upf_routed(f, type)) {
     moqtrun_upf_reply(hub, pp, f, type, body);
   }
   return 0;
@@ -138,7 +155,7 @@ static int moqtrun_upf_popped(int r) {
 }
 
 /* Every whole reply in f's reassembly, in order; once the leg ended only
- * a GOAWAY still counts. */
+ * a GOAWAY or a REQUEST_UPDATE still counts. */
 static void moqtrun_upf_drain(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_fetch* f) {
   u64        type    = 0;
@@ -151,15 +168,32 @@ static void moqtrun_upf_drain(
   }
 }
 
+static int moqtrun_upf_was_req(
+    const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid) {
+  return f->up_wt == s && f->up_req_sid == sid;
+}
+
 static int moqtrun_upf_on_req(
     const wired_moqtrun_fetch* f, const wired_wt_session* s, u64 sid) {
-  return moqtrun_upf_live(f) && f->up_wt == s && f->up_req_sid == sid;
+  return moqtrun_upf_live(f) && moqtrun_upf_was_req(f, s, sid);
 }
 
 wired_moqtrun_fetch* moqtrun_upf_by_req(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
     if (moqtrun_upf_on_req(&hub->fetches[i], s, sid)) {
+      return &hub->fetches[i];
+    }
+  }
+  return 0;
+}
+
+/* The slot whose leg ran on sid, ended or not: it keeps the id until it
+ * runs another leg. */
+static wired_moqtrun_fetch* moqtrun_upf_was_by_req(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    if (moqtrun_upf_was_req(&hub->fetches[i], s, sid)) {
       return &hub->fetches[i];
     }
   }
@@ -186,13 +220,12 @@ static void moqtrun_upf_rx_feed(
  * answers they cause go out in the same dispatch. 1 when sid is one. A
  * FIN with no FETCH_OK yet fails the request (draft-19 3.3.2) as a
  * REQUEST_ERROR would. */
-int moqtrun_upf_rx(
-    wired_moqt_hub*     hub,
-    wired_moqtrun_peer* pp,
-    u64                 sid,
-    wired_span          data,
-    int                 fin) {
-  wired_moqtrun_fetch* f = moqtrun_upf_by_req(hub, pp->wt, sid);
+static int moqtrun_upf_rx_on(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_fetch* f,
+    wired_span           data,
+    int                  fin) {
   if (!f) {
     return 0;
   }
@@ -202,6 +235,30 @@ int moqtrun_upf_rx(
   }
   moqtrun_reqs_tick(hub);
   return 1;
+}
+
+int moqtrun_upf_rx(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  return moqtrun_upf_rx_on(
+      hub, pp, moqtrun_upf_by_req(hub, pp->wt, sid), data, fin);
+}
+
+/* As moqtrun_upf_rx on a stream whose leg ended: still a request stream
+ * (draft-23 9.5). Asked only once no live request owns sid, so a slot
+ * kept from an earlier session on the same session object never takes
+ * a live stream. */
+int moqtrun_upf_rx_ended(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    u64                 sid,
+    wired_span          data,
+    int                 fin) {
+  return moqtrun_upf_rx_on(
+      hub, pp, moqtrun_upf_was_by_req(hub, pp->wt, sid), data, fin);
 }
 
 /* ----- the leg's other ends ----- */

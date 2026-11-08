@@ -22,6 +22,12 @@ static void moqtrun_dispatch_client_bidi(
     u64                 stream_id,
     wired_span          data,
     int                 fin);
+static int moqtrun_dispatch_live_req(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin);
 static int moqtrun_dispatch_own_req(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -114,9 +120,10 @@ static void moqtrun_dispatch_client_bidi(
   moqtrun_dispatch_bidi_fresh(hub, p, stream_id, data, fin);
 }
 
-/* 1 iff stream_id is a hub-opened request stream (PUBLISH, SUBSCRIBE or
- * FETCH upstream), its replies handled by their own parser. */
-static int moqtrun_dispatch_own_req(
+/* 1 iff stream_id is a live hub-opened request stream (PUBLISH,
+ * SUBSCRIBE or FETCH upstream), its replies handled by their own
+ * parser. */
+static int moqtrun_dispatch_live_req(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
@@ -127,10 +134,24 @@ static int moqtrun_dispatch_own_req(
          moqtrun_upf_rx(hub, p, stream_id, data, fin);
 }
 
+/* ... or one whose upstream FETCH ended (draft-23 9.5). */
+static int moqtrun_dispatch_own_req(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    wired_span          data,
+    int                 fin) {
+  return moqtrun_dispatch_live_req(hub, p, stream_id, data, fin) ||
+         moqtrun_upf_rx_ended(hub, p, stream_id, data, fin);
+}
+
 /* A hub-opened PUBLISH, SUBSCRIBE or FETCH stream is routed to its own
  * reply parser (moqtrun_dispatch_own_req) before the client-bidi
  * classification below, which would otherwise misread it
- * (moqtrun_pubst_slot's own doc). */
+ * (moqtrun_pubst_slot's own doc). shortcut: an ended upstream FETCH is
+ * known only until its entry is claimed again; past that its
+ * stream falls through to the classification below -- remember stream
+ * ids apart from the entries if a peer is seen to keep sending there. */
 void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
