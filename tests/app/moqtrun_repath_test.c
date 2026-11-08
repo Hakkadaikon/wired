@@ -686,6 +686,27 @@ static void test_moqtrun_repath_fresh_dne(void) {
   CHECK(mups_n_up(SESS_A) == 1);
 }
 
+/* 9.19.6: B refused the hub's SUBSCRIBE and withdrew its namespace while
+ * C and D keep waiting for a new path (so B's refusal record stays). E,
+ * its share of the wait table full, SUBSCRIBEs without RENDEZVOUS_TIMEOUT:
+ * no announcer to ask, so DOES_NOT_EXIST at once -- the record is
+ * forgotten (draft-23 7.7) before the hub decides whether to hold E, which
+ * would refuse it EXCESSIVE_LOAD instead. */
+static void test_moqtrun_repath_fresh_failed_record_dne(void) {
+  moqctl_ftn f = mtst_ftn("other", "room9", "x");
+  mrp_init();
+  mtst_hub.multi_publisher = 1; /* refusal records are kept (7.7) */
+  mrp_announce(SESS_B);
+  mrp_end(MRP_GA);
+  mtst_pub_err(SESS_B, (u64)mrp_up(SESS_B, 0), MOQCTL_ERR_UNAUTHORIZED);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MRDV_S1, 0, 0);
+  for (u64 i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++) {
+    mrdv_hold_f(MRP_E, 12 + 4 * i, &f, 1000);
+  }
+  mups_sub(MRP_E, MRDV_S1);
+  CHECK(mrdv_is(MRP_E, MRDV_S1, "E10|FIN|"));
+}
+
 /* No room to wait (C holds its share of the table): C gets the end's
  * PUBLISH_DONE at once, D waits. */
 static void test_moqtrun_repath_no_room(void) {
@@ -902,6 +923,7 @@ static void mtall_repath(void) {
   test_moqtrun_repath_drain_flush();
   test_moqtrun_repath_fresh_rides();
   test_moqtrun_repath_fresh_dne();
+  test_moqtrun_repath_fresh_failed_record_dne();
   test_moqtrun_repath_fresh_own_upstream();
   test_moqtrun_repath_fresh_own_upstream_other();
   test_moqtrun_repath_fresh_own_upstream_rt();

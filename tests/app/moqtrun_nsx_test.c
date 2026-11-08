@@ -497,6 +497,18 @@ static void test_moqtrun_nsx_second_fail_error(void) {
   CHECK(mrdv_is(SESS_B, MTRQ_S2, "E1|FIN|"));
 }
 
+/* draft-23 7.7: only the refuser's own PUBLISH_NAMESPACE covering t1
+ * forgets its refusal: C's announcement of a, or A's of c, asks A
+ * nothing more. */
+static void test_moqtrun_nsx_other_pubns_keeps_refusal(void) {
+  i64 sa, sc;
+  mnsx_fan(&sa, &sc);
+  mtst_pub_err(SESS_A, (u64)sa, MOQCTL_ERR_UNAUTHORIZED);
+  mtns_pub(SESS_C, MTRQ_S2, "a");
+  mtns_pub(SESS_A, MTRQ_S2, "c");
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
 /* draft-23 7.7: A refuses while C is still pending; a second downstream
  * SUBSCRIBE of t1 forgets A's refusal and asks A again. */
 static void test_moqtrun_nsx_redsub_while_pending(void) {
@@ -695,6 +707,7 @@ static void mtall_nsx_overlap(void) {
   test_moqtrun_nsx_resend_skips_publisher();
   test_moqtrun_nsx_second_fail_error();
   test_moqtrun_nsx_redsub_while_pending();
+  test_moqtrun_nsx_other_pubns_keeps_refusal();
   test_moqtrun_nsx_reannounce_while_sub();
 }
 
