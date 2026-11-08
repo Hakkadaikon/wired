@@ -49,8 +49,9 @@ static void test_moqtrun_fill_subscribe_opens(void) {
 
 /* draft-23 9.19.15: on a moqt-23 session FILL_PARAMETERS is the count
  * and Parameters with no Length, and opens the fill all the same; the
- * rest of Group 0 is only inferred missing, so a marker covers it
- * (2.1.2). */
+ * rest of Group 0 is only inferred missing, so an End of Unknown Range
+ * covers it (2.1.2, 3.2.2: not Timed-Out, which reports Objects given up
+ * on when the Fill Timeout ran out, 3.2.3). */
 static void test_moqtrun_fill_subscribe_opens_d23(void) {
   moqfetch_fill fill = {0};
   moqctl_params p    = mfill_params(&fill, 0);
@@ -65,7 +66,7 @@ static void test_moqtrun_fill_subscribe_opens_d23(void) {
   seq.eor_timed_out = 1;
   CHECK(mf_read_seq(seq) && mf_hdr_rid == mtst_rid && mf_n == 3 && mf_fin);
   CHECK(mf_is_obj(0, 0, 0, 1) && mf_is_obj(2, 1, 0, 1));
-  CHECK(mf_items[1].flags == MOQFETCH_EOR_TIMED_OUT && !mf_items[1].group);
+  CHECK(mf_is_unknown(1, 0, MOQCACHE_OBJ_ID_MAX));
 }
 
 /* draft-22 3.4: "The fill fetch stream inherits the subscription's
@@ -298,8 +299,10 @@ static int mfill_is_tmo(usz i, u64 g, u64 o) {
 }
 
 /* A Location the cache cannot serve and no publisher can be asked for
- * (no request stream opens) is reported at once as End of Timed-Out
- * Range (0x20C); with FILL_TIMEOUT 0 nobody is even asked (SS9.20.15). */
+ * (no request stream opens) is reported at once as End of Unknown Range
+ * (draft-23 3.2.3: an upstream that cannot be asked is a failed one);
+ * with FILL_TIMEOUT 0 nobody is even asked and it is End of Timed-Out
+ * Range (0x20C, 9.19.5 "MUST report ... as Timed-Out gaps"). */
 static void test_moqtrun_fill_miss_is_timed_out_now(void) {
   moqfetch_fill fill = {0};
   fill.has_timeout   = 1;
@@ -309,7 +312,7 @@ static void test_moqtrun_fill_miss_is_timed_out_now(void) {
   g_open_bidi_fail_n = 1;
   mfill_subscribe(&fill, 0);
   CHECK(mfill_read());
-  CHECK(mf_n == 1 && mfill_is_tmo(0, 0, 0));
+  CHECK(mf_n == 1 && mf_is_unknown(0, 0, 0));
   CHECK(mf_fin);
   mf_init(0);
   mf_obj(0, 0, 1);
@@ -321,9 +324,10 @@ static void test_moqtrun_fill_miss_is_timed_out_now(void) {
 }
 
 /* A run of evicted Locations (no publisher to ask: no request stream
- * opens) is one 0x20C naming the run's end, the remaining Objects follow
- * and the fill still FINs only after the whole range (SS11.4.1,
- * SS9.20.15). */
+ * opens) is one End of Unknown Range (0x10C, draft-23 3.2.2: the hub
+ * no longer has them, nor asked for them) naming the run's end, the
+ * remaining Objects follow and the fill still FINs only after the whole
+ * range (SS11.4.1, SS9.20.15). */
 static void test_moqtrun_fill_evicted_run_collapsed(void) {
   moqfetch_fill fill = {0};
   mf_init(2 * (MOQCACHE_HDR + 1));
@@ -335,13 +339,13 @@ static void test_moqtrun_fill_evicted_run_collapsed(void) {
   mfill_subscribe(&fill, 0);
   CHECK(mfill_read());
   CHECK(mf_n == 3);
-  CHECK(mfill_is_tmo(0, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_unknown(0, 0, MOQCACHE_OBJ_ID_MAX));
   CHECK(mf_is_obj(1, 1, 0, 1) && mf_is_obj(2, 1, 1, 1));
   CHECK(mf_fin);
 }
 
 /* An eviction while the fill is underway (cursor parked on a refused
- * round) turns the pending Location into 0x20C, never stale bytes, and
+ * round) turns the pending Location into 0x10C, never stale bytes, and
  * the fill continues to FIN. */
 static void test_moqtrun_fill_eviction_under_cursor(void) {
   moqfetch_fill fill = {0};
@@ -357,7 +361,7 @@ static void test_moqtrun_fill_eviction_under_cursor(void) {
   wired_moqt_tick(&mtst_hub, 1);
   CHECK(mfill_read());
   CHECK(mf_is_obj(0, 0, 0, 1));
-  CHECK(mfill_is_tmo(1, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_unknown(1, 0, MOQCACHE_OBJ_ID_MAX));
   CHECK(mf_fin);
 }
 

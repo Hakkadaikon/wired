@@ -195,6 +195,10 @@ typedef struct {
   /** Next Request ID this hub sends on the session: odd, 1-origin, +2
    * per request (the hub is the server, draft SS10.2). */
   u64 request_id_next;
+  /** One past the largest bidi stream id the hub opened on the session (0
+   * for none): a server-initiated bidi stream below it is one of the
+   * hub's request streams, live or ended (RFC 9000 2.1). */
+  u64 own_bidi_end;
   /** One past the largest Request ID the peer has sent (+2, 0 for none):
    * a draft-18 GOAWAY's Request ID (SS10.4). */
   u64 peer_rid_next;
@@ -499,6 +503,10 @@ typedef struct {
   u8 rx_violation;
   /** Entries of unsupp in use. */
   u8 unsupp_n;
+  /** The Redirect (draft-23 9.4.2.1) of the upstream REQUEST_ERROR whose
+   * waiters are refused right now (moqtrun_rdv_do_refuse; it goes out with
+   * REDIRECT only), a view into that message; 0 otherwise. */
+  const moqctl_redirect* up_redirect;
   /** Ring pool for the reliable relays: one ring per concurrently relayed
    * reliable publisher stream, bound via wired_moqtrun_relay.rel_idx. An
    * exhausted pool falls back to the lossy path (stat_relay_full). */

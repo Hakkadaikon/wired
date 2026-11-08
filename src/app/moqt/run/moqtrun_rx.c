@@ -146,20 +146,29 @@ static int moqtrun_dispatch_own_req(
          moqtrun_upf_rx_ended(hub, p, stream_id, data, fin);
 }
 
+/* A server-initiated bidi stream (RFC 9000 2.1: 1 mod 4) the hub opened
+ * on p, as a request stream -- never a data stream (those are uni). */
+static int moqtrun_rx_hub_bidi(const wired_moqtrun_peer* p, u64 stream_id) {
+  return (stream_id & 3) == 1 && stream_id < p->own_bidi_end;
+}
+
 /* A hub-opened PUBLISH, SUBSCRIBE or FETCH stream is routed to its own
  * reply parser (moqtrun_dispatch_own_req) before the client-bidi
  * classification below, which would otherwise misread it
  * (moqtrun_pubst_slot's own doc). shortcut: an ended upstream SUBSCRIBE
  * or FETCH is known only until its entry is claimed again; past that its
- * stream falls through to the classification below -- remember stream
- * ids apart from the entries if a peer is seen to keep sending there. */
+ * bytes are dropped (still never read as a data stream), so a
+ * REQUEST_UPDATE there no longer closes the session (draft-23 9.5) --
+ * remember stream ids apart from the entries if a peer is seen to keep
+ * sending there. */
 void moqtrun_dispatch_other(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
     wired_span          data,
     int                 fin) {
-  if (moqtrun_dispatch_own_req(hub, p, stream_id, data, fin)) {
+  if (moqtrun_dispatch_own_req(hub, p, stream_id, data, fin) ||
+      moqtrun_rx_hub_bidi(p, stream_id)) {
     return;
   }
   moqtrun_dispatch_client_bidi(hub, p, stream_id, data, fin);

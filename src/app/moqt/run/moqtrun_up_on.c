@@ -103,11 +103,14 @@ static void moqtrun_up_on_error(
     return;
   }
   /* draft-23 9.4.2.2: UNSUPPORTED_EXTENSION goes on with the
-   * UNSUPPORTED_PROPERTY details received */
+   * UNSUPPORTED_PROPERTY details received, 9.4.2.1: REDIRECT with its
+   * REDIRECT detail */
   bytes_memcpy(hub->unsupp, e.unsupported, e.n_unsupported * sizeof(u64));
-  hub->unsupp_n = e.n_unsupported;
+  hub->unsupp_n    = e.n_unsupported;
+  hub->up_redirect = &e.redirect; /* sent only with REDIRECT */
   moqtrun_up_failed(hub, u, e.error_code);
-  hub->unsupp_n = 0;
+  hub->unsupp_n    = 0;
+  hub->up_redirect = 0;
 }
 
 /* PUBLISH_DONE: relayed like a PUBLISHer's (moqtrun_pubdone_arm, each

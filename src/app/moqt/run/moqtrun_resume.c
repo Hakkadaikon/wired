@@ -6,11 +6,11 @@
  * subscription does not exist, the relay MUST ... unpause an upstream
  * subscription ... and use the resulting LARGEST_OBJECT parameter." A
  * SUBSCRIBE or TRACK_STATUS for a track whose PUBLISH is paused, or whose
- * unpause is not answered yet, waits in a rendezvous slot with no
- * deadline; the REQUEST_UPDATE_OK (its Largest counted, moqtrun_largest_note)
- * re-runs it the normal found-track way, a refusal or the PUBLISH's end
- * answers it REQUEST_ERROR. The hub has no timeout of its own: a silent
- * publisher holds the slot, bounded by WIRED_MOQTRUN_MAX_RDV and
+ * unpause is not answered yet, waits in a rendezvous slot; the
+ * REQUEST_UPDATE_OK (its Largest counted, moqtrun_largest_note) re-runs it
+ * the normal found-track way, a refusal or the PUBLISH's end answers it
+ * REQUEST_ERROR. A silent publisher holds the slot WIRED_MOQTRUN_UP_WAIT_MS
+ * at most (then TIMEOUT), bounded by WIRED_MOQTRUN_MAX_RDV and
  * WIRED_MOQTRUN_RDV_PER_SESSION (a request past them is refused
  * EXCESSIVE_LOAD at once). */
 
@@ -21,10 +21,7 @@ static int  moqtrun_resume_due(const wired_moqtrun_track* t);
 static void moqtrun_resume_end(
     wired_moqt_hub* hub, wired_moqtrun_track* t, moqtrun_rdv_fn fn, u64 code);
 static void moqtrun_resume_settle(
-    wired_moqt_hub*           hub,
-    const wired_moqtrun_peer* p,
-    wired_moqtrun_track*      t,
-    u64                       code);
+    wired_moqt_hub* hub, wired_moqtrun_track* t, u64 code);
 
 static int moqtrun_must_wait(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
@@ -83,7 +80,7 @@ static int moqtrun_resume_due(const wired_moqtrun_track* t) {
 /* One of the hub's REQUEST_UPDATEs on p's PUBLISH stream was answered
  * (code MOQTRUN_REQ_ACCEPT for REQUEST_OK, else the REQUEST_ERROR's).
  * The unpause's own answer ends the waits: a refused one leaves the
- * PUBLISH paused on draft-23, so a later request unpauses again. */
+ * PUBLISH paused, so a later request unpauses again. */
 void moqtrun_pub_answered(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
   wired_moqtrun_track* t = moqtrun_pubdone_track_of(p, p->req->request_id);
@@ -92,20 +89,17 @@ void moqtrun_pub_answered(
   }
   t->resume_in--;
   if (!t->resume_in) {
-    moqtrun_resume_settle(hub, p, t, code);
+    moqtrun_resume_settle(hub, t, code);
   }
 }
 
-/* The unpause on t's PUBLISH (from p) answered code: its waiters re-run
- * on REQUEST_OK; on REQUEST_ERROR they get its code and, on draft-23, t
- * stays paused. */
+/* The unpause on t's PUBLISH answered code: its waiters re-run on
+ * REQUEST_OK; on REQUEST_ERROR they get its code and t stays paused, on
+ * every draft (9.5: a refused REQUEST_UPDATE changes nothing). */
 static void moqtrun_resume_settle(
-    wired_moqt_hub*           hub,
-    const wired_moqtrun_peer* p,
-    wired_moqtrun_track*      t,
-    u64                       code) {
+    wired_moqt_hub* hub, wired_moqtrun_track* t, u64 code) {
   int ok        = code == MOQTRUN_REQ_ACCEPT;
-  t->pub_paused = (u8)(!ok && moqtrun_relay_largest(p->ver));
+  t->pub_paused = (u8)!ok;
   moqtrun_resume_end(
       hub, t, ok ? moqtrun_rdv_do_resume : moqtrun_rdv_do_refuse, code);
 }

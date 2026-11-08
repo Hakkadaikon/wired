@@ -808,6 +808,16 @@ typedef struct {
  * the moq-rs moq-test scenarios (they ask 5000 ms). */
 #define WIRED_MOQTRUN_RDV_MAX_MS 1500
 
+/** Longest wait, ms, of a hold with no RENDEZVOUS_TIMEOUT -- one waiting
+ * only for its upstream SUBSCRIBE's answer, or for a paused PUBLISH's
+ * unpause -- before it is refused TIMEOUT (draft-23 12.3: "a relay could
+ * not establish an upstream subscription within the timeout"). A live
+ * publisher answers within a few RTTs, and an upstream relay that itself
+ * holds the SUBSCRIBE does so for at most its own rendezvous cap (this
+ * hub's: WIRED_MOQTRUN_RDV_MAX_MS), so 5 s only fires on a silent one --
+ * which then holds a slot of WIRED_MOQTRUN_MAX_RDV for 5 s at most. */
+#define WIRED_MOQTRUN_UP_WAIT_MS 5000
+
 /** Retry Interval (ms + 1, draft-18 10.6: 1 = immediately) sent with the
  * EXCESSIVE_LOAD refusal of a hold that did not fit. */
 #define WIRED_MOQTRUN_RDV_RETRY 1001
@@ -843,8 +853,8 @@ typedef struct {
   usz body_len;
   /** 1 when the SUBSCRIBE carried no RENDEZVOUS_TIMEOUT and is held only
    * for its upstream SUBSCRIBE to a namespace publisher (draft-18/19 9.5,
-   * draft-22 7.6): no deadline, and no announcer left answers it
-   * REQUEST_ERROR at once. */
+   * draft-22 7.6): WIRED_MOQTRUN_UP_WAIT_MS at most, and no announcer
+   * left answers it REQUEST_ERROR at once. */
   u8 up_only;
   /** 1 when the slot holds an Established subscription whose upstream
    * ended on the publisher's side and that waits for another announcer
@@ -865,8 +875,9 @@ typedef struct {
    * (draft-18 10.2.13). */
   u64 ngr;
   /** 1 when the slot holds a SUBSCRIBE or TRACK_STATUS waiting for its
-   * found track's PUBLISH to be unpaused (draft-23 7.5): no deadline, no
-   * upstream SUBSCRIBE, answered once that REQUEST_UPDATE is. */
+   * found track's PUBLISH to be unpaused (draft-23 7.5): no upstream
+   * SUBSCRIBE, answered once that REQUEST_UPDATE is, or TIMEOUT after
+   * WIRED_MOQTRUN_UP_WAIT_MS. */
   u8 resume;
 } wired_moqtrun_rdv;
 
@@ -876,7 +887,7 @@ typedef struct {
  * hub->rdv, so WIRED_MOQTRUN_MAX_RDV of them covers every hold going upstream
  * at once; an Established one lives as long as its track, at most one of each
  * publisher's WIRED_MOQTRUN_MAX_TRACKS_PER_PEER slots. Past it a waiter
- * with no deadline is refused EXCESSIVE_LOAD. ~1.3 KB of BSS each.
+ * with no RENDEZVOUS_TIMEOUT is refused EXCESSIVE_LOAD. ~1.3 KB of BSS each.
  * ponytail: room-sized; raise with WIRED_MOQTRUN_MAX_RDV. */
 #define WIRED_MOQTRUN_MAX_UP WIRED_MOQTRUN_MAX_RDV
 

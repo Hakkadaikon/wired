@@ -32,6 +32,8 @@ wired_moqtrun_req* moqtrun_req_find(
     wired_moqt_hub* hub, const wired_wt_session* s, u64 stream_id);
 wired_moqtrun_req* moqtrun_req_free_slot(wired_moqt_hub* hub);
 int moqtrun_req_stream_ok(const wired_moqt_hub* hub, u64 stream_id);
+i64 moqtrun_open_req(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_span msg);
 wired_moqtrun_req* moqtrun_req_open(
     wired_moqtrun_req* q, wired_wt_session* s, u64 stream_id);
 int moqtrun_req_owned(const wired_moqtrun_req* q, wired_wt_session* s);

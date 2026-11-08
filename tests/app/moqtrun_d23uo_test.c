@@ -665,10 +665,29 @@ static void mtuo_upf_ended_junk(void) {
   }
 }
 
+/* The ended stream's slot runs a new leg on another stream, so it no
+ * longer knows the old id: bytes there are still dropped, never read as
+ * a uni stream (a hub-opened bidi stream is never a data stream). A
+ * REQUEST_UPDATE there is dropped too, no longer closing the session:
+ * the hub keeps no ended ids apart from its slots. */
+static void mtuo_upf_ended_reused(void) {
+  static const u8 junk[] = {0xAF, 0x00, 0x00, 0x00}; /* 0x2F00 */
+  moqfetch_req    m      = {0};
+  u64             old    = mtuo_upf_ended(1);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 1, &m) >= 0);
+  CHECK(mtst_hub.fetches[0].up_req_sid != old);
+  usz n0 = g_n_calls;
+  mt_feed(&mtst_hub, SESS_A, old, wired_span_of(junk, sizeof junk), 0);
+  CHECK(g_n_calls == n0);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->peer_ctl_stream_id != old);
+}
+
 static void test_moqtrun_d23uo_upfetch_ended_update(void) {
   moqtrun_test_vers(MOQVER_CAP_UPDATE_STRAY_CLOSE, 0, mtuo_upf_ended_closes);
   moqtrun_test_vers(0, MOQVER_CAP_UPDATE_STRAY_CLOSE, mtuo_upf_ended_kept_d18);
   moqtrun_test_allver(mtuo_upf_ended_junk);
+  moqtrun_test_allver(mtuo_upf_ended_reused);
 }
 
 /* The same for the hub's upstream SUBSCRIBE once A ended it -- end 0:

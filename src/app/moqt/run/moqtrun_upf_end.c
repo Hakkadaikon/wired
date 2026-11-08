@@ -5,6 +5,7 @@ static moqctl_loc moqtrun_upf_end_for(
     const wired_moqtrun_peer* dp, moqctl_loc e);
 static int moqtrun_upf_largest_in(
     const wired_moqtrun_fetch* f, const moqfetch_ok* up, moqctl_loc req);
+static void moqtrun_upf_nt_range(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 static void moqtrun_upf_answer_ok(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const moqfetch_ok* up);
 static int moqtrun_upf_complete(
@@ -50,6 +51,20 @@ static int moqtrun_upf_largest_in(
   return up->has_largest || moqctl_loc_less(f->up_end, req);
 }
 
+/* The range (and the leg's span) ends at the upstream End; a Descending
+ * one is served from the top group down, should the cache side take it
+ * over (3.2.3). */
+static void moqtrun_upf_nt_range(wired_moqt_hub* hub, wired_moqtrun_fetch* f) {
+  moqtrun_frange r = {0};
+  f->end           = moqtrun_end_excl(f->up_end);
+  f->up_span_end   = f->end;
+  r.start          = f->up_lo;
+  r.end            = f->end;
+  if (f->descending) {
+    moqtrun_fetch_descend(hub, f, &r);
+  }
+}
+
 /* A FETCH of a track the hub does not hold is answered with the upstream
  * End Location, End Of Track and Track Properties (7.6), and its range
  * ends there. */
@@ -65,7 +80,7 @@ static void moqtrun_upf_answer_ok(
   ok.has_largest =
       moqtrun_upf_largest_in(f, up, moqtrun_upf_leg_of(hub, f)->req_end);
   ok.track_properties = up->track_properties;
-  f->end              = moqtrun_end_excl(f->up_end);
+  moqtrun_upf_nt_range(hub, f);
   moqtrun_upf_answer(hub, f, moqtrun_upf_say_ok, &ok);
 }
 

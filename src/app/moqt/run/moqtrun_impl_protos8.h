@@ -118,7 +118,7 @@ void moqtrun_upf_drop(wired_moqt_hub* hub, wired_moqtrun_fetch* f, int io);
 int  moqtrun_upf_live(const wired_moqtrun_fetch* f);
 int moqtrun_upf_leg_to(const wired_moqtrun_fetch* f, const wired_wt_session* s);
 void moqtrun_upf_cancel(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
-int  moqtrun_upf_no_window(const wired_moqtrun_fetch* f, int done);
+int  moqtrun_upf_no_window(const wired_moqtrun_fetch* f);
 void moqtrun_upf_resume(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int done, int serve);
 int                moqtrun_upf_unanswered(const wired_moqtrun_fetch* f);

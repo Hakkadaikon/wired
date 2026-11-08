@@ -428,6 +428,31 @@ static void test_moqtrun_upfetch_fill_gap(void) {
   CHECK(mupf_used() == 0);
 }
 
+/* draft-23 3.2.3: an Unknown gap inside the range (group 2, between
+ * cached groups 1 and 3, dropped from the cache and so a tombstone) is
+ * fetched upstream too -- one FETCH from the range start to just past
+ * the last such gap -- and relayed in place. */
+static void test_moqtrun_upfetch_middle_gap(void) {
+  moqfetch_req m = {0};
+  mupf_init();
+  mupf_cache_group(1, 1);
+  mupf_cache_group(2, 1);
+  moqcache_entomb(&mtst_hub.cache, mtst_hub.cache_tag_next, 2);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  CHECK(sid >= 0 && m.range.start_group == 1 && m.range.end_group == 2);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 0, 1);
+  mupf_send(0);
+  mupf_up_ok(sid, 2, MOQFETCH_OBJ_GROUP_END);
+  mupf_send(1);
+  CHECK(mupf_read(0) && mf_n == 3 && mf_fin);
+  CHECK(mf_is_obj(0, 1, 0, 1) && mf_is_obj(1, 2, 0, 1));
+  CHECK(mf_is_obj(2, 3, 0, 1));
+}
+
 /* Fully cached: no upstream request at all. */
 static void test_moqtrun_upfetch_cached_no_upstream(void) {
   mupf_init();
@@ -684,6 +709,41 @@ static void test_moqtrun_upfetch_no_track_refusals(void) {
   g_open_bidi_fail_n = 1;
   mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 1, 0), 0);
   CHECK(mupf_refused(MOQCTL_ERR_UNAVAILABLE) && mupf_used() == 0);
+}
+
+/* draft-23 3.2 / 3.2.3: once C's FETCH_OK (End {2,3}) went to B, a
+ * Descending FETCH whose upstream FETCH then fails -- before any Object,
+ * or after {2,0} -- cannot be answered REQUEST_ERROR any more; the hub
+ * marks the rest Unknown, one End of Unknown Range per group down to
+ * Start.Group (3.2.2), and ends the stream with a FIN (on the last
+ * write), not a reset. */
+static void mupf_nt_desc_fails(int relayed) {
+  moqctl_params        desc = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqfetch_req         m    = {0};
+  moqfetch_ok          ok   = {0};
+  moqctl_request_error e;
+  usz                  i = (usz)relayed;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), &desc);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(2, 3), 0, wired_span_of(0, 0));
+  mupf_hdr(m.request_id, 1);
+  if (relayed) {
+    mupf_obj(2, 0, 1);
+  }
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_C, MUPF_DATA_SID, 0, 0);
+  CHECK(mupf_reply(&ok, &e) == MOQFETCH_T_FETCH_OK);
+  CHECK(mupf_read(1) && mf_fin && mf_n == 3 + i);
+  CHECK(!relayed || mf_is_obj(0, 2, 0, 1));
+  CHECK(mf_is_unknown(i, 2, 3) && mf_is_unknown(i + 1, 1, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mf_is_unknown(i + 2, 0, MOQCACHE_OBJ_ID_MAX));
+  CHECK(mupf_log_is(SESS_B, mupf_fetch_sid(), "") && mupf_used() == 0);
+}
+
+static void test_moqtrun_upfetch_no_track_desc_fails(void) {
+  mupf_nt_desc_fails(0);
+  mupf_nt_desc_fails(1);
 }
 
 /* The hub's own tracks (blob, live) are never fetched upstream, even
@@ -2005,6 +2065,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_drain_failover();
   test_moqtrun_upfetch_gap_to_owner();
   test_moqtrun_upfetch_fill_gap();
+  test_moqtrun_upfetch_middle_gap();
   test_moqtrun_upfetch_cached_no_upstream();
   test_moqtrun_upfetch_reencode();
   test_moqtrun_upfetch_two_not_shared();
@@ -2015,6 +2076,7 @@ void test_moqtrun_upfetch(void) {
   test_moqtrun_upfetch_no_track_waits_ok();
   test_moqtrun_upfetch_no_track_bad_end();
   test_moqtrun_upfetch_no_track_refusals();
+  test_moqtrun_upfetch_no_track_desc_fails();
   test_moqtrun_upfetch_hub_owned();
   test_moqtrun_upfetch_refused_before_routing();
   test_moqtrun_upfetch_descending_order();

@@ -19,12 +19,13 @@ void moqtrun_fseq_ver(moqfetch_seq* s, int ver) {
   s->d23           = (caps & MOQVER_CAP_FETCH_STREAM23) != 0;
 }
 
-/* A miss on a fill is End of Timed-Out Range (the hub could not keep the
- * backlog, SS11.4.1), and so is one a FETCH's upstream budget ran out on
- * (or FILL_TIMEOUT 0 forbade asking for, SS9.20.5); anything else, and
- * every miss toward a draft without 0x20C, is End of Unknown Range. */
+/* A miss the upstream budget ran out on (or FILL_TIMEOUT 0 forbade
+ * asking for) is End of Timed-Out Range, on a fill as on a FETCH
+ * (draft-23 3.2.3, 3.4, 9.19.5); anything else -- a miss the hub only
+ * infers -- and every miss toward a draft without 0x20C, is End of
+ * Unknown Range (3.2.2). */
 static int moqtrun_fetch_timed_out(const wired_moqtrun_fetch* f) {
-  return (f->is_fill || f->up_tmo) && f->seq.eor_timed_out;
+  return f->up_tmo && f->seq.eor_timed_out;
 }
 
 static u64 moqtrun_fetch_eor(const wired_moqtrun_fetch* f) {

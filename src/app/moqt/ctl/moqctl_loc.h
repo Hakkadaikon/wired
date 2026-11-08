@@ -597,7 +597,8 @@ int moqctl_rangefilter_put(
 
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
  * MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
- * decode input (or caller-owned storage on encode). */
+ * decode input (or caller-owned storage on encode).
+ * views: fields=caller */
 typedef struct {
   /** Namespace fields in order; each non-empty (views, not copies). */
   wired_span fields[MOQCTL_MAX_NS_FIELDS];

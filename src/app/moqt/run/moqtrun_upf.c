@@ -145,7 +145,7 @@ i64 moqtrun_upf_send(
   usz n         = moqtrun_envelope_put(
       pp->ver, wired_mspan_of(msg, sizeof msg), MOQFETCH_T_FETCH,
       moqtrun_upf_encoder(pp->ver), m);
-  i64 sid = n ? hub->io.open_bidi_stream(pp->wt, wired_span_of(msg, n)) : -1;
+  i64 sid = n ? moqtrun_open_req(hub, pp, wired_span_of(msg, n)) : -1;
   if (sid >= 0) {
     pp->request_id_next += 2;
   }

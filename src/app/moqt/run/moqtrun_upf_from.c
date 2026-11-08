@@ -6,7 +6,6 @@ static void       moqtrun_upf_from_asc(
 static void moqtrun_upf_window(wired_moqt_hub* hub, wired_moqtrun_fetch* f);
 static void moqtrun_upf_from_desc(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int done);
-static int moqtrun_upf_nt_desc_failed(const wired_moqtrun_fetch* f, int done);
 
 static const moqtrun_upf_io_fn MOQTRUN_UPF_IO[] = {
     moqtrun_upf_io_none, moqtrun_upf_io_cancel, moqtrun_upf_io_fin};
@@ -94,16 +93,10 @@ static void moqtrun_upf_from_desc(
 static const moqtrun_upf_from_fn MOQTRUN_UPF_FROM[] = {
     moqtrun_upf_from_asc, moqtrun_upf_from_desc};
 
-/* A Descending FETCH of a track the hub does not hold has no cache side
- * to hand a failed leg to (what lies below the cursor is unknown to the
- * hub, start and all), and no fetch can go on in the middle of an Object
- * the leg was passing through: either is reset instead (3.2.2). */
-static int moqtrun_upf_nt_desc_failed(const wired_moqtrun_fetch* f, int done) {
-  return f->no_track && f->descending && !done;
-}
-
-int moqtrun_upf_no_window(const wired_moqtrun_fetch* f, int done) {
-  return f->up_pl_left || moqtrun_upf_nt_desc_failed(f, done);
+/* No fetch can go on in the middle of an Object the leg was passing
+ * through: it is reset instead (3.2.2). */
+int moqtrun_upf_no_window(const wired_moqtrun_fetch* f) {
+  return f->up_pl_left != 0;
 }
 
 /* The cache side takes over (3.2.3), stall-checked from now: after a
@@ -111,7 +104,7 @@ int moqtrun_upf_no_window(const wired_moqtrun_fetch* f, int done) {
  * at the cursor; served now when serve, else from the next tick. */
 void moqtrun_upf_resume(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, int done, int serve) {
-  if (moqtrun_upf_no_window(f, done)) {
+  if (moqtrun_upf_no_window(f)) {
     moqtrun_fetch_stop_code(hub, f, MOQTRUN_RESET_INTERNAL_ERROR);
     return;
   }
