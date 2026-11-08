@@ -124,6 +124,10 @@
 /** A Track Name of length 0 in SUBSCRIBE, PUBLISH, FETCH or TRACK_STATUS
  * closes the session PROTOCOL_VIOLATION (draft-23 2.4.1). */
 #define MOQVER_CAP_TRACK_NAME_NONEMPTY (1ull << 33)
+/** Only a request's receiver sends GOAWAY on its stream: one received by
+ * the receiver closes PROTOCOL_VIOLATION, the sender re-issues the request
+ * (draft-23 9.2). */
+#define MOQVER_CAP_REQ_GOAWAY23 (1ull << 34)
 
 /** Version id for a negotiated subprotocol token: the matching row, the
  * draft-19 row for an empty token (no subprotocol negotiated), -1 for a

@@ -20,6 +20,11 @@ static void moqtrun_up_drop(
     wired_moqtrun_peer*  pp,
     wired_moqtrun_up*    u,
     wired_moqtrun_track* t);
+static void moqtrun_up_keep(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t);
 static void moqtrun_up_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u);
 static void moqtrun_up_settle_open(
@@ -113,6 +118,18 @@ static int moqtrun_up_gone(
   return u->track_tag && !t;
 }
 
+/* A wanted u stays; one a GOAWAY moved is re-issued. */
+static void moqtrun_up_keep(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  pp,
+    wired_moqtrun_up*    u,
+    wired_moqtrun_track* t) {
+  (void)t;
+  if (u->move) {
+    moqtrun_up_reissue(hub, pp, u);
+  }
+}
+
 static void moqtrun_up_settle(
     wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
   wired_moqtrun_track* t = moqtrun_up_track(pp, u);
@@ -120,9 +137,8 @@ static void moqtrun_up_settle(
     moqtrun_up_end(hub, pp, u);
     return;
   }
-  if (!moqtrun_up_wanted(hub, u, t)) {
-    moqtrun_up_drop(hub, pp, u, t);
-  }
+  (moqtrun_up_wanted(hub, u, t) ? moqtrun_up_keep : moqtrun_up_drop)(
+      hub, pp, u, t);
 }
 
 /* A publisher session the hub is closing keeps u, untouched, until the

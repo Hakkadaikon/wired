@@ -41,6 +41,11 @@ static void moqtrun_up_on_update(
     wired_moqtrun_peer* pp,
     wired_moqtrun_up*   u,
     wired_span          body);
+static void moqtrun_up_on_goaway(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body);
 
 /* draft-19 5.1 (draft-18 5.1, draft-22 3.1): "A publisher MUST send
  * exactly one SUBSCRIBE_OK or REQUEST_ERROR in response to a SUBSCRIBE.
@@ -194,6 +199,19 @@ static void moqtrun_up_on_update(
   }
 }
 
+/* draft-23 9.2: A GOAWAY from the SUBSCRIBE's receiver asks the hub to
+ * move it; the re-issue waits for the sweep (moqtrun_up_settle), past
+ * the rest of this delivery. */
+static void moqtrun_up_on_goaway(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* pp,
+    wired_moqtrun_up*   u,
+    wired_span          body) {
+  int moves = moqtrun_goaway_moves(hub, pp, &u->goaway, body);
+  /* a refusal record (u->failed) is not asked again */
+  u->move |= (u8)(moves && !u->failed);
+}
+
 /* What a publisher sends on a SUBSCRIBE's stream (draft-19 10.7, 10.8,
  * 10.9, 10.11); anything else is ignored. */
 static const struct {
@@ -206,6 +224,7 @@ static const struct {
     {MOQCTL_T_PUBLISH_DONE, moqtrun_up_on_done},
     {MOQTSTAT_T_REQUEST_UPDATE, moqtrun_up_on_update},
     {MOQCTL_T_PUBLISH_STATE_NOTIFY, moqtrun_up_on_psn},
+    {MOQCTL_T_GOAWAY, moqtrun_up_on_goaway},
 };
 
 /* The route of a message of type on u's stream: once u ended it is

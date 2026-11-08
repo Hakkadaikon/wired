@@ -459,7 +459,43 @@ static void mtall_subtracks(void) {
   test_subtracks_subscribe_crosses_publish();
 }
 
+/* The hub's PUBLISH of chat/room1/alice to B (SUBSCRIBE_TRACKS "chat"),
+ * then B sends two GOAWAYs on its stream, one at a time: the first
+ * closes nothing, the caller checks what the second does. */
+static void mtst_pub_goaway(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  i64             sid;
+  mtst_subtracks_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  sid = mtst_pub_stream_id(0);
+  CHECK(sid >= 0);
+  mtrq_raw(SESS_B, (u64)sid, MOQCTL_T_GOAWAY, away, sizeof away);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mtrq_raw(SESS_B, (u64)sid, MOQCTL_T_GOAWAY, away, sizeof away);
+}
+
+/* draft-23 9.2: B received the hub's PUBLISH, so its GOAWAY there is
+ * allowed once; "more than one GOAWAY ... on a single request stream"
+ * closes UNEXPECTED_MESSAGE. */
+static void mtst_pub_goaway_d23(void) {
+  mtst_pub_goaway();
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
+}
+
+/* Earlier drafts ignore GOAWAY on the hub's PUBLISH stream. */
+static void mtst_pub_goaway_old(void) {
+  mtst_pub_goaway();
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
 void test_moqtrun_subtracks(void) {
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_d23);
+  moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mtst_pub_goaway_old);
   moqtrun_test_allver(mtall_subtracks);
   /* draft-23 3.6 accepts overlaps (moqtrun_nsx_test.c) */
   moqtrun_test_vers(

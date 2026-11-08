@@ -64,6 +64,27 @@ static int moqtrun_up_send(
   return 1;
 }
 
+/* draft-23 9.2: "the sender of the request SHOULD re-issue that specific
+ * request on a session at the specified URI (or the current session if no
+ * URI is provided), and close the old request stream". The hub is the
+ * server, so no URI comes: u's SUBSCRIBE goes to pp again on a new
+ * stream and the old one is cancelled. An Established track keeps its
+ * subscribers until the new SUBSCRIBE_OK claims it again. With no stream
+ * to open the old request stays (GOAWAY does not impact subscription
+ * state). */
+void moqtrun_up_reissue(
+    wired_moqt_hub* hub, wired_moqtrun_peer* pp, wired_moqtrun_up* u) {
+  u64 sid = u->stream_id;
+  u64 tag = u->track_tag;
+  u->move = 0;
+  if (!moqtrun_up_send(hub, pp, u, moqtrun_up_key(u))) {
+    return;
+  }
+  u->track_tag = tag;
+  hub->io.stream_reset(pp->wt, sid, MOQTRUN_RESET_CANCELLED);
+  moqtrun_stream_stop(hub, pp, sid, MOQTRUN_RESET_CANCELLED);
+}
+
 /* 1 when an upstream SUBSCRIBE for k went to a's session. */
 int moqtrun_up_open(
     wired_moqt_hub* hub, const wired_moqtrun_req* a, moqtrun_key k) {

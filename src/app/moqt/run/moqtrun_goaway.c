@@ -1,8 +1,11 @@
 #include "app/moqt/run/moqtrun_impl.h"
 
 static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver);
-static moqtrun_cc             moqtrun_goaway_seen(
-    wired_moqtrun_peer* p, const moqctl_goaway* g);
+static moqtrun_cc             moqtrun_goaway_body_cc(
+    const wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g);
+static moqtrun_cc moqtrun_goaway_req_cc(
+    const wired_moqtrun_peer* p, int seen, wired_span body);
+static u32        moqtrun_goaway_req_close(const wired_moqtrun_peer* p);
 static moqtrun_cc moqtrun_goaway_cc(
     wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g);
 static int moqtrun_goaway_rid_bad(
@@ -57,30 +60,59 @@ static moqtrun_goaway_take_fn moqtrun_goaway_decoder(int ver) {
                                                       : moqctl_goaway_take;
 }
 
-/* A decoded control-stream GOAWAY: a New Session URI sent to the hub, the
- * server, is ROLE_VIOLATION (draft-23 9.2), a second GOAWAY
- * UNEXPECTED_MESSAGE (9.2); MOQTRUN_CC_N when the first is recorded. */
-static moqtrun_cc moqtrun_goaway_seen(
-    wired_moqtrun_peer* p, const moqctl_goaway* g) {
-  if (g->new_session_uri.n) {
-    return MOQTRUN_CC_ROLE;
+/* A GOAWAY well formed in p's draft, with no New Session URI: one sent
+ * to the hub, the server, is ROLE_VIOLATION (draft-23 9.2). The close
+ * class, or MOQTRUN_CC_N. */
+static moqtrun_cc moqtrun_goaway_body_cc(
+    const wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
+  usz off = 0;
+  int r   = moqtrun_goaway_decoder(p->ver)(body, &off, g);
+  if (r != MOQCTL_OK) {
+    return moqtrun_cc_of_take(r);
+  }
+  return g->new_session_uri.n ? MOQTRUN_CC_ROLE : MOQTRUN_CC_N;
+}
+
+/* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
+ * be well formed in p's draft, carry no New Session URI (the hub is the
+ * server), and be the session's first (a second one is
+ * UNEXPECTED_MESSAGE, draft-23 9.2). The close class, or MOQTRUN_CC_N. */
+static moqtrun_cc moqtrun_goaway_cc(
+    wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
+  moqtrun_cc cc = moqtrun_goaway_body_cc(p, body, g);
+  if (cc != MOQTRUN_CC_N) {
+    return cc;
   }
   return moqsess_step(&p->sess, MOQSESS_EV_RECV_GOAWAY) != MOQSESS_CLOSE_NONE
              ? MOQTRUN_CC_UNEXPECTED
              : MOQTRUN_CC_N;
 }
 
-/* draft-ietf-moq-transport-19 10.4: a GOAWAY on the control stream must
- * be well formed in p's draft, carry no New Session URI (the hub is the
- * server), and be the session's first. The close class, or MOQTRUN_CC_N. */
-static moqtrun_cc moqtrun_goaway_cc(
-    wired_moqtrun_peer* p, wired_span body, moqctl_goaway* g) {
-  usz off = 0;
-  int r   = moqtrun_goaway_decoder(p->ver)(body, &off, g);
-  if (r != MOQCTL_OK) {
-    return moqtrun_cc_of_take(r);
+/* A GOAWAY on a request stream the hub opened: a second one there is
+ * UNEXPECTED_MESSAGE (draft-23 9.2). */
+static moqtrun_cc moqtrun_goaway_req_cc(
+    const wired_moqtrun_peer* p, int seen, wired_span body) {
+  moqctl_goaway g = {0};
+  return seen ? MOQTRUN_CC_UNEXPECTED : moqtrun_goaway_body_cc(p, body, &g);
+}
+
+/* draft-23 9.2: the hub sent the request, so its receiver may send GOAWAY
+ * on the stream to move it. *seen records one; a bad or repeated one
+ * closes p's session. 1 when the hub should re-issue the request; earlier
+ * drafts ignore it (0). */
+int moqtrun_goaway_moves(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, int* seen, wired_span body) {
+  moqtrun_cc cc;
+  if (!(moqver_caps(p->ver) & MOQVER_CAP_REQ_GOAWAY23)) {
+    return 0;
   }
-  return moqtrun_goaway_seen(p, g);
+  cc    = moqtrun_goaway_req_cc(p, *seen, body);
+  *seen = 1;
+  if (cc != MOQTRUN_CC_N) {
+    moqtrun_close_cc(hub, p, cc);
+    return 0;
+  }
+  return 1;
 }
 
 /* draft-18 SS10.4: the Request ID names one of the hub's own Request IDs,
@@ -102,17 +134,23 @@ static u32 moqtrun_goaway_close(wired_moqtrun_peer* p, wired_span body) {
                                        : 0;
 }
 
-/* A GOAWAY on a request stream asks to migrate that one request; the
- * route already refuses a second one, and the hub opens no requests to
- * move. One on the control stream is recorded, a bad one closes the
- * session with PROTOCOL_VIOLATION. */
+/* draft-23 9.2: "Only the receiver of a request can send GOAWAY on its
+ * request stream" -- the peer opened this one, so the hub is the receiver:
+ * PROTOCOL_VIOLATION. Earlier drafts let either side send it and the hub
+ * ignores it (the route refuses a second one): 0. */
+static u32 moqtrun_goaway_req_close(const wired_moqtrun_peer* p) {
+  return (moqver_caps(p->ver) & MOQVER_CAP_REQ_GOAWAY23)
+             ? WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION
+             : 0;
+}
+
+/* A GOAWAY on a peer-opened request stream (moqtrun_goaway_req_close), or
+ * on the control stream: recorded, a bad one closes the session. */
 void moqtrun_dispatch_goaway(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)peer_idx;
-  if (p->req) {
-    return;
-  }
-  u32 code = moqtrun_goaway_close(p, body);
+  u32 code =
+      p->req ? moqtrun_goaway_req_close(p) : moqtrun_goaway_close(p, body);
   if (code) {
     moqtrun_close_with(hub, p, code);
   }

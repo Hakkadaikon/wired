@@ -864,7 +864,110 @@ static void test_moqtrun_upsub_ngr_on_publish(void) {
   CHECK(!moqtrun_req_find(&mtst_hub, SESS_A, MUPS_PUB_SID)->ngr.out);
 }
 
+/* ===== GOAWAY on the hub's upstream SUBSCRIBE stream (draft-23 9.2) ===== */
+
+/* A sends reps GOAWAYs (New Session URI of uri_n bytes, Timeout 0) on its
+ * stream sid in one delivery. */
+static void mups_goaways(u64 sid, usz reps, u8 uri_n) {
+  u8  buf[32];
+  usz n = 0;
+  for (usz i = 0; i < reps; i++) {
+    buf[n++] = MOQCTL_T_GOAWAY;
+    buf[n++] = 0;
+    buf[n++] = (u8)(2 + uri_n);
+    buf[n++] = uri_n;
+    for (u8 j = 0; j < uri_n; j++) {
+      buf[n++] = 'x';
+    }
+    buf[n++] = 0;
+  }
+  mt_feed(&mtst_hub, SESS_A, sid, wired_span_of(buf, n), 0);
+}
+
+/* "the sender of the request SHOULD re-issue that specific request ...
+ * (or the current session if no URI is provided), and close the old
+ * request stream": a pending SUBSCRIBE goes out again to A on a new
+ * stream under the next Request ID, the old one is cancelled, and A's
+ * answer there reaches B. */
+static void mups_goaway_reissues(void) {
+  moqctl_subscribe m0, m1;
+  i64              old, sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  old = mups_up(SESS_A, 0, &m0);
+  mups_goaways((u64)old, 1, 0);
+  sid = mups_up(SESS_A, 1, &m1);
+  CHECK(sid >= 0 && sid != old);
+  CHECK(m1.request_id == m0.request_id + 2);
+  CHECK(mups_up_is((u64)old, "RST1|STOP1|"));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mups_ok((u64)sid);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  CHECK(mups_used() == 1);
+}
+
+/* An Established one moves without ending B's subscription: B hears no
+ * PUBLISH_DONE, and A's Objects under the new SUBSCRIBE_OK reach B. */
+static void mups_goaway_moves_established(void) {
+  moqctl_subscribe m;
+  u8               buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  i64              old, sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  old = mups_up_sid();
+  mups_ok((u64)old);
+  mups_goaways((u64)old, 1, 0);
+  sid = mups_up(SESS_A, 1, &m);
+  CHECK(sid >= 0 && sid != old);
+  CHECK(mups_up_is((u64)old, "RST1|STOP1|"));
+  mups_ok((u64)sid);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  CHECK(mups_used() == 1);
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS, buf)), 1);
+  CHECK(mups_relayed_alias(SESS_B) == mrdv_alias(SESS_B, MRDV_S1));
+}
+
+/* "more than one GOAWAY ... on a single request stream" closes
+ * UNEXPECTED_MESSAGE; a New Session URI sent to the hub, a server,
+ * closes ROLE_VIOLATION. Neither re-issues. */
+static void mups_goaway_refused(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mups_goaways((u64)mups_up_sid(), 2, 0);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
+  CHECK(mups_n_up(SESS_A) == 1);
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mups_goaways((u64)mups_up_sid(), 1, 1);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_ROLE_VIOLATION) == 1);
+  CHECK(mups_n_up(SESS_A) == 1);
+}
+
+/* Earlier drafts: the hub ignores it and keeps the request. */
+static void mups_goaway_ignored(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_goaways(sid, 1, 0);
+  CHECK(mups_n_up(SESS_A) == 1);
+  CHECK(mups_up_is(sid, ""));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  mups_ok(sid);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+}
+
+static void test_moqtrun_upsub_goaway(void) {
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_reissues);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_moves_established);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mups_goaway_refused);
+  moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mups_goaway_ignored);
+}
+
 void test_moqtrun_upsub(void) {
+  test_moqtrun_upsub_goaway();
   test_moqtrun_upsub_dup_alias_closes();
   test_moqtrun_upsub_second_ok_closes();
   test_moqtrun_upsub_redirect_uri_closes();
