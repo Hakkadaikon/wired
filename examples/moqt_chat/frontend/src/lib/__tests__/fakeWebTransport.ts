@@ -1,14 +1,12 @@
 // A WebTransport stand-in for driving MoqtChatClient's connection lifecycle
 // from tests: `ready` and `closed` are deferred promises the test settles
-// (resolveReady/rejectClosed/...), the incoming-bidi reader serves one fake
-// control stream so connect() can complete, every client-opened bidi
-// stream is a FakeRequestStream recorded in `requests`, and the
-// incoming-uni reader parks forever. `protocol` is the negotiated
-// WebTransport subprotocol (undefined: none, the draft-19 legacy session);
-// with "moqt-22" a test pushes `serverControl` as the hub's draft-22 uni
-// control stream (startD22Control) and every client-opened uni stream's
-// writes land in `uniStreams`. Not a .test file, so vitest does not
-// collect it.
+// (resolveReady/rejectClosed/...), every client-opened bidi stream is a
+// FakeRequestStream recorded in `requests`, every client-opened uni
+// stream's writes land in `uniStreams`, and the incoming-bidi reader only
+// serves request streams the hub opens (pushHubRequest). `protocol` is the
+// negotiated WebTransport subprotocol, "moqt-23" unless a test changes it;
+// startControl pushes `serverControl` as the hub's uni control stream.
+// Not a .test file, so vitest does not collect it.
 
 import { vi } from "vitest";
 import {
@@ -21,7 +19,7 @@ import {
 	SETUP_OPTION_SSTS_ALGORITHMS,
 } from "../moqtWire";
 
-/** A hub SETUP body (startD22Control's setupBody) advertising the
+/** A hub SETUP body (startControl's setupBody) advertising the
  * SSTS_ALGORITHMS `algs`; undefined: no such option (an extension-less hub). */
 export function hubSetupBody(algs?: bigint[]): Uint8Array {
 	return encodeSetup({
@@ -35,8 +33,6 @@ export function hubSetupBody(algs?: bigint[]): Uint8Array {
 			: [],
 	});
 }
-
-type WriterLike = { write: () => Promise<void>; close: () => Promise<void> };
 
 /** One stream's hub-to-client half: yields whatever a test push()es (the
  * hub's replies), parking between pushes; end() / a cancel finish it. */
@@ -79,18 +75,6 @@ export class FakeControlReplies {
 	}
 }
 
-function fakeControlStream(readable: FakeControlReplies) {
-	return {
-		writable: {
-			getWriter: (): WriterLike => ({
-				write: async () => {},
-				close: async () => {},
-			}),
-		},
-		readable,
-	};
-}
-
 export const MSG_PUBLISH = 0x1dn;
 export const MSG_SUBSCRIBE = 0x3n;
 export const MSG_FETCH = 0x16n;
@@ -103,7 +87,7 @@ export const requestOk = () =>
 		encodeRequestOk({ parameters: [], trackProperties: [] }),
 	);
 
-/** A client-opened bidi request stream (draft-ietf-moq-transport-22 6.4.2; d19 3.3):
+/** A client-opened bidi request stream (draft-ietf-moq-transport-23 6.4.2):
  * records what the client wrote and whether it FINed or reset its side;
  * `replies` is the hub's half. */
 export class FakeRequestStream {
@@ -143,7 +127,7 @@ export class FakeRequestStream {
 	}
 }
 
-/** A request stream the hub opened (draft-22 6.4.2): `readable` serves the
+/** A request stream the hub opened (draft-23 6.4.2): `readable` serves the
  * hub's request, `written` records the client's answer. */
 export class FakeHubRequest {
 	written: Uint8Array[] = [];
@@ -233,7 +217,7 @@ type UniStreamLike = { getReader: FakeControlReplies["getReader"] };
 
 /** Incoming uni streams: readable.getReader().read() yields whatever a test
  * push()es, one fake stream per push, parking between pushes; pushStream()
- * hands over a long-lived stream (the draft-22 control stream) as is. */
+ * hands over a long-lived stream (the hub's control stream) as is. */
 class FakeIncomingUniStreams {
 	#queue: UniStreamLike[] = [];
 	#wake: (() => void) | undefined;
@@ -272,8 +256,6 @@ export interface FakeUniWrite {
 export class FakeWebTransport {
 	readonly ready: Promise<void>;
 	readonly datagrams = new FakeDatagrams();
-	/** Hub replies on the control stream: push() an encoded control frame. */
-	readonly controlReplies = new FakeControlReplies();
 	/** Incoming uni streams (chat/attachment Objects): push() one wire message. */
 	readonly incomingUnidirectionalStreams = new FakeIncomingUniStreams();
 	readonly closed: Promise<unknown>;
@@ -290,27 +272,20 @@ export class FakeWebTransport {
 	resolveClosed!: (info?: unknown) => void;
 	rejectClosed!: (err: unknown) => void;
 
-	/** WebTransport.protocol: the negotiated subprotocol, or undefined when
-	 * none was (a browser without `protocols` support -> draft-19 legacy). */
-	protocol: string | undefined = undefined;
+	/** WebTransport.protocol: the negotiated subprotocol. */
+	protocol: string | undefined = "moqt-23";
 	/** The options the client passed to the WebTransport constructor (set by
 	 * a test's stub). */
 	options: { protocols?: string[] } | undefined;
-	/** How many times the client read incomingBidirectionalStreams. */
-	bidiReads = 0;
-	/** The hub's draft-22 uni control stream (SETUP, then GOAWAY ...):
-	 * push() an encoded control frame. */
+	/** The hub's uni control stream (SETUP, then GOAWAY ...): push() an
+	 * encoded control frame. */
 	readonly serverControl = new FakeControlReplies();
-
-	/** false: the hub opens no bidi control stream (a draft-22 session) --
-	 * a read of incomingBidirectionalStreams then parks forever. */
-	bidiControl = true;
 
 	/** Set once the client cancels its incomingBidirectionalStreams reader
 	 * (a parked read then ends with done). */
 	bidiCancelled = false;
 	#unparkBidi: (() => void) | undefined;
-	/** Request streams the hub opened (draft-22 6.4.2), queued by pushHubRequest. */
+	/** Request streams the hub opened (6.4.2), queued by pushHubRequest. */
 	#hubBidi: FakeHubRequest[] = [];
 
 	/** The hub opens a request stream to the client carrying `frame`. */
@@ -324,18 +299,12 @@ export class FakeWebTransport {
 	incomingBidirectionalStreams = {
 		getReader: () => ({
 			read: async () => {
-				this.bidiReads += 1;
-				if (!this.bidiControl) {
-					while (this.#hubBidi.length === 0 && !this.bidiCancelled)
-						await new Promise<void>((res) => {
-							this.#unparkBidi = res;
-						});
-					const s = this.#hubBidi.shift();
-					return s
-						? { value: s, done: false }
-						: { value: undefined, done: true };
-				}
-				return { value: fakeControlStream(this.controlReplies), done: false };
+				while (this.#hubBidi.length === 0 && !this.bidiCancelled)
+					await new Promise<void>((res) => {
+						this.#unparkBidi = res;
+					});
+				const s = this.#hubBidi.shift();
+				return s ? { value: s, done: false } : { value: undefined, done: true };
 			},
 			cancel: async () => {
 				this.bidiCancelled = true;
@@ -345,17 +314,10 @@ export class FakeWebTransport {
 		}),
 	};
 
-	/** Negotiates moqt-22 (or reports `protocol` as given; null leaves it
-	 * undefined, a browser without the attribute) and opens the hub's uni control stream,
-	 * whose first bytes are its SETUP (Type 0x2F00, empty options unless
-	 * `setupBody` gives the encoded Setup Options); no bidi control stream
-	 * comes. */
-	startD22Control(
-		protocol: string | null = "moqt-22",
-		setupBody: Uint8Array = new Uint8Array(0),
-	): void {
-		this.protocol = protocol ?? undefined;
-		this.bidiControl = false;
+	/** Opens the hub's uni control stream, whose first bytes are its SETUP
+	 * (Type 0x2F00, empty options unless `setupBody` gives the encoded Setup
+	 * Options). */
+	startControl(setupBody: Uint8Array = new Uint8Array(0)): void {
 		this.serverControl.push(encodeControlFrame(0x2f00n, setupBody));
 		this.incomingUnidirectionalStreams.pushStream(this.serverControl);
 	}

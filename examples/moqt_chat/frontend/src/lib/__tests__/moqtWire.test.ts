@@ -156,9 +156,19 @@ describe("kvp", () => {
 interface CtlVector {
 	name: string;
 	type: string;
+	type_hex: string;
 	msg_len: number;
 	hex: string;
 	fields: Record<string, unknown>;
+}
+
+// The golden ctl vectors use draft-19 framing (a 16-bit Length); their
+// bodies are byte-identical in draft-23, whose Length is a vi64 (9) -- a
+// single 0xxxxxxx byte for these short bodies (8.1). d23 re-frames one.
+function d23(v: CtlVector): string {
+	expect(v.msg_len).toBeLessThan(128);
+	const body = v.hex.slice(v.type_hex.length + 4);
+	return v.type_hex + v.msg_len.toString(16).padStart(2, "0") + body;
 }
 
 describe("ctl", () => {
@@ -166,10 +176,10 @@ describe("ctl", () => {
 	const byName = new Map(vectors.map((v) => [v.name, v]));
 
 	function checkFraming(v: CtlVector) {
-		const { frame, len } = decodeControlFrame(hexToBytes(v.hex));
+		const { frame, len } = decodeControlFrame(hexToBytes(d23(v)));
 		expect(frame.type).toBe(BigInt(v.type));
 		expect(frame.body.length).toBe(v.msg_len);
-		expect(len).toBe(hexToBytes(v.hex).length);
+		expect(len).toBe(hexToBytes(d23(v)).length);
 		return frame.body;
 	}
 
@@ -193,7 +203,7 @@ describe("ctl", () => {
 			setupOptions: [{ type: 7n, raw: utf8ToBytes("wired/0") }],
 		});
 		const out = encodeControlFrame(BigInt(v.type), body);
-		expect(bytesToHex(out)).toBe(v.hex);
+		expect(bytesToHex(out)).toBe(d23(v));
 	});
 
 	it("decode subscribe_basic", () => {
@@ -214,7 +224,7 @@ describe("ctl", () => {
 			trackName: utf8ToBytes("alice"),
 			parameters: [],
 		});
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode subscribe_ok_basic", () => {
@@ -233,7 +243,7 @@ describe("ctl", () => {
 			parameters: [],
 			trackProperties: [],
 		});
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode publish_basic", () => {
@@ -258,7 +268,7 @@ describe("ctl", () => {
 			parameters: [],
 			trackProperties: [],
 		});
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode request_ok_basic", () => {
@@ -272,7 +282,7 @@ describe("ctl", () => {
 	it("encode request_ok_basic", () => {
 		const v = must(byName.get("request_ok_basic"));
 		const body = encodeRequestOk({ parameters: [], trackProperties: [] });
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode request_error_not_supported", () => {
@@ -291,7 +301,7 @@ describe("ctl", () => {
 			retryInterval: 0n,
 			errorReason: utf8ToBytes("not supported"),
 		});
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode publish_done_track_ended", () => {
@@ -310,7 +320,7 @@ describe("ctl", () => {
 			streamCount: 2n,
 			errorReason: utf8ToBytes(""),
 		});
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 
 	it("decode goaway_empty", () => {
@@ -324,7 +334,7 @@ describe("ctl", () => {
 	it("encode goaway_empty", () => {
 		const v = must(byName.get("goaway_empty"));
 		const body = encodeGoaway({ newSessionUri: utf8ToBytes(""), timeout: 0n });
-		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(v.hex);
+		expect(bytesToHex(encodeControlFrame(BigInt(v.type), body))).toBe(d23(v));
 	});
 });
 

@@ -4,9 +4,8 @@
 // Like moqtVoiceClient.ts, frames are appended to a long-lived uni stream
 // rather than one stream per frame, but every keyframe starts a new Group
 // on a fresh stream, so a late joiner's history of the current Group --
-// a fill of Relative Start 1 (draft-ietf-moq-transport-22 3.4, 9.20.9), or
-// on the draft-19 legacy session a Joining FETCH with Joining Start 0
-// (d19 10.12.2) -- begins at a keyframe. Each
+// a fill of Relative Start 1 (draft-ietf-moq-transport-23 3.4, 9.19.9) --
+// begins at a keyframe. Each
 // Object carries one video chunk (moqtScreenWire.ts); the caller
 // (Task 7's screen-share pipeline) is responsible for chunking a frame and
 // reassembling it on receive (screenFrameReassemblerPush).
@@ -17,8 +16,8 @@
 // self-adjust if CANDIDATE_PARTICIPANT_IDS.length ever changes; the extra
 // +2 leaves a 2-alias gap above the audio range for future use.
 
-// Track switching (tasks/moqt-trackswitch-plan.md, draft-22 sessions whose
-// hub advertised SSTS_ALGORITHMS only -- MoqtChatClient.trackSwitching): a
+// Track switching (tasks/moqt-trackswitch-plan.md, sessions whose hub
+// advertised SSTS_ALGORITHMS only -- MoqtChatClient.trackSwitching): a
 // share is published as two variants with ALIGNED Group IDs, "<id>/screen"
 // (hi) and "<id>/screen-lo" (lo, <= 640 wide, screenSharePipeline.ts), both
 // cut from the same captured frames with one keyframe decision. A watcher
@@ -27,7 +26,7 @@
 // quality selector -- just one, moving between them with SWITCH_FROM (0x24).
 // Both variants feed the participant's one decoder; a Group gate keeps
 // the other variant's copy of a Group and a switched-away variant's tail out
-// of it. Elsewhere (d19, an extension-less hub) nothing changes: hi only,
+// of it. Against an extension-less hub nothing changes: hi only,
 // one plain subscription, no gate.
 //
 // Lo aliases sit right above the hi range: SCREEN_LO_ALIAS_OFFSET =
@@ -311,7 +310,7 @@ export class MoqtScreenClient {
 	// The <id>/screen namespace while this client shares (discovery's
 	// "a share started" signal); cancelled by close().
 	#announcement: { cancel(): void } | undefined;
-	// Peers whose history fetches (d22 fill / d19 Joining FETCH) are still
+	// Peers whose history fills are still
 	// running: their live chunks wait here so the decoder sees the keyframe
 	// Group's start first.
 	#joining = new Map<string, JoinHold>();
@@ -337,7 +336,7 @@ export class MoqtScreenClient {
 	}
 
 	/** Whether shares go out as two variants and watchers may switch: the
-	 * kind has a lo variant and MoqtChatClient.trackSwitching (draft-22, hub
+	 * kind has a lo variant and MoqtChatClient.trackSwitching (the hub
 	 * advertised SSTS). */
 	get variantsEnabled(): boolean {
 		return this.#kind.loSuffix !== undefined && this.#chat.trackSwitching;
@@ -410,9 +409,8 @@ export class MoqtScreenClient {
 	}
 
 	/** SUBSCRIBEs to participantId's screen share starting at the Next
-	 * Object, plus a history of the current Group (joiningStart 0: a d22
-	 * fill of Relative Start 1, or a d19 Relative Joining FETCH with Joining
-	 * Start 0): every Group opens with a keyframe, so a late joiner decodes
+	 * Object, plus a history of the current Group (joiningStart 0: a fill of
+	 * Relative Start 1): every Group opens with a keyframe, so a late joiner decodes
 	 * from there instead of waiting for the next one. With track switching and
 	 * a negotiated SSTS algorithm, "auto" subscribes both variants into one
 	 * switching set; "high"/"low" subscribe that variant alone. */

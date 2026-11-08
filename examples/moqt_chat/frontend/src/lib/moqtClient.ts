@@ -1,28 +1,24 @@
 // MOQT chat transport: wires the browser WebTransport API to the
-// draft-ietf-moq-transport-22 codec in moqtWire.ts, matching the fixed hub
+// draft-ietf-moq-transport-23 codec in moqtWire.ts, matching the fixed hub
 // protocol implemented by wired_server (examples/moqt_chat/server/wired_server.c,
-// src/app/moqt/run/moqtrun.c). The session's draft is the WebTransport
-// subprotocol: the client offers "moqt-22"; a browser that cannot negotiate
-// one (Chromium exposes `protocols` only behind
-// --enable-experimental-web-platform-features) gets the hub's draft-19
-// legacy session instead, and every difference below is marked d19.
+// src/app/moqt/run/moqtrun.c). The draft is the WebTransport subprotocol
+// (6.2.1): the client offers only "moqt-23" and refuses a session that
+// negotiated anything else.
 //
-//  - Control streams (d22 6.3): each side opens one uni stream starting
-//    with SETUP (Type 0x2F00, which is also the stream type) and keeps it
-//    open for the session's lifetime; GOAWAY arrives on the hub's. d19: the
-//    hub opens ONE bidirectional stream and sends SETUP on it (d19 3.3); the
-//    client only drains it.
-//  - Every request (PUBLISH, SUBSCRIBE, FETCH, PUBLISH_NAMESPACE,
+//  - Control streams (6.3): each side opens one uni stream starting with
+//    SETUP (Type 0x2F00, which is also the stream type) and keeps it open
+//    for the session's lifetime; GOAWAY arrives on the hub's.
+//  - Every request (PUBLISH, SUBSCRIBE, PUBLISH_NAMESPACE,
 //    SUBSCRIBE_NAMESPACE) opens its own bidirectional request stream
-//    (d22 6.4.2) with an even, client-chosen Request ID; its answer comes
-//    back on that stream, so it is matched by stream, never by arrival
-//    order. Resetting the stream cancels the request (6.4.2.3).
-//  - Room membership is namespace discovery (d22 4.1-4.2): each participant
+//    (6.4.2) with an even, client-chosen Request ID; its answer comes back
+//    on that stream, so it is matched by stream, never by arrival order.
+//    Resetting the stream cancels the request (6.4.2.3).
+//  - Room membership is namespace discovery (4.1-4.2): each participant
 //    announces wired/moqt_chat/<id> once its tracks are PUBLISHed and
 //    watches the wired/moqt_chat prefix. A NAMESPACE subscribes that peer's
-//    chat track with its history -- d22: SUBSCRIBE's FILL_PARAMETERS
-//    (3.4); d19: a Joining FETCH -- and a NAMESPACE_DONE cancels every
-//    subscription to it. Nothing is polled.
+//    chat track with its history -- SUBSCRIBE's FILL_PARAMETERS (3.4) --
+//    and a NAMESPACE_DONE cancels every subscription to it. Nothing is
+//    polled.
 //  - Chat messages are sent as one uni stream each: SUBGROUP_HEADER + one
 //    Object (1 message = 1 Object = 1 Group = 1 Subgroup; an attachment
 //    stream instead carries one Object per chunk in a Group of its own, see
@@ -59,9 +55,8 @@ import {
 	decodeSubscribeOk,
 	decodeVarint,
 	encodeControlFrame,
-	encodeFetch,
 	encodeFillParameters,
-	encodeLocationFilter22,
+	encodeLocationFilter,
 	encodeNamespaceRequest,
 	encodePublish,
 	encodeRequestError,
@@ -71,11 +66,11 @@ import {
 	encodeVarint,
 	type FetchObject,
 	type FetchSeq,
+	hasUnknownMandatoryProperty,
 	hexToBytes,
 	type Location,
 	largestObjectOf,
 	type MessageParam,
-	type MoqtDraft,
 	newFetchSeq,
 	type ObjectDatagram,
 	PARAM_FILL_PARAMETERS,
@@ -89,57 +84,52 @@ import {
 	utf8ToBytes,
 } from "./moqtWire";
 
-// Message type IDs used on the wire here (d22 9, the same in d19 10).
+// Message type IDs used on the wire here (9, Table 5).
 const MSG_TYPE_PUBLISH = 0x1dn;
 const MSG_TYPE_SUBSCRIBE = 0x3n;
 const MSG_TYPE_SUBSCRIBE_OK = 0x4n;
 const MSG_TYPE_REQUEST_ERROR = 0x5n;
-// REQUEST_ERROR code INTERNAL_ERROR (d22 12.3 / 16.11.2): what the hub
-// answers a SUBSCRIBE whose fill it has no room for (moqtrun_fill_room).
+// REQUEST_ERROR code INTERNAL_ERROR (12.3, 16.12.2): what the hub answers
+// a SUBSCRIBE whose fill it has no room for (moqtrun_fill_room).
 const REQUEST_ERROR_INTERNAL = 0x0n;
-// REQUEST_ERROR code NOT_SUPPORTED (d22 12.3): this client serves no request
+// REQUEST_ERROR code NOT_SUPPORTED (12.3): this client serves no request
 // the hub opens to it.
 const REQUEST_ERROR_NOT_SUPPORTED = 0x3n;
+// Every REQUEST_ERROR code draft-23 defines (16.12.2 Table 21); any other
+// one counts as INTERNAL_ERROR (13).
+const REQUEST_ERROR_CODES = new Set(
+	[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x9, 0xa, 0x10, 0x11, 0x12, 0x20, 0x31]
+		.concat([0x33, 0x34, 0x35, 0x36])
+		.map(BigInt),
+);
 const MSG_TYPE_REQUEST_OK = 0x7n;
-const MSG_TYPE_FETCH = 0x16n;
-const MSG_TYPE_FETCH_OK = 0x18n;
 const MSG_TYPE_PUBLISH_NAMESPACE = 0x6n;
 const MSG_TYPE_SUBSCRIBE_NAMESPACE = 0x50n;
 const MSG_TYPE_NAMESPACE = 0x8n;
 const MSG_TYPE_NAMESPACE_DONE = 0xen;
 const MSG_TYPE_GOAWAY = 0x10n;
 const STREAM_TYPE_FETCH_HEADER = 0x5n;
-// SETUP (d22 9.1): its Type doubles as the control stream's type (6.4.1).
+// SETUP (9.1): its Type doubles as the control stream's type (6.4.1).
 const MSG_TYPE_SETUP = 0x2f00n;
 
-// The WebTransport subprotocol that selects draft-22 (d22 6.2.1); the hub
-// (wired_moqt_wt_protocols) also accepts moqt-19/moqt-18, but this client
-// speaks 22 or, with nothing negotiated, the draft-19 legacy session.
-export const MOQT_WT_PROTOCOL_22 = "moqt-22";
+// The WebTransport subprotocol that selects draft-23 (6.2.1); the hub
+// (wired_moqt_wt_protocols) also accepts older drafts, this client none.
+export const MOQT_WT_PROTOCOL = "moqt-23";
 
-// d19: LOCATION_FILTER (d19 10.2.9, Length-prefixed) of type Largest
-// Object (0x2): live delivery starts after the Largest Object, which a
-// Joining FETCH ends at (d19 10.12.2), so the two meet with no gap or
-// overlap.
-const LARGEST_OBJECT_FILTER = {
-	type: PARAM_LOCATION_FILTER,
-	value: Uint8Array.of(0x2),
-};
-
-// d22: LOCATION_FILTER (9.20.9, no Length) of type Next Object (0x05): the
-// d22 spelling of the same start. Paired with an open-ended fill range the
-// hub ends at the Largest Object, every Object arrives exactly once (3.4).
+// LOCATION_FILTER (9.19.9) of type Next Object (0x05): live delivery starts
+// after the Largest Object. Paired with an open-ended fill range the hub
+// ends at the Largest Object, every Object arrives exactly once (3.4).
 const NEXT_OBJECT_FILTER = {
 	type: PARAM_LOCATION_FILTER,
-	value: encodeLocationFilter22({ type: 0x5n, fields: [] }),
+	value: encodeLocationFilter({ type: 0x5n, fields: [] }),
 };
 
-/** d22 FILL_PARAMETERS (9.20.15) asking for the history a d19 Relative
- * Joining FETCH with Joining Start J returns: Location Filter Relative Start
- * N = J + 1, i.e. from {Largest.Group + 1 - N, 0} = {Largest.Group - J, 0}
- * (9.20.9) up to the Largest Object. */
+/** FILL_PARAMETERS (9.19.15) asking for the joiningStart Groups before the
+ * Largest Object's Group plus that Group: Location Filter Relative Start
+ * N = joiningStart + 1, i.e. from {Largest.Group + 1 - N, 0} (9.19.9) up to
+ * the Largest Object. */
 function fillParam(joiningStart: bigint): MessageParam {
-	const relativeStart = encodeLocationFilter22({
+	const relativeStart = encodeLocationFilter({
 		type: 0x1n,
 		fields: [joiningStart + 1n],
 	});
@@ -151,17 +141,9 @@ function fillParam(joiningStart: bigint): MessageParam {
 	};
 }
 
-/** A history SUBSCRIBE's parameters (ascending Type): d22 Next Object plus a
- * fill; d19 Largest Object (the Joining FETCH follows separately). */
-function historyParams(draft: MoqtDraft, joiningStart: bigint): MessageParam[] {
-	return draft === 22
-		? [NEXT_OBJECT_FILTER, fillParam(joiningStart)]
-		: [LARGEST_OBJECT_FILTER];
-}
-
 // The SSTS algorithms this client takes part in, most preferred first
 // (tasks/moqt-trackswitch-plan.md 1): backpressure, then the default
-// weighted-bandwidth one. Advertised in our own d22 SETUP; the negotiated
+// weighted-bandwidth one. Advertised in our own SETUP; the negotiated
 // algorithm is the first of these the hub's SETUP also lists.
 export const CLIENT_SSTS_ALGORITHMS = [
 	SSTS_ALGORITHM_BACKPRESSURE,
@@ -197,7 +179,7 @@ export function candidateParticipantIds(localId: string): string[] {
 	return CANDIDATE_PARTICIPANT_IDS.filter((id) => id !== localId);
 }
 
-// Track Alias is scoped per session (draft-22 3.1.3): the hub tells each
+// Track Alias is scoped per session (draft-23 3.1.3): the hub tells each
 // subscriber, in SUBSCRIBE_OK, the alias its relayed Objects will carry.
 // It keeps the publisher's own alias whenever that number is free in the
 // subscriber's session and rewrites it only on a clash. Every client in
@@ -401,31 +383,31 @@ export interface MoqtChatCallbacks {
 	// and out-of-pool ids never fire. A peer's chat subscription is already
 	// handled here; the caller adds its own tracks (audio, screen).
 	onNamespace?(suffix: string[], active: boolean): void;
-	// The session is going away (draft-ietf-moq-transport-22 6.6.1): a GOAWAY
+	// The session is going away (draft-ietf-moq-transport-23 6.6.1): a GOAWAY
 	// (9.2) on the hub's control stream (uri = its New Session URI, "" to
 	// reuse the current one) or the WebTransport session draining (uri "").
 	// Fires at most once per session; the caller reconnects.
 	onGoaway?(uri: string): void;
-	// The hub's draft-22 SETUP arrived: the SSTS_ALGORITHMS it advertised
-	// ([] without the option -- an extension-less hub). Never fires on d19.
+	// The hub's SETUP arrived: the SSTS_ALGORITHMS it advertised ([] without
+	// the option -- an extension-less hub).
 	onHubSetup?(sstsAlgorithms: bigint[]): void;
 }
 
 /** subscribeTrack's extra options. `params`: experimental extension
- * parameters (SWITCH_FROM, SWITCHING_SET_ASSIGNMENT) -- sent only on a
- * draft-22 session whose hub advertised SSTS_ALGORITHMS (trackSwitching),
- * silently left out otherwise, since anywhere else they are unknown
- * parameters and close the session. */
+ * parameters (SWITCH_FROM, SWITCHING_SET_ASSIGNMENT) -- sent only when the
+ * hub advertised SSTS_ALGORITHMS (trackSwitching), silently left out
+ * otherwise, since there they are unknown parameters and close the
+ * session. */
 export interface SubscribeOptions {
 	params?: MessageParam[];
 }
 
 /** A subscription's history: the joiningStart Groups before the Largest
- * Object's Group, plus that Group itself. d22: a fill (3.4) of Relative
- * Start joiningStart + 1 requested by the SUBSCRIBE itself; d19: a Relative
- * Joining FETCH (d19 10.12.2). onObject sees every fetched Object (End of
- * Range markers skipped); onDone fires once, when the fetch stream ends or
- * none comes at all (nothing published yet, refused, failed). */
+ * Object's Group, plus that Group itself -- a fill (3.4) of Relative Start
+ * joiningStart + 1 requested by the SUBSCRIBE itself. onObject sees every
+ * fetched Object (End of Range / Group / Track indicators skipped); onDone
+ * fires once, when the fill stream ends or none comes at all (nothing
+ * published yet, refused, failed). */
 export interface JoiningFetch {
 	joiningStart: bigint;
 	onObject(object: FetchObject): void;
@@ -434,7 +416,7 @@ export interface JoiningFetch {
 
 type Reply = { type: bigint; body: Uint8Array };
 
-/** One request stream (d22 6.4.2). */
+/** One request stream (6.4.2). */
 interface Request {
 	requestId: bigint;
 	/** The first answer, undefined if the stream ended without one. */
@@ -455,7 +437,7 @@ function closeQuietly(wt: WebTransport): void {
 	}
 }
 
-/** d22 6.4.2: a request stream the hub opened to this client -- an upstream
+/** 6.4.2: a request stream the hub opened to this client -- an upstream
  * FETCH or SUBSCRIBE for a track it PUBLISHed. It serves none: REQUEST_ERROR
  * NOT_SUPPORTED goes back at once (a publisher must answer a request; Retry
  * Interval 0, do not retry), so the hub serves what it has instead of
@@ -484,46 +466,47 @@ async function refuseHubRequests(
 	}
 }
 
-/** Whether a REQUEST_ERROR body carries INTERNAL_ERROR. */
+/** Whether a REQUEST_ERROR body carries INTERNAL_ERROR, or a code draft-23
+ * does not define, which counts as one (13). */
 function isInternalError(body: Uint8Array): boolean {
 	try {
-		return decodeRequestError(body).errorCode === REQUEST_ERROR_INTERNAL;
+		const code = decodeRequestError(body).errorCode;
+		return code === REQUEST_ERROR_INTERNAL || !REQUEST_ERROR_CODES.has(code);
 	} catch {
 		return false;
 	}
 }
 
 /** SUBSCRIBE_OK's Largest Object (undefined: nothing published yet), or
- * null when the body does not decode. */
-function subscribeOkLargest(
-	body: Uint8Array,
-	draft: MoqtDraft,
-): Location | undefined | null {
+ * null when the track must not be processed: the body does not decode, or
+ * it carries a Mandatory Track Property this client does not know (3.7). */
+function subscribeOkLargest(body: Uint8Array): Location | undefined | null {
 	try {
-		return largestObjectOf(decodeSubscribeOk(body, draft).parameters);
+		const ok = decodeSubscribeOk(body);
+		if (hasUnknownMandatoryProperty(ok.trackProperties)) return null;
+		return largestObjectOf(ok.parameters);
 	} catch {
 		return null;
 	}
 }
 
-/** Hands every whole fetch Object in buffered to onObject (End of Range
- * markers are skipped) and returns the undecoded rest. */
+/** Hands every whole fetch Object in buffered to onObject (indicators are
+ * skipped) and returns the undecoded rest. */
 function drainFetchObjects(
 	buffered: Uint8Array,
 	seq: FetchSeq,
 	onObject: (o: FetchObject) => void,
-	draft: MoqtDraft,
 ): Uint8Array {
 	let pos = 0;
 	for (;;) {
 		let item: ReturnType<typeof decodeFetchObject>;
 		try {
-			item = decodeFetchObject(buffered, pos, seq, draft);
+			item = decodeFetchObject(buffered, pos, seq);
 		} catch {
 			return buffered.slice(pos); // incomplete: wait for more bytes
 		}
 		pos += item.len;
-		if (!item.object.endOfRange) onObject(item.object);
+		if (!item.object.marker) onObject(item.object);
 	}
 }
 
@@ -606,28 +589,18 @@ export class MoqtChatClient {
 	#nextMessageId = randomMessageIdSeed();
 	#attachmentReassemblers = new Map<string, AttachmentReassembler>();
 	#pendingMessages = new Map<string, PendingMessage>();
-	// Client-initiated Request IDs are even (draft-ietf-moq-transport-22 6.4.2.1).
+	// Client-initiated Request IDs are even (draft-ietf-moq-transport-23 6.4.2.1).
 	#nextRequestId = 0n;
 	// Every SUBSCRIBE by its caller's label ("user2", "user2/audio", ...):
 	// in flight or established. A label is never subscribed twice at once.
 	#subs = new Map<string, Promise<Request | undefined>>();
 	#subscribed = new Set<string>();
-	// Histories by the Request ID their fetch stream's FETCH_HEADER carries
-	// (d22: the SUBSCRIBE's; d19: the Joining FETCH's), until it ends.
+	// Histories by the Request ID their fill stream's FETCH_HEADER carries
+	// (the SUBSCRIBE's), until it ends.
 	#fetches = new Map<bigint, JoiningFetch>();
-	// The current session's draft (wt.protocol after ready).
-	#draft: MoqtDraft = 19;
-	// The hub's d22 SETUP's SSTS_ALGORITHMS: undefined until it arrives or
-	// when it carries no such option (the extension is off on that hub).
+	// The hub's SETUP's SSTS_ALGORITHMS: undefined until it arrives or when
+	// it carries no such option (the extension is off on that hub).
 	#hubSsts: bigint[] | undefined;
-	// A protocol-less session's hub SETUP read while #awaitHubControl's race
-	// was still open: onHubSetup waits until the race says d22 (a d19 winner
-	// drops it), so it never reports a session as d22 too early.
-	#hubSetupDeferred = false;
-	// Set while a session without a `protocol` attribute waits to see which
-	// control stream the hub opens (#awaitHubControl): the d22 uni SETUP
-	// resolves it.
-	#onHubSetup22?: () => void;
 	#callbacks: MoqtChatCallbacks;
 
 	constructor(localId: string, callbacks: MoqtChatCallbacks) {
@@ -639,10 +612,10 @@ export class MoqtChatClient {
 	async connect(url: string, certHashesHex: string[]): Promise<void> {
 		this.#callbacks.onStatusChange("connecting");
 		// `protocols` (WebTransportOptions, not yet in lib.dom): a browser that
-		// does not support it ignores it, and the session is draft-19 legacy.
+		// ignores it negotiates nothing, and connect refuses the session.
 		const opts = {
 			...certHashesToWebTransportOptions(certHashesHex),
-			protocols: [MOQT_WT_PROTOCOL_22],
+			protocols: [MOQT_WT_PROTOCOL],
 		};
 		const wt = new WebTransport(url, opts as WebTransportOptions);
 		this.#wt = wt;
@@ -660,6 +633,11 @@ export class MoqtChatClient {
 			// Subscribed only once ready succeeded: a failed attempt's one
 			// "disconnected" is the rejection below, and the browser promises no
 			// order between the ready and closed rejections.
+			const protocol = (wt as { protocol?: string }).protocol;
+			if (protocol !== MOQT_WT_PROTOCOL)
+				throw new Error(
+					`hub did not negotiate ${MOQT_WT_PROTOCOL} (got "${protocol ?? ""}")`,
+				);
 			wt.closed.then(
 				() => this.#onClosed(wt),
 				() => this.#onClosed(wt),
@@ -669,12 +647,7 @@ export class MoqtChatClient {
 			this.#subs.clear();
 			this.#subscribed.clear();
 			this.#fetches.clear();
-			this.#fetchTurn = Promise.resolve();
-			const protocol = (wt as { protocol?: string }).protocol;
-			this.#draft = protocol === MOQT_WT_PROTOCOL_22 ? 22 : 19;
 			this.#hubSsts = undefined;
-			this.#hubSetupDeferred = false;
-			this.#onHubSetup22 = undefined;
 			// Both readers end by rejecting once the session closes.
 			this.#readIncomingUniStreams().catch(() => {});
 			this.#readIncomingDatagrams().catch(() => {});
@@ -684,13 +657,10 @@ export class MoqtChatClient {
 				() => this.#goAway(wt, ""),
 				() => {}, // rejected when the session closes: not a drain
 			);
-			if (protocol === undefined) await this.#awaitHubControl(wt);
-			else if (this.#draft === 22) {
-				void refuseHubRequests(
-					wt.incomingBidirectionalStreams.getReader(),
-				).catch(() => {});
-				await this.#openControlStream22(wt);
-			} else await this.#openControlStream();
+			void refuseHubRequests(wt.incomingBidirectionalStreams.getReader()).catch(
+				() => {},
+			);
+			await this.#openControlStream(wt);
 			await this.publishTrack(
 				utf8ToBytes(this.#localId),
 				this.#localTrackAlias,
@@ -721,27 +691,21 @@ export class MoqtChatClient {
 		return this.#localId;
 	}
 
-	/** The draft the current (or last) session speaks: 22 when "moqt-22" was
-	 * negotiated, else 19 (the legacy session). */
-	get draft(): MoqtDraft {
-		return this.#draft;
-	}
-
-	/** The SSTS algorithm ids the hub's d22 SETUP advertised ([] when none
-	 * did, or on a d19 session). */
+	/** The SSTS algorithm ids the hub's SETUP advertised ([] when none
+	 * did). */
 	get sstsAlgorithms(): bigint[] {
-		return this.#draft === 22 ? [...(this.#hubSsts ?? [])] : [];
+		return [...(this.#hubSsts ?? [])];
 	}
 
 	/** Whether the experimental track switching extension is on for this
-	 * session: draft-22 and the hub's SETUP carried SSTS_ALGORITHMS -- with
-	 * any list, even an empty one or ids this client does not know. That
+	 * session: the hub's SETUP carried SSTS_ALGORITHMS -- with any list,
+	 * even an empty one or ids this client does not know. That
 	 * alone gates SWITCH_FROM and the screen share's low-quality variant;
 	 * SSTS (SWITCHING_SET_ASSIGNMENT) additionally needs a negotiated
 	 * sstsAlgorithm. False until the hub's SETUP is in (normally right after
 	 * connect; onHubSetup reports it). */
 	get trackSwitching(): boolean {
-		return this.#draft === 22 && this.#hubSsts !== undefined;
+		return this.#hubSsts !== undefined;
 	}
 
 	/** The negotiated SSTS algorithm: the first of CLIENT_SSTS_ALGORITHMS the
@@ -854,61 +818,13 @@ export class MoqtChatClient {
 		this.#callbacks.onStatusChange("disconnected");
 	}
 
-	// d19 legacy: the hub opens this stream itself right after the session
-	// is established (d19 3.3 / moqtrun.c wired_moqt_on_session) and sends
-	// SETUP on it. Requests never ride it (each has its own stream); the one
-	// message acted on is a session-wide GOAWAY (d19 10.4).
-	async #openControlStream(): Promise<void> {
-		const wt = this.#wt;
-		if (!wt) return;
-		const reader = wt.incomingBidirectionalStreams.getReader();
-		const { value: stream, done } = await reader.read();
-		if (done || !stream) throw new Error("hub did not open a control stream");
-		if (this.#draft === 22) {
-			// d22 won the race meanwhile: a hub-opened bidi stream is a request.
-			refuseHubRequest(stream);
-			await refuseHubRequests(reader);
-			return;
-		}
-		reader.releaseLock();
-		void readControlFrames(
-			stream.readable.getReader(),
-			this.#onControlFrame(wt, false),
-		);
-	}
-
-	// A browser that sent WT-Available-Protocols but has no `protocol`
-	// attribute cannot say what was negotiated, so the hub's first control
-	// stream does: its bidi one (d19 legacy) or a uni stream starting with
-	// SETUP (d22 6.4.1), after which this side sends its own SETUP.
-	async #awaitHubControl(wt: WebTransport): Promise<void> {
-		const uniSetup = new Promise<"d22">((resolve) => {
-			this.#onHubSetup22 = () => resolve("d22");
-		});
-		const bidi = this.#openControlStream().then(() => "d19" as const);
-		bidi.catch(() => {}); // a loser's later rejection is no unhandled one
-		const winner = await Promise.race([bidi, uniSetup]);
-		this.#onHubSetup22 = undefined;
-		const deferred = this.#hubSetupDeferred;
-		this.#hubSetupDeferred = false;
-		if (winner === "d19") {
-			this.#hubSsts = undefined; // a stray uni SETUP lost the race: not ours
-			return;
-		}
-		// The losing wait stays: once #draft is 22 it refuses whatever bidi
-		// stream the hub opens (a request), never taking it for control.
-		this.#draft = 22;
-		if (deferred) this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
-		await this.#openControlStream22(wt);
-	}
-
-	// d22 6.3: our own control stream -- a uni stream whose first bytes are
+	// 6.3: our own control stream -- a uni stream whose first bytes are
 	// SETUP (9.1) -- kept open for the session's lifetime. Its one Setup
 	// Option is SSTS_ALGORITHMS (an odd Type: a hub without the extension
-	// ignores it like any unknown option, d22 9.1).
+	// ignores it like any unknown option, 9.1).
 	// The hub holds our requests until both SETUPs are exchanged, so connect
 	// goes on without waiting for the hub's (#readServerControl reads it).
-	async #openControlStream22(wt: WebTransport): Promise<void> {
+	async #openControlStream(wt: WebTransport): Promise<void> {
 		const stream = await wt.createUnidirectionalStream();
 		const writer = stream.getWriter();
 		const ssts = {
@@ -920,23 +836,21 @@ export class MoqtChatClient {
 		);
 	}
 
-	// d22: the hub's control stream (6.4.1 stream type 0x2F00): its SETUP,
-	// then session-wide messages, of which GOAWAY (9.2) is acted on.
+	// The hub's control stream (6.4.1 stream type 0x2F00): its SETUP, then
+	// session-wide messages, of which GOAWAY (9.2) is acted on.
 	async #readServerControl(
 		first: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
 	): Promise<void> {
 		const wt = this.#wt;
 		if (!wt) return;
-		await readControlFrames(reader, this.#onControlFrame(wt, true), first);
+		await readControlFrames(reader, this.#onControlFrame(wt), first);
 	}
 
-	// d22: whether this is the hub's uni control stream (d22 6.4.1), whose
-	// SETUP is read even before #awaitHubControl has settled #draft.
-	#onControlFrame(wt: WebTransport, d22: boolean): (r: Reply) => void {
+	#onControlFrame(wt: WebTransport): (r: Reply) => void {
 		return ({ type, body }) => {
 			if (type === MSG_TYPE_SETUP) {
-				if (d22) this.#onHubSetup(wt, body);
+				this.#onHubSetup(wt, body);
 				return;
 			}
 			if (type !== MSG_TYPE_GOAWAY) return;
@@ -950,20 +864,13 @@ export class MoqtChatClient {
 		};
 	}
 
-	// The hub's d22 SETUP (9.1): only its SSTS_ALGORITHMS is acted on. The
-	// d19 bidi control stream's SETUP never gets here, and a stray uni
-	// stream's after d19 won the race is ignored: neither d22 nor deciding.
+	// The hub's SETUP (9.1): only its SSTS_ALGORITHMS is acted on.
 	#onHubSetup(wt: WebTransport, body: Uint8Array): void {
 		if (this.#wt !== wt) return;
-		if (this.#draft !== 22 && !this.#onHubSetup22) return;
 		try {
 			this.#hubSsts = sstsAlgorithmsOf(decodeSetup(body).setupOptions);
 		} catch {
 			this.#hubSsts = undefined; // a malformed SETUP advertises nothing
-		}
-		if (this.#onHubSetup22) {
-			this.#hubSetupDeferred = true; // reported once #awaitHubControl says d22
-			return;
 		}
 		this.#callbacks.onHubSetup?.(this.sstsAlgorithms);
 	}
@@ -978,22 +885,20 @@ export class MoqtChatClient {
 		this.#callbacks.onGoaway?.(uri);
 	}
 
-	// Opens one request stream (d22 6.4.2) and writes the request built for
-	// its fresh even Request ID; fin also ends our side right away (a FETCH
-	// has nothing more to say). The first answer resolves `first`; every
-	// later message on the stream goes to onLater.
+	// Opens one request stream (6.4.2) and writes the request built for its
+	// fresh even Request ID. The first answer resolves `first`; every later
+	// message on the stream goes to onLater.
 	async #request(
 		type: bigint,
 		build: (requestId: bigint) => Uint8Array,
 		onLater: (r: Reply) => void = () => {},
-		fin = false,
 	): Promise<Request | undefined> {
 		const wt = this.#wt;
 		if (!wt) return undefined;
 		const requestId = this.#nextRequestId;
 		this.#nextRequestId += 2n;
 		try {
-			return await this.#openRequest(wt, requestId, type, build, onLater, fin);
+			return await this.#openRequest(wt, requestId, type, build, onLater);
 		} catch {
 			return undefined; // the session is closing: there is no request to make
 		}
@@ -1005,7 +910,6 @@ export class MoqtChatClient {
 		type: bigint,
 		build: (requestId: bigint) => Uint8Array,
 		onLater: (r: Reply) => void,
-		fin: boolean,
 	): Promise<Request> {
 		const stream = await wt.createBidirectionalStream();
 		const writer = stream.writable.getWriter();
@@ -1020,7 +924,6 @@ export class MoqtChatClient {
 			resolveFirst = undefined;
 		}).finally(() => resolveFirst?.(undefined));
 		await writer.write(encodeControlFrame(type, build(requestId)));
-		if (fin) await writer.close();
 		return {
 			requestId,
 			first,
@@ -1066,10 +969,9 @@ export class MoqtChatClient {
 	/** SUBSCRIBEs to a track under this room's namespace, once per label at
 	 * a time: a label already in flight or established is not sent again,
 	 * and a refused one (REQUEST_ERROR) may be. With history, the SUBSCRIBE
-	 * starts at the Next Object and the Groups before it are fetched: d22
-	 * through its own FILL_PARAMETERS (3.4, a fill fetch stream under the
-	 * SUBSCRIBE's Request ID), d19 through a Relative Joining FETCH (d19
-	 * 10.12.2). Resolves false when the label was already in flight or
+	 * starts at the Next Object and the Groups before it are fetched through
+	 * its own FILL_PARAMETERS (3.4, a fill fetch stream under the
+	 * SUBSCRIBE's Request ID). Resolves false when the label was already in flight or
 	 * established (nothing sent, history untouched), else true once the
 	 * SUBSCRIBE is answered. */
 	async subscribeTrack(
@@ -1079,11 +981,10 @@ export class MoqtChatClient {
 		opts: SubscribeOptions = {},
 	): Promise<boolean> {
 		if (this.#subs.has(label)) return false;
-		const draft = this.#draft;
-		const fill = history !== undefined && draft === 22;
+		const fill = history !== undefined;
 		const extra = this.trackSwitching ? (opts.params ?? []) : [];
-		// d22: the fill's Request ID, registered before the SUBSCRIBE goes out
-		// (its fill stream may beat SUBSCRIBE_OK).
+		// The fill's Request ID, registered before the SUBSCRIBE goes out (its
+		// fill stream may beat SUBSCRIBE_OK).
 		let fillId: bigint | undefined;
 		const send = (parameters: MessageParam[], withFill: boolean) =>
 			this.#request(MSG_TYPE_SUBSCRIBE, (requestId) => {
@@ -1091,19 +992,16 @@ export class MoqtChatClient {
 					fillId = requestId;
 					this.#fetches.set(requestId, history);
 				}
-				return encodeSubscribe(
-					{
-						requestId,
-						trackNamespace: ROOM_NAMESPACE,
-						trackName,
-						parameters: byType([...parameters, ...extra]),
-					},
-					draft,
-				);
+				return encodeSubscribe({
+					requestId,
+					trackNamespace: ROOM_NAMESPACE,
+					trackName,
+					parameters: byType([...parameters, ...extra]),
+				});
 			});
 		// No history will come (refused, failed, or nothing published so no
-		// fill stream opens, d22 3.4): end it once, unless its fill already
-		// ended it.
+		// fill stream opens, 3.4): end it once, unless its fill already ended
+		// it.
 		let ended = false;
 		const noHistory = () => {
 			if (ended) return;
@@ -1112,15 +1010,15 @@ export class MoqtChatClient {
 				history?.onDone();
 		};
 		let pending = send(
-			history ? historyParams(draft, history.joiningStart) : [],
+			history ? [NEXT_OBJECT_FILTER, fillParam(history.joiningStart)] : [],
 			fill,
 		);
 		this.#subs.set(label, pending);
 		let req = await pending;
 		let reply = await req?.first;
-		// d22: with no room for the fill the hub refuses the whole SUBSCRIBE
+		// With no room for the fill the hub refuses the whole SUBSCRIBE
 		// (INTERNAL_ERROR; 3.4.1 lets no accepted fill go unopened). Retry once
-		// live-only, as a refused d19 Joining FETCH leaves the live part.
+		// live-only: the history is lost, the live part need not be.
 		if (
 			fill &&
 			req &&
@@ -1135,13 +1033,13 @@ export class MoqtChatClient {
 			req = await pending;
 			reply = await req?.first;
 		}
-		const largest =
-			req && reply?.type === MSG_TYPE_SUBSCRIBE_OK
-				? subscribeOkLargest(reply.body, draft)
-				: null;
+		const ok = reply?.type === MSG_TYPE_SUBSCRIBE_OK;
+		const largest = req && reply && ok ? subscribeOkLargest(reply.body) : null;
 		if (!req || largest === null) {
 			if (this.#subs.get(label) === pending) this.#subs.delete(label);
-			req?.close();
+			// A SUBSCRIBE_OK we cannot process is cancelled (3.7); a refusal FINed.
+			if (ok) req?.cancel();
+			else req?.close();
 			noHistory();
 			return true;
 		}
@@ -1154,9 +1052,8 @@ export class MoqtChatClient {
 			return true;
 		}
 		this.#subscribed.add(label);
+		// Else the fill stream's end ends the history (#readFetchStream).
 		if (!largest || !history) noHistory();
-		else if (draft === 19) void this.#joiningFetch(req.requestId, history);
-		// else d22: the fill stream's end ends the history (#readFetchStream).
 		return true;
 	}
 
@@ -1168,7 +1065,7 @@ export class MoqtChatClient {
 
 	/** Forgets the subscription under `label` without cancelling it: the hub
 	 * ends it itself (a SWITCH_FROM's old subscription, finished with
-	 * PUBLISH_DONE). Our side of its request stream is FINed (d22 6.4.2.2),
+	 * PUBLISH_DONE). Our side of its request stream is FINed (6.4.2.2),
 	 * not reset -- a reset would cut the Soft switch's tail. */
 	forgetSubscription(label: string): void {
 		const pending = this.#subs.get(label);
@@ -1178,7 +1075,7 @@ export class MoqtChatClient {
 		void pending.then((req) => req?.close());
 	}
 
-	/** Cancels the subscription under `label` (d22 6.4.2.3: a reset), ending
+	/** Cancels the subscription under `label` (6.4.2.3: a reset), ending
 	 * any history still waiting on it; the label may be subscribed again. */
 	unsubscribe(label: string): void {
 		const pending = this.#subs.get(label);
@@ -1191,60 +1088,12 @@ export class MoqtChatClient {
 	#cancelSub(pending: Promise<Request | undefined>): void {
 		void pending.then((req) => {
 			req?.cancel();
-			if (req && this.#draft === 22) this.#endFetch(req.requestId);
+			if (req) this.#endFetch(req.requestId);
 		});
 	}
 
-	// d19: FETCH requests go out one at a time, each once the previous one is
-	// answered (its request stream is then done; the Objects keep flowing on
-	// their own uni stream). A room's live requests alone use most of the
-	// hub's per-session cap (WIRED_MOQTRUN_MAX_REQS_PER_SESSION), so a
-	// joiner's burst of history fetches must not stack on top of them. A d22
-	// fill needs no turn: it rides its SUBSCRIBE's request, opening none of
-	// its own (and has no FETCH_OK to wait for).
-	#fetchTurn: Promise<void> = Promise.resolve();
-
-	#joiningFetch(
-		subscribeRequestId: bigint,
-		history: JoiningFetch,
-	): Promise<void> {
-		const turn = this.#fetchTurn.then(() =>
-			this.#fetchOnce(subscribeRequestId, history),
-		);
-		this.#fetchTurn = turn;
-		return turn;
-	}
-
-	async #fetchOnce(
-		subscribeRequestId: bigint,
-		history: JoiningFetch,
-	): Promise<void> {
-		let fetchId = -1n;
-		const req = await this.#request(
-			MSG_TYPE_FETCH,
-			(requestId) => {
-				fetchId = requestId;
-				// Registered before the request goes out: its Objects may arrive
-				// before FETCH_OK (d19 10.13).
-				this.#fetches.set(requestId, history);
-				return encodeFetch({
-					requestId,
-					fetchType: 2n,
-					joiningRequestId: subscribeRequestId,
-					joiningStart: history.joiningStart,
-					parameters: [],
-				});
-			},
-			undefined,
-			true,
-		);
-		const reply = await req?.first;
-		if (reply?.type === MSG_TYPE_FETCH_OK) return;
-		if (this.#fetches.delete(fetchId)) history.onDone();
-	}
-
 	/** PUBLISH_NAMESPACEs wired/moqt_chat/<suffix...>; the returned handle's
-	 * cancel() withdraws it (d22 6.4.2.3: a reset, not a FIN). */
+	 * cancel() withdraws it (6.4.2.3: a reset, not a FIN). */
 	async publishNamespace(
 		suffix: string[],
 	): Promise<{ cancel(): void } | undefined> {
@@ -1258,7 +1107,7 @@ export class MoqtChatClient {
 	}
 
 	/** Joins the room's discovery: announces wired/moqt_chat/<own id> and
-	 * watches the wired/moqt_chat prefix (d22 4.1-4.2). Call once every
+	 * watches the wired/moqt_chat prefix (4.1-4.2). Call once every
 	 * track a peer should find is PUBLISHed. */
 	async announce(): Promise<void> {
 		await this.publishNamespace([this.#localId]);
@@ -1278,7 +1127,9 @@ export class MoqtChatClient {
 		if (type !== MSG_TYPE_NAMESPACE && type !== MSG_TYPE_NAMESPACE_DONE) return;
 		let suffix: string[];
 		try {
-			suffix = decodeNamespaceSuffix(body).map(bytesToUtf8);
+			suffix = decodeNamespaceSuffix(body, type === MSG_TYPE_NAMESPACE).map(
+				bytesToUtf8,
+			);
 		} catch {
 			return;
 		}
@@ -1299,7 +1150,7 @@ export class MoqtChatClient {
 		});
 	}
 
-	// The peer left: every subscription to it is cancelled (d22 6.4.2.3),
+	// The peer left: every subscription to it is cancelled (6.4.2.3),
 	// freeing the hub's request slots; a rejoin subscribes afresh.
 	#dropPeer(peer: string): void {
 		for (const [label, pending] of this.#subs) {
@@ -1310,7 +1161,7 @@ export class MoqtChatClient {
 		}
 	}
 
-	// Ends the history waiting under rid, if any is still waiting. d22: a
+	// Ends the history waiting under rid, if any is still waiting: a
 	// cancelled SUBSCRIBE's fill that never got a hub slot is dropped
 	// without a stream (moqtrun_fetches_cancel), so nothing else would.
 	#endFetch(rid: bigint): void {
@@ -1318,9 +1169,9 @@ export class MoqtChatClient {
 		if (history && this.#fetches.delete(rid)) history.onDone();
 	}
 
-	// A FETCH data stream (d22 11.4.1; a d22 fill fetch stream, 3.4, has the
-	// same shape): FETCH_HEADER names the request, then fetch Objects until
-	// FIN. An unknown Request ID is not ours.
+	// A fill fetch stream (3.4; the FETCH data stream shape, 11.4):
+	// FETCH_HEADER names the SUBSCRIBE, then fetch Objects until FIN. An
+	// unknown Request ID is not ours.
 	async #readFetchStream(
 		first: Uint8Array,
 		reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -1340,12 +1191,7 @@ export class MoqtChatClient {
 					void reader.cancel().catch(() => {});
 					break;
 				}
-				buffered = drainFetchObjects(
-					buffered,
-					seq,
-					history.onObject,
-					this.#draft,
-				);
+				buffered = drainFetchObjects(buffered, seq, history.onObject);
 				const { value, done } = await reader.read();
 				if (done) break;
 				buffered = concatBytes([buffered, value]);
@@ -1418,11 +1264,7 @@ export class MoqtChatClient {
 			await this.#readFetchStream(first, reader);
 			return;
 		}
-		if (
-			streamType === MSG_TYPE_SETUP &&
-			(this.#draft === 22 || this.#onHubSetup22)
-		) {
-			this.#onHubSetup22?.();
+		if (streamType === MSG_TYPE_SETUP) {
 			await this.#readServerControl(first, reader);
 			return;
 		}
