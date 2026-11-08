@@ -16,8 +16,9 @@ static int moqtrun_rdv_due(
 static moqtrun_rdv_fn moqtrun_rdv_expiry(const wired_moqtrun_rdv* r);
 
 /* Ends hold r: answered by fn on its own stream, or -- the target gone
- * (TLA+ Cancel) -- silently. The slot frees either way, before fn runs,
- * so the answer is the hold's one and only (AtMostOneAnswer). */
+ * (cancelled) -- silently. The slot frees either way, before fn runs, so
+ * the answer is the hold's one and only (draft-23 3.1: exactly one
+ * response per request). */
 void moqtrun_rdv_answer(
     wired_moqt_hub*      hub,
     wired_moqtrun_rdv*   r,
