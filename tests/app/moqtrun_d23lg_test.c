@@ -42,18 +42,41 @@ static int mtlg_enc_params(wired_mspan buf, usz* off, const void* m) {
   return moqctl_params_put(buf, off, m);
 }
 
-/* A, B joined (mrdv_init); A PUBLISHes the awaited track on its request
- * stream MUPS_PUB_SID, paused or not, with LARGEST_OBJECT {g, o}. */
-static void mtlg_pub(int paused, u64 g, u64 o) {
+/* A PUBLISHes the awaited track on its request stream MUPS_PUB_SID,
+ * paused or not, with LARGEST_OBJECT {g, o} (g ~0: none). */
+static void mtlg_pub_now(int paused, u64 g, u64 o) {
   moqctl_ftn    f = mrdv_f();
   moqctl_params p = mtlg_loc(g, o);
+  usz           i = g != ~(u64)0;
+  p.items[i].type = MOQCTL_PARAM_FORWARD;
+  p.items[i].enc  = MOQCTL_PENC_UINT8;
+  p.items[i].u8v  = (u8)!paused;
+  p.n             = i + 1;
+  mtst_publish_p(SESS_A, MUPS_PUB_SID, &f, MUPS_ALIAS, &p);
+}
+
+/* The same right after A, B joined (mrdv_init). */
+static void mtlg_pub(int paused, u64 g, u64 o) {
   mrdv_init();
   mups_sids();
-  p.items[1].type = MOQCTL_PARAM_FORWARD;
-  p.items[1].enc  = MOQCTL_PENC_UINT8;
-  p.items[1].u8v  = (u8)!paused;
-  p.n             = 2;
-  mtst_publish_p(SESS_A, MUPS_PUB_SID, &f, MUPS_ALIAS, &p);
+  mtlg_pub_now(paused, g, o);
+}
+
+/* A sends Group g's Objects 0..n-1 on one SUBGROUP stream. */
+static void mtlg_objects(u64 g, usz n) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqdata_subhdr h   = {0};
+  usz            off = 0;
+  h.type             = 0x30;
+  h.track_alias      = MUPS_ALIAS;
+  h.group_id         = g;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  for (usz i = 0; i < n; i++) {
+    u8 b = (u8)i;
+    moqdata_obj_put(
+        wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(&b, 1));
+  }
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(buf, off), 1);
 }
 
 /* A sends PUBLISH_STATE_NOTIFY {LARGEST_OBJECT {g, o}} on its stream sid. */
@@ -397,6 +420,244 @@ static void test_moqtrun_d23lg_one_answer_per_request(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_one_answer_d23);
 }
 
+/* ============ answers from a usable upstream (7.5) ============ */
+
+/* Type of the which-th message the hub sent on A's stream sid; ~0 if
+ * none. */
+static u64 mtlg_type_at(u64 sid, usz which) {
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    wired_span               all = wired_span_of(c->payload, c->payload_len);
+    usz                      off = 0;
+    u64                      type;
+    wired_span               body;
+    if (c->s != SESS_A || c->stream_id != sid ||
+        (c->kind != 3 && c->kind != 12)) {
+      continue;
+    }
+    while (off < all.n &&
+           moqctl_peek_type_v(mtst_ver(SESS_A), all, &off, &type, &body) !=
+               MOQCTL_INSUFFICIENT) {
+      if (which-- == 0) {
+        return type;
+      }
+    }
+  }
+  return ~(u64)0;
+}
+
+/* Request streams of type the hub opened toward A. */
+static usz mtlg_sent_to_a(u64 type) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    wired_span               all = wired_span_of(c->payload, c->payload_len);
+    usz                      off = 0;
+    u64                      t;
+    wired_span               body;
+    if (c->kind == 1 && c->s == SESS_A &&
+        moqctl_peek_type_v(mtst_ver(SESS_A), all, &off, &t, &body) !=
+            MOQCTL_INSUFFICIENT) {
+      n += t == type;
+    }
+  }
+  return n;
+}
+
+/* An unpaused, Established upstream answers at once with the largest of
+ * its LARGEST_OBJECT {1,0} and the Objects it delivered ({2,4}). */
+static void mtlg_live_d23(void) {
+  mtlg_pub(0, 1, 0);
+  mtlg_objects(2, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_sok_is(MRDV_S1, 2, 4));
+  CHECK(mtlg_unpauses() == 0);
+}
+
+static void test_moqtrun_d23lg_live_answers_at_once(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_live_d23);
+}
+
+/* A answers the hub's upstream SUBSCRIBE on sid with LARGEST_OBJECT
+ * {g, o}. */
+static void mtlg_up_ok(u64 sid, u64 g, u64 o) {
+  static moqctl_subscribe_ok ok;
+  ok.track_alias = MUPS_ALIAS;
+  ok.params      = mtlg_loc(g, o);
+  mtst_send(SESS_A, sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+}
+
+/* 7.5: with no upstream the hub subscribes upstream and answers only
+ * once it is Established, with the SUBSCRIBE_OK's value. */
+static void mtlg_subok_d23(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mups_n_up(SESS_A) == 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  mtlg_up_ok((u64)mups_up_sid(), 1, 0);
+  CHECK(mtlg_sok_is(MRDV_S1, 1, 0));
+}
+
+static void test_moqtrun_d23lg_upstream_subok_value(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_subok_d23);
+}
+
+/* 7.7: a SUBSCRIBE that is not paused never makes the hub subscribe
+ * upstream paused (no PAUSED 1, decoded back as FORWARD 0). */
+static void mtlg_up_unpaused_d23(void) {
+  moqctl_subscribe    m;
+  const moqctl_param* fw;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mups_up(SESS_A, 0, &m) >= 0);
+  fw = moqctl_params_find(&m.params, MOQCTL_PARAM_FORWARD);
+  CHECK(!fw || fw->u8v == 1);
+}
+
+static void test_moqtrun_d23lg_upstream_sub_not_paused(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_up_unpaused_d23);
+}
+
+/* A SUBSCRIBE waiting for a publisher is answered by an unpaused PUBLISH
+ * with its value; by a paused one only after the unpause, which follows
+ * the PUBLISH's own REQUEST_OK on its stream. */
+static void mtlg_publish_wakes_d23(void) {
+  mrdv_init();
+  mups_sids();
+  mrdv_hold(SESS_B, MRDV_S1, 500);
+  mtlg_pub_now(0, 4, 2);
+  CHECK(mtlg_sok_is(MRDV_S1, 4, 2));
+  mrdv_init();
+  mups_sids();
+  mrdv_hold(SESS_B, MRDV_S1, 500);
+  mtlg_pub_now(1, 4, 2);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  CHECK(mtlg_type_at(MUPS_PUB_SID, 0) == MOQCTL_T_REQUEST_OK);
+  CHECK(mtlg_type_at(MUPS_PUB_SID, 1) == MOQTSTAT_T_REQUEST_UPDATE);
+  wired_moqt_tick(&mtst_hub, 1000); /* past the RENDEZVOUS_TIMEOUT */
+  mtlg_rok(MUPS_PUB_SID, 4, 3);
+  CHECK(mtlg_sok_is(MRDV_S1, 4, 3));
+}
+
+static void test_moqtrun_d23lg_publish_wakes_waiter(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_publish_wakes_d23);
+}
+
+/* A later answer on one subscription never goes below an earlier one:
+ * REQUEST_UPDATE_OK after SUBSCRIBE_OK {2,0} carries {2,0}, then the
+ * newer Object. */
+static void mtlg_monotone_d23(void) {
+  moqctl_params u = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 9);
+  moqctl_params p;
+  mtlg_pub(0, 2, 0);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_sok_is(MRDV_S1, 2, 0));
+  mtup_update(SESS_B, MRDV_S1, &u);
+  CHECK(mtlg_answer(SESS_B, MRDV_S1, 1, &p) && mtlg_has(&p, 2, 0));
+  mtlg_objects(2, 3);
+  mtup_update(SESS_B, MRDV_S1, &u);
+  CHECK(mtlg_answer(SESS_B, MRDV_S1, 1, &p) && mtlg_has(&p, 2, 2));
+}
+
+static void test_moqtrun_d23lg_answers_monotone(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_monotone_d23);
+}
+
+/* Never above what the upstream sent: LARGEST_OBJECT {1,3} and Objects up
+ * to exactly {1,3} answer {1,3}. */
+static void mtlg_never_above_d23(void) {
+  mtlg_pub(0, 1, 3);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_sok_is(MRDV_S1, 1, 3));
+  mtlg_objects(1, 4);
+  mups_sub(SESS_B, MRDV_S2);
+  CHECK(mtlg_sok_is(MRDV_S2, 1, 3));
+}
+
+static void test_moqtrun_d23lg_never_above_upstream(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_never_above_d23);
+}
+
+/* 9.19.17: no Object and no LARGEST_OBJECT received, none sent --
+ * SUBSCRIBE_OK and TRACK_STATUS_OK alike; one Object, then always. */
+static void mtlg_iff_seen_d23(void) {
+  moqctl_params p;
+  mtlg_pub(0, ~(u64)0, 0);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_answer(SESS_B, MRDV_S1, 0, &p));
+  CHECK(!moqctl_params_find(&p, MOQCTL_PARAM_LARGEST_OBJECT));
+  mtlg_tstat(MRDV_S2);
+  CHECK(mtlg_answer(SESS_B, MRDV_S2, 1, &p));
+  CHECK(!moqctl_params_find(&p, MOQCTL_PARAM_LARGEST_OBJECT));
+  mtlg_objects(0, 1);
+  mtlg_tstat(MRDV_S2 + 4);
+  CHECK(mtlg_rok_is(MRDV_S2 + 4, 0, 0));
+}
+
+static void test_moqtrun_d23lg_include_iff_seen(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_iff_seen_d23);
+}
+
+/* An Object older than the Largest ({2,9} after {3,0}) does not lower
+ * it. */
+static void mtlg_late_d23(void) {
+  mtlg_pub(0, 3, 0);
+  mtlg_objects(2, 10);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mtlg_sok_is(MRDV_S1, 3, 0));
+}
+
+static void test_moqtrun_d23lg_late_object_keeps_largest(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_late_d23);
+}
+
+/* The hub's upstream SUBSCRIBE refused DOES_NOT_EXIST: the waiter gets
+ * that code, no SUBSCRIBE_OK, no LARGEST_OBJECT. */
+static void mtlg_up_refused_d23(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mtst_pub_err(SESS_A, (u64)mups_up_sid(), MOQCTL_ERR_DOES_NOT_EXIST);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
+}
+
+static void test_moqtrun_d23lg_upstream_refused_fails_waiters(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_up_refused_d23);
+}
+
+/* A request for a track whose upstream ended (its PUBLISH done, or its
+ * publisher gone) is refused, never answered from the old Largest. */
+static void mtlg_gone_d23(void) {
+  mtlg_pub(0, 1, 0);
+  mups_done(MUPS_PUB_SID, MOQCTL_DONE_TRACK_ENDED);
+  wired_moqt_tick(&mtst_hub, 1);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
+  mtlg_pub(0, 1, 0);
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  mups_sub(SESS_B, MRDV_S1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "E10|FIN|"));
+}
+
+static void test_moqtrun_d23lg_gone_track_refused(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_gone_d23);
+}
+
+/* The hub sends no TRACK_STATUS upstream: a TRACK_STATUS while its
+ * upstream SUBSCRIBE is unanswered is not answered OK from anything, and
+ * nothing but that SUBSCRIBE goes to A. */
+static void mtlg_no_ts_d23(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mtlg_tstat(MRDV_S2);
+  CHECK(mrdv_is(SESS_B, MRDV_S2, "E10|FIN|"));
+  CHECK(mups_n_up(SESS_A) == 1);
+  CHECK(mtlg_sent_to_a(MOQTSTAT_T_TRACK_STATUS) == 0);
+}
+
+static void test_moqtrun_d23lg_no_ts_before_established(void) {
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_no_ts_d23);
+}
+
 /* ===================== the hub's PUBLISH (9.19.17) ===================== */
 
 /* 9.19.17: a relay that received Objects MUST include LARGEST_OBJECT in
@@ -436,4 +697,15 @@ void test_moqtrun_d23lg(void) {
   test_moqtrun_d23lg_no_preauthorized_answer();
   test_moqtrun_d23lg_upstream_close_fails_waiters();
   test_moqtrun_d23lg_one_answer_per_request();
+  test_moqtrun_d23lg_live_answers_at_once();
+  test_moqtrun_d23lg_upstream_subok_value();
+  test_moqtrun_d23lg_upstream_sub_not_paused();
+  test_moqtrun_d23lg_publish_wakes_waiter();
+  test_moqtrun_d23lg_answers_monotone();
+  test_moqtrun_d23lg_never_above_upstream();
+  test_moqtrun_d23lg_include_iff_seen();
+  test_moqtrun_d23lg_late_object_keeps_largest();
+  test_moqtrun_d23lg_upstream_refused_fails_waiters();
+  test_moqtrun_d23lg_gone_track_refused();
+  test_moqtrun_d23lg_no_ts_before_established();
 }
