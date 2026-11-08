@@ -301,19 +301,26 @@ static u64 mtss_hub_publish(void) {
 
 /* draft-19 10.5 (draft-18 10.5, draft-22 9.3): a PUBLISH_OK carrying Track
  * Properties closes the session PROTOCOL_VIOLATION and opens nothing; an
- * empty one opens the subscription. */
-static void test_mtss_publish_ok_props_closes(void) {
+ * empty one opens the subscription. draft-23 9.3 closes it INVALID_FIELD. */
+static void mtss_publish_ok_props_closes(void) {
   static const u8          props[] = {0x04, 0x01};
   static moqctl_request_ok ok;
-  u64                      sid = mtss_hub_publish();
-  ok.track_properties          = wired_span_of(props, sizeof props);
+  int d23 = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_CLOSE_CODES23) != 0;
+  u64 sid = mtss_hub_publish();
+  ok.track_properties = wired_span_of(props, sizeof props);
   mtst_send(SESS_B, sid, MOQCTL_T_REQUEST_OK, mtsub_encode_request_ok, &ok);
-  CHECK(mtss_closed_with(WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
+  CHECK(mtss_closed_with(
+      d23 ? WIRED_MOQTRUN_CLOSE_INVALID_FIELD
+          : WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION));
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
   sid = mtss_hub_publish();
   mtst_pub_ok(SESS_B, sid);
   CHECK(moqtrun_test_count_kind(11) == 0);
   CHECK(mtst_sub(SESS_A, SESS_B) != 0);
+}
+
+static void test_mtss_publish_ok_props_closes(void) {
+  moqtrun_test_allver(mtss_publish_ok_props_closes);
 }
 
 /* draft-19 10.6.1 (draft-18 10.6.1, draft-22 9.4): a REQUEST_ERROR
