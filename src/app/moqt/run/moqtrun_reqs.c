@@ -107,6 +107,7 @@ void moqtrun_reqs_tick_one(wired_moqt_io* io, wired_moqtrun_req* q) {
 void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
+  moqtrun_pubst_moves(hub);
   moqtrun_up_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     moqtrun_reqs_tick_one(&hub->io, &hub->reqs[i]);

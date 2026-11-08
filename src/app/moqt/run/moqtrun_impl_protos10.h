@@ -13,5 +13,6 @@ void moqtrun_upd_rdv_resolve(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 int moqtrun_resume_wait_upd(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
+void moqtrun_pubst_moves(wired_moqt_hub* hub);
 
 #endif

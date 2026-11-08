@@ -175,15 +175,14 @@ void moqtrun_pubst_update(
 }
 
 /* draft-23 9.2: B received the hub's PUBLISH and may send GOAWAY on its
- * stream (moqtrun_goaway_moves). shortcut: the PUBLISH is not re-issued
- * (a SHOULD), the subscription stays; re-PUBLISH on the current session
- * if a subscriber is seen to rely on it. */
+ * stream (moqtrun_goaway_moves); the next sweep re-issues the PUBLISH
+ * (moqtrun_pubst_moves), past the rest of this delivery. */
 static void moqtrun_pubst_goaway(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_moqtrun_req*  q,
     wired_span          body) {
-  (void)moqtrun_goaway_moves(hub, p, &q->goaway, body);
+  q->pub_move |= (u8)moqtrun_goaway_moves(hub, p, &q->goaway, body);
 }
 
 static void moqtrun_pubst_ignore(

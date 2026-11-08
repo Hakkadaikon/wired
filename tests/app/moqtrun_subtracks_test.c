@@ -487,6 +487,60 @@ static void mtst_pub_goaway_d23(void) {
   CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE) == 1);
 }
 
+/* 1 iff call c is a control message to s on stream sid (~0: any). */
+static int mtst_ctl_to(
+    const moqtrun_test_call* c, wired_wt_session* s, u64 sid) {
+  return c->s == s && (sid == ~(u64)0 || c->stream_id == sid) &&
+         (c->kind == 1 || c->kind == 3 || c->kind == 12);
+}
+
+/* Messages of type the hub sent s on stream sid (~0: any stream). */
+static usz mtst_sent_type(wired_wt_session* s, u64 sid, u64 type) {
+  usz n = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    const moqtrun_test_call* c   = &g_calls[i];
+    usz                      off = 0;
+    u64                      t   = ~(u64)0;
+    wired_span               body;
+    if (!mtst_ctl_to(c, s, sid)) {
+      continue;
+    }
+    mt_peek_type(wired_span_of(c->payload, c->payload_len), &off, &t, &body);
+    n += t == type;
+  }
+  return n;
+}
+
+/* draft-23 9.2: "the sender of the request SHOULD re-issue that specific
+ * request ... and close the old request stream": after B's GOAWAY on the
+ * hub's PUBLISH stream the next sweep sends B a new PUBLISH under a new
+ * Request ID; the old subscription ends with PUBLISH_DONE GOING_AWAY, an
+ * unanswered old PUBLISH is reset. */
+static void mtst_pub_goaway_moves_d23(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  for (int answered = 0; answered < 2; answered++) {
+    mtst_subtracks_init();
+    mtst_join(SESS_A);
+    mtst_join(SESS_B);
+    mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+    mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+    wired_moqt_tick(&mtst_hub, 0);
+    i64 sid = mtst_pub_stream_id(0);
+    if (answered) {
+      mtst_pub_ok(SESS_B, (u64)sid);
+    }
+    mtrq_raw(SESS_B, (u64)sid, MOQCTL_T_GOAWAY, away, sizeof away);
+    wired_moqt_tick(&mtst_hub, 0);
+    CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 2);
+    CHECK(
+        mtst_sent_type(SESS_B, (u64)sid, MOQCTL_T_PUBLISH_DONE) ==
+        (usz)answered);
+    CHECK((mtrq_reset_code((u64)sid) != -1) == !answered);
+    CHECK(moqtrun_test_count_kind(11) == 0);
+  }
+}
+
 /* Earlier drafts ignore GOAWAY on the hub's PUBLISH stream. */
 static void mtst_pub_goaway_old(void) {
   mtst_pub_goaway();
@@ -495,6 +549,7 @@ static void mtst_pub_goaway_old(void) {
 
 void test_moqtrun_subtracks(void) {
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_d23);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_moves_d23);
   moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mtst_pub_goaway_old);
   moqtrun_test_allver(mtall_subtracks);
   /* draft-23 3.6 accepts overlaps (moqtrun_nsx_test.c) */

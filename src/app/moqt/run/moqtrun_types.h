@@ -779,6 +779,9 @@ typedef struct {
   /** A hub-opened PUBLISH slot only: 1 once its one REQUEST_OK arrived
    * (18/19 5.1, 22 3.1: a second response closes the session). */
   u8 pub_answered;
+  /** A hub-opened PUBLISH slot only: 1 once the subscriber's GOAWAY on
+   * the stream asked the hub to re-issue the PUBLISH (draft-23 9.2). */
+  u8 pub_move;
   /** A client PUBLISH only: REQUEST_UPDATEs the hub, its subscriber,
    * sent on the stream and not yet answered (draft-22 9.5: each gets
    * one REQUEST_OK or REQUEST_ERROR there). */
