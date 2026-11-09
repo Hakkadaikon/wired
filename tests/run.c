@@ -889,6 +889,7 @@
 #include "app/moqt/run/moqtrun_param.c"
 #include "app/moqt/run/moqtrun_params.c"
 #include "app/moqt/run/moqtrun_past.c"
+#include "app/moqt/run/moqtrun_past_relay.c"
 #include "app/moqt/run/moqtrun_peer.c"
 #include "app/moqt/run/moqtrun_pre.c"
 #include "app/moqt/run/moqtrun_pubdone.c"
