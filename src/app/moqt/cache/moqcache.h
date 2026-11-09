@@ -92,6 +92,10 @@ void moqcache_append(
 void moqcache_append_exp(
     moqcache* c, u64 tag, u64 group, u64 object, wired_span payload, u64 exp);
 
+/** Drops tag's group, leaving its tombstone: the group reads as an
+ * unknown range and takes no more Objects until the track moves on. */
+void moqcache_kill(moqcache* c, u64 tag, u64 group);
+
 /** Drops every record of tag (its publisher left). */
 void moqcache_release(moqcache* c, u64 tag);
 

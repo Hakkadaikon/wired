@@ -56,8 +56,11 @@ static void mf_obj(u64 g, u64 o, usz n) { mf_obj_on(g, o, n, 1); }
 
 /* draft-18/19 9.1: once Group 2 began, the cache serves Group 1's
  * uncached Object 1 as nonexistent; arriving late it is not cached
- * ("SHOULD NOT cache or forward"), while a new Object is. */
+ * ("SHOULD NOT cache or forward"), while a new Object is. On draft-23
+ * it was only Unknown (2.1.2) and is forwarded, so Group 1's two
+ * Objects give way to its tombstone. */
 static void test_moqtrun_fetch_late_nonexistent_not_cached(void) {
+  usz fwd = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_LATE_FORWARD) != 0;
   usz used;
   mf_init(sizeof mf_arena);
   mf_obj(1, 0, 1);
@@ -65,7 +68,8 @@ static void test_moqtrun_fetch_late_nonexistent_not_cached(void) {
   mf_obj(2, 0, 1);
   used = mtst_hub.cache.used;
   mf_obj(1, 1, 1);
-  CHECK(mtst_hub.cache.used == used);
+  CHECK(mtst_hub.cache.used == used - fwd * (MOQCACHE_HDR + 2));
+  used = mtst_hub.cache.used;
   mf_obj(2, 1, 1);
   CHECK(mtst_hub.cache.used == used + MOQCACHE_HDR + 1);
 }

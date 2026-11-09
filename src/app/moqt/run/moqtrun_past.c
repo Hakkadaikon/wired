@@ -13,6 +13,8 @@ static int moqtrun_track_in(
     const wired_moqtrun_peer* p, const wired_moqtrun_track* t);
 static int moqtrun_track_ver(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t);
+static void moqtrun_cache_unvouch(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
  * whole in one call (1 message = 1 Object = 1 Group = 1
@@ -113,15 +115,30 @@ wired_moqtrun_track* moqtrun_gone_gate(
   return moqtrun_obj_gone(hub, t, l) ? 0 : t;
 }
 
+/* The cache would serve l as nonexistent, yet the Object there is
+ * forwarded (moqtrun_obj_gone): its Group is dropped to a tombstone. */
+static void moqtrun_cache_unvouch(
+    wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l) {
+  if (moqtrun_gone_known(hub, t, l) && !moqtrun_obj_gone(hub, t, l)) {
+    moqcache_kill(&hub->cache, t->cache_tag, l.group);
+  }
+}
+
 void moqtrun_cache_obj(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* t,
     u64                  group,
     const moqdata_obj*   o) {
+  moqctl_loc l = moqctl_loc_of(group, o->object_id);
+  if (!moqtrun_cacheable(hub, t, o->status)) {
+    return;
+  }
   /* Cached in arrival order, so an Object behind a later Group stays out
-   * (moqcache.h: groups ascend per track). */
-  if (!moqtrun_cacheable(hub, t, o->status) ||
-      moqtrun_group_closed(t, moqctl_loc_of(group, o->object_id))) {
+   * (moqcache.h: groups ascend per track) -- and when it is forwarded
+   * (draft-23 2.1.2: it was only Unknown), its Group can no longer be
+   * served as complete: the whole Group becomes Unknown. */
+  if (moqtrun_group_closed(t, l)) {
+    moqtrun_cache_unvouch(hub, t, l);
     return;
   }
   moqcache_append_exp(

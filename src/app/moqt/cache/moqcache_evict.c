@@ -5,9 +5,8 @@ static void moqcache_make_room(moqcache* c, moqcache_rec r, usz need);
 static int  moqcache_put(moqcache* c, moqcache_rec r, const u8* p, usz len);
 static usz  moqcache_group_bytes(
     const moqcache* c, u64 tag, u64 group, int* dead);
-static void moqcache_kill(moqcache* c, u64 tag, u64 group);
-static int  moqcache_too_big(usz group_bytes, usz n, usz cap);
-static int  moqcache_store(
+static int moqcache_too_big(usz group_bytes, usz n, usz cap);
+static int moqcache_store(
     moqcache* c, moqcache_rec r, wired_span payload, usz held);
 
 /* Evicts the oldest whole group other than tag's group; 0 if none can
@@ -67,7 +66,7 @@ static usz moqcache_group_bytes(
 /* The group cannot be held whole: drop it and leave a tombstone (none
  * when not even that fits -- the arena is below the ceiling in
  * moqcache.h). */
-static void moqcache_kill(moqcache* c, u64 tag, u64 group) {
+void moqcache_kill(moqcache* c, u64 tag, u64 group) {
   moqcache_rec t = {tag, group, 0, MOQCACHE_DEAD, ~(u64)0};
   moqcache_drop(c, tag, group, 0);
   moqcache_put(c, t, 0, 0);

@@ -208,7 +208,27 @@ static void test_moqtrun_fetch_d23_late_unknown(void) {
   used = mtst_hub.cache.used;
   mf_obj(1, 1, 1);
   CHECK(mf_relayed(1, 1) == fwd);
-  CHECK(!mfd23_a_malformed() && mtst_hub.cache.used == used);
+  /* draft-23: Group 1's 1-byte Object gave way to its tombstone. */
+  CHECK(!mfd23_a_malformed() && mtst_hub.cache.used == used - (usz)fwd);
+}
+
+/* draft-23 2.1.2: a late {1,1} like the one above is Unknown, not in the
+ * cache, so the cache may no longer vouch for Group 1: its whole Group is
+ * Unknown, even with End of Group at {1,2} -- never {1,0} and End of
+ * Group, which would say {1,1} does not exist. Draft-22 dropped {1,1}
+ * (recorded nonexistent) and still serves {1,0}. */
+static void test_moqtrun_fetch_d23_late_drops_group(void) {
+  int fwd = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_LATE_FORWARD) != 0;
+  moqctl_rangeloc g12 = mf_rl(MOQCTL_RSK_ABS, 1, 0, MOQCTL_REK_OBJ, 2, 0);
+  mf_init(sizeof mf_arena);
+  mf_obj(1, 0, 1);
+  mf_obj(2, 0, 1);
+  mf_obj(1, 1, 1);
+  mfd23_status(1, 2, MOQDATA_STATUS_END_OF_GROUP);
+  g_open_bidi_fail_n = 1; /* an Unknown range is not fetched upstream */
+  mf_fetch_v(g_moqtrun_test_ver, &g12);
+  CHECK(mf_read());
+  CHECK(fwd ? mf_is_unknown(0, 1, MOQCACHE_OBJ_ID_MAX) : mf_is_obj(0, 1, 0, 1));
 }
 
 /* draft-23 10.3: "The same limit applies to cached Does Not Exist and
@@ -253,6 +273,7 @@ static void mtall_fetch_d23(void) {
   test_moqtrun_fetch_d23_relative();
   test_moqtrun_fetch_d23_end_marks();
   test_moqtrun_fetch_d23_late_unknown();
+  test_moqtrun_fetch_d23_late_drops_group();
   test_moqtrun_fetch_d23_dne_expires();
 }
 
