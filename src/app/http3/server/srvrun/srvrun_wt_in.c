@@ -2,11 +2,11 @@
 
 static int srvrun_wt_in_class(
     const srvrun_conn* c, const srvrun_wtsend* w, u32 key);
-static u32 srvrun_wt_pass_mask(srvrun_conn* c);
+static u64 srvrun_wt_pass_mask(srvrun_conn* c);
 static int srvrun_wt_in_pass(
-    const srvrun_wtsend* w, int keep_open, u32 mask, usz i);
+    const srvrun_wtsend* w, int keep_open, u64 mask, usz i);
 static int srvrun_pump_wt_round_matching(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u32 mask);
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u64 mask);
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
 static h3prio_candidate srvrun_resp_candidate(const srvrun_conn* c, usz i);
 static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c);
@@ -23,11 +23,11 @@ static int srvrun_wt_in_class(
 /* The slots taking part in this pass, one bit per slot, fixed before any
  * slot sends so each sends at most one slice per pass, then evened out
  * across sessions (srvrun_wt_fair_mask, draft-ietf-webtrans-http3-16 8). */
-static u32 srvrun_wt_pass_mask(srvrun_conn* c) {
+static u64 srvrun_wt_pass_mask(srvrun_conn* c) {
   u32 key  = srvrun_wt_pass_key(c);
-  u32 mask = 0;
+  u64 mask = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
-    mask |= (u32)srvrun_wt_in_class(c, &c->wtsend[i], key) << i;
+    mask |= (u64)srvrun_wt_in_class(c, &c->wtsend[i], key) << i;
   }
   return srvrun_wt_fair_mask(c, mask);
 }
@@ -38,13 +38,13 @@ static u32 srvrun_wt_pass_mask(srvrun_conn* c) {
  * slice/FIN is not pushed a whole extra pass behind fresh one-shot
  * arrivals). */
 static int srvrun_wt_in_pass(
-    const srvrun_wtsend* w, int keep_open, u32 mask, usz i) {
+    const srvrun_wtsend* w, int keep_open, u64 mask, usz i) {
   return (w->append_open != 0) == keep_open && (mask >> i & 1);
 }
 
 /* One arrival-order pass over every wtsend slot in this pass's mask. */
 static int srvrun_pump_wt_round_matching(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u32 mask) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open, u64 mask) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     if (srvrun_wt_in_pass(&c->wtsend[i], keep_open, mask, i)) {
@@ -73,7 +73,7 @@ static int srvrun_pump_wt_round_matching(
  * host, so the pass-frequency side of the problem (pacing/poll cadence
  * under contention) remains open. */
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u32 mask = srvrun_wt_pass_mask(c);
+  u64 mask = srvrun_wt_pass_mask(c);
   int sent = srvrun_pump_wt_round_matching(ctx, c, 1, mask);
   return sent | srvrun_pump_wt_round_matching(ctx, c, 0, mask);
 }

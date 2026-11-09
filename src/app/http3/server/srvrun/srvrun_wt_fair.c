@@ -7,6 +7,9 @@ _Static_assert(
     SRVRUN_WT_SEND_SLOTS - 2 - SRVRUN_MAX_WT_SESSIONS >= SRVRUN_MAX_WT_SESSIONS,
     "every WT session's send-slot share is at least 1");
 
+/* A pump pass marks its send slots in one u64 (srvrun_wt_pass_mask). */
+_Static_assert(SRVRUN_WT_SEND_SLOTS <= 64, "send slots fit the pass mask");
+
 /* draft-ietf-webtrans-http3-16 8 (WTH3-083): "each session that shares a
  * transport connection gets a reasonable share of controlled resources;
  * this applies both to sending data and to opening new streams".
@@ -20,29 +23,29 @@ _Static_assert(
 
 /* One session's keep scan over the pass mask. */
 typedef struct {
-  u32 mask;
+  u64 mask;
   u32 kept;
   u32 quota;
   usz last;
 } srvrun_wt_fair_scan;
 
-static int  srvrun_wt_fair_sess(const srvrun_wtsend* w, u32 mask, usz i, int s);
-static u32  srvrun_wt_sess_ready(const srvrun_conn* c, u32 mask, int s);
+static int  srvrun_wt_fair_sess(const srvrun_wtsend* w, u64 mask, usz i, int s);
+static u32  srvrun_wt_sess_ready(const srvrun_conn* c, u64 mask, int s);
 static u32  srvrun_wt_min_nz(u32 q, u32 n);
-static u32  srvrun_wt_fair_quota(const srvrun_conn* c, u32 mask);
+static u32  srvrun_wt_fair_quota(const srvrun_conn* c, u64 mask);
 static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i);
-static u32  srvrun_wt_fair_keep(srvrun_conn* c, u32 mask, int s, u32 quota);
+static u64  srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota);
 static int  srvrun_wt_held(const srvrun_conn* c, int s);
 
 /* Slot i is live, in the pass, and belongs to session slot s (the class
  * mask also marks free slots: pumping one is a no-op, but a zeroed free
  * slot's owner reads as session 0). */
-static int srvrun_wt_fair_sess(const srvrun_wtsend* w, u32 mask, usz i, int s) {
+static int srvrun_wt_fair_sess(const srvrun_wtsend* w, u64 mask, usz i, int s) {
   return w->in_use && (mask >> i & 1) && w->wt_session_slot == s;
 }
 
 /* Session s's slots in the pass. */
-static u32 srvrun_wt_sess_ready(const srvrun_conn* c, u32 mask, int s) {
+static u32 srvrun_wt_sess_ready(const srvrun_conn* c, u64 mask, int s) {
   u32 n = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     n += (u32)srvrun_wt_fair_sess(&c->wtsend[i], mask, i, s);
@@ -55,7 +58,7 @@ static u32 srvrun_wt_min_nz(u32 q, u32 n) { return n && n < q ? n : q; }
 
 /* The per-session slice quota of this pass: the smallest ready count of
  * the sessions with any, or no cap (~0) while at most one competes. */
-static u32 srvrun_wt_fair_quota(const srvrun_conn* c, u32 mask) {
+static u32 srvrun_wt_fair_quota(const srvrun_conn* c, u64 mask) {
   u32 q    = ~0u;
   int busy = 0;
   for (int s = 0; s < SRVRUN_MAX_WT_SESSIONS; s++) {
@@ -73,12 +76,12 @@ static void srvrun_wt_fair_visit(srvrun_wt_fair_scan* f, usz i) {
     f->last = i;
     return;
   }
-  f->mask &= ~(1u << i);
+  f->mask &= ~((u64)1 << i);
 }
 
 /* Keep `quota` of session s's pass slots, scanning from its cursor; the
  * cursor moves past the last one kept so the rest go first next pass. */
-static u32 srvrun_wt_fair_keep(srvrun_conn* c, u32 mask, int s, u32 quota) {
+static u64 srvrun_wt_fair_keep(srvrun_conn* c, u64 mask, int s, u32 quota) {
   usz                 start = c->wtx.fair_next[s];
   srvrun_wt_fair_scan f = {mask, 0, quota, start + SRVRUN_WT_SEND_SLOTS - 1};
   for (usz k = 0; k < SRVRUN_WT_SEND_SLOTS; k++) {
@@ -91,7 +94,7 @@ static u32 srvrun_wt_fair_keep(srvrun_conn* c, u32 mask, int s, u32 quota) {
   return f.mask;
 }
 
-u32 srvrun_wt_fair_mask(srvrun_conn* c, u32 mask) {
+u64 srvrun_wt_fair_mask(srvrun_conn* c, u64 mask) {
   u32 q = srvrun_wt_fair_quota(c, mask);
   for (int s = 0; s < SRVRUN_MAX_WT_SESSIONS; s++) {
     mask = srvrun_wt_fair_keep(c, mask, s, q);
