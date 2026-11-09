@@ -44,6 +44,27 @@
  * an unknown range ending at a whole group names this Object. */
 #define MOQCACHE_OBJ_ID_MAX 0x3FFFFFFFFFFFFFFFULL
 
+/** Fixed capacity: Gone ranges kept (draft-ietf-moq-transport-23 7.1),
+ * all tracks. An upstream FETCH answer marks Gone at a publisher's
+ * restart or retention boundary (2.1.2), so it carries one such range
+ * at most, and WIRED_MOQTRUN_MAX_FETCHES (8) legs run at once: 16 keeps
+ * two per leg. A full table drops its oldest range, which then reads
+ * Unknown again -- never a wrong answer. */
+#define MOQCACHE_GONE_MAX 16
+
+/** One Gone range [lo, hi) of tag, kept while the cache clock is below
+ * exp; exp 0 (a zeroed entry) is never live. */
+typedef struct {
+  /** The track incarnation (moqcache records' tag). */
+  u64 tag;
+  /** First Location of the range. */
+  moqctl_loc lo;
+  /** Location right after the range. */
+  moqctl_loc hi;
+  /** Clock (ms) at which the range reads Unknown again. */
+  u64 exp;
+} moqcache_gone;
+
 /** A FETCH object cache over one caller-owned arena.
  * views: arena=caller */
 typedef struct {
@@ -62,6 +83,10 @@ typedef struct {
   u64 now;
   /** Earliest expiry of a held record, ~0 when none expires. */
   u64 next_exp;
+  /** Gone ranges (moqcache_gone_add), overwritten oldest first. */
+  moqcache_gone gone[MOQCACHE_GONE_MAX];
+  /** Ranges added so far: the next one goes to gone[gone_at % max]. */
+  usz gone_at;
 } moqcache;
 
 /** One FETCH response item at a cursor: an Object (unknown 0, payload a
@@ -69,8 +94,11 @@ typedef struct {
  * Unknown Range whose last Location is loc. next is the Location after
  * the item. */
 typedef struct {
-  /** 1 for an End of Unknown Range, 0 for a cached Object. */
+  /** 1 for an End of Range (Unknown, or Gone when gone), 0 for a cached
+   * Object. */
   int unknown;
+  /** 1 when the range is a kept Gone range (moqcache_gone_add). */
+  int gone;
   /** The Object's Location, or the unknown range's last Location. */
   moqctl_loc loc;
   /** Object payload (view into the arena, valid until the next
@@ -104,9 +132,16 @@ void moqcache_release(moqcache* c, u64 tag);
  * or end. */
 moqctl_loc moqcache_skip(moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end);
 
+/** Keeps {lo}..{last} (inclusive) of tag as Gone until the clock reaches
+ * exp (~0: never): an upstream End of Gone Range (draft-23 7.1, 10.3).
+ * A cache with no arena keeps none. */
+void moqcache_gone_add(
+    moqcache* c, u64 tag, moqctl_loc lo, moqctl_loc last, u64 exp);
+
 /** The item at cur (a moqcache_skip result below end). An unknown range
  * runs to the next cached group (or the end of a tombstoned group),
- * capped at end. */
+ * capped at end; a live Gone range at cur makes it Gone to that range's
+ * end, one ahead stops it there (a cached Object stays an Object). */
 void moqcache_item_at(
     moqcache* c, u64 tag, moqctl_loc cur, moqctl_loc end, moqcache_item* it);
 

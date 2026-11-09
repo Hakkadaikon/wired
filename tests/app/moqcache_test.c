@@ -313,7 +313,90 @@ static void test_moqcache_evict_drops_resume(void) {
   CHECK(!it.unknown && it.payload.p[0] == 0x10);
 }
 
+/* ===== Gone ranges (draft-23 7.1, 10.3) ===== */
+
+/* The item of MC_TAG at {g, o} up to end: kind 0 an Object, 1 Unknown,
+ * 2 Gone; *next where the item stops. */
+static int mc_kind(
+    moqcache* c, u64 g, u64 o, moqctl_loc end, moqctl_loc* next) {
+  moqcache_item it;
+  moqcache_item_at(c, MC_TAG, mc_loc(g, o), end, &it);
+  *next = it.next;
+  CHECK(mc_loc_eq(it.loc, it.unknown ? moqctl_loc_prev(it.next) : it.loc));
+  return it.unknown ? 1 + (it.gone != 0) : 0;
+}
+
+/* A Gone range {2, 0}..{2, 5} inside an Unknown stretch {1, 0}..{3, max}:
+ * the Unknown range before it stops where it starts, a cursor at or
+ * inside it reads Gone up to its end, Unknown again after it; another
+ * track and a cached Object (7.1: an Object received later is cached and
+ * served) are not Gone. */
+static void test_moqcache_gone_partial(void) {
+  moqcache      c;
+  moqcache_item it;
+  moqctl_loc    n;
+  moqctl_loc    end = mc_loc(4, 0);
+  mc_init(&c, sizeof mc_arena);
+  mc_put(&c, MC_TAG, 4, 0, 1);
+  moqcache_gone_add(&c, MC_TAG, mc_loc(2, 0), mc_loc(2, 5), ~(u64)0);
+  moqcache_gone_add(&c, MC_TAG, mc_loc(4, 0), mc_loc(4, 0), ~(u64)0);
+  CHECK(mc_kind(&c, 1, 0, end, &n) == 1 && mc_loc_eq(n, mc_loc(2, 0)));
+  CHECK(mc_kind(&c, 2, 0, end, &n) == 2 && mc_loc_eq(n, mc_loc(2, 6)));
+  CHECK(mc_kind(&c, 2, 3, end, &n) == 2 && mc_loc_eq(n, mc_loc(2, 6)));
+  CHECK(mc_kind(&c, 2, 3, mc_loc(2, 4), &n) == 2 && mc_loc_eq(n, mc_loc(2, 4)));
+  CHECK(mc_kind(&c, 2, 6, end, &n) == 1 && mc_loc_eq(n, mc_loc(4, 0)));
+  CHECK(mc_kind(&c, 4, 0, mc_loc(4, 1), &n) == 0);
+  moqcache_item_at(&c, MC_TAG + 1, mc_loc(2, 0), end, &it);
+  CHECK(it.unknown && !it.gone);
+}
+
+/* A range ending at a Group's last possible Object takes the whole Group:
+ * the next item starts the next Group. */
+static void test_moqcache_gone_whole_group(void) {
+  moqcache   c;
+  moqctl_loc n;
+  mc_init(&c, sizeof mc_arena);
+  moqcache_gone_add(
+      &c, MC_TAG, mc_loc(2, 0), mc_loc(2, MOQCACHE_OBJ_ID_MAX), ~(u64)0);
+  CHECK(mc_kind(&c, 2, 0, mc_loc(5, 0), &n) == 2 && mc_loc_eq(n, mc_loc(3, 0)));
+}
+
+/* 10.3: "The same limit applies to cached Does Not Exist and Gone
+ * states" -- at its expiry the range reads Unknown again (2.1.2). */
+static void test_moqcache_gone_expires(void) {
+  moqcache   c;
+  moqctl_loc n;
+  mc_init(&c, sizeof mc_arena);
+  c.now = 100;
+  moqcache_gone_add(&c, MC_TAG, mc_loc(1, 0), mc_loc(1, 3), 200);
+  c.now = 199;
+  CHECK(mc_kind(&c, 1, 0, mc_loc(2, 0), &n) == 2);
+  c.now = 200;
+  CHECK(mc_kind(&c, 1, 0, mc_loc(2, 0), &n) == 1 && mc_loc_eq(n, mc_loc(2, 0)));
+}
+
+/* A full table drops its oldest range, which reads Unknown again -- never
+ * a wrong answer; a cache with no arena keeps none. */
+static void test_moqcache_gone_full(void) {
+  moqcache   c;
+  moqctl_loc n;
+  mc_init(&c, sizeof mc_arena);
+  for (u64 g = 0; g <= MOQCACHE_GONE_MAX; g++) {
+    moqcache_gone_add(&c, MC_TAG, mc_loc(g, 0), mc_loc(g, 0), ~(u64)0);
+  }
+  CHECK(mc_kind(&c, 0, 0, mc_loc(0, 1), &n) == 1);
+  CHECK(mc_kind(&c, 1, 0, mc_loc(1, 1), &n) == 2);
+  CHECK(mc_kind(&c, MOQCACHE_GONE_MAX, 0, mc_loc(99, 0), &n) == 2);
+  mc_init(&c, 0);
+  moqcache_gone_add(&c, MC_TAG, mc_loc(1, 0), mc_loc(1, 0), ~(u64)0);
+  CHECK(mc_kind(&c, 1, 0, mc_loc(1, 1), &n) == 1);
+}
+
 void test_moqcache(void) {
+  test_moqcache_gone_partial();
+  test_moqcache_gone_whole_group();
+  test_moqcache_gone_expires();
+  test_moqcache_gone_full();
   test_moqcache_walk_resumes();
   test_moqcache_evict_drops_resume();
   test_moqcache_budget_evicts_only_when_needed();

@@ -14,6 +14,8 @@ void moqcache_init(moqcache* c, u8* arena, usz cap) {
   c->hint_cur = moqctl_loc_of(0, 0);
   c->now      = 0;
   c->next_exp = ~(u64)0;
+  c->gone_at  = 0;
+  bytes_memset(c->gone, 0, sizeof c->gone);
 }
 
 moqcache_rec moqcache_rec_at(const moqcache* c, usz off) {
