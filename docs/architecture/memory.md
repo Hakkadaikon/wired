@@ -44,22 +44,22 @@ flowchart LR
 
 ## 2. デフォルト設定での 1 接続
 
-1 つの接続のスロット(`sizeof(srvrun_conn)`)は、デフォルトで **9,445,688 バイト(9.01 MiB)** である。
+1 つの接続のスロット(`sizeof(srvrun_conn)`)は、デフォルトで **9,587,304 バイト(9.14 MiB)** である。
 
 | 部分 | 接続あたりのサイズ | 割合 |
 |---|---|---|
-| WT 送信のステージング、`wtsend[40]` | 5,661,120 B | 59.9% |
-| WT 双方向ストリーム、`l.wt_streams[24]` | 1,330,176 B | 14.1% |
-| リクエストストリーム、`l.streams[40]` | 924,160 B | 9.8% |
-| WT 単方向ストリーム、`l.wt_uni_streams[]` | 498,816 B | 5.3% |
-| レスポンス、`resp[]` | 487,680 B | 5.2% |
-| 受信した DATAGRAM、`l.rx_datagrams[256]` | 309,248 B | 3.3% |
-| その他(TLS の状態、起動時のフライト、鍵、カウンター) | 234,488 B | 2.5% |
+| WT 送信のステージング、`wtsend[41]` | 5,802,648 B | 60.5% |
+| WT 双方向ストリーム、`l.wt_streams[24]` | 1,330,176 B | 13.9% |
+| リクエストストリーム、`l.streams[40]` | 924,160 B | 9.6% |
+| WT 単方向ストリーム、`l.wt_uni_streams[]` | 498,816 B | 5.2% |
+| レスポンス、`resp[]` | 487,680 B | 5.1% |
+| 受信した DATAGRAM、`l.rx_datagrams[256]` | 309,248 B | 3.2% |
+| その他(TLS の状態、起動時のフライト、鍵、カウンター) | 234,576 B | 2.4% |
 
 ```mermaid
 pie showData
     title "One connection slot at the defaults (KiB)"
-    "WT send staging" : 5528
+    "WT send staging" : 5667
     "WT bidi streams" : 1299
     "Request streams" : 903
     "WT uni streams" : 487
@@ -78,13 +78,13 @@ HTTP/3 のリクエスト用バッファー(`req_scratch`、`req_buf`)はリク�
 
 | 定数 | デフォルト | 接続あたりのコスト | 許される範囲 |
 |---|---|---|---|
-| `SRVRUN_WTSEND_BUF`(スロットごとの WT 送信のステージング) | 131,072 B | 1 バイトあたり +40 B(送信スロットごとに 1 回) | `ceil(SRVRUN_WTSEND_BUF / 1100) ≤ WIRED_SENDSESS_LOG` |
-| `WIRED_SENDSESS_LOG`(送信セッションごとの送信中のスライス) | 128 | 1 エントリあたり +6,400 B | 上の下限以上 |
-| `SRVRUN_WT_SEND_SLOTS`(同時に使える WT 送信スロット) | 40 | 1 スロットあたり +141,616 B | — |
+| `SRVRUN_WTSEND_BUF`(スロットごとの WT 送信のステージング) | 131,072 B | 1 バイトあたり +41 B(送信スロットごとに 1 回) | `ceil(SRVRUN_WTSEND_BUF / 1100) ≤ WIRED_SENDSESS_LOG` |
+| `WIRED_SENDSESS_LOG`(送信セッションごとの送信中のスライス) | 128 | 1 エントリあたり +6,480 B | 上の下限以上 |
+| `SRVRUN_WT_SEND_SLOTS`(同時に使える WT 送信スロット) | 41(17 + `WIRED_SRVLOOP_MAX_WT_STREAMS`) | 1 スロットあたり +141,616 B | ≤ 64(送信パスのマスクが 64 ビットのため) |
 | `WIRED_SRVLOOP_MAX_STREAMS`(リクエストストリーム) | 40 | 1 ストリームあたり +35,514 B | ≤ 64(`wt_held_mask` が 64 ビットのマスク 1 つのため) |
 | `BODYWIN_CAP`(リクエストの body のウィンドウ) | 10,240 B | 1 バイトあたり +45 B | — |
 | `WIRED_H3_MAX_FIELD_SECTION`(リクエストのフィールドセクション) | 10,240 B | 1 バイトあたり +40 B | RFC 9110 §4.1 のリクエストターゲットのため ≥ 8000 |
-| `WIRED_SRVLOOP_MAX_WT_STREAMS`(WT 双方向ストリーム) | 24 | 1 ストリームあたり +55,560 B | — |
+| `WIRED_SRVLOOP_MAX_WT_STREAMS`(WT 双方向ストリーム) | 24 | 1 ストリームあたり +197,176 B(受信のスロット 55,560 B と送信スロット 1 つ) | ≤ 47(`SRVRUN_WT_SEND_SLOTS` ≤ 64 のため) |
 | `WIRED_SRVLOOP_MAX_RX_DATAGRAMS`(キューに入る受信 DATAGRAM) | 256 | 1 スロットあたり +1,208 B | — |
 
 `SRVRUN_WTSEND_BUF` と `WIRED_SENDSESS_LOG` は連動する。ステージングした WT 送信の 1 ラウンドは 1,100 バイトのスライスに切り分け、スライスごとに送信ログのエントリを 1 つ使う。
@@ -93,84 +93,84 @@ HTTP/3 のリクエスト用バッファー(`req_scratch`、`req_buf`)はリク�
 
 ### 3.1 定数ごとの 1 接続の増え方
 
-各グラフは 1 つの定数を動かしたときの 1 接続のスロットのサイズ(MiB)である。ほかの定数はデフォルトのままで、デフォルトの点はどのグラフも 9.01 MiB である。
+各グラフは 1 つの定数を動かしたときの 1 接続のスロットのサイズ(MiB)である。ほかの定数はデフォルトのままで、デフォルトの点はどのグラフも 9.14 MiB である。
 
 ```mermaid
 xychart-beta
     title "SRVRUN_WTSEND_BUF (KiB) vs. one connection (MiB)"
     x-axis ["16", "32", "64", "128 (default)"]
-    y-axis "MiB" 0 --> 11
-    line [4.63, 5.26, 6.51, 9.01]
+    y-axis "MiB" 0 --> 12
+    line [4.66, 5.30, 6.58, 9.14]
 ```
 
 ```mermaid
 xychart-beta
     title "SRVRUN_WT_SEND_SLOTS vs. one connection (MiB)"
-    x-axis ["9", "17", "33", "40 (default)", "48"]
-    y-axis "MiB" 0 --> 11
-    line [4.82, 5.90, 8.06, 9.01, 10.09]
+    x-axis ["17", "33", "41 (default)", "48"]
+    y-axis "MiB" 0 --> 12
+    line [5.90, 8.06, 9.14, 10.09]
 ```
 
 ```mermaid
 xychart-beta
     title "WIRED_SRVLOOP_MAX_STREAMS vs. one connection (MiB)"
     x-axis ["10", "20", "40 (default)"]
-    y-axis "MiB" 0 --> 11
-    line [7.99, 8.33, 9.01]
+    y-axis "MiB" 0 --> 12
+    line [8.13, 8.47, 9.14]
 ```
 
 ```mermaid
 xychart-beta
     title "BODYWIN_CAP (KiB) vs. one connection (MiB)"
     x-axis ["2", "4", "10 (default)", "16"]
-    y-axis "MiB" 0 --> 11
-    line [8.66, 8.74, 9.01, 9.27]
+    y-axis "MiB" 0 --> 12
+    line [8.79, 8.88, 9.14, 9.41]
 ```
 
 ```mermaid
 xychart-beta
     title "WIRED_SRVLOOP_MAX_WT_STREAMS vs. one connection (MiB)"
-    x-axis ["6", "12", "24 (default)", "48"]
-    y-axis "MiB" 0 --> 11
-    line [8.05, 8.37, 9.01, 10.28]
+    x-axis ["6", "12", "24 (default)", "36"]
+    y-axis "MiB" 0 --> 12
+    line [5.76, 6.89, 9.14, 11.40]
 ```
 
 ```mermaid
 xychart-beta
     title "WIRED_SRVLOOP_MAX_RX_DATAGRAMS vs. one connection (MiB)"
     x-axis ["16", "64", "256 (default)", "1024"]
-    y-axis "MiB" 0 --> 11
-    line [8.73, 8.79, 9.01, 9.89]
+    y-axis "MiB" 0 --> 12
+    line [8.87, 8.92, 9.14, 10.03]
 ```
 
 グラフのない 2 つの定数の値は次のとおりである。
 
 | 定数 | 値 | 1 接続 |
 |---|---|---|
-| `WIRED_H3_MAX_FIELD_SECTION`(`BODYWIN_CAP` の半分の傾き) | 2 KiB / 10 KiB(デフォルト)/ 16 KiB | 8.70 / 9.01 / 9.24 MiB |
-| `WIRED_SENDSESS_LOG` | 256 | 9.79 MiB |
+| `WIRED_H3_MAX_FIELD_SECTION`(`BODYWIN_CAP` の半分の傾き) | 2 KiB / 10 KiB(デフォルト)/ 16 KiB | 8.83 / 9.14 / 9.38 MiB |
+| `WIRED_SENDSESS_LOG` | 256 | 9.93 MiB |
 
 ## 4. サーバー全体
 
-ここまでの値に接続数(`WIRED_CONNTABLE_CAP`)が掛かる。接続 1 つあたり **10,101,128 B(9.63 MiB)** で、9.01 MiB の接続のスロットに、レスポンスの保存領域とテーブルのエントリを加えた値である。ワーカーごとの固定分は約 1.7 MiB である。
+ここまでの値に接続数(`WIRED_CONNTABLE_CAP`)が掛かる。接続 1 つあたり **10,242,744 B(9.77 MiB)** で、9.14 MiB の接続のスロットに、レスポンスの保存領域とテーブルのエントリを加えた値である。ワーカーごとの固定分は約 1.7 MiB である。
 
 ```text
-bss per worker ≈ 1.7 MiB + WIRED_CONNTABLE_CAP × 9.63 MiB
+bss per worker ≈ 1.7 MiB + WIRED_CONNTABLE_CAP × 9.77 MiB
 ```
 
 | `WIRED_CONNTABLE_CAP` | ワーカーあたりの予約サイズ |
 |---|---|
-| 4 | 40.2 MiB |
-| 16 | 156 MiB |
-| 64(ライブラリのデフォルト) | 618 MiB |
-| 128 | 1,235 MiB |
+| 4 | 40.7 MiB |
+| 16 | 158 MiB |
+| 64(ライブラリのデフォルト) | 627 MiB |
+| 128 | 1,252 MiB |
 
 ```mermaid
 xychart-beta
     title "WIRED_CONNTABLE_CAP vs. reserved memory per worker (MiB)"
     x-axis ["4", "16", "64 (default)", "128"]
     y-axis "MiB" 0 --> 1300
-    line [40.2, 156, 618, 1235]
+    line [40.7, 158, 627, 1252]
 ```
 
 threads ドライバーでは、これにワーカー数が掛かる。デフォルトの ninja ビルドは `-DWIRED_CONNTABLE_CAP=4` を設定し、interop イメージは 64 でビルドする。

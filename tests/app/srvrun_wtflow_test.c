@@ -378,7 +378,29 @@ static void test_srvrun_wt_open_capped_per_session(void) {
   CHECK(wtf_opens_until_refused(&c->wt) == SRVRUN_WT_SEND_SLOTS);
 }
 
+/* A MOQT request stream keeps its reply half open for the request's whole
+ * life (moqtrun.h), so a full room parks one keep-open reply per client
+ * bidi stream it can hold (WIRED_SRVLOOP_MAX_WT_STREAMS) -- and the
+ * session must still open its relay streams: 3 voice + 12 chat in flight
+ * (SRVRUN_WT_SEND_SLOTS's own budget). Four sharers' 15 requests each once
+ * filled the table and starved every relay open (#244). */
+static void test_srvrun_wt_replies_leave_relay_slots(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob                       = obuf_of(obuf, sizeof obuf);
+  srvrun_conn*  c                        = sr_wtsend_fixture(&f, &ob);
+  wired_span    b                        = wired_span_of(wtf_body, 8);
+  int           replies                  = 0;
+  c->s.sdrv.peer_initial_max_streams_uni = 1000;
+  for (u64 k = 1; k <= WIRED_SRVLOOP_MAX_WT_STREAMS; k++) { /* 4: CONNECT */
+    replies += wired_server_wt_stream_reply_open(&c->wt, 4 + 4 * k, b);
+  }
+  CHECK(replies == WIRED_SRVLOOP_MAX_WT_STREAMS);
+  CHECK(wtf_opens_until_refused(&c->wt) >= 15);
+}
+
 void test_srvrun_wtflow(void) {
+  test_srvrun_wt_replies_leave_relay_slots();
   test_srvrun_wt_fair_pass_equal_per_session();
   test_srvrun_wt_open_capped_per_session();
   test_srvrun_wt_shutdown_waits_for_connect_close();
