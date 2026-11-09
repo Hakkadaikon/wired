@@ -77,7 +77,8 @@ wired_moqtrun_fetch* moqtrun_upf_by_data(
 }
 
 /* A later delivery of an upstream fetch data stream: fed while its leg
- * lives, discarded after. 1 when sid is one. */
+ * lives, discarded after, or once a re-issue replaced its request. 1 when
+ * sid is one. */
 int moqtrun_upf_data(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
@@ -86,7 +87,7 @@ int moqtrun_upf_data(
     int                 fin) {
   wired_moqtrun_fetch* f = moqtrun_upf_by_data(hub, p->wt, sid);
   if (!f) {
-    return 0;
+    return moqtrun_upf_old_data(hub, p->wt, sid, fin);
   }
   if (moqtrun_upf_live(f)) {
     moqtrun_upf_feed(hub, p, f, data, fin);

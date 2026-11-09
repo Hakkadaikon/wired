@@ -40,6 +40,15 @@ typedef struct {
   moqctl_loc req_end;
   /** 1 once a GOAWAY arrived on up_req_sid (draft-23 9.2: at most one). */
   int goaway;
+  /** 1 while that GOAWAY's re-issue is owed (moqtrun_upf_moves). */
+  int move;
+  /** 1 while the data stream of the request a re-issue replaced may still
+   * deliver: its bytes are dropped (moqtrun_upf_old_data). */
+  int old_data;
+  /** That data stream. */
+  u64 old_sid;
+  /** The upstream FETCH's range as sent: a re-issue asks for its rest. */
+  moqctl_rangeloc range;
 } wired_moqtrun_upf_leg;
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded

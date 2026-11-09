@@ -12,11 +12,10 @@ static void moqtrun_upf_reply(
     wired_moqtrun_fetch* f,
     u64                  type,
     wired_span           body);
-static int moqtrun_upf_goaway_closes(
+static void moqtrun_upf_goaway_pre23(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
-    wired_span           body,
     int                  seen);
 static void moqtrun_upf_goaway(
     wired_moqt_hub*      hub,
@@ -100,39 +99,38 @@ static void moqtrun_upf_reply(
   }
 }
 
-/* 1 when a GOAWAY on the request stream closed the session. draft-23
- * 9.2: a bad body, a New Session URI or a second GOAWAY on the stream
- * (in any read) closes it (moqtrun_goaway_moves); earlier drafts close
- * on a second one in the same read (seen). */
-static int moqtrun_upf_goaway_closes(
+/* Before draft-23 a GOAWAY on the request stream ends the leg; a second
+ * one in the same read (seen) closes the session instead. */
+static void moqtrun_upf_goaway_pre23(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
-    wired_span           body,
     int                  seen) {
-  if (moqver_caps(pp->ver) & MOQVER_CAP_REQ_GOAWAY23) {
-    return !moqtrun_goaway_moves(
-        hub, pp, &moqtrun_upf_leg_of(hub, f)->goaway, body);
-  }
   if (seen) {
     moqtrun_close_cc(hub, pp, MOQTRUN_CC_UNEXPECTED);
+    return;
   }
-  return seen;
+  if (moqtrun_upf_live(f)) {
+    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
+  }
 }
 
-/* GOAWAY on the request stream (9.2): the leg ends (no re-issue). */
+/* GOAWAY on the request stream (9.2). draft-23: a bad body, a New
+ * Session URI or a second GOAWAY on the stream (in any read) closes the
+ * session (moqtrun_goaway_moves); a good one owes the re-issue, sent by
+ * the next sweep past the rest of this delivery (moqtrun_upf_moves). */
 static void moqtrun_upf_goaway(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  pp,
     wired_moqtrun_fetch* f,
     wired_span           body,
     int                  seen) {
-  if (moqtrun_upf_goaway_closes(hub, pp, f, body, seen)) {
+  wired_moqtrun_upf_leg* l = moqtrun_upf_leg_of(hub, f);
+  if (moqver_caps(pp->ver) & MOQVER_CAP_REQ_GOAWAY23) {
+    l->move |= moqtrun_goaway_moves(hub, pp, &l->goaway, body);
     return;
   }
-  if (moqtrun_upf_live(f)) {
-    moqtrun_upf_fail(hub, f, MOQTRUN_UPF_IO_CANCEL, MOQCTL_ERR_INTERNAL_ERROR);
-  }
+  moqtrun_upf_goaway_pre23(hub, pp, f, seen);
 }
 
 /* Once the leg ended its stream is still a request stream (draft-23 9.5):

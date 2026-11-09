@@ -110,12 +110,14 @@ static int moqtrun_req_muted(wired_moqt_hub* hub, const wired_moqtrun_req* q) {
 }
 
 /* Pushes owed namespace changes, syncs SUBSCRIBE_TRACKS against every
- * published track and upstream SUBSCRIBEs against their waiters, then
+ * published track, re-issues requests moved by a GOAWAY on their stream,
+ * syncs upstream SUBSCRIBEs against their waiters, then
  * settles every client-request stream of a session still open. */
 void moqtrun_reqs_tick(wired_moqt_hub* hub) {
   moqtrun_disc_sync(hub);
   moqtrun_subtracks_sync(hub);
   moqtrun_pubst_moves(hub);
+  moqtrun_upf_moves(hub);
   moqtrun_up_sync(hub);
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
     if (!moqtrun_req_muted(hub, &hub->reqs[i])) {

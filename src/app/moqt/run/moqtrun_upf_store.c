@@ -27,8 +27,11 @@ static void moqtrun_upf_store_key(wired_moqtrun_upf_leg* l, moqtrun_key k) {
 static void moqtrun_upf_leg_start(
     wired_moqtrun_upf_leg* l, const moqfetch_req* m) {
   l->req_end = moqfetch_req_end(&m->range, moqctl_loc_of(~0ULL, ~0ULL));
+  l->range   = m->range;
   bytes_memset(&l->in, 0, sizeof(wired_moqtrun_ctl_asm));
-  l->goaway = 0;
+  l->goaway   = 0;
+  l->move     = 0;
+  l->old_data = 0; /* a re-issue sets it after (moqtrun_upf_carry) */
 }
 
 /* f's leg starts: the FETCH m went to pp on stream sid. */

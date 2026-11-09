@@ -25,8 +25,8 @@ static moqtrun_body_encode_fn moqtrun_upf_encoder(int ver);
  * out-of-place item, a refused write, its budget -- the cache side takes
  * over at the cursor and reports what it lacks as unknown (or timed out).
  * Nothing relayed is cached (the cache assumes ascending arrival).
- * ponytail: no two FETCHes share an upstream one, and an upstream GOAWAY
- * on the request stream is not followed by a re-issue. */
+ * A draft-23 GOAWAY on the request stream re-issues the rest of the leg
+ * (moqtrun_upf_moves). ponytail: no two FETCHes share an upstream one. */
 
 /* No parameters: a fill carries no Range Filter of its own. */
 const moqctl_params MOQTRUN_UPF_NO_PARAMS;
@@ -46,7 +46,7 @@ wired_moqtrun_peer* moqtrun_upf_owner(wired_moqt_hub* hub, moqtrun_key k) {
 
 /* op is usable and was not sent the hub's GOAWAY (draft-19 10.4: the
  * sender SHOULD avoid initiating requests). */
-static int moqtrun_upf_owner_free(const wired_moqtrun_peer* op) {
+int moqtrun_upf_owner_free(const wired_moqtrun_peer* op) {
   return moqtrun_up_peer_usable(op) && !op->sess.goaway_sent;
 }
 

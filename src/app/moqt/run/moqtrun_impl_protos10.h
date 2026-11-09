@@ -14,5 +14,9 @@ void moqtrun_upd_rdv_resolve(
 int moqtrun_resume_wait_upd(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t);
 void moqtrun_pubst_moves(wired_moqt_hub* hub);
+int  moqtrun_upf_owner_free(const wired_moqtrun_peer* op);
+void moqtrun_upf_moves(wired_moqt_hub* hub);
+int  moqtrun_upf_old_data(
+    wired_moqt_hub* hub, const wired_wt_session* s, u64 sid, int fin);
 
 #endif

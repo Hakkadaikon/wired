@@ -299,14 +299,167 @@ static int mupf23_closed_with(u32 code) {
 static const u8 MUPF23_GOAWAY[] = {MOQCTL_T_GOAWAY, 0x00, 0x02, 0x00, 0x00};
 
 /* "more than one GOAWAY ... on a single request stream" is
- * UNEXPECTED_MESSAGE, even when the second comes in a later read. */
+ * UNEXPECTED_MESSAGE: two in one read, or a second in a later read while
+ * the re-issue still waits for a stream (the old one is still open). */
 static void mupf23_goaway_twice(void) {
-  i64 sid = mupf23_goaway_setup();
+  u8  two[2 * sizeof MUPF23_GOAWAY];
+  i64 sid            = mupf23_goaway_setup();
+  g_open_bidi_fail_n = 1;
   mupf23_goaway_feed(sid, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
   CHECK(moqtrun_test_count_kind(11) == 0);
-  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_log_is(SESS_A, (u64)sid, ""));
   mupf23_goaway_feed(sid, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
   CHECK(mupf23_closed_with(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
+  for (usz i = 0; i < sizeof two; i++) {
+    two[i] = MUPF23_GOAWAY[i % sizeof MUPF23_GOAWAY];
+  }
+  mupf23_goaway_feed(mupf23_goaway_setup(), two, sizeof two);
+  CHECK(mupf23_closed_with(WIRED_MOQTRUN_CLOSE_UNEXPECTED_MESSAGE));
+}
+
+/* A second fetch data stream (client uni, 2 mod 4). */
+#define MUPF23_DATA2_SID (MUPF_DATA_SID + 4)
+
+/* A (draft-23) holds the hub's upstream FETCH for groups 1..2 of B's
+ * FETCH {1,0}..{4,0} (groups 3, 4 cached) and relayed {1,0} {2,0} on its
+ * open data stream; *m is that FETCH, its stream id returned. */
+static i64 mupf23_mid_setup(moqfetch_req* m) {
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_cache_group(4, 1);
+  mupf_vers(MOQVER_D23);
+  mupf_fetch(mupf_rl(1, 0, 4, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, m);
+  mupf_hdr(m->request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(1, 0, 1);
+  mupf_obj(2, 0, 1);
+  mupf_send(0);
+  return sid;
+}
+
+/* m1 asks for the rest of m0's range from {g, o}. */
+static int mupf23_rest_of(
+    const moqfetch_req* m1, const moqfetch_req* m0, u64 g, u64 o) {
+  return m1->range.sk == MOQCTL_RSK_ABS && m1->range.start_group == g &&
+         m1->range.start_object == o && m1->range.ek == m0->range.ek &&
+         m1->range.end_group == m0->range.end_group &&
+         m1->range.end_object == m0->range.end_object;
+}
+
+/* B got {1,0} {2,0} {2,1} {3,0} {4,0}, each once, then FIN. */
+static int mupf23_all_once(void) {
+  return mupf_read(0) && mf_fin && mf_n == 5 && mf_is_obj(0, 1, 0, 1) &&
+         mf_is_obj(1, 2, 0, 1) && mf_is_obj(2, 2, 1, 1) &&
+         mf_is_obj(3, 3, 0, 1) && mf_is_obj(4, 4, 0, 1);
+}
+
+/* "the sender of the request SHOULD re-issue that specific request ...
+ * (or the current session if no URI is provided), and close the old
+ * request stream": the hub asks A again for the rest of the span, from
+ * just past {2,0}, under its next Request ID, and cancels the old request;
+ * what still arrives on the old data stream is dropped. B gets every
+ * Object once. */
+static void mupf23_goaway_reissues(void) {
+  moqfetch_req m0 = {0}, m1 = {0};
+  i64          old = mupf23_mid_setup(&m0);
+  mupf23_goaway_feed(old, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  i64 sid = mupf_up(SESS_A, 1, &m1);
+  CHECK(sid >= 0 && sid != old && m1.request_id == m0.request_id + 2);
+  CHECK(mupf23_rest_of(&m1, &m0, 2, 1));
+  CHECK(mupf_log_is(SESS_A, (u64)old, "RST1|STOP1|"));
+  CHECK(mupf_log_is(SESS_A, MUPF_DATA_SID, "STOP1|"));
+  mupf_obj(2, 1, 1); /* late, on the old data stream */
+  mupf_send(1);
+  mupf_hdr(m1.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(2, 1, 1);
+  mupf_send_on(SESS_A, MUPF23_DATA2_SID, 1);
+  mupf23_up_ok(SESS_A, sid, 0, 0, 0, wired_span_of(0, 0));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(mupf23_all_once());
+}
+
+/* 9.2 "SHOULD NOT initiate new requests" toward a peer that sent GOAWAY
+ * on its control stream, nor (draft-19 10.4) one the hub sent its own:
+ * nothing is re-issued, the leg ends and the cache side takes over just
+ * past {2,0}. */
+static void mupf23_goaway_no_reissue(int recv) {
+  moqfetch_req        m   = {0};
+  i64                 old = mupf23_mid_setup(&m);
+  wired_moqtrun_peer* a   = moqtrun_find_by_wt(&mtst_hub, SESS_A);
+  a->sess.goaway_recv     = recv;
+  a->sess.goaway_sent     = !recv;
+  mupf23_goaway_feed(old, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mupf_n_up(SESS_A) == 1);
+  CHECK(mupf_log_is(SESS_A, (u64)old, "RST1|STOP1|"));
+  CHECK(mupf_resumed_after_20());
+}
+
+/* With no stream to open the old request stays as it is; the next tick
+ * re-issues it under the Request ID the failed open did not use. */
+static void mupf23_goaway_pending(void) {
+  moqfetch_req m0 = {0}, m1 = {0};
+  i64          old   = mupf23_mid_setup(&m0);
+  g_open_bidi_fail_n = 1;
+  mupf23_goaway_feed(old, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  CHECK(mupf_log_is(SESS_A, (u64)old, ""));
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mupf_log_is(SESS_A, (u64)old, "RST1|STOP1|"));
+  CHECK(mupf_up(SESS_A, 2, &m1) >= 0);
+  CHECK(m1.request_id == m0.request_id + 2 && mupf23_rest_of(&m1, &m0, 2, 1));
+}
+
+/* MQ23-216: the leg's one budget bounds the re-issued request too -- one
+ * sent 1000 ms in is still cancelled when the budget runs out. */
+static void mupf23_goaway_budget(void) {
+  moqfetch_req m0 = {0}, m1 = {0};
+  i64          old   = mupf23_mid_setup(&m0);
+  g_open_bidi_fail_n = 1;
+  mupf23_goaway_feed(old, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  wired_moqt_tick(&mtst_hub, 1000);
+  i64 sid = mupf_up(SESS_A, 2, &m1);
+  CHECK(sid >= 0);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_UPFETCH_BUDGET_MS);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+}
+
+/* A Descending leg relays its top group first: with nothing relayed it is
+ * re-issued whole (still Descending); after {2,0} the rest is no one
+ * range, so the leg ends and the cache side takes over. */
+static void mupf23_goaway_desc(int relayed) {
+  moqctl_params desc = mtst_params_u8(MOQCTL_PARAM_GROUP_ORDER, 2);
+  moqfetch_req  m0 = {0}, m1 = {0};
+  mupf_init_nocache();
+  mupf_vers(MOQVER_D23);
+  mupf_fetch(mupf_rl(1, 0, 2, 1), &desc);
+  i64 old = mupf_up(SESS_A, 0, &m0);
+  mupf_hdr(m0.request_id, 1);
+  mupf_seq.d23 = 1;
+  if (relayed) {
+    mupf_obj(2, 0, 1);
+  }
+  mupf_send(0);
+  mupf23_goaway_feed(old, MUPF23_GOAWAY, sizeof MUPF23_GOAWAY);
+  CHECK(mupf_log_is(SESS_A, (u64)old, "RST1|STOP1|"));
+  CHECK(mupf_n_up(SESS_A) == (usz)(relayed ? 1 : 2));
+  if (!relayed) {
+    const moqctl_param* go;
+    mupf_up(SESS_A, 1, &m1);
+    go = moqctl_params_find(&m1.params, MOQCTL_PARAM_GROUP_ORDER);
+    CHECK(mupf23_rest_of(&m1, &m0, 1, 0) && go && go->u8v == 2);
+  }
+}
+
+static void test_moqtrun_upfetch_d23_reissue(void) {
+  mupf23_goaway_reissues();
+  mupf23_goaway_no_reissue(1);
+  mupf23_goaway_no_reissue(0);
+  mupf23_goaway_pending();
+  mupf23_goaway_budget();
+  mupf23_goaway_desc(0);
+  mupf23_goaway_desc(1);
 }
 
 /* A New Session URI sent to the hub, a server, is ROLE_VIOLATION; a
@@ -427,6 +580,7 @@ static void test_moqtrun_upfetch_d23_obj_props(void) {
 
 void test_moqtrun_upfetch_d23(void) {
   test_moqtrun_upfetch_d23_goaway();
+  test_moqtrun_upfetch_d23_reissue();
   test_moqtrun_upfetch_d23_obj_props();
   test_moqtrun_upfetch_d23_props_close();
   test_moqtrun_upfetch_d23_relay();

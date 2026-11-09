@@ -37,7 +37,8 @@ void moqtrun_upf_on_reset(wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 sid) {
 static void moqtrun_upf_detach_one(
     wired_moqt_hub* hub, wired_moqtrun_fetch* f, const wired_wt_session* s) {
   if (f->up_wt == s) {
-    f->up_data_open = 0; /* s's stream ids end with it */
+    f->up_data_open                      = 0; /* s's stream ids end with it */
+    moqtrun_upf_leg_of(hub, f)->old_data = 0;
   }
   if (!moqtrun_upf_leg_to(f, s)) {
     return;

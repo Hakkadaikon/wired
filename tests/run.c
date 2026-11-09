@@ -960,6 +960,7 @@
 #include "app/moqt/run/moqtrun_upf_failed.c"
 #include "app/moqt/run/moqtrun_upf_from.c"
 #include "app/moqt/run/moqtrun_upf_io.c"
+#include "app/moqt/run/moqtrun_upf_move.c"
 #include "app/moqt/run/moqtrun_upf_mal.c"
 #include "app/moqt/run/moqtrun_upf_no.c"
 #include "app/moqt/run/moqtrun_upf_nt.c"

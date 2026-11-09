@@ -545,8 +545,8 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-258 (SS9.2) ハブが送ったリクエストのストリームで GOAWAY を受信した場合、ハブはそのリクエストを新しいセッションまたは現在のセッションで送り直し、古いリクエストストリームを閉じるべきである。同じリクエストストリームでの 2 回目の GOAWAY は UNEXPECTED_MESSAGE でセッションを閉じる。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_goaway`
   - test: `tests/app/moqtrun_subtracks_test.c` — `test_moqtrun_subtracks`
-  - note: 制御ストリームで GOAWAY を送ったピアには送り直しません。ストリームを開けないときは、次の tick か次の配送で再試行します。SUBSCRIBE_TRACKS のために送った PUBLISH は、新しい Request ID で送り直し、古い購読を PUBLISH_DONE GOING_AWAY で終えます(応答前ならストリームをリセットします)。
-  - gap: 上流の FETCH は送り直さず、その区間を終えます([#239](https://github.com/hakkadaikon/wired/issues/239))。
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_reissue`
+  - note: 制御ストリームで GOAWAY を送ったピアには送り直しません。ストリームを開けないときは、次の tick か次の配送で再試行します。SUBSCRIBE_TRACKS のために送った PUBLISH は、新しい Request ID で送り直し、古い購読を PUBLISH_DONE GOING_AWAY で終えます(応答前ならストリームをリセットします)。上流の FETCH は、最後に中継した項目の次から区間の残りを新しい Request ID で同じパブリッシャーへ送り直し、古いリクエストを取り消して、その答えを同じ下流の FETCH へ中継し続けます。古いデータストリームに後から届いたバイトは捨てます。区間の予算は送り直しても延びません。送れないパブリッシャーに対してや、Object を 1 つ以上中継した Descending の区間(残りが 1 つの範囲にならない)では、これまでどおり区間を終えてキャッシュに引き継ぎます。Object の途中では、その Object が届き終わるまで送り直しを待ちます。送り直した後の古いストリームは読まないので、そこへの 2 回目の GOAWAY はセッションを閉じません(送り直しを待つ間は閉じます)。
 
 ## SS9.3 REQUEST_OK
 
@@ -943,7 +943,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
     `test_moqtrun_upfetch_range_filter_peer_limit`,
     `test_moqtrun_upfetch_range_filter`
   - note: 範囲が上限を超えると、フィルターを 1 つも送りません(一部だけ落とすと、OR で結んだ集合を狭めてしまうことがある)。ハブは、より広い応答を自分で絞り込みます。
-- [x] MQ23-217 要求者が取り消した、データストリームを止めた、または切断したとき、ハブはスロットを解放する前に上流の FETCH を取り消し(リクエストストリームに RESET_STREAM と STOP_SENDING、データストリームに STOP_SENDING)、後からそのために届いたデータストリームを止めなければならない。上流のリセット、リクエストストリーム上の GOAWAY、切断は区間を終わらせ、ハブが持つ Track に対する上流の REQUEST_ERROR はキャッシュに引き継ぎ、1 つのリクエストストリーム上の 2 回目の GOAWAY はそのセッションを閉じる(SS3.2.4, SS9.2, SS9.12)。
+- [x] MQ23-217 要求者が取り消した、データストリームを止めた、または切断したとき、ハブはスロットを解放する前に上流の FETCH を取り消し(リクエストストリームに RESET_STREAM と STOP_SENDING、データストリームに STOP_SENDING)、後からそのために届いたデータストリームを止めなければならない。上流のリセットと切断は区間を終わらせ(draft-23 より前ではリクエストストリーム上の GOAWAY も終わらせ、draft-23 では区間を送り直す、MQ23-258)、ハブが持つ Track に対する上流の REQUEST_ERROR はキャッシュに引き継ぎ、1 つのリクエストストリーム上の 2 回目の GOAWAY はそのセッションを閉じる(SS3.2.4, SS9.2, SS9.12)。
   - test: `tests/app/moqtrun_upfetch_test.c` —
     `test_moqtrun_upfetch_requester_gone`, `test_moqtrun_upfetch_leg_ends`,
     `test_moqtrun_upfetch_two_goaways`, `test_moqtrun_upfetch_error_held`,
@@ -1525,7 +1525,6 @@ moqtail 互換の Track 切り替えの拡張は、draft-23 の要件ではあ�
 draft-23 のリレーの範囲内ですが、まだ実装していない項目と、実装に残っている既知の制限です。各行の issue で追っています。
 
 - (SS9.1.7) 応答をキューに入れられなかった REQUEST_UPDATE の枠を戻してしまう: [#223](https://github.com/hakkadaikon/wired/issues/223)。
-- (SS9.2) 上流の FETCH のストリームで GOAWAY を受けたときの FETCH の送り直し: [#239](https://github.com/hakkadaikon/wired/issues/239)。
 
 ## 対象外
 
