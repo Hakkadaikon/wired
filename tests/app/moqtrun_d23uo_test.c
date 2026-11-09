@@ -83,8 +83,8 @@ static void test_moqtrun_d23uo_immediate_in_order(void) {
   CHECK(mtuo_s() && mtuo_s()->priority == 3);
 }
 
-/* 9.5: the hub does not coalesce; two updates get two OKs and leave the
- * state one update carrying both values would. */
+/* 9.5: two updates in separate deliveries are not coalesced; they get two
+ * OKs and leave the state one update carrying both values would. */
 static void test_moqtrun_d23uo_coalesce_equals_sequential(void) {
   moqctl_params both = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
   both.items[1] = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 5).items[0];
@@ -312,16 +312,23 @@ static void test_moqtrun_d23uo_invalid_switch_ends(void) {
  * too many is EXCESSIVE_LOAD and ends the subscription (PUBLISH_DONE
  * UPDATE_FAILED); earlier drafts answer INTERNAL_ERROR
  * (test_moqtrun_fillfix_full_update_refused). */
-static void test_moqtrun_d23uo_fill_excessive_load_ends(void) {
-  moqfetch_fill fill = {0};
-  u64           count;
+/* B's subscription on MTRQ_S1 with every fill slot taken, and a
+ * FILL_PARAMETERS update (fill) that would open one more. */
+static moqctl_params mtuo_fill_full(moqfetch_fill* fill) {
   mffx_three_groups();
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D19;
   mffx_fill_tables(); /* its FETCHes use B's pre-draft-22 layout */
   mfill_subscribe_req(0);
   moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = g_moqtrun_test_ver;
-  moqctl_params p                            = mfill_params(&fill, 0);
+  moqctl_params p                            = mfill_params(fill, 0);
   p.items[0].enc = MOQCTL_PENC_FILL23; /* count, no Length (9.19.15) */
+  return p;
+}
+
+static void test_moqtrun_d23uo_fill_excessive_load_ends(void) {
+  moqfetch_fill fill = {0};
+  u64           count;
+  moqctl_params p = mtuo_fill_full(&fill);
   mtup_update(SESS_B, MTRQ_S1, &p);
   CHECK(mtrq_err_on(MTRQ_S1) == MOQCTL_ERR_EXCESSIVE_LOAD);
   CHECK(mtst_sub(SESS_A, SESS_B) == 0);
@@ -384,17 +391,22 @@ static void mtuo_publish_refused_keeps_d22(void) {
  * WIRED_MOQTRUN_MAX_NS) is refused and leaves the request's prefix "chat"
  * as it was -- no half-written prefix (9.5). On draft-23 the request has
  * ended, so a later update is not answered. */
-static void test_moqtrun_d23uo_failed_prefix_keeps_old(void) {
+/* A TRACK_NAMESPACE_PREFIX one field past WIRED_MOQTRUN_MAX_NS. */
+static moqctl_params mtuo_big_prefix(void) {
   static char big[WIRED_MOQTRUN_MAX_NS + 8];
-  u8          want[16];
-  usz         n    = 0;
-  moqctl_ns   chat = mtns_ns("chat");
   bytes_memset(big, 'x', sizeof big - 1);
+  return mtup_ns_param(big);
+}
+
+static void test_moqtrun_d23uo_failed_prefix_keeps_old(void) {
+  u8        want[16];
+  usz       n    = 0;
+  moqctl_ns chat = mtns_ns("chat");
   CHECK(moqctl_ns_put(wired_mspan_of(want, sizeof want), &n, &chat));
   mtns_init();
   mtns_sub(SESS_B, MTRQ_S1, "chat");
   usz           n0 = mtuo_n_on(MTRQ_S1); /* its own REQUEST_OK */
-  moqctl_params p  = mtup_ns_param(big);
+  moqctl_params p  = mtuo_big_prefix();
   mtup_update(SESS_B, MTRQ_S1, &p);
   CHECK(mtup_err_code(MTRQ_S1) == MOQCTL_ERR_INTERNAL_ERROR);
   wired_moqtrun_req* q = moqtrun_req_find(&mtst_hub, SESS_B, MTRQ_S1);
@@ -434,20 +446,19 @@ static void test_moqtrun_d23uo_prefix_not_coalesced(void) {
 
 /* ============ pipelined in one delivery (9.5, synchronous) ============ */
 
-/* s's updates a then b on sid, both in one delivery: the hub reads both
- * before it flushes anything. */
-static void mtuo_two_on(
-    wired_wt_session*    s,
-    u64                  sid,
-    const moqctl_params* a,
-    const moqctl_params* b) {
-  static moqtstat_update    m[2];
-  u8                        buf[2 * MTST_MSG_MAX];
-  usz                       n     = 0;
-  const moqctl_params*      ps[2] = {a, b};
-  const wired_moqtrun_peer* pb    = moqtrun_find_by_wt(&mtst_hub, s);
-  g_mtst_send_ver                 = pb->ver;
-  for (usz i = 0; i < 2; i++) {
+/* Most updates one delivery carries here: one past MAX_REQUEST_UPDATES. */
+#define MTUO_RUN_MAX (WIRED_MOQTRUN_MAX_REQ_UPDATES + 1)
+
+/* s's updates ps[0..k) on sid, all in one delivery: the hub reads them
+ * all before it flushes anything. */
+static void mtuo_run_on(
+    wired_wt_session* s, u64 sid, const moqctl_params* const* ps, usz k) {
+  static moqtstat_update    m[MTUO_RUN_MAX];
+  static u8                 buf[MTUO_RUN_MAX * MTST_MSG_MAX];
+  usz                       n  = 0;
+  const wired_moqtrun_peer* pb = moqtrun_find_by_wt(&mtst_hub, s);
+  g_mtst_send_ver              = pb->ver;
+  for (usz i = 0; i < k; i++) {
     m[i].request_id = mtst_rid += 4;
     m[i].params     = *ps[i];
     mtst_params_for(s, &m[i].params);
@@ -458,13 +469,22 @@ static void mtuo_two_on(
   mt_feed(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
 }
 
+static void mtuo_two_on(
+    wired_wt_session*    s,
+    u64                  sid,
+    const moqctl_params* a,
+    const moqctl_params* b) {
+  const moqctl_params* ps[2] = {a, b};
+  mtuo_run_on(s, sid, ps, 2);
+}
+
 static void mtuo_two(const moqctl_params* a, const moqctl_params* b) {
   mtuo_two_on(SESS_B, MTRQ_S1, a, b);
 }
 
 /* 9.5: two updates read together are answered one OK each, in received
- * order, and the state is both applied in order. The hub decides each on
- * receipt (no upstream wait), so the second never overtakes the first. */
+ * order, and the state is both applied in order (one by one before
+ * draft-23, coalesced on it), so the second never overtakes the first. */
 static void test_moqtrun_d23uo_pipelined_in_order(void) {
   u64           t[4];
   moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
@@ -506,6 +526,103 @@ static void test_moqtrun_d23uo_error_credits_only_answered(void) {
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
   mtuo_prio(9);
   CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 1);
+}
+
+/* ============ coalesced runs (draft-23 9.5, MAY) ============ */
+
+/* Replies on sid past the first n0: their count, types into t[0..4). */
+static usz mtuo_since(u64 sid, usz n0, u64* t) {
+  u64 all[16];
+  usz k = mtuo_replies(sid, all, 16);
+  for (usz i = n0; i < k && i < n0 + 4; i++) {
+    t[i - n0] = all[i];
+  }
+  return k - n0;
+}
+
+/* draft-23 9.5: FORWARD 1 then FORWARD 0 read together are applied as
+ * their cumulative result -- forwarding stays off, so no blob stream
+ * opens -- and still answered one REQUEST_OK each, in order. */
+static void test_moqtrun_d23uo_coalesced_applied_once(void) {
+  u64           t[4];
+  moqctl_params on  = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  moqctl_params off = mtst_params_u8(MOQCTL_PARAM_FORWARD, 0);
+  mtuo_sub();
+  usz n = mtuo_unis();
+  mtuo_two(&on, &off);
+  CHECK(mtuo_replies(MTRQ_S1, t, 4) == 2);
+  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_OK);
+  CHECK(mtuo_unis() == n);
+  CHECK(mtuo_s() && mtuo_s()->forward_off);
+  CHECK(mtuo_pending() == 0);
+}
+
+/* draft-23 9.5: a coalesced run that fails is answered by one
+ * REQUEST_ERROR and no REQUEST_OK, and ends the subscription (9.5.1);
+ * the error credits back one update of the two (9.1.7). */
+static void test_moqtrun_d23uo_coalesced_failure_one_error(void) {
+  u64           t[4];
+  u64           count;
+  moqctl_params pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
+  moqctl_params on = mtst_params_u8(MOQCTL_PARAM_FORWARD, 1);
+  mtuo_sub();
+  g_send_uni_fail_n = 1; /* the FORWARD 0 -> 1 blob send is refused */
+  mtuo_two(&pr, &on);
+  CHECK(mtuo_replies(MTRQ_S1, t, 4) == 1);
+  CHECK(t[0] == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mtdr_done_on(MTRQ_S1, &count) == MOQCTL_DONE_UPDATE_FAILED);
+  CHECK(mtuo_pending() == 1);
+}
+
+/* 9.19.20: a failing TRACK_NAMESPACE_PREFIX update read right after a
+ * plain one is decided alone: OK for the first, REQUEST_ERROR for it. */
+static void test_moqtrun_d23uo_prefix_breaks_run(void) {
+  u64 t[4];
+  mtns_init();
+  mtns_sub(SESS_B, MTRQ_S1, "chat");
+  usz           n0 = mtuo_n_on(MTRQ_S1);
+  moqctl_params p  = mtuo_big_prefix();
+  mtuo_two(&(moqctl_params){0}, &p);
+  CHECK(mtuo_since(MTRQ_S1, n0, t) == 2);
+  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_ERROR);
+}
+
+/* 9.19.15: likewise a FILL_PARAMETERS update refused EXCESSIVE_LOAD
+ * after a plain one: OK, then REQUEST_ERROR. */
+static void test_moqtrun_d23uo_fill_breaks_run(void) {
+  u64           t[4];
+  moqfetch_fill fill = {0};
+  moqctl_params p    = mtuo_fill_full(&fill);
+  moqctl_params pr   = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 4);
+  usz           n0   = mtuo_n_on(MTRQ_S1);
+  mtuo_two(&pr, &p);
+  g_stream_send_ok_n = -1; /* mffx_fill_tables held every send back */
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mtuo_since(MTRQ_S1, n0, t) == 2);
+  CHECK(t[0] == MOQCTL_T_REQUEST_OK && t[1] == MOQCTL_T_REQUEST_ERROR);
+}
+
+/* B's k plain updates on MTRQ_S1 in one delivery. */
+static void mtuo_run(usz k) {
+  moqctl_params        pr = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 1);
+  const moqctl_params* ps[MTUO_RUN_MAX];
+  for (usz i = 0; i < k; i++) {
+    ps[i] = &pr;
+  }
+  mtuo_run_on(SESS_B, MTRQ_S1, ps, k);
+}
+
+/* 9.1.7: a run still counts every update it holds: MAX read together are
+ * answered MAX OKs, one more closes TOO_MANY_REQUEST_UPDATES unanswered. */
+static void test_moqtrun_d23uo_coalesced_run_credit(void) {
+  mtuo_sub();
+  mtuo_run(WIRED_MOQTRUN_MAX_REQ_UPDATES);
+  CHECK(mtuo_n() == WIRED_MOQTRUN_MAX_REQ_UPDATES);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 0);
+  mtuo_sub();
+  mtuo_run(MTUO_RUN_MAX);
+  CHECK(mtup_close_count(WIRED_MOQTRUN_CLOSE_TOO_MANY_REQUEST_UPDATES) == 1);
+  CHECK(mtuo_n() == 0);
 }
 
 /* draft-23 9.5: whatever mix of accepted, failed and back-pressured
@@ -899,6 +1016,11 @@ static void mtuo_d23(void) {
   test_moqtrun_d23uo_fill_excessive_load_ends();
   test_moqtrun_d23uo_publish_update_refused_ends();
   test_moqtrun_d23uo_publish_update_refused_after_done();
+  test_moqtrun_d23uo_coalesced_applied_once();
+  test_moqtrun_d23uo_coalesced_failure_one_error();
+  test_moqtrun_d23uo_prefix_breaks_run();
+  test_moqtrun_d23uo_fill_breaks_run();
+  test_moqtrun_d23uo_coalesced_run_credit();
 }
 
 static void mtuo_credit(void) {

@@ -105,9 +105,30 @@ static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
   return moqctl_request_ok_encode(buf, off, m);
 }
 
+/* How many times the REQUEST_OK goes out: once, or once per update of a
+ * coalesced run (draft-23 9.5, wired_moqtrun_req.upd_run, consumed). */
+static usz moqtrun_ok_copies(wired_moqtrun_peer* p) {
+  usz k;
+  if (!p->req) {
+    return 1;
+  }
+  k               = 1 + (usz)p->req->upd_run;
+  p->req->upd_run = 0;
+  return k;
+}
+
+/* bytes fit p's request-stream queue (the control stream's own queue
+ * drops what does not fit, moqtrun_queue_reply). */
+static int moqtrun_ok_fits(const wired_moqtrun_peer* p, usz bytes) {
+  return !p->req || bytes <= WIRED_MOQTRUN_REQ_SEND_BUF -
+                                 p->req->send_lens[p->req->armed_idx ^ 1];
+}
+
 /* REQUEST_OK; answering a request about track t (0: none), it carries the
  * Largest Location -- and props as its Track Properties, which only
- * TRACK_STATUS_OK populates (draft-18 10.5). */
+ * TRACK_STATUS_OK populates (draft-18 10.5). A run's REQUEST_OKs are
+ * queued all or none, so a queue too short for them reads as unanswered
+ * (moqtrun_update_unqueued). */
 void moqtrun_queue_request_ok_props(
     wired_moqtrun_peer* p, const wired_moqtrun_track* t, wired_span props) {
   u8                msg[WIRED_MOQTRUN_CTL_REPLY_MAX];
@@ -117,7 +138,13 @@ void moqtrun_queue_request_ok_props(
   usz n = moqtrun_envelope_put(
       p->ver, wired_mspan_of(msg, sizeof msg), MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
-  moqtrun_queue_reply(p, wired_span_of(msg, n));
+  usz k = moqtrun_ok_copies(p);
+  if (!moqtrun_ok_fits(p, k * n)) {
+    return;
+  }
+  for (usz i = 0; i < k; i++) {
+    moqtrun_queue_reply(p, wired_span_of(msg, n));
+  }
 }
 
 /* REQUEST_OK with empty Track Properties (PUBLISH_OK, REQUEST_UPDATE_OK,

@@ -14,7 +14,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 264/298、間接 34、未テスト 0。**
+**カバレッジ: テスト済み 265/299、間接 34、未テスト 0。**
 
 
 ## SS8.1 可変長整数
@@ -1183,7 +1183,9 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-277 (SS9.5, SS9.19.15, SS9.19.20) FILL_PARAMETERS または TRACK_NAMESPACE_PREFIX を含む REQUEST_UPDATE を、ほかの更新とまとめてはならない。
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_fill_not_coalesced`
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_prefix_not_coalesced`
-  - note: ハブはどの更新もまとめません(まとめることは MAY で、[#228](https://github.com/hakkadaikon/wired/issues/228) で扱います)。
+  - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_fill_breaks_run`
+  - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_prefix_breaks_run`
+  - note: ハブがまとめる更新(MQ23-291)は、この 2 つを含む更新の手前で区切ります。
 - [x] MQ23-278 (SS9.5.1) REQUEST_UPDATE が失敗した場合、ハブはそのリクエストを終えなければならない。購読なら PUBLISH_DONE UPDATE_FAILED を送り、送信者自身の PUBLISH なら Track を取り下げ、後から届いた更新には応答しない。
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_failed_update_publish_done`
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_error_covers_queued`
@@ -1202,6 +1204,11 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_upsub_ended_update`
   - test: `tests/app/moqtrun_misc_test.c` — `test_moqtrun_misc_stray_update`
   - note: 終わったリクエストのストリーム ID は、そのスロットが次のリクエストに使われるまでしか覚えていません。その後にそのストリームで届くバイトは捨て、データストリームとしては読みません。このとき REQUEST_UPDATE でもセッションを閉じません。
+- [x] MQ23-291 (SS9.5, SS9.1.7) 1 つのストリームで続けて届いた REQUEST_UPDATE をまとめる場合、ハブはそれらを累積した結果(後の更新の値が前の値を上書きする)として 1 回だけ適用し、成功した更新それぞれに REQUEST_OK を受信順に返さなければならない。失敗したときは REQUEST_ERROR を 1 つだけ返してそのリクエストを終え、まとめた更新もそれぞれ MAX_REQUEST_UPDATES に数えなければならない。
+  - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_coalesced_applied_once`
+  - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_coalesced_failure_one_error`
+  - test: `tests/app/moqtrun_d23uo_test.c` — `test_moqtrun_d23uo_coalesced_run_credit`
+  - note: まとめるのは draft-23 のセッションで、1 回の受信でストリームの組み立てバッファーにそろった REQUEST_UPDATE だけです。受信をまたいではまとめません。失敗時の REQUEST_ERROR で戻る枠は 1 つで、残りは終わったリクエストで捨てた更新と同じく応答のないまま数え続けます。
 
 ## ハブのリレー: 購読
 
@@ -1517,7 +1524,6 @@ moqtail 互換の Track 切り替えの拡張は、draft-23 の要件ではあ�
 
 draft-23 のリレーの範囲内ですが、まだ実装していない項目と、実装に残っている既知の制限です。各行の issue で追っています。
 
-- (SS9.5) パイプラインで届いた REQUEST_UPDATE をまとめること(MAY): [#228](https://github.com/hakkadaikon/wired/issues/228)。
 - (SS9.1.7) 応答をキューに入れられなかった REQUEST_UPDATE の枠を戻してしまう: [#223](https://github.com/hakkadaikon/wired/issues/223)。
 - (SS9.2) 上流の FETCH のストリームで GOAWAY を受けたときの FETCH の送り直し: [#239](https://github.com/hakkadaikon/wired/issues/239)。
 

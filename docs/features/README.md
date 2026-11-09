@@ -71,7 +71,7 @@ flowchart TD
 
 ## 5. 仕様ごとのカバレッジ
 
-**合計: 2557/2564 件の要件を確認済み(99.7%)。内訳は直接テスト 2222 件、
+**合計: 2558/2565 件の要件を確認済み(99.7%)。内訳は直接テスト 2223 件、
 間接 335 件、未テスト 7 件。**
 
 
@@ -157,7 +157,7 @@ flowchart TD
 | [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 246/248 | 219 | 27 | 2 |
 | [draft-ietf-moq-transport-19](draft-moq-transport.md) | 246/248 | 213 | 33 | 2 |
 | [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 258/259 | 224 | 34 | 1 |
-| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 298/298 | 264 | 34 | 0 |
+| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 299/299 | 265 | 34 | 0 |
 
 上の表は実験的な機能を数えない。[MoQT の Track 切り替え](moqt-track-switching.md) は moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションで使える。draft-23 のセッションでは SSTS_ALGORITHMS を 0x3F01 に移す。
 

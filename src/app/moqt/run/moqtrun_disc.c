@@ -15,19 +15,20 @@ static void moqtrun_update_answer(
     wired_moqt_hub*        hub,
     wired_moqtrun_peer*    p,
     usz                    peer_idx,
-    const moqtstat_update* m);
+    const moqtstat_update* m,
+    u64                    k);
 
-/* A REQUEST_UPDATE of the request riding its stream (its own Request ID
- * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
- * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, the sender's own
- * PUBLISH, or a PUBLISH the hub opened to it. Elsewhere see
- * moqtrun_upd_refuse. A malformed one (e.g. a parameter outside the update's
- * scope for that request kind) closes the session. */
-void moqtrun_handle_update(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
-  moqtstat_update m;
+/* 1 when update body may proceed: not refused (moqtrun_upd_refused) and
+ * decoded into *m -- a malformed one (e.g. a parameter outside the
+ * update's scope for that request kind) closes the session. It is then
+ * outstanding until a flushed reply answers it (9.1.7). */
+int moqtrun_upd_take(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqtstat_update*    m) {
   if (moqtrun_upd_refused(hub, p)) {
-    return;
+    return 0;
   }
   if (!moqtrun_take_tok_or_close(
           hub, p,
@@ -35,13 +36,32 @@ void moqtrun_handle_update(
               hub,
               moqtsw_take( /* SWITCH_FROM (moqtswitch.c): off = violation */
                   hub,
-                  moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), &m),
-                  &m.params),
-              &m.params),
-          &m.params)){
+                  moqtstat_update_take(p->ver, body, moqtrun_upd_ctx(p), m),
+                  &m->params),
+              &m->params),
+          &m->params)){
+    return 0;
+  }
+  p->req->pending_updates++;
+  return 1;
+}
+
+/* A REQUEST_UPDATE of the request riding its stream (its own Request ID
+ * is a fresh one, 10.1: the stream names the request) -- a SUBSCRIBE, a
+ * FETCH, a PUBLISH_NAMESPACE/SUBSCRIBE_NAMESPACE, the sender's own
+ * PUBLISH, or a PUBLISH the hub opened to it -- with the updates
+ * coalesced into it (moqtrun_upd_run). Elsewhere see moqtrun_upd_refuse. */
+void moqtrun_handle_update(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
+  moqtstat_update m;
+  u64             k;
+  if (!moqtrun_upd_take(hub, p, body, &m)) {
     return;
   }
-  moqtrun_update_answer(hub, p, peer_idx, &m);
+  k = moqtrun_upd_run(hub, p, peer_idx, &m);
+  if (k) {
+    moqtrun_update_answer(hub, p, peer_idx, &m, k);
+  }
 }
 
 /* 1 when the reply to the update just routed found p's request queue
@@ -50,17 +70,19 @@ static int moqtrun_update_unqueued(const wired_moqtrun_peer* p, usz at) {
   return !p->closing && p->req->send_lens[p->req->armed_idx ^ 1] == at;
 }
 
-/* Routes update m, answered on the spot. draft-23 9.5 owes exactly one
- * response per update: one that cannot be queued closes the session
- * INTERNAL_ERROR (12.2), the limit being the hub's own. */
+/* Routes update m, standing for a run of k, answered on the spot. draft-23
+ * 9.5 owes exactly one response per update (one REQUEST_ERROR for a failed
+ * run): one that cannot be queued closes the session INTERNAL_ERROR
+ * (12.2), the limit being the hub's own. */
 static void moqtrun_update_answer(
     wired_moqt_hub*        hub,
     wired_moqtrun_peer*    p,
     usz                    peer_idx,
-    const moqtstat_update* m) {
+    const moqtstat_update* m,
+    u64                    k) {
   wired_moqtrun_req* q  = p->req;
   usz                at = q->send_lens[q->armed_idx ^ 1];
-  q->pending_updates++;
+  q->upd_run            = k - 1;
   moqtrun_update_route(hub, p, peer_idx, &m->params, m->request_id);
   if (q->rdv_held) {
     return; /* answered after the unpause (moqtrun_upd_settle) */
@@ -69,7 +91,7 @@ static void moqtrun_update_answer(
     moqtrun_close_with(hub, p, WIRED_MOQTRUN_CLOSE_INTERNAL_ERROR);
     return;
   }
-  q->upd_answered++;
+  q->upd_answered += moqtrun_upd_credits(q, k);
 }
 
 /* ===================== namespace discovery ===================== */

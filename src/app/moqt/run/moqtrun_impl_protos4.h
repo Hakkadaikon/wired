@@ -106,6 +106,17 @@ void moqtrun_upd_refuse(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 int  moqtrun_upd_refused(wired_moqt_hub* hub, wired_moqtrun_peer* p);
 void moqtrun_handle_update(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
+int moqtrun_upd_take(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    wired_span          body,
+    moqtstat_update*    m);
+u64 moqtrun_upd_run(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    usz                 peer_idx,
+    moqtstat_update*    m);
+u64        moqtrun_upd_credits(const wired_moqtrun_req* q, u64 k);
 int        moqtrun_disc_is(const wired_moqtrun_req* q, u64 kind);
 wired_span moqtrun_disc_fields_of(wired_span enc, u64* count);
 wired_span moqtrun_disc_fields(const wired_moqtrun_req* q, u64* count);

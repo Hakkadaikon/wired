@@ -92,6 +92,7 @@ void moqtrun_upd_remember(wired_moqtrun_peer* p, const wired_moqtrun_sub* s) {
  * drafts keep answering later updates. */
 void moqtrun_upd_end(wired_moqtrun_peer* p) {
   p->req->upd_ended |= (moqver_caps(p->ver) & MOQVER_CAP_UPD_ERR_ENDS) != 0;
+  p->req->upd_run = 0; /* the run's one REQUEST_ERROR (9.5) */
 }
 
 /* After an update's REQUEST_ERROR: an existing subscription ends
@@ -136,28 +137,6 @@ void moqtrun_upd_settle(
   if (w < 0) {
     moqtrun_upd_drop_now(hub, p);
   }
-}
-
-/* The held update's answer, queued on its stream after the wait: its
- * credit comes back once that is flushed (draft-23 9.1.7). */
-void moqtrun_upd_rdv_ok(wired_moqtrun_peer* p, const wired_moqtrun_track* t) {
-  moqtrun_queue_request_ok(p, t);
-  p->req->upd_answered++;
-}
-
-void moqtrun_upd_rdv_refuse(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 code) {
-  moqtrun_send_request_error(p, code);
-  moqtrun_upd_drop_now(hub, p);
-  p->req->upd_answered++;
-}
-
-/* A new PUBLISH for the held update's track: settled against it, the
- * credit counted unless it waits again. */
-void moqtrun_upd_rdv_resolve(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_moqtrun_track* t) {
-  moqtrun_upd_settle(hub, p, t);
-  p->req->upd_answered += !p->req->rdv_held;
 }
 
 static void moqtrun_update_sub_apply(

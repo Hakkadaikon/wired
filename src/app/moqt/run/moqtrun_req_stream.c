@@ -70,6 +70,7 @@ static void moqtrun_req_body_reset(wired_moqtrun_req* q) {
   bytes_memset(q->ns_seen, 0, sizeof q->ns_seen);
   q->pending_updates = 0;
   q->upd_answered    = 0;
+  q->upd_run         = 0;
   q->upd_ended       = 0;
   bytes_memset(q->attempted_tag, 0, sizeof q->attempted_tag);
   q->pub_origin_rid = 0;

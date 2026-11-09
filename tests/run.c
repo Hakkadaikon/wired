@@ -952,6 +952,7 @@
 #include "app/moqt/run/moqtrun_upd.c"
 #include "app/moqt/run/moqtrun_upd_is.c"
 #include "app/moqt/run/moqtrun_upd_ns.c"
+#include "app/moqt/run/moqtrun_upd_run.c"
 #include "app/moqt/run/moqtrun_update.c"
 #include "app/moqt/run/moqtrun_upf.c"
 #include "app/moqt/run/moqtrun_upf_data.c"

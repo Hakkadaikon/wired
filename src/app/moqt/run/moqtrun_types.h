@@ -687,6 +687,9 @@ typedef struct {
   u64 pending_updates;
   /** REQUEST_UPDATEs whose replies wait in the queue not yet flushed. */
   u64 upd_answered;
+  /** Updates coalesced behind the one being answered (draft-23 9.5):
+   * its REQUEST_OK goes out this many more times, then this is 0. */
+  u64 upd_run;
   /** 1 once a failed REQUEST_UPDATE ended the request (draft-23 9.5.1):
    * later updates are dropped unanswered. */
   u8 upd_ended;
