@@ -187,7 +187,7 @@ static void mupf_obj_b(u64 g, u64 o, usz n, u8 first) {
   for (usz i = 0; i < n; i++) {
     pl[i] = first;
   }
-  ob.flags = MOQFETCH_F_OBJECT | MOQFETCH_F_PRIORITY |
+  ob.flags = moqfetch_object_flag(&mupf_seq, g, o) | MOQFETCH_F_PRIORITY |
              (!mupf_seq.have_loc || mupf_seq.group != g ? MOQFETCH_F_GROUP : 0);
   ob.group = g;
   ob.object       = o;
