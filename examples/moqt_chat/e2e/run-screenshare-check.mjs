@@ -199,6 +199,11 @@ try {
 			);
 		viewer.tapCount = entries.length;
 		viewer.senders = [...new Set(entries.map((e) => e.senderId))];
+		const missing = participantIds.filter(
+			(id) => id !== viewer.id && !viewer.senders.includes(id),
+		);
+		if (missing.length > 0)
+			summary.errors.push(`${viewer.id}: no frames from ${missing.join(", ")}`);
 		// Report-only here (a 30 s run is too short to gate on): the gap
 		// between consecutive decoded frames per sender, and how many gaps
 		// reached the tile's 3 s "Stalled" threshold (stallDetector.ts).
