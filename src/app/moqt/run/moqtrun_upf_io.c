@@ -27,7 +27,7 @@ static int moqtrun_upf_gap(
        moqctl_loc_less(cur, r->end);
        cur = moqcache_skip(c, r->tag, it.next, r->end)) {
     moqcache_item_at(c, r->tag, cur, r->end, &it);
-    if (it.unknown) {
+    if (it.unknown & !it.gone) { /* not cached as Gone (3.2.3) */
       *last = it;
       found = 1;
     }

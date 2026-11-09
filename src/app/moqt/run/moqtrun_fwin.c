@@ -109,7 +109,10 @@ usz moqtrun_fetch_encode_one(
   moqfetch_obj  o;
   usz           n = 0;
   moqcache_item_at(&hub->cache, f->cache_tag, f->cursor, f->end, &it);
-  moqtrun_fetch_obj_of(&o, &it, seq, moqtrun_fetch_eor(f));
+  moqtrun_fetch_obj_of(
+      &o, &it, seq,
+      it.gone ? moqtrun_upf_eor_of(MOQFETCH_EOR_GONE, seq)
+              : moqtrun_fetch_eor(f));
   moqfetch_obj_put(
       wired_mspan_of(hub->relay_scratch, sizeof hub->relay_scratch), &n, seq,
       &o);

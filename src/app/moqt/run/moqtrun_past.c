@@ -15,6 +15,9 @@ static int moqtrun_track_ver(
     const wired_moqt_hub* hub, const wired_moqtrun_track* t);
 static void moqtrun_cache_unvouch(
     wired_moqt_hub* hub, const wired_moqtrun_track* t, moqctl_loc l);
+static int moqtrun_gonerng_keeps(
+    const wired_moqtrun_fetch* f, const moqfetch_obj* o);
+static moqctl_loc moqtrun_gonerng_from(const wired_moqtrun_fetch* f);
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
  * whole in one call (1 message = 1 Object = 1 Group = 1
@@ -144,6 +147,37 @@ void moqtrun_cache_obj(
   moqcache_append_exp(
       &hub->cache, t->cache_tag, group, o->object_id, o->payload,
       moqtrun_cache_exp(hub->cache.now, t->max_cache_ms));
+}
+
+/* ----- Gone ranges from upstream (draft-23 7.1) ----- */
+
+/* draft-23 7.1: "A relay MAY cache that a range of Objects is Gone ...
+ * A relay does not cache Unknown or timed out ranges." Only an
+ * ascending, unfiltered answer's range is kept: shortcut: a Descending
+ * or Range-Filtered one has no plain "since the last serialized Object"
+ * start (11.4.2); keep those too if relays see them often. */
+static int moqtrun_gonerng_keeps(
+    const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+  return o->flags == MOQFETCH_EOR_GONE && !(f->descending | f->rngf_n);
+}
+
+/* 11.4.2: the range starts past the last serialized item, if any, else
+ * at the start of what the hub asked for. */
+static moqctl_loc moqtrun_gonerng_from(const wired_moqtrun_fetch* f) {
+  return f->has_up_last ? moqtrun_after(f->up_last) : f->up_lo;
+}
+
+/* An upstream End of Range o on f's leg, a Gone one of a held track, is
+ * kept for its MAX_CACHE_DURATION (10.3; absent: until evicted). */
+void moqtrun_cache_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, const moqfetch_obj* o) {
+  const wired_moqtrun_track* t =
+      moqtrun_gonerng_keeps(f, o) ? moqtrun_upf_track(hub, f) : 0;
+  if (t) {
+    moqcache_gone_add(
+        &hub->cache, f->cache_tag, moqtrun_gonerng_from(f), moqtrun_upf_loc(o),
+        moqtrun_cache_exp(hub->cache.now, t->max_cache_ms));
+  }
 }
 
 /* ----- Malformed Track (draft-22 12.1 #4/#5; same list in 18/19) ----- */

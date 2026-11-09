@@ -166,6 +166,110 @@ static void test_moqtrun_upfetch_d23_leg_fails(void) {
   CHECK(mf_items[1].flags == MOQFETCH_EOR_UNKNOWN && mf_items[1].group == 5);
 }
 
+/* ===== Gone ranges cached (draft-23 7.1, 10.3) ===== */
+
+/* B (on bv) FETCHes {2, 0}..{3, 0} of A's track (group 3 cached, group 2
+ * not): the hub asks A for group 2, A (draft-23) answers it with End of
+ * Range eor through {2, max}. */
+static void mupf23_gone_first(int bv, u64 eor) {
+  moqfetch_req m = {0};
+  i64          sid;
+  mupf_init_v(bv);
+  mupf_vers(MOQVER_D23);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+  sid = mupf_up(SESS_A, 0, &m);
+  CHECK(sid >= 0 && m.range.start_group == 2 && m.range.end_group == 2);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_eor(eor, 2, MOQCACHE_OBJ_ID_MAX);
+  mupf_send(1);
+  mupf23_up_ok(SESS_A, sid, 0, 0, 0, wired_span_of(0, 0));
+}
+
+/* B's last stream: group 2 as one End of Range want (draft-22 has no
+ * 0x40C: Unknown), then {3, 0}, FIN. */
+static int mupf23_gone_read(u64 want) {
+  u64 w = mtst_ver(SESS_B) == MOQVER_D23 ? want : MOQFETCH_EOR_UNKNOWN;
+  return mupf_read(0) && mf_fin && mf_n == 2 && mf_items[0].flags == w &&
+         mf_items[0].group == 2 && mf_is_obj(1, 3, 0, 1);
+}
+
+/* An upstream Gone range is kept: a later FETCH of it is answered Gone
+ * by the hub with no upstream FETCH (3.2.3: "It does not issue upstream
+ * FETCHes for Objects it has cached as Gone"); no MAX_CACHE_DURATION, so
+ * it does not expire (10.3). */
+static void mupf23_gone_cached(int bv) {
+  mupf23_gone_first(bv, MOQFETCH_EOR_GONE);
+  CHECK(mupf23_gone_read(MOQFETCH_EOR_GONE));
+  wired_moqt_tick(&mtst_hub, 1000000);
+  mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+  CHECK(mupf_n_up(SESS_A) == 1);
+  CHECK(mupf23_gone_read(MOQFETCH_EOR_GONE));
+}
+
+static void test_moqtrun_upfetch_d23_gone_cached(void) {
+  mupf23_gone_cached(MOQVER_D23);
+  mupf23_gone_cached(MOQVER_D22);
+}
+
+/* 10.3: with MAX_CACHE_DURATION 100 the range kept at 1000 answers Gone
+ * until 1099; at 1100 it is Unknown again and goes upstream. */
+static void test_moqtrun_upfetch_d23_gone_expires(void) {
+  moqfetch_req m = {0};
+  mupf_init_v(MOQVER_D23);
+  moqtrun_pubst_track(&mtst_hub, mtst_hub.cache_tag_next)->max_cache_ms = 100;
+  wired_moqt_tick(&mtst_hub, 1000);
+  mupf_vers(MOQVER_D23);
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+  i64 sid = mupf_up(SESS_A, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_eor(MOQFETCH_EOR_GONE, 2, MOQCACHE_OBJ_ID_MAX);
+  mupf_send(1);
+  mupf23_up_ok(SESS_A, sid, 0, 0, 0, wired_span_of(0, 0));
+  wired_moqt_tick(&mtst_hub, 1099);
+  mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+  CHECK(mupf_n_up(SESS_A) == 1 && mupf23_gone_read(MOQFETCH_EOR_GONE));
+  wired_moqt_tick(&mtst_hub, 1100);
+  mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+  CHECK(mupf_n_up(SESS_A) == 2);
+}
+
+/* 7.1: "A relay does not cache Unknown or timed out ranges" -- the next
+ * FETCH of them goes upstream again. */
+static void test_moqtrun_upfetch_d23_gone_only(void) {
+  static const u64 eors[] = {MOQFETCH_EOR_UNKNOWN, MOQFETCH_EOR_TIMED_OUT};
+  for (usz i = 0; i < 2; i++) {
+    mupf23_gone_first(MOQVER_D23, eors[i]);
+    CHECK(mupf23_gone_read(eors[i]));
+    mupf_fetch(mupf_rl(2, 0, 3, 0), 0);
+    CHECK(mupf_n_up(SESS_A) == 2);
+  }
+}
+
+/* A FETCH {1, 0}..{3, 0} over the cached Gone group 2: only group 1 goes
+ * upstream (the span stops where the Gone range starts), then Gone from
+ * the hub, then the cached {3, 0}. */
+static void test_moqtrun_upfetch_d23_gone_partial(void) {
+  moqfetch_req m = {0};
+  i64          sid;
+  mupf23_gone_first(MOQVER_D23, MOQFETCH_EOR_GONE);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), 0);
+  sid = mupf_up(SESS_A, 1, &m);
+  CHECK(sid >= 0 && m.range.start_group == 1 && m.range.end_group == 1);
+  CHECK(m.range.ek == MOQCTL_REK_GROUP);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(1, 0, 1);
+  mupf_send(1);
+  mupf23_up_ok(SESS_A, sid, 0, 0, 0, wired_span_of(0, 0));
+  CHECK(mupf_read(0) && mf_fin && mf_n == 3 && mf_is_obj(0, 1, 0, 1));
+  CHECK(mf_items[1].flags == MOQFETCH_EOR_GONE && mf_items[1].group == 2);
+  CHECK(mf_is_obj(2, 3, 0, 1));
+}
+
 /* ===== GOAWAY on the hub's upstream FETCH stream (draft-23 9.2) ===== */
 
 /* A (on the draft under test) holds the hub's upstream FETCH; its
@@ -329,4 +433,8 @@ void test_moqtrun_upfetch_d23(void) {
   test_moqtrun_upfetch_d23_markers();
   test_moqtrun_upfetch_d23_eot();
   test_moqtrun_upfetch_d23_leg_fails();
+  test_moqtrun_upfetch_d23_gone_cached();
+  test_moqtrun_upfetch_d23_gone_expires();
+  test_moqtrun_upfetch_d23_gone_only();
+  test_moqtrun_upfetch_d23_gone_partial();
 }

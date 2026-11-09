@@ -14,7 +14,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 263/297、間接 34、未テスト 0。**
+**カバレッジ: テスト済み 264/298、間接 34、未テスト 0。**
 
 
 ## SS8.1 可変長整数
@@ -972,6 +972,16 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
   - note: FETCH_OK を送る前に上流が失敗した FETCH には、REQUEST_ERROR で応答します(SS3.2)。素通しで送っている Object の途中で終わったときだけ、ストリームをリセットします(MQ23-214)。
 - [x] MQ23-275 (SS10.3, SS2.1.2) キャッシュした Does Not Exist の状態は MAX_CACHE_DURATION の後に失効し、その Object は Unknown に戻らなければならない。
   - test: `tests/app/moqtrun_fetch_d23_test.c` — `test_moqtrun_fetch_d23_dne_expires`
+- [x] MQ23-290 (SS7.1, SS10.3, SS3.2.3) リレーが上流の FETCH の応答で受けた Gone の範囲をキャッシュする場合、その Track の MAX_CACHE_DURATION が過ぎるまで、その範囲への後の FETCH や fill には上流に問い合わせず Gone として答え、過ぎた後は Unknown に戻さなければならない。Unknown と Timed-Out の範囲はキャッシュしない。
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_gone_cached`
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_gone_expires`
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_gone_only`
+  - test: `tests/app/moqtrun_upfetch_d23_test.c` — `test_moqtrun_upfetch_d23_gone_partial`
+  - test: `tests/app/moqcache_test.c` — `test_moqcache_gone_partial`
+  - test: `tests/app/moqcache_test.c` — `test_moqcache_gone_whole_group`
+  - test: `tests/app/moqcache_test.c` — `test_moqcache_gone_expires`
+  - test: `tests/app/moqcache_test.c` — `test_moqcache_gone_full`
+  - note: 固定長の表(16 件)に置き、満杯なら最も古い範囲を捨てます。捨てた範囲は Unknown に戻るだけで、誤った答えにはなりません。MAX_CACHE_DURATION がない Track の範囲は失効しません(SS10.3)。Range Filter を付けた FETCH と Descending の FETCH の応答の Gone は、範囲の始まりが曖昧になるのでキャッシュしません。draft-22 の要求者には Unknown として答えます。
 
 ## ハブのリレー: fill fetch ストリーム(FILL_PARAMETERS。draft-20 で新設)
 
@@ -1507,7 +1517,6 @@ moqtail 互換の Track 切り替えの拡張は、draft-23 の要件ではあ�
 
 draft-23 のリレーの範囲内ですが、まだ実装していない項目と、実装に残っている既知の制限です。各行の issue で追っています。
 
-- (SS7.1, SS10.3) Gone の範囲のキャッシュ(MAY)と、その MAX_CACHE_DURATION による失効: [#225](https://github.com/hakkadaikon/wired/issues/225)。上流から受けた Gone の範囲は、キャッシュせずにそのまま伝えます(MQ23-273)。
 - (SS9.5) パイプラインで届いた REQUEST_UPDATE をまとめること(MAY): [#228](https://github.com/hakkadaikon/wired/issues/228)。
 - (SS9.1.7) 応答をキューに入れられなかった REQUEST_UPDATE の枠を戻してしまう: [#223](https://github.com/hakkadaikon/wired/issues/223)。
 - (SS9.2) 上流の FETCH のストリームで GOAWAY を受けたときの FETCH の送り直し: [#239](https://github.com/hakkadaikon/wired/issues/239)。

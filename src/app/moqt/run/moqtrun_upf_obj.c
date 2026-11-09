@@ -127,6 +127,7 @@ static int moqtrun_upf_relay_item(
   if (!moqtrun_upf_valid(f, moqtrun_upf_loc(o))) {
     return 0;
   }
+  moqtrun_cache_gone(hub, f, o);
   return moqtrun_upf_shown(f, o) ? moqtrun_upf_write(hub, f, o, pre)
                                  : moqtrun_upf_skip(hub, f, o, pre);
 }

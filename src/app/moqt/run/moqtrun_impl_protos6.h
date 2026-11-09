@@ -176,6 +176,8 @@ void moqtrun_cache_obj(
     wired_moqtrun_track* t,
     u64                  group,
     const moqdata_obj*   o);
+void moqtrun_cache_gone(
+    wired_moqt_hub* hub, const wired_moqtrun_fetch* f, const moqfetch_obj* o);
 int moqtrun_past_track_end(const wired_moqtrun_track* t, moqctl_loc l);
 int moqtrun_past_group_end(const wired_moqtrun_track* t, moqctl_loc l);
 int moqtrun_obj_malformed(const wired_moqtrun_track* t, moqctl_loc l);
