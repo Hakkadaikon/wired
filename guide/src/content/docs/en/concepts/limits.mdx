@@ -21,7 +21,7 @@ override with `-D` at build time).
 | New WebTransport sessions per connection per second | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | Client-opened WT bidi streams per connection | 24 (`-D` overridable) | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
 | Client-opened WT uni streams per connection | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
-| Server-opened WT streams sending at once, per connection | 16 | `SRVRUN_WT_SEND_SLOTS` |
+| Server-opened WT streams sending at once, per connection | 40 | `SRVRUN_WT_SEND_SLOTS` |
 | Receive window of one WT stream | 49152 bytes | `WIRED_SRVLOOP_WT_BUF_CAP` |
 
 ## HTTP/3 requests

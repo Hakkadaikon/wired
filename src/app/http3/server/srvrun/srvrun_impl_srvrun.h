@@ -325,9 +325,15 @@ typedef struct {
  * ACK-delayed stragglers held more than the 3 remaining slots and the
  * overflow opens failed, silently losing whole messages. The QPACK encoder
  * and decoder streams (RFC 9204 4.2) each hold a slot for the connection's
- * whole life too. 3 voice + 2 QPACK + 4 senders x ~3 ACK-delayed messages
- * in flight = 17 (same fixed-slot policy as resp[]). */
-#define SRVRUN_WT_SEND_SLOTS 17
+ * whole life too. MoQT draft-23 also gives every request (SUBSCRIBE,
+ * PUBLISH, ...) its own bidi stream whose reply side holds a slot for the
+ * request's life: 8 + 3 per other participant, so 17 in a room of 4.
+ * Without those, a 4-way screen share starved both the relay opens and the
+ * PUBLISH replies (#244). 2 QPACK + 17 requests + 3 voice + 3 screen
+ * senders x 2 Groups overlapping at a switch + 4 senders x ~3 ACK-delayed
+ * messages in flight = 40 (same fixed-slot policy as resp[]); a 60 s
+ * 4-way share with voice, chat and 1% loss peaked at 27. */
+#define SRVRUN_WT_SEND_SLOTS 40
 
 /* Outbound broadcast DATAGRAMs (RFC 9221 5) one connection holds between
  * steps (dg_pending_buf). Same depth as one wired_srvinbox_ring (4), the

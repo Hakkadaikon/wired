@@ -19,7 +19,7 @@ wired が内部に持つ表（コネクションやストリームの管理表�
 | コネクションあたり 1 秒間に開ける WebTransport セッション | 10 | `SRVRUN_MAX_WT_SESSIONS_PER_WINDOW` |
 | コネクションあたりの、クライアントが開いた WT 双方向ストリーム | 24（`-D` で上書き可） | `WIRED_SRVLOOP_MAX_WT_STREAMS` |
 | コネクションあたりの、クライアントが開いた WT 単方向ストリーム | 6 | `WIRED_SRVLOOP_MAX_WT_UNI_STREAMS` |
-| コネクションあたり同時に送信中の、サーバーが開いた WT ストリーム | 16 | `SRVRUN_WT_SEND_SLOTS` |
+| コネクションあたり同時に送信中の、サーバーが開いた WT ストリーム | 40 | `SRVRUN_WT_SEND_SLOTS` |
 | WT ストリーム 1 本の受信ウィンドウ | 49152 バイト | `WIRED_SRVLOOP_WT_BUF_CAP` |
 
 ## HTTP/3 のリクエスト
