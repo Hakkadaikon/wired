@@ -44,7 +44,7 @@ static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
  * srvrun_grant_streams raises from the first time it fires) -- 0
  * (unset), including when the test harness's own cfg carries no id at all,
  * falls back to the same built-in default the transport parameter itself
- * uses (stp_build_server_lim, server_tp.c). */
+ * uses (stp_build_server_ret, server_tp.c). */
 u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
   u64 configured = ctx->cfg->id ? ctx->cfg->id->max_streams_bidi : 0;
   return wired_srvloop_stream_limit(configured);

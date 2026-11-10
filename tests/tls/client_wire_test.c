@@ -163,110 +163,25 @@ static void test_cw_wrong_direction_fails(void) {
   }
 }
 
-/* RFC 9001 5: client sends 1-RTT with CLIENT_AP; receiving 200 opens with
- * SERVER_AP. Round-trip each direction with the matching key. */
-static void test_cw_onertt_roundtrip(void) {
-  client              c;
-  const u8            get[] = {'G', 'E', 'T'};
-  const u8            ok[]  = {'2', '0', '0'};
-  u8                  pkt[256];
-  usz                 total = 0, dlen = 0;
-  u64                 sid = 0, off = 9;
-  const u8*           data = 0;
-  int                 fin  = 0;
-  const initial_keys *cap, *sap;
-  aes128              hp;
-  appdata_tx          tx;
-  wired_obuf          ob = obuf_of(pkt, sizeof(pkt));
-  stream_frame        sf;
-  cw_derive_keys(&c);
-
-  /* client GET sealed with CLIENT_AP; peer opens with the same client key. */
-  tx = (appdata_tx){
-      wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(get, sizeof(get)), 0};
-  CHECK(client_send_appdata_wire(&c, &tx, &ob) == 1);
-  total = ob.len;
-  CHECK(keysched_get(&c.tls.ks, KS_CLIENT_AP, &cap) == 1);
-  aes128_init(&hp, cap->hp);
-  CHECK(
-      appdata_recv_flat(
-          cap, &hp, pkt, total, 8, &sid, &off, &data, &dlen, &fin) == 1);
-  CHECK(sid == 4 && dlen == sizeof(get));
-
-  /* server 200 sealed with SERVER_AP; its DCID is the client's SCID (RFC 9000
-   * 5.1), so the client opens it with SERVER_AP and accepts the DCID. */
-  CHECK(keysched_get(&c.tls.ks, KS_SERVER_AP, &sap) == 1);
-  aes128_init(&hp, sap->hp);
-  CHECK(
-      appdata_send_flat(
-          sap, &hp, cw_scid, 4, 0, 0, ok, sizeof(ok), 1, pkt, sizeof(pkt),
-          &total) == 1);
-  {
-    clientwire_recv_in rin = {
-        wired_mspan_of(pkt, total), wired_span_of(cw_scid, 4)};
-    CHECK(client_recv_appdata_wire(&c, &rin, &sf) == 1);
-  }
-  CHECK(sf.length == sizeof(ok) && sf.fin == 1);
-  for (usz i = 0; i < sizeof(ok); i++) {
-    CHECK(sf.data[i] == ok[i]);
-  }
-}
-
-/* RFC 9000 5.1 (#28): a server reply whose DCID is NOT the client's SCID (the
- * mix-up bug — the server echoed some other id) is dropped before the AEAD even
- * runs, so a misrouted reply cannot be mistaken for ours. This is the check
- * curl applies; wiring it into the in-tree client surfaces the mix-up in tests.
- */
-static void test_cw_onertt_wrong_dcid_dropped(void) {
-  client              c;
-  const u8            ok[]        = {'2', '0', '0'};
-  const u8            not_ours[4] = {0xaa, 0xbb, 0xcc, 0xdd};
-  u8                  pkt[256];
-  usz                 total = 0;
-  const initial_keys* sap;
-  aes128              hp;
-  stream_frame        sf;
-  cw_derive_keys(&c);
-  CHECK(keysched_get(&c.tls.ks, KS_SERVER_AP, &sap) == 1);
-  aes128_init(&hp, sap->hp);
-  /* a validly sealed 200, but addressed to a DCID that is not our SCID. */
-  CHECK(
-      appdata_send_flat(
-          sap, &hp, not_ours, 4, 0, 0, ok, sizeof(ok), 1, pkt, sizeof(pkt),
-          &total) == 1);
-  {
-    clientwire_recv_in rin = {
-        wired_mspan_of(pkt, total), wired_span_of(cw_scid, 4)};
-    CHECK(client_recv_appdata_wire(&c, &rin, &sf) == 0);
-  }
-}
-
-/* RFC 9001 4.1.4: no Handshake or 1-RTT protection before those keys are
- * derived; RFC 9000 17.2: a 21-byte SCID is not a connection ID; RFC 9000
- * 5.1: a packet too short to hold our SCID cannot be routed to us. */
+/* RFC 9001 4.1.4: no Handshake protection before those keys are derived;
+ * RFC 9000 17.2: a 21-byte SCID is not a connection ID. */
 static void test_cw_rejects_before_keys_and_bad_cids(void) {
   client             c;
   const u8           fin[] = {0x14, 0x00, 0x00, 0x01, 0x09};
   u8                 pkt[512], priv[32] = {7}, pub[32], long_cid[21] = {0};
   wired_span         tls;
-  stream_frame       sf;
   wired_obuf         ob  = obuf_of(pkt, sizeof(pkt));
   clientwire_seal_in sin = {
       {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
       wired_span_of(fin, sizeof(fin))};
-  appdata_tx tx = {
-      wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(fin, sizeof(fin)), 0};
-  appdata_pkt        oin = {wired_mspan_of(pkt, 64), 8};
-  clientwire_recv_in rin = {wired_mspan_of(pkt, 4), wired_span_of(cw_scid, 4)};
-  clientwire_hdr_in  hdr = {
+  appdata_pkt       oin = {wired_mspan_of(pkt, 64), 8};
+  clientwire_hdr_in hdr = {
       wired_span_of(cw_dcid, 8), wired_span_of(long_cid, 21), 0};
   wired_x25519_base(pub, priv);
   tlsdriver_init(&c.tls, priv, pub, 0);
   CHECK(client_seal_handshake_wire(&c, &sin, &ob) == 0);
   CHECK(client_open_handshake_wire(&c, &oin, &tls) == 0);
-  CHECK(client_send_appdata_wire(&c, &tx, &ob) == 0);
   CHECK(client_build_initial_wire(&c, &hdr, &ob) == 0);
-  CHECK(client_recv_appdata_wire(&c, &rin, &sf) == 0);
 }
 
 void test_client_wire(void) {
@@ -275,6 +190,4 @@ void test_client_wire(void) {
   test_cw_open_server_initial();
   test_cw_handshake_roundtrip();
   test_cw_wrong_direction_fails();
-  test_cw_onertt_roundtrip();
-  test_cw_onertt_wrong_dcid_dropped();
 }

@@ -38,7 +38,7 @@ typedef struct {
   u8        my_pub[ECDHE_LEN];
   u8        shared[ECDHE_LEN];
   /* RFC 8446 4.2.7 NamedGroup negotiated for this handshake's key_share;
-   * GROUP_X25519 unless tlsdriver_set_group selects otherwise. */
+   * GROUP_X25519 (set by tlsdriver_init). */
   u16       group;
   int       hs_ready; /* 1 once the handshake secret is derived */
   const u8* sni;      /* ClientHello server_name, view (caller-owned) */
@@ -82,14 +82,6 @@ void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len);
  * 0 if scid is longer than 20 bytes. */
 int tlsdriver_set_iscid(tlsdriver* d, wired_span scid);
 
-/* RFC 8446 4.2.7: select the NamedGroup for this handshake's key_share
- * (GROUP_X25519 or GROUP_SECP256R1). tlsdriver_init defaults
- * to GROUP_X25519; call this right after init, before building or
- * receiving any handshake message, to use secp256r1 instead. my_priv/my_pub
- * passed to init must already hold the matching key pair (32-byte x25519
- * scalar/point, or 32-byte P-256 scalar + 65-byte SEC1 uncompressed point). */
-void tlsdriver_set_group(tlsdriver* d, u16 group);
-
 /* Build the raw ClientHello bytes (zero random, our key_share, the configured
  * SNI) into out (cap bytes). Returns the length, 0 if it does not fit. */
 usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap);
@@ -111,9 +103,5 @@ int tlsdriver_shared_secret(const tlsdriver* d, const u8** shared);
 
 /* 1 once the handshake secret has been derived. */
 int tlsdriver_handshake_secret_ready(const tlsdriver* d);
-
-/* RFC 9000 7.5: the transport error code from the most recent
- * tlsdriver_recv_crypto failure, 0 if none. */
-u64 tlsdriver_last_error(const tlsdriver* d);
 
 #endif

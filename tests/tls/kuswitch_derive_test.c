@@ -137,43 +137,30 @@ void test_kuswitch_derive_suite_v2_labels(void) {
  * immediately-prior generation ready at once (twogen.c), so a Key Update
  * never needs to generate keys inline while processing a packet -- the next
  * generation's keys are supplied to kuswitch_rotate up front, and the prior
- * generation stays available via kuswitch_key_for_phase until
- * kuswitch_discard_old runs. A phase bit naming a generation older than the
- * retained one (or before any rotation happened) is refused, not
- * regenerated on demand. */
+ * generation stays in old (recv_onertt's candidate list reads cur and old)
+ * until kuswitch_discard_old runs. */
 void test_kuswitch_twogen(void) {
   initial_keys gen0 = {0}, gen1 = {0}, gen2 = {0};
   gen0.key[0] = 0xA0;
   gen1.key[0] = 0xA1;
   gen2.key[0] = 0xA2;
 
-  kuswitch_state      st;
-  const initial_keys* got;
+  kuswitch_state st;
   kuswitch_init(&st, &gen0);
-  CHECK(kuswitch_key_for_phase(&st, 0, &got) == 1);
-  CHECK(got->key[0] == 0xA0);
-  /* generation 1 (odd phase bit) not reached yet: refused, not fabricated */
-  CHECK(kuswitch_key_for_phase(&st, 1, &got) == 0);
+  CHECK(st.generation == 0 && st.cur.key[0] == 0xA0 && !st.have_old);
 
   kuswitch_rotate(&st, &gen1);
-  /* current (gen 1, phase bit 1) available immediately, no key generation
-   * needed during this lookup */
-  CHECK(kuswitch_key_for_phase(&st, 1, &got) == 1);
-  CHECK(got->key[0] == 0xA1);
-  /* old (gen 0, phase bit 0) still retained for in-flight packets */
-  CHECK(kuswitch_key_for_phase(&st, 0, &got) == 1);
-  CHECK(got->key[0] == 0xA0);
+  /* current (gen 1) available immediately; gen 0 retained for in-flight
+   * packets */
+  CHECK(st.generation == 1 && st.cur.key[0] == 0xA1);
+  CHECK(st.have_old && st.old.key[0] == 0xA0);
 
   kuswitch_rotate(&st, &gen2);
-  /* rotating again evicts gen 0 entirely: only cur (gen2) and old (gen1)
-   * remain, gen0's now-stale phase bit (0) reads as gen2's bit (also 0) */
-  CHECK(kuswitch_key_for_phase(&st, 0, &got) == 1);
-  CHECK(got->key[0] == 0xA2);
+  /* rotating again evicts gen 0 entirely: only cur (gen2) and old (gen1) */
+  CHECK(st.cur.key[0] == 0xA2 && st.old.key[0] == 0xA1);
 
   kuswitch_discard_old(&st);
-  /* after the retention period, the old generation is refused, not
-   * regenerated */
-  CHECK(kuswitch_key_for_phase(&st, 1, &got) == 0);
+  CHECK(!st.have_old);
   /* RFC 9001 6.5: a discarded key is gone from memory too, not just
    * unreachable -- every byte of the old generation reads zero */
   {

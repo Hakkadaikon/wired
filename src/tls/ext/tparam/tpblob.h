@@ -29,11 +29,6 @@ struct preferred_address {
   u8  reset_token[16];
 };
 
-/* Encode preferred_address as TLV (id 0x0d). Returns bytes written, 0 on
- * overflow or cid_len > 20. */
-usz tparam_put_preferred_address(
-    u8* buf, usz cap, const struct preferred_address* pa);
-
 /* Decode a preferred_address TLV at buf (n readable) into *pa. Returns bytes
  * consumed, 0 if malformed / wrong id / cid_len > 20. */
 usz tparam_get_preferred_address(

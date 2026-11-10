@@ -6,17 +6,12 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 /* RFC 8446 4.4.4 / RFC 9001 4.1.2: server-side verification of the client's
- * Finished. Parses the received client Finished handshake message and checks
- * its verify_data against the value recomputed from the client handshake
- * traffic secret and the transcript hash up to (but not including) the client
- * Finished. Returns 1 on a match, 0 on any malformed message or mismatch. */
-int srvfin_verify_client_finished(
-    wired_span client_finished_msg,
-    const u8   client_hs_traffic_secret[HKDF_PRK],
-    const u8   transcript_hash[SHA256_DIGEST]);
-
-/* Same as srvfin_verify_client_finished under suite's hash: the secret,
- * the transcript hash and the expected verify_data are Hash.length bytes. */
+ * Finished under suite's hash. Parses the received client Finished handshake
+ * message and checks its verify_data against the value recomputed from the
+ * client handshake traffic secret and the transcript hash up to (but not
+ * including) the client Finished; the secret, the transcript hash and the
+ * expected verify_data are Hash.length bytes. Returns 1 on a match, 0 on any
+ * malformed message or mismatch. */
 int srvfin_verify_client_finished_suite(
     u16        suite,
     wired_span client_finished_msg,

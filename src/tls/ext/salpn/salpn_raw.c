@@ -19,10 +19,6 @@ static const char* salpn_raw_find(const char* list, wired_span nm) {
   return 0;
 }
 
-int salpn_raw_list_has(const char* list, const u8* name, usz name_len) {
-  return salpn_raw_find(list, wired_span_of(name, name_len)) != 0;
-}
-
 /* One protocol class this server speaks: h3, hq-interop, configured raw. */
 typedef int (*salpn_raw_match)(wired_span nm, const char* raw);
 

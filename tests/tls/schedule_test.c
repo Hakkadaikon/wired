@@ -131,8 +131,8 @@ static void test_schedule_v2_labels(void) {
 
 /* RFC 8446 7.1: Derive-Secret reports an HKDF-Expand-Label failure (a
  * label past the 64-byte wire limit) instead of leaving out uninitialized
- * -- the result is 0 and out is all zero, and tls_exporter carries that 0
- * through rather than exporting from garbage. */
+ * -- the result is 0 and out is all zero, and tls_exporter_suite carries
+ * that 0 through rather than exporting from garbage. */
 static void test_tls_derive_secret_propagates_expand_failure(void) {
   u8               secret[HKDF_PRK], out[HKDF_PRK], okm[8];
   u8               label[65];
@@ -156,8 +156,8 @@ static void test_tls_derive_secret_propagates_expand_failure(void) {
     CHECK(out[i] == 0);
   }
   CHECK(
-      tls_exporter(
-          secret, wired_span_of(label, sizeof(label)), wired_span_of(0, 0),
+      tls_exporter_suite(
+          0, secret, wired_span_of(label, sizeof(label)), wired_span_of(0, 0),
           wired_mspan_of(okm, sizeof(okm))) == 0);
 }
 
@@ -175,18 +175,18 @@ static void test_exporter_distinct_labels_independent_output(void) {
   }
 
   CHECK(
-      tls_exporter(
-          secret, wired_span_of((const u8*)label_a, 7),
+      tls_exporter_suite(
+          0, secret, wired_span_of((const u8*)label_a, 7),
           wired_span_of(ctx1, sizeof(ctx1)),
           wired_mspan_of(okm_a, sizeof(okm_a))) == 1);
   CHECK(
-      tls_exporter(
-          secret, wired_span_of((const u8*)label_b, 7),
+      tls_exporter_suite(
+          0, secret, wired_span_of((const u8*)label_b, 7),
           wired_span_of(ctx1, sizeof(ctx1)),
           wired_mspan_of(okm_b, sizeof(okm_b))) == 1);
   CHECK(
-      tls_exporter(
-          secret, wired_span_of((const u8*)label_a, 7),
+      tls_exporter_suite(
+          0, secret, wired_span_of((const u8*)label_a, 7),
           wired_span_of(ctx2, sizeof(ctx2)),
           wired_mspan_of(okm_c, sizeof(okm_c))) == 1);
 

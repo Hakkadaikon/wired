@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
 
-以下の 102 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
+以下の 84 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
 
 guide のスニペットや例はどれもこれらを含まない。「fuzzed」と書いた 3 つは、ファズハーネスにも組み込んでいる。
 
@@ -47,17 +47,7 @@ guide のスニペットや例はどれもこれらを含まない。「fuzzed�
 - `crypto/pki/cert/tbscert/`: `version_serial.c`
 - `crypto/pki/encoding/x509/`: `keyid.c`
 - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
-- `tls/handshake/core/handshake_drive/`: `retry_drive.c`, `vn_drive.c`
-- `tls/handshake/core/hrr/`: `hrr_group.c`
-- `tls/handshake/core/tls/`: `hsdone.c`, `keydiscard.c`,
-  `keyupdate_reject.c`, `transcript_stage.c`, `zerortt_reject.c`
-- `tls/handshake/flight/earlydrive/`: `earlydata.c`
-- `tls/handshake/roles/client/`: `client.c`
 - `tls/handshake/roles/server/`: `serverio.c`
-- `tls/handshake/roles/sflight/`: `encext.c`
-- `tls/keys/keyupdate/`: `initiate.c`, `keyupdate.c`, `oldkey.c`
-- `tls/keys/kudrive/`: `discard_timing.c`, `recv_phase.c`, `trigger.c`
-- `tls/keys/kuswitch/`: `phasebit.c`
 - `transport/conn/cid/cidxchg/`: `cidxchg.c`
 - `transport/conn/cid/migrate/`: `migrate.c`
 - `transport/conn/cid/path/`: `path.c`, `prefaddr.c`

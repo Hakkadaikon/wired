@@ -16,8 +16,14 @@
 
 #define SRAW_LIST "moqt-22 moqt-19 moqt-18"
 
+/* Offer name as the client's only ALPN entry; 1 if it picks a raw id. */
 static int sraw_has(const char* list, const char* name, usz n) {
-  return salpn_raw_list_has(list, (const u8*)name, n);
+  u8         l[16] = {0, (u8)(n + 1), (u8)n};
+  wired_span tok   = {0, 0};
+  for (usz i = 0; i < n; i++) {
+    l[3 + i] = (u8)name[i];
+  }
+  return salpn_raw_pick(l, n + 3, list, &tok) == SALPN_RAW;
 }
 
 /* T-A1: exact, case-sensitive membership; prefixes/extensions, case

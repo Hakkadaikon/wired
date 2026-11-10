@@ -132,7 +132,7 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
   CHECK(crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
 
   CHECK(tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
-  CHECK(tlsdriver_last_error(&d) == EC_CRYPTO_BUFFER_EXCEEDED);
+  CHECK(d.last_error == EC_CRYPTO_BUFFER_EXCEEDED);
 }
 
 /* RFC 7748 6.1 / RFC 8446 7.4.2: a ServerHello whose x25519 share is the

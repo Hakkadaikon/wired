@@ -65,14 +65,4 @@ int tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig);
 /** RFC 8446 4.2.3: the ed25519 SignatureScheme code point. */
 #define TLS_SCHEME_ED25519 0x0807
 
-/** Verify a server's CertificateVerify Ed25519 signature (RFC 8446 4.4.3).
- * The signed content is 64 octets of 0x20, the context string "TLS 1.3,
- * server CertificateVerify", a 0x00 separator, then the transcript hash.
- * @param sig the signature from the CertificateVerify message
- * @param transcript_hash the handshake transcript hash
- * @param pubkey the server's Ed25519 public key (from its certificate)
- * @return 1 if the signature verifies. */
-int tls_certverify_ed25519(
-    wired_span sig, const u8 transcript_hash[32], const u8 pubkey[32]);
-
 #endif

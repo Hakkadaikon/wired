@@ -25,20 +25,6 @@ int tparam_check_initial_scid(wired_span got, wired_span observed) {
   return tparam_cid_match(got, observed);
 }
 
-int tparam_check_original_dcid(wired_span got, wired_span sent_dcid) {
-  return tparam_cid_match(got, sent_dcid);
-}
-
-int tparam_check_retry_scid(const tparam_retry_scid_in* in) {
-  if (in->did_retry != in->has_param) {
-    return 0; /* present iff a Retry was processed */
-  }
-  if (!in->did_retry) {
-    return 1; /* both absent: nothing to match */
-  }
-  return tparam_cid_match(in->got, in->retry_scid);
-}
-
 /* RFC 9000 18.2 range-constrained parameters: id, inclusive minimum,
  * inclusive maximum (U64_MAX means unbounded above). */
 typedef struct {

@@ -11,9 +11,7 @@ void tlsdriver_init(
   /* RFC 7748 x25519's key pair is 32 bytes each way, and that is the
    * contract every existing caller passes -- only copy that much here.
    * Copying ECDHE_LEN (65, sized for P-256's wider public key) would
-   * read past a caller's 32-byte array. A P-256 handshake sets group via
-   * tlsdriver_set_group and writes its own (32-byte priv, 65-byte SEC1
-   * pub) pair into d->my_priv/d->my_pub directly afterward. */
+   * read past a caller's 32-byte array. */
   for (i = 0; i < 32; i++) {
     d->my_priv[i] = my_priv[i];
     d->my_pub[i]  = my_pub[i];
@@ -39,8 +37,6 @@ void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len) {
   d->sni     = sni;
   d->sni_len = sni_len;
 }
-
-void tlsdriver_set_group(tlsdriver* d, u16 group) { d->group = group; }
 
 int tlsdriver_set_iscid(tlsdriver* d, wired_span scid) {
   wired_obuf ob = obuf_of(d->tp, sizeof d->tp);

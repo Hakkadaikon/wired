@@ -173,7 +173,6 @@ static void test_fullhs_e2e(void) {
   /* HANDSHAKE_DONE confirms and discards the Handshake keys */
   CHECK(keyset_for_level(&cltls.keys, LEVEL_HANDSHAKE, &k) == 1);
   CHECK(fullhs_confirmed(&cl) == 1);
-  CHECK(fullhs_is_confirmed(&cl) == 1);
   CHECK(keyset_for_level(&cltls.keys, LEVEL_HANDSHAKE, &k) == 0);
 }
 

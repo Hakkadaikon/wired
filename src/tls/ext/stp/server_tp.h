@@ -4,11 +4,6 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 18.2. Build the server's transport parameters into out->p
- * (out->cap bytes). original_dcid is the DCID of the client's first Initial
- * (RFC 9000 7.3); initial_scid is the server's source connection id. On
- * success writes the TLV sequence and sets out->len; returns 1. Returns 0 if
- * it does not fit. */
 /** Built-in initial_max_streams_bidi default (a zero stp_limits field
  * falls back to this) -- exposed so callers that track the advertised limit
  * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
@@ -108,28 +103,22 @@ u64 stp_idle_timeout_ms(const stp_limits* lim);
  * @param out receives STP_REMEMBERED_N values */
 void stp_remembered(const stp_limits* lim, u64 out[STP_REMEMBERED_N]);
 
-int stp_build_server(
-    wired_span original_dcid, wired_span initial_scid, wired_obuf* out);
-
-/* As stp_build_server, with the tunable limits overriding defaults
- * (lim = 0 keeps every default). */
-/* Same as stp_build_server_lim plus retry_source_connection_id
- * (RFC 9000 7.3): emitted only when rscid is non-empty (a Retry actually
- * preceded the handshake -- the peer treats an unexpected one as a
- * TRANSPORT_PARAMETER_ERROR). sreset_token is the 16-byte
- * stateless_reset_token (RFC 9000 10.3.1/18.2) for the handshake SCID;
- * empty omits the TP (a server that never sends resets advertises none). */
+/* RFC 9000 18.2. Build the server's transport parameters into out->p
+ * (out->cap bytes). original_dcid is the DCID of the client's first Initial
+ * (RFC 9000 7.3); initial_scid is the server's source connection id; lim
+ * overrides the defaults (lim = 0 keeps every default).
+ * retry_source_connection_id (RFC 9000 7.3) is emitted only when rscid is
+ * non-empty (a Retry actually preceded the handshake -- the peer treats an
+ * unexpected one as a TRANSPORT_PARAMETER_ERROR). sreset_token is the
+ * 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for the handshake
+ * SCID; empty omits the TP (a server that never sends resets advertises
+ * none). On success writes the TLV sequence, sets out->len and returns 1;
+ * returns 0 if it does not fit. */
 int stp_build_server_ret(
     wired_span        original_dcid,
     wired_span        initial_scid,
     wired_span        rscid,
     wired_span        sreset_token,
-    const stp_limits* lim,
-    wired_obuf*       out);
-
-int stp_build_server_lim(
-    wired_span        original_dcid,
-    wired_span        initial_scid,
     const stp_limits* lim,
     wired_obuf*       out);
 

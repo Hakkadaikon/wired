@@ -27,12 +27,3 @@ int srvfin_verify_client_finished_suite(
       suite, client_hs_traffic_secret, transcript_hash,
       client_finished_msg.p + off);
 }
-
-int srvfin_verify_client_finished(
-    wired_span client_finished_msg,
-    const u8   client_hs_traffic_secret[HKDF_PRK],
-    const u8   transcript_hash[SHA256_DIGEST]) {
-  return srvfin_verify_client_finished_suite(
-      TLS_AES_128_GCM_SHA256, client_finished_msg, client_hs_traffic_secret,
-      transcript_hash);
-}

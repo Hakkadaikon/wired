@@ -21,7 +21,6 @@
 #include "transport/recovery/congestion/cwndctl/cwndctl.c"
 #include "tls/handshake/core/hrr/hrr_build.c"
 #include "tls/handshake/core/hrr/hrr_detect.c"
-#include "tls/handshake/core/hrr/hrr_group.c"
 #include "tls/ext/legacy/legacy_fields.c"
 #include "transport/stream/data/maxstreams/maxstreams.c"
 #include "transport/io/socket/poll/deadline.c"
@@ -39,7 +38,6 @@
 #include "tls/ext/tlsext/preshared.c"
 #include "tls/ext/tlsext/earlydata.c"
 #include "tls/handshake/roles/shbuild/shbuild.c"
-#include "tls/handshake/roles/sflight/encext.c"
 #include "tls/handshake/roles/sflight/certmsg.c"
 #include "tls/handshake/roles/sflight/certverify_build.c"
 #include "tls/handshake/roles/sflight/finished_build.c"
@@ -70,8 +68,6 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_rx.c"
 #include "transport/conn/pnspace/crypto_stream/ecdhe.c"
 #include "app/http3/core/h3run/settings_seq.c"
-#include "tls/handshake/core/handshake_drive/retry_drive.c"
-#include "tls/handshake/core/handshake_drive/vn_drive.c"
 #include "transport/packet/protect/protect_suite/aead_suite.c"
 #include "transport/packet/protect/protect_suite/hp_suite.c"
 #include "tls/keys/schedule_drive/keyschedule.c"
@@ -136,7 +132,6 @@
 #include "crypto/asymmetric/bignum/modexp.c"
 #include "crypto/asymmetric/bignum/bignum.c"
 #include "tls/handshake/core/tls/hs_message.c"
-#include "tls/handshake/core/tls/transcript_stage.c"
 #include "tls/handshake/core/tls/transcript.c"
 #include "tls/handshake/core/tls/ext_block.c"
 #include "tls/handshake/core/tls/ext_algs.c"
@@ -304,11 +299,8 @@
 #include "transport/io/socket/io/udp_recvmmsg.c"
 #include "tls/keys/keyupdate/aeadlimit.c"
 #include "tls/keys/keyupdate/aeadintegrity.c"
-#include "tls/keys/keyupdate/initiate.c"
 #include "tls/keys/keyupdate/keyphase.c"
-#include "tls/keys/keyupdate/keyupdate.c"
 #include "tls/keys/keyupdate/kuderive.c"
-#include "tls/keys/keyupdate/oldkey.c"
 #include "tls/keys/ticket/ticket.c"
 #include "tls/keys/keyring/keyring.c"
 #include "transport/conn/loop/manage/dosmitigate.c"
@@ -398,11 +390,9 @@
 #include "tls/handshake/core/tls/encext_check.c"
 #include "tls/handshake/core/tls/finished.c"
 #include "tls/handshake/core/tls/handshake.c"
-#include "tls/handshake/core/tls/hsdone.c"
 #include "tls/handshake/core/tls/initial.c"
 #include "tls/handshake/core/tls/newsessionticket.c"
 #include "tls/handshake/core/tls/ticketfreshness.c"
-#include "tls/handshake/core/tls/keydiscard.c"
 #include "tls/handshake/core/tls/master.c"
 #include "tls/handshake/core/tls/msgassembly.c"
 #include "tls/handshake/core/tls/retry_tag.c"
@@ -414,7 +404,6 @@
 #include "tls/handshake/core/tls/x25519_clamp.c"
 #include "tls/handshake/core/tls/x25519_fe.c"
 #include "tls/handshake/core/tls/zerortt_params.c"
-#include "tls/handshake/core/tls/zerortt_reject.c"
 #include "tls/ext/tparam/tparam.c"
 #include "tls/ext/tparam/tpblob.c"
 #include "tls/ext/tparam/tpblob_pa.c"
@@ -476,7 +465,6 @@
 #include "crypto/pki/trust/castore/pathvalidate_path.c"
 #include "crypto/pki/trust/castore/pathvalidate_skipcerts.c"
 #include "transport/conn/loop/driver/driver.c"
-#include "tls/handshake/roles/client/client.c"
 #include "tls/handshake/core/sdrv/sdrv.c"
 #include "tls/handshake/core/sdrv/sdrv_certsig.c"
 #include "tls/handshake/core/sdrv/sdrv_ch.c"
@@ -545,7 +533,6 @@
 #include "app/http3/request/h3reqdrive/request_drive_trailer.c"
 #include "app/http3/request/h3cancel/cancel.c"
 #include "tls/keys/kuswitch/derive.c"
-#include "tls/keys/kuswitch/phasebit.c"
 #include "tls/keys/kuswitch/twogen.c"
 #include "app/http3/request/h3reqenc/pseudo_encode.c"
 #include "app/http3/request/h3reqenc/header_encode.c"
@@ -553,9 +540,6 @@
 #include "crypto/pki/cert/tbscert/fields.c"
 #include "crypto/pki/cert/tbscert/version_serial.c"
 #include "crypto/pki/cert/tbscert/sigalg.c"
-#include "tls/keys/kudrive/trigger.c"
-#include "tls/keys/kudrive/recv_phase.c"
-#include "tls/keys/kudrive/discard_timing.c"
 #include "transport/conn/cid/retrydrive/accept.c"
 #include "transport/conn/cid/retrydrive/reconnect.c"
 #include "transport/conn/cid/retrydrive/token.c"
@@ -564,7 +548,6 @@
 #include "transport/version/vndrive/reconnect.c"
 #include "transport/recovery/rtx/sentmeta/record.c"
 #include "transport/io/udp/udpsess/udpsess.c"
-#include "tls/handshake/flight/earlydrive/earlydata.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed_table.c"
 #include "crypto/asymmetric/ecc/p256sign/rfc6979.c"
@@ -797,7 +780,6 @@
 #include "tls/ext/salpn/sni_check.c"
 #include "tls/handshake/core/tls/chguard.c"
 #include "tls/handshake/core/tls/cryptolevel.c"
-#include "tls/handshake/core/tls/keyupdate_reject.c"
 #include "tls/keys/keyupdate/pncheck.c"
 #include "transport/conn/loop/pending1rtt/pending1rtt.c"
 #include "transport/packet/build/pktbuild/paddingelicit.c"
@@ -1122,15 +1104,11 @@
 #include "transport/hp_chacha_test.c"
 #include "transport/hpapply_test.c"
 #include "transport/hpsample_test.c"
-#include "tls/hsdone_test.c"
 #include "transport/idlefloor_test.c"
 #include "transport/inflight_test.c"
-#include "tls/initiate_test.c"
 #include "transport/inittoken_test.c"
 #include "app/insertcount_test.c"
-#include "tls/keydiscard_test.c"
 #include "tls/keyphase_test.c"
-#include "tls/keyupdate_test.c"
 #include "tls/kuderive_test.c"
 #include "transport/largestacked_test.c"
 #include "transport/linkability_test.c"
@@ -1142,7 +1120,6 @@
 #include "transport/migrate_test.c"
 #include "tls/msgassembly_test.c"
 #include "transport/ncid_check_test.c"
-#include "tls/oldkey_test.c"
 #include "transport/pacing_test.c"
 #include "transport/pad_test.c"
 #include "transport/path_test.c"
@@ -1199,7 +1176,6 @@
 #include "tls/zerortt_params_test.c"
 #include "transport/zerortt_policy_test.c"
 #include "transport/zerortt_seen_test.c"
-#include "tls/zerortt_reject_test.c"
 #include "app/priority_test.c"
 #include "app/reuse_test.c"
 #include "tls/sni_test.c"
@@ -1239,7 +1215,6 @@
 #include "tls/ext_algs_test.c"
 #include "tls/ext_block_test.c"
 #include "tls/transcript_test.c"
-#include "tls/transcript_stage_test.c"
 #include "tls/hs_message_test.c"
 #include "crypto/bignum_test.c"
 #include "crypto/modexp_test.c"
@@ -1297,8 +1272,6 @@
 #include "transport/credit_test.c"
 #include "transport/stream_credit_test.c"
 #include "app/h3run_settings_seq_test.c"
-#include "tls/retry_drive_test.c"
-#include "tls/vn_drive_test.c"
 #include "transport/aead_suite_test.c"
 #include "transport/hp_suite_test.c"
 #include "tls/keyschedule_test.c"
@@ -1330,8 +1303,6 @@
 #include "tls/cert_chain_test.c"
 #include "tls/fullhs_chain_test.c"
 #include "tls/tlsdriver_sni_test.c"
-#include "tls/tlsdriver_p256_test.c"
-#include "tls/client_test.c"
 #include "transport/idledrive_test.c"
 #include "transport/idlenego_test.c"
 #include "transport/closesend_test.c"
@@ -1349,7 +1320,6 @@
 #include "transport/initpkt_test.c"
 #include "crypto/ed25519_sign_test.c"
 #include "tls/shbuild_test.c"
-#include "tls/sflight_encext_test.c"
 #include "tls/sflight_certmsg_test.c"
 #include "tls/sflight_certverify_build_test.c"
 #include "tls/sflight_finished_build_test.c"
@@ -1387,7 +1357,6 @@
 #include "transport/cwndctl_test.c"
 #include "tls/hrr_build_test.c"
 #include "tls/hrr_detect_test.c"
-#include "tls/hrr_group_test.c"
 #include "tls/legacy_fields_test.c"
 #include "transport/maxstreams_test.c"
 #include "transport/poll_test.c"
@@ -1418,22 +1387,17 @@
 #include "app/h3reqdrive_check_test.c"
 #include "app/h3cancel_test.c"
 #include "tls/kuswitch_derive_test.c"
-#include "tls/kuswitch_phasebit_test.c"
 #include "app/pseudo_encode_test.c"
 #include "app/header_encode_test.c"
 #include "app/request_headers_test.c"
 #include "crypto/fields_test.c"
 #include "crypto/version_serial_test.c"
 #include "crypto/sigalg_test.c"
-#include "tls/kudrive_trigger_test.c"
-#include "tls/kudrive_recv_phase_test.c"
-#include "tls/kudrive_discard_timing_test.c"
 #include "transport/retrydrive_test.c"
 #include "transport/vndrive_test.c"
 #include "transport/sentmeta_test.c"
 #include "transport/udpsess_test.c"
 #include "tls/keyring_test.c"
-#include "tls/earlydrive_test.c"
 #include "crypto/rfc6979_test.c"
 #include "crypto/p256fixed_test.c"
 #include "crypto/p256sign_test.c"
@@ -1519,7 +1483,6 @@
 #include "tls/idna_test.c"
 #include "tls/sni_check_test.c"
 #include "tls/cryptolevel_test.c"
-#include "tls/keyupdate_reject_test.c"
 #include "tls/pncheck_test.c"
 #include "transport/pending1rtt_test.c"
 #include "transport/paddingelicit_test.c"
@@ -1696,15 +1659,11 @@ int main(void) {
   test_hp_chacha();
   test_hpapply();
   test_hpsample();
-  test_hsdone();
   test_idlefloor();
   test_inflight();
-  test_initiate();
   test_inittoken();
   test_insertcount();
-  test_keydiscard();
   test_keyphase();
-  test_keyupdate();
   test_kuderive();
   test_largestacked();
   test_linkability();
@@ -1716,7 +1675,6 @@ int main(void) {
   test_migrate();
   test_msgassembly();
   test_ncid_check();
-  test_oldkey();
   test_pacing();
   test_pad();
   test_path();
@@ -1776,7 +1734,6 @@ int main(void) {
   test_zerortt_params();
   test_zerortt_policy();
   test_zerortt_seen();
-  test_zerortt_reject();
   test_priority();
   test_reuse();
   test_sni();
@@ -1816,7 +1773,6 @@ int main(void) {
   test_ext_algs();
   test_ext_block();
   test_transcript();
-  test_transcript_stage();
   test_hs_message();
   test_bignum();
   test_modexp();
@@ -1874,8 +1830,6 @@ int main(void) {
   test_credit();
   test_stream_credit();
   test_h3run_settings_seq();
-  test_retry_drive();
-  test_vn_drive();
   test_aead_suite();
   test_hp_suite();
   test_keyschedule();
@@ -1907,8 +1861,6 @@ int main(void) {
   test_cert_chain();
   test_fullhs_chain();
   test_tlsdriver_sni();
-  test_tlsdriver_p256();
-  test_client();
   test_idledrive();
   test_idlenego();
   test_closesend();
@@ -1926,7 +1878,6 @@ int main(void) {
   test_initpkt();
   test_ed25519_sign();
   test_shbuild();
-  test_sflight_encext();
   test_sflight_certmsg();
   test_sflight_certverify_build();
   test_sflight_finished_build();
@@ -1995,7 +1946,6 @@ int main(void) {
   test_cwndctl();
   test_hrr_build();
   test_hrr_detect();
-  test_hrr_group();
   test_legacy_fields();
   test_maxstreams();
   test_poll();
@@ -2035,7 +1985,6 @@ int main(void) {
   test_kuswitch_derive_suite_chacha20_full_key();
   test_kuswitch_derive_suite_aes_matches_plain();
   test_kuswitch_derive_suite_v2_labels();
-  test_kuswitch_phasebit();
   test_kuswitch_twogen();
   test_pseudo_encode();
   test_header_encode();
@@ -2043,15 +1992,11 @@ int main(void) {
   test_fields();
   test_version_serial();
   test_sigalg();
-  test_kudrive_trigger();
-  test_kudrive_recv_phase();
-  test_kudrive_discard_timing();
   test_retrydrive();
   test_vndrive();
   test_sentmeta();
   test_udpsess();
   test_keyring();
-  test_earlydrive();
   test_rfc6979();
   test_p256fixed();
   test_p256sign();
@@ -2143,7 +2088,6 @@ int main(void) {
   test_idna();
   test_sni_check();
   test_cryptolevel();
-  test_keyupdate_reject();
   test_pncheck();
   test_pending1rtt();
   test_paddingelicit();

@@ -117,15 +117,10 @@ static void test_suitehash_finished_binder(void) {
       "965596457085e86632024e7add54a620acbac288a18635c2edd7a565c5c62b36d0e069"
       "f5975e360c83022087b16941db",
       48));
-  CHECK(
-      tls_binder_verify_suite(
-          TLS_AES_256_GCM_SHA384, psk, wired_span_of((const u8*)"trunc", 5),
-          out) == 1);
+  sha384((const u8*)"trunc", 5, th);
+  CHECK(tls_binder_verify_hash(TLS_AES_256_GCM_SHA384, psk, th, out) == 1);
   out[0] ^= 1;
-  CHECK(
-      tls_binder_verify_suite(
-          TLS_AES_256_GCM_SHA384, psk, wired_span_of((const u8*)"trunc", 5),
-          out) == 0);
+  CHECK(tls_binder_verify_hash(TLS_AES_256_GCM_SHA384, psk, th, out) == 0);
 }
 
 static void test_suitehash_early_exporter_ku(void) {

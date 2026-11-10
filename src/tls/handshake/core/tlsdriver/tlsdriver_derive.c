@@ -144,5 +144,3 @@ int tlsdriver_shared_secret(const tlsdriver* d, const u8** shared) {
 }
 
 int tlsdriver_handshake_secret_ready(const tlsdriver* d) { return d->hs_ready; }
-
-u64 tlsdriver_last_error(const tlsdriver* d) { return d->last_error; }

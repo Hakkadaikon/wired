@@ -3,6 +3,13 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/roles/srvfin/verify.h"
 
+/* The production check under TLS_AES_128_GCM_SHA256 (SHA-256). */
+static int srvfint_check_client_finished(
+    wired_span msg, const u8* secret, const u8* th) {
+  return srvfin_verify_client_finished_suite(
+      TLS_AES_128_GCM_SHA256, msg, secret, th);
+}
+
 /* Build a client Finished message the way the client would: verify_data =
  * HMAC(HKDF-Expand-Label(client_hs_secret, "finished"), transcript_hash),
  * wrapped in a handshake header (type 20). The server must accept it and
@@ -26,7 +33,7 @@ void test_srvfin_verify(void) {
 
   /* round-trip: server accepts the genuine Finished */
   CHECK(
-      srvfin_verify_client_finished(wired_span_of(msg, total), secret, th) ==
+      srvfint_check_client_finished(wired_span_of(msg, total), secret, th) ==
       1);
 
   /* tampered verify_data is rejected */
@@ -36,7 +43,7 @@ void test_srvfin_verify(void) {
   }
   bad[off] ^= 0x01;
   CHECK(
-      srvfin_verify_client_finished(wired_span_of(bad, total), secret, th) ==
+      srvfint_check_client_finished(wired_span_of(bad, total), secret, th) ==
       0);
 
   /* a different transcript hash does not verify */
@@ -46,7 +53,7 @@ void test_srvfin_verify(void) {
   }
   th2[0] ^= 0xFF;
   CHECK(
-      srvfin_verify_client_finished(wired_span_of(msg, total), secret, th2) ==
+      srvfint_check_client_finished(wired_span_of(msg, total), secret, th2) ==
       0);
 
   /* wrong handshake type (not Finished) is rejected */
@@ -56,11 +63,11 @@ void test_srvfin_verify(void) {
   }
   wt[0] = HS_CLIENT_HELLO;
   CHECK(
-      srvfin_verify_client_finished(wired_span_of(wt, total), secret, th) == 0);
+      srvfint_check_client_finished(wired_span_of(wt, total), secret, th) == 0);
 
   /* truncated message (body shorter than verify_data) is rejected */
   CHECK(
-      srvfin_verify_client_finished(
+      srvfint_check_client_finished(
           wired_span_of(msg, total - 1), secret, th) == 0);
 
   /* wrong body length: a Finished header claiming 16-byte body */
@@ -71,6 +78,6 @@ void test_srvfin_verify(void) {
   }
   hs_finish(shortmsg, so + 16);
   CHECK(
-      srvfin_verify_client_finished(
+      srvfint_check_client_finished(
           wired_span_of(shortmsg, so + 16), secret, th) == 0);
 }

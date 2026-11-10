@@ -18,10 +18,6 @@ static void binder_key_suite(u16 suite, const u8* psk, u8* out) {
   tls_derive_secret(&in, out);
 }
 
-void tls_binder_key(const u8* psk, u8* out) {
-  binder_key_suite(TLS_AES_128_GCM_SHA256, psk, out);
-}
-
 void tls_binder_compute_hash(
     u16 suite, const u8* psk, const u8* thash, u8* out) {
   u8 binder_key[TLS_HASH_MAX];
@@ -46,19 +42,6 @@ int tls_binder_verify_hash(
   return ct_diffn(want, received, tls_hash_of(suite)->len) == 0;
 }
 
-int tls_binder_verify_suite(
-    u16 suite, const u8* psk, wired_span truncated_ch, const u8* received) {
-  u8 thash[TLS_HASH_MAX];
-  tls_hash_of(suite)->digest(truncated_ch.p, truncated_ch.n, thash);
-  return tls_binder_verify_hash(suite, psk, thash, received);
-}
-
 void tls_binder_compute(const u8* psk, wired_span truncated_ch, u8* out) {
   tls_binder_compute_suite(TLS_AES_128_GCM_SHA256, psk, truncated_ch, out);
-}
-
-int tls_binder_verify(
-    const u8* psk, wired_span truncated_ch, const u8* received) {
-  return tls_binder_verify_suite(
-      TLS_AES_128_GCM_SHA256, psk, truncated_ch, received);
 }

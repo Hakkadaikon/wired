@@ -51,7 +51,3 @@ int fullhs_confirmed(fullhs* h) {
 int fullhs_is_complete(const fullhs* h) {
   return hsdriver_complete(&h->tls->hs);
 }
-
-int fullhs_is_confirmed(const fullhs* h) {
-  return hsdriver_confirmed(&h->tls->hs);
-}

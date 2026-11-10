@@ -1,8 +1,6 @@
 #include "tls/ext/tparam/tpblob_impl.h"
 
 static u16 take_be16(const u8* p);
-static int pa_put_port(wired_mspan v, usz* off, u16 port);
-static usz pa_build_value(u8* v, usz cap, const struct preferred_address* pa);
 static int pa_take_port(wired_span v, usz* off, u16* port);
 static int pa_take_addrs(wired_span v, usz* off, struct preferred_address* pa);
 static int pa_take_cid(wired_span v, usz* off, struct preferred_address* pa);
@@ -14,46 +12,6 @@ static int pa_blob_is_preferred_address(usz r, u64 id);
 /* --- preferred_address --- */
 
 static u16 take_be16(const u8* p) { return (u16)((u16)p[0] << 8 | p[1]); }
-
-/* Append a big-endian 16-bit port at *off. Returns 1 if it fit. */
-static int pa_put_port(wired_mspan v, usz* off, u16 port) {
-  if (*off + 2 > v.n) {
-    return 0;
-  }
-  be_put_be16(v.p + *off, port);
-  *off += 2;
-  return 1;
-}
-
-/* Whole value (sans id/length) into v of cap bytes. Returns its length, 0 on
- * overflow or cid_len > 20. v is sized for the max, so writes always fit. */
-static usz pa_build_value(u8* v, usz cap, const struct preferred_address* pa) {
-  usz         off = 0;
-  u8          cl  = pa->cid_len;
-  wired_mspan mv  = wired_mspan_of(v, cap);
-  int         ok =
-      (cl <= 20) &
-      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv4, 4)) &
-      pa_put_port(mv, &off, pa->ipv4_port) &
-      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->ipv6, 16)) &
-      pa_put_port(mv, &off, pa->ipv6_port) &
-      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(&cl, 1)) &
-      bytes_put(wired_mspan_of(v, cap), &off, wired_span_of(pa->cid, cl)) &
-      bytes_put(
-          wired_mspan_of(v, cap), &off, wired_span_of(pa->reset_token, 16));
-  return ok ? off : 0;
-}
-
-usz tparam_put_preferred_address(
-    u8* buf, usz cap, const struct preferred_address* pa) {
-  u8         v[61]; /* 4+2+16+2+1 + 20 + 16 */
-  usz        vlen = pa_build_value(v, sizeof(v), pa);
-  wired_obuf out  = obuf_of(buf, cap);
-  if (vlen == 0) {
-    return 0;
-  }
-  return tparam_put_blob(&out, TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
-}
 
 /* Read a big-endian 16-bit port at *off into *port. Returns 1 if present. */
 static int pa_take_port(wired_span v, usz* off, u16* port) {

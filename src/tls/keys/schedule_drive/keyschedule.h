@@ -43,7 +43,7 @@ typedef struct {
                                       * 7.1/7.5), derived alongside the
                                       * application traffic secrets on
                                       * reaching stage 2 so
-                                      * tls_exporter can compute
+                                      * tls_exporter_suite can compute
                                       * TLS-Exporter values (e.g.
                                       * EXPORTER-WebTransport) once the
                                       * handshake completes */
@@ -173,7 +173,7 @@ int keysched_server_ap_secret(const keysched* st, const u8** out);
 /**
  * The retained exporter_master_secret (RFC 8446 7.1/7.5), valid once
  * stage 2 is reached (same guard as keysched_get with
- * KS_CLIENT_AP). Feed *out into tls_exporter (exporter.h) to
+ * KS_CLIENT_AP). Feed *out into tls_exporter_suite (exporter.h) to
  * compute a TLS-Exporter value.
  *
  * @param st  schedule state to query

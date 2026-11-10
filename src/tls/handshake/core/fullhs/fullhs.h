@@ -105,7 +105,4 @@ int fullhs_confirmed(fullhs* h);
 /* 1 once both Finished are exchanged and the peer was authenticated. */
 int fullhs_is_complete(const fullhs* h);
 
-/* 1 once the handshake is complete and confirmed. */
-int fullhs_is_confirmed(const fullhs* h);
-
 #endif

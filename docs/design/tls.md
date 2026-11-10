@@ -36,7 +36,6 @@ QUIC の接続の設定は TLS の拡張に入れてハンドシェイクで運�
 | 次の鍵 | 現在のシークレットからラベル `"quic ku"` の `HKDF-Expand-Label` で作る(`kuswitch_next_keys`、暗号スイートを考慮する `kuswitch_next_keys_suite`)。ヘッダー保護の鍵は変えない |
 | 切り替えの合図 | 送信側がショートヘッダーの Key Phase ビットを反転する |
 | サーバーの受信 | 現在の鍵、古い鍵、次の世代の鍵の順に試し、次の世代の鍵で復号できたときだけ切り替える(`onertt_try_any`) |
-| 汎用の接続ランナーの受信 | Key Phase ビットで鍵を選ぶ(`kuswitch_key_for_phase`) |
 | 古い鍵の破棄 | PTO 3 回分保持してから破棄する(`srvrun_ku_discard_stale`)。その間は古い鍵で送られた途中のパケットも復号できる |
 | サーバーからの開始 | 暗号化したパケット数が上限に達したとき(`wired_srvloop_send_onertt`)。前回の更新が確認されるまでは次を始めない |
 

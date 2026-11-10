@@ -18,11 +18,6 @@ void tls_exporter_master_secret_suite(
   tls_derive_secret(&dsi, out);
 }
 
-void tls_exporter_master_secret(
-    const u8* master, const u8* transcript, usz transcript_len, u8* out) {
-  tls_exporter_master_secret_suite(0, master, transcript, transcript_len, out);
-}
-
 /* RFC 8446 7.5: TLS-Exporter(label, context_value, key_length) =
  * HKDF-Expand-Label(Derive-Secret(Secret, label, ""), "exporter",
  * Hash(context_value), key_length), over suite's hash (7.1: every secret
@@ -44,12 +39,4 @@ int tls_exporter_suite(
   h->digest(context.p, context.n, ctx_hash);
   l.ctx = wired_span_of(ctx_hash, h->len);
   return h->expand_label(derived, &l, okm);
-}
-
-int tls_exporter(
-    const u8    secret[HKDF_PRK],
-    wired_span  label,
-    wired_span  context,
-    wired_mspan okm) {
-  return tls_exporter_suite(0, secret, label, context, okm);
 }

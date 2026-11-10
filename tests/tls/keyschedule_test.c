@@ -178,7 +178,7 @@ static void test_keyschedule_psk_differs_from_plain(void) {
 
 /* RFC 8446 7.1: exporter_master_secret becomes available at the same stage
  * (2) as the application traffic secrets, and matches an independent
- * tls_exporter_master_secret computation over the same master secret
+ * tls_exporter_master_secret_suite computation over the same master secret
  * and transcript. */
 static void test_keyschedule_exporter_secret_matches_oneshot(void) {
   u8 ecdhe[32], tr[] = "ClientHello||ServerHello||Finished";
@@ -196,7 +196,7 @@ static void test_keyschedule_exporter_secret_matches_oneshot(void) {
   u8 hs[32], master[32], ref[32];
   tls_handshake_secret(ecdhe, hs);
   tls_master_secret(hs, master);
-  tls_exporter_master_secret(master, tr, sizeof(tr), ref);
+  tls_exporter_master_secret_suite(0, master, tr, sizeof(tr), ref);
   for (usz i = 0; i < 32; i++) {
     CHECK(exp[i] == ref[i]);
   }

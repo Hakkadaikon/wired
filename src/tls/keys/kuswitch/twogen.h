@@ -26,12 +26,6 @@ void kuswitch_init(kuswitch_state* state, const initial_keys* gen0);
  * (retained), and next becomes current; generation increments. */
 void kuswitch_rotate(kuswitch_state* state, const initial_keys* next);
 
-/* RFC 9001 6.3: choose the keys that decrypt a packet carrying recv_phase_bit.
- * Returns 1 with *keys set when a matching generation is available, 0 when the
- * bit asks for an old generation that is not (or no longer) retained. */
-int kuswitch_key_for_phase(
-    const kuswitch_state* state, int recv_phase_bit, const initial_keys** keys);
-
 /* RFC 9001 6.5: drop the retained old key once its retention period ends. */
 void kuswitch_discard_old(kuswitch_state* state);
 

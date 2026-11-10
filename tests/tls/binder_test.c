@@ -9,13 +9,21 @@ static void binder_fill(u8* p, usz n, u8 base) {
   }
 }
 
+/* The production check (sdrv_psk_binder_ok's tls_binder_verify_hash) over
+ * SHA-256 of the truncated ClientHello. */
+static int binder_ok(const u8* psk, wired_span ch, const u8* binder) {
+  u8 th[32];
+  wired_sha256(ch.p, ch.n, th);
+  return tls_binder_verify_hash(TLS_AES_128_GCM_SHA256, psk, th, binder);
+}
+
 static void test_binder_verify_ok(void) {
   u8 psk[32];
   binder_fill(psk, 32, 0x40);
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       binder[32];
   tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
-  CHECK(tls_binder_verify(psk, wired_span_of(ch, sizeof(ch)), binder));
+  CHECK(binder_ok(psk, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_reject_flipped_binder_byte(void) {
@@ -25,7 +33,7 @@ static void test_binder_reject_flipped_binder_byte(void) {
   u8       binder[32];
   tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
   binder[0] ^= 0x01;
-  CHECK(!tls_binder_verify(psk, wired_span_of(ch, sizeof(ch)), binder));
+  CHECK(!binder_ok(psk, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_reject_tampered_transcript(void) {
@@ -35,7 +43,7 @@ static void test_binder_reject_tampered_transcript(void) {
   const u8 ch2[] = "ClientHello-TAMPERED-up-to-identities!";
   u8       binder[32];
   tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
-  CHECK(!tls_binder_verify(psk, wired_span_of(ch2, sizeof(ch2)), binder));
+  CHECK(!binder_ok(psk, wired_span_of(ch2, sizeof(ch2)), binder));
 }
 
 static void test_binder_reject_wrong_psk(void) {
@@ -45,7 +53,7 @@ static void test_binder_reject_wrong_psk(void) {
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       binder[32];
   tls_binder_compute(psk_a, wired_span_of(ch, sizeof(ch)), binder);
-  CHECK(!tls_binder_verify(psk_b, wired_span_of(ch, sizeof(ch)), binder));
+  CHECK(!binder_ok(psk_b, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_deterministic(void) {
@@ -66,10 +74,11 @@ static void test_binder_deterministic(void) {
  * same already-vetted HKDF primitives composed independently in the test,
  * rather than pinning an unverified external hex string). hkdf_extract
  * and hkdf_expand_label are themselves pinned against RFC 5869 Appendix
- * A.1 in tests/crypto/hkdf_test.c; this proves tls_binder_key performs
- * exactly early_secret=HKDF-Extract(0,psk),
- * binder_key=Derive-Secret(early_secret,"res binder","") and nothing else,
- * by recomputing it a second, independent way. */
+ * A.1 in tests/crypto/hkdf_test.c; this proves the binder uses exactly
+ * early_secret=HKDF-Extract(0,psk),
+ * binder_key=Derive-Secret(early_secret,"res binder","") and the Finished
+ * MAC over Hash(truncated ClientHello), by recomputing it a second,
+ * independent way. */
 static void test_binder_key_matches_manual_derivation(void) {
   u8 psk[32];
   binder_fill(psk, 32, 0x55);
@@ -80,11 +89,14 @@ static void test_binder_key_matches_manual_derivation(void) {
   u8 empty_hash[32];
   wired_sha256(zero, 0, empty_hash); /* Transcript-Hash("") */
   hkdf_label l = {"res binder", 10, {empty_hash, 32}};
-  u8         want[32];
-  CHECK(hkdf_expand_label(early, &l, wired_mspan_of(want, 32)));
+  u8         key[32];
+  CHECK(hkdf_expand_label(early, &l, wired_mspan_of(key, 32)));
 
-  u8 got[32];
-  tls_binder_key(psk, got);
+  const u8 ch[] = "ClientHello-truncated-up-to-identities";
+  u8       th[32], want[32], got[32];
+  wired_sha256(ch, sizeof(ch), th);
+  tls_finished_verify_data_suite(TLS_AES_128_GCM_SHA256, key, th, want);
+  tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), got);
   for (usz i = 0; i < 32; i++) {
     CHECK(got[i] == want[i]);
   }

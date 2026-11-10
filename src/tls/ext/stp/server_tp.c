@@ -154,18 +154,3 @@ int stp_build_server_ret(
        put_grease_quic_bit(out);
   return ok;
 }
-
-int stp_build_server_lim(
-    wired_span        original_dcid,
-    wired_span        initial_scid,
-    const stp_limits* lim,
-    wired_obuf*       out) {
-  return stp_build_server_ret(
-      original_dcid, initial_scid, wired_span_of(0, 0), wired_span_of(0, 0),
-      lim, out);
-}
-
-int stp_build_server(
-    wired_span original_dcid, wired_span initial_scid, wired_obuf* out) {
-  return stp_build_server_lim(original_dcid, initial_scid, 0, out);
-}

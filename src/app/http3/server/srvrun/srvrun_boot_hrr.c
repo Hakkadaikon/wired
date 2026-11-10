@@ -59,7 +59,7 @@ static void srvrun_boot_wire(
   /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
    * threaded to dispatch.c's DATAGRAM-gathering size check (see
    * wired_srvloop.we_advertised_max_datagram's doc). Same sid/base value
-   * stp_build_server_lim already sends in the transport parameters --
+   * stp_build_server_ret already sends in the transport parameters --
    * sid is this slot's own copy of cfg->id, built above. */
   c->l.we_advertised_max_datagram = sid->max_datagram_frame_size;
   /* RFC 9000 18.2/19.9: seed this connection's send credit from the peer's

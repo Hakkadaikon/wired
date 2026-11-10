@@ -63,7 +63,7 @@
 
 TLS 1.3 の AEAD スイートは 3 つともネゴシエートし、クライアントではなくサーバーの順序に従う。
 
-`TLS_AES_256_GCM_SHA384` は、独立した相手との相互運用性テストの実行をまだ記録していない。このスイートのもとでも `tls_exporter`(RFC 8446 7.5)はコンテキストを SHA-256 でハッシュする(本番の呼び出し元はない)。CCM のスイートは断る。
+`TLS_AES_256_GCM_SHA384` は、独立した相手との相互運用性テストの実行をまだ記録していない。CCM のスイートは断る。
 
 参照: `cipher.c`、[rfc8446.md](../../features/rfc8446.md) 8446-099
 
@@ -111,14 +111,6 @@ max_fragment_length、client_certificate_url、trusted_ca_keys、truncated_hmac�
 起動段階の蓄積用バッファーは接続のスロットごとに約 4 KB(`WIRED_CONNTABLE_CAP` 個のスロット、BSS)で、Initial 2 つ分を受けられる。耐量子暗号の大きさの ClientHello も収まる。`retry_tag` の擬似パケット用の作業領域は 1521 バイトである。
 
 参照: `wired_srvboot_acc`(ponytail)、`retry_tag.c`(ponytail)
-
-### 1.10 クライアントの Initial の簡略化
-
-影響: `client_build_initial` の利用者だけ。`wired_server_run` のサーバーは使わない。
-
-`client_build_initial` は ClientHello を CRYPTO フレームに入れて組み立てる。送信路上での Initial の AEAD による保護はしない。
-
-参照: `client_build_initial`(ponytail)
 
 ## 2. 証明書
 

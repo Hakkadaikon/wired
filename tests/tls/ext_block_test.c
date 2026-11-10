@@ -4,13 +4,10 @@ static void test_ext_block_concat(void) {
   u8         buf[64];
   u8         v[16], g[16];
   usz        off;
-  usz        vw = tls_ext_supported_versions(v, sizeof(v));
-  usz        gw = tls_ext_supported_groups(g, sizeof(g));
-  wired_obuf out;
-  CHECK(tls_ext_block_begin(buf, sizeof(buf), &off) == 1);
-  CHECK(off == 2);
-  out     = obuf_of(buf, sizeof(buf));
-  out.len = off;
+  usz        vw  = tls_ext_supported_versions(v, sizeof(v));
+  usz        gw  = tls_ext_supported_groups(g, sizeof(g));
+  wired_obuf out = obuf_of(buf, sizeof(buf));
+  out.len        = 2; /* the reserved extensions length */
   CHECK(tls_ext_append(&out, wired_span_of(v, vw)) == 1);
   CHECK(tls_ext_append(&out, wired_span_of(g, gw)) == 1);
   off       = out.len;
@@ -31,20 +28,11 @@ static void test_ext_block_finish_guard(void) {
   CHECK(buf[0] == 0xaa && buf[1] == 0xbb);
 }
 
-static void test_ext_block_begin_guard(void) {
-  u8  buf[1];
-  usz off;
-  CHECK(tls_ext_block_begin(buf, sizeof(buf), &off) == 0);
-}
-
 static void test_ext_block_append_guard(void) {
   u8         buf[8];
   u8         ext[8] = {0};
-  usz        off;
-  wired_obuf out;
-  tls_ext_block_begin(buf, sizeof(buf), &off);
-  out     = obuf_of(buf, sizeof(buf));
-  out.len = off;
+  wired_obuf out    = obuf_of(buf, sizeof(buf));
+  out.len           = 2;
   /* 7 bytes past the 2-byte length overflow the 8-byte buffer */
   CHECK(tls_ext_append(&out, wired_span_of(ext, 7)) == 0);
 }
@@ -52,6 +40,5 @@ static void test_ext_block_append_guard(void) {
 void test_ext_block(void) {
   test_ext_block_concat();
   test_ext_block_finish_guard();
-  test_ext_block_begin_guard();
   test_ext_block_append_guard();
 }

@@ -21,9 +21,3 @@ int sflight_finished_suite(
   hs_finish(out->p, out->len);
   return 1;
 }
-
-int sflight_finished(
-    const u8* finished_key, const u8* transcript_hash, wired_obuf* out) {
-  return sflight_finished_suite(
-      TLS_AES_128_GCM_SHA256, finished_key, transcript_hash, out);
-}

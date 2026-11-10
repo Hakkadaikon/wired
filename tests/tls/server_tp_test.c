@@ -6,12 +6,19 @@
 static const u8 odcid[] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 static const u8 scid[]  = {0x11, 0x22, 0x33, 0x44, 0x55};
 
+/* Server TPs with no Retry SCID and no stateless_reset_token. */
+static int stpt_build(
+    wired_span od, wired_span sc, const stp_limits* lim, wired_obuf* ob) {
+  return stp_build_server_ret(
+      od, sc, wired_span_of(0, 0), wired_span_of(0, 0), lim, ob);
+}
+
 /* Build server TPs for (odcid, scid) into buf; returns the encoded length. */
 static usz stp_build(u8* buf, usz cap) {
   wired_obuf ob = obuf_of(buf, cap);
   wired_span od = wired_span_of(odcid, sizeof(odcid));
   wired_span sc = wired_span_of(scid, sizeof(scid));
-  return stp_build_server(od, sc, &ob) ? ob.len : 0;
+  return stpt_build(od, sc, 0, &ob) ? ob.len : 0;
 }
 
 /* stp_parse for an integer-valued parameter, discarding the bytes view.
@@ -207,14 +214,13 @@ static void test_server_tp_tunable_limits(void) {
   wired_obuf ob  = {tp, sizeof tp, 0};
   stp_limits lim = {2000000, 5, 9, 0, 7000};
   u64        v   = 0;
-  CHECK(stp_build_server_lim(
-      wired_span_of(od, 4), wired_span_of(sc, 4), &lim, &ob));
+  CHECK(stpt_build(wired_span_of(od, 4), wired_span_of(sc, 4), &lim, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x01, &v) && v == 7000); /* RFC 9308 10 */
   CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 2000000);
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 5);
   CHECK(tp_int_value(tp, ob.len, 0x09, &v) && v == 9);
   ob.len = 0;
-  CHECK(stp_build_server(wired_span_of(od, 4), wired_span_of(sc, 4), &ob));
+  CHECK(stpt_build(wired_span_of(od, 4), wired_span_of(sc, 4), 0, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 10000000);
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 100);
 }
@@ -228,19 +234,17 @@ static void test_server_tp_datagram_frame_size(void) {
   wired_obuf ob   = {tp, sizeof tp, 0};
   stp_limits none = {0, 0, 0, 0, 0};
   u64        v    = 7;
-  CHECK(stp_build_server_lim(
-      wired_span_of(od, 4), wired_span_of(sc, 4), &none, &ob));
+  CHECK(stpt_build(wired_span_of(od, 4), wired_span_of(sc, 4), &none, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) == 0);
   CHECK(v == 7);
 
   ob.len              = 0;
   stp_limits opted_in = {0, 0, 0, 65535, 0};
-  CHECK(stp_build_server_lim(
-      wired_span_of(od, 4), wired_span_of(sc, 4), &opted_in, &ob));
+  CHECK(stpt_build(wired_span_of(od, 4), wired_span_of(sc, 4), &opted_in, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) && v == 65535);
 
   ob.len = 0;
-  CHECK(stp_build_server(wired_span_of(od, 4), wired_span_of(sc, 4), &ob));
+  CHECK(stpt_build(wired_span_of(od, 4), wired_span_of(sc, 4), 0, &ob));
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) == 0);
 }
 

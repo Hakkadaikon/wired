@@ -20,7 +20,7 @@ void test_sflight_finished_build(void) {
     thash[i] = (u8)(0x80 + i);
   }
 
-  CHECK(sflight_finished(key, thash, &ob));
+  CHECK(sflight_finished_suite(TLS_AES_128_GCM_SHA256, key, thash, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == HS_FINISHED);
   CHECK(body_len == TLS_VERIFY_DATA);
@@ -29,5 +29,5 @@ void test_sflight_finished_build(void) {
   CHECK(tls_finished_check(key, thash, out + 4));
 
   ob = obuf_of(out, 4);
-  CHECK(!sflight_finished(key, thash, &ob));
+  CHECK(!sflight_finished_suite(TLS_AES_128_GCM_SHA256, key, thash, &ob));
 }

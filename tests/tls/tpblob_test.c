@@ -88,39 +88,38 @@ static int pa_eq(
   return ok && mem_eq(a->reset_token, b->reset_token, 16);
 }
 
+/* RFC 9000 18.2: sample_pa() on the wire -- id 0x0d, length 46, IPv4
+ * address + port, IPv6 address + port, cid length + cid, reset token. */
+static const u8 pa_wire[48] = {
+    0x0d, 46,   10,   11,   12,   13,   0x11, 0x51, 0x20, 0x21, 0x22, 0x23,
+    0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+    0x20, 0xfb, 5,    0x90, 0x91, 0x92, 0x93, 0x94, 0x40, 0x41, 0x42, 0x43,
+    0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f};
+
 static void test_pa_roundtrip(void) {
   struct preferred_address in = sample_pa();
   struct preferred_address out;
-  u8                       buf[80];
-  usz w = tparam_put_preferred_address(buf, sizeof(buf), &in);
-  usz r = tparam_get_preferred_address(buf, w, &out);
-  CHECK(w != 0 && r == w && pa_eq(&in, &out));
+  usz r = tparam_get_preferred_address(pa_wire, sizeof pa_wire, &out);
+  CHECK(r == sizeof pa_wire && pa_eq(&in, &out));
 }
 
 static void test_pa_truncated(void) {
-  struct preferred_address in = sample_pa();
   struct preferred_address out;
-  u8                       buf[80];
-  usz w = tparam_put_preferred_address(buf, sizeof(buf), &in);
-  CHECK(tparam_get_preferred_address(buf, w - 1, &out) == 0);
+  CHECK(tparam_get_preferred_address(pa_wire, sizeof pa_wire - 1, &out) == 0);
 }
 
 /* RFC 9000 18.2: preferred_address carries a 0..20-byte Connection ID and
- * fixed-size fields -- an over-long cid is refused on encode and decode, and
- * a value cut inside a port or before the cid length byte is malformed. An
- * empty buffer holds no parameter id at all. */
+ * fixed-size fields -- an over-long cid is refused, and a value cut inside a
+ * port or before the cid length byte is malformed. An empty buffer holds no
+ * parameter id at all. */
 static void test_pa_malformed_values(void) {
-  struct preferred_address pa = sample_pa(), out;
-  u8                       buf[80];
+  struct preferred_address out;
+  u8                       buf[48];
   u64                      id;
   wired_span               v;
-  usz                      w;
-  pa.cid_len = 21;
-  CHECK(tparam_put_preferred_address(buf, sizeof(buf), &pa) == 0);
-  pa = sample_pa();
-  w  = tparam_put_preferred_address(buf, sizeof(buf), &pa);
-  CHECK(w == 2 + 46 && buf[1] == 46); /* 1-byte id, 1-byte length varints */
-  buf[2 + 24] = 21;                   /* Connection ID Length */
+  usz                      w = sizeof buf;
+  bytes_memcpy(buf, pa_wire, w);
+  buf[2 + 24] = 21; /* Connection ID Length */
   CHECK(tparam_get_preferred_address(buf, w, &out) == 0);
   buf[1] = 5; /* value ends inside the IPv4 port */
   CHECK(tparam_get_preferred_address(buf, 2 + 5, &out) == 0);

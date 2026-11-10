@@ -14,23 +14,11 @@
  * and h3 in preference order, and the first one this server speaks wins
  * (-18 3.1.2, -19 3.1.3, -22 6.1.2). */
 
-/** 1 if the name_len bytes at name are exactly one entry of list, else 0.
- * list is a space-separated set of protocol ids (e.g. "moqt-22 moqt-19
- * moqt-18"); matching is an exact, case-sensitive byte compare (RFC 7301
- * 3.1: protocol ids are opaque octet strings), so "moqt-1", "moqt-190" and
- * "MOQT-19" are not members of a list holding "moqt-19". A 0 list, an empty
- * list, or an empty name is never a member. The list must not itself name
- * h3 or hq-interop: those are classified before the list is consulted.
- * @param list space-separated protocol ids, NUL-terminated, or 0
- * @param name the candidate protocol id bytes
- * @param name_len bytes at name
- * @return 1 member, 0 otherwise */
-int salpn_raw_list_has(const char* list, const u8* name, usz name_len);
-
 /** RFC 7301 3.1/3.2: walk the client's ProtocolNameList (alpn_ext_data, len
  * bytes) in the client's preference order and return the first entry this
  * server speaks: SALPN_H3 for "h3", SALPN_HQ for "hq-interop", SALPN_RAW for
- * a member of raw_list (salpn_raw_list_has). On SALPN_RAW, *tok is set to a
+ * an exact, case-sensitive match of one space-separated raw_list entry (RFC
+ * 7301 3.1: ids are opaque octets). On SALPN_RAW, *tok is set to a
  * view into raw_list itself (not into the ClientHello), so it outlives the
  * handshake when raw_list is static configuration; on any other result *tok
  * is left untouched. With a 0 or empty raw_list the result equals

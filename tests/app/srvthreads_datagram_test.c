@@ -413,8 +413,8 @@ static int sdt_do_initial(
 /* tlsdriver_recv_crypto wants a raw CRYPTO frame (it runs
  * frame_get_crypto itself), but client_open_initial_wire already
  * unwrapped one -- re-wrap the recovered ServerHello bytes into a synthetic
- * CRYPTO frame at offset 0 so the driver can reassemble+consume it, the same
- * encoder client_build_initial uses on the send side. Also captures
+ * CRYPTO frame at offset 0 so the driver can reassemble+consume it (the
+ * crypto_stream_emit encoder). Also captures
  * CH||SH into cx->chsh for sdt_rederive_hs_keys below. */
 /* Append tls onto cx->ch to build cx->chsh (CH||SH); cx->ch_len bytes of
  * ClientHello, then tls.n bytes of ServerHello. Returns 0 if it would
@@ -837,9 +837,8 @@ static int sdt_recv_accept_flight(struct sdt_client* cx) {
 /* Our own 1-RTT key derivation (RFC 8446 4.4.4: legal as soon as the
  * server's Finished verifies) and our own Finished sent back -- the send
  * half of sdt_handshake_to_finished. 1-RTT keys must be derived before
- * sdt_wait_hs_done, whose reply IS a 1-RTT packet (mirrors client.c's
- * do_confirm ordering, split across two calls since this test drives the
- * wire directly rather than through client_feed). */
+ * sdt_wait_hs_done, whose reply IS a 1-RTT packet (derive, then confirm,
+ * split across two calls since this test drives the wire directly). */
 static int sdt_send_own_finished(struct sdt_client* cx) {
   if (!fullhs_advance_application(&cx->c.hs)) {
     return 0;

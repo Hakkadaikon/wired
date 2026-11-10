@@ -12,15 +12,10 @@
  *                      "exporter", Hash(context_value), key_length)
  */
 
-/* Derive-Secret(Master Secret, "exp master", transcript) -- the same
- * transcript span (ClientHello..server Finished) keysched_advance_
- * master already hashes for the application traffic secrets. Writes a
- * 32-byte secret. */
-void tls_exporter_master_secret(
-    const u8* master, const u8* transcript, usz transcript_len, u8* out);
-
-/* Same as tls_exporter_master_secret over suite's hash (Hash.length out;
- * suite 0 = SHA-256). */
+/* Derive-Secret(Master Secret, "exp master", transcript) over suite's hash
+ * (Hash.length out; suite 0 = SHA-256) -- the same transcript span
+ * (ClientHello..server Finished) keysched_advance_master already hashes for
+ * the application traffic secrets. */
 void tls_exporter_master_secret_suite(
     u16       suite,
     const u8* master,
@@ -28,14 +23,16 @@ void tls_exporter_master_secret_suite(
     usz       transcript_len,
     u8*       out);
 
-/* TLS-Exporter(label, context_value, key_length) (RFC 8446 7.5). Secret
- * must be the exporter_master_secret (tls_exporter_master_secret's
- * output) -- "Implementations MUST use the exporter_master_secret unless
- * explicitly specified by the application." An absent context (context.n
- * == 0 and context.p == 0) and an empty context ({0, non-null}) both hash
- * to the same zero-length input (RFC 8446 7.5: "providing no context
- * computes the same value as providing an empty context").
- * @param secret     exporter_master_secret, HKDF_PRK bytes
+/* TLS-Exporter(label, context_value, key_length) (RFC 8446 7.1/7.5) over
+ * suite's hash (suite 0 = SHA-256). Secret must be the
+ * exporter_master_secret (Hash.length bytes, keysched_exporter_secret's) --
+ * "Implementations MUST use the exporter_master_secret unless explicitly
+ * specified by the application." An absent context (context.n == 0 and
+ * context.p == 0) and an empty context ({0, non-null}) both hash to the
+ * same zero-length input (RFC 8446 7.5: "providing no context computes the
+ * same value as providing an empty context").
+ * @param suite      the negotiated cipher suite (0 = SHA-256)
+ * @param secret     exporter_master_secret, Hash.length bytes
  * @param label      exporter label bytes (no "tls13 " prefix; that is
  *                   applied internally by the two HKDF-Expand-Label calls)
  * @param context    context_value to hash into the output
@@ -43,14 +40,6 @@ void tls_exporter_master_secret_suite(
  *                   material
  * @return 1 on success, 0 if a length does not fit (see
  *   hkdf_expand_label) */
-int tls_exporter(
-    const u8    secret[HKDF_PRK],
-    wired_span  label,
-    wired_span  context,
-    wired_mspan okm);
-
-/* Same as tls_exporter over suite's hash (RFC 8446 7.1/7.5): secret is
- * Hash.length bytes (keysched_exporter_secret's), suite 0 = SHA-256. */
 int tls_exporter_suite(
     u16         suite,
     const u8*   secret,

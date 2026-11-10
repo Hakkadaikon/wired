@@ -5,21 +5,9 @@
 #include "tls/handshake/core/tls/ext_versions.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-/* Internal, group-explicit view shared by both public entry points (x25519-
- * frozen shbuild_in and group-explicit shbuild_group_in). */
-typedef struct {
-  const u8*  random;
-  wired_span session_id;
-  u16        cipher_suite;
-  const u8*  server_pub;
-  int        psk_accepted;
-  u16        group;
-  usz        pub_len;
-} shb_in;
-
 /* RFC 8446 4.1.3 prefix: legacy_version(2) random(32) session_id(1+sid_len)
  * cipher_suite(2) legacy_compression_method(1). Returns the offset past it. */
-static usz shb_prefix(u8* out, usz off, const shb_in* in) {
+static usz shb_prefix(u8* out, usz off, const shbuild_group_in* in) {
   usz sid_len = in->session_id.n;
   be_put_be16(out + off, 0x0303);
   for (usz i = 0; i < 32; i++) {
@@ -91,7 +79,7 @@ static int shb_psk(u8* buf, usz cap, usz* off) {
 
 /* Append the extensions; returns the body end offset, or 0 on overflow. RFC
  * 8446 4.2.11: pre_shared_key MUST be the last extension when present. */
-static usz shb_exts(u8* buf, usz cap, usz off, const shb_in* in) {
+static usz shb_exts(u8* buf, usz cap, usz off, const shbuild_group_in* in) {
   int ok = shb_versions(buf, cap, &off);
   ok &= shb_key_share(buf, cap, &off, in->server_pub, in->group, in->pub_len);
   ok &= !in->psk_accepted || shb_psk(buf, cap, &off);
@@ -116,8 +104,7 @@ static int shb_fits(usz off, usz sid_len, usz cap) {
   return off != 0 && off + 38 + sid_len + 2 <= cap;
 }
 
-/* Shared body for both entry points. */
-static int build_server_hello(const shb_in* in, wired_obuf* out) {
+int shbuild_server_hello_group(const shbuild_group_in* in, wired_obuf* out) {
   usz off = hs_begin(out->p, out->cap, HS_SERVER_HELLO);
   usz block_start, end;
   if (!shb_fits(off, in->session_id.n, out->cap)) {
@@ -132,23 +119,4 @@ static int build_server_hello(const shb_in* in, wired_obuf* out) {
   }
   out->len = end;
   return 1;
-}
-
-int shbuild_server_hello(const shbuild_in* in, wired_obuf* out) {
-  shb_in si = {
-      in->random,
-      in->session_id,
-      in->cipher_suite,
-      in->server_pub,
-      in->psk_accepted,
-      GROUP_X25519,
-      32};
-  return build_server_hello(&si, out);
-}
-
-int shbuild_server_hello_group(const shbuild_group_in* in, wired_obuf* out) {
-  shb_in si = {in->random,     in->session_id,   in->cipher_suite,
-               in->server_pub, in->psk_accepted, in->group,
-               in->pub_len};
-  return build_server_hello(&si, out);
 }
