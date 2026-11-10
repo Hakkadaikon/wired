@@ -45,13 +45,18 @@ static int ku_read_bitstring(wired_span val, wired_span* bits) {
 }
 
 /* The keyUsage extnValue: an OCTET STRING wrapping the KeyUsage BIT STRING.
- */
+ * 0 only when the extension is absent. One that does not decode yields no
+ * bits, so every check (each needs some bit set) fails closed rather than
+ * reading it as absent (RFC 5280 4.2). */
 static int ku_locate(wired_span tbs, wired_span* bits) {
   wired_span val;
   if (!x509_find_ext(tbs, wired_span_of(oid_ku, sizeof(oid_ku)), &val)) {
     return 0;
   }
-  return ku_read_bitstring(val, bits);
+  if (!ku_read_bitstring(val, bits)) {
+    *bits = wired_span_of(0, 0);
+  }
+  return 1;
 }
 
 int x509_can_sign_certs(wired_span tbs) {

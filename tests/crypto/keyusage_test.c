@@ -203,7 +203,30 @@ static void test_ku_empty_bitstring_asserts_nothing(void) {
   CHECK(x509_digital_signature_ok(wired_span_of(tbs, sizeof(tbs))) == 0);
 }
 
+/* 1 if any keyUsage check lets tbs through. */
+static int kut_any_ok(wired_span tbs) {
+  return x509_can_sign_certs(tbs) | x509_digital_signature_ok(tbs) |
+         x509_keyagreement_ok(tbs) | x509_ed_leaf_sig_ok(tbs) |
+         x509_ed_ca_ok(tbs) | x509_ecdh_keyusage_ok(tbs);
+}
+
+/* RFC 5280 4.2.1.3 / 4.2: a keyUsage extension that is present but does not
+ * decode is not "absent": every check fails closed. One extnValue holds an
+ * INTEGER where the BIT STRING belongs (its octet would assert every bit),
+ * the other a BIT STRING with no unused-bits octet (X.690 8.6.2). */
+static void test_ku_malformed_fails_closed(void) {
+  static const u8 not_bits[]  = {0x30, 0x1d, KUT_DUMMY6, 0xa3, 0x0f, 0x30, 0x0d,
+                                 0x30, 0x0b, 0x06,       0x03, 0x55, 0x1d, 0x0f,
+                                 0x04, 0x04, 0x02,       0x02, 0x02, 0xff};
+  static const u8 no_unused[] = {0x30, 0x1b, KUT_DUMMY6, 0xa3, 0x0d, 0x30,
+                                 0x0b, 0x30, 0x09,       0x06, 0x03, 0x55,
+                                 0x1d, 0x0f, 0x04,       0x02, 0x03, 0x00};
+  CHECK(!kut_any_ok(wired_span_of(not_bits, sizeof not_bits)));
+  CHECK(!kut_any_ok(wired_span_of(no_unused, sizeof no_unused)));
+}
+
 void test_keyusage(void) {
+  test_ku_malformed_fails_closed();
   test_ku_empty_bitstring_asserts_nothing();
   test_can_sign_no_extension();
   test_can_sign_certsign_set();
