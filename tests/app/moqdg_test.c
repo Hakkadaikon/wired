@@ -229,8 +229,13 @@ static void test_moqdg_take_insufficient(void) {
   /* status form cut before the Status varint */
   moqdg_test_take_rejects(
       g_moqt_data_dgram_status_eot, 4, MOQDATA_INSUFFICIENT);
-  /* props form cut inside the Properties bytes */
-  moqdg_test_take_rejects(g_moqt_data_dgram_props, 6, MOQDATA_INSUFFICIENT);
+  /* props form cut at / inside the Properties Length and bytes */
+  for (usz n = 4; n < 7; n++) {
+    moqdg_test_take_rejects(g_moqt_data_dgram_props, n, MOQDATA_INSUFFICIENT);
+  }
+  /* explicit-priority form cut before the Publisher Priority byte */
+  moqdg_test_take_rejects(
+      g_moqt_data_dgram_explicit_priority, 4, MOQDATA_INSUFFICIENT);
 }
 
 /* TEST: a non-minimal 9-byte varint Track Alias is legal (1.4.1). */
@@ -267,6 +272,24 @@ static void test_moqdg_put_hdr_max(void) {
       moqdg_put(wired_mspan_of(out, MOQDG_HDR_MAX - 1), &off, &o) ==
       MOQDATA_INSUFFICIENT);
   CHECK(off == 0);
+}
+
+/* TEST (11.3.1): every field of a Type 0x01 datagram (Properties,
+ * explicit Priority, Object ID) refuses a buffer that ends inside it. */
+static void test_moqdg_put_cut_short(void) {
+  static const u8 props[] = {0x00, 0x25};
+  u8              out[32];
+  usz             full = 0;
+  /* a 9-byte Track Alias outweighs every field after it */
+  moqdg_obj o = {0x01, (u64)-1, 300,        300,
+                 7,    0,       {props, 2}, {(const u8*)"hi", 2}};
+  CHECK(moqdg_put(wired_mspan_of(out, sizeof out), &full, &o) == MOQDATA_OK);
+  for (usz cap = 0; cap < full; cap++) {
+    usz off = 0;
+    CHECK(
+        moqdg_put(wired_mspan_of(out, cap), &off, &o) == MOQDATA_INSUFFICIENT);
+    CHECK(off == 0);
+  }
 }
 
 /* TEST: put applies the same violation rules as take. */
@@ -306,4 +329,5 @@ void test_moqdg(void) {
   test_moqdg_take_empty_payload();
   test_moqdg_put_hdr_max();
   test_moqdg_put_rejects();
+  test_moqdg_put_cut_short();
 }

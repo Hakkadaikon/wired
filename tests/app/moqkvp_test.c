@@ -196,19 +196,24 @@ static void test_moqkvp_roundtrip(void) {
 }
 
 /* TEST 11: put rejects a Type below the running Type (Delta would be
- * negative), an over-limit raw length, and a full buffer -- leaving the
- * cursor and prev untouched each time. */
+ * negative), an over-limit raw length, and a buffer ending inside the Type
+ * Delta, the Length or the value -- leaving the cursor and prev untouched
+ * each time. */
 static void test_moqkvp_put_rejects(void) {
   u8     buf[8];
   moqkvp back     = {1, 0, 0, {0, 0}};
   moqkvp too_long = {3, 1, 0, {moqkvp_len_buf, MOQKVP_MAX_LEN + 1}};
   moqkvp ok       = {2, 0, 7, {0, 0}};
+  moqkvp odd      = {3, 1, 0, {moqkvp_len_buf, 2}};
   usz    off      = 0;
   u64    prev     = 2;
 
   CHECK(!moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &back));
   CHECK(!moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &too_long));
+  CHECK(!moqkvp_put(wired_mspan_of(buf, 0), &off, &prev, &ok));
   CHECK(!moqkvp_put(wired_mspan_of(buf, 1), &off, &prev, &ok));
+  CHECK(!moqkvp_put(wired_mspan_of(buf, 1), &off, &prev, &odd));
+  CHECK(!moqkvp_put(wired_mspan_of(buf, 3), &off, &prev, &odd));
   CHECK(off == 0 && prev == 2);
 }
 

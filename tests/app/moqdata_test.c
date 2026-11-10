@@ -701,7 +701,45 @@ static void test_moqdata_obj_take_props_len_boundary(void) {
   CHECK(o.payload.n == 0);
 }
 
+/* TEST (11.4.2): a SUBGROUP_HEADER with every field on the wire (Type
+ * 0x14: explicit Subgroup ID and Publisher Priority) and an Object with a
+ * payload each refuse a buffer that ends inside any field, writing
+ * nothing. */
+static void test_moqdata_put_cut_short(void) {
+  u8             out[32];
+  usz            full = 0;
+  moqdata_subhdr h    = {0};
+  wired_span     pay  = wired_span_of((const u8*)"hi", 2);
+  h.type              = 0x14;
+  h.track_alias       = 300;
+  h.group_id          = 300;
+  h.subgroup_id       = 300;
+  h.priority          = 7;
+  CHECK(
+      moqdata_subhdr_put(wired_mspan_of(out, sizeof out), &full, &h) ==
+      MOQDATA_OK);
+  for (usz cap = 0; cap < full; cap++) {
+    usz off = 0;
+    CHECK(
+        moqdata_subhdr_put(wired_mspan_of(out, cap), &off, &h) ==
+        MOQDATA_INSUFFICIENT);
+    CHECK(off == 0);
+  }
+  full = 0;
+  CHECK(
+      moqdata_obj_put(wired_mspan_of(out, sizeof out), &full, 300, pay) ==
+      MOQDATA_OK);
+  for (usz cap = 0; cap < full; cap++) {
+    usz off = 0;
+    CHECK(
+        moqdata_obj_put(wired_mspan_of(out, cap), &off, 300, pay) ==
+        MOQDATA_INSUFFICIENT);
+    CHECK(off == 0);
+  }
+}
+
 void test_moqdata(void) {
+  test_moqdata_put_cut_short();
   test_moqdata_blob_build_roundtrip_at_boundaries();
   test_moqdata_blob_build_rejects_empty_and_short_buf();
   test_moqdata_classify_golden();

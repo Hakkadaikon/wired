@@ -1163,7 +1163,144 @@ static void test_moqfetch_obj_head(void) {
   CHECK(off == 0 && !ds.have_loc);
 }
 
+/* ===== cut-short output: every field's put refuses a full buffer ===== */
+
+typedef int (*moqfetch_t_put_fn)(wired_mspan, usz*, const void*);
+
+/* Every capacity short of fn's full encoding of m is refused. */
+static void moqfetch_t_cut_out(moqfetch_t_put_fn fn, const void* m) {
+  u8  out[MOQCTL_MAX_MSG_LEN];
+  usz full = 0;
+  CHECK(fn(wired_mspan_of(out, sizeof out), &full, m));
+  for (usz cap = 0; cap < full; cap++) {
+    usz n = 0;
+    CHECK(!fn(wired_mspan_of(out, cap), &n, m));
+  }
+}
+
+static int moqfetch_t_put_fetch(wired_mspan b, usz* off, const void* m) {
+  return moqfetch_fetch_encode(b, off, m);
+}
+
+static int moqfetch_t_put_ok(wired_mspan b, usz* off, const void* m) {
+  return moqfetch_ok_encode(b, off, m);
+}
+
+static int moqfetch_t_put_ok23(wired_mspan b, usz* off, const void* m) {
+  return moqfetch_ok23_encode(b, off, m);
+}
+
+static int moqfetch_t_put_req22(wired_mspan b, usz* off, const void* m) {
+  return moqfetch_req22_encode(b, off, m);
+}
+
+static int moqfetch_t_put_hdr(wired_mspan b, usz* off, const void* m) {
+  return moqfetch_hdr_put(b, off, *(const u64*)m);
+}
+
+/* One fetch Object (or End of Range) after a fresh stream state. */
+static int moqfetch_t_put_obj(wired_mspan b, usz* off, const void* m) {
+  moqfetch_seq seq = {0};
+  return moqfetch_obj_put(b, off, &seq, m);
+}
+
+/* d19 10.12 FETCH (Standalone and Joining), 10.13 FETCH_OK with Track
+ * Properties, 11.4.4 FETCH_HEADER: each field's put refuses a buffer that
+ * ends inside it. */
+static void test_moqfetch_ctl_cut_short(void) {
+  static moqfetch_fetch m;
+  static moqfetch_ok    ok;
+  const u64             rid = 300; /* two-byte varint */
+  CHECK(
+      moqfetch_fetch_take(
+          MOQVER_D19,
+          moqfetch_t_body(
+              g_moqt_ctl_fetch_standalone, G_MOQT_CTL_FETCH_STANDALONE_LEN,
+              MOQFETCH_T_FETCH),
+          &m) == MOQCTL_OK);
+  moqfetch_t_cut_out(moqfetch_t_put_fetch, &m);
+  CHECK(
+      moqfetch_fetch_take(
+          MOQVER_D19,
+          moqfetch_t_body(
+              g_moqt_ctl_fetch_absolute_joining,
+              G_MOQT_CTL_FETCH_ABSOLUTE_JOINING_LEN, MOQFETCH_T_FETCH),
+          &m) == MOQCTL_OK);
+  moqfetch_t_cut_out(moqfetch_t_put_fetch, &m);
+  ok.end_of_track     = 1;
+  ok.end              = moqctl_loc_of(300, 301);
+  ok.track_properties = wired_span_of((const u8*)"pp", 2);
+  moqfetch_t_cut_out(moqfetch_t_put_ok, &ok);
+  moqfetch_t_cut_out(moqfetch_t_put_hdr, &rid);
+}
+
+/* d22 9.16 FETCH: Request ID, Track Namespace/Name and the LOCATION_FILTER
+ * parameter all refuse a short buffer; a body without even its Request ID
+ * is a PROTOCOL_VIOLATION (the Message Length framed it). */
+static void test_moqfetch_req22_cut_short(void) {
+  u8           body[32];
+  usz          n = moqfetch_t_req22_build(body, 1);
+  moqfetch_req m;
+  CHECK(moqfetch_req22_take(wired_span_of(body, n), &m) == MOQCTL_OK);
+  m.request_id = 300;
+  moqfetch_t_cut_out(moqfetch_t_put_req22, &m);
+  CHECK(moqfetch_req22_take(wired_span_of(body, 0), &m) == MOQCTL_VIOLATION);
+}
+
+/* draft-23 9.3: a FETCH's REQUEST_OK appends LARGEST_OBJECT to the
+ * Parameters; with the list already full it cannot, so nothing is
+ * encoded rather than a truncated list. */
+static void test_moqfetch_ok23_cut_short_and_full(void) {
+  static moqfetch_ok ok;
+  u8                 out[MOQCTL_MAX_MSG_LEN];
+  usz                n = 0;
+  ok.has_largest       = 1;
+  ok.end               = moqctl_loc_of(300, 301);
+  moqfetch_t_cut_out(moqfetch_t_put_ok23, &ok);
+  ok.params.n = MOQCTL_MAX_PARAMS;
+  CHECK(!moqfetch_ok23_encode(wired_mspan_of(out, sizeof out), &n, &ok));
+}
+
+/* 11.4.4.2 End of Range: Group and Object IDs follow the flags; a stream
+ * ending inside either needs more bytes, and an encode into a buffer
+ * ending inside either is refused. */
+static void test_moqfetch_eor_cut_short(void) {
+  static const u8 eor[] = {0x80, 0x8c, 0x02, 0x03};
+  moqfetch_seq    seq   = {0};
+  moqfetch_obj    o;
+  for (usz cut = 2; cut < sizeof eor; cut++) {
+    seq = (moqfetch_seq){0};
+    CHECK(moqfetch_t_one(eor, cut, &seq, &o) == MOQCTL_INSUFFICIENT);
+  }
+  seq = (moqfetch_seq){0};
+  CHECK(moqfetch_t_one(eor, sizeof eor, &seq, &o) == MOQCTL_OK);
+  o.group  = 300;
+  o.object = 301;
+  moqfetch_t_cut_out(moqfetch_t_put_obj, &o);
+}
+
+/* 11.4.4.1: a Group ID Delta of 2^64-1 cannot step (Delta + 1 wraps) --
+ * DELTA_ENCODING_OVERFLOW, not a wrapped Group ID. */
+static void test_moqfetch_obj_group_delta_wraps(void) {
+  static const u8 first[] = {0x1c, 0x02, 0x00, 0x09, 0x00};
+  u8              next[16];
+  usz             n   = 0;
+  moqfetch_seq    seq = {0};
+  moqfetch_obj    o;
+  next[n++] = 0x08; /* Group ID Delta present */
+  CHECK(moqvi_put(wired_mspan_of(next, sizeof next), &n, ~0ULL));
+  next[n++] = 0x00; /* Object ID Delta */
+  next[n++] = 0x00; /* Payload Length */
+  CHECK(moqfetch_t_one(first, sizeof first, &seq, &o) == MOQCTL_OK);
+  CHECK(moqfetch_t_one(next, n, &seq, &o) == MOQCTL_R_DELTA);
+}
+
 void test_moqfetch(void) {
+  test_moqfetch_ctl_cut_short();
+  test_moqfetch_req22_cut_short();
+  test_moqfetch_ok23_cut_short_and_full();
+  test_moqfetch_eor_cut_short();
+  test_moqfetch_obj_group_delta_wraps();
   test_moqfetch_obj_head();
   test_moqfetch_standalone_golden();
   test_moqfetch_joining_golden();
