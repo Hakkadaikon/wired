@@ -690,6 +690,18 @@ static u64 mf_stuck_fetch(void) {
   return mf_data_sid();
 }
 
+/* Every fetch slot (WIRED_MOQTRUN_MAX_FETCHES) busy with a stuck FETCH:
+ * one more is refused INTERNAL_ERROR at once, never left unanswered. */
+static void test_moqtrun_fetch_table_full_refused(void) {
+  mf_stuck_fetch();
+  for (usz i = 1; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  }
+  mf_standalone(mf_loc(0, 0), mf_loc(0, 1));
+  CHECK(mf_error() == MOQCTL_ERR_INTERNAL_ERROR);
+  g_stream_send_ok_n = -1;
+}
+
 /* Resetting the FETCH request stream cancels the fetch (3.3.3): its data
  * stream is reset and its slot freed, nothing more is sent. */
 static void test_moqtrun_fetch_cancelled_by_request_reset(void) {
@@ -1047,6 +1059,7 @@ static void mtall_fetch19(void) {
   test_moqtrun_fetch_publisher_leaves();
   test_moqtrun_fetch_requester_leaves();
   test_moqtrun_fetch_cancelled_by_request_reset();
+  test_moqtrun_fetch_table_full_refused();
   test_moqtrun_fetch_data_stream_stopped();
   test_moqtrun_fetch_stall_gives_up();
   test_moqtrun_fetch_relative_join_no_gap();

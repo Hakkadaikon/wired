@@ -58,6 +58,9 @@ static wired_wt_session* g_stream_send_reject_sess;
 /* stream_reset's stubbed return: 1 (queued) by default; 0 simulates the
  * SDK's reset latch being full this step (wired_server_wt_stream_reset). */
 static int g_stream_reset_ret;
+/* stream_fin's stubbed return: 1 by default; 0 simulates the SDK
+ * refusing the FIN this step. */
+static int g_stream_fin_ret;
 /* When >0, the next N send_uni calls are recorded but return -1 (refused)
  * -- simulates send-slot/stream-limit exhaustion on the receiver's
  * connection (wired_server_wt_open_uni's failure return). */
@@ -139,6 +142,7 @@ static void moqtrun_test_reset(void) {
   g_stream_send_reject_n    = 0;
   g_stream_send_reject_sess = 0;
   g_stream_reset_ret        = 1;
+  g_stream_fin_ret          = 1;
   g_send_uni_fail_n         = 0;
   g_send_uni_reject_sess    = 0;
   g_send_uni2_fail_n        = 0;
@@ -456,7 +460,7 @@ static i64 moqtrun_test_open_uni_stream(
  * (moqtrun_is_bare_fin). */
 static int moqtrun_test_stream_fin(wired_wt_session* s, u64 stream_id) {
   moqtrun_test_record(6, s, stream_id, 1, wired_span_of(0, 0));
-  return 1;
+  return g_stream_fin_ret;
 }
 
 /* wired_server_wt_stream_reset-shaped: abandons stream_id (the primitive
@@ -1884,6 +1888,22 @@ static void test_moqtrun_envelope_length_spelling(void) {
   CHECK(mtenv_put(MOQVER_D23, MOQCTL_MAX_MSG_LEN + 1, 4) == 0);
   CHECK(mtenv_put(MOQVER_D22, MOQCTL_MAX_MSG_LEN + 1, 3) == 0);
   CHECK(mtenv_put(MOQVER_D19, MOQCTL_MAX_MSG_LEN + 1, 3) == 0);
+}
+
+/* An envelope that does not fit buf is refused, not written past it: no
+ * room for the Type, for the Length, or for the body. */
+static void test_moqtrun_envelope_no_room(void) {
+  usz n = 5;
+  for (usz cap = 0; cap < 8; cap++) {
+    CHECK(
+        moqtrun_envelope_put(
+            MOQVER_D22, wired_mspan_of(mtenv_buf, cap), MOQCTL_T_SUBSCRIBE,
+            mtenv_body, &n) == 0);
+  }
+  CHECK(
+      moqtrun_envelope_put(
+          MOQVER_D22, wired_mspan_of(mtenv_buf, 8), MOQCTL_T_SUBSCRIBE,
+          mtenv_body, &n) == 8);
 }
 
 /* Local twin of moqtrun_test_last_reply_type (defined later in this file,
@@ -5645,6 +5665,23 @@ static void test_moqt_reliable_relay_retries_refused_send(void) {
   CHECK(moqtrun_test_count_kind(3) == 0);
 }
 
+/* The publisher's FIN reaches a reliable subscriber stream even when the
+ * transport refuses the FIN once: it is not counted sent, and the next
+ * tick FINs the stream (no subscriber is left with an open stream). */
+static void test_moqt_reliable_relay_retries_refused_fin(void) {
+  wired_moqt_hub hub;
+  u64            relay_sid = moqtrun_test_start_reliable_fixture(&hub);
+  moqtrun_test_reset();
+  g_stream_fin_ret = 0;
+  mt_feed(&hub, SESS_A, 999, wired_span_of(0, 0), 1);
+  CHECK(hub.stat_rel_fin_out == 0);
+  moqtrun_test_reset();
+  wired_moqt_tick(&hub, 5);
+  CHECK(moqtrun_test_count_kind(6) == 1);
+  CHECK(moqtrun_test_last_kind(6)->stream_id == relay_sid);
+  CHECK(hub.stat_rel_fin_out == 1);
+}
+
 /* Registers sess and SUBSCRIBEs it to the audio track. */
 static void moqtrun_test_subscribe_audio_as(
     wired_moqt_hub* hub, wired_wt_session* sess) {
@@ -6672,6 +6709,7 @@ static void mtall_main(void) {
   test_moqtrun_ctl_d23_over_limit_skipped_without_close();
   test_moqtrun_ctl_d23_nonminimal_length();
   test_moqtrun_envelope_length_spelling();
+  test_moqtrun_envelope_no_room();
   test_moqtrun_setup_d23_max_ctl_size();
   test_moqtrun_setup_d23_hub_omits_max_ctl_size();
   test_moqtrun_subscribe_fits_every_other_peer();
@@ -6785,6 +6823,7 @@ static void mtall_main(void) {
   test_moqtrun_dg_unregistered_session_noop();
   test_moqtrun_dg_null_send_datagram_is_noop();
   test_moqt_reliable_relay_retries_refused_send();
+  test_moqt_reliable_relay_retries_refused_fin();
   test_moqt_reliable_relay_fin_after_last_byte();
   test_moqt_reliable_relay_holds_then_releases_publisher();
   test_moqt_reliable_relay_two_speed_subs_no_loss();
@@ -6812,7 +6851,36 @@ static void mtall_main(void) {
   test_moqt_reliable_relay_late_sub_across_torn_object();
 }
 
+/* draft-19 13.1 bounded subscription state: a hub-owned track (blob or
+ * live) has no publisher session, so every session the hub holds may
+ * subscribe -- one more than subs[] has slots. The last is refused
+ * INTERNAL_ERROR (REQUEST_ERROR), never given a slot it does not have. */
+static void mtown_full(int live) {
+  wired_moqt_hub hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  if (live) {
+    moqtrun_test_publish_live(&hub);
+  } else {
+    CHECK(moqtrun_test_publish_small_blob(&hub, 10) != 0);
+  }
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    moqtrun_test_reset();
+    moqtrun_test_subscribe_movie(&hub, (wired_wt_session*)(usz)(100 + i));
+    CHECK(
+        moqtrun_test_last_reply_type() == (i < WIRED_MOQTRUN_MAX_SUBS
+                                               ? MOQCTL_T_SUBSCRIBE_OK
+                                               : MOQCTL_T_REQUEST_ERROR));
+  }
+}
+
+static void test_moqtrun_own_track_full_refused(void) {
+  mtown_full(0);
+  mtown_full(1);
+}
+
 void test_moqtrun(void) {
+  test_moqtrun_own_track_full_refused();
   test_moqtrun_on_session_stores_negotiated_ver();
   test_moqtrun_stream_data_null_hub_is_noop();
   test_moqtrun_reattach_unknown_name_claims_no_slot();

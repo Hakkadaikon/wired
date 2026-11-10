@@ -250,7 +250,33 @@ static void test_mtcf_subgroup_split_after_type(void) {
       n);
 }
 
+/* The same header in three pieces (Type, Track Alias, rest): still short
+ * after the second, it waits again; the third completes it and the
+ * stream relays as one. */
+static void test_mtcf_subgroup_split_three(void) {
+  static const u8* d = g_moqt_data_subgroup_stream_basic;
+  static const usz n = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
+  wired_moqt_hub   hub;
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  moqtrun_test_session(&hub, SESS_B);
+  mt_feed(
+      &hub, SESS_B, moqtrun_test_last_kind(1)->stream_id,
+      moqtrun_test_stamped(
+          g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  moqtrun_test_reset();
+  mt_feed(&hub, SESS_A, 999, wired_span_of(d, 1), 0);
+  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 1, 1), 0);
+  CHECK(g_n_calls == 0);
+  mt_feed(&hub, SESS_A, 999, wired_span_of(d + 2, n - 2), 1);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqtrun_test_count_kind(5) == 1 && moqtrun_test_count_kind(3) == 1);
+}
+
 void test_moqtrun_ctlfix(void) {
+  test_mtcf_subgroup_split_three();
   test_mtcf_subgroup_split_after_type();
   moqtrun_test_allver(mtcf_split_all);
   test_mtcf_d19_subscribe_fill();

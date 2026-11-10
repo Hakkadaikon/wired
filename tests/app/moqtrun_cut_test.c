@@ -157,7 +157,76 @@ static void test_moqtrun_stream_skips_gone_object(void) {
   CHECK(moqtrun_test_sends_are(want, n));
 }
 
+/* A's relay of stream MCUT_SID. */
+static const wired_moqtrun_relay* mcut_relay(void) {
+  const wired_moqtrun_track* t =
+      &moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0];
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) {
+    if (t->relays[r].in_use && t->relays[r].pub_stream_id == MCUT_SID) {
+      return &t->relays[r];
+    }
+  }
+  return 0;
+}
+
+/* The same torn round, but the transport's reset latch is full this
+ * step (stream_reset refused): the subscriber's stream is marked expired
+ * so the reset is not lost, and nothing more goes on it. */
+static void test_moqtrun_cut_reset_refused_expires(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz ends[3];
+  mcut_init(buf, ends, 0);
+  mcut_send(buf, 0, ends[0] + 3, 0);
+  moqtrun_test_reset();
+  g_stream_send_reject_n = 1;
+  g_stream_reset_ret     = 0;
+  mcut_send(buf, ends[0] + 3, ends[2], 0);
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(mcut_relay() && mcut_relay()->sub_expired != 0);
+}
+
+/* draft-18/19 9.1: a fresh keep-open stream whose first Object is
+ * recorded nonexistent relays nothing at all (no stream is opened). */
+static void test_moqtrun_stream_starts_at_gone_object(void) {
+  static const u64 ids[2] = {0, 1}, five[1] = {5}, two[1] = {2};
+  u8               buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz              ends[2], e1[1];
+  mcut_init(buf, ends, 0);
+  mcut_stream(buf, 1, 0, ids, 2, ends);
+  mcut_send(buf, 0, ends[1], 1);
+  mcut_stream(one, 1, 1, five, 1, e1);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, e1[0]), 1);
+  mf_obj(2, 0, 1); /* Group 1 is closed: Object 2 does not exist */
+  mcut_stream(one, 1, 2, two, 1, e1);
+  moqtrun_test_reset();
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 8, wired_span_of(one, e1[0]), 0);
+  CHECK(moqtrun_test_count_kind(5) == 0 && moqtrun_test_count_kind(4) == 0);
+}
+
+/* A mode-0b01 stream (Subgroup ID = its first Object's ID, draft-22
+ * 11.4.2) whose first delivery tears inside that Object: no Subgroup ID
+ * is known yet, so no header is saved for late joiners. */
+static void test_moqtrun_stream_mode1_torn_first_object(void) {
+  static const u8 pl[4] = {7, 7, 7, 7};
+  u8              buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz             ends[3], off = 0;
+  moqdata_subhdr  h = {0};
+  mcut_init(buf, ends, 0);
+  h.type        = 0x32;
+  h.track_alias = MF_ALIAS;
+  h.group_id    = 1;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  moqdata_obj_put(
+      wired_mspan_of(buf, sizeof buf), &off, 0, wired_span_of(pl, 4));
+  mcut_send(buf, 0, off - 2, 0);
+  CHECK(mcut_relay() != 0);
+  CHECK(mcut_relay() && mcut_relay()->hdr_len == 0);
+}
+
 static void test_moqtrun_cut(void) {
+  test_moqtrun_stream_mode1_torn_first_object();
+  test_moqtrun_cut_reset_refused_expires();
+  test_moqtrun_stream_starts_at_gone_object();
   test_moqtrun_cut_lossy_refusal_mid_object_resets();
   test_moqtrun_cut_refused_head_resent_whole();
   test_moqtrun_cut_waits_for_header();

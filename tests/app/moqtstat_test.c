@@ -202,6 +202,8 @@ static void test_moqtstat_update_no_room(void) {
   u8              out[1];
   usz             n = 0;
   CHECK(!moqtstat_update_encode(wired_mspan_of(out, sizeof out), &n, &m));
+  n = 0;
+  CHECK(!moqtstat_update_encode(wired_mspan_of(out, 0), &n, &m));
 }
 
 /* 2.4.1: a namespace inside a parameter (TRACK_NAMESPACE_PREFIX, 10.2.19)

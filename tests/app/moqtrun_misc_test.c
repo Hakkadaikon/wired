@@ -505,7 +505,31 @@ static void test_moqtrun_misc_d22_publish_params(void) {
   g_moqtrun_test_ver = MOQVER_D19;
 }
 
+/* A stream reset on a session the hub does not track (never a MoQT
+ * session, or already gone) touches nothing. */
+static void test_moqtrun_misc_reset_unknown_session(void) {
+  mtst_init();
+  mtst_join(SESS_A);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, 4, 0, 0);
+  CHECK(g_n_calls == 0);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A) != 0);
+}
+
+/* A bare FIN on a request stream the hub holds no slot for (its request
+ * already finished) takes no slot and sends nothing (draft 3.3.2). */
+static void test_moqtrun_misc_bare_fin_no_slot(void) {
+  mtst_init();
+  mtst_join(SESS_B);
+  moqtrun_test_reset();
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(0, 0), 1);
+  CHECK(g_n_calls == 0);
+  CHECK(moqtrun_req_count(&mtst_hub, SESS_B) == 0);
+}
+
 void test_moqtrun_misc(void) {
+  test_moqtrun_misc_bare_fin_no_slot();
+  test_moqtrun_misc_reset_unknown_session();
   moqtrun_test_allver(mtall_misc);
   test_moqtrun_misc_stray_update();
   test_moqtrun_misc_d22_publish_params();

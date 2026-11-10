@@ -217,6 +217,8 @@ static void test_moqns_pub_skipped_roundtrip(void) {
   CHECK(m.name.n == 5 && m.name.p[0] == 'a');
   CHECK(moqns_pub_skipped_encode(wired_mspan_of(out, sizeof out), &n, &m));
   moqns_t_same(out, n, wired_span_of(wire, sizeof wire));
+  n = 0;
+  CHECK(!moqns_pub_skipped_encode(wired_mspan_of(out, 0), &n, &m));
 }
 
 /* A Track Name cut short after a well-formed Suffix is a Length

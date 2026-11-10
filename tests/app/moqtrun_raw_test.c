@@ -142,6 +142,28 @@ static void test_moqtrun_raw_full_hub_closes(void) {
   CHECK(moqtrun_test_count_kind(5) == WIRED_MOQTRUN_MAX_SESSIONS);
 }
 
+/* The same full hub: with no io.close_session the raw session is left
+ * untracked (nothing to call), and a WT session past the table is not
+ * tracked either -- neither gets a control stream. */
+static void test_moqtrun_raw_full_hub_no_close_io(void) {
+  wired_moqt_io io = moqtrun_test_io();
+  io.close_session = 0;
+  moqtrun_test_reset();
+  wired_moqt_init(&mtraw_hub, io);
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    wired_moqt_on_session_raw(
+        &mtraw_hub, (wired_wt_session*)(usz)(100 + i),
+        moqtrun_test_proto("moqt-22"));
+  }
+  wired_moqt_on_session_raw(&mtraw_hub, SESS_A, moqtrun_test_proto("moqt-22"));
+  wired_moqt_on_session(
+      &mtraw_hub, SESS_B, wired_span_of(0, 0), moqtrun_test_proto("moqt-22"));
+  CHECK(moqtrun_test_count_kind(11) == 0);
+  CHECK(moqtrun_test_count_kind(5) == WIRED_MOQTRUN_MAX_SESSIONS);
+  CHECK(!moqtrun_find_by_wt(&mtraw_hub, SESS_A));
+  CHECK(!moqtrun_find_by_wt(&mtraw_hub, SESS_B));
+}
+
 /* T-F4: every close code the hub can hand io.close_session is a MoQT
  * Session Termination code (-22 12.2: 0x0..0x1B), never a WT/HTTP/3
  * mapped value -- the backend carries it verbatim on raw (CONNECTION_CLOSE
@@ -244,6 +266,7 @@ void test_moqtrun_raw(void) {
   test_moqtrun_raw_malformed_closes();
   test_moqtrun_raw_policy_refuses();
   test_moqtrun_raw_full_hub_closes();
+  test_moqtrun_raw_full_hub_no_close_io();
   test_moqtrun_raw_close_codes_moqt_only();
   test_moqtrun_raw_goaway_uri_empty();
   test_moqtrun_raw_via_mux();

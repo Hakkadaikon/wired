@@ -1274,7 +1274,23 @@ static void test_moqtrun_ssts_repath_rejoin_refused(void) {
 
 static void test_moqtrun_ssts_repath_member(void) { mtss_repath_run(0); }
 
+/* A late older Group (Groups arrive on independent streams, in any
+ * order) slides the verdict window down to it: Group 10's verdict (bit 0)
+ * becomes bit 2 under base 8, nothing recorded is lost; a Group already
+ * inside the window leaves it. */
+static void test_moqtrun_ssts_window_slides_down(void) {
+  wired_moqtrun_sub s = {0};
+  s.ssts_base         = 10;
+  s.ssts_known        = 0x3;
+  s.ssts_fwd          = 0x1;
+  moqtss_rebase_down(&s, 8);
+  CHECK(s.ssts_base == 8 && s.ssts_known == 0xC && s.ssts_fwd == 0x4);
+  moqtss_rebase_down(&s, 9);
+  CHECK(s.ssts_base == 8 && s.ssts_known == 0xC);
+}
+
 void test_moqtrun_ssts(void) {
+  test_moqtrun_ssts_window_slides_down();
   test_moqtrun_ssts_repath_member();
   test_moqtrun_ssts_repath_rejoin_refused();
   test_moqtrun_ssts_setup_option();

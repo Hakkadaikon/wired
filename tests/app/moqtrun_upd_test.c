@@ -163,6 +163,17 @@ static void test_moqtrun_tstat_unknown_and_blob(void) {
   CHECK(moqtrun_test_count_kind(4) == 0);
 }
 
+/* The hub's own live track answers TRACK_STATUS too (REQUEST_OK, not
+ * DOES_NOT_EXIST): it is found by name like the blob track. */
+static void test_moqtrun_tstat_live(void) {
+  wired_span body;
+  moqctl_ftn m = mtst_ftn("chat", "room1", "movie");
+  mtrq_setup();
+  moqtrun_test_publish_live(&mtst_hub);
+  mtup_tstat(SESS_B, MTRQ_S1, &m);
+  CHECK(mtup_reply(MTRQ_S1, &body) == MOQCTL_T_REQUEST_OK);
+}
+
 static int mtup_deny(void* ctx, const moqctl_ftn* n, const moqctl_token* t) {
   (void)ctx;
   (void)n;
@@ -290,6 +301,25 @@ static void test_moqtrun_tstat_control_stream(void) {
   moqctl_ftn f  = mtup_setup();
   u64        cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
   mtup_tstat(SESS_B, cb, &f);
+  CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
+}
+
+/* A REQUEST_ERROR answers only the hub's REQUEST_UPDATE on a PUBLISH
+ * stream; on the control stream there is nothing for it to answer:
+ * NOT_SUPPORTED, like a stray REQUEST_OK. */
+static void test_moqtrun_upd_err_control_stream(void) {
+  mtup_setup();
+  u64 cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtst_pub_err(SESS_B, cb, MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
+}
+
+/* Same for SUBSCRIBE_TRACKS: its PUBLISHes answer a request stream, so on
+ * the control stream it is NOT_SUPPORTED. */
+static void test_moqtrun_subtracks_control_stream(void) {
+  mtup_setup();
+  u64 cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mtst_subtracks(SESS_B, cb, "chat");
   CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
@@ -921,8 +951,11 @@ static void mtall_upd(void) {
   test_moqtrun_tstat_ok_props();
   test_moqtrun_tstat_ok_empty();
   test_moqtrun_tstat_unknown_and_blob();
+  test_moqtrun_tstat_live();
   test_moqtrun_tstat_authorized();
   test_moqtrun_tstat_control_stream();
+  test_moqtrun_subtracks_control_stream();
+  test_moqtrun_upd_err_control_stream();
   test_moqtrun_upd_failed_changes_nothing();
   test_moqtrun_upd_forward_off_reliable();
   test_moqtrun_upd_forward_toggles();

@@ -379,7 +379,71 @@ static void test_moqsub_early_fin_before_response(void) {
   CHECK(s.state == MOQSUB_TERMINATED);
 }
 
+/* A second SUBSCRIBE/PUBLISH on an open request is ignored (no re-open). */
+static void test_moqsub_reopen_ignored(void) {
+  moqsub s;
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OPEN) == 0);
+  CHECK(s.state == MOQSUB_ESTABLISHED);
+}
+
+/* A REQUEST_ERROR after SUBSCRIBE_OK is a second response: the
+ * subscription stays established and session_fault is set. */
+static void test_moqsub_error_after_ok_is_session_fault(void) {
+  moqsub s;
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  moqsub_step(&s, MOQSUB_EV_OK);
+  CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 0);
+  CHECK(s.session_fault == 1);
+  CHECK(s.state == MOQSUB_ESTABLISHED);
+}
+
+/* STOP_SENDING from Pending(Publisher) and PUBLISH_DONE from
+ * Pending(Subscriber) are not legal: both leave the request pending. */
+static void test_moqsub_pending_role_mismatch_ignored(void) {
+  moqsub p, s;
+  moqsub_init(&p, MOQSUB_ROLE_PUBLISHER);
+  moqsub_step(&p, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&p, MOQSUB_EV_STOP_SENDING) == 0);
+  CHECK(p.state == MOQSUB_PENDING);
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 0);
+  CHECK(s.state == MOQSUB_PENDING);
+}
+
+/* A terminated subscription takes no further event, and an event outside
+ * the table is ignored rather than indexed. */
+static void test_moqsub_terminated_and_unknown_event(void) {
+  moqsub s;
+  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_step(&s, MOQSUB_EV_OPEN);
+  CHECK(moqsub_step(&s, (moqsub_event)99) == 0);
+  CHECK(s.state == MOQSUB_PENDING);
+  moqsub_step(&s, MOQSUB_EV_ERROR);
+  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_RESP) == 0);
+  CHECK(s.fin_resp == 0);
+}
+
+/* An event outside the session table leaves the session open. */
+static void test_moqsess_unknown_event_ignored(void) {
+  moqsess s;
+  moqsess_init(&s);
+  moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
+  moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
+  CHECK(moqsess_step(&s, (moqsess_event)99) == MOQSESS_CLOSE_NONE);
+  CHECK(moqsess_established(&s));
+}
+
 void test_moqsess(void) {
+  test_moqsub_reopen_ignored();
+  test_moqsub_error_after_ok_is_session_fault();
+  test_moqsub_pending_role_mismatch_ignored();
+  test_moqsub_terminated_and_unknown_event();
+  test_moqsess_unknown_event_ignored();
   test_moqsess_establish();
   test_moqsess_established_accepts_request();
   test_moqsess_pipeline_before_peer_setup();

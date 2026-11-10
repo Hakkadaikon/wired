@@ -1888,6 +1888,17 @@ static void test_moqtrun_sub_rngf_value_checks(void) {
   CHECK(mtsub_last_reply_type() == MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* d22 9.20.10: a Range Filter value that does not decode (SetID 0, then
+ * a Start delta varint cut short) is INVALID_FILTER, not ignored. */
+static void test_moqtrun_sub_rngf_truncated(void) {
+  static const u8 cut[] = {0x00, 0x80};
+  moqctl_params   p     = {0};
+  p.items[0].type       = MOQCTL_PARAM_SUBGROUP_FILTER;
+  p.items[0].bytes      = wired_span_of(cut, sizeof cut);
+  p.n                   = 1;
+  CHECK(moqtrun_rngf_refusal(&p) == MOQCTL_ERR_INVALID_FILTER);
+}
+
 /* The advertised MAX_FILTER_RANGES caps the total Ranges across all
  * Range Filter parameters of one request (10.4). */
 static void test_moqtrun_sub_rngf_limit(void) {
@@ -2350,6 +2361,7 @@ static void mtall_sub_rngf(void) {
   test_moqtrun_sub_rngf_dup_identity();
   test_moqtrun_sub_rngf_limit();
   test_moqtrun_sub_rngf_value_checks();
+  test_moqtrun_sub_rngf_truncated();
 }
 
 void test_moqtrun_sub(void) {

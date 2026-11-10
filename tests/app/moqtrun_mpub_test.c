@@ -195,7 +195,43 @@ static void test_moqtrun_mpub_off_supersedes(void) {
   CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
 }
 
+/* s opens a Subgroup stream (Group g, one Object) on sid, left open. */
+static void mpub_push_open(wired_wt_session* s, u64 sid, u64 g) {
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqdata_subhdr h   = {0};
+  usz            off = 0;
+  u8             b   = 0x5a;
+  wired_mspan    out = wired_mspan_of(buf, sizeof buf);
+  h.type             = 0x30;
+  h.track_alias      = MUPS_ALIAS;
+  h.group_id         = g;
+  moqdata_subhdr_put(out, &off, &h);
+  moqdata_obj_put(out, &off, 0, wired_span_of(&b, 1));
+  mt_feed(&mtst_hub, s, sid, wired_span_of(buf, off), 0);
+}
+
+/* NoDup for keep-open streams: C's still-open copy of the Group 0
+ * Subgroup A is already streaming to B opens nothing toward B. */
+static void test_moqtrun_mpub_dedup_open_streams(void) {
+  mpub_both();
+  mpub_push_open(SESS_A, MUPS_DATA_SID, 0);
+  mpub_push_open(SESS_C, MUPS_DATA_SID, 0);
+  CHECK(mpub_to_b(0) == 1);
+}
+
+/* draft-22 9.11: B's REQUEST_UPDATE reaches C's mirror of its one
+ * subscription, not only the copy on A's track it was applied to. */
+static void test_moqtrun_mpub_update_reaches_mirror(void) {
+  moqctl_params p = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 7);
+  mpub_both();
+  mtup_update(SESS_B, MRDV_S1, &p);
+  CHECK(mtst_sub(SESS_A, SESS_B)->priority == 7);
+  CHECK(mtst_sub(SESS_C, SESS_B)->priority == 7);
+}
+
 void test_moqtrun_mpub(void) {
+  test_moqtrun_mpub_update_reaches_mirror();
+  test_moqtrun_mpub_dedup_open_streams();
   test_moqtrun_mpub_subscribes_every_announcer();
   test_moqtrun_mpub_dedup_streams();
   test_moqtrun_mpub_dedup_datagrams();

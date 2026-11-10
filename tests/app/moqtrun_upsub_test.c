@@ -254,6 +254,67 @@ static void test_moqtrun_upsub_open_stream_before_ok(void) {
   CHECK(f && f->s == SESS_B && f->stream_id == relay_sid);
 }
 
+/* A's SUBSCRIBE_OK arrives while A already publishes as many tracks as a
+ * session's slots hold: the hub cannot take the track, so the upstream
+ * subscription is cancelled and B refused EXCESSIVE_LOAD (draft-22 9.4
+ * relays MAY refuse under load) -- never left waiting. */
+static void test_moqtrun_upsub_ok_no_track_slot(void) {
+  static const char* const names[] = {"p0", "p1", "p2", "p3", "p4"};
+  mups_init();
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; i++) {
+    moqctl_ftn f = mtst_ftn("chat", "room1", names[i]);
+    mtst_publish(SESS_A, MTRQ_ID(i), &f, 20 + i);
+  }
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  CHECK(mrdv_err(SESS_B, MRDV_S1).error_code == MOQCTL_ERR_EXCESSIVE_LOAD);
+  CHECK(mups_used() == 0);
+}
+
+/* A keep-open stream held before the OK that the publisher then resets
+ * (RFC 9000 19.4) is gone: nothing of it is relayed once the OK comes. */
+static void test_moqtrun_upsub_early_stream_reset(void) {
+  u8 buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS, buf)), 0);
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_A, MUPS_DATA_SID, 0, 0);
+  mups_ok((u64)mups_up_sid());
+  CHECK(mups_relayed_alias(SESS_B) == ~(u64)0);
+}
+
+/* The held stream is bounded (WIRED_MOQTRUN_EARLY_BUF): a later delivery
+ * that does not fit drops the whole stream rather than relaying a torn
+ * one. */
+static void test_moqtrun_upsub_early_stream_overflow(void) {
+  static u8 more[WIRED_MOQTRUN_EARLY_BUF];
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID,
+      wired_span_of(buf, mups_stream(MUPS_ALIAS, buf)), 0);
+  mt_feed(
+      &mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(more, sizeof more), 0);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->early_n == 0);
+  mups_ok((u64)mups_up_sid());
+  CHECK(mups_relayed_alias(SESS_B) == ~(u64)0);
+}
+
+/* A stream that ends (FIN) inside its SUBGROUP_HEADER names no track and
+ * is not held for the pending OK (draft-22 11.4.2: no stream at all). */
+static void test_moqtrun_upsub_early_torn_header(void) {
+  static const u8 torn[] = {0x30, MUPS_ALIAS};
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mt_feed(&mtst_hub, SESS_A, MUPS_DATA_SID, wired_span_of(torn, 2), 1);
+  CHECK(moqtrun_find_by_wt(&mtst_hub, SESS_A)->early_n == 0);
+  CHECK(moqtrun_test_count_kind(11) == 0);
+}
+
 /* Aggregation (9.4 MAY): B and C waiting share one upstream SUBSCRIBE
  * and both get SUBSCRIBE_OK; D arriving once it is Established is
  * answered at once, still with one upstream. */
@@ -702,6 +763,10 @@ static void mtall_upsub(void) {
   test_moqtrun_upsub_objects_relayed();
   test_moqtrun_upsub_stream_before_ok();
   test_moqtrun_upsub_open_stream_before_ok();
+  test_moqtrun_upsub_early_stream_reset();
+  test_moqtrun_upsub_ok_no_track_slot();
+  test_moqtrun_upsub_early_stream_overflow();
+  test_moqtrun_upsub_early_torn_header();
   test_moqtrun_upsub_two_share_one();
   test_moqtrun_upsub_error_relayed();
   test_moqtrun_upsub_fin_unanswered_fails();
@@ -796,6 +861,39 @@ static void test_moqtrun_upsub_second_ok_closes(void) {
   CHECK(moqtrun_test_count_kind(11) == 0);
   mups_ok(sid);
   CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* The same for a REQUEST_ERROR after the SUBSCRIBE_OK (no REQUEST_UPDATE
+ * outstanding, so it can only answer the SUBSCRIBE a second time). */
+static void test_moqtrun_upsub_error_after_ok_closes(void) {
+  u64 sid;
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  sid = (u64)mups_up_sid();
+  mups_ok(sid);
+  mtst_pub_err(SESS_A, sid, MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+}
+
+/* A SUBSCRIBE_OK on the hub's upstream SUBSCRIBE that does not decode
+ * closes A's session PROTOCOL_VIOLATION; no track is claimed. */
+static void test_moqtrun_upsub_ok_malformed_closes(void) {
+  static const u8 cut[] = {0x40};
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mtrq_raw(SESS_A, (u64)mups_up_sid(), MOQCTL_T_SUBSCRIBE_OK, cut, sizeof cut);
+  CHECK(moqtrun_test_close_code() == WIRED_MOQTRUN_CLOSE_PROTOCOL_VIOLATION);
+  CHECK(!moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].in_use);
+}
+
+/* PUBLISH_DONE on the hub's SUBSCRIBE before any SUBSCRIBE_OK claimed a
+ * track has no track to end: B keeps waiting for the answer. */
+static void test_moqtrun_upsub_done_before_ok(void) {
+  mups_init();
+  mups_sub(SESS_B, MRDV_S1);
+  mups_done((u64)mups_up_sid(), MOQCTL_DONE_GOING_AWAY);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  CHECK(mups_used() == 1);
 }
 
 /* ===== the hub's REQUEST_UPDATE on a PUBLISH stream ===== */
@@ -916,6 +1014,60 @@ static void test_moqtrun_upsub_ngr_on_publish(void) {
   mtst_pub_err(SESS_A, MUPS_PUB_SID, MOQCTL_ERR_INTERNAL_ERROR);
   CHECK(moqtrun_test_count_kind(11) == 0);
   CHECK(!moqtrun_req_find(&mtst_hub, SESS_A, MUPS_PUB_SID)->ngr.out);
+}
+
+/* draft-18 10.2.13 on a PUBLISH-initiated track: while one
+ * NEW_GROUP_REQUEST is outstanding a second of no greater value is held
+ * back. */
+static void test_moqtrun_upsub_ngr_on_publish_held(void) {
+  u64 v = 9;
+  mups_pub_init(MOQVER_D18);
+  mtst_join(SESS_C);
+  moqtrun_find_by_wt(&mtst_hub, SESS_C)->ver = MOQVER_D18;
+  mups_pub_stream(2);
+  mups_sub_ngr(SESS_B, MRDV_S1, 0);
+  mups_sub_ngr(SESS_C, MRDV_S1, 0);
+  CHECK(mups_upd_sent(MUPS_PUB_SID, MOQCTL_PARAM_NEW_GROUP_REQUEST, &v) == 1);
+}
+
+/* The hub's SUBSCRIBE stream to A, Established with DYNAMIC_GROUPS 1, B
+ * subscribed and C, D joined; its stream id. */
+static u64 mups_ngr_fixture(void) {
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mups_sub(SESS_B, MRDV_S1);
+  u64 sid = (u64)mups_up_sid();
+  mups_ok_prop(sid, MOQTRUN_PROP_DYNAMIC_GROUPS, 1);
+  return sid;
+}
+
+/* draft-18 10.2.13: A's REQUEST_ERROR answering the hub's REQUEST_UPDATE
+ * on its SUBSCRIBE stream fails the update only -- the subscription
+ * stands, and the NEW_GROUP_REQUEST is no longer outstanding. */
+static void test_moqtrun_upsub_ngr_update_refused(void) {
+  u64 got = 0;
+  u64 sid = mups_ngr_fixture();
+  mups_sub_ngr(SESS_C, MRDV_S1, 3);
+  CHECK(mups_ngr_sent(sid, &got) == 1);
+  mtst_pub_err(SESS_A, sid, MOQCTL_ERR_INTERNAL_ERROR);
+  CHECK(mups_used() == 1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|"));
+  mups_sub_ngr(SESS_D, MRDV_S1, 3);
+  CHECK(mups_ngr_sent(sid, &got) == 2 && got == 3);
+}
+
+/* A refused REQUEST_UPDATE send leaves nothing outstanding: the next
+ * NEW_GROUP_REQUEST goes out. */
+static void test_moqtrun_upsub_ngr_send_refused(void) {
+  u64 got                   = 0;
+  u64 sid                   = mups_ngr_fixture();
+  g_stream_send_reject_sess = SESS_A;
+  mups_sub_ngr(SESS_C, MRDV_S1, 3);
+  g_stream_send_reject_sess = 0;
+  CHECK(mups_ngr_sent(sid, &got) == 1);
+  mups_sub_ngr(SESS_D, MRDV_S1, 3);
+  CHECK(mups_ngr_sent(sid, &got) == 2 && got == 3);
 }
 
 /* ===== GOAWAY on the hub's upstream SUBSCRIBE stream (draft-23 9.2) ===== */
@@ -1081,10 +1233,16 @@ void test_moqtrun_upsub(void) {
   test_moqtrun_upsub_goaway();
   test_moqtrun_upsub_dup_alias_closes();
   test_moqtrun_upsub_second_ok_closes();
+  test_moqtrun_upsub_error_after_ok_closes();
+  test_moqtrun_upsub_ok_malformed_closes();
+  test_moqtrun_upsub_done_before_ok();
   test_moqtrun_upsub_redirect_uri_closes();
   moqtrun_test_allver(mtall_upsub);
   test_moqtrun_upsub_cross_draft();
   test_moqtrun_upsub_publish_resumed();
   test_moqtrun_upsub_publish_resumed_d23();
   test_moqtrun_upsub_ngr_on_publish();
+  test_moqtrun_upsub_ngr_on_publish_held();
+  test_moqtrun_upsub_ngr_update_refused();
+  test_moqtrun_upsub_ngr_send_refused();
 }

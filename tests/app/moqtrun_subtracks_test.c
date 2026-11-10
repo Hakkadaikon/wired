@@ -541,6 +541,62 @@ static void mtst_pub_goaway_moves_d23(void) {
   }
 }
 
+/* B's SUBSCRIBE_TRACKS published alice to B; B sent GOAWAY on that
+ * PUBLISH stream; its id. */
+static u64 mtst_pub_goaway_marked(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  mtst_subtracks_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  u64 sid = (u64)mtst_pub_stream_id(0);
+  mtrq_raw(SESS_B, sid, MOQCTL_T_GOAWAY, away, sizeof away);
+  return sid;
+}
+
+/* draft-23 9.2 re-issue with no bidi stream to open: nothing is lost,
+ * the next sweep sends the new PUBLISH. */
+static void mtst_pub_goaway_retries_d23(void) {
+  u64 sid            = mtst_pub_goaway_marked();
+  g_open_bidi_fail_n = 1;
+  wired_moqt_tick(&mtst_hub, 0); /* the refused open is recorded too */
+  CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 2);
+  CHECK(mtrq_reset_code(sid) == -1); /* the old one is not closed yet */
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 3);
+  CHECK(mtrq_reset_code(sid) != -1);
+}
+
+/* The SUBSCRIBE_TRACKS itself is cancelled before the sweep: there is no
+ * request left to re-issue the PUBLISH for. */
+static void mtst_pub_goaway_origin_gone_d23(void) {
+  mtst_pub_goaway_marked();
+  wired_moqt_on_stream_reset(&mtst_hub, SESS_B, MTRQ_S2, 0, 0);
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 1);
+}
+
+/* A message the PUBLISH's receiver never sends on it (here
+ * SUBSCRIBE_OK) is ignored like on the hub's SUBSCRIBE stream
+ * (moqtrun_up_on.c): no reply, no close. */
+static void mtst_pub_stream_stray_ignored(void) {
+  static const u8 body[] = {0x00};
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  mtst_subtracks_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  u64 sid = (u64)mtst_pub_stream_id(0);
+  moqtrun_test_reset();
+  mtrq_raw(SESS_B, sid, MOQCTL_T_SUBSCRIBE_OK, body, sizeof body);
+  CHECK(g_n_calls == 0);
+}
+
 /* Earlier drafts ignore GOAWAY on the hub's PUBLISH stream. */
 static void mtst_pub_goaway_old(void) {
   mtst_pub_goaway();
@@ -550,6 +606,10 @@ static void mtst_pub_goaway_old(void) {
 void test_moqtrun_subtracks(void) {
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_d23);
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_moves_d23);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_retries_d23);
+  moqtrun_test_vers(
+      MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_origin_gone_d23);
+  moqtrun_test_allver(mtst_pub_stream_stray_ignored);
   moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mtst_pub_goaway_old);
   moqtrun_test_allver(mtall_subtracks);
   /* draft-23 3.6 accepts overlaps (moqtrun_nsx_test.c) */
