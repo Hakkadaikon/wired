@@ -23,8 +23,4 @@ typedef struct {
   const sockaddr* peer;
 } udpdst;
 
-/* Pack the packets and send them as one datagram to dst. Returns the bytes
- * sent, or 0 if packing overflows out->cap or the send fails. */
-usz udploop_tx(const udpdst* dst, const pktsrc* src, wired_obuf* out);
-
 #endif

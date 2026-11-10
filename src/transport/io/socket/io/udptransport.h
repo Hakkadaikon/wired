@@ -24,7 +24,4 @@ int udp_transport_connect(udp_transport* t, u32 peer_addr, u16 peer_port);
 /* Send len bytes to the peer. Returns 1 on success, 0 on failure. */
 int udp_transport_send(udp_transport* t, const u8* buf, usz len);
 
-/* Receive up to cap bytes into buf. Returns bytes read, or 0 on empty/error. */
-usz udp_transport_recv(udp_transport* t, u8* buf, usz cap);
-
 #endif

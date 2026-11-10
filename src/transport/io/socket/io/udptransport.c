@@ -31,8 +31,3 @@ int udp_transport_send(udp_transport* t, const u8* buf, usz len) {
   wired_udp_addr(&sa, t->peer_port, o);
   return wired_udp_send(t->fd, &sa, wired_span_of(buf, len)) >= 0 ? 1 : 0;
 }
-
-usz udp_transport_recv(udp_transport* t, u8* buf, usz cap) {
-  i64 r = wired_udp_recv(t->fd, wired_mspan_of(buf, cap));
-  return r > 0 ? (usz)r : 0;
-}
