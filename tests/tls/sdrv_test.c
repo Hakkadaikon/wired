@@ -1802,10 +1802,12 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s, &in);
+    sdrv_set_early_data(&s, 1);
   }
   CHECK(sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
-  CHECK(s.psk_dhe_ke == 1);                      /* RFC 8446 4.2.9 */
+  CHECK(s.early_data_accepted == 0); /* RFC 8446 4.2.10: no early_data ext */
+  CHECK(s.psk_dhe_ke == 1);          /* RFC 8446 4.2.9 */
   CHECK(s.psk_origin_at == SDRV_TEST_ORIGIN_AT); /* RFC 8446 4.6.1 */
   for (usz i = 0; i < 32; i++) {
     CHECK(s.psk_secret[i] == f.psk[i]);
@@ -2372,6 +2374,7 @@ static void test_sdrv_early_data_replay_rejected(void) {
   {
     sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, f.ticket_key};
     sdrv_init(&s2, &in);
+    sdrv_set_early_data(&s2, 1);
   }
   CHECK(sdrv_recv_client_hello(&s2, ch2, ch2_len));
   CHECK(s2.psk_accepted == 1);        /* PSK/1-RTT resumption still allowed */
@@ -3459,10 +3462,172 @@ static void test_sdrv_recv_client_hello_stores_peer_ack_delay_params(void) {
   CHECK(s.peer_max_ack_delay_p1 == 0);
 }
 
+/* RFC 8446 4 / 4.1.2: every ClientHello accessor fails closed on a message
+ * that is not a ClientHello, on a ClientHello too short for its extensions
+ * block, and on an extension header overrunning its block -- read directly,
+ * since sdrv_recv_client_hello's decode gate rejects these first. */
+static void test_sdrv_ch_accessors_reject_malformed(void) {
+  static const u8 not_ch[4]        = {HS_SERVER_HELLO, 0, 0, 0};
+  static const u8 overrun[4]       = {0xba, 0xad, 0, 9};
+  u8              short_ch[4 + 35] = {HS_CLIENT_HELLO, 0, 0, 35};
+  u8              pub[65];
+  u64             v = 7;
+  wired_span      ext;
+  usz             start, end;
+  sdrv            s;
+  sdrv_test_init_any(&s);
+  CHECK(sdrv_ch_exts_of(not_ch, sizeof not_ch, &start, &end) == 0);
+  CHECK(sdrv_ch_exts_of(short_ch, sizeof short_ch, &start, &end) == 0);
+  CHECK(sdrv_take_client_keyshare(short_ch, sizeof short_ch, 29, pub) == 0);
+  CHECK(sdrv_find_client_ext(not_ch, sizeof not_ch, 0x39, &ext) == 0);
+  CHECK(sdrv_ch_find_ext(overrun, 0, 4, 0x39, &ext) == 0);
+  CHECK(sdrv_ch_walk(overrun, 0, 4, GROUP_X25519, pub) == 0);
+  sdrv_take_peer_tp_int(not_ch, sizeof not_ch, TP_INITIAL_MAX_DATA, &v);
+  CHECK(v == 0);
+  CHECK(sdrv_peer_tp_plus1(not_ch, sizeof not_ch, TP_MAX_ACK_DELAY) == 0);
+  CHECK(sdrv_tp_seq(not_ch, sizeof not_ch).n == 0);
+  CHECK(sdrv_take_client_sid(&s, not_ch, sizeof not_ch) == 0);
+  CHECK(sdrv_ch_negotiate(&s, not_ch, sizeof not_ch, &start) == 0);
+  CHECK(sdrv_ch_negotiate(&s, short_ch, sizeof short_ch, &start) == 0);
+  /* RFC 8446 4.2.11: no extensions block, so no pre_shared_key to misplace */
+  CHECK(SDRV_CH_GATES[SDRV_CH_GATE_COUNT - 1](&s, not_ch, sizeof not_ch));
+}
+
+/* RFC 8446 4.1.2: cipher_suites whose byte length is odd is not a whole
+ * number of suites -- the negotiation fails rather than truncating. */
+static void test_sdrv_ch_negotiate_odd_suites(void) {
+  u8   ch[4 + 38] = {HS_CLIENT_HELLO, 0, 0, 38};
+  usz  body;
+  sdrv s;
+  sdrv_test_init_any(&s);
+  ch[4 + 36] = 1; /* sid len 0 at body[34]; suites length 0x0001 */
+  CHECK(sdrv_ch_negotiate(&s, ch, sizeof ch, &body) == 0);
+  ch[4 + 36] = 2;
+  ch[4 + 37] = 0x13;
+  CHECK(sdrv_ch_negotiate(&s, ch, sizeof ch, &body) == 0); /* overruns */
+}
+
+/* RFC 8446 4.1.2/B.3: a message whose length field disagrees with its
+ * bytes is decode_error (alert 50). */
+static void test_sdrv_recv_client_hello_bad_length(void) {
+  static const u8 msg[4] = {HS_CLIENT_HELLO, 0, 0, 9};
+  sdrv            s;
+  sdrv_test_init_any(&s);
+  CHECK(!sdrv_recv_client_hello(&s, msg, sizeof msg));
+  CHECK(sdrv_last_error(&s) == err_crypto(50));
+}
+
+/* RFC 7301 3.1: a ClientHello without the ALPN extension negotiates
+ * nothing; RFC 9000 7.4: one without transport parameters has no duplicate
+ * to reject. */
+static void test_sdrv_ch_no_alpn_no_tp(void) {
+  u8   cli_pub[32] = {9}, srv_random[32] = {0}, ch[512];
+  usz  n;
+  sdrv s;
+  sdrv_test_init_any(&s);
+  n = sdrv_test_client_hello(ch, sizeof ch, cli_pub, srv_random);
+  CHECK(n != 0);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_KEYSHARE_TYPE_OFF + 42); /* ALPN */
+  s.alpn = SALPN_H3;
+  sdrv_negotiate_alpn(&s, ch, n);
+  CHECK(s.alpn == SALPN_NONE);
+  n = sdrv_test_strip_tp_ext(ch, n, 0);
+  CHECK(sdrv_ch_reject_dup_tp(&s, ch, n) == 1);
+  CHECK(s.last_error == 0);
+}
+
+/* An application-supplied chain whose certificates are not X.509 DER: the
+ * server_name check is skipped (RFC 6066 3, nothing to match against) and
+ * no certificate signature counts as offered (RFC 8446 4.2.3). */
+static void test_sdrv_unparsable_chain(void) {
+  static const u8  junk[3]      = {0x30, 0x01, 0x00};
+  const wired_span chain[1]     = {{junk, sizeof junk}};
+  u8               srv_priv[32] = {1}, srv_pub[32], cert_priv[32] = {2};
+  u8               cli_pub[32] = {9}, rnd[32] = {0}, ch[512];
+  usz              n;
+  sdrv             s;
+  wired_x25519_base(srv_pub, srv_priv);
+  {
+    sdrv_init_in in = {srv_priv, srv_pub, cert_priv, chain, 1, 0, 0, 0};
+    sdrv_init(&s, &in);
+  }
+  n = tls_client_hello(
+      &(clienthello_in){
+          rnd, cli_pub, wired_span_of((const u8*)"localhost", 9),
+          wired_span_of(0, 0)},
+      &(wired_obuf){ch, sizeof ch, 0});
+  CHECK(n != 0);
+  sdrv_check_sni(&s, ch, n);
+  CHECK(s.sni_outcome == SALPN_SNI_ABSENT);
+  sdrv_ch_note_cert_sigs(&s, ch, n);
+  CHECK(s.cert_sigs_offered == 0);
+}
+
+/* The server's ServerHello, handshake flight and HelloRetryRequest each fail
+ * closed when the caller's buffer is too small; the handshake secret is not
+ * readable before it is derived. */
+static void test_sdrv_flight_small_buffers(void) {
+  u8              cli_pub[32] = {9}, rnd[32] = {0}, ch[512];
+  u8              sh[256], fl[2048];
+  const u8*       secret;
+  usz             n;
+  sdrv            s;
+  wired_obuf      sh_ob = obuf_of(sh, 10), fl_ob = obuf_of(fl, sizeof fl);
+  sdrv_flight_out fo = {&sh_ob, &fl_ob};
+  n                  = sdrv_test_client_hello(ch, sizeof ch, cli_pub, rnd);
+  sdrv_test_init_any(&s);
+  CHECK(sdrv_handshake_secret(&s, &secret) == 0);
+  CHECK(sdrv_build_hrr(&s, &sh_ob) == 0);
+  CHECK(sdrv_recv_client_hello(&s, ch, n));
+  CHECK(sdrv_build_server_flight(&s, rnd, &fo) == 0);
+  sdrv_test_init_any(&s);
+  CHECK(sdrv_recv_client_hello(&s, ch, n));
+  sh_ob = obuf_of(sh, sizeof sh);
+  fl_ob = obuf_of(fl, 10);
+  CHECK(sdrv_build_server_flight(&s, rnd, &fo) == 0);
+}
+
+/* RFC 9000 7.3: retry_source_connection_id is a connection ID, at most 20
+ * bytes (RFC 9000 17.2). */
+/* RFC 8446 4.2.11 / 6.2: a pre_shared_key too short for its identities
+ * length is decode_error. The 1-byte TP extension, last in the
+ * ClientHello, is retyped to pre_shared_key (0x0029). */
+static void test_sdrv_psk_ext_too_short(void) {
+  static const u8 one[1]      = {0};
+  u8              cli_pub[32] = {9}, rnd[32] = {0}, ch[512];
+  usz             n;
+  sdrv            s;
+  sdrv_test_init_any(&s);
+  n = sdrv_test_client_hello_tp(
+      ch, sizeof ch, cli_pub, rnd, wired_span_of(one, 1));
+  CHECK(ch[SDRV_TEST_TP_TYPE_OFF + 1] == 0x39);
+  ch[SDRV_TEST_TP_TYPE_OFF + 1] = 0x29;
+  CHECK(sdrv_ch_require_psk_shape(&s, ch, n) == 0);
+  CHECK(s.last_error == err_crypto(50));
+}
+
+static void test_sdrv_set_retry_scid(void) {
+  static const u8 cid[21] = {1, 2, 3, 4, 5, 6, 7, 8};
+  sdrv            s;
+  sdrv_test_init_any(&s);
+  CHECK(sdrv_set_retry_scid(&s, wired_span_of(cid, 8)) == 1);
+  CHECK(s.rscid_len == 8 && s.rscid[7] == 8);
+  CHECK(sdrv_set_retry_scid(&s, wired_span_of(cid, 21)) == 0);
+  CHECK(s.rscid_len == 8);
+}
+
 void test_sdrv(void) {
   /* the 0-RTT tests below run as a server started long ago (RFC 8446 8.2
    * start-up refusal is test_sdrv_0rtt_refused_during_startup's) */
   sdrv_zerortt_set_started(1);
+  test_sdrv_ch_accessors_reject_malformed();
+  test_sdrv_ch_negotiate_odd_suites();
+  test_sdrv_recv_client_hello_bad_length();
+  test_sdrv_ch_no_alpn_no_tp();
+  test_sdrv_unparsable_chain();
+  test_sdrv_flight_small_buffers();
+  test_sdrv_set_retry_scid();
+  test_sdrv_psk_ext_too_short();
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
   test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len();

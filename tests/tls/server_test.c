@@ -153,7 +153,9 @@ static void test_server_happy(void) {
     CHECK(keyset_for_level(&f.s.keys, LEVEL_ONERTT, &k) == 1);
   }
 
-  /* HANDSHAKE_DONE exactly once. */
+  /* HANDSHAKE_DONE exactly once, once a buffer can hold it. */
+  hd_ob = obuf_of(hsdone, 0);
+  CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
   hd_ob = obuf_of(hsdone, sizeof(hsdone));
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 1);
   CHECK(hd_ob.len == 1 && hsdone[0] == 0x1e);
@@ -197,7 +199,10 @@ static void test_wired_server_exposes_early_data_used(void) {
     nonzero |= f.s.sched.exporter_secret[i];
   }
   CHECK(nonzero != 0);
-  wired_server_close(&f.s); /* fd is -1: only the wipe runs */
+  f.s.fd = wired_udp_socket();
+  CHECK(f.s.fd >= 0);
+  wired_server_close(&f.s); /* closes the socket, then wipes */
+  CHECK(f.s.fd == -1);
   for (usz i = 0; i < 32; i++) {
     CHECK(f.s.sched.exporter_secret[i] == 0);
   }
@@ -995,7 +1000,30 @@ static void test_server_crypto_level_routing(void) {
   CHECK(wired_server_take_hs_error(&f.s) == 0x10a);
 }
 
+/* The key_share group field of make_client_hello's ClientHello: key_share's
+ * type at message offset 74, then ext_len(2) shares_len(2). */
+#define SRVT_KEYSHARE_GROUP_OFF (74 + 6)
+
+/* RFC 8446 4.1.4: wired_server_build_hrr answers only a ClientHello that
+ * armed an HRR (no x25519 share, x25519 listed), and fails closed when the
+ * buffer cannot hold the HelloRetryRequest. */
+static void test_server_build_hrr_guards(void) {
+  struct srv_fix f;
+  u8             small[8];
+  wired_obuf     ob = obuf_of(small, sizeof(small));
+  init_plain_server(&f.s);
+  CHECK(wired_server_build_hrr(&f.s, &ob) == 0); /* nothing pending */
+  make_client_hello(&f);
+  f.ch[SRVT_KEYSHARE_GROUP_OFF]     = (u8)(GROUP_SECP256R1 >> 8);
+  f.ch[SRVT_KEYSHARE_GROUP_OFF + 1] = (u8)GROUP_SECP256R1;
+  CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
+  CHECK(sdrv_hrr_pending(&f.s.sdrv) == 1);
+  CHECK(wired_server_build_hrr(&f.s, &ob) == 0);
+  CHECK(ob.len == 0);
+}
+
 void test_server(void) {
+  test_server_build_hrr_guards();
   test_server_happy();
   test_wired_server_exposes_early_data_used();
   test_server_finished_trailing_bytes_not_in_transcript();

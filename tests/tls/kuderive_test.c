@@ -9,6 +9,12 @@ void test_kuderive(void) {
   }
 
   u8 a[32], b[32];
+  /* an unknown version takes the v1 "quic ku" label (RFC 9001 6.1) */
+  ku_next_secret(cur, a);
+  ku_next_secret_v(0x0a0a0a0a, cur, b);
+  for (usz i = 0; i < 32; i++) {
+    CHECK(a[i] == b[i]);
+  }
   ku_next_secret(cur, a);
   ku_next_secret(cur, b);
   for (usz i = 0; i < 32; i++) {

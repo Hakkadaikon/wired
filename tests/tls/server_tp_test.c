@@ -304,7 +304,23 @@ static void test_server_tp_grease_quic_bit(void) {
   CHECK(b.n == 0);
 }
 
+/* No limits given remembers the defaults, as an all-zero stp_limits does;
+ * RFC 9000 18: a parameter id that is not a whole varint ends the parse. */
+static void test_server_tp_remembered_defaults_and_bad_tlv(void) {
+  static const u8 bad[1] = {0x40}; /* 2-byte varint prefix, 1 byte present */
+  stp_limits      zero   = {0};
+  u64             a[STP_REMEMBERED_N], b[STP_REMEMBERED_N], v = 0;
+  stp_out         out = {&v, 0};
+  stp_remembered(0, a);
+  stp_remembered(&zero, b);
+  for (usz i = 0; i < STP_REMEMBERED_N; i++) {
+    CHECK(a[i] == b[i]);
+  }
+  CHECK(stp_parse(wired_span_of(bad, 1), TP_MAX_IDLE_TIMEOUT, &out) == 0);
+}
+
 void test_server_tp(void) {
+  test_server_tp_remembered_defaults_and_bad_tlv();
   test_server_tp_grease_quic_bit();
   test_server_tp_tunable_limits();
   test_server_tp_datagram_frame_size();

@@ -171,9 +171,59 @@ static void test_certverify_client_context(void) {
   CHECK(cv_client_vec(s48, sizeof(mtlsg_client_cv_sig48), 32, 1) == 0);
 }
 
+/* A copy of der with der[off] replaced by v, verified as cv_spkialg does. */
+static int cv_patched(
+    const u8* der, usz n, usz off, u8 v, u16 scheme, wired_span sig) {
+  u8 buf[512];
+  for (usz i = 0; i < n; i++) {
+    buf[i] = der[i];
+  }
+  buf[off] = v;
+  return cv_spkialg(buf, n, scheme, sig.p, sig.n);
+}
+
+/* RFC 5480 2.2 / RFC 8017 A.1.1 / RFC 8410 4: the subjectPublicKey must
+ * hold an uncompressed P-256 point (0x04 lead), an RSAPublicKey SEQUENCE,
+ * or a whole-byte (0 unused bits) Ed25519 key; a SubjectPublicKeyInfo
+ * whose BIT STRING is not one is unusable. RFC 8446 4.4.3: no
+ * transcript hash is longer than SHA-384's 48 bytes. */
+static void test_certverify_bad_key_encodings(void) {
+  wired_span p256 =
+      wired_span_of(spkialg_cv_p256_sig, sizeof(spkialg_cv_p256_sig));
+  wired_span rsa =
+      wired_span_of(spkialg_cv_rsapss_sig, sizeof(spkialg_cv_rsapss_sig));
+  wired_span ed =
+      wired_span_of(spkialg_cv_ed25519_sig, sizeof(spkialg_cv_ed25519_sig));
+  u8            th[64] = {0};
+  certverify_in in     = {
+      TLS_SCHEME_ECDSA_P256,
+      wired_span_of(mtlsg_leaf_ok, sizeof(mtlsg_leaf_ok)), p256, th};
+  /* spkialg_p256_ok: BIT STRING 03 42 00 04 at 121 */
+  CHECK(
+      cv_patched(
+          spkialg_p256_ok, sizeof(spkialg_p256_ok), 124, 0x02,
+          TLS_SCHEME_ECDSA_P256, p256) == 0);
+  CHECK(
+      cv_patched(
+          spkialg_p256_ok, sizeof(spkialg_p256_ok), 121, 0x04,
+          TLS_SCHEME_ECDSA_P256, p256) == 0); /* not a BIT STRING */
+  /* spkialg_rsa: BIT STRING value 00 30 82 01 0a at 116 */
+  CHECK(
+      cv_patched(
+          spkialg_rsa, sizeof(spkialg_rsa), 117, 0x31,
+          TLS_SCHEME_RSA_PSS_SHA256, rsa) == 0);
+  /* spkialg_ed25519: BIT STRING 03 21 00 at 108 */
+  CHECK(
+      cv_patched(
+          spkialg_ed25519, sizeof(spkialg_ed25519), 110, 0x01,
+          TLS_SCHEME_ED25519, ed) == 0);
+  CHECK(tls_verify_cert_signature_ctx(&in, 1, 49) == 0);
+}
+
 void test_certverify(void) {
   test_certverify_client_context();
   test_certverify_bad_scheme();
+  test_certverify_bad_key_encodings();
   test_certverify_ecdsa_bogus();
   test_certverify_ecdsa_malformed();
   test_certverify_pss_ok();

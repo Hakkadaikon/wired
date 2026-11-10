@@ -78,7 +78,9 @@ static void test_client_hello_no_sni(void) {
 }
 
 static void test_client_hello_cap_guard(void) {
-  u8 small[40];
+  u8 small[50];
+  CHECK(build(small, 40) == 0);
+  /* room for the fixed fields but not the first extension's header */
   CHECK(build(small, sizeof(small)) == 0);
 }
 

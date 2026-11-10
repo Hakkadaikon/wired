@@ -107,6 +107,12 @@ static void test_client_initial_padded(void) {
   tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   len = client_build_initial(&c, dg, sizeof(dg));
   CHECK(len == 1200);
+  CHECK(client_build_initial(&c, dg, 10) == 0); /* no room for the frame */
+  {
+    static const u8 huge_sni[600] = {0};
+    tlsdriver_set_sni(&c.tls, huge_sni, sizeof(huge_sni));
+    CHECK(client_build_initial(&c, dg, sizeof(dg)) == 0); /* CH too big */
+  }
 }
 
 /* RFC 9001 4.1: feeding a real ServerHello advances INITIAL -> AUTH. */
@@ -200,11 +206,18 @@ static void test_client_e2e_confirmed(void) {
     n = ob.len;
   }
 
+  /* RFC 8446 4.6.1: a NewSessionTicket mid-handshake is not part of the
+   * server's authentication flight. */
+  {
+    static const u8 nst[] = {4, 0, 0, 0};
+    CHECK(client_feed(&c, nst, sizeof(nst)) == 0);
+  }
   /* client consumes the server's auth flight via feed; reaches confirmed. */
   CHECK(client_feed(&c, cert_msg, cert_msg_len) == 1);
   CHECK(client_feed(&c, cv, cv_len) == 1);
   CHECK(client_feed(&c, svfin, n) == 1);
   CHECK(client_is_connected(&c) == 1);
+  CHECK(client_feed(&c, svfin, n) == 0); /* confirmed: nothing left to feed */
 }
 
 /* Shared fixture for the policy tests: a client at INITIAL with the given

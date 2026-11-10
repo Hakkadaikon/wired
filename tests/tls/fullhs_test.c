@@ -265,7 +265,112 @@ static void test_fullhs_send_finished_rejects_over_cap(void) {
   CHECK(h.tr_len == FULLHS_TRANSCRIPT_MAX);
 }
 
+/* Both tlsdrivers at the handshake secret, both fullhs freshly initialized
+ * (nothing past ServerHello received yet). */
+static void fullhs_cov_pair(
+    tlsdriver* cltls, tlsdriver* svtls, fullhs* cl, fullhs* sv) {
+  u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32], sh[512];
+  usz shn;
+  for (usz i = 0; i < 32; i++) {
+    cl_priv[i] = (u8)(1 + i);
+    sv_priv[i] = (u8)(200 - i);
+  }
+  wired_x25519_base(cl_pub, cl_priv);
+  wired_x25519_base(sv_pub, sv_priv);
+  tlsdriver_init(cltls, cl_priv, cl_pub, 0);
+  tlsdriver_init(svtls, sv_priv, sv_pub, 1);
+  CHECK(fullhs_init(cl, cltls, wired_span_of(sh, 0)) == 0); /* no secret */
+  reach_hs_secret(cltls, svtls, sv_pub, sh, &shn);
+  CHECK(fullhs_init(cl, cltls, wired_span_of(sh, shn)) == 1);
+  CHECK(fullhs_init(sv, svtls, wired_span_of(sh, shn)) == 1);
+}
+
+/* A fresh client fullhs (policy_now set when `policy`) rejects msg as its
+ * first Certificate. */
+static void fullhs_cov_cert_rejected(const u8* msg, usz n, u64 policy) {
+  tlsdriver cltls, svtls;
+  fullhs    cl, sv;
+  fullhs_cov_pair(&cltls, &svtls, &cl, &sv);
+  fullhs_set_policy(&cl, policy, wired_span_of(0, 0));
+  CHECK(fullhs_recv_cert(&cl, msg, n) == 0);
+  CHECK(cl.cert_count == 0);
+}
+
+/* RFC 8446 4.4.2 / 6.2: a Certificate whose body is empty, whose
+ * certificate_list is empty (the server MUST send one), or whose
+ * CertificateEntry lacks its extensions vector is rejected; with a policy
+ * set (RFC 5280 4.1), so is a leaf that is not X.509 DER. */
+static void test_fullhs_cert_malformed(void) {
+  static const u8 no_body[]  = {HSD_CERTIFICATE, 0, 0, 0};
+  static const u8 no_certs[] = {HSD_CERTIFICATE, 0, 0, 4, 0, 0, 0, 0};
+  static const u8 no_ext[]   = {
+      HSD_CERTIFICATE, 0, 0, 8, 0, 0, 0, 4, 0, 0, 1, 0xaa};
+  static const u8 junk[] = {
+      HSD_CERTIFICATE, 0, 0, 10, 0, 0, 0, 6, 0, 0, 1, 0x30, 0, 0};
+  fullhs_cov_cert_rejected(no_body, sizeof(no_body), 0);
+  fullhs_cov_cert_rejected(no_certs, sizeof(no_certs), 0);
+  fullhs_cov_cert_rejected(no_ext, sizeof(no_ext), 0);
+  fullhs_cov_cert_rejected(junk, sizeof(junk), 1);
+}
+
+/* A valid Certificate that would overrun FULLHS_TRANSCRIPT_MAX is refused,
+ * and a second Certificate is out of order (RFC 8446 4.4: one per flight). */
+static void test_fullhs_cert_room_and_order(void) {
+  u8        seed[32], cert_msg[768];
+  usz       n, tr_len;
+  tlsdriver cltls, svtls;
+  fullhs    cl, sv;
+  for (usz i = 0; i < 32; i++) {
+    seed[i] = (u8)(50 + i);
+  }
+  fullhs_cov_pair(&cltls, &svtls, &cl, &sv);
+  n         = build_cert_msg(seed, cert_msg, sizeof(cert_msg));
+  tr_len    = cl.tr_len;
+  cl.tr_len = FULLHS_TRANSCRIPT_MAX - n + 1;
+  CHECK(fullhs_recv_cert(&cl, cert_msg, n) == 0);
+  cl.tr_len = tr_len;
+  CHECK(fullhs_recv_cert(&cl, cert_msg, n) == 0); /* order already advanced */
+}
+
+/* RFC 8446 4.4.3/4.4.4: a CertificateVerify too short to hold its scheme,
+ * a Finished of the wrong length, and a correct Finished sent before the
+ * server authenticated (Certificate skipped) are all rejected. */
+static void test_fullhs_cv_and_fin_rejects(void) {
+  static const u8 short_cv[] = {HSD_CERT_VERIFY, 0, 0, 1, 0};
+  u8              fin[64];
+  usz             n;
+  tlsdriver       cltls, svtls;
+  fullhs          cl, sv;
+  fullhs_cov_pair(&cltls, &svtls, &cl, &sv);
+  CHECK(
+      fullhs_recv_certverify(
+          &cl, wired_span_of(short_cv, sizeof(short_cv)), TLS_SCHEME_ED25519) ==
+      0);
+  CHECK(send_fin(&sv, fin, sizeof(fin), &n) == 1);
+  CHECK(fullhs_recv_finished(&cl, fin, n - 1) == 0);
+  CHECK(fullhs_recv_finished(&cl, fin, n) == 0); /* MAC ok, order not */
+  CHECK(fullhs_is_complete(&cl) == 0);
+}
+
+/* Lifecycle guards: Finished needs room for 36 bytes, the application
+ * secrets wait for completion (RFC 8446 7.1), and HANDSHAKE_DONE is only
+ * accepted once complete (RFC 9001 4.1.2). */
+static void test_fullhs_lifecycle_guards(void) {
+  u8         small[HS_HEADER + TLS_VERIFY_DATA - 1];
+  wired_obuf ob = obuf_of(small, sizeof(small));
+  tlsdriver  cltls, svtls;
+  fullhs     cl, sv;
+  fullhs_cov_pair(&cltls, &svtls, &cl, &sv);
+  CHECK(fullhs_send_finished(&cl, &ob) == 0);
+  CHECK(fullhs_advance_application(&cl) == 0);
+  CHECK(fullhs_confirmed(&cl) == 0);
+}
+
 void test_fullhs(void) {
+  test_fullhs_cert_malformed();
+  test_fullhs_cert_room_and_order();
+  test_fullhs_cv_and_fin_rejects();
+  test_fullhs_lifecycle_guards();
   test_fullhs_e2e();
   test_fullhs_bad_certverify();
   test_fullhs_bad_finished();

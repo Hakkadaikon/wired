@@ -37,6 +37,12 @@ static void test_vn_choose_none(void) {
   u32 mine[1] = {VERSION_1};
   u32 chosen  = 0xdead;
   CHECK(vn_choose(wired_span_of(vn, 4), verlist_of(mine, 1), &chosen) == 0);
+  /* RFC 9000 15: a reserved version is never chosen, even when listed */
+  {
+    u32 grease[1] = {0x0a0a0a0a};
+    CHECK(vn_choose(wired_span_of(vn, 4), verlist_of(grease, 1), &chosen) == 0);
+    CHECK(chosen == 0xdead);
+  }
 }
 
 /* VN is ignored once the handshake has started (downgrade protection). */

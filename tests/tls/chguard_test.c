@@ -66,7 +66,14 @@ static void test_chguard_unknown_ext_ignored(void) {
   CHECK(chguard_no_dup_ext(wired_span_of(buf, w)) == 1);
 }
 
+/* RFC 8446 4.2: trailing bytes too short for a type(2)+len(2) header. */
+static void test_chguard_short_header(void) {
+  static const u8 b[3] = {0x00, 0x10, 0x00};
+  CHECK(chguard_no_dup_ext(wired_span_of(b, 3)) == 0);
+}
+
 void test_chguard(void) {
+  test_chguard_short_header();
   test_chguard_rejects_duplicate_extension();
   test_chguard_rejects_malformed_tlv();
   test_chguard_rejects_oid_filters_in_ch();

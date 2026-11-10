@@ -34,6 +34,11 @@ static void test_keyschedule_order(void) {
   CHECK(keysched_get(&st, KS_SERVER_HS, &k) == 1);
   /* app keys still unavailable before master stage */
   CHECK(keysched_get(&st, KS_CLIENT_AP, &k) == 0);
+  {
+    const u8* sec;
+    CHECK(keysched_client_ap_secret(&st, &sec) == 0);
+    CHECK(keysched_server_ap_secret(&st, &sec) == 0);
+  }
 
   CHECK(keysched_advance_master(&st, tr, sizeof(tr)) == 1);
   CHECK(keysched_get(&st, KS_CLIENT_AP, &k) == 1);

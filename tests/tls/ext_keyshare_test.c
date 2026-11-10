@@ -232,7 +232,21 @@ static void test_ext_key_share_scan_oob(void) {
           b, sizeof(b), GROUP_X25519, got, &got_len, sizeof(got)) == 0);
 }
 
+/* RFC 8446 4.2.8: a KeyShareEntry needs group(2) + length(2), and
+ * client_shares its own 2-byte length. */
+static void test_ext_key_share_too_short(void) {
+  static const u8 b[3] = {0x00, 0x1d, 0x00};
+  u8              got[65];
+  u16             group;
+  usz             got_len;
+  CHECK(tls_ext_key_share_parse(b, 3, &group, got, &got_len, sizeof(got)) == 0);
+  CHECK(
+      tls_ext_key_share_scan(b, 1, GROUP_X25519, got, &got_len, sizeof(got)) ==
+      0);
+}
+
 void test_ext_keyshare(void) {
+  test_ext_key_share_too_short();
   test_ext_key_share_wire_x25519();
   test_ext_key_share_wire_secp256r1();
   test_ext_key_share_cap_guard();

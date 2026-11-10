@@ -39,7 +39,21 @@ static void test_hrr_group_absent(void) {
   CHECK(hrr_selected_group(buf, 0, &group) == 0);
 }
 
+/* RFC 8446 4.2: an extension whose length runs past the block hides
+ * any selected_group behind it. */
+static void test_hrr_group_ext_overrun(void) {
+  u8         out[256];
+  u16        group = 0;
+  wired_obuf ob    = obuf_of(out, sizeof out);
+  CHECK(
+      hrr_build(
+          TLS_AES128_GCM_SHA256, GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
+  out[4 + 38 + 2 + 3] = 0xff; /* first extension's length low byte */
+  CHECK(hrr_selected_group(out, ob.len, &group) == 0);
+}
+
 void test_hrr_group(void) {
+  test_hrr_group_ext_overrun();
   test_hrr_group_extract();
   test_hrr_group_with_cookie();
   test_hrr_group_absent();

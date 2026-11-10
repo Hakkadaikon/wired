@@ -105,7 +105,32 @@ static void test_pa_truncated(void) {
   CHECK(tparam_get_preferred_address(buf, w - 1, &out) == 0);
 }
 
+/* RFC 9000 18.2: preferred_address carries a 0..20-byte Connection ID and
+ * fixed-size fields -- an over-long cid is refused on encode and decode, and
+ * a value cut inside a port or before the cid length byte is malformed. An
+ * empty buffer holds no parameter id at all. */
+static void test_pa_malformed_values(void) {
+  struct preferred_address pa = sample_pa(), out;
+  u8                       buf[80];
+  u64                      id;
+  wired_span               v;
+  usz                      w;
+  pa.cid_len = 21;
+  CHECK(tparam_put_preferred_address(buf, sizeof(buf), &pa) == 0);
+  pa = sample_pa();
+  w  = tparam_put_preferred_address(buf, sizeof(buf), &pa);
+  CHECK(w == 2 + 46 && buf[1] == 46); /* 1-byte id, 1-byte length varints */
+  buf[2 + 24] = 21;                   /* Connection ID Length */
+  CHECK(tparam_get_preferred_address(buf, w, &out) == 0);
+  buf[1] = 5; /* value ends inside the IPv4 port */
+  CHECK(tparam_get_preferred_address(buf, 2 + 5, &out) == 0);
+  buf[1] = 24; /* value ends before the Connection ID Length byte */
+  CHECK(tparam_get_preferred_address(buf, 2 + 24, &out) == 0);
+  CHECK(tparam_get_blob(wired_span_of(buf, 0), &id, &v) == 0);
+}
+
 void test_tpblob(void) {
+  test_pa_malformed_values();
   test_blob_token();
   test_blob_variable_cid();
   test_blob_empty();

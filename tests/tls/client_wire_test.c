@@ -241,7 +241,36 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   }
 }
 
+/* RFC 9001 4.1.4: no Handshake or 1-RTT protection before those keys are
+ * derived; RFC 9000 17.2: a 21-byte SCID is not a connection ID; RFC 9000
+ * 5.1: a packet too short to hold our SCID cannot be routed to us. */
+static void test_cw_rejects_before_keys_and_bad_cids(void) {
+  client             c;
+  const u8           fin[] = {0x14, 0x00, 0x00, 0x01, 0x09};
+  u8                 pkt[512], priv[32] = {7}, pub[32], long_cid[21] = {0};
+  wired_span         tls;
+  stream_frame       sf;
+  wired_obuf         ob  = obuf_of(pkt, sizeof(pkt));
+  clientwire_seal_in sin = {
+      {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
+      wired_span_of(fin, sizeof(fin))};
+  appdata_tx tx = {
+      wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(fin, sizeof(fin)), 0};
+  appdata_pkt        oin = {wired_mspan_of(pkt, 64), 8};
+  clientwire_recv_in rin = {wired_mspan_of(pkt, 4), wired_span_of(cw_scid, 4)};
+  clientwire_hdr_in  hdr = {
+      wired_span_of(cw_dcid, 8), wired_span_of(long_cid, 21), 0};
+  wired_x25519_base(pub, priv);
+  tlsdriver_init(&c.tls, priv, pub, 0);
+  CHECK(client_seal_handshake_wire(&c, &sin, &ob) == 0);
+  CHECK(client_open_handshake_wire(&c, &oin, &tls) == 0);
+  CHECK(client_send_appdata_wire(&c, &tx, &ob) == 0);
+  CHECK(client_build_initial_wire(&c, &hdr, &ob) == 0);
+  CHECK(client_recv_appdata_wire(&c, &rin, &sf) == 0);
+}
+
 void test_client_wire(void) {
+  test_cw_rejects_before_keys_and_bad_cids();
   test_cw_initial_roundtrip();
   test_cw_open_server_initial();
   test_cw_handshake_roundtrip();

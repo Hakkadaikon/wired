@@ -85,11 +85,23 @@ static void test_hrr_build_cookie(void) {
 }
 
 static void test_hrr_build_overflow(void) {
-  u8         out[16];
-  wired_obuf ob = obuf_of(out, 8);
+  static const u8 big[1] = {0};
+  u8              out[64];
+  wired_obuf      ob = obuf_of(out, 8);
   CHECK(
       hrr_build(
           TLS_AES128_GCM_SHA256, GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
+  /* room for the fixed head (4 + 38 + 2) but not the extensions */
+  ob = obuf_of(out, 4 + 38 + 2);
+  CHECK(
+      hrr_build(
+          TLS_AES128_GCM_SHA256, GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
+  /* RFC 8446 4.2.2: cookie<1..2^16-1> -- never read past its length check */
+  ob = obuf_of(out, sizeof out);
+  CHECK(
+      hrr_build(
+          TLS_AES128_GCM_SHA256, GROUP_X25519, wired_span_of(big, 0x10000),
+          &ob) == 0);
 }
 
 /* RFC 8446 4.4.1: message_hash is msg_type 254, the usual 4-byte handshake

@@ -23,6 +23,14 @@ static void test_ext_block_concat(void) {
   CHECK(buf[2 + vw] == 0x00 && buf[3 + vw] == 0x0a);
 }
 
+/* RFC 8446 4.1.2: extensions<8..2^16-1> -- a longer block is refused
+ * before its length field is written. */
+static void test_ext_block_finish_guard(void) {
+  u8 buf[2] = {0xaa, 0xbb};
+  CHECK(tls_ext_block_finish(buf, 2 + 0x10000, 0) == 0);
+  CHECK(buf[0] == 0xaa && buf[1] == 0xbb);
+}
+
 static void test_ext_block_begin_guard(void) {
   u8  buf[1];
   usz off;
@@ -43,6 +51,7 @@ static void test_ext_block_append_guard(void) {
 
 void test_ext_block(void) {
   test_ext_block_concat();
+  test_ext_block_finish_guard();
   test_ext_block_begin_guard();
   test_ext_block_append_guard();
 }

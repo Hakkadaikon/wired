@@ -92,6 +92,12 @@ static void test_idna_no_room(void) {
   CHECK(
       salpn_idna_to_ascii(
           wired_span_of(host, sizeof(host) - 1), out, sizeof(out)) == 0);
+  /* a label filling the buffer leaves no room for its dot */
+  CHECK(salpn_idna_to_ascii(wired_span_of((const u8*)"ab.c", 4), out, 2) == 0);
+  /* RFC 5891 4.4: a U-label needs at least "xn--" of room */
+  CHECK(
+      salpn_idna_to_ascii(wired_span_of((const u8*)"\xc3\xa9", 2), out, 3) ==
+      0);
 }
 
 void test_idna(void) {

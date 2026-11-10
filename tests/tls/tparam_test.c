@@ -74,7 +74,18 @@ static void test_tparam_no_duplicates_malformed(void) {
   CHECK(tparam_no_duplicates(wired_span_of(buf, sizeof(buf))) == 0);
 }
 
+/* RFC 9000 18: an empty buffer holds no id; a value whose varint
+ * (prefix 0b10: 4 bytes, RFC 9000 16) overruns its declared 2-byte length
+ * is malformed. */
+static void test_tparam_get_int_malformed(void) {
+  static const u8 overrun[4] = {0x01, 0x02, 0x80, 0x00};
+  u64             id, v;
+  CHECK(tparam_get_int(wired_span_of(overrun, 0), &id, &v) == 0);
+  CHECK(tparam_get_int(wired_span_of(overrun, 4), &id, &v) == 0);
+}
+
 void test_tparam(void) {
+  test_tparam_get_int_malformed();
   test_tparam_roundtrip();
   test_tparam_truncated();
   test_tparam_max_datagram_frame_size();

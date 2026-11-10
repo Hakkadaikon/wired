@@ -125,7 +125,37 @@ static void test_server_hello_rejects_downgrade_sentinel(void) {
   CHECK(tls_parse_server_hello(wired_span_of(buf, w), got, &sh) == 1);
 }
 
+/* The ServerHello build_sh made in buf, re-framed to a body of k bytes. */
+static int sh_parse_cut(u8* buf, usz k) {
+  u8              got[32];
+  serverhello_out sh;
+  hs_finish(buf, 4 + k);
+  return tls_parse_server_hello(wired_span_of(buf, 4 + k), got, &sh);
+}
+
+/* RFC 8446 4.1.3: a body ending inside random/session_id, inside
+ * cipher_suite+compression, before the extensions length, or shorter than
+ * that length claims is malformed; so is an extension overrunning the
+ * block or a key_share naming an unknown group (4.2.8). */
+static void test_server_hello_malformed_framing(void) {
+  static const usz cuts[]  = {34, 36, 38, 40};
+  u8               pub[32] = {0}, buf[256];
+  usz              w;
+  for (usz i = 0; i < sizeof(cuts) / sizeof(cuts[0]); i++) {
+    build_sh(buf, sizeof(buf), pub);
+    CHECK(sh_parse_cut(buf, cuts[i]) == 0);
+  }
+  w = build_sh(buf, sizeof(buf), pub);
+  CHECK(sh_parse_cut(buf, w - 4) == 1);
+  buf[4 + 40 + 3] = 0xff; /* supported_versions length overruns */
+  CHECK(sh_parse_cut(buf, w - 4) == 0);
+  build_sh(buf, sizeof(buf), pub);
+  buf[4 + 46 + 5] = 0x99; /* key_share group 0x0099: unknown */
+  CHECK(sh_parse_cut(buf, w - 4) == 0);
+}
+
 void test_serverhello(void) {
+  test_server_hello_malformed_framing();
   test_server_hello_roundtrip();
   test_server_hello_wrong_type();
   test_server_hello_truncated();

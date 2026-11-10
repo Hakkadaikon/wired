@@ -182,6 +182,18 @@ static void test_nst_parse_truncated(void) {
   fill_nst_key(key, 0x55);
   n = tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(tls_new_session_ticket_parse(wired_span_of(out, n - 1), &sealed) == 0);
+  /* RFC 8446 4.6.1: ticket<1..2^16-1> of exactly the sealed size, after an
+   * opaque ticket_nonce<0..255> the body must hold. */
+  out[4 + 11] ^= 1; /* ticket length (nonce_len 1, so at body 10..11) */
+  CHECK(tls_new_session_ticket_parse(wired_span_of(out, n), &sealed) == 0);
+  {
+    u8 m[4 + 11] = {HS_NEW_SESSION_TICKET, 0, 0, 11};
+    m[4 + 8]     = 200; /* ticket_nonce length past the 11-byte body */
+    CHECK(
+        tls_new_session_ticket_parse(wired_span_of(m, sizeof m), &sealed) == 0);
+    m[3] = 10; /* body shorter than the fixed 11-byte prefix */
+    CHECK(tls_new_session_ticket_parse(wired_span_of(m, 14), &sealed) == 0);
+  }
 }
 
 /* RFC 8446 4.6.1: the ticket carries a one-byte ticket_nonce on the wire

@@ -47,4 +47,18 @@ void test_ch_ext_truncated_returns_zero(void) {
   CHECK(
       salpn_find_extension(wired_span_of(buf, w - 1), SALPN_EXT_TYPE, &ext) ==
       0);
+  /* RFC 8446 4.1.2: a message ending right after session_id (no
+   * cipher_suites length), right after compression (no extensions length),
+   * or whose one extension overruns the block is malformed. */
+  {
+    /* empty session_id/cipher_suites/compression; extensions at 42 */
+    u8 m[4 + 2 + 32 + 1 + 2 + 1 + 2 + 4] = {HS_CLIENT_HELLO};
+    m[43] = 4; /* one 4-byte extension header... */
+    m[44] = 0xff;
+    m[45] = 0xff;
+    m[47] = 9; /* ...claiming 9 data bytes past the block end */
+    CHECK(salpn_find_extension(wired_span_of(m, 4 + 35), 0xffff, &ext) == 0);
+    CHECK(salpn_find_extension(wired_span_of(m, 4 + 38), 0xffff, &ext) == 0);
+    CHECK(salpn_find_extension(wired_span_of(m, sizeof(m)), 0xffff, &ext) == 0);
+  }
 }

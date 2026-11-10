@@ -123,7 +123,22 @@ static void test_legacy_session_id_overlong(void) {
       0);
 }
 
+/* RFC 8446 4.1.2: a body cut before session_id's length, before
+ * cipher_suites' length, or between compression_methods' length and its
+ * one method is malformed. */
+static void test_legacy_cut_bodies(void) {
+  static const usz cuts[] = {34, 36, 40};
+  u8               buf[256];
+  u8               comp[1] = {0};
+  for (usz i = 0; i < sizeof(cuts) / sizeof(cuts[0]); i++) {
+    legacy_build_ch(buf, 0x0303, 0, comp, 1);
+    hs_finish(buf, 4 + cuts[i]);
+    CHECK(legacy_check_client_hello(buf, 4 + cuts[i]) == 0);
+  }
+}
+
 void test_legacy_fields(void) {
+  test_legacy_cut_bodies();
   test_legacy_version_ok();
   test_legacy_version_wrong();
   test_legacy_compression_null_only();

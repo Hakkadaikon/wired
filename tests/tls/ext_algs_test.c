@@ -29,6 +29,8 @@ static void test_ext_algs_encode_guard(void) {
   u8 s[11];
   CHECK(tls_ext_supported_groups(g, sizeof(g)) == 0);
   CHECK(tls_ext_sig_algs(s, sizeof(s)) == 0);
+  /* RFC 8446 4.2.3: fewer than type(2) len(2) list_len(2) is no list */
+  CHECK(tls_ext_sig_algs_has(s, 5, 0x0403) == 0);
 }
 
 void test_ext_algs(void) {

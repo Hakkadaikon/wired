@@ -109,4 +109,11 @@ void test_negotiate_none_when_neither_offered(void) {
   /* "h2" only */
   u8 list[5] = {0x00, 0x03, 0x02, 0x68, 0x32};
   CHECK(salpn_negotiate(list, sizeof(list)) == SALPN_NONE);
+  /* RFC 7301 3.1: an entry whose length runs past the list is never read
+   * as "h3" (the 'h' '3' bytes sit inside the list, the length says 3) */
+  {
+    u8 bad[5] = {0x00, 0x03, 0x03, 0x68, 0x33};
+    CHECK(salpn_negotiate(bad, sizeof(bad)) == SALPN_NONE);
+    CHECK(salpn_select_h3(bad, sizeof(bad)) == 0);
+  }
 }

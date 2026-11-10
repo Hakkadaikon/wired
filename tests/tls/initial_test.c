@@ -94,7 +94,19 @@ static void test_initial_v2_uses_pinned_salt(void) {
   CHECK(same_bytes(got.key, want_key, INITIAL_KEY));
 }
 
+/* An unknown version derives with the v1 salt and labels (RFC 9001 5.2) --
+ * the same keys as VERSION_1. */
+static void test_initial_unknown_version_is_v1(void) {
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys v1, unk;
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &v1);
+  initial_derive(wired_span_of(dcid, 8), 0, 0x0a0a0a0a, &unk);
+  CHECK(same_bytes(v1.key, unk.key, INITIAL_KEY));
+  CHECK(same_bytes(v1.hp, unk.hp, INITIAL_HP));
+}
+
 void test_initial(void) {
+  test_initial_unknown_version_is_v1();
   test_initial_client();
   test_initial_server();
   test_initial_v2_client();

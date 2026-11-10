@@ -34,6 +34,8 @@ static void test_ext_versions_decode_guards(void) {
   /* odd list length */
   u8 odd[6] = {0x00, 0x2b, 0x00, 0x02, 0x01, 0x03};
   CHECK(tls_ext_versions_has_tls13(odd, sizeof(odd)) == 0);
+  /* RFC 8446 4.2.1: header(4) + list length(1) is the minimum */
+  CHECK(tls_ext_versions_has_tls13(odd, 4) == 0);
 }
 
 static void test_ext_versions_encode_guard(void) {

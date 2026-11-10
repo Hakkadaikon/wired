@@ -48,7 +48,17 @@ static void test_keyupdate_decrypt_window(void) {
   CHECK(keyupdate_can_decrypt(&k, 2) == 0); /* two ahead: KEY_UPDATE_ERROR */
 }
 
+/* RFC 9001 6.2: a peer-initiated update is followed (phase flips) when we
+ * have none of our own outstanding. */
+static void test_keyupdate_follow_peer(void) {
+  keyupdate k;
+  keyupdate_init(&k);
+  CHECK(keyupdate_follow(&k) == 1);
+  CHECK(keyupdate_phase(&k) == 1);
+}
+
 void test_keyupdate(void) {
+  test_keyupdate_follow_peer();
   test_keyupdate_phase_tracks();
   test_keyupdate_blocked_until_acked();
   test_keyupdate_two_adjacent_generations();
