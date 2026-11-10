@@ -3,7 +3,6 @@
 static int moqtrun_live_has_empty_frag(const wired_span* frags, usz n_frags);
 static int moqtrun_live_args_bad(
     const wired_span* frags, usz n_frags, u64 group_ms);
-static int moqtrun_live_head_obj(wired_mspan buf, usz* off, usz frag_len);
 
 /* ===================== hub-owned live track ===================== */
 
@@ -60,19 +59,12 @@ u64 moqtrun_live_group_at(const wired_moqtrun_live* live, u64 now_ms) {
   return now_ms < live->t0_ms ? 0 : (now_ms - live->t0_ms) / live->group_ms;
 }
 
-/* The Object's ID Delta 0 and Payload Length -- exactly the varints
- * moqdata_obj_put emits ahead of a non-empty payload, so head||fragment
- * is byte-identical to what moqdata_obj_put would have written. */
-static int moqtrun_live_head_obj(wired_mspan buf, usz* off, usz frag_len) {
-  if (!moqvi_put(buf, off, 0)) {
-    return 0;
-  }
-  return moqvi_put(buf, off, frag_len);
-}
-
 /* SUBGROUP_HEADER (Type 0x70 shape, live alias, Group g) + the Object's
- * ID Delta 0 and Payload Length -- the framing that precedes the fragment
- * bytes on the wire. Returns the head length (<= MOQDATA_MSG_OVERHEAD). */
+ * ID Delta 0 and Payload Length -- exactly the varints moqdata_obj_put
+ * emits ahead of a non-empty payload, so head||fragment is byte-identical
+ * to what it would have written. Returns the head length; head holds
+ * MOQDATA_MSG_OVERHEAD, the worst case of these five fields, so no put
+ * can run out of room. */
 usz moqtrun_live_head(
     const wired_moqtrun_live* live, u64 group, usz frag_len, u8* head) {
   usz            off = 0;
@@ -81,12 +73,9 @@ usz moqtrun_live_head(
   h.track_alias      = live->track.own_alias;
   h.group_id         = group;
   wired_mspan buf    = wired_mspan_of(head, MOQDATA_MSG_OVERHEAD);
-  if (moqdata_subhdr_put(buf, &off, &h) != MOQDATA_OK) {
-    return 0;
-  }
-  if (!moqtrun_live_head_obj(buf, &off, frag_len)) {
-    return 0;
-  }
+  (void)moqdata_subhdr_put(buf, &off, &h);
+  (void)moqvi_put(buf, &off, 0);
+  (void)moqvi_put(buf, &off, frag_len);
   return off;
 }
 

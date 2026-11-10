@@ -26,9 +26,7 @@ static void moqtrun_relay_save_hdr(
           &relay->pub_prio)) {
     return;
   }
-  if (moqdata_subhdr_take(data, &off, &hdr) != MOQDATA_OK) {
-    return;
-  }
+  (void)moqdata_subhdr_take(data, &off, &hdr); /* stream_keys decoded it */
   moqtrun_relay_save_hdr_raw(relay, data, off);
 }
 

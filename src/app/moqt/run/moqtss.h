@@ -24,6 +24,9 @@
 /** moqtail DECISION_WINDOW: decisions older than the set's largest - 5
  * are pruned. */
 #define WIRED_MOQTRUN_SSTS_KEEP 5
+_Static_assert(
+    WIRED_MOQTRUN_SSTS_KEEP + 1 < WIRED_MOQTRUN_SSTS_RING,
+    "moqtss_ring_slot always finds a free entry");
 
 /** A decision's pick for a set that forwards nothing this group. */
 #define MOQTSS_PICK_NONE (~(u64)0)

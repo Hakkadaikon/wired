@@ -3,7 +3,6 @@
 static int         moqtss_dec_stale(const moqtss_set* st, const moqtss_dec* e);
 static int         moqtss_dec_hit(const moqtss_dec* e, u64 g);
 static void        moqtss_ring_prune(moqtss_set* st);
-static moqtss_dec* moqtss_ring_lowest(moqtss_set* st);
 static moqtss_dec* moqtss_ring_slot(moqtss_set* st);
 static void        moqtss_note_largest(moqtss_set* st, u64 g);
 
@@ -37,24 +36,17 @@ static void moqtss_ring_prune(moqtss_set* st) {
   }
 }
 
-static moqtss_dec* moqtss_ring_lowest(moqtss_set* st) {
-  moqtss_dec* low = &st->dec[0];
-  for (usz i = 1; i < WIRED_MOQTRUN_SSTS_RING; i++) {
-    if (st->dec[i].group < low->group) {
-      low = &st->dec[i];
-    }
-  }
-  return low;
-}
-
-/* The entry to (re)use: a free one, else the lowest group's. */
+/* A free entry. One always is: moqtss_ring_prune leaves only groups in
+ * [largest - KEEP, largest], each recorded once (a group is recorded
+ * only when moqtss_ring_find missed it), so at most KEEP + 1 < RING are
+ * used here; the last entry stands in for that invariant. */
 static moqtss_dec* moqtss_ring_slot(moqtss_set* st) {
-  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING; i++) {
+  for (usz i = 0; i < WIRED_MOQTRUN_SSTS_RING - 1; i++) {
     if (!st->dec[i].used) {
       return &st->dec[i];
     }
   }
-  return moqtss_ring_lowest(st);
+  return &st->dec[WIRED_MOQTRUN_SSTS_RING - 1];
 }
 
 static void moqtss_note_largest(moqtss_set* st, u64 g) {
