@@ -1,8 +1,8 @@
 #include "test.h"
 
-/* Old-shape conveniences over the appdata param objects. Defined here (the
- * first appdata test in tests/run.c order) and shared by the app/tls appdata
- * tests included after this file in the unity test build. */
+/* Old-shape convenience over appdata_stream_frame. Defined here (the first
+ * appdata test in tests/run.c order) and shared by the app tests included
+ * after this file in the unity test build. */
 static int appdata_frame_flat(
     u64       sid,
     u64       off,
@@ -18,54 +18,6 @@ static int appdata_frame_flat(
     return 0;
   }
   *out_len = ob.len;
-  return 1;
-}
-
-static int appdata_send_flat(
-    const initial_keys* k,
-    const aes128*       hp,
-    const u8*           dcid,
-    u8                  dcid_len,
-    u64                 pn,
-    u64                 sid,
-    const u8*           data,
-    usz                 len,
-    int                 fin,
-    u8*                 out,
-    usz                 cap,
-    usz*                out_len) {
-  protect_keys pk = {k, hp};
-  appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
-  wired_obuf   ob = obuf_of(out, cap);
-  if (!appdata_send(&pk, &tx, &ob)) {
-    return 0;
-  }
-  *out_len = ob.len;
-  return 1;
-}
-
-static int appdata_recv_flat(
-    const initial_keys* k,
-    const aes128*       hp,
-    u8*                 pkt,
-    usz                 len,
-    u8                  dcid_len,
-    u64*                sid,
-    u64*                off,
-    const u8**          data,
-    usz*                dlen,
-    int*                fin) {
-  protect_keys pk = {k, hp};
-  appdata_pkt  ap = {{pkt, len}, dcid_len};
-  stream_frame f;
-  if (!appdata_recv(&pk, &ap, &f)) {
-    return 0;
-  }
-  *sid  = f.stream_id;
-  *off  = f.offset;
-  *data = f.data;
-  *dlen = (usz)f.length;
-  *fin  = f.fin;
   return 1;
 }
 

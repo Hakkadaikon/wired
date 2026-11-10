@@ -3,13 +3,6 @@
 #include "app/http3/request/h3recv/req_frames.h"
 #include "test.h"
 
-/* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rt_keys(initial_keys* k, aes128* hp) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, k);
-  aes128_init(hp, k->hp);
-}
-
 /* RFC 9114 4.1: client request -> STREAM -> server reads HEADERS;
  * server response -> STREAM -> client recovers :status 200 and body. */
 static void test_roundtrip_stream(void) {
@@ -40,51 +33,6 @@ static void test_roundtrip_stream(void) {
     CHECK(resp_out.status == 200);
     CHECK(resp_out.body.n == sizeof(body));
     CHECK(resp_out.body.p[0] == 'h' && resp_out.body.p[1] == 'i');
-  }
-}
-
-/* RFC 9001 5 / RFC 9114 4.1: same response, but sealed and opened through a
- * real 1-RTT packet (appdata) before recv_response decodes it. */
-static void test_roundtrip_onertt(void) {
-  initial_keys k;
-  aes128       hp;
-  const u8     dcid[4] = {9, 9, 9, 9};
-  const u8     body[]  = {'o', 'k'};
-  u8           h3[256], pkt[256];
-  wired_obuf   h3_ob = {h3, sizeof h3, 0};
-  usz          total = 0;
-  rt_keys(&k, &hp);
-
-  /* response STREAM frame */
-  {
-    h3conn_resp resp_in = {200, wired_span_of(body, sizeof body), 0};
-    CHECK(h3conn_send_response(4, &resp_in, &h3_ob));
-  }
-  /* seal: re-wrap the HTTP/3 bytes as a sealed 1-RTT STREAM packet */
-  {
-    stream_frame f;
-    CHECK(frame_get_stream(h3, h3_ob.len, &f));
-    CHECK(appdata_send_flat(
-        &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
-        sizeof(pkt), &total));
-  }
-  /* open the 1-RTT packet, then decode the response from its STREAM frame */
-  {
-    u64         sid = 0, off = 0;
-    const u8*   sdata = 0;
-    usz         slen  = 0;
-    int         fin   = 0;
-    u8          reframed[256];
-    usz         rf_len   = 0;
-    h3conn_resp resp_out = {0};
-    CHECK(appdata_recv_flat(
-        &k, &hp, pkt, total, 4, &sid, &off, &sdata, &slen, &fin));
-    CHECK(appdata_frame_flat(
-        sid, off, sdata, slen, fin, reframed, sizeof(reframed), &rf_len));
-    CHECK(h3conn_recv_response(wired_span_of(reframed, rf_len), &resp_out));
-    CHECK(resp_out.status == 200);
-    CHECK(resp_out.body.n == sizeof(body));
-    CHECK(resp_out.body.p[0] == 'o' && resp_out.body.p[1] == 'k');
   }
 }
 
@@ -185,7 +133,6 @@ static void test_roundtrip_recv_malformed(void) {
 
 void test_h3conn_roundtrip(void) {
   test_roundtrip_stream();
-  test_roundtrip_onertt();
   test_roundtrip_empty_body();
   test_roundtrip_no_room();
   test_roundtrip_body_too_big();

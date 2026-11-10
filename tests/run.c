@@ -8,7 +8,6 @@
 #include "transport/recovery/detect/ackrange/ackrange_process.c"
 #include "app/datagram/dgdeliver/dg_send.c"
 #include "app/datagram/dgdeliver/dg_recv.c"
-#include "transport/recovery/detect/losstime/losstime.c"
 #include "transport/conn/pnspace/pnspaces/spaces.c"
 #include "transport/conn/pnspace/pnspaces/sent_spaces.c"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.c"
@@ -18,7 +17,6 @@
 #include "transport/version/versmgr/v2switch.c"
 #include "transport/version/versmgr/downgrade.c"
 #include "crypto/pki/cert/certreq/certreq.c"
-#include "transport/recovery/congestion/cwndctl/cwndctl.c"
 #include "tls/handshake/core/hrr/hrr_build.c"
 #include "tls/handshake/core/hrr/hrr_detect.c"
 #include "tls/ext/legacy/legacy_fields.c"
@@ -53,8 +51,6 @@
 #include "app/http3/request/h3req/reqorder.c"
 #include "app/http3/request/h3req/reqbuild.c"
 #include "app/http3/request/h3req/respparse.c"
-#include "transport/stream/flow/flowviol/flowviol.c"
-#include "transport/stream/flow/flowviol/closeframe.c"
 #include "tls/ext/tpverify/odcid.c"
 #include "tls/ext/tpverify/iscid.c"
 #include "tls/ext/tpverify/rscid.c"
@@ -199,8 +195,6 @@
 #include "transport/recovery/congestion/cc/cubic.c"
 #include "transport/recovery/congestion/cc/hystart.c"
 #include "transport/recovery/congestion/cc/ccloss.c"
-#include "transport/recovery/congestion/cc/ccphase.c"
-#include "transport/recovery/congestion/cc/cwndcheck.c"
 #include "transport/recovery/congestion/cc/ecn.c"
 #include "transport/recovery/congestion/cc/pacing.c"
 #include "transport/recovery/congestion/cc/persistent.c"
@@ -230,11 +224,8 @@
 #include "transport/conn/lifecycle/endpoint/endpoint.c"
 #include "common/diag/error/codes.c"
 #include "common/diag/error/error.c"
-#include "transport/stream/flow/flow/dual_flow.c"
 #include "transport/stream/flow/flow/finalsize.c"
 #include "transport/stream/flow/flow/reassemble.c"
-#include "transport/stream/flow/flow/stream_flow.c"
-#include "transport/stream/flow/flow/streams.c"
 #include "transport/packet/frame/frame/ack.c"
 #include "transport/packet/frame/frame/ack_take.c"
 #include "transport/packet/frame/frame/ack_range.c"
@@ -364,15 +355,9 @@
 #include "transport/recovery/detect/recovery/inflight.c"
 #include "transport/recovery/detect/recovery/largestacked.c"
 #include "transport/recovery/detect/recovery/lossdetect.c"
-#include "transport/recovery/detect/recovery/losstimer.c"
 #include "transport/recovery/detect/recovery/probe.c"
 #include "transport/recovery/detect/recovery/pto.c"
-#include "transport/recovery/detect/recovery/ptoreset.c"
 #include "transport/recovery/detect/recovery/rtt.c"
-#include "transport/recovery/detect/recovery/rttinit.c"
-#include "transport/recovery/detect/recovery/rttsample.c"
-#include "transport/recovery/detect/recovery/rttvalid.c"
-#include "transport/recovery/detect/recovery/sent.c"
 #include "transport/recovery/stats/stats.c"
 #include "transport/conn/pnspace/recvpn/recvpn.c"
 #include "transport/conn/cid/retrytoken/retrytoken.c"
@@ -381,7 +366,6 @@
 #include "transport/conn/cid/spin/spin.c"
 #include "transport/conn/cid/sreset/sreset.c"
 #include "transport/stream/data/stream/stream_id.c"
-#include "transport/stream/data/stream/stream_limit.c"
 #include "transport/stream/data/stream/stream_role.c"
 #include "transport/stream/data/stream/streamstate.c"
 #include "tls/handshake/core/tls/appkeys.c"
@@ -433,7 +417,6 @@
 #include "app/qpack/qpackenc/status_line.c"
 #include "transport/stream/flow/flow/stream_read.c"
 #include "transport/stream/flow/flow/credit.c"
-#include "transport/stream/flow/flow/stream_credit.c"
 #include "transport/packet/frame/framedispatch/dispatch_state.c"
 #include "transport/io/udp/udploop/rxloop.c"
 #include "transport/io/udp/udploop/txloop.c"
@@ -445,10 +428,8 @@
 #include "transport/packet/build/pktbuild/initpad.c"
 #include "transport/packet/build/pktbuild/framepack.c"
 #include "transport/packet/build/pktbuild/eliciting.c"
-#include "transport/recovery/detect/ackgen/ackgen.c"
 #include "transport/recovery/detect/ackgen/ackrange.c"
 #include "transport/recovery/detect/ackgen/ackrangeconv.c"
-#include "transport/recovery/detect/ackgen/ackfreq.c"
 #include "crypto/pki/encoding/x509/certpolicies.c"
 #include "crypto/pki/encoding/x509/dirstring.c"
 #include "crypto/pki/encoding/x509/dirstring_atv.c"
@@ -511,7 +492,6 @@
 #include "transport/packet/build/vpn/vpn_open.c"
 #include "transport/stream/data/appdata/stream_send.c"
 #include "transport/stream/data/appdata/app_send.c"
-#include "transport/stream/data/appdata/app_recv.c"
 #include "app/http3/request/h3recv/req_frames.c"
 #include "app/http3/request/h3resp/field_encode.c"
 #include "app/http3/request/h3resp/resp_build.c"
@@ -1015,7 +995,6 @@
 #include "tls/initial_test.c"
 #include "transport/hp_test.c"
 #include "transport/rtt_test.c"
-#include "transport/sent_test.c"
 #include "transport/cc_test.c"
 #include "transport/flow_test.c"
 #include "transport/udp_test.c"
@@ -1052,7 +1031,6 @@
 #include "tls/binder_test.c"
 #include "tls/bitset_test.c"
 #include "transport/ccloss_test.c"
-#include "transport/ccphase_test.c"
 #include "tls/cert_test.c"
 #include "transport/cidnego_test.c"
 #include "transport/cidxchg_test.c"
@@ -1066,7 +1044,6 @@
 #include "app/contentlen_test.c"
 #include "app/critical_test.c"
 #include "transport/crypto_offset_test.c"
-#include "transport/cwndcheck_test.c"
 #include "app/datagram_test.c"
 #include "transport/demux_test.c"
 #include "transport/conntable_test.c"
@@ -1077,7 +1054,6 @@
 #include "app/dgsize_test.c"
 #include "transport/dosmitigate_test.c"
 #include "transport/downgrade_test.c"
-#include "transport/dual_flow_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
 #include "crypto/bssl_ed25519_test.c"
@@ -1114,7 +1090,6 @@
 #include "transport/linkability_test.c"
 #include "app/literal_test.c"
 #include "transport/lossdetect_test.c"
-#include "transport/losstimer_test.c"
 #include "tls/master_test.c"
 #include "transport/middlebox_test.c"
 #include "transport/migrate_test.c"
@@ -1134,7 +1109,6 @@
 #include "transport/probe_test.c"
 #include "app/pseudoheader_test.c"
 #include "transport/pto_test.c"
-#include "transport/ptoreset_test.c"
 #include "transport/ptype_test.c"
 #include "app/pushid_test.c"
 #include "app/qpack_huffman_test.c"
@@ -1149,21 +1123,15 @@
 #include "tls/retry_tag_v2_test.c"
 #include "transport/retrytoken_test.c"
 #include "transport/newtoken_test.c"
-#include "transport/rttinit_test.c"
-#include "transport/rttsample_test.c"
-#include "transport/rttvalid_test.c"
 #include "app/settings_check_test.c"
 #include "app/settings_dup_test.c"
 #include "app/shutdown_test.c"
 #include "transport/spin_test.c"
 #include "transport/sreset_test.c"
 #include "transport/stream_bounds_test.c"
-#include "transport/stream_flow_test.c"
 #include "transport/stream_id_test.c"
-#include "transport/stream_limit_test.c"
 #include "transport/stream_role_test.c"
 #include "transport/streamstate_test.c"
-#include "transport/streams_test.c"
 #include "transport/tokentype_test.c"
 #include "tls/tpblob_test.c"
 #include "tls/tpcheck_test.c"
@@ -1269,8 +1237,6 @@
 #include "app/dynget_test.c"
 #include "app/dynfind_test.c"
 #include "transport/stream_read_test.c"
-#include "transport/credit_test.c"
-#include "transport/stream_credit_test.c"
 #include "app/h3run_settings_seq_test.c"
 #include "transport/aead_suite_test.c"
 #include "transport/hp_suite_test.c"
@@ -1287,10 +1253,8 @@
 #include "transport/initpad_test.c"
 #include "transport/framepack_test.c"
 #include "transport/eliciting_test.c"
-#include "transport/ackgen_test.c"
 #include "transport/ackrange_test.c"
 #include "transport/ackrangeconv_test.c"
-#include "transport/ackfreq_test.c"
 #include "crypto/castore_test.c"
 #include "crypto/chainverify_test.c"
 #include "crypto/pathvalidate_test.c"
@@ -1312,8 +1276,6 @@
 #include "app/reqorder_test.c"
 #include "app/reqbuild_test.c"
 #include "app/respparse_test.c"
-#include "transport/flowviol_test.c"
-#include "transport/closeframe_test.c"
 #include "tls/odcid_test.c"
 #include "tls/iscid_test.c"
 #include "tls/rscid_test.c"
@@ -1347,14 +1309,11 @@
 #include "transport/lhdr_parse_test.c"
 #include "transport/vpn_open_test.c"
 #include "transport/stream_send_test.c"
-#include "transport/app_send_test.c"
-#include "transport/app_recv_test.c"
 #include "app/req_frames_test.c"
 #include "app/field_encode_test.c"
 #include "app/resp_build_test.c"
 #include "app/hello_test.c"
 #include "crypto/certreq_test.c"
-#include "transport/cwndctl_test.c"
 #include "tls/hrr_build_test.c"
 #include "tls/hrr_detect_test.c"
 #include "tls/legacy_fields_test.c"
@@ -1372,7 +1331,6 @@
 #include "transport/ackrange_process_test.c"
 #include "app/dg_send_test.c"
 #include "app/dg_recv_test.c"
-#include "transport/losstime_test.c"
 #include "transport/pnspaces_spaces_test.c"
 #include "transport/pnspaces_sent_test.c"
 #include "transport/pnspaces_recv_test.c"
@@ -1570,7 +1528,6 @@ int main(void) {
   test_initial();
   test_hp();
   test_rtt();
-  test_sent();
   test_cc();
   test_flow();
   test_udp();
@@ -1606,7 +1563,6 @@ int main(void) {
   test_binder();
   test_bitset();
   test_ccloss();
-  test_ccphase();
   test_cert();
   test_cidnego();
   test_cidxchg();
@@ -1620,7 +1576,6 @@ int main(void) {
   test_contentlen();
   test_critical();
   test_crypto_offset();
-  test_cwndcheck();
   test_datagram();
   test_demux();
   test_conntable();
@@ -1632,7 +1587,6 @@ int main(void) {
   test_dgsize();
   test_dosmitigate();
   test_downgrade();
-  test_dual_flow();
   test_ecn();
   test_ed25519();
   test_bssl_ed25519();
@@ -1669,7 +1623,6 @@ int main(void) {
   test_linkability();
   test_literal();
   test_lossdetect();
-  test_losstimer();
   test_master();
   test_middlebox();
   test_migrate();
@@ -1689,7 +1642,6 @@ int main(void) {
   test_probe();
   test_pseudoheader();
   test_pto();
-  test_ptoreset();
   test_ptype();
   test_packet2();
   test_pushid();
@@ -1705,21 +1657,15 @@ int main(void) {
   test_retry_tag_v2();
   test_retrytoken();
   test_newtoken();
-  test_rttinit();
-  test_rttsample();
-  test_rttvalid();
   test_settings_check();
   test_settings_dup();
   test_shutdown();
   test_spin();
   test_sreset();
   test_stream_bounds();
-  test_stream_flow();
   test_stream_id();
-  test_stream_limit();
   test_stream_role();
   test_streamstate();
-  test_streams();
   test_tokentype();
   test_tpblob();
   test_tpcheck();
@@ -1827,8 +1773,6 @@ int main(void) {
   test_dynget();
   test_dynfind();
   test_stream_read();
-  test_credit();
-  test_stream_credit();
   test_h3run_settings_seq();
   test_aead_suite();
   test_hp_suite();
@@ -1845,10 +1789,8 @@ int main(void) {
   test_initpad();
   test_framepack();
   test_eliciting();
-  test_ackgen();
   test_ackrange();
   test_ackrangeconv();
-  test_ackfreq();
   test_castore();
   test_chainverify();
   test_pathvalidate();
@@ -1870,8 +1812,6 @@ int main(void) {
   test_reqorder();
   test_reqbuild();
   test_respparse();
-  test_flowviol();
-  test_closeframe();
   test_odcid();
   test_iscid();
   test_rscid();
@@ -1936,14 +1876,11 @@ int main(void) {
   test_lhdr_parse();
   test_vpn_open();
   test_stream_send();
-  test_app_send();
-  test_app_recv();
   test_req_frames();
   test_field_encode();
   test_resp_build();
   test_hello();
   test_certreq();
-  test_cwndctl();
   test_hrr_build();
   test_hrr_detect();
   test_legacy_fields();
@@ -1967,7 +1904,6 @@ int main(void) {
   test_dg_recv_with_length();
   test_dg_recv_no_length();
   test_dg_recv_truncated();
-  test_losstime();
   test_pnspaces_spaces();
   test_pnspaces_sent();
   test_pnspaces_recv();

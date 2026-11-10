@@ -791,52 +791,6 @@ static void test_reqdrive_multi_data(void) {
   CHECK(rd_eq(r.body, r.body_len, "aa", 2));
 }
 
-/* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rd_keys(initial_keys* k, aes128* hp) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  initial_derive(wired_span_of(dcid, 8), 1, VERSION_1, k);
-  aes128_init(hp, k->hp);
-}
-
-/* RFC 9001 5 / RFC 9114 4.1: the GET request is sealed and opened through a
- * real 1-RTT packet before recv_get recovers :authority and :path. */
-static void test_reqdrive_onertt(void) {
-  initial_keys         k;
-  aes128               hp;
-  const u8             dcid[4] = {7, 7, 7, 7};
-  const u8             path[]  = {'/', 'a'};
-  const u8             auth[]  = {'h', '1'};
-  u8                   req[256], pkt[256], reframed[256], scratch[128];
-  wired_obuf           req_ob = {req, sizeof req, 0};
-  usz                  total = 0, rf_len = 0;
-  wired_h3reqdrive_req r;
-  stream_frame         f;
-  u64                  sid = 0, off = 0;
-  const u8*            sdata = 0;
-  usz                  slen  = 0;
-  int                  fin   = 0;
-  rd_keys(&k, &hp);
-
-  CHECK(wired_h3reqdrive_send_get(
-      4,
-      &(wired_h3reqdrive_get_in){
-          wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)},
-      &req_ob));
-  CHECK(frame_get_stream(req, req_ob.len, &f));
-  CHECK(appdata_send_flat(
-      &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
-      sizeof(pkt), &total));
-  CHECK(appdata_recv_flat(
-      &k, &hp, pkt, total, 4, &sid, &off, &sdata, &slen, &fin));
-  CHECK(appdata_frame_flat(
-      sid, off, sdata, slen, fin, reframed, sizeof(reframed), &rf_len));
-  CHECK(wired_h3reqdrive_recv_get(
-      wired_span_of(reframed, rf_len), wired_mspan_of(scratch, sizeof scratch),
-      &r));
-  CHECK(rd_eq(r.authority, r.authority_len, "h1", 2));
-  CHECK(rd_eq(r.path, r.path_len, "/a", 2));
-}
-
 /* RFC 9114 4.1: a 200 response built by h3conn round-trips alongside the
  * driven request so the client recovers :status and body. */
 static void test_reqdrive_response_status(void) {
@@ -1875,7 +1829,6 @@ void test_h3reqdrive(void) {
   test_reqdrive_leading_grease();
   test_reqdrive_two_greases();
   test_reqdrive_grease_only();
-  test_reqdrive_onertt();
   test_reqdrive_empty_path_rejected();
   test_reqdrive_one_char_path_ok();
   test_reqdrive_trailer_pseudoheader_rejected();

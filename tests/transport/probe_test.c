@@ -6,15 +6,4 @@ static void test_probe_count(void) {
   CHECK(probe_count(0) == 0);
 }
 
-/* Probe sent on PTO expiry regardless of bytes in flight. */
-static void test_probe_should_send(void) {
-  CHECK(probe_should_send(0, 1) == 1); /* nothing in flight, still probes */
-  CHECK(probe_should_send(1200, 1) == 1);
-  CHECK(probe_should_send(1200, 0) == 0); /* no expiry, no probe */
-  CHECK(probe_should_send(0, 0) == 0);
-}
-
-void test_probe(void) {
-  test_probe_count();
-  test_probe_should_send();
-}
+void test_probe(void) { test_probe_count(); }

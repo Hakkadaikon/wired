@@ -8,8 +8,4 @@
 /* Number of probe packets to send: 2 when the PTO fired, else 0. */
 int probe_count(int pto_fired);
 
-/* 1 if a probe should be sent: PTO expired (sender may probe even with no
- * bytes in flight to elicit an ACK). */
-int probe_should_send(u64 bytes_in_flight, int pto_expired);
-
 #endif

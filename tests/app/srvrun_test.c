@@ -9115,7 +9115,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
 
 /* RFC 9000 10.2.3: srvrun_seal_app_close builds a correctly-encoded
  * application-level (is_app=1, type 0x1d) CONNECTION_CLOSE -- distinct from
- * wired_srvboot_refusal/flowviol_close_frame's is_app=0 (type 0x1c)
+ * wired_srvboot_refusal's is_app=0 (type 0x1c)
  * transport-level variant. A dormant primitive: no live caller yet, this
  * test is its only current exercise. */
 static void test_srvrun_seal_app_close_is_application_level(void) {

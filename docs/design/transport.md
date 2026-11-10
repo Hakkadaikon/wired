@@ -64,9 +64,7 @@ flowchart TD
 |---|---|
 | 上限の更新 | アプリケーションがバイトを消費すると、上限を前へずらし、新しい `MAX_DATA` と `MAX_STREAM_DATA` を送る |
 | 違反 | クレジットを超えて送ったピアとは `FLOW_CONTROL_ERROR` で接続を閉じる(`srvrun_close_on_flow_violation`) |
-| ストリーム数 | 3 つ目の上限 `MAX_STREAMS` がピアの開けるストリーム数を制限する(`stream_credit_*`、`STREAM_LIMIT_ERROR`) |
-
-RFC の構成要素は `transport/stream/flow/flow/` の `flow_credit_*`、`stream_flow_*`、`dual_flow_ok` である。
+| ストリーム数 | 3 つ目の上限 `MAX_STREAMS` がピアの開けるストリーム数を制限する(`STREAM_LIMIT_ERROR`) |
 
 ## 4. 損失検出とプローブタイムアウト
 

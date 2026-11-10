@@ -15,9 +15,6 @@ typedef struct {
 
 void flow_credit_init(flow_credit* c, u64 initial_max);
 
-/* Consume n bytes and slide the limit forward. Returns the new max_data. */
-u64 flow_credit_consume(flow_credit* c, u64 n);
-
 /* Whether the peer's cumulative received bytes exceed the advertised limit:
  * a FLOW_CONTROL_ERROR when received_total > max_data. Returns 1 on violation.
  */

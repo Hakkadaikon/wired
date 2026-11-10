@@ -66,8 +66,6 @@ COLOCATE = [
     # appdata_{frame,send,recv}_flat live in stream_send_test.c
     [
         "stream_send",
-        "app_send",
-        "app_recv",
         "h3conn_roundtrip",
         "srvloop",
         "h3reqdrive",

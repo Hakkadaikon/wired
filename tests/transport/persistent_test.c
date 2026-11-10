@@ -9,12 +9,4 @@ static void test_persistent_threshold(void) {
   CHECK(cc_persistent(0, 0) == 0); /* degenerate: 0 is not > 0 */
 }
 
-/* RFC 9002 7.6: collapse to kMinimumWindow = 2 * max_datagram. */
-static void test_persistent_cwnd(void) {
-  CHECK(cc_persistent_cwnd(1200) == 2400);
-}
-
-void test_persistent(void) {
-  test_persistent_threshold();
-  test_persistent_cwnd();
-}
+void test_persistent(void) { test_persistent_threshold(); }

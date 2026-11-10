@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
 
-以下の 84 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
+以下の 67 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
 
 guide のスニペットや例はどれもこれらを含まない。「fuzzed」と書いた 3 つは、ファズハーネスにも組み込んでいる。
 
@@ -78,17 +78,7 @@ guide のスニペットや例はどれもこれらを含まない。「fuzzed�
   (fuzzed: `fuzz_onertt`)
 - `transport/packet/header/shorthdr/`: `shorthdr.c`
 - `transport/packet/protect/protectcs/`: `protectcs.c`
-- `transport/recovery/congestion/cc/`: `ccphase.c`, `cwndcheck.c`
-- `transport/recovery/congestion/cwndctl/`: `cwndctl.c`
-- `transport/recovery/detect/ackgen/`: `ackfreq.c`, `ackgen.c`
 - `transport/recovery/detect/ackrange/`: `ackrange_process.c`
-- `transport/recovery/detect/losstime/`: `losstime.c`
-- `transport/recovery/detect/recovery/`: `losstimer.c`, `ptoreset.c`,
-  `rttinit.c`, `rttsample.c`, `rttvalid.c`
-- `transport/stream/data/stream/`: `stream_limit.c`
-- `transport/stream/flow/flow/`: `dual_flow.c`, `stream_credit.c`,
-  `stream_flow.c`
-- `transport/stream/flow/flowviol/`: `closeframe.c`, `flowviol.c`
 - `transport/version/version/`: `abandon.c`, `compatnego.c`, `downgrade.c`
 - `transport/version/versmgr/`: `v2switch.c`
 - `transport/version/vndrive/`: `accept.c`, `reconnect.c`, `select.c`
