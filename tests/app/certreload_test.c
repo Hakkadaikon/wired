@@ -272,7 +272,41 @@ static void test_certreload_failed_reload_keeps_store(void) {
   crt_unlink(crt_bad_key_path);
 }
 
+/* RFC 7468: a cert file with no CERTIFICATE block, or a key file with no
+ * private-key block (only a certificate), fails and leaves id untouched. */
+static void test_certreload_missing_pem_block_fails(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id = {0};
+  crt_write(crt_cert_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 0);
+  crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
+  crt_write(crt_key_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 0);
+  CHECK(id.chain_count == 0);
+  crt_unlink(crt_cert_path);
+  crt_unlink(crt_key_path);
+}
+
+/* RFC 7468 5: a combined cert.pem (certificate, then its private key) loads
+ * the certificate alone -- the key block is never taken into the chain the
+ * server sends (RFC 8446 4.4.2). */
+static void test_certreload_combined_pem_chain_excludes_key(void) {
+  static const char both[] = CRT_PEM_LEAF CRT_PEM_KEY;
+  wired_certreload_store                  store;
+  wired_srvboot_id                        id = {0};
+  crt_write(crt_cert_path, both, sizeof(both) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
+  CHECK(id.chain_count == 1);
+  CHECK(id.chain[0].n == sizeof(realchain_leaf_der));
+  crt_unlink(crt_cert_path);
+  crt_unlink(crt_key_path);
+}
+
 void test_certreload(void) {
+  test_certreload_missing_pem_block_fails();
+  test_certreload_combined_pem_chain_excludes_key();
   test_certreload_loads_single_cert();
   test_certreload_loads_two_cert_chain();
   test_certreload_loads_nine_cert_chain();

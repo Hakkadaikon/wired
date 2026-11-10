@@ -7,13 +7,17 @@
 #include "crypto/pki/encoding/eckey/eckey.h"
 #include "crypto/pki/encoding/pem/pem.h"
 
+static int certreload_label_eq(wired_span label, const char* s);
+
 /* Decode one more CERTIFICATE block (RFC 7468 5) from text into der, up to
- * WIRED_CERTRELOAD_CHAIN_MAX total. */
+ * WIRED_CERTRELOAD_CHAIN_MAX total. Any other block (a private key in a
+ * combined or swapped file) ends the chain: it must never be served. */
 static int certreload_next_cert(
     wired_span text, usz* at, wired_obuf* der, usz n) {
   wired_span label;
   return n < WIRED_CERTRELOAD_CHAIN_MAX &&
-         wired_pem_next(text, at, &label, der);
+         wired_pem_next(text, at, &label, der) &&
+         certreload_label_eq(label, "CERTIFICATE");
 }
 
 /* Fill store->chain[] from cert.pem's text, leaf first. Returns the number of
