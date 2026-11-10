@@ -29,20 +29,6 @@
 #define WT_EXPORTER_CTX_MAX \
   (8 + 1 + WT_EXPORTER_CTX_LABEL_MAX + 1 + WT_EXPORTER_CTX_CONTEXT_MAX)
 
-/* Serialize the WebTransport Exporter Context struct into out (capacity
- * WT_EXPORTER_CTX_MAX or more). Returns the serialized length, or 0 if
- * label or app_context exceeds its 255-byte field, or out lacks capacity.
- * @param session_id  the WebTransport session's identity (its CONNECT
- *   stream ID, session.h's wired_wt_session.connect_stream_id)
- * @param label       the application-supplied exporter label
- * @param app_context the application-supplied exporter context (may be
- *   empty, wired_span_of(0, 0))
- * @param out         receives the serialized bytes
- * @param cap         capacity of out
- */
-usz wt_exporter_ctx_encode(
-    u64 session_id, wired_span label, wired_span app_context, u8* out, usz cap);
-
 /* draft-ietf-webtrans-http3-15 4.8: compute
  *   TLS-Exporter("EXPORTER-WebTransport", WebTransport Exporter Context,
  *                 okm.n)

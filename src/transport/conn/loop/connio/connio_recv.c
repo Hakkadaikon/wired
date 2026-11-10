@@ -82,10 +82,7 @@ usz connio_close_on_violation(connio* io, wired_obuf* out) {
     return 0;
   }
   io->disp.violation = 0;
-  fl                 = violation_close_frame(frame, sizeof frame);
-  if (!fl) {
-    return 0;
-  }
+  fl  = violation_close_frame(frame, sizeof frame); /* fixed 4 bytes, fits */
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
@@ -109,10 +106,7 @@ usz connio_close_on_aead_limit(connio* io, wired_obuf* out) {
     return 0;
   }
   io->loop.aead_limit = 0;
-  fl                  = aead_limit_close_frame(frame, sizeof frame);
-  if (!fl) {
-    return 0;
-  }
+  fl  = aead_limit_close_frame(frame, sizeof frame); /* fixed 4 bytes, fits */
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }
@@ -134,10 +128,8 @@ usz connio_send_stop_sending_reset(connio* io, wired_obuf* out) {
     return 0;
   }
   io->disp.stop_sending_owed = 0;
-  fl = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
-  if (!fl) {
-    return 0;
-  }
+  /* both ids were decoded from varints (< 2^62): at most 1+8+8+1 bytes */
+  fl  = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
   sin = (connio_send_in){LEVEL_ONERTT, wired_span_of(frame, fl)};
   return connio_send(io, &sin, out);
 }

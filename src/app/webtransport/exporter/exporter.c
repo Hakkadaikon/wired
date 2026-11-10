@@ -12,43 +12,30 @@ static int ctx_fields_fit(wired_span label, wired_span app_context) {
 }
 
 /* Append one 8-bit-length-prefixed field (label or app_context) at *off,
- * advancing *off. Returns 1 ok, 0 if out lacks capacity. */
-static int put_len8_field(u8* out, usz cap, usz* off, wired_span field) {
-  if (*off + 1 + field.n > cap) {
-    return 0;
-  }
+ * advancing *off. */
+static void put_len8_field(u8* out, usz* off, wired_span field) {
   out[*off] = (u8)field.n;
   *off += 1;
   bytes_memcpy(out + *off, field.p, field.n);
   *off += field.n;
-  return 1;
 }
 
-/* Append both length-prefixed fields after the 8-byte session ID prefix.
- * Returns the total serialized length, or 0 if out lacks capacity. */
-static usz put_ctx_fields(
-    u8* out, usz cap, wired_span label, wired_span app_context) {
-  usz off = 8;
-  if (!put_len8_field(out, cap, &off, label)) {
-    return 0;
-  }
-  if (!put_len8_field(out, cap, &off, app_context)) {
-    return 0;
-  }
-  return off;
-}
-
-usz wt_exporter_ctx_encode(
+/* Serialize the WebTransport Exporter Context struct (the session ID, then
+ * the two length-prefixed fields) into out, sized for the largest one.
+ * Returns its length, or 0 if label or app_context exceeds its field. */
+static usz wt_exporter_ctx_encode(
     u64        session_id,
     wired_span label,
     wired_span app_context,
-    u8*        out,
-    usz        cap) {
-  if (!ctx_fields_fit(label, app_context) || cap < 8) {
+    u8         out[WT_EXPORTER_CTX_MAX]) {
+  usz off = 8;
+  if (!ctx_fields_fit(label, app_context)) {
     return 0;
   }
   be_put_be64(out, session_id);
-  return put_ctx_fields(out, cap, label, app_context);
+  put_len8_field(out, &off, label);
+  put_len8_field(out, &off, app_context);
+  return off;
 }
 
 /* draft-ietf-webtrans-http3-16 4.8 */
@@ -60,8 +47,7 @@ int wt_exporter(
     wired_span  app_context,
     wired_mspan okm) {
   u8  ctx[WT_EXPORTER_CTX_MAX];
-  usz ctx_len =
-      wt_exporter_ctx_encode(session_id, label, app_context, ctx, sizeof ctx);
+  usz ctx_len = wt_exporter_ctx_encode(session_id, label, app_context, ctx);
   static const u8 exporter_label[] = "EXPORTER-WebTransport";
   if (!ctx_len) {
     return 0;
