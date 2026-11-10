@@ -80,7 +80,43 @@ static void test_header_cut_at_cid_length_rejected(void) {
   CHECK(wired_header_parse(pkt + 6, 2, &h) == 0); /* short, DCID cut */
 }
 
+/* v1 long header byte0 | version 1 | dcid_len d | d bytes | scid_len s | s
+ * bytes into pkt; returns its length. */
+static usz hdr_v1_cids(u8* pkt, u8 d, u8 s) {
+  usz n    = 0;
+  pkt[n++] = 0xC0;
+  pkt[n++] = 0;
+  pkt[n++] = 0;
+  pkt[n++] = 0;
+  pkt[n++] = 1;
+  pkt[n++] = d;
+  for (u8 i = 0; i < d; i++) {
+    pkt[n++] = 0xAA;
+  }
+  pkt[n++] = s;
+  for (u8 i = 0; i < s; i++) {
+    pkt[n++] = 0xBB;
+  }
+  return n;
+}
+
+/* RFC 9000 17.2: in version 1 a connection ID is at most 20 bytes; a long
+ * header whose DCID or SCID length exceeds 20 is discarded. */
+static void test_header_v1_cid_over_20_rejected(void) {
+  u8           pkt[8 + 2 * (WIRED_MAX_CID_LEN + 1)];
+  wired_header h;
+  CHECK(wired_header_parse(pkt, hdr_v1_cids(pkt, WIRED_MAX_CID_LEN, 0), &h));
+  CHECK(h.dcid_len == WIRED_MAX_CID_LEN);
+  CHECK(
+      wired_header_parse(pkt, hdr_v1_cids(pkt, WIRED_MAX_CID_LEN + 1, 0), &h) ==
+      0);
+  CHECK(
+      wired_header_parse(pkt, hdr_v1_cids(pkt, 0, WIRED_MAX_CID_LEN + 1), &h) ==
+      0);
+}
+
 void test_header(void) {
+  test_header_v1_cid_over_20_rejected();
   test_header_cut_at_cid_length_rejected();
   test_header_parse_long();
   test_header_parse_short();
