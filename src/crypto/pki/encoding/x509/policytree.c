@@ -21,15 +21,11 @@ static int set_contains(const x509_policy_set* set, wired_span oid) {
   return 0;
 }
 
-/* Fold one candidate OID from a into out if it is also a member of b and out
- * still has room (both operands already respect X509_CERT_POLICY_MAX,
- * so the room check only guards the redundant case of a itself being at the
- * cap). */
+/* Fold one candidate OID from a into out if it is also a member of b. out
+ * gains at most one entry per element of a, and a respects
+ * X509_CERT_POLICY_MAX, so out always has room. */
 static void intersect_fold(
     wired_span cand, const x509_policy_set* b, x509_policy_set* out) {
-  if (out->n >= X509_CERT_POLICY_MAX) {
-    return;
-  }
   if (set_contains(b, cand)) {
     out->oid[out->n++] = cand;
   }

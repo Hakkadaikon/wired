@@ -59,40 +59,27 @@ typedef struct {
   wired_span  sig;
 } chv_signed;
 
-/* Parse the cert and require its outer sigAlg to be allowlisted. */
-static int chv_sigalg(wired_span cert, x509* c, x509_sigalg* sa) {
-  if (!x509_parse(cert, c)) {
-    return 0;
-  }
-  return x509_sigalg_lookup(c->sig_alg_oid, sa);
-}
-
-/* RFC 5280 6.1.3. Digest cert's tbsCertificate with the hash its own
+/* RFC 5280 6.1.3. Digest c's tbsCertificate with the hash its own
  * signatureAlgorithm names (fail closed on unlisted algorithms). */
-static int tbs_hash(wired_span cert, chv_signed* sg) {
-  x509        c;
+static int tbs_hash(const x509* c, chv_signed* sg) {
   chv_hash_fn fn;
-  if (!chv_sigalg(cert, &c, &sg->sa)) {
+  if (!x509_sigalg_lookup(c->sig_alg_oid, &sg->sa)) {
     return 0;
   }
   if (!chv_hash_select(sg->sa.hash_kind, &sg->hash_len, &fn)) {
     return 0;
   }
-  fn(c.tbs.p, c.tbs.n, sg->hash);
+  fn(c->tbs.p, c->tbs.n, sg->hash);
   return 1;
 }
 
-/* RFC 5280 4.1.1.3. View cert's signatureValue, dropping the BIT STRING's
+/* RFC 5280 4.1.1.3. View c's signatureValue, dropping the BIT STRING's
  * leading unused-bits octet (0x00 for whole-octet signatures). */
-static int cert_sig(wired_span cert, wired_span* sig) {
-  x509 c;
-  if (!x509_parse(cert, &c)) {
+static int cert_sig(const x509* c, wired_span* sig) {
+  if (c->sig.n < 1) {
     return 0;
   }
-  if (c.sig.n < 1) {
-    return 0;
-  }
-  *sig = wired_span_of(c.sig.p + 1, c.sig.n - 1);
+  *sig = wired_span_of(c->sig.p + 1, c->sig.n - 1);
   return 1;
 }
 
@@ -134,28 +121,33 @@ static int verify_by_key(const chv_signed* sg, const chv_issuer* is) {
 
 /* RFC 5280 4.1.1.2. The inner tbsCertificate.signatureAlgorithm OID must equal
  * the outer signatureAlgorithm OID, or the certificate is malformed. */
-static int sigalg_consistent(wired_span cert) {
-  x509    c;
+static int sigalg_consistent(const x509* c) {
   tbscert t;
+  if (!tbscert_parse(c->tbs, &t)) {
+    return 0;
+  }
+  return tbscert_sigalg_matches(&t, c->sig_alg_oid);
+}
+
+/* The signed bytes of parsed c: consistent sig algs, its tbs hash under the
+ * sigAlg's digest, and its raw signature. */
+static int parsed_signed(const x509* c, chv_signed* sg) {
+  if (!sigalg_consistent(c)) {
+    return 0;
+  }
+  if (!tbs_hash(c, sg)) {
+    return 0;
+  }
+  return cert_sig(c, &sg->sig);
+}
+
+/* Parse cert once and view its signed bytes. */
+static int cert_signed(wired_span cert, chv_signed* sg) {
+  x509 c;
   if (!x509_parse(cert, &c)) {
     return 0;
   }
-  if (!tbscert_parse(c.tbs, &t)) {
-    return 0;
-  }
-  return tbscert_sigalg_matches(&t, c.sig_alg_oid);
-}
-
-/* The signed bytes of cert: consistent sig algs, its tbs hash under the
- * sigAlg's digest, and its raw signature. */
-static int cert_signed(wired_span cert, chv_signed* sg) {
-  if (!sigalg_consistent(cert)) {
-    return 0;
-  }
-  if (!tbs_hash(cert, sg)) {
-    return 0;
-  }
-  return cert_sig(cert, &sg->sig);
+  return parsed_signed(&c, sg);
 }
 
 int castore_verify_signed_by(wired_span cert, wired_span issuer_cert) {

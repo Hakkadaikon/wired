@@ -47,12 +47,10 @@ static int der_len_long(wired_span lf, usz* len, usz* hdr) {
   return 1;
 }
 
-/* X.690 8.1.3. Parse the length field lf. Sets *len and *hdr (length field
- * octet count). Returns 1 ok, 0 on error. Short + 0x81/0x82 only. */
+/* X.690 8.1.3. Parse the length field lf (non-empty: der_header checks).
+ * Sets *len and *hdr (length field octet count). Returns 1 ok, 0 on error.
+ * Short + 0x81/0x82 only. */
 static int der_len(wired_span lf, usz* len, usz* hdr) {
-  if (lf.n < 1) {
-    return 0;
-  }
   if (lf.p[0] < 0x80) {
     *len = lf.p[0];
     *hdr = 1;
