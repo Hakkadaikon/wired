@@ -811,6 +811,46 @@ static void test_moqtrun_ssts_full_set_refused(void) {
   CHECK(mtss_set7()->n == MOQSSTS_MAX_MEMBERS);
 }
 
+/* Track names x0.. of mtss_many_tracks. */
+static char mtss_names[WIRED_MOQTRUN_SSTS_SETS + 1][3];
+
+static moqctl_ftn mtss_nth(usz i) {
+  return mtst_ftn("chat", "room1", mtss_names[i]);
+}
+
+/* WIRED_MOQTRUN_SSTS_SETS + 1 tracks chat/room1/x<i>: C publishes as
+ * many as it has track slots for, D the rest. */
+static void mtss_many_tracks(void) {
+  const usz per = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  u64       cc  = mtst_join(SESS_C);
+  u64       cd  = mtst_join(SESS_D);
+  for (usz i = 0; i <= WIRED_MOQTRUN_SSTS_SETS; i++) {
+    mtss_names[i][0] = 'x';
+    mtss_names[i][1] = (char)('0' + i);
+    moqctl_ftn f     = mtss_nth(i);
+    mtst_publish(i < per ? SESS_C : SESS_D, i < per ? cc : cd, &f, 1 + i);
+  }
+}
+
+/* A session holds at most WIRED_MOQTRUN_SSTS_SETS switching sets: B puts
+ * that many tracks each into a set of its own; one more set (one more
+ * track) is refused INTERNAL_ERROR, the sets as they were. */
+static void test_moqtrun_ssts_sets_full_refused(void) {
+  const usz n = WIRED_MOQTRUN_SSTS_SETS;
+  mtss_init(mtss_algs_both, 2);
+  mtss_client_setup(SESS_B, mtss_algs_both, 2);
+  mtss_many_tracks();
+  for (usz i = 0; i <= n; i++) {
+    moqctl_params p = mtss_ssa(20 + i, MOQSSTS_ALG_BACKPRESSURE, 500, 1);
+    mtss_sub(MTRQ_ID(i), mtss_nth(i), &p);
+  }
+  CHECK(mtss_ok_alias(MTRQ_ID(n - 1)) != ~(u64)0);
+  CHECK(mtrq_err_on(MTRQ_ID(n)) == MOQCTL_ERR_INTERNAL_ERROR);
+  for (usz k = 0; k < n; k++) {
+    CHECK(mtss_b()->sets[k].in_use && mtss_b()->sets[k].set_id == 20 + k);
+  }
+}
+
 /* N1: a cancelled member re-subscribed into another set is accepted, and
  * stale sets never exhaust the session's set slots. */
 static void test_moqtrun_ssts_resubscribe_other_set(void) {
@@ -1322,6 +1362,7 @@ void test_moqtrun_ssts(void) {
   test_moqtrun_ssts_two_sharers_rise();
   test_moqtrun_ssts_mixed_algorithms();
   test_moqtrun_ssts_full_set_refused();
+  test_moqtrun_ssts_sets_full_refused();
   test_moqtrun_ssts_shed_needs_bp_set();
   test_moqtrun_ssts_hold_clamps_to_ladder();
   test_moqtrun_ssts_inactive_set_does_not_pace();

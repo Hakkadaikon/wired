@@ -713,6 +713,49 @@ static void test_moqtrun_fill_slot_full_done_waits(void) {
   CHECK(mfill_done_count(MTRQ_S1) == 1);
 }
 
+/* Waiting fills (fetch_waits[]) in use. */
+static usz mfill_waits_used(void) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_FETCHES; i++) {
+    n += mtst_hub.fetch_waits[i].in_use != 0;
+  }
+  return n;
+}
+
+/* s's REQUEST_UPDATE on MTRQ_S1 carrying an open-ended fill. */
+static void mfill_update_on(wired_wt_session* s) {
+  moqfetch_fill fill = {0};
+  moqctl_params p    = mfill_params(&fill, 0);
+  mtup_update(s, MTRQ_S1, &p);
+}
+
+/* s (draft-22) SUBSCRIBEs to alice with fill on request stream MTRQ_S1,
+ * then sends n REQUEST_UPDATEs carrying fill too: 1 + n fills. */
+static void mfill_fills_on(wired_wt_session* s, usz n) {
+  moqfetch_fill fill                    = {0};
+  moqctl_ftn    f                       = mf_track();
+  moqctl_params p                       = mfill_params(&fill, 0);
+  moqtrun_find_by_wt(&mtst_hub, s)->ver = MOQVER_D22;
+  mtst_subscribe_p(s, MTRQ_S1, &f, mtst_rid += 4, &p);
+  for (usz i = 0; i < n; i++) {
+    mfill_update_on(s);
+  }
+}
+
+/* Every serving slot busy (mfill_occupy_slots) and every fetch_waits[]
+ * slot held by a waiting fill of C's or D's (one SUBSCRIBE and at most
+ * WIRED_MOQTRUN_MAX_REQ_UPDATES REQUEST_UPDATEs each). Sends stay
+ * refused (g_stream_send_ok_n 0). */
+static void mfill_tables_full(void) {
+  usz from_c = 1 + WIRED_MOQTRUN_MAX_REQ_UPDATES;
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mfill_occupy_slots();
+  mfill_fills_on(SESS_C, from_c - 1);
+  mfill_fills_on(SESS_D, WIRED_MOQTRUN_MAX_FETCHES - from_c - 1);
+  CHECK(mfill_waits_used() == WIRED_MOQTRUN_MAX_FETCHES);
+}
+
 /* The index of the first accepted data round on sid, or ~0. */
 static usz mfill_send_idx(u64 sid) {
   for (usz i = 0; i < g_n_calls; i++) {

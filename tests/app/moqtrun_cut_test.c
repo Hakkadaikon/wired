@@ -203,6 +203,68 @@ static void test_moqtrun_stream_starts_at_gone_object(void) {
   CHECK(moqtrun_test_count_kind(5) == 0 && moqtrun_test_count_kind(4) == 0);
 }
 
+/* draft-18/19 9.1 / 11.4.2: A's keep-open stream opened with its header
+ * alone (the relay opened B's stream header-only); its first Object is
+ * then one recorded nonexistent, so nothing sent can carry the next
+ * Object's re-chained delta: B's stream is reset, nothing of the round
+ * goes out. */
+static void test_moqtrun_stream_header_then_gone_object(void) {
+  static const u64 ids[2] = {0, 1}, five[1] = {5}, two[2] = {2, 5};
+  u8               buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz              ends[2], e1[1];
+  mcut_init(buf, ends, 0);
+  mcut_stream(one, 1, 1, ids, 2, ends);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, ends[1]), 1);
+  mcut_stream(one, 1, 2, five, 1, e1);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 8, wired_span_of(one, e1[0]), 1);
+  mf_obj(2, 0, 1); /* Group 1 is closed: Objects 2..4 do not exist */
+  usz h = mcut_stream(buf, 1, 0, two, 2, ends);
+  mcut_send(buf, 0, h, 0);
+  u64 sid = mcut_sub_sid();
+  moqtrun_test_reset();
+  mcut_send(buf, h, ends[1], 0);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+  CHECK(moqtrun_test_count_kind(7) == 1 && r && r->stream_id == sid);
+}
+
+/* draft-18/19 9.1 / 11.4.2: after the hub cut nonexistent Object 2 from
+ * A's stream (Group 1 closed, 0, 1 and 5 cached), its next round is one
+ * re-chained Object 5 of 65532 bytes -- a fragment just under
+ * WIRED_MOQTRUN_RELAY_FRAG_MAX plus one full WT delivery. moqtrun_gone_put
+ * budgets 8 bytes for the new Object ID Delta, so an Object that fills
+ * relay_scratch to within that is not re-framed: the round is poisoned and
+ * B's stream reset, never sent torn. */
+static void test_moqtrun_stream_gone_round_too_big(void) {
+  static const u64 ids[2] = {0, 1}, five[1] = {5};
+  static u8 big[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP + 64];
+  static u8 pl[sizeof big];
+  const usz frag = WIRED_MOQTRUN_RELAY_FRAG_MAX - 4;
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD], one[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       ends[2], e1[1], n = 0;
+  mcut_init(buf, ends, 0);
+  mcut_stream(buf, 1, 0, ids, 2, ends);
+  mcut_send(buf, 0, ends[1], 0);
+  u64 sid = mcut_sub_sid();
+  mcut_stream(one, 1, 1, five, 1, e1);
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID + 4, wired_span_of(one, e1[0]), 1);
+  mf_obj(2, 0, 1); /* Group 1 is closed: Objects 2..4 do not exist */
+  moqdata_obj_put(wired_mspan_of(big, sizeof big), &n, 0, wired_span_of(pl, 4));
+  usz at = n; /* Object 2 (delta 0 after 1), then Object 5 (delta 2) */
+  moqdata_obj_put(
+      wired_mspan_of(big, sizeof big), &n, 2,
+      wired_span_of(pl, frag + WIRED_SRVLOOP_WT_BUF_CAP - 5));
+  moqtrun_test_reset();
+  mt_feed(&mtst_hub, SESS_A, MCUT_SID, wired_span_of(big, at + frag), 0);
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  mt_feed(
+      &mtst_hub, SESS_A, MCUT_SID,
+      wired_span_of(big + at + frag, n - at - frag), 0);
+  const moqtrun_test_call* r = moqtrun_test_last_kind(7);
+  CHECK(n - at - frag <= WIRED_SRVLOOP_WT_BUF_CAP + 1);
+  CHECK(r && r->stream_id == sid && moqtrun_test_count_kind(3) == 0);
+}
+
 /* A mode-0b01 stream (Subgroup ID = its first Object's ID, draft-22
  * 11.4.2) whose first delivery tears inside that Object: no Subgroup ID
  * is known yet, so no header is saved for late joiners. */
@@ -224,6 +286,8 @@ static void test_moqtrun_stream_mode1_torn_first_object(void) {
 }
 
 static void test_moqtrun_cut(void) {
+  test_moqtrun_stream_gone_round_too_big();
+  test_moqtrun_stream_header_then_gone_object();
   test_moqtrun_stream_mode1_torn_first_object();
   test_moqtrun_cut_reset_refused_expires();
   test_moqtrun_stream_starts_at_gone_object();

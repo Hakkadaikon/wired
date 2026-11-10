@@ -957,6 +957,23 @@ static void test_moqtrun_req_pool_full_resets(void) {
   CHECK(mtrq_closes() == 0);
 }
 
+/* Filler sessions: handles from here up, clear of SESS_A..SESS_D and 5. */
+#define MTRQ_FILLER 64
+
+/* Open TRACK_STATUS requests on fresh filler sessions (at most
+ * WIRED_MOQTRUN_MAX_REQS_PER_SESSION each) until leave of the hub's
+ * WIRED_MOQTRUN_MAX_REQS request slots are free. */
+static void mtrq_fill(usz leave) {
+  const usz per = WIRED_MOQTRUN_MAX_REQS_PER_SESSION;
+  for (usz i = 0; mtrq_used() + leave < WIRED_MOQTRUN_MAX_REQS; i++) {
+    wired_wt_session* s = (wired_wt_session*)(usz)(MTRQ_FILLER + i / per);
+    if (i % per == 0) {
+      mtst_join(s);
+    }
+    mtrq_tstat_on(s, MTRQ_ID(i % per));
+  }
+}
+
 /* draft-18 10.4: once the hub sends GOAWAY, every new request with a
  * Request ID at or past the watermark it carried (the peer's own next
  * Request ID at that moment) is refused GOING_AWAY; one already pending
@@ -1663,6 +1680,34 @@ static void test_moqtrun_sub_filter22_ring_late_replay_start(void) {
   CHECK(mt22_ring_late(&s71, ids, &fin) == 2 && ids[0] == 1 && ids[1] == 2);
 }
 
+/* Start Object {7,1}, the transport refusing B's writes on the first
+ * tick: the re-framed first Object ID (11.3.1) is not sent, nor anything
+ * behind it; the next tick sends it, then the rest -- Objects 1 and 2. */
+static void test_moqtrun_sub_filter22_ring_late_lead_refused(void) {
+  u8            buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  u64           ids[4];
+  int           fin;
+  moqctl_ftn    f = mtst_ftn("chat", "room1", "alice");
+  moqctl_params s71 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 7, 1, MOQCTL_REK_UNBOUNDED, 0, 0));
+  mtst_init();
+  u64 ca = mtst_join(SESS_A);
+  u64 cb = mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtst_hub.reliable_alias_limit              = 100;
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  usz n                                      = mtst_stream(7, 3, 1, buf);
+  mt_feed(&mtst_hub, SESS_A, 1005, wired_span_of(buf, n), 0);
+  mtst_subscribe_p(SESS_B, cb, &f, 2, &s71);
+  g_stream_send_reject_sess = SESS_B;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mtst_hub.stat_rel_refused != 0 && mtst_hub.stat_rel_sent == 0);
+  CHECK(mt22_b_ids(ids, &fin) == 0);
+  g_stream_send_reject_sess = 0;
+  wired_moqt_tick(&mtst_hub, 2);
+  CHECK(mt22_b_ids(ids, &fin) == 2 && ids[0] == 1 && ids[1] == 2);
+}
+
 /* End Object {7,1}: the late replay stops after Object 1, then FINs. */
 static void test_moqtrun_sub_filter22_ring_late_replay_end(void) {
   u64           ids[4];
@@ -2307,6 +2352,7 @@ static void mtall_sub(void) {
   test_moqtrun_sub_filter22_ring_end_object_open();
   test_moqtrun_sub_filter22_ring_start_object();
   test_moqtrun_sub_filter22_ring_late_replay_start();
+  test_moqtrun_sub_filter22_ring_late_lead_refused();
   test_moqtrun_sub_filter22_ring_late_replay_end();
   test_moqtrun_sub_ns_must_match();
   test_moqtrun_reserved_ns_rejected();

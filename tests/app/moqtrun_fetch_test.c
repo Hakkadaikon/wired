@@ -690,6 +690,21 @@ static u64 mf_stuck_fetch(void) {
   return mf_data_sid();
 }
 
+/* A re-PUBLISH of alice (a new incarnation, its own cache tag) while a
+ * FETCH of the old one is stuck: the old incarnation's cache is released
+ * and no held track carries its tag any more, so once the transport takes
+ * writes again the FETCH reports what it can no longer serve as an End of
+ * Unknown Range (draft-22 11.4.2) and ends. */
+static void test_moqtrun_fetch_old_incarnation(void) {
+  moqctl_ftn f = mf_track();
+  mf_stuck_fetch();
+  mtst_publish(SESS_A, mf_ctrl_a, &f, MF_ALIAS + 1);
+  g_stream_send_ok_n = -1;
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mf_read() && mf_n == 1 && mf_fin && mf_is_unknown(0, 0, 0));
+  CHECK(mf_no_fetch());
+}
+
 /* Every fetch slot (WIRED_MOQTRUN_MAX_FETCHES) busy with a stuck FETCH:
  * one more is refused INTERNAL_ERROR at once, never left unanswered. */
 static void test_moqtrun_fetch_table_full_refused(void) {
@@ -1060,6 +1075,7 @@ static void mtall_fetch19(void) {
   test_moqtrun_fetch_requester_leaves();
   test_moqtrun_fetch_cancelled_by_request_reset();
   test_moqtrun_fetch_table_full_refused();
+  test_moqtrun_fetch_old_incarnation();
   test_moqtrun_fetch_data_stream_stopped();
   test_moqtrun_fetch_stall_gives_up();
   test_moqtrun_fetch_relative_join_no_gap();

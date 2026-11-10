@@ -527,7 +527,22 @@ static void test_moqtrun_misc_bare_fin_no_slot(void) {
   CHECK(moqtrun_req_count(&mtst_hub, SESS_B) == 0);
 }
 
+/* draft-19 3.3.4: a request stream the peer FINs after only the opening
+ * Type of a request (no whole message) was never answered, so the hub
+ * ends its side with RESET_STREAM INTERNAL_ERROR and frees the slot. */
+static void test_moqtrun_misc_orphan_request_reset(void) {
+  static const u8 type[] = {MOQTSTAT_T_TRACK_STATUS};
+  mtst_init();
+  mtst_join(SESS_B);
+  moqtrun_test_reset();
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(type, sizeof type), 1);
+  CHECK(g_n_calls == 1 && g_calls[0].kind == 7);
+  CHECK(mtrq_reset_code(MTRQ_S1) == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mtrq_closes() == 0 && moqtrun_req_count(&mtst_hub, SESS_B) == 0);
+}
+
 void test_moqtrun_misc(void) {
+  test_moqtrun_misc_orphan_request_reset();
   test_moqtrun_misc_bare_fin_no_slot();
   test_moqtrun_misc_reset_unknown_session();
   moqtrun_test_allver(mtall_misc);

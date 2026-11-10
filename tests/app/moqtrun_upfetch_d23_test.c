@@ -578,7 +578,32 @@ static void test_moqtrun_upfetch_d23_obj_props(void) {
   CHECK(mupf23_obj_props(1, 0x409C) != MOQTRUN_RESET_MALFORMED_TRACK);
 }
 
+/* draft-23 11.4.2.2: an End of Group the transport refuses to write
+ * cannot be relayed in place later, so the leg ends like any refused
+ * write: the upstream FETCH is cancelled and B, still unanswered, is
+ * refused INTERNAL_ERROR (9.4). */
+static void test_moqtrun_upfetch_d23_mark_refused(void) {
+  moqfetch_req m   = {0};
+  moqfetch_obj eog = {0};
+  mupf_init_v(MOQVER_D23);
+  mupf_vers(MOQVER_D23);
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_hdr(m.request_id, 0);
+  mupf_seq.d23 = 1;
+  mupf_obj(0, 0, 1);
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_log_is(SESS_C, (u64)sid, ""));
+  eog.flags = MOQFETCH_END_OF_GROUP;
+  mupf_put(&eog);
+  g_stream_send_reject_n = 1;
+  mupf_send_on(SESS_C, MUPF_DATA_SID, 0);
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR) && mupf_used() == 0);
+}
+
 void test_moqtrun_upfetch_d23(void) {
+  test_moqtrun_upfetch_d23_mark_refused();
   test_moqtrun_upfetch_d23_goaway();
   test_moqtrun_upfetch_d23_reissue();
   test_moqtrun_upfetch_d23_obj_props();

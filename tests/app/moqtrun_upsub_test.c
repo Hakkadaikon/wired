@@ -1229,7 +1229,55 @@ static void test_moqtrun_upsub_goaway(void) {
   moqtrun_test_vers(0, MOQVER_CAP_REQ_GOAWAY23, mups_goaway_ignored);
 }
 
+/* B SUBSCRIBEs n distinct tracks chat/<room>/t<a+i> on request streams
+ * MTRQ_ID(at + i), each sent upstream to announcer s; s Establishes the
+ * first ones it has track slots for (WIRED_MOQTRUN_MAX_TRACKS_PER_PEER),
+ * the rest stay pending. */
+static void mups_ups_on(wired_wt_session* s, const char* room, usz at, usz n) {
+  static char      names[WIRED_MOQTRUN_MAX_UP][3];
+  moqctl_subscribe m;
+  for (usz i = 0; i < n; i++) {
+    static moqctl_subscribe_ok ok;
+    names[at + i][0] = 't';
+    names[at + i][1] = (char)('a' + i);
+    moqctl_ftn f     = mtst_ftn("chat", room, names[at + i]);
+    ok.track_alias   = 100 + i;
+    mtst_subscribe_p(SESS_B, MTRQ_ID(at + i), &f, mtst_rid += 4, 0);
+    i64 sid = mups_up(s, i, &m);
+    CHECK(sid >= 0);
+    if (i < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER) {
+      mtst_send(s, (u64)sid, MOQCTL_T_SUBSCRIBE_OK, mups_enc_ok, &ok);
+    }
+  }
+}
+
+/* With every upstream SUBSCRIBE slot (WIRED_MOQTRUN_MAX_UP) in use --
+ * Established tracks filling C's and D's track slots (chat/room2,
+ * chat/room3) and A's (chat/room1), A holding one more still pending, so B
+ * keeps under its WIRED_MOQTRUN_RDV_PER_SESSION waits -- a SUBSCRIBE of yet
+ * another announced track cannot be sent upstream: B is refused at once
+ * and nothing more goes to A. */
+static void test_moqtrun_upsub_up_table_full(void) {
+  const usz  per = WIRED_MOQTRUN_MAX_TRACKS_PER_PEER;
+  const usz  na  = WIRED_MOQTRUN_MAX_UP - 2 * per;
+  const u64  sid = MTRQ_ID(WIRED_MOQTRUN_MAX_UP);
+  moqctl_ftn f   = mtst_ftn("chat", "room1", "zz");
+  mups_init();
+  mtst_join(SESS_C);
+  mtst_join(SESS_D);
+  mtns_pub(SESS_C, MRDV_S1, "chat/room2");
+  mtns_pub(SESS_D, MRDV_S1, "chat/room3");
+  mups_ups_on(SESS_C, "room2", 0, per);
+  mups_ups_on(SESS_D, "room3", per, per);
+  mups_ups_on(SESS_A, "room1", 2 * per, na);
+  CHECK(mups_used() == WIRED_MOQTRUN_MAX_UP);
+  mtst_subscribe_p(SESS_B, sid, &f, mtst_rid += 4, 0);
+  CHECK(mtrq_type_on(12, sid) == MOQCTL_T_REQUEST_ERROR);
+  CHECK(mups_n_up(SESS_A) == na);
+}
+
 void test_moqtrun_upsub(void) {
+  test_moqtrun_upsub_up_table_full();
   test_moqtrun_upsub_goaway();
   test_moqtrun_upsub_dup_alias_closes();
   test_moqtrun_upsub_second_ok_closes();

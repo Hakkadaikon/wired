@@ -2082,7 +2082,198 @@ static void test_moqtrun_upfetch_delta_underflow(void) {
   CHECK(mupf_read(1) && mf_fin && mf_is_obj(0, 2, 0, 1));
 }
 
+/* d22 7.8: a payload the transport refused is held to retry; a delivery
+ * that no longer fits behind it in the held tail (one WT buffer each, so
+ * two outgrow it) cannot be kept in order -- the leg is cancelled and B's
+ * fetch, mid-Object, is reset INTERNAL_ERROR. */
+static void test_moqtrun_upfetch_held_tail_overflow(void) {
+  moqfetch_req m   = {0};
+  i64          sid = mupf_big_setup(&m);
+  mupf_obj_b(1, 0, 40000, 0x5A);
+  mupf_obj_b(1, 1, 40000, 0x5B);
+  mupf_obj_b(1, 2, 15000, 0x5C);
+  mupf_deliver(0, 20000, 0);
+  g_stream_send_reject_n = 1;
+  mupf_deliver(20000, 20000 + WIRED_SRVLOOP_WT_BUF_CAP, 0);
+  CHECK(mtst_hub.upf_len == WIRED_SRVLOOP_WT_BUF_CAP);
+  mupf_deliver(20000 + WIRED_SRVLOOP_WT_BUF_CAP, mupf_n, 0);
+  CHECK(mupf_log_is(SESS_A, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_INTERNAL_ERROR);
+  CHECK(mupf_used() == 0);
+}
+
+/* d22 9.12: only the first FETCH_OK answers; a second one (another End)
+ * is ignored -- B hears one FETCH_OK, with the first End. */
+static void test_moqtrun_upfetch_second_ok_ignored(void) {
+  moqfetch_req         m  = {0};
+  moqfetch_ok          ok = {0};
+  moqctl_request_error e;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  mupf_up_ok_p(SESS_C, sid, mf_loc(2, 3), 0, wired_span_of(0, 0));
+  mupf_up_ok_p(SESS_C, sid, mf_loc(4, 0), 0, wired_span_of(0, 0));
+  CHECK(mupf_n_msgs(MOQFETCH_T_FETCH_OK) == 1);
+  CHECK(mupf_reply(&ok, &e) == MOQFETCH_T_FETCH_OK && mf_loc_eq(ok.end, 2, 3));
+  CHECK(mf_loc_eq(mtst_hub.fetches[0].up_end, 2, 3));
+}
+
+/* d22 9.4: B closing with its FETCH of a track the hub does not hold
+ * still unanswered leaves no request stream to answer on: nothing is sent
+ * to B, the upstream FETCH is cancelled and the slot frees. */
+static void test_moqtrun_upfetch_unanswered_requester_closes(void) {
+  moqfetch_req         m  = {0};
+  moqfetch_ok          ok = {0};
+  moqctl_request_error e;
+  mupf_init();
+  mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  i64 sid = mupf_up(SESS_C, 0, &m);
+  wired_moqt_on_session_close(&mtst_hub, SESS_B);
+  CHECK(mupf_reply(&ok, &e) == 0);
+  CHECK(mupf_log_is(SESS_C, (u64)sid, "RST1|STOP1|"));
+  CHECK(mupf_used() == 0);
+}
+
+/* d22 12.1 #6: an Object made large by its Properties is passed through
+ * as it arrives, so its payload is compared with the cached copy chunk
+ * by chunk -- one that differs is Malformed too, B's fetch reset
+ * MALFORMED_TRACK. */
+static void test_moqtrun_upfetch_large_conflict(void) {
+  static u8    props[16378] = {0x0D, 0x40 | (16375 >> 8), 16375 & 0xFF};
+  static u8    pl[4]        = {0x77, 0x77, 0x77, 0x77};
+  moqfetch_req m            = {0};
+  moqfetch_obj ob           = {0};
+  mupf_init();
+  wired_moqt_cache_attach(&mtst_hub, mupf_arena, 3 * MOQCACHE_HDR + 8);
+  mf_obj(2, 0, 4);
+  mf_obj(3, 0, 100); /* too big: group 3 is a tombstone */
+  mf_obj(4, 0, 1);
+  mupf_fetch(mupf_rl(2, 0, 4, 0), 0);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0 && m.range.end_group == 3);
+  mupf_hdr(m.request_id, 0);
+  ob.flags = moqfetch_object_flag(&mupf_seq, 2, 0) | MOQFETCH_F_PRIORITY |
+             MOQFETCH_F_GROUP | MOQFETCH_F_PROPS;
+  ob.group = 2;
+  ob.has_subgroup = 1;
+  ob.priority     = 128;
+  ob.has_props    = 1;
+  ob.props        = wired_span_of(props, sizeof props);
+  ob.payload      = wired_span_of(pl, sizeof pl);
+  mupf_put(&ob);
+  mupf_send(0);
+  CHECK(mupf_reset_code() == MOQTRUN_RESET_MALFORMED_TRACK);
+}
+
+/* B FETCHes bob (a track the hub does not hold) n times; each waits on
+ * its own upstream FETCH to C, holding a fetch slot. */
+static void mupf_nt_fetches(usz n) {
+  for (usz i = 0; i < n; i++) {
+    mupf_fetch_on(SESS_B, mupf_bob(), mupf_rl(0, 0, 5, 0), 0);
+  }
+}
+
+/* The hub keeps one torn small Object at a time (hub->upf_buf): leg 0's
+ * holds it, so leg 1's own torn Object cannot be kept in order -- leg 1
+ * is cancelled (its FETCH, still unanswered, refused INTERNAL_ERROR,
+ * draft-22 9.4) while leg 0 goes on. */
+static void test_moqtrun_upfetch_second_torn_unheld(void) {
+  moqfetch_req m0 = {0}, m1 = {0};
+  mupf_init();
+  mupf_nt_fetches(2);
+  i64 s0 = mupf_up(SESS_C, 0, &m0);
+  i64 s1 = mupf_up(SESS_C, 1, &m1);
+  mupf_hdr(m0.request_id, 0);
+  mupf_obj(0, 0, 8);
+  mt_feed(
+      &mtst_hub, SESS_C, MUPF_DATA_SID, wired_span_of(mupf_buf, mupf_n - 3), 0);
+  mupf_hdr(m1.request_id, 0);
+  mupf_obj(0, 0, 8);
+  mt_feed(
+      &mtst_hub, SESS_C, MUPF_DATA_SID + 4, wired_span_of(mupf_buf, mupf_n - 3),
+      0);
+  CHECK(mupf_log_is(SESS_C, (u64)s1, "RST1|STOP1|"));
+  CHECK(mupf_log_is(SESS_C, (u64)s0, ""));
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR) && mupf_used() == 1);
+}
+
+/* Object {g, o} of one byte carrying Properties props (none when 0). */
+static void mupf_obj_props(u64 g, u64 o, wired_span props) {
+  static const u8 pl[1] = {0x42};
+  moqfetch_obj    ob    = {0};
+  ob.flags =
+      moqfetch_object_flag(&mupf_seq, g, o) | MOQFETCH_F_PRIORITY |
+      (!mupf_seq.have_loc || mupf_seq.group != g ? MOQFETCH_F_GROUP : 0) |
+      (props.n ? MOQFETCH_F_PROPS : 0);
+  ob.group        = g;
+  ob.object       = o;
+  ob.has_subgroup = 1;
+  ob.priority     = 128;
+  ob.has_props    = props.n != 0;
+  ob.props        = props;
+  ob.payload      = wired_span_of(pl, 1);
+  mupf_put(&ob);
+}
+
+/* B's FETCH of {1,0}..{3,0} (Group 3 cached) carrying an Object Property
+ * filter -- Property Type 0x10, values 0..9 -- that A was not sent (its
+ * MAX_FILTER_RANGES is 0, draft-22 9.1.6); A's wider answer: {1,0} with
+ * 0x10 = 7, {1,1} with 0x10 = 20, {1,2} with no Properties. The items B
+ * gets, as mupf_read reads them. */
+static usz mupf_prop_filtered(void) {
+  const u64          ptype = MOQCTL_PARAM_OBJECT_PROPERTY_FILTER;
+  static const u8    p7[] = {0x10, 0x07}, p20[] = {0x10, 0x14};
+  moqctl_rangefilter rf = mtst_rngf1(0, 0, 9, 1);
+  moqctl_params      p  = {0};
+  moqfetch_req       m  = {0};
+  rf.has_prop           = 1;
+  rf.prop_type          = 0x10;
+  mtst_rngf_param(&p, ptype, &rf);
+  mupf_init();
+  mupf_cache_group(3, 1);
+  mupf_fetch(mupf_rl(1, 0, 3, 0), &p);
+  CHECK(mupf_up(SESS_A, 0, &m) >= 0);
+  mupf_hdr(m.request_id, 0);
+  mupf_obj_props(1, 0, wired_span_of(p7, sizeof p7));
+  mupf_obj_props(1, 1, wired_span_of(p20, sizeof p20));
+  mupf_obj_props(1, 2, wired_span_of(0, 0));
+  mupf_send(0);
+  mupf_read(0);
+  return mf_n;
+}
+
+/* draft-22 3.3.2 / 3.3.3: the hub filters the wider upstream answer by
+ * every field -- the Object Property filter passes only the Object whose
+ * 0x10 lies in 0..9; {1,1} (20) and {1,2} (no such Property, 9.20.13:
+ * not read as 0) fail; then the cached Group 3. */
+static void test_moqtrun_upfetch_property_filters(void) {
+  usz n = mupf_prop_filtered();
+  CHECK(n >= 1 && mf_items[0].group == 1 && mf_items[0].object == 0);
+  for (usz i = 1; i < n; i++) {
+    CHECK(mf_items[i].group != 1 || mf_items[i].flags >= 0x80);
+  }
+}
+
+/* d22 9.4: with every fetch slot (WIRED_MOQTRUN_MAX_FETCHES) held by a
+ * FETCH waiting upstream, one more of a track the hub does not hold is
+ * refused INTERNAL_ERROR at once -- nothing more goes to C. */
+static void test_moqtrun_upfetch_no_track_table_full(void) {
+  mupf_init();
+  mupf_nt_fetches(WIRED_MOQTRUN_MAX_FETCHES);
+  CHECK(mupf_used() == WIRED_MOQTRUN_MAX_FETCHES);
+  CHECK(mupf_n_up(SESS_C) == WIRED_MOQTRUN_MAX_FETCHES);
+  mupf_nt_fetches(1);
+  CHECK(mupf_refused(MOQCTL_ERR_INTERNAL_ERROR));
+  CHECK(mupf_n_up(SESS_C) == WIRED_MOQTRUN_MAX_FETCHES);
+}
+
 void test_moqtrun_upfetch(void) {
+  test_moqtrun_upfetch_second_torn_unheld();
+  test_moqtrun_upfetch_property_filters();
+  test_moqtrun_upfetch_no_track_table_full();
+  test_moqtrun_upfetch_large_conflict();
+  test_moqtrun_upfetch_held_tail_overflow();
+  test_moqtrun_upfetch_second_ok_ignored();
+  test_moqtrun_upfetch_unanswered_requester_closes();
   test_moqtrun_upfetch_upsub_skips_goaway();
   test_moqtrun_upfetch_drain_failover();
   test_moqtrun_upfetch_gap_to_owner();

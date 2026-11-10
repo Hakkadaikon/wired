@@ -229,7 +229,22 @@ static void test_moqtrun_mpub_update_reaches_mirror(void) {
   CHECK(mtst_sub(SESS_C, SESS_B)->priority == 7);
 }
 
+/* Complete (draft-22 7.6 dedup): A ends its subscription (PUBLISH_DONE)
+ * while its Group 0 Subgroup is still streaming to B -- unfinished for B,
+ * so A's claim on it goes: C's copy of that Subgroup now reaches B. */
+static void test_moqtrun_mpub_done_releases_open_claim(void) {
+  mpub_both();
+  mpub_push_open(SESS_A, MUPS_DATA_SID, 0);
+  CHECK(mpub_to_b(0) == 1);
+  mups_done((u64)mpub_up_sid(SESS_A), MOQCTL_DONE_TRACK_ENDED);
+  wired_moqt_tick(&mtst_hub, WIRED_MOQTRUN_PUBDONE_WAIT_MS + 1);
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0 && mtst_sub(SESS_C, SESS_B) != 0);
+  mpub_push_open(SESS_C, MUPS_DATA_SID, 0);
+  CHECK(mpub_to_b(0) == 2);
+}
+
 void test_moqtrun_mpub(void) {
+  test_moqtrun_mpub_done_releases_open_claim();
   test_moqtrun_mpub_update_reaches_mirror();
   test_moqtrun_mpub_dedup_open_streams();
   test_moqtrun_mpub_subscribes_every_announcer();

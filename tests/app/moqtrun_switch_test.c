@@ -252,6 +252,28 @@ static void test_moqtrun_switch_boundary_b_ahead(void) {
   CHECK(mtsw_done_n(MTRQ_S1) == 1);
 }
 
+/* TS-1: hi's own filter already ends at Group 5, before G - 1 = 9 (lo
+ * Largest 9): the switch leaves that earlier End Group as it is. */
+static void test_moqtrun_switch_old_ends_earlier(void) {
+  moqctl_ftn    hi = mtsw_ftn("hi"), lo = mtsw_ftn("lo");
+  moqctl_params e5 =
+      mt22_filter(1, mt22_rl(MOQCTL_RSK_ABS, 0, 0, MOQCTL_REK_OBJ, 5, 0));
+  mtst_init();
+  mtst_hub.switch_track = 1;
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTSW_PUB_HI, &hi, MTSW_HI);
+  mtst_publish(SESS_A, MTSW_PUB_LO, &lo, MTSW_LO);
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &hi, MTSW_RID_HI, &e5);
+  mtsw_group(mtsw_sid(MTSW_HI, 1), MTSW_HI, 1, 1);
+  mtsw_group(mtsw_sid(MTSW_LO, 9), MTSW_LO, 9, 1);
+  mtsw_switch(MTSW_SOFT, MTSW_DONE);
+  CHECK(mtrq_type_on(12, MTRQ_S2) == MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(mtsw_lo() && mtsw_lo()->start.group == 10);
+  CHECK(mtsw_hi() && mtsw_hi()->has_end_group && mtsw_hi()->end_group == 5);
+  CHECK(mtsw_hi() && mtsw_hi()->has_end_object);
+}
+
 /* ===================== gate (TS-2) ===================== */
 
 /* After the switch hi's Group >= G opens nothing to B, lo's Group < G
@@ -1166,6 +1188,7 @@ static void test_moqtrun_switch_waiting_new_released(void) {
 }
 
 static void test_moqtrun_switch_d22(void) {
+  test_moqtrun_switch_old_ends_earlier();
   test_moqtrun_switch_boundary_plus_one();
   test_moqtrun_switch_boundary_b_ahead();
   test_moqtrun_switch_soft_cut_at_boundary();

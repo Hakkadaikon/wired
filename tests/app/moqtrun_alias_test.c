@@ -204,6 +204,18 @@ static void test_mtal_reattach_keeps_told_alias(void) {
   CHECK(mtal_alias_to_b(4) == a);
 }
 
+/* 3.1.3: alice's publisher left, but B's client still holds its
+ * subscription under alias 1 (a REPUBLISH re-attaches it there,
+ * moqtrun_reattach_one_sub), so carol -- whose publisher also chose 1 --
+ * is told another alias in B's session. */
+static void test_mtal_remembered_alias_kept(void) {
+  u64 cb = mtal_two_pubs(1);
+  u64 af = mtal_sub(cb, mtal_f());
+  wired_moqt_on_session_close(&mtst_hub, SESS_A);
+  u64 ag = mtal_sub(cb, mtal_g());
+  CHECK(af == 1 && ag != af);
+}
+
 /* SUBSCRIBE_TRACKS (10.19): the hub's PUBLISHes to B for two tracks whose
  * publishers both chose alias 1 name distinct aliases (DUPLICATE_TRACK_
  * ALIAS otherwise, 3.1.3). */
@@ -226,4 +238,5 @@ void test_moqtrun_alias(void) {
   test_mtal_late_reliable();
   test_mtal_reattach_keeps_told_alias();
   test_mtal_hub_publish_distinct();
+  test_mtal_remembered_alias_kept();
 }

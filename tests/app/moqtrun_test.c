@@ -1202,6 +1202,83 @@ static void test_moqtrun_token_unbufferable_request_reset(void) {
   CHECK(c && c->fin == 0x9); /* EXCESSIVE_LOAD rides the fin field */
 }
 
+/* A token session with SETUP still incomplete: A's PUBLISH in two
+ * deliveries on request stream 0 (the second follows the first into the
+ * hold, moqtrun_dispatch_client_bidi, never read as a fresh stream), then
+ * two uni Object streams each cut after one byte of the SUBGROUP_HEADER
+ * Type: stream 6's first byte waits in p->pre (moqtrun_pre_stash), stream
+ * 10's -- pre already taken -- is held, and so are both streams' rest. */
+/* The stamped golden PUBLISH as the session's draft spells it (mt_feed's
+ * respelling), its Track Name "alice" turned into AF 00 "ice": cut at *at,
+ * the rest reads as a SETUP Type (0x2F00) if taken as a fresh stream. */
+static wired_span mthold_publish(usz* at) {
+  static u8  b[64];
+  wired_span pub = moqtrun_test_stamped(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN);
+  usz        n = (moqver_caps(g_moqtrun_test_ver) & MOQVER_CAP_CTL_LEN_VI)
+                     ? mt_respell(pub)
+                     : 0;
+  wired_span s = n ? wired_span_of(mt_respell_buf, n) : pub;
+  bytes_memcpy(b, s.p, s.n);
+  for (*at = 0; b[*at] != 'a' || b[*at + 1] != 'l'; (*at)++) {
+  }
+  b[*at]     = 0xAF;
+  b[*at + 1] = 0x00;
+  return wired_span_of(b, s.n);
+}
+
+static void mthold_split_streams(wired_moqt_hub* hub) {
+  const u8*  g = g_moqt_data_subgroup_stream_basic;
+  usz        n = G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN, at;
+  wired_span b = mthold_publish(&at);
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  wired_moqt_on_session(
+      hub, SESS_A, wired_span_of(0, 0),
+      moqtrun_test_proto(moqtrun_test_ver_tok()));
+  wired_moqt_on_stream_data_direct(hub, SESS_A, 0, wired_span_of(b.p, at), 0);
+  wired_moqt_on_stream_data_direct(
+      hub, SESS_A, 0, wired_span_of(b.p + at, b.n - at), 0);
+  wired_moqt_on_stream_data_direct(hub, SESS_A, 6, wired_span_of(g, 1), 0);
+  wired_moqt_on_stream_data_direct(hub, SESS_A, 10, wired_span_of(g, 1), 0);
+  wired_moqt_on_stream_data_direct(
+      hub, SESS_A, 10, wired_span_of(g + 1, n - 1), 1);
+  wired_moqt_on_stream_data_direct(
+      hub, SESS_A, 6, wired_span_of(g + 1, n - 1), 1);
+}
+
+/* Stream 14: the golden SUBGROUP stream with payload AF 00, cut right
+ * before it -- a later delivery that, read as a fresh stream, would be a
+ * client control stream (Stream Type 0x2F00). */
+static void mthold_ctl_lookalike(wired_moqt_hub* hub) {
+  u8  b[G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN];
+  usz n = sizeof b;
+  bytes_memcpy(b, g_moqt_data_subgroup_stream_basic, n);
+  b[n - 2] = 0xAF;
+  b[n - 1] = 0x00;
+  wired_moqt_on_stream_data_direct(hub, SESS_A, 14, wired_span_of(b, n - 2), 0);
+  wired_moqt_on_stream_data_direct(
+      hub, SESS_A, 14, wired_span_of(b + n - 2, 2), 1);
+}
+
+/* draft-19 3.3: held deliveries replay in arrival order once the client
+ * SETUP lands; stream 10's one-byte first record is re-stashed by the
+ * replay and its held rest completes it (moqtrun_dispatch_held), so the
+ * Object lands and nothing is misread as a new stream. */
+static void test_moqtrun_token_split_streams_replayed(void) {
+  static wired_moqt_hub hub;
+  u8                    msg[16];
+  mthold_split_streams(&hub);
+  mthold_ctl_lookalike(&hub);
+  CHECK(hub.peers[0].tracks[0].in_use == 0);
+  CHECK(hub.peers[0].hold_len != 0 && hub.peers[0].pre_n == 0);
+  usz n = mtctl_uni_ctl(msg, 0, 0);
+  mt_feed(&hub, SESS_A, 2, mtctl_span(msg, n), 0);
+  CHECK(hub.peers[0].tracks[0].in_use == 1);
+  CHECK(hub.peers[0].tracks[0].has_largest == 1);
+  CHECK(moqtrun_test_count_kind(11) == 0 && hub.peers[0].pre_n == 0);
+}
+
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
 /* PUBLISH is accepted and answered with REQUEST_OK on the control
@@ -6710,6 +6787,7 @@ static void mtall_main(void) {
   test_moqtrun_token_requests_held_until_established();
   test_moqtrun_token_object_stream_held_until_established();
   test_moqtrun_token_unbufferable_request_reset();
+  test_moqtrun_token_split_streams_replayed();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();

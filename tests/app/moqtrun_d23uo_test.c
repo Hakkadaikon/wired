@@ -469,6 +469,27 @@ static void mtuo_run_on(
   mt_feed(&mtst_hub, s, sid, wired_span_of(buf, n), 0);
 }
 
+/* draft-23 9.5 / 9.1: an update joining a coalesced run still passes its
+ * own Request ID check -- one repeating the first's Request ID closes the
+ * session INVALID_REQUEST_ID mid-run, and nothing of the run is answered. */
+static void test_moqtrun_d23uo_coalesced_bad_rid_closes(void) {
+  static moqtstat_update m;
+  static u8              buf[2 * MTST_MSG_MAX];
+  usz                    n = 0;
+  mtuo_sub();
+  g_mtst_send_ver = moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver;
+  m.request_id    = mtst_rid += 4;
+  m.params        = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 2);
+  for (int i = 0; i < 2; i++) {
+    n += moqtrun_envelope_put(
+        MOQVER_D22, wired_mspan_of(buf + n, sizeof buf - n),
+        MOQTSTAT_T_REQUEST_UPDATE, mtup_enc_update, &m);
+  }
+  mt_feed(&mtst_hub, SESS_B, MTRQ_S1, wired_span_of(buf, n), 0);
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_INVALID_REQUEST_ID) == 1);
+  CHECK(mtuo_n() == 0);
+}
+
 static void mtuo_two_on(
     wired_wt_session*    s,
     u64                  sid,
@@ -1021,6 +1042,7 @@ static void mtuo_d23(void) {
   test_moqtrun_d23uo_prefix_breaks_run();
   test_moqtrun_d23uo_fill_breaks_run();
   test_moqtrun_d23uo_coalesced_run_credit();
+  test_moqtrun_d23uo_coalesced_bad_rid_closes();
 }
 
 static void mtuo_credit(void) {

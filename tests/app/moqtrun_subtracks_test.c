@@ -444,8 +444,28 @@ static void test_subtracks_forward_zero_reflected(void) {
   CHECK(fwd != 0 && fwd->u8v == 0);
 }
 
+/* draft-19 10.20 (1767-1771: "no available ... or any other reason"): with
+ * every hub-wide request slot (WIRED_MOQTRUN_MAX_REQS) taken -- the
+ * SUBSCRIBE_TRACKS itself took the last -- the hub has no slot to open the
+ * PUBLISH in: PUBLISH_SKIPPED, no PUBLISH. */
+static void test_subtracks_req_table_full_skips(void) {
+  moqctl_ftn     f = mtst_ftn("chat", "room1", "alice");
+  moqctl_publish got[2];
+  mtst_subtracks_init();
+  u64 ca = mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, ca, &f, 1);
+  mtrq_fill(1);
+  mtst_subtracks(SESS_B, MTRQ_S1, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtrq_used() == WIRED_MOQTRUN_MAX_REQS);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "OK|SKIP:alice|"));
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 0);
+}
+
 /* Version-invariant scenarios: every supported draft (ledger 7-4). */
 static void mtall_subtracks(void) {
+  test_subtracks_req_table_full_skips();
   test_subtracks_ok_once();
   test_subtracks_publish_match_excludes_self();
   test_subtracks_publish_carries_props();
@@ -570,6 +590,30 @@ static void mtst_pub_goaway_retries_d23(void) {
   CHECK(mtrq_reset_code(sid) != -1);
 }
 
+/* draft-23 9.2 re-issue with every hub-wide request slot taken: no slot
+ * for the new PUBLISH, so the old one stays open (not reset) and nothing
+ * is sent; the next sweep with a slot free sends it. */
+static void mtst_pub_goaway_table_full_d23(void) {
+  static const u8 away[] = {0x00, 0x00};
+  moqctl_ftn      f      = mtst_ftn("chat", "room1", "alice");
+  mtst_subtracks_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  mtst_publish(SESS_A, MTRQ_S1, &f, 1);
+  mtst_subtracks(SESS_B, MTRQ_S2, "chat");
+  wired_moqt_tick(&mtst_hub, 0);
+  u64 sid = (u64)mtst_pub_stream_id(0);
+  mtrq_fill(0);
+  mtrq_raw(SESS_B, sid, MOQCTL_T_GOAWAY, away, sizeof away);
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 1);
+  CHECK(mtrq_reset_code(sid) == -1);
+  wired_moqt_on_session_close(&mtst_hub, (wired_wt_session*)(usz)MTRQ_FILLER);
+  wired_moqt_tick(&mtst_hub, 0);
+  CHECK(mtst_sent_type(SESS_B, ~(u64)0, MOQCTL_T_PUBLISH) == 2);
+  CHECK(mtrq_reset_code(sid) != -1);
+}
+
 /* The SUBSCRIBE_TRACKS itself is cancelled before the sweep: there is no
  * request left to re-issue the PUBLISH for. */
 static void mtst_pub_goaway_origin_gone_d23(void) {
@@ -607,6 +651,7 @@ void test_moqtrun_subtracks(void) {
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_d23);
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_moves_d23);
   moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_retries_d23);
+  moqtrun_test_vers(MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_table_full_d23);
   moqtrun_test_vers(
       MOQVER_CAP_REQ_GOAWAY23, 0, mtst_pub_goaway_origin_gone_d23);
   moqtrun_test_allver(mtst_pub_stream_stray_ignored);

@@ -771,6 +771,58 @@ static void test_moqtrun_goaway_timeout_flush_then_close(void) {
   CHECK(mtdr_closes(SESS_B, &code) == 1); /* closed once */
 }
 
+/* draft-19 10.4: C (draining, its GOAWAY sent) had its control-stream
+ * subscription stopped by the flush, but A's re-PUBLISH of the track
+ * re-attaches it before the close (moqtrun_reattach_subs); with no request
+ * stream open and no track published, that subscription alone makes C's
+ * close GOAWAY_TIMEOUT, not NO_ERROR. */
+static void test_moqtrun_goaway_timeout_reattached_sub(void) {
+  moqctl_ftn f    = mtrq_setup();
+  u64        t0   = 1000 + WIRED_MOQTRUN_DRAIN_TIMEOUT_MS;
+  u64        code = 0;
+  mtst_join(SESS_C);
+  mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
+  wired_moqt_tick(&mtst_hub, 1000);
+  wired_moqt_on_session_draining(&mtst_hub, SESS_C);
+  wired_moqt_tick(&mtst_hub, t0);
+  CHECK(mtst_sub(SESS_A, SESS_C) == 0);
+  mtst_publish(SESS_A, mtdr_ctl(SESS_A), &f, 1);
+  CHECK(mtst_sub(SESS_A, SESS_C) != 0);
+  CHECK(moqtrun_req_count(&mtst_hub, SESS_C) == 0);
+  wired_moqt_tick(&mtst_hub, t0 + WIRED_MOQTRUN_GOAWAY_GRACE_MS + 1);
+  CHECK(mtdr_closes(SESS_C, &code) == 1);
+  CHECK(code == WIRED_MOQTRUN_CLOSE_GOAWAY_TIMEOUT);
+}
+
+/* n fresh sessions (handles MTRQ_FILLER up) join and SUBSCRIBE f on their
+ * control streams. */
+static void mtdr_subscribers(usz n, const moqctl_ftn* f) {
+  for (usz i = 0; i < n; i++) {
+    wired_wt_session* s = (wired_wt_session*)(usz)(MTRQ_FILLER + i);
+    mtst_subscribe(s, mtst_join(s), f);
+  }
+}
+
+/* A re-PUBLISH keeps the live track's subscriptions; C, whose
+ * control-stream subscription the drain flush stopped, would be re-attached
+ * too, but A itself and the other sessions hold every sub slot
+ * (WIRED_MOQTRUN_MAX_SUBS): C is left out, nobody else is displaced. */
+static void test_moqtrun_reattach_subs_full(void) {
+  moqctl_ftn f = mtrq_setup();
+  mtst_join(SESS_C);
+  mtst_subscribe(SESS_C, mtdr_ctl(SESS_C), &f);
+  wired_moqt_tick(&mtst_hub, 1000);
+  wired_moqt_on_session_draining(&mtst_hub, SESS_C);
+  wired_moqt_tick(&mtst_hub, 1000 + WIRED_MOQTRUN_DRAIN_TIMEOUT_MS);
+  CHECK(mtst_sub(SESS_A, SESS_C) == 0);
+  mtst_subscribe(SESS_A, mtdr_ctl(SESS_A), &f);
+  mtst_subscribe(SESS_B, mtdr_ctl(SESS_B), &f);
+  mtdr_subscribers(WIRED_MOQTRUN_MAX_SUBS - 2, &f);
+  mtst_publish(SESS_A, mtdr_ctl(SESS_A), &f, 1);
+  CHECK(mtst_sub(SESS_A, SESS_C) == 0);
+  CHECK(mtst_sub(SESS_A, SESS_A) != 0 && mtst_sub(SESS_A, SESS_B) != 0);
+}
+
 /* Timeout 0 sets no deadline (10.4); the session stays open. */
 static void test_moqtrun_goaway_no_timeout(void) {
   u64 code = 0;
@@ -833,6 +885,8 @@ static void mtall_drain(void) {
   test_moqtrun_done_resets_streams_first();
   test_moqtrun_goaway_retried_on_tick();
   test_moqtrun_goaway_timeout_flush_then_close();
+  test_moqtrun_goaway_timeout_reattached_sub();
+  test_moqtrun_reattach_subs_full();
   test_moqtrun_goaway_no_timeout();
   test_moqtrun_closed_is_frozen();
   test_moqtrun_done_track_ended();

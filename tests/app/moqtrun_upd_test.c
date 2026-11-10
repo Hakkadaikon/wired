@@ -1008,7 +1008,33 @@ static void mtall_upd_fetch19(void) {
 /* Range Filter updates (SS10.2.10-10.2.14): drafts that define them. */
 static void mtall_upd_rngf(void) { test_moqtrun_upd_rngf_replace_remove(); }
 
+/* draft-22 9.20.13: a NEW_GROUP_REQUEST on a subscription of the hub's
+ * own live track has no upstream to go to (no peer publishes it, no
+ * PUBLISH stream): the update is answered REQUEST_OK and nothing goes out
+ * anywhere else. */
+static void test_moqtrun_upd_ngr_hub_track(void) {
+  static const u8 frag[1] = {1};
+  wired_span      fr      = wired_span_of(frag, 1);
+  moqctl_ftn      f       = mtst_ftn("chat", "room1", "live");
+  moqctl_params   p       = {0};
+  wired_span      body;
+  mtst_init();
+  mtst_join(SESS_A);
+  mtst_join(SESS_B);
+  CHECK(wired_moqt_publish_live(&mtst_hub, f.name, 9, &fr, 1, 1000, 0));
+  moqtrun_find_by_wt(&mtst_hub, SESS_B)->ver = MOQVER_D22;
+  mtst_subscribe_p(SESS_B, MTRQ_S1, &f, mtst_rid += 4, 0);
+  moqtrun_ngr_add(&p, 5);
+  usz before = g_n_calls;
+  mtup_update(SESS_B, MTRQ_S1, &p);
+  CHECK(mtup_reply(MTRQ_S1, &body) == MOQCTL_T_REQUEST_OK);
+  for (usz i = before; i < g_n_calls; i++) {
+    CHECK(g_calls[i].s == SESS_B);
+  }
+}
+
 void test_moqtrun_upd(void) {
+  test_moqtrun_upd_ngr_hub_track();
   test_moqtrun_upd_on_publish_stream();
   test_moqtrun_publish_requires_authorization();
   test_moqtrun_notify_on_publish_stream_d22();
