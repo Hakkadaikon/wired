@@ -47,7 +47,23 @@ static void test_hs_truncated(void) {
   CHECK(hs_parse(wired_span_of(bad2, 4), &type, &body_len) == 0);
 }
 
+/* A handshake header needs 4 bytes and a hello its full 84 (one byte
+ * short used to pass the guard and overrun); a body too short for the
+ * fixed-offset key_share yields no peer share. */
+static void test_hs_short_buffers(void) {
+  u8  random[32] = {0}, pub[32] = {1}, out[256], got[32];
+  usz total;
+  CHECK(hs_begin(out, 3, HS_CLIENT_HELLO) == 0);
+  CHECK(hs_build_hello(out, 4 + 35 + 5 + 40 - 1, 2, random, pub) == 0);
+  total = hs_build_hello(out, sizeof(out), HS_SERVER_HELLO, random, pub);
+  CHECK(total == 4 + 35 + 5 + 40);
+  CHECK(hs_peer_share(out + 4, total - 4 - 1, got) == 0);
+  out[4 + 40 + 1] = 0x34; /* not key_share (0x0033) */
+  CHECK(hs_peer_share(out + 4, total - 4, got) == 0);
+}
+
 void test_handshake(void) {
+  test_hs_short_buffers();
   test_hs_clienthello_roundtrip();
   test_hs_serverhello_roundtrip();
   test_hs_truncated();

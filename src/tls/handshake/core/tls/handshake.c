@@ -61,7 +61,8 @@ static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
 usz hs_build_hello(
     u8* out, usz cap, u8 msg_type, const u8 random[32], const u8 pub[32]) {
   usz off = hs_begin(out, cap, msg_type);
-  if (off == 0 || cap < 4 + 35 + 4 + 40) {
+  /* header, prefix, cipher(2) + compression(1) + ext_len(2), key_share */
+  if (off == 0 || cap < 4 + 35 + 5 + 40) {
     return 0;
   }
   off = put_hello_prefix(out, off, random);
