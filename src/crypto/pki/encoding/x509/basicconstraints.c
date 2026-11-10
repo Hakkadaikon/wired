@@ -43,20 +43,32 @@ int x509_is_ca(wired_span tbs) {
   return bc_ca_true(val);
 }
 
-/* RFC 5280 4.2.1.9. The element after cA inside BasicConstraints, i.e. the
- * pathLenConstraint if present. Assumes cA is encoded (a CA cert must). */
-static int bc_pathlen_elem(wired_span val, u8* tag, wired_span* b) {
-  derseq     c;
+/* *c opened on the BasicConstraints SEQUENCE val, past its cA element.
+ * Assumes cA is encoded (a CA cert must). */
+static int bc_open_after_ca(wired_span val, derseq* c) {
   u8         t;
   wired_span bc, x;
   if (!der_seq(val, &bc)) {
     return 0;
   }
-  derseq_init(&c, bc);
-  if (!derseq_next(&c, &t, &x)) {
+  derseq_init(c, bc);
+  return derseq_next(c, &t, &x);
+}
+
+/* RFC 5280 4.2.1.9. The element after cA inside BasicConstraints, i.e. the
+ * pathLenConstraint if present. Bytes there that do not decode yield tag 0,
+ * which bc_pathlen_ok rejects, so they never read as an absent (unlimited)
+ * constraint. */
+static int bc_pathlen_elem(wired_span val, u8* tag, wired_span* b) {
+  derseq c;
+  if (!bc_open_after_ca(val, &c)) {
     return 0;
   }
-  return derseq_next(&c, tag, b);
+  if (derseq_next(&c, tag, b)) {
+    return 1;
+  }
+  *tag = 0;
+  return c.off < c.len;
 }
 
 /* X.690 8.3. Content octets form a well-formed non-negative INTEGER that

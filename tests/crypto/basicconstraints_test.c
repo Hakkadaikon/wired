@@ -110,7 +110,20 @@ static void test_pathlen_absent_or_malformed_bc(void) {
   CHECK(x509_pathlen_allows(c.tbs, 9) == 1);
 }
 
+/* RFC 5280 4.2.1.9: cA TRUE decodes, but the pathLenConstraint INTEGER's
+ * length (rel 6, 1 -> 9) overruns the SEQUENCE. A constraint that is there
+ * but does not decode is not "absent": no depth is admitted. */
+static void test_pathlen_overrun_fails_closed(void) {
+  u8   der[sizeof(castore_mid3_der)];
+  x509 c;
+  mid3_patched(6, 0x09, der, &c);
+  CHECK(x509_is_ca(c.tbs) == 1);
+  CHECK(x509_pathlen_allows(c.tbs, 0) == 0);
+  CHECK(x509_pathlen_allows(c.tbs, 9) == 0);
+}
+
 void test_basicconstraints(void) {
+  test_pathlen_overrun_fails_closed();
   test_pathlen_absent_or_malformed_bc();
   test_ca_true();
   test_ca_false();
