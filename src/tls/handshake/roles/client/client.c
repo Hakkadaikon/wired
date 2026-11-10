@@ -55,8 +55,6 @@ int client_init(client* c, const client_init_in* in) {
   return 1;
 }
 
-void client_set_now(client* c, u64 now) { c->now = now; }
-
 void client_set_castore(client* c, const castore* store) { c->castore = store; }
 
 /* RFC 9000 14.1: ClientHello CRYPTO frame(s) padded to 1200.
@@ -78,15 +76,6 @@ usz client_build_initial(client* c, u8* out, usz cap) {
     }
     return pktbuild_init_pad(out, fb.len, cap);
   }
-}
-
-int client_start(client* c) {
-  u8  dg[CLIENT_DATAGRAM_MAX];
-  usz len = client_build_initial(c, dg, sizeof(dg));
-  if (len == 0) {
-    return 0;
-  }
-  return wired_udp_send(c->fd, &c->peer, wired_span_of(dg, len)) == (i64)len;
 }
 
 /* RFC 8446 4.4.3: CertificateVerify body opens with the 2-byte scheme. */
@@ -183,22 +172,6 @@ int client_feed(client* c, const u8* crypto_payload, usz len) {
     return client_feed_auth(c, crypto_payload, len);
   }
   return 0;
-}
-
-int client_pump(client* c) {
-  u8  dg[CLIENT_DATAGRAM_MAX];
-  i64 n = wired_udp_recv(c->fd, wired_mspan_of(dg, sizeof(dg)));
-  if (n <= 0) {
-    return 0;
-  }
-  return client_feed(c, dg, (usz)n);
-}
-
-int client_run_handshake(client* c, int max_iterations) {
-  for (int i = 0; i < max_iterations && !client_is_connected(c); i++) {
-    client_pump(c);
-  }
-  return client_is_connected(c);
 }
 
 int client_is_connected(const client* c) {

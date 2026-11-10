@@ -112,13 +112,13 @@ max_fragment_length、client_certificate_url、trusted_ca_keys、truncated_hmac�
 
 参照: `wired_srvboot_acc`(ponytail)、`retry_tag.c`(ponytail)
 
-### 1.10 クライアント / サーバーのポンプの簡略化
+### 1.10 クライアントの Initial の簡略化
 
-影響: これらの古い入口の利用者だけ。`wired_server_run` のサーバーは使わない。
+影響: `client_build_initial` の利用者だけ。`wired_server_run` のサーバーは使わない。
 
-`wired_server_pump` は生のデータグラムを `wired_server_feed` へ渡し、`client_build_initial` は ClientHello を組み立てる。どちらも送信路上での Initial の AEAD による保護をしない。
+`client_build_initial` は ClientHello を CRYPTO フレームに入れて組み立てる。送信路上での Initial の AEAD による保護はしない。
 
-参照: `wired_server_pump`、`client_build_initial`(ponytail)
+参照: `client_build_initial`(ponytail)
 
 ## 2. 証明書
 

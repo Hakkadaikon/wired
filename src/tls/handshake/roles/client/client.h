@@ -68,21 +68,12 @@ typedef struct {
  * server_name or RNG/clock/socket failure. */
 int client_init(client* c, const client_init_in* in);
 
-/* Override the wall clock used for the certificate validity check (packed
- * decimal YYYYMMDDHHMMSS), e.g. for deterministic tests. Passing 0 DISABLES
- * the validity check — never do that with a real peer. */
-void client_set_now(client* c, u64 now);
-
 /* RFC 5280 6.1: set the trust store the server's certificate chain must
  * anchor to. The SDK does no I/O, so the roots always come from the app;
  * without a store (the default) the chain is NOT validated — only the
  * end-entity policy (validity/SAN) and the CertificateVerify signature are.
  * store is borrowed and must outlive the connection. */
 void client_set_castore(client* c, const castore* store);
-
-/* RFC 9000 7: emit our real ClientHello, frame it, build the Initial datagram
- * (padded to 1200 per RFC 9000 14.1) and send it. Returns 1 on success. */
-int client_start(client* c);
 
 /* Build the Initial datagram into out (cap bytes): ClientHello as CRYPTO
  * frame(s), padded to 1200. Socket-free; returns the datagram length or 0. */
@@ -103,15 +94,6 @@ usz client_build_initial(client* c, u8* out, usz cap);
  * dead. A server that needs a cookie round-trip cannot be reached until an
  * HRR retry path is added alongside a second offered group. */
 int client_feed(client* c, const u8* crypto_payload, usz len);
-
-/* One receive iteration: pull a datagram off the socket and feed it. Returns 1
- * if the handshake advanced, 0 if nothing was read or it did not advance. */
-int client_pump(client* c);
-
-/* Pump until the handshake is confirmed or max_iterations is reached (RFC 9000:
- * bounded so a silent/hostile peer cannot wedge the client). Returns 1 if
- * confirmed. */
-int client_run_handshake(client* c, int max_iterations);
 
 /* 1 once the handshake is complete and confirmed. */
 int client_is_connected(const client* c);

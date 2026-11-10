@@ -148,9 +148,8 @@ static void test_client_feed_serverhello(void) {
   CHECK(c.phase == CLIENT_HS_AUTH);
 }
 
-/* RFC 8446 4.4 / RFC 9001 4.1: client_run_handshake reaches confirmed by
- * feeding Certificate, CertificateVerify and the server Finished (no socket).
- */
+/* RFC 8446 4.4 / RFC 9001 4.1: the client reaches confirmed by feeding
+ * Certificate, CertificateVerify and the server Finished (no socket). */
 static void test_client_e2e_confirmed(void) {
   client    c;
   fullhs    sv;

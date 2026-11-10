@@ -18,8 +18,7 @@
  *
  * All policy lives in those layers; the server wires them and gates 1-RTT
  * promotion on a verified client Finished. The data path (wired_server_feed)
- * is socket-free so it can be driven by buffer injection without a socket;
- * only wired_server_pump enters the kernel via io/udp. */
+ * is socket-free so it can be driven by buffer injection without a socket. */
 
 /** Capacity of a server flight buffer in octets. */
 #define WIRED_SERVER_FLIGHT_MAX 2048
@@ -364,24 +363,6 @@ int wired_server_early_send_keys(wired_server* s);
  *   or 48 under TLS_AES_256_GCM_SHA384); size it TICKET_SECRET_LEN
  * @return 1 on success, 0 if s is not yet confirmed. */
 int wired_server_resumption_secret(const wired_server* s, u8* out);
-
-/** Open a UDP socket bound to port and wait for the ClientHello.
- * @param s the orchestrator that will own the socket
- * @param port UDP port to bind
- * @return 1 on success, 0 on socket/bind failure. */
-int wired_server_listen(wired_server* s, u16 port);
-
-/** One receive iteration: pull a datagram off the socket and feed it.
- * @param s the orchestrator to pump
- * @return 1 if the handshake advanced, 0 otherwise. */
-int wired_server_pump(wired_server* s);
-
-/** Pump until confirmed or max_iterations is reached (bounded so a silent or
- * hostile peer cannot wedge the server).
- * @param s the orchestrator to pump
- * @param max_iterations upper bound on receive iterations
- * @return 1 if confirmed. */
-int wired_server_run_handshake(wired_server* s, int max_iterations);
 
 /** Close the UDP socket and wipe the key schedule's retained secrets
  * (RFC 8446 E.1.4: the exporter_master_secret is erased at teardown).
