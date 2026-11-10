@@ -264,4 +264,29 @@ static void test_srvboot_absorbs_short_pn_retransmit(void) {
   CHECK(wired_srvboot_acc_complete(&a));
 }
 
-void test_srvboot_pnshort(void) { test_srvboot_absorbs_short_pn_retransmit(); }
+/* RFC 9000 17.2 / 7.2 / RFC 9001 5.2: an Initial whose DCID length exceeds
+ * 20 binds nothing; after a real head fragment, the same malformation and a
+ * fragment that fails Initial AEAD are both refused without moving the
+ * accumulator. */
+static void test_srvboot_acc_rejects_bad_initials(void) {
+  wired_srvboot_acc a;
+  wired_mspan       bad =
+      pnshort_copy(pnshort_tail, neqo_ch_head_dg, sizeof(neqo_ch_head_dg));
+  wired_srvboot_acc_reset(&a);
+  bad.p[5] = WIRED_MAX_CID_LEN + 1;
+  CHECK(!wired_srvboot_acc_feed(&a, bad));
+  CHECK(!a.any);
+  CHECK(wired_srvboot_acc_feed(
+      &a,
+      pnshort_copy(pnshort_head, neqo_ch_head_dg, sizeof(neqo_ch_head_dg))));
+  CHECK(!wired_srvboot_acc_feed(&a, bad));
+  bad = pnshort_copy(pnshort_tail, neqo_ch_head_dg, sizeof(neqo_ch_head_dg));
+  bad.p[bad.n - 1] ^= 1; /* AEAD tag */
+  CHECK(!wired_srvboot_acc_feed(&a, bad));
+  CHECK(a.largest_pn == 727 && a.opened == 1);
+}
+
+void test_srvboot_pnshort(void) {
+  test_srvboot_absorbs_short_pn_retransmit();
+  test_srvboot_acc_rejects_bad_initials();
+}

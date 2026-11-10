@@ -19364,6 +19364,119 @@ static void test_srvrun_metrics_due_rate_limited(void) {
   CHECK(srvrun_metrics_due(&mc, 5000 + SRVRUN_METRICS_INTERVAL_MS) == 1);
 }
 
+/* qlog recovery:metrics_updated: with a qlog path, one record per interval
+ * is appended carrying the connection's snapshot (cwnd); a second call
+ * inside the window writes nothing. */
+static void test_srvrun_qlog_metrics_writes_record(void) {
+  srvrun_conn*    c   = sr_test_conns();
+  srvrun_cfg      cfg = {0};
+  srvrun_step_ctx ctx = {0};
+  cfg.qlog_path       = srvrunt_qlog_path;
+  cfg.env             = &g_srvrun_env;
+  ctx.cfg             = &cfg;
+  ctx.now_ms          = SRVRUN_METRICS_INTERVAL_MS;
+  cc_init(&c->cc);
+  srvrunt_qlog_unlink();
+  srvrun_qlog_metrics(&ctx, c);
+  srvrun_qlog_metrics(&ctx, c);
+  CHECK(sr_qlog_count("recovery:metrics_updated") == 1);
+  CHECK(sr_qlog_count("\"cwnd\":") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* RFC 9000 7.3 / 8.1.3: the ODCID a valid Retry token recovered is kept on
+ * the slot for original_destination_connection_id; no token (empty) or an
+ * over-long one leaves the slot without it. */
+static void test_srvrun_note_retry_odcid(void) {
+  srvrun_conn* c       = sr_test_conns();
+  u8           cid[21] = {1, 2, 3, 4, 5, 6, 7, 8};
+  srvrun_note_retry_odcid(c, wired_span_of(cid, 0));
+  srvrun_note_retry_odcid(c, wired_span_of(cid, WIRED_MAX_CID_LEN + 1));
+  CHECK(c->retry_odcid_len == 0);
+  srvrun_note_retry_odcid(c, wired_span_of(cid, 8));
+  CHECK(c->retry_odcid_len == 8 && c->retry_odcid[7] == 8);
+}
+
+/* RFC 9110 6.6.1 / 5.3: an application-supplied Date is kept as the only
+ * one -- the SDK adds none of its own. */
+static void test_srvrun_hdrs_app_date_kept(void) {
+  static const u8 v[] = "Sun, 06 Nov 1994 08:49:37 GMT";
+  srvrun_hdrs     h   = {0};
+  srvrun_hdrs_add(
+      &h, wired_span_of(srvrun_hdr_date_n, sizeof srvrun_hdr_date_n),
+      wired_span_of(v, sizeof v - 1));
+  srvrun_test_pin_date(784111777);
+  srvrun_hdrs_date(&h);
+  srvrun_test_pin_date(0);
+  CHECK(h.n == 1 && h.f[0].value.p == v);
+}
+
+/* RFC 9000 12.2: a coalesced slice too short to hold a long header's
+ * Version field is not an Initial. */
+static void test_srvrun_pkt_is_initial_short_slice(void) {
+  u8 dg[4] = {0xc0, 0, 0, 0};
+  CHECK(srvrun_pkt_is_initial(wired_mspan_of(dg, sizeof dg), 0) == 0);
+}
+
+/* RFC 9221 5: a datagram larger than a ring slot is refused, not cut. */
+static void test_srvrun_dgring_fill_oversize(void) {
+  static srvrun_dgring_entry e;
+  static u8                  big[SRVRUN_DGRING_SLOT + 1];
+  CHECK(srvrun_dgring_fill(&e, 0, 1, 0, wired_span_of(big, sizeof big)) == 0);
+  CHECK(srvrun_dgring_fill(&e, 0, 1, 0, wired_span_of(big, 1)) == 1);
+}
+
+/* draft-ietf-webtrans-http3-16 6 / 5.6.3: a WT_CLOSE_SESSION body shorter
+ * than its 4-byte code ends the session with H3_MESSAGE_ERROR (not a clean
+ * peer close); a WT_STREAMS_BLOCKED body that is not one whole varint is
+ * rejected keeping the caller's default code. */
+static void test_srvrun_wt_capsule_short_bodies(void) {
+  srvrun_wt_caprx x    = {0};
+  u8              b[2] = {0, 0x40};
+  x.violation_code     = WTERR_SESSION_GONE;
+  CHECK(srvrun_wt_capsule_close(&x, wired_span_of(b, 2)) == 0);
+  CHECK(x.peer_closed == 0 && x.violation_code == H3_MESSAGE_ERROR);
+  x.violation_code = WTERR_SESSION_GONE;
+  CHECK(srvrun_wt_capsule_streams_blocked(&x, wired_span_of(b + 1, 1)) == 0);
+  CHECK(x.violation_code == WTERR_SESSION_GONE);
+}
+
+/* RFC 9000 7.2 / 17.2: a malformed Initial (DCID length 21) refused by the
+ * boot settles a claim that absorbed nothing (0: unclaim), but leaves a boot
+ * that already opened a real Initial pending -- spoofed junk must not kill a
+ * half-open handshake. */
+static void test_srvrun_on_initial_junk_salvage(void) {
+  srvrun_conn*    c        = sr_test_conns();
+  srvrun_step_ctx ctx      = {0};
+  static u8       dg[1200] = {0xc0, 0, 0, 0, 1, WIRED_MAX_CID_LEN + 1};
+  CHECK(srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, sizeof dg)) == 0);
+  c->boot.any    = 1;
+  c->boot.opened = 1;
+  CHECK(
+      srvrun_on_initial(&ctx, 0, c, wired_mspan_of(dg, sizeof dg)) ==
+      SRVRUN_BOOT_PENDING);
+}
+
+/* RFC 9000 7.2: a client DCID switched to a pending boot's SCID matches only
+ * at the server's own SCID length; a shorter DCID with the same prefix is
+ * no match. */
+static void test_srvrun_boot_scid_match_len(void) {
+  srvrun_conn*     c       = sr_test_conns();
+  srvrun_state     st      = {0, c};
+  wired_srvboot_id id      = {0};
+  srvrun_cfg       cfg     = {0};
+  srvrun_step_ctx  ctx     = {0};
+  u8               dcid[8] = {9, 9, 9, 9, 9, 9, 9, 9};
+  id.scid_len              = 8;
+  cfg.id                   = &id;
+  ctx.cfg                  = &cfg;
+  ctx.st                   = &st;
+  c->boot.any              = 1;
+  bytes_memcpy(c->scid, dcid, 8);
+  CHECK(srvrun_boot_scid_match(&ctx, 0, wired_span_of(dcid, 8)) == 1);
+  CHECK(srvrun_boot_scid_match(&ctx, 0, wired_span_of(dcid, 5)) == 0);
+}
+
 /* WIRE: wired_server_wt_stream_fin, called while the round it must wait on
  * is still unacknowledged, is not refused (unlike wired_server_wt_stream_
  * send in the same situation, tested above) -- it is deferred and sent
@@ -28232,6 +28345,53 @@ static u64 sr_fv_close(const u8* pl, usz n) {
   return is_app ? ~1ULL : code; /* an H3 close is not what these test */
 }
 
+/* RFC 9000 5.1.2 / 19.16: the peer retiring the handshake's own CID
+ * (sequence 0) gets a fresh primary ID with the next sequence number, routed
+ * and announced in its place. */
+static void test_srvrun_retire_primary_cid_reissued(void) {
+  srvrun_conn* c = sr_sl_fixture();
+  u8           old[WIRED_MAX_CID_LEN];
+  usz          n = c->s.sdrv.iscid_len;
+  bytes_memcpy(old, c->scid, n);
+  c->mig.scid       = 0;
+  c->mig.spare      = 1;
+  c->mig.next       = 2;
+  g_sl_st.table     = g_srvrun_env.table;
+  c->l.retire_rx[0] = 0; /* gathered RETIRE_CONNECTION_ID seq 0 */
+  c->l.retire_rx_n  = 1;
+  srvrun_path_take_retires(&g_sl_ctx, c);
+  CHECK(c->mig.scid == 2 && c->mig.next == 3);
+  CHECK(n != 0 && ct_diffn(old, c->scid, n) != 0);
+  g_sl_st.table = 0;
+}
+
+/* RFC 9114 7.2.5: PUSH_PROMISE from a client on a request stream is a
+ * connection error of type H3_FRAME_UNEXPECTED: the same step closes the
+ * connection with that code, so no per-stream abort is ever owed. */
+static void test_srvrun_push_promise_on_request_closes(void) {
+  static const u8 h3[] = {0x05, 0x01, 0x00}; /* PUSH_PROMISE, push id 0 */
+  stream_frame    sf   = {0, 0, sizeof h3, h3, 1};
+  u8              pl[32];
+  usz             n      = frame_put_stream(pl, sizeof pl, &sf);
+  srvrun_conn*    c      = sr_sl_fixture();
+  int             is_app = 0;
+  sr_sl_step(c, pl, n);
+  CHECK(sr_close_code(c, &is_app) == H3_FRAME_UNEXPECTED && is_app);
+  CHECK(c->l.frame_unexpected_n == 1 && c->closing);
+}
+
+/* RFC 9110 10.1.1: a request that asked for 100-continue but holds no
+ * request slot (already released) still gets its interim response sent
+ * before the final one; the returned shift is that interim's length. */
+static void test_srvrun_continue_without_slot_sent(void) {
+  srvrun_conn* c           = sr_sl_fixture();
+  c->l.req                 = (wired_h3reqdrive_req){0};
+  c->l.req.expect_continue = 1;
+  c->l.req_stream_id       = 0;
+  CHECK(srvrun_req_slot_of(c, 0) == 0);
+  CHECK(srvrun_maybe_send_continue(&g_sl_cfg, c) > 0);
+}
+
 /* RFC 9000 19.7: NEW_TOKEN is server-to-client only. */
 static void test_srvrun_client_new_token_closes(void) {
   static const u8 pl[] = {0x07, 0x01, 0xaa};
@@ -29354,6 +29514,14 @@ void test_srvrun(void) {
   test_srvrun_wt_stopped_stream_sends_nothing();
   test_srvrun_wt_stream_send_queue_bound();
   test_srvrun_metrics_due_rate_limited();
+  test_srvrun_qlog_metrics_writes_record();
+  test_srvrun_note_retry_odcid();
+  test_srvrun_hdrs_app_date_kept();
+  test_srvrun_pkt_is_initial_short_slice();
+  test_srvrun_dgring_fill_oversize();
+  test_srvrun_wt_capsule_short_bodies();
+  test_srvrun_on_initial_junk_salvage();
+  test_srvrun_boot_scid_match_len();
   test_srvrun_wt_stream_fin_deferred_until_round_acked();
   test_srvrun_wt_stream_fin_immediate_when_round_already_done();
   test_srvrun_wt_stream_open_variants_mark_append();
@@ -29619,6 +29787,9 @@ void test_srvrun(void) {
   test_srvrun_bcast_concurrent_register();
   test_srvrun_free_slot_wipes_keys();
   test_srvrun_ghost_remembers_spare_cid();
+  test_srvrun_retire_primary_cid_reissued();
+  test_srvrun_push_promise_on_request_closes();
+  test_srvrun_continue_without_slot_sent();
   test_srvrun_client_new_token_closes();
   test_srvrun_client_handshake_done_closes();
   test_srvrun_client_path_challenge_flood_closes();

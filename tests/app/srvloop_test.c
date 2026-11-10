@@ -7569,7 +7569,211 @@ static void test_srvloop_header_is_aead_aad(void) {
   CHECK(client_open_onertt(&f, pkt, n, &pl, &pll) == 0);
 }
 
+/* ---- table-full / boundary edges driven straight at the loop ---- */
+
+static wired_srvloop g_lpcov_l;
+
+/* A freshly initialised loop (static: the struct is too big for a frame). */
+static wired_srvloop* lpcov_loop(void) {
+  bytes_memset(&g_lpcov_l, 0, sizeof g_lpcov_l);
+  CHECK(wired_srvloop_init(&g_lpcov_l, g_cli_scid, sizeof g_cli_scid) == 1);
+  return &g_lpcov_l;
+}
+
+/* Account one 1-byte STREAM frame (FIN optional) on stream id. */
+static u64 lpcov_rx_stream(wired_srvloop* l, u64 id, u64 off, u8 fin) {
+  u8  pl[32];
+  usz n = lp_stream_frame_at(pl, sizeof pl, id, off, (const u8*)"x", 1, fin);
+  return srvloop_rxacct_payload(l, wired_span_of(pl, n));
+}
+
+/* RFC 9000 4.5: with every accounting entry live and still open, a further
+ * stream goes unaccounted (no error, no final size tracked); once one entry's
+ * final size is known it is retired for the newcomer and stays known. */
+static void test_srvloop_rxacct_full_retires_known_entry(void) {
+  wired_srvloop* l   = lpcov_loop();
+  u64            cap = WIRED_SRVLOOP_RXACCT_CAP;
+  for (u64 k = 0; k < cap; k++) {
+    CHECK(lpcov_rx_stream(l, 4 * k, 0, 0) == 0);
+  }
+  CHECK(lpcov_rx_stream(l, 4 * cap, 0, 1) == 0);
+  CHECK(!wired_srvloop_rx_final_known(l, 4 * cap));
+  CHECK(lpcov_rx_stream(l, 0, 1, 1) == 0); /* stream 0 final size 2 */
+  CHECK(lpcov_rx_stream(l, 4 * cap, 0, 1) == 0);
+  CHECK(wired_srvloop_rx_final_known(l, 4 * cap));
+  CHECK(wired_srvloop_rx_final_known(l, 0)); /* retired, still known */
+}
+
+/* RFC 9000 4.5: a frame for a retired (fully counted) stream is not
+ * re-accounted -- neither STREAM past its final size nor RESET_STREAM with
+ * another one raises FINAL_SIZE_ERROR or claims an entry. */
+static void test_srvloop_rxacct_retired_stream_ignored(void) {
+  wired_srvloop*     l = lpcov_loop();
+  u8                 pl[32];
+  reset_stream_frame rs = {0, 0x10c, 9};
+  usz                n;
+  for (u64 k = 0; k < WIRED_SRVLOOP_RXACCT_CAP; k++) {
+    CHECK(lpcov_rx_stream(l, 4 * k, 0, k == 0) == 0);
+  }
+  CHECK(lpcov_rx_stream(l, 4 * WIRED_SRVLOOP_RXACCT_CAP, 0, 0) == 0);
+  CHECK(lpcov_rx_stream(l, 0, 5, 0) == 0);
+  n = reset_stream_encode(pl, sizeof pl, &rs);
+  CHECK(srvloop_rxacct_payload(l, wired_span_of(pl, n)) == 0);
+}
+
+/* RFC 9000 13.2.3 / 19.3: ACK ranges past the per-step list are dropped,
+ * and a reordered ACK with a smaller Largest Acknowledged does not replace
+ * the step's RTT-sample frame (RFC 9002 5.1). */
+static void test_srvloop_collect_acks_overflow_and_older(void) {
+  wired_srvloop* l = lpcov_loop();
+  ack_frame      a = {0};
+  ack_frame      b = {0};
+  u8             pl[512];
+  usz            n;
+  a.ack_delay = 7;
+  a.n_ranges  = ACK_MAX_RANGES;
+  for (usz i = 0; i < ACK_MAX_RANGES; i++) {
+    a.ranges[i] = (ack_range){1000 - 4 * i, 1000 - 4 * i};
+  }
+  b.ack_delay = 99;
+  b.n_ranges  = 1;
+  b.ranges[0] = (ack_range){10, 10};
+  n           = ack_encode(pl, sizeof pl, &a);
+  n += ack_encode(pl + n, sizeof pl - n, &b);
+  srvloop_collect_acks(l, wired_span_of(pl, n));
+  CHECK(l->ack_n == sizeof l->ack_lo / sizeof l->ack_lo[0]);
+  CHECK(l->ack_hi[0] == 1000);
+  CHECK(l->ackst.largest == 1000 && l->ackst.delay_raw == 7);
+}
+
+/* RFC 9218 10: with the pending-priority table full, an update for yet
+ * another not-yet-open stream is dropped; the buffered ones stay. */
+static void test_srvloop_pending_priority_full_drops(void) {
+  wired_srvloop* l = lpcov_loop();
+  h3_priority    p;
+  h3_priority_init(&p);
+  for (u64 k = 0; k <= WIRED_SRVLOOP_MAX_PENDING_PRIORITY; k++) {
+    wired_srvloop_priority_apply(l, 100 + 4 * k, &p);
+  }
+  CHECK(srvloop_pending_priority_find(l, 100) >= 0);
+  CHECK(
+      srvloop_pending_priority_find(
+          l, 100 + 4 * WIRED_SRVLOOP_MAX_PENDING_PRIORITY) < 0);
+}
+
+/* RFC 9000 4.6: the request table full, one more stream gets no slot. */
+static void test_srvloop_stream_slot_claim_full(void) {
+  wired_srvloop* l = lpcov_loop();
+  for (u64 k = 0; k < WIRED_SRVLOOP_MAX_STREAMS; k++) {
+    CHECK(srvloop_stream_slot_claim(l, 4 * k) == (int)k);
+  }
+  CHECK(srvloop_stream_slot_claim(l, 4 * WIRED_SRVLOOP_MAX_STREAMS) == -1);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: the WT uni table full, a new uni stream
+ * gets no slot and is not marked signal-pending. */
+static void test_srvloop_wt_uni_table_full(void) {
+  wired_srvloop* l  = lpcov_loop();
+  stream_frame   sf = {2 + 4 * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS, 0, 0, 0, 0};
+  for (u64 k = 0; k < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; k++) {
+    CHECK(wired_srvloop_wt_uni_slot_claim(l, 2 + 4 * k) == (int)k);
+  }
+  CHECK(wt_uni_slot_for_type(l, &sf) == -1);
+  CHECK(wired_srvloop_wt_uni_slot_find(l, sf.stream_id) < 0);
+}
+
+/* RFC 9000 2.1: raw QUIC finds-or-claims a bidi slot, so a later frame of a
+ * stream keeps its slot; with the table full a new stream is refused. */
+static void test_srvloop_raw_bidi_claim_and_refuse(void) {
+  wired_srvloop* l  = lpcov_loop();
+  stream_frame   sf = {4 * WIRED_SRVLOOP_MAX_WT_STREAMS, 0, 1, 0, 0};
+  int            i  = wired_srvloop_wt_slot_claim_local(l, 0);
+  CHECK(i >= 0 && wired_srvloop_wt_slot_claim_local(l, 0) == i);
+  for (u64 k = 1; k < WIRED_SRVLOOP_MAX_WT_STREAMS; k++) {
+    CHECK(wired_srvloop_wt_slot_claim_local(l, 4 * k) >= 0);
+  }
+  sf.data = (const u8*)"x";
+  raw_land_bidi(l, &sf);
+  CHECK(l->wt_refused_n == 1 && l->wt_refused[0] == sf.stream_id);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: a reordered frame landing wholly past
+ * the signal window leaves the signal unresolved (nothing absorbed). */
+static void test_srvloop_wt_sig_frame_past_window(void) {
+  u8           sig[WT_SIG_CAP] = {0};
+  u8           have = 0, pending = 1;
+  usz          len = 0;
+  stream_frame sf  = {4, WT_SIG_CAP, 1, (const u8*)"x", 0};
+  CHECK(srvloop_wt_sig_resolve(sig, &have, &pending, &len, &sf) == 0);
+  CHECK(have == 0 && pending == 1 && len == 0);
+}
+
+/* RFC 9000 2.2: a request frame starting at or past the reassembly buffer's
+ * end lands nothing and does not move the high-water mark. */
+static void test_srvloop_gather_past_cap_ignored(void) {
+  u8                   buf[4] = {0};
+  usz                  len    = 0;
+  u8                   fin    = 0;
+  int                  done   = 0;
+  wired_srvloop_reqacc acc    = {buf, sizeof buf, &len, &fin, &done};
+  stream_frame         sf     = {0, sizeof buf, 1, (const u8*)"x", 1};
+  gather_one(&sf, &acc);
+  CHECK(len == 0 && fin == 0 && buf[0] == 0);
+}
+
+/* RFC 9000 12.2 / 17: an empty datagram, and a client long-header packet
+ * of a type the loop never opens (Retry), are both dropped. */
+static void test_srvloop_recv_drops_empty_and_retry_type(void) {
+  static wired_server    s;
+  u8                     pkt[8] = {0xf0, 0, 0, 0, 1, 0, 0, 0};
+  wired_srvloop_recv_out ro;
+  wired_srvloop_recv_in  ri = {wired_mspan_of(pkt, 0), 0, 0};
+  CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
+  ri.dgram = wired_mspan_of(pkt, sizeof pkt);
+  CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
+}
+
+/* RFC 9000 13.2.3: ranges wholly below floor1 are pruned and the last kept
+ * range straddling it is clipped to start at floor1. */
+static void test_srvloop_app_ack_prune_clips_last(void) {
+  ack_frame f = {0};
+  f.n_ranges  = 3;
+  f.ranges[0] = (ack_range){10, 8};
+  f.ranges[1] = (ack_range){6, 2};
+  f.ranges[2] = (ack_range){1, 0};
+  app_ack_prune(&f, 4);
+  CHECK(f.n_ranges == 2 && f.ranges[1].lo == 4 && f.ranges[1].hi == 6);
+}
+
+/* An oversized confirmation payload is not cached (no truncated replay). */
+static void test_srvloop_confirm_cache_oversized(void) {
+  wired_srvloop* l = lpcov_loop();
+  static u8      big[sizeof g_lpcov_l.confirm_frames + 1];
+  confirm_cache_store(l, big, sizeof big);
+  CHECK(l->confirm_frames_len == 0);
+}
+
+/* RFC 9000 17.2: a client SCID longer than 20 bytes is refused. */
+static void test_srvloop_init_rejects_long_cid(void) {
+  static wired_srvloop l;
+  u8                   cid[WIRED_MAX_CID_LEN + 1] = {0};
+  CHECK(wired_srvloop_init(&l, cid, sizeof cid) == 0);
+}
+
 void test_srvloop(void) {
+  test_srvloop_rxacct_full_retires_known_entry();
+  test_srvloop_rxacct_retired_stream_ignored();
+  test_srvloop_collect_acks_overflow_and_older();
+  test_srvloop_pending_priority_full_drops();
+  test_srvloop_stream_slot_claim_full();
+  test_srvloop_wt_uni_table_full();
+  test_srvloop_raw_bidi_claim_and_refuse();
+  test_srvloop_wt_sig_frame_past_window();
+  test_srvloop_gather_past_cap_ignored();
+  test_srvloop_recv_drops_empty_and_retry_type();
+  test_srvloop_app_ack_prune_clips_last();
+  test_srvloop_confirm_cache_oversized();
+  test_srvloop_init_rejects_long_cid();
   test_srvloop_h3ctrl_control_frames();
   test_srvloop_h3ctrl_stream_creation();
   test_srvloop_h3ctrl_critical_close();

@@ -56,7 +56,18 @@ static void test_hq09_parse_get_request_root_path(void) {
   CHECK(path.p[0] == '/');
 }
 
+/* Trailing spaces before the newline are trimmed too (the reference
+ * server's TrimRight(" ")), so they never become part of the path. */
+static void test_hq09_parse_get_request_trims_trailing_spaces(void) {
+  static const u8 line[] = "GET /a.txt  \r\n";
+  wired_span      path;
+  CHECK(wired_hq09_parse_get(wired_span_of(line, sizeof(line) - 1), &path));
+  CHECK(path.n == 6);
+  CHECK(path.p[5] == 't');
+}
+
 static void test_hq09(void) {
+  test_hq09_parse_get_request_trims_trailing_spaces();
   test_hq09_parse_get_request_extracts_path();
   test_hq09_parse_get_request_tolerates_lf_only();
   test_hq09_parse_get_request_tolerates_no_newline();

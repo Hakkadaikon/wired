@@ -313,7 +313,41 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   CHECK(wired_srvinbox_pop(&row_a[0], out, sizeof out) == 0);
 }
 
+/* Registry edges on one thread: a second register is a no-op, a peer
+ * worker's message in this worker's row is drained into its own WT
+ * connection once two workers are registered, unregister twice is a
+ * no-op, and a full registry drops a registration. */
+static void test_srvinbox_registry_edges_and_drain(void) {
+  static srvrun_conn  conns[WIRED_CONNTABLE_CAP];
+  srvrun_state        st = {0, conns};
+  wired_srvinbox_ring row[2];
+  wired_srvinbox_ring_init(&row[0]);
+  wired_srvinbox_ring_init(&row[1]);
+  sib_mark_wt_active(&conns[0]);
+  wired_srvrun_broadcast_register(0, 2, row, 0);
+  wired_srvrun_broadcast_register(0, 2, row, 0);
+  CHECK(g_srvrun_bcast_n == 1);
+  g_srvrun_bcast_n = 2; /* as if the peer worker registered too */
+  CHECK(wired_srvinbox_push(&row[1], sib_msg_a, sizeof sib_msg_a));
+  srvrun_bcast_drain_self(&st);
+  CHECK(conns[0].dg_pending == 1);
+  CHECK(conns[0].dg_pending_len[0] == sizeof sib_msg_a);
+  g_srvrun_bcast_n = 1;
+  wired_srvrun_broadcast_unregister();
+  wired_srvrun_broadcast_unregister();
+  CHECK(g_srvrun_bcast_n == 0);
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++) {
+    g_srvrun_bcast[i].tid = 1000000 + i; /* other workers' tids */
+  }
+  wired_srvrun_broadcast_register(0, 2, row, 0);
+  CHECK(g_srvrun_bcast_n == 0);
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++) {
+    g_srvrun_bcast[i] = (srvrun_bcast_entry){0};
+  }
+}
+
 void test_srvinbox(void) {
+  test_srvinbox_registry_edges_and_drain();
   test_srvinbox_push_pop_roundtrip();
   test_srvinbox_pop_empty();
   test_srvinbox_drop_when_full();

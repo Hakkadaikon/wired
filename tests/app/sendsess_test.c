@@ -660,7 +660,31 @@ static void test_sendsess_inflight_totals_track_log(void) {
   CHECK(sendsess_totals_match(&s) && wired_sendsess_inflight_bytes(&s) == 0);
 }
 
+/* RFC 9002 6.1: a loss found while the requeue is full is reported but the
+ * slice stays in flight (not dropped), so the next detect pass requeues it
+ * once room frees up. */
+static void test_sendsess_lost_with_requeue_full_stays_inflight(void) {
+  u8                        bytes[50];
+  wired_sendsess            s;
+  wired_sendq_slice         sl;
+  wired_sendsess_lost_slice lost[4] = {0};
+  wired_sendsess_arm(&s, bytes, 50, 10);
+  for (u64 pn = 0; pn < 4; pn++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 0) == 1);
+  }
+  wired_sendsess_ack(&s, 3, 3);
+  s.requeue_n = WIRED_SENDSESS_LOG;
+  CHECK(wired_sendsess_detect_lost(&s, 3, 0, 0, lost, 4) == 1);
+  CHECK(s.requeue_n == WIRED_SENDSESS_LOG);
+  CHECK(wired_sendsess_inflight(&s) == 3); /* pn 0 still in flight */
+  s.requeue_n = 0;
+  CHECK(wired_sendsess_detect_lost(&s, 3, 0, 0, lost, 4) == 1);
+  CHECK(s.requeue_n == 1 && s.requeue[0].offset == 0);
+}
+
 void test_sendsess(void) {
+  test_sendsess_lost_with_requeue_full_stays_inflight();
   test_sendsess_inflight_totals_track_log();
   test_sendsess_never_past_final_size();
   test_sendsess_take_and_track();

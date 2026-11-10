@@ -56,6 +56,9 @@ void test_staticfile(void) {
     char tiny[4];
     CHECK(!wired_staticfile_resolve(
         "/root", "/foo.txt", "index.html", tiny, sizeof tiny));
+    /* root fills the buffer: no room left for the separator "/" (an empty
+     * index name would otherwise still fit) */
+    CHECK(!wired_staticfile_resolve("/ro", "", "", tiny, sizeof tiny));
   }
 
   /* traversal detector as its own unit */
