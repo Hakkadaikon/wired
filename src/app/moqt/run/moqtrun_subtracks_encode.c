@@ -143,6 +143,24 @@ void moqtrun_subtracks_fill(
   q->pub_fills = (u8)sub.stream_count;
 }
 
+/* 1 unless the PUBLISH st would send for t carries a fill no table can
+ * hold: draft-23 3.4.1 has a PUBLISH carrying FILL_PARAMETERS open its
+ * fill, so such a PUBLISH is not sent (moqtrun_subtracks_offer). The
+ * subscription is staged as moqtrun_subtracks_fill stages it; a paused one
+ * requests no fill and always passes. */
+int moqtrun_subtracks_fill_room(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_peer*  st_peer,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st) {
+  moqctl_subscribe  m   = {0};
+  wired_moqtrun_sub sub = {0};
+  m.params              = moqtrun_subtracks_publish_params(st);
+  moqtrun_subtracks_fill_param(&m.params, st);
+  moqtrun_sub_open(&sub, t, (usz)(st_peer - hub->peers), 0, &m);
+  return moqtrun_fill_room(hub, t, &sub, &m.params);
+}
+
 /* 10.20: Track Namespace Suffix (past st's own Prefix, like
  * moqtrun_disc_push's NAMESPACE) then Track Name, queued on st's own
  * stream -- no new stream, per the draft's own wording ("sends ... on the

@@ -730,23 +730,9 @@ static void test_moqtrun_nsx_tracks_fill_unattached_resets(void) {
   CHECK(mf_no_fetch());
 }
 
-/* The PUBLISH request the hub opened toward s; 0 if none. */
-static const wired_moqtrun_req* mnsx_pub_req(wired_wt_session* s) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_REQS; i++) {
-    const wired_moqtrun_req* q = &mtst_hub.reqs[i];
-    if (q->in_use && q->pub_origin_rid && q->wt == s) {
-      return q;
-    }
-  }
-  return 0;
-}
-
-/* 3.4.1: a SUBSCRIBE_TRACKS PUBLISH is not refused for want of a fill
- * slot (no fill_room check precedes it): with fetches[] and fetch_waits[]
- * both full the PUBLISH still goes out carrying FILL_PARAMETERS, but its
- * fill is not taken -- no wait, none counted for PUBLISH_DONE. */
-static void test_moqtrun_nsx_tracks_fill_no_room(void) {
-  moqctl_publish      got[2];
+/* fetches[] and fetch_waits[] both full, then SUBSCRIBE_TRACKS with
+ * FILL_PARAMETERS (paused: FORWARD 0). */
+static void mnsx_fill_no_room(int paused) {
   wired_moqtrun_peer* b;
   mf_init(sizeof mf_arena);
   mf_obj(0, 0, 1);
@@ -755,18 +741,36 @@ static void test_moqtrun_nsx_tracks_fill_no_room(void) {
   b->ver = MOQVER_D19; /* mf_standalone's FETCH layout */
   mfill_tables_full();
   b->ver = bv;
-  mnsx_st_fill(0);
+  mnsx_st_fill(paused);
+}
+
+/* 3.4.1: a PUBLISH carrying FILL_PARAMETERS opens its fill, so with no
+ * table able to hold it no PUBLISH goes out: PUBLISH_SKIPPED instead (9.18),
+ * as for any other resource the PUBLISH lacks. */
+static void test_moqtrun_nsx_tracks_fill_no_room(void) {
+  moqctl_publish got[2];
+  mnsx_fill_no_room(0);
+  CHECK(mtst_pub_opens(SESS_B, got, 2) == 0);
+  CHECK(mfill_waits_used() == WIRED_MOQTRUN_MAX_FETCHES);
+  g_stream_send_ok_n = -1; /* the full tables held every send back */
+  wired_moqt_tick(&mtst_hub, 1);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "OK|SKIP:alice|"));
+}
+
+/* 3.4.1: a paused subscription opens no fill, so a full table does not
+ * hold its PUBLISH back: it goes out carrying FILL_PARAMETERS. */
+static void test_moqtrun_nsx_tracks_fill_no_room_paused(void) {
+  moqctl_publish got[2];
+  mnsx_fill_no_room(1);
   CHECK(mtst_pub_opens(SESS_B, got, 2) == 1);
   CHECK(moqctl_params_find(&got[0].params, MOQCTL_PARAM_FILL_PARAMETERS));
-  const wired_moqtrun_req* q = mnsx_pub_req(SESS_B);
-  CHECK(q && q->pub_fills == 0);
-  CHECK(mfill_waits_used() == WIRED_MOQTRUN_MAX_FETCHES);
   g_stream_send_ok_n = -1;
 }
 
 /* FILL_PARAMETERS on SUBSCRIBE_TRACKS: draft-23 only (9.19.15). */
 static void mtall_nsx_fill(void) {
   test_moqtrun_nsx_tracks_fill_no_room();
+  test_moqtrun_nsx_tracks_fill_no_room_paused();
   test_moqtrun_nsx_tracks_fill_opens();
   test_moqtrun_nsx_tracks_fill_paused();
   test_moqtrun_nsx_tracks_fill_unlisted_closes();

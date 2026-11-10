@@ -1351,9 +1351,12 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-283 (SS3.4.1) SUBSCRIBE_TRACKS が FILL_PARAMETERS を含む場合、ハブはそれを各 PUBLISH に写し、一時停止していなければ PUBLISH を送るときに fill を開かなければならない。その PUBLISH が拒否されるか購読に結び付かなければ、fill のストリームをリセットする。
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_opens`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_paused`
+  - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_no_room`
+  - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_no_room_paused`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_rejected_resets`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_cancel_resets`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_unattached_resets`
+  - note: fill を置ける表が満杯のときは、その Track の PUBLISH を送らず、PUBLISH_SKIPPED を送ります(SS9.18)。一時停止中の購読は fill を開かないので、表が満杯でも FILL_PARAMETERS 付きの PUBLISH を送ります。
 - [x] MQ23-284 (SS7.8, SS12.3) 1 つの下流の SUBSCRIBE を複数の告知元へ送った場合、ハブはどれかが OK を返したら SUBSCRIBE_OK で応答し、すべてが失敗したときだけ最後の失敗のコード(セッションが失われたなら INTERNAL_ERROR)で REQUEST_ERROR を返さなければならない。失敗した上流の SUBSCRIBE は忘れ、次の下流の SUBSCRIBE か、その告知元の新しい PUBLISH_NAMESPACE で送り直す。
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_fan_one_fails`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_fan_all_fail`

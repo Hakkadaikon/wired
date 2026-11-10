@@ -193,6 +193,11 @@ int moqtrun_subtracks_candidate(
     usz                        st_peer_idx,
     usz                        slot);
 moqctl_params moqtrun_subtracks_publish_params(const wired_moqtrun_req* st);
+int           moqtrun_subtracks_fill_room(
+    wired_moqt_hub*            hub,
+    const wired_moqtrun_peer*  st_peer,
+    const wired_moqtrun_track* t,
+    const wired_moqtrun_req*   st);
 wired_moqtrun_req* moqtrun_subtracks_claim_slot(
     wired_moqt_hub* hub, wired_moqtrun_peer* st_peer, u64 st_rid);
 int moqtrun_subtracks_open_pub(

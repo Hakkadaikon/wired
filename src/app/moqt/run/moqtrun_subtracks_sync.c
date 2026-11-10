@@ -82,16 +82,19 @@ static int moqtrun_subtracks_try_open(
   return 0;
 }
 
-/* One candidate (st, t) pair: PUBLISH if a bidi stream opens, else
- * PUBLISH_SKIPPED (the resource-exhaustion choice settled in design.md
- * section 5) -- and mark the attempt either way (exactly once). */
+/* One candidate (st, t) pair: PUBLISH if its fill (if any) has room and a
+ * bidi stream opens, else PUBLISH_SKIPPED (the resource-exhaustion choice
+ * settled in design.md section 5) -- and mark the attempt either way
+ * (exactly once). */
 static void moqtrun_subtracks_offer(
     wired_moqt_hub*      hub,
     wired_moqtrun_peer*  st_peer,
     wired_moqtrun_req*   st,
     wired_moqtrun_track* t) {
-  wired_moqtrun_req* q =
-      moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
+  wired_moqtrun_req* q = 0;
+  if (moqtrun_subtracks_fill_room(hub, st_peer, t, st)) {
+    q = moqtrun_subtracks_claim_slot(hub, st_peer, st->request_id);
+  }
   if (!moqtrun_subtracks_try_open(hub, st_peer, q, t, st)) {
     moqtrun_subtracks_send_skipped(st_peer->ver, st, t);
     return;
