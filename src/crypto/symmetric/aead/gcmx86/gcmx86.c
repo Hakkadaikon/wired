@@ -8,10 +8,13 @@ static int gcmx86_cpuid_ok(void) {
   return (int)((c >> 25) & (c >> 1) & 1u);
 }
 
+/* 0 unknown, 1 unsupported, 2 supported. File scope so a test can pin 1 and
+ * run gcm_seal/gcm_open's scalar fallback on an AES-NI host. */
+static int gcmx86_cached;
+
 int gcmx86_supported(void) {
-  static int cached; /* 0 unknown, 1 unsupported, 2 supported */
-  if (cached == 0) {
-    cached = 1 + gcmx86_cpuid_ok();
+  if (gcmx86_cached == 0) {
+    gcmx86_cached = 1 + gcmx86_cpuid_ok();
   }
-  return cached - 1;
+  return gcmx86_cached - 1;
 }

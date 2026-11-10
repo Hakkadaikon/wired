@@ -74,6 +74,24 @@ static void test_gcmx86_nist(void) {
   }
 }
 
+/* Scalar gcm_open (gcmx86_cached pinned to 1 by the caller) on the scalar
+ * seal ct: round-trip, then a flipped tag bit is rejected with dec untouched
+ * (NIST SP 800-38D 7.2 step 8). Restores ct. */
+static void gcmx86_scalar_open(const gcm_ctx* g, u8* ct, const u8* pt, usz n) {
+  u8 dec[2048];
+  CHECK(gcm_open(g, wired_span_of(ct, n + 16), dec) == 1);
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == pt[i]);
+    dec[i] = 0xCC;
+  }
+  ct[n] ^= 1;
+  CHECK(gcm_open(g, wired_span_of(ct, n + 16), dec) == 0);
+  ct[n] ^= 1;
+  for (usz i = 0; i < n; i++) {
+    CHECK(dec[i] == 0xCC);
+  }
+}
+
 /* One differential case: scalar seal == x86 seal byte-for-byte,
  * open(seal(x)) == x, corrupted tag rejected without touching out. */
 static void gcmx86_diff_one(usz n, usz an) {
@@ -87,8 +105,11 @@ static void gcmx86_diff_one(usz n, usz an) {
   gcmx86_fill(pt, n);
 
   aes128_init(&a, key);
-  gcm_ctx g = {&a, nonce, {aad, an}};
-  gcm_seal(&g, wired_span_of(pt, n), want);
+  gcm_ctx g     = {&a, nonce, {aad, an}};
+  gcmx86_cached = 1; /* the oracle must be the scalar path, not gcmx86 */
+  CHECK(gcm_seal(&g, wired_span_of(pt, n), want) == n + 16);
+  gcmx86_scalar_open(&g, want, pt, n);
+  gcmx86_cached = 0;
 
   gcmx86_init(&x, key);
   CHECK(
@@ -140,6 +161,16 @@ static void test_gcmx86_diff(void) {
   }
 }
 
+/* A ciphertext shorter than the tag is rejected before any tag math. */
+static void test_gcmx86_short(void) {
+  u8     key[16] = {0}, iv[12] = {0}, ct[15] = {0}, dec[16];
+  gcmx86 x;
+  gcmx86_init(&x, key);
+  CHECK(
+      gcmx86_open(&x, iv, wired_span_of(ct, 0), wired_span_of(ct, 15), dec) ==
+      0);
+}
+
 void test_gcmx86(void) {
   if (!gcmx86_supported()) {
     return; /* no AES-NI: nothing to run */
@@ -147,4 +178,5 @@ void test_gcmx86(void) {
   test_gcmx86_align();
   test_gcmx86_nist();
   test_gcmx86_diff();
+  test_gcmx86_short();
 }
