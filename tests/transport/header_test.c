@@ -68,7 +68,20 @@ static void test_header_long_too_short_for_version(void) {
   CHECK(wired_header_parse(four, sizeof(four), &h) == 0);
 }
 
+/* RFC 8999 5.1/5.2: a long header ending right after Version (no DCID
+ * length) or right after the DCID (no SCID length) is truncated, and a short
+ * header shorter than 1 + the known DCID length is too. */
+static void test_header_cut_at_cid_length_rejected(void) {
+  const u8     pkt[] = {0xC0, 0, 0, 0, 1, 0, 0x11, 0x22};
+  wired_header h;
+  CHECK(wired_header_parse(pkt, 5, &h) == 0); /* no DCID length */
+  CHECK(wired_header_parse(pkt, 6, &h) == 0); /* no SCID length */
+  h.dcid_len = 4;
+  CHECK(wired_header_parse(pkt + 6, 2, &h) == 0); /* short, DCID cut */
+}
+
 void test_header(void) {
+  test_header_cut_at_cid_length_rejected();
   test_header_parse_long();
   test_header_parse_short();
   test_header_build_roundtrip();

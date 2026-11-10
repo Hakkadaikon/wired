@@ -85,7 +85,34 @@ static void test_protect_tamper(void) {
   CHECK(protect_open(&k, &oio) == 0);
 }
 
+/* RFC 9001 5.3: sealing needs header + payload + 16-byte tag of room; one
+ * byte short fails for both seal paths, as does a suite with no AEAD. */
+static void test_protect_seal_rejects_short_out_and_bad_suite(void) {
+  const u8     dcid[8]    = {1, 2, 3, 4, 5, 6, 7, 8};
+  const u8     hdr[18]    = {0xc3, 0, 0, 0, 1};
+  const u8     payload[4] = {1, 2, 3, 4};
+  u8           pkt[64];
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &keys);
+  aes128_init(&hp, keys.hp);
+  protect_keys    k   = {&keys, &hp};
+  protect_seal_io sio = {
+      wired_span_of(hdr, 18),
+      14,
+      4,
+      2,
+      wired_span_of(payload, 4),
+      wired_mspan_of(pkt, 18 + 4 + 16 - 1)};
+  CHECK(protect_seal(&k, &sio) == 0);
+  CHECK(protect_seal_suite(TLS_AES_128_GCM_SHA256, &k, &sio) == 0);
+  sio.out = wired_mspan_of(pkt, sizeof(pkt));
+  CHECK(protect_seal_suite(TLS_AES_128_GCM_SHA256, &k, &sio) == 18 + 4 + 16);
+  CHECK(protect_seal_suite(0x1304, &k, &sio) == 0); /* TLS_AES_128_CCM */
+}
+
 void test_protect(void) {
+  test_protect_seal_rejects_short_out_and_bad_suite();
   test_protect_nonce_rfc();
   test_protect_roundtrip();
   test_protect_tamper();

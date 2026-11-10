@@ -315,7 +315,18 @@ static void test_framewalk_non_probing_each_type(void) {
   }
 }
 
+/* RFC 9000 12.4: the Frame Type is a varint; a 2-byte type (0x40 prefix)
+ * cut after its first byte cannot be measured, so the walk stops. */
+static void test_framewalk_cut_type_varint(void) {
+  const u8       buf[1] = {0x40};
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, buf, sizeof(buf));
+  CHECK(framewalk_next(&it, &fr) == 0);
+}
+
 void test_framewalk(void) {
+  test_framewalk_cut_type_varint();
   test_framewalk_sequence();
   test_framewalk_unmeasurable();
   test_framewalk_datagram_len_then_ping();

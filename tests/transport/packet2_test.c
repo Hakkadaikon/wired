@@ -143,7 +143,36 @@ static void test_vneg_bad(void) {
   CHECK(vneg_parse(buf, w, &v) == 0);
 }
 
+/* RFC 8999 6 / RFC 9000 17.2.1: a VN packet from the peer is rejected when
+ * shorter than byte0+Version+two CID lengths, short-form, carrying a CID
+ * over 20 bytes, cut inside the SCID length, or listing no version. */
+static void test_vneg_parse_rejects_malformed(void) {
+  u8          b[40] = {0xc0, 0, 0, 0, 0, 0, 0};
+  vneg_packet v;
+  CHECK(vneg_parse(b, 6, &v) == 0); /* under 7 bytes */
+  CHECK(vneg_parse(b, 7, &v) == 0); /* both CIDs empty, no versions */
+  b[5] = WIRED_MAX_CID_LEN + 1;
+  CHECK(vneg_parse(b, sizeof(b), &v) == 0); /* DCID over 20 */
+  b[5] = 1;
+  CHECK(vneg_parse(b, 7, &v) == 0); /* SCID length byte missing */
+  b[0] = 0x40;
+  CHECK(vneg_parse(b, sizeof(b), &v) == 0); /* short header form */
+}
+
+/* RFC 9000 17.2.5: a peer Retry carrying a DCID over 20 bytes, or ending
+ * before its SCID length byte, is rejected. */
+static void test_retry_parse_rejects_bad_cids(void) {
+  u8           b[48] = {0xF0, 0, 0, 0, 1};
+  retry_packet r;
+  b[5] = WIRED_MAX_CID_LEN + 1;
+  CHECK(retry_parse(b, sizeof(b), &r) == 0);
+  b[5] = WIRED_MAX_CID_LEN; /* DCID fills bytes 6..25, SCID length at 26 */
+  CHECK(retry_parse(b, 26, &r) == 0);
+}
+
 void test_packet2(void) {
+  test_vneg_parse_rejects_malformed();
+  test_retry_parse_rejects_bad_cids();
   test_short_build();
   test_short_build_min();
   test_short_bad_args();

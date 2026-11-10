@@ -99,6 +99,14 @@ static void test_lhdr_no_length(void) {
   CHECK(lhdr_parse(wired_span_of(p, n), 0, &h) == 0);
 }
 
+/* RFC 9000 17.2.2: an Initial whose buffer ends before the Token Length
+ * varint parses to 0 (the token field itself is truncated). */
+static void test_lhdr_initial_no_token_length(void) {
+  const u8 p[7] = {0xC0, 0, 0, 0, 1, 0, 0}; /* DCID 0, SCID 0, then end */
+  lhdr     h;
+  CHECK(lhdr_parse(wired_span_of(p, sizeof(p)), 1, &h) == 0);
+}
+
 /* RFC 9000 17.2: pn_len is (byte0 & 0x03) + 1 after HP removal. */
 static void test_lhdr_pn_len(void) {
   CHECK(lhdr_pn_len(0xC0) == 1);
@@ -108,6 +116,7 @@ static void test_lhdr_pn_len(void) {
 }
 
 void test_lhdr_parse(void) {
+  test_lhdr_initial_no_token_length();
   test_lhdr_initial();
   test_lhdr_handshake();
   test_lhdr_not_long();

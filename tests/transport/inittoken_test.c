@@ -30,6 +30,11 @@ static void test_inittoken_bounds(void) {
   CHECK(inittoken_get(buf, w - 1, &out) == 0);
   /* no room to encode body */
   CHECK(inittoken_put(buf, 2, wired_span_of(tok, sizeof(tok))) == 0);
+  /* RFC 9000 17.2.2: no room for the Token Length varint itself */
+  CHECK(inittoken_put(buf, 0, wired_span_of(tok, sizeof(tok))) == 0);
+  /* a 2-byte Token Length varint (0x40 ..) cut after its first byte */
+  buf[0] = 0x40;
+  CHECK(inittoken_get(buf, 1, &out) == 0);
 }
 
 void test_inittoken(void) {

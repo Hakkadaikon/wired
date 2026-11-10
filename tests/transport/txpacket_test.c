@@ -77,7 +77,36 @@ static void test_txpacket_tamper(void) {
   CHECK(t_rx(&ik, &hp, pkt, n, &frames) == 0);
 }
 
+/* RFC 9000 17.2: a DCID over 20 bytes cannot form a long header, so neither
+ * tx_packet nor tx_packet_suite emits a packet. */
+static void test_txpacket_long_dcid_rejected(void) {
+  const u8     dcid[WIRED_MAX_CID_LEN + 1] = {0};
+  const u8     ping[1]                     = {FRAME_PING};
+  initial_keys ik;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, VERSION_1, &ik);
+  aes128_init(&hp, ik.hp);
+  protect_keys k    = {&ik, &hp};
+  wired_span   none = wired_span_of((const u8*)0, 0);
+  tx_desc      d    = {
+      0xc3,
+      wired_span_of(dcid, sizeof(dcid)),
+      none,
+      1,
+      none,
+      1,
+      wired_span_of(ping, 1),
+      0};
+  u8 pkt[256];
+  CHECK(tx_packet(&k, &d, wired_mspan_of(pkt, sizeof(pkt))) == 0);
+  CHECK(
+      tx_packet_suite(
+          TLS_AES_128_GCM_SHA256, &k, &d, wired_mspan_of(pkt, sizeof(pkt))) ==
+      0);
+}
+
 void test_txpacket(void) {
+  test_txpacket_long_dcid_rejected();
   test_txpacket_roundtrip();
   test_txpacket_tamper();
 }

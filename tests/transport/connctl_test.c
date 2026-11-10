@@ -66,7 +66,42 @@ static void test_handshake_done(void) {
   CHECK(handshake_done_decode(buf, 0) == 0); /* empty input */
 }
 
+/* RFC 9000 19.7/19.16/19.17/19.20: an encode into any cap shorter than the
+ * frame fails, and a decode of any strict prefix fails at the cut field. */
+static void test_connctl_every_prefix_rejected(void) {
+  u8              tok[3]        = {1, 2, 3};
+  u8              pd[PATH_DATA] = {0};
+  new_token_frame nt            = {.length = sizeof(tok), .token = tok};
+  new_token_frame nt_out;
+  u64             seq;
+  u8              buf[32];
+  usz             wnt = new_token_encode(buf, sizeof(buf), &nt);
+  usz             wrc = retire_cid_encode(buf, sizeof(buf), 5);
+  usz             wpc = path_encode(buf, sizeof(buf), FRAME_PATH_CHALLENGE, pd);
+  CHECK(wnt == 5 && wrc == 2 && wpc == 1 + PATH_DATA);
+  for (usz c = 0; c < wnt; c++) {
+    CHECK(new_token_encode(buf, c, &nt) == 0);
+  }
+  for (usz c = 0; c < wrc; c++) {
+    CHECK(retire_cid_encode(buf, c, 5) == 0);
+  }
+  for (usz c = 0; c < wpc; c++) {
+    CHECK(path_encode(buf, c, FRAME_PATH_CHALLENGE, pd) == 0);
+  }
+  CHECK(handshake_done_encode(buf, 0) == 0);
+  path_encode(buf, sizeof(buf), FRAME_PATH_CHALLENGE, pd);
+  for (usz n = 1; n < wpc; n++) {
+    CHECK(path_decode(buf, n, FRAME_PATH_CHALLENGE, pd) == 0);
+  }
+  /* type + 2-byte Token Length varint (0x40 0x03): cut inside the varint */
+  buf[0] = FRAME_NEW_TOKEN;
+  buf[1] = 0x40;
+  CHECK(new_token_decode(buf, 2, &nt_out) == 0);
+  CHECK(retire_cid_decode(buf, 2, &seq) == 0);
+}
+
 void test_connctl(void) {
+  test_connctl_every_prefix_rejected();
   test_new_token_with_token();
   test_new_token_empty();
   test_retire_cid();

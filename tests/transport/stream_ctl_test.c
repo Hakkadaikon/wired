@@ -100,7 +100,44 @@ static void test_srvloop_reset_stream_without_stop_sending_no_crash(void) {
   CHECK(out.stream_id == 12 && out.error_code == 0x77 && out.final_size == 512);
 }
 
+/* RFC 9000 19.4/19.5 + reliable-stream-reset: every field is a varint, so an
+ * encode into any cap shorter than the frame fails, and a decode of any
+ * strict prefix fails at whichever field it cuts. */
+static void test_stream_ctl_every_prefix_rejected(void) {
+  reset_stream_frame    rs = {.stream_id = 1, .error_code = 2, .final_size = 3};
+  stop_sending_frame    ss = {.stream_id = 1, .error_code = 2};
+  reset_stream_at_frame rat = {
+      .stream_id = 1, .error_code = 2, .final_size = 4, .reliable_size = 3};
+  u8  buf[32];
+  usz wrs  = reset_stream_encode(buf, sizeof(buf), &rs);
+  usz wss  = stop_sending_encode(buf, sizeof(buf), &ss);
+  usz wrat = reset_stream_at_encode(buf, sizeof(buf), &rat);
+  CHECK(wrs == 4 && wss == 3 && wrat == 5);
+  for (usz c = 0; c < wrs; c++) {
+    CHECK(reset_stream_encode(buf, c, &rs) == 0);
+  }
+  for (usz c = 0; c < wss; c++) {
+    CHECK(stop_sending_encode(buf, c, &ss) == 0);
+  }
+  for (usz c = 0; c < wrat; c++) {
+    CHECK(reset_stream_at_encode(buf, c, &rat) == 0);
+  }
+  reset_stream_encode(buf, sizeof(buf), &rs);
+  for (usz n = 1; n < wrs; n++) {
+    CHECK(reset_stream_decode(buf, n, &rs) == 0);
+  }
+  stop_sending_encode(buf, sizeof(buf), &ss);
+  for (usz n = 1; n < wss; n++) {
+    CHECK(stop_sending_decode(buf, n, &ss) == 0);
+  }
+  reset_stream_at_encode(buf, sizeof(buf), &rat);
+  for (usz n = 1; n < wrat; n++) {
+    CHECK(reset_stream_at_decode(buf, n, &rat) == 0);
+  }
+}
+
 void test_stream_ctl(void) {
+  test_stream_ctl_every_prefix_rejected();
   test_reset_stream();
   test_stop_sending();
   test_reset_stream_at();

@@ -61,7 +61,30 @@ static void test_coalesce_truncated(void) {
   CHECK(coalesce_next(&it, &p) == 0);
 }
 
+/* Run coalesce_next over the first n bytes of dg (a single packet). */
+static int coalesce_test_first(const u8* dg, usz n) {
+  coalesce_iter it;
+  coalesced     p;
+  coalesce_begin(&it, dg, n);
+  return coalesce_next(&it, &p);
+}
+
+/* RFC 9000 17.2: a long header cut before its Version ends, before a CID
+ * length byte, inside the Initial Token Length varint, or before the Length
+ * field is malformed and yields no packet. */
+static void test_coalesce_cut_prefix_rejected(void) {
+  /* v1 Initial: DCID 0, SCID 0, Token Length 0x40.. (2-byte, cut) */
+  const u8 ini[] = {0xC0, 0, 0, 0, 1, 0, 0, 0x40};
+  /* v1 Handshake: DCID 0, SCID 0, then no Length field */
+  const u8 hs[] = {0xE0, 0, 0, 0, 1, 0, 0};
+  CHECK(coalesce_test_first(ini, 4) == 0);           /* Version cut */
+  CHECK(coalesce_test_first(ini, 5) == 0);           /* no DCID length */
+  CHECK(coalesce_test_first(ini, sizeof(ini)) == 0); /* token len cut */
+  CHECK(coalesce_test_first(hs, sizeof(hs)) == 0);   /* no Length */
+}
+
 void test_coalesce(void) {
+  test_coalesce_cut_prefix_rejected();
   test_coalesce_split();
   test_coalesce_truncated();
 }

@@ -141,7 +141,49 @@ static void test_frame_stream_final_size_overflow_rejected(void) {
   CHECK(frame_get_stream(buf, w, &out) == w);
 }
 
+/* RFC 9000 19.6/19.8/19.19: CRYPTO, STREAM (OFF+LEN) and transport
+ * CONNECTION_CLOSE fail to encode into any cap shorter than the frame, and
+ * every strict prefix fails to decode at the field it cuts. */
+static void test_frame_every_prefix_rejected(void) {
+  const u8     d[2] = {7, 8};
+  crypto_frame cf   = {.offset = 1, .length = 2, .data = d};
+  stream_frame sf   = {
+      .stream_id = 4, .offset = 1, .length = 2, .data = d, .fin = 0};
+  conn_close_frame cc = {
+      .is_app     = 0,
+      .error_code = 1,
+      .frame_type = 2,
+      .reason_len = 2,
+      .reason     = d};
+  u8  b[3][16];
+  usz w[3] = {
+      frame_put_crypto(b[0], sizeof(b[0]), &cf),
+      frame_put_stream(b[1], sizeof(b[1]), &sf),
+      frame_put_conn_close(b[2], sizeof(b[2]), &cc)};
+  u8 scratch[16];
+  CHECK(w[0] == 5 && w[1] == 6 && w[2] == 6);
+  for (usz c = 0; c < w[0]; c++) {
+    CHECK(frame_put_crypto(scratch, c, &cf) == 0);
+  }
+  for (usz c = 0; c < w[1]; c++) {
+    CHECK(frame_put_stream(scratch, c, &sf) == 0);
+  }
+  for (usz c = 0; c < w[2]; c++) {
+    CHECK(frame_put_conn_close(scratch, c, &cc) == 0);
+  }
+  for (usz n = 1; n < w[0]; n++) {
+    CHECK(frame_get_crypto(b[0], n, &cf) == 0);
+  }
+  for (usz n = 1; n < w[1]; n++) {
+    CHECK(frame_get_stream(b[1], n, &sf) == 0);
+  }
+  for (usz n = 1; n < w[2]; n++) {
+    CHECK(frame_get_conn_close(b[2], n, &cc) == 0);
+  }
+}
+
 void test_frame(void) {
+  test_frame_every_prefix_rejected();
   test_frame_simple();
   test_frame_crypto_roundtrip();
   test_frame_crypto_truncated();

@@ -154,7 +154,26 @@ static void test_ncid_route_roundtrip(void) {
   CHECK(ncid_route_encode(cid, NCID_ROUTE_MIN_LEN - 1, 1, &k) < 0);
 }
 
+/* RFC 9000 19.15: type, seq, retire_prior_to, length, CID, 16-byte token.
+ * An encode into any cap shorter than the frame fails, and a decode of any
+ * strict prefix fails at whichever field it cuts. */
+static void test_ncid_every_prefix_rejected(void) {
+  ncid_frame in = {.seq = 2, .retire_prior_to = 1, .cid_len = 4};
+  ncid_frame out;
+  u8         buf[64];
+  usz        w = ncid_encode(buf, sizeof(buf), &in);
+  CHECK(w == 4 + 4 + NCID_TOKEN);
+  for (usz c = 0; c < w; c++) {
+    CHECK(ncid_encode(buf, c, &in) == 0);
+  }
+  ncid_encode(buf, sizeof(buf), &in);
+  for (usz n = 1; n < w; n++) {
+    CHECK(ncid_decode(buf, n, &out) == 0);
+  }
+}
+
 void test_ncid(void) {
+  test_ncid_every_prefix_rejected();
   test_ncid_route_roundtrip();
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();

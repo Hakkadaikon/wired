@@ -129,7 +129,31 @@ static void test_ack_decode_rejects_underflowing_range(void) {
   CHECK(ack_decode(buf, w, &out) == 0); /* rejected, not a wrapped range */
 }
 
+/* RFC 9000 19.3: an ACK_ECN frame with two ranges carries type, largest,
+ * delay, count, first, (gap, len), and three ECN counts. Encoding into any
+ * shorter cap fails, and decoding any strict prefix fails at the cut field. */
+static void test_ack_every_prefix_rejected(void) {
+  ack_frame in = {
+      .ack_delay = 1, .n_ranges = 2, .has_ecn = 1, .ect0 = 1, .ect1 = 2};
+  in.ranges[0].hi = 9;
+  in.ranges[0].lo = 8;
+  in.ranges[1].hi = 5;
+  in.ranges[1].lo = 4;
+  u8        buf[64];
+  ack_frame out;
+  usz       w = ack_encode(buf, sizeof(buf), &in);
+  CHECK(w == 10);
+  for (usz c = 0; c < w; c++) {
+    CHECK(ack_encode(buf, c, &in) == 0);
+  }
+  ack_encode(buf, sizeof(buf), &in);
+  for (usz n = 1; n < w; n++) {
+    CHECK(ack_decode(buf, n, &out) == 0);
+  }
+}
+
 void test_ack(void) {
+  test_ack_every_prefix_rejected();
   test_ack_single_range();
   test_ack_multi_range();
   test_ack_truncated();

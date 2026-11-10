@@ -94,7 +94,24 @@ static void test_streams_blocked_uni(void) {
   CHECK(r == w && out.max_streams == 3 && out.uni == 1);
 }
 
+/* RFC 9000 19.10: MAX_STREAM_DATA (type, stream_id, value) fails to encode
+ * into any shorter cap, and every strict prefix fails to decode. */
+static void test_flowctl_every_prefix_rejected(void) {
+  stream_data_frame f = {.stream_id = 4, .value = 9};
+  u8                buf[16];
+  usz               w = max_stream_data_encode(buf, sizeof(buf), &f);
+  CHECK(w == 3);
+  for (usz c = 0; c < w; c++) {
+    CHECK(max_stream_data_encode(buf, c, &f) == 0);
+  }
+  max_stream_data_encode(buf, sizeof(buf), &f);
+  for (usz n = 1; n < w; n++) {
+    CHECK(max_stream_data_decode(buf, n, &f) == 0);
+  }
+}
+
 void test_flowctl(void) {
+  test_flowctl_every_prefix_rejected();
   test_max_data();
   test_data_blocked();
   test_max_stream_data();

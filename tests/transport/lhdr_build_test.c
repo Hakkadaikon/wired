@@ -151,7 +151,28 @@ static void test_lhdr_rfc9001_a2(void) {
   CHECK(out[len_off] == 0x44 && out[len_off + 1] == 0x9e);
 }
 
+/* RFC 9000 17.2.2: an Initial header (DCID 1, Token 3, pn_len 1) is 14
+ * bytes; every smaller cap fails at the prefix, Token, Length or packet
+ * number. A CID over 20 bytes (17.2) is refused outright. */
+static void test_lhdr_every_short_cap_and_long_cid_rejected(void) {
+  const u8   dcid[WIRED_MAX_CID_LEN + 1] = {0x11};
+  const u8   token[3]                    = {0xAA, 0xBB, 0xCC};
+  wired_span none                        = wired_span_of((const u8*)0, 0);
+  u8         out[64];
+  usz        hdr_len = 0, len_off = 0;
+  lhdr_desc  d = {0xC0, 1, wired_span_of(dcid, 1),
+                  none, 1, wired_span_of(token, 3),
+                  10,   1, 1};
+  CHECK(lb(&d, out, sizeof(out), &hdr_len, &len_off) == 14);
+  for (usz c = 0; c < 14; c++) {
+    CHECK(lb(&d, out, c, &hdr_len, &len_off) == 0);
+  }
+  d.dcid = wired_span_of(dcid, sizeof(dcid));
+  CHECK(lb(&d, out, sizeof(out), &hdr_len, &len_off) == 0);
+}
+
 void test_lhdr_build(void) {
+  test_lhdr_every_short_cap_and_long_cid_rejected();
   test_lhdr_byte0_pnlen();
   test_lhdr_initial_layout();
   test_lhdr_initial_with_token();

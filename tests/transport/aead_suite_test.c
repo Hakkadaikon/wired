@@ -58,6 +58,23 @@ void test_aead_suite(void) {
     for (usz i = 0; i < 20; i++) {
       CHECK(out[i] == pt[i]);
     }
+    /* RFC 5116 2.2: a tampered AES-256-GCM tag fails authentication. */
+    ct[20] ^= 0xff;
+    CHECK(aead_suite_open(&a256, wired_span_of(ct, 20), out) == 0);
+  }
+
+  /* Every suite aead_suite_seal accepts also has an RFC 9001 5.4 header
+   * protection mask, so protect/protectcs need no HP failure path. */
+  {
+    static const u16 suites[] = {
+        TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384,
+        TLS_CHACHA20_POLY1305_SHA256};
+    u8 mask[5];
+    for (usz i = 0; i < 3; i++) {
+      aead_suite_op op = {suites[i], key, iv, 2, wired_span_of(aad, 7)};
+      CHECK(aead_suite_seal(&op, wired_span_of(pt, 20), ct) == 36);
+      CHECK(hp_suite_mask(suites[i], key, pt, mask) == 1);
+    }
   }
 
   /* RFC 9001 5.3 ChaCha suite: seal -> open round-trips. */

@@ -318,7 +318,49 @@ static void test_dispatch_stream_then_stop_sending_same_uni_stream(void) {
   CHECK(ob.len == 4);
 }
 
+/* RFC 9000 19.3.1: a two-range ACK {5, 2..1} acks exactly those packets;
+ * the replayed (first, gap, len) wire form must not ack 3 or 4. */
+static void test_dispatch_ack_two_ranges(void) {
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  for (u64 pn = 1; pn <= 5; pn++) {
+    sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+  }
+  ack_frame f    = {.n_ranges = 2};
+  f.ranges[0].hi = 5;
+  f.ranges[0].lo = 5;
+  f.ranges[1].hi = 2;
+  f.ranges[1].lo = 1;
+  u8  buf[32];
+  usz n = ack_encode(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  CHECK(sentpkt_count(&t) == 2); /* 3 and 4 remain */
+}
+
+/* RFC 9000 12.4: a frame cut to its type byte is malformed; each decoding
+ * handler (STREAM, ACK, MAX_DATA, STOP_SENDING, RESET_STREAM) rejects it. */
+static void test_dispatch_truncated_frames_rejected(void) {
+  static const u8 types[] = {
+      FRAME_STREAM_BASE, FRAME_ACK, FRAME_MAX_DATA, FRAME_STOP_SENDING,
+      FRAME_RESET_STREAM};
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  for (usz i = 0; i < sizeof types; i++) {
+    CHECK(
+        framedispatch_handle(&st, types[i], wired_span_of(&types[i], 1)) == 0);
+  }
+  CHECK(st.violation == 0);
+}
+
 void test_dispatch_state(void) {
+  test_dispatch_ack_two_ranges();
+  test_dispatch_truncated_frames_rejected();
   test_dispatch_stream();
   test_dispatch_ack();
   test_dispatch_max_data();
