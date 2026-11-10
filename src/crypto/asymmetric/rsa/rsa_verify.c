@@ -47,12 +47,10 @@ static void put_digestinfo(u8* out, wired_span h) {
 }
 
 /* RFC 8017 9.2. Build the expected EM = 0x00 01 FF..FF 00 DigestInfo H.
- * Returns 1 if it fits with PS>=8 octets, else 0. */
-static int emsa_pkcs1(u8* em, usz em_len, wired_span h) {
-  usz fixed = 3 + RSA_DI_LEN + h.n; /* 00 01 ...00 prefix H */
-  if (em_len < fixed + 8) {
-    return 0;
-  }
+ * PS >= 8 octets is guaranteed by n_len_bad (em_len >= 11 + RSA_DI_LEN +
+ * h.n). */
+static void emsa_pkcs1(u8* em, usz em_len, wired_span h) {
+  usz fixed  = 3 + RSA_DI_LEN + h.n; /* 00 01 ...00 prefix H */
   usz ps_end = em_len - fixed + 2;
   em[0]      = 0x00;
   em[1]      = 0x01;
@@ -61,7 +59,6 @@ static int emsa_pkcs1(u8* em, usz em_len, wired_span h) {
   }
   em[ps_end] = 0x00;
   put_digestinfo(em + ps_end + 1, h);
-  return 1;
 }
 
 /* The value bytes of F4 = 65537. */
@@ -130,9 +127,7 @@ static int rsa_check(const rsav_sn* c, wired_span h) {
   bn_modexp(&m, &c->bn_s, (bn_expmod){&bn_e, &c->bn_n});
   u8 got[BN_LIMBS * 8], want[BN_LIMBS * 8];
   bn_to_be(&m, got, c->n_len);
-  if (!emsa_pkcs1(want, c->n_len, h)) {
-    return 0;
-  }
+  emsa_pkcs1(want, c->n_len, h);
   return ct_equal(got, want, c->n_len);
 }
 

@@ -11,16 +11,15 @@
 
 #define HS_CERTIFICATE_VERIFY 15
 
-/* Sign the signed content and DER-encode (r, s). der holds up to 72. */
-static int cvec_sign(
+/* Sign the signed content and DER-encode (r, s). p256sign_sign cannot fail
+ * and the at most 72-octet ECDSA-Sig-Value always fits der[72]. */
+static void cvec_sign(
     const u8 priv[32], wired_span transcript_hash, u8* der, usz* der_len) {
   u8  content[CVECDSA_CONTENT_MAX], h[32], r[32], s[32];
   usz n = cvecdsa_signed_content(transcript_hash, content);
   wired_sha256(content, n, h);
-  if (!p256sign_sign(priv, h, r, s)) {
-    return 0;
-  }
-  return ecdsasig_encode(r, s, der, 72, der_len);
+  p256sign_sign(priv, h, r, s);
+  ecdsasig_encode(r, s, der, 72, der_len);
 }
 
 /* Emit header(4) + scheme(2) + sig_len(2) + DER signature. */
@@ -43,9 +42,7 @@ int cvecdsa_build(
     usz*       out_len) {
   u8  der[72];
   usz der_len = 0;
-  if (!cvec_sign(priv, transcript_hash, der, &der_len)) {
-    return 0;
-  }
+  cvec_sign(priv, transcript_hash, der, &der_len);
   if (cap < der_len + 8) {
     return 0;
   }

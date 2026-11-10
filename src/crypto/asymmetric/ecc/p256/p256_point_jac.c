@@ -2,7 +2,6 @@
 
 static void add_finish(jac* r, const p256_addt* a);
 static void jac_add(jac* r, p256_addt* t);
-static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2);
 static void jac_add_step(jac* acc, const jac* base);
 static int  add_full_infinity(jac* r, const jac* a, const jac* b);
 static void jac_add_full(jac* r, const jac* a, const jac* b);
@@ -37,25 +36,14 @@ static void jac_add(jac* r, p256_addt* t) {
   add_finish(r, t);
 }
 
-/* Same-x case: double if s1==s2 (acc==base), else result is infinity. */
-static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2) {
-  if (p256_fp_eq(s1, s2)) {
-    p256pt_jac_double(acc, acc);
-  } else {
-    acc->Z[0] = acc->Z[1] = acc->Z[2] = acc->Z[3] = 0;
-  }
-}
-
-/* acc += base, handling infinity and the doubling/inverse case. */
+/* acc += base, both finite (jac_add_full handles infinity first). The ladder
+ * keeps base = acc + P with P != O, so acc == base never occurs and a shared
+ * x means base == -acc: the sum is infinity. */
 static void jac_add_step(jac* acc, const jac* base) {
   p256_addt t;
-  if (p256pt_jac_is_inf(acc)) {
-    *acc = *base;
-    return;
-  }
   p256pt_add_uv(&t, acc, base);
   if (p256_fp_eq(t.u1, t.u2)) {
-    add_same_x_jac(acc, t.s1, t.s2);
+    acc->Z[0] = acc->Z[1] = acc->Z[2] = acc->Z[3] = 0;
   } else {
     jac_add(acc, &t);
   }
@@ -96,10 +84,9 @@ static int add_full_infinity(jac* r, const jac* a, const jac* b) {
   return 0;
 }
 
-/* r = a + b, either operand (not just acc) may be infinity: jac_add_step
- * only special-cases its first argument (acc) and assumes its second
- * (base) is finite, but the ladder's r0 starts at infinity and can land on
- * either side of the sum, so both must be covered here first. */
+/* r = a + b, either operand may be infinity: jac_add_step assumes both are
+ * finite, but the ladder's r0 starts at infinity and can land on either side
+ * of the sum, so both must be covered here first. */
 static void jac_add_full(jac* r, const jac* a, const jac* b) {
   if (add_full_infinity(r, a, b)) {
     return;
@@ -116,7 +103,7 @@ static void jac_add_full(jac* r, const jac* a, const jac* b) {
  * depends on an explicit `if (bit)`. The if-statements inside
  * jac_add_step/p256pt_jac_double are not scalar-bit branches: they fire only on
  * the point's own algebraic state (the fixed initial r0==infinity step, or
- * an exact same-point coincidence), identical in shape on every call
+ * an exact inverse-point coincidence), identical in shape on every call
  * regardless of which bit is 1 or 0. */
 void p256_ladder_step(jac* r0, jac* r1) {
   jac t;
