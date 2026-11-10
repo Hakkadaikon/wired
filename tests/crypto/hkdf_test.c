@@ -238,6 +238,12 @@ static void test_hkdf384_expand_label(void) {
     differ |= (a[i] != b[i]);
   }
   CHECK(differ);
+  /* label and context are each at most 64 octets in this builder */
+  static const u8 long65[65] = {0};
+  hkdf_label      ll         = {(const char*)long65, 65, {0, 0}};
+  hkdf_label      lc         = {"quic key", 8, {long65, 65}};
+  CHECK(hkdf_expand_label_384(prk, &ll, wired_mspan_of(a, 16)) == 0);
+  CHECK(hkdf_expand_label_384(prk, &lc, wired_mspan_of(a, 16)) == 0);
 }
 
 void test_hkdf(void) {

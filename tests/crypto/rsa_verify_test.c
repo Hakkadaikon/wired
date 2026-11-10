@@ -108,6 +108,12 @@ static void test_rsa_pkcs1_sizes(void) {
   CHECK(
       rsa_pkcs1_verify(
           &small, (wired_span){rsa_sig, 40}, (wired_span){rsa_hash, 32}) == 0);
+  /* a modulus wider than the bignum (BN_LIMBS * 8 = 512 octets) */
+  static const u8      rsav_big[513] = {0x80};
+  static const rsa_pub big           = {{rsav_big, 513}, {rvt_e, 3}};
+  CHECK(
+      rsa_pkcs1_verify(
+          &big, (wired_span){rsav_big, 513}, (wired_span){rsa_hash, 32}) == 0);
 }
 
 /* RFC 8017: the gate accepts exactly the 3-byte 01 00 01 and rejects other

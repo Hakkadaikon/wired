@@ -105,6 +105,24 @@ static void test_rsa_pss_sizes(void) {
       rsa_pss_verify(
           &pvt_pub, (wired_span){pss_sig, 256}, (wired_span){pss_hash, 31}) ==
       0);
+  /* emsa_pss_verify guards its own EM buffers: > 512 octets or a non-SHA-256
+   * digest is rejected */
+  static const u8 pssv_big[513] = {0};
+  CHECK(
+      emsa_pss_verify(
+          (wired_span){pssv_big, 513}, 8 * 513 - 1,
+          (wired_span){pss_hash, 32}) == 0);
+  CHECK(
+      emsa_pss_verify(
+          (wired_span){pss_sig, 256}, 2047, (wired_span){pss_hash, 20}) == 0);
+}
+
+/* RFC 8017 8.1.2: modBits of a modulus with leading zero octets and a short
+ * top octet, and of the all-zero modulus. */
+static void test_rsa_pss_modbits(void) {
+  static const u8 n9[3] = {0x00, 0x01, 0xff}, n0[2] = {0};
+  CHECK(rsa_modbits(n9, 3) == 9);
+  CHECK(rsa_modbits(n0, 2) == 0);
 }
 
 void test_rsa_pss(void) {
@@ -112,4 +130,5 @@ void test_rsa_pss(void) {
   test_rsa_pss_tampered_sig();
   test_rsa_pss_wrong_hash();
   test_rsa_pss_sizes();
+  test_rsa_pss_modbits();
 }

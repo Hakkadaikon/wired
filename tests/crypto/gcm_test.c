@@ -81,6 +81,9 @@ static void test_gcm_open(void) {
   /* flip one AAD byte: must reject */
   gcm_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
   CHECK(gcm_open(&g2, wired_span_of(ct, 36), dec) == 0);
+
+  /* shorter than the tag: rejected before any tag math */
+  CHECK(gcm_open(&g, wired_span_of(ct, 15), dec) == 0);
 }
 
 /* Deterministic byte stream (LCG, no libc rand) for the differential check

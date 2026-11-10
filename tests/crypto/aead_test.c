@@ -67,6 +67,8 @@ static void test_chapoly_open(void) {
   for (usz i = 0; i < 20; i++) {
     CHECK(dec[i] == 0xCC);
   }
+  /* shorter than the tag: rejected before any tag math */
+  CHECK(chapoly_open(&c, wired_span_of(ct, 15), dec) == 0);
 }
 
 /* Pinning: chapoly_open must reject a tampered tag and never write plaintext

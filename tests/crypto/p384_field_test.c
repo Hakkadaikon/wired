@@ -133,6 +133,18 @@ static void test_p384_field_mul_all_ones_limbs(void) {
   CHECK(fp384_eq(r, rinv_n) == 1);
 }
 
+/* A Solinas term at or above p is folded once: s1 of an all-ones accumulator
+ * is 2^384-1, and 2^384-1-p = 2^128 + 2^96 - 2^32 (FIPS 186-4 D.2.4). */
+static void test_p384_field_term_reduce(void) {
+  static const u64     w[12] = {~0ULL, ~0ULL, ~0ULL, ~0ULL, ~0ULL, ~0ULL,
+                                ~0ULL, ~0ULL, ~0ULL, ~0ULL, ~0ULL, ~0ULL};
+  static const p384_fe want  = {
+      0xffffffff00000000ULL, 0x00000000ffffffffULL, 1, 0, 0, 0};
+  p384_fe t;
+  fp384_build_term384(t, w, 0);
+  CHECK(fp384_eq(t, want) == 1);
+}
+
 void test_p384_field(void) {
   test_p384_field_fast_matches_generic();
   test_p384_field_addsub();
@@ -140,4 +152,5 @@ void test_p384_field(void) {
   test_p384_field_mont_inv_n();
   test_p384_field_bytes();
   test_p384_field_mul_all_ones_limbs();
+  test_p384_field_term_reduce();
 }

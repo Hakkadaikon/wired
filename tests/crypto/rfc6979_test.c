@@ -93,8 +93,19 @@ static void test_rfc6979_retry_skips_rejected_candidates(void) {
   }
 }
 
+/* RFC 6979 3.2 h.3: an out-of-range candidate is refused before the
+ * caller's suitability check runs. */
+static void test_rfc6979_accept_out_of_range(void) {
+  u8               n[32];
+  r6979_reject_ctx ctx = {0};
+  r6979_hb32(R6979_N, n);
+  CHECK(ps_accept(n, r6979_reject_first_two, &ctx) == 0);
+  CHECK(ctx.calls == 0);
+}
+
 void test_rfc6979(void) {
   test_rfc6979_sample_k();
   test_rfc6979_k_in_range_boundaries();
   test_rfc6979_retry_skips_rejected_candidates();
+  test_rfc6979_accept_out_of_range();
 }

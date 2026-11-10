@@ -132,6 +132,23 @@ static void test_p256_add_infinity_both(void) {
   CHECK(r.inf);
 }
 
+/* The point at infinity: on the curve by convention, 2*O == O, k*O == O. */
+static void test_p256_point_infinity_ops(void) {
+  ec_point o = {{0}, {0}, 1};
+  ec_point r = {{0}, {0}, 0};
+  u8       k[32];
+  CHECK(ec_on_curve(&o) == 1);
+  ec_double(&r, &o);
+  CHECK(r.inf);
+  for (usz i = 0; i < 32; i++) {
+    k[i] = (u8)(i + 1);
+  }
+  k[31] |= 1; /* odd k: k*(0,0) != O even if O were mistaken for (0,0) */
+  r.inf = 0;
+  ec_mul(&r, k, &o);
+  CHECK(r.inf);
+}
+
 void test_p256_point(void) {
   test_p256_g_on_curve();
   test_p256_double_eq_add();
@@ -141,4 +158,5 @@ void test_p256_point(void) {
   test_p256_mul_ct_rfc6979_vector();
   test_p256_add_infinity_identity();
   test_p256_add_infinity_both();
+  test_p256_point_infinity_ops();
 }

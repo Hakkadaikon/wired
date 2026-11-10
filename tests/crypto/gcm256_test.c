@@ -92,6 +92,9 @@ static void test_gcm256_open(void) {
   /* flip one AAD byte: must reject */
   gcm256_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
   CHECK(gcm256_open(&g2, wired_span_of(ct, 36), dec) == 0);
+
+  /* shorter than the tag: rejected before any tag math */
+  CHECK(gcm256_open(&g, wired_span_of(ct, 15), dec) == 0);
 }
 
 /* AES-128-GCM and AES-256-GCM keyed with the same 128-bit prefix bytes must

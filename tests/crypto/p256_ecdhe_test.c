@@ -149,6 +149,16 @@ static void test_p256_ecdh_rejects_coord_ge_p(void) {
   CHECK(p256_ecdh(secret, priv, pub) == 0);
 }
 
+/* A zero private key yields the point at infinity, which has no encoding
+ * (SEC1 2.3.3) and no shared secret (SP 800-56A 5.7.1.2). */
+static void test_p256_ecdh_zero_scalar(void) {
+  u8 zero[32] = {0}, priv[32], pub[P256_PUBKEY_LEN], secret[32];
+  CHECK(p256_pubkey_encode(pub, zero) == 0);
+  CHECK(p256_keygen(priv) == 1);
+  CHECK(p256_pubkey_encode(pub, priv) == 1);
+  CHECK(p256_ecdh(secret, zero, pub) == 0);
+}
+
 void test_p256_ecdhe(void) {
   test_p256_keygen_range();
   test_p256_keygen_boundary();
@@ -160,4 +170,5 @@ void test_p256_ecdhe(void) {
   test_p256_ecdh_scalar_max();
   test_p256_ecdh_rejects_bad_peer_key();
   test_p256_ecdh_rejects_coord_ge_p();
+  test_p256_ecdh_zero_scalar();
 }
