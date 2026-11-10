@@ -12,11 +12,6 @@
 #define TOKEN_TAG_RETRY 0x01
 #define TOKEN_TAG_NEWTOKEN 0x02
 
-/* Write a tagged token: tag byte + body into out. Returns total bytes
- * written, or 0 if it does not fit. */
-usz token_tag_retry(wired_obuf* out, wired_span body);
-usz token_tag_newtoken(wired_obuf* out, wired_span body);
-
 /* True if token (len bytes) is a non-empty Retry-tagged token. */
 int token_is_retry(const u8* token, usz len);
 

@@ -112,76 +112,6 @@ static void test_closed_processes_no_packet(void) {
   CHECK(c.recv_bytes == before); /* no advance at all while closed */
 }
 
-/* RFC 9002 5.1: an ACK removes the acknowledged tracked packets; an ACK for
- * an untracked packet removes nothing. */
-static void test_ack_removes_tracked_packet(void) {
-  connloop c;
-  connloop_init(&c, 1);
-  c.validated    = 1;
-  initial_keys k = {0};
-  keyset_install(&c.keys, LEVEL_INITIAL, &k);
-  connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 1, 0, 10});
-  connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 1, 1, 10});
-  CHECK(sentpkt_count(&c.sent) == 2);
-
-  /* spurious ACK for pn 9 (never sent): removes nothing */
-  u64 spur = 0;
-  CHECK(connloop_on_ack(&c, &(connloop_ack_in){9, &spur, 1}) == 0);
-  CHECK(sentpkt_count(&c.sent) == 2);
-
-  /* ACK pn 0..1 (largest 1, first range covers down to 0): removes both */
-  u64 r      = 1;
-  usz before = sentpkt_count(&c.sent);
-  CHECK(connloop_on_ack(&c, &(connloop_ack_in){1, &r, 1}) == 2);
-  CHECK(sentpkt_count(&c.sent) < before);
-  CHECK(sentpkt_count(&c.sent) == 0);
-  CHECK(c.pto_armed == 0); /* emptying in-flight disarms PTO */
-}
-
-/* RFC 9002 6.2: a PTO probe is added without abandoning in-flight packets;
- * PTO never arms on an empty in-flight set. */
-static void test_pto_sends_probe_keeps_inflight(void) {
-  connloop c;
-  connloop_init(&c, 1);
-  c.validated    = 1;
-  initial_keys k = {0};
-  keyset_install(&c.keys, LEVEL_INITIAL, &k);
-
-  /* empty in-flight: PTO refuses, stays disarmed */
-  CHECK(connloop_on_pto(&c, &(connloop_pto_in){LEVEL_INITIAL, 0, 10}) == 0);
-  CHECK(c.pto_armed == 0);
-
-  connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 1, 0, 10});
-  CHECK(c.pto_armed == 1);
-  usz before = sentpkt_count(&c.sent);
-  /* probe adds a packet, never shrinks in-flight (before/after) */
-  CHECK(connloop_on_pto(&c, &(connloop_pto_in){LEVEL_INITIAL, 1, 10}) == 1);
-  CHECK(sentpkt_count(&c.sent) >= before);
-  CHECK(sentpkt_count(&c.sent) == before + 1);
-}
-
-/* RFC 9000 10.2: closing/draining/closed never return to an open phase. */
-static void test_closing_never_returns_open(void) {
-  connloop c;
-  connloop_init(&c, 1);
-  CHECK(c.phase == CONNLOOP_ACTIVE);
-
-  connloop_close(&c, 0); /* local close */
-  int after_local = c.phase;
-  CHECK(after_local == CONNLOOP_CLOSING);
-
-  connloop_close(&c, 0); /* advance closing -> draining */
-  CHECK(c.phase == CONNLOOP_DRAINING);
-  connloop_close(&c, 0); /* draining -> closed */
-  CHECK(c.phase == CONNLOOP_CLOSED);
-
-  /* never returns to active no matter the event (before/after) */
-  int closed = c.phase;
-  connloop_close(&c, 1);
-  CHECK(c.phase == closed);
-  CHECK(c.phase != CONNLOOP_ACTIVE);
-}
-
 /* RFC 9000 10.2: no new application data while closing/draining/closed. */
 static void test_closing_sends_no_app_data(void) {
   connloop c;
@@ -191,31 +121,18 @@ static void test_closing_sends_no_app_data(void) {
   initial_keys k       = {0};
   keyset_install(&c.keys, LEVEL_ONERTT, &k);
   c.send_level = LEVEL_HANDSHAKE;
-  connloop_close(&c, 0); /* -> closing */
+  c.phase      = CONNLOOP_CLOSING;
   CHECK(connloop_on_send(&c, &(connloop_send_in){LEVEL_ONERTT, 1, 0, 10}) == 0);
 }
 
-/* RFC 9001 4: no send and no PTO probe at a level whose key is absent;
- * RFC 9000 10.2.2: a peer CONNECTION_CLOSE takes an active connection
- * straight to draining. */
-static void test_connloop_keyless_and_peer_close(void) {
+/* RFC 9001 4: no send at a level whose key is absent. */
+static void test_connloop_keyless_send(void) {
   connloop c;
   connloop_init(&c, 0);
   c.validated = 1;
   CHECK(
       connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 0, 0, 10}) == 0);
   CHECK(c.sent_bytes == 0);
-  {
-    /* in flight at Initial, then the Initial key is discarded */
-    initial_keys k = {0};
-    keyset_install(&c.keys, LEVEL_INITIAL, &k);
-    CHECK(connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 1, 0, 10}));
-    keyset_discard(&c.keys, LEVEL_INITIAL);
-  }
-  CHECK(connloop_on_pto(&c, &(connloop_pto_in){LEVEL_INITIAL, 1, 10}) == 0);
-  CHECK(sentpkt_count(&c.sent) == 1);
-  connloop_close(&c, 1);
-  CHECK(c.phase == CONNLOOP_DRAINING);
 }
 
 /* RFC 9001 4.9.1: a discarded level is never used to process again. */
@@ -231,8 +148,8 @@ static void test_no_recv_at_discarded_level(void) {
 }
 
 /* End-to-end convergence: a client and server drive Initial -> Handshake ->
- * 1-RTT key promotion, complete the handshake, and exchange app data, with
- * in-flight draining via ACK (RFC 9001 4.1, RFC 9002 5.1). */
+ * 1-RTT key promotion, complete the handshake, and exchange app data
+ * (RFC 9001 4.1). */
 static void test_handshake_progress_reaches_confirmed(void) {
   connloop cl, sv;
   connloop_init(&cl, 0);
@@ -263,13 +180,7 @@ static void test_handshake_progress_reaches_confirmed(void) {
       connloop_on_send(&cl, &(connloop_send_in){LEVEL_ONERTT, 1, 2, 20}) == 1);
   CHECK(cl.send_level == LEVEL_ONERTT);
   CHECK(connloop_on_recv(&sv, LEVEL_ONERTT, 20) == 1);
-
-  /* client's in-flight drains to empty via ACKs (pn 0..2) */
   CHECK(sentpkt_count(&cl.sent) == 3);
-  u64 r = 2;
-  connloop_on_ack(&cl, &(connloop_ack_in){2, &r, 1});
-  CHECK(sentpkt_count(&cl.sent) == 0);
-  CHECK(cl.pto_armed == 0);
 }
 
 /* RFC 9001 6.6: auth_fail_count starts at 0 and aead_limit is unset. */
@@ -338,16 +249,13 @@ static void test_connloop_ack_only_never_tracked(void) {
 }
 
 void test_connloop(void) {
-  test_connloop_keyless_and_peer_close();
+  test_connloop_keyless_send();
   test_send_level_never_regresses();
   test_no_app_data_before_handshake_complete();
   test_server_send_capped_3x_recv();
   test_validate_lifts_3x_cap();
   test_recv_drops_packet_without_key();
   test_closed_processes_no_packet();
-  test_ack_removes_tracked_packet();
-  test_pto_sends_probe_keeps_inflight();
-  test_closing_never_returns_open();
   test_closing_sends_no_app_data();
   test_no_recv_at_discarded_level();
   test_handshake_progress_reaches_confirmed();

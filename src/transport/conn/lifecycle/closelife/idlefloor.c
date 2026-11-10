@@ -6,8 +6,3 @@
 u64 idle_floor(u64 idle_timeout, u64 pto) {
   return u64_max(idle_timeout, 3 * pto);
 }
-
-/* RFC 9000 10.1: close once the effective idle period has elapsed. */
-int idle_should_close(u64 elapsed, u64 effective_idle) {
-  return elapsed >= effective_idle;
-}

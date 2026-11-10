@@ -22,11 +22,8 @@ void crecv_message(const crecv* s, const u8* mem, const u8** msg, usz* len);
 void crecv_message_at(
     const crecv* s, const u8* mem, usz off, const u8** msg, usz* len);
 
-/* Returns 1 if the leading TLS handshake message is completely buffered in the
- * contiguous prefix (4-byte header + declared body), else 0. */
-int crecv_complete_message(const crecv* s, const u8* mem);
-
-/* Same, but for the message starting at `off` (see crecv_message_at). */
+/* Returns 1 if the TLS handshake message starting at `off` is completely
+ * buffered in the contiguous prefix (4-byte header + declared body), else 0. */
 int crecv_complete_message_at(const crecv* s, const u8* mem, usz off);
 
 /* The stream offset just past the message starting at `off`; only

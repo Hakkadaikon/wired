@@ -24,24 +24,7 @@ static void test_recvpn_window(void) {
   CHECK(recvpn_seen(&r, 200) == 0); /* newer than largest */
 }
 
-/* The first ACK range counts contiguous packets ending at largest. */
-static void test_recvpn_first_range(void) {
-  recvpn r;
-  recvpn_init(&r);
-  CHECK(recvpn_first_range(&r) == 0); /* nothing received yet */
-  recvpn_record(&r, 10);
-  CHECK(recvpn_first_range(&r) == 0); /* only largest, no run below */
-
-  recvpn_record(&r, 9);
-  recvpn_record(&r, 8);
-  CHECK(recvpn_first_range(&r) == 2); /* 9 and 8 contiguous below 10 */
-
-  recvpn_record(&r, 6);               /* gap at 7 */
-  CHECK(recvpn_first_range(&r) == 2); /* run still stops at 8 */
-}
-
 void test_recvpn(void) {
   test_recvpn_dedup();
   test_recvpn_window();
-  test_recvpn_first_range();
 }

@@ -67,30 +67,4 @@ usz connio_send(connio* io, const connio_send_in* in, wired_obuf* out);
  * does not advance). Each level/space numbers independently from 0. */
 u64 connio_tx_next(const connio* io, int level);
 
-/* The next expected inbound packet number for `level`'s own space. */
-u64 connio_rx_next(const connio* io, int level);
-
-/* RFC 9000 19.7/19.20 via 12.4: if the last dispatched frame set
- * disp.violation (a server received NEW_TOKEN or HANDSHAKE_DONE), seal a
- * transport CONNECTION_CLOSE carrying PROTOCOL_VIOLATION as a 1-RTT packet
- * into out and clear the flag. Returns the sealed length, or 0 if no
- * violation was pending or the seal failed (out too small / no 1-RTT key). */
-usz connio_close_on_violation(connio* io, wired_obuf* out);
-
-/* RFC 9001 6.6: if a received packet's AEAD authentication failures have
- * reached the integrity limit (tracked in loop.auth_fail_count via
- * connloop_on_auth_fail, one call per failed connio_recv), seal a
- * transport CONNECTION_CLOSE carrying AEAD_LIMIT_REACHED as a 1-RTT packet
- * into out and clear the pending flag. Returns the sealed length, or 0 if
- * the limit was not reached or the seal failed (out too small / no 1-RTT
- * key). */
-usz connio_close_on_aead_limit(connio* io, wired_obuf* out);
-
-/* RFC 9000 3.5: if the last dispatched frame set disp.stop_sending_owed (a
- * STOP_SENDING arrived), seal a RESET_STREAM echoing its stream ID and error
- * code verbatim as a 1-RTT packet into out and clear the flag. final_size is
- * 0 (the send side has not tracked any bytes as sent on this path). Returns
- * the sealed length, or 0 if none was owed or the seal failed. */
-usz connio_send_stop_sending_reset(connio* io, wired_obuf* out);
-
 #endif

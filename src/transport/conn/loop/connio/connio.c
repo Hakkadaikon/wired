@@ -54,8 +54,6 @@ u64 connio_tx_next(const connio* io, int level) {
   return io->tx.pn.next[level];
 }
 
-u64 connio_rx_next(const connio* io, int level) { return io->rx_pn[level]; }
-
 /* RFC 9000 12.3: once a space has issued its highest legal packet number
  * (2^62-1), the sender must stop sending in it -- silently, without a
  * CONNECTION_CLOSE. Checked ahead of the other send gates so an exhausted

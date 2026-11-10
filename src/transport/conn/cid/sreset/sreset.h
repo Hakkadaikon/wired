@@ -28,11 +28,6 @@ void sreset_token(
     usz       cid_len,
     u8        token[SRESET_TOKEN]);
 
-/* Whether a received datagram of `len` bytes is a stateless reset carrying
- * the expected token: its trailing 16 bytes match, in constant time, and the
- * datagram is long enough to contain a token. Returns 1 on a match. */
-int sreset_detect(const u8* dgram, usz len, const u8 token[SRESET_TOKEN]);
-
 /* Smallest packet that can carry a token: 5 bytes of header room (enough to
  * look like a short header, RFC 9000 10.3) plus the 16-byte token. */
 #define SRESET_MIN (5 + SRESET_TOKEN)

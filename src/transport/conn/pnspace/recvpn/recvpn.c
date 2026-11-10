@@ -61,17 +61,3 @@ void recvpn_record(recvpn* r, u64 pn) {
   }
   mark_below(r, pn);
 }
-
-/* Whether the run continues at offset i below largest. */
-static int run_continues(const recvpn* r, u64 i) {
-  return i < RECVPN_WINDOW && ((r->bitmap >> i) & 1u);
-}
-
-/* Before any packet the bitmap is still 0, so the run is empty. */
-u64 recvpn_first_range(const recvpn* r) {
-  u64 count = 0;
-  while (run_continues(r, count)) {
-    count++;
-  }
-  return count; /* contiguous packets immediately below largest */
-}

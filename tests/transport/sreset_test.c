@@ -23,28 +23,6 @@ static void test_sreset_token(void) {
   CHECK(differ); /* different CID -> different token */
 }
 
-/* A datagram ending in the token is detected; mismatches and short ones not. */
-static void test_sreset_detect(void) {
-  u8       key[SRESET_KEY] = {0};
-  const u8 cid[8]          = {9, 8, 7, 6, 5, 4, 3, 2};
-  u8       token[16];
-  sreset_token(key, cid, 8, token);
-
-  u8 pkt[40];
-  for (usz i = 0; i < 24; i++) {
-    pkt[i] = (u8)i; /* arbitrary prefix */
-  }
-  for (usz i = 0; i < 16; i++) {
-    pkt[24 + i] = token[i]; /* trailing token */
-  }
-  CHECK(sreset_detect(pkt, 40, token) == 1);
-
-  pkt[39] ^= 0x01; /* corrupt the last token byte */
-  CHECK(sreset_detect(pkt, 40, token) == 0);
-
-  CHECK(sreset_detect(pkt, 8, token) == 0); /* too short for a token */
-}
-
 /* Fill with a fixed non-zero pattern so built packets are checkable. */
 static int fill_pattern(u8* buf, usz len) {
   for (usz i = 0; i < len; i++) {
@@ -140,7 +118,6 @@ static void test_sreset_build_fixed_bits(void) {
 void test_sreset(void) {
   test_sreset_build_fixed_bits();
   test_sreset_token();
-  test_sreset_detect();
   test_sreset_size();
   test_sreset_build();
   test_sreset_size_strictly_below_trigger_len();

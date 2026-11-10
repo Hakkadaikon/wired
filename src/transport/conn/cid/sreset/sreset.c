@@ -1,6 +1,5 @@
 #include "transport/conn/cid/sreset/sreset.h"
 
-#include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 
@@ -21,13 +20,6 @@ void sreset_token(
   for (usz i = 0; i < SRESET_TOKEN; i++) {
     token[i] = mac[i]; /* truncate */
   }
-}
-
-int sreset_detect(const u8* dgram, usz len, const u8 token[SRESET_TOKEN]) {
-  if (len < SRESET_TOKEN) {
-    return 0; /* too short to carry a token */
-  }
-  return ct_diff16(dgram + len - SRESET_TOKEN, token) == 0;
 }
 
 usz sreset_size(usz trigger_len) {

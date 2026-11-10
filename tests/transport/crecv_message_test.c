@@ -35,7 +35,7 @@ static void test_crecv_message_finished(void) {
   crecv_message(&s, g_crecv_message_mem, &msg, &len);
   CHECK(len == sizeof fin);
   CHECK(msg[0] == 0x14);
-  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 1);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 1);
 }
 
 /* Two CRYPTO frames split a single message: incomplete until the tail lands. */
@@ -55,12 +55,11 @@ static void test_crecv_message_split(void) {
   crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   fn = mk_crypto_msg(f, 0, fin, 20); /* first 20 bytes */
   CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
-  CHECK(
-      crecv_complete_message(&s, g_crecv_message_mem) ==
-      0);                                  /* body not all here */
+  /* body not all here */
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 0);
   fn = mk_crypto_msg(f, 20, fin + 20, 16); /* remaining 16 */
   CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
-  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 1);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 1);
 }
 
 /* A gap before offset 0 region leaves nothing contiguous. */
@@ -76,7 +75,7 @@ static void test_crecv_message_gap_empty(void) {
   CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
   crecv_message(&s, g_crecv_message_mem, &msg, &len);
   CHECK(len == 0);
-  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 0);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 0);
 }
 
 /* Header present but body length exceeds what is buffered -> incomplete. */
@@ -88,7 +87,7 @@ static void test_crecv_message_header_only(void) {
 
   crecv_init(&s, g_crecv_message_mem, CRECV_BUF);
   CHECK(crecv_collect(&s, g_crecv_message_mem, f, fn) == 1);
-  CHECK(crecv_complete_message(&s, g_crecv_message_mem) == 0);
+  CHECK(crecv_complete_message_at(&s, g_crecv_message_mem, 0) == 0);
 }
 
 /* RFC 8446 4.1.4: after a HelloRetryRequest the retried ClientHello arrives

@@ -15,10 +15,6 @@ static usz msg_total(const u8* b) {
   return 4 + ((usz)b[1] << 16 | (usz)b[2] << 8 | (usz)b[3]);
 }
 
-int crecv_complete_message(const crecv* s, const u8* mem) {
-  return crecv_complete_message_at(s, mem, 0);
-}
-
 int crecv_complete_message_at(const crecv* s, const u8* mem, usz off) {
   if (s->received_to < off + 4) {
     return 0;

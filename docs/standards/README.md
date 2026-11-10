@@ -38,9 +38,7 @@ flowchart LR
 
 1. 実装する RFC の節を読み、公開されているテストベクターを探す。
 2. テストを先に書き、通る最小のコードを書く。
-3. 新しいヘルパーを書く前に、`src/common/bytes/util/`、varint のヘルパー、`fsm_step` で足りないか確かめる。
+3. 新しいヘルパーを書く前に、`src/common/bytes/util/` と varint のヘルパーで足りないか確かめる。
 4. [コミットゲート](commit-gate.md) を通し、30〜50 行のマイクロコミットにする。
 
 コミットメッセージは conventional commit の形式で、関係する RFC の節を書く。`feat(<domain>):` と `test(<domain>):` は別のコミットにする。
-
-`fsm_step` は `src/transport/conn/lifecycle/fsm/` にあるテーブル駆動の状態機械エンジンである。ストリームと接続の状態機械が共有している。

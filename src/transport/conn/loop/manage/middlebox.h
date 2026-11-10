@@ -10,7 +10,4 @@
 /* Whether an Initial-bearing datagram of `datagram_size` meets the minimum. */
 int middlebox_initial_ok(usz datagram_size);
 
-/* Whether `port` is the expected QUIC UDP port. */
-int middlebox_port_expected(u16 port);
-
 #endif

@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
 
-以下の 67 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
+以下の 44 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
 
 guide のスニペットや例はどれもこれらを含まない。「fuzzed」と書いた 3 つは、ファズハーネスにも組み込んでいる。
 
@@ -48,22 +48,7 @@ guide のスニペットや例はどれもこれらを含まない。「fuzzed�
 - `crypto/pki/encoding/x509/`: `keyid.c`
 - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
 - `tls/handshake/roles/server/`: `serverio.c`
-- `transport/conn/cid/cidxchg/`: `cidxchg.c`
-- `transport/conn/cid/migrate/`: `migrate.c`
-- `transport/conn/cid/path/`: `path.c`, `prefaddr.c`
-- `transport/conn/cid/retrydrive/`: `accept.c`, `reconnect.c`, `token.c`
-- `transport/conn/cid/sresetdrive/`: `onreset.c`, `tokenmap.c`
-- `transport/conn/lifecycle/conn/`: `cidnego.c`, `conn.c`
-- `transport/conn/lifecycle/connection/`: `connection.c`
 - `transport/conn/lifecycle/endpoint/`: `endpoint.c`
-- `transport/conn/lifecycle/fsm/`: `fsm.c`
-- `transport/conn/lifecycle/idledrive/`: `closesend.c`, `idledrive.c`
-- `transport/conn/lifecycle/session/`: `session.c`, `session_env.c`,
-  `session_open.c`
-- `transport/conn/loop/driver/`: `driver.c`
-- `transport/conn/loop/manage/`: `dosmitigate.c`, `flowobs.c`,
-  `linkability.c`
-- `transport/conn/loop/pending1rtt/`: `pending1rtt.c`
 - `transport/io/socket/io/`: `retransmit.c`, `udptransport.c`
 - `transport/io/socket/net/`: `memlink.c`
 - `transport/io/socket/poll/`: `deadline.c`

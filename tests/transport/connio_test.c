@@ -148,8 +148,8 @@ static void test_connio_recv_per_space(void) {
   CHECK(connio_recv(&sv, LEVEL_INITIAL, wired_mspan_of(pkt, n)) == 1);
 
   /* only the Initial space's expected number advanced */
-  CHECK(connio_rx_next(&sv, LEVEL_INITIAL) == 1);
-  CHECK(connio_rx_next(&sv, LEVEL_HANDSHAKE) == 0);
+  CHECK(sv.rx_pn[LEVEL_INITIAL] == 1);
+  CHECK(sv.rx_pn[LEVEL_HANDSHAKE] == 0);
 }
 
 /* RFC 9000 8.1: a server lifts the anti-amplification limit once it opens
@@ -185,70 +185,6 @@ static void arm_onertt(connio* io) {
   io->loop.handshake_complete = 1;
 }
 
-/* RFC 9000 19.20 via 12.4: a server that receives HANDSHAKE_DONE latches
- * dispatch's violation flag; connio_close_on_violation must then seal an
- * actual transport CONNECTION_CLOSE(PROTOCOL_VIOLATION) frame, and clear the
- * flag so it fires only once. */
-static void test_connio_close_on_violation_handshake_done(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  connio   cl, sv;
-  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
-  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
-  arm_onertt(&cl);
-  arm_onertt(&sv);
-
-  u8  frame[1] = {0};
-  usz fl       = handshake_done_encode(frame, sizeof frame);
-  CHECK(fl != 0);
-
-  u8  pkt[256];
-  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
-  CHECK(pn != 0);
-
-  /* the server accepts the packet (frame is malformed-free) but the frame
-   * itself is forbidden from a server's receive side */
-  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
-  CHECK(sv.disp.violation == 1);
-
-  u8         close_pkt[256];
-  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
-  usz        n  = connio_close_on_violation(&sv, &ob);
-  CHECK(n != 0);
-  CHECK(n == ob.len);
-  CHECK(sv.disp.violation == 0); /* fires once */
-
-  /* fires nothing the second time (already cleared) */
-  wired_obuf ob2 = obuf_of(close_pkt, sizeof close_pkt);
-  CHECK(connio_close_on_violation(&sv, &ob2) == 0);
-}
-
-/* Decrypt the sealed CONNECTION_CLOSE with the client's own connio_recv (same
- * installed keys) and confirm the wire content: PROTOCOL_VIOLATION, transport
- * variant. This proves the frame reaching the wire is the real RFC 9000
- * 20.1 error code, not just a non-zero length. */
-static void test_connio_close_on_violation_wire_content(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  connio   cl, sv;
-  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
-  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
-  arm_onertt(&cl);
-  arm_onertt(&sv);
-
-  u8  frame[1] = {0};
-  usz fl       = handshake_done_encode(frame, sizeof frame);
-  u8  pkt[256];
-  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
-  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
-
-  u8         close_pkt[256];
-  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
-  CHECK(connio_close_on_violation(&sv, &ob) != 0);
-
-  /* server -> client direction now: client's connio opens the CLOSE packet */
-  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) == 1);
-  CHECK(cl.disp.close == 1);
-}
-
 /* RFC 9001 5.5/6.6: a packet that fails AEAD authentication is discarded and
  * counted (connio_recv returns 0, loop.auth_fail_count advances by
  * exactly one) -- proving the count wiring runs on the real decrypt-failure
@@ -273,41 +209,6 @@ static void test_connio_recv_failure_counts_auth_fail(void) {
   CHECK(sv.loop.aead_limit == 0); /* nowhere near the 2^52 limit yet */
 }
 
-/* RFC 9001 6.6: once auth_fail_count reaches the AES-GCM integrity limit,
- * connio_close_on_aead_limit seals a real CONNECTION_CLOSE carrying
- * AEAD_LIMIT_REACHED (0x0f) and clears the pending flag so it fires once. The
- * counter is seeded at limit-1 (a real 2^52-iteration loop is infeasible in
- * a test); connloop_on_auth_fail itself is exercised directly above. */
-static void test_connio_close_on_aead_limit_wire_content(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  connio   cl, sv;
-  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
-  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
-  arm_onertt(&cl);
-  arm_onertt(&sv);
-
-  sv.loop.auth_fail_count = AEAD_INTEGRITY_LIMIT_AESGCM - 1;
-  u8  frame[1]            = {0x01};
-  u8  pkt[256];
-  usz pn = send_at(&cl, LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
-  pkt[pn - 1] ^= 0xff;
-  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 0);
-  CHECK(sv.loop.aead_limit == 1);
-
-  u8         close_pkt[256];
-  wired_obuf ob = obuf_of(close_pkt, sizeof close_pkt);
-  CHECK(connio_close_on_aead_limit(&sv, &ob) != 0);
-  CHECK(sv.loop.aead_limit == 0); /* fires once */
-
-  /* client opens the sealed CLOSE and decodes AEAD_LIMIT_REACHED */
-  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(close_pkt, ob.len)) == 1);
-  CHECK(cl.disp.close == 1);
-
-  /* nothing fires a second time */
-  wired_obuf ob2 = obuf_of(close_pkt, sizeof close_pkt);
-  CHECK(connio_close_on_aead_limit(&sv, &ob2) == 0);
-}
-
 /* RFC 9000 12.3: once a space's next packet number would exceed 2^62-1, the
  * sender must stop sending in that space silently (no CONNECTION_CLOSE);
  * connio_send simply reports failure like any other gated-out send. */
@@ -321,45 +222,6 @@ static void test_connio_send_blocked_at_pn_exhaustion(void) {
   u8 frames[8] = {0x01}; /* a PING frame */
   u8 pkt[256];
   CHECK(send_at(&io, LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) == 0);
-}
-
-/* RFC 9000 3.5: a STOP_SENDING the server receives is answered with a
- * RESET_STREAM echoing the same stream ID and error code verbatim. */
-static void test_connio_stop_sending_auto_reset(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  connio   cl, sv;
-  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
-  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
-  arm_onertt(&cl);
-  arm_onertt(&sv);
-
-  stop_sending_frame ssf = {.stream_id = 5, .error_code = 0x77};
-  u8                 frame[16];
-  usz                fl = stop_sending_encode(frame, sizeof frame, &ssf);
-  CHECK(fl != 0);
-
-  u8  pkt[256];
-  usz pn = send_at(&cl, LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
-  CHECK(pn != 0);
-  CHECK(connio_recv(&sv, LEVEL_ONERTT, wired_mspan_of(pkt, pn)) == 1);
-  CHECK(sv.disp.stop_sending_owed == 1);
-
-  u8         reset_pkt[256];
-  wired_obuf ob = obuf_of(reset_pkt, sizeof reset_pkt);
-  usz        n  = connio_send_stop_sending_reset(&sv, &ob);
-  CHECK(n != 0);
-  CHECK(sv.disp.stop_sending_owed == 0); /* fires once */
-
-  /* nothing fires a second time */
-  wired_obuf ob2 = obuf_of(reset_pkt, sizeof reset_pkt);
-  CHECK(connio_send_stop_sending_reset(&sv, &ob2) == 0);
-
-  /* decrypt on the client side and confirm the wire content: same stream ID
-   * and error code as the STOP_SENDING that triggered it. */
-  CHECK(connio_recv(&cl, LEVEL_ONERTT, wired_mspan_of(reset_pkt, n)) == 1);
-  CHECK(
-      cl.disp.reset_stream_stream_id == 5 &&
-      cl.disp.reset_stream_error_code == 0x77);
 }
 
 /* RFC 9002 2: a packet carrying only ACK/PADDING is not ack-eliciting, so
@@ -392,10 +254,6 @@ void test_connio(void) {
   test_connio_pn_monotone();
   test_connio_recv_per_space();
   test_connio_handshake_validates_address();
-  test_connio_close_on_violation_handshake_done();
-  test_connio_close_on_violation_wire_content();
   test_connio_recv_failure_counts_auth_fail();
-  test_connio_close_on_aead_limit_wire_content();
   test_connio_send_blocked_at_pn_exhaustion();
-  test_connio_stop_sending_auto_reset();
 }

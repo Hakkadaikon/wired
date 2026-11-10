@@ -3,7 +3,6 @@
 #include "crypto/kdf/keys/promote.h"
 #include "tls/keys/keyupdate/aeadintegrity.h"
 #include "transport/io/udp/udploop/antiamp_gate.h"
-#include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* Send level starts one below Initial so the first send must promote in. */
 #define CONNLOOP_NO_LEVEL (-1)
@@ -102,48 +101,5 @@ void connloop_on_auth_fail(connloop* c, int is_chacha) {
   c->auth_fail_count++;
   if (aead_integrity_exceeded(c->auth_fail_count, is_chacha)) {
     c->aead_limit = 1; /* RFC 9001 6.6: caller must close(AEAD_LIMIT_REACHED) */
-  }
-}
-
-usz connloop_on_ack(connloop* c, const connloop_ack_in* in) {
-  u64    acked[SENTPKT_CAP];
-  usz    n      = 0;
-  ackset ackset = {in->ack_largest, in->ack_ranges, in->n_ranges};
-  ack_process(&c->sent, &ackset, (u64out){acked, &n});
-  pto_sync(c); /* an ACK that empties in-flight disarms the PTO */
-  return n;
-}
-
-int connloop_on_pto(connloop* c, const connloop_pto_in* in) {
-  if (!level_usable(c, in->level)) {
-    return 0; /* never probe at a discarded level */
-  }
-  if (sentpkt_count(&c->sent) == 0) {
-    return 0; /* no probe, stay disarmed */
-  }
-  {
-    sentpkt_out pkt = {in->pn, 0, 1, in->len}; /* probe is a new packet */
-    sentpkt_on_send(&c->sent, &pkt);
-  }
-  c->sent_bytes += in->len;
-  c->pto_armed = 1;
-  return 1;
-}
-
-/* RFC 9000 10.2: the next phase per current phase. active goes to closing on a
- * local close (overridden below for a peer close); the rest march one step
- * toward closed and closed never reopens. Indexed by CONNLOOP_*. */
-static const int connloop_next[] = {
-    [CONNLOOP_ACTIVE]   = CONNLOOP_CLOSING,
-    [CONNLOOP_CLOSING]  = CONNLOOP_DRAINING,
-    [CONNLOOP_DRAINING] = CONNLOOP_CLOSED,
-    [CONNLOOP_CLOSED]   = CONNLOOP_CLOSED,
-};
-
-void connloop_close(connloop* c, int peer_closed) {
-  if (c->phase == CONNLOOP_ACTIVE && peer_closed) {
-    c->phase = CONNLOOP_DRAINING; /* peer close skips local closing */
-  } else {
-    c->phase = connloop_next[c->phase];
   }
 }

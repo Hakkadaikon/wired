@@ -26,8 +26,4 @@ int recvpn_seen(const recvpn* r, u64 pn);
  * ignored (treated as already acknowledged). */
 void recvpn_record(recvpn* r, u64 pn);
 
-/* The first ACK range: the count of contiguous packets ending at `largest`
- * that have been received (0 if none recorded). */
-u64 recvpn_first_range(const recvpn* r);
-
 #endif
