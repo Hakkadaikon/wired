@@ -57,22 +57,6 @@ void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
   srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
 }
 
-/* RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): a request stream carried
- * PUSH_PROMISE or an HTTP/2-only reserved frame type -- srvloop's dispatch
- * (route_note_frame_unexpected) already detected it and latched the slot in
- * frame_unexpected_slots this step; abort it with H3_FRAME_UNEXPECTED, same
- * RESET_STREAM + STOP_SENDING pair and slot release as
- * srvrun_abort_incomplete_reqs. */
-void srvrun_abort_frame_unexpected_reqs(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c     = &ctx->st->conns[slot];
-  usz          freed = 0;
-  for (usz i = 0; i < c->l.frame_unexpected_n; i++) {
-    freed += srvrun_abort_req(
-        ctx, c, c->l.frame_unexpected_slots[i], H3_FRAME_UNEXPECTED);
-  }
-  srvrun_grant_streams(ctx, c, srvrun_stream_limit_base(ctx), freed);
-}
-
 /* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one.
  * Clears the index: a released slot that kept its row number would hand it
  * back AGAIN on the next release sweep (srvrun_free_bigbuf_rows runs over

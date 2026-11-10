@@ -66,7 +66,6 @@ int  srvrun_held_still(const srvrun_conn* c, u8 i);
 void srvrun_start_held_resps(const srvrun_step_ctx* ctx, int slot);
 void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot);
 void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot);
-void srvrun_abort_frame_unexpected_reqs(const srvrun_step_ctx* ctx, int slot);
 void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r);
 int  srvrun_resp_streaming_live(const srvrun_resp* r);
 usz  srvrun_resp_refill_take(const srvrun_resp* r, usz room);

@@ -48,7 +48,6 @@ void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
   srvrun_reannounce_uni_stream_limit(ctx->cfg, c);
   srvrun_abort_incomplete_reqs(ctx, slot);
-  srvrun_abort_frame_unexpected_reqs(ctx, slot);
   srvrun_send_continues(ctx, slot);
   srvrun_start_held_resps(ctx, slot);
   srvrun_start_done_resps(ctx, slot);

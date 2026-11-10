@@ -5,9 +5,9 @@ static void srvrun_wtsend_ring_write(srvrun_wtsend* w, wired_span payload);
 
 /* Ring occupancy: bytes of roundbuf still pinned by an unsent, in-flight,
  * or requeued slice. Everything below the floor is ACKed and reusable
- * (wired_sendsess_unacked_floor's contract). */
+ * (wired_sendsess_reclaim_base's contract). */
 static usz srvrun_wtsend_ring_live(const srvrun_wtsend* w) {
-  return w->sess.q.len - wired_sendsess_unacked_floor(&w->sess);
+  return w->sess.q.len - wired_sendsess_reclaim_base(&w->sess);
 }
 
 /* Copy one round into the ring at its logical end. A SLICE never crosses

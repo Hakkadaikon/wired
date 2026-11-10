@@ -2,9 +2,6 @@
 
 static void sendsess_split(wired_sendsess* s, wired_sendq_slice* sl);
 static int  sendsess_free_slot(const wired_sendsess* s);
-static int  sent_slice_below(const wired_sent_slice* e, usz floor);
-static usz  sendsess_log_floor(const wired_sendsess* s, usz floor);
-static usz  sendsess_requeue_floor(const wired_sendsess* s, usz floor);
 
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk) {
@@ -112,31 +109,4 @@ void sendsess_clear_inflight(wired_sendsess* s, usz i) {
   s->log[i].inflight = 0;
   s->inflight_n--;
   s->inflight_len -= s->log[i].sl.len;
-}
-
-/* 1 if in-flight log entry e pins a lower offset than floor. */
-static int sent_slice_below(const wired_sent_slice* e, usz floor) {
-  return e->inflight && e->sl.offset < floor;
-}
-
-static usz sendsess_log_floor(const wired_sendsess* s, usz floor) {
-  for (usz i = 0; i < s->log_hi; i++) {
-    if (sent_slice_below(&s->log[i], floor)) {
-      floor = s->log[i].sl.offset;
-    }
-  }
-  return floor;
-}
-
-static usz sendsess_requeue_floor(const wired_sendsess* s, usz floor) {
-  for (usz i = 0; i < s->requeue_n; i++) {
-    if (s->requeue[i].offset < floor) {
-      floor = s->requeue[i].offset;
-    }
-  }
-  return floor;
-}
-
-usz wired_sendsess_unacked_floor(const wired_sendsess* s) {
-  return sendsess_requeue_floor(s, sendsess_log_floor(s, s->q.cur));
 }
