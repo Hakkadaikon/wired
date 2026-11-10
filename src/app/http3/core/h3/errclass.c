@@ -1,17 +1,6 @@
 #include "app/http3/core/h3/errclass.h"
 
 #include "app/http3/core/h3/frame.h"
-#include "app/http3/core/h3/grease.h"
-
-int h3_error_is_known(u64 code) {
-  /* RFC 9114 8.1: contiguous block H3_NO_ERROR..H3_VERSION_FALLBACK.
-   */
-  return code >= H3_NO_ERROR && code <= H3_VERSION_FALLBACK;
-}
-
-int h3_error_is_reserved(u64 code) {
-  return h3_is_reserved(code); /* RFC 9114 8.1 grease: 0x1f*N + 0x21 */
-}
 
 u64 h3_error_send_value(u64 code, u64 grease_id) {
   if (code != H3_NO_ERROR) {

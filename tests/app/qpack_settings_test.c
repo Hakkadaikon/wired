@@ -1,17 +1,5 @@
 #include "test.h"
 
-/* The setting values are returned verbatim. */
-static void test_qpack_settings_value(void) {
-  CHECK(h3_qpack_max_table(4096) == 4096);
-  CHECK(h3_qpack_blocked_streams(16) == 16);
-}
-
-/* An omitted parameter defaults to 0. */
-static void test_qpack_settings_default(void) {
-  CHECK(h3_qpack_max_table(0) == 0);
-  CHECK(h3_qpack_blocked_streams(0) == 0);
-}
-
 /* The identifiers match RFC 9204 5. */
 static void test_qpack_settings_ids(void) {
   CHECK(H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY == 0x01);
@@ -24,8 +12,6 @@ static void test_qpack_settings_connect_protocol_id(void) {
 }
 
 void test_qpack_settings(void) {
-  test_qpack_settings_value();
-  test_qpack_settings_default();
   test_qpack_settings_ids();
   test_qpack_settings_connect_protocol_id();
 }

@@ -1,6 +1,5 @@
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
-#include "app/http3/request/h3recv/req_frames.h"
 #include "test.h"
 
 /* RFC 9114 4.1: client request -> STREAM -> server reads HEADERS;
@@ -19,11 +18,11 @@ static void test_roundtrip_stream(void) {
   /* server decodes the request STREAM frame and sees a HEADERS field section */
   {
     stream_frame f;
-    wired_span   fs = {0, 0};
+    h3_frame     hf;
     CHECK(frame_get_stream(req, req_ob.len, &f));
     CHECK(f.stream_id == 0);
-    CHECK(h3req_recv_first_headers(wired_span_of(f.data, (usz)f.length), &fs));
-    CHECK(fs.n == sizeof(qhdrs));
+    CHECK(h3_frame_get(wired_span_of(f.data, (usz)f.length), &hf) != 0);
+    CHECK(hf.type == H3_FRAME_HEADERS && hf.payload_len == sizeof(qhdrs));
   }
 
   CHECK(h3conn_send_response(0, &resp_in, &resp_ob));

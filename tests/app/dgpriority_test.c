@@ -8,7 +8,7 @@ static void test_dgpriority_valid(void) {
 }
 
 /* RFC 9221 5.1: lower urgency value outranks a higher one; equal urgencies
- * outrank neither way (same rule as h3_priority_higher). */
+ * outrank neither way. */
 static void test_dgpriority_higher(void) {
   CHECK(dgpriority_higher(1, 3) == 1);
   CHECK(dgpriority_higher(3, 1) == 0);

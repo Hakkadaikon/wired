@@ -88,54 +88,6 @@ static void test_connect_req_ok_rejects(void) {
   CHECK(h3_connect_req_ok(&r) == 0); /* method != CONNECT */
 }
 
-/* RFC 9110 9.3.6: a 2xx response establishes the tunnel; >=3xx does not. */
-static void test_connect_established(void) {
-  CHECK(h3_connect_established(200) == 1);
-  CHECK(h3_connect_established(201) == 1);
-  CHECK(h3_connect_established(299) == 1);
-  CHECK(h3_connect_established(199) == 0);
-  CHECK(h3_connect_established(300) == 0);
-  CHECK(h3_connect_established(404) == 0);
-  CHECK(h3_connect_established(502) == 0);
-}
-
-/* Forward-only lifecycle: req -> validated -> established(2xx) -> relay ->
- * closed. No relay before a 2xx, tunnel established once, no return after
- * close. */
-static void test_connect_state_forward(void) {
-  h3_tunnel st;
-  h3_tunnel_init(&st);
-  CHECK(st == H3_TUNNEL_REQ);
-
-  /* relay is refused before a 2xx response. */
-  CHECK(h3_tunnel_relay(&st) == 0);
-  CHECK(st == H3_TUNNEL_REQ);
-
-  h3_tunnel_validated(&st);
-  CHECK(st == H3_TUNNEL_VALIDATED);
-  CHECK(h3_tunnel_relay(&st) == 0); /* still no 2xx */
-
-  /* >=3xx fails the tunnel; it never reaches established. */
-  h3_tunnel st2 = st;
-  CHECK(h3_tunnel_response(&st2, 502) == 0);
-  CHECK(st2 == H3_TUNNEL_FAILED);
-  CHECK(h3_tunnel_relay(&st2) == 0);
-
-  /* 2xx establishes the tunnel exactly once. */
-  CHECK(h3_tunnel_response(&st, 200) == 1);
-  CHECK(st == H3_TUNNEL_ESTABLISHED);
-  CHECK(h3_tunnel_response(&st, 200) == 0); /* not established twice */
-  CHECK(st == H3_TUNNEL_ESTABLISHED);
-
-  CHECK(h3_tunnel_relay(&st) == 1); /* relay allowed now */
-  CHECK(st == H3_TUNNEL_RELAY);
-
-  h3_tunnel_close(&st);
-  CHECK(st == H3_TUNNEL_CLOSED);
-  CHECK(h3_tunnel_relay(&st) == 0); /* no relay after close */
-  CHECK(st == H3_TUNNEL_CLOSED);    /* no return to RELAY */
-}
-
 /* RFC 9220 3: build a request STREAM frame with a HEADERS field section
  * carrying :method=CONNECT, :authority and, when want_protocol, a literal
  * :protocol field, then a matching QUIC STREAM frame header. Mirrors the
@@ -229,8 +181,6 @@ void test_connect(void) {
   test_connect_forbidden();
   test_connect_encode_two_fields();
   test_connect_req_ok_rejects();
-  test_connect_established();
-  test_connect_state_forward();
   test_connect_protocol_present();
   test_connect_protocol_absent();
   test_connect_protocol_negotiation();

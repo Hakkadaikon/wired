@@ -57,35 +57,3 @@ int h3_connect_protocol_ok(
   }
   return settings_enabled != 0;
 }
-
-int h3_connect_established(u16 status) { return status >= 200 && status < 300; }
-
-void h3_tunnel_init(h3_tunnel* st) { *st = H3_TUNNEL_REQ; }
-
-void h3_tunnel_validated(h3_tunnel* st) {
-  if (*st == H3_TUNNEL_REQ) {
-    *st = H3_TUNNEL_VALIDATED;
-  }
-}
-
-int h3_tunnel_response(h3_tunnel* st, u16 status) {
-  if (*st != H3_TUNNEL_VALIDATED) {
-    return 0;
-  }
-  *st =
-      h3_connect_established(status) ? H3_TUNNEL_ESTABLISHED : H3_TUNNEL_FAILED;
-  return *st == H3_TUNNEL_ESTABLISHED;
-}
-
-int h3_tunnel_relay(h3_tunnel* st) {
-  /* ponytail: state advances to RELAY to assert the tunnel is live; the raw
-   * byte relay itself is out of SDK scope — payload moves over the existing
-   * h3 DATA-frame path (appdata), driven by the application. */
-  if (*st != H3_TUNNEL_ESTABLISHED) {
-    return 0;
-  }
-  *st = H3_TUNNEL_RELAY;
-  return 1;
-}
-
-void h3_tunnel_close(h3_tunnel* st) { *st = H3_TUNNEL_CLOSED; }

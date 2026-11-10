@@ -25,7 +25,7 @@
 int dgpriority_valid(u8 u);
 
 /* True if urgency a outranks urgency b (lower value = higher priority,
- * matching h3_priority_higher's convention so a DATAGRAM's urgency and
+ * matching RFC 9218 4.1's convention so a DATAGRAM's urgency and
  * a stream's urgency compare with the same rule). Equal urgencies are not
  * "higher" either way -- the caller picks its own tie-break (e.g. FIFO). */
 int dgpriority_higher(u8 urg_a, u8 urg_b);

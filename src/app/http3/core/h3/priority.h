@@ -19,9 +19,4 @@ typedef struct {
 
 void h3_priority_init(h3_priority* p);
 
-/* True if urgency a outranks urgency b (smaller value = higher priority). */
-int h3_priority_higher(u8 urg_a, u8 urg_b);
-
-int h3_urgency_valid(u8 u);
-
 #endif

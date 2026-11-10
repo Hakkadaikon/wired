@@ -191,7 +191,7 @@ usz srvrun_wt_abort_stop(
 }
 
 /* RESET_STREAM followed by STOP_SENDING -- the full abort of a bidi
- * stream's both halves, same pair shape as h3cancel_request (STOP_SENDING
+ * stream's both halves, the RFC 9114 4.1.1 cancel pair (STOP_SENDING
  * alone once the send half already ended, srvrun_wt_abort_reset). */
 usz srvrun_wt_abort_pair(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {

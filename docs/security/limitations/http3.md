@@ -89,13 +89,13 @@ HTTP/2 上の WebTransport と、HTTP/1.x や HTTP/2 上の HTTP Datagram は実
 
 参照: [draft-webtrans-http3.md](../../features/draft-webtrans-http3.md)、[rfc9297.md](../../features/rfc9297.md) の対象外
 
-### 1.10 `h3_tunnel_relay` は状態を切り替えるだけ
+### 1.10 CONNECT トンネルのバイトの中継はアプリケーションが行う
 
 影響: CONNECT のトンネルを使うアプリケーション。
 
-トンネルの生のバイトの中継(h3 の DATA フレームの上で行う)は、アプリケーションが行う。
+SDK は CONNECT のリクエストを `h3_connect_req_ok` で検査するだけで、トンネルの状態を持たない。トンネルの生のバイトの中継(h3 の DATA フレームの上で行う)は、アプリケーションが行う。
 
-参照: `h3_tunnel_relay`(ponytail)
+参照: `src/app/http3/core/h3/connect.c`
 
 ### 1.11 カプセルだけで送る HTTP Datagram への代替はない
 

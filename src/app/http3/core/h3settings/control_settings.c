@@ -93,10 +93,6 @@ int h3settings_control_stream(
   return 1;
 }
 
-int h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value) {
-  return new_value >= prior_value;
-}
-
 /* The three settings always sent (settings_build.c's unconditional trio):
  * each is a limit the client relies on, so 0-RTT compatibility requires
  * current >= prior on all three. */

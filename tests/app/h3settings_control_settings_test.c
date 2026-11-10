@@ -162,20 +162,6 @@ void test_h3settings_control_settings_advertises_wt(void) {
   CHECK(hcs_has_pair(&s, 0x2c7cf000, 1) == 0);
 }
 
-/* RFC 9297 2.1.1 / 9297-014: "When servers decide to accept 0-RTT data, they
- * MUST send a SETTINGS_H3_DATAGRAM setting greater than or equal to the
- * value they sent to the client in the connection where they sent them the
- * NewSessionTicket message." A pure comparison predicate: the caller (which
- * owns whatever ticket-keyed memory of the prior value it has) supplies both
- * sides; this only judges monotonicity, mirroring zerortt_replay_ok's
- * own caller-resolves-the-inputs shape (zerortt_policy.h). */
-void test_h3settings_h3_datagram_monotonic_ok(void) {
-  CHECK(h3settings_h3_datagram_monotonic_ok(0, 0) == 1); /* equal */
-  CHECK(h3settings_h3_datagram_monotonic_ok(1, 1) == 1); /* equal */
-  CHECK(h3settings_h3_datagram_monotonic_ok(0, 1) == 1); /* raised */
-  CHECK(h3settings_h3_datagram_monotonic_ok(1, 0) == 0); /* lowered */
-}
-
 /* RFC 9114 7.2.4.2 / 9114-066: identical settings are trivially compatible
  * (a client complying with prior cannot be violated by an identical
  * current). */

@@ -161,7 +161,6 @@
 #include "tls/handshake/core/tls/alpn_match.c"
 #include "tls/handshake/core/tls/alpn.c"
 #include "tls/handshake/core/tls/sni.c"
-#include "app/http3/core/h3/reuse.c"
 #include "app/http3/core/h3/priority.c"
 #include "app/http3/core/h3/priupdate.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
@@ -195,7 +194,6 @@
 #include "transport/conn/lifecycle/conntable/conntable_hash.c"
 #include "app/datagram/datagram/datagram.c"
 #include "app/datagram/datagram/dgcheck.c"
-#include "app/datagram/datagram/dgsize.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field_carry.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field_ed.c"
@@ -237,21 +235,16 @@
 #include "app/http3/core/h3/critical.c"
 #include "app/http3/core/h3/errclass.c"
 #include "app/http3/core/h3/fieldsize.c"
-#include "app/http3/core/h3/firstframe.c"
 #include "app/http3/core/h3/frame.c"
 #include "app/http3/core/h3/frame_put.c"
 #include "app/http3/core/h3/frame_permit.c"
-#include "app/http3/core/h3/goaway_check.c"
 #include "app/http3/core/h3/grease.c"
-#include "app/http3/core/h3/h3dgram.c"
 #include "app/http3/core/h3/headercase.c"
 #include "app/http3/core/h3/method.c"
 #include "app/http3/core/h3/pseudoheader.c"
 #include "app/http3/core/h3/pushid.c"
-#include "app/http3/core/h3/qpack_settings.c"
 #include "app/http3/core/h3/settings_check.c"
 #include "app/http3/core/h3/settings_dup.c"
-#include "app/http3/core/h3/shutdown.c"
 #include "app/http3/core/h3/stream_type.c"
 #include "crypto/symmetric/hash/hash/hmac.c"
 #include "crypto/symmetric/hash/hash/sha256.c"
@@ -450,11 +443,9 @@
 #include "transport/packet/build/vpn/vpn_open.c"
 #include "transport/stream/data/appdata/stream_send.c"
 #include "transport/stream/data/appdata/app_send.c"
-#include "app/http3/request/h3recv/req_frames.c"
 #include "app/http3/request/h3resp/field_encode.c"
 #include "app/http3/request/h3resp/resp_build.c"
 #include "app/http3/request/h3resp/resp_size.c"
-#include "app/http3/request/h3resp/hello.c"
 #include "transport/conn/loop/connrunner/level.c"
 #include "app/http3/core/h3conn/establish.c"
 #include "app/http3/core/h3conn/request.c"
@@ -469,7 +460,6 @@
 #include "app/http3/request/h3reqdrive/request_drive_rd.c"
 #include "app/http3/request/h3reqdrive/request_drive_take.c"
 #include "app/http3/request/h3reqdrive/request_drive_trailer.c"
-#include "app/http3/request/h3cancel/cancel.c"
 #include "tls/keys/kuswitch/derive.c"
 #include "tls/keys/kuswitch/twogen.c"
 #include "app/http3/request/h3reqenc/pseudo_encode.c"
@@ -990,7 +980,6 @@
 #include "transport/cubic_test.c"
 #include "transport/hystart_test.c"
 #include "app/dgcheck_test.c"
-#include "app/dgsize_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
 #include "crypto/bssl_ed25519_test.c"
@@ -1001,12 +990,9 @@
 #include "app/fieldsize_test.c"
 #include "transport/finalsize_test.c"
 #include "tls/finished_test.c"
-#include "app/firstframe_test.c"
 #include "app/frame_permit_test.c"
-#include "app/goaway_check_test.c"
 #include "tls/grease_test.c"
 #include "app/h3control_test.c"
-#include "app/h3dgram_test.c"
 #include "app/h3frame_test.c"
 #include "app/h3grease_test.c"
 #include "app/h3reqgrease_test.c"
@@ -1055,7 +1041,6 @@
 #include "transport/newtoken_test.c"
 #include "app/settings_check_test.c"
 #include "app/settings_dup_test.c"
-#include "app/shutdown_test.c"
 #include "transport/spin_test.c"
 #include "transport/sreset_test.c"
 #include "transport/stream_bounds_test.c"
@@ -1075,7 +1060,6 @@
 #include "transport/zerortt_policy_test.c"
 #include "transport/zerortt_seen_test.c"
 #include "app/priority_test.c"
-#include "app/reuse_test.c"
 #include "tls/sni_test.c"
 #include "tls/alpn_test.c"
 #include "tls/alpn_match_test.c"
@@ -1226,10 +1210,8 @@
 #include "transport/lhdr_parse_test.c"
 #include "transport/vpn_open_test.c"
 #include "transport/stream_send_test.c"
-#include "app/req_frames_test.c"
 #include "app/field_encode_test.c"
 #include "app/resp_build_test.c"
-#include "app/hello_test.c"
 #include "crypto/certreq_test.c"
 #include "tls/hrr_build_test.c"
 #include "tls/hrr_detect_test.c"
@@ -1480,7 +1462,6 @@ int main(void) {
   test_cubic();
   test_hystart();
   test_dgcheck();
-  test_dgsize();
   test_ecn();
   test_ed25519();
   test_bssl_ed25519();
@@ -1491,12 +1472,9 @@ int main(void) {
   test_fieldsize();
   test_finalsize();
   test_finished();
-  test_firstframe();
   test_frame_permit();
-  test_goaway_check();
   test_grease();
   test_h3control();
-  test_h3dgram();
   test_h3frame();
   test_h3grease();
   test_h3reqgrease();
@@ -1546,7 +1524,6 @@ int main(void) {
   test_newtoken();
   test_settings_check();
   test_settings_dup();
-  test_shutdown();
   test_spin();
   test_sreset();
   test_stream_bounds();
@@ -1568,7 +1545,6 @@ int main(void) {
   test_zerortt_policy();
   test_zerortt_seen();
   test_priority();
-  test_reuse();
   test_sni();
   test_alpn();
   test_alpn_match();
@@ -1735,7 +1711,6 @@ int main(void) {
   test_h3settings_build_grease_nonzero_appends_pair();
   test_h3settings_build_wt_flow_control_initial_limits();
   test_h3settings_build_wt_flow_control_zero_omits_pairs();
-  test_h3settings_h3_datagram_monotonic_ok();
   test_h3settings_zerortt_compatible_identical_ok();
   test_h3settings_zerortt_compatible_raised_fields_ok();
   test_h3settings_zerortt_compatible_extension_withdrawn_rejected();
@@ -1750,10 +1725,8 @@ int main(void) {
   test_lhdr_parse();
   test_vpn_open();
   test_stream_send();
-  test_req_frames();
   test_field_encode();
   test_resp_build();
-  test_hello();
   test_certreq();
   test_hrr_build();
   test_hrr_detect();

@@ -17,8 +17,6 @@ static const int next_data[] = {
     [H3REQ_ORDER_TRAILERS] = 0,
 };
 
-void h3req_order_init(h3req_order_state* s) { *s = H3REQ_ORDER_START; }
-
 /* Pick the transition row for a frame type; null payload-only frames other
  * than HEADERS/DATA are not part of the request message and are rejected. */
 static const int* row_for(u64 frame_type) {

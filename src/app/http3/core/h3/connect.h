@@ -33,33 +33,4 @@ int h3_connect_req_ok(const wired_h3reqdrive_req* r);
  * enabled is non-zero; 0 if :protocol is present but not negotiated. */
 int h3_connect_protocol_ok(const wired_h3reqdrive_req* r, int settings_enabled);
 
-/* RFC 9110 9.3.6. A 2xx response to CONNECT establishes the tunnel; any other
- * status does not. Returns 1 for 200..299, 0 otherwise. */
-int h3_connect_established(u16 status);
-
-/* RFC 9114 4.4 / RFC 9110 9.3.6. Forward-only CONNECT tunnel lifecycle. A
- * validated request reaches VALIDATED; a 2xx response moves it once to
- * ESTABLISHED, a >=3xx response to FAILED; relay is permitted only from
- * ESTABLISHED; a close is terminal and never returns to RELAY. */
-/** RFC 9114 4.4 / RFC 9110 9.3.6: forward-only CONNECT tunnel lifecycle
- * state (REQ -> VALIDATED -> ESTABLISHED -> RELAY, or FAILED/CLOSED). */
-typedef enum {
-  H3_TUNNEL_REQ = 0,
-  H3_TUNNEL_VALIDATED,
-  H3_TUNNEL_ESTABLISHED,
-  H3_TUNNEL_FAILED,
-  H3_TUNNEL_RELAY,
-  H3_TUNNEL_CLOSED
-} h3_tunnel;
-
-void h3_tunnel_init(h3_tunnel* st);
-void h3_tunnel_validated(h3_tunnel* st);
-/* Apply a response status. Returns 1 if it established the tunnel (2xx, once),
- * 0 otherwise (already established, failed, or wrong state). */
-int h3_tunnel_response(h3_tunnel* st, u16 status);
-/* Enter relay. Returns 1 if relay began (only from ESTABLISHED), 0 otherwise.
- */
-int  h3_tunnel_relay(h3_tunnel* st);
-void h3_tunnel_close(h3_tunnel* st);
-
 #endif
