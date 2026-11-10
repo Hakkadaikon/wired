@@ -92,6 +92,7 @@ usz sdrv_skip_vec(wired_span b, usz p, usz w);
 usz sdrv_ch_prefix(const u8* b, usz n);
 int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len);
 int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end);
+int sdrv_ch_exts_of(const u8* ch, usz ch_len, usz* start, usz* end);
 int sdrv_take_client_keyshare(
     const u8* ch, usz ch_len, u16 want_group, u8 pub[65]);
 int sdrv_ch_find_ext(
@@ -100,7 +101,6 @@ int sdrv_find_client_tp_ext(const u8* ch, usz ch_len, wired_span* ext);
 int sdrv_find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext);
 int sdrv_find_client_ext(
     const u8* ch, usz ch_len, unsigned want_type, wired_span* ext);
-void sdrv_take_peer_max_datagram_frame_size(const u8* ch, usz ch_len, u64* out);
 void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out);
 u64  sdrv_peer_tp_plus1(const u8* ch, usz ch_len, u64 param_id);
 int  sdrv_sid_fits(const u8* ch_msg, usz ch_len);

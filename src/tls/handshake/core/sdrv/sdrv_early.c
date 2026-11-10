@@ -35,14 +35,7 @@ static int sdrv_find_psk_offer(
 
 static int find_client_early_data_ext(
     const u8* ch, usz ch_len, wired_span* ext) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
-    return 0;
-  }
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
-    return 0;
-  }
-  return sdrv_ch_find_ext(ch + 4, start, end, SDRV_EARLY_DATA_EXT_TYPE, ext);
+  return sdrv_find_client_ext(ch, ch_len, SDRV_EARLY_DATA_EXT_TYPE, ext);
 }
 
 /* RFC 8446 8.1 / RFC 9001 9.2: single-use ticket enforcement, shared by

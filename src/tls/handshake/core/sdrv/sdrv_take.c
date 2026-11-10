@@ -29,15 +29,22 @@ int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end) {
   return *end <= body;
 }
 
+/* A well-framed ClientHello message (header included) whose extensions list
+ * fits its body: *start and *end bound that list relative to ch + 4. */
+int sdrv_ch_exts_of(const u8* ch, usz ch_len, usz* start, usz* end) {
+  usz body;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
+    return 0;
+  }
+  return sdrv_ch_exts_span(ch + 4, body, start, end);
+}
+
 /* Take the client's want_group key_share from a ClientHello (header
  * included). */
 int sdrv_take_client_keyshare(
     const u8* ch, usz ch_len, u16 want_group, u8 pub[65]) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
-    return 0;
-  }
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+  usz start, end;
+  if (!sdrv_ch_exts_of(ch, ch_len, &start, &end)) {
     return 0;
   }
   return sdrv_ch_walk(ch + 4, start, end, want_group, pub);
@@ -79,25 +86,11 @@ int sdrv_ch_find_ext(
  * *ext on success, 0 if the ClientHello is malformed or carries no such
  * extension. */
 int sdrv_find_client_tp_ext(const u8* ch, usz ch_len, wired_span* ext) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
-    return 0;
-  }
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
-    return 0;
-  }
-  return sdrv_ch_find_ext(ch + 4, start, end, TPEXT_TYPE, ext);
+  return sdrv_find_client_ext(ch, ch_len, TPEXT_TYPE, ext);
 }
 
 int sdrv_find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
-    return 0;
-  }
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
-    return 0;
-  }
-  return sdrv_ch_find_ext(ch + 4, start, end, SDRV_PSK_EXT_TYPE, ext);
+  return sdrv_find_client_ext(ch, ch_len, SDRV_PSK_EXT_TYPE, ext);
 }
 
 /* Locate any extension_type in the ClientHello by its raw code point (the
@@ -107,51 +100,11 @@ int sdrv_find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext) {
  * type is absent. */
 int sdrv_find_client_ext(
     const u8* ch, usz ch_len, unsigned want_type, wired_span* ext) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) {
-    return 0;
-  }
-  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) {
+  usz start, end;
+  if (!sdrv_ch_exts_of(ch, ch_len, &start, &end)) {
     return 0;
   }
   return sdrv_ch_find_ext(ch + 4, start, end, want_type, ext);
-}
-
-/* RFC 9221 3: extract the peer's advertised max_datagram_frame_size from the
- * ClientHello's transport parameters, if present. Leaves *out at 0 (absent /
- * unsupported) when the extension or the specific parameter is missing --
- * this is an optional parameter, never a ClientHello rejection. */
-void sdrv_take_peer_max_datagram_frame_size(
-    const u8* ch, usz ch_len, u64* out) {
-  wired_span ext, tp;
-  stp_out    out_v = {out, 0};
-  *out             = 0;
-  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) {
-    return;
-  }
-  if (tpext_decode(ext, &tp) == 0) {
-    return;
-  }
-  stp_parse(tp, TP_MAX_DATAGRAM_FRAME_SIZE, &out_v);
-}
-
-/* RFC 9000 4.1/18.2: extract one integer-valued transport parameter (param_id)
- * from the ClientHello's transport parameters, if present. Leaves *out at 0
- * (absent) when the extension or the specific parameter is missing -- both
- * initial_max_data and initial_max_stream_data_bidi_local default to "send
- * nothing" when unadvertised, matching this SDK's existing absent-parameter
- * convention (sdrv_take_peer_max_datagram_frame_size above). */
-void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
-  wired_span ext, tp;
-  stp_out    out_v = {out, 0};
-  *out             = 0;
-  if (!sdrv_find_client_tp_ext(ch, ch_len, &ext)) {
-    return;
-  }
-  if (tpext_decode(ext, &tp) == 0) {
-    return;
-  }
-  stp_parse(tp, param_id, &out_v);
 }
 
 /* The ClientHello's decoded transport-parameter sequence in *tp; 0 if the
@@ -162,6 +115,20 @@ static int sdrv_client_tp(const u8* ch, usz ch_len, wired_span* tp) {
     return 0;
   }
   return tpext_decode(ext, tp) != 0;
+}
+
+/* RFC 9000 4.1/18.2 (and RFC 9221 3 for max_datagram_frame_size): extract
+ * one integer-valued transport parameter (param_id) from the ClientHello's
+ * transport parameters, if present. Leaves *out at 0 (absent) when the
+ * extension or the specific parameter is missing -- an optional parameter
+ * defaulting to "send nothing" when unadvertised, never a rejection. */
+void sdrv_take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
+  wired_span tp;
+  stp_out    out_v = {out, 0};
+  *out             = 0;
+  if (sdrv_client_tp(ch, ch_len, &tp)) {
+    stp_parse(tp, param_id, &out_v);
+  }
 }
 
 /* RFC 9000 18.2: 1 + the integer transport parameter param_id from the

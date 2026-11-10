@@ -45,11 +45,8 @@ int sdrv_ch_check_version_information(sdrv* s, const u8* ch_msg, usz ch_len) {
  * "nothing to check" is left to each guard below to handle on its own terms.
  */
 static wired_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
-  usz body, start, end;
-  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) {
-    return wired_span_of(0, 0);
-  }
-  if (!sdrv_ch_exts_span(ch_msg + 4, body, &start, &end)) {
+  usz start, end;
+  if (!sdrv_ch_exts_of(ch_msg, ch_len, &start, &end)) {
     return wired_span_of(0, 0);
   }
   return wired_span_of(ch_msg + 4 + start, end - start);
