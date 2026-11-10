@@ -440,6 +440,48 @@ static void test_srvboot_accept(void) {
   CHECK(wired_srvboot_is_initial(dg, total) == 1);
 }
 
+/* wired_srvboot_accept of a client Initial after a Retry whose token
+ * recovered odcid (odcid_len bytes); 1 on success. */
+static int sb_accept_retried(
+    wired_server* s, wired_srvloop* l, const u8* odcid, u8 odcid_len) {
+  client            c;
+  wired_srvboot_id  id;
+  u8                priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
+  u8                dg[1500], ini[1500], hs[1500];
+  wired_obuf        iob = {ini, sizeof ini, 0}, hob = {hs, sizeof hs, 0};
+  wired_obuf        ob  = obuf_of(dg, sizeof dg);
+  clientwire_hdr_in hdr = {
+      wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
+  wired_srvboot_conn conn = {s, l};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_in   in;
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(7 + i);
+  }
+  wired_x25519_base(cpub, cpriv);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
+  sb_make_id(&id, priv, pub, seed, rnd);
+  id.retry_odcid     = odcid;
+  id.retry_odcid_len = odcid_len;
+  in                 = (wired_srvboot_in){&id, wired_mspan_of(dg, ob.len)};
+  return wired_srvboot_accept(&conn, &in, &out);
+}
+
+/* RFC 9000 7.3: after a Retry the token's true ODCID is advertised as
+ * original_destination_connection_id and this Initial's DCID (the Retry's
+ * SCID) as retry_source_connection_id; an ODCID over 20 bytes is refused. */
+static void test_srvboot_accept_after_retry_binds_odcid(void) {
+  static wired_server  s;
+  static wired_srvloop l;
+  u8                   odcid[WIRED_MAX_CID_LEN + 1] = {9, 8, 7, 6, 5, 4, 3, 2};
+  CHECK(sb_accept_retried(&s, &l, odcid, 8) == 1);
+  CHECK(s.sdrv.tp_odcid_len == 8 && ct_diffn(s.sdrv.tp_odcid, odcid, 8) == 0);
+  CHECK(s.sdrv.rscid_len == 6 && ct_diffn(s.sdrv.rscid, g_scid, 6) == 0);
+  CHECK(s.sdrv.odcid_len == 6 && ct_diffn(s.sdrv.odcid, g_scid, 6) == 0);
+  CHECK(sb_accept_retried(&s, &l, odcid, sizeof odcid) == 0);
+}
+
 /* Run wired_srvboot_accept on a client Initial built with the given DCID and
  * SCID, filling out's reply datagrams. */
 static void sb_accept_cids(
@@ -1747,6 +1789,7 @@ void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
   test_srvboot_accept();
+  test_srvboot_accept_after_retry_binds_odcid();
   test_srvboot_reply_dcid_is_client_scid();
   test_srvboot_reply_dcid_empty_client_scid();
   test_srvboot_rejects_non_initial();

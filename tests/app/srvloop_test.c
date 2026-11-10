@@ -7760,7 +7760,56 @@ static void test_srvloop_init_rejects_long_cid(void) {
   CHECK(wired_srvloop_init(&l, cid, sizeof cid) == 0);
 }
 
+/* RFC 9000 19.10: with a MAX_STREAM_DATA slot for every request stream the
+ * loop reassembles, one more distinct stream in the same step is dropped
+ * and takes no latched stream's slot. */
+static void test_srvloop_max_stream_data_table_full(void) {
+  wired_srvloop*    l = lpcov_loop();
+  u8                pl[16 * (WIRED_SRVLOOP_MAX_STREAMS + 2)];
+  usz               n = 0;
+  stream_data_frame f = {0, 9};
+  for (u64 k = 0; k <= WIRED_SRVLOOP_MAX_STREAMS; k++) {
+    f.stream_id = 4 * k;
+    n += max_stream_data_encode(pl + n, sizeof pl - n, &f);
+    f.value = 7;
+  }
+  CHECK(srvloop_gather_max_stream_data(l, pl, n) == 1);
+  CHECK(l->max_stream_data_n == WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(max_stream_data_slot_for(l, 4 * WIRED_SRVLOOP_MAX_STREAMS) == -1);
+  CHECK(l->max_stream_data_value[0] == 9);
+}
+
+/* hq-interop (HTTP/0.9): a request line that is not "GET <path>" spends
+ * the stream (done) without producing a request. */
+static void test_srvloop_hq09_non_get_no_request(void) {
+  u8                        buf[] = "POST /x\r\n";
+  usz                       len   = sizeof buf - 1;
+  u8                        fin   = 1;
+  int                       done = 0, got = 0;
+  wired_srvloop_reqacc      acc = {buf, sizeof buf, &len, &fin, &done};
+  wired_h3reqdrive_req      req = {0};
+  wired_srvloop_dispatch_in in  = {{0}, {0}, &got, &req};
+  srvloop_drive_complete_hq09(&acc, &in);
+  CHECK(done == 1 && got == 0 && req.path == 0);
+}
+
+/* RFC 9114 4.1: a slot already answered on the buffered path has no
+ * HEADERS left to stream a body behind, even with one whole in its
+ * window. */
+static void test_srvloop_body_head_len_answered_slot(void) {
+  static wired_srvloop_stream_slot slot;
+  static const u8                  hdr[] = {0x01, 0x02, 0x00, 0x00};
+  bytes_memset(&slot, 0, sizeof slot);
+  bodywin_land(&slot.body, slot.req_buf, 0, wired_span_of(hdr, sizeof hdr), 0);
+  CHECK(srvloop_route_body_head_len(&slot) == sizeof hdr);
+  slot.req_done = 1;
+  CHECK(srvloop_route_body_head_len(&slot) == 0);
+}
+
 void test_srvloop(void) {
+  test_srvloop_max_stream_data_table_full();
+  test_srvloop_hq09_non_get_no_request();
+  test_srvloop_body_head_len_answered_slot();
   test_srvloop_rxacct_full_retires_known_entry();
   test_srvloop_rxacct_retired_stream_ignored();
   test_srvloop_collect_acks_overflow_and_older();

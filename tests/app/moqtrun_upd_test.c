@@ -314,6 +314,17 @@ static void test_moqtrun_upd_err_control_stream(void) {
   CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
 }
 
+/* A SUBSCRIBE_OK is a known type the hub never expects from a client (it
+ * sends no SUBSCRIBE downstream): on the control stream it is
+ * NOT_SUPPORTED, the dispatch table's fallback. */
+static void test_moqtrun_subok_control_stream(void) {
+  static const u8 msg[] = {MOQCTL_T_SUBSCRIBE_OK, 0x00, 0x01, 0x00};
+  mtup_setup();
+  u64 cb = moqtrun_find_by_wt(&mtst_hub, SESS_B)->control_stream_id;
+  mt_feed(&mtst_hub, SESS_B, cb, wired_span_of(msg, sizeof msg), 0);
+  CHECK(mtup_err_code(cb) == MOQCTL_ERR_NOT_SUPPORTED);
+}
+
 /* Same for SUBSCRIBE_TRACKS: its PUBLISHes answer a request stream, so on
  * the control stream it is NOT_SUPPORTED. */
 static void test_moqtrun_subtracks_control_stream(void) {
@@ -927,6 +938,18 @@ static void test_moqtrun_upd_ns_prefix_changes(void) {
       SESS_B, MTRQ_S1, "OK|OK|NS:x|")); /* update OK, now under "video" */
 }
 
+/* draft-22 9.5: a REQUEST_UPDATE of a PUBLISH_NAMESPACE is vetted in that
+ * request's own parameter context, which allows OBJECT_DELIVERY_TIMEOUT:
+ * the update is answered REQUEST_OK. */
+static void test_moqtrun_upd_publish_ns_param_ctx(void) {
+  moqctl_params p = mtup_vi(MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, 5);
+  mtns_init();
+  mtns_pub(SESS_A, MTRQ_S2, "video/x");
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "OK|"));
+  mtup_update(SESS_A, MTRQ_S2, &p);
+  CHECK(mtns_is(SESS_A, MTRQ_S2, "OK|OK|"));
+}
+
 /* An update whose new prefix overlaps another live SUBSCRIBE_NAMESPACE in
  * the same session is PREFIX_OVERLAP (10.9.1's restriction, 10.18); the
  * refusal closes the bidi stream (10.9.1) and leaves the old prefix (and
@@ -993,6 +1016,8 @@ void test_moqtrun_upd(void) {
   test_moqtrun_sub_duplicate_refused_d18();
   test_moqtrun_sub_duplicate_reanswered_d19_d22();
   test_moqtrun_upd_filter_d22();
+  test_moqtrun_upd_publish_ns_param_ctx();
+  test_moqtrun_subok_control_stream();
   moqtrun_test_allver(mtall_upd);
   moqtrun_test_vers(
       MOQVER_CAP_PREFIX_OVERLAP, 0, test_moqtrun_upd_ns_prefix_overlap_refused);

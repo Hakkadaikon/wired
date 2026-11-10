@@ -13189,6 +13189,33 @@ static void test_srvrun_streaming_final_round_releases_slot(void) {
   }
 }
 
+/* A streaming handler that has no bytes yet (more still set) keeps the
+ * slot once the round drains: the response is not over (RFC 9114 4.1). */
+static void test_srvrun_streaming_empty_round_keeps_slot(void) {
+  struct lp_fix   f;
+  srvrun_conn     c = {0};
+  u8              obuf[2048];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = {0};
+  srvrun_state    st  = {0, &c};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  cfg.fd              = -1;
+  cfg.env             = &g_srvrun_env;
+  sr_stream_total_len = 300;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  cfg.handler = sr_stream_body_handler;
+  srvrun_start_resp(&ctx, 0);
+  sr_drive_round_to_done(&ctx, &c);
+  sr_stream_round_cap = 0; /* the next round yields nothing yet */
+  CHECK(srvrun_resp_reap(&ctx, &c, 0, &c.resp[0]) == 0);
+  CHECK(c.resp[0].in_use == 1 && c.resp[0].streaming == 1);
+  CHECK(c.resp[0].stream_off == 100);
+}
+
 /* Across rounds, the QUIC STREAM frame's absolute offset keeps
  * counting up from the prior round's cumulative bytes sent, rather than
  * rewinding to 0 -- proven by re-deriving the exact byte sequence a real
@@ -19475,6 +19502,332 @@ static void test_srvrun_boot_scid_match_len(void) {
   bytes_memcpy(c->scid, dcid, 8);
   CHECK(srvrun_boot_scid_match(&ctx, 0, wired_span_of(dcid, 8)) == 1);
   CHECK(srvrun_boot_scid_match(&ctx, 0, wired_span_of(dcid, 5)) == 0);
+}
+
+/* RFC 9000 17.2.5: under force_retry a datagram whose long header does not
+ * parse is dropped (1); without it, it is left to the ordinary routing. */
+static void test_srvrun_retry_gate_malformed_header(void) {
+  srvrun_cfg      cfg       = {0};
+  srvrun_step_ctx ctx       = {0};
+  u8              dg[3]     = {0xc0, 0, 0};
+  wired_span      odcid     = wired_span_of(0, 0);
+  int             validated = 0;
+  wired_mspan     m         = wired_mspan_of(dg, sizeof dg);
+  ctx.cfg                   = &cfg;
+  cfg.force_retry           = 1;
+  CHECK(srvrun_retry_gate(&ctx, m, &odcid, &validated) == 1);
+  cfg.force_retry = 0;
+  CHECK(srvrun_retry_gate(&ctx, m, &odcid, &validated) == 0);
+}
+
+/* A session no slot of c holds has no session slot index. */
+static void test_srvrun_conn_session_slot_absent(void) {
+  static wired_wt_session s;
+  CHECK(srvrun_conn_session_slot(sr_test_conns(), &s) == -1);
+}
+
+/* RFC 9000 10.2.1 / 8: a closing connection's packet bypasses the GSO
+ * stage (srvrun_send drops it), and one over an unvalidated path's
+ * anti-amplification budget is not staged either; an exempt path's is. */
+static void test_srvrun_send_staged_gates(void) {
+  srvrun_conn* c         = sr_test_conns();
+  srvrun_cfg   cfg       = sr_wt_send_cfg();
+  u8           pkt[16]   = {0};
+  wired_span   p         = wired_span_of(pkt, sizeof pkt);
+  g_srvrun_env.gso_count = 0;
+  g_srvrun_env.gso_len   = 0;
+  c->closing             = 1;
+  srvrun_send_staged(&cfg, c, p, "t");
+  CHECK(g_srvrun_env.gso_count == 0);
+  c->closing      = 0;
+  c->path.seeded  = 1; /* past the handshake: 8's per-path budget applies */
+  c->peer.port_be = 1; /* not the last validated path */
+  srvrun_send_staged(&cfg, c, p, "t");
+  CHECK(g_srvrun_env.gso_count == 0);
+  c->path.seeded = 0;
+  srvrun_send_staged(&cfg, c, p, "t");
+  CHECK(g_srvrun_env.gso_count == 1);
+  g_srvrun_env.gso_count = 0;
+  g_srvrun_env.gso_len   = 0;
+}
+
+/* RFC 9000 13.3: with every kept-control entry awaiting an ACK, one more
+ * abort is not kept (it goes out once) and overwrites none of them. */
+static void test_srvrun_rst_keep_table_full(void) {
+  srvrun_conn* c     = sr_test_conns();
+  u8           pl[1] = {1};
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    srvrun_rst_keep(c, pl, 1);
+  }
+  CHECK(!srvrun_rst_room(c));
+  pl[0] = 2;
+  srvrun_rst_keep(c, pl, 1);
+  for (usz i = 0; i < SRVRUN_RST_RETX; i++) {
+    CHECK(c->rst[i].pl[0] == 1);
+  }
+}
+
+/* RFC 9000 9.3.3: when the path left is the new target itself there is no
+ * old path to challenge. */
+static void test_srvrun_path_chal_old_same_path(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  u8              obuf[1024];
+  wired_obuf      ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  pathsel_key     k;
+  u64             before;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.pcid.empty = 1; /* zero-length peer IDs: any path has an ID to use */
+  k            = srvrun_send_key(&cfg, &c);
+  before       = g_srvrun_send_count;
+  srvrun_path_chal_old(&ctx, &c, &k, &k);
+  CHECK(pathsel_find(&c.path, &k) == 0);
+  CHECK(g_srvrun_send_count == before);
+}
+
+/* RFC 9000 10.2.1: a closing connection sends no PATH_CHALLENGE. */
+static void test_srvrun_path_send_closing_silent(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1024], data[PATH_DATA] = {1};
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  peercid_entry e   = {0};
+  pathsel_key   k;
+  u64           before;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  k     = srvrun_send_key(&cfg, &c);
+  e.len = c.l.cli_scid_len;
+  bytes_memcpy(e.cid, c.l.cli_scid, e.len);
+  before = g_srvrun_send_count;
+  CHECK(srvrun_path_send(&cfg, &c, &k, &e, FRAME_PATH_CHALLENGE, data, 1) > 0);
+  CHECK(g_srvrun_send_count == before + 1);
+  c.closing = 1;
+  srvrun_path_send(&cfg, &c, &k, &e, FRAME_PATH_CHALLENGE, data, 1);
+  CHECK(g_srvrun_send_count == before + 1);
+}
+
+/* RFC 9000 13.2.1 / 8.1: the partial-ClientHello ack is sent only once an
+ * Initial opened and within the antiamp budget -- only then does the
+ * server's SCID join the accepted DCIDs. */
+static void test_srvrun_boot_partial_ack_gated(void) {
+  srvrun_conn*     c   = sr_test_conns();
+  srvrun_state     st  = {0, c};
+  wired_srvboot_id id  = {0};
+  srvrun_cfg       cfg = sr_wt_send_cfg();
+  srvrun_step_ctx  ctx = {&cfg, 0, &st, 0, 0};
+  id.scid_len          = 6;
+  cfg.id               = &id;
+  srvrun_boot_partial_ack(&ctx, 0); /* nothing opened yet */
+  CHECK(c->boot.alt_dcid_len == 0);
+  c->boot.any    = 1;
+  c->boot.opened = 1;
+  srvrun_boot_partial_ack(&ctx, 0); /* no budget: nothing received */
+  CHECK(c->boot.alt_dcid_len == 0 && c->boot_tx_bytes == 0);
+  c->boot_rx_bytes = 1200;
+  srvrun_boot_partial_ack(&ctx, 0);
+  CHECK(c->boot.alt_dcid_len == 6 && c->boot_tx_bytes > 0);
+}
+
+/* WTH3-009: a CONNECT with no live request slot is not held. */
+static void test_srvrun_wt_hold_without_request_slot(void) {
+  srvrun_conn* c     = sr_test_conns();
+  c->resp[0].in_use  = 1;
+  c->l.req_stream_id = 4;
+  srvrun_wt_hold(c, &c->resp[0]);
+  CHECK(c->resp[0].in_use == 0 && c->wt_held_mask == 0);
+}
+
+/* RFC 9000 4.6: every response slot busy, one more request gets none. */
+static void test_srvrun_resp_claim_table_full(void) {
+  srvrun_conn* c = sr_test_conns();
+  for (u64 k = 0; k < SRVRUN_RESP_SLOTS; k++) {
+    CHECK(srvrun_resp_claim(c, 4 * k) == &c->resp[k]);
+  }
+  CHECK(srvrun_resp_claim(c, 4 * SRVRUN_RESP_SLOTS) == 0);
+}
+
+/* RFC 9114 4.2.2: a status response over the peer's
+ * SETTINGS_MAX_FIELD_SECTION_SIZE is not armed (arm_failed); with no limit
+ * advertised the same response arms. */
+static void test_srvrun_wt_status_over_peer_field_limit(void) {
+  srvrun_conn* c              = sr_test_conns();
+  srvrun_resp* r              = srvrun_resp_claim(c, 0);
+  c->l.peer_max_field_section = 1;
+  srvrun_start_wt_status(&g_srvrun_env, 0, c, r, 403, 0);
+  CHECK(r->arm_failed == 1 && !r->sess.active);
+  c->l.peer_max_field_section = 0;
+  r->arm_failed               = 0;
+  srvrun_start_wt_status(&g_srvrun_env, 0, c, r, 403, 0);
+  CHECK(r->arm_failed == 0 && r->sess.active);
+}
+
+/* RFC 9002 6.2.4: a WT send slot's queued PTO probe counts, a freed
+ * slot's leftover does not. */
+static void test_srvrun_any_wtsend_requeued(void) {
+  srvrun_conn* c              = sr_test_conns();
+  c->wtsend[1].sess.requeue_n = 1;
+  CHECK(srvrun_any_wtsend_requeued(c) == 0);
+  c->wtsend[1].in_use = 1;
+  CHECK(srvrun_any_wtsend_requeued(c) == 1);
+}
+
+/* WebTransport app API on a session no live connection owns: a FIN is
+ * refused (-1) and a reset sends nothing (0). */
+static void test_srvrun_wt_api_unowned_session(void) {
+  static wired_wt_session s;
+  sr_reset_global_table();
+  CHECK(wired_server_wt_stream_fin(&s, 0) == -1);
+  CHECK(wired_server_wt_stream_reset(&s, 0, 0) == 0);
+}
+
+/* RFC 9204 4.2 / RFC 9114 6.2: with every WT send slot busy neither QPACK
+ * stream opens; each opens once a slot frees, encoder first. */
+static void test_srvrun_qpack_streams_wait_for_send_slot(void) {
+  srvrun_conn* c                         = sr_test_conns();
+  c->l.h3.settings_sent                  = 1;
+  c->s.sdrv.peer_initial_max_streams_uni = 3;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use    = 1;
+    c->wtsend[i].stream_id = 1000 + 4 * i;
+  }
+  srvrun_open_qpack_streams(c);
+  CHECK(!c->qenc_stream_opened && !c->qdec_stream_opened);
+  c->wtsend[0].in_use = 0;
+  srvrun_open_qpack_streams(c);
+  CHECK(c->qenc_stream_opened && !c->qdec_stream_opened);
+  c->wtsend[1].in_use = 0;
+  srvrun_open_qpack_streams(c);
+  CHECK(c->qdec_stream_opened && c->qdec_wtsend_slot == 1);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: with every WT send slot busy a reply on
+ * a client bidi stream is refused (0) and nothing is armed on it. */
+static void test_srvrun_wt_stream_reply_send_table_full(void) {
+  struct lp_fix   f;
+  u8              obuf[1024];
+  wired_obuf      ob                 = {obuf, sizeof obuf, 0};
+  static const u8 pay[]              = {'r'};
+  srvrun_conn*    c                  = sr_wtsend_fixture(&f, &ob);
+  c->l.wt_streams[0].in_use          = 1;
+  c->l.wt_streams[0].stream_id       = 8;
+  c->l.wt_streams[0].offered         = 1;
+  c->l.wt_streams[0].wt_session_slot = 0;
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use    = 1;
+    c->wtsend[i].stream_id = 1000 + 4 * i;
+  }
+  CHECK(
+      wired_server_wt_stream_reply(&c->wt, 8, wired_span_of(pay, sizeof pay)) ==
+      0);
+  CHECK(srvrun_wtsend_find(c, 8) == 0);
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
+    c->wtsend[i].in_use = 0;
+  }
+}
+
+/* RFC 9221 5: a datagram whose prefixed payload exceeds a ring slot is
+ * refused at queue time, not cut. */
+static void test_srvrun_wt_datagram_oversize_refused(void) {
+  struct lp_fix f;
+  u8            obuf[1024];
+  wired_obuf    ob = {obuf, sizeof obuf, 0};
+  static u8     big[SRVRUN_DGRING_SLOT];
+  srvrun_conn*  c                        = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  CHECK(
+      wired_server_wt_send_datagram_to(
+          &c->wt, wired_span_of(big, sizeof big)) == 0);
+  CHECK(g_srvrun_env.dgring_n == 0);
+  CHECK(wired_server_wt_send_datagram_to(&c->wt, wired_span_of(big, 1)) == 1);
+  g_srvrun_env.dgring_n = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 4.4: a broadcast DATAGRAM skips a session
+ * whose send side already closed, and is then no longer pending. */
+static void test_srvrun_pending_datagram_skips_closed_session(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  u8            obuf[1600];
+  wired_obuf    ob  = {obuf, sizeof obuf, 0};
+  srvrun_cfg    cfg = sr_wt_send_cfg();
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 0; /* any send would fail */
+  c.wt_active                           = 1;
+  c.wt.state                            = WIRED_WT_CLOSED;
+  c.wt.connect_stream_id                = 4;
+  CHECK(
+      srvrun_queue_datagram(
+          &c, wired_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  ob = (wired_obuf){obuf, sizeof obuf, 0};
+  CHECK(srvrun_send_pending_datagram(&cfg, &c, &ob) == 1);
+  CHECK(c.dg_pending == 0);
+}
+
+/* A peer RESET_STREAM on a WT stream reaches no app callback when none is
+ * registered (and does not fault). */
+static void test_srvrun_wt_reset_without_callback(void) {
+  srvrun_cfg          cfg = {0};
+  wired_srvloop_reset e   = {0};
+  srvrun_deliver_wt_reset(&cfg, sr_test_conns(), 0, &e);
+  CHECK(cfg.wt_on_stream_reset == 0);
+}
+
+/* RFC 9000 8.1: a slot whose flight the antiamp gate held back sends the
+ * held tail once its budget allows. */
+static void test_srvrun_boot_release_pending_sends_tail(void) {
+  srvrun_conn*    c    = sr_test_conns();
+  srvrun_cfg      cfg  = sr_wt_send_cfg();
+  srvrun_step_ctx ctx  = {&cfg, 0, 0, 0, 0};
+  c->up                = 1;
+  c->boot_dgram_count  = 1;
+  c->boot_dgram_len[0] = 10;
+  c->boot_rx_bytes     = 1200;
+  srvrun_boot_release_pending(&ctx, c);
+  CHECK(c->boot_dgram_sent == 1 && c->boot_tx_bytes == 10);
+}
+
+/* RFC 9000 9.3: no migration before the handshake is confirmed, even from
+ * a new address. */
+static void test_srvrun_rebind_not_before_confirm(void) {
+  srvrun_conn*    c    = sr_test_conns();
+  srvrun_cfg      cfg  = sr_wt_send_cfg();
+  sockaddr        peer = {0};
+  srvrun_step_ctx ctx  = {&cfg, &peer, 0, 0, 0};
+  peer.port_be         = 9;
+  c->l.step_np_new     = 1;
+  CHECK(srvrun_rebind_due(&ctx, c) == 1);
+  c->up = 1; /* up, not confirmed */
+  CHECK(srvrun_rebind_due(&ctx, c) == 0);
+}
+
+/* Eviction is only the full-table fallback: with a free routing entry no
+ * live slot -- not even one idle past the grace floor -- is evicted for a
+ * new Initial. */
+static void test_srvrun_evict_needs_full_table(void) {
+  srvrun_conn*    c = sr_test_conns();
+  conntable       table[WIRED_CONNTABLE_CAP];
+  srvrun_state    st      = {table, c};
+  srvrun_cfg      cfg     = sr_wt_send_cfg();
+  srvrun_step_ctx ctx     = {&cfg, 0, &st, 0, 0};
+  u8              dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  conntable_init(table, WIRED_CONNTABLE_CAP);
+  c->up      = 1; /* busy, idle since 0 */
+  ctx.now_ms = 10 * WIRED_SRVRUN_EVICT_GRACE_MS;
+  CHECK(srvrun_evict_for_initial(&ctx, wired_span_of(dcid, 8), 1) == -1);
+  CHECK(c->up == 1);
+}
+
+/* RFC 9000 10.1: the pre-confirmation keepalive is not sent while no
+ * 1-RTT key can seal it. */
+static void test_srvrun_boot_probe_needs_keys(void) {
+  srvrun_conn*    c   = sr_test_conns();
+  srvrun_cfg      cfg = sr_wt_send_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 77, 0};
+  CHECK(srvrun_send_boot_probe(&ctx, c) == 0);
+  CHECK(c->boot_pto_sent_ms == 0);
 }
 
 /* WIRE: wired_server_wt_stream_fin, called while the round it must wait on
@@ -27164,6 +27517,24 @@ static void test_srvrun_http_streaming_refill(void) {
   CHECK(g_sr_hx_off == 3);
 }
 
+/* The handler is not asked for more body while under a quarter of the
+ * ring is reclaimed -- the refill stays chunky. */
+static void test_srvrun_http_refill_waits_for_quarter_room(void) {
+  srvrun_cfg   cfg = {0};
+  srvrun_conn* c   = sr_test_conns();
+  g_sr_hx          = (sr_hx_case){0, 0, 0, 0, "abc", 1, 300};
+  cfg.http         = sr_hx_handler;
+  sr_arm_with_cfg(c, &cfg);
+  c->resp[0].ring_cap = c->resp[0].sess.q.len + 1; /* nothing reclaimed */
+  g_sr_hx_calls       = 0;
+  {
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_resp_refill(&ctx, c, 0, &c->resp[0]);
+  }
+  CHECK(g_sr_hx_calls == 0);
+}
+
 /* CONFIRMED SLOT IGNORES INITIAL (RFC 9001 4.9.1): once confirmed, the
  * connection has discarded its Initial keys, so a long-header Initial routed
  * to it by DCID -- a server CID any on-path observer reads off the wire --
@@ -28984,6 +29355,7 @@ static void test_srvrun_pn_exhausted_reaped(void) {
 void test_srvrun(void) {
   srvrun_test_pin_date(784111777ULL); /* Sun, 06 Nov 1994 08:49:37 GMT */
   test_srvrun_http_streaming_refill();
+  test_srvrun_http_refill_waits_for_quarter_room();
   test_srvrun_http_redirect_with_location();
   test_srvrun_http_two_set_cookie_fields();
   test_srvrun_http_404_with_body();
@@ -29042,6 +29414,7 @@ void test_srvrun(void) {
   test_srvrun_hq09_missing_file_arms_empty_body();
   test_srvrun_streaming_next_round_armed_after_done();
   test_srvrun_streaming_final_round_releases_slot();
+  test_srvrun_streaming_empty_round_keeps_slot();
   test_srvrun_streaming_stream_offset_accumulates_across_rounds();
   test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
   test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
@@ -29522,6 +29895,27 @@ void test_srvrun(void) {
   test_srvrun_wt_capsule_short_bodies();
   test_srvrun_on_initial_junk_salvage();
   test_srvrun_boot_scid_match_len();
+  test_srvrun_retry_gate_malformed_header();
+  test_srvrun_conn_session_slot_absent();
+  test_srvrun_send_staged_gates();
+  test_srvrun_rst_keep_table_full();
+  test_srvrun_path_chal_old_same_path();
+  test_srvrun_path_send_closing_silent();
+  test_srvrun_boot_partial_ack_gated();
+  test_srvrun_wt_hold_without_request_slot();
+  test_srvrun_resp_claim_table_full();
+  test_srvrun_wt_status_over_peer_field_limit();
+  test_srvrun_any_wtsend_requeued();
+  test_srvrun_wt_api_unowned_session();
+  test_srvrun_qpack_streams_wait_for_send_slot();
+  test_srvrun_wt_stream_reply_send_table_full();
+  test_srvrun_wt_datagram_oversize_refused();
+  test_srvrun_pending_datagram_skips_closed_session();
+  test_srvrun_wt_reset_without_callback();
+  test_srvrun_boot_release_pending_sends_tail();
+  test_srvrun_rebind_not_before_confirm();
+  test_srvrun_evict_needs_full_table();
+  test_srvrun_boot_probe_needs_keys();
   test_srvrun_wt_stream_fin_deferred_until_round_acked();
   test_srvrun_wt_stream_fin_immediate_when_round_already_done();
   test_srvrun_wt_stream_open_variants_mark_append();

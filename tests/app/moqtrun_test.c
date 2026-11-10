@@ -5788,6 +5788,26 @@ static void test_moqt_reliable_relay_holds_then_releases_publisher(void) {
   CHECK(moqtrun_test_count_kind(10) == 0);
 }
 
+/* A publisher that keeps sending past the held credit: the round that no
+ * longer fits the ring is counted as an overflow and not taken in -- the
+ * unsent bytes already in the ring are never overwritten. */
+static void test_moqt_reliable_relay_overflow_not_taken(void) {
+  wired_moqt_hub hub;
+  usz            round = 16000, fits = (usz)(WIRED_MOQTREL_CAP / round);
+  u64            in;
+  moqtrun_test_start_reliable_fixture(&hub);
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* the subscriber stops accepting */
+  for (usz v = 0; v < fits; v++) {
+    moqtrun_test_send_big_round(&hub, 999, (u8)v, round);
+  }
+  CHECK(hub.stat_rel_overflow == 0);
+  in = hub.stat_rel_in_bytes;
+  moqtrun_test_send_big_round(&hub, 999, 0xee, round);
+  CHECK(hub.stat_rel_overflow == 1);
+  CHECK(hub.stat_rel_in_bytes == in);
+}
+
 /* A fast and a slow subscriber end up with the SAME complete byte
  * sequence: the slow one's refused rounds stay in the ring (undamaged by
  * the fast one's progress) and drain in order once it accepts again. */
@@ -6826,6 +6846,7 @@ static void mtall_main(void) {
   test_moqt_reliable_relay_retries_refused_fin();
   test_moqt_reliable_relay_fin_after_last_byte();
   test_moqt_reliable_relay_holds_then_releases_publisher();
+  test_moqt_reliable_relay_overflow_not_taken();
   test_moqt_reliable_relay_two_speed_subs_no_loss();
   test_moqt_reliable_relay_sub_leave_unblocks_ring();
   test_moqt_reliable_relay_sheds_stalled_sub();
