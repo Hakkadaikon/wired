@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 213/248、間接 33、未テスト 2。**
+**カバレッジ: テスト済み 211/248、間接 35、未テスト 2。**
 
 ## SS1.4.1 可変長整数
 
@@ -517,7 +517,7 @@
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_fin_after`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
 - [~] MOQT-101 (SS5.1, SS10.11) 購読者が応答を送信する前に PUBLISH_DONE が届いた場合、購読者は FIN する前に、遅れた PUBLISH_OK をちょうど 1 つ返さなければならない。
-  - evidence: ハブはすべての PUBLISH にただちに応答するので、応答していない PUBLISH を抱えることはない。この規則は購読モデルでしか固定していない(`test_moqsub_publish_done_before_response_defers_ok`)。
+  - evidence: ハブはすべての PUBLISH にただちに応答するので、応答していない PUBLISH を抱えることはない。この規則を固定するテストはない。
 - [x] MOQT-102 実装は自分が使う PUBLISH_DONE のステータスコード、INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY を認識しなければならない。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
@@ -628,14 +628,16 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MOQT-121 (SS11.4.2) SUBGROUP_ID_MODE が 0b11 の場合、実装はセッションをプロトコル違反で閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [x] MOQT-122 実装は SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
+- [~] MOQT-122 実装は SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しない。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろす。
 - [x] MOQT-123 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [~] MOQT-124 (SS11.4.2) END_OF_GROUP ビットが立っていて、ストリームが FIN で終わる場合、実装は同じ Group ID でより大きな Object ID を持つ Object は存在しないと推定しなければならない。
   - evidence: ビットはデコードしている(MOQT-122)。Malformed Track の検査は、この推定ではなく END_OF_GROUP の状態を使う(`test_moqtrun_pubdone_malformed_after_end_of_group`)。
 - [x] MOQT-125 (SS2.2, SS11.4.2) ハブは、その Subgroup で最初に配信された Object から始まる Subgroup では FIRST_OBJECT ビットを転送し、Subgroup の途中から開くストリームではそのビットを下ろさなければならない。
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - test: `tests/app/moqtrun_test.c` —
+    `test_moqtrun_late_subscriber_gets_late_opened_stream`
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_object_relay_preserves_bytes`
   - test: `tests/app/moqtrun_test.c` —
@@ -713,9 +715,9 @@
 
 - [x] MOQT-143 実装は Subgroup の Object の Object ID Delta、Payload Length、そして明示的な Object Status(ペイロードが空のとき)またはペイロードのバイト列を、ワイヤー形式とバイト単位で一致するようにエンコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_put`
-- [x] MOQT-144 1 メッセージのビルダーは、Object を 1 つ運ぶ SUBGROUP_HEADER を 1 つ、ワイヤー形式とバイト単位で一致するように組み立て、書き込み先のバッファーが小さすぎるときは途中まで書かずに失敗しなければならない。
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_golden`
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_bounds`
+- [~] MOQT-144 1 メッセージのビルダーは、Object を 1 つ運ぶ SUBGROUP_HEADER を 1 つ、ワイヤー形式とバイト単位で一致するように組み立て、書き込み先のバッファーが小さすぎるときは途中まで書かずに失敗しなければならない。
+  - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
+  - gap: 本番は `moqdata_blob_build` と `moqtrun_live_head` で SUBGROUP_HEADER と Object を組み立てる。バイト列はゴールデンと一致することを確かめているが、`moqdata_blob_build` は小さすぎるバッファーに途中まで書くことがある。
   - test: `tests/app/moqdata_test.c` —
     `test_moqdata_put_path_status_eog_golden`
 
@@ -734,7 +736,7 @@
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_reset_unsubscribes`
 - [~] MOQT-149 (SS3.3.3) ハブが自分の送ったリクエストを取り消すとき、ハブは開いている送信方向をリセットし、受信方向に STOP_SENDING を送らなければならない(自分の方向を FIN 済みなら STOP_SENDING だけを送る)。
-  - evidence: `test_moqtrun_upsub_last_cancel_cancels_upstream` は、上流のストリームに RESET_STREAM と STOP_SENDING が送られることを確かめている。FIN 済みのケースは購読モデルでしか固定していない(`test_moqsub_cancel_after_fin`)。
+  - evidence: `test_moqtrun_upsub_last_cancel_cancels_upstream` は、上流のストリームに RESET_STREAM と STOP_SENDING が送られることを確かめている。FIN 済みのケースを固定するテストはない。
 - [x] MOQT-150 (SS3.3.2) 応答側が応答を一度も送らずに自分の方向を FIN した場合、要求元はそのリクエストを失敗として扱わなければならない。
   - evidence: `test_moqtrun_upsub_fin_unanswered_fails` と `test_moqtrun_upfetch_fin_unanswered`。応答の前に FIN された上流の SUBSCRIBE / FETCH は、REQUEST_ERROR を受けたときと同じく失敗する(`moqtrun_up_rx`、`moqtrun_upf_rx`)。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_fin_unanswered_fails`

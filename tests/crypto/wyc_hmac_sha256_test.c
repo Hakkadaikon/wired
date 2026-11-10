@@ -17,8 +17,7 @@ static int wyc_hmac_case(const bssl_attr* a, const wyc_case* c) {
   if (kl < 0 || ml < 0 || tl < 0 || tn > SHA256_DIGEST) {
     return WYC_BAD;
   }
-  hmac_sha256_truncated(
-      wired_span_of(key, (usz)kl), wired_span_of(msg, (usz)ml), got, tn);
+  hmac_sha256(wired_span_of(key, (usz)kl), wired_span_of(msg, (usz)ml), got);
   return (u32)tl == tn && wyc_eq(got, tag, tn) ? WYC_OK : WYC_REJ;
 }
 

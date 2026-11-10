@@ -56,20 +56,8 @@ void hmac_sha256(wired_span key, wired_span msg, u8 out[SHA256_DIGEST]) {
   sha256_final(&s, out);
 }
 
-/* FIPS 198-1 5, "Truncation of HMAC Output": MAC = leftmost Tlen bytes of
- * HMAC(K, text). Clamp out_len so a caller error cannot read past the
- * 32-byte digest computed on the stack. */
-void hmac_sha256_truncated(
-    wired_span key, wired_span msg, u8* out, usz out_len) {
-  u8  full[SHA256_DIGEST];
-  usz n = out_len < SHA256_DIGEST ? out_len : SHA256_DIGEST;
-  hmac_sha256(key, msg, full);
-  bytes_memcpy(out, full, n);
-}
-
-/* SHA-384 and SHA-512 (FIPS 180-4 6.4/6.5) share the 128-byte block and the
- * sha512_ctx; they differ only in IV and output length, so one RFC 2104 body
- * serves both HMACs. */
+/* SHA-384 (FIPS 180-4 6.5) runs on the 128-byte block and the sha512_ctx;
+ * the variant carries its IV and output length into the RFC 2104 body. */
 typedef struct {
   void (*init)(sha512_ctx*);
   void (*final)(sha512_ctx*, u8*);
@@ -78,8 +66,6 @@ typedef struct {
 
 static const hmac512_hash HMAC512_SHA384 = {
     sha384_init, sha384_final, SHA384_DIGEST};
-static const hmac512_hash HMAC512_SHA512 = {
-    sha512_init, sha512_final, SHA512_DIGEST};
 
 /* H(prefix || msg) with the variant's IV and output length. */
 static void hmac512_hash2(
@@ -130,8 +116,4 @@ static void hmac512_mac(
 
 void hmac_sha384(wired_span key, wired_span msg, u8 out[SHA384_DIGEST]) {
   hmac512_mac(&HMAC512_SHA384, key, msg, out);
-}
-
-void hmac_sha512(wired_span key, wired_span msg, u8 out[SHA512_DIGEST]) {
-  hmac512_mac(&HMAC512_SHA512, key, msg, out);
 }

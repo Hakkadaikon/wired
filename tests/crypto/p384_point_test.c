@@ -77,22 +77,18 @@ static void test_p384_order(void) {
   CHECK(r.inf == 1);
 }
 
-/* point_double(G) == point_mul(2, G), and point_add(G,G) agrees too. */
+/* point_add(G,G) == point_mul(2, G). */
 static void test_p384_double_eq_add(void) {
-  ec_point384 d, a;
-  p384_point_double(&d, &p384_g);
-  pp_expect(&d, pp_k2_x, pp_k2_y);
+  ec_point384 a;
   p384_point_add(&a, &p384_g, &p384_g);
   pp_expect(&a, pp_k2_x, pp_k2_y);
 }
 
-/* The point at infinity: on the curve by convention, 2*O == O, G + O == G. */
+/* The point at infinity: on the curve by convention, G + O == G. */
 static void test_p384_point_infinity_ops(void) {
   ec_point384 o = {{0}, {0}, 1};
   ec_point384 r = {{0}, {0}, 0};
   CHECK(p384_point_on_curve(&o) == 1);
-  p384_point_double(&r, &o);
-  CHECK(r.inf == 1);
   p384_point_add(&r, &p384_g, &o);
   CHECK(r.inf == 0);
   CHECK(fp384_eq(r.x, p384_g.x) == 1);

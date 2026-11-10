@@ -27,7 +27,7 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
 
-以下の 11 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
+以下の 8 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである。
 
 guide のスニペットや例はどれもこれらを含まない。
 
@@ -37,10 +37,7 @@ guide のスニペットや例はどれもこれらを含まない。
 
 参照: `tests/run.c` の include を、`examples/` から到達できる include と比べた結果。
 
-- `common/diag/error/`: `codes.c`
 - `crypto/pki/cert/certreq/`: `certreq.c`
-- `crypto/pki/cert/tbscert/`: `version_serial.c`
-- `crypto/pki/encoding/x509/`: `keyid.c`
 - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
 - `tls/handshake/roles/server/`: `serverio.c`
 - `transport/conn/lifecycle/endpoint/`: `endpoint.c`

@@ -3,11 +3,8 @@
 
 #include "crypto/kdf/keys/keyset.h"
 
-/* RFC 9001 4.9.1: Initial keys are discarded once Handshake keys are
- * installed; Handshake keys are discarded once the handshake is confirmed. */
-
-/* 1 if Initial keys should be discarded, else 0. */
-int key_should_discard_initial(int handshake_keys_installed);
+/* RFC 9001 4.9.2: Handshake keys are discarded once the handshake is
+ * confirmed. */
 
 /* 1 if Handshake keys should be discarded, else 0. */
 int key_should_discard_handshake(int handshake_confirmed);

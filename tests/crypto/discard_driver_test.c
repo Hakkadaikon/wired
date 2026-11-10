@@ -1,10 +1,8 @@
 #include "test.h"
 
-/* RFC 9001 4.9.1: discard Initial once Handshake keys exist, Handshake once
- * confirmed; after discard the level is no longer fetchable. */
+/* RFC 9001 4.9.2: discard Handshake keys once confirmed; after discard the
+ * level is no longer fetchable. */
 void test_discard_driver(void) {
-  CHECK(key_should_discard_initial(0) == 0);
-  CHECK(key_should_discard_initial(1) == 1);
   CHECK(key_should_discard_handshake(0) == 0);
   CHECK(key_should_discard_handshake(1) == 1);
 

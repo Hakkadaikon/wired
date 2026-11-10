@@ -117,9 +117,6 @@ typedef struct {
   int timed_out;
 } moqssts_obs;
 
-/** 1 for an algorithm id this module implements (registry.rs), else 0. */
-int moqssts_alg_supported(u64 id);
-
 /** 1 when activate > 0 and the set has at least activate members. */
 int moqssts_set_active(const moqssts_set* s);
 

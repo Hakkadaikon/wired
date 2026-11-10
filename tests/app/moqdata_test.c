@@ -102,27 +102,19 @@ static void test_moqdata_type_bits_golden(void) {
   /* 0x10: everything off, mode 0b00 */
   CHECK(!moqdata_type_props(0x10));
   CHECK(moqdata_type_sgid_mode(0x10) == 0);
-  CHECK(!moqdata_type_end_of_group(0x10));
   CHECK(!moqdata_type_default_priority(0x10));
-  CHECK(!moqdata_type_first_object(0x10));
   /* 0x34: mode 0b10, default priority */
   CHECK(!moqdata_type_props(0x34));
   CHECK(moqdata_type_sgid_mode(0x34) == 2);
-  CHECK(!moqdata_type_end_of_group(0x34));
   CHECK(moqdata_type_default_priority(0x34));
-  CHECK(!moqdata_type_first_object(0x34));
   /* 0x59: properties, end of group, first object */
   CHECK(moqdata_type_props(0x59));
   CHECK(moqdata_type_sgid_mode(0x59) == 0);
-  CHECK(moqdata_type_end_of_group(0x59));
   CHECK(!moqdata_type_default_priority(0x59));
-  CHECK(moqdata_type_first_object(0x59));
   /* 0x7b: properties, mode 0b01, end of group, default prio, first */
   CHECK(moqdata_type_props(0x7b));
   CHECK(moqdata_type_sgid_mode(0x7b) == 1);
-  CHECK(moqdata_type_end_of_group(0x7b));
   CHECK(moqdata_type_default_priority(0x7b));
-  CHECK(moqdata_type_first_object(0x7b));
 }
 
 /* TEST: header of the basic golden stream (type 0x70, default priority,
@@ -139,7 +131,6 @@ static void test_moqdata_subhdr_take_basic(void) {
   CHECK(h.group_id == 0);
   CHECK(h.subgroup_id == 0);
   CHECK(!h.subgroup_id_pending);
-  CHECK(moqdata_type_first_object(h.type));
   CHECK(moqdata_type_default_priority(h.type));
 }
 
@@ -157,7 +148,6 @@ static void test_moqdata_subhdr_take_status_eog(void) {
   CHECK(h.track_alias == 1);
   CHECK(h.group_id == 0);
   CHECK(h.priority == 128);
-  CHECK(moqdata_type_end_of_group(h.type));
   CHECK(!moqdata_type_default_priority(h.type));
 }
 
@@ -479,34 +469,15 @@ static void test_moqdata_obj_put(void) {
   CHECK(off == 0);
 }
 
-/* TEST: the one-message builder reproduces the basic golden stream. */
-static void test_moqdata_msg_build_golden(void) {
-  u8          out[MOQDATA_MSG_OVERHEAD + 2];
-  usz         off = 0;
-  moqdata_msg m   = {1, 0, {(const u8*)"hi", 2}};
-  CHECK(
-      moqdata_msg_build(wired_mspan_of(out, sizeof out), &off, &m) ==
-      MOQDATA_OK);
+/* TEST: a one-chunk blob frames as the basic golden stream: Type 0x70,
+ * alias 1, Group 0, one Object "hi" (FIRST_OBJECT set, ID Delta 0). */
+static void test_moqdata_blob_build_golden(void) {
+  u8  out[MOQDATA_BLOB_WIRE_CAP(2)];
+  usz n = moqdata_blob_build(
+      wired_mspan_of(out, sizeof out), 1, wired_span_of((const u8*)"hi", 2));
   CHECK(span_eq(
-      wired_span_of(out, off), g_moqt_data_subgroup_stream_basic,
+      wired_span_of(out, n), g_moqt_data_subgroup_stream_basic,
       G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN));
-}
-
-/* TEST: worst-case varints fit in MOQDATA_MSG_OVERHEAD; a too-small
- * buffer -> insufficient without advancing. */
-static void test_moqdata_msg_build_bounds(void) {
-  u8          out[MOQDATA_MSG_OVERHEAD];
-  usz         off = 0;
-  moqdata_msg m   = {(u64)-1, (u64)-1, {0, 0}};
-  CHECK(
-      moqdata_msg_build(wired_mspan_of(out, sizeof out), &off, &m) ==
-      MOQDATA_OK);
-  off            = 0;
-  moqdata_msg hi = {1, 0, {(const u8*)"hi", 2}};
-  CHECK(
-      moqdata_msg_build(wired_mspan_of(out, 6), &off, &hi) ==
-      MOQDATA_INSUFFICIENT);
-  CHECK(off == 0);
 }
 
 /* TEST: the status/eog golden stream is reproduced by the put path
@@ -765,7 +736,6 @@ void test_moqdata(void) {
   test_moqdata_obj_take_payload_len_boundary();
   test_moqdata_obj_take_props_len_boundary();
   test_moqdata_obj_put();
-  test_moqdata_msg_build_golden();
-  test_moqdata_msg_build_bounds();
+  test_moqdata_blob_build_golden();
   test_moqdata_put_path_status_eog_golden();
 }

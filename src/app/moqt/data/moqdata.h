@@ -73,13 +73,9 @@ int moqdata_type_props(u64 type);
 /** Subgroup ID mode, bits 0x06: 0 = Subgroup ID 0, 1 = first Object ID,
  * 2 = explicit field, 3 = reserved. */
 u64 moqdata_type_sgid_mode(u64 type);
-/** 1 iff type has END_OF_GROUP (bit 0x08). */
-int moqdata_type_end_of_group(u64 type);
 /** 1 iff type has DEFAULT_PRIORITY (bit 0x20): no Publisher Priority
  * field in the header. */
 int moqdata_type_default_priority(u64 type);
-/** 1 iff type has FIRST_OBJECT (bit 0x40). */
-int moqdata_type_first_object(u64 type);
 
 /** Decoded SUBGROUP_HEADER (11.4.2). subgroup_id_pending is set when mode
  * is 0b01 (Subgroup ID == first Object ID, resolved once that Object is
@@ -181,30 +177,10 @@ int moqdata_obj_put(
  * given explicit Status. */
 int moqdata_obj_put_status(wired_mspan buf, usz* off, u64 id_delta, u64 status);
 
-/** One-message builder: a single SUBGROUP_HEADER (Type 0x70: PROPERTIES
- * off, mode 0b00, no end-of-group, default priority, FIRST_OBJECT set)
- * carrying one Object (payload form, implicit Normal status). */
-typedef struct {
-  /** Track Alias carried by the header. */
-  u64 track_alias;
-  /** Group ID carried by the header. */
-  u64 group_id;
-  /** The one Object's payload (copied into buf). */
-  wired_span payload;
-} moqdata_msg;
-
-/** Worst-case wire size of moqdata_msg_build's header + Object
- * framing (excludes payload bytes): Type(1) + Track Alias(9) +
- * Group ID(9) + Object ID Delta(9) + Payload Length(9) = 37. */
+/** Worst-case wire size of a SUBGROUP_HEADER (Type 0x70) + one Object's
+ * framing (excludes payload bytes): Type(1) + Track Alias(9) + Group ID(9)
+ * + Object ID Delta(9) + Payload Length(9) = 37. */
 #define MOQDATA_MSG_OVERHEAD 37
-
-/** Writes m as one SUBGROUP_HEADER + one Object (Object ID 0).
- * @param buf output buffer; needs MOQDATA_MSG_OVERHEAD + payload bytes
- * @param off write offset, advanced past the message
- * @param m message to encode
- * @return MOQDATA_OK, or MOQDATA_INSUFFICIENT (buf too small; *off
- *   unchanged) */
-int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m);
 
 /** Bytes per Object when moqdata_blob_build frames a blob: 16 KiB keeps
  * each Object a read()-sized unit for a browser subscriber while holding
@@ -219,7 +195,8 @@ int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m);
 #define MOQDATA_BLOB_WIRE_CAP(n) \
   ((n) + MOQDATA_MSG_OVERHEAD + 8 * ((n) / MOQDATA_BLOB_CHUNK + 1))
 
-/** Multi-Object builder: moqdata_msg_build's SUBGROUP_HEADER (Type 0x70,
+/** Multi-Object builder: a SUBGROUP_HEADER (Type 0x70: PROPERTIES off,
+ * mode 0b00, no end-of-group, default priority, FIRST_OBJECT set;
  * track_alias, Group 0) followed by ceil(blob.n / MOQDATA_BLOB_CHUNK)
  * Objects, each with Object ID Delta 0 -- FIRST_OBJECT makes the first
  * one's delta its absolute id 0 and the chaining rule (prev + delta + 1,

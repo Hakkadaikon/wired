@@ -6,10 +6,6 @@ static int moqssts_member_up_to(const moqssts_set* s, u64 target);
 static int moqssts_is_saturated(const moqssts_set* s, int sel);
 static u64 moqssts_weight_sum(const moqssts_set* sets, usz n, u32 mask);
 
-int moqssts_alg_supported(u64 id) {
-  return id == MOQSSTS_ALG_DEFAULT || id == MOQSSTS_ALG_BACKPRESSURE;
-}
-
 /* Every entry starts MOQSSTS_NONE, so sets past the cap stay answered. */
 void moqssts_none_all(int* out, usz n) {
   for (usz i = 0; i < n; i++) {

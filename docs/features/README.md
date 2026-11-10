@@ -71,8 +71,8 @@ flowchart TD
 
 ## 5. 仕様ごとのカバレッジ
 
-**合計: 2558/2565 件の要件を確認済み(99.7%)。内訳は直接テスト 2220 件、
-間接 338 件、未テスト 7 件。**
+**合計: 2558/2565 件の要件を確認済み(99.7%)。内訳は直接テスト 2212 件、
+間接 346 件、未テスト 7 件。**
 
 
 ### 5.1 QUIC のコア
@@ -103,7 +103,7 @@ flowchart TD
 | 仕様 | 確認済み | テスト済み | 間接 | 未テスト |
 |---|---|---|---|---|
 | [RFC 8446: TLS 1.3](rfc8446.md) | 139/139 | 112 | 27 | 0 |
-| [RFC 5280: X.509 / PKI](rfc5280.md) | 57/57 | 47 | 10 | 0 |
+| [RFC 5280: X.509 / PKI](rfc5280.md) | 57/57 | 45 | 12 | 0 |
 | [RFC 5480: 証明書の楕円曲線公開鍵](rfc5480.md) | 21/21 | 21 | 0 | 0 |
 | [RFC 5758: ECDSA / SHA-2 の署名 OID](rfc5758.md) | 9/9 | 8 | 1 | 0 |
 | [RFC 8410: Ed25519/X25519 のアルゴリズム識別子](rfc8410.md) | 19/19 | 15 | 4 | 0 |
@@ -154,10 +154,10 @@ flowchart TD
 
 | 仕様 | 確認済み | テスト済み | 間接 | 未テスト |
 |---|---|---|---|---|
-| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 246/248 | 219 | 27 | 2 |
-| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 246/248 | 213 | 33 | 2 |
-| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 258/259 | 224 | 34 | 1 |
-| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 299/299 | 265 | 34 | 0 |
+| [draft-ietf-moq-transport-18](draft-moq-transport-18.md) | 246/248 | 217 | 29 | 2 |
+| [draft-ietf-moq-transport-19](draft-moq-transport.md) | 246/248 | 211 | 35 | 2 |
+| [draft-ietf-moq-transport-22](draft-moq-transport-22.md) | 258/259 | 223 | 35 | 1 |
+| [draft-ietf-moq-transport-23](draft-moq-transport-23.md) | 299/299 | 264 | 35 | 0 |
 
 上の表は実験的な機能を数えない。[MoQT の Track 切り替え](moqt-track-switching.md) は moqtail 互換のオプトインの拡張(SWITCH_FROM 0x24、SWITCHING_SET_ASSIGNMENT 0x41、SSTS_ALGORITHMS 0x09)で、draft-22 のセッションで使える。draft-23 のセッションでは SSTS_ALGORITHMS を 0x3F01 に移す。
 

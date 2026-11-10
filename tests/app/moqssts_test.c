@@ -363,17 +363,6 @@ static void test_moqssts_active_depth_is_the_deepest_active_set(void) {
   CHECK(moqssts_active_depth(s, 0, open) == 0);
 }
 
-/* ===== registry.rs ===== */
-
-static void test_moqssts_unknown_ids_are_rejected(void) {
-  CHECK(!moqssts_alg_supported(12345));
-}
-
-static void test_moqssts_the_default_algorithm_is_always_available(void) {
-  CHECK(moqssts_alg_supported(MOQSSTS_ALG_DEFAULT));
-  CHECK(moqssts_alg_supported(MOQSSTS_ALG_BACKPRESSURE));
-}
-
 /* ===== derived: review round 1 ===== */
 
 /* More sets than the cap: the first MOQSSTS_MAX_SETS are decided, the rest
@@ -532,8 +521,6 @@ void test_moqssts(void) {
   test_moqssts_cooldown_brackets_the_settle_down_period();
   test_moqssts_a_timeout_counts_as_depth_and_as_evidence();
   test_moqssts_active_depth_is_the_deepest_active_set();
-  test_moqssts_unknown_ids_are_rejected();
-  test_moqssts_the_default_algorithm_is_always_available();
   test_moqssts_sets_past_the_cap_forward_nothing();
   test_moqssts_cooldown_reference_follows_every_group();
   test_moqssts_a_rank_spend_leaves_the_budget();

@@ -32,9 +32,8 @@ void fp521_mul(p521_fe r, const p521_fe a, const p521_fe b, const p521_fe m);
 /* r = a^-1 mod m for an odd prime m and 0 < a < m (binary extended GCD). */
 void fp521_inv(p521_fe r, const p521_fe a, const p521_fe m);
 
-/* Big-endian 66-byte load/store. A load keeps all 528 bits, so the caller
- * range-checks it with fp521_lt. */
+/* Big-endian 66-byte load. It keeps all 528 bits, so the caller range-checks
+ * it with fp521_lt. */
 void fp521_from_be(p521_fe r, const u8 b[66]);
-void fp521_to_be(u8 b[66], const p521_fe a);
 
 #endif

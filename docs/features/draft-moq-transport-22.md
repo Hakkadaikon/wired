@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 224/259、間接 34、未テスト 1。**
+**カバレッジ: テスト済み 223/259、間接 35、未テスト 1。**
 
 ## SS8.1 可変長整数
 
@@ -607,7 +607,7 @@
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_fin_after`
   - test: `tests/app/moqtrun_done_test.c` — `test_moqtrun_pubdone_one_sub`
 - [~] MQ22-101 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
-  - evidence: ハブはすべての PUBLISH にすぐに応答するので、応答していない PUBLISH を抱えることはありません。この規則は購読のモデル(`test_moqsub_publish_done_before_response_defers_ok`)でしか固定していません。
+  - evidence: ハブはすべての PUBLISH にすぐに応答するので、応答していない PUBLISH を抱えることはありません。この規則を固定するテストはありません。
 - [x] MQ22-102 実装は、自身が使う PUBLISH_DONE のステータスコードを認識しなければならない: INTERNAL_ERROR、TRACK_ENDED、GOING_AWAY。Location Filter の終わりがもはや購読を終了させないので(MQ22-137a を参照)、draft-22 は SUBSCRIPTION_ENDED (0x3。未割り当て)を削除している。
   - test: `tests/app/moqctl_test.c` —
     `test_moqctl_unknown_error_normalizes_to_internal`
@@ -711,14 +711,15 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MQ22-121 SUBGROUP_ID_MODE が 0b11 の場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [x] MQ22-122 実装は、SUBGROUP_HEADER の Type Flags フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
+- [~] MQ22-122 実装は、SUBGROUP_HEADER の Type Flags フィールドの PROPERTIES ビット (0x01)、END_OF_GROUP ビット (0x08)、DEFAULT_PRIORITY ビット (0x20)、FIRST_OBJECT ビット (0x40) をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しません。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろします。
 - [x] MQ22-123 DEFAULT_PRIORITY が立っている場合、ヘッダーの Publisher Priority フィールドは省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
 - [~] MQ22-124 END_OF_GROUP ビットが立ち、ストリームが FIN で終わる場合、実装は同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
   - evidence: このビットはデコードしています(MQ22-122)が、「END_OF_GROUP で FIN したら、より大きい Object ID は存在しない」という推定そのものを確かめる専用のテストはありません。これは、リレーが Object を丸ごと転送するやり方に暗に含まれています。
 - [x] MQ22-125 Original Publisher は、新しい Subgroup を開くとき、FIRST_OBJECT ビットを立てて、ストリームの最初の Object がその Subgroup でこれまでに配信された最初の Object であることを示さなければならない。
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
 - [x] MQ22-249 (SS2.2, SS11.3.1) リレーは、最初の Object から転送する Subgroup では FIRST_OBJECT ビットを保ち、Subgroup の途中から開くストリームではそれを落とさなければならない。
   - test: `tests/app/moqtrun_test.c` —
     `test_moqtrun_late_subscriber_gets_late_opened_stream`

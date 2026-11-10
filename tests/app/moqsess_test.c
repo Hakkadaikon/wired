@@ -37,14 +37,13 @@ static void test_moqsess_established_accepts_request(void) {
 }
 
 /* Pipelined request right after sending own SETUP (peer's not yet
- * received): still not rejected -- may_reject_request stays false and the
- * session is not closed while progressing toward Established. */
+ * received): the session is not closed while progressing toward
+ * Established. */
 static void test_moqsess_pipeline_before_peer_setup(void) {
   moqsess s;
   moqsess_init(&s);
   moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
   CHECK(s.state == MOQSESS_SETUP_HALF);
-  CHECK(moqsess_may_reject_request(&s) == 0);
   CHECK(moqsess_step(&s, MOQSESS_EV_RECV_SETUP) == MOQSESS_CLOSE_NONE);
   CHECK(moqsess_established(&s) == 1);
 }
@@ -84,7 +83,7 @@ static void test_moqsess_goaway_reject_new_request(void) {
   moqsess_step(&s, MOQSESS_EV_SENT_SETUP);
   moqsess_step(&s, MOQSESS_EV_RECV_SETUP);
   CHECK(moqsess_step(&s, MOQSESS_EV_SEND_GOAWAY) == MOQSESS_CLOSE_NONE);
-  CHECK(moqsess_may_reject_request(&s) == 1);
+  CHECK(s.goaway_sent == 1);
   CHECK(s.state == MOQSESS_ESTABLISHED);
 }
 
@@ -240,116 +239,21 @@ static void test_moqsess_closed_is_sticky(void) {
 /* SUBSCRIBE -> SUBSCRIBE_OK establishes the subscription. */
 static void test_moqsub_subscribe_establish(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   CHECK(moqsub_step(&s, MOQSUB_EV_OPEN) == 1);
   CHECK(s.state == MOQSUB_PENDING);
   CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(s.state == MOQSUB_ESTABLISHED);
 }
 
-/* PUBLISH -> PUBLISH_OK (REQUEST_OK) establishes the subscription. */
-static void test_moqsub_publish_establish(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
-  CHECK(s.state == MOQSUB_ESTABLISHED);
-}
-
-/* REQUEST_UPDATE leaves an established subscription's state unchanged. */
-static void test_moqsub_update_keeps_established(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_step(&s, MOQSUB_EV_UPDATE) == 1);
-  CHECK(s.state == MOQSUB_ESTABLISHED);
-}
-
-/* PUBLISH_DONE (exact Stream Count, all data streams already closed) + FIN
- * terminates the subscription; the publisher may not open new data streams
- * afterward. */
-static void test_moqsub_publish_done_terminates_and_reclaims(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-  CHECK(s.term_reason == MOQSUB_TERM_PUBLISH_DONE);
-  CHECK(s.pending_ok == 0); /* already responded via OK, no late OK owed */
-}
-
-/* PUBLISH_DONE arriving before any response: subscriber owes exactly one
- * deferred PUBLISH_OK before it FINs (pending_ok signals the caller to
- * send that late OK). */
-static void test_moqsub_publish_done_before_response_defers_ok(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-  CHECK(s.pending_ok == 1);
-  CHECK(s.responded == 1); /* exactly-one-response satisfied by late OK */
-}
-
-/* Requester FINs its own direction right after sending, before any
- * response: the request is not failed and still awaits a response. */
-static void test_moqsub_requester_early_fin_not_failed(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_REQ) == 1);
-  CHECK(s.state != MOQSUB_TERMINATED);
-  CHECK(s.state == MOQSUB_PENDING);
-}
-
-/* Cancelling an established subscription: STOP_SENDING terminates it, and
- * the publisher resets every open data stream (represented here as "no
- * longer forwardable" once terminated). */
-static void test_moqsub_cancel_established(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_OK);
-  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-  CHECK(s.term_reason == MOQSUB_TERM_STOP_SENDING);
-}
-
-/* Cancel after the subscriber's own direction is already FIN'd: only
- * STOP_SENDING is sent (nothing on the FIN'd direction); the subscription
- * still terminates. */
-static void test_moqsub_cancel_after_fin(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  moqsub_step(&s, MOQSUB_EV_FIN_REQ);
-  CHECK(s.fin_req == 1);
-  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-}
-
 /* SUBSCRIBE rejected: REQUEST_ERROR terminates the subscription; no Object
  * is ever sent for it. */
 static void test_moqsub_subscribe_rejected(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
   CHECK(s.state == MOQSUB_TERMINATED);
-  CHECK(s.term_reason == MOQSUB_TERM_ERROR);
-}
-
-/* PUBLISH rejected (UNINTERESTED): REQUEST_ERROR + FIN + STOP_SENDING on
- * the receiving direction; the subscription terminates. */
-static void test_moqsub_publish_rejected(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-  CHECK(s.term_reason == MOQSUB_TERM_ERROR);
 }
 
 /* ---------- violation / abnormal ---------- */
@@ -358,7 +262,7 @@ static void test_moqsub_publish_rejected(void) {
  * a local termination alone: session_fault is set. */
 static void test_moqsub_duplicate_response_is_session_fault(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 1);
   CHECK(s.session_fault == 0);
@@ -366,23 +270,10 @@ static void test_moqsub_duplicate_response_is_session_fault(void) {
   CHECK(s.session_fault == 1);
 }
 
-/* The responder FINs its own direction without ever sending a response:
- * the requester treats the request as failed and terminates. */
-static void test_moqsub_early_fin_before_response(void) {
-  moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_RESP) == 1);
-  CHECK(s.fin_resp == 1);
-  CHECK(s.responded == 0);
-  CHECK(moqsub_step(&s, MOQSUB_EV_STOP_SENDING) == 1);
-  CHECK(s.state == MOQSUB_TERMINATED);
-}
-
-/* A second SUBSCRIBE/PUBLISH on an open request is ignored (no re-open). */
+/* A second SUBSCRIBE on an open request is ignored (no re-open). */
 static void test_moqsub_reopen_ignored(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_step(&s, MOQSUB_EV_OPEN) == 0);
@@ -393,7 +284,7 @@ static void test_moqsub_reopen_ignored(void) {
  * subscription stays established and session_fault is set. */
 static void test_moqsub_error_after_ok_is_session_fault(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   moqsub_step(&s, MOQSUB_EV_OK);
   CHECK(moqsub_step(&s, MOQSUB_EV_ERROR) == 0);
@@ -401,31 +292,17 @@ static void test_moqsub_error_after_ok_is_session_fault(void) {
   CHECK(s.state == MOQSUB_ESTABLISHED);
 }
 
-/* STOP_SENDING from Pending(Publisher) and PUBLISH_DONE from
- * Pending(Subscriber) are not legal: both leave the request pending. */
-static void test_moqsub_pending_role_mismatch_ignored(void) {
-  moqsub p, s;
-  moqsub_init(&p, MOQSUB_ROLE_PUBLISHER);
-  moqsub_step(&p, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&p, MOQSUB_EV_STOP_SENDING) == 0);
-  CHECK(p.state == MOQSUB_PENDING);
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
-  moqsub_step(&s, MOQSUB_EV_OPEN);
-  CHECK(moqsub_step(&s, MOQSUB_EV_PUBLISH_DONE) == 0);
-  CHECK(s.state == MOQSUB_PENDING);
-}
-
 /* A terminated subscription takes no further event, and an event outside
  * the table is ignored rather than indexed. */
 static void test_moqsub_terminated_and_unknown_event(void) {
   moqsub s;
-  moqsub_init(&s, MOQSUB_ROLE_SUBSCRIBER);
+  moqsub_init(&s);
   moqsub_step(&s, MOQSUB_EV_OPEN);
   CHECK(moqsub_step(&s, (moqsub_event)99) == 0);
   CHECK(s.state == MOQSUB_PENDING);
   moqsub_step(&s, MOQSUB_EV_ERROR);
-  CHECK(moqsub_step(&s, MOQSUB_EV_FIN_RESP) == 0);
-  CHECK(s.fin_resp == 0);
+  CHECK(moqsub_step(&s, MOQSUB_EV_OK) == 0);
+  CHECK(s.state == MOQSUB_TERMINATED);
 }
 
 /* An event outside the session table leaves the session open. */
@@ -441,7 +318,6 @@ static void test_moqsess_unknown_event_ignored(void) {
 void test_moqsess(void) {
   test_moqsub_reopen_ignored();
   test_moqsub_error_after_ok_is_session_fault();
-  test_moqsub_pending_role_mismatch_ignored();
   test_moqsub_terminated_and_unknown_event();
   test_moqsess_unknown_event_ignored();
   test_moqsess_establish();
@@ -464,15 +340,6 @@ void test_moqsess(void) {
   test_moqsess_closed_is_sticky();
 
   test_moqsub_subscribe_establish();
-  test_moqsub_publish_establish();
-  test_moqsub_update_keeps_established();
-  test_moqsub_publish_done_terminates_and_reclaims();
-  test_moqsub_publish_done_before_response_defers_ok();
-  test_moqsub_requester_early_fin_not_failed();
-  test_moqsub_cancel_established();
-  test_moqsub_cancel_after_fin();
   test_moqsub_subscribe_rejected();
-  test_moqsub_publish_rejected();
   test_moqsub_duplicate_response_is_session_fault();
-  test_moqsub_early_fin_before_response();
 }

@@ -69,10 +69,26 @@ static const u8 nct_tbs_excluded_a[] = {
     0x08, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13, 0x01, 0x41,
 };
 
+/* A child tbs carrying only the subject Name: placeholder serial,
+ * signature, empty issuer, validity, then name, then a placeholder spki, so
+ * x509_name_constraints_admit reads name as the child's subject. */
+static int nct_admit_subject(wired_span issuer_tbs, wired_span name) {
+  static const u8 head[] = {0x05, 0x00, 0x05, 0x00, 0x30, 0x00, 0x05, 0x00};
+  u8              child[64];
+  child[0] = 0x30;
+  child[1] = (u8)(sizeof(head) + name.n + 2);
+  bytes_memcpy(child + 2, head, sizeof(head));
+  bytes_memcpy(child + 2 + sizeof(head), name.p, name.n);
+  child[2 + sizeof(head) + name.n] = 0x05;
+  child[3 + sizeof(head) + name.n] = 0x00;
+  return x509_name_constraints_admit(
+      issuer_tbs, wired_span_of(child, 4 + sizeof(head) + name.n));
+}
+
 /* RFC 5280 4.2.1.10: no nameConstraints extension imposes no restriction. */
 static void test_nc_absent_permits(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_no_ext, sizeof(nct_tbs_no_ext)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 1);
 }
@@ -80,7 +96,7 @@ static void test_nc_absent_permits(void) {
 /* permittedSubtrees admits a subject Name equal to the subtree base. */
 static void test_nc_permitted_exact_match_ok(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 1);
 }
@@ -89,7 +105,7 @@ static void test_nc_permitted_exact_match_ok(void) {
  * (a subtree member, not just the base itself). */
 static void test_nc_permitted_child_ok(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_a_child, sizeof(nct_name_a_child))) == 1);
 }
@@ -98,7 +114,7 @@ static void test_nc_permitted_child_ok(void) {
  */
 static void test_nc_permitted_unrelated_rejected(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_b, sizeof(nct_name_b))) == 0);
 }
@@ -106,7 +122,7 @@ static void test_nc_permitted_unrelated_rejected(void) {
 /* excludedSubtrees rejects a subject Name inside the excluded subtree. */
 static void test_nc_excluded_match_rejected(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_a, sizeof(nct_name_a))) == 0);
 }
@@ -114,7 +130,7 @@ static void test_nc_excluded_match_rejected(void) {
 /* excludedSubtrees does not restrict a subject Name outside it. */
 static void test_nc_excluded_unrelated_ok(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_b, sizeof(nct_name_b))) == 1);
 }
@@ -124,7 +140,7 @@ static void test_nc_excluded_unrelated_ok(void) {
  * prefix compare would let "CN=a" slip past an excluded "CN=A". */
 static void test_nc_excluded_dn_case_mismatch_rejects(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_excluded_a, sizeof(nct_tbs_excluded_a)),
           wired_span_of(nct_name_a_lower, sizeof(nct_name_a_lower))) == 0);
 }
@@ -133,7 +149,7 @@ static void test_nc_excluded_dn_case_mismatch_rejects(void) {
  * permitted subtree "CN=A". */
 static void test_nc_permitted_dn_case_mismatch_ok(void) {
   CHECK(
-      x509_name_constraints_permit(
+      nct_admit_subject(
           wired_span_of(nct_tbs_permitted_a, sizeof(nct_tbs_permitted_a)),
           wired_span_of(nct_name_a_lower, sizeof(nct_name_a_lower))) == 1);
 }
@@ -581,8 +597,8 @@ static void test_ncsan_subtree_count_over_cap_rejects(void) {
           tbs, wired_span_of(nct_child_san_sub, sizeof(nct_child_san_sub))) ==
       0);
   CHECK(
-      x509_name_constraints_permit(
-          tbs, wired_span_of(nct_name_a, sizeof(nct_name_a))) == 0);
+      nct_admit_subject(tbs, wired_span_of(nct_name_a, sizeof(nct_name_a))) ==
+      0);
 }
 
 /* Copy n bytes of src into buf and overwrite one byte at off. */

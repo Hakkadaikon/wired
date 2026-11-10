@@ -846,8 +846,8 @@ usz wired_moqt_publish_blob(
     wired_mspan     wire);
 
 /** Publish the hub's own clock-paced live track: Group g carries fragment
- * g mod n_frags as its only Object (framed byte-identically to
- * moqdata_msg_build: one Type-0x70 SUBGROUP_HEADER + one Object), Groups
+ * g mod n_frags as its only Object (one Type-0x70 SUBGROUP_HEADER + one
+ * Object, as moqtrun_live_head frames it), Groups
  * advancing every group_ms from now_ms. A later SUBSCRIBE naming name is
  * answered SUBSCRIBE_OK carrying track_alias and immediately sent the
  * Group current at the most recent wired_moqt_tick; each Group boundary a

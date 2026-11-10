@@ -5,7 +5,7 @@
 
 /* RFC 9000 20.1 transport error codes. The 0x00-0x10 range and CRYPTO_ERROR
  * (0x0100-0x01ff) are also defined in error/error.h; this file completes the
- * set with VERSION_NEGOTIATION_ERROR and adds class predicates. */
+ * set with VERSION_NEGOTIATION_ERROR. */
 
 #define EC_NO_ERROR 0x00
 #define EC_INTERNAL_ERROR 0x01
@@ -35,22 +35,5 @@
  * server_name extension. Pass to err_crypto() to build the matching
  * CRYPTO_ERROR code. */
 #define TLS_ALERT_UNRECOGNIZED_NAME 112
-
-/* GREASE reserved values have the form 31*N+27 (RFC 9000 18.1). */
-#define EC_GREASE_MOD 31
-#define EC_GREASE_REM 27
-
-/* True if code is a defined transport error code: the 0x00-0x11 enumerated
- * range or the CRYPTO_ERROR range. */
-int error_is_standard(u64 code);
-
-/* True if code is a GREASE reserved value (31*N+27). Such codes carry no
- * meaning and must be treated as a generic error if received. */
-int error_is_grease(u64 code);
-
-/* True if code is an application error code: any value not in the transport
- * (standard) space. Application codes are carried in CONNECTION_CLOSE type
- * 0x1d and are defined by the application protocol (RFC 9000 20.2). */
-int error_is_app(u64 code);
 
 #endif

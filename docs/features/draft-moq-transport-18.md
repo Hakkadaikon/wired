@@ -12,7 +12,7 @@
 - `[~]`: 間接的に確認(専用のテストはなく、evidence 行で確かめ方を説明)
 - `[ ]`: まだどのテストでも確認していない
 
-**カバレッジ: テスト済み 219/248、間接 27、未テスト 2。**
+**カバレッジ: テスト済み 217/248、間接 29、未テスト 2。**
 
 ## SS1.4.1 可変長整数
 
@@ -545,7 +545,7 @@
   - test: `tests/app/moqtrun_upsub_test.c` —
     `test_moqtrun_upsub_publish_done_relayed`
 - [~] MQ18-102 (§10.11) 購読者が応答を送る前に PUBLISH_DONE が届いた場合、購読者は FIN を送る前に、後回しにした PUBLISH_OK をちょうど 1 つ送らなければならない。
-  - evidence: これを示すのは配線していない `moqsub` モデルだけである(`test_moqsub_publish_done_before_response_defers_ok`)。ハブは PUBLISH に同期して応答するので、この競合は起きない。
+  - evidence: ハブは PUBLISH に同期して応答するので、この競合は起きない。これを固定するテストはない。
 - [x] MQ18-103 (§10.11) 実装は、自分が知らせる終わり方について、draft-18 の PUBLISH_DONE のステータスコード(INTERNAL_ERROR、TRACK_ENDED、SUBSCRIPTION_ENDED、GOING_AWAY、UPDATE_FAILED、MALFORMED_TRACK)を使わなければならない。
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_done_track_ended`
   - test: `tests/app/moqtrun_done_test.c` —
@@ -643,16 +643,16 @@
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_mode1_resolve`
 - [x] MQ18-122 (§11.4.2) SUBGROUP_ID_MODE が 0b11 の場合、実装はプロトコル違反でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_subgroup_mode3_closes`
-- [x] MQ18-123 実装は、SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット(0x01)、END_OF_GROUP ビット(0x08)、DEFAULT_PRIORITY ビット(0x20)、FIRST_OBJECT ビット(0x40)をデコードしなければならない。
+- [~] MQ18-123 実装は、SUBGROUP_HEADER の Type フィールドの PROPERTIES ビット(0x01)、END_OF_GROUP ビット(0x08)、DEFAULT_PRIORITY ビット(0x20)、FIRST_OBJECT ビット(0x40)をデコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - gap: 本番は END_OF_GROUP と FIRST_OBJECT のビットを判定しない。Type のバイトのままリレーし、Subgroup の途中から開くストリームでは FIRST_OBJECT を下ろす。
 - [x] MQ18-124 DEFAULT_PRIORITY が立っている場合、Publisher Priority フィールドはヘッダーから省かなければならず、Subgroup は購読の制御メッセージから優先度を引き継がなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_take_basic`
   - test: `tests/app/moqtrun_drain_test.c` — `test_moqtrun_prio_track_default`
 - [~] MQ18-125 (§11.4.2) END_OF_GROUP ビットが立っていてストリームが FIN で終わった場合、実装は、同じ Group ID でより大きい Object ID を持つ Object は存在しないと推定しなければならない。
   - evidence: このビットはデコードされ(MQ18-123)、ヘッダーのバイト列に含めてリレーされる。推定を確かめるテストはない。
 - [x] MQ18-126 (§2.2, §11.4.2) ハブが自分の Track(`wired_moqt_publish_blob` / `_live`)の Original Publisher として新しい Subgroup を開くとき、ハブは FIRST_OBJECT ビットを立てなければならない。
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_golden`
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_type_bits_golden`
+  - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
 - [x] MQ18-127 実装は、SUBGROUP_HEADER を、ワイヤー上のフィールド(Type、Track Alias、Group ID、省略可能な Subgroup ID、省略可能な Publisher Priority)とバイト単位で一致するようにエンコード・デコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_put_golden`
   - test: `tests/app/moqdata_test.c` — `test_moqdata_subhdr_put_errors`
@@ -746,9 +746,9 @@
 
 - [x] MQ18-144 実装は、Subgroup の Object の Object ID Delta、Payload Length、そして明示的な Object Status(ペイロードが空のとき)またはペイロードのバイト列を、ワイヤー形式とバイト単位で一致するようにエンコードしなければならない。
   - test: `tests/app/moqdata_test.c` — `test_moqdata_obj_put`
-- [x] MQ18-145 1 メッセージのビルダーは、Object を 1 つ運ぶ 1 つの SUBGROUP_HEADER をワイヤー形式とバイト単位で一致するように組み立てなければならず、出力先バッファーが小さすぎるときは途中まで書かずに失敗しなければならない。
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_golden`
-  - test: `tests/app/moqdata_test.c` — `test_moqdata_msg_build_bounds`
+- [~] MQ18-145 1 メッセージのビルダーは、Object を 1 つ運ぶ 1 つの SUBGROUP_HEADER をワイヤー形式とバイト単位で一致するように組み立てなければならず、出力先バッファーが小さすぎるときは途中まで書かずに失敗しなければならない。
+  - test: `tests/app/moqdata_test.c` — `test_moqdata_blob_build_golden`
+  - gap: 本番は `moqdata_blob_build` と `moqtrun_live_head` で SUBGROUP_HEADER と Object を組み立てる。バイト列はゴールデンと一致することを確かめているが、`moqdata_blob_build` は小さすぎるバッファーに途中まで書くことがある。
   - test: `tests/app/moqdata_test.c` —
     `test_moqdata_put_path_status_eog_golden`
 
@@ -766,7 +766,7 @@
   - test: `tests/app/moqtrun_sub_test.c` —
     `test_moqtrun_req_reset_unsubscribes`
 - [~] MQ18-150 (§3.3.2) リクエスト元の自分の方向がすでに FIN で閉じている場合、購読の取り消しは受信方向に STOP_SENDING だけを送らなければならない。
-  - evidence: これを示すのは配線していない `moqsub` モデルだけである(`test_moqsub_cancel_after_fin`)。ハブは、上流の SUBSCRIBE を取り消すとき RESET_STREAM と STOP_SENDING を送る(`test_moqtrun_upsub_last_cancel_cancels_upstream`)。
+  - evidence: ハブは、上流の SUBSCRIBE を取り消すとき RESET_STREAM と STOP_SENDING を送る(`test_moqtrun_upsub_last_cancel_cancels_upstream`)。自分の方向が FIN 済みのケースを固定するテストはない。
 - [x] MQ18-151 (§3.3.2) 応答側が一度も応答を送らずに自分の方向を FIN で閉じた場合、リクエスト元はそのリクエストを失敗として扱わなければならない。
   - evidence: `moqtrun_up_rx` / `moqtrun_upf_rx` は FIN を受け取り、応答のない上流の SUBSCRIBE / FETCH を REQUEST_ERROR と同じように失敗させる。`test_moqtrun_upsub_fin_unanswered_fails` と `test_moqtrun_upfetch_fin_unanswered` は応答の前に FIN を送り、下流のリクエスト元が拒否され、ハブの側が FIN で閉じられ、スロットが解放されることを確かめる。
   - test: `tests/app/moqtrun_upsub_test.c` — `test_moqtrun_upsub_fin_unanswered_fails`

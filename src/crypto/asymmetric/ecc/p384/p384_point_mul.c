@@ -109,18 +109,6 @@ void p384_point_mul(ec_point384* r, const u8 k[48], const ec_point384* p) {
   p384pt_jac_to_affine(r, &acc);
 }
 
-/* Affine double via one Jacobian doubling (test/verify convenience). */
-void p384_point_double(ec_point384* r, const ec_point384* p) {
-  jac384 j, d;
-  if (p->inf || fp384_is_zero(p->y)) {
-    r->inf = 1;
-    return;
-  }
-  p384pt_jac_from_affine(&j, p);
-  p384pt_jac_double(&d, &j);
-  p384pt_jac_to_affine(r, &d);
-}
-
 /* Affine add via Jacobian (handles infinity and the inverse pair). */
 static int p384pt_point_add_special(
     ec_point384* r, const ec_point384* p, const ec_point384* q) {

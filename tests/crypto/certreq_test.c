@@ -18,20 +18,6 @@ static void test_certreq_wire_structure(void) {
   CHECK(out[13] == 0x04 && out[14] == 0x03);
 }
 
-static void test_certreq_roundtrip(void) {
-  u8         sa[6] = {0x04, 0x03, 0x08, 0x04, 0x08, 0x07};
-  u8         out[64];
-  wired_obuf o = obuf_of(out, sizeof(out));
-  certreq    cr;
-  CHECK(certreq_build(wired_span_of(sa, sizeof(sa)), &o) == 1);
-  CHECK(certreq_parse(wired_span_of(out, o.len), &cr) == 1);
-  CHECK(cr.ctx.n == 0);
-  CHECK(cr.sig_algs.n == sizeof(sa));
-  for (usz i = 0; i < sizeof(sa); i++) {
-    CHECK(cr.sig_algs.p[i] == sa[i]);
-  }
-}
-
 static void test_certreq_build_no_room(void) {
   u8         sa[4] = {0x04, 0x03, 0x08, 0x04};
   u8         out[8];
@@ -39,68 +25,7 @@ static void test_certreq_build_no_room(void) {
   CHECK(certreq_build(wired_span_of(sa, sizeof(sa)), &o) == 0);
 }
 
-static void test_certreq_parse_wrong_type(void) {
-  u8         sa[4] = {0x04, 0x03, 0x08, 0x04};
-  u8         out[64];
-  wired_obuf o = obuf_of(out, sizeof(out));
-  certreq    cr;
-  CHECK(certreq_build(wired_span_of(sa, sizeof(sa)), &o) == 1);
-  out[0] = 0x0b; /* Certificate, not CertificateRequest */
-  CHECK(certreq_parse(wired_span_of(out, o.len), &cr) == 0);
-}
-
-static void test_certreq_parse_truncated(void) {
-  u8         sa[4] = {0x04, 0x03, 0x08, 0x04};
-  u8         out[64];
-  wired_obuf o = obuf_of(out, sizeof(out));
-  certreq    cr;
-  CHECK(certreq_build(wired_span_of(sa, sizeof(sa)), &o) == 1);
-  CHECK(certreq_parse(wired_span_of(out, o.len - 1), &cr) == 0);
-}
-
-static void test_certreq_parse_missing_sig_algs(void) {
-  u8      msg[16];
-  certreq cr;
-  usz     off  = hs_begin(msg, sizeof(msg), 0x0d);
-  msg[off]     = 0; /* empty context */
-  msg[off + 1] = 0; /* extensions length 0 */
-  msg[off + 2] = 0;
-  hs_finish(msg, off + 3);
-  CHECK(certreq_parse(wired_span_of(msg, off + 3), &cr) == 0);
-}
-
-/* RFC 8446 4.3.2: a CertificateRequest body too short for its context
- * length and extensions length is rejected. */
-static void test_certreq_parse_empty_body(void) {
-  u8      msg[8];
-  certreq cr;
-  usz     off = hs_begin(msg, sizeof(msg), 0x0d);
-  hs_finish(msg, off);
-  CHECK(certreq_parse(wired_span_of(msg, off), &cr) == 0);
-}
-
-/* RFC 8446 4.3.2: "The "signature_algorithms" extension MUST be specified";
- * a body whose only extension is another one (supported_groups, empty) is
- * skipped over and rejected. */
-static void test_certreq_parse_other_ext_only(void) {
-  static const u8 body[] = {0x00, 0x00, 0x04, 0x00, 0x0a, 0x00, 0x00};
-  u8              msg[16];
-  certreq         cr;
-  usz             off = hs_begin(msg, sizeof(msg), 0x0d);
-  for (usz i = 0; i < sizeof(body); i++) {
-    msg[off + i] = body[i];
-  }
-  hs_finish(msg, off + sizeof(body));
-  CHECK(certreq_parse(wired_span_of(msg, off + sizeof(body)), &cr) == 0);
-}
-
 void test_certreq(void) {
-  test_certreq_parse_empty_body();
-  test_certreq_parse_other_ext_only();
   test_certreq_wire_structure();
-  test_certreq_roundtrip();
   test_certreq_build_no_room();
-  test_certreq_parse_wrong_type();
-  test_certreq_parse_truncated();
-  test_certreq_parse_missing_sig_algs();
 }

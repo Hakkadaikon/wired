@@ -123,25 +123,14 @@ int moqsess_established(const moqsess* s) {
   return s->state == MOQSESS_ESTABLISHED;
 }
 
-int moqsess_may_reject_request(const moqsess* s) {
-  return s->goaway_sent || s->goaway_recv;
-}
-
 /* ===================== B. Subscribe lifecycle ===================== */
 
-void moqsub_init(moqsub* s, moqsub_role role) {
+void moqsub_init(moqsub* s) {
   moqsub zero = {0};
-  zero.role   = role;
   *s          = zero;
 }
 
-static int moqsess_sub_terminate(moqsub* s, int reason) {
-  s->state       = MOQSUB_TERMINATED;
-  s->term_reason = reason;
-  return 1;
-}
-
-/* SUBSCRIBE/PUBLISH opens the request: Idle -> Pending. Anything else is a
+/* SUBSCRIBE opens the request: Idle -> Pending. Anything else is a
  * caller misuse (ignored: no legal re-open of an active subscription). */
 static int moqsess_sub_on_open(moqsub* s) {
   if (s->state != MOQSUB_IDLE) {
@@ -174,78 +163,16 @@ static int moqsess_sub_on_error(moqsub* s) {
   if (!moqsess_sub_guard_single_response(s)) {
     return 0;
   }
-  return moqsess_sub_terminate(s, MOQSUB_TERM_ERROR);
-}
-
-/* REQUEST_UPDATE only makes sense once Established, and never changes
- * state. */
-static int moqsess_sub_on_update(moqsub* s) {
-  return s->state == MOQSUB_ESTABLISHED;
-}
-
-/* STOP_SENDING cancels: legal from Pending(Subscriber) or Established. */
-static int moqsess_sub_stop_sending_legal(const moqsub* s) {
-  if (s->state == MOQSUB_ESTABLISHED) {
-    return 1;
-  }
-  return s->state == MOQSUB_PENDING && s->role == MOQSUB_ROLE_SUBSCRIBER;
-}
-
-static int moqsess_sub_on_stop_sending(moqsub* s) {
-  if (!moqsess_sub_stop_sending_legal(s)) {
-    return 0;
-  }
-  return moqsess_sub_terminate(s, MOQSUB_TERM_STOP_SENDING);
-}
-
-/* PUBLISH_DONE ends a publisher-initiated (or already established)
- * subscription. From Pending(Publisher) with no response sent yet, the
- * subscriber owes a deferred PUBLISH_OK before it FINs (exactly-one-
- * response is satisfied by that late OK, not skipped). */
-static int moqsess_sub_publish_done_legal(const moqsub* s) {
-  if (s->state == MOQSUB_ESTABLISHED) {
-    return 1;
-  }
-  return s->state == MOQSUB_PENDING && s->role == MOQSUB_ROLE_PUBLISHER;
-}
-
-/* Pending(Publisher) with no response sent yet owes a deferred OK. */
-static int moqsess_sub_owes_late_ok(const moqsub* s) {
-  return s->state == MOQSUB_PENDING && !s->responded;
-}
-
-static int moqsess_sub_on_publish_done(moqsub* s) {
-  if (!moqsess_sub_publish_done_legal(s)) {
-    return 0;
-  }
-  if (moqsess_sub_owes_late_ok(s)) {
-    s->responded  = 1;
-    s->pending_ok = 1;
-  }
-  return moqsess_sub_terminate(s, MOQSUB_TERM_PUBLISH_DONE);
-}
-
-static int moqsess_sub_on_fin_resp(moqsub* s) {
-  s->fin_resp = 1;
-  return 1;
-}
-
-static int moqsess_sub_on_fin_req(moqsub* s) {
-  s->fin_req = 1;
+  s->state = MOQSUB_TERMINATED;
   return 1;
 }
 
 typedef int (*moqsess_sub_handler)(moqsub* s);
 
 static const moqsess_sub_handler MOQSESS_SUB_HANDLERS[] = {
-    moqsess_sub_on_open,         /* EV_OPEN */
-    moqsess_sub_on_ok,           /* EV_OK */
-    moqsess_sub_on_error,        /* EV_ERROR */
-    moqsess_sub_on_update,       /* EV_UPDATE */
-    moqsess_sub_on_stop_sending, /* EV_STOP_SENDING */
-    moqsess_sub_on_publish_done, /* EV_PUBLISH_DONE */
-    moqsess_sub_on_fin_resp,     /* EV_FIN_RESP */
-    moqsess_sub_on_fin_req,      /* EV_FIN_REQ */
+    moqsess_sub_on_open,  /* EV_OPEN */
+    moqsess_sub_on_ok,    /* EV_OK */
+    moqsess_sub_on_error, /* EV_ERROR */
 };
 
 #define MOQSESS_SUB_HANDLERS_N \

@@ -63,24 +63,6 @@ int moqdata_obj_put_status(
   return MOQDATA_OK;
 }
 
-/* ===== one-message builder ===== */
-
-int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m) {
-  usz            at = *off;
-  moqdata_subhdr h  = {0};
-  h.type            = MOQDATA_MSG_TYPE;
-  h.track_alias     = m->track_alias;
-  h.group_id        = m->group_id;
-  if (moqdata_subhdr_put(buf, &at, &h) != MOQDATA_OK) {
-    return MOQDATA_INSUFFICIENT;
-  }
-  if (moqdata_obj_put(buf, &at, 0, m->payload) != MOQDATA_OK) {
-    return MOQDATA_INSUFFICIENT;
-  }
-  *off = at;
-  return MOQDATA_OK;
-}
-
 /* ===== multi-Object blob builder ===== */
 
 static usz moqdata_blob_chunk_len(usz remaining) {

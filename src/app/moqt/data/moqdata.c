@@ -76,11 +76,7 @@ int moqdata_type_props(u64 type) { return (type & 0x01) != 0; }
 
 u64 moqdata_type_sgid_mode(u64 type) { return (type >> 1) & 0x3; }
 
-int moqdata_type_end_of_group(u64 type) { return (type & 0x08) != 0; }
-
 int moqdata_type_default_priority(u64 type) { return (type & 0x20) != 0; }
-
-int moqdata_type_first_object(u64 type) { return (type & 0x40) != 0; }
 
 /* ===== SUBGROUP_HEADER take/put (11.4.2) ===== */
 

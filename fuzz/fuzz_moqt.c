@@ -207,7 +207,6 @@ static void fuzz_ctl_stream(int ver, wired_span in) {
     }
     moqsess_should_buffer(&sess);
     moqsess_established(&sess);
-    moqsess_may_reject_request(&sess);
   }
   moqsess_step(&sess, MOQSESS_EV_CTRL_CLOSED);
 }

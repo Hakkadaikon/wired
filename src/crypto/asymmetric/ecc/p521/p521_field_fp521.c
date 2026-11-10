@@ -80,9 +80,3 @@ void fp521_from_be(p521_fe r, const u8 b[66]) {
     r[k / 8] |= (u64)b[65 - k] << (8 * (k & 7));
   }
 }
-
-void fp521_to_be(u8 b[66], const p521_fe a) {
-  for (usz k = 0; k < 66; k++) {
-    b[65 - k] = (u8)(a[k / 8] >> (8 * (k & 7)));
-  }
-}

@@ -81,7 +81,6 @@
 #include "crypto/pki/encoding/x509/x509.c"
 #include "crypto/pki/encoding/x509/x509_ext.c"
 #include "crypto/pki/encoding/x509/x509_ext_crit.c"
-#include "crypto/pki/encoding/x509/keyid.c"
 #include "crypto/pki/encoding/x509/keyusage.c"
 #include "crypto/pki/encoding/x509/eku.c"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.c"
@@ -202,7 +201,6 @@
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign_sc.c"
 #include "transport/conn/lifecycle/endpoint/endpoint.c"
-#include "common/diag/error/codes.c"
 #include "common/diag/error/error.c"
 #include "transport/stream/flow/flow/finalsize.c"
 #include "transport/stream/flow/flow/reassemble.c"
@@ -466,7 +464,6 @@
 #include "app/http3/request/h3reqenc/header_encode.c"
 #include "app/http3/request/h3reqenc/request_headers.c"
 #include "crypto/pki/cert/tbscert/fields.c"
-#include "crypto/pki/cert/tbscert/version_serial.c"
 #include "crypto/pki/cert/tbscert/sigalg.c"
 #include "transport/recovery/rtx/sentmeta/record.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
@@ -968,7 +965,6 @@
 #include "transport/ccloss_test.c"
 #include "tls/cert_test.c"
 #include "transport/coalesce_test.c"
-#include "common/codes_test.c"
 #include "transport/compat_test.c"
 #include "app/connect_test.c"
 #include "app/contentlen_test.c"
@@ -1120,7 +1116,6 @@
 #include "crypto/nameconstraints_test.c"
 #include "crypto/policyconstraints_test.c"
 #include "crypto/policytree_test.c"
-#include "crypto/keyid_test.c"
 #include "crypto/keyusage_test.c"
 #include "crypto/eku_test.c"
 #include "crypto/spki_test.c"
@@ -1243,7 +1238,6 @@
 #include "app/header_encode_test.c"
 #include "app/request_headers_test.c"
 #include "crypto/fields_test.c"
-#include "crypto/version_serial_test.c"
 #include "crypto/sigalg_test.c"
 #include "transport/sentmeta_test.c"
 #include "tls/keyring_test.c"
@@ -1449,7 +1443,6 @@ int main(void) {
   test_ccloss();
   test_cert();
   test_coalesce();
-  test_codes();
   test_compat();
   test_connect();
   test_contentlen();
@@ -1605,7 +1598,6 @@ int main(void) {
   test_nameconstraints();
   test_policyconstraints();
   test_policytree();
-  test_keyid();
   test_keyusage();
   test_eku();
   test_spki();
@@ -1768,7 +1760,6 @@ int main(void) {
   test_header_encode();
   test_request_headers();
   test_fields();
-  test_version_serial();
   test_sigalg();
   test_sentmeta();
   test_keyring();

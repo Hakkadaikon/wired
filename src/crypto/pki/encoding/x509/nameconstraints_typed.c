@@ -88,18 +88,6 @@ int x509_nc_too_many(wired_span seq) {
          X509_NC_SUBTREES_MAX;
 }
 
-int x509_name_constraints_permit(wired_span cert_tbs, wired_span subject) {
-  wired_span seq;
-  if (!x509_nc_locate(cert_tbs, &seq)) {
-    return 1;
-  }
-  if (x509_nc_too_many(seq)) {
-    return 0;
-  }
-  return x509_typed_name_ok(
-      seq, NC_DIRECTORYNAME_TAG, subject, x509_dn_within_base);
-}
-
 /* A matcher that always covers: probes whether a half carries any subtree
  * of a form at all. */
 static int nc_always(wired_span base, wired_span name) {

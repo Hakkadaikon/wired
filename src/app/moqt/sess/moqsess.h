@@ -83,14 +83,10 @@ int moqsess_should_buffer(const moqsess* s);
 /** True once SETUP is fully established (both directions done). */
 int moqsess_established(const moqsess* s);
 
-/** True if a newly arriving request MAY be rejected with GOING_AWAY
- * (either side sent or received GOAWAY: draft 5.1 GOAWAY discipline). */
-int moqsess_may_reject_request(const moqsess* s);
-
 /* ===================== B. Subscribe lifecycle ===================== */
 
-/** One subscription's state (draft 5.1: SUBSCRIBE/PUBLISH -> response ->
- * termination, one instance per request stream). */
+/** One upstream subscription's state (draft 5.1: SUBSCRIBE -> response,
+ * one instance per request stream). */
 typedef enum {
   MOQSUB_IDLE        = 0,
   MOQSUB_PENDING     = 1,
@@ -98,64 +94,26 @@ typedef enum {
   MOQSUB_TERMINATED  = 3,
 } moqsub_state;
 
-/** Which side opened the request stream with its First message. */
-typedef enum {
-  MOQSUB_ROLE_SUBSCRIBER = 0, /* sent/received SUBSCRIBE first */
-  MOQSUB_ROLE_PUBLISHER  = 1, /* sent/received PUBLISH first */
-} moqsub_role;
-
 /** Events moqsub_step applies, each sent or received on the request
  * stream. */
 typedef enum {
-  MOQSUB_EV_OPEN         = 0, /* SUBSCRIBE or PUBLISH sent/received */
-  MOQSUB_EV_OK           = 1, /* SUBSCRIBE_OK / PUBLISH_OK (REQUEST_OK) */
-  MOQSUB_EV_ERROR        = 2, /* REQUEST_ERROR sent or received */
-  MOQSUB_EV_UPDATE       = 3, /* REQUEST_UPDATE: no state change */
-  MOQSUB_EV_STOP_SENDING = 4, /* STOP_SENDING sent or received */
-  MOQSUB_EV_PUBLISH_DONE = 5, /* PUBLISH_DONE sent or received */
-  MOQSUB_EV_FIN_RESP     = 6, /* the responder's direction FIN */
-  MOQSUB_EV_FIN_REQ      = 7, /* the requester's direction FIN */
+  MOQSUB_EV_OPEN  = 0, /* SUBSCRIBE sent */
+  MOQSUB_EV_OK    = 1, /* SUBSCRIBE_OK (REQUEST_OK) */
+  MOQSUB_EV_ERROR = 2, /* REQUEST_ERROR received */
 } moqsub_event;
-
-/** Terminated reasons (informational; a subscription's own close does not
- * imply the session closes). 0 = not terminated. */
-#define MOQSUB_TERM_NONE 0
-/** Cancelled via STOP_SENDING. */
-#define MOQSUB_TERM_STOP_SENDING 1
-/** Publisher finished normally (PUBLISH_DONE). */
-#define MOQSUB_TERM_PUBLISH_DONE 2
-/** REQUEST_ERROR (reject or fault). */
-#define MOQSUB_TERM_ERROR 3
-/** Peer FIN'd before responding (not set by moqsub_step). */
-#define MOQSUB_TERM_EARLY_FIN 4
-/** A second response arrived; moqsub_step flags session_fault instead
- * and never sets this. */
-#define MOQSUB_TERM_DUP_RESPONSE 5
 
 /** One subscription's lifecycle state plus the flags moqsub_step keeps. */
 typedef struct {
   /** Lifecycle state. */
   moqsub_state state;
-  /** Side whose First message opened the request stream. */
-  moqsub_role role;
   /** Exactly-one-response gate: 1 once OK or ERROR was seen. */
   int responded;
-  /** Publisher-initiated: 1 when PUBLISH_DONE came before any response,
-   * so a PUBLISH_OK is still owed. */
-  int pending_ok;
-  /** 1 once the requester's direction closed (FIN). */
-  int fin_req;
-  /** 1 once the responder's direction closed (FIN). */
-  int fin_resp;
-  /** MOQSUB_TERM_* once state == MOQSUB_TERMINATED, else 0. */
-  int term_reason;
   /** 1 after a duplicate response: a session-level violation. */
   int session_fault;
 } moqsub;
 
-/** Initialize a fresh subscription: role is fixed by which message (SUBSCRIBE
- * vs PUBLISH) opened the request stream. */
-void moqsub_init(moqsub* s, moqsub_role role);
+/** Initialize a fresh subscription. */
+void moqsub_init(moqsub* s);
 
 /** Apply one event. Returns 1 if the event was legal for the current state
  * (state/flags updated), 0 if it violates the subscribe discipline (e.g. a
