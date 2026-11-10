@@ -206,18 +206,6 @@ static void test_dispatch_no_violation_on_normal_frame(void) {
   CHECK(st.violation == 0);
 }
 
-/* Standalone ack-eliciting predicate (RFC 9000 13.2.1). */
-static void test_dispatch_ack_eliciting_predicate(void) {
-  CHECK(framedispatch_ack_eliciting(FRAME_PADDING) == 0);
-  CHECK(framedispatch_ack_eliciting(FRAME_ACK) == 0);
-  CHECK(framedispatch_ack_eliciting(FRAME_ACK_ECN) == 0);
-  CHECK(framedispatch_ack_eliciting(FRAME_CONN_CLOSE_TPT) == 0);
-  CHECK(framedispatch_ack_eliciting(FRAME_CONN_CLOSE_APP) == 0);
-  CHECK(framedispatch_ack_eliciting(FRAME_PING) == 1);
-  CHECK(framedispatch_ack_eliciting(FRAME_STREAM_BASE) == 1);
-  CHECK(framedispatch_ack_eliciting(FRAME_MAX_DATA) == 1);
-}
-
 /* RFC 9000 3.5: STOP_SENDING makes the receiving endpoint owe an automatic
  * RESET_STREAM echoing the same stream ID and error code. */
 static void test_dispatch_stop_sending_owes_reset(void) {
@@ -373,7 +361,6 @@ void test_dispatch_state(void) {
   test_dispatch_new_token_violation();
   test_dispatch_handshake_done_violation();
   test_dispatch_no_violation_on_normal_frame();
-  test_dispatch_ack_eliciting_predicate();
   test_dispatch_stop_sending_owes_reset();
   test_dispatch_reset_stream();
   test_dispatch_stop_sending_receive_only_rejected();

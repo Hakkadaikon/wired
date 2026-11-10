@@ -46,8 +46,4 @@ typedef struct {
 int framedispatch_handle(
     framedispatch_state* st, u64 frame_type, wired_span frame);
 
-/* RFC 9000 13.2.1: every frame except PADDING, ACK and CONNECTION_CLOSE is
- * ack-eliciting. Returns 1 or 0. */
-int framedispatch_ack_eliciting(u64 frame_type);
-
 #endif

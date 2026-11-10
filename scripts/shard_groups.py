@@ -48,7 +48,6 @@ OVERRIDES = {
     "wyc_ecdsa": "crypto/asymmetric/ecc/p256",
     "p384chain": "crypto/pki/trust/castore",
     "p521chain": "crypto/pki/trust/castore",
-    "versdowngrade": "transport/version/versmgr",
     "sigmask": "app/http3/server/sigterm",
     "wt_session": "app/webtransport/session/session",
     "wterrmap": "app/webtransport/errmap/errmap",

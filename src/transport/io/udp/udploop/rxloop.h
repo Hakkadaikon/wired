@@ -23,8 +23,4 @@ typedef struct {
  * packets, writing into out. Returns the number of packets found. */
 usz udploop_split(wired_span dgram, const pktlist* out);
 
-/* Receive one datagram from fd into buf and split it into out. Returns the
- * number of QUIC packets; 0 on EAGAIN/empty/error. */
-usz udploop_rx(i64 fd, wired_mspan buf, const pktlist* out);
-
 #endif

@@ -1,41 +1,5 @@
 #include "test.h"
 
-/* RFC 9000 17.3: short header byte0 = 0x40 | spin<<5 | key_phase<<2 |
- * (pn_len-1), then the DCID (no length prefix) and pn_len big-endian
- * packet-number bytes. */
-static void test_short_build(void) {
-  const u8   dcid[4] = {0x11, 0x22, 0x33, 0x44};
-  u8         buf[16];
-  short_desc d = {wired_span_of(dcid, 4), 1, 1, 0xABCD, 2};
-  usz        w = short_build(buf, sizeof(buf), &d);
-  CHECK(w == 1 + 4 + 2);
-  /* fixed bit set, spin (bit5) set, key_phase (bit2) set, pn_len-1 == 1 */
-  CHECK(buf[0] == (0x40 | 0x20 | 0x04 | 0x01));
-  CHECK(buf[1] == 0x11 && buf[4] == 0x44); /* DCID placed right after byte0 */
-  CHECK(buf[5] == 0xAB && buf[6] == 0xCD); /* pn big-endian */
-}
-
-static void test_short_build_min(void) {
-  const u8   dcid[1] = {0x99};
-  u8         buf[8];
-  short_desc d = {wired_span_of(dcid, 1), 0, 0, 0x7F, 1};
-  usz        w = short_build(buf, sizeof(buf), &d);
-  CHECK(w == 3);
-  CHECK(buf[0] == 0x40); /* no spin, no key phase, pn_len 1 */
-  CHECK(buf[1] == 0x99 && buf[2] == 0x7F);
-}
-
-static void test_short_bad_args(void) {
-  const u8   dcid[4] = {0};
-  u8         buf[16];
-  short_desc d0 = {wired_span_of(dcid, 4), 0, 0, 0, 0};
-  short_desc d5 = {wired_span_of(dcid, 4), 0, 0, 0, 5};
-  short_desc d1 = {wired_span_of(dcid, 4), 0, 0, 0, 1};
-  CHECK(short_build(buf, sizeof(buf), &d0) == 0); /* pn_len 0 */
-  CHECK(short_build(buf, sizeof(buf), &d5) == 0); /* pn_len 5 */
-  CHECK(short_build(buf, 3, &d1) == 0);           /* no room */
-}
-
 static void test_retry_roundtrip(void) {
   const u8 dcid[3]  = {0xD0, 0xD1, 0xD2};
   const u8 scid[2]  = {0x50, 0x51};
@@ -173,9 +137,6 @@ static void test_retry_parse_rejects_bad_cids(void) {
 void test_packet2(void) {
   test_vneg_parse_rejects_malformed();
   test_retry_parse_rejects_bad_cids();
-  test_short_build();
-  test_short_build_min();
-  test_short_bad_args();
   test_retry_roundtrip();
   test_retry_truncated();
   test_vneg_roundtrip();

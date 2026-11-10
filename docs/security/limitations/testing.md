@@ -27,9 +27,9 @@
 
 Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
 
-以下の 44 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
+以下の 20 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである(`tls/handshake/roles/client/client.c` は、テストスイートが相手として使う TLS クライアントも呼び出し元)。
 
-guide のスニペットや例はどれもこれらを含まない。「fuzzed」と書いた 3 つは、ファズハーネスにも組み込んでいる。
+guide のスニペットや例はどれもこれらを含まない。
 
 約 100 ファイルの一括削除は #24 の一覧の範囲外なので、残している。どれも今後の削除の候補である。これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにならない。
 
@@ -49,21 +49,5 @@ guide のスニペットや例はどれもこれらを含まない。「fuzzed�
 - `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
 - `tls/handshake/roles/server/`: `serverio.c`
 - `transport/conn/lifecycle/endpoint/`: `endpoint.c`
-- `transport/io/socket/io/`: `retransmit.c`, `udptransport.c`
 - `transport/io/socket/net/`: `memlink.c`
-- `transport/io/socket/poll/`: `deadline.c`
-- `transport/io/udp/udploop/`: `txloop.c`
-- `transport/io/udp/udpsess/`: `udpsess.c`
-- `transport/packet/build/pktbuild/`: `eliciting.c`, `framepack.c`,
-  `initpad.c`, `paddingelicit.c`
-- `transport/packet/frame/frame/`: `ack_range.c` (fuzzed: `fuzz_frames`,
-  `fuzz_onertt`), `close_convert.c`, `crypto_offset.c` (fuzzed:
-  `fuzz_frames`)
-- `transport/packet/header/packet/`: `coalorder.c`, `pad.c`, `pnlen.c`
-  (fuzzed: `fuzz_onertt`)
-- `transport/packet/header/shorthdr/`: `shorthdr.c`
-- `transport/packet/protect/protectcs/`: `protectcs.c`
 - `transport/recovery/detect/ackrange/`: `ackrange_process.c`
-- `transport/version/version/`: `abandon.c`, `compatnego.c`, `downgrade.c`
-- `transport/version/versmgr/`: `v2switch.c`
-- `transport/version/vndrive/`: `accept.c`, `reconnect.c`, `select.c`

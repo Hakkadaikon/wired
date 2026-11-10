@@ -1,16 +1,5 @@
 #include "transport/packet/header/packet/pnum.h"
 
-/* RFC 9000 A.2: the fewest bytes b (1..4) with 2*num_unacked < 2^(8b),
- * where num_unacked is the range from largest_acked to the packet sent. */
-usz pnum_len(u64 full_pn, u64 largest_acked) {
-  u64 need = (full_pn - largest_acked) * 2;
-  usz b    = 1;
-  while (b < 4 && need >= ((u64)1 << (8 * b))) {
-    b++;
-  }
-  return b;
-}
-
 /* Write the low nbytes of v big-endian. */
 usz pnum_encode(u8* buf, u64 full_pn, usz nbytes) {
   usz i = nbytes;

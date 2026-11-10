@@ -15,39 +15,11 @@ static void test_fill_readable(void) {
 /* Kernel-facing pollfd layout: 4-byte fd then two shorts (8 bytes total). */
 static void test_pollfd_layout(void) { CHECK(sizeof(pollfd) == 8); }
 
-/* timeout_until: deadline ahead returns the gap, past returns 0 (fire now). */
-static void test_timeout_until(void) {
-  CHECK(poll_timeout_until(100, 250) == 150);
-  CHECK(poll_timeout_until(250, 250) == 0); /* exactly now */
-  CHECK(poll_timeout_until(300, 250) == 0); /* already past */
-  CHECK(poll_timeout_until(0, 0) == 0);
-}
-
-/* min_deadline picks the smallest; empty set returns 0. */
-static void test_min_deadline(void) {
-  u64 ds[3] = {500, 120, 800};
-  CHECK(poll_min_deadline(ds, 3) == 120);
-  u64 one[1] = {42};
-  CHECK(poll_min_deadline(one, 1) == 42);
-  CHECK(poll_min_deadline(ds, 0) == 0);
-}
-
-/* O_NONBLOCK is OR-ed in without disturbing existing flags. */
-static void test_nonblock_flags(void) {
-  CHECK(O_NONBLOCK == 0x800);
-  CHECK(poll_nonblock_flags(0) == 0x800);
-  CHECK(poll_nonblock_flags(0x2) == 0x802);   /* keep O_RDWR */
-  CHECK(poll_nonblock_flags(0x800) == 0x800); /* idempotent */
-}
-
 /* No real socket: F_SETFL on a bad fd must fail with a negative errno. */
 static void test_set_nonblock_badfd(void) { CHECK(poll_set_nonblock(-1) < 0); }
 
 void test_poll(void) {
   test_fill_readable();
   test_pollfd_layout();
-  test_timeout_until();
-  test_min_deadline();
-  test_nonblock_flags();
   test_set_nonblock_badfd();
 }

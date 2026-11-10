@@ -64,7 +64,7 @@ void test_aead_suite(void) {
   }
 
   /* Every suite aead_suite_seal accepts also has an RFC 9001 5.4 header
-   * protection mask, so protect/protectcs need no HP failure path. */
+   * protection mask, so the packet sealers need no HP failure path. */
   {
     static const u16 suites[] = {
         TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384,

@@ -2,8 +2,6 @@
 
 #include "transport/version/version/version.h"
 
-void vers_init(vers_set* s) { vers_init_mask(s, 0); }
-
 /* 0 (an application that set nothing) selects every supported version. */
 static u32 vers_mask_or_all(u32 mask) {
   return mask ? mask : WIRED_VERSIONS_V1 | WIRED_VERSIONS_V2;
@@ -33,15 +31,4 @@ static int in_list(const u32* list, usz n, u32 v) {
 
 int vers_supports(const vers_set* s, u32 version) {
   return in_list(s->versions, s->n, version);
-}
-
-int vers_choose_compatible(
-    const vers_set* s, verlist peer_versions, u32* chosen) {
-  for (usz i = 0; i < s->n; i++) {
-    if (in_list(peer_versions.list, peer_versions.n, s->versions[i])) {
-      *chosen = s->versions[i];
-      return 1;
-    }
-  }
-  return 0;
 }

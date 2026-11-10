@@ -145,10 +145,6 @@ static const handler handlers[] = {
     [FK_RESET_STREAM]     = on_reset_stream,
 };
 
-int framedispatch_ack_eliciting(u64 frame_type) {
-  return frame_ack_eliciting(frame_classify(frame_type));
-}
-
 /* The registered handler for kind, or 0 if it has no table row. */
 static handler handler_for(frame_kind k) {
   return (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;

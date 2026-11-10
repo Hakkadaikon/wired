@@ -15,20 +15,11 @@ typedef struct {
   u32 versions[VERS_MAX]; /* preference order, most preferred first */
 } vers_set;
 
-/* Initialise s to this endpoint's supported set (v2 then v1). */
-void vers_init(vers_set* s);
-
-/* RFC 9308 13: initialise s to the WIRED_VERSIONS_* bits in mask, still in
- * the v2-then-v1 preference order; 0 means every supported version (the
- * same set vers_init gives). */
+/* RFC 9308 13: initialise s to the WIRED_VERSIONS_* bits in mask, in the
+ * v2-then-v1 preference order; 0 means every supported version. */
 void vers_init_mask(vers_set* s, u32 mask);
 
 /* 1 if s supports version, else 0. */
 int vers_supports(const vers_set* s, u32 version);
-
-/* Pick the most-preferred version in s that also appears in peer_versions
- * (peer's Available Versions). Returns 1 with *chosen set, or 0 if none. */
-int vers_choose_compatible(
-    const vers_set* s, verlist peer_versions, u32* chosen);
 
 #endif

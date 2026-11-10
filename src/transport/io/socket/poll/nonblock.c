@@ -1,7 +1,5 @@
 #include "transport/io/socket/poll/nonblock.h"
 
-u32 poll_nonblock_flags(u32 flags) { return flags | O_NONBLOCK; }
-
 i64 poll_set_nonblock(i64 fd) {
   return wired_arch_fcntl(fd, F_SETFL, O_NONBLOCK);
 }

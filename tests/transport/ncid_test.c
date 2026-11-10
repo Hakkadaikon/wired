@@ -31,68 +31,6 @@ static void test_ncid_invalid_and_truncated(void) {
   CHECK(ncid_decode(buf, w - 1, &out) == 0); /* token cut short */
 }
 
-static void test_ncid_worker_roundtrip(void) {
-  for (u32 w = 0; w < 8; w++) {
-    u8 cid[8] = {0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
-    CHECK(ncid_worker_encode(cid, sizeof(cid), 3, w) == 0);
-    CHECK(ncid_worker_decode(cid, sizeof(cid), 3) == (int)w);
-    /* low 5 bits of cid[0] and the rest of the CID are untouched */
-    CHECK((cid[0] & 0x1F) == (0xFF & 0x1F));
-    CHECK(cid[1] == 0x11 && cid[7] == 0x77);
-  }
-}
-
-static void test_ncid_worker_minmax_bits(void) {
-  u8 cid1[4] = {0};
-  CHECK(ncid_worker_encode(cid1, sizeof(cid1), 1, 1) == 0);
-  CHECK(ncid_worker_decode(cid1, sizeof(cid1), 1) == 1);
-
-  u8 cid8[4] = {0};
-  CHECK(ncid_worker_encode(cid8, sizeof(cid8), 8, 200) == 0);
-  CHECK(ncid_worker_decode(cid8, sizeof(cid8), 8) == 200);
-}
-
-static void test_ncid_worker_invalid_bits(void) {
-  u8 cid[4] = {0};
-  CHECK(ncid_worker_encode(cid, sizeof(cid), 0, 0) < 0);
-  CHECK(ncid_worker_encode(cid, sizeof(cid), 9, 0) < 0);
-  CHECK(ncid_worker_encode(cid, sizeof(cid), -1, 0) < 0);
-  CHECK(ncid_worker_decode(cid, sizeof(cid), 0) < 0);
-  CHECK(ncid_worker_decode(cid, sizeof(cid), 9) < 0);
-  CHECK(ncid_worker_decode(cid, sizeof(cid), -1) < 0);
-}
-
-static void test_ncid_worker_zero_len(void) {
-  u8 cid[4] = {0};
-  CHECK(ncid_worker_encode(cid, 0, 3, 1) < 0);
-  CHECK(ncid_worker_decode(cid, 0, 3) < 0);
-}
-
-static void test_ncid_worker_masks_oversize_index(void) {
-  /* bits=2 keeps only the low 2 bits of worker_idx: masked, not rejected. */
-  u8 cid[4] = {0};
-  CHECK(ncid_worker_encode(cid, sizeof(cid), 2, 7) == 0);
-  CHECK(ncid_worker_decode(cid, sizeof(cid), 2) == 3);
-}
-
-/* AF_XDP core-routing use case: bits=8 packs the whole leading byte, so the
- * min (0) and max (15, WIRED_SRVTHREADS_MAX-1) core indices both round-trip
- * exactly through cid[0]. */
-static void test_ncid_worker_encode_decode_roundtrip_bits8_boundary(void) {
-  u8 cid_min[4] = {0xAA, 0x11, 0x22, 0x33};
-  CHECK(ncid_worker_encode(cid_min, sizeof(cid_min), 8, 0) == 0);
-  CHECK(ncid_worker_decode(cid_min, sizeof(cid_min), 8) == 0);
-  CHECK(cid_min[0] == 0);
-
-  u8 cid_max[4] = {0xAA, 0x11, 0x22, 0x33};
-  CHECK(ncid_worker_encode(cid_max, sizeof(cid_max), 8, 15) == 0);
-  CHECK(ncid_worker_decode(cid_max, sizeof(cid_max), 8) == 15);
-  CHECK(cid_max[0] == 15);
-  /* bytes past cid[0] are untouched either way */
-  CHECK(cid_min[1] == 0x11 && cid_min[3] == 0x33);
-  CHECK(cid_max[1] == 0x11 && cid_max[3] == 0x33);
-}
-
 /* CVE-2026-44436 class (quicly oob-write via NEW_CONNECTION_ID with an
  * over-max CID length): a raw wire buffer whose length byte exceeds
  * NCID_MAX_LEN (20, RFC 9000 19.15) must be rejected by ncid_decode before
@@ -177,12 +115,6 @@ void test_ncid(void) {
   test_ncid_route_roundtrip();
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
-  test_ncid_worker_roundtrip();
-  test_ncid_worker_minmax_bits();
-  test_ncid_worker_invalid_bits();
-  test_ncid_worker_zero_len();
-  test_ncid_worker_masks_oversize_index();
-  test_ncid_worker_encode_decode_roundtrip_bits8_boundary();
   test_ncid_decode_rejects_over_max_len();
   test_ncid_decode_rejects_zero_len();
 }

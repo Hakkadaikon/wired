@@ -10,17 +10,12 @@
 #include "app/datagram/dgdeliver/dg_recv.c"
 #include "transport/conn/pnspace/pnspaces/spaces.c"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.c"
-#include "transport/packet/protect/protectcs/protectcs.c"
-#include "transport/packet/header/shorthdr/shorthdr.c"
 #include "transport/version/versmgr/avail.c"
-#include "transport/version/versmgr/v2switch.c"
-#include "transport/version/versmgr/downgrade.c"
 #include "crypto/pki/cert/certreq/certreq.c"
 #include "tls/handshake/core/hrr/hrr_build.c"
 #include "tls/handshake/core/hrr/hrr_detect.c"
 #include "tls/ext/legacy/legacy_fields.c"
 #include "transport/stream/data/maxstreams/maxstreams.c"
-#include "transport/io/socket/poll/deadline.c"
 #include "transport/io/socket/poll/nonblock.c"
 #include "transport/io/socket/poll/wait.c"
 #include "app/qpack/qpackdyn/insert_encode.c"
@@ -155,8 +150,6 @@
 #include "common/arch/x8664/clone.c"
 #include "common/arch/x8664/sigret.c"
 #include "common/platform/thread/thread.c"
-#include "transport/io/socket/io/udptransport.c"
-#include "transport/io/socket/io/addr.c"
 #include "crypto/pki/encoding/asn1/derval.c"
 #include "crypto/pki/encoding/asn1/derseq.c"
 #include "crypto/pki/encoding/asn1/der.c"
@@ -217,10 +210,7 @@
 #include "transport/stream/flow/flow/reassemble.c"
 #include "transport/packet/frame/frame/ack.c"
 #include "transport/packet/frame/frame/ack_take.c"
-#include "transport/packet/frame/frame/ack_range.c"
-#include "transport/packet/frame/frame/close_convert.c"
 #include "transport/packet/frame/frame/connctl.c"
-#include "transport/packet/frame/frame/crypto_offset.c"
 #include "transport/packet/frame/frame/dispatch.c"
 #include "transport/packet/frame/frame/flowctl.c"
 #include "transport/packet/frame/frame/frame.c"
@@ -271,7 +261,6 @@
 #include "transport/packet/protect/hp/hp_chacha.c"
 #include "transport/packet/protect/hp/hpapply.c"
 #include "transport/packet/protect/hp/hpsample.c"
-#include "transport/io/socket/io/retransmit.c"
 #include "transport/io/socket/io/udp.c"
 #include "transport/io/socket/io/udp_cmsg.c"
 #include "transport/io/socket/io/udp_tos.c"
@@ -304,17 +293,13 @@
 #include "app/http3/server/srvxdp/srvxdp_tx.c"
 #include "app/http3/server/srvbigbuf/srvbigbuf.c"
 #include "transport/packet/header/packet/coalesce.c"
-#include "transport/packet/header/packet/coalorder.c"
 #include "transport/packet/header/packet/header.c"
 #include "transport/packet/header/dcidresolve/dcidresolve.c"
 #include "transport/packet/header/packet/inittoken.c"
-#include "transport/packet/header/packet/pad.c"
-#include "transport/packet/header/packet/pnlen.c"
 #include "transport/packet/header/packet/pnum.c"
 #include "transport/packet/header/packet/ptype.c"
 #include "transport/packet/header/packet/resbits.c"
 #include "transport/packet/header/packet/retry.c"
-#include "transport/packet/header/packet/short.c"
 #include "transport/packet/header/packet/vneg.c"
 #include "transport/conn/cid/path/antiamp.c"
 #include "transport/conn/cid/pathsel/pathsel.c"
@@ -375,11 +360,8 @@
 #include "tls/ext/tparam/tpblob_pa.c"
 #include "tls/ext/tparam/tpcheck.c"
 #include "common/bytes/varint/varint.c"
-#include "transport/version/version/abandon.c"
 #include "transport/version/version/availfilter.c"
 #include "transport/version/version/compat.c"
-#include "transport/version/version/compatnego.c"
-#include "transport/version/version/downgrade.c"
 #include "transport/version/version/v2keys.c"
 #include "transport/version/version/v2types.c"
 #include "transport/version/version/verinfo.c"
@@ -400,15 +382,11 @@
 #include "transport/stream/flow/flow/credit.c"
 #include "transport/packet/frame/framedispatch/dispatch_state.c"
 #include "transport/io/udp/udploop/rxloop.c"
-#include "transport/io/udp/udploop/txloop.c"
 #include "transport/io/udp/udploop/antiamp_gate.c"
 #include "transport/conn/loop/connloop/connloop.c"
 #include "transport/conn/loop/connio/connio.c"
 #include "transport/conn/loop/connio/connio_recv.c"
 #include "transport/recovery/detect/lossdrive/lossdelay.c"
-#include "transport/packet/build/pktbuild/initpad.c"
-#include "transport/packet/build/pktbuild/framepack.c"
-#include "transport/packet/build/pktbuild/eliciting.c"
 #include "transport/recovery/detect/ackgen/ackrange.c"
 #include "transport/recovery/detect/ackgen/ackrangeconv.c"
 #include "crypto/pki/encoding/x509/certpolicies.c"
@@ -500,11 +478,7 @@
 #include "crypto/pki/cert/tbscert/fields.c"
 #include "crypto/pki/cert/tbscert/version_serial.c"
 #include "crypto/pki/cert/tbscert/sigalg.c"
-#include "transport/version/vndrive/accept.c"
-#include "transport/version/vndrive/select.c"
-#include "transport/version/vndrive/reconnect.c"
 #include "transport/recovery/rtx/sentmeta/record.c"
-#include "transport/io/udp/udpsess/udpsess.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
 #include "crypto/asymmetric/ecc/p256fixed/p256fixed_table.c"
 #include "crypto/asymmetric/ecc/p256sign/rfc6979.c"
@@ -738,7 +712,6 @@
 #include "tls/handshake/core/tls/chguard.c"
 #include "tls/handshake/core/tls/cryptolevel.c"
 #include "tls/keys/keyupdate/pncheck.c"
-#include "transport/packet/build/pktbuild/paddingelicit.c"
 #include "app/datagram/dgpriority/dgpriority.c"
 #include "app/moqt/vi/moqvi.c"
 #include "app/moqt/kvp/moqkvp.c"
@@ -977,7 +950,6 @@
 #include "transport/udp_recvfrom_test.c"
 #include "transport/udpfam_test.c"
 #include "transport/udp_gso_test.c"
-#include "transport/retransmit_test.c"
 #include "transport/ack_test.c"
 #include "transport/ncid_test.c"
 #include "transport/protect_test.c"
@@ -993,8 +965,6 @@
 #include "common/error_test.c"
 #include "transport/packet2_test.c"
 #include "transport/flowctl_test.c"
-#include "transport/abandon_test.c"
-#include "transport/ack_range_test.c"
 #include "transport/ackdelay_test.c"
 #include "transport/ackpolicy_test.c"
 #include "tls/aeadlimit_test.c"
@@ -1007,16 +977,12 @@
 #include "tls/bitset_test.c"
 #include "transport/ccloss_test.c"
 #include "tls/cert_test.c"
-#include "transport/close_convert_test.c"
 #include "transport/coalesce_test.c"
-#include "transport/coalorder_test.c"
 #include "common/codes_test.c"
 #include "transport/compat_test.c"
-#include "transport/compatnego_test.c"
 #include "app/connect_test.c"
 #include "app/contentlen_test.c"
 #include "app/critical_test.c"
-#include "transport/crypto_offset_test.c"
 #include "app/datagram_test.c"
 #include "transport/demux_test.c"
 #include "transport/conntable_test.c"
@@ -1025,7 +991,6 @@
 #include "transport/hystart_test.c"
 #include "app/dgcheck_test.c"
 #include "app/dgsize_test.c"
-#include "transport/downgrade_test.c"
 #include "transport/ecn_test.c"
 #include "crypto/ed25519_test.c"
 #include "crypto/bssl_ed25519_test.c"
@@ -1065,13 +1030,11 @@
 #include "tls/msgassembly_test.c"
 #include "transport/ncid_check_test.c"
 #include "transport/pacing_test.c"
-#include "transport/pad_test.c"
 #include "transport/pathsel_test.c"
 #include "transport/peercid_test.c"
 #include "transport/permit_test.c"
 #include "transport/persistent_test.c"
 #include "transport/pmtu_test.c"
-#include "transport/pnlen_test.c"
 #include "transport/pnspace_test.c"
 #include "transport/probe_test.c"
 #include "app/pseudoheader_test.c"
@@ -1132,8 +1095,6 @@
 #include "common/keylog_test.c"
 #include "common/cliargs_test.c"
 #include "common/envp_test.c"
-#include "transport/addr_test.c"
-#include "transport/udptransport_test.c"
 #include "common/clock_test.c"
 #include "common/debug_test.c"
 #include "common/fmt_test.c"
@@ -1210,14 +1171,10 @@
 #include "transport/ack_process_test.c"
 #include "transport/dispatch_state_test.c"
 #include "transport/rxloop_test.c"
-#include "transport/txloop_test.c"
 #include "transport/antiamp_gate_test.c"
 #include "transport/connloop_test.c"
 #include "transport/connio_test.c"
 #include "transport/lossdelay_test.c"
-#include "transport/initpad_test.c"
-#include "transport/framepack_test.c"
-#include "transport/eliciting_test.c"
 #include "transport/ackrange_test.c"
 #include "transport/ackrangeconv_test.c"
 #include "crypto/castore_test.c"
@@ -1293,11 +1250,7 @@
 #include "app/dg_recv_test.c"
 #include "transport/pnspaces_spaces_test.c"
 #include "transport/pnspaces_recv_test.c"
-#include "transport/protectcs_test.c"
-#include "transport/shorthdr_test.c"
 #include "transport/avail_test.c"
-#include "transport/v2switch_test.c"
-#include "transport/versdowngrade_test.c"
 #include "app/h3conn_establish_test.c"
 #include "app/h3conn_roundtrip_test.c"
 #include "app/h3reqdrive_test.c"
@@ -1310,9 +1263,7 @@
 #include "crypto/fields_test.c"
 #include "crypto/version_serial_test.c"
 #include "crypto/sigalg_test.c"
-#include "transport/vndrive_test.c"
 #include "transport/sentmeta_test.c"
-#include "transport/udpsess_test.c"
 #include "tls/keyring_test.c"
 #include "crypto/rfc6979_test.c"
 #include "crypto/p256fixed_test.c"
@@ -1385,7 +1336,6 @@
 #include "app/rawq_test.c"
 #include "app/wtcapsule_test.c"
 #include "app/wtwire_test.c"
-#include "app/srvworkers_migration_test.c"
 #include "app/srvpoll_test.c"
 #include "transport/eth_test.c"
 #include "transport/xdpmac_test.c"
@@ -1400,7 +1350,6 @@
 #include "tls/sni_check_test.c"
 #include "tls/cryptolevel_test.c"
 #include "tls/pncheck_test.c"
-#include "transport/paddingelicit_test.c"
 #include "app/dgpriority_test.c"
 #include "crypto/ed25519_field_test.c"
 #include "tls/v2ku_appendix_test.c"
@@ -1491,7 +1440,6 @@ int main(void) {
   test_udpfam();
   test_udp_gso();
   test_udp_recvmmsg();
-  test_rtx();
   test_ack();
   test_ncid();
   test_protect();
@@ -1506,8 +1454,6 @@ int main(void) {
   test_dispatch();
   test_error();
   test_flowctl();
-  test_abandon();
-  test_ack_range();
   test_ackdelay();
   test_ackpolicy();
   test_aeadlimit();
@@ -1520,16 +1466,12 @@ int main(void) {
   test_bitset();
   test_ccloss();
   test_cert();
-  test_close_convert();
   test_coalesce();
-  test_coalorder();
   test_codes();
   test_compat();
-  test_compatnego();
   test_connect();
   test_contentlen();
   test_critical();
-  test_crypto_offset();
   test_datagram();
   test_demux();
   test_conntable();
@@ -1539,7 +1481,6 @@ int main(void) {
   test_hystart();
   test_dgcheck();
   test_dgsize();
-  test_downgrade();
   test_ecn();
   test_ed25519();
   test_bssl_ed25519();
@@ -1579,13 +1520,11 @@ int main(void) {
   test_msgassembly();
   test_ncid_check();
   test_pacing();
-  test_pad();
   test_pathsel();
   test_peercid();
   test_permit();
   test_persistent();
   test_pmtu();
-  test_pnlen();
   test_pnspace();
   test_probe();
   test_pseudoheader();
@@ -1649,8 +1588,6 @@ int main(void) {
   test_keylog();
   test_cliargs();
   test_envp();
-  test_addr();
-  test_udptransport();
   test_rng();
   test_clock();
   test_debug();
@@ -1727,14 +1664,10 @@ int main(void) {
   test_ack_process();
   test_dispatch_state();
   test_rxloop();
-  test_txloop();
   test_antiamp_gate();
   test_connloop();
   test_connio();
   test_lossdelay();
-  test_initpad();
-  test_framepack();
-  test_eliciting();
   test_ackrange();
   test_ackrangeconv();
   test_castore();
@@ -1847,11 +1780,7 @@ int main(void) {
   test_dg_recv_truncated();
   test_pnspaces_spaces();
   test_pnspaces_recv();
-  test_protectcs();
-  test_shorthdr();
   test_avail();
-  test_v2switch();
-  test_versdowngrade();
   test_h3conn_establish();
   test_h3conn_roundtrip();
   test_h3reqdrive();
@@ -1868,9 +1797,7 @@ int main(void) {
   test_fields();
   test_version_serial();
   test_sigalg();
-  test_vndrive();
   test_sentmeta();
-  test_udpsess();
   test_keyring();
   test_rfc6979();
   test_p256fixed();
@@ -1949,7 +1876,6 @@ int main(void) {
   test_rawq();
   test_wtcapsule();
   test_wtwire();
-  test_srvworkers_migration();
   test_srvpoll();
   test_eth();
   test_xdpmac();
@@ -1964,7 +1890,6 @@ int main(void) {
   test_sni_check();
   test_cryptolevel();
   test_pncheck();
-  test_paddingelicit();
   test_dgpriority();
   test_moqvi();
   test_moqkvp();
