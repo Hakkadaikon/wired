@@ -58,6 +58,21 @@ static void test_qpack_string(void) {
   CHECK(qpack_string_decode(wired_span_of(buf, w - 1), &ob) == 0);
 }
 
+/* RFC 7541 5.1/5.2: no room for the length byte, or for a length's
+ * continuation byte, writes nothing; a length prefix whose continuation
+ * byte is missing decodes as nothing. */
+static void test_qpack_string_int_no_room(void) {
+  const u8        raw[]  = {0xff}; /* Huffman-longer: sent raw (H=0) */
+  static const u8 cut[]  = {0x7f}; /* 7-bit prefix full, no continuation */
+  u8              buf[4] = {0};
+  u8              out[4];
+  wired_obuf      ob = obuf_of(out, sizeof out);
+  CHECK(
+      qpack_string_encode(wired_mspan_of(buf, 0), wired_span_of(raw, 1)) == 0);
+  CHECK(qpack_int_encode(wired_mspan_of(buf, 1), (qpack_pfx){7, 0}, 127) == 0);
+  CHECK(qpack_string_decode(wired_span_of(cut, 1), &ob) == 0);
+}
+
 /* The static table resolves known indices and finds known pairs. */
 static void test_qpack_static_table(void) {
   const char *name, *value;
@@ -156,6 +171,7 @@ void test_qpack(void) {
   test_qpack_integer_roundtrip();
   test_qpack_integer_62bit_boundary();
   test_qpack_string();
+  test_qpack_string_int_no_room();
   test_qpack_static_table();
   test_qpack_string_decode_oversized_length_rejected();
   test_qpack_string_decode_truncated_input_rejected();

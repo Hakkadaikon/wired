@@ -195,6 +195,29 @@ static void test_closing_sends_no_app_data(void) {
   CHECK(connloop_on_send(&c, &(connloop_send_in){LEVEL_ONERTT, 1, 0, 10}) == 0);
 }
 
+/* RFC 9001 4: no send and no PTO probe at a level whose key is absent;
+ * RFC 9000 10.2.2: a peer CONNECTION_CLOSE takes an active connection
+ * straight to draining. */
+static void test_connloop_keyless_and_peer_close(void) {
+  connloop c;
+  connloop_init(&c, 0);
+  c.validated = 1;
+  CHECK(
+      connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 0, 0, 10}) == 0);
+  CHECK(c.sent_bytes == 0);
+  {
+    /* in flight at Initial, then the Initial key is discarded */
+    initial_keys k = {0};
+    keyset_install(&c.keys, LEVEL_INITIAL, &k);
+    CHECK(connloop_on_send(&c, &(connloop_send_in){LEVEL_INITIAL, 1, 0, 10}));
+    keyset_discard(&c.keys, LEVEL_INITIAL);
+  }
+  CHECK(connloop_on_pto(&c, &(connloop_pto_in){LEVEL_INITIAL, 1, 10}) == 0);
+  CHECK(sentpkt_count(&c.sent) == 1);
+  connloop_close(&c, 1);
+  CHECK(c.phase == CONNLOOP_DRAINING);
+}
+
 /* RFC 9001 4.9.1: a discarded level is never used to process again. */
 static void test_no_recv_at_discarded_level(void) {
   connloop c;
@@ -315,6 +338,7 @@ static void test_connloop_ack_only_never_tracked(void) {
 }
 
 void test_connloop(void) {
+  test_connloop_keyless_and_peer_close();
   test_send_level_never_regresses();
   test_no_app_data_before_handshake_complete();
   test_server_send_capped_3x_recv();

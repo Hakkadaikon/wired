@@ -29,6 +29,9 @@ static void test_qpack_ric_invalid(void) {
   /* encoded 1 with no inserts wraps to candidate 0, which is invalid. */
   qpack_ric_ctx empty = {3, 0};
   CHECK(qpack_ric_decode(1, &empty, &ric) == 0);
+  /* MaxValue 3, FullRange 6: encoded 5 gives 4 > MaxValue, and 4 <= 6
+   * cannot unwrap */
+  CHECK(qpack_ric_decode(5, &empty, &ric) == 0);
 }
 
 /* Round-trip across the wrap boundary: every RIC up to one full range decodes

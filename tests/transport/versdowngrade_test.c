@@ -17,4 +17,7 @@ void test_versdowngrade(void) {
   /* negotiated absent from server's list -> downgrade */
   u32 only_v2[] = {VERSION_2};
   CHECK(vers_no_downgrade(VERSION_1, only_v2, 1) == 0);
+
+  /* only GREASE offered: the scan ends without meeting negotiated */
+  CHECK(vers_no_downgrade(VERSION_1, grease, 1) == 0);
 }

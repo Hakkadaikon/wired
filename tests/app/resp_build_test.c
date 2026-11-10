@@ -42,6 +42,21 @@ static void test_resp_build_overflow(void) {
   CHECK(h3resp_build(200, 0, wired_span_of(b, sizeof b), &ob) == 0);
 }
 
+/* RFC 9114 7.2.1: HEADERS fits but the DATA frame (or, for the prefix form,
+ * its type + Length head) does not: both refuse. */
+static void test_resp_build_data_no_room(void) {
+  u8         b[] = {'h', 'i'};
+  u8         out[16];
+  wired_obuf ob = {out, sizeof out, 0};
+  usz        hlen;
+  CHECK(h3resp_build(200, 0, wired_span_of(0, 0), &ob) == 1);
+  hlen = ob.len;
+  ob   = (wired_obuf){out, hlen + 1, 0};
+  CHECK(h3resp_build(200, 0, wired_span_of(b, sizeof b), &ob) == 0);
+  ob = (wired_obuf){out, hlen + 1, 0};
+  CHECK(h3resp_prefix(200, 0, 300, &ob) == 0);
+}
+
 /* content_type non-null adds a content-type field line after :status. */
 static void test_resp_build_content_type(void) {
   u8         b[] = {'h', 'i'};
@@ -150,5 +165,6 @@ void test_resp_build(void) {
   test_resp_build_roundtrip();
   test_resp_build_no_body();
   test_resp_build_overflow();
+  test_resp_build_data_no_room();
   test_resp_build_content_type();
 }

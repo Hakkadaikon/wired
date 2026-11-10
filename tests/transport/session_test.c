@@ -80,8 +80,64 @@ static void test_session_rejects_short_frame(void) {
   CHECK(session_recv_stream(&s, &got) == 0);
 }
 
+/* A client/server pair on one link, keyed like test_session_e2e. */
+static void sess_pair(memlink* link, session* cli, session* srv) {
+  static const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  u8              cpriv[32], spriv[32];
+  for (usz i = 0; i < 32; i++) {
+    cpriv[i] = (u8)(i + 1);
+    spriv[i] = (u8)(0x40 + i);
+  }
+  memlink_init(link);
+  session_init_in cin = {cpriv, dcid, link, 0};
+  session_init_in sin = {spriv, dcid, link, 1};
+  session_init(cli, &cin);
+  session_init(srv, &sin);
+}
+
+/* Client sends an Initial carrying payload under the Initial keys. */
+static int sess_send_initial(session* cli, wired_span payload) {
+  protect_keys k = {&cli->ikeys, &cli->ihp};
+  return session_seal_tx(
+      cli, &k, 0xc3, 1, payload, (ipv4addrs){SESSION_CA, SESSION_SA});
+}
+
+/* RFC 9000 17.2.2: the server's accept needs a CRYPTO frame carrying a
+ * well-formed handshake message; anything else yields no peer share. */
+static void test_session_accept_rejects(void) {
+  static const u8 ping[]    = {0x01};
+  static const u8 trunc[]   = {0x06, 0x00, 0x01, 0x01}; /* CRYPTO, 1-byte hs */
+  static u8       big[1200] = {0};
+  memlink         link;
+  session         cli, srv;
+  sess_pair(&link, &cli, &srv);
+  CHECK(session_accept(&srv) == 0); /* empty link */
+  CHECK(sess_send_initial(&cli, wired_span_of(ping, 1)) == 1);
+  CHECK(session_accept(&srv) == 0); /* no CRYPTO frame */
+  CHECK(sess_send_initial(&cli, wired_span_of(trunc, sizeof trunc)) == 1);
+  CHECK(session_accept(&srv) == 0); /* truncated handshake header */
+  CHECK(sess_send_initial(&cli, wired_span_of(big, sizeof big)) == 0);
+  CHECK(srv.have_peer == 0);
+}
+
+/* RFC 7748 6.1: finish before any peer share, or with a low-order (all-zero)
+ * client share, aborts the key agreement. */
+static void test_session_finish_rejects(void) {
+  static const u8 tr[] = "transcript";
+  memlink         link;
+  session         cli, srv;
+  sess_pair(&link, &cli, &srv);
+  CHECK(session_finish(&cli, &srv, wired_span_of(tr, sizeof tr)) == 0);
+  bytes_memset(cli.ep.pub, 0, sizeof cli.ep.pub);
+  CHECK(session_client_hello(&cli) == 1);
+  CHECK(session_accept(&srv) == 1);
+  CHECK(session_finish(&cli, &srv, wired_span_of(tr, sizeof tr)) == 0);
+}
+
 void test_session(void) {
   test_session_e2e();
   test_session_guards();
   test_session_rejects_short_frame();
+  test_session_accept_rejects();
+  test_session_finish_rejects();
 }

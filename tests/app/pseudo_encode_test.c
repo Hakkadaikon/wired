@@ -65,6 +65,25 @@ static void test_pseudo_overflow(void) {
       wired_span_of(m, 3), wired_span_of(s, 5), wired_span_of(a, 11),
       wired_span_of(p, 1), wired_span_of(0, 0)};
   CHECK(h3req_enc_pseudo(&in, &ob) == 0);
+  /* RFC 9204 4.5.1: one byte cannot hold even the 2-byte section prefix */
+  ob = (wired_obuf){out, 1, 0};
+  CHECK(h3req_enc_pseudo(&in, &ob) == 0);
+}
+
+/* RFC 9220 3: the four pseudo-headers fit but the :protocol line does not. */
+static void test_pseudo_protocol_overflow(void) {
+  static const u8 m[] = "CONNECT", s[] = "https", a[] = "host", p[] = "/wt",
+                  proto[] = "webtransport-h3";
+  h3req_pseudo_in in      = {
+      wired_span_of(m, sizeof m - 1), wired_span_of(s, sizeof s - 1),
+      wired_span_of(a, sizeof a - 1), wired_span_of(p, sizeof p - 1),
+      wired_span_of(0, 0)};
+  u8         fs[128];
+  wired_obuf ob = obuf_of(fs, sizeof fs);
+  CHECK(h3req_enc_pseudo(&in, &ob) == 1);
+  ob          = obuf_of(fs, ob.len + 1);
+  in.protocol = wired_span_of(proto, sizeof proto - 1);
+  CHECK(h3req_enc_pseudo(&in, &ob) == 0);
 }
 
 /* Wrap a QPACK field section fs into a HEADERS frame inside a STREAM frame,
@@ -140,6 +159,7 @@ void test_pseudo_encode(void) {
   test_pseudo_indexed_and_namref();
   test_pseudo_roundtrip();
   test_pseudo_overflow();
+  test_pseudo_protocol_overflow();
   test_pseudo_protocol_roundtrip();
   test_pseudo_protocol_omitted();
 }

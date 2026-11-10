@@ -284,6 +284,25 @@ static void test_wtcapsule_max_data_roundtrip(void) {
   CHECK(at == out.len);
 }
 
+/* RFC 9000 16: a value at or past 2^62 has no varint encoding, so no
+ * capsule is written; RFC 9297 3.2: a truncated capsule decodes as none of
+ * the WT capsule kinds and consumes nothing. */
+static void test_wtcapsule_bad_varint_and_truncated(void) {
+  static const u8 cut[] = {0x40}; /* 2-byte Type varint, second byte gone */
+  u8              buf[16];
+  wired_obuf      out = obuf_of(buf, sizeof buf);
+  usz             at  = 0;
+  u64             n_out;
+  u32             code;
+  wired_span      msg;
+  CHECK(!wtcapsule_encode_max_data(&out, (u64)1 << 62));
+  CHECK(out.len == 0);
+  CHECK(!wtcapsule_decode_max_data(wired_span_of(cut, 1), &at, &n_out));
+  CHECK(!wired_wtcapsule_decode_close(wired_span_of(cut, 1), &at, &code, &msg));
+  CHECK(!wtcapsule_decode_drain(wired_span_of(cut, 1), &at));
+  CHECK(at == 0);
+}
+
 /* TEST 13: WT_DATA_BLOCKED round-trip (single type, 0x190B4D41); also
  * confirms it does not cross-decode as WT_MAX_DATA. */
 static void test_wtcapsule_data_blocked_roundtrip(void) {
@@ -442,6 +461,24 @@ static void test_wt_utf8_invalid_surrogate(void) {
   CHECK(wtcapsule_utf8_valid(wired_span_of(s, sizeof s)) == 0);
 }
 
+/* RFC 3629 SS4 UTF8-2..UTF8-4 boundaries: a non-continuation after a lead,
+ * the E0 overlong floor (A0), and the F4 ceiling (U+10FFFF), plus a plain
+ * F1 lead with no second-byte restriction. */
+static void test_wt_utf8_lead_boundaries(void) {
+  static const u8 bad_cont[] = {0xC3, 0x41};
+  static const u8 e0_low[]   = {0xE0, 0x9F, 0x80};
+  static const u8 e0_ok[]    = {0xE0, 0xA0, 0x80};
+  static const u8 f4_high[]  = {0xF4, 0x90, 0x80, 0x80};
+  static const u8 f4_max[]   = {0xF4, 0x8F, 0xBF, 0xBF};
+  static const u8 f1_ok[]    = {0xF1, 0x80, 0x80, 0x80};
+  CHECK(wtcapsule_utf8_valid(wired_span_of(bad_cont, 2)) == 0);
+  CHECK(wtcapsule_utf8_valid(wired_span_of(e0_low, 3)) == 0);
+  CHECK(wtcapsule_utf8_valid(wired_span_of(e0_ok, 3)) == 1);
+  CHECK(wtcapsule_utf8_valid(wired_span_of(f4_high, 4)) == 0);
+  CHECK(wtcapsule_utf8_valid(wired_span_of(f4_max, 4)) == 1);
+  CHECK(wtcapsule_utf8_valid(wired_span_of(f1_ok, 4)) == 1);
+}
+
 /* 0xFF is never a valid UTF-8 lead byte. */
 static void test_wt_utf8_invalid_lead_byte(void) {
   static const u8 s[] = {0xFF};
@@ -523,6 +560,8 @@ void test_wtcapsule(void) {
   test_wt_utf8_invalid_overlong();
   test_wt_utf8_invalid_lead_byte_out_of_range();
   test_wt_utf8_invalid_surrogate();
+  test_wt_utf8_lead_boundaries();
+  test_wtcapsule_bad_varint_and_truncated();
   test_wt_utf8_invalid_lead_byte();
   test_wt_utf8_truncate_len_no_truncation_needed();
   test_wt_utf8_truncate_len_ascii_exact_cap();

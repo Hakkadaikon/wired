@@ -51,6 +51,14 @@ static void test_retrytoken_wire_tamper_rejected(void) {
   CHECK(
       retrytoken_wire_verify(
           key, wired_span_of(addr2, 4), wired_span_of(token, n), &got) == 0);
+  /* RFC 9000 17.2: a CID is at most 20 bytes; a 21-byte ODCID makes none */
+  {
+    const u8 long_cid[21] = {0};
+    CHECK(
+        retrytoken_wire_make(
+            key, wired_span_of(addr, 4), wired_span_of(long_cid, 21), token) ==
+        0);
+  }
 }
 
 /* Malformed wire tokens are rejected outright: too short to hold the HMAC,

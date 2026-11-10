@@ -30,6 +30,13 @@ static void test_tokentype_empty(void) {
   /* no room */
   wired_obuf ob0 = obuf_of(out, 0);
   CHECK(token_tag_retry(&ob0, wired_span_of((const u8*)0, 0)) == 0);
+  /* room for the tag byte but not the 4-byte body */
+  {
+    static const u8 body[4] = {1, 2, 3, 4};
+    wired_obuf      ob2     = obuf_of(out, 2);
+    CHECK(token_tag_newtoken(&ob2, wired_span_of(body, 4)) == 0);
+    CHECK(ob2.len == 0);
+  }
 }
 
 void test_tokentype(void) {

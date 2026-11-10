@@ -175,14 +175,17 @@ static void test_enc_stream_prefix_incomplete(void) {
  * than the capacity, a static index past the table, a dynamic reference to
  * no live entry, and a Duplicate of no live entry. */
 static void test_enc_stream_errors(void) {
-  static const u8  big[]  = {0xc0, 0x03, 'a', 'b', 'c'}; /* 10+3+32 > 40 */
-  static const u8  nost[] = {0xff, 0x24, 0x00};          /* static 99 */
-  static const u8  nody[] = {0x80, 0x00};                /* dynamic rel 0 */
-  static const u8  nodu[] = {0x00};                      /* Duplicate 0 */
-  const wired_span bad[]  = {
+  static const u8 big[]  = {0xc0, 0x03, 'a', 'b', 'c'}; /* 10+3+32 > 40 */
+  static const u8 nost[] = {0xff, 0x24, 0x00};          /* static 99 */
+  static const u8 nody[] = {0x80, 0x00};                /* dynamic rel 0 */
+  static const u8 nodu[] = {0x00};                      /* Duplicate 0 */
+  /* RFC 7541 5.2: Huffman value '0' (00000) padded with 000, not EOS ones */
+  static const u8  pad[] = {0xc0, 0x81, 0x00};
+  const wired_span bad[] = {
       wired_span_of(big, sizeof big), wired_span_of(nost, sizeof nost),
-      wired_span_of(nody, sizeof nody), wired_span_of(nodu, sizeof nodu)};
-  for (usz i = 0; i < 4; i++) {
+      wired_span_of(nody, sizeof nody), wired_span_of(nodu, sizeof nodu),
+      wired_span_of(pad, sizeof pad)};
+  for (usz i = 0; i < 5; i++) {
     qpack_dyn t;
     u16       err = 0;
     qpack_dyn_init(&t, 40);

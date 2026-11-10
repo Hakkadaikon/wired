@@ -63,6 +63,16 @@ static void test_connection_guards(void) {
 
   framewalk it;
   CHECK(connection_recv(&c, LEVEL_ONERTT, &it) == 0);
+
+  /* keyed: a payload filling the whole MTU leaves no room for the header
+   * and AEAD tag, and the empty link still yields nothing */
+  install_1rtt(&c, dcid);
+  {
+    static const u8 big[MEMLINK_MTU] = {0};
+    CHECK(
+        connection_send(&c, LEVEL_ONERTT, wired_span_of(big, sizeof big)) == 0);
+  }
+  CHECK(connection_recv(&c, LEVEL_ONERTT, &it) == 0);
 }
 
 void test_connection(void) {

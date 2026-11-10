@@ -33,6 +33,16 @@ static void test_priupdate_rejects_malformed(void) {
   CHECK(h3_priupdate_get(wired_span_of(buf, n - 1), &out) == 0);
   buf[0] = 0x01; /* not a PRIORITY_UPDATE type */
   CHECK(h3_priupdate_get(wired_span_of(buf, n), &out) == 0);
+  /* RFC 9218 7.1: Length 0 leaves no room for the Element ID */
+  {
+    static const u8 empty[] = {0x80, 0x0f, 0x07, 0x00, 0x00};
+    CHECK(h3_priupdate_get(wired_span_of(empty, sizeof empty), &out) == 0);
+  }
+  /* an Element ID past 2^62 - 1 has no varint encoding */
+  CHECK(
+      h3_priupdate_put(
+          buf, sizeof buf,
+          &(h3_priupdate){0, (u64)1 << 62, wired_span_of(0, 0)}) == 0);
 }
 
 /* The Priority Field Value dictionary (RFC 9218 4/5, RFC 8941 shape):
@@ -95,6 +105,8 @@ static void test_priupdate_sfv_parse_failure_defaults(void) {
       "i, u=\"a\\q\"",         /* bad string escape */
       "i, x=(a b",             /* unterminated inner list */
       "i, x=(a,b)",            /* inner-list items need SP */
+      "i, x=(a @)",            /* an inner-list member that is no item */
+      "i, x=-",                /* a sign with no digit (8941 4.2.4) */
       "i, x=1234567890123456", /* integer longer than 15 digits */
       "i, x=1234567890123.1",  /* decimal integer part past 12 */
       "i, x=1.2345",           /* decimal fraction past 3 digits */

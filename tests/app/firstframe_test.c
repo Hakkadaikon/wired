@@ -12,6 +12,8 @@ static void test_firstframe_request(void) {
   CHECK(h3_first_frame_ok(H3_STREAM_KIND_REQUEST, H3_FRAME_HEADERS) == 1);
   CHECK(h3_first_frame_ok(H3_STREAM_KIND_REQUEST, H3_FRAME_DATA) == 0);
   CHECK(h3_first_frame_ok(H3_STREAM_KIND_REQUEST, H3_FRAME_SETTINGS) == 0);
+  /* no first-frame rule is defined for a push stream: nothing is accepted */
+  CHECK(h3_first_frame_ok(H3_STREAM_KIND_PUSH, H3_FRAME_HEADERS) == 0);
 }
 
 /* Pinning: RFC 9114 6.2.1 -- a control stream that sends anything other than

@@ -58,6 +58,9 @@ static void test_find_miss(void) {
   qpack_match m;
   seed(&t);
   CHECK(qpack_dyn_find(&t, &q, &m) == 0);
+  /* a longer name sharing the first byte is a different name */
+  q.name = wired_span_of((const u8*)"ab", 2);
+  CHECK(qpack_dyn_find(&t, &q, &m) == 0);
 }
 
 void test_dynfind(void) {

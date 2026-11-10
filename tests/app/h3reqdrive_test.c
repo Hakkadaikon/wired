@@ -77,6 +77,13 @@ static void test_reqdrive_post_body(void) {
       &r));
   CHECK(rd_eq(r.method, r.method_len, "POST", 4));
   CHECK(rd_eq(r.body, r.body_len, "hello", 5));
+  {
+    /* a :path past the 256-byte field-section scratch encodes nothing */
+    static const u8 long_path[300] = {'/'};
+    in.path                        = wired_span_of(long_path, sizeof long_path);
+    req_ob.len                     = 0;
+    CHECK(!wired_h3reqdrive_send_method(0, &in, &req_ob));
+  }
 }
 
 /* RFC 9114 4.1: an empty body (DATA frame of length 0) decodes to body_len 0
@@ -506,6 +513,14 @@ static void test_reqdrive_no_cookie(void) {
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(r.cookie_len == 0);
+  {
+    wired_span v = {0, 0};
+    CHECK(
+        !wired_http_req_header(&r, wired_span_of((const u8*)"cookie", 6), &v));
+  }
+  /* RFC 9000 19.8: a STREAM frame cut after its type byte unwraps to nothing */
+  CHECK(!wired_h3reqdrive_recv_get(
+      wired_span_of(req, 1), wired_mspan_of(scratch, sizeof scratch), &r));
 }
 
 /* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
@@ -1342,6 +1357,33 @@ static void test_reqdrive_req_header_lookup(void) {
   CHECK(!wired_http_req_header(&r, wired_span_of((const u8*)"accept", 6), &v));
 }
 
+/* RFC 9114 4.2.1: a cookie line that would push the joined value past the
+ * 512-byte r.cookie is dropped; the request and the earlier cookie stand. */
+static void test_reqdrive_cookie_join_overflow(void) {
+  static u8            scratch[WIRED_H3_MAX_FIELD_SECTION];
+  static u8            va[400], vb[200];
+  u8                   fs[700];
+  qpack_prefix         pfx = {0, 0, 0};
+  usz                  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  wired_h3reqdrive_req r;
+  bytes_memset(va, 'a', sizeof va);
+  bytes_memset(vb, 'b', sizeof vb);
+  off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+  rd_pseudo(fs, &off, 1);
+  {
+    qpack_field a = {
+        wired_span_of((const u8*)"cookie", 6), wired_span_of(va, sizeof va)};
+    qpack_field b = {
+        wired_span_of((const u8*)"cookie", 6), wired_span_of(vb, sizeof vb)};
+    off += qpack_literal_name_encode(
+        wired_mspan_of(fs + off, sizeof fs - off), 0, &a);
+    off += qpack_literal_name_encode(
+        wired_mspan_of(fs + off, sizeof fs - off), 0, &b);
+  }
+  CHECK(rd_hdr_decode(fs, off, scratch, 0, &r));
+  CHECK(r.cookie_len == sizeof va && r.cookie[sizeof va - 1] == 'a');
+}
+
 /* Up to WIRED_H3REQDRIVE_MAX_HDRS regular headers are kept; the next one is
  * ignored, not an error. */
 static void test_reqdrive_req_header_cap(void) {
@@ -1616,6 +1658,11 @@ static void test_reqdrive_bad_name_ref_before_bad_value(void) {
   CHECK(r.qpack_failed == 1);
   CHECK(!rd_hdr_decode(pb, sizeof pb, scratch, &t, &r));
   CHECK(r.qpack_failed == 1);
+  {
+    /* RFC 9204 4.5.5: a valid post-Base name (index 1) whose value is cut */
+    static const u8 pb_cut[] = {0x03, 0x81, 0xd1, 0xd7, 0x01, 0x05, 'x'};
+    CHECK(!rd_hdr_decode(pb_cut, sizeof pb_cut, scratch, &t, &r));
+  }
 }
 
 /* RFC 9204 7.4: a field this decoder cannot hold (a literal name past its
@@ -1773,6 +1820,25 @@ static void test_reqdrive_trailer_dynamic_ref_resolves(void) {
       &t));
   CHECK(!rd_trailer_ok(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0));
+  /* RFC 9204 4.5.1: a trailer HEADERS with no field-section prefix is a
+   * decompression failure */
+  h3_len -= 5; /* drop the 3-byte-payload trailer frame */
+  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, H3_FRAME_HEADERS, wired_span_of(trl, 0));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof req, &req_len));
+  CHECK(!rd_trailer_ok(
+      wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
+      &t));
+  /* the public trailer finder refuses bytes with no leading HEADERS */
+  {
+    /* RFC 9114 4.1: DATA before any HEADERS -- no leading section, so the
+     * HEADERS after it is not a trailer either */
+    static const u8 data_first[] = {0x00, 0x00, 0x01, 0x00};
+    wired_span      tfs;
+    CHECK(!wired_h3reqdrive_request_trailer(wired_span_of(trl, 0), &tfs));
+    CHECK(!wired_h3reqdrive_request_trailer(
+        wired_span_of(data_first, sizeof data_first), &tfs));
+  }
 }
 
 void test_h3reqdrive(void) {
@@ -1793,6 +1859,7 @@ void test_h3reqdrive(void) {
   test_h3req_path_view();
   test_reqdrive_req_header_lookup();
   test_reqdrive_req_header_cap();
+  test_reqdrive_cookie_join_overflow();
   test_reqdrive_req_header_chrome();
   test_reqdrive_req_header_dynamic_copied();
   test_reqdrive_priority_header();

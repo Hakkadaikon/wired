@@ -48,6 +48,12 @@ static void test_h3cancel_request_overflow(void) {
   wired_obuf ob = {out, sizeof out, 99};
 
   CHECK(h3cancel_request(8, 100, &ob) == 0);
+  {
+    /* RESET_STREAM 04 08 410c 4064 fills 6 bytes; no room for STOP_SENDING */
+    u8         six[6];
+    wired_obuf o6 = {six, sizeof six, 99};
+    CHECK(h3cancel_request(8, 100, &o6) == 0 && o6.len == 99);
+  }
 }
 
 /* CANCEL_PUSH codec (RFC 9114 7.2.3) is reused from h3/frame.c. */

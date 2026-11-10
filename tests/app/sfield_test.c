@@ -205,7 +205,21 @@ static void test_sfield_next_string_malformed_rejected(void) {
   CHECK(sfield_next_string(&it, &out3) == -1);
 }
 
+/* RFC 8941 4.2.5: a String longer than the caller's buffer is refused,
+ * whether the overflowing byte is literal or escaped. */
+static void test_sfield_next_string_out_full(void) {
+  sfield_iter it;
+  u8          buf[8]; /* only 1 byte offered: the rest catches an overrun */
+  wired_obuf  out = obuf_of(buf, 1);
+  sfield_iter_init(&it, sfield_span("\"ab\"", 4));
+  CHECK(sfield_next_string(&it, &out) == -1);
+  out = obuf_of(buf, 1);
+  sfield_iter_init(&it, sfield_span("\"a\\\"\"", 5));
+  CHECK(sfield_next_string(&it, &out) == -1);
+}
+
 void test_sfield(void) {
+  test_sfield_next_string_out_full();
   test_sfield_single_item();
   test_sfield_multiple_items_in_order();
   test_sfield_comma_and_space_inside_quotes();

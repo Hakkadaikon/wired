@@ -95,6 +95,18 @@ static void test_capsule_decode_truncated_type(void) {
 
   CHECK(!capsule_decode(wired_span_of(buf, 1), &at, &type_out, &value_out));
   CHECK(at == 0);
+  /* RFC 9297 3.2: a whole Type but no Length varint */
+  buf[0] = 0x01;
+  CHECK(!capsule_decode(wired_span_of(buf, 1), &at, &type_out, &value_out));
+  CHECK(at == 0);
+}
+
+/* RFC 9000 16: a Capsule Type past 2^62 - 1 has no varint encoding. */
+static void test_capsule_encode_type_out_of_range(void) {
+  u8         buf[16];
+  wired_obuf out = obuf_of(buf, sizeof buf);
+  CHECK(!capsule_encode(&out, (u64)1 << 62, wired_span_of(0, 0)));
+  CHECK(out.len == 0);
 }
 
 /* TEST 5: complete type+length header but insufficient value bytes. */
@@ -281,6 +293,7 @@ void test_capsule(void) {
   test_capsule_roundtrip_empty_value();
   test_capsule_decode_view_no_alloc();
   test_capsule_decode_truncated_type();
+  test_capsule_encode_type_out_of_range();
   test_capsule_decode_truncated_value();
   test_capsule_encode_too_small_leaves_out_unmodified();
   test_capsule_decode_multiple_back_to_back();

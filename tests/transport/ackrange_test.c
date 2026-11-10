@@ -51,4 +51,14 @@ void test_ackrange(void) {
     u64obuf   out   = {r, 2, 0};
     CHECK(ackgen_build_ranges((u64view){pns, 4}, &largest, &out) == 0);
   }
+
+  /* three blocks: no room for the middle block's Gap (cap 1) or its ACK
+   * Range Length (cap 2) while still descending */
+  {
+    const u64 pns[] = {0, 3, 6};
+    u64obuf   one   = {r, 1, 0};
+    u64obuf   two   = {r, 2, 0};
+    CHECK(ackgen_build_ranges((u64view){pns, 3}, &largest, &one) == 0);
+    CHECK(ackgen_build_ranges((u64view){pns, 3}, &largest, &two) == 0);
+  }
 }

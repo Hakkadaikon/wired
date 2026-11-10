@@ -28,6 +28,7 @@ static void test_recvpn_window(void) {
 static void test_recvpn_first_range(void) {
   recvpn r;
   recvpn_init(&r);
+  CHECK(recvpn_first_range(&r) == 0); /* nothing received yet */
   recvpn_record(&r, 10);
   CHECK(recvpn_first_range(&r) == 0); /* only largest, no run below */
 

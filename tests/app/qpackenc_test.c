@@ -8,9 +8,9 @@
 /* Encode a :status line and commit its planned insert, as srvrun does once
  * the instruction is staged. */
 static int qe_line(u16 status, qpackenc_state* st, qpackenc_status_result* r) {
-  int ok = qpackenc_status_line(status, st, r);
+  qpackenc_status_line(status, st, r);
   qpackenc_status_commit(st, r);
-  return ok;
+  return r->field_len != 0;
 }
 
 /* RFC 9204 2.1.4: planning alone changes nothing -- a section that is never
@@ -21,9 +21,10 @@ static void test_qpackenc_plan_then_commit(void) {
   qpackenc_status_result r;
   qpackenc_init(&st, 0);
   qpackenc_peer_capacity(&st, 4096);
-  CHECK(qpackenc_status_line(599, &st, &r) == 1 && r.insert_len > 3);
+  qpackenc_status_line(599, &st, &r);
+  CHECK(r.insert_len > 3);
   CHECK(st.total_inserts == 0 && st.dyn.count == 0 && st.cap_pending == 1);
-  CHECK(qpackenc_status_line(599, &st, &r) == 1);
+  qpackenc_status_line(599, &st, &r);
   CHECK(r.insert_instr[0] == 0x3f); /* the capacity is still owed */
   qpackenc_status_commit(&st, &r);
   CHECK(st.total_inserts == 1 && st.dyn.count == 1 && st.cap_pending == 0);

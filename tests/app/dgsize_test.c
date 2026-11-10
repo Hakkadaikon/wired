@@ -6,6 +6,10 @@ void test_dgsize(void) {
   /* too small to hold type + any payload */
   CHECK(datagram_max_payload(0, 1) == 0);
   CHECK(datagram_max_payload(1, 1) == 0);
+  /* room 1: the 1-byte Length varint alone fills it, no payload fits */
+  CHECK(datagram_max_payload(2, 1) == 0);
+  /* room 8: only the 1-byte width fits a payload (7); wider ones do not */
+  CHECK(datagram_max_payload(9, 1) == 7);
 
   /* 0x30: only the type byte is overhead */
   CHECK(datagram_max_payload(1201, 0) == 1200);

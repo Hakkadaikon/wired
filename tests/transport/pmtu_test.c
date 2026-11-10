@@ -102,6 +102,8 @@ static void test_pmtu_big_losses_black_hole(void) {
   CHECK(pmtu_big_suspect(&p, 11) == 1);
   pmtu_on_big_losses(&p, PMTU_MAX_PROBES - 1);
   CHECK(p.validated == PMTU_BASE + PMTU_STEP); /* the ack reset the count */
+  pmtu_on_big_ack(&p, 5); /* an older ack proves nothing newer got through */
+  CHECK(p.big_acked_pn == 10 && p.big_lost == PMTU_MAX_PROBES - 1);
   pmtu_on_big_losses(&p, 1);
   CHECK(p.validated == PMTU_BASE);
   CHECK(p.phase == PMTU_PHASE_BASE);

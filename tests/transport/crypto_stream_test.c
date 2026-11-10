@@ -56,6 +56,24 @@ static void test_recv_reorder_dup(void) {
 
   CHECK(crypto_stream_read(&rx, &ob) == 1);
   CHECK(ob.len == 0); /* nothing new */
+
+  /* RFC 9000 7.5: more contiguous bytes than out holds are left unread */
+  CHECK(crypto_stream_recv(&rx, 6, wired_span_of(a, 3)) == 1);
+  ob = obuf_of(out, 2);
+  CHECK(crypto_stream_read(&rx, &ob) == 0);
+  ob = obuf_of(out, sizeof out);
+  CHECK(crypto_stream_read(&rx, &ob) == 1 && ob.len == 3);
+}
+
+/* RFC 9000 19.6: an out too small for even one CRYPTO frame fails; RFC 8446
+ * 4.2.7: a group with no ECDHE here (secp384r1) agrees on nothing. */
+static void test_emit_no_room_and_unknown_group(void) {
+  u8                    src[4]       = {1, 2, 3, 4}, out[3], s[ECDHE_LEN];
+  u8                    k[ECDHE_LEN] = {1};
+  wired_obuf            ob           = obuf_of(out, sizeof out);
+  crypto_stream_emit_in ein          = {0, 8};
+  CHECK(crypto_stream_emit(wired_span_of(src, sizeof src), &ein, &ob) == 0);
+  CHECK(crypto_stream_ecdhe_group(0x0018, k, k, s) == 0);
 }
 
 /* RFC 8446 7.4.2: both peers derive the same X25519 shared secret. */
@@ -149,6 +167,7 @@ static void test_recv_overflow_reports_error_code(void) {
 void test_crypto_stream(void) {
   test_emit_splits();
   test_recv_reorder_dup();
+  test_emit_no_room_and_unknown_group();
   test_ecdhe_symmetric();
   test_clienthello_roundtrip();
   test_recv_overflow_reports_error_code();

@@ -90,7 +90,29 @@ static void test_driver_run_halts_at_max(void) {
   CHECK(steps <= 5);
 }
 
+/* An oversized datagram is clamped to the inbox, an unopenable one is
+ * dropped without advancing the order, take honors a short cap, and a closed
+ * connection (RFC 9000 10.2) seals nothing. */
+static void test_driver_edges(void) {
+  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  driver   cl, sv;
+  u8       junk[DRIVER_DGRAM_CAP + 8] = {0};
+  u8       dg[4];
+  driver_init(&cl, 0, wired_span_of(dcid, 8));
+  driver_init(&sv, 1, wired_span_of(dcid, 8));
+  driver_feed(&sv, junk, sizeof junk);
+  CHECK(sv.in_len == DRIVER_DGRAM_CAP);
+  CHECK(driver_step(&sv) == 0);
+  CHECK(sv.in_len == 0 && sv.rx_done == 0);
+  CHECK(driver_step(&cl) == 1);
+  CHECK(driver_take(&cl, dg, sizeof dg) == sizeof dg && cl.out_len == 0);
+  driver_init(&cl, 0, wired_span_of(dcid, 8));
+  connloop_close(&cl.io.loop, 0);
+  CHECK(driver_step(&cl) == 0 && cl.tx_sent == 0);
+}
+
 void test_driver(void) {
+  test_driver_edges();
   test_driver_handshake_completes();
   test_driver_rejects_uninstalled_level();
   test_driver_run_halts_at_max();

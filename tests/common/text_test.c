@@ -48,6 +48,8 @@ static void test_text_hex_encode(void) {
   CHECK(wired_hex_encode(out, 6, wired_span_of(v, 4)) == 4);
   CHECK(memcmp(out, "000f", 5) == 0);
   CHECK(wired_hex_encode(out, 1, wired_span_of(v, 4)) == 0 && out[0] == 0);
+  out[0] = 'x'; /* cap 0: not even the terminator is written */
+  CHECK(wired_hex_encode(out, 0, wired_span_of(v, 4)) == 0 && out[0] == 'x');
   CHECK(wired_hex_encode(out, sizeof out, wired_span_of(v, 0)) == 0);
 }
 
@@ -76,6 +78,8 @@ static void test_text_dump(void) {
   CHECK(strcmp(got, "hello") == 0);
   close(fds[0]);
   close(fds[1]);
+  /* a failing write (EBADF) ends the dump instead of retrying forever */
+  wired_dump_hex(-1, wired_span_of(big, 4));
 }
 
 /* WIRED_SPAN_ARG prints exactly the view's bytes, not up to a NUL. */

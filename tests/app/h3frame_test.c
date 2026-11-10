@@ -55,6 +55,11 @@ static void test_h3frame_push_ids(void) {
 
   /* type mismatch is rejected (GOAWAY bytes decoded as CANCEL_PUSH) */
   CHECK(h3_cancel_push_get(buf, mw, &v) == 0);
+
+  /* no room for the Length, then for the value; an empty input has no head */
+  CHECK(h3_goaway_put(buf, 1, 40) == 0);
+  CHECK(h3_goaway_put(buf, 2, 40) == 0);
+  CHECK(h3_goaway_get(buf, 0, &v) == 0);
 }
 
 /* SETTINGS round-trips multiple (id, value) pairs including the field size. */
@@ -113,7 +118,38 @@ static void test_h3_frame_length_mismatch_rejected(void) {
   }
 }
 
+/* RFC 9114 7.2.4: malformed SETTINGS are rejected -- wrong type, an
+ * Identifier or Value cut off inside the payload, and more pairs than the
+ * fixed H3_SETTINGS_MAX array (also refused on the put side). */
+static void test_h3frame_settings_malformed(void) {
+  static const u8 id_cut[]  = {H3_FRAME_SETTINGS, 0x01, 0x40};
+  static const u8 val_cut[] = {H3_FRAME_SETTINGS, 0x01, 0x06};
+  static const u8 data[]    = {H3_FRAME_DATA, 0x00};
+  h3_settings     many      = {.n = H3_SETTINGS_MAX + 1};
+  h3_settings     out;
+  u8              buf[2 + 2 * (H3_SETTINGS_MAX + 1)];
+  CHECK(h3_settings_get(data, 0, &out) == 0);
+  CHECK(h3_settings_get(data, sizeof data, &out) == 0);
+  CHECK(h3_settings_get(id_cut, sizeof id_cut, &out) == 0);
+  CHECK(h3_settings_get(val_cut, sizeof val_cut, &out) == 0);
+  {
+    u8 roomy[256]; /* ample for 13 pairs: only the count bound refuses */
+    CHECK(h3_settings_put(roomy, sizeof roomy, &many) == 0);
+  }
+  buf[0] = H3_FRAME_SETTINGS;
+  buf[1] = 2 * (H3_SETTINGS_MAX + 1);
+  for (usz i = 2; i < sizeof buf; i++) {
+    buf[i] = 0x21; /* reserved id/value, one byte each */
+  }
+  CHECK(h3_settings_get(buf, sizeof buf - 2, &out) == 0); /* Length overrun */
+  CHECK(h3_settings_get(buf, sizeof buf, &out) == 0);
+  buf[1] = 2 * H3_SETTINGS_MAX;
+  CHECK(h3_settings_get(buf, sizeof buf - 2, &out) == sizeof buf - 2);
+  CHECK(out.n == H3_SETTINGS_MAX);
+}
+
 void test_h3frame(void) {
+  test_h3frame_settings_malformed();
   test_h3frame_generic();
   test_h3frame_push_ids();
   test_h3frame_settings();

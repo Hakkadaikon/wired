@@ -239,7 +239,29 @@ static void conntable_t_seeded(void) {
   CHECK(all);
 }
 
+/* Out-of-range slot indexes are refused (remove is a no-op, rekeys fail),
+ * an over-long CID is refused, and a zero-capacity table routes nothing. */
+static void conntable_t_bounds(void) {
+  conntable  slab[6]; /* 4-slot table with a guard slot on each side */
+  conntable* t                        = slab + 1;
+  u8         c[WIRED_MAX_CID_LEN + 1] = {7};
+  conntable_init(slab, 6);
+  slab[0].live = 1;
+  slab[5].live = 1;
+  conntable_init(t, 4);
+  CHECK(conntable_insert(t, 4, c, 8) == 0);
+  conntable_remove(t, 4, -1);
+  conntable_remove(t, 4, 4);
+  CHECK(slab[0].live == 1 && slab[5].live == 1);
+  CHECK(t[0].live == 1 && conntable_find(t, 4, c, 8) == 0);
+  CHECK(conntable_set_cid(t, 4, 4, c, 8) == 0);
+  CHECK(conntable_set_alt2(t, 4, -1, c, 8) == 0);
+  CHECK(conntable_set_alt2(t, 4, 0, c, WIRED_MAX_CID_LEN + 1) == 0);
+  CHECK(conntable_find(t, 0, c, 8) == -1);
+}
+
 static void conntable_t_edges(void) {
+  conntable_t_bounds();
   conntable_t_collide();
   conntable_t_wrap();
   conntable_t_reuse();

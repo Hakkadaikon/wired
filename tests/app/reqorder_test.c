@@ -13,6 +13,12 @@ static void test_reqorder_leading(void) {
   h3req_order_init(&s);
   CHECK(h3req_order_accept(&s, H3_FRAME_DATA) == 0);
   CHECK(s == H3REQ_ORDER_START);
+
+  /* a frame outside the request message (here GOAWAY) is not accepted,
+   * even where DATA would be */
+  CHECK(h3req_order_accept(&s, H3_FRAME_HEADERS) == 1);
+  CHECK(h3req_order_accept(&s, H3_FRAME_GOAWAY) == 0);
+  CHECK(s == H3REQ_ORDER_HEADERS);
 }
 
 /* HEADERS -> DATA -> trailing HEADERS is the full allowed sequence. */

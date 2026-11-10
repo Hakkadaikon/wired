@@ -58,7 +58,24 @@ static void test_app_tamper(void) {
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
 }
 
+/* RFC 9000 19.8: data filling the whole 1500-byte frame scratch leaves no
+ * room for the STREAM header, so nothing is sealed even with a big out. */
+static void test_app_send_frame_too_big(void) {
+  initial_keys    k;
+  aes128          hp;
+  static const u8 dcid[4]    = {1, 2, 3, 4};
+  static const u8 data[1500] = {0};
+  static u8       pkt[2048];
+  protect_keys    pk = {&k, &hp};
+  appdata_tx      tx = {
+      wired_span_of(dcid, 4), 1, 0, wired_span_of(data, sizeof data), 0};
+  wired_obuf ob = obuf_of(pkt, sizeof pkt);
+  app_keys(&k, &hp);
+  CHECK(appdata_send(&pk, &tx, &ob) == 0);
+}
+
 void test_app_send(void) {
   test_app_roundtrip();
   test_app_tamper();
+  test_app_send_frame_too_big();
 }

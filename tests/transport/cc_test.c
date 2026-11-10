@@ -99,6 +99,16 @@ static void test_cc_persistent_skips_bbr(void) {
   CHECK(c.cwnd == CC_INIT_WINDOW);
 }
 
+/* draft-cardwell-iccrg-bbr 4.2.3: before any bandwidth sample BBR keeps the
+ * initial window (no BDP to size from) and does not pace. */
+static void test_cc_bbr_no_estimate_yet(void) {
+  cc c;
+  cc_init_algo(&c, CC_ALGO_BBR);
+  cc_bbr_tick(&c, 0, 1);
+  CHECK(c.cwnd == CC_INIT_WINDOW);
+  CHECK(cc_pacing_ms(&c, 50, 1200) == 0);
+}
+
 /* CUBIC mode (RFC 9438): loss shrinks by beta_cubic 0.7 and re-anchors the
  * cubic epoch; acks lift cwnd onto the curve — back at W_max when K elapses
  * (W_max 10 segments -> K = cbrt(7.5e9) ms = 1957), convex past it. Slow
@@ -252,6 +262,7 @@ void test_cc(void) {
   test_cc_persistent_collapse();
   test_cc_persistent_ends_recovery();
   test_cc_persistent_skips_bbr();
+  test_cc_bbr_no_estimate_yet();
   test_cc_pacing_floors_at_1ms_once_rtt_known();
   test_cc_pacing_zero_srtt_stays_unfloored();
   test_cc_on_ack_grow_bounded_no_overflow();

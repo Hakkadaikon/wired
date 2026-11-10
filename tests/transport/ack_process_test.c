@@ -44,6 +44,11 @@ static void test_ack_process_idempotent(void) {
   n = 99;
   ack_process(&t, &(ackset){1, ranges, 1}, (u64out){acked, &n});
   CHECK(n == 0);
+  /* a range set with no ranges acknowledges nothing, even pn 2 in flight */
+  sentpkt_on_send(&t, &(sentpkt_out){2, 0, 1, 1});
+  n = 99;
+  ack_process(&t, &(ackset){2, ranges, 0}, (u64out){acked, &n});
+  CHECK(n == 0 && sentpkt_count(&t) == 1);
 }
 
 /* Optimistic-ACK pinning (CVE-2025-4820/4821 class): acking a packet number

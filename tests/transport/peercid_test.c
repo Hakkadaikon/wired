@@ -175,6 +175,15 @@ static void test_peercid_retire_full_is_error(void) {
   CHECK(n == PEERCID_RETIRE);
 }
 
+/* RFC 9000 5.1.2: a Retire Prior To raise whose forced retirement (seq 9)
+ * finds the queue full is a CONNECTION_ID_LIMIT_ERROR as well. */
+static void test_peercid_rpt_raise_retire_full(void) {
+  peercid    p;
+  ncid_frame next = pc_ncid(10, 10, 0xba);
+  pc_fill_retire(&p);
+  CHECK(peercid_add(&p, &next) == ERR_CONNECTION_ID_LIMIT_ERROR);
+}
+
 /* RFC 9000 5.1.2: with the queue full, an ID no path uses any more stays
  * held -- its retirement is carried over to the sweep after the queue has
  * room, never dropped. */
@@ -343,6 +352,7 @@ void test_peercid(void) {
   test_peercid_late_repeat_retired_once();
   test_peercid_over_limit();
   test_peercid_retire_full_is_error();
+  test_peercid_rpt_raise_retire_full();
   test_peercid_sweep_carries_over();
   test_peercid_seq_reuse();
   test_peercid_sweep();

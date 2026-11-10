@@ -33,6 +33,10 @@ static void test_cubic_edges(void) {
   CHECK(cubic_w(0, 0, 0) == 0);
   /* far before K on a small W_max: the cubic term dominates, floor at 0 */
   CHECK(cubic_w(0, cubic_k_ms(1), 1) <= 1);
+  /* |t - K| is capped at 100 s: 200 s past K grows like 100 s past it,
+   * 100 + 0.4 * 100^3 = 400100 segments */
+  CHECK(cubic_w(200000, 0, 100) == 400100);
+  CHECK(cubic_w(100000, 0, 100) == 400100);
 }
 
 /* Fast convergence (RFC 9438 4.6): a loss below the previous W_max remembers

@@ -16,6 +16,10 @@ static void test_indexed_dynamic_prefix_boundary(void) {
   wired_obuf ob = obuf_of(out, sizeof(out));
   usz        w  = qdyn_indexed_dynamic(63, &ob);
   CHECK(w == ob.len && ob.len == 2 && out[0] == 0xBF && out[1] == 0x00);
+  /* one byte of room cannot hold the spilled continuation byte */
+  ob     = obuf_of(out, 1);
+  ob.len = 1; /* a failed encode leaves what out already held alone */
+  CHECK(qdyn_indexed_dynamic(63, &ob) == 0 && ob.len == 1);
 }
 
 void test_qpackdyn_field_encode(void) {

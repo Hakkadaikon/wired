@@ -55,7 +55,21 @@ static void test_sent_acked_never_lost(void) {
   CHECK(s.bytes_in_flight == 0);
 }
 
+/* The fixed table refuses packet SENT_CAP + 1 without touching the bytes in
+ * flight; with no ACK yet nothing is declared lost (RFC 9002 6.1). */
+static void test_sent_table_full_and_no_ack(void) {
+  static sent s;
+  sent_init(&s);
+  for (u64 pn = 0; pn < SENT_CAP; pn++) {
+    sent_on_send(&s, &(sent_out){pn, 1, 0});
+  }
+  CHECK(sent_on_send(&s, &(sent_out){SENT_CAP, 1, 0}) == 0);
+  CHECK(s.bytes_in_flight == SENT_CAP);
+  CHECK(sent_detect_loss(&s) == 0);
+}
+
 void test_sent(void) {
+  test_sent_table_full_and_no_ack();
   test_sent_ack_accounting();
   test_sent_largest_acked_monotonic();
   test_sent_packet_threshold_3();

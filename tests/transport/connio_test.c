@@ -152,6 +152,27 @@ static void test_connio_recv_per_space(void) {
   CHECK(connio_rx_next(&sv, LEVEL_HANDSHAKE) == 0);
 }
 
+/* RFC 9000 8.1: a server lifts the anti-amplification limit once it opens
+ * a Handshake packet from the client; an Initial alone does not. */
+static void test_connio_handshake_validates_address(void) {
+  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  connio   cl, sv;
+  u8       frames[8] = {0x01};
+  u8       pkt[256];
+  usz      n;
+  mk_connio(&cl, 0, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0xc3, dcid, 8, 1u << 20);
+  arm_two_levels(&cl);
+  arm_two_levels(&sv);
+  sv.loop.validated = 0;
+  n                 = send_at(&cl, LEVEL_INITIAL, frames, 1, pkt, 256);
+  CHECK(connio_recv(&sv, LEVEL_INITIAL, wired_mspan_of(pkt, n)) == 1);
+  CHECK(sv.loop.validated == 0);
+  n = send_at(&cl, LEVEL_HANDSHAKE, frames, 1, pkt, 256);
+  CHECK(connio_recv(&sv, LEVEL_HANDSHAKE, wired_mspan_of(pkt, n)) == 1);
+  CHECK(sv.loop.validated == 1);
+}
+
 /* Install a 1-RTT key and fast-forward the send-level gate to Handshake, so
  * the very next send may promote straight to 1-RTT (RFC 9001 4.1.4/4.9). */
 static void arm_onertt(connio* io) {
@@ -370,6 +391,7 @@ void test_connio(void) {
   test_connio_per_space_pn();
   test_connio_pn_monotone();
   test_connio_recv_per_space();
+  test_connio_handshake_validates_address();
   test_connio_close_on_violation_handshake_done();
   test_connio_close_on_violation_wire_content();
   test_connio_recv_failure_counts_auth_fail();

@@ -38,6 +38,12 @@ static void test_datagram_truncated(void) {
   datagram_frame e  = {.length = 0, .data = payload};
   usz            ew = datagram_encode(wired_mspan_of(buf, sizeof(buf)), &e, 1);
   CHECK(datagram_decode(buf, ew, &out) == ew && out.length == 0);
+  /* RFC 9221 4: no room for the Type; an empty input; a 0x31 with its
+   * Length varint missing */
+  CHECK(datagram_encode(wired_mspan_of(buf, 0), &in, 1) == 0);
+  CHECK(datagram_decode(buf, 0, &out) == 0);
+  buf[0] = FRAME_DATAGRAM_LEN;
+  CHECK(datagram_decode(buf, 1, &out) == 0);
 }
 
 /* A datagram is allowed only when the peer advertised a nonzero limit that

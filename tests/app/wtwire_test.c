@@ -163,6 +163,7 @@ static void test_wtwire_get_put_roundtrip(void) {
 
   CHECK(wired_wtwire_get_put(buf, 11, wired_span_of(name, 7)) == 11);
   CHECK(wired_wtwire_get_put(buf, 10, wired_span_of(name, 7)) == 0);
+  CHECK(wired_wtwire_get_put(buf, 3, wired_span_of(name, 7)) == 0); /* "GET " */
 }
 
 /* TEST 9: PUSH header parses into name and content; empty content ok. */
@@ -213,6 +214,8 @@ static void test_wtwire_push_head_put_roundtrip(void) {
 
   CHECK(wired_wtwire_push_head_put(buf, 11, wired_span_of(base, 5)) == 11);
   CHECK(wired_wtwire_push_head_put(buf, 10, wired_span_of(base, 5)) == 0);
+  CHECK(wired_wtwire_push_head_put(buf, 9, wired_span_of(base, 5)) == 0);
+  CHECK(wired_wtwire_push_head_put(buf, 4, wired_span_of(base, 5)) == 0);
 }
 
 /* TEST 12: basename returns the view after the last '/'. */
