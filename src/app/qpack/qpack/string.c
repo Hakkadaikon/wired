@@ -70,14 +70,10 @@ static int take_header(wired_span buf, u8 bits, qstr_head* h) {
 
 /* H=0: copy the octets into dst. Returns 1 ok, 0 on overflow. */
 static int str_raw(wired_span oct, wired_obuf* dst) {
-  usz off = 0;
   if (oct.n > dst->cap) {
     return 0;
   }
-  if (!bytes_take(
-          wired_span_of(oct.p, oct.n), &off, wired_mspan_of(dst->p, oct.n))) {
-    return 0;
-  }
+  bytes_memcpy(dst->p, oct.p, oct.n);
   dst->len = oct.n;
   return 1;
 }

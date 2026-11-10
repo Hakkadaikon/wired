@@ -95,14 +95,10 @@ static int is_litname(wired_span buf) {
 
 /* H=0: copy the name octets into nm. Returns 1 ok, 0 on overflow. */
 static int name_raw(wired_span oct, wired_obuf* nm) {
-  usz off = 0;
   if (oct.n > nm->cap) {
     return 0;
   }
-  if (!bytes_take(
-          wired_span_of(oct.p, oct.n), &off, wired_mspan_of(nm->p, oct.n))) {
-    return 0;
-  }
+  bytes_memcpy(nm->p, oct.p, oct.n);
   nm->len = oct.n;
   return 1;
 }

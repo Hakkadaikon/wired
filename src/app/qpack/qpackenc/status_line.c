@@ -25,18 +25,16 @@ static void result_static(usz w, qpackenc_status_result* out) {
   out->required_insert_count = 0;
 }
 
+/* A static index (< 99) encodes in at most 2 bytes: always fits out->field. */
 static int try_static(const u8* digits, qpackenc_status_result* out) {
   i64 idx = qpack_static_find(":status", (const char*)digits);
-  usz w;
   if (idx < 0) {
     return 0;
   }
-  w = qpack_indexed_encode(
-      wired_mspan_of(out->field, sizeof out->field), (u64)idx, 1);
-  if (!w) {
-    return 0;
-  }
-  result_static(w, out);
+  result_static(
+      qpack_indexed_encode(
+          wired_mspan_of(out->field, sizeof out->field), (u64)idx, 1),
+      out);
   return 1;
 }
 
@@ -75,40 +73,36 @@ static int try_dynamic(
   if (!plan.used_dynamic) {
     return 0;
   }
-  if (!qdyn_indexed_dynamic(0, &ob)) {
-    return 0;
-  }
+  qdyn_indexed_dynamic(0, &ob); /* relative index 0: one byte */
   out->field_len = ob.len;
   out->required_insert_count =
       qpack_ric_encode(plan.abs_index + 1, max_entries_of(st));
   return 1;
 }
 
-static int fallback_literal(const u8* digits, qpackenc_status_result* out) {
+/* Name index 24 + a 3-octet value: 6 bytes, always fits out->field. */
+static void fallback_literal(const u8* digits, qpackenc_status_result* out) {
   qpack_nameref r = {QPACK_STATUS_NAME_INDEX, 1, 0};
-  usz           w = qpack_literal_namref_encode(
-      wired_mspan_of(out->field, sizeof out->field), &r,
-      wired_span_of(digits, 3));
-  if (!w) {
-    return 0;
-  }
-  result_static(w, out);
-  return 1;
+  result_static(
+      qpack_literal_namref_encode(
+          wired_mspan_of(out->field, sizeof out->field), &r,
+          wired_span_of(digits, 3)),
+      out);
 }
 
-int qpackenc_status_line(
+void qpackenc_status_line(
     u16 status, const qpackenc_state* st, qpackenc_status_result* out) {
   u8 digits[4];
   status_digits(status, digits);
   out->status     = status;
   out->insert_len = 0;
   if (try_static(digits, out)) {
-    return 1;
+    return;
   }
   if (try_dynamic(digits, st, out)) {
-    return 1;
+    return;
   }
-  return fallback_literal(digits, out);
+  fallback_literal(digits, out);
 }
 
 void qpackenc_status_commit(

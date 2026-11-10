@@ -38,21 +38,11 @@ static qpackenc_state* qenc_or_fallback(
 /* Append the :status field line via qpackenc_status_line, updating *r with
  * the full result (Required Insert Count for the Prefix, plus any pending
  * encoder-stream instruction the call generated -- r->insert_len == 0 if
- * none). */
+ * none). out must hold sizeof r->field bytes. */
 static usz put_status_line(
-    u16                     status,
-    qpackenc_state*         qenc,
-    u8*                     out,
-    usz                     cap,
-    qpackenc_status_result* r) {
+    u16 status, qpackenc_state* qenc, u8* out, qpackenc_status_result* r) {
   qpackenc_state tmp;
-  qenc = qenc_or_fallback(qenc, &tmp);
-  if (!qpackenc_status_line(status, qenc, r)) {
-    return 0;
-  }
-  if (r->field_len > cap) {
-    return 0;
-  }
+  qpackenc_status_line(status, qenc_or_fallback(qenc, &tmp), r);
   bytes_memcpy(out, r->field, r->field_len);
   return r->field_len;
 }
@@ -105,14 +95,9 @@ static usz put_prefix_and_status(
     u8*                     out,
     usz                     cap,
     qpackenc_status_result* r) {
-  u8  status_buf[64];
-  usz status_len =
-      put_status_line(status, qenc, status_buf, sizeof status_buf, r);
-  usz pre_len;
-  if (!status_len) {
-    return 0;
-  }
-  pre_len = resp_put_prefix(r->required_insert_count, out, cap);
+  u8  status_buf[sizeof r->field];
+  usz status_len = put_status_line(status, qenc, status_buf, r);
+  usz pre_len    = resp_put_prefix(r->required_insert_count, out, cap);
   if (!prefix_and_status_fit(pre_len, status_len, cap)) {
     return 0;
   }

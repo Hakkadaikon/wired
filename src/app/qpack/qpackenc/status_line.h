@@ -34,10 +34,9 @@ typedef struct {
  * qpackenc_status_commit once its instruction is staged.
  * @param st the encoder-side state, unchanged
  * @param status the HTTP status code
- * @param out the result, always fully written
- * @return 1 ok, 0 if out->field lacks capacity (never happens for the
- *   64-byte-bounded shapes produced here in practice, checked all the same) */
-int qpackenc_status_line(
+ * @param out the result, always fully written (every shape produced here,
+ *   at most 6 bytes, fits the 64-byte out->field) */
+void qpackenc_status_line(
     u16 status, const qpackenc_state* st, qpackenc_status_result* out);
 
 /** RFC 9204 2.1.4: apply r's planned insert to st (qpackenc_commit_field);
