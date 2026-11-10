@@ -1392,6 +1392,38 @@ static void test_moqtrun_sub_filter22_end_object_mid_round_append(void) {
   CHECK(c->fin == 1); /* the cut round closes sub's stream right there */
 }
 
+/* draft-ietf-moq-transport (18/19/22/23) 2.4.1: Track Namespace and Track
+ * Name compare as exact byte sequences -- no case folding, no prefix
+ * match, a length difference alone is a mismatch. */
+static void test_moqtrun_track_key_exact_match(void) {
+  static wired_moqtrun_track t;
+  static const u8            ns[]   = {0x01, 0x04, 'r', 'o', 'o', 'm'};
+  static const u8            ns_x[] = {0x01, 0x04, 'r', 'o', 'o', 'M'};
+  static const u8            nm[]   = {'v', 'i', 'd', 'e', 'o'};
+  static const u8            nm_x[] = {'V', 'i', 'd', 'e', 'o'};
+  bytes_memset(&t, 0, sizeof t);
+  t.in_use   = 1;
+  t.ns_len   = sizeof ns;
+  t.name_len = sizeof nm;
+  bytes_memcpy(t.ns, ns, sizeof ns);
+  bytes_memcpy(t.name, nm, sizeof nm);
+  CHECK(moqtrun_track_key_matches(
+      &t, (moqtrun_key){
+              wired_span_of(ns, sizeof ns), wired_span_of(nm, sizeof nm)}));
+  CHECK(!moqtrun_track_key_matches(
+      &t, (moqtrun_key){
+              wired_span_of(ns_x, sizeof ns_x), wired_span_of(nm, sizeof nm)}));
+  CHECK(!moqtrun_track_key_matches(
+      &t, (moqtrun_key){
+              wired_span_of(ns, sizeof ns), wired_span_of(nm_x, sizeof nm_x)}));
+  CHECK(!moqtrun_track_key_matches(
+      &t, (moqtrun_key){
+              wired_span_of(ns, sizeof ns - 1), wired_span_of(nm, sizeof nm)}));
+  CHECK(!moqtrun_track_key_matches(
+      &t, (moqtrun_key){
+              wired_span_of(ns, sizeof ns), wired_span_of(nm, sizeof nm - 1)}));
+}
+
 /* Two subscribers, two different End Objects, same round: each gets cut
  * at ITS OWN bound (moqtrun_wire_cutoff is evaluated per sub), not at
  * whichever is tightest or loosest. */
@@ -2321,6 +2353,7 @@ static void mtall_sub_rngf(void) {
 }
 
 void test_moqtrun_sub(void) {
+  test_moqtrun_track_key_exact_match();
   test_moqtrun_sub_filter22_end_object_per_sub();
   test_moqtrun_sub_params_include_properties_d22();
   test_moqtrun_pub_params_delivery_timeout_d22();

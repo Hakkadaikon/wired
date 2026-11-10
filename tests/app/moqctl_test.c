@@ -731,30 +731,6 @@ static void test_moqctl_ftn_4096_accept_4097_reject(void) {
           &off, &f) == MOQCTL_R_FIELD_LEN);
 }
 
-/* Exact byte comparison, no encoding-dependent shortcuts. */
-static void test_moqctl_ftn_eq_exact_bytes(void) {
-  moqctl_ftn a, b;
-  usz        off;
-
-  off = 0;
-  CHECK(
-      moqctl_ftn_take(
-          wired_span_of(
-              g_moqt_name_full_track_name_basic,
-              G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN),
-          &off, &a) == MOQCTL_OK);
-  off = 0;
-  CHECK(
-      moqctl_ftn_take(
-          wired_span_of(
-              g_moqt_name_full_track_name_basic,
-              G_MOQT_NAME_FULL_TRACK_NAME_BASIC_LEN),
-          &off, &b) == MOQCTL_OK);
-  CHECK(moqctl_ftn_eq(&a, &b));
-  b.name.p = (const u8*)"zzzzz";
-  CHECK(!moqctl_ftn_eq(&a, &b));
-}
-
 /* ===== TEST: Message Parameters ===== */
 
 /* FORWARD (uint8) round trip inside SUBSCRIBE's scope. */
@@ -954,14 +930,17 @@ static void test_moqctl_params_auth_token_alias_shapes_decode(void) {
 
 /* An undecodable Token structure is KEY_VALUE_FORMATTING_ERROR
  * (SS10.2.2): unknown Alias Type, USE_VALUE truncated before Token Type,
- * and DELETE with bytes trailing the Alias. */
+ * DELETE with bytes trailing the Alias, USE_ALIAS cut before its Alias,
+ * and a zero-length value (no Alias Type at all). */
 static void test_moqctl_params_auth_token_malformed_kvfmt(void) {
   static const u8 bad_alias_type[] = {0x04, 0x01};
   static const u8 truncated[]      = {0x03};
   static const u8 trailing[]       = {0x00, 0x07, 0xFF};
-  const u8*       cases[3]         = {bad_alias_type, truncated, trailing};
-  const usz       lens[3]          = {2, 1, 3};
-  for (usz i = 0; i < 3; i++) {
+  static const u8 no_alias[]       = {0x02};
+  const u8*       cases[5]         = {
+      bad_alias_type, truncated, trailing, no_alias, no_alias};
+  const usz lens[5] = {2, 1, 3, 1, 0};
+  for (usz i = 0; i < 5; i++) {
     u8            buf[16];
     moqctl_params out;
     usz n    = moqctl_test_auth_param(buf, sizeof buf, cases[i], lens[i]);
@@ -1747,74 +1726,45 @@ static void test_moqctl_rangeloc19_largest_object(void) {
   CHECK(r.ek == MOQCTL_REK_UNBOUNDED);
 }
 
+/* d19 9.3.1 AbsoluteStart (0x3): Start Location {7, 9}. */
 static void test_moqctl_rangeloc19_abs_start_roundtrip(void) {
-  u8              buf[32];
-  usz             off = 0;
-  moqctl_rangeloc in  = {0};
+  static const u8 buf[] = {0x03, 0x07, 0x09};
   moqctl_rangeloc out;
+  usz             roff = 0;
 
-  in.sk           = MOQCTL_RSK_ABS;
-  in.start_group  = 7;
-  in.start_object = 9;
-  in.ek           = MOQCTL_REK_UNBOUNDED;
-
-  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
-  {
-    usz roff = 0;
-    CHECK(
-        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
-        MOQCTL_OK);
-    CHECK(roff == off);
-  }
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(buf, sizeof buf), &roff, &out) ==
+      MOQCTL_OK);
+  CHECK(roff == sizeof buf);
   CHECK(out.sk == MOQCTL_RSK_ABS);
   CHECK(out.start_group == 7);
   CHECK(out.start_object == 9);
   CHECK(out.ek == MOQCTL_REK_UNBOUNDED);
 }
 
+/* d19 9.3.1 AbsoluteRange (0x4): Start {3, 0}, End Group Delta 0. */
 static void test_moqctl_rangeloc19_abs_range_egd_zero_roundtrip(void) {
-  u8              buf[32];
-  usz             off = 0;
-  moqctl_rangeloc in  = {0};
+  static const u8 buf[] = {0x04, 0x03, 0x00, 0x00};
   moqctl_rangeloc out;
+  usz             roff = 0;
 
-  in.sk           = MOQCTL_RSK_ABS;
-  in.start_group  = 3;
-  in.start_object = 0;
-  in.ek           = MOQCTL_REK_GROUP;
-  in.end_group    = 3; /* End Group Delta = 0 */
-
-  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
-  {
-    usz roff = 0;
-    CHECK(
-        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
-        MOQCTL_OK);
-  }
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(buf, sizeof buf), &roff, &out) ==
+      MOQCTL_OK);
   CHECK(out.sk == MOQCTL_RSK_ABS);
   CHECK(out.ek == MOQCTL_REK_GROUP);
   CHECK(out.end_group == 3);
 }
 
+/* d19 9.3.1 AbsoluteRange (0x4): Start {3, 0}, End Group Delta 5. */
 static void test_moqctl_rangeloc19_abs_range_egd_positive_roundtrip(void) {
-  u8              buf[32];
-  usz             off = 0;
-  moqctl_rangeloc in  = {0};
+  static const u8 buf[] = {0x04, 0x03, 0x00, 0x05};
   moqctl_rangeloc out;
+  usz             roff = 0;
 
-  in.sk           = MOQCTL_RSK_ABS;
-  in.start_group  = 3;
-  in.start_object = 0;
-  in.ek           = MOQCTL_REK_GROUP;
-  in.end_group    = 8; /* End Group Delta = 5 */
-
-  CHECK(moqctl_rangeloc19_put(wired_mspan_of(buf, sizeof buf), &off, &in));
-  {
-    usz roff = 0;
-    CHECK(
-        moqctl_rangeloc19_take(wired_span_of(buf, off), &roff, &out) ==
-        MOQCTL_OK);
-  }
+  CHECK(
+      moqctl_rangeloc19_take(wired_span_of(buf, sizeof buf), &roff, &out) ==
+      MOQCTL_OK);
   CHECK(out.sk == MOQCTL_RSK_ABS);
   CHECK(out.ek == MOQCTL_REK_GROUP);
   CHECK(out.start_group == 3);
@@ -2022,9 +1972,9 @@ static void test_moqctl_rangeloc22_unknown_type_violation(void) {
  * bit-identical moqctl_rangeloc from both d19 (type 0x3) and d22 (type
  * 0x02). */
 static void test_moqctl_rangeloc_cross_version_abs_start(void) {
-  u8              buf19[32];
+  static const u8 buf19[] = {0x03, 11, 22}; /* d19 AbsoluteStart */
   u8              buf22[32];
-  usz             off19 = 0, off22 = 0;
+  usz             off19 = sizeof buf19, off22 = 0;
   moqctl_rangeloc in = {0};
   moqctl_rangeloc out19, out22;
   int             has_filter = 0;
@@ -2034,8 +1984,6 @@ static void test_moqctl_rangeloc_cross_version_abs_start(void) {
   in.start_object = 22;
   in.ek           = MOQCTL_REK_UNBOUNDED;
 
-  CHECK(
-      moqctl_rangeloc19_put(wired_mspan_of(buf19, sizeof buf19), &off19, &in));
   CHECK(moqctl_rangeloc22_put(
       wired_mspan_of(buf22, sizeof buf22), &off22, 1, &in));
   {
@@ -2170,6 +2118,401 @@ static void test_moqctl_request_error_redirect_roundtrip(void) {
   CHECK(out.redirect.track_name.n == 1);
 }
 
+/* ===== TEST: cut-short input and output (every field's take / put) ===== */
+
+/* Every capacity short of fn's full encoding of m is refused, so each
+ * field's put reports "no room" when the buffer ends inside it. */
+static void mct_cut_out(moqctl_encode_body_fn fn, const void* m) {
+  static u8 out[MOQKVP_MAX_LEN + 64];
+  usz       full = 0;
+  CHECK(fn(wired_mspan_of(out, sizeof out), &full, m));
+  for (usz cap = 0; cap < full; cap++) {
+    usz n = 0;
+    CHECK(!fn(wired_mspan_of(out, cap), &n, m));
+  }
+}
+
+typedef int (*mct_take_fn)(wired_span body, void* m);
+
+/* Every proper prefix of body is refused as want (the Message Length
+ * already framed the body, so a short one is malformed); the whole body
+ * then decodes into m. */
+static void mct_cut_in(mct_take_fn fn, wired_span body, void* m, int want) {
+  for (usz cut = 0; cut < body.n; cut++) {
+    CHECK(fn(wired_span_of(body.p, cut), m) == want);
+  }
+  CHECK(fn(body, m) == MOQCTL_OK);
+}
+
+static int mct_take_sub(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_subscribe_take(MOQVER_D19, b, &off, m);
+}
+
+static int mct_take_subok(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_subscribe_ok_take(MOQVER_D19, b, &off, m);
+}
+
+static int mct_take_pub(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_publish_take(MOQVER_D19, b, &off, m);
+}
+
+static int mct_take_rok(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_request_ok_take(MOQVER_D19, b, &off, m);
+}
+
+static int mct_take_rerr(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_request_error_take(b, &off, m);
+}
+
+static int mct_take_done(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_publish_done_take(b, &off, m);
+}
+
+static int mct_take_goaway(wired_span b, void* m) {
+  usz off = 0;
+  return moqctl_goaway_take(b, &off, m);
+}
+
+static int mct_put_goaway18(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_goaway18_encode(buf, off, m);
+}
+
+static int mct_put_rerr23(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_request_error_encode23(buf, off, m);
+}
+
+static int mct_put_params(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_params_put(buf, off, m);
+}
+
+static int mct_put_locfilter(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_locfilter_put(buf, off, m);
+}
+
+typedef union {
+  moqctl_subscribe     sub;
+  moqctl_subscribe_ok  subok;
+  moqctl_publish       pub;
+  moqctl_request_ok    rok;
+  moqctl_request_error rerr;
+  moqctl_publish_done  done;
+  moqctl_goaway        goaway;
+} mct_msg;
+
+typedef struct {
+  const u8*             g;
+  usz                   n;
+  mct_take_fn           take;
+  moqctl_encode_body_fn put;
+  int                   want;
+} mct_golden;
+
+static wired_span mct_body(const u8* g, usz n) {
+  usz        off = 0;
+  u64        type;
+  wired_span body = {0, 0};
+  CHECK(moqctl_peek_type(wired_span_of(g, n), &off, &type, &body) == MOQCTL_OK);
+  return body;
+}
+
+/* draft-19 SS10: each golden Message Body cut anywhere short is refused,
+ * and its decoded message re-encodes into nothing shorter. */
+static void test_moqctl_golden_cut_short(void) {
+  static mct_msg          m;
+  static const mct_golden gs[] = {
+      {g_moqt_ctl_subscribe_params, G_MOQT_CTL_SUBSCRIBE_PARAMS_LEN,
+       mct_take_sub, moqctl_encode_subscribe, MOQCTL_INSUFFICIENT},
+      {g_moqt_ctl_subscribe_ok_params, G_MOQT_CTL_SUBSCRIBE_OK_PARAMS_LEN,
+       mct_take_subok, moqctl_encode_subscribe_ok, MOQCTL_INSUFFICIENT},
+      {g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, mct_take_pub,
+       moqctl_encode_publish, MOQCTL_INSUFFICIENT},
+      {g_moqt_ctl_request_ok_params, G_MOQT_CTL_REQUEST_OK_PARAMS_LEN,
+       mct_take_rok, moqctl_encode_request_ok, MOQCTL_INSUFFICIENT},
+      {g_moqt_ctl_request_error_not_supported,
+       G_MOQT_CTL_REQUEST_ERROR_NOT_SUPPORTED_LEN, mct_take_rerr,
+       moqctl_encode_request_error, MOQCTL_INSUFFICIENT},
+  };
+  for (usz i = 0; i < sizeof gs / sizeof gs[0]; i++) {
+    mct_cut_in(gs[i].take, mct_body(gs[i].g, gs[i].n), &m, gs[i].want);
+    mct_cut_out(gs[i].put, &m);
+  }
+}
+
+/* SS10.12 PUBLISH_DONE / SS10.4 GOAWAY with every field non-empty: a
+ * Reason Phrase "bye", a New Session URI "u" (+ the draft-18 Request ID). */
+static void test_moqctl_done_goaway_cut_short(void) {
+  static const u8     done_w[]   = {0x02, 0x03, 0x03, 'b', 'y', 'e'};
+  static const u8     goaway_w[] = {0x01, 'u', 0x05};
+  moqctl_publish_done d;
+  moqctl_goaway       g;
+  mct_cut_in(
+      mct_take_done, wired_span_of(done_w, sizeof done_w), &d,
+      MOQCTL_INSUFFICIENT);
+  mct_cut_out(moqctl_encode_publish_done, &d);
+  mct_cut_in(
+      mct_take_goaway, wired_span_of(goaway_w, sizeof goaway_w), &g,
+      MOQCTL_INSUFFICIENT);
+  mct_cut_out(moqctl_encode_goaway, &g);
+  g.request_id = 4;
+  mct_cut_out(mct_put_goaway18, &g);
+}
+
+/* SS10.5 / SS10.7: the Track Properties residual is written last. */
+static void test_moqctl_ok_props_cut_short(void) {
+  moqctl_request_ok   ok = {0};
+  moqctl_subscribe_ok so = {0};
+  ok.track_properties    = wired_span_of((const u8*)"pp", 2);
+  so.track_alias         = 300; /* two-byte varint */
+  so.track_properties    = ok.track_properties;
+  mct_cut_out(moqctl_encode_request_ok, &ok);
+  mct_cut_out(moqctl_encode_subscribe_ok, &so);
+}
+
+static void mct_redirect(moqctl_request_error* m, const u8* uri, usz n) {
+  *m                                    = (moqctl_request_error){0};
+  m->error_code                         = MOQCTL_ERR_REDIRECT;
+  m->retry_interval                     = 9;
+  m->reason                             = wired_span_of((const u8*)"r", 1);
+  m->has_redirect                       = 1;
+  m->redirect.connect_uri               = wired_span_of(uri, n);
+  m->redirect.track_namespace.n         = 1;
+  m->redirect.track_namespace.fields[0] = wired_span_of((const u8*)"a", 1);
+  m->redirect.track_name                = wired_span_of((const u8*)"n", 1);
+}
+
+/* SS10.8.1 Redirect (draft-19 inline, draft-23 9.4.1 as Error Details):
+ * every field cut short is refused both ways. */
+static void test_moqctl_redirect_cut_short(void) {
+  static const u8      uri[] = {'/', 'x'};
+  u8                   buf[64];
+  usz                  n = 0;
+  moqctl_request_error m, back;
+  mct_redirect(&m, uri, sizeof uri);
+  CHECK(moqctl_request_error_encode(wired_mspan_of(buf, sizeof buf), &n, &m));
+  mct_cut_in(mct_take_rerr, wired_span_of(buf, n), &back, MOQCTL_INSUFFICIENT);
+  mct_cut_out(moqctl_encode_request_error, &m);
+  m.error_code     = MOQCTL_ERR_UNSUPPORTED_EXTENSION;
+  m.unsupported[0] = 0x40;
+  m.unsupported[1] = 0x42;
+  m.n_unsupported  = 2;
+  mct_cut_out(mct_put_rerr23, &m);
+  m.has_redirect = 0; /* the UNSUPPORTED_PROPERTY details alone */
+  mct_cut_out(mct_put_rerr23, &m);
+}
+
+/* draft-23 9.4.1: an Error Details value is a Key-Value-Pair, so a
+ * Redirect longer than its 0xFFFF Length bound is never encoded. */
+static void test_moqctl_redirect_detail_too_long(void) {
+  static u8            uri[MOQKVP_MAX_LEN];
+  static u8            buf[MOQKVP_MAX_LEN + 64];
+  moqctl_request_error m;
+  usz                  n = 0;
+  mct_redirect(&m, uri, sizeof uri - 16);
+  CHECK(moqctl_request_error_encode23(wired_mspan_of(buf, sizeof buf), &n, &m));
+  mct_redirect(&m, uri, sizeof uri);
+  n = 0;
+  CHECK(
+      !moqctl_request_error_encode23(wired_mspan_of(buf, sizeof buf), &n, &m));
+}
+
+static void mct_param(moqctl_params* ps, u64 type, int enc) {
+  moqctl_param* p = &ps->items[ps->n++];
+  *p              = (moqctl_param){0};
+  p->type         = type;
+  p->enc          = enc;
+}
+
+/* One parameter per value encoding (SS10.2 / draft-22 9.2), each with a
+ * multi-byte field, in ascending Type order. */
+static void mct_params_all(moqctl_params* ps) {
+  static const u8 tok[] = {0x02, 0x07}; /* USE_ALIAS 7 */
+  *ps                   = (moqctl_params){0};
+  mct_param(ps, MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT, MOQCTL_PENC_VARINT);
+  ps->items[0].vi = 300;
+  mct_param(ps, MOQCTL_PARAM_AUTHORIZATION_TOKEN, MOQCTL_PENC_TOKEN);
+  ps->items[1].bytes = wired_span_of(tok, sizeof tok);
+  mct_param(ps, MOQCTL_PARAM_LARGEST_OBJECT, MOQCTL_PENC_LOCATION);
+  ps->items[2].loc = moqctl_loc_of(300, 301);
+  mct_param(ps, MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8);
+  mct_param(ps, MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_LOCFILTER);
+  ps->items[4].lf =
+      (moqctl_locfilter){MOQCTL_FILTER_ABS_RANGE, moqctl_loc_of(1, 2), 3};
+}
+
+/* draft-22 9.2.2 encodings: Location Filter None and AbsoluteRange with an
+ * End Object, SWITCH_FROM, a raw value, SWITCHING_SET_ASSIGNMENT. */
+static void mct_params_d22(moqctl_params* ps) {
+  static const u8 raw[] = {0x01, 0x61};
+  moqctl_param*   p;
+  mct_param(ps, MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_RANGELOC22);
+  mct_param(ps, MOQCTL_PARAM_LOCATION_FILTER, MOQCTL_PENC_RANGELOC22);
+  p             = &ps->items[ps->n - 1];
+  p->has_filter = 1;
+  p->rl         = (moqctl_rangeloc){MOQCTL_RSK_ABS, 1, 2, MOQCTL_REK_OBJ, 3, 4};
+  mct_param(ps, MOQCTL_PARAM_SWITCH_FROM, MOQCTL_PENC_SWITCHFROM);
+  ps->items[ps->n - 1].sw.request_id = 9;
+  mct_param(ps, MOQCTL_PARAM_SUBGROUP_FILTER, MOQCTL_PENC_BYTES);
+  ps->items[ps->n - 1].bytes = wired_span_of(raw, sizeof raw);
+  mct_param(ps, MOQCTL_PARAM_TRACK_NAMESPACE_PREFIX, MOQCTL_PENC_NS);
+  ps->items[ps->n - 1].bytes = wired_span_of(raw, sizeof raw);
+  mct_param(ps, MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT, MOQCTL_PENC_SSA);
+  p               = &ps->items[ps->n - 1];
+  p->ssa.weight   = 1;
+  p->ssa.rank     = 2;
+  p->ssa.has_rank = 1;
+}
+
+/* Every parameter value encoder refuses a buffer that ends inside it. */
+static void test_moqctl_params_cut_short(void) {
+  static moqctl_params ps;
+  mct_params_all(&ps);
+  mct_params_d22(&ps);
+  mct_cut_out(mct_put_params, &ps);
+  mct_cut_out(mct_put_locfilter, &ps.items[4].lf);
+}
+
+static int mct_put_setup(wired_mspan buf, usz* off, const void* m) {
+  return moqctl_setup_encode(buf, off, m);
+}
+
+/* SS10.3 SETUP with every Setup Option the encoder writes: PATH,
+ * AUTHORITY, MAX_FILTER_RANGES, MOQT_IMPLEMENTATION, MAX_REQUEST_UPDATES
+ * and the draft-22 SSTS_ALGORITHMS list. */
+static void test_moqctl_setup_cut_short(void) {
+  moqctl_setup s        = {0};
+  s.has_path            = 1;
+  s.path                = wired_span_of((const u8*)"/p", 2);
+  s.has_authority       = 1;
+  s.authority           = wired_span_of((const u8*)"h", 1);
+  s.max_filter_ranges   = 300;
+  s.has_implementation  = 1;
+  s.implementation      = wired_span_of((const u8*)"w", 1);
+  s.max_request_updates = 300;
+  s.has_ssts            = 1;
+  s.ssts_alg_n          = 1;
+  s.ssts_algs[0]        = 300;
+  mct_cut_out(mct_put_setup, &s);
+}
+
+/* SS10.2: a Parameter whose Length is cut off is INSUFFICIENT before its
+ * value decoder runs (Token, Location Filter, SWITCHING_SET_ASSIGNMENT). */
+static void test_moqctl_params_value_len_cut(void) {
+  static moqctl_params out;
+  const u8             tok[] = {0x01, (u8)MOQCTL_PARAM_AUTHORIZATION_TOKEN};
+  const u8             lf[]  = {0x01, (u8)MOQCTL_PARAM_LOCATION_FILTER};
+  const u8 ssa[] = {0x01, (u8)MOQCTL_PARAM_SWITCHING_SET_ASSIGNMENT};
+  usz      off   = 0;
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D19, wired_span_of(tok, sizeof tok), &off,
+          MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_INSUFFICIENT);
+  off = 0;
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D19, wired_span_of(lf, sizeof lf), &off, MOQCTL_PCTX_SUBSCRIBE,
+          &out) == MOQCTL_INSUFFICIENT);
+  off = 0;
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D22, wired_span_of(ssa, sizeof ssa), &off,
+          MOQCTL_PCTX_SUBSCRIBE, &out) == MOQCTL_INSUFFICIENT);
+}
+
+/* SS10.2: Parameters are written in ascending Type order (the Type Delta
+ * is unsigned); a list out of order is never encoded. */
+static void test_moqctl_params_put_unsorted(void) {
+  static moqctl_params ps;
+  u8                   buf[32];
+  usz                  n = 0;
+  mct_param(&ps, MOQCTL_PARAM_GROUP_ORDER, MOQCTL_PENC_UINT8);
+  mct_param(&ps, MOQCTL_PARAM_SUBSCRIBER_PRIORITY, MOQCTL_PENC_UINT8);
+  CHECK(!moqctl_params_put(wired_mspan_of(buf, sizeof buf), &n, &ps));
+}
+
+/* A Parameter list longer than MOQCTL_MAX_PARAMS is refused as a
+ * PROTOCOL_VIOLATION (SS10.2; Range Filters may repeat, 5.1.3), so the
+ * decoder never writes past items[]. */
+static void test_moqctl_params_take_too_many(void) {
+  static moqctl_params out;
+  u8                   buf[4 + 4 * (MOQCTL_MAX_PARAMS + 1)];
+  usz                  n = 0, roff = 0;
+  CHECK(moqvi_put(wired_mspan_of(buf, sizeof buf), &n, MOQCTL_MAX_PARAMS + 1));
+  for (usz i = 0; i <= MOQCTL_MAX_PARAMS; i++) {
+    buf[n++] = i ? 0x00 : (u8)MOQCTL_PARAM_SUBGROUP_FILTER; /* Type Delta */
+    buf[n++] = 0x02;                                        /* Length */
+    buf[n++] = 0x00;                                        /* SetID */
+    buf[n++] = 0x03;                                        /* Start 3 */
+  }
+  CHECK(
+      moqctl_params_take(
+          MOQVER_D19, wired_span_of(buf, n), &roff, MOQCTL_PCTX_SUBSCRIBE,
+          &out) == MOQCTL_VIOLATION);
+}
+
+/* d19 10.2.10: a Start delta summing past 2^64-1, or a fifth Range past
+ * MOQCTL_MAX_RANGES, marks the filter invalid (INVALID_FILTER); a Start or
+ * End delta cut short is a formatting error. */
+static void test_moqctl_rangefilter_start_limits(void) {
+  static const u8    wrap[]      = {0x00, 0x01, 0x00, 0xFF, 0xFF, 0xFF,
+                                    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+  static const u8    five[]      = {0x00, 0x00, 0x00, 0x01, 0x00,
+                                    0x01, 0x00, 0x01, 0x00, 0x01};
+  static const u8    cut_start[] = {0x00, 0x80};
+  static const u8    cut_end[]   = {0x00, 0x01, 0x80};
+  moqctl_rangefilter f;
+  const u64          t = MOQCTL_PARAM_OBJECTID_FILTER;
+  CHECK(
+      moqctl_rangefilter_take(t, wired_span_of(wrap, sizeof wrap), &f) ==
+      MOQCTL_OK);
+  CHECK(f.invalid && f.n == 1);
+  CHECK(
+      moqctl_rangefilter_take(t, wired_span_of(five, sizeof five), &f) ==
+      MOQCTL_OK);
+  CHECK(f.invalid && f.n == MOQCTL_MAX_RANGES);
+  CHECK(
+      moqctl_rangefilter_take(
+          t, wired_span_of(cut_start, sizeof cut_start), &f) ==
+      MOQCTL_PARAMS_KVFMT);
+  CHECK(
+      moqctl_rangefilter_take(t, wired_span_of(cut_end, sizeof cut_end), &f) ==
+      MOQCTL_PARAMS_KVFMT);
+}
+
+/* d19 SS9.3.1 / d22 9.20.9 Location Filter values cut inside a field:
+ * the Type itself, a Start Location, an End Group Delta. */
+static void test_moqctl_locfilter_values_cut_short(void) {
+  static const u8  abs_range[] = {0x04, 0x03, 0x00, 0x05};
+  moqctl_locfilter lf;
+  moqctl_rangeloc  rl;
+  int              has;
+  usz              off;
+  for (usz cut = 0; cut < sizeof abs_range; cut++) {
+    off = 0;
+    CHECK(
+        moqctl_locfilter_take(wired_span_of(abs_range, cut), &off, &lf) ==
+        MOQCTL_INSUFFICIENT);
+    off = 0;
+    CHECK(
+        moqctl_rangeloc19_take(wired_span_of(abs_range, cut), &off, &rl) ==
+        MOQCTL_INSUFFICIENT);
+  }
+  for (u8 t = 0x03; t <= 0x04; t++) { /* d22: Start, End Group (Object) */
+    const u8 v[] = {t, 0x03, 0x00, 0x05, 0x06};
+    for (usz cut = 0; cut < (usz)t + 1; cut++) {
+      off = 0;
+      CHECK(
+          moqctl_rangeloc22_take(wired_span_of(v, cut), &off, &has, &rl) ==
+          MOQCTL_INSUFFICIENT);
+    }
+  }
+}
+
 /* ===== main ===== */
 
 void test_moqctl(void) {
@@ -2206,7 +2549,6 @@ void test_moqctl(void) {
   test_moqctl_ns_field_len_zero_rejected();
   test_moqctl_ns_fields_32_accept_33_reject();
   test_moqctl_ftn_4096_accept_4097_reject();
-  test_moqctl_ftn_eq_exact_bytes();
 
   test_moqctl_params_forward_roundtrip();
   test_moqctl_params_type_overflow_violation();
@@ -2273,4 +2615,17 @@ void test_moqctl(void) {
   test_moqctl_publish_done_for_draft();
 
   test_moqctl_request_error_redirect_roundtrip();
+
+  test_moqctl_golden_cut_short();
+  test_moqctl_done_goaway_cut_short();
+  test_moqctl_ok_props_cut_short();
+  test_moqctl_redirect_cut_short();
+  test_moqctl_redirect_detail_too_long();
+  test_moqctl_params_cut_short();
+  test_moqctl_params_put_unsorted();
+  test_moqctl_setup_cut_short();
+  test_moqctl_params_value_len_cut();
+  test_moqctl_params_take_too_many();
+  test_moqctl_rangefilter_start_limits();
+  test_moqctl_locfilter_values_cut_short();
 }

@@ -11,7 +11,6 @@ static int moqctl_rangeloc19_largest_fn(
     wired_span buf, usz* at, moqctl_rangeloc* out);
 static int moqctl_rangeloc19_body(
     u64 type, wired_span buf, usz* at, moqctl_rangeloc* out);
-static u64 moqctl_rangeloc19_wire_type_abs(const moqctl_rangeloc* r);
 
 /* ===== Version-neutral range model (moqctl_rangeloc) ===== */
 
@@ -109,19 +108,4 @@ int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out) {
   }
   *off = at;
   return MOQCTL_OK;
-}
-
-static u64 moqctl_rangeloc19_wire_type_abs(const moqctl_rangeloc* r) {
-  return r->ek == MOQCTL_REK_GROUP ? MOQCTL_FILTER_ABS_RANGE
-                                   : MOQCTL_FILTER_ABS_START;
-}
-
-u64 moqctl_rangeloc19_wire_type(const moqctl_rangeloc* r) {
-  if (r->sk == MOQCTL_RSK_REL_GROUP) {
-    return MOQCTL_FILTER_NEXT_GROUP;
-  }
-  if (r->sk == MOQCTL_RSK_NEXT_OBJ) {
-    return MOQCTL_FILTER_LARGEST;
-  }
-  return moqctl_rangeloc19_wire_type_abs(r);
 }

@@ -5,10 +5,6 @@ static int moqctl_ftn_take_ns_then_name(
     wired_span buf, usz* at, moqctl_ftn* out);
 static int moqctl_ns_field_put(wired_mspan buf, usz* at, wired_span field);
 static int moqctl_ns_put_fields(wired_mspan buf, usz* at, const moqctl_ns* ns);
-static int moqctl_bytes_eq(const u8* a, const u8* b, usz n);
-static int moqctl_span_eq(wired_span a, wired_span b);
-static int moqctl_ns_fields_eq(const moqctl_ns* a, const moqctl_ns* b);
-static int moqctl_ns_eq(const moqctl_ns* a, const moqctl_ns* b);
 static int moqctl_ftn_name_bad(int ver, int r, const moqctl_ftn* f);
 
 static int moqctl_ftn_bound_check(const moqctl_ftn* f) {
@@ -90,43 +86,4 @@ int moqctl_ftn_put(wired_mspan buf, usz* off, const moqctl_ftn* f) {
   }
   *off = at;
   return 1;
-}
-
-static int moqctl_bytes_eq(const u8* a, const u8* b, usz n) {
-  for (usz i = 0; i < n; i++) {
-    if (a[i] != b[i]) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-static int moqctl_span_eq(wired_span a, wired_span b) {
-  if (a.n != b.n) {
-    return 0;
-  }
-  return moqctl_bytes_eq(a.p, b.p, a.n);
-}
-
-static int moqctl_ns_fields_eq(const moqctl_ns* a, const moqctl_ns* b) {
-  for (usz i = 0; i < a->n; i++) {
-    if (!moqctl_span_eq(a->fields[i], b->fields[i])) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-static int moqctl_ns_eq(const moqctl_ns* a, const moqctl_ns* b) {
-  if (a->n != b->n) {
-    return 0;
-  }
-  return moqctl_ns_fields_eq(a, b);
-}
-
-int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b) {
-  if (!moqctl_ns_eq(&a->ns, &b->ns)) {
-    return 0;
-  }
-  return moqctl_span_eq(a->name, b->name);
 }

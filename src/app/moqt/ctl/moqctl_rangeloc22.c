@@ -1,13 +1,5 @@
 #include "app/moqt/ctl/moqctl_impl.h"
 
-static int moqctl_rangeloc19_put_end(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r);
-static int moqctl_rangeloc19_put_start(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r);
-static int moqctl_rangeloc19_put_abs(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r);
-static int moqctl_rangeloc19_put_fields(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r);
 static int moqctl_rangeloc22_take_start(
     wired_span buf, usz* at, moqctl_rangeloc* out);
 static int moqctl_rangeloc22_abs_start_group_end(
@@ -21,52 +13,9 @@ static int moqctl_rangeloc22_abs_start(
 static int moqctl_rangeloc22_next_object_fn(
     wired_span buf, usz* at, moqctl_rangeloc* out);
 
-static int moqctl_rangeloc19_put_end(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
-  if (r->ek != MOQCTL_REK_GROUP) {
-    return 1;
-  }
-  return moqvi_put(buf, at, r->end_group - r->start_group);
-}
-
-static int moqctl_rangeloc19_put_start(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
-  if (!moqvi_put(buf, at, r->start_group)) {
-    return 0;
-  }
-  return moqvi_put(buf, at, r->start_object);
-}
-
-static int moqctl_rangeloc19_put_abs(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
-  if (!moqctl_rangeloc19_put_start(buf, at, r)) {
-    return 0;
-  }
-  return moqctl_rangeloc19_put_end(buf, at, r);
-}
-
-static int moqctl_rangeloc19_put_fields(
-    wired_mspan buf, usz* at, const moqctl_rangeloc* r) {
-  if (r->sk != MOQCTL_RSK_ABS) {
-    return 1; /* no fields for this type */
-  }
-  return moqctl_rangeloc19_put_abs(buf, at, r);
-}
-
-int moqctl_rangeloc19_put(wired_mspan buf, usz* off, const moqctl_rangeloc* r) {
-  usz at = *off;
-  if (!moqvi_put(buf, &at, moqctl_rangeloc19_wire_type(r))) {
-    return 0;
-  }
-  if (!moqctl_rangeloc19_put_fields(buf, &at, r)) {
-    return 0;
-  }
-  *off = at;
-  return 1;
-}
-
 /* ----- draft-22 (SS9.20.9): type 0x00..0x05 -----
- * Same one-function-per-type + table-dispatch shape as d19 above. */
+ * Same one-function-per-type + table-dispatch shape as d19
+ * (moqctl_rangeloc19.c). */
 
 static int moqctl_rangeloc22_take_start(
     wired_span buf, usz* at, moqctl_rangeloc* out) {

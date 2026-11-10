@@ -107,7 +107,6 @@ int moqctl_u64_in(const u64* list, usz n, u64 v);
 int moqctl_rangeloc_take_end_group(
     wired_span buf, usz* at, u64 start_group, u64* end_group);
 int moqctl_rangeloc19_largest(moqctl_rangeloc* out);
-u64 moqctl_rangeloc19_wire_type(const moqctl_rangeloc* r);
 int moqctl_rangeloc22_body(
     u64 type, wired_span buf, usz* at, moqctl_rangeloc* out);
 int moqctl_rngf_has_prop(u64 ptype);

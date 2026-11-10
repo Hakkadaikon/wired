@@ -31,9 +31,6 @@ int moqctl_param_take_uint8(wired_span buf, usz* at, u64* out);
 /** Writes the low 8 bits of v as one byte at *at; 1 ok, 0 no room. */
 int moqctl_param_put_uint8(wired_mspan buf, usz* at, u64 v);
 
-/** Exact byte comparison (SS1.5): 1 if equal, 0 otherwise. */
-int moqctl_ftn_eq(const moqctl_ftn* a, const moqctl_ftn* b);
-
 /** draft-ietf-moq-transport-19 SS1.4.4 Reason Phrase: Length + UTF-8 bytes,
  * length capped at MOQCTL_MAX_REASON_LEN.
  *

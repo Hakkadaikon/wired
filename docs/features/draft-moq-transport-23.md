@@ -116,7 +116,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [~] MQ23-023 Track Namespace または Full Track Name が 4096 バイトを超える場合、実装は FIELD_LENGTH_EXCEEDED (0x401) でセッションを閉じなければならない。
   - evidence: コーデックは超過を FIELD_LENGTH_EXCEEDED の分類で返します(`test_moqctl_ftn_4096_accept_4097_reject`)。分類からコードへの変換は `test_moqtrun_cc` が確かめています。4097 バイトの名前を受けてセッションを閉じるところは確かめていません。
 - [x] MQ23-024 実装は、Track Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_eq_exact_bytes`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_track_key_exact_match`
 - [x] MQ23-253 (SS2.4.1) Track Name は 1 バイト以上でなければならない。SUBSCRIBE、PUBLISH、FETCH、TRACK_STATUS で長さ 0 の Track Name を受信した場合、実装は PROTOCOL_VIOLATION でセッションを閉じなければならない。
   - test: `tests/app/moqtrun_cc_test.c` — `test_moqtrun_cc`
   - note: 名前空間を対象とするリクエストへの REDIRECT の Error Detail だけは、空の Track Name を運びます(MQ23-264)。draft-22 の `.session` と空の Track Name の組み合わせへの DOES_NOT_EXIST は、draft-23 では先にこの規則でセッションを閉じます。

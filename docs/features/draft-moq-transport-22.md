@@ -103,7 +103,7 @@
 - [~] MQ22-023 Full Track Name(Track Namespace と Track Name)が 4096 バイトを超える場合、実装はプロトコル違反でセッションを閉じなければならない。
   - evidence: コーデックは VIOLATION を返します(`test_moqctl_ftn_4096_accept_4097_reject`)。リクエストのデコードに失敗するとハブは PROTOCOL_VIOLATION で閉じます(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)が、この条件を起こすハブのテストはありません。
 - [x] MQ22-024 実装は、Track Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_eq_exact_bytes`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_track_key_exact_match`
 
 ## SS12.1 不正な Track
 

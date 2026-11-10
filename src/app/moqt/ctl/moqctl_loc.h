@@ -530,15 +530,12 @@ typedef struct {
   u64 end_object;
 } moqctl_rangeloc;
 
-/** draft-19 LOCATION_FILTER value codec (SS5.1.2/SS10.2.9). Always decodes/
- * encodes a present filter -- draft-19 has no "present but empty" wire
+/** draft-19 LOCATION_FILTER value decoder (SS5.1.2/SS10.2.9). Always
+ * decodes a present filter -- draft-19 has no "present but empty" wire
  * form at this layer; absence is the caller's param-presence check.
  * Returns MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type, or
  * AbsoluteRange End Group overflowing 2^64-1). */
 int moqctl_rangeloc19_take(wired_span buf, usz* off, moqctl_rangeloc* out);
-/** Encodes r in draft-19's Location Filter form; 1 ok, 0 when buf runs
- * out. */
-int moqctl_rangeloc19_put(wired_mspan buf, usz* off, const moqctl_rangeloc* r);
 
 /** draft-22 LOCATION_FILTER value codec (SS9.20.9). *has_filter is set to 0
  * and *out zeroed when Location Filter Type is 0x00 (None) -- draft-19

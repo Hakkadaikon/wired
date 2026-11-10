@@ -31,12 +31,11 @@ static int moqctl_rngf_take_prop(
   return MOQCTL_OK;
 }
 
-/* SetID is one byte (SS10.2.10), then the 0x28/0x29 Property Type. */
+/* SetID is one byte (SS10.2.10), then the 0x28/0x29 Property Type. The
+ * caller has already taken a zero-length value as the delete form, so the
+ * SetID byte at *at == 0 is present. */
 static int moqctl_rngf_take_head(
     u64 ptype, wired_span v, usz* at, moqctl_rangefilter* out) {
-  if (*at >= v.n) {
-    return MOQCTL_PARAMS_KVFMT;
-  }
   out->set_id = v.p[(*at)++];
   return moqctl_rngf_take_prop(ptype, v, at, out);
 }

@@ -89,7 +89,7 @@
 - [~] MOQT-023 (SS2.4.1) Full Track Name(Track Namespace と Track Name を合わせたもの)が 4096 バイトを超える場合、実装はセッションをプロトコル違反で閉じなければならない。
   - evidence: コーデックは VIOLATION を返し(`test_moqctl_ftn_4096_accept_4097_reject`)、ハブはリクエストのデコードに失敗すると PROTOCOL_VIOLATION で閉じる(`test_moqtrun_fillfix_malformed_subscribe`、`test_moqtrun_setup_malformed_closes`)。ただし、この条件そのものを起こすハブのテストはない。
 - [x] MOQT-024 実装は Track Namespace Field と Track Name を、バイト列の完全一致で比較しなければならない。
-  - test: `tests/app/moqctl_test.c` — `test_moqctl_ftn_eq_exact_bytes`
+  - test: `tests/app/moqtrun_sub_test.c` — `test_moqtrun_track_key_exact_match`
 
 ## SS2.4.2 不正な Track
 

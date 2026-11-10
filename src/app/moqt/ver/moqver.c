@@ -15,7 +15,6 @@ typedef struct {
   u64         caps;
   const char* tok;
   int         ver;
-  int         offered; /* 0: kept out of the subprotocol / ALPN list */
 } moqver_row;
 
 /* Every draft-22 behaviour; draft-23 rows add one bit per delta. */
@@ -37,25 +36,21 @@ static const moqver_row moqver_table[MOQVER_COUNT] = {
          MOQVER_CAP_PAUSED | MOQVER_CAP_FILL_COUNT | MOQVER_CAP_NS_PARAMS |
          MOQVER_CAP_PUBNS_DUP | MOQVER_CAP_UP_LOSS | MOQVER_CAP_UPD_ERR_ENDS |
          MOQVER_CAP_RELAY_LARGEST | MOQVER_CAP_TRACK_NAME_NONEMPTY |
-         MOQVER_CAP_REQ_GOAWAY23 | MOQVER_CAP_PROP_RULES,
-     .offered = 1},
-    {.ver     = MOQVER_D22,
-     .tok     = "moqt-22",
-     .caps    = MOQVER_CAPS_D22 | MOQVER_CAP_PREFIX_OVERLAP,
-     .offered = 1},
-    {.ver     = MOQVER_D19,
-     .tok     = "moqt-19",
-     .caps    = MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
-                MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE |
-                MOQVER_CAP_PREFIX_OVERLAP,
-     .offered = 1},
+         MOQVER_CAP_REQ_GOAWAY23 | MOQVER_CAP_PROP_RULES},
+    {.ver  = MOQVER_D22,
+     .tok  = "moqt-22",
+     .caps = MOQVER_CAPS_D22 | MOQVER_CAP_PREFIX_OVERLAP},
+    {.ver  = MOQVER_D19,
+     .tok  = "moqt-19",
+     .caps = MOQVER_CAP_RANGE_FILTERS | MOQVER_CAP_MAX_REQUEST_UPDATES |
+             MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_UPDATE_STRAY_CLOSE |
+             MOQVER_CAP_PREFIX_OVERLAP},
     {.ver  = MOQVER_D18,
      .tok  = "moqt-18",
      .caps = MOQVER_CAP_GOAWAY_REQID | MOQVER_CAP_DUP_SUBSCRIPTION |
              MOQVER_CAP_FIN_CANCEL_NS | MOQVER_CAP_PUBLISH_OK_ALIAS |
              MOQVER_CAP_SUBSCRIPTION_ENDED | MOQVER_CAP_DG_TIMEOUT_PROP_CLOSE |
-             MOQVER_CAP_PREFIX_OVERLAP,
-     .offered = 1},
+             MOQVER_CAP_PREFIX_OVERLAP},
 };
 
 static int moqver_tok_eq(wired_span token, const char* tok) {
@@ -89,10 +84,9 @@ u64 moqver_caps(int ver) {
 }
 
 /* Bytes row i adds to the list: its token plus a separating space when
- * it is not the first offered one (off != 0); 0 when it is not offered. */
+ * it is not the first one (off != 0). */
 static usz moqver_offer_add(int i, usz off) {
-  usz n = wired_cstr_len(moqver_table[i].tok) + (off != 0);
-  return n * (usz)(moqver_table[i].offered != 0);
+  return wired_cstr_len(moqver_table[i].tok) + (off != 0);
 }
 
 static usz moqver_offer_len(void) {
@@ -104,10 +98,7 @@ static usz moqver_offer_len(void) {
 }
 
 static usz moqver_offer_one(char* out, usz off, int i) {
-  usz tn = wired_cstr_len(moqver_table[i].tok);
-  if (!moqver_table[i].offered) {
-    return off;
-  }
+  usz tn   = wired_cstr_len(moqver_table[i].tok);
   out[off] = ' ';
   off += (off != 0);
   bytes_memcpy(out + off, moqver_table[i].tok, tn);
