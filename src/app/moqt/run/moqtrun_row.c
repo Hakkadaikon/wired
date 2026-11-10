@@ -114,7 +114,10 @@ static u64 moqtrun_subtracks_verdict(
 }
 
 /* A FILL_PARAMETERS value longer than WIRED_MOQTRUN_FILL_MAX cannot be
- * kept for the PUBLISHes: INTERNAL_ERROR (a resource limit). */
+ * kept for the PUBLISHes: INTERNAL_ERROR (a resource limit). A listed,
+ * non-repeated set encodes in under 64 bytes and an invalid one already
+ * closed the session, so this only bounds moqtrun_subtracks_note_fill's
+ * copy into q->fill. */
 static u64 moqtrun_subtracks_fill_refusal(const moqctl_params* params) {
   const moqctl_param* fp =
       moqctl_params_find(params, MOQCTL_PARAM_FILL_PARAMETERS);
@@ -150,10 +153,16 @@ static void moqtrun_subtracks_note_params(
 }
 
 /* Body of moqtrun_dispatch_subscribe_tracks once p->req and the decode are
- * known good, split out to keep the caller's own branch count at the gate. */
+ * known good, split out to keep the caller's own branch count at the gate.
+ * Its FILL_PARAMETERS rides every PUBLISH it causes (draft-23 3.4.1), so a
+ * malformed one closes the session first, as on SUBSCRIBE (9.19.15). */
 void moqtrun_subtracks_admit(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, const moqns_req* m) {
-  u64 code = moqtrun_subtracks_verdict(hub, p, m);
+  u64 code;
+  if (moqtrun_fill_malformed(hub, p, &m->params)) {
+    return;
+  }
+  code = moqtrun_subtracks_verdict(hub, p, m);
   if (code == MOQTRUN_REQ_ACCEPT) {
     moqtrun_subtracks_note_params(p->req, &m->params);
   }

@@ -660,10 +660,12 @@ static void test_moqtrun_nsx_tracks_fill_paused(void) {
   CHECK(mfill_opens() == 0);
 }
 
-/* A FILL_PARAMETERS value longer than the hub keeps (one 70-byte
- * AUTHORIZATION_TOKEN: count 1, Type 0x03, Length 70, USE_VALUE, Token
- * Type 0, 68 bytes) refuses the SUBSCRIBE_TRACKS INTERNAL_ERROR. */
-static void test_moqtrun_nsx_tracks_fill_too_long(void) {
+/* draft-23 9.19.15: a FILL_PARAMETERS carrying a Parameter its table does
+ * not list (here a 70-byte AUTHORIZATION_TOKEN: count 1, Type 0x03, Length
+ * 70, USE_VALUE, Token Type 0, 68 bytes) closes the session
+ * INVALID_PARAMETER before any reply, as on SUBSCRIBE -- it would
+ * otherwise ride every PUBLISH the request causes (3.4.1). */
+static void test_moqtrun_nsx_tracks_fill_unlisted_closes(void) {
   static u8        v[73];
   static moqns_req m;
   mnsx_init();
@@ -680,7 +682,8 @@ static void test_moqtrun_nsx_tracks_fill_too_long(void) {
   m.params.items[0].enc   = MOQCTL_PENC_FILL23;
   m.params.items[0].bytes = wired_span_of(v, sizeof v);
   mtst_send(SESS_B, MTRQ_S1, MOQCTL_T_SUBSCRIBE_TRACKS, mtst_enc_subtracks, &m);
-  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, "ERR:00|"));
+  CHECK(mtrq_closes_cc(WIRED_MOQTRUN_CLOSE_INVALID_PARAMETER) == 1);
+  CHECK(mtst_stlog_is(SESS_B, MTRQ_S1, ""));
 }
 
 /* A PUBLISH carrying FILL_PARAMETERS whose fill parks mid-range, open;
@@ -731,7 +734,7 @@ static void test_moqtrun_nsx_tracks_fill_unattached_resets(void) {
 static void mtall_nsx_fill(void) {
   test_moqtrun_nsx_tracks_fill_opens();
   test_moqtrun_nsx_tracks_fill_paused();
-  test_moqtrun_nsx_tracks_fill_too_long();
+  test_moqtrun_nsx_tracks_fill_unlisted_closes();
   test_moqtrun_nsx_tracks_fill_rejected_resets();
   test_moqtrun_nsx_tracks_fill_cancel_resets();
   test_moqtrun_nsx_tracks_fill_unattached_resets();

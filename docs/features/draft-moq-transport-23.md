@@ -492,6 +492,7 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-243 (SS9.19.15) FILL_PARAMETERS が自身の表にないパラメーターを含む場合、ハブは INVALID_PARAMETER (0x305) でセッションを閉じなければならない。
   - test: `tests/app/moqctl_d23_test.c` — `test_moqctl_d23_fill_count`
   - test: `tests/app/moqtrun_sess_test.c` — `test_mtss_fill_unlisted_param_closes`
+  - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_unlisted_closes`
 - [x] MQ23-244 (SS9.19.17, SS7.5) リレーは、上流の SUBSCRIBE_OK、PUBLISH、REQUEST_UPDATE_OK、TRACK_STATUS_OK、PUBLISH_STATE_NOTIFY の LARGEST_OBJECT と、上流の購読で受信した最大の Location のうち最大のものを、LARGEST_OBJECT として報告しなければならない。
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_upstream_subok_value`
   - test: `tests/app/moqtrun_d23lg_test.c` — `test_moqtrun_d23lg_psn_raises_largest`
@@ -1350,7 +1351,6 @@ draft-22 と変わらない要件は、draft-22 の台帳の文言とテスト�
 - [x] MQ23-283 (SS3.4.1) SUBSCRIBE_TRACKS が FILL_PARAMETERS を含む場合、ハブはそれを各 PUBLISH に写し、一時停止していなければ PUBLISH を送るときに fill を開かなければならない。その PUBLISH が拒否されるか購読に結び付かなければ、fill のストリームをリセットする。
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_opens`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_paused`
-  - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_too_long`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_rejected_resets`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_cancel_resets`
   - test: `tests/app/moqtrun_nsx_test.c` — `test_moqtrun_nsx_tracks_fill_unattached_resets`
