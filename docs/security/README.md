@@ -27,7 +27,7 @@
 
 | 文書 | 開くとき | 現状 |
 |---|---|---|
-| [脆弱性台帳](vuln-ledger.md) | ある攻撃の種類やアドバイザリについて、判定とテストを知りたいとき | 856 行、すべて `done`: `fixed` 65、`already-safe` 291、`n/a` 500(2026-11-07) |
+| [脆弱性台帳](vuln-ledger.md) | ある攻撃の種類やアドバイザリについて、判定とテストを知りたいとき | 858 行、すべて `done`: `fixed` 67、`already-safe` 291、`n/a` 500(2026-11-11) |
 | [機能がないために該当しない脆弱性](feature-gaps.md) | wired にない機能を追加するとき | 25 の機能グループに台帳の 51 行 |
 | [BoringSSL のテストベクター](boringssl-vectors.md) | あるプリミティブについて BoringSSL の判定を知りたいとき | 1634 件: pass 1523、fail 0、skip 111 |
 | [Wycheproof のテストベクター](wycheproof-vectors.md) | どの攻撃入力を拒否するかを知りたいとき | 6296 件: 正答 6141(うち 54 件は構造上の正答)、fail 0、skip 155 |
