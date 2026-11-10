@@ -3,11 +3,8 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 
-/* Append a length-prefixed CID; returns 1 ok, 0 if no room. */
+/* Append a length-prefixed CID; the caller checked room (vneg_fits). */
 static int vneg_put_cid(wired_obuf* out, wired_span cid) {
-  if (out->len + 1 + cid.n > out->cap) {
-    return 0;
-  }
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
   return bytes_put(

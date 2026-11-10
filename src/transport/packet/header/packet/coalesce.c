@@ -42,10 +42,11 @@ static int skip_token(const u8* buf, usz n, usz* p) {
   return *p <= n;
 }
 
-/* Advance *p over the version and both connection IDs of a long header. */
+/* Advance *p over the version and both connection IDs of a long header
+ * (the caller checked the 5 prefix bytes with has_prefix_room). */
 static int skip_long_prefix(const u8* buf, usz n, usz* p) {
   *p += 5; /* byte0 + 4-byte version */
-  if (*p > n || !skip_cid(buf, n, p)) {
+  if (!skip_cid(buf, n, p)) {
     return 0;
   }
   return skip_cid(buf, n, p);

@@ -5,11 +5,8 @@
 #include "transport/version/version/v2types.h"
 #include "transport/version/version/version.h"
 
-/* Append a length-prefixed CID; returns 1 ok, 0 if no room. */
+/* Append a length-prefixed CID; the caller checked room (retry_fits). */
 static int retry_put_cid(wired_obuf* out, wired_span cid) {
-  if (out->len + 1 + cid.n > out->cap) {
-    return 0;
-  }
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
   return bytes_put(
