@@ -114,7 +114,28 @@ static void test_utctime_encode_roundtrip(void) {
   }
 }
 
+/* RFC 5280 4.1.2.5: one byte of a good window's tbs replaced (offsets per
+ * build_tbs_with_validity: [12] Validity length, [13] notBefore tag, [15..27]
+ * its YYMMDDHHMMSSZ) must fail closed: a non-digit year or rest, a missing
+ * Z, a GeneralizedTime of UTCTime length, a non-Time tag, and an empty
+ * Validity. */
+static void test_validity_bad_time(void) {
+  static const usz off[] = {16, 17, 27, 13, 13, 12};
+  static const u8  val[] = {'A', 'A', 'X', 0x18, 0x04, 0x00};
+  u8               nb[13], na[13], tbs[70];
+  usz              m;
+  x509_utctime_encode(20200101000000ULL, nb);
+  x509_utctime_encode(20300101000000ULL, na);
+  for (usz i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
+    m = build_tbs_with_validity(nb, na, tbs);
+    CHECK(x509_validity_ok(wired_span_of(tbs, m), 20250101000000ULL) == 1);
+    tbs[off[i]] = val[i];
+    CHECK(x509_validity_ok(wired_span_of(tbs, m), 20250101000000ULL) == 0);
+  }
+}
+
 void test_validity(void) {
+  test_validity_bad_time();
   test_validity_golden();
   test_validity_malformed();
   test_utctime_encode_known();

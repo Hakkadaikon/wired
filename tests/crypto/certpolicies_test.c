@@ -131,7 +131,31 @@ static void test_cp_scan_skips_malformed_entry(void) {
   CHECK(x509_policy_set_has_any(&set) == 0);
 }
 
+/* dummy6 ++ [3] { critical certificatePolicies { PolicyInformation { 1.2.3
+ * } } }: no policyQualifiers. */
+static const u8 cpt_tbs_crit_plain[] = {
+    0x30, 0x24, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00,
+    0x05, 0x00, 0x05, 0x00, 0xa3, 0x16, 0x30, 0x14, 0x30, 0x12,
+    0x06, 0x03, 0x55, 0x1d, 0x20, 0x01, 0x01, 0xff, 0x04, 0x08,
+    0x30, 0x06, 0x30, 0x04, 0x06, 0x02, 0x2a, 0x03};
+
+/* RFC 5280 4.2.1.4: a critical certificatePolicies without qualifiers is
+ * fully processed; one whose extnValue is empty (no SEQUENCE, the same
+ * bytes with [29] length 8 -> 0) cannot be processed. */
+static void test_cp_critical_unprocessed(void) {
+  u8 buf[sizeof(cpt_tbs_crit_plain)];
+  CHECK(
+      x509_cp_unprocessed_critical(
+          wired_span_of(cpt_tbs_crit_plain, sizeof(cpt_tbs_crit_plain))) == 0);
+  for (usz i = 0; i < sizeof(buf); i++) {
+    buf[i] = cpt_tbs_crit_plain[i];
+  }
+  buf[29] = 0x00;
+  CHECK(x509_cp_unprocessed_critical(wired_span_of(buf, sizeof(buf))) == 1);
+}
+
 void test_certpolicies(void) {
+  test_cp_critical_unprocessed();
   test_cp_absent();
   test_cp_any_policy();
   test_cp_single_policy();

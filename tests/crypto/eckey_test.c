@@ -169,7 +169,49 @@ static void test_eckey_curve25519_v1_with_pubkey(void) {
   CHECK(wired_eckey_curve25519_priv(s, out) == 0);
 }
 
+/* Copy src (n bytes) to buf and overwrite one byte at off. */
+static wired_span eckey_mut(u8* buf, const u8* src, usz n, usz off, u8 v) {
+  bytes_memcpy(buf, src, n);
+  buf[off] = v;
+  return wired_span_of(buf, n);
+}
+
+/* RFC 5915 3 / RFC 5958 2: a field carrying the wrong tag is rejected -- the
+ * SEC1 privateKey OCTET STRING [5], the PKCS#8 privateKeyAlgorithm SEQUENCE
+ * [6] and its wrapped ECPrivateKey SEQUENCE [29]. */
+static void test_eckey_p256_wrong_tags(void) {
+  u8 buf[sizeof(eckey_pkcs8_der)];
+  u8 out[32];
+  CHECK(eckey_sec1_der[5] == 0x04 && eckey_pkcs8_der[6] == 0x30);
+  CHECK(eckey_pkcs8_der[29] == 0x30);
+  CHECK(wired_eckey_p256_priv(mutated(buf, 5, 0x05), out) == 0);
+  CHECK(
+      wired_eckey_p256_priv(
+          eckey_mut(buf, eckey_pkcs8_der, sizeof(eckey_pkcs8_der), 6, 0x31),
+          out) == 0);
+  CHECK(
+      wired_eckey_p256_priv(
+          eckey_mut(buf, eckey_pkcs8_der, sizeof(eckey_pkcs8_der), 29, 0x31),
+          out) == 0);
+}
+
+/* RFC 8410 7: the outer SEQUENCE [0], the privateKey OCTET STRING [12] and
+ * the CurvePrivateKey OCTET STRING inside it [14] each reject a wrong tag. */
+static void test_eckey_curve25519_wrong_tags(void) {
+  static const usz off[] = {0, 12, 14};
+  static const u8  bad[] = {0x31, 0x05, 0x05};
+  u8               buf[sizeof(eckey_ed25519_pkcs8_der)];
+  u8               out[32];
+  for (usz i = 0; i < 3; i++) {
+    wired_span s =
+        eckey_mut(buf, eckey_ed25519_pkcs8_der, sizeof(buf), off[i], bad[i]);
+    CHECK(wired_eckey_curve25519_priv(s, out) == 0);
+  }
+}
+
 void test_eckey(void) {
+  test_eckey_p256_wrong_tags();
+  test_eckey_curve25519_wrong_tags();
   test_eckey_sec1_golden();
   test_eckey_pkcs8_golden();
   test_eckey_bad_structure();

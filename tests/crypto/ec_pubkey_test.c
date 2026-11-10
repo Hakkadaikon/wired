@@ -164,7 +164,34 @@ static void test_ec_pubkey_rejects_unknown_curve_length(void) {
   CHECK(x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x48, y48) == 0);
 }
 
+/* SEC1 2.3.4 step 2.4.1/2.4.2: a compressed X that is >= p, or whose
+ * x^3 - 3x + b is a quadratic non-residue (x = 1 on both P-256 and P-384,
+ * checked by Euler's criterion), names no curve point. */
+static void test_ec_pubkey_compressed_off_curve(void) {
+  u8 k32[34] = {0x00, 0x02}, k48[50] = {0x00, 0x02};
+  u8 x32[32], y32[32], x48[48], y48[48];
+  for (usz i = 2; i < sizeof(k48); i++) {
+    k48[i] = 0xff;
+  }
+  for (usz i = 2; i < sizeof(k32); i++) {
+    k32[i] = 0xff;
+  }
+  CHECK(x509_ec_pubkey(wired_span_of(k32, sizeof(k32)), x32, y32) == 0);
+  CHECK(x509_ec_pubkey384(wired_span_of(k48, sizeof(k48)), x48, y48) == 0);
+  for (usz i = 2; i < sizeof(k48); i++) {
+    k48[i] = 0x00;
+  }
+  for (usz i = 2; i < sizeof(k32); i++) {
+    k32[i] = 0x00;
+  }
+  k32[33] = 0x01;
+  k48[49] = 0x01;
+  CHECK(x509_ec_pubkey(wired_span_of(k32, sizeof(k32)), x32, y32) == 0);
+  CHECK(x509_ec_pubkey384(wired_span_of(k48, sizeof(k48)), x48, y48) == 0);
+}
+
 void test_ec_pubkey(void) {
+  test_ec_pubkey_compressed_off_curve();
   test_ec_pubkey_extract();
   test_ec_pubkey_bad();
   test_ec_pubkey_compressed_odd();

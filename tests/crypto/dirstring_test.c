@@ -192,7 +192,46 @@ static void test_dn_ci_reflexive(void) {
           wired_span_of(dst_n1, sizeof(dst_n1))) == 1);
 }
 
+#define DST_SPAN(a) wired_span_of(a, sizeof(a))
+
+/* RFC 4518 2.6: a string that is a strict prefix of the other is unequal,
+ * on both the case-folding and the byte-exact (non-ASCII) path. */
+static void test_dirstring_prefix_rejects(void) {
+  static const u8 hell[] = {'H', 'e', 'l', 'l'};
+  CHECK(x509_dirstring_ci_equal(DST_SPAN(dst_hello), DST_SPAN(hell)) == 0);
+  CHECK(
+      x509_dirstring_ci_equal(
+          DST_SPAN(dst_non_ascii_a),
+          wired_span_of(dst_non_ascii_a, sizeof(dst_non_ascii_a) - 1)) == 0);
+}
+
+/* X.501 Name / RFC 5280 4.1.2.4: a Name that is not a SEQUENCE, and an
+ * AttributeTypeAndValue whose type is not an OID (NULL here), compare
+ * unequal even to themselves; both under equality and under prefix. */
+static void test_dn_ci_malformed_rejects(void) {
+  static const u8 set[]    = {0x31, 0x00};
+  static const u8 empty[]  = {0x30, 0x00};
+  static const u8 no_oid[] = {0x30, 0x06, 0x31, 0x04, 0x30, 0x02, 0x05, 0x00};
+  CHECK(x509_dn_equal_ci(DST_SPAN(set), DST_SPAN(empty)) == 0);
+  CHECK(x509_dn_prefix_ci(DST_SPAN(set), DST_SPAN(empty)) == 0);
+  CHECK(x509_dn_equal_ci(DST_SPAN(no_oid), DST_SPAN(no_oid)) == 0);
+}
+
+/* RFC 5280 4.2.1.10 directoryName prefix: a base with an RDN the name lacks
+ * is not a prefix, nor is a base whose RDN overruns its Name. */
+static void test_dn_prefix_short_or_overrun_rejects(void) {
+  static const u8 one_rdn[] = {0x30, 0x02, 0x31, 0x00};
+  static const u8 overrun[] = {0x30, 0x02, 0x31, 0x05};
+  static const u8 empty[]   = {0x30, 0x00};
+  CHECK(x509_dn_prefix_ci(DST_SPAN(one_rdn), DST_SPAN(empty)) == 0);
+  CHECK(x509_dn_prefix_ci(DST_SPAN(overrun), DST_SPAN(one_rdn)) == 0);
+  CHECK(x509_dn_prefix_ci(DST_SPAN(one_rdn), DST_SPAN(one_rdn)) == 1);
+}
+
 void test_dirstring(void) {
+  test_dirstring_prefix_rejects();
+  test_dn_ci_malformed_rejects();
+  test_dn_prefix_short_or_overrun_rejects();
   test_dirstring_case_insensitive();
   test_dirstring_different_rejects();
   test_dirstring_internal_space_collapses();

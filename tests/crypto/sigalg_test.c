@@ -83,7 +83,20 @@ static void test_sigalg_params_null_ok(void) {
                    sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
 }
 
+/* RFC 5280 4.1.1.2: an AlgorithmIdentifier whose first element is not an
+ * OID (a NULL here) has no algorithm, so it matches no outer OID. */
+static void test_sigalg_no_oid_mismatch(void) {
+  tbscert t = {0};
+  t.sig_alg = wired_span_of(sao_body_withnull + 10, 2);
+  CHECK(
+      tbscert_sigalg_matches(
+          &t, wired_span_of(
+                  x509_golden_oid_ecdsa_sha256,
+                  sizeof(x509_golden_oid_ecdsa_sha256))) == 0);
+}
+
 void test_sigalg(void) {
+  test_sigalg_no_oid_mismatch();
   test_sigalg_oid();
   test_sigalg_matches();
   test_sigalg_mismatch();

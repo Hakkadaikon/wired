@@ -2,7 +2,14 @@
 
 #include "castore_golden.h"
 #include "chv_sha512_golden.h"
+#include "common/bytes/util/bytes.h"
+#include "crypto/pki/encoding/x509/spki.h"
+#include "crypto/pki/encoding/x509/x509.h"
+#include "crypto/pki/trust/castore/chainverify_impl.h"
 #include "crypto/pki/trust/castore/pathvalidate_impl.h"
+#include "p384chain_golden.h"
+#include "p521chain_golden.h"
+#include "rsachain_golden.h"
 #include "spkialg_golden.h"
 #include "test.h"
 
@@ -109,7 +116,102 @@ static void test_spki_ku_ecdh_family(void) {
   CHECK(CHV_KU(spkialg_ecmqv_noparams) == 0);
 }
 
+/* Not a Certificate SEQUENCE (RFC 5280 4.1). */
+static const u8 chv_junk[] = {0x04, 0x00};
+
+/* Copy n bytes of src into buf and overwrite one byte at off. */
+static wired_span chv_mut(u8* buf, const u8* src, usz n, usz off, u8 v) {
+  bytes_memcpy(buf, src, n);
+  buf[off] = v;
+  return wired_span_of(buf, n);
+}
+
+/* RFC 5280 4.1: a subject or issuer that is not a Certificate, and a tbs
+ * whose version [0] wrapper overruns (leaf[11], the inner INTEGER length),
+ * are rejected before any signature work. */
+static void test_chainverify_unparsable(void) {
+  u8         leaf[sizeof(castore_leaf_der)];
+  wired_span junk = wired_span_of(chv_junk, sizeof(chv_junk));
+  CHECK(castore_verify_signed_by(chv_leaf_span(), junk) == 0);
+  CHECK(castore_verify_signed_by(junk, chv_root_span()) == 0);
+  CHECK(castore_leaf_der[10] == 0x02 && castore_leaf_der[11] == 0x01);
+  CHECK(
+      castore_verify_signed_by(
+          chv_mut(leaf, castore_leaf_der, sizeof(leaf), 11, 0x05),
+          chv_root_span()) == 0);
+}
+
+/* RFC 5280 4.1.1.3: an empty signatureValue BIT STRING (no unused-bits
+ * octet) is rejected. The leaf's 71-byte signature at [339] is replaced by
+ * 03 00, shrinking the outer length 408 -> 337 (0x0151). */
+static void test_chainverify_empty_signature(void) {
+  u8 leaf[341];
+  CHECK(castore_leaf_der[3] == 0x98 && castore_leaf_der[339] == 0x03);
+  bytes_memcpy(leaf, castore_leaf_der, 339);
+  leaf[2]   = 0x01;
+  leaf[3]   = 0x51;
+  leaf[339] = 0x03;
+  leaf[340] = 0x00;
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
+}
+
+/* RFC 8017 A.1.1: an RSA issuer whose subjectPublicKey is not an
+ * RSAPublicKey SEQUENCE (rroot[160] 0x30 -> 0x31) verifies nothing. */
+static void test_chainverify_rsa_bad_issuer_key(void) {
+  u8 root[sizeof(rsachain_rroot_der)];
+  CHECK(rsachain_rroot_der[160] == 0x30);
+  CHECK(
+      castore_verify_signed_by(
+          wired_span_of(rsachain_rleaf256_der, sizeof(rsachain_rleaf256_der)),
+          chv_mut(root, rsachain_rroot_der, sizeof(root), 160, 0x31)) == 0);
+}
+
+/* RFC 5480 2.2 / RFC 5758 3.2: on each curve an issuer key that is not an EC
+ * point, or a signature that is not ECDSA-Sig-Value, is rejected. */
+static void chv_bad_key_or_sig(wired_span cert) {
+  x509       c;
+  wired_span oid, key, junk = wired_span_of(chv_junk, sizeof(chv_junk));
+  u8         hash[64] = {0};
+  wired_span h        = wired_span_of(hash, sizeof(hash));
+  CHECK(x509_parse(cert, &c) == 1);
+  CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
+  CHECK(castore_verify_ecdsa_issuer(c.tbs, junk, junk, h) == 0);
+  CHECK(castore_verify_ecdsa_issuer(c.tbs, key, junk, h) == 0);
+}
+
+static void test_chainverify_ecdsa_malformed(void) {
+  chv_bad_key_or_sig(chv_root_span());
+  chv_bad_key_or_sig(
+      wired_span_of(p384chain_root_der, sizeof(p384chain_root_der)));
+  chv_bad_key_or_sig(
+      wired_span_of(p521chain_root_der, sizeof(p521chain_root_der)));
+}
+
+/* RFC 5480 2.1.1.1: a namedCurve outside P-256/P-384/P-521 (the root's
+ * prime256v1 OID last arc 7 -> 8 at [151]) has no verifier. */
+static void test_chainverify_unknown_curve(void) {
+  u8         root[sizeof(castore_root_der)];
+  x509       c;
+  wired_span oid, key;
+  u8         hash[64] = {0};
+  CHECK(castore_root_der[151] == 0x07);
+  CHECK(
+      x509_parse(
+          chv_mut(root, castore_root_der, sizeof(root), 151, 0x08), &c) == 1);
+  CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
+  CHECK(
+      castore_verify_ecdsa_issuer(
+          c.tbs, key, key, wired_span_of(hash, sizeof(hash))) == 0);
+}
+
 void test_chainverify(void) {
+  test_chainverify_unparsable();
+  test_chainverify_empty_signature();
+  test_chainverify_rsa_bad_issuer_key();
+  test_chainverify_ecdsa_malformed();
+  test_chainverify_unknown_curve();
   test_ecdsa_sha512_self_signed();
   test_leaf_signed_by_root();
   test_root_self_signature();

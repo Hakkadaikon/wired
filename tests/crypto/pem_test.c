@@ -228,7 +228,19 @@ static void test_pem_every_byte_classified(void) {
   }
 }
 
+/* RFC 7468 2 / RFC 4648 4: a BEGIN line never closed by its five dashes,
+ * and a quad padded before its third position ("A==="), are rejected. */
+static void test_pem_reject_open_label_and_early_pad(void) {
+  u8         buf[8];
+  wired_obuf der    = obuf_of(buf, sizeof(buf));
+  const char open[] = "-----BEGIN X\nZm9v\n";
+  const char pad[]  = "-----BEGIN X-----\nA===\n-----END X-----\n";
+  CHECK(pem_one(open, sizeof(open) - 1, &der) == 0);
+  CHECK(pem_one(pad, sizeof(pad) - 1, &der) == 0);
+}
+
 void test_pem(void) {
+  test_pem_reject_open_label_and_early_pad();
   test_pem_leaf_golden();
   test_pem_fullchain();
   test_pem_padding();

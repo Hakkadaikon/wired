@@ -161,7 +161,19 @@ static void test_rsa_pubkey_missing_e(void) {
   CHECK(x509_rsa_pubkey(wired_span_of(key, sizeof(key)), &n, &e) == 0);
 }
 
+/* RFC 8017 A.1.1: RSAPublicKey is a SEQUENCE of INTEGERs. A SET in its
+ * place, or an OCTET STRING where the modulus INTEGER belongs, is rejected.
+ */
+static void test_rsa_pubkey_wrong_tags(void) {
+  const u8   set[] = {0x00, 0x31, 0x03, 0x02, 0x01, 0x05};
+  const u8   oct[] = {0x00, 0x30, 0x03, 0x04, 0x01, 0x05};
+  wired_span n, e;
+  CHECK(x509_rsa_pubkey(wired_span_of(set, sizeof(set)), &n, &e) == 0);
+  CHECK(x509_rsa_pubkey(wired_span_of(oct, sizeof(oct)), &n, &e) == 0);
+}
+
 void test_rsa_pubkey(void) {
+  test_rsa_pubkey_wrong_tags();
   test_rsa_pubkey_extract();
   test_rsa_pubkey_min_n();
   test_rsa_pubkey_even_n();

@@ -59,7 +59,18 @@ static void test_fields_short_tbs(void) {
   CHECK(tbscert_parse(wired_span_of(tbs, sizeof(tbs)), &t) == 0);
 }
 
+/* RFC 5280 4.1.2.1: a version [0] EXPLICIT wrapper whose own length runs
+ * past the tbs, or whose inner TLV runs past the wrapper, is rejected. */
+static void test_fields_bad_version_wrapper(void) {
+  const u8 outer[] = {0x30, 0x03, 0xa0, 0x05, 0x00};
+  const u8 inner[] = {0x30, 0x04, 0xa0, 0x02, 0x02, 0x05};
+  tbscert  t;
+  CHECK(tbscert_parse(wired_span_of(outer, sizeof(outer)), &t) == 0);
+  CHECK(tbscert_parse(wired_span_of(inner, sizeof(inner)), &t) == 0);
+}
+
 void test_fields(void) {
+  test_fields_bad_version_wrapper();
   test_fields_golden();
   test_fields_match_parts();
   test_fields_truncated();

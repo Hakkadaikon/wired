@@ -192,7 +192,19 @@ static void test_ecdh_keyusage_forbidden_certsign(void) {
       0);
 }
 
+/* X.690 11.2.2: DER drops trailing zero bits, so a KeyUsage BIT STRING with
+ * no data octets (03 01 00) present asserts no bit: keyCertSign and
+ * digitalSignature both read as clear. */
+static void test_ku_empty_bitstring_asserts_nothing(void) {
+  static const u8 tbs[] = {0x30, 0x1c, KUT_DUMMY6, 0xa3, 0x0e, 0x30, 0x0c,
+                           0x30, 0x0a, 0x06,       0x03, 0x55, 0x1d, 0x0f,
+                           0x04, 0x03, 0x03,       0x01, 0x00};
+  CHECK(x509_can_sign_certs(wired_span_of(tbs, sizeof(tbs))) == 0);
+  CHECK(x509_digital_signature_ok(wired_span_of(tbs, sizeof(tbs))) == 0);
+}
+
 void test_keyusage(void) {
+  test_ku_empty_bitstring_asserts_nothing();
   test_can_sign_no_extension();
   test_can_sign_certsign_set();
   test_can_sign_certsign_unset();

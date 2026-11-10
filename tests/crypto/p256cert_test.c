@@ -4,6 +4,7 @@
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
+#include "crypto/pki/cert/p256cert/enc.h"
 #include "crypto/pki/cert/p256cert/spki.h"
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
@@ -357,7 +358,25 @@ static void test_cert_now_secs_zero_keeps_fixed_window(void) {
   CHECK(x509_validity_ok(c.tbs, 20300101000000ULL) == 1);
 }
 
+/* X.690 append cursor: a TLV or pre-encoded bytes that do not fit latch
+ * ok=0, and a latched cursor wraps to nothing (0 length). */
+static void test_enc_cursor_overflow_latches(void) {
+  static const u8 v[4] = {1, 2, 3, 4};
+  u8              buf[4], out[8];
+  wired_obuf      o = obuf_of(out, sizeof(out));
+  p256cert_enc    a = {buf, sizeof(buf), 0, 1};
+  p256cert_enc    b = {buf, sizeof(buf), 0, 1};
+  p256cert_put(&a, DER_OCTET_STRING, wired_span_of(v, sizeof(v)));
+  CHECK(a.ok == 0 && a.off == 0);
+  p256cert_put_pre(&b, wired_span_of(v, sizeof(v)));
+  CHECK(b.ok == 1 && b.off == 4);
+  p256cert_put_pre(&b, wired_span_of(v, 1));
+  CHECK(b.ok == 0);
+  CHECK(p256cert_wrap(&a, DER_SEQUENCE, &o) == 0);
+}
+
 void test_p256cert(void) {
+  test_enc_cursor_overflow_latches();
   test_spki_roundtrip();
   test_p256cert_parse();
   test_cert_spki_key();

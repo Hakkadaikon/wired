@@ -7,6 +7,7 @@
 #include "castore_ncx_golden.h"
 #include "castore_pc_golden.h"
 #include "castore_selfissued_golden.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
@@ -16,6 +17,7 @@
 #include "crypto/pki/cert/p256cert/tbs.h"
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/trust/castore/castore.h"
+#include "crypto/pki/trust/castore/pathvalidate_impl.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
 
@@ -496,7 +498,96 @@ static void test_duplicate_extension_rejects(void) {
   CHECK(castore_validate_chain(&s, certs, 1, 0) == 1);
 }
 
+/* Not a Certificate SEQUENCE (RFC 5280 4.1). */
+static const u8 pv_junk[] = {0x04, 0x00};
+
+/* Copy n bytes of src into buf and overwrite one byte at off. */
+static wired_span pv_mut(u8* buf, const u8* src, usz n, usz off, u8 v) {
+  bytes_memcpy(buf, src, n);
+  buf[off] = v;
+  return wired_span_of(buf, n);
+}
+
+/* RFC 5280 4.1: every per-certificate step fails closed on bytes that are
+ * not a Certificate, whichever side of a link they sit on. */
+static void test_pv_unparsable_cert_rejects(void) {
+  castore    s;
+  wired_span junk         = PV_SPAN(pv_junk), dn;
+  wired_span leaf         = PV_SPAN(castore_leaf_der);
+  wired_span root         = PV_SPAN(castore_root_der);
+  wired_span over_leaf[2] = {leaf, junk}, over_root[2] = {junk, root};
+  store_with_root(&s);
+  CHECK(castore_cert_issuer(junk, &dn) == 0);
+  CHECK(castore_cert_self_issued(junk) == 0);
+  CHECK(castore_link_ok(junk, root) == 0);
+  CHECK(castore_link_ok(leaf, junk) == 0);
+  CHECK(castore_all_extensions_ok(&junk, 1) == 0);
+  CHECK(castore_cert_spki_ku_ok(junk, 0) == 0);
+  CHECK(castore_leaf_ku_signs(junk) == 0);
+  CHECK(castore_tail_anchor(&s, junk, &dn) == 0);
+  CHECK(castore_policy_processing_ok(&junk, 1) == 0);
+  CHECK(castore_name_constraints_chain_ok(over_leaf, 2) == 0);
+  CHECK(castore_name_constraints_chain_ok(over_root, 2) == 0);
+}
+
+/* RFC 5280 4.1.2.6/4.1.2.7: a subject Name (leaf[104]) or
+ * subjectPublicKeyInfo (leaf[129]) that is not a SEQUENCE fails the
+ * self-issued test and the SPKI keyUsage checks. */
+static void test_pv_bad_subject_or_spki_rejects(void) {
+  u8 buf[sizeof(castore_leaf_der)];
+  CHECK(castore_leaf_der[104] == 0x30 && castore_leaf_der[129] == 0x30);
+  CHECK(
+      castore_cert_self_issued(
+          pv_mut(buf, castore_leaf_der, sizeof(buf), 104, 0x31)) == 0);
+  CHECK(
+      castore_leaf_ku_signs(
+          pv_mut(buf, castore_leaf_der, sizeof(buf), 129, 0x31)) == 0);
+}
+
+/* RFC 5280 4.2: "A certificate-using system MUST reject the certificate if
+ * it encounters a critical extension it does not recognize". The leaf's
+ * critical basicConstraints OID 2.5.29.19 becomes 2.5.29.127 (leaf[230]). */
+static void test_pv_unknown_critical_rejects(void) {
+  u8         buf[sizeof(castore_leaf_der)];
+  wired_span c;
+  CHECK(castore_leaf_der[230] == 0x13 && castore_leaf_der[233] == 0xff);
+  c = pv_mut(buf, castore_leaf_der, sizeof(buf), 230, 0x7f);
+  CHECK(castore_all_extensions_ok(&c, 1) == 0);
+}
+
+/* RFC 8410 5: an id-Ed25519 issuer's keyUsage must assert one of the CA
+ * bits; digitalSignature passes, a keyUsage without any of them fails. */
+static void test_pv_ed_ca_keyusage(void) {
+  CHECK(castore_cert_spki_ku_ok(PV_SPAN(castore_ku_ed_leaf_ok_der), 1) == 1);
+  CHECK(castore_cert_spki_ku_ok(PV_SPAN(castore_ku_ed_mid_reject_der), 1) == 0);
+}
+
+/* RFC 5280 6.1.4 (i)/(j): a negative requireExplicitPolicy (pc_mid2[281]
+ * 0 -> 0x80) and a non-INTEGER inhibitAnyPolicy (the SKID extension's OID
+ * 2.5.29.14 relabelled 2.5.29.54 at pc_mid2[307]) each fail the step. */
+static void test_pv_policy_step_malformed_rejects(void) {
+  u8               buf[sizeof(castore_pc_mid2_der)];
+  x509_policy_tree t;
+  u64              ex = X509_SKIPCERTS_NONE, ia = X509_SKIPCERTS_NONE;
+  CHECK(castore_pc_mid2_der[281] == 0x00 && castore_pc_mid2_der[307] == 0x0e);
+  x509_policy_tree_init(&t);
+  CHECK(castore_policy_step(PV_SPAN(castore_pc_mid2_der), &t, &ex, &ia) == 1);
+  CHECK(
+      castore_policy_step(
+          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 281, 0x80), &t, &ex,
+          &ia) == 0);
+  CHECK(
+      castore_policy_step(
+          pv_mut(buf, castore_pc_mid2_der, sizeof(buf), 307, 0x36), &t, &ex,
+          &ia) == 0);
+}
+
 void test_pathvalidate(void) {
+  test_pv_unparsable_cert_rejects();
+  test_pv_bad_subject_or_spki_rejects();
+  test_pv_unknown_critical_rejects();
+  test_pv_ed_ca_keyusage();
+  test_pv_policy_step_malformed_rejects();
   test_valid_chain();
   test_lone_root_chain();
   test_unregistered_root_fails();

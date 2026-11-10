@@ -96,7 +96,32 @@ static void test_build_selfsigned(void) {
   ((u8*)c.tbs.p)[0] = bad;
 }
 
+/* X.690 8.1.3.5: a value of 65536 octets needs a 3-octet length, past the
+ * 0x82 long-form ceiling this encoder supports, so it is refused. */
+static u8   sct_big[0x10000];
+static void test_der_tlv_length_ceiling(void) {
+  u8         out[8];
+  wired_obuf o = obuf_of(out, sizeof(out));
+  CHECK(
+      selfcert_der_tlv(
+          DER_OCTET_STRING, wired_span_of(sct_big, sizeof(sct_big)), &o) == 0);
+}
+
+/* RFC 5280 4.1. The tbsCertificate is 138 octets (3-octet header + 135):
+ * one octet less of room is refused, exactly 138 fits and ends with the key.
+ */
+static void test_tbs_capacity(void) {
+  u8         pub[32] = {0}, tbs[138];
+  wired_obuf to      = obuf_of(tbs, sizeof(tbs) - 1);
+  CHECK(selfcert_tbs(pub, &to) == 0);
+  to = obuf_of(tbs, sizeof(tbs));
+  CHECK(selfcert_tbs(pub, &to) == 1 && to.len == 138);
+  CHECK(tbs[0] == 0x30 && tbs[1] == 0x81 && tbs[2] == 0x87);
+}
+
 void test_selfcert(void) {
+  test_der_tlv_length_ceiling();
+  test_tbs_capacity();
   test_der_tlv_roundtrip();
   test_der_tlv_longform();
   test_der_tlv_overflow();

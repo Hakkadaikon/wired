@@ -69,7 +69,34 @@ static void test_certreq_parse_missing_sig_algs(void) {
   CHECK(certreq_parse(wired_span_of(msg, off + 3), &cr) == 0);
 }
 
+/* RFC 8446 4.3.2: a CertificateRequest body too short for its context
+ * length and extensions length is rejected. */
+static void test_certreq_parse_empty_body(void) {
+  u8      msg[8];
+  certreq cr;
+  usz     off = hs_begin(msg, sizeof(msg), 0x0d);
+  hs_finish(msg, off);
+  CHECK(certreq_parse(wired_span_of(msg, off), &cr) == 0);
+}
+
+/* RFC 8446 4.3.2: "The "signature_algorithms" extension MUST be specified";
+ * a body whose only extension is another one (supported_groups, empty) is
+ * skipped over and rejected. */
+static void test_certreq_parse_other_ext_only(void) {
+  static const u8 body[] = {0x00, 0x00, 0x04, 0x00, 0x0a, 0x00, 0x00};
+  u8              msg[16];
+  certreq         cr;
+  usz             off = hs_begin(msg, sizeof(msg), 0x0d);
+  for (usz i = 0; i < sizeof(body); i++) {
+    msg[off + i] = body[i];
+  }
+  hs_finish(msg, off + sizeof(body));
+  CHECK(certreq_parse(wired_span_of(msg, off + sizeof(body)), &cr) == 0);
+}
+
 void test_certreq(void) {
+  test_certreq_parse_empty_body();
+  test_certreq_parse_other_ext_only();
   test_certreq_wire_structure();
   test_certreq_roundtrip();
   test_certreq_build_no_room();

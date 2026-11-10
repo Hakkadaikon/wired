@@ -1,5 +1,8 @@
 #include "crypto/pki/encoding/x509/policyconstraints.h"
 
+#include "castore_pc_golden.h"
+#include "common/bytes/util/bytes.h"
+#include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
 
 /* All fixtures generated and byte-verified with a small Python DER builder
@@ -101,7 +104,50 @@ static void test_inhibit_any_malformed_rejects(void) {
           sizeof(pct_tbs_inhibit_any_malformed))) == X509_SKIPCERTS_MALFORMED);
 }
 
+/* Copy n bytes of src into buf and overwrite one byte at off. */
+static wired_span pct_mut(u8* buf, const u8* src, usz n, usz off, u8 v) {
+  bytes_memcpy(buf, src, n);
+  buf[off] = v;
+  return wired_span_of(buf, n);
+}
+
+/* RFC 5280 4.2.1.11: a PolicyConstraints that leads with [1]
+ * inhibitPolicyMapping (reqexp3[29] 0x80 -> 0x81) carries no
+ * requireExplicitPolicy. */
+static void test_reqexp_led_by_inhibit_mapping_is_none(void) {
+  u8 buf[sizeof(pct_tbs_reqexp3)];
+  CHECK(
+      x509_require_explicit_policy(pct_mut(
+          buf, pct_tbs_reqexp3, sizeof(buf), 29, 0x81)) == X509_SKIPCERTS_NONE);
+}
+
+/* RFC 5280 4.2.1.14: an inhibitAnyPolicy extnValue whose TLV overruns
+ * (length octet [28] 1 -> 5) fails closed. */
+static void test_inhibit_any_truncated_rejects(void) {
+  u8 buf[sizeof(pct_tbs_inhibit_any_malformed)];
+  CHECK(
+      x509_inhibit_any_policy(
+          pct_mut(buf, pct_tbs_inhibit_any_malformed, sizeof(buf), 28, 0x05)) ==
+      X509_SKIPCERTS_MALFORMED);
+}
+
+/* RFC 5280 4.2: a critical policyConstraints whose value is not a SEQUENCE
+ * (pc_mid2[277] 0x30 -> 0x31) cannot be processed, so it is reported as an
+ * unprocessed critical extension. */
+static void test_pc_critical_malformed_is_unprocessed(void) {
+  u8   buf[sizeof(castore_pc_mid2_der)];
+  x509 c;
+  CHECK(castore_pc_mid2_der[277] == 0x30);
+  CHECK(
+      x509_parse(
+          pct_mut(buf, castore_pc_mid2_der, sizeof(buf), 277, 0x31), &c) == 1);
+  CHECK(x509_pc_unprocessed_critical(c.tbs) == 1);
+}
+
 void test_policyconstraints(void) {
+  test_reqexp_led_by_inhibit_mapping_is_none();
+  test_inhibit_any_truncated_rejects();
+  test_pc_critical_malformed_is_unprocessed();
   test_reqexp_absent_ext_is_none();
   test_reqexp_value_read();
   test_reqexp_field_absent_is_none();

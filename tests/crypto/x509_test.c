@@ -1,6 +1,7 @@
 #include "crypto/pki/encoding/x509/x509.h"
 
 #include "crypto/pki/encoding/asn1/derval.h"
+#include "crypto/pki/encoding/x509/x509_impl.h"
 #include "test.h"
 #include "x509_golden.h"
 
@@ -239,7 +240,74 @@ static void test_unique_id_subject_only_reaches_extensions(void) {
           wired_span_of(x509t_tbs_uid2_ext, sizeof(x509t_tbs_uid2_ext))) == 0);
 }
 
+#define X509T_SPAN(a) wired_span_of(a, sizeof(a))
+
+/* RFC 5280 4.1: Certificate ::= SEQUENCE { tbsCertificate,
+ * signatureAlgorithm AlgorithmIdentifier, signatureValue BIT STRING }. An
+ * empty SEQUENCE, a missing or non-SEQUENCE signatureAlgorithm, and a
+ * missing signatureValue are each rejected. */
+static void test_x509_missing_fields(void) {
+  static const u8 empty[]   = {0x30, 0x00};
+  static const u8 no_alg[]  = {0x30, 0x02, 0x30, 0x00};
+  static const u8 set_alg[] = {0x30, 0x06, 0x30, 0x00, 0x31, 0x00, 0x03, 0x00};
+  static const u8 no_sig[]  = {0x30, 0x07, 0x30, 0x00, 0x30,
+                               0x03, 0x06, 0x01, 0x2a};
+  x509            c;
+  CHECK(x509_parse(X509T_SPAN(empty), &c) == 0);
+  CHECK(x509_parse(X509T_SPAN(no_alg), &c) == 0);
+  CHECK(x509_parse(X509T_SPAN(set_alg), &c) == 0);
+  CHECK(x509_parse(X509T_SPAN(no_sig), &c) == 0);
+}
+
+/* RFC 5280 4.1: a tbs that is not a SEQUENCE, or whose issuerUniqueID [1]
+ * overruns the tbs, never reaches its extensions. */
+static void test_x509_at_extensions_malformed(void) {
+  static const u8 set[]     = {0x31, 0x00};
+  static const u8 uid_run[] = {0x30, 0x0e, X509T_DUMMY6, 0xa1, 0x05};
+  derseq          c;
+  CHECK(x509_at_extensions(X509T_SPAN(set), &c) == 0);
+  CHECK(x509_at_extensions(X509T_SPAN(uid_run), &c) == 0);
+}
+
+/* tbs = dummy6 ++ [3] { SEQUENCE { Extension { NULL } } }: no extnID. */
+static const u8 x509t_tbs_no_extnid[] = {
+    0x30, 0x14, X509T_DUMMY6, 0xa3, 0x06, 0x30, 0x04, 0x30, 0x02, 0x05, 0x00};
+/* tbs = dummy6 ++ [3] { SEQUENCE { Extension { basicConstraints } } }: no
+ * extnValue. */
+static const u8 x509t_tbs_no_extnvalue[] = {
+    0x30, 0x17, X509T_DUMMY6, 0xa3, 0x09, 0x30, 0x07,
+    0x30, 0x05, 0x06,         0x03, 0x55, 0x1d, 0x13};
+
+/* RFC 5280 4.1.2.9 / 4.2: an Extension without an extnID cannot be
+ * recognized, so it counts as unknown-critical (and is not a duplicate);
+ * one without its extnValue OCTET STRING yields no value. */
+static void test_x509_extension_missing_parts(void) {
+  static const u8 oid_bc[] = {0x55, 0x1d, 0x13};
+  wired_span      v;
+  CHECK(x509_has_unknown_critical(X509T_SPAN(x509t_tbs_no_extnid)) == 1);
+  CHECK(x509_has_duplicate_ext(X509T_SPAN(x509t_tbs_no_extnid)) == 0);
+  CHECK(
+      x509_find_ext(X509T_SPAN(x509t_tbs_no_extnid), X509T_SPAN(oid_bc), &v) ==
+      0);
+  CHECK(
+      x509_find_ext(
+          X509T_SPAN(x509t_tbs_no_extnvalue), X509T_SPAN(oid_bc), &v) == 0);
+}
+
+/* RFC 5280 4.1.2.9: critical is read from a whole Extension; one with no
+ * extnID, or with nothing after it, is not critical. */
+static void test_x509_ext_is_critical_short(void) {
+  static const u8 no_oid[]   = {0x05, 0x00};
+  static const u8 oid_only[] = {0x06, 0x03, 0x55, 0x1d, 0x13};
+  CHECK(x509_ext_is_critical(X509T_SPAN(no_oid)) == 0);
+  CHECK(x509_ext_is_critical(X509T_SPAN(oid_only)) == 0);
+}
+
 void test_x509(void) {
+  test_x509_missing_fields();
+  test_x509_at_extensions_malformed();
+  test_x509_extension_missing_parts();
+  test_x509_ext_is_critical_short();
   test_x509_parse_golden();
   test_x509_truncated();
   test_x509_not_tbs_seq();

@@ -1,6 +1,10 @@
 #include "crypto/pki/encoding/x509/nameconstraints.h"
 
+#include "castore_nc_golden.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/pki/cert/selfcert/derenc.h"
+#include "crypto/pki/encoding/x509/nameconstraints_impl.h"
+#include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
 
 /* All fixtures below were generated and byte-verified with a small Python
@@ -581,7 +585,85 @@ static void test_ncsan_subtree_count_over_cap_rejects(void) {
           tbs, wired_span_of(nct_name_a, sizeof(nct_name_a))) == 0);
 }
 
+/* Copy n bytes of src into buf and overwrite one byte at off. */
+static wired_span nct_mut(u8* buf, const u8* src, usz n, usz off, u8 v) {
+  bytes_memcpy(buf, src, n);
+  buf[off] = v;
+  return wired_span_of(buf, n);
+}
+
+/* RFC 5280 4.2.1.10 / 6.1.3 (b): a child whose SAN extnValue is not a
+ * GeneralNames SEQUENCE (san_sub[46]) or whose subject is not a Name
+ * (san_sub[10]) fails closed under a nameConstraints issuer. */
+static void test_ncsan_child_malformed_rejects(void) {
+  u8 buf[sizeof(nct_child_san_sub)];
+  CHECK(nct_child_san_sub[46] == 0x30 && nct_child_san_sub[10] == 0x30);
+  CHECK(
+      x509_name_constraints_admit(
+          NCT(nct_tbs_perm_ip4),
+          nct_mut(buf, nct_child_san_sub, sizeof(buf), 46, 0x31)) == 0);
+  CHECK(
+      x509_name_constraints_admit(
+          NCT(nct_tbs_perm_dns),
+          nct_mut(buf, nct_child_san_sub, sizeof(buf), 10, 0x31)) == 0);
+}
+
+/* RFC 6125 6.4.4: a SAN-less child whose subject has no commonName (the
+ * "Some CA" attribute relabelled OU, cn_plain[20] 0x03 -> 0x0b) offers no
+ * CN-ID, so the dNSName subtrees have nothing to constrain. */
+static void test_ncsan_no_cn_no_fallback_ok(void) {
+  u8 buf[sizeof(nct_child_cn_plain)];
+  CHECK(nct_child_cn_plain[20] == 0x03);
+  CHECK(
+      x509_name_constraints_admit(
+          NCT(nct_tbs_perm_dns),
+          nct_mut(buf, nct_child_cn_plain, sizeof(buf), 20, 0x0b)) == 1);
+}
+
+/* RFC 5280 4.2.1.10: "Name forms that are not ... restricted by the
+ * constraint" -- an rfc822Name SAN (san_sub[48] dNSName 0x82 -> [1] 0x81)
+ * is not constrained by iPAddress subtrees. */
+static void test_ncsan_other_form_unconstrained(void) {
+  u8 buf[sizeof(nct_child_san_sub)];
+  CHECK(nct_child_san_sub[48] == 0x82);
+  CHECK(
+      x509_name_constraints_admit(
+          NCT(nct_tbs_perm_ip4),
+          nct_mut(buf, nct_child_san_sub, sizeof(buf), 48, 0x81)) == 1);
+}
+
+/* RFC 5280 4.2: a critical nameConstraints whose value is not a SEQUENCE
+ * (nc_root[306] 0x30 -> 0x31) cannot be processed. */
+static void test_nc_critical_malformed_is_unprocessed(void) {
+  u8   buf[sizeof(castore_nc_root_der)];
+  x509 c;
+  CHECK(castore_nc_root_der[306] == 0x30);
+  CHECK(
+      x509_parse(
+          nct_mut(buf, castore_nc_root_der, sizeof(buf), 306, 0x31), &c) == 1);
+  CHECK(x509_nc_unprocessed_critical(c.tbs) == 1);
+}
+
+/* RFC 5280 4.2.1.10: a zero-length dNSName base covers every name; a
+ * GeneralSubtree with no base neither marks a form nor carries a bound. */
+static void test_nc_empty_base_and_empty_subtree(void) {
+  static const u8 name[]       = {'a', '.', 'b'};
+  static const u8 empty_half[] = {0xa0, 0x02, 0x30, 0x00};
+  int             any = 0, covered = 0;
+  CHECK(x509_nc_dns_within(wired_span_of(name, 0), NCT(name)) == 1);
+  x509_typed_fold(
+      wired_span_of(name, 0), NC_DNSNAME_TAG, NCT(name), x509_nc_dns_within,
+      &any, &covered);
+  CHECK(any == 0 && covered == 0);
+  CHECK(x509_nc_bounded(NCT(empty_half)) == 0);
+}
+
 void test_nameconstraints(void) {
+  test_ncsan_child_malformed_rejects();
+  test_ncsan_no_cn_no_fallback_ok();
+  test_ncsan_other_form_unconstrained();
+  test_nc_critical_malformed_is_unprocessed();
+  test_nc_empty_base_and_empty_subtree();
   test_nc_absent_permits();
   test_nc_permitted_exact_match_ok();
   test_nc_permitted_child_ok();

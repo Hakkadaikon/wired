@@ -276,7 +276,47 @@ static void test_san_alabel_wildcard_no_match(void) {
       0);
 }
 
+/* RFC 6125 6.4.3 rule 2: "baz*" needs a host label at least as long as its
+ * fixed "baz" prefix, so "ba" is not covered. */
+static void test_san_fragment_wildcard_label_too_short(void) {
+  const u8 host[] = "ba.example.net";
+  CHECK(
+      san_match_tbs(
+          san_fragment_tbs, sizeof(san_fragment_tbs), host, sizeof(host) - 1) ==
+      0);
+}
+
+/* RFC 3986 3.2.2 IPv4address: a dec-octet above 255 is not an IPv4 literal,
+ * so it never matches the 127.0.0.1 iPAddress SAN. */
+static void test_san_ipv4_octet_over_255(void) {
+  const u8 host[] = "256.0.0.1";
+  CHECK(
+      san_match_tbs(
+          san_ipv4_single_tbs, sizeof(san_ipv4_single_tbs), host,
+          sizeof(host) - 1) == 0);
+}
+
+/* serialNumber, signature, issuer, validity stand-ins (SAN_SUBJECT_SKIP). */
+#define SANT_DUMMY4 0x05, 0x00, 0x05, 0x00, 0x05, 0x00, 0x05, 0x00
+
+/* RFC 5280 4.1.2.6: no subject commonName is read from a tbs that is not a
+ * SEQUENCE, a subject that is not a SEQUENCE, or an AttributeTypeAndValue
+ * without its type OID. */
+static void test_subject_cn_malformed(void) {
+  static const u8 not_seq[]  = {0x31, 0x00};
+  static const u8 set_subj[] = {0x30, 0x0a, SANT_DUMMY4, 0x31, 0x00};
+  static const u8 no_oid[]   = {0x30, 0x10, SANT_DUMMY4, 0x30, 0x06, 0x31,
+                                0x04, 0x30, 0x02,        0x05, 0x00};
+  wired_span      cn;
+  CHECK(x509_subject_cn(wired_span_of(not_seq, sizeof(not_seq)), &cn) == 0);
+  CHECK(x509_subject_cn(wired_span_of(set_subj, sizeof(set_subj)), &cn) == 0);
+  CHECK(x509_subject_cn(wired_span_of(no_oid, sizeof(no_oid)), &cn) == 0);
+}
+
 void test_san(void) {
+  test_san_fragment_wildcard_label_too_short();
+  test_san_ipv4_octet_over_255();
+  test_subject_cn_malformed();
   test_exact_match();
   test_wildcard_match();
   test_wildcard_no_nested();

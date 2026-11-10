@@ -1,6 +1,7 @@
 #include "crypto/pki/trust/castore/castore.h"
 
 #include "castore_golden.h"
+#include "common/bytes/util/bytes.h"
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
@@ -97,7 +98,25 @@ static void test_castore_cap(void) {
   CHECK(castore_find_by_subject(&s, dn, &root) == 1);
 }
 
+/* RFC 5280 4.1.2.6: a registered root whose subject Name is not a SEQUENCE
+ * (root[104] 0x30 -> 0x31; the outer Certificate still parses, so it is
+ * accepted into the store) never matches an issuer. */
+static void test_find_skips_root_without_subject(void) {
+  castore       s;
+  castore_entry roots[1];
+  wired_span    dn, found;
+  u8            bad[sizeof(castore_root_der)];
+  bytes_memcpy(bad, castore_root_der, sizeof(bad));
+  CHECK(bad[104] == 0x30);
+  bad[104] = 0x31;
+  leaf_issuer(&dn);
+  castore_init(&s, roots, 1);
+  CHECK(castore_add(&s, wired_span_of(bad, sizeof(bad))) == 1);
+  CHECK(castore_find_by_subject(&s, dn, &found) == 0);
+}
+
 void test_castore(void) {
+  test_find_skips_root_without_subject();
   test_init_is_empty();
   test_add_then_find_by_leaf_issuer();
   test_find_unknown_subject_fails();

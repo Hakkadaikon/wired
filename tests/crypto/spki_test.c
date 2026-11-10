@@ -1,5 +1,6 @@
 #include "crypto/pki/encoding/x509/spki.h"
 
+#include "common/bytes/util/bytes.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
 #include "x509_golden.h"
@@ -161,7 +162,32 @@ static void test_restricted_params_unrestricted_alg_ok(void) {
           spt_tbs_ec_with_params, sizeof(spt_tbs_ec_with_params))) == 1);
 }
 
+/* Parse x509_golden with one byte replaced (SPKI header at [133], its
+ * algorithm OID tag at [137]); the caller owns der so the views stay alive.
+ */
+static void spt_patched(usz off, u8 v, u8* der, x509* c) {
+  bytes_memcpy(der, x509_golden, sizeof(x509_golden));
+  der[off] = v;
+  CHECK(x509_parse(wired_span_of(der, sizeof(x509_golden)), c) == 1);
+}
+
+/* RFC 5280 4.1.2.7 / RFC 5480 2.1.1: a subjectPublicKeyInfo that is not a
+ * SEQUENCE yields no curve and fails the ECParameters rule; an
+ * AlgorithmIdentifier that does not lead with an OID yields no curve. */
+static void test_spki_malformed_no_curve(void) {
+  u8         der[sizeof(x509_golden)];
+  x509       c;
+  wired_span oid;
+  CHECK(x509_golden[133] == 0x30 && x509_golden[137] == 0x06);
+  spt_patched(133, 0x31, der, &c);
+  CHECK(x509_ec_curve(c.tbs, &oid) == 0);
+  CHECK(x509_ec_restricted_params_ok(c.tbs) == 0);
+  spt_patched(137, 0x05, der, &c);
+  CHECK(x509_ec_curve(c.tbs, &oid) == 0);
+}
+
 void test_spki(void) {
+  test_spki_malformed_no_curve();
   test_spki_golden();
   test_spki_truncated();
   test_spki_short_tbs();

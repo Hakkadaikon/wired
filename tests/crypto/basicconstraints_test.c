@@ -92,7 +92,26 @@ static void test_pathlen_not_integer_rejected(void) {
   CHECK(x509_pathlen_allows(c.tbs, 0) == 0);
 }
 
+/* RFC 5280 4.2.1.9: no basicConstraints extension, or a BasicConstraints
+ * that is not a SEQUENCE (rel 0 -> SET) or whose cA BOOLEAN overruns it
+ * (rel 3 length 1 -> 9), carries no pathLenConstraint to enforce; the
+ * malformed ones are not a CA either, so x509_is_ca rejects such an issuer
+ * before its path length is consulted (RFC 5280 6.1.4 (k)). */
+static void test_pathlen_absent_or_malformed_bc(void) {
+  const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
+  u8       der[sizeof(castore_mid3_der)];
+  x509     c;
+  CHECK(x509_pathlen_allows(wired_span_of(tbs, sizeof(tbs)), 9) == 1);
+  mid3_patched(0, 0x31, der, &c);
+  CHECK(x509_is_ca(c.tbs) == 0);
+  CHECK(x509_pathlen_allows(c.tbs, 9) == 1);
+  mid3_patched(3, 0x09, der, &c);
+  CHECK(x509_is_ca(c.tbs) == 0);
+  CHECK(x509_pathlen_allows(c.tbs, 9) == 1);
+}
+
 void test_basicconstraints(void) {
+  test_pathlen_absent_or_malformed_bc();
   test_ca_true();
   test_ca_false();
   test_no_extensions();
