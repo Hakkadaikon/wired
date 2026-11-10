@@ -42,7 +42,9 @@ void moqtrun_rdv_answer(
  * found-track way (moqtrun_subscribe_peer_track: SUBSCRIBE_OK, or the
  * held-subscription re-answer, or DOES_NOT_EXIST once subs[] is full) --
  * unless t is paused: then it waits again (draft-23 7.5,
- * moqtrun_resume_wait). A held update settles against t instead. */
+ * moqtrun_resume_wait). A held update settles against t instead, and a
+ * held TRACK_STATUS is answered as one (draft-23 9.14: it never creates a
+ * subscription) -- also when a new PUBLISH of its track resolves it. */
 void moqtrun_rdv_do_resolve(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
@@ -51,6 +53,10 @@ void moqtrun_rdv_do_resolve(
     u64                      code) {
   if (r->upd) {
     moqtrun_upd_rdv_resolve(hub, sp, t);
+    return;
+  }
+  if (sp->req->kind == MOQTSTAT_T_TRACK_STATUS) {
+    moqtrun_tstat_answer(hub, sp, wired_span_of(r->body, r->body_len));
     return;
   }
   moqtrun_rdv_do_resolve_sub(hub, sp, r, t, code);

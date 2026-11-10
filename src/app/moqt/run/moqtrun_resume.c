@@ -171,8 +171,8 @@ void moqtrun_resume_gone(wired_moqt_hub* hub, wired_moqtrun_track* t) {
                          : MOQCTL_ERR_INTERNAL_ERROR);
 }
 
-/* A waiter re-runs once t is usable: an update's REQUEST_OK, TRACK_STATUS,
- * or the SUBSCRIBE (moqtrun_rdv_do_resolve). */
+/* A waiter re-runs once t is usable: an update's REQUEST_OK, else the
+ * TRACK_STATUS or SUBSCRIBE (moqtrun_rdv_do_resolve). */
 void moqtrun_rdv_do_resume(
     wired_moqt_hub*          hub,
     wired_moqtrun_peer*      sp,
@@ -181,10 +181,6 @@ void moqtrun_rdv_do_resume(
     u64                      code) {
   if (r->upd) {
     moqtrun_upd_rdv_ok(sp, t);
-    return;
-  }
-  if (sp->req->kind == MOQTSTAT_T_TRACK_STATUS) {
-    moqtrun_tstat_answer(hub, sp, wired_span_of(r->body, r->body_len));
     return;
   }
   moqtrun_rdv_do_resolve(hub, sp, r, t, code);

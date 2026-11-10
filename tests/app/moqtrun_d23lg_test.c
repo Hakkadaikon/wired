@@ -314,6 +314,22 @@ static void mtlg_tstat_d23(void) {
   CHECK(mrdv_is(SESS_B, MRDV_S1, "ROK|FIN|"));
 }
 
+/* A TRACK_STATUS waiting on a paused PUBLISH that the publisher replaces
+ * (a new PUBLISH of the same track) is still a TRACK_STATUS: answered
+ * REQUEST_OK, never turned into a subscription (draft-23 9.14). */
+static void mtlg_tstat_republished_d23(void) {
+  moqctl_ftn    f = mrdv_f();
+  moqctl_params p;
+  mtlg_pub(1, 0, 5);
+  mtlg_tstat(MRDV_S1);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, ""));
+  mtst_publish(SESS_A, MUPS_PUB_SID + 4, &f, MUPS_ALIAS);
+  CHECK(!mtlg_answer(SESS_B, MRDV_S1, 0, &p));
+  CHECK(mtlg_answer(SESS_B, MRDV_S1, 1, &p));
+  CHECK(mtst_sub(SESS_A, SESS_B) == 0);
+  CHECK(mrdv_used() == 0);
+}
+
 static void mtlg_tstat_d22(void) {
   mtlg_pub(1, 0, 5);
   mtlg_tstat(MRDV_S1);
@@ -377,6 +393,36 @@ static void mtlg_upd_pipelined_d23(void) {
   CHECK(mrdv_used() == 0);
 }
 
+/* An update waiting on the paused PUBLISH that the publisher replaces
+ * (a new PUBLISH of the same track) settles against the new track: B's
+ * REQUEST_OK goes out, the subscription stands. */
+static void mtlg_upd_republished_d23(void) {
+  moqctl_ftn f = mrdv_f();
+  mtlg_upd_on_paused();
+  mtst_publish(SESS_A, MUPS_PUB_SID + 4, &f, MUPS_ALIAS);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|ROK|"));
+  CHECK(mrdv_used() == 0);
+}
+
+/* An update that must wait while B's share of rendezvous slots is
+ * already taken (four TRACK_STATUS waits) is refused EXCESSIVE_LOAD at
+ * once (draft-23 7.5 wait), which ends the subscription UPDATE_FAILED
+ * (9.5.1) -- never dropped silently. */
+static void mtlg_upd_no_slot_d23(void) {
+  moqctl_params p   = mtst_params_u8(MOQCTL_PARAM_SUBSCRIBER_PRIORITY, 7);
+  u64           sid = MRDV_S2;
+  mtlg_pub(0, 0, 5);
+  mups_sub(SESS_B, MRDV_S1);
+  moqtrun_find_by_wt(&mtst_hub, SESS_A)->tracks[0].pub_paused = 1;
+  for (usz i = 0; i < WIRED_MOQTRUN_RDV_PER_SESSION; i++, sid += 4) {
+    mtlg_tstat(sid);
+  }
+  CHECK(mrdv_used() == WIRED_MOQTRUN_RDV_PER_SESSION);
+  mtup_update(SESS_B, MRDV_S1, &p);
+  CHECK(mrdv_is(SESS_B, MRDV_S1, "SOK|E9|Tb|FIN|")); /* 9: EXCESSIVE_LOAD */
+  CHECK(!mtst_sub(SESS_A, SESS_B)); /* the failed update ends it */
+}
+
 static void test_moqtrun_d23lg_update_waits_resume(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_waits_d23);
   moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_upd_waits_d22);
@@ -386,6 +432,9 @@ static void test_moqtrun_d23lg_update_waits_resume(void) {
 
 static void test_moqtrun_d23lg_tstat_paused_fresh(void) {
   moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_tstat_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_tstat_republished_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_republished_d23);
+  moqtrun_test_vers(MOQVER_CAP_RELAY_LARGEST, 0, mtlg_upd_no_slot_d23);
   moqtrun_test_vers(0, MOQVER_CAP_RELAY_LARGEST, mtlg_tstat_d22);
 }
 
