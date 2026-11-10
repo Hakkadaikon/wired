@@ -1,7 +1,6 @@
 #include "crypto/pki/encoding/eckey/eckey.h"
 
 #include "common/bytes/util/bytes.h"
-#include "crypto/pki/cert/selfcert/derenc.h"
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
 #include "crypto/pki/encoding/asn1/derval.h"
@@ -75,75 +74,26 @@ int wired_eckey_p256_priv(wired_span key_der, u8 out[32]) {
   return eckey_dispatch(&c, v, out);
 }
 
-/* RFC 8410 3. id-Ed25519 = 1.3.101.112. */
-static const u8 eckey_oid_ed25519[] = {0x2b, 0x65, 0x70};
-
-/* RFC 5280 4.1.1.2 / RFC 8410 7. privateKeyAlgorithm SEQUENCE{ id-Ed25519 }
- * (no parameters). Returns the encoded length, 0 on overflow. */
-static usz eckey_build_ed25519_alg(wired_obuf* out) {
-  u8         oid[8];
-  wired_obuf o = obuf_of(oid, sizeof(oid));
-  if (!selfcert_der_tlv(
-          DER_OID, wired_span_of(eckey_oid_ed25519, sizeof(eckey_oid_ed25519)),
-          &o)) {
-    return 0;
-  }
-  if (!selfcert_der_tlv(DER_SEQUENCE, wired_span_of(oid, o.len), out)) {
-    return 0;
-  }
-  return out->len;
-}
-
-/* RFC 8410 7. privateKey OCTET STRING wrapping CurvePrivateKey
- * OCTET STRING(seed). Returns the encoded length, 0 on overflow. */
-static usz eckey_build_ed25519_privkey(const u8 seed[32], wired_obuf* out) {
-  u8         inner[34];
-  wired_obuf io = obuf_of(inner, sizeof(inner));
-  if (!selfcert_der_tlv(DER_OCTET_STRING, wired_span_of(seed, 32), &io)) {
-    return 0;
-  }
-  if (!selfcert_der_tlv(DER_OCTET_STRING, wired_span_of(inner, io.len), out)) {
-    return 0;
-  }
-  return out->len;
-}
-
-/* RFC 5958 2 / RFC 8410 7. version INTEGER 0. */
-static const u8 eckey_version0[] = {0x02, 0x01, 0x00};
-
-/* True if every part was encoded (non-zero length, or version's fixed
- * length). */
-static int eckey_parts_ok(const wired_span* p) { return p[1].n && p[2].n; }
-
-/* Concatenate version/alg/privateKey and wrap in the OneAsymmetricKey
- * SEQUENCE. */
-static int eckey_assemble(const wired_span* parts, wired_obuf* out) {
-  u8  body[64];
-  usz off = 0;
-  int ok  = 1;
-  for (usz i = 0; i < 3; i++) {
-    ok &= bytes_put(
-        wired_mspan_of(body, sizeof(body)), &off,
-        wired_span_of(parts[i].p, parts[i].n));
-  }
-  if (!ok) {
-    return 0;
-  }
-  return selfcert_der_tlv(DER_SEQUENCE, wired_span_of(body, off), out);
-}
+/* RFC 8410 7 / 10.3. OneAsymmetricKey { version INTEGER 0,
+ * AlgorithmIdentifier { id-Ed25519 1.3.101.112 }, privateKey OCTET STRING {
+ * CurvePrivateKey OCTET STRING (32) } }: every length is fixed, so the
+ * encoding is this 16-byte header followed by the seed. */
+static const u8 eckey_ed25519_head[] = {0x30, 0x2e, 0x02, 0x01, 0x00, 0x30,
+                                        0x05, 0x06, 0x03, 0x2b, 0x65, 0x70,
+                                        0x04, 0x22, 0x04, 0x20};
+#define ECKEY_ED25519_PKCS8_LEN (sizeof(eckey_ed25519_head) + 32)
 
 int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], wired_obuf* out) {
-  u8         alg[16], pk[40];
-  wired_obuf ao      = obuf_of(alg, sizeof(alg));
-  wired_obuf po      = obuf_of(pk, sizeof(pk));
-  usz        an      = eckey_build_ed25519_alg(&ao);
-  usz        pn      = eckey_build_ed25519_privkey(seed, &po);
-  wired_span parts[] = {
-      {eckey_version0, sizeof(eckey_version0)}, {alg, an}, {pk, pn}};
-  if (!eckey_parts_ok(parts)) {
+  wired_mspan m   = wired_mspan_of(out->p, out->cap);
+  usz         off = 0;
+  if (out->cap < ECKEY_ED25519_PKCS8_LEN) {
     return 0;
   }
-  return eckey_assemble(parts, out);
+  bytes_put(
+      m, &off, wired_span_of(eckey_ed25519_head, sizeof(eckey_ed25519_head)));
+  bytes_put(m, &off, wired_span_of(seed, 32));
+  out->len = off;
+  return 1;
 }
 
 /* RFC 8410 7. The inner CurvePrivateKey OCTET STRING value: exactly the

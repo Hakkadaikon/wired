@@ -1,6 +1,5 @@
 #include "crypto/pki/cert/p256cert/p256cert.h"
 
-#include "common/bytes/util/bytes.h"
 #include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
 #include "crypto/asymmetric/ecc/p256sign/sign.h"
 #include "crypto/pki/cert/p256cert/enc.h"
@@ -8,39 +7,18 @@
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
-/* RFC 5280 4.1.1.3. signatureValue BIT STRING (0x00 unused-bits || sig DER).
- * sig is the ECDSA-Sig-Value DER of (r, s). Writes the whole TLV. 0 on fail. */
-static usz pc_build_sigval(wired_span sig, wired_obuf* out) {
-  u8  bits[80];
-  usz off = 1;
+/* RFC 5280 4.1.1.3. SHA-256 the TBS, ECDSA-sign it and write signatureValue
+ * BIT STRING (0x00 unused-bits || ECDSA-Sig-Value DER) into vo.
+ * p256sign_sign cannot fail and the at most 72-octet ECDSA-Sig-Value always
+ * fits bits, so only the caller's vo bounds the result. */
+static void pc_sigval(const u8 priv[32], wired_span tbs, wired_obuf* vo) {
+  u8  hash[32], r[32], s[32], bits[1 + 80];
+  usz n   = 0;
   bits[0] = 0x00;
-  if (!bytes_put(
-          wired_mspan_of(bits, sizeof(bits)), &off,
-          wired_span_of(sig.p, sig.n))) {
-    return 0;
-  }
-  p256cert_enc e = p256cert_loaded(bits, off);
-  return p256cert_wrap(&e, DER_BIT_STRING, out);
-}
-
-/* SHA-256 the TBS, ECDSA-sign it, DER-encode (r, s) into sig. 0 on failure. */
-static int pc_sign_tbs(const u8 priv[32], wired_span tbs, wired_obuf* sig) {
-  u8 hash[32], r[32], s[32];
   wired_sha256(tbs.p, tbs.n, hash);
-  if (!p256sign_sign(priv, hash, r, s)) {
-    return 0;
-  }
-  return ecdsasig_encode(r, s, sig->p, sig->cap, &sig->len);
-}
-
-/* Sign the TBS and wrap the signature as a signatureValue TLV into vo. */
-static usz pc_sigval(const u8 priv[32], wired_span tbs, wired_obuf* vo) {
-  u8         sig[80];
-  wired_obuf go = obuf_of(sig, sizeof(sig));
-  if (!pc_sign_tbs(priv, tbs, &go)) {
-    return 0;
-  }
-  return pc_build_sigval(wired_span_of(sig, go.len), vo);
+  p256sign_sign(priv, hash, r, s);
+  ecdsasig_encode(r, s, bits + 1, sizeof(bits) - 1, &n);
+  selfcert_der_tlv(DER_BIT_STRING, wired_span_of(bits, 1 + n), vo);
 }
 
 /* RFC 5280 4.1. Certificate SEQUENCE{ tbs, signatureAlgorithm, sigValue }. */
@@ -55,17 +33,15 @@ static int pc_assemble(wired_span tbs, wired_span sv, wired_obuf* out) {
   return out->len != 0;
 }
 
+/* Every tbs field is fixed-size (at most a 4-octet SAN iPAddress varies),
+ * well under tbs[512], so p256cert_tbs cannot fail here; only out bounds
+ * the result. */
 int p256cert_build(const p256cert_key* k, wired_obuf* out) {
   u8         tbs[512], sv[96];
   wired_obuf to = obuf_of(tbs, sizeof(tbs));
   wired_obuf vo = obuf_of(sv, sizeof(sv));
-  usz        svn;
-  if (!p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to)) {
-    return 0;
-  }
-  svn = pc_sigval(k->priv, wired_span_of(tbs, to.len), &vo);
-  if (!svn) {
-    return 0;
-  }
-  return pc_assemble(wired_span_of(tbs, to.len), wired_span_of(sv, svn), out);
+  p256cert_tbs(k->x, k->y, k->san_ipv4, k->now_secs, &to);
+  pc_sigval(k->priv, wired_span_of(tbs, to.len), &vo);
+  return pc_assemble(
+      wired_span_of(tbs, to.len), wired_span_of(sv, vo.len), out);
 }
