@@ -124,21 +124,3 @@ usz protect_seal_suite(
   }
   return total;
 }
-
-usz protect_open_suite(
-    u16 suite, const protect_keys* k, const protect_open_io* io) {
-  u8*           pkt    = io->pkt.p;
-  usz           ct_len = io->pkt.n - io->hdr_len - aead_tag_len(suite);
-  aead_suite_op op;
-  if (!protect_header_suite(
-          suite, k->keys->hp, pkt,
-          wired_mspan_of(pkt + io->pn_off, io->pn_len))) {
-    return 0;
-  }
-  /* aead_suite_open derives the nonce itself (iv XOR pn); op.iv is the
-   * raw key IV, not a precomputed nonce (RFC 9001 5.3). */
-  op = (aead_suite_op){
-      suite, k->keys->key, k->keys->iv, io->pn, {pkt, io->hdr_len}};
-  return aead_suite_open(
-      &op, wired_span_of(pkt + io->hdr_len, ct_len), pkt + io->hdr_len);
-}

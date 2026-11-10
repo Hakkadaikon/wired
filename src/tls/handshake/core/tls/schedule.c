@@ -171,13 +171,6 @@ void tls_early_traffic_secret_suite(
   tls_derive_secret(&in, out);
 }
 
-void tls_early_traffic_secret(
-    const u8* psk, const u8* client_hello, usz client_hello_len, u8* out) {
-  tls_early_traffic_secret_suite(
-      TLS_AES_128_GCM_SHA256, psk,
-      wired_span_of(client_hello, client_hello_len), out);
-}
-
 void tls_early_keys_suite_ver(
     u16           suite,
     u32           version,

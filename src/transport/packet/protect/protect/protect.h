@@ -61,13 +61,7 @@ typedef struct {
 
 /* Removes header protection in place, then verifies and decrypts the payload
  * into pkt's payload region. Returns the plaintext length, or 0 if
- * authentication fails (AES-128-GCM; equivalent to protect_open_suite
- * with suite = TLS_AES_128_GCM_SHA256). */
+ * authentication fails (AES-128-GCM). */
 usz protect_open(const protect_keys* k, const protect_open_io* io);
-
-/* Same as protect_open, but opens under the given negotiated TLS 1.3
- * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-usz protect_open_suite(
-    u16 suite, const protect_keys* k, const protect_open_io* io);
 
 #endif

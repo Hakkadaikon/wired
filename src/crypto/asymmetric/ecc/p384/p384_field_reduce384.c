@@ -51,20 +51,6 @@ int fp384_ebit(const p384_fe e, usz i) {
   return (int)((e[i / 64] >> (i & 63)) & 1);
 }
 
-/* r = a^(m-2) mod m via square-and-multiply (Fermat), generic reducer. */
-void fp384_inv(p384_fe r, const p384_fe a, const p384_fe m) {
-  p384_fe base, e, two = {2, 0, 0, 0, 0, 0};
-  fp384_fe6_sub_raw(e, m, two);
-  fp384_set(base, a);
-  fp384_set_one(r);
-  for (usz bit = 0; bit < 384; bit++) {
-    if (fp384_ebit(e, bit)) {
-      fp384_mul(r, (fp384ab){r, base}, m);
-    }
-    fp384_sqr(base, base, m);
-  }
-}
-
 /* a^(p-2) mod p via the fast Solinas mul/sqr. */
 void fp384_inv_p(p384_fe r, const p384_fe a) {
   p384_fe base, e, two = {2, 0, 0, 0, 0, 0};

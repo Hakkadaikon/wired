@@ -32,8 +32,6 @@ static int sdrv_set_cid(u8* dst, u8* dst_len, wired_span cid) {
   return 1;
 }
 
-void sdrv_set_group(sdrv* s, u16 group) { s->group = group; }
-
 int sdrv_set_cids(sdrv* s, wired_span odcid, wired_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
          sdrv_set_cid(s->iscid, &s->iscid_len, iscid) &&

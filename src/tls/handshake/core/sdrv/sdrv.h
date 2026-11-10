@@ -196,9 +196,8 @@ typedef struct {
    * flight then stays in client_version (see sdrv_wire_version). */
   u32 negotiated_version;
   /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
-   * (GROUP_X25519 or GROUP_SECP256R1); GROUP_X25519 unless
-   * sdrv_set_group selects otherwise. Governs how server_priv/
-   * server_pub/client_pub are interpreted. */
+   * (GROUP_X25519 or GROUP_SECP256R1); sdrv_init sets GROUP_X25519.
+   * Governs how server_priv/server_pub/client_pub are interpreted. */
   u16 group;
   u16 cipher_suite; /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
                      * negotiated TLS 1.3 cipher suite (AES_128_GCM_
@@ -404,16 +403,6 @@ void sdrv_init(sdrv* s, const sdrv_init_in* in);
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
 int sdrv_set_cids(sdrv* s, wired_span odcid, wired_span iscid);
-
-/** RFC 8446 4.2.7: select the NamedGroup for the ECDHE key_share
- * (GROUP_X25519 or GROUP_SECP256R1). sdrv_init defaults to
- * GROUP_X25519; call this right after init, before receiving any
- * ClientHello, to use secp256r1 instead. server_priv/server_pub must already
- * hold the matching key pair (32-byte P-256 scalar + 65-byte SEC1
- * uncompressed public, in place of the x25519 pair sdrv_init took).
- * @param s driver state
- * @param group the NamedGroup to require/advertise. */
-void sdrv_set_group(sdrv* s, u16 group);
 
 /** RFC 9000 7.3, post-Retry accept: odcid is the Initial-key derivation
  * input (the Retry's own SCID -- the client's second Initial is keyed off

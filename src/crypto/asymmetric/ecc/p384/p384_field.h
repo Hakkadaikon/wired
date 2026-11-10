@@ -50,7 +50,6 @@ void fp384_sqr(p384_fe r, const p384_fe a, const p384_fe m);
 void fp384_mul_p(p384_fe r, const p384_fe a, const p384_fe b);
 void fp384_sqr_p(p384_fe r, const p384_fe a);
 
-void fp384_inv(p384_fe r, const p384_fe a, const p384_fe m);
 void fp384_inv_p(p384_fe r, const p384_fe a);
 
 /* Big-endian 48-byte load/store. */

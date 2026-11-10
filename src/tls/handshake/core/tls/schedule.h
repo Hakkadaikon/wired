@@ -73,12 +73,8 @@ void tls_handshake_keys_suite(
     const handshake_keys_in* in, u16 suite, initial_keys* out);
 
 /* RFC 8446 7.1: client_early_traffic_secret = Derive-Secret(
- * HKDF-Extract(0, PSK), "c e traffic", ClientHello) -- the secret
- * tls_early_keys expands, exposed for the NSS key log. */
-void tls_early_traffic_secret(
-    const u8* psk, const u8* client_hello, usz client_hello_len, u8* out);
-
-/* Same as tls_early_traffic_secret over suite's hash. */
+ * HKDF-Extract(0, PSK), "c e traffic", ClientHello) over suite's hash --
+ * the secret tls_early_keys expands, exposed for the NSS key log. */
 void tls_early_traffic_secret_suite(
     u16 suite, const u8* psk, wired_span client_hello, u8* out);
 
