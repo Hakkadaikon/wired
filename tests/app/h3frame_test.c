@@ -34,27 +34,18 @@ static void test_h3frame_generic(void) {
   CHECK(h3_frame_get(wired_span_of(buf, hw - 1), &f) == 0);
 }
 
-/* CANCEL_PUSH / MAX_PUSH_ID carry a Push ID; GOAWAY a Stream/Push ID. */
+/* GOAWAY carries a Stream/Push ID. */
 static void test_h3frame_push_ids(void) {
   u8  buf[16];
   u64 v;
-  usz w = h3_cancel_push_put(buf, sizeof(buf), 0x1234);
-  CHECK(w != 0 && buf[0] == H3_FRAME_CANCEL_PUSH);
-  CHECK(h3_cancel_push_get(buf, w, &v) == w && v == 0x1234);
-  CHECK(h3_cancel_push_get(buf, w - 1, &v) == 0);
-
   usz gw = h3_goaway_put(buf, sizeof(buf), 40);
   CHECK(gw != 0 && buf[0] == H3_FRAME_GOAWAY);
   CHECK(h3_goaway_get(buf, gw, &v) == gw && v == 40);
   CHECK(h3_goaway_get(buf, gw - 1, &v) == 0);
 
-  usz mw = h3_max_push_id_put(buf, sizeof(buf), 7);
-  CHECK(mw != 0 && buf[0] == H3_FRAME_MAX_PUSH_ID);
-  CHECK(h3_max_push_id_get(buf, mw, &v) == mw && v == 7);
-  CHECK(h3_max_push_id_get(buf, mw - 1, &v) == 0);
-
-  /* type mismatch is rejected (GOAWAY bytes decoded as CANCEL_PUSH) */
-  CHECK(h3_cancel_push_get(buf, mw, &v) == 0);
+  /* type mismatch is rejected (SETTINGS-typed bytes decoded as GOAWAY) */
+  buf[0] = H3_FRAME_SETTINGS;
+  CHECK(h3_goaway_get(buf, gw, &v) == 0);
 
   /* no room for the Length, then for the value; an empty input has no head */
   CHECK(h3_goaway_put(buf, 1, 40) == 0);

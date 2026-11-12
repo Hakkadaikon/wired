@@ -56,10 +56,8 @@ static void test_connctl_path(void) {
 }
 
 static void test_handshake_done(void) {
-  u8  buf[4];
-  usz w = handshake_done_encode(buf, sizeof(buf));
-  CHECK(w == 1 && buf[0] == FRAME_HANDSHAKE_DONE);
-  CHECK(handshake_done_decode(buf, w) == 1);
+  u8 buf[1] = {FRAME_HANDSHAKE_DONE};
+  CHECK(handshake_done_decode(buf, 1) == 1);
 
   u8 wrong[1] = {0x00};
   CHECK(handshake_done_decode(wrong, 1) == 0);
@@ -88,7 +86,6 @@ static void test_connctl_every_prefix_rejected(void) {
   for (usz c = 0; c < wpc; c++) {
     CHECK(path_encode(buf, c, FRAME_PATH_CHALLENGE, pd) == 0);
   }
-  CHECK(handshake_done_encode(buf, 0) == 0);
   path_encode(buf, sizeof(buf), FRAME_PATH_CHALLENGE, pd);
   for (usz n = 1; n < wpc; n++) {
     CHECK(path_decode(buf, n, FRAME_PATH_CHALLENGE, pd) == 0);

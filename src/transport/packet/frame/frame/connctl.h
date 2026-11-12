@@ -37,7 +37,6 @@ usz path_encode(u8* buf, usz cap, u8 type, const u8 data[PATH_DATA]);
 usz path_decode(const u8* buf, usz n, u8 type, u8 data[PATH_DATA]);
 
 /* HANDSHAKE_DONE (19.20): type byte only, no body. */
-usz handshake_done_encode(u8* buf, usz cap);
 usz handshake_done_decode(const u8* buf, usz n);
 
 #endif

@@ -1,11 +1,5 @@
-#include "crypto/pki/cert/selfcert/selfcert.h"
-
-#include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/pki/cert/selfcert/derenc.h"
-#include "crypto/pki/cert/selfcert/tbs.h"
 #include "crypto/pki/encoding/asn1/der.h"
-#include "crypto/pki/encoding/x509/spki.h"
-#include "crypto/pki/encoding/x509/x509.h"
 #include "test.h"
 
 /* X.690 8.1. der_tlv emits a well-formed TLV that der_read parses back. */
@@ -40,62 +34,6 @@ static void test_der_tlv_overflow(void) {
   CHECK(selfcert_der_tlv(DER_INTEGER, wired_span_of(v, 4), &o) == 0);
 }
 
-/* RFC 8410 4. The built SPKI exposes the same 32-byte Ed25519 key. */
-static void test_tbs_spki_key(void) {
-  u8 pub[32];
-  u8 seed[32];
-  for (usz i = 0; i < 32; i++) {
-    seed[i] = (u8)i;
-  }
-  CHECK(ed25519_keypair(seed, pub) == 1);
-
-  u8         tbs[512];
-  wired_obuf to = obuf_of(tbs, sizeof(tbs));
-  CHECK(selfcert_tbs(pub, &to) == 1);
-
-  wired_span oid, key;
-  CHECK(x509_public_key(wired_span_of(tbs, to.len), &oid, &key) == 1);
-  /* BIT STRING value: 0x00 unused-bits prefix then the 32-byte key. */
-  CHECK(key.n == 33 && key.p[0] == 0x00);
-  for (usz i = 0; i < 32; i++) {
-    CHECK(key.p[1 + i] == pub[i]);
-  }
-}
-
-/* RFC 5280 4.1.1.3. Parse the cert back and verify its own signature. */
-static void test_build_selfsigned(void) {
-  u8 seed[32];
-  for (usz i = 0; i < 32; i++) {
-    seed[i] = (u8)(0x40 + i);
-  }
-  u8 pub[32];
-  ed25519_keypair(seed, pub);
-
-  u8         cert[1024];
-  wired_obuf co = obuf_of(cert, sizeof(cert));
-  CHECK(selfcert_build(seed, &co) == 1);
-
-  x509 c;
-  CHECK(x509_parse(wired_span_of(cert, co.len), &c) == 1);
-
-  wired_span oid, key;
-  CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
-  CHECK(key.n == 33);
-  for (usz i = 0; i < 32; i++) {
-    CHECK(key.p[1 + i] == pub[i]);
-  }
-
-  /* signatureValue BIT STRING: 0x00 prefix then the 64-byte signature. */
-  CHECK(c.sig.n == 65 && c.sig.p[0] == 0x00);
-  CHECK(ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 1);
-
-  /* A flipped TBS byte must break verification. */
-  u8 bad = c.tbs.p[0];
-  ((u8*)c.tbs.p)[0] ^= 0xff;
-  CHECK(ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 0);
-  ((u8*)c.tbs.p)[0] = bad;
-}
-
 /* X.690 8.1.3.5: a value of 65536 octets needs a 3-octet length, past the
  * 0x82 long-form ceiling this encoder supports, so it is refused. */
 static u8   sct_big[0x10000];
@@ -107,24 +45,9 @@ static void test_der_tlv_length_ceiling(void) {
           DER_OCTET_STRING, wired_span_of(sct_big, sizeof(sct_big)), &o) == 0);
 }
 
-/* RFC 5280 4.1. The tbsCertificate is 138 octets (3-octet header + 135):
- * one octet less of room is refused, exactly 138 fits and ends with the key.
- */
-static void test_tbs_capacity(void) {
-  u8         pub[32] = {0}, tbs[138];
-  wired_obuf to      = obuf_of(tbs, sizeof(tbs) - 1);
-  CHECK(selfcert_tbs(pub, &to) == 0);
-  to = obuf_of(tbs, sizeof(tbs));
-  CHECK(selfcert_tbs(pub, &to) == 1 && to.len == 138);
-  CHECK(tbs[0] == 0x30 && tbs[1] == 0x81 && tbs[2] == 0x87);
-}
-
 void test_selfcert(void) {
   test_der_tlv_length_ceiling();
-  test_tbs_capacity();
   test_der_tlv_roundtrip();
   test_der_tlv_longform();
   test_der_tlv_overflow();
-  test_tbs_spki_key();
-  test_build_selfsigned();
 }

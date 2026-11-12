@@ -4,9 +4,6 @@ static void hs_traffic(
     const u8 hs[HKDF_PRK], wired_span sh, int is_server, u8 out[HKDF_PRK]);
 static void seed_secrets(fullhs* h, const u8* sh, usz sh_len);
 static void prime_order(fullhs* h);
-static int  fullhs_time_ok(const fullhs* h, const x509* x);
-static int  fullhs_host_ok(const fullhs* h, const x509* x);
-static int  fullhs_policy_checks(const fullhs* h, const u8* cert, usz n);
 
 /* RFC 8446 4.4 / RFC 9001 4.1: full handshake orchestration. */
 
@@ -73,28 +70,16 @@ int fullhs_init(fullhs* h, tlsdriver* tls, wired_span sh) {
   if (!tlsdriver_handshake_secret_ready(tls)) {
     return 0;
   }
-  h->tls             = tls;
-  h->is_server       = tls->is_server;
-  h->peer_cert       = 0;
-  h->peer_cert_len   = 0;
-  h->master_tr_len   = 0;
-  h->policy_now      = 0;
-  h->policy_host     = 0;
-  h->policy_host_len = 0;
-  h->cert_count      = 0;
-  h->castore         = 0;
+  h->tls           = tls;
+  h->is_server     = tls->is_server;
+  h->peer_cert     = 0;
+  h->peer_cert_len = 0;
+  h->master_tr_len = 0;
+  h->cert_count    = 0;
   seed_secrets(h, sh.p, sh.n);
   prime_order(h);
   return 1;
 }
-
-void fullhs_set_policy(fullhs* h, u64 now, wired_span host) {
-  h->policy_now      = now;
-  h->policy_host     = host.p;
-  h->policy_host_len = host.n;
-}
-
-void fullhs_set_castore(fullhs* h, const castore* store) { h->castore = store; }
 
 /* RFC 8446 7.1: fold a Finished into the transcript and, if it is the first
  * one seen (the server's), record the length at which the application traffic
@@ -112,32 +97,4 @@ int fullhs_fold_finished(fullhs* h, const u8* fin, usz len) {
 /* The peer's protection level for handshake-flight messages is Handshake. */
 int fullhs_order_ok(fullhs* h, u8 msg_type) {
   return hsdriver_recv(&h->tls->hs, msg_type, HSD_PROT_HANDSHAKE);
-}
-
-/* RFC 5280 6.1: the certificate window covers policy_now (0 skips). */
-static int fullhs_time_ok(const fullhs* h, const x509* x) {
-  return h->policy_now == 0 || x509_validity_ok(x->tbs, h->policy_now);
-}
-
-/* RFC 6125: a SAN dNSName matches policy_host (length 0 skips). */
-static int fullhs_host_ok(const fullhs* h, const x509* x) {
-  return h->policy_host_len == 0 ||
-         x509_san_matches(
-             x->tbs, wired_span_of(h->policy_host, h->policy_host_len));
-}
-
-static int fullhs_policy_checks(const fullhs* h, const u8* cert, usz n) {
-  x509 x;
-  if (!x509_parse(wired_span_of(cert, n), &x)) {
-    return 0;
-  }
-  return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
-}
-
-/* No policy set = legacy signature-only behavior; else parse and enforce. */
-int fullhs_policy_ok(const fullhs* h, const u8* cert, usz n) {
-  if (h->policy_now == 0 && h->policy_host_len == 0) {
-    return 1;
-  }
-  return fullhs_policy_checks(h, cert, n);
 }

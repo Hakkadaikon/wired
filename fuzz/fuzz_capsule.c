@@ -65,9 +65,7 @@ static void fuzz_h3(wired_span in) {
   h3_frame_get(in, &f);
 
   u64 id;
-  h3_cancel_push_get(in.p, in.n, &id);
   h3_goaway_get(in.p, in.n, &id);
-  h3_max_push_id_get(in.p, in.n, &id);
 
   h3_settings s;
   if (!h3_settings_get(in.p, in.n, &s)) {

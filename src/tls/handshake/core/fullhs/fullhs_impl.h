@@ -6,10 +6,6 @@
 
 #include "crypto/kdf/keys/discard_driver.h"
 #include "crypto/kdf/keys/keyset.h"
-#include "crypto/pki/encoding/x509/san.h"
-#include "crypto/pki/encoding/x509/validity.h"
-#include "crypto/pki/encoding/x509/x509.h"
-#include "crypto/pki/trust/castore/pathvalidate.h"
 #include "tls/handshake/core/fullhs/fullhs.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/certverify.h"
@@ -33,6 +29,5 @@ int  fullhs_tr_add(fullhs* h, const u8* msg, usz len);
 void fullhs_tr_hash(const fullhs* h, u8 out[SHA256_DIGEST]);
 int  fullhs_fold_finished(fullhs* h, const u8* fin, usz len);
 int  fullhs_order_ok(fullhs* h, u8 msg_type);
-int  fullhs_policy_ok(const fullhs* h, const u8* cert, usz n);
 
 #endif

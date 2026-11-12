@@ -7,7 +7,3 @@ u64 antiamp_budget(u64 received, u64 sent) {
   }
   return cap - sent;
 }
-
-int antiamp_can_send(u64 received, u64 sent, u64 want) {
-  return want <= antiamp_budget(received, sent);
-}

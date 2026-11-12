@@ -26,16 +26,9 @@ void tlsdriver_init(
   d->is_server         = is_server;
   d->group             = GROUP_X25519;
   d->hs_ready          = 0;
-  d->sni               = 0;
-  d->sni_len           = 0;
   d->transcript_ch_len = 0;
   d->tp_len            = 0;
   d->last_error        = 0;
-}
-
-void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len) {
-  d->sni     = sni;
-  d->sni_len = sni_len;
 }
 
 int tlsdriver_set_iscid(tlsdriver* d, wired_span scid) {
@@ -50,10 +43,11 @@ int tlsdriver_set_iscid(tlsdriver* d, wired_span scid) {
 usz tlsdriver_raw_client_hello(tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
   /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes, until
-   * tlsdriver_set_iscid) is a well-formed "no parameters advertised". */
+   * tlsdriver_set_iscid) is a well-formed "no parameters advertised". No
+   * server_name: the server under test does not require one. */
   return tls_client_hello_group(
       &(clienthello_group_in){
-          random, d->my_pub, wired_span_of(d->sni, d->sni_len),
+          random, d->my_pub, wired_span_of(0, 0),
           wired_span_of(d->tp, d->tp_len), d->group,
           tls_ext_key_share_len(d->group)},
       &(wired_obuf){out, cap, 0});

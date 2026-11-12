@@ -1,42 +1,5 @@
 #include "test.h"
 
-/* A built ClientHello parses back with the right type and yields the share. */
-static void test_hs_clienthello_roundtrip(void) {
-  u8 random[32], pub[32], out[256];
-  for (usz i = 0; i < 32; i++) {
-    random[i] = (u8)i;
-    pub[i]    = (u8)(0x40 + i);
-  }
-  usz total = hs_build_hello(out, sizeof(out), HS_CLIENT_HELLO, random, pub);
-  CHECK(total != 0 && out[0] == HS_CLIENT_HELLO);
-
-  u8  type;
-  usz body_len;
-  usz body = hs_parse(wired_span_of(out, total), &type, &body_len);
-  CHECK(body == 4 && type == HS_CLIENT_HELLO && body_len == total - 4);
-
-  u8 got[32];
-  CHECK(hs_peer_share(out + body, body_len, got) == 1);
-  for (usz i = 0; i < 32; i++) {
-    CHECK(got[i] == pub[i]);
-  }
-}
-
-/* ServerHello uses the same framing and also round-trips its share. */
-static void test_hs_serverhello_roundtrip(void) {
-  u8 random[32], pub[32], out[256], got[32];
-  for (usz i = 0; i < 32; i++) {
-    random[i] = (u8)(i * 2);
-    pub[i]    = (u8)(0x90 + i);
-  }
-  usz total = hs_build_hello(out, sizeof(out), HS_SERVER_HELLO, random, pub);
-  u8  type;
-  usz body_len;
-  usz body = hs_parse(wired_span_of(out, total), &type, &body_len);
-  CHECK(type == HS_SERVER_HELLO);
-  CHECK(hs_peer_share(out + body, body_len, got) == 1 && got[5] == pub[5]);
-}
-
 static void test_hs_truncated(void) {
   u8       type;
   usz      body_len;
@@ -47,24 +10,14 @@ static void test_hs_truncated(void) {
   CHECK(hs_parse(wired_span_of(bad2, 4), &type, &body_len) == 0);
 }
 
-/* A handshake header needs 4 bytes and a hello its full 84 (one byte
- * short used to pass the guard and overrun); a body too short for the
- * fixed-offset key_share yields no peer share. */
+/* A handshake header needs 4 bytes. */
 static void test_hs_short_buffers(void) {
-  u8  random[32] = {0}, pub[32] = {1}, out[256], got[32];
-  usz total;
+  u8 out[4];
   CHECK(hs_begin(out, 3, HS_CLIENT_HELLO) == 0);
-  CHECK(hs_build_hello(out, 4 + 35 + 5 + 40 - 1, 2, random, pub) == 0);
-  total = hs_build_hello(out, sizeof(out), HS_SERVER_HELLO, random, pub);
-  CHECK(total == 4 + 35 + 5 + 40);
-  CHECK(hs_peer_share(out + 4, total - 4 - 1, got) == 0);
-  out[4 + 40 + 1] = 0x34; /* not key_share (0x0033) */
-  CHECK(hs_peer_share(out + 4, total - 4, got) == 0);
+  CHECK(hs_begin(out, 4, HS_CLIENT_HELLO) == 4 && out[0] == HS_CLIENT_HELLO);
 }
 
 void test_handshake(void) {
   test_hs_short_buffers();
-  test_hs_clienthello_roundtrip();
-  test_hs_serverhello_roundtrip();
   test_hs_truncated();
 }

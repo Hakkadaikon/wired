@@ -70,8 +70,3 @@ int sflight_certificate_chain(const sflight_certchain_in* in, wired_obuf* out) {
   hs_finish(out->p, out->len);
   return 1;
 }
-
-int sflight_certificate(wired_span cert_der, wired_obuf* out) {
-  sflight_certchain_in in = {&cert_der, 1};
-  return sflight_certificate_chain(&in, out);
-}

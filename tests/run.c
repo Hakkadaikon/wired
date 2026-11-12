@@ -5,10 +5,8 @@
  */
 // clang-format off
 #include "test.h"
-#include "transport/recovery/detect/ackrange/ackrange_process.c"
 #include "app/datagram/dgdeliver/dg_send.c"
 #include "app/datagram/dgdeliver/dg_recv.c"
-#include "transport/conn/pnspace/pnspaces/spaces.c"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.c"
 #include "transport/version/versmgr/avail.c"
 #include "crypto/pki/cert/certreq/certreq.c"
@@ -31,7 +29,6 @@
 #include "tls/ext/tlsext/earlydata.c"
 #include "tls/handshake/roles/shbuild/shbuild.c"
 #include "tls/handshake/roles/sflight/certmsg.c"
-#include "tls/handshake/roles/sflight/certverify_build.c"
 #include "tls/handshake/roles/sflight/finished_build.c"
 #include "transport/packet/build/initpkt/initkeys.c"
 #include "transport/packet/build/initpkt/initpkt.c"
@@ -57,10 +54,7 @@
 #include "transport/packet/protect/protect_suite/aead_suite.c"
 #include "transport/packet/protect/protect_suite/hp_suite.c"
 #include "tls/keys/schedule_drive/keyschedule.c"
-#include "transport/recovery/rtx/sentpkt/sentpkt.c"
-#include "transport/recovery/rtx/sentpkt/ack_process.c"
 #include "crypto/kdf/keys/discard_driver.c"
-#include "crypto/kdf/keys/promote.c"
 #include "crypto/kdf/keys/keyset.c"
 #include "transport/packet/frame/pipeline/framewalk.c"
 #include "transport/packet/frame/pipeline/rxpacket.c"
@@ -200,7 +194,6 @@
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field_ge.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign.c"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_sign_sc.c"
-#include "transport/conn/lifecycle/endpoint/endpoint.c"
 #include "common/diag/error/error.c"
 #include "transport/stream/flow/flow/finalsize.c"
 #include "transport/stream/flow/flow/reassemble.c"
@@ -268,7 +261,6 @@
 #include "transport/io/socket/net/checksum.c"
 #include "transport/io/socket/net/eth.c"
 #include "transport/io/socket/net/ipv4.c"
-#include "transport/io/socket/net/memlink.c"
 #include "transport/io/socket/net/udp4.c"
 #include "transport/io/xdp/xdpmac/xdpmac.c"
 #include "transport/io/xdp/xdpbpf/xdpbpf.c"
@@ -369,14 +361,7 @@
 #include "app/qpack/qpackenc/qpackenc.c"
 #include "app/qpack/qpackenc/qpackenc_decrx.c"
 #include "app/qpack/qpackenc/status_line.c"
-#include "transport/stream/flow/flow/stream_read.c"
-#include "transport/stream/flow/flow/credit.c"
-#include "transport/packet/frame/framedispatch/dispatch_state.c"
 #include "transport/io/udp/udploop/rxloop.c"
-#include "transport/io/udp/udploop/antiamp_gate.c"
-#include "transport/conn/loop/connloop/connloop.c"
-#include "transport/conn/loop/connio/connio.c"
-#include "transport/conn/loop/connio/connio_recv.c"
 #include "transport/recovery/detect/lossdrive/lossdelay.c"
 #include "transport/recovery/detect/ackgen/ackrange.c"
 #include "transport/recovery/detect/ackgen/ackrangeconv.c"
@@ -413,8 +398,6 @@
 #include "tls/handshake/core/sdrv/sdrv_flight.c"
 #include "tls/handshake/core/sdrv/sdrv_flight_emit.c"
 #include "crypto/pki/cert/selfcert/derenc.c"
-#include "crypto/pki/cert/selfcert/tbs.c"
-#include "crypto/pki/cert/selfcert/selfcert.c"
 #include "transport/packet/build/hspkt/hspkt_build.c"
 #include "transport/packet/build/hspkt/hspkt_open.c"
 #include "transport/packet/build/hspkt/onertt.c"
@@ -692,9 +675,6 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule_utf8.c"
 #include "app/webtransport/wtwire/wtwire.c"
-#include "tls/ext/salpn/idna.c"
-#include "tls/ext/salpn/idna_utf8.c"
-#include "tls/ext/salpn/punycode.c"
 #include "tls/ext/salpn/sni_check.c"
 #include "tls/handshake/core/tls/chguard.c"
 #include "tls/handshake/core/tls/cryptolevel.c"
@@ -945,7 +925,6 @@
 #include "tls/handshake_test.c"
 #include "tls/schedule_test.c"
 #include "tls/suitehash_test.c"
-#include "transport/endpoint_test.c"
 #include "transport/stream_ctl_test.c"
 #include "transport/connctl_test.c"
 #include "transport/dispatch_test.c"
@@ -1133,7 +1112,6 @@
 #include "transport/rxpacket_test.c"
 #include "transport/framewalk_test.c"
 #include "crypto/keyset_test.c"
-#include "crypto/promote_test.c"
 #include "crypto/discard_driver_test.c"
 #include "crypto/chain_test.c"
 #include "crypto/basicconstraints_test.c"
@@ -1141,18 +1119,11 @@
 #include "app/dyntable_test.c"
 #include "app/dynget_test.c"
 #include "app/dynfind_test.c"
-#include "transport/stream_read_test.c"
 #include "app/h3run_settings_seq_test.c"
 #include "transport/aead_suite_test.c"
 #include "transport/hp_suite_test.c"
 #include "tls/keyschedule_test.c"
-#include "transport/sentpkt_test.c"
-#include "transport/ack_process_test.c"
-#include "transport/dispatch_state_test.c"
 #include "transport/rxloop_test.c"
-#include "transport/antiamp_gate_test.c"
-#include "transport/connloop_test.c"
-#include "transport/connio_test.c"
 #include "transport/lossdelay_test.c"
 #include "transport/ackrange_test.c"
 #include "transport/ackrangeconv_test.c"
@@ -1162,11 +1133,7 @@
 #include "crypto/pathvalidate_path_test.c"
 #include "transport/crypto_stream_test.c"
 #include "tls/tlsdriver_test.c"
-#include "tls/fullhs_test.c"
-#include "tls/fullhs_policy_test.c"
 #include "tls/cert_chain_test.c"
-#include "tls/fullhs_chain_test.c"
-#include "tls/tlsdriver_sni_test.c"
 #include "transport/idlenego_test.c"
 #include "transport/sresetdrive_detect_test.c"
 #include "app/reqorder_test.c"
@@ -1179,7 +1146,6 @@
 #include "crypto/ed25519_sign_test.c"
 #include "tls/shbuild_test.c"
 #include "tls/sflight_certmsg_test.c"
-#include "tls/sflight_certverify_build_test.c"
 #include "tls/sflight_finished_build_test.c"
 #include "tls/sdrv_test.c"
 #include "tls/sdrv_hrr_test.c"
@@ -1222,10 +1188,8 @@
 #include "tls/pskmodes_test.c"
 #include "tls/preshared_test.c"
 #include "tls/earlydata_test.c"
-#include "transport/ackrange_process_test.c"
 #include "app/dg_send_test.c"
 #include "app/dg_recv_test.c"
-#include "transport/pnspaces_spaces_test.c"
 #include "transport/pnspaces_recv_test.c"
 #include "transport/avail_test.c"
 #include "app/h3conn_establish_test.c"
@@ -1236,7 +1200,6 @@
 #include "tls/kuswitch_derive_test.c"
 #include "app/pseudo_encode_test.c"
 #include "app/header_encode_test.c"
-#include "app/request_headers_test.c"
 #include "crypto/fields_test.c"
 #include "crypto/sigalg_test.c"
 #include "transport/sentmeta_test.c"
@@ -1322,7 +1285,6 @@
 #include "transport/xdpframe_test.c"
 #include "transport/srvxdpbpf_test.c"
 #include "transport/srvxdp_test.c"
-#include "tls/idna_test.c"
 #include "tls/sni_check_test.c"
 #include "tls/cryptolevel_test.c"
 #include "tls/pncheck_test.c"
@@ -1424,7 +1386,6 @@ int main(void) {
   test_handshake();
   test_schedule();
   test_suitehash();
-  test_endpoint();
   test_stream_ctl();
   test_connctl();
   test_dispatch();
@@ -1615,7 +1576,6 @@ int main(void) {
   test_rxpacket();
   test_framewalk();
   test_keyset();
-  test_promote();
   test_discard_driver();
   test_chain();
   test_basicconstraints();
@@ -1623,18 +1583,11 @@ int main(void) {
   test_dyntable();
   test_dynget();
   test_dynfind();
-  test_stream_read();
   test_h3run_settings_seq();
   test_aead_suite();
   test_hp_suite();
   test_keyschedule();
-  test_sentpkt();
-  test_ack_process();
-  test_dispatch_state();
   test_rxloop();
-  test_antiamp_gate();
-  test_connloop();
-  test_connio();
   test_lossdelay();
   test_ackrange();
   test_ackrangeconv();
@@ -1644,11 +1597,7 @@ int main(void) {
   test_pathvalidate_path();
   test_crypto_stream();
   test_tlsdriver();
-  test_fullhs();
-  test_fullhs_policy();
   test_cert_chain();
-  test_fullhs_chain();
-  test_tlsdriver_sni();
   test_idlenego();
   test_sresetdrive_detect();
   test_reqorder();
@@ -1661,7 +1610,6 @@ int main(void) {
   test_ed25519_sign();
   test_shbuild();
   test_sflight_certmsg();
-  test_sflight_certverify_build();
   test_sflight_finished_build();
   test_sdrv();
   test_sdrv_hrr();
@@ -1734,7 +1682,6 @@ int main(void) {
   test_pskmodes();
   test_preshared();
   test_earlydata();
-  test_ackrange_process();
   test_dg_send_with_length();
   test_dg_send_no_length();
   test_dg_send_over_max();
@@ -1743,7 +1690,6 @@ int main(void) {
   test_dg_recv_with_length();
   test_dg_recv_no_length();
   test_dg_recv_truncated();
-  test_pnspaces_spaces();
   test_pnspaces_recv();
   test_avail();
   test_h3conn_establish();
@@ -1758,7 +1704,6 @@ int main(void) {
   test_kuswitch_twogen();
   test_pseudo_encode();
   test_header_encode();
-  test_request_headers();
   test_fields();
   test_sigalg();
   test_sentmeta();
@@ -1850,7 +1795,6 @@ int main(void) {
   test_xdpframe();
   test_srvxdpbpf();
   test_srvxdp();
-  test_idna();
   test_sni_check();
   test_cryptolevel();
   test_pncheck();

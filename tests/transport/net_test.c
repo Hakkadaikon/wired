@@ -86,20 +86,8 @@ static void test_udp_checksum_zero_field_accepted_unchecked(void) {
   CHECK(udp4_check(wired_span_of(dg, udp_len), addrs) == 1);
 }
 
-/* The in-memory link carries datagrams FIFO with no syscalls. */
-static void test_memlink_fifo(void) {
-  memlink l;
-  memlink_init(&l);
-  CHECK(memlink_send(&l, (const u8*)"first", 5) == 1);
-  CHECK(memlink_send(&l, (const u8*)"second", 6) == 1);
-  u8 out[16];
-  CHECK(memlink_recv(&l, out, sizeof(out)) == 5 && out[0] == 'f');
-  CHECK(memlink_recv(&l, out, sizeof(out)) == 6 && out[0] == 's');
-  CHECK(memlink_recv(&l, out, sizeof(out)) == 0);
-}
-
-/* A full IPv4+UDP datagram travels across the link and verifies intact. */
-static void test_net_datagram_over_link(void) {
+/* A built IPv4+UDP datagram verifies intact. */
+static void test_net_datagram_build(void) {
   u8         ip[IPV4_HDR], udp[64], frame[IPV4_HDR + 64];
   const u8   pl[]  = {1, 2, 3, 4, 5};
   ipv4addrs  addrs = {0x0a000001, 0x0a000002};
@@ -116,15 +104,9 @@ static void test_net_datagram_over_link(void) {
     frame[IPV4_HDR + i] = udp[i];
   }
 
-  memlink l;
-  memlink_init(&l);
-  memlink_send(&l, frame, IPV4_HDR + un);
-  u8  rx[IPV4_HDR + 64];
-  usz rn = memlink_recv(&l, rx, sizeof(rx));
-  CHECK(rn == IPV4_HDR + un);
-  CHECK(ipv4_check(rx) == 1);
-  CHECK(udp4_check(wired_span_of(rx + IPV4_HDR, un), addrs) == 1);
-  CHECK(rx[IPV4_HDR + UDP_HDR + 4] == 5); /* payload intact */
+  CHECK(ipv4_check(frame) == 1);
+  CHECK(udp4_check(wired_span_of(frame + IPV4_HDR, un), addrs) == 1);
+  CHECK(frame[IPV4_HDR + UDP_HDR + 4] == 5); /* payload intact */
 }
 
 void test_net(void) {
@@ -135,6 +117,5 @@ void test_net(void) {
   test_udp_checksum();
   test_udp_checksum_zero_result_becomes_all_ones();
   test_udp_checksum_zero_field_accepted_unchecked();
-  test_memlink_fifo();
-  test_net_datagram_over_link();
+  test_net_datagram_build();
 }

@@ -9,16 +9,4 @@ static void test_antiamp_budget(void) {
   CHECK(antiamp_budget(0, 0) == 0);
 }
 
-/* can_send tracks the budget at the 3x boundary. */
-static void test_antiamp_can_send(void) {
-  CHECK(antiamp_can_send(100, 0, 300) == 1); /* exactly 3x */
-  CHECK(antiamp_can_send(100, 0, 301) == 0); /* 3x + 1 refused */
-  CHECK(antiamp_can_send(100, 250, 50) == 1);
-  CHECK(antiamp_can_send(100, 250, 51) == 0);
-  CHECK(antiamp_can_send(0, 0, 1) == 0); /* nothing received yet */
-}
-
-void test_antiamp(void) {
-  test_antiamp_budget();
-  test_antiamp_can_send();
-}
+void test_antiamp(void) { test_antiamp_budget(); }

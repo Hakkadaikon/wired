@@ -99,14 +99,9 @@ typedef struct {
 usz h3_frame_put(wired_obuf* out, u64 type, wired_span payload);
 usz h3_frame_get(wired_span buf, h3_frame* f);
 
-/* Single-varint-payload frames: CANCEL_PUSH / MAX_PUSH_ID carry a Push ID,
- * GOAWAY carries a Stream ID or Push ID. */
-usz h3_cancel_push_put(u8* buf, usz cap, u64 push_id);
-usz h3_cancel_push_get(const u8* buf, usz n, u64* push_id);
+/* GOAWAY: a single-varint payload carrying a Stream ID or Push ID. */
 usz h3_goaway_put(u8* buf, usz cap, u64 id);
 usz h3_goaway_get(const u8* buf, usz n, u64* id);
-usz h3_max_push_id_put(u8* buf, usz cap, u64 push_id);
-usz h3_max_push_id_get(const u8* buf, usz n, u64* push_id);
 
 /* SETTINGS: payload is a sequence of (Identifier Value) varint pairs. */
 usz h3_settings_put(u8* buf, usz cap, const h3_settings* s);

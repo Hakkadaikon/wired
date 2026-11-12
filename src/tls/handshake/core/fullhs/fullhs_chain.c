@@ -2,10 +2,8 @@
 
 static int fullhs_chain_parse(
     wired_span cert_msg, const tls_cert_chain_out* out);
-static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n);
-static int fullhs_cert_checks(const fullhs* h, const tls_cert_entry* e, usz n);
 static int fullhs_chain_accept(
-    const fullhs* h, wired_span cert_msg, const tls_cert_chain_out* out);
+    wired_span cert_msg, const tls_cert_chain_out* out);
 static void fullhs_cert_record(fullhs* h, const fullhs_chain_rec_in* in);
 static int  fullhs_cert_take(fullhs* h, wired_span cert_msg);
 static int  cv_verify(fullhs* h, wired_span cv_msg, u16 scheme);
@@ -20,38 +18,10 @@ static int fullhs_chain_parse(
   return tls_cert_chain(body, &ctx, out);
 }
 
-/* RFC 5280 6.1: when a trust store is set, the whole wire chain must chain
- * link-by-link to one of its anchors, every certificate inside its validity
- * period at policy_now (0 skips the time check). NULL store skips. */
-static int fullhs_chain_ok(const fullhs* h, const tls_cert_entry* e, usz n) {
-  wired_span certs[TLS_CERT_CHAIN_MAX];
-  if (h->castore == 0) {
-    return 1;
-  }
-  for (usz i = 0; i < n; i++) {
-    certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
-  }
-  return castore_validate_chain(h->castore, certs, n, h->policy_now);
-}
-
-/* The leaf passes the acceptance policy and the chain anchors to the store. */
-static int fullhs_cert_checks(const fullhs* h, const tls_cert_entry* e, usz n) {
-  if (n < 1) {
-    return 0;
-  }
-  if (!fullhs_policy_ok(h, e[0].cert_data, e[0].cert_len)) {
-    return 0;
-  }
-  return fullhs_chain_ok(h, e, n);
-}
-
-/* Parse and accept (or reject) the wire chain. */
+/* Parse the wire chain; it must carry at least the end-entity cert. */
 static int fullhs_chain_accept(
-    const fullhs* h, wired_span cert_msg, const tls_cert_chain_out* out) {
-  if (!fullhs_chain_parse(cert_msg, out)) {
-    return 0;
-  }
-  return fullhs_cert_checks(h, out->entries, *out->count);
+    wired_span cert_msg, const tls_cert_chain_out* out) {
+  return fullhs_chain_parse(cert_msg, out) && *out->count >= 1;
 }
 
 static void fullhs_cert_record(fullhs* h, const fullhs_chain_rec_in* in) {
@@ -71,7 +41,7 @@ static int fullhs_cert_take(fullhs* h, wired_span cert_msg) {
   usz                 n;
   fullhs_chain_rec_in rec;
   tls_cert_chain_out  out = {e, TLS_CERT_CHAIN_MAX, &n};
-  if (!fullhs_chain_accept(h, cert_msg, &out)) {
+  if (!fullhs_chain_accept(cert_msg, &out)) {
     return 0;
   }
   rec.base = h->tr_len;

@@ -34,23 +34,6 @@ static void test_certchain_two_roundtrip(void) {
   }
 }
 
-/* A 1-entry chain output is byte-identical to the legacy single-cert path. */
-static void test_certchain_single_equals_legacy(void) {
-  const u8             der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
-  wired_span           cert   = wired_span_of(der, sizeof(der));
-  u8                   out_chain[64], out_legacy[64];
-  wired_obuf           ob_chain  = obuf_of(out_chain, sizeof(out_chain));
-  wired_obuf           ob_legacy = obuf_of(out_legacy, sizeof(out_legacy));
-  sflight_certchain_in in        = {&cert, 1};
-
-  CHECK(sflight_certificate_chain(&in, &ob_chain));
-  CHECK(sflight_certificate(cert, &ob_legacy));
-  CHECK(ob_chain.len == ob_legacy.len);
-  for (usz i = 0; i < ob_chain.len; i++) {
-    CHECK(out_chain[i] == out_legacy[i]);
-  }
-}
-
 /* count 0 and count > TLS_CERT_CHAIN_MAX are rejected; count 2 is fine. */
 static void test_certchain_bounds(void) {
   const wired_span certs[TLS_CERT_CHAIN_MAX + 1] = {
@@ -87,15 +70,17 @@ static void test_certchain_no_room(void) {
 /* RFC 8446 4.4.2: the built Certificate message must parse back with an empty
  * request context and the same end-entity cert_data. */
 void test_sflight_certmsg(void) {
-  const u8       der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
-  u8             out[64];
-  usz            body_len;
-  u8             type;
-  wired_span     ctx;
-  tls_cert_entry first;
-  wired_obuf     ob = obuf_of(out, sizeof(out));
+  const u8             der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
+  u8                   out[64];
+  usz                  body_len;
+  u8                   type;
+  wired_span           ctx;
+  tls_cert_entry       first;
+  wired_obuf           ob   = obuf_of(out, sizeof(out));
+  wired_span           cert = wired_span_of(der, sizeof(der));
+  sflight_certchain_in in   = {&cert, 1};
 
-  CHECK(sflight_certificate(wired_span_of(der, sizeof(der)), &ob));
+  CHECK(sflight_certificate_chain(&in, &ob));
   CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == 11);
   CHECK(4 + body_len == ob.len);
@@ -106,10 +91,9 @@ void test_sflight_certmsg(void) {
   CHECK(first.cert_data[0] == 0x30 && first.cert_data[6] == 0x05);
 
   ob = obuf_of(out, 4);
-  CHECK(!sflight_certificate(wired_span_of(der, sizeof(der)), &ob));
+  CHECK(!sflight_certificate_chain(&in, &ob));
 
   test_certchain_two_roundtrip();
-  test_certchain_single_equals_legacy();
   test_certchain_bounds();
   test_certchain_no_room();
 }

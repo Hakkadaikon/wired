@@ -1,7 +1,5 @@
 #include "tls/handshake/core/tls/handshake.h"
 
-#include "common/bytes/util/be.h"
-
 usz hs_begin(u8* out, usz cap, u8 msg_type) {
   if (cap < 4) {
     return 0;
@@ -30,68 +28,4 @@ usz hs_parse(wired_span buf, u8* type, usz* body_len) {
   *type     = buf.p[0];
   *body_len = len;
   return 4;
-}
-
-/* Append the key_share extension carrying a 32-byte X25519 public key.
- * Layout: ext_type(2) ext_len(2) [share_list_len(2)?] group(2) ks_len(2) key.
- * QUIC/TLS1.3 ClientHello uses a KeyShareClientHello list; we emit a single
- * entry. For simplicity both hello types use the same single-entry form,
- * which our own parser understands (interop with real TLS is out of scope). */
-static usz put_key_share(u8* out, usz off, const u8 pub[32]) {
-  be_put_be16(out + off, EXT_KEY_SHARE);
-  be_put_be16(out + off + 2, 36); /* ext_data length */
-  be_put_be16(out + off + 4, GROUP_X25519);
-  be_put_be16(out + off + 6, 32); /* key_exchange length */
-  for (usz i = 0; i < 32; i++) {
-    out[off + 8 + i] = pub[i];
-  }
-  return off + 40;
-}
-
-/* Write legacy_version, random, and an empty legacy_session_id. */
-static usz put_hello_prefix(u8* out, usz off, const u8 random[32]) {
-  be_put_be16(out + off, 0x0303); /* legacy_version = TLS 1.2 */
-  for (usz i = 0; i < 32; i++) {
-    out[off + 2 + i] = random[i];
-  }
-  out[off + 34] = 0; /* legacy_session_id length 0 */
-  return off + 35;
-}
-
-usz hs_build_hello(
-    u8* out, usz cap, u8 msg_type, const u8 random[32], const u8 pub[32]) {
-  usz off = hs_begin(out, cap, msg_type);
-  /* header, prefix, cipher(2) + compression(1) + ext_len(2), key_share */
-  if (off == 0 || cap < 4 + 35 + 5 + 40) {
-    return 0;
-  }
-  off = put_hello_prefix(out, off, random);
-  be_put_be16(out + off, TLS_AES128_GCM_SHA256); /* one cipher suite */
-  out[off + 2] = 0;               /* legacy_compression_methods length 0 */
-  be_put_be16(out + off + 3, 40); /* extensions length */
-  off = put_key_share(out, off + 5, pub);
-  hs_finish(out, off);
-  return off;
-}
-
-/* Scan the extensions area for KEY_SHARE and copy its 32-byte key. The
- * fixed offset works because we build a single-cipher, single-extension
- * hello; pub lives at body + (35 + 2 + 1 + 2 + 8). */
-/* The key_share extension is present and large enough at offset ks. */
-static int share_present(const u8* body, usz body_len, usz ks) {
-  if (body_len < ks + 40) {
-    return 0;
-  }
-  return body[ks] == 0x00 && body[ks + 1] == EXT_KEY_SHARE;
-}
-
-int hs_peer_share(const u8* body, usz body_len, u8 pub[32]) {
-  usz ks = 35 + 2 + 1 + 2; /* prefix + cipher + compression + ext_len */
-  if (!share_present(body, body_len, ks)) {
-    return 0;
-  }
-  for (usz i = 0; i < 32; i++) {
-    pub[i] = body[ks + 8 + i];
-  }
-  return 1;
 }

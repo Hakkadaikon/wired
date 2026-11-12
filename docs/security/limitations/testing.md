@@ -25,21 +25,44 @@
 
 ## 2. 出荷するサーバーから呼ばれないライブラリコード
 
-Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。関数単位の削除は済んでいる。
+Issue #24 では、何からも呼ばれないコードを削除し、ファズハーネス、guide のスニペット、例、出荷する経路の動作テストが使うものだけを残すと決めた。
 
-以下の 8 個のソースファイルはライブラリにコンパイルされ単体テストもされているが、`examples/` のどのサーバーからも到達しない。呼び出し元は `tests/` の各テストだけである。
+以下の 47 個のソースファイルはライブラリにコンパイルされるが、`examples/` のどのサーバーからも関数が 1 つも到達しない。呼び出し元は、サーバーを相手にするテストのピア(TLS と HTTP/3 のクライアント側)、ファズハーネス、`examples/` が使わない公開 API、単体テストである。
 
-guide のスニペットや例はどれもこれらを含まない。
-
-約 100 ファイルの一括削除は #24 の一覧の範囲外なので、残している。どれも今後の削除の候補である。これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにならない。
+これらのどれか 1 つだけを根拠に挙げている台帳の行は、出荷するサーバーの裏付けにならない。
 
 影響: 単体テストが通ったことを、サーバーがそう動く証拠と受け取る読み手。
 
-参照: `tests/run.c` の include を、`examples/` から到達できる include と比べた結果。
+参照: `examples/` の 4 つのサーバーを `-ffunction-sections` と `--gc-sections` でリンクし、関数が 1 つも残らなかったファイル。
 
-- `crypto/pki/cert/certreq/`: `certreq.c`
-- `tls/ext/salpn/`: `idna.c`, `idna_utf8.c`, `punycode.c`
+- `app/http3/core/h3conn/`: `request.c`
+- `app/http3/core/h3run/`: `settings_seq.c`
+- `app/http3/request/h3req/`: `reqbuild.c`, `respparse.c`
+- `app/http3/request/h3reqenc/`: `header_encode.c`, `pseudo_encode.c`, `request_headers.c`
+- `app/http3/server/srvrun/`: `httpx.c`, `srvrun_wt_export.c`
+- `app/media/mp4frag/`: `mp4frag.c`
+- `app/moqt/ctl/`: `moqctl_rngf_put.c`
+- `app/moqt/data/`: `moqdata_blob.c`
+- `app/moqt/dgram/`: `moqdg_put2.c`
+- `app/webtransport/exporter/`: `exporter.c`
+- `crypto/asymmetric/ecc/p256/`: `p256_field_fe.c`
+- `crypto/asymmetric/ecc/p256fixed/`: `p256fixed_table.c`
+- `crypto/kdf/keys/`: `discard_driver.c`
+- `crypto/symmetric/aead/chacha/`: `poly1305_poly.c`
+- `crypto/symmetric/aead/gcm/`: `gcm.c`
+- `tls/ext/tparam/`: `tpblob_pa.c`
+- `tls/ext/tpverify/`: `iscid.c`, `odcid.c`, `rscid.c`
+- `tls/handshake/core/fullhs/`: `fullhs.c`, `fullhs_chain.c`, `fullhs_confirmed.c`
+- `tls/handshake/core/hrr/`: `hrr_detect.c`
+- `tls/handshake/core/tls/`: `alpn.c`, `clienthello.c`, `hs_message.c`, `hsdriver.c`, `msgassembly.c`, `serverhello.c`
+- `tls/handshake/core/tlsdriver/`: `tlsdriver.c`, `tlsdriver_ch.c`, `tlsdriver_derive.c`
+- `tls/handshake/roles/client/`: `clientwire.c`
 - `tls/handshake/roles/server/`: `serverio.c`
-- `transport/conn/lifecycle/endpoint/`: `endpoint.c`
-- `transport/io/socket/net/`: `memlink.c`
-- `transport/recovery/detect/ackrange/`: `ackrange_process.c`
+- `tls/keys/keyupdate/`: `kuderive.c`
+- `transport/conn/lifecycle/conn/`: `pnspace.c`
+- `transport/conn/pnspace/crypto_stream/`: `crypto_rx.c`
+- `transport/io/socket/poll/`: `nonblock.c`
+- `transport/packet/build/initpkt/`: `initpkt.c`
+- `transport/recovery/detect/recovery/`: `largestacked.c`, `probe.c`
+- `transport/stream/data/appdata/`: `app_send.c`
+- `transport/stream/flow/flow/`: `reassemble.c`

@@ -2,7 +2,6 @@
 #define FULLHS_FULLHS_H
 
 #include "common/bytes/span/span.h"
-#include "crypto/pki/trust/castore/castore.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
@@ -34,13 +33,9 @@ typedef struct {
   u8         hs_traffic_self[HKDF_PRK]; /* own-direction hs traffic secret */
   const u8*  peer_cert; /* end-entity cert; points into tr (owned copy) */
   usz        peer_cert_len;
-  u64        policy_now;      /* YYYYMMDDHHMMSS; 0 skips the validity check */
-  const u8*  policy_host;     /* expected SAN dNSName, view (caller-owned) */
-  usz        policy_host_len; /* 0 skips the hostname check */
   usz        cert_off[TLS_CERT_CHAIN_MAX]; /* each wire cert, offset into tr */
   usz        cert_lens[TLS_CERT_CHAIN_MAX];
   usz        cert_count;
-  const castore* castore; /* NULL (init default) skips chain checks */
 } fullhs;
 
 /* Seed the full handshake driver from a tlsdriver that has reached the
@@ -50,31 +45,12 @@ typedef struct {
  * hash. Returns 1 on success, 0 if the tlsdriver is not handshake-ready. */
 int fullhs_init(fullhs* h, tlsdriver* tls, wired_span sh);
 
-/* RFC 5280 6.1 / RFC 6125: set the peer-certificate acceptance policy checked
- * when the Certificate message arrives. now is packed decimal YYYYMMDDHHMMSS
- * (0 skips the validity-window check); host is the expected SAN dNSName
- * (host.n 0 skips the hostname check). host is a view: the caller keeps it
- * alive for the whole handshake. Zero policy (the init default) keeps the
- * legacy signature-only behavior. */
-void fullhs_set_policy(fullhs* h, u64 now, wired_span host);
-/* Hostname verification is OFF by default for a standalone fullhs (init
- * leaves the policy zero, matching the pinned signature-only test vectors);
- * the client role always sets it from its SNI. A standalone caller that
- * talks to a real peer MUST call fullhs_set_policy with the expected host
- * -- with policy_host_len > 0 no Certificate is accepted (and cert_verified
- * never set) unless a SAN dNSName matches (RFC 6125 6.4). */
-
-/* RFC 5280 6.1: set the trust store the peer's wire chain must validate to
- * when the Certificate message arrives (every link verified, tail anchored
- * to a store root). store is borrowed and must outlive the handshake. NULL
- * (the init default) skips chain validation. */
-void fullhs_set_castore(fullhs* h, const castore* store);
-
 /* RFC 8446 4.4.2: fold the peer's Certificate message into the transcript and
- * record its end-entity certificate, checking flight order and the acceptance
- * policy set via fullhs_set_policy. Returns 1 if accepted, 0 on order
- * violation, a malformed message, or a policy reject (in which case no cert
- * is recorded and CertificateVerify can never open the auth gate). */
+ * record its end-entity certificate, checking flight order. The certificate
+ * itself is not validated: this driver is the test peer of the server's
+ * loopback tests. Returns 1 if accepted, 0 on order violation or a malformed
+ * message (in which case no cert is recorded and CertificateVerify can never
+ * open the auth gate). */
 int fullhs_recv_cert(fullhs* h, const u8* cert_msg, usz len);
 
 /* RFC 8446 4.4.3: verify the peer's CertificateVerify signature over the
@@ -101,8 +77,5 @@ int fullhs_advance_application(fullhs* h);
  * lets the Handshake keys be discarded. Returns 1 on success, 0 if not
  * complete. */
 int fullhs_confirmed(fullhs* h);
-
-/* 1 once both Finished are exchanged and the peer was authenticated. */
-int fullhs_is_complete(const fullhs* h);
 
 #endif

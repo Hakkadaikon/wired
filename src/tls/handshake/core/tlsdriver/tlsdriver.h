@@ -39,10 +39,8 @@ typedef struct {
   u8        shared[ECDHE_LEN];
   /* RFC 8446 4.2.7 NamedGroup negotiated for this handshake's key_share;
    * GROUP_X25519 (set by tlsdriver_init). */
-  u16       group;
-  int       hs_ready; /* 1 once the handshake secret is derived */
-  const u8* sni;      /* ClientHello server_name, view (caller-owned) */
-  usz       sni_len;  /* 0 omits the SNI extension */
+  u16 group;
+  int hs_ready; /* 1 once the handshake secret is derived */
   /** RFC 8446 4.4.1: the handshake-secret transcript hash is over every
    * handshake message seen so far, not just the most recent one -- a client
    * derives its handshake keys from ClientHello||ServerHello, a server from
@@ -71,11 +69,6 @@ void tlsdriver_init(
     const u8   my_priv[ECDHE_LEN],
     const u8   my_pub[ECDHE_LEN],
     int        is_server);
-
-/* RFC 6066 3: set the server_name carried in our ClientHello. sni is a view;
- * the caller keeps it alive until the ClientHello is built. Never calling
- * this (or sni_len 0) omits the extension. */
-void tlsdriver_set_sni(tlsdriver* d, const u8* sni, usz sni_len);
 
 /* RFC 9000 7.3: advertise scid (the Source CID of our Initial, at most 20
  * bytes) as initial_source_connection_id in our ClientHello. Returns 1, or

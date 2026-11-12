@@ -72,33 +72,6 @@ static void test_enc_method_unknown_literal(void) {
   CHECK(first_static_index(fs, ob.len) == -1);
 }
 
-/* Two byte ranges are identical. */
-static int enc_bytes_eq(const u8* a, usz alen, const u8* b, usz blen) {
-  if (alen != blen) {
-    return 0;
-  }
-  for (usz i = 0; i < alen; i++) {
-    if (a[i] != b[i]) {
-      return 0;
-    }
-  }
-  return 1;
-}
-
-/* RFC 9114 4.3.1: enc_get stays a thin wrapper -> identical bytes to
- * enc_method with :method = GET. */
-static void test_enc_get_matches_method(void) {
-  const u8         path[] = {'/', 'x'};
-  const u8         auth[] = {'h', '1'};
-  u8               a[256], b[256];
-  wired_obuf       aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
-  h3req_headers_in hin = {
-      wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
-  CHECK(h3req_enc_get(&hin, &aob));
-  CHECK(h3req_enc_method(wired_span_of((const u8*)"GET", 3), &hin, &bob));
-  CHECK(enc_bytes_eq(a, aob.len, b, bob.len));
-}
-
 /* RFC 9114 4.1 / 4.3.1: a POST driven through send_method round-trips; recv_get
  * recovers all four pseudo-headers including the non-GET :method. */
 static void test_send_method_post_roundtrip(void) {
@@ -197,7 +170,6 @@ static void test_send_method_asterisk_path(void) {
 void test_h3reqenc(void) {
   test_enc_method_static_index();
   test_enc_method_unknown_literal();
-  test_enc_get_matches_method();
   test_send_method_post_roundtrip();
   test_send_method_body_frame();
   test_send_method_asterisk_path();

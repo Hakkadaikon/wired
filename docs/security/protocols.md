@@ -39,7 +39,7 @@ QUIC は送信元アドレスを偽装しやすい UDP の上で動く。ここ�
 | 検査 | 内容 | テスト |
 |---|---|---|
 | フロー制御 | MAX_DATA、MAX_STREAM_DATA、MAX_STREAMS を超えるデータを拒否する | — |
-| STREAM と STOP_SENDING | STREAM の final size のオーバーフローと、向きを間違えて送られた STREAM フレームや STOP_SENDING フレームを拒否する(RFC 9000 19.5 / 19.8 / 4.5) | `test_frame_stream_final_size_overflow_rejected`、`test_dispatch_stop_sending_receive_only_rejected` |
+| STREAM と STOP_SENDING | STREAM の final size のオーバーフローと、向きを間違えて送られた STREAM フレームや STOP_SENDING フレームを拒否する(RFC 9000 19.5 / 19.8 / 4.5) | `test_frame_stream_final_size_overflow_rejected`、`test_srvrun_receive_only_stream_frames_close` |
 | 接続の移行 | 新しいパスでの新しい PATH_CHALLENGE を求める(RFC 9000 8.2.1 / 9.3) | `test_srvrun_path_wire_both_challenged` |
 | バージョンと接続 ID | バージョンのダウングレードを検出する。接続 ID は乱数生成器から作る | — |
 | 起動の期限 | 認証前に少しずつデータを送る接続(Slowloris 型)に期限を強制する | `test_srvrun_slow_trickle_preauth_evicted` |

@@ -95,15 +95,6 @@ static usz get_one(wired_span buf, u64 want_type, u64* v) {
   return r.off;
 }
 
-usz h3_cancel_push_put(u8* buf, usz cap, u64 push_id) {
-  wired_obuf ob = obuf_of(buf, cap);
-  return put_one(&ob, H3_FRAME_CANCEL_PUSH, push_id);
-}
-
-usz h3_cancel_push_get(const u8* buf, usz n, u64* push_id) {
-  return get_one(wired_span_of(buf, n), H3_FRAME_CANCEL_PUSH, push_id);
-}
-
 usz h3_goaway_put(u8* buf, usz cap, u64 id) {
   wired_obuf ob = obuf_of(buf, cap);
   return put_one(&ob, H3_FRAME_GOAWAY, id);
@@ -111,13 +102,4 @@ usz h3_goaway_put(u8* buf, usz cap, u64 id) {
 
 usz h3_goaway_get(const u8* buf, usz n, u64* id) {
   return get_one(wired_span_of(buf, n), H3_FRAME_GOAWAY, id);
-}
-
-usz h3_max_push_id_put(u8* buf, usz cap, u64 push_id) {
-  wired_obuf ob = obuf_of(buf, cap);
-  return put_one(&ob, H3_FRAME_MAX_PUSH_ID, push_id);
-}
-
-usz h3_max_push_id_get(const u8* buf, usz n, u64* push_id) {
-  return get_one(wired_span_of(buf, n), H3_FRAME_MAX_PUSH_ID, push_id);
 }

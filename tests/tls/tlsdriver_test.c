@@ -137,12 +137,9 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
 
 /* RFC 7748 6.1 / RFC 8446 7.4.2: a ServerHello whose x25519 share is the
  * all-zero (low-order) point yields an all-zero shared secret, which is
- * rejected -- no handshake secret, and none readable. A ClientHello that
- * does not fit the driver's 512-byte buffer (an oversized SNI) is not
- * sent at all. */
-static void test_tlsdriver_low_order_share_and_oversize_ch(void) {
+ * rejected -- no handshake secret, and none readable. */
+static void test_tlsdriver_low_order_share(void) {
   u8        priv[32] = {7}, pub[32], zero[32] = {0}, frame[1024], sh[512];
-  u8        sni[600] = {0};
   usz       fl;
   tlsdriver cl;
   const u8* ss;
@@ -156,15 +153,10 @@ static void test_tlsdriver_low_order_share_and_oversize_ch(void) {
   CHECK(tlsdriver_recv_crypto(&cl, frame, fl) == 0);
   CHECK(tlsdriver_handshake_secret_ready(&cl) == 0);
   CHECK(tlsdriver_shared_secret(&cl, &ss) == 0);
-  tlsdriver_set_sni(&cl, sni, sizeof(sni));
-  {
-    wired_obuf ob = obuf_of(frame, sizeof(frame));
-    CHECK(tlsdriver_client_hello(&cl, &ob) == 0);
-  }
 }
 
 void test_tlsdriver(void) {
-  test_tlsdriver_low_order_share_and_oversize_ch();
+  test_tlsdriver_low_order_share();
   test_tlsdriver_real_ecdhe_agree();
   test_tlsdriver_rejects_garbage();
   test_tlsdriver_crypto_overflow_reports_error_code();

@@ -91,7 +91,7 @@ libFuzzer(clang に組み込まれたファザー)と ASan で、パーサーに
 |---|---|
 | `fuzz_header` | QUIC パケットのヘッダー。1 つの UDP データグラムに複数のパケットを結合した場合を含む |
 | `fuzz_frames` | QUIC のフレームと、ハンドシェイクで送るトランスポートパラメーター |
-| `fuzz_onertt` | ハンドシェイク後の暗号化された QUIC パケット |
+| `fuzz_onertt` | サーバーが開く保護された QUIC パケット(`wired_srvloop_recv`) |
 | `fuzz_tlsmsg` | TLS 1.3 のハンドシェイクメッセージ |
 | `fuzz_x509` | X.509 証明書 |
 | `fuzz_qpack` | QPACK で圧縮したヘッダーリスト |

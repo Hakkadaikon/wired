@@ -104,14 +104,6 @@ usz path_decode(const u8* buf, usz n, u8 type, u8 data[PATH_DATA]) {
 
 /* --- HANDSHAKE_DONE (19.20) --- */
 
-usz handshake_done_encode(u8* buf, usz cap) {
-  if (cap == 0) {
-    return 0;
-  }
-  buf[0] = FRAME_HANDSHAKE_DONE;
-  return 1;
-}
-
 usz handshake_done_decode(const u8* buf, usz n) {
   if (n == 0 || buf[0] != FRAME_HANDSHAKE_DONE) {
     return 0;

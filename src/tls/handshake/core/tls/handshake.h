@@ -5,9 +5,7 @@
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 TLS 1.3 handshake messages carried in QUIC CRYPTO frames.
- * Each message is: msg_type(1) length(3, big-endian) body. We build the
- * minimal ClientHello/ServerHello needed to drive a QUIC handshake with an
- * X25519 key_share, plus EncryptedExtensions and Finished. */
+ * Each message is: msg_type(1) length(3, big-endian) body. */
 
 #define HS_CLIENT_HELLO 1
 #define HS_SERVER_HELLO 2
@@ -31,14 +29,5 @@ void hs_finish(u8* out, usz total);
 /* Parse a handshake message header at buf. Sets *type and *body_len and
  * returns the body offset (4), or 0 if truncated/inconsistent. */
 usz hs_parse(wired_span buf, u8* type, usz* body_len);
-
-/* Build a minimal ClientHello/ServerHello carrying the 32-byte X25519 share
- * `pub` and the 32-byte random. Returns total message length, or 0. */
-usz hs_build_hello(
-    u8* out, usz cap, u8 msg_type, const u8 random[32], const u8 pub[32]);
-
-/* Extract the peer's 32-byte X25519 key_share from a ClientHello/ServerHello
- * body. Returns 1 on success, 0 if the key_share is absent/malformed. */
-int hs_peer_share(const u8* body, usz body_len, u8 pub[32]);
 
 #endif

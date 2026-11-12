@@ -11,9 +11,3 @@ int h3req_enc_method(
       wired_span_of(0, 0)};
   return h3req_enc_pseudo(&p, out);
 }
-
-/* RFC 9114 4.3.1 */
-int h3req_enc_get(const h3req_headers_in* in, wired_obuf* out) {
-  static const u8 method[] = {'G', 'E', 'T'};
-  return h3req_enc_method(wired_span_of(method, 3), in, out);
-}
