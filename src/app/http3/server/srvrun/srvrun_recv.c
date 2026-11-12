@@ -51,16 +51,31 @@ static void srvrun_recv_serve(
  * paced publisher), given the same monotonic clock the loop's timers use. */
 static void srvrun_app_step(const srvrun_cfg* cfg) {
   if (cfg->on_step) {
-    cfg->on_step(cfg->on_step_ctx, clock_mono_ms());
+    cfg->on_step(cfg->on_step_ctx, srvrun_now_ms(cfg));
   }
+}
+
+/* The loop's monotonic clock in ms: the step's shared reading inside
+ * srvrun_step, a fresh one anywhere else. */
+u64 srvrun_now_ms(const srvrun_cfg* cfg) {
+  return cfg->env->step_now_on ? cfg->env->step_now_ms : clock_mono_ms();
+}
+
+static void srvrun_step_clock(const srvrun_cfg* cfg) {
+  cfg->env->step_now_ms = clock_mono_ms();
+  cfg->env->step_now_on = 1;
 }
 
 void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
+  int ready;
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
+  srvrun_step_clock(cfg);
   srvrun_polling_ptos(cfg, st);
-  if (srvrun_wait_input(cfg, st)) {
+  ready = srvrun_wait_input(cfg, st);
+  srvrun_step_clock(cfg); /* the wait may have slept up to SRVRUN_PTO_MS */
+  if (ready) {
     srvrun_recv_serve(cfg, st, bufs, nbufs);
   }
   srvrun_app_step(cfg);
@@ -76,7 +91,8 @@ void srvrun_step(
   srvrun_fire_ptos(cfg, st);
   /* Session-addressed datagrams queued by this step's callbacks (or left
    * from an interrupted prior step) go out before the loop waits again. */
-  srvrun_dgring_drain(cfg, st, clock_mono_ms());
+  srvrun_dgring_drain(cfg, st, srvrun_now_ms(cfg));
+  cfg->env->step_now_on = 0;
 }
 
 /* Drain phase (RFC 9114 5.2): GOAWAY already sent to every live connection:

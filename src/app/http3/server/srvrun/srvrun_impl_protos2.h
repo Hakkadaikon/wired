@@ -124,6 +124,8 @@ int srvrun_send_pending_datagram(
 int  srvrun_wt_any_active(const srvrun_conn* c);
 void srvrun_broadcast_to_all(srvrun_state* st, wired_span data, u8 urgency);
 int  srvrun_bcast_find(i64 tid);
+int  srvrun_bcast_self(void);
+u64  srvrun_now_ms(const srvrun_cfg* cfg);
 int  srvrun_broadcast_direct(wired_span data, u8 urgency);
 int  srvrun_broadcast_registered(int slot, wired_span data, u8 urgency);
 void srvrun_bcast_drain_self(srvrun_state* st);

@@ -26,7 +26,7 @@ int wired_server_broadcast_datagram_prio(wired_span data, u8 urgency) {
   if (!srvrun_broadcast_fits(data, urgency)) {
     return 0;
   }
-  slot = srvrun_bcast_find(wired_thread_tid());
+  slot = srvrun_bcast_self();
   if (slot < 0) {
     return srvrun_broadcast_direct(data, urgency);
   }
@@ -53,7 +53,7 @@ static int srvrun_bcast_drain_slot(void) {
   if (__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) <= 1) {
     return -1;
   }
-  return srvrun_bcast_find(wired_thread_tid());
+  return srvrun_bcast_self();
 }
 
 /* Drain every ring in this worker's own inbox row into its local WT
@@ -77,7 +77,7 @@ void srvrun_bcast_drain_self(srvrun_state* st) {
  * applies, reused by every session-addressed send API below (their session
  * pointer can only point into the caller's own loop's connection table). */
 wired_srvrun_env* srvrun_caller_env(void) {
-  int slot = srvrun_bcast_find(wired_thread_tid());
+  int slot = srvrun_bcast_self();
   return slot < 0 ? &g_srvrun_env : g_srvrun_bcast[slot].env;
 }
 

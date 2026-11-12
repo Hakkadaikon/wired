@@ -24507,12 +24507,30 @@ static void test_srvrun_on_step_fires_per_step(void) {
     srvrun_step(&cfg, &st, bufs, 2);
   }
   CHECK(g_sr_step_calls == 3);
+  /* the hook saw the step's shared clock reading, and the step left that
+   * reading switched off for callers outside the loop */
+  CHECK(g_sr_step_last_ms == g_srvrun_env.step_now_ms);
+  CHECK(g_srvrun_env.step_now_on == 0);
   cfg.on_step = 0;
   for (int i = 0; i < 3; i++) {
     srvrun_step(&cfg, &st, bufs, 2);
   }
   CHECK(g_sr_step_calls == 3);
   wired_udp_close(fd);
+}
+
+/* srvrun_now_ms returns the step's shared reading while one is on, and
+ * the clock itself otherwise. */
+static void test_srvrun_now_ms_step_reading(void) {
+  srvrun_cfg cfg = {0};
+  u64        before;
+  cfg.env                  = &g_srvrun_env;
+  g_srvrun_env.step_now_ms = 12345;
+  g_srvrun_env.step_now_on = 1;
+  CHECK(srvrun_now_ms(&cfg) == 12345);
+  g_srvrun_env.step_now_on = 0;
+  before                   = clock_mono_ms();
+  CHECK(srvrun_now_ms(&cfg) >= before);
 }
 
 /* A registered on_step hook is time-driven: with nothing waiting the loop
@@ -30044,6 +30062,7 @@ void test_srvrun(void) {
   test_srvrun_qenc_failed_section_commits_nothing();
   test_srvrun_qenc_stage_full_commits_nothing();
   test_srvrun_on_step_fires_per_step();
+  test_srvrun_now_ms_step_reading();
   test_srvrun_on_step_disables_unbounded_block();
   test_srvrun_wt_stream_inflight_unknown_is_zero();
   test_srvrun_wt_stream_inflight_open_stream_is_one();

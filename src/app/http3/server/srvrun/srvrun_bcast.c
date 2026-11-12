@@ -48,6 +48,17 @@ int srvrun_bcast_find(i64 tid) {
   return -1;
 }
 
+/* The calling thread's registry slot, or -1 when it has none. With no
+ * worker registered at all (the single-process drivers) nothing can match,
+ * so the gettid(2) the lookup needs is skipped: this runs once per
+ * session-addressed send. */
+int srvrun_bcast_self(void) {
+  if (__atomic_load_n(&g_srvrun_bcast_n, __ATOMIC_ACQUIRE) == 0) {
+    return -1;
+  }
+  return srvrun_bcast_find(wired_thread_tid());
+}
+
 /* Claim slot i for a registrant: CAS free -> CLAIMING, so two workers
  * registering at once can never both take it. 1 on success. */
 static int srvrun_bcast_try_claim(int i) {

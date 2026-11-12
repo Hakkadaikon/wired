@@ -16,7 +16,7 @@ static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs);
  * address is the peer a fresh slot records (RFC 9000 5.1). */
 void srvrun_serve_batch(
     const srvrun_cfg* cfg, srvrun_state* st, const mmsg_buf* bufs, i64 n) {
-  u64 now = clock_mono_ms();
+  u64 now = srvrun_now_ms(cfg);
   srvrun_sweep_idle(cfg, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
     srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now, bufs[i].ecn};
@@ -120,7 +120,7 @@ void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   if (!srvrun_pto_due(cfg, cfg->env)) {
     return;
   }
-  now = clock_mono_ms();
+  now = srvrun_now_ms(cfg);
   if (now < cfg->env->pto_next_ms) {
     return;
   }

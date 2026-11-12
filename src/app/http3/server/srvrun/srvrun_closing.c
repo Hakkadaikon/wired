@@ -70,7 +70,7 @@ static void srvrun_tick_tasks(const srvrun_step_ctx* ctx, int slot) {
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
  * probe/flush pass over every waiting slot. */
 void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
-  srvrun_step_ctx ctx = {cfg, 0, st, clock_mono_ms(), 0};
+  srvrun_step_ctx ctx = {cfg, 0, st, srvrun_now_ms(cfg), 0};
   for (usz i = 0; i < WIRED_CONNTABLE_CAP; i++) {
     srvrun_tick_slot(&ctx, (int)i);
   }

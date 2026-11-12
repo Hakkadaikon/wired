@@ -324,9 +324,12 @@ static void test_srvinbox_registry_edges_and_drain(void) {
   wired_srvinbox_ring_init(&row[0]);
   wired_srvinbox_ring_init(&row[1]);
   sib_mark_wt_active(&conns[0]);
+  CHECK(srvrun_bcast_self() == -1); /* nothing registered: no slot */
   wired_srvrun_broadcast_register(0, 2, row, 0);
   wired_srvrun_broadcast_register(0, 2, row, 0);
   CHECK(g_srvrun_bcast_n == 1);
+  CHECK(srvrun_bcast_self() == srvrun_bcast_find(wired_thread_tid()));
+  CHECK(srvrun_bcast_self() >= 0);
   g_srvrun_bcast_n = 2; /* as if the peer worker registered too */
   CHECK(wired_srvinbox_push(&row[1], sib_msg_a, sizeof sib_msg_a));
   srvrun_bcast_drain_self(&st);

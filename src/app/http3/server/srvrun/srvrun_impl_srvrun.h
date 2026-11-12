@@ -1074,6 +1074,14 @@ struct wired_srvrun_env {
   u64 pto_next_ms;
   /* Spin-iteration counter pacing the clock read in srvrun_pto_due. */
   u32 pto_spin;
+  /* The loop's clock for the current step (srvrun_now_ms): read when the
+   * step begins and again when its wait returns, then shared by the serve,
+   * app, timer and datagram passes instead of one clock_gettime each.
+   * step_now_on is 0 outside srvrun_step, where srvrun_now_ms reads the
+   * clock itself. */
+  u64 step_now_ms;
+  /* See step_now_ms. */
+  u8 step_now_on;
   /* Test-only: how many times srvrun_send has fired since the last
    * srvrun_test_reset_send_count (see its doc below). */
   usz send_count;
