@@ -1,3 +1,4 @@
+#include "common/bytes/util/bytes.h"
 #include "transport/packet/frame/frame/frame_impl.h"
 
 static int put_crypto_hdr(wired_obuf* o, const crypto_frame* f);
@@ -12,9 +13,10 @@ usz frame_write_bytes(wired_obuf* out, const u8* src, u64 len) {
   if (out->len + (usz)len > out->cap) {
     return 0;
   }
-  for (u64 i = 0; i < len; i++) {
-    out->p[out->len + i] = src[i];
-  }
+  /* one bulk copy: a per-byte store through out reloads out->p and
+   * out->len each time (they may alias the bytes written), which keeps
+   * the loop from vectorizing -- and every STREAM payload passes here */
+  bytes_memcpy(out->p + out->len, src, (usz)len);
   return out->len + (usz)len;
 }
 
